@@ -76,9 +76,9 @@ struct ConvertD2MToTTKernel
     target.addLegalOp<d2m::ViewLayoutOp>();
     target.addLegalOp<d2m::GenericOp>();
     target.addLegalOp<d2m::EmptyOp>();
+    target.addLegalOp<d2m::MeshShardOp>();
 
     target.addLegalOp<ttir::TTNNMetalLayoutCastOp>();
-    target.addLegalOp<ttir::MeshShardOp>();
 
     if (ttnnMode) {
       target.addLegalDialect<ttnn::TTNNDialect>();
@@ -121,6 +121,11 @@ struct ConvertD2MToTTKernel
       if (memorySpace == ttcore::MemorySpace::RegisterDst) {
         // This memref abstracts tile indices in dst register, convert to index
         // type.
+        return IndexType::get(memref.getContext());
+      }
+
+      if (mlir::isa<StridedLayoutAttr>(memref.getLayout())) {
+        // This memref abstracts index offsets into a subview.
         return IndexType::get(memref.getContext());
       }
 

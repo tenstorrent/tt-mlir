@@ -7,7 +7,9 @@ RUN FILES=(/etc/yum.repos.d/almalinux*.repo) && \
 
 # Install dependencies
 RUN dnf check-update || true
-RUN dnf install --refresh -y epel-release
+# RUN dnf install --refresh -y epel-release - doesn't work on shared runners due to white listing issues
+# replaced with direct download and install of the rpm
+RUN dnf install -y https://dl.fedoraproject.org/pub/epel/epel-release-latest-9.noarch.rpm
 RUN dnf config-manager --set-enabled crb
 
 RUN dnf install --refresh -y \

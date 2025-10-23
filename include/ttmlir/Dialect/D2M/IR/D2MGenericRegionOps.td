@@ -1045,8 +1045,12 @@ class D2M_CBOp<string mnemonic, list<Trait> traits = []> : D2M_GenericRegionOp<m
   let hasVerifier = 1;
 
   let extraClassDeclaration = [{
+    CBType getCbType() {
+      return mlir::cast<CBType>(getCb().getType());
+    }
+
     ShapedType getUnderlyingType() {
-      return llvm::cast<CBType>(getCb().getType()).getUnderlying();
+      return getCbType().getUnderlying();
     }
 
     // Get the wrapped memref type from the circular buffer
@@ -1062,7 +1066,7 @@ class D2M_CBOp<string mnemonic, list<Trait> traits = []> : D2M_GenericRegionOp<m
 
   let extraClassDefinition = [{
     bool $cppClass::hasTensorSemantics() {
-      return getCb().getType().hasTensorType();
+      return getCbType().hasTensorType();
     }
 
     bool $cppClass::bufferizesToMemoryRead(
@@ -1098,7 +1102,7 @@ class D2M_CBOp<string mnemonic, list<Trait> traits = []> : D2M_GenericRegionOp<m
         mlir::RewriterBase &rewriter,
         const mlir::bufferization::BufferizationOptions &options,
         mlir::bufferization::BufferizationState &) {
-      auto cbBufferType = mlir::cast<bufferization::TensorLikeType>(getCb().getType()).getBufferType(options, [&] () {
+      auto cbBufferType = mlir::cast<bufferization::TensorLikeType>(getCbType()).getBufferType(options, [&] () {
         return this->emitOpError();
       });
       assert(succeeded(cbBufferType));
@@ -1111,7 +1115,7 @@ class D2M_CBOp<string mnemonic, list<Trait> traits = []> : D2M_GenericRegionOp<m
 
     mlir::LogicalResult $cppClass::verify() {
       // Verify that the result type matches the wrapped memref type
-      auto cbType = llvm::cast<CBType>(getCb().getType());
+      auto cbType = llvm::cast<CBType>(getCbType());
       if (cbType.getUnderlying() != getResult().getType()) {
         return emitOpError() << "result type does not match circular buffer's "
                                 "wrapped memref type";
@@ -1122,16 +1126,25 @@ class D2M_CBOp<string mnemonic, list<Trait> traits = []> : D2M_GenericRegionOp<m
   }];
 }
 
-def D2M_PopOp : D2M_CBOp<"pop"> {
-  let summary = "Pop from circular buffer.";
+def D2M_WaitOp : D2M_CBOp<"wait"> {
+  let summary = "Wait from circular buffer.";
   let description = [{
-    Pop operation, extracts the enclosing memref from a circular buffer.
+    Wait operation, extracts the enclosing memref from a circular buffer.
     This operation is used by consumer threads to access data from the circular buffer.
-    It replaces the d2m.await operation when using the new circular buffer semantics.
+    It implicitly blocks until a chunk of memref sized underlying type is made
+    available by a producer thread via d2m.reserve.
+
+    Each value of !d2m.cb type can be thought of as a shared resource between threads
+    akin to a single-producer, single-consumer queue. Where d2m.reserve and d2m.wait
+    effectively implement push/pop queue semantics. One distinction which lends itself
+    better to DPS style is that both reserve and wait guarantee acquisition of the
+    underlying memory after the op has executed.
+
+    The resource is implicitly released at the end of block scope.
 
     Example:
     ```mlir
-    %memref = d2m.pop %cb : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
+    %memref = d2m.wait %cb : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
     ```
   }];
 }
@@ -1140,8 +1153,17 @@ def D2M_ReserveOp : D2M_CBOp<"reserve"> {
   let summary = "Reserve from circular buffer.";
   let description = [{
     Reserve operation, extracts the enclosing memref from a circular buffer.
-    This operation is used by producer threads to reserve space in the circular buffer.
-    It replaces the d2m.yield operation when using the new circular buffer semantics.
+    This operation is used by producer threads to reserve a memref sized underlying
+    type's worth of space in the circular buffer. It implicitly blocks if there hasn't
+    yet been a consumer of the data from another thread via d2m.wait.
+
+    Each value of !d2m.cb type can be thought of as a shared resource between threads
+    akin to a single-producer, single-consumer queue. Where d2m.reserve and d2m.wait
+    effectively implement push/pop queue semantics. One distinction which lends itself
+    better to DPS style is that both reserve and wait guarantee acquisition of the
+    underlying memory after the op has executed.
+
+    The resource is implicitly released at the end of block scope.
 
     Example:
     ```mlir

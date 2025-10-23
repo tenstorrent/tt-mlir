@@ -5,6 +5,7 @@
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
+#include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/Bufferization/IR/Bufferization.h"
@@ -288,20 +289,22 @@ DMAOp::getBufferType(mlir::Value value,
                      const mlir::bufferization::BufferizationState &,
                      ::llvm::SmallVector<mlir::Value> &) {
   auto rankedTensorType = mlir::cast<mlir::RankedTensorType>(value.getType());
-  return mlir::tt::d2m::utils::getBufferType(rankedTensorType, /*isView=*/true);
+  return mlir::tt::ttcore::getBufferType(rankedTensorType, /*isView=*/true);
 }
 
 mlir::LogicalResult
 DMAOp::bufferize(mlir::RewriterBase &rewriter,
                  const mlir::bufferization::BufferizationOptions &options,
                  mlir::bufferization::BufferizationState &state) {
-  auto src = mlir::bufferization::getBuffer(rewriter, getSrc(), options, state);
+  mlir::FailureOr<Value> src =
+      mlir::bufferization::getBuffer(rewriter, getSrc(), options, state);
   // NOLINTNEXTLINE
   if (failed(src)) {
     return src;
   }
 
-  auto dst = mlir::bufferization::getBuffer(rewriter, getDst(), options, state);
+  mlir::FailureOr<Value> dst =
+      mlir::bufferization::getBuffer(rewriter, getDst(), options, state);
   // NOLINTNEXTLINE
   if (failed(dst)) {
     return dst;
@@ -358,7 +361,8 @@ mlir::OpFoldResult CoreIndexOp::fold(FoldAdaptor adaptor) {
 // TileMatmulBlockOp verification
 ::mlir::LogicalResult TileMatmulBlockOp::verify() {
   if (getElemType(getA().getType()) != getElemType(getB().getType())) {
-    return emitOpError("operands to TileMatmulBlock must have same element type");
+    return emitOpError(
+        "operands to TileMatmulBlock must have same element type");
   }
 
   return success();
@@ -539,7 +543,7 @@ void TileUntilizeBlockOp::getEffects(
 }
 
 //===----------------------------------------------------------------------===//
-// YieldOp / PopOp / ReserveOp
+// YieldOp / WaitOp / ReserveOp
 //===----------------------------------------------------------------------===//
 
 mlir::LogicalResult YieldOp::verify() {

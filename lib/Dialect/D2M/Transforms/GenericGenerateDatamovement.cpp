@@ -229,7 +229,7 @@ public:
                          bool isOutput, MutableArrayRef<Region> regions) {
     Value cb =
         isOutput
-            ? builder.create<d2m::PopOp>(loc, blockOperand).getResult()
+            ? builder.create<d2m::WaitOp>(loc, blockOperand).getResult()
             : builder.create<d2m::ReserveOp>(loc, blockOperand).getResult();
 
     if (isStream(genericOperand)) {

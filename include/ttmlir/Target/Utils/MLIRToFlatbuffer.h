@@ -189,6 +189,8 @@ inline ::tt::target::DataType toFlatbuffer(FlatbufferObjectCache &,
     return ::tt::target::DataType::UInt8;
   case ttcore::DataType::Int32:
     return ::tt::target::DataType::Int32;
+  case ttcore::DataType::Bool:
+    return ::tt::target::DataType::Bool;
   }
 }
 

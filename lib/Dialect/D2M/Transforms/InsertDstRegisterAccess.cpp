@@ -31,7 +31,7 @@ public:
   D2MInsertDstRegisterAccessRewriter(mlir::MLIRContext *ctx, bool useTileMatmul,
                                      unsigned maxDstPhysicalSizeTiles)
       : OpRewritePattern<GenericOp>(ctx), useTileMatmul(useTileMatmul),
-        maxDstPhysicalSizeTiles(maxDstPhysicalSizeTiles) {};
+        maxDstPhysicalSizeTiles(maxDstPhysicalSizeTiles){};
 
   template <typename OpT>
   using OpAndIndexOffset = std::pair<OpT, int64_t>;
@@ -317,9 +317,9 @@ public:
                memref.getDefiningOp())) {
       memref = subView.getSource();
     }
-    if (mlir::isa_and_nonnull<d2m::PopOp, d2m::ReserveOp>(
-            memref.getDefiningOp())) {
-      memref = memref.getDefiningOp()->getOperand(0);
+    if (auto *definingOp = memref.getDefiningOp();
+        mlir::isa_and_nonnull<d2m::WaitOp, d2m::ReserveOp>(definingOp)) {
+      memref = definingOp->getOperand(0);
     }
     return mlir::cast<BlockArgument>(memref);
   }

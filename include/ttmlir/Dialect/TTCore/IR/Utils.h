@@ -8,6 +8,7 @@
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Utils.h"
 
+#include "mlir/Dialect/Bufferization/IR/Bufferization.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/IR/BuiltinOps.h"
@@ -125,6 +126,11 @@ inline DeviceLayoutInterface getDeviceLayout(ShapedType shapedType) {
   return nullptr;
 }
 
+// Convenience overload that extracts the shaped type from a value.
+inline DeviceLayoutInterface getDeviceLayout(Value value) {
+  return getDeviceLayout(mlir::cast<ShapedType>(value.getType()));
+}
+
 inline bool hasDeviceLayout(ShapedType shapedType) {
   return getDeviceLayout(shapedType) != nullptr;
 }
@@ -134,6 +140,12 @@ inline bool hasDeviceLayout(Value value) {
 }
 
 Type getOperandInnerElementType(const mlir::Value operand);
+
+// Convert a TensorType with MetalLayoutAttr encoding into a MemRefType with
+// appropriate layout attributes (Shard/View/Host/Interleaved).
+MemRefType
+getBufferType(Type type, bool isView,
+              std::optional<MetalLayoutAttr> hostInfo = std::nullopt);
 
 } // namespace mlir::tt::ttcore
 

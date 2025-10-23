@@ -1697,40 +1697,24 @@ public:
 };
 } // namespace
 
+//===----------------------------------------------------------------------===//
+// ScatterInDimOp
+//===----------------------------------------------------------------------===//
+
 namespace {
-class ScatterOpConversionPattern : public OpConversionPattern<ttir::ScatterOp> {
+class ScatterInDimOpConversionPattern
+    : public OpConversionPattern<ttir::ScatterInDimOp> {
+  using OpConversionPattern<ttir::ScatterInDimOp>::OpConversionPattern;
+
 public:
-  using OpConversionPattern<ttir::ScatterOp>::OpConversionPattern;
-
   LogicalResult
-  matchAndRewrite(ttir::ScatterOp op, OpAdaptor adaptor,
+  matchAndRewrite(ttir::ScatterInDimOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    if (!hasValidInsertedWindowDims(op)) {
-      return rewriter.notifyMatchFailure(
-          op, "ttnn and tt-metal have limited scatter support. Inserted window "
-              "dimenstion must be 1 in the input tensor shape.");
-    }
-    // The ttnn interface has the inverse inputs of the TTIR dialect op (which
-    // matches torch ops).
     rewriter.replaceOpWithNewOp<ttnn::ScatterOp>(
-        op, adaptor.getOutput().getType(), adaptor.getUpdate(),
-        adaptor.getInput());
-
+        op, this->getTypeConverter()->convertType(op.getType()),
+        adaptor.getInput(), adaptor.getIndex(), adaptor.getSource(),
+        rewriter.getI32IntegerAttr(op.getDim()), nullptr);
     return success();
-  }
-
-private:
-  bool hasValidInsertedWindowDims(ttir::ScatterOp op) const {
-    ArrayRef<int64_t> inputShape = op.getInput().getType().getShape();
-
-    for (uint64_t insertedWindowDims : op.getInsertedWindowDims()) {
-      if (insertedWindowDims < inputShape.size() &&
-          inputShape[insertedWindowDims] != 1) {
-        return false;
-      }
-    }
-
-    return true;
   }
 };
 } // namespace
@@ -2168,7 +2152,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            RandOpConversionPattern,
            UpdateCacheOpConversionPattern,
            FillCacheOpConversionPattern,
-           ScatterOpConversionPattern,
+           ScatterInDimOpConversionPattern,
            PermuteOpConversionPattern,
            UpsampleOpConversionPattern,
            AllToAllOpConversionPattern,

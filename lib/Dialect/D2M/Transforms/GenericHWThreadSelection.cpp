@@ -26,7 +26,7 @@ public:
     assert(numDMAHWThreads > 0 && "numDMAHWThreads must be greater than 0");
   }
 
-  // Returns true if the region contains only a d2m.pop
+  // Returns true if the region contains only a d2m.wait
   // associated with the output CB.
   static bool isLocalPopForOutputCB(Region &region,
                                     unsigned outputOperandsIndex) {
@@ -36,12 +36,12 @@ public:
       return false;
     }
 
-    d2m::PopOp popOp = dyn_cast<d2m::PopOp>(block.front());
-    if (!popOp) {
+    d2m::WaitOp WaitOp = dyn_cast<d2m::WaitOp>(block.front());
+    if (!WaitOp) {
       return false;
     }
 
-    BlockArgument blockArg = mlir::dyn_cast<BlockArgument>(popOp.getCb());
+    BlockArgument blockArg = mlir::dyn_cast<BlockArgument>(WaitOp.getCb());
     if (!blockArg) {
       return false;
     }
