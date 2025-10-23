@@ -634,8 +634,16 @@ module {
     func.func @exp_tile() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
       // CHECK: %[[DST_INDEX:.*]] = "emitc.constant"
       %dst_index = arith.constant 3 : i32
-      // CHECK: emitc.call_opaque "exp_tile"(%[[DST_INDEX]])
       "ttkernel.exp_tile"(%dst_index) : (i32) -> ()
+      // CHECK: emitc.call_opaque "exp_tile"(%[[DST_INDEX]]) {template_args = [#emitc.opaque<"false">, #emitc.opaque<"false">, #emitc.opaque<"false">, #emitc.opaque<"false">]}
+      "ttkernel.exp_tile"(%dst_index) {approx} : (i32) -> ()
+      // CHECK: emitc.call_opaque "exp_tile"(%[[DST_INDEX]]) {template_args = [#emitc.opaque<"true">, #emitc.opaque<"false">, #emitc.opaque<"false">, #emitc.opaque<"false">]}
+      "ttkernel.exp_tile"(%dst_index) {fast_and_approx} : (i32) -> ()
+      // CHECK: emitc.call_opaque "exp_tile"(%[[DST_INDEX]]) {template_args = [#emitc.opaque<"false">, #emitc.opaque<"true">, #emitc.opaque<"false">, #emitc.opaque<"false">]}
+      "ttkernel.exp_tile"(%dst_index) {scale_enable} : (i32) -> ()
+      // CHECK: emitc.call_opaque "exp_tile"(%[[DST_INDEX]]) {template_args = [#emitc.opaque<"false">, #emitc.opaque<"false">, #emitc.opaque<"true">, #emitc.opaque<"false">]}
+      "ttkernel.exp_tile"(%dst_index) {skip_positive_check} : (i32) -> ()
+      // CHECK: emitc.call_opaque "exp_tile"(%[[DST_INDEX]]) {template_args = [#emitc.opaque<"false">, #emitc.opaque<"false">, #emitc.opaque<"false">, #emitc.opaque<"true">]}
       return
     }
 
