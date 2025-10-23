@@ -6,6 +6,7 @@ import os
 import pathlib
 import shutil
 import re
+import subprocess
 from setuptools import setup
 
 # Configuration Constants
@@ -288,8 +289,33 @@ def generate_package_data(all_runtime_libs):
     return package_data
 
 
+def compile_mlir():
+    """Compile MLIR files to shared objects using cmake"""
+
+    cmake_args = [
+        "-G",
+        "Ninja",
+        "-B",
+        "build",
+        "-DCMAKE_BUILD_TYPE=Release",
+        "-DCMAKE_INSTALL_PREFIX=install",
+        "-DCMAKE_C_COMPILER=clang",
+        "-DCMAKE_CXX_COMPILER=clang++",
+        "-DTTMLIR_ENABLE_PYKERNEL=ON",  # Enable PyKernel Build Here
+        "-DTTMLIR_ENABLE_RUNTIME_TESTS=OFF",
+        "-DTTMLIR_ENABLE_RUNTIME=OFF",
+        "-DTTMLIR_ENABLE_STABLEHLO=OFF",
+        "-DTTMLIR_ENABLE_OPMODEL=OFF",
+        "-DTTMLIR_ENABLE_EXPLORER=OFF",
+    ]
+    subprocess.run(cmake_args, check=True)
+    subprocess.run(["cmake", "--build", "build"], check=True)
+
+
 def main():
     """Main setup function"""
+    # Compile MLIR files first
+    compile_mlir()
     # Get build configuration
     config = get_build_configuration()
 

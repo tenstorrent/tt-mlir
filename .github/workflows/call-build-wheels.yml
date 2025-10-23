@@ -126,35 +126,6 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: ccache
-        uses: hendrikmuhs/ccache-action@v1.2
-        with:
-          create-symlink: true
-          key: tracy-
-        env:
-          CCACHE_NOHASHDIR: true
-          CCACHE_BASEDIR: ${{ steps.strings.outputs.work-dir }}
-
-      - name: Build
-        run: |
-          source env/activate
-          cmake -G Ninja \
-            -B ${{ steps.strings.outputs.build-output-dir }} \
-            -DCMAKE_CXX_COMPILER=clang++-17 \
-            -DCMAKE_C_COMPILER=clang-17 \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_INSTALL_PREFIX=${{ steps.strings.outputs.work-dir }}/install \
-            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
-            -DTTMLIR_ENABLE_RUNTIME=ON \
-            -DTTMLIR_ENABLE_RUNTIME_TESTS=ON \
-            -DTT_RUNTIME_ENABLE_PERF_TRACE=ON \
-            -DTTMLIR_ENABLE_PYKERNEL=ON \
-            -DTTMLIR_ENABLE_STABLEHLO=ON \
-            -DTTMLIR_ENABLE_OPMODEL=OFF \
-            -DTT_RUNTIME_DEBUG=ON \
-            -S ${{ steps.strings.outputs.work-dir }}
-          cmake --build ${{ steps.strings.outputs.build-output-dir }}
-
       - name: Build ttmlir Wheel (manylinux)
         uses: pypa/cibuildwheel@v2.23.2
         env:
