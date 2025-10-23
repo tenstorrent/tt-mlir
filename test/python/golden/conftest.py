@@ -73,7 +73,8 @@ def _get_device_for_target(target: str, mesh_shape: Tuple[int, int], pytestconfi
         raise ValueError(f"Only TTNN and TTMetal devices are supported, got {target}")
 
     ttrt.runtime.set_current_device_runtime(device_runtime_enum)
-    ttrt.runtime.set_fabric_config(ttrt.runtime.FabricConfig.FABRIC_1D)
+    if math.prod(mesh_shape) > 1:
+        ttrt.runtime.set_fabric_config(ttrt.runtime.FabricConfig.FABRIC_1D)
     device = ttrt.runtime.open_mesh_device(mesh_options)
     print(
         f"Device opened for test session with target {target} & mesh shape {mesh_options.mesh_shape}."
