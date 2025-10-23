@@ -565,6 +565,61 @@ class StableHLOBuilder(Builder):
             unit_attrs=unit_attrs,
         )
 
+    # ----- Tensor Manipulation Operations -----
+
+    def concatenate(
+        self, inputs: List[Operand], dim: int = 0, unit_attrs: Optional[List[str]] = None
+    ) -> OpView:
+        """
+        Creates ``stablehlo.concatenate``.
+
+        *Tensor concatenation operation.*
+
+        Concatenates a variadic number of tensors in `inputs` along `dim`
+        dimension in the same order as the given arguments. All input tensors 
+        must have the same shape except in the concatenating dimension.
+
+        .. code-block:: mlir
+
+            // Concatenate two tensors along dimension 0
+            %result = stablehlo.concatenate %input0, %input1, dim = 0 : (tensor<2x3xf32>, tensor<1x3xf32>) -> tensor<3x3xf32>
+            // Input tensors:
+            // input0: [[1.0, 2.0, 3.0],
+            //          [4.0, 5.0, 6.0]]
+            // input1: [[7.0, 8.0, 9.0]]
+            // Output tensor:
+            // [[1.0, 2.0, 3.0],
+            //  [4.0, 5.0, 6.0],
+            //  [7.0, 8.0, 9.0]]
+
+        Parameters
+        ----------
+        inputs : List[Operand]
+            List of input tensors to concatenate. All tensors must have the same 
+            rank and matching dimensions except along the concatenation dimension.
+        dim : int, optional
+            Dimension along which to concatenate. Must be in range [0, rank).
+            Default is 0.
+        unit_attrs : *Optional[List[str]]*
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpView*)
+            A tensor containing all input tensors concatenated along the specified dimension
+        """
+        stablehlo_kwargs = {"dimension": dim}
+        golden_kwargs = {"dim": dim}
+        
+        return self._op_proxy(
+            stablehlo.ConcatenateOp,
+            inputs,
+            organize_stablehlo_args=lambda i, o, k: (i,),
+            stablehlo_kwargs=stablehlo_kwargs,
+            organize_golden_args=lambda i: (tuple([self._get_golden_tensor(inp) for inp in i]),), 
+            golden_kwargs=golden_kwargs,
+        )
+      
     # ----- Public Shardy Attribute Generators ----
 
     def mesh_axis_attr(
