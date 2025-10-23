@@ -60,6 +60,29 @@ class StableHLOBuilder(Builder):
 
     def _get_mesh(self, mesh_name: str = "mesh") -> sdy.Mesh:
         return self.mesh(mesh_name, self._get_mesh_attr(mesh_name))
+        
+    def _get_output_shape_and_type(
+        self,
+        organize_golden_args: Callable,
+        inputs: List[Operand],
+        op_stablehlo_function: Callable,
+        golden_kwargs: dict = {},
+    ):
+        op_golden_function = builder_golden.get_golden_function(
+        op_stablehlo_function, **golden_kwargs
+        )
+        if op_golden_function is None:
+            return None
+
+        # If the op has no input, just call golden function with kwargs (e.g., zeros).
+        if len(inputs) == 0:
+            golden_output = op_golden_function(**golden_kwargs)
+        else:
+            golden_output = op_golden_function(
+                *(organize_golden_args(inputs)), **golden_kwargs
+            )
+
+        return golden_output.shape, golden_output.dtype
 
     def _op_proxy(
         self,
@@ -90,11 +113,48 @@ class StableHLOBuilder(Builder):
                 else self._get_loc_of_extra_file_callee(id=id)
             )
 
-            op = op_stablehlo_function(
-                *inputs,
-                loc=loc,
-                **stablehlo_kwargs,
-            )
+            # Most StableHLO ops have MLIR type inference, so output is not needed.
+            # Only create output if user explicitly provides output_shape, output_type, or output_create_fn
+            # (e.g., for ops like broadcast_in_dim that don't have type inference)
+            output = None
+            if output_shape is not None or output_type is not None or output_create_fn is not None:
+                # User explicitly requested output creation
+                # Try to get shape/type from golden function if not fully provided
+                output_shape_and_type = self._get_output_shape_and_type(
+                    organize_golden_args, inputs, op_stablehlo_function, golden_kwargs
+                )
+                
+                if not output_shape_and_type:
+                    # No golden function - user must provide both shape and type
+                    assert (
+                        output_shape is not None
+                    ), "Output shape must be provided if there is no golden function for this op"
+                    assert (
+                        output_type is not None
+                    ), "Output type must be provided if there is no golden function for this op"
+                else:
+                    calculated_output_shape, calculated_output_type = output_shape_and_type
+                    # Use provided values if available, otherwise use calculated
+                    output_shape = calculated_output_shape if output_shape is None else output_shape
+                    output_type = (
+                        self._get_type_from_torch_dtype(calculated_output_type)
+                        if output_type is None
+                        else output_type
+                    )
+                
+                # Create output tensor
+                if output_create_fn is not None:
+                    output = output_create_fn(output_shape, output_type)
+                else:
+                    output = self._create_ranked_tensor_type(output_shape, output_type)
+
+            # Custom argument organization and create the stabelhlo op
+            if organize_stablehlo_args is not None:
+                stablehlo_args = organize_stablehlo_args(inputs, output, stablehlo_kwargs)
+                op = op_stablehlo_function(*stablehlo_args, loc=loc, **stablehlo_kwargs)
+            else:
+                # Default: elementwise binary operations
+                op = op_stablehlo_function(*inputs, loc=loc, **stablehlo_kwargs)
 
             if unit_attrs is not None:
                 for attr_name in unit_attrs:
