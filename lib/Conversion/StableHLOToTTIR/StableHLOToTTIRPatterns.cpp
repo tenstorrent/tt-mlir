@@ -698,6 +698,12 @@ checkBatchNormConversionLegality(OpType &srcOp, OpAdaptor adaptor,
         srcOp, srcOp.getOperationName() + " feature_index is out of bounds.");
   }
 
+  if (inputType.getDimSize(featureIndex) > 64) {
+    return rewriter.notifyMatchFailure(
+        srcOp,
+        srcOp.getOperationName() + " feature dimension has > 64 elements.");
+  }
+
   return success();
 }
 
