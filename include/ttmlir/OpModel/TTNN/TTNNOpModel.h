@@ -1440,19 +1440,19 @@ template <>
 struct OpModel<mlir::tt::ttnn::AssignOp> {
   static llvm::Expected<OpConstraints>
   getOpConstraints(mlir::tt::ttcore::GridAttr deviceGrid,
-                   mlir::tt::ttnn::ShapeAttr inputShape,
+                   llvm::ArrayRef<int64_t> inputShape,
                    TTNNLayoutAttr inputLayout,
                    mlir::tt::ttnn::MemoryConfigAttr outputMemConfig,
                    std::optional<mlir::tt::ttcore::DataType> outputDtype,
-                   std::optional<::mlir::TypedValue<::mlir::RankedTensorType>>
-                       optionalOutputTensor);
+                   std::optional<llvm::ArrayRef<int64_t>> optionalOutputShape,
+                   std::optional<TTNNLayoutAttr> optionalOutputLayout);
 
   static llvm::Expected<size_t>
   getOpRuntime(llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
                mlir::tt::ttnn::MemoryConfigAttr outputMemConfig,
                std::optional<mlir::tt::ttcore::DataType> outputDtype,
-               std::optional<::mlir::TypedValue<::mlir::RankedTensorType>>
-                   optionalOutputTensor);
+               std::optional<llvm::ArrayRef<int64_t>> optionalOutputShape,
+               std::optional<TTNNLayoutAttr> optionalOutputLayout);
 };
 
 } // namespace mlir::tt::ttnn::op_model

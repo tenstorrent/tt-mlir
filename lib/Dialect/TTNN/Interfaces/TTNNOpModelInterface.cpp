@@ -3942,7 +3942,7 @@ GlobalAvgPool2dOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 
 llvm::Expected<op_model::OpConstraints>
 AssignOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
-                           const OpConfig &config) {
+                           const OpConfig &opConfig) {
   assert(inputs.size() == 1);
   llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
   if (!check) {
@@ -3952,40 +3952,43 @@ AssignOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
       ttcore::lookupDevice(getOperation()).getWorkerGrid();
 
   const auto inputShape = getInput().getType().getShape();
-  const mlir::tt::ttnn::ShapeAttr shapeAttr =
-      mlir::tt::ttnn::ShapeAttr::get(getContext(), inputShape);
-  const mlir::tt::ttnn::MemoryConfigAttr outputMemConfig = getOutputMemConfig();
-  const std::optional<mlir::tt::ttcore::DataType> outputDtype =
-      getOutputDtype();
-  const std::optional<::mlir::TypedValue<::mlir::RankedTensorType>>
-      optionalOutputTensor = getOptionalOutputTensor()
-                                 ? std::make_optional(getOptionalOutputTensor())
-                                 : std::nullopt;
+
+  // Extract optional output tensor shape and layout
+  std::optional<llvm::ArrayRef<int64_t>> optionalOutputShape;
+  std::optional<TTNNLayoutAttr> optionalOutputLayout;
+  if (getOptionalOutputTensor()) {
+    auto optionalOutputTensorType = getOptionalOutputTensor().getType();
+    optionalOutputShape = optionalOutputTensorType.getShape();
+    optionalOutputLayout =
+        mlir::cast<TTNNLayoutAttr>(optionalOutputTensorType.getEncoding());
+  }
 
   return opConstraintsCache().getOrCompute(
       op_model::OpModel<mlir::tt::ttnn::AssignOp>::getOpConstraints, *this,
-      deviceGrid, shapeAttr, inputs[0], outputMemConfig, outputDtype,
-      optionalOutputTensor);
+      deviceGrid, inputShape, inputs[0], getOutputMemConfig(), getOutputDtype(),
+      optionalOutputShape, optionalOutputLayout);
 }
 
 llvm::Expected<size_t>
 AssignOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
                        const OpConfig &opConfig) {
   assert(inputs.size() == 1);
-
   const auto inputShape = getInput().getType().getShape();
-  const std::optional<mlir::tt::ttcore::DataType> outputDtype =
-      getOutputDtype();
-  const mlir::tt::ttnn::MemoryConfigAttr outputMemConfig = getOutputMemConfig();
-  const std::optional<::mlir::TypedValue<::mlir::RankedTensorType>>
-      optionalOutputTensor = getOptionalOutputTensor()
-                                 ? std::make_optional(getOptionalOutputTensor())
-                                 : std::nullopt;
+
+  // Extract optional output tensor shape and layout
+  std::optional<llvm::ArrayRef<int64_t>> optionalOutputShape;
+  std::optional<TTNNLayoutAttr> optionalOutputLayout;
+  if (getOptionalOutputTensor()) {
+    auto optionalOutputTensorType = getOptionalOutputTensor().getType();
+    optionalOutputShape = optionalOutputTensorType.getShape();
+    optionalOutputLayout =
+        mlir::cast<TTNNLayoutAttr>(optionalOutputTensorType.getEncoding());
+  }
 
   return opRuntimeCache().getOrCompute(
       op_model::OpModel<mlir::tt::ttnn::AssignOp>::getOpRuntime, *this,
-      inputShape, inputs[0], outputMemConfig, outputDtype,
-      optionalOutputTensor);
+      inputShape, inputs[0], getOutputMemConfig(), getOutputDtype(),
+      optionalOutputShape, optionalOutputLayout);
 }
 
 } // namespace mlir::tt::ttnn

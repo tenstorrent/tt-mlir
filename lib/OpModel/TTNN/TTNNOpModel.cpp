@@ -5961,69 +5961,12 @@ OpModel<ConstantOp>::getOpConstraints(ttcore::GridAttr deviceGrid,
 
 llvm::Expected<OpConstraints>
 OpModel<mlir::tt::ttnn::AssignOp>::getOpConstraints(
-    mlir::tt::ttcore::GridAttr deviceGrid, mlir::tt::ttnn::ShapeAttr inputShape,
+    mlir::tt::ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
     TTNNLayoutAttr inputLayout,
     mlir::tt::ttnn::MemoryConfigAttr outputMemConfig,
     std::optional<mlir::tt::ttcore::DataType> outputDtype,
-    std::optional<::mlir::TypedValue<::mlir::RankedTensorType>>
-        optionalOutputTensor) {
-#ifdef TTMLIR_ENABLE_OPMODEL
-  ::tt::tt_metal::distributed::MeshDevice *device =
-      SingletonDeviceContext::getInstance().getDevice();
-
-  // Convert input tensor to TensorSpec
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape.getShape(), inputLayout);
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
-
-  // Convert output memory config
-  ::tt::tt_metal::MemoryConfig metalMemConfig =
-      conversion::getMemoryConfig(outputMemConfig);
-
-  // Convert optional output dtype
-  std::optional<::tt::tt_metal::DataType> metalOutputDtype = std::nullopt;
-  if (outputDtype.has_value()) {
-    metalOutputDtype = conversion::getDataType(outputDtype.value());
-  }
-
-  // Convert optional output tensor spec
-  std::optional<::ttnn::TensorSpec> optionalOutputTensorSpec = std::nullopt;
-  if (optionalOutputTensor) {
-    auto outputTensorType = optionalOutputTensor->getType();
-    auto outputShape = outputTensorType.getShape();
-    auto outputLayoutAttr =
-        mlir::cast<TTNNLayoutAttr>(outputTensorType.getEncoding());
-    auto outputTensorSpecExp =
-        detail::convertToTensorSpec(device, outputShape, outputLayoutAttr);
-    if (!outputTensorSpecExp) {
-      return outputTensorSpecExp.takeError();
-    }
-    optionalOutputTensorSpec = outputTensorSpecExp.get();
-  }
-
-  // Create query closure
-  auto assignOpQuery = [=]() {
-    return ::ttnn::graph::query_op_constraints(
-        ::ttnn::assign, device, inputSpec, metalMemConfig, metalOutputDtype,
-        optionalOutputTensorSpec);
-  };
-
-  return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
-                                     assignOpQuery);
-#else
-  return OpConstraints{};
-#endif // TTMLIR_ENABLE_OPMODEL
-}
-
-llvm::Expected<size_t> OpModel<mlir::tt::ttnn::AssignOp>::getOpRuntime(
-    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
-    mlir::tt::ttnn::MemoryConfigAttr outputMemConfig,
-    std::optional<mlir::tt::ttcore::DataType> outputDtype,
-    std::optional<::mlir::TypedValue<::mlir::RankedTensorType>>
-        optionalOutputTensor) {
+    std::optional<llvm::ArrayRef<int64_t>> optionalOutputShape,
+    std::optional<TTNNLayoutAttr> optionalOutputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
@@ -6047,19 +5990,56 @@ llvm::Expected<size_t> OpModel<mlir::tt::ttnn::AssignOp>::getOpRuntime(
   }
 
   // Convert optional output tensor spec
-  std::optional<::ttnn::TensorSpec> optionalOutputTensorSpec = std::nullopt;
-  if (optionalOutputTensor.has_value()) {
-    auto outputTensorType = optionalOutputTensor.value().getType();
-    auto outputShape = outputTensorType.getShape();
-    auto outputLayoutAttr =
-        mlir::cast<TTNNLayoutAttr>(outputTensorType.getEncoding());
-    auto outputTensorSpecExp =
-        detail::convertToTensorSpec(device, outputShape, outputLayoutAttr);
-    if (!outputTensorSpecExp) {
-      return outputTensorSpecExp.takeError();
-    }
-    optionalOutputTensorSpec = outputTensorSpecExp.get();
+  std::optional<::ttnn::TensorSpec> optionalOutputTensorSpec =
+      detail::convertToOptionalTensorSpec(device, optionalOutputShape,
+                                          optionalOutputLayout);
+
+  // Create query closure
+  auto assignOpQuery = [=]() {
+    return ::ttnn::graph::query_op_constraints(
+        ::ttnn::assign, device, inputSpec, metalMemConfig, metalOutputDtype,
+        optionalOutputTensorSpec);
+  };
+
+  return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
+                                     assignOpQuery);
+#else
+  return OpConstraints{};
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+llvm::Expected<size_t> OpModel<mlir::tt::ttnn::AssignOp>::getOpRuntime(
+    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+    mlir::tt::ttnn::MemoryConfigAttr outputMemConfig,
+    std::optional<mlir::tt::ttcore::DataType> outputDtype,
+    std::optional<llvm::ArrayRef<int64_t>> optionalOutputShape,
+    std::optional<TTNNLayoutAttr> optionalOutputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  // Convert input tensor to TensorSpec
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
   }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+
+  // Convert output memory config
+  ::tt::tt_metal::MemoryConfig metalMemConfig =
+      conversion::getMemoryConfig(outputMemConfig);
+
+  // Convert optional output dtype
+  std::optional<::tt::tt_metal::DataType> metalOutputDtype = std::nullopt;
+  if (outputDtype.has_value()) {
+    metalOutputDtype = conversion::getDataType(outputDtype.value());
+  }
+
+  // Convert optional output tensor spec
+  std::optional<::ttnn::TensorSpec> optionalOutputTensorSpec =
+      detail::convertToOptionalTensorSpec(device, optionalOutputShape,
+                                          optionalOutputLayout);
 
   // Create query closure
   auto assignOpQuery = [=]() {
