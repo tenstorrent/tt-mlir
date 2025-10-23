@@ -1,9 +1,12 @@
 // SPDX-FileCopyrightText: (c) 2024 Tenstorrent AI ULC
 //
 // SPDX-License-Identifier: Apache-2.0
+
 #ifndef TTMLIR_TTMLIR_DIALECT_D2M_D2MPASSES_TD
 #define TTMLIR_TTMLIR_DIALECT_D2M_D2MPASSES_TD
+
 include "mlir/Pass/PassBase.td"
+
 // Elementwise fusion of d2m.generic ops on tensors
 def D2MElementwiseFusion : Pass<"d2m-elementwise-fusion", "::mlir::ModuleOp"> {
   let summary = "Fuse chains of compute-only d2m.generic elementwise ops";
@@ -14,14 +17,17 @@ def D2MElementwiseFusion : Pass<"d2m-elementwise-fusion", "::mlir::ModuleOp"> {
     (grid, threads, block_factors). The pass is intended to run pre-bufferization
     to reduce intermediary tensors and improve locality.
   }];
+
   list<Option> options = [
     Option<"maxDstPhysicalSizeTiles", "max-dst-physical-size-tiles", "unsigned", "0", "Override the max dst physical size tiles or 0 if unset.">,
   ];
+
   let dependentDialects = [
     "::mlir::tt::d2m::D2MDialect",
     "::mlir::affine::AffineDialect"
   ];
 }
+
 def D2MSFPUTileLoopFission : Pass<"d2m-sfpu-tile-loop-fission", "::mlir::ModuleOp"> {
   let summary = "Perform loop fission inside d2m.generic compute regions for load→compute→store triplets";
   let description = [{
@@ -30,21 +36,26 @@ def D2MSFPUTileLoopFission : Pass<"d2m-sfpu-tile-loop-fission", "::mlir::ModuleO
     sequences of the form `affine.load → d2m tile compute op → affine.store` into separate
     loop nests, preserving the original loop bounds and indices.
   }];
+
   let dependentDialects = [
     "::mlir::tt::d2m::D2MDialect",
     "::mlir::affine::AffineDialect"
   ];
 }
+
 def D2MGenericTileComputeLoops : Pass<"d2m-generic-tile-compute-loops", "::mlir::ModuleOp"> {
   let summary = "";
   let description = [{
     This pass tiles affine compute loops according to the generic's subblock factors.
   }];
+
   list<Option> options = [
     Option<"maxDstPhysicalSizeTiles", "max-dst-physical-size-tiles", "unsigned", "0", "Override the max dst physical size tiles or 0 if unset.">,
   ];
+
   let dependentDialects = ["mlir::tt::d2m::D2MDialect"];
 }
+
 def D2MInsertDstRegisterAccess : Pass<"d2m-insert-dst-register-access", "::mlir::ModuleOp"> {
   let summary = "Insert dst register access.";
   let description = [{
@@ -52,6 +63,7 @@ def D2MInsertDstRegisterAccess : Pass<"d2m-insert-dst-register-access", "::mlir:
     register, manages load and store accesses to it, and has primitive
     support for register allocation.  It's also capable of tracking accesses
     over affine loop nests and correctly cloning them into copy loop nests.
+
     Example, this pass will convert the following code:
     ```mlir
     ^compute0(%cb0: memref<3x3x!tt.tile<32x32, f32>, #tt.memory_space<l1>>, %cb1: memref<3x2x!tt.tile<32x32, f32>, #tt.memory_space<l1>>, %cb2: memref<3x2x!tt.tile<32x32, f32>, #tt.memory_space<l1>>):
@@ -67,6 +79,7 @@ def D2MInsertDstRegisterAccess : Pass<"d2m-insert-dst-register-access", "::mlir:
         }
       }
     ```
+
     Into:
     ```mlir
     ^compute0(%cb0: memref<3x3x!tt.tile<32x32, f32>, #l1>, %cb1: memref<3x2x!tt.tile<32x32, f32>, #l1>, %cb2: memref<3x2x!tt.tile<32x32, f32>, #l1>):
@@ -100,6 +113,7 @@ def D2MInsertDstRegisterAccess : Pass<"d2m-insert-dst-register-access", "::mlir:
         }
       }
     ```
+
     Notes:
        - Operand loads & stores that implicitly uses the DST are replaced with explicit affine loads & stores that go through the DST.
        - Generic op automatically inserts conditional guard for reload.
@@ -111,12 +125,14 @@ def D2MInsertDstRegisterAccess : Pass<"d2m-insert-dst-register-access", "::mlir:
     Option<"maxDstPhysicalSizeTiles", "max-dst-physical-size-tiles", "unsigned", "0", "Override the max dst physical size tiles or 0 if unset.">,
   ];
 }
+
 def D2MGenericLinearizeMemref: Pass<"d2m-generic-linearize-memref", "::mlir::ModuleOp"> {
   let summary = "Linearize memref operands for generic ops.";
   let description = [{
     This pass takes a nested loop structure over n-dimensional memrefs and linearizes
     them into a single dimension. This is a useful because circular buffers in metal
     are only one-dimensional.
+
     Example, this pass will convert the following code:
     ```mlir
       affine.for %arg5 = 0 to 2 {
@@ -128,6 +144,7 @@ def D2MGenericLinearizeMemref: Pass<"d2m-generic-linearize-memref", "::mlir::Mod
         }
       }
     ```
+
     Into:
     ```mlir
       %collapse_shape = memref.collapse_shape %arg2 [[0, 1]] : memref<2x4x!ttcore.tile<32x32, f32>, #l1_> into memref<8x!ttcore.tile<32x32, f32>, #l1_>
@@ -144,6 +161,7 @@ def D2MGenericLinearizeMemref: Pass<"d2m-generic-linearize-memref", "::mlir::Mod
     ```
   }];
 }
+
 def D2MGenericGenerateDatamovement: Pass<"d2m-generic-generate-datamovement", "::mlir::ModuleOp"> {
   let summary = "Generate generic data movement threads.";
   let description = [{
@@ -151,6 +169,7 @@ def D2MGenericGenerateDatamovement: Pass<"d2m-generic-generate-datamovement", ":
     ```mlir
     #map = affine_map<(d0, d1) -> (d0, d1)>
     #parallel = #ttcore.iterator_type<parallel>
+
     "d2m.generic"(%arg0, %arg1, %alloc) <{indexing_maps = [#map, #map, #map], iterator_types = [#parallel, #parallel]}> ({
     ^bb0(%arg2: memref<2x4x!ttcore.tile<32x32, f32>, #l1_>, %arg3: memref<2x4x!ttcore.tile<32x32, f32>, #l1_>, %arg4: memref<2x4x!ttcore.tile<32x32, f32>, #l1_>):
       affine.for %arg5 = 0 to 2 {
@@ -163,6 +182,7 @@ def D2MGenericGenerateDatamovement: Pass<"d2m-generic-generate-datamovement", ":
       }
     })
     ```
+
     We generate additional (prepended) regions that correspond to the data movement
     for each operand respectively:
     ```mlir
@@ -191,12 +211,14 @@ def D2MGenericGenerateDatamovement: Pass<"d2m-generic-generate-datamovement", ":
     ```
   }];
 }
+
 def D2MGenericHWThreadSelection : Pass<"d2m-generic-hw-thread-selection", "::mlir::ModuleOp"> {
   let summary = "Assign datamovement regions to hardware threads.";
   let description = [{
     This pass assigns the data movement regions to hardware threads. This usually means
     merging 2 or more data movement regions into a single region that is executed by one
     of the 2 datamovement threads (on wormhole).
+
     ```mlir
     "d2m.generic"(%arg0, %arg1, %alloc) <{grid = #ttcore.grid<1x1>, indexing_maps = [#map1, #map2, #map3], iterator_types = [#parallel, #parallel, #reduction], operandSegmentSizes = array<i32: 2, 1>}> ({
     ^datamovement0(%cb0: memref<2x4x!ttcore.tile<32x32, f32>, #l1_>, %cb1: memref<4x2x!ttcore.tile<32x32, f32>, #l1_>, %cb2: memref<2x2x!ttcore.tile<32x32, f32>, #l1_>):
@@ -214,6 +236,7 @@ def D2MGenericHWThreadSelection : Pass<"d2m-generic-hw-thread-selection", "::mli
       d2m.yield %cb2 : (memref<2x2x!ttcore.tile<32x32, f32>, #l1_>)
     }) : (memref<1x1x2x4x!ttcore.tile<32x32, f32>, #l1_>, memref<1x1x4x2x!ttcore.tile<32x32, f32>, #l1_>, memref<1x1x2x2x!ttcore.tile<32x32, f32>, #l1_>) -> ()
     ```
+
     Might move a trivial output datamovement thread to the compute thread to become:
     ```mlir
     "d2m.generic"(%arg0, %arg1, %alloc) <{grid = #ttcore.grid<1x1>, indexing_maps = [#map1, #map2, #map3], iterator_types = [#parallel, #parallel, #reduction], operandSegmentSizes = array<i32: 2, 1>}> ({
@@ -232,23 +255,28 @@ def D2MGenericHWThreadSelection : Pass<"d2m-generic-hw-thread-selection", "::mli
     ```
   }];
 }
+
 def D2MGenericGenerateLoops : Pass<"d2m-generic-generate-loops", "::mlir::ModuleOp"> {
   let summary = "Generate generic loops.";
   let description = [{
     One of the final lowering forms of d2m generic op. This pass converts the affine declarative
     loops into imperative loops and the affine maps are erased. For example a generic region
     might transform as follows:
+
     ```mlir
     #lhs = affine_map<(d0, d1, d2) -> (d0, d2)>
     #rhs = affine_map<(d0, d1, d2) -> (d2, d1)>
     #out = affine_map<(d0, d1, d2) -> (d0, d1)>
+
     grid = #ttcore.grid<2x4>
     operands : (memref<2x4x4x6x!ttcore.tile<32x32, f32>>, memref<4x4x6x8x!ttcore.tile<32x32, f32>>, memref<2x4x4x8x!ttcore.tile<32x32, f32>>)
+
     ^compute(%cb0: memref<4x6x!ttcore.tile<32x32, f32>, #l1_>, %cb1: memref<6x8x!ttcore.tile<32x32, f32>, #l1_>, %cb2: memref<4x8x!ttcore.tile<32x32, f32>, #l1_>):
       d2m.await %cb0, %cb1
       "d2m.tile_matmul_block"(%cb0, %cb1, %cb2)
       d2m.yield %cb2
     ```
+
     Into:
     ```mlir
     ^compute(%cb0: memref<4x6x!ttcore.tile<32x32, f32>, #l1_>, %cb1: memref<6x8x!ttcore.tile<32x32, f32>, #l1_>, %cb2: memref<4x8x!ttcore.tile<32x32, f32>, #l1_>):
@@ -267,18 +295,22 @@ def D2MGenericGenerateLoops : Pass<"d2m-generic-generate-loops", "::mlir::Module
     ```
   }];
 }
+
 def D2MGenericLowerDMAs : Pass<"d2m-generic-lower-dmas", "::mlir::ModuleOp"> {
   let summary = "Lower DMA ops from their high level form to fully indexed form.";
   let description = [{
     This pass lowers DMA ops from their high level forms to fully indexed form.
+
     One important pattern is rewriting their affine form to indexed form. This is useful for doing analysis on the DMA
     ops and lowering them to an optimal loop nest of coalesced transactions.  This is acheived by sampling the affine
     map over the entire parent generic op iterator space. Note that the affine map provided to the DMA op must be
     one of the indexing maps of the parent generic op.
+
     e.g.
     ```mlir
     %tx = d2m.dma %stream<#map1>, %cb0
     ```
+
     Might become:
     ```mlir
     %c2 = arith.constant 2
@@ -291,12 +323,14 @@ def D2MGenericLowerDMAs : Pass<"d2m-generic-lower-dmas", "::mlir::ModuleOp"> {
     ```
   }];
 }
+
 def D2MGenericRegionsToFuncs : Pass<"d2m-generic-regions-to-funcs", "::mlir::ModuleOp"> {
   let summary = "Move generic regions to top level functions.";
   let description = [{
     This pass moves the generic regions to top level functions. This is a useful prerequisite
     step before lowering because it enables us to better separate kernel program lowering from
     host program lowering.
+
     ```mlir
     func.func @main(/*...*/) {
       d2m.generic {grid = #ttcore.grid<1x1>, indexing_maps = [#map, #map, #map], iterator_types = [#parallel, #parallel], threads = [#d2m.thread<compute>]}
@@ -307,6 +341,7 @@ def D2MGenericRegionsToFuncs : Pass<"d2m-generic-regions-to-funcs", "::mlir::Mod
       }
     }
     ```
+
     Into (note the new compute function / symbol @compute_kernel0):
     ```mlir
     func.func @main(/*...*/) {
@@ -314,6 +349,7 @@ def D2MGenericRegionsToFuncs : Pass<"d2m-generic-regions-to-funcs", "::mlir::Mod
           ins(%arg0, %arg1 : memref<1x1x2x4x!ttcore.tile<32x32, f32>, #l1_>, memref<1x1x2x4x!ttcore.tile<32x32, f32>, #l1_>)
           outs(%alloc : memref<1x1x2x4x!ttcore.tile<32x32, f32>, #l1_>)
     }
+
     func.func private @compute_kernel0(%arg0: memref<2x4x!ttcore.tile<32x32, f32>, #l1_>, %arg1: memref<2x4x!ttcore.tile<32x32, f32>, #l1_>, %arg2: memref<2x4x!ttcore.tile<32x32, f32>, #l1_>) attributes {d2m.thread_type = 0 : i32} {
       // ...compute body...
       return
@@ -321,21 +357,25 @@ def D2MGenericRegionsToFuncs : Pass<"d2m-generic-regions-to-funcs", "::mlir::Mod
     ```
   }];
 }
+
 def D2MLowerToLayout: Pass<"d2m-lower-to-layout", "::mlir::ModuleOp"> {
   let summary = "Lower layouts to generic ops.";
   let description = [{
     Transition between different tensor layouts.
+
     A single to_layout op in d2m can simultaneously perform multiple layout transformations
     at once, including changing layout, format, memory space or memory layout. This pass splits each of
     these transformation categories into separate to_layout ops and then lowers them to generic ops.
     There is one exception to the generic lowering and that is to/from device memory, this case lowers
     to a specialized flavor of to_layout that has the hostInfo attribute set.
+
     For example a compound to layout that goes from host to tilized 8x8 device grid might look like:
     ```
     #layout2 = #ttcore.metal_layout<(d0, d1) -> (d0, d1), undef, <8x8>, memref<1x3x!ttcore.tile<32x32, f32>, #l1_>>
     %0 = d2m.empty() : tensor<256x768xf32, #layout2>
     %1 = d2m.to_layout %arg0, %0 : tensor<256x768xf32> into tensor<256x768xf32, #layout2>
     ```
+
     Into:
     ```
     #layout = #ttcore.metal_layout<(d0, d1) -> (d0, d1), undef, <1x1>, memref<256x768xf32, #l1_>>
@@ -365,6 +405,7 @@ def D2MLowerToLayout: Pass<"d2m-lower-to-layout", "::mlir::ModuleOp"> {
     ```
   }];
 }
+
 def D2MGenericApplyInterchange : Pass<"d2m-generic-apply-interchange", "::mlir::ModuleOp"> {
   let summary = "Apply loop interchange on generic ops.";
   let description = [{
@@ -372,6 +413,7 @@ def D2MGenericApplyInterchange : Pass<"d2m-generic-apply-interchange", "::mlir::
       (m, n, k) -> (m, k)
       (m, n, k) -> (k, n)
       (m, n, k) -> (m, n)
+
     This pass might choose a different interchange, such as
     making the k dim the outermost loop, given interchange
     (2, 0, 1):
@@ -379,10 +421,12 @@ def D2MGenericApplyInterchange : Pass<"d2m-generic-apply-interchange", "::mlir::
       (k, m, n) -> (k, n)
       (k, m, n) -> (m, n)
   }];
+
   list<Option> options = [
       ListOption<"matmulInterchange", "matmul-interchange", "int64_t", "Set an interchange for generic ops that match matmul style indexing maps and iterator types. The interchange indices here always correspond to the innermost 3 dims.">,
   ];
 }
+
 defvar D2MStreamingOptions = [
   Option<"numStreamBuffers",
          "num-stream-buffers",
@@ -393,6 +437,7 @@ defvar D2MStreamingOptions = [
          "bool", /*default=*/"false",
          "Make generic outputs eligible for spilling from L1 to DRAM.">,
 ];
+
 def D2MAllocate: Pass<"d2m-allocate", "::mlir::ModuleOp"> {
   let summary = "Create streams required by generic ops.";
   let description = [{
@@ -401,12 +446,15 @@ def D2MAllocate: Pass<"d2m-allocate", "::mlir::ModuleOp"> {
         op operands;
       - allocating memory addresses/alignments for buffers supporting such streams as well as
         other memref allocs needed by data movement/compute kernel functions.
+
     Currently this pass only does some simple heuristics for forming stream_layout ops when required
     for correctness. In the future, this will be augmented with analysis that will consider resource conflicts
     between the number of streams, their buffer sizes, and L1 memory size limits.
+
     Similarly, memory addresses are currently taken from L1 and never deallocated and so are assigned
     by a simple bumper allocation scheme -- again, this will be modified to do smarter static allocation
     schedules.
+
     Converts:
     ```mlir
     %alloc = memref.alloc() : memref<1x5x1x5x!ttcore.tile<32x32, f32>, #ttcore.shard<20480x4096>, #l1_>
@@ -420,6 +468,7 @@ def D2MAllocate: Pass<"d2m-allocate", "::mlir::ModuleOp"> {
       ...
     }
     ```
+
     Into:
     ```mlir
     %alloc = memref.alloc() {address = 1024 : i64, alignment = 16 : i64} : memref<1x5x1x5x!ttcore.tile<32x32, f32>, #ttcore.shard<20480x4096>, #l1_>
@@ -441,28 +490,34 @@ def D2MAllocate: Pass<"d2m-allocate", "::mlir::ModuleOp"> {
     ```
   }];
   let dependentDialects = ["::mlir::tt::ttcore::TTCoreDialect", "::mlir::memref::MemRefDialect"];
+
   let options = D2MStreamingOptions;
 }
+
 def D2MInsertStreams: Pass<"d2m-insert-streams", "::mlir::ModuleOp"> {
   let summary = "Always insert streams for D2M generic ops.";
   let description = [{
     This pass is only available for D2M/TTNN integration (i.e.: when ttnn-mode is on). This pass will aggressively
     insert a stream for all inputs/outputs of the TTIR generic op.
+
     Example:
   }];
   let dependentDialects = ["::mlir::tt::ttcore::TTCoreDialect", "::mlir::memref::MemRefDialect"];
   let options = D2MStreamingOptions;
 }
+
 def D2MGridSelection: Pass<"d2m-grid-selection", "::mlir::ModuleOp"> {
   let summary = "Optimized grid selection for D2M generic ops.";
   let description = [{
     This pass optimizes the grid selection for D2M generic operations. It walks through
     all d2m.generic ops and updates their operand ToLayoutOps with optimal grid sizes
     and proper dimAlignments based on the tensor physical shapes.
+
     The TTIRToD2M conversion creates all tensors with simple 1x1 grids and minimal
     dimAlignments. This pass then computes the optimal grid for each tensor based on
     its physical shape, finding the largest grid dimensions that evenly divide the shape.
     It also recomputes proper dimAlignments that account for grid-based alignment requirements.
+
     Note: This pass is not used in TTNN mode, where grids are already correctly set.
     The pipeline conditionally adds this pass only for non-TTNN mode.
   }];
@@ -472,6 +527,7 @@ def D2MGridSelection: Pass<"d2m-grid-selection", "::mlir::ModuleOp"> {
         "Override the device shape for grid optimization.">,
   ];
 }
+
 def D2MGenericReplaceGlobals : Pass<"d2m-generic-replace-globals", "::mlir::ModuleOp"> {
   let summary = "Replace `ttcore.get_global` operations with direct operand references within `d2m.generic` operations";
   let description = [{
@@ -494,7 +550,7 @@ def D2MGenericReplaceGlobals : Pass<"d2m-generic-replace-globals", "::mlir::Modu
     // After (assuming @my_global has index 0):
     d2m.generic ins(%arg0, %arg1 : tensor<...>, tensor<...>) {
     ^bb0(%cb0: memref<...>, %cb1: memref<...>):
-      // ... use %cb0 directly instead of %global_val ...
+      // ... use %arg0 directly instead of %global_val ...
     }
     ```
     This pass only operates on `ttcore.get_global` operations that:
