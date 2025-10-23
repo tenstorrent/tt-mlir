@@ -232,13 +232,14 @@ def test_tan(shape: Shape, dtype: torch.dtype, target: str, request):
     ids=["2t_dim0", "2t_dim1", "3t_dim0_ttir", "diff_size", "3t_same", "4t_dim1"],
 )
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+@pytest.mark.parametrize("target", ["ttnn"])
 def test_concatenate(
     shapes: List[Shape],
     dim: int,
     dtype: torch.dtype,
     target: str,
     request,
+    device,
 ):
     # Create a wrapper function
     def concatenate_wrapper(*inputs_and_builder):
@@ -249,7 +250,7 @@ def test_concatenate(
     # Set the name for better test identification.
     concatenate_wrapper.__name__ = "concatenate"
 
-    compile_stablehlo_to_flatbuffer(
+    compile_and_execute_shlo(
         concatenate_wrapper,
         shapes,
         [dtype] * len(shapes),
@@ -257,5 +258,6 @@ def test_concatenate(
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
         target=target,
+        device=device,
     )
 
