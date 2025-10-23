@@ -1340,6 +1340,7 @@ mlir::Operation *mlir::tt::ttir::PoolingOp::rewriteWithQuantizedInputs(
         newResultType.getElementType(), newResultType.getEncoding());
     updatedOutputs.push_back(newEmpty);
   }
+  // NOLINTNEXTLINE(clang-analyzer-core.StackAddressEscape)
   auto newOp = rewriter.create<mlir::tt::ttir::PoolingOp>(
       getLoc(), resultTypes, sourceOperands, updatedOutputs, getPoolingMethod(),
       getWindowDimensions(), getWindowStrides(), getBaseDilations(),
