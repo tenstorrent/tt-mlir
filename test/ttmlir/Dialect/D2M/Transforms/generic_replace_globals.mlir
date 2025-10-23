@@ -4,6 +4,20 @@
 
 // -----
 
+// Test global with get_global outside generic
+module {
+  ttcore.global @global_0 = tensor<2x2xf32> [0]
+  // CHECK-LABEL: func.func @test_no_replacement_outside_generic
+  func.func @test_no_replacement_outside_generic() -> tensor<2x2xf32> {
+    // This get_global is outside a d2m.generic, so it should NOT be replaced
+    // CHECK: %[[GLOBAL:.*]] = ttcore.get_global @global_0 : tensor<2x2xf32>
+    %0 = ttcore.get_global @global_0 : tensor<2x2xf32>
+    return %0 : tensor<2x2xf32>
+  }
+}
+
+// -----
+
 // Test basic replacement of globals within d2m.generic operations
 module {
   // Define globals with indices
@@ -45,13 +59,6 @@ module {
       d2m.yield %result_tensor : (tensor<2x2xf32>)
     } : tensor<2x2xf32>
     return %1 : tensor<2x2xf32>
-  }
-  // CHECK-LABEL: func.func @test_no_replacement_outside_generic
-  func.func @test_no_replacement_outside_generic() -> tensor<2x2xf32> {
-    // This get_global is outside a d2m.generic, so it should NOT be replaced
-    // CHECK: %[[GLOBAL:.*]] = ttcore.get_global @global_0 : tensor<2x2xf32>
-    %0 = ttcore.get_global @global_0 : tensor<2x2xf32>
-    return %0 : tensor<2x2xf32>
   }
 }
 
