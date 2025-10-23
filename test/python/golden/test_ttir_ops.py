@@ -649,7 +649,6 @@ def test_conv2d_consteval(
 @pytest.mark.parametrize("padding", [[2, 1]])
 @pytest.mark.parametrize("groups", [1])
 @pytest.mark.parametrize("target", ["ttnn"])
-@pytest.mark.xfail(reason="Issue #5165.")
 def test_hoisted_conv2d(
     shapes: List[Shape],
     stride: List[int],
@@ -798,7 +797,6 @@ def test_max_pool2d(
 @pytest.mark.parametrize("shape", [(1, 128, 128, 32)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32])
 @pytest.mark.parametrize("target", ["ttnn"])
-@pytest.mark.xfail(reason="Issue #5133.")
 def test_hoisted_max_pool2d(
     shape: Shape,
     dtype: torch.dtype,
