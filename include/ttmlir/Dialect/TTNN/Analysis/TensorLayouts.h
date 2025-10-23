@@ -131,6 +131,12 @@ std::vector<TTNNLayoutAttr> getShardedLayoutsForTensorTypeAndScalarType(
     const TensorTypeLayoutsMap &tensorPossibleLayouts,
     RankedTensorType tensorType, Type scalarElementType);
 
+// Helper function to get all layouts for a given tensor type, scalar type and
+// page layout
+std::vector<TTNNLayoutAttr> getShardedLayoutsForTensorTypeAndScalarType(
+    const TensorTypeLayoutsMap &tensorPossibleLayouts,
+    RankedTensorType tensorType, Type scalarElementType, size_t pageLayoutIdx);
+
 inline std::vector<TTNNLayoutAttr> getShardedLayoutsForPageLayout(
     std::size_t pageLayoutIdx,
     const TensorTypeLayoutsForPageLayout &tensorPossibleLayouts) {

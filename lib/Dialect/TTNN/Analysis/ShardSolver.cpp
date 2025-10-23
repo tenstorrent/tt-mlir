@@ -493,13 +493,15 @@ bool ShardSolver::insertReshard(const Edge &edge) {
   auto inputTensor = mlir::cast<RankedTensorType>(
       consumerOp->getOperand(edge.operandIndex).getType());
 
-  Type scalarElementType = mlir::cast<TTNNLayoutAttr>(inputTensor.getEncoding())
-                               .getScalarElementType();
+  TTNNLayoutAttr inputTensorLayoutAttr =
+      mlir::cast<TTNNLayoutAttr>(inputTensor.getEncoding());
+  Type scalarElementType = inputTensorLayoutAttr.getScalarElementType();
 
   // Get sharded input layouts using the helper function
   std::vector<TTNNLayoutAttr> inputLayouts =
       getShardedLayoutsForTensorTypeAndScalarType(
-          *tensorTypePossibleLayouts, inputTensor, scalarElementType);
+          *tensorTypePossibleLayouts, inputTensor, scalarElementType,
+          getPageLayoutIndex(inputTensorLayoutAttr.getLayout()));
 
   std::unordered_map<std::string, std::vector<TTNNLayoutAttr>> errorCount;
 

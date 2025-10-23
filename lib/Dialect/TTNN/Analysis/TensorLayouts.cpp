@@ -11,6 +11,25 @@ std::vector<TTNNLayoutAttr> getShardedLayoutsForTensorTypeAndScalarType(
     const TensorTypeLayoutsMap &tensorPossibleLayouts,
     RankedTensorType tensorType, Type scalarElementType) {
 
+  std::vector<TTNNLayoutAttr> layouts;
+  for (size_t pageLayoutIdx = 0;
+       pageLayoutIdx < static_cast<size_t>(TensorPageLayout::kNumValues);
+       ++pageLayoutIdx) {
+    auto shardedLayoutsForPageLayout =
+        getShardedLayoutsForTensorTypeAndScalarType(
+            tensorPossibleLayouts, tensorType, scalarElementType,
+            pageLayoutIdx);
+    layouts.insert(layouts.end(), shardedLayoutsForPageLayout.begin(),
+                   shardedLayoutsForPageLayout.end());
+  }
+
+  return layouts;
+}
+
+std::vector<TTNNLayoutAttr> getShardedLayoutsForTensorTypeAndScalarType(
+    const TensorTypeLayoutsMap &tensorPossibleLayouts,
+    RankedTensorType tensorType, Type scalarElementType, size_t pageLayoutIdx) {
+
   auto iter = tensorPossibleLayouts.find(tensorType);
   assert(iter != tensorPossibleLayouts.end() &&
          "Tensor type not found in possible layouts");
@@ -21,18 +40,11 @@ std::vector<TTNNLayoutAttr> getShardedLayoutsForTensorTypeAndScalarType(
 
   auto layoutsForScalarType = scalarLayoutsIter->second;
 
-  std::vector<TTNNLayoutAttr> layouts;
-  for (size_t pageLayoutIdx = 0;
-       pageLayoutIdx < static_cast<size_t>(TensorPageLayout::kNumValues);
-       ++pageLayoutIdx) {
-    const std::vector<TTNNLayoutAttr> &shardedLayouts =
-        layoutsForScalarType[pageLayoutIdx][static_cast<size_t>(
-            TensorMemoryLayoutIndex::Sharded)];
+  const std::vector<TTNNLayoutAttr> &shardedLayouts =
+      layoutsForScalarType[pageLayoutIdx][static_cast<size_t>(
+          TensorMemoryLayoutIndex::Sharded)];
 
-    layouts.insert(layouts.end(), shardedLayouts.begin(), shardedLayouts.end());
-  }
-
-  return layouts;
+  return shardedLayouts;
 }
 
 } // namespace mlir::tt::ttnn

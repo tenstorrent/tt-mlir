@@ -34,6 +34,7 @@ enum class LogComponent {
   Optimizer,
   DFShardingPolicy,
   OpValidation,
+  RMPropagation,
   Allocator,
   Test,
   General
@@ -55,6 +56,8 @@ inline constexpr const char *getLogComponentStr(LogComponent type) {
     return "df-sharding-policy";
   case LogComponent::OpValidation:
     return "op-validation";
+  case LogComponent::RMPropagation:
+    return "rm-propagation";
   case LogComponent::Allocator:
     return "allocator";
   case LogComponent::Test:

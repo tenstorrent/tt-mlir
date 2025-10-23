@@ -190,7 +190,12 @@ void LegalOpLayoutAnalysis::fillTTNNLayoutAttrs(TTNNLayoutAttr baseLayout) {
        pageLayoutIdx < static_cast<size_t>(TensorPageLayout::kNumValues);
        ++pageLayoutIdx) {
 
-    if (!rowMajorAllowed &&
+    // In case operation's output is already row major in IR, and row major
+    // is not allowed, we will allow only interleaved row major to be generated.
+    const bool allowOnlyInterleavedRM =
+        !baseLayout.isTiled() && !rowMajorAllowed;
+
+    if (!rowMajorAllowed && !allowOnlyInterleavedRM &&
         pageLayoutIdx == static_cast<size_t>(TensorPageLayout::RowMajor)) {
       continue;
     }
@@ -203,6 +208,12 @@ void LegalOpLayoutAnalysis::fillTTNNLayoutAttrs(TTNNLayoutAttr baseLayout) {
     interleavedLayouts.insert(interleavedLayouts.end(),
                               interleavedLayoutsForDataLayout.begin(),
                               interleavedLayoutsForDataLayout.end());
+
+    if (allowOnlyInterleavedRM) {
+      // If only interleaved RM layouts are allowed, skip sharded layout
+      // insertion.
+      continue;
+    }
 
     // Insert sharded layouts for current data layout, block sharded will give
     // us unified index for all sharded layouts

@@ -295,8 +295,7 @@ LegalTensorLayoutAnalysis::generateLayouts(RankedTensorType tensorType) {
   for (Type scalarType : *analysisInput.allowedScalarTypes) {
     auto layoutsForType = generateAllPossibleLayouts(
         tensorType.getContext(), tensorType, analysisInput.maxGrid, scalarType,
-        /*onlyShardedLayouts*/ false, /*maxNumGeneratedLayouts*/ -1,
-        analysisInput.rowMajorAllowed);
+        /*onlyShardedLayouts*/ false, /*maxNumGeneratedLayouts*/ -1);
 
     allLayouts.insert(allLayouts.end(), layoutsForType.begin(),
                       layoutsForType.end());
