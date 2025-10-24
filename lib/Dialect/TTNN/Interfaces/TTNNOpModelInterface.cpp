@@ -3943,7 +3943,13 @@ GlobalAvgPool2dOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 llvm::Expected<op_model::OpConstraints>
 AssignOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                            const OpConfig &opConfig) {
-  assert(inputs.size() == 1);
+  if (getOptionalOutputTensor()) {
+    assert(inputs.size() == 2);
+    // ttnn::assign with optional output tensor must have exactly 2 inputs
+  } else {
+    assert(inputs.size() == 1);
+    // ttnn::assign without optional output tensor must have exactly 1 input
+  }
   llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
   if (!check) {
     return check.takeError();
@@ -3972,7 +3978,13 @@ AssignOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
 llvm::Expected<size_t>
 AssignOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
                        const OpConfig &opConfig) {
-  assert(inputs.size() == 1);
+  if (getOptionalOutputTensor()) {
+    assert(inputs.size() == 2);
+    // ttnn::assign with optional output tensor must have exactly 2 inputs
+  } else {
+    assert(inputs.size() == 1);
+    // ttnn::assign without optional output tensor must have exactly 1 input
+  }
   const auto inputShape = getInput().getType().getShape();
 
   // Extract optional output tensor shape and layout
