@@ -293,6 +293,12 @@ def compile_mlir():
     """Compile MLIR files to shared objects using cmake"""
 
     cmake_args = [
+        "cd",
+        str(pathlib.Path().absolute().parent.parent),
+        "&&",
+        "source",
+        "env/activate",
+        "&&",
         "cmake",
         "-G",
         "Ninja",
