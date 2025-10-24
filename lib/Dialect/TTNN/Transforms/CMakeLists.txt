@@ -23,7 +23,6 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         Workarounds/Decomposition/ConcatenateHeadsOpRewritePattern.cpp
         Workarounds/Decomposition/ConcatOpReshapeRewritePattern.cpp
         Workarounds/Decomposition/Conv2dSliceConfigRewritePattern.cpp
-        Workarounds/Decomposition/ComplexReshapePattern.cpp
         Workarounds/Decomposition/CumSumOpDimRewritePattern.cpp
         Workarounds/Decomposition/CumSumOpRankRewritePattern.cpp
         Workarounds/Decomposition/EmbeddingOpSqueezeWeightRewritePattern.cpp

@@ -27,7 +27,6 @@
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ScatterOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/SubtractOpImplicitBroadcastRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/UpsampleOpRewritePattern.h"
-#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ComplexReshapePattern.h"
 #include "ttmlir/Dialect/TTNN/Utils/TransformUtils.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Utils.h"
@@ -574,7 +573,6 @@ public:
           workarounds::decomposition::
               Conv2dEnableKernelStrideFoldingRewritePattern<ConvTranspose2dOp>,
           workarounds::decomposition::Conv2dSliceConfigRewritePattern,
-          workarounds::decomposition::ComplexReshapePattern,
           workarounds::decomposition::ConcatenateHeadsOpRewritePattern>(
           &getContext());
 
