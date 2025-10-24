@@ -91,16 +91,12 @@ void createTTIRToTTMetalFrontendPipeline(
     toD2MOptions.collapseTensorsTo2D = options.collapseTensors;
   }
   pm.addPass(tt::createTTIRToD2MPass(toD2MOptions));
-  // Grid selection is only needed for non-TTNN mode; TTNN tensors already
-  // have their grids correctly set.
-  if (!options.ttnnMode) {
-    d2m::D2MGridSelectionOptions gridOptOptions;
-    {
-      gridOptOptions.overrideDeviceShape =
-          llvm::to_vector(options.overrideDeviceShape);
-    }
-    pm.addPass(d2m::createD2MGridSelection(gridOptOptions));
+  d2m::D2MGridSelectionOptions gridOptOptions;
+  {
+    gridOptOptions.overrideDeviceShape =
+        llvm::to_vector(options.overrideDeviceShape);
   }
+  pm.addPass(d2m::createD2MGridSelection(gridOptOptions));
   pm.addPass(createCanonicalizerPassWithOptions(options));
   pm.addPass(d2m::createD2MLowerToLayout());
 }

@@ -1223,6 +1223,21 @@ static mlir::LogicalResult verifyAffineBlocking(
     }
   }
 
+  auto isReductionIterator = [](Attribute iteratorType) {
+    return mlir::cast<ttcore::IteratorTypeAttr>(iteratorType).getValue() ==
+           ttcore::IteratorType::Reduction;
+  };
+  auto isStreamingOutput = [](Value output) {
+    return output.getDefiningOp() != nullptr &&
+           mlir::dyn_cast<d2m::StreamLayoutOp>(output.getDefiningOp()) !=
+               nullptr;
+  };
+  if (llvm::any_of(getIteratorTypes(), isReductionIterator) &&
+      llvm::any_of(getOutputs(), isStreamingOutput)) {
+    return emitOpError("Streaming outputs are not supported for reduction "
+                       "iterators. Issue #5446");
+  }
+
   return success();
 }
 

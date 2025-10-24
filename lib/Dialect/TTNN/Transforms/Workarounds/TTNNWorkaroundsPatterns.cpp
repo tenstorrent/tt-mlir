@@ -14,6 +14,7 @@
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ConcatOpDecompositionRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ConcatOpReshapeRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ConcatenateHeadsOpRewritePattern.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/Conv2dEnableKernelStrideFoldingRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/Conv2dRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/Conv2dSliceConfigRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/CumSumOpDimRewritePattern.h"
@@ -567,6 +568,10 @@ public:
           workarounds::decomposition::ExplicateOperandBroadcastsRewritePattern,
           workarounds::decomposition::Conv2dRewritePattern<Conv2dOp>,
           workarounds::decomposition::Conv2dRewritePattern<ConvTranspose2dOp>,
+          workarounds::decomposition::
+              Conv2dEnableKernelStrideFoldingRewritePattern<Conv2dOp>,
+          workarounds::decomposition::
+              Conv2dEnableKernelStrideFoldingRewritePattern<ConvTranspose2dOp>,
           workarounds::decomposition::Conv2dSliceConfigRewritePattern,
           workarounds::decomposition::ConcatenateHeadsOpRewritePattern>(
           &getContext());
