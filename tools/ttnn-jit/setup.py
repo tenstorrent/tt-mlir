@@ -286,6 +286,8 @@ def generate_package_data(all_runtime_libs):
 
 def compile_mlir(cwd):
     """Compile MLIR files to shared objects using cmake"""
+    dist_dir = cwd / "dist"
+    dist_dir.mkdir(exist_ok=True)
 
     cmake_args = [
         "cd",
@@ -313,22 +315,14 @@ def compile_mlir(cwd):
         "cmake",
         "--build",
         "build",
-    ]
-    subprocess.run(" ".join(cmake_args), shell=True, check=True)
-
-
-def build_ttnn_jit(cwd):
-    """Build ttnn-jit wheel package"""
-    dist_dir = cwd / "dist"
-    dist_dir.mkdir(exist_ok=True)
-
-    build_commands = [
+        "&&",
         "cd " + str(cwd),
         "&&",
         "pip install build setuptools wheel",
-        "&&" "python3 -m build --wheel",
+        "&&",
+        "python3 -m build --wheel",
     ]
-    subprocess.run(" ".join(build_commands), shell=True, check=True)
+    subprocess.run(" ".join(cmake_args), shell=True, check=True)
 
 
 def main():
@@ -336,7 +330,6 @@ def main():
     cwd = pathlib.Path().absolute()
     # Compile MLIR files first
     compile_mlir(cwd)
-    build_ttnn_jit(cwd)
 
     # Get build configuration
     config = get_build_configuration()
