@@ -31,7 +31,6 @@ class JitFunction:
         func,
         backend: Literal["ttnn", "metal"],
         max_grid: tuple[int, int],
-        perf: bool,
         compile_only: bool,
         debug: bool,
     ):
@@ -39,7 +38,6 @@ class JitFunction:
         self.source_code = _cleanup_source_code(func)
         self.backend = backend
         self.max_grid = max_grid
-        self.perf = perf
         self.compile_only = compile_only
         self.debug = debug
 

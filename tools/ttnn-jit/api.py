@@ -11,8 +11,6 @@ from ttnn_jit._src.jit import JitFunction
 def jit(
     backend: Literal["ttnn", "metal"] = "ttnn",
     max_grid: tuple[int, int] = (7, 7),
-    # max_dest_size: int = 1,
-    perf: bool = False,
     compile_only: bool = False,
     debug: bool = False,
 ):
@@ -21,7 +19,6 @@ def jit(
             f,
             backend,
             max_grid,
-            perf,
             compile_only,
             debug,
         )
