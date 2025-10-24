@@ -294,7 +294,7 @@ def compile_mlir():
 
     cmake_args = [
         "cd",
-        str(pathlib.Path().absolute().parent.parent),
+        str(pathlib.Path().absolute().parent),
         "&&",
         "source",
         "env/activate",
