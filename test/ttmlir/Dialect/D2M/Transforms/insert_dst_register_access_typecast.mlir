@@ -22,13 +22,13 @@ module {
       // CHECK: %[[DST:.*]] = d2m.acquire_dst() : memref<{{.*}}x!ttcore.tile<32x32, f32>, #dst>
 
       // CHECK: affine.for %{{.*}} = 0 to 1 {
-      // CHECK-NEXT: affine.for %{{.*}} = 0 to 1 {
+      // CHECK-NEXT: affine.for %{{.*}} = 0 to 4 {
       // Copy from input CB to dst
-      // CHECK: affine.load %{{.*}}[%{{.*}}, %{{.*}}] : memref<1x1x!ttcore.tile<32x32, f32>, strided<[8, 1], offset: ?>, #l1>
+      // CHECK: affine.load %{{.*}}[%{{.*}}, %{{.*}}] : memref<1x4x!ttcore.tile<32x32, f32>, strided<[8, 1], offset: ?>, #l1>
       // CHECK: affine.store %{{.*}}, %[[DST]]
 
       // CHECK: affine.for %{{.*}} = 0 to 1 {
-      // CHECK-NEXT: affine.for %{{.*}} = 0 to 1 {
+      // CHECK-NEXT: affine.for %{{.*}} = 0 to 4 {
       // Typecast with dst_reinterpret_cast to dst type
       // CHECK: %[[DST_LOAD:.*]] = affine.load %[[DST]]
       // CHECK: %[[TYPECAST:.*]] = "d2m.tile_typecast"(%[[DST_LOAD]]) : (!ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f16>
@@ -36,11 +36,11 @@ module {
       // CHECK: affine.store %[[CAST_TO_DST]], %[[DST]]
 
       // CHECK: affine.for %{{.*}} = 0 to 1 {
-      // CHECK-NEXT: affine.for %{{.*}} = 0 to 1 {
+      // CHECK-NEXT: affine.for %{{.*}} = 0 to 4 {
       // Copy from dst to output CB with dst_reinterpret_cast for type conversion
       // CHECK: %[[DST_LOAD2:.*]] = affine.load %[[DST]]
       // CHECK: %[[CAST_TO_OUTPUT:.*]] = "d2m.dst_reinterpret_cast"(%[[DST_LOAD2]]) : (!ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f16>
-      // CHECK: affine.store %[[CAST_TO_OUTPUT]], %{{.*}}[%{{.*}}, %{{.*}}] : memref<1x1x!ttcore.tile<32x32, f16>, strided<[8, 1], offset: ?>, #l1>
+      // CHECK: affine.store %[[CAST_TO_OUTPUT]], %{{.*}}[%{{.*}}, %{{.*}}] : memref<1x4x!ttcore.tile<32x32, f16>, strided<[8, 1], offset: ?>, #l1>
 
       %c0 = arith.constant 0 : index
       %c1 = arith.constant 1 : index
