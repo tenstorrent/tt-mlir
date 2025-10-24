@@ -1,5 +1,3 @@
-
-
 # SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
@@ -10,6 +8,14 @@ Example script that runs the op-by-op workflow.
 This example allows the user to:
 1. Read input MLIR module from a file
 2. Choose between different op-by-op workflow types
+
+Requires:
+    # Building with TTMLIR_ENABLE_RUNTIME=ON and TTMLIR_ENABLE_STABLEHLO=ON
+    cmake -G Ninja -B build -DTTMLIR_ENABLE_RUNTIME=ON -DTTMLIR_ENABLE_STABLEHLO=ON
+    cmake --build build
+
+    # Having system descriptor saved
+    ttrt query --save-artifacts
 
 Usage Examples:
     # Generate JSON report with pytest
@@ -38,11 +44,11 @@ Note:
 
 import os
 from pathlib import Path
-from typing import Optional
 
 from op_by_op_infra import workflow_internal
 from op_by_op_infra.pydantic_models import OpTest, model_to_dict
-from ttmlir.ir import Module
+
+
 def example_workflow_usage(
     workflow_type: str = "split_and_execute",
 ):
@@ -58,10 +64,10 @@ def example_workflow_usage(
         execution_results = workflow_internal.split_and_execute(module)
     elif workflow_type == "compile_split_and_execute":
         raise ValueError(f"Currently unsupported: {workflow_type}")
-        #execution_results = workflow_internal.compile_split_and_execute(module)
+        # execution_results = workflow_internal.compile_split_and_execute(module)
     elif workflow_type == "split_compile_split_and_execute":
         raise ValueError(f"Currently unsupported: {workflow_type}")
-        #execution_results = workflow_internal.split_compile_split_and_execute(module)
+        # execution_results = workflow_internal.split_compile_split_and_execute(module)
     else:
         raise ValueError(f"Unknown workflow type: {workflow_type}")
 
@@ -69,7 +75,7 @@ def example_workflow_usage(
 
 
 def _get_mlir_file_path() -> Path:
-    env_path = os.getenv('MLIR_FILE_PATH')
+    env_path = os.getenv("MLIR_FILE_PATH")
 
     if env_path:
         user_path = Path(env_path)
@@ -78,17 +84,16 @@ def _get_mlir_file_path() -> Path:
 
     default_path = Path(__file__).parent / "example_shlo_ir.mlir"
     print(f"INFO: Using default MLIR file: {default_path}")
-    print("INFO: To use a different file, set: export MLIR_FILE_PATH=/path/to/your/file.mlir")
+    print(
+        "INFO: To use a different file, set: export MLIR_FILE_PATH=/path/to/your/file.mlir"
+    )
 
     return default_path
 
 
-def _read_mlir_file(file_path: Path) -> Optional[str]:
 def _read_mlir_file(file_path: Path) -> str:
-        raise FileNotFoundError(f"MLIR file not found: {file_path}. Please ensure the file exists or set a valid path: export MLIR_FILE_PATH=/path/to/your/model.mlir")
-
     try:
-        with open(file_path, 'r', encoding='utf-8') as f:
+        with open(file_path, "r", encoding="utf-8") as f:
             content = f.read().strip()
 
         if content == "":
@@ -110,7 +115,7 @@ def test_op_by_op_inference_from_file(record_property):
     When run with pytest --json-report --json-report-file=report.json,
     it will generate a JSON file with detailed operation information.
     """
-    workflow_type = os.getenv('WORKFLOW_TYPE', 'split_and_execute')
+    workflow_type = os.getenv("WORKFLOW_TYPE", "split_and_execute")
 
     # Execute the workflow
     results = example_workflow_usage(workflow_type)
@@ -128,4 +133,6 @@ def test_op_by_op_inference_from_file(record_property):
     record_property("workflow_type", workflow_type)
 
     # Fail the test if there are any failed operations
-    assert failed_operations == 0, f"Test failed: {failed_operations} operation(s) failed out of {len(results)} total operations"
+    assert (
+        failed_operations == 0
+    ), f"Test failed: {failed_operations} operation(s) failed out of {len(results)} total operations"
