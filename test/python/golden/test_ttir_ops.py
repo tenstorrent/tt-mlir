@@ -657,6 +657,7 @@ def test_hoisted_conv2d(
     groups: int,
     target: str,
     request,
+    device,
 ):
     """Test hoisted conv2d operation"""
 
@@ -687,6 +688,7 @@ def test_hoisted_conv2d(
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
         target=target,
+        device=device,
     )
 
 
@@ -807,6 +809,7 @@ def test_hoisted_max_pool2d(
     ceil_mode: bool,
     target: str,
     request,
+    device,
 ):
     """Test hoisted max_pool2d operation"""
 
@@ -835,6 +838,7 @@ def test_hoisted_max_pool2d(
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
         target=target,
+        device=device,
     )
 
 
