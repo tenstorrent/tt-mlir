@@ -430,6 +430,12 @@ std::uint32_t getTensorVolume(::tt::runtime::Tensor tensor) {
   return ttnnTensor.physical_volume();
 }
 
+std::uint32_t getTensorLogicalVolume(::tt::runtime::Tensor tensor) {
+  const ::ttnn::Tensor &ttnnTensor =
+      utils::getTTNNTensorFromRuntimeTensor(tensor);
+  return ttnnTensor.logical_volume();
+}
+
 TensorDesc getTensorDesc(::tt::runtime::Tensor tensor) {
   TensorDesc desc;
   desc.dataType = getTensorDataType(tensor);
