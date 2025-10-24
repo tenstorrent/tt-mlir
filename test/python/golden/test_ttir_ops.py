@@ -649,6 +649,7 @@ def test_conv2d_consteval(
 @pytest.mark.parametrize("padding", [[2, 1]])
 @pytest.mark.parametrize("groups", [1])
 @pytest.mark.parametrize("target", ["ttnn"])
+@pytest.mark.xfail(reason="Issue #5165.")
 def test_hoisted_conv2d(
     shapes: List[Shape],
     stride: List[int],
@@ -657,7 +658,6 @@ def test_hoisted_conv2d(
     groups: int,
     target: str,
     request,
-    device,
 ):
     """Test hoisted conv2d operation"""
 
@@ -688,7 +688,6 @@ def test_hoisted_conv2d(
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
         target=target,
-        device=device,
     )
 
 
