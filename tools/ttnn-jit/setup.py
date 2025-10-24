@@ -140,9 +140,12 @@ def setup_runtime_libraries(config):
     )
 
     # Copy JITCPP library
-    jitcpp_lib_path = f"{config['ttmlir_build_dir']}/tools/ttnn-jit/csrc/libJITCPP.so"
-    shutil.copy(jitcpp_lib_path, wheel_runtime_dir)
-    dylibs.append("libJITCPP.so")
+    jitcpp_lib_path = (
+        f"{config['ttmlir_build_dir']}/python_packages/ttnn_jit/libJITCPP.so"
+    )
+    if os.path.exists(jitcpp_lib_path):
+        shutil.copy(jitcpp_lib_path, wheel_runtime_dir)
+        dylibs.append("libJITCPP.so")
 
     # Copy ttnn-jit module
     ttnn_jit_module_path = (
