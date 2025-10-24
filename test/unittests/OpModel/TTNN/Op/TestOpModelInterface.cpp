@@ -4400,22 +4400,34 @@ TEST_F(OpModelBase, UpdateCacheOpInterface) {
 TEST_F(OpModelBase, PagedUpdateCacheOpInterface) {
   // Test PagedUpdateCacheOp with cache, input, update_index, and page_table
   // tensors
-  llvm::SmallVector<int64_t> cacheShape = {128, 4, 32, 256};
-  llvm::SmallVector<int64_t> inputShape = {1, 8, 12, 256};
+  llvm::SmallVector<int64_t> cacheShape = {128, 8, 128, 128};
+  llvm::SmallVector<int64_t> inputShape = {1, 8, 32, 128};
   llvm::SmallVector<int64_t> updateIndexShape = {8};
   llvm::SmallVector<int64_t> pageTableShape = {8, 16};
 
+  auto inputLayout = CreateTiledLayout(inputShape, BufferType::L1,
+                                       TensorMemoryLayout::HeightSharded,
+                                       SmallVector<int64_t>({8, 1}));
+
+  auto updateIndexLayout = CreateRowMajorLayoutInt32(
+      updateIndexShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+  auto pageTableLayout = CreateRowMajorLayoutInt32(
+      pageTableShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+
   auto cacheTensor = createEmptyTensor(cacheShape);
-  auto inputTensor = createEmptyTensor(inputShape);
+  auto inputTensor = createEmptyTensor(inputShape, nullptr, inputLayout);
+
   auto updateIndexTensor =
-      createEmptyTensor(updateIndexShape, mlir::IntegerType::get(&context, 32));
-  auto pageTableTensor =
-      createEmptyTensor(pageTableShape, mlir::IntegerType::get(&context, 32));
+      createEmptyTensor(updateIndexShape, mlir::IntegerType::get(&context, 32),
+                        updateIndexLayout);
+  auto pageTableTensor = createEmptyTensor(
+      pageTableShape, mlir::IntegerType::get(&context, 32, IntegerType::Signed),
+      pageTableLayout);
 
   auto pagedUpdateCacheOp = builder.create<PagedUpdateCacheOp>(
       builder.getUnknownLoc(), cacheTensor, inputTensor, updateIndexTensor,
       false, pageTableTensor);
-
+  pagedUpdateCacheOp->getParentOp()->dump();
   auto backend = dyn_cast<OpModel>(pagedUpdateCacheOp.getOperation());
   ASSERT_TRUE(backend);
 
@@ -4425,14 +4437,14 @@ TEST_F(OpModelBase, PagedUpdateCacheOpInterface) {
     auto constraints = constraintsExp.get();
     const auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
         constraints;
-    EXPECT_EQ(cbSize, 233536);
+    EXPECT_EQ(cbSize, 118848);
     EXPECT_EQ(l1PeakSize, 0);
-    EXPECT_EQ(outputSize, 32768);
+    EXPECT_EQ(outputSize, 524288);
   } else {
     FAIL() << "Missing constraints for PagedUpdateCacheOp; Error="
            << llvm::toString(constraintsExp.takeError()) << std::endl;
   }
-
+  op_model::SingletonDeviceContext::resetInstance();
   auto runtimeExp = backend.getOpRuntime(
       getInputLayouts(pagedUpdateCacheOp.getOperation()), OpConfig());
   if (runtimeExp) {
