@@ -294,7 +294,7 @@ def compile_mlir():
 
     cmake_args = [
         "cd",
-        str(pathlib.Path().absolute().parent),
+        str(pathlib.Path().absolute().parent.parent),
         "&&",
         "source",
         "env/activate",
@@ -314,9 +314,12 @@ def compile_mlir():
         "-DTTMLIR_ENABLE_STABLEHLO=OFF",
         "-DTTMLIR_ENABLE_OPMODEL=OFF",
         "-DTTMLIR_ENABLE_EXPLORER=OFF",
+        "&&",
+        "cmake",
+        "--build",
+        "build",
     ]
-    subprocess.run(cmake_args, check=True)
-    subprocess.run(["cmake", "--build", "build"], check=True)
+    subprocess.run(" ".join(cmake_args), shell=True, check=True)
 
 
 def main():
