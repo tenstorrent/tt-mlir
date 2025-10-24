@@ -1397,6 +1397,29 @@ struct EmitPyTypeConverter<::ttnn::operations::conv::conv2d::Conv2dConfig> {
       rso << (firstElement ? "" : ", ") << "output_layout="
           << EmitPyTypeConverter<::ttnn::Layout>::convert(
                  *attr.getOutputLayout());
+      firstElement = false;
+    }
+    if (attr.getEnableActDoubleBuffer()) {
+      rso << (firstElement ? "" : ", ") << "enable_act_double_buffer = "
+          << EmitPyTypeConverter<bool>::convert(
+                 attr.getEnableActDoubleBuffer());
+      firstElement = false;
+    }
+    if (attr.getEnableWeightsDoubleBuffer()) {
+      rso << (firstElement ? "" : ", ") << "enable_weights_double_buffer = "
+          << EmitPyTypeConverter<bool>::convert(
+                 attr.getEnableWeightsDoubleBuffer());
+      firstElement = false;
+    }
+    if (attr.getInPlace()) {
+      rso << (firstElement ? "" : ", ") << "in_place = "
+          << EmitPyTypeConverter<bool>::convert(attr.getInPlace());
+      firstElement = false;
+    }
+    if (attr.getEnableKernelStrideFolding()) {
+      rso << (firstElement ? "" : ", ") << "enable_kernel_stride_folding="
+          << EmitPyTypeConverter<bool>::convert(
+                 attr.getEnableKernelStrideFolding());
     }
     rso << ")";
     return buf;
