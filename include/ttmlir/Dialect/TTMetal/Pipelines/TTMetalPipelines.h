@@ -131,12 +131,12 @@ struct TTIRToTTMetalPipelineOptions
                         llvm::cl::init(false)};
 
   // Option to set the target data format for the global data format conversion
-  // pass (experimental).
+  // pass.
   Option<std::string> globalDataFormatTarget{
       *this, "global-data-format-target",
       llvm::cl::desc("Target data format for global conversion (experimental): "
-                     "f32, bf16 (default), or bfp_f8"),
-      llvm::cl::init("bf16")};
+                     "f32, bf16, or bfp_f8. Empty by default (disabled)."),
+      llvm::cl::init("")};
 };
 
 void createTTIRBufferizationPipeline(

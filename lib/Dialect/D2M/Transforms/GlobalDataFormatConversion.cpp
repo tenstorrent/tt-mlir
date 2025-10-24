@@ -14,7 +14,6 @@ namespace mlir::tt::d2m {
 
 namespace {
 
-// Helper function to parse target format string to DataType
 static std::optional<ttcore::DataType>
 parseTargetFormat(llvm::StringRef format) {
   if (format == "f32") {
@@ -27,11 +26,10 @@ parseTargetFormat(llvm::StringRef format) {
   return std::nullopt;
 }
 
-// TypeConverter that converts all tensor types to the target format
 struct GlobalDataFormatBodyConverter : mlir::TypeConverter {
   GlobalDataFormatBodyConverter(ttcore::DataType targetDataType) {
-    addConversion([targetDataType](
-                      mlir::RankedTensorType type) -> mlir::RankedTensorType {
+    addConversion([targetDataType](mlir::RankedTensorType type)
+                      -> std::optional<mlir::RankedTensorType> {
       mlir::Type elementType = type.getElementType();
 
       // Convert everything to the target data type
@@ -42,7 +40,8 @@ struct GlobalDataFormatBodyConverter : mlir::TypeConverter {
         return type;
       }
 
-      return type.clone(newElementType);
+      return mlir::RankedTensorType::get(type.getShape(), newElementType,
+                                         type.getEncoding());
     });
 
     // Materialization function for automatic typecast insertion
@@ -60,7 +59,6 @@ struct GlobalDataFormatBodyConverter : mlir::TypeConverter {
   }
 };
 
-// Pattern that converts operation types while preserving function signatures
 class FuncBodyTypeCast : public mlir::ConversionPattern {
 public:
   FuncBodyTypeCast(const mlir::TypeConverter &converter, mlir::MLIRContext *ctx)
@@ -69,21 +67,18 @@ public:
   LogicalResult
   matchAndRewrite(mlir::Operation *op, llvm::ArrayRef<mlir::Value> operands,
                   mlir::ConversionPatternRewriter &rewriter) const final {
-    // Remap original operands to converted operands.
+
     mlir::IRMapping mapping;
     mapping.map(op->getOperands(), operands);
 
-    // Clone the original operation with the new operands.
     mlir::Operation *newOp = rewriter.clone(*op, mapping);
 
-    // Convert the result types using the type converter.
     llvm::SmallVector<Type> convertedTypes;
     if (failed(getTypeConverter()->convertTypes(op->getResultTypes(),
                                                 convertedTypes))) {
       return op->emitOpError("Failed to convert result types.");
     }
 
-    // Update result types in-place on the new operation.
     rewriter.modifyOpInPlace(newOp, [&]() {
       for (auto [newResult, newType] :
            llvm::zip(newOp->getResults(), convertedTypes)) {
@@ -91,7 +86,6 @@ public:
       }
     });
 
-    // Replace the old op with the new one.
     rewriter.replaceOp(op, newOp);
     return success();
   }
@@ -104,7 +98,6 @@ struct D2MGlobalDataFormatConversion
       D2MGlobalDataFormatConversion>::D2MGlobalDataFormatConversionBase;
 
   void runOnOperation() final {
-    // Parse and validate the target format option
     auto targetDataType = parseTargetFormat(targetFormat);
     if (!targetDataType) {
       getOperation()->emitError("Invalid target format '")
@@ -115,11 +108,9 @@ struct D2MGlobalDataFormatConversion
 
     GlobalDataFormatBodyConverter bodyConverter(*targetDataType);
 
-    // Set up conversion target: preserve function signatures, convert
-    // operations
     mlir::ConversionTarget target(getContext());
     target.markUnknownOpDynamicallyLegal([&bodyConverter](mlir::Operation *op) {
-      // Preserve function operations (their signatures)
+      // Preserve function signatures
       if (isa<func::FuncOp>(op)) {
         return true;
       }
