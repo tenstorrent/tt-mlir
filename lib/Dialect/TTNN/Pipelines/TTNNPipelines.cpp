@@ -236,7 +236,10 @@ void createTTNNBackendToEmitCPipeline(
     pm.addPass(createTTNNTuplifyTensors());
 
     if (options.loadInputTensorsFromDisk) {
-      pm.addPass(createTTNNLoadInputTensors());
+      TTNNLoadInputTensorsOptions loadOptions;
+      loadOptions.tensorLoadDirectory = options.tensorLoadDirectory;
+      loadOptions.tensorLoadFilePrefix = options.tensorLoadFilePrefix;
+      pm.addPass(createTTNNLoadInputTensors(loadOptions));
     } else {
       pm.addPass(createTTNNCreateInputGenerators());
     }
@@ -258,7 +261,10 @@ void createTTNNBackendToEmitPyPipeline(
   pm.addPass(createTTNNTuplifyTensors());
 
   if (options.loadInputTensorsFromDisk) {
-    pm.addPass(createTTNNLoadInputTensors());
+    TTNNLoadInputTensorsOptions loadOptions;
+    loadOptions.tensorLoadDirectory = options.tensorLoadDirectory;
+    loadOptions.tensorLoadFilePrefix = options.tensorLoadFilePrefix;
+    pm.addPass(createTTNNLoadInputTensors(loadOptions));
   } else {
     pm.addPass(createTTNNCreateInputGenerators());
   }

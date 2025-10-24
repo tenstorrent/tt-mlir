@@ -128,6 +128,12 @@ def TTNNLoadInputTensors: Pass<"ttnn-load-input-tensors", "::mlir::ModuleOp"> {
     }
     ```
   }];
+  let options = [
+    Option<"tensorLoadDirectory", "tensor-load-directory", "std::string", /*default=*/"\"\"",
+           "Directory path where input tensors are stored">,
+    Option<"tensorLoadFilePrefix", "tensor-load-file-prefix", "std::string", /*default=*/"\"arg\"",
+           "Prefix for input tensor files">,
+  ];
 }
 
 def TTNNTuplifyTensors: Pass<"ttnn-tuplify-tensors", "::mlir::ModuleOp"> {
