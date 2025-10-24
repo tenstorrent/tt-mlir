@@ -63,7 +63,23 @@ def get_build_configuration(cwd):
     """Get build paths and environment configuration"""
     src_dir = cwd.parent.parent
 
-    ttmlir_build_dir = src_dir / "build"
+    # Try to find build directory - check both relative and absolute paths
+    possible_build_dirs = [
+        src_dir / "build",
+        pathlib.Path("/project/build"),  # CI build path
+        cwd / "build",  # Local build path
+    ]
+
+    ttmlir_build_dir = None
+    for build_dir in possible_build_dirs:
+        if build_dir.exists():
+            ttmlir_build_dir = build_dir
+            break
+
+    if not ttmlir_build_dir:
+        raise RuntimeError(
+            f"Could not find build directory. Checked: {[str(p) for p in possible_build_dirs]}"
+        )
 
     metaldir = f"{str(src_dir)}/third_party/tt-metal/src/tt-metal/build"
     ttmetalhome = os.environ.get(
@@ -286,52 +302,81 @@ def generate_package_data(all_runtime_libs):
     return package_data
 
 
-def compile_mlir(cwd):
-    """Compile MLIR files to shared objects using cmake"""
-    dist_dir = cwd / "dist"
-    dist_dir.mkdir(exist_ok=True)
+def build_required_components(cwd):
+    """Build only the required TTMLIR components if they don't exist"""
+    src_dir = cwd.parent.parent
+    build_dir = src_dir / "build"
 
-    cmake_args = [
-        "cd",
-        str(cwd.parent.parent),
-        "&&",
-        "source",
-        "env/activate",
-        "&&",
-        "cmake",
-        "-G",
-        "Ninja",
-        "-B",
-        "build",
-        "-DCMAKE_BUILD_TYPE=Release",
-        "-DCMAKE_INSTALL_PREFIX=install",
-        "-DCMAKE_C_COMPILER=clang",
-        "-DCMAKE_CXX_COMPILER=clang++",
-        "-DTTMLIR_ENABLE_PYKERNEL=ON",  # Enable PyKernel Build Here
-        "-DTTMLIR_ENABLE_RUNTIME_TESTS=OFF",
-        "-DTTMLIR_ENABLE_RUNTIME=OFF",
-        "-DTTMLIR_ENABLE_STABLEHLO=OFF",
-        "-DTTMLIR_ENABLE_OPMODEL=OFF",
-        "-DTTMLIR_ENABLE_EXPLORER=OFF",
-        "&&",
-        "cmake",
-        "--build",
-        "build",
-        "&&",
-        "cd " + str(cwd),
-        "&&",
-        "pip install build setuptools wheel",
-        "&&",
-        "python3 -m build --wheel",
+    # Check if essential components are already built
+    required_paths = [
+        build_dir / "runtime" / "lib" / "libTTMLIRRuntime.so",
+        build_dir / "python_packages" / "ttmlir",
     ]
-    subprocess.run(" ".join(cmake_args), shell=True, check=True)
+
+    missing_paths = [p for p in required_paths if not p.exists()]
+
+    if missing_paths:
+        print(f"Building required TTMLIR components...")
+
+        # Use a more targeted build that only builds what ttnn-jit needs
+        cmake_args = [
+            "cd",
+            str(src_dir),
+            "&&",
+            "source",
+            "env/activate",
+            "&&",
+            "cmake",
+            "-G",
+            "Ninja",
+            "-B",
+            "build",
+            "-DCMAKE_BUILD_TYPE=Release",
+            "-DCMAKE_INSTALL_PREFIX=install",
+            "-DCMAKE_C_COMPILER=clang",
+            "-DCMAKE_CXX_COMPILER=clang++",
+            "-DTTMLIR_ENABLE_RUNTIME=ON",  # Need runtime for ttnn-jit
+            "-DTTMLIR_ENABLE_RUNTIME_TESTS=OFF",
+            "-DTTMLIR_ENABLE_STABLEHLO=OFF",
+            "-DTTMLIR_ENABLE_OPMODEL=OFF",
+            "-DTTMLIR_ENABLE_EXPLORER=OFF",
+        ]
+
+        # Only configure if not already configured
+        if not (build_dir / "CMakeCache.txt").exists():
+            subprocess.run(" ".join(cmake_args), shell=True, check=True)
+
+        # Build only the specific targets we need
+        build_cmd = [
+            "cd",
+            str(src_dir),
+            "&&",
+            "source",
+            "env/activate",
+            "&&",
+            "cmake",
+            "--build",
+            "build",
+            "--target",
+            "TTMLIRPythonModules",
+            "&&",
+            "cmake",
+            "--build",
+            "build",
+            "--target",
+            "TTMLIRRuntime",
+        ]
+        subprocess.run(" ".join(build_cmd), shell=True, check=True)
+    else:
+        print("Required TTMLIR components already exist, skipping build...")
 
 
 def main():
     """Main setup function"""
     cwd = pathlib.Path().absolute()
-    # Compile MLIR files first
-    compile_mlir(cwd)
+
+    # Build required TTMLIR components if they don't exist
+    build_required_components(cwd)
 
     # Get build configuration
     config = get_build_configuration(cwd)
