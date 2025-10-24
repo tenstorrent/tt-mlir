@@ -14,3 +14,7 @@ using namespace mlir::tt::d2m;
 MlirAttribute ttmlirD2MThreadTypeAttrGet(MlirContext ctx, uint32_t enumValue) {
   return wrap(ThreadAttr::get(unwrap(ctx), static_cast<ThreadType>(enumValue)));
 }
+
+MlirType ttmlirD2MCBTypeGet(MlirContext ctx, MlirType shapedType) {
+  return wrap(CBType::get(mlir::cast<mlir::ShapedType>(unwrap(shapedType))));
+}
