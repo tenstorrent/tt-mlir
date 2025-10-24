@@ -234,8 +234,6 @@ static ::tt::tt_metal::ProgramDescriptor createProgramDescriptor(
     programDescriptor.semaphores.push_back(
         createSemaphoreDescriptor(*semaphoreDesc));
   }
-  programDescriptor.custom_program_hash =
-      reinterpret_cast<ttsl::hash::hash_t>(programDesc);
   return programDescriptor;
 }
 
@@ -252,7 +250,9 @@ void run(const ::tt::target::ttnn::GenericOp *op, ProgramContext &context) {
   std::shared_ptr<tt::runtime::ProgramDescCache> cache = programDescCache;
 
   auto *programDesc = op->program();
-  void *cachedPtr = cache ? cache->get(programDesc) : nullptr;
+  std::size_t hash =
+      ttsl::hash::hash_objects_with_default_seed(programDesc, cache);
+  void *cachedPtr = cache ? cache->get(hash) : nullptr;
 
   ::tt::tt_metal::ProgramDescriptor programDescriptor;
   if (cachedPtr) {
@@ -260,10 +260,12 @@ void run(const ::tt::target::ttnn::GenericOp *op, ProgramContext &context) {
         *static_cast<::tt::tt_metal::ProgramDescriptor *>(cachedPtr);
   } else {
     programDescriptor = createProgramDescriptor(programDesc, ioTensors);
+    programDescriptor.custom_program_hash =
+        reinterpret_cast<ttsl::hash::hash_t>(hash);
     if (cache) {
       auto heapCopy = std::make_shared<::tt::tt_metal::ProgramDescriptor>(
           programDescriptor);
-      cache->insert(programDesc, std::move(heapCopy));
+      cache->insert(hash, std::move(heapCopy));
     }
   }
 
