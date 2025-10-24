@@ -207,6 +207,7 @@ def test_unary_op_l1(device, h, w, max_grid, dtype, op):
         device, h, w, max_grid, dtype, op, num_inputs=1, buffer_type=ttnn.BufferType.L1
     )
 
+
 @pytest.mark.parametrize("dtype", [torch.int32])
 @pytest.mark.parametrize(
     "op",

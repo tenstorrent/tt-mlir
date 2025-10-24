@@ -278,6 +278,7 @@ def bitwise_not(
 
 bitwise_unary_ops = [bitwise_not]
 
+
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.int32], ids=["i32"])
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy"])
