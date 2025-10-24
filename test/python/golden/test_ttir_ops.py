@@ -649,7 +649,7 @@ def test_conv2d_consteval(
 @pytest.mark.parametrize("padding", [[2, 1]])
 @pytest.mark.parametrize("groups", [1])
 @pytest.mark.parametrize("target", ["ttnn"])
-@pytest.mark.xfail(reason="Issue #5165.")
+@pytest.mark.xfail(reason="Issue #5495.")
 def test_hoisted_conv2d(
     shapes: List[Shape],
     stride: List[int],
