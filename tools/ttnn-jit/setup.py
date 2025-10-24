@@ -70,7 +70,7 @@ def get_build_configuration():
     )
 
     metaldir = f"{src_dir}/third_party/tt-metal/src/tt-metal/build"
-    ttmetalhome = os.environ.get("TT_METAL_HOME", "")
+    ttmetalhome = os.environ.get("TT_METAL_RUNTIME_ROOT", "")
     arch = os.environ.get("CMAKE_SYSTEM_PROCESSOR", DEFAULT_ARCH)
 
     # Set RPATH for runtime linking
