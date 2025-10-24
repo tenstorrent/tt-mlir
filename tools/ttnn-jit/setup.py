@@ -293,6 +293,7 @@ def compile_mlir():
     """Compile MLIR files to shared objects using cmake"""
 
     cmake_args = [
+        "cmake",
         "-G",
         "Ninja",
         "-B",
