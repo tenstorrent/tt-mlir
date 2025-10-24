@@ -49,7 +49,7 @@ from op_by_op_infra import workflow_internal
 from op_by_op_infra.pydantic_models import OpTest, model_to_dict
 
 
-def example_workflow_usage(
+def run_op_by_op_workflow(
     workflow_type: str = "split_and_execute",
 ):
     file_path = _get_mlir_file_path()
@@ -118,7 +118,7 @@ def test_op_by_op_inference_from_file(record_property):
     workflow_type = os.getenv("WORKFLOW_TYPE", "split_and_execute")
 
     # Execute the workflow
-    results = example_workflow_usage(workflow_type)
+    results = run_op_by_op_workflow(workflow_type)
 
     # Record properties for each operation result
     for result in results:
