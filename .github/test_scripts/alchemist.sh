@@ -20,10 +20,10 @@ echo "Run tt-alchemist API test - model-to-python"
 tt-alchemist model-to-python $WORK_DIR/tools/tt-alchemist/test/models/mnist.mlir
 
 echo "Run tt-alchemist API test - generate-cpp (load tensors)"
-OUTPUT_DIR=/tmp/test-load-tensors
+OUTPUT_DIR=/tmp/test-load-tensors-cpp
 rm -rf $OUTPUT_DIR
-tt-alchemist generate-cpp --pipeline-options 'load-input-tensors-from-disk=true' $WORK_DIR/test/ttmlir/EmitC/TTNN/load_input/ttnn_load_input_tensors.mlir --output $OUTPUT_DIR --standalone
-cp $WORK_DIR/test/ttmlir/EmitC/TTNN/load_input/arg0.tensorbin $WORK_DIR/test/ttmlir/EmitC/TTNN/load_input/arg1.tensorbin $OUTPUT_DIR
+tt-alchemist generate-cpp --pipeline-options 'load-input-tensors-from-disk=true' $WORK_DIR/test/ttmlir/EmitC/TTNN/load_input/load_input_local/ttnn_load_input_tensors.mlir --output $OUTPUT_DIR --standalone
+cp $WORK_DIR/test/ttmlir/EmitC/TTNN/load_input/load_input_local/arg0.tensorbin $WORK_DIR/test/ttmlir/EmitC/TTNN/load_input/load_input_local/arg1.tensorbin $OUTPUT_DIR
 cd $OUTPUT_DIR
 [ -d $OUTPUT_DIR ] || { echo "Directory not found: $OUTPUT_DIR" >&2; exit 1; }
 ./run
@@ -42,7 +42,16 @@ cd /tmp/test-generate-cpp-resnet
 [ -d /tmp/test-generate-cpp-resnet ] || { echo "Directory not found: /tmp/test-generate-cpp-resnet" >&2; exit 1; }
 ./run
 
-echo "Run tt-alchemist API test - generate-python"
+echo "Run tt-alchemist API test - generate-python (load tensors)"
+OUTPUT_DIR=/tmp/test-load-tensors-python
+rm -rf $OUTPUT_DIR
+tt-alchemist generate-python --pipeline-options 'load-input-tensors-from-disk=true' $WORK_DIR/test/ttmlir/EmitPy/TTNN/load_input/load_input_local/ttnn_load_input_tensors.mlir --output $OUTPUT_DIR
+cp $WORK_DIR/test/ttmlir/EmitPy/TTNN/load_input/load_input_local/arg0.tensorbin $WORK_DIR/test/ttmlir/EmitPy/TTNN/load_input/load_input_local/arg1.tensorbin $OUTPUT_DIR
+cd $OUTPUT_DIR
+[ -d $OUTPUT_DIR ] || { echo "Directory not found: $OUTPUT_DIR" >&2; exit 1; }
+./run
+
+echo "Run tt-alchemist API test - generate-python (mnist)"
 rm -rf /tmp/test-generate-python
 tt-alchemist generate-python $WORK_DIR/tools/tt-alchemist/test/models/mnist.mlir --output /tmp/test-generate-python --standalone
 cd /tmp/test-generate-python

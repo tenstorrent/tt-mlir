@@ -43,13 +43,12 @@ public:
     builder->create<emitc::IncludeOp>(loc, "tools/profiler/kernel_profiler.hpp",
                                       /*isStandard=*/false);
 
-    emitDebugPrint();
-
     if (threadType == ThreadType::Noc) {
 
       builder->create<emitc::IncludeOp>(loc, "dataflow_api.h",
                                         /*isStandard=*/false);
       emitExperimentalLLKs();
+      emitDebugPrint(threadType);
     }
     if (threadType == ThreadType::Compute) {
       builder->create<emitc::IncludeOp>(loc, "llk_defs.h",
@@ -132,6 +131,7 @@ public:
       builder->create<emitc::IncludeOp>(loc, "compute_kernel_api/reduce.h",
                                         /*isStandard=*/false);
       emitExperimentalLLKs();
+      emitDebugPrint(threadType);
       builder->create<emitc::VerbatimOp>(loc, "namespace NAMESPACE {");
     }
   }
@@ -148,7 +148,7 @@ public:
     builder->create<emitc::VerbatimOp>(loc, (Twine("// ") + str).str());
   }
 
-  void emitDebugPrint() {
+  void emitDebugPrint(ThreadType threadType) {
     if (!hasOp<emitc::CallOpaqueOp>([](emitc::CallOpaqueOp op) {
           return op.getCallee() == "ttmlir::dprint";
         })) {
@@ -174,8 +174,40 @@ void dprint(Arg &&arg, ArgV&&... argv) {
   DPRINT << arg;
   dprint(argv...);
 }
+
 } // namespace ttmlir
 )"""");
+
+    if (threadType == ThreadType::Compute) {
+      builder->create<emitc::VerbatimOp>(loc, R""""(
+    namespace ttmlir {
+      inline void print_cb_details_(DebugPrinter dp, uint32_t cb_id) {
+      dp << "cb_id " << cb_id << ": { ";
+      dp << "size: " << get_local_cb_interface(cb_id).fifo_size << ", ";
+      dp << "limit: " << get_local_cb_interface(cb_id).fifo_limit << ", ";
+      dp << "page_size: " << get_local_cb_interface(cb_id).fifo_page_size << ", ";
+      dp << "num_pages: " << get_local_cb_interface(cb_id).fifo_num_pages << ", ";
+      dp << "rd_ptr: " << get_local_cb_interface(cb_id).fifo_rd_ptr << ", ";
+      dp << "wr_ptr: " << get_local_cb_interface(cb_id).fifo_wr_ptr << ", ";
+      dp << "wr_tile_ptr: " << get_local_cb_interface(cb_id).fifo_wr_tile_ptr;
+      dp << " }";
+    }
+
+    struct CBPrinter {
+        uint32_t cb_id;
+
+        constexpr CBPrinter(uint32_t cb_id) : cb_id(cb_id) {}
+    };
+
+    DebugPrinter operator<<(DebugPrinter dp, CBPrinter cb) {
+        UNPACK((print_cb_details_(dp, cb.cb_id)));
+        MATH(DPRINT << cb.cb_id);
+        PACK((print_cb_details_(dp, cb.cb_id)));
+        return dp;
+    }
+    } // namespace ttmlir
+    )"""");
+    }
   }
 
   void emitExperimentalLLKs() {

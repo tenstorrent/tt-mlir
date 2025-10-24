@@ -1433,6 +1433,7 @@ def TTNN_PrepareConv2dWeightsOp : TTNN_Op<"prepare_conv2d_weights"> {
                          TTCore_DataTypeAttr:$input_dtype,
                          OptionalAttr<TTCore_DataTypeAttr>:$output_dtype,
                          OptionalAttr<TTNN_Conv2dConfigAttr>:$conv2d_config,
+                         OptionalAttr<TTNN_DeviceComputeKernelConfig>:$compute_config,
                          OptionalAttr<TTNN_Conv2dSliceConfigAttr>:$conv2d_slice_config);
 
     let results = (outs AnyRankedTensor:$result);
@@ -1460,6 +1461,7 @@ def TTNN_PrepareConv2dBiasOp : TTNN_Op<"prepare_conv2d_bias"> {
                          TTCore_DataTypeAttr:$input_dtype,
                          OptionalAttr<TTCore_DataTypeAttr>:$output_dtype,
                          OptionalAttr<TTNN_Conv2dConfigAttr>:$conv2d_config,
+                         OptionalAttr<TTNN_DeviceComputeKernelConfig>:$compute_config,
                          OptionalAttr<TTNN_Conv2dSliceConfigAttr>:$conv2d_slice_config);
 
     let results = (outs AnyRankedTensor:$result);
@@ -1633,6 +1635,7 @@ def TTNN_ConvTranspose2dOp : TTNN_Op<"conv_transpose2d", [TTNN_DtypeOpInterface]
                          I32Attr:$groups,
                          OptionalAttr<TTCore_DataTypeAttr>:$dtype,
                          OptionalAttr<TTNN_Conv2dConfigAttr>:$conv2d_config,
+                         OptionalAttr<TTNN_DeviceComputeKernelConfig>:$compute_config,
                          OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
 
     let results = (outs AnyRankedTensor:$result);
@@ -1723,16 +1726,36 @@ def TTNN_MaxPool2dOp : TTNN_Op<"max_pool2d", [TTNN_MemoryConfigOpInterface]> {
     let hasVerifier = 1;
 }
 
-def TTNN_BatchNormOp : TTNN_Op<"batch_norm", [AttrSizedOperandSegments]> {
-    let summary = "Batch normalization op.";
+def TTNN_BatchNormInferenceOp : TTNN_Op<"batch_norm_inference", [AttrSizedOperandSegments]> {
+    let summary = "Batch normalization inference op.";
     let description = [{
-      Batch normalization operation over each channel on input tensor.
+      Batch normalization operation for inference over each channel on input tensor.
+      Uses pre-computed mean and variance.
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
                          Optional<AnyRankedTensor>:$running_mean,
                          Optional<AnyRankedTensor>:$running_var,
-                         DefaultValuedAttr<BoolAttr, "false">:$training,
+                         DefaultValuedAttr<F32Attr, "1e-05">:$epsilon,
+                         Optional<AnyRankedTensor>:$weight,
+                         Optional<AnyRankedTensor>:$bias,
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 1;
+}
+
+def TTNN_BatchNormTrainingOp : TTNN_Op<"batch_norm_training", [AttrSizedOperandSegments]> {
+    let summary = "Batch normalization training op.";
+    let description = [{
+      Batch normalization operation for training over each channel on input tensor.
+      Computes batch statistics and updates running mean and variance.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         Arg<Optional<AnyRankedTensor>, "running mean", [MemWrite]>:$running_mean,
+                         Arg<Optional<AnyRankedTensor>, "running variance", [MemWrite]>:$running_var,
                          DefaultValuedAttr<F32Attr, "1e-05">:$epsilon,
                          DefaultValuedAttr<F32Attr, "0.1">:$momentum,
                          Optional<AnyRankedTensor>:$weight,
@@ -2035,11 +2058,33 @@ def TTNN_DeallocateOp : TTNN_MemFreeOp<"deallocate"> {
                          DefaultValuedAttr<BoolAttr, "false">:$force);
 }
 
-def TTNN_ScatterOp: TTNN_ElementwiseBinaryCompositeOp<"scatter"> {
+def TTNN_ScatterOp : TTNN_Op<"scatter", [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>] >{
     let summary = "Scatter op.";
     let description = [{
-      Embeds the values of the 'update' tensor into 'input' at the given index and puts the value in the 'output' tensor.
-      }];
+      Embeds the values of the source tensor into the input tensor at locations specified by the index tensor along the given dimension.
+
+      Parameters:
+        - `input` (ttnn.Tensor): The tensor being updated.
+        - `index` (ttnn.Tensor): Indices where values will be written to.
+        - `source` (ttnn.Tensor): The values to scatter into the input tensor.
+        - `dim` (int32_t): The dimension along which to scatter.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$index,
+                         AnyRankedTensor:$source,
+                         I32Attr:$dim,
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 1;
+
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        return wa::TTNNOperandsWorkaroundsFactory::createScatterOpOperandsWorkarounds(getOperation());
+      }
+    }];
 }
 
 def TTNN_AllGatherOp: TTNN_Op<"all_gather"> {

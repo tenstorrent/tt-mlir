@@ -5,6 +5,7 @@
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
+#include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/Bufferization/IR/Bufferization.h"
@@ -34,25 +35,6 @@ static Type getElemType(Type ty) {
     return mr.getElementType();
   }
   return ty;
-}
-
-// Helper function to wrap a value in ToTensorOp (if needed) to conform to
-// bufferization API expectations (mirrors D2M)
-static mlir::Value wrapValueInTensorCompatibleType(mlir::RewriterBase &rewriter,
-                                                   mlir::Value value,
-                                                   mlir::Location loc) {
-  if (mlir::isa<mlir::RankedTensorType>(value.getType())) {
-    return value;
-  }
-  auto shapedType = mlir::dyn_cast<mlir::ShapedType>(value.getType());
-  if (!shapedType) {
-    return value;
-  }
-  auto tensorType = mlir::RankedTensorType::get(shapedType.getShape(),
-                                                shapedType.getElementType());
-  return rewriter
-      .create<mlir::bufferization::ToTensorOp>(loc, tensorType, value)
-      .getResult();
 }
 
 static mlir::ConstantIntRanges getIndexRange(uint64_t umin, uint64_t umax) {
@@ -172,13 +154,9 @@ bool DMAOp::isNotConflicting(mlir::OpOperand *, mlir::OpOperand *,
   ShapedType srcType = mlir::cast<ShapedType>(getSrc().getType());
   ShapedType dstType = mlir::cast<ShapedType>(getDst().getType());
 
-  auto isLocal = [&](auto operand) {
-    Block *block = operand.getParentBlock();
-    Block::BlockArgListType blockArgs = block->getArguments();
-    return std::find(blockArgs.begin(), blockArgs.end(), operand) !=
-           blockArgs.end();
+  auto isRemote = [&](auto operand) {
+    return ttcore::hasDeviceLayout(operand);
   };
-  auto isRemote = [&](auto operand) { return !isLocal(operand); };
 
   if (isRemote(getSrc())) {
     return emitOpError("For DMAWrite, src must be local");
@@ -225,13 +203,10 @@ bool DMAOp::isNotConflicting(mlir::OpOperand *, mlir::OpOperand *,
 ::mlir::LogicalResult DMAReadOp::verify() {
   ShapedType srcType = mlir::cast<ShapedType>(getSrc().getType());
   ShapedType dstType = mlir::cast<ShapedType>(getDst().getType());
-  auto isLocal = [&](auto operand) {
-    Block *block = operand.getParentBlock();
-    Block::BlockArgListType blockArgs = block->getArguments();
-    return std::find(blockArgs.begin(), blockArgs.end(), operand) !=
-           blockArgs.end();
+  auto isRemote = [&](auto operand) {
+    return ttcore::hasDeviceLayout(operand);
   };
-  auto isRemote = [&](auto operand) { return !isLocal(operand); };
+  auto isLocal = [&](auto operand) { return !isRemote(operand); };
   if (!(isRemote(getSrc()) && isLocal(getDst()))) {
     return emitOpError("For DMARead, src must be remote and dst must be local");
   }
@@ -314,50 +289,32 @@ DMAOp::getBufferType(mlir::Value value,
                      const mlir::bufferization::BufferizationState &,
                      ::llvm::SmallVector<mlir::Value> &) {
   auto rankedTensorType = mlir::cast<mlir::RankedTensorType>(value.getType());
-  return mlir::tt::d2m::getBufferType(rankedTensorType, /*isView=*/true);
+  return mlir::tt::ttcore::getBufferType(rankedTensorType, /*isView=*/true);
 }
 
 mlir::LogicalResult
 DMAOp::bufferize(mlir::RewriterBase &rewriter,
                  const mlir::bufferization::BufferizationOptions &options,
                  mlir::bufferization::BufferizationState &state) {
-  Value src = nullptr;
+  mlir::FailureOr<Value> src =
+      mlir::bufferization::getBuffer(rewriter, getSrc(), options, state);
   // NOLINTNEXTLINE
-  if (isSrcRemote()) {
-    auto srcToTensor =
-        wrapValueInTensorCompatibleType(rewriter, getSrc(), getLoc());
-
-    auto maybeSrc =
-        mlir::bufferization::getBuffer(rewriter, srcToTensor, options, state);
-    if (failed(maybeSrc)) {
-      return maybeSrc;
-    }
-    src = *maybeSrc;
-  } else {
-    src = getSrc();
+  if (failed(src)) {
+    return src;
   }
 
-  Value dst = nullptr;
+  mlir::FailureOr<Value> dst =
+      mlir::bufferization::getBuffer(rewriter, getDst(), options, state);
   // NOLINTNEXTLINE
-  if (isDstRemote()) {
-    auto dstToTensor =
-        wrapValueInTensorCompatibleType(rewriter, getDst(), getLoc());
-
-    auto maybeDst =
-        mlir::bufferization::getBuffer(rewriter, dstToTensor, options, state);
-    if (failed(maybeDst)) {
-      return maybeDst;
-    }
-    dst = *maybeDst;
-  } else {
-    dst = getDst();
+  if (failed(dst)) {
+    return dst;
   }
 
   ::llvm::SmallVector<mlir::Value> invocationStack;
   // NOLINTNEXTLINE
   mlir::bufferization::replaceOpWithNewBufferizedOp<mlir::tt::d2m::DMAOp>(
-      rewriter, *this, getResult().getType(), src, getSrcAffineMapAttr(),
-      getSrcIndices(), dst, getDstAffineMapAttr(), getDstIndices(),
+      rewriter, *this, getResult().getType(), *src, getSrcAffineMapAttr(),
+      getSrcIndices(), *dst, getDstAffineMapAttr(), getDstIndices(),
       getOptNumElemsAttr(), getMcastStartIndex(), getMcastShape());
 
   return mlir::success();
@@ -409,18 +366,7 @@ mlir::OpFoldResult CoreIndexOp::fold(FoldAdaptor adaptor) {
                        "element type");
   }
 
-  int numAttrsSet = getBlockM().has_value() + getBlockK().has_value() +
-                    getBlockN().has_value() + getBBlockStride().has_value();
-  if (numAttrsSet != 0 && numAttrsSet != 4) {
-    return emitOpError(
-        "all or none of the block dim attributes must be present");
-  }
-
   return success();
-}
-
-bool TileMatmulBlockOp::hasBlockDims() {
-  return getBlockM() && getBlockK() && getBlockN() && getBBlockStride();
 }
 
 void TileMatmulBlockOp::getEffects(
@@ -598,54 +544,15 @@ void TileUntilizeBlockOp::getEffects(
 }
 
 //===----------------------------------------------------------------------===//
-// YieldOp / AwaitOp
+// YieldOp / WaitOp / ReserveOp
 //===----------------------------------------------------------------------===//
-
-static bool valueInRegionArguments(mlir::Value value, mlir::Region *region) {
-  return llvm::is_contained(region->getArguments(), value);
-}
-
-static mlir::Value recurseThroughMemrefCollapse(mlir::Value value) {
-  while (auto memrefCastOp =
-             value.getDefiningOp<::mlir::memref::CollapseShapeOp>()) {
-    value = memrefCastOp.getOperand();
-  }
-  return value;
-}
-
-static ::mlir::LogicalResult operandsInRegionArguments(mlir::Operation *op,
-                                                       mlir::Region *region) {
-  for (mlir::OpOperand &operand : op->getOpOperands()) {
-    mlir::Value value = recurseThroughMemrefCollapse(operand.get());
-    if (!valueInRegionArguments(value, region)) {
-      return op->emitOpError() << "operand[" << operand.getOperandNumber()
-                               << "] not in region arguments";
-    }
-  }
-  return ::mlir::success();
-}
 
 mlir::LogicalResult YieldOp::verify() {
   auto generic = getOperation()->getParentOfType<GenericOp>();
-  if (generic && generic.hasPureTensorSemantics()) {
-    return ::mlir::success();
+  if (!generic || !generic.hasPureTensorSemantics()) {
+    return emitOpError()
+           << "used outside of generic op with pure tensor semantics";
   }
 
-  return operandsInRegionArguments(
-      getOperation(),
-      ttmlir::utils::getRegionWithParentOfType<GenericOp, func::FuncOp>(
-          getOperation()));
-}
-
-mlir::LogicalResult AwaitOp::verify() {
-  auto generic = getOperation()->getParentOfType<GenericOp>();
-  if (generic && generic.hasPureTensorSemantics()) {
-    return emitOpError(
-        "await op illegal to use inside generic with pure tensor semantics");
-  }
-
-  return operandsInRegionArguments(
-      getOperation(),
-      ttmlir::utils::getRegionWithParentOfType<GenericOp, func::FuncOp>(
-          getOperation()));
+  return ::mlir::success();
 }

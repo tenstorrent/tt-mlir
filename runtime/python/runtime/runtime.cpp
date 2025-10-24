@@ -255,8 +255,8 @@ void registerRuntimeBindings(nb::module_ &m) {
       .value("MultiProcess", ::tt::runtime::DistributedMode::MultiProcess);
 
   nb::enum_<::tt::runtime::DispatchCoreType>(m, "DispatchCoreType")
-      .value("WORKER", ::tt::runtime::DispatchCoreType::WORKER)
-      .value("ETH", ::tt::runtime::DispatchCoreType::ETH);
+      .value("WORKER", ::tt::runtime::DispatchCoreType::Worker)
+      .value("ETH", ::tt::runtime::DispatchCoreType::Ethernet);
 
   nb::enum_<::tt::runtime::FabricConfig>(m, "FabricConfig")
       .value("DISABLED", ::tt::runtime::FabricConfig::DISABLED)
@@ -279,11 +279,10 @@ void registerRuntimeBindings(nb::module_ &m) {
              ::tt::runtime::FabricConfig::FABRIC_2D_DYNAMIC_TORUS_XY)
       .value("CUSTOM", ::tt::runtime::FabricConfig::CUSTOM);
 
-  nb::enum_<::tt::runtime::Arch>(m, "Arch")
-      .value("GRAYSKULL", ::tt::runtime::Arch::GRAYSKULL)
-      .value("WORMHOLE_B0", ::tt::runtime::Arch::WORMHOLE_B0)
-      .value("BLACKHOLE", ::tt::runtime::Arch::BLACKHOLE)
-      .value("QUASAR", ::tt::runtime::Arch::QUASAR);
+  nb::enum_<::tt::target::Arch>(m, "Arch")
+      .value("GRAYSKULL", ::tt::target::Arch::Grayskull)
+      .value("WORMHOLE_B0", ::tt::target::Arch::Wormhole_b0)
+      .value("BLACKHOLE", ::tt::target::Arch::Blackhole);
 
   m.def("set_mlir_home", &tt::runtime::setMlirHome, nb::arg("mlir_home"),
         "Set the MLIR home directory");
@@ -579,6 +578,8 @@ void registerRuntimeBindings(nb::module_ &m) {
       .def_static("get", &tt::runtime::perf::Env::get, nb::rv_policy::reference)
       .def("set_program_metadata", &tt::runtime::perf::Env::setProgramMetadata)
       .def("tracy_log_op_location", &tt::runtime::perf::Env::tracyLogOpLocation)
+      .def("tracy_log_input_layout_conversion",
+           &tt::runtime::perf::Env::tracyLogInputLayoutConversion)
       .def("tracy_log_const_eval_program",
            &tt::runtime::perf::Env::tracyLogConstEvalProgram)
       .def("tracy_log_program_metadata",

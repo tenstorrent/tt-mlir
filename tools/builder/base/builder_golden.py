@@ -17,7 +17,7 @@ import itertools
 import operator
 import torch
 import torch.nn.functional
-from ttmlir.dialects import ttir, stablehlo, d2m
+from ttmlir.dialects import ttir, stablehlo, d2m, ttnn
 from ttmlir.ir import (
     Attribute,
     ArrayAttr,
@@ -1186,6 +1186,78 @@ def logical_xor_golden(
     return result_bool.to(input_tensor.dtype)
 
 
+def logical_left_shift_golden(
+    input_tensor: BuilderGoldenTensor, shift_tensor: BuilderGoldenTensor, **kwargs
+) -> BuilderGoldenTensor:
+    """
+    Golden function for logical left shift operation.
+
+    Parameters
+    ----------
+    input_tensor : BuilderGoldenTensor
+        Input tensor to be shifted.
+    shift_tensor : BuilderGoldenTensor
+        Tensor containing the number of bits to shift.
+
+    Returns
+    -------
+    BuilderGoldenTensor
+        Tensor with the same dtype as input_tensor after logical left shift.
+    """
+    # Perform logical left shift
+    # Convert both inputs to int64 to handle both signed and unsigned types
+    input_int64 = input_tensor.to(torch.int64)
+    shift_int64 = shift_tensor.to(torch.int64)
+
+    # Mask input to 32-bit unsigned range (for signed types this converts to unsigned interpretation)
+    input_unsigned = torch.bitwise_and(input_int64, 0xFFFFFFFF)
+
+    # Perform shift in int64 space
+    result = torch.bitwise_left_shift(input_unsigned, shift_int64)
+
+    # Mask result to keep in valid 32-bit range
+    result = torch.bitwise_and(result, 0xFFFFFFFF)
+
+    # Convert back to original dtype
+    return result.to(input_tensor.dtype)
+
+
+def logical_right_shift_golden(
+    input_tensor: BuilderGoldenTensor, shift_tensor: BuilderGoldenTensor, **kwargs
+) -> BuilderGoldenTensor:
+    """
+    Golden function for logical right shift operation.
+
+    Parameters
+    ----------
+    input_tensor : BuilderGoldenTensor
+        Input tensor to be shifted.
+    shift_tensor : BuilderGoldenTensor
+        Tensor containing the number of bits to shift.
+
+    Returns
+    -------
+    BuilderGoldenTensor
+        Tensor with the same dtype as input_tensor after logical right shift.
+    """
+    # Perform logical (unsigned) right shift
+    # Convert both inputs to int64 to handle both signed and unsigned types
+    input_int64 = input_tensor.to(torch.int64)
+    shift_int64 = shift_tensor.to(torch.int64)
+
+    # Mask input to 32-bit unsigned range (for signed types this converts to unsigned interpretation)
+    input_unsigned = torch.bitwise_and(input_int64, 0xFFFFFFFF)
+
+    # Perform shift in int64 space
+    result = torch.bitwise_right_shift(input_unsigned, shift_int64)
+
+    # Mask result to keep in valid range
+    result = torch.bitwise_and(result, 0xFFFFFFFF)
+
+    # Convert back to original dtype
+    return result.to(input_tensor.dtype)
+
+
 def max_golden(
     input_tensor: BuilderGoldenTensor, dim_arg=None, keep_dim=True
 ) -> BuilderGoldenTensor:
@@ -2105,6 +2177,25 @@ def leaky_relu_golden(
     return torch.nn.functional.leaky_relu(input_tensor, negative_slope=parameter)
 
 
+def silu_golden(input_tensor: BuilderGoldenTensor, **kwargs) -> BuilderGoldenTensor:
+    """
+    Golden function for silu operation with TTIR parameter names.
+
+    Parameters
+    ----------
+    input_tensor : BuilderGoldenTensor
+        Input tensor
+    **kwargs : dict
+        Additional keyword arguments
+
+    Returns
+    -------
+    BuilderGoldenTensor
+        SiLU output
+    """
+    return torch.nn.functional.silu(input_tensor)
+
+
 def softmax_golden(input_tensor: BuilderGoldenTensor, **kwargs) -> BuilderGoldenTensor:
     """
     Golden function for softmax operation with TTIR parameter names.
@@ -2227,6 +2318,24 @@ def ones_golden(**kwargs) -> BuilderGoldenTensor:
     """
     size = kwargs.get("shape", [1])
     return BuilderGoldenTensor({0: torch.ones(size)}, (1, 1))
+
+
+def constant_golden(**kwargs) -> BuilderGoldenTensor:
+    """
+    Golden function for constant operation with TTIR parameter names.
+
+    Parameters
+    ----------
+    **kwargs : dict
+        Keyword arguments including 'value'
+
+    Returns
+    -------
+    BuilderGoldenTensor
+        Constant tensor
+    """
+    value = kwargs.get("value", [1])
+    return BuilderGoldenTensor({0: value}, (1, 1))
 
 
 def reverse_golden(input_tensor: BuilderGoldenTensor, **kwargs) -> BuilderGoldenTensor:
@@ -2707,6 +2816,8 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.AbsOp: torch.abs,
     ttir.CeilOp: torch.ceil,
     ttir.CosOp: torch.cos,
+    ttir.ErfOp: torch.erf,
+    ttir.ErfcOp: torch.erfc,
     ttir.FloorOp: torch.floor,
     ttir.GeluOp: torch.nn.functional.gelu,
     ttir.IsFiniteOp: torch.isfinite,
@@ -2719,8 +2830,8 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.Relu6Op: torch.nn.functional.relu6,
     ttir.RsqrtOp: torch.rsqrt,
     ttir.SigmoidOp: torch.sigmoid,
-    ttir.SiluOp: torch.nn.functional.silu,
     ttir.SignOp: torch.sign,
+    ttir.SiluOp: silu_golden,
     ttir.SinOp: torch.sin,
     ttir.SqrtOp: torch.sqrt,
     ttir.LogOp: torch.log,
@@ -2729,6 +2840,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.ExpOp: torch.exp,
     # Elementwise binary operations
     ttir.AddOp: torch.add,
+    ttir.Atan2Op: torch.atan2,
     ttir.MultiplyOp: torch.multiply,
     ttir.SubtractOp: torch.subtract,
     ttir.DivOp: torch.div,
@@ -2745,7 +2857,9 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.LessThanOp: less_than_golden,
     # Logical operations
     ttir.LogicalAndOp: logical_and_golden,
+    ttir.LogicalLeftShiftOp: logical_left_shift_golden,
     ttir.LogicalOrOp: logical_or_golden,
+    ttir.LogicalRightShiftOp: logical_right_shift_golden,
     ttir.LogicalXorOp: logical_xor_golden,
     ttir.LogicalNotOp: logical_not_golden,
     # Selection operations
@@ -2787,13 +2901,14 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.MatmulOp: torch.matmul,
     ttir.EmbeddingOp: embedding_golden,
     ttir.Upsample2dOp: upsample2d_golden,
-    ttir.BatchNormOp: batch_norm_golden,
+    ttir.BatchNormInferenceOp: batch_norm_golden,
     ttir.RMSNormOp: rms_norm_golden,
     # Type operations
     ttir.TypecastOp: typecast_golden,
     # Tensor creation
     ttir.ZerosOp: zeros_golden,
     ttir.OnesOp: ones_golden,
+    ttir.ConstantOp: constant_golden,
     ttir.ArangeOp: arange_golden,
     # Quantization operations
     ttir.QuantizeOp: quantize_golden,
@@ -2841,4 +2956,6 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     stablehlo.SqrtOp: torch.sqrt,
     stablehlo.TanOp: torch.tan,
     stablehlo.ConcatenateOp: concat_golden,
+    # TTNN elementwise operations
+    ttnn.MultiplyOp: torch.multiply,
 }

@@ -119,7 +119,9 @@ class TTIRCompiler(ast.NodeVisitor):
             # Can't pull grid info from tensor unless it's sharded
             grid_size_x = self.max_grid[0] + 1
             grid_size_y = self.max_grid[1] + 1
-            grid = ttcore.ir.GridAttr.get(self.ctx, [grid_size_x, grid_size_y])
+
+            # TTNN writes grids as (width, height) but compiler expects (height, width)
+            grid = ttcore.ir.GridAttr.get(self.ctx, [grid_size_y, grid_size_x])
 
             # Create memref, tile type only.
             shard_shape_tile_x = shard_shape[0] // 32
@@ -129,7 +131,7 @@ class TTIRCompiler(ast.NodeVisitor):
                 [shard_shape_tile_x, shard_shape_tile_y], tile_type, None, buffer_type
             )
 
-            ttnn_layout = ttnn.ir.TTNNLayoutAttr.get(
+            ttnn_layout = ttnn.ir.TTNNLayoutAttr.get_with_linear(
                 self.ctx,
                 identity_map,
                 grid,
@@ -146,7 +148,7 @@ class TTIRCompiler(ast.NodeVisitor):
             grid = ttcore.ir.GridAttr.get(self.ctx, [1, 1])
             shape = [tensor_arg.shape[0] // 32, tensor_arg.shape[1] // 32]
             memref = MemRefType.get(shape, tile_type, None, buffer_type)
-            return ttnn.ir.TTNNLayoutAttr.get(
+            return ttnn.ir.TTNNLayoutAttr.get_with_linear(
                 self.ctx,
                 identity_map,
                 grid,
