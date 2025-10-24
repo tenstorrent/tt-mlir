@@ -13,6 +13,7 @@
 #include "ttmlir/Dialect/TTCore/Utils/PopulateArgumentTypes.h"
 #include "ttmlir/Dialect/TTIR/Pipelines/TTIRPipelines.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
+#include "ttmlir/Dialect/TTNN/Transforms/OptimizerPassesWrapper.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
 #include "ttmlir/Support/Logger.h"
 #include "ttmlir/Transforms/Passes.h"
@@ -77,34 +78,37 @@ void createTTNNPipelineTTIRPasses(
 
 void createTTNNPipelineAnalysisPasses(
     OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
+
   // Add pass to check for unique operation locations if enabled
   if (options.checkUniqueLocations) {
     pm.addPass(mlir::tt::ttnn::createTTNNUniqueLocations());
   }
   if (options.optimizerPassEnabled) {
-    ttnn::TTNNOptimizerOptions optimizerOptions;
-    optimizerOptions.insertMemReconfig = options.insertMemReconfig;
-    optimizerOptions.overrideOutputLayout = options.overrideOutputLayout;
-    optimizerOptions.overrideConv2dConfig = options.overrideConv2dConfig;
-    optimizerOptions.memoryLayoutAnalysisEnabled =
-        options.memoryLayoutAnalysisEnabled;
-    optimizerOptions.l1InterleavedFallbackAnalysisEnabled =
-        options.l1InterleavedFallbackAnalysisEnabled;
-    optimizerOptions.memReconfigEnabled = options.memReconfigEnabled;
-    optimizerOptions.memoryLayoutAnalysisPolicy =
-        options.memoryLayoutAnalysisPolicy;
-    optimizerOptions.maxLegalLayouts = options.maxLegalLayouts;
-    optimizerOptions.rowMajorEnabled = options.rowMajorEnabled;
-    optimizerOptions.tensorL1UsageCap = options.tensorL1UsageCap;
-    optimizerOptions.devicePtr = options.devicePtr;
-    pm.addPass(mlir::tt::ttnn::createTTNNOptimizer(optimizerOptions));
-    pm.addPass(mlir::createCanonicalizerPass());
 #ifdef TTMLIR_ENABLE_OPMODEL
+    ttnn::TTNNOptimizerOptions optimizerOptions(options);
+    // Wrap all Optimizer passes with device lifecycle management.
+    OptimizerPassesWrapperOptions wrapperOptions;
+    wrapperOptions.devicePtr = options.devicePtr;
+
     ttnn::TTNNOperationValidationAndFallbackOptions validationOptions{
         options.tensorL1UsageCap};
-    pm.addPass(mlir::tt::ttnn::createTTNNOperationValidationAndFallback(
-        validationOptions));
-    pm.addPass(mlir::tt::ttnn::createTTNNPrepareConv2dWeightsAndBias());
+
+    pm.addPass(createOptimizerPassesWrapper(
+        [optimizerOptions, validationOptions](OpPassManager &innerPm) {
+          // All Optimizer passes will be run inside the wrapper.
+          innerPm.addPass(
+              mlir::tt::ttnn::createTTNNOptimizer(optimizerOptions));
+          innerPm.addPass(mlir::createCanonicalizerPass());
+          innerPm.addPass(
+              mlir::tt::ttnn::createTTNNOperationValidationAndFallback(
+                  validationOptions));
+          innerPm.addPass(
+              mlir::tt::ttnn::createTTNNPrepareConv2dWeightsAndBias());
+        },
+        wrapperOptions));
+#else
+    llvm::llvm_unreachable_internal(
+        "TTNNOptimizer passes require OpModel support to be enabled.");
 #endif
   }
 }
