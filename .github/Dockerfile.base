@@ -4,7 +4,7 @@ SHELL ["/bin/bash", "-c"]
 # Set environment variables
 ENV DEBIAN_FRONTEND=noninteractive
 
-ARG TT_METAL_DEPENDENCIES_COMMIT=4e557ea4385f0c74692fc9fdce7eda039585f129
+ARG TT_METAL_DEPENDENCIES_COMMIT=343c116290b9a219760e837258faf52e90b123a2
 
 # Install dependencies
 RUN <<EOT
@@ -35,6 +35,7 @@ apt-get install -y \
     sudo \
     gh \
     lcov \
+    zstd \
     unzip
 
 # Install Python 3.11

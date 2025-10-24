@@ -17,7 +17,8 @@ namespace tt::runtime {
 namespace system_desc {
 
 SystemDesc getCurrentSystemDesc(
-    std::optional<DispatchCoreType> dispatchCoreType = std::nullopt,
+    std::optional<tt::runtime::DispatchCoreType> dispatchCoreType =
+        std::nullopt,
     std::optional<Device> meshDevice = std::nullopt);
 } // namespace system_desc
 
@@ -40,7 +41,8 @@ HostRuntime getCurrentHostRuntime();
 void setCurrentHostRuntime(const HostRuntime &runtime);
 
 SystemDesc getCurrentSystemDesc(
-    std::optional<DispatchCoreType> dispatchCoreType = std::nullopt,
+    std::optional<tt::runtime::DispatchCoreType> dispatchCoreType =
+        std::nullopt,
     std::optional<Device> meshDevice = std::nullopt);
 
 void launchDistributedRuntime(const DistributedOptions &options = {});
@@ -118,13 +120,14 @@ tt::target::DataType getTensorDataType(Tensor tensor);
 std::vector<std::byte> getTensorDataBuffer(Tensor tensor);
 std::uint32_t getTensorElementSize(Tensor tensor);
 std::uint32_t getTensorVolume(Tensor tensor);
+std::uint32_t getTensorLogicalVolume(Tensor tensor);
 std::vector<std::uint32_t> getTensorShape(Tensor tensor);
 std::vector<std::uint32_t> getTensorStride(Tensor tensor);
 TensorDesc getTensorDesc(Tensor tensor);
 bool getTensorRetain(Tensor tensor);
 void setTensorRetain(Tensor tensor, bool retain);
 
-Arch getArch();
+tt::target::Arch getArch();
 
 void enablePersistentKernelCache();
 void disablePersistentKernelCache();
@@ -174,7 +177,7 @@ This function gets the memory view per device
 std::unordered_map<tt::runtime::MemoryBufferType, tt::runtime::MemoryView>
 getMemoryView(Device device);
 
-void setFabricConfig(FabricConfig config);
+void setFabricConfig(tt::runtime::FabricConfig config);
 
 void wait(Event event);
 

@@ -6,6 +6,7 @@
 #define TT_RUNTIME_DETAIL_COMMON_RUNTIME_CONTEXT_H
 
 #include "tt/runtime/types.h"
+
 #include <atomic>
 #include <filesystem>
 
@@ -32,8 +33,8 @@ public:
   HostRuntime getCurrentHostRuntime() const;
   void setCurrentHostRuntime(const HostRuntime &runtime);
 
-  FabricConfig getCurrentFabricConfig() const;
-  void setCurrentFabricConfig(const FabricConfig &config);
+  ::tt::runtime::FabricConfig getCurrentFabricConfig() const;
+  void setCurrentFabricConfig(const tt::runtime::FabricConfig &config);
 
 private:
   RuntimeContext();
@@ -44,7 +45,8 @@ private:
 
   std::atomic<DeviceRuntime> currentDeviceRuntime_ = DeviceRuntime::Disabled;
   std::atomic<HostRuntime> currentHostRuntime_ = HostRuntime::Local;
-  std::atomic<FabricConfig> currentFabricConfig_ = FabricConfig::DISABLED;
+  std::atomic<tt::runtime::FabricConfig> currentFabricConfig_ =
+      tt::runtime::FabricConfig::DISABLED;
 };
 
 } // namespace tt::runtime
