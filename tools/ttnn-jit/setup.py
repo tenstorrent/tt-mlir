@@ -139,13 +139,17 @@ def setup_runtime_libraries(config):
         wheel_runtime_dir,
     )
 
-    # Copy ttnn-jit module if it exists
+    # Copy JITCPP library
+    jitcpp_lib_path = f"{config['ttmlir_build_dir']}/tools/ttnn-jit/csrc/libJITCPP.so"
+    shutil.copy(jitcpp_lib_path, wheel_runtime_dir)
+    dylibs.append("libJITCPP.so")
+
+    # Copy ttnn-jit module
     ttnn_jit_module_path = (
-        f"{config['ttmlir_build_dir']}/tools/ttnn-jit/python/{ttnn_jit_module}"
+        f"{config['ttmlir_build_dir']}/python_packages/ttnn_jit/{ttnn_jit_module}"
     )
-    if os.path.exists(ttnn_jit_module_path):
-        shutil.copy(ttnn_jit_module_path, wheel_runtime_dir)
-        dylibs.append(ttnn_jit_module)
+    shutil.copy(ttnn_jit_module_path, wheel_runtime_dir)
+    dylibs.append(ttnn_jit_module)
 
     # Copy runtime libraries
     metal_lib_dir = f"{config['metaldir']}/lib"
