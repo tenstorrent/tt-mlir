@@ -451,7 +451,7 @@ def test_interop_jit_to_ttnn_unary_l1(
     golden_jit_output = golden_jit_op(input_tensor)
     golden_result = ttnn_unary_op(golden_jit_output)
 
-    all_close_check(interop_result, golden_result)
+    assert all_close_check(interop_result, golden_result)
 
 
 # 2 JIT ops -> TTNN binary op test
@@ -488,7 +488,7 @@ def test_interop_two_jit_to_ttnn_binary_l1(
     golden_output2 = golden_jit_op2(input2)
     golden_result = ttnn_binary_op(golden_output1, golden_output2)
 
-    all_close_check(interop_result, golden_result)
+    assert all_close_check(interop_result, golden_result)
 
 
 # JIT op + ttnn tensor -> ttnn binary op test
@@ -518,7 +518,7 @@ def test_interop_jit_and_ttnn_to_binary_l1(
     golden_jit_output = golden_jit_op(input_tensor)
     golden_result = ttnn_binary_op(golden_jit_output, ttnn_tensor)
 
-    all_close_check(interop_result, golden_result)
+    assert all_close_check(interop_result, golden_result)
 
 
 # JIT op -> ttnn unary op test (DRAM)
@@ -550,7 +550,7 @@ def test_interop_jit_to_ttnn_unary_dram(device, h, w, dtype, jit_op, ttnn_unary_
     golden_jit_output = golden_jit_op(input_tensor)
     golden_result = ttnn_unary_op(golden_jit_output)
 
-    all_close_check(interop_result, golden_result)
+    assert all_close_check(interop_result, golden_result)
 
 
 # 2 JIT ops -> ttnn binary op test (DRAM)
@@ -591,7 +591,7 @@ def test_interop_two_jit_to_ttnn_binary_dram(
     golden_output2 = golden_jit_op2(input2)
     golden_result = ttnn_binary_op(golden_output1, golden_output2)
 
-    all_close_check(interop_result, golden_result)
+    assert all_close_check(interop_result, golden_result)
 
 
 # JIT op + ttnn tensor -> ttnn binary op test (DRAM)
@@ -625,4 +625,4 @@ def test_interop_jit_and_ttnn_to_binary_dram(
     golden_jit_output = golden_jit_op(input_tensor)
     golden_result = ttnn_binary_op(golden_jit_output, ttnn_tensor)
 
-    all_close_check(interop_result, golden_result)
+    assert all_close_check(interop_result, golden_result)
