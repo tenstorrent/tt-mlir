@@ -33,7 +33,7 @@ def memory_configs_equal(memory_config1, memory_config2):
     )
 
 
-def _create_dram_tensor(device, h, w, dtype):
+def create_dram_tensor(device, h, w, dtype):
     torch.manual_seed(0)
     torch_tensor = torch.randn((h, w), dtype=dtype)
     memory_config = ttnn.MemoryConfig(
@@ -48,7 +48,7 @@ def _create_dram_tensor(device, h, w, dtype):
     )
 
 
-def _create_sharded_tile_tensor(device, h, w, max_grid, dtype):
+def create_sharded_tile_tensor(device, h, w, max_grid, dtype):
     torch.manual_seed(0)
     torch_tensor = torch.randn((h, w), dtype=dtype)
 
