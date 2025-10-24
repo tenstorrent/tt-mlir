@@ -23,6 +23,7 @@ def run_ttir_decomposition_with_passmanager(module_path: str) -> Module:
     with Context():
         module = Module.parseFile(str(module_path))
         pre_passes = [
+            "ttir-fusing{ttnn-enable-conv2d-with-multiply-pattern=true}",
             "ttir-implicit-broadcast-fold",
             "ttir-to-ttir-decomposition",
             "canonicalize",
@@ -47,6 +48,8 @@ def run_ttir_to_ttnn(module_str: str, ctx) -> Module:
     """
 
     pass_params = {
+        # "enable-bfp8-conversion": "true",
+        "enable-fusing-conv2d-with-multiply-pattern": "true",
         "enable-erase-inverse-ops-pass": "false",
         "enable-const-eval": "false",
         "system-desc-path": "ttrt-artifacts/system_desc.ttsys",  # TODO: make this configurable as in the rest of the code

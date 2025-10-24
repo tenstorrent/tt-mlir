@@ -119,7 +119,9 @@ def main():
     args = parse_arguments()
 
     # Validate input file exists
-    if not args.input_file.exists() and args.input_file.endswith(".mlir"):
+    if args.input_file.suffix != ".mlir":
+        raise ValueError(f"Expected an .mlir file, got: {args.input_file}")
+    if not args.input_file.exists():
         raise FileNotFoundError(f"Input file does not exist: {args.input_file}")
 
     # Ensure output directory exists and is writable

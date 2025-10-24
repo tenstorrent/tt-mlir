@@ -117,6 +117,11 @@ class OpMapping:
                 str(get_op_outputs(op)[0].type.element_type)
             ]
 
+        if op.name == "ttir.full":
+            torch_args["dtype"] = ttir_dtype_maps[
+                str(get_op_outputs(op)[0].type.element_type)
+            ]
+
         if not self.unpack_inputs:
             result = self.torch_op(result_inputs, **torch_args)
             return result
@@ -171,9 +176,16 @@ def custom_constant(*args, **kwargs):
 
 
 def custom_conv2d(*args, **kwargs):
+    # Debug: print input dtypes
+    print(f"DEBUG conv2d - Input dtype: {args[0].dtype}, Weight dtype: {args[1].dtype}")
+
     # Convert from channels last (NHWC) to channels first (NCHW) for PyTorch
     I = args[0].permute(0, 3, 1, 2)
-    weight = args[1].permute(0, 1, 2, 3)
+    weight = args[1]  # Weight is already in the correct format [out_ch, in_ch, H, W]
+
+    print(
+        f"DEBUG conv2d - After permute - Input dtype: {I.dtype}, Weight dtype: {weight.dtype}"
+    )
 
     # Get and validate kwargs with defaults
     padding = kwargs.get("padding", 0)
@@ -266,17 +278,34 @@ def custom_slice(x, begins=None, ends=None, step=None):
 
 def custom_max_pool2d(*args, **kwargs):
     I = args[0]  # Input is already in NHWC: [B, H, W, C]
+    print(f"DEBUG max_pool2d - Input dtype at start: {I.dtype}")
+
     # Convert to NCHW for PyTorch
     I = I.permute(0, 3, 1, 2)
-    # Extract pooling parameters
-    kernel_size = [kwargs["kernel_height"], kwargs["kernel_width"]]
-    stride = [kwargs["stride_height"], kwargs["stride_width"]]
-    dilation = [kwargs["dilation_height"], kwargs["dilation_width"]]
-    pt, pb = kwargs["padding_top"], kwargs["padding_bottom"]
-    pl, pr = kwargs["padding_left"], kwargs["padding_right"]
-    ceil_mode = kwargs["ceil_mode"]
+    print(f"DEBUG max_pool2d - Input dtype after permute: {I.dtype}")
+
+    # Handle both old format (individual attributes) and new format (array attributes)
+    if "kernel" in kwargs:
+        # New format: kernel = [height, width]
+        kernel_size = kwargs["kernel"]
+        stride = kwargs.get("stride", [1, 1])
+        dilation = kwargs.get("dilation", [1, 1])
+        padding_arr = kwargs.get("padding", [0, 0, 0, 0])
+        # padding format: [top, bottom, left, right]
+        pt, pb, pl, pr = padding_arr
+    else:
+        # Old format: individual attributes
+        kernel_size = [kwargs["kernel_height"], kwargs["kernel_width"]]
+        stride = [kwargs["stride_height"], kwargs["stride_width"]]
+        dilation = [kwargs["dilation_height"], kwargs["dilation_width"]]
+        pt, pb = kwargs["padding_top"], kwargs["padding_bottom"]
+        pl, pr = kwargs["padding_left"], kwargs["padding_right"]
+
+    ceil_mode = kwargs.get("ceil_mode", False)
+
     if (pt == pb) and (pl == pr):
         padding = [pt, pl]
+        print(f"DEBUG max_pool2d - Symmetric padding case, before pool: {I.dtype}")
         out = torch.nn.functional.max_pool2d(
             I,
             kernel_size=kernel_size,
@@ -297,7 +326,9 @@ def custom_max_pool2d(*args, **kwargs):
             ceil_mode=ceil_mode,
         )
     # Convert back to NHWC
-    return out.permute(0, 2, 3, 1)
+    result = out.permute(0, 2, 3, 1)
+    print(f"DEBUG max_pool2d - Final result dtype: {result.dtype}")
+    return result
 
 
 def custom_avg_pool2d(*args, **kwargs):
@@ -368,7 +399,12 @@ def custom_fill_cache(
 
 
 def custom_full(*args, **kwargs):
-    return torch.full(kwargs["size"], kwargs["fill_value"])
+    print(
+        f"DEBUG full - fill_value: {kwargs['fill_value']}, size: {kwargs['size']}, dtype: {kwargs.get('dtype', 'NOT PROVIDED')}"
+    )
+    result = torch.full(kwargs["size"], kwargs["fill_value"], dtype=kwargs.get("dtype"))
+    print(f"DEBUG full - Output dtype: {result.dtype}")
+    return result
 
 
 def custom_update_cache(
@@ -387,6 +423,60 @@ def custom_update_cache(
 
 def custom_embeding(input, weight):
     return torch.nn.functional.embedding(input.long(), weight)
+
+
+# def custom_batch_norm(
+#     input_tensor, scale, offset, mean, variance, epsilon=1e-5, training=False, dim=1
+# ):
+#     """
+#     Batch normalization with layout transformation.
+#     Matches batch_norm_golden from tools/builder/base/builder_golden.py
+#     """
+#     # Flatten scale, offset, mean, variance to 1D as required by torch.nn.functional.batch_norm
+#     scale = scale.flatten()
+#     offset = offset.flatten()
+#     mean = mean.flatten()
+#     variance = variance.flatten()
+
+#     perm = list(range(input_tensor.ndim))
+#     perm[1], perm[dim] = perm[dim], perm[1]
+#     input_tensor = input_tensor.permute(perm)
+#     result = torch.nn.functional.batch_norm(
+#         input_tensor,
+#         running_mean=mean,
+#         running_var=variance,
+#         weight=scale,
+#         bias=offset,
+#         training=training,
+#         eps=epsilon,
+#     )
+#     inv_perm = [perm.index(i) for i in range(len(perm))]
+#     result = result.permute(inv_perm)
+#     return result
+
+
+# def custom_pad(input_tensor, padding=None, value=0.0):
+#     """
+#     Pad operation with dimension reformatting.
+#     Matches pad_golden from tools/builder/base/builder_golden.py
+#     """
+#     print(
+#         f"DEBUG pad - Input dtype: {input_tensor.dtype}, value: {value}, value type: {type(value)}"
+#     )
+
+#     # Reformat padding dimensions for PyTorch
+#     # TTIR format: [dim0_low, dim0_high, dim1_low, dim1_high, ...]
+#     # PyTorch format (reversed): [..., dim1_high, dim1_low, dim0_high, dim0_low]
+#     golden_padding = []
+#     for i in range(len(padding) // 2):
+#         golden_padding.append(padding[-((2 * i) + 2)])
+#         golden_padding.append(padding[-((2 * i) + 1)])
+
+#     result = torch.nn.functional.pad(
+#         input_tensor, pad=golden_padding, mode="constant", value=value
+#     )
+#     print(f"DEBUG pad - Output dtype: {result.dtype}")
+#     return result
 
 
 def custom_comparison_operator(input: torch.Tensor, other: torch.Tensor, torch_op):
@@ -560,4 +650,13 @@ ttir_to_torch_mapping = {
     "ttir.argmax": OpMapping(
         custom_argmax, {"dim_arg": "dim", "keep_dim": "keepdim"}, unpack_inputs=False
     ),
+    # "ttir.batch_norm": OpMapping(
+    #     custom_batch_norm,
+    #     {"dimension": "dim"},
+    # ),
+    # "ttir.pad": OpMapping(
+    #     custom_pad,
+    #     {"padding": "padding", "value": "value"},
+    #     unpack_inputs=False,
+    # ),
 }
