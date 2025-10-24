@@ -368,7 +368,7 @@ def custom_fill_cache(
 
 
 def custom_full(*args, **kwargs):
-    return torch.full(kwargs["size"], kwargs["fill_value"])
+    return torch.full(kwargs["size"], kwargs["fill_value"], dtype=torch.bfloat16)
 
 
 def custom_update_cache(
