@@ -278,14 +278,15 @@ def bitwise_not(
 
 bitwise_unary_ops = [bitwise_not]
 
-# ttmetal is supported for bitwise_not, but i32 inputs for unary ops are not supported in ttmetal yet
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.int32], ids=["i32"])
-@pytest.mark.parametrize("target", ["ttnn", "emitpy"])
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy"])
 @pytest.mark.parametrize("test_fn", bitwise_unary_ops)
 def test_bitwise_unary_ops(
     test_fn: Callable, shape: Shape, dtype: torch.dtype, target: str, request, device
 ):
+    if target == "ttmetal":
+        pytest.xfail(reason="i32 unary ops not supported on ttmetal yet")
     compile_and_execute_ttir(
         test_fn,
         inputs_shapes=[shape],

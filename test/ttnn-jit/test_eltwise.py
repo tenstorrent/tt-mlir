@@ -207,6 +207,44 @@ def test_unary_op_l1(device, h, w, max_grid, dtype, op):
         device, h, w, max_grid, dtype, op, num_inputs=1, buffer_type=ttnn.BufferType.L1
     )
 
+@pytest.mark.parametrize("dtype", [torch.int32])
+@pytest.mark.parametrize(
+    "op",
+    [
+        bitwise_not,
+    ],
+)
+@pytest.mark.parametrize(
+    "h , w",
+    DRAM_INTERLEAVED_SHAPES,
+)
+def test_bitwise_unary_op_dram(device, h, w, dtype, op):
+    max_grid = (0, 0)
+    run_op_test(
+        device,
+        h,
+        w,
+        max_grid,
+        dtype,
+        op,
+        num_inputs=1,
+        buffer_type=ttnn.BufferType.DRAM,
+    )
+
+
+@pytest.mark.parametrize("h , w, max_grid", BLOCK_SHARDED_SHAPE_GRIDS)
+@pytest.mark.parametrize("dtype", [torch.int32])
+@pytest.mark.parametrize(
+    "op",
+    [
+        bitwise_not,
+    ],
+)
+def test_bitwise_unary_op_l1(device, h, w, max_grid, dtype, op):
+    run_op_test(
+        device, h, w, max_grid, dtype, op, num_inputs=1, buffer_type=ttnn.BufferType.L1
+    )
+
 
 # ------------------------------------------------------------
 # Binary ops
