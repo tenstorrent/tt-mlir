@@ -88,7 +88,6 @@ void createTTIRToTTMetalFrontendPipeline(
     { globalFormatOptions.targetFormat = options.globalDataFormatTarget; }
     pm.addPass(d2m::createD2MGlobalDataFormatConversion(globalFormatOptions));
   }
-  // Configure D2M options to match the original TTIR options
   tt::TTIRToD2MOptions toD2MOptions;
   {
     toD2MOptions.defaultInputMemSpace = options.defaultInputMemSpace;
