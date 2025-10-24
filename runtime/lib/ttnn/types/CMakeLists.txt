@@ -8,7 +8,6 @@ add_library(TTRuntimeTTNNTypes
   types.cpp
   layout_converter.cpp
   trace_cache.cpp
-  program_desc_cache.cpp
 )
 set_property(TARGET TTRuntimeTTNNTypes PROPERTY CXX_STANDARD 20)
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64|x86|i386|i686)$")

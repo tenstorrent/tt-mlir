@@ -54,6 +54,7 @@ target_include_directories(_ttnn_jit
   PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/include
   ${PROJECT_SOURCE_DIR}/runtime/include
+  ${PROJECT_BINARY_DIR}/runtime/include
 )
 target_link_libraries(_ttnn_jit
   PRIVATE
