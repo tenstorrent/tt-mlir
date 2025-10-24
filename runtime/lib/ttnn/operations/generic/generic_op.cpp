@@ -249,7 +249,7 @@ void run(const ::tt::target::ttnn::GenericOp *op, ProgramContext &context) {
   }
 
   auto programDescCache = context.getExecutableHandle().getProgramDescCache();
-  std::shared_ptr<tt::runtime::ttnn::ProgramDescCache> cache = programDescCache;
+  std::shared_ptr<tt::runtime::ProgramDescCache> cache = programDescCache;
 
   auto *programDesc = op->program();
   void *cachedPtr = cache ? cache->get(programDesc) : nullptr;

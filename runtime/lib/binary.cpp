@@ -24,14 +24,12 @@ namespace tt::runtime {
 Binary::Binary(Flatbuffer fb)
     : Flatbuffer(fb), binaryId(nextBinaryId()),
       tensorCache(std::make_shared<TensorCache>()),
-      programDescCache(
-          std::make_shared<tt::runtime::ttnn::ProgramDescCache>()) {}
+      programDescCache(std::make_shared<tt::runtime::ProgramDescCache>()) {}
 
 Binary::Binary(std::shared_ptr<void> handle)
     : Flatbuffer(handle), binaryId(nextBinaryId()),
       tensorCache(std::make_shared<TensorCache>()),
-      programDescCache(
-          std::make_shared<tt::runtime::ttnn::ProgramDescCache>()) {}
+      programDescCache(std::make_shared<tt::runtime::ProgramDescCache>()) {}
 
 Binary &Binary::operator=(Flatbuffer fb) {
   this->handle = fb.handle;
@@ -41,7 +39,7 @@ Binary &Binary::operator=(Flatbuffer fb) {
   // Reinitialize tensor cache since binary handle contents
   // are now different
   tensorCache = std::make_shared<TensorCache>();
-  programDescCache = std::make_shared<tt::runtime::ttnn::ProgramDescCache>();
+  programDescCache = std::make_shared<tt::runtime::ProgramDescCache>();
 
   return *this;
 }
@@ -54,7 +52,7 @@ Binary &Binary::operator=(std::shared_ptr<void> handle) {
   // Reinitialize tensor cache since binary handle contents
   // are now different
   tensorCache = std::make_shared<TensorCache>();
-  programDescCache = std::make_shared<tt::runtime::ttnn::ProgramDescCache>();
+  programDescCache = std::make_shared<tt::runtime::ProgramDescCache>();
 
   return *this;
 }
