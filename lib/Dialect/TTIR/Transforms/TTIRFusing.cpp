@@ -1768,13 +1768,18 @@ private:
     auto outputType = createPoolingOutputType(permuteOp.getOutput().getType());
 
     auto loc = sumOp.getLoc();
-    auto poolingOp = ttir::utils::createDPSOp<ttir::GlobalAvgPool2dOp>(
+
+    auto meanOp = ttir::utils::createDPSOp<MeanOp>(
         rewriter, ttmlir::utils::appendLocationSuffix(loc, "_global_avg_pool"),
-        outputType, permuteOp.getResult());
+        outputType, permuteOp.getResult(),
+        /*keep_dim=*/rewriter.getBoolAttr(true),
+        /*dim_arg=*/
+        rewriter.getArrayAttr(
+            {rewriter.getI32IntegerAttr(1), rewriter.getI32IntegerAttr(2)}));
 
     // Permute output from NHWC back to NCHW
-    auto inversePermuteOp = createPermuteOp(
-        rewriter, desiredLayout, currentLayout, poolingOp.getResult());
+    auto inversePermuteOp = createPermuteOp(rewriter, desiredLayout,
+                                            currentLayout, meanOp.getResult());
 
     return inversePermuteOp;
   }
@@ -2369,9 +2374,9 @@ public:
       patterns.add<PadPoolingFusionPattern>(&getContext());
       patterns.add<AveragePoolingWithPoolingDenominatorFusionPattern>(
           &getContext());
-      if (globalPoolFusingEnabled) {
-        patterns.add<GlobalAveragePoolingPattern>(&getContext());
-      }
+      // if (globalPoolFusingEnabled) {
+      patterns.add<GlobalAveragePoolingPattern>(&getContext());
+      // }
 
       patterns.add<MatmulWithBiasFusionPattern>(&getContext());
 
