@@ -3440,7 +3440,7 @@ public:
 
     rewriter.replaceOpWithNewOp<ttir::ScaledDotProductAttentionOp>(
         srcOp, outputType, query, key, value, attentionMask, outputTensor,
-        isCausalAttr, scaleAttr);
+        isCausalAttr, scaleAttr, /*slidingWindowSize=*/nullptr);
 
     return success();
   }
