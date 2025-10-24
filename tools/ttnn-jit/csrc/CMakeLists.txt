@@ -38,6 +38,12 @@ target_include_directories(JITCPP
     ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
 
+# Install JITCPP library to the same directory as the Python module
+install(TARGETS JITCPP
+  LIBRARY DESTINATION "${TTMLIR_PYTHON_PACKAGES_DIR}/ttnn_jit"
+  COMPONENT SharedLib
+)
+
 nanobind_add_module(
   _ttnn_jit
   __init__.cpp
