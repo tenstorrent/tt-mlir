@@ -159,12 +159,10 @@ static bool hasDeferredEmission(Operation *op) {
 
 StringRef PythonEmitter::getOrCreateName(Value value, std::string name) {
   if (!valueMapper.count(value)) {
-    if(!initialized_input)
-    {
+    if (!initialized_input) {
       initialized_input = true;
       valueMapper.insert(value, name);
-    }
-    else{
+    } else {
       valueMapper.insert(
           value, formatv("{0}_{1}", name, ++valueInScopeCount.top()[name]));
     }
@@ -507,54 +505,53 @@ LogicalResult PythonEmitter::emitAssignPrefix(Operation &op) {
   return success();
 }
 
-bool isValidPythonIdentifier(const std::string& name) {
+bool isValidPythonIdentifier(const std::string &name) {
   static const std::regex pattern(R"(^[A-Za-z_][A-Za-z0-9_]*$)");
   static const std::unordered_set<std::string> keywords = {
-      "False","None","True","and","as","assert","async","await","break","class","continue","def",
-      "del","elif","else","except","finally","for","from","global","if","import","in","is",
-      "lambda","nonlocal","not","or","pass","raise","return","try","while","with","yield"
-  };
+      "False",  "None",   "True",    "and",      "as",       "assert", "async",
+      "await",  "break",  "class",   "continue", "def",      "del",    "elif",
+      "else",   "except", "finally", "for",      "from",     "global", "if",
+      "import", "in",     "is",      "lambda",   "nonlocal", "not",    "or",
+      "pass",   "raise",  "return",  "try",      "while",    "with",   "yield"};
 
-  return std::regex_match(name, pattern) && (keywords.find(name) == keywords.end());
+  return std::regex_match(name, pattern) &&
+         (keywords.find(name) == keywords.end());
 }
 
 LogicalResult PythonEmitter::emitVariableAssignment(OpResult result,
                                                     Operation &op) {
   std::string name = "var";
-  
-  
-    std::string ssaName;
-    llvm::raw_string_ostream stream(ssaName);
-    mlir::OpPrintingFlags flags;
-    op.getResult(0).printAsOperand(stream, flags);
-    stream.flush();
-    size_t dotPos = ssaName.find(".result");
-    if (dotPos != std::string::npos) {
-      name = ssaName.substr(1, dotPos - 1);
-    } else {
-      name = ssaName.substr(1);
-    }
-  if(!isValidPythonIdentifier(name)) {
+
+  std::string ssaName;
+  llvm::raw_string_ostream stream(ssaName);
+  mlir::OpPrintingFlags flags;
+  op.getResult(0).printAsOperand(stream, flags);
+  stream.flush();
+  size_t dotPos = ssaName.find(".result");
+  if (dotPos != std::string::npos) {
+    name = ssaName.substr(1, dotPos - 1);
+  } else {
+    name = ssaName.substr(1);
+  }
+  if (!isValidPythonIdentifier(name)) {
     name = "var";
   }
 
-  if(auto calleeAttr = op.getAttr("callee")) {
+  if (auto calleeAttr = op.getAttr("callee")) {
     std::string calleeName;
     llvm::raw_string_ostream stream(calleeName);
     calleeAttr.print(stream, false);
     stream.flush();
     calleeName = calleeName.substr(1);
-    if(name == "var" && isValidPythonIdentifier(calleeName))
-    {
+    if (name == "var" && isValidPythonIdentifier(calleeName)) {
       name = calleeName;
     }
   }
-  
-  if(op.getNumOperands() > 0 && name == "var") {
+
+  if (op.getNumOperands() > 0 && name == "var") {
     name = getOrCreateName(op.getOperand(0), name).str();
-    
   }
-  if(!isValidPythonIdentifier(name)) {
+  if (!isValidPythonIdentifier(name)) {
     name = "var";
   }
   os << getOrCreateName(result, name) << " = ";

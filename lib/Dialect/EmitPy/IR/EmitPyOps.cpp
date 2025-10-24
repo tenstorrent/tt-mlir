@@ -109,8 +109,9 @@ void mlir::tt::emitpy::CallOpaqueOp::getAsmResultNames(
   // Extract the last part after '.' from callee (e.g., "ttnn.add" -> "add").
   mlir::StringRef callee = getCallee();
   size_t dotPos = callee.find_last_of('.');
-  mlir::StringRef name = (dotPos != mlir::StringRef::npos) ? callee.substr(dotPos + 1) : callee;
-  std::string nameStr = name.str()+".result";
+  mlir::StringRef name =
+      (dotPos != mlir::StringRef::npos) ? callee.substr(dotPos + 1) : callee;
+  std::string nameStr = name.str() + ".result";
   for (mlir::Value result : getResults()) {
     setNameFn(result, nameStr);
   }
