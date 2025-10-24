@@ -21,4 +21,18 @@ module {
     %9 = "ttir.multiply"(%1, %7, %8) : (tensor<32x32xbf16>, tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
     return %9 : tensor<32x32xbf16>
   }
+
+  func.func @const_eval_no_input(%arg0: tensor<71x4x1xbf16> {ttcore.argument_type = #ttcore.argument_type<input>}) -> tensor<71x4x1xbf16> {
+    // CHECK: = ttcore.load_cached(@const_eval_no_input_const_eval_0, [])
+    %0 = "ttir.full"() <{fill_value = 32.0 : f32, shape = array<i32>}> : () -> tensor<bf16>
+    %1 = ttir.empty() : tensor<1x1xbf16>
+    %2 = "ttir.reshape"(%0, %1) <{shape = [1 : i32, 1 : i32]}> : (tensor<bf16>, tensor<1x1xbf16>) -> tensor<1x1xbf16>
+    %3 = ttir.empty() : tensor<71x4xbf16>
+    %4 = "ttir.repeat"(%2, %3) <{repeat_dimensions = array<i64: 71, 4>}> : (tensor<1x1xbf16>, tensor<71x4xbf16>) -> tensor<71x4xbf16>
+    %5 = ttir.empty() : tensor<71x4x1xbf16>
+    %6 = "ttir.reshape"(%4, %5) <{shape = [71 : i32, 4 : i32, 1 : i32]}> : (tensor<71x4xbf16>, tensor<71x4x1xbf16>) -> tensor<71x4x1xbf16>
+    %7 = ttir.empty() : tensor<71x4x1xbf16>
+    %8 = "ttir.multiply"(%6, %arg0, %7) : (tensor<71x4x1xbf16>, tensor<71x4x1xbf16>, tensor<71x4x1xbf16>) -> tensor<71x4x1xbf16>
+    return %8 : tensor<71x4x1xbf16>
+  }
 }

@@ -17,6 +17,7 @@
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/BuiltinAttributes.h"
+#include "mlir/IR/BuiltinOps.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
 namespace mlir::tt::d2m {
@@ -157,7 +158,8 @@ public:
         if (canonicalType == nullptr) {
           canonicalType = loadOp.getMemRefType();
         } else {
-          TT_assertv(loadOp.getMemRefType() == canonicalType,
+          TT_assertv(loadOp.getMemRefType().getShape() ==
+                         canonicalType.getShape(),
                      "Multiple interpretations of DST not supported.");
         }
         maxDstSliceIdx = std::max(maxDstSliceIdx, idx);
@@ -166,7 +168,8 @@ public:
         if (canonicalType == nullptr) {
           canonicalType = storeOp.getMemRefType();
         } else {
-          TT_assertv(storeOp.getMemRefType() == canonicalType,
+          TT_assertv(storeOp.getMemRefType().getShape() ==
+                         canonicalType.getShape(),
                      "Multiple interpretations of DST not supported.");
         }
         maxDstSliceIdx = std::max(maxDstSliceIdx, idx);
@@ -314,6 +317,10 @@ public:
                memref.getDefiningOp())) {
       memref = subView.getSource();
     }
+    if (auto *definingOp = memref.getDefiningOp();
+        mlir::isa_and_nonnull<d2m::WaitOp, d2m::ReserveOp>(definingOp)) {
+      memref = definingOp->getOperand(0);
+    }
     return mlir::cast<BlockArgument>(memref);
   }
 
@@ -436,14 +443,37 @@ public:
               AffineMap dstAccessMap, ValueRange dstAccessIndices) {
             auto dstLoad = rewriter.create<affine::AffineLoadOp>(
                 loc, dst, dstAccessMap, dstAccessIndices);
+            Value valueToStore = dstLoad.getResult();
+
+            // Insert dst reinterpret cast if destination CB type differs
+            // from dst type
+            auto cbType = mlir::cast<MemRefType>(cb.getType());
+            if (valueToStore.getType() != cbType.getElementType()) {
+              valueToStore = rewriter
+                                 .create<d2m::DstReinterpretCastOp>(
+                                     loc, cbType.getElementType(), valueToStore)
+                                 .getResult();
+            }
+
             rewriter.create<affine::AffineStoreOp>(
-                loc, dstLoad.getResult(), cb, l1AccessMap, l1AccessIndices);
+                loc, valueToStore, cb, l1AccessMap, l1AccessIndices);
           },
           // Replacement of the original store with one from dst.
           [&](PatternRewriter &rewriter, affine::AffineStoreOp op,
               AffineMap dstAccessMap, ValueRange dstAccessIndices) {
+            Value valueToStore = op.getValue();
+            // Insert dst reinterpret cast if value type differs from dst
+            // type
+            auto dstType = mlir::cast<MemRefType>(dst.getType());
+            if (valueToStore.getType() != dstType.getElementType()) {
+              valueToStore =
+                  rewriter
+                      .create<d2m::DstReinterpretCastOp>(
+                          op.getLoc(), dstType.getElementType(), valueToStore)
+                      .getResult();
+            }
             rewriter.replaceOpWithNewOp<affine::AffineStoreOp>(
-                op, op.getValue(), dst, dstAccessMap, dstAccessIndices);
+                op, valueToStore, dst, dstAccessMap, dstAccessIndices);
           });
     }
   }
@@ -600,18 +630,46 @@ public:
 
       rewriter.setInsertionPointAfter(op);
 
+      // Insert dst reinterpret cast if compute result type differs from
+      // dst type
+      Value originalResult = op->getResult(0);
+      Type originalType = originalResult.getType();
+      Value valueToStore = originalResult;
+      Operation *castOp = nullptr;
+      bool needsTypeCast = (originalType != dstType.getElementType());
+
+      if (needsTypeCast) {
+        auto cast = rewriter.create<d2m::DstReinterpretCastOp>(
+            loc, dstType.getElementType(), valueToStore);
+        valueToStore = cast.getResult();
+        castOp = cast.getOperation();
+      }
+
       auto storeOp = rewriter.create<affine::AffineStoreOp>(
-          loc, op->getResult(0), dst, storeMap, storeIndices);
+          loc, valueToStore, dst, storeMap, storeIndices);
 
       auto loadedResult = rewriter.create<affine::AffineLoadOp>(
           loc, dst, storeMap, storeIndices);
 
-      // Replace all uses of the original result with the loaded result from dst
-      // register, but exclude the store operation we just created.
-      rewriter.replaceUsesWithIf(op->getResult(0), loadedResult.getResult(),
-                                 [&](mlir::OpOperand &operand) {
-                                   return operand.getOwner() != storeOp;
-                                 });
+      // If we cast for storage, we need to cast back to the original type
+      // after loading, since downstream ops expect the original type.
+      Value replacementValue = loadedResult.getResult();
+      Operation *castBackOp = nullptr;
+      if (needsTypeCast) {
+        auto castBack = rewriter.create<d2m::DstReinterpretCastOp>(
+            loc, originalType, replacementValue);
+        replacementValue = castBack.getResult();
+        castBackOp = castBack.getOperation();
+      }
+
+      // Replace all uses of the original result with the (possibly cast back)
+      // loaded result from dst register, but exclude the store operation and
+      // cast operations to avoid circular dependencies.
+      rewriter.replaceUsesWithIf(
+          originalResult, replacementValue, [&](mlir::OpOperand &operand) {
+            Operation *owner = operand.getOwner();
+            return owner != storeOp && owner != castOp && owner != castBackOp;
+          });
     }
   }
 
