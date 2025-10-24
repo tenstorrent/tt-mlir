@@ -166,6 +166,18 @@ LogicalResult isValidPythonIdentifier(Operation *op, StringRef name) {
 // CallOpaqueOp
 //===----------------------------------------------------------------------===//
 
+void mlir::tt::emitpy::CallOpaqueOp::getAsmResultNames(
+    llvm::function_ref<void(mlir::Value, mlir::StringRef)> setNameFn) {
+  // Extract the last part after '.' from callee (e.g., "ttnn.add" -> "add").
+  mlir::StringRef callee = getCallee();
+  size_t dotPos = callee.find_last_of('.');
+  mlir::StringRef name = (dotPos != mlir::StringRef::npos) ? callee.substr(dotPos + 1) : callee;
+  std::string nameStr = name.str()+".result";
+  for (mlir::Value result : getResults()) {
+    setNameFn(result, nameStr);
+  }
+}
+
 LogicalResult CallOpaqueOp::verify() {
   if (getCallee().empty()) {
     return emitOpError("callee must not be empty");
