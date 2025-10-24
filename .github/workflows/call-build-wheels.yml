@@ -131,27 +131,7 @@ jobs:
         env:
           CIBW_ENVIRONMENT: "IN_CIBW_ENV=ON TT_METAL_HOME=/project/third_party/tt-metal/src/tt-metal"
           CIBW_MANYLINUX_X86_64_IMAGE: ghcr.io/tenstorrent/tt-mlir/tt-mlir-manylinux-2-34:${{ inputs.docker-tag || 'latest' }}
-          CIBW_BEFORE_BUILD: |
-            echo "Current working directory: $(pwd)" &&
-            echo "Listing files: $(ls -la)" &&
-            echo "Python version: $(python --version)" &&
-            echo "Available commands: $(which cmake ninja clang)" &&
-            source env/activate &&
-            echo "After sourcing env, Python: $(which python)" &&
-            cmake -G Ninja -B build \
-              -DCMAKE_BUILD_TYPE=Release \
-              -DCMAKE_INSTALL_PREFIX=install \
-              -DCMAKE_C_COMPILER=clang \
-              -DCMAKE_CXX_COMPILER=clang++ \
-              -DTTMLIR_ENABLE_PYKERNEL=ON \
-              -DTTMLIR_ENABLE_RUNTIME_TESTS=OFF \
-              -DTTMLIR_ENABLE_RUNTIME=OFF \
-              -DTTMLIR_ENABLE_STABLEHLO=OFF \
-              -DTTMLIR_ENABLE_OPMODEL=OFF \
-              -DTTMLIR_ENABLE_EXPLORER=OFF &&
-            cmake --build build &&
-            pip install build setuptools wheel
-          CIBW_BUILD_VERBOSITY: 2
+          CIBW_BEFORE_BUILD: "pip install build setuptools wheel"
         with:
           output-dir: ${{ steps.strings.outputs.wheel-output-dir }}
           package-dir: ${{ steps.strings.outputs.work-dir }}/tools/ttnn-jit

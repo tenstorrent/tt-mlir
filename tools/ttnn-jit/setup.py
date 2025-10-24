@@ -286,9 +286,52 @@ def generate_package_data(all_runtime_libs):
     return package_data
 
 
+def compile_mlir(cwd):
+    """Compile MLIR files to shared objects using cmake"""
+    dist_dir = cwd / "dist"
+    dist_dir.mkdir(exist_ok=True)
+
+    cmake_args = [
+        "cd",
+        str(cwd.parent.parent),
+        "&&",
+        "source",
+        "env/activate",
+        "&&",
+        "cmake",
+        "-G",
+        "Ninja",
+        "-B",
+        "build",
+        "-DCMAKE_BUILD_TYPE=Release",
+        "-DCMAKE_INSTALL_PREFIX=install",
+        "-DCMAKE_C_COMPILER=clang",
+        "-DCMAKE_CXX_COMPILER=clang++",
+        "-DTTMLIR_ENABLE_PYKERNEL=ON",  # Enable PyKernel Build Here
+        "-DTTMLIR_ENABLE_RUNTIME_TESTS=OFF",
+        "-DTTMLIR_ENABLE_RUNTIME=OFF",
+        "-DTTMLIR_ENABLE_STABLEHLO=OFF",
+        "-DTTMLIR_ENABLE_OPMODEL=OFF",
+        "-DTTMLIR_ENABLE_EXPLORER=OFF",
+        "&&",
+        "cmake",
+        "--build",
+        "build",
+        "&&",
+        "cd " + str(cwd),
+        "&&",
+        "pip install build setuptools wheel",
+        "&&",
+        "python3 -m build --wheel",
+    ]
+    subprocess.run(" ".join(cmake_args), shell=True, check=True)
+
+
 def main():
     """Main setup function"""
     cwd = pathlib.Path().absolute()
+    # Compile MLIR files first
+    compile_mlir(cwd)
 
     # Get build configuration
     config = get_build_configuration(cwd)
