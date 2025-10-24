@@ -83,10 +83,11 @@ void createTTIRToTTMetalFrontendPipeline(
   pm.addPass(ttcore::createTTCoreRegisterDevicePass(registerDeviceOptions));
   pm.addPass(tt::createTTIRToTTIRDecompositionPass());
   pm.addPass(createCanonicalizerPassWithOptions(options));
-  // Global data format conversion (experimental)
-  d2m::D2MGlobalDataFormatConversionOptions globalFormatOptions;
-  { globalFormatOptions.targetFormat = options.globalDataFormatTarget; }
-  pm.addPass(d2m::createD2MGlobalDataFormatConversion(globalFormatOptions));
+  if (!options.globalDataFormatTarget.empty()) {
+    d2m::D2MGlobalDataFormatConversionOptions globalFormatOptions;
+    { globalFormatOptions.targetFormat = options.globalDataFormatTarget; }
+    pm.addPass(d2m::createD2MGlobalDataFormatConversion(globalFormatOptions));
+  }
   // Configure D2M options to match the original TTIR options
   tt::TTIRToD2MOptions toD2MOptions;
   {

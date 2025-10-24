@@ -508,7 +508,7 @@ def D2MInsertStreams: Pass<"d2m-insert-streams", "::mlir::ModuleOp"> {
 
 def D2MGlobalDataFormatConversion: Pass<"d2m-global-data-format-conversion", "::mlir::ModuleOp">
 {
-  let summary = "Convert all tensor data types to a target format (experimental).";
+  let summary = "Convert all tensor data types to a target format.";
   let description = [{
     This pass converts all tensor element types in the function body
     to a specified target format. Function signatures are preserved, and typecast operations
@@ -521,19 +521,21 @@ def D2MGlobalDataFormatConversion: Pass<"d2m-global-data-format-conversion", "::
 
     Example:
       Before:
-        func.func @forward(%arg0: tensor<64x128xf32>) -> tensor<64x128xf32> {
-          %0 = ttir.empty() : tensor<64x128xf32>
-          %1 = "ttir.relu"(%arg0, %0) : (tensor<64x128xf32>, tensor<64x128xf32>) -> tensor<64x128xf32>
-          return %1 : tensor<64x128xf32>
-        }
+       func.func @forward(%arg0: tensor<64x128xf32>) -> tensor<64x128xf32> {
+        %0 = ttir.empty() : tensor<64x128xf32>
+        %1 = "ttir.exp"(%arg0, %0) : (tensor<64x128xf32>, tensor<64x128xf32>) -> tensor<64x128xf32>
+        return %1 : tensor<64x128xf32>
+       }
 
       After (with target-format="bf16"):
         func.func @forward(%arg0: tensor<64x128xf32>) -> tensor<64x128xf32> {
-          %0 = "ttir.typecast"(%arg0) : (tensor<64x128xf32>) -> tensor<64x128xbf16>
-          %1 = ttir.empty() : tensor<64x128xbf16>
-          %2 = "ttir.relu"(%0, %1) : (tensor<64x128xbf16>, tensor<64x128xbf16>) -> tensor<64x128xbf16>
-          %3 = "ttir.typecast"(%2) : (tensor<64x128xbf16>) -> tensor<64x128xf32>
-          return %3 : tensor<64x128xf32>
+          %0 = ttir.empty() : tensor<64x128xbf16>
+          %1 = "ttir.typecast"(%arg0, %0) <{conservative_folding = false}> : (tensor<64x128xf32>, tensor<64x128xbf16>) -> tensor<64x128xbf16>
+          %2 = ttir.empty() : tensor<64x128xbf16>
+          %3 = "ttir.exp"(%1, %2) : (tensor<64x128xbf16>, tensor<64x128xbf16>) -> tensor<64x128xbf16>
+          %4 = ttir.empty() : tensor<64x128xf32>
+          %5 = "ttir.typecast"(%3, %4) <{conservative_folding = false}> : (tensor<64x128xbf16>, tensor<64x128xf32>) -> tensor<64x128xf32>
+          return %5 : tensor<64x128xf32>
         }
   }];
 
