@@ -1,73 +1,94 @@
-# `tt-explorer`
+# TT-Explorer
 
-Welcome to the `tt-explorer` wiki! The Wiki will serve as a source for documentation, examples, and general knowledge related to the TT-MLIR visualization project. The sidebar will provide navigation to relevant pages. If this is your first time hearing about the project, take a look at Project Architecture for an in-depth introduction to the tool and motivations behind it. 🙂
+Welcome to the TT-Explorer wiki! TT-Explorer is a visualization and exploration tool included in the TT-MLIR repository. Based on [Google's Model Explorer](https://ai.google.dev/edge/model-explorer), TT-Explorer is adapted for use with Tenstorrent's custom, open-source compiler stack. Using TT-Explorer, you can: 
+* Analyze and inspect models
+* Visualize models (attributes, performance results)
+* Explore models across SHLO, TTIR, and TTNN dialects
+* Interactively debug or experiment with IR-level overrides.
 
-## Overview
+TT-Explorer is for use with TT-MLIR compiler results. It takes emitted MLIR files, converts them to JSON, and displays them. There are five main levels the emitted TT-MLIR file is likely to be at, and all are supported for TT-Explorer: 
+* **TTNN** - High-level, PyTorch style ops (for example, `ttnn.conv2d`) used for writing and compiling models in a user-friendly format.
+* **TTIR** - Mid-level intermediate representation (IR) that introduces hardware concepts like tensor tiling, memory layouts, and op fusion. Maps to hardware capabilities.
+* **SHLO** - Scalar Hardware Lowering Ops, each op is close to a single hardware instruction. 
+* **LLO** - Lower-level ops that are close to binary. May be involved in scheduling and core-level placement. 
+* **Binary / Firmware** - Final compiled binaries that are loaded onto Tenstorrent chips. 
 
-Visualizer tool for `ttmlir`-powered compiler results. Visualizes from emitted `.mlir` files to display compiled model, attributes, performance results, and provides a platform for human-driven overrides to _gameify_ model tuning.
+![Workflow Diagram for TT-Explorer](../images/tt-explorer/explorer-flow-diagram.png)
+
+## Prerequisites 
+
+* Configure your Tenstorrent hardware
+* Configure the [Tenstorrent software stack](https://docs.tenstorrent.com/getting-started/README.html#running-the-installer-script)
 
 ## Quick Start
 
-`tt-explorer` comes packaged as a tool in the `tt-mlir` repo. If you haven't done so yet, please refer to ["Setting up the environment manually"](../getting-started.md#setting-up-the-environment-manually) section from the Getting Started Guide to build the environment manually.
+This section explains how to install TT-Explorer. Do the following: 
 
-Here is a summary of the steps needed:
+1. TT-Explorer comes packaged as a tool in the TT-MLIR repo. Clone the TT-MLIR repo: 
 
-1. Clone `tt-mlir` and build the environment
-2. Run `source env/activate` to be in `tt-mlir` virtualenv for the following steps
-3. Ensure `tt-mlir` is built with atleast these flags:
-   - `-DTT_RUNTIME_ENABLE_PERF_TRACE=ON`
-   - `-DTTMLIR_ENABLE_RUNTIME=ON`
-   - `-DTT_RUNTIME_DEBUG=ON`
-   - `-DTTMLIR_ENABLE_STABLEHLO=ON`
-4. Build `explorer` target in `tt-mlir` using `cmake --build build -- explorer`
-5. Run `tt-explorer` in terminal to start `tt-explorer` instance. (Refer to CLI section in API for specifics)
+```bash
+git clone https://github.com/tenstorrent/tt-mlir.git
+```
+
+2. Navigate into the **tt-mlir** repo. 
+
+3. The environment gets installed into a toolchain directory, which is by default set to `/opt/ttmlir-toolchain`, but can be overridden by setting the environment variable `TTMLIR_TOOLCHAIN_DIR`. You need to manually create the toolchain directory as follows: 
+
+```bash
+export TTMLIR_TOOLCHAIN_DIR=/opt/ttmlir-toolchain/
+sudo mkdir -p "${TTMLIR_TOOLCHAIN_DIR}"
+sudo chown -R "${USER}" "${TTMLIR_TOOLCHAIN_DIR}"
+```
+
+4. Ensure you do not have a virtual environment activated already before running the following command: 
+
+```bash
+source env/activate
+```
+
+>**NOTE:** These commands can take some time to run. Also, please note that the virtual environment may not show at the end of this step. 
+
+5. In this step, you build the TT-MLIR project. To build so that you can use TT-EXPLORER, the following flags must be included for your build: 
+   * `-DTT_RUNTIME_ENABLE_PERF_TRACE=ON`
+   * `-DTTMLIR_ENABLE_RUNTIME=ON`
+   * `-DTT_RUNTIME_DEBUG=ON`
+   * `-DTTMLIR_ENABLE_STABLEHLO=ON`
+
+The commands are: 
+
+```bash
+source env/activate
+cmake -G Ninja -B build \ 
+   -DTT_RUNTIME_ENABLE_PERF_TRACE=ON \
+   -DTTMLIR_ENABLE_RUNTIME=ON \
+   -DTT_RUNTIME_DEBUG=ON \
+   -DTTMLIR_ENABLE_STABLEHLO=ON
+```
+
+6. Build the `explorer` target in the **tt-mlir** directory:
+
+```bash
+cmake --build build -- explorer
+```
+
+7. Run `tt-explorer` in the terminal to start a `tt-explorer` instance. (Refer to the CLI section in the API for specifics)
    - **Note**: `tt-explorer` requires [Pandas](https://pypi.org/project/pandas/) in addition to the `tt-mlir` [System Dependencies](https://docs.tenstorrent.com/tt-mlir/getting-started.html#system-dependencies).
-6. Ensure server has started in `tt-explorer` shell instance (check for message below)
-   ```
+
+8. Ensure the server has started in the `tt-explorer` shell instance. Check for the following message:
+
+   ```bash
    Starting Model Explorer server at:
    http://localhost:8080
    ```
 
-## Building `tt-explorer`
+### Running TT-Explorer CI Tests Locally
 
-To build `tt-explorer` you need first to clone and configure the environment for `tt-mlir`. Please refer to the [Getting Started Guide](../getting-started.md).
+This section describes how to run CI tests as well as how to reproduce and debug failing CI tests locally. Make sure you are familiar with how to build and run TT-Explorer before starting this section.
 
-After building and activating the virtualenv, build `tt-mlir` and ensure the following flags are present, as they are needed for executing models in `tt-explorer` and without them it won't build.
-
-Flags required:
-
-- `-DTT_RUNTIME_ENABLE_PERF_TRACE=ON`
-- `-DTTMLIR_ENABLE_RUNTIME=ON`
-- `-DTT_RUNTIME_DEBUG=ON`
-- `-DTTMLIR_ENABLE_STABLEHLO=ON`
-
-Then build the `explorer` target by running the following command:
-
-```sh
-cmake --build build -- explorer
-```
-
-After it finishes building, start the `explorer` server by running the following command:
-
-```sh
-tt-explorer
-```
-
-The server should then start and show a message similar to this:
-
-```
-Starting Model Explorer server at:
-http://localhost:8080
-```
-
-### Running `tt-explorer` CI Tests Locally
-
-> **Note:** CI tests are ran like described below. Here we provide the steps needed to reproduce it and debug failing CI tests locally.
-
-`tt-explorer` relies on tests that are present in the `tests/` directory as well as tests dynamically created through `llvm-lit`. Below are the steps to replicate the testing procedure seen in CI:
+TT-Explorer relies on tests that are present in the `test/` directory as well as tests dynamically created through `llvm-lit`. Below are the steps to replicate the testing procedure seen in CI:
 
 1. Make sure you're in the `tt-mlir` directory
-2. You need to build the explorer target with `cmake --build build -- explorer`
+2. You need to build the explorer target with `cmake --build build -- explorer` 
 3. Run and save the system descriptor `ttrt query --save-artifacts`
 4. Save the system variable `export SYSTEM_DESC_PATH=$(pwd)/ttrt-artifacts/system_desc.ttsys`
 5. Run and generate ttnn + MLIR tests: `cmake --build build -- check-ttmlir`
@@ -76,7 +97,7 @@ http://localhost:8080
    - `export TT_EXPLORER_GENERATED_TTNN_TEST_DIRS=$(pwd)/build/test/python/golden/ttnn`
 7. Run the pytest for `tt-explorer` with `pytest tools/explorer/test/run_tests.py`
 
-or in a concise shell script:
+As a shell script it looks like this:
 
 ```sh
 # Ensure you are present in the tt-mlir directory

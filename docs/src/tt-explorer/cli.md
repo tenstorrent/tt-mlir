@@ -1,6 +1,12 @@
 # `tt-explorer` CLI
 
-This section provides a details about the usage of `tt-explorer`.
+This page details the command-line interface (CLI) for TT-Explorer. Through the CLI, you can:
+* Start the server
+* Configure the server's network settings
+* Control whether the UI automatically opens in a browser
+* Enable or disable model execution 
+
+You can also find a summary of supported input models, so you know what can be executed and visualized through the UI. 
 
 ## Input Models
 

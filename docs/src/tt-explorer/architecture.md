@@ -1,14 +1,19 @@
 # `tt-explorer` - Project Architecture
 
-`tt-explorer` is a tool made to ease the pain of tuning a model and developing on Tenstorrent hardware. It provides a “Human-In-Loop” interface such that the compiler results can be actively tuned and understood by the person compiling the model. To complete this goal, the tool has to be designed such that users of any level of experience are all able to glean useful information from the visualization of the model, and be able to **explore** what the model does.
+TT-Explorer is a tool for exploring, visualizing, and executing machine learning models on Tenstorrent hardware. It provides a Human-In-Loop interface that allows developers to:
+* Inspect compiler results
+* Apply configuration overrides
+* Observe the effect of changes on model execution 
+
+Through TT-Explorer's interactive visualizations, users can examine model operations, performance traces, and execution results, providing insight into model behavior and supporting optimization efforts. 
 
 ## Software Architecture
 
-The software will be built around the TT-Forge compiler to provide most of the functionality. [Model Explorer](https://github.com/google-ai-edge/model-explorer) will be used for the visualization functionality and as the main platform upon which `tt-explorer` is built on.
+TT-Explorer is structured around the TT-Forge compiler stack, which provides the compilation and transformation capabilities used to generate and visualize models for Tenstorrent hardware. The TT-RT runtime handles the backend execution of compiled models on hardware. 
 
-Since Model-Explorer is built using Python, the majority of `tt-explorer` will be structured in Python, with frequent use of the bindings to C++ provided by TT-MLIR.
+For visualization and interaction, TT-Explorer extends Google's [Model Explorer](https://github.com/google-ai-edge/model-explorer), which serves as the primary UI and graph-rendering framework. Because Model Explorer is implemented in Python, TT-Explorer primarily makes use of Python bindings provided by TT-MLIR for direct access to compiler internals. 
 
-The following components will be put together:
+The overall system integrates these components:
 
 ![Diagram for component architecture, transcript below](https://github.com/user-attachments/assets/f996af27-8b66-4579-a6d6-ded57cbe89d1)
 
