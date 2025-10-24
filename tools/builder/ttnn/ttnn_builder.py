@@ -35,18 +35,18 @@ class TTNNBuilder(Builder):
         unit_attrs: Optional[List[str]] = None,
         organize_golden_args: Optional[Callable] = None,
         golden_kwargs: dict = {},
-        ttnn_kwargs: dict = {},
+        ttnn_kwargs: Optional[dict] = None,
         loc: Optional[Union[str, Location]] = None,
         skip_golden: bool = False,
     ) -> Any:
         if not golden_kwargs:
-            golden_kwargs = ttnn_kwargs
+            golden_kwargs = ttnn_kwargs if ttnn_kwargs is not None else {}
 
         if organize_golden_args is None:
             organize_golden_args = self._organize_eltwise_golden
 
         with self._ctx, self._loc:
-            if not ttnn_kwargs:
+            if ttnn_kwargs is None:
                 ttnn_kwargs = {
                     "dtype": self._get_data_type_attribute(inputs[0]),
                 }
@@ -176,3 +176,38 @@ class TTNNBuilder(Builder):
             A tensor containing the elementwise product of the inputs
         """
         return self._op_proxy(ttnn.MultiplyOp, [in0, in1], unit_attrs=unit_attrs)
+
+    def mish(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
+        """
+        Creates ``ttnn.mish``.
+
+        *Elementwise Mish activation operation.*
+
+        Applies the Mish activation function element-wise to the input tensor.
+        Mish is a smooth, self-regularized, non-monotonic activation function defined as:
+        f(x) = x * tanh(softplus(x)) = x * tanh(ln(1 + e^x))
+
+        Mathematical definition: mish(x) = x * tanh(ln(1 + e^x))
+
+        .. code-block:: mlir
+
+            // Apply Mish activation
+            %result = ttnn.mish(%input, %output) : tensor<3xf32>, tensor<3xf32> -> tensor<3xf32>
+            // Input tensor:
+            // input: [0.0, 1.0, -1.0]
+            // Output tensor:
+            // [0.0, 0.865, -0.303]
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor
+        unit_attrs : *Optional[List[str]]*
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpView*)
+            A tensor containing the elementwise Mish activation of the input
+        """
+        return self._op_proxy(ttnn.MishOp, [in0], unit_attrs=unit_attrs, ttnn_kwargs={})
