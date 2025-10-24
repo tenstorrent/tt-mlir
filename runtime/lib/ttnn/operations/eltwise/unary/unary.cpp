@@ -28,10 +28,6 @@ static void runEltwiseUnaryOp(
 
   ::ttnn::Tensor out = ttnnOp(in, outputMemoryConfig, std::nullopt);
 
-  std::cout << "EVO IH **********************" << std::endl;
-  std::cout << in.write_to_string() << std::endl;
-  std::cout << out.write_to_string() << std::endl;
-
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
 
