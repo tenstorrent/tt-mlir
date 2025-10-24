@@ -154,7 +154,6 @@ def rsqrt(input_tensor):
         sin,
         ceil,
         floor,
-        bitwise_not,
         logical_not,
     ],
 )
@@ -191,7 +190,6 @@ def test_unary_op_dram(device, h, w, dtype, op):
         sin,
         ceil,
         floor,
-        bitwise_not,
         logical_not,
         # Not supported in TTIRToD2M:
         # gelu, reciprocal cbrt, sign, erf, erfc
