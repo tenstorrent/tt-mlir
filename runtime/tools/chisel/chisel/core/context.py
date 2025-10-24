@@ -343,6 +343,7 @@ class ChiselContext:
             return
 
         # Retrieve and store the output tensor
+        print("trying to retrieve output tensor for op:", debug_str)
         output_tensor = retrieve_tensor_from_pool(programContext, output_ref)
         tensor_value = TensorValue(
             output_name,
@@ -553,6 +554,9 @@ class ChiselContext:
             shape = arg.type.shape
             dtype = arg.type.element_type
             torch_dtype = ttir_dtype_maps[str(dtype)]
+
+            print("tensor name:", arg_name)
+            print(" - torch_dtype:", torch_dtype)
             if torch_dtype.is_floating_point:
                 tensor = torch.randn(shape, dtype=torch_dtype)
             else:
@@ -564,6 +568,8 @@ class ChiselContext:
             )
             self.device_tensor_pool[arg_name].set_execution_data()
 
+            if arg_name == "%24" or arg_name == "%32":
+                print("stop at the conv weights")
             self.golden_tensor_pool[arg_name] = TensorValue(
                 arg_name, tensor, ExecutionType.GOLDEN
             )

@@ -23,6 +23,7 @@ def run_ttir_decomposition_with_passmanager(module_path: str) -> Module:
     with Context():
         module = Module.parseFile(str(module_path))
         pre_passes = [
+            "ttir-fusing{ttnn-enable-conv2d-with-multiply-pattern=true}",
             "ttir-implicit-broadcast-fold",
             "ttir-to-ttir-decomposition",
             "canonicalize",
@@ -47,6 +48,7 @@ def run_ttir_to_ttnn(module_str: str, ctx) -> Module:
     """
 
     pass_params = {
+        "enable-bfp8-conversion": "true",
         "enable-erase-inverse-ops-pass": "false",
         "enable-const-eval": "false",
         "system-desc-path": "ttrt-artifacts/system_desc.ttsys",  # TODO: make this configurable as in the rest of the code
@@ -64,10 +66,16 @@ def run_ttir_to_ttnn(module_str: str, ctx) -> Module:
 
 def chisel_pipeline(ttir_path: Path) -> Tuple[Module, Module]:
     ttir_module = run_ttir_decomposition_with_passmanager(ttir_path)
+    # print ttir module for debugging
+    print("TTIR Module after decomposition pass:")
+    print(ttir_module)
     ctx = Context()
     # This resets the location so that ttir_module location is just the line and column number where that op is defined
     # and ttnn_module locations points to the location from where that op originates in ttir_module
     ttir_module = Module.parse(str(ttir_module), ctx)
     ttnn_module = run_ttir_to_ttnn(str(ttir_module), ctx)
+
+    print("ttnn MODULE:")
+    print(ttnn_module)
 
     return ttir_module, ttnn_module

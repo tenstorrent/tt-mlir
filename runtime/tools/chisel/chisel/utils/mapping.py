@@ -269,11 +269,11 @@ def custom_max_pool2d(*args, **kwargs):
     # Convert to NCHW for PyTorch
     I = I.permute(0, 3, 1, 2)
     # Extract pooling parameters
-    kernel_size = [kwargs["kernel_height"], kwargs["kernel_width"]]
-    stride = [kwargs["stride_height"], kwargs["stride_width"]]
-    dilation = [kwargs["dilation_height"], kwargs["dilation_width"]]
-    pt, pb = kwargs["padding_top"], kwargs["padding_bottom"]
-    pl, pr = kwargs["padding_left"], kwargs["padding_right"]
+    print("*** custom_max_pool2d kwargs:  ", kwargs)
+    kernel_size = kwargs["kernel"]
+    stride = kwargs["stride"]
+    dilation = kwargs["dilation"]
+    [pl, pr, pt, pb] = kwargs["padding"]
     ceil_mode = kwargs["ceil_mode"]
     if (pt == pb) and (pl == pr):
         padding = [pt, pl]

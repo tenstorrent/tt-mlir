@@ -10,7 +10,7 @@ from .tensors import TensorPool, TensorValue
 from .enums import ExecutionType
 from .registry import Registry
 
-from ..utils.mapping import ttir_to_torch_mapping
+from ..utils.mapping import ttir_to_torch_mapping, ttir_dtype_maps
 
 
 class GoldenExecutor:
@@ -105,7 +105,25 @@ class GoldenExecutor:
         inputs = [self.golden_tensor_pool[name].execution_data for name in input_names]
 
         # Execute the operation using the mapped PyTorch function
+        print("operation name: ", op.name)
+        print("executing operation with inputs:")
+        for i, input in enumerate(inputs):
+            print(f" - input[{i}]: {input.shape} dtype={input.dtype}")
         op_result = mapping(op, inputs)
+
+        # Cast result to match expected IR output dtype
+        if isinstance(op_result, torch.Tensor) and len(outputs) > 0:
+            expected_dtype_str = str(outputs[0].type.element_type)
+            expected_torch_dtype = ttir_dtype_maps.get(expected_dtype_str)
+
+            if (
+                expected_torch_dtype is not None
+                and op_result.dtype != expected_torch_dtype
+            ):
+                print(
+                    f"****** Casting output from {op_result.dtype} to {expected_torch_dtype} to match IR"
+                )
+                op_result = op_result.to(expected_torch_dtype)
 
         # Handle function returns specially
         if op.name == "func.return":
