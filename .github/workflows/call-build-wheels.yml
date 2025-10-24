@@ -90,7 +90,7 @@ jobs:
 
 
   build-ttnn-jit-wheel:
-    timeout-minutes: 60
+    timeout-minutes: 120
     name: Build ttnn-jit Python Wheel
     runs-on: ubuntu-latest
 
