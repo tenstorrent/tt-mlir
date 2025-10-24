@@ -556,6 +556,22 @@ struct ReverseOpConversionPattern
     : public OpConversionPattern<ttir::ReverseOp> {
   using OpConversionPattern<ttir::ReverseOp>::OpConversionPattern;
 
+  // Helper to check if this convolution is a transposed convolution.
+  bool isTransposedConv(ttir::ConvolutionOp op) const {
+    if (!op) {
+      return false;
+    }
+    auto convLayoutAttr = op.getConvolutionLayoutAttr();
+    return convLayoutAttr.getKernelInputFeatureDimension() ==
+               convLayoutAttr.getInputSpatialDimensions()[1] &&
+           convLayoutAttr.getKernelOutputFeatureDimension() ==
+               convLayoutAttr.getInputSpatialDimensions()[0] &&
+           convLayoutAttr.getInputSpatialDimensions() !=
+               convLayoutAttr.getKernelSpatialDimensions() &&
+           convLayoutAttr.getOutputSpatialDimensions() !=
+               convLayoutAttr.getKernelSpatialDimensions();
+  }
+
   LogicalResult
   matchAndRewrite(ttir::ReverseOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
@@ -600,7 +616,18 @@ struct ReverseOpConversionPattern
           /*slice_sizes=*/sliceSizes,
           /*indices_are_sorted=*/false);
     }
-    rewriter.replaceOp(op, currentInput);
+
+    // Skip reverse operations that are used by transposed convolutions, as
+    // TTNN's conv_transpose2d handles weight reversal internally. Pattern must
+    // not be applied to reverse operations that are used by transposed
+    // convolutions because transposed convolution has to handle weight reversal
+    // internally.
+
+    rewriter.replaceUsesWithIf(op, currentInput, [&](OpOperand &operand) {
+      return !isTransposedConv(
+          dyn_cast<ttir::ConvolutionOp>(operand.getOwner()));
+    });
+
     return success();
   }
 };
