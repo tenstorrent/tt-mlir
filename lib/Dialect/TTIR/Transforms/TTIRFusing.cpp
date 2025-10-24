@@ -20,8 +20,12 @@ namespace mlir::tt::ttir {
 
 namespace {
 // Check if we can fuse conv followed by add into conv with bias.
+// This pattern supports both:
+// 1. Adding bias to conv without bias: conv(x, w) + b -> conv(x, w, b)
+// 2. Adding bias to conv with existing bias: conv(x, w, b1) + b2 -> conv(x, w,
+// b1+b2)
 template <typename ConvOpType>
-class TTIRConvWithBiasTemplate : public mlir::OpRewritePattern<AddOp> {
+class ConvAddBias : public mlir::OpRewritePattern<AddOp> {
   using mlir::OpRewritePattern<AddOp>::OpRewritePattern;
 
 public:
@@ -34,6 +38,16 @@ public:
 
     auto convOp = components->first;
     auto bias = components->second;
+
+    //  If conv already has bias we need to add it to the new bias.
+    //  We can do it like this because we already checked that bias has valid
+    //  shape.
+    if (convOp.getBias()) {
+      bias = utils::createDPSOp<AddOp>(
+          rewriter,
+          ttmlir::utils::appendLocationSuffix(bias.getLoc(), "_bias_add"),
+          mlir::cast<RankedTensorType>(bias.getType()), convOp.getBias(), bias);
+    }
 
     if (bias.getDefiningOp() &&
         !bias.getDefiningOp()->isBeforeInBlock(convOp)) {
@@ -66,7 +80,7 @@ private:
   std::optional<mlir::TypedValue<mlir::RankedTensorType>>
   isFusable(ConvOpType convOp,
             mlir::TypedValue<mlir::RankedTensorType> bias) const {
-    if (!convOp || convOp.getBias() || !convOp->hasOneUse()) {
+    if (!convOp || !convOp->hasOneUse()) {
       return std::nullopt;
     }
 
@@ -122,10 +136,6 @@ private:
     return std::nullopt;
   }
 };
-
-// Instantiate the template for both Conv2dOp and ConvolutionOp
-using TTIRConv2dWithBias = TTIRConvWithBiasTemplate<Conv2dOp>;
-using TTIRConvolutionWithBias = TTIRConvWithBiasTemplate<ConvolutionOp>;
 
 // This pattern detects when a reduction operation is followed by a reshape
 // operation that simply adds back dimensions that were reduced. In such cases,
@@ -559,26 +569,39 @@ public:
 };
 
 template <typename ConvOpType>
-class ConvWithMultiplyTemplate : public mlir::OpRewritePattern<MultiplyOp> {
+class ConvWithMultiply : public mlir::OpRewritePattern<MultiplyOp> {
   using mlir::OpRewritePattern<MultiplyOp>::OpRewritePattern;
 
 public:
-  /// Pattern: conv(input, weight) * scale
+  /// Pattern: conv(input, weight) * scale or conv(input, weight, bias) * scale
   ///
   /// This pattern detects when a Convolution operation (with constant weights)
   /// is followed by a multiplication with a constant scale factor. It optimizes
   /// this pattern by pre-multiplying the convolution weights with the scale
   /// factor, which eliminates the runtime multiplication operation.
+  /// Supports both convolutions with and without bias.
   ///
-  /// Input pattern:
-  ///   %conv = conv(%input, %weight)  // weight is constant
-  ///   %result = multiply(%conv, %scale)  // scale is constant
+  /// Input pattern without bias:
+  ///   %conv = conv(%input, %weight)       // weight is constant
+  ///   %result = multiply(%conv, %scale)   // scale is constant
   ///   (1,1,1,out_channels)
   ///
   /// Output pattern:
   ///   %reshaped_scale = reshape(%scale) to (out_channels,1,1,1)
   ///   %scaled_weight = multiply(%weight, %reshaped_scale)
   ///   %result = conv(%input, %scaled_weight)
+  ///
+  /// Input pattern with bias:
+  ///   %conv = conv(%input, %weight, %bias)  // weight and bias are constant
+  ///   %result = multiply(%conv, %scale)     // scale is constant
+  ///   (1,1,1,out_channels)
+  ///
+  /// Output pattern:
+  ///   %reshaped_scale = reshape(%scale) to (out_channels,1,1,1)
+  ///   %scaled_weight = multiply(%weight, %reshaped_scale)
+  ///   %scaled_bias = multiply(%bias, %scale)
+  ///   %result = conv(%input, %scaled_weight, %scaled_bias)
+
   mlir::LogicalResult
   matchAndRewrite(MultiplyOp multiplyOp,
                   mlir::PatternRewriter &rewriter) const final {
@@ -622,6 +645,13 @@ public:
     // Update conv to use scaled weights and replace multiply operation.
     rewriter.modifyOpInPlace(
         convOp, [&]() { convOp.getWeightMutable().assign(scaledWeights); });
+
+    if (auto bias = convOp.getBias()) {
+      Value scaledBias = createScaledBias(rewriter, bias, convOp, scaleValue);
+      rewriter.modifyOpInPlace(
+          convOp, [&]() { convOp.getBiasMutable().assign(scaledBias); });
+    }
+
     rewriter.replaceAllOpUsesWith(multiplyOp, convOp);
 
     return mlir::success();
@@ -643,7 +673,8 @@ private:
     return std::nullopt;
   }
 
-  // We can commute only if both scale and weight are constant.
+  // We can commute if scale is constant, has valid shape, and is not dependent
+  // on convOp.
   static bool isCommutable(ConvOpType convOp,
                            mlir::TypedValue<RankedTensorType> scale) {
     // Conv should only have one use and that use should be a multiply op.
@@ -824,11 +855,19 @@ private:
         mlir::cast<RankedTensorType>(weightValue.getType()), weightValue,
         reshapedScale);
   }
+  /// Create pre-multiplied bias.
+  static Value createScaledBias(mlir::PatternRewriter &rewriter,
+                                Value biasValue, ConvOpType convOp,
+                                Value scaleValue) {
+    // Create a multiplication of the bias by the scale.
+    return utils::createDPSOp<MultiplyOp>(
+        rewriter,
+        ttmlir::utils::appendLocationSuffix(biasValue.getLoc(),
+                                            "_bias_multiply"),
+        mlir::cast<RankedTensorType>(biasValue.getType()), biasValue,
+        scaleValue);
+  }
 };
-
-// Instantiate the template for both Conv2dOp and ConvolutionOp
-using Conv2dWithMultiply = ConvWithMultiplyTemplate<Conv2dOp>;
-using ConvolutionWithMultiply = ConvWithMultiplyTemplate<ConvolutionOp>;
 
 // Tag all block arguments which are direct inputs to Conv2dOp and ConvolutionOp
 // with discardable attribute. This is used during Layouting to check if
@@ -2274,8 +2313,8 @@ public:
     }
     {
       RewritePatternSet patterns(&getContext());
-      patterns.add<TTIRConv2dWithBias>(&getContext());
-      patterns.add<TTIRConvolutionWithBias>(&getContext());
+      patterns.add<ConvAddBias<Conv2dOp>>(&getContext());
+      patterns.add<ConvAddBias<ConvolutionOp>>(&getContext());
 
       // Add patterns for each reduction op type.
       patterns.add<ReductionWithReshapePattern<SumOp>>(&getContext());
@@ -2293,8 +2332,8 @@ public:
       patterns.add<ReluFusionPattern>(&getContext());
 
       if (conv2dWithMultiplyEnabled) {
-        patterns.add<Conv2dWithMultiply>(&getContext());
-        patterns.add<ConvolutionWithMultiply>(&getContext());
+        patterns.add<ConvWithMultiply<Conv2dOp>>(&getContext());
+        patterns.add<ConvWithMultiply<ConvolutionOp>>(&getContext());
         patterns.add<BatchNormDecomposition>(&getContext());
       }
       patterns.add<CacheFillUpdatePattern>(&getContext());
