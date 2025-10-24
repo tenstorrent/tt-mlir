@@ -1476,6 +1476,36 @@ def TTKernel_SigmoidTileOp : TTKernel_SFPUOp<"sigmoid_tile", [TTKernel_UnaryOpTr
     }];
 }
 
+def TTKernel_SignTileInitOp : TTKernel_InitOp<"sign_tile_init"> {
+    let summary = "Short init function which configures compute unit for execution of sign_tile.";
+    let description = [{
+      Must be run before sign_tile.
+    }];
+
+    let arguments = (ins);
+
+    let assemblyFormat = [{
+      `(` `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_SignTileOp : TTKernel_SFPUOp<"sign_tile", [TTKernel_UnaryOpTrait]> {
+    let summary = "Sign operation on tile in the DST at specified index.";
+    let description = [{
+      Performs element-wise computation of sign operation
+      DST[tile_index] <- sign(DST[tile_index])
+      on DST register operands. Returns -1 for negative values, 0 for zero, and 1 for positive values.
+      The DST register buffer must be in acquired state via *tile_regs_acquire* call.
+      This call is blocking and is only available on the compute engine.
+    }];
+
+    let arguments = (ins IndexLike:$tile_index);
+
+    let assemblyFormat = [{
+      `(` $tile_index `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
 def TTKernel_GeluTileInitOp : TTKernel_InitOp<"gelu_tile_init"> {
     let summary = "Short init function which configures compute unit for execution of gelu_tile.";
     let description = [{

@@ -10,6 +10,7 @@
 #reduction_ = #ttcore.iterator_type<reduction>
 
 !ttype_f32 = !ttcore.tile<32x32, f32>
+!ttype_f16 = !ttcore.tile<32x32, f16>
 !ttype_si32 = !ttcore.tile<32x32, si32>
 !ttype_bf16 = !ttcore.tile<32x32, bf16>
 
@@ -656,6 +657,31 @@ module {
         %0 = "d2m.tile_logical_not"(%arg0) : (!ttype_si32) -> !ttype_si32
         // CHECK: ttkernel.pack_tile
         linalg.yield %0 : !ttype_si32
+      }
+    }
+    return
+  }
+
+  func.func @test_sign_lowering(%in0: memref<1x1x1x1x!ttype_f16, #ttcore.shard<2048x2048>, #l1_>,
+                                %out: memref<1x1x1x1x!ttype_f16, #ttcore.shard<2048x2048>, #l1_>) {
+    d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#map_, #map_], iterator_types = [#parallel_, #parallel_], threads = [#d2m.thread<compute>]}
+        ins(%in0 : memref<1x1x1x1x!ttype_f16, #ttcore.shard<2048x2048>, #l1_>)
+        outs(%out : memref<1x1x1x1x!ttype_f16, #ttcore.shard<2048x2048>, #l1_>)  {
+    ^compute0(%cb0: memref<1x1x!ttype_f16, #l1_>, %cb1: memref<1x1x!ttype_f16, #l1_>):
+      linalg.generic {indexing_maps = [#map_, #map_], iterator_types = ["parallel", "parallel"]} ins(%cb0 : memref<1x1x!ttype_f16, #l1_>) outs(%cb1 : memref<1x1x!ttype_f16, #l1_>) {
+      ^bb0(%arg0: !ttype_f16, %arg1: !ttype_f16):
+        // CHECK-NOT: d2m.tile_sign
+        // CHECK: %[[CB_IN:.+]] = ttkernel.cb_reinterpret_shape
+        // CHECK: %[[CB_OUT:.+]] = ttkernel.cb_reinterpret_shape
+        // CHECK: ttkernel.init_sfpu(%[[CB_IN]], %[[CB_OUT]])
+        // CHECK: ttkernel.tile_regs_acquire
+        // CHECK: ttkernel.copy_tile_init(%[[CB_IN]])
+        // CHECK-NEXT: ttkernel.copy_tile(%[[CB_IN]], %{{.+}}, %[[DST_IDX:.+]]) :
+        // CHECK: ttkernel.sign_tile_init()
+        // CHECK-NEXT: ttkernel.sign_tile(%[[DST_IDX]])
+        %0 = "d2m.tile_sign"(%arg0) : (!ttype_f16) -> !ttype_f16
+        // CHECK: ttkernel.pack_tile(%[[DST_IDX]], %[[CB_OUT]]
+        linalg.yield %0 : !ttype_f16
       }
     }
     return
