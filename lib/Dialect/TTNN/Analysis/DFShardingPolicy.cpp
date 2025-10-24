@@ -95,6 +95,10 @@ void DFShardingPolicy::run() {
         bool validForSharding =
             llvm::isa<ttnn::Conv2dOp, ttnn::AddOp, ttnn::MultiplyOp,
                       ttnn::ReluOp, ttnn::Relu6Op, ttnn::TypecastOp,
+                      // TODO(rpavlovicTT): enable ttnn::PermuteOp when
+                      // https://github.com/tenstorrent/tt-metal/issues/31030 is
+                      // resolved.
+                      // ttnn::PermuteOp,
                       ttnn::MinimumOp>(currentOp) &&
             legalConfigs.lookup(currentOp).size() > 0;
 
