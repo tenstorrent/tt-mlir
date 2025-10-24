@@ -10,9 +10,7 @@ func.func @global_avg_pool(%input: tensor<1x32x112x112xbf16>) -> tensor<1x32x1x1
     // CHECK-NOT: "ttir.multiply"
     %4 = "ttir.multiply"(%2, %0, %3) : (tensor<1x32xbf16>, tensor<1x32xbf16>, tensor<1x32xbf16>) -> tensor<1x32xbf16>
     %5 = ttir.empty() : tensor<1x32x1x1xbf16>
-    // CHECK: "ttir.permute"
-    // CHECK: "ttir.global_avg_pool2d"
-    // CHECK: "ttir.permute"
+    // CHECK: "ttir.mean"
     // CHECK-NOT: "ttir.reshape"
     %6 = "ttir.reshape"(%4, %5) <{shape = [1 : i32, 32 : i32, 1 : i32, 1 : i32]}> : (tensor<1x32xbf16>, tensor<1x32x1x1xbf16>) -> tensor<1x32x1x1xbf16>
     return %6 : tensor<1x32x1x1xbf16>
@@ -26,10 +24,7 @@ func.func @global_avg_pool_no_reshape(%input: tensor<1x32x112x112xbf16>) -> tens
     %3 = ttir.empty() : tensor<1x32xbf16>
     // CHECK-NOT: "ttir.multiply"
     %4 = "ttir.multiply"(%2, %0, %3) : (tensor<1x32xbf16>, tensor<1x32xbf16>, tensor<1x32xbf16>) -> tensor<1x32xbf16>
-    // CHECK: "ttir.permute"
-    // CHECK: "ttir.global_avg_pool2d"
-    // CHECK: "ttir.permute"
-    // CHECK: "ttir.reshape"
+    // CHECK: "ttir.mean"
     return %4 : tensor<1x32xbf16>
 }
 
@@ -41,9 +36,6 @@ func.func @global_avg_pool_keep_dim(%input: tensor<1x32x112x112xbf16>) -> tensor
     %3 = ttir.empty() : tensor<1x32x1x1xbf16>
     // CHECK-NOT: "ttir.multiply"
     %4 = "ttir.multiply"(%2, %0, %3) : (tensor<1x32x1x1xbf16>, tensor<1x32x1x1xbf16>, tensor<1x32x1x1xbf16>) -> tensor<1x32x1x1xbf16>
-    // CHECK: "ttir.permute"
-    // CHECK: "ttir.global_avg_pool2d"
-    // CHECK: "ttir.permute"
-    // CHECK-NOT: "ttir.reshape"
+    // CHECK: "ttir.mean"
     return %4 : tensor<1x32x1x1xbf16>
 }
