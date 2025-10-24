@@ -154,8 +154,9 @@ class MLIRModuleSplitter:
                 # Wrap raw op and store it. Ops will be turned to modules on demand.
                 else:
                     # Handle stablehlo.composite ops that need to have their decomposition functions in the same module.
-                    if '"tenstorrent.' in str(op.name):
-                        decomposition_func = self._extract_decomposition_func(op)
+                    op_str = str(op)
+                    if 'stablehlo.composite' in op_str:
+                        decomposition_func = self._extract_decomposition_func(op_str)
                         op_wrapper = self._module.wrap_op(op, decomposition_func)
                     else:
                         op_wrapper = self._module.wrap_op(op)
@@ -168,8 +169,7 @@ class MLIRModuleSplitter:
         assert callee in self._func_map, f"Function {callee} not found in the module."
         self._process_func_op(self._func_map[callee])
 
-    def _extract_decomposition_func(self, op: func.Op) -> func.FuncOp:
-        op_str = str(op)
+    def _extract_decomposition_func(self, op_str: str) -> func.FuncOp:
         decomposition_start = op_str.find("decomposition = @")
         decomposition_start += len("decomposition = @")
         decomposition_end = op_str.find("}", decomposition_start)
