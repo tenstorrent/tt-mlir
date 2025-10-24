@@ -59,18 +59,13 @@ def extract_tt_metal_version() -> str | None:
     return None
 
 
-def get_build_configuration():
+def get_build_configuration(cwd):
     """Get build paths and environment configuration"""
-    src_dir = os.environ.get(
-        "SOURCE_ROOT",
-        os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."),
-    )
+    src_dir = cwd.parent.parent
 
-    ttmlir_build_dir = os.environ.get(
-        "TTMLIR_BINARY_DIR", os.path.join(src_dir, "build")
-    )
+    ttmlir_build_dir = src_dir / "build"
 
-    metaldir = f"{src_dir}/third_party/tt-metal/src/tt-metal/build"
+    metaldir = f"{str(src_dir)}/third_party/tt-metal/src/tt-metal/build"
     ttmetalhome = os.environ.get("TT_METAL_HOME", "")
     arch = os.environ.get("CMAKE_SYSTEM_PROCESSOR", DEFAULT_ARCH)
 
@@ -78,8 +73,8 @@ def get_build_configuration():
     os.environ["LDFLAGS"] = "-Wl,-rpath,'$ORIGIN'"
 
     return {
-        "src_dir": src_dir,
-        "ttmlir_build_dir": ttmlir_build_dir,
+        "src_dir": str(src_dir),
+        "ttmlir_build_dir": str(ttmlir_build_dir),
         "metaldir": metaldir,
         "ttmetalhome": ttmetalhome,
         "arch": arch,
@@ -289,12 +284,12 @@ def generate_package_data(all_runtime_libs):
     return package_data
 
 
-def compile_mlir():
+def compile_mlir(cwd):
     """Compile MLIR files to shared objects using cmake"""
 
     cmake_args = [
         "cd",
-        str(pathlib.Path().absolute().parent.parent),
+        str(cwd.parent.parent),
         "&&",
         "source",
         "env/activate",
@@ -322,10 +317,27 @@ def compile_mlir():
     subprocess.run(" ".join(cmake_args), shell=True, check=True)
 
 
+def build_ttnn_jit(cwd):
+    """Build ttnn-jit wheel package"""
+    dist_dir = cwd / "dist"
+    dist_dir.mkdir(exist_ok=True)
+
+    build_commands = [
+        "cd " + str(cwd),
+        "&&",
+        "pip install build setuptools wheel",
+        "&&" "python3 -m build --wheel",
+    ]
+    subprocess.run(" ".join(build_commands), shell=True, check=True)
+
+
 def main():
     """Main setup function"""
+    cwd = pathlib.Path().absolute()
     # Compile MLIR files first
-    compile_mlir()
+    compile_mlir(cwd)
+    build_ttnn_jit(cwd)
+
     # Get build configuration
     config = get_build_configuration()
 
