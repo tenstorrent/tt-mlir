@@ -1568,6 +1568,16 @@ private:
 //
 // Supports 4D input tensors with reduction over spatial dimensions (height and
 // width).
+//
+// Input tensor layout is NCHW, but convs around the op will be changed to NHWC
+// layout, so we add permutes around the mean op too and do it in NHWC layout to
+// minimize total number of permutes.
+// For the same reason, even though mean op supports keepDim=false, we always
+// set it to true and reshape the output if needed.
+//
+// TODO(mvasiljevicTT): this should be better done in two separate patterns -
+// one that rewrites this to mean without permutes and the other that runs
+// permutes through the mean op.
 
 class GlobalAveragePoolingPattern : public mlir::OpRewritePattern<MultiplyOp> {
   using mlir::OpRewritePattern<MultiplyOp>::OpRewritePattern;
@@ -1577,6 +1587,7 @@ private:
   static constexpr int64_t EXPECTED_INPUT_RANK = 4;
   static constexpr int64_t SPATIAL_HEIGHT_DIM = 2;
   static constexpr int64_t SPATIAL_WIDTH_DIM = 3;
+  static constexpr int64_t CHANNEL_DIM = 1;
 
 public:
   mlir::LogicalResult
@@ -1593,10 +1604,20 @@ public:
     if (!validateFullOp(fullOp, inputShape)) {
       return mlir::failure();
     }
+    // Create meanOp wrapped with two PermuteOps needed for NCHW<->NHWC
+    // layout changes.
+    auto insertedOp = createWrappedGlobalAvgPool(rewriter, sumOp);
 
-    auto meanOp = createMeanOp(rewriter, sumOp);
-
-    rewriter.replaceOp(multiplyOp, meanOp.getResult());
+    // If keepDim is false, we need to reshape the output of the pooling op
+    // to keep output dimension same as input.
+    if (!sumOp.getKeepDim()) {
+      auto outputType = multiplyOp.getOutput().getType();
+      auto reshapePoolOp =
+          createReshapePoolOutOp(rewriter, insertedOp, outputType);
+      rewriter.replaceOp(multiplyOp, reshapePoolOp.getResult());
+    } else {
+      rewriter.replaceOp(multiplyOp, insertedOp.getResult());
+    }
 
     return mlir::success();
   };
@@ -1648,43 +1669,78 @@ private:
            dimSet.contains(SPATIAL_WIDTH_DIM);
   }
 
-  MeanOp createMeanOp(mlir::PatternRewriter &rewriter, SumOp sumOp) const {
-    auto outputType =
-        createPoolingOutputType(sumOp.getInput().getType(), sumOp.getKeepDim());
+  PermuteOp createPermuteOp(mlir::PatternRewriter &rewriter,
+                            std::vector<int64_t> currentLayout,
+                            std::vector<int64_t> desiredLayout,
+                            Value input) const {
+
+    auto permutation = ttmlir::utils::generatePermutation(
+        llvm::ArrayRef(currentLayout), llvm::ArrayRef(desiredLayout));
+    auto inputType = mlir::cast<RankedTensorType>(input.getType());
+    auto outputShape =
+        ::ttmlir::utils::applyPermutation(inputType.getShape(), permutation);
+    auto outputType = RankedTensorType::get(
+        outputShape, inputType.getElementType(), inputType.getEncoding());
+
+    auto permuteOp = ttir::utils::createDPSOp<ttir::PermuteOp>(
+        rewriter,
+        ttmlir::utils::appendLocationSuffix(input.getLoc(), "_permute"),
+        outputType, input, permutation);
+
+    return permuteOp;
+  }
+
+  PermuteOp createWrappedGlobalAvgPool(mlir::PatternRewriter &rewriter,
+                                       SumOp sumOp) const {
+
+    // Switch from NCHW to NHWC layout
+    std::vector<int64_t> currentLayout{0, CHANNEL_DIM, SPATIAL_HEIGHT_DIM,
+                                       SPATIAL_WIDTH_DIM};
+    std::vector<int64_t> desiredLayout{0, SPATIAL_HEIGHT_DIM, SPATIAL_WIDTH_DIM,
+                                       CHANNEL_DIM};
+
+    // Permute input from NCHW to NHWC
+    auto permuteOp = createPermuteOp(rewriter, currentLayout, desiredLayout,
+                                     sumOp.getInput());
+
+    auto outputType = createPoolingOutputType(permuteOp.getOutput().getType());
 
     auto loc = sumOp.getLoc();
 
     auto meanOp = ttir::utils::createDPSOp<MeanOp>(
-        rewriter,
-        ttmlir::utils::appendLocationSuffix(loc, "_global_avg_pool_mean"),
-        outputType, sumOp.getInput(),
-        /*keep_dim=*/rewriter.getBoolAttr(sumOp.getKeepDim()),
+        rewriter, ttmlir::utils::appendLocationSuffix(loc, "_global_avg_pool"),
+        outputType, permuteOp.getResult(),
+        /*keep_dim=*/rewriter.getBoolAttr(true),
         /*dim_arg=*/
-        rewriter.getArrayAttr({rewriter.getI32IntegerAttr(SPATIAL_HEIGHT_DIM),
-                               rewriter.getI32IntegerAttr(SPATIAL_WIDTH_DIM)}));
+        rewriter.getArrayAttr(
+            {rewriter.getI32IntegerAttr(1), rewriter.getI32IntegerAttr(2)}));
 
-    return meanOp;
+    // Permute output from NHWC back to NCHW
+    auto inversePermuteOp = createPermuteOp(rewriter, desiredLayout,
+                                            currentLayout, meanOp.getResult());
+
+    return inversePermuteOp;
   }
 
-  RankedTensorType createPoolingOutputType(RankedTensorType inputType,
-                                           bool keepDim) const {
-    SmallVector<int64_t> poolOutputShape;
-    ArrayRef<int64_t> inputShape = inputType.getShape();
+  RankedTensorType createPoolingOutputType(RankedTensorType inputType) const {
+    SmallVector<int64_t> poolOutputShape(inputType.getShape());
+    poolOutputShape[SPATIAL_HEIGHT_DIM - 1] = 1;
+    poolOutputShape[SPATIAL_WIDTH_DIM - 1] = 1;
 
-    if (keepDim) {
-      poolOutputShape.assign(inputShape.begin(), inputShape.end());
-      poolOutputShape[SPATIAL_HEIGHT_DIM] = 1;
-      poolOutputShape[SPATIAL_WIDTH_DIM] = 1;
-    } else {
-      poolOutputShape.reserve(inputShape.size() - 2);
-      for (size_t i = 0; i < inputShape.size(); ++i) {
-        if (i != SPATIAL_HEIGHT_DIM && i != SPATIAL_WIDTH_DIM) {
-          poolOutputShape.push_back(inputShape[i]);
-        }
-      }
-    }
     return RankedTensorType::get(poolOutputShape, inputType.getElementType(),
                                  inputType.getEncoding());
+  }
+
+  ReshapeOp createReshapePoolOutOp(mlir::PatternRewriter &rewriter,
+                                   Operation *op,
+                                   RankedTensorType outputType) const {
+    auto loc = op->getLoc();
+    llvm::SmallVector<int64_t> outputShape(outputType.getShape());
+    SmallVector<int32_t> outputShapeI32(outputShape.begin(), outputShape.end());
+
+    return ttir::utils::createDPSOp<ttir::ReshapeOp>(
+        rewriter, ttmlir::utils::appendLocationSuffix(loc, "_reshape"),
+        outputType, op->getResult(0), rewriter.getI32ArrayAttr(outputShapeI32));
   }
 };
 
@@ -2256,7 +2312,10 @@ public:
       patterns.add<PadPoolingFusionPattern>(&getContext());
       patterns.add<AveragePoolingWithPoolingDenominatorFusionPattern>(
           &getContext());
+      // if (globalPoolFusingEnabled) {
       patterns.add<GlobalAveragePoolingPattern>(&getContext());
+      // }
+
       patterns.add<MatmulWithBiasFusionPattern>(&getContext());
 
       patterns.add<GeluFusionPattern>(&getContext());
