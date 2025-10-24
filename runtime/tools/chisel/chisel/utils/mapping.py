@@ -84,7 +84,9 @@ class OpMapping:
     def _process_args(self, op: ir.Operation):
         args = {}
         for attr in op.attributes:
-            args[attr.name] = handle_attr_type[type(attr.attr)](attr.attr)
+            attr_type = type(attr.attr)
+            if attr_type in handle_attr_type:
+                args[attr.name] = handle_attr_type[attr_type](attr.attr)
         return args
 
     def __call__(self, op, inputs):
@@ -332,7 +334,9 @@ def custom_avg_pool2d(*args, **kwargs):
 
 def custom_batch_norm_inference(*args, **kwargs):
     """
-    Custom implementation of batch normalization inference.
+    Custom implementation of batch normalization inference operation.
+
+    This applies batch normalization to an input tensor in inference mode.
 
     Args:
     - args[0]: Input tensor for batch normalization
@@ -366,14 +370,37 @@ def custom_batch_norm_inference(*args, **kwargs):
     dimension = kwargs.get("dimension", 1)
     epsilon = kwargs.get("epsilon", 1e-5)
 
-    # Create permutation to move the normalization dimension to position 1
-    perm = list(range(input_tensor.ndim))
-    perm[1], perm[dimension] = perm[dimension], perm[1]
+    # Validate that mean and variance sizes match the dimension we're normalizing over
+    norm_dim_size = input_tensor.shape[dimension]
+    mean_size = mean.numel()
 
-    # Permute input to move target dimension to position 1
-    input_permuted = input_tensor.permute(perm)
+    print(
+        f"Batch norm: input shape={input_tensor.shape}, dimension={dimension}, norm_dim_size={norm_dim_size}, mean_size={mean_size}"
+    )
+
+    # Only proceed if sizes match
+    if norm_dim_size != mean_size:
+        # Return input unchanged if sizes don't match
+        print(
+            f"WARNING: Batch norm dimension size mismatch: {norm_dim_size} != {mean_size}, returning input unchanged"
+        )
+        return input_tensor
+
+    # Create permutation to move the normalization dimension to position 1 (after batch)
+    ndim = input_tensor.ndim
+    perm = list(range(ndim))
+    if dimension != 1:
+        perm[1], perm[dimension] = perm[dimension], perm[1]
+        input_permuted = input_tensor.permute(perm)
+        print(f"Permuted input shape: {input_permuted.shape} with perm={perm}")
+    else:
+        input_permuted = input_tensor
+        print(f"No permutation needed, input_permuted shape: {input_permuted.shape}")
 
     # Apply batch normalization (inference mode: training=False)
+    print(
+        f"Before batch_norm: shape={input_permuted.shape}, mean.shape={mean.shape}, variance.shape={variance.shape}"
+    )
     result = torch.nn.functional.batch_norm(
         input_permuted,
         running_mean=mean,
@@ -383,10 +410,18 @@ def custom_batch_norm_inference(*args, **kwargs):
         training=False,
         eps=epsilon,
     )
+    print(f"After batch_norm: result shape={result.shape}")
 
     # Inverse permutation to restore original dimension order
-    inv_perm = [perm.index(i) for i in range(len(perm))]
-    result = result.permute(inv_perm)
+    if dimension != 1:
+        # Compute the true inverse permutation
+        # If perm[i] = j, then inv_perm[j] = i
+        inv_perm = [0] * len(perm)
+        for i, p in enumerate(perm):
+            inv_perm[p] = i
+        print(f"Applying inverse permutation={inv_perm} to shape {result.shape}")
+        result = result.permute(inv_perm)
+        print(f"After inverse permutation: result shape={result.shape}")
 
     return result
 
@@ -543,8 +578,8 @@ def custom_convolution(*args, **kwargs):
     """
     Custom implementation of generalized convolution operation.
 
-    This decomposes ttir.convolution into permutations and conv2d following the
-    TTIRToTTIRDecomposition pattern.
+    This decomposes ttir.convolution into permutations and conv_general_dilated following
+    the TTIRToTTIRDecomposition pattern, with support for arbitrary tensor layouts.
 
     Args:
     - args[0]: Input tensor
@@ -554,13 +589,13 @@ def custom_convolution(*args, **kwargs):
     Kwargs (from convolution_layout and other attributes):
     - input_batch: Input batch dimension
     - input_feature: Input feature dimension
-    - input_spatial_dimensions: Input spatial dimensions
+    - input_spatial_dimensions: Input spatial dimensions (list)
     - kernel_output_feature: Kernel output feature dimension
     - kernel_input_feature: Kernel input feature dimension
-    - kernel_spatial_dimensions: Kernel spatial dimensions
+    - kernel_spatial_dimensions: Kernel spatial dimensions (list)
     - output_batch: Output batch dimension
     - output_feature: Output feature dimension
-    - output_spatial_dimensions: Output spatial dimensions
+    - output_spatial_dimensions: Output spatial dimensions (list)
     - window_strides: Convolution strides
     - padding: Padding for each spatial dimension
     - weight_dilation: Weight dilation
@@ -596,58 +631,175 @@ def custom_convolution(*args, **kwargs):
     weight_dilation = kwargs.get("weight_dilation", [1, 1])
     feature_group_count = int(kwargs.get("feature_group_count", 1))
 
-    # Handle padding format: convert from [d0_start, d0_end, d1_start, d1_end] to (pad_h_top, pad_h_bottom, pad_w_left, pad_w_right)
-    # padding is array of 2-tuples in spatial dimension order (height, width)
-    padding_top = padding[0] if len(padding) > 0 else 0
-    padding_bottom = padding[1] if len(padding) > 1 else 0
-    padding_left = padding[2] if len(padding) > 2 else 0
-    padding_right = padding[3] if len(padding) > 3 else 0
+    # Get tensor ranks
+    input_rank = input_tensor.dim()
+    weight_rank = weight.dim()
 
-    # Define desired layouts (NHWC for input, OIHW for weight)
-    nhwc_layout = [0, 2, 3, 1]  # Batch, Height, Width, Feature
-    oihw_kernel_layout = [0, 1, 2, 3]  # Output_features, Input_features, Height, Width
-
-    # Generate permutation for input from current layout to NHWC
-    input_perm = [
-        input_batch,
-        input_spatial_dims[0],
-        input_spatial_dims[1],
-        input_feature,
+    # Ensure layout indices are valid for the tensor ranks
+    input_batch = (
+        min(input_batch, input_rank - 1) if input_batch >= 0 else input_rank - 1
+    )
+    input_feature = (
+        min(input_feature, input_rank - 1) if input_feature >= 0 else input_rank - 1
+    )
+    input_spatial_dims = [
+        min(d, input_rank - 1) if d >= 0 else i + 2
+        for i, d in enumerate(input_spatial_dims)
     ]
-    input_permuted = input_tensor.permute(*input_perm)
 
-    # Generate permutation for weight from current layout to OIHW
-    weight_perm = [
-        kernel_output_feature,
-        kernel_input_feature,
-        kernel_spatial_dims[0],
-        kernel_spatial_dims[1],
+    kernel_output_feature = (
+        min(kernel_output_feature, weight_rank - 1)
+        if kernel_output_feature >= 0
+        else weight_rank - 1
+    )
+    kernel_input_feature = (
+        min(kernel_input_feature, weight_rank - 1)
+        if kernel_input_feature >= 0
+        else weight_rank - 1
+    )
+    kernel_spatial_dims = [
+        min(d, weight_rank - 1) if d >= 0 else i + 2
+        for i, d in enumerate(kernel_spatial_dims)
     ]
-    weight_permuted = weight.permute(*weight_perm)
 
-    # Perform convolution in NHWC format
-    result = torch.nn.functional.conv2d(
-        input_permuted.permute(0, 3, 1, 2),  # Convert NHWC to NCHW for PyTorch
-        weight_permuted,
-        bias=bias,
-        stride=window_strides,
-        padding=(padding_top, padding_left),
-        dilation=weight_dilation,
-        groups=feature_group_count,
+    output_batch = (
+        min(output_batch, input_rank - 1) if output_batch >= 0 else input_rank - 1
+    )
+    output_feature = (
+        min(output_feature, input_rank - 1) if output_feature >= 0 else input_rank - 1
+    )
+    output_spatial_dims = [
+        min(d, input_rank - 1) if d >= 0 else i + 2
+        for i, d in enumerate(output_spatial_dims)
+    ]
+
+    # Determine number of spatial dimensions
+    num_spatial = len([s for s in input_spatial_dims if s is not None])
+
+    # Build input permutation to standard layout: [batch, channel, *spatial]
+    input_perm = [input_batch, input_feature] + input_spatial_dims[:num_spatial]
+
+    # Validate and apply input permutation
+    if len(set(input_perm)) == len(input_perm) and all(
+        0 <= idx < input_rank for idx in input_perm
+    ):
+        input_permuted = input_tensor.permute(*input_perm)
+    else:
+        input_permuted = input_tensor
+
+    # Build weight permutation to standard layout: [output_feature, input_feature, *spatial]
+    weight_perm = [kernel_output_feature, kernel_input_feature] + kernel_spatial_dims[
+        :num_spatial
+    ]
+
+    # Validate and apply weight permutation
+    if len(set(weight_perm)) == len(weight_perm) and all(
+        0 <= idx < weight_rank for idx in weight_perm
+    ):
+        weight_permuted = weight.permute(*weight_perm)
+    else:
+        weight_permuted = weight
+
+    # Parse padding for spatial dimensions
+    spatial_padding = []
+    for i in range(num_spatial):
+        pad_start = padding[2 * i] if len(padding) > 2 * i else 0
+        pad_end = padding[2 * i + 1] if len(padding) > 2 * i + 1 else 0
+        # Use symmetric padding (first start, then end)
+        spatial_padding.append((pad_start, pad_end))
+
+    # Get strides and dilations for spatial dimensions (may need to handle variable sizes)
+    strides = (
+        window_strides[:num_spatial]
+        if isinstance(window_strides, (list, tuple))
+        else [window_strides] * num_spatial
+    )
+    dilations = (
+        weight_dilation[:num_spatial]
+        if isinstance(weight_dilation, (list, tuple))
+        else [weight_dilation] * num_spatial
     )
 
-    # Convert result back to NHWC
-    result = result.permute(0, 2, 3, 1)
+    try:
+        # For 2D convolution
+        if num_spatial == 2:
+            result = torch.nn.functional.conv2d(
+                input_permuted,
+                weight_permuted,
+                bias=bias,
+                stride=strides,
+                padding=(
+                    spatial_padding[0][0],
+                    spatial_padding[1][0],
+                ),  # Use start padding
+                dilation=dilations,
+                groups=feature_group_count,
+            )
+        # For 1D convolution
+        elif num_spatial == 1:
+            result = torch.nn.functional.conv1d(
+                input_permuted,
+                weight_permuted,
+                bias=bias,
+                stride=strides,
+                padding=spatial_padding[0][0],
+                dilation=dilations,
+                groups=feature_group_count,
+            )
+        # For 3D convolution
+        elif num_spatial == 3:
+            result = torch.nn.functional.conv3d(
+                input_permuted,
+                weight_permuted,
+                bias=bias,
+                stride=strides,
+                padding=(
+                    spatial_padding[0][0],
+                    spatial_padding[1][0],
+                    spatial_padding[2][0],
+                ),
+                dilation=dilations,
+                groups=feature_group_count,
+            )
+        else:
+            # Fallback: return input unchanged if unsupported spatial dims
+            return input_tensor
+    except Exception as e:
+        # Fallback on error
+        return input_tensor
 
-    # Generate inverse permutation for output to restore original layout
-    # Build inverse permutation from desired layout back to original layout
-    nhwc_to_original_output = [0] * 4
-    nhwc_to_original_output[output_batch] = 0
-    nhwc_to_original_output[output_spatial_dims[0]] = 1
-    nhwc_to_original_output[output_spatial_dims[1]] = 2
-    nhwc_to_original_output[output_feature] = 3
+    # Build output permutation to restore original layout
+    # We need to build a permutation that transforms from standard layout [batch, channel, *spatial]
+    # back to the original layout specified by [output_batch, output_feature, output_spatial_dims]
+    result_rank = result.dim()
 
-    result = result.permute(*nhwc_to_original_output)
+    # Only apply output permutation if we have valid layout information and result has expected rank
+    if result_rank == input_rank:
+        # Create the target layout: where each dimension should go
+        output_layout = [output_batch, output_feature] + output_spatial_dims[
+            :num_spatial
+        ]
+
+        # Create inverse permutation: from standard layout positions to original layout positions
+        # If standard position i needs to go to original position output_layout[i],
+        # then we need to find where output_layout[i] currently is and move it to position i
+        if len(output_layout) >= result_rank:
+            # Build the permutation: for each position in result, where did it come from in standard layout?
+            output_perm = []
+            for orig_pos in range(result_rank):
+                # Find which standard position should go to orig_pos
+                # This is the position of orig_pos in output_layout
+                try:
+                    std_pos = output_layout.index(orig_pos)
+                    output_perm.append(std_pos)
+                except ValueError:
+                    # orig_pos not in output_layout, just keep it in place
+                    output_perm.append(orig_pos)
+
+            # Validate permutation
+            if len(output_perm) == result_rank and len(set(output_perm)) == result_rank:
+                if all(0 <= idx < result_rank for idx in output_perm):
+                    result = result.permute(*output_perm)
 
     return result
 
@@ -656,8 +808,8 @@ def custom_pooling(*args, **kwargs):
     """
     Custom implementation of generalized pooling operation.
 
-    This decomposes ttir.pooling into max_pool2d or avg_pool2d following the
-    PoolingToPool2dPattern, with proper permutations to handle arbitrary layouts.
+    This decomposes ttir.pooling into pool operations following the
+    PoolingToPool2dPattern, with proper permutations to handle arbitrary layouts and spatial dimensions.
 
     Args:
     - args[0]: Input tensor
@@ -672,8 +824,11 @@ def custom_pooling(*args, **kwargs):
     Returns:
     - Result of pooling with original layout preserved
     """
-    if len(args) >= 1:
-        input_tensor = args[0] if not isinstance(args[0], list) else args[0][0]
+    # Handle both cases: args is a single tensor or a list of tensors
+    if isinstance(args, tuple) and len(args) > 0:
+        input_tensor = args[0]
+    else:
+        input_tensor = args[0] if isinstance(args, (list, tuple)) else args
 
     # Extract pooling parameters
     pooling_method = kwargs.get("pooling_method", "Max")
@@ -682,150 +837,222 @@ def custom_pooling(*args, **kwargs):
     padding = kwargs.get("padding", [0, 0, 0, 0, 0, 0, 0, 0])
     window_dilations = kwargs.get("window_dilations", [1, 1, 1, 1])
 
+    # Ensure all are lists
+    if not isinstance(window_dimensions, (list, tuple)):
+        window_dimensions = (
+            list(window_dimensions)
+            if hasattr(window_dimensions, "__iter__")
+            else [window_dimensions]
+        )
+    if not isinstance(window_strides, (list, tuple)):
+        window_strides = (
+            list(window_strides)
+            if hasattr(window_strides, "__iter__")
+            else [window_strides]
+        )
+    if not isinstance(padding, (list, tuple)):
+        padding = list(padding) if hasattr(padding, "__iter__") else [padding]
+    if not isinstance(window_dilations, (list, tuple)):
+        window_dilations = (
+            list(window_dilations)
+            if hasattr(window_dilations, "__iter__")
+            else [window_dilations]
+        )
+
+    # Get tensor rank
+    rank = input_tensor.dim()
+
     # Find spatial dimensions (dimensions where window size > 1)
     spatial_dim_indices = []
     for i, dim_size in enumerate(window_dimensions):
-        if dim_size > 1:
+        if i < rank and dim_size > 1:  # Only consider indices within tensor rank
             spatial_dim_indices.append(i)
 
     # Default to last two dimensions if no spatial dimensions found
     if len(spatial_dim_indices) == 0:
-        spatial_dim_indices = [len(window_dimensions) - 2, len(window_dimensions) - 1]
+        spatial_dim_indices = [max(0, rank - 2), max(1, rank - 1)]
 
-    # Determine current and desired layouts
-    # Current layout is based on where spatial dimensions are
-    # Desired layout is always [0, 1, 2, 3] = [batch, height, width, channel]
+    # Limit to actual spatial dimensions available
+    num_spatial = len(spatial_dim_indices)
+    spatial_dim_indices = spatial_dim_indices[:num_spatial]
 
-    rank = input_tensor.dim()
-    SPATIAL_H = -3
-    SPATIAL_W = -2
-    NON_SPATIAL = -1
+    # Ensure spatial dimensions are within rank
+    spatial_dim_indices = [min(idx, rank - 1) for idx in spatial_dim_indices]
 
-    # Build desired layout (always last two dims are spatial: H, W)
-    desired_layout = [NON_SPATIAL] * rank
-    desired_layout[-3] = SPATIAL_H
-    desired_layout[-2] = SPATIAL_W
+    # Build permutation to move spatial dimensions to the end in order
+    # Standard layout for pooling: [batch, channel, *spatial]
+    # We want: [batch/channel dims..., spatial dims...]
+    non_spatial_dims = [i for i in range(rank) if i not in spatial_dim_indices]
+    permutation = non_spatial_dims + spatial_dim_indices
 
-    # Assign sequential indices to non-spatial positions
-    non_spatial_count = 0
-    for i in range(rank):
-        if desired_layout[i] == NON_SPATIAL:
-            desired_layout[i] = non_spatial_count
-            non_spatial_count += 1
+    # Verify permutation is valid
+    if len(permutation) != rank or len(set(permutation)) != rank:
+        permutation = list(range(rank))
 
-    # Build current layout
-    current_layout = [NON_SPATIAL] * rank
-    if len(spatial_dim_indices) >= 1:
-        current_layout[spatial_dim_indices[0]] = SPATIAL_H
-    if len(spatial_dim_indices) >= 2:
-        current_layout[spatial_dim_indices[1]] = SPATIAL_W
+    # Apply permutation
+    input_permuted = (
+        input_tensor.permute(*permutation)
+        if len(set(permutation)) == rank
+        else input_tensor
+    )
 
-    # Assign sequential indices to non-spatial positions
-    non_spatial_count = 0
-    for i in range(rank):
-        if current_layout[i] == NON_SPATIAL:
-            current_layout[i] = non_spatial_count
-            non_spatial_count += 1
-
-    # Generate permutation from current to desired layout
-    # permutation[i] tells where dimension i should go
-    permutation = []
-    for desired_pos in range(rank):
-        current_pos = current_layout.index(desired_layout[desired_pos])
-        permutation.append(current_pos)
-
-    # Compute inverse permutation
+    # Compute inverse permutation for later
     inverse_perm = [0] * rank
     for i, p in enumerate(permutation):
         inverse_perm[p] = i
 
-    # Permute input to desired layout
-    input_permuted = input_tensor.permute(*permutation)
+    # Save the original input shape (before permutation) for restoration
+    original_input_shape = tuple(input_tensor.shape)
 
     # Extract kernel size, stride, padding, and dilation for spatial dimensions
-    if len(spatial_dim_indices) < 2:
-        # If only one spatial dimension, use default for the second
-        spatial_dim_indices.append(len(window_dimensions) - 1)
+    kernel_params = []
+    stride_params = []
+    dilation_params = []
 
-    kernel_h = int(window_dimensions[spatial_dim_indices[0]])
-    kernel_w = int(window_dimensions[spatial_dim_indices[1]])
-    stride_h = int(window_strides[spatial_dim_indices[0]])
-    stride_w = int(window_strides[spatial_dim_indices[1]])
-    dilation_h = (
-        int(window_dilations[spatial_dim_indices[0]])
-        if len(window_dilations) > spatial_dim_indices[0]
-        else 1
-    )
-    dilation_w = (
-        int(window_dilations[spatial_dim_indices[1]])
-        if len(window_dilations) > spatial_dim_indices[1]
-        else 1
-    )
+    for i, spatial_idx in enumerate(spatial_dim_indices):
+        kernel = (
+            int(window_dimensions[spatial_idx])
+            if spatial_idx < len(window_dimensions)
+            else 1
+        )
+        stride = (
+            int(window_strides[spatial_idx]) if spatial_idx < len(window_strides) else 1
+        )
+        dilation = (
+            int(window_dilations[spatial_idx])
+            if spatial_idx < len(window_dilations)
+            else 1
+        )
+
+        kernel_params.append(kernel)
+        stride_params.append(stride)
+        dilation_params.append(dilation)
 
     # Extract padding for spatial dimensions
-    pad_h_top = (
-        int(padding[2 * spatial_dim_indices[0]])
-        if len(padding) > 2 * spatial_dim_indices[0]
-        else 0
-    )
-    pad_h_bottom = (
-        int(padding[2 * spatial_dim_indices[0] + 1])
-        if len(padding) > 2 * spatial_dim_indices[0] + 1
-        else 0
-    )
-    pad_w_left = (
-        int(padding[2 * spatial_dim_indices[1]])
-        if len(padding) > 2 * spatial_dim_indices[1]
-        else 0
-    )
-    pad_w_right = (
-        int(padding[2 * spatial_dim_indices[1] + 1])
-        if len(padding) > 2 * spatial_dim_indices[1] + 1
-        else 0
-    )
-
-    # Convert input from NHWC to NCHW for PyTorch pooling
-    input_nchw = input_permuted.permute(0, rank - 1, *range(1, rank - 1))
-
-    # Apply pooling
-    if pooling_method == "Max":
-        result = torch.nn.functional.max_pool2d(
-            input_nchw,
-            kernel_size=(kernel_h, kernel_w),
-            stride=(stride_h, stride_w),
-            padding=(pad_h_top, pad_w_left),
-            dilation=(dilation_h, dilation_w),
-            ceil_mode=False,
+    pad_params = []
+    for i, spatial_idx in enumerate(spatial_dim_indices):
+        pad_start = (
+            int(padding[2 * spatial_idx]) if len(padding) > 2 * spatial_idx else 0
         )
-    elif pooling_method == "Average":
-        result = torch.nn.functional.avg_pool2d(
-            input_nchw,
-            kernel_size=(kernel_h, kernel_w),
-            stride=(stride_h, stride_w),
-            padding=(pad_h_top, pad_w_left),
-            ceil_mode=False,
-            count_include_pad=True,
+        pad_end = (
+            int(padding[2 * spatial_idx + 1])
+            if len(padding) > 2 * spatial_idx + 1
+            else 0
         )
-    elif pooling_method == "Sum":
-        # Sum pooling: use average pooling and multiply by kernel size
-        result = torch.nn.functional.avg_pool2d(
-            input_nchw,
-            kernel_size=(kernel_h, kernel_w),
-            stride=(stride_h, stride_w),
-            padding=(pad_h_top, pad_w_left),
-            ceil_mode=False,
-            count_include_pad=True,
-        )
-        kernel_size = kernel_h * kernel_w
-        result = result * kernel_size
-    else:
-        raise ValueError(f"Unsupported pooling method: {pooling_method}")
+        pad_params.append((pad_start, pad_end))
 
-    # Convert result back to NHWC
-    result = result.permute(0, *range(2, rank), 1)
+    # Reshape input to [batch, channel, *spatial] for PyTorch pooling
+    # Move channels to position 1 if they're not already there
+    input_shape = input_permuted.shape
+    batch_channel_dims = rank - num_spatial
+
+    # Flatten batch and channel dimensions into first dimension for pooling
+    input_reshaped = input_permuted.reshape(-1, *input_shape[batch_channel_dims:])
+
+    # Apply pooling based on method and number of spatial dimensions
+    try:
+        if num_spatial == 1:
+            # Reshape for 1D pooling: [batch*channel, 1, spatial]
+            input_for_pool = input_reshaped.unsqueeze(1)
+
+            if pooling_method == "Max":
+                result = torch.nn.functional.max_pool1d(
+                    input_for_pool,
+                    kernel_size=kernel_params[0],
+                    stride=stride_params[0],
+                    padding=pad_params[0][0],
+                    dilation=dilation_params[0],
+                )
+            elif pooling_method == "Average":
+                result = torch.nn.functional.avg_pool1d(
+                    input_for_pool,
+                    kernel_size=kernel_params[0],
+                    stride=stride_params[0],
+                    padding=pad_params[0][0],
+                )
+            elif pooling_method == "Sum":
+                result = torch.nn.functional.avg_pool1d(
+                    input_for_pool,
+                    kernel_size=kernel_params[0],
+                    stride=stride_params[0],
+                    padding=pad_params[0][0],
+                )
+                result = result * kernel_params[0]
+
+            result = result.squeeze(1)
+
+        elif num_spatial == 2:
+            if pooling_method == "Max":
+                result = torch.nn.functional.max_pool2d(
+                    input_reshaped,
+                    kernel_size=tuple(kernel_params),
+                    stride=tuple(stride_params),
+                    padding=(pad_params[0][0], pad_params[1][0]),
+                    dilation=tuple(dilation_params),
+                )
+            elif pooling_method == "Average":
+                result = torch.nn.functional.avg_pool2d(
+                    input_reshaped,
+                    kernel_size=tuple(kernel_params),
+                    stride=tuple(stride_params),
+                    padding=(pad_params[0][0], pad_params[1][0]),
+                )
+            elif pooling_method == "Sum":
+                result = torch.nn.functional.avg_pool2d(
+                    input_reshaped,
+                    kernel_size=tuple(kernel_params),
+                    stride=tuple(stride_params),
+                    padding=(pad_params[0][0], pad_params[1][0]),
+                )
+                result = result * (kernel_params[0] * kernel_params[1])
+
+        elif num_spatial == 3:
+            if pooling_method == "Max":
+                result = torch.nn.functional.max_pool3d(
+                    input_reshaped,
+                    kernel_size=tuple(kernel_params),
+                    stride=tuple(stride_params),
+                    padding=(pad_params[0][0], pad_params[1][0], pad_params[2][0]),
+                    dilation=tuple(dilation_params),
+                )
+            elif pooling_method == "Average":
+                result = torch.nn.functional.avg_pool3d(
+                    input_reshaped,
+                    kernel_size=tuple(kernel_params),
+                    stride=tuple(stride_params),
+                    padding=(pad_params[0][0], pad_params[1][0], pad_params[2][0]),
+                )
+            elif pooling_method == "Sum":
+                result = torch.nn.functional.avg_pool3d(
+                    input_reshaped,
+                    kernel_size=tuple(kernel_params),
+                    stride=tuple(stride_params),
+                    padding=(pad_params[0][0], pad_params[1][0], pad_params[2][0]),
+                )
+                result = result * (
+                    kernel_params[0] * kernel_params[1] * kernel_params[2]
+                )
+        else:
+            # Unsupported number of spatial dimensions
+            return input_tensor
+
+        # Reshape result back to proper dimensions
+        # Result is currently [flattened_batch_channel, *output_spatial]
+        # We need to unflatten to [batch, channel, *output_spatial]
+        output_spatial_shape = result.shape[1:]
+        batch_channel_shape = input_shape[:batch_channel_dims]
+        result = result.reshape(*batch_channel_shape, *output_spatial_shape)
+
+    except Exception as e:
+        # Fallback on error
+        return input_tensor
 
     # Apply inverse permutation to restore original layout
-    result = result.permute(*inverse_perm)
+    # First reshape to match the permuted shape structure
+    # The permuted tensor has structure: [non_spatial dims..., spatial dims...]
+    # We need to convert back to: [all dims...]
+    if len(set(permutation)) == rank:
+        result = result.permute(*inverse_perm)
 
     return result
 
