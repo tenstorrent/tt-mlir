@@ -31,7 +31,6 @@ BLOCK_SHARDED_SHAPE_GRIDS = [
     (96, 128, (3, 2)),
 ]
 
-<<<<<<< HEAD
 DRAM_INTERLEAVED_SHAPES = [
     (32, 32),
     (32, 64),
@@ -45,8 +44,6 @@ DRAM_INTERLEAVED_SHAPES = [
     (1024, 64),
 ]
 
-=======
->>>>>>> 689538f5c (fix rebase)
 
 def run_op_test(
     device, h, w, max_grid, dtype, op, num_inputs, buffer_type=ttnn.BufferType.L1
@@ -65,14 +62,10 @@ def run_op_test(
     output_tensor = op_jit(*inputs)
     golden_tensor = (golden_op or op)(*inputs)
 
-<<<<<<< HEAD
     assert memory_configs_equal(
         output_tensor.memory_config(), golden_tensor.memory_config()
     )
     assert all_close_check(output_tensor, golden_tensor)
-=======
-    _all_close_check(output_tensor, golden_tensor)
->>>>>>> 689538f5c (fix rebase)
 
 
 # ------------------------------------------------------------
@@ -363,7 +356,7 @@ def test_composite_ops(device, h, w, max_grid, dtype, op):
 def test_interop_jit_to_ttnn_unary_l1(
     device, h, w, max_grid, dtype, jit_op, ttnn_unary_op
 ):
-    input_tensor = _create_sharded_tile_tensor(device, h, w, max_grid, dtype)
+    input_tensor = create_sharded_tile_tensor(device, h, w, max_grid, dtype)
 
     # jit path
     compiled_op = ttnn_jit.jit(backend="ttnn", debug=True, max_grid=max_grid)(jit_op)
@@ -375,7 +368,7 @@ def test_interop_jit_to_ttnn_unary_l1(
     golden_jit_output = golden_jit_op(input_tensor)
     golden_result = ttnn_unary_op(golden_jit_output)
 
-    _all_close_check(interop_result, golden_result)
+    all_close_check(interop_result, golden_result)
 
 
 # 2 JIT ops -> TTNN binary op test
@@ -395,8 +388,8 @@ def test_interop_two_jit_to_ttnn_binary_l1(
     if jit_op2 == log and dtype == torch.float32:
         pytest.xfail("Failing all_close, getting nan values mismatching with golden")
 
-    input1 = _create_sharded_tile_tensor(device, h, w, max_grid, dtype)
-    input2 = _create_sharded_tile_tensor(device, h, w, max_grid, dtype)
+    input1 = create_sharded_tile_tensor(device, h, w, max_grid, dtype)
+    input2 = create_sharded_tile_tensor(device, h, w, max_grid, dtype)
 
     # interop path
     compiled_op1 = ttnn_jit.jit(backend="ttnn", debug=True, max_grid=max_grid)(jit_op1)
@@ -412,7 +405,7 @@ def test_interop_two_jit_to_ttnn_binary_l1(
     golden_output2 = golden_jit_op2(input2)
     golden_result = ttnn_binary_op(golden_output1, golden_output2)
 
-    _all_close_check(interop_result, golden_result)
+    all_close_check(interop_result, golden_result)
 
 
 # JIT op + ttnn tensor -> ttnn binary op test
@@ -429,8 +422,8 @@ def test_interop_two_jit_to_ttnn_binary_l1(
 def test_interop_jit_and_ttnn_to_binary_l1(
     device, h, w, max_grid, dtype, jit_op, ttnn_binary_op
 ):
-    input_tensor = _create_sharded_tile_tensor(device, h, w, max_grid, dtype)
-    ttnn_tensor = _create_sharded_tile_tensor(device, h, w, max_grid, dtype)
+    input_tensor = create_sharded_tile_tensor(device, h, w, max_grid, dtype)
+    ttnn_tensor = create_sharded_tile_tensor(device, h, w, max_grid, dtype)
 
     # interop path
     compiled_op = ttnn_jit.jit(backend="ttnn", debug=True, max_grid=max_grid)(jit_op)
@@ -442,7 +435,7 @@ def test_interop_jit_and_ttnn_to_binary_l1(
     golden_jit_output = golden_jit_op(input_tensor)
     golden_result = ttnn_binary_op(golden_jit_output, ttnn_tensor)
 
-    _all_close_check(interop_result, golden_result)
+    all_close_check(interop_result, golden_result)
 
 
 # JIT op -> ttnn unary op test (DRAM)
@@ -462,7 +455,7 @@ def test_interop_jit_and_ttnn_to_binary_l1(
 )
 def test_interop_jit_to_ttnn_unary_dram(device, h, w, dtype, jit_op, ttnn_unary_op):
     max_grid = (0, 0)
-    input_tensor = _create_dram_tensor(device, h, w, dtype)
+    input_tensor = create_dram_tensor(device, h, w, dtype)
 
     # Interop path
     compiled_op = ttnn_jit.jit(backend="ttnn", debug=True, max_grid=max_grid)(jit_op)
@@ -474,7 +467,7 @@ def test_interop_jit_to_ttnn_unary_dram(device, h, w, dtype, jit_op, ttnn_unary_
     golden_jit_output = golden_jit_op(input_tensor)
     golden_result = ttnn_unary_op(golden_jit_output)
 
-    _all_close_check(interop_result, golden_result)
+    all_close_check(interop_result, golden_result)
 
 
 # 2 JIT ops -> ttnn binary op test (DRAM)
@@ -498,8 +491,8 @@ def test_interop_two_jit_to_ttnn_binary_dram(
         pytest.xfail("Failing all_close, getting nan values mismatching with golden")
 
     max_grid = (0, 0)
-    input1 = _create_dram_tensor(device, h, w, dtype)
-    input2 = _create_dram_tensor(device, h, w, dtype)
+    input1 = create_dram_tensor(device, h, w, dtype)
+    input2 = create_dram_tensor(device, h, w, dtype)
 
     # Interop path
     compiled_op1 = ttnn_jit.jit(backend="ttnn", debug=True, max_grid=max_grid)(jit_op1)
@@ -515,7 +508,7 @@ def test_interop_two_jit_to_ttnn_binary_dram(
     golden_output2 = golden_jit_op2(input2)
     golden_result = ttnn_binary_op(golden_output1, golden_output2)
 
-    _all_close_check(interop_result, golden_result)
+    all_close_check(interop_result, golden_result)
 
 
 # JIT op + ttnn tensor -> ttnn binary op test (DRAM)
@@ -536,8 +529,8 @@ def test_interop_jit_and_ttnn_to_binary_dram(
     device, h, w, dtype, jit_op, ttnn_binary_op
 ):
     max_grid = (0, 0)
-    input_tensor = _create_dram_tensor(device, h, w, dtype)
-    ttnn_tensor = _create_dram_tensor(device, h, w, dtype)
+    input_tensor = create_dram_tensor(device, h, w, dtype)
+    ttnn_tensor = create_dram_tensor(device, h, w, dtype)
 
     # Interop path
     compiled_op = ttnn_jit.jit(backend="ttnn", debug=True, max_grid=max_grid)(jit_op)
@@ -549,4 +542,4 @@ def test_interop_jit_and_ttnn_to_binary_dram(
     golden_jit_output = golden_jit_op(input_tensor)
     golden_result = ttnn_binary_op(golden_jit_output, ttnn_tensor)
 
-    _all_close_check(interop_result, golden_result)
+    all_close_check(interop_result, golden_result)
