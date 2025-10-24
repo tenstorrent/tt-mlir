@@ -410,6 +410,25 @@ def custom_argmax(x, dim=[], keepdim=False):
     return x
 
 
+def custom_batch_norm(
+    input, running_mean, running_var, weight, bias, *, epsilon=1e-5, training=False, **_
+):
+    # Flatten 4D tensors to 1D if necessary
+    if running_mean.ndim != 1:
+        running_mean = running_mean.flatten()
+    if running_var.ndim != 1:
+        running_var = running_var.flatten()
+    if weight is not None and weight.ndim != 1:
+        weight = weight.flatten()
+    if bias is not None and bias.ndim != 1:
+        bias = bias.flatten()
+
+    out = torch.nn.functional.batch_norm(
+        input, running_mean, running_var, weight, bias, training=training, eps=epsilon
+    )
+    return out
+
+
 ttir_to_torch_mapping = {
     # do nothing
     "ttir.empty": OpMapping(lambda x=None, *args, **kwargs: None),
@@ -557,6 +576,7 @@ ttir_to_torch_mapping = {
         },
         unpack_inputs=False,
     ),
+    "ttir.batch_norm_inference": OpMapping(custom_batch_norm),
     "ttir.argmax": OpMapping(
         custom_argmax, {"dim_arg": "dim", "keep_dim": "keepdim"}, unpack_inputs=False
     ),
