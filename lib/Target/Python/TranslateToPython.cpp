@@ -16,12 +16,14 @@
 
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/BuiltinAttributes.h"
+#include "mlir/IR/BuiltinOps.h"
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/StringMap.h"
 #include "llvm/Support/raw_ostream.h"
 
-#include <llvm/ADT/StringMap.h>
-#include <mlir/IR/BuiltinOps.h>
+#include <regex>
 #include <stack>
+#include <unordered_set>
 
 using namespace mlir;
 using namespace mlir::tt::emitpy;
@@ -128,6 +130,7 @@ struct PythonEmitter {
   /// Returns wether the Value is assigned to a Python variable in the scope.
   bool hasValueInScope(Value value) { return valueMapper.count(value); };
 
+  void resetInitializedInput() { initialized_input = false; }
   /// Returns the output stream.
   raw_indented_ostream &ostream() { return os; };
 
@@ -143,6 +146,9 @@ private:
   /// The number of values in the current scope. This is used to declare the
   /// names of values in a scope.
   std::stack<llvm::StringMap<int64_t>> valueInScopeCount;
+
+  /// Whether the input has been initialized.
+  bool initialized_input = false;
 };
 } // namespace
 
@@ -153,8 +159,15 @@ static bool hasDeferredEmission(Operation *op) {
 
 StringRef PythonEmitter::getOrCreateName(Value value, std::string name) {
   if (!valueMapper.count(value)) {
-    valueMapper.insert(
-        value, formatv("{0}_{1}", name, ++valueInScopeCount.top()[name]));
+    if(!initialized_input)
+    {
+      initialized_input = true;
+      valueMapper.insert(value, name);
+    }
+    else{
+      valueMapper.insert(
+          value, formatv("{0}_{1}", name, ++valueInScopeCount.top()[name]));
+    }
   }
   return *valueMapper.begin(value);
 }
@@ -294,8 +307,9 @@ static LogicalResult printOperation(PythonEmitter &emitter, ModuleOp moduleOp) {
 static LogicalResult printFunctionArgs(PythonEmitter &emitter, Operation &op,
                                        Region::BlockArgListType arguments) {
   raw_indented_ostream &os = emitter.ostream();
+  emitter.resetInitializedInput();
   return interleaveCommaWithError(arguments, os, [&](BlockArgument arg) {
-    return emitter.emitOperand(arg, "input");
+    return emitter.emitOperand(arg, "inputs");
   });
 }
 
@@ -493,20 +507,55 @@ LogicalResult PythonEmitter::emitAssignPrefix(Operation &op) {
   return success();
 }
 
+bool isValidPythonIdentifier(const std::string& name) {
+  static const std::regex pattern(R"(^[A-Za-z_][A-Za-z0-9_]*$)");
+  static const std::unordered_set<std::string> keywords = {
+      "False","None","True","and","as","assert","async","await","break","class","continue","def",
+      "del","elif","else","except","finally","for","from","global","if","import","in","is",
+      "lambda","nonlocal","not","or","pass","raise","return","try","while","with","yield"
+  };
+
+  return std::regex_match(name, pattern) && (keywords.find(name) == keywords.end());
+}
+
 LogicalResult PythonEmitter::emitVariableAssignment(OpResult result,
                                                     Operation &op) {
   std::string name = "var";
-  if (auto functionOp = dyn_cast<func::CallOp>(op)) {
-    name = functionOp.getCallee().str();
+  
+  
+    std::string ssaName;
+    llvm::raw_string_ostream stream(ssaName);
+    mlir::OpPrintingFlags flags;
+    op.getResult(0).printAsOperand(stream, flags);
+    stream.flush();
+    size_t dotPos = ssaName.find(".result");
+    if (dotPos != std::string::npos) {
+      name = ssaName.substr(1, dotPos - 1);
+    } else {
+      name = ssaName.substr(1);
+    }
+  if(!isValidPythonIdentifier(name)) {
+    name = "var";
   }
-  if (auto callOpaqueOp = dyn_cast<CallOpaqueOp>(op)) {
-    name = callOpaqueOp.getCallee().str();
-    if (name.find("ttnn.") != std::string::npos) {
-      name = name.substr(name.find("ttnn.") + 5);
+
+  if(auto calleeAttr = op.getAttr("callee")) {
+    std::string calleeName;
+    llvm::raw_string_ostream stream(calleeName);
+    calleeAttr.print(stream, false);
+    stream.flush();
+    calleeName = calleeName.substr(1);
+    if(name == "var" && isValidPythonIdentifier(calleeName))
+    {
+      name = calleeName;
     }
   }
-  if (auto subscriptOp = dyn_cast<SubscriptOp>(op)) {
-    name = getOrCreateName(subscriptOp.getValue(), "var").str();
+  
+  if(op.getNumOperands() > 0 && name == "var") {
+    name = getOrCreateName(op.getOperand(0), name).str();
+    
+  }
+  if(!isValidPythonIdentifier(name)) {
+    name = "var";
   }
   os << getOrCreateName(result, name) << " = ";
   return success();
