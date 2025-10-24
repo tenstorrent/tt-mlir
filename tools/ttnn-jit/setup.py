@@ -66,7 +66,9 @@ def get_build_configuration(cwd):
     ttmlir_build_dir = src_dir / "build"
 
     metaldir = f"{str(src_dir)}/third_party/tt-metal/src/tt-metal/build"
-    ttmetalhome = os.environ.get("TT_METAL_HOME", "")
+    ttmetalhome = os.environ.get(
+        "TT_METAL_HOME", str(src_dir / "third_party" / "tt-metal" / "src" / "tt-metal")
+    )
     arch = os.environ.get("CMAKE_SYSTEM_PROCESSOR", DEFAULT_ARCH)
 
     # Set RPATH for runtime linking
@@ -284,55 +286,12 @@ def generate_package_data(all_runtime_libs):
     return package_data
 
 
-def compile_mlir(cwd):
-    """Compile MLIR files to shared objects using cmake"""
-    dist_dir = cwd / "dist"
-    dist_dir.mkdir(exist_ok=True)
-
-    cmake_args = [
-        "cd",
-        str(cwd.parent.parent),
-        "&&",
-        "source",
-        "env/activate",
-        "&&",
-        "cmake",
-        "-G",
-        "Ninja",
-        "-B",
-        "build",
-        "-DCMAKE_BUILD_TYPE=Release",
-        "-DCMAKE_INSTALL_PREFIX=install",
-        "-DCMAKE_C_COMPILER=clang",
-        "-DCMAKE_CXX_COMPILER=clang++",
-        "-DTTMLIR_ENABLE_PYKERNEL=ON",  # Enable PyKernel Build Here
-        "-DTTMLIR_ENABLE_RUNTIME_TESTS=OFF",
-        "-DTTMLIR_ENABLE_RUNTIME=OFF",
-        "-DTTMLIR_ENABLE_STABLEHLO=OFF",
-        "-DTTMLIR_ENABLE_OPMODEL=OFF",
-        "-DTTMLIR_ENABLE_EXPLORER=OFF",
-        "&&",
-        "cmake",
-        "--build",
-        "build",
-        "&&",
-        "cd " + str(cwd),
-        "&&",
-        "pip install build setuptools wheel",
-        "&&",
-        "python3 -m build --wheel",
-    ]
-    subprocess.run(" ".join(cmake_args), shell=True, check=True)
-
-
 def main():
     """Main setup function"""
     cwd = pathlib.Path().absolute()
-    # Compile MLIR files first
-    compile_mlir(cwd)
 
     # Get build configuration
-    config = get_build_configuration()
+    config = get_build_configuration(cwd)
 
     # Setup runtime libraries and get list of all libraries
     all_runtime_libs = setup_runtime_libraries(config)

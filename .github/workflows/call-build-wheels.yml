@@ -122,15 +122,36 @@ jobs:
         run: git config --global --add safe.directory ${{ steps.strings.outputs.work-dir }}
 
       - name: Set up Python 3.11
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v6
         with:
           python-version: '3.11'
 
-      - name: Build ttmlir Wheel (manylinux)
-        uses: pypa/cibuildwheel@v2.23.2
+      - name: Build ttnn-jit Wheel (manylinux)
+        uses: pypa/cibuildwheel@v3.2
         env:
-          CIBW_ENVIRONMENT: "IN_CIBW_ENV=ON"
+          CIBW_ENVIRONMENT: "IN_CIBW_ENV=ON TT_METAL_HOME=/project/third_party/tt-metal/src/tt-metal"
           CIBW_MANYLINUX_X86_64_IMAGE: ghcr.io/tenstorrent/tt-mlir/tt-mlir-manylinux-2-34:${{ inputs.docker-tag || 'latest' }}
+          CIBW_BEFORE_BUILD: |
+            echo "Current working directory: $(pwd)" &&
+            echo "Listing files: $(ls -la)" &&
+            echo "Python version: $(python --version)" &&
+            echo "Available commands: $(which cmake ninja clang)" &&
+            source env/activate &&
+            echo "After sourcing env, Python: $(which python)" &&
+            cmake -G Ninja -B build \
+              -DCMAKE_BUILD_TYPE=Release \
+              -DCMAKE_INSTALL_PREFIX=install \
+              -DCMAKE_C_COMPILER=clang \
+              -DCMAKE_CXX_COMPILER=clang++ \
+              -DTTMLIR_ENABLE_PYKERNEL=ON \
+              -DTTMLIR_ENABLE_RUNTIME_TESTS=OFF \
+              -DTTMLIR_ENABLE_RUNTIME=OFF \
+              -DTTMLIR_ENABLE_STABLEHLO=OFF \
+              -DTTMLIR_ENABLE_OPMODEL=OFF \
+              -DTTMLIR_ENABLE_EXPLORER=OFF &&
+            cmake --build build &&
+            pip install build setuptools wheel
+          CIBW_BUILD_VERBOSITY: 2
         with:
           output-dir: ${{ steps.strings.outputs.wheel-output-dir }}
           package-dir: ${{ steps.strings.outputs.work-dir }}/tools/ttnn-jit
@@ -139,7 +160,7 @@ jobs:
       - name: Upload wheel artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ttmlir-wheel
+          name: ttnn-jit-wheel
           path: ${{ steps.strings.outputs.wheel-output-dir }}/*.whl
           if-no-files-found: error
 
@@ -226,7 +247,7 @@ jobs:
       - name: Download wheel
         uses: actions/download-artifact@v4
         with:
-          name: ttmlir-wheel
+          name: ttnn-jit-wheel
           path: ./dist
 
       # - name: Download ttnn-jit whl
@@ -253,6 +274,8 @@ jobs:
           # pip install numpy
           # -----
           source env/activate
-          pip install ttnn_jit-*.whl --upgrade
+          WHEEL_FILE=$(ls ./dist/ttnn_jit-*.whl)
+          echo "Installing wheel: $WHEEL_FILE"
+          pip install $WHEEL_FILE --upgrade
           python -c "import ttnn_jit; print('Successfully imported ttnn_jit:', ttnn_jit.__file__)"
           python -c "import ttnn; print('Successfully imported ttnn:', ttnn.__file__)"
