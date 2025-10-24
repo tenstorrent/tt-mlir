@@ -1,38 +1,38 @@
 # TT-Explorer
 
-Welcome to the TT-Explorer wiki! TT-Explorer is a visualization and exploration tool included in the TT-MLIR repository. Based on [Google's Model Explorer](https://ai.google.dev/edge/model-explorer), TT-Explorer is adapted for use with Tenstorrent's custom, open-source compiler stack. Using TT-Explorer, you can: 
+Welcome to the TT-Explorer wiki! TT-Explorer is a visualization and exploration tool included in the TT-MLIR repository. Based on [Google's Model Explorer](https://ai.google.dev/edge/model-explorer), TT-Explorer is adapted for use with Tenstorrent's custom, open-source compiler stack. Using TT-Explorer, you can:
 * Analyze and inspect models
 * Visualize models (attributes, performance results)
 * Explore models across SHLO, TTIR, and TTNN dialects
 * Interactively debug or experiment with IR-level overrides.
 
-TT-Explorer is for use with TT-MLIR compiler results. It takes emitted MLIR files, converts them to JSON, and displays them. There are five main levels the emitted TT-MLIR file is likely to be at, and all are supported for TT-Explorer: 
+TT-Explorer is for use with TT-MLIR compiler results. It takes emitted MLIR files, converts them to JSON, and displays them. There are five main levels the emitted TT-MLIR file is likely to be at, and all are supported for TT-Explorer:
 * **TTNN** - High-level, PyTorch style ops (for example, `ttnn.conv2d`) used for writing and compiling models in a user-friendly format.
 * **TTIR** - Mid-level intermediate representation (IR) that introduces hardware concepts like tensor tiling, memory layouts, and op fusion. Maps to hardware capabilities.
-* **SHLO** - Scalar Hardware Lowering Ops, each op is close to a single hardware instruction. 
-* **LLO** - Lower-level ops that are close to binary. May be involved in scheduling and core-level placement. 
-* **Binary / Firmware** - Final compiled binaries that are loaded onto Tenstorrent chips. 
+* **SHLO** - Scalar Hardware Lowering Ops, each op is close to a single hardware instruction.
+* **LLO** - Lower-level ops that are close to binary. May be involved in scheduling and core-level placement.
+* **Binary / Firmware** - Final compiled binaries that are loaded onto Tenstorrent chips.
 
 ![Workflow Diagram for TT-Explorer](../images/tt-explorer/explorer-flow-diagram.png)
 
-## Prerequisites 
+## Prerequisites
 
 * Configure your Tenstorrent hardware
 * Configure the [Tenstorrent software stack](https://docs.tenstorrent.com/getting-started/README.html#running-the-installer-script)
 
 ## Quick Start
 
-This section explains how to install TT-Explorer. Do the following: 
+This section explains how to install TT-Explorer. Do the following:
 
-1. TT-Explorer comes packaged as a tool in the TT-MLIR repo. Clone the TT-MLIR repo: 
+1. TT-Explorer comes packaged as a tool in the TT-MLIR repo. Clone the TT-MLIR repo:
 
 ```bash
 git clone https://github.com/tenstorrent/tt-mlir.git
 ```
 
-2. Navigate into the **tt-mlir** repo. 
+2. Navigate into the **tt-mlir** repo.
 
-3. The environment gets installed into a toolchain directory, which is by default set to `/opt/ttmlir-toolchain`, but can be overridden by setting the environment variable `TTMLIR_TOOLCHAIN_DIR`. You need to manually create the toolchain directory as follows: 
+3. The environment gets installed into a toolchain directory, which is by default set to `/opt/ttmlir-toolchain`, but can be overridden by setting the environment variable `TTMLIR_TOOLCHAIN_DIR`. You need to manually create the toolchain directory as follows:
 
 ```bash
 export TTMLIR_TOOLCHAIN_DIR=/opt/ttmlir-toolchain/
@@ -40,25 +40,25 @@ sudo mkdir -p "${TTMLIR_TOOLCHAIN_DIR}"
 sudo chown -R "${USER}" "${TTMLIR_TOOLCHAIN_DIR}"
 ```
 
-4. Ensure you do not have a virtual environment activated already before running the following command: 
+4. Ensure you do not have a virtual environment activated already before running the following command:
 
 ```bash
 source env/activate
 ```
 
->**NOTE:** These commands can take some time to run. Also, please note that the virtual environment may not show at the end of this step. 
+>**NOTE:** These commands can take some time to run. Also, please note that the virtual environment may not show at the end of this step.
 
-5. In this step, you build the TT-MLIR project. To build so that you can use TT-EXPLORER, the following flags must be included for your build: 
+5. In this step, you build the TT-MLIR project. To build so that you can use TT-EXPLORER, the following flags must be included for your build:
    * `-DTT_RUNTIME_ENABLE_PERF_TRACE=ON`
    * `-DTTMLIR_ENABLE_RUNTIME=ON`
    * `-DTT_RUNTIME_DEBUG=ON`
    * `-DTTMLIR_ENABLE_STABLEHLO=ON`
 
-The commands are: 
+The commands are:
 
 ```bash
 source env/activate
-cmake -G Ninja -B build \ 
+cmake -G Ninja -B build \
    -DTT_RUNTIME_ENABLE_PERF_TRACE=ON \
    -DTTMLIR_ENABLE_RUNTIME=ON \
    -DTT_RUNTIME_DEBUG=ON \
@@ -88,7 +88,7 @@ This section describes how to run CI tests as well as how to reproduce and debug
 TT-Explorer relies on tests that are present in the `test/` directory as well as tests dynamically created through `llvm-lit`. Below are the steps to replicate the testing procedure seen in CI:
 
 1. Make sure you're in the `tt-mlir` directory
-2. You need to build the explorer target with `cmake --build build -- explorer` 
+2. You need to build the explorer target with `cmake --build build -- explorer`
 3. Run and save the system descriptor `ttrt query --save-artifacts`
 4. Save the system variable `export SYSTEM_DESC_PATH=$(pwd)/ttrt-artifacts/system_desc.ttsys`
 5. Run and generate ttnn + MLIR tests: `cmake --build build -- check-ttmlir`

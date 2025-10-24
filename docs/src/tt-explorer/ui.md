@@ -6,8 +6,8 @@ For general details about the  UI, refer to [Google's Model Explorer wiki](https
 
 ![Toolbar added by `tt-explorer` fork](../images/tt-explorer/toolbar.png)
 
-TT-Explorer adds a toolbar to the top of the screen that features the following icons in order of appearance: 
-* Play 
+TT-Explorer adds a toolbar to the top of the screen that features the following icons in order of appearance:
+* Play
 * Advanced Settings (Gear)
 * Code (Angle Brackets)
 * Logs (Comment Bubble)
@@ -18,28 +18,28 @@ TT-Explorer adds a toolbar to the top of the screen that features the following 
 
 The play icon invokes the `execute` function which compiles and executes the model. The icon then displays as loading until execution is finished. Pressing the icon does the following:
 * Sends the model to the server for execution
-* Updates the visualization after it executes 
+* Updates the visualization after it executes
 * Creates overlays on the graph after the model executes. These overlays use color to visually communicate how long different nodes took to complete during execution.
 
 ### Performance Overlay
 
 ![Example of performance overlays for a graph](../images/tt-explorer/perf-overlay.png)
 
-After every execution, the performance overlay appears. It uses a color gradient from yellow to red to represent the execution time of each node: 
-* Yellow nodes represent the fastest execution times (relative to other nodes). 
+After every execution, the performance overlay appears. It uses a color gradient from yellow to red to represent the execution time of each node:
+* Yellow nodes represent the fastest execution times (relative to other nodes).
 * Red nodes indicate the slowest execution times.
 
-This helps you quickly identify bottlenecks or costly operations in the model graph. 
+This helps you quickly identify bottlenecks or costly operations in the model graph.
 
 ### Accuracy Overlay
 
 The accuracy overlay only appears after executing from a compatible flatbuffer (`.ttnn` file extension with debug info included). It shows a pass/fail status for each node based on a comparison against a "golden" (expected) reference:
 * Green nodes passed the accuracy check
-* Red nodes failed the check 
+* Red nodes failed the check
 
-This overlay is useful for validating that model outputs remain correct after transformations or optimizations. 
+This overlay is useful for validating that model outputs remain correct after transformations or optimizations.
 
-The overlay value represents the difference between the actual Pearson Correlation Coefficient (PCC) for the node's output and the expected PCC from the golden reference. If the PCC difference is negative (lower than expected), the node fails the accuracy check. Otherwise it is considered accurate. 
+The overlay value represents the difference between the actual Pearson Correlation Coefficient (PCC) for the node's output and the expected PCC from the golden reference. If the PCC difference is negative (lower than expected), the node fails the accuracy check. Otherwise it is considered accurate.
 
 ## Advanced Settings
 

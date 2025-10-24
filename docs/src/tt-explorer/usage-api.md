@@ -7,7 +7,7 @@ It is especially useful when managing multiple models, performing batch conversi
 
 ## TT-Adapter
 
-This section provides a reference for the TT-Adapter REST API, as well as an explanation of how TT-Explorer creates an extensible API on top of Google's Model Explorer. 
+This section provides a reference for the TT-Adapter REST API, as well as an explanation of how TT-Explorer creates an extensible API on top of Google's Model Explorer.
 
 ### Building an API using Model Explorer
 
@@ -19,9 +19,9 @@ Google's Model Explorer defines the endpoint `/apipost/v1/send_command` as a gen
 
 This endpoint provides the main communication channel between the client and server. Commands sent here are executed by the specified adapter and return a structured “adapter response,” allowing developers to interact programmatically with models through TT-Explorer.
 
-#### Flow Overview 
+#### Flow Overview
 
-This section provides a general overview of how commands flow between the client and server on your local machine. 
+This section provides a general overview of how commands flow between the client and server on your local machine.
 
 ![Workflow Diagram for TT-Explorer](../images/tt-explorer/explorer-api-flow.png)
 
@@ -96,11 +96,11 @@ Below is an example of the JSON request sent from the UI to the server:
 
 ### Adapter Response Processing
 
-TT-Explorer extends Model Explorer with an adapter framework, but the original Model Explorer was not designed for this level of extensibility. As a result, adapter responses must be processed in a specific way before being returned to the client. 
+TT-Explorer extends Model Explorer with an adapter framework, but the original Model Explorer was not designed for this level of extensibility. As a result, adapter responses must be processed in a specific way before being returned to the client.
 
-The function [`model_explorer.utils.convert_adapter_response`](https://github.com/google-ai-edge/model-explorer/blob/main/src/server/package/src/model_explorer/utils.py#L40) is applied to the output of every adapter function. This ensures compatibility with the upstream (Google Model Explorer) implementation and enforces a consistent response format. 
+The function [`model_explorer.utils.convert_adapter_response`](https://github.com/google-ai-edge/model-explorer/blob/main/src/server/package/src/model_explorer/utils.py#L40) is applied to the output of every adapter function. This ensures compatibility with the upstream (Google Model Explorer) implementation and enforces a consistent response format.
 
-For compatibility, all responses sent from the server (the backend component of TT-Explorer that executes adapter commands) must: 
+For compatibility, all responses sent from the server (the backend component of TT-Explorer that executes adapter commands) must:
 * Be in JSON format
 * Wrap the payload within a `graphs` property
 

@@ -3,15 +3,15 @@
 TT-Explorer is a tool for exploring, visualizing, and executing machine learning models on Tenstorrent hardware. It provides a Human-In-Loop interface that allows developers to:
 * Inspect compiler results
 * Apply configuration overrides
-* Observe the effect of changes on model execution 
+* Observe the effect of changes on model execution
 
-Through TT-Explorer's interactive visualizations, users can examine model operations, performance traces, and execution results, providing insight into model behavior and supporting optimization efforts. 
+Through TT-Explorer's interactive visualizations, users can examine model operations, performance traces, and execution results, providing insight into model behavior and supporting optimization efforts.
 
 ## Software Architecture
 
-TT-Explorer is structured around the TT-Forge compiler stack, which provides the compilation and transformation capabilities used to generate and visualize models for Tenstorrent hardware. The TT-RT runtime handles the backend execution of compiled models on hardware. 
+TT-Explorer is structured around the TT-Forge compiler stack, which provides the compilation and transformation capabilities used to generate and visualize models for Tenstorrent hardware. The TT-RT runtime handles the backend execution of compiled models on hardware.
 
-For visualization and interaction, TT-Explorer extends Google's [Model Explorer](https://github.com/google-ai-edge/model-explorer), which serves as the primary UI and graph-rendering framework. Because Model Explorer is implemented in Python, TT-Explorer primarily makes use of Python bindings provided by TT-MLIR for direct access to compiler internals. 
+For visualization and interaction, TT-Explorer extends Google's [Model Explorer](https://github.com/google-ai-edge/model-explorer), which serves as the primary UI and graph-rendering framework. Because Model Explorer is implemented in Python, TT-Explorer primarily makes use of Python bindings provided by TT-MLIR for direct access to compiler internals.
 
 The overall system integrates these components:
 
