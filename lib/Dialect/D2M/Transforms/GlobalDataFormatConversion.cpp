@@ -18,9 +18,11 @@ static std::optional<ttcore::DataType>
 parseTargetFormat(llvm::StringRef format) {
   if (format == "f32") {
     return ttcore::DataType::Float32;
-  } else if (format == "bf16") {
+  }
+  if (format == "bf16") {
     return ttcore::DataType::BFloat16;
-  } else if (format == "bfp_f8") {
+  }
+  if (format == "bfp_f8") {
     return ttcore::DataType::BFP_Float8;
   }
   return std::nullopt;
