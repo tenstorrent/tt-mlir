@@ -67,7 +67,7 @@ JitCache::compile_and_insert(Operation *op,
   compile(op, options);
   std::shared_ptr<void> flatbuffer_bytes = ttnnToFlatbuffer(op);
   JitCacheEntry binary = std::make_shared<::tt::runtime::Binary>(
-      ::tt::runtime::Flatbuffer(flatbuffer_bytes).handle);
+      ::tt::runtime::Flatbuffer(flatbuffer_bytes));
   cache.try_emplace(hash, binary);
   return binary;
 }
