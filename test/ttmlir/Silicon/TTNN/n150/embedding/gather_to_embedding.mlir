@@ -96,23 +96,8 @@ module attributes {} {
     return %1 : tensor<2x512xf32>
   }
 
-  // Examples 6 to 9 test different rank combinations for input, start indices and output.
-  func.func @gather_6(%operand: tensor<1xbf16>, %start_indices: tensor<1xi32>) -> (tensor<1xbf16> {jax.result_info = "result"}) {
-    %0 = ttir.empty() : tensor<1xbf16>
-    %1 = "ttir.gather"(%operand, %start_indices, %0) <{
-        collapsed_slice_dims = array<i64: 0>,
-        index_vector_dim = 0 : si64,
-        indices_are_sorted = false,
-        offset_dims = array<i64>,
-        operand_batching_dims = array<i64>,
-        slice_sizes = array<i64: 1>,
-        start_index_map = array<i64: 0>,
-        start_indices_batching_dims = array<i64>
-      }> : (tensor<1xbf16>, tensor<1xi32>, tensor<1xbf16>) -> tensor<1xbf16>
-    return %1 : tensor<1xbf16>
-  }
-
-  func.func @gather_7(%operand: tensor<6xbf16>, %start_indices: tensor<1xi32>) -> (tensor<1xbf16> {jax.result_info = "result"}) {
+  // Examples 6 to 8 test different rank combinations for input, start indices and output.
+  func.func @gather_6(%operand: tensor<6xbf16>, %start_indices: tensor<1xi32>) -> (tensor<1xbf16> {jax.result_info = "result"}) {
     %0 = ttir.empty() : tensor<1xbf16>
     %1 = "ttir.gather"(%operand, %start_indices, %0) <{
         collapsed_slice_dims = array<i64: 0>,
@@ -127,7 +112,7 @@ module attributes {} {
     return %1 : tensor<1xbf16>
   }
 
-  func.func @gather_8(%operand: tensor<6x4xbf16>, %start_indices: tensor<3x1xi32>) -> tensor<3x4xbf16> {
+  func.func @gather_7(%operand: tensor<6x4xbf16>, %start_indices: tensor<3x1xi32>) -> tensor<3x4xbf16> {
     %0 = ttir.empty() : tensor<3x4xbf16>
     %1 = "ttir.gather"(%operand, %start_indices, %0) <{
         collapsed_slice_dims = array<i64: 0>,
@@ -142,7 +127,7 @@ module attributes {} {
     return %1 : tensor<3x4xbf16>
   }
 
-  func.func @gather_9(%operand: tensor<6x4xbf16>, %start_indices: tensor<3x1xi32>) -> tensor<3x1x4xbf16> {
+  func.func @gather_8(%operand: tensor<6x4xbf16>, %start_indices: tensor<3x1xi32>) -> tensor<3x1x4xbf16> {
     %0 = ttir.empty() : tensor<3x1x4xbf16>
     %1 = "ttir.gather"(%operand, %start_indices, %0) <{
         collapsed_slice_dims = array<i64: 0>,
@@ -157,8 +142,8 @@ module attributes {} {
     return %1 : tensor<3x1x4xbf16>
   }
 
-  // In examples 10 to 15 more than one dim is being indexed
-  func.func @gather_10(%operand: tensor<3x2x3xf32>, %start_indices: tensor<1x2xi32>) -> (tensor<1x3xf32> {jax.result_info = "result"}) {
+  // In examples 9 to 14 more than one dim is being indexed
+  func.func @gather_9(%operand: tensor<3x2x3xf32>, %start_indices: tensor<1x2xi32>) -> (tensor<1x3xf32> {jax.result_info = "result"}) {
     %0 = ttir.empty() : tensor<1x3xf32>
     %1 = "ttir.gather"(%operand, %start_indices, %0) <{
         collapsed_slice_dims = array<i64: 0, 1>,
@@ -173,7 +158,7 @@ module attributes {} {
     return %1 : tensor<1x3xf32>
   }
 
-  func.func @gather_11(%operand: tensor<7x8x2xf32>, %start_indices: tensor<2x2x2xi32>) -> (tensor<2x2x2xf32> {jax.result_info = "result"}) {
+  func.func @gather_10(%operand: tensor<7x8x2xf32>, %start_indices: tensor<2x2x2xi32>) -> (tensor<2x2x2xf32> {jax.result_info = "result"}) {
     %0 = ttir.empty() : tensor<2x2x2xf32>
     %1 = "ttir.gather"(%operand, %start_indices, %0) <{
         collapsed_slice_dims = array<i64: 0, 1>,
@@ -188,7 +173,7 @@ module attributes {} {
     return %1 : tensor<2x2x2xf32>
   }
 
-  func.func @gather_12(%operand: tensor<18x17x2xf32>, %start_indices: tensor<3x1x3x2xi32>) -> (tensor<3x1x3x2xf32> {jax.result_info = "result"}) {
+  func.func @gather_11(%operand: tensor<18x17x2xf32>, %start_indices: tensor<3x1x3x2xi32>) -> (tensor<3x1x3x2xf32> {jax.result_info = "result"}) {
     %0 = ttir.empty() : tensor<3x1x3x2xf32>
     %1 = "ttir.gather"(%operand, %start_indices, %0) <{
         collapsed_slice_dims = array<i64: 0, 1>,
@@ -203,7 +188,7 @@ module attributes {} {
     return %1 : tensor<3x1x3x2xf32>
   }
 
-  func.func @gather_13(%operand: tensor<4x5x2x2xf32>, %start_indices: tensor<2x1x1x2xi32>) -> (tensor<2x1x1x2x2xf32> {jax.result_info = "result"}) {
+  func.func @gather_12(%operand: tensor<4x5x2x2xf32>, %start_indices: tensor<2x1x1x2xi32>) -> (tensor<2x1x1x2x2xf32> {jax.result_info = "result"}) {
     %0 = ttir.empty() : tensor<2x1x1x2x2xf32>
     %1 = "ttir.gather"(%operand, %start_indices, %0) <{
       collapsed_slice_dims = array<i64: 0, 1>,
@@ -218,7 +203,7 @@ module attributes {} {
     return %1 : tensor<2x1x1x2x2xf32>
   }
 
-  func.func @gather_14(%operand: tensor<1x7x2xbf16>, %start_indices: tensor<1x2xi32>) -> (tensor<1x2xbf16> {jax.result_info = "result"}) {
+  func.func @gather_13(%operand: tensor<1x7x2xbf16>, %start_indices: tensor<1x2xi32>) -> (tensor<1x2xbf16> {jax.result_info = "result"}) {
     %0 = ttir.empty() : tensor<1x2xbf16>
     %1 = "ttir.gather"(%operand, %start_indices, %0) <{
         collapsed_slice_dims = array<i64: 0, 1>,
@@ -233,7 +218,7 @@ module attributes {} {
     return %1 : tensor<1x2xbf16>
   }
 
-  func.func @gather_15(%operand: tensor<3x2x3x4xf32>, %start_indices: tensor<1x3xi32>) -> (tensor<1x4xf32> {jax.result_info = "result"}) {
+  func.func @gather_14(%operand: tensor<3x2x3x4xf32>, %start_indices: tensor<1x3xi32>) -> (tensor<1x4xf32> {jax.result_info = "result"}) {
     %0 = ttir.empty() : tensor<1x4xf32>
     %1 = "ttir.gather"(%operand, %start_indices, %0) <{
         collapsed_slice_dims = array<i64: 0, 1, 2>,
@@ -248,8 +233,8 @@ module attributes {} {
     return %1 : tensor<1x4xf32>
   }
 
-  // In examples 16 and 17 permute ops are needed
-  func.func @gather_16(%operand: tensor<1x2x3x5xf32>, %start_indices: tensor<4x1xi32>) -> (tensor<1x2x3x4xf32> {jax.result_info = "result"}) {
+  // In examples 15 and 16 permute ops are needed
+  func.func @gather_15(%operand: tensor<1x2x3x5xf32>, %start_indices: tensor<4x1xi32>) -> (tensor<1x2x3x4xf32> {jax.result_info = "result"}) {
     %0 = ttir.empty() : tensor<1x2x3x4xf32>
     %1 = "ttir.gather"(%operand, %start_indices, %0) <{
         collapsed_slice_dims = array<i64: 3>,
@@ -264,7 +249,7 @@ module attributes {} {
     return %1 : tensor<1x2x3x4xf32>
   }
 
-  func.func @gather_17(%operand: tensor<1x2x5x7xf32>, %start_indices: tensor<3x2xi32>) -> (tensor<1x2x3xf32> {jax.result_info = "result"}) {
+  func.func @gather_16(%operand: tensor<1x2x5x7xf32>, %start_indices: tensor<3x2xi32>) -> (tensor<1x2x3xf32> {jax.result_info = "result"}) {
     %0 = ttir.empty() : tensor<1x2x3xf32>
     %1 = "ttir.gather"(%operand, %start_indices, %0) <{
         collapsed_slice_dims = array<i64: 2, 3>,
