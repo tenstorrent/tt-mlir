@@ -211,3 +211,26 @@ def test_tan(shape: Shape, dtype: torch.dtype, target: str, request, device):
         target=target,
         device=device,
     )
+
+@pytest.mark.parametrize("shapes", [[(64, 64), (64, 64), (64, 64)]], ids=["64x64"])
+@pytest.mark.parametrize("dtypes", [[torch.float32] * 3], ids=["f32"])
+@pytest.mark.parametrize("target", ["ttnn"])
+def test_stablehlo_multi_return_support(shapes: List[Shape], dtypes: List[torch.dtype], target: str, request):
+    def multi_return_model(in0: Operand, in1: Operand, in2: Operand, builder: StableHLOBuilder):
+        builder.set_graph_level_check(True)
+
+        add_result = builder.add(in0, in1)
+        exp_result = builder.exp(in2)
+        mult_result = builder.multiply(add_result, exp_result)
+        
+        return exp_result, mult_result
+    
+    compile_stablehlo_to_flatbuffer(
+        multi_return_model,
+        shapes,
+        dtypes,
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
+    )
