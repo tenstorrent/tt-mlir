@@ -648,10 +648,12 @@ class StableHLOBuilder(Builder):
         self,
         in0: Operand,
         broadcast_dimensions: List[int],
+        output_shape: List[int],
         unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
     ) -> OpView:
         """
-        Creates ``ttir.broadcast``.
+        Creates ``stablehlo.broadcast_in_dim``.
 
         *Tensor broadcast operation.*
 
@@ -662,7 +664,7 @@ class StableHLOBuilder(Builder):
         .. code-block:: mlir
 
             // Broadcast a 1D tensor to 2D
-            %result = stablehlo.broadcast_in_dim(%input, %output, broadcast_dimensions = [1]) : tensor<3xf32>, tensor<2x3xf32> -> tensor<2x3xf32>
+            %result = stablehlo.broadcast_in_dim(%input) {broadcast_dimensions = dense<[1]> : tensor<1xi64>} : (tensor<3xf32>) -> tensor<2x3xf32>
             // Input tensor:
             // [1.0, 2.0, 3.0]
             // Output tensor:
@@ -675,8 +677,12 @@ class StableHLOBuilder(Builder):
             Input tensor to broadcast
         broadcast_dimensions : *List[int]*
             List of dimension mappings from input to output
+        output_shape : *List[int]*
+            Target shape for the broadcasted tensor
         unit_attrs : *Optional[List[str]]*, optional
             Optional list of unit attributes
+        sharding_attr : *Optional[sdy.TensorShardingPerValueAttr]*, optional
+            Optional sharding attribute for distributed execution
 
         Returns
         -------
@@ -687,8 +693,10 @@ class StableHLOBuilder(Builder):
             stablehlo.BroadcastInDimOp,
             [in0],
             organize_golden_args=self._organize_eltwise_golden,
+            golden_kwargs={"size": output_shape},
             stablehlo_kwargs={"broadcast_dimensions": broadcast_dimensions},
             unit_attrs=unit_attrs,
+            sharding_attr=sharding_attr,
         )
 
     # ----- Public Shardy Attribute Generators ----

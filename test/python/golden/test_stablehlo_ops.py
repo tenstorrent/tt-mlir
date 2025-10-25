@@ -127,11 +127,15 @@ def broadcast_in_dim(
     in0: Operand,
     builder: StableHLOBuilder,
     broadcast_dimensions: List[int],
+    output_shape: List[int],
     unit_attrs: Optional[List[str]] = None,
 ):
     builder.set_graph_level_check(True)
     return builder.broadcast_in_dim(
-        in0, broadcast_dimensions=broadcast_dimensions, unit_attrs=unit_attrs
+        in0,
+        broadcast_dimensions=broadcast_dimensions,
+        output_shape=output_shape,
+        unit_attrs=unit_attrs,
     )
 
 
