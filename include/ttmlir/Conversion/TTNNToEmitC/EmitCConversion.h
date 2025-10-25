@@ -1836,15 +1836,16 @@ public:
 
       emitc::ExpressionOp conv2dExpr = rewriter.create<emitc::ExpressionOp>(
           op.getLoc(),
-          rewriter.getType<emitc::OpaqueType>(TypeNameV<::ttnn::Tensor>));
+          rewriter.getType<emitc::OpaqueType>(TypeNameV<::ttnn::Tensor>),
+          adaptor.getOperands());
 
-      mlir::Block &bodyBlock = conv2dExpr.getBodyRegion().emplaceBlock();
+      mlir::Block &bodyBlock = conv2dExpr.createBody();
       rewriter.setInsertionPointToStart(&bodyBlock);
 
       auto conv2dOp = rewriter.create<emitc::CallOpaqueOp>(
           op.getLoc(), rewriter.getType<emitc::OpaqueType>(TypeNameV<ReturnTy>),
           opConversionPattern.convertOpName(op), rewriter.getArrayAttr(args),
-          /*template_args=*/nullptr, adaptor.getOperands());
+          /*template_args=*/nullptr, bodyBlock.getArguments());
       auto getTensorOp = rewriter.create<emitc::CallOpaqueOp>(
           op.getLoc(),
           rewriter.getType<emitc::OpaqueType>(TypeNameV<::ttnn::Tensor>),
