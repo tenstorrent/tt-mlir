@@ -410,6 +410,14 @@ def custom_argmax(x, dim=[], keepdim=False):
     return x
 
 
+def custom_floor(*args, **kwargs):
+    if len(args) == 1:
+        input_tensor = args[0]
+    else:
+        input_tensor = torch.stack(args)
+    return torch.floor(input_tensor)
+
+
 ttir_to_torch_mapping = {
     # do nothing
     "ttir.empty": OpMapping(lambda x=None, *args, **kwargs: None),
@@ -560,4 +568,5 @@ ttir_to_torch_mapping = {
     "ttir.argmax": OpMapping(
         custom_argmax, {"dim_arg": "dim", "keep_dim": "keepdim"}, unpack_inputs=False
     ),
+    "ttir.floor": OpMapping(custom_floor),
 }
