@@ -29,11 +29,14 @@ namespace {
 struct D2MInsertDstRegisterAccessRewriter final
     : public OpRewritePattern<GenericOp> {
 public:
-  D2MInsertDstRegisterAccessRewriter(mlir::MLIRContext *ctx, bool useTileMatmul,
-                                     unsigned maxDstPhysicalSizeTiles,
-                                     const DestRegisterAnalysis *analysis)
+  D2MInsertDstRegisterAccessRewriter(
+      mlir::MLIRContext *ctx, bool useTileMatmul,
+      unsigned maxDstPhysicalSizeTiles,
+      llvm::SmallVector<DstRegisterInfo> dstRegisterInfoList)
       : OpRewritePattern<GenericOp>(ctx), useTileMatmul(useTileMatmul),
-        maxDstPhysicalSizeTiles(maxDstPhysicalSizeTiles), analysis(analysis) {};
+        maxDstPhysicalSizeTiles(maxDstPhysicalSizeTiles) {
+    this->dstRegisterInfoList = std::move(dstRegisterInfoList);
+  }
 
   template <typename OpT>
   using OpAndIndexOffset = std::pair<OpT, int64_t>;
@@ -76,7 +79,7 @@ public:
         if (!useTileMatmul && hasTileMatmul(linalgGenericOp)) {
           linalgToAffineFailed |= rewriteTileMatmulAsTileMatmulBlock(
               rewriter, op, region, linalgGenericOp, dstCapacity, modified,
-              analysis, genericOpIndex);
+              dstRegisterInfoList, genericOpIndex);
           genericOpIndex++;
           return;
         }
@@ -90,17 +93,11 @@ public:
           return;
         }
 
-        // Extract maxDstUsage and dstSliceIndices from analysis before erasing
-        int maxDstUsage = 0;
-        SmallVector<int> dstSliceIndices;
-        if (genericOpIndex < analysis->dstRegisterInfoList.size()) {
-          const auto &info =
-              analysis
-                  ->dstRegisterInfoList[analysis->dstRegisterInfoList.size() -
-                                        1 - genericOpIndex];
-          maxDstUsage = info.dstMaxUsage;
-          dstSliceIndices = info.dstSliceIndices;
-        }
+        // Extract maxDstUsage and dstSliceIndices from analysis before erasing.
+        const auto &info = dstRegisterInfoList[dstRegisterInfoList.size() - 1 -
+                                               genericOpIndex];
+        const int maxDstUsage = info.dstMaxUsage;
+        const SmallVector<int> dstSliceIndices = info.dstSliceIndices;
 
         rewriter.eraseOp(linalgGenericOp);
         modified |= insertDstRegisterAccess(
@@ -226,11 +223,12 @@ public:
 
   // Maps each D2MGenericRegionComputeOpTrait operation result to a dest
   // register slice index and its containing loop nest.
-  struct DstRegisterInfo {
+  struct DstRegisterAllocationInfo {
     int64_t dstSliceIndex;
     Operation *outermostLoop;
   };
-  using DstRegisterAllocation = DenseMap<Operation *, DstRegisterInfo>;
+  using DstRegisterAllocation =
+      DenseMap<Operation *, DstRegisterAllocationInfo>;
 
   // Struct to hold the results of dst access collection.
   struct DstAccessCollection {
@@ -244,7 +242,6 @@ public:
                      Operation *outermostInnerComputeLoop,
                      const SmallVector<int> &dstSliceIndices) {
     CopyInfoMap copyInfos;
-    // DstSliceAllocationState dstSliceAllocationState;
     DstRegisterAllocation dstRegisterAllocation;
 
     size_t dstSliceIdxCounter = 0;
@@ -294,7 +291,7 @@ public:
         }
       }
 
-      // Move to next DST slice index for next compute op
+      // Move to next DST slice index for next compute op.
       dstSliceIdxCounter++;
     });
     return {copyInfos, dstRegisterAllocation};
@@ -359,7 +356,8 @@ public:
   static bool rewriteTileMatmulAsTileMatmulBlock(
       PatternRewriter &rewriter, GenericOp op, Region &region,
       linalg::GenericOp linalgGenericOp, unsigned dstCapacity, bool &modified,
-      const DestRegisterAnalysis *analysis, size_t genericOpIndex) {
+      const llvm::SmallVector<DstRegisterInfo> &dstRegisterInfoList,
+      size_t genericOpIndex) {
     assert(linalgGenericOp.getInputs().size() == 2 &&
            "Expected exactly 2 input for tile matmul");
     assert(linalgGenericOp.getOutputs().size() == 1 &&
@@ -376,16 +374,12 @@ public:
       return false;
     }
 
-    // Extract maxDstUsage and dstSliceIndices from analysis before erasing
-    int maxDstUsage = 0;
-    SmallVector<int> dstSliceIndices;
-    if (analysis) {
-      const auto &info =
-          analysis->dstRegisterInfoList[analysis->dstRegisterInfoList.size() -
-                                        1 - genericOpIndex];
-      maxDstUsage = info.dstMaxUsage;
-      dstSliceIndices = info.dstSliceIndices;
-    }
+    // Extract maxDstUsage and dstSliceIndices from analysis before erasing.
+
+    const auto &info =
+        dstRegisterInfoList[dstRegisterInfoList.size() - 1 - genericOpIndex];
+    const int maxDstUsage = info.dstMaxUsage;
+    const SmallVector<int> dstSliceIndices = info.dstSliceIndices;
 
     rewriter.eraseOp(linalgGenericOp);
     modified |= insertDstRegisterAccess(
@@ -695,7 +689,7 @@ public:
 
   bool useTileMatmul = false;
   unsigned maxDstPhysicalSizeTiles = 0;
-  const DestRegisterAnalysis *analysis = nullptr;
+  llvm::SmallVector<DstRegisterInfo> dstRegisterInfoList;
   mutable size_t genericOpIndex = 0;
 };
 } // namespace
@@ -780,15 +774,17 @@ public:
     MLIRContext *ctx = &getContext();
     RewritePatternSet patterns(ctx);
 
-    // Retrieve the cached analysis from the pass manager instead of recomputing
+    // Retrieve the cached analysis from the pass manager instead of
+    // recomputing.
     auto analysisMaybe = getCachedAnalysis<DestRegisterAnalysis>();
     if (!analysisMaybe.has_value()) {
       return signalPassFailure();
     }
-    DestRegisterAnalysis &analysis = analysisMaybe.value().get();
+    DestRegisterAnalysis analysis = analysisMaybe.value().get();
 
     patterns.add<D2MInsertDstRegisterAccessRewriter>(
-        ctx, useTileMatmul, maxDstPhysicalSizeTiles.getValue(), &analysis);
+        ctx, useTileMatmul, maxDstPhysicalSizeTiles.getValue(),
+        analysis.dstRegisterInfoList);
 
     patterns.add<D2MPackerMaskResetRewriter<TileReduceSumOp>,
                  D2MPackerMaskResetRewriter<TileReduceMaxOp>>(ctx);
@@ -799,5 +795,4 @@ public:
   }
 };
 } // namespace
-
 } // namespace mlir::tt::d2m
