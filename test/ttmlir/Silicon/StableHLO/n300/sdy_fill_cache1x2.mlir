@@ -2,10 +2,11 @@
 // RUN: ttmlir-opt --stablehlo-pipeline="mesh-shape=1,2 automatic-arg-analysis" --stablehlo-to-ttir-pipeline --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path% mesh-shape=1,2" -o %t.mlir %s
 // RUN: ttmlir-translate --ttnn-to-flatbuffer -o %t.ttnn %t.mlir
 
-
-module {
+// Scatter with open input dimensions and closed update dimensions
+// This tests that closed/open mismatches are allowed (e.g., {} vs {?})
+module @ClosedUpdateOpenInput {
   sdy.mesh @mesh = <["batch"=1, "model"=2]>
-  func.func @sharded_cache_update(%arg0: tensor<1x8x64x128xf32> {mhlo.frontend_attributes = {xla.sdy.sharding = "#sdy.sharding<@mesh, [{}, {\22model\22}, {}, {}]>"}, mhlo.sharding = "{devices=[1,2,1,1]<=[2]}", ttcore.argument_type = #ttcore.argument_type<input>, ttir.name = "l__self___key_states"}, %arg1: tensor<64xi64> {mhlo.frontend_attributes = {xla.sdy.sharding = "#sdy.sharding<@mesh, [{}]>"}, mhlo.sharding = "{replicated}", ttcore.argument_type = #ttcore.argument_type<input>, ttir.name = "args_1"}, %arg2: tensor<i64> {mhlo.frontend_attributes = {xla.sdy.sharding = "#sdy.sharding<@mesh, []>"}, mhlo.sharding = "{replicated}", ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "auto_annotated_const_0"}, %arg3: tensor<1x8x1024x128xf32> {mhlo.frontend_attributes = {xla.sdy.sharding = "#sdy.sharding<@mesh, [{}, {\22model\22}, {}, {}]>"}, mhlo.sharding = "{devices=[1,2,1,1]<=[2]}", ttcore.argument_type = #ttcore.argument_type<input>, ttir.name = "args_0"}) -> tensor<1x8x1024x128xf32> {
+  func.func @sharded_cache_update(%arg0: tensor<1x8x64x128xf32> {mhlo.frontend_attributes = {xla.sdy.sharding = "#sdy.sharding<@mesh, [{}, {\22model\22}, {}, {}]>"}, mhlo.sharding = "{devices=[1,2,1,1]<=[2]}", ttcore.argument_type = #ttcore.argument_type<input>, ttir.name = "l__self___key_states"}, %arg1: tensor<64xi64> {mhlo.frontend_attributes = {xla.sdy.sharding = "#sdy.sharding<@mesh, [{}]>"}, mhlo.sharding = "{replicated}", ttcore.argument_type = #ttcore.argument_type<input>, ttir.name = "args_1"}, %arg2: tensor<i64> {mhlo.frontend_attributes = {xla.sdy.sharding = "#sdy.sharding<@mesh, []>"}, mhlo.sharding = "{replicated}", ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "auto_annotated_const_0"}, %arg3: tensor<1x8x1024x128xf32> {mhlo.frontend_attributes = {xla.sdy.sharding = "#sdy.sharding<@mesh, [{?}, {\22model\22}, {?}, {?}]>"}, mhlo.sharding = "{devices=[1,2,1,1]<=[2]}", ttcore.argument_type = #ttcore.argument_type<input>, ttir.name = "args_0"}) -> tensor<1x8x1024x128xf32> {
     %c = stablehlo.constant dense<0> : tensor<i64>
     %0 = stablehlo.broadcast_in_dim %c, dims = [] : (tensor<i64>) -> tensor<64xi64>
     %1 = stablehlo.reshape %arg1 : (tensor<64xi64>) -> tensor<1x1x64xi64>
