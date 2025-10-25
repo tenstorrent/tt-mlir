@@ -6,6 +6,7 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         Passes.cpp
         OptimizerPasses/OperationValidationAndFallback.cpp
         OptimizerPasses/Optimizer.cpp
+        OptimizerPasses/OptimizerPassesWrapper.cpp
         OptimizerPasses/TTNNPrepareConv2dWeightsAndBias.cpp
         TTNNAdjustDeallocs.cpp
         TTNNDecomposeLayouts.cpp
@@ -28,6 +29,7 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         Workarounds/Decomposition/LinearOpRewritePattern.cpp
         Workarounds/Decomposition/MultiplyOpDecompositionRewritePattern.cpp
         Workarounds/Decomposition/ReduceScatterOpRewritePattern.cpp
+        Workarounds/Decomposition/ScatterOpRewritePattern.cpp
         Workarounds/Decomposition/UpsampleOpRewritePattern.cpp
         Workarounds/Decomposition/SubtractOpImplicitBroadcastRewritePattern.cpp
         Workarounds/Decomposition/ExplicateOperandBroadcastsRewritePattern.cpp

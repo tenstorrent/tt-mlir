@@ -12,25 +12,27 @@ func.func @add(%arg0: memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<163
   // Look for 4 regions, one for each operand and one for the compute
   // Operand 0 (input)
   // CHECK: ^datamovement0
-  // CHECK-NEXT: d2m.yield
+  // CHECK-NEXT: d2m.reserve
   // Operand 1 (input)
   // CHECK: ^datamovement1
-  // CHECK-NEXT: d2m.yield
+  // CHECK-NEXT: d2m.reserve
   // Operand 2 (output)
   // CHECK: ^datamovement2
-  // CHECK-NEXT: d2m.await
+  // CHECK-NEXT: d2m.wait
   // Compute
   // CHECK: ^compute
-  // CHECK: d2m.await
+  // CHECK: d2m.reserve
   // CHECK: d2m.tile_add
-  // CHECK: d2m.yield
-  ^bb0(%cb0: memref<2x4x!ttcore.tile<32x32, f32>, #l1_>, %cb1: memref<2x4x!ttcore.tile<32x32, f32>, #l1_>, %cb2: memref<2x4x!ttcore.tile<32x32, f32>, #l1_>):
+  ^bb0(%cb0: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>, %cb1: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>, %cb2: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>):
+    %mem0 = d2m.wait %cb0 : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
+    %mem1 = d2m.wait %cb1 : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
+    %mem2 = d2m.reserve %cb2 : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
     affine.for %arg5 = 0 to 2 {
       affine.for %arg6 = 0 to 4 {
-        %0 = affine.load %cb0[%arg5, %arg6] : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
-        %1 = affine.load %cb1[%arg5, %arg6] : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
+        %0 = affine.load %mem0[%arg5, %arg6] : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
+        %1 = affine.load %mem1[%arg5, %arg6] : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
         %2 = "d2m.tile_add"(%0, %1) : (!ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
-        affine.store %2, %cb2[%arg5, %arg6] : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
+        affine.store %2, %mem2[%arg5, %arg6] : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
       }
     }
   }) : (memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096>,  #l1_>, memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096>,  #l1_>, memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096>,  #l1_>) -> ()
@@ -48,20 +50,22 @@ func.func @matmul_single_core(%arg0: memref<1x1x2x4x!ttcore.tile<32x32, f32>, #t
   // Look for 4 regions, one for each operand and one for the compute
   // Operand 0 (input)
   // CHECK: ^datamovement0
-  // CHECK-NEXT: d2m.yield
+  // CHECK-NEXT: d2m.reserve
   // Operand 1 (input)
   // CHECK: ^datamovement1
-  // CHECK-NEXT: d2m.yield
+  // CHECK-NEXT: d2m.reserve
   // Operand 2 (output)
   // CHECK: ^datamovement2
-  // CHECK-NEXT: d2m.await
+  // CHECK-NEXT: d2m.wait
   // Compute
   // CHECK: ^compute
-  // CHECK: d2m.await
+  // CHECK: d2m.reserve
   // CHECK: d2m.tile_matmul_block
-  // CHECK: d2m.yield
-  ^bb0(%cb0: memref<2x4x!ttcore.tile<32x32, f32>, #l1_>, %cb1: memref<4x2x!ttcore.tile<32x32, f32>, #l1_>, %cb2: memref<2x2x!ttcore.tile<32x32, f32>, #l1_>):
-    "d2m.tile_matmul_block"(%cb0, %cb1, %cb2) : (memref<2x4x!ttcore.tile<32x32, f32>, #l1_>, memref<4x2x!ttcore.tile<32x32, f32>, #l1_>, memref<2x2x!ttcore.tile<32x32, f32>, #l1_>) -> ()
+  ^bb0(%cb0: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>, %cb1: !d2m.cb<memref<4x2x!ttcore.tile<32x32, f32>, #l1_>>, %cb2: !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1_>>):
+    %mem0 = d2m.wait %cb0 : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
+    %mem1 = d2m.wait %cb1 : !d2m.cb<memref<4x2x!ttcore.tile<32x32, f32>, #l1_>> -> memref<4x2x!ttcore.tile<32x32, f32>, #l1_>
+    %mem2 = d2m.reserve %cb2 : !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1_>> -> memref<2x2x!ttcore.tile<32x32, f32>, #l1_>
+    "d2m.tile_matmul_block"(%mem0, %mem1, %mem2) : (memref<2x4x!ttcore.tile<32x32, f32>, #l1_>, memref<4x2x!ttcore.tile<32x32, f32>, #l1_>, memref<2x2x!ttcore.tile<32x32, f32>, #l1_>) -> ()
   }) : (memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096>,  #l1_>, memref<1x1x4x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096>, #l1_>, memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096>, #l1_>) -> ()
   return %alloc : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096>, #l1_>
 }
@@ -79,24 +83,22 @@ func.func @matmul_single_core_stream(%arg0: memref<1x2x2x2x!ttcore.tile<32x32, f
   // Look for 4 regions, one for each operand and one for the compute
   // Operand 0 (input)
   // CHECK: ^datamovement0
-  // CHECK-NEXT: d2m.dma [[lhs]]<#map1>, %cb0
-  // CHECK-NEXT: d2m.dma_wait
-  // CHECK-NEXT: d2m.yield %cb0
+  // CHECK: d2m.dma [[lhs]]<#map1>
+  // CHECK: d2m.dma_wait
   // Operand 1 (input)
   // CHECK: ^datamovement1
-  // CHECK-NEXT: d2m.dma [[rhs]]<#map2>, %cb1
-  // CHECK-NEXT: d2m.dma_wait
-  // CHECK-NEXT: d2m.yield %cb1
+  // CHECK: d2m.dma [[rhs]]<#map2>
+  // CHECK: d2m.dma_wait
   // Operand 2 (output)
   // CHECK: ^datamovement2
-  // CHECK-NEXT: d2m.await
   // Compute
   // CHECK: ^compute
-  // CHECK: d2m.await
   // CHECK: d2m.tile_matmul_block
-  // CHECK: d2m.yield
-  ^bb0(%cb0: memref<2x2x!ttcore.tile<32x32, f32>, #l1_>, %cb1: memref<2x2x!ttcore.tile<32x32, f32>, #l1_>, %cb2: memref<2x2x!ttcore.tile<32x32, f32>, #l1_>):
-    "d2m.tile_matmul_block"(%cb0, %cb1, %cb2) : (memref<2x2x!ttcore.tile<32x32, f32>, #l1_>, memref<2x2x!ttcore.tile<32x32, f32>, #l1_>, memref<2x2x!ttcore.tile<32x32, f32>, #l1_>) -> ()
+  ^bb0(%cb0: !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1_>>, %cb1: !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1_>>, %cb2: !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1_>>):
+    %mem0 = d2m.wait %cb0 : !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1_>> -> memref<2x2x!ttcore.tile<32x32, f32>, #l1_>
+    %mem1 = d2m.wait %cb1 : !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1_>> -> memref<2x2x!ttcore.tile<32x32, f32>, #l1_>
+    %mem2 = d2m.reserve %cb2 : !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1_>> -> memref<2x2x!ttcore.tile<32x32, f32>, #l1_>
+    "d2m.tile_matmul_block"(%mem0, %mem1, %mem2) : (memref<2x2x!ttcore.tile<32x32, f32>, #l1_>, memref<2x2x!ttcore.tile<32x32, f32>, #l1_>, memref<2x2x!ttcore.tile<32x32, f32>, #l1_>) -> ()
   }) : (memref<1x2x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096>, #ttcore.view<map(4)>, #l1_>, memref<2x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096>, #ttcore.view<map(4)>, #l1_>, memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096>, #l1_>) -> ()
   return %alloc : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096>, #l1_>
 }
@@ -114,10 +116,10 @@ func.func @matmul_multi_core(%arg0: memref<2x4x4x6x!ttcore.tile<32x32, f32>, #tt
   // Look for 4 regions, one for each operand and one for the compute
   // Operand 0 (input)
   // CHECK: ^datamovement0
-  // CHECK: d2m.dma [[lhs]]<#map1>, %cb0
+  // CHECK: d2m.dma [[lhs]]<#map1>
   // CHECK-NEXT: d2m.dma_wait
   // CHECK-NEXT: d2m.semaphore_wait [[reader_ready_lhs:%[a-z0-9]+]]
-  // CHECK-NEXT: d2m.dma %cb0, %cb0
+  // CHECK: d2m.dma {{%.*}}, {{%.*}}
   // CHECK-NEXT: d2m.dma_wait
   // CHECK-NEXT: d2m.semaphore_set [[writer_done_lhs:%[a-z0-9]+]]
   // CHECK-NEXT: else
@@ -125,10 +127,10 @@ func.func @matmul_multi_core(%arg0: memref<2x4x4x6x!ttcore.tile<32x32, f32>, #tt
   // CHECK-NEXT: d2m.semaphore_wait [[writer_done_lhs]]
   // Operand 1 (input)
   // CHECK: ^datamovement1
-  // CHECK: d2m.dma [[rhs]]<#map2>, %cb1
+  // CHECK: d2m.dma [[rhs]]<#map2>
   // CHECK-NEXT: d2m.dma_wait
   // CHECK-NEXT: d2m.semaphore_wait [[reader_ready_rhs:%[a-z0-9]+]]
-  // CHECK-NEXT: d2m.dma %cb1, %cb1
+  // CHECK: d2m.dma {{%.*}}, {{%.*}}
   // CHECK-NEXT: d2m.dma_wait
   // CHECK-NEXT: d2m.semaphore_set [[writer_done_rhs:%[a-z0-9]+]]
   // CHECK-NEXT: else
@@ -136,14 +138,14 @@ func.func @matmul_multi_core(%arg0: memref<2x4x4x6x!ttcore.tile<32x32, f32>, #tt
   // CHECK-NEXT: d2m.semaphore_wait [[writer_done_rhs]]
   // Operand 2 (output)
   // CHECK: ^datamovement2
-  // CHECK-NEXT: d2m.await
   // Compute
   // CHECK: ^compute
-  // CHECK: d2m.await
   // CHECK: d2m.tile_matmul_block
-  // CHECK: d2m.yield
-  ^bb0(%cb0: memref<4x6x!ttcore.tile<32x32, f32>, #l1_>, %cb1: memref<6x8x!ttcore.tile<32x32, f32>, #l1_>, %cb2: memref<4x8x!ttcore.tile<32x32, f32>, #l1_>):
-    "d2m.tile_matmul_block"(%cb0, %cb1, %cb2) : (memref<4x6x!ttcore.tile<32x32, f32>, #l1_>, memref<6x8x!ttcore.tile<32x32, f32>, #l1_>, memref<4x8x!ttcore.tile<32x32, f32>, #l1_>) -> ()
+  ^bb0(%cb0: !d2m.cb<memref<4x6x!ttcore.tile<32x32, f32>, #l1_>>, %cb1: !d2m.cb<memref<6x8x!ttcore.tile<32x32, f32>, #l1_>>, %cb2: !d2m.cb<memref<4x8x!ttcore.tile<32x32, f32>, #l1_>>):
+    %mem0 = d2m.wait %cb0 : !d2m.cb<memref<4x6x!ttcore.tile<32x32, f32>, #l1_>> -> memref<4x6x!ttcore.tile<32x32, f32>, #l1_>
+    %mem1 = d2m.wait %cb1 : !d2m.cb<memref<6x8x!ttcore.tile<32x32, f32>, #l1_>> -> memref<6x8x!ttcore.tile<32x32, f32>, #l1_>
+    %mem2 = d2m.reserve %cb2 : !d2m.cb<memref<4x8x!ttcore.tile<32x32, f32>, #l1_>> -> memref<4x8x!ttcore.tile<32x32, f32>, #l1_>
+    "d2m.tile_matmul_block"(%mem0, %mem1, %mem2) : (memref<4x6x!ttcore.tile<32x32, f32>, #l1_>, memref<6x8x!ttcore.tile<32x32, f32>, #l1_>, memref<4x8x!ttcore.tile<32x32, f32>, #l1_>) -> ()
   }) : (memref<2x4x4x6x!ttcore.tile<32x32, f32>, #ttcore.shard<24576x4096>, #ttcore.view<map(4)>, #l1_>, memref<4x4x6x8x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #l1_>, memref<2x4x4x8x!ttcore.tile<32x32, f32>, #ttcore.shard<32768x4096>, #l1_>) -> ()
   return %alloc : memref<2x4x4x8x!ttcore.tile<32x32, f32>, #ttcore.shard<32768x4096>, #l1_>
 }
@@ -161,10 +163,10 @@ func.func @matmul_multi_core_dram_params(%arg0: memref<2x4x4x6x!ttcore.tile<32x3
   // Look for 4 regions, one for each operand and one for the compute
   // Operand 0 (input)
   // CHECK: ^datamovement0
-  // CHECK: d2m.dma [[lhs]]<#map1>, %cb0
+  // CHECK: d2m.dma [[lhs]]<#map1>
   // CHECK-NEXT: d2m.dma_wait
   // CHECK-NEXT: d2m.semaphore_wait [[reader_ready_lhs:%[a-z0-9]+]]
-  // CHECK-NEXT: d2m.dma %cb0, %cb0
+  // CHECK: d2m.dma {{%.*}}, {{%.*}}
   // CHECK-NEXT: d2m.dma_wait
   // CHECK-NEXT: d2m.semaphore_set [[writer_done_lhs:%[a-z0-9]+]]
   // CHECK-NEXT: else
@@ -172,10 +174,10 @@ func.func @matmul_multi_core_dram_params(%arg0: memref<2x4x4x6x!ttcore.tile<32x3
   // CHECK-NEXT: d2m.semaphore_wait [[writer_done_lhs]]
   // Operand 1 (input)
   // CHECK: ^datamovement1
-  // CHECK: d2m.dma [[rhs]]<#map2>, %cb1
+  // CHECK: d2m.dma [[rhs]]<#map2>
   // CHECK-NEXT: d2m.dma_wait
   // CHECK-NEXT: d2m.semaphore_wait [[reader_ready_rhs:%[a-z0-9]+]]
-  // CHECK-NEXT: d2m.dma %cb1, %cb1
+  // CHECK: d2m.dma {{%.*}}, {{%.*}}
   // CHECK-NEXT: d2m.dma_wait
   // CHECK-NEXT: d2m.semaphore_set [[writer_done_rhs:%[a-z0-9]+]]
   // CHECK-NEXT: else
@@ -183,14 +185,14 @@ func.func @matmul_multi_core_dram_params(%arg0: memref<2x4x4x6x!ttcore.tile<32x3
   // CHECK-NEXT: d2m.semaphore_wait [[writer_done_rhs]]
   // Operand 2 (output)
   // CHECK: ^datamovement2
-  // CHECK-NEXT: d2m.await
   // Compute
   // CHECK: ^compute
-  // CHECK: d2m.await
   // CHECK: d2m.tile_matmul_block
-  // CHECK: d2m.yield
-  ^bb0(%cb0: memref<4x6x!ttcore.tile<32x32, f32>, #l1_>, %cb1: memref<6x8x!ttcore.tile<32x32, f32>, #l1_>, %cb2: memref<4x8x!ttcore.tile<32x32, f32>, #l1_>):
-    "d2m.tile_matmul_block"(%cb0, %cb1, %cb2) : (memref<4x6x!ttcore.tile<32x32, f32>, #l1_>, memref<6x8x!ttcore.tile<32x32, f32>, #l1_>, memref<4x8x!ttcore.tile<32x32, f32>, #l1_>) -> ()
+  ^bb0(%cb0: !d2m.cb<memref<4x6x!ttcore.tile<32x32, f32>, #l1_>>, %cb1: !d2m.cb<memref<6x8x!ttcore.tile<32x32, f32>, #l1_>>, %cb2: !d2m.cb<memref<4x8x!ttcore.tile<32x32, f32>, #l1_>>):
+    %mem0 = d2m.wait %cb0 : !d2m.cb<memref<4x6x!ttcore.tile<32x32, f32>, #l1_>> -> memref<4x6x!ttcore.tile<32x32, f32>, #l1_>
+    %mem1 = d2m.wait %cb1 : !d2m.cb<memref<6x8x!ttcore.tile<32x32, f32>, #l1_>> -> memref<6x8x!ttcore.tile<32x32, f32>, #l1_>
+    %mem2 = d2m.reserve %cb2 : !d2m.cb<memref<4x8x!ttcore.tile<32x32, f32>, #l1_>> -> memref<4x8x!ttcore.tile<32x32, f32>, #l1_>
+    "d2m.tile_matmul_block"(%mem0, %mem1, %mem2) : (memref<4x6x!ttcore.tile<32x32, f32>, #l1_>, memref<6x8x!ttcore.tile<32x32, f32>, #l1_>, memref<4x8x!ttcore.tile<32x32, f32>, #l1_>) -> ()
   }) : (memref<2x4x4x6x!ttcore.tile<32x32, f32>, #ttcore.shard<24576x4096>, #ttcore.view<map(4)>, #l1_>, memref<4x4x6x8x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #dram>, memref<2x4x4x8x!ttcore.tile<32x32, f32>, #ttcore.shard<32768x4096>, #l1_>) -> ()
   return %alloc : memref<2x4x4x8x!ttcore.tile<32x32, f32>, #ttcore.shard<32768x4096>, #l1_>
 }
@@ -201,17 +203,15 @@ func.func @tilize(%arg0: memref<2x4x128x192xf32, #ttcore.shard<768x4>, #l1_>) ->
   // Look for 4 regions, one for each operand and one for the compute
   // Operand 0 (input)
   // CHECK: ^datamovement0
-  // CHECK-NEXT: d2m.yield
   // Operand 1 (output)
   // CHECK: ^datamovement1
-  // CHECK-NEXT: d2m.await
   // Compute
   // CHECK: ^compute
-  // CHECK: d2m.await
   // CHECK: d2m.tile_tilize_block
-  // CHECK: d2m.yield
-  ^compute(%cb0: memref<128x192xf32, #l1_>, %cb1: memref<4x6x!ttcore.tile<32x32, f32>, #l1_>):
-    "d2m.tile_tilize_block"(%cb0, %cb1) : (memref<128x192xf32, #l1_>, memref<4x6x!ttcore.tile<32x32, f32>, #l1_>) -> ()
+  ^compute(%cb0: !d2m.cb<memref<128x192xf32, #l1_>>, %cb1: !d2m.cb<memref<4x6x!ttcore.tile<32x32, f32>, #l1_>>):
+    %mem0 = d2m.wait %cb0 : !d2m.cb<memref<128x192xf32, #l1_>> -> memref<128x192xf32, #l1_>
+    %mem1 = d2m.reserve %cb1 : !d2m.cb<memref<4x6x!ttcore.tile<32x32, f32>, #l1_>> -> memref<4x6x!ttcore.tile<32x32, f32>, #l1_>
+    "d2m.tile_tilize_block"(%mem0, %mem1) : (memref<128x192xf32, #l1_>, memref<4x6x!ttcore.tile<32x32, f32>, #l1_>) -> ()
   }) : (memref<2x4x128x192xf32, #ttcore.shard<768x4>, #l1_>, memref<2x4x4x6x!ttcore.tile<32x32, f32>, #ttcore.shard<24576x4096>, #l1_>) -> ()
   return %alloc : memref<2x4x4x6x!ttcore.tile<32x32, f32>, #ttcore.shard<24576x4096>, #l1_>
 }
@@ -222,17 +222,15 @@ func.func @untilize(%arg0: memref<2x4x4x6x!ttcore.tile<32x32, f32>, #ttcore.shar
   // Look for 4 regions, one for each operand and one for the compute
   // Operand 0 (input)
   // CHECK: ^datamovement0
-  // CHECK-NEXT: d2m.yield
   // Operand 1 (output)
   // CHECK: ^datamovement1
-  // CHECK-NEXT: d2m.await
   // Compute
   // CHECK: ^compute
-  // CHECK: d2m.await
   // CHECK: d2m.tile_untilize_block
-  // CHECK: d2m.yield
-  ^compute(%cb0: memref<4x6x!ttcore.tile<32x32, f32>, #l1_>, %cb1: memref<128x192xf32, #l1_>):
-    "d2m.tile_untilize_block"(%cb0, %cb1) : (memref<4x6x!ttcore.tile<32x32, f32>, #l1_>, memref<128x192xf32, #l1_>) -> ()
+  ^compute(%cb0: !d2m.cb<memref<4x6x!ttcore.tile<32x32, f32>, #l1_>>, %cb1: !d2m.cb<memref<128x192xf32, #l1_>>):
+    %mem0 = d2m.wait %cb0 : !d2m.cb<memref<4x6x!ttcore.tile<32x32, f32>, #l1_>> -> memref<4x6x!ttcore.tile<32x32, f32>, #l1_>
+    %mem1 = d2m.reserve %cb1 : !d2m.cb<memref<128x192xf32, #l1_>> -> memref<128x192xf32, #l1_>
+    "d2m.tile_untilize_block"(%mem0, %mem1) : (memref<4x6x!ttcore.tile<32x32, f32>, #l1_>, memref<128x192xf32, #l1_>) -> ()
   }) : (memref<2x4x4x6x!ttcore.tile<32x32, f32>, #ttcore.shard<24576x4096>, #l1_>, memref<2x4x128x192xf32, #ttcore.shard<768x4>, #l1_>) -> ()
   return %alloc : memref<2x4x128x192xf32, #ttcore.shard<768x4>, #l1_>
 }
@@ -267,18 +265,15 @@ func.func @inferDMAForWrite(%arg0 : memref<1x1x4x4x!ttcore.tile<32x32, f32>, #tt
   // CHECK: ^datamovement0
   // CHECK: {{%.*}} = d2m.dma {{%.*}}<#map>, {{%.*}}
   // CHECK: d2m.dma_wait
-  // CHECK: d2m.yield
   // CHECK: ^datamovement1
   // CHECK: {{%.*}} = d2m.dma {{%.*}}<#map>, {{%.*}}
   // CHECK: d2m.dma_wait
-  // CHECK: d2m.yield
   // CHECK: ^datamovement2
-  // CHECK: d2m.await
   // CHECK: {{%.*}} = d2m.dma {{%.*}}, {{%.*}}<#map>
   // CHECK: d2m.dma_wait
   // CHECK: ^compute
   {
-  ^compute0(%cb0 : !cbT, %cb1 : !cbT, %cb2 : !cbT):
+  ^compute0(%cb0 : !d2m.cb<!cbT>, %cb1 : !d2m.cb<!cbT>, %cb2 : !d2m.cb<!cbT>):
   }
 
   return

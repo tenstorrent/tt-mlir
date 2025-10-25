@@ -11,6 +11,7 @@ import operator
 import torch
 import subprocess
 from typing import Any, Dict, List, Tuple, Optional
+import math
 
 ALL_BACKENDS = set(["ttnn", "ttmetal", "ttnn-standalone", "emitpy"])
 ALL_SYSTEMS = set(["n150", "n300", "llmbox", "tg", "p150", "p300"])
@@ -43,6 +44,7 @@ def _get_device_for_target(target: str, mesh_shape: Tuple[int, int], pytestconfi
                 f"Found new target {target} with mesh shape {mesh_shape}, closing device for {_current_device_target} with {_current_device_mesh_shape}"
             )
             ttrt.runtime.close_mesh_device(_current_device)
+            ttrt.runtime.set_fabric_config(ttrt.runtime.FabricConfig.DISABLED)
             _current_device = None
             _current_device_target = None
             _current_device_mesh_shape = None
@@ -71,6 +73,8 @@ def _get_device_for_target(target: str, mesh_shape: Tuple[int, int], pytestconfi
         raise ValueError(f"Only TTNN and TTMetal devices are supported, got {target}")
 
     ttrt.runtime.set_current_device_runtime(device_runtime_enum)
+    if math.prod(mesh_shape) > 1:
+        ttrt.runtime.set_fabric_config(ttrt.runtime.FabricConfig.FABRIC_1D)
     device = ttrt.runtime.open_mesh_device(mesh_options)
     print(
         f"Device opened for test session with target {target} & mesh shape {mesh_options.mesh_shape}."

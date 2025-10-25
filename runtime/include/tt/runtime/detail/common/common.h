@@ -7,6 +7,8 @@
 
 #include <optional>
 
+#include "ttmlir/Target/Common/Target.h"
+
 #define FMT_HEADER_ONLY
 #include "tt-metalium/host_api.hpp"
 #include "tt-metalium/mesh_device.hpp"
@@ -18,14 +20,14 @@
 
 namespace tt::runtime::common {
 
-inline ::tt::tt_metal::DispatchCoreType
-getDispatchCoreType(std::optional<DispatchCoreType> dispatchCoreType) {
+inline ::tt::tt_metal::DispatchCoreType getDispatchCoreType(
+    std::optional<::tt::runtime::DispatchCoreType> dispatchCoreType) {
 
   ::tt::tt_metal::DispatchCoreType type;
   if (dispatchCoreType.has_value()) {
-    if (dispatchCoreType == DispatchCoreType::ETH) {
+    if (dispatchCoreType == ::tt::runtime::DispatchCoreType::Ethernet) {
       type = ::tt::tt_metal::DispatchCoreType::ETH;
-    } else if (dispatchCoreType == DispatchCoreType::WORKER) {
+    } else if (dispatchCoreType == ::tt::runtime::DispatchCoreType::Worker) {
       type = ::tt::tt_metal::DispatchCoreType::WORKER;
     } else {
       LOG_FATAL("Unsupported dispatch core type");
@@ -41,7 +43,7 @@ getDispatchCoreType(std::optional<DispatchCoreType> dispatchCoreType) {
 }
 
 inline ::tt::tt_fabric::FabricConfig
-toTTFabricConfig(tt::runtime::FabricConfig cfg) {
+toMetalFabricConfig(tt::runtime::FabricConfig cfg) {
   switch (cfg) {
   case tt::runtime::FabricConfig::DISABLED:
     return ::tt::tt_fabric::FabricConfig::DISABLED;
@@ -105,18 +107,18 @@ inline ::tt::DataFormat toDataFormat(::tt::target::DataType dataType) {
   }
 }
 
-inline ::tt::runtime::Arch toRuntimeArch(::tt::ARCH arch) {
+inline ::tt::target::Arch toTargetArch(::tt::ARCH arch) {
   switch (arch) {
   case ::tt::ARCH::GRAYSKULL:
-    return ::tt::runtime::Arch::GRAYSKULL;
+    return ::tt::target::Arch::Grayskull;
   case ::tt::ARCH::WORMHOLE_B0:
-    return ::tt::runtime::Arch::WORMHOLE_B0;
+    return ::tt::target::Arch::Wormhole_b0;
   case ::tt::ARCH::BLACKHOLE:
-    return ::tt::runtime::Arch::BLACKHOLE;
+    return ::tt::target::Arch::Blackhole;
   case ::tt::ARCH::QUASAR:
-    return ::tt::runtime::Arch::QUASAR;
-  default:
-    LOG_FATAL("Unsupported device architecture");
+    LOG_FATAL("Quasar architecture is not supported");
+  case ::tt::ARCH::Invalid:
+    LOG_FATAL("Invalid architecture");
   }
 }
 

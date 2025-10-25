@@ -14,3 +14,4 @@ module @jit_neg_shardy1 attributes {mhlo.num_partitions = 8 : i32, mhlo.num_repl
 }
 
 // CHECK: sdy.mesh @mesh = <["x"=2, "y"=4]>
+// CHECK: %0 = sdy.manual_computation

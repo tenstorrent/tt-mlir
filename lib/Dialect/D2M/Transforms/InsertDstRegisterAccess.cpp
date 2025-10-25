@@ -317,6 +317,10 @@ public:
                memref.getDefiningOp())) {
       memref = subView.getSource();
     }
+    if (auto *definingOp = memref.getDefiningOp();
+        mlir::isa_and_nonnull<d2m::WaitOp, d2m::ReserveOp>(definingOp)) {
+      memref = definingOp->getOperand(0);
+    }
     return mlir::cast<BlockArgument>(memref);
   }
 

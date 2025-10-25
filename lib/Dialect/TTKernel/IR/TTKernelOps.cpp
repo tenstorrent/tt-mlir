@@ -67,11 +67,11 @@ static bool insideEnqueueProgramOpRegion(mlir::Operation *op) {
 }
 
 static std::string verifyTilizeUntilizeCBs(CBType tilizedCB, CBType scalarCB) {
-  if (mlir::isa<ttcore::TileType>(scalarCB.getMemref().getElementType())) {
+  if (mlir::isa<ttcore::TileType>(scalarCB.getElementType())) {
     return "Input to TilizeOp or Output to UntilizeOp must have scalar "
            "element type";
   }
-  if (!mlir::isa<ttcore::TileType>(tilizedCB.getMemref().getElementType())) {
+  if (!mlir::isa<ttcore::TileType>(tilizedCB.getElementType())) {
     return "Input to UntilizeOp or Output to TilizeOp must have tile "
            "element type";
   }
@@ -97,7 +97,7 @@ static std::string verifyTilizeUntilizeCBs(CBType tilizedCB, CBType scalarCB) {
         "UntilizeInitOp must be inside of a EnqueueProgramOp region");
   }
   auto inputCBType = getCbIn().getType();
-  if (!mlir::isa<ttcore::TileType>(inputCBType.getMemref().getElementType())) {
+  if (!mlir::isa<ttcore::TileType>(inputCBType.getElementType())) {
     return emitOpError("Input to UntilizeInitOp must have tile element type");
   }
   return success();
@@ -165,11 +165,11 @@ static std::string verifyTilizeUntilizeCBs(CBType tilizedCB, CBType scalarCB) {
   auto inputCBType = getCbIn().getType();
   auto outputCBType = getCbOut().getType();
 
-  if (!mlir::isa<ttcore::TileType>(inputCBType.getMemref().getElementType())) {
+  if (!mlir::isa<ttcore::TileType>(inputCBType.getElementType())) {
     return emitOpError("Input to TransposeInitOp must have tile element type");
   }
 
-  if (!mlir::isa<ttcore::TileType>(outputCBType.getMemref().getElementType())) {
+  if (!mlir::isa<ttcore::TileType>(outputCBType.getElementType())) {
     return emitOpError("Output to TransposeInitOp must have tile element type");
   }
 
@@ -186,22 +186,9 @@ static std::string verifyTilizeUntilizeCBs(CBType tilizedCB, CBType scalarCB) {
   // The output is implicit (DST register)
   auto inputCBType = getIcb().getType();
 
-  if (!mlir::isa<ttcore::TileType>(inputCBType.getMemref().getElementType())) {
+  if (!mlir::isa<ttcore::TileType>(inputCBType.getElementType())) {
     return emitOpError(
         "Input to TransposeWHTileOp must have tile element type");
-  }
-
-  return success();
-}
-
-::mlir::LogicalResult CBReinterpretShapeOp::verify() {
-  auto inCBType = getInput().getType();
-  auto outCBType = getOutput().getType();
-
-  if (inCBType.getMemref().getElementType() !=
-      outCBType.getMemref().getElementType()) {
-    return emitOpError("input circular buffer element type and output "
-                       "circular buffer element type must be the same");
   }
 
   return success();

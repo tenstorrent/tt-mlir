@@ -405,12 +405,15 @@ public:
 
   mlir::Value createTensor(IRRewriter &rewriter, Location loc, Type type,
                            size_t argIndex) {
-    return loadTensor(rewriter, loc, type, argIndex);
+    return loadTensor(rewriter, loc, type, argIndex, this->tensorLoadDirectory,
+                      this->tensorLoadFilePrefix);
   }
 
 private:
   static mlir::Value loadTensor(IRRewriter &rewriter, Location loc, Type type,
-                                size_t argIndex) {
+                                size_t argIndex,
+                                std::string tensorLoadDirectory,
+                                std::string tensorLoadFilePrefix) {
     RankedTensorType tensorType = llvm::cast<mlir::RankedTensorType>(type);
 
     // Get the layout attribute.
@@ -418,9 +421,18 @@ private:
     ttnn::TTNNLayoutAttr layoutAttr =
         mlir::cast<ttnn::TTNNLayoutAttr>(tensorType.getEncoding());
 
-    // Create hardcoded filename: arg0.tensorbin, arg1.tensorbin, etc.
+    // Create filename, defaults are:
+    // tensorsLoadDirectory = "" (current directory)
+    // tensorLoadFilePrefix = "arg"
+    // For example: arg0.tensorbin, arg1.tensorbin, etc.
     //
-    std::string filename = "arg" + std::to_string(argIndex) + ".tensorbin";
+    std::string filename;
+    if (tensorLoadDirectory.empty()) {
+      filename = tensorLoadFilePrefix + std::to_string(argIndex) + ".tensorbin";
+    } else {
+      filename = tensorLoadDirectory + "/" + tensorLoadFilePrefix +
+                 std::to_string(argIndex) + ".tensorbin";
+    }
     StringAttr filePathAttr = rewriter.getStringAttr(filename);
 
     mlir::Value device;

@@ -330,6 +330,15 @@ struct TTNNBackendToEmitCPipelineOptions
       llvm::cl::desc("Load input tensors from disk using ttnn.load_tensor "
                      "instead of generating synthetic inputs with ttnn.ones"),
       llvm::cl::init(false)};
+
+  Option<std::string> tensorLoadDirectory{
+      *this, "tensor-load-directory",
+      llvm::cl::desc("Directory path where input tensors are stored"),
+      llvm::cl::init("")};
+
+  Option<std::string> tensorLoadFilePrefix{
+      *this, "tensor-load-file-prefix",
+      llvm::cl::desc("Prefix for input tensor files"), llvm::cl::init("arg")};
 };
 
 // TTNN Backend to EmitPy PipelineOptions.
@@ -345,6 +354,15 @@ struct TTNNBackendToEmitPyPipelineOptions
       llvm::cl::desc("Load input tensors from disk using ttnn.load_tensor "
                      "instead of generating synthetic inputs with ttnn.ones"),
       llvm::cl::init(false)};
+
+  Option<std::string> tensorLoadDirectory{
+      *this, "tensor-load-directory",
+      llvm::cl::desc("Relative directory path where input tensors are stored"),
+      llvm::cl::init("")};
+
+  Option<std::string> tensorLoadFilePrefix{
+      *this, "tensor-load-file-prefix",
+      llvm::cl::desc("Prefix for input tensor files"), llvm::cl::init("arg")};
 };
 
 // TTIR to EmitC pipeline options.

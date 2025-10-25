@@ -2,6 +2,7 @@ add_subdirectory(unittests)
 
 llvm_canonicalize_cmake_booleans(
     MLIR_ENABLE_BINDINGS_PYTHON
+    TTMLIR_ENABLE_BINDINGS_PYTHON
 )
 
 # Configure into build dir

@@ -11,8 +11,7 @@
 using namespace mlir::tt::ttkernel;
 
 MlirType ttmlirTTKernelCBTypeGet(MlirContext ctx, MlirType memrefType) {
-  return wrap(CBType::get(unwrap(ctx),
-                          mlir::cast<mlir::MemRefType>(unwrap(memrefType))));
+  return wrap(CBType::get(mlir::cast<mlir::MemRefType>(unwrap(memrefType))));
 }
 
 MlirType ttmlirTTKernelSemaphoreTypeGet(MlirContext ctx) {

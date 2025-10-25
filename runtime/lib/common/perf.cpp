@@ -42,6 +42,15 @@ void Env::tracyLogProgramMetadata(const std::string &metaData) const {
 #endif
 }
 
+void Env::tracyLogInputLayoutConversion(bool inputLayoutConversionOp) const {
+#if defined(TT_RUNTIME_ENABLE_PERF_TRACE) && TT_RUNTIME_ENABLE_PERF_TRACE == 1
+  std::string message =
+      perf::toString(perf::TracyLogTag::MLIR_INPUT_LAYOUT_CONVERSION_OP) + ";" +
+      std::string(inputLayoutConversionOp ? "true" : "false");
+  TracyMessage(message.c_str(), message.size());
+#endif
+}
+
 void Env::setProgramMetadata(const std::string &programMetadata) {
   tracyProgramMetadata = programMetadata;
 }

@@ -14,6 +14,9 @@ class MeshDevice;
 } // namespace tt::tt_metal::distributed
 
 namespace mlir::tt::ttnn {
+
+struct TTIRToTTNNBackendPipelineOptions;
+
 //===----------------------------------------------------------------------===//
 // TTNNOptimizer
 //===----------------------------------------------------------------------===//
@@ -34,6 +37,11 @@ struct TTNNOptimizerOptions {
   float tensorL1UsageCap =
       0.95f; // Default to 100% of maximum free space in L1.
   std::shared_ptr<::tt::tt_metal::distributed::MeshDevice> devicePtr = nullptr;
+
+  TTNNOptimizerOptions() = default;
+
+  explicit TTNNOptimizerOptions(
+      const TTIRToTTNNBackendPipelineOptions &pipelineOptions);
 };
 
 std::unique_ptr<::mlir::Pass> createTTNNOptimizer();

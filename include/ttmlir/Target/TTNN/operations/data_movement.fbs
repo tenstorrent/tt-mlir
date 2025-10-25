@@ -10,6 +10,15 @@ table ConcatOp {
  memory_config: tt.target.ttnn.MemoryConfig;
 }
 
+table ScatterOp {
+  input: tt.target.ttnn.TensorRef;
+  out: tt.target.ttnn.TensorRef;
+  index: tt.target.ttnn.TensorRef;
+  source: tt.target.ttnn.TensorRef;
+  dim: int32;
+  memory_config: tt.target.ttnn.MemoryConfig;
+}
+
 table PadOp {
   in: tt.target.ttnn.TensorRef;
   out: tt.target.ttnn.TensorRef;

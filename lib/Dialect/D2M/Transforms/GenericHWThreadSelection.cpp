@@ -26,30 +26,28 @@ public:
     assert(numDMAHWThreads > 0 && "numDMAHWThreads must be greater than 0");
   }
 
-  // Returns true if the region contains only a d2m.await
+  // Returns true if the region contains only a d2m.wait
   // associated with the output CB.
-  static bool isLocalAwaitForOutputCB(Region &region,
-                                      unsigned outputOperandsIndex) {
+  static bool isLocalPopForOutputCB(Region &region,
+                                    unsigned outputOperandsIndex) {
     assert(region.getBlocks().size() == 1);
     auto &block = region.front();
     if (block.getOperations().size() != 1) {
       return false;
     }
-    d2m::AwaitOp awaitOp = dyn_cast<d2m::AwaitOp>(block.front());
-    if (!awaitOp) {
+
+    d2m::WaitOp WaitOp = dyn_cast<d2m::WaitOp>(block.front());
+    if (!WaitOp) {
       return false;
     }
 
-    if (!llvm::all_of(awaitOp.getOperands(), [&](Value operand) {
-          return mlir::dyn_cast<BlockArgument>(operand) &&
-                 mlir::cast<BlockArgument>(operand).getOwner() == &block &&
-                 mlir::cast<BlockArgument>(operand).getArgNumber() ==
-                     outputOperandsIndex;
-        })) {
+    BlockArgument blockArg = mlir::dyn_cast<BlockArgument>(WaitOp.getCb());
+    if (!blockArg) {
       return false;
     }
+    assert(blockArg.getOwner() == &block);
 
-    return true;
+    return blockArg.getArgNumber() == outputOperandsIndex;
   }
 
   LogicalResult matchAndRewrite(GenericOp op,
@@ -119,7 +117,7 @@ public:
 
       unsigned dmaMergeTargetIndex = 0;
       if (hasComputeThread &&
-          isLocalAwaitForOutputCB(op.getRegion(i), outputOperandsIndex)) {
+          isLocalPopForOutputCB(op.getRegion(i), outputOperandsIndex)) {
         // Merge trivial output DMA into compute region, if it exists.
         dmaMergeTargetIndex = newGeneric->getNumRegions() - 1;
       } else if (i == outputOperandsIndex) {

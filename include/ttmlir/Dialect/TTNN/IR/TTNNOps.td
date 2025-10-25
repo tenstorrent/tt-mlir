@@ -2058,11 +2058,33 @@ def TTNN_DeallocateOp : TTNN_MemFreeOp<"deallocate"> {
                          DefaultValuedAttr<BoolAttr, "false">:$force);
 }
 
-def TTNN_ScatterOp: TTNN_ElementwiseBinaryCompositeOp<"scatter"> {
+def TTNN_ScatterOp : TTNN_Op<"scatter", [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>] >{
     let summary = "Scatter op.";
     let description = [{
-      Embeds the values of the 'update' tensor into 'input' at the given index and puts the value in the 'output' tensor.
-      }];
+      Embeds the values of the source tensor into the input tensor at locations specified by the index tensor along the given dimension.
+
+      Parameters:
+        - `input` (ttnn.Tensor): The tensor being updated.
+        - `index` (ttnn.Tensor): Indices where values will be written to.
+        - `source` (ttnn.Tensor): The values to scatter into the input tensor.
+        - `dim` (int32_t): The dimension along which to scatter.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$index,
+                         AnyRankedTensor:$source,
+                         I32Attr:$dim,
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 1;
+
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        return wa::TTNNOperandsWorkaroundsFactory::createScatterOpOperandsWorkarounds(getOperation());
+      }
+    }];
 }
 
 def TTNN_AllGatherOp: TTNN_Op<"all_gather"> {

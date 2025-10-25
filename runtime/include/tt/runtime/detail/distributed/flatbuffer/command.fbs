@@ -1,31 +1,53 @@
 include "ttmlir/Target/Common/types.fbs";
 include "ttmlir/Target/TTNN/types.fbs";
 include "ttmlir/Target/TTNN/binary.fbs";
+include "tt/runtime/flatbuffer/types.fbs";
 
 namespace tt.runtime.distributed.flatbuffer;
 
-table GetSystemDescCommand {
-  device: tt.target.DeviceRef;
-  dispatch_core_type: tt.target.DispatchCoreType = null;
+// Configures the runtime context on the worker.
+// Fabric config should be set to the default value for the worker and
+// explicitly set by the runtime API if desired (which has other side effects).
+// Host runtime should be Local for the worker.
+table ConfigureRuntimeContextCommand {
+  mlir_home: string;
+  metal_home: string;
+  current_device_runtime: tt.runtime.flatbuffer.DeviceRuntime;
 }
 
-table MeshDeviceOptions {
-  mesh_offset: [uint32];
-  device_ids: [int];
-  num_hw_cqs: uint8;
-  enable_program_cache: bool;
-  mesh_shape: [uint32];
-  l1_small_size: uint64 = null;
-  trace_region_size: uint64 = null;
-  dispatch_core_type: tt.target.DispatchCoreType = null;
+table GetSystemDescCommand {
+  device: tt.target.DeviceRef;
+  dispatch_core_type: tt.runtime.flatbuffer.DispatchCoreType = null;
+}
+
+table SetFabricConfigCommand {
+  config: tt.runtime.flatbuffer.FabricConfig;
+}
+
+table GetNumAvailableDevicesCommand {
 }
 
 table OpenMeshDeviceCommand {
   device_global_id: uint32;
-  options: MeshDeviceOptions;
+  options: tt.runtime.flatbuffer.MeshDeviceOptions;
 }
 
 table CloseMeshDeviceCommand {
+  device: tt.target.DeviceRef;
+}
+
+table CreateSubMeshDeviceCommand {
+  parent_mesh: tt.target.DeviceRef;
+  submesh_global_id: uint32;
+  mesh_shape: [uint32];
+  mesh_offset: [uint32];
+}
+
+table ReleaseSubMeshDeviceCommand {
+  sub_mesh: tt.target.DeviceRef;
+}
+
+table GetMeshShapeCommand {
   device: tt.target.DeviceRef;
 }
 
@@ -36,6 +58,23 @@ table CreateHostTensorCommand {
   stride: [uint32];
   item_size: uint32;
   data_type: tt.target.DataType;
+}
+
+table IsTensorAllocatedCommand {
+  tensor_global_id: uint64;
+}
+
+table GetTensorVolumeCommand {
+  tensor_global_id: uint64;
+}
+
+table GetTensorRetainCommand {
+  tensor_global_id: uint64;
+}
+
+table SetTensorRetainCommand {
+  tensor_global_id: uint64;
+  retain: bool;
 }
 
 table GetLayoutCommand {
@@ -81,20 +120,36 @@ table MemcpyCommand {
   dst_data_type: tt.target.DataType = null;
 }
 
+table DeallocateTensorCommand {
+  tensor_global_id: uint64;
+  force: bool;
+}
+
 table ShutdownCommand {
 }
 
 union CommandType {
+  ConfigureRuntimeContextCommand,
   GetSystemDescCommand,
+  SetFabricConfigCommand,
+  GetNumAvailableDevicesCommand,
   OpenMeshDeviceCommand,
   CloseMeshDeviceCommand,
+  CreateSubMeshDeviceCommand,
+  ReleaseSubMeshDeviceCommand,
+  GetMeshShapeCommand,
   CreateHostTensorCommand,
+  IsTensorAllocatedCommand,
+  GetTensorVolumeCommand,
+  GetTensorRetainCommand,
+  SetTensorRetainCommand,
   GetLayoutCommand,
   ToLayoutCommand,
   SubmitCommand,
   GetNumShardsCommand,
   ToHostCommand,
   MemcpyCommand,
+  DeallocateTensorCommand,
   ShutdownCommand,
 }
 
