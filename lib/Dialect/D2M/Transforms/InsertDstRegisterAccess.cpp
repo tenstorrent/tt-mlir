@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Asserts.h"
+#include "ttmlir/Dialect/D2M/Analysis/DestRegisterAnalysis.h"
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
 #include "ttmlir/Dialect/D2M/Utils/Utils.h"
@@ -28,10 +29,14 @@ namespace {
 struct D2MInsertDstRegisterAccessRewriter final
     : public OpRewritePattern<GenericOp> {
 public:
-  D2MInsertDstRegisterAccessRewriter(mlir::MLIRContext *ctx, bool useTileMatmul,
-                                     unsigned maxDstPhysicalSizeTiles)
+  D2MInsertDstRegisterAccessRewriter(
+      mlir::MLIRContext *ctx, bool useTileMatmul,
+      unsigned maxDstPhysicalSizeTiles,
+      llvm::SmallVector<DstRegisterInfo> dstRegisterInfoList)
       : OpRewritePattern<GenericOp>(ctx), useTileMatmul(useTileMatmul),
-        maxDstPhysicalSizeTiles(maxDstPhysicalSizeTiles) {};
+        maxDstPhysicalSizeTiles(maxDstPhysicalSizeTiles) {
+    this->dstRegisterInfoList = std::move(dstRegisterInfoList);
+  }
 
   template <typename OpT>
   using OpAndIndexOffset = std::pair<OpT, int64_t>;
@@ -51,19 +56,6 @@ public:
     SmallVector<OpAndIndexOffset<affine::AffineStoreOp>> stores;
   };
   using CopyInfoMap = DenseMap<Operation *, CopyInfo>;
-
-  class DstSliceAllocationState {
-  public:
-    int64_t allocate() { return nextSliceIndex++; }
-
-    void setStoreToDst() { storedToDst = true; }
-    bool didStoreToDst() { return storedToDst; }
-    int64_t getCurrSliceIndex() { return nextSliceIndex - 1; }
-
-  private:
-    int64_t nextSliceIndex = 0;
-    bool storedToDst = false;
-  };
 
   LogicalResult matchAndRewrite(GenericOp op,
                                 PatternRewriter &rewriter) const final {
@@ -86,7 +78,9 @@ public:
       block.walk([&](linalg::GenericOp linalgGenericOp) {
         if (!useTileMatmul && hasTileMatmul(linalgGenericOp)) {
           linalgToAffineFailed |= rewriteTileMatmulAsTileMatmulBlock(
-              rewriter, op, region, linalgGenericOp, dstCapacity, modified);
+              rewriter, op, region, linalgGenericOp, dstCapacity, modified,
+              dstRegisterInfoList, genericOpIndex);
+          genericOpIndex++;
           return;
         }
 
@@ -98,11 +92,19 @@ public:
           linalgToAffineFailed = true;
           return;
         }
+
+        // Extract maxDstUsage and dstSliceIndices from analysis before erasing.
+        const auto &info = dstRegisterInfoList[dstRegisterInfoList.size() - 1 -
+                                               genericOpIndex];
+        const int maxDstUsage = info.dstMaxUsage;
+        const SmallVector<int> dstSliceIndices = info.dstSliceIndices;
+
         rewriter.eraseOp(linalgGenericOp);
-        modified |= insertDstRegisterAccess(rewriter, op, region, dstCapacity,
-                                            !linalgLoops.value().empty()
-                                                ? linalgLoops.value().front()
-                                                : nullptr);
+        modified |= insertDstRegisterAccess(
+            rewriter, op, region, dstCapacity, maxDstUsage, dstSliceIndices,
+            !linalgLoops.value().empty() ? linalgLoops.value().front()
+                                         : nullptr);
+        genericOpIndex++;
       });
       if (linalgToAffineFailed) {
         return failure();
@@ -113,7 +115,8 @@ public:
 
   static bool
   insertDstRegisterAccess(PatternRewriter &rewriter, GenericOp op,
-                          Region &region, unsigned dstCapacity,
+                          Region &region, unsigned dstCapacity, int maxDstUsage,
+                          const SmallVector<int> &dstSliceIndices,
                           Operation *outermostInnerComputeLoop = nullptr) {
     assert(region.getBlocks().size() == 1);
     if (hasAcquireDstOp(region)) {
@@ -123,8 +126,8 @@ public:
     Location loc = op.getLoc();
 
     // 1. Collect all loads/stores to dst organized by loop nest.
-    auto [copyInfos, dstAllocation] =
-        collectDstAccesses(op, region, outermostInnerComputeLoop);
+    auto [copyInfos, dstAllocation] = collectDstAccesses(
+        op, region, outermostInnerComputeLoop, dstSliceIndices);
     if (copyInfos.empty()) {
       return false;
     }
@@ -220,11 +223,12 @@ public:
 
   // Maps each D2MGenericRegionComputeOpTrait operation result to a dest
   // register slice index and its containing loop nest.
-  struct DstRegisterInfo {
+  struct DstRegisterAllocationInfo {
     int64_t dstSliceIndex;
     Operation *outermostLoop;
   };
-  using DstRegisterAllocation = DenseMap<Operation *, DstRegisterInfo>;
+  using DstRegisterAllocation =
+      DenseMap<Operation *, DstRegisterAllocationInfo>;
 
   // Struct to hold the results of dst access collection.
   struct DstAccessCollection {
@@ -235,10 +239,12 @@ public:
   // Return both the copy nest info and dst allocation info.
   static DstAccessCollection
   collectDstAccesses(GenericOp op, Region &region,
-                     Operation *outermostInnerComputeLoop) {
+                     Operation *outermostInnerComputeLoop,
+                     const SmallVector<int> &dstSliceIndices) {
     CopyInfoMap copyInfos;
-    DstSliceAllocationState dstSliceAllocationState;
     DstRegisterAllocation dstRegisterAllocation;
+
+    size_t dstSliceIdxCounter = 0;
     region.walk([&](OperandLoadStoreRegisterOpInterface computeOp) {
       // We're generating loads and stores for dst, so we can ignore loads and
       // stores that are already on dst.
@@ -252,41 +258,23 @@ public:
         if (auto potentialLoad = computeOp->getOperand(operandIdx)
                                      .getDefiningOp<affine::AffineLoadOp>();
             notDstMemspace(potentialLoad)) {
-          collectDstAccess<affine::AffineLoadOp>(
-              op, potentialLoad, copyInfos, dstSliceAllocationState.allocate(),
-              outermostInnerComputeLoop);
+
+          int64_t dstSliceIndex = dstSliceIndices[dstSliceIdxCounter];
+          collectDstAccess<affine::AffineLoadOp>(op, potentialLoad, copyInfos,
+                                                 dstSliceIndex,
+                                                 outermostInnerComputeLoop);
+          dstSliceIdxCounter++;
         }
       }
 
       // Collect stores from this op.
       for (auto *user : computeOp->getUsers()) {
+        int64_t dstSliceIndex = dstSliceIndices[dstSliceIdxCounter];
         if (auto potentialStore = mlir::dyn_cast<affine::AffineStoreOp>(user);
             notDstMemspace(potentialStore)) {
-
-          assert(!dstSliceAllocationState.didStoreToDst() &&
-                 "Multiple stores from last op to dst not supported");
-
-          auto dstRegInPlace = computeOp.getDstRegInPlace();
-          int64_t dstSliceIndex = -1;
-          if (dstRegInPlace) {
-            bool isUnaryOp = computeOp->getNumOperands() == 1;
-            bool isTileMatmul = mlir::isa<d2m::TileMatmulOp>(computeOp);
-            bool isReduction = mlir::isa<d2m::TileReduceMaxOp>(computeOp) ||
-                               mlir::isa<d2m::TileReduceSumOp>(computeOp);
-            assert((isUnaryOp || isTileMatmul || isReduction) &&
-                   "Only unary ops, tile matmul, and reductions supported for "
-                   "destination register in "
-                   "place, multi-operand ops would reference wrong tile, but "
-                   "those ops should be setting output tile.");
-            dstSliceIndex = dstSliceAllocationState.getCurrSliceIndex();
-          } else {
-            dstSliceIndex = dstSliceAllocationState.allocate();
-            dstSliceAllocationState.setStoreToDst();
-          }
           collectDstAccess<affine::AffineStoreOp>(op, potentialStore, copyInfos,
                                                   dstSliceIndex,
                                                   outermostInnerComputeLoop);
-
         }
         // If the user isn't a store, it must be another compute consumer and we
         // need to set or allocate a dest register intermediate for it.
@@ -297,17 +285,14 @@ public:
                  "users in the same compute dst region.");
           assert(computeOp->getNumResults() == 1);
           assert(!dstRegisterAllocation.contains(computeOp));
-          // If op stores to dst in place, we don't need to allocate a new dst
-          // register, just use the current dst index.
-          int32_t allocatedIndex =
-              computeOp.getDstRegInPlace()
-                  ? dstSliceAllocationState.getCurrSliceIndex()
-                  : dstSliceAllocationState.allocate();
 
-          dstRegisterAllocation[computeOp] = {allocatedIndex,
+          dstRegisterAllocation[computeOp] = {dstSliceIndex,
                                               outermostInnerComputeLoop};
         }
       }
+
+      // Move to next DST slice index for next compute op.
+      dstSliceIdxCounter++;
     });
     return {copyInfos, dstRegisterAllocation};
   }
@@ -370,7 +355,9 @@ public:
   */
   static bool rewriteTileMatmulAsTileMatmulBlock(
       PatternRewriter &rewriter, GenericOp op, Region &region,
-      linalg::GenericOp linalgGenericOp, unsigned dstCapacity, bool &modified) {
+      linalg::GenericOp linalgGenericOp, unsigned dstCapacity, bool &modified,
+      const llvm::SmallVector<DstRegisterInfo> &dstRegisterInfoList,
+      size_t genericOpIndex) {
     assert(linalgGenericOp.getInputs().size() == 2 &&
            "Expected exactly 2 input for tile matmul");
     assert(linalgGenericOp.getOutputs().size() == 1 &&
@@ -386,9 +373,17 @@ public:
     if (failed(linalgLoops)) {
       return false;
     }
+
+    // Extract maxDstUsage and dstSliceIndices from analysis before erasing.
+
+    const auto &info =
+        dstRegisterInfoList[dstRegisterInfoList.size() - 1 - genericOpIndex];
+    const int maxDstUsage = info.dstMaxUsage;
+    const SmallVector<int> dstSliceIndices = info.dstSliceIndices;
+
     rewriter.eraseOp(linalgGenericOp);
     modified |= insertDstRegisterAccess(
-        rewriter, op, region, dstCapacity,
+        rewriter, op, region, dstCapacity, maxDstUsage, dstSliceIndices,
         !linalgLoops.value().empty() ? linalgLoops.value().front() : nullptr);
 
     Operation *outerLoop = linalgLoops.value()[0];
@@ -694,6 +689,8 @@ public:
 
   bool useTileMatmul = false;
   unsigned maxDstPhysicalSizeTiles = 0;
+  llvm::SmallVector<DstRegisterInfo> dstRegisterInfoList;
+  mutable size_t genericOpIndex = 0;
 };
 } // namespace
 
@@ -777,8 +774,17 @@ public:
     MLIRContext *ctx = &getContext();
     RewritePatternSet patterns(ctx);
 
+    // Retrieve the cached analysis from the pass manager instead of
+    // recomputing.
+    auto analysisMaybe = getCachedAnalysis<DestRegisterAnalysis>();
+    if (!analysisMaybe.has_value()) {
+      return signalPassFailure();
+    }
+    DestRegisterAnalysis analysis = analysisMaybe.value().get();
+
     patterns.add<D2MInsertDstRegisterAccessRewriter>(
-        ctx, useTileMatmul, maxDstPhysicalSizeTiles.getValue());
+        ctx, useTileMatmul, maxDstPhysicalSizeTiles.getValue(),
+        analysis.dstRegisterInfoList);
 
     patterns.add<D2MPackerMaskResetRewriter<TileReduceSumOp>,
                  D2MPackerMaskResetRewriter<TileReduceMaxOp>>(ctx);
@@ -789,5 +795,4 @@ public:
   }
 };
 } // namespace
-
 } // namespace mlir::tt::d2m
