@@ -3938,4 +3938,71 @@ GlobalAvgPool2dOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
       inputs[0], getDtype(), opConfig.outputLayout);
 }
 
+//===----------------------------------------------------------------------===//
+// AssignOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::OpConstraints>
+AssignOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                           const OpConfig &opConfig) {
+  if (getOptionalOutputTensor()) {
+    assert(inputs.size() == 2);
+    // ttnn::assign with optional output tensor must have exactly 2 inputs
+  } else {
+    assert(inputs.size() == 1);
+    // ttnn::assign without optional output tensor must have exactly 1 input
+  }
+  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
+  if (!check) {
+    return check.takeError();
+  }
+  ttcore::GridAttr deviceGrid =
+      ttcore::lookupDevice(getOperation()).getWorkerGrid();
+
+  const auto inputShape = getInput().getType().getShape();
+
+  // Extract optional output tensor shape and layout
+  std::optional<llvm::ArrayRef<int64_t>> optionalOutputShape;
+  std::optional<TTNNLayoutAttr> optionalOutputLayout;
+  if (getOptionalOutputTensor()) {
+    auto optionalOutputTensorType = getOptionalOutputTensor().getType();
+    optionalOutputShape = optionalOutputTensorType.getShape();
+    optionalOutputLayout =
+        mlir::cast<TTNNLayoutAttr>(optionalOutputTensorType.getEncoding());
+  }
+
+  return opConstraintsCache().getOrCompute(
+      op_model::OpModel<mlir::tt::ttnn::AssignOp>::getOpConstraints, *this,
+      deviceGrid, inputShape, inputs[0], getOutputMemConfig(), getOutputDtype(),
+      optionalOutputShape, optionalOutputLayout);
+}
+
+llvm::Expected<size_t>
+AssignOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                       const OpConfig &opConfig) {
+  if (getOptionalOutputTensor()) {
+    assert(inputs.size() == 2);
+    // ttnn::assign with optional output tensor must have exactly 2 inputs
+  } else {
+    assert(inputs.size() == 1);
+    // ttnn::assign without optional output tensor must have exactly 1 input
+  }
+  const auto inputShape = getInput().getType().getShape();
+
+  // Extract optional output tensor shape and layout
+  std::optional<llvm::ArrayRef<int64_t>> optionalOutputShape;
+  std::optional<TTNNLayoutAttr> optionalOutputLayout;
+  if (getOptionalOutputTensor()) {
+    auto optionalOutputTensorType = getOptionalOutputTensor().getType();
+    optionalOutputShape = optionalOutputTensorType.getShape();
+    optionalOutputLayout =
+        mlir::cast<TTNNLayoutAttr>(optionalOutputTensorType.getEncoding());
+  }
+
+  return opRuntimeCache().getOrCompute(
+      op_model::OpModel<mlir::tt::ttnn::AssignOp>::getOpRuntime, *this,
+      inputShape, inputs[0], getOutputMemConfig(), getOutputDtype(),
+      optionalOutputShape, optionalOutputLayout);
+}
+
 } // namespace mlir::tt::ttnn
