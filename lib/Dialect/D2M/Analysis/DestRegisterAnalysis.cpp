@@ -15,89 +15,60 @@ DestRegisterAnalysis::DestRegisterAnalysis(Operation *op) {
     DstRegisterInfo info;
 
     // Track destination register state.
-    int nextAvailableIndex = 0;
-    llvm::DenseMap<Operation *, int> opToDstIndex;
-    llvm::DenseMap<Value, int> valueToDstIndex;
+    int nextAvailableSlice = 0;
+    llvm::DenseMap<Operation *, int> opToDstSlice;
+    llvm::DenseMap<Value, int> valueToDstSlice;
 
-    // Phase 1: Collect all input values (from block args and non-compute ops).
-    llvm::SmallVector<Value> inputValues;
-    genericOp->walk([&](Operation *innerOp) {
-      if (innerOp->hasTrait<D2MGenericRegionComputeOpTrait>()) {
-        for (Value operand : innerOp->getOperands()) {
-          if (Operation *definingOp = operand.getDefiningOp()) {
-            if (!definingOp->hasTrait<D2MGenericRegionComputeOpTrait>()) {
-              if (valueToDstIndex.find(operand) == valueToDstIndex.end()) {
-                inputValues.push_back(operand);
-              }
-            }
-          } else {
-            if (valueToDstIndex.find(operand) == valueToDstIndex.end()) {
-              inputValues.push_back(operand);
-            }
-          }
-        }
-      }
-    });
-
-    // Phase 2: Process compute ops.
+    // Process compute ops.
     genericOp->walk([&](Operation *innerOp) {
       if (innerOp->hasTrait<D2MGenericRegionComputeOpTrait>()) {
         // Get the operands that must be loaded from DST for this op
+        // and whether this is an in-place operation.
         llvm::SmallVector<int64_t> dstOperandIndices;
+        bool isInPlace = false;
         if (auto loadStoreInterface =
                 llvm::dyn_cast<OperandLoadStoreRegisterOpInterface>(innerOp)) {
           dstOperandIndices =
               loadStoreInterface.getOperandsLoadFromDstRegister();
-        }
-
-        // Allocate DST indices for operands that need to be loaded from DST
-        for (int64_t operandIdx : dstOperandIndices) {
-          if (operandIdx < static_cast<int64_t>(innerOp->getNumOperands())) {
-            Value operand = innerOp->getOperand(operandIdx);
-            if (valueToDstIndex.find(operand) == valueToDstIndex.end()) {
-              Operation *definingOp = operand.getDefiningOp();
-              if (!definingOp ||
-                  !definingOp->hasTrait<D2MGenericRegionComputeOpTrait>()) {
-                // This is an external input, allocate a DST index.
-                valueToDstIndex[operand] = nextAvailableIndex++;
-                info.dstSliceIndices.push_back(valueToDstIndex[operand]);
-                llvm::errs() << "    Allocated external input DST index: "
-                             << valueToDstIndex[operand] << "\n";
-              }
-            }
-          }
-        }
-
-        // Check if this is an in-place operation.
-        bool isInPlace = false;
-        if (auto loadStoreInterface =
-                llvm::dyn_cast<OperandLoadStoreRegisterOpInterface>(innerOp)) {
           isInPlace = loadStoreInterface.getDstRegInPlace();
         }
 
-        // Allocate or reuse destination index for the output.
-        int outputIndex;
-        if (isInPlace && innerOp->getNumOperands() > 0) {
-          Value operand = innerOp->getOperand(0);
-          if (Operation *definingOp = operand.getDefiningOp()) {
-            if (definingOp->hasTrait<D2MGenericRegionComputeOpTrait>()) {
-              outputIndex = opToDstIndex[definingOp];
-            } else {
-              outputIndex = valueToDstIndex[operand];
+        // Allocate DST indices for operands that need to be loaded from DST.
+        for (int64_t operandIdx : dstOperandIndices) {
+          Value operand = innerOp->getOperand(operandIdx);
+          if (valueToDstSlice.find(operand) == valueToDstSlice.end()) {
+            if (Operation *definingOp = operand.getDefiningOp();
+                !definingOp ||
+                !definingOp->hasTrait<D2MGenericRegionComputeOpTrait>()) {
+              // This is an external input, allocate a DST slice.
+              valueToDstSlice[operand] = nextAvailableSlice++;
+              info.dstSliceIndices.push_back(valueToDstSlice[operand]);
             }
+          }
+        }
+
+        // Allocate or reuse destination slice for the output.
+        int outputSlice = nextAvailableSlice;
+        if (isInPlace) {
+          assert(dstOperandIndices.size() == 1);
+          Value operand = innerOp->getOperand(dstOperandIndices[0]);
+          if (Operation *definingOp = operand.getDefiningOp();
+              definingOp &&
+              definingOp->hasTrait<D2MGenericRegionComputeOpTrait>()) {
+            outputSlice = opToDstSlice[definingOp];
           } else {
-            outputIndex = valueToDstIndex[operand];
+            outputSlice = valueToDstSlice[operand];
           }
         } else {
-          outputIndex = nextAvailableIndex++;
+          ++nextAvailableSlice;
         }
-        opToDstIndex[innerOp] = outputIndex;
+        opToDstSlice[innerOp] = outputSlice;
         // Store the intermediate DST slice indices for this compute op.
-        info.dstSliceIndices.push_back(outputIndex);
+        info.dstSliceIndices.push_back(outputSlice);
       }
     });
 
-    info.dstMaxUsage = std::max(info.dstMaxUsage, nextAvailableIndex);
+    info.dstMaxUsage = nextAvailableSlice;
     dstRegisterInfoList.push_back(info);
   });
 }

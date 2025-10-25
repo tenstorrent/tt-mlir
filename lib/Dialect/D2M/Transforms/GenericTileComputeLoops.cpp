@@ -162,10 +162,7 @@ struct D2MGenericComputeRewriter : public OpRewritePattern<linalg::GenericOp> {
 
     // Get max DST usage for this GenericOp from the analysis using the current
     // index.
-    int maxDstUsage = 0;
-    if (genericOpIndex < dstRegisterInfoList.size()) {
-      maxDstUsage = dstRegisterInfoList[genericOpIndex].dstMaxUsage;
-    }
+    const int maxDstUsage = dstRegisterInfoList[genericOpIndex].dstMaxUsage;
 
     // Increment index for the next generic op.
     genericOpIndex++;
@@ -222,7 +219,7 @@ public:
 
   void runOnOperation() final {
 
-    // Run the analysis once before any pattern rewriting
+    // Run the analysis once before any pattern rewriting.
     DestRegisterAnalysis analysis = getAnalysis<DestRegisterAnalysis>();
 
     MLIRContext *ctx = &getContext();
@@ -231,7 +228,7 @@ public:
         ctx, maxDstPhysicalSizeTiles.getValue(), analysis.dstRegisterInfoList);
     walkAndApplyPatterns(getOperation(), std::move(patterns));
 
-    // Mark the analysis as preserved for use by downstream passes
+    // Mark the analysis as preserved for use by downstream passes.
     markAnalysesPreserved<DestRegisterAnalysis>();
   }
 };
