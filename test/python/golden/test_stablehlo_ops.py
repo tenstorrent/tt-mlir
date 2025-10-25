@@ -127,11 +127,15 @@ def broadcast_in_dim(
     in0: Operand,
     builder: StableHLOBuilder,
     broadcast_dimensions: List[int],
+    output_shape: List[int],
     unit_attrs: Optional[List[str]] = None,
 ):
     builder.set_graph_level_check(True)
     return builder.broadcast_in_dim(
-        in0, broadcast_dimensions=broadcast_dimensions, unit_attrs=unit_attrs
+        in0,
+        broadcast_dimensions=broadcast_dimensions,
+        output_shape=output_shape,
+        unit_attrs=unit_attrs,
     )
 
 
@@ -225,24 +229,31 @@ def test_tan(shape: Shape, dtype: torch.dtype, target: str, request, device):
     )
 
 
-@pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
+@pytest.mark.parametrize("shape", [(128,)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttnn"])
-@pytest.mark.parametrize(
-    "test_fn",
-    [
-        broadcast_in_dim,
-    ],
-)
+@pytest.mark.parametrize("broadcast_dimensions", [[0]])
+@pytest.mark.parametrize("output_shape", [[32, 128]])
 def test_broadcast_ops(
-    test_fn: Callable,
     shape: Shape,
     dtype: torch.dtype,
     target: str,
+    broadcast_dimensions: List[int],
+    output_shape: List[int],
     request,
 ):
+    # Create a wrapper function that captures broadcast_dimensions and output_shape
+    def broadcast_wrapper(
+        in0: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        return broadcast_in_dim(
+            in0, builder, broadcast_dimensions, output_shape, unit_attrs
+        )
+
     compile_and_execute_shlo(
-        test_fn,
+        broadcast_wrapper,
         [shape],
         [dtype],
         test_base=request.node.name,
