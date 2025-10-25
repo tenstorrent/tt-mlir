@@ -623,6 +623,17 @@ public:
     ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::MaxPool2dOp> emitter(
         maxPool2dOp, adaptor, rewriter);
 
+    SmallVector<int32_t> padding;
+    if (maxPool2dOp.getPadding().size() == 2) {
+      padding.push_back(static_cast<uint32_t>(maxPool2dOp.getPadding()[0]));
+      padding.push_back(static_cast<uint32_t>(maxPool2dOp.getPadding()[1]));
+    } else {
+      padding.push_back(static_cast<uint32_t>(maxPool2dOp.getPadding()[0]));
+      padding.push_back(static_cast<uint32_t>(maxPool2dOp.getPadding()[2]));
+      padding.push_back(static_cast<uint32_t>(maxPool2dOp.getPadding()[1]));
+      padding.push_back(static_cast<uint32_t>(maxPool2dOp.getPadding()[3]));
+    }
+
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(maxPool2dOp.getInput()),
         emitter.emit(maxPool2dOp.getBatchSize()),
@@ -633,8 +644,9 @@ public:
             maxPool2dOp.getKernelSizeAttr()),
         emitter.template emit<std::vector<uint32_t>>(
             maxPool2dOp.getStrideAttr()),
-        emitter.template emit<std::vector<uint32_t>>(
-            maxPool2dOp.getPaddingAttr()),
+        emitter.template emit<
+            std::variant<std::array<uint32_t, 2>, std::array<uint32_t, 4>>>(
+            rewriter.getI32ArrayAttr(padding)),
         emitter.template emit<std::vector<uint32_t>>(
             maxPool2dOp.getDilationAttr()),
         emitter.emit(emitter.getMemoryConfig(maxPool2dOp.getResult()),
