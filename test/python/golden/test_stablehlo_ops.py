@@ -235,8 +235,8 @@ def test_concatenate(
 ):
     # Create a wrapper function
     def concatenate_wrapper(*inputs_and_builder):
-        *inputs, builder = inputs_and_builder
         builder.set_graph_level_check(True)
+        *inputs, builder = inputs_and_builder
         return builder.concatenate(list(inputs), dim=dim)
 
     # Set the name for better test identification.
