@@ -118,7 +118,7 @@ class StableHLOBuilder(Builder):
 
     def _get_mesh(self, mesh_name: str = "mesh") -> sdy.Mesh:
         return self.mesh(mesh_name, self._get_mesh_attr(mesh_name))
-        
+
     def _get_output_shape_and_type(
         self,
         organize_golden_args: Callable,
@@ -127,7 +127,7 @@ class StableHLOBuilder(Builder):
         golden_kwargs: dict = {},
     ):
         op_golden_function = builder_golden.get_golden_function(
-        op_stablehlo_function, **golden_kwargs
+            op_stablehlo_function, **golden_kwargs
         )
         if op_golden_function is None:
             return None
@@ -176,13 +176,17 @@ class StableHLOBuilder(Builder):
             # Only create output if user explicitly provides output_shape, output_type, or output_create_fn
             # (e.g., for ops like broadcast_in_dim that don't have type inference)
             output = None
-            if output_shape is not None or output_type is not None or output_create_fn is not None:
+            if (
+                output_shape is not None
+                or output_type is not None
+                or output_create_fn is not None
+            ):
                 # User explicitly requested output creation
                 # Try to get shape/type from golden function if not fully provided
                 output_shape_and_type = self._get_output_shape_and_type(
                     organize_golden_args, inputs, op_stablehlo_function, golden_kwargs
                 )
-                
+
                 if not output_shape_and_type:
                     # No golden function - user must provide both shape and type
                     assert (
@@ -192,15 +196,22 @@ class StableHLOBuilder(Builder):
                         output_type is not None
                     ), "Output type must be provided if there is no golden function for this op"
                 else:
-                    calculated_output_shape, calculated_output_type = output_shape_and_type
+                    (
+                        calculated_output_shape,
+                        calculated_output_type,
+                    ) = output_shape_and_type
                     # Use provided values if available, otherwise use calculated
-                    output_shape = calculated_output_shape if output_shape is None else output_shape
+                    output_shape = (
+                        calculated_output_shape
+                        if output_shape is None
+                        else output_shape
+                    )
                     output_type = (
                         self._get_type_from_torch_dtype(calculated_output_type)
                         if output_type is None
                         else output_type
                     )
-                
+
                 # Create output tensor
                 if output_create_fn is not None:
                     output = output_create_fn(output_shape, output_type)
@@ -209,7 +220,9 @@ class StableHLOBuilder(Builder):
 
             # Custom argument organization and create the stabelhlo op
             if organize_stablehlo_args is not None:
-                stablehlo_args = organize_stablehlo_args(inputs, output, stablehlo_kwargs)
+                stablehlo_args = organize_stablehlo_args(
+                    inputs, output, stablehlo_kwargs
+                )
                 op = op_stablehlo_function(*stablehlo_args, loc=loc, **stablehlo_kwargs)
             else:
                 # Default: elementwise binary operations
@@ -707,7 +720,10 @@ class StableHLOBuilder(Builder):
     # ----- Tensor Manipulation Operations -----
 
     def concatenate(
-        self, inputs: List[Operand], dim: int = 0, unit_attrs: Optional[List[str]] = None
+        self,
+        inputs: List[Operand],
+        dim: int = 0,
+        unit_attrs: Optional[List[str]] = None,
     ) -> OpView:
         """
         Creates ``stablehlo.concatenate``.
@@ -715,7 +731,7 @@ class StableHLOBuilder(Builder):
         *Tensor concatenation operation.*
 
         Concatenates a variadic number of tensors in `inputs` along `dim`
-        dimension in the same order as the given arguments. All input tensors 
+        dimension in the same order as the given arguments. All input tensors
         must have the same shape except in the concatenating dimension.
 
         .. code-block:: mlir
@@ -734,7 +750,7 @@ class StableHLOBuilder(Builder):
         Parameters
         ----------
         inputs : List[Operand]
-            List of input tensors to concatenate. All tensors must have the same 
+            List of input tensors to concatenate. All tensors must have the same
             rank and matching dimensions except along the concatenation dimension.
         dim : int, optional
             Dimension along which to concatenate. Must be in range [0, rank).
@@ -747,18 +763,17 @@ class StableHLOBuilder(Builder):
         (*OpView*)
             A tensor containing all input tensors concatenated along the specified dimension
         """
-        stablehlo_kwargs = {"dimension": dim}
-        golden_kwargs = {"dim": dim}
-        
         return self._op_proxy(
             stablehlo.ConcatenateOp,
             inputs,
             organize_stablehlo_args=lambda i, o, k: (i,),
-            stablehlo_kwargs=stablehlo_kwargs,
-            organize_golden_args=lambda i: (tuple([self._get_golden_tensor(inp) for inp in i]),), 
-            golden_kwargs=golden_kwargs,
+            stablehlo_kwargs={"dimension": dim},
+            organize_golden_args=lambda i: (
+                tuple([self._get_golden_tensor(inp) for inp in i]),
+            ),
+            golden_kwargs={"dim": dim},
         )
-      
+
     # ----- Public Shardy Attribute Generators ----
 
     def mesh_axis_attr(
