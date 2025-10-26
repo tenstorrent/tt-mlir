@@ -74,11 +74,13 @@ void RuntimeContext::setCurrentHostRuntime(const HostRuntime &runtime) {
   currentHostRuntime_.store(runtime, std::memory_order_relaxed);
 }
 
-FabricConfig RuntimeContext::getCurrentFabricConfig() const {
-  FabricConfig config = currentFabricConfig_.load(std::memory_order_relaxed);
+tt::runtime::FabricConfig RuntimeContext::getCurrentFabricConfig() const {
+  tt::runtime::FabricConfig config =
+      currentFabricConfig_.load(std::memory_order_relaxed);
   return config;
 }
-void RuntimeContext::setCurrentFabricConfig(const FabricConfig &config) {
+void RuntimeContext::setCurrentFabricConfig(
+    const tt::runtime::FabricConfig &config) {
   currentFabricConfig_.store(config, std::memory_order_relaxed);
 }
 

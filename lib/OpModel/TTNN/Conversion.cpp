@@ -510,6 +510,15 @@ getConv2dConfig(const std::optional<Conv2dConfigAttr> &conv2dConfig) {
         conv2dConfig->getEnableWeightsDoubleBuffer().getValue();
   }
 
+  if (conv2dConfig->getInPlace()) {
+    config.in_place = conv2dConfig->getInPlace().getValue();
+  }
+
+  if (conv2dConfig->getEnableKernelStrideFolding()) {
+    config.enable_kernel_stride_folding =
+        conv2dConfig->getEnableKernelStrideFolding().getValue();
+  }
+
   return config;
 }
 

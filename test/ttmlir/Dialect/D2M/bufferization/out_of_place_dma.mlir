@@ -22,7 +22,10 @@ func.func @matmul(%arg0: tensor<2x2x2x2x!ttcore.tile<32x32, f32>, #layout>, %arg
   %0 = d2m.generic {block_factors = [1, 1, 1, 1, 1, 1], grid = #ttcore.grid<2x2>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<datamovement>]}
       ins(%view, %view_0 : tensor<2x2x2x2x!ttcore.tile<32x32, f32>, #layout1>, tensor<2x2x2x2x!ttcore.tile<32x32, f32>, #layout1>)
       outs(%view_1 : tensor<2x2x2x2x!ttcore.tile<32x32, f32>, #layout1>)  {
-  ^datamovement0(%t0: tensor<2x2x!ttcore.tile<32x32, f32>>, %t1: tensor<2x2x!ttcore.tile<32x32, f32>>, %t2: tensor<2x2x!ttcore.tile<32x32, f32>>, %sem0: !d2m.semaphore, %sem1: !d2m.semaphore, %sem2: !d2m.semaphore, %sem3: !d2m.semaphore):
+  ^datamovement0(%cb0: !d2m.cb<tensor<2x2x!ttcore.tile<32x32, f32>>>, %cb1: !d2m.cb<tensor<2x2x!ttcore.tile<32x32, f32>>>, %cb2: !d2m.cb<tensor<2x2x!ttcore.tile<32x32, f32>>>, %sem0: !d2m.semaphore, %sem1: !d2m.semaphore, %sem2: !d2m.semaphore, %sem3: !d2m.semaphore):
+    %t0 = d2m.reserve %cb0 : !d2m.cb<tensor<2x2x!ttcore.tile<32x32, f32>>> -> tensor<2x2x!ttcore.tile<32x32, f32>>
+    %t1 = d2m.reserve %cb1 : !d2m.cb<tensor<2x2x!ttcore.tile<32x32, f32>>> -> tensor<2x2x!ttcore.tile<32x32, f32>>
+    %t2 = d2m.wait %cb2 : !d2m.cb<tensor<2x2x!ttcore.tile<32x32, f32>>> -> tensor<2x2x!ttcore.tile<32x32, f32>>
     %c0 = arith.constant 0 : index
     %c2 = arith.constant 2 : index
     %c1 = arith.constant 1 : index
@@ -43,7 +46,7 @@ func.func @matmul(%arg0: tensor<2x2x2x2x!ttcore.tile<32x32, f32>, #layout>, %arg
       }
       d2m.yield %t0 : (tensor<2x2x!ttcore.tile<32x32, f32>>)
     }
-    d2m.yield %t2 : (tensor<2x2x!ttcore.tile<32x32, f32>>)
+    d2m.yield %view_1 : (tensor<2x2x2x2x!ttcore.tile<32x32, f32>, #layout1>)
   } : tensor<2x2x2x2x!ttcore.tile<32x32, f32>, #layout1>
   return %0 : tensor<2x2x2x2x!ttcore.tile<32x32, f32>, #layout1>
 }

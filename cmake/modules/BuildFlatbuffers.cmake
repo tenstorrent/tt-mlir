@@ -3,12 +3,28 @@ find_program(FLATBUFFERS_COMPILER flatc)
 function(build_flatbuffers namespace sources target)
 # Query deps if they exist
 set(deps)
+# Query extra include dirs if they exist
+set(extra_include_dirs)
+
 if(ARGC GREATER 3)
-  foreach(target_dep IN LISTS ARGV3)
-    get_property(target_sources TARGET ${target_dep} PROPERTY SOURCES)
-    list(APPEND deps ${target_sources})
+  foreach(arg IN LISTS ARGV3)
+    if(TARGET ${arg})
+      get_property(target_sources TARGET ${arg} PROPERTY SOURCES)
+      list(APPEND deps ${target_sources})
+    elseif(IS_DIRECTORY ${arg})
+      list(APPEND extra_include_dirs ${arg})
+    else()
+      message(FATAL_ERROR "Invalid argument: ${arg}")
+    endif()
   endforeach()
 endif()
+
+# Build include args command line arguments
+set(INCLUDE_ARGS)
+list(APPEND INCLUDE_ARGS ARGS -I ${PROJECT_SOURCE_DIR}/include/)
+foreach(extra_include_dir IN LISTS extra_include_dirs)
+  list(APPEND INCLUDE_ARGS ARGS -I ${extra_include_dir})
+endforeach()
 
 set(FBS_GEN_OUTPUTS)
 
@@ -21,7 +37,7 @@ foreach(FILE ${sources})
     "${FBS_GEN_FILE}"
     "${FBS_GEN_BFBS_FILE}"
     COMMAND ${FLATBUFFERS_COMPILER}
-    ARGS -I ${PROJECT_SOURCE_DIR}/include/
+    ${INCLUDE_ARGS}
     ARGS --bfbs-gen-embed
     ARGS --cpp --cpp-std c++17
     ARGS --scoped-enums --warnings-as-errors

@@ -36,6 +36,7 @@ struct Conv2dConfigParams {
   std::optional<bool> enableActDoubleBuffer = std::nullopt;
   std::optional<bool> enableWeightsDoubleBuffer = std::nullopt;
   std::optional<bool> inPlace = std::nullopt;
+  std::optional<bool> enableKernelStrideFolding = std::nullopt;
 
   // Default constructor - all fields nullopt
   Conv2dConfigParams() = default;
@@ -110,7 +111,8 @@ struct Conv2dConfigParams {
        << ":output_layout#" << params.outputLayout
        << ":enable_act_double_buffer#" << params.enableActDoubleBuffer
        << ":enable_weights_double_buffer#" << params.enableWeightsDoubleBuffer
-       << params.inPlace;
+       << ":in_place#" << params.inPlace << ":enable_kernel_stride_folding#"
+       << params.enableKernelStrideFolding;
     return os;
   }
 };

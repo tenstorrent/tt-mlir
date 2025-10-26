@@ -127,18 +127,30 @@ def compute_pcc(ttir_result, ttnn_result):
         print(f"Warning: Masking failed with error: {e}")
         pass
 
-    if x.numel() == 0 or y.numel() == 0:
-        return 1.0
+    # We can adjust tolerances here if needed
+    def equal(a, b, rtol=1e-2, atol=1e-2) -> float:
+        """Normally NaN; for debugging we use equality-style fallback."""
+        return 1.0 if torch.allclose(a, b, rtol=rtol, atol=atol) else 0.0
+
+    # Not enough valid samples for Pearson:
+    # NOTE: This would normally be NaN, but for result verification we return
+    # 1.0 if tensors are (numerically) equal, otherwise 0.0.
+    if min(x.numel(), y.numel()) < 2:
+        return equal(x, y)
 
     x_centered = x - x.mean()
     y_centered = y - y.mean()
 
-    numerator = torch.sum(x_centered * y_centered)
-    denominator = torch.sqrt(torch.sum(x_centered**2) * torch.sum(y_centered**2))
+    # Zero variance (constant vector) -> Pearson undefined -> fallback
+    # NOTE: This would normally be NaN, but for result verification we return
+    # 1.0 if tensors are (numerically) equal, otherwise 0.0.
+    sx2 = torch.sum(x_centered**2)
+    sy2 = torch.sum(y_centered**2)
+    if sx2.item() == 0.0 or sy2.item() == 0.0:
+        return equal(x, y)
 
-    if denominator == 0:
-        pcc = 1.0
-    else:
-        pcc = numerator / denominator
+    numerator = torch.sum(x_centered * y_centered)
+    denominator = torch.sqrt(sx2 * sy2)
+    pcc = numerator / denominator
 
     return float(pcc)

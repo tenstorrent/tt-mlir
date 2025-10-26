@@ -19,6 +19,8 @@ Short utilities built on **tt::runtime** for inspecting, executing, and debuggin
   - Useful for checking if the device ops works correctly and also if the decompositions are done correctly.
 
 ### Quick Start
+To run chisel, tt-mlir must be built with `-DTTMLIR_ENABLE_RUNTIME=ON` and `-DTT_RUNTIME_DEBUG=ON` flags.
+
 - First install the chisel
 
 ```bash

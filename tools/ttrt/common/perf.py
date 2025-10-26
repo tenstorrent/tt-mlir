@@ -161,6 +161,13 @@ class Perf:
             choices=[True, False],
             help="disable ttrt callbacks",
         )
+        Perf.register_arg(
+            name="--filter",
+            type=str,
+            default="",
+            choices=None,
+            help="comma-separated list of operation types to filter out from perf results (e.g., 'const_eval,input_layout_conversion')",
+        )
 
     def __init__(self, args={}, logger=None, artifacts=None):
         for name, attributes in Perf.registered_args.items():
@@ -572,11 +579,14 @@ class Perf:
                     global_call_count_const_eval_op_mapping = get_mlir_analysis_results(
                         "MLIR_CONST_EVAL_OP"
                     )
+                    global_call_count_input_layout_conversion_op_mapping = (
+                        get_mlir_analysis_results("MLIR_INPUT_LAYOUT_CONVERSION_OP")
+                    )
                     global_call_count_program_metadata_op_mapping = (
                         get_mlir_analysis_results("MLIR_PROGRAM_METADATA")
                     )
 
-                    # Add location data, const_eval_op data and program metadata to profiler csv file
+                    # Add location data, const_eval_op data, input_layout_conversion_op data and program metadata to profiler csv file
                     dir_name = os.path.dirname(profiler_csv_file_path)
                     base_name = os.path.basename(profiler_csv_file_path)
                     file_root, file_ext = os.path.splitext(base_name)
@@ -589,6 +599,7 @@ class Perf:
                         fieldnames = reader.fieldnames + [
                             "LOC",
                             "CONST_EVAL_OP",
+                            "INPUT_LAYOUT_CONVERSION_OP",
                             "PROGRAM_METADATA",
                         ]
                         writer = csv.DictWriter(outfile, fieldnames=fieldnames)
@@ -620,6 +631,19 @@ class Perf:
                             else:
                                 row["CONST_EVAL_OP"] = "false"
 
+                            # Append the input_layout_conversion_op column with its input_layout_conversion_op data
+                            if (
+                                local_call_count
+                                in global_call_count_input_layout_conversion_op_mapping.keys()
+                            ):
+                                row[
+                                    "INPUT_LAYOUT_CONVERSION_OP"
+                                ] = global_call_count_input_layout_conversion_op_mapping[
+                                    local_call_count
+                                ]
+                            else:
+                                row["INPUT_LAYOUT_CONVERSION_OP"] = "false"
+
                             # Append the program metadata column with its metadata
                             if (
                                 local_call_count
@@ -642,43 +666,111 @@ class Perf:
                         profiler_csv_file_path,
                     )
 
-                    # create ops_perf_results_minus_const_eval.csv
-                    dir_name = os.path.dirname(profiler_csv_file_path)
-                    base_name = os.path.basename(profiler_csv_file_path)
-                    file_root, file_ext = os.path.splitext(base_name)
-                    profiler_csv_minus_const_eval_file_path = os.path.join(
-                        dir_name, f"{file_root}_minus_const_eval{file_ext}"
-                    )
+                    # Helper function to create filtered CSV files
+                    def create_filtered_csv(filter_conditions, suffix):
+                        """
+                        Create a filtered CSV file based on filter conditions.
 
-                    with open(
-                        profiler_csv_file_path, mode="r", newline="", encoding="utf-8"
-                    ) as infile:
-                        reader = csv.DictReader(infile)
+                        Args:
+                            filter_conditions: dict mapping column names to expected values (e.g., {"CONST_EVAL_OP": "false"})
+                            suffix: suffix for the output filename
+                        """
+                        dir_name = os.path.dirname(profiler_csv_file_path)
+                        base_name = os.path.basename(profiler_csv_file_path)
+                        file_root, file_ext = os.path.splitext(base_name)
+                        filtered_file_path = os.path.join(
+                            dir_name, f"{file_root}_{suffix}{file_ext}"
+                        )
 
-                        # Open the output CSV file for writing
                         with open(
-                            profiler_csv_minus_const_eval_file_path,
-                            mode="w",
+                            profiler_csv_file_path,
+                            mode="r",
                             newline="",
                             encoding="utf-8",
-                        ) as outfile:
-                            writer = csv.DictWriter(
-                                outfile, fieldnames=reader.fieldnames
-                            )
-                            writer.writeheader()
+                        ) as infile:
+                            reader = csv.DictReader(infile)
 
-                            # Filter and write rows where CONST_EVAL_OP == "true"
-                            for row in reader:
-                                if (
-                                    row.get("CONST_EVAL_OP", "").replace(" ", "")
-                                    == "false"
-                                ):
-                                    writer.writerow(row)
+                            with open(
+                                filtered_file_path,
+                                mode="w",
+                                newline="",
+                                encoding="utf-8",
+                            ) as outfile:
+                                writer = csv.DictWriter(
+                                    outfile, fieldnames=reader.fieldnames
+                                )
+                                writer.writeheader()
 
-                    self.file_manager.copy_file(
-                        perf_folder_path,
-                        profiler_csv_minus_const_eval_file_path,
+                                for row in reader:
+                                    # Check if all filter conditions are met
+                                    include_row = True
+                                    for (
+                                        column,
+                                        expected_value,
+                                    ) in filter_conditions.items():
+                                        actual_value = row.get(column, "").replace(
+                                            " ", ""
+                                        )
+                                        if actual_value != expected_value:
+                                            include_row = False
+                                            break
+
+                                    if include_row:
+                                        writer.writerow(row)
+
+                        self.file_manager.copy_file(
+                            perf_folder_path, filtered_file_path
+                        )
+                        return filtered_file_path
+
+                    # Parse the --filter argument to determine which filters to apply
+                    filters_to_apply = []
+                    if self["--filter"]:
+                        filters_to_apply = [
+                            f.strip().lower() for f in self["--filter"].split(",")
+                        ]
+
+                    # Always create the legacy const_eval filter for backward compatibility
+                    create_filtered_csv({"CONST_EVAL_OP": "false"}, "minus_const_eval")
+
+                    # Always create the input_layout_conversion filter
+                    create_filtered_csv(
+                        {"INPUT_LAYOUT_CONVERSION_OP": "false"},
+                        "minus_input_layout_conversions",
                     )
+
+                    # Create combined filter or user-specified filters
+                    if not filters_to_apply:
+                        # Default behavior: create combined filter excluding both const_eval and input_layout_conversions
+                        create_filtered_csv(
+                            {
+                                "CONST_EVAL_OP": "false",
+                                "INPUT_LAYOUT_CONVERSION_OP": "false",
+                            },
+                            "minus_const_eval_and_input_layout_conversions",
+                        )
+                    else:
+                        # Create custom filters based on user input
+                        filter_conditions = {}
+                        filter_suffix_parts = []
+
+                        for filter_type in filters_to_apply:
+                            if filter_type == "const_eval":
+                                filter_conditions["CONST_EVAL_OP"] = "false"
+                                filter_suffix_parts.append("const_eval")
+                            elif filter_type == "input_layout_conversion":
+                                filter_conditions[
+                                    "INPUT_LAYOUT_CONVERSION_OP"
+                                ] = "false"
+                                filter_suffix_parts.append("input_layout_conversions")
+                            else:
+                                self.logging.warning(
+                                    f"Unknown filter type: {filter_type}. Supported types: const_eval, input_layout_conversion"
+                                )
+
+                        if filter_conditions:
+                            suffix = "minus_" + "_and_".join(filter_suffix_parts)
+                            create_filtered_csv(filter_conditions, suffix)
 
                     # post-process test results
                     test_result = []

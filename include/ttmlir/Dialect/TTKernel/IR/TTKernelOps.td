@@ -2458,21 +2458,6 @@ def TTKernel_GetDataFormatOp: TTKernel_Op<"get_dataformat"> {
     }];
 }
 
-def TTKernel_CBReinterpretShapeOp : TTKernel_Op<"cb_reinterpret_shape"> {
-    let summary = "Get the data format of a given CB";
-    let description = [{
-      get_dataformat operation
-    }];
-    let arguments = (ins TTKernel_CB:$input);
-    let results = (outs TTKernel_CB:$output);
-
-    let hasVerifier = 1;
-
-    let assemblyFormat = [{
-      `(` $input `)` attr-dict `:` functional-type(operands, results)
-    }];
-}
-
 def TTKernel_DPrintOp : TTKernel_Op<"dprint", [MemoryEffects<[MemRead, MemWrite]>]> {
     let summary = "Print to output stream from kernel.";
     let description = [{
