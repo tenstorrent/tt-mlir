@@ -30,6 +30,7 @@ def set_tt_metal_home():
         "TT_METAL_RUNTIME_ROOT", ""
     )
     os.environ["TT_METAL_RUNTIME_ROOT"] = get_ttrt_metal_home_path()
+    os.environ["TT_METAL_HOME"] = os.environ["TT_METAL_RUNTIME_ROOT"]
 
     new_linker_path = f"{get_ttrt_metal_home_path()}/tests"
     current_ld_library_path = os.environ.get("LD_LIBRARY_PATH", "")

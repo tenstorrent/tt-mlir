@@ -24,6 +24,7 @@ fi
 export TTMLIR_ENV_ACTIVATED=1
 export PATH="$(pwd)/${BUILD_DIR:=build}/bin:$TTMLIR_TOOLCHAIN_DIR/bin:$TTMLIR_VENV_DIR/bin:$PATH"
 export TT_METAL_RUNTIME_ROOT="$(pwd)/third_party/tt-metal/src/tt-metal"
+export TT_METAL_HOME="$TT_METAL_RUNTIME_ROOT"
 export TT_METAL_BUILD_HOME="$(pwd)/third_party/tt-metal/src/tt-metal/build"
 export TT_MLIR_HOME="$(pwd)"
 export PYTHONPATH="$(pwd)/${BUILD_DIR:=build}/python_packages:$(pwd)/${BUILD_DIR:=build}/runtime/python:$(pwd)/.local/toolchain/python_packages/mlir_core"
