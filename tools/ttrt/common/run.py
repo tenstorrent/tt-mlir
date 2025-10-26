@@ -759,9 +759,12 @@ class Run:
                         # pre-upload inputs
                         for input_index in range(len(inputs)):
                             perf_env.tracy_log_op_location(f"loc(arg_{input_index})")
+                            perf_env.tracy_log_input_layout_conversion(True)
                         inputs = convert_input_layouts(
                             device, inputs, bin.fbb, program_index
                         )
+                        # Reset flag for all following ops that aren't input `to_layout`s
+                        perf_env.tracy_log_input_layout_conversion(False)
 
                         for loop in range(self["--loops"]):
                             self.logging.debug(
@@ -795,7 +798,11 @@ class Run:
                                             expected_layout,
                                             True,
                                         )
+                                        perf_env.tracy_log_input_layout_conversion(True)
                                         inputs[input_idx] = result_tensor
+                                        perf_env.tracy_log_input_layout_conversion(
+                                            False
+                                        )
                                         self.logging.info(
                                             f"Marked input tensor {input_idx} as dirty after {loop} iterations"
                                         )
@@ -867,6 +874,8 @@ class Run:
                                     _, _, cal_pcc, _ = get_atol_rtol_pcc(
                                         golden_tensor_torch,
                                         output_tensor_torch,
+                                        self["atol"],
+                                        self["rtol"],
                                         self.logging,
                                     )
                                     pcc_fail = (
