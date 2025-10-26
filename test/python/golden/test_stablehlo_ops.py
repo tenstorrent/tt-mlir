@@ -216,22 +216,20 @@ def test_tan(shape: Shape, dtype: torch.dtype, target: str, request, device):
 @pytest.mark.parametrize(
     "shapes,dim",
     [
-        ([(64, 128), (64, 128)], 0),              # 2 tensors, dim 0
-        ([(128, 64), (128, 64)], 1),              # 2 tensors, dim 1
-        ([(64, 128), (32, 128), (16, 128)], 0),   # 3 tensors, dim 0 
-        ([(32, 64), (32, 128)], 1),               # Different sizes in dim
-        ([(64, 64), (64, 64), (64, 64)], 0),      # 3 identical tensors
+        ([(64, 128), (64, 128)], 0),  # 2 tensors, dim 0
+        ([(128, 64), (128, 64)], 1),  # 2 tensors, dim 1
+        ([(64, 128), (32, 128), (16, 128)], 0),  # 3 tensors, dim 0
+        ([(32, 64), (32, 128)], 1),  # Different sizes in dim
+        ([(64, 64), (64, 64), (64, 64)], 0),  # 3 identical tensors
         ([(128, 64), (128, 64), (128, 64), (128, 64)], 1),  # 4 tensors
     ],
     ids=["2t_dim0", "2t_dim1", "3t_dim0_ttir", "diff_size", "3t_same", "4t_dim1"],
 )
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
-@pytest.mark.parametrize("target", ["ttnn"])
 def test_concatenate(
     shapes: List[Shape],
     dim: int,
     dtype: torch.dtype,
-    target: str,
     request,
     device,
 ):
@@ -240,7 +238,7 @@ def test_concatenate(
         *inputs, builder = inputs_and_builder
         builder.set_graph_level_check(True)
         return builder.concatenate(list(inputs), dim=dim)
-    
+
     # Set the name for better test identification.
     concatenate_wrapper.__name__ = "concatenate"
 
@@ -251,7 +249,5 @@ def test_concatenate(
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
-        target=target,
         device=device,
     )
-
