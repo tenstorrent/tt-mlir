@@ -12,6 +12,7 @@
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 
+#include <mlir/IR/Value.h>
 #include <optional>
 
 using namespace mlir;
@@ -2202,9 +2203,42 @@ public:
   matchAndRewrite(mlir::tt::ttcore::LoadCachedOp loadCachedOp,
                   mlir::tt::ttcore::LoadCachedOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    llvm::StringRef calleeName = loadCachedOp.getCallee();
+
+    auto funcOp = loadCachedOp->getParentOfType<func::FuncOp>();
+    auto currentInsertionPoint = rewriter.saveInsertionPoint();
+    rewriter.setInsertionPoint(funcOp);
+
+    // Create a global variable for caching.
+    //
+    std::string globalVarName = "g_cached_result_" + calleeName.str();
+    rewriter.create<emitpy::GlobalOp>(
+        loadCachedOp.getLoc(),
+        StringAttr::get(rewriter.getContext(), globalVarName),
+        emitpy::OpaqueAttr::get(rewriter.getContext(), "[]"));
+    rewriter.restoreInsertionPoint(currentInsertionPoint);
+
+    // Create a function variable.
+    //
+    const bool isZeroArgWrapper = adaptor.getInputs().size() == 0;
+    emitpy::OpaqueType calleeType =
+        isZeroArgWrapper
+            ? emitpy::OpaqueType::get(rewriter.getContext(),
+                                      "() -> [ttnn.Tensor]")
+            : emitpy::OpaqueType::get(rewriter.getContext(),
+                                      "([ttnn.Tensor]) -> [ttnn.Tensor]");
+    mlir::Value callee =
+        rewriter
+            .create<emitpy::ConstantOp>(
+                loadCachedOp.getLoc(), calleeType,
+                emitpy::OpaqueAttr::get(rewriter.getContext(), calleeName))
+            ->getResult(0);
+
+    llvm::SmallVector<Value> operands;
+    operands.push_back(callee);
+
     // Create list of tensors.
     //
-    llvm::SmallVector<Value> operands;
     if (loadCachedOp.getInputs().size() > 0) {
       mlir::Value tensorsInList =
           rewriter
@@ -2218,13 +2252,28 @@ public:
       operands.push_back(tensorsInList);
     }
 
+    auto tensorListType =
+        emitpy::OpaqueType::get(rewriter.getContext(), "[ttnn.Tensor]");
+    FlatSymbolRefAttr globalSymbol =
+        SymbolRefAttr::get(rewriter.getContext(), globalVarName);
+    mlir::Value globalVar =
+        rewriter
+            .create<emitpy::GetGlobalOp>(loadCachedOp.getLoc(), tensorListType,
+                                         globalSymbol)
+            ->getResult(0);
+    operands.push_back(globalVar);
+
     // Call into the callee, no caching mechanism.
     //
-    emitpy::OpaqueType resultType =
-        emitpy::OpaqueType::get(rewriter.getContext(), "[ttnn.Tensor]");
-    auto cacheOp = rewriter.create<func::CallOp>(
-        loadCachedOp.getLoc(), resultType, loadCachedOp.getCallee(), operands);
+    llvm::StringRef wrapperFuncName = isZeroArgWrapper
+                                          ? "ttnn::constEvalFuncWrapperZeroArg"
+                                          : "ttnn::constEvalFuncWrapper";
 
+    auto cacheOp = rewriter.create<emitpy::CallOpaqueOp>(
+        loadCachedOp.getLoc(), tensorListType, wrapperFuncName, operands);
+    mlir::Value cacheResult = cacheOp->getResult(0);
+    rewriter.create<emitpy::AssignOp>(loadCachedOp.getLoc(), tensorListType, cacheResult);
+    
     // Unpack list of tensors.
     //
     llvm::SmallVector<Value> results;
@@ -2241,7 +2290,7 @@ public:
       auto subscriptOp = rewriter.create<emitpy::SubscriptOp>(
           loadCachedOp.getLoc(),
           emitpy::OpaqueType::get(rewriter.getContext(), "ttnn.Tensor"),
-          cacheOp->getResult(0), indexVal);
+          cacheResult, indexVal);
 
       results.push_back(subscriptOp.getResult());
     }
