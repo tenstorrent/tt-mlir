@@ -77,9 +77,7 @@ def test_untilize(shape: Shape, target: str, request, device):
     ):
 
         input = torch.randn(shape[0] * shape[1], dtype=torch.float32).reshape(shape)
-        golden_output = goldens.get_golden_function(ttir.ToLayoutOp, tilize=False)(
-            input
-        )
+        golden_output = get_golden_function(ttir.ToLayoutOp, tilize=False)(input)
         builder.set_graph_input_output([input], [golden_output])
 
         to_device = builder.to_layout(
