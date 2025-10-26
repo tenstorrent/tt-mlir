@@ -10,7 +10,7 @@ from .tensors import TensorPool, TensorValue
 from .enums import ExecutionType
 from .registry import Registry
 
-from ..utils.mapping import ttir_to_torch_mapping
+from golden import GOLDEN_MAPPINGS
 
 
 class GoldenExecutor:
