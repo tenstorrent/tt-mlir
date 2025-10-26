@@ -3662,7 +3662,7 @@ class TTIRBuilder(Builder):
                 repeat_dims.append(shape[i])
 
         # Apply repeat shard-wise
-        single_dim_tensor_bt = GoldenFunction(
+        single_dim_tensor_bt = GoldenMapTensor(
             {
                 k: shard.repeat(*repeat_dims)
                 for k, shard in result_tensor.shard_map.items()

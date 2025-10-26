@@ -4,7 +4,7 @@
 from .mapping import *
 
 __all__ = [
-    "GoldenFunction",
+    "GoldenMapTensor",
     "unpack_mlir_attr",
     "get_golden_function",
     "GOLDEN_MAPPINGS",

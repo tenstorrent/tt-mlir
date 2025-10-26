@@ -29,17 +29,17 @@ from ttmlir.ir import (
 )
 
 
-class GoldenFunction:
+class GoldenMapTensor:
     """
-    GoldenFunction is a utility class for managing golden values for single device or multi device tensors.
-    GoldenFunction represents a list of torch.Tensor objects, each representing a shard of a tensor.
+    GoldenMapTensor is a utility class for managing golden values for single device or multi device tensors.
+    GoldenMapTensor represents a list of torch.Tensor objects, each representing a shard of a tensor.
     For single device tensors, it contains a single shard.
 
     How is this class compatible with torch.* operations?
-      * For read-only tensor attributes (like shape, dtype, device, etc.), GoldenFunction forwards attribute access to the first shard.
+      * For read-only tensor attributes (like shape, dtype, device, etc.), GoldenMapTensor forwards attribute access to the first shard.
       * For torch.* operations, the class implements the `__torch_function__` protocol.
-      * When a torch function is called on a GoldenFunction, the function is applied independently to each shard.
-      * The results are collected into a new GoldenFunction.
+      * When a torch function is called on a GoldenMapTensor, the function is applied independently to each shard.
+      * The results are collected into a new GoldenMapTensor.
     """
 
     # Names that are safe to forward to the first shard.
@@ -64,7 +64,7 @@ class GoldenFunction:
         "is_quantized",
     }
 
-    # Mutating methods. We will always return a new GoldenFunction to avoid in-place mutations by design.
+    # Mutating methods. We will always return a new GoldenMapTensor to avoid in-place mutations by design.
     _MUTATING_METHOD_NAMES = [
         "to",
         "transpose",
@@ -108,16 +108,16 @@ class GoldenFunction:
         self._mesh_shape = mesh_shape
 
     # ----- Private static methods -----
-    def __getitem__(self, key: int) -> GoldenFunction:
+    def __getitem__(self, key: int) -> GoldenMapTensor:
         out_shards = {k: v.__getitem__(key) for k, v in self._shard_map.items()}
         ref = next(iter(out_shards.values()))
         if not all(isinstance(t, torch.Tensor) for t in out_shards.values()):
             return out_shards
         # Wrap
-        return GoldenFunction(out_shards, self.mesh_shape)
+        return GoldenMapTensor(out_shards, self.mesh_shape)
 
     def _binary_map(self, other, op):
-        if isinstance(other, GoldenFunction):
+        if isinstance(other, GoldenMapTensor):
             keys = sorted(self._shard_map.keys())
             if set(keys) != set(other._shard_map.keys()):
                 raise RuntimeError("Shard key mismatch between operands.")
@@ -125,7 +125,7 @@ class GoldenFunction:
         else:
             out_shards = {k: op(t, other) for k, t in self._shard_map.items()}
         # Always wrap (even 0-D)
-        return GoldenFunction(out_shards, self._mesh_shape)
+        return GoldenMapTensor(out_shards, self._mesh_shape)
 
     def __lt__(self, other):
         return self._binary_map(other, operator.lt)
@@ -163,27 +163,27 @@ class GoldenFunction:
         for tree in trees:
             if isinstance(tree, (list, tuple)):
                 for v in tree:
-                    yield from GoldenFunction._walk_tree(v)
+                    yield from GoldenMapTensor._walk_tree(v)
             elif isinstance(tree, dict):
                 for v in tree.values():
-                    yield from GoldenFunction._walk_tree(v)
+                    yield from GoldenMapTensor._walk_tree(v)
             else:
                 yield tree
 
     # ----- Private methods -----
 
     def __getattr__(self, name: str) -> Any:
-        if name in GoldenFunction._SAFE_TENSOR_ATTRS:
+        if name in GoldenMapTensor._SAFE_TENSOR_ATTRS:
             return getattr(self._shard_map[0], name)
-        elif name in GoldenFunction._MUTATING_METHODS:
+        elif name in GoldenMapTensor._MUTATING_METHODS:
 
             def method(*args, **kwargs):
-                func = GoldenFunction._MUTATING_METHODS[name]
+                func = GoldenMapTensor._MUTATING_METHODS[name]
                 return self.apply_shardwise(lambda shard: func(shard, *args, **kwargs))
 
             return method
         raise AttributeError(
-            f"'GoldenFunction' has no attribute '{name}'. "
+            f"'GoldenMapTensor' has no attribute '{name}'. "
             "For mutating ops call torch.* directly."
         )
 
@@ -194,19 +194,19 @@ class GoldenFunction:
         if not any(issubclass(t, cls) for t in types):
             return NotImplemented
 
-        # Collect all GoldenFunction inputs.
+        # Collect all GoldenMapTensor inputs.
         st_inputs = [
-            a for a in GoldenFunction._walk_tree(args, kwargs) if isinstance(a, cls)
+            a for a in GoldenMapTensor._walk_tree(args, kwargs) if isinstance(a, cls)
         ]
         shard_counts = {len(st.shard_map) for st in st_inputs}
         if len(shard_counts) != 1:
-            raise RuntimeError("All GoldenFunctions must have the same shard count.")
+            raise RuntimeError("All GoldenMapTensors must have the same shard count.")
 
         # All shard_maps should share the same set of keys.
         shard_keys = [set(st.shard_map.keys()) for st in st_inputs]
         if not all(keys == shard_keys[0] for keys in shard_keys[1:]):
             raise RuntimeError(
-                "All GoldenFunctions must have the same shard keys (devices amongst which the GoldenFunction lives)."
+                "All GoldenMapTensors must have the same shard keys (devices amongst which the GoldenMapTensor lives)."
             )
 
         keys = sorted(shard_keys[0])  # deterministic order
@@ -233,7 +233,7 @@ class GoldenFunction:
                 wrapped_tuple.append(cls(element_shards, st_inputs[0].mesh_shape))
             return tuple(wrapped_tuple)
 
-        # If all results are Tensors and compatible, wrap back into GoldenFunction.
+        # If all results are Tensors and compatible, wrap back into GoldenMapTensor.
         if all(isinstance(o, torch.Tensor) for o in out_shards.values()):
             ref = next(iter(out_shards.values()))
             if all(
@@ -254,32 +254,34 @@ class GoldenFunction:
     def mesh_shape(self) -> Tuple[int, int]:
         return self._mesh_shape
 
-    def zeros_like_builder(self, shape) -> GoldenFunction:
+    def zeros_like_builder(self, shape) -> GoldenMapTensor:
         shard_map = {}
         for device_id, shard in self.shard_map.items():
             shard_map[device_id] = torch.zeros(shape, dtype=shard.dtype)
-        return GoldenFunction(shard_map, self.mesh_shape)
+        return GoldenMapTensor(shard_map, self.mesh_shape)
 
-    def apply_shardwise(input_tensor: GoldenFunction, func: Callable) -> GoldenFunction:
+    def apply_shardwise(
+        input_tensor: GoldenMapTensor, func: Callable
+    ) -> GoldenMapTensor:
         shard_map = {}
         for device_id, shard in input_tensor.shard_map.items():
             output_shard = shard.clone()
             shard_map[device_id] = func(output_shard)
-        return GoldenFunction(shard_map, input_tensor.mesh_shape)
+        return GoldenMapTensor(shard_map, input_tensor.mesh_shape)
 
-    def shard_at(self, device_id: int) -> GoldenFunction:
+    def shard_at(self, device_id: int) -> GoldenMapTensor:
         if device_id not in self._shard_map:
             raise KeyError(f"Device ID {device_id} not found in shard map.")
         return self._shard_map[device_id]
 
-    def clone(self) -> GoldenFunction:
+    def clone(self) -> GoldenMapTensor:
         shard_map = {
             device_id: shard.clone() for device_id, shard in self.shard_map.items()
         }
-        return GoldenFunction(shard_map, self.mesh_shape)
+        return GoldenMapTensor(shard_map, self.mesh_shape)
 
-    def contiguous(self) -> GoldenFunction:
-        return GoldenFunction(
+    def contiguous(self) -> GoldenMapTensor:
+        return GoldenMapTensor(
             {k: t.contiguous() for k, t in self._shard_map.items()}, self.mesh_shape
         )
 
@@ -327,19 +329,19 @@ def unpack_mlir_attr(attr):
     raise ValueError(f"Unexpected attribute type: {type(attr)}")
 
 
-def cbrt_golden(x: GoldenFunction) -> GoldenFunction:
+def cbrt_golden(x: GoldenMapTensor) -> GoldenMapTensor:
     """
     Custom golden function for cubic root.
 
     Parameters
     ----------
-    x : GoldenFunction
+    x : GoldenMapTensor
         Input tensor
 
     Returns
     -------
-    GoldenFunction
-        GoldenFunction containing the cubic root of each element in the input tensor
+    GoldenMapTensor
+        GoldenMapTensor containing the cubic root of each element in the input tensor
     """
     golden_sign = torch.sign(x)
     golden_cbrt = torch.pow(torch.abs(x), 1 / 3)
@@ -347,21 +349,21 @@ def cbrt_golden(x: GoldenFunction) -> GoldenFunction:
 
 
 def conv2d_golden(
-    input_tensor: GoldenFunction,
-    weight: GoldenFunction,
-    bias: Optional[GoldenFunction] = None,
+    input_tensor: GoldenMapTensor,
+    weight: GoldenMapTensor,
+    bias: Optional[GoldenMapTensor] = None,
     **kwargs,
-) -> GoldenFunction:
+) -> GoldenMapTensor:
     """
     Custom golden function for conv2d with layout transformation.
 
     Parameters
     ----------
-    input_tensor : GoldenFunction
+    input_tensor : GoldenMapTensor
         Input tensor for convolution
-    weight : GoldenFunction
+    weight : GoldenMapTensor
         Convolution weight tensor
-    bias : GoldenFunction, optional
+    bias : GoldenMapTensor, optional
         Optional bias tensor (default: None)
     **kwargs : dict
         Keyword arguments containing:
@@ -372,7 +374,7 @@ def conv2d_golden(
 
     Returns
     -------
-    GoldenFunction
+    GoldenMapTensor
         Result of 2D convolution with layout transformation
     """
     # ttir can handle a broadcastable bias in the shape [1, 1, 1, C_out], but PyTorch requires the bias to be rank 1: [C_out].
@@ -435,21 +437,21 @@ def conv2d_golden(
 
 
 def conv_transpose2d_golden(
-    input_tensor: GoldenFunction,
-    weight: GoldenFunction,
-    bias: Optional[GoldenFunction] = None,
+    input_tensor: GoldenMapTensor,
+    weight: GoldenMapTensor,
+    bias: Optional[GoldenMapTensor] = None,
     **kwargs,
-) -> GoldenFunction:
+) -> GoldenMapTensor:
     """
     Custom golden function for conv_transpose2d with layout transformation.
 
     Parameters
     ----------
-    input_tensor : GoldenFunction
+    input_tensor : GoldenMapTensor
         Input tensor for transposed convolution
-    weight : GoldenFunction
+    weight : GoldenMapTensor
         Convolution weight tensor
-    bias : Optional[GoldenFunction]
+    bias : Optional[GoldenMapTensor]
         Optional bias tensor
     **kwargs : dict
         Keyword arguments containing:
@@ -461,7 +463,7 @@ def conv_transpose2d_golden(
 
     Returns
     -------
-    GoldenFunction
+    GoldenMapTensor
         Result of 2D transposed convolution with layout transformation
     """
     # Get parameters from ttir_kwargs
@@ -495,13 +497,13 @@ def conv_transpose2d_golden(
     return result
 
 
-def max_pool2d_golden(input_tensor: GoldenFunction, **kwargs) -> GoldenFunction:
+def max_pool2d_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
     """
     Custom golden function for max_pool2d with layout transformation.
 
     Parameters
     ----------
-    input_tensor : GoldenFunction
+    input_tensor : GoldenMapTensor
         Input tensor for max pooling
     **kwargs : dict
         Keyword arguments containing:
@@ -513,7 +515,7 @@ def max_pool2d_golden(input_tensor: GoldenFunction, **kwargs) -> GoldenFunction:
 
     Returns
     -------
-    GoldenFunction
+    GoldenMapTensor
         Result of 2D max pooling with layout transformation
     """
     # Get parameters from ttir_kwargs
@@ -559,13 +561,13 @@ def max_pool2d_golden(input_tensor: GoldenFunction, **kwargs) -> GoldenFunction:
     return result
 
 
-def avg_pool2d_golden(input_tensor: GoldenFunction, **kwargs) -> GoldenFunction:
+def avg_pool2d_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
     """
     Custom golden function for max_pool2d with layout transformation.
 
     Parameters
     ----------
-    input_tensor : GoldenFunction
+    input_tensor : GoldenMapTensor
         Input tensor for max pooling
     **kwargs : dict
         Keyword arguments containing:
@@ -578,7 +580,7 @@ def avg_pool2d_golden(input_tensor: GoldenFunction, **kwargs) -> GoldenFunction:
 
     Returns
     -------
-    GoldenFunction
+    GoldenMapTensor
         Result of 2D max pooling with layout transformation
     """
     # Get parameters from ttir_kwargs
@@ -628,29 +630,29 @@ def avg_pool2d_golden(input_tensor: GoldenFunction, **kwargs) -> GoldenFunction:
 
 
 def batch_norm_golden(
-    input_tensor: GoldenFunction,
-    scale: GoldenFunction,
-    offset: GoldenFunction,
-    mean: GoldenFunction,
-    variance: GoldenFunction,
+    input_tensor: GoldenMapTensor,
+    scale: GoldenMapTensor,
+    offset: GoldenMapTensor,
+    mean: GoldenMapTensor,
+    variance: GoldenMapTensor,
     epsilon: float = 1e-5,
     training: bool = False,
     dim: int = 1,
-) -> GoldenFunction:
+) -> GoldenMapTensor:
     """
     Custom golden function for batch normalization with layout transformation.
 
     Parameters
     ----------
-    input_tensor : GoldenFunction
+    input_tensor : GoldenMapTensor
         Input tensor for batch normalization
-    scale : GoldenFunction
+    scale : GoldenMapTensor
         Scale tensor for batch normalization
-    offset : GoldenFunction
+    offset : GoldenMapTensor
         Offset tensor for batch normalization
-    mean : GoldenFunction
+    mean : GoldenMapTensor
         Mean tensor for batch normalization
-    variance : GoldenFunction
+    variance : GoldenMapTensor
         Variance tensor for batch normalization
     epsilon : float, optional
         Small value to avoid division by zero (default: 1e-5)
@@ -661,7 +663,7 @@ def batch_norm_golden(
 
     Returns
     -------
-    GoldenFunction
+    GoldenMapTensor
         Result of batch normalization with layout transformation
     """
     perm = list(range(input_tensor.ndim))
@@ -682,21 +684,21 @@ def batch_norm_golden(
 
 
 def rms_norm_golden(
-    input: GoldenFunction,
-    weight: Optional[GoldenFunction] = None,
-    bias: Optional[GoldenFunction] = None,
+    input: GoldenMapTensor,
+    weight: Optional[GoldenMapTensor] = None,
+    bias: Optional[GoldenMapTensor] = None,
     normalized_shape: List[int] = None,
     epsilon: float = 1e-5,
-) -> GoldenFunction:
+) -> GoldenMapTensor:
     """
     Custom golden function for RMS normalization operation.
     Parameters
     ----------
-    input : GoldenFunction
+    input : GoldenMapTensor
         Input tensor to RMS normalization operation
-    weight : GoldenFunction, optional
+    weight : GoldenMapTensor, optional
         Weight tensor for scaling (default: None)
-    bias : GoldenFunction, optional
+    bias : GoldenMapTensor, optional
         Bias tensor for shifting (default: None)
     normalized_shape : List[int], optional
         Shape of the input tensor to normalize (default: None)
@@ -704,7 +706,7 @@ def rms_norm_golden(
         Small value to avoid division by zero (default: 1e-5)
     Returns
     -------
-    GoldenFunction
+    GoldenMapTensor
         RMS normalized output tensor
     """
     # Convert to float for computation
@@ -725,34 +727,34 @@ def rms_norm_golden(
     return rms_norm.to(input.dtype)
 
 
-def typecast_golden(input_tensor: GoldenFunction, dtype) -> GoldenFunction:
+def typecast_golden(input_tensor: GoldenMapTensor, dtype) -> GoldenMapTensor:
     """
     Custom golden function for typecasting.
 
     Parameters
     ----------
-    input_tensor : GoldenFunction
+    input_tensor : GoldenMapTensor
         Input tensor to typecast
     dtype : torch.dtype
         Target data type for typecasting
 
     Returns
     -------
-    GoldenFunction
+    GoldenMapTensor
         Typecasted tensor
     """
     return input_tensor.to(dtype)
 
 
 def argmax_golden(
-    input_tensor: GoldenFunction, dim_arg, keep_dim=False
-) -> GoldenFunction:
+    input_tensor: GoldenMapTensor, dim_arg, keep_dim=False
+) -> GoldenMapTensor:
     """
     Custom golden function for argmax.
 
     Parameters
     ----------
-    input_tensor : GoldenFunction
+    input_tensor : GoldenMapTensor
         Input tensor to find argmax of
     dim_arg : List[int]
         List containing dimension to find argmax along
@@ -761,7 +763,7 @@ def argmax_golden(
 
     Returns
     -------
-    GoldenFunction
+    GoldenMapTensor
         Indices of maximum values along specified dimension as int32 tensor
     """
     result = torch.argmax(input_tensor, dim=dim_arg[0], keepdim=keep_dim)
@@ -769,22 +771,22 @@ def argmax_golden(
 
 
 def linear_golden(
-    a: GoldenFunction,
-    b: GoldenFunction,
+    a: GoldenMapTensor,
+    b: GoldenMapTensor,
     bias=None,
     transpose_a=False,
     transpose_b=False,
-) -> GoldenFunction:
+) -> GoldenMapTensor:
     """
     Custom golden function for linear transformation.
 
     Parameters
     ----------
-    a : GoldenFunction
+    a : GoldenMapTensor
         First input tensor
-    b : GoldenFunction
+    b : GoldenMapTensor
         Second input tensor
-    bias : GoldenFunction, optional
+    bias : GoldenMapTensor, optional
         Optional bias tensor (default: None)
     transpose_a : bool, optional
         Whether to transpose tensor a (default: False)
@@ -793,7 +795,7 @@ def linear_golden(
 
     Returns
     -------
-    GoldenFunction
+    GoldenMapTensor
         Result of linear transformation with optional bias
     """
     a = torch.transpose(a, 0, 1) if transpose_a else a
@@ -812,21 +814,21 @@ def linear_golden(
 
 
 def dot_general_golden(
-    lhs: GoldenFunction,
-    rhs: GoldenFunction,
+    lhs: GoldenMapTensor,
+    rhs: GoldenMapTensor,
     batch_dims_lhs,
     contract_dims_lhs,
     batch_dims_rhs,
     contract_dims_rhs,
-) -> GoldenFunction:
+) -> GoldenMapTensor:
     """
     Custom golden function for dot_general operation.
 
     Parameters
     ----------
-    lhs : GoldenFunction
+    lhs : GoldenMapTensor
         Left-hand side tensor
-    rhs : GoldenFunction
+    rhs : GoldenMapTensor
         Right-hand side tensor
     batch_dims_lhs : List[int]
         Batch dimensions for left tensor
@@ -839,7 +841,7 @@ def dot_general_golden(
 
     Returns
     -------
-    GoldenFunction
+    GoldenMapTensor
         Result of generalized dot product operation
     """
     non_batch_dims_lhs = [d for d in range(lhs.dim()) if d not in batch_dims_lhs]
@@ -884,14 +886,14 @@ def dot_general_golden(
 
 
 def quantize_golden(
-    input_tensor: GoldenFunction, scale, zero_point, dtype
-) -> GoldenFunction:
+    input_tensor: GoldenMapTensor, scale, zero_point, dtype
+) -> GoldenMapTensor:
     """
     Custom golden function for quantize operation.
 
     Parameters
     ----------
-    input_tensor : GoldenFunction
+    input_tensor : GoldenMapTensor
         Input tensor to quantize
     scale : float
         Scale factor for quantization
@@ -902,21 +904,21 @@ def quantize_golden(
 
     Returns
     -------
-    GoldenFunction
+    GoldenMapTensor
         Quantized tensor as integer representation
     """
     return torch.quantize_per_tensor(input_tensor, scale, zero_point, dtype).int_repr()
 
 
 def requantize_golden(
-    input_tensor: GoldenFunction, scale, zero_point, dtype
-) -> GoldenFunction:
+    input_tensor: GoldenMapTensor, scale, zero_point, dtype
+) -> GoldenMapTensor:
     """
     Custom golden function for requantize operation.
 
     Parameters
     ----------
-    input_tensor : GoldenFunction
+    input_tensor : GoldenMapTensor
         Input quantized tensor to requantize
     scale : float
         Scale factor for requantization
@@ -927,7 +929,7 @@ def requantize_golden(
 
     Returns
     -------
-    GoldenFunction
+    GoldenMapTensor
         Requantized tensor
     """
     return torch.quantize_per_tensor(
@@ -935,7 +937,7 @@ def requantize_golden(
     )
 
 
-def logical_not_golden(input_tensor: GoldenFunction, **kwargs) -> GoldenFunction:
+def logical_not_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
     """
     Golden function for logical_not operation.
 
@@ -943,14 +945,14 @@ def logical_not_golden(input_tensor: GoldenFunction, **kwargs) -> GoldenFunction
 
     Parameters
     ----------
-    input_tensor : GoldenFunction
+    input_tensor : GoldenMapTensor
         Input tensor to invert logically.
     **kwargs : dict
         Keyword arguments (unused for this operation).
 
     Returns
     -------
-    GoldenFunction
+    GoldenMapTensor
         Tensor with logical NOT of input_tensor, cast back to input dtype.
     """
     # Compute bool result then cast to match input dtype
@@ -959,8 +961,8 @@ def logical_not_golden(input_tensor: GoldenFunction, **kwargs) -> GoldenFunction
 
 
 def equal_golden(
-    input_tensor: GoldenFunction, other_tensor: GoldenFunction, **kwargs
-) -> GoldenFunction:
+    input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, **kwargs
+) -> GoldenMapTensor:
     """
     Golden function for equal (eq) operation.
 
@@ -968,14 +970,14 @@ def equal_golden(
 
     Parameters
     ----------
-    input_tensor : GoldenFunction
+    input_tensor : GoldenMapTensor
         Left-hand side tensor.
-    other_tensor : GoldenFunction
+    other_tensor : GoldenMapTensor
         Right-hand side tensor.
 
     Returns
     -------
-    GoldenFunction
+    GoldenMapTensor
         Tensor with the same dtype as input_tensor containing the equality results.
     """
     result_bool = torch.eq(input_tensor, other_tensor)
@@ -983,8 +985,8 @@ def equal_golden(
 
 
 def not_equal_golden(
-    input_tensor: GoldenFunction, other_tensor: GoldenFunction, **kwargs
-) -> GoldenFunction:
+    input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, **kwargs
+) -> GoldenMapTensor:
     """
     Golden function for not_equal (ne) operation.
 
@@ -992,14 +994,14 @@ def not_equal_golden(
 
     Parameters
     ----------
-    input_tensor : GoldenFunction
+    input_tensor : GoldenMapTensor
         Left-hand side tensor.
-    other_tensor : GoldenFunction
+    other_tensor : GoldenMapTensor
         Right-hand side tensor.
 
     Returns
     -------
-    GoldenFunction
+    GoldenMapTensor
         Tensor with the same dtype as input_tensor containing the inequality results.
     """
     result_bool = torch.ne(input_tensor, other_tensor)
@@ -1007,8 +1009,8 @@ def not_equal_golden(
 
 
 def greater_equal_golden(
-    input_tensor: GoldenFunction, other_tensor: GoldenFunction, **kwargs
-) -> GoldenFunction:
+    input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, **kwargs
+) -> GoldenMapTensor:
     """
     Golden function for greater_equal (ge) operation.
 
@@ -1016,14 +1018,14 @@ def greater_equal_golden(
 
     Parameters
     ----------
-    input_tensor : GoldenFunction
+    input_tensor : GoldenMapTensor
         Left-hand side tensor.
-    other_tensor : GoldenFunction
+    other_tensor : GoldenMapTensor
         Right-hand side tensor.
 
     Returns
     -------
-    GoldenFunction
+    GoldenMapTensor
         Tensor with the same dtype as input_tensor containing the comparison results.
     """
     result_bool = torch.ge(input_tensor, other_tensor)
@@ -1031,8 +1033,8 @@ def greater_equal_golden(
 
 
 def greater_than_golden(
-    input_tensor: GoldenFunction, other_tensor: GoldenFunction, **kwargs
-) -> GoldenFunction:
+    input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, **kwargs
+) -> GoldenMapTensor:
     """
     Golden function for greater_than (gt) operation.
 
@@ -1040,14 +1042,14 @@ def greater_than_golden(
 
     Parameters
     ----------
-    input_tensor : GoldenFunction
+    input_tensor : GoldenMapTensor
         Left-hand side tensor.
-    other_tensor : GoldenFunction
+    other_tensor : GoldenMapTensor
         Right-hand side tensor.
 
     Returns
     -------
-    GoldenFunction
+    GoldenMapTensor
         Tensor with the same dtype as input_tensor containing the comparison results.
     """
     result_bool = torch.gt(input_tensor, other_tensor)
@@ -1055,8 +1057,8 @@ def greater_than_golden(
 
 
 def less_equal_golden(
-    input_tensor: GoldenFunction, other_tensor: GoldenFunction, **kwargs
-) -> GoldenFunction:
+    input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, **kwargs
+) -> GoldenMapTensor:
     """
     Golden function for less_equal (le) operation.
 
@@ -1064,14 +1066,14 @@ def less_equal_golden(
 
     Parameters
     ----------
-    input_tensor : GoldenFunction
+    input_tensor : GoldenMapTensor
         Left-hand side tensor.
-    other_tensor : GoldenFunction
+    other_tensor : GoldenMapTensor
         Right-hand side tensor.
 
     Returns
     -------
-    GoldenFunction
+    GoldenMapTensor
         Tensor with the same dtype as input_tensor containing the comparison results.
     """
     result_bool = torch.le(input_tensor, other_tensor)
@@ -1079,8 +1081,8 @@ def less_equal_golden(
 
 
 def less_than_golden(
-    input_tensor: GoldenFunction, other_tensor: GoldenFunction, **kwargs
-) -> GoldenFunction:
+    input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, **kwargs
+) -> GoldenMapTensor:
     """
     Golden function for less_than (lt) operation.
 
@@ -1088,14 +1090,14 @@ def less_than_golden(
 
     Parameters
     ----------
-    input_tensor : GoldenFunction
+    input_tensor : GoldenMapTensor
         Left-hand side tensor.
-    other_tensor : GoldenFunction
+    other_tensor : GoldenMapTensor
         Right-hand side tensor.
 
     Returns
     -------
-    GoldenFunction
+    GoldenMapTensor
         Tensor with the same dtype as input_tensor containing the comparison results.
     """
     result_bool = torch.lt(input_tensor, other_tensor)
@@ -1103,8 +1105,8 @@ def less_than_golden(
 
 
 def logical_and_golden(
-    input_tensor: GoldenFunction, other_tensor: GoldenFunction, **kwargs
-) -> GoldenFunction:
+    input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, **kwargs
+) -> GoldenMapTensor:
     """
     Golden function for logical_and operation.
 
@@ -1112,14 +1114,14 @@ def logical_and_golden(
 
     Parameters
     ----------
-    input_tensor : GoldenFunction
+    input_tensor : GoldenMapTensor
         Left-hand side tensor.
-    other_tensor : GoldenFunction
+    other_tensor : GoldenMapTensor
         Right-hand side tensor.
 
     Returns
     -------
-    GoldenFunction
+    GoldenMapTensor
         Tensor with the same dtype as input_tensor containing the logical AND results.
     """
     result_bool = torch.logical_and(input_tensor, other_tensor)
@@ -1127,8 +1129,8 @@ def logical_and_golden(
 
 
 def logical_or_golden(
-    input_tensor: GoldenFunction, other_tensor: GoldenFunction, **kwargs
-) -> GoldenFunction:
+    input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, **kwargs
+) -> GoldenMapTensor:
     """
     Golden function for logical_or operation.
 
@@ -1136,14 +1138,14 @@ def logical_or_golden(
 
     Parameters
     ----------
-    input_tensor : GoldenFunction
+    input_tensor : GoldenMapTensor
         Left-hand side tensor.
-    other_tensor : GoldenFunction
+    other_tensor : GoldenMapTensor
         Right-hand side tensor.
 
     Returns
     -------
-    GoldenFunction
+    GoldenMapTensor
         Tensor with the same dtype as input_tensor containing the logical OR results.
     """
     result_bool = torch.logical_or(input_tensor, other_tensor)
@@ -1151,8 +1153,8 @@ def logical_or_golden(
 
 
 def logical_xor_golden(
-    input_tensor: GoldenFunction, other_tensor: GoldenFunction, **kwargs
-) -> GoldenFunction:
+    input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, **kwargs
+) -> GoldenMapTensor:
     """
     Golden function for logical_xor operation.
 
@@ -1160,14 +1162,14 @@ def logical_xor_golden(
 
     Parameters
     ----------
-    input_tensor : GoldenFunction
+    input_tensor : GoldenMapTensor
         Left-hand side tensor.
-    other_tensor : GoldenFunction
+    other_tensor : GoldenMapTensor
         Right-hand side tensor.
 
     Returns
     -------
-    GoldenFunction
+    GoldenMapTensor
         Tensor with the same dtype as input_tensor containing the logical XOR results.
     """
     result_bool = torch.logical_xor(input_tensor, other_tensor)
@@ -1175,21 +1177,21 @@ def logical_xor_golden(
 
 
 def logical_left_shift_golden(
-    input_tensor: GoldenFunction, shift_tensor: GoldenFunction, **kwargs
-) -> GoldenFunction:
+    input_tensor: GoldenMapTensor, shift_tensor: GoldenMapTensor, **kwargs
+) -> GoldenMapTensor:
     """
     Golden function for logical left shift operation.
 
     Parameters
     ----------
-    input_tensor : GoldenFunction
+    input_tensor : GoldenMapTensor
         Input tensor to be shifted.
-    shift_tensor : GoldenFunction
+    shift_tensor : GoldenMapTensor
         Tensor containing the number of bits to shift.
 
     Returns
     -------
-    GoldenFunction
+    GoldenMapTensor
         Tensor with the same dtype as input_tensor after logical left shift.
     """
     # Perform logical left shift
@@ -1211,21 +1213,21 @@ def logical_left_shift_golden(
 
 
 def logical_right_shift_golden(
-    input_tensor: GoldenFunction, shift_tensor: GoldenFunction, **kwargs
-) -> GoldenFunction:
+    input_tensor: GoldenMapTensor, shift_tensor: GoldenMapTensor, **kwargs
+) -> GoldenMapTensor:
     """
     Golden function for logical right shift operation.
 
     Parameters
     ----------
-    input_tensor : GoldenFunction
+    input_tensor : GoldenMapTensor
         Input tensor to be shifted.
-    shift_tensor : GoldenFunction
+    shift_tensor : GoldenMapTensor
         Tensor containing the number of bits to shift.
 
     Returns
     -------
-    GoldenFunction
+    GoldenMapTensor
         Tensor with the same dtype as input_tensor after logical right shift.
     """
     # Perform logical (unsigned) right shift
@@ -1247,14 +1249,14 @@ def logical_right_shift_golden(
 
 
 def max_golden(
-    input_tensor: GoldenFunction, dim_arg=None, keep_dim=True
-) -> GoldenFunction:
+    input_tensor: GoldenMapTensor, dim_arg=None, keep_dim=True
+) -> GoldenMapTensor:
     """
     Custom golden function for max operation with conditional logic.
 
     Parameters
     ----------
-    input_tensor : GoldenFunction
+    input_tensor : GoldenMapTensor
         Input tensor to find maximum of
     dim_arg : int, optional
         Dimension to find maximum along (default: None for all dimensions)
@@ -1263,7 +1265,7 @@ def max_golden(
 
     Returns
     -------
-    GoldenFunction
+    GoldenMapTensor
         Maximum values along specified dimension or global maximum
     """
     if dim_arg is not None:
@@ -1276,13 +1278,13 @@ def max_golden(
         return result.reshape(*output_shape)
 
 
-def min_golden(input_tensor: GoldenFunction, **kwargs) -> GoldenFunction:
+def min_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
     """
     Golden function for min operation.
 
     Parameters
     ----------
-    input_tensor : GoldenFunction
+    input_tensor : GoldenMapTensor
         Input tensor
     **kwargs : dict
         Keyword arguments containing:
@@ -1291,7 +1293,7 @@ def min_golden(input_tensor: GoldenFunction, **kwargs) -> GoldenFunction:
 
     Returns
     -------
-    GoldenFunction
+    GoldenMapTensor
         Tensor with minimum values
     """
     dim_arg = kwargs.get("dim_arg", None)
@@ -1307,14 +1309,14 @@ def min_golden(input_tensor: GoldenFunction, **kwargs) -> GoldenFunction:
 
 
 def prod_golden(
-    input_tensor: GoldenFunction, dim_arg, keep_dim=False
-) -> GoldenFunction:
+    input_tensor: GoldenMapTensor, dim_arg, keep_dim=False
+) -> GoldenMapTensor:
     """
     Custom golden function for prod operation with conditional logic.
 
     Parameters
     ----------
-    input_tensor : GoldenFunction
+    input_tensor : GoldenMapTensor
         Input tensor to compute product of
     dim_arg : List[int]
         List of dimensions to compute product along
@@ -1323,7 +1325,7 @@ def prod_golden(
 
     Returns
     -------
-    GoldenFunction
+    GoldenMapTensor
         Product of tensor elements along specified dimensions
     """
     if len(dim_arg) == 1:
@@ -1339,21 +1341,21 @@ def prod_golden(
 
 
 def embedding_golden(
-    indices_tensor: GoldenFunction, weight_tensor: GoldenFunction
-) -> GoldenFunction:
+    indices_tensor: GoldenMapTensor, weight_tensor: GoldenMapTensor
+) -> GoldenMapTensor:
     """
     Custom golden function for embedding operation.
 
     Parameters
     ----------
-    indices_tensor : GoldenFunction
+    indices_tensor : GoldenMapTensor
         Tensor containing indices to look up
-    weight_tensor : GoldenFunction
+    weight_tensor : GoldenMapTensor
         Weight tensor containing embedding vectors
 
     Returns
     -------
-    GoldenFunction
+    GoldenMapTensor
         Embedded vectors corresponding to input indices
     """
     embedding = torch.nn.Embedding.from_pretrained(weight_tensor)
@@ -1362,13 +1364,13 @@ def embedding_golden(
     return embedding(golden_input)
 
 
-def pad_golden(input_tensor: GoldenFunction, padding, value) -> GoldenFunction:
+def pad_golden(input_tensor: GoldenMapTensor, padding, value) -> GoldenMapTensor:
     """
     Custom golden function for pad operation with dimension reformatting.
 
     Parameters
     ----------
-    input_tensor : GoldenFunction
+    input_tensor : GoldenMapTensor
         Input tensor to pad
     padding : List[int]
         Padding specification
@@ -1377,7 +1379,7 @@ def pad_golden(input_tensor: GoldenFunction, padding, value) -> GoldenFunction:
 
     Returns
     -------
-    GoldenFunction
+    GoldenMapTensor
         Padded tensor
     """
     # Reformatting padding dimensions for golden tensor:
@@ -1391,14 +1393,14 @@ def pad_golden(input_tensor: GoldenFunction, padding, value) -> GoldenFunction:
 
 
 def select_golden(
-    input_tensor: GoldenFunction, dim, begin, length, stride
-) -> GoldenFunction:
+    input_tensor: GoldenMapTensor, dim, begin, length, stride
+) -> GoldenMapTensor:
     """
     Custom golden function for select operation.
 
     Parameters
     ----------
-    input_tensor : GoldenFunction
+    input_tensor : GoldenMapTensor
         Input tensor to select from
     dim : int
         Dimension to select along
@@ -1411,7 +1413,7 @@ def select_golden(
 
     Returns
     -------
-    GoldenFunction
+    GoldenMapTensor
         Selected tensor slice
     """
     end = begin + length - 1
@@ -1419,13 +1421,15 @@ def select_golden(
     return torch.index_select(input_tensor, dim=dim, index=index)
 
 
-def index_golden(input_tensor: GoldenFunction, dim, begin, end, step) -> GoldenFunction:
+def index_golden(
+    input_tensor: GoldenMapTensor, dim, begin, end, step
+) -> GoldenMapTensor:
     """
     Custom golden function for index operation.
 
     Parameters
     ----------
-    input_tensor : GoldenFunction
+    input_tensor : GoldenMapTensor
         Input tensor to index
     dim : int
         Dimension to index along
@@ -1438,7 +1442,7 @@ def index_golden(input_tensor: GoldenFunction, dim, begin, end, step) -> GoldenF
 
     Returns
     -------
-    GoldenFunction
+    GoldenMapTensor
         Indexed tensor
     """
     import math
@@ -1452,34 +1456,34 @@ def index_golden(input_tensor: GoldenFunction, dim, begin, end, step) -> GoldenF
 
 
 def gather_golden(
-    input_tensor: GoldenFunction,
-    start_indices_tensor: GoldenFunction,
+    input_tensor: GoldenMapTensor,
+    start_indices_tensor: GoldenMapTensor,
     **kwargs,
-) -> GoldenFunction:
+) -> GoldenMapTensor:
     """
     Golden function for gather operation with TTIR parameter names.
 
     Parameters
     ----------
-    input_tensor : GoldenFunction
+    input_tensor : GoldenMapTensor
         Input tensor to gather from
-    start_indices_tensor : GoldenFunction
+    start_indices_tensor : GoldenMapTensor
         Tensor containing starting indices
     **kwargs : dict
         Keyword arguments including gather attributes as MLIR attributes
 
     Returns
     -------
-    GoldenFunction
+    GoldenMapTensor
         Gathered tensor
     """
 
     # helpers
-    def _isGoldenFunction(x):
-        return isinstance(x, GoldenFunction)
+    def _isGoldenMapTensor(x):
+        return isinstance(x, GoldenMapTensor)
 
     def _first_shard(x):
-        return x.shard_at(0) if _isGoldenFunction(x) else x
+        return x.shard_at(0) if _isGoldenMapTensor(x) else x
 
     def _assert_replicated(t):
         ref = t.shard_at(0)
@@ -1504,7 +1508,7 @@ def gather_golden(
     device = x.device if hasattr(x, "device") else None
 
     # validate/comute using shard-0 (torch), then slice the wrapper
-    if _isGoldenFunction(idx):
+    if _isGoldenMapTensor(idx):
         _assert_replicated(idx)
     x0 = _first_shard(x)
     idx0 = _first_shard(idx)
@@ -1626,21 +1630,21 @@ def gather_golden(
 
 
 def tilize_golden(
-    input_tensor: GoldenFunction, tilize=True, **kwargs
-) -> GoldenFunction:
+    input_tensor: GoldenMapTensor, tilize=True, **kwargs
+) -> GoldenMapTensor:
     """
     Custom golden function for tilize operation.
 
     Parameters
     ----------
-    input_tensor : GoldenFunction
+    input_tensor : GoldenMapTensor
         Input tensor to tilize
     tilize : bool, optional
         Tilize parameter (ignored, for compatibility) (default: True)
 
     Returns
     -------
-    GoldenFunction
+    GoldenMapTensor
         Tilized tensor with proper tile layout transformation
     """
     shape = input_tensor.shape
@@ -1671,21 +1675,21 @@ def tilize_golden(
 
 
 def untilize_golden(
-    input_tensor: GoldenFunction, tilize=False, **kwargs
-) -> GoldenFunction:
+    input_tensor: GoldenMapTensor, tilize=False, **kwargs
+) -> GoldenMapTensor:
     """
     Custom golden function for untilize operation.
 
     Parameters
     ----------
-    input_tensor : GoldenFunction
+    input_tensor : GoldenMapTensor
         Input tensor to untilize
     tilize : bool, optional
         Tilize parameter (ignored, for compatibility) (default: False)
 
     Returns
     -------
-    GoldenFunction
+    GoldenMapTensor
         Untilized tensor with proper layout transformation
     """
     shape = input_tensor.shape
@@ -1725,16 +1729,16 @@ def untilize_golden(
 
 
 def upsample2d_golden(
-    in0: GoldenFunction, in1: GoldenFunction, scale_factor, mode="nearest"
-) -> GoldenFunction:
+    in0: GoldenMapTensor, in1: GoldenMapTensor, scale_factor, mode="nearest"
+) -> GoldenMapTensor:
     """
     Custom golden function for upsample2d operation.
 
     Parameters
     ----------
-    in0 : GoldenFunction
+    in0 : GoldenMapTensor
         Input tensor to upsample
-    in1 : GoldenFunction
+    in1 : GoldenMapTensor
         Output tensor specification
     scale_factor : Union[int, List[int]]
         Scaling factor for upsampling
@@ -1743,7 +1747,7 @@ def upsample2d_golden(
 
     Returns
     -------
-    GoldenFunction
+    GoldenMapTensor
         Upsampled 2D tensor
     """
     transposed_golden = torch.transpose(in0, 1, 3)
@@ -1755,23 +1759,23 @@ def upsample2d_golden(
 
 
 def fill_cache_golden(
-    cache_tensor: GoldenFunction, input_tensor: GoldenFunction, **kwargs
-) -> GoldenFunction:
+    cache_tensor: GoldenMapTensor, input_tensor: GoldenMapTensor, **kwargs
+) -> GoldenMapTensor:
     """
     Custom golden function for fill_cache operation.
 
     Parameters
     ----------
-    cache_tensor : GoldenFunction
+    cache_tensor : GoldenMapTensor
         Cache tensor to fill
-    input_tensor : GoldenFunction
+    input_tensor : GoldenMapTensor
         Input tensor data
     **kwargs : dict
         Additional keyword arguments (batch_offset is ignored)
 
     Returns
     -------
-    GoldenFunction
+    GoldenMapTensor
         Filled cache tensor
     """
     result = cache_tensor.clone()
@@ -1782,28 +1786,28 @@ def fill_cache_golden(
 
 
 def update_cache_golden(
-    cache_tensor: GoldenFunction,
-    update_tensor: GoldenFunction,
+    cache_tensor: GoldenMapTensor,
+    update_tensor: GoldenMapTensor,
     indices_tensor,
     **kwargs,
-) -> GoldenFunction:
+) -> GoldenMapTensor:
     """
     Custom golden function for update_cache operation.
 
     Parameters
     ----------
-    cache_tensor : GoldenFunction
+    cache_tensor : GoldenMapTensor
         Cache tensor to update
-    update_tensor : GoldenFunction
+    update_tensor : GoldenMapTensor
         Tensor containing update data
-    indices_tensor : GoldenFunction
+    indices_tensor : GoldenMapTensor
         Tensor containing update indices
     **kwargs : dict
         Additional keyword arguments (batch_offset is ignored)
 
     Returns
     -------
-    GoldenFunction
+    GoldenMapTensor
         Updated cache tensor
     """
     result = cache_tensor.clone()
@@ -1813,20 +1817,22 @@ def update_cache_golden(
     return result
 
 
-def get_dimension_size_golden(input_tensor: GoldenFunction, **kwargs) -> GoldenFunction:
+def get_dimension_size_golden(
+    input_tensor: GoldenMapTensor, **kwargs
+) -> GoldenMapTensor:
     """
     Golden function for get_dimension_size operation.
 
     Parameters
     ----------
-    input_tensor : GoldenFunction
+    input_tensor : GoldenMapTensor
         Input tensor to get dimension size from
     **kwargs : dict
         Keyword arguments including 'dimension'
 
     Returns
     -------
-    GoldenFunction
+    GoldenMapTensor
         Tensor containing the size of the specified dimension as int32
     """
     dimension = kwargs.get("dimension", 0)
@@ -1840,13 +1846,13 @@ def get_dimension_size_golden(input_tensor: GoldenFunction, **kwargs) -> GoldenF
     return output_tensor
 
 
-def sum_golden(input_tensor: GoldenFunction, **kwargs) -> GoldenFunction:
+def sum_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
     """
     Golden function for sum operation with TTIR parameter names.
 
     Parameters
     ----------
-    input_tensor : GoldenFunction
+    input_tensor : GoldenMapTensor
         Input tensor to sum
     **kwargs : dict
         Keyword arguments containing:
@@ -1855,7 +1861,7 @@ def sum_golden(input_tensor: GoldenFunction, **kwargs) -> GoldenFunction:
 
     Returns
     -------
-    GoldenFunction
+    GoldenMapTensor
         Summed tensor
     """
     # Get parameters from ttir_kwargs
@@ -1865,20 +1871,20 @@ def sum_golden(input_tensor: GoldenFunction, **kwargs) -> GoldenFunction:
     return torch.sum(input_tensor, dim=dim_arg, keepdim=keep_dim)
 
 
-def mean_golden(input_tensor: GoldenFunction, **kwargs) -> GoldenFunction:
+def mean_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
     """
     Golden function for mean operation with TTIR parameter names.
 
     Parameters
     ----------
-    input_tensor : GoldenFunction
+    input_tensor : GoldenMapTensor
         Input tensor to compute mean of
     **kwargs : dict
         Keyword arguments including 'dim_arg' and 'keep_dim'
 
     Returns
     -------
-    GoldenFunction
+    GoldenMapTensor
         Mean tensor
     """
     dim_arg = kwargs.get("dim_arg", [0])
@@ -1886,20 +1892,20 @@ def mean_golden(input_tensor: GoldenFunction, **kwargs) -> GoldenFunction:
     return torch.mean(input_tensor, dim=dim_arg, keepdim=keep_dim)
 
 
-def reduce_and_golden(input_tensor: GoldenFunction, **kwargs) -> GoldenFunction:
+def reduce_and_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
     """
     Golden function for reduce_and operation with TTIR parameter names.
 
     Parameters
     ----------
-    input_tensor : GoldenFunction
+    input_tensor : GoldenMapTensor
         Input tensor to reduce
     **kwargs : dict
         Keyword arguments including 'dim_arg' and 'keep_dim'
 
     Returns
     -------
-    GoldenFunction
+    GoldenMapTensor
         Reduced tensor
     """
     dim_arg = kwargs.get("dim_arg", [0])
@@ -1907,20 +1913,20 @@ def reduce_and_golden(input_tensor: GoldenFunction, **kwargs) -> GoldenFunction:
     return torch.all(input_tensor, dim=tuple(dim_arg), keepdim=keep_dim)
 
 
-def reduce_or_golden(input_tensor: GoldenFunction, **kwargs) -> GoldenFunction:
+def reduce_or_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
     """
     Golden function for reduce_or operation with TTIR parameter names.
 
     Parameters
     ----------
-    input_tensor : GoldenFunction
+    input_tensor : GoldenMapTensor
         Input tensor to reduce
     **kwargs : dict
         Keyword arguments including 'dim_arg' and 'keep_dim'
 
     Returns
     -------
-    GoldenFunction
+    GoldenMapTensor
         Reduced tensor
     """
     dim_arg = kwargs.get("dim_arg", [0])
@@ -1928,20 +1934,20 @@ def reduce_or_golden(input_tensor: GoldenFunction, **kwargs) -> GoldenFunction:
     return torch.any(input_tensor, dim=tuple(dim_arg), keepdim=keep_dim)
 
 
-def transpose_golden(input_tensor: GoldenFunction, **kwargs) -> GoldenFunction:
+def transpose_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
     """
     Golden function for transpose operation with TTIR parameter names.
 
     Parameters
     ----------
-    input_tensor : GoldenFunction
+    input_tensor : GoldenMapTensor
         Input tensor
     **kwargs : dict
         Keyword arguments including 'dim0' and 'dim1'
 
     Returns
     -------
-    GoldenFunction
+    GoldenMapTensor
         Transposed tensor
     """
     dim0 = kwargs.get("dim0", 0)
@@ -1949,20 +1955,20 @@ def transpose_golden(input_tensor: GoldenFunction, **kwargs) -> GoldenFunction:
     return torch.transpose(input_tensor, dim0, dim1)
 
 
-def concat_golden(input_tensors: GoldenFunction, **kwargs) -> GoldenFunction:
+def concat_golden(input_tensors: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
     """
     Golden function for concat operation with TTIR parameter names.
 
     Parameters
     ----------
-    input_tensors : GoldenFunction
+    input_tensors : GoldenMapTensor
         Input tensors (will be unpacked from tuple)
     **kwargs : dict
         Keyword arguments including 'dim'
 
     Returns
     -------
-    GoldenFunction
+    GoldenMapTensor
         Concatenated tensor
     """
     dim = kwargs.get("dim", 0)
@@ -1973,100 +1979,100 @@ def concat_golden(input_tensors: GoldenFunction, **kwargs) -> GoldenFunction:
 
 
 # Investigate how repeat works in torch
-def repeat_golden(input_tensor: GoldenFunction, **kwargs) -> GoldenFunction:
+def repeat_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
     """
     Golden function for repeat operation with TTIR parameter names.
 
     Parameters
     ----------
-    input_tensor : GoldenFunction
+    input_tensor : GoldenMapTensor
         Input tensor
     **kwargs : dict
         Keyword arguments including 'repeat_dimensions'
 
     Returns
     -------
-    GoldenFunction
+    GoldenMapTensor
         Repeated tensor
     """
     repeat_dimensions = kwargs.get("repeat_dimensions", [1])
     return input_tensor.repeat(repeats=repeat_dimensions)
 
 
-def reshape_golden(input_tensor: GoldenFunction, **kwargs) -> GoldenFunction:
+def reshape_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
     """
     Golden function for reshape operation with TTIR parameter names.
 
     Parameters
     ----------
-    input_tensor : GoldenFunction
+    input_tensor : GoldenMapTensor
         Input tensor
     **kwargs : dict
         Keyword arguments including 'shape'
 
     Returns
     -------
-    GoldenFunction
+    GoldenMapTensor
         Reshaped tensor
     """
     shape = kwargs.get("shape", input_tensor.shape)
     return torch.reshape(input_tensor, shape)
 
 
-def squeeze_golden(input_tensor: GoldenFunction, **kwargs) -> GoldenFunction:
+def squeeze_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
     """
     Golden function for squeeze operation with TTIR parameter names.
 
     Parameters
     ----------
-    input_tensor : GoldenFunction
+    input_tensor : GoldenMapTensor
         Input tensor
     **kwargs : dict
         Keyword arguments including 'dim'
 
     Returns
     -------
-    GoldenFunction
+    GoldenMapTensor
         Squeezed tensor
     """
     dim = kwargs.get("dim", None)
     return torch.squeeze(input_tensor, dim=dim)
 
 
-def unsqueeze_golden(input_tensor: GoldenFunction, **kwargs) -> GoldenFunction:
+def unsqueeze_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
     """
     Golden function for unsqueeze operation with TTIR parameter names.
 
     Parameters
     ----------
-    input_tensor : GoldenFunction
+    input_tensor : GoldenMapTensor
         Input tensor
     **kwargs : dict
         Keyword arguments including 'dim'
 
     Returns
     -------
-    GoldenFunction
+    GoldenMapTensor
         Unsqueezed tensor
     """
     dim = kwargs.get("dim", 0)
     return torch.unsqueeze(input_tensor, dim=dim)
 
 
-def clamp_scalar_golden(input_tensor: GoldenFunction, **kwargs) -> GoldenFunction:
+def clamp_scalar_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
     """
     Golden function for clamp_scalar operation with TTIR parameter names.
 
     Parameters
     ----------
-    input_tensor : GoldenFunction
+    input_tensor : GoldenMapTensor
         Input tensor
     **kwargs : dict
         Keyword arguments including 'min' and 'max'
 
     Returns
     -------
-    GoldenFunction
+    GoldenMapTensor
         Clamped tensor
     """
     min_val = kwargs.get("min", None)
@@ -2075,47 +2081,47 @@ def clamp_scalar_golden(input_tensor: GoldenFunction, **kwargs) -> GoldenFunctio
 
 
 def clamp_tensor_golden(
-    input_tensor: GoldenFunction,
-    min_tensor: GoldenFunction,
-    max_tensor: GoldenFunction,
+    input_tensor: GoldenMapTensor,
+    min_tensor: GoldenMapTensor,
+    max_tensor: GoldenMapTensor,
     **kwargs,
-) -> GoldenFunction:
+) -> GoldenMapTensor:
     """
     Golden function for clamp_tensor operation with TTIR parameter names.
 
     Parameters
     ----------
-    input_tensor : GoldenFunction
+    input_tensor : GoldenMapTensor
         Input tensor
-    min_tensor : GoldenFunction
+    min_tensor : GoldenMapTensor
         Tensor specifying minimum values
-    max_tensor : GoldenFunction
+    max_tensor : GoldenMapTensor
         Tensor specifying maximum values
     **kwargs : dict
         Additional keyword arguments
 
     Returns
     -------
-    GoldenFunction
+    GoldenMapTensor
         Clamped tensor
     """
     return torch.min(torch.max(input_tensor, min_tensor), max_tensor)
 
 
-def permute_golden(input_tensor: GoldenFunction, **kwargs) -> GoldenFunction:
+def permute_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
     """
     Golden function for permute operation with TTIR parameter names.
 
     Parameters
     ----------
-    input_tensor : GoldenFunction
+    input_tensor : GoldenMapTensor
         Input tensor
     **kwargs : dict
         Keyword arguments including 'permutation' as MLIR attribute
 
     Returns
     -------
-    GoldenFunction
+    GoldenMapTensor
         Permuted tensor
     """
 
@@ -2127,79 +2133,79 @@ def permute_golden(input_tensor: GoldenFunction, **kwargs) -> GoldenFunction:
     return torch.permute(input_tensor, tuple(permutation))
 
 
-def leaky_relu_golden(input_tensor: GoldenFunction, **kwargs) -> GoldenFunction:
+def leaky_relu_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
     """
     Golden function for leaky_relu operation with TTIR parameter names.
 
     Parameters
     ----------
-    input_tensor : GoldenFunction
+    input_tensor : GoldenMapTensor
         Input tensor
     **kwargs : dict
         Keyword arguments including 'parameter'
 
     Returns
     -------
-    GoldenFunction
+    GoldenMapTensor
         Leaky ReLU output
     """
     parameter = kwargs.get("parameter", 0.01)
     return torch.nn.functional.leaky_relu(input_tensor, negative_slope=parameter)
 
 
-def silu_golden(input_tensor: GoldenFunction, **kwargs) -> GoldenFunction:
+def silu_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
     """
     Golden function for silu operation with TTIR parameter names.
 
     Parameters
     ----------
-    input_tensor : GoldenFunction
+    input_tensor : GoldenMapTensor
         Input tensor
     **kwargs : dict
         Additional keyword arguments
 
     Returns
     -------
-    GoldenFunction
+    GoldenMapTensor
         SiLU output
     """
     return torch.nn.functional.silu(input_tensor)
 
 
-def softmax_golden(input_tensor: GoldenFunction, **kwargs) -> GoldenFunction:
+def softmax_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
     """
     Golden function for softmax operation with TTIR parameter names.
 
     Parameters
     ----------
-    input_tensor : GoldenFunction
+    input_tensor : GoldenMapTensor
         Input tensor
     **kwargs : dict
         Keyword arguments including 'dimension'
 
     Returns
     -------
-    GoldenFunction
+    GoldenMapTensor
         Softmax output
     """
     dimension = kwargs.get("dim", 1)
     return torch.nn.functional.softmax(input_tensor, dim=dimension)
 
 
-def index_golden(input_tensor: GoldenFunction, **kwargs) -> GoldenFunction:
+def index_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
     """
     Golden function for index operation with TTIR parameter names.
 
     Parameters
     ----------
-    input_tensor : GoldenFunction
+    input_tensor : GoldenMapTensor
         Input tensor
     **kwargs : dict
         Keyword arguments including 'dim', 'begin', 'end', 'step'
 
     Returns
     -------
-    GoldenFunction
+    GoldenMapTensor
         Indexed tensor
     """
     dim = kwargs.get("dim", 0)
@@ -2214,20 +2220,20 @@ def index_golden(input_tensor: GoldenFunction, **kwargs) -> GoldenFunction:
     return torch.index_select(input_tensor, dim, indices)
 
 
-def slice_golden(input_tensor: GoldenFunction, **kwargs) -> GoldenFunction:
+def slice_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
     """
     Golden function for slice operation with TTIR parameter names.
 
     Parameters
     ----------
-    input_tensor : GoldenFunction
+    input_tensor : GoldenMapTensor
         Input tensor
     **kwargs : dict
         Keyword arguments including slice attributes as MLIR attributes
 
     Returns
     -------
-    GoldenFunction
+    GoldenMapTensor
         Sliced tensor
     """
 
@@ -2251,10 +2257,10 @@ def slice_golden(input_tensor: GoldenFunction, **kwargs) -> GoldenFunction:
     for device_id, shard in input_tensor.shard_map.items():
         shard_map[device_id] = shard[slices]
 
-    return GoldenFunction(shard_map, input_tensor.mesh_shape)
+    return GoldenMapTensor(shard_map, input_tensor.mesh_shape)
 
 
-def zeros_golden(**kwargs) -> GoldenFunction:
+def zeros_golden(**kwargs) -> GoldenMapTensor:
     """
     Golden function for zeros operation with TTIR parameter names.
 
@@ -2265,14 +2271,14 @@ def zeros_golden(**kwargs) -> GoldenFunction:
 
     Returns
     -------
-    GoldenFunction
+    GoldenMapTensor
         Zero tensor
     """
     size = kwargs.get("shape", [1])
-    return GoldenFunction({0: torch.zeros(size)}, (1, 1))
+    return GoldenMapTensor({0: torch.zeros(size)}, (1, 1))
 
 
-def ones_golden(**kwargs) -> GoldenFunction:
+def ones_golden(**kwargs) -> GoldenMapTensor:
     """
     Golden function for ones operation with TTIR parameter names.
 
@@ -2283,34 +2289,34 @@ def ones_golden(**kwargs) -> GoldenFunction:
 
     Returns
     -------
-    GoldenFunction
+    GoldenMapTensor
         Ones tensor
     """
     size = kwargs.get("shape", [1])
-    return GoldenFunction({0: torch.ones(size)}, (1, 1))
+    return GoldenMapTensor({0: torch.ones(size)}, (1, 1))
 
 
-def reverse_golden(input_tensor: GoldenFunction, **kwargs) -> GoldenFunction:
+def reverse_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
     """
     Golden function for reverse operation with TTIR parameter names.
 
     Parameters
     ----------
-    input_tensor : GoldenFunction
+    input_tensor : GoldenMapTensor
         Input tensor
     **kwargs : dict
         Keyword arguments including 'dims'
 
     Returns
     -------
-    GoldenFunction
+    GoldenMapTensor
         Reversed tensor
     """
     dims = kwargs.get("dimensions", [0])
     return torch.flip(input_tensor, dims)
 
 
-def arange_golden(single_dim_tensor: GoldenFunction, **kwargs) -> GoldenFunction:
+def arange_golden(single_dim_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
     """
     Golden function for arange operation using TTIR kwargs.
 
@@ -2328,16 +2334,16 @@ def arange_golden(single_dim_tensor: GoldenFunction, **kwargs) -> GoldenFunction
         output_shards[device_id] = torch.arange(
             start=start, end=end, step=step, dtype=torch.float32
         )
-    return GoldenFunction(output_shards, single_dim_tensor.mesh_shape)
+    return GoldenMapTensor(output_shards, single_dim_tensor.mesh_shape)
 
 
-def cumsum_golden(input_tensor: GoldenFunction, **kwargs) -> GoldenFunction:
+def cumsum_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
     """
     Golden function for cumsum operation with TTIR parameter names.
 
     Parameters
     ----------
-    input_tensor : GoldenFunction
+    input_tensor : GoldenMapTensor
         Input tensor
     **kwargs : dict
         Keyword arguments containing:
@@ -2345,27 +2351,29 @@ def cumsum_golden(input_tensor: GoldenFunction, **kwargs) -> GoldenFunction:
 
     Returns
     -------
-    GoldenFunction
+    GoldenMapTensor
         Cumulative sum of input tensor along specified dimension
     """
     dim = kwargs.get("dim", 0)  # Use the dim parameter from ttir_kwargs
     return torch.cumsum(input_tensor, dim=dim)
 
 
-def repeat_interleave_golden(input_tensor: GoldenFunction, **kwargs) -> GoldenFunction:
+def repeat_interleave_golden(
+    input_tensor: GoldenMapTensor, **kwargs
+) -> GoldenMapTensor:
     """
     Golden function for repeat_interleave operation with TTIR parameter names.
 
     Parameters
     ----------
-    input_tensor : GoldenFunction
+    input_tensor : GoldenMapTensor
         Input tensor
     **kwargs : dict
         Keyword arguments including 'repeats' and 'dim'
 
     Returns
     -------
-    GoldenFunction
+    GoldenMapTensor
         Repeated tensor
     """
     repeats = kwargs.get("repeats", 1)
@@ -2374,10 +2382,10 @@ def repeat_interleave_golden(input_tensor: GoldenFunction, **kwargs) -> GoldenFu
 
 
 def _sharding(
-    tensor: GoldenFunction,
+    tensor: GoldenMapTensor,
     mesh_shape: Tuple[int],
     shard_dims: Tuple[Union[int, None]],
-) -> GoldenFunction:
+) -> GoldenMapTensor:
     assert len(mesh_shape) == len(
         shard_dims
     ), "mesh_shape and shard_dims must have the same length"
@@ -2395,14 +2403,14 @@ def _sharding(
         shards = temp_shards
 
     shard_dictionary = {i: shard for i, shard in enumerate(shards)}
-    return GoldenFunction(shard_dictionary, mesh_shape)
+    return GoldenMapTensor(shard_dictionary, mesh_shape)
 
 
 def _unsharding(
-    tensor: GoldenFunction,
+    tensor: GoldenMapTensor,
     mesh_shape: Tuple[int],
     shard_dims: Tuple[Union[int, None]],
-) -> GoldenFunction:
+) -> GoldenMapTensor:
     assert len(mesh_shape) == len(
         shard_dims
     ), "mesh_shape and shard_dims must have the same length"
@@ -2419,23 +2427,23 @@ def _unsharding(
                 temp_shards.append(concat_shard)
             shards = temp_shards
 
-    return GoldenFunction({0: shards[0]}, mesh_shape)
+    return GoldenMapTensor({0: shards[0]}, mesh_shape)
 
 
 def mesh_shard_golden(
-    input: GoldenFunction,
+    input: GoldenMapTensor,
     mesh_shape: Tuple[int, int],
     shard_type: Attribute,
     shard_direction: Attribute,
     shard_shape: Tuple[int, int],
     shard_dims: List[int],
-) -> GoldenFunction:
+) -> GoldenMapTensor:
     """
     Return a tensor which was sharded or unsharded by mesh_shard.
 
     Parameters
     ----------
-    input : GoldenFunction
+    input : GoldenMapTensor
         Input tensor to be sharded or unsharded
     mesh_shape : Tuple[int, int]
         Shape of the device mesh
@@ -2450,7 +2458,7 @@ def mesh_shard_golden(
 
     Returns
     -------
-    GoldenFunction
+    GoldenMapTensor
         Golden tensor which was sharded or unsharded by mesh_shard.
     """
 
@@ -2468,16 +2476,16 @@ def mesh_shard_golden(
 
 
 def all_gather_golden(
-    input: GoldenFunction,
+    input: GoldenMapTensor,
     all_gather_dim: int,
     cluster_axis: int,
-) -> GoldenFunction:
+) -> GoldenMapTensor:
     """
-    Return a GoldenFunction which was gathered from all devices.
+    Return a GoldenMapTensor which was gathered from all devices.
 
     Parameters
     ----------
-    input : GoldenFunction
+    input : GoldenMapTensor
         Input tensor to gather from all devices
     all_gather_dim : int
         Dimension to gather along
@@ -2486,8 +2494,8 @@ def all_gather_golden(
 
     Returns
     -------
-    GoldenFunction
-        GoldenFunction which was gathered from all devices
+    GoldenMapTensor
+        GoldenMapTensor which was gathered from all devices
     """
 
     output_shards = [None] * len(input.shard_map)
@@ -2496,7 +2504,9 @@ def all_gather_golden(
         gathered_tensor = torch.cat(list(group.values()), dim=all_gather_dim)
         for id in group.keys():
             output_shards[id] = gathered_tensor.clone()
-    return GoldenFunction({i: t for i, t in enumerate(output_shards)}, input.mesh_shape)
+    return GoldenMapTensor(
+        {i: t for i, t in enumerate(output_shards)}, input.mesh_shape
+    )
 
 
 # Map of supported reduction keywords to callable functions
@@ -2510,7 +2520,7 @@ _REDUCE = {
 }
 
 
-def _reduce(inputs: List[torch.Tensor], reduce_type: Attribute) -> GoldenFunction:
+def _reduce(inputs: List[torch.Tensor], reduce_type: Attribute) -> GoldenMapTensor:
     key = str(reduce_type).lower()
     # Handle alias form like "reduce_type<sum>"
     if key.startswith("#ttcore.reduce_type<") and key.endswith(">"):
@@ -2522,16 +2532,16 @@ def _reduce(inputs: List[torch.Tensor], reduce_type: Attribute) -> GoldenFunctio
 
 
 def all_reduce_golden(
-    input: GoldenFunction,
+    input: GoldenMapTensor,
     cluster_axis: int,
     reduce_type: Attribute,
-) -> GoldenFunction:
+) -> GoldenMapTensor:
     """
-    Return a GoldenFunction which was reduced across devices.
+    Return a GoldenMapTensor which was reduced across devices.
 
     Parameters
     ----------
-    input : GoldenFunction
+    input : GoldenMapTensor
         Input tensor to reduce across devices
     cluster_axis : int
         Axis of the cluster for reduction
@@ -2540,8 +2550,8 @@ def all_reduce_golden(
 
     Returns
     -------
-    GoldenFunction
-        GoldenFunction which was reduced across devices
+    GoldenMapTensor
+        GoldenMapTensor which was reduced across devices
     """
 
     output_shards = [None] * len(input.shard_map)
@@ -2551,21 +2561,23 @@ def all_reduce_golden(
         reduced_tensor = _reduce(group_tensors, reduce_type)
         for id in group.keys():
             output_shards[id] = reduced_tensor.clone()
-    return GoldenFunction({i: t for i, t in enumerate(output_shards)}, input.mesh_shape)
+    return GoldenMapTensor(
+        {i: t for i, t in enumerate(output_shards)}, input.mesh_shape
+    )
 
 
 def reduce_scatter_golden(
-    input: GoldenFunction,
+    input: GoldenMapTensor,
     reduce_type: Attribute,
     scatter_dim: int,
     cluster_axis: int,
-) -> GoldenFunction:
+) -> GoldenMapTensor:
     """
-    Return a GoldenFunction which was reduced and scattered across devices.
+    Return a GoldenMapTensor which was reduced and scattered across devices.
 
     Parameters
     ----------
-    input : GoldenFunction
+    input : GoldenMapTensor
         Input tensor to reduce and scatter
     reduce_type : Attribute
         Type of reduction operation
@@ -2576,8 +2588,8 @@ def reduce_scatter_golden(
 
     Returns
     -------
-    GoldenFunction
-        GoldenFunction which was reduced and scattered across devices
+    GoldenMapTensor
+        GoldenMapTensor which was reduced and scattered across devices
     """
 
     output_shards = [None] * len(input.shard_map)
@@ -2588,48 +2600,52 @@ def reduce_scatter_golden(
         scattered_tensor = torch.chunk(reduced_tensor, len(group), dim=scatter_dim)
         for index, id in enumerate(group.keys()):
             output_shards[id] = scattered_tensor[index].clone()
-    return GoldenFunction({i: t for i, t in enumerate(output_shards)}, input.mesh_shape)
+    return GoldenMapTensor(
+        {i: t for i, t in enumerate(output_shards)}, input.mesh_shape
+    )
 
 
 def collective_permute_golden(
-    input: GoldenFunction,
+    input: GoldenMapTensor,
     source_target_pairs: List[Tuple[int, int]],
-) -> GoldenFunction:
+) -> GoldenMapTensor:
     """
-    Return a GoldenFunction which was permuted across devices.
+    Return a GoldenMapTensor which was permuted across devices.
 
     Parameters
     ----------
-    input : GoldenFunction
+    input : GoldenMapTensor
         Input tensor to permute across devices
     source_target_pairs : List[Tuple[int, int]]
         List of (source, target) device ID pairs for permutation
 
     Returns
     -------
-    GoldenFunction
-        GoldenFunction which was permuted across devices
+    GoldenMapTensor
+        GoldenMapTensor which was permuted across devices
     """
 
     output_shards = [torch.zeros_like(shard) for shard in input.shard_map.values()]
     for src, tgt in source_target_pairs:
         output_shards[tgt] = input.shard_at(src).clone()
-    return GoldenFunction({i: t for i, t in enumerate(output_shards)}, input.mesh_shape)
+    return GoldenMapTensor(
+        {i: t for i, t in enumerate(output_shards)}, input.mesh_shape
+    )
 
 
 def all_to_all_golden(
-    input: GoldenFunction,
+    input: GoldenMapTensor,
     split_dim: int,
     concat_dim: int,
     split_count: int,
     replica_groups: List[List[int]],
-) -> GoldenFunction:
+) -> GoldenMapTensor:
     """
-    Return a GoldenFunction which was redistributed across devices.
+    Return a GoldenMapTensor which was redistributed across devices.
 
     Parameters
     ----------
-    input : GoldenFunction
+    input : GoldenMapTensor
         Input tensor to perform all-to-all communication on
     split_dim : int
         Dimension to split the input tensor along
@@ -2642,8 +2658,8 @@ def all_to_all_golden(
 
     Returns
     -------
-    GoldenFunction
-        GoldenFunction which was redistributed across devices.
+    GoldenMapTensor
+        GoldenMapTensor which was redistributed across devices.
     """
 
     output_shards = [None] * len(input.shard_map)
@@ -2658,34 +2674,38 @@ def all_to_all_golden(
                 [splits_per_src[src_idx][dst_idx] for src_idx in range(split_count)],
                 dim=concat_dim,
             )
-    return GoldenFunction({i: t for i, t in enumerate(output_shards)}, input.mesh_shape)
+    return GoldenMapTensor(
+        {i: t for i, t in enumerate(output_shards)}, input.mesh_shape
+    )
 
 
 def collective_broadcast_golden(
-    input: GoldenFunction,
+    input: GoldenMapTensor,
     replica_groups: List[Tuple[int, int]],
-) -> GoldenFunction:
+) -> GoldenMapTensor:
     """
-    Return a GoldenFunction which was broadcasted across devices.
+    Return a GoldenMapTensor which was broadcasted across devices.
 
     Parameters
     ----------
-    input : GoldenFunction
+    input : GoldenMapTensor
         Input tensor to broadcast across devices
     replica_groups : List[Tuple[int, int]]
         Groups of replica devices for broadcasting
 
     Returns
     -------
-    GoldenFunction
-        GoldenFunction which was broadcasted across devices.
+    GoldenMapTensor
+        GoldenMapTensor which was broadcasted across devices.
     """
 
     output_shards = [None] * len(input.shard_map)
     for group in replica_groups:
         for device in group:
             output_shards[device] = input.shard_at(group[0]).clone()
-    return GoldenFunction({i: t for i, t in enumerate(output_shards)}, input.mesh_shape)
+    return GoldenMapTensor(
+        {i: t for i, t in enumerate(output_shards)}, input.mesh_shape
+    )
 
 
 def get_golden_function(ttir_op_class: type, **kwargs) -> Optional[Callable]:
