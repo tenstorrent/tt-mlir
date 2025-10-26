@@ -1035,11 +1035,6 @@ static mlir::LogicalResult verifyAffineBlocking(
 // GenericOp verification
 ::mlir::LogicalResult d2m::GenericOp::verify() {
   if (hasPureTensorSemantics()) {
-    if (this->getNumRegions() != 1) {
-      return emitOpError(
-          "generic op with pure tensor semantics must have exactly 1 region");
-    }
-
     Region &region = this->getRegion(0);
     if (!region.hasOneBlock()) {
       return emitOpError(
