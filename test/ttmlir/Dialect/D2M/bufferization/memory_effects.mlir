@@ -13,9 +13,12 @@ func.func @matmul_pure_tensors(%arg0: tensor<2x4x!ttcore.tile<32x32, f32>>, %arg
   // No uses of %3, so it should be removed.
   // CHECK-NOT: d2m.generic
   %3 = "d2m.generic"(%arg0, %arg1, %0) <{block_factors = [1, 1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#map, #map1, #map2], iterator_types = [#parallel, #parallel, #reduction], threads = [#d2m.thread<compute>], operandSegmentSizes = array<i32: 2, 1>}> ({
-  ^bb0(%arg2: memref<2x4x!ttcore.tile<32x32, f32>, #l1_>, %arg3: memref<4x2x!ttcore.tile<32x32, f32>, #l1_>, %arg4: memref<2x2x!ttcore.tile<32x32, f32>, #l1_>):
-    "d2m.tile_matmul_block"(%arg2, %arg3, %arg4) : (memref<2x4x!ttcore.tile<32x32, f32>, #l1_>, memref<4x2x!ttcore.tile<32x32, f32>, #l1_>, memref<2x2x!ttcore.tile<32x32, f32>, #l1_>) -> ()
-    d2m.yield %arg4 : (memref<2x2x!ttcore.tile<32x32, f32>, #l1_>)
+  ^bb0(%cb2: !d2m.cb<tensor<2x4x!ttcore.tile<32x32, f32>, #l1_>>, %cb3: !d2m.cb<tensor<4x2x!ttcore.tile<32x32, f32>, #l1_>>, %cb4: !d2m.cb<tensor<2x2x!ttcore.tile<32x32, f32>, #l1_>>):
+    %arg2 = d2m.wait %cb2 : !d2m.cb<tensor<2x4x!ttcore.tile<32x32, f32>, #l1_>> -> tensor<2x4x!ttcore.tile<32x32, f32>, #l1_>
+    %arg3 = d2m.wait %cb3 : !d2m.cb<tensor<4x2x!ttcore.tile<32x32, f32>, #l1_>> -> tensor<4x2x!ttcore.tile<32x32, f32>, #l1_>
+    %arg4 = d2m.reserve %cb4 : !d2m.cb<tensor<2x2x!ttcore.tile<32x32, f32>, #l1_>> -> tensor<2x2x!ttcore.tile<32x32, f32>, #l1_>
+    "d2m.tile_matmul_block"(%arg2, %arg3, %arg4) : (tensor<2x4x!ttcore.tile<32x32, f32>, #l1_>, tensor<4x2x!ttcore.tile<32x32, f32>, #l1_>, tensor<2x2x!ttcore.tile<32x32, f32>, #l1_>) -> ()
+    d2m.yield %0 : (tensor<2x2x!ttcore.tile<32x32, f32>>)
   }) : (tensor<2x4x!ttcore.tile<32x32, f32>>, tensor<4x2x!ttcore.tile<32x32, f32>>, tensor<2x2x!ttcore.tile<32x32, f32>>) -> tensor<2x2x!ttcore.tile<32x32, f32>>
   return %0 : tensor<2x2x!ttcore.tile<32x32, f32>>
 }
@@ -33,7 +36,10 @@ func.func @matmul_memref(%arg0: memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore
   // Ensure that the generic op is not removed.
   // CHECK: d2m.generic
   "d2m.generic"(%arg0, %arg1, %alloc) <{block_factors = [1, 1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#map, #map1, #map2], iterator_types = [#parallel, #parallel, #reduction], threads = [#d2m.thread<compute>], operandSegmentSizes = array<i32: 2, 1>}> ({
-  ^bb0(%arg2: memref<2x4x!ttcore.tile<32x32, f32>, #l1_>, %arg3: memref<4x2x!ttcore.tile<32x32, f32>, #l1_>, %arg4: memref<2x2x!ttcore.tile<32x32, f32>, #l1_>):
+  ^bb0(%cb2: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>, %cb3: !d2m.cb<memref<4x2x!ttcore.tile<32x32, f32>, #l1_>>, %cb4: !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1_>>):
+    %arg2 = d2m.wait %cb2 : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
+    %arg3 = d2m.wait %cb3 : !d2m.cb<memref<4x2x!ttcore.tile<32x32, f32>, #l1_>> -> memref<4x2x!ttcore.tile<32x32, f32>, #l1_>
+    %arg4 = d2m.reserve %cb4 : !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1_>> -> memref<2x2x!ttcore.tile<32x32, f32>, #l1_>
     "d2m.tile_matmul_block"(%arg2, %arg3, %arg4) : (memref<2x4x!ttcore.tile<32x32, f32>, #l1_>, memref<4x2x!ttcore.tile<32x32, f32>, #l1_>, memref<2x2x!ttcore.tile<32x32, f32>, #l1_>) -> ()
   }) : (memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096>, #l1_>, memref<1x1x4x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096>, #l1_>, memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096>, #l1_>) -> ()
   return %alloc : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096>, #l1_>

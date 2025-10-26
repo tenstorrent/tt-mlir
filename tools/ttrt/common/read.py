@@ -418,7 +418,6 @@ class Read:
                         for x in res
                     )
                 result.append(res)
-                self.logging.info(msg)
             except Exception as e:
                 raise Exception(
                     f"failed to process read for binary={binary.file_path} with exception {str(e)}"

@@ -1,3 +1,4 @@
+// REQUIRES: opmodel
 // RUN: ttmlir-opt --ttcore-register-device --const-eval-hoist-transform --ttnn-optimizer="insert-memreconfig=add_1_2=0" --ttnn-decompose-layouts -o %t %s
 // RUN: FileCheck %s --input-file=%t
 

@@ -176,9 +176,11 @@ def test_execute_model(model_path):
 
 
 def test_execute_mnist_df_sharding():
+    # Optimizer disabled because these tests are run with tracy build in CI, and tracy
+    # build doesn't have op_model (optimizer) support.
     execute_command_and_wait(
         MNIST_SHARDING_PATH,
-        {"optimizationPolicy": "DF Sharding"},
+        {"optimizationPolicy": "Optimizer Disabled"},
         timeout=300,
     )
     convert_command_and_assert(MNIST_SHARDING_PATH)
@@ -211,7 +213,7 @@ def test_execute_mnist_with_overrides():
     }
     execute_command_and_wait(
         MNIST_SHARDING_PATH,
-        {"optimizationPolicy": "DF Sharding", "overrides": overrides},
+        {"optimizationPolicy": "Optimizer Disabled", "overrides": overrides},
         timeout=300,
     )
     convert_command_and_assert(MNIST_SHARDING_PATH)
@@ -220,7 +222,7 @@ def test_execute_mnist_with_overrides():
 def test_execute_and_check_perf_data_exists():
     execute_command_and_wait(
         MNIST_SHARDING_PATH,
-        {"optimizationPolicy": "DF Sharding"},
+        {"optimizationPolicy": "Optimizer Disabled"},
         timeout=300,
     )
     result = convert_command_and_assert(MNIST_SHARDING_PATH)

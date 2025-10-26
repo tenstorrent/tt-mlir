@@ -3,7 +3,7 @@
 config.llvm_tools_dir = lit_config.substitute("@LLVM_TOOLS_DIR@")
 config.lit_tools_dir = "@LLVM_LIT_TOOLS_DIR@"
 config.mlir_obj_dir = "@MLIR_BINARY_DIR@"
-config.enable_bindings_python = @MLIR_ENABLE_BINDINGS_PYTHON@ and "@TTMLIR_ENABLE_BINDINGS_PYTHON@" == "ON"
+config.enable_bindings_python = @MLIR_ENABLE_BINDINGS_PYTHON@ and @TTMLIR_ENABLE_BINDINGS_PYTHON@
 config.ttmlir_obj_root = "@TTMLIR_BINARY_DIR@"
 config.ttmlir_source_dir = "@TTMLIR_SOURCE_DIR@"
 config.llvm_shlib_ext = "@SHLIBEXT@"

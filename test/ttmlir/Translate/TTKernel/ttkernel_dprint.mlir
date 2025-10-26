@@ -6,8 +6,8 @@ func.func @kernel_main() -> () attributes {ttkernel.thread = #ttkernel.thread<co
     %c42_i32 = arith.constant 42 : i32
     // CHECK: ttmlir::dprint("Hello world, ", v1, "!\n");
     ttkernel.dprint("Hello world, {}!\\n", %c42_i32) : (i32) -> ()
-    %cb = ttkernel.get_compile_time_arg_val(0) : () -> !ttkernel.cb<memref<32x32xf32, #l1_>>
+    %cb = ttkernel.get_compile_time_arg_val(0) : () -> !ttkernel.cb<1024, f32>
     // CHECK: ttmlir::CBPrinter
-    ttkernel.dprint("{}", %cb) : (!ttkernel.cb<memref<32x32xf32, #l1_>>) -> ()
+    ttkernel.dprint("{}", %cb) : (!ttkernel.cb<1024, f32>) -> ()
     func.return
 }

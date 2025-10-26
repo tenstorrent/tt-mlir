@@ -2,32 +2,127 @@
 
 Our CI infrastructure is currently hosted in the cloud. Cloud machines are used and linked as GitHub runners.
 
-CI is triggered by new pull requests and pushes to main (usually when a PR is merged).
+## Overview
 
-CI is designed to automatically collect analytics data for each workflow run, including test results and code coverage. It also publishes the latest release of documentation on GitHub.
+CI automatically triggers on:
+- **Pull requests** - validates code changes before merging
+- **Pushes to main** - typically when PRs are merged
+- **Nightly runs** - comprehensive testing with all components
+- **Uplift PRs** - special PRs that update tt-metal to the latest version
+
+The CI system automatically collects analytics data from each workflow run, including test results and code coverage. It also publishes the latest documentation to GitHub.
 
 ## Builds
-CI performs the following build jobs:
 
-> - Release build **speedy** - release image optimized for speed
-> - Release build **tracy** - release image with runtime trace/debug capabilities including performance measurements
-> - Debug build with unit tests and test coverage
-> - Clang tidy
-> - ...and [Tests](#testing)
+CI performs several types of builds:
 
-The build of tt-mlir is done using the build-tt-mlir-action.
-Only the Debug build has a specific implementation because it is also used to run unit tests and collect and publish code coverage data.
-Code coverage is published on codecov along with its results, and a link to detailed coverage information is attached as a comment to the PR.
-Test results are published as workflow artifacts in raw format and as HTML test reports, where applicable.
-Currently, there are no plans to change the build process, except for minor parameter modifications or added features such as release wheel publishing to tt-forge.
+### Release Builds
+- **speedy** - optimized for performance and speed
+- **tracy** - includes runtime tracing and debug capabilities with performance measurements
+
+### Development Builds
+- **Debug build** - includes unit tests and code coverage collection
+- **MacOS build** - ensures cross-platform compatibility
+- **Wheels** - Python package distributions
+- **Clang-tidy** - static code analysis
+
+Release builds include the runtime needed to execute on TT hardware, making them suitable for integration testing. The debug build runs unit tests and generates code coverage reports that are published to Codecov with detailed results linked in PR comments.
+
+### Release Build Components
+
+Release builds do more than just compile tt-mlir - they also prepare tests, build tools, and create wheels. Components are configured in `.github/settings/build.json`:
+
+```json
+{ "image": "tracy", "script": "explorer.sh" }
+```
+
+- **image**: Specifies which release build to use (`speedy` or `tracy`)
+- **script**: Build script located in `.github/build_scripts/`
+- **if** (optional): Links to [optional components](#optional-components) - only builds when that component is enabled
+
+Before running build scripts, the workflow will activate the default TT-MLIR Python venv and set a number of useful environment variables:
+- WORK_DIR - set to repo root
+- BUILD_DIR - set to build artifacts
+- INSTALL_DIR - set to install artifacts
+- BUILD_NAME - name of the build image
+
+#### Uploading Artifacts from Build Scripts
+
+Build scripts can upload their output files as artifacts for later use in testing.
+This is especially important for [optional components](#optional-components) that may not always run.
+
+**How it works:**
+- Build scripts write artifact information to a JSON file specified by the `$UPLOAD_LIST` environment variable
+- Each artifact entry contains a `name` (identifier) and `path` (file location)
+- The CI system automatically uploads these artifacts after the build completes
+
+**Example:**
+```bash
+echo "{\"name\":\"ttrt-whl-$BUILD_NAME\",\"path\":\"$WORK_DIR/build/tools/ttrt/build/ttrt*.whl\"}," >> $UPLOAD_LIST
+```
+
+This example uploads Python wheel files with a descriptive name that includes the build type.
+
+> Please note `>>` as it appends to existing list.
+
+## Optional Components
+
+As the codebase grows, CI can become slow and bloated. To keep development efficient, some components are made **optional** and only run when needed:
+
+**When optional components run:**
+- ✅ Nightly builds (full testing)
+- ✅ Uplift PRs (tt-metal version updates)
+- ✅ PRs that modify the component's code
+- ❌ Regular PRs (unless component files changed)
+
+**Good candidates for optional components:**
+- Mature, stable features that rarely break
+- Legacy code that's still supported but not actively developed
+- Rarely-used functionality where breakage isn't critical
+- Time-intensive wheel builds (when functionality is tested elsewhere)
+
+### Configuring Optional Components
+
+Define components in `.github/settings/optional-components.yml`:
+
+```yaml
+component_name:
+  - path/to/files/*.py
+  - specific/file.py
+  - another/directory/**
+```
+
+The component name can then be referenced in build and test configurations in **"if"** field:
+
+**Example:**
+```yaml
+emitc:
+  - test/ttmlir/EmitC/**
+  - tools/ttnn-standalone/ci_compile_dylib.py
+  - include/ttmlir/Conversion/TTNNToEmitC/**
+  - lib/Conversion/TTNNToEmitC/**
+```
+
+**Build example:**
+```json
+{ "image": "speedy", "script": "emitc.sh", "if": "emitc" }
+```
+
+**Test example:**
+```json
+{ "runs-on": "n150", "image": "speedy", "script": "emitc.sh", "if": "emitc" }
+```
+
+This makes the EmitC component optional - it only builds/tests when EmitC-related files are modified in a PR.
+
 
 ## Testing
-Testing is performed inside the build-and-test.yml workflow as run-tests jobs.
+Testing is performed inside the call-test.yml workflow as run-tests jobs.
 It uses a matrix strategy, which means that multiple jobs are created and executed on multiple machines using the same job task.
 
-### Test Matrix
-The test matrix is defined as a JSON file inside the `.github/test_matrix` directory. Currently, only `pr-push-matrix.json` is used.
-Each row in the matrix array represents a test that will execute on a specific machine using a specified (release) build image.
+### Tests
+The tests are defined by a JSON file `tests.json` inside the `.github/settings` directory.
+Each row in the JSON array represents a test that will execute on a specific machine using a specified (release) build image.
 Example:
 
 ```json
@@ -65,6 +160,9 @@ This field represents the arguments for the script. This can be omitted, a strin
 #### reqs (optional)
 Specifies additional requirements for test execution.
 These arguments are passed as the REQUIREMENTS environment variable to the test script.
+
+### if (optional)
+Specifies the name of [optional component](#optional-components). The test will be executed only if optional component is enabled.
 
 ### Using JSON arrays
 The **runs-on** and **image** fields can be passed as JSON arrays. With arrays, one can define a test to execute on multiple machines and images.

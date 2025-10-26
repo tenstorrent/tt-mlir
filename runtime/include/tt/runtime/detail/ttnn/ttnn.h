@@ -26,6 +26,7 @@
 #include "ttnn/operations/data_movement/permute/permute.hpp"
 #include "ttnn/operations/data_movement/repeat/repeat.hpp"
 #include "ttnn/operations/data_movement/repeat_interleave/repeat_interleave.hpp"
+#include "ttnn/operations/data_movement/scatter/scatter.hpp"
 #include "ttnn/operations/data_movement/sort/sort.hpp"
 #include "ttnn/operations/data_movement/transpose/transpose.hpp"
 #include "ttnn/operations/eltwise/binary/binary.hpp"
@@ -140,11 +141,12 @@ std::vector<std::uint32_t> getTensorShape(::tt::runtime::Tensor tensor);
 std::vector<std::uint32_t> getTensorStride(::tt::runtime::Tensor tensor);
 std::uint32_t getTensorElementSize(::tt::runtime::Tensor tensor);
 std::uint32_t getTensorVolume(::tt::runtime::Tensor tensor);
+std::uint32_t getTensorLogicalVolume(::tt::runtime::Tensor tensor);
 TensorDesc getTensorDesc(::tt::runtime::Tensor tensor);
 bool getTensorRetain(::tt::runtime::Tensor tensor);
 void setTensorRetain(::tt::runtime::Tensor tensor, bool retain);
 
-Arch getArch();
+tt::target::Arch getArch();
 
 void enablePersistentKernelCache();
 void disablePersistentKernelCache();
@@ -188,7 +190,7 @@ void readDeviceProfilerResults(Device device);
 std::unordered_map<tt::runtime::MemoryBufferType, tt::runtime::MemoryView>
 getMemoryView(Device device);
 
-void setFabricConfig(FabricConfig config);
+void setFabricConfig(tt::runtime::FabricConfig config);
 
 void wait(Event event);
 

@@ -1306,12 +1306,40 @@ static mlir::OpFoldResult foldIdentityReshape(mlir::tt::ttnn::ReshapeOp op) {
 
 // Back to back reshapes can be replaced with the final reshape.
 static mlir::OpFoldResult foldConsecutiveReshape(mlir::tt::ttnn::ReshapeOp op) {
-  if (auto reshapeOperand =
-          op.getInput().getDefiningOp<mlir::tt::ttnn::ReshapeOp>()) {
-    op.getOperation()->setOperand(0, reshapeOperand.getInput());
-    return op.getResult();
+  auto reshapeOperand =
+      op.getInput().getDefiningOp<mlir::tt::ttnn::ReshapeOp>();
+  if (!reshapeOperand) {
+    return nullptr;
   }
-  return nullptr;
+
+  // Check if any user (except this reshape) writes to the intermediate value
+  mlir::Value intermediate = reshapeOperand.getResult();
+
+  auto hasWriteEffect = [&](mlir::Operation *user) {
+    if (user == op.getOperation()) {
+      return false;
+    }
+
+    auto memEffectOp = dyn_cast<mlir::MemoryEffectOpInterface>(user);
+    if (!memEffectOp) {
+      return false;
+    }
+
+    llvm::SmallVector<mlir::MemoryEffects::EffectInstance> effects;
+    memEffectOp.getEffects(effects);
+
+    return llvm::any_of(effects, [&](const auto &effect) {
+      return isa<mlir::MemoryEffects::Write>(effect.getEffect()) &&
+             effect.getValue() == intermediate;
+    });
+  };
+
+  if (llvm::any_of(intermediate.getUsers(), hasWriteEffect)) {
+    return nullptr;
+  }
+
+  op.getOperation()->setOperand(0, reshapeOperand.getInput());
+  return op.getResult();
 }
 
 // ReshapeOp folder
@@ -2368,30 +2396,49 @@ void mlir::tt::ttnn::ToLayoutOp::getCanonicalizationPatterns(
 }
 
 //===----------------------------------------------------------------------===//
-// BatchNormOp
+// BatchNorm verification helpers
 //===----------------------------------------------------------------------===//
 
-// BatchNormOp verification
-::mlir::LogicalResult mlir::tt::ttnn::BatchNormOp::verify() {
-
+namespace {
+// Helper function to verify BatchNorm operations in TTNN dialect.
+// This is used by both BatchNormInferenceOp and BatchNormTrainingOp.
+template <typename OpType>
+static ::mlir::LogicalResult verifyTTNNBatchNormOp(OpType op) {
   // Verify that all inputs have dimension 4.
-  if (getInput().getType().getRank() != 4) {
-    return emitOpError("Input tensor must have rank 4");
+  if (op.getInput().getType().getRank() != 4) {
+    return op.emitOpError("Input tensor must have rank 4");
   }
-  if (getRunningMean().getType().getRank() != 4) {
-    return emitOpError("Scale tensor must have rank 4");
+  if (op.getRunningMean().getType().getRank() != 4) {
+    return op.emitOpError("Running mean tensor must have rank 4");
   }
-  if (getRunningVar().getType().getRank() != 4) {
-    return emitOpError("Bias tensor must have rank 4");
+  if (op.getRunningVar().getType().getRank() != 4) {
+    return op.emitOpError("Running variance tensor must have rank 4");
   }
-  if (getWeight().getType().getRank() != 4) {
-    return emitOpError("Weight tensor must have rank 4");
+  if (op.getWeight().getType().getRank() != 4) {
+    return op.emitOpError("Weight tensor must have rank 4");
   }
-  if (getBias().getType().getRank() != 4) {
-    return emitOpError("Bias tensor must have rank 4");
+  if (op.getBias().getType().getRank() != 4) {
+    return op.emitOpError("Bias tensor must have rank 4");
   }
 
   return success();
+}
+} // namespace
+
+//===----------------------------------------------------------------------===//
+// BatchNormInferenceOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult mlir::tt::ttnn::BatchNormInferenceOp::verify() {
+  return verifyTTNNBatchNormOp(*this);
+}
+
+//===----------------------------------------------------------------------===//
+// BatchNormTrainingOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult mlir::tt::ttnn::BatchNormTrainingOp::verify() {
+  return verifyTTNNBatchNormOp(*this);
 }
 
 //===----------------------------------------------------------------------===//
@@ -2534,6 +2581,40 @@ mlir::tt::ttnn::ReduceScatterOp::fold(FoldAdaptor adaptor) {
   emitWarning() << "Removing this CCL op because performing a CCL operation "
                    "on a single mesh device is semantically meaningless.";
   return getInput();
+}
+
+//===----------------------------------------------------------------------===//
+// ScatterOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult ScatterOp::verify() {
+  const ::mlir::RankedTensorType inputType = getInput().getType();
+  const ::mlir::RankedTensorType indexType = getIndex().getType();
+  const ::mlir::RankedTensorType sourceType = getSource().getType();
+
+  llvm::ArrayRef<int64_t> inputShape = inputType.getShape();
+  llvm::ArrayRef<int64_t> indexShape = indexType.getShape();
+  llvm::ArrayRef<int64_t> sourceShape = sourceType.getShape();
+
+  const size_t inputTypeRank = inputShape.size();
+  const size_t indexTypeRank = indexShape.size();
+  const size_t sourceTypeRank = sourceShape.size();
+
+  if (inputTypeRank != indexTypeRank || inputTypeRank != sourceTypeRank ||
+      indexTypeRank != sourceTypeRank) {
+    return emitOpError() << "Input tensor, index tensor, and source tensor "
+                            "must have the same rank. "
+                         << "Got input rank = " << inputTypeRank
+                         << ", index rank = " << indexTypeRank
+                         << ", source rank = " << sourceTypeRank;
+  }
+
+  if (indexShape != sourceShape) {
+    return emitOpError(
+        "Index tensor must have the same shape as source tensor.");
+  }
+
+  return ::mlir::success();
 }
 
 //===----------------------------------------------------------------------===//

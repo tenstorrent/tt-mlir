@@ -11,6 +11,7 @@ include "ttmlir/Dialect/TTCore/IR/TTCoreAttrInterfaces.td"
 
 include "mlir/IR/AttrTypeBase.td"
 include "mlir/IR/EnumAttr.td"
+include "mlir/IR/BuiltinTypes.td"
 include "mlir/IR/BuiltinTypeInterfaces.td"
 include "mlir/IR/CommonTypeConstraints.td"
 
@@ -253,6 +254,8 @@ def TTCore_ViewLayoutAttr : TTCore_Attr<"ViewLayout", "view", [TTCore_DeviceLayo
       ViewLayoutAttr compose(ViewLayoutAttr g) const;
 
       bool isView() { return true; }
+
+      unsigned getRank() const { return getAffineMap().getNumResults(); }
   }];
 }
 
@@ -280,6 +283,8 @@ def TTCore_ShardLayoutAttr : TTCore_Attr<"ShardLayout", "shard", [TTCore_DeviceL
     bool isView() { return false; }
 
     AffineMap getAffineMap() const;
+
+    unsigned getRank() const { return getStride().size(); }
   }];
 }
 
@@ -301,6 +306,8 @@ def TTCore_InterleavedLayoutAttr : TTCore_Attr<"InterleavedLayout", "interleaved
     bool isView() { return false; }
 
     AffineMap getAffineMap() const;
+
+    unsigned getRank() const { return getStride().size(); }
   }];
 }
 
@@ -412,41 +419,39 @@ def TTCore_MetalLayoutAttr : TTCore_Attr<"MetalLayout", "metal_layout", [TTCore_
   let extraClassDeclaration = [{
     static MetalLayoutAttr get(::mlir::MLIRContext *context,
                                      ArrayRef<int64_t> logicalShape,
-                                     ArrayRef<int64_t> deviceGridShape,
                                      OOBVal oobVal, MemorySpace memorySpace,
                                      TensorMemoryLayout memoryLayout);
 
     static MetalLayoutAttr get(::mlir::MLIRContext *context,
                                      ArrayRef<int64_t> logicalShape,
-                                     ArrayRef<int64_t> deviceGridShape,
                                      OOBVal oobVal, MemorySpace memorySpace,
                                      TensorMemoryLayout memoryLayout,
                                      DenseIntElementsAttr collapseIntervals);
     static MetalLayoutAttr get(::mlir::MLIRContext *context,
                                      ArrayRef<int64_t> logicalShape,
-                                     ArrayRef<int64_t> deviceGridShape,
                                      OOBVal oobVal, MemorySpace memorySpace,
                                      TensorMemoryLayout memoryLayout,
                                      DenseIntElementsAttr collapseIntervals,
                                      ArrayRef<int64_t> dimAlignments
                                      );
 
-    // Convenience getter: same as the 5-arg variant but attaches an explicit
-    // index_map to the resulting attribute.
     static MetalLayoutAttr get(::mlir::MLIRContext *context,
                                      ArrayRef<int64_t> logicalShape,
-                                     ArrayRef<int64_t> deviceGridShape,
                                      OOBVal oobVal, MemorySpace memorySpace,
                                      TensorMemoryLayout memoryLayout,
+                                     DenseIntElementsAttr collapseIntervals,
+                                     ArrayRef<int64_t> dimAlignments,
                                      mlir::AffineMap indexAffineMap
                                      );
 
     // Derive the physical tensor shape from logical shape and grid.
     llvm::SmallVector<int64_t> getPhysicalShape(ArrayRef<int64_t> tileShape) const;
 
-    static llvm::SmallVector<int64_t> computeAlignments(ArrayRef<int64_t> logicalShape,
-                                   ArrayRef<int64_t> deviceGridShape,
+    static llvm::SmallVector<int64_t> computeTileAlignments(ArrayRef<int64_t> logicalShape,
                                    ArrayRef<int64_t> normIntervals);
+
+    static llvm::SmallVector<int64_t> normalizeAndFlattenIntervals(DenseIntElementsAttr inputIntervals,
+                                   size_t inputRank);
 
     llvm::SmallVector<int64_t> getDeviceShape(ArrayRef<int64_t> gridShape, ArrayRef<int64_t> tileShape) const;
 
@@ -466,6 +471,9 @@ def TTCore_MetalLayoutAttr : TTCore_Attr<"MetalLayout", "metal_layout", [TTCore_
     // Returns the explicit index_map if present; otherwise returns an
     // identity map of the provided rank.
     mlir::AffineMap getIndexAffineMapOrIdentity(unsigned rank) const;
+
+    // Returns the full rank (including grid dimensions).
+    unsigned getRank() const { return getNormalizedIntervals().size(); }
 
     bool isView() { return false; }
   }];
@@ -638,7 +646,7 @@ class TTCore_Type<string name, string typeMnemonic, list<Trait> traits = []>
   let mnemonic = typeMnemonic;
 }
 
-def TTCore_Tile : TTCore_Type<"Tile", "tile", [MemRefElementTypeInterface, FloatTypeInterface]> {
+def TTCore_Tile : TTCore_Type<"Tile", "tile", [MemRefElementTypeInterface, FloatTypeInterface, ShapedTypeInterface, ValueSemantics]> {
     let summary = "TT tile";
     let description = "Tile type in TT dialect";
     let parameters = (ins ArrayRefParameter<"int64_t">:$shape, "DataType":$dataType);
@@ -658,6 +666,22 @@ def TTCore_Tile : TTCore_Type<"Tile", "tile", [MemRefElementTypeInterface, Float
       const ::llvm::fltSemantics &getFloatSemantics() {
         llvm_unreachable("TTCore_Tile::getFloatSemantics unimplemented #5124");
       }
+
+      // ShapedTypeInterface methods
+      /// Clone this type with the given shape and element type. If the
+      /// provided shape is None, the current shape of the type is used.
+      TileType cloneWith(std::optional<ArrayRef<int64_t>> shape,
+                         Type elementType) const;
+
+      // Note: getElementType() is already declared above, so ShapedType will use it
+
+      bool hasRank() const { return true; }
+
+      int64_t getRank() const { return 2; }
+
+      bool hasStaticShape() const { return true; }
+
+      int64_t getNumElements() const { return getShape()[0] * getShape()[1]; }
     }];
 
     let genVerifyDecl = 1;

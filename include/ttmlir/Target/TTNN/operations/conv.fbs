@@ -21,6 +21,7 @@ table Conv2dConfig {
   enable_act_double_buffer: bool = null;
   enable_weights_double_buffer: bool = null;
   in_place: bool = null;
+  enable_kernel_stride_folding: bool = null;
 }
 
 enum Conv2dSliceType: ushort {
@@ -55,6 +56,7 @@ table PrepareConv2dWeightsOp {
   input_dtype: tt.target.DataType;
   output_dtype: tt.target.DataType = null;
   conv2d_config: tt.target.ttnn.Conv2dConfig;
+  compute_config: tt.target.ttnn.DeviceComputeKernelConfig;
   conv2d_slice_config: tt.target.ttnn.Conv2dSliceConfig;
 }
 
@@ -77,6 +79,7 @@ table PrepareConv2dBiasOp {
   input_dtype: tt.target.DataType;
   output_dtype: tt.target.DataType = null;
   conv2d_config: tt.target.ttnn.Conv2dConfig;
+  compute_config: tt.target.ttnn.DeviceComputeKernelConfig;
   conv2d_slice_config: tt.target.ttnn.Conv2dSliceConfig;
 }
 
@@ -121,5 +124,6 @@ table ConvTranspose2dOp {
   groups: uint32;
   output_dtype: tt.target.DataType = null;
   conv2d_config: tt.target.ttnn.Conv2dConfig;
+  compute_config: tt.target.ttnn.DeviceComputeKernelConfig;
   memory_config: tt.target.ttnn.MemoryConfig;
 }

@@ -7,6 +7,7 @@
 #include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOpsInterfaces.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
+#include "ttmlir/Utils.h"
 
 namespace mlir::tt::d2m::utils {
 

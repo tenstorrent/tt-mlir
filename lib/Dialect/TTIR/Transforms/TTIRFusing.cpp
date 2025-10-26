@@ -879,11 +879,12 @@ public:
   }
 };
 
-class BatchNormDecomposition : public mlir::OpRewritePattern<BatchNormOp> {
-  using mlir::OpRewritePattern<BatchNormOp>::OpRewritePattern;
+class BatchNormDecomposition
+    : public mlir::OpRewritePattern<BatchNormInferenceOp> {
+  using mlir::OpRewritePattern<BatchNormInferenceOp>::OpRewritePattern;
 
 public:
-  // This pattern decomposes the BatchNorm operation into a sequence of
+  // This pattern decomposes the BatchNormInference operation into a sequence of
   // arithmetic operations that can be fused with Conv2d operations.
   //
   // Decomposition:
@@ -896,7 +897,7 @@ public:
   // Decomposed like this it can later be fused with Conv2d without bias as
   //    batch_norm(conv2d(x, weight),...) = conv2d(x, weight * alpha, beta)
   mlir::LogicalResult
-  matchAndRewrite(BatchNormOp batchNormOp,
+  matchAndRewrite(BatchNormInferenceOp batchNormOp,
                   mlir::PatternRewriter &rewriter) const final {
 
     // Used only paired with convolution

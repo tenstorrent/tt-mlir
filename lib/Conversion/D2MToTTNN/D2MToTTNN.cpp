@@ -117,12 +117,13 @@ public:
     auto device = ttcore::lookupDevice(op->getParentOp());
     TT_assert(device);
 
+    // TTNN grids are (Width, Height), while D2M grids are (Height, Width).
     ttcore::GridAttr grid = op.getGrid();
     ttnn::CoreRangeSetAttr coreRangeSet = ttnn::CoreRangeSetAttr::get(
         ctx, ttnn::CoreRangeAttr::get(
                  ctx, ttnn::CoreCoordAttr::get(ctx, 0, 0),
-                 ttnn::CoreCoordAttr::get(ctx, grid.getShape()[0] - 1,
-                                          grid.getShape()[1] - 1)));
+                 ttnn::CoreCoordAttr::get(ctx, grid.getShape()[1] - 1,
+                                          grid.getShape()[0] - 1)));
 
     llvm::SmallVector<Value> ios(size);
     llvm::SmallVector<Value> cbs(size);
@@ -220,6 +221,14 @@ public:
     if (auto inner =
             op.getOperand().getDefiningOp<ttir::TTNNMetalLayoutCastOp>()) {
       rewriter.replaceOp(op, inner.getOperand());
+    } else if (auto inner =
+                   op.getOperand().getDefiningOp<d2m::StreamLayoutOp>()) {
+      // Match the pattern cast(stream(cast(output_tensor))) and rewrite as just
+      // output_tensor.
+      if (auto inner2 =
+              inner.getInput().getDefiningOp<ttir::TTNNMetalLayoutCastOp>()) {
+        rewriter.replaceOp(op, inner2.getOperand());
+      }
     }
     return success();
   };
@@ -234,17 +243,7 @@ public:
   LogicalResult
   matchAndRewrite(d2m::StreamLayoutOp op, d2m::StreamLayoutOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
-
-    if (auto castOp =
-            op.getInput().getDefiningOp<ttir::TTNNMetalLayoutCastOp>()) {
-      rewriter.replaceAllUsesWith(op, castOp.getOperand());
-      rewriter.eraseOp(castOp);
-    } else {
-      llvm_unreachable("Expected TTNNMetalLayoutCastOp as stream input.");
-    }
-
-    // Canonicalization will clean up dead inputs of stream_layout.
-    rewriter.eraseOp(op);
+    rewriter.replaceOp(op, adaptor.getInput());
     return success();
   };
 };

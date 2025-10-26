@@ -128,6 +128,12 @@ def TTNNLoadInputTensors: Pass<"ttnn-load-input-tensors", "::mlir::ModuleOp"> {
     }
     ```
   }];
+  let options = [
+    Option<"tensorLoadDirectory", "tensor-load-directory", "std::string", /*default=*/"\"\"",
+           "Directory path where input tensors are stored">,
+    Option<"tensorLoadFilePrefix", "tensor-load-file-prefix", "std::string", /*default=*/"\"arg\"",
+           "Prefix for input tensor files">,
+  ];
 }
 
 def TTNNTuplifyTensors: Pass<"ttnn-tuplify-tensors", "::mlir::ModuleOp"> {
@@ -275,6 +281,14 @@ def TTNNEmitPyWorkarounds: Pass<"ttnn-emitpy-workarounds", "::mlir::ModuleOp"> {
   let summary = "Apply TTNN workarounds specific to EmitPy pipeline.";
   let description = [{
     This pass applies TTNN workarounds that are specific to the EmitPy pipeline.
+  }];
+}
+
+def TTNNAdjustDeallocs: Pass<"ttnn-adjust-deallocs", "::mlir::ModuleOp"> {
+  let summary = "Adjust previously inserted tensor deallocation ops.";
+  let description = [{
+    This pass will adjust previously inserted tensor deallocation ops. It will
+    remove deallocations of parameter and constant tensors.
   }];
 }
 

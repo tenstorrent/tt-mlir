@@ -506,4 +506,57 @@ def D2MInsertStreams: Pass<"d2m-insert-streams", "::mlir::ModuleOp"> {
   let options = D2MStreamingOptions;
 }
 
+def D2MGridSelection: Pass<"d2m-grid-selection", "::mlir::ModuleOp"> {
+  let summary = "Optimized grid selection for D2M generic ops.";
+  let description = [{
+    This pass optimizes the grid selection for D2M generic operations. It walks through
+    all d2m.generic ops and updates their operand ToLayoutOps with optimal grid sizes
+    and proper dimAlignments based on the tensor physical shapes.
+
+    The TTIRToD2M conversion creates all tensors with simple 1x1 grids and minimal
+    dimAlignments. This pass then computes the optimal grid for each tensor based on
+    its physical shape, finding the largest grid dimensions that evenly divide the shape.
+    It also recomputes proper dimAlignments that account for grid-based alignment requirements.
+
+    Note: This pass is not used in TTNN mode, where grids are already correctly set.
+    The pipeline conditionally adds this pass only for non-TTNN mode.
+  }];
+  let dependentDialects = ["::mlir::tt::d2m::D2MDialect", "::mlir::tt::ttcore::TTCoreDialect"];
+  let options = [
+    ListOption<"overrideDeviceShape", "override-device-shape", "int64_t",
+        "Override the device shape for grid optimization.">,
+  ];
+}
+
+def D2MGenericReplaceGlobals : Pass<"d2m-generic-replace-globals", "::mlir::ModuleOp"> {
+  let summary = "Replace `ttcore.get_global` operations with direct operand references within `d2m.generic` operations";
+  let description = [{
+    This pass replaces `ttcore.get_global` operations within `d2m.generic` operations
+    with direct references to the corresponding operands of the parent generic operation.
+    When a `ttcore.get_global` operation appears within a `d2m.generic` operation's compute
+    region, and the global has an associated index, this pass replaces the get_global
+    operation with the corresponding operand from the generic operation's operand list.
+    This transformation eliminates unnecessary global symbol lookups and enables better
+    optimization opportunities by making data flow more explicit within the generic
+    operation's regions.
+    Example transformation:
+    ```mlir
+    // Before:
+    d2m.generic ins(%arg0, %arg1 : tensor<...>, tensor<...>) {
+    ^bb0(%cb0: memref<...>, %cb1: memref<...>):
+      %global_val = ttcore.get_global @my_global : tensor<...>
+      // ... use %global_val ...
+    }
+    // After (assuming @my_global has index 0):
+    d2m.generic ins(%arg0, %arg1 : tensor<...>, tensor<...>) {
+    ^bb0(%cb0: memref<...>, %cb1: memref<...>):
+      // ... use %arg0 directly instead of %global_val ...
+    }
+    ```
+    This pass only operates on `ttcore.get_global` operations that:
+    1. Are contained within a `d2m.generic` operation
+    2. Reference a global that has a valid index attribute
+    3. The index corresponds to a valid operand in the parent generic operation
+  }];
+}
 #endif

@@ -26,6 +26,15 @@ public:
   // const evaluation, which will improve performance by eliminating the need
   // for preprocessing the weights and bias on the host/device.
   void runOnOperation() final {
+#ifndef TTMLIR_ENABLE_OPMODEL
+    llvm::llvm_unreachable_internal(
+        "TTNNPrepareConv2dWeightsAndBias pass requires OpModel support to be "
+        "enabled.");
+#else
+    // Device lifecycle is managed by OpModelDeviceWrapperPass in the pipeline,
+    // but for standalone pass usage, the guard opens/closes it.
+    op_model::ScopedSingletonDeviceGuard deviceGuard;
+
     ModuleOp moduleOp = getOperation();
     IRRewriter rewriter(&getContext());
 
@@ -91,7 +100,7 @@ public:
               conv2dOp.getPaddingAttr(), conv2dOp.getDilationAttr(),
               rewriter.getBoolAttr(conv2dOp.getBias() != nullptr),
               conv2dOp.getGroupsAttr(), conv2dOp.getDevice(), inputDtypeAttr,
-              outputDtypeAttr, conv2dConfig,
+              outputDtypeAttr, conv2dConfig, /*compute_config=*/nullptr,
               conv2dOp.getConv2dSliceConfigAttr());
 
       ttnn::PrepareConv2dBiasOp prepareConv2dBiasOp;
@@ -108,7 +117,7 @@ public:
             conv2dOp.getStrideAttr(), conv2dOp.getPaddingAttr(),
             conv2dOp.getDilationAttr(), conv2dOp.getGroupsAttr(),
             conv2dOp.getDevice(), inputDtypeAttr, outputDtypeAttr, conv2dConfig,
-            conv2dOp.getConv2dSliceConfigAttr());
+            /*compute_config=*/nullptr, conv2dOp.getConv2dSliceConfigAttr());
       }
 
       // Update only the weight and bias since PrepareConv2dWeightsOp and
@@ -127,14 +136,7 @@ public:
         conv2dOp.setConv2dConfigAttr(conv2dConfig);
       });
     });
-
-#ifdef TTMLIR_ENABLE_OPMODEL
-    // Explicitly close device, leaving it open causes issues in frontend
-    // runtime.
-    // This will be removed once we switch to virtual device:
-    // https://github.com/tenstorrent/tt-metal/issues/14000
-    op_model::SingletonDeviceContext::closeInstance();
-#endif
+#endif // TTMLIR_ENABLE_OPMODEL
   }
 
 private:

@@ -4,7 +4,7 @@
 
 import pytest
 import torch
-from typing import Callable
+from typing import Callable, List, Optional
 
 from builder.base.builder import Operand, Shape
 from builder.ttnn.ttnn_builder import TTNNBuilder
@@ -18,9 +18,9 @@ def multiply(
     in0: Operand,
     in1: Operand,
     builder: TTNNBuilder,
+    unit_attrs: Optional[List[str]] = None,
 ):
-    builder.set_graph_level_check(True)
-    return builder.multiply(in0, in1)
+    return builder.multiply(in0, in1, unit_attrs=unit_attrs)
 
 
 @pytest.mark.parametrize("shape", [(32, 32)], ids=shape_str)

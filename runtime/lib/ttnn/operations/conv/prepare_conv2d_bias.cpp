@@ -49,6 +49,12 @@ void run(const ::tt::target::ttnn::PrepareConv2dBiasOp *op,
     conv2dConfig = utils::createConv2dConfig(op->conv2d_config());
   }
 
+  std::optional<::ttnn::DeviceComputeKernelConfig> computeConfig;
+  if (op->compute_config()) {
+    computeConfig =
+        utils::createDeviceComputeKernelConfig(op->compute_config());
+  }
+
   std::variant<std::array<uint32_t, 2>, std::array<uint32_t, 4>> padding;
   if (op->padding()->size() == 2) {
     std::array<uint32_t, 2> symPadding;
@@ -74,8 +80,7 @@ void run(const ::tt::target::ttnn::PrepareConv2dBiasOp *op,
       op->in_channels(), op->out_channels(), op->batch_size(),
       op->input_height(), op->input_width(), kernelSize, stride, padding,
       dilation, op->groups(), &targetDevice, inputDtype, outputDtype,
-      conv2dConfig,
-      /*compute_config_=*/std::nullopt, sliceConfig);
+      conv2dConfig, computeConfig, sliceConfig);
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }

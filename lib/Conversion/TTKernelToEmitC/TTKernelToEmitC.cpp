@@ -159,6 +159,9 @@ datatypeToDataformatEnumValue(Builder &builder,
   case ::mlir::tt::ttcore::DataType::Int32:
     expression += "Int32";
     break;
+  case ::mlir::tt::ttcore::DataType::Bool:
+    llvm_unreachable("Bool DataType is not supported in TTKernel DataFormat");
+    break;
   }
   expression += ")";
   return builder.getType<emitc::OpaqueAttr>(expression.c_str());
@@ -415,7 +418,11 @@ public:
       }
       if (operandsIter != operandsEnd) {
         if (mlir::isa<ttkernel::CBType>(
-                op.getOperands()[operandsIter.getIndex()].getType())) {
+                op.getOperands()[operandsIter.getIndex()].getType()) &&
+            op->getParentOfType<func::FuncOp>()
+                    ->getAttrOfType<ttkernel::ThreadTypeAttr>(
+                        ttkernel::ThreadTypeAttr::name)
+                    .getValue() == ttkernel::ThreadType::Compute) {
           auto cbPrinter =
               rewriter
                   .create<emitc::CallOpaqueOp>(
@@ -762,7 +769,6 @@ public:
 
     patterns.add<
         TTKernelToEmitCGetCompileArgValRewriter, TTKernelToEmitCDPrintRewriter,
-        TTKernelToEmitCPassthroughRewriter<ttkernel::CBReinterpretShapeOp>,
         TTKernelMacroOpToEmitCOpRewriter<ttkernel::MemZerosBaseOp>,
         TTKernelMacroOpToEmitCOpRewriter<ttkernel::MemZerosSizeOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::GetArgValOp>,

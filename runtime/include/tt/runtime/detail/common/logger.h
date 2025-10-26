@@ -237,12 +237,7 @@ private:
   std::ofstream log_file;
   std::ostream *fd = &std::cout;
   uint64_t mask = (1ULL << LogAlways);
-  Level min_level =
-#if defined(TT_RUNTIME_DEBUG) && (TT_RUNTIME_DEBUG == 1)
-      Level::Trace;
-#else
-      Level::Info;
-#endif
+  Level min_level = Level::Info;
 };
 
 template <typename... Args>

@@ -41,7 +41,6 @@ def check_op(mlir_file: str, op_name: str) -> bool:
 )
 @pytest.mark.parametrize("dimension", [1])  # channel dimension for NCHW format
 @pytest.mark.parametrize("epsilon", [0.0])
-@pytest.mark.parametrize("training", [False])
 def test_batch_norm_decomposition(
     shapes: List[Shape],
     dtypes: List[torch.dtype],
@@ -51,7 +50,6 @@ def test_batch_norm_decomposition(
     groups: int,
     dimension: int,
     epsilon: float,
-    training: bool,
     request,
     device,
 ):
@@ -99,7 +97,6 @@ def test_batch_norm_decomposition(
             bn_variance_data,
             bn_scale_data,
             bn_offset_data,
-            training=training,
             eps=epsilon,
         )
 
@@ -122,7 +119,6 @@ def test_batch_norm_decomposition(
             bn_variance,
             epsilon=epsilon,
             dimension=dimension,
-            training=training,
             unit_attrs=unit_attrs,
         )
 

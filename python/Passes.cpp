@@ -319,6 +319,23 @@ void populatePassesModule(nb::module_ &m) {
     return wrapInCapsule(mlir::tt::ttnn::ttnnToFlatbuffer(moduleOp));
   });
 
+  m.def("ttmetal_to_flatbuffer_bin", [](MlirModule module) {
+    mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
+
+    // Create a dialect registry and register all necessary dialects and
+    // translations
+    mlir::DialectRegistry registry;
+
+    // Register all LLVM IR translations
+    registerAllToLLVMIRTranslations(registry);
+
+    // Apply the registry to the module's context
+    moduleOp->getContext()->appendDialectRegistry(registry);
+
+    return wrapInCapsule(
+        mlir::tt::ttmetal::translateTTMetalToFlatbuffer(moduleOp));
+  });
+
   m.def(
       "ttkernel_to_cpp",
       [](MlirModule module) {
@@ -402,6 +419,8 @@ void populatePassesModule(nb::module_ &m) {
       .value("Float16", ::tt::target::DataType::Float16)
       .value("BFloat16", ::tt::target::DataType::BFloat16)
       .value("Int32", ::tt::target::DataType::Int32)
+      .value("UInt32", ::tt::target::DataType::UInt32)
+      .value("UInt16", ::tt::target::DataType::UInt16)
       .value("UInt8", ::tt::target::DataType::UInt8);
 
   m.def("lookup_dtype", [](std::string enumName) {

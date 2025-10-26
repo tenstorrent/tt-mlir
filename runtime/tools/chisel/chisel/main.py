@@ -146,7 +146,7 @@ def main():
     except Exception as e:
         raise RuntimeError(f"Failed to compile TTIR pipeline: {e}")
 
-    ttnn_to_flatbuffer_file(ttnn_module, str(args.flatbuffer_path))
+    ttnn_to_flatbuffer_file(ttnn_module, str(args.flatbuffer_path), {}, {})
 
     print("TTIR compilation completed successfully")
 

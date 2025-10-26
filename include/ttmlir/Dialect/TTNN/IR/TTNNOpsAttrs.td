@@ -456,6 +456,7 @@ def TTNN_Conv2dConfigAttr : TTNN_Attr<"Conv2dConfig", "conv2d_config"> {
     - `enable_act_double_buffer`: Enable activation double buffering for increased performance at cost of higher L1 usage (default: false)
     - `enable_weights_double_buffer`: Enable weights double buffering when using block sharding for increased performance at cost of higher L1 usage (default: false)
     - `in_place`: Re-use input tensor storage when creating output tensor (default: false)
+    - `enable_kernel_stride_folding`: Enables tensor folding optimization
 
     Example:
 
@@ -474,7 +475,8 @@ def TTNN_Conv2dConfigAttr : TTNN_Attr<"Conv2dConfig", "conv2d_config"> {
       output_layout = tile,
       enable_act_double_buffer = false,
       enable_weights_double_buffer = false,
-      in_place = false
+      in_place = false,
+      enable_kernel_stride_folding = false
     >
     ```
   }];
@@ -493,7 +495,8 @@ def TTNN_Conv2dConfigAttr : TTNN_Attr<"Conv2dConfig", "conv2d_config"> {
                         OptionalParameter<"std::optional<Layout>">:$output_layout,
                         OptionalParameter<"BoolAttr">:$enable_act_double_buffer,
                         OptionalParameter<"BoolAttr">:$enable_weights_double_buffer,
-                        OptionalParameter<"BoolAttr">:$in_place);
+                        OptionalParameter<"BoolAttr">:$in_place,
+                        OptionalParameter<"BoolAttr">:$enable_kernel_stride_folding);
 
   let builders = [
     AttrBuilder<(ins )>
@@ -517,6 +520,7 @@ def TTNN_Conv2dConfigAttr : TTNN_Attr<"Conv2dConfig", "conv2d_config"> {
     Conv2dConfigAttr withEnableActDoubleBuffer(bool value) const;
     Conv2dConfigAttr withEnableWeightsDoubleBuffer(bool value) const;
     Conv2dConfigAttr withInPlace(bool value) const;
+    Conv2dConfigAttr withEnableKernelStrideFolding(bool value) const;
     bool hasActivation() const;
     bool hasWeightsDtype() const;
     bool hasDeallocateActivation() const;
@@ -534,6 +538,7 @@ def TTNN_Conv2dConfigAttr : TTNN_Attr<"Conv2dConfig", "conv2d_config"> {
     bool hasEnableActDoubleBuffer() const;
     bool hasEnableWeightsDoubleBuffer() const;
     bool hasInPlace() const;
+    bool hasEnableKernelStrideFolding() const;
   }];
 
   let assemblyFormat = "`<` struct(params) `>`";
@@ -854,6 +859,10 @@ def TTNN_TraceIdAttr : TTNN_Attr<"TraceId", "trace_id"> {
   let description = [{
     A unit attribute indicating that the tensor represents `trace_id`.
   }];
+}
+
+def TTNN_TopologyAttr : EnumAttr<TTNN_Dialect, TTNN_Topology, "topology"> {
+  let assemblyFormat = "`<` $value `>`";
 }
 
 #endif  // TTMLIR_TTMLIR_DIALECT_TTNN_TTNNOPSATTRS_TD
