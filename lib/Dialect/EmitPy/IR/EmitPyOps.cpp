@@ -11,6 +11,7 @@
 
 #include "llvm/Support/LogicalResult.h"
 #include "llvm/Support/raw_ostream.h"
+#include <llvm/Support/LogicalResult.h>
 
 using namespace mlir;
 using namespace mlir::tt::emitpy;
@@ -398,18 +399,17 @@ LogicalResult ConstantOp::verify() {
 
 static void printEmitPyGlobalOpInitialValue(OpAsmPrinter &p, GlobalOp op,
                                             Attribute initialValue) {
-  p << ": ";
+  p << "= ";
   p.printAttributeWithoutType(initialValue);
 }
 
 static ParseResult parseEmitPyGlobalOpInitialValue(OpAsmParser &parser,
                                                    Attribute &initialValue) {
-  if (parser.parseColon()) {
-    return parser.emitError(parser.getNameLoc(),
-                            "expected ':' after symbol name");
+  if (parser.parseEqual()) {
+    return failure();
   }
 
-  if (parser.parseAttribute(initialValue)) {
+  if (!parser.parseAttribute(initialValue)) {
     return failure();
   }
 
@@ -453,7 +453,7 @@ static bool isValidPythonIdentifier(StringRef name) {
 LogicalResult GlobalOp::verify() {
   Attribute value = getInitialValue();
   if (!value) {
-    return emitOpError() << "requires initial value for global variable";
+    return failure();
   }
 
   StringRef name = getName();
@@ -469,30 +469,19 @@ LogicalResult GlobalOp::verify() {
 }
 
 //===----------------------------------------------------------------------===//
-// AssignGlobalOp
-//===----------------------------------------------------------------------===//
-
-LogicalResult
-AssignGlobalOp::verifySymbolUses(SymbolTableCollection &symbolTable) {
-  return verifyNearestGlobalSymbol<AssignGlobalOp>(*this, symbolTable);
-}
-
-//===----------------------------------------------------------------------===//
-// GlobalStatementOp
-//===----------------------------------------------------------------------===//
-
-LogicalResult
-GlobalStatementOp::verifySymbolUses(SymbolTableCollection &symbolTable) {
-  return verifyNearestGlobalSymbol<GlobalStatementOp>(*this, symbolTable);
-}
-
-//===----------------------------------------------------------------------===//
 // GetGlobalOp
 //===----------------------------------------------------------------------===//
 
 LogicalResult
 GetGlobalOp::verifySymbolUses(SymbolTableCollection &symbolTable) {
-  return verifyNearestGlobalSymbol<GetGlobalOp>(*this, symbolTable);
+  auto global =
+      symbolTable.lookupNearestSymbolFrom<GlobalOp>(*this, getNameAttr());
+  if (!global) {
+    return emitOpError("'")
+           << getName() << "' does not reference a valid emitpy.global ";
+  }
+
+  return success();
 }
 
 #define GET_OP_CLASSES
