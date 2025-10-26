@@ -236,7 +236,11 @@ class StableHLOBuilder(Builder):
         )
 
     def div(
-        self, in0: Operand, in1: Operand, unit_attrs: Optional[List[str]] = None
+        self,
+        in0: Operand,
+        in1: Operand,
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
     ) -> OpView:
         """
         Creates ``stablehlo.divide``.
@@ -267,10 +271,15 @@ class StableHLOBuilder(Builder):
             stablehlo.DivOp,
             [in0, in1],
             unit_attrs=unit_attrs,
+            sharding_attr=sharding_attr,
         )
 
     def max(
-        self, in0: Operand, in1: Operand, unit_attrs: Optional[List[str]] = None
+        self,
+        in0: Operand,
+        in1: Operand,
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
     ) -> OpView:
         """
         Creates ``stablehlo.maximum``.
@@ -300,10 +309,15 @@ class StableHLOBuilder(Builder):
             stablehlo.MaxOp,
             [in0, in1],
             unit_attrs=unit_attrs,
+            sharding_attr=sharding_attr,
         )
 
     def min(
-        self, in0: Operand, in1: Operand, unit_attrs: Optional[List[str]] = None
+        self,
+        in0: Operand,
+        in1: Operand,
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
     ) -> OpView:
         """
         Creates ``stablehlo.minimum``.
@@ -333,10 +347,15 @@ class StableHLOBuilder(Builder):
             stablehlo.MinOp,
             [in0, in1],
             unit_attrs=unit_attrs,
+            sharding_attr=sharding_attr,
         )
 
     def multiply(
-        self, in0: Operand, in1: Operand, unit_attrs: Optional[List[str]] = None
+        self,
+        in0: Operand,
+        in1: Operand,
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
     ) -> OpView:
         """
         Creates ``stablehlo.multiply``.
@@ -367,10 +386,15 @@ class StableHLOBuilder(Builder):
             stablehlo.MulOp,
             [in0, in1],
             unit_attrs=unit_attrs,
+            sharding_attr=sharding_attr,
         )
 
     def subtract(
-        self, in0: Operand, in1: Operand, unit_attrs: Optional[List[str]] = None
+        self,
+        in0: Operand,
+        in1: Operand,
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
     ) -> OpView:
         """
         Creates ``stablehlo.subtract``.
@@ -401,10 +425,15 @@ class StableHLOBuilder(Builder):
             stablehlo.SubtractOp,
             [in0, in1],
             unit_attrs=unit_attrs,
+            sharding_attr=sharding_attr,
         )
 
     def remainder(
-        self, in0: Operand, in1: Operand, unit_attrs: Optional[List[str]] = None
+        self,
+        in0: Operand,
+        in1: Operand,
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
     ) -> OpView:
         """
         Creates ``stablehlo.remainder``.
@@ -435,10 +464,15 @@ class StableHLOBuilder(Builder):
             stablehlo.RemOp,
             [in0, in1],
             unit_attrs=unit_attrs,
+            sharding_attr=sharding_attr,
         )
 
     def pow(
-        self, in0: Operand, in1: Operand, unit_attrs: Optional[List[str]] = None
+        self,
+        in0: Operand,
+        in1: Operand,
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
     ) -> OpView:
         """
         Creates ``stablehlo.power``.
@@ -469,10 +503,15 @@ class StableHLOBuilder(Builder):
             stablehlo.PowOp,
             [in0, in1],
             unit_attrs=unit_attrs,
+            sharding_attr=sharding_attr,
         )
 
     def atan2(
-        self, in0: Operand, in1: Operand, unit_attrs: Optional[List[str]] = None
+        self,
+        in0: Operand,
+        in1: Operand,
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
     ) -> OpView:
         """
         Creates ``stablehlo.atan2``.
@@ -503,10 +542,15 @@ class StableHLOBuilder(Builder):
             stablehlo.Atan2Op,
             [in0, in1],
             unit_attrs=unit_attrs,
+            sharding_attr=sharding_attr,
         )
 
     def shift_right_logical(
-        self, in0: Operand, in1: Operand, unit_attrs: Optional[List[str]] = None
+        self,
+        in0: Operand,
+        in1: Operand,
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
     ) -> OpView:
         """
         Creates ``stablehlo.shift_right_logical``.
@@ -537,10 +581,15 @@ class StableHLOBuilder(Builder):
             stablehlo.ShiftRightLogicalOp,
             [in0, in1],
             unit_attrs=unit_attrs,
+            sharding_attr=sharding_attr,
         )
 
     def shift_left(
-        self, in0: Operand, in1: Operand, unit_attrs: Optional[List[str]] = None
+        self,
+        in0: Operand,
+        in1: Operand,
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
     ) -> OpView:
         """
         Creates ``stablehlo.shift_left``.
@@ -571,10 +620,16 @@ class StableHLOBuilder(Builder):
             stablehlo.ShiftLeftOp,
             [in0, in1],
             unit_attrs=unit_attrs,
+            sharding_attr=sharding_attr,
         )
 
     def select(
-        self, condition: Operand, in0: Operand, in1: Operand, unit_attrs: Optional[List[str]] = None
+        self,
+        condition: Operand,
+        in0: Operand,
+        in1: Operand,
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
     ) -> OpView:
         """
         Creates ``stablehlo.select``.
@@ -607,6 +662,7 @@ class StableHLOBuilder(Builder):
             stablehlo.SelectOp,
             [condition, in0, in1],
             unit_attrs=unit_attrs,
+            sharding_attr=sharding_attr,
         )
 
     # ----- Elementwise Unary Operations -----
