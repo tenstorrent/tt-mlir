@@ -16,6 +16,8 @@ include "mlir/IR/CommonTypeConstraints.td"
 include "mlir/IR/CommonAttrConstraints.td"
 include "mlir/IR/OpBase.td"
 include "mlir/IR/RegionKindInterface.td"
+include "mlir/IR/SymbolInterfaces.td"
+
 
 //===----------------------------------------------------------------------===//
 // EmitPy ops definitions.
@@ -195,6 +197,35 @@ def EmitPy_ConstantOp : EmitPy_Op<"constant", [ConstantLike]> {
   let results = (outs AnyType:$result);
 
   let hasVerifier = 1;
+}
+
+
+def EmitPy_GlobalOp : EmitPy_Op<"global", [Symbol]> {
+  let summary = "A global variable";
+  let description = [{
+    The `emitpy.global` operation defines a named global variable.
+  }];
+
+  let arguments = (ins SymbolNameAttr:$sym_name,
+                       EmitPy_OpaqueOrTypedAttr:$initial_value);
+
+  let hasVerifier = 1;
+  let assemblyFormat = [{ 
+       $sym_name custom<EmitPyGlobalOpInitialValue>($initial_value) attr-dict
+  }];
+}
+
+def EmitPy_GetGlobalOp : EmitPy_Op<"get_global",
+    [Pure, DeclareOpInterfaceMethods<SymbolUserOpInterface>]> {
+  let summary = "Obtain access to a global variable";
+  let description = [{
+     The `emitpy.get_global` operation retrieves the value of a
+     named global variable.
+  }];
+
+  let arguments = (ins FlatSymbolRefAttr:$name);
+  let results = (outs AnyType:$result);
+  let assemblyFormat = "$name `:` type($result) attr-dict";
 }
 
 #endif // TTMLIR_TTMLIR_DIALECT_EMITPY_EMITPYOPS_TD
