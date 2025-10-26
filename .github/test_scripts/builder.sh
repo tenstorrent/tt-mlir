@@ -21,7 +21,7 @@ for flag in $3; do
     [[ "$flag" == "require-opmodel" ]] && PYTEST_ARGS="$PYTEST_ARGS --require-opmodel"
 done
 
-pytest "$1" -m "$2" $PYTEST_ARGS -v --junit-xml=$TEST_REPORT_PATH
+pytest "$1" -m "$2" $PYTEST_ARGS -v --junit-xml=${TEST_REPORT_PATH%_*}_builder_${TEST_REPORT_PATH##*_}
 
 # Messy file management temporary until issue #5309 is resolved
 if [[ "$runttrt" == "1" ]]; then

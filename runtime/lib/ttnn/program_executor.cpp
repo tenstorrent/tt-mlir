@@ -27,6 +27,7 @@
 #include "operations/data_movement/repeat.h"
 #include "operations/data_movement/repeat_interleave.h"
 #include "operations/data_movement/reshape.h"
+#include "operations/data_movement/scatter.h"
 #include "operations/data_movement/slice.h"
 #include "operations/data_movement/sort.h"
 #include "operations/data_movement/transpose.h"
@@ -264,6 +265,10 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   case ::tt::target::ttnn::OpType::ConcatOp: {
     return operations::data_movement::run(op->type_as_ConcatOp(), getContext());
   }
+  case ::tt::target::ttnn::OpType::ScatterOp: {
+    return operations::data_movement::run(op->type_as_ScatterOp(),
+                                          getContext());
+  }
   case ::tt::target::ttnn::OpType::ConcatenateHeadsOp: {
     return operations::transformer::run(op->type_as_ConcatenateHeadsOp(),
                                         getContext());
@@ -376,8 +381,13 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   case ::tt::target::ttnn::OpType::LoadCachedOp: {
     return operations::cache::run(op->type_as_LoadCachedOp(), getContext());
   }
-  case ::tt::target::ttnn::OpType::BatchNormOp: {
-    return operations::batch_norm::run(op->type_as_BatchNormOp(), getContext());
+  case ::tt::target::ttnn::OpType::BatchNormInferenceOp: {
+    return operations::batch_norm::run(op->type_as_BatchNormInferenceOp(),
+                                       getContext());
+  }
+  case ::tt::target::ttnn::OpType::BatchNormTrainingOp: {
+    return operations::batch_norm::run(op->type_as_BatchNormTrainingOp(),
+                                       getContext());
   }
   case ::tt::target::ttnn::OpType::DumpTensorOp: {
     return operations::tensor_serialization::run(op->type_as_DumpTensorOp(),

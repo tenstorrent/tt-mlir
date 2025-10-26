@@ -99,9 +99,6 @@ def _build_matmul_parallel(
     "mesh_shape", [(2, 4), (1, 8), (1, 2), (4, 2), (8, 1), (2, 1)], ids=shape_str
 )
 @pytest.mark.parametrize("cluster_axis", [0, 1])
-@pytest.mark.xfail(
-    reason="Runtime hang, see https://github.com/tenstorrent/tt-mlir/issues/5262"
-)
 def test_matmul_k_split_parallelism(
     shapes: List[Shape], mesh_shape: Tuple[int, int], cluster_axis: int, request, device
 ):
@@ -135,7 +132,6 @@ def test_matmul_k_split_parallelism(
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
         device=device,
-        skip_exec=True,
     )
 
 
@@ -150,9 +146,6 @@ def test_matmul_k_split_parallelism(
     ids=lambda s: shape_str(s[0]) + "_" + shape_str(s[1]),
 )
 @pytest.mark.parametrize("mesh_shape", [(2, 4), (1, 8), (1, 2)], ids=shape_str)
-@pytest.mark.xfail(
-    reason="Runtime hang, see https://github.com/tenstorrent/tt-mlir/issues/5262"
-)
 def test_parallelized_matmul_with_unary_chaining(
     shapes: List[Shape], mesh_shape: Tuple[int, int], request, device
 ):
@@ -194,7 +187,6 @@ def test_parallelized_matmul_with_unary_chaining(
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
-        skip_exec=True,
     )
 
 
@@ -209,9 +201,6 @@ def test_parallelized_matmul_with_unary_chaining(
     ids=lambda s: shape_str(s[0]) + "_" + shape_str(s[1]),
 )
 @pytest.mark.parametrize("mesh_shape", [(2, 4), (1, 8), (1, 2)], ids=shape_str)
-@pytest.mark.xfail(
-    reason="Runtime hang, see https://github.com/tenstorrent/tt-mlir/issues/5262"
-)
 def test_parallelized_matmul_with_binary_chaining(
     shapes: List[Shape], mesh_shape: Tuple[int, int], request, device
 ):
@@ -259,7 +248,6 @@ def test_parallelized_matmul_with_binary_chaining(
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
-        skip_exec=True,
     )
 
 
@@ -275,9 +263,6 @@ def test_parallelized_matmul_with_binary_chaining(
     ids=lambda s: shape_str(s[0]) + "_" + shape_str(s[1]),
 )
 @pytest.mark.parametrize("mesh_shape", [(2, 4), (1, 8), (1, 2)], ids=shape_str)
-@pytest.mark.xfail(
-    reason="Runtime hang, see https://github.com/tenstorrent/tt-mlir/issues/5262"
-)
 def test_parallelized_matmul_fusion_with_binary_chaining(
     shapes: List[Shape], mesh_shape: Tuple[int, int], request, device
 ):
@@ -330,7 +315,6 @@ def test_parallelized_matmul_fusion_with_binary_chaining(
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
-        skip_exec=True,
     )
 
 
@@ -358,9 +342,6 @@ def test_parallelized_matmul_fusion_with_binary_chaining(
 )
 @pytest.mark.parametrize(
     "mesh_shape", [(2, 4), (1, 8), (1, 2), (4, 2), (8, 1), (2, 1)], ids=shape_str
-)
-@pytest.mark.xfail(
-    reason="Runtime hang, see https://github.com/tenstorrent/tt-mlir/issues/5262"
 )
 def test_parallelized_elementwise_operations(
     shape: Shape, shard_dims: List[int], mesh_shape: Tuple[int, int], request, device
@@ -406,7 +387,6 @@ def test_parallelized_elementwise_operations(
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
-        skip_exec=True,
     )
 
 
@@ -426,9 +406,6 @@ def test_parallelized_elementwise_operations(
     ids=lambda s: shape_str(s[0]) + "_" + shape_str(s[1]),
 )
 @pytest.mark.parametrize("mesh_shape", [(2, 4), (1, 8), (1, 2)], ids=shape_str)
-@pytest.mark.xfail(
-    reason="Runtime hang, see https://github.com/tenstorrent/tt-mlir/issues/5262"
-)
 def test_mixed_device_parallelism_with_unary(
     shapes: List[Shape], mesh_shape: Tuple[int, int], request, device
 ):
@@ -462,7 +439,6 @@ def test_mixed_device_parallelism_with_unary(
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
-        skip_exec=True,
     )
 
 
@@ -477,9 +453,6 @@ def test_mixed_device_parallelism_with_unary(
     ids=lambda s: shape_str(s[0]) + "_" + shape_str(s[1]),
 )
 @pytest.mark.parametrize("mesh_shape", [(2, 4), (1, 8), (1, 2)], ids=shape_str)
-@pytest.mark.xfail(
-    reason="Runtime hang, see https://github.com/tenstorrent/tt-mlir/issues/5262"
-)
 def test_mixed_device_parallelism_with_binary(
     shapes: List[Shape], mesh_shape: Tuple[int, int], request, device
 ):
@@ -512,7 +485,6 @@ def test_mixed_device_parallelism_with_binary(
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
-        skip_exec=True,
     )
 
 
@@ -527,9 +499,6 @@ def test_mixed_device_parallelism_with_binary(
     ids=lambda s: shape_str(s[0]) + "_" + shape_str(s[1]),
 )
 @pytest.mark.parametrize("mesh_shape", [(2, 4), (1, 8), (1, 2)], ids=shape_str)
-@pytest.mark.xfail(
-    reason="Runtime hang, see https://github.com/tenstorrent/tt-mlir/issues/5262"
-)
 def test_mixed_device_parallelism_with_dual_matmul(
     shapes: List[Shape], mesh_shape: Tuple[int, int], request, device
 ):
@@ -575,7 +544,6 @@ def test_mixed_device_parallelism_with_dual_matmul(
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
-        skip_exec=True,
     )
 
 
@@ -584,9 +552,6 @@ def test_mixed_device_parallelism_with_dual_matmul(
 JIT_PARALLELISM_TESTS_INPUT_SHAPES = [(64, 1, 128, 2048), (1, 1, 2048, 128)]
 
 
-@pytest.mark.xfail(
-    reason="Runtime hang, see https://github.com/tenstorrent/tt-mlir/issues/5262"
-)
 @pytest.mark.parametrize("mesh_shape", [(1, 2), (1, 8), (1, 32)], ids=shape_str)
 def test_jit_tensor_parallel(mesh_shape: Tuple[int, int], request, device):
     shapes = JIT_PARALLELISM_TESTS_INPUT_SHAPES
@@ -645,13 +610,9 @@ def test_jit_tensor_parallel(mesh_shape: Tuple[int, int], request, device):
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
         device=device,
-        skip_exec=True,
     )
 
 
-@pytest.mark.xfail(
-    reason="Runtime hang, see https://github.com/tenstorrent/tt-mlir/issues/5262"
-)
 @pytest.mark.parametrize("mesh_shape", [(1, 2), (1, 8), (1, 32)], ids=shape_str)
 def test_jit_data_parallel(mesh_shape: Tuple[int, int], request, device):
     shapes = JIT_PARALLELISM_TESTS_INPUT_SHAPES
@@ -704,13 +665,9 @@ def test_jit_data_parallel(mesh_shape: Tuple[int, int], request, device):
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
         device=device,
-        skip_exec=True,
     )
 
 
-@pytest.mark.xfail(
-    reason="Runtime hang, see https://github.com/tenstorrent/tt-mlir/issues/5262"
-)
 @pytest.mark.parametrize("mesh_shape", [(2, 4), (8, 4)], ids=shape_str)
 def test_jit_data_tensor_parallel(mesh_shape: Tuple[int, int], request, device):
     shapes = JIT_PARALLELISM_TESTS_INPUT_SHAPES
@@ -771,5 +728,4 @@ def test_jit_data_tensor_parallel(mesh_shape: Tuple[int, int], request, device):
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
         device=device,
-        skip_exec=True,
     )

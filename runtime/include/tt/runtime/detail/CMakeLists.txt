@@ -1,3 +1,1 @@
 add_subdirectory(distributed)
-
-add_custom_target(RUNTIME_FBS_GENERATION DEPENDS DISTRIBUTED_FBS)

@@ -144,7 +144,7 @@ toHostSingleTensor(const ::tt::runtime::ttnn::TTNNTensorWrapper &tensorWrapper,
   // If blackhole workarounds are enabled, only untilize on device if the
   // architecture is not blackhole
   if (::tt::runtime::workaround::Env::get().blackholeWorkarounds) {
-    untilizeOnDevice &= getArch() != ::tt::runtime::Arch::BLACKHOLE;
+    untilizeOnDevice &= getArch() != ::tt::target::Arch::Blackhole;
   }
   if (untilizeOnDevice) {
     ::ttnn::Tensor hostTensor = ::ttnn::from_device(
@@ -430,6 +430,12 @@ std::uint32_t getTensorVolume(::tt::runtime::Tensor tensor) {
   return ttnnTensor.physical_volume();
 }
 
+std::uint32_t getTensorLogicalVolume(::tt::runtime::Tensor tensor) {
+  const ::ttnn::Tensor &ttnnTensor =
+      utils::getTTNNTensorFromRuntimeTensor(tensor);
+  return ttnnTensor.logical_volume();
+}
+
 TensorDesc getTensorDesc(::tt::runtime::Tensor tensor) {
   TensorDesc desc;
   desc.dataType = getTensorDataType(tensor);
@@ -451,8 +457,8 @@ void setTensorRetain(::tt::runtime::Tensor tensor, bool retain) {
   return tensorWrapper.setRetain(retain);
 }
 
-Arch getArch() {
-  return ::tt::runtime::common::toRuntimeArch(::tt::tt_metal::hal::get_arch());
+tt::target::Arch getArch() {
+  return ::tt::runtime::common::toTargetArch(::tt::tt_metal::hal::get_arch());
 }
 
 void enablePersistentKernelCache() {
@@ -518,12 +524,20 @@ void closeMeshDevice(Device parentMesh) {
   LOG_ASSERT(ttnnMeshDevice.is_parent_mesh(),
              "Mesh device must be a parent mesh");
 
-#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
-  if (uint32_t numSubMeshes = ttnnMeshDevice.get_submeshes().size()) {
-    LOG_WARNING("Calling close on parent mesh device ", ttnnMeshDevice,
-                " that has ", numSubMeshes, " unreleased submeshes.");
+  uint32_t numUnreleasedSubMeshes = 0;
+  for (const auto &subMesh : ttnnMeshDevice.get_submeshes()) {
+    if (subMesh->is_initialized()) {
+      numUnreleasedSubMeshes++;
+    }
   }
-#endif
+  if (numUnreleasedSubMeshes > 0) {
+    LOG_WARNING("Calling close on parent mesh device ", ttnnMeshDevice,
+                " that has ", numUnreleasedSubMeshes,
+                " unreleased submeshes."
+                "These submeshes will keep the parent mesh device alive. "
+                "To fully close the parent mesh device, please release all of "
+                "its submeshes.");
+  }
 
 #if defined(TT_RUNTIME_ENABLE_PERF_TRACE) && TT_RUNTIME_ENABLE_PERF_TRACE == 1
   ::tt::tt_metal::ReadMeshDeviceProfilerResults(ttnnMeshDevice);
@@ -698,8 +712,8 @@ getMemoryView(Device deviceHandle) {
   return memoryMap;
 }
 
-void setFabricConfig(FabricConfig config) {
-  ::tt::tt_fabric::SetFabricConfig(common::toTTFabricConfig(config));
+void setFabricConfig(tt::runtime::FabricConfig config) {
+  ::tt::tt_fabric::SetFabricConfig(common::toMetalFabricConfig(config));
   RuntimeContext::instance().setCurrentFabricConfig(config);
 }
 
@@ -1107,6 +1121,10 @@ getOpOutputRef(OpContext opContextHandle,
     tensorRef = opContext.type_as_ConcatOp()->out();
     break;
   }
+  case ::tt::target::ttnn::OpType::ScatterOp: {
+    tensorRef = opContext.type_as_ScatterOp()->out();
+    break;
+  }
   case ::tt::target::ttnn::OpType::PermuteOp: {
     tensorRef = opContext.type_as_PermuteOp()->out();
     break;
@@ -1151,8 +1169,8 @@ getOpOutputRef(OpContext opContextHandle,
     tensorRef = opContext.type_as_PrepareConv2dBiasOp()->out();
     break;
   }
-  case ::tt::target::ttnn::OpType::BatchNormOp: {
-    tensorRef = opContext.type_as_BatchNormOp()->out();
+  case ::tt::target::ttnn::OpType::BatchNormInferenceOp: {
+    tensorRef = opContext.type_as_BatchNormInferenceOp()->out();
     break;
   }
   case ::tt::target::ttnn::OpType::RMSNormOp: {
@@ -1235,6 +1253,7 @@ getOpOutputRef(OpContext opContextHandle,
     tensorRef = opContext.type_as_NLPConcatHeadsDecodeOp()->out();
     break;
   }
+  case ::tt::target::ttnn::OpType::BatchNormTrainingOp:
   case ::tt::target::ttnn::OpType::SortOp:
   case ::tt::target::ttnn::OpType::LoadCachedOp:
   case ::tt::target::ttnn::OpType::GetDeviceOp:
@@ -1407,6 +1426,12 @@ getOpInputRefs(OpContext opContextHandle,
         opContext.type_as_ConcatOp()->inputs());
     break;
   }
+  case ::tt::target::ttnn::OpType::ScatterOp: {
+    tensorRefs = {opContext.type_as_ScatterOp()->input(),
+                  opContext.type_as_ScatterOp()->index(),
+                  opContext.type_as_ScatterOp()->source()};
+    break;
+  }
   case ::tt::target::ttnn::OpType::PermuteOp: {
     tensorRefs = {opContext.type_as_PermuteOp()->in()};
     break;
@@ -1451,12 +1476,20 @@ getOpInputRefs(OpContext opContextHandle,
     tensorRefs = {opContext.type_as_PrepareConv2dBiasOp()->bias_tensor()};
     break;
   }
-  case ::tt::target::ttnn::OpType::BatchNormOp: {
-    tensorRefs = {opContext.type_as_BatchNormOp()->input(),
-                  opContext.type_as_BatchNormOp()->running_mean(),
-                  opContext.type_as_BatchNormOp()->running_var(),
-                  opContext.type_as_BatchNormOp()->weight(),
-                  opContext.type_as_BatchNormOp()->bias()};
+  case ::tt::target::ttnn::OpType::BatchNormInferenceOp: {
+    tensorRefs = {opContext.type_as_BatchNormInferenceOp()->input(),
+                  opContext.type_as_BatchNormInferenceOp()->running_mean(),
+                  opContext.type_as_BatchNormInferenceOp()->running_var(),
+                  opContext.type_as_BatchNormInferenceOp()->weight(),
+                  opContext.type_as_BatchNormInferenceOp()->bias()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::BatchNormTrainingOp: {
+    tensorRefs = {opContext.type_as_BatchNormTrainingOp()->input(),
+                  opContext.type_as_BatchNormTrainingOp()->running_mean(),
+                  opContext.type_as_BatchNormTrainingOp()->running_var(),
+                  opContext.type_as_BatchNormTrainingOp()->weight(),
+                  opContext.type_as_BatchNormTrainingOp()->bias()};
     break;
   }
   case ::tt::target::ttnn::OpType::RMSNormOp: {
