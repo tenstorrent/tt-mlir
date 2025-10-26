@@ -1265,13 +1265,27 @@ void GenericOp::getCanonicalizationPatterns(mlir::RewritePatternSet &patterns,
 
           blockArg = region.getArgument(dpsIOBoundary);
           assert(blockArg.getNumUses() > 0);
-          Operation *popOrReserve = *blockArg.getUsers().begin();
-          if (!mlir::isa<d2m::WaitOp, d2m::ReserveOp>(popOrReserve)) {
+
+          // Find a wait/reserve that dominates the DPS operation
+          Operation *waitOrReserve = nullptr;
+          for (Operation *user : blockArg.getUsers()) {
+            if (!mlir::isa<d2m::WaitOp, d2m::ReserveOp>(user)) {
+              continue;
+            }
+            // Check if this wait/reserve dominates the regionOp
+            if (user->getBlock() == regionOp->getBlock() &&
+                user->isBeforeInBlock(regionOp)) {
+              waitOrReserve = user;
+              break;
+            }
+          }
+
+          if (!waitOrReserve) {
             return false;
           }
 
           rewriter.modifyOpInPlace(regionOp, [&]() {
-            initOperand.assign(popOrReserve->getResult(0));
+            initOperand.assign(waitOrReserve->getResult(0));
           });
 
           if (mlir::isa_and_nonnull<EmptyOp, mlir::tensor::EmptyOp>(
