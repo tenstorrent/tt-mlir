@@ -16,7 +16,7 @@ from ttmlir.dialects import d2m, ttcore, tensor, quant
 from ttmlir.passes import GoldenTensor, DataType
 
 from builder.base.builder import *
-from goldens import *
+from golden import *
 
 
 class D2MBuilder(Builder):

@@ -10,7 +10,7 @@ from ttmlir.dialects import ttcore
 from ttmlir.ir import *
 
 from builder.base.builder import Operand, Shape
-from goldens import get_golden_function
+from golden import get_golden_function
 from builder.d2m.d2m_builder import D2MBuilder
 from builder.base.builder_utils import compile_and_execute_d2m
 

@@ -28,7 +28,7 @@ from ttmlir.ir import (
 )
 from ttmlir.dialects import tensor, quant
 from ttmlir.passes import GoldenTensor, DataType
-from goldens import GoldenFunction
+from golden import GoldenFunction
 
 # ----- Public APIs -----
 
