@@ -8,9 +8,7 @@
 
 #include "mlir/IR/BuiltinAttributes.h"
 #include "llvm/Support/raw_ostream.h"
-
-#define GET_OP_CLASSES
-#include "ttmlir/Dialect/EmitPy/IR/EmitPyOps.cpp.inc"
+#include <llvm/Support/LogicalResult.h>
 
 using namespace mlir;
 using namespace mlir::tt::emitpy;
@@ -378,3 +376,54 @@ LogicalResult ConstantOp::verify() {
   }
   return success();
 }
+
+//===----------------------------------------------------------------------===//
+// GlobalOp
+//===----------------------------------------------------------------------===//
+
+static void printEmitPyGlobalOpInitialValue(OpAsmPrinter &p, GlobalOp op,
+                                            Attribute initialValue) {
+  p << "= ";
+  p.printAttributeWithoutType(initialValue);
+}
+
+static ParseResult parseEmitPyGlobalOpInitialValue(OpAsmParser &parser,
+                                                   Attribute &initialValue) {
+  if (parser.parseEqual()) {
+    return failure();
+  }
+
+  if (!parser.parseAttribute(initialValue)) {
+    return failure();
+  }
+
+  return success();
+}
+
+LogicalResult GlobalOp::verify() {
+  Attribute value = getInitialValue();
+  if (!value) {
+    return failure();
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// GetGlobalOp
+//===----------------------------------------------------------------------===//
+
+LogicalResult
+GetGlobalOp::verifySymbolUses(SymbolTableCollection &symbolTable) {
+  auto global =
+      symbolTable.lookupNearestSymbolFrom<GlobalOp>(*this, getNameAttr());
+  if (!global) {
+    return emitOpError("'")
+           << getName() << "' does not reference a valid emitpy.global ";
+  }
+
+  return success();
+}
+
+#define GET_OP_CLASSES
+#include "ttmlir/Dialect/EmitPy/IR/EmitPyOps.cpp.inc"
