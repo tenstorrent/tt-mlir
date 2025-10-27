@@ -632,6 +632,8 @@ private:
             convLayoutAttr.getKernelSpatialDimensions() &&
         convLayoutAttr.getOutputSpatialDimensions() !=
             convLayoutAttr.getKernelSpatialDimensions();
+    isTransposed |= llvm::any_of(adaptor.getInputDilation(),
+                                 [](int64_t d) { return d > 1; });
 
     auto strideAttr = rewriter.getDenseI32ArrayAttr({
         static_cast<int32_t>(adaptor.getWindowStrides()[SPATIAL_DIM_HEIGHT]),
