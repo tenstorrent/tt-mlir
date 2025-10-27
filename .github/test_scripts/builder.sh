@@ -27,6 +27,7 @@ pytest "$1" -m "$2" $PYTEST_ARGS -v --junit-xml=${TEST_REPORT_PATH%_*}_builder_$
 # Messy file management temporary until issue #5309 is resolved
 if [[ "$runttrt" == "1" ]]; then
     if [ -d ttir-builder-artifacts/emitpy ]; then
+        touch concat_emitpy_results.json
         # Create renamed copies of ttnn files so emitpy can find them for comparison
         for file in ttir-builder-artifacts/emitpy/*; do
             if [ -f "$file" ] && [[ "$file" == *.py ]]; then
@@ -54,6 +55,7 @@ if [[ "$runttrt" == "1" ]]; then
         cp ttrt_report.xml ${TEST_REPORT_PATH%_*}_ttir_emitpy_${TEST_REPORT_PATH##*_} || true
     fi
     if [ -d ttir-builder-artifacts/emitc ]; then
+        touch concat_emitc_results.json
         export TT_METAL_LIB="${INSTALL_DIR}/lib"
         ${INSTALL_DIR}/tools/ttnn-standalone/ci_compile_dylib.py --dir ttir-builder-artifacts/emitc
         # Create renamed copies of ttnn files so emitc can find them for comparison
