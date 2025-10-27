@@ -736,6 +736,29 @@ TTNNOperandsWorkaroundsFactory::createSortOpOperandsWorkarounds(
       .addOutputOperandWorkaround(datatypeWorkaround);
 }
 
+// TTNNOperandsWorkarounds
+// TTNNOperandsWorkaroundsFactory::createPagedUpdateCacheOpOperandsWorkarounds(ttnn::PagedUpdateCacheOp
+// op) {
+//   TTNNOperandWorkarounds cacheTensorWorkaround;
+//   TTNNOperandWorkarounds inputTensorWorkaround;
+//   TTNNOperandWorkarounds updateIndexWorkaround;
+//   TTNNOperandWorkarounds pageTableWorkaround;
+
+//   inputTensorWorkaround.tensorMemoryLayoutWorkaround =
+//   TensorMemoryLayoutAttr::get(op.getContext(),
+//   TensorMemoryLayout::HeightSharded);
+//   inputTensorWorkaround.tensorLayoutWorkaround = Layout::Tile;
+//   inputTensorWorkaround.tensorBufferTypeWorkaround = BufferType::L1;
+//   inputTensorWorkaround.tensorLayoutWorkaround
+
+//   return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
+//       .addInputOperandWorkaround(cacheTensorWorkaround)
+//       .addInputOperandWorkaround(inputTensorWorkaround)
+//       .addInputOperandWorkaround(updateIndexWorkaround)
+//       .addInputOperandWorkaround(pageTableWorkaround)
+//       .addOutputOperandWorkaround(cacheTensorWorkaround);
+// }
+
 template TTNNOperandsWorkarounds
 TTNNOperandsWorkaroundsFactory::createConvOpOperandsWorkarounds(
     ttnn::Conv2dOp op);
