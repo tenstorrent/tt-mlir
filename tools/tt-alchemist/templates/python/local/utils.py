@@ -56,3 +56,18 @@ def get_scalar_from_tensor(tensor: ttnn.Tensor) -> int:
 
     host_tensor = ttnn.from_device(tensor)
     return host_tensor.item()
+
+
+def load_tensor(file_path: str, layout, dtype, device, memory_config) -> ttnn.Tensor:
+    loaded_tensor = ttnn.load_tensor(file_path)
+
+    assert loaded_tensor.device() is None, "loaded tensor must be on host"
+
+    if loaded_tensor.dtype != dtype:
+        loaded_tensor = ttnn.to_dtype(loaded_tensor, dtype)
+    if loaded_tensor.layout != layout:
+        loaded_tensor = ttnn.to_layout(loaded_tensor, layout)
+    if device is not None:
+        loaded_tensor = ttnn.to_device(loaded_tensor, device, memory_config)
+
+    return loaded_tensor
