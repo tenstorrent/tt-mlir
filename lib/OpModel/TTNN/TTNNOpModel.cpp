@@ -4,7 +4,6 @@
 
 #include "ttmlir/OpModel/TTNN/TTNNOpModel.h"
 #include "ttmlir/Utils.h"
-#include <operations/eltwise/unary/unary.hpp>
 
 #ifdef TTMLIR_ENABLE_OPMODEL
 
