@@ -2917,7 +2917,6 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     # Complex operations
     ttir.CbrtOp: cbrt_golden,
     ttir.Conv2dOp: conv2d_golden,
-    ttir.ConvolutionOp: conv2d_golden,
     ttir.ConvTranspose2dOp: conv_transpose2d_golden,
     ttir.MaxPool2dOp: max_pool2d_golden,
     ttir.AvgPool2dOp: avg_pool2d_golden,
