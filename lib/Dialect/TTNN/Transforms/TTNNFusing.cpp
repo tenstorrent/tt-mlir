@@ -109,13 +109,14 @@ private:
   }
 };
 
-template <typename ActivationOp>
-class TTNNMatmulWithActivation : public mlir::OpRewritePattern<MatmulOp> {
-  using TTNNMatmulWithActivation::OpRewritePattern<MatmulOp>::OpRewritePattern;
+template <typename SourceOp, typename ActivationOp>
+class TTNNOpWithActivation : public mlir::OpRewritePattern<SourceOp> {
+  using TTNNOpWithActivation::template OpRewritePattern<
+      SourceOp>::OpRewritePattern;
 
 public:
   mlir::LogicalResult
-  matchAndRewrite(MatmulOp srcOp, mlir::PatternRewriter &rewriter) const final {
+  matchAndRewrite(SourceOp srcOp, mlir::PatternRewriter &rewriter) const final {
     if (!isFusable(srcOp)) {
       return failure();
     }
@@ -130,9 +131,7 @@ public:
       srcOp.setActivationAttr(rewriter.getStringAttr(activationStr));
     });
 
-    // Replace the activation op uses with matmul output
     rewriter.replaceAllUsesWith(activationOp, activationInput);
-
     return mlir::success();
   }
 
@@ -146,73 +145,15 @@ private:
     }
   }
 
-  bool isFusable(MatmulOp srcOp) const {
+  bool isFusable(SourceOp srcOp) const {
     if (srcOp.getActivation()) {
       return false;
     }
 
-    // Matmul has multiple uses so we cannot fuse.
     if (!srcOp.getResult().hasOneUse()) {
       return false;
     }
 
-    // Matmul only user is activation so we can fuse.
-    if (ttmlir::utils::allUsersOfType<ActivationOp>(srcOp)) {
-      return true;
-    }
-
-    return false;
-  }
-};
-
-template <typename ActivationOp>
-class TTNNLinearWithActivation : public mlir::OpRewritePattern<LinearOp> {
-  using TTNNLinearWithActivation::OpRewritePattern<LinearOp>::OpRewritePattern;
-
-public:
-  mlir::LogicalResult
-  matchAndRewrite(LinearOp srcOp, mlir::PatternRewriter &rewriter) const final {
-    if (!isFusable(srcOp)) {
-      return failure();
-    }
-
-    ActivationOp activationOp =
-        mlir::cast<ActivationOp>(*srcOp.getResult().getUsers().begin());
-    Value activationInput = activationOp.getInput();
-
-    auto activationStr = getActivationString();
-
-    rewriter.modifyOpInPlace(srcOp, [&]() {
-      srcOp.setActivationAttr(rewriter.getStringAttr(activationStr));
-    });
-
-    // Replace the activation op uses with linear output
-    rewriter.replaceAllUsesWith(activationOp, activationInput);
-
-    return mlir::success();
-  }
-
-private:
-  std::string getActivationString() const {
-    if constexpr (std::is_same_v<ActivationOp, SigmoidOp>) {
-      return "sigmoid";
-    } else {
-      static_assert(ttmlir::utils::always_false<ActivationOp>(),
-                    "Unsupported activation op");
-    }
-  }
-
-  bool isFusable(LinearOp srcOp) const {
-    if (srcOp.getActivation()) {
-      return false;
-    }
-
-    // Linear has multiple uses so we cannot fuse.
-    if (!srcOp.getResult().hasOneUse()) {
-      return false;
-    }
-
-    // Linear only user is activation so we can fuse.
     if (ttmlir::utils::allUsersOfType<ActivationOp>(srcOp)) {
       return true;
     }
@@ -232,7 +173,8 @@ public:
     patterns.add<
         TTNNConv2dWithActivation<ReluOp>, TTNNConv2dWithActivation<Relu6Op>,
         TTNNConv2dWithActivation<SiluOp>, TTNNConv2dWithActivation<SigmoidOp>,
-        TTNNLinearWithActivation<SigmoidOp>>(
+        TTNNOpWithActivation<MatmulOp, SigmoidOp>,
+        TTNNOpWithActivation<LinearOp, SigmoidOp>>(
         &getContext());
     GreedyRewriteConfig config;
     config.setUseTopDownTraversal(true);
