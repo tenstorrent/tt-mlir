@@ -10,7 +10,6 @@ import torch
 from ttmlir.ir import *
 from ttmlir import util
 from ttmlir.dialects import ttnn, ttcore
-from golden import *
 
 from builder.base.builder import *
 from golden import *
