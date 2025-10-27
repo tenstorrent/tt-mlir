@@ -13,7 +13,7 @@ from ttmlir.dialects import ttnn, ttcore
 from golden import *
 
 from builder.base.builder import *
-from builder.base import builder_golden
+from golden import *
 
 
 class TTNNBuilder(Builder):
@@ -78,7 +78,7 @@ class TTNNBuilder(Builder):
                     op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
             if not skip_golden and not self._disable_golden_check:
-                op_golden_function = builder_golden.get_golden_function(
+                op_golden_function = get_golden_function(
                     op_ttnn_function, **golden_kwargs
                 )
                 if op_golden_function is not None:
