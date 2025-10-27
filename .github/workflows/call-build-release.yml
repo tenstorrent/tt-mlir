@@ -1,0 +1,228 @@
+name: Build Release
+
+on:
+  workflow_call:
+    inputs:
+      metal_override:
+        description: 'Git SHA of commit in tenstorrent/tt-metal'
+        required: false
+        type: string
+      docker_image:
+        description: 'Docker image for the build'
+        required: false
+        type: string
+        default: 'ghcr.io/tenstorrent/tt-mlir/tt-mlir-ci-ubuntu-22-04:latest'
+      runner:
+        description: Runner machine
+        required: false
+        type: string
+        default: 'tt-ubuntu-2204-large-stable'
+      sh_builder:
+        description: Run on shared runner
+        required: false
+        type: boolean
+        default: true
+      component_matrix:
+        description: 'Component list to build'
+        required: false
+        type: string
+        default: '[]'
+
+permissions:
+  checks: write
+  packages: write
+
+jobs:
+
+  build-ttmlir:
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        build: [
+          { enable_op_model: "ON", enable_emitc: "ON", name: "speedy" },
+          { enable_perf: "ON", enable_runtime_debug: "ON", enable_explorer: "ON", enable_pykernel: "ON", name: "tracy" }
+        ]
+
+    name: Build ${{ matrix.build.name }} Release
+
+    runs-on: ${{ inputs.sh_builder && inputs.runner || fromJson(format('["{0}", "in-service"]',inputs.runner)) }}
+
+    container:
+      image: ${{ inputs.sh_builder && format('harbor.ci.tenstorrent.net/{0}', inputs.docker_image) || inputs.docker_image }}
+
+    env:
+      # TODO: Revisit the addition of these env vars https://github.com/tenstorrent/tt-metal/issues/20161
+      TRACY_NO_INVARIANT_CHECK: 1
+      TRACY_NO_ISA_EXTENSIONS: 1
+
+    steps:
+
+    - name: Maximize space
+      if: ${{ inputs.runner }} == 'ubuntu-latest'
+      uses: tenstorrent/tt-github-actions/.github/actions/maximize_space@main
+
+    - uses: actions/checkout@v4
+      with:
+          fetch-depth: 0
+
+    - name: Set metal override
+      if: ${{ inputs.metal_override }}
+      run: |
+        echo "Updating tt-metal to SHA: ${{ inputs.metal_override }}"
+        sed -i "s/set(TT_METAL_VERSION \".*\")/set(TT_METAL_VERSION \"${{ inputs.metal_override }}\")/" third_party/CMakeLists.txt
+
+    - name: Fetch job id
+      id: fetch-job-id
+      uses: tenstorrent/tt-github-actions/.github/actions/job_id@main
+      with:
+        job_name: "Build ${{ matrix.build.name }} Release"
+
+    - name: Set reusable strings
+      id: strings
+      shell: bash
+      env:
+        JOB_ID: ${{ steps.fetch-job-id.outputs.job_id }}
+      run: |
+        echo "work-dir=$(pwd)" >> "$GITHUB_OUTPUT"
+        echo "build-output-dir=$(pwd)/build" >> "$GITHUB_OUTPUT"
+        echo "install-output-dir=$(pwd)/install" >> "$GITHUB_OUTPUT"
+
+    - name: Git safe dir
+      run: git config --global --add safe.directory ${{ steps.strings.outputs.work-dir }}
+
+    - name: ccache
+      uses: hendrikmuhs/ccache-action@v1.2
+      with:
+        create-symlink: true
+        key: ${{ matrix.build.name }}-${{ env.SDK_VERSION }}
+      env:
+        CCACHE_NOHASHDIR: true
+        CCACHE_BASEDIR: ${{ steps.strings.outputs.work-dir }}
+
+    - name: Configure CMake
+      shell: bash
+      run: |
+        source env/activate
+        cmake -G Ninja \
+          -B ${{ steps.strings.outputs.build-output-dir }} \
+          -DCMAKE_CXX_COMPILER=clang++-17 \
+          -DCMAKE_C_COMPILER=clang-17 \
+          -DCMAKE_BUILD_TYPE=Release \
+          -DCMAKE_INSTALL_PREFIX=${{  steps.strings.outputs.install-output-dir }} \
+          -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+          -DTTMLIR_ENABLE_RUNTIME=ON \
+          -DTTMLIR_ENABLE_RUNTIME_TESTS=ON \
+          -DTT_RUNTIME_ENABLE_PERF_TRACE=${{ matrix.build.enable_perf }} \
+          -DTTMLIR_ENABLE_PYKERNEL=${{ matrix.build.enable_pykernel }} \
+          -DTTMLIR_ENABLE_STABLEHLO=ON \
+          -DTTMLIR_ENABLE_OPMODEL=${{ matrix.build.enable_op_model }} \
+          -DTT_RUNTIME_DEBUG=${{ matrix.build.enable_runtime_debug }} \
+          -S ${{ steps.strings.outputs.work-dir }}
+
+    - name: Build
+      shell: bash
+      run: |
+        source env/activate
+        cmake --build ${{ steps.strings.outputs.build-output-dir }}
+
+    - name: Build tests
+      shell: bash
+      run: |
+        source env/activate
+        cmake --build ${{ steps.strings.outputs.build-output-dir }} -- compile-ttmlir-tests
+
+    - name: Install
+      shell: bash
+      run: |
+        source env/activate
+        cmake --install ${{ steps.strings.outputs.build-output-dir }} --component Test
+        cmake --install ${{ steps.strings.outputs.build-output-dir }} --component SharedLib
+        cmake --install ${{ steps.strings.outputs.build-output-dir }} --component TTNNStandalone
+        cmake --install ${{ steps.strings.outputs.build-output-dir }} --component DistributedRuntime
+
+    - name: Build components
+      shell: bash
+      run: |
+        source env/activate
+        cat << 'EOF' > _components_matrix.json
+          ${{ inputs.component_matrix }}
+        EOF
+        export WORK_DIR="${{ steps.strings.outputs.work-dir }}"
+        export INSTALL_DIR="${{ steps.strings.outputs.install-output-dir }}"
+        export BUILD_DIR="${{ steps.strings.outputs.build-output-dir }}"
+        export BUILD_NAME="${{ matrix.build.name }}"
+        export UPLOAD_LIST="$WORK_DIR/_components_upload.json"
+        echo "[" >$UPLOAD_LIST
+        echo "{\"name\":\"ttrt-whl-$BUILD_NAME\",\"path\":\"$WORK_DIR/build/tools/ttrt/build/ttrt*.whl\"}," >> $UPLOAD_LIST
+
+        # run all component build scripts
+        if [ -f ".github/settings/build.json" ]; then
+          # Parse the JSON file and execute scripts for matching build name
+          scripts=$(jq -r --arg build_name "$BUILD_NAME" '.[] | select(.image == $build_name) | .script' _components_matrix.json)
+          if [ -n "$scripts" ]; then
+            echo "$scripts" | while IFS= read -r script; do
+            if [ -n "$script" ] && [ -f "$WORK_DIR/.github/build_scripts/$script" ]; then
+              cd $WORK_DIR
+              echo "========================="
+              echo "Executing script: $script"
+              echo "========================="
+              echo
+              time $WORK_DIR/.github/build_scripts/$script
+              echo
+              echo
+              echo
+              echo
+            else
+              echo "Script file not found: $script"
+            fi
+            done
+          else
+            echo "No scripts found for build name: $BUILD_NAME"
+          fi
+        else
+          echo ".github/settings/build.json file not found!"
+        fi
+        echo "{}]" >> $UPLOAD_LIST
+        cat $UPLOAD_LIST
+        cat $UPLOAD_LIST | jq .
+
+    - name: Upload wheels
+      uses: nsumrakTT/upload-multiple-artifacts@main
+      with:
+        continue-on-error: 'false'
+        config: _components_upload.json
+        compression-level: 0
+
+    - name: Archive Install Directory
+      shell: bash
+      working-directory: ${{ steps.strings.outputs.install-output-dir }}
+      run: tar -I 'zstd --adapt=min=9 -T0' -cf artifact.tar.zst lib tt-metal bin tools
+
+    - name: Upload Install Folder
+      uses: actions/upload-artifact@v4
+      with:
+        name: install-artifacts-${{ matrix.build.name }}
+        path: ${{ steps.strings.outputs.install-output-dir }}/artifact.tar.zst
+        compression-level: 0
+
+    - name: Remove tar archive
+      shell: bash
+      run: rm -f ${{ steps.strings.outputs.install-output-dir }}/artifact.tar.zst
+
+    - name: Archive Build Directory
+      shell: bash
+      working-directory: ${{ steps.strings.outputs.build-output-dir }}
+      run: |
+        tar -I 'zstd --adapt=min=9 -T0' -cf artifact.tar.zst test runtime bin python_packages python stablehlo shardy
+
+    - name: Upload Build Folder
+      uses: actions/upload-artifact@v4
+      with:
+        name: build-artifacts-${{ matrix.build.name }}
+        path: ${{ steps.strings.outputs.build-output-dir }}/artifact.tar.zst
+        compression-level: 0
+
+    - name: Remove tar archive
+      shell: bash
+      run: rm -f ${{ steps.strings.outputs.build-output-dir }}/artifact.tar.zst

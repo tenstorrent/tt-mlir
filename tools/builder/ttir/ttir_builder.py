@@ -458,6 +458,52 @@ class TTIRBuilder(Builder):
         """
         return self._op_proxy(ttir.CosOp, [in0], unit_attrs)
 
+    def erf(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
+        """
+        Creates ``ttir.erf``.
+
+        *Elementwise error function operation.*
+
+        Computes the error function (erf) of each element in the input tensor.
+        The error function is a mathematical function used in probability, statistics,
+        and partial differential equations related to the normal distribution.
+
+        Mathematical definition: erf(x) = (2/sqrt(π)) * ∫[0 to x] e^(-t^2) dt
+
+        .. code-block:: mlir
+
+            // Compute error function of all elements
+            %result = ttir.erf(%input, %output) : tensor<4xf32>, tensor<4xf32> -> tensor<4xf32>
+            // Input tensor:
+            // [0.0, 0.5, 1.0, -1.0]
+            // Output tensor:
+            // [0.0, 0.5205, 0.8427, -0.8427]
+        """
+        return self._op_proxy(ttir.ErfOp, [in0], unit_attrs)
+
+    def erfc(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
+        """
+        Creates ``ttir.erfc``.
+
+        *Elementwise complementary error function operation.*
+
+        Computes the complementary error function (erfc) of each element in the input tensor.
+        The complementary error function is defined as erfc(x) = 1 - erf(x),
+        where erf(x) is the error function. It is commonly used in statistics and probability.
+
+        Mathematical definition: erfc(x) = 1 - (2/sqrt(π)) * ∫[0 to x] e^(-t^2) dt
+
+        .. code-block:: mlir
+
+            // Compute complementary error function of all elements
+            %result = ttir.erfc(%input, %output) : tensor<4xf32>, tensor<4xf32> -> tensor<4xf32>
+            // Input tensor:
+            // [0.0, 0.5, 1.0, -1.0]
+            // Output tensor:
+            // [1.0, 0.4795, 0.1573, 1.8427]
+        """
+        return self._op_proxy(ttir.ErfcOp, [in0], unit_attrs)
+
     def floor(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
         """
         Creates ``ttir.floor``.
@@ -972,6 +1018,41 @@ class TTIRBuilder(Builder):
             Tensor with sign values
         """
         return self._op_proxy(ttir.SignOp, [in0], unit_attrs)
+
+    def silu(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
+        """
+        Creates ``ttir.silu``.
+
+        *Elementwise SiLU (Swish) activation operation.*
+
+        Computes the SiLU (Sigmoid Linear Unit) activation function for each element in the input tensor.
+        SiLU is also known as Swish activation and is defined as: silu(x) = x * sigmoid(x) = x / (1 + exp(-x))
+
+        This activation function is smooth, non-monotonic, and has been shown to work well
+        in deep neural networks, particularly in transformer architectures.
+
+        .. code-block:: mlir
+
+            // Compute SiLU activation of all elements
+            %result = ttir.silu(%input, %output) : tensor<4xf32>, tensor<4xf32> -> tensor<4xf32>
+            // Input tensor:
+            // [1.0, -0.5, 2.0, -2.0]
+            // Output tensor:
+            // [0.731, -0.193, 1.762, -0.238]
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor
+        unit_attrs : *Optional[List[str]]*, optional
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpView*)
+            A tensor containing the SiLU activation values of each element in the input tensor
+        """
+        return self._op_proxy(ttir.SiluOp, [in0], unit_attrs)
 
     def sin(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
         """
@@ -1535,6 +1616,47 @@ class TTIRBuilder(Builder):
             unit_attrs=unit_attrs,
         )
 
+    def logical_left_shift(
+        self, in0: Operand, in1: Operand, unit_attrs: Optional[List[str]] = None
+    ) -> OpView:
+        """
+        Creates ``ttir.logical_shift_left``.
+
+        *Elementwise logical shift left operation.*
+
+        Performs elementwise logical shift left operation between two tensors.
+        For each pair of corresponding elements, shifts the bits of the first element to the left
+        by the number of positions specified by the second element.
+
+        .. code-block:: mlir
+
+            // Logical shift left operation
+            %result = ttir.logical_shift_left(%lhs, %rhs, %output) : tensor<3xi8>, tensor<3xi8>, tensor<3xi8> -> tensor<3xi8>
+            // Input tensors:
+            // lhs: [2, 4, 8]  (binary: [00000010, 00000100, 00001000])
+            // rhs: [1, 2, 3]  (shift amounts)
+            // Output tensor:
+            // [4, 16, 64]    (binary: [00000100, 00010000, 01000000])
+
+        Parameters
+        ----------
+        in0 : Operand
+            First input tensor
+        in1 : Operand
+            Second input tensor (shift amounts)
+        unit_attrs : *Optional[List[str]]*, optional
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpView*)
+        """
+        return self._op_proxy(
+            ttir.LogicalLeftShiftOp,
+            [in0, in1],
+            unit_attrs=unit_attrs,
+        )
+
     def logical_or(
         self, in0: Operand, in1: Operand, unit_attrs: Optional[List[str]] = None
     ) -> OpView:
@@ -1577,6 +1699,46 @@ class TTIRBuilder(Builder):
         """
         return self._op_proxy(
             ttir.LogicalOrOp,
+            [in0, in1],
+            unit_attrs=unit_attrs,
+        )
+
+    def logical_right_shift(
+        self, in0: Operand, in1: Operand, unit_attrs: Optional[List[str]] = None
+    ) -> OpView:
+        """
+        Creates ``ttir.logical_right_shift``.
+
+        *Elementwise logical right shift operation.*
+
+        Performs elementwise logical right shift operation between two tensors.
+        For each pair of corresponding elements, shifts the bits of the first element to the right
+        by the number of positions specified by the second element.
+
+        .. code-block:: mlir
+
+            // Logical right shift operation
+            %result = ttir.logical_right_shift(%lhs, %rhs, %output) : tensor<3xi8>, tensor<3xi8>, tensor<3xi8> -> tensor<3xi8>
+            // Input tensors:
+            // lhs: [8, 16, 32]  (binary: [00001000, 00010000, 00100000])
+            // rhs: [1, 2, 3]    (shift amounts)
+            // Output tensor:
+            // [4, 4, 4]        (binary: [00000100, 00000100, 00000100])
+        Parameters
+        ----------
+        in0 : Operand
+            First input tensor
+        in1 : Operand
+            Second input tensor (shift amounts)
+        unit_attrs : *Optional[List[str]]*, optional
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpView*)
+        """
+        return self._op_proxy(
+            ttir.LogicalRightShiftOp,
             [in0, in1],
             unit_attrs=unit_attrs,
         )
@@ -3449,6 +3611,75 @@ class TTIRBuilder(Builder):
             unit_attrs=unit_attrs,
         )
 
+    # Note: TTRT runtime supports float32, bfloat16, uint8, uint16, uint32, int32
+    # For bfloat16, use precision-friendly values [-1.0 to 1.0] for best results
+    def constant(
+        self,
+        tensor: torch.Tensor,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpView:
+        """
+        Creates ``ttir.constant``.
+
+        *Creates a tensor with the specified values.*
+
+        Returns a tensor of given shape with the specified values.
+
+        Parameters
+        ----------
+        tensor : torch.Tensor
+            Tensor containing the constant values
+        unit_attrs : *Optional[List[str]]*, optional
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpView*)
+            Tensor with the specified values
+        """
+        if not isinstance(tensor, torch.Tensor):
+            raise TypeError("constant expects a torch.Tensor input")
+
+        if tensor.numel() == 0:
+            raise ValueError("Cannot create constant with empty tensor")
+
+        mlir_dtype = self._get_type_from_torch_dtype(tensor.dtype)
+
+        shape = list(tensor.shape)
+        tensor_type = RankedTensorType.get(shape, mlir_dtype)
+
+        flat_values = tensor.flatten().tolist()
+
+        if tensor.numel() == 1 or len(set(flat_values)) == 1:
+            # Splat case
+            if isinstance(mlir_dtype, IntegerType):
+                attr = IntegerAttr.get(mlir_dtype, int(flat_values[0]))
+            elif isinstance(mlir_dtype, FloatType):
+                attr = FloatAttr.get(mlir_dtype, float(flat_values[0]))
+            else:
+                raise NotImplementedError(f"Unsupported MLIR type: {mlir_dtype}")
+
+            value_attr = DenseElementsAttr.get_splat(tensor_type, attr)
+        else:
+            # Non-splat case
+            if isinstance(mlir_dtype, IntegerType):
+                elems = [IntegerAttr.get(mlir_dtype, int(v)) for v in flat_values]
+            elif isinstance(mlir_dtype, FloatType):
+                elems = [FloatAttr.get(mlir_dtype, float(v)) for v in flat_values]
+            else:
+                raise NotImplementedError(f"Unsupported MLIR type: {mlir_dtype}")
+
+            value_attr = DenseElementsAttr.get(elems, tensor_type)
+
+        return self._op_proxy(
+            ttir.ConstantOp,
+            [],
+            golden_kwargs={"value": tensor},
+            ttir_kwargs={"result": tensor_type, "value": value_attr},
+            organize_ttir_args=lambda i, o, _: 0,
+            unit_attrs=unit_attrs,
+        )
+
     def reverse(
         self, in0: Operand, dims: List[int], unit_attrs: Optional[List[str]] = None
     ) -> OpView:
@@ -3772,6 +4003,47 @@ class TTIRBuilder(Builder):
         """
         return self._op_proxy(
             ttir.AddOp,
+            [in0, in1],
+            unit_attrs=unit_attrs,
+        )
+
+    def atan2(
+        self, in0: Operand, in1: Operand, unit_attrs: Optional[List[str]] = None
+    ) -> OpView:
+        """
+        Creates ``ttir.atan2``.
+
+        *Elementwise arctangent operation.*
+
+        Computes the elementwise arctangent of the quotient of its arguments.
+        For each pair of corresponding elements (y, x), returns atan2(y, x).
+
+        Mathematical definition: atan2(y, x) = arctan(y / x)
+
+        .. code-block:: mlir
+
+            // Compute arctangent of corresponding elements
+            %result = ttir.atan2(%y, %x, %output) : tensor<3xf32>, tensor<3xf32>, tensor<3xf32> -> tensor<3xf32>
+            // Input tensors:
+            // y: [1.0, 0.0, -1.0]
+            // x: [1.0, -1.0, -1.0]
+            // Output tensor:
+            // [0.7854, 3.1416, -2.3562]
+        Parameters
+        ----------
+        in0 : Operand
+            First input tensor (y)
+        in1 : Operand
+            Second input tensor (x)
+        unit_attrs : *Optional[List[str]]*
+            Optional list of unit attributes
+        Returns
+        -------
+        (*OpView*)
+            A tensor containing the elementwise arctangent of the inputs
+        """
+        return self._op_proxy(
+            ttir.Atan2Op,
             [in0, in1],
             unit_attrs=unit_attrs,
         )

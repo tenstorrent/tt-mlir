@@ -20,9 +20,10 @@ set_property(TARGET TTRuntimeTTMetal PROPERTY CXX_STANDARD 20)
 target_compile_definitions(TTRuntimeTTMetal PUBLIC TT_RUNTIME_ENABLE_TTMETAL)
 target_include_directories(TTRuntimeTTMetal PUBLIC
   ${PROJECT_SOURCE_DIR}/runtime/include
+  ${PROJECT_BINARY_DIR}/runtime/include
   ${PROJECT_BINARY_DIR}/include/ttmlir/Target/Common
 )
 target_include_directories(TTRuntimeTTMetal SYSTEM PUBLIC "$<BUILD_INTERFACE:${TTMETAL_INCLUDE_DIRS}>")
 target_link_libraries(TTRuntimeTTMetal PUBLIC TTMETAL_LIBRARY DEVICE_LIBRARY)
 target_link_libraries(TTRuntimeTTMetal PUBLIC coverage_config)
-add_dependencies(TTRuntimeTTMetal TTMETAL_LIBRARY DEVICE_LIBRARY tt-metal FBS_GENERATION)
+add_dependencies(TTRuntimeTTMetal TTMETAL_LIBRARY DEVICE_LIBRARY tt-metal FBS_GENERATION RUNTIME_FBS_GENERATION)

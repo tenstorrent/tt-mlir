@@ -584,6 +584,7 @@ struct EmitCTypeConverter<::ttnn::DataType> {
     case ttcore::DataType::BFP_Float4:
     case ttcore::DataType::BFP_Float8:
     case ttcore::DataType::BFP_BFloat2:
+    case ttcore::DataType::Bool:
       llvm_unreachable("Unsupported ttnn::DataType");
     }
 
@@ -1426,6 +1427,12 @@ struct EmitCTypeConverter<::ttnn::operations::conv::conv2d::Conv2dConfig> {
     if (attr.getInPlace()) {
       rso << (firstElement ? "" : ", ") << ".in_place = "
           << EmitCTypeConverter<bool>::convert(attr.getInPlace());
+      firstElement = false;
+    }
+    if (attr.getEnableKernelStrideFolding()) {
+      rso << (firstElement ? "" : ", ") << ".enable_kernel_stride_folding = "
+          << EmitCTypeConverter<bool>::convert(
+                 attr.getEnableKernelStrideFolding());
     }
     rso << "}";
     return buf;

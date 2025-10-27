@@ -735,6 +735,21 @@ createOp(FlatbufferObjectCache &cache, ReduceScatterOp op) {
       op.getClusterAxis(), op.getNumLinks());
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::ScatterOp>
+createOp(FlatbufferObjectCache &cache, ScatterOp op) {
+  auto input = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getInput()));
+  auto index = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getIndex()));
+  auto sourceTensor = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getSource()));
+  auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer);
+  auto memoryConfig = getMemoryConfigIfNeeded(cache, op);
+  return ::tt::target::ttnn::CreateScatterOp(*cache.fbb, input, output, index,
+                                             sourceTensor, op.getDim(),
+                                             memoryConfig);
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::CollectivePermuteOp>
 createOp(FlatbufferObjectCache &cache, CollectivePermuteOp op) {
   auto input = cache.at<::tt::target::ttnn::TensorRef>(
@@ -1086,8 +1101,6 @@ createEltwiseBinaryCompositeOp(FlatbufferObjectCache &cache,
     type = ::tt::target::ttnn::EltwiseBinaryCompositeOpType::LogicalLeftShift;
   } else if (std::is_same_v<EltwiseBinaryCompositeOp, RemainderOp>) {
     type = ::tt::target::ttnn::EltwiseBinaryCompositeOpType::Remainder;
-  } else if (std::is_same_v<EltwiseBinaryCompositeOp, ScatterOp>) {
-    type = ::tt::target::ttnn::EltwiseBinaryCompositeOpType::Scatter;
   } else if (std::is_same_v<EltwiseBinaryCompositeOp, PowTensorOp>) {
     type = ::tt::target::ttnn::EltwiseBinaryCompositeOpType::Pow;
   } else if (std::is_same_v<EltwiseBinaryCompositeOp, Atan2Op>) {
@@ -2067,10 +2080,13 @@ createOp(FlatbufferObjectCache &cache, ScaledDotProductAttentionOp op) {
                  ? std::make_optional(op.getScale().value().convertToFloat())
                  : std::nullopt);
 
+  ::flatbuffers::Optional<uint32_t> slidingWindowSize =
+      toFlatbuffer(cache, op.getSlidingWindowSize());
+
   // NOLINTEND(clang-analyzer-cplusplus.NewDelete)
   return ::tt::target::ttnn::CreateScaledDotProductAttentionOp(
-      *cache.fbb, query, key, value, isCausal, attentionMask, scale, out,
-      memoryConfig);
+      *cache.fbb, query, key, value, isCausal, attentionMask, scale,
+      slidingWindowSize, out, memoryConfig);
 }
 
 std::vector<::flatbuffers::Offset<::tt::target::ttnn::KernelArg>>
@@ -2481,11 +2497,6 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
                            createEltwiseBinaryCompositeOp(cache, remainderOp),
                            debugString, locInfo);
   }
-  if (auto scatterOp = dyn_cast<ScatterOp>(op); scatterOp) {
-    return createOperation(cache,
-                           createEltwiseBinaryCompositeOp(cache, scatterOp),
-                           debugString, locInfo);
-  }
   if (auto atan2Op = dyn_cast<Atan2Op>(op); atan2Op) {
     return createOperation(cache,
                            createEltwiseBinaryCompositeOp(cache, atan2Op),
@@ -2726,6 +2737,10 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   }
   if (auto reduceScatterOp = dyn_cast<ReduceScatterOp>(op); reduceScatterOp) {
     return createOperation(cache, createOp(cache, reduceScatterOp), debugString,
+                           locInfo);
+  }
+  if (auto scatterOp = dyn_cast<ScatterOp>(op); scatterOp) {
+    return createOperation(cache, createOp(cache, scatterOp), debugString,
                            locInfo);
   }
   if (auto collectivePermuteOp = dyn_cast<CollectivePermuteOp>(op);

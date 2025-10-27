@@ -20,20 +20,18 @@ class TTKernel_Type<string name, string typeMnemonic, list<Trait> traits = []>
 def TTKernel_CB : TTKernel_Type<"CB", "cb"> {
     let summary = "TTKernel cb";
     let description = "Circular buffer type in TTKernel dialect";
-    let parameters = (ins "MemRefType":$memref);
-    let assemblyFormat = "`<` $memref `>`";
+    let parameters = (ins "int64_t":$num_elements, "Type":$element_type);
+    let assemblyFormat = "`<` $num_elements `,` $element_type `>`";
+
+    let builders = [
+      TypeBuilderWithInferredContext<(ins "mlir::MemRefType":$memref), [{
+        return $_get(memref.getContext(), memref.getNumElements(), memref.getElementType());
+      }]>,
+    ];
 
     let extraClassDeclaration = [{
-        ::llvm::ArrayRef<int64_t> getShape() const {
-          return getMemref().getShape();
-        }
-
-        int64_t getNumElements() const {
-          return getMemref().getNumElements();
-        }
-
         int64_t getNumTiles() const {
-          assert(mlir::isa<mlir::tt::ttcore::TileType>(getMemref().getElementType()) &&
+          assert(mlir::isa<mlir::tt::ttcore::TileType>(getElementType()) &&
                  "getNumTiles only supports tile element type");
           return getNumElements();
         }

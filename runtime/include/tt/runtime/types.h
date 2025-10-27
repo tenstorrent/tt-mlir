@@ -21,7 +21,15 @@
 #include "ttmlir/Target/Common/types_generated.h"
 #pragma clang diagnostic pop
 
+#include "tt/runtime/flatbuffer/flatbuffer.h"
+
 namespace tt::runtime {
+
+using ::tt::runtime::flatbuffer::DeviceRuntime;
+using ::tt::runtime::flatbuffer::DispatchCoreType;
+using ::tt::runtime::flatbuffer::FabricConfig;
+using ::tt::runtime::flatbuffer::HostRuntime;
+
 /*
 MemoryBlockTable is a list of memory blocks in the following format:
 [{"blockID": "0", "address": "0", "size": "0", "prevID": "0", "nextID": "0",
@@ -37,35 +45,12 @@ enum class MemoryBufferType {
   TRACE,
 };
 
-enum class DeviceRuntime {
-  Disabled,
-  TTNN,
-  TTMetal,
-};
-
 inline std::string toString(DeviceRuntime runtime) {
-  switch (runtime) {
-  case DeviceRuntime::TTNN:
-    return "TTNN";
-  case DeviceRuntime::TTMetal:
-    return "TTMetal";
-  case DeviceRuntime::Disabled:
-    return "Disabled";
-  }
+  return ::tt::runtime::flatbuffer::EnumNameDeviceRuntime(runtime);
 }
 
-enum class HostRuntime {
-  Local,
-  Distributed,
-};
-
 inline std::string toString(HostRuntime runtime) {
-  switch (runtime) {
-  case HostRuntime::Local:
-    return "Local";
-  case HostRuntime::Distributed:
-    return "Distributed";
-  }
+  return ::tt::runtime::flatbuffer::EnumNameHostRuntime(runtime);
 }
 
 enum class DistributedMode {
@@ -77,28 +62,6 @@ enum class DistributedMode {
   // across multiple hosts
   MultiProcess,
 };
-
-enum class DispatchCoreType {
-  WORKER,
-  ETH,
-};
-
-enum class FabricConfig {
-  DISABLED,
-  FABRIC_1D,
-  FABRIC_1D_RING,
-  FABRIC_2D,
-  FABRIC_2D_TORUS_X,
-  FABRIC_2D_TORUS_Y,
-  FABRIC_2D_TORUS_XY,
-  FABRIC_2D_DYNAMIC,
-  FABRIC_2D_DYNAMIC_TORUS_X,
-  FABRIC_2D_DYNAMIC_TORUS_Y,
-  FABRIC_2D_DYNAMIC_TORUS_XY,
-  CUSTOM,
-};
-
-enum class Arch { GRAYSKULL = 1, WORMHOLE_B0 = 2, BLACKHOLE = 3, QUASAR = 4 };
 
 namespace detail {
 
@@ -235,7 +198,8 @@ struct MeshDeviceOptions {
   std::optional<std::vector<uint32_t>> meshShape = std::nullopt;
   std::optional<size_t> l1SmallSize = std::nullopt;
   std::optional<size_t> traceRegionSize = std::nullopt;
-  std::optional<DispatchCoreType> dispatchCoreType = std::nullopt;
+  std::optional<::tt::runtime::DispatchCoreType> dispatchCoreType =
+      std::nullopt;
 };
 
 class MultiProcessArgs {
@@ -320,6 +284,8 @@ struct SystemDesc : public Flatbuffer {
 };
 
 class TensorCache;
+class ProgramDescCache;
+
 struct Binary : public Flatbuffer {
   Binary(Flatbuffer fb);
   Binary(std::shared_ptr<void> handle);
@@ -361,6 +327,11 @@ struct Binary : public Flatbuffer {
   // Get the tensor cache associated with this binary
   std::shared_ptr<TensorCache> getConstEvalTensorCache() { return tensorCache; }
 
+  // Get the program descriptor cache associated with this binary
+  std::shared_ptr<tt::runtime::ProgramDescCache> getProgramDescCache() {
+    return programDescCache;
+  }
+
 private:
   std::uint64_t nextBinaryId();
 
@@ -368,6 +339,9 @@ private:
 
   // The tensor cache associated with this binary
   std::shared_ptr<TensorCache> tensorCache;
+
+  // Program descriptor cache associated with this binary
+  std::shared_ptr<tt::runtime::ProgramDescCache> programDescCache;
 };
 
 struct TraceCache : public detail::RuntimeCheckedObjectImpl {

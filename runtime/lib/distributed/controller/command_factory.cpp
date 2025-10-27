@@ -9,6 +9,37 @@
 #include "tt/runtime/types.h"
 #include <atomic>
 
+#define BUILD_COMMAND_IMPL(CommandName, fbb, builderFunc, ...)                 \
+  [&]() -> uint64_t {                                                          \
+    uint64_t commandId = nextCommandId();                                      \
+    auto commandType = ::tt::runtime::distributed::flatbuffer::CommandType::   \
+        CommandName##Command;                                                  \
+                                                                               \
+    auto commandOffset = (builderFunc)((fbb)__VA_OPT__(, ) __VA_ARGS__);       \
+                                                                               \
+    auto command = ::tt::runtime::distributed::flatbuffer::CreateCommand(      \
+        (fbb), commandId, commandType, commandOffset.Union());                 \
+                                                                               \
+    ::tt::runtime::distributed::flatbuffer::FinishCommandBuffer((fbb),         \
+                                                                command);      \
+                                                                               \
+    debug::verifyFlatbuffer((fbb), verifyFn);                                  \
+                                                                               \
+    return commandId;                                                          \
+  }()
+
+#define BUILD_COMMAND(CommandName, fbb, ...)                                   \
+  BUILD_COMMAND_IMPL(                                                          \
+      CommandName, fbb,                                                        \
+      ::tt::runtime::distributed::flatbuffer::Create##CommandName##Command,    \
+      __VA_ARGS__)
+
+#define BUILD_COMMAND_DIRECT(CommandName, fbb, ...)                            \
+  BUILD_COMMAND_IMPL(CommandName, fbb,                                         \
+                     ::tt::runtime::distributed::flatbuffer::                  \
+                         Create##CommandName##CommandDirect,                   \
+                     __VA_ARGS__)
+
 namespace tt::runtime::distributed::controller {
 
 using ::tt::runtime::DeviceRuntime;
@@ -21,6 +52,20 @@ static uint64_t nextCommandId() {
   return commandIdCounter.fetch_add(1, std::memory_order_relaxed);
 }
 
+uint64_t CommandFactory::buildConfigureRuntimeContextCommand(
+    ::flatbuffers::FlatBufferBuilder &fbb, const std::string &mlirHome,
+    const std::string &metalHome,
+    const ::tt::runtime::DeviceRuntime &currentDeviceRuntime) {
+
+  LOG_ASSERT(fbb.GetSize() == 0, "Flatbuffer builder must be empty");
+
+  uint64_t commandId =
+      BUILD_COMMAND_DIRECT(ConfigureRuntimeContext, fbb, mlirHome.c_str(),
+                           metalHome.c_str(), currentDeviceRuntime);
+
+  return commandId;
+}
+
 uint64_t CommandFactory::buildGetSystemDescCommand(
     ::flatbuffers::FlatBufferBuilder &fbb,
     const std::optional<::tt::runtime::DispatchCoreType> &dispatchCoreType,
@@ -28,32 +73,41 @@ uint64_t CommandFactory::buildGetSystemDescCommand(
 
   LOG_ASSERT(fbb.GetSize() == 0, "Flatbuffer builder must be empty");
 
-  uint64_t commandId = nextCommandId();
-  auto commandType =
-      ::tt::runtime::distributed::flatbuffer::CommandType::GetSystemDescCommand;
-
   ::flatbuffers::Offset<::tt::target::DeviceRef> deviceRef = 0;
   if (deviceHandle.has_value()) {
     deviceRef =
         ::tt::target::CreateDeviceRef(fbb, deviceHandle.value().getGlobalId());
   }
 
-  std::optional<::tt::target::DispatchCoreType> fbDispatchCoreType =
+  std::optional<::tt::runtime::DispatchCoreType> fbDispatchCoreType =
       std::nullopt;
   if (dispatchCoreType.has_value()) {
-    fbDispatchCoreType = ::tt::runtime::utils::fromRuntimeDispatchCoreType(
-        dispatchCoreType.value());
+    fbDispatchCoreType = dispatchCoreType.value();
   }
 
-  auto getSystemDescCommand =
-      ::tt::runtime::distributed::flatbuffer::CreateGetSystemDescCommand(
-          fbb, deviceRef, fbDispatchCoreType);
+  uint64_t commandId =
+      BUILD_COMMAND(GetSystemDesc, fbb, deviceRef, fbDispatchCoreType);
 
-  auto command = ::tt::runtime::distributed::flatbuffer::CreateCommand(
-      fbb, commandId, commandType, getSystemDescCommand.Union());
-  ::tt::runtime::distributed::flatbuffer::FinishCommandBuffer(fbb, command);
+  return commandId;
+}
 
-  debug::verifyFlatbuffer(fbb, verifyFn);
+uint64_t CommandFactory::buildSetFabricConfigCommand(
+    ::flatbuffers::FlatBufferBuilder &fbb,
+    const ::tt::runtime::FabricConfig &fabricConfig) {
+
+  LOG_ASSERT(fbb.GetSize() == 0, "Flatbuffer builder must be empty");
+
+  uint64_t commandId = BUILD_COMMAND(SetFabricConfig, fbb, fabricConfig);
+
+  return commandId;
+}
+
+uint64_t CommandFactory::buildGetNumAvailableDevicesCommand(
+    ::flatbuffers::FlatBufferBuilder &fbb) {
+
+  LOG_ASSERT(fbb.GetSize() == 0, "Flatbuffer builder must be empty");
+
+  uint64_t commandId = BUILD_COMMAND(GetNumAvailableDevices, fbb);
 
   return commandId;
 }
@@ -65,15 +119,14 @@ uint64_t CommandFactory::buildOpenMeshDeviceCommand(
 
   LOG_ASSERT(fbb.GetSize() == 0, "Flatbuffer builder must be empty");
 
-  std::optional<::tt::target::DispatchCoreType> fbDispatchCoreType =
+  std::optional<::tt::runtime::DispatchCoreType> fbDispatchCoreType =
       std::nullopt;
   if (meshDeviceOptions.dispatchCoreType.has_value()) {
-    fbDispatchCoreType = ::tt::runtime::utils::fromRuntimeDispatchCoreType(
-        meshDeviceOptions.dispatchCoreType.value());
+    fbDispatchCoreType = meshDeviceOptions.dispatchCoreType.value();
   }
 
   auto fbMeshDeviceOptions =
-      ::tt::runtime::distributed::flatbuffer::CreateMeshDeviceOptionsDirect(
+      ::tt::runtime::flatbuffer::CreateMeshDeviceOptionsDirect(
           fbb, &meshDeviceOptions.meshOffset, &meshDeviceOptions.deviceIds,
           meshDeviceOptions.numHWCQs, meshDeviceOptions.enableProgramCache,
           meshDeviceOptions.meshShape.has_value()
@@ -82,19 +135,8 @@ uint64_t CommandFactory::buildOpenMeshDeviceCommand(
           meshDeviceOptions.l1SmallSize, meshDeviceOptions.traceRegionSize,
           fbDispatchCoreType);
 
-  uint64_t commandId = nextCommandId();
-  auto commandType = ::tt::runtime::distributed::flatbuffer::CommandType::
-      OpenMeshDeviceCommand;
-
-  auto openMeshDeviceCommand =
-      ::tt::runtime::distributed::flatbuffer::CreateOpenMeshDeviceCommand(
-          fbb, deviceHandle.getGlobalId(), fbMeshDeviceOptions);
-
-  auto command = ::tt::runtime::distributed::flatbuffer::CreateCommand(
-      fbb, commandId, commandType, openMeshDeviceCommand.Union());
-  ::tt::runtime::distributed::flatbuffer::FinishCommandBuffer(fbb, command);
-
-  debug::verifyFlatbuffer(fbb, verifyFn);
+  uint64_t commandId = BUILD_COMMAND(
+      OpenMeshDevice, fbb, deviceHandle.getGlobalId(), fbMeshDeviceOptions);
 
   return commandId;
 }
@@ -105,22 +147,58 @@ uint64_t CommandFactory::buildCloseMeshDeviceCommand(
 
   LOG_ASSERT(fbb.GetSize() == 0, "Flatbuffer builder must be empty");
 
-  uint64_t commandId = nextCommandId();
-  auto commandType = ::tt::runtime::distributed::flatbuffer::CommandType::
-      CloseMeshDeviceCommand;
+  auto deviceRef =
+      ::tt::target::CreateDeviceRef(fbb, deviceHandle.getGlobalId());
+
+  uint64_t commandId = BUILD_COMMAND(CloseMeshDevice, fbb, deviceRef);
+
+  return commandId;
+}
+
+uint64_t CommandFactory::buildCreateSubMeshDeviceCommand(
+    ::flatbuffers::FlatBufferBuilder &fbb,
+    const ::tt::runtime::Device &parentMesh,
+    const ::tt::runtime::Device &subMesh,
+    const std::vector<uint32_t> &meshShape,
+    const std::optional<const std::vector<uint32_t>> &meshOffset) {
+
+  LOG_ASSERT(fbb.GetSize() == 0, "Flatbuffer builder must be empty");
+
+  auto parentMeshRef =
+      ::tt::target::CreateDeviceRef(fbb, parentMesh.getGlobalId());
+  const std::vector<uint32_t> *meshOffsetPtr = nullptr;
+  if (meshOffset.has_value()) {
+    meshOffsetPtr = &meshOffset.value();
+  }
+
+  uint64_t commandId =
+      BUILD_COMMAND_DIRECT(CreateSubMeshDevice, fbb, parentMeshRef,
+                           subMesh.getGlobalId(), &meshShape, meshOffsetPtr);
+
+  return commandId;
+}
+
+uint64_t CommandFactory::buildReleaseSubMeshDeviceCommand(
+    ::flatbuffers::FlatBufferBuilder &fbb,
+    const ::tt::runtime::Device &subMesh) {
+
+  LOG_ASSERT(fbb.GetSize() == 0, "Flatbuffer builder must be empty");
+
+  auto subMeshRef = ::tt::target::CreateDeviceRef(fbb, subMesh.getGlobalId());
+  uint64_t commandId = BUILD_COMMAND(ReleaseSubMeshDevice, fbb, subMeshRef);
+  return commandId;
+}
+
+uint64_t CommandFactory::buildGetMeshShapeCommand(
+    ::flatbuffers::FlatBufferBuilder &fbb,
+    const ::tt::runtime::Device &deviceHandle) {
+
+  LOG_ASSERT(fbb.GetSize() == 0, "Flatbuffer builder must be empty");
 
   auto deviceRef =
       ::tt::target::CreateDeviceRef(fbb, deviceHandle.getGlobalId());
 
-  auto closeMeshDeviceCommand =
-      ::tt::runtime::distributed::flatbuffer::CreateCloseMeshDeviceCommand(
-          fbb, deviceRef);
-
-  auto command = ::tt::runtime::distributed::flatbuffer::CreateCommand(
-      fbb, commandId, commandType, closeMeshDeviceCommand.Union());
-  ::tt::runtime::distributed::flatbuffer::FinishCommandBuffer(fbb, command);
-
-  debug::verifyFlatbuffer(fbb, verifyFn);
+  uint64_t commandId = BUILD_COMMAND(GetMeshShape, fbb, deviceRef);
 
   return commandId;
 }
@@ -133,10 +211,6 @@ uint64_t CommandFactory::buildCreateHostTensorCommand(
 
   LOG_ASSERT(fbb.GetSize() == 0, "Flatbuffer builder must be empty");
 
-  uint64_t commandId = nextCommandId();
-  auto commandType = ::tt::runtime::distributed::flatbuffer::CommandType::
-      CreateHostTensorCommand;
-
   std::uint64_t numElements =
       std::accumulate(shape.begin(), shape.end(), static_cast<std::uint64_t>(1),
                       std::multiplies<std::uint64_t>());
@@ -146,16 +220,57 @@ uint64_t CommandFactory::buildCreateHostTensorCommand(
   auto shapeVec = fbb.CreateVector<uint32_t>(shape.data(), shape.size());
   auto strideVec = fbb.CreateVector<uint32_t>(stride.data(), stride.size());
 
-  auto createHostTensorCommand =
-      ::tt::runtime::distributed::flatbuffer::CreateCreateHostTensorCommand(
-          fbb, outputTensor.getGlobalId(), dataVec, shapeVec, strideVec,
-          itemSize, dataType);
+  uint64_t commandId =
+      BUILD_COMMAND(CreateHostTensor, fbb, outputTensor.getGlobalId(), dataVec,
+                    shapeVec, strideVec, itemSize, dataType);
 
-  auto command = ::tt::runtime::distributed::flatbuffer::CreateCommand(
-      fbb, commandId, commandType, createHostTensorCommand.Union());
-  ::tt::runtime::distributed::flatbuffer::FinishCommandBuffer(fbb, command);
+  return commandId;
+}
 
-  debug::verifyFlatbuffer(fbb, verifyFn);
+uint64_t CommandFactory::buildIsTensorAllocatedCommand(
+    ::flatbuffers::FlatBufferBuilder &fbb,
+    const ::tt::runtime::Tensor &tensor) {
+
+  LOG_ASSERT(fbb.GetSize() == 0, "Flatbuffer builder must be empty");
+
+  uint64_t commandId =
+      BUILD_COMMAND(IsTensorAllocated, fbb, tensor.getGlobalId());
+
+  return commandId;
+}
+
+uint64_t CommandFactory::buildGetTensorVolumeCommand(
+    ::flatbuffers::FlatBufferBuilder &fbb,
+    const ::tt::runtime::Tensor &tensor) {
+
+  LOG_ASSERT(fbb.GetSize() == 0, "Flatbuffer builder must be empty");
+
+  uint64_t commandId =
+      BUILD_COMMAND(GetTensorVolume, fbb, tensor.getGlobalId());
+
+  return commandId;
+}
+
+uint64_t CommandFactory::buildGetTensorRetainCommand(
+    ::flatbuffers::FlatBufferBuilder &fbb,
+    const ::tt::runtime::Tensor &tensor) {
+
+  LOG_ASSERT(fbb.GetSize() == 0, "Flatbuffer builder must be empty");
+
+  uint64_t commandId =
+      BUILD_COMMAND(GetTensorRetain, fbb, tensor.getGlobalId());
+
+  return commandId;
+}
+
+uint64_t CommandFactory::buildSetTensorRetainCommand(
+    ::flatbuffers::FlatBufferBuilder &fbb, const ::tt::runtime::Tensor &tensor,
+    bool retain) {
+
+  LOG_ASSERT(fbb.GetSize() == 0, "Flatbuffer builder must be empty");
+
+  uint64_t commandId =
+      BUILD_COMMAND(SetTensorRetain, fbb, tensor.getGlobalId(), retain);
 
   return commandId;
 }
@@ -167,23 +282,12 @@ uint64_t CommandFactory::buildGetLayoutCommand(
 
   LOG_ASSERT(fbb.GetSize() == 0, "Flatbuffer builder must be empty");
 
-  uint64_t commandId = nextCommandId();
-  auto commandType =
-      ::tt::runtime::distributed::flatbuffer::CommandType::GetLayoutCommand;
-
   std::vector<uint8_t> binaryBytes;
   binary.storeToMemory(binaryBytes);
 
-  auto getLayoutCommand =
-      ::tt::runtime::distributed::flatbuffer::CreateGetLayoutCommandDirect(
-          fbb, binary.id(), &binaryBytes, programIndex, inputIndex,
-          outputLayout.getGlobalId());
-
-  auto command = ::tt::runtime::distributed::flatbuffer::CreateCommand(
-      fbb, commandId, commandType, getLayoutCommand.Union());
-  ::tt::runtime::distributed::flatbuffer::FinishCommandBuffer(fbb, command);
-
-  debug::verifyFlatbuffer(fbb, verifyFn);
+  uint64_t commandId = BUILD_COMMAND_DIRECT(
+      GetLayout, fbb, binary.id(), &binaryBytes, programIndex, inputIndex,
+      outputLayout.getGlobalId());
 
   return commandId;
 }
@@ -196,25 +300,14 @@ uint64_t CommandFactory::buildToLayoutCommand(
 
   LOG_ASSERT(fbb.GetSize() == 0, "Flatbuffer builder must be empty");
 
-  uint64_t commandId = nextCommandId();
-  auto commandType =
-      ::tt::runtime::distributed::flatbuffer::CommandType::ToLayoutCommand;
-
   uint64_t inputGlobalId = inputTensor.getGlobalId();
   uint64_t outputGlobalId = outputTensor.getGlobalId();
 
   auto deviceRef = ::tt::target::CreateDeviceRef(fbb, device.getGlobalId());
 
-  auto toLayoutCommand =
-      ::tt::runtime::distributed::flatbuffer::CreateToLayoutCommand(
-          fbb, inputGlobalId, outputGlobalId, deviceRef, layout.getGlobalId(),
-          retain);
-
-  auto command = ::tt::runtime::distributed::flatbuffer::CreateCommand(
-      fbb, commandId, commandType, toLayoutCommand.Union());
-  ::tt::runtime::distributed::flatbuffer::FinishCommandBuffer(fbb, command);
-
-  debug::verifyFlatbuffer(fbb, verifyFn);
+  uint64_t commandId =
+      BUILD_COMMAND(ToLayout, fbb, inputGlobalId, outputGlobalId, deviceRef,
+                    layout.getGlobalId(), retain);
 
   return commandId;
 }
@@ -226,10 +319,6 @@ uint64_t CommandFactory::buildSubmitCommand(
     const std::vector<::tt::runtime::Tensor> &outputTensors) {
 
   LOG_ASSERT(fbb.GetSize() == 0, "Flatbuffer builder must be empty");
-
-  uint64_t commandId = nextCommandId();
-  auto commandType =
-      ::tt::runtime::distributed::flatbuffer::CommandType::SubmitCommand;
 
   std::vector<uint64_t> inputGlobalIds;
   inputGlobalIds.reserve(inputTensors.size());
@@ -248,16 +337,9 @@ uint64_t CommandFactory::buildSubmitCommand(
 
   auto deviceRef = ::tt::target::CreateDeviceRef(fbb, device.getGlobalId());
 
-  auto submitCommand =
-      ::tt::runtime::distributed::flatbuffer::CreateSubmitCommandDirect(
-          fbb, &inputGlobalIds, &outputGlobalIds, executable.id(), &binaryBytes,
-          programIndex, deviceRef);
-
-  auto command = ::tt::runtime::distributed::flatbuffer::CreateCommand(
-      fbb, commandId, commandType, submitCommand.Union());
-  ::tt::runtime::distributed::flatbuffer::FinishCommandBuffer(fbb, command);
-
-  debug::verifyFlatbuffer(fbb, verifyFn);
+  uint64_t commandId = BUILD_COMMAND_DIRECT(
+      Submit, fbb, &inputGlobalIds, &outputGlobalIds, executable.id(),
+      &binaryBytes, programIndex, deviceRef);
 
   return commandId;
 }
@@ -268,19 +350,7 @@ CommandFactory::buildGetNumShardsCommand(::flatbuffers::FlatBufferBuilder &fbb,
 
   LOG_ASSERT(fbb.GetSize() == 0, "Flatbuffer builder must be empty");
 
-  uint64_t commandId = nextCommandId();
-  auto commandType =
-      ::tt::runtime::distributed::flatbuffer::CommandType::GetNumShardsCommand;
-
-  auto getNumShardsCommand =
-      ::tt::runtime::distributed::flatbuffer::CreateGetNumShardsCommand(
-          fbb, tensor.getGlobalId());
-
-  auto command = ::tt::runtime::distributed::flatbuffer::CreateCommand(
-      fbb, commandId, commandType, getNumShardsCommand.Union());
-  ::tt::runtime::distributed::flatbuffer::FinishCommandBuffer(fbb, command);
-
-  debug::verifyFlatbuffer(fbb, verifyFn);
+  uint64_t commandId = BUILD_COMMAND(GetNumShards, fbb, tensor.getGlobalId());
 
   return commandId;
 }
@@ -292,25 +362,15 @@ uint64_t CommandFactory::buildToHostCommand(
 
   LOG_ASSERT(fbb.GetSize() == 0, "Flatbuffer builder must be empty");
 
-  uint64_t commandId = nextCommandId();
-  auto commandType =
-      ::tt::runtime::distributed::flatbuffer::CommandType::ToHostCommand;
-
   std::vector<uint64_t> outputGlobalIds;
   outputGlobalIds.reserve(outputTensors.size());
   std::transform(outputTensors.begin(), outputTensors.end(),
                  std::back_inserter(outputGlobalIds),
                  [](const auto &tensor) { return tensor.getGlobalId(); });
 
-  auto toHostCommand =
-      ::tt::runtime::distributed::flatbuffer::CreateToHostCommandDirect(
-          fbb, inputTensor.getGlobalId(), &outputGlobalIds, untilize, blocking);
-
-  auto command = ::tt::runtime::distributed::flatbuffer::CreateCommand(
-      fbb, commandId, commandType, toHostCommand.Union());
-  ::tt::runtime::distributed::flatbuffer::FinishCommandBuffer(fbb, command);
-
-  debug::verifyFlatbuffer(fbb, verifyFn);
+  uint64_t commandId =
+      BUILD_COMMAND_DIRECT(ToHost, fbb, inputTensor.getGlobalId(),
+                           &outputGlobalIds, untilize, blocking);
 
   return commandId;
 }
@@ -323,25 +383,26 @@ uint64_t CommandFactory::buildMemcpyCommand(
 
   LOG_ASSERT(fbb.GetSize() == 0, "Flatbuffer builder must be empty");
 
-  uint64_t commandId = nextCommandId();
-  auto commandType =
-      ::tt::runtime::distributed::flatbuffer::CommandType::MemcpyCommand;
-
   uint64_t srcGlobalId = srcTensor.getGlobalId();
   std::optional<uint64_t> dstGlobalId = std::nullopt;
   if (dstTensor.has_value()) {
     dstGlobalId = dstTensor.value().getGlobalId();
   }
 
-  auto memcpyCommand =
-      ::tt::runtime::distributed::flatbuffer::CreateMemcpyCommand(
-          fbb, srcGlobalId, dstGlobalId, dstDataType);
+  uint64_t commandId =
+      BUILD_COMMAND(Memcpy, fbb, srcGlobalId, dstGlobalId, dstDataType);
 
-  auto command = ::tt::runtime::distributed::flatbuffer::CreateCommand(
-      fbb, commandId, commandType, memcpyCommand.Union());
-  ::tt::runtime::distributed::flatbuffer::FinishCommandBuffer(fbb, command);
+  return commandId;
+}
 
-  debug::verifyFlatbuffer(fbb, verifyFn);
+uint64_t CommandFactory::buildDeallocateTensorCommand(
+    ::flatbuffers::FlatBufferBuilder &fbb, const ::tt::runtime::Tensor &tensor,
+    bool force) {
+
+  LOG_ASSERT(fbb.GetSize() == 0, "Flatbuffer builder must be empty");
+
+  uint64_t commandId =
+      BUILD_COMMAND(DeallocateTensor, fbb, tensor.getGlobalId(), force);
 
   return commandId;
 }
@@ -351,20 +412,13 @@ CommandFactory::buildShutdownCommand(::flatbuffers::FlatBufferBuilder &fbb) {
 
   LOG_ASSERT(fbb.GetSize() == 0, "Flatbuffer builder must be empty");
 
-  uint64_t commandId = nextCommandId();
-  auto commandType =
-      ::tt::runtime::distributed::flatbuffer::CommandType::ShutdownCommand;
-
-  auto shutdownCommand =
-      ::tt::runtime::distributed::flatbuffer::CreateShutdownCommand(fbb);
-
-  auto command = ::tt::runtime::distributed::flatbuffer::CreateCommand(
-      fbb, commandId, commandType, shutdownCommand.Union());
-  ::tt::runtime::distributed::flatbuffer::FinishCommandBuffer(fbb, command);
-
-  debug::verifyFlatbuffer(fbb, verifyFn);
+  uint64_t commandId = BUILD_COMMAND(Shutdown, fbb);
 
   return commandId;
 }
+
+#undef BUILD_COMMAND_IMPL
+#undef BUILD_COMMAND
+#undef BUILD_COMMAND_DIRECT
 
 } // namespace tt::runtime::distributed::controller

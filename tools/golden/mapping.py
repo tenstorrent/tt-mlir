@@ -18,6 +18,7 @@ import operator
 import torch
 import torch.nn.functional
 from ttmlir.dialects import ttir, stablehlo, d2m, ttnn
+from ttmlir.dialects import ttir, stablehlo, d2m, ttnn
 from ttmlir.ir import (
     Attribute,
     ArrayAttr,
@@ -2174,14 +2175,14 @@ def silu_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
 
 def softmax_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
     """
-    Golden function for softmax operation with TTIR parameter names.
+    Golden function for silu operation with TTIR parameter names.
 
     Parameters
     ----------
     input_tensor : GoldenMapTensor
         Input tensor
     **kwargs : dict
-        Keyword arguments including 'dimension'
+        Additional keyword arguments
 
     Returns
     -------
@@ -2294,6 +2295,24 @@ def ones_golden(**kwargs) -> GoldenMapTensor:
     """
     size = kwargs.get("shape", [1])
     return GoldenMapTensor({0: torch.ones(size)}, (1, 1))
+
+
+def constant_golden(**kwargs) -> GoldenMapTensor:
+    """
+    Golden function for constant operation with TTIR parameter names.
+
+    Parameters
+    ----------
+    **kwargs : dict
+        Keyword arguments including 'value'
+
+    Returns
+    -------
+    GoldenMapTensor
+        Constant tensor
+    """
+    value = kwargs.get("value", [1])
+    return GoldenMapTensor({0: value}, (1, 1))
 
 
 def reverse_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
@@ -2865,6 +2884,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     # Tensor creation
     ttir.ZerosOp: zeros_golden,
     ttir.OnesOp: ones_golden,
+    ttir.ConstantOp: constant_golden,
     ttir.ArangeOp: arange_golden,
     # Quantization operations
     ttir.QuantizeOp: quantize_golden,
@@ -2916,4 +2936,6 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     stablehlo.SineOp: torch.sin,
     stablehlo.SqrtOp: torch.sqrt,
     stablehlo.TanOp: torch.tan,
+    # TTNN elementwise operations
+    ttnn.MultiplyOp: torch.multiply,
 }
