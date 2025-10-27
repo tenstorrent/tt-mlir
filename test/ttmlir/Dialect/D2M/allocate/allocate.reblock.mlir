@@ -1,7 +1,7 @@
-// RUN: ttmlir-opt --ttcore-register-device "--d2m-allocate=test-assume-l1-capacity=6291456 test-buffer-size-policy=max" -o %t %s
+// RUN: ttmlir-opt --ttcore-register-device "--d2m-allocate=test-assume-l1-capacity=2097152 test-buffer-size-policy=min" -o %t %s
 // RUN: FileCheck %s --input-file=%t
 
-// This test uses max-sized stream buffers but succeeds by spilling some tensors to DRAM.
+// This test uses a tight L1 capacity limit but succeeds by using min-sized stream buffers.
 
 // CHECK: %{{.+}} = memref.alloc() {address = {{[0-9]+}} : i64, alignment = {{[0-9]+}} : i64}{{.+}} #dram>
 

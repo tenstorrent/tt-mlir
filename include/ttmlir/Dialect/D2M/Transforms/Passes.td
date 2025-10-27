@@ -495,6 +495,10 @@ def D2MAllocate: Pass<"d2m-allocate", "::mlir::ModuleOp"> {
           "test-assume-l1-capacity",
           "std::int64_t", /*default=*/"0",
           "Assume given L1 capacity.">,
+    Option<"testBufferSizePolicy",
+          "test-buffer-size-policy",
+          "std::string", /*default=*/"\"max\"",
+          "Set policy for sizing stream buffers ('min', 'max').">,
   ];
 }
 

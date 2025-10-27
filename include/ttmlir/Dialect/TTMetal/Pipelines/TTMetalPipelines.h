@@ -129,6 +129,11 @@ struct TTIRToTTMetalPipelineOptions
   Option<std::int64_t> testAssumel1Capacity{
       *this, "test-assume-l1-capacity",
       llvm::cl::desc("Assume given L1 capacity."), llvm::cl::init(0)};
+  // WIP pass option to control the allocator logic for sizing stream buffers.
+  Option<std::string> testBufferSizePolicy{
+      *this, "test-buffer-size-policy",
+      llvm::cl::desc("Set policy for sizing stream buffers ('min', 'max')."),
+      llvm::cl::init("max")};
 
   // Option to ingest a mix of ttnn and ttir ops and lower through D2m to TTNN
   // GenericOp.
