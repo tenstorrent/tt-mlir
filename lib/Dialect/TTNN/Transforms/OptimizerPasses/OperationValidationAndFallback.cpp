@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "ttmlir/Dialect/TTNN/Analysis/OpConfigAttrs.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
@@ -16,10 +17,12 @@
 #include "mlir/Pass/Pass.h"
 #include "mlir/Support/WalkResult.h"
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/ADT/TypeSwitch.h"
 #include "llvm/Support/Error.h"
 
 #include <cassert>
 #include <cstddef>
+#include <optional>
 #include <vector>
 
 namespace mlir::tt::ttnn {
@@ -124,33 +127,21 @@ public:
 
   TTNNOperationValidationAndFallback() = default;
 
-  ~TTNNOperationValidationAndFallback() override {
-#ifdef TTMLIR_ENABLE_OPMODEL
-    if (openedDeviceInPass) {
-      op_model::SingletonDeviceContext::getInstance().closeInstance();
-    }
-#endif
-  }
-
   void runOnOperation() override {
 #ifndef TTMLIR_ENABLE_OPMODEL
-    // When OPMODEL is disabled, this pass should not run.
-    // It's a no-op but allows compilation to succeed.
-    return;
+    llvm::llvm_unreachable_internal(
+        "TTNNOperationValidationAndFallback pass requires OpModel support to be"
+        "enabled.");
 #else
+    // Device lifecycle is managed by OpModelDeviceWrapperPass in the pipeline,
+    // but for standalone pass usage (e.g., in tests), the guard opens/closes
+    // it.
+    op_model::ScopedSingletonDeviceGuard deviceGuard;
+
     ModuleOp moduleOp = getOperation();
 
     size_t totalOperationsChecked = 0;
     size_t operationsFixed = 0;
-
-    if (!op_model::SingletonDeviceContext::getInstance()
-             .isDeviceInitialized()) {
-      // Typically the device should be opened outside of the pass, but for
-      // testing purposes we open it here if it is not already opened. We will
-      // close it in the destructor.
-      op_model::SingletonDeviceContext::getInstance().openDevice();
-      openedDeviceInPass = true;
-    }
 
     moduleOp->walk([&](func::FuncOp func) {
       func.walk([&](Operation *operation) -> WalkResult {
@@ -275,15 +266,14 @@ private:
     }
 
     // For Conv2d operations, extract op-specific attributes
-    if (auto conv2dOp = mlir::dyn_cast<ttnn::Conv2dOp>(operation)) {
-      config.opSpecificAttrs = Conv2dAttrs{conv2dOp.getConv2dConfigAttr(),
-                                           conv2dOp.getComputeConfigAttr()};
-    }
+    llvm::TypeSwitch<Operation *>(operation)
+        .Case<ttnn::Conv2dOp, ttnn::ConvTranspose2dOp>([&config](auto convOp) {
+          config.opSpecificAttrs = Conv2dAttrs{convOp.getConv2dConfigAttr(),
+                                               convOp.getComputeConfigAttr()};
+        });
 
     return config;
   }
-
-  [[maybe_unused]] bool openedDeviceInPass = false;
 };
 
 namespace fallbacks {

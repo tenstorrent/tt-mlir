@@ -6,10 +6,10 @@ if [[ -z "${TT_MLIR_HOME}" ]]; then
     exit 1
 fi
 
-# Check if TT_METAL_HOME is set
-if [[ -z "${TT_METAL_HOME}" ]]; then
-    export TT_METAL_HOME="${TT_MLIR_HOME}/third_party/tt-metal/src/tt-metal"
-    echo "TT_METAL_HOME is not set. Setting it to ${TT_METAL_HOME}"
+# Check if TT_METAL_RUNTIME_ROOT is set
+if [[ -z "${TT_METAL_RUNTIME_ROOT}" ]]; then
+    export TT_METAL_RUNTIME_ROOT="${TT_MLIR_HOME}/third_party/tt-metal/src/tt-metal"
+    echo "TT_METAL_RUNTIME_ROOT is not set. Setting it to ${TT_METAL_RUNTIME_ROOT}"
 fi
 
 # Confirm python3 exists
@@ -24,7 +24,11 @@ if [[ -z "${VIRTUAL_ENV}" ]]; then
     exit 1
 fi
 
-export PYTHONPATH="${PYTHONPATH}:${TT_METAL_HOME}/ttnn"
+# If ttnn module is not in PYTHONPATH, add it
+if [[ ":$PYTHONPATH:" != *":${TT_METAL_RUNTIME_ROOT}/ttnn:"* ]]; then
+    # This covers the corner case where PYTHONPATH is not set, avoids leading colon
+    export PYTHONPATH="${PYTHONPATH:+${PYTHONPATH}:}${TT_METAL_RUNTIME_ROOT}/ttnn"
+fi
 
 # Run main.py
 echo "Running main.py..."

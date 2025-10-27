@@ -358,13 +358,13 @@ fromTTNNShardSpec(::flatbuffers::FlatBufferBuilder &fbb,
                                                    orientation);
 }
 
-CoreType toCoreType(const ::tt::target::ttnn::CoreType &coreType) {
+::tt::CoreType toCoreType(const ::tt::target::ttnn::CoreType &coreType) {
   switch (coreType) {
   case ::tt::target::ttnn::CoreType::WORKER: {
-    return ::CoreType::WORKER;
+    return ::tt::CoreType::WORKER;
   }
   case ::tt::target::ttnn::CoreType::ETH: {
-    return ::CoreType::ETH;
+    return ::tt::CoreType::ETH;
   }
   }
 }

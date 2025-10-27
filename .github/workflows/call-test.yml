@@ -1,0 +1,215 @@
+name: Test
+
+on:
+  workflow_call:
+    inputs:
+      docker_image:
+        description: 'Docker image for the build'
+        required: true
+        type: string
+      test_matrix:
+        description: 'Test matrix for run-tests job'
+        required: true
+        type: string
+      timeout:
+        description: 'Timeout in minutes for the test job'
+        required: false
+        type: number
+        default: 60
+
+permissions:
+  checks: write
+  packages: write
+
+jobs:
+  # Run tests on TT hardware
+
+  run-tests:
+
+    timeout-minutes: ${{ inputs.timeout }}
+    strategy:
+      fail-fast: false
+      matrix:
+        build: ${{ fromJson(inputs.test_matrix) }}
+    name: "run-tests (${{ matrix.build.runs-on }},${{ matrix.build.image }},${{ strategy.job-index }})"
+
+    runs-on: ${{ matrix.build.sh-run && format('tt-ubuntu-2204-{0}-tt-mlir', matrix.build.runs-on) || fromJson(format('["{0}", "in-service"]', matrix.build.runs-on)) }}
+
+    container:
+      image: ${{ matrix.build.sh-run && format('harbor.ci.tenstorrent.net/{0}', inputs.docker_image) || inputs.docker_image }}
+      options: ${{ matrix.build.container-options || '--device /dev/tenstorrent' }}
+      volumes:
+        - /dev/hugepages:/dev/hugepages
+        - /dev/hugepages-1G:/dev/hugepages-1G
+        - /etc/udev/rules.d:/etc/udev/rules.d
+        - /lib/modules:/lib/modules
+        - /opt/tt_metal_infra/provisioning/provisioning_env:/opt/tt_metal_infra/provisioning/provisioning_env
+
+    steps:
+    - uses: actions/checkout@v4
+      with:
+          fetch-depth: 0
+
+    - name: Fetch job id
+      id: fetch-job-id
+      uses: tenstorrent/tt-github-actions/.github/actions/job_id@main
+      with:
+        job_name: "run-tests (${{ matrix.build.runs-on }},${{ matrix.build.image }},${{ strategy.job-index }})"
+
+    - name: Set reusable strings
+      id: strings
+      shell: bash
+      env:
+        JOB_ID: ${{ steps.fetch-job-id.outputs.job_id }}
+      run: |
+        echo "work-dir=$(pwd)" >> "$GITHUB_OUTPUT"
+        echo "build-output-dir=$(pwd)/build" >> "$GITHUB_OUTPUT"
+        echo "install-output-dir=$(pwd)/install" >> "$GITHUB_OUTPUT"
+
+    - name: Git safe dir
+      run: git config --global --add safe.directory ${{ steps.strings.outputs.work-dir }}
+
+    - name: Use install artifacts
+      uses: tenstorrent/tt-forge/.github/actions/download-artifact@main
+      with:
+        name: install-artifacts-${{ matrix.build.image }}
+        path: install
+        github_token: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Remove existing whls files
+      shell: bash
+      run: |
+        rm -f *.whl
+
+    - name: Download ttrt run whls
+      uses: actions/download-artifact@v4
+      with:
+        name: ttrt-whl-${{ matrix.build.image }}
+
+    - name: Install ttrt run whls
+      shell: bash
+      run: |
+        source env/activate
+        pip show ttrt && pip uninstall -y ttrt
+        pip install ttrt-${{ env.version }}*.whl --upgrade
+
+    - name: Download Build Artifacts
+      uses: tenstorrent/tt-forge/.github/actions/download-artifact@main
+      with:
+        name: build-artifacts-${{ matrix.build.image }}
+        path: build
+        github_token: ${{ secrets.GITHUB_TOKEN }}
+
+    # TG galaxy doesn't have support for dispatch on eth cores - thus need to disable it
+    - name: Generate system descriptor
+      shell: bash
+      run: |
+        source env/activate
+        if [ "${{ matrix.build.runs-on }}" == "tg" ] || [ "${{ matrix.build.runs-on }}" == "p150" ]; then
+          ttrt query --save-artifacts --disable-eth-dispatch
+        else
+          ttrt query --save-artifacts
+        fi
+
+    - name: Run Tests
+      shell: bash
+      env:
+        GH_TOKEN: ${{ secrets.GH_TOKEN }}
+        TTRT_LOGGER_LEVEL: "WARNING"
+        LOGURU_LEVEL: "ERROR"
+        TT_METAL_LOGGER_LEVEL: "FATAL"
+      run: |
+        # Run Tests
+        source env/activate
+        export WORK_DIR="$(pwd)"
+        export BUILD_DIR="${{ steps.strings.outputs.build-output-dir }}"
+        export INSTALL_DIR="${{ steps.strings.outputs.install-output-dir }}"
+
+        export LD_LIBRARY_PATH="${{ steps.strings.outputs.install-output-dir }}/lib:${TTMLIR_TOOLCHAIN_DIR}/lib:${LD_LIBRARY_PATH}"
+        export SYSTEM_DESC_PATH="${GITHUB_WORKSPACE}/ttrt-artifacts/system_desc.ttsys"
+        export TT_METAL_RUNTIME_ROOT="${{ steps.strings.outputs.install-output-dir }}/tt-metal"
+        export RUNS_ON="${{ matrix.build.runs-on }}"
+        export IMAGE_NAME="${{ matrix.build.image }}"
+        export RUN_ID="${{ github.run_id }}"
+        export PATH="$WORK_DIR/.github/test_scripts:$PATH"
+        ln -sf ${{ steps.strings.outputs.install-output-dir }} ${{ steps.strings.outputs.build-output-dir }}
+        rm -rf test_reports || true
+        mkdir -p test_reports
+        rm -rf ttrt_results || true
+        mkdir -p ttrt_results
+
+        echo "Running tests on ${{ matrix.build.runs-on }} with image ${{ matrix.build.image }}"
+        cat << 'EOF' > _test_to_run.json
+          ${{ toJson(matrix.build.tests) }}
+        EOF
+        cat _test_to_run.json
+
+        python .github/scripts/python/run_tests_from_json.py "${{ matrix.build.runs-on }}" "${{ matrix.build.image }}" "${{ steps.fetch-job-id.outputs.job_id }}"
+
+    - name: Process Test Summary
+      if: success() || failure()
+      id: run-tests
+      shell: bash
+      run: |
+        summary_content=$(cat _test_summary | tr '\n' '\r' | sed 's/\r/<br \/>/g')
+        echo "summary=$summary_content" >> $GITHUB_OUTPUT
+        mv _test_summary ${{ steps.strings.outputs.work-dir }}/test_reports/summary_${{ matrix.build.runs-on }}_${{ matrix.build.image }}_${{ strategy.job-index }}_${{ steps.fetch-job-id.outputs.job_id }}.md
+
+    - name: Upload Test Durations
+      if: success()
+      uses: actions/upload-artifact@v4
+      with:
+        name: test-durations-${{ matrix.build.runs-on }}-${{ matrix.build.image }}-${{ steps.fetch-job-id.outputs.job_id }}
+        path: _test_duration
+        if-no-files-found: 'ignore'
+
+    - name: Upload ttrt test report json
+      if: (success() || failure())
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ matrix.build.runs-on }}_${{ matrix.build.image }}_${{ steps.fetch-job-id.outputs.job_id }}_results
+        path: ttrt_results
+        if-no-files-found: 'ignore'
+
+    - name: Upload Test Report xml
+      uses: actions/upload-artifact@v4
+      if: success() || failure()
+      with:
+        name: test-reports-${{ matrix.build.runs-on }}-${{ matrix.build.image }}-${{ steps.fetch-job-id.outputs.job_id }}
+        path: test_reports
+        if-no-files-found: 'ignore'
+
+    - name: Show Test Report
+      continue-on-error: true
+      uses: mikepenz/action-junit-report@v5
+      if: success() || failure()
+      with:
+        report_paths: ${{ steps.strings.outputs.work-dir }}/test_reports/report_*.xml
+        check_name: ${{ matrix.build.runs-on }}, ${{ matrix.build.image }}, ${{ strategy.job-index }} Tests
+        summary: ${{ steps.run-tests.outputs.summary }}
+        job_summary: false
+
+
+  test-summary:
+    runs-on: ubuntu-latest
+    needs: run-tests
+    if: success() || failure()
+    steps:
+      - uses: actions/checkout@v4
+      - name: Process test summary
+        continue-on-error: true
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+        run: |
+          .github/scripts/bash/get_test_summary.sh ${{ github.run_id }} true
+          cat _summary.md >> $GITHUB_STEP_SUMMARY
+          find test_reports -name "report_*.xml" -type f -exec mv {} test_reports/ \;
+
+      - name: Show consolidated test report
+        continue-on-error: true
+        uses: mikepenz/action-junit-report@v5
+        if: success() || failure()
+        with:
+          report_paths: test_reports/report_*.xml
+          check_name: All Tests

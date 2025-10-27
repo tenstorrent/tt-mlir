@@ -693,7 +693,8 @@ struct OpModel<ScaledDotProductAttentionOp> {
       TTNNLayoutAttr valueLayout,
       std::optional<llvm::ArrayRef<int64_t>> attentionMaskShape,
       std::optional<TTNNLayoutAttr> attentionMaskLayout, bool isCausal,
-      std::optional<llvm::APFloat> scale, TTNNLayoutAttr outputLayout);
+      std::optional<llvm::APFloat> scale,
+      std::optional<uint32_t> slidingWindowSize, TTNNLayoutAttr outputLayout);
 
   static llvm::Expected<size_t>
   getOpRuntime(llvm::ArrayRef<int64_t> queryShape, TTNNLayoutAttr queryLayout,
@@ -701,7 +702,9 @@ struct OpModel<ScaledDotProductAttentionOp> {
                llvm::ArrayRef<int64_t> valueShape, TTNNLayoutAttr valueLayout,
                std::optional<llvm::ArrayRef<int64_t>> attentionMaskShape,
                std::optional<TTNNLayoutAttr> attentionMaskLayout, bool isCausal,
-               std::optional<llvm::APFloat> scale, TTNNLayoutAttr outputLayout);
+               std::optional<llvm::APFloat> scale,
+               std::optional<uint32_t> slidingWindowSize,
+               TTNNLayoutAttr outputLayout);
 };
 
 //===-----------------------------------------------------------------------===//
@@ -1144,23 +1147,24 @@ struct OpModel<GlobalAvgPool2dOp> {
 };
 
 //===----------------------------------------------------------------------===//
-// BatchNormOp
+// BatchNormInferenceOp
 //===----------------------------------------------------------------------===//
 
 template <>
-struct OpModel<BatchNormOp> {
-  static llvm::Expected<OpConstraints> getOpConstraints(
-      ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
-      TTNNLayoutAttr inputLayout,
-      std::optional<llvm::ArrayRef<int64_t>> runningMeanShape,
-      std::optional<TTNNLayoutAttr> runningMeanLayout,
-      std::optional<llvm::ArrayRef<int64_t>> runningVarShape,
-      std::optional<TTNNLayoutAttr> runningVarLayout,
-      std::optional<llvm::ArrayRef<int64_t>> weightShape,
-      std::optional<TTNNLayoutAttr> weightLayout,
-      std::optional<llvm::ArrayRef<int64_t>> biasShape,
-      std::optional<TTNNLayoutAttr> biasLayout, llvm::APFloat epsilon,
-      bool training, llvm::APFloat momentum, TTNNLayoutAttr outputLayout);
+struct OpModel<BatchNormInferenceOp> {
+  static llvm::Expected<OpConstraints>
+  getOpConstraints(ttcore::GridAttr deviceGrid,
+                   llvm::ArrayRef<int64_t> inputShape,
+                   TTNNLayoutAttr inputLayout,
+                   std::optional<llvm::ArrayRef<int64_t>> runningMeanShape,
+                   std::optional<TTNNLayoutAttr> runningMeanLayout,
+                   std::optional<llvm::ArrayRef<int64_t>> runningVarShape,
+                   std::optional<TTNNLayoutAttr> runningVarLayout,
+                   std::optional<llvm::ArrayRef<int64_t>> weightShape,
+                   std::optional<TTNNLayoutAttr> weightLayout,
+                   std::optional<llvm::ArrayRef<int64_t>> biasShape,
+                   std::optional<TTNNLayoutAttr> biasLayout,
+                   llvm::APFloat epsilon, TTNNLayoutAttr outputLayout);
 
   static llvm::Expected<size_t>
   getOpRuntime(llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
@@ -1172,8 +1176,39 @@ struct OpModel<BatchNormOp> {
                std::optional<TTNNLayoutAttr> weightLayout,
                std::optional<llvm::ArrayRef<int64_t>> biasShape,
                std::optional<TTNNLayoutAttr> biasLayout, llvm::APFloat epsilon,
-               bool training, llvm::APFloat momentum,
                TTNNLayoutAttr outputLayout);
+};
+
+//===----------------------------------------------------------------------===//
+// BatchNormTrainingOp
+//===----------------------------------------------------------------------===//
+
+template <>
+struct OpModel<BatchNormTrainingOp> {
+  static llvm::Expected<OpConstraints> getOpConstraints(
+      ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
+      TTNNLayoutAttr inputLayout,
+      std::optional<llvm::ArrayRef<int64_t>> runningMeanShape,
+      std::optional<TTNNLayoutAttr> runningMeanLayout,
+      std::optional<llvm::ArrayRef<int64_t>> runningVarShape,
+      std::optional<TTNNLayoutAttr> runningVarLayout,
+      std::optional<llvm::ArrayRef<int64_t>> weightShape,
+      std::optional<TTNNLayoutAttr> weightLayout,
+      std::optional<llvm::ArrayRef<int64_t>> biasShape,
+      std::optional<TTNNLayoutAttr> biasLayout, llvm::APFloat epsilon,
+      llvm::APFloat momentum, TTNNLayoutAttr outputLayout);
+
+  static llvm::Expected<size_t>
+  getOpRuntime(llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+               std::optional<llvm::ArrayRef<int64_t>> runningMeanShape,
+               std::optional<TTNNLayoutAttr> runningMeanLayout,
+               std::optional<llvm::ArrayRef<int64_t>> runningVarShape,
+               std::optional<TTNNLayoutAttr> runningVarLayout,
+               std::optional<llvm::ArrayRef<int64_t>> weightShape,
+               std::optional<TTNNLayoutAttr> weightLayout,
+               std::optional<llvm::ArrayRef<int64_t>> biasShape,
+               std::optional<TTNNLayoutAttr> biasLayout, llvm::APFloat epsilon,
+               llvm::APFloat momentum, TTNNLayoutAttr outputLayout);
 };
 
 //===----------------------------------------------------------------------===//

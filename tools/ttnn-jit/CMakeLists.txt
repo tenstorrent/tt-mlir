@@ -7,6 +7,7 @@ declare_mlir_python_sources(TTNNJITSources
     SOURCES
         api.py
         __init__.py
+        _src/__init__.py
         _src/ttir_ast.py
         _src/utils.py
         _src/dispatch_op.py

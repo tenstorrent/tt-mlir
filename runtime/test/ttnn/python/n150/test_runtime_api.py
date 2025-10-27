@@ -57,7 +57,7 @@ def test_tensor_retain_api(helper: Helper, should_retain, request):
     assert runtime_tensor.get_retain() == should_retain
 
 
-@pytest.mark.parametrize("shape", [(64, 128)])
+@pytest.mark.parametrize("shape", [(64, 128), (4, 4)])
 @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
 def test_to_layout(helper: Helper, shape, dtype, request):
     helper.initialize(request.node.name)
@@ -81,10 +81,14 @@ def test_to_layout(helper: Helper, shape, dtype, request):
     )
     device_layout = ttrt.runtime.test.get_dram_interleaved_tile_layout(runtime_dtype)
     host_layout = ttrt.runtime.test.get_host_row_major_layout(runtime_dtype)
+
+    input_tensor_logical_volume = runtime_input_tensor.get_volume()
     with DeviceContext(mesh_shape=[1, 1]) as device:
         device_tensor = ttrt.runtime.to_layout(
             runtime_input_tensor, device, device_layout
         )
+        assert device_tensor.get_logical_volume() == input_tensor_logical_volume
+
         host_tensor = ttrt.runtime.to_layout(device_tensor, device, host_layout)
         ttrt.runtime.deallocate_tensor(device_tensor, force=True)
         ttrt.runtime.memcpy(runtime_output_tensor, host_tensor)

@@ -171,6 +171,39 @@ TTNNOperandsWorkaroundsFactory::createUpsampleOpOperandsWorkarounds() {
       .addOutputOperandWorkaround(rowMajorLayoutBF16Workaround);
 }
 
+// Factory method to create a set of workarounds for ScatterOp. The ScatterOp
+// expects the input to be in row-major layout if using f32.
+TTNNOperandsWorkarounds
+TTNNOperandsWorkaroundsFactory::createScatterOpOperandsWorkarounds(
+    mlir::Operation *op) {
+  auto scatterOp = mlir::cast<ttnn::ScatterOp>(op);
+  auto inputType =
+      mlir::cast<mlir::RankedTensorType>(scatterOp.getInput().getType());
+  auto sourceType =
+      mlir::cast<mlir::RankedTensorType>(scatterOp.getSource().getType());
+
+  ttnn::TTNNLayoutAttr inputLayoutAttr =
+      mlir::cast<ttnn::TTNNLayoutAttr>(inputType.getEncoding());
+  ttnn::TTNNLayoutAttr sourceLayoutAttr =
+      mlir::cast<ttnn::TTNNLayoutAttr>(sourceType.getEncoding());
+
+  bool isLayoutWorkaroundRequired =
+      (inputLayoutAttr.isTiled() && inputType.getElementType().isF32()) ||
+      (sourceLayoutAttr.isTiled() && sourceType.getElementType().isF32());
+
+  TTNNOperandWorkarounds operandWorkaround;
+
+  if (isLayoutWorkaroundRequired) {
+    operandWorkaround.tensorLayoutWorkaround = Layout::RowMajor;
+  }
+
+  return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
+      .addInputOperandWorkaround(operandWorkaround)   // input
+      .addInputOperandWorkaround(operandWorkaround)   // index
+      .addInputOperandWorkaround(operandWorkaround)   // source
+      .addOutputOperandWorkaround(operandWorkaround); // result
+}
+
 // Factory method to create a set of workarounds for mesh shard op input
 // operand. ttnn::MeshShardOp supports host tensors only
 TTNNOperandsWorkarounds
@@ -392,15 +425,6 @@ binaryOpDTypeWorkaround(mlir::Operation *op, mlir::Type elementType) {
   if (isa<ttnn::LogicalRightShiftOp, ttnn::LogicalLeftShiftOp>(op)) {
     if (dType == mlir::tt::ttcore::DataType::UInt32 ||
         dType == mlir::tt::ttcore::DataType::Int32) {
-      return {};
-    }
-    return mlir::tt::ttcore::DataType::Int32;
-  }
-
-  // Left shift and right shift ops have same requirements but they are not
-  // implemented for TTNN dialect currently.
-  if (isa<ttnn::BitwiseAndOp, ttnn::BitwiseOrOp, ttnn::BitwiseXorOp>(op)) {
-    if (dType == mlir::tt::ttcore::DataType::Int32) {
       return {};
     }
     return mlir::tt::ttcore::DataType::Int32;

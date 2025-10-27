@@ -23,8 +23,9 @@ fi
 
 export TTMLIR_ENV_ACTIVATED=1
 export PATH="$(pwd)/${BUILD_DIR:=build}/bin:$TTMLIR_TOOLCHAIN_DIR/bin:$TTMLIR_VENV_DIR/bin:$PATH"
-export TT_METAL_HOME="$(pwd)/third_party/tt-metal/src/tt-metal"
+export TT_METAL_RUNTIME_ROOT="$(pwd)/third_party/tt-metal/src/tt-metal"
+export TT_METAL_HOME="$TT_METAL_RUNTIME_ROOT"
 export TT_METAL_BUILD_HOME="$(pwd)/third_party/tt-metal/src/tt-metal/build"
 export TT_MLIR_HOME="$(pwd)"
-export PYTHONPATH="$(pwd)/${BUILD_DIR:=build}/python_packages:$(pwd)/${BUILD_DIR:=build}/runtime/python:$(pwd)/.local/toolchain/python_packages/mlir_core:${TT_METAL_HOME}/tt_eager:${TT_METAL_BUILD_HOME}/tools/profiler/bin:${TT_METAL_HOME}/ttnn"
-export PYTHONPATH="${PYTHONPATH}:${TT_METAL_HOME}/ttnn:${TT_METAL_HOME}"  # These paths are needed for tracy (profiling)
+export PYTHONPATH="$(pwd)/${BUILD_DIR:=build}/python_packages:$(pwd)/${BUILD_DIR:=build}/runtime/python:$(pwd)/.local/toolchain/python_packages/mlir_core"
+export PYTHONPATH="${PYTHONPATH}:${TT_METAL_RUNTIME_ROOT}:${TT_METAL_RUNTIME_ROOT}/ttnn:${TT_METAL_RUNTIME_ROOT}/tt_eager:${TT_METAL_BUILD_HOME}/tools/profiler/bin"  # Metal paths

@@ -1,1 +1,4 @@
+add_subdirectory(flatbuffer)
 add_subdirectory(detail)
+
+add_custom_target(RUNTIME_FBS_GENERATION DEPENDS RUNTIME_FBS DISTRIBUTED_FBS)

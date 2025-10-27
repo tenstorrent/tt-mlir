@@ -1853,7 +1853,7 @@ const std::initializer_list<BinaryEltwiseParam> binaryEltwiseParams = {
      detail::TestTensor{{16 * OpModelFixture::workerCoresN300 * 32, 32},
                         TensorMemoryLayout::Interleaved,
                         BufferType::DRAM},
-     detail::ExpectedResult{true, 8192, 0, 8192, 0}},
+     detail::ExpectedResult{true, 12288, 0, 12288, 0}},
     {detail::TestTensor{{16 * OpModelFixture::workerCoresN300 * 32, 32},
                         TensorMemoryLayout::Interleaved,
                         BufferType::DRAM},
@@ -1865,6 +1865,43 @@ const std::initializer_list<BinaryEltwiseParam> binaryEltwiseParams = {
                         BufferType::L1,
                         llvm::SmallVector<int64_t>{8, 1}},
      detail::ExpectedResult{true, 8192, 262144, 270336, 262144}}};
+
+// Power and Remainder tests are mostly similar to other binary ops, but they
+// have subtle differences in terms of their memory footprint after metal
+// uplift. As a workaround, we generate separate test parameters for these two
+// ops. However, this will be completely resolved when we change the way we test
+// OpModelLib (See this issue:
+// https://github.com/tenstorrent/tt-mlir/issues/4288).
+const std::initializer_list<BinaryEltwiseParam>
+    binaryEltwiseParamsForRemainderAndPow = {
+        {detail::interleavedN300X1024Dram, detail::interleavedN300X1024Dram,
+         detail::interleavedN300X1024Dram,
+         detail::ExpectedResult{true, 12288, 0, 12288, 0}},
+        {detail::interleavedN300X1024Dram, detail::interleaved2048X2048Dram,
+         detail::interleaved2048X2048Dram,
+         detail::ExpectedResult{false, 0, 0, 0, 0}}, // incompatible dimensions
+                                                     // at the input
+        {detail::interleavedN300X1024Dram, detail::interleavedN300X1024L1,
+         detail::interleavedN300X1024Dram,
+         detail::ExpectedResult{true, 12288, 0, 12288, 0}},
+        {detail::interleavedN300X1024L1, detail::interleavedN300X1024Dram,
+         detail::interleavedN300X1024Dram,
+         detail::ExpectedResult{true, 12288, 0, 12288, 0}},
+        {detail::interleavedN300X1024L1, detail::interleavedN300X1024L1,
+         detail::interleavedN300X1024Dram,
+         detail::ExpectedResult{true, 12288, 0, 12288, 0}},
+        {detail::interleavedN300X1024L1, detail::interleavedN300X1024L1,
+         detail::interleavedN300X1024L1,
+         detail::ExpectedResult{true, 12288, 2048, 14336, 2048}},
+        {detail::interleavedN300X1024Dram, detail::interleavedN300X1024L1,
+         detail::interleavedN300X1024L1,
+         detail::ExpectedResult{true, 12288, 2048, 14336, 2048}},
+        {detail::interleavedN300X1024L1, detail::interleavedN300X1024Dram,
+         detail::interleavedN300X1024L1,
+         detail::ExpectedResult{true, 12288, 2048, 14336, 2048}},
+        {detail::interleavedN300X1024Dram, detail::interleavedN300X1024Dram,
+         detail::interleavedN300X1024L1,
+         detail::ExpectedResult{true, 12288, 2048, 14336, 2048}}};
 
 ::testing::internal::ParamGenerator<BinaryEltwiseParam>
 generateBinaryEltwiseParams(std::initializer_list<BinaryEltwiseParam> values,
@@ -1977,12 +2014,13 @@ INSTANTIATE_TEST_SUITE_P(BitwiseOrTests, OpModelBitwiseOrParam,
 INSTANTIATE_TEST_SUITE_P(BitwiseXorTests, OpModelBitwiseXorParam,
                          generateBinaryBitwiseParams(binaryEltwiseParams));
 
-INSTANTIATE_TEST_SUITE_P(PowTests, OpModelPowParam,
-                         generateBinaryEltwiseParams(binaryEltwiseParams));
+INSTANTIATE_TEST_SUITE_P(
+    PowTests, OpModelPowParam,
+    generateBinaryEltwiseParams(binaryEltwiseParamsForRemainderAndPow));
 
 INSTANTIATE_TEST_SUITE_P(
     RemainderTests, OpModelRemainderParam,
-    generateBinaryEltwiseParamsSameLayout(binaryEltwiseParams));
+    generateBinaryEltwiseParams(binaryEltwiseParamsForRemainderAndPow));
 
 INSTANTIATE_TEST_SUITE_P(
     Atan2Tests, OpModelAtan2Param,
@@ -3873,11 +3911,17 @@ TEST_P(OpModelBatchNormParam, BatchNormParam) {
   }
 
   // Test getOpConstraints
-  auto constraintsExp = op_model::OpModel<BatchNormOp>::getOpConstraints(
-      CreateWorkerGrid(), inputShape, inputLayout, runningMeanShape,
-      runningMeanLayout, runningVarShape, runningVarLayout, weightShape,
-      weightLayout, biasShape, biasLayout, epsilon, training, momentum,
-      outputLayout);
+  llvm::Expected<OpConstraints> constraintsExp =
+      training ? op_model::OpModel<BatchNormTrainingOp>::getOpConstraints(
+                     CreateWorkerGrid(), inputShape, inputLayout,
+                     runningMeanShape, runningMeanLayout, runningVarShape,
+                     runningVarLayout, weightShape, weightLayout, biasShape,
+                     biasLayout, epsilon, momentum, outputLayout)
+               : op_model::OpModel<BatchNormInferenceOp>::getOpConstraints(
+                     CreateWorkerGrid(), inputShape, inputLayout,
+                     runningMeanShape, runningMeanLayout, runningVarShape,
+                     runningVarLayout, weightShape, weightLayout, biasShape,
+                     biasLayout, epsilon, outputLayout);
 
   EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
   if (constraintsExp) {
@@ -3892,10 +3936,16 @@ TEST_P(OpModelBatchNormParam, BatchNormParam) {
   }
 
   // Test getOpRuntime
-  auto runtimeExp = op_model::OpModel<BatchNormOp>::getOpRuntime(
-      inputShape, inputLayout, runningMeanShape, runningMeanLayout,
-      runningVarShape, runningVarLayout, weightShape, weightLayout, biasShape,
-      biasLayout, epsilon, training, momentum, outputLayout);
+  llvm::Expected<size_t> runtimeExp =
+      training
+          ? op_model::OpModel<BatchNormTrainingOp>::getOpRuntime(
+                inputShape, inputLayout, runningMeanShape, runningMeanLayout,
+                runningVarShape, runningVarLayout, weightShape, weightLayout,
+                biasShape, biasLayout, epsilon, momentum, outputLayout)
+          : op_model::OpModel<BatchNormInferenceOp>::getOpRuntime(
+                inputShape, inputLayout, runningMeanShape, runningMeanLayout,
+                runningVarShape, runningVarLayout, weightShape, weightLayout,
+                biasShape, biasLayout, epsilon, outputLayout);
 
   EXPECT_EQ(static_cast<bool>(runtimeExp), expectedLegal);
   if (runtimeExp) {
@@ -3907,7 +3957,8 @@ TEST_P(OpModelBatchNormParam, BatchNormParam) {
 
 // Shared test values for BatchNormOp operations
 const auto batchNormTestValues = ::testing::Values(
-    // Test case 1: Basic BatchNorm with all optional tensors (4D input)
+    // Test case 1: Basic BatchNormInference with all optional tensors (4D
+    // input)
     std::make_tuple(
         detail::TestTensor{{1, 32, 128, 128},
                            TensorMemoryLayout::Interleaved,
@@ -3925,7 +3976,7 @@ const auto batchNormTestValues = ::testing::Values(
             {1, 32, 1, 1}, TensorMemoryLayout::Interleaved, BufferType::DRAM}),
         false, 1e-05f, 0.1f, detail::ExpectedResult{true, 36864, 0, 36864, 0}),
 
-    // Test case 2: BatchNorm without optional tensors (training mode)
+    // Test case 2: BatchNormTraining without optional tensors
     std::make_tuple(
         detail::TestTensor{
             {1, 64, 64, 64}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
@@ -3934,7 +3985,8 @@ const auto batchNormTestValues = ::testing::Values(
         std::nullopt, std::nullopt, std::nullopt, std::nullopt, true, 1e-05f,
         0.1f, detail::ExpectedResult{true, 49152, 0, 49152, 0}),
 
-    // Test case 3: Failing case: BatchNorm supports tensors of rank 4 only.
+    // Test case 3: Failing case: BatchNormInference supports tensors of rank 4
+    // only.
     std::make_tuple(
         detail::TestTensor{{1, 16, 256, 256},
                            TensorMemoryLayout::Interleaved,
@@ -3952,7 +4004,7 @@ const auto batchNormTestValues = ::testing::Values(
             {16}, TensorMemoryLayout::Interleaved, BufferType::DRAM}),
         false, 1e-05f, 0.01f, detail::ExpectedResult{false, 0, 0, 0, 0}),
 
-    // Test case 4: BatchNorm with L1 memory buffers
+    // Test case 4: BatchNormInference with L1 memory buffers
     std::make_tuple(
         detail::TestTensor{
             {1, 32, 32, 32}, TensorMemoryLayout::Interleaved, BufferType::L1},
@@ -5293,11 +5345,13 @@ protected:
       scale.emplace(scaleAPFloat);
     }
 
+    std::optional<uint32_t> slidingWindowSize = std::nullopt;
+
     auto constraintsExp =
         OpModel<ScaledDotProductAttentionOp>::getOpConstraints(
             CreateWorkerGrid(), queryShape, queryLayout, keyShape, keyLayout,
             valueShape, valueLayout, attentionMaskShape, attentionMaskLayout,
-            isCausal, scale, outputLayout);
+            isCausal, scale, slidingWindowSize, outputLayout);
 
     EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
     if (expectedLegal) {

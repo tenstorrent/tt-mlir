@@ -984,34 +984,82 @@ public:
 } // namespace
 
 namespace {
-class BatchNormOpConversionPattern
-    : public OpConversionPattern<ttir::BatchNormOp> {
+// Used by both BatchNormInferenceOp and BatchNormTrainingOp.
+template <typename OpType, typename OpAdaptor>
+static LogicalResult
+checkBatchNormToTTNNLegality(OpType &op, OpAdaptor adaptor,
+                             ConversionPatternRewriter &rewriter) {
+  // Check if the operand is a 4-dimensional tensor.
+  if (mlir::cast<RankedTensorType>(adaptor.getOperand().getType()).getRank() !=
+      4) {
+    return rewriter.notifyMatchFailure(
+        op, "Operand must be a 4-dimensional tensor");
+  }
+
+  // We only support excluded_dimension=1 for ttnn::batch_norm
+  if (adaptor.getDimension() != 1) {
+    return rewriter.notifyMatchFailure(op, "We can only exclude dimension 1");
+  }
+
+  return success();
+}
+
+class BatchNormInferenceOpConversionPattern
+    : public OpConversionPattern<ttir::BatchNormInferenceOp> {
 public:
-  using OpConversionPattern<ttir::BatchNormOp>::OpConversionPattern;
+  using OpConversionPattern<ttir::BatchNormInferenceOp>::OpConversionPattern;
 
   LogicalResult
-  matchAndRewrite(ttir::BatchNormOp op, OpAdaptor adaptor,
+  matchAndRewrite(ttir::BatchNormInferenceOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    // Check if the operand is a 4-dimensional tensor.
-    if (mlir::cast<RankedTensorType>(adaptor.getOperand().getType())
-            .getRank() != 4) {
-      return rewriter.notifyMatchFailure(
-          op, "Operand must be a 4-dimensional tensor");
+    // Check legality of the conversion.
+    LogicalResult legalityResult =
+        checkBatchNormToTTNNLegality(op, adaptor, rewriter);
+    if (failed(legalityResult)) {
+      return legalityResult;
     }
 
-    // We only support excluded_dimension=1 for ttnn::batch_norm
-    if (adaptor.getDimension() != 1) {
-      return rewriter.notifyMatchFailure(op, "We can only exclude dimension 1");
-    }
-
-    mlir::APFloat defaultMomentum(0.1f);
-
-    rewriter.replaceOpWithNewOp<ttnn::BatchNormOp>(
-        op, this->getTypeConverter()->convertType(op.getType()),
+    rewriter.replaceOpWithNewOp<ttnn::BatchNormInferenceOp>(
+        op, this->getTypeConverter()->convertType(op.getResult().getType()),
         adaptor.getOperand(), adaptor.getMean(), adaptor.getVariance(),
-        adaptor.getTraining(), adaptor.getEpsilon(), defaultMomentum,
-        adaptor.getScale(), adaptor.getOffset(),
+        adaptor.getEpsilon(), adaptor.getScale(), adaptor.getOffset(),
         /*memoryConfig*/ nullptr);
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+class BatchNormTrainingOpConversionPattern
+    : public OpConversionPattern<ttir::BatchNormTrainingOp> {
+public:
+  using OpConversionPattern<ttir::BatchNormTrainingOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::BatchNormTrainingOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    // Check legality of the conversion.
+    LogicalResult legalityResult =
+        checkBatchNormToTTNNLegality(op, adaptor, rewriter);
+    if (failed(legalityResult)) {
+      return legalityResult;
+    }
+
+    // Convert result types
+    auto resultType =
+        this->getTypeConverter()->convertType(op.getResult().getType());
+
+    auto batchNormTrainingOp = rewriter.create<ttnn::BatchNormTrainingOp>(
+        op.getLoc(), resultType, adaptor.getOperand(), adaptor.getRunningMean(),
+        adaptor.getRunningVariance(), adaptor.getEpsilon(),
+        adaptor.getMomentum(), adaptor.getScale(), adaptor.getOffset(),
+        /*memoryConfig*/ nullptr);
+
+    // TTIR expects the running mean and variance to be returned as separate
+    // results.
+    rewriter.replaceOp(op, {batchNormTrainingOp.getResult(),
+                            batchNormTrainingOp.getRunningMean(),
+                            batchNormTrainingOp.getRunningVar()});
     return success();
   }
 };
@@ -1261,7 +1309,7 @@ public:
         outChannelsAttr, batchSizeAttr, inputHeightAttr, inputWidthAttr,
         kernelSizeAttr, *strideAttr, reducedPaddingAttr, *outputPaddingAttr,
         *dilationAttr, groupsAttr, outputDtypeAttr, /*conv2d_config=*/nullptr,
-        /*memoryConfig=*/nullptr);
+        /*compute_config=*/nullptr, /*memoryConfig=*/nullptr);
 
     return success();
   }
@@ -1649,40 +1697,24 @@ public:
 };
 } // namespace
 
+//===----------------------------------------------------------------------===//
+// ScatterInDimOp
+//===----------------------------------------------------------------------===//
+
 namespace {
-class ScatterOpConversionPattern : public OpConversionPattern<ttir::ScatterOp> {
+class ScatterInDimOpConversionPattern
+    : public OpConversionPattern<ttir::ScatterInDimOp> {
+  using OpConversionPattern<ttir::ScatterInDimOp>::OpConversionPattern;
+
 public:
-  using OpConversionPattern<ttir::ScatterOp>::OpConversionPattern;
-
   LogicalResult
-  matchAndRewrite(ttir::ScatterOp op, OpAdaptor adaptor,
+  matchAndRewrite(ttir::ScatterInDimOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    if (!hasValidInsertedWindowDims(op)) {
-      return rewriter.notifyMatchFailure(
-          op, "ttnn and tt-metal have limited scatter support. Inserted window "
-              "dimenstion must be 1 in the input tensor shape.");
-    }
-    // The ttnn interface has the inverse inputs of the TTIR dialect op (which
-    // matches torch ops).
     rewriter.replaceOpWithNewOp<ttnn::ScatterOp>(
-        op, adaptor.getOutput().getType(), adaptor.getUpdate(),
-        adaptor.getInput());
-
+        op, this->getTypeConverter()->convertType(op.getType()),
+        adaptor.getInput(), adaptor.getIndex(), adaptor.getSource(),
+        rewriter.getI32IntegerAttr(op.getDim()), nullptr);
     return success();
-  }
-
-private:
-  bool hasValidInsertedWindowDims(ttir::ScatterOp op) const {
-    ArrayRef<int64_t> inputShape = op.getInput().getType().getShape();
-
-    for (uint64_t insertedWindowDims : op.getInsertedWindowDims()) {
-      if (insertedWindowDims < inputShape.size() &&
-          inputShape[insertedWindowDims] != 1) {
-        return false;
-      }
-    }
-
-    return true;
   }
 };
 } // namespace
@@ -1883,12 +1915,12 @@ public:
   LogicalResult
   matchAndRewrite(ttir::ScaledDotProductAttentionDecodeOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    FloatAttr scaleAttr = op.getScaleAttr() ? op.getScaleAttr() : nullptr;
     rewriter.replaceOpWithNewOp<ttnn::ScaledDotProductAttentionDecodeOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
         adaptor.getQuery(), adaptor.getKey(), adaptor.getValue(),
         adaptor.getIsCausal(), adaptor.getAttentionMask(),
-        adaptor.getCurPosTensor(), adaptor.getAttentionSink(), scaleAttr,
+        adaptor.getCurPosTensor(), adaptor.getAttentionSink(),
+        adaptor.getScaleAttr(),
         /*memory_config=*/nullptr);
     return success();
   }
@@ -1904,11 +1936,11 @@ public:
   LogicalResult
   matchAndRewrite(ttir::ScaledDotProductAttentionOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    FloatAttr scaleAttr = op.getScaleAttr() ? op.getScaleAttr() : nullptr;
     rewriter.replaceOpWithNewOp<ttnn::ScaledDotProductAttentionOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
         adaptor.getQuery(), adaptor.getKey(), adaptor.getValue(),
-        adaptor.getAttentionMask(), op.getIsCausal(), scaleAttr,
+        adaptor.getAttentionMask(), op.getIsCausal(), adaptor.getScaleAttr(),
+        adaptor.getSlidingWindowSizeAttr(),
         /*memory_config=*/nullptr);
     return success();
   }
@@ -2105,7 +2137,8 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            UnsqueezeOpConversionPattern,
            ConstantOpConversionPattern,
            LinearOpConversionPattern,
-           BatchNormOpConversionPattern,
+           BatchNormInferenceOpConversionPattern,
+           BatchNormTrainingOpConversionPattern,
            RMSNormOpConversionPattern,
            MatmulOpConversionPattern,
            Conv2dOpConversionPattern,
@@ -2119,7 +2152,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            RandOpConversionPattern,
            UpdateCacheOpConversionPattern,
            FillCacheOpConversionPattern,
-           ScatterOpConversionPattern,
+           ScatterInDimOpConversionPattern,
            PermuteOpConversionPattern,
            UpsampleOpConversionPattern,
            AllToAllOpConversionPattern,
