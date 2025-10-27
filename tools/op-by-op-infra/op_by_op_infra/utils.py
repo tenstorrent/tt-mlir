@@ -157,8 +157,8 @@ class OpWrapper:
         )
 
         if len(self.results) > 1:
-            results = f"({', '.join(result.name for result in self.results)})"
-            return_type = f"({', '.join(str(result.type) for result in self.results)})"
+            results = f"{', '.join(result.name for result in self.results)}"
+            return_type = f"{', '.join(str(result.type) for result in self.results)}"
             return_stmt = f"return {results} : {return_type}"
         elif len(self.results) == 1:
             return_type = self.results[0].type
@@ -180,7 +180,7 @@ class OpWrapper:
 
         return (
             f"module attributes {attrs} {{ \n"
-            f"  func.func @main({unpacked_operands}) -> {return_type} {{ \n"
+            f"  func.func @main({unpacked_operands}) -> ({return_type}) {{ \n"
             f"    {self.op} \n"
             f"    {return_stmt} \n"
             f"  }} \n"

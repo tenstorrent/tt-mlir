@@ -155,7 +155,7 @@ class MLIRModuleSplitter:
                 else:
                     # Handle stablehlo.composite ops that need to have their decomposition functions in the same module.
                     op_str = str(op)
-                    if 'stablehlo.composite' in op_str:
+                    if "stablehlo.composite" in op_str:
                         decomposition_func = self._extract_decomposition_func(op_str)
                         op_wrapper = self._module.wrap_op(op, decomposition_func)
                     else:
