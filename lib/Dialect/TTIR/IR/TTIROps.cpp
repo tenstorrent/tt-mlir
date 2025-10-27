@@ -3744,7 +3744,7 @@ mlir::LogicalResult mlir::tt::ttir::MeshShardOp::verify() {
 //===----------------------------------------------------------------------===//
 
 ::mlir::LogicalResult PagedUpdateCacheOp::verify() {
-  // TODO
+  // TODO(LPanosTT)
   return success();
 }
 

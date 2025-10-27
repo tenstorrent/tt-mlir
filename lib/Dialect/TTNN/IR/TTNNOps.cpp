@@ -2837,7 +2837,7 @@ mlir::tt::ttnn::CollectivePermuteOp::fold(FoldAdaptor adaptor) {
 //===----------------------------------------------------------------------===//
 
 ::mlir::LogicalResult PagedUpdateCacheOp::verify() {
-  // TODO
+  // TODO(LPanosTT)
   return success();
 }
 
