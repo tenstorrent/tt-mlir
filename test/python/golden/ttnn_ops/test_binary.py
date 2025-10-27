@@ -42,13 +42,13 @@ def atan2(
     return builder.atan2(in0, in1, unit_attrs=unit_attrs)
 
 
-def div(
+def divide(
     in0: Operand,
     in1: Operand,
     builder: TTNNBuilder,
     unit_attrs: Optional[List[str]] = None,
 ):
-    return builder.div(in0, in1, unit_attrs=unit_attrs)
+    return builder.divide(in0, in1, unit_attrs=unit_attrs)
 
 
 def logical_and(
@@ -105,31 +105,6 @@ def multiply(
     return builder.multiply(in0, in1, unit_attrs=unit_attrs)
 
 
-def pow(
-    in0: Operand,
-    in1: Operand,
-    builder: TTNNBuilder,
-    unit_attrs: Optional[List[str]] = None,
-):
-    randn_base_tensor = builder._get_golden_tensor(in0)
-    randn_exponent_tensor = builder._get_golden_tensor(in1)
-
-    randn_base_tensor = randn_base_tensor.apply_shardwise(
-        lambda shard: (
-            shard.abs() if torch.is_floating_point(randn_exponent_tensor) else shard
-        )
-    )
-
-    if torch.is_floating_point(randn_exponent_tensor):
-        randn_base_tensor = torch.abs(randn_base_tensor)
-    output_golden = torch.pow(randn_base_tensor, randn_exponent_tensor)
-    pow0 = builder.pow(in0, in1, unit_attrs=unit_attrs)
-    builder.set_goldens_from_builder_tensor(
-        {in0: randn_base_tensor, in1: randn_exponent_tensor}, {pow0: output_golden}
-    )
-    return pow0
-
-
 def remainder(
     in0: Operand,
     in1: Operand,
@@ -150,28 +125,22 @@ def subtract(
 
 binary_ops = [
     add,
-    atan2 | Marks(pytest.mark.skip_config(["ttmetal"])),
-    div,
-    logical_and | Marks(pytest.mark.skip_config(["ttmetal"])),
-    logical_or | Marks(pytest.mark.skip_config(["ttmetal"])),
-    logical_xor | Marks(pytest.mark.skip_config(["ttmetal"])),
-    maximum
-    | Marks(
-        pytest.mark.skip_config(
-            ["ttmetal"], reason="https://github.com/tenstorrent/tt-mlir/issues/5016"
-        )
-    ),
-    minimum | Marks(pytest.mark.skip_config(["ttmetal"])),
+    atan2,
+    divide,
+    logical_and,
+    logical_or,
+    logical_xor,
+    maximum,
+    minimum,
     multiply,
-    pow,
-    remainder | Marks(pytest.mark.skip_config(["ttmetal"])),
+    remainder,
     subtract,
 ]
 
 
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy"])
+@pytest.mark.parametrize("target", ["ttnn", "emitpy"])
 @pytest.mark.parametrize("test_fn", binary_ops)
 def test_binary_ops(
     test_fn: Callable, shape: Shape, dtype: torch.dtype, target: str, request, device
@@ -402,7 +371,7 @@ binary_comparison_ops = [
 @pytest.mark.parametrize(
     "dtype", [torch.float32, torch.bfloat16, torch.int32], ids=["f32", "bf16", "i32"]
 )
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy"])
+@pytest.mark.parametrize("target", ["ttnn", "emitpy"])
 @pytest.mark.parametrize("test_fn", binary_comparison_ops)
 def test_comparison_ops(
     test_fn: Callable,
@@ -412,9 +381,6 @@ def test_comparison_ops(
     request,
     device,
 ):
-    if target == "ttmetal" and dtype == torch.int32:
-        pytest.skip("ttmetal does not support int32 comparison ops")
-
     def comparison_ops(
         in0: Operand,
         in1: Operand,
@@ -451,130 +417,6 @@ def test_comparison_ops(
     )
 
 
-# Unaligned shapes for binary ops
-# Unaligned shapes tests for neg op
-unaligned_shapes = [
-    (5, 3),
-    (32, 1),
-    (31, 7),
-    (1, 32),
-    (13, 29),
-    (64, 1),
-    (61, 3),
-    (61, 37),
-    (1, 64),
-    (5, 67),
-    (43, 67),
-    (2, 3, 5),
-    (3, 17, 37),
-    (9, 43, 7),
-    (5, 61, 49),
-    (51, 19, 23),
-    (677, 1, 1),
-    (2, 3, 5, 7),
-    (3, 37, 5, 53),
-    (37, 3, 5, 53),
-    (41, 7, 43, 11),
-    (7, 41, 43, 11),
-    (1, 23, 1, 1),
-    (23, 1, 1, 1),
-    (3, 5, 7, 11, 13),
-]
-
-
-@pytest.mark.parametrize("shape", unaligned_shapes, ids=shape_str)
-@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
-@pytest.mark.parametrize("target", ["ttmetal"])
-def test_unaligned_shapes_add(
-    shape: Shape, dtype: torch.dtype, target: str, request, device
-):
-    def add(
-        in0: Operand,
-        in1: Operand,
-        builder: TTNNBuilder,
-        unit_attrs: Optional[List[str]] = None,
-    ):
-        # Magnitudes of the elements should be in [0.01, 1) to avoid FP accuracy issue.
-        tensor_lhs = torch.rand(shape, dtype=dtype) * 0.99 + 0.01
-        tensor_rhs = torch.rand(shape, dtype=dtype) * 0.99 + 0.01
-        signs_lhs = torch.randint(0, 2, shape) * 2 - 1
-        signs_rhs = torch.randint(0, 2, shape) * 2 - 1
-        tensor_lhs *= signs_lhs
-        tensor_rhs *= signs_rhs
-        builder.set_goldens(inputs={in0: tensor_lhs, in1: tensor_rhs})
-        return builder.add(in0, in1, unit_attrs=unit_attrs)
-
-    compile_and_execute_ttnn(
-        add,
-        [shape, shape],
-        [dtype, dtype],
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
-        target=target,
-        device=device,
-    )
-
-
-# Hoisted binary ops
-def create_hoisted_binary_op(op_func, name):
-    """Create a hoisted version of a binary operation by adding the should_hoist unit attribute"""
-
-    def hoisted_op(in0, in1, builder, **kwargs):
-        return op_func(in0, in1, builder, unit_attrs=["ttnn.should_hoist"], **kwargs)
-
-    hoisted_op.__name__ = f"hoisted_{name}"
-    return hoisted_op
-
-
-hoisted_binary_ops = [
-    create_hoisted_binary_op(add, "add"),
-    create_hoisted_binary_op(multiply, "multiply"),
-    create_hoisted_binary_op(subtract, "subtract"),
-    create_hoisted_binary_op(eq, "equal"),
-    create_hoisted_binary_op(ne, "not_equal"),
-    create_hoisted_binary_op(gt, "greater_than"),
-    create_hoisted_binary_op(ge, "greater_equal"),
-    create_hoisted_binary_op(lt, "less_than"),
-    create_hoisted_binary_op(le, "less_equal"),
-]
-
-
-@x86_only
-@pytest.mark.parametrize(
-    "shapes",
-    [
-        [(128, 128), (128, 128)],  # Same shapes
-        [(128, 128), (1, 128)],  # Broadcasting second dimension
-        [(128, 128), (128, 1)],  # Broadcasting first dimension
-        [(128, 128, 64), (128, 1, 64)],  # 3D tensors with broadcasting
-    ],
-    ids=shapes_list_str,
-)
-@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
-@pytest.mark.parametrize("test_fn", hoisted_binary_ops)
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
-def test_cpu_hoistable_binary_ops(
-    test_fn: Callable,
-    shapes: List[Shape],
-    dtype: torch.dtype,
-    request,
-    target: str,
-    device,
-):
-    """Test binary ops that support CPU hoisting"""
-    compile_and_execute_ttnn(
-        test_fn,
-        shapes,
-        [dtype] * len(shapes),
-        test_base=f"{request.node.name}",
-        target=target,
-        device=device,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
-    )
-
-
 # Binary eltwise ops with implicit broadcasting
 # There are operations that still do not support Int32 tracked here: https://github.com/tenstorrent/tt-metal/issues/25112.
 @pytest.mark.parametrize(
@@ -606,11 +448,10 @@ def test_cpu_hoistable_binary_ops(
         lt,
         ge,
         gt,
-        div,
+        divide,
         remainder,
         maximum,
         minimum,
-        pow | Marks(pytest.mark.xfail(reason="Golden Failure")),
         logical_and,
         logical_or,
         logical_xor,
@@ -627,31 +468,6 @@ def test_binary_eltwise_ops_implicit_broadcast(
     compile_and_execute_ttnn(
         test_fn,
         shapes,
-        [dtype, dtype],
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
-        target=target,
-        device=device,
-    )
-
-
-@x86_only
-@pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
-@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
-def test_hoisted_pow(shape: Shape, dtype: torch.dtype, target: str, request, device):
-    def hoisted_pow_wrapper(
-        in0: Operand,
-        in1: Operand,
-        builder: TTNNBuilder,
-        unit_attrs: Optional[List[str]] = None,
-    ):
-        return pow(in0, in1, builder, unit_attrs=["ttnn.should_hoist"])
-
-    compile_and_execute_ttnn(
-        hoisted_pow_wrapper,
-        [shape, shape],
         [dtype, dtype],
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),

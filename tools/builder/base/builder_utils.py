@@ -688,8 +688,8 @@ def compile_and_execute_shlo(
 
 def compile_and_execute_ttnn(
     fn: Callable,
-    input_shapes: List[Shape],
-    input_types: Optional[List[Union[torch.dtype, TypeInfo]]] = None,
+    inputs_shapes: List[Shape],
+    inputs_types: Optional[List[Union[torch.dtype, TypeInfo]]] = None,
     system_desc_path: str = "ttrt-artifacts/system_desc.ttsys",
     test_base: str = "test",
     output_root: str = ".",
@@ -763,8 +763,8 @@ def compile_and_execute_ttnn(
     return _compile_and_execute(
         compile_fn=compile_ttnn_to_flatbuffer,
         fn=fn,
-        inputs_shapes=input_shapes,
-        inputs_types=input_types,
+        inputs_shapes=inputs_shapes,
+        inputs_types=inputs_types,
         system_desc_path=system_desc_path,
         test_base=test_base,
         output_root=output_root,

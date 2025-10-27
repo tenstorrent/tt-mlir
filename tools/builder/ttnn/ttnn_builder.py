@@ -88,7 +88,9 @@ class TTNNBuilder(Builder):
                             *(organize_golden_args(inputs)), **golden_kwargs
                         )
                     self._set_golden_tensor(op, golden_output)
-
+            print(op)
+            print(golden_output)
+            print()
             return op
 
     def _get_data_type_attribute(self, operand: Operand) -> ttcore.ir.DataTypeAttr:
@@ -1901,36 +1903,6 @@ class TTNNBuilder(Builder):
         """
         return self._op_proxy(
             ttnn.RemainderOp,
-            [in0, in1],
-            unit_attrs=unit_attrs,
-        )
-
-    def pow(
-        self, in0: Operand, in1: Operand, unit_attrs: Optional[List[str]] = None
-    ) -> OpView:
-        """
-        Creates ``ttnn.pow``.
-
-        *Elementwise power operation.*
-
-        Takes the first tensor to the power of the second tensor element-wise.
-
-        Parameters
-        ----------
-        in0 : Operand
-            First input tensor (base)
-        in1 : Operand
-            Second input tensor (exponent)
-        unit_attrs : *Optional[List[str]]*, optional
-            Optional list of unit attributes
-
-        Returns
-        -------
-        (*OpView*)
-            Tensor with power values
-        """
-        return self._op_proxy(
-            ttnn.PowOp,
             [in0, in1],
             unit_attrs=unit_attrs,
         )
@@ -3972,7 +3944,7 @@ class TTNNBuilder(Builder):
         self, in0: Operand, in1: Operand, unit_attrs: Optional[List[str]] = None
     ) -> OpView:
         """
-        Creates ``ttnn.div``.
+        Creates ``ttnn.divide``.
 
         *Elementwise division operation.*
 
@@ -3982,12 +3954,12 @@ class TTNNBuilder(Builder):
 
         Note: Division by zero behavior depends on the implementation and data type.
 
-        Mathematical definition: div(x, y) = x / y
+        Mathematical definition: divide(x, y) = x / y
 
         .. code-block:: mlir
 
             // Divide corresponding elements
-            %result = ttnn.div(%lhs, %rhs, %output) : tensor<3xf32>, tensor<3xf32>, tensor<3xf32> -> tensor<3xf32>
+            %result = ttnn.divide(%lhs, %rhs, %output) : tensor<3xf32>, tensor<3xf32>, tensor<3xf32> -> tensor<3xf32>
             // Input tensors:
             // lhs: [3.5, 0.0, -1.2]
             // rhs: [1.5, 2.0, -3.2]
@@ -4009,7 +3981,7 @@ class TTNNBuilder(Builder):
             A tensor containing the elementwise quotient of the inputs
         """
         return self._op_proxy(
-            ttnn.DivOp,
+            ttnn.DivideOp,
             [in0, in1],
             unit_attrs=unit_attrs,
         )
