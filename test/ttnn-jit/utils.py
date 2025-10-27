@@ -35,7 +35,7 @@ def memory_configs_equal(memory_config1, memory_config2):
 
 def create_dram_tensor(device, h, w, dtype, int_max=0):
     torch.manual_seed(0)
-    if not (dtype.is_floating_point and dtype.is_complex):
+    if not (dtype.is_floating_point or dtype.is_complex):
         # recreate spatial coverage of fp [0,1] in randn and give some overflow headroom
         high_val = int_max if int_max else torch.iinfo(dtype).max // 2
         torch_tensor = torch.randint(high_val, (h, w), dtype=dtype)
@@ -58,7 +58,7 @@ def create_dram_tensor(device, h, w, dtype, int_max=0):
 
 def create_sharded_tile_tensor(device, h, w, max_grid, dtype, int_max=0):
     torch.manual_seed(0)
-    if not (dtype.is_floating_point and dtype.is_complex):
+    if not (dtype.is_floating_point or dtype.is_complex):
         # recreate spatial coverage of fp [0,1] in randn and give some overflow headroom
         high_val = int_max if int_max else torch.iinfo(dtype).max // 2
         torch_tensor = torch.randint(high_val, (h, w), dtype=dtype)
