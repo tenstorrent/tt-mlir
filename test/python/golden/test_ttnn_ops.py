@@ -55,6 +55,7 @@ def mish(
 
 @pytest.mark.parametrize("shape", [(32, 32)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32], ids=["bf16", "f32"])
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
 @pytest.mark.parametrize(
     "test_fn",
     [
@@ -62,7 +63,7 @@ def mish(
     ],
 )
 def test_unary_ops(
-    test_fn: Callable, shape: Shape, dtype: torch.dtype, request, device
+    test_fn: Callable, shape: Shape, dtype: torch.dtype, target: str, request, device
 ):
     if test_fn == mish and dtype == torch.float32:
         pytest.skip(
@@ -76,5 +77,6 @@ def test_unary_ops(
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
         device=device,
     )
