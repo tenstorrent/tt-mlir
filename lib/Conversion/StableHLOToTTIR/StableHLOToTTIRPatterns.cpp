@@ -799,53 +799,6 @@ public:
 
 namespace {
 
-// Verify that scale, mean, variance parameters are 1D tensors with correct
-// size.
-LogicalResult checkBatchNormGradParametersLegality(
-    mlir::stablehlo::BatchNormGradOp &srcOp,
-    mlir::stablehlo::BatchNormGradOp::Adaptor adaptor,
-    ConversionPatternRewriter &rewriter) {
-  auto operandType =
-      mlir::cast<RankedTensorType>(adaptor.getOperand().getType());
-  auto scaleType = mlir::cast<RankedTensorType>(adaptor.getScale().getType());
-  auto meanType = mlir::cast<RankedTensorType>(adaptor.getMean().getType());
-  auto varianceType =
-      mlir::cast<RankedTensorType>(adaptor.getVariance().getType());
-
-  int64_t featureIndex = srcOp.getFeatureIndex();
-  int64_t expectedSize = operandType.getShape()[featureIndex];
-
-  // Check that parameters are 1D tensors.
-  if (scaleType.getRank() != 1) {
-    return rewriter.notifyMatchFailure(
-        srcOp, "batch_norm_grad scale must be a 1D tensor");
-  }
-  if (meanType.getRank() != 1) {
-    return rewriter.notifyMatchFailure(
-        srcOp, "batch_norm_grad mean must be a 1D tensor");
-  }
-  if (varianceType.getRank() != 1) {
-    return rewriter.notifyMatchFailure(
-        srcOp, "batch_norm_grad variance must be a 1D tensor");
-  }
-
-  // Check that sizes match feature dimension.
-  if (scaleType.getDimSize(0) != expectedSize) {
-    return rewriter.notifyMatchFailure(
-        srcOp, "batch_norm_grad scale size must match feature dimension");
-  }
-  if (meanType.getDimSize(0) != expectedSize) {
-    return rewriter.notifyMatchFailure(
-        srcOp, "batch_norm_grad mean size must match feature dimension");
-  }
-  if (varianceType.getDimSize(0) != expectedSize) {
-    return rewriter.notifyMatchFailure(
-        srcOp, "batch_norm_grad variance size must match feature dimension");
-  }
-
-  return success();
-}
-
 class StableHLOToBatchNormGradOpConversionPattern
     : public OpConversionPattern<mlir::stablehlo::BatchNormGradOp> {
 
@@ -1013,6 +966,53 @@ public:
   }
 
 private:
+  // Verify that scale, mean, variance parameters are 1D tensors with correct
+  // size.
+  LogicalResult checkBatchNormGradParametersLegality(
+      mlir::stablehlo::BatchNormGradOp srcOp,
+      mlir::stablehlo::BatchNormGradOp::Adaptor adaptor,
+      ConversionPatternRewriter &rewriter) const {
+    auto operandType =
+        mlir::cast<RankedTensorType>(adaptor.getOperand().getType());
+    auto scaleType = mlir::cast<RankedTensorType>(adaptor.getScale().getType());
+    auto meanType = mlir::cast<RankedTensorType>(adaptor.getMean().getType());
+    auto varianceType =
+        mlir::cast<RankedTensorType>(adaptor.getVariance().getType());
+
+    int64_t featureIndex = srcOp.getFeatureIndex();
+    int64_t expectedSize = operandType.getShape()[featureIndex];
+
+    // Check that parameters are 1D tensors.
+    if (scaleType.getRank() != 1) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "batch_norm_grad scale must be a 1D tensor");
+    }
+    if (meanType.getRank() != 1) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "batch_norm_grad mean must be a 1D tensor");
+    }
+    if (varianceType.getRank() != 1) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "batch_norm_grad variance must be a 1D tensor");
+    }
+
+    // Check that sizes match feature dimension.
+    if (scaleType.getDimSize(0) != expectedSize) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "batch_norm_grad scale size must match feature dimension");
+    }
+    if (meanType.getDimSize(0) != expectedSize) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "batch_norm_grad mean size must match feature dimension");
+    }
+    if (varianceType.getDimSize(0) != expectedSize) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "batch_norm_grad variance size must match feature dimension");
+    }
+
+    return success();
+  }
+
   // Helper to create broadcast shape from feature dimension to full shape.
   Value broadcastFeatureToShape(ConversionPatternRewriter &rewriter,
                                 Location loc, Value input,
