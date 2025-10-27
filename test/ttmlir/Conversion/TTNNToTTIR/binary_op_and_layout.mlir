@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --convert-ttnn-to-ttir --ttcore-register-device --ttir-to-d2m="ttnn-mode=true" -o %t.mlir %s
+// RUN: ttmlir-opt --convert-ttnn-to-ttir --ttcore-register-device --ttir-to-d2m -o %t.mlir %s
 // RUN: FileCheck %s --input-file=%t.mlir
 
 #dram = #ttnn.buffer_type<dram>

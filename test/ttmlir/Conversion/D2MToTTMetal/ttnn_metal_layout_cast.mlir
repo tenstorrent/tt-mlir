@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttir-bufferization-pipeline="ttnn-mode=true" -o %t.mlir %s
+// RUN: ttmlir-opt --ttnn-d2m-bufferization-pipeline -o %t.mlir %s
 // RUN: FileCheck %s --input-file=%t.mlir
 
 #l1 = #ttnn.buffer_type<l1>

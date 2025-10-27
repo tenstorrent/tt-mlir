@@ -25,8 +25,6 @@ void populateD2MToTTKernelPatterns(
     const d2m::CBProducerConsumer &cbProducerConsumer, bool ttnnMode);
 
 std::unique_ptr<OperationPass<ModuleOp>> createConvertD2MToTTKernelPass();
-std::unique_ptr<OperationPass<ModuleOp>>
-createConvertD2MToTTKernelPass(const d2m::ConvertD2MToTTKernelOptions &options);
 
 } // namespace mlir::tt
 

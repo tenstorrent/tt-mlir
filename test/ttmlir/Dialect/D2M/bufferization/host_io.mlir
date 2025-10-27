@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --mlir-print-local-scope --ttir-bufferization-pipeline -o %t %s
+// RUN: ttmlir-opt --mlir-print-local-scope --d2m-bufferization-pipeline -o %t %s
 // RUN: FileCheck %s --input-file=%t
 
 module {
