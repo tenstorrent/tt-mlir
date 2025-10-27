@@ -32,15 +32,8 @@ namespace mlir::tt::d2m {
 // Helper definitions.
 //===----------------------------------------------------------------------===//
 
-inline ttcore::MemorySpace getMemorySpace(MemRefType memref,
-                                          ttcore::MemorySpace dflt) {
-  auto memSpace = memref.getMemorySpace();
-  return memSpace ? mlir::cast<ttcore::MemorySpaceAttr>(memSpace).getValue()
-                  : dflt;
-}
-
 inline bool isDeviceMemorySpace(MemRefType memref, ttcore::MemorySpace dflt) {
-  return ttcore::isDeviceMemorySpace(getMemorySpace(memref, dflt));
+  return ttcore::isDeviceMemorySpace(ttcore::getMemorySpace(memref, dflt));
 }
 
 //===----------------------------------------------------------------------===//
@@ -387,6 +380,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     const std::size_t outputsStart =
         genericOp.getOutputs().getBeginOperandIndex();
     ArrayAttr iteratorTypes = genericOp.getIteratorTypes();
+    bool hasIndexingMaps = !genericOp.getIndexingMaps().empty();
 
     llvm::SmallVector<OperandContext> result;
 
@@ -401,6 +395,14 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
         // L1 outputs are currently allocated in L1 so won't use streams unless
         // allowed to do so in `allowL1OutputSpilling` mode.
         // DRAM outputs always need to be spilled.
+        continue;
+      }
+
+      // If indexing maps are not yet generated (pre-loop generation),
+      // we can't analyze reduction/broadcast dimensions, so skip this analysis.
+      // Stream requirements will be determined by other factors (e.g., memory
+      // space).
+      if (!hasIndexingMaps) {
         continue;
       }
 
@@ -555,7 +557,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
 
     for (auto &[memref, memrefCtx] : analysis.memrefs) {
       const MemorySpace memspace =
-          getMemorySpace(memrefCtx.type, MemorySpace::System);
+          ttcore::getMemorySpace(memrefCtx.type, MemorySpace::System);
       if (!ttcore::isDeviceMemorySpace(memspace)) {
         continue;
       }
