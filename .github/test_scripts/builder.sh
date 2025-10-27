@@ -12,6 +12,7 @@ set -e -o pipefail
 runttrt=""
 TTRT_ARGS=""
 PYTEST_ARGS=""
+FLATBUFFER=""
 
 [[ "$RUNS_ON" != "n150" ]] && PYTEST_ARGS="$PYTEST_ARGS --require-exact-mesh"
 [[ "$RUNS_ON" == "p150" ]] && PYTEST_ARGS="$PYTEST_ARGS --disable-eth-dispatch" && TTRT_ARGS="$TTRT_ARGS --disable-eth-dispatch"
@@ -39,21 +40,17 @@ if [[ "$runttrt" == "1" ]]; then
                 # Check if the corresponding TTNN file exists
                 if [ -f "$ttnn_file" ]; then
                     echo "Found matching TTNN file: $ttnn_file"
-
-                    # Create the new filename (replace first "ttnn" with "emitpy")
-                    new_basename=$(echo "$ttnn_basename" | sed 's/ttnn/emitpy/')
-                    new_file="ttir-builder-artifacts/ttnn/$new_basename"
-
-                    # Copy the TTNN file with the new name
-                    cp "$ttnn_file" "$new_file"
-                    echo "Copied $ttnn_file to $new_file"
+                    FLATBUFFER=" --flatbuffer $ttnn_file "
                 else
-                    echo "No matching TTNN file found for $basename_file (looking for $ttnn_basename)"
+                    echo "No matching TTNN file found for $basename_file, running without flatbuffer comparison"
+                    FLATBUFFER=""
                 fi
+                ttrt emitpy $TTRT_ARGS $FLATBUFFER $file
+                jq -s add emitpy_results.json concat_emitpy_results.json > temp.json
+                mv temp.json concat_emitpy_results.json
             fi
         done
-        ttrt emitpy $TTRT_ARGS ttir-builder-artifacts/emitpy/ --flatbuffer ttir-builder-artifacts/ttnn/
-        cp emitpy_results.json ${TTRT_REPORT_PATH%_*}_ttir_${TTRT_REPORT_PATH##*_} || true
+        cp concat_emitpy_results.json ${TTRT_REPORT_PATH%_*}_ttir_${TTRT_REPORT_PATH##*_} || true
         cp ttrt_report.xml ${TEST_REPORT_PATH%_*}_ttir_emitpy_${TEST_REPORT_PATH##*_} || true
     fi
     if [ -d ttir-builder-artifacts/emitc ]; then
@@ -72,21 +69,17 @@ if [[ "$runttrt" == "1" ]]; then
                 # Check if the corresponding TTNN file exists
                 if [ -f "$ttnn_file" ]; then
                     echo "Found matching TTNN file: $ttnn_file"
-
-                    # Create the new filename (replace first "ttnn" with "emitc")
-                    new_basename=$(echo "$ttnn_basename" | sed 's/ttnn/emitc/')
-                    new_file="ttir-builder-artifacts/ttnn/$new_basename"
-
-                    # Copy the TTNN file with the new name
-                    cp "$ttnn_file" "$new_file"
-                    echo "Copied $ttnn_file to $new_file"
+                    FLATBUFFER=" --flatbuffer $ttnn_file "
                 else
-                    echo "No matching TTNN file found for $basename_file (looking for $ttnn_basename)"
+                    echo "No matching TTNN file found for $basename_file, running without flatbuffer comparison"
+                    FLATBUFFER=""
                 fi
+                ttrt emitc $TTRT_ARGS $FLATBUFFER $file
+                jq -s add emitc_results.json concat_emitc_results.json > temp.json
+                mv temp.json concat_emitc_results.json
             fi
         done
-        ttrt emitc $TTRT_ARGS ttir-builder-artifacts/emitc/ --flatbuffer ttir-builder-artifacts/ttnn/
-        cp emitc_results.json ${TTRT_REPORT_PATH%_*}_ttir_${TTRT_REPORT_PATH##*_} || true
+        cp concat_emitc_results.json ${TTRT_REPORT_PATH%_*}_ttir_${TTRT_REPORT_PATH##*_} || true
         cp ttrt_report.xml ${TEST_REPORT_PATH%_*}_ttir_emitc_${TEST_REPORT_PATH##*_} || true
     fi
 fi

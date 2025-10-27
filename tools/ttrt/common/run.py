@@ -393,7 +393,7 @@ class Run:
         if self["--save-artifacts"]:
             self.artifacts.create_artifacts()
 
-        self.logging.debug(f"------finished preprocessing read API")
+        self.logging.debug(f"------finished preprocessing run API")
 
     def check_constraints(self):
         self.logging.debug(f"------checking constraints for run API")
@@ -874,8 +874,8 @@ class Run:
                                     _, _, cal_pcc, _ = get_atol_rtol_pcc(
                                         golden_tensor_torch,
                                         output_tensor_torch,
-                                        self["atol"],
-                                        self["rtol"],
+                                        self["--atol"],
+                                        self["--rtol"],
                                         self.logging,
                                     )
                                     pcc_fail = (

@@ -3,21 +3,16 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import os
-import importlib.machinery
 import sys
 import signal
-import io
 import subprocess
 import time
 import shutil
-import atexit
 import traceback
 from pathlib import Path
 import ast
 
 from ttrt.common.util import *
-from ttrt.common.query import Query
-from ttrt.common.run import Run
 
 # Add tt-alchemist file utils.py to path for EmitPy tests
 TT_MLIR_HOME = Path(os.environ.get("TT_MLIR_HOME", os.getcwd())).resolve()
