@@ -109,14 +109,28 @@ private:
   }
 };
 
-template <typename SourceOp, typename ActivationOp>
-class TTNNOpWithActivation : public mlir::OpRewritePattern<SourceOp> {
-  using TTNNOpWithActivation::template OpRewritePattern<
-      SourceOp>::OpRewritePattern;
-
+template <typename ActivationOp>
+class TTNNMatmulLinearWithActivation : public mlir::RewritePattern {
 public:
+  TTNNMatmulLinearWithActivation(mlir::MLIRContext *context)
+      : mlir::RewritePattern(MatchAnyOpTypeTag(), 1, context) {}
+
   mlir::LogicalResult
-  matchAndRewrite(SourceOp srcOp, mlir::PatternRewriter &rewriter) const final {
+  matchAndRewrite(mlir::Operation *op,
+                  mlir::PatternRewriter &rewriter) const final {
+    if (auto matmulOp = mlir::dyn_cast<MatmulOp>(op)) {
+      return matchAndRewriteImpl(matmulOp, rewriter);
+    }
+    if (auto linearOp = mlir::dyn_cast<LinearOp>(op)) {
+      return matchAndRewriteImpl(linearOp, rewriter);
+    }
+    return failure();
+  }
+
+private:
+  template <typename OpType>
+  mlir::LogicalResult
+  matchAndRewriteImpl(OpType srcOp, mlir::PatternRewriter &rewriter) const {
     if (!isFusable(srcOp)) {
       return failure();
     }
@@ -135,7 +149,6 @@ public:
     return mlir::success();
   }
 
-private:
   std::string getActivationString() const {
     if constexpr (std::is_same_v<ActivationOp, SigmoidOp>) {
       return "sigmoid";
@@ -145,7 +158,8 @@ private:
     }
   }
 
-  bool isFusable(SourceOp srcOp) const {
+  template <typename OpType>
+  bool isFusable(OpType srcOp) const {
     if (srcOp.getActivation()) {
       return false;
     }
@@ -173,8 +187,7 @@ public:
     patterns.add<
         TTNNConv2dWithActivation<ReluOp>, TTNNConv2dWithActivation<Relu6Op>,
         TTNNConv2dWithActivation<SiluOp>, TTNNConv2dWithActivation<SigmoidOp>,
-        TTNNOpWithActivation<MatmulOp, SigmoidOp>,
-        TTNNOpWithActivation<LinearOp, SigmoidOp>>(
+        TTNNMatmulLinearWithActivation<SigmoidOp>>(
         &getContext());
     GreedyRewriteConfig config;
     config.setUseTopDownTraversal(true);
