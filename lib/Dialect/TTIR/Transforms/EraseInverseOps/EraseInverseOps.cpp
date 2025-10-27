@@ -13,6 +13,7 @@
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Support/LLVM.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+#include <llvm/Support/raw_ostream.h>
 
 namespace mlir::tt::ttir {
 #define GEN_PASS_DEF_TTIRERASEINVERSEOPS
@@ -21,14 +22,32 @@ namespace mlir::tt::ttir {
 uint64_t countTms(Operation *op) {
   uint64_t tmCount = 0;
   op->walk([&](Operation *op) {
+    llvm::outs() << "Visiting op: " << op->getName() << " ";
+    if (auto meanOp = dyn_cast<tt::ttir::MeanOp>(op)) {
+      llvm::outs() << "  with shape: ";
+      auto shape = meanOp.getResult().getType().getShape();
+      for (int64_t dim : shape) {
+        llvm::outs() << dim << " ";
+      }
+    }
     if (op->hasTrait<tt::ttir::TensorManipulation::Trait>()) {
       // If the TM lies on a constevalable subgraph then we will not count it
       // as it will be removed from the main graph.
+      llvm::outs() << "  is TM op ";
+      if (auto permuteOp = dyn_cast<tt::ttir::PermuteOp>(op)) {
+        llvm::outs() << "  with permutation permutation: ";
+        for (int64_t dim : permuteOp.getPermutation()) {
+          llvm::outs() << dim << " ";
+        }
+      }
       if (!ttcore::valueTracesToConstantArgs(op->getResult(0))) {
+        llvm::outs() << "  counted ";
         tmCount++;
       }
     }
+    llvm::outs() << "\n";
   });
+
   return tmCount;
 }
 
@@ -69,16 +88,26 @@ public:
       uint64_t iter = 0;
       // The number of TM is expected to converge before maxIterations (default:
       // 100) is reached.
+
+      auto tmops = countTms(funcOp);
+      llvm::outs() << "  Num TMs on the activation paths before "
+                      "EraseInverseOps: "
+                   << tmops << "\n";
       for (; iter < maxIterationsValue; ++iter) {
         // We do not yet have a way of returning the beginning state of the
         // graph So we will return after we have commuted the TMs above at least
         // once
         applyCommuteAbovePatterns(funcOp);
         uint64_t afterCommuteAboveTMCount = countTms(funcOp);
+        llvm::outs() << "EraseInverseOps iteration " << iter
+                     << " | TM count after commute above: "
+                     << afterCommuteAboveTMCount << "\n";
 
         applyCommuteBelowPatterns(funcOp);
         uint64_t afterCommuteBelowTMCount = countTms(funcOp);
-
+        llvm::outs() << "EraseInverseOps iteration " << iter
+                     << " | TM count after commute below: "
+                     << afterCommuteBelowTMCount << "\n";
         // If the number of TM is the same as in the previous iteration, we have
         // converged.
         if (afterCommuteAboveTMCount == previousAfterCommuteAboveTMCount &&
@@ -128,6 +157,10 @@ private:
     populateBroadcastCommutePatterns<commuteDirection>(&getContext(), patterns);
     populateConcatCommutePatterns<commuteDirection>(&getContext(), patterns);
     populateSliceCommutePatterns<commuteDirection>(&getContext(), patterns);
+    populateReduceCommutePatterns<SumOp, commuteDirection>(&getContext(),
+                                                           patterns);
+    populateReduceCommutePatterns<MeanOp, commuteDirection>(&getContext(),
+                                                            patterns);
 
     populateTTIRTMFusionPatterns(&getContext(), patterns);
     return patterns;
