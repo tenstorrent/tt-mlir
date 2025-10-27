@@ -7,6 +7,7 @@
 #include "tt/runtime/detail/common/common.h"
 #include "tt/runtime/detail/common/logger.h"
 #include "tt/runtime/detail/ttnn/debug_apis.h"
+#include "tt/runtime/detail/ttnn/types/program_desc_cache.h"
 #include "tt/runtime/detail/ttnn/types/trace_cache.h"
 #include "tt/runtime/detail/ttnn/types/types.h"
 #include "tt/runtime/detail/ttnn/utils.h"
