@@ -403,7 +403,8 @@ static ParseResult parseEmitPyGlobalOpInitialValue(OpAsmParser &parser,
 LogicalResult GlobalOp::verify() {
   Attribute value = getInitialValue();
   if (!value) {
-    return failure();
+    return emitOpError()
+           << "requires initial value for global variable";
   }
 
   return success();
@@ -419,7 +420,7 @@ GetGlobalOp::verifySymbolUses(SymbolTableCollection &symbolTable) {
       symbolTable.lookupNearestSymbolFrom<GlobalOp>(*this, getNameAttr());
   if (!global) {
     return emitOpError("'")
-           << getName() << "' does not reference a valid emitpy.global ";
+           << getName() << "' does not reference a valid emitpy.global";
   }
 
   return success();
