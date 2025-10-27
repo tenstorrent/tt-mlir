@@ -3087,7 +3087,7 @@ def TTIR_PagedUpdateCacheOp : TTIR_NamedOp<"paged_update_cache"> {
         - `result`: The updated cache tensor.
   }];
 
-  let arguments = (ins Arg<AnyRankedTensor, "cache tensor", [MemWrite]>:$cache,
+  let arguments = (ins AnyRankedTensor:$cache,
                        AnyRankedTensor:$input,
                        AnyRankedTensor:$update_index,
                        DefaultValuedAttr<BoolAttr, "false">:$share_cache,
