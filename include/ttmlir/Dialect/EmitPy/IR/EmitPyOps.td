@@ -206,6 +206,12 @@ def EmitPy_GlobalOp : EmitPy_Op<"global", [Symbol]> {
   let summary = "A global variable";
   let description = [{
     The `emitpy.global` operation defines a named global variable.
+    
+    Example:
+
+    ```mlir
+    emitpy.global @x = #emitpy.opaque<"[]">
+    ```
   }];
 
   let arguments = (ins SymbolNameAttr:$sym_name,
@@ -221,8 +227,13 @@ def EmitPy_GetGlobalOp : EmitPy_Op<"get_global",
     [Pure, DeclareOpInterfaceMethods<SymbolUserOpInterface>]> {
   let summary = "Obtain access to a global variable";
   let description = [{
-     The `emitpy.get_global` operation retrieves the value of a
-     named global variable.
+    The `emitpy.get_global` operation retrieves the value of a named global variable.
+
+    Example:
+
+    ```mlir
+    %1 = emitpy.get_global @x : !emitpy.opaque<"[ttnn.Tensor]">
+    ```
   }];
 
   let arguments = (ins FlatSymbolRefAttr:$name);
