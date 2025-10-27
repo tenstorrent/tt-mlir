@@ -378,8 +378,19 @@ inline MemorySpace getMemorySpace(MemorySpaceAttr memorySpaceAttr) {
   return memorySpaceAttr.getValue();
 }
 
+// Get memory space from a MemRefType. Returns the provided default if no memory
+// space attribute is found.
+inline MemorySpace getMemorySpace(MemRefType memref, MemorySpace dflt) {
+  if (auto memSpaceAttr =
+          mlir::dyn_cast_if_present<MemorySpaceAttr>(memref.getMemorySpace())) {
+    return memSpaceAttr.getValue();
+  }
+  return dflt;
+}
+
+// Convenience overload with System as default.
 inline MemorySpace getMemorySpace(MemRefType memref) {
-  return getMemorySpace(mlir::cast<MemorySpaceAttr>(memref.getMemorySpace()));
+  return getMemorySpace(memref, MemorySpace::System);
 }
 
 inline MemorySpace getMemorySpace(Type memrefType) {
