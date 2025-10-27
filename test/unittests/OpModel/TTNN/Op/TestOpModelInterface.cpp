@@ -1946,6 +1946,7 @@ TEST_F(OpModelBase, ScaledDotProductAttentionOpInterface) {
       /*attention_mask=*/attentionMask,
       /*is_causal=*/false,
       /*scale=*/nullptr,
+      /*sliding_window_size=*/nullptr,
       /*memory_config=*/nullptr);
 
   OpModel backend = dyn_cast<OpModel>(sdpAttention.getOperation());
