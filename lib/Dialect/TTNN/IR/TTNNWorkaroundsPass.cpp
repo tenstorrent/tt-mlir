@@ -12,6 +12,7 @@
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "llvm/ADT/SmallVector.h"
+#include "mlir/IR/MLIRContext.h"
 
 namespace mlir::tt::ttnn::wa {
 
