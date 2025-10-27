@@ -12,9 +12,6 @@
 #include "ttnn/operations/ccl/ccl_host_types.hpp"
 #include "ttnn/operations/ccl/reduce_scatter/reduce_scatter.hpp"
 
-// NOTE: Temporarily using reduce_scatter_minimal_async due to an issue in
-// tt-metal. https://github.com/tenstorrent/tt-metal/issues/25212
-
 namespace tt::runtime::ttnn::operations::ccl {
 void run(const ::tt::target::ttnn::ReduceScatterOp *op,
          ProgramContext &context) {
@@ -38,13 +35,12 @@ void run(const ::tt::target::ttnn::ReduceScatterOp *op,
   std::optional<::ttnn::MemoryConfig> outputMemoryConfig =
       ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
           ::tt::runtime::ttnn::utils::getTensorRefMemoryConfig(op->out()));
-  LOG_ASSERT(outputMemoryConfig.has_value(),
-             "Memory config must exist for device tensors");
 
   ::ttnn::Tensor out = ::ttnn::reduce_scatter(
       input, scatterDimension, clusterAxis, /*subdevice_id=*/std::nullopt,
-      outputMemoryConfig.value(), /*optional_output_tensor=*/std::nullopt,
-      numLinks);
+      outputMemoryConfig, /*optional_output_tensor=*/std::nullopt,
+      std::make_optional(static_cast<uint32_t>(numLinks)),
+      /*topology=*/std::nullopt);
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
