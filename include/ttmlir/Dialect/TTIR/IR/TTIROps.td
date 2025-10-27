@@ -5465,6 +5465,7 @@ def TTIR_ScaledDotProductAttentionOp : TTIR_NamedOp<"scaled_dot_product_attentio
         output (AnyRankedTensor): The output DPS operand [batch x num_heads x query_seq_len x head_size].
         is_causal (bool): Whether The attention is causal. Defaults to `true`.
         scale (float, optional): Defaults to `None`.
+        sliding_window_size (uint, optional): Defaults to `None`. Size of sliding window for attention. If provided && is_causal, only attends to the last `sliding_window_size` tokens. If provided && !is_causal, attends to a window of size `sliding_window_size` centered at the current position.
 
     Returns:
         AnyRankedTensor: The output tensor [batch x num_heads x seq_len x head_size].
@@ -5476,7 +5477,8 @@ def TTIR_ScaledDotProductAttentionOp : TTIR_NamedOp<"scaled_dot_product_attentio
                        Optional<AnyRankedTensor>:$attention_mask,
                        AnyRankedTensor:$output,
                        DefaultValuedAttr<BoolAttr, "true">:$is_causal,
-                       OptionalAttr<F32Attr>:$scale);
+                       OptionalAttr<F32Attr>:$scale,
+                       OptionalAttr<UI32Attr>:$sliding_window_size);
 
   let results = (outs AnyRankedTensor:$result);
 
