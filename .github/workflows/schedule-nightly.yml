@@ -34,7 +34,7 @@ jobs:
       sh_builder: ${{ fromJson(needs.prepare-run.outputs.sh_builder) }}
       component_matrix: ${{ needs.prepare-run.outputs.build_matrix }}
   wheels-build:
-    needs: [ prepare-run, build-image ]
+    needs: [ prepare-run, build-image, release-build ] # release-build required so ttnn-jit wheel is built
     uses: ./.github/workflows/call-build-wheels.yml
     secrets: inherit
     with:
