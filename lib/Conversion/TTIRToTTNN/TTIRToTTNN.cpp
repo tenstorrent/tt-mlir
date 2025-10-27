@@ -643,13 +643,13 @@ public:
     // Apply correct memory config to input
     // Virtual grid size:
 
-    int64_t batchSize = inputType.getShape()[1];
+    int64_t numUsers = inputType.getShape()[1];
 
     SmallVector<int64_t> virtualGridSize;
-    if (batchSize == 1) {
+    if (numUsers == 1) {
       virtualGridSize = {1, 1};
     } else {
-      virtualGridSize = {batchSize, 1};
+      virtualGridSize = {numUsers, 1};
     }
 
     auto inputElementType = inputType.getElementType();
