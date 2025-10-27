@@ -1547,6 +1547,78 @@ TEST_F(OpModelTest, Sort) {
   llvm::consumeError(runtimeExp.takeError());
 }
 
+TEST_F(OpModelTest, MaxPool2dWithIndices) {
+  const llvm::SmallVector<int64_t> inputShape = {1, 1, 128 * 128, 32};
+  const auto workerGrid = CreateWorkerGrid(gridShapeHwN300);
+  const TTNNLayoutAttr layoutDRAM = CreateTiledLayout(
+      inputShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+  const TTNNLayoutAttr layoutL1Interleaved = CreateTiledLayout(
+      inputShape, BufferType::L1, TensorMemoryLayout::Interleaved);
+  const TTNNLayoutAttr layoutL1WSharded = CreateTiledLayout(
+      inputShape, BufferType::L1, TensorMemoryLayout::WidthSharded);
+
+  auto legalExp = Device::getDeviceConstraints(workerGrid);
+  EXPECT_TRUE(static_cast<bool>(legalExp));
+
+  // MaxPool2dWithIndices parameters
+  int32_t batchSize = 1;
+  int32_t inputHeight = 128;
+  int32_t inputWidth = 128;
+  int32_t inputChannels = 32;
+  llvm::SmallVector<int32_t> kernelSize = {2, 2};
+  llvm::SmallVector<int32_t> stride = {2, 2};
+  llvm::SmallVector<int32_t> padding = {0, 0};
+  llvm::SmallVector<int32_t> dilation = {1, 1};
+  bool ceilMode = false;
+  bool inPlaceHalo = false;
+
+  auto constraintsExp = op_model::OpModel<MaxPool2dWithIndicesOp>::getOpConstraints(
+      CreateWorkerGrid(), inputShape, layoutDRAM, batchSize, inputHeight, 
+      inputWidth, inputChannels, kernelSize, stride, padding, dilation,
+      ceilMode, inPlaceHalo, layoutDRAM);
+  EXPECT_TRUE(static_cast<bool>(constraintsExp));
+  OpConstraints &opCstr = constraintsExp.get();
+  EXPECT_GT(opCstr.cbL1PeakSize, 0);
+  EXPECT_EQ(opCstr.tensorL1PeakSize, 32840);
+  EXPECT_EQ(opCstr.outputL1BufferSize, 0);
+
+  auto runtimeExp = op_model::OpModel<MaxPool2dWithIndicesOp>::getOpRuntime(
+      inputShape, layoutDRAM, batchSize, inputHeight, inputWidth, inputChannels,
+      kernelSize, stride, padding, dilation, ceilMode, inPlaceHalo, layoutDRAM);
+  EXPECT_TRUE(static_cast<bool>(runtimeExp));
+  EXPECT_TRUE(runtimeExp.get() > 0);
+
+  constraintsExp = op_model::OpModel<MaxPool2dWithIndicesOp>::getOpConstraints(
+      CreateWorkerGrid(), inputShape, layoutDRAM, batchSize, inputHeight,
+      inputWidth, inputChannels, kernelSize, stride, padding, dilation,
+      ceilMode, inPlaceHalo, layoutL1Interleaved);
+  EXPECT_TRUE(static_cast<bool>(constraintsExp));
+  opCstr = constraintsExp.get();
+  EXPECT_GT(opCstr.cbL1PeakSize, 0);
+  EXPECT_GT(opCstr.tensorL1PeakSize, 0);
+  EXPECT_GT(opCstr.outputL1BufferSize, 0);
+
+  runtimeExp = op_model::OpModel<MaxPool2dWithIndicesOp>::getOpRuntime(
+      inputShape, layoutDRAM, batchSize, inputHeight, inputWidth, inputChannels,
+      kernelSize, stride, padding, dilation, ceilMode, inPlaceHalo, layoutL1Interleaved);
+  EXPECT_TRUE(static_cast<bool>(runtimeExp));
+  EXPECT_TRUE(runtimeExp.get() > 0);
+
+  constraintsExp = op_model::OpModel<MaxPool2dWithIndicesOp>::getOpConstraints(
+      CreateWorkerGrid(), inputShape, layoutL1Interleaved, batchSize, inputHeight,
+      inputWidth, inputChannels, kernelSize, stride, padding, dilation,
+      ceilMode, inPlaceHalo, layoutL1WSharded);
+  EXPECT_FALSE(static_cast<bool>(constraintsExp));
+  llvm::consumeError(constraintsExp.takeError());
+
+  runtimeExp = op_model::OpModel<MaxPool2dWithIndicesOp>::getOpRuntime(
+      inputShape, layoutL1Interleaved, batchSize, inputHeight, inputWidth, 
+      inputChannels, kernelSize, stride, padding, dilation, ceilMode, 
+      inPlaceHalo, layoutL1WSharded);
+  EXPECT_FALSE(static_cast<bool>(runtimeExp));
+  llvm::consumeError(runtimeExp.takeError());
+}
+
 TEST_F(OpModelTest, SoftmaxSharded) {
   const llvm::SmallVector<int64_t> tensorShape = {16 * workerCoresN300 * 32,
                                                   32};

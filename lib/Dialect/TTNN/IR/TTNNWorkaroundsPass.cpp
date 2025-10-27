@@ -102,6 +102,35 @@ TTNNOperandsWorkaroundsFactory::createPool2DOpOperandsWorkarounds() {
       .addOutputOperandWorkaround(rowMajorLayoutBF16Workaround);
 }
 
+// Factory method to create a set of workarounds for 2d max pooling with indices.
+// This operation returns two outputs:
+//   [0] pooled values (bf16 row-major)
+//   [1] indices (row-major)
+// The input can be in row-major or tile layout, but outputs are always row-major.
+TTNNOperandsWorkarounds
+TTNNOperandsWorkaroundsFactory::createPool2DWithIndicesOpOperandsWorkarounds() {
+  // Input workaround: bf16 row-major.
+  wa::TTNNOperandWorkarounds inputWorkaround;
+  inputWorkaround.tensorLayoutWorkaround = Layout::RowMajor;
+  inputWorkaround.tensorDataTypeWorkaround = ttcore::DataType::BFloat16;
+
+  // Output[0] workaround: pooled values (bf16 row-major).
+  wa::TTNNOperandWorkarounds outputValuesWorkaround;
+  outputValuesWorkaround.tensorLayoutWorkaround = Layout::RowMajor;
+  outputValuesWorkaround.tensorDataTypeWorkaround = ttcore::DataType::BFloat16;
+
+  // Output[1] workaround: indices (row-major).
+  wa::TTNNOperandWorkarounds outputIndicesWorkaround;
+  outputIndicesWorkaround.tensorLayoutWorkaround = Layout::RowMajor;
+  outputIndicesWorkaround.tensorDataTypeWorkaround = ttcore::DataType::UInt16;
+
+  // Create empty workarounds and append input + both outputs.
+  return wa::TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
+      .addInputOperandWorkaround(inputWorkaround)
+      .addOutputOperandWorkaround(outputValuesWorkaround)
+      .addOutputOperandWorkaround(outputIndicesWorkaround);
+}
+
 // Factory method to create a set of workarounds for embedding operation
 // operands. The embedding operation expects the input to be in row-major layout
 // and the weight operand to use the bf16 data type. Since the output of the

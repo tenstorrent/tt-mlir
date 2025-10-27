@@ -347,6 +347,9 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   case ::tt::target::ttnn::OpType::GlobalAvgPool2dOp: {
     return operations::pool::run(op->type_as_GlobalAvgPool2dOp(), getContext());
   }
+  case ::tt::target::ttnn::OpType::MaxPool2dWithIndicesOp: {
+    return operations::pool::run(op->type_as_MaxPool2dWithIndicesOp(), getContext());
+  }
   case ::tt::target::ttnn::OpType::AllGatherOp: {
     return operations::ccl::run(op->type_as_AllGatherOp(), getContext());
   }

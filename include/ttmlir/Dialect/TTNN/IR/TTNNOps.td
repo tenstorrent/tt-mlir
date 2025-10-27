@@ -1726,6 +1726,40 @@ def TTNN_MaxPool2dOp : TTNN_Op<"max_pool2d", [TTNN_MemoryConfigOpInterface]> {
     let hasVerifier = 1;
 }
 
+def TTNN_MaxPool2dWithIndicesOp : TTNN_Op<"max_pool2d_with_indices", [TTNN_MemoryConfigOpInterface]> {
+    let summary = "Applies a 2D max pooling over an input signal composed of several input planes, returning both values and indices.";
+    let description = [{
+      Applies a 2D max pooling over an input signal composed of several input planes.
+      Returns both the maximum values and the indices of where those values were found in the input tensor.
+      The indices can be used for unpooling operations or gradient computation.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         SI32Attr:$batch_size,
+                         SI32Attr:$input_height,
+                         SI32Attr:$input_width,
+                         SI32Attr:$channels,
+                         DenseI32ArrayAttr:$kernel_size,
+                         DenseI32ArrayAttr:$stride,
+                         DenseI32ArrayAttr:$padding,
+                         DenseI32ArrayAttr:$dilation,
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config,
+                         OptionalAttr<TTNN_TensorMemoryLayoutAttr>:$applied_shard_scheme,
+                         BoolAttr:$ceil_mode,
+                         BoolAttr:$in_place_halo);
+
+    let results = (outs AnyRankedTensor:$result, 
+                        AnyRankedTensor:$result_indices);
+
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        return wa::TTNNOperandsWorkaroundsFactory::createPool2DWithIndicesOpOperandsWorkarounds();
+      }
+    }];
+
+    let hasVerifier = 1;
+}
+
 def TTNN_BatchNormInferenceOp : TTNN_Op<"batch_norm_inference", [AttrSizedOperandSegments]> {
     let summary = "Batch normalization inference op.";
     let description = [{

@@ -780,6 +780,67 @@ public:
 };
 } // namespace
 
+// MaxPool2dWithIndices op conversion pattern
+//
+namespace {
+class MaxPool2dWithIndicesOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<mlir::tt::ttnn::MaxPool2dWithIndicesOp> {
+
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::MaxPool2dWithIndicesOp>::TTNNToEmitCBaseOpConversionPattern;
+
+  std::string getPrefixSearchPattern() const override {
+    return "ttnn.max_pool2d_with_indices";
+  }
+
+  std::string getPrefixSwapPattern() const override {
+    return "ttnn::max_pool2d";
+  }
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::MaxPool2dWithIndicesOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::MaxPool2dWithIndicesOp> emitter(
+        srcOp, adaptor, rewriter);
+
+    SmallVector<int32_t> padding;
+    if (srcOp.getPadding().size() == 2) {
+      padding.push_back(static_cast<uint32_t>(srcOp.getPadding()[0]));
+      padding.push_back(static_cast<uint32_t>(srcOp.getPadding()[1]));
+    } else {
+      padding.push_back(static_cast<uint32_t>(srcOp.getPadding()[0]));
+      padding.push_back(static_cast<uint32_t>(srcOp.getPadding()[2]));
+      padding.push_back(static_cast<uint32_t>(srcOp.getPadding()[1]));
+      padding.push_back(static_cast<uint32_t>(srcOp.getPadding()[3]));
+    }
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput()),
+        emitter.emit(srcOp.getBatchSize()),
+        emitter.emit(srcOp.getInputHeight()),
+        emitter.emit(srcOp.getInputWidth()),
+        emitter.emit(srcOp.getChannels()),
+        emitter.template emit<std::array<uint32_t, 2>>(
+            srcOp.getKernelSizeAttr()),
+        emitter.template emit<std::array<uint32_t, 2>>(srcOp.getStrideAttr()),
+        emitter.template emit<
+            std::variant<std::array<uint32_t, 2>, std::array<uint32_t, 4>>>(
+            rewriter.getI32ArrayAttr(padding)),
+        emitter.template emit<std::array<uint32_t, 2>>(srcOp.getDilationAttr()),
+        emitter.emit(srcOp.getCeilMode()),
+        emitter.getMemoryConfig(srcOp.getResult()),
+        emitter.emit(srcOp.getAppliedShardScheme()),
+        emitter.emit(srcOp.getInPlaceHalo()),
+        /*return_indices=*/emitter.emit(true)};
+
+    emitter.replaceOp(*this, args);
+    return success();
+  }
+};
+} // namespace
+
 // GlobalAvgPool2d op conversion pattern
 //
 namespace {
@@ -3732,6 +3793,7 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   //
   patterns.add<AvgPool2dOpConversionPattern>(typeConverter, ctx);
   patterns.add<MaxPool2dOpConversionPattern>(typeConverter, ctx);
+  patterns.add<MaxPool2dWithIndicesOpConversionPattern>(typeConverter, ctx);
   patterns.add<GlobalAvgPool2dOpConversionPattern>(typeConverter, ctx);
   patterns.add<UpsampleOpConversionPattern>(typeConverter, ctx);
 
