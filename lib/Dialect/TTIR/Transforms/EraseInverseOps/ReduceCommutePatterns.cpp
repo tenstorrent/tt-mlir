@@ -130,8 +130,8 @@ private:
   }
 
   bool isCommuteUpwardsViable(ReduceOpType op, PermuteOp) const override {
-    // Commuting a permute through a reduce is always viable
-    return true;
+    // Commuting a permute through a reduce is only viable if keepdim = true
+    return op.getKeepDim();
   }
 
   bool isCommuteUpwardsFavorable(ReduceOpType op, PermuteOp) const override {
@@ -142,8 +142,8 @@ private:
   }
 
   bool isCommuteDownwardsViable(ReduceOpType op, PermuteOp) const override {
-    // Commuting a permute through a reduce is always viable
-    return true;
+    // Commuting a permute through a reduce is only viable if keepdim = true
+    return op.getKeepDim();
   }
 
   bool isCommuteDownwardsFavorable(ReduceOpType op,
