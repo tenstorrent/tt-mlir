@@ -94,6 +94,9 @@ struct PythonEmitter {
   /// any result type could not be converted.
   LogicalResult emitAssignPrefix(Operation &op);
 
+  /// Emits a global variable declaration or definition.
+  LogicalResult emitGlobalVariable(GlobalOp op);
+
   /// Emits the operands of the operation. All operands are emitted in order.
   LogicalResult emitOperands(Operation &op);
 
@@ -145,7 +148,7 @@ private:
 
 /// Determine whether op result should be emitted in a deferred way.
 static bool hasDeferredEmission(Operation *op) {
-  return isa_and_nonnull<LiteralOp>(op);
+  return isa_and_nonnull<LiteralOp, GetGlobalOp>(op);
 }
 
 StringRef PythonEmitter::getOrCreateName(Value value) {
@@ -399,15 +402,24 @@ static LogicalResult printOperation(PythonEmitter &emitter,
   return emitter.emitAttribute(constantOp->getLoc(), value);
 }
 
+static LogicalResult printOperation(PythonEmitter &emitter, GlobalOp globalOp) {
+  if (failed(emitter.emitGlobalVariable(globalOp))) {
+    return failure();
+  }
+
+  return success();
+}
+
 LogicalResult PythonEmitter::emitOperation(Operation &op) {
   LogicalResult status =
       llvm::TypeSwitch<Operation *, LogicalResult>(&op)
           // Builtin ops.
           .Case<ModuleOp>([&](auto op) { return printOperation(*this, op); })
           // EmitPy ops.
-          .Case<CallOpaqueOp, ImportOp, AssignOp, ConstantOp, SubscriptOp>(
+          .Case<CallOpaqueOp, ImportOp, AssignOp, ConstantOp, SubscriptOp,
+                GlobalOp>(
               [&](auto op) { return printOperation(*this, op); })
-          .Case<LiteralOp>([&](auto op) {
+          .Case<LiteralOp, GetGlobalOp>([&](auto op) {
             cacheDeferredOpResult(op.getResult(), op.getValue());
             return success();
           })
@@ -485,6 +497,11 @@ LogicalResult PythonEmitter::emitAssignPrefix(Operation &op) {
     os << " = ";
   }
   }
+  return success();
+}
+
+LogicalResult PythonEmitter::emitGlobalVariable(GlobalOp globalOp) {
+  os << globalOp.getSymName() << " = " << globalOp.getInitialValue();
   return success();
 }
 
