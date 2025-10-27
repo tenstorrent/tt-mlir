@@ -2590,24 +2590,33 @@ class ScatterToScatterInDimPattern
     ArrayRef<int32_t> updateWindowDims = op.getUpdateWindowDims();
     ArrayRef<int32_t> insertedWindowDims = op.getInsertedWindowDims();
 
-    // Get update tensor rank.
+    // Get update tensor rank and shape.
     RankedTensorType updateType = op.getUpdate().getType();
     int64_t updateRank = updateType.getRank();
+    ArrayRef<int64_t> updateShape = updateType.getShape();
+
+    // Get index tensor shape.
+    RankedTensorType indexType = op.getScatterIndices().getType();
+    ArrayRef<int64_t> indexShape = indexType.getShape();
 
     // Create array to track which dimensions are covered.
     llvm::SmallVector<bool> dimsCovered(updateRank, false);
 
     // Check update_window_dims.
     for (auto dim : updateWindowDims) {
-      TT_assertv((dim >= 0 && dim < updateRank),
-                 "update_window_dims contains invalid dimension index");
+      if (dim < 0 || dim >= updateRank) {
+        return rewriter.notifyMatchFailure(
+            op, "update_window_dims contains invalid dimension index");
+      }
       dimsCovered[dim] = true;
     }
 
     // Check inserted_window_dims.
     for (auto dim : insertedWindowDims) {
-      TT_assertv((dim >= 0 && dim < updateRank),
-                 "inserted_window_dims contains invalid dimension index");
+      if (dim < 0 || dim >= updateRank) {
+        return rewriter.notifyMatchFailure(
+            op, "inserted_window_dims contains invalid dimension index");
+      }
       if (dimsCovered[dim]) {
         return rewriter.notifyMatchFailure(
             op, "update_window_dims and inserted_window_dims have overlapping "
@@ -2633,6 +2642,43 @@ class ScatterToScatterInDimPattern
           "scatter_dims_to_operand_dims must be in strictly increasing order.");
     }
 
+    bool multiDimensionalScatter = scatterDimsToOperandDims.size() > 1;
+    uint32_t indexVectorDim = op.getIndexVectorDim();
+
+    // Checks that apply to multi dimensional scatter.
+
+    if (multiDimensionalScatter &&
+        indexVectorDim != static_cast<uint32_t>(indexShape.size() - 1)) {
+      return rewriter.notifyMatchFailure(
+          op, "TTIR multi-dimensional scatter currently only supports "
+              "index_vector_dim being the last dimension");
+    }
+
+    if (multiDimensionalScatter && !updateWindowDims.empty()) {
+      return rewriter.notifyMatchFailure(
+          op, "TTIR multi-dimensional scatter requires update_window_dims to "
+              "be empty");
+    }
+
+    // Checks that apply to single dimensional scatter.
+
+    if (!multiDimensionalScatter && indexShape.size() > updateShape.size()) {
+      return rewriter.notifyMatchFailure(
+          op, "TTIR scatter requires indices.rank <= updates.rank. Please add "
+              "support for rank promotion if needed.");
+    }
+
+    if (!multiDimensionalScatter && indexVectorDim != 1u) {
+      return rewriter.notifyMatchFailure(
+          op,
+          "TTIR single dimensional scatter requires index_vector_dim to be 1");
+    }
+
+    if (!multiDimensionalScatter && scatterDimsToOperandDims[0] != 0) {
+      return rewriter.notifyMatchFailure(
+          op, "TTIR single dimensional scatter currently only supports "
+              "scattering along dimension 0");
+    }
     return success();
   }
 
@@ -2682,11 +2728,6 @@ class ScatterToScatterInDimPattern
       indexShape = newShape;
     }
 
-    if (indexShape.size() > updateShape.size()) {
-      TT_assertv(false, "TTIR scatter requires indices.rank <= updates.rank. "
-                        "Please add support for rank promotion if needed.");
-    }
-
     // Repeat along update_window_dims to match update tensor shape.
     ArrayRef<int32_t> updateWindowDims = op.getUpdateWindowDims();
     llvm::SmallVector<int64_t> repeatDims(indexShape.size(), 1);
@@ -2724,9 +2765,6 @@ class ScatterToScatterInDimPattern
     RankedTensorType indexType = indexTensor.getType();
     ArrayRef<int64_t> indexShape = indexType.getShape();
     int64_t indexVectorDim = op.getIndexVectorDim();
-    TT_assertv(
-        indexVectorDim == static_cast<int64_t>(indexShape.size() - 1),
-        "Currently only supports index_vector_dim being the last dimension");
 
     // Get the input tensor to determine its shape for stride calculation.
     TypedValue<RankedTensorType> inputTensor = op.getInput();
@@ -2848,15 +2886,7 @@ public:
     // Check if single dimension scatter.
     if (scatterDimsToOperandDims.size() == 1) {
       // Single-dimensional scatter.
-      TT_assertv(
-          op.getIndexVectorDim() == 1u,
-          "TTIR single dimensional scatter requires index_vector_dim to be 1");
-
       int32_t dim = scatterDimsToOperandDims[0];
-
-      TT_assertv(dim == 0,
-                 "TTIR single dimensional scatter currently only supports "
-                 "scattering along dimension 0");
 
       // Process indices to match update tensor shape.
       Value finalIndexTensor = extractElementWiseScatterIndices(op, rewriter);
@@ -2875,10 +2905,6 @@ public:
     }
 
     if (scatterDimsToOperandDims.size() > 1) {
-      // Assert that update_window_dims is empty.
-      TT_assertv(op.getUpdateWindowDims().empty(),
-                 "TTIR multi-dimensional scatter requires update_window_dims "
-                 "to be empty");
       // Multi-dimensional scatter.
       int32_t dim =
           0; // Always scatter along dimension 0 for flattened tensors.

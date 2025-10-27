@@ -2,12 +2,12 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-Simple library tweaks module used to move `TT_METAL_HOME` to point to the
+Simple library tweaks module used to move `TT_METAL_RUNTIME_ROOT` to point to the
 mirrored TTMetal tree within the `ttrt` wheel. It is important that
 `set_tt_metal_home()` is the _FIRST_ bit of code run in this `ttrt` module.
 Thus, this file should only be included in `ttrt/__init__.py` and only run
 there. This is a temporary fix, and will need to be cleaned up once TTMetal
-drops `TT_METAL_HOME` functionality
+drops `TT_METAL_RUNTIME_ROOT` functionality
 """
 import importlib.util
 import os
@@ -23,11 +23,14 @@ def get_ttrt_metal_home_path() -> str:
 
 
 def set_tt_metal_home():
-    """Sets the environment variable `TT_METAL_HOME` to point into the root
+    """Sets the environment variable `TT_METAL_RUNTIME_ROOT` to point into the root
     mirrored TTMetal tree within the `ttrt` wheel.
     """
-    os.environ["TT_METAL_HOME_EXTERNAL"] = os.environ.get("TT_METAL_HOME", "")
-    os.environ["TT_METAL_HOME"] = get_ttrt_metal_home_path()
+    os.environ["TT_METAL_RUNTIME_ROOT_EXTERNAL"] = os.environ.get(
+        "TT_METAL_RUNTIME_ROOT", ""
+    )
+    os.environ["TT_METAL_RUNTIME_ROOT"] = get_ttrt_metal_home_path()
+    os.environ["TT_METAL_HOME"] = os.environ["TT_METAL_RUNTIME_ROOT"]
 
     new_linker_path = f"{get_ttrt_metal_home_path()}/tests"
     current_ld_library_path = os.environ.get("LD_LIBRARY_PATH", "")

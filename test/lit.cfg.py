@@ -151,11 +151,13 @@ if "TT_MLIR_HOME" in os.environ:
 else:
     raise OSError("Error: TT_MLIR_HOME not set")
 
-# Add `TT_METAL_HOME` to lit environment.
-if "TT_METAL_HOME" in os.environ:
-    llvm_config.with_environment("TT_METAL_HOME", os.environ["TT_METAL_HOME"])
+# Add `TT_METAL_RUNTIME_ROOT` to lit environment.
+if "TT_METAL_RUNTIME_ROOT" in os.environ:
+    llvm_config.with_environment(
+        "TT_METAL_RUNTIME_ROOT", os.environ["TT_METAL_RUNTIME_ROOT"]
+    )
 else:
-    raise OSError("Error: TT_METAL_HOME not set")
+    raise OSError("Error: TT_METAL_RUNTIME_ROOT not set")
 
 # Add `TT_METAL_BUILD_HOME` to lit environment.
 if "TT_METAL_BUILD_HOME" in os.environ:

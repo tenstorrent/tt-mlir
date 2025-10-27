@@ -120,6 +120,7 @@ tt::target::DataType getTensorDataType(Tensor tensor);
 std::vector<std::byte> getTensorDataBuffer(Tensor tensor);
 std::uint32_t getTensorElementSize(Tensor tensor);
 std::uint32_t getTensorVolume(Tensor tensor);
+std::uint32_t getTensorLogicalVolume(Tensor tensor);
 std::vector<std::uint32_t> getTensorShape(Tensor tensor);
 std::vector<std::uint32_t> getTensorStride(Tensor tensor);
 TensorDesc getTensorDesc(Tensor tensor);
