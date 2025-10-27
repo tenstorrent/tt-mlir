@@ -551,6 +551,9 @@ public:
 // Reverse Pattern Matching
 //===----------------------------------------------------------------------===//
 
+// Decomposing Reverse Op into Gather Op.
+// As soon as tenstorrent/tt-metal#16618 is finished, this decomposition can be
+// removed.
 namespace {
 struct ReverseOpConversionPattern
     : public OpConversionPattern<ttir::ReverseOp> {
