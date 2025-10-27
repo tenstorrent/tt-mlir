@@ -1289,7 +1289,6 @@ public:
       return mlir::success();
     }
     if (MatmulOp matmulOp = getFusableReshapedMatmulOp(addOp); matmulOp) {
-
       ReshapeOp reshapeOp =
           mlir::dyn_cast<ReshapeOp>(*matmulOp.getResult().getUsers().begin());
       TT_assertv(reshapeOp,
@@ -1306,10 +1305,20 @@ public:
           addOp.getResult().getType().getShape();
       SmallVector<int32_t> addShapeI32(addOpShape.begin(), addOpShape.end());
 
+      llvm::SmallVector<int64_t> linearOutputShape;
+      auto validBiasType = mlir::cast<RankedTensorType>(validBias.getType());
+      if (!OpTrait::util::getBroadcastedShape(matmulOp.getType().getShape(),
+                                              validBiasType.getShape(),
+                                              linearOutputShape)) {
+        return mlir::failure();
+      }
+      auto matmulOutputType = matmulOp.getResult().getType();
+      auto newOutputType = RankedTensorType::get(
+          linearOutputShape, matmulOutputType.getElementType());
+
       LinearOp linearOp = ttir::utils::createDPSOp<ttir::LinearOp>(
-          rewriter, addOp.getLoc(), matmulOp.getResult().getType(), matmulOpA,
-          matmulOpB, validBias, matmulOp.getTransposeA(),
-          matmulOp.getTransposeB());
+          rewriter, addOp.getLoc(), newOutputType, matmulOpA, matmulOpB,
+          validBias, matmulOp.getTransposeA(), matmulOp.getTransposeB());
 
       RankedTensorType addOpType = addOp.getType();
 

@@ -113,3 +113,55 @@ module {
     return %4 : tensor<8x197x768xf32>
   }
 }
+
+module {
+  func.func @dot_general_with_bias_7(%arg0: tensor<256x1024xbf16>, %arg1: tensor<1024x1024xbf16>, %bias: tensor<1024xbf16>) -> tensor<1x256x1024xbf16> {
+    // CHECK: func.func @dot_general_with_bias_7
+    // CHECK: "ttir.linear"(%arg0, %arg1, %arg2, %0)
+    // CHECK-NOT: "ttir.dot_general"
+    // CHECK-NOT: "ttir.matmul"
+    // CHECK-NOT: "ttir.add"
+    // CHECK: "ttir.reshape"(%1, %2)
+    // CHECK-SAME: (tensor<256x1024xbf16>, tensor<1x256x1024xbf16>) -> tensor<1x256x1024xbf16>
+    %0 = "ttir.dot_general"(%arg0, %arg1) <{batch_dims_lhs = array<i64>, batch_dims_rhs = array<i64>, contract_dims_lhs = array<i64: 1>, contract_dims_rhs = array<i64: 0>}> : (tensor<256x1024xbf16>, tensor<1024x1024xbf16>) -> tensor<256x1024xbf16>
+    %1 = ttir.empty() : tensor<1x256x1024xbf16>
+    %2 = "ttir.reshape"(%0, %1) <{shape = [1 : i32, 256 : i32, 1024 : i32]}> : (tensor<256x1024xbf16>, tensor<1x256x1024xbf16>) -> tensor<1x256x1024xbf16>
+    %3 = ttir.empty() : tensor<1x1x1024xbf16>
+    %4 = "ttir.reshape"(%bias, %3) <{shape = [1 : i32, 1 : i32, 1024 : i32]}> : (tensor<1024xbf16>, tensor<1x1x1024xbf16>) -> tensor<1x1x1024xbf16>
+    %5 = ttir.empty() : tensor<1024xbf16>
+    %6 = "ttir.reshape"(%4, %5) <{shape = [1024 : i32]}> : (tensor<1x1x1024xbf16>, tensor<1024xbf16>) -> tensor<1024xbf16>
+    %7 = ttir.empty() : tensor<1x1x1024xbf16>
+    %8 = "ttir.reshape"(%6, %7) <{shape = [1 : i32, 1 : i32, 1024 : i32]}> : (tensor<1024xbf16>, tensor<1x1x1024xbf16>) -> tensor<1x1x1024xbf16>
+    %9 = ttir.empty() : tensor<1x256x1024xbf16>
+    %10 = "ttir.broadcast"(%8, %9) <{broadcast_dimensions = array<i64: 1, 256, 1>}> : (tensor<1x1x1024xbf16>, tensor<1x256x1024xbf16>) -> tensor<1x256x1024xbf16>
+    %11 = ttir.empty() : tensor<1x256x1024xbf16>
+    %12 = "ttir.add"(%2, %10, %11) : (tensor<1x256x1024xbf16>, tensor<1x256x1024xbf16>, tensor<1x256x1024xbf16>) -> tensor<1x256x1024xbf16>
+    return %12 : tensor<1x256x1024xbf16>
+  }
+}
+
+module {
+  func.func @dot_general_with_bias_8(%arg0: tensor<16x256x64xbf16>, %arg1: tensor<16x64x256xbf16>, %bias: tensor<1x256xbf16>) -> tensor<1x16x256x256xbf16> {
+    // CHECK: func.func @dot_general_with_bias_8
+    // CHECK: "ttir.reshape"(%arg2, %0)
+    // CHECK-SAME: (tensor<1x256xbf16>, tensor<1x1x1x256xbf16>) -> tensor<1x1x1x256xbf16>
+    // CHECK: "ttir.linear"(%arg0, %arg1, %1, %2)
+    // CHECK-NOT: "ttir.dot_general"
+    // CHECK-NOT: "ttir.matmul"
+    // CHECK-NOT: "ttir.add"
+    %0 = "ttir.dot_general"(%arg0, %arg1) <{batch_dims_lhs = array<i64: 0>, batch_dims_rhs = array<i64: 0>, contract_dims_lhs = array<i64: 2>, contract_dims_rhs = array<i64: 1>}> : (tensor<16x256x64xbf16>, tensor<16x64x256xbf16>) -> tensor<16x256x256xbf16>
+    %1 = ttir.empty() : tensor<1x16x256x256xbf16>
+    %2 = "ttir.reshape"(%0, %1) <{shape = [1 : i32, 16 : i32, 256 : i32, 256 : i32]}> : (tensor<16x256x256xbf16>, tensor<1x16x256x256xbf16>) -> tensor<1x16x256x256xbf16>
+    %3 = ttir.empty() : tensor<1x1x256xbf16>
+    %4 = "ttir.reshape"(%bias, %3) <{shape = [1 : i32, 1 : i32, 256 : i32]}> : (tensor<1x256xbf16>, tensor<1x1x256xbf16>) -> tensor<1x1x256xbf16>
+    %5 = ttir.empty() : tensor<1x1x1x256xbf16>
+    %6 = "ttir.reshape"(%4, %5) <{shape = [1 : i32, 1 : i32, 1 : i32, 256 : i32]}> : (tensor<1x1x256xbf16>, tensor<1x1x1x256xbf16>) -> tensor<1x1x1x256xbf16>
+    %7 = ttir.empty() : tensor<1x1x256x256xbf16>
+    %8 = "ttir.broadcast"(%6, %7) <{broadcast_dimensions = array<i64: 1, 1, 256, 1>}> : (tensor<1x1x1x256xbf16>, tensor<1x1x256x256xbf16>) -> tensor<1x1x256x256xbf16>
+    %9 = ttir.empty() : tensor<1x16x256x256xbf16>
+    %10 = "ttir.broadcast"(%8, %9) <{broadcast_dimensions = array<i64: 1, 16, 1, 1>}> : (tensor<1x1x256x256xbf16>, tensor<1x16x256x256xbf16>) -> tensor<1x16x256x256xbf16>
+    %11 = ttir.empty() : tensor<1x16x256x256xbf16>
+    %12 = "ttir.add"(%2, %10, %11) : (tensor<1x16x256x256xbf16>, tensor<1x16x256x256xbf16>, tensor<1x16x256x256xbf16>) -> tensor<1x16x256x256xbf16>
+    return %12 : tensor<1x16x256x256xbf16>
+  }
+}
