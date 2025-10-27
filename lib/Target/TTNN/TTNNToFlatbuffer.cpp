@@ -1837,6 +1837,46 @@ createPool2dOp(FlatbufferObjectCache &cache, Pool2dOp op) {
       op.getInPlaceHalo());
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::MaxPool2dWithIndicesOp>
+createMaxPool2dWithIndicesOp(FlatbufferObjectCache &cache,
+                             MaxPool2dWithIndicesOp op) {
+  auto in = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getInput()));
+  auto out = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer);
+  auto outIndices = cache.getOrCreate(op.getResultIndices(), tensorValueToFlatbuffer);
+
+  ::flatbuffers::Offset<::flatbuffers::Vector<int32_t>> kernelSize =
+      toFlatbuffer(cache, op.getKernelSize());
+  ::flatbuffers::Offset<::flatbuffers::Vector<int32_t>> stride =
+      toFlatbuffer(cache, op.getStride());
+  ::flatbuffers::Offset<::flatbuffers::Vector<int32_t>> padding =
+      toFlatbuffer(cache, op.getPadding());
+  ::flatbuffers::Offset<::flatbuffers::Vector<int32_t>> dilation =
+      toFlatbuffer(cache, op.getDilation());
+
+  //::flatbuffers::Offset<::tt::target::ttnn::MemoryConfig> memoryConfig =
+  //    op.getMemoryConfig() ? toFlatbuffer(cache, *op.getMemoryConfig()) : 0;
+  auto memoryConfig = getMemoryConfigIfNeeded(cache, op);
+
+  ::flatbuffers::Offset<void> extraParams = 0;
+  ::tt::target::ttnn::Pool2dExtraParams extraParamsType;
+
+  extraParamsType =
+        ::tt::target::ttnn::Pool2dExtraParams::MaxPool2dWithIndicesExtraParams;
+  extraParams =
+        ::tt::target::ttnn::CreateMaxPool2dWithIndicesExtraParams(*cache.fbb).Union();
+
+  return ::tt::target::ttnn::CreateMaxPool2dWithIndicesOp(
+      *cache.fbb, in, out, outIndices,
+      op.getBatchSize(), op.getInputHeight(), op.getInputWidth(),
+      op.getChannels(), kernelSize, stride, padding, dilation,
+      extraParamsType,
+      extraParams, memoryConfig,
+      toFlatbuffer(cache, op.getAppliedShardScheme()),
+      op.getCeilMode(), op.getInPlaceHalo());
+}
+
+
 ::flatbuffers::Offset<::tt::target::ttnn::GlobalAvgPool2dOp>
 createGlobalAvgPool2dOp(FlatbufferObjectCache &cache, GlobalAvgPool2dOp op) {
   auto in = cache.at<::tt::target::ttnn::TensorRef>(
@@ -2802,6 +2842,12 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   }
   if (auto max_pool2dOp = dyn_cast<MaxPool2dOp>(op); max_pool2dOp) {
     return createOperation(cache, createPool2dOp(cache, max_pool2dOp),
+                           debugString, locInfo);
+  }
+  if (auto max_pool2d_with_indicesOp = dyn_cast<MaxPool2dWithIndicesOp>(op);
+      max_pool2d_with_indicesOp) {
+    return createOperation(cache,
+                           createMaxPool2dWithIndicesOp(cache, max_pool2d_with_indicesOp),
                            debugString, locInfo);
   }
   if (auto global_avg_pool2dOp = dyn_cast<GlobalAvgPool2dOp>(op);
