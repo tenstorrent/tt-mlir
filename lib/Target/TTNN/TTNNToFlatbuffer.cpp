@@ -430,8 +430,10 @@ createOp(FlatbufferObjectCache &cache, LinearOp op) {
                         getOperandThroughDPSOps(op.getBias()))
                   : flatbuffers::Offset<::tt::target::ttnn::TensorRef>();
   auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer);
-  return ::tt::target::ttnn::CreateLinearOp(
-      *cache.fbb, a, b, bias, output, op.getTransposeA(), op.getTransposeB());
+  auto activation = toFlatbuffer(cache, op.getActivation()).value_or(0);
+  return ::tt::target::ttnn::CreateLinearOp(*cache.fbb, a, b, bias, output,
+                                            op.getTransposeA(),
+                                            op.getTransposeB(), activation);
 }
 
 // ANCHOR: adding_an_op_matmul_serialize_to_binary
@@ -475,9 +477,11 @@ createOp(FlatbufferObjectCache &cache, MatmulOp op) {
     }
   }
 
+  auto activation = toFlatbuffer(cache, op.getActivation()).value_or(0);
+
   return ::tt::target::ttnn::CreateMatmulOp(
       *cache.fbb, a, b, output, op.getTransposeA(), op.getTransposeB(),
-      matmulProgramConfigType, matmulProgramConfigDesc);
+      matmulProgramConfigType, matmulProgramConfigDesc, activation);
 }
 // ANCHOR_END: adding_an_op_matmul_serialize_to_binary
 
