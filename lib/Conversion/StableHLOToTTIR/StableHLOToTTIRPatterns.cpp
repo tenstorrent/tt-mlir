@@ -774,15 +774,11 @@ public:
     // Default momentum for batch norm training
     FloatAttr momentumAttr = rewriter.getF32FloatAttr(1.0f);
 
-    auto meanShapeAttr = rewriter.getDenseI32ArrayAttr(
-        llvm::SmallVector<int32_t>(meanType.getShape()));
-    auto varianceShapeAttr = rewriter.getDenseI32ArrayAttr(
-        llvm::SmallVector<int32_t>(varianceType.getShape()));
-
-    auto runningMean =
-        rewriter.create<ttir::ZerosOp>(loc, meanType, meanShapeAttr);
-    auto runningVariance =
-        rewriter.create<ttir::OnesOp>(loc, varianceType, varianceShapeAttr);
+    auto runningMean = rewriter.create<ttir::ZerosOp>(
+        loc, meanType, llvm::to_vector_of<int32_t>(meanType.getShape()));
+    auto runningVariance = rewriter.create<ttir::OnesOp>(
+        loc, varianceType,
+        llvm::to_vector_of<int32_t>(varianceType.getShape()));
 
     // Create empty output tensors
     auto outputEmpty = rewriter.create<ttir::EmptyOp>(loc, outputType);
@@ -803,8 +799,9 @@ public:
 
 namespace {
 
-// Verify that scale, mean, variance parameters are 1D tensors with correct size
-static LogicalResult checkBatchNormGradParametersLegality(
+// Verify that scale, mean, variance parameters are 1D tensors with correct
+// size.
+LogicalResult checkBatchNormGradParametersLegality(
     mlir::stablehlo::BatchNormGradOp &srcOp,
     mlir::stablehlo::BatchNormGradOp::Adaptor adaptor,
     ConversionPatternRewriter &rewriter) {
@@ -818,7 +815,7 @@ static LogicalResult checkBatchNormGradParametersLegality(
   int64_t featureIndex = srcOp.getFeatureIndex();
   int64_t expectedSize = operandType.getShape()[featureIndex];
 
-  // Check that parameters are 1D tensors
+  // Check that parameters are 1D tensors.
   if (scaleType.getRank() != 1) {
     return rewriter.notifyMatchFailure(
         srcOp, "batch_norm_grad scale must be a 1D tensor");
@@ -832,7 +829,7 @@ static LogicalResult checkBatchNormGradParametersLegality(
         srcOp, "batch_norm_grad variance must be a 1D tensor");
   }
 
-  // Check that sizes match feature dimension
+  // Check that sizes match feature dimension.
   if (scaleType.getDimSize(0) != expectedSize) {
     return rewriter.notifyMatchFailure(
         srcOp, "batch_norm_grad scale size must match feature dimension");
@@ -860,14 +857,14 @@ public:
   matchAndRewrite(mlir::stablehlo::BatchNormGradOp srcOp,
                   mlir::stablehlo::BatchNormGradOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    // Check legality of the general batch norm conversion
+    // Check legality of the general batch norm conversion.
     LogicalResult legalityResult =
         checkBatchNormConversionLegality(srcOp, adaptor, rewriter);
     if (!legalityResult.succeeded()) {
       return legalityResult;
     }
 
-    // Check that parameters have the expected shape
+    // Check that parameters have the expected shape.
     legalityResult =
         checkBatchNormGradParametersLegality(srcOp, adaptor, rewriter);
     if (!legalityResult.succeeded()) {
@@ -876,34 +873,33 @@ public:
 
     auto loc = srcOp.getLoc();
 
-    // Get the input types and shapes
+    // Get the input types and shapes.
     auto operandType =
         mlir::cast<RankedTensorType>(adaptor.getOperand().getType());
     auto scaleType = mlir::cast<RankedTensorType>(adaptor.getScale().getType());
     auto gradOutputType =
         mlir::cast<RankedTensorType>(adaptor.getGradOutput().getType());
 
-    // Get output types
+    // Get output types.
     auto gradOperandType = mlir::cast<RankedTensorType>(
-        getTypeConverter()->convertType(srcOp.getResult(0).getType()));
+        getTypeConverter()->convertType(srcOp.getGradOperand().getType()));
     auto gradScaleType = mlir::cast<RankedTensorType>(
-        getTypeConverter()->convertType(srcOp.getResult(1).getType()));
+        getTypeConverter()->convertType(srcOp.getGradScale().getType()));
     auto gradOffsetType = mlir::cast<RankedTensorType>(
-        getTypeConverter()->convertType(srcOp.getResult(2).getType()));
+        getTypeConverter()->convertType(srcOp.getGradOffset().getType()));
 
-    // Get feature index and epsilon
+    // Get feature index and epsilon.
     int64_t featureIndex = srcOp.getFeatureIndex();
     FloatAttr epsilonAttr = srcOp.getEpsilonAttr();
     float epsilon = epsilonAttr.getValueAsDouble();
 
-    // Create reduction dimensions (all dims except feature_index)
+    // Create reduction dimensions (all dims except feature_index).
     int64_t rank = operandType.getRank();
-    SmallVector<int32_t> reductionDims(rank);
-    std::iota(reductionDims.begin(), reductionDims.end(), 0);
+    auto reductionDims = llvm::to_vector(llvm::seq<int32_t>(rank));
     reductionDims.erase(reductionDims.begin() + featureIndex);
     ArrayAttr reductionDimsAttr = rewriter.getI32ArrayAttr(reductionDims);
 
-    // Broadcast inputs to operand shape
+    // Broadcast inputs to operand shape.
     Value scaleBcast = broadcastFeatureToShape(
         rewriter, loc, adaptor.getScale(), operandType, featureIndex);
     Value meanBcast = broadcastFeatureToShape(rewriter, loc, adaptor.getMean(),
@@ -911,7 +907,7 @@ public:
     Value varianceBcast = broadcastFeatureToShape(
         rewriter, loc, adaptor.getVariance(), operandType, featureIndex);
 
-    // Create epsilon broadcast
+    // Create epsilon broadcast.
     auto scalarType = RankedTensorType::get({}, operandType.getElementType());
     auto epsilonDenseAttr = DenseElementsAttr::get(
         scalarType,
@@ -922,30 +918,21 @@ public:
                                                  operandType, featureIndex);
 
     // centered_operand = operand - mean
-    auto centeredOperandEmpty =
-        rewriter.create<ttir::EmptyOp>(loc, operandType);
-    auto centeredOperand = rewriter.create<ttir::SubtractOp>(
-        loc, operandType, adaptor.getOperand(), meanBcast,
-        centeredOperandEmpty);
+    auto centeredOperand = ttir::utils::createDPSOp<ttir::SubtractOp>(
+        rewriter, loc, operandType, adaptor.getOperand(), meanBcast);
 
     // stddev = sqrt(variance + epsilon)
-    auto variancePlusEpsilonEmpty =
-        rewriter.create<ttir::EmptyOp>(loc, operandType);
-    auto variancePlusEpsilon =
-        rewriter.create<ttir::AddOp>(loc, operandType, varianceBcast,
-                                     epsilonBcast, variancePlusEpsilonEmpty);
+    auto variancePlusEpsilon = ttir::utils::createDPSOp<ttir::AddOp>(
+        rewriter, loc, operandType, varianceBcast, epsilonBcast);
 
-    auto stddevEmpty = rewriter.create<ttir::EmptyOp>(loc, operandType);
-    auto stddev = rewriter.create<ttir::SqrtOp>(
-        loc, operandType, variancePlusEpsilon, stddevEmpty);
+    auto stddev = ttir::utils::createDPSOp<ttir::SqrtOp>(
+        rewriter, loc, operandType, variancePlusEpsilon);
 
     // normalized_operand = centered_operand / stddev
-    auto normalizedOperandEmpty =
-        rewriter.create<ttir::EmptyOp>(loc, operandType);
-    auto normalizedOperand = rewriter.create<ttir::DivOp>(
-        loc, operandType, centeredOperand, stddev, normalizedOperandEmpty);
+    auto normalizedOperand = ttir::utils::createDPSOp<ttir::DivOp>(
+        rewriter, loc, operandType, centeredOperand, stddev);
 
-    // Compute elements_per_feature = total_elements / feature_dim_size
+    // elements_per_feature = total_elements / feature_dim_size
     int64_t totalElements = operandType.getNumElements();
     float elementsPerFeature =
         static_cast<float>(totalElements) /
@@ -959,96 +946,74 @@ public:
         rewriter, loc, elementsPerFeatureConst, operandType, featureIndex);
 
     // i1 = grad_output * elements_per_feature
-    auto i1Empty = rewriter.create<ttir::EmptyOp>(loc, gradOutputType);
-    auto i1 = rewriter.create<ttir::MultiplyOp>(
-        loc, gradOutputType, adaptor.getGradOutput(), elementsPerFeatureBcast,
-        i1Empty);
+    auto i1 = ttir::utils::createDPSOp<ttir::MultiplyOp>(
+        rewriter, loc, gradOutputType, adaptor.getGradOutput(),
+        elementsPerFeatureBcast);
 
     // i2 = broadcast(sum(grad_output, reduction_dims))
-    auto sumGradOutputEmpty = rewriter.create<ttir::EmptyOp>(loc, scaleType);
-    auto sumGradOutput = rewriter.create<ttir::SumOp>(
-        loc, scaleType, adaptor.getGradOutput(), sumGradOutputEmpty,
+    auto sumGradOutput = ttir::utils::createDPSOp<ttir::SumOp>(
+        rewriter, loc, scaleType, adaptor.getGradOutput(),
         rewriter.getBoolAttr(false), reductionDimsAttr);
     auto i2 = broadcastFeatureToShape(rewriter, loc, sumGradOutput, operandType,
                                       featureIndex);
 
     // grad_output * centered_operand
-    auto gradTimescenteredEmpty =
-        rewriter.create<ttir::EmptyOp>(loc, operandType);
-    auto gradTimesCentered = rewriter.create<ttir::MultiplyOp>(
-        loc, operandType, adaptor.getGradOutput(), centeredOperand,
-        gradTimescenteredEmpty);
+    auto gradTimesCentered = ttir::utils::createDPSOp<ttir::MultiplyOp>(
+        rewriter, loc, operandType, adaptor.getGradOutput(), centeredOperand);
 
     // i3 = broadcast(sum(grad_output * centered_operand))
-    auto sumGradTimesCenteredEmpty =
-        rewriter.create<ttir::EmptyOp>(loc, scaleType);
-    auto sumGradTimesCentered = rewriter.create<ttir::SumOp>(
-        loc, scaleType, gradTimesCentered, sumGradTimesCenteredEmpty,
+    auto sumGradTimesCentered = ttir::utils::createDPSOp<ttir::SumOp>(
+        rewriter, loc, scaleType, gradTimesCentered,
         rewriter.getBoolAttr(false), reductionDimsAttr);
     auto i3 = broadcastFeatureToShape(rewriter, loc, sumGradTimesCentered,
                                       operandType, featureIndex);
 
     // i4 = i3 * centered_operand
-    auto i4Empty = rewriter.create<ttir::EmptyOp>(loc, operandType);
-    auto i4 = rewriter.create<ttir::MultiplyOp>(loc, operandType, i3,
-                                                centeredOperand, i4Empty);
+    auto i4 = ttir::utils::createDPSOp<ttir::MultiplyOp>(
+        rewriter, loc, operandType, i3, centeredOperand);
 
     // i5 = i4 / (variance + epsilon)
-    auto i5Empty = rewriter.create<ttir::EmptyOp>(loc, operandType);
-    auto i5 = rewriter.create<ttir::DivOp>(loc, operandType, i4,
-                                           variancePlusEpsilon, i5Empty);
+    auto i5 = ttir::utils::createDPSOp<ttir::DivOp>(rewriter, loc, operandType,
+                                                    i4, variancePlusEpsilon);
 
     // i6 = i1 - i2 - i5
-    auto i1MinusI2Empty = rewriter.create<ttir::EmptyOp>(loc, operandType);
-    auto i1MinusI2 = rewriter.create<ttir::SubtractOp>(loc, operandType, i1, i2,
-                                                       i1MinusI2Empty);
+    auto i1MinusI2 = ttir::utils::createDPSOp<ttir::SubtractOp>(
+        rewriter, loc, operandType, i1, i2);
 
-    auto i6Empty = rewriter.create<ttir::EmptyOp>(loc, operandType);
-    auto i6 = rewriter.create<ttir::SubtractOp>(loc, operandType, i1MinusI2, i5,
-                                                i6Empty);
+    auto i6 = ttir::utils::createDPSOp<ttir::SubtractOp>(
+        rewriter, loc, operandType, i1MinusI2, i5);
 
     // grad_operand = (scale / stddev / elements_per_feature) * i6
-    auto scaleOverStddevEmpty =
-        rewriter.create<ttir::EmptyOp>(loc, operandType);
-    auto scaleOverStddev = rewriter.create<ttir::DivOp>(
-        loc, operandType, scaleBcast, stddev, scaleOverStddevEmpty);
+    auto scaleOverStddev = ttir::utils::createDPSOp<ttir::DivOp>(
+        rewriter, loc, operandType, scaleBcast, stddev);
 
-    auto scaleOverStddevOverElemEmpty =
-        rewriter.create<ttir::EmptyOp>(loc, operandType);
-    auto scaleOverStddevOverElem = rewriter.create<ttir::DivOp>(
-        loc, operandType, scaleOverStddev, elementsPerFeatureBcast,
-        scaleOverStddevOverElemEmpty);
+    auto scaleOverStddevOverElem = ttir::utils::createDPSOp<ttir::DivOp>(
+        rewriter, loc, operandType, scaleOverStddev, elementsPerFeatureBcast);
 
-    auto gradOperandEmpty =
-        rewriter.create<ttir::EmptyOp>(loc, gradOperandType);
-    auto gradOperand = rewriter.create<ttir::MultiplyOp>(
-        loc, gradOperandType, scaleOverStddevOverElem, i6, gradOperandEmpty);
+    auto gradOperand = ttir::utils::createDPSOp<ttir::MultiplyOp>(
+        rewriter, loc, gradOperandType, scaleOverStddevOverElem, i6);
 
     // grad_scale = sum(grad_output * normalized_operand)
-    auto gradTimesNormEmpty = rewriter.create<ttir::EmptyOp>(loc, operandType);
-    auto gradTimesNorm = rewriter.create<ttir::MultiplyOp>(
-        loc, operandType, adaptor.getGradOutput(), normalizedOperand,
-        gradTimesNormEmpty);
+    auto gradTimesNorm = ttir::utils::createDPSOp<ttir::MultiplyOp>(
+        rewriter, loc, operandType, adaptor.getGradOutput(), normalizedOperand);
 
-    auto gradScaleEmpty = rewriter.create<ttir::EmptyOp>(loc, gradScaleType);
-    auto gradScale = rewriter.create<ttir::SumOp>(
-        loc, gradScaleType, gradTimesNorm, gradScaleEmpty,
+    auto gradScale = ttir::utils::createDPSOp<ttir::SumOp>(
+        rewriter, loc, gradScaleType, gradTimesNorm,
         rewriter.getBoolAttr(false), reductionDimsAttr);
 
     // grad_offset = sum(grad_output)
-    auto gradOffsetEmpty = rewriter.create<ttir::EmptyOp>(loc, gradOffsetType);
-    auto gradOffset = rewriter.create<ttir::SumOp>(
-        loc, gradOffsetType, adaptor.getGradOutput(), gradOffsetEmpty,
+    auto gradOffset = ttir::utils::createDPSOp<ttir::SumOp>(
+        rewriter, loc, gradOffsetType, adaptor.getGradOutput(),
         rewriter.getBoolAttr(false), reductionDimsAttr);
 
-    // Replace the operation with the three results
+    // Replace the operation with the three results.
     rewriter.replaceOp(srcOp, {gradOperand, gradScale, gradOffset});
 
     return success();
   }
 
 private:
-  // Helper to create broadcast shape from feature dimension to full shape
+  // Helper to create broadcast shape from feature dimension to full shape.
   Value broadcastFeatureToShape(ConversionPatternRewriter &rewriter,
                                 Location loc, Value input,
                                 RankedTensorType targetType,
@@ -1056,13 +1021,13 @@ private:
     auto inputType = mlir::cast<RankedTensorType>(input.getType());
     const int64_t rank = targetType.getRank();
 
-    // First reshape to match target rank if needed
+    // First reshape to match target rank if needed.
     if (inputType.getRank() < rank) {
       input =
           reshapeFeatureToShape(rewriter, loc, input, targetType, featureIndex);
     }
 
-    // Broadcast the input to the target type
+    // Broadcast the input to the target type.
     Value output;
     LogicalResult result =
         ttir::utils::broadcastValue(rewriter, input, targetType, output, loc,
@@ -1086,11 +1051,10 @@ private:
 
     auto unsqueezeType =
         RankedTensorType::get(unsqueezeShape, targetType.getElementType());
-    SmallVector<int32_t> shapeI32(unsqueezeShape.begin(), unsqueezeShape.end());
 
     return ttir::utils::createDPSOp<ttir::ReshapeOp>(
         rewriter, loc, unsqueezeType, input,
-        rewriter.getI32ArrayAttr(shapeI32));
+        rewriter.getI32ArrayAttr(llvm::to_vector_of<int32_t>(unsqueezeShape)));
   }
 };
 
