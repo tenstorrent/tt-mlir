@@ -50,6 +50,7 @@
 #include "ttnn/core.hpp"
 #include "ttnn/device.hpp"
 #include "ttnn/operations/copy/typecast/typecast.hpp"
+#include "ttnn/operations/experimental/paged_cache/paged_cache.hpp"
 #include "ttnn/operations/experimental/transformer/nlp_concat_heads_decode/nlp_concat_heads_decode.hpp"
 #include "ttnn/operations/experimental/transformer/nlp_create_qkv_heads_decode/nlp_create_qkv_heads_decode.hpp"
 #include "ttnn/operations/experimental/transformer/rotary_embedding_llama/rotary_embedding_llama.hpp"
