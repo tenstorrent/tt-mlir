@@ -1022,11 +1022,11 @@ def TTNN_PagedUpdateCacheOp : TTNN_InplaceOp<"paged_update_cache"> {
   let summary = "Paged update cache op.";
   let description = [{
       Inputs:
-        - `cache`: The cache tensor to be updated. This tensor is modified in place
-        - `input`: The input tensor containing new values.
-        - `update_index`: Indices specifying where to update the cache.
+        - `cache`: The cache tensor to be updated. This tensor is modified in place [max_num_blocks, num_heads, block_size, head_dim]
+        - `input`: The input tensor containing new values. [1, num_users, num_heads (padded to 32), head_dim]
+        - `update_index`: Indices specifying where to update the cache. [num_users]
         - `share_cache`: Whether the cache tensors share memory regions. Defaults to False.
-        - `page_table`: The page table for managing memory regions during updates.
+        - `page_table`: The page table for managing memory regions during updates. [num_users, max_num_blocks_per_seq]
   }];
 
   let arguments = (ins Arg<AnyRankedTensor, "cache tensor", [MemWrite]>:$cache,
