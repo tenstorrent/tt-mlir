@@ -1431,6 +1431,10 @@ private:
     }
 
     // Check if bias is broadcast compatible with MatmulOp output.
+    // Not checking if broadcast compatible with AddOp output and invalidating
+    // such cases. This is because such cases would require additional ReshapeOp
+    // after LinearOp to match the original AddOp output shape, which is not
+    // handled in this pattern.
     RankedTensorType biasType = bias.getType();
     SmallVector<int64_t> broadcastedShape;
     if (OpTrait::util::getBroadcastedShape(matmulOp.getType().getShape(),
