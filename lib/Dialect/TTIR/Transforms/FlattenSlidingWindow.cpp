@@ -128,14 +128,51 @@ public:
           flattenedInput, adaptor.getKernel(), adaptor.getStride(),
           adaptor.getDilation(), adaptor.getPadding(), adaptor.getCeilMode(),
           adaptor.getCountIncludePad(), flattenedCompatInfoAttr);
+    } else if constexpr (std::is_same_v<Pooling2dOp, ttir::MaxPool2dWithIndicesOp>) {
+      // Handle MaxPool2dWithIndicesOp separately since it has two outputs
+      auto resultType = op.getResult().getType();
+      auto indicesType = op.getResultIndices().getType();
+
+      // Create flattened output types for both results
+      auto flattenedOutputType = getNHWFlattenedType(resultType);
+      auto flattenedIndicesType = getNHWFlattenedType(indicesType);
+      
+      // Create empty tensors for both outputs
+      // TODO (umales): Migrate to createDPSOp when it supports multiple outputs.
+      // See https://github.com/tenstorrent/tt-mlir/issues/5497
+      auto resultEmpty = rewriter.create<ttir::EmptyOp>(op.getLoc(), flattenedOutputType);
+      auto indicesEmpty = rewriter.create<ttir::EmptyOp>(op.getLoc(), flattenedIndicesType);
+      
+      // Create the MaxPool2dWithIndicesOp
+      auto newPoolWithIndices = rewriter.create<ttir::MaxPool2dWithIndicesOp>(
+          op.getLoc(), TypeRange{flattenedOutputType, flattenedIndicesType},
+          flattenedInput, ValueRange{resultEmpty, indicesEmpty},
+          adaptor.getKernel(), adaptor.getStride(),
+          adaptor.getDilation(), adaptor.getPadding(), adaptor.getCeilMode(),
+          flattenedCompatInfoAttr);
+      
+      auto pooledOutputVal = newPoolWithIndices.getResult();
+      auto indicesOutputVal = newPoolWithIndices.getResultIndices();
+      
+      // Reshape both outputs back to original shapes
+      Value pooledOutput = generateReshape(pooledOutputVal, resultType, rewriter);
+      Value indicesOutput = generateReshape(indicesOutputVal, indicesType, rewriter);
+
+      rewriter.replaceOp(op, {pooledOutput, indicesOutput});
+      return success();
+      
     } else {
-      llvm_unreachable("Pool2dOp must be AvgPool2dOp or MaxPool2dOp");
+      llvm_unreachable("Pool2dOp must be AvgPool2dOp, MaxPool2dOp or "
+                       "MaxPool2dWithIndicesOp");
     }
 
-    Value output = generateReshape(newPool, outputType, rewriter);
+    if constexpr (!std::is_same_v<Pooling2dOp, ttir::MaxPool2dWithIndicesOp>) {
+      // For AvgPool2dOp and MaxPool2dOp
+      Value output = generateReshape(newPool, outputType, rewriter);
+      rewriter.replaceOp(op, output);
+      return success();
+    }
 
-    rewriter.replaceOp(op, output);
-    return success();
   }
 };
 } // namespace
@@ -155,6 +192,7 @@ public:
         .add<ConvertToFlattenedConv2dPattern<ttir::Conv2dOp>,
              ConvertToFlattenedConv2dPattern<ttir::ConvTranspose2dOp>,
              Pooling2dFlattenedCompatOpConversionPattern<ttir::MaxPool2dOp>,
+             Pooling2dFlattenedCompatOpConversionPattern<ttir::MaxPool2dWithIndicesOp>,
              Pooling2dFlattenedCompatOpConversionPattern<ttir::AvgPool2dOp>>(
             typeConverter, &getContext());
     FrozenRewritePatternSet conversionPatternSet(std::move(conversionPatterns));
@@ -173,6 +211,10 @@ public:
     target.addDynamicallyLegalOp<ttir::MaxPool2dOp>([&](ttir::MaxPool2dOp op) {
       return op.getFlattenedCompatInfo() != nullptr;
     });
+    target.addDynamicallyLegalOp<ttir::MaxPool2dWithIndicesOp>(
+        [&](ttir::MaxPool2dWithIndicesOp op) {
+          return op.getFlattenedCompatInfo() != nullptr;
+        });
     target.addDynamicallyLegalOp<ttir::AvgPool2dOp>([&](ttir::AvgPool2dOp op) {
       return op.getFlattenedCompatInfo() != nullptr;
     });

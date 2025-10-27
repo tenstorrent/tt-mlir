@@ -1442,6 +1442,31 @@ static mlir::LogicalResult verifyPooling2dOp(PoolingOp *op) {
   return verifyPooling2dOp(this);
 }
 
+// MaxPool2dWithIndicesOp verification
+::mlir::LogicalResult mlir::tt::ttir::MaxPool2dWithIndicesOp::verify() {
+  // First verify the pooling operation itself
+  if (mlir::failed(verifyPooling2dOp(this))) {
+    return mlir::failure();
+  }
+
+  // Verify that both results have the same shape
+  auto pooledShape = this->getResult().getType().getShape();
+  auto indicesShape = this->getResultIndices().getType().getShape();
+  
+  if (pooledShape != indicesShape) {
+    return emitOpError("Pooled values and indices must have the same shape");
+  }
+
+  // Verify that indices have integer element type
+  auto indicesElementType = this->getResultIndices().getType().getElementType();
+  if (!indicesElementType.isInteger()) {
+    return emitOpError("Indices result must have integer element type");
+  }
+
+  return mlir::success();
+}
+
+
 //===----------------------------------------------------------------------===//
 // ConcatOp
 //===----------------------------------------------------------------------===//
