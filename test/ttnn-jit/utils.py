@@ -33,9 +33,17 @@ def memory_configs_equal(memory_config1, memory_config2):
     )
 
 
-def create_dram_tensor(device, h, w, dtype):
+def create_dram_tensor(device, h, w, dtype, int_max=0):
     torch.manual_seed(0)
-    torch_tensor = torch.randn((h, w), dtype=dtype)
+    if not (dtype.is_floating_point and dtype.is_complex):
+        # recreate spatial coverage of fp [0,1] in randn and give some overflow headroom
+        high_val = int_max if int_max else torch.iinfo(dtype).max // 2
+        torch_tensor = torch.randint(high_val, (h, w), dtype=dtype)
+    else:
+        if int_max:
+            print("Warning: int_max provided for floating point tensor, ignoring.")
+        torch_tensor = torch.randn((h, w), dtype=dtype)
+
     memory_config = ttnn.MemoryConfig(
         memory_layout=ttnn.TensorMemoryLayout.INTERLEAVED,
         buffer_type=ttnn.BufferType.DRAM,
@@ -48,9 +56,16 @@ def create_dram_tensor(device, h, w, dtype):
     )
 
 
-def create_sharded_tile_tensor(device, h, w, max_grid, dtype):
+def create_sharded_tile_tensor(device, h, w, max_grid, dtype, int_max=0):
     torch.manual_seed(0)
-    torch_tensor = torch.randn((h, w), dtype=dtype)
+    if not (dtype.is_floating_point and dtype.is_complex):
+        # recreate spatial coverage of fp [0,1] in randn and give some overflow headroom
+        high_val = int_max if int_max else torch.iinfo(dtype).max // 2
+        torch_tensor = torch.randint(high_val, (h, w), dtype=dtype)
+    else:
+        if int_max:
+            print("Warning: int_max provided for floating point tensor, ignoring.")
+        torch_tensor = torch.randn((h, w), dtype=dtype)
 
     start_coord = ttnn.CoreCoord(0, 0)
     end_coord = ttnn.CoreCoord(max_grid[0], max_grid[1])
