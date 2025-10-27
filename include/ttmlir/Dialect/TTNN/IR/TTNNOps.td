@@ -1035,6 +1035,12 @@ def TTNN_PagedUpdateCacheOp : TTNN_InplaceOp<"paged_update_cache"> {
                        DefaultValuedAttr<BoolAttr, "false">:$share_cache,
                        AnyRankedTensor:$page_table);
 
+  let extraClassDeclaration = [{
+    wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+      return wa::TTNNOperandsWorkaroundsFactory::createPagedUpdateCacheOpOperandsWorkarounds(this->getContext());
+    }
+  }];
+
   let hasVerifier = 1;
 }
 
