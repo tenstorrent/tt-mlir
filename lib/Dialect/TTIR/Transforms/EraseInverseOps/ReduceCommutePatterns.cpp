@@ -43,18 +43,7 @@ public:
 
     PermuteOp newPerm =
         createNewPermuteOp(op.getInput(), permutation, rewriter, op->getLoc());
-    llvm::outs() << "Creating new reduce op with upward commute:\n";
 
-    llvm::outs() << "  Original reduce args: ";
-    for (Attribute dimAttr : op.getDimArg()->getValue()) {
-      llvm::outs() << cast<IntegerAttr>(dimAttr).getInt() << " ";
-    }
-    llvm::outs() << "\n";
-    llvm::outs() << "  Original permutation: ";
-    for (int64_t dim : permutation) {
-      llvm::outs() << dim << " ";
-    }
-    llvm::outs() << "\n";
     ReduceOpType newReduce = createNewReduceOpWithPermutedDims(
         op, newPerm->getResult(0), permutation, rewriter,
         /*inverseDimPermute=*/true);
@@ -76,17 +65,7 @@ public:
   performCommuteDownwardsRewrite(ReduceOpType op, PermuteOp permuteOperand,
                                  PatternRewriter &rewriter) const override {
     ArrayRef<int64_t> permutation = permuteOperand.getPermutation();
-    llvm::outs() << "Creating new reduce op with downward commute\n";
-    llvm::outs() << "  Original permutation: ";
-    for (int64_t dim : permutation) {
-      llvm::outs() << dim << " ";
-    }
-    llvm::outs() << "\n";
-    llvm::outs() << "  Original reduce args: ";
-    for (Attribute dimAttr : op.getDimArg()->getValue()) {
-      llvm::outs() << cast<IntegerAttr>(dimAttr).getInt() << " ";
-    }
-    llvm::outs() << "\n";
+
     ReduceOpType newReduce = createNewReduceOpWithPermutedDims(
         op, permuteOperand.getInput(), permutation, rewriter);
 
@@ -122,12 +101,6 @@ private:
       int64_t permutedDim = permutation[dim];
       permutedDims.push_back(rewriter.getI32IntegerAttr(permutedDim));
     }
-    llvm::outs() << "Permuted dims: ";
-    for (auto attr : permutedDims) {
-      llvm::outs() << cast<IntegerAttr>(attr).getInt() << " ";
-    }
-    llvm::outs() << "\n";
-
     return ArrayAttr::get(dimArg.getContext(), permutedDims);
   }
 
@@ -196,23 +169,16 @@ private:
 };
 } // namespace
 
-template <typename ReduceOpType, CommuteDirection commuteDirection>
+template <CommuteDirection commuteDirection>
 void populateReduceCommutePatterns(MLIRContext *ctx,
                                    RewritePatternSet &patterns) {
-  patterns
-      .insert<TTIRCommutePermuteThroughReduce<ReduceOpType, commuteDirection>>(
-          ctx);
+  patterns.add<TTIRCommutePermuteThroughReduce<SumOp, commuteDirection>,
+               TTIRCommutePermuteThroughReduce<MeanOp, commuteDirection>>(ctx);
 }
 
-// Explicit instantiations for SumOp and MeanOp
-template void populateReduceCommutePatterns<SumOp, CommuteDirection::UPWARDS>(
+template void populateReduceCommutePatterns<CommuteDirection::UPWARDS>(
     MLIRContext *ctx, RewritePatternSet &patterns);
-template void populateReduceCommutePatterns<SumOp, CommuteDirection::DOWNWARDS>(
-    MLIRContext *ctx, RewritePatternSet &patterns);
-template void populateReduceCommutePatterns<MeanOp, CommuteDirection::UPWARDS>(
-    MLIRContext *ctx, RewritePatternSet &patterns);
-template void
-populateReduceCommutePatterns<MeanOp, CommuteDirection::DOWNWARDS>(
+template void populateReduceCommutePatterns<CommuteDirection::DOWNWARDS>(
     MLIRContext *ctx, RewritePatternSet &patterns);
 
 } // namespace mlir::tt::ttir
