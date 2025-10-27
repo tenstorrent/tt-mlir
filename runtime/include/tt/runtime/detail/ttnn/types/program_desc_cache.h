@@ -21,10 +21,10 @@ public:
   ProgramDescCache(ProgramDescCache &&) = delete;
   ProgramDescCache &operator=(ProgramDescCache &&) = delete;
 
-  void *get(const std::size_t &hash) const {
+  std::shared_ptr<void> get(const std::size_t &hash) const {
     auto it = cache_.find(hash);
     if (it != cache_.end()) {
-      return it->second.get();
+      return it->second;
     }
     return nullptr;
   }

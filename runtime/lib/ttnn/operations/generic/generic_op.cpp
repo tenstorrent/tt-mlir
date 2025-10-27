@@ -216,22 +216,24 @@ createKernelDescriptor(const ::tt::target::ttnn::KernelDescriptor &kernelDesc,
   return kernelDescriptor;
 }
 
-static ::tt::tt_metal::ProgramDescriptor createProgramDescriptor(
+static std::shared_ptr<::tt::tt_metal::ProgramDescriptor>
+createProgramDescriptor(
     const ::tt::target::ttnn::ProgramDescriptor *programDesc,
     const std::vector<::ttnn::Tensor> &ioTensors) {
-  ::tt::tt_metal::ProgramDescriptor programDescriptor;
+  auto programDescriptor =
+      std::make_shared<::tt::tt_metal::ProgramDescriptor>();
   for (const tt::target::ttnn::KernelDescriptor *kernelDesc :
        *programDesc->kernels()) {
-    programDescriptor.kernels.push_back(
+    programDescriptor->kernels.push_back(
         createKernelDescriptor(*kernelDesc, ioTensors));
   }
   for (const tt::target::ttnn::KernelCBDescriptor *cbDesc :
        *programDesc->cbs()) {
-    programDescriptor.cbs.push_back(createCBDescriptor(*cbDesc, ioTensors));
+    programDescriptor->cbs.push_back(createCBDescriptor(*cbDesc, ioTensors));
   }
   for (const tt::target::ttnn::SemaphoreDescriptor *semaphoreDesc :
        *programDesc->semaphores()) {
-    programDescriptor.semaphores.push_back(
+    programDescriptor->semaphores.push_back(
         createSemaphoreDescriptor(*semaphoreDesc));
   }
   return programDescriptor;
@@ -247,30 +249,28 @@ void run(const ::tt::target::ttnn::GenericOp *op, ProgramContext &context) {
   }
 
   auto programDescCache = context.getExecutableHandle().getProgramDescCache();
-  std::shared_ptr<tt::runtime::ProgramDescCache> cache = programDescCache;
 
   auto *programDesc = op->program();
   std::size_t hash =
-      ttsl::hash::hash_objects_with_default_seed(programDesc, cache);
-  void *cachedPtr = cache ? cache->get(hash) : nullptr;
+      ttsl::hash::hash_objects_with_default_seed(programDesc, programDescCache);
+  std::shared_ptr<void> cachedPtr = programDescCache->get(hash);
 
-  ::tt::tt_metal::ProgramDescriptor programDescriptor;
+  std::shared_ptr<::tt::tt_metal::ProgramDescriptor> programDescriptor;
   if (cachedPtr) {
+    LOG_DEBUG("Cache hit for program descriptor");
     programDescriptor =
-        *static_cast<::tt::tt_metal::ProgramDescriptor *>(cachedPtr);
+        std::static_pointer_cast<::tt::tt_metal::ProgramDescriptor>(cachedPtr);
   } else {
+    LOG_DEBUG("Cache miss for program descriptor");
     programDescriptor = createProgramDescriptor(programDesc, ioTensors);
-    programDescriptor.custom_program_hash =
+    programDescriptor->custom_program_hash =
         reinterpret_cast<ttsl::hash::hash_t>(hash);
-    if (cache) {
-      auto heapCopy = std::make_shared<::tt::tt_metal::ProgramDescriptor>(
-          programDescriptor);
-      cache->insert(hash, std::move(heapCopy));
-    }
+    programDescCache->insert(hash,
+                             std::static_pointer_cast<void>(programDescriptor));
   }
 
   ::ttnn::Tensor outputTensor =
-      ::ttnn::generic_op(ioTensors, programDescriptor);
+      ::ttnn::generic_op(ioTensors, *programDescriptor);
   tensorPool.insertTTNNTensorAndValidate(op->io_tensors()->Get(size - 1),
                                          outputTensor);
 }
