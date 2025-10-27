@@ -15,6 +15,11 @@ if (TTMLIR_ENABLE_RUNTIME_TESTS)
   list(APPEND TTMLIR_RUNTIME_PYTHON_SRCS runtime/test.cpp)
 endif()
 
+# Add macOS stubs when runtime is disabled but pykernel is enabled
+if (APPLE AND NOT TTMLIR_ENABLE_RUNTIME AND TTMLIR_ENABLE_PYKERNEL)
+  list(APPEND TTMLIR_RUNTIME_PYTHON_SRCS runtime/stubs_macos.cpp)
+endif()
+
 nanobind_add_module(
   _ttmlir_runtime
   ${TTMLIR_RUNTIME_PYTHON_SRCS}
