@@ -27,13 +27,12 @@ void run(const ::tt::target::ttnn::AllGatherOp *op, ProgramContext &context) {
   std::optional<::ttnn::MemoryConfig> outputMemoryConfig =
       ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
           ::tt::runtime::ttnn::utils::getTensorRefMemoryConfig(op->out()));
-  LOG_ASSERT(outputMemoryConfig.has_value(),
-             "Memory config must exist for device tensors");
 
   ::ttnn::Tensor out = ::ttnn::all_gather(
       input, allGatherDim, clusterAxis, /*subdevice_id=*/std::nullopt,
-      outputMemoryConfig.value(), /*optional_output_tensor=*/std::nullopt,
-      numLinks);
+      outputMemoryConfig, /*optional_output_tensor=*/std::nullopt,
+      std::make_optional(static_cast<uint32_t>(numLinks)),
+      /*topology=*/std::nullopt);
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
