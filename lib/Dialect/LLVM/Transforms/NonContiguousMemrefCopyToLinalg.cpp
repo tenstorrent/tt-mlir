@@ -59,7 +59,8 @@ class NonContiguousMemrefCopyToLinalg
                memref::isStaticShapeAndContiguousRowMajor(memrefType)));
     };
 
-    // Dynamically mark memref.copy as illegal unless it operates on contiguous memrefs.
+    // Dynamically mark memref.copy as illegal unless it operates on contiguous
+    // memrefs.
     target.addDynamicallyLegalOp<memref::CopyOp>(
         [isContiguousMemrefType](memref::CopyOp op) {
           return isContiguousMemrefType(op.getSource().getType()) &&
