@@ -14,6 +14,7 @@
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
+#include "llvm/ADT/DenseMap.h"
 #include <tuple>
 
 namespace mlir::tt::d2m {
@@ -102,10 +103,10 @@ static bool isValidElementwiseFusionTarget(GenericOp gOp) {
   return true;
 }
 
-static bool isElementwiseFusable(OpOperand *fusionTargetOperand,
-                                 unsigned dstCapacity,
-                                 bool checkConsumer = true,
-                                 bool checkProducer = true) {
+static bool isElementwiseFusable(
+    OpOperand *fusionTargetOperand, unsigned dstCapacity,
+    llvm::DenseMap<Operation *, DenseSet<Operation *>> &exclusionMap,
+    bool checkConsumer = true, bool checkProducer = true) {
   if (!fusionTargetOperand) {
     return false;
   }
@@ -114,6 +115,12 @@ static bool isElementwiseFusable(OpOperand *fusionTargetOperand,
   auto consumer = dyn_cast<GenericOp>(fusionTargetOperand->getOwner());
 
   if (!producer || !consumer) {
+    return false;
+  }
+
+  if (exclusionMap.contains(consumer) &&
+      llvm::find(exclusionMap[consumer], producer) !=
+          exclusionMap[consumer].end()) {
     return false;
   }
 
@@ -353,10 +360,12 @@ static GenericOp createFusedGeneric(OpOperand *fusedOperand, GenericOp producer,
 
 namespace {
 struct FuseD2MElementwiseOpsPattern : public OpRewritePattern<GenericOp> {
-  FuseD2MElementwiseOpsPattern(MLIRContext *context,
-                               unsigned maxDstPhysicalSizeTiles)
+  FuseD2MElementwiseOpsPattern(
+      MLIRContext *context, unsigned maxDstPhysicalSizeTiles,
+      llvm::DenseMap<Operation *, DenseSet<Operation *>> &exclusionMap)
       : OpRewritePattern<GenericOp>(context),
-        maxDstPhysicalSizeTiles(maxDstPhysicalSizeTiles) {}
+        maxDstPhysicalSizeTiles(maxDstPhysicalSizeTiles),
+        exclusionMap(exclusionMap) {}
 
   LogicalResult matchAndRewrite(GenericOp consumer,
                                 PatternRewriter &rewriter) const final {
@@ -374,7 +383,7 @@ struct FuseD2MElementwiseOpsPattern : public OpRewritePattern<GenericOp> {
 
     auto findFusableOperand = [&]() -> OpOperand * {
       for (OpOperand *use : consumer.getDpsInputOperands()) {
-        if (isElementwiseFusable(use, dstCapacity,
+        if (isElementwiseFusable(use, dstCapacity, exclusionMap,
                                  // already checked consumer outside
                                  false, true)) {
           return use;
@@ -394,6 +403,17 @@ struct FuseD2MElementwiseOpsPattern : public OpRewritePattern<GenericOp> {
     // use assert instead of if()
     assert(producer);
 
+    // Add all other producers of the consumer to the exclusion map so that
+    // only one producer can be fused per consumer (first one wins).
+    for (OpOperand *use : consumer.getDpsInputOperands()) {
+      if (use != fusedOperand) {
+        if (auto otherProducer = use->get().getDefiningOp<GenericOp>()) {
+          exclusionMap[consumer.getOperation()].insert(
+              otherProducer.getOperation());
+        }
+      }
+    }
+
     // Build fused op operands, maps, results
     auto [fusedInputs, fusedOutputs, fusedMaps] =
         getFusedOperands(fusedOperand, producer, consumer);
@@ -402,6 +422,32 @@ struct FuseD2MElementwiseOpsPattern : public OpRewritePattern<GenericOp> {
         createFusedGeneric(fusedOperand, producer, consumer, fusedInputs,
                            fusedOutputs, fusedMaps, rewriter);
 
+    exclusionMap[fusedOp.getOperation()].insert(
+        exclusionMap[consumer.getOperation()].begin(),
+        exclusionMap[consumer.getOperation()].end());
+
+    // llvm::errs() << "rewriting op: ";
+    // consumer->dump();
+    // llvm::errs() << "exclusion map state: \n";
+    // for (auto *key : exclusionMap.keys()) {
+    //   llvm::errs() << "--------------------------------\n";
+    //   llvm::errs() << "consumer: \n";
+    //   key->dump();
+    //   for (auto *value : exclusionMap[key]) {
+    //     llvm::errs() << "excluded producer: \n";
+    //     value->dump();
+    //   }
+    //   llvm::errs() << "--------------------------------\n";
+    // }
+
+    llvm::errs() << "doing fusion between consumer: \n";
+    consumer->dump();
+    llvm::errs() << "and producer: \n";
+    producer->dump();
+    llvm::errs() << "to produce fused op: \n";
+    fusedOp->dump();
+    llvm::errs() << "--------------------------------\n";
+
     // Replace uses: from producer and consumer results to fused results.
     int resIdx = 0;
     // Consumer results
@@ -409,6 +455,15 @@ struct FuseD2MElementwiseOpsPattern : public OpRewritePattern<GenericOp> {
       r.replaceAllUsesWith(fusedOp->getResult(resIdx++));
     }
 
+    // Remove consumer and producer from all value sets before erasing them
+    // to avoid dangling pointers
+    for (auto &entry : exclusionMap) {
+      entry.second.erase(consumer.getOperation());
+      entry.second.erase(producer.getOperation());
+    }
+
+    exclusionMap.erase(consumer.getOperation());
+    exclusionMap.erase(producer.getOperation());
     rewriter.eraseOp(consumer);
     rewriter.eraseOp(producer);
 
@@ -416,6 +471,7 @@ struct FuseD2MElementwiseOpsPattern : public OpRewritePattern<GenericOp> {
   }
 
   unsigned maxDstPhysicalSizeTiles = 0;
+  llvm::DenseMap<Operation *, DenseSet<Operation *>> &exclusionMap;
 };
 } // namespace
 
@@ -426,9 +482,11 @@ class D2MElementwiseFusion
 
   void runOnOperation() override {
     MLIRContext *ctx = &getContext();
+    // Create a map that persists across all rewriter iterations
+    llvm::DenseMap<Operation *, DenseSet<Operation *>> exclusionMap;
     RewritePatternSet patterns(ctx);
     patterns.add<FuseD2MElementwiseOpsPattern>(
-        ctx, maxDstPhysicalSizeTiles.getValue());
+        ctx, maxDstPhysicalSizeTiles.getValue(), exclusionMap);
     GreedyRewriteConfig cfg;
 
     if (failed(
