@@ -4,6 +4,7 @@
 
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreTraits.h"
+#include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Transforms/Passes.h"
 #include "ttmlir/Utils.h"
@@ -342,6 +343,12 @@ private:
   bool isCacheableCreationOp(mlir::Operation *op) {
     assert(op != nullptr);
     if (!isCreationOp(op)) {
+      return false;
+    }
+
+    // Check for specific ops that are not cacheable.
+    if (mlir::isa<mlir::tt::ttir::EmptyOp, mlir::tt::ttnn::EmptyOp,
+                  mlir::tt::ttir::RandOp, mlir::tt::ttnn::RandOp>(op)) {
       return false;
     }
 
