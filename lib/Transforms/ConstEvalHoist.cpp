@@ -190,6 +190,28 @@ private:
       }
     }
 
+    // Check if any of my results are written to, they are not safe for
+    // consteval
+    for (auto result : op->getResults()) {
+      // Check all users of this result
+      for (auto *user : result.getUsers()) {
+        // Check their operands
+        auto memEffectOp = dyn_cast<mlir::MemoryEffectOpInterface>(user);
+        if (!memEffectOp) {
+          continue;
+        }
+        llvm::SmallVector<mlir::MemoryEffects::EffectInstance> effects;
+        memEffectOp.getEffects(effects);
+        if (llvm::any_of(effects, [&](const auto &effect) {
+              return isa<mlir::MemoryEffects::Write>(effect.getEffect()) &&
+                     effect.getValue() == result;
+            })) {
+          // This result is written to, not safe for consteval
+          return;
+        }
+      }
+    }
+
     // Determine which subgraph this op belongs to
     size_t targetSubgraphId = 0;
     if (dependentSubgraphIds.empty()) {
