@@ -14,11 +14,9 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/Types.h"
-#include "mlir/Pass/Pass.h"
 #include "mlir/Support/WalkResult.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/TypeSwitch.h"
-#include "llvm/Support/Error.h"
 
 #include <cassert>
 #include <cstddef>
@@ -82,7 +80,7 @@ void generateAllCombinations(
     std::vector<TTNNLayoutAttr> &currentCombination, double currentDistance,
     std::vector<CombinationCandidate> &allCombinations);
 
-llvm::Expected<op_constraint_validation::ValidationResult>
+op_constraint_validation::ValidationResult
 testFallbackCombination(Operation *op, const OpConfig &originalConfig,
                         const std::vector<TTNNLayoutAttr> &inputLayouts,
                         float tensorL1UsageCap);
@@ -145,11 +143,6 @@ public:
 
     moduleOp->walk([&](func::FuncOp func) {
       func.walk([&](Operation *operation) -> WalkResult {
-        // Skip operations without results
-        if (operation->getNumResults() == 0) {
-          return WalkResult::skip();
-        }
-
         if (auto toLayoutOp = mlir::dyn_cast<ttnn::ToLayoutOp>(operation)) {
           // Skip ToLayout operations - they will be decomposed later, so there
           // is no point in validating them here.
@@ -167,13 +160,6 @@ public:
 
         // Extract OpConfig from IR
         OpConfig config = extractOpConfigFromIR(operation);
-        if (!config.outputLayout) {
-          // No output layout found, can't validate
-          // TODO(rpavlovicTT): this should be an error, but since all ops
-          // implement OpModel, we expect some of them to not have layout (e.g.
-          // GetDevice).
-          return WalkResult::skip();
-        }
 
         // Extract input layouts from the operation
         std::vector<TTNNLayoutAttr> inputLayouts =
@@ -185,12 +171,21 @@ public:
                      inputLayouts.size());
 
         // Test original configuration
-        llvm::Expected<op_constraint_validation::ValidationResult>
-            originalResult = op_constraint_validation::validateOperation(
+        op_constraint_validation::ValidationResult originalResult =
+            op_constraint_validation::validateOperation(
                 operation, inputLayouts, config, tensorL1UsageCap);
+        if (originalResult.isNotSupported()) {
+          TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,
+                       "Operation {} at {} not supported for validation: {}",
+                       operation->getName(), operation->getLoc(),
+                       originalResult.errorMessage);
+          return WalkResult::skip();
+        }
 
-        if (originalResult) {
-          if (originalResult->actualOutputLayout != config.outputLayout) {
+        if (originalResult.isSuccess()) {
+          // Check if config has output layout before comparing
+          if (config.outputLayout &&
+              originalResult.actualOutputLayout != config.outputLayout) {
             // Output layout mismatch - need to update the IR to match the
             // expected layout and insert necessary conversions back to the
             // expected layout.
@@ -200,12 +195,11 @@ public:
                 "but output layouts mismatch: expected output layout: {}, "
                 "backend output layout: {}",
                 operation->getName(), operation->getLoc(), config.outputLayout,
-                originalResult->actualOutputLayout);
+                originalResult.actualOutputLayout);
             // Passing inputLayouts as both original and working layouts
             // because we didn't change input layouts.
             fallbacks::applyFallbackTransformations(
-                operation, inputLayouts, inputLayouts, originalResult.get(),
-                config);
+                operation, inputLayouts, inputLayouts, originalResult, config);
           } else {
             TTMLIR_TRACE(
                 ttmlir::LogComponent::OpValidation,
@@ -213,9 +207,7 @@ public:
                 operation->getName(), operation->getLoc());
           }
         } else {
-          llvm::consumeError(originalResult.takeError());
-
-          // Original config failed, try fallback configurations
+          // Try fallback configurations
           if (fallbacks::tryFallbacks(operation, inputLayouts, config,
                                       tensorL1UsageCap)) {
             operationsFixed++;
@@ -245,23 +237,16 @@ public:
 private:
   // Extract OpConfig from operation's IR
   OpConfig extractOpConfigFromIR(Operation *operation) {
-    if (operation->getNumResults() == 0) {
-      // No results, return empty config. This is possible for ops like
-      // deallocate.
-      return OpConfig{};
-    }
-
     OpConfig config;
 
-    assert(operation->getNumResults() == 1 &&
-           "Expected operation with one result");
-
-    // Extract output layout from result type
-    if (auto tensorType =
-            mlir::dyn_cast<RankedTensorType>(operation->getResultTypes()[0])) {
-      if (auto layoutAttr = mlir::dyn_cast_or_null<TTNNLayoutAttr>(
-              tensorType.getEncoding())) {
-        config.outputLayout = layoutAttr;
+    if (operation->getNumResults() > 0) {
+      // Extract output layout from result type
+      if (auto tensorType = mlir::dyn_cast<RankedTensorType>(
+              operation->getResultTypes()[0])) {
+        if (auto layoutAttr = mlir::dyn_cast_or_null<TTNNLayoutAttr>(
+                tensorType.getEncoding())) {
+          config.outputLayout = layoutAttr;
+        }
       }
     }
 
@@ -333,15 +318,17 @@ bool tryFallbacks(Operation *operation,
   for (const auto &candidate : allCombinations) {
     auto result = testFallbackCombination(operation, config, candidate.layouts,
                                           tensorL1UsageCap);
-    if (auto error = result.takeError()) {
-      // Combination failed
-      llvm::consumeError(std::move(error));
+
+    if (!result.isSuccess()) {
+      TTMLIR_TRACE(ttmlir::LogComponent::OpValidation,
+                   "Combination failed (status: {}): {}",
+                   static_cast<int>(result.status), result.errorMessage);
       continue;
     }
 
     // Found working solution, apply transformations
     applyFallbackTransformations(operation, originalInputLayouts,
-                                 candidate.layouts, result.get(), config);
+                                 candidate.layouts, result, config);
     TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,
                  "Found working fallback combination with {} operands",
                  candidate.layouts.size());
@@ -522,18 +509,20 @@ void generateAllCombinations(
 }
 
 // Test a specific combination of fallback layouts for an operation
-llvm::Expected<op_constraint_validation::ValidationResult>
+op_constraint_validation::ValidationResult
 testFallbackCombination(Operation *op, const OpConfig &originalConfig,
                         const std::vector<TTNNLayoutAttr> &inputLayouts,
                         float tensorL1UsageCap) {
 
   // For all fallbacks, constrain output layout to be DRAM Interleaved.
   OpConfig testConfig = originalConfig;
-  testConfig.outputLayout = originalConfig.outputLayout;
-  testConfig.outputLayout =
-      testConfig.outputLayout.withBufferType(BufferType::DRAM);
-  testConfig.outputLayout =
-      testConfig.outputLayout.withMemoryLayout(TensorMemoryLayout::Interleaved);
+  if (testConfig.outputLayout) {
+    testConfig.outputLayout = originalConfig.outputLayout;
+    testConfig.outputLayout =
+        testConfig.outputLayout.withBufferType(BufferType::DRAM);
+    testConfig.outputLayout = testConfig.outputLayout.withMemoryLayout(
+        TensorMemoryLayout::Interleaved);
+  }
 
   return op_constraint_validation::validateOperation(
       op, inputLayouts, testConfig, tensorL1UsageCap);
@@ -557,6 +546,12 @@ void applyFallbackTransformations(
     }
 
     applyInputOperandChange(operation, i, originalLayout, transformedLayout);
+  }
+
+  if (!config.outputLayout) {
+    // Current operation doesn't have expected output layout, nothing more to
+    // do.
+    return;
   }
 
   // Handle output layout changes if backend produced different layout
