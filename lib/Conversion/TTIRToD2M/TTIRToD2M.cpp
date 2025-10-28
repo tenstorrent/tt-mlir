@@ -39,11 +39,9 @@ class D2MNamedRewriterCommon {
 protected:
   using base = D2MNamedRewriterCommon;
 
-  D2MNamedRewriterCommon(ttcore::MemorySpace defaultInputMemSpace,
-                         ttcore::MemorySpace defaultOutputMemSpace,
-                         bool ttnnMode, bool collapseTensors)
-      : memorySpaces{defaultInputMemSpace, defaultOutputMemSpace},
-        ttnnMode(ttnnMode), collapseTensors(collapseTensors) {}
+  D2MNamedRewriterCommon(const TTIRToD2MOptions &options)
+      : options(options), memorySpaces{options.defaultInputMemSpace,
+                                       options.defaultOutputMemSpace} {}
 
   static bool isTTNNTensor(Type type) {
     auto tensor = mlir::dyn_cast<RankedTensorType>(type);
@@ -121,7 +119,7 @@ protected:
                               bool tiled,
                               mlir::ConversionPatternRewriter &rewriter) const {
     if (isTTNNTensor(value.getType())) {
-      assert(ttnnMode && "Unexpected TTNN tensor as op operand");
+      assert(options.ttnnMode && "Unexpected TTNN tensor as op operand");
       return rewriter.create<ttir::TTNNMetalLayoutCastOp>(
           value.getLoc(), getMetalTensorFromTTNNTensor(rewriter, value), value);
     }
@@ -139,7 +137,7 @@ protected:
     }
 
     ttcore::MetalLayoutAttr layout;
-    if (!collapseTensors) {
+    if (!options.collapseTensorsTo2D) {
       auto emptyIntervalType = RankedTensorType::get(
           {0, 2}, IntegerType::get(rewriter.getContext(), 64));
 
@@ -196,7 +194,7 @@ protected:
   Operation *unLayoutResult(mlir::ConversionPatternRewriter &rewriter,
                             Value fromValue, Type toResultType) const {
     if (isTTNNTensor(toResultType)) {
-      assert(ttnnMode && "Unexpected TTNN tensor as op result");
+      assert(options.ttnnMode && "Unexpected TTNN tensor as op result");
       return rewriter.create<ttir::TTNNMetalLayoutCastOp>(
           fromValue.getLoc(), toResultType, fromValue);
     }
@@ -291,14 +289,10 @@ protected:
   }
 
 protected:
+  TTIRToD2MOptions options;
+
   // Default memory spaces for {inputs, outputs}.
   std::array<ttcore::MemorySpace, 2> memorySpaces;
-
-  // Translate TTNN Tensors to Metal Tensors.
-  bool ttnnMode;
-
-  // Automatically collapse higher-rank tensors to 2D.
-  bool collapseTensors;
 };
 } // namespace
 
@@ -315,12 +309,9 @@ class D2MNamedElementwiseRewriter final
 public:
   D2MNamedElementwiseRewriter<ConcreteOp, TileOp>(
       const TypeConverter &typeConverter, mlir::MLIRContext *ctx,
-      ttcore::MemorySpace defaultInputMemSpace,
-      ttcore::MemorySpace defaultOutputMemSpace, bool ttnnMode,
-      bool collapseTensors)
+      const TTIRToD2MOptions &options)
       : OpConversionPattern<ConcreteOp>(typeConverter, ctx),
-        D2MNamedRewriterCommon(defaultInputMemSpace, defaultOutputMemSpace,
-                               ttnnMode, collapseTensors) {}
+        D2MNamedRewriterCommon(options) {}
 
 private:
   static constexpr bool isComparisonOp =
@@ -454,12 +445,9 @@ class D2MNamedReductionRewriter final
 public:
   D2MNamedReductionRewriter<ConcreteOp, TileOp>(
       const TypeConverter &typeConverter, mlir::MLIRContext *ctx,
-      ttcore::MemorySpace defaultInputMemSpace,
-      ttcore::MemorySpace defaultOutputMemSpace, bool ttnnMode,
-      bool collapseTensors)
+      const TTIRToD2MOptions &options)
       : OpConversionPattern<ConcreteOp>(typeConverter, ctx),
-        D2MNamedRewriterCommon(defaultInputMemSpace, defaultOutputMemSpace,
-                               ttnnMode, collapseTensors) {}
+        D2MNamedRewriterCommon(options) {}
 
 private:
   LogicalResult
@@ -694,12 +682,9 @@ class D2MMatmulRewriter final
 
 public:
   D2MMatmulRewriter(const TypeConverter &typeConverter, mlir::MLIRContext *ctx,
-                    ttcore::MemorySpace defaultInputMemSpace,
-                    ttcore::MemorySpace defaultOutputMemSpace, bool ttnnMode,
-                    bool collapseTensors)
+                    const TTIRToD2MOptions &options)
       : OpConversionPattern<ConcreteOp>(typeConverter, ctx),
-        D2MNamedRewriterCommon(defaultInputMemSpace, defaultOutputMemSpace,
-                               ttnnMode, collapseTensors) {}
+        D2MNamedRewriterCommon(options) {}
 
 private:
   LogicalResult
@@ -845,12 +830,9 @@ class D2MPermuteRewriter final
 
 public:
   D2MPermuteRewriter(const TypeConverter &typeConverter, mlir::MLIRContext *ctx,
-                     ttcore::MemorySpace defaultInputMemSpace,
-                     ttcore::MemorySpace defaultOutputMemSpace, bool ttnnMode,
-                     bool collapseTensors)
+                     const TTIRToD2MOptions &options)
       : OpConversionPattern<ConcreteOp>(typeConverter, ctx),
-        D2MNamedRewriterCommon(defaultInputMemSpace, defaultOutputMemSpace,
-                               ttnnMode, collapseTensors) {}
+        D2MNamedRewriterCommon(options) {}
 
   LogicalResult
   matchAndRewrite(ttir::PermuteOp op, typename ConcreteOp::Adaptor adaptor,
@@ -1073,9 +1055,7 @@ class D2MMeshShardOpRewriter : public OpConversionPattern<ttir::MeshShardOp> {
 namespace mlir::tt {
 void populateTTIRToD2MPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
                                TypeConverter &typeConverter,
-                               ttcore::MemorySpace defaultInputMemSpace,
-                               ttcore::MemorySpace defaultOutputMemSpace,
-                               bool ttnnMode, bool collapseTensors) {
+                               const TTIRToD2MOptions &options) {
   // clang-format off
   patterns.add<
     // Elementwise.
@@ -1116,7 +1096,7 @@ void populateTTIRToD2MPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
     D2MNamedElementwiseRewriter<ttir::TypecastOp,     d2m::TileTypecastOp>,
     // Permute (handles tranpose ops, since they're canonicalized into permutes).
     D2MPermuteRewriter
-  >(typeConverter, ctx, defaultInputMemSpace, defaultOutputMemSpace, ttnnMode, collapseTensors);
+  >(typeConverter, ctx, options);
 
 
   // ToLayout 1:1 conversion.
@@ -1129,7 +1109,7 @@ void populateTTIRToD2MPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
   patterns.add<D2MMeshShardOpRewriter>(typeConverter, ctx);
 
   // Matmul.
-  patterns.add<D2MMatmulRewriter<d2m::TileMatmulOp>>(typeConverter, ctx, defaultInputMemSpace, defaultOutputMemSpace,  ttnnMode, collapseTensors);
+  patterns.add<D2MMatmulRewriter<d2m::TileMatmulOp>>(typeConverter, ctx, options);
 
   // clang-format on
 }
@@ -1168,10 +1148,11 @@ public:
     TypeConverter typeConverter;
     typeConverter.addConversion([](Type t) { return t; });
 
+    TTIRToD2MOptions options{defaultInputMemSpace, defaultOutputMemSpace,
+                             collapseTensorsTo2D, ttnnMode};
+
     RewritePatternSet patterns(ctx);
-    populateTTIRToD2MPatterns(ctx, patterns, typeConverter,
-                              defaultInputMemSpace, defaultOutputMemSpace,
-                              ttnnMode, collapseTensorsTo2D);
+    populateTTIRToD2MPatterns(ctx, patterns, typeConverter, options);
 
     ConversionTarget target(*ctx);
     target.addIllegalDialect<mlir::tt::ttir::TTIRDialect>();

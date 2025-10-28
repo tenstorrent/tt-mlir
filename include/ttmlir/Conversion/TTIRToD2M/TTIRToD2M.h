@@ -19,11 +19,9 @@ namespace mlir::tt {
 #define GEN_PASS_DECL_TTIRTOD2M
 #include "ttmlir/Conversion/Passes.h.inc"
 
-void populateTTIRToD2MPatterns(
-    MLIRContext *ctx, RewritePatternSet &patterns, TypeConverter &typeConverter,
-    mlir::tt::ttcore::MemorySpace defaultInputMemSpace,
-    mlir::tt::ttcore::MemorySpace defaultOutputMemSpace, bool ttnnMode,
-    bool collapseTensors);
+void populateTTIRToD2MPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
+                               TypeConverter &typeConverter,
+                               const TTIRToD2MOptions &options);
 
 std::unique_ptr<OperationPass<ModuleOp>> createTTIRToD2MPass();
 
