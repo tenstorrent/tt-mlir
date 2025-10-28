@@ -62,13 +62,13 @@ class TTIRCompiler(ast.NodeVisitor):
             case 1:
                 return F32Type.get(self.ctx)
             case 2:
-                return U32Type.get(self.ctx)
+                return IntegerType.get_unsigned(32, self.ctx)
             case 5:
-                return U8Type.get(self.ctx)
+                return IntegerType.get_unsigned(8, self.ctx)
             case 6:
-                return U16Type.get(self.ctx)
+                return IntegerType.get_unsigned(16, self.ctx)
             case 7:
-                return I32Type.get(self.ctx)
+                return IntegerType.get_signless(32, self.ctx)
             case _:
                 raise ValueError(f"Unsupported dtype: {dtype}")
 
@@ -78,6 +78,8 @@ class TTIRCompiler(ast.NodeVisitor):
                 return ttcore.DataType.BFloat16
             case 1:
                 return ttcore.DataType.Float32
+            case 7:
+                return ttcore.DataType.Int32
             case _:
                 raise ValueError(f"Unsupported dtype: {dtype}")
 
