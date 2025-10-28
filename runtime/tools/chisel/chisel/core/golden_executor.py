@@ -79,11 +79,11 @@ class GoldenExecutor:
             return None
 
         # Validate operation is supported
-        if op_name not in GOLDEN_MAPPINGS:
+        if type(op) not in GOLDEN_MAPPINGS:
             raise ValueError(f"Unknown op: {op.name}")
 
         # Get the PyTorch equivalent function for this operation
-        mapping = GOLDEN_MAPPINGS[op_name]
+        mapping = GOLDEN_MAPPINGS[type(op)]
 
         # Get operation outputs and check if we can use cached results
         outputs = get_op_outputs(op)
@@ -105,7 +105,7 @@ class GoldenExecutor:
         inputs = [self.golden_tensor_pool[name].execution_data for name in input_names]
 
         # Execute the operation using the mapped PyTorch function
-        op_result = mapping(op, inputs)
+        op_result = mapping(*inputs)
 
         # Handle function returns specially
         if op.name == "func.return":
