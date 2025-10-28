@@ -2272,7 +2272,7 @@ public:
     auto cacheOp = rewriter.create<emitpy::CallOpaqueOp>(
         loadCachedOp.getLoc(), tensorListType, wrapperFuncName, operands);
     mlir::Value cacheResult = cacheOp->getResult(0);
-    rewriter.create<emitpy::AssignOp>(loadCachedOp.getLoc(), tensorListType, cacheResult);
+    rewriter.create<emitpy::AssignGlobalOp>(loadCachedOp.getLoc(), tensorListType, globalSymbol, cacheResult);
     
     // Unpack list of tensors.
     //
