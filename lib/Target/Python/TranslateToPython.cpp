@@ -81,7 +81,7 @@ struct PythonEmitter {
   /// Emits type 'type' or returns failure.
   LogicalResult emitType(Location loc, Type type);
 
-  /// Emits an assignment for a variable which has been declared previously or
+  /// Emits an assignment for a variable or
   /// returns failure.
   LogicalResult emitVariableAssignment(OpResult result);
 
@@ -96,6 +96,9 @@ struct PythonEmitter {
 
   /// Emits a global variable declaration or definition.
   LogicalResult emitGlobalVariable(GlobalOp op);
+
+  /// Emits an assignment for a global variable.
+  LogicalResult emitGlobalVariableAssignment(AssignGlobalOp assignGlobalOp);
 
   /// Emits the operands of the operation. All operands are emitted in order.
   LogicalResult emitOperands(Operation &op);
@@ -406,6 +409,11 @@ static LogicalResult printOperation(PythonEmitter &emitter, GlobalOp globalOp) {
   return emitter.emitGlobalVariable(globalOp);
 }
 
+static LogicalResult printOperation(PythonEmitter &emitter,
+                                    AssignGlobalOp assignGlobalOp) {
+  return emitter.emitGlobalVariableAssignment(assignGlobalOp);
+}
+
 LogicalResult PythonEmitter::emitOperation(Operation &op) {
   LogicalResult status =
       llvm::TypeSwitch<Operation *, LogicalResult>(&op)
@@ -413,7 +421,7 @@ LogicalResult PythonEmitter::emitOperation(Operation &op) {
           .Case<ModuleOp>([&](auto op) { return printOperation(*this, op); })
           // EmitPy ops.
           .Case<CallOpaqueOp, ImportOp, AssignOp, ConstantOp, SubscriptOp,
-                GlobalOp>(
+                GlobalOp, AssignGlobalOp>(
               [&](auto op) { return printOperation(*this, op); })
           .Case<LiteralOp>([&](auto op) {
             cacheDeferredOpResult(op.getResult(), op.getValue());
@@ -501,7 +509,21 @@ LogicalResult PythonEmitter::emitAssignPrefix(Operation &op) {
 }
 
 LogicalResult PythonEmitter::emitGlobalVariable(GlobalOp globalOp) {
-  os << globalOp.getSymName() << " = " << globalOp.getInitialValue();
+  os << globalOp.getSymName() << " = ";
+  if (failed(emitAttribute(globalOp->getLoc(), globalOp.getInitialValue()))) {
+    return failure();
+  }
+
+  return success();
+}
+
+LogicalResult
+PythonEmitter::emitGlobalVariableAssignment(AssignGlobalOp assignGlobalOp) {
+  os << assignGlobalOp.getName() << " = ";
+  if (failed(emitOperand(assignGlobalOp.getValue()))) {
+    return failure();
+  }
+
   return success();
 }
 
