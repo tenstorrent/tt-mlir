@@ -375,7 +375,7 @@ module {
 }
 
 // -----
-// Test 21: MaxPool2dWithIndicesOp with non-integer element type for indices  
+// Test 21: MaxPool2dWithIndicesOp with non-integer element type for indices
 module {
   func.func @max_pool2d_with_indices_non_integer_indices(%arg0: tensor<1x4x4x2xbf16>) -> (tensor<1x2x2x2xbf16>, tensor<1x2x2x2xf32>) {
     %0 = ttir.empty() : tensor<1x2x2x2xbf16>

@@ -11,8 +11,8 @@
 
 namespace tt::runtime::ttnn::operations::pool {
 void run(const ::tt::target::ttnn::Pool2dOp *op, ProgramContext &context);
-void run(
-    const ::tt::target::ttnn::MaxPool2dWithIndicesOp *op, ProgramContext &context);
+void run(const ::tt::target::ttnn::MaxPool2dWithIndicesOp *op,
+         ProgramContext &context);
 void run(const ::tt::target::ttnn::GlobalAvgPool2dOp *op,
          ProgramContext &context);
 } // namespace tt::runtime::ttnn::operations::pool

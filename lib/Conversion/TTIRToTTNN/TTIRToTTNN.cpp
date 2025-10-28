@@ -1434,8 +1434,10 @@ public:
           /*memory_config=*/nullptr,
           /* applied_shard_scheme=*/nullptr, adaptor.getCeilMode(),
           /* in_place_halo=*/false);
-    } else if constexpr (std::is_same_v<TTIROpTy, ttir::MaxPool2dWithIndicesOp>) {
-      // Convert all result types for MaxPool2dWithIndicesOp which returns 2 tensors
+    } else if constexpr (std::is_same_v<TTIROpTy,
+                                        ttir::MaxPool2dWithIndicesOp>) {
+      // Convert all result types for MaxPool2dWithIndicesOp which returns 2
+      // tensors
       SmallVector<Type> resultTypes;
       if (failed(this->getTypeConverter()->convertTypes(op->getResultTypes(),
                                                         resultTypes))) {

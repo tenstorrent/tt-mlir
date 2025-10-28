@@ -3693,9 +3693,9 @@ def TTIR_MaxPool2dWithIndicesOp : TTIR_NamedOp<"max_pool2d_with_indices"> {
       and also returns the indices of the maximum values within each pooling window.
 
     This operation performs downsampling by dividing the input into local regions and computing the maximum value
-    of each region, along with the index (location) of that maximum value within the original input tensor. It reduces the 
-    spatial dimensions (height and width) of an input tensor while preserving the batch and channel dimensions. 
-    This is commonly used in neural networks to reduce the spatial size of feature maps while retaining the most 
+    of each region, along with the index (location) of that maximum value within the original input tensor. It reduces the
+    spatial dimensions (height and width) of an input tensor while preserving the batch and channel dimensions.
+    This is commonly used in neural networks to reduce the spatial size of feature maps while retaining the most
     important features, and the indices can be used for unpooling operations or gradient computation.
 
     Example:

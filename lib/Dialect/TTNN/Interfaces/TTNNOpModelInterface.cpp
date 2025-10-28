@@ -3028,14 +3028,14 @@ MaxPool2dOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 //===----------------------------------------------------------------------===//
 
 llvm::Expected<op_model::OpConstraints>
-MaxPool2dWithIndicesOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
-                                          const OpConfig &opConfig) {
+MaxPool2dWithIndicesOp::getOpConstraints(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
   return detail::getPoolingOpConstraints(*this, inputs, opConfig);
 }
 
 llvm::Expected<size_t>
 MaxPool2dWithIndicesOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
-                                      const OpConfig &opConfig) {
+                                     const OpConfig &opConfig) {
   return detail::getPoolingOpRuntime(*this, inputs, opConfig);
 }
 

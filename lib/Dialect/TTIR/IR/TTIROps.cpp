@@ -1452,7 +1452,7 @@ static mlir::LogicalResult verifyPooling2dOp(PoolingOp *op) {
   // Verify that both results have the same shape
   auto pooledShape = this->getResult().getType().getShape();
   auto indicesShape = this->getResultIndices().getType().getShape();
-  
+
   if (pooledShape != indicesShape) {
     return emitOpError("Pooled values and indices must have the same shape");
   }
@@ -1465,7 +1465,6 @@ static mlir::LogicalResult verifyPooling2dOp(PoolingOp *op) {
 
   return mlir::success();
 }
-
 
 //===----------------------------------------------------------------------===//
 // ConcatOp

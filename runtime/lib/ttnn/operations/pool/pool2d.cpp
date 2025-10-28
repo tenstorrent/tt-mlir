@@ -139,8 +139,8 @@ void run(const ::tt::target::ttnn::Pool2dOp *op, ProgramContext &context) {
   }
 }
 
-void run(
-    const ::tt::target::ttnn::MaxPool2dWithIndicesOp *op, ProgramContext &context) {
+void run(const ::tt::target::ttnn::MaxPool2dWithIndicesOp *op,
+         ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
   const ::ttnn::Tensor &input = tensorPool.getTTNNTensorAndValidate(op->in());
 
@@ -176,13 +176,14 @@ void run(
         *op->applied_shard_scheme());
   }
 
-  // Call ttnn::max_pool2d with return_indices = true, returning both output and indices
-  std::vector<::ttnn::Tensor> outputs =
-      ::ttnn::max_pool2d(input, op->batch_size(),
-                                     op->input_height(), op->input_width(),
-                                     op->channels(), kernelSize, stride, padding,
-                                     dilation, op->ceil_mode(), outputMemoryConfig,
-                                     appliedShardScheme, op->in_place_halo(), true /* return_indices */);
+  // Call ttnn::max_pool2d with return_indices = true, returning both output and
+  // indices
+  std::vector<::ttnn::Tensor> outputs = ::ttnn::max_pool2d(
+      input, op->batch_size(), op->input_height(), op->input_width(),
+      op->channels(), kernelSize, stride, padding, dilation, op->ceil_mode(),
+      outputMemoryConfig, appliedShardScheme, op->in_place_halo(),
+      false /* deallocate_input */, true /* reallocate_halo_output */,
+      true /* return_indices */);
 
   tensorPool.insertTTNNTensorAndValidate(op->result(), outputs[0]);
   tensorPool.insertTTNNTensorAndValidate(op->result_indices(), outputs[1]);
