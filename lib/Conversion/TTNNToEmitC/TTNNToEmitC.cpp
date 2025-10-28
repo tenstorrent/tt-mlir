@@ -2330,13 +2330,11 @@ public:
         emitter.emit(srcOp.getInput()),
         emitter.emit(srcOp.getAllGatherDim()),
         emitter.emit(srcOp.getClusterAxis()),
-        emitter.emit(srcOp.getDevice()),
-        /*numLinks=*/emitter.emit(1),
-        emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
-        /*numWorkers=*/emitter.emit(std::nullopt),
-        /*numBuffersPerChannel=*/emitter.emit(std::nullopt),
-        /*ttnn::ccl::Topology=*/
-        rewriter.getType<emitc::OpaqueAttr>("::ttnn::ccl::Topology::Linear"),
+        emitter.emit(srcOp.getSubDeviceId()),
+        emitter.emit(srcOp.getMemoryConfig()),
+        emitter.emit(srcOp.getOptionalOutputTensor()),
+        emitter.emit(srcOp.getNumLinks()),
+        emitter.emit(srcOp.getTopology()),
     };
 
     emitter.replaceOp(*this, args);

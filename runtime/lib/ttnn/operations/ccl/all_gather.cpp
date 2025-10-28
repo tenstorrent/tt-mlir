@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "operations/ccl/all_gather.h"
+#include "tt/runtime/detail/common/common.h"
 #include "tt/runtime/detail/common/logger.h"
 #include "tt/runtime/detail/common/runtime_context.h"
 #include "tt/runtime/detail/ttnn/ttnn.h"
@@ -20,19 +21,37 @@ void run(const ::tt::target::ttnn::AllGatherOp *op, ProgramContext &context) {
 
   int32_t allGatherDim = op->all_gather_dim();
   uint32_t clusterAxis = op->cluster_axis();
-  uint32_t numLinks = op->num_links();
   LOG_ASSERT(input.storage_type() == ::ttnn::StorageType::DEVICE,
              "Input of all_gather must be DEVICE. id:", op->in()->global_id());
-
+  std::optional<::tt::tt_metal::SubDeviceId> subDeviceId =
+      op->sub_device_id() ? std::make_optional<::tt::tt_metal::SubDeviceId>(
+                                op->sub_device_id().value())
+                          : std::nullopt;
   std::optional<::ttnn::MemoryConfig> outputMemoryConfig =
       ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
-          ::tt::runtime::ttnn::utils::getTensorRefMemoryConfig(op->out()));
+          op->memory_config());
+  std::optional<::ttnn::Tensor> optionalOutputTensor = std::nullopt;
+  if (op->optional_output_tensor()) {
+    optionalOutputTensor = std::make_optional(
+        tensorPool.getTTNNTensorAndValidate(op->optional_output_tensor()));
+    LOG_ASSERT(optionalOutputTensor->storage_type() ==
+                   ::ttnn::StorageType::DEVICE,
+               "Optional output tensor of all_gather must be DEVICE. id:",
+               op->optional_output_tensor()->global_id());
+  }
+
+  std::optional<uint32_t> numLinks =
+      op->num_links() ? std::make_optional<uint32_t>(op->num_links().value())
+                      : std::nullopt;
+  std::optional<::tt::tt_fabric::Topology> topology =
+      op->topology()
+          ? std::make_optional<::tt::tt_fabric::Topology>(
+                ::tt::runtime::common::toMetalTopology(op->topology().value()))
+          : std::nullopt;
 
   ::ttnn::Tensor out = ::ttnn::all_gather(
-      input, allGatherDim, clusterAxis, /*subdevice_id=*/std::nullopt,
-      outputMemoryConfig, /*optional_output_tensor=*/std::nullopt,
-      std::make_optional(static_cast<uint32_t>(numLinks)),
-      /*topology=*/std::nullopt);
+      input, allGatherDim, clusterAxis, subDeviceId, outputMemoryConfig,
+      optionalOutputTensor, numLinks, topology);
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
