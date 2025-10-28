@@ -9,6 +9,9 @@
 
 set -e -o pipefail
 
+echo "Generating tests"
+llvm-lit $BUILD_DIR/test
+
 echo "param 1: $1, param 2: $2, param 3: '$3'"
 echo "---dir: $BUILD_DIR:"
 ls -la $BUILD_DIR
