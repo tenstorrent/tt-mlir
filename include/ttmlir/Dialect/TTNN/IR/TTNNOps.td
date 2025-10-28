@@ -1761,7 +1761,7 @@ def TTNN_MaxPool2dWithIndicesOp : TTNN_Op<"max_pool2d_with_indices", [TTNN_Memor
                          BoolAttr:$ceil_mode,
                          BoolAttr:$in_place_halo);
 
-    let results = (outs AnyRankedTensor:$result, 
+    let results = (outs AnyRankedTensor:$result,
                         AnyRankedTensor:$result_indices);
 
     let extraClassDeclaration = [{

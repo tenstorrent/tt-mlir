@@ -4646,8 +4646,7 @@ llvm::Expected<OpConstraints> OpModel<MaxPool2dWithIndicesOp>::getOpConstraints(
             padding),
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(dilation),
         ceilMode, detail::getNullableMemoryConfig(outputLayout),
-        std::nullopt /* applied_shard_scheme */, inPlaceHalo,
-        true /* return_indices */);
+        std::nullopt /* applied_shard_scheme */, inPlaceHalo);
   };
 
   return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
@@ -4694,8 +4693,7 @@ llvm::Expected<size_t> OpModel<MaxPool2dWithIndicesOp>::getOpRuntime(
             padding),
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(dilation),
         ceilMode, detail::getNullableMemoryConfig(outputLayout),
-        std::nullopt /* applied_shard_scheme */, inPlaceHalo,
-        true /* return_indices */);
+        std::nullopt /* applied_shard_scheme */, inPlaceHalo);
   };
 
   return operation::getOpRuntime(maxPool2DWithIndicesQuery);

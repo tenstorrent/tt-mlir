@@ -784,11 +784,13 @@ public:
 //
 namespace {
 class MaxPool2dWithIndicesOpConversionPattern
-    : public TTNNToEmitCBaseOpConversionPattern<mlir::tt::ttnn::MaxPool2dWithIndicesOp> {
+    : public TTNNToEmitCBaseOpConversionPattern<
+          mlir::tt::ttnn::MaxPool2dWithIndicesOp> {
 
 public:
   using TTNNToEmitCBaseOpConversionPattern<
-      mlir::tt::ttnn::MaxPool2dWithIndicesOp>::TTNNToEmitCBaseOpConversionPattern;
+      mlir::tt::ttnn::MaxPool2dWithIndicesOp>::
+      TTNNToEmitCBaseOpConversionPattern;
 
   std::string getPrefixSearchPattern() const override {
     return "ttnn.max_pool2d_with_indices";
@@ -799,11 +801,12 @@ public:
   }
 
   LogicalResult
-  matchAndRewrite(mlir::tt::ttnn::MaxPool2dWithIndicesOp srcOp, OpAdaptor adaptor,
+  matchAndRewrite(mlir::tt::ttnn::MaxPool2dWithIndicesOp srcOp,
+                  OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
-    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::MaxPool2dWithIndicesOp> emitter(
-        srcOp, adaptor, rewriter);
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::MaxPool2dWithIndicesOp>
+        emitter(srcOp, adaptor, rewriter);
 
     SmallVector<int32_t> padding;
     if (srcOp.getPadding().size() == 2) {
@@ -833,6 +836,8 @@ public:
         emitter.getMemoryConfig(srcOp.getResult()),
         emitter.emit(srcOp.getAppliedShardScheme()),
         emitter.emit(srcOp.getInPlaceHalo()),
+        /*deallocate_input=*/emitter.emit(false),
+        /*reallocate_halo_output=*/emitter.emit(true),
         /*return_indices=*/emitter.emit(true)};
 
     emitter.replaceOp(*this, args);

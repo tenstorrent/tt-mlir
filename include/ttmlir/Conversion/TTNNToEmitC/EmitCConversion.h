@@ -1940,12 +1940,13 @@ public:
       return sortOp.getResult(0);
     }
 
-    // MaxPool2dWithIndicesOp returns a std::vector<ttnn::Tensor> containing two elements:
-    // [0] = pooled tensor, [1] = corresponding indices.
-    // Extract both elements to replace the original MaxPool2dWithIndicesOp.
+    // MaxPool2dWithIndicesOp returns a std::vector<ttnn::Tensor> containing two
+    // elements: [0] = pooled tensor, [1] = corresponding indices. Extract both
+    // elements to replace the original MaxPool2dWithIndicesOp.
     if constexpr (std::is_same_v<TTNNOp, tt::ttnn::MaxPool2dWithIndicesOp>) {
       assert(op.getNumResults() == 2 &&
-             "Expected two outputs for MaxPool2dWithIndicesOp (pooled tensor and indices).");
+             "Expected two outputs for MaxPool2dWithIndicesOp (pooled tensor "
+             "and indices).");
       using ReturnTy = std::vector<::ttnn::Tensor>;
       auto maxPool2dWithIndicesOp = rewriter.create<emitc::CallOpaqueOp>(
           op.getLoc(), rewriter.getType<emitc::OpaqueType>(TypeNameV<ReturnTy>),
@@ -1966,7 +1967,8 @@ public:
 
         // Get reference to the i-th element in the result vector.
         auto subscriptOp = rewriter.create<emitc::SubscriptOp>(
-            op.getLoc(), lvalueType, maxPool2dWithIndicesOp.getResult(0), indexVal);
+            op.getLoc(), lvalueType, maxPool2dWithIndicesOp.getResult(0),
+            indexVal);
 
         // Load the actual tensor value from the reference.
         auto loadOp = rewriter.create<emitc::LoadOp>(
