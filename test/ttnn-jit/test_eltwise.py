@@ -218,7 +218,6 @@ def test_unary_op_l1(device, h, w, max_grid, dtype, op):
     DRAM_INTERLEAVED_SHAPES,
 )
 def test_bitwise_unary_op_dram(device, h, w, dtype, op):
-    pytest.xfail("Int32 support not yet implemented in TTIR compiler")
     max_grid = (0, 0)
     run_op_test(
         device,
@@ -241,7 +240,6 @@ def test_bitwise_unary_op_dram(device, h, w, dtype, op):
     ],
 )
 def test_bitwise_unary_op_l1(device, h, w, max_grid, dtype, op):
-    pytest.xfail("Int32 support not yet implemented in TTIR compiler")
     run_op_test(
         device, h, w, max_grid, dtype, op, num_inputs=1, buffer_type=ttnn.BufferType.L1
     )
