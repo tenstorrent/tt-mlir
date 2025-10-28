@@ -25,6 +25,31 @@ module {
     // CHECK: return %[[CONV]]
     return %4: tensor<1x30x30x64xbf16>
   }
+  // Check that we can commute multiply before conv2d with bias.
+  // CHECK-LABEL: func.func @commute_multiply_with_bias
+  func.func @commute_multiply_with_bias(%arg0: tensor<1x32x32x64xbf16>, %arg1: tensor<64x64x3x3xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>}, %arg2: tensor<1x1x1x64xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>}, %arg3: tensor<1x1x1x64xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>}) -> tensor<1x30x30x64xbf16> {
+    // CHECK: %[[SCALE:.*]] = "ttir.reshape"
+    // CHECK-SAME: (%arg2
+    // CHECK: %[[WEIGHT_SCALED:.*]] = "ttir.multiply"
+    // CHECK-SAME: (%arg1, %[[SCALE]]
+    // CHECK: %[[BIAS_SCALED:.*]] = "ttir.multiply"
+    // CHECK-SAME: (%arg3, %arg2
+    // CHECK: %[[CONV:.*]] = "ttir.conv2d"
+    // CHECK-SAME: (%arg0, %[[WEIGHT_SCALED]], %[[BIAS_SCALED]]
+    %0 = ttir.empty() : tensor<1x30x30x64xbf16>
+    %1 = "ttir.conv2d"(%arg0, %arg1, %arg3, %0)
+        <{
+          stride = 1: i32,
+          padding = 0: i32,
+          dilation = 1: i32,
+          groups = 1: i32
+        }> : (tensor<1x32x32x64xbf16>, tensor<64x64x3x3xbf16>, tensor<1x1x1x64xbf16>, tensor<1x30x30x64xbf16>) -> tensor<1x30x30x64xbf16>
+    %2 = ttir.empty() : tensor<1x30x30x64xbf16>
+    %4 = "ttir.multiply"(%1, %arg2, %2) : (tensor<1x30x30x64xbf16>, tensor<1x1x1x64xbf16>, tensor<1x30x30x64xbf16>) -> tensor<1x30x30x64xbf16>
+
+    // CHECK: return %[[CONV]]
+    return %4: tensor<1x30x30x64xbf16>
+  }
 
   // Check that we can't commute because conv has more than one use.
   // CHECK-LABEL: func.func @conv2d_with_multiple_uses
