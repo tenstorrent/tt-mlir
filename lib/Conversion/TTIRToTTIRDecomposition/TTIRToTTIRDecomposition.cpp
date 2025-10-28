@@ -768,6 +768,95 @@ private:
 } // namespace
 
 //===----------------------------------------------------------------------===//
+// Reverse Pattern Matching
+//===----------------------------------------------------------------------===//
+
+// Decomposing Reverse Op into Gather Op.
+// As soon as tenstorrent/tt-metal#16618 is finished, this decomposition can be
+// removed.
+namespace {
+struct ReverseOpConversionPattern
+    : public OpConversionPattern<ttir::ReverseOp> {
+  using OpConversionPattern<ttir::ReverseOp>::OpConversionPattern;
+
+  // Helper to check if this convolution is a transposed convolution.
+  bool isTransposedConv(ttir::ConvolutionOp op) const {
+    if (!op) {
+      return false;
+    }
+    auto convLayoutAttr = op.getConvolutionLayoutAttr();
+    return convLayoutAttr.getKernelInputFeatureDimension() ==
+               convLayoutAttr.getInputSpatialDimensions()[1] &&
+           convLayoutAttr.getKernelOutputFeatureDimension() ==
+               convLayoutAttr.getInputSpatialDimensions()[0] &&
+           convLayoutAttr.getInputSpatialDimensions() !=
+               convLayoutAttr.getKernelSpatialDimensions() &&
+           convLayoutAttr.getOutputSpatialDimensions() !=
+               convLayoutAttr.getKernelSpatialDimensions();
+  }
+
+  LogicalResult
+  matchAndRewrite(ttir::ReverseOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ArrayRef<int64_t> dimensions = adaptor.getDimensions();
+    ArrayRef<int64_t> shape = op.getInput().getType().getShape();
+    Value currentInput = adaptor.getInput();
+    for (int32_t dim : dimensions) {
+      SmallVector<int64_t> indices;
+      for (int64_t i = shape[dim] - 1; i >= 0; i--) {
+        indices.push_back(i);
+      }
+
+      auto tensorType =
+          RankedTensorType::get({shape[dim]}, rewriter.getI64Type());
+
+      auto denseAttr = DenseIntElementsAttr::get(tensorType, indices);
+
+      Value reversedIndices =
+          rewriter.create<ttir::ConstantOp>(op.getLoc(), tensorType, denseAttr);
+
+      SmallVector<int64_t> offsetDims;
+      for (int64_t i = 0; i < static_cast<int64_t>(shape.size()); i++) {
+        if (i != dim) {
+          offsetDims.push_back(i);
+        }
+      }
+
+      SmallVector<int64_t> sliceSizes(shape.begin(), shape.end());
+      sliceSizes[dim] = 1;
+
+      currentInput = ttir::utils::createDPSOp<ttir::GatherOp>(
+          rewriter, op.getLoc(), op.getResult().getType(),
+          /*input=*/currentInput,
+          /*start_indices=*/reversedIndices,
+          /*offset_dims=*/offsetDims,
+          /*collapsed_slice_dims=*/SmallVector<int64_t>{dim},
+          /*operand_batching_dims=*/SmallVector<int64_t>{},
+          /*start_indices_batching_dims=*/SmallVector<int64_t>{},
+          /*start_index_map=*/SmallVector<int64_t>{dim},
+          /*index_vector_dim=*/1,
+          /*slice_sizes=*/sliceSizes,
+          /*indices_are_sorted=*/false);
+    }
+
+    // Skip reverse operations that are used by transposed convolutions, as
+    // TTNN's conv_transpose2d handles weight reversal internally. Pattern must
+    // not be applied to reverse operations that are used by transposed
+    // convolutions because transposed convolution has to handle weight reversal
+    // internally.
+
+    rewriter.replaceUsesWithIf(op, currentInput, [&](OpOperand &operand) {
+      return !isTransposedConv(
+          dyn_cast<ttir::ConvolutionOp>(operand.getOwner()));
+    });
+
+    return success();
+  }
+};
+} // namespace
+
+//===----------------------------------------------------------------------===//
 // Gather Pattern Matching
 //===----------------------------------------------------------------------===//
 
@@ -3028,6 +3117,7 @@ void populateTTIRToTTIRDecompositionPatterns(MLIRContext *ctx,
   patterns.add<RequantizeOpPattern>(typeConverter, ctx);
   patterns.add<ReductionProdPattern>(typeConverter, ctx);
   patterns.add<ScatterToScatterInDimPattern>(typeConverter, ctx);
+  patterns.add<ReverseOpConversionPattern>(typeConverter, ctx);
 }
 
 } // namespace mlir::tt
