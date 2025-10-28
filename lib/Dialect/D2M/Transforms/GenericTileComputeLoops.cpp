@@ -160,12 +160,16 @@ struct D2MGenericComputeRewriter : public OpRewritePattern<linalg::GenericOp> {
         ttcore::getOpChipDescAttr(op).getDstLogicalSizeTiles(
             largestDstType, false, maxDstPhysicalSizeTiles);
 
-    // Get max DST usage for this GenericOp from the analysis using the current
-    // index.
-    const int maxDstUsage = dstRegisterInfoList[genericOpIndex].dstMaxUsage;
+    // Get the generic op counter attribute to index into dstRegisterInfoList.
+    auto counterAttr = op->getAttrOfType<IntegerAttr>("generic_op_counter");
+    if (!counterAttr) {
+      return op->emitOpError("Missing generic_op_counter attribute");
+    }
+    int genericOpCounter =
+        static_cast<int>(counterAttr.getValue().getZExtValue());
 
-    // Increment index for the next generic op.
-    genericOpIndex++;
+    // Get max DST usage for this GenericOp from the analysis using the counter.
+    const int maxDstUsage = dstRegisterInfoList[genericOpCounter].dstMaxUsage;
 
     // Enable subblocking optimization if DST can hold multiple copies of the
     // usage pattern. For example, if dstCapacity = 8 and maxDstUsage = 3, we
@@ -206,7 +210,6 @@ struct D2MGenericComputeRewriter : public OpRewritePattern<linalg::GenericOp> {
 
   unsigned maxDstPhysicalSizeTiles = 0;
   llvm::SmallVector<DstRegisterInfo> dstRegisterInfoList;
-  mutable size_t genericOpIndex = 0;
 };
 } // namespace
 
@@ -219,8 +222,13 @@ public:
 
   void runOnOperation() final {
 
-    // Run the analysis once before any pattern rewriting.
-    DestRegisterAnalysis analysis = getAnalysis<DestRegisterAnalysis>();
+    // Retrieve the cached analysis from the pass manager instead of
+    // recomputing.
+    auto analysisMaybe = getCachedAnalysis<DestRegisterAnalysis>();
+    if (!analysisMaybe.has_value()) {
+      return signalPassFailure();
+    }
+    DestRegisterAnalysis analysis = analysisMaybe.value().get();
 
     MLIRContext *ctx = &getContext();
     RewritePatternSet patterns(ctx);

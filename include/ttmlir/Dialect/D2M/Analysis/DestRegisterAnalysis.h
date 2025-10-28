@@ -10,6 +10,7 @@
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/IR/Operation.h"
 
+#include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/SmallVector.h"
 
 namespace mlir::tt::d2m {
@@ -27,6 +28,8 @@ struct DestRegisterAnalysis {
   DestRegisterAnalysis(Operation *op);
 
   llvm::SmallVector<DstRegisterInfo> dstRegisterInfoList;
+  // Map from operation pointer to generic op counter.
+  llvm::DenseMap<Operation *, int> opToGenericOpCounter;
 };
 
 } // namespace mlir::tt::d2m

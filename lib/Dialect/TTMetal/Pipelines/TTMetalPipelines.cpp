@@ -136,6 +136,7 @@ void createTTIRToTTMetalMiddleendPipeline(
         llvm::to_vector(options.matmulInterchange);
   }
   pm.addPass(d2m::createD2MGenericApplyInterchange(applyInterchangeOptions));
+  pm.addPass(d2m::createD2MTagLinalgGenerics());
   d2m::D2MGenericTileComputeLoopsOptions tileComputeLoopsOptions;
   {
     tileComputeLoopsOptions.maxDstPhysicalSizeTiles =

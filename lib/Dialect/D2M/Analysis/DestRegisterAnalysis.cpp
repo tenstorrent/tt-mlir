@@ -11,7 +11,11 @@
 namespace mlir::tt::d2m {
 
 DestRegisterAnalysis::DestRegisterAnalysis(Operation *op) {
+  int genericOpCounter = 0;
   op->walk([&](linalg::GenericOp genericOp) {
+    // Map this generic op to its counter.
+    opToGenericOpCounter[genericOp.getOperation()] = genericOpCounter++;
+
     DstRegisterInfo info;
 
     // Track destination register state.

@@ -76,11 +76,22 @@ public:
 
       bool linalgToAffineFailed = false;
       block.walk([&](linalg::GenericOp linalgGenericOp) {
+        // Get the generic op counter attribute to index into
+        // dstRegisterInfoList.
+        auto counterAttr =
+            linalgGenericOp->getAttrOfType<IntegerAttr>("generic_op_counter");
+        if (!counterAttr) {
+          linalgGenericOp->emitOpError("Missing generic_op_counter attribute");
+          return;
+        }
+        int genericOpCounter =
+            static_cast<int>(counterAttr.getValue().getZExtValue());
+        const auto &dstRegisterInfo = dstRegisterInfoList[genericOpCounter];
+
         if (!useTileMatmul && hasTileMatmul(linalgGenericOp)) {
           linalgToAffineFailed |= rewriteTileMatmulAsTileMatmulBlock(
-              rewriter, op, *genericRegion, linalgGenericOp, dstCapacity, modified,
-              dstRegisterInfoList, genericOpIndex);
-          genericOpIndex++;
+              rewriter, op, *genericRegion, linalgGenericOp, dstCapacity,
+              modified, dstRegisterInfo);
           return;
         }
 
@@ -93,25 +104,21 @@ public:
           return;
         }
 
-
-        // Extract maxDstUsage and dstSliceIndices from analysis before erasing.
-        const auto &info = dstRegisterInfoList[dstRegisterInfoList.size() - 1 -
-                                               genericOpIndex];
-        const int maxDstUsage = info.dstMaxUsage;
-        const SmallVector<int> dstSliceIndices = info.dstSliceIndices;
+        // Extract maxDstUsage and dstSliceIndices.
+        const int maxDstUsage = dstRegisterInfo.dstMaxUsage;
+        const SmallVector<int> dstSliceIndices =
+            dstRegisterInfo.dstSliceIndices;
 
         assert(!linalgLoops.value().empty());
-        
+
         rewriter.replaceOp(linalgGenericOp, linalgLoops.value().front());
 
         Operation *rootLoopNest = linalgLoops.value().front();
         Region &dstRegisterAccessRegion = rootLoopNest->getRegion(0);
-        modified |= insertDstRegisterAccess(
-            rewriter, op, dstRegisterAccessRegion, dstCapacity, rootLoopNest);
 
         modified |= insertDstRegisterAccess(
-            rewriter, op, dstRegisterAccessRegion, dstCapacity, maxDstUsage, dstSliceIndices, rootLoopNest);
-        genericOpIndex++;
+            rewriter, op, dstRegisterAccessRegion, dstCapacity, maxDstUsage,
+            dstSliceIndices, rootLoopNest);
       });
       if (linalgToAffineFailed) {
         return failure();
@@ -365,8 +372,7 @@ public:
   static bool rewriteTileMatmulAsTileMatmulBlock(
       PatternRewriter &rewriter, GenericOp op, Region &region,
       linalg::GenericOp linalgGenericOp, unsigned dstCapacity, bool &modified,
-      const llvm::SmallVector<DstRegisterInfo> &dstRegisterInfoList,
-      size_t genericOpIndex) {
+      const DstRegisterInfo &dstRegisterInfo) {
     assert(linalgGenericOp.getInputs().size() == 2 &&
            "Expected exactly 2 input for tile matmul");
     assert(linalgGenericOp.getOutputs().size() == 1 &&
@@ -383,12 +389,9 @@ public:
       return false;
     }
 
-    // Extract maxDstUsage and dstSliceIndices from analysis before erasing.
-
-    const auto &info =
-        dstRegisterInfoList[dstRegisterInfoList.size() - 1 - genericOpIndex];
-    const int maxDstUsage = info.dstMaxUsage;
-    const SmallVector<int> dstSliceIndices = info.dstSliceIndices;
+    // Extract maxDstUsage and dstSliceIndices.
+    const int maxDstUsage = dstRegisterInfo.dstMaxUsage;
+    const SmallVector<int> dstSliceIndices = dstRegisterInfo.dstSliceIndices;
 
     rewriter.eraseOp(linalgGenericOp);
     modified |= insertDstRegisterAccess(
@@ -699,7 +702,6 @@ public:
   bool useTileMatmul = false;
   unsigned maxDstPhysicalSizeTiles = 0;
   llvm::SmallVector<DstRegisterInfo> dstRegisterInfoList;
-  mutable size_t genericOpIndex = 0;
 };
 } // namespace
 
@@ -804,4 +806,5 @@ public:
   }
 };
 } // namespace
+
 } // namespace mlir::tt::d2m
