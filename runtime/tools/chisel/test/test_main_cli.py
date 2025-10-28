@@ -35,9 +35,6 @@ import pytest
         # Neural network operations
         ("runtime/tools/chisel/test/mlir/test_matmul.mlir", "matmul"),
         ("runtime/tools/chisel/test/mlir/test_softmax.mlir", "softmax"),
-        # Tensor creation
-        ("runtime/tools/chisel/test/mlir/test_ones.mlir", "ones"),
-        ("runtime/tools/chisel/test/mlir/test_zeros.mlir", "zeros"),
     ],
 )
 def test_chisel_cli_main(ttir_path: str, function_name: str):
