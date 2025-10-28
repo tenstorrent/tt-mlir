@@ -44,6 +44,7 @@ def cosh(input_tensor):
 
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
+| `max_grid` | `tuple` | `(7,7)` | Maximum grid size used for JIT compilation |
 | `debug` | `bool` | `False` | Enable debug prints during compilation and execution |
 | `compile_only` | `bool` | `False` | Only compile runtime without execution. The resulting flatbuffer will be dumped to `generated/jit` |
 
@@ -59,7 +60,7 @@ When you decorate a function with `@ttnn_jit.jit()`, the decorator wraps it in a
 - Each TTNN operation (eg: `ttnn.exp`, `ttnn.add`) is converted to its corresponding MLIR operation in the TTNN dialect.
 - All operations are tagged with the `ttnn.hoist_generic_via_d2m` attirbute, marking them for D2M compilation
 
-The output of the AST should be a complete, valid MLIR module.
+The output of the AST should be a valid MLIR module.
 
 ### Level 2: D2M Compilation Pipeline
 
@@ -82,16 +83,16 @@ The decorator leverages with same MLIR runtime as [ttrt](./ttrt.md). For our pur
 
 Interop with TTNN is seamless, allowing users to switch freely between JIT'ed and non-JIT'ed subgraphs of ttnn ops.
 
-```python
+```Python
 @ttnn_jit.jit()
 def subgraph(x):
     return ttnn.exp(ttnn.neg(x))
 
 def model(input_tensor):
     x = ttnn.to_memory_config(input_tensor, l1_sharded_config)
-    x = subgraph(input_tensor)
-    x = ttnn.log(input_tensor)
-    return x
+    y = subgraph(x)
+    z = ttnn.log(y)
+    return z
 ```
 
 ### JIT Caching
@@ -102,22 +103,22 @@ Each `JitFunction` maintains its own `JitCache`, so different JIT [configuration
 
 Constructing a `ProgramDescriptor` from a flatbuffer at runtime is expensive. To mitigate this, `ProgramDescriptor` instances are cached in a `ProgramDescCache` owned by the flatbuffer `Binary` object. The same cache key is also stored in the `ProgramDescriptor` as a `custom_program_hash` and passed to the TTNN runtime, allowing the TTNN GenericOp to reuse it for their `ProgramCache`.
 
-See [test_program_cache.py](../test/ttnn-jit/test_program_cache.py) for a detailed example demonstrating cache hit/miss behavior.
+See [test_program_cache.py](../../test/ttnn-jit/test_program_cache.py) for a detailed example demonstrating cache hit/miss behavior.
 
 ## Limitations & Constraints
 - Only select eltwise unary and binary operations.
 - Only L1 block sharded and DRAM interleaved tensors.
 - No control flow allowed.
 
-See [tests](../test/ttnn-jit/) for what is guaranteed to be working.
+See [tests](../../test/ttnn-jit/) for what is guaranteed to be working.
 
 ## Debugging FAQ
-For debugging purposes, always decorate with `debug=True` to see IR outputs after each step.
+For debugging purposes, always build with `-DCMAKE_BUILD_TYPE=Debug` and decorate with `debug=True` to see IR outputs after each step.
 
 ### AssertionError: Function ___ not supported
 This usually indicates the decorated TTNN op does not have a supported TTNN dialect equivalent. Or you spelt it wrong, eg: `ttnn.mul` is not supported but `ttnn.multiply` is.
 
-The most reliable source to see what TTNN op is supported to check the [tablegen](../include/ttmlir/Dialect/TTNN/IR/TTNNOps.td).
+The most reliable source to see what TTNN op is supported to check the [tablegen](../../include/ttmlir/Dialect/TTNN/IR/TTNNOps.td).
 
 ### Failed to run pass manager
 This means the [compilation pipeline](#level-2-d2m-compilation-pipeline) failed at a certain stage. The easiest way to debug is to copy the IR output from the AST traversal, and manaully run each individual pipeline:
