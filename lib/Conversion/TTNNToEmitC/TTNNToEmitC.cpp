@@ -2684,6 +2684,7 @@ public:
         emitter.emit(srcOp.getAttentionMask()),
         emitter.emit(srcOp.getIsCausal()),
         emitter.emit(srcOp.getScale()),
+        emitter.emit(srcOp.getSlidingWindowSize()),
         emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
     };
     // NOLINTEND(clang-analyzer-cplusplus.NewDelete)
