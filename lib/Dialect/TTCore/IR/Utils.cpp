@@ -172,10 +172,13 @@ llvm::SmallVector<int64_t, 2> collapseGridTo2D(ArrayRef<int64_t> gridShape) {
 }
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 static MemRefType getMemRefType(Type type, bool isView,
                                 std::optional<MetalLayoutAttr> hostInfo) {
 =======
 <<<<<<< HEAD
+=======
+>>>>>>> 41f8885d2 (rebasing on main)
 MemRefType getBufferType(Type type, bool isView,
                          std::optional<MetalLayoutAttr> hostInfo) {
 >>>>>>> 5e3eccac4 (clean up the 1x32x32x32 case)

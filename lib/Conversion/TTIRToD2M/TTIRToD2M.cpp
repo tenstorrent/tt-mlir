@@ -150,15 +150,14 @@ protected:
 
       if (customDimAlignments.has_value()) {
         layout = ttcore::MetalLayoutAttr::get(
-            rewriter.getContext(), logicalShape,
-            ttcore::OOBVal::Undef, memSpace,
-            ttcore::TensorMemoryLayout::Sharded, emptyCollapseIntervals,
-            customDimAlignments.value());
+            rewriter.getContext(), logicalShape, ttcore::OOBVal::Undef,
+            memSpace, ttcore::TensorMemoryLayout::Sharded,
+            emptyCollapseIntervals, customDimAlignments.value());
       } else {
         layout = ttcore::MetalLayoutAttr::get(
-            rewriter.getContext(), logicalShape,
-            ttcore::OOBVal::Undef, memSpace,
-            ttcore::TensorMemoryLayout::Sharded, emptyCollapseIntervals);
+            rewriter.getContext(), logicalShape, ttcore::OOBVal::Undef,
+            memSpace, ttcore::TensorMemoryLayout::Sharded,
+            emptyCollapseIntervals);
       }
     } else {
       layout = ttcore::MetalLayoutAttr::get(
@@ -929,11 +928,12 @@ public:
     const auto inputLayout =
         mlir::cast<ttcore::MetalLayoutAttr>(inputTensorType.getEncoding());
     const ArrayRef<int64_t> permutation = op.getPermutation();
-    auto [transposeMap, resultShape] = computePermutationMapAndShape(
-        rewriter, permutation, inputShape, deviceRank);
+    auto permuted = computePermutation(
+        rewriter, permutation, inputShape, deviceRank,
+        inputLayout.getLogicalShape(), inputLayout.getDimAlignments());
 
     // Compose the transpose map with the input's layout index affine map.
-    AffineMap composedMap = transposeMap.compose(
+    AffineMap composedMap = permuted.transposeMap.compose(
         inputLayout.getIndexAffineMapOrIdentity(deviceRank));
 
     const auto viewLayout = ttcore::MetalLayoutAttr::get(
@@ -942,10 +942,11 @@ public:
         inputLayout.getMemorySpace(), inputLayout.getMemoryLayout(),
         composedMap);
     const auto viewTensorType = mlir::RankedTensorType::get(
-        resultShape, inputTensorType.getElementType(), viewLayout);
+        permuted.physicalShape, inputTensorType.getElementType(), viewLayout);
 
     auto storage = rewriter.create<d2m::EmptyOp>(
-        op.getLoc(), resultShape, inputTensorType.getElementType(), viewLayout);
+        op.getLoc(), permuted.physicalShape, inputTensorType.getElementType(),
+        viewLayout);
     auto stream = rewriter.create<d2m::StreamLayoutOp>(
         op.getLoc(), viewTensorType, inputs[0], storage);
 
