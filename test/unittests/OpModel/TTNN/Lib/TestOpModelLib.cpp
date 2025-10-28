@@ -5457,7 +5457,7 @@ TEST_F(OpModelTest, AssignOp) {
   // Test AssignOp with DRAM output
   auto constraintsExp = OpModel<AssignOp>::getOpConstraints(
       workerGrid, tensorShape, tensorLayoutDRAM_F32, memoryConfigDRAM_F32,
-      std::nullopt, std::nullopt, std::nullopt);
+      std::nullopt);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   OpConstraints &opCstr = constraintsExp.get();
   EXPECT_EQ(opCstr.cbL1PeakSize, 8192);
@@ -5465,8 +5465,7 @@ TEST_F(OpModelTest, AssignOp) {
   EXPECT_EQ(opCstr.outputL1BufferSize, 0);
 
   auto runtimeExp = OpModel<AssignOp>::getOpRuntime(
-      tensorShape, tensorLayoutDRAM_F32, memoryConfigDRAM_F32, std::nullopt,
-      std::nullopt, std::nullopt);
+      tensorShape, tensorLayoutDRAM_F32, memoryConfigDRAM_F32, std::nullopt);
   EXPECT_TRUE(static_cast<bool>(runtimeExp));
   EXPECT_TRUE(runtimeExp.get() > 0);
 
@@ -5480,16 +5479,15 @@ TEST_F(OpModelTest, AssignOp) {
   // Test AssignOp with L1 output
   constraintsExp = OpModel<AssignOp>::getOpConstraints(
       workerGrid, tensorShape, tensorLayoutL1_F32, memoryConfigL1_F32,
-      std::nullopt, std::nullopt, std::nullopt);
+      std::nullopt);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   opCstr = constraintsExp.get();
   EXPECT_EQ(opCstr.cbL1PeakSize, 8192);
   EXPECT_EQ(opCstr.tensorL1PeakSize, 4096);
   EXPECT_EQ(opCstr.outputL1BufferSize, 4096);
 
-  runtimeExp = OpModel<AssignOp>::getOpRuntime(tensorShape, tensorLayoutL1_F32,
-                                               memoryConfigL1_F32, std::nullopt,
-                                               std::nullopt, std::nullopt);
+  runtimeExp = OpModel<AssignOp>::getOpRuntime(
+      tensorShape, tensorLayoutL1_F32, memoryConfigL1_F32, std::nullopt);
   EXPECT_TRUE(static_cast<bool>(runtimeExp));
   EXPECT_TRUE(runtimeExp.get() > 0);
 
@@ -5506,32 +5504,15 @@ TEST_F(OpModelTest, AssignOp) {
   // Test AssignOp with output dtype
   constraintsExp = OpModel<AssignOp>::getOpConstraints(
       workerGrid, tensorShape, tensorLayoutL1_F32, memoryConfigL1_BF16,
-      outputDtype, std::nullopt, std::nullopt);
+      outputDtype);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   opCstr = constraintsExp.get();
   EXPECT_EQ(opCstr.cbL1PeakSize, 12288);
   EXPECT_EQ(opCstr.tensorL1PeakSize, 2048);
   EXPECT_EQ(opCstr.outputL1BufferSize, 2048);
 
-  runtimeExp = OpModel<AssignOp>::getOpRuntime(tensorShape, tensorLayoutL1_F32,
-                                               memoryConfigL1_BF16, outputDtype,
-                                               std::nullopt, std::nullopt);
-  EXPECT_TRUE(static_cast<bool>(runtimeExp));
-  EXPECT_TRUE(runtimeExp.get() > 0);
-
-  // Test AssignOp with optional output tensor
-  constraintsExp = OpModel<AssignOp>::getOpConstraints(
-      workerGrid, tensorShape, tensorLayoutL1_F32, memoryConfigL1_BF16,
-      std::nullopt, tensorShape, tensorLayoutL1_BF16);
-  EXPECT_TRUE(static_cast<bool>(constraintsExp));
-  opCstr = constraintsExp.get();
-  EXPECT_EQ(opCstr.cbL1PeakSize, 8192);
-  EXPECT_EQ(opCstr.tensorL1PeakSize, 0);
-  EXPECT_EQ(opCstr.outputL1BufferSize, 2048);
-
   runtimeExp = OpModel<AssignOp>::getOpRuntime(
-      tensorShape, tensorLayoutL1_F32, memoryConfigL1_BF16, std::nullopt,
-      tensorShape, tensorLayoutL1_BF16);
+      tensorShape, tensorLayoutL1_F32, memoryConfigL1_BF16, outputDtype);
   EXPECT_TRUE(static_cast<bool>(runtimeExp));
   EXPECT_TRUE(runtimeExp.get() > 0);
 }

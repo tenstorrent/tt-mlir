@@ -1916,20 +1916,12 @@ createOp(FlatbufferObjectCache &cache, AssignOp op) {
   auto input = cache.at<::tt::target::ttnn::TensorRef>(
       getOperandThroughDPSOps(op.getInput()));
   auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer);
-  auto outputMemConfig = toFlatbuffer(cache, op.getOutputMemConfig());
+  auto outputMemConfig = toFlatbuffer(cache, op.getMemoryConfig());
 
   ::flatbuffers::Optional<::tt::target::DataType> outputDtype =
-      toFlatbuffer(cache, op.getOutputDtype());
-
-  ::flatbuffers::Offset<::tt::target::ttnn::TensorRef> optionalOutputTensor = 0;
-  if (op.getOptionalOutputTensor()) {
-    optionalOutputTensor = cache.at<::tt::target::ttnn::TensorRef>(
-        getOperandThroughDPSOps(op.getOptionalOutputTensor()));
-  }
-
+      toFlatbuffer(cache, op.getDtype());
   return ::tt::target::ttnn::CreateAssignOp(*cache.fbb, input, output,
-                                            outputMemConfig, outputDtype,
-                                            optionalOutputTensor);
+                                            outputMemConfig, outputDtype);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::WriteTensorOp>

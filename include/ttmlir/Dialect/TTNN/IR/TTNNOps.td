@@ -2765,7 +2765,7 @@ def TTNN_GlobalAvgPool2dOp: TTNN_Op<"global_avg_pool2d", [
   let hasVerifier = 1;
 }
 
-def TTNN_AssignOp : TTNN_Op<"assign"> {
+def TTNN_AssignOp : TTNN_Op<"assign", [TTNN_MemoryConfigOpInterface]> {
     let summary = "Assign Tensor";
     let description = [{
       Returns a new tensor which is a new copy of input tensor.
@@ -2776,9 +2776,8 @@ def TTNN_AssignOp : TTNN_Op<"assign"> {
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
-                         TTNN_MemoryConfigAttr:$output_mem_config,
-                         OptionalAttr<TTCore_DataTypeAttr>:$output_dtype,
-                         Optional<AnyRankedTensor>:$optional_output_tensor);
+                         TTNN_MemoryConfigAttr:$memory_config,
+                         OptionalAttr<TTCore_DataTypeAttr>:$dtype);
 
     let results = (outs AnyRankedTensor:$result);
 

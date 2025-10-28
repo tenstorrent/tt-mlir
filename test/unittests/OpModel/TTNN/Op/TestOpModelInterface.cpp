@@ -4724,7 +4724,7 @@ TEST_F(OpModelBase, AssignOpInterface) {
       std::nullopt /*shardSpec*/);
 
   auto assign = builder.create<AssignOp>(builder.getUnknownLoc(), outputType,
-                                         input, memoryConfig, nullptr, nullptr);
+                                         input, memoryConfig, nullptr);
 
   OpModel backend = dyn_cast<OpModel>(assign.getOperation());
   auto constraintsExp =
@@ -4770,7 +4770,7 @@ TEST_F(OpModelBase, AssignOpInterfaceL1Output) {
       std::nullopt /*shardSpec*/);
 
   auto assign = builder.create<AssignOp>(builder.getUnknownLoc(), outputType,
-                                         input, memoryConfig, nullptr, nullptr);
+                                         input, memoryConfig, nullptr);
 
   OpModel backend = dyn_cast<OpModel>(assign.getOperation());
   auto constraintsExp =
@@ -4818,9 +4818,8 @@ TEST_F(OpModelBase, AssignOpInterfaceWithOutputDtype) {
   auto outputDtype =
       ttcore::DataTypeAttr::get(&context, ttcore::DataType::BFloat16);
 
-  auto assign =
-      builder.create<AssignOp>(builder.getUnknownLoc(), outputType, input,
-                               memoryConfig, outputDtype, nullptr);
+  auto assign = builder.create<AssignOp>(builder.getUnknownLoc(), outputType,
+                                         input, memoryConfig, outputDtype);
 
   OpModel backend = dyn_cast<OpModel>(assign.getOperation());
   auto constraintsExp =
@@ -4831,56 +4830,6 @@ TEST_F(OpModelBase, AssignOpInterfaceWithOutputDtype) {
         l1;
     EXPECT_EQ(cbSize, 12288);
     EXPECT_EQ(l1PeakSize, 2048);
-    EXPECT_EQ(outputSize, 2048);
-  } else {
-    FAIL() << "Missing L1 constraints; Error="
-           << llvm::toString(constraintsExp.takeError()) << std::endl;
-  }
-
-  auto runtimeExp = getOpRuntime(assign.getOperation());
-  if (runtimeExp) {
-    EXPECT_TRUE(runtimeExp.get() > 0);
-  } else {
-    FAIL() << llvm::toString(runtimeExp.takeError());
-  }
-}
-
-TEST_F(OpModelBase, AssignOpInterfaceWithOptionalOutput) {
-  // Test AssignOp interface with optional output tensor
-  llvm::SmallVector<int64_t> tensorShape = {64, 64};
-
-  auto inputLayout = CreateTiledLayout(
-      tensorShape, BufferType::L1, TensorMemoryLayout::Interleaved,
-      std::nullopt, GetPhysicalGridSize(), builder.getF32Type());
-  auto input =
-      createEmptyTensor(tensorShape, inputLayout.getElementType(), inputLayout);
-  auto outputLayout = CreateTiledLayout(
-      tensorShape, BufferType::L1, TensorMemoryLayout::Interleaved,
-      std::nullopt, GetPhysicalGridSize(), builder.getBF16Type());
-  auto outputType = createRankedTensorType(
-      tensorShape, outputLayout.getElementType(), outputLayout);
-  auto memoryConfig = MemoryConfigAttr::get(
-      &context, outputLayout.getMemLayout(),
-      BufferTypeAttr::get(&context, outputLayout.getBufferType()),
-      std::nullopt /*shardSpec*/);
-
-  // Create optional output tensor with BFloat16 dtype
-  auto optionalOutputTensor = createEmptyTensor(
-      tensorShape, outputLayout.getElementType(), outputLayout);
-
-  auto assign =
-      builder.create<AssignOp>(builder.getUnknownLoc(), outputType, input,
-                               memoryConfig, nullptr, optionalOutputTensor);
-
-  OpModel backend = dyn_cast<OpModel>(assign.getOperation());
-  auto constraintsExp = backend.getOpConstraints({inputLayout, outputLayout},
-                                                 OpConfig(outputLayout));
-  if (constraintsExp) {
-    auto l1 = constraintsExp.get();
-    const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
-        l1;
-    EXPECT_EQ(cbSize, 12288);
-    EXPECT_EQ(l1PeakSize, 0);
     EXPECT_EQ(outputSize, 2048);
   } else {
     FAIL() << "Missing L1 constraints; Error="
