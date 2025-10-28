@@ -63,6 +63,13 @@ public:
       const std::vector<uint32_t> &shape, const std::vector<uint32_t> &stride,
       uint32_t itemSize, ::tt::target::DataType dataType);
 
+  static uint64_t buildCreateMultiDeviceHostTensorFromShardsCommand(
+      ::flatbuffers::FlatBufferBuilder &fbb,
+      const std::vector<::tt::runtime::Tensor> &inputTensors,
+      const ::tt::runtime::Tensor &outputTensor,
+      const std::unordered_map<std::string, std::string> &strategy,
+      const std::vector<uint32_t> &meshShape);
+
   static uint64_t
   buildIsTensorAllocatedCommand(::flatbuffers::FlatBufferBuilder &fbb,
                                 const ::tt::runtime::Tensor &tensor);
