@@ -2907,37 +2907,6 @@ mlir::tt::ttnn::CollectivePermuteOp::fold(FoldAdaptor adaptor) {
                        std::to_string(pageTableShape[0]));
   }
 
-  TTNNLayoutAttr cacheLayout =
-      mlir::dyn_cast_or_null<TTNNLayoutAttr>(cacheType.getEncoding());
-  if (!cacheLayout) {
-    return emitOpError("Cache tensor must have a layout");
-  }
-
-  if (!cacheLayout.isTiled()) {
-    return emitOpError("Cache tensor must be tiled");
-  }
-
-  if (!cacheType.getElementType().isFloat()) {
-    return emitOpError("Cache tensor must be a floating point type");
-  }
-
-  TTNNLayoutAttr inputLayout =
-      mlir::dyn_cast_or_null<TTNNLayoutAttr>(inputType.getEncoding());
-  if (!inputLayout) {
-    return emitOpError("Input tensor must have a layout");
-  }
-  if (inputLayout.getMemLayout().getValue() !=
-      TensorMemoryLayout::HeightSharded) {
-    return emitOpError("Input tensor must have a height sharded memory layout");
-  }
-  if (inputLayout.getBufferType() != BufferType::L1) {
-    return emitOpError("Input tensor must have an L1 buffer type");
-  }
-
-  if (!inputLayout.isTiled()) {
-    return emitOpError("Input tensor must be tiled");
-  }
-
   if (!inputType.getElementType().isFloat()) {
     return emitOpError("Input tensor must be a floating point type");
   }

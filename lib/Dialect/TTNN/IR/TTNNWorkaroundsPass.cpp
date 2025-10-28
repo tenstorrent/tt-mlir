@@ -449,13 +449,11 @@ TTNNOperandsWorkarounds
 TTNNOperandsWorkaroundsFactory::createPagedUpdateCacheOpOperandsWorkarounds(
     MLIRContext *context) {
   TTNNOperandWorkarounds nullWorkarounds;
-  TTNNOperandWorkarounds inputWorkarounds;
+  TTNNOperandWorkarounds
+      inputWorkarounds; // Input sharding requires specific virtual grid. This
+                        // is handled by an explicit rewrite pattern instead.
   TTNNOperandWorkarounds updateIndexWorkarounds;
   TTNNOperandWorkarounds pageTableWorkarounds;
-
-  inputWorkarounds.tensorBufferTypeWorkaround = BufferType::L1;
-  inputWorkarounds.tensorMemoryLayoutWorkaround =
-      TensorMemoryLayoutAttr::get(context, TensorMemoryLayout::HeightSharded);
 
   updateIndexWorkarounds.tensorLayoutWorkaround = Layout::RowMajor;
 

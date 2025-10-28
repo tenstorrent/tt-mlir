@@ -12,7 +12,6 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Types/Types.h"
-#include "ttmlir/Dialect/TTNN/Utils/OptimizerUtils.h"
 #include "ttmlir/Dialect/TTNN/Utils/TransformUtils.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Utils.h"
@@ -634,54 +633,11 @@ public:
                                          op.getCache().getUsers().end());
     if (users.size() != 1) {
       return rewriter.notifyMatchFailure(
-          op, "PagedUpdateCacheOp cache argumentmust have exactly one user");
+          op, "PagedUpdateCacheOp cache argument must have exactly one user");
     }
-
-    RankedTensorType inputType =
-        mlir::cast<RankedTensorType>(adaptor.getInput().getType());
-
-    // Apply correct memory config to input
-    // Virtual grid size:
-
-    int64_t numUsers = inputType.getShape()[1];
-
-    SmallVector<int64_t> virtualGridSize;
-    if (numUsers == 1) {
-      virtualGridSize = {1, 1};
-    } else {
-      virtualGridSize = {numUsers, 1};
-    }
-
-    auto inputElementType = inputType.getElementType();
-    if (ttcore::TileType inputTileType =
-            mlir::dyn_cast_or_null<ttcore::TileType>(inputElementType)) {
-      inputElementType = inputTileType.getElementType();
-    }
-
-    auto affineMap = mlir::tt::ttnn::optimizer_utils::
-        createSingleDeviceVirtualToPhysicalAffineMap(
-            rewriter.getContext(), ttnn::TensorMemoryLayout::HeightSharded,
-            {8, 8});
-
-    auto grid = mlir::tt::ttcore::GridAttr::get(rewriter.getContext(),
-                                                virtualGridSize, affineMap);
-    auto memLayoutAttr = mlir::tt::ttnn::TensorMemoryLayoutAttr::get(
-        rewriter.getContext(), ttnn::TensorMemoryLayout::HeightSharded);
-
-    ttnn::TTNNLayoutAttr inputLayout =
-        ttnn::TTNNLayoutAttr::get(rewriter.getContext(), inputType.getShape(),
-                                  ttcore::TileType::get(inputElementType),
-                                  ttnn::BufferType::L1, grid, memLayoutAttr);
-    ttnn::MemoryConfigAttr inputMemoryConfig =
-        ttnn::MemoryConfigAttr::get(inputLayout, grid);
-    RankedTensorType memoryConfigedInputType =
-        inputType.cloneWithEncoding(inputLayout);
-    auto toMemoryConfigOp = rewriter.create<ttnn::ToMemoryConfigOp>(
-        op.getLoc(), memoryConfigedInputType, adaptor.getInput(),
-        inputMemoryConfig);
 
     rewriter.create<ttnn::PagedUpdateCacheOp>(
-        op.getLoc(), adaptor.getCache(), toMemoryConfigOp.getResult(),
+        op.getLoc(), adaptor.getCache(), adaptor.getInput(),
         adaptor.getUpdateIndex(), adaptor.getShareCache(),
         adaptor.getPageTable());
 

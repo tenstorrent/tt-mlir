@@ -4077,8 +4077,9 @@ llvm::Expected<OpConstraints> OpModel<PagedUpdateCacheOp>::getOpConstraints(
   auto pagedUpdateCacheOpQuery = [=]() {
     return ::ttnn::graph::query_op_constraints(
         ::ttnn::experimental::paged_update_cache, device, cacheSpec, inputSpec,
-        emptyUpdateIndex, updateIndexSpec, shareCache, pageTableSpec, 0,
-        std::nullopt, std::nullopt);
+        emptyUpdateIndex, updateIndexSpec, shareCache, pageTableSpec,
+        /*batch_offset=*/0,
+        /*compute_kernel_config=*/std::nullopt, /*mesh_coords=*/std::nullopt);
   };
 
   return operation::getOpConstraints(cacheLayout.getContext(), deviceGrid,
