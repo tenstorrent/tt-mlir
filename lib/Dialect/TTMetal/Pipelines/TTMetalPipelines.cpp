@@ -38,16 +38,10 @@ std::unique_ptr<Pass> createCanonicalizerPassWithOptions(
   return mlir::createCanonicalizerPass({}, disabledPatterns);
 }
 
-void createTTIRBufferizationPipeline(
-    OpPassManager &pm, const TTIRToTTMetalPipelineOptions &options) {
+void createD2MBufferizationPipeline(OpPassManager &pm) {
   bufferization::OneShotBufferizePassOptions bufferizePassOptions;
-  if (options.ttnnMode) {
-    bufferizePassOptions.allowUnknownOps = true;
-    bufferizePassOptions.bufferizeFunctionBoundaries = false;
-  } else {
-    bufferizePassOptions.allowUnknownOps = false;
-    bufferizePassOptions.bufferizeFunctionBoundaries = true;
-  }
+  bufferizePassOptions.allowUnknownOps = false;
+  bufferizePassOptions.bufferizeFunctionBoundaries = true;
   bufferizePassOptions.functionBoundaryTypeConversion =
       bufferization::LayoutMapOption::IdentityLayoutMap;
   bufferizePassOptions.unknownTypeConversion =
@@ -61,6 +55,18 @@ void createTTIRBufferizationPipeline(
   //    pm, bufferDeallocationOptions);
 }
 
+void createTTNND2MBufferizationPipeline(OpPassManager &pm) {
+  bufferization::OneShotBufferizePassOptions bufferizePassOptions;
+  bufferizePassOptions.allowUnknownOps = true;
+  bufferizePassOptions.bufferizeFunctionBoundaries = false;
+  bufferizePassOptions.functionBoundaryTypeConversion =
+      bufferization::LayoutMapOption::IdentityLayoutMap;
+  bufferizePassOptions.unknownTypeConversion =
+      bufferization::LayoutMapOption::IdentityLayoutMap;
+  pm.addPass(
+      mlir::bufferization::createOneShotBufferizePass(bufferizePassOptions));
+}
+
 void createOptimizationPasses(OpPassManager &pm,
                               const TTIRToTTMetalPipelineOptions &options) {
   pm.addPass(createCanonicalizerPassWithOptions(options));
@@ -70,8 +76,9 @@ void createOptimizationPasses(OpPassManager &pm,
   pm.addPass(mlir::arith::createIntRangeOptimizationsPass());
 }
 
-void createTTIRToTTMetalFrontendPipeline(
-    OpPassManager &pm, const TTIRToTTMetalPipelineOptions &options) {
+void createTTIRToTTMetalFrontendPipelineImpl(
+    OpPassManager &pm, const TTIRToTTMetalPipelineOptions &options,
+    bool ttnnMode = false) {
   // Create multi-device tensor annotation for graph with mesh.
   pm.addPass(ttir::createTTIRMultiDeviceTensorAnnotation());
   ttcore::TTCoreRegisterDevicePassOptions registerDeviceOptions;
@@ -87,7 +94,7 @@ void createTTIRToTTMetalFrontendPipeline(
   {
     toD2MOptions.defaultInputMemSpace = options.defaultInputMemSpace;
     toD2MOptions.defaultOutputMemSpace = options.defaultOutputMemSpace;
-    toD2MOptions.ttnnMode = options.ttnnMode;
+    toD2MOptions.ttnnMode = ttnnMode;
     toD2MOptions.collapseTensorsTo2D = options.collapseTensors;
   }
   pm.addPass(tt::createTTIRToD2MPass(toD2MOptions));
@@ -101,8 +108,14 @@ void createTTIRToTTMetalFrontendPipeline(
   pm.addPass(d2m::createD2MLowerToLayout());
 }
 
-void createTTIRToTTMetalMiddleendPipeline(
+void createTTIRToTTMetalFrontendPipeline(
     OpPassManager &pm, const TTIRToTTMetalPipelineOptions &options) {
+  createTTIRToTTMetalFrontendPipelineImpl(pm, options, false);
+}
+
+void createTTIRToTTMetalMiddleendPipelineImpl(
+    OpPassManager &pm, const TTIRToTTMetalPipelineOptions &options,
+    bool ttnnMode = false) {
   d2m::D2MElementwiseFusionOptions elementwiseFusionOptions;
   {
     elementwiseFusionOptions.maxDstPhysicalSizeTiles =
@@ -111,8 +124,8 @@ void createTTIRToTTMetalMiddleendPipeline(
   pm.addPass(d2m::createD2MElementwiseFusion(elementwiseFusionOptions));
   pm.addPass(createLinalgElementwiseOpFusionPass());
   pm.addPass(mlir::createCanonicalizerPass());
-  createTTIRBufferizationPipeline(pm, options);
-  if (options.ttnnMode) {
+  if (ttnnMode) {
+    createTTNND2MBufferizationPipeline(pm);
     d2m::D2MInsertStreamsOptions insertStreamsOptions;
     {
       insertStreamsOptions.numStreamBuffers = options.numStreamBuffers;
@@ -121,6 +134,7 @@ void createTTIRToTTMetalMiddleendPipeline(
     }
     pm.addPass(d2m::createD2MInsertStreams(insertStreamsOptions));
   } else {
+    createD2MBufferizationPipeline(pm);
     d2m::D2MAllocateOptions allocateOptions;
     {
       allocateOptions.numStreamBuffers = options.numStreamBuffers;
@@ -169,15 +183,21 @@ void createTTIRToTTMetalMiddleendPipeline(
   pm.addPass(d2m::createD2MGenericRegionsToFuncs());
 }
 
-void createTTIRToTTMetalBackendPipeline(
+void createTTIRToTTMetalMiddleendPipeline(
     OpPassManager &pm, const TTIRToTTMetalPipelineOptions &options) {
+  createTTIRToTTMetalMiddleendPipelineImpl(pm, options, false);
+}
+
+void createTTIRToTTMetalBackendPipelineImpl(
+    OpPassManager &pm, const TTIRToTTMetalPipelineOptions &options,
+    bool ttnnMode = false) {
   d2m::ConvertD2MToTTKernelOptions D2MToTTKernelOptions;
-  { D2MToTTKernelOptions.ttnnMode = options.ttnnMode; }
+  { D2MToTTKernelOptions.ttnnMode = ttnnMode; }
   pm.addPass(tt::createConvertD2MToTTKernelPass(D2MToTTKernelOptions));
   pm.addPass(createCanonicalizerPassWithOptions(options));
   pm.addPass(ttkernel::createTTKernelControlDstSection());
   createOptimizationPasses(pm, options);
-  if (options.ttnnMode) {
+  if (ttnnMode) {
     // TODO(#5075): set MathFidelity of ttnn generic op.
     pm.addPass(tt::createConvertD2MToTTNNPass());
   } else {
@@ -193,6 +213,11 @@ void createTTIRToTTMetalBackendPipeline(
   pm.addPass(createConvertTTKernelToEmitC());
   pm.addPass(createCanonicalizerPassWithOptions(options));
   pm.addPass(mlir::emitc::createFormExpressionsPass());
+}
+
+void createTTIRToTTMetalBackendPipeline(
+    OpPassManager &pm, const TTIRToTTMetalPipelineOptions &options) {
+  createTTIRToTTMetalBackendPipelineImpl(pm, options);
 }
 
 void createTTIRToTTMetalPipeline(OpPassManager &pm,
@@ -214,6 +239,33 @@ void createTTIRToTTMetalPipeline(OpPassManager &pm,
   ttir::createTTIRToCPUPipeline(pm, linalgToLLVMOptions);
 }
 
+void createTTIRToTTNNGenericPipeline(
+    OpPassManager &pm, const TTIRToTTMetalPipelineOptions &options) {
+  // Create DeviceModule to wrap all ops.
+  pm.addPass(ttcore::createTTCoreWrapDeviceModulePass());
+  // Create CPUModuleOp to wrap hoisted ops (if any).
+  pm.addPass(ttir::createTTIRHoistTransform());
+
+  // Run regular ttir to ttmetal pipelines on IR in DeviceModule.
+  OpPassManager &devicePm =
+      pm.nest<ttcore::DeviceModuleOp>().nest<mlir::ModuleOp>();
+
+  createTTIRToTTMetalFrontendPipelineImpl(devicePm, options, true);
+  createTTIRToTTMetalMiddleendPipelineImpl(devicePm, options, true);
+  createTTIRToTTMetalBackendPipelineImpl(devicePm, options, true);
+
+  // Run lowering to LLVM pass on hoisted funcs in CPUModule.
+  ttir::LinalgToLLVMPipelineOptions linalgToLLVMOptions;
+  ttir::createTTIRToCPUPipeline(pm, linalgToLLVMOptions);
+}
+
+void createTTNNToTTMetalBackendPipeline(
+    OpPassManager &pm,
+    const tt::ttmetal::TTIRToTTMetalPipelineOptions &options) {
+  pm.addPass(tt::createConvertTTNNToTTIRPass());
+  createTTIRToTTNNGenericPipeline(pm, options);
+}
+
 //===----------------------------------------------------------------------===//
 // Pipeline registration.
 //===----------------------------------------------------------------------===//
@@ -232,8 +284,20 @@ void registerTTMetalPipelines() {
       "ttir-to-ttmetal-be-pipeline", "Backend lowering passes.",
       tt::ttmetal::createTTIRToTTMetalBackendPipeline);
   mlir::PassPipelineRegistration<tt::ttmetal::TTIRToTTMetalPipelineOptions>(
-      "ttir-bufferization-pipeline",
+      "ttir-to-ttnn-generic-pipeline",
+      "Pipeline lowering TTIR to ttnn.generic + kernels.",
+      tt::ttmetal::createTTIRToTTNNGenericPipeline);
+  mlir::PassPipelineRegistration<tt::ttmetal::TTIRToTTMetalPipelineOptions>(
+      "ttnn-to-ttmetal-backend-pipeline",
+      "Pipeline lowering ttnn to ttnn.generic + kernels.",
+      tt::ttmetal::createTTNNToTTMetalBackendPipeline);
+  mlir::PassPipelineRegistration<>(
+      "d2m-bufferization-pipeline",
       "Pipeline bufferizing ttir ops on tensors to ops on buffers (memrefs).",
-      tt::ttmetal::createTTIRBufferizationPipeline);
+      tt::ttmetal::createD2MBufferizationPipeline);
+  mlir::PassPipelineRegistration<>(
+      "ttnn-d2m-bufferization-pipeline",
+      "Pipeline bufferizing ttnn ops on tensors to ops on buffers (memrefs).",
+      tt::ttmetal::createTTNND2MBufferizationPipeline);
 }
 } // namespace mlir::tt::ttmetal

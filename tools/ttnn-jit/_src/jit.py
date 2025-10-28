@@ -13,7 +13,7 @@ from ttmlir.passes import (
     ttir_to_ttmetal_backend_pipeline,
     ttmetal_to_flatbuffer_file,
     ttnn_to_flatbuffer_file,
-    ttnn_to_ttmetal_pipeline,
+    ttnn_to_ttmetal_backend_pipeline,
     ttnn_to_flatbuffer_bin,
 )
 
@@ -88,9 +88,9 @@ class JitFunction:
         ir.operation.verify()
 
         if self.backend == "ttnn":
-            options = f"system-desc-path={self.system_desc_path} ttnn-mode=true"
+            options = f"system-desc-path={self.system_desc_path}"
             if self.compile_only:
-                ir = ttnn_to_ttmetal_pipeline(ir, options)
+                ir = ttnn_to_ttmetal_backend_pipeline(ir, options)
                 flatbuffer_bin = os.path.join(self.out_dir, self.func.__name__ + ".ttn")
                 ttnn_to_flatbuffer_file(ir, flatbuffer_bin, {}, [])
                 return ir

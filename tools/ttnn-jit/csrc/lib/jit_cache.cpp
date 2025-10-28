@@ -25,11 +25,11 @@ void JitCache::compile(Operation *op, std::string options) {
   mlir::MLIRContext *context = op->getContext();
   context->appendDialectRegistry(registry);
   context->loadAllAvailableDialects();
-  pm.addPass(tt::createConvertTTNNToTTIRPass());
   const auto *pipeline =
-      mlir::PassPipelineInfo::lookup("ttir-to-ttmetal-pipeline");
+      mlir::PassPipelineInfo::lookup("ttnn-to-ttmetal-backend-pipeline");
   if (!pipeline) {
-    throw std::runtime_error("Failed to find ttir-to-ttmetal-pipeline.");
+    throw std::runtime_error(
+        "Failed to find ttnn-to-ttmetal-backend-pipeline.");
   }
   std::function<mlir::LogicalResult(const llvm::Twine &)> errHandler =
       [](const llvm::Twine &) { return mlir::failure(); };
