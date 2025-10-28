@@ -10,11 +10,8 @@ from typing import Literal
 
 from ttmlir.ir import *
 from ttmlir.passes import (
-    ttir_to_ttmetal_backend_pipeline,
-    ttmetal_to_flatbuffer_file,
     ttnn_to_flatbuffer_file,
     ttnn_to_ttmetal_pipeline,
-    ttnn_to_flatbuffer_bin,
 )
 
 from ttnn_jit._src.ttir_ast import TTIRCompiler
@@ -29,14 +26,12 @@ class JitFunction:
     def __init__(
         self,
         func,
-        backend: Literal["ttnn", "metal"],
         max_grid: tuple[int, int],
         compile_only: bool,
         debug: bool,
     ):
         self.func = func
         self.source_code = _cleanup_source_code(func)
-        self.backend = backend
         self.max_grid = max_grid
         self.compile_only = compile_only
         self.debug = debug
@@ -49,6 +44,7 @@ class JitFunction:
 
         if self.debug:
             os.environ["TTRT_LOGGER_LEVEL"] = "DEBUG"
+            os.environ["TTMLIR_RUNTIME_LOGGER_LEVEL"] = "TRACE"
 
         # Each JitFunction hold its own cache.
         # Hashing based off runtime tensor metadata.
@@ -66,7 +62,6 @@ class JitFunction:
         for i, arg in enumerate(args):
             tensor_args[param_names[i]] = arg
         kwargs["_tensor_args"] = tensor_args
-        kwargs["_backend"] = self.backend
         kwargs["_max_grid"] = self.max_grid
 
         # Cache hit, no need to compile.
@@ -87,32 +82,15 @@ class JitFunction:
             print(ir)
         ir.operation.verify()
 
-        if self.backend == "ttnn":
-            options = f"system-desc-path={self.system_desc_path} ttnn-mode=true"
-            if self.compile_only:
-                ir = ttnn_to_ttmetal_pipeline(ir, options)
-                flatbuffer_bin = os.path.join(self.out_dir, self.func.__name__ + ".ttn")
-                ttnn_to_flatbuffer_file(ir, flatbuffer_bin, {}, [])
-                return ir
-
-            fb_binary = self.cache.compile_and_insert(str(ir), options, *args)
-            return _run_binary(fb_binary, args)
-        elif self.backend == "metal":
-            if not self.compile_only:
-                raise NotImplementedError("Metal runtime is not implemented yet")
-            ttir_to_ttmetal_backend_pipeline(
-                ir,
-                f"system-desc-path={self.system_desc_path} override-device-shape=1,1",
-            )
-            if self.debug:
-                print("---- After ttir_to_ttmetal_backend_pipeline ----")
-                print(ir)
-
-            flatbuffer_bin = os.path.join(self.out_dir, self.func.__name__ + ".ttm")
-            ttmetal_to_flatbuffer_file(ir, flatbuffer_bin, {}, [])
+        options = f"system-desc-path={self.system_desc_path} ttnn-mode=true"
+        if self.compile_only:
+            ir = ttnn_to_ttmetal_pipeline(ir, options)
+            flatbuffer_bin = os.path.join(self.out_dir, self.func.__name__ + ".ttn")
+            ttnn_to_flatbuffer_file(ir, flatbuffer_bin, {}, [])
             return ir
-        else:
-            raise ValueError(f"Unsupported backend: {self.backend}")
+
+        fb_binary = self.cache.compile_and_insert(str(ir), options, *args)
+        return _run_binary(fb_binary, args)
 
     @property
     def num_entries(self):
