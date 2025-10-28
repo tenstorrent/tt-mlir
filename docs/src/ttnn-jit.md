@@ -2,6 +2,21 @@
 
 `ttnn.jit` is a tool that allows TTNN model developers to leverage the Direct-To-Metal (D2M) compiler Just-In-Time (JIT) compile select portions of their model.
 
+## Table of Contents
+
+- [Building](#building)
+- [How to use ttnn.jit](#how-to-use-ttnnjit)
+  - [JIT Flags](#jit-flags)
+- [How It Works](#how-it-works)
+  - [Level 1: Python Decorator](#level-1-python-decorator)
+  - [Level 2: D2M Compilation Pipeline](#level-2-d2m-compilation-pipeline)
+  - [Level 3: Runtime Execution](#level-3-runtime-execution)
+  - [JIT Caching](#jit-caching)
+- [Limitations & Constraints](#limitations--constraints)
+- [Debugging FAQ](#debugging-faq)
+  - [AssertionError: Function ___ not supported](#assertionerror-function-___-not-supported)
+  - [Failed to run pass manager](#failed-to-run-pass-manager)
+
 ## Building
 Build [tt-mlir](./getting-started.md) with the following flags:
 
@@ -79,7 +94,7 @@ Each `ttnn.generic` op requires a `ProgramDescriptor` that contains everything n
 
 ### Level 3: Runtime Execution
 
-The decorator leverages with same MLIR runtime as [ttrt](./ttrt.md). For our purposes, it is essentially just TTNN with additional machinery to execute the serialized ttnn.generic operations that wrap the custom D2M-generated kernels.
+The decorator leverages with same MLIR runtime as [ttrt](./ttrt.md). For our purposes, it is essentially just TTNN with additional machinery to execute the serialized `ttnn.generic` operations that wrap the custom D2M-generated kernels.
 
 Interop with TTNN is seamless, allowing users to switch freely between JIT'ed and non-JIT'ed subgraphs of ttnn ops.
 
@@ -115,12 +130,12 @@ See [tests](../../test/ttnn-jit/) for what is guaranteed to be working.
 ## Debugging FAQ
 For debugging purposes, always build with `-DCMAKE_BUILD_TYPE=Debug` and decorate with `debug=True` to see IR outputs after each step.
 
-### AssertionError: Function ___ not supported
+### `AssertionError: Function ___ not supported`
 This usually indicates the decorated TTNN op does not have a supported TTNN dialect equivalent. Or you spelt it wrong, eg: `ttnn.mul` is not supported but `ttnn.multiply` is.
 
 The most reliable source to see what TTNN op is supported to check the [tablegen](../../include/ttmlir/Dialect/TTNN/IR/TTNNOps.td).
 
-### Failed to run pass manager
+### `Failed to run pass manager`
 This means the [compilation pipeline](#level-2-d2m-compilation-pipeline) failed at a certain stage. The easiest way to debug is to copy the IR output from the AST traversal, and manaully run each individual pipeline:
 
 ```bash
