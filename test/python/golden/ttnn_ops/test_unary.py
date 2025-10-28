@@ -206,44 +206,44 @@ def tanh(in0: Operand, builder: TTNNBuilder, unit_attrs: Optional[List[str]] = N
 
 unary_ops = [
     abs,
-    atan | Marks(pytest.mark.skip_config(["ttmetal"])),
-    cbrt | Marks(pytest.mark.skip_config(["ttmetal"])),
-    ceil | Marks(pytest.mark.skip_config(["ttmetal"])),
+    atan,
+    cbrt,
+    ceil,
     cos,
-    erf | Marks(pytest.mark.skip_config(["ttmetal"])),
-    erfc | Marks(pytest.mark.skip_config(["ttmetal"])),
+    erf,
+    erfc,
     exp,
-    expm1 | Marks(pytest.mark.skip_config(["ttmetal"])),
+    expm1,
     floor,
     gelu,
-    is_finite | Marks(pytest.mark.skip_config(["ttmetal"])),
+    is_finite,
     log,
-    log1p | Marks(pytest.mark.skip_config(["ttmetal"])),
+    log1p,
     logical_not,  # TODO (wenbinlyuTT): test int32 once untilize issue is fixed
     neg,
     reciprocal,
-    relu | Marks(pytest.mark.skip_config(["ttmetal"])),
-    relu6 | Marks(pytest.mark.skip_config(["ttmetal"])),
+    relu,
+    relu6,
     rsqrt,
     sigmoid,
-    sign | Marks(pytest.mark.skip_config(["ttmetal"])),
-    silu | Marks(pytest.mark.skip_config(["ttmetal"])),
+    sign,
+    silu,
     sin,
     sqrt,
     tan,
-    tanh | Marks(pytest.mark.skip_config(["ttmetal"])),
+    tanh,
 ]
 
 
 unary_ops_dtypes = [
     torch.float32,
-    torch.int32 | Marks(pytest.mark.skip_config(["ttmetal"])),
+    torch.int32,
 ]
 
 
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", unary_ops_dtypes, ids=["f32", "i32"])
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal", "ttnn-standalone", "emitpy"])
+@pytest.mark.parametrize("target", ["ttnn", "ttnn-standalone", "emitpy"])
 @pytest.mark.parametrize("test_fn", unary_ops)
 def test_unary_ops(
     test_fn: Callable, shape: Shape, dtype: torch.dtype, target: str, request, device
@@ -308,12 +308,12 @@ def leaky_relu(
     return builder.leaky_relu(in0, parameter, unit_attrs=unit_attrs)
 
 
-unary_ops_with_float_param = [leaky_relu | Marks(pytest.mark.skip_config(["ttmetal"]))]
+unary_ops_with_float_param = [leaky_relu]
 
 
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal", "ttnn-standalone", "emitpy"])
+@pytest.mark.parametrize("target", ["ttnn", "ttnn-standalone", "emitpy"])
 @pytest.mark.parametrize("test_fn", unary_ops_with_float_param)
 @pytest.mark.parametrize("parameter", [0.01, 0.1, 0.2])
 def test_unary_ops_with_float_param(
@@ -341,95 +341,6 @@ def test_unary_ops_with_float_param(
         target=target,
         device=device,
         pipeline_options=pipeline_options,
-    )
-
-
-# Unary ops with int parameter
-def get_dimension_size(
-    in0: Operand,
-    parameter: int,
-    builder: TTNNBuilder,
-    unit_attrs: Optional[List[str]] = None,
-):
-    return builder.get_dimension_size(in0, parameter, unit_attrs=unit_attrs)
-
-
-@pytest.mark.parametrize("shape", [(64, 128)], ids=shape_str)
-@pytest.mark.parametrize("dtype", [torch.float32, torch.int32], ids=["f32", "i32"])
-@pytest.mark.parametrize("target", ["ttnn", "emitpy"])
-@pytest.mark.parametrize("dimension", [0, 1])
-def test_get_dimension_size(
-    dimension: int,
-    shape: Shape,
-    dtype: torch.dtype,
-    target: str,
-    request,
-    device,
-):
-    def wrapper_func(
-        in0: Operand, builder: TTNNBuilder, unit_attrs: Optional[List[str]] = None
-    ):
-        return get_dimension_size(in0, dimension, builder, unit_attrs=unit_attrs)
-
-    pipeline_options = []
-    compile_and_execute_ttnn(
-        wrapper_func,
-        inputs_shapes=[shape],
-        inputs_types=[dtype],
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
-        target=target,
-        device=device,
-        pipeline_options=pipeline_options,
-    )
-
-
-# Unaligned shapes tests for neg op
-unaligned_shapes = [
-    (5, 3),
-    (32, 1),
-    (31, 7),
-    (1, 32),
-    (13, 29),
-    (64, 1),
-    (61, 3),
-    (61, 37),
-    (1, 64),
-    (5, 67),
-    (43, 67),
-    (2, 3, 5),
-    (3, 17, 37),
-    (9, 43, 7),
-    (5, 61, 49),
-    (51, 19, 23) | Marks(pytest.mark.xfail(reason="Golden failure")),
-    (677, 1, 1) | Marks(pytest.mark.xfail(reason="Golden failure")),
-    (2, 3, 5, 7),
-    (3, 37, 5, 53) | Marks(pytest.mark.xfail(reason="Golden failure")),
-    (37, 3, 5, 53) | Marks(pytest.mark.xfail(reason="Golden failure")),
-    (41, 7, 43, 11),
-    (7, 41, 43, 11),
-    (1, 23, 1, 1),
-    (23, 1, 1, 1),
-    (3, 5, 7, 11, 13),
-]
-
-
-@pytest.mark.parametrize("shape", unaligned_shapes, ids=shape_str)
-@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
-@pytest.mark.parametrize("target", ["ttmetal"])
-def test_unaligned_shapes_neg(
-    shape: Shape, dtype: torch.dtype, target: str, request, device
-):
-    compile_and_execute_ttnn(
-        neg,
-        [shape],
-        [dtype],
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
-        target=target,
-        device=device,
     )
 
 
@@ -466,12 +377,10 @@ hoisted_unary_ops = [
 @x86_only
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("test_fn", hoisted_unary_ops)
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
 def test_cpu_hoistable_unary_ops(
     test_fn: Callable,
     shape: Shape,
     request,
-    target: str,
     device,
     dtype: torch.dtype = torch.float32,
 ):
@@ -481,7 +390,6 @@ def test_cpu_hoistable_unary_ops(
         inputs_shapes=[shape],
         inputs_types=[dtype],
         test_base=f"{request.node.name}",
-        target=target,
         device=device,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),

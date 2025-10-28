@@ -23,37 +23,29 @@ class TTNNBuilder(Builder):
 
     # ----- Private Methods ----
 
-    def _organize_eltwise_ttnn(
-        self, inputs: List[Operand], output: OpView, _: Optional[Shape]
-    ):
-        return (self._get_type(output), *inputs, output)
-
     def _op_proxy(
         self,
         op_ttnn_function: Callable,
         inputs: List[Operand],
         unit_attrs: Optional[List[str]] = None,
         organize_golden_args: Optional[Callable] = None,
+        output_shape: Optional[Shape] = None,
+        output_type: Optional[Type] = None,
         golden_kwargs: dict = {},
         ttnn_kwargs: dict = {},
         loc: Optional[Union[str, Location]] = None,
         skip_golden: bool = False,
     ) -> Any:
-        if not golden_kwargs:
-            golden_kwargs = ttnn_kwargs
-
         if organize_golden_args is None:
             organize_golden_args = self._organize_eltwise_golden
 
         with self._ctx, self._loc:
-            if not ttnn_kwargs:
-                ttnn_kwargs = {
-                    "dtype": self._get_data_type_attribute(inputs[0]),
-                }
 
-            output_type = self.create_ttnn_tensor(
-                shape=inputs[0].type.shape,
-                element_type=inputs[0].type.element_type,
+            output_tensor_type = self.create_ttnn_tensor(
+                shape=inputs[0].type.shape if not output_shape else output_shape,
+                element_type=inputs[0].type.element_type
+                if not output_type
+                else output_type,
             )
 
             # Prepare location for the op.
@@ -65,7 +57,7 @@ class TTNNBuilder(Builder):
             )
 
             op = op_ttnn_function(
-                output_type,
+                output_tensor_type,
                 *inputs,
                 loc=loc,
                 **ttnn_kwargs,
@@ -77,6 +69,13 @@ class TTNNBuilder(Builder):
                     op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
             if not skip_golden and not self._disable_golden_check:
+                print(
+                    builder_golden.get_golden_function(
+                        op_ttnn_function, **golden_kwargs
+                    )
+                )
+                print(golden_kwargs)
+                print(op_ttnn_function)
                 op_golden_function = builder_golden.get_golden_function(
                     op_ttnn_function, **golden_kwargs
                 )
@@ -88,9 +87,7 @@ class TTNNBuilder(Builder):
                             *(organize_golden_args(inputs)), **golden_kwargs
                         )
                     self._set_golden_tensor(op, golden_output)
-            print(op)
-            print(golden_output)
-            print()
+
             return op
 
     def _get_data_type_attribute(self, operand: Operand) -> ttcore.ir.DataTypeAttr:
@@ -1221,9 +1218,13 @@ class TTNNBuilder(Builder):
         -------
         (*OpView*)
         """
+        ttnn_kwargs = {
+            "dtype": self._get_data_type_attribute(in0),
+        }
         return self._op_proxy(
             ttnn.EqualOp,
             [in0, in1],
+            ttnn_kwargs=ttnn_kwargs,
             unit_attrs=unit_attrs,
         )
 
@@ -1268,9 +1269,13 @@ class TTNNBuilder(Builder):
         -------
         (*OpView*)
         """
+        ttnn_kwargs = {
+            "dtype": self._get_data_type_attribute(in0),
+        }
         return self._op_proxy(
             ttnn.NotEqualOp,
             [in0, in1],
+            ttnn_kwargs=ttnn_kwargs,
             unit_attrs=unit_attrs,
         )
 
@@ -1312,9 +1317,13 @@ class TTNNBuilder(Builder):
         -------
         (*OpView*)
         """
+        ttnn_kwargs = {
+            "dtype": self._get_data_type_attribute(in0),
+        }
         return self._op_proxy(
             ttnn.GreaterEqualOp,
             [in0, in1],
+            ttnn_kwargs=ttnn_kwargs,
             unit_attrs=unit_attrs,
         )
 
@@ -1356,9 +1365,13 @@ class TTNNBuilder(Builder):
         -------
         (*OpView*)
         """
+        ttnn_kwargs = {
+            "dtype": self._get_data_type_attribute(in0),
+        }
         return self._op_proxy(
             ttnn.GreaterThanOp,
             [in0, in1],
+            ttnn_kwargs=ttnn_kwargs,
             unit_attrs=unit_attrs,
         )
 
@@ -1400,9 +1413,13 @@ class TTNNBuilder(Builder):
         -------
         (*OpView*)
         """
+        ttnn_kwargs = {
+            "dtype": self._get_data_type_attribute(in0),
+        }
         return self._op_proxy(
             ttnn.LessEqualOp,
             [in0, in1],
+            ttnn_kwargs=ttnn_kwargs,
             unit_attrs=unit_attrs,
         )
 
@@ -1444,9 +1461,13 @@ class TTNNBuilder(Builder):
         (*OpView*)
             A boolean tensor with 1s where left < right and 0s otherwise
         """
+        ttnn_kwargs = {
+            "dtype": self._get_data_type_attribute(in0),
+        }
         return self._op_proxy(
             ttnn.LessThanOp,
             [in0, in1],
+            ttnn_kwargs=ttnn_kwargs,
             unit_attrs=unit_attrs,
         )
 
@@ -1488,9 +1509,13 @@ class TTNNBuilder(Builder):
         -------
         (*OpView*)
         """
+        ttnn_kwargs = {
+            "dtype": self._get_data_type_attribute(in0),
+        }
         return self._op_proxy(
             ttnn.LogicalAndOp,
             [in0, in1],
+            ttnn_kwargs=ttnn_kwargs,
             unit_attrs=unit_attrs,
         )
 
@@ -1575,9 +1600,13 @@ class TTNNBuilder(Builder):
         -------
         (*OpView*)
         """
+        ttnn_kwargs = {
+            "dtype": self._get_data_type_attribute(in0),
+        }
         return self._op_proxy(
             ttnn.LogicalOrOp,
             [in0, in1],
+            ttnn_kwargs=ttnn_kwargs,
             unit_attrs=unit_attrs,
         )
 
@@ -1615,9 +1644,13 @@ class TTNNBuilder(Builder):
         -------
         (*OpView*)
         """
+        ttnn_kwargs = {
+            "dtype": self._get_data_type_attribute(in0),
+        }
         return self._op_proxy(
             ttnn.LogicalRightShiftOp,
             [in0, in1],
+            ttnn_kwargs=ttnn_kwargs,
             unit_attrs=unit_attrs,
         )
 
@@ -1659,9 +1692,13 @@ class TTNNBuilder(Builder):
         -------
         (*OpView*)
         """
+        ttnn_kwargs = {
+            "dtype": self._get_data_type_attribute(in0),
+        }
         return self._op_proxy(
             ttnn.LogicalXorOp,
             [in0, in1],
+            ttnn_kwargs=ttnn_kwargs,
             unit_attrs=unit_attrs,
         )
 
@@ -1871,9 +1908,13 @@ class TTNNBuilder(Builder):
         (*OpView*)
             A tensor containing the elementwise difference of the inputs
         """
+        ttnn_kwargs = {
+            "dtype": self._get_data_type_attribute(in0),
+        }
         return self._op_proxy(
             ttnn.SubtractOp,
             [in0, in1],
+            ttnn_kwargs=ttnn_kwargs,
             unit_attrs=unit_attrs,
         )
 
@@ -3849,9 +3890,13 @@ class TTNNBuilder(Builder):
         (*OpView*)
             A tensor containing the elementwise sum of the inputs
         """
+        ttnn_kwargs = {
+            "dtype": self._get_data_type_attribute(in0),
+        }
         return self._op_proxy(
             ttnn.AddOp,
             [in0, in1],
+            ttnn_kwargs=ttnn_kwargs,
             unit_attrs=unit_attrs,
         )
 
@@ -3934,13 +3979,17 @@ class TTNNBuilder(Builder):
         (*OpView*)
             A tensor containing the elementwise product of the inputs
         """
+        ttnn_kwargs = {
+            "dtype": self._get_data_type_attribute(in0),
+        }
         return self._op_proxy(
             ttnn.MultiplyOp,
             [in0, in1],
+            ttnn_kwargs=ttnn_kwargs,
             unit_attrs=unit_attrs,
         )
 
-    def div(
+    def divide(
         self, in0: Operand, in1: Operand, unit_attrs: Optional[List[str]] = None
     ) -> OpView:
         """
@@ -3980,9 +4029,13 @@ class TTNNBuilder(Builder):
         (*OpView*)
             A tensor containing the elementwise quotient of the inputs
         """
+        ttnn_kwargs = {
+            "dtype": self._get_data_type_attribute(in0),
+        }
         return self._op_proxy(
             ttnn.DivideOp,
             [in0, in1],
+            ttnn_kwargs=ttnn_kwargs,
             unit_attrs=unit_attrs,
         )
 
