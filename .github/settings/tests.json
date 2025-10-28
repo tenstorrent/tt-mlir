@@ -1,5 +1,5 @@
 [
-  { "runs-on": "n150",
+  { "runs-on": "n300",
         "image": "speedy",
             "script": "ttrt.sh", "args": ["run", "Silicon"] }
 ]
