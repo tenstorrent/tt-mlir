@@ -346,12 +346,11 @@ private:
       return false;
     }
 
-    // Check for specific ops that are not cacheable.
-    if (mlir::isa<mlir::tt::ttir::EmptyOp, mlir::tt::ttnn::EmptyOp,
-                  mlir::tt::ttir::RandOp, mlir::tt::ttnn::RandOp>(op)) {
+    if (op->hasTrait<mlir::tt::ttcore::Trait::TTCoreNonCacheableTrait>()) {
       return false;
     }
 
+    // Check if any operand is a RankedTensorType, if so, it's not cacheable.
     for (auto operand : op->getOperands()) {
       auto operandType = operand.getType();
       if (mlir::isa<mlir::RankedTensorType>(operandType)) {
