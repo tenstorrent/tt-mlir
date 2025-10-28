@@ -2308,6 +2308,14 @@ public:
 namespace {
 class LoadTensorOpConversionPattern
     : public TTNNToEmitPyBaseOpConversionPattern<mlir::tt::ttnn::LoadTensorOp> {
+private:
+  std::string getPrefixSearchPattern() const override {
+    return mlir::tt::ttnn::LoadTensorOp::getOperationName().str();
+  }
+  std::string getPrefixSwapPattern() const override {
+    return "utils.load_tensor";
+  }
+
 public:
   using TTNNToEmitPyBaseOpConversionPattern<
       mlir::tt::ttnn::LoadTensorOp>::TTNNToEmitPyBaseOpConversionPattern;
@@ -2319,9 +2327,17 @@ public:
     ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::LoadTensorOp> emitter(
         srcOp, adaptor, rewriter);
 
+    RankedTensorType resultType = srcOp.getResult().getType();
+    mlir::tt::ttnn::TTNNLayoutAttr layoutAttr =
+        mlir::cast<mlir::tt::ttnn::TTNNLayoutAttr>(resultType.getEncoding());
+
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getFilePath()),
-        emitter.emit(srcOp.getDevice(), "device"),
+        emitter.emit(layoutAttr.getLayout()),
+        emitter.emit(mlir::tt::ttcore::elementTypeToDataType(
+            layoutAttr.getScalarElementType())),
+        emitter.emit(srcOp.getDevice()),
+        emitter.emit(emitter.getMemoryConfig(srcOp.getResult())),
     };
 
     emitter.replaceOp(*this, args);
