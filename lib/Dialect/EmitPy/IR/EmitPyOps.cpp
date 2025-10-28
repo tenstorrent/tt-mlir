@@ -393,7 +393,7 @@ static ParseResult parseEmitPyGlobalOpInitialValue(OpAsmParser &parser,
     return failure();
   }
 
-  if (!parser.parseAttribute(initialValue)) {
+  if (parser.parseAttribute(initialValue)) {
     return failure();
   }
 

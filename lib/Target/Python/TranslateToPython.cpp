@@ -403,11 +403,7 @@ static LogicalResult printOperation(PythonEmitter &emitter,
 }
 
 static LogicalResult printOperation(PythonEmitter &emitter, GlobalOp globalOp) {
-  if (failed(emitter.emitGlobalVariable(globalOp))) {
-    return failure();
-  }
-
-  return success();
+  return emitter.emitGlobalVariable(globalOp);
 }
 
 LogicalResult PythonEmitter::emitOperation(Operation &op) {
@@ -419,8 +415,12 @@ LogicalResult PythonEmitter::emitOperation(Operation &op) {
           .Case<CallOpaqueOp, ImportOp, AssignOp, ConstantOp, SubscriptOp,
                 GlobalOp>(
               [&](auto op) { return printOperation(*this, op); })
-          .Case<LiteralOp, GetGlobalOp>([&](auto op) {
+          .Case<LiteralOp>([&](auto op) {
             cacheDeferredOpResult(op.getResult(), op.getValue());
+            return success();
+          })
+          .Case<GetGlobalOp>([&](auto op) {
+            cacheDeferredOpResult(op.getResult(), op.getName());
             return success();
           })
           // Func ops.
