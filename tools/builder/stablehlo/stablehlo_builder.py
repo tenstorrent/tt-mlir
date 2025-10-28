@@ -697,7 +697,6 @@ class StableHLOBuilder(Builder):
             stablehlo_kwargs={
                 "operand": in0,
                 "broadcast_dimensions": broadcast_dimensions,
-                "output_shape": output_shape,
             },
             unit_attrs=unit_attrs,
             sharding_attr=sharding_attr,
