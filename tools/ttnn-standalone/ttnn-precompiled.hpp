@@ -20,6 +20,7 @@
 #include "operations/data_movement/slice/slice.hpp"
 #include "operations/data_movement/sort/sort.hpp"
 #include "operations/data_movement/transpose/transpose.hpp"
+#include "operations/data_movement/view/view.hpp"
 #include "operations/eltwise/binary/binary.hpp"
 #include "operations/eltwise/binary/binary_composite.hpp"
 #include "operations/eltwise/quantization/quantization.hpp"

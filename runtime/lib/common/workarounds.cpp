@@ -7,10 +7,11 @@
 namespace tt::runtime::workaround {
 const Env &Env::get(bool swapBinaryOperands,
                     bool readUpdateIndexFromDeviceForKVCache,
-                    bool traceImplicitFromDevice, bool blackholeWorkarounds) {
-  static const Env config(swapBinaryOperands,
-                          readUpdateIndexFromDeviceForKVCache,
-                          traceImplicitFromDevice, blackholeWorkarounds);
+                    bool traceImplicitFromDevice, bool blackholeWorkarounds,
+                    bool forceOutOfPlaceReshape) {
+  static const Env config(
+      swapBinaryOperands, readUpdateIndexFromDeviceForKVCache,
+      traceImplicitFromDevice, blackholeWorkarounds, forceOutOfPlaceReshape);
   return config;
 }
 } // namespace tt::runtime::workaround

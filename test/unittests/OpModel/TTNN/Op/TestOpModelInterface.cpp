@@ -1331,6 +1331,37 @@ TEST_F(OpModelBase, ReshapeOpInterface) {
   EXPECT_EQ(opRuntimeCache().getStats().misses, 1);
 }
 
+TEST_F(OpModelBase, ViewOpInterface) {
+  llvm::SmallVector<int64_t> tensorShape = {128, 64};
+  auto input = createEmptyTensor(tensorShape);
+  auto output = createEmptyTensor(tensorShape);
+
+  auto view =
+      builder.create<ViewOp>(builder.getUnknownLoc(), output.getType(), input);
+  view.setShapeAttr(builder.getI64ArrayAttr({4, 32, 64}));
+
+  // test ViewOp interface
+  auto constraintsExp = getOpConstraints(view.getOperation());
+  if (constraintsExp) {
+    auto l1 = constraintsExp.get();
+    const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+        l1;
+    EXPECT_EQ(cbSize, 0);
+    EXPECT_EQ(l1PeakSize, 0);
+    EXPECT_EQ(outputSize, 2048);
+  } else {
+    FAIL() << "Missing L1 constraints; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
+
+  auto runtimeExp = getOpRuntime(view.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << llvm::toString(runtimeExp.takeError());
+  }
+}
+
 TEST_F(OpModelBase, SliceStaticOpInterface) {
   // create SliceStaticOp
   llvm::SmallVector<int64_t> tensorShapeA = {1, 56, 56, 96};

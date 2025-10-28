@@ -7,15 +7,15 @@ module attributes {} {
     // CHECK-LABEL: func.func @forward
     // CHECK-NOT: "ttir.pooling"
     // CHECK: "ttnn.permute"(%arg0)
-    // CHECK: "ttnn.reshape"
+    // CHECK: "ttnn.view"
     // CHECK: "ttnn.to_layout"
     // CHECK: "ttnn.max_pool2d"
     // CHECK: "ttnn.permute"(%arg1)
-    // CHECK: "ttnn.reshape"
+    // CHECK: "ttnn.view"
     // CHECK: "ttnn.to_layout"
     // CHECK: "ttnn.max_pool2d"
     // CHECK: "ttnn.add"
-    // CHECK: "ttnn.reshape"
+    // CHECK: "ttnn.view"
     // CHECK: "ttnn.permute"
     // CHECK: return
     %2, %3 = "ttir.pooling"(%arg0, %arg1, %0, %1) <{

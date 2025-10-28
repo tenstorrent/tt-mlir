@@ -8,7 +8,10 @@
 
 #include "tt/runtime/detail/ttnn/utils.h"
 
+#include "tt/runtime/workarounds.h"
+
 namespace tt::runtime::ttnn::operations::data_movement {
+
 void run(const ::tt::target::ttnn::ReshapeOp *op, ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
 
@@ -22,7 +25,20 @@ void run(const ::tt::target::ttnn::ReshapeOp *op, ProgramContext &context) {
                 ::tt::runtime::ttnn::utils::getTensorRefMemoryConfig(op->out()))
           : ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
                 op->memory_config());
-  ::ttnn::Tensor out = ::ttnn::reshape(in, shape, memoryConfig);
+  ::ttnn::Tensor out;
+
+  if (::tt::runtime::workaround::Env::get().forceOutOfPlaceReshape &&
+      utils::isInPlaceReshape(in, shape, memoryConfig)) {
+    // If the reshape is a view, and we are forcing out-of-place reshapes, we
+    // must clone the input tensor so that our `out` tensor is not the same
+    // object as the `in` tensor.
+    ::ttnn::Tensor clonedInput =
+        ::ttnn::clone(in, std::nullopt, std::nullopt, std::nullopt);
+    out = ::ttnn::reshape(clonedInput, shape, memoryConfig);
+  } else {
+    out = ::ttnn::reshape(in, shape, memoryConfig);
+  }
+
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
 } // namespace tt::runtime::ttnn::operations::data_movement

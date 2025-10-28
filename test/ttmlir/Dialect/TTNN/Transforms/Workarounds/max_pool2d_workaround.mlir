@@ -26,8 +26,8 @@ module attributes {} {
     // CHECK-SAME: layout = #ttnn.layout<tile>
     // CHECK-SAME: memory_config = #ttnn.memory_config<#dram, <interleaved>>
     // CHECK-SAME: -> tensor<1x1x4096x32xf32
-    %3 = "ttnn.reshape"(%2) <{shape = [1 : i32, 64 : i32, 64 : i32, 32 : i32]}> : (tensor<1x1x4096x32xf32, #ttnn_layout3>) -> tensor<1x64x64x32xf32, #ttnn_layout3>
-    // CHECK-NEXT: ttnn.reshape
+    %3 = "ttnn.view"(%2) <{shape = [1 : i32, 64 : i32, 64 : i32, 32 : i32]}> : (tensor<1x1x4096x32xf32, #ttnn_layout3>) -> tensor<1x64x64x32xf32, #ttnn_layout3>
+    // CHECK-NEXT: ttnn.view
     %4 = "ttnn.to_layout"(%3) <{dtype = #ttcore.supportedDataTypes<f32>, layout = #ttnn.layout<row_major>, memory_config = #ttnn.memory_config<#system_memory>}> : (tensor<1x64x64x32xf32, #ttnn_layout3>) -> tensor<1x64x64x32xf32, #ttnn_layout1>
     return %4 : tensor<1x64x64x32xf32, #ttnn_layout1>
   }
