@@ -453,8 +453,7 @@ static bool isValidPythonIdentifier(StringRef name) {
 LogicalResult GlobalOp::verify() {
   Attribute value = getInitialValue();
   if (!value) {
-    return emitOpError()
-           << "requires initial value for global variable";
+    return emitOpError() << "requires initial value for global variable";
   }
 
   StringRef name = getName();
@@ -475,6 +474,22 @@ LogicalResult GlobalOp::verify() {
 
 LogicalResult
 GetGlobalOp::verifySymbolUses(SymbolTableCollection &symbolTable) {
+  auto global =
+      symbolTable.lookupNearestSymbolFrom<GlobalOp>(*this, getNameAttr());
+  if (!global) {
+    return emitOpError("'")
+           << getName() << "' does not reference a valid emitpy.global";
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// AssignGlobalOp
+//===----------------------------------------------------------------------===//
+
+LogicalResult
+AssignGlobalOp::verifySymbolUses(SymbolTableCollection &symbolTable) {
   auto global =
       symbolTable.lookupNearestSymbolFrom<GlobalOp>(*this, getNameAttr());
   if (!global) {
