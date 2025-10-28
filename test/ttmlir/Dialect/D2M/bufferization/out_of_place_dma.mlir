@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttcore-register-device --d2m-bufferization-pipeline -o %t %s
+// RUN: ttmlir-opt --ttcore-register-device --ttir-bufferization-pipeline -o %t %s
 // RUN: FileCheck %s --input-file=%t
 
 // Below is kind of an obscure error message check, but the out of place

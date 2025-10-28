@@ -46,18 +46,18 @@ struct ConvertD2MToTTKernel
   using Base = d2m::impl::ConvertD2MToTTKernelBase<ConvertD2MToTTKernel>;
 
   ConvertD2MToTTKernel() = default;
+  ConvertD2MToTTKernel(
+      const mlir::tt::d2m::ConvertD2MToTTKernelOptions &options)
+      : Base(options) {}
+
+  ConvertD2MToTTKernel(const ConvertD2MToTTKernel &rhs) : Base(rhs) {
+    // Workaround: Passes are required to be copy-constructible but autogen'ed
+    // base class copy constructors ignore Pass option fields.
+    this->ttnnMode = rhs.ttnnMode;
+  }
 
   void runOnOperation() final {
     mlir::ConversionTarget target(getContext());
-
-    // If there is a ttnn_metal_layout_cast op, we are in ttnn mode.
-    ModuleOp module = getOperation();
-    bool ttnnMode = module
-                        ->walk([&](ttir::TTNNMetalLayoutCastOp op) {
-                          return WalkResult::interrupt();
-                        })
-                        .wasInterrupted();
-
     target.addLegalDialect<BuiltinDialect>();
     target.addLegalDialect<arith::ArithDialect>();
     target.addLegalDialect<func::FuncDialect>();
@@ -79,6 +79,10 @@ struct ConvertD2MToTTKernel
     target.addLegalOp<d2m::MeshShardOp>();
 
     target.addLegalOp<ttir::TTNNMetalLayoutCastOp>();
+
+    if (ttnnMode) {
+      target.addLegalDialect<ttnn::TTNNDialect>();
+    }
 
     // Allow loads and stores to integer element types.
     //   i.e. riscv accesses to L1.
@@ -163,6 +167,11 @@ namespace mlir::tt {
 
 std::unique_ptr<OperationPass<ModuleOp>> createConvertD2MToTTKernelPass() {
   return std::make_unique<ConvertD2MToTTKernel>();
+}
+
+std::unique_ptr<OperationPass<ModuleOp>> createConvertD2MToTTKernelPass(
+    const d2m::ConvertD2MToTTKernelOptions &options) {
+  return std::make_unique<ConvertD2MToTTKernel>(options);
 }
 
 } // namespace mlir::tt

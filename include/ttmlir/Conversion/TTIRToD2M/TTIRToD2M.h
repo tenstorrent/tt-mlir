@@ -22,7 +22,8 @@ namespace mlir::tt {
 void populateTTIRToD2MPatterns(
     MLIRContext *ctx, RewritePatternSet &patterns, TypeConverter &typeConverter,
     mlir::tt::ttcore::MemorySpace defaultInputMemSpace,
-    mlir::tt::ttcore::MemorySpace defaultOutputMemSpace, bool collapseTensors);
+    mlir::tt::ttcore::MemorySpace defaultOutputMemSpace, bool ttnnMode,
+    bool collapseTensors);
 
 std::unique_ptr<OperationPass<ModuleOp>> createTTIRToD2MPass();
 

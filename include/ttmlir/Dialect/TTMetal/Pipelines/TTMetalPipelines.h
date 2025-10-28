@@ -123,12 +123,21 @@ struct TTIRToTTMetalPipelineOptions
       llvm::cl::desc(
           "Make generic outputs in L1 eligible for spilling to DRAM."),
       llvm::cl::init(false)};
+
+  // Option to ingest a mix of ttnn and ttir ops and lower through D2m to TTNN
+  // GenericOp.
+  Option<bool> ttnnMode{*this, "ttnn-mode",
+                        llvm::cl::desc("D2M/TTNN integration mode."),
+                        llvm::cl::init(false)};
 };
 
-void createTTIRToTTMetalPipeline(OpPassManager &pm,
-                                 const TTIRToTTMetalPipelineOptions &options);
+void createTTIRBufferizationPipeline(
+    OpPassManager &pm, const TTIRToTTMetalPipelineOptions &options);
 
-void createTTIRToTTNNGenericPipeline(
+void createTTIRToTTMetalBackendPipeline(
+    OpPassManager &pm, const TTIRToTTMetalPipelineOptions &options);
+
+void createTTIRToTTMetalPipelineDebug(
     OpPassManager &pm, const TTIRToTTMetalPipelineOptions &options);
 
 void registerTTMetalPipelines();
