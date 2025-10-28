@@ -2186,10 +2186,13 @@ def TTNN_AllGatherOp: TTNN_Op<"all_gather"> {
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
-                         TTNN_Device:$device,
                          SI32Attr:$all_gather_dim,
                          UI32Attr:$cluster_axis,
-                         DefaultValuedAttr<UI32Attr, "1">:$num_links);
+                         OptionalAttr<UI32Attr>:$sub_device_id,
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config,
+                         Optional<AnyRankedTensor>:$optional_output_tensor,
+                         OptionalAttr<UI32Attr>:$num_links,
+                         OptionalAttr<TTCore_TopologyAttr>:$topology);
 
     let results = (outs AnyRankedTensor:$result);
 

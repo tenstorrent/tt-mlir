@@ -2652,14 +2652,6 @@ public:
 namespace {
 class AllGatherOpConversionPattern
     : public TTNNToEmitPyBaseOpConversionPattern<mlir::tt::ttnn::AllGatherOp> {
-  // private:
-  //   std::string getPrefixSearchPattern() const override {
-  //     return "ttnn.all_gather";
-  //   }
-  //   std::string getPrefixSwapPattern() const override {
-  //     return "ttnn.experimental.all_gather_async";
-  //   }
-
 public:
   using TTNNToEmitPyBaseOpConversionPattern<
       mlir::tt::ttnn::AllGatherOp>::TTNNToEmitPyBaseOpConversionPattern;
@@ -2672,13 +2664,14 @@ public:
         srcOp, adaptor, rewriter);
 
     llvm::SmallVector<mlir::Attribute> args{
-        emitter.emit(srcOp.getInput(), "input"),
-        emitter.emit(srcOp.getDevice(), "mesh_device"),
+        emitter.emit(srcOp.getInput(), "input_tensor"),
         emitter.emit(srcOp.getAllGatherDim(), "dim"),
         emitter.emit(srcOp.getClusterAxis(), "cluster_axis"),
+        emitter.emit(srcOp.getSubDeviceId(), "subdevice_id"),
+        emitter.emit(srcOp.getMemoryConfig(), "memory_config"),
+        emitter.emit(srcOp.getOptionalOutputTensor(), "output_tensor"),
         emitter.emit(srcOp.getNumLinks(), "num_links"),
-        emitter.emit(emitter.getMemoryConfig(srcOp.getResult()),
-                     "memory_config"),
+        emitter.emit(srcOp.getTopology(), "topology"),
     };
 
     emitter.replaceOp(*this, args);

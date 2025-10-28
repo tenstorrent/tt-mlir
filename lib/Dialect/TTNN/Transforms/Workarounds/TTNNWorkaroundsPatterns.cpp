@@ -425,8 +425,10 @@ public:
 
     // Replace all_reduce op with all_gather op.
     rewriter.replaceOpWithNewOp<ttnn::AllGatherOp>(
-        op, op.getType(), reduceScatterOp.getResult(), deviceValue, dimension,
-        clusterAxis);
+        op, op.getType(), reduceScatterOp.getResult(), dimension, clusterAxis,
+        nullptr /*sub_device_id*/, nullptr /*memory_config*/,
+        nullptr /*optional_output_tensor*/, nullptr /*num_links*/,
+        nullptr /*topology*/);
     return success();
   }
 
@@ -438,7 +440,6 @@ private:
     RankedTensorType inputType = op.getInput().getType();
     Location loc = op.getLoc();
     uint32_t clusterAxis = op.getClusterAxis();
-    Value deviceValue = op.getDevice();
 
     // Use allGather + Reduce breakdown.
     // Increase the rank of the current input shape by 1.
@@ -464,8 +465,10 @@ private:
                                                      expandedInputShape);
     ttnn::AllGatherOp allGatherOp = rewriter.create<ttnn::AllGatherOp>(
         ttmlir::utils::appendLocationSuffix(loc, "_allGather"),
-        allGatherOutputType, leadingReshapeOp.getResult(), deviceValue, 0,
-        clusterAxis);
+        allGatherOutputType, leadingReshapeOp.getResult(), 0, clusterAxis,
+        nullptr /*sub_device_id*/, nullptr /*memory_config*/,
+        nullptr /*optional_output_tensor*/, nullptr /*num_links*/,
+        nullptr /*topology*/);
     // Create a new reduce op.
     ArrayAttr reduceDimAttr =
         rewriter.getI32ArrayAttr(llvm::ArrayRef<int32_t>{0});
