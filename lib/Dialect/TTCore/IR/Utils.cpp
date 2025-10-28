@@ -171,7 +171,6 @@ llvm::SmallVector<int64_t, 2> collapseGridTo2D(ArrayRef<int64_t> gridShape) {
   return {collapsedHeight, width};
 }
 
-<<<<<<< HEAD
 MemRefType getBufferType(Type type, bool isView,
                          std::optional<MetalLayoutAttr> hostInfo) {
   auto tensorType = mlir::cast<mlir::RankedTensorType>(type);
