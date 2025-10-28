@@ -1,6 +1,6 @@
 # `ttnn.jit`
 
-`ttnn.jit` is a tool that allows TTNN model developers to leverage the Direct-To-Metal (D2M) compiler on select portions of their model.
+`ttnn.jit` is a tool that allows TTNN model developers to leverage the Direct-To-Metal (D2M) compiler Just-In-Time (JIT) compile select portions of their model.
 
 ## Building
 Build [tt-mlir](./getting-started.md) with the following flags:
@@ -21,7 +21,7 @@ export SYSTEM_DESC_PATH=`pwd`/ttrt-artifacts/system_desc.ttsys
 ```
 
 ## How to use ttnn.jit
-Take any python ttnn graph such as the composite cosh operation:
+Take any Python TTNN graph such as the cosh composite operation:
 ```Python
 def cosh(input_tensor):
   e_pos_x = ttnn.exp(input_tensor)
@@ -30,7 +30,7 @@ def cosh(input_tensor):
   return ttnn.multiply(nr_term, 0.5)
 ```
 
-Simply decorate with `@ttnn_jit.jit()` to Just-In-Time (JIT) compile through D2M. In this example, `cosh` will be compiled into a single fused kernel.
+Simply decorate with `@ttnn_jit.jit()` to JIT compile through D2M. In this example, `cosh` will be compiled into a single fused kernel.
 ```Python
 @ttnn_jit.jit()
 def cosh(input_tensor):
@@ -72,13 +72,13 @@ The resulting MLIR module is then passed to the compiler:
 - **Flatbuffer Serialization**: The compiled IR is serialized to a FlatBuffer binary format via `ttnnToFlatbuffer()`
   - This flatbuffer is returned to the decorator and cached as a `Binary` object.
 
-Each `ttnn.generic` op contains a `ProgramDescriptor` that contains everything needed to construct a TT-Metal `Program`.
+Each `ttnn.generic` op requires a `ProgramDescriptor` that contains everything needed to construct a TT-Metal `Program`.
 - Circular buffer and Semaphore config.
 - Kernel source code and runtime + compile-time argument setup.
 
 ### Level 3: Runtime Execution
 
-The decorator leverages with same MLIR runtime as [ttrt](./ttrt.md). For our purposes, it is essentially just TTNN with additional machinery to execute the serialized ttnn.generic programs containing custom D2M-generated kernels.
+The decorator leverages with same MLIR runtime as [ttrt](./ttrt.md). For our purposes, it is essentially just TTNN with additional machinery to execute the serialized ttnn.generic operations that wrap the custom D2M-generated kernels.
 
 Interop with TTNN is seamless, allowing users to switch freely between JIT'ed and non-JIT'ed subgraphs of ttnn ops.
 
@@ -96,7 +96,7 @@ def model(input_tensor):
 
 ### JIT Caching
 
-The first invocation of a JIT'ed subgraph will compile and cache the resulting flatbuffer in a `JitCache`. The cache uses tensor **metadata** (shape, dtype, memory config, etc.) as the key and the compiled flatbuffer (wrapped in an MLIR runtime `Binary`) as the entry.
+The first invocation of a JIT'ed subgraph will compile and cache the resulting flatbuffer in a `JitCache`. The cache uses tensor **metadata** (shape, dtype, memory config, etc.) as the key. The compiled flatbuffer wrapped in an MLIR runtime `Binary` object is the cache entry.
 
 Each `JitFunction` maintains its own `JitCache`, so different JIT [configurations](#jit-flags) will have independent cache entries.
 
@@ -109,15 +109,17 @@ See [test_program_cache.py](../test/ttnn-jit/test_program_cache.py) for a detail
 - Only L1 block sharded and DRAM interleaved tensors.
 - No control flow allowed.
 
-See [here](../test/ttnn-jit/) for what is guaranteed to be working.
+See [tests](../test/ttnn-jit/) for what is guaranteed to be working.
 
 ## Debugging FAQ
 For debugging purposes, always decorate with `debug=True` to see IR outputs after each step.
 
-### ast op not available
-This usually indicates the decorated ttnn op does not have a supported TTNN dialect equivalent. Or you spelt it wrong, eg: `ttnn.mul` is not supported but `ttnn.multiply` is. The most reliable source to see what TTNN op is supported to check the [tablegen](../include/ttmlir/Dialect/TTNN/IR/TTNNOps.td)
+### AssertionError: Function ___ not supported
+This usually indicates the decorated TTNN op does not have a supported TTNN dialect equivalent. Or you spelt it wrong, eg: `ttnn.mul` is not supported but `ttnn.multiply` is.
 
-### failed to run pass manager
+The most reliable source to see what TTNN op is supported to check the [tablegen](../include/ttmlir/Dialect/TTNN/IR/TTNNOps.td).
+
+### Failed to run pass manager
 This means the [compilation pipeline](#level-2-d2m-compilation-pipeline) failed at a certain stage. The easiest way to debug is to copy the IR output from the AST traversal, and manaully run each individual pipeline:
 
 ```bash
@@ -128,7 +130,7 @@ ttmlir-opt --mlir-print-ir-after-all --ttir-to-ttmetal-pipeline="system-desc-pat
 ttmlir-translate --ttnn-to-flatbuffer *.mlir
 ```
 
-For MLIR runtime debug output:
+For MLIR runtime and debug output:
 ```bash
 export TTMLIR_RUNTIME_LOGGER_LEVEL=Trace
 export TTRT_LOGGER_LEVEL=Debug
