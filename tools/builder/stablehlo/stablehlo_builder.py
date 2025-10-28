@@ -694,7 +694,11 @@ class StableHLOBuilder(Builder):
             [in0],
             organize_golden_args=self._organize_eltwise_golden,
             golden_kwargs={"size": output_shape},
-            stablehlo_kwargs={"broadcast_dimensions": broadcast_dimensions},
+            stablehlo_kwargs={
+                "operand": in0,
+                "broadcast_dimensions": broadcast_dimensions
+                "output_shape": output_shape,
+            },
             unit_attrs=unit_attrs,
             sharding_attr=sharding_attr,
         )
