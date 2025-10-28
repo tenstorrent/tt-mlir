@@ -96,6 +96,9 @@ private:
     SmallVector<Attribute> permutedDims;
     for (Attribute dimAttr : dimArg.getValue()) {
       int64_t dim = cast<IntegerAttr>(dimAttr).getInt();
+      if (dim < 0) {
+        dim += permutation.size();
+      }
       int64_t permutedDim = permutation[dim];
       permutedDims.push_back(rewriter.getI32IntegerAttr(permutedDim));
     }
