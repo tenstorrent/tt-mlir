@@ -696,7 +696,7 @@ class StableHLOBuilder(Builder):
             golden_kwargs={"size": output_shape},
             stablehlo_kwargs={
                 "operand": in0,
-                "broadcast_dimensions": broadcast_dimensions
+                "broadcast_dimensions": broadcast_dimensions,
                 "output_shape": output_shape,
             },
             unit_attrs=unit_attrs,
