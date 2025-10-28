@@ -22,8 +22,8 @@ parseTargetFormat(llvm::StringRef format) {
   if (format == "bf16") {
     return ttcore::DataType::BFloat16;
   }
-  if (format == "bfp_f8") {
-    return ttcore::DataType::BFP_Float8;
+  if (format == "bfp_bf8") {
+    return ttcore::DataType::BFP_BFloat8;
   }
   return std::nullopt;
 }
@@ -103,7 +103,7 @@ struct D2MGlobalDataFormatConversion
     auto targetDataType = parseTargetFormat(targetFormat);
     if (!targetDataType) {
       getOperation()->emitError("Invalid target format '")
-          << targetFormat << "'. Supported formats: f32, bf16, bfp_f8";
+          << targetFormat << "'. Supported formats: f32, bf16, bfp_bf8";
       signalPassFailure();
       return;
     }

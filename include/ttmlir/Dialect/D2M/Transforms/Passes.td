@@ -517,7 +517,7 @@ def D2MGlobalDataFormatConversion: Pass<"d2m-global-data-format-conversion", "::
     Supported target formats:
       - "f32" (Float32)
       - "bf16" (BFloat16, default)
-      - "bfp_f8" (BFP_Float8)
+      - "bfp_bf8" (BFP_BFloat8)
 
     Example:
       Before:
@@ -541,7 +541,7 @@ def D2MGlobalDataFormatConversion: Pass<"d2m-global-data-format-conversion", "::
 
   let options = [
     Option<"targetFormat", "target-format", "std::string", /*default=*/"\"bf16\"",
-           "Target data format for conversion: f32, bf16 (default), or bfp_f8">
+           "Target data format for conversion: f32, bf16 (default), or bfp_bf8">
   ];
 
   let dependentDialects = ["mlir::tt::ttcore::TTCoreDialect", "mlir::tt::ttir::TTIRDialect"];

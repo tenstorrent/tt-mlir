@@ -135,7 +135,7 @@ struct TTIRToTTMetalPipelineOptions
   Option<std::string> globalDataFormatTarget{
       *this, "global-data-format-target",
       llvm::cl::desc("Target data format for global conversion: "
-                     "f32, bf16, or bfp_f8. Disabled by default."),
+                     "f32, bf16, or bfp_bf8. Disabled by default."),
       llvm::cl::init("")};
 };
 
