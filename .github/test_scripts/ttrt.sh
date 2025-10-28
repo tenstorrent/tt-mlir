@@ -10,6 +10,15 @@
 set -e -o pipefail
 
 echo "param 1: $1, param 2: $2, param 3: '$3'"
+echo "---dir: $BUILD_DIR:"
+ls -la $BUILD_DIR
+echo "-------------------"
+echo "---dir: $BUILD_DIR/test:"
+ls -la $BUILD_DIR/test
+echo "-------------------"
+echo "---dir: $BUILD_DIR/test/ttmlir:"
+ls -la $BUILD_DIR/test/ttmlir
+echo "-------------------"
 echo "---dir: $BUILD_DIR/test/ttmlir/$2:"
 ls -la $BUILD_DIR/test/ttmlir/$2
 echo "-------------------"
