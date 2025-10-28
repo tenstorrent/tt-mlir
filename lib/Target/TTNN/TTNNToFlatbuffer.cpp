@@ -1839,7 +1839,8 @@ createMaxPool2dWithIndicesOp(FlatbufferObjectCache &cache,
   auto in = cache.at<::tt::target::ttnn::TensorRef>(
       getOperandThroughDPSOps(op.getInput()));
   auto out = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer);
-  auto outIndices = cache.getOrCreate(op.getResultIndices(), tensorValueToFlatbuffer);
+  auto outIndices =
+      cache.getOrCreate(op.getResultIndices(), tensorValueToFlatbuffer);
 
   ::flatbuffers::Offset<::flatbuffers::Vector<int32_t>> kernelSize =
       toFlatbuffer(cache, op.getKernelSize());
@@ -1850,28 +1851,25 @@ createMaxPool2dWithIndicesOp(FlatbufferObjectCache &cache,
   ::flatbuffers::Offset<::flatbuffers::Vector<int32_t>> dilation =
       toFlatbuffer(cache, op.getDilation());
 
-  //::flatbuffers::Offset<::tt::target::ttnn::MemoryConfig> memoryConfig =
-  //    op.getMemoryConfig() ? toFlatbuffer(cache, *op.getMemoryConfig()) : 0;
+  // Get memory config from operation result
   auto memoryConfig = getMemoryConfigIfNeeded(cache, op);
 
   ::flatbuffers::Offset<void> extraParams = 0;
   ::tt::target::ttnn::Pool2dExtraParams extraParamsType;
 
   extraParamsType =
-        ::tt::target::ttnn::Pool2dExtraParams::MaxPool2dWithIndicesExtraParams;
+      ::tt::target::ttnn::Pool2dExtraParams::MaxPool2dWithIndicesExtraParams;
   extraParams =
-        ::tt::target::ttnn::CreateMaxPool2dWithIndicesExtraParams(*cache.fbb).Union();
+      ::tt::target::ttnn::CreateMaxPool2dWithIndicesExtraParams(*cache.fbb)
+          .Union();
 
   return ::tt::target::ttnn::CreateMaxPool2dWithIndicesOp(
-      *cache.fbb, in, out, outIndices,
-      op.getBatchSize(), op.getInputHeight(), op.getInputWidth(),
-      op.getChannels(), kernelSize, stride, padding, dilation,
-      extraParamsType,
-      extraParams, memoryConfig,
-      toFlatbuffer(cache, op.getAppliedShardScheme()),
-      op.getCeilMode(), op.getInPlaceHalo());
+      *cache.fbb, in, out, outIndices, op.getBatchSize(), op.getInputHeight(),
+      op.getInputWidth(), op.getChannels(), kernelSize, stride, padding,
+      dilation, extraParamsType, extraParams, memoryConfig,
+      toFlatbuffer(cache, op.getAppliedShardScheme()), op.getCeilMode(),
+      op.getInPlaceHalo());
 }
-
 
 ::flatbuffers::Offset<::tt::target::ttnn::GlobalAvgPool2dOp>
 createGlobalAvgPool2dOp(FlatbufferObjectCache &cache, GlobalAvgPool2dOp op) {
@@ -2834,9 +2832,9 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   }
   if (auto max_pool2d_with_indicesOp = dyn_cast<MaxPool2dWithIndicesOp>(op);
       max_pool2d_with_indicesOp) {
-    return createOperation(cache,
-                           createMaxPool2dWithIndicesOp(cache, max_pool2d_with_indicesOp),
-                           debugString, locInfo);
+    return createOperation(
+        cache, createMaxPool2dWithIndicesOp(cache, max_pool2d_with_indicesOp),
+        debugString, locInfo);
   }
   if (auto global_avg_pool2dOp = dyn_cast<GlobalAvgPool2dOp>(op);
       global_avg_pool2dOp) {

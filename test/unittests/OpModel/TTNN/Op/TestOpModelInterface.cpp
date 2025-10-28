@@ -2176,9 +2176,10 @@ TEST_F(OpModelBase, maxPool2dWithIndicesOp) {
       createEmptyTensor(tensorShapeO, builder.getBF16Type(),
                         CreateRowMajorLayout(tensorShapeO, BufferType::DRAM,
                                              TensorMemoryLayout::Interleaved));
-  auto indices = createEmptyTensor(tensorShapeO, builder.getI32Type(),
-                                   CreateRowMajorLayout(tensorShapeO, BufferType::DRAM,
-                                                        TensorMemoryLayout::Interleaved));
+  auto indices =
+      createEmptyTensor(tensorShapeO, builder.getIntegerType(16, false),
+                        CreateRowMajorLayout(tensorShapeO, BufferType::DRAM,
+                                             TensorMemoryLayout::Interleaved));
 
   // Input params
   int32_t batchSize = 1;
@@ -2187,8 +2188,8 @@ TEST_F(OpModelBase, maxPool2dWithIndicesOp) {
   int32_t numChannels = 32;
 
   // Pooling params
-  int32_t kernelHeight = 2;
-  int32_t kernelWidth = 2;
+  int32_t kernelHeight = 3;
+  int32_t kernelWidth = 3;
   int32_t strideHeight = 2;
   int32_t strideWidth = 2;
   int32_t dilationHeight = 1;
@@ -2208,11 +2209,10 @@ TEST_F(OpModelBase, maxPool2dWithIndicesOp) {
   // MaxPool2dWithIndicesOp returns 2 tensors: pooled values and indices
   auto maxPool2dWithIndices = builder.create<MaxPool2dWithIndicesOp>(
       builder.getUnknownLoc(),
-      mlir::TypeRange{pooledValues.getType(),
-                      indices.getType()},
-      input, batchSize, inputHeight, inputWidth, numChannels, kernelSize,
-      stride, padding, dilation, memoryConfigAttr, appliedShardScheme,
-      ceilMode, inPlaceHalo);
+      mlir::TypeRange{pooledValues.getType(), indices.getType()}, input,
+      batchSize, inputHeight, inputWidth, numChannels, kernelSize, stride,
+      padding, dilation, memoryConfigAttr, appliedShardScheme, ceilMode,
+      inPlaceHalo);
   maxPool2dWithIndices->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
 
   auto constraintsExp = getOpConstraints(maxPool2dWithIndices.getOperation());

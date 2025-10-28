@@ -5,20 +5,19 @@
 
 module attributes {} {
   func.func @max_pool2d_with_indices(%arg0: tensor<1x128x128x32xbf16>)
-      -> (tensor<1x64x64x32xbf16>, tensor<1x64x64x32xi32>) {
-    %0 = ttir.empty() : tensor<1x64x64x32xbf16>
-    %1 = ttir.empty() : tensor<1x64x64x32xi32>
+      -> (tensor<1x63x63x32xbf16>, tensor<1x63x63x32xi32>) {
+    %0 = ttir.empty() : tensor<1x63x63x32xbf16>
+    %1 = ttir.empty() : tensor<1x63x63x32xi32>
     %2, %3 = "ttir.max_pool2d_with_indices"(%arg0, %0, %1)
-      <{kernel = array<i32: 2, 2>,
+      <{kernel = array<i32: 3, 3>,
         stride = array<i32: 2, 2>,
         dilation = array<i32: 1, 1>,
         padding = array<i32: 0, 0, 0, 0>,
         ceil_mode = false}>
       : (tensor<1x128x128x32xbf16>,
-         tensor<1x64x64x32xbf16>,
-         tensor<1x64x64x32xi32>)
-        -> (tensor<1x64x64x32xbf16>, tensor<1x64x64x32xi32>)
-    return %2, %3 : tensor<1x64x64x32xbf16>, tensor<1x64x64x32xi32>
+         tensor<1x63x63x32xbf16>,
+         tensor<1x63x63x32xi32>)
+        -> (tensor<1x63x63x32xbf16>, tensor<1x63x63x32xi32>)
+    return %2, %3 : tensor<1x63x63x32xbf16>, tensor<1x63x63x32xi32>
   }
 }
-

@@ -1565,21 +1565,22 @@ TEST_F(OpModelTest, MaxPool2dWithIndices) {
   int32_t inputHeight = 128;
   int32_t inputWidth = 128;
   int32_t inputChannels = 32;
-  llvm::SmallVector<int32_t> kernelSize = {2, 2};
+  llvm::SmallVector<int32_t> kernelSize = {3, 3};
   llvm::SmallVector<int32_t> stride = {2, 2};
   llvm::SmallVector<int32_t> padding = {0, 0};
   llvm::SmallVector<int32_t> dilation = {1, 1};
   bool ceilMode = false;
   bool inPlaceHalo = false;
 
-  auto constraintsExp = op_model::OpModel<MaxPool2dWithIndicesOp>::getOpConstraints(
-      CreateWorkerGrid(), inputShape, layoutDRAM, batchSize, inputHeight, 
-      inputWidth, inputChannels, kernelSize, stride, padding, dilation,
-      ceilMode, inPlaceHalo, layoutDRAM);
+  auto constraintsExp =
+      op_model::OpModel<MaxPool2dWithIndicesOp>::getOpConstraints(
+          CreateWorkerGrid(), inputShape, layoutDRAM, batchSize, inputHeight,
+          inputWidth, inputChannels, kernelSize, stride, padding, dilation,
+          ceilMode, inPlaceHalo, layoutDRAM);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   OpConstraints &opCstr = constraintsExp.get();
   EXPECT_GT(opCstr.cbL1PeakSize, 0);
-  EXPECT_EQ(opCstr.tensorL1PeakSize, 32840);
+  EXPECT_EQ(opCstr.tensorL1PeakSize, 43116);
   EXPECT_EQ(opCstr.outputL1BufferSize, 0);
 
   auto runtimeExp = op_model::OpModel<MaxPool2dWithIndicesOp>::getOpRuntime(
@@ -1600,20 +1601,21 @@ TEST_F(OpModelTest, MaxPool2dWithIndices) {
 
   runtimeExp = op_model::OpModel<MaxPool2dWithIndicesOp>::getOpRuntime(
       inputShape, layoutDRAM, batchSize, inputHeight, inputWidth, inputChannels,
-      kernelSize, stride, padding, dilation, ceilMode, inPlaceHalo, layoutL1Interleaved);
+      kernelSize, stride, padding, dilation, ceilMode, inPlaceHalo,
+      layoutL1Interleaved);
   EXPECT_TRUE(static_cast<bool>(runtimeExp));
   EXPECT_TRUE(runtimeExp.get() > 0);
 
   constraintsExp = op_model::OpModel<MaxPool2dWithIndicesOp>::getOpConstraints(
-      CreateWorkerGrid(), inputShape, layoutL1Interleaved, batchSize, inputHeight,
-      inputWidth, inputChannels, kernelSize, stride, padding, dilation,
-      ceilMode, inPlaceHalo, layoutL1WSharded);
+      CreateWorkerGrid(), inputShape, layoutL1Interleaved, batchSize,
+      inputHeight, inputWidth, inputChannels, kernelSize, stride, padding,
+      dilation, ceilMode, inPlaceHalo, layoutL1WSharded);
   EXPECT_FALSE(static_cast<bool>(constraintsExp));
   llvm::consumeError(constraintsExp.takeError());
 
   runtimeExp = op_model::OpModel<MaxPool2dWithIndicesOp>::getOpRuntime(
-      inputShape, layoutL1Interleaved, batchSize, inputHeight, inputWidth, 
-      inputChannels, kernelSize, stride, padding, dilation, ceilMode, 
+      inputShape, layoutL1Interleaved, batchSize, inputHeight, inputWidth,
+      inputChannels, kernelSize, stride, padding, dilation, ceilMode,
       inPlaceHalo, layoutL1WSharded);
   EXPECT_FALSE(static_cast<bool>(runtimeExp));
   llvm::consumeError(runtimeExp.takeError());
