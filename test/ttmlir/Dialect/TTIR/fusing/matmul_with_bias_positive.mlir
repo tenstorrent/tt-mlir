@@ -165,3 +165,22 @@ module {
     return %12 : tensor<1x16x256x256xbf16>
   }
 }
+
+module {
+  func.func @dot_general_with_bias_9(%arg0: tensor<68x1024xf32>, %arg1: tensor<1024x1024xf32>, %bias: tensor<1024xf32>) -> tensor<68x1024xf32> {
+    // CHECK: func.func @dot_general_with_bias_9
+    // CHECK: "ttir.linear"(%arg0, %arg1, %arg2, %0)
+    // CHECK-NOT: "ttir.dot_general"
+    // CHECK-NOT: "ttir.matmul"
+    // CHECK-NOT: "ttir.add"
+    %0 = ttir.empty() : tensor<68x1024xf32>
+    %1 = "ttir.dot_general"(%arg0, %arg1) <{batch_dims_lhs = array<i64>, batch_dims_rhs = array<i64>, contract_dims_lhs = array<i64: 1>, contract_dims_rhs = array<i64: 0>}> : (tensor<68x1024xf32>, tensor<1024x1024xf32>) -> (tensor<68x1024xf32>)
+    %2 = ttir.empty() : tensor<1x1024xf32>
+    %3 = "ttir.reshape" (%bias, %2) <{shape = [1 : i32, 1024 : i32]}> : (tensor<1024xf32>, tensor<1x1024xf32>) -> tensor<1x1024xf32>
+    %4 = ttir.empty() : tensor<68x1024xf32>
+    %5 = "ttir.broadcast"(%3, %4) <{broadcast_dimensions = array<i64: 68, 1>}> : (tensor<1x1024xf32>, tensor<68x1024xf32>) -> tensor<68x1024xf32>
+    %6 = ttir.empty() : tensor<68x1024xf32>
+    %7 = "ttir.add"(%1, %5, %6) : (tensor<68x1024xf32>, tensor<68x1024xf32>, tensor<68x1024xf32>) -> tensor<68x1024xf32>
+    return %7 : tensor<68x1024xf32>
+  }
+}
