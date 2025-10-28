@@ -1430,12 +1430,11 @@ private:
         // This is an unsqueeze operation. Check that reshape input is broadcast
         // compatible with MatmulOp output.
         llvm::SmallVector<int64_t> broadcastedShape;
-        if (!OpTrait::util::getBroadcastedShape(matmulOp.getType().getShape(),
-                                                reshapeInputType.getShape(),
-                                                broadcastedShape)) {
-          return nullptr;
+        if (OpTrait::util::getBroadcastedShape(matmulOp.getType().getShape(),
+                                               reshapeInputType.getShape(),
+                                               broadcastedShape)) {
+          return reshapeInput;
         }
-        return reshapeInput;
       }
     }
 
