@@ -7,6 +7,7 @@
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
+#include "ttmlir/Dialect/TTNN/Interfaces/OpModelError.h"
 #include "ttmlir/Support/Logger.h"
 
 #include "mlir/IR/BuiltinOps.h"
@@ -19,22 +20,20 @@ namespace mlir::tt::ttnn {
 
 namespace op_constraint_validation {
 
-llvm::Expected<ValidationResult>
-validateOperation(Operation *op, llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
-                  const OpConfig &config, float tensorL1UsageCap) {
+static ValidationResult
+validateConstraints(Operation *op, llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
+                    const OpConfig &config, float tensorL1UsageCap);
 
-  // Call core constraint validation.
-  auto constraintResult =
-      validateConstraints(op, inputLayouts, config, tensorL1UsageCap);
+//----------- Public API implementations ----------
 
-  if (constraintResult) {
-    TTNNLayoutAttr actualOutput = constraintResult.get();
-    return ValidationResult(0, actualOutput);
-  }
-  return constraintResult.takeError();
+ValidationResult validateOperation(Operation *op,
+                                   llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
+                                   const OpConfig &config,
+                                   float tensorL1UsageCap) {
+  return validateConstraints(op, inputLayouts, config, tensorL1UsageCap);
 }
 
-llvm::Expected<std::vector<ValidationResult>> validateWithMultipleAttributes(
+std::vector<ValidationResult> validateWithMultipleAttributes(
     Operation *op, llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
     llvm::ArrayRef<OpConfig> opConfigs,
     llvm::ArrayRef<OpConfig> referenceConfigs, float tensorL1UsageCap) {
@@ -42,45 +41,46 @@ llvm::Expected<std::vector<ValidationResult>> validateWithMultipleAttributes(
   std::vector<ValidationResult> results;
   for (const auto &testConfig : opConfigs) {
     // 1. Call core constraint checking.
-    auto constraintResult =
+    ValidationResult constraintResult =
         validateConstraints(op, inputLayouts, testConfig, tensorL1UsageCap);
 
-    if (constraintResult) {
-      TTNNLayoutAttr actualOutput = constraintResult.get();
+    // If not supported, backend error, or validation error - add to results
+    // and continue (don't fail early, collect all results)
+    if (!constraintResult.isSuccess()) {
+      results.push_back(constraintResult);
+      continue;
+    }
 
-      // 2. Search referenceConfigs for matching (outputLayout +
-      // opSpecificAttr).
-      if (!referenceConfigs.empty()) {
-        bool foundMatch = false;
-        for (size_t i = 0; i < referenceConfigs.size(); ++i) {
-          if (referenceConfigs[i].outputLayout == actualOutput &&
-              referenceConfigs[i].opSpecificAttrs ==
-                  testConfig.opSpecificAttrs) {
-            results.push_back(ValidationResult(i, actualOutput));
-            foundMatch = true;
-            break;
-          }
-        }
+    TTNNLayoutAttr actualOutput = constraintResult.actualOutputLayout;
 
-        if (!foundMatch) {
-          // No matching config found - return early with error
-          return llvm::createStringError("No matching reference config found");
+    // 2. Search referenceConfigs for matching (outputLayout + opSpecificAttr).
+    if (!referenceConfigs.empty()) {
+      bool foundMatch = false;
+      for (size_t i = 0; i < referenceConfigs.size(); ++i) {
+        if (referenceConfigs[i].outputLayout == actualOutput &&
+            referenceConfigs[i].opSpecificAttrs == testConfig.opSpecificAttrs) {
+          results.push_back(ValidationResult::success(i, actualOutput));
+          foundMatch = true;
+          break;
         }
-      } else {
-        // No reference configs to search - consider validation success as
-        // match.
-        results.push_back(ValidationResult(0, actualOutput));
+      }
+
+      if (!foundMatch) {
+        results.push_back(ValidationResult::validationError(
+            "No matching reference config found"));
       }
     } else {
-      // Constraint checking failed - return early with error
-      return constraintResult.takeError();
+      // No reference configs to search - consider validation success as match.
+      results.push_back(ValidationResult::success(0, actualOutput));
     }
   }
 
   return results;
 }
 
-llvm::Expected<TTNNLayoutAttr>
+// ----------- Core constraint validation implementation ----------
+
+static ValidationResult
 validateConstraints(Operation *op, llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
                     const OpConfig &config, float tensorL1UsageCap) {
 
@@ -95,7 +95,8 @@ validateConstraints(Operation *op, llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
   // Constraints are implemented for this op.
   auto deviceAttr = ttcore::lookupDevice(op);
   if (!deviceAttr) {
-    return llvm::createStringError("No device attribute found for operation");
+    return ValidationResult::validationError(
+        "No device attribute found for operation");
   }
 
   TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,
@@ -113,17 +114,25 @@ validateConstraints(Operation *op, llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
       backend.getOpConstraints(inputLayouts, config);
 
   if (!l1UsageExp) {
-    llvm::Error error = l1UsageExp.takeError();
+    // Check if this is a "not supported" error by trying to handle it
+    ValidationResult result;
+    llvm::handleAllErrors(
+        l1UsageExp.takeError(),
+        [&](ttnn::detail::OpNotSupportedError &notSupportedErr) {
+          result = ValidationResult::notSupported(notSupportedErr.message());
+        },
+        [&](llvm::ErrorInfoBase &otherErr) {
+          std::string errorMsg = otherErr.message();
+          TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,
+                       "OpModel constraints failed: {} @ {} :: \n{}"
+                       "\n\tconfig.outputLayout: {}",
+                       op->getName(), op->getLoc(),
+                       ttmlir::utils::firstNLines(errorMsg, 8),
+                       config.outputLayout);
+          result = ValidationResult::backendError(std::move(errorMsg));
+        });
 
-    TTMLIR_DEBUG(
-        ttmlir::LogComponent::OpValidation,
-        "OpModel constraints failed: {} @ {} :: \n{}"
-        "\n\tconfig.outputLayout: {}",
-        op->getName(), op->getLoc(),
-        ttmlir::utils::firstNLines(llvm::toStringWithoutConsuming(error), 8),
-        config.outputLayout);
-
-    return llvm::Expected<TTNNLayoutAttr>(std::move(error));
+    return result;
   }
 
   auto [cBUsagePeak, tensorUsage, peakMemoryUsage, outputTensorUsage,
@@ -161,7 +170,7 @@ validateConstraints(Operation *op, llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
                  op->getName(), totalInputL1Usage, tensorUsage, cBUsagePeak,
                  totalInputL1Usage + tensorUsage + cBUsagePeak,
                  static_cast<uint64_t>(tensorL1UsageCap * usableL1CacheSize));
-    return llvm::createStringError("Not enough L1 memory");
+    return ValidationResult::validationError("Not enough L1 memory");
   }
 
   TTMLIR_DEBUG(
@@ -172,7 +181,7 @@ validateConstraints(Operation *op, llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
       op->getName(), outputLayout, cBUsagePeak, tensorUsage, outputTensorUsage,
       totalInputL1Usage, cBUsagePeak + tensorUsage + totalInputL1Usage);
 
-  return outputLayout;
+  return ValidationResult::success(0, outputLayout);
 }
 
 } // namespace op_constraint_validation
