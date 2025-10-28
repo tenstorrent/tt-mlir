@@ -29,7 +29,6 @@ uint64_t countTms(Operation *op) {
       }
     }
   });
-
   return tmCount;
 }
 
@@ -70,7 +69,6 @@ public:
       uint64_t iter = 0;
       // The number of TM is expected to converge before maxIterations (default:
       // 100) is reached.
-
       for (; iter < maxIterationsValue; ++iter) {
         // We do not yet have a way of returning the beginning state of the
         // graph So we will return after we have commuted the TMs above at least
