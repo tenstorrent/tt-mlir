@@ -323,10 +323,14 @@ struct EmitPyTypeConverter<mlir::tt::ttnn::Topology> {
 
   static std::string convert(::mlir::tt::ttnn::Topology topology) {
     switch (topology) {
-    case ::mlir::tt::ttnn::Topology::Linear:
-      return "ttnn.Topology.Linear";
     case ::mlir::tt::ttnn::Topology::Ring:
       return "ttnn.Topology.Ring";
+    case ::mlir::tt::ttnn::Topology::Linear:
+      return "ttnn.Topology.Linear";
+    case ::mlir::tt::ttnn::Topology::Mesh:
+      return "ttnn.Topology.Mesh";
+    case ::mlir::tt::ttnn::Topology::Torus:
+      return "ttnn.Topology.Torus";
     }
     llvm_unreachable("Unknown ttnn.Topology");
   }
