@@ -60,6 +60,72 @@ struct TensorInfo {
     return layout->getGridShape(type);
   }
 };
+
+// Helper to analyze compound ToLayoutOp transformations
+struct CompoundComponents {
+  bool isMemorySpaceChange = false;
+  bool isFormatChange = false;
+  bool isMappingChange = false;
+
+  bool isCompound() const {
+    int count = 0;
+    if (isMemorySpaceChange) {
+      count++;
+    }
+    if (isFormatChange) {
+      count++;
+    }
+    if (isMappingChange) {
+      count++;
+    }
+    return count > 1;
+  }
+
+  static CompoundComponents analyze(Value input, Value output) {
+    auto inputInfo = TensorInfo::from(input);
+    auto outputInfo = TensorInfo::from(output);
+
+    CompoundComponents result;
+
+    // Check memory space change
+    result.isMemorySpaceChange =
+        (inputInfo.getMemorySpace() != outputInfo.getMemorySpace());
+
+    // Check format change (element type)
+    result.isFormatChange =
+        (inputInfo.type.getElementType() != outputInfo.type.getElementType());
+
+    // Check mapping change (everything else):
+    // - Grid shape changes
+    // - Tensor shape changes (collapsed_intervals, alignments)
+    // - Memory layout type changes (row-major, blocked, etc.)
+    // - Index map changes
+    if (inputInfo.hasLayout() && outputInfo.hasLayout() &&
+        !result.isMemorySpaceChange && !result.isFormatChange) {
+
+      auto inputLayout = *inputInfo.layout;
+      auto outputLayout = *outputInfo.layout;
+
+      // Different tensor shapes
+      bool shapeChanged =
+          (inputInfo.type.getShape() != outputInfo.type.getShape());
+
+      // Different memory layout types
+      bool memLayoutChanged =
+          (inputLayout.getMemoryLayout() != outputLayout.getMemoryLayout());
+
+      // Different index maps
+      bool indexMapChanged =
+          (inputLayout.getIndexAffineMap() != outputLayout.getIndexAffineMap());
+
+      result.isMappingChange =
+          shapeChanged || memLayoutChanged || indexMapChanged;
+    }
+
+    return result;
+  }
+};
+
 } // namespace
 
 namespace {
@@ -72,10 +138,149 @@ public:
 
   using OpRewritePattern<ToLayoutOp>::OpRewritePattern;
 
-  static LogicalResult lowerLayoutChange(PatternRewriter &rewriter,
-                                         ToLayoutOp op) {
-    assert(false &&
-           "TODO issue https://github.com/tenstorrent/tt-mlir/issues/3037");
+  // Lower mapping changes via View (zero-copy) or Stream (lazy materialization)
+  static LogicalResult lowerMappingChange(PatternRewriter &rewriter,
+                                          ToLayoutOp op) {
+    auto inputInfo = TensorInfo::from(op.getInput());
+    auto outputInfo = TensorInfo::from(op.getOutput());
+
+    // Preconditions - these should be guaranteed by the split/compound logic
+    assert(inputInfo.hasLayout() && outputInfo.hasLayout() &&
+           "Mapping change requires both input and output to have layouts");
+    assert(inputInfo.getMemorySpace() == outputInfo.getMemorySpace() &&
+           "Mapping change should not change memory space");
+    assert(inputInfo.type.getElementType() ==
+               outputInfo.type.getElementType() &&
+           "Mapping change should not change element type");
+
+    auto inputLayout = *inputInfo.layout;
+    auto outputLayout = *outputInfo.layout;
+
+    // Decision: View or Stream?
+    // View is valid when:
+    // 1. Tensor shapes match exactly (device shapes after grid distribution)
+    // 2. Memory layout type matches (sharded, interleaved, etc.)
+    //
+    // If these hold, the transformation is zero-copy and can be expressed
+    // purely through affine map composition.
+    bool sameShape = (inputInfo.type.getShape() == outputInfo.type.getShape());
+    bool sameMemLayout =
+        (inputLayout.getMemoryLayout() == outputLayout.getMemoryLayout());
+
+    if (sameShape && sameMemLayout) {
+      // Zero-copy transformation -> use ViewLayoutOp with affine map
+      return lowerAsView(rewriter, op, inputInfo, outputInfo);
+    }
+
+    // Different tensor shapes or memory layout -> requires data movement
+    // Use StreamLayoutOp for lazy materialization with transformation map
+    return lowerAsStream(rewriter, op, inputInfo, outputInfo);
+  }
+
+  static LogicalResult lowerAsView(PatternRewriter &rewriter, ToLayoutOp op,
+                                   const TensorInfo &inputInfo,
+                                   const TensorInfo &outputInfo) {
+    auto inputLayout = *inputInfo.layout;
+    auto outputLayout = *outputInfo.layout;
+
+    // When device shapes match, we can use a simple index map composition
+    // without going through logical space. The index maps operate on the
+    // device tensor dimensions directly.
+    //
+    // For example, if both tensors are [2,4,32,32] and we want to transpose
+    // the logical view, we compose their 2D logical index maps, not build
+    // a 4D device-to-device transformation.
+
+    auto inputIndexMap = inputLayout.getIndexAffineMap();
+    auto outputIndexMap = outputLayout.getIndexAffineMap();
+    size_t logicalRank = inputLayout.getLogicalShape().size();
+
+    // Compose: output_logical -> input_logical
+    // This gives us the view relationship at the logical level
+    auto viewMap = composeLogicalIndexMaps(rewriter.getContext(), inputIndexMap,
+                                           outputIndexMap, logicalRank);
+
+    // Apply the composed map as the index map on the output layout
+    auto newLayout = ttcore::MetalLayoutAttr::get(
+        rewriter.getContext(), outputLayout.getLogicalShape(),
+        outputLayout.getDimAlignments(), outputLayout.getCollapsedIntervals(),
+        outputLayout.getOobVal(), outputLayout.getMemorySpace(),
+        outputLayout.getMemoryLayout(), viewMap);
+
+    auto resultType =
+        RankedTensorType::get(outputInfo.type.getShape(),
+                              outputInfo.type.getElementType(), newLayout);
+
+    rewriter.replaceOpWithNewOp<ViewLayoutOp>(op, resultType, op.getInput(),
+                                              /*reinterpretLayout=*/true);
+
+    return success();
+  }
+
+  // Compose two logical-level index maps for view operations
+  // When device shapes match, we operate on logical coordinates
+  //
+  // The index map transforms from logical coordinates to physical coordinates.
+  // When creating a view from input to output, we want to express:
+  //   "where output logical coords map in terms of input logical coords"
+  //
+  // Since both layouts share the same device/physical memory, and:
+  //   input_physical = inputMap(input_logical)
+  //   output_physical = outputMap(output_logical)
+  //   input_physical = output_physical (same device shape)
+  //
+  // Therefore: inputMap(input_logical) = outputMap(output_logical)
+  // Solving: input_logical = inputMap^(-1)(outputMap(output_logical))
+  //
+  // For the view, we just need to store the output's index map directly,
+  // since the ViewLayoutOp will reinterpret the input tensor's memory
+  // using the output's index map.
+  static AffineMap composeLogicalIndexMaps(MLIRContext *ctx,
+                                           AffineMap inputIndexMap,
+                                           AffineMap outputIndexMap,
+                                           size_t logicalRank) {
+    // When device shapes match, the output's index map becomes the view's
+    // index map. The ViewLayoutOp will reinterpret the input memory using
+    // this map.
+    if (outputIndexMap.isEmpty()) {
+      return AffineMap::getMultiDimIdentityMap(logicalRank, ctx);
+    }
+    return outputIndexMap;
+  }
+
+  static LogicalResult lowerAsStream(PatternRewriter &rewriter, ToLayoutOp op,
+                                     const TensorInfo &inputInfo,
+                                     const TensorInfo &outputInfo) {
+    // Use StreamLayoutOp with the affine transformation map.
+    // The map describes how to transform from input device coordinates
+    // to output device coordinates, going through the shared logical space.
+    //
+    // We attach this map to the output's MetalLayoutAttr's indexAffineMap,
+    // similar to how ViewLayoutOp works. This map will be used when the
+    // stream is materialized (during bufferization or by consumer passes).
+
+    auto inputLayout = *inputInfo.layout;
+    auto outputLayout = *outputInfo.layout;
+
+    // Build the full device-to-device transformation via affine maps
+    auto transformMap = utils::buildLayoutTransformMap(
+        inputLayout, inputInfo.type, outputLayout, outputInfo.type);
+
+    // Create the output layout with the transformation map
+    auto newOutputLayout = ttcore::MetalLayoutAttr::get(
+        rewriter.getContext(), outputLayout.getLogicalShape(),
+        outputLayout.getDimAlignments(), outputLayout.getCollapsedIntervals(),
+        outputLayout.getOobVal(), outputLayout.getMemorySpace(),
+        outputLayout.getMemoryLayout(), transformMap);
+
+    auto streamType = RankedTensorType::get(outputInfo.type.getShape(),
+                                            outputInfo.type.getElementType(),
+                                            newOutputLayout);
+
+    rewriter.replaceOpWithNewOp<StreamLayoutOp>(op, streamType, op.getInput(),
+                                                op.getOutput());
+
+    return success();
   }
 
   static LogicalResult lowerSystemLayoutChange(PatternRewriter &rewriter,
@@ -237,7 +442,8 @@ public:
 
   LogicalResult matchAndRewrite(ToLayoutOp op,
                                 PatternRewriter &rewriter) const final {
-    auto components = op.compoundComponents();
+    auto components =
+        CompoundComponents::analyze(op.getInput(), op.getOutput());
 
     if (components.isCompound()) {
       return failure();
@@ -254,11 +460,8 @@ public:
       return failure();
     }
 
-    if (components.isLayoutChange) {
-      return lowerLayoutChange(rewriter, op);
-    }
-
-    if (components.isGridChange || components.isMemorySpaceChange) {
+    // Route to appropriate lowering based on what's changing
+    if (components.isMemorySpaceChange) {
       return lowerDatamovementGeneric(rewriter, op);
     }
 
@@ -266,7 +469,12 @@ public:
       return lowerFormatConversionGeneric(rewriter, op);
     }
 
-    llvm_unreachable("Unknown compound component");
+    if (components.isMappingChange) {
+      return lowerMappingChange(rewriter, op);
+    }
+
+    // No changes? This shouldn't happen but handle gracefully
+    llvm_unreachable("ToLayoutOp with no detectable changes");
   }
 
   ArrayRef<int64_t> getTargetGridShape() const { return targetGridShape; }
@@ -425,7 +633,8 @@ public:
 
   LogicalResult matchAndRewrite(ToLayoutOp op,
                                 PatternRewriter &rewriter) const final {
-    auto components = op.compoundComponents();
+    auto components =
+        CompoundComponents::analyze(op.getInput(), op.getOutput());
 
     if (!components.isCompound()) {
       return failure();
@@ -506,8 +715,8 @@ public:
             ttcore::getTensorTileShape(outputInfo.type));
         bounce(rewriter, op, bounceType);
       }
-    } else if (components.isLayoutChange && ttcore::isTiled(inputInfo.type)) {
-      // Layout change with tiled data - bounce through scalar.
+    } else if (components.isMappingChange && ttcore::isTiled(inputInfo.type)) {
+      // Mapping change with tiled data - bounce through scalar.
       Type scalarType = inputInfo.type.getElementType();
       if (auto tileType = mlir::dyn_cast<ttcore::TileType>(scalarType)) {
         scalarType = tileType.getElementType();
@@ -519,13 +728,7 @@ public:
           /*newTensorGrid=*/{}, scalarType,
           /*tileShape=*/std::nullopt);
       bounce(rewriter, op, bounceType);
-    } else if (components.isGridChange) {
-      // Grid change - create intermediate with input's grid but output's
-      // layout.
-      auto bounceType = typeBuilder.modifyDeviceType(
-          outputInfo.type, *outputInfo.layout, getTargetGridShape(),
-          /*memSpace=*/{}, inputInfo.getGridShape());
-      bounce(rewriter, op, bounceType);
+
     } else {
       // Note we should eventually support DRAM <-> DRAM, or System <-> System
       // w/ format conversion via streaming supported.

@@ -303,70 +303,6 @@ verifyLayoutOp(mlir::Operation *op, const char *aName, const char *bName,
                         /*checkSameShardShape*/ false);
 }
 
-// ToLayoutOp utility methods
-ToLayoutOp::CompoundComponents ToLayoutOp::compoundComponents() {
-  CompoundComponents components;
-
-  auto inputType = getInput().getType();
-  auto outputType = getOutput().getType();
-
-  TT_assertv(mlir::isa<mlir::RankedTensorType>(inputType),
-             "ToLayoutOp::compoundComponents() is only supported on tensors.");
-
-  auto inputTensor = mlir::cast<mlir::RankedTensorType>(inputType);
-  auto outputTensor = mlir::cast<mlir::RankedTensorType>(outputType);
-
-  ttcore::MetalLayoutAttr inputLayout =
-      mlir::dyn_cast_if_present<ttcore::MetalLayoutAttr>(
-          inputTensor.getEncoding());
-  ttcore::MetalLayoutAttr outputLayout =
-      mlir::dyn_cast_if_present<ttcore::MetalLayoutAttr>(
-          outputTensor.getEncoding());
-
-  const bool hasInputLayout = inputLayout != nullptr;
-  const bool hasOutputLayout = outputLayout != nullptr;
-
-  // Layout versus no layout special case.
-  if (hasInputLayout != hasOutputLayout) {
-    // Always treat this as purely a host <-> device transition.
-    components.isMemorySpaceChange = true;
-    components.isGridChange = false;
-    components.isFormatChange =
-        inputTensor.getElementType() != outputTensor.getElementType();
-    components.isLayoutChange = false;
-    return components;
-  }
-
-  // Both lack layouts special case--purely host-side operation.
-  if (!hasInputLayout && !hasOutputLayout) {
-    components.isMemorySpaceChange = false;
-    components.isGridChange = false;
-    components.isLayoutChange = false;
-    components.isFormatChange =
-        inputTensor.getElementType() != outputTensor.getElementType();
-    return components;
-  }
-
-  // Both have layouts--do a full comparison.
-  components.isMemorySpaceChange =
-      inputLayout.getMemorySpace() != outputLayout.getMemorySpace();
-
-  auto inputGrid = inputLayout.getGridShape(inputTensor);
-  auto outputGrid = outputLayout.getGridShape(outputTensor);
-  components.isGridChange = inputGrid != outputGrid;
-
-  components.isFormatChange =
-      inputTensor.getElementType() != outputTensor.getElementType();
-
-  // Check layout (collapsed intervals and alignments).
-  components.isLayoutChange =
-      inputLayout.getNormalizedIntervals() !=
-          outputLayout.getNormalizedIntervals() ||
-      inputLayout.getDimAlignments() != outputLayout.getDimAlignments();
-
-  return components;
-}
-
 mlir::LogicalResult
 ToLayoutOp::fold(FoldAdaptor,
                  llvm::SmallVectorImpl<::mlir::OpFoldResult> &results) {
@@ -642,7 +578,7 @@ mlir::LogicalResult StreamLayoutOp::verify() {
       *this, "input", "storage", getInput().getType(), getStorage().getType(),
       /*checkSameElementType*/ true,
       /*checkSameMemorySpace*/ false,
-      /*checkSameRank*/ true,
+      /*checkSameRank*/ false, // CHANGED: Allow rank changes
       /*checkSameGridShape*/ false,
       /*checkSameShardShape*/ false);
   if (failed(inputStorageVerification)) {
@@ -653,7 +589,7 @@ mlir::LogicalResult StreamLayoutOp::verify() {
       *this, "storage", "result", getStorage().getType(), getResult().getType(),
       /*checkSameElementType*/ true,
       /*checkSameMemorySpace*/ false,
-      /*checkSameRank*/ true,
+      /*checkSameRank*/ true, // Keep: storage and result should match
       /*checkSameGridShape*/ false,
       /*checkSameShardShape*/ true);
   if (failed(storageResultVerification)) {
@@ -664,7 +600,7 @@ mlir::LogicalResult StreamLayoutOp::verify() {
       *this, "input", "result", getInput().getType(), getResult().getType(),
       /*checkSameElementType*/ true,
       /*checkSameMemorySpace*/ true,
-      /*checkSameRank*/ true,
+      /*checkSameRank*/ false, // CHANGED: Allow rank changes
       /*checkSameGridShape*/ false,
       /*checkSameShardShape*/ false);
   if (failed(inputResultVerification)) {
