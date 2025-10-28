@@ -115,7 +115,7 @@ jobs:
       shell: bash
       env:
         GH_TOKEN: ${{ secrets.GH_TOKEN }}
-        TTRT_LOGGER_LEVEL: "WARNING"
+        # TTRT_LOGGER_LEVEL: "WARNING"
         LOGURU_LEVEL: "ERROR"
         TT_METAL_LOGGER_LEVEL: "FATAL"
       run: |
