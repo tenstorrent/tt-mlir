@@ -3603,10 +3603,8 @@ public:
         srcOp, adaptor, rewriter);
 
     llvm::SmallVector<mlir::Attribute> args{
-        emitter.emit(srcOp.getInput()),
-        emitter.emit(srcOp.getOutputMemConfig()),
-        emitter.emit(srcOp.getOutputDtype()),
-        emitter.emit(srcOp.getOptionalOutputTensor())};
+        emitter.emit(srcOp.getInput()), emitter.emit(srcOp.getMemoryConfig()),
+        emitter.emit(srcOp.getDtype())};
 
     emitter.replaceOp(*this, args);
 

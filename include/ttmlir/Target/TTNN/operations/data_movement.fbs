@@ -9,7 +9,6 @@ table AssignOp {
   output: tt.target.ttnn.TensorRef;
   output_memory_config: tt.target.ttnn.MemoryConfig;
   output_dtype: tt.target.DataType = null;
-  optional_output_tensor: tt.target.ttnn.TensorRef;
 }
 
 table ConcatOp {

@@ -4144,46 +4144,14 @@ mlir::tt::ttnn::ScaledDotProductAttentionDecodeOp::verify() {
     return emitOpError() << "input and output tensor must have the same shape";
   }
 
-  TTNNLayoutAttr outputLayoutAttr =
-      mlir::cast<TTNNLayoutAttr>(outputType.getEncoding());
-  // MemoryConfig
+  // Determine expected output data type.
+  ttcore::DataType expectedOutputDType =
+      getDtype() ? getDtype().value() : inputDType;
 
-  if (getOutputMemConfig().getBufferType().getValue() !=
-      outputLayoutAttr.getBufferType()) {
-    return emitOpError(
-        "Buffer type mismatch between op and output memory config");
-  }
-  if (getOutputMemConfig().getTensorMemoryLayout() !=
-      outputLayoutAttr.getMemLayout()) {
-    return emitOpError(
-        "Tensor memory layout mismatch between op and output memory config");
-  }
-
-  // Verify optional output tensor if present.
-  if (getOptionalOutputTensor()) {
-    RankedTensorType optionalOutputTensorType =
-        getOptionalOutputTensor().getType();
-    if (optionalOutputTensorType.getShape() != inputType.getShape()) {
-      return emitOpError() << "optional output tensor must have the same "
-                              "shape as the input tensor";
-    }
-    ttcore::DataType optionalOutputDType =
-        mlir::tt::ttcore::elementTypeToDataType(
-            optionalOutputTensorType.getElementType());
-    if (optionalOutputDType != outputDType) {
-      return emitOpError() << "optional output tensor data type does not "
-                              "match output tensor data type";
-    }
-  } else {
-    // Determine expected output data type.
-    ttcore::DataType expectedOutputDType =
-        getOutputDtype() ? getOutputDtype().value() : inputDType;
-
-    // Verify output tensor data type.
-    if (outputDType != expectedOutputDType) {
-      return emitOpError() << "output tensor data type does not match expected "
-                              "output data type";
-    }
+  // Verify output tensor data type.
+  if (outputDType != expectedOutputDType) {
+    return emitOpError() << "output tensor data type does not match expected "
+                            "output data type";
   }
 
   return success();

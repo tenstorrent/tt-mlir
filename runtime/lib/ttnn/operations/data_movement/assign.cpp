@@ -32,9 +32,8 @@ void run(const ::tt::target::ttnn::AssignOp *op, ProgramContext &context) {
         ::tt::runtime::ttnn::utils::toTTNNDataType(*op->output_dtype());
   }
 
-  std::optional<::ttnn::Tensor> optionalOutputTensor = std::nullopt;
-  ::ttnn::Tensor output =
-      ::ttnn::assign(in, memoryConfig, outputDtype, optionalOutputTensor);
+  ::ttnn::Tensor output = ::ttnn::assign(in, memoryConfig, outputDtype,
+                                         std::nullopt /*optionalOutputTensor*/);
   tensorPool.insertTTNNTensorAndValidate(op->output(), output);
 }
 } // namespace tt::runtime::ttnn::operations::data_movement
