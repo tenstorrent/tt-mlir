@@ -3032,6 +3032,12 @@ public:
                   mlir::stablehlo::PadOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
+    LogicalResult legalityResult =
+        checkConversionLegality(srcOp, adaptor, rewriter);
+    if (!legalityResult.succeeded()) {
+      return legalityResult;
+    }
+
     ttir::ConstantOp valueDef =
         getConstantValueDefiningOp(adaptor.getPaddingValue());
 
@@ -3055,24 +3061,23 @@ public:
     if (sum != 0) {
       auto fullOp = rewriter.create<ttir::FullOp>(
           srcOp.getLoc(), outputType, rewriter.getF32FloatAttr(value));
-      std::vector<int64_t> upperbounds;
-      for (int64_t upperbound : outputType.getShape()) {
-        upperbounds.push_back(upperbound);
-      }
+      llvm::SmallVector<int64_t> upperbounds;
+      llvm::copy(outputType.getShape(), std::back_inserter(upperbounds));
       int64_t index = 0;
       for (int64_t pad : srcOp.getEdgePaddingHigh()) {
         upperbounds[index] -= pad;
         index++;
       }
 
-      std::vector<int64_t> counters;
-      std::vector<int64_t> lowerbounds;
+      llvm::SmallVector<int64_t> counters;
+      llvm::SmallVector<int64_t> lowerbounds;
       for (int64_t counter : srcOp.getEdgePaddingLow()) {
         counters.push_back(counter);
         lowerbounds.push_back(counter);
       }
-      std::vector<std::vector<int64_t>> indices;
-      indices.push_back(counters);
+      llvm::SmallVector<int64_t> flatIndices;
+      flatIndices.append(counters.begin(), counters.end());
+      int64_t numIndices = 1;
 
       size_t current_index = 0;
       while (current_index < counters.size() &&
@@ -3095,15 +3100,13 @@ public:
         if (reset) {
           current_index = 0;
         }
-        indices.push_back(counters);
+        flatIndices.append(counters.begin(), counters.end());
+        numIndices++;
       }
       auto inputType =
           mlir::cast<RankedTensorType>(adaptor.getOperand().getType());
 
-      int32_t totalElements = 1;
-      for (auto dim : inputType.getShape()) {
-        totalElements *= dim;
-      }
+      int32_t totalElements = inputType.getNumElements();
 
       RankedTensorType flattenedType = RankedTensorType::get(
           {totalElements}, inputType.getElementType(), inputType.getEncoding());
@@ -3113,14 +3116,6 @@ public:
           rewriter, srcOp.getLoc(), flattenedType, adaptor.getOperand(),
           rewriter.getI32ArrayAttr(flatShape));
 
-      SmallVector<int64_t> flatIndices;
-      for (const auto &idx : indices) {
-        for (int64_t val : idx) {
-          flatIndices.push_back(val);
-        }
-      }
-
-      int64_t numIndices = indices.size();
       int64_t rank = counters.size();
       auto indicesType = RankedTensorType::get(
           {numIndices, rank}, rewriter.getI64Type(), inputType.getEncoding());
@@ -3128,10 +3123,8 @@ public:
       auto indicesAttr = DenseIntElementsAttr::get(indicesType, flatIndices);
       Value indicesTensor = rewriter.create<ttir::ConstantOp>(
           srcOp.getLoc(), indicesType, indicesAttr);
-      SmallVector<int32_t> insertedWindowDims;
-      for (int64_t i = 0; i < rank; i++) {
-        insertedWindowDims.push_back(i);
-      }
+      SmallVector<int32_t> insertedWindowDims =
+          llvm::to_vector(llvm::seq<int32_t>(0, rank));
 
       ttir::utils::replaceOpWithNewDPSOp<ttir::ScatterOp>(
           rewriter, srcOp, outputType,
@@ -3148,12 +3141,6 @@ public:
           /*unique_indices=*/true);
 
       return success();
-    }
-
-    LogicalResult legalityResult =
-        checkConversionLegality(srcOp, adaptor, rewriter);
-    if (!legalityResult.succeeded()) {
-      return legalityResult;
     }
 
     SmallVector<int32_t> padDim;
@@ -3174,16 +3161,6 @@ private:
   checkConversionLegality(mlir::stablehlo::PadOp &srcOp,
                           mlir::stablehlo::PadOp::Adaptor adaptor,
                           ConversionPatternRewriter &rewriter) const {
-
-    // Due to lack of support by device, we do not support interior padding,
-    // so verify if interior padding is requested and exit early with error.
-    for (int64_t eachVal : srcOp.getInteriorPadding()) {
-      if (eachVal != 0) {
-        return rewriter.notifyMatchFailure(srcOp,
-                                           "Unsupported Interior Padding, only "
-                                           "0 interior padding is supported.");
-      }
-    }
 
     if (srcOp.getEdgePaddingLow().size() != srcOp.getEdgePaddingHigh().size()) {
       return rewriter.notifyMatchFailure(
