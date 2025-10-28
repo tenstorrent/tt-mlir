@@ -89,7 +89,7 @@ class JitFunction:
             ttnn_to_flatbuffer_file(ir, flatbuffer_bin, {}, [])
             return ir
 
-        fb_binary = self.cache.compile_and_insert(str(ir), options, *args)
+        fb_binary = self.cache.compile_and_insert(str(ir), options, self.debug, *args)
         return _run_binary(fb_binary, args)
 
     @property
