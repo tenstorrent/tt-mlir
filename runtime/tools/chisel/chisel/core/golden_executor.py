@@ -79,11 +79,11 @@ class GoldenExecutor:
             return None
 
         # Validate operation is supported
-        if op_name not in ttir_to_torch_mapping:
+        if op_name not in GOLDEN_MAPPINGS:
             raise ValueError(f"Unknown op: {op.name}")
 
         # Get the PyTorch equivalent function for this operation
-        mapping = ttir_to_torch_mapping[op_name]
+        mapping = GOLDEN_MAPPINGS[op_name]
 
         # Get operation outputs and check if we can use cached results
         outputs = get_op_outputs(op)
