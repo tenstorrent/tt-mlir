@@ -2328,6 +2328,29 @@ public:
 };
 } // namespace
 
+// Func Op conversion pattern
+//
+// This conversion pattern removes attributes from the FuncOp
+//
+namespace {
+  class FuncOpConversionPattern
+      : public TTNNToEmitPyBaseOpConversionPattern<func::FuncOp> {
+  
+  public:
+    using TTNNToEmitPyBaseOpConversionPattern<
+        func::FuncOp>::TTNNToEmitPyBaseOpConversionPattern;
+  
+    LogicalResult
+    matchAndRewrite(func::FuncOp funcOp, OpAdaptor adaptor,
+                    ConversionPatternRewriter &rewriter) const override {
+  
+      rewriter.modifyOpInPlace(funcOp, [&funcOp]() { funcOp.removeArgAttrsAttr(); });
+  
+      return success();
+    }
+  };
+  } // namespace
+
 namespace {
 class DumpTensorOpConversionPattern
     : public TTNNToEmitPyBaseOpConversionPattern<mlir::tt::ttnn::DumpTensorOp> {
@@ -3323,6 +3346,12 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
   //
   // clang-format off
   patterns.add<ModuleOpConversionPattern>(typeConverter, ctx);
+  // clang-format on
+
+  // FuncOp
+  //
+  // clang-format off
+  patterns.add<FuncOpConversionPattern>(typeConverter, ctx);
   // clang-format on
 
   patterns.add<NLPConcatHeadsOpConversionPattern>(typeConverter, ctx);
