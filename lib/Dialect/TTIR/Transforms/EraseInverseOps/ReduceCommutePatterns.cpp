@@ -9,10 +9,10 @@
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTIR/Utils/Utils.h"
 #include <flatbuffers/array.h>
-#include <llvm/ADT/ArrayRef.h>
-#include <llvm/ADT/SmallVector.h>
-#include <llvm/Support/raw_ostream.h>
-#include <mlir/IR/BuiltinAttributes.h>
+#include "llvm/ADT/ArrayRef.h"
+#include "llvm/ADT/SmallVector.h"
+#include "llvm/Support/raw_ostream.h"
+#include "mlir/IR/BuiltinAttributes.h"
 
 namespace mlir::tt::ttir {
 
@@ -173,7 +173,14 @@ template <CommuteDirection commuteDirection>
 void populateReduceCommutePatterns(MLIRContext *ctx,
                                    RewritePatternSet &patterns) {
   patterns.add<TTIRCommutePermuteThroughReduce<SumOp, commuteDirection>,
-               TTIRCommutePermuteThroughReduce<MeanOp, commuteDirection>>(ctx);
+               TTIRCommutePermuteThroughReduce<MeanOp, commuteDirection>,
+               TTIRCommutePermuteThroughReduce<MaxOp, commuteDirection>,
+               TTIRCommutePermuteThroughReduce<MinOp, commuteDirection>,
+               TTIRCommutePermuteThroughReduce<ProdOp, commuteDirection>,
+               TTIRCommutePermuteThroughReduce<ReduceAndOp, commuteDirection>,
+               TTIRCommutePermuteThroughReduce<ReduceOrOp, commuteDirection>,
+               TTIRCommutePermuteThroughReduce<ArgMaxOp, commuteDirection>>(
+      ctx);
 }
 
 template void populateReduceCommutePatterns<CommuteDirection::UPWARDS>(
