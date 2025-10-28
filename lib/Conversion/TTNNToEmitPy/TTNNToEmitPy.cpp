@@ -2266,8 +2266,8 @@ public:
     // Call into the callee, no caching mechanism.
     //
     llvm::StringRef wrapperFuncName = isZeroArgWrapper
-                                          ? "ttnn::constEvalFuncWrapperZeroArg"
-                                          : "ttnn::constEvalFuncWrapper";
+                                          ? "ttnn.constEvalFuncWrapperZeroArg"
+                                          : "ttnn.constEvalFuncWrapper";
 
     auto cacheOp = rewriter.create<emitpy::CallOpaqueOp>(
         loadCachedOp.getLoc(), tensorListType, wrapperFuncName, operands);
