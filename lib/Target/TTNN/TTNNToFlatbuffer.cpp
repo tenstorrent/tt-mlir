@@ -2080,10 +2080,13 @@ createOp(FlatbufferObjectCache &cache, ScaledDotProductAttentionOp op) {
                  ? std::make_optional(op.getScale().value().convertToFloat())
                  : std::nullopt);
 
+  ::flatbuffers::Optional<uint32_t> slidingWindowSize =
+      toFlatbuffer(cache, op.getSlidingWindowSize());
+
   // NOLINTEND(clang-analyzer-cplusplus.NewDelete)
   return ::tt::target::ttnn::CreateScaledDotProductAttentionOp(
-      *cache.fbb, query, key, value, isCausal, attentionMask, scale, out,
-      memoryConfig);
+      *cache.fbb, query, key, value, isCausal, attentionMask, scale,
+      slidingWindowSize, out, memoryConfig);
 }
 
 std::vector<::flatbuffers::Offset<::tt::target::ttnn::KernelArg>>

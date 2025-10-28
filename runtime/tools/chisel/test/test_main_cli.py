@@ -11,7 +11,7 @@ import pytest
 @pytest.mark.parametrize(
     "ttir_path, function_name",
     [
-        ("runtime/tools/chisel/test/mlir/test_fusion.mlir", "transpose_matmul"),
+        ("runtime/tools/chisel/test/mlir/test_add.mlir", "add"),
     ],
 )
 def test_chisel_cli_main(ttir_path: str, function_name: str):

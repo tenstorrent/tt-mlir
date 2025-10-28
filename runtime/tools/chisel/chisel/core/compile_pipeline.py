@@ -8,33 +8,6 @@ from ttmlir.ir import Context, Module
 from ttmlir.passmanager import PassManager
 
 
-def run_ttir_decomposition_with_passmanager(module_path: str) -> Module:
-    """
-    Run ttir-to-ttir-decomposition using PassManager
-    Following passes are executed:
-    - ttir-implicit-broadcast-fold:
-        This is executed before TTIR Golden Module as it can be tricky to compare tensors
-        in golden which are not implicit broadcasted and device which are implicit broadcasted
-    - ttir-to-ttir-decomposition:
-        This is executed to decompose the TTIR OPs so that we can reduce number of ops for which golden are needed.
-        Also allows for easier comparison of tensors in golden and device.
-    - canonicalize: This is executed to canonicalize the module
-    """
-    with Context():
-        module = Module.parseFile(str(module_path))
-        pre_passes = [
-            "ttir-implicit-broadcast-fold",
-            "ttir-to-ttir-decomposition",
-            "canonicalize",
-        ]
-        pm = PassManager.parse(
-            "builtin.module({})".format(",".join(pre_passes)),
-        )
-        pm.run(module.operation)
-
-    return module
-
-
 def run_ttir_to_ttnn(module_str: str, ctx) -> Module:
     """
     Run ttir-to-ttnn backend pipeline
@@ -62,12 +35,30 @@ def run_ttir_to_ttnn(module_str: str, ctx) -> Module:
     return module
 
 
-def chisel_pipeline(ttir_path: Path) -> Tuple[Module, Module]:
-    ttir_module = run_ttir_decomposition_with_passmanager(ttir_path)
+def chisel_pipeline(
+    ttir_path: Path, dump_ttir: bool = False, dump_ttnn: bool = False
+) -> Tuple[Module, Module]:
     ctx = Context()
+    with ctx:
+        ttir_module = Module.parseFile(str(ttir_path))
     # This resets the location so that ttir_module location is just the line and column number where that op is defined
     # and ttnn_module locations points to the location from where that op originates in ttir_module
     ttir_module = Module.parse(str(ttir_module), ctx)
+    print(str(ttir_module))
+
+    # Dump TTIR module to file
+    if dump_ttir:
+        chisel_mlir_path = Path("chisel_ttir.mlir")
+        with open(chisel_mlir_path, "w") as f:
+            f.write(str(ttir_module))
+        print(f"TTIR module dumped to: {chisel_mlir_path}")
+
     ttnn_module = run_ttir_to_ttnn(str(ttir_module), ctx)
+
+    if dump_ttnn:
+        chisel_mlir_path = Path("chisel_ttnn.mlir")
+        with open(chisel_mlir_path, "w") as f:
+            f.write(str(ttnn_module))
+        print(f"TTNN module dumped to: {chisel_mlir_path}")
 
     return ttir_module, ttnn_module

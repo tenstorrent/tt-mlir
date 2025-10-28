@@ -12,9 +12,9 @@ add_library(${LIB_NAME} STATIC ${SOURCES})
 
 message(STATUS "TTMLIR_ENABLE_OPMODEL[${TTMLIR_ENABLE_OPMODEL}]")
 if (TTMLIR_ENABLE_OPMODEL)
-    # Building op model library will invoke building tt-metal; and it requires TT_METAL_HOME environment variable to be set.
-    if("$ENV{TT_METAL_HOME}" STREQUAL "")
-        message(WARNING "TT_METAL_HOME is not set")
+    # Building op model library will invoke building tt-metal; and it requires TT_METAL_RUNTIME_ROOT environment variable to be set.
+    if("$ENV{TT_METAL_RUNTIME_ROOT}" STREQUAL "")
+        message(WARNING "TT_METAL_RUNTIME_ROOT is not set")
     endif()
 
     # Link to tt-metal libs and include directories

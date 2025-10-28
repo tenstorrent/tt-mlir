@@ -19,7 +19,7 @@ if [ ! -d "$BUILD_DIR/python_packages/ttnn_jit/runtime" ]; then
 fi
 
 echo "Running PyKernel/ttnn-jit tests..."
-pytest -v $WORK_DIR/test/pykernel/demo/test.py $WORK_DIR/test/ttnn-jit/test_eltwise.py --junit-xml=$TEST_REPORT_PATH
+pytest -v $WORK_DIR/test/pykernel/demo/test.py $WORK_DIR/test/ttnn-jit/ --junit-xml=$TEST_REPORT_PATH
 
 # cleanup
 rm -rf third_party/tt-metal

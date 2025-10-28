@@ -210,6 +210,10 @@ void createLinalgToLLVMPipeline(OpPassManager &manager,
   // to LLVM.
   manager.addPass(mlir::memref::createExpandStridedMetadataPass());
 
+  // Converts affine dialect operations to standard control flow and arithmetic
+  // operations.
+  manager.addPass(createLowerAffinePass());
+
   // These two passes convert scf to LLVM control flow.
   manager.addPass(mlir::createSCFToControlFlowPass());
   manager.addPass(mlir::createConvertControlFlowToLLVMPass());

@@ -301,7 +301,9 @@ class Globals:
 
     @staticmethod
     def get_ttmetal_home_path():
-        return os.environ.get("TT_METAL_HOME", "third_party/tt-metal/src/tt-metal")
+        return os.environ.get(
+            "TT_METAL_RUNTIME_ROOT", "third_party/tt-metal/src/tt-metal"
+        )
 
 
 class FileManager:

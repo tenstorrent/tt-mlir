@@ -548,6 +548,17 @@ class ChiselContext:
         """
         Generate random inputs for the program.
         """
+        embedding_found = False
+        for op in self.device_ir_module.get_function_ops():
+            if op.name == "ttnn.embedding":
+                embedding_found = True
+                operands = op.operands
+                embedding_weight = operands[1]
+                shape = embedding_weight.type.shape
+                if len(shape) == 2:
+                    embedding_size = shape[0]
+                    break
+
         for arg in self.device_ir_module.get_function_inputs():
             arg_name = arg.get_name()
             shape = arg.type.shape
@@ -555,6 +566,9 @@ class ChiselContext:
             torch_dtype = ttir_dtype_maps[str(dtype)]
             if torch_dtype.is_floating_point:
                 tensor = torch.randn(shape, dtype=torch_dtype)
+            elif embedding_found and embedding_size is not None:
+                tensor = torch.randint(0, embedding_size, shape)
+                embedding_found = False
             else:
                 tensor = torch.randint(
                     torch.iinfo(torch_dtype).min, torch.iinfo(torch_dtype).max, shape

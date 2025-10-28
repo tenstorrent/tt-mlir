@@ -48,12 +48,11 @@ static ::tt::target::Arch toFlatbuffer(::tt::ARCH arch) {
 
 static std::vector<::tt::target::ChipChannel>
 getAllDeviceConnections(const std::vector<::tt::tt_metal::IDevice *> &devices) {
-  std::set<std::tuple<chip_id_t, CoreCoord, chip_id_t, CoreCoord>>
-      connectionSet;
+  std::set<std::tuple<ChipId, CoreCoord, ChipId, CoreCoord>> connectionSet;
 
   auto addConnection = [&connectionSet](
-                           chip_id_t deviceId0, CoreCoord ethCoreCoord0,
-                           chip_id_t deviceId1, CoreCoord ethCoreCoord1) {
+                           ChipId deviceId0, CoreCoord ethCoreCoord0,
+                           ChipId deviceId1, CoreCoord ethCoreCoord1) {
     if (deviceId0 > deviceId1) {
       std::swap(deviceId0, deviceId1);
       std::swap(ethCoreCoord0, ethCoreCoord1);
@@ -77,7 +76,7 @@ getAllDeviceConnections(const std::vector<::tt::tt_metal::IDevice *> &devices) {
       if (!getConnection) {
         continue;
       }
-      std::tuple<chip_id_t, CoreCoord> connectedDevice =
+      std::tuple<ChipId, CoreCoord> connectedDevice =
           device->get_connected_ethernet_core(ethernetCore);
       addConnection(device->id(), ethernetCore, std::get<0>(connectedDevice),
                     std::get<1>(connectedDevice));
@@ -89,8 +88,7 @@ getAllDeviceConnections(const std::vector<::tt::tt_metal::IDevice *> &devices) {
 
   std::transform(
       connectionSet.begin(), connectionSet.end(), allConnections.begin(),
-      [](const std::tuple<chip_id_t, CoreCoord, chip_id_t, CoreCoord>
-             &connection) {
+      [](const std::tuple<ChipId, CoreCoord, ChipId, CoreCoord> &connection) {
         return ::tt::target::ChipChannel(
             std::get<0>(connection), toFlatbuffer(std::get<1>(connection)),
             std::get<2>(connection), toFlatbuffer(std::get<3>(connection)));

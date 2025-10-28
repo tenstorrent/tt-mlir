@@ -162,6 +162,29 @@ uint32_t getScalarFromTensor(const ttnn::Tensor &tensor) {
   return *buf.begin();
 }
 
+::ttnn::Tensor loadTensor(const std::string &filePath, ttnn::Layout layout,
+                          ttnn::DataType dtype, ttnn::MeshDevice *device,
+                          ttnn::MemoryConfig memoryConfig) {
+  ::ttnn::Tensor loadedTensor =
+      ::tt::tt_metal::load_tensor_flatbuffer(filePath);
+
+  assert(loadedTensor.device() == nullptr && "loaded tensor must be on host");
+
+  if (loadedTensor.dtype() != dtype) {
+    loadedTensor = ::ttnn::to_dtype(loadedTensor, dtype);
+  }
+
+  if (loadedTensor.layout() != layout) {
+    loadedTensor = ::ttnn::to_layout(loadedTensor, layout);
+  }
+
+  if (device != nullptr) {
+    loadedTensor = ::ttnn::to_device(loadedTensor, device, memoryConfig);
+  }
+
+  return loadedTensor;
+}
+
 } // namespace ttnn
 
 #endif // TOOLS_TTNN_STANDALONE_TTNN_PRECOMPILED_HPP
