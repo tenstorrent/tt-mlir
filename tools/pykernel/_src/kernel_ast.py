@@ -88,7 +88,10 @@ class TTCompilerBase(PyKernelAstBase):
         ]
 
         self.name = name
-        default_context = get_default_loc_context()
+        try:
+            default_context = get_default_loc_context()
+        except ValueError:
+            default_context = None
         self.ctx = default_context if default_context is not None else Context()
         self.cursor = Location.unknown(self.ctx)
         self.module = Module.create(self.cursor)
