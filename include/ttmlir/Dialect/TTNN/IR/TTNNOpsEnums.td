@@ -319,4 +319,16 @@ def TTNN_Conv2dSliceType : I32EnumAttr<"Conv2dSliceType", "Conv2d slice type", [
   let cppNamespace = "::mlir::tt::ttnn";
 }
 
+def TTNN_PlacementType_Replicate : I32EnumAttrCase<"Replicate", 0, "replicate">;
+def TTNN_PlacementType_Shard : I32EnumAttrCase<"Shard", 1, "shard">;
+
+def TTNN_PlacementType : I32EnumAttr<"PlacementType", "TTNN Placement Type",
+                          [
+                           TTNN_PlacementType_Replicate,
+                           TTNN_PlacementType_Shard,
+                          ]> {
+  let genSpecializedAttr = 0;
+  let cppNamespace = "::mlir::tt::ttnn";
+}
+
 #endif
