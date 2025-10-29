@@ -406,7 +406,11 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
       // non-local data movement unless it is the only core involved
       // in that dim.
       // Similar logic applies to a broadcast dim.
-      const AffineMap indexingMap = genericOp.getIndexingMap(operandIndex);
+      std::optional<AffineMap> indexingMapOpt = genericOp.getIndexingMap(operandIndex);
+      if (!indexingMapOpt) {
+        continue;
+      }
+      const AffineMap indexingMap = *indexingMapOpt;
       const auto bcastDims = indexingMap.getBroadcastDims();
       const llvm::SmallSet<unsigned, 4> bcastDimIndex(bcastDims.begin(),
                                                       bcastDims.end());

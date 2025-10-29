@@ -815,7 +815,9 @@ void d2m::GenericOp::build(mlir::OpBuilder &builder,
                            ArrayAttr iteratorTypes, ThreadType singleThreadType,
                            ttcore::GridAttr grid,
                            ArrayRef<int64_t> blockFactors) {
-  TT_assertv(!indexingMaps.empty(), "expected non-empty indexing maps");
+  // FIXME: Pykernel DSL uses explicit block_factors with empty indexing_maps.
+  // This is valid: hasExplicitBlockFactors() = indexingMaps.empty() && !blockFactors.empty()
+  // TT_assertv(!indexingMaps.empty(), "expected non-empty indexing maps");
   TT_assertv(outputs.size() == 1u, "expected single output");
 
   if (!grid) {
@@ -941,14 +943,6 @@ bool d2m::GenericOp::isWritable(mlir::Value value,
          mlir::isa<mlir::BlockArgument>(value);
 }
 
-bool d2m::GenericOp::hasTensorSemantics() {
-  auto isaTensor = [](Type t) { return isa<bufferization::TensorLikeType>(t); };
-  if (any_of(getResultTypes(), isaTensor)) {
-    return true;
-  }
-  return any_of(getOperandTypes(), isaTensor);
-}
-
 static std::optional<int64_t>
 isNotEqualOrBroadcast(mlir::ArrayRef<int64_t> as, mlir::ArrayRef<int64_t> bs) {
   for (auto [dim, a, b] : llvm::enumerate(as, bs)) {
@@ -1038,7 +1032,13 @@ static mlir::LogicalResult verifyAffineBlocking(
 
 // GenericOp verification
 ::mlir::LogicalResult d2m::GenericOp::verify() {
-  if (hasPureTensorSemantics()) {
+  // Multi-region generics are allowed when using explicit block_factors (no indexing maps)
+  if (hasPureTensorSemantics() && getIndexingMaps().size() > 0) {
+    if (this->getNumRegions() != 1) {
+      return emitOpError(
+          "generic op with pure tensor semantics must have exactly 1 region");
+    }
+
     Region &region = this->getRegion(0);
 
     Block &block = region.front();
@@ -1349,10 +1349,9 @@ unsigned d2m::GenericOp::getNumDims() {
       .getNumDims();
 }
 
-mlir::AffineMap d2m::GenericOp::getIndexingMap(int64_t operandIndex) {
-  // If indexing_maps is empty, return an empty affine map.
+std::optional<mlir::AffineMap> d2m::GenericOp::getIndexingMap(int64_t operandIndex) {
   if (getIndexingMaps().empty()) {
-    return AffineMap::get(0, 0, {}, getContext());
+    return std::nullopt;
   }
   return mlir::cast<AffineMapAttr>(getIndexingMaps()[operandIndex]).getValue();
 }
@@ -1378,6 +1377,13 @@ mlir::SmallVector<int64_t> d2m::GenericOp::getBlockFactorsValue() {
 
 mlir::SmallVector<int64_t> d2m::GenericOp::getFullBlockFactors() {
   auto maps = getIndexingMapsValue();
+
+  // FIXME: Handle explicit block_factors mode (empty indexing_maps).
+  // For now, return the block factors as-is when indexing_maps is empty.
+  if (maps.empty()) {
+    return getBlockFactorsValue();
+  }
+
   // Priority doesn't matter here, so reverse can be false.
   auto flatInverseMap =
       utils::concatInversePermutationMap(maps, /*reverse=*/false);
@@ -1464,7 +1470,11 @@ mlir::SmallVector<int64_t> d2m::GenericOp::getLoopBounds() {
 
 mlir::SmallVector<int64_t>
 d2m::GenericOp::getParticipatingLoopDims(int64_t operandIndex) {
-  AffineMap indexingMap = getIndexingMap(operandIndex);
+  std::optional<AffineMap> indexingMapOpt = getIndexingMap(operandIndex);
+  if (!indexingMapOpt) {
+    return {};
+  }
+  AffineMap indexingMap = *indexingMapOpt;
   auto dimExprs =
       llvm::make_filter_range(indexingMap.getResults(), [](AffineExpr expr) {
         return mlir::isa<AffineDimExpr>(expr);
@@ -1476,11 +1486,11 @@ d2m::GenericOp::getParticipatingLoopDims(int64_t operandIndex) {
 
 mlir::SmallVector<int64_t>
 d2m::GenericOp::getNonParticipatingLoopDims(int64_t operandIndex) {
-  AffineMap indexingMap = getIndexingMap(operandIndex);
-  // If indexing_maps is empty, return empty vector (no non-participating dims).
-  if (indexingMap.getNumDims() == 0) {
+  std::optional<AffineMap> indexingMapOpt = getIndexingMap(operandIndex);
+  if (!indexingMapOpt) {
     return {};
   }
+  AffineMap indexingMap = *indexingMapOpt;
   SmallVector<int64_t> participatingDims =
       getParticipatingLoopDims(operandIndex);
   llvm::BitVector nonParticipatingDims(indexingMap.getNumDims(), true);

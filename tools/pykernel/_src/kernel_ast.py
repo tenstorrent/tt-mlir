@@ -846,7 +846,10 @@ class TTCompilerBase(PyKernelAstBase):
         elif isinstance(node.value, bool):
             return op_constructor(IntegerType.get_signless(1, self.ctx), node.value)
         elif isinstance(node.value, int):
-            return op_constructor(IntegerType.get_signless(32, self.ctx), node.value)
+            # HACK: Use i64 for attributes (required by d2m.core_index, d2m.iter_index, etc.)
+            # but i32 for regular constants to match existing behavior
+            int_width = 64 if as_attr else 32
+            return op_constructor(IntegerType.get_signless(int_width, self.ctx), node.value)
         else:
             raise NotImplementedError(
                 f"constant type {type(node.value).__name__} not implemented"
