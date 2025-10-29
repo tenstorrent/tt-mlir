@@ -15,6 +15,7 @@
 
 #include "mlir/Dialect/Affine/ViewLikeInterfaceUtils.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/MLIRContext.h"
@@ -446,6 +447,11 @@ public:
     }
 
     if constexpr (std::is_same_v<ConcreteOp, d2m::TileMatmulOp>) {
+      // Skip conversion if inside linalg.generic - will be handled by linalg converter
+      if (op->template getParentOfType<mlir::linalg::GenericOp>()) {
+        return llvm::failure();
+      }
+
       auto insertionPoint = rewriter.getInsertionPoint();
       auto cbA = getCB(rewriter, op.getA());
       auto cbB = getCB(rewriter, op.getB());

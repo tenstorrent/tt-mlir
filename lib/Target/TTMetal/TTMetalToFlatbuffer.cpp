@@ -366,7 +366,7 @@ memrefTypeToInterleavedBufferConfigFlatbuffer(FlatbufferObjectCache &cache,
     // InterleavedLayoutAttr to avoid breaking Polymage's assumptions
     auto tile =
         mlir::dyn_cast_if_present<ttcore::TileType>(memref.getElementType());
-    assert(!tile &&
+    assert(tile &&
            "Cannot generate interleavedbuffer config for memref with non-tiled "
            "layouts; InterleavedLayoutAttr is missing");
 
@@ -524,12 +524,22 @@ tensorValueToFlatbuffer(FlatbufferObjectCache &cache, Value value) {
   auto memref = mlir::cast<MemRefType>(value.getType());
 
   Type elementType = memref.getElementType();
-  assert(!mlir::isa<ttcore::TileType>(elementType));
+  std::vector<int32_t> shape;
+
+  // Handle TileType elements by extracting scalar element type and shape
+  if (auto tileType = mlir::dyn_cast<ttcore::TileType>(elementType)) {
+    elementType = tileType.getElementType();
+    llvm::SmallVector<int64_t> scalarShape =
+        tileType.getScalarShape(llvm::SmallVector<int64_t>(memref.getShape().begin(), memref.getShape().end()));
+    shape = ttmlir::utils::castContainer<std::vector<int32_t>>(scalarShape);
+  } else {
+    shape = ttmlir::utils::castContainer<std::vector<int32_t>>(memref.getShape());
+  }
+
   ttcore::DataType dtype = ttcore::elementTypeToDataType(elementType);
 
-  assert(!mlir::isa<ttcore::DeviceLayoutInterface>(memref.getLayout()));
-  std::vector<int32_t> shape =
-      ttmlir::utils::castContainer<std::vector<int32_t>>(memref.getShape());
+  // Function arguments may have device layouts (ShardLayoutAttr, ViewLayoutAttr)
+  // from bufferization - ignore them for the host-side TensorRef
   std::vector<int32_t> meshShape;
   int32_t elementSize = getElementSizeBytes(dtype);
   std::uint64_t size =

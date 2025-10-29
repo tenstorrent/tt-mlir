@@ -601,6 +601,12 @@ static void insertTTNNDRAMStreams(d2m::GenericOp genericOp,
 static void assignGrids(d2m::GenericOp genericOp,
                         ArrayRef<int64_t> targetGridShape,
                         ArrayRef<int64_t> targetSquareGridShape) {
+  // FIXME: Skip pykernel DSL generics with explicit block_factors.
+  // They already have their grid set by the Python DSL and don't use indexing_maps.
+  if (genericOp.hasExplicitBlockFactors()) {
+    return;
+  }
+
   if (!hasTTNNOperands(genericOp)) {
     auto [toLayoutsToUpdate, streamLayoutsToUpdate] =
         analyzeOperandsAndComputeGrids(genericOp, targetGridShape,
