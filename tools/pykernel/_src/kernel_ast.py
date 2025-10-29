@@ -605,9 +605,9 @@ class TTCompilerBase(PyKernelAstBase):
             raise ValueError("Compare operands not found")
 
         if isinstance(lhs.type, memref.MemRefType):
-            lhs = memref.LoadOp(lhs, arith.ConstantOp(IndexType.get(self.ctx), 0))
+            lhs = memref.LoadOp(lhs, arith.ConstantOp(IndexType.get(self.ctx), 0)).result
         if isinstance(rhs.type, memref.MemRefType):
-            rhs = memref.LoadOp(rhs, arith.ConstantOp(IndexType.get(self.ctx), 0))
+            rhs = memref.LoadOp(rhs, arith.ConstantOp(IndexType.get(self.ctx), 0)).result
 
         if lhs.type != rhs.type:
             rhs = _cast(rhs, lhs.type)
