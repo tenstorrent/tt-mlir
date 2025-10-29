@@ -251,8 +251,8 @@ void run(const ::tt::target::ttnn::GenericOp *op, ProgramContext &context) {
   auto programDescCache = context.getExecutableHandle().getProgramDescCache();
 
   auto *programDesc = op->program();
-  std::size_t hash =
-      ttsl::hash::hash_objects_with_default_seed(programDesc, programDescCache);
+  std::size_t hash = ttsl::hash::hash_objects_with_default_seed(
+      programDesc, programDescCache, ioTensors);
   std::shared_ptr<void> cachedPtr = programDescCache->get(hash);
 
   std::shared_ptr<::tt::tt_metal::ProgramDescriptor> programDescriptor;
