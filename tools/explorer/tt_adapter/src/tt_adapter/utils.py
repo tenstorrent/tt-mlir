@@ -6,6 +6,7 @@ from dataclasses import make_dataclass, is_dataclass, asdict
 from collections import defaultdict
 from pathlib import Path
 from ttmlir.compile_and_run_utils import ModuleDialect
+import glob
 
 import importlib
 import logging
