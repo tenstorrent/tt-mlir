@@ -140,13 +140,28 @@ def needs_stablehlo_pass(module_path: str) -> bool:
 
     return module_dialect == ModuleDialect.STABLE_HLO
 
-def get_collection_label(model_path: str, ir_dir: str):
-    resolved_ir_dir = Path(ir_dir).resolve()
+def get_collection_path(model_path: str):
     resolved_model_path = Path(model_path).resolve()
+
+    # If the path is adirectory and has an "extension", simply return it.
+    if os.is_dir(resolved_model_path) and MODEL_EXTENSIONS.count(resolved_model_path.suffix) > 0:
+        return resolved_model_path
+
+    resolved_ir_dir = Path(IR_DUMPS_DIR).resolve()
 
     for parent in resolved_model_path.parents:
         if parent == resolved_ir_dir:
-            # Resolve to the directory right after the IR directory
-            return str(resolved_model_path.relative_to(parent).parent)
+            # Don't walk up more than the IR directory.
+            break
 
-    return resolved_model_path.name
+        if MODEL_EXTENSIONS.count(parent.suffix) > 0:
+            # Resolve to the closest directory with an "extension".
+            return parent
+
+    # Resolve to the file itself.
+    return resolved_model_path
+
+def get_collection_label(model_path: str):
+    collection_path = get_collection_path(model_path=model_path)
+
+    return collection_path.name
