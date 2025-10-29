@@ -126,7 +126,10 @@ def test_for():
         # CHECK: %[[X:.*]] = memref.load
         # CHECK: %[[Y:.*]] = memref.load
         # CHECK: %[[Z:.*]] = memref.load
-        # CHECK: scf.for {{.*}} = %[[X]] to %[[Y]] step %[[Z]]
+        # CHECK: %[[X_IDX:.*]] = arith.index_cast %[[X]]
+        # CHECK: %[[Y_IDX:.*]] = arith.index_cast %[[Y]]
+        # CHECK: %[[Z_IDX:.*]] = arith.index_cast %[[Z]]
+        # CHECK: scf.for {{.*}} = %[[X_IDX]] to %[[Y_IDX]] step %[[Z_IDX]]
         for j in range(x, y, z):
             # CHECK: arith.addi
             # CHECK: memref.store
@@ -450,6 +453,47 @@ def test_print():
     return
 
 
+@ttkernel_compile(optimize=False)
+def test_flexible_range():
+    # CHECK-LABEL: func.func @test_flexible_range
+
+    # TEST: range(n) - should use 0, n, 1
+    # CHECK: %[[C0:.*]] = arith.constant 0 : index
+    # CHECK: %[[C5:.*]] = arith.constant 5 : i32
+    # CHECK: %[[C1:.*]] = arith.constant 1 : index
+    # CHECK: scf.for {{.*}} = %[[C0]] to {{.*}} step %[[C1]]
+    for i in range(5):
+        a = 1
+
+    # TEST: range(start, end) - should use start, end, 1
+    # CHECK: %[[C2:.*]] = arith.constant 2 : i32
+    # CHECK: %[[C10:.*]] = arith.constant 10 : i32
+    # CHECK: %[[C1_2:.*]] = arith.constant 1 : index
+    # CHECK: scf.for {{.*}} = {{.*}} to {{.*}} step %[[C1_2]]
+    for i in range(2, 10):
+        a = 1
+
+    # TEST: range(start, end, step) - explicit all three
+    # CHECK: scf.for {{.*}} = {{.*}} to {{.*}} step {{.*}}
+    for i in range(0, 10, 2):
+        a = 1
+
+    return
+
+
+@ttkernel_compile(optimize=False)
+def test_tuple_support():
+    # CHECK-LABEL: func.func @test_tuple_support
+
+    # TEST: tuple creation (visits each element)
+    # CHECK: arith.constant 1 : i32
+    # CHECK: arith.constant 2 : i32
+    # CHECK: arith.constant 3 : i32
+    a = (1, 2, 3)
+
+    return
+
+
 test_assign()
 test_ifstmt()
 test_for()
@@ -465,3 +509,5 @@ test_multidim_arrays()
 test_array_with_expressions()
 test_attributes()
 test_print()
+test_flexible_range()
+test_tuple_support()
