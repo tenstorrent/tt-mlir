@@ -140,6 +140,13 @@ def needs_stablehlo_pass(module_path: str) -> bool:
 
     return module_dialect == ModuleDialect.STABLE_HLO
 
+def list_ir_files(dir_path: str):
+    return [
+        path
+        for extension in MODEL_EXTENSIONS
+        for path in glob.glob(os.path.join(dir_path, f"**/*{extension}"))
+    ]
+
 def get_collection_path(model_path: str):
     resolved_model_path = Path(model_path).resolve()
 
