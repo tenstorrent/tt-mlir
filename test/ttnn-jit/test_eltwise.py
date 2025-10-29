@@ -154,6 +154,7 @@ def rsqrt(input_tensor):
         sin,
         ceil,
         floor,
+        logical_not,
     ],
 )
 @pytest.mark.parametrize(
@@ -161,7 +162,7 @@ def rsqrt(input_tensor):
     DRAM_INTERLEAVED_SHAPES,
 )
 def test_unary_op_dram(device, h, w, dtype, op):
-    if op in [log, ceil, floor] and dtype == torch.float32:
+    if op in [log, ceil, floor, logical_not] and dtype == torch.float32:
         pytest.xfail("failing allclose for some shapes for float32")
 
     max_grid = (0, 0)
@@ -189,16 +190,56 @@ def test_unary_op_dram(device, h, w, dtype, op):
         sin,
         ceil,
         floor,
+        logical_not,
         # Not supported in TTIRToD2M:
-        # gelu, logical_not, reciprocal cbrt, sign, erf, erfc, bitwise_not
+        # gelu, reciprocal cbrt, sign, erf, erfc
         # Always fails allclose
         # tan, sqrt
     ],
 )
 def test_unary_op_l1(device, h, w, max_grid, dtype, op):
-    if op in [log, ceil, floor, rsqrt] and dtype == torch.float32:
+    if op in [log, ceil, floor, rsqrt, logical_not] and dtype == torch.float32:
         pytest.xfail("failing allclose for some shapes for float32")
 
+    run_op_test(
+        device, h, w, max_grid, dtype, op, num_inputs=1, buffer_type=ttnn.BufferType.L1
+    )
+
+
+@pytest.mark.parametrize("dtype", [torch.int32])
+@pytest.mark.parametrize(
+    "op",
+    [
+        bitwise_not,
+    ],
+)
+@pytest.mark.parametrize(
+    "h , w",
+    DRAM_INTERLEAVED_SHAPES,
+)
+def test_bitwise_unary_op_dram(device, h, w, dtype, op):
+    max_grid = (0, 0)
+    run_op_test(
+        device,
+        h,
+        w,
+        max_grid,
+        dtype,
+        op,
+        num_inputs=1,
+        buffer_type=ttnn.BufferType.DRAM,
+    )
+
+
+@pytest.mark.parametrize("h , w, max_grid", BLOCK_SHARDED_SHAPE_GRIDS)
+@pytest.mark.parametrize("dtype", [torch.int32])
+@pytest.mark.parametrize(
+    "op",
+    [
+        bitwise_not,
+    ],
+)
+def test_bitwise_unary_op_l1(device, h, w, max_grid, dtype, op):
     run_op_test(
         device, h, w, max_grid, dtype, op, num_inputs=1, buffer_type=ttnn.BufferType.L1
     )
