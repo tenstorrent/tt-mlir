@@ -6,8 +6,6 @@
 #define TTMLIR_DIALECT_TTCORE_TRANSFORMS_PASSES_H
 
 #include "mlir/Pass/Pass.h"
-#include "ttmlir/Dialect/TTCore/IR/TTCore.h"
-#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 
 namespace mlir::tt::ttcore {
 
