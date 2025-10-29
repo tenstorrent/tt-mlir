@@ -723,7 +723,7 @@ class TTCompilerBase(PyKernelAstBase):
                 for i, elt in enumerate(node.slice.elts)
             ]
         else:
-            idx = _build_index(slice, arr.type.shape, 0)
+            idx = _build_index(node.slice, arr.type.shape, 0)
 
         if isinstance(arr.type, MemRefType):
             return memref.LoadOp(arr, idx)
