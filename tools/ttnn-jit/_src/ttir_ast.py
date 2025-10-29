@@ -231,7 +231,13 @@ class TTIRCompiler(ast.NodeVisitor):
     def visit_Attribute(self, node, args=[]):
         assert self.backend == "ttnn", "Attributes are only supported for ttnn backend"
         assert len(args) >= 1, "Must pass at least one argument (tensor)"
-        assert node.attr in self._fn_map, f"Function {node.attr} not supported"
+        
+        # Map function names to their MLIR dialect equivalents
+        attr_name = node.attr
+        if attr_name == "pow":
+            attr_name = "pow_tensor"
+        
+        assert attr_name in self._fn_map, f"Function {node.attr} not supported"
         assert not isinstance(
             args[0], ast.Constant
         ), "First argument cannot be a constant"
@@ -244,7 +250,7 @@ class TTIRCompiler(ast.NodeVisitor):
             arg = self.visit(func_arg, tensor=tensor_arg)
             func_args.append(arg)
 
-        func = self._fn_map[node.attr]
+        func = self._fn_map[attr_name]
         op = func(*func_args)
         op.owner.attributes["ttnn.hoist_generic_via_d2m"] = UnitAttr.get(self.ctx)
 

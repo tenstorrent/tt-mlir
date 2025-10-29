@@ -92,7 +92,7 @@ def all_close_check(interop_result, golden_result, atol=1e-1, rtol=1e-1):
 
 
 def run_op_test(
-    device, h, w, max_grid, dtype, op, num_inputs, buffer_type=ttnn.BufferType.L1
+    device, h, w, max_grid, dtype, op, num_inputs, buffer_type=ttnn.BufferType.L1, use_ttir_compiler=False
 ):
     if buffer_type == ttnn.BufferType.L1:
         inputs = [
@@ -104,7 +104,7 @@ def run_op_test(
     print("inputs", inputs)
     golden_op = _get_ttnn_op(op)
 
-    op_jit = ttnn_jit.jit(backend="ttnn", debug=True, max_grid=max_grid)(op)
+    op_jit = ttnn_jit.jit(backend="ttnn", debug=True, max_grid=max_grid, use_ttir_compiler=use_ttir_compiler)(op)
     output_tensor = op_jit(*inputs)
     golden_tensor = (golden_op or op)(*inputs)
 
@@ -322,7 +322,11 @@ def remainder(a, b):
 
 
 def pow(a, b):
-    return ttnn.pow_tensor(a, b)
+    # Note: Use ttnn.pow() not ttnn.pow_tensor()
+    # - ttnn.pow() exists in the Python API (used for golden result computation)
+    # - ttnn.pow_tensor only exists in MLIR dialect
+    # - Both compilers map ttnn.pow -> ttnn.pow_tensor MLIR operation automatically
+    return ttnn.pow(a, b)
 
 
 def atan2(a, b):
@@ -380,6 +384,50 @@ def test_binary_ops(device, h, w, max_grid, dtype, op):
     )
 
 
+@pytest.mark.parametrize("h , w, max_grid", COMMON_SHAPE_GRID_PARAMS)
+@pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32])
+def test_pow_ast_compiler(device, h, w, max_grid, dtype):
+    """Test pow operation with AST compiler (use_ttir_compiler=True).
+    
+    This test explicitly verifies that the pow operation works with the AST-based
+    compiler path, which is separate from the default graph-based compiler.
+    
+    Background:
+    -----------
+    The pow operation had a naming mismatch issue:
+    - The Python ttnn API has: ttnn.pow(a, b)
+    - The MLIR dialect has: ttnn.pow_tensor (not ttnn.pow)
+    
+    Original Issue:
+    --------------
+    PR #5154 changed the test from ttnn.pow() to ttnn.pow_tensor(), but this failed
+    because ttnn.pow_tensor doesn't exist in the Python API. When computing the
+    golden result (which calls the function directly without JIT), it would error:
+        AttributeError: module 'ttnn' has no attribute 'pow_tensor'
+    
+    The Fix:
+    --------
+    1. Changed test back to use ttnn.pow() (which exists in Python API)
+    2. Added mapping in graph compiler: "pow" -> "pow_tensor" MLIR op
+    3. Added mapping in AST compiler: node.attr "pow" -> "pow_tensor" MLIR op
+    
+    Why This Test Exists:
+    --------------------
+    The AST compiler (use_ttir_compiler=True) has a completely different code path
+    from the graph compiler (default). It parses Python source code directly using
+    the ast module, so we need explicit tests to ensure the pow -> pow_tensor
+    mapping works correctly in this compilation path.
+    
+    Note: float32 tests are expected to xfail due to numerical precision issues.
+    """
+    if dtype == torch.float32:
+        pytest.xfail("failing allclose for some shapes with float32")
+    
+    run_op_test(
+        device, h, w, max_grid, dtype, pow, num_inputs=2, buffer_type=ttnn.BufferType.L1, use_ttir_compiler=True
+    )
+
+
 # ------------------------------------------------------------
 # Composite ops
 # ------------------------------------------------------------
@@ -390,12 +438,113 @@ def cosh(input_tensor):
     output = ttnn.multiply(nr_term, 0.5)
     return output
 
-
 def sinh(input_tensor):
     e_pos_x = ttnn.exp(input_tensor)
     e_neg_x = ttnn.exp(ttnn.neg(input_tensor))
     nr_term = ttnn.subtract(e_pos_x, e_neg_x)
     output = ttnn.multiply(nr_term, 0.5)
+    return output
+
+
+# ------------------------------------------------------------
+# Control flow tests
+# ------------------------------------------------------------
+def if_else_branch(input_tensor, use_exp=True):
+    """Test basic if/else branching."""
+    if use_exp:
+        output = ttnn.exp(input_tensor)
+    else:
+        output = ttnn.log(input_tensor)
+    return output
+
+
+def nested_if(input_tensor, mode=0):
+    """Test nested if statements."""
+    if mode == 0:
+        output = ttnn.abs(input_tensor)
+    else:
+        if mode == 1:
+            output = ttnn.exp(input_tensor)
+        else:
+            output = ttnn.sin(input_tensor)
+    return output
+
+
+def if_with_ops_before_after(input_tensor, apply_exp=True):
+    """Test if statement with operations before and after."""
+    temp = ttnn.abs(input_tensor)
+    
+    if apply_exp:
+        temp = ttnn.exp(temp)
+    else:
+        temp = ttnn.sin(temp)
+    
+    output = ttnn.multiply(temp, 0.5)
+    return output
+
+
+def multiple_sequential_ifs(input_tensor, apply_exp=False, apply_cos=False):
+    """Test multiple sequential if statements."""
+    output = input_tensor
+    
+    if apply_exp:
+        output = ttnn.exp(output)
+    
+    if apply_cos:
+        output = ttnn.cos(output)
+    
+    return output
+
+
+def for_loop_simple(input_tensor, iterations=3):
+    """Test simple for loop."""
+    output = input_tensor
+    for _ in range(iterations):
+        output = ttnn.add(output, input_tensor)
+    return output
+
+
+def for_loop_with_index(input_tensor, iterations=3):
+    """Test for loop with index variable."""
+    output = input_tensor
+    for i in range(iterations):
+        if i == 0:
+            output = ttnn.multiply(output, 2.0)
+        else:
+            output = ttnn.add(output, input_tensor)
+    return output
+
+
+def nested_for_loops(input_tensor, outer=2, inner=2):
+    """Test nested for loops."""
+    output = input_tensor
+    for _ in range(outer):
+        for _ in range(inner):
+            output = ttnn.multiply(output, 1.1)
+    return output
+
+
+def for_loop_with_if(input_tensor, iterations=4):
+    """Test for loop with if statement inside."""
+    output = input_tensor
+    for i in range(iterations):
+        if i % 2 == 0:
+            output = ttnn.add(output, input_tensor)
+        else:
+            output = ttnn.multiply(output, 0.9)
+    return output
+
+
+def if_inside_for_multiple_branches(input_tensor, iterations=3):
+    """Test for loop with multiple if branches inside."""
+    output = input_tensor
+    for i in range(iterations):
+        if i == 0:
+            output = ttnn.exp(output)
+        elif i == 1:
+            output = ttnn.sin(output)
+        else:
+            output = ttnn.cos(output)
     return output
 
 
@@ -405,6 +554,107 @@ def sinh(input_tensor):
 def test_composite_ops(device, h, w, max_grid, dtype, op):
     run_op_test(device, h, w, max_grid, dtype, op, 1, buffer_type=ttnn.BufferType.L1)
 
+
+# ------------------------------------------------------------
+# Control flow tests
+# ------------------------------------------------------------
+@pytest.mark.parametrize("h , w, max_grid", [(32, 32, (0, 0)), (64, 64, (0, 0)), (256, 256, (7, 7))])
+@pytest.mark.parametrize("dtype", [torch.bfloat16])
+@pytest.mark.parametrize("use_exp", [True, False])
+def test_if_else_branch(device, h, w, max_grid, dtype, use_exp):
+    """Test basic if/else branching with different branches."""
+    def op_wrapper(input_tensor):
+        return if_else_branch(input_tensor, use_exp=use_exp)
+    
+    run_op_test(device, h, w, max_grid, dtype, op_wrapper, 1, buffer_type=ttnn.BufferType.L1)
+
+
+@pytest.mark.parametrize("h , w, max_grid", [(32, 32, (0, 0)), (64, 64, (0, 0)), (256, 256, (7, 7))])
+@pytest.mark.parametrize("dtype", [torch.bfloat16])
+@pytest.mark.parametrize("mode", [0, 1, 2])
+def test_nested_if(device, h, w, max_grid, dtype, mode):
+    """Test nested if statements with different modes."""
+    def op_wrapper(input_tensor):
+        return nested_if(input_tensor, mode=mode)
+    
+    run_op_test(device, h, w, max_grid, dtype, op_wrapper, 1, buffer_type=ttnn.BufferType.L1)
+
+
+@pytest.mark.parametrize("h , w, max_grid", [(32, 32, (0, 0)), (64, 64, (0, 0))])
+@pytest.mark.parametrize("dtype", [torch.bfloat16])
+@pytest.mark.parametrize("apply_exp", [True, False])
+def test_if_with_ops_before_after(device, h, w, max_grid, dtype, apply_exp):
+    """Test if statement with operations before and after."""
+    def op_wrapper(input_tensor):
+        return if_with_ops_before_after(input_tensor, apply_exp=apply_exp)
+    
+    run_op_test(device, h, w, max_grid, dtype, op_wrapper, 1, buffer_type=ttnn.BufferType.L1)
+
+
+@pytest.mark.parametrize("h , w, max_grid", [(32, 32, (0, 0)), (64, 64, (0, 0))])
+@pytest.mark.parametrize("dtype", [torch.bfloat16])
+@pytest.mark.parametrize("apply_exp, apply_cos", [(True, False), (False, True), (True, True)])
+def test_multiple_sequential_ifs(device, h, w, max_grid, dtype, apply_exp, apply_cos):
+    """Test multiple sequential if statements. Note: (False, False) case excluded as it performs no operations."""
+    def op_wrapper(input_tensor):
+        return multiple_sequential_ifs(input_tensor, apply_exp=apply_exp, apply_cos=apply_cos)
+    
+    run_op_test(device, h, w, max_grid, dtype, op_wrapper, 1, buffer_type=ttnn.BufferType.L1)
+
+
+@pytest.mark.parametrize("h , w, max_grid", [(32, 32, (0, 0)), (64, 64, (0, 0)), (256, 256, (7, 7))])
+@pytest.mark.parametrize("dtype", [torch.bfloat16])
+@pytest.mark.parametrize("iterations", [1, 2, 3, 5])
+def test_for_loop_simple(device, h, w, max_grid, dtype, iterations):
+    """Test simple for loop with different iteration counts."""
+    def op_wrapper(input_tensor):
+        return for_loop_simple(input_tensor, iterations=iterations)
+    
+    run_op_test(device, h, w, max_grid, dtype, op_wrapper, 1, buffer_type=ttnn.BufferType.L1)
+
+
+@pytest.mark.parametrize("h , w, max_grid", [(32, 32, (0, 0)), (64, 64, (0, 0))])
+@pytest.mark.parametrize("dtype", [torch.bfloat16])
+@pytest.mark.parametrize("iterations", [1, 2, 3])
+def test_for_loop_with_index(device, h, w, max_grid, dtype, iterations):
+    """Test for loop with index variable and if statement."""
+    def op_wrapper(input_tensor):
+        return for_loop_with_index(input_tensor, iterations=iterations)
+    
+    run_op_test(device, h, w, max_grid, dtype, op_wrapper, 1, buffer_type=ttnn.BufferType.L1)
+
+
+@pytest.mark.parametrize("h , w, max_grid", [(32, 32, (0, 0)), (64, 64, (0, 0))])
+@pytest.mark.parametrize("dtype", [torch.bfloat16])
+@pytest.mark.parametrize("outer, inner", [(2, 2), (2, 3), (3, 2)])
+def test_nested_for_loops(device, h, w, max_grid, dtype, outer, inner):
+    """Test nested for loops."""
+    def op_wrapper(input_tensor):
+        return nested_for_loops(input_tensor, outer=outer, inner=inner)
+    
+    run_op_test(device, h, w, max_grid, dtype, op_wrapper, 1, buffer_type=ttnn.BufferType.L1)
+
+
+@pytest.mark.parametrize("h , w, max_grid", [(32, 32, (0, 0)), (64, 64, (0, 0))])
+@pytest.mark.parametrize("dtype", [torch.bfloat16])
+@pytest.mark.parametrize("iterations", [2, 3, 4])
+def test_for_loop_with_if(device, h, w, max_grid, dtype, iterations):
+    """Test for loop with if statement inside."""
+    def op_wrapper(input_tensor):
+        return for_loop_with_if(input_tensor, iterations=iterations)
+    
+    run_op_test(device, h, w, max_grid, dtype, op_wrapper, 1, buffer_type=ttnn.BufferType.L1)
+
+
+@pytest.mark.parametrize("h , w, max_grid", [(32, 32, (0, 0)), (64, 64, (0, 0))])
+@pytest.mark.parametrize("dtype", [torch.bfloat16])
+@pytest.mark.parametrize("iterations", [3, 4, 5])
+def test_if_inside_for_multiple_branches(device, h, w, max_grid, dtype, iterations):
+    """Test for loop with multiple if branches inside."""
+    def op_wrapper(input_tensor):
+        return if_inside_for_multiple_branches(input_tensor, iterations=iterations)
+    
+    run_op_test(device, h, w, max_grid, dtype, op_wrapper, 1, buffer_type=ttnn.BufferType.L1)
 
 # ------------------------------------------------------------
 # Interop tests
