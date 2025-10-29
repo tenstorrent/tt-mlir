@@ -19,12 +19,52 @@ from lit.llvm.subst import ToolSubst
 from lit.llvm.subst import FindTool
 
 
+class OpModelAwareShTest(lit.formats.ShTest):
+    """Custom test format that assigns parallelism groups based on test requirements."""
+
+    def __init__(self, execute_external):
+        super().__init__(execute_external)
+
+    def getTestsInDirectory(self, testSuite, path_in_suite, litConfig, localConfig):
+        """Override to set parallelism group based on test requirements."""
+        for test in super().getTestsInDirectory(
+            testSuite, path_in_suite, litConfig, localConfig
+        ):
+            # Read the test file to check for REQUIRES directives
+            try:
+                with open(test.getSourcePath(), "r") as f:
+                    # Read first few lines to find REQUIRES directives
+                    for line_num, line in enumerate(f):
+                        # Stop searching after reasonable number of lines
+                        if line_num > 10:
+                            break
+
+                        # Look for REQUIRES directives that include opmodel
+                        if line.strip().startswith("// REQUIRES:"):
+                            requires_content = line.strip()[
+                                12:
+                            ].strip()  # Remove '// REQUIRES:'
+                            # Split by comma to handle multiple requirements
+                            requirements = [
+                                req.strip() for req in requires_content.split(",")
+                            ]
+                            if "opmodel" in requirements:
+                                # Assign opmodel tests to single-threaded group
+                                test.config.parallelism_group = "opmodel"
+                                break
+                    # If not opmodel test, it will use default parallelism (multithreaded)
+            except (IOError, OSError):
+                # If we can't read the file, default to regular parallelism
+                pass
+            yield test
+
+
 # Configuration file for the 'lit' test runner.
 
 # name: The name of this test suite.
 config.name = "TTMLIR"
 
-config.test_format = lit.formats.ShTest(not llvm_config.use_lit_shell)
+config.test_format = OpModelAwareShTest(not llvm_config.use_lit_shell)
 
 # Stablehlo tests can be optionally enabled.
 if config.enable_stablehlo:
@@ -45,10 +85,12 @@ config.test_exec_root = os.path.join(config.ttmlir_obj_root, "test")
 
 # When op models (constraints) are enabled all optimizer enabled tests open the physical device so they are not parallelizable.
 # TODO(odjuricic): This can be removed once https://github.com/tenstorrent/tt-metal/issues/14000 is implemented.
-# Also this is only required when optimizer is enabled, tho i didn't find a way to set this for specific tests with lit config.
+# When op models (constraints) are enabled, set up parallelism groups.
+# OpModel tests will be assigned to single-threaded group by OpModelAwareShTest,
+# while other tests will use default parallelism (multithreaded).
 if config.enable_opmodel:
+    # Set up single-threaded parallelism group for opmodel tests
     lit_config.parallelism_groups["opmodel"] = 1
-    config.parallelism_group = "opmodel"
     config.available_features.add("opmodel")
 
 # Optimizer models performance tests are optionally enabled for specific CI jobs via lit parameter.
