@@ -222,17 +222,18 @@ private:
 // softmax:
 // 1. exp(x)
 // 2. sum(exp(x)) along a dimension with keep_dim=true
-// 3. broadcast the sum
-// 4. divide exp(x) by the broadcasted sum
+// 3. (optional) broadcast the sum
+// 4. divide exp(x) by the (broadcasted) sum
 class SoftmaxFusionPattern : public mlir::OpRewritePattern<DivOp> {
   using mlir::OpRewritePattern<DivOp>::OpRewritePattern;
 
 public:
-  // Pattern: div(exp(x), broadcast(sum(exp(x), keep_dim=true))).
+  // Pattern: div(exp(x), sum(exp(x), keep_dim=true)) or
+  //          div(exp(x), broadcast(sum(exp(x), keep_dim=true))).
   mlir::LogicalResult
   matchAndRewrite(DivOp divOp, mlir::PatternRewriter &rewriter) const final {
 
-    // Get the numerator (exp) and denominator (broadcast).
+    // Get the numerator (exp) and denominator.
     mlir::Value numerator = divOp.getLhs();
     mlir::Value denominator = divOp.getRhs();
 
@@ -242,14 +243,16 @@ public:
       return mlir::failure();
     }
 
-    // Check that the denominator is a broadcast operation.
-    auto broadcastOp = denominator.getDefiningOp<BroadcastOp>();
-    if (!broadcastOp) {
-      return mlir::failure();
+    // Check if the denominator is a broadcast operation or directly a sum.
+    // If broadcast folding has occurred, the broadcast may be eliminated.
+    mlir::Value sumValue = denominator;
+    BroadcastOp broadcastOp = denominator.getDefiningOp<BroadcastOp>();
+    if (broadcastOp) {
+      sumValue = broadcastOp.getInput();
     }
 
-    // Check that the broadcast input is a sum operation with keep_dim=true.
-    auto sumOp = broadcastOp.getInput().getDefiningOp<SumOp>();
+    // Check that we have a sum operation with keep_dim=true.
+    auto sumOp = sumValue.getDefiningOp<SumOp>();
     if (!sumOp || !sumOp.getKeepDim()) {
       return mlir::failure();
     }
@@ -259,14 +262,25 @@ public:
       return mlir::failure();
     }
 
+    // Verify that the shapes are broadcast-compatible.
+    auto expType = mlir::cast<RankedTensorType>(expOp.getType());
+    auto denominatorType = mlir::cast<RankedTensorType>(denominator.getType());
+    llvm::SmallVector<int64_t> broadcastedShape;
+    if (!OpTrait::util::getBroadcastedShape(
+            expType.getShape(), denominatorType.getShape(), broadcastedShape)) {
+      return mlir::failure();
+    }
+
     // Check correct user counts for each operation in the pattern:
     // - exp should have exactly 2 users (sum and div)
-    // - sum should have exactly 1 user (broadcast)
-    // - broadcast should have exactly 1 user (div)
+    // - sum should have exactly 1 user (div or broadcast)
+    // - broadcast (if present) should have exactly 1 user (div)
     // TODO(milant): Relax requirements for fusing #3183.
     if (ttmlir::utils::countUsers(expOp.getResult()) != 2 ||
-        !sumOp.getResult().hasOneUse() ||
-        !broadcastOp.getResult().hasOneUse()) {
+        !sumOp.getResult().hasOneUse()) {
+      return mlir::failure();
+    }
+    if (broadcastOp && !broadcastOp.getResult().hasOneUse()) {
       return mlir::failure();
     }
 
@@ -299,9 +313,9 @@ public:
 //
 // The pattern matches the following sequence:
 // 1. max(x) along a dimension with keep_dim=true
-// 2. broadcast the max value
-// 3. subtract: x - broadcasted_max
-// 4. softmax(x - broadcasted_max)
+// 2. (optional) broadcast the max value
+// 3. subtract: x - (broadcasted) max
+// 4. softmax(x - (broadcasted) max)
 class NumericStableSoftmaxFusionPattern
     : public mlir::OpRewritePattern<SoftmaxOp> {
   using mlir::OpRewritePattern<SoftmaxOp>::OpRewritePattern;
@@ -324,14 +338,15 @@ public:
     mlir::Value originalInput = subOp.getLhs();
     mlir::Value subtractedValue = subOp.getRhs();
 
-    auto broadcastOp = subtractedValue.getDefiningOp<BroadcastOp>();
-    if (!broadcastOp) {
-      return mlir::failure();
+    // Check if the subtracted value is a broadcast operation or directly a max.
+    // If broadcast folding has occurred, the broadcast may be eliminated.
+    mlir::Value maxValue = subtractedValue;
+    BroadcastOp broadcastOp = subtractedValue.getDefiningOp<BroadcastOp>();
+    if (broadcastOp) {
+      maxValue = broadcastOp.getInput();
     }
 
-    mlir::Value maxValue = broadcastOp.getInput();
-
-    // Check if the broadcasted value is a max operation.
+    // Check if we have a max operation.
     auto maxOp = maxValue.getDefiningOp<MaxOp>();
     if (!maxOp) {
       return mlir::failure();
@@ -359,10 +374,23 @@ public:
       return mlir::failure();
     }
 
+    // Verify that the shapes are broadcast-compatible.
+    auto originalInputType =
+        mlir::cast<RankedTensorType>(originalInput.getType());
+    auto subtractedValueType =
+        mlir::cast<RankedTensorType>(subtractedValue.getType());
+    llvm::SmallVector<int64_t> broadcastedShape;
+    if (!OpTrait::util::getBroadcastedShape(originalInputType.getShape(),
+                                            subtractedValueType.getShape(),
+                                            broadcastedShape)) {
+      return mlir::failure();
+    }
+
     // Check usage patterns to ensure we can safely fuse.
-    if (!subOp.getResult().hasOneUse() ||
-        !broadcastOp.getResult().hasOneUse() ||
-        !maxOp.getResult().hasOneUse()) {
+    if (!subOp.getResult().hasOneUse() || !maxOp.getResult().hasOneUse()) {
+      return mlir::failure();
+    }
+    if (broadcastOp && !broadcastOp.getResult().hasOneUse()) {
       return mlir::failure();
     }
 
@@ -1378,6 +1406,7 @@ private:
     if (!bias.hasOneUse()) {
       return nullptr;
     }
+
     RankedTensorType biasType = bias.getType();
     SmallVector<int64_t> linearWithBiasExpectedShape;
     if (!OpTrait::util::getBroadcastedShape(validMatmulOp.getType().getShape(),
@@ -1385,6 +1414,7 @@ private:
                                             linearWithBiasExpectedShape)) {
       return nullptr;
     }
+
     RankedTensorType addOpType = addOp.getType();
     ArrayRef<int64_t> addOpShape = addOpType.getShape();
     if (ttmlir::utils::volume(
