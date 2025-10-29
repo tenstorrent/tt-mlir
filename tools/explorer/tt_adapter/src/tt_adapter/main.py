@@ -21,9 +21,6 @@ OPTIMIZATION_POLICIES = {
     # "BF Interleaved": optimizer_overrides.MemoryLayoutAnalysisPolicyType.BFInterleaved,
 }
 
-# TODO(ctr-mcampos): update path to be configurable
-IR_DUMPS_DIR = 'ir_dumps'
-
 @dataclasses.dataclass
 class TTAdapterMetadata(model_explorer.AdapterMetadata):
     settings: Dict[str, list] = dataclasses.field(default_factory=dict)
@@ -156,18 +153,18 @@ class TTAdapter(model_explorer.Adapter):
         self.model_runner = runner.ModelRunner()
 
     def preload(self, model_path: str, settings: Dict):
-        if not os.path.exists(IR_DUMPS_DIR) or not os.path.isdir(IR_DUMPS_DIR):
+        if not os.path.exists(utils.IR_DUMPS_DIR) or not os.path.isdir(utils.IR_DUMPS_DIR):
             return utils.to_adapter_format({"graphPaths": []})
 
-        ir_paths = glob.glob(os.path.join(IR_DUMPS_DIR, "**/*.mlir")) + glob.glob(os.path.join(IR_DUMPS_DIR, "**/*.ttir")) + glob.glob(os.path.join(IR_DUMPS_DIR, "**/*.ttnn"))
+        ir_paths = utils.list_ir_files(utils.IR_DUMPS_DIR)
+
         graph_paths = []
         for path in ir_paths:
             full_path = os.path.abspath(path)
+            collections_path = str(utils.get_collection_path(path))
 
-            if os.access(full_path, os.R_OK) and full_path not in graph_paths:
-                if os.path.isdir(full_path):
-                    graph_paths.append(full_path)
-                # TODO(ctr-mcampos): add loose files (i.e. files not under a folder that ends in one of the extensions)?
+            if os.access(full_path, os.R_OK) and os.access(collections_path, os.R_OK) and collections_path not in graph_paths:
+                graph_paths.append(collections_path)
 
         return utils.to_adapter_format({"graphPaths": graph_paths})
 
