@@ -49,6 +49,7 @@ def _cleanup_source_code(f: Callable):
     source_code = "\n".join(cleaned)
     return source_code
 
+
 def _cast(val, ty):
     if val.type == ty or (isinstance(ty, type) and isinstance(val.type, ty)):
         return val
