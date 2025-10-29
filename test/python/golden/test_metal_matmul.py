@@ -110,7 +110,6 @@ def test_matmul_multi_core_8otpc(m: int, k: int, n: int, target: str, request, d
 def test_matmul_p150_grid_selection_compile_only(target: str, request, device):
     from builder.base.builder_utils import compile_ttir_to_flatbuffer
 
-    tile_size = 32
     lhs = (1024, 1024)
     rhs = (1024, 1024)
 
