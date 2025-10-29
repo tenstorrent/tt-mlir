@@ -39,8 +39,8 @@ public:
                                     PatternRewriter &rewriter) const override {
     ArrayRef<int64_t> permutation = permuteUser.getPermutation();
 
-    PermuteOp newPerm =
-        createNewPermuteOp(op.getInput(), permutation, rewriter, op->getLoc());
+    PermuteOp newPerm = createNewPermuteOp(op.getInput(), permutation, rewriter,
+                                           permuteUser->getLoc());
 
     ReduceOpType newReduce = createNewReduceOpWithPermutedDims(
         op, newPerm->getResult(0), permutation, rewriter,
@@ -71,8 +71,8 @@ public:
     ReduceOpType newReduce = createNewReduceOpWithPermutedDims(
         op, permuteOperand.getInput(), permutation, rewriter);
 
-    PermuteOp newPerm =
-        createNewPermuteOp(newReduce, permutation, rewriter, op->getLoc());
+    PermuteOp newPerm = createNewPermuteOp(newReduce, permutation, rewriter,
+                                           permuteOperand->getLoc());
 
     rewriter.replaceAllOpUsesWith(op, newPerm);
   }
@@ -135,7 +135,7 @@ private:
   }
 
   bool isCommuteUpwardsViable(ReduceOpType op, PermuteOp) const override {
-    // Commuting a permute through a reduce is only viable if keepdim = true
+    // Commute when reduce has keepdim = false is not currently supported
     return op.getKeepDim();
   }
 
@@ -147,7 +147,7 @@ private:
   }
 
   bool isCommuteDownwardsViable(ReduceOpType op, PermuteOp) const override {
-    // Commuting a permute through a reduce is only viable if keepdim = true
+    // Commute when reduce has keepdim = false is not currently supported
     return op.getKeepDim();
   }
 
