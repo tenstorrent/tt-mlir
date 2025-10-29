@@ -2194,7 +2194,7 @@ reduction_ops = [
 
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal", "ttnn-standalone", "emitpy"])
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitc", "emitpy"])
 @pytest.mark.parametrize("test_fn", reduction_ops)
 def test_reduction_ops(
     test_fn: Callable,
@@ -2242,7 +2242,7 @@ unary_ops_int32 = [
 
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.int32], ids=["i32"])
-# TODO (anuragsingh): Add tt-metal and ttnn-standalone tests. Link to issue: https://github.com/tenstorrent/tt-mlir/issues/4444
+# TODO (anuragsingh): Add tt-metal and emitc tests. Link to issue: https://github.com/tenstorrent/tt-mlir/issues/4444
 @pytest.mark.parametrize("target", ["ttnn"])
 @pytest.mark.parametrize("test_fn", unary_ops_int32)
 def test_unary_ops_int32(
