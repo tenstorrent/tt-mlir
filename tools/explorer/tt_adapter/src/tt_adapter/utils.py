@@ -14,6 +14,11 @@ import torch
 TTRT_INSTALLED = importlib.util.find_spec("ttrt") is not None
 
 
+# TODO(ctr-mcampos): update path to be configurable
+IR_DUMPS_DIR = 'ir_dumps'
+MODEL_EXTENSIONS = ['.ttir', '.mlir', '.ttnn']
+
+
 def parse_mlir_str(module_str):
     with ttmlir.ir.Context() as ctx:
         module = ttmlir.ir.Module.parse(module_str, ctx)
