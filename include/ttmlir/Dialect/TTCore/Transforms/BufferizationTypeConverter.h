@@ -21,19 +21,18 @@ inline void setTTCoreBufferizationTypeConverter(
          const bufferization::BufferizationOptions &options) -> BaseMemRefType {
     auto rankedTensorType = mlir::dyn_cast<RankedTensorType>(tensorType);
     if (!rankedTensorType) {
-      // Fallback to default conversion for unranked tensors
-      return MemRefType::get(tensorType.getShape(), tensorType.getElementType(),
-                             AffineMap(), memorySpace);
+      // Fallback to default conversion for unranked tensors.
+      return UnrankedMemRefType::get(tensorType.getElementType(), memorySpace);
     }
 
-    // Check if this tensor has a MetalLayoutAttr encoding
+    // Check if this tensor has a MetalLayoutAttr encoding.
     if (auto metalLayout = mlir::dyn_cast_if_present<MetalLayoutAttr>(
             rankedTensorType.getEncoding())) {
-      // Function arguments are not views
+      // Function arguments are not views.
       return ttcore::getBufferType(rankedTensorType, /*isView=*/false);
     }
 
-    // For tensors without MetalLayoutAttr, use default identity layout
+    // For tensors without MetalLayoutAttr, use default identity layout.
     return bufferization::getMemRefTypeWithStaticIdentityLayout(
         rankedTensorType, memorySpace);
   };
