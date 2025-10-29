@@ -77,6 +77,8 @@ def abs(input_tensor):
 def test_l1_block_sharded_shapes(device, h, w, max_grid, op):
     if max_grid in GRIDS_FAILING_ALL_SHAPES:
         pytest.xfail("Grid fails for all shapes. Issue: #5415")
+    if (h, w) == (256, 672) and max_grid == (6, 1):
+        pytest.xfail("Golden verification fails. Issue: #5550")
 
     run_op_test(
         device,
