@@ -10,7 +10,7 @@ from ttnn_jit._src.jit import JitFunction
 
 def jit(
     backend: Literal["ttnn", "metal"] = "ttnn",
-    max_grid: tuple[int, int] = (7, 7),
+    max_grid: tuple[int, int] = (8, 8),
     compile_only: bool = False,
     debug: bool = False,
 ):

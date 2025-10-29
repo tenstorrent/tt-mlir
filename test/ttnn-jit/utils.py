@@ -68,13 +68,13 @@ def create_sharded_tile_tensor(device, h, w, max_grid, dtype, int_max=0):
         torch_tensor = torch.randn((h, w), dtype=dtype)
 
     start_coord = ttnn.CoreCoord(0, 0)
-    end_coord = ttnn.CoreCoord(max_grid[0], max_grid[1])
+    end_coord = ttnn.CoreCoord(max_grid[0] - 1, max_grid[1] - 1)
     core_range = ttnn.CoreRange(start_coord, end_coord)
     core_range_set = ttnn.CoreRangeSet([core_range])
 
     # TTNN grids are (Width, Height), while tensor shapes are (Height, Width).
-    shard_shape_x = h if max_grid[1] == 0 else h // (max_grid[1] + 1)
-    shard_shape_y = w if max_grid[0] == 0 else w // (max_grid[0] + 1)
+    shard_shape_x = h // (max_grid[1])
+    shard_shape_y = w // (max_grid[0])
 
     shard_spec = ttnn.ShardSpec(
         grid=core_range_set,

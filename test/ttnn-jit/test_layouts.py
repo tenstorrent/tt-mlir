@@ -18,11 +18,11 @@ from utils import (
 # Generates all shapes with 1 to 4 tiles per core in each dimension, with every grid from single core to 8x8.
 # TTNN grids are (Width, Height), while tensor shapes are (Height, Width).
 BLOCK_SHARDED_SHAPE_GRIDS = [
-    (h * 32 * (grid_h + 1), w * 32 * (grid_w + 1), (grid_w, grid_h))
+    (h * 32 * grid_h, w * 32 * grid_w, (grid_w, grid_h))
     for h in range(1, 5)
     for w in range(1, 5)
-    for grid_h in range(8)
-    for grid_w in range(8)
+    for grid_h in range(1, 9)
+    for grid_w in range(1, 9)
 ]
 
 # TODO (5415): These grids fail for all shapes.
@@ -99,7 +99,7 @@ def test_l1_block_sharded_shapes(device, h, w, max_grid, op):
 )
 @pytest.mark.parametrize("op", [abs])
 def test_dram_interleaved_shapes(device, h, w, op):
-    max_grid = (0, 0)
+    max_grid = (1, 1)
     run_op_test(
         device,
         h,

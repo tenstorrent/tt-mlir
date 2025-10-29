@@ -16,19 +16,19 @@ from utils import (
 )
 
 BLOCK_SHARDED_SHAPE_GRIDS = [
-    (32, 32, (0, 0)),
-    (32, 64, (0, 0)),
-    (64, 64, (0, 0)),
-    (128, 128, (0, 0)),
-    (256, 256, (7, 7)),
-    (512, 512, (7, 7)),
-    (512, 1024, (7, 7)),
-    (1024, 1024, (7, 7)),
-    (1024, 2048, (7, 7)),
+    (32, 32, (1, 1)),
+    (32, 64, (1, 1)),
+    (64, 64, (1, 1)),
+    (128, 128, (1, 1)),
+    (256, 256, (8, 8)),
+    (512, 512, (8, 8)),
+    (512, 1024, (8, 8)),
+    (1024, 1024, (8, 8)),
+    (1024, 2048, (8, 8)),
     # Ensure non-square grid dims are interpreted correctly.
-    (64, 128, (3, 0)),
-    (64, 128, (0, 1)),
-    (96, 128, (3, 2)),
+    (64, 128, (4, 1)),
+    (64, 128, (1, 2)),
+    (96, 128, (4, 3)),
 ]
 
 DRAM_INTERLEAVED_SHAPES = [
@@ -165,7 +165,7 @@ def test_unary_op_dram(device, h, w, dtype, op):
     if op in [log, ceil, floor, logical_not] and dtype == torch.float32:
         pytest.xfail("failing allclose for some shapes for float32")
 
-    max_grid = (0, 0)
+    max_grid = (1, 1)
     run_op_test(
         device,
         h,
@@ -218,7 +218,7 @@ def test_unary_op_l1(device, h, w, max_grid, dtype, op):
     DRAM_INTERLEAVED_SHAPES,
 )
 def test_bitwise_unary_op_dram(device, h, w, dtype, op):
-    max_grid = (0, 0)
+    max_grid = (1, 1)
     run_op_test(
         device,
         h,
@@ -495,7 +495,7 @@ def test_interop_jit_and_ttnn_to_binary_l1(
     DRAM_INTERLEAVED_SHAPES,
 )
 def test_interop_jit_to_ttnn_unary_dram(device, h, w, dtype, jit_op, ttnn_unary_op):
-    max_grid = (0, 0)
+    max_grid = (1, 1)
     input_tensor = create_dram_tensor(device, h, w, dtype)
 
     # Interop path
@@ -531,7 +531,7 @@ def test_interop_two_jit_to_ttnn_binary_dram(
     if jit_op2 == log and dtype == torch.float32:
         pytest.xfail("Failing all_close, getting nan values mismatching with golden")
 
-    max_grid = (0, 0)
+    max_grid = (1, 1)
     input1 = create_dram_tensor(device, h, w, dtype)
     input2 = create_dram_tensor(device, h, w, dtype)
 
@@ -569,7 +569,7 @@ def test_interop_two_jit_to_ttnn_binary_dram(
 def test_interop_jit_and_ttnn_to_binary_dram(
     device, h, w, dtype, jit_op, ttnn_binary_op
 ):
-    max_grid = (0, 0)
+    max_grid = (1, 1)
     input_tensor = create_dram_tensor(device, h, w, dtype)
     ttnn_tensor = create_dram_tensor(device, h, w, dtype)
 
