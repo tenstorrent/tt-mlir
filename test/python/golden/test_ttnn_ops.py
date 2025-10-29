@@ -55,7 +55,7 @@ def mish(
 
 @pytest.mark.parametrize("shape", [(32, 32)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32], ids=["bf16", "f32"])
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+@pytest.mark.parametrize("target", ["ttnn", "emitpy"])
 @pytest.mark.parametrize(
     "test_fn",
     [
@@ -66,7 +66,7 @@ def test_unary_ops(
     test_fn: Callable, shape: Shape, dtype: torch.dtype, target: str, request, device
 ):
     if test_fn == mish and dtype == torch.float32:
-        pytest.skip(
+        pytest.xfail(
             "Mish with float 32 causes PCC: https://github.com/tenstorrent/tt-metal/issues/31112"
         )
 
