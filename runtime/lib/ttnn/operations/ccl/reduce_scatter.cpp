@@ -29,7 +29,7 @@ void run(const ::tt::target::ttnn::ReduceScatterOp *op,
   //       ::tt::runtime::ttnn::utils::getReduceType(op->reduce_type());
   // TODO(hkwon): Enable reduce_type again once the issue is resolved.
   // Currently the reduce_type argument is commented out because
-  // reduce_scatter_minimal_async does not accept it.
+  // reduce_scatter does not accept it.
 
   LOG_ASSERT(
       input.storage_type() == ::ttnn::StorageType::DEVICE,
