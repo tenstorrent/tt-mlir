@@ -3106,16 +3106,6 @@ public:
       auto inputType =
           mlir::cast<RankedTensorType>(adaptor.getOperand().getType());
 
-      int32_t totalElements = inputType.getNumElements();
-
-      RankedTensorType flattenedType = RankedTensorType::get(
-          {totalElements}, inputType.getElementType(), inputType.getEncoding());
-
-      SmallVector<int32_t> flatShape = {totalElements};
-      Value reshaped = ttir::utils::createDPSOp<ttir::ReshapeOp>(
-          rewriter, srcOp.getLoc(), flattenedType, adaptor.getOperand(),
-          rewriter.getI32ArrayAttr(flatShape));
-
       int64_t rank = counters.size();
       auto indicesType = RankedTensorType::get(
           {numIndices, rank}, rewriter.getI64Type(), inputType.getEncoding());
@@ -3130,13 +3120,13 @@ public:
           rewriter, srcOp, outputType,
           /*input=*/fullOp.getResult(),
           /*scatter_indices=*/indicesTensor,
-          /*update=*/reshaped,
+          /*update=*/adaptor.getOperand(),
           /*update_window_dims=*/SmallVector<int32_t>{},
           /*inserted_window_dims=*/insertedWindowDims,
           /*input_batching_dims=*/SmallVector<int32_t>{},
           /*scatter_indices_batching_dims=*/SmallVector<int32_t>{},
           /*scatter_dims_to_operand_dims=*/insertedWindowDims,
-          /*index_vector_dim=*/static_cast<int32_t>(rank),
+          /*index_vector_dim=*/1,
           /*indices_are_sorted=*/false,
           /*unique_indices=*/true);
 
