@@ -38,8 +38,6 @@ target_include_directories(JITCPP
     ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
 
-add_dependencies(JITCPP TTNN_LIBRARY tt-metal)
-
 # Install JITCPP library to the same directory as the Python module
 install(TARGETS JITCPP
   LIBRARY DESTINATION "${TTMLIR_PYTHON_PACKAGES_DIR}/ttnn_jit"
