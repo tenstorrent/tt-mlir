@@ -1337,6 +1337,10 @@ unsigned d2m::GenericOp::getNumDims() {
 }
 
 mlir::AffineMap d2m::GenericOp::getIndexingMap(int64_t operandIndex) {
+  // If indexing_maps is empty, return an empty affine map.
+  if (getIndexingMaps().empty()) {
+    return AffineMap::get(0, 0, {}, getContext());
+  }
   return mlir::cast<AffineMapAttr>(getIndexingMaps()[operandIndex]).getValue();
 }
 
@@ -1460,6 +1464,10 @@ d2m::GenericOp::getParticipatingLoopDims(int64_t operandIndex) {
 mlir::SmallVector<int64_t>
 d2m::GenericOp::getNonParticipatingLoopDims(int64_t operandIndex) {
   AffineMap indexingMap = getIndexingMap(operandIndex);
+  // If indexing_maps is empty, return empty vector (no non-participating dims).
+  if (indexingMap.getNumDims() == 0) {
+    return {};
+  }
   SmallVector<int64_t> participatingDims =
       getParticipatingLoopDims(operandIndex);
   llvm::BitVector nonParticipatingDims(indexingMap.getNumDims(), true);
