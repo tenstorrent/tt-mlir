@@ -1118,28 +1118,60 @@ public:
 
     Value cache = scatterOp.getInput();
     Value updates = scatterOp.getUpdate();
-    auto batchOffsetAttr = rewriter.getI32IntegerAttr(0);
+
+    int32_t batchSize =
+        mlir::cast<RankedTensorType>(cache.getType()).getShape()[0];
 
     // If the cachePositions tensor has more than one element we assume it
     // represents a set of aranged indices (0, cachePositions.size), so we
     // replace it with FillCacheOp. If the tensor has only one element, we
     // assume it represents the update index for UpateCacheOp.
-    if (cacheUpdateInputShape[0] != 1) {
-      rewriter.replaceOpWithNewOp<FillCacheOp>(
-          scatterOp, scatterOp.getResult().getType(), // Result type
-          cache,                                      // Cache tensor
-          updates,                                    // Updates tensor
-          batchOffsetAttr                             // Batch offset
-      );
-    } else {
-      rewriter.replaceOpWithNewOp<UpdateCacheOp>(
-          scatterOp, scatterOp.getResult().getType(), // Result type
-          cache,                                      // Cache tensor
-          updates,                                    // Updates tensor
-          *CachePositions,                            // Cache Idx
-          batchOffsetAttr                             // Batch offset
-      );
+    RankedTensorType updatesType = cast<RankedTensorType>(updates.getType());
+    for (int32_t batchOffset = 0; batchOffset < batchSize; batchOffset++) {
+      auto batchOffsetAttr = rewriter.getI32IntegerAttr(batchOffset);
+
+      SmallVector<int32_t> sliceStarts = {batchOffset, 0, 0, 0};
+      SmallVector<int32_t> sliceEnds = SmallVector<int32_t>(
+          updatesType.getShape().begin(), updatesType.getShape().end());
+
+      sliceEnds[0] = batchOffset + 1;
+      // sliceEnds[1] = sliceEnds[1] + 1;
+      // sliceEnds[2] = sliceEnds[2] + 1;
+      // sliceEnds[3] = sliceEnds[3] + 1;
+      SmallVector<int32_t> sliceSteps = {1, 1, 1, 1};
+
+      SmallVector<int64_t> sliceOutputShape(updatesType.getShape());
+      sliceOutputShape[0] = 1;
+
+      RankedTensorType slicedUpdatesType =
+          RankedTensorType::get(sliceOutputShape, updatesType.getElementType(),
+                                updatesType.getEncoding());
+
+      auto slicedUpdates = ttir::utils::createDPSOp<SliceStaticOp>(
+          rewriter, scatterOp.getLoc(), slicedUpdatesType, updates,
+          rewriter.getI32ArrayAttr(sliceStarts),
+          rewriter.getI32ArrayAttr(sliceEnds),
+          rewriter.getI32ArrayAttr(sliceSteps));
+
+      if (cacheUpdateInputShape[0] != 1) {
+        cache = rewriter.create<FillCacheOp>(
+            scatterOp.getLoc(), scatterOp.getResult().getType(), // Result type
+            cache,                                               // Cache tensor
+            slicedUpdates,  // Updates tensor
+            batchOffsetAttr // Batch offset
+        );
+      } else {
+        cache = rewriter.create<UpdateCacheOp>(
+            scatterOp.getLoc(), scatterOp.getResult().getType(), // Result type
+            cache,                                               // Cache tensor
+            slicedUpdates,   // Updates tensor
+            *CachePositions, // Cache Idx
+            batchOffsetAttr  // Batch offset
+        );
+      }
     }
+
+    rewriter.replaceOp(scatterOp, cache);
 
     return mlir::success();
   }
