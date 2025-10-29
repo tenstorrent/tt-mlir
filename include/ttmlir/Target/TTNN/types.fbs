@@ -91,3 +91,23 @@ table FloatingPointType {
 table UIntegralType {
   value: uint32;
 }
+
+enum PlacementType: ushort {
+    Replicate,
+    Shard,
+}
+
+struct Placement {
+  type: PlacementType;
+  dim: int32;
+}
+
+table MeshMapperConfig {
+  placements: [Placement];
+  mesh_shape_override: [uint32];
+}
+
+table MeshComposerConfig {
+  dims: [int32];
+  mesh_shape_override: [uint32];
+}
