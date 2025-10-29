@@ -4,7 +4,7 @@
 
 ## Table of Contents
 
-- [Building](#building)
+- [Getting Started](#getting-started)
 - [How to use ttnn.jit](#how-to-use-ttnnjit)
   - [JIT Flags](#jit-flags)
 - [How It Works](#how-it-works)
@@ -17,7 +17,12 @@
   - [AssertionError: Function ___ not supported](#assertionerror-function-___-not-supported)
   - [Failed to run pass manager](#failed-to-run-pass-manager)
 
-## Building
+## Getting Started
+
+### Quickstart
+Wheel install coming soon!
+
+### Building From Source
 Build [tt-mlir](./getting-started.md) with the following flags:
 
 ```bash
