@@ -618,11 +618,11 @@ private:
       ConversionPatternRewriter &rewriter, ttir::ConvolutionOp op,
       OpAdaptor adaptor, mlir::tt::ttir::ConvolutionLayoutAttr convLayoutAttr,
       Value input, Value weight, llvm::ArrayRef<int64_t> outputShape) const {
-    // [TODO](mmanzoor) Verify the implementation of transposed convolution for
-    // tt-xla. https://github.com/tenstorrent/tt-mlir/issues/3293
     // Determine if the stablehlo.convolution op represents a regular or
-    // transposed convolution, based on Torch-MLIR lowering patterns.
+    // transposed convolution, based on Torch-MLIR lowering patterns:
     // https://github.com/llvm/torch-mlir/blob/main/lib/Conversion/TorchToStablehlo/Linear.cpp
+    // and XLA patterns: convolution is transposed if the input dilation is
+    // greater than 1.
     bool isTransposed =
         convLayoutAttr.getKernelInputFeatureDimension() ==
             convLayoutAttr.getInputSpatialDimensions()[SPATIAL_DIM_WIDTH] &&
