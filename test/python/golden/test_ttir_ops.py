@@ -2068,7 +2068,9 @@ def test_hoisted_where(shapes, request, target: str, device):
     ids=shapes_list_str,
 )
 @pytest.mark.parametrize(
-    "dtype", [torch.float32, torch.int32, torch.uint8], ids=["f32", "i32", "ui8"]
+    "dtype",
+    [torch.float32, torch.int64, torch.int32, torch.uint8],
+    ids=["f32", "i64", "i32", "ui8"],
 )
 def test_reshape(shapes, dtype: torch.dtype, request, device):
     input_shape, output_shape = shapes
