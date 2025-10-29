@@ -23,6 +23,8 @@ from test_utils import (
     shard_wrap_factory,
 )
 
+pytestmark = pytest.mark.frontend("ttnn")
+
 
 @pytest.mark.parametrize("shape", [(64, 128)], ids=shape_str)
 @pytest.mark.parametrize("max_arg,min_arg", [(3.0, 2.0)])
@@ -30,6 +32,7 @@ def test_clamp_scalar(shape: Shape, max_arg: float, min_arg: float, request, dev
     def clamp_scalar(
         in0: Operand, builder: TTNNBuilder, unit_attrs: Optional[List[str]] = None
     ):
+        print(f"Clamping with min: {min_arg}, max: {max_arg}")
         return builder.clamp_scalar(
             in0, max_arg=max_arg, min_arg=min_arg, unit_attrs=unit_attrs
         )
@@ -65,15 +68,6 @@ def test_clamp_tensor(shapes: List[Shape], request, device):
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
     )
-
-
-def gt(
-    in0: Operand,
-    in1: Operand,
-    builder: TTNNBuilder,
-    unit_attrs: Optional[List[str]] = None,
-):
-    return builder.gt(in0, in1, unit_attrs=unit_attrs)
 
 
 @pytest.mark.parametrize(

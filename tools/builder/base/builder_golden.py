@@ -2099,6 +2099,7 @@ def clamp_scalar_golden(
     """
     min_val = kwargs.get("min", None)
     max_val = kwargs.get("max", None)
+    print(f"Clamping with min: {min_val}, max: {max_val}")
     return torch.clamp(input_tensor, min=min_val, max=max_val)
 
 

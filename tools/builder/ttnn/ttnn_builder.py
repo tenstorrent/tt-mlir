@@ -3408,10 +3408,12 @@ class TTNNBuilder(Builder):
         unit_attrs: Optional[List[str]] = None,
     ) -> OpView:
         kwargs = {"min": min_arg, "max": max_arg}
+        print(kwargs)
         return self._op_proxy(
             ttnn.ClampScalarOp,
             [in0],
             ttnn_kwargs=kwargs,
+            golden_kwargs=kwargs,
             unit_attrs=unit_attrs,
         )
 
