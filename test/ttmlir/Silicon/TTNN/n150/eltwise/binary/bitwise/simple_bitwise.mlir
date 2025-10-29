@@ -42,4 +42,14 @@ module attributes {} {
     // CHECK-SAME: -> tensor<64x128xsi32
     return %1 : tensor<64x128xi32>
   }
+
+  func.func @bitwise_xor_i8(%arg0: tensor<64x128xi8>, %arg1: tensor<64x128xi8>) -> tensor<64x128xi8> {
+    %0 = ttir.empty() : tensor<64x128xi8>
+    %1 = "ttir.bitwise_xor"(%arg0, %arg1, %0) : (tensor<64x128xi8>, tensor<64x128xi8>, tensor<64x128xi8>) -> tensor<64x128xi8>
+    // CHECK: "ttnn.bitwise_xor"
+    // CHECK-SAME: tensor<64x128xui32
+    // CHECK-SAME: tensor<64x128xui32
+    // CHECK-SAME: -> tensor<64x128xui32
+    return %1 : tensor<64x128xi8>
+  }
 }
