@@ -2,12 +2,12 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
+#include "ttmlir/Dialect/TTCore/Transforms/BufferizationTypeConverter.h"
 #include "ttmlir/Dialect/TTCore/Transforms/Passes.h"
 
 #include "mlir/Dialect/Bufferization/Transforms/OneShotAnalysis.h"
 #include "mlir/Dialect/Bufferization/Transforms/OneShotModuleBufferize.h"
-#include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
-#include "ttmlir/Dialect/TTCore/Transforms/BufferizationTypeConverter.h"
 
 namespace mlir::tt::ttcore {
 #define GEN_PASS_DEF_TTCOREONESHOTBUFFERIZEPASS
