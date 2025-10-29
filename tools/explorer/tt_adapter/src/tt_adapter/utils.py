@@ -4,13 +4,21 @@
 import ttmlir
 from dataclasses import make_dataclass, is_dataclass, asdict
 from collections import defaultdict
+from pathlib import Path
 from ttmlir.compile_and_run_utils import ModuleDialect
+import glob
+import os
 
 import importlib
 import logging
 import torch
 
 TTRT_INSTALLED = importlib.util.find_spec("ttrt") is not None
+
+
+# TODO(ctr-mcampos): update path to be configurable
+IR_DUMPS_DIR = 'ir_dumps'
+MODEL_EXTENSIONS = ['.ttir', '.mlir', '.ttnn']
 
 
 def parse_mlir_str(module_str):
@@ -102,6 +110,9 @@ def add_to_dataclass(dataclass, new_attr_name: str, new_attr_value):
     dataclass[new_attr_name] = new_attr_value
     return to_dataclass(dataclass, dc_name=classname)
 
+def to_adapter_collection_format(*objs, **kwargs):
+    res = [x if is_dataclass(x) else to_dataclass(x) for x in objs]
+    return {"graphCollections": [to_dataclass({ "label": kwargs.get('label', 'Unlabeled collection'), "graphs": res })]}
 
 def to_adapter_format(*objs):
     res = [x if is_dataclass(x) else to_dataclass(x) for x in objs]
@@ -130,3 +141,36 @@ def needs_stablehlo_pass(module_path: str) -> bool:
     module_dialect = ModuleDialect.detect(module_str)
 
     return module_dialect == ModuleDialect.STABLE_HLO
+
+def list_ir_files(dir_path: str):
+    return [
+        path
+        for extension in MODEL_EXTENSIONS
+        for path in glob.glob(os.path.join(dir_path, f"**/*{extension}"))
+    ]
+
+def get_collection_path(model_path: str):
+    resolved_model_path = Path(model_path).resolve()
+
+    # If the path is adirectory and has an "extension", simply return it.
+    if os.path.is_dir(resolved_model_path) and MODEL_EXTENSIONS.count(resolved_model_path.suffix) > 0:
+        return resolved_model_path
+
+    resolved_ir_dir = Path(IR_DUMPS_DIR).resolve()
+
+    for parent in resolved_model_path.parents:
+        if parent == resolved_ir_dir:
+            # Don't walk up more than the IR directory.
+            break
+
+        if MODEL_EXTENSIONS.count(parent.suffix) > 0:
+            # Resolve to the closest directory with an "extension".
+            return parent
+
+    # Resolve to the file itself.
+    return resolved_model_path
+
+def get_collection_label(model_path: str):
+    collection_path = get_collection_path(model_path=model_path)
+
+    return collection_path.name
