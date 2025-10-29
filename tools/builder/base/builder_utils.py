@@ -258,6 +258,33 @@ def _emitpy_to_executable(module, filepath: str, golden_map, module_cache):
         f.write(cpp)
 
 
+def _convert_to_mlir_value(obj):
+    if hasattr(obj, "operation") and hasattr(obj.operation, "results"):
+        results = obj.operation.results
+        if len(results) == 1:
+            return results[0]
+        else:
+            return results
+    elif hasattr(obj, "type"):
+        return obj
+    else:
+        return obj
+
+
+def _process_multi_return_result(result):
+    if hasattr(result, "__iter__") and not isinstance(result, str):
+        converted_results = []
+        for item in result:
+            converted = _convert_to_mlir_value(item)
+            if hasattr(converted, "__iter__") and not hasattr(converted, "type"):
+                converted_results.extend(converted)
+            else:
+                converted_results.append(converted)
+        return tuple(converted_results)
+    else:
+        return _convert_to_mlir_value(result)
+
+
 def _create_custom_ttir_pipeline_fn(
     pipeline: str, verify: bool = True, print_ir: Union[bool, str] = False
 ) -> Callable:
@@ -470,7 +497,7 @@ def build_module(
                 builder._set_goldens(output_goldens)
                 builder._set_output_ordering(outputs)
 
-                return result
+                return _process_multi_return_result(result)
 
         print(f"`{fn.__name__}` successfully transformed into a MLIR module.")
         base = fn.__name__ if base is None else base
@@ -1885,7 +1912,8 @@ def experimental_build_stablehlo_module(
                 stablehlo_builder._set_goldens(output_goldens)
                 stablehlo_builder._set_output_ordering(outputs)
 
-                return result
+                # Convert OpView objects to MLIR Values for multi-return support
+                return _process_multi_return_result(result)
 
             # Create named meshes and add them to the module
             named_mesh_list = []
