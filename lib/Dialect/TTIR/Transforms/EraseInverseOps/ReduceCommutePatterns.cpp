@@ -45,8 +45,12 @@ public:
     ReduceOpType newReduce = createNewReduceOpWithPermutedDims(
         op, newPerm->getResult(0), permutation, rewriter,
         /*inverseDimPermute=*/true);
-
-    rewriter.replaceAllOpUsesWith(permuteUser, newReduce);
+    SmallVector<Operation *> users(op->getUsers());
+    for (auto *user : users) {
+      assert(checkIdenticalTms(permuteUser, user) &&
+             "shouldCommute should have ensured this is true");
+      rewriter.replaceOp(user, newReduce);
+    }
   }
   // Consider the following IR pseudocode:
   // %0 = permute(%arg0, %output0) <{permutation = array<i64: 0, 3, 1, 2>}>
