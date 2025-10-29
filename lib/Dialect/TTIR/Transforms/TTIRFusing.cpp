@@ -1161,10 +1161,39 @@ public:
             batchOffsetAttr // Batch offset
         );
       } else {
+        if (batchSize >= 32) {
+          SmallVector<int64_t> permutedShape(updatesType.getShape());
+          permutedShape = ttmlir::utils::applyPermutation(
+              updatesType.getShape(), {2, 1, 0, 3});
+          RankedTensorType permutedUpdatesType =
+              RankedTensorType::get(permutedShape, updatesType.getElementType(),
+                                    updatesType.getEncoding());
+          auto permutedUpdates = ttir::utils::createDPSOp<PermuteOp>(
+              rewriter, scatterOp.getLoc(), permutedUpdatesType, updates,
+              rewriter.getDenseI64ArrayAttr({2, 1, 0, 3}));
+          cache = rewriter.create<UpdateCacheOp>(
+              scatterOp.getLoc(),
+              scatterOp.getResult().getType(), // Result type
+              cache,                           // Cache tensor
+              permutedUpdates,                 // Updates tensor
+              *CachePositions,                 // Cache Idx
+              0                                // Batch offset
+          );
+          break;
+        }
+        SmallVector<int64_t> permutedShape(slicedUpdates.getType().getShape());
+        permutedShape = ttmlir::utils::applyPermutation(
+            slicedUpdates.getType().getShape(), {2, 1, 0, 3});
+        RankedTensorType permutedUpdatesType = RankedTensorType::get(
+            permutedShape, slicedUpdates.getType().getElementType(),
+            slicedUpdates.getType().getEncoding());
+        auto permutedUpdates = ttir::utils::createDPSOp<PermuteOp>(
+            rewriter, scatterOp.getLoc(), permutedUpdatesType, slicedUpdates,
+            rewriter.getDenseI64ArrayAttr({2, 1, 0, 3}));
         cache = rewriter.create<UpdateCacheOp>(
             scatterOp.getLoc(), scatterOp.getResult().getType(), // Result type
             cache,                                               // Cache tensor
-            slicedUpdates,   // Updates tensor
+            permutedUpdates, // Updates tensor
             *CachePositions, // Cache Idx
             batchOffsetAttr  // Batch offset
         );
