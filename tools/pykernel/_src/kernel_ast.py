@@ -852,7 +852,7 @@ class TTCompilerBase(PyKernelAstBase):
         elif isinstance(node.value, bool):
             return op_constructor(IntegerType.get_signless(1, self.ctx), node.value)
         elif isinstance(node.value, int):
-            return op_constructor(IntegerType.get_signless(64, self.ctx), node.value)
+            return op_constructor(IntegerType.get_signless(32, self.ctx), node.value)
         else:
             raise NotImplementedError(
                 f"constant type {type(node.value).__name__} not implemented"
