@@ -144,6 +144,7 @@ inline std::optional<DataType> elementTypeToDataTypeImpl(Type elementType) {
     case DataType::BFP_Float2:
     case DataType::Float32:
     case DataType::BFloat16:
+    case DataType::Int32:
       return tileType.getDataType();
     default:
       assert(false && "Unsupported tile type in elementTypeToDataTypeImpl");
