@@ -11,6 +11,16 @@ module {
         %3 = "ttir.permute"(%1, %2) <{permutation = array<i64: 0, 3, 1, 2>}> : (tensor<12x1x1x1152xbf16>, tensor<12x1152x1x1xbf16>) -> tensor<12x1152x1x1xbf16>
         return %3 : tensor<12x1152x1x1xbf16>
     }
+    // Commute when reduce has keepdim = false is not currently supported
+    func.func @test_permute_mean_keepdim_false_not_commute_upwards(%arg0: tensor<12x7x7x1152xbf16>) -> tensor<1152x12xbf16> {
+        // CHECK: "ttir.mean"
+        // CHECK: "ttir.permute"
+        %0 = ttir.empty() : tensor<12x1152xbf16>
+        %1 = "ttir.mean"(%arg0, %0) <{dim_arg = [1 : i32, 2 : i32], keep_dim = false}> : (tensor<12x7x7x1152xbf16>, tensor<12x1152xbf16>) -> tensor<12x1152xbf16>
+        %2 = ttir.empty() : tensor<1152x12xbf16>
+        %3 = "ttir.permute"(%1, %2) <{permutation = array<i64: 1, 0>}> : (tensor<12x1152xbf16>, tensor<1152x12xbf16>) -> tensor<1152x12xbf16>
+        return %3 : tensor<1152x12xbf16>
+    }
     // If reduce has multiple users that are not all same permutes, permute is not commuted upwards
     func.func @test_permute_mean_diff_users_upwards(%arg0: tensor<12x7x7x1152xbf16>) -> (tensor<12x1152x1x1xbf16>, tensor<12x1x1x1152xbf16>) {
         // CHECK: "ttir.mean"
