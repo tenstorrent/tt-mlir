@@ -128,15 +128,13 @@ void populatePassesModule(nb::module_ &m) {
       nb::arg("module"), nb::arg("options") = "");
 
   m.def(
-      "ttnn_to_ttmetal_pipeline",
+      "ttnn_to_ttmetal_backend_pipeline",
       [](MlirModule module, std::string options = "") {
         mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
         mlir::PassManager pm(moduleOp->getName());
 
-        pm.addPass(tt::createConvertTTNNToTTIRPass());
-
         const auto *pipeline =
-            mlir::PassPipelineInfo::lookup("ttir-to-ttmetal-pipeline");
+            mlir::PassPipelineInfo::lookup("ttnn-to-ttmetal-backend-pipeline");
         std::function<mlir::LogicalResult(const llvm::Twine &)> err_handler =
             [](const llvm::Twine &) { return mlir::failure(); };
         if (mlir::failed(pipeline->addToPipeline(pm, options, err_handler))) {
