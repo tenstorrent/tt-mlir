@@ -29,6 +29,7 @@ class JitFunction:
         max_grid: tuple[int, int],
         compile_only: bool,
         debug: bool,
+        enable_cache: bool,
     ):
         self.func = func
         self.source_code = _cleanup_source_code(func)
@@ -48,7 +49,7 @@ class JitFunction:
 
         # Each JitFunction hold its own cache.
         # Hashing based off runtime tensor metadata.
-        self.cache = JitCache(64)
+        self.cache = JitCache(64) if enable_cache else None
 
     def __call__(self, *args, **kwargs):
         """Execute the JIT-compiled function."""
@@ -65,7 +66,7 @@ class JitFunction:
         kwargs["_max_grid"] = self.max_grid
 
         # Cache hit, no need to compile.
-        if self.cache.contains(*args):
+        if self.cache and self.cache.contains(*args):
             fb_binary = self.cache.get(*args)
             return _run_binary(fb_binary, args)
 
@@ -89,8 +90,9 @@ class JitFunction:
             ttnn_to_flatbuffer_file(ir, flatbuffer_bin, {}, [])
             return ir
 
-        fb_binary = self.cache.compile_and_insert(str(ir), options, self.debug, *args)
-        return _run_binary(fb_binary, args)
+        if self.cache:
+            fb_binary = self.cache.compile_and_insert(str(ir), options, *args)
+            return _run_binary(fb_binary, args)
 
     @property
     def num_entries(self):
