@@ -433,19 +433,19 @@ def test_print():
     y = 2
 
     # TEST: dprint with just var
-    # CHECK: ttkernel.dprint("{}", %[[X]])
+    # CHECK: ttkernel.dprint("{}\\n", %[[X]])
     print(x)
 
     # TEST: dprint with no args
-    # CHECK: ttkernel.dprint("Hello world")
+    # CHECK: ttkernel.dprint("Hello world\\n")
     print("Hello world")
 
     # TEST: dprint with args
-    # CHECK: ttkernel.dprint("Hello world {} {} goodbye.", %[[X]], %[[Y]])
+    # CHECK: ttkernel.dprint("Hello world {} {} goodbye.\\n", %[[X]], %[[Y]])
     print("Hello world", x, y, "goodbye.")
 
     # TEST: dprint with string and format args
-    # CHECK: ttkernel.dprint("Hello {} world Goodbye {} world", %[[X]], %[[Y]])
+    # CHECK: ttkernel.dprint("Hello {} world Goodbye {} world\\n", %[[X]], %[[Y]])
     print("Hello {} world".format(x), "Goodbye {} world".format(y))
     return
 
