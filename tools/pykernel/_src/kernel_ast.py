@@ -192,6 +192,14 @@ class TTCompilerBase(PyKernelAstBase):
         if isinstance(step.type, memref.MemRefType):
             step = memref.LoadOp(step, arith.ConstantOp(IndexType.get(self.ctx), 0)).result
 
+        # Cast all to index type for scf.for
+        if not isinstance(lower_bound.type, IndexType):
+            lower_bound = arith.IndexCastOp(IndexType.get(self.ctx), lower_bound).result
+        if not isinstance(upper_bound.type, IndexType):
+            upper_bound = arith.IndexCastOp(IndexType.get(self.ctx), upper_bound).result
+        if not isinstance(step.type, IndexType):
+            step = arith.IndexCastOp(IndexType.get(self.ctx), step).result
+
         if self.verbose:
             comment = self._get_source_comment_block(node)
             emitc.verbatim(comment, [])
