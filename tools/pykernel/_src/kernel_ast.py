@@ -32,9 +32,6 @@ class TTCompilerBase(PyKernelAstBase):
             # control-flow
             ast.If,
             ast.For,
-            # Async
-            ast.Yield,
-            ast.Await,
             # Literals
             ast.Constant,
             # Expressions
@@ -215,25 +212,6 @@ class TTCompilerBase(PyKernelAstBase):
                 self.visit(stmt)
             scf.YieldOp([])
             self.symbol_tables.pop()
-
-    # Async
-    def visit_Yield(self, node):
-        if isinstance(node.value, ast.Name):
-            yield_args = [self.visit(node.value)]
-        elif isinstance(node.value, ast.Tuple):
-            yield_args = [self.visit(elem) for elem in node.value.elts]
-        else:
-            raise NotImplementedError(f"Unsupported type for yield {ast.dump(node)}")
-        d2m.YieldOp(yield_args)
-
-    def visit_Await(self, node):
-        if isinstance(node.value, ast.Name):
-            await_args = [self.visit(node.value)]
-        elif isinstance(node.value, ast.Tuple):
-            await_args = [self.visit(elem) for elem in node.value.elts]
-        else:
-            raise NotImplementedError("Unsupported type for yield")
-        d2m.AwaitOp(await_args)
 
     # Statements
     def visit_Name(self, node):
