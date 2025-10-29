@@ -155,7 +155,7 @@ def test_binops():
     # CHECK: arith.subi
     a + b - a * b
 
-    # CHECK: arith.divui
+    # CHECK: arith.floordivsi
     a // b
 
     # CHECK: arith.remsi
