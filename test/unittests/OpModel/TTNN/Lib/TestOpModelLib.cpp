@@ -178,6 +178,7 @@ using OpModelRelu6Param = OpModelUnaryEltwiseParam<Relu6Op>;
 using OpModelSiluParam = OpModelUnaryEltwiseParam<SiluOp>;
 using OpModelSqrtParam = OpModelUnaryEltwiseParam<SqrtOp>;
 using OpModelSigmoidParam = OpModelUnaryEltwiseParam<SigmoidOp>;
+using OpModelHardsigmoidParam = OpModelUnaryEltwiseParam<HardsigmoidOp>;
 using OpModelSinParam = OpModelUnaryEltwiseParam<SinOp>;
 using OpModelCosParam = OpModelUnaryEltwiseParam<CosOp>;
 using OpModelExpParam = OpModelUnaryEltwiseParam<ExpOp>;
@@ -207,6 +208,7 @@ TEST_P(OpModelRelu6Param, Relu6Op) { RunTest(); }
 TEST_P(OpModelSiluParam, SiluOp) { RunTest(); }
 TEST_P(OpModelSqrtParam, SqrtOp) { RunTest(); }
 TEST_P(OpModelSigmoidParam, SigmoidOp) { RunTest(); }
+TEST_P(OpModelHardsigmoidParam, HardsigmoidOp) { RunTest(); }
 TEST_P(OpModelSinParam, SinOp) { RunTest(); }
 TEST_P(OpModelCosParam, CosOp) { RunTest(); }
 TEST_P(OpModelExpParam, ExpOp) { RunTest(); }
@@ -326,6 +328,8 @@ INSTANTIATE_TEST_SUITE_P(SqrtTests, OpModelSqrtParam,
                          ::testing::ValuesIn(unaryEltwiseParams));
 
 INSTANTIATE_TEST_SUITE_P(SigmoidTests, OpModelSigmoidParam,
+                         ::testing::ValuesIn(unaryEltwiseParams));
+INSTANTIATE_TEST_SUITE_P(HardsigmoidTests, OpModelHardsigmoidParam,
                          ::testing::ValuesIn(unaryEltwiseParams));
 
 INSTANTIATE_TEST_SUITE_P(SinTests, OpModelSinParam,
@@ -5345,11 +5349,13 @@ protected:
       scale.emplace(scaleAPFloat);
     }
 
+    std::optional<uint32_t> slidingWindowSize = std::nullopt;
+
     auto constraintsExp =
         OpModel<ScaledDotProductAttentionOp>::getOpConstraints(
             CreateWorkerGrid(), queryShape, queryLayout, keyShape, keyLayout,
             valueShape, valueLayout, attentionMaskShape, attentionMaskLayout,
-            isCausal, scale, outputLayout);
+            isCausal, scale, slidingWindowSize, outputLayout);
 
     EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
     if (expectedLegal) {

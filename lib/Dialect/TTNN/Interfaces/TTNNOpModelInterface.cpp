@@ -387,6 +387,22 @@ Relu6Op::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 }
 
 //===----------------------------------------------------------------------===//
+// HardsigmoidOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::OpConstraints>
+HardsigmoidOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                                const OpConfig &opConfig) {
+  return detail::getUnaryOpConstraints(*this, inputs, opConfig);
+}
+
+llvm::Expected<size_t>
+HardsigmoidOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                            const OpConfig &opConfig) {
+  return detail::getUnaryOpRuntime(*this, inputs, opConfig);
+}
+
+//===----------------------------------------------------------------------===//
 // SqrtOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
@@ -1999,7 +2015,7 @@ ScaledDotProductAttentionOp::getOpConstraints(
       op_model::OpModel<ScaledDotProductAttentionOp>::getOpConstraints, *this,
       deviceGrid, queryShape, inputs[0], keyShape, inputs[1], valueShape,
       inputs[2], attentionMaskShape, attentionMaskLayout, isCausal, getScale(),
-      opConfig.outputLayout);
+      getSlidingWindowSize(), opConfig.outputLayout);
 }
 
 llvm::Expected<size_t> ScaledDotProductAttentionOp::getOpRuntime(
@@ -2027,7 +2043,7 @@ llvm::Expected<size_t> ScaledDotProductAttentionOp::getOpRuntime(
       op_model::OpModel<ScaledDotProductAttentionOp>::getOpRuntime, *this,
       queryShape, inputs[0], keyShape, inputs[1], valueShape, inputs[2],
       attentionMaskShape, attentionMaskLayout, isCausal, getScale(),
-      opConfig.outputLayout);
+      getSlidingWindowSize(), opConfig.outputLayout);
 }
 
 //===----------------------------------------------------------------------===//

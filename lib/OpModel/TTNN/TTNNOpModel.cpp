@@ -335,6 +335,8 @@ auto getOpSymbol() {
     return ::ttnn::relu;
   } else if constexpr (std::is_same_v<OpTy, Relu6Op>) {
     return ::ttnn::relu6;
+  } else if constexpr (std::is_same_v<OpTy, HardsigmoidOp>) {
+    return ::ttnn::hardsigmoid;
   } else if constexpr (std::is_same_v<OpTy, SqrtOp>) {
     return ::ttnn::sqrt;
   } else if constexpr (std::is_same_v<OpTy, SinOp>) {
@@ -912,6 +914,7 @@ UnaryEltwiseWithFastApproxModeOpModel<OpTy>::getOpRuntime(
 // Explicit template instantiation for UnaryEltwiseOpModel.
 template struct UnaryEltwiseOpModel<ReluOp>;
 template struct UnaryEltwiseOpModel<Relu6Op>;
+template struct UnaryEltwiseOpModel<HardsigmoidOp>;
 template struct UnaryEltwiseOpModel<SqrtOp>;
 template struct UnaryEltwiseOpModel<SinOp>;
 template struct UnaryEltwiseOpModel<AbsOp>;
@@ -2501,7 +2504,8 @@ OpModel<ScaledDotProductAttentionOp>::getOpConstraints(
     TTNNLayoutAttr valueLayout,
     std::optional<llvm::ArrayRef<int64_t>> attentionMaskShape,
     std::optional<TTNNLayoutAttr> attentionMaskLayout, bool isCausal,
-    std::optional<llvm::APFloat> scale, TTNNLayoutAttr outputLayout) {
+    std::optional<llvm::APFloat> scale,
+    std::optional<uint32_t> slidingWindowSize, TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
@@ -2536,7 +2540,7 @@ OpModel<ScaledDotProductAttentionOp>::getOpConstraints(
     return ::ttnn::graph::query_op_constraints(
         ::ttnn::transformer::scaled_dot_product_attention, device, querySpec,
         keySpec, valueSpec, attentionMaskSpec, isCausal, scaleFloat,
-        detail::getNullableMemoryConfig(outputLayout),
+        slidingWindowSize, detail::getNullableMemoryConfig(outputLayout),
         /*program_config=*/std::nullopt,
         /*compute_kernel_config=*/std::nullopt);
   };
@@ -2554,7 +2558,8 @@ llvm::Expected<size_t> OpModel<ScaledDotProductAttentionOp>::getOpRuntime(
     llvm::ArrayRef<int64_t> valueShape, TTNNLayoutAttr valueLayout,
     std::optional<llvm::ArrayRef<int64_t>> attentionMaskShape,
     std::optional<TTNNLayoutAttr> attentionMaskLayout, bool isCausal,
-    std::optional<llvm::APFloat> scale, TTNNLayoutAttr outputLayout) {
+    std::optional<llvm::APFloat> scale,
+    std::optional<uint32_t> slidingWindowSize, TTNNLayoutAttr outputLayout) {
 
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
@@ -2590,7 +2595,7 @@ llvm::Expected<size_t> OpModel<ScaledDotProductAttentionOp>::getOpRuntime(
     return ::ttnn::graph::query_op_runtime(
         ::ttnn::transformer::scaled_dot_product_attention, device, querySpec,
         keySpec, valueSpec, attentionMaskSpec, isCausal, scaleFloat,
-        detail::getNullableMemoryConfig(outputLayout),
+        slidingWindowSize, detail::getNullableMemoryConfig(outputLayout),
         /*program_config=*/std::nullopt,
         /*compute_kernel_config=*/std::nullopt);
   };

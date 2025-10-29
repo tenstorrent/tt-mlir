@@ -72,6 +72,9 @@ template <>
 struct OpModel<Relu6Op> : UnaryEltwiseOpModel<Relu6Op> {};
 
 template <>
+struct OpModel<HardsigmoidOp> : UnaryEltwiseOpModel<HardsigmoidOp> {};
+
+template <>
 struct OpModel<SqrtOp> : UnaryEltwiseOpModel<SqrtOp> {};
 
 template <>
@@ -693,7 +696,8 @@ struct OpModel<ScaledDotProductAttentionOp> {
       TTNNLayoutAttr valueLayout,
       std::optional<llvm::ArrayRef<int64_t>> attentionMaskShape,
       std::optional<TTNNLayoutAttr> attentionMaskLayout, bool isCausal,
-      std::optional<llvm::APFloat> scale, TTNNLayoutAttr outputLayout);
+      std::optional<llvm::APFloat> scale,
+      std::optional<uint32_t> slidingWindowSize, TTNNLayoutAttr outputLayout);
 
   static llvm::Expected<size_t>
   getOpRuntime(llvm::ArrayRef<int64_t> queryShape, TTNNLayoutAttr queryLayout,
@@ -701,7 +705,9 @@ struct OpModel<ScaledDotProductAttentionOp> {
                llvm::ArrayRef<int64_t> valueShape, TTNNLayoutAttr valueLayout,
                std::optional<llvm::ArrayRef<int64_t>> attentionMaskShape,
                std::optional<TTNNLayoutAttr> attentionMaskLayout, bool isCausal,
-               std::optional<llvm::APFloat> scale, TTNNLayoutAttr outputLayout);
+               std::optional<llvm::APFloat> scale,
+               std::optional<uint32_t> slidingWindowSize,
+               TTNNLayoutAttr outputLayout);
 };
 
 //===-----------------------------------------------------------------------===//

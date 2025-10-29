@@ -477,6 +477,12 @@ def TTNN_SigmoidOp : TTNN_ElementwiseUnaryOp<"sigmoid"> {
       Eltwise sigmoid operation.
     }];
 }
+def TTNN_HardsigmoidOp : TTNN_ElementwiseUnaryOp<"hardsigmoid"> {
+  let summary = "Eltwise hardsigmoid.";
+  let description = [{
+    Eltwise hardsigmoid operation. Computes hardsigmoid(x) = max(0, min(1, (x + 3) / 6)).
+  }];
+}
 
 def TTNN_SiluOp : TTNN_ElementwiseUnaryOp<"silu"> {
   let summary = "Eltwise SiLU.";
@@ -2678,6 +2684,7 @@ def TTNN_ScaledDotProductAttentionOp : TTNN_Op<"scaled_dot_product_attention", [
           attention_mask (AnyRankedTensor, optional): Defaults to `None`. [batch x 1 x query_seq_len x kv_seq_len]. Head broadcasting is implied.
           is_causal (bool): Whether the attention is causal. Defaults to `true`.
           scale (float, optional): Defaults to `None`.
+          sliding_window_size (uint, optional): Defaults to `None`. Size of sliding window for attention. If provided && is_causal, only attends to the last `sliding_window_size` tokens. If provided && !is_causal, attends to a window of size `sliding_window_size` centered at the current position.
           memory_config (MemoryConfigAttr, optional): Memory configuration for the operation. Defaults to `None`.
 
 
@@ -2691,6 +2698,7 @@ def TTNN_ScaledDotProductAttentionOp : TTNN_Op<"scaled_dot_product_attention", [
                          Optional<AnyRankedTensor>:$attention_mask,
                          DefaultValuedAttr<BoolAttr, "true">:$is_causal,
                          OptionalAttr<F32Attr>:$scale,
+                         OptionalAttr<UI32Attr>:$sliding_window_size,
                          OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
 
     let results = (outs AnyRankedTensor:$result);

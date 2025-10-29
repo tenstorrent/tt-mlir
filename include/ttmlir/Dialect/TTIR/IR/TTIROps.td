@@ -765,6 +765,35 @@ def TTIR_SigmoidOp: TTIR_ElementwiseUnaryOp<"sigmoid"> {
       Mathematical definition: sigmoid(x) = 1 / (1 + exp(-x))
     }];
 }
+
+def TTIR_HardsigmoidOp: TTIR_ElementwiseUnaryOp<"hardsigmoid"> {
+  let summary = "Elementwise hard sigmoid operation.";
+  let description = [{
+    The `hardsigmoid` operation computes the hard sigmoid activation function of each element in the input tensor.
+
+    The hard sigmoid function is a piecewise linear approximation of the sigmoid function that is computationally
+    more efficient. It is defined as:
+    - 0 if x <= -3
+    - (x + 3) / 6 if -3 < x < 3
+    - 1 if x >= 3
+
+    This activation function is commonly used in neural networks as a computationally efficient alternative to
+    the standard sigmoid function, particularly in mobile and embedded applications where computational resources
+    are limited.
+
+    Example:
+    ```mlir
+    // Compute hard sigmoid of all elements in %input
+    %result = ttir.hardsigmoid(%input, %output) : tensor<4x4xf32>, tensor<4x4xf32> -> tensor<4x4xf32>
+    // Input tensor:
+    // [-3.0, -1.0, 0.0, 3.0]
+    // Output tensor:
+    // [0.0, 0.333, 0.5, 1.0]
+    ```
+
+    Mathematical definition: hardsigmoid(x) = max(0, min(1, (x + 3) / 6))
+  }];
+}
 def TTIR_SiluOp: TTIR_ElementwiseUnaryOp<"silu"> {
   let summary = "Elementwise SiLU (Sigmoid Linear Unit) operation.";
   let description = [{
@@ -5462,6 +5491,7 @@ def TTIR_ScaledDotProductAttentionOp : TTIR_NamedOp<"scaled_dot_product_attentio
         output (AnyRankedTensor): The output DPS operand [batch x num_heads x query_seq_len x head_size].
         is_causal (bool): Whether The attention is causal. Defaults to `true`.
         scale (float, optional): Defaults to `None`.
+        sliding_window_size (uint, optional): Defaults to `None`. Size of sliding window for attention. If provided && is_causal, only attends to the last `sliding_window_size` tokens. If provided && !is_causal, attends to a window of size `sliding_window_size` centered at the current position.
 
     Returns:
         AnyRankedTensor: The output tensor [batch x num_heads x seq_len x head_size].
@@ -5473,7 +5503,8 @@ def TTIR_ScaledDotProductAttentionOp : TTIR_NamedOp<"scaled_dot_product_attentio
                        Optional<AnyRankedTensor>:$attention_mask,
                        AnyRankedTensor:$output,
                        DefaultValuedAttr<BoolAttr, "true">:$is_causal,
-                       OptionalAttr<F32Attr>:$scale);
+                       OptionalAttr<F32Attr>:$scale,
+                       OptionalAttr<UI32Attr>:$sliding_window_size);
 
   let results = (outs AnyRankedTensor:$result);
 
