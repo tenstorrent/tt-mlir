@@ -862,4 +862,50 @@ def TTNN_TraceIdAttr : TTNN_Attr<"TraceId", "trace_id"> {
   }];
 }
 
+def TTNN_PlacementAttr : TTNN_Attr<"Placement", "placement"> {
+  let summary = "Placement configuration for mesh mapping";
+  let description = [{
+    Specifies how a tensor dimension should be placed on the mesh.
+    Either replicated across all devices or sharded along a specific dimension.
+  }];
+
+  let parameters = (ins
+    "PlacementType":$type,
+    OptionalParameter<"IntegerAttr">:$dim
+  );
+
+  let assemblyFormat = "`<` $type (`,` $dim^)? `>`";
+}
+
+def TTNN_MeshMapperConfigAttr : TTNN_Attr<"MeshMapperConfig", "mesh_mapper_config"> {
+  let summary = "Mesh mapper configuration for tensor distribution";
+  let description = [{
+    Configuration for how a tensor should be distributed across a mesh.
+    Specifies placement strategy for each mesh dimension.
+  }];
+
+  let parameters = (ins
+    ArrayRefParameter<"PlacementAttr">:$placements,
+    OptionalArrayRefParameter<"IntegerAttr">:$mesh_shape_override
+  );
+
+  let assemblyFormat = "`<` `placements` `=` `[` $placements `]` (`,` `mesh_shape_override` `=` `[` $mesh_shape_override^ `]`)? `>`";
+}
+
+def TTNN_MeshComposerConfigAttr : TTNN_Attr<"MeshComposerConfig", "mesh_composer_config"> {
+  let summary = "Mesh composer configuration for tensor aggregation";
+  let description = [{
+    Configuration for how a distributed tensor should be aggregated back.
+    Specifies which dimensions to concatenate.
+  }];
+
+  let parameters = (ins
+    ArrayRefParameter<"IntegerAttr">:$dims,
+    OptionalArrayRefParameter<"IntegerAttr">:$mesh_shape_override
+  );
+
+  let assemblyFormat = "`<` `dims` `=` `[` $dims `]` (`,` `mesh_shape_override` `=` `[` $mesh_shape_override^ `]`)? `>`";
+}
+
+
 #endif  // TTMLIR_TTMLIR_DIALECT_TTNN_TTNNOPSATTRS_TD

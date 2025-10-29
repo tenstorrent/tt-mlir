@@ -2931,4 +2931,64 @@ def TTNN_AssignOp : TTNN_Op<"assign", [TTNN_MemoryConfigOpInterface, TTNN_DtypeO
 
     let hasVerifier = 1;
 }
+
+def TTNN_DistributeTensorOp : TTNN_Op<"distribute_tensor"> {
+  let summary = "Distribute tensor across mesh devices";
+  let description = [{
+    Distributes a host-side tensor across multiple devices in a mesh
+    according to the specified mapping configuration.
+
+    This operation takes a single-device tensor and creates a multi-device
+    tensor distributed according to the MeshMapperConfig configuration.
+
+    Example:
+    ```mlir
+    %result = "ttnn.distribute_tensor"(%input, %device) <{
+      mapper_config = #ttnn.mesh_mapper_config<
+        placements = [#ttnn.placement<replicate>, #ttnn.placement<shard, 1>],
+        mesh_shape_override = #ttnn.mesh_shape<2x2>
+      >,
+      cq_id = 0 : ui32
+    }> : (tensor<32x64xbf16>, !ttnn.device) -> tensor<32x64xbf16>
+    ```
+  }];
+
+  let arguments = (ins
+    AnyRankedTensor:$input,
+    TTNN_MeshMapperConfigAttr:$mapper_config,
+    TTNN_Device:$mesh_device,
+    OptionalAttr<UI32Attr>:$cq_id
+  );
+
+  let results = (outs AnyRankedTensor:$result); // Distributed tensor
+}
+
+def TTNN_AggregateTensorOp : TTNN_Op<"aggregate_tensor"> {
+  let summary = "Aggregate distributed tensor back to host";
+  let description = [{
+    Aggregates a multi-device tensor back into a single host-side tensor
+    according to the specified composer configuration.
+
+    This operation takes a distributed tensor and creates a single-device
+    host tensor aggregated according to the MeshComposerConfig configuration.
+
+    Example:
+    ```mlir
+    %result = "ttnn.aggregate_tensor"(%input, %device) <{
+      composer_config = #ttnn.mesh_composer_config<
+        dims = [1],
+        mesh_shape_override = #ttnn.mesh_shape<2x2>
+      >
+    }> : (tensor<32x64xbf16>, !ttnn.device) -> tensor<32x64xbf16>
+    ```
+  }];
+
+  let arguments = (ins
+    AnyRankedTensor:$input,                    // Distributed tensor
+    TTNN_MeshComposerConfigAttr:$composer_config,   // Aggregation configuration
+    TTNN_Device:$mesh_device                   // Mesh device
+  );
+
+  let results = (outs AnyRankedTensor:$result); // Aggregated host tensor
+}
 #endif
