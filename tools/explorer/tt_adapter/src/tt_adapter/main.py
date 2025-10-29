@@ -7,7 +7,6 @@ from . import runner, utils, mlir
 import dataclasses
 import logging
 import os
-import glob
 from ttmlir import optimizer_overrides
 
 OVERRIDE_PARAMETER_DISABLED_STR = "None"
@@ -168,9 +167,7 @@ class TTAdapter(model_explorer.Adapter):
 
         return utils.to_adapter_format({"graphPaths": graph_paths})
 
-    def convert(
-        self, model_path: str, settings: Dict
-    ) -> model_explorer.ModelExplorerGraphs:
+    def __convert_model(self, model_path: str, settings: Dict):
         if optimized_model_path := self.model_runner.get_optimized_model_path(
             model_path
         ):
@@ -222,7 +219,21 @@ class TTAdapter(model_explorer.Adapter):
             graph_handler = mlir.GraphHandler()
             graph, _ = graph_handler.build_graph(model_path, module, self.model_runner)
 
-        return utils.to_adapter_collection_format(graph, label=utils.get_collection_label(model_path, IR_DUMPS_DIR))
+            return graph
+
+    def convert(
+        self, model_path: str, settings: Dict
+    ) -> model_explorer.ModelExplorerGraphs:
+        if os.is_dir(model_path):
+            ir_paths = utils.list_ir_files(model_path)
+            graphs = []
+            for ir_path in ir_paths:
+                graphs.append(self.__convert_model(ir_path, settings))
+
+            return utils.to_adapter_collection_format(*graphs, label=utils.get_collection_label(model_path))
+        else:
+            graph = self.__convert_model(model_path, settings)
+            return utils.to_adapter_format(graph)
 
     def execute(
         self, model_path: str, settings: Dict
