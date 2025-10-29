@@ -184,13 +184,13 @@ class TTCompilerBase(PyKernelAstBase):
         if isinstance(lower_bound.type, memref.MemRefType):
             lower_bound = memref.LoadOp(
                 lower_bound, arith.ConstantOp(IndexType.get(self.ctx), 0)
-            )
+            ).result
         if isinstance(upper_bound.type, memref.MemRefType):
             upper_bound = memref.LoadOp(
                 upper_bound, arith.ConstantOp(IndexType.get(self.ctx), 0)
-            )
+            ).result
         if isinstance(step.type, memref.MemRefType):
-            step = memref.LoadOp(step, arith.ConstantOp(IndexType.get(self.ctx), 0))
+            step = memref.LoadOp(step, arith.ConstantOp(IndexType.get(self.ctx), 0)).result
 
         if self.verbose:
             comment = self._get_source_comment_block(node)
