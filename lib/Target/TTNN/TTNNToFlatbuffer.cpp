@@ -41,6 +41,8 @@
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/ErrorHandling.h"
+#include "llvm/Support/FileSystem.h"
+#include "llvm/Support/Path.h"
 #include "llvm/Support/raw_ostream.h"
 
 namespace mlir::tt::ttnn {
@@ -2159,6 +2161,22 @@ createOp(FlatbufferObjectCache &cache, GenericOp op) {
         ttkernel::translateTopLevelKernelToCpp(moduleOp, stream, kernelSymbol);
     assert(result.succeeded());
     assert(source.size() > 0 && "empty kernel source");
+
+    // Dump the generated C++ source to a file
+    std::string dirPath = "generated_jit/kernels/";
+    std::string filename = dirPath + kernelSymbol.str() + ".cpp";
+    std::error_code dirEc = llvm::sys::fs::create_directories(dirPath);
+
+    std::error_code ec;
+    llvm::raw_fd_ostream file(filename, ec, llvm::sys::fs::OF_Text);
+    if (!ec && !dirEc) {
+      file << source;
+      file.close();
+      llvm::outs() << "Dumped kernel source to: " << filename << "\n";
+    } else {
+      llvm::errs() << "Failed to create file " << filename << ": "
+                   << ec.message() << "\n";
+    }
 
     ::tt::target::ttnn::KernelConfig configType =
         ::tt::target::ttnn::KernelConfig::NONE;
