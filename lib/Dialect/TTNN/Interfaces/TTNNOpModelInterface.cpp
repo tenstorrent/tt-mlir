@@ -3970,4 +3970,78 @@ GlobalAvgPool2dOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
       inputs[0], getDtype(), opConfig.outputLayout);
 }
 
+//===----------------------------------------------------------------------===//
+// DistributeTensorOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::OpConstraints>
+DistributeTensorOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                                     const OpConfig &opConfig) {
+  // assert(inputs.size() == 0);
+
+  // llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
+  // if (!check) {
+  //   return check.takeError();
+  // }
+  // ttcore::GridAttr deviceGrid =
+  //     ttcore::lookupDevice(getOperation()).getWorkerGrid();
+
+  // return opConstraintsCache().getOrCompute(
+  //     op_model::OpModel<mlir::tt::ttnn::DistributeTensorOp>::getOpConstraints,
+  //     *this, deviceGrid, getMeshShape(), getCqId(), opConfig.outputLayout);
+  return issueErrorForGetOpConstraints(
+      getOperation(), detail::ReasonForLackOfSupport::NoNeedForConstraintAPI);
+}
+
+llvm::Expected<size_t>
+DistributeTensorOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                                 const OpConfig &opConfig) {
+  // assert(inputs.size() == 1);
+
+  // const auto inputShape = getInput().getType().getShape();
+  // return opRuntimeCache().getOrCompute(
+  // op_model::OpModel<UpsampleOp>::getOpRuntime, *this, inputShape, inputs[0],
+  // getMeshShape(), getCqId(), opConfig.outputLayout);
+
+  return issueErrorForGetOpRuntime(
+      getOperation(), detail::ReasonForLackOfSupport::NoNeedForConstraintAPI);
+}
+
+//===----------------------------------------------------------------------===//
+// AggregateTensorOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::OpConstraints>
+AggregateTensorOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                                    const OpConfig &opConfig) {
+  // assert(inputs.size() == 0);
+
+  // llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
+  // if (!check) {
+  //   return check.takeError();
+  // }
+  // ttcore::GridAttr deviceGrid =
+  //     ttcore::lookupDevice(getOperation()).getWorkerGrid();
+
+  // return opConstraintsCache().getOrCompute(
+  //     op_model::OpModel<mlir::tt::ttnn::DistributeTensorOp>::getOpConstraints,
+  //     *this, deviceGrid, getMeshShape(), getCqId(), opConfig.outputLayout);
+  return issueErrorForGetOpConstraints(
+      getOperation(), detail::ReasonForLackOfSupport::NoNeedForConstraintAPI);
+}
+
+llvm::Expected<size_t>
+AggregateTensorOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                                const OpConfig &opConfig) {
+  // assert(inputs.size() == 1);
+
+  // const auto inputShape = getInput().getType().getShape();
+  // return opRuntimeCache().getOrCompute(
+  // op_model::OpModel<UpsampleOp>::getOpRuntime, *this, inputShape, inputs[0],
+  // getMeshShape(), getCqId(), opConfig.outputLayout);
+
+  return issueErrorForGetOpRuntime(
+      getOperation(), detail::ReasonForLackOfSupport::NoNeedForConstraintAPI);
+}
+
 } // namespace mlir::tt::ttnn
