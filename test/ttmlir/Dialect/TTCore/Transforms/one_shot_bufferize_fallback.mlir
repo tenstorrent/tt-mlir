@@ -96,4 +96,3 @@ module attributes {ttcore.system_desc = #system_desc} {
     return %0 : tensor<*xf32>
   }
 }
-
