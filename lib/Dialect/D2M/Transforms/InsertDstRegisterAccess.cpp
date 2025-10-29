@@ -21,7 +21,7 @@
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
 #include "llvm/ADT/DenseSet.h"
-#include <llvm/ADT/SmallVector.h>
+#include "llvm/ADT/SmallVector.h"
 
 namespace mlir::tt::d2m {
 #define GEN_PASS_DEF_D2MINSERTDSTREGISTERACCESS
@@ -86,7 +86,6 @@ public:
       return WalkResult::interrupt();
     });
 
-
     if (!finalStore) {
       return {nullptr, leafNodes};
     }
@@ -107,14 +106,14 @@ public:
   }
 
   // Recursive helper to build the OpTreeNode from an operation.
-  // Works with affine loop blocks, treating affine.load operations as leaf nodes.
+  // Works with affine loop blocks, treating affine.load operations as leaf
+  // nodes.
   static std::unique_ptr<OpTreeNode>
   buildOpTreeRecursive(Operation *op, Block *affineBlock,
                        SmallVector<OpTreeNode *> &leafNodes) {
 
     // Create the node for this operation.
     auto node = std::make_unique<OpTreeNode>(op);
-
 
     // Process operands to build child nodes.
     SmallVector<std::unique_ptr<OpTreeNode>> children;
@@ -127,7 +126,8 @@ public:
           leafNodes.push_back(leafNode.get());
           children.push_back(std::move(leafNode));
         }
-        // If operand is defined by a compute operation in the affine block, recurse.
+        // If operand is defined by a compute operation in the affine block,
+        // recurse.
         else if (definingOp->getBlock() == affineBlock) {
           children.push_back(
               buildOpTreeRecursive(definingOp, affineBlock, leafNodes));
@@ -193,11 +193,12 @@ public:
 
     // Create indentation based on depth.
     std::string indent(depth * 2, ' ');
-    
+
     // Print current node information.
     if (node->isBlockArg) {
       // This is a block argument leaf node.
-      llvm::errs() << indent << "├─ BlockArg #" << node->blockArg.getArgNumber();
+      llvm::errs() << indent << "├─ BlockArg #"
+                   << node->blockArg.getArgNumber();
       llvm::errs() << " | Weight: " << node->weight << " [LEAF]";
     } else if (node->op && mlir::isa<affine::AffineLoadOp>(node->op)) {
       // This is an affine.load leaf node.
@@ -226,18 +227,19 @@ public:
   // Apply Sethi-Ullman ordering by recursively traversing the tree and
   // moving operations to minimize register usage. Traverses depth-first,
   // prioritizing the branch with higher weight.
-  static void applySeethiUllmanOrdering(PatternRewriter &rewriter, 
-                                         OpTreeNode *node,
-                                         DenseSet<Operation *> &movedOps) {
+  static void applySeethiUllmanOrdering(PatternRewriter &rewriter,
+                                        OpTreeNode *node,
+                                        DenseSet<Operation *> &movedOps) {
     if (!node || !node->op) {
       return;
     }
 
     // Determine traversal order based on child weights.
-    // Higher weight branch is visited first. If weights are equal, left is default.
+    // Higher weight branch is visited first. If weights are equal, left is
+    // default.
     OpTreeNode *firstChild = nullptr;
     OpTreeNode *secondChild = nullptr;
-    
+
     if (node->left && node->right) {
       // Binary operation: choose based on weight.
       if (node->right->weight > node->left->weight) {
@@ -263,7 +265,7 @@ public:
 
     // Check if this is a leaf node (affine.load).
     bool isLeaf = mlir::isa<affine::AffineLoadOp>(node->op);
-    
+
     // Check if all children have been moved (for non-leaf nodes).
     bool allChildrenMoved = true;
     if (node->left && node->left->op) {
@@ -276,12 +278,12 @@ public:
     // Move the operation if it's a leaf or all children have been handled.
     if (isLeaf || allChildrenMoved) {
       // Move the operation to the current insertion point.
-      node->op->moveBefore(rewriter.getInsertionBlock(), 
+      node->op->moveBefore(rewriter.getInsertionBlock(),
                            rewriter.getInsertionPoint());
-      
+
       // Mark this operation as moved.
       movedOps.insert(node->op);
-      
+
       // Update insertion point to after the moved operation.
       rewriter.setInsertionPointAfter(node->op);
     }
@@ -290,8 +292,8 @@ public:
   // Entry point for Sethi-Ullman register allocation reordering.
   // Finds the innermost loop, sets insertion point, and applies reordering.
   static void reorderOperationsSethi(PatternRewriter &rewriter,
-                                      Operation *outermostLoop,
-                                      OpTreeNode *opTreeRoot) {
+                                     Operation *outermostLoop,
+                                     OpTreeNode *opTreeRoot) {
     if (!opTreeRoot || !outermostLoop) {
       return;
     }
@@ -317,32 +319,34 @@ public:
     // Apply Sethi-Ullman ordering starting from the root.
     applySeethiUllmanOrdering(rewriter, opTreeRoot, movedOps);
 
-    llvm::errs() << "\n=== Sethi-Ullman Reordering Applied ===\n";
+    // llvm::errs() << "\n=== Sethi-Ullman Reordering Applied ===\n";
   }
 
   static bool hasAcquireDstOp(Region &region) {
     bool hasAcquire = !region.getOps<AcquireDstOp>().empty();
     return hasAcquire;
   }
-  
+
   static bool hasDstMemoryAccess(Region &region) {
     // Check if there are any loads or stores to DST memory space
     bool hasDstAccess = false;
     region.walk([&](Operation *op) {
       if (auto loadOp = dyn_cast<affine::AffineLoadOp>(op)) {
-        if (ttcore::getMemorySpace(loadOp.getMemRef()) == ttcore::MemorySpace::RegisterDst) {
+        if (ttcore::getMemorySpace(loadOp.getMemRef()) ==
+            ttcore::MemorySpace::RegisterDst) {
           hasDstAccess = true;
           return WalkResult::interrupt();
         }
       } else if (auto storeOp = dyn_cast<affine::AffineStoreOp>(op)) {
-        if (ttcore::getMemorySpace(storeOp.getMemRef()) == ttcore::MemorySpace::RegisterDst) {
+        if (ttcore::getMemorySpace(storeOp.getMemRef()) ==
+            ttcore::MemorySpace::RegisterDst) {
           hasDstAccess = true;
           return WalkResult::interrupt();
         }
       }
       return WalkResult::advance();
     });
-  
+
     return hasDstAccess;
   }
 
@@ -378,9 +382,8 @@ public:
     bool storedToDst = false;
   };
 
-
   class DstStackAllocator {
-    public:
+  public:
     int64_t allocate(bool isStore = false) {
       assert(!sliceStack.empty() && "Out of dst slices");
 
@@ -388,48 +391,46 @@ public:
 
       if (isStore) {
         outputQueue.push_back(currSliceIndex);
-      }
-      else {
+      } else {
         inputStack.push_back(currSliceIndex);
       }
 
-      llvm::errs() << "ALLOCATE\n";
-      llvm::errs() << "SliceStack = ";
-      for (auto it : sliceStack) {
-        llvm::errs() << it << ",";
-      }
-      llvm::errs() << " --> " << currSliceIndex;
-      llvm::errs() << "\n";
+      // llvm::errs() << "ALLOCATE\n";
+      // llvm::errs() << "SliceStack = ";
+      // for (auto it : sliceStack) {
+      //   llvm::errs() << it << ",";
+      // }
+      // llvm::errs() << " --> " << currSliceIndex;
+      // llvm::errs() << "\n";
 
-      llvm::errs() << "InputStack = ";
-      for (auto it : inputStack) {
-        llvm::errs() << it << ",";
-      }
-      llvm::errs() << "\n";
-      llvm::errs() << "OutputStack = ";
-      for (auto it : outputQueue) {
-        llvm::errs() << it << ",";
-      }
-      
-      llvm::errs() << "\n\n";
+      // llvm::errs() << "InputStack = ";
+      // for (auto it : inputStack) {
+      //   llvm::errs() << it << ",";
+      // }
+      // llvm::errs() << "\n";
+      // llvm::errs() << "OutputStack = ";
+      // for (auto it : outputQueue) {
+      //   llvm::errs() << it << ",";
+      // }
+
+      // llvm::errs() << "\n\n";
 
       return currSliceIndex;
     }
 
-    int64_t deallocate() { 
-      assert(!(inputStack.empty() && outputQueue.empty())  && "Deallocating non-existent dst slice");
+    int64_t deallocate() {
+      assert(!(inputStack.empty() && outputQueue.empty()) &&
+             "Deallocating non-existent dst slice");
 
       int64_t id;
 
       if (!inputStack.empty()) {
         id = inputStack.pop_back_val();
-      }
-      else {
+      } else {
         if (outputQueue.size() > 1) {
-          id = outputQueue.at(outputQueue.size()-2);  
+          id = outputQueue.at(outputQueue.size() - 2);
           outputQueue.erase(outputQueue.end() - 2);
-        }
-        else {
+        } else {
           id = outputQueue.back();
           outputQueue.pop_back();
         }
@@ -437,50 +438,49 @@ public:
 
       sliceStack.push_back(id);
 
-      llvm::errs() << "DEallocate\n";
-      llvm::errs() << "SliceStack = ";
-      for (auto it : sliceStack) {
-        llvm::errs() << it << ",";
-      }
-      llvm::errs() << "\n";
-      
-      llvm::errs() << "InputStack = ";
-      for (auto it : inputStack) {
-        llvm::errs() << it << ",";
-      }
-      llvm::errs() << "\n";
-      llvm::errs() << "OutputStack = ";
-      for (auto it : outputQueue) {
-        llvm::errs() << it << ",";
-      }
-      llvm::errs() << "\n";
-      llvm::errs() << " --> " << id;
-      llvm::errs() << "\n\n";
-      
+      // llvm::errs() << "DEallocate\n";
+      // llvm::errs() << "SliceStack = ";
+      // for (auto it : sliceStack) {
+      //   llvm::errs() << it << ",";
+      // }
+      // llvm::errs() << "\n";
+
+      // llvm::errs() << "InputStack = ";
+      // for (auto it : inputStack) {
+      //   llvm::errs() << it << ",";
+      // }
+      // llvm::errs() << "\n";
+      // llvm::errs() << "OutputStack = ";
+      // for (auto it : outputQueue) {
+      //   llvm::errs() << it << ",";
+      // }
+      // llvm::errs() << "\n";
+      // llvm::errs() << " --> " << id;
+      // llvm::errs() << "\n\n";
+
       return id;
     }
 
     void setStoreToDst() { storedToDst = true; }
     bool didStoreToDst() { return storedToDst; }
-    
-    int64_t getCurrSliceIndex() {    
-      return currSliceIndex;
-    }
-  
-    private:
-      int64_t currSliceIndex = 0;
 
-      SmallVector<int64_t, 8> inputStack;
-      std::deque<int64_t> outputQueue;
-      SmallVector<int64_t, 8> sliceStack = {7, 6, 5, 4, 3, 2, 1, 0};
+    int64_t getCurrSliceIndex() { return currSliceIndex; }
 
-      bool storedToDst = false;
-    };
+  private:
+    int64_t currSliceIndex = 0;
+
+    SmallVector<int64_t, 8> inputStack;
+    std::deque<int64_t> outputQueue;
+    SmallVector<int64_t, 8> sliceStack = {7, 6, 5, 4, 3, 2, 1, 0};
+
+    bool storedToDst = false;
+  };
 
   LogicalResult matchAndRewrite(GenericOp op,
                                 PatternRewriter &rewriter) const final {
-    
-    // Early check: if any region already has DST ops, skip this entire GenericOp.
+
+    // Early check: if any region already has DST ops, skip this entire
+    // GenericOp.
     for (unsigned regionIndex = 0; regionIndex < op.getNumRegions();
          regionIndex++) {
       if (op.getRegionThreadType(regionIndex) != ThreadType::Compute) {
@@ -488,15 +488,15 @@ public:
       }
 
       Region &region = op.getRegion(regionIndex);
-      
+
       bool hasAcquire = hasAcquireDstOp(region);
       bool hasDstAccess = hasDstMemoryAccess(region);
-      
+
       if (hasAcquire || hasDstAccess) {
-        return failure();  // Don't process this op again
+        return failure(); // Don't process this op again
       }
     }
-    
+
     bool modified = false;
     for (unsigned regionIndex = 0; regionIndex < op.getNumRegions();
          regionIndex++) {
@@ -515,7 +515,8 @@ public:
       // Temporary START
       // if all parallel --> no reductions --> eltwise only
       bool isEltwiseOnly = op.isAllParallel();
-      // doesn't contain skippable eltwise ops (i.e. went through eltwise fusion)
+      // doesn't contain skippable eltwise ops (i.e. went through eltwise
+      // fusion)
       bool noSkip = !op.hasSkipOpEltwiseFusionTrait();
 
       bool nonTriviallyFused = op->getNumOperands() > 3;
@@ -558,32 +559,32 @@ public:
         if (takeFusionPath) {
           // NEW: Try tree-based approach with Sethi-Ullman register allocation.
           // Now working with affine loops instead of linalg.generic.
-          Operation *outermostLoop = !linalgLoops.value().empty() 
-                                      ? linalgLoops.value().front() 
-                                      : nullptr;
+          Operation *outermostLoop = !linalgLoops.value().empty()
+                                         ? linalgLoops.value().front()
+                                         : nullptr;
 
           if (outermostLoop) {
             auto [opTreeRoot, leafNodes] = buildOpTree(outermostLoop);
-            
+
             if (opTreeRoot) {
-              
+
               // Mark node weights using Sethi-Ullman algorithm.
               markNodeWeights(opTreeRoot.get());
 
-              llvm::errs() << "\n=== Operation Tree (Sethi-Ullman) ===\n";
-              printOpTree(opTreeRoot.get());
-              llvm::errs() << "=====================================\n\n";
+              // llvm::errs() << "\n=== Operation Tree (Sethi-Ullman) ===\n";
+              // printOpTree(opTreeRoot.get());
+              // llvm::errs() << "=====================================\n\n";
 
               // Apply Sethi-Ullman ordering to reorder operations.
               reorderOperationsSethi(rewriter, outermostLoop, opTreeRoot.get());
 
-              // Insert DST register loads/stores and perform allocation (inline version).
-              modified |= insertDstRegisterAccessSU(rewriter, op, region, dstCapacity,
-                outermostLoop);
+              // Insert DST register loads/stores and perform allocation (inline
+              // version).
+              modified |= insertDstRegisterAccessSU(rewriter, op, region,
+                                                    dstCapacity, outermostLoop);
             }
           }
-        }
-        else {
+        } else {
           // original allocator
           modified |= insertDstRegisterAccess(rewriter, op, region, dstCapacity,
                                               !linalgLoops.value().empty()
@@ -633,8 +634,8 @@ public:
 
   static bool
   insertDstRegisterAccessSU(PatternRewriter &rewriter, GenericOp op,
-                          Region &region, unsigned dstCapacity,
-                          Operation *outermostInnerComputeLoop = nullptr) {
+                            Region &region, unsigned dstCapacity,
+                            Operation *outermostInnerComputeLoop = nullptr) {
     assert(region.getBlocks().size() == 1);
     if (hasAcquireDstOp(region)) {
       return false;
@@ -755,7 +756,8 @@ public:
     CopyInfoMap copyInfos;
     DstSliceAllocationState dstSliceAllocationState;
     DstRegisterAllocation dstRegisterAllocation;
-    region.walk<WalkOrder::PreOrder>([&](OperandLoadStoreRegisterOpInterface computeOp) {
+    region.walk<WalkOrder::PreOrder>([&](OperandLoadStoreRegisterOpInterface
+                                             computeOp) {
       // We're generating loads and stores for dst, so we can ignore loads and
       // stores that are already on dst.
       auto notDstMemspace = [](auto op) {
@@ -831,26 +833,27 @@ public:
   // Return both the copy nest info and dst allocation info.
   static DstAccessCollection
   collectDstAccessesSU(GenericOp op, Region &region,
-                    Operation *outermostInnerComputeLoop) {
+                       Operation *outermostInnerComputeLoop) {
     CopyInfoMap copyInfos;
     DstStackAllocator dstStackAllocator;
     DstRegisterAllocation dstRegisterAllocation;
-    region.walk<WalkOrder::PreOrder>([&](OperandLoadStoreRegisterOpInterface computeOp) {
+    region.walk<WalkOrder::PreOrder>([&](OperandLoadStoreRegisterOpInterface
+                                             computeOp) {
       // We're generating loads and stores for dst, so we can ignore loads and
       // stores that are already on dst.
       auto notDstMemspace = [](auto op) {
         return op && ttcore::getMemorySpace(op.getMemRef()) !=
-                        ttcore::MemorySpace::RegisterDst;
+                         ttcore::MemorySpace::RegisterDst;
       };
 
       // Collect loads to this op.
       for (int64_t operandIdx : computeOp.getOperandsLoadFromDstRegister()) {
         if (auto potentialLoad = computeOp->getOperand(operandIdx)
-                                    .getDefiningOp<affine::AffineLoadOp>();
+                                     .getDefiningOp<affine::AffineLoadOp>();
             notDstMemspace(potentialLoad)) {
-          collectDstAccess<affine::AffineLoadOp>(
-              op, potentialLoad, copyInfos, dstStackAllocator.allocate(),
-              outermostInnerComputeLoop);
+          collectDstAccess<affine::AffineLoadOp>(op, potentialLoad, copyInfos,
+                                                 dstStackAllocator.allocate(),
+                                                 outermostInnerComputeLoop);
         }
       }
 
@@ -860,7 +863,7 @@ public:
             notDstMemspace(potentialStore)) {
 
           assert(!dstStackAllocator.didStoreToDst() &&
-                "Multiple stores from last op to dst not supported");
+                 "Multiple stores from last op to dst not supported");
 
           auto dstRegInPlace = computeOp.getDstRegInPlace();
           int64_t dstSliceIndex = -1;
@@ -868,12 +871,12 @@ public:
             bool isUnaryOp = computeOp->getNumOperands() == 1;
             bool isTileMatmul = mlir::isa<d2m::TileMatmulOp>(computeOp);
             bool isReduction = mlir::isa<d2m::TileReduceMaxOp>(computeOp) ||
-                              mlir::isa<d2m::TileReduceSumOp>(computeOp);
+                               mlir::isa<d2m::TileReduceSumOp>(computeOp);
             assert((isUnaryOp || isTileMatmul || isReduction) &&
-                  "Only unary ops, tile matmul, and reductions supported for "
-                  "destination register in "
-                  "place, multi-operand ops would reference wrong tile, but "
-                  "those ops should be setting output tile.");
+                   "Only unary ops, tile matmul, and reductions supported for "
+                   "destination register in "
+                   "place, multi-operand ops would reference wrong tile, but "
+                   "those ops should be setting output tile.");
             dstSliceIndex = dstStackAllocator.getCurrSliceIndex();
           } else {
             dstSliceIndex = dstStackAllocator.allocate(true);
@@ -889,17 +892,16 @@ public:
         else {
           assert(user->hasTrait<D2MGenericRegionComputeOpTrait>());
           assert(computeOp->hasOneUse() &&
-                "Currently we do not support multiple "
-                "users in the same compute dst region.");
+                 "Currently we do not support multiple "
+                 "users in the same compute dst region.");
           assert(computeOp->getNumResults() == 1);
           assert(!dstRegisterAllocation.contains(computeOp));
 
           // If op stores to dst in place, we don't need to allocate a new dst
           // register, just use the current dst index.
-          int32_t allocatedIndex =
-              computeOp.getDstRegInPlace()
-                  ? dstStackAllocator.getCurrSliceIndex()
-                  : dstStackAllocator.allocate(true);
+          int32_t allocatedIndex = computeOp.getDstRegInPlace()
+                                       ? dstStackAllocator.getCurrSliceIndex()
+                                       : dstStackAllocator.allocate(true);
 
           dstRegisterAllocation[computeOp] = {allocatedIndex,
                                               outermostInnerComputeLoop};
@@ -1023,27 +1025,13 @@ public:
       dataCopyGenerate<affine::AffineLoadOp>(
           rewriter, loopNestOrOp, copyInfo.loads,
           // Load/store dst access generation.
-          [&](
-            PatternRewriter &rewriter,
-            Location loc,
-            Value cb,
-            AffineMap l1AccessMap,
-            ValueRange l1AccessIndices,
-            AffineMap dstAccessMap, 
-            ValueRange dstAccessIndices) {
-              auto l1Load = rewriter.create<affine::AffineLoadOp>(
-                loc, 
-                cb, 
-                l1AccessMap, 
-                l1AccessIndices
-              );
-              rewriter.create<affine::AffineStoreOp>(
-                loc, 
-                l1Load.getResult(), 
-                dst, 
-                dstAccessMap, 
-                dstAccessIndices
-              );
+          [&](PatternRewriter &rewriter, Location loc, Value cb,
+              AffineMap l1AccessMap, ValueRange l1AccessIndices,
+              AffineMap dstAccessMap, ValueRange dstAccessIndices) {
+            auto l1Load = rewriter.create<affine::AffineLoadOp>(
+                loc, cb, l1AccessMap, l1AccessIndices);
+            rewriter.create<affine::AffineStoreOp>(
+                loc, l1Load.getResult(), dst, dstAccessMap, dstAccessIndices);
           },
           // Replacement of the original load with one from dst.
           [&](PatternRewriter &rewriter, affine::AffineLoadOp op,
@@ -1097,7 +1085,7 @@ public:
   }
 
   static void dataCopyGenerateSU(PatternRewriter &rewriter, Location loc,
-                               Value dst, const CopyInfoMap &copyInfos) {
+                                 Value dst, const CopyInfoMap &copyInfos) {
     for (const auto &[loopNestOrOp, copyInfo] : copyInfos) {
       // Save this insertion point as loopNestOrOp may be replaced.
       rewriter.setInsertionPointAfter(loopNestOrOp);
@@ -1111,27 +1099,13 @@ public:
       dataCopyGenerateSU<affine::AffineLoadOp>(
           rewriter, loopNestOrOp, copyInfo.loads,
           // Load/store dst access generation.
-          [&](
-            PatternRewriter &rewriter,
-            Location loc,
-            Value cb,
-            AffineMap l1AccessMap,
-            ValueRange l1AccessIndices,
-            AffineMap dstAccessMap, 
-            ValueRange dstAccessIndices) {
-              auto l1Load = rewriter.create<affine::AffineLoadOp>(
-                loc, 
-                cb, 
-                l1AccessMap, 
-                l1AccessIndices
-              );
-              rewriter.create<affine::AffineStoreOp>(
-                loc, 
-                l1Load.getResult(), 
-                dst, 
-                dstAccessMap, 
-                dstAccessIndices
-              );
+          [&](PatternRewriter &rewriter, Location loc, Value cb,
+              AffineMap l1AccessMap, ValueRange l1AccessIndices,
+              AffineMap dstAccessMap, ValueRange dstAccessIndices) {
+            auto l1Load = rewriter.create<affine::AffineLoadOp>(
+                loc, cb, l1AccessMap, l1AccessIndices);
+            rewriter.create<affine::AffineStoreOp>(
+                loc, l1Load.getResult(), dst, dstAccessMap, dstAccessIndices);
           },
           // Replacement of the original load with one from dst.
           [&](PatternRewriter &rewriter, affine::AffineLoadOp op,
@@ -1267,7 +1241,8 @@ public:
     // load/store occurs, keeping everything in the same loop.
 
     for (auto [loadStore, dstSliceIndex] : loadStoreOps) {
-      // Use an empty IR mapper since we're working in the original loop context.
+      // Use an empty IR mapper since we're working in the original loop
+      // context.
       mlir::IRMapping emptyIRMapper;
 
       // Generate the dst access indices using the original loop variables.
@@ -1290,8 +1265,7 @@ public:
       // Now replace the original load/store (which is now positioned after
       // the newly inserted operations) with one that accesses dst instead.
       // This replaces the original with: affine.load %dst
-      dstAccessReplacement(rewriter, loadStore, dstAccessMap,
-                           dstAccessIndices);
+      dstAccessReplacement(rewriter, loadStore, dstAccessMap, dstAccessIndices);
     }
   }
 

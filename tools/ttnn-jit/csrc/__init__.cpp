@@ -87,7 +87,7 @@ NB_MODULE(_ttnn_jit, m) {
              mlir::Operation *op = unwrap(mlirModuleGetOperation(module));
              JitCacheEntry binary =
                  self->compile_and_insert(op, tensor_args, options);
-
+             op->dumpPretty();
              mlirModuleDestroy(module);
              mlirContextDestroy(ctx);
              return *binary;
