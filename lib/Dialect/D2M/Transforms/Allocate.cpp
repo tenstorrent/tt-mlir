@@ -380,7 +380,6 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     const std::size_t outputsStart =
         genericOp.getOutputs().getBeginOperandIndex();
     ArrayAttr iteratorTypes = genericOp.getIteratorTypes();
-    bool hasIndexingMaps = !genericOp.getIndexingMaps().empty();
 
     llvm::SmallVector<OperandContext> result;
 
@@ -395,14 +394,6 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
         // L1 outputs are currently allocated in L1 so won't use streams unless
         // allowed to do so in `allowL1OutputSpilling` mode.
         // DRAM outputs always need to be spilled.
-        continue;
-      }
-
-      // If indexing maps are not yet generated (pre-loop generation),
-      // we can't analyze reduction/broadcast dimensions, so skip this analysis.
-      // Stream requirements will be determined by other factors (e.g., memory
-      // space).
-      if (!hasIndexingMaps) {
         continue;
       }
 
