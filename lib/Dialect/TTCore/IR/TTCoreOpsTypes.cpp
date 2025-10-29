@@ -1423,10 +1423,7 @@ size_t DeviceAttr::getMemrefSizeBytes(MemRefType memrefType, size_t pageSize,
       break;
     }
     default: {
-      llvm_unreachable(
-          std::string("Unsupported memory space " +
-                      std::to_string(static_cast<int>(memorySpace)))
-              .c_str());
+      llvm_unreachable("Unsupported memory space");
     }
     }
   }

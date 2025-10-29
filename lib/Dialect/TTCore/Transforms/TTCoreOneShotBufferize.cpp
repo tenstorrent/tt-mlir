@@ -33,9 +33,9 @@ struct TTCoreOneShotBufferizePass
     options.testAnalysisOnly = false;
     options.bufferAlignment = 64;
 
-    // Configure custom type converter for MetalLayoutAttr
+    // Configure custom type converter for MetalLayoutAttr.
     // Note: Don't call setFunctionBoundaryTypeConversion as it would overwrite
-    // our custom functionArgTypeConverterFn
+    // our custom functionArgTypeConverterFn.
     ttcore::setTTCoreBufferizationTypeConverter(options);
 
     ModuleOp moduleOp = getOperation();
@@ -43,30 +43,29 @@ struct TTCoreOneShotBufferizePass
 
     auto deviceModules = moduleOp.getOps<ttcore::DeviceModuleOp>();
     if (!deviceModules.empty()) {
-      // Bufferize each nested module inside device_module
+      // Bufferize each nested module inside device_module.
       for (auto deviceModule : deviceModules) {
         for (auto nestedModule : deviceModule.getOps<ModuleOp>()) {
           if (failed(bufferization::runOneShotModuleBufferize(
                   nestedModule, options, state))) {
             return signalPassFailure();
           }
-          // Convert ttcore.global tensor types to memref types
-          bufferizeGlobalOps(nestedModule);
         }
       }
     } else {
-      // No device_module, bufferize the top-level module directly
+      // No device_module, bufferize the top-level module directly.
       if (failed(bufferization::runOneShotModuleBufferize(moduleOp, options,
                                                           state))) {
         return signalPassFailure();
       }
-      // Convert ttcore.global tensor types to memref types
-      bufferizeGlobalOps(moduleOp);
     }
+
+    // Convert ttcore.global tensor types to memref types
+    bufferizeGlobalOps(moduleOp);
   }
 
 private:
-  // Convert ttcore.global tensor types to memref types after bufferization
+  // Convert ttcore.global tensor types to memref types after bufferization.
   void bufferizeGlobalOps(ModuleOp moduleOp) {
     moduleOp.walk([](ttcore::GlobalOp globalOp) {
       auto tensorType = mlir::dyn_cast<RankedTensorType>(globalOp.getType());
@@ -74,7 +73,7 @@ private:
         return; // Already a memref or non-tensor type
       }
 
-      // Convert tensor type to memref type using ttcore::getBufferType
+      // Convert tensor type to memref type using ttcore::getBufferType.
       auto memrefType = ttcore::getBufferType(tensorType, /*isView=*/false);
       globalOp.setTypeAttr(TypeAttr::get(memrefType));
     });
