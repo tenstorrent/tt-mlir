@@ -2955,6 +2955,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     stablehlo.SineOp: torch.sin,
     stablehlo.SqrtOp: torch.sqrt,
     stablehlo.TanOp: torch.tan,
+    stablehlo.ConcatenateOp: concat_golden,
     # TTNN elementwise operations
     ttnn.MultiplyOp: torch.multiply,
 }
