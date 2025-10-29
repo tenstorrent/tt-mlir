@@ -1850,14 +1850,143 @@ public:
   LogicalResult
   matchAndRewrite(ttir::MeshShardOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    if (adaptor.getShardType() == ttcore::MeshShardType::Identity) {
+      // Use ttnn.mesh_shard op for now. This is a temporary workaround until we
+      // have a proper way to handle identity shard type.
+      auto device = ::ttnn::utils::getOrInsertDevice(rewriter, op);
+      rewriter.replaceOpWithNewOp<ttnn::MeshShardOp>(
+          op, this->getTypeConverter()->convertType(op.getType()),
+          adaptor.getInput(), device, adaptor.getShardDirection(),
+          adaptor.getShardType(), adaptor.getShardShape(),
+          adaptor.getShardDims());
+      return success();
+    }
 
-    auto device = ::ttnn::utils::getOrInsertDevice(rewriter, op);
-    rewriter.replaceOpWithNewOp<ttnn::MeshShardOp>(
+    switch (adaptor.getShardDirection()) {
+    case ttcore::MeshShardDirection::FullToShard:
+      return rewriteFullToShard(op, adaptor, rewriter);
+    case ttcore::MeshShardDirection::ShardToFull:
+      return rewriteShardToFull(op, adaptor, rewriter);
+    }
+    return failure();
+  }
+
+  LogicalResult rewriteFullToShard(ttir::MeshShardOp op, OpAdaptor adaptor,
+                                   ConversionPatternRewriter &rewriter) const {
+    auto meshDevice = ::ttnn::utils::getOrInsertDevice(rewriter, op);
+
+    auto srcMeshShapeAttr = meshDevice.getMeshShapeAttr();
+    if (!srcMeshShapeAttr) {
+      op.emitError("Mesh shape is not available");
+      return failure();
+    }
+    // TODO(hkwonTT): Support N-Dimensional mesh shape
+    SmallVector<uint32_t, 2> meshShape;
+    meshShape.push_back(srcMeshShapeAttr.getY());
+    meshShape.push_back(srcMeshShapeAttr.getX());
+
+    mlir::MLIRContext *context = op.getContext();
+    SmallVector<ttnn::PlacementAttr, 2> placements;
+    if (adaptor.getShardType() == ttcore::MeshShardType::Replicate) {
+      placements.resize(
+          meshShape.size(),
+          ttnn::PlacementAttr::get(
+              context, ttnn::PlacementType::Replicate,
+              IntegerAttr::get(IntegerType::get(context, 32), -1)));
+    } else if (adaptor.getShardType() == ttcore::MeshShardType::Devices) {
+      auto shardDims = adaptor.getShardDims();
+      for (int64_t dim : shardDims) {
+        placements.push_back(ttnn::PlacementAttr::get(
+            context,
+            dim >= 0 ? ttnn::PlacementType::Shard
+                     : ttnn::PlacementType::Replicate,
+            IntegerAttr::get(IntegerType::get(context, 32), dim)));
+      }
+    } else {
+      op.emitError("Unsupported shard type: " +
+                   stringifyMeshShardType(adaptor.getShardType()));
+      return failure();
+    }
+
+    SmallVector<mlir::IntegerAttr, 2> meshShapeAttr;
+    for (uint32_t dim : meshShape) {
+      meshShapeAttr.push_back(rewriter.getUI32IntegerAttr(dim));
+    }
+    rewriter.replaceOpWithNewOp<ttnn::DistributeTensorOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
-        adaptor.getInput(), device, adaptor.getShardDirection(),
-        adaptor.getShardType(), adaptor.getShardShape(),
-        adaptor.getShardDims());
+        adaptor.getInput(),
+        ttnn::MeshMapperConfigAttr::get(context, placements, meshShapeAttr),
+        meshDevice, nullptr);
+    return success();
+  }
 
+  LogicalResult rewriteShardToFull(ttir::MeshShardOp op, OpAdaptor adaptor,
+                                   ConversionPatternRewriter &rewriter) const {
+
+    auto meshDevice = ::ttnn::utils::getOrInsertDevice(rewriter, op);
+
+    auto meshShapeAttr = meshDevice.getMeshShapeAttr();
+    if (!meshShapeAttr) {
+      op.emitError("Mesh shape is not available");
+      return failure();
+    }
+    // TODO(hkwonTT): Support N-Dimensional mesh shape
+    SmallVector<uint32_t, 2> fullMeshShape = {
+        static_cast<uint32_t>(meshShapeAttr.getY()),
+        static_cast<uint32_t>(meshShapeAttr.getX())};
+
+    SmallVector<int32_t, 2> composerDims;
+    SmallVector<uint32_t, 2> targetSubMeshShape;
+    if (adaptor.getShardType() == ttcore::MeshShardType::Replicate) {
+      composerDims.push_back(0);
+      targetSubMeshShape.push_back(1);
+    } else if (adaptor.getShardType() == ttcore::MeshShardType::Devices) {
+      auto shardDims = adaptor.getShardDims();
+      auto inputRank =
+          mlir::cast<RankedTensorType>(adaptor.getInput().getType()).getRank();
+
+      auto getNonOverlappingDim = [&]() -> int {
+        const auto &dims = composerDims;
+        for (int d = inputRank - 1; d >= 0; --d) {
+          if (!llvm::is_contained(shardDims, d) &&
+              !llvm::is_contained(dims, d)) {
+            return d;
+          }
+        }
+        return -1;
+      };
+      for (size_t dimIdx = 0; dimIdx < shardDims.size(); ++dimIdx) {
+        auto dim = shardDims[dimIdx];
+        if (dim >= 0) {
+          composerDims.push_back(static_cast<int>(dim));
+          targetSubMeshShape.push_back(fullMeshShape[dimIdx]);
+        } else {
+          composerDims.push_back(getNonOverlappingDim());
+          targetSubMeshShape.push_back(1);
+        }
+      }
+
+    } else {
+      op.emitError("Unsupported shard type: " +
+                   stringifyMeshShardType(adaptor.getShardType()));
+      return failure();
+    }
+    SmallVector<mlir::IntegerAttr, 2> targetMeshShapeAttr;
+    for (int32_t shape : targetSubMeshShape) {
+      targetMeshShapeAttr.push_back(rewriter.getUI32IntegerAttr(shape));
+    }
+
+    SmallVector<mlir::IntegerAttr, 2> composerDimsAttr;
+    for (int32_t dim : composerDims) {
+      composerDimsAttr.push_back(rewriter.getI32IntegerAttr(dim));
+    }
+
+    auto meshComposerConfig = ttnn::MeshComposerConfigAttr::get(
+        op.getContext(), composerDimsAttr, targetMeshShapeAttr);
+
+    rewriter.replaceOpWithNewOp<ttnn::AggregateTensorOp>(
+        op, this->getTypeConverter()->convertType(op.getType()),
+        adaptor.getInput(), meshComposerConfig, meshDevice);
     return success();
   }
 };
