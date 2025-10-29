@@ -7,7 +7,7 @@ import inspect
 import functools
 
 from ttmlir.ir import *
-from ttmlir.dialects import ttcore, ttkernel, func, scf, arith, memref, emitc, d2m
+from ttmlir.dialects import ttcore, ttkernel, func, scf, arith, memref, emitc
 from ttmlir.dialects._ods_common import get_default_loc_context
 from ttmlir.passes import pykernel_compile_pipeline, ttkernel_to_cpp
 
