@@ -187,7 +187,9 @@ class TTCompilerBase(PyKernelAstBase):
                 upper_bound, arith.ConstantOp(IndexType.get(self.ctx), 0)
             ).result
         if isinstance(step.type, memref.MemRefType):
-            step = memref.LoadOp(step, arith.ConstantOp(IndexType.get(self.ctx), 0)).result
+            step = memref.LoadOp(
+                step, arith.ConstantOp(IndexType.get(self.ctx), 0)
+            ).result
 
         # Cast all to index type for scf.for
         if not isinstance(lower_bound.type, IndexType):
@@ -403,7 +405,9 @@ class TTCompilerBase(PyKernelAstBase):
             kwargs = {}
             for kw in node.keywords:
                 kwargs[kw.arg] = _load_func_arg(self.visit(kw.value))
-            return self.visit(node.func, func_args=func_args, kwargs=kwargs)  # visit_Attribute
+            return self.visit(
+                node.func, func_args=func_args, kwargs=kwargs
+            )  # visit_Attribute
 
     def visit_Print(self, node):
         fmt = ""
@@ -591,9 +595,13 @@ class TTCompilerBase(PyKernelAstBase):
             raise ValueError("Compare operands not found")
 
         if isinstance(lhs.type, memref.MemRefType):
-            lhs = memref.LoadOp(lhs, arith.ConstantOp(IndexType.get(self.ctx), 0)).result
+            lhs = memref.LoadOp(
+                lhs, arith.ConstantOp(IndexType.get(self.ctx), 0)
+            ).result
         if isinstance(rhs.type, memref.MemRefType):
-            rhs = memref.LoadOp(rhs, arith.ConstantOp(IndexType.get(self.ctx), 0)).result
+            rhs = memref.LoadOp(
+                rhs, arith.ConstantOp(IndexType.get(self.ctx), 0)
+            ).result
 
         if lhs.type != rhs.type:
             rhs = _cast(rhs, lhs.type)
