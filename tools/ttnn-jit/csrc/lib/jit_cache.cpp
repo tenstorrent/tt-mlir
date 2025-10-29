@@ -5,10 +5,10 @@
 #include "jit_cache.h"
 
 #include "mlir/Pass/PassManager.h"
+#include "tt/runtime/detail/ttnn/ttnn.h"
 #include "ttmlir/Conversion/Passes.h"
 #include "ttmlir/RegisterAll.h"
 #include "ttmlir/Target/TTNN/TTNNToFlatbuffer.h"
-#include "ttnn/tensor/tensor.hpp"
 
 #include <cstddef>
 #include <tt_stl/reflection.hpp>
