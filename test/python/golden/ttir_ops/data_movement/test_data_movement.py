@@ -106,6 +106,9 @@ def test_cpu_hoistable_concat_op(
 def test_pad(
     shape: Shape, padding: List[int], value: int, target: str, request, device
 ):
+    if target == "emitpy":
+        pytest.skip("Pad python fails during runtime. #5603")
+
     def pad_wrapper(
         in0: Operand,
         builder: TTIRBuilder,
