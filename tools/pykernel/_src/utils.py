@@ -56,6 +56,8 @@ def _cast(val, ty):
 
     if ty is IndexType or isinstance(ty, IndexType):
         return arith.index_cast(IndexType.get(), val)
+    elif isinstance(val.type, IndexType) and isinstance(ty, IntegerType):
+        return arith.index_cast(ty, val)
     else:
         raise TypeError(f"Unhandled cast from {val.type} to {ty}")
 
