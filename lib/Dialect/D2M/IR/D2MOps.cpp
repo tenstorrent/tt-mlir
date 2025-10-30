@@ -821,6 +821,8 @@ void d2m::GenericOp::build(mlir::OpBuilder &builder,
   if (!grid) {
     auto shapedType = mlir::cast<ShapedType>(outputs[0].getType());
     ttcore::DeviceLayoutInterface layout = ttcore::getDeviceLayout(shapedType);
+    // print layout
+    llvm::errs() << "layout: " << layout << "\n";
     TT_assertv(
         layout,
         "This generic constructor expects operands to be in device layout");

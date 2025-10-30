@@ -76,8 +76,17 @@ public:
       Region *genericRegion = &op.getRegion(regionIndex);
       Block &block = genericRegion->getBlocks().front();
 
-      if (!op.hasComputeOpsInRegion(regionIndex)) {
-        return failure();
+      // Skip compute regions that don't actually have compute ops.
+      bool hasCompute = false;
+      genericRegion->walk([&](Operation *inner) {
+        if (inner->hasTrait<D2MGenericRegionComputeOpTrait>()) {
+          hasCompute = true;
+          return WalkResult::interrupt();
+        }
+        return WalkResult::advance();
+      });
+      if (!hasCompute) {
+        continue;
       }
 
       Type largestDstType = utils::getRegionLargestDstElemType(*genericRegion);

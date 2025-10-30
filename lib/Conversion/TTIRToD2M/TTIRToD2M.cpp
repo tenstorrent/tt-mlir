@@ -916,7 +916,7 @@ public:
     dimAlignments[origInputShape.size() - 1] = tileWidth;
 
     // Do not tilize.
-    auto [inputs, _] =
+    auto [inputs, outputs] =
         toLayoutOperandsAndResults(rewriter, {origInputs, origOutputs},
                                    /*tiled*/ false, dimAlignments);
 
@@ -949,8 +949,34 @@ public:
         viewLayout);
     auto stream = rewriter.create<d2m::StreamLayoutOp>(
         op.getLoc(), viewTensorType, inputs[0], storage);
+    inputs[0] = stream.getResult();
+    llvm::errs() << "inputs: " << inputs[0] << "\n";
+    llvm::errs() << "outputs: " << outputs[0] << "\n";
+    // Create a DMA-only generic whose input is the stream layout and whose
+    // output is the op result. Follow the DMA form used by existing tests:
+    // reserve the output CB, DMA from input to output using the generic's
+    // affine iteration (identity map), wait for the transaction, then yield
+    // the reserved output tensor.
+    Value streamSrc = inputs[0];
+    auto numDims = static_cast<unsigned>(viewTensorType.getRank());
+    auto generic = rewriter.create<d2m::GenericOp>(
+        op.getLoc(), inputs, outputs,
+        [&](OpBuilder &builder, Location bodyLoc, ValueRange blockArgs) {
+          assert(blockArgs.size() == 2 && "expected 1 input and 1 output CB");
+          // Acquire output tensor from CB.
+          Value outputCB =
+              builder.create<d2m::ReserveOp>(bodyLoc, blockArgs[1]).getResult();
+          // Use affine-form DMA with identity map over the generic dims so the
+          // copy honors the op's grid/iterator space.
+          auto indexingMap = builder.getMultiDimIdentityMap(numDims);
+          auto dma = builder.create<d2m::DMAOp>(
+              bodyLoc, streamSrc, AffineMapAttr::get(indexingMap), outputCB);
+          builder.create<d2m::DMAWaitOp>(bodyLoc, dma);
+          builder.create<d2m::YieldOp>(bodyLoc, outputCB);
+        },
+        d2m::ThreadType::Datamovement);
 
-    rewriter.replaceOp(op, unLayoutResult(rewriter, stream.getResult(),
+    rewriter.replaceOp(op, unLayoutResult(rewriter, generic->getResult(0),
                                           op->getResult(0).getType()));
     return success();
   }
