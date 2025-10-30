@@ -3747,9 +3747,14 @@ public:
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getCache()),
         emitter.emit(srcOp.getInput()),
+        emitc::OpaqueAttr::get(rewriter.getContext(),
+                               "std::vector<uint32_t>()"),
         emitter.emit(srcOp.getUpdateIndex()),
         emitter.emit(srcOp.getShareCache()),
         emitter.emit(srcOp.getPageTable()),
+        emitter.emit(0),
+        emitter.emit(std::nullopt),
+        emitter.emit(std::nullopt),
     };
 
     emitter.replaceOp(*this, args);
