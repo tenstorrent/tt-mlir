@@ -40,7 +40,6 @@ jobs:
       fail-fast: false
       matrix:
         build: [
-          { enable_op_model: "ON", enable_emitc: "ON", name: "speedy" },
           { enable_perf: "ON", enable_runtime_debug: "ON", enable_explorer: "ON", enable_pykernel: "ON", enable_ttnn_jit: "ON", name: "tracy" }
         ]
 
