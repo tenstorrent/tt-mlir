@@ -1369,6 +1369,7 @@ private:
     if (!matmulOp) {
       return nullptr;
     }
+
     // Check that the MatmulOp has only one user.
     if (!matmulOp.getResult().hasOneUse()) {
       return nullptr;
