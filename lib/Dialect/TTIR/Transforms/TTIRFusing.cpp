@@ -1977,76 +1977,16 @@ public:
     // ensures all preprocessing for query, key, and value happens before the
     // fused op, and any uses of their results remain correctly ordered after
     // the fused op.
-    hoistPreprocessingOps(linearOps);
-    rewriter.setInsertionPointAfter(linearOps.front());
+    hoistPreprocessingOps(permuteOps);
+    rewriter.setInsertionPointAfter(permuteOps.front());
 
-    // Extract dimensions from reshape op input and output.
-    Value reshapeOutput = reshapeOp.getResult();
-    ArrayRef<int64_t> inputShape = reshapeOp.getInput().getType().getShape();
-    int32_t batchSize = inputShape[I_BATCH_SIZE];
-    int32_t sequenceLength = inputShape[I_SEQUENCE_LENGTH];
-    int32_t hiddenSize = inputShape[I_HIDDEN_DIMENSION];
-
-    // Concatenate weights along dimension 1.
-    // Weights are the second input (B) of linear op, shape [hidden, hidden].
-    Value queryWeightMatrix = linearOps[0].getB();
-    Value keyWeightMatrix = linearOps[1].getB();
-    Value valueWeightMatrix = linearOps[2].getB();
-
-    Value concatenatedWeightMatrix = concatenateAlongLastDim(
-        rewriter, valueWeightMatrix.getLoc(),
-        ValueRange{queryWeightMatrix, keyWeightMatrix, valueWeightMatrix});
-
-    // Concatenate bias along last dimension.
-    Value queryBias = linearOps[0].getBias();
-    Value keyBias = linearOps[1].getBias();
-    Value valueBias = linearOps[2].getBias();
-
-    Value concatenatedBias =
-        concatenateAlongLastDim(rewriter, valueBias.getLoc(),
-                                ValueRange{queryBias, keyBias, valueBias});
-
-    // Get the output shape from one of the original linear ops (they all have
-    // the same shape). Original linear output: [1, 128, 768]. New concatenated
-    // linear output: [1, 128, 2304] (last dim * 3).
-    ArrayRef<int64_t> originalLinearOutputShape =
-        linearOps[0].getResult().getType().getShape();
-
-    llvm::SmallVector<int64_t> linearOutputShape(
-        originalLinearOutputShape.begin(), originalLinearOutputShape.end());
-
-    // Multiply the last dimension by 3 (since we're concatenating Q, K, V).
-    linearOutputShape.back() = originalLinearOutputShape.back() * 3;
-
-    // Create linear operation with concatenated weights and bias.
-    RankedTensorType linearOutputType = RankedTensorType::get(
-        linearOutputShape,
-        mlir::cast<RankedTensorType>(linearOps[0].getResult().getType())
-            .getElementType());
-
-    LinearOp linearOp = ttir::utils::createDPSOp<ttir::LinearOp>(
-        rewriter, valueBias.getLoc(), linearOutputType, reshapeOutput,
-        concatenatedWeightMatrix, concatenatedBias,
-        /*transpose_a=*/false, /*transpose_b=*/false);
-
-    // Create reshape operation to convert from [batch*seq, hidden*3] to [batch,
-    // seq, hidden*3]
-    SmallVector<int64_t> reshapeToSplitShape = {batchSize, sequenceLength,
-                                                hiddenSize * 3};
-    auto reshapeElementType =
-        mlir::cast<RankedTensorType>(linearOp.getResult().getType())
-            .getElementType();
-    auto reshapeEncoding =
-        mlir::cast<RankedTensorType>(linearOp.getResult().getType())
-            .getEncoding();
-
-    SmallVector<int32_t> reshapeToSplitShapeI32(reshapeToSplitShape.begin(),
-                                                reshapeToSplitShape.end());
-
-    ReshapeOp reshapeToSplit = ttir::utils::createDPSOp<ttir::ReshapeOp>(
-        rewriter, linearOp.getLoc(), reshapeToSplitShape, reshapeElementType,
-        reshapeEncoding, linearOp.getResult(),
-        rewriter.getI32ArrayAttr(reshapeToSplitShapeI32));
+    // Concatenate projection outputs along last dimension.
+    ttir::ConcatOp concatenateProjections = concatenateAlongLastDim(
+        rewriter, linearOps[2].getLoc(),
+        ValueRange{linearOps[0].getResult(), linearOps[1].getResult(),
+                   linearOps[2].getResult()});
+    llvm::outs() << "Concatenate Projections: " << concatenateProjections
+                 << "\n";
 
     // Create split qkv op.
     auto queryType = permuteOps[0].getOutput().getType();
@@ -2057,22 +1997,23 @@ public:
     auto valueShape = valueType.getShape();
     int32_t numHeads = queryType.getShape()[O_NUM_KV_HEADS];
 
-    Value queryOutput = rewriter.create<EmptyOp>(linearOp.getLoc(), queryShape,
-                                                 queryType.getElementType(),
-                                                 queryType.getEncoding());
-    Value keyOutput = rewriter.create<EmptyOp>(linearOp.getLoc(), keyShape,
-                                               keyType.getElementType(),
-                                               keyType.getEncoding());
-    Value valueOutput = rewriter.create<EmptyOp>(linearOp.getLoc(), valueShape,
-                                                 valueType.getElementType(),
-                                                 valueType.getEncoding());
+    Value queryOutput = rewriter.create<EmptyOp>(
+        concatenateProjections.getLoc(), queryShape, queryType.getElementType(),
+        queryType.getEncoding());
+    Value keyOutput = rewriter.create<EmptyOp>(
+        concatenateProjections.getLoc(), keyShape, keyType.getElementType(),
+        keyType.getEncoding());
+    Value valueOutput = rewriter.create<EmptyOp>(
+        concatenateProjections.getLoc(), valueShape, valueType.getElementType(),
+        valueType.getEncoding());
 
     // Determine if need to transpose key based on key and value.
     bool transposeKey = isKeyTransposed(keyShape, valueShape);
 
     auto splitOp = rewriter.create<SplitQueryKeyValueAndSplitHeadsOp>(
-        linearOp.getLoc(), ArrayRef<Type>{queryType, keyType, valueType},
-        reshapeToSplit.getResult(), Value(), queryOutput, keyOutput,
+        concatenateProjections.getLoc(),
+        ArrayRef<Type>{queryType, keyType, valueType},
+        concatenateProjections.getResult(), Value(), queryOutput, keyOutput,
         valueOutput, rewriter.getUI32IntegerAttr(numHeads), IntegerAttr(),
         rewriter.getBoolAttr(transposeKey) /*transpose_key*/);
 
@@ -2088,7 +2029,7 @@ public:
 
 private:
   // Helper function to concatenate tensors along the last dimension
-  Value
+  ttir::ConcatOp
   concatenateAlongLastDim(OpBuilder &rewriter, Location loc,
                           ValueRange tensors) const { // Fixed: added const
     assert(!tensors.empty() && "Cannot concatenate empty tensor list");
@@ -2131,14 +2072,14 @@ private:
 
   // Recursively collect all defining ops of a value and their dependencies.
   // Avoid cycles or duplicates using a visited set.
-  void collectRecursivePreprocessingOps(Value val, Operation *QueryLinearOp,
+  void collectRecursivePreprocessingOps(Value val, Operation *QueryPermuteOp,
                                         SmallVectorImpl<Operation *> &collected,
                                         DenseSet<Operation *> &visited) const {
     if (Operation *defOp = val.getDefiningOp()) {
-      // Only consider ops after queryLinearOp in the block
-      if (defOp->getBlock() == QueryLinearOp->getBlock()) {
-        if (defOp->isBeforeInBlock(QueryLinearOp)) {
-          // Skip ops that appear before Query LinearOp.
+      // Only consider ops after queryPermuteOp in the block
+      if (defOp->getBlock() == QueryPermuteOp->getBlock()) {
+        if (defOp->isBeforeInBlock(QueryPermuteOp)) {
+          // Skip ops that appear before Query PermuteOp.
           return;
         }
       }
@@ -2149,7 +2090,7 @@ private:
 
       // Recurse through operands first
       for (Value operand : defOp->getOperands()) {
-        collectRecursivePreprocessingOps(operand, QueryLinearOp, collected,
+        collectRecursivePreprocessingOps(operand, QueryPermuteOp, collected,
                                          visited);
       }
 
@@ -2157,27 +2098,27 @@ private:
     }
   }
 
-  void hoistPreprocessingOps(llvm::SmallVector<LinearOp> linearOps) const {
-    LinearOp queryLinearOp = linearOps[0];
+  void hoistPreprocessingOps(llvm::SmallVector<PermuteOp> permuteOps) const {
+    PermuteOp queryPermuteOp = permuteOps[0];
     llvm::SmallVector<Operation *> preOpsToMove;
     llvm::DenseSet<Operation *> visited;
 
     auto collectFromOperands = [&](Operation *targetOp) {
       for (Value operand : targetOp->getOperands()) {
-        collectRecursivePreprocessingOps(operand, queryLinearOp, preOpsToMove,
+        collectRecursivePreprocessingOps(operand, queryPermuteOp, preOpsToMove,
                                          visited);
       }
     };
 
-    // Collect prepocessing ops for Key LinearOp.
-    collectFromOperands(linearOps[1]);
-    // Collect prepocessing ops for Value LinearOp.
-    collectFromOperands(linearOps[2]);
+    // Collect prepocessing ops for Key PermuteOp.
+    collectFromOperands(permuteOps[1]);
+    // Collect prepocessing ops for Value PermuteOp.
+    collectFromOperands(permuteOps[2]);
 
-    // Hoist preprocessing ops before Query LinearOp — all of which are after
-    // Query LinearOp.
+    // Hoist preprocessing ops before Query PermuteOp — all of which are after
+    // Query PermuteOp.
     for (Operation *preOp : preOpsToMove) {
-      preOp->moveBefore(queryLinearOp);
+      preOp->moveBefore(queryPermuteOp);
     }
   }
 
