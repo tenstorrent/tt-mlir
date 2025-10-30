@@ -292,4 +292,35 @@ def TTNNAdjustDeallocs: Pass<"ttnn-adjust-deallocs", "::mlir::ModuleOp"> {
   }];
 }
 
+def TTNNSplitFunctionArguments: Pass<"ttnn-split-function-arguments", "::mlir::ModuleOp"> {
+  let summary = "Split function arguments into inputs and parameters based on argument types.";
+  let description = [{
+    This pass modifies function signatures by regrouping arguments based on their
+    ttcore.argument_type attribute. It creates two groups:
+    - inputs: arguments with #ttcore.argument_type<input>
+    - parameters: arguments with #ttcore.argument_type<parameter> and #ttcore.argument_type<constant>
+
+    The pass rewrites the function signature to have all inputs first, followed by all parameters,
+    and updates all uses of the arguments accordingly.
+
+    Given a function like this:
+    ```mlir
+    func.func @add(%arg0: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<input>},
+                   %arg1: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>},
+                   %arg2: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<input>}) -> tensor<32x32xbf16> {
+      // function body
+    }
+    ```
+
+    The pass will rewrite it to:
+    ```mlir
+    func.func @add(%arg0: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<input>},
+                   %arg1: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<input>},
+                   %arg2: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>}) -> tensor<32x32xbf16> {
+      // function body with updated argument uses
+    }
+    ```
+  }];
+}
+
 #endif
