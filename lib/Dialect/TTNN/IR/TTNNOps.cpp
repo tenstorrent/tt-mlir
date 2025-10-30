@@ -3783,6 +3783,15 @@ mlir::LogicalResult RotaryEmbeddingLlamaOp::verify() {
 }
 
 //===----------------------------------------------------------------------===//
+// RotaryEmbeddingOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult RotaryEmbeddingOp::verify() {
+  // TODO milant: implement verification
+  return mlir::success();
+}
+
+//===----------------------------------------------------------------------===//
 // NLPCreateQKVHeadsDecodeOp
 //===----------------------------------------------------------------------===//
 

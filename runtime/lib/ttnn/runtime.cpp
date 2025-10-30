@@ -1233,6 +1233,10 @@ getOpOutputRef(OpContext opContextHandle,
     tensorRef = opContext.type_as_RotaryEmbeddingLlamaOp()->out();
     break;
   }
+  case ::tt::target::ttnn::OpType::RotaryEmbeddingOp: {
+    tensorRef = opContext.type_as_RotaryEmbeddingOp()->out();
+    break;
+  }
   case ::tt::target::ttnn::OpType::NLPConcatHeadsOp: {
     tensorRef = opContext.type_as_NLPConcatHeadsOp()->out();
     break;
@@ -1635,6 +1639,12 @@ getOpInputRefs(OpContext opContextHandle,
                   opContext.type_as_RotaryEmbeddingLlamaOp()->cos_cache(),
                   opContext.type_as_RotaryEmbeddingLlamaOp()->sin_cache(),
                   opContext.type_as_RotaryEmbeddingLlamaOp()->trans_mat()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::RotaryEmbeddingOp: {
+    tensorRefs = {opContext.type_as_RotaryEmbeddingOp()->input(),
+                  opContext.type_as_RotaryEmbeddingOp()->cos_cache(),
+                  opContext.type_as_RotaryEmbeddingOp()->sin_cache()};
     break;
   }
   case ::tt::target::ttnn::OpType::NLPCreateQKVHeadsDecodeOp: {
