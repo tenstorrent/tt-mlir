@@ -126,6 +126,12 @@ jobs:
         source env/activate
         cmake --build ${{ steps.strings.outputs.build-output-dir }}
 
+    - name: Build tests
+      shell: bash
+      run: |
+        source env/activate
+        cmake --build ${{ steps.strings.outputs.build-output-dir }} -- compile-ttmlir-tests
+
     - name: Install
       shell: bash
       run: |
