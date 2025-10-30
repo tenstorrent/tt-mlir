@@ -344,6 +344,7 @@ class EmitPy:
                         isinstance(node, ast.FunctionDef)
                         and node.name != "main"
                         and node.name[0:18] != "create_inputs_for_"
+                        and not node.name.__contains__("_const_eval_")
                     ):
                         program_names.append(node.name)
 
