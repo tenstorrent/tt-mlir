@@ -208,7 +208,7 @@ static void optimizeToLayoutGrid(d2m::ToLayoutOp toLayoutOp,
   auto collapsedIntervals = oldLayout.getCollapsedIntervals();
 
   llvm::SmallVector<int64_t> newDimAlignments = computeGridAwareDimAlignments(
-      oldLayout.getLogicalShape(), targetGridShape,
+      oldLayout.getLogicalShape(), targetSquareGridShape,
       oldLayout.getNormalizedIntervals());
 
   auto newLayout = ttcore::MetalLayoutAttr::get(
@@ -279,11 +279,11 @@ analyzeOperandsAndComputeGrids(d2m::GenericOp genericOp,
       tileShape = llvm::to_vector(tileType.getShape());
     }
 
-    // Compute alignments assuming the target grid, then get the physical shape
-    // that would result from those alignments. The logical shape is already
-    // correct from TTIRToD2M (transposed if needed).
+    // Compute alignments assuming the target square grid, then get the physical
+    // shape that would result from those alignments. The logical shape is
+    // already correct from TTIRToD2M (transposed if needed).
     llvm::SmallVector<int64_t> targetAlignments = computeGridAwareDimAlignments(
-        operandLayout.getLogicalShape(), targetGridShape,
+        operandLayout.getLogicalShape(), targetSquareGridShape,
         operandLayout.getNormalizedIntervals());
 
     auto tempLayout = ttcore::MetalLayoutAttr::get(
@@ -323,7 +323,7 @@ analyzeOperandsAndComputeGrids(d2m::GenericOp genericOp,
 
           llvm::SmallVector<int64_t> inputAlignments =
               computeGridAwareDimAlignments(
-                  inputLayout.getLogicalShape(), targetGridShape,
+                  inputLayout.getLogicalShape(), targetSquareGridShape,
                   inputLayout.getNormalizedIntervals());
 
           auto inputTempLayout = ttcore::MetalLayoutAttr::get(
@@ -370,7 +370,7 @@ static void updateToLayoutOps(ArrayRef<ToLayoutUpdateInfo> toLayoutsToUpdate,
 // transpose dimensions, requiring special handling.
 static void
 updateStreamLayoutOps(ArrayRef<StreamLayoutUpdateInfo> streamLayoutsToUpdate,
-                      ArrayRef<int64_t> targetGridShape) {
+                      ArrayRef<int64_t> targetSquareGridShape) {
   if (streamLayoutsToUpdate.empty()) {
     return;
   }
@@ -391,7 +391,7 @@ updateStreamLayoutOps(ArrayRef<StreamLayoutUpdateInfo> streamLayoutsToUpdate,
 
     llvm::SmallVector<int64_t> storageDimAlignments =
         computeGridAwareDimAlignments(storageLayout.getLogicalShape(),
-                                      targetGridShape,
+                                      targetSquareGridShape,
                                       storageLayout.getNormalizedIntervals());
 
     auto newStorageLayout = ttcore::MetalLayoutAttr::get(
@@ -616,7 +616,7 @@ static void assignGrids(d2m::GenericOp genericOp,
     }
 
     if (!streamLayoutsToUpdate.empty()) {
-      updateStreamLayoutOps(streamLayoutsToUpdate, targetGridShape);
+      updateStreamLayoutOps(streamLayoutsToUpdate, targetSquareGridShape);
     }
   } else {
     insertTTNNDRAMStreams(genericOp, targetSquareGridShape);
