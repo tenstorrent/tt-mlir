@@ -377,6 +377,14 @@ def test_composite_ops(device, h, w, max_grid, dtype, op):
     run_op_test(device, h, w, max_grid, dtype, op, 1, buffer_type=ttnn.BufferType.L1)
 
 
+@pytest.mark.parametrize("h , w", DRAM_INTERLEAVED_SHAPES)
+@pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32])
+@pytest.mark.parametrize("op", [cosh, sinh])
+def test_composite_ops_dram(device, h, w, dtype, op):
+    max_grid = (0, 0)
+    run_op_test(device, h, w, max_grid, dtype, op, 1, buffer_type=ttnn.BufferType.DRAM)
+
+
 # ------------------------------------------------------------
 # Interop tests
 # ------------------------------------------------------------
