@@ -3073,6 +3073,35 @@ def TTIR_UpdateCacheOp : TTIR_NamedOp<"update_cache"> {
   let hasVerifier = 1;
 }
 
+def TTIR_PagedUpdateCacheOp : TTIR_NamedOp<"paged_update_cache"> {
+  let summary = "Paged update cache op.";
+  let description = [{
+      Inputs:
+        - `cache`: The cache tensor to be updated. This tensor is modified in place [max_num_blocks, num_heads, block_size, head_dim]
+        - `input`: The input tensor containing new values. [1, num_users, num_heads (padded to 32), head_dim]
+        - `update_index`: Indices specifying where to update the cache. [num_users]
+        - `share_cache`: Whether the cache tensors share memory regions. Defaults to False.
+        - `page_table`: The page table for managing memory regions during updates. [num_users, max_num_blocks_per_seq]
+
+      Outputs:
+        - `result`: The updated cache tensor.
+  }];
+
+  let arguments = (ins AnyRankedTensor:$cache,
+                       AnyRankedTensor:$input,
+                       AnyRankedTensor:$update_index,
+                       DefaultValuedAttr<BoolAttr, "false">:$share_cache,
+                       AnyRankedTensor:$page_table);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getCacheMutable(); }
+  }];
+
+  let hasVerifier = 1;
+}
+
 def TTIR_FillCacheOp : TTIR_NamedOp<"fill_cache"> {
   let summary = "Cache filling operation.";
   let description = [{
