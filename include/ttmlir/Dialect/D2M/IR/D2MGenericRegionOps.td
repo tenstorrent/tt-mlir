@@ -290,6 +290,16 @@ def D2M_TileAbsOp : D2M_GenericRegionComputeUnaryDstOp<"tile_abs", D2M_TileCompu
     let results = (outs TTCore_Tile:$result);
 }
 
+def D2M_TileBitwiseNotOp : D2M_GenericRegionComputeUnaryDstOp<"tile_bitwise_not", D2M_TileComputeOpTraitBundle>{
+    let summary = "D2M Tile Bitwise Not Op";
+    let description = [{
+        The `tile_bitwise_not` operation computes the bitwise negation of each element in the input tile.
+    }];
+
+    let arguments = (ins TTCore_Tile:$input);
+    let results = (outs TTCore_Tile:$result);
+}
+
 def D2M_TileLogicalNotOp : D2M_GenericRegionComputeUnaryDstOp<"tile_logical_not", D2M_TileComputeOpTraitBundle> {
     let summary = "D2M Tile Logical Not Op";
     let description = [{
@@ -722,20 +732,10 @@ def D2M_DMAOp : D2M_GenericRegionDatamovementOp<"dma",
       MemRefType getDstMemRefType() { return cast<MemRefType>(getDst().getType()); }
       int64_t getNumElems();
       size_t getSizeBytes();
-      bool isSrcLocal() {
-        Block *block = getSrc().getParentBlock();
-        Block::BlockArgListType blockArgs = block->getArguments();
-        return std::find(blockArgs.begin(), blockArgs.end(), getSrc()) !=
-               blockArgs.end();
-      }
-      bool isSrcRemote() { return !isSrcLocal(); }
-      bool isDstLocal() {
-        Block *block = getDst().getParentBlock();
-        Block::BlockArgListType blockArgs = block->getArguments();
-        return std::find(blockArgs.begin(), blockArgs.end(), getDst()) !=
-               blockArgs.end();
-      }
-      bool isDstRemote() { return !isDstLocal(); }
+      bool isSrcLocal() { return !isSrcRemote(); }
+      bool isSrcRemote() { return ttcore::hasDeviceLayout(getSrc()); }
+      bool isDstLocal() { return !isDstRemote(); }
+      bool isDstRemote() { return ttcore::hasDeviceLayout(getDst()); }
       bool isMcast() { return !getMcastShape().empty(); }
       bool isAffine() { return (getSrcAffineMap() || getDstAffineMap()) && getSrcIndices().empty() && getDstIndices().empty(); }
       ::mlir::tt::ttcore::MemorySpace getSrcMemorySpace() {
@@ -807,13 +807,8 @@ def D2M_DMAWriteOp : D2M_GenericRegionDatamovementOp<"dma_write",
           ttcore::getElementSizeBytes(getSrcMemRefType().getElementType());
         return getNumElems() * elementSizeBytes;
       }
-      bool isDstLocal() {
-        Block *block = getDst().getParentBlock();
-        Block::BlockArgListType blockArgs = block->getArguments();
-        return std::find(blockArgs.begin(), blockArgs.end(), getDst()) !=
-               blockArgs.end();
-      }
-      bool isDstRemote() { return !isDstLocal(); }
+      bool isDstLocal() { return !isDstRemote(); }
+      bool isDstRemote() { return ttcore::hasDeviceLayout(getDst()); }
       bool isMcast() { return !getMcastShape().empty(); }
       ::mlir::tt::ttcore::MemorySpace getDstMemorySpace() {
         return mlir::cast<::mlir::tt::ttcore::MemorySpaceAttr>(getDstMemRefType().getMemorySpace()).getValue();
@@ -996,7 +991,7 @@ def D2M_YieldOp : D2M_GenericRegionOp<"yield", [
       Yield operation, return control flow to another thread. Corresponds to a circular buffer push.
     }];
 
-    let arguments = (ins Variadic<AnyRankedTensorOrMemRef>:$values);
+    let arguments = (ins Variadic<AnyRankedTensor>:$values);
 
     let assemblyFormat = [{ $values attr-dict `:` `(` type($values) `)` }];
 
@@ -1032,17 +1027,228 @@ def D2M_YieldOp : D2M_GenericRegionOp<"yield", [
     }];
 }
 
-def D2M_AwaitOp : D2M_GenericRegionOp<"await", [MemoryEffects<[MemRead, MemWrite]>]> {
-    let summary = "Await op.";
-    let description = [{
-      Await operation, await control flow from another thread. Corresponds to a circular buffer wait.
-    }];
+class D2M_CBOp<string mnemonic, list<Trait> traits = []> : D2M_GenericRegionOp<mnemonic,
+  traits #
+  [ MemoryEffects<[MemRead, MemWrite]>
+  , DeclareOpInterfaceMethods<BufferizableOpInterface, [ "bufferizesToMemoryRead"
+                                                       , "bufferizesToMemoryWrite"
+                                                       , "isNotConflicting"
+                                                       , "bufferize"
+                                                       , "getAliasingValues"
+                                                       , "getBufferType"
+                                                       , "hasTensorSemantics"
+                                                       ]>
+  ]> {
+  let arguments = (ins D2M_CB:$cb);
+  let results = (outs AnyRankedTensorOrMemRef:$result);
 
-    let arguments = (ins Variadic<AnyRankedTensorOrMemRef>:$values);
+  let builders =
+  [
+    OpBuilder<(ins "Value":$cb),
+    [{
+      build($_builder, $_state, mlir::cast<CBType>(cb.getType()).getUnderlying(), cb);
+    }]>
+  ];
 
-    let assemblyFormat = [{ $values attr-dict `:` `(` type($values) `)` }];
+  let assemblyFormat = [{ $cb attr-dict `:` type($cb) `->` type($result) }];
 
-    let hasVerifier = 1;
+  let hasVerifier = 1;
+
+  let extraClassDeclaration = [{
+    CBType getCbType() {
+      return mlir::cast<CBType>(getCb().getType());
+    }
+
+    ShapedType getUnderlyingType() {
+      return getCbType().getUnderlying();
+    }
+
+    // Get the wrapped memref type from the circular buffer
+    MemRefType getMemRefType() {
+      return llvm::cast<MemRefType>(getUnderlyingType());
+    }
+
+    // Get the wrapped tensor type from the circular buffer
+    RankedTensorType getTensorType() {
+      return llvm::cast<RankedTensorType>(getUnderlyingType());
+    }
+  }];
+
+  let extraClassDefinition = [{
+    bool $cppClass::hasTensorSemantics() {
+      return getCbType().hasTensorType();
+    }
+
+    bool $cppClass::bufferizesToMemoryRead(
+        mlir::OpOperand &, const mlir::bufferization::AnalysisState &) {
+      return false;
+    }
+
+    bool $cppClass::bufferizesToMemoryWrite(
+        mlir::OpOperand &, const mlir::bufferization::AnalysisState &) {
+      return false;
+    }
+
+    bool $cppClass::isNotConflicting(mlir::OpOperand *, mlir::OpOperand *,
+                                 const mlir::bufferization::AnalysisState &) {
+      // Return true to avoid forcing out of place bufferization.
+      return true;
+    }
+
+    mlir::bufferization::AliasingValueList $cppClass::getAliasingValues(
+        mlir::OpOperand &, const mlir::bufferization::AnalysisState &) {
+      mlir::bufferization::AliasingValueList result;
+      return result;
+    }
+
+    mlir::FailureOr<mlir::BaseMemRefType> $cppClass::getBufferType(
+        mlir::Value value, const mlir::bufferization::BufferizationOptions &,
+        const mlir::bufferization::BufferizationState &,
+        ::llvm::SmallVector<mlir::Value> &) {
+      llvm_unreachable("intentionally unimplemented, this op can only accept block arguments which should have already been converted");
+    }
+
+    mlir::LogicalResult $cppClass::bufferize(
+        mlir::RewriterBase &rewriter,
+        const mlir::bufferization::BufferizationOptions &options,
+        mlir::bufferization::BufferizationState &) {
+      auto cbBufferType = mlir::cast<bufferization::TensorLikeType>(getCbType()).getBufferType(options, [&] () {
+        return this->emitOpError();
+      });
+      assert(succeeded(cbBufferType));
+      auto toBuffer = rewriter.create<bufferization::ToBufferOp>(
+          this->getLoc(), *cbBufferType, getCb());
+      mlir::bufferization::replaceOpWithNewBufferizedOp<$cppClass>(
+          rewriter, *this, toBuffer.getResult());
+      return mlir::success();
+    }
+
+    mlir::LogicalResult $cppClass::verify() {
+      // Verify that the result type matches the wrapped memref type
+      auto cbType = llvm::cast<CBType>(getCbType());
+      if (cbType.getUnderlying() != getResult().getType()) {
+        return emitOpError() << "result type does not match circular buffer's "
+                                "wrapped memref type";
+      }
+
+      return ::mlir::success();
+    }
+  }];
+}
+
+def D2M_WaitOp : D2M_CBOp<"wait"> {
+  let summary = "Wait from circular buffer.";
+  let description = [{
+    Wait operation, extracts the enclosing memref from a circular buffer.
+    This operation is used by consumer threads to access data from the circular buffer.
+    It implicitly blocks until a chunk of memref sized underlying type is made
+    available by a producer thread via d2m.reserve.
+
+    Each value of !d2m.cb type can be thought of as a shared resource between threads
+    akin to a single-producer, single-consumer queue. Where d2m.reserve and d2m.wait
+    effectively implement push/pop queue semantics. One distinction which lends itself
+    better to DPS style is that both reserve and wait guarantee acquisition of the
+    underlying memory after the op has executed.
+
+    The resource is implicitly released at the end of block scope.
+
+    Example:
+    ```mlir
+    %memref = d2m.wait %cb : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
+    ```
+  }];
+}
+
+def D2M_ReserveOp : D2M_CBOp<"reserve"> {
+  let summary = "Reserve from circular buffer.";
+  let description = [{
+    Reserve operation, extracts the enclosing memref from a circular buffer.
+    This operation is used by producer threads to reserve a memref sized underlying
+    type's worth of space in the circular buffer. It implicitly blocks if there hasn't
+    yet been a consumer of the data from another thread via d2m.wait.
+
+    Each value of !d2m.cb type can be thought of as a shared resource between threads
+    akin to a single-producer, single-consumer queue. Where d2m.reserve and d2m.wait
+    effectively implement push/pop queue semantics. One distinction which lends itself
+    better to DPS style is that both reserve and wait guarantee acquisition of the
+    underlying memory after the op has executed.
+
+    The resource is implicitly released at the end of block scope.
+
+    Example:
+    ```mlir
+    %memref = d2m.reserve %cb : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
+    ```
+  }];
+}
+
+def D2M_StoreOp : D2M_GenericRegionOp<"store",
+  [ SameTypeOperands
+  , MemoryEffects<[MemRead, MemWrite]>
+  , DeclareOpInterfaceMethods<BufferizableOpInterface, [ "bufferizesToMemoryRead"
+                                                       , "bufferizesToMemoryWrite"
+                                                       , "isNotConflicting"
+                                                       , "bufferize"
+                                                       , "getAliasingValues"
+                                                       , "getBufferType"
+                                                       ]>
+  ]> {
+  let summary = "TODO.";
+  let description = [{
+    TODO
+  }];
+
+  let arguments = (ins AnyRankedTensor:$dst, AnyRankedTensor:$src);
+
+  let assemblyFormat = [{ $dst `,` $src attr-dict `:` type($dst) }];
+
+  let extraClassDefinition = [{
+    bool mlir::tt::d2m::StoreOp::bufferizesToMemoryRead(
+        mlir::OpOperand &, const mlir::bufferization::AnalysisState &) {
+      return false;
+    }
+
+    bool mlir::tt::d2m::StoreOp::bufferizesToMemoryWrite(
+        mlir::OpOperand &, const mlir::bufferization::AnalysisState &) {
+      return false;
+    }
+
+    bool mlir::tt::d2m::StoreOp::isNotConflicting(mlir::OpOperand *, mlir::OpOperand *,
+                                 const mlir::bufferization::AnalysisState &) {
+      // Return true to avoid forcing out of place bufferization.
+      return true;
+    }
+
+    mlir::bufferization::AliasingValueList mlir::tt::d2m::StoreOp::getAliasingValues(
+        mlir::OpOperand &, const mlir::bufferization::AnalysisState &) {
+      mlir::bufferization::AliasingValueList result;
+      return result;
+    }
+
+    mlir::FailureOr<mlir::BaseMemRefType> mlir::tt::d2m::StoreOp::getBufferType(
+        mlir::Value value, const mlir::bufferization::BufferizationOptions &,
+        const mlir::bufferization::BufferizationState &,
+        ::llvm::SmallVector<mlir::Value> &) {
+      llvm_unreachable("intentionally unimplemented, this op will be erased during bufferization");
+    }
+
+    mlir::LogicalResult mlir::tt::d2m::StoreOp::bufferize(
+        mlir::RewriterBase &rewriter,
+        const mlir::bufferization::BufferizationOptions &options,
+        mlir::bufferization::BufferizationState &state) {
+      auto src = bufferization::getBuffer(rewriter, getSrc(), options, state);
+      if (failed(src)) {
+        return mlir::failure();
+      }
+      auto dst = bufferization::getBuffer(rewriter, getDst(), options, state);
+      if (failed(dst)) {
+        return mlir::failure();
+      }
+      rewriter.replaceAllUsesWith(*src, *dst);
+      rewriter.eraseOp(*this);
+      return mlir::success();
+    }
+  }];
 }
 
 //===----------------------------------------------------------------------===//

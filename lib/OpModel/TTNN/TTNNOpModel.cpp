@@ -335,6 +335,8 @@ auto getOpSymbol() {
     return ::ttnn::relu;
   } else if constexpr (std::is_same_v<OpTy, Relu6Op>) {
     return ::ttnn::relu6;
+  } else if constexpr (std::is_same_v<OpTy, HardsigmoidOp>) {
+    return ::ttnn::hardsigmoid;
   } else if constexpr (std::is_same_v<OpTy, SqrtOp>) {
     return ::ttnn::sqrt;
   } else if constexpr (std::is_same_v<OpTy, SinOp>) {
@@ -912,6 +914,7 @@ UnaryEltwiseWithFastApproxModeOpModel<OpTy>::getOpRuntime(
 // Explicit template instantiation for UnaryEltwiseOpModel.
 template struct UnaryEltwiseOpModel<ReluOp>;
 template struct UnaryEltwiseOpModel<Relu6Op>;
+template struct UnaryEltwiseOpModel<HardsigmoidOp>;
 template struct UnaryEltwiseOpModel<SqrtOp>;
 template struct UnaryEltwiseOpModel<SinOp>;
 template struct UnaryEltwiseOpModel<AbsOp>;
@@ -2393,6 +2396,7 @@ OpModel<ScaledDotProductAttentionDecodeOp>::getOpConstraints(
 
   std::optional<float> scaleFloat =
       scale ? std::make_optional(scale.value().convertToFloat()) : std::nullopt;
+  std::optional<uint32_t> slidingWindowSize = std::nullopt;
 
   // The current position information is required for this op. It can either be
   // passed as a tensor or as a uint vector. The uint vector is not wrapped in a
@@ -2402,7 +2406,7 @@ OpModel<ScaledDotProductAttentionDecodeOp>::getOpConstraints(
     return ::ttnn::graph::query_op_constraints(
         ::ttnn::transformer::scaled_dot_product_attention_decode, device,
         querySpec, keySpec, valueSpec, isCausal, attentionMaskSpec, curPosEmpty,
-        curPosTensorSpec, attentionSinkSpec, scaleFloat,
+        curPosTensorSpec, attentionSinkSpec, scaleFloat, slidingWindowSize,
         detail::getNullableMemoryConfig(outputLayout),
         /*program_config=*/std::nullopt,
         /*compute_kernel_config=*/std::nullopt);
@@ -2466,6 +2470,7 @@ llvm::Expected<size_t> OpModel<ScaledDotProductAttentionDecodeOp>::getOpRuntime(
 
   std::optional<float> scaleFloat =
       scale ? std::make_optional(scale.value().convertToFloat()) : std::nullopt;
+  std::optional<uint32_t> slidingWindowSize = std::nullopt;
   // The current position information is required for this op. It can either be
   // passed as a tensor or as a uint vector. The uint vector is not wrapped in a
   // std::optional so we must pass an empty vector.
@@ -2474,7 +2479,7 @@ llvm::Expected<size_t> OpModel<ScaledDotProductAttentionDecodeOp>::getOpRuntime(
     return ::ttnn::graph::query_op_runtime(
         ::ttnn::transformer::scaled_dot_product_attention_decode, device,
         querySpec, keySpec, valueSpec, isCausal, attentionMaskSpec, curPosEmpty,
-        curPosTensorSpec, attentionSinkSpec, scaleFloat,
+        curPosTensorSpec, attentionSinkSpec, scaleFloat, slidingWindowSize,
         detail::getNullableMemoryConfig(outputLayout),
         /*program_config=*/std::nullopt,
         /*compute_kernel_config=*/std::nullopt);
@@ -2499,7 +2504,8 @@ OpModel<ScaledDotProductAttentionOp>::getOpConstraints(
     TTNNLayoutAttr valueLayout,
     std::optional<llvm::ArrayRef<int64_t>> attentionMaskShape,
     std::optional<TTNNLayoutAttr> attentionMaskLayout, bool isCausal,
-    std::optional<llvm::APFloat> scale, TTNNLayoutAttr outputLayout) {
+    std::optional<llvm::APFloat> scale,
+    std::optional<uint32_t> slidingWindowSize, TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
@@ -2534,7 +2540,7 @@ OpModel<ScaledDotProductAttentionOp>::getOpConstraints(
     return ::ttnn::graph::query_op_constraints(
         ::ttnn::transformer::scaled_dot_product_attention, device, querySpec,
         keySpec, valueSpec, attentionMaskSpec, isCausal, scaleFloat,
-        detail::getNullableMemoryConfig(outputLayout),
+        slidingWindowSize, detail::getNullableMemoryConfig(outputLayout),
         /*program_config=*/std::nullopt,
         /*compute_kernel_config=*/std::nullopt);
   };
@@ -2552,7 +2558,8 @@ llvm::Expected<size_t> OpModel<ScaledDotProductAttentionOp>::getOpRuntime(
     llvm::ArrayRef<int64_t> valueShape, TTNNLayoutAttr valueLayout,
     std::optional<llvm::ArrayRef<int64_t>> attentionMaskShape,
     std::optional<TTNNLayoutAttr> attentionMaskLayout, bool isCausal,
-    std::optional<llvm::APFloat> scale, TTNNLayoutAttr outputLayout) {
+    std::optional<llvm::APFloat> scale,
+    std::optional<uint32_t> slidingWindowSize, TTNNLayoutAttr outputLayout) {
 
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
@@ -2588,7 +2595,7 @@ llvm::Expected<size_t> OpModel<ScaledDotProductAttentionOp>::getOpRuntime(
     return ::ttnn::graph::query_op_runtime(
         ::ttnn::transformer::scaled_dot_product_attention, device, querySpec,
         keySpec, valueSpec, attentionMaskSpec, isCausal, scaleFloat,
-        detail::getNullableMemoryConfig(outputLayout),
+        slidingWindowSize, detail::getNullableMemoryConfig(outputLayout),
         /*program_config=*/std::nullopt,
         /*compute_kernel_config=*/std::nullopt);
   };
@@ -4629,7 +4636,8 @@ llvm::Expected<OpConstraints> OpModel<AvgPool2dOp>::getOpConstraints(
   // method in tt-metal but do not exist in the op's definition in TTNNOps.td:
   bool countIncludePad = true;
   std::optional<int32_t> divisorOverride = std::nullopt;
-
+  std::optional<::ttnn::DeviceComputeKernelConfig> computeKernelConfig =
+      std::nullopt;
   // Create query closure
   auto avgPool2DQuery = [=]() {
     return ::ttnn::graph::query_op_constraints(
@@ -4641,7 +4649,8 @@ llvm::Expected<OpConstraints> OpModel<AvgPool2dOp>::getOpConstraints(
             padding),
         ceilMode, countIncludePad, divisorOverride,
         detail::getNullableMemoryConfig(outputLayout),
-        std::nullopt /* applied_shard_scheme */, inPlaceHalo);
+        std::nullopt /* applied_shard_scheme */, computeKernelConfig,
+        inPlaceHalo);
   };
 
   return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
@@ -4681,6 +4690,8 @@ llvm::Expected<size_t> OpModel<AvgPool2dOp>::getOpRuntime(
   // method in tt-metal but do not exist in the op's definition in TTNNOps.td:
   bool countIncludePad = true;
   std::optional<int32_t> divisorOverride = std::nullopt;
+  std::optional<::ttnn::DeviceComputeKernelConfig> computeKernelConfig =
+      std::nullopt;
 
   // Create query closure
   auto avgPool2DQuery = [=]() {
@@ -4693,7 +4704,8 @@ llvm::Expected<size_t> OpModel<AvgPool2dOp>::getOpRuntime(
             padding),
         ceilMode, countIncludePad, divisorOverride,
         detail::getNullableMemoryConfig(outputLayout),
-        std::nullopt /* applied_shard_scheme */, inPlaceHalo);
+        std::nullopt /* applied_shard_scheme */, computeKernelConfig,
+        inPlaceHalo);
   };
 
   return operation::getOpRuntime(avgPool2DQuery);

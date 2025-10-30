@@ -769,7 +769,6 @@ public:
 
     patterns.add<
         TTKernelToEmitCGetCompileArgValRewriter, TTKernelToEmitCDPrintRewriter,
-        TTKernelToEmitCPassthroughRewriter<ttkernel::CBReinterpretShapeOp>,
         TTKernelMacroOpToEmitCOpRewriter<ttkernel::MemZerosBaseOp>,
         TTKernelMacroOpToEmitCOpRewriter<ttkernel::MemZerosSizeOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::GetArgValOp>,
@@ -835,6 +834,8 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::AbsTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::AbsTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::AbsTileI32Op>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::BitwiseNotTileInitOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::BitwiseNotTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::CeilTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::CeilTileF32Op>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::CopyDestValuesInitOp>,

@@ -1427,6 +1427,12 @@ struct EmitCTypeConverter<::ttnn::operations::conv::conv2d::Conv2dConfig> {
     if (attr.getInPlace()) {
       rso << (firstElement ? "" : ", ") << ".in_place = "
           << EmitCTypeConverter<bool>::convert(attr.getInPlace());
+      firstElement = false;
+    }
+    if (attr.getEnableKernelStrideFolding()) {
+      rso << (firstElement ? "" : ", ") << ".enable_kernel_stride_folding = "
+          << EmitCTypeConverter<bool>::convert(
+                 attr.getEnableKernelStrideFolding());
     }
     rso << "}";
     return buf;

@@ -229,8 +229,8 @@ void setTensorRetain(Tensor tensor, bool retain) {
   LOG_FATAL("setTensorRetain not implemented for metal runtime");
 }
 
-Arch getArch() {
-  return ::tt::runtime::common::toRuntimeArch(::tt::tt_metal::hal::get_arch());
+tt::target::Arch getArch() {
+  return ::tt::runtime::common::toTargetArch(::tt::tt_metal::hal::get_arch());
 }
 
 void enablePersistentKernelCache() {
@@ -477,8 +477,8 @@ getMemoryView(Device deviceHandle) {
   return memoryMap;
 }
 
-void setFabricConfig(FabricConfig config) {
-  ::tt::tt_fabric::SetFabricConfig(common::toTTFabricConfig(config));
+void setFabricConfig(tt::runtime::FabricConfig config) {
+  ::tt::tt_fabric::SetFabricConfig(common::toMetalFabricConfig(config));
   RuntimeContext::instance().setCurrentFabricConfig(config);
 }
 

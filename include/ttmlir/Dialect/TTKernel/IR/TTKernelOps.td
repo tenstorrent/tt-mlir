@@ -1099,6 +1099,36 @@ def TTKernel_AbsTileI32Op : TTKernel_SFPUOp<"abs_tile_int32", [TTKernel_UnaryOpT
     }];
 }
 
+def TTKernel_BitwiseNotTileInitOp : TTKernel_InitOp<"bitwise_not_tile_init"> {
+    let summary = "Init function for bitwise_not_tile operation. Refer to documentation for any init function.";
+    let description = [{
+      Must be run before bitwise_not_tile.
+    }];
+
+    let arguments = (ins);
+
+    let assemblyFormat = [{
+      `(` `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_BitwiseNotTileOp : TTKernel_SFPUOp<"bitwise_not_tile", [TTKernel_UnaryOpTrait]> {
+    let summary = "Bitwise Not operation on tile in the DST at specified index.";
+    let description = [{
+      Performs element-wise computation of sign operation
+      DST[tile_index] <- bitwise_not(DST[tile_index])
+      on DST register operands.
+      The DST register buffer must be in acquired state via *tile_regs_acquire* call.
+      This call is blocking and is only available on the compute engine.
+    }];
+
+    let arguments = (ins IndexLike:$tile_index);
+
+    let assemblyFormat = [{
+      `(` $tile_index `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
 def TTKernel_LogicalNotUnaryTileInitOp : TTKernel_InitOp<"logical_not_unary_tile_init"> {
     let summary = "Init function for logical_not_unary_tile(_int32) operation. Refer to documentation for any init function.";
     let description = [{
@@ -2455,21 +2485,6 @@ def TTKernel_GetDataFormatOp: TTKernel_Op<"get_dataformat"> {
 
     let assemblyFormat = [{
       `(` $cb `)` attr-dict `:` functional-type(operands, results)
-    }];
-}
-
-def TTKernel_CBReinterpretShapeOp : TTKernel_Op<"cb_reinterpret_shape"> {
-    let summary = "Get the data format of a given CB";
-    let description = [{
-      get_dataformat operation
-    }];
-    let arguments = (ins TTKernel_CB:$input);
-    let results = (outs TTKernel_CB:$output);
-
-    let hasVerifier = 1;
-
-    let assemblyFormat = [{
-      `(` $input `)` attr-dict `:` functional-type(operands, results)
     }];
 }
 

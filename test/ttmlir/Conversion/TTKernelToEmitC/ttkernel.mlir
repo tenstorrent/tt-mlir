@@ -3,13 +3,13 @@
 
 #l1_ = #ttcore.memory_space<l1>
 
-!cb0_scalar = !ttkernel.cb<memref<64x128xf32, #l1_>>
-!cb1_scalar = !ttkernel.cb<memref<64x128xf32, #l1_>>
-!cb2_scalar = !ttkernel.cb<memref<64x128xf32, #l1_>>
+!cb0_scalar = !ttkernel.cb<8192, f32>
+!cb1_scalar = !ttkernel.cb<8192, f32>
+!cb2_scalar = !ttkernel.cb<8192, f32>
 
-!cb0_tiles = !ttkernel.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>
-!cb1_tiles = !ttkernel.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>
-!cb2_tiles = !ttkernel.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>
+!cb0_tiles = !ttkernel.cb<8, !ttcore.tile<32x32, f32>>
+!cb1_tiles = !ttkernel.cb<8, !ttcore.tile<32x32, f32>>
+!cb2_tiles = !ttkernel.cb<8, !ttcore.tile<32x32, f32>>
 
 module {
   //===----------------------------------------------------------------------===//
@@ -1041,6 +1041,22 @@ module {
       %dst0_index = arith.constant 1 : i32
       // CHECK: emitc.call_opaque "lez_tile_int32"(%[[DST0_INDEX]])
       "ttkernel.lez_tile_int32"(%dst0_index) : (i32) -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @bitwise_not_tile_init
+    func.func @bitwise_not_tile_init() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: emitc.call_opaque "bitwise_not_tile_init"()
+      "ttkernel.bitwise_not_tile_init"() : () -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @bitwise_not_tile
+    func.func @bitwise_not_tile() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: %[[DST0_INDEX:.*]] = "emitc.constant"
+      %dst0_index = arith.constant 1 : i32
+      // CHECK: emitc.call_opaque "bitwise_not_tile"(%[[DST0_INDEX]])
+      "ttkernel.bitwise_not_tile"(%dst0_index) : (i32) -> ()
       return
     }
   } // module

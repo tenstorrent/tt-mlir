@@ -2546,6 +2546,61 @@ class TTIRBuilder(Builder):
             unit_attrs=unit_attrs,
         )
 
+    def sort(
+        self,
+        in0: Operand,
+        dim: int = -1,
+        descending: bool = False,
+        stable: bool = False,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpView:
+        """
+        Creates ``ttir.sort``.
+
+        *Tensor sort operation.*
+
+        Sorts the elements of a tensor along a specified dimension.
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor
+        dim : int, optional
+            Dimension along which to sort (default: -1, the last dimension)
+        descending : bool, optional
+            If True, sorts in descending order (default: False)
+        stable : bool, optional
+            If True, uses a stable sorting algorithm (default: False)
+        unit_attrs : *Optional[List[str]]*, optional
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpView*)
+            Sorted tensor
+        """
+        ttir_kwargs = {"dim": dim, "descending": descending, "stable": stable}
+        golden_kwargs = {"dim": dim, "descending": descending, "stable": stable}
+
+        return self._op_proxy(
+            ttir.SortOp,
+            [in0],
+            ttir_kwargs=ttir_kwargs,
+            output_create_fn=lambda shape, type: (
+                self._empty(shape, type),
+                self._empty(shape, self._get_type_from_torch_dtype(torch.int32)),
+            ),
+            organize_ttir_args=lambda i, o, _: (
+                self._get_type(o[0]),
+                self._get_type(o[1]),
+                i[0],
+                [o[0], o[1]],
+            ),
+            golden_kwargs=golden_kwargs,
+            organize_golden_args=lambda i: [self._get_golden_tensor(i[0])],
+            unit_attrs=unit_attrs,
+        )
+
     def transpose(
         self,
         in0: Operand,
@@ -3610,6 +3665,75 @@ class TTIRBuilder(Builder):
             [],
             ttir_kwargs={"result": output, "shape": shape},
             organize_ttir_args=lambda i, o, shape: 0,
+            unit_attrs=unit_attrs,
+        )
+
+    # Note: TTRT runtime supports float32, bfloat16, uint8, uint16, uint32, int32
+    # For bfloat16, use precision-friendly values [-1.0 to 1.0] for best results
+    def constant(
+        self,
+        tensor: torch.Tensor,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpView:
+        """
+        Creates ``ttir.constant``.
+
+        *Creates a tensor with the specified values.*
+
+        Returns a tensor of given shape with the specified values.
+
+        Parameters
+        ----------
+        tensor : torch.Tensor
+            Tensor containing the constant values
+        unit_attrs : *Optional[List[str]]*, optional
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpView*)
+            Tensor with the specified values
+        """
+        if not isinstance(tensor, torch.Tensor):
+            raise TypeError("constant expects a torch.Tensor input")
+
+        if tensor.numel() == 0:
+            raise ValueError("Cannot create constant with empty tensor")
+
+        mlir_dtype = self._get_type_from_torch_dtype(tensor.dtype)
+
+        shape = list(tensor.shape)
+        tensor_type = RankedTensorType.get(shape, mlir_dtype)
+
+        flat_values = tensor.flatten().tolist()
+
+        if tensor.numel() == 1 or len(set(flat_values)) == 1:
+            # Splat case
+            if isinstance(mlir_dtype, IntegerType):
+                attr = IntegerAttr.get(mlir_dtype, int(flat_values[0]))
+            elif isinstance(mlir_dtype, FloatType):
+                attr = FloatAttr.get(mlir_dtype, float(flat_values[0]))
+            else:
+                raise NotImplementedError(f"Unsupported MLIR type: {mlir_dtype}")
+
+            value_attr = DenseElementsAttr.get_splat(tensor_type, attr)
+        else:
+            # Non-splat case
+            if isinstance(mlir_dtype, IntegerType):
+                elems = [IntegerAttr.get(mlir_dtype, int(v)) for v in flat_values]
+            elif isinstance(mlir_dtype, FloatType):
+                elems = [FloatAttr.get(mlir_dtype, float(v)) for v in flat_values]
+            else:
+                raise NotImplementedError(f"Unsupported MLIR type: {mlir_dtype}")
+
+            value_attr = DenseElementsAttr.get(elems, tensor_type)
+
+        return self._op_proxy(
+            ttir.ConstantOp,
+            [],
+            golden_kwargs={"value": tensor},
+            ttir_kwargs={"result": tensor_type, "value": value_attr},
+            organize_ttir_args=lambda i, o, _: 0,
             unit_attrs=unit_attrs,
         )
 

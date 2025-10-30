@@ -10,8 +10,8 @@ if [ "$(pwd)" != "$script_dir" ]; then
   exit 1
 fi
 
-# Set TT_METAL_HOME to the installed metalium directory
-export TT_METAL_HOME="$script_dir/ttnn-install/libexec/tt-metalium"
+# Set TT_METAL_RUNTIME_ROOT to the installed metalium directory
+export TT_METAL_RUNTIME_ROOT="$script_dir/ttnn-install/libexec/tt-metalium"
 
 # Build
 echo "==================== BUILDING TTNN STANDALONE ==================="
