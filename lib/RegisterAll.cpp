@@ -384,7 +384,11 @@ mlir::tt::MLIRModuleLogger::getOutputFilename(const std::string &passName,
   filename += ".mlir";
 
   // Create subdirectory structure: <model_name>/<pipeline_name>/
-  std::string subdirPath = config.dumpDir + "/" + safeModelName + "/" + safePipelineName;
+  // Skip pipeline subdirectory if it's empty or "unknown"
+  std::string subdirPath = config.dumpDir + "/" + safeModelName;
+  if (!safePipelineName.empty() && safePipelineName != "unknown") {
+    subdirPath += "/" + safePipelineName;
+  }
   
   return subdirPath + "/" + filename;
 }
