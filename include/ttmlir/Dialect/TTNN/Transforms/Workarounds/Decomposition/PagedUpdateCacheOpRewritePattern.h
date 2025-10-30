@@ -11,11 +11,6 @@
 #include "mlir/Support/LogicalResult.h"
 
 namespace mlir::tt::ttnn::workarounds::decomposition {
-
-// tt-metal supports ArgMax op for 4D tensors only.
-// https://github.com/tenstorrent/tt-metal/issues/18241
-// This workaround unsqueeze the input tensor to 4D tennsor (if required) and
-// reshape it back to original shape after performing the ArgMax op.
 class PagedUpdateCacheOpRewritePattern
     : public OpRewritePattern<ttnn::PagedUpdateCacheOp> {
 public:
