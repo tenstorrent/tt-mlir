@@ -257,7 +257,8 @@ void run(const ::tt::target::ttnn::GenericOp *op, ProgramContext &context) {
 
   std::shared_ptr<::tt::tt_metal::ProgramDescriptor> programDescriptor;
   if (cachedPtr) {
-    LOG_DEBUG("Cache hit for program descriptor");
+    // LOG_DEBUG("Cache hit for program descriptor");
+    std::cerr << "Cache hit for program descriptor: " << hash << std::endl;
     programDescriptor =
         std::static_pointer_cast<::tt::tt_metal::ProgramDescriptor>(cachedPtr);
   } else {
