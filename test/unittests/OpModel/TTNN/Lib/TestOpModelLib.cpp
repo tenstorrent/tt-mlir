@@ -1976,8 +1976,7 @@ INSTANTIATE_TEST_SUITE_P(MinimumTests, OpModelMinimumParam,
                          generateBinaryEltwiseParams(binaryEltwiseParams));
 
 INSTANTIATE_TEST_SUITE_P(DivideTests, OpModelDivideParam,
-                         generateBinaryEltwiseParams(
-                             binaryEltwiseParams, /*extraCbRequirement=*/2048));
+                         generateBinaryEltwiseParams(binaryEltwiseParams));
 
 INSTANTIATE_TEST_SUITE_P(EqualTests, OpModelEqualParam,
                          generateBinaryEltwiseParams(binaryEltwiseParams));
