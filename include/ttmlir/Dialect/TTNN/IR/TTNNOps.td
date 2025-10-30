@@ -1860,7 +1860,7 @@ def TTNN_ClampTensorOp : TTNN_Op<"clamp_tensor", [TTNN_MemoryConfigOpInterface]>
 class TTNN_CreationOp<string mnemonic, list<Trait> traits = []> :
     TTNN_Op<mnemonic, [TTCore_CreationOpTrait, TTNN_TensorSpecInterface, TTNN_DeviceOperandInterface] # traits>;
 
-def TTNN_EmptyOp : TTNN_CreationOp<"empty"> {
+def TTNN_EmptyOp : TTNN_CreationOp<"empty", [TTCore_NonCacheableTrait]> {
     let summary = "Empty op.";
     let description = [{
       Tensor empty operation
@@ -1904,7 +1904,7 @@ def TTNN_ArangeOp : TTNN_CreationOp<"arange", [CanExecuteOnHostTrait]> {
   let hasVerifier = 1;
 }
 
-def TTNN_RandOp : TTNN_CreationOp<"rand"> {
+def TTNN_RandOp : TTNN_CreationOp<"rand", [TTCore_NonCacheableTrait]> {
   let summary = "Random number generation operation.";
   let description = [{
     Returns a tensor filled with random numbers drawn from a uniform distribution over given interval [low, high) [Default: [0, 1)].
