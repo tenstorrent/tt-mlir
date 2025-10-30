@@ -186,6 +186,11 @@ def main(input_filename, target_duration, component_filter):
 
     test_matrix = final_test_matrix
 
+    # Add "sh-run": true to tests where runs-on == "n300-llmbox"
+    for test in test_matrix:
+        if test.get("runs-on") == "n300-llmbox":
+            test["sh-run"] = True
+
     # Save the test matrix to a file
     with open("_test_matrix.json", "w") as f:
         json.dump(test_matrix, f, indent=2)

@@ -765,6 +765,35 @@ def TTIR_SigmoidOp: TTIR_ElementwiseUnaryOp<"sigmoid"> {
       Mathematical definition: sigmoid(x) = 1 / (1 + exp(-x))
     }];
 }
+
+def TTIR_HardsigmoidOp: TTIR_ElementwiseUnaryOp<"hardsigmoid"> {
+  let summary = "Elementwise hard sigmoid operation.";
+  let description = [{
+    The `hardsigmoid` operation computes the hard sigmoid activation function of each element in the input tensor.
+
+    The hard sigmoid function is a piecewise linear approximation of the sigmoid function that is computationally
+    more efficient. It is defined as:
+    - 0 if x <= -3
+    - (x + 3) / 6 if -3 < x < 3
+    - 1 if x >= 3
+
+    This activation function is commonly used in neural networks as a computationally efficient alternative to
+    the standard sigmoid function, particularly in mobile and embedded applications where computational resources
+    are limited.
+
+    Example:
+    ```mlir
+    // Compute hard sigmoid of all elements in %input
+    %result = ttir.hardsigmoid(%input, %output) : tensor<4x4xf32>, tensor<4x4xf32> -> tensor<4x4xf32>
+    // Input tensor:
+    // [-3.0, -1.0, 0.0, 3.0]
+    // Output tensor:
+    // [0.0, 0.333, 0.5, 1.0]
+    ```
+
+    Mathematical definition: hardsigmoid(x) = max(0, min(1, (x + 3) / 6))
+  }];
+}
 def TTIR_SiluOp: TTIR_ElementwiseUnaryOp<"silu"> {
   let summary = "Elementwise SiLU (Sigmoid Linear Unit) operation.";
   let description = [{
@@ -4762,7 +4791,7 @@ def TTIR_FullOp : TTIR_CreationOp<"full"> {
   let hasVerifier = 1;
 }
 
-def TTIR_RandOp : TTIR_CreationOp<"rand"> {
+def TTIR_RandOp : TTIR_CreationOp<"rand", [TTCore_NonCacheableTrait]> {
   let summary = "Random number generation operation.";
   let description = [{
     Returns a tensor filled with random numbers drawn from a uniform distribution over given interval [low, high) [Default: [0, 1)].
@@ -4893,7 +4922,7 @@ def TTIR_OnesOp : TTIR_NamedFullOp<"ones"> {
   }];
 }
 
-def TTIR_EmptyOp : TTIR_CreationOp<"empty"> {
+def TTIR_EmptyOp : TTIR_CreationOp<"empty", [TTCore_NonCacheableTrait]> {
     let summary = "Empty tensor allocation operation.";
     let description = [{
       The `empty` operation creates an uninitialized tensor with the specified shape and element type.

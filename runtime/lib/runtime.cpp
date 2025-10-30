@@ -339,8 +339,8 @@ Tensor createMultiDeviceHostTensor(
             tensorShards, strategy, meshShape);
       },
       [&]() -> RetType {
-        detail::fatalNotImplemented("createEmptyTensor",
-                                    HostRuntime::Distributed);
+        return ::tt::runtime::distributed::createMultiDeviceHostTensor(
+            tensorShards, strategy, meshShape);
       });
 }
 

@@ -11,24 +11,24 @@
 // RUN: FileCheck %s --check-prefix=CUSTOM-FULL --input-file=%t.custom_full.mlir
 
 module {
-  // DEFAULT: "ttnn.load_tensor"
+  // DEFAULT: load_tensor
   // DEFAULT-SAME: args = [#emitpy.opaque<"\22arg0.tensorbin\22"
-  // DEFAULT-NEXT: "ttnn.load_tensor"
+  // DEFAULT-NEXT: load_tensor
   // DEFAULT-SAME: args = [#emitpy.opaque<"\22arg1.tensorbin\22"
 
-  // CUSTOM-DIR: "ttnn.load_tensor"
+  // CUSTOM-DIR: load_tensor
   // CUSTOM-DIR-SAME: args = [#emitpy.opaque<"\22tensors/arg0.tensorbin\22"
-  // CUSTOM-DIR-NEXT: "ttnn.load_tensor"
+  // CUSTOM-DIR-NEXT: load_tensor
   // CUSTOM-DIR-SAME: args = [#emitpy.opaque<"\22tensors/arg1.tensorbin\22"
 
-  // CUSTOM-PREFIX: "ttnn.load_tensor"
+  // CUSTOM-PREFIX: load_tensor
   // CUSTOM-PREFIX-SAME: args = [#emitpy.opaque<"\22input0.tensorbin\22"
-  // CUSTOM-PREFIX-NEXT: "ttnn.load_tensor"
+  // CUSTOM-PREFIX-NEXT: load_tensor
   // CUSTOM-PREFIX-SAME: args = [#emitpy.opaque<"\22input1.tensorbin\22"
 
-  // CUSTOM-FULL: "ttnn.load_tensor"
+  // CUSTOM-FULL: load_tensor
   // CUSTOM-FULL-SAME: args = [#emitpy.opaque<"\22tensors/input0.tensorbin\22"
-  // CUSTOM-FULL-NEXT: "ttnn.load_tensor"
+  // CUSTOM-FULL-NEXT: load_tensor
   // CUSTOM-FULL-SAME: args = [#emitpy.opaque<"\22tensors/input1.tensorbin\22"
   func.func @add(%arg0 : tensor<32x32xbf16> { ttcore.argument_type = #ttcore.argument_type<constant>}, %arg1 : tensor<32x32xbf16> { ttcore.argument_type = #ttcore.argument_type<input> }) -> tensor<32x32xbf16> {
     %0 = ttir.empty() : tensor<32x32xbf16>

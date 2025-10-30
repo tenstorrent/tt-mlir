@@ -454,6 +454,51 @@ The `emitpy` api saves a `emitpy_results.json` file that records information abo
 
 </details>
 
+### emitc
+Run a `.so` file or a directory of `.so` files. Optionally provide a binary file or directory of binary files for output tensor comparison.
+Note: It's required to be on a system with silicon and to have a runtime enabled build `-DTTMLIR_ENABLE_RUNTIME=ON`.
+
+```bash
+ttrt emitc --help
+ttrt emitc out.py
+ttrt emitc out.py --clean-artifacts
+ttrt emitc out.py --save-artifacts
+ttrt emitc out.py --loops 10
+ttrt emitc --program-index all out.py
+ttrt emitc --program-index 0 out.py
+ttrt emitc /dir/of/emitc_modules
+ttrt emitc /dir/of/emitc_modules --loops 10
+ttrt emitc /dir/of/emitc_modules --log-file ttrt.log
+ttrt emitc /dir/of/emitc_modules --flatbuffer /path/to/flatbuffer
+ttrt emitc out.py --save-artifacts --artifact-dir /path/to/some/dir
+ttrt emitc out.py --result-file result.json
+ttrt emitc out.py --print-input-output-tensors
+ttrt emitc out.py --memory --save-artifacts
+```
+
+For info on generating EmitC tests through `ttnn-standalone`, see [EmitC testing documentation](./emitc-testing.md).
+For info on generating EmitC tests through `ttir-builder`, see [ttir-builder documentation](./builder/ttir-builder.md).
+
+#### emitc results
+The `emitc` api saves a `emitc_results.json` file that records information about the run including any errors that were thrown and location of other saved data.
+
+<details>
+
+```bash
+[
+  {
+    "file_path": "ttir-builder-artifacts/emitc/test_reciprocal[emitc-f32-128x128]_ttnn.mlir.so",
+    "result": "pass",
+    "exception": "",
+    "log_file": "ttrt.log",
+    "artifacts": "/home/$USER/tt-mlir/ttrt-artifacts",
+    "program_index": "all"
+  }
+]
+```
+
+</details>
+
 ### gdb
 You can relaunch `ttrt` inside of gdb which can be useful for debugging C++
 runtime components.

@@ -178,6 +178,7 @@ using OpModelRelu6Param = OpModelUnaryEltwiseParam<Relu6Op>;
 using OpModelSiluParam = OpModelUnaryEltwiseParam<SiluOp>;
 using OpModelSqrtParam = OpModelUnaryEltwiseParam<SqrtOp>;
 using OpModelSigmoidParam = OpModelUnaryEltwiseParam<SigmoidOp>;
+using OpModelHardsigmoidParam = OpModelUnaryEltwiseParam<HardsigmoidOp>;
 using OpModelSinParam = OpModelUnaryEltwiseParam<SinOp>;
 using OpModelCosParam = OpModelUnaryEltwiseParam<CosOp>;
 using OpModelExpParam = OpModelUnaryEltwiseParam<ExpOp>;
@@ -207,6 +208,7 @@ TEST_P(OpModelRelu6Param, Relu6Op) { RunTest(); }
 TEST_P(OpModelSiluParam, SiluOp) { RunTest(); }
 TEST_P(OpModelSqrtParam, SqrtOp) { RunTest(); }
 TEST_P(OpModelSigmoidParam, SigmoidOp) { RunTest(); }
+TEST_P(OpModelHardsigmoidParam, HardsigmoidOp) { RunTest(); }
 TEST_P(OpModelSinParam, SinOp) { RunTest(); }
 TEST_P(OpModelCosParam, CosOp) { RunTest(); }
 TEST_P(OpModelExpParam, ExpOp) { RunTest(); }
@@ -326,6 +328,8 @@ INSTANTIATE_TEST_SUITE_P(SqrtTests, OpModelSqrtParam,
                          ::testing::ValuesIn(unaryEltwiseParams));
 
 INSTANTIATE_TEST_SUITE_P(SigmoidTests, OpModelSigmoidParam,
+                         ::testing::ValuesIn(unaryEltwiseParams));
+INSTANTIATE_TEST_SUITE_P(HardsigmoidTests, OpModelHardsigmoidParam,
                          ::testing::ValuesIn(unaryEltwiseParams));
 
 INSTANTIATE_TEST_SUITE_P(SinTests, OpModelSinParam,
@@ -1842,7 +1846,7 @@ const std::initializer_list<BinaryEltwiseParam> binaryEltwiseParams = {
                         TensorMemoryLayout::HeightSharded,
                         BufferType::L1,
                         llvm::SmallVector<int64_t>{8, 1}},
-     detail::ExpectedResult{true, 4096, 262144, 266240, 262144}},
+     detail::ExpectedResult{true, 12288, 262144, 274432, 262144}},
     {detail::TestTensor{{16 * OpModelFixture::workerCoresN300 * 32, 32},
                         TensorMemoryLayout::HeightSharded,
                         BufferType::L1,
@@ -1864,7 +1868,7 @@ const std::initializer_list<BinaryEltwiseParam> binaryEltwiseParams = {
                         TensorMemoryLayout::HeightSharded,
                         BufferType::L1,
                         llvm::SmallVector<int64_t>{8, 1}},
-     detail::ExpectedResult{true, 8192, 262144, 270336, 262144}}};
+     detail::ExpectedResult{true, 12288, 262144, 274432, 262144}}};
 
 // Power and Remainder tests are mostly similar to other binary ops, but they
 // have subtle differences in terms of their memory footprint after metal
@@ -2279,7 +2283,8 @@ INSTANTIATE_TEST_SUITE_P(
                                            BufferType::L1,
                                            llvm::SmallVector<int64_t>{7, 8}},
                         llvm::SmallVector<int64_t>{7, 8},
-                        detail::ExpectedResult{false}),
+                        detail::ExpectedResult{true, 131072, 245760,
+                                               131072 + 245760, 114688}),
         std::make_tuple(detail::TestTensor{{56 * 32, 56 * 32},
                                            TensorMemoryLayout::BlockSharded,
                                            BufferType::L1,
@@ -2332,7 +2337,7 @@ INSTANTIATE_TEST_SUITE_P(
                                TensorMemoryLayout::WidthSharded, BufferType::L1,
                                llvm::SmallVector<int64_t>{1, 56}},
             llvm::SmallVector<int64_t>{7, 8},
-            detail::ExpectedResult{true, 8256, 4096, 8256 + 4096, 2048}),
+            detail::ExpectedResult{true, 12288, 4096, 12288 + 4096, 2048}),
         std::make_tuple(detail::TestTensor{{56 * 32, 1 * 32},
                                            TensorMemoryLayout::HeightSharded,
                                            BufferType::L1,
