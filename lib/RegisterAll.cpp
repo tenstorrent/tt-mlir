@@ -22,7 +22,9 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <memory>
 #include <sstream>
+#include <unordered_map>
 // #include "ttmlir/Dialect/SFPI/Transforms/Passes.h"  // Commented out until we
 // have passes
 #include "ttmlir/Dialect/TTMetal/Pipelines/TTMetalPipelines.h"
@@ -499,9 +501,19 @@ void mlir::tt::MLIRModuleLogger::enableGlobalIRDumping(mlir::MLIRContext *ctx,
     return; // IR dumping not enabled
   }
 
-  // Create a static logger to ensure it stays alive
-  static MLIRModuleLogger logger;
-  logger.attachContextWithDumping(ctx, modelName, pipelineName);
+  // Use per-context map to avoid dangling pointer issues when contexts are destroyed
+  static std::unordered_map<mlir::MLIRContext*, std::shared_ptr<MLIRModuleLogger>> loggerMap;
+  
+  // Check if logger already exists for this context
+  auto it = loggerMap.find(ctx);
+  if (it != loggerMap.end()) {
+    return; // Logger already attached to this context
+  }
+  
+  // Create a new logger for this context
+  auto logger = std::make_shared<MLIRModuleLogger>();
+  logger->attachContextWithDumping(ctx, modelName, pipelineName);
+  loggerMap[ctx] = logger;
 }
 
 // Global static initializer that will be called when this library loads
