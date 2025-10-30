@@ -426,6 +426,14 @@ struct FuseD2MElementwiseOpsPattern : public OpRewritePattern<GenericOp> {
         exclusionMap[consumer.getOperation()].begin(),
         exclusionMap[consumer.getOperation()].end());
 
+    // All consumers that are excluded from the current consumer should also be
+    // excluded from the fused op.
+    for (auto *key : exclusionMap.keys()) {
+      if (exclusionMap[key].contains(consumer.getOperation())) {
+        exclusionMap[key].insert(fusedOp.getOperation());
+      }
+    }
+
     // llvm::errs() << "rewriting op: ";
     // consumer->dump();
     // llvm::errs() << "exclusion map state: \n";
