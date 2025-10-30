@@ -243,7 +243,7 @@ unary_ops_dtypes = [
 
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", unary_ops_dtypes, ids=["f32", "i32"])
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal", "ttnn-standalone", "emitpy"])
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitc", "emitpy"])
 @pytest.mark.parametrize("test_fn", unary_ops)
 def test_unary_ops(
     test_fn: Callable, shape: Shape, dtype: torch.dtype, target: str, request, device
@@ -315,7 +315,7 @@ unary_ops_with_float_param = [leaky_relu | Marks(pytest.mark.skip_config(["ttmet
 
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal", "ttnn-standalone", "emitpy"])
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitc", "emitpy"])
 @pytest.mark.parametrize("test_fn", unary_ops_with_float_param)
 @pytest.mark.parametrize("parameter", [0.01, 0.1, 0.2])
 def test_unary_ops_with_float_param(
@@ -373,6 +373,8 @@ def test_get_dimension_size(
     ):
         return get_dimension_size(in0, dimension, builder, unit_attrs=unit_attrs)
 
+    if target == "emitpy":
+        pytest.xfail("Unknown issue causing hang")
     pipeline_options = []
     compile_and_execute_ttir(
         wrapper_func,

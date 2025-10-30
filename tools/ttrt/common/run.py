@@ -212,13 +212,6 @@ class Run:
             help="test file to save results to",
         )
         Run.register_arg(
-            name="--emitc",
-            type=bool,
-            default=False,
-            choices=[True, False],
-            help="toggles emitc testing",
-        )
-        Run.register_arg(
             name="--disable-golden",
             type=bool,
             default=False,
@@ -400,7 +393,7 @@ class Run:
         if self["--save-artifacts"]:
             self.artifacts.create_artifacts()
 
-        self.logging.debug(f"------finished preprocessing read API")
+        self.logging.debug(f"------finished preprocessing run API")
 
     def check_constraints(self):
         self.logging.debug(f"------checking constraints for run API")
@@ -534,48 +527,6 @@ class Run:
             import ttrt.runtime
             import torch
 
-            def convert_input_layouts(device, inputs, fbb, program_index):
-                import ttrt.runtime
-
-                inputs_converted = []
-                for input_index in range(len(inputs)):
-                    input_layout = ttrt.runtime.get_layout(
-                        fbb, program_index, input_index
-                    )
-                    perf_env.tracy_log_op_location(f"loc(arg_{input_index})")
-                    perf_env.tracy_log_input_layout_conversion(True)
-                    inputs_converted.append(
-                        ttrt.runtime.to_layout(
-                            inputs[input_index], device, input_layout, True
-                        )
-                    )
-                    # Reset flag for all following ops that aren't input `to_layout`s
-                    perf_env.tracy_log_input_layout_conversion(False)
-                return inputs_converted
-
-            # Create 'owned tensor' in case of empty tensor;
-            # otherwise create 'borrowed tensor'.
-            def create_tensor(tensor):
-                # Empty tensor if any of the dim is zero.
-                isEmptyTensor = not all(tensor.shape)
-
-                if isEmptyTensor:
-                    return ttrt.runtime.create_owned_host_tensor(
-                        tensor.data_ptr(),
-                        list(tensor.shape),
-                        list(tensor.stride()),
-                        tensor.element_size(),
-                        Binary.Program.to_data_type(tensor.dtype),
-                    )
-
-                return ttrt.runtime.create_borrowed_host_tensor(
-                    tensor.data_ptr(),
-                    list(tensor.shape),
-                    list(tensor.stride()),
-                    tensor.element_size(),
-                    Binary.Program.to_data_type(tensor.dtype),
-                )
-
             if len(binaries) == 0:
                 self.logging.warning(f"no binaries found to run - returning early")
                 return
@@ -685,14 +636,6 @@ class Run:
 
                     if self["--save-artifacts"]:
                         self.artifacts.create_binary_artifacts_folder(bin)
-
-                    if self["--emitc"]:
-                        # .so are compiled such that they have the same name as flatbuffers, so we rename here
-                        emitc_dylib_path = bin.file_path.replace(".ttnn", ".so")
-
-                        # Open the dylib
-                        emitc_dylib_handle = ttrt.runtime.test.open_so(emitc_dylib_path)
-                        self.logging.debug(f"opened emitc dylib={emitc_dylib_path}")
 
                     program_indices = []
                     if self["--program-index"] == "all":
@@ -814,9 +757,14 @@ class Run:
                                 update_tensor_schedule[iterations].append(input_idx)
 
                         # pre-upload inputs
+                        for input_index in range(len(inputs)):
+                            perf_env.tracy_log_op_location(f"loc(arg_{input_index})")
+                            perf_env.tracy_log_input_layout_conversion(True)
                         inputs = convert_input_layouts(
                             device, inputs, bin.fbb, program_index
                         )
+                        # Reset flag for all following ops that aren't input `to_layout`s
+                        perf_env.tracy_log_input_layout_conversion(False)
 
                         for loop in range(self["--loops"]):
                             self.logging.debug(
@@ -899,30 +847,9 @@ class Run:
                                     self["--print-input-output-tensors"]
                                     or not self["--disable-golden"]
                                 ):
-                                    isEmptyTensor = not all(outputs[i].get_shape())
-                                    data_buffer = bytearray(
-                                        outputs[i].get_data_buffer()
+                                    output_tensor_torch = (
+                                        convert_runtime_to_torch_tensor(outputs[i])
                                     )
-                                    if isEmptyTensor and len(data_buffer) == 0:
-                                        # Create empty tensor.
-                                        output_tensor_torch = torch.empty(
-                                            outputs[i].get_shape(),
-                                            dtype=ttrt_datatype_to_torch_dtype(
-                                                outputs[i].get_dtype()
-                                            ),
-                                        )
-                                    elif not isEmptyTensor and len(data_buffer) > 0:
-                                        # Create regular tensor.
-                                        output_tensor_torch = torch.frombuffer(
-                                            data_buffer,
-                                            dtype=ttrt_datatype_to_torch_dtype(
-                                                outputs[i].get_dtype()
-                                            ),
-                                        ).reshape(outputs[i].get_shape())
-                                    else:
-                                        raise Exception(
-                                            f"Failed: Tensor shape=({outputs[i].get_shape()}) and data buffer size={len(data_buffer)} do not match."
-                                        )
 
                                 # Compare program level golden.
                                 golden_tensor_torch = None
@@ -1095,47 +1022,6 @@ class Run:
                         if event is not None:
                             ttrt.runtime.wait(event)
 
-                        # Compare to EmitC
-                        if self["--emitc"]:
-                            # Create symbol string to read from dylib
-                            fwd_func_name = program.name
-
-                            # pre-upload inputs
-                            inputs = convert_input_layouts(
-                                device, inputs, bin.fbb, program_index
-                            )
-
-                            for loop in range(self["--loops"]):
-                                emitc_outs = ttrt.runtime.test.run_so_program(
-                                    emitc_dylib_handle,
-                                    fwd_func_name,
-                                    inputs,
-                                    device,
-                                )
-                                emitc_outs = [
-                                    ttrt.runtime.to_host(emitc_out, untilize=True)[0]
-                                    for emitc_out in emitc_outs
-                                ]
-                                self.logging.debug(
-                                    f"got emitc outputs for program_index={program_index}, loop={loop}"
-                                )
-
-                                all_tensors_match = ttrt.runtime.test.compare_outs(
-                                    outputs, emitc_outs
-                                )
-
-                                if not all_tensors_match:
-                                    self.logging.error(
-                                        "Failed: TTRT and EmitC outputs do not match! program_index={program_index}, loop={loop}"
-                                    )
-                                    self.logging.error(outputs, emitc_outs)
-                                    raise Exception(
-                                        "Failed: TTRT and EmitC outputs do not match! program_index={program_index}, loop={loop}"
-                                    )
-                            self.logging.info(
-                                f"EmitC tensors match for {bin.file_path}"
-                            )
-
                         if self["--identity"]:
                             self.logging.debug(
                                 f"checking identity with rtol={self['--rtol']} and atol={self['--atol']}"
@@ -1208,9 +1094,6 @@ class Run:
                     self.results.add_result(test_result)
                     bin.test_result = result
                 finally:
-
-                    if self["--emitc"]:
-                        ttrt.runtime.test.close_so(emitc_dylib_handle)
 
                     ttrt.runtime.unregister_hooks()
 
