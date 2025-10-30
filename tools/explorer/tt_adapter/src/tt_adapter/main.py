@@ -224,7 +224,7 @@ class TTAdapter(model_explorer.Adapter):
     def convert(
         self, model_path: str, settings: Dict
     ) -> model_explorer.ModelExplorerGraphs:
-        if os.path.is_dir(model_path):
+        if os.path.isdir(model_path):
             ir_paths = utils.list_ir_files(model_path)
             graphs = []
             for ir_path in ir_paths:
