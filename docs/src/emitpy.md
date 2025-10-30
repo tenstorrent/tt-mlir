@@ -16,11 +16,17 @@ Current implementation enables support for MNIST and ResNet models.
   source env/activate
   ```
 
-### Usage
+## Usage
 
+### ttmlir-opt
 ```bash
 # 1. Convert a model from TTIR dialect to EmitPy dialect using ttmlir-opt
 # 2. Translate the resulting EmitPy dialect to Python code using ttmlir-translate
 # 3. Pipe the generated Python code to a .py file
 ttmlir-opt --ttir-to-emitpy-pipeline test/ttmlir/Dialect/EmitPy/ttir_to_emitpy_pipeline_sanity.mlir | \
 ttmlir-translate --mlir-to-python > example.py
+```
+### builder
+
+[Builder](./builder/ttir-builder.md) offers support for building EmitPy modules.
+[ttrt](./ttrt.md) offers support for running EmitPy modules.

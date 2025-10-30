@@ -144,6 +144,7 @@ inline std::optional<DataType> elementTypeToDataTypeImpl(Type elementType) {
     case DataType::BFP_Float2:
     case DataType::Float32:
     case DataType::BFloat16:
+    case DataType::Int32:
       return tileType.getDataType();
     default:
       assert(false && "Unsupported tile type in elementTypeToDataTypeImpl");
@@ -378,19 +379,13 @@ inline MemorySpace getMemorySpace(MemorySpaceAttr memorySpaceAttr) {
   return memorySpaceAttr.getValue();
 }
 
-// Get memory space from a MemRefType. Returns the provided default if no memory
-// space attribute is found.
-inline MemorySpace getMemorySpace(MemRefType memref, MemorySpace dflt) {
+inline MemorySpace getMemorySpace(MemRefType memref,
+                                  MemorySpace dflt = MemorySpace::System) {
   if (auto memSpaceAttr =
           mlir::dyn_cast_if_present<MemorySpaceAttr>(memref.getMemorySpace())) {
     return memSpaceAttr.getValue();
   }
   return dflt;
-}
-
-// Convenience overload with System as default.
-inline MemorySpace getMemorySpace(MemRefType memref) {
-  return getMemorySpace(memref, MemorySpace::System);
 }
 
 inline MemorySpace getMemorySpace(Type memrefType) {
