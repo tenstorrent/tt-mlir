@@ -6,8 +6,8 @@ import os
 import inspect
 import time
 import torch
-from functools import reduce
-import operator
+import ast
+import sys
 from typing import Callable, List, Optional, Tuple, Union, Literal, Dict
 from collections import OrderedDict
 
@@ -43,7 +43,7 @@ from ttrt.common.util import (
     golden_tensor_to_torch,
     ttrt_datatype_to_torch_dtype,
     get_atol_rtol_pcc,
-    parse_fabric_config,
+    EmitPyDylib,
 )
 
 
@@ -223,10 +223,9 @@ def _compile_and_execute(
     if skip_exec:
         raise TTBuilderRuntimeException("Manually skipped execution")
 
-    fb_path = mlir_path + "." + ("ttnn" if target == "ttnn" else "ttm")
-
     # Execute the flatbuffer
     if target in ["ttnn", "ttmetal"]:
+        fb_path = mlir_path + "." + ("ttnn" if target == "ttnn" else "ttm")
         execute_fb(
             fb_path=fb_path,
             pcc=pcc,
@@ -235,6 +234,15 @@ def _compile_and_execute(
             disable_golden=disable_golden,
             device=device,
         )
+    elif target == "emitpy":
+        py_path = mlir_path + ".py"
+
+        # TODO: make this an actual logfile
+        logger = Logger("/dev/null")
+        fm = FileManager(logger)
+        dylib = EmitPyDylib(logger, fm, file_path=py_path)
+        execute_emitted_py(dylib)
+        pass
 
     return mlir_path
 
@@ -1837,6 +1845,81 @@ def execute_fb(
         print(f"output tensors for program={program_index}")
         for tensor in program.output_tensors:
             logging.debug(f"{tensor}\n")
+
+
+def execute_emitted_py(dylib, program_index: str = "all"):
+    import importlib.util
+
+    print(f"------executing emitpy API")
+
+    if dylib is None:
+        print(f"no EmitPy dylibs found to run - returning early")
+        return
+
+    print(f"evaluating python file={dylib.file_path}")
+
+    try:
+
+        print(f"loading module from file: {dylib.file_path}")
+        # Get the module name from the file path
+        module_name = os.path.splitext(os.path.basename(dylib.file_path))[0]
+
+        # Load the module from the file path
+        spec = importlib.util.spec_from_file_location(module_name, dylib.file_path)
+        module = importlib.util.module_from_spec(spec)
+
+        # Add the module to sys.modules so it can be imported by other modules
+        sys.modules[module_name] = module
+
+        # Execute the module
+        spec.loader.exec_module(module)
+        print(f"module {module_name} loaded and executed successfully")
+
+        # Parse the AST to find function names
+        with open(dylib.file_path, "r") as f:
+            source_code = f.read()
+
+        tree = ast.parse(source_code)
+        program_names = []
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, ast.FunctionDef)
+                and node.name != "main"
+                and node.name[0:18] != "create_inputs_for_"
+                and not node.name.__contains__("_const_eval_")
+            ):
+                program_names.append(node.name)
+
+        print(f"Program names found: {program_names}")
+
+        if program_index != "all":
+            if len(program_names) > int(program_index):
+                print(
+                    f"program index={int(program_index)} is greater than number of programs in: {dylib.file_path} - skipping this test"
+                )
+                return
+
+        for cur_program_index, cur_program_name in enumerate(program_names):
+            if program_index != "all" and cur_program_index != int(program_index):
+                continue
+
+            print(
+                f"evaluating program={cur_program_name} for python file={dylib.file_path}"
+            )
+            create_program_inputs = "create_inputs_for_" + cur_program_name
+            create_inputs_func = getattr(module, create_program_inputs)
+            inputs = create_inputs_func()
+            print(f"created {len(inputs)} input tensors")
+
+            print(f"starting program={cur_program_name}")
+
+            program_func = getattr(module, cur_program_name)
+            program_func(inputs)
+            print(f"finished program={cur_program_name}")
+    except Exception as e:
+        raise TTBuilderRuntimeException(e)
+
+    print(f"------finished executing emitpy API")
 
 
 # ----- Experimental Public APIs -----
