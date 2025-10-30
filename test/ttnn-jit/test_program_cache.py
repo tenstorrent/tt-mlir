@@ -123,3 +123,23 @@ def test_program_cache(device):
     ), "DRAM tensor with same properties should be a cache hit"
     ttnn.deallocate(tensor_dram_h1_w1_bf16_1)
     ttnn.deallocate(output)
+
+
+def test_program_cache_hits(device):
+    tensor_full_h1_w1_bf16_0 = create_sharded_tile_tensor(
+        device, 256, 256, (7, 7), torch.bfloat16
+    )
+    tensor_full_h1_w1_bf16_1 = create_sharded_tile_tensor(
+        device, 256, 256, (7, 7), torch.bfloat16
+    )
+    op_full_grid = jit()(abs)
+    output = op_full_grid(tensor_full_h1_w1_bf16_0)
+    assert op_full_grid.num_entries == 1, "New op, should be cache miss"
+    ttnn.deallocate(tensor_full_h1_w1_bf16_0)
+    ttnn.deallocate(output)
+
+    for i in range(1000):
+        output = op_full_grid(tensor_full_h1_w1_bf16_1)
+        assert (
+            op_full_grid.num_entries == 1
+        ), "Same op with same tensor metadata but different data should be a cache hit"
