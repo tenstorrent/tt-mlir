@@ -1161,7 +1161,7 @@ public:
             batchOffsetAttr // Batch offset
         );
       } else {
-        if (batchSize >= 32) {
+        if (true) {
           SmallVector<int64_t> permutedShape(updatesType.getShape());
           permutedShape = ttmlir::utils::applyPermutation(
               updatesType.getShape(), {2, 1, 0, 3});
