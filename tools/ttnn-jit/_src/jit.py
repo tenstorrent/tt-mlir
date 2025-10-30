@@ -41,6 +41,10 @@ class JitFunction:
         self.compile_only = compile_only
         self.debug = debug
 
+        assert (
+            1 <= max_grid[0] <= 8 and 1 <= max_grid[1] <= 8
+        ), f"max_grid must be between (1, 1) and (8, 8), got {max_grid}"
+
         self.out_dir = os.path.join("generated", "pykernels")
         os.makedirs(self.out_dir, exist_ok=True)
 

@@ -29,30 +29,30 @@ def test_program_cache(device):
     h2, w2 = 512, 512
 
     # Create operations with different JIT parameters
-    op_single_core = jit(backend="ttnn", max_grid=(0, 0))(abs)
-    op_full_grid = jit(backend="ttnn", max_grid=(7, 7))(abs)
+    op_single_core = jit(max_grid=(1, 1))(abs)
+    op_full_grid = jit(max_grid=(8, 8))(abs)
 
     assert op_single_core.num_entries == 0, "No entries should be in the cache"
     assert op_full_grid.num_entries == 0, "No entries should be in the cache"
 
     tensor_single_h1_w1_bf16_0 = create_sharded_tile_tensor(
-        device, h1, w1, (0, 0), torch.bfloat16
+        device, h1, w1, (1, 1), torch.bfloat16
     )
     tensor_single_h1_w1_bf16_1 = create_sharded_tile_tensor(
-        device, h1, w1, (0, 0), torch.bfloat16
+        device, h1, w1, (1, 1), torch.bfloat16
     )
     tensor_single_h1_w1_fp32 = create_sharded_tile_tensor(
-        device, h1, w1, (0, 0), torch.float32
+        device, h1, w1, (1, 1), torch.float32
     )
     tensor_single_h2_w2_bf16 = create_sharded_tile_tensor(
-        device, h2, w2, (0, 0), torch.bfloat16
+        device, h2, w2, (1, 1), torch.bfloat16
     )
 
     tensor_full_h1_w1_bf16_0 = create_sharded_tile_tensor(
-        device, h1, w1, (7, 7), torch.bfloat16
+        device, h1, w1, (8, 8), torch.bfloat16
     )
     tensor_full_h1_w1_bf16_1 = create_sharded_tile_tensor(
-        device, h1, w1, (7, 7), torch.bfloat16
+        device, h1, w1, (8, 8), torch.bfloat16
     )
 
     tensor_dram_h1_w1_bf16_0 = create_dram_tensor(device, h1, w1, torch.bfloat16)

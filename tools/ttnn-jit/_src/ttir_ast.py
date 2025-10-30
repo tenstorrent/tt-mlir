@@ -119,8 +119,8 @@ class TTIRCompiler(ast.NodeVisitor):
 
             # Create ttcore grid atttr based off max_grid passed by user
             # Can't pull grid info from tensor unless it's sharded
-            grid_size_x = self.max_grid[0] + 1
-            grid_size_y = self.max_grid[1] + 1
+            grid_size_x = self.max_grid[0]
+            grid_size_y = self.max_grid[1]
 
             # TTNN writes grids as (width, height) but compiler expects (height, width)
             grid = ttcore.ir.GridAttr.get(self.ctx, [grid_size_y, grid_size_x])
@@ -144,7 +144,7 @@ class TTIRCompiler(ast.NodeVisitor):
             return ttnn_layout
         else:
             assert (
-                self.max_grid[0] == 0 and self.max_grid[1] == 0
+                self.max_grid[0] == 1 and self.max_grid[1] == 1
             ), "The grid for DRAM interleaved tensors is always 1x1"
             buffer_type = ttnn.ir.BufferTypeAttr.get(self.ctx, ttnn.BufferType.DRAM)
             grid = ttcore.ir.GridAttr.get(self.ctx, [1, 1])
