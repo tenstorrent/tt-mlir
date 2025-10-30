@@ -1,8 +1,10 @@
-// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path%" -o %t.mlir %s
-// RUN: ttmlir-translate --ttnn-to-flatbuffer -o %t.ttnn %t.mlir
+// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline %s | FileCheck %s
 
-module @SyncTensorsGraph.21 attributes {mhlo.cross_program_prefetches = [], mhlo.input_output_alias = [], mhlo.is_dynamic = false, mhlo.use_auto_spmd_partitioning = false, ttcore.meshes = #ttcore.meshes<[<"mesh" = 1x1>]>} {
-  func.func @main(%arg0: tensor<1x1024x64xbf16> {ttcore.argument_type = #ttcore.argument_type<input>, ttcore.shard_status = #ttcore.shard_status<unsharded>}, %arg1: tensor<1x32x1024x64xbf16> {ttcore.argument_type = #ttcore.argument_type<input>, ttcore.shard_status = #ttcore.shard_status<unsharded>}, %arg2: tensor<1x1024x64xbf16> {ttcore.argument_type = #ttcore.argument_type<input>, ttcore.shard_status = #ttcore.shard_status<unsharded>}) -> (tensor<1x32x1024x64xbf16> {ttcore.shard_status = #ttcore.shard_status<unsharded>}) {
+module {
+  func.func @main(%arg0: tensor<1x1024x64xbf16>, %arg1: tensor<1x32x1024x64xbf16>, %arg2: tensor<1x1024x64xbf16>) -> tensor<1x32x1024x64xbf16> {
+    // CHECK: ttnn.reshape
+    // CHECK: ttnn.reshape
+    // CHECK: ttnn.rotary_embedding"
     %0 = ttir.empty() : tensor<1x1x1024x64xbf16>
     %1 = "ttir.reshape"(%arg2, %0) <{shape = [1 : i32, 1 : i32, 1024 : i32, 64 : i32]}> : (tensor<1x1024x64xbf16>, tensor<1x1x1024x64xbf16>) -> tensor<1x1x1024x64xbf16>
     %2 = ttir.empty() : tensor<1x32x1024x64xbf16>
