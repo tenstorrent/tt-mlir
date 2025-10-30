@@ -1128,17 +1128,27 @@ public:
     // assume it represents the update index for UpateCacheOp.
     RankedTensorType updatesType = cast<RankedTensorType>(updates.getType());
     if (cacheUpdateInputShape[0] != 1) {
-      // Fill cache
+      // Fill cache requires that each batch is filled separately. So, we will
+      // insert a FillCacheOp for each batch. This requires slicing out each
+      // batch.
       for (int32_t batchOffset = 0; batchOffset < batchSize; batchOffset++) {
         auto batchOffsetAttr = rewriter.getI32IntegerAttr(batchOffset);
 
+        // Slice starts at the batch offset for the batch dim, and starts at 0
+        // for all other dims.
         SmallVector<int32_t> sliceStarts = {batchOffset, 0, 0, 0};
+
+        // Slice ends at the dim size for every dim, except the batch dim where
+        // the slice ends at batch offset + 1.
         SmallVector<int32_t> sliceEnds = SmallVector<int32_t>(
             updatesType.getShape().begin(), updatesType.getShape().end());
-
         sliceEnds[0] = batchOffset + 1;
+
+        // Slice steps is 1 for every dim as we do not wish to skip any
         SmallVector<int32_t> sliceSteps = {1, 1, 1, 1};
 
+        // Slice output shape is the same as the fill value shape, except the
+        // batch dim is 1 since we sliced out a single batch.
         SmallVector<int64_t> sliceOutputShape(updatesType.getShape());
         sliceOutputShape[0] = 1;
 
@@ -1146,12 +1156,13 @@ public:
             sliceOutputShape, updatesType.getElementType(),
             updatesType.getEncoding());
 
+        // Create slice op.
         auto slicedUpdates = ttir::utils::createDPSOp<SliceStaticOp>(
             rewriter, scatterOp.getLoc(), slicedUpdatesType, updates,
             rewriter.getI32ArrayAttr(sliceStarts),
             rewriter.getI32ArrayAttr(sliceEnds),
             rewriter.getI32ArrayAttr(sliceSteps));
-
+        // create fill cache op for this batch.
         cache = rewriter.create<FillCacheOp>(
             scatterOp.getLoc(), scatterOp.getResult().getType(), // Result type
             cache,                                               // Cache tensor
@@ -1160,6 +1171,10 @@ public:
         );
       }
     } else {
+      // Unlike ttnn.fill_cache, we can perform ttnn.update_cache on the entire
+      // batch at once. However this requires that the fill value is in the form
+      // [1, num_heads, B, head_size]. So, we must permute the updates tensor to
+      // this shape.
       SmallVector<int64_t> permutedShape(updatesType.getShape());
       permutedShape =
           ttmlir::utils::applyPermutation(updatesType.getShape(), {2, 1, 0, 3});
