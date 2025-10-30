@@ -152,7 +152,7 @@ def get_collection_path(model_path: str):
     resolved_model_path = Path(model_path).resolve()
 
     # If the path is adirectory and has an "extension", simply return it.
-    if os.path.is_dir(resolved_model_path) and MODEL_EXTENSIONS.count(resolved_model_path.suffix) > 0:
+    if os.path.isdir(resolved_model_path) and MODEL_EXTENSIONS.count(resolved_model_path.suffix) > 0:
         return resolved_model_path
 
     resolved_ir_dir = Path(IR_DUMPS_DIR).resolve()
