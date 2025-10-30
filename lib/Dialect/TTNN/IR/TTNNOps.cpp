@@ -2780,10 +2780,10 @@ mlir::tt::ttnn::CollectivePermuteOp::fold(FoldAdaptor adaptor) {
 //===----------------------------------------------------------------------===//
 
 ::mlir::LogicalResult UpdateCacheOp::verify() {
-  // if (getBatchOffset() != 0) {
-  //   return emitOpError(
-  //       "Only single-batch is supported. Batch offset must be 0");
-  // }
+  if (getBatchOffset() != 0) {
+    return emitOpError("We only support updating all batches at once. Batch "
+                       "offset must be 0 for this case.");
+  }
 
   const ::mlir::RankedTensorType cacheType = getCache().getType();
   const ::mlir::RankedTensorType inputType = getInput().getType();
@@ -2928,11 +2928,6 @@ mlir::tt::ttnn::CollectivePermuteOp::fold(FoldAdaptor adaptor) {
 //===----------------------------------------------------------------------===//
 
 ::mlir::LogicalResult FillCacheOp::verify() {
-  // if (getBatchOffset() != 0) {
-  //   return emitOpError(
-  //       "Only single-batch is supported. Batch offset must be 0");
-  // }
-
   const ::mlir::RankedTensorType cacheType = getCache().getType();
   const ::mlir::RankedTensorType inputType = getInput().getType();
 
