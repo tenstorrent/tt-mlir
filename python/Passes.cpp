@@ -32,11 +32,6 @@ void registerTTNNToFlatbuffer();
 
 namespace mlir::ttmlir::python {
 
-// Helper function to enable IR dumping for PassManagers created in Python
-// bindings
-void enableIRDumpingForPM(mlir::PassManager &pm) {
-  mlir::tt::MLIRModuleLogger::enableGlobalIRDumping(pm.getContext());
-}
 
 void populatePassesModule(nb::module_ &m) {
   // When populating passes, need to first register them
@@ -49,9 +44,6 @@ void populatePassesModule(nb::module_ &m) {
       [](MlirModule module, std::string argument_types_string = "") {
         mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
         mlir::PassManager pm(moduleOp->getContext());
-
-        // Enable IR dumping if requested
-        enableIRDumpingForPM(pm);
 
         // Add the pass with options if provided
         if (!argument_types_string.empty()) {
@@ -78,9 +70,6 @@ void populatePassesModule(nb::module_ &m) {
       [](MlirModule module, std::string options = "") {
         mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
         mlir::PassManager pm(moduleOp->getContext());
-
-        // Enable IR dumping if requested
-        enableIRDumpingForPM(pm);
 
         const auto *pipeline =
             mlir::PassPipelineInfo::lookup("stablehlo-pipeline");

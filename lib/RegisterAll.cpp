@@ -490,49 +490,7 @@ void mlir::tt::MLIRModuleLogger::dumpDialectCreation(
   }
 }
 
-void mlir::tt::MLIRModuleLogger::enableGlobalIRDumping(mlir::MLIRContext *ctx, 
-                                                      const std::string &modelName,
-                                                      const std::string &pipelineName) {
-  Config config = Config::fromEnvironment();
-
-  if (!config.dumpEnabled) {
-    return; // IR dumping not enabled
-  }
-
-  // Create a static logger to ensure it stays alive
-  static MLIRModuleLogger logger;
-  logger.attachContextWithDumping(ctx, modelName, pipelineName);
-}
-
-// Global static initializer that will be called when this library loads
-namespace {
-class IRDumpingInitializer {
-public:
-  IRDumpingInitializer() {
-    // Check if we should enable IR dumping
-    mlir::tt::MLIRModuleLogger::Config config =
-        mlir::tt::MLIRModuleLogger::Config::fromEnvironment();
-    dumpingEnabled = config.dumpEnabled;
-  }
-
-  bool shouldEnableDumping() const { return dumpingEnabled; }
-
-private:
-  bool dumpingEnabled = false;
-};
-
-static IRDumpingInitializer globalInit;
-} // namespace
-
 bool mlir::tt::MLIRModuleLogger::shouldEnableIRDumping() {
   Config config = Config::fromEnvironment();
   return config.dumpEnabled;
-}
-
-void mlir::tt::MLIRModuleLogger::setupIRDumping(mlir::PassManager &pm) {
-  if (!shouldEnableIRDumping()) {
-    return;
-  }
-
-  enableGlobalIRDumping(pm.getContext());
 }

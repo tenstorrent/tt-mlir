@@ -67,16 +67,8 @@ struct MLIRModuleLogger {
   static void dumpDialectCreation(const std::string &dialectName,
                                   mlir::MLIRContext *ctx);
 
-  // Global utility to set up IR dumping for any PassManager/MLIRContext
-  static void enableGlobalIRDumping(mlir::MLIRContext *ctx, 
-                                   const std::string &modelName = "unknown",
-                                   const std::string &pipelineName = "unknown");
-
-  // Utility to check if IR dumping should be enabled
+  // Check if IR dumping should be enabled via environment variables
   static bool shouldEnableIRDumping();
-
-  // Utility to set up IR dumping for a PassManager
-  static void setupIRDumping(mlir::PassManager &pm);
 
 private:
   Config config;

@@ -39,6 +39,12 @@ def TTIR_Dialect : Dialect {
 
     let extraClassDeclaration = [{
         void registerTypes();
+
+    private:
+        // Logger for IR dumping, owned by the dialect
+        // Forward declare to avoid circular dependency
+        struct MLIRModuleLoggerHolder;
+        std::unique_ptr<MLIRModuleLoggerHolder> irLogger;
     }];
 }
 

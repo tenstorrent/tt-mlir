@@ -98,6 +98,11 @@ struct TTIRInlinerInterface : public DialectInlinerInterface {
 // TTIR dialect.
 //===----------------------------------------------------------------------===//
 
+// Holder to avoid circular dependency in header
+struct TTIRDialect::MLIRModuleLoggerHolder {
+  mlir::tt::MLIRModuleLogger logger;
+};
+
 void TTIRDialect::initialize() {
   addOperations<
 #define GET_OP_LIST
@@ -110,8 +115,12 @@ void TTIRDialect::initialize() {
       >();
   registerTypes();
 
-  // Set up IR dumping when first TT dialect is initialized
-  mlir::tt::MLIRModuleLogger::enableGlobalIRDumping(getContext());
+  // Set up IR dumping for this context (owned by the dialect)
+  // Provides automatic IR dumping for ttmlir-opt and other tools
+  if (mlir::tt::MLIRModuleLogger::shouldEnableIRDumping()) {
+    irLogger = std::make_unique<MLIRModuleLoggerHolder>();
+    irLogger->logger.attachContextWithDumping(getContext(), "ttmlir-opt", "pipeline");
+  }
 
   // Dump dialect creation if IR dumping is enabled
   mlir::tt::MLIRModuleLogger::dumpDialectCreation("ttir", getContext());
