@@ -222,12 +222,12 @@ class TTIRCompiler(ast.NodeVisitor):
 
     def visit_Attribute(self, node, args=[]):
         assert len(args) >= 1, "Must pass at least one argument (tensor)"
-        
+
         # Map function names to their MLIR dialect equivalents
         attr_name = node.attr
         if attr_name == "pow":
             attr_name = "pow_tensor"
-        
+
         assert attr_name in self._fn_map, f"Function {node.attr} not supported"
         assert not isinstance(
             args[0], ast.Constant

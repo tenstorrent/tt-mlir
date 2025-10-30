@@ -46,7 +46,15 @@ DRAM_INTERLEAVED_SHAPES = [
 
 
 def run_op_test(
-    device, h, w, max_grid, dtype, op, num_inputs, buffer_type=ttnn.BufferType.L1, use_ast_compiler=False
+    device,
+    h,
+    w,
+    max_grid,
+    dtype,
+    op,
+    num_inputs,
+    buffer_type=ttnn.BufferType.L1,
+    use_ast_compiler=False,
 ):
     if buffer_type == ttnn.BufferType.L1:
         inputs = [
@@ -58,7 +66,9 @@ def run_op_test(
     print("inputs", inputs)
     golden_op = _get_ttnn_op(op)
 
-    op_jit = ttnn_jit.jit(debug=True, max_grid=max_grid, use_ast_compiler=use_ast_compiler)(op)
+    op_jit = ttnn_jit.jit(
+        debug=True, max_grid=max_grid, use_ast_compiler=use_ast_compiler
+    )(op)
     output_tensor = op_jit(*inputs)
     golden_tensor = (golden_op or op)(*inputs)
 
@@ -205,8 +215,15 @@ def test_unary_op_l1(device, h, w, max_grid, dtype, op, use_ast_compiler):
         pytest.xfail("failing allclose for some shapes for float32")
 
     run_op_test(
-        device, h, w, max_grid, dtype, op, num_inputs=1, buffer_type=ttnn.BufferType.L1,
-        use_ast_compiler=use_ast_compiler
+        device,
+        h,
+        w,
+        max_grid,
+        dtype,
+        op,
+        num_inputs=1,
+        buffer_type=ttnn.BufferType.L1,
+        use_ast_compiler=use_ast_compiler,
     )
 
 
@@ -248,8 +265,15 @@ def test_bitwise_unary_op_dram(device, h, w, dtype, op, use_ast_compiler):
 @pytest.mark.parametrize("use_ast_compiler", [False, True])
 def test_bitwise_unary_op_l1(device, h, w, max_grid, dtype, op, use_ast_compiler):
     run_op_test(
-        device, h, w, max_grid, dtype, op, num_inputs=1, buffer_type=ttnn.BufferType.L1,
-        use_ast_compiler=use_ast_compiler
+        device,
+        h,
+        w,
+        max_grid,
+        dtype,
+        op,
+        num_inputs=1,
+        buffer_type=ttnn.BufferType.L1,
+        use_ast_compiler=use_ast_compiler,
     )
 
 
@@ -380,8 +404,15 @@ def test_binary_ops(device, h, w, max_grid, dtype, op, use_ast_compiler):
         pytest.xfail("failing allclose for some shapes")
 
     run_op_test(
-        device, h, w, max_grid, dtype, op, num_inputs=2, buffer_type=ttnn.BufferType.L1,
-        use_ast_compiler=use_ast_compiler
+        device,
+        h,
+        w,
+        max_grid,
+        dtype,
+        op,
+        num_inputs=2,
+        buffer_type=ttnn.BufferType.L1,
+        use_ast_compiler=use_ast_compiler,
     )
 
 
@@ -394,6 +425,7 @@ def cosh(input_tensor):
     nr_term = ttnn.add(e_pos_x, e_neg_x)
     output = ttnn.multiply(nr_term, 0.5)
     return output
+
 
 def sinh(input_tensor):
     e_pos_x = ttnn.exp(input_tensor)
@@ -408,8 +440,18 @@ def sinh(input_tensor):
 @pytest.mark.parametrize("op", [cosh, sinh])
 @pytest.mark.parametrize("use_ast_compiler", [False, True])
 def test_composite_ops(device, h, w, max_grid, dtype, op, use_ast_compiler):
-    run_op_test(device, h, w, max_grid, dtype, op, 1, buffer_type=ttnn.BufferType.L1,
-                use_ast_compiler=use_ast_compiler)
+    run_op_test(
+        device,
+        h,
+        w,
+        max_grid,
+        dtype,
+        op,
+        1,
+        buffer_type=ttnn.BufferType.L1,
+        use_ast_compiler=use_ast_compiler,
+    )
+
 
 # ------------------------------------------------------------
 # Control flow tests
@@ -438,12 +480,12 @@ def nested_if(input_tensor, mode=0):
 def if_with_ops_before_after(input_tensor, apply_exp=True):
     """Test if statement with operations before and after."""
     temp = ttnn.abs(input_tensor)
-    
+
     if apply_exp:
         temp = ttnn.exp(temp)
     else:
         temp = ttnn.sin(temp)
-    
+
     output = ttnn.multiply(temp, 0.5)
     return output
 
@@ -451,13 +493,13 @@ def if_with_ops_before_after(input_tensor, apply_exp=True):
 def multiple_sequential_ifs(input_tensor, apply_exp=False, apply_cos=False):
     """Test multiple sequential if statements."""
     output = input_tensor
-    
+
     if apply_exp:
         output = ttnn.exp(output)
-    
+
     if apply_cos:
         output = ttnn.cos(output)
-    
+
     return output
 
 
@@ -512,29 +554,40 @@ def if_inside_for_multiple_branches(input_tensor, iterations=3):
             output = ttnn.cos(output)
     return output
 
+
 # ------------------------------------------------------------
 # Control flow tests
 # ------------------------------------------------------------
-@pytest.mark.parametrize("h , w, max_grid", [(32, 32, (0, 0)), (64, 64, (0, 0)), (256, 256, (7, 7))])
+@pytest.mark.parametrize(
+    "h , w, max_grid", [(32, 32, (0, 0)), (64, 64, (0, 0)), (256, 256, (7, 7))]
+)
 @pytest.mark.parametrize("dtype", [torch.bfloat16])
 @pytest.mark.parametrize("use_exp", [True, False])
 def test_if_else_branch(device, h, w, max_grid, dtype, use_exp):
     """Test basic if/else branching with different branches."""
+
     def op_wrapper(input_tensor):
         return if_else_branch(input_tensor, use_exp=use_exp)
-    
-    run_op_test(device, h, w, max_grid, dtype, op_wrapper, 1, buffer_type=ttnn.BufferType.L1)
+
+    run_op_test(
+        device, h, w, max_grid, dtype, op_wrapper, 1, buffer_type=ttnn.BufferType.L1
+    )
 
 
-@pytest.mark.parametrize("h , w, max_grid", [(32, 32, (0, 0)), (64, 64, (0, 0)), (256, 256, (7, 7))])
+@pytest.mark.parametrize(
+    "h , w, max_grid", [(32, 32, (0, 0)), (64, 64, (0, 0)), (256, 256, (7, 7))]
+)
 @pytest.mark.parametrize("dtype", [torch.bfloat16])
 @pytest.mark.parametrize("mode", [0, 1, 2])
 def test_nested_if(device, h, w, max_grid, dtype, mode):
     """Test nested if statements with different modes."""
+
     def op_wrapper(input_tensor):
         return nested_if(input_tensor, mode=mode)
-    
-    run_op_test(device, h, w, max_grid, dtype, op_wrapper, 1, buffer_type=ttnn.BufferType.L1)
+
+    run_op_test(
+        device, h, w, max_grid, dtype, op_wrapper, 1, buffer_type=ttnn.BufferType.L1
+    )
 
 
 @pytest.mark.parametrize("h , w, max_grid", [(32, 32, (0, 0)), (64, 64, (0, 0))])
@@ -542,32 +595,47 @@ def test_nested_if(device, h, w, max_grid, dtype, mode):
 @pytest.mark.parametrize("apply_exp", [True, False])
 def test_if_with_ops_before_after(device, h, w, max_grid, dtype, apply_exp):
     """Test if statement with operations before and after."""
+
     def op_wrapper(input_tensor):
         return if_with_ops_before_after(input_tensor, apply_exp=apply_exp)
-    
-    run_op_test(device, h, w, max_grid, dtype, op_wrapper, 1, buffer_type=ttnn.BufferType.L1)
+
+    run_op_test(
+        device, h, w, max_grid, dtype, op_wrapper, 1, buffer_type=ttnn.BufferType.L1
+    )
 
 
 @pytest.mark.parametrize("h , w, max_grid", [(32, 32, (0, 0)), (64, 64, (0, 0))])
 @pytest.mark.parametrize("dtype", [torch.bfloat16])
-@pytest.mark.parametrize("apply_exp, apply_cos", [(True, False), (False, True), (True, True)])
+@pytest.mark.parametrize(
+    "apply_exp, apply_cos", [(True, False), (False, True), (True, True)]
+)
 def test_multiple_sequential_ifs(device, h, w, max_grid, dtype, apply_exp, apply_cos):
     """Test multiple sequential if statements. Note: (False, False) case excluded as it performs no operations."""
+
     def op_wrapper(input_tensor):
-        return multiple_sequential_ifs(input_tensor, apply_exp=apply_exp, apply_cos=apply_cos)
-    
-    run_op_test(device, h, w, max_grid, dtype, op_wrapper, 1, buffer_type=ttnn.BufferType.L1)
+        return multiple_sequential_ifs(
+            input_tensor, apply_exp=apply_exp, apply_cos=apply_cos
+        )
+
+    run_op_test(
+        device, h, w, max_grid, dtype, op_wrapper, 1, buffer_type=ttnn.BufferType.L1
+    )
 
 
-@pytest.mark.parametrize("h , w, max_grid", [(32, 32, (0, 0)), (64, 64, (0, 0)), (256, 256, (7, 7))])
+@pytest.mark.parametrize(
+    "h , w, max_grid", [(32, 32, (0, 0)), (64, 64, (0, 0)), (256, 256, (7, 7))]
+)
 @pytest.mark.parametrize("dtype", [torch.bfloat16])
 @pytest.mark.parametrize("iterations", [1, 2, 3, 5])
 def test_for_loop_simple(device, h, w, max_grid, dtype, iterations):
     """Test simple for loop with different iteration counts."""
+
     def op_wrapper(input_tensor):
         return for_loop_simple(input_tensor, iterations=iterations)
-    
-    run_op_test(device, h, w, max_grid, dtype, op_wrapper, 1, buffer_type=ttnn.BufferType.L1)
+
+    run_op_test(
+        device, h, w, max_grid, dtype, op_wrapper, 1, buffer_type=ttnn.BufferType.L1
+    )
 
 
 @pytest.mark.parametrize("h , w, max_grid", [(32, 32, (0, 0)), (64, 64, (0, 0))])
@@ -575,10 +643,13 @@ def test_for_loop_simple(device, h, w, max_grid, dtype, iterations):
 @pytest.mark.parametrize("iterations", [1, 2, 3])
 def test_for_loop_with_index(device, h, w, max_grid, dtype, iterations):
     """Test for loop with index variable and if statement."""
+
     def op_wrapper(input_tensor):
         return for_loop_with_index(input_tensor, iterations=iterations)
-    
-    run_op_test(device, h, w, max_grid, dtype, op_wrapper, 1, buffer_type=ttnn.BufferType.L1)
+
+    run_op_test(
+        device, h, w, max_grid, dtype, op_wrapper, 1, buffer_type=ttnn.BufferType.L1
+    )
 
 
 @pytest.mark.parametrize("h , w, max_grid", [(32, 32, (0, 0)), (64, 64, (0, 0))])
@@ -586,10 +657,13 @@ def test_for_loop_with_index(device, h, w, max_grid, dtype, iterations):
 @pytest.mark.parametrize("outer, inner", [(2, 2), (2, 3), (3, 2)])
 def test_nested_for_loops(device, h, w, max_grid, dtype, outer, inner):
     """Test nested for loops."""
+
     def op_wrapper(input_tensor):
         return nested_for_loops(input_tensor, outer=outer, inner=inner)
-    
-    run_op_test(device, h, w, max_grid, dtype, op_wrapper, 1, buffer_type=ttnn.BufferType.L1)
+
+    run_op_test(
+        device, h, w, max_grid, dtype, op_wrapper, 1, buffer_type=ttnn.BufferType.L1
+    )
 
 
 @pytest.mark.parametrize("h , w, max_grid", [(32, 32, (0, 0)), (64, 64, (0, 0))])
@@ -597,10 +671,13 @@ def test_nested_for_loops(device, h, w, max_grid, dtype, outer, inner):
 @pytest.mark.parametrize("iterations", [2, 3, 4])
 def test_for_loop_with_if(device, h, w, max_grid, dtype, iterations):
     """Test for loop with if statement inside."""
+
     def op_wrapper(input_tensor):
         return for_loop_with_if(input_tensor, iterations=iterations)
-    
-    run_op_test(device, h, w, max_grid, dtype, op_wrapper, 1, buffer_type=ttnn.BufferType.L1)
+
+    run_op_test(
+        device, h, w, max_grid, dtype, op_wrapper, 1, buffer_type=ttnn.BufferType.L1
+    )
 
 
 @pytest.mark.parametrize("h , w, max_grid", [(32, 32, (0, 0)), (64, 64, (0, 0))])
@@ -608,10 +685,14 @@ def test_for_loop_with_if(device, h, w, max_grid, dtype, iterations):
 @pytest.mark.parametrize("iterations", [3, 4, 5])
 def test_if_inside_for_multiple_branches(device, h, w, max_grid, dtype, iterations):
     """Test for loop with multiple if branches inside."""
+
     def op_wrapper(input_tensor):
         return if_inside_for_multiple_branches(input_tensor, iterations=iterations)
-    
-    run_op_test(device, h, w, max_grid, dtype, op_wrapper, 1, buffer_type=ttnn.BufferType.L1)
+
+    run_op_test(
+        device, h, w, max_grid, dtype, op_wrapper, 1, buffer_type=ttnn.BufferType.L1
+    )
+
 
 # ------------------------------------------------------------
 # Interop tests

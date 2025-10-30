@@ -15,6 +15,7 @@ def print_and_verify_ir(ir, method_name, debug):
         print(ir)
     ir.operation.verify()
 
+
 def generate_ir_from_ast(source_code, debug, *args, **kwargs):
     # Parse and compile
     m = ast.parse(source_code)
@@ -27,8 +28,9 @@ def generate_ir_from_ast(source_code, debug, *args, **kwargs):
     ir = b.module
 
     print_and_verify_ir(ir, "TTIRCompiler (AST-based)", debug)
-    
+
     return ir
+
 
 def generate_ir_from_graph(f, debug, *args, **kwargs):
     begin_graph_capture(RunMode.NO_DISPATCH)
@@ -40,14 +42,17 @@ def generate_ir_from_graph(f, debug, *args, **kwargs):
     tensor_args = kwargs.get("_tensor_args", {})
     max_grid = kwargs.get("_max_grid", (0, 0))
 
-    graph_compiler = GraphToIRCompiler(captured_graph, f.__name__, tensor_args, max_grid)
+    graph_compiler = GraphToIRCompiler(
+        captured_graph, f.__name__, tensor_args, max_grid
+    )
     ir = graph_compiler.compile()
-    
+
     print_and_verify_ir(ir, "GraphToIRCompiler (Graph-based)", debug)
 
     return ir
 
-# This utility function, though not used in production code, can help in debugging whether both 
+
+# This utility function, though not used in production code, can help in debugging whether both
 # compilers (AST based and Graph based) are generating the same IR or not.
 def compare_ir(ir_graph, ir_ast):
     ir_str_graph = str(ir_graph)
@@ -67,6 +72,7 @@ def compare_ir(ir_graph, ir_ast):
                 break
 
     assert ir_str_graph == ir_str_ast, "IRs are different"
+
 
 def generate_ir(use_ast_compiler, source_code, f, debug, *args, **kwargs):
     if use_ast_compiler:

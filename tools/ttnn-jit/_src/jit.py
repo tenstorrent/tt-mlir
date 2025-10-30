@@ -71,7 +71,14 @@ class JitFunction:
             fb_binary = self.cache.get(*args)
             return _run_binary(fb_binary, args)
 
-        ir = generate_ir(self.use_ast_compiler, self.source_code, self.func, self.debug, *args, **kwargs)
+        ir = generate_ir(
+            self.use_ast_compiler,
+            self.source_code,
+            self.func,
+            self.debug,
+            *args,
+            **kwargs,
+        )
 
         options = f"system-desc-path={self.system_desc_path} ttnn-mode=true"
         if self.compile_only:

@@ -32,7 +32,9 @@ class Vertex:
         self.stacking_level = 0
 
         if len(connections) != len(set(connections)):
-            print(f"Warning: Duplicate connections found for vertex {counter}: {connections}")
+            print(
+                f"Warning: Duplicate connections found for vertex {counter}: {connections}"
+            )
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert the vertex back to a dictionary representation."""
@@ -46,9 +48,7 @@ class Vertex:
     def __str__(self) -> str:
         """String representation of the vertex."""
         # print id, type, name and stacking level
-        return (
-            f"Vertex(id={self.id}, type={self.node_type}, name={self.params.get('name')}, level={self.stacking_level})"
-        )
+        return f"Vertex(id={self.id}, type={self.node_type}, name={self.params.get('name')}, level={self.stacking_level})"
 
     def __repr__(self) -> str:
         return self.__str__()
@@ -72,10 +72,14 @@ class ClusterVertex:
     def add_cluster_connection(self, cluster_idx: int) -> None:
         if cluster_idx == self.cluster_idx:
             return
-        self.cluster_connections = sorted(list(set(self.cluster_connections + [cluster_idx])))
+        self.cluster_connections = sorted(
+            list(set(self.cluster_connections + [cluster_idx]))
+        )
 
     def __str__(self) -> str:
-        return f"ClusterVertex(vertices={self.vertices}, connections={self.connections})"
+        return (
+            f"ClusterVertex(vertices={self.vertices}, connections={self.connections})"
+        )
 
     def __repr__(self) -> str:
         return self.__str__()
@@ -173,9 +177,17 @@ class Graph:
                 assert (
                     (vertex.stacking_level == 1 and vertex.node_type == "tensor")
                     or (vertex.stacking_level == 1 and vertex.node_type == "buffer")
-                    or (vertex.stacking_level == 1 and vertex.node_type == "capture_start")
-                    or (vertex.stacking_level == 1 and vertex.node_type == "buffer_deallocate")
-                    or (vertex.stacking_level == 1 and vertex.node_type == "capture_end")
+                    or (
+                        vertex.stacking_level == 1
+                        and vertex.node_type == "capture_start"
+                    )
+                    or (
+                        vertex.stacking_level == 1
+                        and vertex.node_type == "buffer_deallocate"
+                    )
+                    or (
+                        vertex.stacking_level == 1 and vertex.node_type == "capture_end"
+                    )
                 )
 
     def unify_clusters(self) -> None:
@@ -193,14 +205,25 @@ class Graph:
                     if conn_id in self.vertices:
                         vertex = self.vertices[conn_id]
                         # Skip non-clustered vertices - they're not operations
-                        if vertex.node_type in ["tensor", "function_end", "capture_end", "buffer_deallocate"]:
+                        if vertex.node_type in [
+                            "tensor",
+                            "function_end",
+                            "capture_end",
+                            "buffer_deallocate",
+                        ]:
                             continue
                         else:
-                            print(f"Warning: Connection {conn_id} (type={vertex.node_type}, name={vertex.params.get('name', 'N/A')}) not clustered")
+                            print(
+                                f"Warning: Connection {conn_id} (type={vertex.node_type}, name={vertex.params.get('name', 'N/A')}) not clustered"
+                            )
                     else:
-                        print(f"Error: Connection {conn_id} not found in graph vertices")
+                        print(
+                            f"Error: Connection {conn_id} not found in graph vertices"
+                        )
                     continue
-                cluster.add_cluster_connection(vertex_to_cluster_map[conn_id].cluster_idx)
+                cluster.add_cluster_connection(
+                    vertex_to_cluster_map[conn_id].cluster_idx
+                )
 
     def get_clusters(self) -> List[ClusterVertex]:
         return self.cluster_vertices
@@ -225,10 +248,11 @@ class Graph:
             for child in self.get_children_vertices(vertex.id):
                 if child.params["name"] == "ttnn::ones":
                     vertex.connections.remove(child.id)
-    
+
     def dump_to_json(self, output_file: str) -> None:
         with open(output_file, "w") as f:
             json.dump(self.to_dict_list(), f, indent=2)
+
 
 def load_graph_from_captured_graph(captured_graph: List[Dict[str, Any]]) -> Graph:
     graph = Graph()
@@ -245,7 +269,7 @@ def load_graph_from_captured_graph(captured_graph: List[Dict[str, Any]]) -> Grap
 def create_simplified_graph_from_clusterized(graph: Graph) -> Graph:
     """
     Create a simplified graph from clusters, preserving correct tensor references using CONNECTIONS.
-    
+
     Key insight: The RUNTIME captured graph uses "Tensor(...)" for ALL tensor arguments, not "tensor: N".
     We need to use the CONNECTIONS in the graph to determine dataflow:
     - If a cluster has incoming connections from other clusters, those are its input tensors
@@ -255,7 +279,7 @@ def create_simplified_graph_from_clusterized(graph: Graph) -> Graph:
 
     # Build mapping: which clusters connect to which clusters
     # cluster_connections already gives us this information
-    
+
     # Build mapping: cluster index -> which input tensors (from capture) it consumes
     # This is done by looking at which TENSOR nodes connect into this cluster
     cluster_to_input_tensors = {}
@@ -271,14 +295,16 @@ def create_simplified_graph_from_clusterized(graph: Graph) -> Graph:
                     if "tensor_id" in parent.params:
                         tensor_id = parent.params["tensor_id"]
                         if tensor_id not in [t["id"] for t in input_tensor_nodes]:
-                            input_tensor_nodes.append({"id": tensor_id, "counter": parent.id})
+                            input_tensor_nodes.append(
+                                {"id": tensor_id, "counter": parent.id}
+                            )
         cluster_to_input_tensors[cluster.cluster_idx] = input_tensor_nodes
-    
+
     # Build mapping: cluster index -> list of parent clusters that produce its inputs
     # We do this by looking at TENSOR nodes that connect to this cluster, and finding
     # which clusters produce those tensors
     tensor_to_producer_cluster = {}  # Map tensor_id -> cluster that produces it
-    
+
     # First, identify which cluster produces which tensor
     # Only look at function_end nodes to find output tensors
     for cluster in graph.get_clusters():
@@ -289,10 +315,13 @@ def create_simplified_graph_from_clusterized(graph: Graph) -> Graph:
                 for conn_id in vertex.connections:
                     if conn_id in graph.vertices:
                         conn_vertex = graph.vertices[conn_id]
-                        if conn_vertex.node_type == "tensor" and "tensor_id" in conn_vertex.params:
+                        if (
+                            conn_vertex.node_type == "tensor"
+                            and "tensor_id" in conn_vertex.params
+                        ):
                             tensor_id = conn_vertex.params["tensor_id"]
                             tensor_to_producer_cluster[tensor_id] = cluster.cluster_idx
-    
+
     # Now, for each cluster, find which clusters produce the tensors it consumes
     cluster_to_parent_clusters = {}
     for cluster in graph.get_clusters():
@@ -310,28 +339,27 @@ def create_simplified_graph_from_clusterized(graph: Graph) -> Graph:
                         if producer_cluster not in parent_cluster_idxs:
                             parent_cluster_idxs.append(producer_cluster)
         cluster_to_parent_clusters[cluster.cluster_idx] = sorted(parent_cluster_idxs)
-    
-    
+
     # Create simplified graph with corrected arguments
     # For each "Tensor(...)" argument, we need to determine if it's:
     # 1. An input tensor (counter < first operation's counter)
     # 2. Output from a previous cluster (use parent cluster mapping)
     for cluster_vertex in graph.get_clusters():
         first_vertex = cluster_vertex.vertices[0]
-        
+
         # Process arguments to replace "Tensor(...)" with correct references
         corrected_arguments = []
         tensor_arg_idx = 0  # Index for tracking which Tensor(...) argument we're on
-        
+
         parent_clusters = cluster_to_parent_clusters.get(cluster_vertex.cluster_idx, [])
-        
+
         for arg in first_vertex.arguments:
             if arg.startswith("Tensor("):
                 # This is a tensor argument - determine what it references
                 # It could be:
                 # 1. An input tensor (if this cluster has input tensor connections)
                 # 2. Output from a parent cluster (if this cluster has parent clusters)
-                
+
                 if tensor_arg_idx < len(parent_clusters):
                     # This tensor comes from a parent cluster
                     parent_cluster_idx = parent_clusters[tensor_arg_idx]
@@ -340,12 +368,12 @@ def create_simplified_graph_from_clusterized(graph: Graph) -> Graph:
                     # This might be an input tensor - keep it as Tensor(...)
                     # The IR compiler will handle it
                     corrected_arguments.append(arg)
-                
+
                 tensor_arg_idx += 1
             else:
                 # Not a tensor argument, keep as-is
                 corrected_arguments.append(arg)
-        
+
         added_vertex = new_graph.add_vertex(
             {
                 "counter": cluster_vertex.cluster_idx,
@@ -369,6 +397,7 @@ class GraphToIRCompiler:
     Compiler that generates MLIR IR from a captured graph.
     Takes a captured graph, simplifies it, and generates MLIR IR.
     """
+
     def __init__(self, captured_graph, function_name, tensor_args, max_grid):
         self.ctx = Context()
         self.cursor = Location.unknown(self.ctx)
@@ -379,7 +408,7 @@ class GraphToIRCompiler:
         self.tensor_args = tensor_args
         self.max_grid = max_grid
         self.simplified_graph = None  # Will be set during compilation
-        
+
     def _mlir_dtype_from_ttnn_dtype(self, dtype):
         match int(dtype):
             case 0:
@@ -396,7 +425,7 @@ class GraphToIRCompiler:
                 return IntegerType.get_signless(32, self.ctx)
             case _:
                 raise ValueError(f"Unsupported dtype: {dtype}")
-    
+
     def _ttcore_dtype_from_ttnn_dtype(self, dtype):
         match str(dtype):
             case "DataType.BFLOAT16":
@@ -407,7 +436,7 @@ class GraphToIRCompiler:
                 return ttcore.DataType.Int32
             case _:
                 raise ValueError(f"Unsupported dtype: {dtype}")
-    
+
     def _ttcore_dtype_from_mlir_dtype(self, dtype):
         match str(dtype):
             case "f32":
@@ -416,29 +445,29 @@ class GraphToIRCompiler:
                 return ttcore.DataType.BFloat16
             case _:
                 raise ValueError(f"Unsupported dtype: {dtype}")
-    
+
     def _extract_dtype_from_tensor_arg(self, arg_str):
         """Extract DataType from argument string."""
-        if 'DataType::BFLOAT16' in arg_str:
+        if "DataType::BFLOAT16" in arg_str:
             return 0  # BF16
-        elif 'DataType::FLOAT32' in arg_str:
+        elif "DataType::FLOAT32" in arg_str:
             return 1  # F32
         # Add more as needed
         return None
-    
+
     def _create_tensor_layout(self, tensor_arg):
         """Create TTNN layout attribute from tensor."""
         assert len(tensor_arg.shape) == 2
         data_type = self._ttcore_dtype_from_ttnn_dtype(tensor_arg.dtype)
         tile_type = ttcore.ir.TileType.get(self.ctx, 32, 32, data_type)
         identity_map = AffineMap.get_identity(2, self.ctx)
-        
+
         if tensor_arg.memory_config().is_sharded():
             shard_spec = tensor_arg.memory_config().shard_spec
             shard_shape = shard_spec.shape
             grid_size_x = self.max_grid[0] + 1
             grid_size_y = self.max_grid[1] + 1
-            
+
             # TTNN writes grids as (width, height) but compiler expects (height, width)
             grid = ttcore.ir.GridAttr.get(self.ctx, [grid_size_y, grid_size_x])
             shard_shape_tile_x = shard_shape[0] // 32
@@ -448,8 +477,12 @@ class GraphToIRCompiler:
                 [shard_shape_tile_x, shard_shape_tile_y], tile_type, None, buffer_type
             )
             ttnn_layout = ttnn.ir.TTNNLayoutAttr.get_with_linear(
-                self.ctx, identity_map, grid, memref,
-                ttnn.TensorMemoryLayout.BlockSharded, None
+                self.ctx,
+                identity_map,
+                grid,
+                memref,
+                ttnn.TensorMemoryLayout.BlockSharded,
+                None,
             )
             return ttnn_layout
         else:
@@ -461,72 +494,78 @@ class GraphToIRCompiler:
             shape = [tensor_arg.shape[0] // 32, tensor_arg.shape[1] // 32]
             memref = MemRefType.get(shape, tile_type, None, buffer_type)
             return ttnn.ir.TTNNLayoutAttr.get_with_linear(
-                self.ctx, identity_map, grid, memref,
-                ttnn.TensorMemoryLayout.Interleaved, None
+                self.ctx,
+                identity_map,
+                grid,
+                memref,
+                ttnn.TensorMemoryLayout.Interleaved,
+                None,
             )
-    
+
     def _adjust_op_name(self, op_name):
         """Adjust operation name to match TTNN dialect names."""
-        if op_name == 'sub':
-            op_name = 'subtract'
-        elif op_name == 'div':
-            op_name = 'divide'
-        elif op_name == 'pow':
-            op_name = 'pow_tensor'
+        if op_name == "sub":
+            op_name = "subtract"
+        elif op_name == "div":
+            op_name = "divide"
+        elif op_name == "pow":
+            op_name = "pow_tensor"
         return op_name
 
     def _extract_op_name(self, node):
         """Extract operation name from node."""
-        name = node['name']
+        name = node["name"]
         op_name = name
-        if '::' in name:
-            op_name = name.split('::')[-1]
+        if "::" in name:
+            op_name = name.split("::")[-1]
         op_name = self._adjust_op_name(op_name)
         return op_name
-    
+
     def _parse_float_argument(self, arg):
         """Parse a float value from argument string."""
         try:
             return float(arg)
         except (ValueError, TypeError):
             return None
-    
+
     def _is_input_tensor(self, arg):
         """Check if argument is an input tensor (not a reference to previous operation)."""
-        return arg.startswith('Tensor(')
-    
+        return arg.startswith("Tensor(")
+
     def _get_tensor_reference(self, arg):
         """Extract tensor reference index from 'tensor: N' format."""
-        match = re.match(r'tensor:\s*(\d+)', arg)
+        match = re.match(r"tensor:\s*(\d+)", arg)
         if match:
             return int(match.group(1))
         return None
-    
+
     def _count_input_tensors(self, node):
         """Count number of input tensor arguments."""
         count = 0
-        for arg in node['arguments']:
+        for arg in node["arguments"]:
             if self._is_input_tensor(arg):
                 count += 1
         return count
-    
+
     def compile(self):
         """Generate MLIR module from captured graph."""
         # Step 1: Simplify the captured graph
         # Load graph from captured JSON
         graph = load_graph_from_captured_graph(self.captured_graph)
-        
+
         # Clusterize and unify
         graph.clusterize()
         graph.unify_clusters()
-        
+
         # Create simplified graph from clusters
         self.simplified_graph = create_simplified_graph_from_clusterized(graph)
 
         # Apply graph fixes
-        self.simplified_graph.fix_backward_links(["ttnn::conv2d", "ttnn::to_memory_config"])
+        self.simplified_graph.fix_backward_links(
+            ["ttnn::conv2d", "ttnn::to_memory_config"]
+        )
         self.simplified_graph.fix_links_to_ones()
-        
+
         # Step 2: Generate MLIR IR from simplified graph
         with Location.unknown(self.ctx):
             # Build input types from tensor args
@@ -537,26 +576,25 @@ class GraphToIRCompiler:
                 dtype = self._mlir_dtype_from_ttnn_dtype(tensor_arg.dtype)
                 tensor_type = RankedTensorType.get(shape, dtype, layout)
                 input_types.append(tensor_type)
-            
+
             # Output type is same as first input for now
             # How to determine output type dynamically?
             assert len(input_types) >= 1, "At least one input tensor is needed for now"
             output_types = [input_types[0]]
-            
+
             # Create function
             with InsertionPoint(self.insert_point):
                 func_op = func.FuncOp(
-                    name=self.function_name,
-                    type=(input_types, output_types)
+                    name=self.function_name, type=(input_types, output_types)
                 )
                 func_bb = func_op.add_entry_block()
-                
+
                 # Build the function body
                 self._build_function_body(func_bb, input_types, output_types)
-        
+
         # Return the generated module
         return self.module
-    
+
     def _build_function_body(self, func_bb, input_types, output_types):
         """Build the function body from the simplified graph."""
         with InsertionPoint(func_bb):
@@ -564,52 +602,60 @@ class GraphToIRCompiler:
             mesh_shape_attr = ttnn.ir.MeshShapeAttr.get(self.ctx, 1, 1)
             mesh_offset_attr = ttnn.ir.MeshOffsetAttr.get(self.ctx, 0, 0)
             device = ttnn.get_device(
-                mesh_shape=mesh_shape_attr,
-                mesh_offset=mesh_offset_attr
+                mesh_shape=mesh_shape_attr, mesh_offset=mesh_offset_attr
             )
-            
+
             # Map tensor_id to MLIR values
             # tensor_id is a string from the captured graph that identifies tensors
             tensor_id_to_value = {}
-            
+
             # Map input tensors - assuming they start from tensor_id 0
             for i, arg in enumerate(func_bb.arguments):
                 tensor_id_to_value[i] = arg
-            
+
             # Map operation index to MLIR values (for tracking intermediate results)
             operation_results = {}
-            
+
             # Process each node in the simplified graph
             for node in self.simplified_graph.to_dict_list():
                 op_name = self._extract_op_name(node)
-                result = self._process_node(node, op_name, tensor_id_to_value, operation_results, device, output_types[0])
-                
+                result = self._process_node(
+                    node,
+                    op_name,
+                    tensor_id_to_value,
+                    operation_results,
+                    device,
+                    output_types[0],
+                )
+
                 # Store result for this operation index
                 if result is not None:
-                    operation_results[node['index']] = result
-            
+                    operation_results[node["index"]] = result
+
             # Return the last result
             if len(self.simplified_graph.to_dict_list()) > 0:
-                last_node_idx = self.simplified_graph.to_dict_list()[-1]['index']
+                last_node_idx = self.simplified_graph.to_dict_list()[-1]["index"]
                 final_result = operation_results[last_node_idx]
                 func.ReturnOp([final_result])
-    
-    def _process_node(self, node, op_name, tensor_id_to_value, operation_results, device, result_type):
+
+    def _process_node(
+        self, node, op_name, tensor_id_to_value, operation_results, device, result_type
+    ):
         """Process a single node and generate the corresponding MLIR operation."""
-        arguments = node['arguments']
-        
+        arguments = node["arguments"]
+
         # Collect operands for the operation
         operands = []
         constant_value = None
-        
+
         # Track the count of input tensors seen so far
         input_tensor_idx = 0
-        
+
         for arg in arguments:
-            if arg == 'nullopt' or arg.startswith('[ unsupported type'):
+            if arg == "nullopt" or arg.startswith("[ unsupported type"):
                 # Skip nullopt and unsupported arguments
                 continue
-            
+
             # Check if it's a tensor reference (e.g., "tensor: 0")
             # After simplification, this references the simplified operation index
             tensor_ref = self._get_tensor_reference(arg)
@@ -621,11 +667,13 @@ class GraphToIRCompiler:
                 elif tensor_ref in tensor_id_to_value:
                     operands.append(tensor_id_to_value[tensor_ref])
                 else:
-                    raise ValueError(f"Tensor reference {tensor_ref} not found. "
-                                   f"Available operations: {list(operation_results.keys())}, "
-                                   f"Available inputs: {list(tensor_id_to_value.keys())}")
+                    raise ValueError(
+                        f"Tensor reference {tensor_ref} not found. "
+                        f"Available operations: {list(operation_results.keys())}, "
+                        f"Available inputs: {list(tensor_id_to_value.keys())}"
+                    )
                 continue
-            
+
             # Check if it's an input tensor (starts with "Tensor(...")
             # This happens for operations that directly take the input
             if self._is_input_tensor(arg):
@@ -638,85 +686,119 @@ class GraphToIRCompiler:
                     # Only one input - all Tensor(...) references map to it
                     operands.append(tensor_id_to_value[0])
                 else:
-                    print(f"Warning: Cannot map Tensor argument at index {input_tensor_idx}, only {len(tensor_id_to_value)} inputs available")
+                    print(
+                        f"Warning: Cannot map Tensor argument at index {input_tensor_idx}, only {len(tensor_id_to_value)} inputs available"
+                    )
                 input_tensor_idx += 1
                 continue
-            
+
             # Check if it's a numeric constant
             float_val = self._parse_float_argument(arg)
             if float_val is not None:
                 constant_value = float_val
-        
+
         # Generate the MLIR operation
-        return self._create_ttnn_op(op_name, result_type, operands, device, constant_value)
-    
-    def _create_ttnn_op(self, op_name, result_type, operands, device, constant_value=None):
+        return self._create_ttnn_op(
+            op_name, result_type, operands, device, constant_value
+        )
+
+    def _create_ttnn_op(
+        self, op_name, result_type, operands, device, constant_value=None
+    ):
         """Create a TTNN operation based on the operation name."""
         # Unary operations
-        unary_ops = ['abs', 'exp', 'neg', 'sqrt', 'rsqrt', 'log', 'cos', 'sin', 
-                     'ceil', 'floor', 'tanh', 'sigmoid', 'relu', 'gelu', 'silu', 
-                     'logical_not', 'bitwise_not']
-        
+        unary_ops = [
+            "abs",
+            "exp",
+            "neg",
+            "sqrt",
+            "rsqrt",
+            "log",
+            "cos",
+            "sin",
+            "ceil",
+            "floor",
+            "tanh",
+            "sigmoid",
+            "relu",
+            "gelu",
+            "silu",
+            "logical_not",
+            "bitwise_not",
+        ]
+
         # Binary operations - all binary ops need dtype as an attribute (not parameter)
-        binary_ops = ['add', 'multiply', 'subtract', 'divide', 'pow_tensor']
-        
+        binary_ops = ["add", "multiply", "subtract", "divide", "pow_tensor"]
+
         if op_name in unary_ops:
             # Unary operation
             if len(operands) != 1:
-                raise ValueError(f"Unary operation {op_name} expects 1 operand, got {len(operands)}")
-            
+                raise ValueError(
+                    f"Unary operation {op_name} expects 1 operand, got {len(operands)}"
+                )
+
             op_func = getattr(ttnn, op_name)
             result = op_func(result_type, operands[0])
-            result.owner.attributes["ttnn.hoist_generic_via_d2m"] = UnitAttr.get(self.ctx)
+            result.owner.attributes["ttnn.hoist_generic_via_d2m"] = UnitAttr.get(
+                self.ctx
+            )
             return result
-        
+
         elif op_name in binary_ops:
             # Binary operation
             if constant_value is not None:
                 # Need to create a constant tensor
-                constant_tensor = self._create_constant_tensor(constant_value, result_type, device)
+                constant_tensor = self._create_constant_tensor(
+                    constant_value, result_type, device
+                )
                 operands.append(constant_tensor)
-            
+
             if len(operands) != 2:
-                raise ValueError(f"Binary operation {op_name} expects 2 operands, got {len(operands)}")
-            
+                raise ValueError(
+                    f"Binary operation {op_name} expects 2 operands, got {len(operands)}"
+                )
+
             op_func = getattr(ttnn, op_name)
             # Call the operation without dtype parameter
             result = op_func(result_type, operands[0], operands[1])
-            result.owner.attributes["ttnn.hoist_generic_via_d2m"] = UnitAttr.get(self.ctx)
-            
+            result.owner.attributes["ttnn.hoist_generic_via_d2m"] = UnitAttr.get(
+                self.ctx
+            )
+
             # Add dtype as an attribute (not a parameter) for binary ops
             dtype_attr = ttcore.ir.DataTypeAttr.get(
-                self.ctx,
-                self._ttcore_dtype_from_mlir_dtype(result_type.element_type)
+                self.ctx, self._ttcore_dtype_from_mlir_dtype(result_type.element_type)
             )
             result.owner.attributes["dtype"] = dtype_attr
             return result
-        
+
         else:
-            raise NotImplementedError(f"Operation {op_name} not yet supported in GraphToIRCompiler")
-    
+            raise NotImplementedError(
+                f"Operation {op_name} not yet supported in GraphToIRCompiler"
+            )
+
     def _create_constant_tensor(self, value, result_type, device):
         """Create a constant tensor with the given value."""
         with Location.unknown(self.ctx):
             shape = list(result_type.shape)
             dtype = result_type.element_type
-            
+
             # Create the full tensor using ttnn.full
             shape_attr = ttnn.ir.ShapeAttr.get(self.ctx, shape)
             dtype_attr = ttcore.ir.DataTypeAttr.get(
-                self.ctx, 
-                self._ttcore_dtype_from_mlir_dtype(dtype)
+                self.ctx, self._ttcore_dtype_from_mlir_dtype(dtype)
             )
             fill_value_attr = FloatAttr.get(F32Type.get(self.ctx), value)
-            
+
             # Extract layout from result_type if present
             layout_attr = None
             if result_type.encoding:
                 layout = ttnn.ir.TTNNLayoutAttr.maybe_downcast(result_type.encoding)
                 if layout:
-                    layout_attr = ttnn.ir.LayoutAttr.get(self.ctx, layout.memory_layout_as_int)
-            
+                    layout_attr = ttnn.ir.LayoutAttr.get(
+                        self.ctx, layout.memory_layout_as_int
+                    )
+
             full_tensor = ttnn.FullOp(
                 result_type,
                 shape_attr,
@@ -725,5 +807,5 @@ class GraphToIRCompiler:
                 dtype=dtype_attr,
                 layout=layout_attr,
             )
-            
+
             return full_tensor
