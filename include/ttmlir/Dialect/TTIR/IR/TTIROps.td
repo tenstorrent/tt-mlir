@@ -5543,7 +5543,31 @@ def TTIR_ConcatenateHeadsOp: TTIR_NamedOp<"concatenate_heads"> {
   let hasVerifier = 1;
 }
 
+def TTIR_RotaryEmbeddingOp : TTIR_Op<"rotary_embedding"> {
+  let summary = "Rotary embedding op in TTIR dialect.";
+  let description = [{
+    Applies rotary embedding to the input tensor using precomputed cosine and sine caches.
+    Formula used:
+      x_rotated = x * cos + rotate_half(x) * sin
+      where rotate_half(x) swaps the first and second halves of the last dimension of x.
 
+    Example:
+      ```mlir
+      %result = ttir.rotary_embedding(%input, %cos_cache, %sin_cache)
+        : tensor<1x32x1024x64xf16>, tensor<1x1x1024x64xf16>, tensor<1x1x1024x64xf16>
+        -> tensor<1x32x1024x64xf16>
+      ```
+  }];
+
+  let arguments = (ins AnyRankedTensor:$input,
+                       AnyRankedTensor:$cos_cache,
+                       AnyRankedTensor:$sin_cache,
+                       OptionalAttr<UI32Attr>:$token_index);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let hasVerifier = 1;
+}
 
 def TTIR_ScaledDotProductAttentionDecodeOp : TTIR_NamedOp<"scaled_dot_product_attention_decode", [AttrSizedOperandSegments]> {
     let summary = "A version of scaled dot product attention specifically for decode.";
