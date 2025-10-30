@@ -286,8 +286,8 @@ void mlir::tt::MLIRModuleLogger::attachContextWithDumping(
   // Create dump directory if it doesn't exist
   std::filesystem::create_directories(config.dumpDir);
 
-  context->registerActionHandler([this, &modelName = this->modelName](llvm::function_ref<void()> transform,
-                                        const mlir::tracing::Action &action) {
+  context->registerActionHandler([this, modelName = this->modelName](llvm::function_ref<void()> transform,
+                                        const mlir::tracing::Action &action) mutable {
     // Dump pre-pipeline IR
     if (moduleCache.empty()) {
       std::string passName = "PRE-PIPELINE", outString;
