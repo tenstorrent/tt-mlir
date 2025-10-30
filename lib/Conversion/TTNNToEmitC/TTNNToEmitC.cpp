@@ -3725,6 +3725,14 @@ namespace {
 class PagedUpdateCacheOpConversionPattern
     : public TTNNToEmitCBaseOpConversionPattern<
           mlir::tt::ttnn::PagedUpdateCacheOp> {
+private:
+  std::string getPrefixSearchPattern() const override {
+    return "ttnn.paged_update_cache";
+  }
+  std::string getPrefixSwapPattern() const override {
+    return "ttnn::experimental::paged_update_cache";
+  }
+
 public:
   using TTNNToEmitCBaseOpConversionPattern<
       mlir::tt::ttnn::PagedUpdateCacheOp>::TTNNToEmitCBaseOpConversionPattern;
