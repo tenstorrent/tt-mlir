@@ -2006,10 +2006,24 @@ public:
         concatenateAlongLastDim(rewriter, valueBias.getLoc(),
                                 ValueRange{queryBias, keyBias, valueBias});
 
+    // Get the output shape from one of the original linear ops (they all have
+    // the same shape). Original linear output: [1, 128, 768]. New concatenated
+    // linear output: [1, 128, 2304] (last dim * 3).
+    ArrayRef<int64_t> originalLinearOutputShape =
+        linearOps[0].getResult().getType().getShape();
+
+    llvm::SmallVector<int64_t> linearOutputShape(
+        originalLinearOutputShape.begin(), originalLinearOutputShape.end());
+
+    // Multiply the last dimension by 3 (since we're concatenating Q, K, V).
+    linearOutputShape.back() = originalLinearOutputShape.back() * 3;
+
     // Create linear operation with concatenated weights and bias.
     RankedTensorType linearOutputType = RankedTensorType::get(
-        {batchSize * sequenceLength, hiddenSize * 3},
-        mlir::cast<RankedTensorType>(reshapeOutput.getType()).getElementType());
+        linearOutputShape,
+        mlir::cast<RankedTensorType>(linearOps[0].getResult().getType())
+            .getElementType());
+
     LinearOp linearOp = ttir::utils::createDPSOp<ttir::LinearOp>(
         rewriter, valueBias.getLoc(), linearOutputType, reshapeOutput,
         concatenatedWeightMatrix, concatenatedBias,
