@@ -48,7 +48,7 @@ jobs:
     with:
       docker_image: ${{ needs.build-image.outputs.docker-image }}
       test_matrix: ${{ needs.prepare-run.outputs.test_matrix }}
-      timeout: ${{ needs.prepare-run.outputs.test_timeout }}
+      timeout: ${{ fromJson(needs.prepare-run.outputs.test_timeout) }}
 
   fail-notify:
     if: always()
