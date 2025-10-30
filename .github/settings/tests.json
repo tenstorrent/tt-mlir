@@ -1,5 +1,5 @@
 [
-  { "runs-on": "n150",   "image": "tracy",  "script": "op_model_ttrt.sh", "arg": "perf" },
-  { "runs-on": "n150",   "image": "speedy",  "script": "op_model_ttrt.sh", "arg": "run" },
+  { "runs-on": "n150",   "image": "tracy",  "script": "op_model_ttrt.sh", "args": "perf" },
+  { "runs-on": "n150",   "image": "speedy",  "script": "op_model_ttrt.sh", "args": "run" },
   { "runs-on": "n150",   "image": "speedy", "script": "op_model.sh" }
 ]
