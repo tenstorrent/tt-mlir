@@ -25,7 +25,7 @@ from test_utils import (
 
 pytestmark = pytest.mark.frontend("ttnn")
 
-
+# Passes
 @pytest.mark.parametrize("shape", [(64, 128)], ids=shape_str)
 @pytest.mark.parametrize("max_arg,min_arg", [(3.0, 2.0)])
 def test_clamp_scalar(shape: Shape, max_arg: float, min_arg: float, request, device):
@@ -47,6 +47,7 @@ def test_clamp_scalar(shape: Shape, max_arg: float, min_arg: float, request, dev
     )
 
 
+# Passes
 @pytest.mark.parametrize(
     "shapes", [[(32, 64), (32, 64), (32, 64)]], ids=shapes_list_str
 )
@@ -70,6 +71,7 @@ def test_clamp_tensor(shapes: List[Shape], request, device):
     )
 
 
+# Fails
 @pytest.mark.parametrize(
     "shapes", [[(10, 64, 32), (32, 128), (128,)]], ids=shapes_list_str
 )
