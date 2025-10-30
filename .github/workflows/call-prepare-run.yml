@@ -121,6 +121,7 @@ jobs:
 
       - id: is-all
         run: |
+          echo "build_all=true" >> "$GITHUB_OUTPUT"
           if [[ "${{ steps.components.outputs.workflow_any_changed }}" == "true" ]]; then
             echo "Detected changes in workflow or settings files, building all components"
             echo "build_all=true" >> "$GITHUB_OUTPUT"
