@@ -5,6 +5,8 @@
 
 set -e -o pipefail
 
+echo "Run Optimizer Models Perf Tests"
+llvm-lit -v --xunit-xml-output $TEST_REPORT_PATH $BUILD_DIR/test/ttmlir/Silicon/TTNN/n150/optimizer
 echo
 echo "Running op-model ttrt test"
 ttrt $1 $BUILD_DIR/test/ttmlir/Silicon/TTNN/n150/optimizer
