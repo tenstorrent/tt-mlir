@@ -506,11 +506,11 @@ class TTCompilerBase(PyKernelAstBase):
         if isinstance(rhs, OpView):
             rhs = rhs.result
 
-        if isinstance(lhs.type, memref.MemRefType):
+        if hasattr(lhs, 'type') and isinstance(lhs.type, memref.MemRefType):
             lhs = memref.LoadOp(
                 lhs, arith.ConstantOp(IndexType.get(self.ctx), 0)
             ).result
-        if isinstance(rhs.type, memref.MemRefType):
+        if hasattr(rhs, 'type') and isinstance(rhs.type, memref.MemRefType):
             rhs = memref.LoadOp(
                 rhs, arith.ConstantOp(IndexType.get(self.ctx), 0)
             ).result
