@@ -49,6 +49,7 @@ jobs:
     with:
       docker_image: ${{ needs.build-image.outputs.docker-image }}
       test_matrix: ${{ needs.prepare-run.outputs.test_matrix }}
+      timeout: ${{ needs.prepare-run.outputs.test_timeout }}
   save-durations:
     needs: test
     runs-on: ubuntu-latest

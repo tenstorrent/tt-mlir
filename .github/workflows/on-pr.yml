@@ -72,6 +72,7 @@ jobs:
     with:
       docker_image: ${{ needs.build-image.outputs.docker-image }}
       test_matrix: ${{ needs.prepare-run.outputs.test_matrix }}
+      timeout: ${{ needs.prepare-run.outputs.test_timeout }}
 
   # When a PR runs on the uplift branch trigger the downstream checks
   downstream-checks:
