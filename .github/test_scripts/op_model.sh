@@ -5,6 +5,8 @@
 
 set -e -o pipefail
 
+echo "Running optimizer tests"
+$BUILD_DIR/test/unittests/Optimizer/OptimizerTests --gtest_brief=1
 echo "Running op-model test Conversion"
 $BUILD_DIR/test/unittests/OpModel/TTNN/Conversion/TestConversion
 echo "Running op-model test Lib"
