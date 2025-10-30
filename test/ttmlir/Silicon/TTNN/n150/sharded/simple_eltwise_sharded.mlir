@@ -72,6 +72,13 @@ func.func @sqrt(%arg0: tensor<224x64xf32>) -> tensor<224x64xf32> {
   return %1 : tensor<224x64xf32>
 }
 
+func.func @silu(%arg0: tensor<224x64xf32>) -> tensor<224x64xf32> {
+  %0 = ttir.empty() : tensor<224x64xf32>
+  // CHECK: "ttnn.silu"
+  %1 = "ttir.silu"(%arg0, %0) : (tensor<224x64xf32>, tensor<224x64xf32>) -> tensor<224x64xf32>
+  return %1 : tensor<224x64xf32>
+}
+
 /////////////////////////////////////////
 // Unsupported eltwise ops with sharding
 //  * Concat: Sharded concat requires ROW MAJOR layout
