@@ -12,7 +12,7 @@ from chisel.core.ops import IRModule
 from chisel.core.registry import Registry
 from chisel.core.tensors import TensorPool, TensorValue
 from chisel.utils.location import hash_location
-from chisel.utils.mapping import ttir_dtype_maps
+from chisel.utils.runtime_utils import ttir_dtype_maps
 from ttmlir.ir import Context
 
 

@@ -3,14 +3,35 @@
 # SPDX-License-Identifier: Apache-2.0
 import torch
 
-from chisel.utils.mapping import ttrt_dtype_maps
-
 from ttrt.runtime import (
     create_owned_host_tensor,
     update_tensor_in_pool,
     Tensor as RtTensor,
     TensorRef,
 )
+
+
+ttir_dtype_maps = {
+    "i32": torch.int32,
+    "i64": torch.int64,
+    "f32": torch.float32,
+    "f64": torch.float64,
+    "si32": torch.int32,
+    "i1": torch.bool,
+    "bf16": torch.bfloat16,
+    "f16": torch.float16,
+    "ui32": torch.uint32,
+}
+
+
+ttrt_dtype_maps = {
+    "DataType.Float32": torch.float32,
+    "DataType.BFloat16": torch.bfloat16,
+    "DataType.UInt32": torch.uint32,
+    "DataType.UInt16": torch.uint16,
+    "DataType.UInt8": torch.uint8,
+    "DataType.Int32": torch.int32,
+}
 
 
 def get_torch_tensor(tensor: RtTensor) -> torch.Tensor:

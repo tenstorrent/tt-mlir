@@ -12,7 +12,7 @@ import sys
 import logging
 from typing import Tuple, Literal, Callable
 
-from chisel.utils.mapping import ttir_dtype_maps
+from chisel.utils.runtime_utils import ttir_dtype_maps
 from ttmlir.ir import Context, Module, Operation
 
 from chisel.core.ops import IRModule, get_op_inputs, get_op_outputs

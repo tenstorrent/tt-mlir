@@ -480,7 +480,7 @@ def build_module(
 
             @func.func(*fn_input_types, name=fn.__name__)
             def decorated_func(*inputs):
-                input_goldens: Dict[Operand, BuilderGoldenTensor] = {}
+                input_goldens: Dict[Operand, GoldenMapTensor] = {}
                 for index, (operand, dtype) in enumerate(zip(inputs, inputs_types)):
                     input_goldens[operand] = builder._generate_golden_tensor(
                         operand, dtype
@@ -491,7 +491,7 @@ def build_module(
                 result = fn(*inputs, builder)
 
                 outputs = result if hasattr(result, "__iter__") else (result,)
-                output_goldens: Dict[Operand, BuilderGoldenTensor] = {}
+                output_goldens: Dict[Operand, GoldenMapTensor] = {}
                 for op in outputs:
                     output_goldens[op] = builder._get_golden_tensor(op)
                 builder._set_goldens(output_goldens)
@@ -1894,7 +1894,7 @@ def experimental_build_stablehlo_module(
             # Wrap everything in a mlir function.
             @func.func(*fn_input_types, name=fn.__name__)
             def decorated_func(*inputs):
-                input_goldens: Dict[Operand, BuilderGoldenTensor] = {}
+                input_goldens: Dict[Operand, GoldenMapTensor] = {}
                 for index, (operand, dtype) in enumerate(zip(inputs, inputs_types)):
                     input_goldens[operand] = stablehlo_builder._generate_golden_tensor(
                         operand, dtype
@@ -1905,7 +1905,7 @@ def experimental_build_stablehlo_module(
                 result = fn(*inputs, stablehlo_builder)
 
                 outputs = result if hasattr(result, "__iter__") else (result,)
-                output_goldens: Dict[Operand, BuilderGoldenTensor] = {}
+                output_goldens: Dict[Operand, GoldenMapTensor] = {}
                 for op in outputs:
                     output_goldens[op] = stablehlo_builder._get_golden_tensor(op)
                 stablehlo_builder._set_goldens(output_goldens)
