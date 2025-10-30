@@ -1955,20 +1955,20 @@ def transpose_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor
     return torch.transpose(input_tensor, dim0, dim1)
 
 
-def sort_golden(input_tensor: BuilderGoldenTensor, **kwargs) -> BuilderGoldenTensor:
+def sort_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
     """
     Golden function for sort operation with TTIR parameter names.
 
     Parameters
     ----------
-    input_tensor : BuilderGoldenTensor
+    input_tensor : GoldenMapTensor
         Input tensor
     **kwargs : dict
         Keyword arguments including 'dim', 'descending', and 'stable'
 
     Returns
     -------
-    BuilderGoldenTensor
+    GoldenMapTensor
         Sorted tensor (values only, indices are discarded)
     """
     dim = kwargs.get("dim", -1)
@@ -1980,7 +1980,7 @@ def sort_golden(input_tensor: BuilderGoldenTensor, **kwargs) -> BuilderGoldenTen
     return values
 
 
-def concat_golden(input_tensors: BuilderGoldenTensor, **kwargs) -> BuilderGoldenTensor:
+def concat_golden(input_tensors: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
     """
     Golden function for concat operation with TTIR parameter names.
 
