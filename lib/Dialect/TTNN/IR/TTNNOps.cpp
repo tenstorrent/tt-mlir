@@ -2814,9 +2814,10 @@ mlir::tt::ttnn::CollectivePermuteOp::fold(FoldAdaptor adaptor) {
   }
 
   if (cacheType.getShape()[1] != inputType.getShape()[1] ||
+      cacheType.getShape()[2] != inputType.getShape()[2] ||
       cacheType.getShape()[3] != inputType.getShape()[3]) {
     return emitOpError("Cache tensor shape must match input tensor shape on "
-                       "dims 1 and 3. Got cache shape (" +
+                       "dims 1, 2, and 3. Got cache shape (" +
                        std::to_string(cacheType.getShape()[0]) + ", " +
                        std::to_string(cacheType.getShape()[1]) + ", " +
                        std::to_string(cacheType.getShape()[2]) + ", " +
