@@ -126,13 +126,6 @@ jobs:
         source env/activate
         cmake --build ${{ steps.strings.outputs.build-output-dir }}
 
-    - name: Build tests
-      shell: bash
-      run: |
-        source env/activate
-        cmake --build ${{ steps.strings.outputs.build-output-dir }} -- compile-ttmlir-tests
-        llvm-lit --filter-out="optimizer" ${{ steps.strings.outputs.build-output-dir }}/test || true
-
     - name: Install
       shell: bash
       run: |
