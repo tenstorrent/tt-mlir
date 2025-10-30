@@ -5,7 +5,7 @@
 func.func @simple_outer_permute(%arg0: tensor<1x32x32x32xf32>) -> tensor<1x32x32x32xf32> {
   %0 = ttir.empty() : tensor<1x32x32x32xf32>
   %1 = "ttir.permute"(%arg0, %0) <{permutation = array<i64: 0, 2, 1, 3>}> : (tensor<1x32x32x32xf32>, tensor<1x32x32x32xf32>) -> tensor<1x32x32x32xf32>
-  // requires a compute op after to invoke compute kernels
+  // requires a compute op after to invoke compute kernels.
   %2 = ttir.empty() : tensor<1x32x32x32xf32>
   %3 = "ttir.abs"(%1, %2) : (tensor<1x32x32x32xf32>,tensor<1x32x32x32xf32>) -> tensor<1x32x32x32xf32>
   // CHECK: call_opaque "noc_async_read"
