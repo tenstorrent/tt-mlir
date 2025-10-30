@@ -1119,85 +1119,65 @@ public:
     Value cache = scatterOp.getInput();
     Value updates = scatterOp.getUpdate();
 
-    int32_t batchSize =
-        mlir::cast<RankedTensorType>(cache.getType()).getShape()[0];
+    // int32_t batchSize =
+    //     mlir::cast<RankedTensorType>(cache.getType()).getShape()[0];
 
     // If the cachePositions tensor has more than one element we assume it
     // represents a set of aranged indices (0, cachePositions.size), so we
     // replace it with FillCacheOp. If the tensor has only one element, we
     // assume it represents the update index for UpateCacheOp.
     RankedTensorType updatesType = cast<RankedTensorType>(updates.getType());
-    for (int32_t batchOffset = 0; batchOffset < batchSize; batchOffset++) {
-      auto batchOffsetAttr = rewriter.getI32IntegerAttr(batchOffset);
+    if (cacheUpdateInputShape[0] != 1) {
+      // Fill cache
+      // for (int32_t batchOffset = 0; batchOffset < batchSize; batchOffset++) {
+      // auto batchOffsetAttr = rewriter.getI32IntegerAttr(batchOffset);
 
-      SmallVector<int32_t> sliceStarts = {batchOffset, 0, 0, 0};
-      SmallVector<int32_t> sliceEnds = SmallVector<int32_t>(
-          updatesType.getShape().begin(), updatesType.getShape().end());
+      // SmallVector<int32_t> sliceStarts = {batchOffset, 0, 0, 0};
+      // SmallVector<int32_t> sliceEnds = SmallVector<int32_t>(
+      //     updatesType.getShape().begin(), updatesType.getShape().end());
 
-      sliceEnds[0] = batchOffset + 1;
-      // sliceEnds[1] = sliceEnds[1] + 1;
-      // sliceEnds[2] = sliceEnds[2] + 1;
-      // sliceEnds[3] = sliceEnds[3] + 1;
-      SmallVector<int32_t> sliceSteps = {1, 1, 1, 1};
+      // sliceEnds[0] = batchOffset + 1;
+      // SmallVector<int32_t> sliceSteps = {1, 1, 1, 1};
 
-      SmallVector<int64_t> sliceOutputShape(updatesType.getShape());
-      sliceOutputShape[0] = 1;
+      // SmallVector<int64_t> sliceOutputShape(updatesType.getShape());
+      // sliceOutputShape[0] = 1;
 
-      RankedTensorType slicedUpdatesType =
-          RankedTensorType::get(sliceOutputShape, updatesType.getElementType(),
+      // RankedTensorType slicedUpdatesType =
+      //     RankedTensorType::get(sliceOutputShape,
+      //     updatesType.getElementType(),
+      //                           updatesType.getEncoding());
+
+      // auto slicedUpdates = ttir::utils::createDPSOp<SliceStaticOp>(
+      //     rewriter, scatterOp.getLoc(), slicedUpdatesType, updates,
+      //     rewriter.getI32ArrayAttr(sliceStarts),
+      //     rewriter.getI32ArrayAttr(sliceEnds),
+      //     rewriter.getI32ArrayAttr(sliceSteps));
+
+      cache = rewriter.create<FillCacheOp>(
+          scatterOp.getLoc(), scatterOp.getResult().getType(), // Result type
+          cache,                                               // Cache tensor
+          updates,                                             // Updates tensor
+          0                                                    // Batch offset
+      );
+      // }
+    } else {
+      SmallVector<int64_t> permutedShape(updatesType.getShape());
+      permutedShape =
+          ttmlir::utils::applyPermutation(updatesType.getShape(), {2, 1, 0, 3});
+      RankedTensorType permutedUpdatesType =
+          RankedTensorType::get(permutedShape, updatesType.getElementType(),
                                 updatesType.getEncoding());
-
-      auto slicedUpdates = ttir::utils::createDPSOp<SliceStaticOp>(
-          rewriter, scatterOp.getLoc(), slicedUpdatesType, updates,
-          rewriter.getI32ArrayAttr(sliceStarts),
-          rewriter.getI32ArrayAttr(sliceEnds),
-          rewriter.getI32ArrayAttr(sliceSteps));
-
-      if (cacheUpdateInputShape[0] != 1) {
-        cache = rewriter.create<FillCacheOp>(
-            scatterOp.getLoc(), scatterOp.getResult().getType(), // Result type
-            cache,                                               // Cache tensor
-            slicedUpdates,  // Updates tensor
-            batchOffsetAttr // Batch offset
-        );
-      } else {
-        if (true) {
-          SmallVector<int64_t> permutedShape(updatesType.getShape());
-          permutedShape = ttmlir::utils::applyPermutation(
-              updatesType.getShape(), {2, 1, 0, 3});
-          RankedTensorType permutedUpdatesType =
-              RankedTensorType::get(permutedShape, updatesType.getElementType(),
-                                    updatesType.getEncoding());
-          auto permutedUpdates = ttir::utils::createDPSOp<PermuteOp>(
-              rewriter, scatterOp.getLoc(), permutedUpdatesType, updates,
-              rewriter.getDenseI64ArrayAttr({2, 1, 0, 3}));
-          cache = rewriter.create<UpdateCacheOp>(
-              scatterOp.getLoc(),
-              scatterOp.getResult().getType(), // Result type
-              cache,                           // Cache tensor
-              permutedUpdates,                 // Updates tensor
-              *CachePositions,                 // Cache Idx
-              0                                // Batch offset
-          );
-          break;
-        }
-        SmallVector<int64_t> permutedShape(slicedUpdates.getType().getShape());
-        permutedShape = ttmlir::utils::applyPermutation(
-            slicedUpdates.getType().getShape(), {2, 1, 0, 3});
-        RankedTensorType permutedUpdatesType = RankedTensorType::get(
-            permutedShape, slicedUpdates.getType().getElementType(),
-            slicedUpdates.getType().getEncoding());
-        auto permutedUpdates = ttir::utils::createDPSOp<PermuteOp>(
-            rewriter, scatterOp.getLoc(), permutedUpdatesType, slicedUpdates,
-            rewriter.getDenseI64ArrayAttr({2, 1, 0, 3}));
-        cache = rewriter.create<UpdateCacheOp>(
-            scatterOp.getLoc(), scatterOp.getResult().getType(), // Result type
-            cache,                                               // Cache tensor
-            permutedUpdates, // Updates tensor
-            *CachePositions, // Cache Idx
-            batchOffsetAttr  // Batch offset
-        );
-      }
+      auto permutedUpdates = ttir::utils::createDPSOp<PermuteOp>(
+          rewriter, scatterOp.getLoc(), permutedUpdatesType, updates,
+          rewriter.getDenseI64ArrayAttr({2, 1, 0, 3}));
+      cache = rewriter.create<UpdateCacheOp>(
+          scatterOp.getLoc(),
+          scatterOp.getResult().getType(), // Result type
+          cache,                           // Cache tensor
+          permutedUpdates,                 // Updates tensor
+          *CachePositions,                 // Cache Idx
+          0                                // Batch offset
+      );
     }
 
     rewriter.replaceOp(scatterOp, cache);
