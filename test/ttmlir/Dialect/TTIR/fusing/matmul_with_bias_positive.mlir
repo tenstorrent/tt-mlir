@@ -21,7 +21,7 @@ module {
 }
 
 module {
-  // replace order of operands for add op
+  // Replace order of operands for add op.
   func.func @dot_general_with_bias_2(%arg0: tensor<68x1024xf32>, %arg1: tensor<1024x1024xf32>, %bias: tensor<1024xf32>) -> tensor<2x34x16x64xf32> {
     // CHECK: func.func @dot_general_with_bias_2
     // CHECK: "ttir.linear"(%arg0, %arg1, %arg2, %0)
@@ -39,7 +39,7 @@ module {
 }
 
 module {
-  // dot_general op followed by reshape op before add op
+  // dot_general op followed by reshape op before add op.
   func.func @dot_general_with_bias_3(%arg0: tensor<68x1024xf32>, %arg1: tensor<1024x1024xf32>, %bias: tensor<1024xf32>) -> tensor<2x34x1024xf32> {
     // CHECK: func.func @dot_general_with_bias_3
     // CHECK: "ttir.linear"(%arg0, %arg1, %arg2, %0)

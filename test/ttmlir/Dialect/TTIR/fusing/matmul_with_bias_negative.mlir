@@ -5,7 +5,7 @@
 // NEGATIVE CASES: Operations that should NOT be fused into linear op with bias
 // ===----------------------------------------------------------------------===
 
-// Dot general op has more than 1 user
+// Dot general op has more than 1 user.
 module {
   func.func @dot_general_with_bias_1(%arg0: tensor<68x1024xf32>, %arg1: tensor<1024x1024xf32>, %arg2: tensor<68x1024xf32>) -> tensor<68x1024xf32> {
     // CHECK: func.func @dot_general_with_bias_1
@@ -25,7 +25,7 @@ module {
   }
 }
 
-// Dot general and add operations are not feeding into one another
+// Dot general and add operations are not feeding into one another.
 module {
   func.func @dot_general_with_bias_2(%arg0: tensor<68x1024xf32>, %arg1: tensor<1024x1024xf32>, %arg2: tensor<68x1024xf32>) -> tensor<68x1024xf32> {
     // CHECK: func.func @dot_general_with_bias_2
@@ -43,7 +43,7 @@ module {
   }
 }
 
-// Bias and matmul are nor broadcast compatible, even though add follows matmul.
+// Bias and matmul are not broadcast compatible, even though add follows matmul.
 module {
   func.func @dot_general_with_bias_3(%arg0: tensor<68x1024xf32>, %arg1: tensor<1024x1024xf32>, %bias: tensor<2x2x34x1024xf32>) -> tensor<2x2x34x1024xf32> {
     // CHECK: func.func @dot_general_with_bias_3
