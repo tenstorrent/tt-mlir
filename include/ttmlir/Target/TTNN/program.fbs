@@ -30,6 +30,7 @@ include "ttmlir/Target/TTNN/operations/transformer.fbs";
 namespace tt.target.ttnn;
 
 union OpType {
+  AggregateTensorOp,
   AllGatherOp,
   AllReduceOp,
   ArangeOp,
@@ -50,6 +51,7 @@ union OpType {
   ConvTranspose2dOp,
   CpuOp,
   DeallocateOp,
+  DistributeTensorOp,
   EltwiseBinaryCompositeOp,
   EltwiseBinaryCompositeScalarOp,
   EltwiseBinaryOp,
