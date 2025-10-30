@@ -183,6 +183,29 @@ class Builder:
         self._set_goldens(self._create_builder_golden_from_torch_tensor(operands))
         self.set_goldens_to_check(operands.keys())
 
+        print("*************** Goldens to store ***************")
+        print(f"  Count: {len(self._goldens_to_store)}")
+        for operand in self._goldens_to_store:
+            print(
+                f"  - {operand.name if hasattr(operand, 'name') else type(operand).__name__}"
+            )
+
+        print("\n*************** Operand to loc ***************")
+        for operand, loc in self._operand_to_loc.items():
+            op_str = (
+                operand.name if hasattr(operand, "name") else type(operand).__name__
+            )
+            print(f"  {op_str}: {loc}")
+
+        print("\n*************** Goldens ***************")
+        print(f"  Total goldens: {len(self._goldens)}")
+        for operand, golden in self._goldens.items():
+            op_str = (
+                operand.name if hasattr(operand, "name") else type(operand).__name__
+            )
+            shape_str = str(golden.shape) if hasattr(golden, "shape") else "?"
+            print(f"  {op_str} -> shape={shape_str}")
+
     def set_goldens_to_check(self, operands: List[Operand], override: bool = False):
         if override:
             self._goldens_to_store = operands

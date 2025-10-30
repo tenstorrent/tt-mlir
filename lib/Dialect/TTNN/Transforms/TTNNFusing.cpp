@@ -109,28 +109,14 @@ private:
   }
 };
 
-template <typename ActivationOp>
-class TTNNMatmulLinearWithActivation : public mlir::RewritePattern {
+template <typename SrcOp, typename ActivationOp>
+class TTNNMatmulAndLinearWithActivation : public mlir::OpRewritePattern<SrcOp> {
+  using TTNNMatmulAndLinearWithActivation::template OpRewritePattern<
+      SrcOp>::OpRewritePattern;
+
 public:
-  TTNNMatmulLinearWithActivation(mlir::MLIRContext *context)
-      : mlir::RewritePattern(MatchAnyOpTypeTag(), 1, context) {}
-
   mlir::LogicalResult
-  matchAndRewrite(mlir::Operation *op,
-                  mlir::PatternRewriter &rewriter) const final {
-    if (auto matmulOp = mlir::dyn_cast<MatmulOp>(op)) {
-      return matchAndRewriteImpl(matmulOp, rewriter);
-    }
-    if (auto linearOp = mlir::dyn_cast<LinearOp>(op)) {
-      return matchAndRewriteImpl(linearOp, rewriter);
-    }
-    return failure();
-  }
-
-private:
-  template <typename OpType>
-  mlir::LogicalResult
-  matchAndRewriteImpl(OpType srcOp, mlir::PatternRewriter &rewriter) const {
+  matchAndRewrite(SrcOp srcOp, mlir::PatternRewriter &rewriter) const final {
     if (!isFusable(srcOp)) {
       return failure();
     }
@@ -138,7 +124,6 @@ private:
     ActivationOp activationOp =
         mlir::cast<ActivationOp>(*srcOp.getResult().getUsers().begin());
     Value activationInput = activationOp.getInput();
-
     auto activationStr = getActivationString();
 
     rewriter.modifyOpInPlace(srcOp, [&]() {
@@ -149,17 +134,17 @@ private:
     return mlir::success();
   }
 
+private:
+  // After tt-metal resolves this issue:
+  // https://github.com/tenstorrent/tt-metal/issues/31393, we can use the
+  // UnaryWithParam enum directly instead of string.
   std::string getActivationString() const {
-    if constexpr (std::is_same_v<ActivationOp, SigmoidOp>) {
-      return "sigmoid";
-    } else {
-      static_assert(ttmlir::utils::always_false<ActivationOp>(),
-                    "Unsupported activation op");
-    }
+    llvm::StringLiteral fullOpName = ActivationOp::getOperationName();
+    llvm::StringRef opName = fullOpName.rsplit('.').second;
+    return opName.str();
   }
 
-  template <typename OpType>
-  bool isFusable(OpType srcOp) const {
+  bool isFusable(SrcOp srcOp) const {
     if (srcOp.getActivation()) {
       return false;
     }
@@ -187,8 +172,9 @@ public:
     patterns.add<
         TTNNConv2dWithActivation<ReluOp>, TTNNConv2dWithActivation<Relu6Op>,
         TTNNConv2dWithActivation<SiluOp>, TTNNConv2dWithActivation<SigmoidOp>,
-        TTNNMatmulLinearWithActivation<SigmoidOp>>(
-        &getContext());
+        TTNNMatmulAndLinearWithActivation<MatmulOp, SigmoidOp>,
+        TTNNMatmulAndLinearWithActivation<LinearOp, SigmoidOp>>(&getContext());
+
     GreedyRewriteConfig config;
     config.setUseTopDownTraversal(true);
     (void)applyPatternsGreedily(getOperation(), std::move(patterns));
