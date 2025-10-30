@@ -2336,6 +2336,23 @@ createOp(FlatbufferObjectCache &cache, RotaryEmbeddingLlamaOp op) {
       memoryConfig, computeConfig.value_or(0));
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::RotaryEmbeddingOp>
+createOp(FlatbufferObjectCache &cache, RotaryEmbeddingOp op) {
+  auto in = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getInput()));
+  auto cosCache = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getCosCache()));
+  auto sinCache = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getSinCache()));
+  auto tokenIndex = toFlatbuffer(cache, op.getTokenIndex());
+  auto out = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer);
+  auto memoryConfig = getMemoryConfigIfNeeded(cache, op);
+  auto computeConfig = toFlatbuffer(cache, op.getComputeConfig());
+  return ::tt::target::ttnn::CreateRotaryEmbeddingOp(
+      *cache.fbb, in, cosCache, sinCache, tokenIndex, out, memoryConfig,
+      computeConfig.value_or(0));
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::NLPCreateQKVHeadsDecodeOp>
 createOp(FlatbufferObjectCache &cache, NLPCreateQKVHeadsDecodeOp op) {
   auto in = cache.at<::tt::target::ttnn::TensorRef>(
@@ -2994,6 +3011,11 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   if (auto rotaryEmbeddingLlamaOp = dyn_cast<RotaryEmbeddingLlamaOp>(op);
       rotaryEmbeddingLlamaOp) {
     return createOperation(cache, createOp(cache, rotaryEmbeddingLlamaOp),
+                           debugString, locInfo);
+  }
+  if (auto rotaryEmbeddingOp = dyn_cast<RotaryEmbeddingOp>(op);
+      rotaryEmbeddingOp) {
+    return createOperation(cache, createOp(cache, rotaryEmbeddingOp),
                            debugString, locInfo);
   }
   if (auto nlpCreateQKVHeadsDecodeOp = dyn_cast<NLPCreateQKVHeadsDecodeOp>(op);

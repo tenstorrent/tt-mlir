@@ -2709,6 +2709,32 @@ llvm::Expected<size_t> OpModel<RotaryEmbeddingLlamaOp>::getOpRuntime(
 }
 
 //===----------------------------------------------------------------------===//
+// RotaryEmbeddingOp
+//===----------------------------------------------------------------------===//
+llvm::Expected<OpConstraints> OpModel<RotaryEmbeddingOp>::getOpConstraints(
+    ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
+    TTNNLayoutAttr inputLayout, llvm::ArrayRef<int64_t> cosShape,
+    TTNNLayoutAttr cosLayout, llvm::ArrayRef<int64_t> sinShape,
+    TTNNLayoutAttr sinLayout, std::optional<uint32_t> tokenIndex,
+    TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+#else
+  return OpConstraints{};
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+llvm::Expected<size_t> OpModel<RotaryEmbeddingOp>::getOpRuntime(
+    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+    llvm::ArrayRef<int64_t> cosShape, TTNNLayoutAttr cosLayout,
+    llvm::ArrayRef<int64_t> sinShape, TTNNLayoutAttr sinLayout,
+    std::optional<uint32_t> tokenIndex, TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+//===----------------------------------------------------------------------===//
 // NLPCreateQKVHeadsDecodeOp
 //===----------------------------------------------------------------------===//
 llvm::Expected<op_model::OpConstraints>
