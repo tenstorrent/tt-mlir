@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
+#
+# SPDX-License-Identifier: Apache-2.0
+
 import ast
 from ttnn_jit._src.ttir_ast import TTIRCompiler
 from ttnn_jit._src.graph_trace_compiler import GraphToIRCompiler
