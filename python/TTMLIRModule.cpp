@@ -3,9 +3,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Bindings/Python/TTMLIRModule.h"
-#include "llvm/Support/Signals.h"
-#include "llvm/Support/PrettyStackTrace.h"
 #include "mlir-c/Pass.h"
+#include "llvm/Support/PrettyStackTrace.h"
+#include "llvm/Support/Signals.h"
 #include <cstdlib>
 
 // Declare C function from PassTracker.cpp (compiled with -fno-rtti)

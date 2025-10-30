@@ -4,13 +4,13 @@
 //
 // PassTracker - Compiled with -fno-rtti to match MLIR
 
+#include "mlir-c/Pass.h"
+#include "mlir/IR/Operation.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Pass/PassInstrumentation.h"
 #include "mlir/Pass/PassManager.h"
-#include "mlir/IR/Operation.h"
-#include "mlir-c/Pass.h"
-#include "llvm/Support/raw_ostream.h"
 #include "llvm/Support/PrettyStackTrace.h"
+#include "llvm/Support/raw_ostream.h"
 
 namespace {
 
@@ -36,7 +36,9 @@ public:
   }
 
   void print(llvm::raw_ostream &OS) const override {
-    if (!active || !pass) return;
+    if (!active || !pass) {
+      return;
+    }
 
     OS << "Running pass '" << pass->getName() << "'";
     if (op) {
@@ -51,7 +53,8 @@ public:
 
 // PassInstrumentation that tracks current pass for crash reporting
 class PassTrackerInstrumentation : public mlir::PassInstrumentation {
-  // Persistent entry that stays registered for the lifetime of the instrumentation
+  // Persistent entry that stays registered for the lifetime of the
+  // instrumentation
   PassPrettyStackTraceEntry traceEntry;
 
 public:
@@ -70,8 +73,10 @@ public:
 
 } // namespace
 
-// C-style function to add instrumentation (callable from Python with RTTI enabled)
+// C-style function to add instrumentation (callable from Python with RTTI
+// enabled)
 extern "C" void ttmlirAddPassTracking(MlirPassManager pm) {
-  auto *passManager = static_cast<mlir::PassManager*>(pm.ptr);
-  passManager->addInstrumentation(std::make_unique<PassTrackerInstrumentation>());
+  auto *passManager = static_cast<mlir::PassManager *>(pm.ptr);
+  passManager->addInstrumentation(
+      std::make_unique<PassTrackerInstrumentation>());
 }
