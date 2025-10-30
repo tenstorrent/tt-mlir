@@ -504,6 +504,9 @@ public:
         emitter.emit(std::nullopt |
                          emitter.getMemoryConfig(matmulOp.getResult()),
                      "memory_config"),
+        emitter.emit(std::nullopt, "dtype"),
+        emitter.emit(std::nullopt, "program_config"),
+        emitter.emit(matmulOp.getActivation(), "activation"),
     };
 
     emitter.replaceOp(*this, args);
@@ -539,6 +542,9 @@ public:
         emitter.emit(srcOp.getTransposeB(), "transpose_b"),
         emitter.emit(std::nullopt | emitter.getMemoryConfig(srcOp.getResult()),
                      "memory_config"),
+        emitter.emit(std::nullopt, "dtype"),
+        emitter.emit(std::nullopt, "program_config"),
+        emitter.emit(srcOp.getActivation(), "activation"),
     };
 
     emitter.replaceOp(*this, args);

@@ -33,9 +33,8 @@ void run(const ::tt::target::ttnn::MatmulOp *op, ProgramContext &context) {
       matmulProgramConfig = utils::createMatmulProgramConfigIfNeeded(op);
 
   std::optional<std::string> activation =
-      op->activation()
-          ? std::make_optional(std::string(op->activation()->str()))
-          : std::nullopt;
+      op->activation() ? std::make_optional(op->activation()->str())
+                       : std::nullopt;
 
   ::ttnn::Tensor output = ::ttnn::matmul(
       lhs, rhs, op->transpose_a(), op->transpose_b(), outputMemoryConfig,
@@ -67,9 +66,8 @@ void run(const ::tt::target::ttnn::LinearOp *op, ProgramContext &context) {
   ::ttnn::DataType outputDataType = utils::getDataType(op->out());
 
   std::optional<std::string> activation =
-      op->activation()
-          ? std::make_optional(std::string(op->activation()->str()))
-          : std::nullopt;
+      op->activation() ? std::make_optional(op->activation()->str())
+                       : std::nullopt;
 
   ::ttnn::Tensor output = ::ttnn::linear(
       lhs, rhs, bias, op->transpose_a(), op->transpose_b(), outputMemoryConfig,

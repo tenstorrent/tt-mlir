@@ -625,6 +625,10 @@ public:
         emitter.emit(srcOp.getTransposeA()),
         emitter.emit(srcOp.getTransposeB()),
         emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
+        /*dtype=*/emitter.emit(std::nullopt),
+        /*program_config=*/emitter.emit(std::nullopt),
+        emitter.emit(std::nullopt),
+        emitter.emit(srcOp.getActivation()),
     };
 
     emitter.replaceOp(*this, args);
@@ -660,6 +664,9 @@ public:
         emitter.emit(srcOp.getTransposeA()),
         emitter.emit(srcOp.getTransposeB()),
         emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
+        /*dtype=*/emitter.emit(std::nullopt),
+        /*program_config=*/emitter.emit(std::nullopt),
+        emitter.emit(srcOp.getActivation()),
     };
     // ANCHOR_END: adding_an_op_matmul_ttnn_to_emitc_array_attrs
 
