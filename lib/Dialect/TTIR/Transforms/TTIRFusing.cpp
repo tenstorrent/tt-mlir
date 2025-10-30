@@ -221,15 +221,15 @@ private:
 // This pattern detects and fuses a sequence of operations that implement
 // softmax:
 // 1. exp(x)
-// 2. sum(exp(x)) along a dimension with keep_dim=true
-// 3. (optional) broadcast the sum
-// 4. divide exp(x) by the (broadcasted) sum
+// 2. sum reduce(exp(x)) along a dimension with keep_dim=true
+// 3. (optional) broadcast the sum reduce
+// 4. divide exp(x) by the (broadcasted) sum reduce
 class SoftmaxFusionPattern : public mlir::OpRewritePattern<DivOp> {
   using mlir::OpRewritePattern<DivOp>::OpRewritePattern;
 
 public:
-  // Pattern: div(exp(x), sum(exp(x), keep_dim=true)) or
-  //          div(exp(x), broadcast(sum(exp(x), keep_dim=true))).
+  // Pattern: div(exp(x), sum reduce(exp(x), keep_dim=true)) or
+  //          div(exp(x), broadcast(sum reduce(exp(x), keep_dim=true))).
   mlir::LogicalResult
   matchAndRewrite(DivOp divOp, mlir::PatternRewriter &rewriter) const final {
 
@@ -243,21 +243,23 @@ public:
       return mlir::failure();
     }
 
-    // Check if the denominator is a broadcast operation or directly a sum.
-    // If broadcast folding has occurred, the broadcast may be eliminated.
+    // Check if the denominator is a broadcast operation or directly a sum
+    // reduce. If broadcast folding has occurred, the broadcast may be
+    // eliminated.
     mlir::Value sumValue = denominator;
     BroadcastOp broadcastOp = denominator.getDefiningOp<BroadcastOp>();
     if (broadcastOp) {
       sumValue = broadcastOp.getInput();
     }
 
-    // Check that we have a sum operation with keep_dim=true.
+    // Check that we have a sum reduce operation with keep_dim=true.
     auto sumOp = sumValue.getDefiningOp<SumOp>();
     if (!sumOp || !sumOp.getKeepDim()) {
       return mlir::failure();
     }
 
-    // Check that the sum input is the same exp operation as the numerator.
+    // Check that the sum reduce input is the same exp operation as the
+    // numerator.
     if (sumOp.getInput() != expOp.getResult()) {
       return mlir::failure();
     }
@@ -272,8 +274,8 @@ public:
     }
 
     // Check correct user counts for each operation in the pattern:
-    // - exp should have exactly 2 users (sum and div)
-    // - sum should have exactly 1 user (div or broadcast)
+    // - exp should have exactly 2 users (sum reduce and div)
+    // - sum reduce should have exactly 1 user (div or broadcast)
     // - broadcast (if present) should have exactly 1 user (div)
     // TODO(milant): Relax requirements for fusing #3183.
     if (ttmlir::utils::countUsers(expOp.getResult()) != 2 ||
@@ -284,7 +286,7 @@ public:
       return mlir::failure();
     }
 
-    // Get the reduction dimension from the sum operation.
+    // Get the reduction dimension from the sum reduce operation.
     if (!sumOp.getDimArg()) {
       // If no dimensions are specified, all dimensions are reduced, which is
       // not what we want for softmax.
@@ -1355,12 +1357,14 @@ public:
   }
 
 private:
-  // Shared helper function to validate the matmul ops from an add or reshapeop.
+  // Shared helper function to validate the matmul ops from an add op or reshape
+  // op.
   MatmulOp getValidMatmulOp(MatmulOp matmulOpLHS, MatmulOp matmulOpRHS) const {
     if (matmulOpLHS && matmulOpRHS) {
       // Both operands are MatmulOps, cannot fuse.
       return nullptr;
     }
+
     MatmulOp matmulOp = matmulOpLHS ? matmulOpLHS : matmulOpRHS;
     if (!matmulOp) {
       return nullptr;
@@ -1369,6 +1373,7 @@ private:
     if (!matmulOp.getResult().hasOneUse()) {
       return nullptr;
     }
+
     return matmulOp;
   }
 
