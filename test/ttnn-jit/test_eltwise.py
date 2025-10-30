@@ -46,7 +46,7 @@ DRAM_INTERLEAVED_SHAPES = [
 
 
 def run_op_test(
-    device, h, w, max_grid, dtype, op, num_inputs, buffer_type=ttnn.BufferType.L1, use_ttir_compiler=False
+    device, h, w, max_grid, dtype, op, num_inputs, buffer_type=ttnn.BufferType.L1, use_ast_compiler=False
 ):
     if buffer_type == ttnn.BufferType.L1:
         inputs = [
@@ -58,7 +58,7 @@ def run_op_test(
     print("inputs", inputs)
     golden_op = _get_ttnn_op(op)
 
-    op_jit = ttnn_jit.jit(debug=True, max_grid=max_grid, use_ttir_compiler=use_ttir_compiler)(op)
+    op_jit = ttnn_jit.jit(debug=True, max_grid=max_grid, use_ast_compiler=use_ast_compiler)(op)
     output_tensor = op_jit(*inputs)
     golden_tensor = (golden_op or op)(*inputs)
 
@@ -161,7 +161,8 @@ def rsqrt(input_tensor):
     "h , w",
     DRAM_INTERLEAVED_SHAPES,
 )
-def test_unary_op_dram(device, h, w, dtype, op):
+@pytest.mark.parametrize("use_ast_compiler", [False, True])
+def test_unary_op_dram(device, h, w, dtype, op, use_ast_compiler):
     if op in [log, ceil, floor, logical_not] and dtype == torch.float32:
         pytest.xfail("failing allclose for some shapes for float32")
 
@@ -175,6 +176,7 @@ def test_unary_op_dram(device, h, w, dtype, op):
         op,
         num_inputs=1,
         buffer_type=ttnn.BufferType.DRAM,
+        use_ast_compiler=use_ast_compiler,
     )
 
 
@@ -197,12 +199,14 @@ def test_unary_op_dram(device, h, w, dtype, op):
         # tan, sqrt
     ],
 )
-def test_unary_op_l1(device, h, w, max_grid, dtype, op):
+@pytest.mark.parametrize("use_ast_compiler", [False, True])
+def test_unary_op_l1(device, h, w, max_grid, dtype, op, use_ast_compiler):
     if op in [log, ceil, floor, rsqrt, logical_not] and dtype == torch.float32:
         pytest.xfail("failing allclose for some shapes for float32")
 
     run_op_test(
-        device, h, w, max_grid, dtype, op, num_inputs=1, buffer_type=ttnn.BufferType.L1
+        device, h, w, max_grid, dtype, op, num_inputs=1, buffer_type=ttnn.BufferType.L1,
+        use_ast_compiler=use_ast_compiler
     )
 
 
@@ -217,7 +221,8 @@ def test_unary_op_l1(device, h, w, max_grid, dtype, op):
     "h , w",
     DRAM_INTERLEAVED_SHAPES,
 )
-def test_bitwise_unary_op_dram(device, h, w, dtype, op):
+@pytest.mark.parametrize("use_ast_compiler", [False, True])
+def test_bitwise_unary_op_dram(device, h, w, dtype, op, use_ast_compiler):
     max_grid = (0, 0)
     run_op_test(
         device,
@@ -228,6 +233,7 @@ def test_bitwise_unary_op_dram(device, h, w, dtype, op):
         op,
         num_inputs=1,
         buffer_type=ttnn.BufferType.DRAM,
+        use_ast_compiler=use_ast_compiler,
     )
 
 
@@ -239,9 +245,11 @@ def test_bitwise_unary_op_dram(device, h, w, dtype, op):
         bitwise_not,
     ],
 )
-def test_bitwise_unary_op_l1(device, h, w, max_grid, dtype, op):
+@pytest.mark.parametrize("use_ast_compiler", [False, True])
+def test_bitwise_unary_op_l1(device, h, w, max_grid, dtype, op, use_ast_compiler):
     run_op_test(
-        device, h, w, max_grid, dtype, op, num_inputs=1, buffer_type=ttnn.BufferType.L1
+        device, h, w, max_grid, dtype, op, num_inputs=1, buffer_type=ttnn.BufferType.L1,
+        use_ast_compiler=use_ast_compiler
     )
 
 
@@ -293,10 +301,30 @@ def remainder(a, b):
 
 
 def pow(a, b):
-    # Note: Use ttnn.pow() not ttnn.pow_tensor()
-    # - ttnn.pow() exists in the Python API (used for golden result computation)
-    # - ttnn.pow_tensor only exists in MLIR dialect
-    # - Both compilers map ttnn.pow -> ttnn.pow_tensor MLIR operation automatically
+    # Test pow operation.
+    #
+    # Background:
+    # -----------
+    # The pow operation had a naming mismatch issue:
+    # - The Python ttnn API has: ttnn.pow(a, b)
+    # - The MLIR dialect has: ttnn.pow_tensor (not ttnn.pow)
+    #
+    # Original Issue:
+    # --------------
+    # PR #5154 changed the test from ttnn.pow() to ttnn.pow_tensor(), but this failed
+    # because ttnn.pow_tensor doesn't exist in the Python API. When computing the
+    # golden result (which calls the function directly without JIT), it would error:
+    #     AttributeError: module 'ttnn' has no attribute 'pow_tensor'
+    #
+    # The Fix:
+    # --------
+    # 1. Use ttnn.pow() in the test (which exists in Python API)
+    # 2. Added mapping in graph compiler: "pow" -> "pow_tensor" MLIR op
+    # 3. Added mapping in AST compiler: node.attr "pow" -> "pow_tensor" MLIR op
+    #
+    # Both compilers automatically map ttnn.pow -> ttnn.pow_tensor MLIR operation.
+    #
+    # Note: float32 tests may xfail due to numerical precision issues.
     return ttnn.pow(a, b)
 
 
@@ -344,58 +372,16 @@ def le(a, b):
         # remainder, atan2, eq, ne, gt, ge, lt, le
     ],
 )
-def test_binary_ops(device, h, w, max_grid, dtype, op):
+@pytest.mark.parametrize("use_ast_compiler", [False, True])
+def test_binary_ops(device, h, w, max_grid, dtype, op, use_ast_compiler):
     if op == div:
         pytest.xfail("failing allclose for some shapes")
     if op == pow and dtype == torch.float32:
         pytest.xfail("failing allclose for some shapes")
 
     run_op_test(
-        device, h, w, max_grid, dtype, op, num_inputs=2, buffer_type=ttnn.BufferType.L1
-    )
-
-
-@pytest.mark.parametrize("h , w, max_grid", BLOCK_SHARDED_SHAPE_GRIDS)
-@pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32])
-def test_pow_ast_compiler(device, h, w, max_grid, dtype):
-    """Test pow operation with AST compiler (use_ttir_compiler=True).
-    
-    This test explicitly verifies that the pow operation works with the AST-based
-    compiler path, which is separate from the default graph-based compiler.
-    
-    Background:
-    -----------
-    The pow operation had a naming mismatch issue:
-    - The Python ttnn API has: ttnn.pow(a, b)
-    - The MLIR dialect has: ttnn.pow_tensor (not ttnn.pow)
-    
-    Original Issue:
-    --------------
-    PR #5154 changed the test from ttnn.pow() to ttnn.pow_tensor(), but this failed
-    because ttnn.pow_tensor doesn't exist in the Python API. When computing the
-    golden result (which calls the function directly without JIT), it would error:
-        AttributeError: module 'ttnn' has no attribute 'pow_tensor'
-    
-    The Fix:
-    --------
-    1. Changed test back to use ttnn.pow() (which exists in Python API)
-    2. Added mapping in graph compiler: "pow" -> "pow_tensor" MLIR op
-    3. Added mapping in AST compiler: node.attr "pow" -> "pow_tensor" MLIR op
-    
-    Why This Test Exists:
-    --------------------
-    The AST compiler (use_ttir_compiler=True) has a completely different code path
-    from the graph compiler (default). It parses Python source code directly using
-    the ast module, so we need explicit tests to ensure the pow -> pow_tensor
-    mapping works correctly in this compilation path.
-    
-    Note: float32 tests are expected to xfail due to numerical precision issues.
-    """
-    if dtype == torch.float32:
-        pytest.xfail("failing allclose for some shapes with float32")
-    
-    run_op_test(
-        device, h, w, max_grid, dtype, pow, num_inputs=2, buffer_type=ttnn.BufferType.L1, use_ttir_compiler=True
+        device, h, w, max_grid, dtype, op, num_inputs=2, buffer_type=ttnn.BufferType.L1,
+        use_ast_compiler=use_ast_compiler
     )
 
 
@@ -420,8 +406,10 @@ def sinh(input_tensor):
 @pytest.mark.parametrize("h , w, max_grid", BLOCK_SHARDED_SHAPE_GRIDS)
 @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32])
 @pytest.mark.parametrize("op", [cosh, sinh])
-def test_composite_ops(device, h, w, max_grid, dtype, op):
-    run_op_test(device, h, w, max_grid, dtype, op, 1, buffer_type=ttnn.BufferType.L1)
+@pytest.mark.parametrize("use_ast_compiler", [False, True])
+def test_composite_ops(device, h, w, max_grid, dtype, op, use_ast_compiler):
+    run_op_test(device, h, w, max_grid, dtype, op, 1, buffer_type=ttnn.BufferType.L1,
+                use_ast_compiler=use_ast_compiler)
 
 # ------------------------------------------------------------
 # Control flow tests

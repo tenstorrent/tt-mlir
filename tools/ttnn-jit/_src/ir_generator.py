@@ -34,23 +34,42 @@ def generate_ir_from_graph(f, debug, *args, **kwargs):
     begin_graph_capture(RunMode.NO_DISPATCH)
     f(*args)
     captured_graph = end_graph_capture()
-    
     # visualize(captured_graph, file_name=f.__name__ + "_graph.svg")
 
     # Extract tensor args for the compiler
     tensor_args = kwargs.get("_tensor_args", {})
     max_grid = kwargs.get("_max_grid", (0, 0))
-    backend = kwargs.get("_backend", "ttnn")
 
-    graph_compiler = GraphToIRCompiler(captured_graph, f.__name__, tensor_args, max_grid, backend)
+    graph_compiler = GraphToIRCompiler(captured_graph, f.__name__, tensor_args, max_grid)
     ir = graph_compiler.compile()
     
     print_and_verify_ir(ir, "GraphToIRCompiler (Graph-based)", debug)
 
     return ir
 
-def generate_ir(use_ttir_compiler, source_code, f, debug, *args, **kwargs):
-    if use_ttir_compiler:
+# This utility function, though not used in production code, can help in debugging whether both 
+# compilers (AST based and Graph based) are generating the same IR or not.
+def compare_ir(ir_graph, ir_ast):
+    ir_str_graph = str(ir_graph)
+    ir_str_ast = str(ir_ast)
+    if ir_str_graph == ir_str_ast:
+        print("✅ IRs are IDENTICAL!")
+    else:
+        print("⚠️  IRs are DIFFERENT:")
+        print(f"\nTTIRCompiler length: {len(ir_str_ast)} chars")
+        print(f"GraphTraceCompiler length: {len(ir_str_graph)} chars")
+        # Show first difference
+        for i, (c1, c2) in enumerate(zip(ir_str_graph, ir_str_ast)):
+            if c1 != c2:
+                print(f"First difference at position {i}:")
+                print(f"  TTIRCompiler: ...{ir_str_ast[max(0,i-20):i+20]}...")
+                print(f"  GraphTraceCompiler: ...{ir_str_graph[max(0,i-20):i+20]}...")
+                break
+
+    assert ir_str_graph == ir_str_ast, "IRs are different"
+
+def generate_ir(use_ast_compiler, source_code, f, debug, *args, **kwargs):
+    if use_ast_compiler:
         return generate_ir_from_ast(source_code, debug, *args, **kwargs)
     else:
         return generate_ir_from_graph(f, debug, *args, **kwargs)

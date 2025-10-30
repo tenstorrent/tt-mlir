@@ -18,6 +18,7 @@ from ttnn_jit._src.ttir_ast import TTIRCompiler
 from ttnn_jit._src.utils import _cleanup_source_code
 from ttnn_jit._src.dispatch_op import _run_binary
 from ttnn_jit._src import JitCache
+from ttnn_jit._src.ir_generator import generate_ir
 
 
 class JitFunction:
@@ -29,13 +30,14 @@ class JitFunction:
         max_grid: tuple[int, int],
         compile_only: bool,
         debug: bool,
+        use_ast_compiler: bool,
     ):
         self.func = func
         self.source_code = _cleanup_source_code(func)
         self.max_grid = max_grid
         self.compile_only = compile_only
         self.debug = debug
-
+        self.use_ast_compiler = use_ast_compiler
         self.out_dir = os.path.join("generated", "pykernels")
         os.makedirs(self.out_dir, exist_ok=True)
 
@@ -69,18 +71,7 @@ class JitFunction:
             fb_binary = self.cache.get(*args)
             return _run_binary(fb_binary, args)
 
-        # Parse AST and compile to IR
-        m = ast.parse(self.source_code)
-        if self.debug:
-            print(ast.dump(m, indent=2) + "\n")
-
-        compiler = TTIRCompiler(None, *args, **kwargs)
-        compiler.visit(m)
-
-        ir = compiler.module
-        if self.debug:
-            print(ir)
-        ir.operation.verify()
+        ir = generate_ir(self.use_ast_compiler, self.source_code, self.func, self.debug, *args, **kwargs)
 
         options = f"system-desc-path={self.system_desc_path} ttnn-mode=true"
         if self.compile_only:

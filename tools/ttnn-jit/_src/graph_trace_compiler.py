@@ -369,7 +369,7 @@ class GraphToIRCompiler:
     Compiler that generates MLIR IR from a captured graph.
     Takes a captured graph, simplifies it, and generates MLIR IR.
     """
-    def __init__(self, captured_graph, function_name, tensor_args, max_grid, backend):
+    def __init__(self, captured_graph, function_name, tensor_args, max_grid):
         self.ctx = Context()
         self.cursor = Location.unknown(self.ctx)
         self.module = Module.create(self.cursor)
@@ -378,7 +378,6 @@ class GraphToIRCompiler:
         self.function_name = function_name
         self.tensor_args = tensor_args
         self.max_grid = max_grid
-        self.backend = backend
         self.simplified_graph = None  # Will be set during compilation
         
     def _mlir_dtype_from_ttnn_dtype(self, dtype):
@@ -388,22 +387,24 @@ class GraphToIRCompiler:
             case 1:
                 return F32Type.get(self.ctx)
             case 2:
-                return U32Type.get(self.ctx)
+                return IntegerType.get_unsigned(32, self.ctx)
             case 5:
-                return U8Type.get(self.ctx)
+                return IntegerType.get_unsigned(8, self.ctx)
             case 6:
-                return U16Type.get(self.ctx)
+                return IntegerType.get_unsigned(16, self.ctx)
             case 7:
-                return I32Type.get(self.ctx)
+                return IntegerType.get_signless(32, self.ctx)
             case _:
                 raise ValueError(f"Unsupported dtype: {dtype}")
     
     def _ttcore_dtype_from_ttnn_dtype(self, dtype):
-        match int(dtype):
-            case 0:
+        match str(dtype):
+            case "DataType.BFLOAT16":
                 return ttcore.DataType.BFloat16
-            case 1:
+            case "DataType.FLOAT32":
                 return ttcore.DataType.Float32
+            case "DataType.INT32":
+                return ttcore.DataType.Int32
             case _:
                 raise ValueError(f"Unsupported dtype: {dtype}")
     
@@ -437,7 +438,9 @@ class GraphToIRCompiler:
             shard_shape = shard_spec.shape
             grid_size_x = self.max_grid[0] + 1
             grid_size_y = self.max_grid[1] + 1
-            grid = ttcore.ir.GridAttr.get(self.ctx, [grid_size_x, grid_size_y])
+            
+            # TTNN writes grids as (width, height) but compiler expects (height, width)
+            grid = ttcore.ir.GridAttr.get(self.ctx, [grid_size_y, grid_size_x])
             shard_shape_tile_x = shard_shape[0] // 32
             shard_shape_tile_y = shard_shape[1] // 32
             buffer_type = ttnn.ir.BufferTypeAttr.get(self.ctx, ttnn.BufferType.L1)
@@ -651,13 +654,11 @@ class GraphToIRCompiler:
         """Create a TTNN operation based on the operation name."""
         # Unary operations
         unary_ops = ['abs', 'exp', 'neg', 'sqrt', 'rsqrt', 'log', 'cos', 'sin', 
-                     'ceil', 'floor', 'tanh', 'sigmoid', 'relu', 'gelu', 'silu']
+                     'ceil', 'floor', 'tanh', 'sigmoid', 'relu', 'gelu', 'silu', 
+                     'logical_not', 'bitwise_not']
         
-        # Binary operations (with dtype parameter)
-        binary_ops = ['add', 'multiply', 'subtract', 'divide']
-        
-        # Binary composite operations (without dtype parameter)
-        binary_composite_ops = ['pow_tensor']
+        # Binary operations - all binary ops need dtype as an attribute (not parameter)
+        binary_ops = ['add', 'multiply', 'subtract', 'divide', 'pow_tensor']
         
         if op_name in unary_ops:
             # Unary operation
@@ -680,27 +681,16 @@ class GraphToIRCompiler:
                 raise ValueError(f"Binary operation {op_name} expects 2 operands, got {len(operands)}")
             
             op_func = getattr(ttnn, op_name)
-            dtype_attr = ttcore.ir.DataTypeAttr.get(
-                self.ctx, 
-                self._ttcore_dtype_from_mlir_dtype(result_type.element_type)
-            )
-            result = op_func(result_type, operands[0], operands[1], dtype=dtype_attr)
-            result.owner.attributes["ttnn.hoist_generic_via_d2m"] = UnitAttr.get(self.ctx)
-            return result
-        
-        elif op_name in binary_composite_ops:
-            # Binary composite operation (no dtype parameter)
-            if constant_value is not None:
-                # Need to create a constant tensor
-                constant_tensor = self._create_constant_tensor(constant_value, result_type, device)
-                operands.append(constant_tensor)
-            
-            if len(operands) != 2:
-                raise ValueError(f"Binary composite operation {op_name} expects 2 operands, got {len(operands)}")
-            
-            op_func = getattr(ttnn, op_name)
+            # Call the operation without dtype parameter
             result = op_func(result_type, operands[0], operands[1])
             result.owner.attributes["ttnn.hoist_generic_via_d2m"] = UnitAttr.get(self.ctx)
+            
+            # Add dtype as an attribute (not a parameter) for binary ops
+            dtype_attr = ttcore.ir.DataTypeAttr.get(
+                self.ctx,
+                self._ttcore_dtype_from_mlir_dtype(result_type.element_type)
+            )
+            result.owner.attributes["dtype"] = dtype_attr
             return result
         
         else:
