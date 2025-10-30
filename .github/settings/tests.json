@@ -1,4 +1,4 @@
 [
-  { "runs-on": "n150",   "image": "tracy",  "script": "ttrt.sh", "args": [ "perf", "Silicon/TTNN/n150/optimizer" ] },
-  { "runs-on": "n150",   "image": "speedy", "script": "op_model.sh", "args": [ "Silicon/TTNN/n150/optimizer", "--non-zero" ] }
+  { "runs-on": "n150",   "image": "tracy",  "script": "op_model_perf.sh" },
+  { "runs-on": "n150",   "image": "speedy", "script": "op_model.sh" }
 ]
