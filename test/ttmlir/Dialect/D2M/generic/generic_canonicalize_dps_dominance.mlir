@@ -93,3 +93,36 @@ func.func @no_canonicalization_without_dominating_op(%arg0: tensor<1x1x1x1x!ttco
 
   return %1 : tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #layout>
 }
+
+// -----
+
+// Test that the filtering logic in GenericOp::getCanonicalizationPatterns
+// correctly skips non-wait/reserve users when searching for a dominating
+// wait/reserve operation to replace d2m.empty() operands in the fallback path
+// (when there's no func.func parent).
+
+#layout = #ttcore.metal_layout<logical_shape = 32x32, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1>
+#map = affine_map<(d0, d1) -> (d0, d1)>
+
+// CHECK-LABEL: func.func @test_filtering
+func.func @test_filtering(%arg0: tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #layout>) -> tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #layout> {
+  %0 = d2m.empty() : tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #layout>
+
+  // CHECK: d2m.generic
+  // CHECK: ^compute0(%[[CB0:.*]]: !d2m.cb<{{.*}}>, %[[CB1:.*]]: !d2m.cb<{{.*}}>):
+  // CHECK-NEXT: d2m.wait %[[CB0]]
+  // CHECK-NEXT: d2m.reserve %[[CB1]]
+  // CHECK-NEXT: d2m.empty()
+  // CHECK-NEXT: d2m.yield
+  %1 = d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#map, #map], iterator_types = [#ttcore.iterator_type<parallel>, #ttcore.iterator_type<parallel>], threads = [#d2m.thread<compute>]}
+      ins(%arg0 : tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #layout>)
+      outs(%0 : tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #layout>)  {
+  ^compute0(%cb_in: !d2m.cb<tensor<1x1x!ttcore.tile<32x32, f32>>>, %cb_out: !d2m.cb<tensor<1x1x!ttcore.tile<32x32, f32>>>):
+    %in = d2m.wait %cb_in : <tensor<1x1x!ttcore.tile<32x32, f32>>> -> tensor<1x1x!ttcore.tile<32x32, f32>>
+    %reserve = d2m.reserve %cb_out : <tensor<1x1x!ttcore.tile<32x32, f32>>> -> tensor<1x1x!ttcore.tile<32x32, f32>>
+    %temp = d2m.empty() : tensor<1x1x!ttcore.tile<32x32, f32>>
+    d2m.yield %in : (tensor<1x1x!ttcore.tile<32x32, f32>>)
+  } : tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #layout>
+
+  return %1 : tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #layout>
+}

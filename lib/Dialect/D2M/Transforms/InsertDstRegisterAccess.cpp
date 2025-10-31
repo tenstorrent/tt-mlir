@@ -85,10 +85,14 @@ public:
       bool linalgToAffineFailed = false;
       block.walk([&](linalg::GenericOp linalgGenericOp) {
         if (!useTileMatmul && hasTileMatmul(linalgGenericOp)) {
-          linalgToAffineFailed |= rewriteTileMatmulAsTileMatmulBlock(
-              rewriter, op, *genericRegion, linalgGenericOp, dstCapacity,
-              modified);
-          return;
+          if (op.getIndexingMaps().empty()) {
+            // Fall through to regular linalg to affine conversion
+          } else {
+            linalgToAffineFailed |= rewriteTileMatmulAsTileMatmulBlock(
+                rewriter, op, *genericRegion, linalgGenericOp, dstCapacity,
+                modified);
+            return;
+          }
         }
 
         rewriter.setInsertionPoint(linalgGenericOp);

@@ -4,22 +4,21 @@
 
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
 
-#include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/D2M/Utils/Utils.h"
-#include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 
 #include "mlir/Dialect/Bufferization/IR/Bufferization.h"
+#include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/IR/AffineMap.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinTypes.h"
+#include "mlir/IR/Dominance.h"
 #include "mlir/IR/PatternMatch.h"
-
-#include <functional>
 
 #define GET_OP_CLASSES
 #include "ttmlir/Dialect/D2M/IR/D2MOps.cpp.inc"
@@ -1245,8 +1244,8 @@ void GenericOp::getCanonicalizationPatterns(mlir::RewritePatternSet &patterns,
         }
 
         auto replaceWithOutputCb =
-            +[](PatternRewriter &rewriter, Region &region, Operation *regionOp,
-                OpOperand &initOperand, int64_t dpsIOBoundary) -> bool {
+            [op](PatternRewriter &rewriter, Region &region, Operation *regionOp,
+                 OpOperand &initOperand, int64_t dpsIOBoundary) -> bool {
           BlockArgument blockArg =
               mlir::dyn_cast<BlockArgument>(initOperand.get());
           if (blockArg && blockArg.getArgNumber() >= dpsIOBoundary) {
@@ -1262,17 +1261,40 @@ void GenericOp::getCanonicalizationPatterns(mlir::RewritePatternSet &patterns,
           blockArg = region.getArgument(dpsIOBoundary);
           assert(blockArg.getNumUses() > 0);
 
-          // Find a wait/reserve that dominates the DPS operation
+          // Find a wait/reserve that dominates the DPS operation.
+          // Use DominanceInfo for proper cross-block dominance checking.
           Operation *waitOrReserve = nullptr;
-          for (Operation *user : blockArg.getUsers()) {
-            if (!mlir::isa<d2m::WaitOp, d2m::ReserveOp>(user)) {
-              continue;
+
+          // Get the parent FuncOp to compute dominance
+          Operation *parentOp = op->getParentOp();
+          while (parentOp && !mlir::isa<func::FuncOp>(parentOp)) {
+            parentOp = parentOp->getParentOp();
+          }
+
+          if (!parentOp) {
+            // Fallback to same-block check if no FuncOp found
+            for (Operation *user : blockArg.getUsers()) {
+              if (!mlir::isa<d2m::WaitOp, d2m::ReserveOp>(user)) {
+                continue;
+              }
+              if (user->getBlock() == regionOp->getBlock() &&
+                  user->isBeforeInBlock(regionOp)) {
+                waitOrReserve = user;
+                break;
+              }
             }
-            // Check if this wait/reserve dominates the regionOp
-            if (user->getBlock() == regionOp->getBlock() &&
-                user->isBeforeInBlock(regionOp)) {
-              waitOrReserve = user;
-              break;
+          } else {
+            // Use DominanceInfo for dominance checking
+            DominanceInfo domInfo(mlir::cast<func::FuncOp>(parentOp));
+            for (Operation *user : blockArg.getUsers()) {
+              if (!mlir::isa<d2m::WaitOp, d2m::ReserveOp>(user)) {
+                continue;
+              }
+              // Check if this wait/reserve dominates the regionOp
+              if (domInfo.dominates(user, regionOp)) {
+                waitOrReserve = user;
+                break;
+              }
             }
           }
 
