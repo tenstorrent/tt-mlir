@@ -25,11 +25,13 @@ def eltwise_bcast(a_in, b_in, c_in, out, grid=None):
     # Parallelizing by columns here to get reuse on C
     cols_per_core = math.ceil(col_tiles / (grid[0] * grid[1]))
 
-    a_accessor = Stream(a_in, index_type=IndexType.TILE)
-    b_accessor = Stream(b_in, index_type=IndexType.TILE)
-    c_accessor = Stream(c_in, index_type=IndexType.TILE)
-    out_accessor = Stream(out, index_type=IndexType.TILE)
+    a_accessor = TensorAccessor(a_in, index_type=IndexType.TILE)
+    b_accessor = TensorAccessor(b_in, index_type=IndexType.TILE)
+    c_accessor = TensorAccessor(c_in, index_type=IndexType.TILE)
+    out_accessor = TensorAccessor(out, index_type=IndexType.TILE)
     
+    # NOTE: (Kostas) I don’t understand why a CircularBuffer needs to be associated with a tensor accessor.
+    #                Perhaps we need to know its specific type? Or to prevent mixups of tensors on the same cb?
     a_in_cb = CircularBuffer(a_accessor, shape=(granularity,1), buffer_factor=2)
     b_in_cb = CircularBuffer(b_accessor, shape=(granularity,1), buffer_factor=2)
     # NOTE: should it be declared somewhere that c_in_cb contains a row padded to tile,
@@ -45,13 +47,28 @@ def eltwise_bcast(a_in, b_in, c_in, out, grid=None):
         
         for ct in range(start_col_tile, end_col_tile):
             # Reuse C across rows of A, B
-            c_block = c_in_cb.wait().pop()
+            # From a sim perspective, the following returns a RingView object as defined in:
+            # https://github.com/tenstorrent/tt-lang/blob/main/python/sim/cbsim/ringview.py.
+            # TODO: Perhaps consider making RingView pointers that come from wait()/reserve() read/write only respectively?
+            c_block = c_in_cb.wait() 
             for rt_block in range(row_tiles // granularity):
-                a_block = a_in_cb.wait().pop()
-                b_block = b_in_cb.wait().pop()
+                # again, these return RingView pointers:
+                a_block = a_in_cb.wait() # blocking 
+                b_block = b_in_cb.wait() # blocking
                 # NOTE: Please consider making non-approx the default for eltwise unary, but leave the option for the user to specify approx=True
+                out_block = out_cb.reserve() # blocking
+                # RingView operations, these also need to be defined
                 out_block = a_block * b_block + tt.tanh(c_block, approx=False)
-                out_cb.push(out_block)
+                # finalize push, this advances the cb pointers, the writing happened at the line above
+                out_cb.push()
+                # finalize pop, this advances the cb pointers, essentially freeing the memory
+                # After poping, the corresponding RingView(a_block) points to stale data.
+                # Should probably make it an error to access it at that point, at least in sim.
+                a_in_cb.pop()
+                # ditto
+                b_in_cb.pop()
+            c_in_cb.pop() # After this pop, c_block points to stale data.
+
 
     @datamovement()
     async def dm0():
@@ -63,22 +80,26 @@ def eltwise_bcast(a_in, b_in, c_in, out, grid=None):
         for ct in range(start_col_tile, end_col_tile):
             # Reuse C across rows of A, B
             c_col_slice = slice(ct, ct+1)
-            c_in_cb.reserve()
-            tx = dma(c_accessor[c_row_slice, c_col_slice], c_in_cb)
+            c_block = c_in_cb.reserve() # retrieve a RingView to the cb
+	    # write to the cb through a DMA. This is non-blocking
+            tx = dma(c_accessor[c_row_slice, c_col_slice], c_block)
+            # Wait for the dma to conclude before continuing
             tx.wait()
+            # Finalize the write on the cb (advances cb pointers)
             c_in_cb.push()
             for rt_block in range(row_tiles // granularity):
                 """
-                Since the stream indexes by tile, slicing is cleaner
+                Since the TensorAccessor indexes by tile, slicing is cleaner
                 """
                 row_slice = slice(rt_block*granularity, (rt_block+1)*granularity)
                 col_slice = slice(ct, ct+1)
-                a_in_cb.reserve()
-                tx = dma(a_accessor[row_slice, col_slice], a_in_cb)
+                # Write the cbs just as above
+                a_block = a_in_cb.reserve()
+                tx = dma(a_accessor[row_slice, col_slice], a_block)
                 tx.wait()
                 a_in_cb.push()
-                b_in_cb.reserve()
-                tx = dma(b_accessor[row_slice, col_slice], b_in_cb)
+                b_block = b_in_cb.reserve()
+                tx = dma(b_accessor[row_slice, col_slice], b_block)
                 tx.wait()
                 b_in_cb.push()
 
@@ -92,20 +113,20 @@ def eltwise_bcast(a_in, b_in, c_in, out, grid=None):
         for ct in range(start_col_tile, end_col_tile):
             # Reuse C across rows of A, B
             c_col_slice = slice(ct, ct+1)
-            c_in_cb.reserve()
-            tx = dma(c_accessor[c_row_slice, c_col_slice], c_in_cb)
+            c_block = c_in_cb.reserve()
+            tx = dma(c_accessor[c_row_slice, c_col_slice], c_block)
             tx.wait()
             c_in_cb.push()
             for rt_block in range(row_tiles // granularity):
                 """
-                Since the stream indexes by tile, slicing is cleaner
+                Since the TensorAccessor indexes by tile, slicing is cleaner
                 """
                 row_slice = slice(rt_block*granularity, (rt_block+1)*granularity)
                 col_slice = slice(ct, ct+1)
-                out_cb.wait()
-                tx = dma(out_cb, out_accessor[row_slice, col_slice])
+                out_block = out_cb.wait()
+                tx = dma(out_block, out_accessor[row_slice, col_slice])
                 tx.wait()
-                out_cb.pop()
+                out_block.pop()
 
 
     return Program(compute, dm0, dm1)(a_in, b_in, c_in, out)
