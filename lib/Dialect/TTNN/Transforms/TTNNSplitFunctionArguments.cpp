@@ -96,7 +96,25 @@ public:
 
       for (BlockArgument arg : newArgOrder) {
         newArgTypes.push_back(arg.getType());
-        newArgAttrs.push_back(funcOp.getArgAttrDict(arg.getArgNumber()));
+
+        // Get existing attributes and add original argument number
+        //
+        auto existingAttrs = funcOp.getArgAttrDict(arg.getArgNumber());
+        llvm::SmallVector<mlir::NamedAttribute> attrs;
+
+        // Copy existing attributes
+        if (existingAttrs) {
+          for (auto attr : existingAttrs) {
+            attrs.push_back(attr);
+          }
+        }
+
+        // Add original argument number attribute
+        attrs.push_back(rewriter.getNamedAttr(
+            "ttcore.original_arg_num",
+            rewriter.getI64IntegerAttr(arg.getArgNumber())));
+
+        newArgAttrs.push_back(rewriter.getDictionaryAttr(attrs));
       }
 
       FunctionType newFuncType = FunctionType::get(

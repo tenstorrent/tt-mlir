@@ -301,7 +301,8 @@ def TTNNSplitFunctionArguments: Pass<"ttnn-split-function-arguments", "::mlir::M
     - parameters: arguments with #ttcore.argument_type<parameter> and #ttcore.argument_type<constant>
 
     The pass rewrites the function signature to have all inputs first, followed by all parameters,
-    and updates all uses of the arguments accordingly.
+    and updates all uses of the arguments accordingly. The original argument number is preserved
+    in the ttcore.original_arg_num attribute for each reordered argument.
 
     Given a function like this:
     ```mlir
@@ -314,9 +315,9 @@ def TTNNSplitFunctionArguments: Pass<"ttnn-split-function-arguments", "::mlir::M
 
     The pass will rewrite it to:
     ```mlir
-    func.func @add(%arg0: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<input>},
-                   %arg1: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<input>},
-                   %arg2: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>}) -> tensor<32x32xbf16> {
+    func.func @add(%arg0: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<input>, ttcore.original_arg_num = 0 : i64},
+                   %arg1: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<input>, ttcore.original_arg_num = 2 : i64},
+                   %arg2: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttcore.original_arg_num = 1 : i64}) -> tensor<32x32xbf16> {
       // function body with updated argument uses
     }
     ```

@@ -5,10 +5,10 @@
 
 module {
   // CHECK-LABEL: func.func @mixed_args
-  // CHECK-SAME: (%arg0: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<input>},
-  // CHECK-SAME:  %arg1: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<input>},
-  // CHECK-SAME:  %arg2: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>},
-  // CHECK-SAME:  %arg3: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>})
+  // CHECK-SAME: (%arg0: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<input>, ttcore.original_arg_num = 0 : i64},
+  // CHECK-SAME:  %arg1: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<input>, ttcore.original_arg_num = 2 : i64},
+  // CHECK-SAME:  %arg2: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttcore.original_arg_num = 1 : i64},
+  // CHECK-SAME:  %arg3: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttcore.original_arg_num = 3 : i64})
   func.func @mixed_args(
     %arg0: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<input>},
     %arg1: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>},
