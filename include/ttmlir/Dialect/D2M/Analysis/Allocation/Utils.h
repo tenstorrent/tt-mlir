@@ -220,10 +220,11 @@ struct IterablePrintAdaptor {
 ///     llvm::dbgs() << asSeq(...) << ...
 /// @endcode
 template <typename T>
-auto asSeq(const T &obj) -> std::enable_if_t<
-    is_iterable_v<T>,
-    detail::IterablePrintAdaptor<T, detail::CharSeq<',', ' '>,
-                                 detail::CharSeq<'['>, detail::CharSeq<']'>>> {
+auto asSeq(const T &obj)
+    -> std::enable_if_t<is_iterable_v<T>,
+                        detail::IterablePrintAdaptor<
+                            T, detail::CharSeq<',', ' '>, detail::CharSeq<'['>,
+                            detail::CharSeq<']'>>> {
   return {&obj};
 }
 
