@@ -238,6 +238,8 @@ binary_bitwise_dtypes = [
 def test_bitwise_binary_ops(
     test_fn: Callable, shape: Shape, dtype: torch.dtype, target: str, request, device
 ):
+    if target == "emitpy" and (dtype == torch.uint16 or dtype == torch.uint32):
+        pytest.xfail("uint16 and uint32 aren't supported in ttnn pybinds")
     compile_and_execute_ttir(
         test_fn,
         inputs_shapes=[shape, shape],
@@ -321,6 +323,8 @@ def test_logical_shift_binary_ops(
 ):
     if test_fn == logical_left_shift and dtype == torch.uint16:
         pytest.xfail("uint16 logical left shift op is not supported yet")
+    if target == "emitpy" and (dtype == torch.uint16 or dtype == torch.uint32):
+        pytest.xfail("uint16 and uint32 aren't supported in ttnn pybinds")
     compile_and_execute_ttir(
         test_fn,
         inputs_shapes=[shape, shape],

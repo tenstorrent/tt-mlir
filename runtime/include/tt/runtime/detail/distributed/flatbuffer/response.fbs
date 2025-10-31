@@ -45,6 +45,9 @@ table GetMeshShapeResponse {
 table CreateHostTensorResponse {
 }
 
+table CreateMultiDeviceHostTensorFromShardsResponse {
+}
+
 table IsTensorAllocatedResponse {
   allocated: bool;
 }
@@ -98,6 +101,7 @@ union ResponseType {
   ReleaseSubMeshDeviceResponse,
   GetMeshShapeResponse,
   CreateHostTensorResponse,
+  CreateMultiDeviceHostTensorFromShardsResponse,
   IsTensorAllocatedResponse,
   GetTensorVolumeResponse,
   GetTensorRetainResponse,

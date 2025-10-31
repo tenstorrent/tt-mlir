@@ -79,6 +79,7 @@ struct TTIRToTTIRDecompositionPass
       target.addIllegalOp<ttir::QuantizeOp>();
       target.addIllegalOp<ttir::RequantizeOp>();
       target.addIllegalOp<ttir::DequantizeOp>();
+      target.addIllegalOp<ttir::ReverseOp>();
       break;
     }
 

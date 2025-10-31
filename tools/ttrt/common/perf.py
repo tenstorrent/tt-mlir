@@ -392,6 +392,7 @@ class Perf:
                     if not self["--host-only"]:
                         env_vars["TT_METAL_CLEAR_L1"] = "1"
                         env_vars["TT_METAL_DEVICE_PROFILER"] = "1"
+                        env_vars["TTNN_OP_PROFILER"] = "1"
                         env_vars["TT_METAL_DEVICE_PROFILER_DISPATCH"] = "0"
 
                     tracy_capture_tool_command = f"{self.tracy_capture_tool_path} -o {tracy_file_path} -f -p {port}"

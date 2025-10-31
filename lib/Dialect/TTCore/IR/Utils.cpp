@@ -211,7 +211,7 @@ MemRefType getBufferType(Type type, bool isView,
   MemRefLayoutAttrInterface layoutAttr;
   if (isView) {
     const unsigned rank = static_cast<unsigned>(fullMemrefShape.size());
-    mlir::AffineMap map = layout.getIndexAffineMap();
+    mlir::AffineMap map = layout.getIndexAffineMapOrIdentity(rank);
     assert(map && map.getNumResults() == rank && map.getNumDims() == rank &&
            "expected tensor encoding to provide a concrete index_map for view");
     layoutAttr = ViewLayoutAttr::get(ctx, map);

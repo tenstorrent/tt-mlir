@@ -11,38 +11,33 @@
 
 #define BUILD_RESPONSE_IMPL(ResponseName, fbb, commandId, builderFunc, ...)    \
   do {                                                                         \
-    auto responseType = ::tt::runtime::distributed::flatbuffer::ResponseType:: \
-        ResponseName##Response;                                                \
+    auto responseType = fb::ResponseType::ResponseName##Response;              \
                                                                                \
     auto responseOffset = (builderFunc)((fbb)__VA_OPT__(, ) __VA_ARGS__);      \
                                                                                \
-    auto response = ::tt::runtime::distributed::flatbuffer::CreateResponse(    \
-        (fbb), (commandId), responseType, responseOffset.Union());             \
+    auto response = fb::CreateResponse((fbb), (commandId), responseType,       \
+                                       responseOffset.Union());                \
                                                                                \
-    ::tt::runtime::distributed::flatbuffer::FinishResponseBuffer((fbb),        \
-                                                                 response);    \
+    fb::FinishResponseBuffer((fbb), response);                                 \
                                                                                \
     debug::verifyFlatbuffer((fbb), verifyFn);                                  \
   } while (0)
 
 #define BUILD_RESPONSE(ResponseName, fbb, commandId, ...)                      \
-  BUILD_RESPONSE_IMPL(                                                         \
-      ResponseName, fbb, commandId,                                            \
-      ::tt::runtime::distributed::flatbuffer::Create##ResponseName##Response,  \
-      __VA_ARGS__)
+  BUILD_RESPONSE_IMPL(ResponseName, fbb, commandId,                            \
+                      fb::Create##ResponseName##Response, __VA_ARGS__)
 
 #define BUILD_RESPONSE_DIRECT(ResponseName, fbb, commandId, ...)               \
   BUILD_RESPONSE_IMPL(ResponseName, fbb, commandId,                            \
-                      ::tt::runtime::distributed::flatbuffer::                 \
-                          Create##ResponseName##ResponseDirect,                \
-                      __VA_ARGS__)
+                      fb::Create##ResponseName##ResponseDirect, __VA_ARGS__)
 
 namespace tt::runtime::distributed::worker {
 
 using ::tt::runtime::DeviceRuntime;
 
-static constexpr auto verifyFn =
-    &::tt::runtime::distributed::flatbuffer::VerifyResponseBuffer;
+namespace fb = ::tt::runtime::distributed::flatbuffer;
+
+static constexpr auto verifyFn = &fb::VerifyResponseBuffer;
 
 void ResponseFactory::buildErrorResponse(::flatbuffers::FlatBufferBuilder &fbb,
                                          uint64_t commandId,
@@ -135,6 +130,13 @@ void ResponseFactory::buildCreateHostTensorResponse(
   LOG_ASSERT(fbb.GetSize() == 0, "Flatbuffer builder must be empty");
 
   BUILD_RESPONSE(CreateHostTensor, fbb, commandId);
+}
+
+void ResponseFactory::buildCreateMultiDeviceHostTensorFromShardsResponse(
+    ::flatbuffers::FlatBufferBuilder &fbb, uint64_t commandId) {
+  LOG_ASSERT(fbb.GetSize() == 0, "Flatbuffer builder must be empty");
+
+  BUILD_RESPONSE(CreateMultiDeviceHostTensorFromShards, fbb, commandId);
 }
 
 void ResponseFactory::buildIsTensorAllocatedResponse(

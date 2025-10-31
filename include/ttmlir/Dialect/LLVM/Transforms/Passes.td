@@ -13,4 +13,8 @@ def LLVMEmitCallingConventionWrapperFuncs: Pass<"emit-calling-convention-wrapper
   let dependentDialects = ["mlir::LLVM::LLVMDialect"];
 }
 
+def NonContiguousMemrefCopyToLinalgPass : Pass<"::mlir::ModuleOp"> {
+  let summary = "Lower memref.copy which operates on non-contiguous (strided, non-identity) tensors to linalg.generic";
+}
+
 #endif

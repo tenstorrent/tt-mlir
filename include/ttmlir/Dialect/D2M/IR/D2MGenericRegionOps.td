@@ -290,6 +290,16 @@ def D2M_TileAbsOp : D2M_GenericRegionComputeUnaryDstOp<"tile_abs", D2M_TileCompu
     let results = (outs TTCore_Tile:$result);
 }
 
+def D2M_TileBitwiseNotOp : D2M_GenericRegionComputeUnaryDstOp<"tile_bitwise_not", D2M_TileComputeOpTraitBundle>{
+    let summary = "D2M Tile Bitwise Not Op";
+    let description = [{
+        The `tile_bitwise_not` operation computes the bitwise negation of each element in the input tile.
+    }];
+
+    let arguments = (ins TTCore_Tile:$input);
+    let results = (outs TTCore_Tile:$result);
+}
+
 def D2M_TileLogicalNotOp : D2M_GenericRegionComputeUnaryDstOp<"tile_logical_not", D2M_TileComputeOpTraitBundle> {
     let summary = "D2M Tile Logical Not Op";
     let description = [{

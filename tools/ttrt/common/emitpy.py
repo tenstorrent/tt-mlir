@@ -3,21 +3,16 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import os
-import importlib.machinery
 import sys
 import signal
-import io
 import subprocess
 import time
 import shutil
-import atexit
 import traceback
 from pathlib import Path
 import ast
 
 from ttrt.common.util import *
-from ttrt.common.query import Query
-from ttrt.common.run import Run
 
 # Add tt-alchemist file utils.py to path for EmitPy tests
 TT_MLIR_HOME = Path(os.environ.get("TT_MLIR_HOME", os.getcwd())).resolve()
@@ -213,7 +208,7 @@ class EmitPy:
             if self["--flatbuffer"]:
                 if os.path.isdir(self["--flatbuffer"]):
                     corresponding_ttnn_path = (
-                        self.file_manager.find_corresponding_ttnn_in_directory(
+                        self.file_manager.find_py_corresponding_ttnn_in_directory(
                             path, self["--flatbuffer"]
                         )
                     )
@@ -245,9 +240,6 @@ class EmitPy:
             self.logging.warning(f"no EmitPy dylibs found to run - returning early")
             return
 
-        if "--init" in sys.argv:
-            self["--disable-golden"] = True
-
         # Workaround for issue #5205: Reorder dylibs so that ones with corresponding flatbuffers run first
         solo_dylibs = []
         paired_dylibs = []
@@ -271,9 +263,6 @@ class EmitPy:
 
                     if self["--artifact-dir"]:
                         command_options += f" --artifact-dir {self['--artifact-dir']} "
-
-                    if self["--result-file"]:
-                        command_options += f" --result-file {self['--result-file']} "
 
                     if self["--memory"]:
                         command_options += " --memory "
@@ -355,6 +344,7 @@ class EmitPy:
                         isinstance(node, ast.FunctionDef)
                         and node.name != "main"
                         and node.name[0:18] != "create_inputs_for_"
+                        and not node.name.__contains__("_const_eval_")
                     ):
                         program_names.append(node.name)
 
@@ -368,25 +358,23 @@ class EmitPy:
                         return
 
                 if not compare_to_ttnn:
-                    for program_index in range(len(program_names)):
+                    for program_index, program_name in enumerate(program_names):
                         if self["--program-index"] != "all" and program_index != int(
                             self["--program-index"]
                         ):
                             continue
 
                         self.logging.debug(
-                            f"evaluating program={program_names[program_index]} for python file={dylib.file_path}"
+                            f"evaluating program={program_name} for python file={dylib.file_path}"
                         )
-                        create_program_inputs = (
-                            "create_inputs_for_" + program_names[program_index]
-                        )
+                        create_program_inputs = "create_inputs_for_" + program_name
                         create_inputs_func = getattr(module, create_program_inputs)
                         inputs = create_inputs_func()
                         self.logging.debug(f"created {len(inputs)} input tensors")
 
                         for loop in range(self["--loops"]):
                             self.logging.debug(
-                                f"starting loop={loop+1}/{self['--loops']} for program={program_names[program_index]}"
+                                f"starting loop={loop+1}/{self['--loops']} for program={program_name}"
                             )
 
                             # Save input tensors before they get deallocated
@@ -410,10 +398,10 @@ class EmitPy:
                                         f"Input tensor {i}: {torch_input}"
                                     )
 
-                            program_func = getattr(module, program_names[program_index])
+                            program_func = getattr(module, program_name)
                             dylib_outputs = program_func(inputs)
                             self.logging.debug(
-                                f"finished loop={loop+1}/{self['--loops']} for program={program_names[program_index]}"
+                                f"finished loop={loop+1}/{self['--loops']} for program={program_name}"
                             )
 
                             if self["--save-artifacts"]:
@@ -437,7 +425,7 @@ class EmitPy:
                                     )
                 else:
                     with ttnn.manage_device(device_id=0) as device:
-                        for program_index in range(len(program_names)):
+                        for program_index, program_name in enumerate(program_names):
                             if self[
                                 "--program-index"
                             ] != "all" and program_index != int(
@@ -445,15 +433,20 @@ class EmitPy:
                             ):
                                 continue
                             self.logging.debug(
-                                f"evaluating program={program_names[program_index]} for python file={dylib.file_path}"
+                                f"evaluating program={program_name} for python file={dylib.file_path}"
                             )
 
                             self.logging.debug(
                                 f"loading input tensors from artifacts for program={program_index}"
                             )
-                            torch_inputs = self.load_tensors_from_artifacts(
-                                bin, "input"
-                            )["program_" + str(program_index)]
+                            fbb_run_directory = (
+                                self.artifacts.get_binary_run_folder_path(bin)
+                            )
+                            torch_inputs = (
+                                self.file_manager.load_tensors_from_artifacts(
+                                    bin, "input", fbb_run_directory
+                                )["program_" + str(program_index)]
+                            )
                             inputs = []
                             for i in torch_inputs:
                                 inputs.append(
@@ -489,14 +482,12 @@ class EmitPy:
 
                             for loop in range(self["--loops"]):
                                 self.logging.debug(
-                                    f"starting loop={loop+1}/{self['--loops']} for program={program_names[program_index]}"
+                                    f"starting loop={loop+1}/{self['--loops']} for program={program_name}"
                                 )
-                                program_func = getattr(
-                                    module, program_names[program_index]
-                                )
+                                program_func = getattr(module, program_name)
                                 dylib_outputs = program_func(inputs)
                                 self.logging.debug(
-                                    f"finished loop={loop+1}/{self['--loops']} for program={program_names[program_index]}"
+                                    f"finished loop={loop+1}/{self['--loops']} for program={program_name}"
                                 )
 
                                 self.logging.debug(
@@ -507,9 +498,14 @@ class EmitPy:
                                     output = ttnn.from_device(output)
                                     torch_dylib_outputs.append(output.to_torch())
 
-                                torch_fbb_outputs = self.load_tensors_from_artifacts(
-                                    bin, "device_output"
-                                )["program_" + str(program_index)]
+                                fbb_run_directory = (
+                                    self.artifacts.get_binary_run_folder_path(bin)
+                                )
+                                torch_fbb_outputs = (
+                                    self.file_manager.load_tensors_from_artifacts(
+                                        bin, "device_output", fbb_run_directory
+                                    )["program_" + str(program_index)]
+                                )
 
                                 if self["--save-artifacts"]:
                                     program_folder = f"{self.artifacts.get_dylib_emitpy_folder_path(dylib)}/program_{program_index}"
@@ -586,6 +582,9 @@ class EmitPy:
         self.logging.debug(f"------postprocessing emitpy API")
 
         for dylib in self.emitpy_dylibs:
+            if self["--save-artifacts"]:
+                self.artifacts.save_emitpy_dylib(dylib)
+
             if dylib.test_result == "pass":
                 test_result = {
                     "file_path": dylib.file_path,
@@ -662,30 +661,3 @@ class EmitPy:
                 )
 
         return emitpy_parser
-
-    def load_tensors_from_artifacts(self, bin, key):
-        """
-        Open directory, loop through subdirectories, load all .pt files into torch tensors, and save them according to their respective program.
-        """
-        fbb_run_directory = self.artifacts.get_binary_run_folder_path(bin)
-        program_tensors = {}
-        program_names = [d for d in os.listdir(fbb_run_directory)]
-        self.logging.debug(f"Loading .pt tensors from directory: {fbb_run_directory}")
-        for program in program_names:
-            program_dir = os.path.join(fbb_run_directory, program)
-            files = sorted([d for d in os.listdir(program_dir)])
-            tensors = []
-            for file in files:
-                file = os.path.join(program_dir, file)
-                if file.endswith(".pt") and key in file:
-                    try:
-                        tensors.append(torch.load(file, weights_only=True))
-                        self.logging.debug(f"Loading tensor from file: {file}")
-                    except Exception as e:
-                        raise Exception(
-                            f"Error loading tensor from file {file}: {str(e)}"
-                        )
-
-            program_tensors[program] = tensors
-
-        return program_tensors

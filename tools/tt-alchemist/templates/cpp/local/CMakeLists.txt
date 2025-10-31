@@ -25,10 +25,10 @@ endif()
 # Set env pointer variables #
 #############################
 
-# TT_METAL_HOME env variable needs to be set
+# TT_METAL_RUNTIME_ROOT env variable needs to be set
 #
-if(NOT DEFINED ENV{TT_METAL_HOME})
-    message(WARNING "TT_METAL_HOME is not set. Skipping build.")
+if(NOT DEFINED ENV{TT_METAL_RUNTIME_ROOT})
+    message(WARNING "TT_METAL_RUNTIME_ROOT is not set. Skipping build.")
     return()
 endif()
 
@@ -38,11 +38,11 @@ endif()
 
 # Metal src dir and lib dir
 #
-set(METAL_SRC_DIR "$ENV{TT_METAL_HOME}" CACHE PATH "Path to the tt-metal root src directory")
+set(METAL_SRC_DIR "$ENV{TT_METAL_RUNTIME_ROOT}" CACHE PATH "Path to the tt-metal root src directory")
 if(DEFINED ENV{TT_METAL_LIB})
   set(METAL_LIB_DIR "$ENV{TT_METAL_LIB}" CACHE PATH "Path to the tt-metal lib directory")
 else()
-  set(METAL_LIB_DIR "$ENV{TT_METAL_HOME}/build/lib" CACHE PATH "Path to the tt-metal lib directory")
+  set(METAL_LIB_DIR "$ENV{TT_METAL_RUNTIME_ROOT}/build/lib" CACHE PATH "Path to the tt-metal lib directory")
 endif()
 
 # CPM Cache
@@ -50,7 +50,7 @@ endif()
 if (DEFINED ENV{CPM_SOURCE_CACHE})
   set(CPM_SOURCE_CACHE $ENV{CPM_SOURCE_CACHE})
 else()
-  set(CPM_SOURCE_CACHE $ENV{TT_METAL_HOME}/.cpmcache)
+  set(CPM_SOURCE_CACHE $ENV{TT_METAL_RUNTIME_ROOT}/.cpmcache)
 endif()
 message(STATUS "Setting tt-metal CPM cache to: ${CPM_SOURCE_CACHE}")
 

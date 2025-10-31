@@ -48,6 +48,9 @@ public:
                                    uint64_t commandId,
                                    const ::tt::runtime::Device &subMesh);
 
+  static void buildCreateMultiDeviceHostTensorFromShardsResponse(
+      ::flatbuffers::FlatBufferBuilder &fbb, uint64_t commandId);
+
   static void
   buildReleaseSubMeshDeviceResponse(::flatbuffers::FlatBufferBuilder &fbb,
                                     uint64_t commandId);

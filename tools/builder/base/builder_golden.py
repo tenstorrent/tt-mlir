@@ -2968,4 +2968,5 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     stablehlo.TanOp: torch.tan,
     # TTNN elementwise operations
     ttnn.MultiplyOp: torch.multiply,
+    ttnn.MishOp: torch.nn.functional.mish,
 }

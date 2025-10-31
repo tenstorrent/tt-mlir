@@ -114,7 +114,7 @@ jobs:
     - name: Run Tests
       shell: bash
       env:
-        GH_TOKEN: ${{ secrets.GH_TOKEN }}
+        GH_TOKEN: ${{ secrets.GH_TOKEN || github.token}}
         TTRT_LOGGER_LEVEL: "WARNING"
         LOGURU_LEVEL: "ERROR"
         TT_METAL_LOGGER_LEVEL: "FATAL"
@@ -127,7 +127,7 @@ jobs:
 
         export LD_LIBRARY_PATH="${{ steps.strings.outputs.install-output-dir }}/lib:${TTMLIR_TOOLCHAIN_DIR}/lib:${LD_LIBRARY_PATH}"
         export SYSTEM_DESC_PATH="${GITHUB_WORKSPACE}/ttrt-artifacts/system_desc.ttsys"
-        export TT_METAL_HOME="${{ steps.strings.outputs.install-output-dir }}/tt-metal"
+        export TT_METAL_RUNTIME_ROOT="${{ steps.strings.outputs.install-output-dir }}/tt-metal"
         export RUNS_ON="${{ matrix.build.runs-on }}"
         export IMAGE_NAME="${{ matrix.build.image }}"
         export RUN_ID="${{ github.run_id }}"

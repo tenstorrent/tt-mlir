@@ -115,6 +115,11 @@ public:
       const std::vector<std::uint32_t> &stride, std::uint32_t itemsize,
       ::tt::target::DataType dataType);
 
+  ::tt::runtime::Tensor createMultiDeviceHostTensor(
+      const std::vector<::tt::runtime::Tensor> &tensorShards,
+      const std::unordered_map<std::string, std::string> &strategy,
+      const std::vector<uint32_t> &meshShape);
+
   bool isTensorAllocated(const ::tt::runtime::Tensor &tensorHandle);
 
   std::uint32_t getTensorVolume(const ::tt::runtime::Tensor &tensorHandle);
@@ -155,9 +160,9 @@ public:
   ShutdownResult shutdown();
 
 private:
-  std::chrono::seconds writeTimeout_{60};
-  std::chrono::seconds readTimeout_{60};
-  std::chrono::seconds workerShutdownTimeout_{60};
+  std::chrono::seconds writeTimeout_{300};
+  std::chrono::seconds readTimeout_{300};
+  std::chrono::seconds workerShutdownTimeout_{300};
 
   std::atomic<ControllerState> controllerState_{ControllerState::Uninitialized};
   std::future<int> exitCodeFuture_;
@@ -229,6 +234,10 @@ private:
       std::unique_ptr<AwaitingResponseQueueEntry> awaitingResponse);
 
   void handleCreateHostTensorResponse(
+      const std::vector<SizedBuffer> &responseBuffers,
+      std::unique_ptr<AwaitingResponseQueueEntry> awaitingResponse);
+
+  void handleCreateMultiDeviceHostTensorFromShardsResponse(
       const std::vector<SizedBuffer> &responseBuffers,
       std::unique_ptr<AwaitingResponseQueueEntry> awaitingResponse);
 

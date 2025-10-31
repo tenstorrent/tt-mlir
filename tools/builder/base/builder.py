@@ -208,6 +208,8 @@ class Builder:
                 return DataType.UInt32
             case torch.int32 | torch.qint32:
                 return DataType.Int32
+            case torch.int64:
+                return DataType.Int32
             case torch.float32 | None:
                 return DataType.Float32
 

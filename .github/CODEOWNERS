@@ -161,7 +161,7 @@ test/ttmlir/Dialect/StableHLO @tenstorrent/forge-developers-mlir-stablehlo
 # PyKernel & ttnn-jit
 /tools/pykernel/ @xanderchin @vtangTT
 /test/pykernel/ @xanderchin @vtangTT
-/tools/ttnn-jit/ @xanderchin @vtangTT
+/tools/ttnn-jit/ @xanderchin @vtangTT @arminaleTT
 /test/ttnn-jit/ @xanderchin @vtangTT @arminaleTT
 
 # TTIRBuilder

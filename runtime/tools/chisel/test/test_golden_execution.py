@@ -19,7 +19,7 @@ from ttmlir.ir import Context
 @pytest.mark.parametrize(
     "ttir_path, function_name",
     [
-        ("runtime/tools/chisel/test/mlir/test_fusion.mlir", "transpose_matmul"),
+        ("runtime/tools/chisel/test/mlir/test_add.mlir", "add"),
     ],
 )
 def test_golden_execution(ttir_path: str, function_name: str):

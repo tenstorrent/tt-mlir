@@ -232,6 +232,68 @@ def parse_fabric_config(fabric_config_str: str):
         raise ValueError(f"unknown fabric config '{fabric_config_str}'.")
 
 
+def convert_input_layouts(device, inputs, fbb, program_index):
+    import ttrt.runtime
+
+    inputs_converted = []
+    for input_index in range(len(inputs)):
+        input_layout = ttrt.runtime.get_layout(fbb, program_index, input_index)
+        inputs_converted.append(
+            ttrt.runtime.to_layout(inputs[input_index], device, input_layout, True)
+        )
+    return inputs_converted
+
+
+def create_tensor(tensor):
+    import ttrt.runtime
+
+    # Empty tensor if any of the dim is zero.
+    isEmptyTensor = not all(tensor.shape)
+
+    # Create 'owned tensor' in case of empty tensor;
+    if isEmptyTensor:
+        return ttrt.runtime.create_owned_host_tensor(
+            tensor.data_ptr(),
+            list(tensor.shape),
+            list(tensor.stride()),
+            tensor.element_size(),
+            Binary.Program.to_data_type(tensor.dtype),
+        )
+
+    # Create 'borrowed tensor'.
+    return ttrt.runtime.create_borrowed_host_tensor(
+        tensor.data_ptr(),
+        list(tensor.shape),
+        list(tensor.stride()),
+        tensor.element_size(),
+        Binary.Program.to_data_type(tensor.dtype),
+    )
+
+
+def convert_runtime_to_torch_tensor(runtime_tensor):
+    torch_tensor = None
+    isEmptyTensor = not all(runtime_tensor.get_shape())
+    data_buffer = bytearray(runtime_tensor.get_data_buffer())
+    if isEmptyTensor and len(data_buffer) == 0:
+        # Create empty tensor.
+        torch_tensor = torch.empty(
+            runtime_tensor.get_shape(),
+            dtype=ttrt_datatype_to_torch_dtype(runtime_tensor.get_dtype()),
+        )
+    elif not isEmptyTensor and len(data_buffer) > 0:
+        # Create regular tensor.
+        torch_tensor = torch.frombuffer(
+            data_buffer,
+            dtype=ttrt_datatype_to_torch_dtype(runtime_tensor.get_dtype()),
+        ).reshape(runtime_tensor.get_shape())
+    else:
+        raise Exception(
+            f"Failed: Tensor shape=({runtime_tensor.get_shape()}) and data buffer size={len(data_buffer)} do not match."
+        )
+
+    return torch_tensor
+
+
 class Logger:
     def __init__(self, file_name=""):
         import logging
@@ -301,7 +363,9 @@ class Globals:
 
     @staticmethod
     def get_ttmetal_home_path():
-        return os.environ.get("TT_METAL_HOME", "third_party/tt-metal/src/tt-metal")
+        return os.environ.get(
+            "TT_METAL_RUNTIME_ROOT", "third_party/tt-metal/src/tt-metal"
+        )
 
 
 class FileManager:
@@ -471,17 +535,14 @@ class FileManager:
 
         return file_extension
 
-    def find_ttnn_binary_paths(self, path):
-        self.logging.debug(f"finding all ttnn files from={path}")
-        ttnn_files = []
+    def find_file_paths(self, path, extension):
+        self.logging.debug(f"finding all {extension} files from={path}")
+        found_files = []
 
         if self.is_file(path):
             if self.check_file_exists(path):
-                if (
-                    self.get_file_extension(path)
-                    == Flatbuffer.get_ttnn_file_extension()
-                ):
-                    ttnn_files.append(path)
+                if self.get_file_extension(path) == extension:
+                    found_files.append(path)
                     self.logging.debug(f"found file={path}")
             else:
                 self.logging.info(f"file '{path}' not found - skipping")
@@ -490,119 +551,83 @@ class FileManager:
             try:
                 for root, _, files in os.walk(path):
                     for file in files:
-                        if (
-                            self.get_file_extension(file)
-                            == Flatbuffer.get_ttnn_file_extension()
-                        ):
-                            ttnn_files.append(os.path.join(root, file))
+                        if self.get_file_extension(file) == extension:
+                            found_files.append(os.path.join(root, file))
                             self.logging.debug(f"found file={os.path.join(root, file)}")
             except Exception as e:
                 raise Exception(f"an unexpected error occurred: {e}")
 
         # Sort files alphabetically to ensure consistent ordering.
-        ttnn_files.sort()
-        return ttnn_files
+        found_files.sort()
+        return found_files
+
+    def find_ttnn_binary_paths(self, path):
+        return self.find_file_paths(path, Flatbuffer.get_ttnn_file_extension())
 
     def find_ttmetal_binary_paths(self, path):
-        self.logging.debug(f"finding all ttmetal files from={path}")
-        ttmetal_files = []
-
-        if self.is_file(path):
-            if self.check_file_exists(path):
-                if (
-                    self.get_file_extension(path)
-                    == Flatbuffer.get_ttmetal_file_extension()
-                ):
-                    ttmetal_files.append(path)
-                    self.logging.debug(f"found file={path}")
-            else:
-                self.logging.info(f"file '{path}' not found - skipping")
-        else:
-            self.check_directory_exists(path)
-            try:
-                for root, _, files in os.walk(path):
-                    for file in files:
-                        if (
-                            self.get_file_extension(file)
-                            == Flatbuffer.get_ttmetal_file_extension()
-                        ):
-                            ttmetal_files.append(os.path.join(root, file))
-                            self.logging.debug(f"found file={os.path.join(root, file)}")
-            except Exception as e:
-                raise Exception(f"an unexpected error occurred: {e}")
-
-        # Sort files alphabetically to ensure consistent ordering.
-        ttmetal_files.sort()
-        return ttmetal_files
+        return self.find_file_paths(path, Flatbuffer.get_ttmetal_file_extension())
 
     def find_ttsys_binary_paths(self, path):
-        self.logging.debug(f"finding all ttsys files from={path}")
-        ttsys_files = []
-
-        if self.is_file(path):
-            if self.check_file_exists(path):
-                if (
-                    self.get_file_extension(path)
-                    == Flatbuffer.get_ttsys_file_extension()
-                ):
-                    ttsys_files.append(path)
-                    self.logging.debug(f"found file={path}")
-            else:
-                self.logging.info(f"file '{path}' not found - skipping")
-        else:
-            self.check_directory_exists(path)
-            try:
-                for root, _, files in os.walk(path):
-                    for file in files:
-                        if (
-                            self.get_file_extension(file)
-                            == Flatbuffer.get_ttsys_file_extension()
-                        ):
-                            ttsys_files.append(os.path.join(root, file))
-                            self.logging.debug(f"found file={os.path.join(root, file)}")
-            except Exception as e:
-                raise Exception(f"an unexpected error occurred: {e}")
-
-        # Sort files alphabetically to ensure consistent ordering.
-        ttsys_files.sort()
-        return ttsys_files
+        return self.find_file_paths(path, Flatbuffer.get_ttsys_file_extension())
 
     def find_emitpy_dylib_paths(self, path):
-        self.logging.debug(f"finding all .py files from={path}")
-        py_files = []
+        return self.find_file_paths(path, EmitPyDylib.get_py_file_extension())
 
-        if self.is_file(path):
-            if self.check_file_exists(path):
-                if self.get_file_extension(path) == EmitPyDylib.get_py_file_extension():
-                    py_files.append(path)
-                    self.logging.debug(f"found file={path}")
-            else:
-                self.logging.info(f"file '{path}' not found - skipping")
-        else:
-            self.check_directory_exists(path)
-            try:
-                for root, _, files in os.walk(path):
-                    for file in files:
-                        if (
-                            self.get_file_extension(file)
-                            == EmitPyDylib.get_py_file_extension()
-                        ):
-                            py_files.append(os.path.join(root, file))
-                            self.logging.debug(f"found file={os.path.join(root, file)}")
-            except Exception as e:
-                raise Exception(f"an unexpected error occurred: {e}")
+    def find_emitc_dylib_paths(self, path):
+        return self.find_file_paths(path, EmitCDylib.get_so_file_extension())
 
-        # Sort files alphabetically to ensure consistent ordering.
-        py_files.sort()
-        return py_files
+    def find_py_corresponding_ttnn_in_directory(self, path, ttnn_directory):
+        filename = self.get_file_name(path)
+        ttnn_filename = filename.replace(EmitPyDylib.get_py_file_extension(), ".ttnn")
+        found_paths = self.find_file_paths(ttnn_directory, ".ttnn")
 
-    def find_corresponding_ttnn_in_directory(self, py_path, ttnn_directory):
-        py_filename = self.get_file_name(py_path)
-        ttnn_filename = py_filename.replace(".py", ".ttnn")
-        ttnn_path = os.path.join(ttnn_directory, ttnn_filename)
-        if self.check_file_exists(ttnn_path):
-            return ttnn_path
+        for file_path in found_paths:
+            file_basename = self.get_file_name(file_path)
+            if file_basename == ttnn_filename:
+                return file_path
         return None
+
+    def find_so_corresponding_ttnn_in_directory(self, path, ttnn_directory):
+        filename = self.get_file_name(path)
+        ttnn_filename = filename.replace(EmitCDylib.get_so_file_extension(), ".ttnn")
+        found_paths = self.find_file_paths(ttnn_directory, ".ttnn")
+
+        for file_path in found_paths:
+            file_basename = self.get_file_name(file_path)
+            if file_basename == ttnn_filename:
+                return file_path
+        return None
+
+    def load_tensors_from_artifacts(self, bin, key, artifacts_path):
+        """
+        Open directory, loop through subdirectories, load all .pt files into torch tensors, and save them according to their respective program.
+        """
+        program_tensors = {}
+        program_names = [d for d in os.listdir(artifacts_path)]
+        self.logging.debug(f"Loading .pt tensors from directory: {artifacts_path}")
+        for program in program_names:
+            program_dir = os.path.join(artifacts_path, program)
+            files = sorted(
+                [d for d in os.listdir(program_dir)],
+                key=lambda x: int(re.search(r"_(\d+)\.pt$", x).group(1))
+                if re.search(r"_(\d+)\.pt$", x)
+                else 0,
+            )
+            tensors = []
+            for file in files:
+                file = os.path.join(program_dir, file)
+                if file.endswith(".pt") and key in file:
+                    try:
+                        tensors.append(torch.load(file, weights_only=True))
+                        self.logging.debug(f"Loading tensor from file: {file}")
+                    except Exception as e:
+                        raise Exception(
+                            f"Error loading tensor from file {file}: {str(e)}"
+                        )
+
+            program_tensors[program] = tensors
+
+        return program_tensors
 
 
 class Artifacts:
@@ -632,8 +657,11 @@ class Artifacts:
     def get_binary_run_folder_path(self, binary):
         return f"{self.get_artifacts_folder_path()}/{binary.name}/run"
 
-    def get_dylib_emitpy_folder_path(self, dylib):
+    def get_emitpy_dylib_folder_path(self, dylib):
         return f"{self.get_artifacts_folder_path()}/{dylib.name}/emitpy"
+
+    def get_emitc_dylib_folder_path(self, dylib):
+        return f"{self.get_artifacts_folder_path()}/{dylib.name}/emitc"
 
     def create_artifacts(self):
         self.file_manager.create_directory(self.get_artifacts_folder_path())
@@ -685,6 +713,22 @@ class Artifacts:
 
         if query != None:
             self.save_system_desc(query.system_desc, f"{binary_folder}")
+
+    def save_emitpy_dylib(self, dylib, query=None):
+        dylib_folder = self.get_emitpy_dylib_folder_path(dylib)
+
+        self.logging.info(
+            f"saving dylib={dylib.file_path} to dylib_folder={dylib_folder}"
+        )
+        self.file_manager.copy_file(f"{dylib_folder}", dylib.file_path)
+
+    def save_emitc_dylib(self, dylib, query=None):
+        dylib_folder = self.get_emitc_dylib_folder_path(dylib)
+
+        self.logging.info(
+            f"saving dylib={dylib.file_path} to dylib_folder={dylib_folder}"
+        )
+        self.file_manager.copy_file(f"{dylib_folder}", dylib.file_path)
 
     def save_torch_tensor(self, folder_path, torch_tensor, torch_tensor_name):
         import torch
@@ -1067,6 +1111,22 @@ class EmitPyDylib:
     @staticmethod
     def get_py_file_extension():
         return ".py"
+
+
+class EmitCDylib:
+    def __init__(self, logger, file_manager, file_path, capsule=None):
+        self.logger = logger
+        self.logging = self.logger.get_logger()
+        self.file_manager = file_manager
+        self.file_path = file_path if file_path != None else "<dylib-from-capsule>"
+        self.name = self.file_manager.get_file_name(file_path)
+
+        # temporary state value to check if test failed
+        self.test_result = "pass"
+
+    @staticmethod
+    def get_so_file_extension():
+        return ".so"
 
 
 class TTRTTestException(Exception):

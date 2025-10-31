@@ -7,6 +7,7 @@
 #include "tt/runtime/detail/common/common.h"
 #include "tt/runtime/detail/common/logger.h"
 #include "tt/runtime/detail/ttnn/debug_apis.h"
+#include "tt/runtime/detail/ttnn/types/program_desc_cache.h"
 #include "tt/runtime/detail/ttnn/types/trace_cache.h"
 #include "tt/runtime/detail/ttnn/types/types.h"
 #include "tt/runtime/detail/ttnn/utils.h"
@@ -358,13 +359,13 @@ fromTTNNShardSpec(::flatbuffers::FlatBufferBuilder &fbb,
                                                    orientation);
 }
 
-CoreType toCoreType(const ::tt::target::ttnn::CoreType &coreType) {
+::tt::CoreType toCoreType(const ::tt::target::ttnn::CoreType &coreType) {
   switch (coreType) {
   case ::tt::target::ttnn::CoreType::WORKER: {
-    return ::CoreType::WORKER;
+    return ::tt::CoreType::WORKER;
   }
   case ::tt::target::ttnn::CoreType::ETH: {
-    return ::CoreType::ETH;
+    return ::tt::CoreType::ETH;
   }
   }
 }

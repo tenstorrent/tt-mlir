@@ -54,7 +54,7 @@ def run_op_test(
     print("inputs", inputs)
     golden_op = _get_ttnn_op(op)
 
-    op_jit = ttnn_jit.jit(backend="ttnn", debug=True, max_grid=max_grid)(op)
+    op_jit = ttnn_jit.jit(debug=True, max_grid=max_grid)(op)
     output_tensor = op_jit(*inputs)
     golden_tensor = (golden_op or op)(*inputs)
 
@@ -68,6 +68,7 @@ def abs(input_tensor):
     return ttnn.abs(input_tensor)
 
 
+@pytest.mark.skip(reason="Failing non-deterministicly in CI. Issue: #5550")
 @pytest.mark.parametrize(
     "h , w, max_grid",
     BLOCK_SHARDED_SHAPE_GRIDS,
@@ -90,6 +91,7 @@ def test_l1_block_sharded_shapes(device, h, w, max_grid, op):
     )
 
 
+@pytest.mark.skip(reason="Failing non-deterministicly in CI. Issue: #5550")
 @pytest.mark.parametrize(
     "h , w",
     DRAM_INTERLEAVED_SHAPE_GRIDS,

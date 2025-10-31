@@ -60,6 +60,18 @@ table CreateHostTensorCommand {
   data_type: tt.target.DataType;
 }
 
+table StrategyEntry {
+  key: string;
+  value: string;
+}
+
+table CreateMultiDeviceHostTensorFromShardsCommand {
+  input_global_ids: [uint64];
+  output_global_id: uint64;
+  strategy_map: [StrategyEntry];
+  mesh_shape: [uint32];
+}
+
 table IsTensorAllocatedCommand {
   tensor_global_id: uint64;
 }
@@ -139,6 +151,7 @@ union CommandType {
   ReleaseSubMeshDeviceCommand,
   GetMeshShapeCommand,
   CreateHostTensorCommand,
+  CreateMultiDeviceHostTensorFromShardsCommand,
   IsTensorAllocatedCommand,
   GetTensorVolumeCommand,
   GetTensorRetainCommand,

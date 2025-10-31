@@ -1431,8 +1431,12 @@ createEltwiseUnaryOp(FlatbufferObjectCache &cache, EltwiseUnaryOp op) {
     type = ::tt::target::ttnn::EltwiseUnaryOpType::Rsqrt;
   } else if constexpr (std::is_same_v<EltwiseUnaryOp, SigmoidOp>) {
     type = ::tt::target::ttnn::EltwiseUnaryOpType::Sigmoid;
+  } else if constexpr (std::is_same_v<EltwiseUnaryOp, HardsigmoidOp>) {
+    type = ::tt::target::ttnn::EltwiseUnaryOpType::Hardsigmoid;
   } else if constexpr (std::is_same_v<EltwiseUnaryOp, SiluOp>) {
     type = ::tt::target::ttnn::EltwiseUnaryOpType::Silu;
+  } else if constexpr (std::is_same_v<EltwiseUnaryOp, MishOp>) {
+    type = ::tt::target::ttnn::EltwiseUnaryOpType::Mish;
   } else if constexpr (std::is_same_v<EltwiseUnaryOp, SinOp>) {
     type = ::tt::target::ttnn::EltwiseUnaryOpType::Sin;
   } else if constexpr (std::is_same_v<EltwiseUnaryOp, ReciprocalOp>) {
@@ -2080,10 +2084,13 @@ createOp(FlatbufferObjectCache &cache, ScaledDotProductAttentionOp op) {
                  ? std::make_optional(op.getScale().value().convertToFloat())
                  : std::nullopt);
 
+  ::flatbuffers::Optional<uint32_t> slidingWindowSize =
+      toFlatbuffer(cache, op.getSlidingWindowSize());
+
   // NOLINTEND(clang-analyzer-cplusplus.NewDelete)
   return ::tt::target::ttnn::CreateScaledDotProductAttentionOp(
-      *cache.fbb, query, key, value, isCausal, attentionMask, scale, out,
-      memoryConfig);
+      *cache.fbb, query, key, value, isCausal, attentionMask, scale,
+      slidingWindowSize, out, memoryConfig);
 }
 
 std::vector<::flatbuffers::Offset<::tt::target::ttnn::KernelArg>>
@@ -2591,8 +2598,16 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
     return createOperation(cache, createEltwiseUnaryOp(cache, sigmoidOp),
                            debugString, locInfo);
   }
+  if (auto hardsigmoidOp = dyn_cast<HardsigmoidOp>(op); hardsigmoidOp) {
+    return createOperation(cache, createEltwiseUnaryOp(cache, hardsigmoidOp),
+                           debugString, locInfo);
+  }
   if (auto siluOp = dyn_cast<SiluOp>(op); siluOp) {
     return createOperation(cache, createEltwiseUnaryOp(cache, siluOp),
+                           debugString, locInfo);
+  }
+  if (auto mishOp = dyn_cast<MishOp>(op); mishOp) {
+    return createOperation(cache, createEltwiseUnaryOp(cache, mishOp),
                            debugString, locInfo);
   }
   if (auto reciprocalOp = dyn_cast<ReciprocalOp>(op); reciprocalOp) {

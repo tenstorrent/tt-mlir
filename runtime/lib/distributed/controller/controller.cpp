@@ -315,6 +315,26 @@ Controller::getMeshShape(const ::tt::runtime::Device &deviceHandle) {
   return outputTensorHandle;
 }
 
+::tt::runtime::Tensor Controller::createMultiDeviceHostTensor(
+    const std::vector<::tt::runtime::Tensor> &tensorShards,
+    const std::unordered_map<std::string, std::string> &strategy,
+    const std::vector<uint32_t> &meshShape) {
+  auto commandBuilder = std::make_unique<::flatbuffers::FlatBufferBuilder>();
+
+  ::tt::runtime::Tensor outputTensorHandle;
+
+  uint64_t commandId =
+      CommandFactory::buildCreateMultiDeviceHostTensorFromShardsCommand(
+          *commandBuilder, tensorShards, outputTensorHandle, strategy,
+          meshShape);
+
+  pushToCommandAndResponseQueues(
+      commandId, fb::CommandType::CreateMultiDeviceHostTensorFromShardsCommand,
+      std::move(commandBuilder));
+
+  return outputTensorHandle;
+}
+
 bool Controller::isTensorAllocated(const ::tt::runtime::Tensor &tensorHandle) {
   auto commandBuilder = std::make_unique<::flatbuffers::FlatBufferBuilder>();
 
@@ -949,6 +969,20 @@ void Controller::handleCreateHostTensorResponse(
   debug::assertNoAwaitingState(*awaitingResponse, "CreateHostTensor");
 }
 
+void Controller::handleCreateMultiDeviceHostTensorFromShardsResponse(
+    const std::vector<SizedBuffer> &responseBuffers,
+    std::unique_ptr<AwaitingResponseQueueEntry> awaitingResponse) {
+
+  debug::checkResponsesIdentical(responseBuffers);
+
+  debug::checkResponseTypes(
+      responseBuffers,
+      fb::ResponseType::CreateMultiDeviceHostTensorFromShardsResponse);
+
+  debug::assertNoAwaitingState(*awaitingResponse,
+                               "CreateMultiDeviceHostTensorFromShards");
+}
+
 void Controller::handleIsTensorAllocatedResponse(
     const std::vector<SizedBuffer> &responseBuffers,
     std::unique_ptr<AwaitingResponseQueueEntry> awaitingResponse) {
@@ -1193,6 +1227,10 @@ void Controller::handleResponse(
   case fb::CommandType::CreateHostTensorCommand: {
     return handleCreateHostTensorResponse(responseBuffers,
                                           std::move(awaitingResponse));
+  }
+  case fb::CommandType::CreateMultiDeviceHostTensorFromShardsCommand: {
+    return handleCreateMultiDeviceHostTensorFromShardsResponse(
+        responseBuffers, std::move(awaitingResponse));
   }
   case fb::CommandType::GetLayoutCommand: {
     return handleGetLayoutResponse(responseBuffers,

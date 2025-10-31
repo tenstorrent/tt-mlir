@@ -340,6 +340,38 @@ void CommandExecutor::execute(uint64_t commandId,
   responseQueue_.push(std::move(responseBuilder));
 }
 
+void CommandExecutor::execute(
+    uint64_t commandId,
+    const fb::CreateMultiDeviceHostTensorFromShardsCommand *command) {
+  std::vector<::tt::runtime::Tensor> tensorShards;
+  for (const auto &inputGlobalId : *command->input_global_ids()) {
+    tensorShards.push_back(tensorPool_.at(inputGlobalId));
+  }
+
+  std::unordered_map<std::string, std::string> strategy;
+  for (const auto &strategyEntry : *command->strategy_map()) {
+    strategy[strategyEntry->key()->c_str()] = strategyEntry->value()->c_str();
+  }
+
+  std::vector<uint32_t> meshShape(command->mesh_shape()->begin(),
+                                  command->mesh_shape()->end());
+
+  ::tt::runtime::Tensor multiDeviceHostTensor =
+      ::tt::runtime::createMultiDeviceHostTensor(tensorShards, strategy,
+                                                 meshShape);
+
+  multiDeviceHostTensor.setGlobalId(command->output_global_id());
+  tensorPool_.insert_or_assign(command->output_global_id(),
+                               multiDeviceHostTensor);
+
+  std::unique_ptr<::flatbuffers::FlatBufferBuilder> responseBuilder =
+      buildResponse(
+          ResponseFactory::buildCreateMultiDeviceHostTensorFromShardsResponse,
+          commandId);
+
+  responseQueue_.push(std::move(responseBuilder));
+}
+
 void CommandExecutor::execute(uint64_t commandId,
                               const fb::IsTensorAllocatedCommand *command) {
   uint64_t tensorGlobalId = command->tensor_global_id();
@@ -636,6 +668,11 @@ void CommandExecutor::executeCommand(const fb::Command *command) {
   case fb::CommandType::CreateHostTensorCommand: {
     return execute(command->command_id(),
                    command->type_as_CreateHostTensorCommand());
+  }
+  case fb::CommandType::CreateMultiDeviceHostTensorFromShardsCommand: {
+    return execute(
+        command->command_id(),
+        command->type_as_CreateMultiDeviceHostTensorFromShardsCommand());
   }
   case fb::CommandType::IsTensorAllocatedCommand: {
     return execute(command->command_id(),

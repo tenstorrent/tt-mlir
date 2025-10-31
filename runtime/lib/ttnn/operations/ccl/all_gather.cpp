@@ -9,8 +9,8 @@
 
 #include "tt/runtime/detail/ttnn/operations/utils.h"
 #include "tt/runtime/detail/ttnn/utils.h"
+#include "ttnn/operations/ccl/all_gather/all_gather.hpp"
 #include "ttnn/operations/ccl/ccl_host_types.hpp"
-#include "ttnn/operations/experimental/ccl/all_gather_async/all_gather_async.hpp"
 
 namespace tt::runtime::ttnn::operations::ccl {
 void run(const ::tt::target::ttnn::AllGatherOp *op, ProgramContext &context) {
@@ -30,26 +30,11 @@ void run(const ::tt::target::ttnn::AllGatherOp *op, ProgramContext &context) {
   LOG_ASSERT(outputMemoryConfig.has_value(),
              "Memory config must exist for device tensors");
 
-  ::ttnn::MeshDevice &meshDevice = context.getMeshDevice();
-  ::ttnn::Tensor out;
+  ::ttnn::Tensor out = ::ttnn::all_gather(
+      input, allGatherDim, clusterAxis, /*subdevice_id=*/std::nullopt,
+      outputMemoryConfig.value(), /*optional_output_tensor=*/std::nullopt,
+      numLinks);
 
-  std::vector<::ttnn::GlobalSemaphore> semaphores;
-  semaphores.push_back(::ttnn::global_semaphore::create_global_semaphore(
-      &meshDevice,
-      meshDevice.worker_cores(::tt::tt_metal::HalProgrammableCoreType::TENSIX,
-                              tt::tt_metal::SubDeviceId{0}),
-      0, tt::tt_metal::BufferType::L1));
-  semaphores.push_back(::ttnn::global_semaphore::create_global_semaphore(
-      &meshDevice,
-      meshDevice.worker_cores(::tt::tt_metal::HalProgrammableCoreType::TENSIX,
-                              tt::tt_metal::SubDeviceId{0}),
-      0, tt::tt_metal::BufferType::L1));
-
-  out = ::ttnn::experimental::all_gather_async(
-      input, allGatherDim, clusterAxis, meshDevice,
-      ::ttnn::ccl::Topology::Linear, semaphores, std::nullopt,
-      outputMemoryConfig, std::make_optional(static_cast<size_t>(numLinks)),
-      std::nullopt);
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
 } // namespace tt::runtime::ttnn::operations::ccl

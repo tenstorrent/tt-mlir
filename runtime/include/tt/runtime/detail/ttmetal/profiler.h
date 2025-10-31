@@ -46,7 +46,7 @@ struct device_operation_t {
 };
 
 inline std::string op_meta_data_serialized_json(
-    chip_id_t deviceId, const tt::tt_metal::Program &program, const char *loc) {
+    ChipId deviceId, const tt::tt_metal::Program &program, const char *loc) {
   std::uint32_t programHash = 0;
 
   auto runtime_id = tt_metal::detail::EncodePerDeviceProgramID(
