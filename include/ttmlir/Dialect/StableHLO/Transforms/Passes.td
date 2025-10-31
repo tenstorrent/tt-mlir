@@ -124,6 +124,29 @@ def AnalyzeMeshPass : Pass<"analyze-mesh", "::mlir::ModuleOp">
   ];
 }
 
+def PropagateCompositeOperandShardingPass
+    : Pass<"propagate-composite-operand-sharding", "::mlir::ModuleOp"> {
+  let summary = "Propagate sharding from stablehlo.composite operands to their decomposition functions and re-run aggressive propagation on those functions only.";
+  let description = [{
+
+    This pass assumes that a global/module-level aggressive propagation pass
+    has already been run so that operands of stablehlo.composite ops may carry
+    `sdy.sharding_per_value` (or `sdy.sharding`). For each composite:
+      1) Read sharding attributes from its operands (prefer per-value if present).
+      2) Resolve the `decomposition` symbol to the callee `func.func`.
+      3) Inject the collected sharding onto the callee's entry block arguments
+         (as `sdy.sharding`). Argument types are synchronized with the call-site.
+      4) Re-run aggressive propagation **only** on that callee.
+    If the same callee is referenced by multiple composites with different
+    sharding, the pass (by default) fails early to avoid inconsistent IR.
+  }];
+
+  let dependentDialects = [
+    "::mlir::func::FuncDialect",
+    "::mlir::sdy::SdyDialect"
+  ];
+}
+
 def WrapUnderManualComputationPass : Pass<"wrap-under-manual-computation", "::mlir::ModuleOp">
 {
   let summary = "Wrap all operations within a sdy manual computation op.";

@@ -63,6 +63,8 @@ void createStableHLOPipeline(OpPassManager &pm,
   // Insert explicit reshards conditionally.
   pm.addPass(createInsertExplicitReshardsPass());
 
+  pm.addPass(createPropagateCompositeOperandShardingPass());
+
   // Wrap all operations under a sdy manual computation op to allow conversion
   // from stablehlo into ttir.
   pm.addPass(createWrapUnderManualComputationPass());

@@ -523,6 +523,10 @@ public:
       }
     });
 
+    llvm::errs() << "=== after updateManualAxes ===\n";
+    rootModule.print(llvm::errs());
+    llvm::errs() << "\n";
+
     // Analyze the graph and cut all the shapes of each operation according to
     // their sdy sharding attribute.
     rootModule.walk([&](func::FuncOp funcOp) {
@@ -533,6 +537,10 @@ public:
         return;
       }
     });
+
+    llvm::errs() << "=== after updateShapes ===\n";
+    rootModule.print(llvm::errs());
+    llvm::errs() << "\n";
 
     // Run conversion pattern to convert all sdy ccl operations into stablehlo
     // ccl operations
