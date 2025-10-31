@@ -1014,6 +1014,17 @@ verifyPoolingOp(llvm::function_ref<mlir::InFlightDiagnostic()> emitOpError,
 }
 
 //===----------------------------------------------------------------------===//
+// MaxPool2dWithIndicesOp
+//===----------------------------------------------------------------------===//
+
+// MaxPool2dWithIndicesOp verification
+::mlir::LogicalResult mlir::tt::ttnn::MaxPool2dWithIndicesOp::verify() {
+  return verifyPoolingOp([&]() { return emitOpError(); }, getInput().getType(),
+                         getKernelSize(), getInputHeight(), getInputWidth(),
+                         getBatchSize(), getChannels(), getOperationName());
+}
+
+//===----------------------------------------------------------------------===//
 // ArangeOp
 //===----------------------------------------------------------------------===//
 
