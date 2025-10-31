@@ -724,13 +724,13 @@ private:
                   adaptor.getWeightDilation()[SPATIAL_DIM_HEIGHT] -
               paddingMatrix[SPATIAL_DIM_HEIGHT][0]),
           static_cast<int32_t>(
-              (weightType.getShape()[SPATIAL_DIM_HEIGHT] - 1) *
-                  adaptor.getWeightDilation()[SPATIAL_DIM_HEIGHT] -
-              paddingMatrix[SPATIAL_DIM_HEIGHT][0]),
-          static_cast<int32_t>(
               (weightType.getShape()[SPATIAL_DIM_WIDTH] - 1) *
                   adaptor.getWeightDilation()[SPATIAL_DIM_WIDTH] -
               paddingMatrix[SPATIAL_DIM_WIDTH][0]),
+              static_cast<int32_t>(
+              (weightType.getShape()[SPATIAL_DIM_HEIGHT] - 1) *
+                  adaptor.getWeightDilation()[SPATIAL_DIM_HEIGHT] -
+              paddingMatrix[SPATIAL_DIM_HEIGHT][0]),
           static_cast<int32_t>(
               (weightType.getShape()[SPATIAL_DIM_WIDTH] - 1) *
                   adaptor.getWeightDilation()[SPATIAL_DIM_WIDTH] -
