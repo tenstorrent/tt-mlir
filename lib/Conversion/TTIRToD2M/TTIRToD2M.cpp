@@ -1052,23 +1052,32 @@ public:
         static_cast<unsigned>(inputLayoutTensorType.getShape().size());
     unsigned logicalRank = inputDeviceRank / 2;
 
-    // Special case: 32x64 -> 64x32 reshape with single stream_layout
-    if (inputShape.size() == 2 && outputShape.size() == 2 &&
-        inputShape[0] == 32 && inputShape[1] == 64 && outputShape[0] == 64 &&
-        outputShape[1] == 32) {
+    // Special case: NxM -> (N*k)x(M/k) reshape with single stream_layout
+    // Works for any 2D reshape where dims are divisible by 32 and total
+    // elements match
+    bool canUseStreamLayoutReshape =
+        inputShape.size() == 2 && outputShape.size() == 2 &&
+        inputShape[0] % 32 == 0 && inputShape[1] % 32 == 0 &&
+        outputShape[0] % 32 == 0 && outputShape[1] % 32 == 0 &&
+        inputShape[0] * inputShape[1] == outputShape[0] * outputShape[1];
+
+    if (canUseStreamLayoutReshape) {
+      int64_t inputCols = inputShape[1];
+      int64_t outputCols = outputShape[1];
 
       // Create affine map for direct reshape: (d0, d1, d2, d3) -> (d0, d1,
-      // (d2*32+d3)//64, (d2*32+d3)%64)
+      // (d2*outputCols+d3)//inputCols, (d2*outputCols+d3)%inputCols)
       SmallVector<AffineExpr> reshapeExprs;
       reshapeExprs.push_back(rewriter.getAffineDimExpr(0)); // d0
       reshapeExprs.push_back(rewriter.getAffineDimExpr(1)); // d1
 
       AffineExpr d2 = rewriter.getAffineDimExpr(2);
       AffineExpr d3 = rewriter.getAffineDimExpr(3);
-      AffineExpr outRow = (d2 * 32 + d3).floorDiv(64);
+      AffineExpr linearIdx = d2 * outputCols + d3;
+      AffineExpr outRow = linearIdx.floorDiv(inputCols);
       reshapeExprs.push_back(outRow);
 
-      AffineExpr outCol = (d2 * 32 + d3) % 64;
+      AffineExpr outCol = linearIdx % inputCols;
       reshapeExprs.push_back(outCol);
 
       AffineMap reshapeMap =
