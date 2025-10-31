@@ -3,8 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
-#include "ttmlir/Dialect/D2M/Utils/Utils.h"
 
+#include "ttmlir/Dialect/D2M/Analysis/DestRegisterAnalysis.h"
 #include "ttmlir/Dialect/D2M/Utils/Utils.h"
 
 #include "mlir/Dialect/Linalg/Transforms/Transforms.h"
@@ -109,46 +109,85 @@ static SmallVector<int64_t> calculateOptimalSubblockSizes(
   return subblockSizes;
 }
 
+// Calculate the output block shape by distributing the subblock factor
+// across dimensions using their GCD (greatest common divisor).
+// For each output dimension, compute gcd(dimension, remainingSubblockFactor).
+// This gives us the block size for that dimension. Then reduce the remaining
+// subblock factor by dividing it by the GCD to carry forward unused factors
+// to the next dimension.
+// Example 1 - Aligned case: outputShape=[16, 16], subblockFactor=4
+//   i=0: gcd(16, 4) = 4 -> outputBlockShape=[4], subblockFactor=4/4=1
+//   i=1: gcd(16, 1) = 1 -> outputBlockShape=[4, 1], subblockFactor=1/1=1
+//
+// Example 2 - Unaligned case: outputShape=[3, 2], subblockFactor=2
+//   i=0: gcd(3, 2) = 1 -> outputBlockShape=[1], subblockFactor=2/1=2
+//   i=1: gcd(2, 2) = 2 -> outputBlockShape=[1, 2], subblockFactor=2/2=1
+//   Result: [1, 2]
+static SmallVector<int64_t>
+calculateOutputBlockShape(ArrayRef<int64_t> outputShape,
+                          int64_t subblockFactor) {
+  SmallVector<int64_t> outputBlockShape;
+
+  for (size_t i = 0; i < outputShape.size(); i++) {
+    int64_t gcd = std::gcd(outputShape[i], subblockFactor);
+    outputBlockShape.push_back(gcd);
+    subblockFactor /= gcd;
+  }
+
+  return outputBlockShape;
+}
+
 namespace {
 struct D2MGenericComputeRewriter : public OpRewritePattern<linalg::GenericOp> {
-  D2MGenericComputeRewriter(MLIRContext *context,
-                            unsigned maxDstPhysicalSizeTiles)
+  D2MGenericComputeRewriter(
+      MLIRContext *context, unsigned maxDstPhysicalSizeTiles,
+      llvm::SmallVector<DstRegisterInfo> dstRegisterInfoList)
       : OpRewritePattern<linalg::GenericOp>(context),
-        maxDstPhysicalSizeTiles(maxDstPhysicalSizeTiles) {}
+        maxDstPhysicalSizeTiles(maxDstPhysicalSizeTiles),
+        dstRegisterInfoList(std::move(dstRegisterInfoList)) {}
 
   LogicalResult matchAndRewrite(linalg::GenericOp op,
                                 PatternRewriter &rewriter) const final {
-    // Current limitation: we only check the output's shape during DST
-    // subblocking optimization, ignoring other operands that might reside in
-    // the DST and so could lead to overflows.
-    //
-    // Be conservative: disable loop subblocking if any of the compute op loads
-    // more than one DST operand, or isn't in-place w.r.t. DST operands.
-    bool optimizeSubblocking = true;
-    op.getRegion().walk([&](OperandLoadStoreRegisterOpInterface computeOp) {
-      optimizeSubblocking = optimizeSubblocking && computeOp.getDstRegInPlace();
-      optimizeSubblocking =
-          optimizeSubblocking &&
-          (computeOp.getOperandsLoadFromDstRegister().size() == 1);
-      return optimizeSubblocking ? WalkResult::advance()
-                                 : WalkResult::interrupt();
-    });
-
     assert(op.getRegion().hasOneBlock());
     assert(op.getOutputs().size() == 1 &&
            "Only one output tensor is supported");
     auto outputTensor =
         mlir::cast<MemRefType>(op.getOutputs().front().getType());
 
+    // Calculate DST capacity to determine if we can optimize subblocking.
+    Type largestDstType = utils::getRegionLargestDstElemType(op.getRegion());
+    const unsigned dstCapacity =
+        ttcore::getOpChipDescAttr(op).getDstLogicalSizeTiles(
+            largestDstType, false, maxDstPhysicalSizeTiles);
+
+    // Get the generic op counter attribute to index into dstRegisterInfoList.
+    auto counterAttr = op->getAttrOfType<IntegerAttr>("generic_op_counter");
+    if (!counterAttr) {
+      return op->emitOpError("Missing generic_op_counter attribute");
+    }
+    int genericOpCounter =
+        static_cast<int>(counterAttr.getValue().getZExtValue());
+
+    // Get max DST usage for this GenericOp from the analysis using the counter.
+    const int maxDstUsage = dstRegisterInfoList[genericOpCounter].dstMaxUsage;
+
+    // Enable subblocking optimization if DST can hold multiple copies of the
+    // usage pattern. For example, if dstCapacity = 8 and maxDstUsage = 3, we
+    // can subblock by factor 2 (fitting 2 copies of 3 slices = 6 slices < 8).
+    // maxDstUsage is the number of slices that are used for one input tile.
+    bool optimizeSubblocking = false;
+    int subblockFactor = 1;
+    if (maxDstUsage > 0 && dstCapacity / maxDstUsage > 1) {
+      optimizeSubblocking = true;
+      subblockFactor = dstCapacity / maxDstUsage;
+    }
+
     SmallVector<int64_t> subblockSizes(outputTensor.getShape().size(), 1);
     if (optimizeSubblocking) {
-      Type largestDstType = utils::getRegionLargestDstElemType(op.getRegion());
-      const unsigned dstCapacity =
-          ttcore::getOpChipDescAttr(op).getDstLogicalSizeTiles(
-              largestDstType, false, maxDstPhysicalSizeTiles);
-
+      SmallVector<int64_t> outputBlockShape =
+          calculateOutputBlockShape(outputTensor.getShape(), subblockFactor);
       subblockSizes = calculateOptimalSubblockSizes(
-          op.getIndexingMapsArray(), op.getInputs(), outputTensor.getShape(),
+          op.getIndexingMapsArray(), op.getInputs(), outputBlockShape,
           dstCapacity);
     }
 
@@ -170,6 +209,7 @@ struct D2MGenericComputeRewriter : public OpRewritePattern<linalg::GenericOp> {
   }
 
   unsigned maxDstPhysicalSizeTiles = 0;
+  llvm::SmallVector<DstRegisterInfo> dstRegisterInfoList;
 };
 } // namespace
 
@@ -181,11 +221,23 @@ public:
       D2MGenericTileComputeLoops>::D2MGenericTileComputeLoopsBase;
 
   void runOnOperation() final {
+
+    // Retrieve the cached analysis from the pass manager instead of
+    // recomputing.
+    auto analysisMaybe = getCachedAnalysis<DestRegisterAnalysis>();
+    if (!analysisMaybe.has_value()) {
+      return signalPassFailure();
+    }
+    DestRegisterAnalysis analysis = analysisMaybe.value().get();
+
     MLIRContext *ctx = &getContext();
     RewritePatternSet patterns(ctx);
-    patterns.add<D2MGenericComputeRewriter>(ctx,
-                                            maxDstPhysicalSizeTiles.getValue());
+    patterns.add<D2MGenericComputeRewriter>(
+        ctx, maxDstPhysicalSizeTiles.getValue(), analysis.dstRegisterInfoList);
     walkAndApplyPatterns(getOperation(), std::move(patterns));
+
+    // Mark the analysis as preserved for use by downstream passes.
+    markAnalysesPreserved<DestRegisterAnalysis>();
   }
 };
 } // namespace
