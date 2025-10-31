@@ -3,6 +3,14 @@ include "ttmlir/Target/TTNN/types.fbs";
 
 namespace tt.target.ttnn;
 
+
+table AssignOp {
+  input: tt.target.ttnn.TensorRef;
+  output: tt.target.ttnn.TensorRef;
+  output_memory_config: tt.target.ttnn.MemoryConfig;
+  output_dtype: tt.target.DataType = null;
+}
+
 table ConcatOp {
  inputs: [tt.target.ttnn.TensorRef];
  out: tt.target.ttnn.TensorRef;
