@@ -128,6 +128,7 @@ private:
     populateBroadcastCommutePatterns<commuteDirection>(&getContext(), patterns);
     populateConcatCommutePatterns<commuteDirection>(&getContext(), patterns);
     populateSliceCommutePatterns<commuteDirection>(&getContext(), patterns);
+    populateReduceCommutePatterns<commuteDirection>(&getContext(), patterns);
 
     populateTTIRTMFusionPatterns(&getContext(), patterns);
     return patterns;
