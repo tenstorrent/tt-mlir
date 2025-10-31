@@ -237,6 +237,11 @@ def D2M_GenericOp : D2M_Op<"generic",
       }
       bool isAffineMapForm() { return !getIndexingMaps().empty(); }
       bool isLoweredLoopForm() { return !isAffineMapForm(); }
+      bool isExplicitDatamovementForm() {
+        return getBlockFactors().empty() &&
+               getIndexingMaps().empty() &&
+               getIteratorTypes().empty();
+      }
       bool isExternalSymbolForm() { return getRegions().empty(); }
       SmallVector<SmallVector<int64_t>> getOperandGridShapes();
       SmallVector<int64_t> getLoopBounds();
