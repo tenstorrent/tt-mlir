@@ -2709,6 +2709,97 @@ llvm::Expected<size_t> OpModel<RotaryEmbeddingLlamaOp>::getOpRuntime(
 }
 
 //===----------------------------------------------------------------------===//
+// RotaryEmbeddingOp
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<OpConstraints> OpModel<RotaryEmbeddingOp>::getOpConstraints(
+    ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
+    TTNNLayoutAttr inputLayout, llvm::ArrayRef<int64_t> cosShape,
+    TTNNLayoutAttr cosLayout, llvm::ArrayRef<int64_t> sinShape,
+    TTNNLayoutAttr sinLayout, std::optional<uint32_t> tokenIndex,
+    TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+
+  auto cosSpecExp = detail::convertToTensorSpec(device, cosShape, cosLayout);
+  if (!cosSpecExp) {
+    return cosSpecExp.takeError();
+  }
+
+  auto sinSpecExp = detail::convertToTensorSpec(device, sinShape, sinLayout);
+  if (!sinSpecExp) {
+    return sinSpecExp.takeError();
+  }
+
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ::ttnn::TensorSpec cosSpec = cosSpecExp.get();
+  ::ttnn::TensorSpec sinSpec = sinSpecExp.get();
+
+  auto rotaryEmbeddingOpQuery = [=]() {
+    return ::ttnn::graph::query_op_constraints(
+        ::ttnn::experimental::rotary_embedding, device, inputSpec, cosSpec,
+        sinSpec, tokenIndex, detail::getNullableMemoryConfig(outputLayout));
+  };
+
+  return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
+                                     rotaryEmbeddingOpQuery);
+#else
+  return OpConstraints{};
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+llvm::Expected<size_t> OpModel<RotaryEmbeddingOp>::getOpRuntime(
+    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+    llvm::ArrayRef<int64_t> cosShape, TTNNLayoutAttr cosLayout,
+    llvm::ArrayRef<int64_t> sinShape, TTNNLayoutAttr sinLayout,
+    std::optional<uint32_t> tokenIndex, TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+
+  auto cosSpecExp = detail::convertToTensorSpec(device, cosShape, cosLayout);
+  if (!cosSpecExp) {
+    return cosSpecExp.takeError();
+  }
+
+  auto sinSpecExp = detail::convertToTensorSpec(device, sinShape, sinLayout);
+  if (!sinSpecExp) {
+    return sinSpecExp.takeError();
+  }
+
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ::ttnn::TensorSpec cosSpec = cosSpecExp.get();
+  ::ttnn::TensorSpec sinSpec = sinSpecExp.get();
+
+  // Create query closure
+  auto rotaryEmbeddingOpQuery = [=]() {
+    return ::ttnn::graph::query_op_runtime(
+        ::ttnn::experimental::rotary_embedding, device, inputSpec, cosSpec,
+        sinSpec, tokenIndex, detail::getNullableMemoryConfig(outputLayout));
+  };
+
+  return operation::getOpRuntime(rotaryEmbeddingOpQuery);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+//===----------------------------------------------------------------------===//
 // NLPCreateQKVHeadsDecodeOp
 //===----------------------------------------------------------------------===//
 llvm::Expected<op_model::OpConstraints>

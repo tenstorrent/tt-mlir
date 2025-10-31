@@ -31,6 +31,8 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.cpp.inc"
 
 namespace mlir::tt::ttnn {
+using mlir::RankedTensorType;
+
 //===----------------------------------------------------------------------===//
 // Utils
 //===----------------------------------------------------------------------===//
@@ -3777,6 +3779,55 @@ mlir::LogicalResult RotaryEmbeddingLlamaOp::verify() {
   // Output shape should match input shape
   if (outputType.getShape() != inputType.getShape()) {
     return emitOpError("output shape must match input shape.");
+  }
+
+  return mlir::success();
+}
+
+//===----------------------------------------------------------------------===//
+// RotaryEmbeddingOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult RotaryEmbeddingOp::verify() {
+  mlir::RankedTensorType inputType = getInput().getType();
+  mlir::RankedTensorType cosType = getCosCache().getType();
+  mlir::RankedTensorType sinType = getSinCache().getType();
+  mlir::RankedTensorType outputType = getResult().getType();
+
+  if (inputType != outputType) {
+    return emitOpError("input and output tensor types must match.");
+  }
+
+  if (cosType != sinType) {
+    return emitOpError("cos and sin tensor types must match.");
+  }
+
+  SmallVector<RankedTensorType> inputTypes = {inputType, cosType, sinType,
+                                              outputType};
+
+  auto devicePredicate = [](mlir::RankedTensorType type) {
+    return ttnn::utils::isTensorOnDevice(type);
+  };
+
+  if (!llvm::all_of(inputTypes, devicePredicate)) {
+    return emitOpError("all input and output tensors must be on device.");
+  }
+
+  auto tilePredicate = [](mlir::RankedTensorType type) {
+    auto encoding = cast<ttnn::TTNNLayoutAttr>(type.getEncoding());
+    return encoding.isTiled();
+  };
+
+  if (!llvm::all_of(inputTypes, tilePredicate)) {
+    return emitOpError("all input and output tensors must have tiled layout.");
+  }
+
+  auto rankPredicate = [](mlir::RankedTensorType type) {
+    return type.getRank() == 4;
+  };
+
+  if (!llvm::all_of(inputTypes, rankPredicate)) {
+    return emitOpError("all input and output tensors must be 4D tensors.");
   }
 
   return mlir::success();
