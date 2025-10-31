@@ -52,6 +52,7 @@ def run_cmake_setup(args):
         f"-DCMAKE_BUILD_TYPE={args.build_type}",
         f"-DCMAKE_C_COMPILER={os.environ.get('CC', 'clang')}",
         f"-DCMAKE_CXX_COMPILER={os.environ.get('CXX', 'clang++')}",
+        "-DCMAKE_CXX_COMPILER_LAUNCHER=ccache",
     ]
 
     if args.metal_src_dir:
