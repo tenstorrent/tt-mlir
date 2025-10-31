@@ -84,10 +84,10 @@ public:
       bool linalgToAffineFailed = false;
       block.walk([&](linalg::GenericOp linalgGenericOp) {
         if (!useTileMatmul && hasTileMatmul(linalgGenericOp)) {
-          // Only use tile matmul block rewrite if the d2m.generic has indexing
-          // maps. Empty indexing maps indicate a simple operation that should
-          // fall through to regular linalg-to-affine conversion.
-          if (!op.getIndexingMaps().empty()) {
+          // Only use tile matmul block rewrite when not in explicit
+          // datamovement form. Explicit datamovement form should fall through
+          // to regular linalg-to-affine conversion.
+          if (!op.isExplicitDatamovementForm()) {
             linalgToAffineFailed |= rewriteTileMatmulAsTileMatmulBlock(
                 rewriter, op, *genericRegion, linalgGenericOp, dstCapacity,
                 modified);

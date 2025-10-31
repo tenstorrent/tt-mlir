@@ -1167,10 +1167,17 @@ static mlir::LogicalResult verifyAffineBlocking(
       }
     }
 
-    if (indexingMaps.empty()) {
-      // If there are no indexing maps, then we can no longer validate block
-      // argument shapes.
+    if (isExplicitDatamovementForm()) {
+      // Explicit datamovement form: skip shape validation.
       continue;
+    }
+
+    // When not in explicit datamovement form, indexing_maps must be non-empty.
+    if (indexingMaps.empty()) {
+      return emitOpError(
+          "indexing_maps must be non-empty unless in explicit "
+          "datamovement form (all of block_factors, indexing_maps, "
+          "and iterator_types are empty)");
     }
 
     auto valueArguments = region.getArguments().take_front(operandTypes.size());

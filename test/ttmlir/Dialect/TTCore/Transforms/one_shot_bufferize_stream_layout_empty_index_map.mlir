@@ -26,4 +26,3 @@ module {
     return %stream : tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout>
   }
 }
-

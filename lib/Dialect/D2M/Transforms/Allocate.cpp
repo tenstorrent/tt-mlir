@@ -396,9 +396,9 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
         continue;
       }
 
-      // If indexing maps are not yet generated (pre-loop generation),
-      // we can't analyze reduction/broadcast dimensions, so skip this analysis.
-      if (genericOp.getIndexingMaps().empty()) {
+      // In explicit datamovement form, we can't analyze reduction/broadcast
+      // dimensions, so skip this analysis.
+      if (genericOp.isExplicitDatamovementForm()) {
         continue;
       }
 
