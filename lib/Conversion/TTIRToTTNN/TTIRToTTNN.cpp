@@ -1189,13 +1189,19 @@ public:
     auto outputDtypeAttr =
         rewriter.getAttr<ttcore::DataTypeAttr>(outputLayoutAttr.getDataType());
 
+    // Create compute config with HiFi2 math fidelity
+    auto computeConfig = ttnn::DeviceComputeKernelConfigAttr::get(
+        rewriter.getContext(), ttnn::MathFidelity::HiFi2,
+        /*math_approx_mode=*/nullptr, /*fp32_dest_acc_en=*/nullptr,
+        /*packer_l1_acc=*/nullptr, /*dst_full_sync_en=*/nullptr);
+
     rewriter.replaceOpWithNewOp<ttnn::Conv2dOp>(
         op, getTypeConverter()->convertType(op.getResult().getType()),
         adaptor.getInput(), adaptor.getWeight(), adaptor.getBias(), device,
         inChannelsAttr, outChannelsAttr, batchSizeAttr, inputHeightAttr,
         inputWidthAttr, kernelSizeAttr, *strideAttr, paddingAttr, *dilationAttr,
         groupsAttr, outputDtypeAttr, /*conv2d_config=*/nullptr,
-        /*compute_config=*/nullptr, /*conv2d_slice_config=*/nullptr);
+        /*compute_config=*/computeConfig, /*conv2d_slice_config=*/nullptr);
 
     return success();
   }
@@ -1303,13 +1309,20 @@ public:
     auto outputDtypeAttr =
         rewriter.getAttr<ttcore::DataTypeAttr>(outputLayoutAttr.getDataType());
 
+    // Create compute config with HiFi2 math fidelity
+    auto computeConfig = ttnn::DeviceComputeKernelConfigAttr::get(
+        rewriter.getContext(), ttnn::MathFidelity::HiFi2,
+        /*math_approx_mode=*/nullptr, /*fp32_dest_acc_en=*/nullptr,
+        /*packer_l1_acc=*/nullptr, /*dst_full_sync_en=*/nullptr);
+
     rewriter.replaceOpWithNewOp<ttnn::ConvTranspose2dOp>(
         op, getTypeConverter()->convertType(outputTy), adaptor.getInput(),
         adaptor.getWeight(), adaptor.getBias(), device, inChannelsAttr,
         outChannelsAttr, batchSizeAttr, inputHeightAttr, inputWidthAttr,
         kernelSizeAttr, *strideAttr, reducedPaddingAttr, *outputPaddingAttr,
         *dilationAttr, groupsAttr, outputDtypeAttr, /*conv2d_config=*/nullptr,
-        /*compute_config=*/nullptr, /*memoryConfig=*/nullptr);
+        // /*compute_config=*/nullptr, /*memoryConfig=*/nullptr);
+        computeConfig, /*memoryConfig=*/nullptr);
 
     return success();
   }

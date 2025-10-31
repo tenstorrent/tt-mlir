@@ -85,6 +85,12 @@ public:
       Type inputElementType = inputLayoutAttr.getScalarElementType();
       conv2dConfig = conv2dConfig.withWeightsDtype(inputDtypeAttr.getValue());
 
+      // Create compute config with HiFi2 math fidelity
+      auto computeConfig = ttnn::DeviceComputeKernelConfigAttr::get(
+          &getContext(), ttnn::MathFidelity::HiFi2,
+          /*math_approx_mode=*/nullptr, /*fp32_dest_acc_en=*/nullptr,
+          /*packer_l1_acc=*/nullptr, /*dst_full_sync_en=*/nullptr);
+
       rewriter.setInsertionPoint(conv2dOp);
       ttnn::PrepareConv2dWeightsOp prepareConv2dWeightsOp =
           rewriter.create<ttnn::PrepareConv2dWeightsOp>(
@@ -100,7 +106,8 @@ public:
               conv2dOp.getPaddingAttr(), conv2dOp.getDilationAttr(),
               rewriter.getBoolAttr(conv2dOp.getBias() != nullptr),
               conv2dOp.getGroupsAttr(), conv2dOp.getDevice(), inputDtypeAttr,
-              outputDtypeAttr, conv2dConfig, /*compute_config=*/nullptr,
+              //   outputDtypeAttr, conv2dConfig, /*compute_config=*/nullptr,
+              outputDtypeAttr, conv2dConfig, computeConfig,
               conv2dOp.getConv2dSliceConfigAttr());
 
       ttnn::PrepareConv2dBiasOp prepareConv2dBiasOp;
@@ -117,7 +124,8 @@ public:
             conv2dOp.getStrideAttr(), conv2dOp.getPaddingAttr(),
             conv2dOp.getDilationAttr(), conv2dOp.getGroupsAttr(),
             conv2dOp.getDevice(), inputDtypeAttr, outputDtypeAttr, conv2dConfig,
-            /*compute_config=*/nullptr, conv2dOp.getConv2dSliceConfigAttr());
+            // /*compute_config=*/nullptr, conv2dOp.getConv2dSliceConfigAttr());
+            computeConfig, conv2dOp.getConv2dSliceConfigAttr());
       }
 
       // Update only the weight and bias since PrepareConv2dWeightsOp and
