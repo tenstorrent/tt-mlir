@@ -34,8 +34,8 @@ static bool isBatchedLinearOp(ttnn::LinearOp linearOp) {
 // Calculate the output shape of a matmul operation following tt-metal's logic.
 // Reference: ttnn/cpp/ttnn/operations/matmul/matmul.cpp
 static SmallVector<int64_t>
-computeMatmulOutputShape(llvm::ArrayRef<int64_t> shapeA,
-                         llvm::ArrayRef<int64_t> shapeB) {
+computeMatmulOutputShape(llvm::ArrayRef<int64_t> shapeA, bool transposeA,
+                         llvm::ArrayRef<int64_t> shapeB, bool transposeB) {
   int64_t rankA = shapeA.size();
   int64_t rankB = shapeB.size();
 
@@ -51,8 +51,17 @@ computeMatmulOutputShape(llvm::ArrayRef<int64_t> shapeA,
                                            outputShape);
 
   // Matmul inner dims: (…, p, q) x (…, q, r) -> (…, p, r)
-  outputShape.push_back(shapeA[rankA - 2]);
-  outputShape.push_back(shapeB[rankB - 1]);
+  if (transposeA) {
+    outputShape.push_back(shapeA[rankA - 1]);
+  } else {
+    outputShape.push_back(shapeA[rankA - 2]);
+  }
+
+  if (transposeB) {
+    outputShape.push_back(shapeB[rankB - 2]);
+  } else {
+    outputShape.push_back(shapeB[rankB - 1]);
+  }
 
   return outputShape;
 }
@@ -72,7 +81,8 @@ LinearOpRewritePattern::matchAndRewrite(ttnn::LinearOp srcOp,
 
   // Compute matmul output shape
   SmallVector<int64_t> matmulShape =
-      computeMatmulOutputShape(inputAType.getShape(), inputBType.getShape());
+      computeMatmulOutputShape(inputAType.getShape(), srcOp.getTransposeA(),
+                               inputBType.getShape(), srcOp.getTransposeB());
 
   // Create matmul output type
   auto outputEncoding =

@@ -623,17 +623,7 @@ private:
     // https://github.com/llvm/torch-mlir/blob/main/lib/Conversion/TorchToStablehlo/Linear.cpp
     // and XLA patterns: convolution is transposed if the input dilation is
     // greater than 1.
-    bool isTransposed =
-        convLayoutAttr.getKernelInputFeatureDimension() ==
-            convLayoutAttr.getInputSpatialDimensions()[SPATIAL_DIM_WIDTH] &&
-        convLayoutAttr.getKernelOutputFeatureDimension() ==
-            convLayoutAttr.getInputSpatialDimensions()[SPATIAL_DIM_HEIGHT] &&
-        convLayoutAttr.getInputSpatialDimensions() !=
-            convLayoutAttr.getKernelSpatialDimensions() &&
-        convLayoutAttr.getOutputSpatialDimensions() !=
-            convLayoutAttr.getKernelSpatialDimensions();
-    isTransposed |= llvm::any_of(adaptor.getInputDilation(),
-                                 [](int64_t d) { return d > 1; });
+    bool isTransposed = ttir::utils::isTransposedConv(op);
 
     auto strideAttr = rewriter.getDenseI32ArrayAttr({
         static_cast<int32_t>(adaptor.getWindowStrides()[SPATIAL_DIM_HEIGHT]),
@@ -734,13 +724,13 @@ private:
                   adaptor.getWeightDilation()[SPATIAL_DIM_HEIGHT] -
               paddingMatrix[SPATIAL_DIM_HEIGHT][0]),
           static_cast<int32_t>(
-              (weightType.getShape()[SPATIAL_DIM_HEIGHT] - 1) *
-                  adaptor.getWeightDilation()[SPATIAL_DIM_HEIGHT] -
-              paddingMatrix[SPATIAL_DIM_HEIGHT][0]),
-          static_cast<int32_t>(
               (weightType.getShape()[SPATIAL_DIM_WIDTH] - 1) *
                   adaptor.getWeightDilation()[SPATIAL_DIM_WIDTH] -
               paddingMatrix[SPATIAL_DIM_WIDTH][0]),
+          static_cast<int32_t>(
+              (weightType.getShape()[SPATIAL_DIM_HEIGHT] - 1) *
+                  adaptor.getWeightDilation()[SPATIAL_DIM_HEIGHT] -
+              paddingMatrix[SPATIAL_DIM_HEIGHT][0]),
           static_cast<int32_t>(
               (weightType.getShape()[SPATIAL_DIM_WIDTH] - 1) *
                   adaptor.getWeightDilation()[SPATIAL_DIM_WIDTH] -
@@ -780,22 +770,6 @@ namespace {
 struct ReverseOpConversionPattern
     : public OpConversionPattern<ttir::ReverseOp> {
   using OpConversionPattern<ttir::ReverseOp>::OpConversionPattern;
-
-  // Helper to check if this convolution is a transposed convolution.
-  bool isTransposedConv(ttir::ConvolutionOp op) const {
-    if (!op) {
-      return false;
-    }
-    auto convLayoutAttr = op.getConvolutionLayoutAttr();
-    return convLayoutAttr.getKernelInputFeatureDimension() ==
-               convLayoutAttr.getInputSpatialDimensions()[1] &&
-           convLayoutAttr.getKernelOutputFeatureDimension() ==
-               convLayoutAttr.getInputSpatialDimensions()[0] &&
-           convLayoutAttr.getInputSpatialDimensions() !=
-               convLayoutAttr.getKernelSpatialDimensions() &&
-           convLayoutAttr.getOutputSpatialDimensions() !=
-               convLayoutAttr.getKernelSpatialDimensions();
-  }
 
   LogicalResult
   matchAndRewrite(ttir::ReverseOp op, OpAdaptor adaptor,
@@ -849,7 +823,7 @@ struct ReverseOpConversionPattern
     // internally.
 
     rewriter.replaceUsesWithIf(op, currentInput, [&](OpOperand &operand) {
-      return !isTransposedConv(
+      return !ttir::utils::isTransposedConv(
           dyn_cast<ttir::ConvolutionOp>(operand.getOwner()));
     });
 
