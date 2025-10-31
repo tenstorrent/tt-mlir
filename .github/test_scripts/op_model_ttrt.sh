@@ -8,6 +8,11 @@ set -e -o pipefail
 echo "Run Optimizer Models Perf Tests"
 llvm-lit -v --xunit-xml-output $TEST_REPORT_PATH $BUILD_DIR/test/ttmlir/Silicon/TTNN/n150/optimizer
 echo
+if [ "$IMAGE_NAME" = "speedy" ]; then
+    echo "Running optimizer tests"
+    $BUILD_DIR/test/unittests/Optimizer/OptimizerTests --gtest_brief=1
+    echo
+fi
 echo "Running op-model ttrt test"
 ttrt $1 $BUILD_DIR/test/ttmlir/Silicon/TTNN/n150/optimizer
 cp ${1}_results.json ${TTRT_REPORT_PATH} || true
