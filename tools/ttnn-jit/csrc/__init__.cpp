@@ -63,7 +63,7 @@ NB_MODULE(_ttnn_jit, m) {
              return *binary;
            })
       .def("compile_and_insert",
-           [](JitCache *self, std::string ir, std::string options,
+           [](JitCache *self, std::string ir, std::string options, bool debug,
               nb::args args) {
              // Parse IR string into MLIR module; unable to recognize MlirModule
              // from python, without using MLIR cmake macros for python
@@ -87,6 +87,10 @@ NB_MODULE(_ttnn_jit, m) {
              mlir::Operation *op = unwrap(mlirModuleGetOperation(module));
              JitCacheEntry binary =
                  self->compile_and_insert(op, tensor_args, options);
+
+             if (debug) {
+               op->dumpPretty();
+             }
 
              mlirModuleDestroy(module);
              mlirContextDestroy(ctx);

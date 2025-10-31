@@ -27,6 +27,12 @@ void registerRuntimeTestBindings(nb::module_ &m) {
         "Open a shared object");
   m.def("close_so", &tt::runtime::test::ttnn::closeSo, nb::arg("handle"),
         "Close a shared object");
+  m.def("get_so_programs", &tt::runtime::test::ttnn::getSoPrograms,
+        nb::arg("so"), nb::arg("path"),
+        "Get the program names from a shared object file");
+  m.def("create_inputs", &tt::runtime::test::ttnn::createInputs, nb::arg("so"),
+        nb::arg("func_name"), nb::arg("device"), nb::arg("path"),
+        "Create inputs for a program from a shared object file");
   m.def("run_so_program", &tt::runtime::test::ttnn::runSoProgram, nb::arg("so"),
         nb::arg("func_name"), nb::arg("inputs"), nb::arg("device"),
         "Run a program from a shared object file");

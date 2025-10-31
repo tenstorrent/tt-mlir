@@ -4791,7 +4791,7 @@ def TTIR_FullOp : TTIR_CreationOp<"full"> {
   let hasVerifier = 1;
 }
 
-def TTIR_RandOp : TTIR_CreationOp<"rand"> {
+def TTIR_RandOp : TTIR_CreationOp<"rand", [TTCore_NonCacheableTrait]> {
   let summary = "Random number generation operation.";
   let description = [{
     Returns a tensor filled with random numbers drawn from a uniform distribution over given interval [low, high) [Default: [0, 1)].
@@ -4922,7 +4922,7 @@ def TTIR_OnesOp : TTIR_NamedFullOp<"ones"> {
   }];
 }
 
-def TTIR_EmptyOp : TTIR_CreationOp<"empty"> {
+def TTIR_EmptyOp : TTIR_CreationOp<"empty", [TTCore_NonCacheableTrait]> {
     let summary = "Empty tensor allocation operation.";
     let description = [{
       The `empty` operation creates an uninitialized tensor with the specified shape and element type.

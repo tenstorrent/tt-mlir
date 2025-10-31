@@ -11,7 +11,30 @@ import pytest
 @pytest.mark.parametrize(
     "ttir_path, function_name",
     [
+        # Unary operations
+        ("runtime/tools/chisel/test/mlir/test_abs.mlir", "abs"),
+        ("runtime/tools/chisel/test/mlir/test_relu.mlir", "relu"),
+        ("runtime/tools/chisel/test/mlir/test_exp.mlir", "exp"),
+        # Binary operations
         ("runtime/tools/chisel/test/mlir/test_add.mlir", "add"),
+        ("runtime/tools/chisel/test/mlir/test_atan2.mlir", "atan2"),
+        ("runtime/tools/chisel/test/mlir/test_div.mlir", "div"),
+        ("runtime/tools/chisel/test/mlir/test_maximum.mlir", "maximum"),
+        ("runtime/tools/chisel/test/mlir/test_minimum.mlir", "minimum"),
+        ("runtime/tools/chisel/test/mlir/test_multiply.mlir", "multiply"),
+        ("runtime/tools/chisel/test/mlir/test_subtract.mlir", "subtract"),
+        # Comparison operations
+        ("runtime/tools/chisel/test/mlir/test_equal.mlir", "equal"),
+        ("runtime/tools/chisel/test/mlir/test_greater_than.mlir", "greater_than"),
+        # Bitwise operations
+        ("runtime/tools/chisel/test/mlir/test_bitwise_and.mlir", "bitwise_and"),
+        ("runtime/tools/chisel/test/mlir/test_bitwise_xor.mlir", "bitwise_xor"),
+        # Tensor manipulation
+        ("runtime/tools/chisel/test/mlir/test_transpose.mlir", "transpose"),
+        ("runtime/tools/chisel/test/mlir/test_reshape.mlir", "reshape"),
+        # Neural network operations
+        ("runtime/tools/chisel/test/mlir/test_matmul.mlir", "matmul"),
+        ("runtime/tools/chisel/test/mlir/test_softmax.mlir", "softmax"),
     ],
 )
 def test_chisel_cli_main(ttir_path: str, function_name: str):

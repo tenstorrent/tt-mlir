@@ -16,6 +16,10 @@ class TTCoreCreationOpTrait
 template <typename Ty>
 class TTCoreDuplicateConstEvalTrait
     : public mlir::OpTrait::TraitBase<Ty, TTCoreDuplicateConstEvalTrait> {};
+
+template <typename Ty>
+class TTCoreNonCacheableTrait
+    : public mlir::OpTrait::TraitBase<Ty, TTCoreNonCacheableTrait> {};
 } // namespace mlir::tt::ttcore::Trait
 
 #endif

@@ -108,7 +108,3 @@ jobs:
           IRD_IMAGE_NAME=$(echo $DOCKER_CI_IMAGE | sed 's/:.*//' | sed 's/-ci-/-ird-/')
           echo "Setting latest tag on the image $IRD_IMAGE_NAME:$DOCKER_TAG"
           skopeo copy "docker://$IRD_IMAGE_NAME:$DOCKER_TAG" "docker://$IRD_IMAGE_NAME:latest"
-
-          CIBW_IMAGE_NAME=$(echo $DOCKER_CI_IMAGE | sed 's/:.*//' | sed 's/-ci-/-manylinux-/')
-          echo "Setting latest tag on the image $CIBW_IMAGE_NAME:$DOCKER_TAG"
-          skopeo copy "docker://$CIBW_IMAGE_NAME:$DOCKER_TAG" "docker://$CIBW_IMAGE_NAME:latest"
