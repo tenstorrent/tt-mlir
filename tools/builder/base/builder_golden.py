@@ -355,7 +355,6 @@ def cbrt_golden(x: BuilderGoldenTensor) -> BuilderGoldenTensor:
 def conv2d_golden(
     input_tensor: BuilderGoldenTensor,
     weight: BuilderGoldenTensor,
-    bias: Optional[BuilderGoldenTensor] = None,
     **kwargs,
 ) -> BuilderGoldenTensor:
     """
@@ -382,6 +381,7 @@ def conv2d_golden(
         Result of 2D convolution with layout transformation
     """
     # ttir can handle a broadcastable bias in the shape [1, 1, 1, C_out], but PyTorch requires the bias to be rank 1: [C_out].
+    bias = kwargs.get("bias", None)
     if bias is not None:
         bias = bias.squeeze()  # Removes all dims of size 1
 

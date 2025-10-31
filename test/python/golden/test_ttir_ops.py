@@ -585,6 +585,59 @@ def test_conv2d(
     "shapes",
     [
         [
+            (12, 224, 224, 3),
+            (32, 3, 3, 3),
+        ]
+    ],
+    ids=shapes_list_str,
+)
+@pytest.mark.parametrize("input_dtypes", [[torch.bfloat16, torch.bfloat16]])
+@pytest.mark.parametrize(
+    "stride,padding,dilation,groups", [([2, 1], [1, 1], [1, 1], 1)]
+)
+def test_conv2d_no_bias(
+    shapes: List[Shape],
+    input_dtypes: List[Union[torch.dtype, TypeInfo]],
+    stride: List[int],
+    padding: List[int],
+    dilation: List[int],
+    groups: int,
+    request,
+    device,
+):
+    def conv2d_no_bias(
+        in0: Operand,
+        weight: Operand,
+        builder: TTIRBuilder,
+        *,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        return builder.conv2d(
+            in0,
+            weight,
+            bias=None,
+            stride=stride,
+            padding=padding,
+            dilation=dilation,
+            groups=groups,
+            unit_attrs=unit_attrs,
+        )
+
+    compile_and_execute_ttir(
+        conv2d_no_bias,
+        shapes,
+        input_dtypes,
+        test_base=request.node.name,
+        device=device,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+    )
+
+
+@pytest.mark.parametrize(
+    "shapes",
+    [
+        [
             (1, 32, 32, 64),
             (64, 32, 3, 3),
             (1, 1, 1, 64),

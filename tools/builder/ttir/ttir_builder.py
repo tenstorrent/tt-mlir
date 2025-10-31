@@ -2941,9 +2941,10 @@ class TTIRBuilder(Builder):
         """
         if not bias:
             bias = None
+        golden_bias = self._get_golden_tensor(bias) if bias is not None else None
         return self._op_proxy(
             ttir.Conv2dOp,
-            [in0, weight, bias],
+            [in0, weight],
             ttir_kwargs={
                 "stride": (
                     IntegerAttr.get(IntegerType.get_signed(32), stride)
@@ -2961,6 +2962,14 @@ class TTIRBuilder(Builder):
                     else DenseI32ArrayAttr.get(dilation)
                 ),
                 "groups": groups,
+                "bias": bias,
+            },
+            golden_kwargs={
+                "stride": stride,
+                "padding": padding,
+                "dilation": dilation,
+                "groups": groups,
+                "bias": golden_bias,
             },
             organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], i[1], o),
             unit_attrs=unit_attrs,
