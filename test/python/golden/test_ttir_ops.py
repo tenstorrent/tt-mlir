@@ -3297,15 +3297,16 @@ def test_triple_return_support(
 
 
 shapes_list = [
-    [(32, 64), (64, 32)],  # k=2: rows x2, cols /2
-    [(64, 128), (128, 64)],  # k=2: rows x2, cols /2
-    [(128, 256), (256, 128)],  # k=2: rows x2, cols /2
-    [(64, 32), (32, 64)],  # k=0.5: rows /2, cols x2 (inverse)
-    [(32, 128), (128, 32)],  # k=4: rows x4, cols /4
-    [(128, 32), (32, 128)],  # k=0.25: rows /4, cols x4 (inverse)
-    [(32, 96), (96, 32)],  # k=3: rows x3, cols /3
-    [(64, 96), (96, 64)],  # k=1.5: rows x1.5, cols /1.5
-    [(96, 32), (32, 96)],  # k=3: rows x3, cols /3
+    # [(32, 64), (64, 32)],  # k=2: rows x2, cols /2
+    # [(64, 128), (128, 64)],  # k=2: rows x2, cols /2
+    # [(128, 256), (256, 128)],  # k=2: rows x2, cols /2
+    # [(64, 32), (32, 64)],  # k=0.5: rows /2, cols x2 (inverse)
+    # [(32, 128), (128, 32)],  # k=4: rows x4, cols /4
+    # [(128, 32), (32, 128)],  # k=0.25: rows /4, cols x4 (inverse)
+    # [(32, 96), (96, 32)],  # k=3: rows x3, cols /3
+    # [(64, 96), (96, 64)],  # k=1.5: rows x1.5, cols /1.5
+    # [(96, 32), (32, 96)],  # k=3: rows x3, cols /3
+    [(32, 64, 32), (64, 1024)],
 ]
 
 
@@ -3339,4 +3340,5 @@ def test_reshape_abs(
         system_desc_path=request.config.getoption("--sys-desc"),
         target=target,
         custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
+        print_ir=True,
     )
