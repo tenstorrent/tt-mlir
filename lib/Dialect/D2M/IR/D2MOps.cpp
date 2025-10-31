@@ -1262,21 +1262,20 @@ void GenericOp::getCanonicalizationPatterns(mlir::RewritePatternSet &patterns,
           assert(blockArg.getNumUses() > 0);
 
           // Find a wait/reserve that dominates the DPS operation.
-          // Use DominanceInfo for proper cross-block dominance checking.
           Operation *waitOrReserve = nullptr;
 
-          // Get the parent FuncOp to compute dominance
+          // Get the parent FuncOp to compute dominance.
           Operation *parentOp = op->getParentOp();
           while (parentOp && !mlir::isa<func::FuncOp>(parentOp)) {
             parentOp = parentOp->getParentOp();
           }
 
           if (!parentOp) {
-            // Fallback to same-block check if no FuncOp found
+            // Fallback to same-block check if no FuncOp found.
             for (Operation *user : blockArg.getUsers()) {
-              if (!mlir::isa<d2m::WaitOp, d2m::ReserveOp>(user)) {
-                continue;
-              }
+              TT_assertv(
+                  (mlir::isa<d2m::WaitOp, d2m::ReserveOp>(user)),
+                  "block argument users must be wait/reserve operations");
               if (user->getBlock() == regionOp->getBlock() &&
                   user->isBeforeInBlock(regionOp)) {
                 waitOrReserve = user;
@@ -1284,13 +1283,13 @@ void GenericOp::getCanonicalizationPatterns(mlir::RewritePatternSet &patterns,
               }
             }
           } else {
-            // Use DominanceInfo for dominance checking
+            // Use DominanceInfo for cross-block dominance checking.
             DominanceInfo domInfo(mlir::cast<func::FuncOp>(parentOp));
             for (Operation *user : blockArg.getUsers()) {
-              if (!mlir::isa<d2m::WaitOp, d2m::ReserveOp>(user)) {
-                continue;
-              }
-              // Check if this wait/reserve dominates the regionOp
+              TT_assertv(
+                  (mlir::isa<d2m::WaitOp, d2m::ReserveOp>(user)),
+                  "block argument users must be wait/reserve operations");
+              // Check if this wait/reserve dominates the regionOp.
               if (domInfo.dominates(user, regionOp)) {
                 waitOrReserve = user;
                 break;

@@ -96,33 +96,47 @@ func.func @no_canonicalization_without_dominating_op(%arg0: tensor<1x1x1x1x!ttco
 
 // -----
 
-// Test that the filtering logic in GenericOp::getCanonicalizationPatterns
-// correctly skips non-wait/reserve users when searching for a dominating
-// wait/reserve operation to replace d2m.empty() operands in the fallback path
-// (when there's no func.func parent).
+// Test that exercises the while loop that walks up the parent chain to find
+// a FuncOp. When d2m.generic is nested inside a loop (like scf.for), the
+// while loop at line 1270 executes, covering line 1271.
 
 #layout = #ttcore.metal_layout<logical_shape = 32x32, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1>
 #map = affine_map<(d0, d1) -> (d0, d1)>
 
-// CHECK-LABEL: func.func @test_filtering
-func.func @test_filtering(%arg0: tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #layout>) -> tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #layout> {
+// CHECK-LABEL: func.func @test_nested_in_loop
+func.func @test_nested_in_loop(%arg0: tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #layout>) -> tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #layout> {
   %0 = d2m.empty() : tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #layout>
+  %c0 = arith.constant 0 : index
+  %c2 = arith.constant 2 : index
+  %c1 = arith.constant 1 : index
 
-  // CHECK: d2m.generic
-  // CHECK: ^compute0(%[[CB0:.*]]: !d2m.cb<{{.*}}>, %[[CB1:.*]]: !d2m.cb<{{.*}}>):
-  // CHECK-NEXT: d2m.wait %[[CB0]]
-  // CHECK-NEXT: d2m.reserve %[[CB1]]
-  // CHECK-NEXT: d2m.empty()
-  // CHECK-NEXT: d2m.yield
-  %1 = d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#map, #map], iterator_types = [#ttcore.iterator_type<parallel>, #ttcore.iterator_type<parallel>], threads = [#d2m.thread<compute>]}
-      ins(%arg0 : tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #layout>)
-      outs(%0 : tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #layout>)  {
-  ^compute0(%cb_in: !d2m.cb<tensor<1x1x!ttcore.tile<32x32, f32>>>, %cb_out: !d2m.cb<tensor<1x1x!ttcore.tile<32x32, f32>>>):
-    %in = d2m.wait %cb_in : <tensor<1x1x!ttcore.tile<32x32, f32>>> -> tensor<1x1x!ttcore.tile<32x32, f32>>
-    %reserve = d2m.reserve %cb_out : <tensor<1x1x!ttcore.tile<32x32, f32>>> -> tensor<1x1x!ttcore.tile<32x32, f32>>
-    %temp = d2m.empty() : tensor<1x1x!ttcore.tile<32x32, f32>>
-    d2m.yield %in : (tensor<1x1x!ttcore.tile<32x32, f32>>)
-  } : tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #layout>
-
+  // CHECK: scf.for
+  %1 = scf.for %i = %c0 to %c2 step %c1 iter_args(%iter_arg = %0) -> (tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #layout>) {
+    // d2m.generic nested inside scf.for - exercises parent chain walk
+    // CHECK: d2m.generic
+    // CHECK: ^compute0(%[[CB_IN:.*]]: !d2m.cb<{{.*}}>, %[[CB_OUT:.*]]: !d2m.cb<{{.*}}>):
+    // CHECK-NEXT: d2m.wait %[[CB_IN]]
+    // CHECK-NEXT: %[[RESERVE:.*]] = d2m.reserve %[[CB_OUT]]
+    // CHECK-NEXT: d2m.empty()
+    // CHECK-NEXT: linalg.generic
+    // CHECK-SAME: outs(%[[RESERVE]] :
+    %2 = d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#map, #map], iterator_types = [#ttcore.iterator_type<parallel>, #ttcore.iterator_type<parallel>], threads = [#d2m.thread<compute>]}
+        ins(%arg0 : tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #layout>)
+        outs(%iter_arg : tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #layout>)  {
+    ^compute0(%cb_in: !d2m.cb<tensor<1x1x!ttcore.tile<32x32, f32>>>, %cb_out: !d2m.cb<tensor<1x1x!ttcore.tile<32x32, f32>>>):
+      %in = d2m.wait %cb_in : <tensor<1x1x!ttcore.tile<32x32, f32>>> -> tensor<1x1x!ttcore.tile<32x32, f32>>
+      %reserve = d2m.reserve %cb_out : <tensor<1x1x!ttcore.tile<32x32, f32>>> -> tensor<1x1x!ttcore.tile<32x32, f32>>
+      %temp = d2m.empty() : tensor<1x1x!ttcore.tile<32x32, f32>>
+      %result = linalg.generic {indexing_maps = [#map, #map], iterator_types = ["parallel", "parallel"]}
+          ins(%in : tensor<1x1x!ttcore.tile<32x32, f32>>)
+          outs(%temp : tensor<1x1x!ttcore.tile<32x32, f32>>) {
+      ^bb0(%in_val: !ttcore.tile<32x32, f32>, %out_val: !ttcore.tile<32x32, f32>):
+        %abs = "d2m.tile_abs"(%in_val) : (!ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
+        linalg.yield %abs : !ttcore.tile<32x32, f32>
+      } -> tensor<1x1x!ttcore.tile<32x32, f32>>
+      d2m.yield %result : (tensor<1x1x!ttcore.tile<32x32, f32>>)
+    } : tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #layout>
+    scf.yield %2 : tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #layout>
+  }
   return %1 : tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #layout>
 }
