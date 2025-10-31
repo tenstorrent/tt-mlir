@@ -817,6 +817,8 @@ void d2m::GenericOp::build(mlir::OpBuilder &builder,
   if (!grid) {
     auto shapedType = mlir::cast<ShapedType>(outputs[0].getType());
     ttcore::DeviceLayoutInterface layout = ttcore::getDeviceLayout(shapedType);
+    // print layout
+    llvm::errs() << "layout: " << layout << "\n";
     TT_assertv(
         layout,
         "This generic constructor expects operands to be in device layout");
@@ -1009,7 +1011,7 @@ static mlir::LogicalResult verifyAffineBlocking(
   assert(factors.size() == blockingFactors.size());
   for (size_t i = 0; i < blockingFactors.size(); ++i) {
     if (factors[i] == 0) {
-      // The "Broacast" part of inverseAndBroadcastProjectedPermutation will 0
+      // The "Broadcast" part of inverseAndBroadcastProjectedPermutation will 0
       // fill unparticipating dims.  Promote these to 1's so that we can
       // multiply by blocking factor.
       factors[i] = 1;

@@ -422,10 +422,8 @@ updateStreamLayoutOps(ArrayRef<StreamLayoutUpdateInfo> streamLayoutsToUpdate,
         streamLayout.getLoc(), newStorageEmpty.getType(),
         streamLayout.getInput(), newStorageEmpty);
 
-    // We expect the StreamLayout to be used only by the GenericOp we're
-    // optimizing. Assert this assumption to catch unexpected sharing.
-    assert(streamLayout.getResult().hasOneUse() &&
-           "StreamLayout should only be used by the GenericOp being optimized");
+    // Replace all uses of the old stream result (including uses inside the
+    // generic's region) with the new stream result.
     streamLayout.getResult().replaceAllUsesWith(newStreamLayout.getResult());
     streamLayout.erase();
 
@@ -497,7 +495,8 @@ static void recreateGenericOp(d2m::GenericOp genericOp) {
                       .getUnderlying());
             }
           }
-        });
+        },
+        /*singleThreadType=*/genericOp.getRegionThreadType(0));
 
     genericOp.replaceAllUsesWith(newGenericOp);
     genericOp.erase();
