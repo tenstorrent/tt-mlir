@@ -497,7 +497,8 @@ static void recreateGenericOp(d2m::GenericOp genericOp) {
                       .getUnderlying());
             }
           }
-        });
+        },
+        /*singleThreadType=*/genericOp.getRegionThreadType(0));
 
     genericOp.replaceAllUsesWith(newGenericOp);
     genericOp.erase();
