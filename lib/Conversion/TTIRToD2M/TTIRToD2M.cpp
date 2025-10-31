@@ -1048,9 +1048,8 @@ public:
     auto inputLayout = mlir::cast<ttcore::MetalLayoutAttr>(
         inputLayoutTensorType.getEncoding());
 
-    unsigned inputDeviceRank =
-        static_cast<unsigned>(inputLayoutTensorType.getShape().size());
-    unsigned logicalRank = inputDeviceRank / 2;
+    // unsigned inputDeviceRank =
+    //     static_cast<unsigned>(inputLayoutTensorType.getShape().size());
 
     // Special case: NxM -> (N*k)x(M/k) reshape with single stream_layout
     // Works for any 2D reshape where dims are divisible by 32 and total
@@ -1120,26 +1119,47 @@ public:
     llvm::interleaveComma(reshapeExprs, llvm::errs());
     llvm::errs() << "]\n";
 
+    // Map from output device coordinates to input device coordinates
+    unsigned outputLogicalRank = static_cast<unsigned>(outputShape.size());
+    unsigned outputDeviceRank = outputLogicalRank * 2;
     AffineMap reshapeMap =
-        AffineMap::get(inputDeviceRank, 0, reshapeExprs, ctx);
+        AffineMap::get(outputDeviceRank, 0, reshapeExprs, ctx);
 
-    // Compose with input layout
-    AffineMap composedReshapeMap = reshapeMap.compose(
-        inputLayout.getIndexAffineMapOrIdentity(inputDeviceRank));
+    // For view layout, the reshapeMap IS the index map - no composition needed
+    // The view will use this map directly to index into the input during
+    // bufferization
 
     // Create output layout with the reshape index map
     llvm::SmallVector<int64_t> outputPhysicalShape;
-    for (unsigned i = 0; i < logicalRank; ++i) {
+    // Add grid dimensions (1 for each logical dimension)
+    for (unsigned i = 0; i < outputLogicalRank; ++i) {
       outputPhysicalShape.push_back(1);
     }
-    outputPhysicalShape.push_back(outputShape[0]);
-    outputPhysicalShape.push_back(outputShape[1]);
+    // Add shard dimensions (the actual output shape)
+    for (unsigned i = 0; i < outputLogicalRank; ++i) {
+      outputPhysicalShape.push_back(outputShape[i]);
+    }
+
+    // Create empty collapsed intervals for output rank
+    auto emptyIntervalType =
+        RankedTensorType::get({0, 2}, IntegerType::get(ctx, 64));
+    DenseIntElementsAttr outputCollapsedIntervals =
+        DenseIntElementsAttr::get(emptyIntervalType, ArrayRef<int64_t>{});
+
+    // Compute appropriate alignments for the output shape
+    // Use tile alignments (32x32 for last 2 dims, 1 for others)
+    llvm::SmallVector<int64_t> outputAlignments(outputLogicalRank, 1);
+    if (outputLogicalRank >= 2) {
+      outputAlignments[outputLogicalRank - 2] = 32;
+      outputAlignments[outputLogicalRank - 1] = 32;
+    } else if (outputLogicalRank == 1) {
+      outputAlignments[0] = 32;
+    }
 
     auto outputLayout = ttcore::MetalLayoutAttr::get(
-        ctx, outputShape, inputLayout.getDimAlignments(),
-        inputLayout.getCollapsedIntervals(), inputLayout.getOobVal(),
-        inputLayout.getMemorySpace(), inputLayout.getMemoryLayout(),
-        composedReshapeMap);
+        ctx, outputShape, outputAlignments, outputCollapsedIntervals,
+        inputLayout.getOobVal(), inputLayout.getMemorySpace(),
+        inputLayout.getMemoryLayout(), reshapeMap);
 
     auto tiledElementType = inputLayoutTensorType.getElementType();
     auto outputViewType = mlir::RankedTensorType::get(
