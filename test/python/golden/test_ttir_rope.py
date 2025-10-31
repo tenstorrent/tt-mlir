@@ -35,7 +35,7 @@ def build_torch_golden(
     cos_unsqueezed = torch.unsqueeze(cos_data, dim=0)
     sin_unsqueezed = torch.unsqueeze(sin_data, dim=0)
 
-    # Split input into two halves: first half [0:32], second half [32:64]
+    # Rotate input
     rotated = rotate(input_data)
 
     # Final computation: input * cos + rotated * sin
@@ -52,13 +52,13 @@ def build_ttir(
     unsqueezed_shape = [1] + sin_input.type.shape
     cos_unsqueezed = builder.reshape(cos_input, shape=unsqueezed_shape)
 
-    # Multiply input with broadcasted sin
+    # Multiply input with sin
     unrotated = builder.multiply(input, cos_unsqueezed, unit_attrs=unit_attrs)
 
     last_dim = input.type.shape[-1]
     half_dim = last_dim // 2
 
-    # Slice second half of input [32:64]
+    # Slice second half of input
     begins = [0, 0, 0, half_dim]
     ends = input.type.shape[:3] + [last_dim]
     slice1 = builder.slice(input, begins=begins, ends=ends, step=[1, 1, 1, 1])
@@ -66,7 +66,7 @@ def build_ttir(
     # Negate the second half
     neg_slice = builder.neg(slice1, unit_attrs=unit_attrs)
 
-    # Slice first half of input [0:32]
+    # Slice first half of input
     begins = [0, 0, 0, 0]
     ends = input.type.shape[:3] + [half_dim]
     slice2 = builder.slice(input, begins=begins, ends=ends, step=[1, 1, 1, 1])
