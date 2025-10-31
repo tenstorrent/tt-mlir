@@ -151,7 +151,8 @@ createMeshBufferForShardedMetalBuffer(
   auto localBufferConfig = tt_metal::distributed::DeviceLocalBufferConfig{
       .page_size = shardedBufferConfig->page_size(),
       .buffer_type = metalBufferType,
-      .sharding_args = std::move(bufferShardingArgs)};
+      .sharding_args = std::move(bufferShardingArgs),
+      .bottom_up = std::nullopt};
 
   auto distributedBufferConfig = tt::tt_metal::distributed::ShardedBufferConfig{
       .global_size = distributedBufferSizeBytes,
