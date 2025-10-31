@@ -1620,9 +1620,9 @@ mlir::OpFoldResult mlir::tt::ttir::ConcatOp::fold(FoldAdaptor adaptor) {
       }
       hasNegative = true;
     } else {
-      if (dimValue <= 0) {
+      if (dimValue < 0) {
         return emitOpError(
-            "All dimensions must be positive except the one with -1");
+            "All dimensions must be >= 0 except the one with -1");
       }
 
       // Ensure that the non-negative dimensions match the output tensor shape.
@@ -3618,6 +3618,17 @@ mlir::LogicalResult mlir::tt::ttir::MeshShardOp::verify() {
   }
 
   return success();
+}
+
+mlir::OpFoldResult mlir::tt::ttir::ScatterOp::fold(FoldAdaptor adaptor) {
+  int indicesVolume = getScatterIndices().getType().getNumElements();
+  int updateVolume = getUpdate().getType().getNumElements();
+
+  if (indicesVolume == 0 || updateVolume == 0) {
+    return getInput();
+  }
+
+  return {};
 }
 
 //===----------------------------------------------------------------------===//
