@@ -54,9 +54,7 @@ def run_op_test(
     print("inputs", inputs)
     golden_op = _get_ttnn_op(op)
 
-    op_jit = ttnn_jit.jit(
-        debug=True, max_grid=max_grid, enable_cache=False
-    )(op)
+    op_jit = ttnn_jit.jit(debug=True, max_grid=max_grid)(op)
     output_tensor = op_jit(*inputs)
     golden_tensor = (golden_op or op)(*inputs)
 
