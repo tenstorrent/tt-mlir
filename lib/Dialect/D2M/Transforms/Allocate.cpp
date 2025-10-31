@@ -545,10 +545,12 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
               getParticipatingDimMask(genericOp);
           const SmallVector<int64_t> shardFactors =
               getShardBlockFactors(genericOp);
+          // NOLINTBEGIN(clang-analyzer-core.BitwiseShift)
           for (auto d = participationMask.find_first_unset(); d >= 0;
                d = participationMask.find_next_unset(d)) {
             rescaling[d] = shardFactors[d];
           }
+          // NOLINTEND(clang-analyzer-core.BitwiseShift)
         }
 
         for (std::size_t d = 0; d < rank; ++d) {
