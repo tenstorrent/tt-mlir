@@ -67,7 +67,6 @@ def test_program_cache(device):
     assert torch.allclose(output.cpu().to_torch(), golden)
     ttnn.deallocate(golden)
     ttnn.deallocate(output)
-    print("--------------------------------")
 
     # Test 2: Cache HIT - same tensor should be a cache hit
     output = op_single_core(tensor_single_h1_w1_bf16_0)
@@ -77,7 +76,6 @@ def test_program_cache(device):
     ttnn.deallocate(tensor_single_h1_w1_bf16_0)
     ttnn.deallocate(golden)
     ttnn.deallocate(output)
-    print("--------------------------------")
 
     # Test 3: Cache HIT - same op, same tensor properties, different data
     output = op_single_core(tensor_single_h1_w1_bf16_1)
@@ -89,7 +87,6 @@ def test_program_cache(device):
     ttnn.deallocate(tensor_single_h1_w1_bf16_1)
     ttnn.deallocate(golden)
     ttnn.deallocate(output)
-    print("--------------------------------")
 
     # Test 4: Cache miss - completely different op with it's own cache
     output = op_full_grid(tensor_full_h1_w1_bf16_0)
@@ -99,7 +96,6 @@ def test_program_cache(device):
     ttnn.deallocate(tensor_full_h1_w1_bf16_0)
     ttnn.deallocate(golden)
     ttnn.deallocate(output)
-    print("--------------------------------")
 
     # Test 5: Cache HIT - op_full_grid with same properties, different data
     output = op_full_grid(tensor_full_h1_w1_bf16_1)
@@ -111,7 +107,6 @@ def test_program_cache(device):
     ttnn.deallocate(tensor_full_h1_w1_bf16_1)
     ttnn.deallocate(golden)
     ttnn.deallocate(output)
-    print("--------------------------------")
 
     # Test 6: Cache miss - different dtype (fp32)
     output = op_single_core(tensor_single_h1_w1_fp32)
@@ -121,7 +116,6 @@ def test_program_cache(device):
     ttnn.deallocate(tensor_single_h1_w1_fp32)
     ttnn.deallocate(golden)
     ttnn.deallocate(output)
-    print("--------------------------------")
 
     # Test 7: Cache miss - different shape (h2, w2)
     output = op_single_core(tensor_single_h2_w2_bf16)
@@ -133,7 +127,6 @@ def test_program_cache(device):
     ttnn.deallocate(tensor_single_h2_w2_bf16)
     ttnn.deallocate(golden)
     ttnn.deallocate(output)
-    print("--------------------------------")
 
     # Test 8: Cache miss - different memory config (DRAM))
     output = op_single_core(tensor_dram_h1_w1_bf16_0)
@@ -145,7 +138,6 @@ def test_program_cache(device):
     ttnn.deallocate(tensor_dram_h1_w1_bf16_0)
     ttnn.deallocate(golden)
     ttnn.deallocate(output)
-    print("--------------------------------")
 
     # Test 9: Cache HIT - DRAM tensor with same properties, different data
     output = op_single_core(tensor_dram_h1_w1_bf16_1)
@@ -157,7 +149,6 @@ def test_program_cache(device):
     ttnn.deallocate(tensor_dram_h1_w1_bf16_1)
     ttnn.deallocate(golden)
     ttnn.deallocate(output)
-    print("--------------------------------")
 
 
 def test_program_cache_hits(device):
@@ -170,21 +161,22 @@ def test_program_cache_hits(device):
     ttnn.deallocate(tensor_full_h1_w1_bf16_0)
     ttnn.deallocate(golden)
     ttnn.deallocate(output)
-    assert op_full_grid.num_entries == 1, "New op, should be cache miss"
+    assert op_full_grid.num_entries == 1, "New op is cache miss"
     assert torch.allclose(output.cpu().to_torch(), golden.cpu().to_torch())
 
     for i in range(15):
         dummy = create_sharded_tile_tensor(device, 1024, 1024, (7, 7), torch.bfloat16)
-        tensor_full_h1_w1_bf16_1 = create_sharded_tile_tensor(
+        input_tensor = create_sharded_tile_tensor(
             device, 512, 512, (7, 7), torch.bfloat16
         )
+        print("tensor buffer address", input_tensor.buffer_address())
         ttnn.deallocate(dummy)
-        output = op_full_grid(tensor_full_h1_w1_bf16_1)
-        golden = ttnn.abs(tensor_full_h1_w1_bf16_1)
-        ttnn.deallocate(tensor_full_h1_w1_bf16_1)
+        output = op_full_grid(input_tensor)
+        golden = ttnn.abs(input_tensor)
+        ttnn.deallocate(input_tensor)
         ttnn.deallocate(golden)
         ttnn.deallocate(output)
         assert torch.allclose(output.cpu().to_torch(), golden.cpu().to_torch())
         assert (
             op_full_grid.num_entries == 1
-        ), "Same op with same tensor metadata but different data should be a cache hit"
+        ), "Same tensor metadata but different data is cache hit"
