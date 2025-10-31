@@ -430,6 +430,14 @@ binaryOpDTypeWorkaround(mlir::Operation *op, mlir::Type elementType) {
     return mlir::tt::ttcore::DataType::Int32;
   }
 
+  // tt-metal issue: https://github.com/tenstorrent/tt-metal/issues/31373
+  if (isa<ttnn::BitwiseAndOp, ttnn::BitwiseOrOp, ttnn::BitwiseXorOp>(op)) {
+    if (dType == mlir::tt::ttcore::DataType::UInt8) {
+      return mlir::tt::ttcore::DataType::UInt32;
+    }
+    return {};
+  }
+
   // All remaining binary ops.
   // Tracked in :
   // https://github.com/issues/created?issue=tenstorrent%7Ctt-metal%7C25112
