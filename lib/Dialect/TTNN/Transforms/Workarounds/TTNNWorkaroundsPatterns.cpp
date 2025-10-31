@@ -16,6 +16,7 @@
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ConcatenateHeadsOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/Conv2dEnableKernelStrideFoldingRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/Conv2dRewritePattern.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/Conv2dSliceConfigRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/CumSumOpDimRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/CumSumOpRankRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/EmbeddingOpSqueezeWeightRewritePattern.h"
@@ -571,6 +572,7 @@ public:
               Conv2dEnableKernelStrideFoldingRewritePattern<Conv2dOp>,
           workarounds::decomposition::
               Conv2dEnableKernelStrideFoldingRewritePattern<ConvTranspose2dOp>,
+          workarounds::decomposition::Conv2dSliceConfigRewritePattern,
           workarounds::decomposition::ConcatenateHeadsOpRewritePattern>(
           &getContext());
 
