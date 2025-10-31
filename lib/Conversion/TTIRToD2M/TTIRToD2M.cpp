@@ -958,7 +958,6 @@ public:
     // affine iteration (identity map), wait for the transaction, then yield
     // the reserved output tensor.
     Value streamSrc = inputs[0];
-    auto numDims = static_cast<unsigned>(viewTensorType.getRank());
     auto generic = rewriter.create<d2m::GenericOp>(
         op.getLoc(), inputs, outputs,
         [&](OpBuilder &builder, Location bodyLoc, ValueRange blockArgs) {
@@ -966,9 +965,8 @@ public:
           // Acquire output tensor from CB.
           Value outputCB =
               builder.create<d2m::ReserveOp>(bodyLoc, blockArgs[1]).getResult();
-          // Use affine-form DMA with identity map over the generic dims so the
-          // copy honors the op's grid/iterator space.
-          auto indexingMap = builder.getMultiDimIdentityMap(numDims);
+          // Use affine-form DMA with identity map over the generic dims.
+          auto indexingMap = builder.getMultiDimIdentityMap(4);
           auto dma = builder.create<d2m::DMAOp>(
               bodyLoc, streamSrc, AffineMapAttr::get(indexingMap), outputCB);
           builder.create<d2m::DMAWaitOp>(bodyLoc, dma);

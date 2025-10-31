@@ -12,3 +12,9 @@ func.func @simple_outer_permute(%arg0: tensor<1x32x32x32xf32>) -> tensor<1x32x32
   // CHECK: call_opaque "noc_async_read_barrier"
   return %3 : tensor<1x32x32x32xf32>
 }
+
+func.func @simple_outer_permute_with_generic(%arg0: tensor<1x32x32x32xf32>) -> tensor<1x32x32x32xf32> {
+  %0 = ttir.empty() : tensor<1x32x32x32xf32>
+  %1 = "ttir.permute"(%arg0, %0) <{permutation = array<i64: 0, 2, 1, 3>}> : (tensor<1x32x32x32xf32>, tensor<1x32x32x32xf32>) -> tensor<1x32x32x32xf32>
+  return %1 : tensor<1x32x32x32xf32>
+}
