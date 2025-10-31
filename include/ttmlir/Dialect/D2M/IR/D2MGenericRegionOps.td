@@ -1011,7 +1011,7 @@ def D2M_YieldOp : D2M_GenericRegionOp<"yield", [
         mlir::bufferization::AliasingValueList result;
         return result;
       }
-      mlir::FailureOr<mlir::BaseMemRefType> $cppClass::getBufferType(
+      mlir::FailureOr<mlir::bufferization::BufferLikeType> $cppClass::getBufferType(
           mlir::Value, const mlir::bufferization::BufferizationOptions &,
           const mlir::bufferization::BufferizationState &,
           ::llvm::SmallVector<mlir::Value> &) {
@@ -1101,7 +1101,7 @@ class D2M_CBOp<string mnemonic, list<Trait> traits = []> : D2M_GenericRegionOp<m
       return result;
     }
 
-    mlir::FailureOr<mlir::BaseMemRefType> $cppClass::getBufferType(
+    mlir::FailureOr<mlir::bufferization::BufferLikeType> $cppClass::getBufferType(
         mlir::Value value, const mlir::bufferization::BufferizationOptions &,
         const mlir::bufferization::BufferizationState &,
         ::llvm::SmallVector<mlir::Value> &) {
@@ -1225,7 +1225,7 @@ def D2M_StoreOp : D2M_GenericRegionOp<"store",
       return result;
     }
 
-    mlir::FailureOr<mlir::BaseMemRefType> mlir::tt::d2m::StoreOp::getBufferType(
+    mlir::FailureOr<mlir::bufferization::BufferLikeType> mlir::tt::d2m::StoreOp::getBufferType(
         mlir::Value value, const mlir::bufferization::BufferizationOptions &,
         const mlir::bufferization::BufferizationState &,
         ::llvm::SmallVector<mlir::Value> &) {
