@@ -31,6 +31,19 @@ void populateD2MModule(nb::module_ &m) {
                      threadType));
       });
 
+  tt_type_class<tt::d2m::CBType>(m, "CBType")
+      .def_static("get",
+                  [](MlirContext ctx, MlirType underlyingType) {
+                    return wrap(tt::d2m::CBType::get(
+                        unwrap(ctx),
+                        mlir::cast<mlir::ShapedType>(unwrap(underlyingType))));
+                  })
+      .def_static(
+          "cast",
+          [](MlirType &ty) { return mlir::cast<tt::d2m::CBType>(unwrap(ty)); })
+      .def("getUnderlying",
+           [](tt::d2m::CBType &self) { return wrap(self.getUnderlying()); });
+
   tt_type_class<tt::d2m::SemaphoreType>(m, "SemaphoreType")
       .def_static("get", [](MlirContext ctx) {
         return wrap(tt::d2m::SemaphoreType::get(unwrap(ctx)));
