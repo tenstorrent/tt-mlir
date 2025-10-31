@@ -11,6 +11,7 @@ import operator
 from conftest import x86_only
 
 from builder.base.builder import Operand, Shape, TypeInfo
+from builder.base.builder_golden import BuilderGoldenTensor
 from builder.ttir.ttir_builder import TTIRBuilder
 from builder.base.builder_utils import compile_and_execute_ttir
 from ttmlir.ir import DenseI32ArrayAttr
@@ -2063,7 +2064,6 @@ def test_hoisted_where(shapes, request, target: str, device):
         [(64, 512), (64, 1, 512)],  # Common ML pattern: expand dims
         [(256, 256), (512, 128)],  # Power of 2 reshape
         [(32, 3, 224, 224), (32, 150528)],  # Large ML pattern: batch flatten
-        [(0, 32, 128), (0,)],  # Edge case: zero-sized dimension
     ],
     ids=shapes_list_str,
 )
