@@ -506,11 +506,11 @@ class TTCompilerBase(PyKernelAstBase):
         if isinstance(rhs, OpView):
             rhs = rhs.result
 
-        if hasattr(lhs, 'type') and isinstance(lhs.type, memref.MemRefType):
+        if hasattr(lhs, "type") and isinstance(lhs.type, memref.MemRefType):
             lhs = memref.LoadOp(
                 lhs, arith.ConstantOp(IndexType.get(self.ctx), 0)
             ).result
-        if hasattr(rhs, 'type') and isinstance(rhs.type, memref.MemRefType):
+        if hasattr(rhs, "type") and isinstance(rhs.type, memref.MemRefType):
             rhs = memref.LoadOp(
                 rhs, arith.ConstantOp(IndexType.get(self.ctx), 0)
             ).result
@@ -875,7 +875,7 @@ class TTKernelCompiler(TTCompilerBase):
         if isinstance(tile_id, OpView):
             tile_id = tile_id.result
 
-        if hasattr(tile_id, 'type') and isinstance(tile_id.type, IndexType):
+        if hasattr(tile_id, "type") and isinstance(tile_id.type, IndexType):
             tile_id = arith.index_cast(IntegerType.get_signless(32), tile_id)
 
         return ttkernel.noc_async_read_tile(tile_id, addr_gen, dst_addr)
