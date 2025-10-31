@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttir-fusing -o %t %s
+// RUN: ttmlir-opt --ttir-implicit-broadcast-fold --ttir-fusing -o %t %s
 // RUN: FileCheck %s --input-file=%t
 
 module {
