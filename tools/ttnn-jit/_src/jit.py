@@ -14,7 +14,6 @@ from ttmlir.passes import (
     ttnn_to_ttmetal_pipeline,
 )
 
-from ttnn_jit._src.ttir_ast import TTIRCompiler
 from ttnn_jit._src.utils import _cleanup_source_code
 from ttnn_jit._src.dispatch_op import _run_binary
 from ttnn_jit._src import JitCache
