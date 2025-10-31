@@ -162,6 +162,8 @@ static std::vector<uint32_t> createKernelArgs(
       uint32_t tensorIdx =
           kernelArg->arg_as_KernelArgBufferAddressOfTensor()->tensor_index();
       coreArgs[i] = ioTensors->get()[tensorIdx].buffer()->address();
+      std::cerr << "kernel tensor buffer address: 0x" << std::hex << coreArgs[i]
+                << std::dec << std::endl;
       break;
     }
     case ::tt::target::ttnn::KernelArgType::KernelArgSemaphoreAt: {
@@ -239,6 +241,40 @@ createProgramDescriptor(
   return programDescriptor;
 }
 
+void overrideArgs(
+    const ::tt::target::ttnn::ProgramDescriptor *programDesc,
+    const std::vector<::ttnn::Tensor> &ioTensors,
+    std::shared_ptr<::tt::tt_metal::ProgramDescriptor> programDescriptor) {
+  for (size_t i = 0; i < programDescriptor->kernels.size(); ++i) {
+    const auto *kernelDesc = programDesc->kernels()->Get(i);
+    auto &kernel = programDescriptor->kernels[i];
+    kernel.compile_time_args = createKernelArgs(*kernelDesc->ct_args());
+    kernel.common_runtime_args =
+        createKernelArgs(*kernelDesc->common_rt_args(), ioTensors);
+
+    if (kernelDesc->rt_args()) {
+      auto sizeX = kernelDesc->rt_args()->size();
+      auto sizeY = kernelDesc->rt_args()->Get(0)->args()->size();
+      kernel.runtime_args.resize(
+          sizeX, std::vector<::tt::tt_metal::KernelDescriptor::CoreRuntimeArgs>(
+                     sizeY));
+      for (unsigned int x = 0; x < sizeX; x++) {
+        for (unsigned int y = 0; y < sizeY; y++) {
+          ::tt::tt_metal::KernelDescriptor::CoreRuntimeArgs coreRuntimeArgs =
+              createKernelArgs(*kernelDesc->rt_args()->Get(x)->args()->Get(y),
+                               ioTensors);
+          kernel.runtime_args[x][y] = coreRuntimeArgs;
+        }
+      }
+    }
+  }
+  for (size_t i = 0; i < programDescriptor->cbs.size(); ++i) {
+    const auto *cbDesc = programDesc->cbs()->Get(i);
+    auto &cb = programDescriptor->cbs[i];
+    cb.buffer = ioTensors[cbDesc->buffer()->tensor_operand_index()].buffer();
+  }
+}
+
 void run(const ::tt::target::ttnn::GenericOp *op, ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
   auto size = op->io_tensors()->size();
@@ -251,18 +287,35 @@ void run(const ::tt::target::ttnn::GenericOp *op, ProgramContext &context) {
   auto programDescCache = context.getExecutableHandle().getProgramDescCache();
 
   auto *programDesc = op->program();
+
+  std::vector<void *> bufferAddresses;
+  for (const auto &tensor : ioTensors) {
+    bufferAddresses.push_back(tensor.buffer());
+  }
   std::size_t hash = ttsl::hash::hash_objects_with_default_seed(
-      programDesc, programDescCache, ioTensors);
+      programDesc, programDescCache, ioTensors, bufferAddresses);
   std::shared_ptr<void> cachedPtr = programDescCache->get(hash);
 
   std::shared_ptr<::tt::tt_metal::ProgramDescriptor> programDescriptor;
+  std::cerr << "tensor buffer pointer: " << std::hex << ioTensors[0].buffer()
+            << std::dec << std::endl;
+  // std::cerr << "tensor buffer address: 0x" << std::hex <<
+  // ioTensors[0].buffer()->address() << std::dec << std::endl;
+  std::cerr << "tensor 1 buffer pointer: " << std::hex << ioTensors[1].buffer()
+            << std::dec << std::endl;
+  // std::cerr << "tensor 1 buffer address: 0x" << std::hex <<
+  // ioTensors[1].buffer()->address() << std::dec << std::endl;
   if (cachedPtr) {
     // LOG_DEBUG("Cache hit for program descriptor");
-    std::cerr << "Cache hit for program descriptor: " << hash << std::endl;
+    std::cerr << "Cache hit for program descriptor: 0x" << std::hex << hash
+              << std::dec << std::endl;
     programDescriptor =
         std::static_pointer_cast<::tt::tt_metal::ProgramDescriptor>(cachedPtr);
+    overrideArgs(programDesc, ioTensors, programDescriptor);
   } else {
-    LOG_DEBUG("Cache miss for program descriptor");
+    // LOG_DEBUG("Cache miss for program descriptor");
+    std::cerr << "Cache miss for program descriptor: 0x" << std::hex << hash
+              << std::dec << std::endl;
     programDescriptor = createProgramDescriptor(programDesc, ioTensors);
     programDescriptor->custom_program_hash =
         reinterpret_cast<ttsl::hash::hash_t>(hash);
@@ -270,6 +323,69 @@ void run(const ::tt::target::ttnn::GenericOp *op, ProgramContext &context) {
                              std::static_pointer_cast<void>(programDescriptor));
   }
 
+  // print compile time args for all kernels
+  for (size_t i = 0; i < programDescriptor->kernels.size(); ++i) {
+    const auto &kernel = programDescriptor->kernels[i];
+    std::cerr << "Kernel " << i << " compile time args of size "
+              << kernel.compile_time_args.size() << ": ";
+    for (size_t j = 0; j < kernel.compile_time_args.size(); ++j) {
+      std::cerr << kernel.compile_time_args[j];
+      if (j < kernel.compile_time_args.size() - 1) {
+        std::cerr << ", ";
+      }
+    }
+    std::cerr << std::endl;
+  }
+  // print common runtime args for all kernels
+  for (size_t i = 0; i < programDescriptor->kernels.size(); ++i) {
+    const auto &kernel = programDescriptor->kernels[i];
+    std::cerr << "Kernel " << i << " common runtime args of size "
+              << kernel.common_runtime_args.size() << ": ";
+    for (size_t j = 0; j < kernel.common_runtime_args.size(); ++j) {
+      std::cerr << kernel.common_runtime_args[j];
+      if (j < kernel.common_runtime_args.size() - 1) {
+        std::cerr << ", ";
+      }
+    }
+    std::cerr << std::endl;
+  }
+  // print runtime args for all kernels
+  for (size_t i = 0; i < programDescriptor->kernels.size(); ++i) {
+    const auto &kernel = programDescriptor->kernels[i];
+    std::cerr << "Kernel " << i << " runtime args of size "
+              << kernel.runtime_args.size() << ": ";
+    for (size_t j = 0; j < kernel.runtime_args.size(); ++j) {
+      std::cerr << "Runtime args " << j << " of size "
+                << kernel.runtime_args[j].size() << ": ";
+      for (size_t k = 0; k < kernel.runtime_args[j].size(); ++k) {
+        const auto &coreArgs = kernel.runtime_args[j][k];
+        std::cerr << "[";
+        for (size_t m = 0; m < coreArgs.size(); ++m) {
+          std::cerr << "0x" << std::hex << coreArgs[m] << std::dec;
+          if (m < coreArgs.size() - 1) {
+            std::cerr << ", ";
+          }
+        }
+        std::cerr << "]";
+        if (k < kernel.runtime_args[j].size() - 1) {
+          std::cerr << ", ";
+        }
+      }
+      std::cerr << std::endl;
+    }
+    std::cerr << std::endl;
+  }
+  // Print buffer details for all CBs
+  for (size_t i = 0; i < programDescriptor->cbs.size(); ++i) {
+    const auto &cb = programDescriptor->cbs[i];
+    std::cerr << "CB " << i << " buffer: ";
+    if (cb.buffer) {
+      std::cerr << std::hex << cb.buffer << std::dec;
+    } else {
+      std::cerr << "nullptr";
+    }
+    std::cerr << std::endl;
+  }
   ::ttnn::Tensor outputTensor =
       ::ttnn::generic_op(ioTensors, *programDescriptor);
   tensorPool.insertTTNNTensorAndValidate(op->io_tensors()->Get(size - 1),
