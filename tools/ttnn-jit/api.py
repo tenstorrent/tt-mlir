@@ -12,6 +12,7 @@ def jit(
     max_grid: tuple[int, int] = (7, 7),
     compile_only: bool = False,
     debug: bool = False,
+    enable_cache: bool = False,
 ):
     """
     Sets up the decorated function to be JIT compiled through D2M.
@@ -31,6 +32,7 @@ def jit(
             max_grid,
             compile_only,
             debug,
+            enable_cache,
         )
 
         if inspect.ismethod(f):
