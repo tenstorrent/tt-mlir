@@ -911,9 +911,12 @@ struct GatherToEmbeddingConversionPattern
 
     for (size_t i = 0; i < inputShape.size(); ++i) {
       if (llvm::is_contained(startIndexMap, i)) {
+        if (sliceSizes[i] == 1) {
+          continue;
+        }
         if (sliceSizes[i] == inputShape[i]) {
           fullIndexedDims++;
-        } else if (sliceSizes[i] != 1) {
+        } else {
           partialIndexedDims++;
         }
       } else if (sliceSizes[i] != inputShape[i]) {
@@ -989,7 +992,7 @@ struct GatherToEmbeddingConversionPattern
     llvm::SmallVector<int64_t> startIndexMap;
     for (size_t i = 0; i < originalStartIndexMap.size(); ++i) {
       int64_t dim = originalStartIndexMap[i];
-      if (sliceSizes[dim] == inputShape[dim]) {
+      if (sliceSizes[dim] != 1 && sliceSizes[dim] == inputShape[dim]) {
         continue;
       }
 
