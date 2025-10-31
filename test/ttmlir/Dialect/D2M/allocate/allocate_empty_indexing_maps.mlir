@@ -1,8 +1,8 @@
 // RUN: ttmlir-opt --ttcore-register-device --d2m-allocate -o %t %s
 // RUN: FileCheck %s --input-file=%t
 //
-// Test that d2m-allocate correctly handles d2m.generic operations with empty
-// indexing_maps, i.e., stream is inserted.
+// Test that d2m-allocate correctly handles d2m.generic operations in explicit
+// datamovement form (empty block_factors, indexing_maps, and iterator_types).
 // The pass should skip reduction/broadcast dimension analysis
 // but still insert streams based on other factors (e.g., memory space).
 
@@ -23,7 +23,7 @@ module {
     // CHECK: ins(%[[STREAM]] : {{.*}})
     // CHECK: outs(%{{.*}} : {{.*}})
     d2m.generic {
-      block_factors = [1, 1],
+      block_factors = [],
       grid = #ttcore.grid<1x1>,
       indexing_maps = [],
       iterator_types = [],

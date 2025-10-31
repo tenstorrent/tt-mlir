@@ -2,8 +2,8 @@
 // RUN: FileCheck %s --input-file=%t
 //
 // Test that InsertDstRegisterAccess correctly handles d2m.generic operations
-// with empty indexing_maps. The pass should still convert linalg.generic to
-// affine loops and insert DST register access even when indexing_maps is empty.
+// in explicit datamovement form (empty block_factors, indexing_maps, and iterator_types).
+// The pass should still convert linalg.generic to affine loops and insert DST register access.
 
 #l1_ = #ttcore.memory_space<l1>
 #dst_ = #ttcore.memory_space<dst>
@@ -17,7 +17,7 @@ module {
   ) {
     // d2m.generic with empty indexing_maps
     d2m.generic {
-      block_factors = [1, 1],
+      block_factors = [],
       grid = #ttcore.grid<1x1>,
       indexing_maps = [],
       iterator_types = [],
