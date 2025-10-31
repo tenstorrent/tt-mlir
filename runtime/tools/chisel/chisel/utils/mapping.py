@@ -22,11 +22,19 @@ ttir_dtype_maps = {
 
 ttrt_dtype_maps = {
     "DataType.Float32": torch.float32,
+    "DataType.Float16": torch.float16,
     "DataType.BFloat16": torch.bfloat16,
+    "DataType.Int32": torch.int32,
     "DataType.UInt32": torch.uint32,
     "DataType.UInt16": torch.uint16,
     "DataType.UInt8": torch.uint8,
-    "DataType.Int32": torch.int32,
+    # BFP (Block Floating Point) types are converted to float32 on host
+    "DataType.BFP_Float8": torch.float32,
+    "DataType.BFP_BFloat8": torch.float32,
+    "DataType.BFP_Float4": torch.float32,
+    "DataType.BFP_BFloat4": torch.float32,
+    "DataType.BFP_Float2": torch.float32,
+    "DataType.BFP_BFloat2": torch.float32,
 }
 
 
