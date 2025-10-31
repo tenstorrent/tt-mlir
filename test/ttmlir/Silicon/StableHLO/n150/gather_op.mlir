@@ -41,4 +41,17 @@ module @jit_gather attributes {} {
     %0 = "stablehlo.gather"(%operand, %start_indices) <{dimension_numbers = #stablehlo.gather<offset_dims = [2], collapsed_slice_dims = [0], start_index_map = [0], index_vector_dim = 2>, indices_are_sorted = false, slice_sizes = array<i64: 1, 512>}> : (tensor<32128x512xbf16>, tensor<1x15xi64>) -> tensor<1x15x512xbf16>
     return %0 : tensor<1x15x512xbf16>
   }
+
+  // Tests gather to repeat path
+  func.func public @test_gather_3(%operand: tensor<1x5xbf16>, %start_indices: tensor<3xi64>) -> tensor<3x5xbf16> {
+    // CHECK-LABEL: func.func public @test_gather_3
+    // CHECK: ttnn.empty
+    // CHECK: ttnn.repeat
+    // CHECK-SAME: tensor<1x5xbf16,
+    // CHECK-SAME: tensor<3x5xbf16
+    // CHECK-SAME: dimension_numbers = [3, 1]
+    // CHECK-SAME: -> tensor<3x5xbf16
+    %0 = "stablehlo.gather"(%operand, %start_indices) <{dimension_numbers = #stablehlo.gather<offset_dims = [1], collapsed_slice_dims = [0], start_index_map = [0], index_vector_dim = 1>, indices_are_sorted = false, slice_sizes = array<i64: 1, 5>}> : (tensor<1x5xbf16>, tensor<3xi64>) -> tensor<1x15x513x5xbf162xbf16>
+    return %0 : tensor<3x5xbf16>
+  }
 }

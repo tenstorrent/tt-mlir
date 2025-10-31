@@ -863,6 +863,104 @@ struct ReverseOpConversionPattern
 //===----------------------------------------------------------------------===//
 
 namespace {
+struct GatherToRepeatConversionPattern
+    : public OpConversionPattern<ttir::GatherOp> {
+  using OpConversionPattern<ttir::GatherOp>::OpConversionPattern;
+
+  /**
+   * Validates Gather Op constraints for repeat conversion
+   *
+   * If there is a case of Gather Op that is essentially repeat (the input
+   * tensor is taken whole multiple times), lowers it into Repeat Op.
+   *
+   * Enforces constraints on Gather Op to ensure valid repeat
+   * transformation:
+   * - no batching dims
+   * - slice sizes are equal to input shape for all dimensions
+   * - offset dims are all dims of input that are not collapsed
+   * - input and output have the same rank
+   */
+
+  LogicalResult checkBasicLegality(ttir::GatherOp op,
+                                   PatternRewriter &rewriter) const {
+
+    // Get input and output tensor shape info.
+    auto inputShape = op.getInput().getType().getShape();
+    auto outputRank = op.getOutput().getType().getRank();
+
+    // Get attributes needed for repeat op pattern matching checks.
+    auto sliceSizes = op.getSliceSizes();
+    auto collapsedSliceDims = op.getCollapsedSliceDims();
+    auto offsetDims = op.getOffsetDims();
+
+    // Check if there are no batching dims.
+    if (!op.getOperandBatchingDims().empty() ||
+        !op.getStartIndicesBatchingDims().empty()) {
+      return rewriter.notifyMatchFailure(op, "Did not satisfy batching = none");
+    }
+
+    // Check if slice sizes are equal to input shape for all dimensions.
+    // Check if input dims that are not collapsed stay in the same position.
+    for (size_t i = 0; i < inputShape.size(); ++i) {
+      if (sliceSizes[i] != inputShape[i]) {
+        return rewriter.notifyMatchFailure(
+            op, "Did not satisfy slice sizes equal to input shape");
+      }
+      if (!llvm::is_contained(collapsedSliceDims, i) &&
+          !llvm::is_contained(offsetDims, i)) {
+        return rewriter.notifyMatchFailure(
+            op, "Did not satisfy that dims that are not collapsed stay in the "
+                "same position");
+      }
+    }
+
+    // Check if input and output have the same rank.
+    if (inputShape.size() != static_cast<size_t>(outputRank)) {
+      return rewriter.notifyMatchFailure(
+          op, "Did not satisfy input and output have the same rank");
+    }
+
+    return success();
+  }
+
+  /**
+   * Lowers Gather Op into Repeat Op
+   *
+   *  - Collapsed dims from input are repeated according to output shape.
+   */
+
+  LogicalResult
+  matchAndRewrite(ttir::GatherOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    LogicalResult err = checkBasicLegality(op, rewriter);
+    if (not err.succeeded()) {
+      return err;
+    }
+
+    auto inputShape = op.getInput().getType().getShape();
+    auto outputShape = op.getOutput().getType().getShape();
+
+    llvm::SmallVector<int64_t> repeatDims(inputShape.size(), 1);
+    for (size_t i = 0; i < inputShape.size(); ++i) {
+      if (inputShape[i] != outputShape[i]) {
+        repeatDims[i] = outputShape[i];
+      }
+    }
+
+    auto repeatDimsAttr = rewriter.getDenseI64ArrayAttr(repeatDims);
+
+    ttir::RepeatOp repeatOp = ttir::utils::createDPSOp<ttir::RepeatOp>(
+        rewriter, op.getLoc(), op.getOutput().getType(), op.getInput(),
+        repeatDimsAttr);
+
+    rewriter.replaceOp(op, repeatOp);
+
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 struct GatherToEmbeddingConversionPattern
     : public OpConversionPattern<ttir::GatherOp> {
   using OpConversionPattern<ttir::GatherOp>::OpConversionPattern;
@@ -3247,6 +3345,7 @@ void populateTTIRToTTIRDecompositionPatterns(MLIRContext *ctx,
   patterns.add<IndexToSliceConversionPattern>(typeConverter, ctx);
   patterns.add<Legalize1DConvolutionPattern>(typeConverter, ctx);
   patterns.add<ConvolutionToConv2dPattern>(typeConverter, ctx);
+  patterns.add<GatherToRepeatConversionPattern>(typeConverter, ctx);
   patterns.add<GatherToEmbeddingConversionPattern>(typeConverter, ctx);
   patterns.add<SelectToSliceConversionPattern>(typeConverter, ctx);
   patterns.add<ArangeForceLastDimensionPattern>(typeConverter, ctx);
