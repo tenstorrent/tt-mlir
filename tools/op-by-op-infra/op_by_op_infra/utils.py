@@ -5,11 +5,12 @@
 from __future__ import annotations
 
 from abc import ABC
+import re
 from dataclasses import dataclass
 from typing import Callable, List, Optional
 
 from ttmlir.compile_and_run_utils import ModuleDialect, create_mlir_module_from_string
-from ttmlir.dialects import ttcore, ttnn
+from ttmlir.dialects import func, ttcore, ttnn
 from ttmlir.ir import (
     Module,
     OpAttributeMap,
@@ -112,6 +113,7 @@ class OpWrapper:
         self,
         op: OpView,
         attrs: Optional[OpAttributeMap] = None,
+        func_op: Optional[func.FuncOp] = None,
     ) -> None:
         """Constructor."""
         self.op = op
@@ -120,6 +122,7 @@ class OpWrapper:
         ]
         self.results = [Result(result.get_name(), result.type) for result in op.results]
         self.attributes = attrs
+        self.func_op = func_op
 
     def __str__(self) -> str:
         return str(self.op)
@@ -147,13 +150,15 @@ class OpWrapper:
         }
         ```
         """
+        # Make operands unique to handle cases where the same operand is used multiple times
+        unique_operands = {operand.name: operand for operand in self.operands}.values()
         unpacked_operands = ", ".join(
-            f"{operand.name}: {operand.type}" for operand in self.operands
+            f"{operand.name}: {operand.type}" for operand in unique_operands
         )
 
         if len(self.results) > 1:
-            results = f"({', '.join(result.name for result in self.results)})"
-            return_type = f"({', '.join(str(result.type) for result in self.results)})"
+            results = f"{', '.join(result.name for result in self.results)}"
+            return_type = f"{', '.join(str(result.type) for result in self.results)}"
             return_stmt = f"return {results} : {return_type}"
         elif len(self.results) == 1:
             return_type = self.results[0].type
@@ -170,12 +175,16 @@ class OpWrapper:
         else:
             attrs = "{}"
 
+        # Add func_op if present
+        func_op_str = f"  {self.func_op} \n" if self.func_op is not None else ""
+
         return (
             f"module attributes {attrs} {{ \n"
-            f"  func.func @main({unpacked_operands}) -> {return_type} {{ \n"
+            f"  func.func @main({unpacked_operands}) -> ({return_type}) {{ \n"
             f"    {self.op} \n"
             f"    {return_stmt} \n"
             f"  }} \n"
+            f"{func_op_str}"
             f"}}"
         )
 
@@ -185,7 +194,7 @@ class OpWrapper:
         """
         module_wrapper = parse_module_str(self.as_module_str())
         # Store important references to the original op.
-        module_wrapper.origin_op_name = self.name
+        module_wrapper.origin_op_name = str(self.name)
         module_wrapper.origin_op_operands = self.operands
         module_wrapper.origin_op_results = self.results
         return module_wrapper
@@ -204,8 +213,9 @@ class TTNNOpWrapper(OpWrapper):
         op: OpView,
         tt_device_op: ttcore.DeviceOp,
         attrs: Optional[OpAttributeMap] = None,
+        func_op: Optional[func.FuncOp] = None,
     ) -> None:
-        super().__init__(op, attrs)
+        super().__init__(op, attrs, func_op)
         self.tt_device_op = tt_device_op
 
     # @override
@@ -230,8 +240,10 @@ class TTNNOpWrapper(OpWrapper):
         }
         ```
         """
+        # Make operands unique to handle cases where the same operand is used multiple times
+        unique_operands = {operand.name: operand for operand in self.operands}.values()
         unpacked_operands = ", ".join(
-            f"{operand.name}: {operand.type}" for operand in self.operands
+            f"{operand.name}: {operand.type}" for operand in unique_operands
         )
 
         if len(self.results) > 1:
@@ -253,11 +265,15 @@ class TTNNOpWrapper(OpWrapper):
         else:
             attrs = "{}"
 
+        # Add func_op if present
+        func_op_str = f"  {self.func_op} \n" if self.func_op is not None else ""
+
         return (
             f"module {{ \n"
             f"ttcore.device_module {{ \n"
             f"builtin.module attributes {attrs} {{ \n"
             f"  {self.tt_device_op} \n"
+            f"{func_op_str}"
             f"  func.func @main({unpacked_operands}) -> {return_type} {{ \n"
             f"    {self.op} \n"
             f"    {return_stmt} \n"
@@ -326,8 +342,8 @@ class ModuleWrapper:
         """Returns True if module originated as a single op."""
         return self.origin_op_name is not None
 
-    def wrap_op(self, op: OpView) -> OpWrapper:
-        return OpWrapper(op, self._attributes)
+    def wrap_op(self, op: OpView, func_op: Optional[func.FuncOp] = None) -> OpWrapper:
+        return OpWrapper(op, self._attributes, func_op)
 
     # ----- Private methods and properties -----
 
@@ -417,8 +433,10 @@ class TTNNModuleWrapper(ModuleWrapper):
         return list(self._operations)[1:]
 
     # @override
-    def wrap_op(self, op: OpView) -> TTNNOpWrapper:
-        return TTNNOpWrapper(op, self._tt_device_op, self._attributes)
+    def wrap_op(
+        self, op: OpView, func_op: Optional[func.FuncOp] = None
+    ) -> TTNNOpWrapper:
+        return TTNNOpWrapper(op, self._tt_device_op, self._attributes, func_op)
 
     # ----- Private methods and properties -----
 
@@ -467,6 +485,21 @@ def parse_module_str(module_str: str) -> ModuleWrapper:
     )
 
 
+def preprocess_module_str(module_str: str) -> str:
+    """
+    Preprocesses module string by removing:
+    - lines that start with `#loc`
+    - `loc(...(...)...)` from other lines
+    - `.sdy.mesh...` lines
+    """
+    loc_pattern = re.compile(r"^#loc.*$", re.MULTILINE)
+    module_str = re.sub(loc_pattern, "", module_str)
+    loc_pattern = re.compile(r"\s*loc\((?:[^()]*(?:\([^()]*\))*)*\)")
+    module_str = re.sub(loc_pattern, "", module_str)
+    loc_pattern = re.compile(r"\s*sdy.mesh.*$", re.MULTILINE)
+    return re.sub(loc_pattern, "", module_str)
+
+
 def convert_to_module_wrapper(func: Callable) -> Callable:
     """
     Decorator to ensure that the `module` argument is always of type `ModuleWrapper`.
@@ -483,6 +516,7 @@ def convert_to_module_wrapper(func: Callable) -> Callable:
         **kwargs,
     ) -> List[Module]:
         if isinstance(module, str):
+            module = preprocess_module_str(module)
             m = parse_module_str(module)
         elif isinstance(module, Module):
             m = (
