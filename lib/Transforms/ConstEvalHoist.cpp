@@ -29,6 +29,32 @@ namespace mlir::tt::transforms {
 //===----------------------------------------------------------------------===//
 
 namespace {
+struct DisjointSetUnion {
+  DisjointSetUnion(llvm::SmallVector<mlir::Value> nodes) {
+    for (auto v : nodes) {
+      parent[v] = v;
+    }
+  }
+
+  llvm::DenseMap<mlir::Value, mlir::Value> parent;
+
+  mlir::Value findRoot(mlir::Value v) {
+    auto it = parent.find(v);
+    if (v == it->second) {
+      return v;
+    }
+
+    // Path compression
+    return it->second = findRoot(it->second);
+  }
+
+  mlir::Value unionSets(mlir::Value x, mlir::Value y) {
+    mlir::Value rootX = findRoot(x);
+    mlir::Value rootY = findRoot(y);
+    return parent[rootX] = rootY;
+  }
+};
+
 struct ConstEvalSubgraph {
   // Set of parameters to the original function that this subgraph depends on.
   llvm::SmallPtrSet<mlir::BlockArgument, 4> inputParameters;
@@ -71,6 +97,8 @@ public:
     for (auto &block : funcOp->getBlocks()) {
       for (auto &op : block.getOperations()) {
         auto opIt = opToSubgraphMap.find(&op);
+        assert(opIt != opToSubgraphMap.end() ||
+               isSharedOp(&op) && "All const-eval ops should be mapped");
         if (opIt != opToSubgraphMap.end()) {
           size_t subgraphId = opIt->second;
           size_t root = findRoot(subgraphId);
