@@ -540,7 +540,7 @@ class TTCompilerBase(PyKernelAstBase):
             case ast.MatMult():
                 return qualified_or("__matmul__", unimplemented, lhs, rhs)
             case ast.FloorDiv():
-                return qualified_or("__floordiv__", arith.floordivsi, lhs, rhs)
+                return qualified_or("__floordiv__", arith.divsi, lhs, rhs)
             case ast.Mod():
                 return qualified_or("__mod__", arith.remsi, lhs, rhs)
             case ast.Pow():
