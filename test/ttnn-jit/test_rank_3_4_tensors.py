@@ -17,18 +17,56 @@ import ast
 import inspect
 
 from ttmlir.ir import *
-from ttmlir.dialects import (
-    ttir,
-    func,
-    ttnn,
-    tensor,
-    ttcore,
-)
 
 def abs(input_tensor):
     return ttnn.abs(input_tensor)
 
-def create_rank_n_sharded_tile_tensor(device, shape, max_grid, dtype=torch.float32, int_max=0):
+def collapsed_linear_affine_map(context, shape, grid_shape, collapse_intervals):
+    with context:
+        rank = len(shape)
+        num_results = min(len(shape), len(grid_shape))
+        map = AffineMap.get_minor_identity(rank, num_results, context)
+
+    d = [AffineDimExpr.get(i, context) for i in range(rank)]
+    const0 = AffineConstantExpr.get(0, context)
+    #results = list(map.results)
+    results = list(map.results)
+
+    minimum_dim = rank
+
+    for begin, end in collapse_intervals:
+        #handle negative indices
+        if begin < 0:
+            begin += rank
+        if end < 0:
+            end += rank
+        if begin >= rank:
+            continue
+
+        minimum_dim = min(minimum_dim, begin)
+
+        #build collapsed expression
+        collapsed = const0
+        multiplier = 1
+
+        for dim in range(end - 1, begin - 1, -1):
+            collapsed = d[dim] * multiplier + collapsed
+            multiplier *= shape[dim]
+
+        #replace results
+        results = results[:begin] + [collapsed] + results[end:]
+
+    #fill implicit lower dims
+    for dim in range(minimum_dim):
+            results[dim] = d[dim]
+
+    #pad with zeroes if needed
+    while len(results) < len(grid_shape):
+            results.insert(0, const0)
+
+    return AffineMap.get(rank, 0, results, context)
+
+""" def create_rank_n_sharded_tile_tensor(device, shape, max_grid, dtype=torch.float32, int_max=0):
     torch.manual_seed(0)
     if not (dtype.is_floating_point or dtype.is_complex):
         # recreate spatial coverage of fp [0,1] in randn and give some overflow headroom
@@ -88,3 +126,29 @@ def test_rank_3(device, rank_1, rank_2, rank_3, max_grid, op):
     assert memory_configs_equal(output_tensor.memory_config(), golden_tensor.memory_config())
     assert all_close_check(output_tensor, golden_tensor)
 
+ """
+
+def test_collapsed_affine_map():
+
+    context = Context()
+    shape = [4, 5, 6, 7]
+    grid_shape = [1, 1]
+    collapse_intervals = [(0, -1)]
+
+    expected_map = AffineMap.get(
+        4,
+        0,
+        [
+            AffineDimExpr.get(0, context),
+            AffineDimExpr.get(1, context) * 6 + AffineDimExpr.get(2, context),
+            AffineDimExpr.get(3, context),
+        ],
+        context,
+    )
+
+    result_map = collapsed_linear_affine_map(context, shape, grid_shape, collapse_intervals)
+
+    print("Expected Map: ", expected_map)
+    print("Result Map: ", result_map)
+
+    assert result_map == expected_map
