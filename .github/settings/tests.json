@@ -20,7 +20,7 @@
             "script": "pytest.sh", "args": "test/python/op_by_op" },
 
   { "runs-on": "n150",   "image": "tracy",  "script": "pytest.sh", "args": "tools/explorer/test/run_tests.py", "reqs": "--force-reinstall $BUILD_DIR/bin/wheels/tt_adapter*.whl $BUILD_DIR/bin/wheels/ai_edge_model_explorer*.whl" },
-  { "runs-on": "n150",   "image": "tracy",  "script": "pytest.sh", "args": "runtime/tools/chisel/test", "reqs": "-e runtime/tools/chisel/", "if": "chisel" },
+  { "runs-on": "n150",   "image": "tracy",  "script": "pytest.sh", "args": "runtime/tools/chisel/test", "reqs": "-e runtime/tools/chisel/" },
 
   { "runs-on": ["n150","n300-llmbox","n300","p150"],
         "image": "tracy",
@@ -34,7 +34,7 @@
   { "runs-on": "n300",   "image": "tracy",  "script": "ttnn_runtime.sh", "args": "runtime/test/ttnn/python/n300" },
   { "runs-on": "n300-llmbox", "image": "tracy",  "script": "ttnn_runtime.sh", "args": "runtime/test/ttnn/python/distributed/llmbox" },
   { "runs-on": "n300",   "image": "tracy",  "script": "runtime_debug.sh" },
-  { "runs-on": "n150",   "image": "speedy",  "script": "emitc.sh", "if": "emitc" },
+  { "runs-on": "n150",   "image": "speedy",  "script": "emitc.sh" },
   { "runs-on": "n150",   "image": "speedy",  "script": "ttnn_standalone.sh" },
   { "runs-on": "n150",   "image": "tracy",  "script": "pykernel.sh" },
   { "runs-on": "n150",   "image": "speedy",  "script": "alchemist.sh" }

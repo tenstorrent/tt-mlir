@@ -491,6 +491,13 @@ def TTNN_SiluOp : TTNN_ElementwiseUnaryOp<"silu"> {
   }];
 }
 
+def TTNN_MishOp : TTNN_ElementwiseUnaryOp<"mish"> {
+  let summary = "Eltwise Mish.";
+  let description = [{
+    Eltwise Mish operation.
+  }];
+}
+
 def TTNN_LogOp : TTNN_ElementwiseUnaryOp<"log"> {
     let summary = "Eltwise logarithm.";
     let description = [{
