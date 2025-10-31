@@ -5,7 +5,5 @@
 
 set -e -o pipefail
 
-echo "Generating tests"
-llvm-lit $BUILD_DIR/test
 echo "Running TTNN Runtime Python tests"
 .github/test_scripts/pytest.sh "$@"
