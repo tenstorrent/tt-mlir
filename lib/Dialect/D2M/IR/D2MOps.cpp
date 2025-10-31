@@ -1273,9 +1273,8 @@ void GenericOp::getCanonicalizationPatterns(mlir::RewritePatternSet &patterns,
           if (!parentOp) {
             // Fallback to same-block check if no FuncOp found.
             for (Operation *user : blockArg.getUsers()) {
-              TT_assertv(
-                  (mlir::isa<d2m::WaitOp, d2m::ReserveOp>(user)),
-                  "block argument users must be wait/reserve operations");
+              assert((mlir::isa<d2m::WaitOp, d2m::ReserveOp>(user)) &&
+                     "block argument users must be wait/reserve operations");
               if (user->getBlock() == regionOp->getBlock() &&
                   user->isBeforeInBlock(regionOp)) {
                 waitOrReserve = user;
@@ -1286,9 +1285,8 @@ void GenericOp::getCanonicalizationPatterns(mlir::RewritePatternSet &patterns,
             // Use DominanceInfo for cross-block dominance checking.
             DominanceInfo domInfo(mlir::cast<func::FuncOp>(parentOp));
             for (Operation *user : blockArg.getUsers()) {
-              TT_assertv(
-                  (mlir::isa<d2m::WaitOp, d2m::ReserveOp>(user)),
-                  "block argument users must be wait/reserve operations");
+              assert((mlir::isa<d2m::WaitOp, d2m::ReserveOp>(user)) &&
+                     "block argument users must be wait/reserve operations");
               // Check if this wait/reserve dominates the regionOp.
               if (domInfo.dominates(user, regionOp)) {
                 waitOrReserve = user;

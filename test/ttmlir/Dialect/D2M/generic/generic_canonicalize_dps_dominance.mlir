@@ -140,3 +140,55 @@ func.func @test_nested_in_loop(%arg0: tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #
   }
   return %1 : tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #layout>
 }
+
+// -----
+
+// This test verifies the canonicalization pattern uses DominanceInfo for
+// cross-block dominance checking when replacing d2m.empty() operations with
+// wait/reserve results from circular buffers. The test places the reserve
+// operation in one block and the DPS operation (linalg.generic) in a different
+// block to ensure dominance analysis is required rather than simple same-block
+// ordering checks.
+
+#layout = #ttcore.metal_layout<logical_shape = 32x32, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1>
+#map = affine_map<(d0, d1) -> (d0, d1)>
+
+// CHECK-LABEL: func.func @canonicalize_dps_cross_block_dominance
+func.func @canonicalize_dps_cross_block_dominance(%arg0: tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #layout>) -> tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #layout> {
+  %empty = d2m.empty() : tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #layout>
+
+  // CHECK: d2m.generic
+  // CHECK: ^compute0(%[[CB_IN:.*]]: !d2m.cb<{{.*}}>, %[[CB_OUT:.*]]: !d2m.cb<{{.*}}>):
+  // Entry block: create wait/reserve before branching
+  // CHECK-NEXT: d2m.wait %[[CB_IN]]
+  // CHECK-NEXT: %[[RESERVE:.*]] = d2m.reserve %[[CB_OUT]]
+  %result = d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#map, #map], iterator_types = [#ttcore.iterator_type<parallel>, #ttcore.iterator_type<parallel>], threads = [#d2m.thread<compute>]}
+      ins(%arg0 : tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #layout>)
+      outs(%empty : tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #layout>)  {
+  ^compute0(%cb_in: !d2m.cb<tensor<1x1x!ttcore.tile<32x32, f32>>>, %cb_out: !d2m.cb<tensor<1x1x!ttcore.tile<32x32, f32>>>):
+    %in = d2m.wait %cb_in : <tensor<1x1x!ttcore.tile<32x32, f32>>> -> tensor<1x1x!ttcore.tile<32x32, f32>>
+    %reserve = d2m.reserve %cb_out : <tensor<1x1x!ttcore.tile<32x32, f32>>> -> tensor<1x1x!ttcore.tile<32x32, f32>>
+    %temp = d2m.empty() : tensor<1x1x!ttcore.tile<32x32, f32>>
+
+    // Create a new block (then branch) to host the DPS op, ensuring cross-block dominance is required.
+    %ctrue = arith.constant true
+    scf.if %ctrue {
+      // CHECK: %[[GEN:.*]] = linalg.generic
+      // CHECK-SAME: outs(%[[RESERVE]] :
+      %gen = linalg.generic {indexing_maps = [#map, #map], iterator_types = ["parallel", "parallel"]}
+          ins(%in : tensor<1x1x!ttcore.tile<32x32, f32>>)
+          outs(%temp : tensor<1x1x!ttcore.tile<32x32, f32>>) {
+      ^bb0(%in_val: !ttcore.tile<32x32, f32>, %out_val: !ttcore.tile<32x32, f32>):
+        %abs = "d2m.tile_abs"(%in_val) : (!ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
+        linalg.yield %abs : !ttcore.tile<32x32, f32>
+      } -> tensor<1x1x!ttcore.tile<32x32, f32>>
+      // CHECK: d2m.store %[[RESERVE]], %[[GEN]]
+      d2m.store %reserve, %gen : tensor<1x1x!ttcore.tile<32x32, f32>>
+    }
+
+    d2m.yield %reserve : (tensor<1x1x!ttcore.tile<32x32, f32>>)
+  } : tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #layout>
+
+  // CHECK: return
+  return %result : tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #layout>
+}
