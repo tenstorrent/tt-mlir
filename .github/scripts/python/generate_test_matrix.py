@@ -71,12 +71,19 @@ def civ2_offload(test_matrix):
 
         # If we have matching tests and configs, apply offload
         if matching_tests and configs:
+            changed = False
             # Sort matching_tests by total_duration in ascending order
             matching_tests.sort(key=lambda x: x[1]["total_duration"])
 
             for conf in configs:
                 # Parse the "at" field to determine if current hour is in range
                 at = conf.get("at", "0-23")
+                # handle "default" as full day if no changes have been made yet
+                if at == "default" or "default" in conf:
+                    if changed:
+                        continue
+                    at = "0-23"
+
                 # Parse the "at" field format: <from_hour>-<to_hour>, -<to_hour>, <from_hour>-, or <hour>
                 if "-" in at:
                     from_hour_str, to_hour_str = at.split("-", 1)
@@ -127,6 +134,10 @@ def civ2_offload(test_matrix):
                     if test_matrix[test_index]["runs-on"] == "p150":
                         test_matrix[test_index]["runs-on"] = "p150b"
 
+                print(
+                    f"CIv2 offload: marking tests for {name} with scope {scope}:\n{conf}"
+                )
+
                 if scope == 0:
                     continue  # no tests to mark
                 if scope > 0:
@@ -140,6 +151,12 @@ def civ2_offload(test_matrix):
                     for i in range(start_index, len(matching_tests)):
                         test_index, test = matching_tests[i]
                         set_sh_run(test_index)
+
+                changed = True
+                if "break" in conf:
+                    break
+
+                changed = True
 
     return test_matrix
 
