@@ -560,4 +560,5 @@ ttir_to_torch_mapping = {
     "ttir.argmax": OpMapping(
         custom_argmax, {"dim_arg": "dim", "keep_dim": "keepdim"}, unpack_inputs=False
     ),
+    "ttir.floor": OpMapping(torch.floor, unpack_inputs=False),
 }
