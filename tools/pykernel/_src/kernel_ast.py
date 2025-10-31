@@ -863,6 +863,30 @@ class TTKernelCompiler(TTCompilerBase):
             [True, True],
         )  # True for arg as attribute
 
+        # Workaround for inconsistent operation definitions in TTKernelOps.td:
+        # - noc_async_read_tile expects I32:$id (line 1834)
+        # - noc_async_write_tile expects IndexLike:$id (line 1899)
+        # TODO: Change noc_async_read_tile to use IndexLike for consistency
+        self._fn_map["noc_async_read_tile"] = self._wrap_noc_async_read_tile
+        self._fn_map["noc_async_write_tile"] = self._wrap_noc_async_write_tile
+
+    def _wrap_noc_async_read_tile(self, tile_id, addr_gen, dst_addr):
+        """Cast tile_id to i32 for noc_async_read_tile operation."""
+        if isinstance(tile_id, OpView):
+            tile_id = tile_id.result
+
+        if hasattr(tile_id, 'type') and isinstance(tile_id.type, IndexType):
+            tile_id = arith.index_cast(IntegerType.get_signless(32), tile_id)
+
+        return ttkernel.noc_async_read_tile(tile_id, addr_gen, dst_addr)
+
+    def _wrap_noc_async_write_tile(self, tile_id, addr_gen, src_addr):
+        """Extract result from operations for noc_async_write_tile."""
+        if isinstance(tile_id, OpView):
+            tile_id = tile_id.result
+
+        return ttkernel.noc_async_write_tile(tile_id, addr_gen, src_addr)
+
     # Root Nodes
     def visit_FunctionDef(self, node):
         # TODO: add alloca args name into symbol table
