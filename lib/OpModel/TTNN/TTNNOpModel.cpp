@@ -3838,16 +3838,6 @@ llvm::Expected<size_t> OpModel<MatmulOp>::getOpRuntime(
 //===----------------------------------------------------------------------===//
 // DeallocateOp
 //===----------------------------------------------------------------------===//
-llvm::Expected<OpConstraints> OpModel<DeallocateOp>::getOpConstraints(
-    ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
-    TTNNLayoutAttr inputLayout, bool force) {
-  // sgholamiTT: DeallocateOp's invoke method in tt-metal returns void. So it
-  // cannot be called via a call to query_op_constraints (see
-  // extract_output_tensor usage). Besides, DeallocateOp has no memory usage as
-  // it simply deallocates memory. So I decided to return an empty
-  // OpConstraints, instead of returning an error.
-  return OpConstraints{};
-}
 
 llvm::Expected<size_t>
 OpModel<DeallocateOp>::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
@@ -3979,6 +3969,10 @@ llvm::Expected<OpConstraints> OpModel<UpdateCacheOp>::getOpConstraints(
   // tensor which is not possible in compile time (as opposed to the workaround
   // that is implemented in runtime code in PR 1437). So we use a default value
   // of 0.
+  if (updateIndexLayout.getDataType() != ttcore::DataType::UInt32) {
+    return llvm::createStringError("UpdateIndex must be of type UInt32");
+  }
+
   uint32_t updateIdx = 0; // Default to first position
   (void)updateIndexShape;
   (void)updateIndexLayout;

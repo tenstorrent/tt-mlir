@@ -128,7 +128,8 @@ public:
       const mlir::tt::ttnn::TensorMemoryLayout &tensorMemoryLayout,
       const std::optional<llvm::SmallVector<int64_t>> &virtualGrid =
           std::nullopt,
-      const llvm::SmallVector<int64_t> physicalGrid = GetPhysicalGridSize()) {
+      const llvm::SmallVector<int64_t> physicalGrid = GetPhysicalGridSize(),
+      bool isSigned = true) {
     const auto &virtualGridSelected =
         virtualGrid.has_value()
             ? virtualGrid.value()
@@ -138,7 +139,8 @@ public:
                              ? mlir::tt::ttnn::TensorMemoryLayoutAttr{}
                              : mlir::tt::ttnn::TensorMemoryLayoutAttr::get(
                                    &context, tensorMemoryLayout);
-    auto int32DataType = mlir::tt::ttcore::DataType::Int32;
+    auto int32DataType = isSigned ? mlir::tt::ttcore::DataType::Int32
+                                  : mlir::tt::ttcore::DataType::UInt32;
     auto tileType =
         mlir::tt::ttcore::TileType::get(&context, {32, 32}, int32DataType);
 
@@ -147,6 +149,18 @@ public:
         CreateGrid(&context, bufferType, tensorMemoryLayout,
                    virtualGridSelected, physicalGrid),
         memLayoutAttr);
+  }
+
+  mlir::tt::ttnn::TTNNLayoutAttr CreateTiledLayoutUInt32(
+      const llvm::ArrayRef<int64_t> &tensorShape,
+      const mlir::tt::ttnn::BufferType &bufferType,
+      const mlir::tt::ttnn::TensorMemoryLayout &tensorMemoryLayout,
+      const std::optional<llvm::SmallVector<int64_t>> &virtualGrid =
+          std::nullopt,
+      const llvm::SmallVector<int64_t> physicalGrid = GetPhysicalGridSize()) {
+    return CreateTiledLayoutInt32(tensorShape, bufferType, tensorMemoryLayout,
+                                  virtualGrid, physicalGrid,
+                                  /*isSigned=*/false);
   }
 
   mlir::tt::ttnn::TTNNLayoutAttr CreateRowMajorLayout(

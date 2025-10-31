@@ -18,7 +18,6 @@
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/Value.h"
 #include "llvm/ADT/SmallVector.h"
-#include "llvm/Support/Error.h"
 
 #include "gtest/gtest.h"
 
@@ -99,12 +98,14 @@ TEST_F(OpConstraintValidationTest, ValidateOperationRealAddOp) {
 
   // This should either succeed or fail gracefully (not crash)
   // The exact result depends on OpModel implementation
-  if (result) {
-    EXPECT_GE(result->configIndex, 0u);
+  if (result.isSuccess()) {
+    EXPECT_GE(result.configIndex, 0u);
+    EXPECT_TRUE(result.actualOutputLayout);
   } else {
-    // Consume the error to avoid assertion failure
-    std::string errorMsg = llvm::toString(result.takeError());
-    EXPECT_FALSE(errorMsg.empty());
+    // Validation failed - check that error message is populated
+    EXPECT_FALSE(result.errorMessage.empty());
+    // Check that status is one of the error types
+    EXPECT_TRUE(result.isError());
   }
 }
 
@@ -121,15 +122,15 @@ TEST_F(OpConstraintValidationTest, ValidateWithMultipleAttributesRealAddOp) {
   auto results = op_constraint_validation::validateWithMultipleAttributes(
       addOp, layouts, configs, /*referenceConfigs=*/{}, tensorL1UsageCap);
 
-  if (results) {
-    EXPECT_EQ(results->size(), 10);
-    // All results should be valid if function succeeded
-    for (const auto &result : *results) {
+  EXPECT_EQ(results.size(), 10);
+  // Each result should have a valid status
+  for (const auto &result : results) {
+    // Result can be success or any error type - just check it's valid
+    if (result.isSuccess()) {
       EXPECT_GE(result.configIndex, 0u);
+      EXPECT_TRUE(result.actualOutputLayout);
+    } else {
+      EXPECT_FALSE(result.errorMessage.empty());
     }
-  } else {
-    // Function failed gracefully - consume error to avoid assertion failure
-    std::string errorMsg = llvm::toString(results.takeError());
-    EXPECT_FALSE(errorMsg.empty());
   }
 }
