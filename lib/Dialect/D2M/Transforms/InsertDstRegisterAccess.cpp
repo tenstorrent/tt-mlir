@@ -81,8 +81,15 @@ public:
           ttcore::getOpChipDescAttr(op).getDstLogicalSizeTiles(
               largestDstType, false, maxDstPhysicalSizeTiles);
 
-      bool linalgToAffineFailed = false;
+      // BUG #8: Collect linalg ops first to avoid iterator invalidation
+      // With 3+ ops, modifying IR during walk causes crashes
+      SmallVector<linalg::GenericOp> linalgOps;
       block.walk([&](linalg::GenericOp linalgGenericOp) {
+        linalgOps.push_back(linalgGenericOp);
+      });
+
+      bool linalgToAffineFailed = false;
+      for (auto linalgGenericOp : linalgOps) {
         if (!useTileMatmul && hasTileMatmul(linalgGenericOp)) {
           // Only use tile matmul block rewrite if the d2m.generic has indexing
           // maps. Empty indexing maps indicate a simple operation that should
@@ -91,7 +98,7 @@ public:
             linalgToAffineFailed |= rewriteTileMatmulAsTileMatmulBlock(
                 rewriter, op, *genericRegion, linalgGenericOp, dstCapacity,
                 modified);
-            return;
+            continue;
           }
         }
 
@@ -101,7 +108,7 @@ public:
             linalg::linalgOpToAffineLoops(rewriter, linalgGenericOp);
         if (failed(linalgLoops)) {
           linalgToAffineFailed = true;
-          return;
+          continue;
         }
         assert(!linalgLoops.value().empty());
 
@@ -111,7 +118,7 @@ public:
         Region &dstRegisterAccessRegion = rootLoopNest->getRegion(0);
         modified |= insertDstRegisterAccess(
             rewriter, op, dstRegisterAccessRegion, dstCapacity, rootLoopNest);
-      });
+      }
       if (linalgToAffineFailed) {
         return failure();
       }
@@ -248,18 +255,29 @@ public:
     DstSliceAllocationState dstSliceAllocationState;
     DstRegisterAllocation dstRegisterAllocation;
     region.walk([&](OperandLoadStoreRegisterOpInterface computeOp) {
-      // We're generating loads and stores for dst, so we can ignore loads and
-      // stores that are already on dst.
-      auto notDstMemspace = [](auto op) {
-        return op && ttcore::getMemorySpace(op.getMemRef()) !=
-                         ttcore::MemorySpace::RegisterDst;
+      // BUG #9: Helper to check if load/store is from a CB (not temp alloc, not dst)
+      // This filters out both dst memrefs and temp allocations
+      auto isFromCB = [](auto op) {
+        if (!op) return false;
+        Value memref = op.getMemRef();
+        auto memrefType = mlir::dyn_cast<MemRefType>(memref.getType());
+        if (!memrefType) return false;
+
+        auto memspace = memrefType.getMemorySpace();
+        if (!memspace) {
+          // No memory space = temp allocation, skip
+          return false;
+        }
+        auto ms = ttcore::getMemorySpace(memref);
+        // Only collect loads/stores from DeviceL1 (CBs)
+        return ms == ttcore::MemorySpace::DeviceL1;
       };
 
       // Collect loads to this op.
       for (int64_t operandIdx : computeOp.getOperandsLoadFromDstRegister()) {
         if (auto potentialLoad = computeOp->getOperand(operandIdx)
                                      .getDefiningOp<affine::AffineLoadOp>();
-            notDstMemspace(potentialLoad)) {
+            isFromCB(potentialLoad)) {
           collectDstAccess<affine::AffineLoadOp>(
               op, potentialLoad, copyInfos, dstSliceAllocationState.allocate(),
               outermostInnerComputeLoop);
@@ -269,7 +287,7 @@ public:
       // Collect stores from this op.
       for (auto *user : computeOp->getUsers()) {
         if (auto potentialStore = mlir::dyn_cast<affine::AffineStoreOp>(user);
-            notDstMemspace(potentialStore)) {
+            isFromCB(potentialStore)) {
 
           assert(!dstSliceAllocationState.didStoreToDst() &&
                  "Multiple stores from last op to dst not supported");
@@ -299,6 +317,25 @@ public:
         // If the user isn't a store, it must be another compute consumer and we
         // need to set or allocate a dest register intermediate for it.
         else {
+          // BUG #10: Skip cases that don't need dst allocation
+          if (mlir::isa<linalg::YieldOp>(user)) {
+            continue;  // Output of linalg.generic - no dst needed
+          }
+          if (auto load = mlir::dyn_cast<affine::AffineLoadOp>(user)) {
+            auto memrefType = mlir::dyn_cast<MemRefType>(load.getMemRef().getType());
+            if (memrefType && memrefType.getMemorySpace() &&
+                ttcore::getMemorySpace(load.getMemRef()) == ttcore::MemorySpace::RegisterDst) {
+              continue;  // Already allocated in dst
+            }
+          }
+          if (auto store = mlir::dyn_cast<affine::AffineStoreOp>(user)) {
+            auto memrefType = mlir::dyn_cast<MemRefType>(store.getMemRef().getType());
+            if (memrefType && memrefType.getMemorySpace() &&
+                ttcore::getMemorySpace(store.getMemRef()) == ttcore::MemorySpace::RegisterDst) {
+              continue;  // Already allocated in dst
+            }
+          }
+
           assert(user->hasTrait<D2MGenericRegionComputeOpTrait>());
           assert(computeOp->hasOneUse() &&
                  "Currently we do not support multiple "
@@ -621,6 +658,14 @@ public:
 
       // Use induction variables from the allocation.
       storeIndices.append(loopInductionVars);
+
+      // Handle case where we have more indices than dst rank (e.g., intermediate
+      // ops in fused linalg.generic with reduction dimensions they don't participate in).
+      // BUG #2: When transpose (2D) and matmul (3D) are in the same loop nest,
+      // loopInductionVars has 3 elements but transpose dst is rank-3, so we get 4 indices.
+      if (storeIndices.size() > dstRank) {
+        storeIndices.resize(dstRank);
+      }
 
       // Pad with zeros for remaining dimensions.
       while (storeIndices.size() < dstRank) {

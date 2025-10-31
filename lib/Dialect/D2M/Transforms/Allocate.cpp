@@ -321,6 +321,12 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
         TT_assert(op->getNumResults() == 1u);
         Value result = op->getResult(0);
 
+        // BUG #6: Skip allocations in nested regions (linalg.generic, d2m.generic bodies)
+        // Liveness analysis is only valid for funcBody ops
+        if (op->getBlock() != &funcBody) {
+          return;
+        }
+
         Operation *firstOp = li->getStartOperation(result);
         Operation *lastOp = li->getEndOperation(result, firstOp);
 

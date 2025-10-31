@@ -76,6 +76,7 @@ class D2M_GenericRegionComputeBinaryDstOp<string mnemonic, list<Trait> traits = 
     mlir::SmallVector<int64_t> getOperandsLoadFromDstRegister() {
       return {0, 1};
     }
+    bool getDstRegInPlace() { return false; }
   }];
 }
 
@@ -577,7 +578,7 @@ def D2M_AcquireDstOp : D2M_GenericRegionComputeOp<"acquire_dst",
     let assemblyFormat = [{ `(` `)` attr-dict `:` type($result) }];
 }
 
-def D2M_TileTransposeOp : D2M_GenericRegionComputeOp<"tile_transpose"> {
+def D2M_TileTransposeOp : D2M_GenericRegionComputeUnaryDstOp<"tile_transpose", D2M_TileComputeOpTraitBundle> {
     let summary = "D2M Tile Transpose Op";
     let description = [{
         The `tile_transpose` operation computes the transpose of the input tile.

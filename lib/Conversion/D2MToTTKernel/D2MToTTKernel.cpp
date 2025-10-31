@@ -13,6 +13,7 @@
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOps.h"
 #include "ttmlir/Utils.h"
 
+#include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Affine/ViewLikeInterfaceUtils.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
@@ -83,6 +84,40 @@ static Value getCB(ConversionPatternRewriter &rewriter, Value cb) {
       loadOp) {
     assert(loadOp.getIndices().size() == 1 &&
            "Expected single index in load op, failing.");
+
+    // BUG #5: Check if this is a load from dst register (fused intermediate value)
+    auto memrefType = mlir::dyn_cast<MemRefType>(loadOp.getMemref().getType());
+    if (memrefType && memrefType.getMemorySpace() &&
+        ttcore::getMemorySpace(loadOp.getMemref()) == ttcore::MemorySpace::RegisterDst) {
+      // This is a fused intermediate value. Trace backwards:
+      // dst_load ← dst_store ← tile_op ← tile_op_input ← CB
+      Value dstMemref = loadOp.getMemref();
+      Value loadIndex = loadOp.getIndices()[0];
+
+      // Find matching store to the same dst index
+      memref::StoreOp matchingStore;
+      for (auto *user : dstMemref.getUsers()) {
+        if (auto storeOp = mlir::dyn_cast<memref::StoreOp>(user)) {
+          if (!storeOp.getIndices().empty() &&
+              storeOp.getIndices()[0] == loadIndex) {
+            matchingStore = storeOp;
+            break;
+          }
+        }
+      }
+
+      if (matchingStore) {
+        // Get intermediate tile value
+        Value intermediateTile = matchingStore.getValueToStore();
+        Operation *tileOp = intermediateTile.getDefiningOp();
+
+        // Recursively trace tile op's input to CB
+        if (tileOp && tileOp->getNumOperands() > 0) {
+          return getCB(rewriter, tileOp->getOperand(0));
+        }
+      }
+    }
+
     return rewriter.getRemappedValue(loadOp.getMemref());
   }
 
@@ -96,6 +131,14 @@ static Value getCB(ConversionPatternRewriter &rewriter, Value cb) {
     memref::CastOp castOp = mlir::cast<memref::CastOp>(cb.getDefiningOp());
     return rewriter.getRemappedValue(castOp.getSource());
   }
+
+  // Also handle collapse_shape (added for linearization)
+  if (mlir::isa<memref::CollapseShapeOp>(cb.getDefiningOp())) {
+    memref::CollapseShapeOp collapseOp =
+        mlir::cast<memref::CollapseShapeOp>(cb.getDefiningOp());
+    return rewriter.getRemappedValue(collapseOp.getSrc());
+  }
+
   llvm_unreachable("Expected load or subview op");
 }
 
@@ -109,6 +152,26 @@ static Value getDstIdxFromResult(Value d2mOpResult) {
       break;
     }
   }
+
+  // Also check for affine.store (InsertDstRegisterAccess creates these)
+  affine::AffineStoreOp affineStoreOp;
+  if (!storeOp) {
+    for (Operation *op : d2mOpResult.getUsers()) {
+      auto maybeStore = mlir::dyn_cast<affine::AffineStoreOp>(op);
+      if (maybeStore && ttcore::getMemorySpace(maybeStore.getMemRef()) ==
+                            ttcore::MemorySpace::RegisterDst) {
+        affineStoreOp = maybeStore;
+        break;
+      }
+    }
+  }
+
+  if (affineStoreOp) {
+    assert(affineStoreOp.getMapOperands().size() == 1 &&
+           "Expected single index in affine store op");
+    return affineStoreOp.getMapOperands().front();
+  }
+
   assert(storeOp && "Expected store op.");
   assert(storeOp.getIndices().size() == 1 &&
          "Expected single index in store op");
@@ -242,8 +305,11 @@ public:
   matchAndRewrite(d2m::AcquireDstOp op, d2m::AcquireDstOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
     rewriter.create<ttkernel::TileRegsAcquireOp>(op.getLoc());
-    // Dst is an implicit resource in TTKernel, so we can just erase it.
-    rewriter.eraseOp(op);
+    // BUG #4: Dst memref result is used by collapse_shape, stores, loads.
+    // Type converter converts dst memref → index, so provide dummy index.
+    // Must replaceOp (not eraseOp) to handle downstream uses.
+    Value dummyIndex = rewriter.create<arith::ConstantIndexOp>(op.getLoc(), 0);
+    rewriter.replaceOp(op, dummyIndex);
     return success();
   };
 };
