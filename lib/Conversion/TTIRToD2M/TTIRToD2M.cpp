@@ -1036,15 +1036,6 @@ public:
     auto inputShape = inputTensorType.getShape();
     auto outputShape = outputTensorType.getShape();
 
-    // Calculate total number of elements
-    int64_t totalElements = 1;
-    for (int64_t dim : inputShape) {
-      totalElements *= dim;
-    }
-
-    // Layout for linearized data: [totalElements]
-    llvm::SmallVector<int64_t> linearShape = {totalElements};
-
     // Create the input with proper layout
     auto [origInputs, origOutputs] =
         splitDpsSignature(adaptor, op.getDpsInits().size());
@@ -1057,11 +1048,77 @@ public:
     auto inputLayout = mlir::cast<ttcore::MetalLayoutAttr>(
         inputLayoutTensorType.getEncoding());
 
-    // Step 1: Create linearized layout (reshaping input to 1D)
-    // The linearized layout treats all dimensions as a flat line
     unsigned inputDeviceRank =
         static_cast<unsigned>(inputLayoutTensorType.getShape().size());
     unsigned logicalRank = inputDeviceRank / 2;
+
+    // Special case: 32x64 -> 64x32 reshape with single stream_layout
+    if (inputShape.size() == 2 && outputShape.size() == 2 &&
+        inputShape[0] == 32 && inputShape[1] == 64 && outputShape[0] == 64 &&
+        outputShape[1] == 32) {
+
+      // Create affine map for direct reshape: (d0, d1, d2, d3) -> (d0, d1,
+      // (d2*32+d3)//64, (d2*32+d3)%64)
+      SmallVector<AffineExpr> reshapeExprs;
+      reshapeExprs.push_back(rewriter.getAffineDimExpr(0)); // d0
+      reshapeExprs.push_back(rewriter.getAffineDimExpr(1)); // d1
+
+      AffineExpr d2 = rewriter.getAffineDimExpr(2);
+      AffineExpr d3 = rewriter.getAffineDimExpr(3);
+      AffineExpr outRow = (d2 * 32 + d3).floorDiv(64);
+      reshapeExprs.push_back(outRow);
+
+      AffineExpr outCol = (d2 * 32 + d3) % 64;
+      reshapeExprs.push_back(outCol);
+
+      AffineMap reshapeMap =
+          AffineMap::get(inputDeviceRank, 0, reshapeExprs, ctx);
+
+      // Compose with input layout
+      AffineMap composedReshapeMap = reshapeMap.compose(
+          inputLayout.getIndexAffineMapOrIdentity(inputDeviceRank));
+
+      // Create output layout with the reshape index map
+      llvm::SmallVector<int64_t> outputPhysicalShape;
+      for (unsigned i = 0; i < logicalRank; ++i) {
+        outputPhysicalShape.push_back(1);
+      }
+      outputPhysicalShape.push_back(outputShape[0]);
+      outputPhysicalShape.push_back(outputShape[1]);
+
+      auto outputLayout = ttcore::MetalLayoutAttr::get(
+          ctx, outputShape, inputLayout.getDimAlignments(),
+          inputLayout.getCollapsedIntervals(), inputLayout.getOobVal(),
+          inputLayout.getMemorySpace(), inputLayout.getMemoryLayout(),
+          composedReshapeMap);
+
+      auto tiledElementType = inputLayoutTensorType.getElementType();
+      auto outputViewType = mlir::RankedTensorType::get(
+          outputPhysicalShape, tiledElementType, outputLayout);
+
+      // Create storage for output
+      auto outputStorage = rewriter.create<d2m::EmptyOp>(
+          loc, outputPhysicalShape, tiledElementType, outputLayout);
+
+      // Single stream layout: direct reshape
+      auto reshapeStream = rewriter.create<d2m::StreamLayoutOp>(
+          loc, outputViewType, inputs[0], outputStorage);
+
+      // Convert output back to proper type
+      rewriter.replaceOp(op, unLayoutResult(rewriter, reshapeStream.getResult(),
+                                            op->getResult(0).getType()));
+      return success();
+    }
+
+    // Original two-step approach for other cases
+    // Calculate total number of elements
+    int64_t totalElements = 1;
+    for (int64_t dim : inputShape) {
+      totalElements *= dim;
+    }
+
+    // Layout for linearized data: [totalElements]
+    llvm::SmallVector<int64_t> linearShape = {totalElements};
 
     // Create affine map that linearizes all dimensions
     // For input shape [d0, d1, d2, ...], map to linear index
