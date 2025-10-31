@@ -7,6 +7,8 @@ import json
 import sys
 import test_common
 from itertools import product
+from datetime import datetime
+import random
 
 default_duration = 150.0  # default duration in seconds if not found in _test_durations
 do_array_unroll_for = [
@@ -38,6 +40,108 @@ def unroll_arrays(tests):
             unrolled_tests.append(new_test)
 
     return unrolled_tests
+
+
+def civ2_offload(test_matrix):
+    # Load CIv2 offload configuration
+    offload = []
+    try:
+        with open("_civ2_offload_config.json", "r") as f:
+            offload = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError) as e:
+        print(f"Warning: Could not load _civ2_offload_config.json: {e}")
+        return test_matrix
+
+    current_hour = datetime.now().hour
+
+    # Iterate through offload configurations
+    for oc in offload:
+        name = oc.get("runs-on", "")
+        configs = oc.get("configs", oc.get("config", ""))
+        if configs == "":
+            configs = [{"scope": oc.get("scope", "all")}]
+        if not isinstance(configs, list):
+            configs = [configs]
+
+        # Find tests matching this offload configuration
+        matching_tests = []
+        for i, test in enumerate(test_matrix):
+            if test.get("runs-on") == name:
+                matching_tests.append((i, test))
+
+        # If we have matching tests and configs, apply offload
+        if matching_tests and configs:
+            # Sort matching_tests by total_duration in ascending order
+            matching_tests.sort(key=lambda x: x[1]["total_duration"])
+
+            for conf in configs:
+                # Parse the "at" field to determine if current hour is in range
+                at = conf.get("at", "0-23")
+                # Parse the "at" field format: <from_hour>-<to_hour>, -<to_hour>, <from_hour>-, or <hour>
+                if "-" in at:
+                    from_hour_str, to_hour_str = at.split("-", 1)
+
+                    # Handle missing from_hour (e.g., "-10")
+                    if from_hour_str == "":
+                        from_hour = 0
+                    else:
+                        from_hour = int(from_hour_str)
+
+                    # Handle missing to_hour (e.g., "10-")
+                    if to_hour_str == "":
+                        to_hour = 23
+                    else:
+                        to_hour = int(to_hour_str)
+                else:
+                    # Single hour format (e.g., "10")
+                    from_hour = to_hour = int(at)
+
+                # Check if current hour is in the specified range
+                if not (from_hour <= current_hour <= to_hour):
+                    continue  # Skip this config if current hour is not in range
+
+                # get scope
+                scope_str = conf.get("scope", "all")
+                if scope_str == "all":
+                    scope = len(matching_tests)
+                elif scope_str == "half":
+                    scope = max(1, len(matching_tests) // 2)
+                    if len(matching_tests) % 2 != 0:
+                        scope += random.randint(0, 1)
+                elif scope_str == "-half":
+                    scope = max(1, len(matching_tests) // 2)
+                    if len(matching_tests) % 2 != 0:
+                        scope += random.randint(0, 1)
+                    scope = -scope
+                elif scope_str == "random":
+                    scope = random.randint(0, len(matching_tests))
+                else:
+                    scope = int(scope_str)
+
+                # Mark tests with "sh-run": true based on scope
+                def set_sh_run(test_index):
+                    # set shared runner and adjust runs-on if needed
+                    test_matrix[test_index]["sh-run"] = True
+                    if test_matrix[test_index]["runs-on"] == "llmbox":
+                        test_matrix[test_index]["runs-on"] = "n300-llmbox"
+                    if test_matrix[test_index]["runs-on"] == "p150":
+                        test_matrix[test_index]["runs-on"] = "p150b"
+
+                if scope == 0:
+                    continue  # no tests to mark
+                if scope > 0:
+                    # Mark first 'scope' tests
+                    for i in range(min(scope, len(matching_tests))):
+                        test_index, test = matching_tests[i]
+                        set_sh_run(test_index)
+                else:
+                    # Mark last 'abs(scope)' tests (reverse order)
+                    start_index = max(0, len(matching_tests) + scope)
+                    for i in range(start_index, len(matching_tests)):
+                        test_index, test = matching_tests[i]
+                        set_sh_run(test_index)
+
+    return test_matrix
 
 
 def main(input_filename, target_duration, component_filter):
@@ -184,12 +288,8 @@ def main(input_filename, target_duration, component_filter):
             # Add all bins to the final matrix
             final_test_matrix.extend(bins)
 
-    test_matrix = final_test_matrix
-
-    # Add "sh-run": true to tests where runs-on == "n300-llmbox"
-    for test in test_matrix:
-        if test.get("runs-on") == "n300-llmbox":
-            test["sh-run"] = True
+    # Add CIv2 offload
+    test_matrix = civ2_offload(final_test_matrix)
 
     # Save the test matrix to a file
     with open("_test_matrix.json", "w") as f:
