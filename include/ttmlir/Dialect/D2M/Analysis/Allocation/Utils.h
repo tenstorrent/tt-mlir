@@ -11,13 +11,31 @@
 #include "mlir/IR/AsmState.h"
 #include "mlir/IR/Operation.h"
 #include "mlir/IR/Value.h"
+#include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/STLForwardCompat.h"
+#include "llvm/ADT/SmallBitVector.h"
+#include "llvm/ADT/SmallVector.h"
 
-#include <cmath>
 #include <tuple>
 #include <type_traits>
 #include <utility>
 
+//===---------------------------------------------------------------------===//
+namespace llvm {
+
+inline llvm::raw_ostream &operator<<(llvm::raw_ostream &os,
+                                     const SmallBitVector &obj) {
+  constexpr char digits[2] = {'0', '1'};
+
+  os << '<';
+  for (SmallBitVector::size_type i = 0; i < obj.size(); ++i) {
+    os << digits[obj.test(i)];
+  }
+  return os << '>';
+}
+
+} // namespace llvm
+//===---------------------------------------------------------------------===//
 namespace mlir::tt::d2m::allocation {
 
 inline bool debugEnabled() {
@@ -112,26 +130,6 @@ auto make_lexicographical_field_comparator(Fields... fields) {
       std::make_tuple(fields...)};
 }
 //===---------------------------------------------------------------------===//
-
-/// Return the first prime factor of 'x' ('x' itself if it is prime).
-///
-/// @param x [must be > 1]
-///
-template <typename T>
-auto firstFactor(T x) -> std::enable_if_t<std::is_integral_v<T>, T> {
-  TT_assert(x > 1);
-
-  if (!(x & 1)) {
-    return 2;
-  }
-  for (T i = 3, iLimit = std::ceil(std::sqrt(x)); i < iLimit; ++i) {
-    if (x % i == 0) {
-      return i;
-    }
-  }
-  return x;
-}
-//===---------------------------------------------------------------------===//
 namespace detail {
 
 using std::begin;
@@ -149,6 +147,39 @@ struct is_iterable<T, std::void_t<decltype(begin(std::declval<T>())),
 
 template <typename T>
 constexpr bool is_iterable_v = detail::is_iterable<T>::value;
+//===---------------------------------------------------------------------===//
+
+template <typename T>
+SmallVector<T> concat(const SmallVector<SmallVector<T>> &vs) {
+  SmallVector<T> r;
+  for (const auto &v : vs) {
+    r.append(v.begin(), v.end());
+  }
+  return r;
+}
+
+template <typename T>
+SmallVector<T> concat(ArrayRef<T> a, ArrayRef<T> b) {
+  SmallVector<T> r;
+  r.append(std::begin(a), std::end(a));
+  r.append(std::begin(b), std::end(b));
+  return r;
+}
+
+template <typename T>
+SmallVector<T> concat(SmallVector<T> a, SmallVector<T> b) {
+  return concat(ArrayRef<T>(a), ArrayRef<T>(b));
+}
+
+template <typename T>
+SmallVector<T> concat(ArrayRef<T> a, SmallVector<T> b) {
+  return concat(a, ArrayRef<T>(b));
+}
+
+template <typename T>
+SmallVector<T> concat(SmallVector<T> a, ArrayRef<T> b) {
+  return concat(ArrayRef<T>(a), b);
+}
 //===---------------------------------------------------------------------===//
 
 namespace detail {
@@ -183,7 +214,7 @@ struct IterablePrintAdaptor {
 };
 } // namespace detail
 
-/// Syntactic sugar helper for printing iterable containers in `{V0, V1, ...}`
+/// Syntactic sugar helper for printing iterable containers in `[V0, V1, ...]`
 /// format. format.
 /// @code
 ///     llvm::dbgs() << asSeq(...) << ...
@@ -192,7 +223,7 @@ template <typename T>
 auto asSeq(const T &obj) -> std::enable_if_t<
     is_iterable_v<T>,
     detail::IterablePrintAdaptor<T, detail::CharSeq<',', ' '>,
-                                 detail::CharSeq<'{'>, detail::CharSeq<'}'>>> {
+                                 detail::CharSeq<'['>, detail::CharSeq<']'>>> {
   return {&obj};
 }
 

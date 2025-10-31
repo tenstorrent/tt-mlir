@@ -19,6 +19,11 @@ mlir::AffineMap calculateReblockMap(mlir::ArrayRef<int64_t> inputShape,
 
   size_t rank = inputShape.size();
   assert(rank % 2 == 0);
+
+  if (inputShape == outputShape) {
+    return AffineMap::getMultiDimIdentityMap(rank, ctx);
+  }
+
   size_t halfRank = rank / 2;
 
   mlir::ArrayRef<int64_t> inputShardShape = inputShape.drop_front(halfRank);
@@ -86,7 +91,7 @@ Type getRegionLargestDstElemType(Region &region) {
   return largestType;
 }
 
-AffineMap concatInversePermutationMap(SmallVector<AffineMap> affineMaps,
+AffineMap concatInversePermutationMap(mlir::ArrayRef<AffineMap> affineMaps,
                                       bool reverse) {
   assert(!affineMaps.empty());
 
