@@ -366,9 +366,10 @@ public:
     RewritePatternSet patterns(&getContext());
     // TODO(mvasiljevic): Add HardsigmoidOp once tt-metal issue is resolved
     // https://github.com/tenstorrent/tt-metal/issues/30973
-    patterns.add<
-        TTNNConv2dWithActivation<ReluOp>, TTNNConv2dWithActivation<Relu6Op>,
-        TTNNConv2dWithActivation<SiluOp>, TTNNConv2dWithActivation<SigmoidOp>, RoPEFusing>(
+    patterns.add<TTNNConv2dWithActivation<ReluOp>,
+                 TTNNConv2dWithActivation<Relu6Op>,
+                 TTNNConv2dWithActivation<SiluOp>,
+                 TTNNConv2dWithActivation<SigmoidOp>, RoPEFusing>(
         &getContext());
     GreedyRewriteConfig config;
     config.setUseTopDownTraversal(true);
