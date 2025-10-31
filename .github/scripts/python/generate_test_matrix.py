@@ -52,7 +52,7 @@ def civ2_offload(test_matrix):
         print(f"Warning: Could not load _civ2_offload_config.json: {e}")
         return test_matrix
 
-    current_hour = datetime.now().hour
+    current_hour = datetime.utcnow().hour
 
     # Iterate through offload configurations
     for oc in offload:
