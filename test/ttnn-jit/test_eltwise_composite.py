@@ -29,13 +29,7 @@ COMMON_SHAPE_GRID_PARAMS = [
     (1024, 2048, (7, 7)),
 ]
 
-COMMON_SHAPE_PARAMS = [
-    (32, 32),
-    (32, 64),
-    (64, 64),
-    (64, 128),
-    (128, 128)
-]
+COMMON_SHAPE_PARAMS = [(32, 32), (32, 64), (64, 64), (64, 128), (128, 128)]
 
 
 def run_op_test(
@@ -99,10 +93,13 @@ def test_composite_ops_l1(device, h, w, max_grid, dtype, op):
         device, h, w, max_grid, dtype, op, num_inputs, buffer_type=ttnn.BufferType.L1
     )
 
+
 @pytest.mark.parametrize("h , w", COMMON_SHAPE_PARAMS)
 @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32])
 @pytest.mark.parametrize("op", [cosh, sinh, mul_add])
-@pytest.mark.skip(reason="Seeing failure with DRAM composite ops: /tt-mlir/lib/Dialect/TTCore/IR/TTCoreOpsTypes.cpp:1374: Unsupported memory space")
+@pytest.mark.skip(
+    reason="Seeing failure with DRAM composite ops: /tt-mlir/lib/Dialect/TTCore/IR/TTCoreOpsTypes.cpp:1374: Unsupported memory space"
+)
 def test_composite_ops_dram(device, h, w, dtype, op):
     for h, w in COMMON_SHAPE_PARAMS:
         for dtype in [torch.bfloat16, torch.float32]:
@@ -165,7 +162,9 @@ def test_large_muladd_nice_seq_len_jit_l1(device, seq_len, hidden_dim, dtype):
 @pytest.mark.parametrize("seq_len", [2048, 4096, 8192, 16384, 32768, 65536])
 @pytest.mark.parametrize("hidden_dim", [512, 1024, 2048, 4096])
 @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
-@pytest.mark.skip(reason="Seeing failure with DRAM composite ops: /tt-mlir/lib/Dialect/TTCore/IR/TTCoreOpsTypes.cpp:1374: Unsupported memory space")
+@pytest.mark.skip(
+    reason="Seeing failure with DRAM composite ops: /tt-mlir/lib/Dialect/TTCore/IR/TTCoreOpsTypes.cpp:1374: Unsupported memory space"
+)
 def test_large_muladd_nice_seq_len_jit_dram(device, seq_len, hidden_dim, dtype):
 
     A = create_dram_tensor(device, seq_len, hidden_dim, dtype)
@@ -193,7 +192,9 @@ def test_large_muladd_nice_seq_len_jit_dram(device, seq_len, hidden_dim, dtype):
 def test_muladd_broadcast_jit_l1(device, h, w, max_grid, dtype):
 
     if max_grid == (7, 7):
-        pytest.skip("Fatal error in /tt-mlir/third_party/tt-metal/src/tt-metal/tt_metal/api/tt-metalium/math.hpp:27, 'Divide by zero error in div_up'")
+        pytest.skip(
+            "Fatal error in /tt-mlir/third_party/tt-metal/src/tt-metal/tt_metal/api/tt-metalium/math.hpp:27, 'Divide by zero error in div_up'"
+        )
 
     A = create_sharded_tile_tensor(device, h, w, max_grid, dtype)
     B = create_sharded_tile_tensor(device, h, w, max_grid, dtype)
@@ -224,7 +225,9 @@ def test_muladd_broadcast_jit_l1(device, h, w, max_grid, dtype):
     "h, w", [(32, 32), (64, 64), (128, 128), (256, 256), (512, 512)]
 )
 @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
-@pytest.mark.skip(reason="Seeing failure with DRAM composite ops: /tt-mlir/lib/Dialect/TTCore/IR/TTCoreOpsTypes.cpp:1374: Unsupported memory space")
+@pytest.mark.skip(
+    reason="Seeing failure with DRAM composite ops: /tt-mlir/lib/Dialect/TTCore/IR/TTCoreOpsTypes.cpp:1374: Unsupported memory space"
+)
 def test_muladd_broadcast_jit_dram(device, h, w, dtype):
 
     max_grid = (0, 0)
