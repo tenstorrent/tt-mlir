@@ -45,11 +45,14 @@ struct MLIRModuleLogger {
 
   // Environment variable configuration
   struct Config {
-    bool dumpEnabled = false;
+    enum class DumpMode {
+      Disabled,
+      PerPass,
+      PerDialect
+    };
+
+    DumpMode dumpMode = DumpMode::Disabled;
     std::string dumpDir = "";
-    std::unordered_set<std::string> specificPasses;
-    bool dumpDialectCreation = false;
-    bool preserveDebugInfo = true;
 
     // Parse environment variables and populate config
     static Config fromEnvironment();

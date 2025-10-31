@@ -216,11 +216,19 @@ mlir::tt::MLIRModuleLogger::Config
 mlir::tt::MLIRModuleLogger::Config::fromEnvironment() {
   Config config;
 
-  // Check if IR dumping is enabled
-  const char *dumpEnabled = std::getenv("TTMLIR_DUMP_IR");
-  if (dumpEnabled &&
-      (std::string(dumpEnabled) == "1" || std::string(dumpEnabled) == "true")) {
-    config.dumpEnabled = true;
+  // Parse IR dumping mode
+  const char *dumpMode = std::getenv("TTMLIR_DUMP_IR");
+  if (dumpMode) {
+    std::string mode(dumpMode);
+    // Support various alternative names
+    if (mode == "per_pass" || mode == "all" || mode == "every_pass" ||
+        mode == "pass_by_pass" || mode == "detailed") {
+      config.dumpMode = Config::DumpMode::PerPass;
+    } else if (mode == "per_dialect" || mode == "final" || mode == "end_only" ||
+               mode == "pipeline_end" || mode == "summary") {
+      config.dumpMode = Config::DumpMode::PerDialect;
+    }
+    // If invalid value, dumpMode remains Disabled
   }
 
   // Get dump directory
@@ -231,33 +239,6 @@ mlir::tt::MLIRModuleLogger::Config::fromEnvironment() {
     config.dumpDir = "./ir_dumps"; // Default directory
   }
 
-  // Parse specific passes to dump
-  const char *specificPasses = std::getenv("TTMLIR_DUMP_IR_PASSES");
-  if (specificPasses) {
-    std::string passes(specificPasses);
-    std::stringstream ss(passes);
-    std::string pass;
-    while (std::getline(ss, pass, ',')) {
-      if (!pass.empty()) {
-        config.specificPasses.insert(pass);
-      }
-    }
-  }
-
-  // Check if dialect creation dumping is enabled
-  const char *dumpDialects = std::getenv("TTMLIR_DUMP_IR_DIALECTS");
-  if (dumpDialects && (std::string(dumpDialects) == "1" ||
-                       std::string(dumpDialects) == "true")) {
-    config.dumpDialectCreation = true;
-  }
-
-  // Check if debug info should be preserved
-  const char *debugInfo = std::getenv("TTMLIR_DUMP_IR_DEBUG_INFO");
-  if (debugInfo &&
-      (std::string(debugInfo) == "0" || std::string(debugInfo) == "false")) {
-    config.preserveDebugInfo = false;
-  }
-
   return config;
 }
 
@@ -265,20 +246,12 @@ void mlir::tt::MLIRModuleLogger::attachContextWithDumping(
     mlir::MLIRContext *ctx, const std::string &modelName, const std::string &pipelineName) {
   context = ctx;
   config = Config::fromEnvironment();
-  
-  // Use environment variable for model name if available, otherwise use parameter
-  const char *envModelName = std::getenv("TTMLIR_DUMP_IR_MODEL_NAME");
-  std::string finalModelName = envModelName ? std::string(envModelName) : modelName;
-  
-  // Use environment variable for pipeline name if available, otherwise use parameter
-  const char *envPipelineName = std::getenv("TTMLIR_DUMP_IR_PIPELINE_NAME");
-  std::string finalPipelineName = envPipelineName ? std::string(envPipelineName) : pipelineName;
-  
-  setModelName(finalModelName);
-  setPipelineName(finalPipelineName);
 
-  if (!config.dumpEnabled) {
-    // Fall back to original behavior
+  setModelName(modelName);
+  setPipelineName(pipelineName);
+
+  if (config.dumpMode == Config::DumpMode::Disabled) {
+    // Fall back to original behavior if no valid dump mode
     attachContext(ctx);
     return;
   }
@@ -288,14 +261,12 @@ void mlir::tt::MLIRModuleLogger::attachContextWithDumping(
 
   context->registerActionHandler([this, modelName = this->modelName](llvm::function_ref<void()> transform,
                                         const mlir::tracing::Action &action) mutable {
-    // Dump pre-pipeline IR
-    if (moduleCache.empty()) {
+    // Dump pre-pipeline IR only in per_pass mode
+    if (config.dumpMode == Config::DumpMode::PerPass && moduleCache.empty()) {
       std::string passName = "PRE-PIPELINE", outString;
       llvm::raw_string_ostream os(outString);
       mlir::OpPrintingFlags flags;
-      if (config.preserveDebugInfo) {
-        flags.enableDebugInfo();
-      }
+      flags.enableDebugInfo();
       action.getContextIRUnits()[0].print(os, flags);
       os.flush();
 
@@ -323,27 +294,28 @@ void mlir::tt::MLIRModuleLogger::attachContextWithDumping(
         }
       }
 
-      // Check if we should dump this specific pass
-      bool shouldDump = config.specificPasses.empty() ||
-                        config.specificPasses.count(passName) > 0;
+      // Increment total pass count
+      totalPassCount++;
 
-      if (shouldDump) {
-        // Increment total pass count
-        totalPassCount++;
-        
-        std::string outString;
-        llvm::raw_string_ostream os(outString);
-        mlir::OpPrintingFlags flags;
-        if (config.preserveDebugInfo) {
-          flags.enableDebugInfo();
-        }
-        passAction.getOp()->print(os, flags);
-        os.flush();
+      std::string outString;
+      llvm::raw_string_ostream os(outString);
+      mlir::OpPrintingFlags flags;
+      flags.enableDebugInfo();
+      passAction.getOp()->print(os, flags);
+      os.flush();
 
-        // Cache and dump to file
-        moduleCache.emplace_back(passName, outString);
-        dumpIRToFile(outString, getOutputFilename(passName));
+      // Cache and dump to file
+      moduleCache.emplace_back(passName, outString);
+
+      // For PerPass mode: dump to separate files after every pass
+      // For PerDialect mode: dump to same file (overwriting) after every pass
+      std::string filename;
+      if (config.dumpMode == Config::DumpMode::PerPass) {
+        filename = getOutputFilename(passName);
+      } else if (config.dumpMode == Config::DumpMode::PerDialect) {
+        filename = getOutputFilename("PIPELINE_FINAL");
       }
+      dumpIRToFile(outString, filename);
     }
   });
 }
@@ -464,33 +436,12 @@ std::string mlir::tt::MLIRModuleLogger::extractModelNameFromLocation(
 
 void mlir::tt::MLIRModuleLogger::dumpDialectCreation(
     const std::string &dialectName, mlir::MLIRContext *ctx) {
-  Config config = Config::fromEnvironment();
-
-  if (!config.dumpEnabled || !config.dumpDialectCreation) {
-    return;
-  }
-
-  // Create dump directory if it doesn't exist
-  std::filesystem::create_directories(config.dumpDir);
-
-  std::string filename =
-      config.dumpDir + "/dialect_" + dialectName + "_created.log";
-  std::ofstream file(filename);
-  if (file.is_open()) {
-    file << "Dialect '" << dialectName << "' created in MLIRContext"
-         << std::endl;
-    file << "Available dialects after creation:" << std::endl;
-
-    // List all loaded dialects
-    for (const auto &loadedDialectName : ctx->getAvailableDialects()) {
-      file << "  - " << loadedDialectName.str() << std::endl;
-    }
-
-    file.close();
-  }
+  // This function previously logged dialect creation information.
+  // That functionality has been removed as requested.
+  // IR dumping for PerDialect mode is now handled in the action handler.
 }
 
 bool mlir::tt::MLIRModuleLogger::shouldEnableIRDumping() {
   Config config = Config::fromEnvironment();
-  return config.dumpEnabled;
+  return config.dumpMode != Config::DumpMode::Disabled;
 }

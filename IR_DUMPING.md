@@ -7,104 +7,77 @@ This document describes the new environment variable-controlled IR dumping featu
 The following environment variables control IR dumping behavior:
 
 ### `TTMLIR_DUMP_IR`
-- **Values**: `1` or `true` (enable), `0` or `false` (disable)
-- **Default**: Disabled
-- **Description**: Master switch to enable IR dumping
+- **Values**: `per_pass`, `per_dialect` (plus alternative names below)
+- **Default**: Disabled (empty/unset)
+- **Description**: Controls IR dumping behavior
+  - `per_pass` (or `all`, `every_pass`, `pass_by_pass`, `detailed`): Dump IR after every pass
+  - `per_dialect` (or `final`, `end_only`, `pipeline_end`, `summary`): Dump only one IR per pipeline
 
 ### `TTMLIR_DUMP_IR_DIR`
 - **Values**: Path to directory (e.g., `/path/to/dump/directory`)
 - **Default**: `./ir_dumps`
 - **Description**: Directory where IR dumps will be saved
 
-### `TTMLIR_DUMP_IR_PASSES`
-- **Values**: Comma-separated list of pass names (e.g., `pass1,pass2,pass3`)
-- **Default**: All passes (if empty)
-- **Description**: Only dump IR for specified passes
-
-### `TTMLIR_DUMP_IR_DIALECTS`
-- **Values**: `1` or `true` (enable), `0` or `false` (disable)
-- **Default**: Disabled
-- **Description**: Enable dumping of dialect creation information
-
-### `TTMLIR_DUMP_IR_DEBUG_INFO`
-- **Values**: `1` or `true` (enable), `0` or `false` (disable)
-- **Default**: Enabled
-- **Description**: Preserve debug info in IR dumps
-
-### `TTMLIR_DUMP_IR_MODEL_NAME`
-- **Values**: Model name string (e.g., `constant_op`, `resnet50`)
-- **Default**: Auto-extracted from input filename (falls back to `unknown`)
-- **Description**: Model name used for subdirectory organization. If not set, automatically extracted from the input file's location information
-
-### `TTMLIR_DUMP_IR_PIPELINE_NAME`
-- **Values**: Pipeline name string (e.g., `stablehlo-to-ttir`, `ttir-to-ttnn-backend`)
-- **Default**: `unknown`
-- **Description**: Pipeline name used for subdirectory organization
 
 ## Usage Examples
 
-### Basic Usage
+### Per-Pass Dumping (Detailed)
 ```bash
-# Enable IR dumping with automatic filename extraction
-export TTMLIR_DUMP_IR=1
+# Dump IR after every pass (detailed mode)
+export TTMLIR_DUMP_IR=per_pass
 ttmlir-opt test/ttmlir/Conversion/ArithToStableHLO/constant_op.mlir -pass1 -pass2
-# Creates: ir_dumps/constant_op/unknown/0_PRE-PIPELINE.mlir
+# Creates: ir_dumps/constant_op/unknown/0_PRE-PIPELINE.mlir, 1_pass1.mlir, 2_pass2.mlir, etc.
+```
+
+### Per-Dialect Dumping (Summary)
+```bash
+# Only dump one IR per pipeline (summary mode) - final result
+export TTMLIR_DUMP_IR=per_dialect
+ttmlir-opt input.mlir -ttir-to-ttnn-backend-pipeline
+# Creates: ir_dumps/model/pipeline/1_PIPELINE_FINAL.mlir (contains final IR after all passes)
 ```
 
 ### Custom Directory
 ```bash
 # Dump IR to a specific directory
-export TTMLIR_DUMP_IR=1
+export TTMLIR_DUMP_IR=per_pass
 export TTMLIR_DUMP_IR_DIR=/tmp/my_ir_dumps
-ttmlir-opt input.mlir -pass1 -pass2
-```
-
-### Specific Passes Only
-```bash
-# Only dump IR for specific passes
-export TTMLIR_DUMP_IR=1
-export TTMLIR_DUMP_IR_PASSES="ttir-to-ttnn,ttnn-layout"
-ttmlir-opt input.mlir -ttir-to-ttnn-backend-pipeline
-```
-
-### With Dialect Creation Info
-```bash
-# Enable dialect creation dumping
-export TTMLIR_DUMP_IR=1
-export TTMLIR_DUMP_IR_DIALECTS=1
 ttmlir-opt input.mlir -pass1 -pass2
 ```
 
 ### Complete Setup
 ```bash
-# Full configuration
-export TTMLIR_DUMP_IR=1
+# Full configuration with per-pass dumping
+export TTMLIR_DUMP_IR=per_pass
 export TTMLIR_DUMP_IR_DIR=/home/user/ir_analysis
-export TTMLIR_DUMP_IR_MODEL_NAME=resnet50
-export TTMLIR_DUMP_IR_PIPELINE_NAME=ttir-to-ttnn-backend
-export TTMLIR_DUMP_IR_PASSES="ttir-layout,ttnn-optimizer"
-export TTMLIR_DUMP_IR_DIALECTS=1
-export TTMLIR_DUMP_IR_DEBUG_INFO=1
 ttmlir-opt input.mlir -ttir-to-ttnn-backend-pipeline
 ```
 
 ## Output Files
 
-The IR dumping system creates the following files in a structured subdirectory layout:
+The IR dumping system creates different files depending on the dump mode:
 
-### Directory Structure
+### Per-Pass Mode (`per_pass`)
+Creates detailed IR dumps after every pass in a structured subdirectory layout:
+
+#### Directory Structure
 - **Format**: `<model_name>/<pipeline_name>/<total_pass_count>_<pass_name>.mlir`
 - **Example**: `constant_op/stablehlo-to-ttir/3_stablehlo-to-ttir.mlir`
 
-### Pass IR Dumps
+#### Pass IR Dumps
 - **Filename format**: `<total_pass_count>_<pass_name>.mlir`
 - **Content**: Complete MLIR module after the specified pass
 - **Special files**:
   - `0_PRE-PIPELINE.mlir`: IR before any passes run
 
-### Dialect Creation Logs
-- **Filename format**: `dialect_{dialect_name}_created.log`
-- **Content**: Information about when dialects are created and loaded dialects list
+### Per-Dialect Mode (`per_dialect`)
+Creates one IR dump per pipeline (summary mode):
+
+#### Pipeline Final IR Dump
+- **Filename format**: `1_PIPELINE_FINAL.mlir`
+- **Content**: Complete MLIR module after the final pass in the pipeline
+- **Behavior**: Overwrites the same file after each pass, keeping only the final result
+- **Purpose**: Provides a single snapshot of the pipeline's final state rather than detailed per-pass evolution
 
 ## Integration Points
 
@@ -139,9 +112,9 @@ The IR dumping feature is automatically enabled across all TT-MLIR tooling:
 
 ### Common Issues
 
-1. **No files created**: Ensure `TTMLIR_DUMP_IR=1` is set
+1. **No files created**: Ensure `TTMLIR_DUMP_IR=per_pass` or `TTMLIR_DUMP_IR=per_dialect` is set
 2. **Permission errors**: Check write permissions for dump directory
-3. **Large file sizes**: Use `TTMLIR_DUMP_IR_PASSES` to limit output
+3. **Large file sizes**: Use `per_dialect` mode for summary output instead of detailed per-pass dumps
 4. **Path issues**: Use absolute paths for `TTMLIR_DUMP_IR_DIR`
 
 ### Debugging
