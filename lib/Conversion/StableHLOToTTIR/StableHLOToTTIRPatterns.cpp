@@ -3123,6 +3123,10 @@ class CacheFillUpdatePattern
   using OpConversionPattern<mlir::stablehlo::ScatterOp>::OpConversionPattern;
 
 public:
+  // Use higher benefit to ensure this pattern is tried before generic scatter.
+  CacheFillUpdatePattern(TypeConverter &typeConverter, MLIRContext *context)
+      : OpConversionPattern<mlir::stablehlo::ScatterOp>(typeConverter, context,
+                                                        /*benefit=*/2) {}
   /// Pattern: scatter(input, indices, updates)
   ///
   /// This pattern detects when a ScatterOp is used as a fill/update for a
