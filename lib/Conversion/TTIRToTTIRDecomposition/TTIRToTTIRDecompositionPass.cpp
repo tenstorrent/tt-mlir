@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Conversion/TTIRToTTIRDecomposition/TTIRToTTIRDecomposition.h"
+#include "ttmlir/Dialect/TTIR/Utils/Utils.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Func/Transforms/FuncConversions.h"
@@ -79,7 +80,6 @@ struct TTIRToTTIRDecompositionPass
       target.addIllegalOp<ttir::QuantizeOp>();
       target.addIllegalOp<ttir::RequantizeOp>();
       target.addIllegalOp<ttir::DequantizeOp>();
-      target.addIllegalOp<ttir::ReverseOp>();
       break;
     }
 
@@ -119,6 +119,22 @@ struct TTIRToTTIRDecompositionPass
       return (dimArg->size() == 1 || dimArg->size() == rank);
     });
 
+    target.addDynamicallyLegalOp<ttir::ReverseOp>([&](ttir::ReverseOp op) {
+      // Only decompose if not used by a non-transposed convolution
+      bool isUsedByTransposedConv = false;
+      for (auto &use : op.getResult().getUses()) {
+        auto *userOp = use.getOwner();
+        if (auto convOp = dyn_cast<ttir::ConvolutionOp>(userOp)) {
+          if (mlir::tt::ttir::utils::isTransposedConv(convOp)) {
+            isUsedByTransposedConv = true;
+            break;
+          }
+        }
+      }
+      return isUsedByTransposedConv;
+    });
+
+  
     TypeConverter typeConverter;
     // All types map 1:1.
     typeConverter.addConversion([](Type type) { return type; });

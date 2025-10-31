@@ -268,6 +268,26 @@ inline void addShouldHoistAttr(mlir::Operation *op,
 inline bool hasShouldHoistAttr(mlir::Operation *op) {
   return op->hasAttr("ttir.should_hoist");
 }
+
+// Helper to check if this convolution is a transposed convolution. 
+inline bool isTransposedConv(ttir::ConvolutionOp convolutionOp)
+{
+  constexpr static uint32_t SPATIAL_DIM_HEIGHT = 0;
+  constexpr static uint32_t SPATIAL_DIM_WIDTH = 1;
+  ttir::ConvolutionLayoutAttr convLayoutAttr = convolutionOp.getConvolutionLayoutAttr();
+
+  bool isTransposed = convLayoutAttr.getKernelInputFeatureDimension() ==
+            convLayoutAttr.getInputSpatialDimensions()[SPATIAL_DIM_WIDTH] &&
+        convLayoutAttr.getKernelOutputFeatureDimension() ==
+            convLayoutAttr.getInputSpatialDimensions()[SPATIAL_DIM_HEIGHT] &&
+        convLayoutAttr.getInputSpatialDimensions() !=
+            convLayoutAttr.getKernelSpatialDimensions() &&
+        convLayoutAttr.getOutputSpatialDimensions() !=
+            convLayoutAttr.getKernelSpatialDimensions();
+  isTransposed |= llvm::any_of(convolutionOp.getInputDilation(),
+                                 [](int64_t d) { return d > 1; });
+  return isTransposed;
+}
 } // namespace mlir::tt::ttir::utils
 
 #endif // TTMLIR_DIALECT_TTIR_UTILS_UTILS_H

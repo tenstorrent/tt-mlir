@@ -56,7 +56,7 @@ computeMatmulOutputShape(llvm::ArrayRef<int64_t> shapeA, bool transposeA,
   } else {
     outputShape.push_back(shapeA[rankA - 2]);
   }
-  
+
   if (transposeB) {
     outputShape.push_back(shapeB[rankB - 2]);
   } else {
