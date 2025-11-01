@@ -482,8 +482,8 @@ TEST_P(BinaryBitwiseOpModelTest, TestOpInterface) {
 const ExpectedResult binaryExpected{true, 12288, 2048, 14336, 2048};
 // Some binary ops (such as logicalOr, etc.) require extra circular
 // buffer memory which is captured via the following expected values:
-const ExpectedResult binaryExpected_extraCb2048{true, 12288 + 2048, 2048, 16384,
-                                                2048};
+[[maybe_unused]] const ExpectedResult binaryExpected_extraCb2048{
+    true, 12288 + 2048, 2048, 16384, 2048};
 const ExpectedResult binaryExpected_extraCb4096{true, 12288 + 4096, 2048, 18432,
                                                 2048};
 const ExpectedResult binaryExpected_extraCb4096_extraPeak30720{
