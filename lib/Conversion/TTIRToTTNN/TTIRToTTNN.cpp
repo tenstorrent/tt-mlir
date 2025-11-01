@@ -604,10 +604,19 @@ public:
     // op) of the cache tensor will suffice.
     std::vector<mlir::Operation *> users(op.getCache().getUsers().begin(),
                                          op.getCache().getUsers().end());
-    if (users.size() != 1) {
-      return rewriter.notifyMatchFailure(
-          op, "UpdateCacheOp must have exactly one user");
-    }
+    // if (users.size() != 1) {
+    //   if (users.size() != 2) {
+    //     return rewriter.notifyMatchFailure(
+    //         op, "UpdateCacheOp must have exactly one user, or two users if
+    //         one is a return op.");
+    //   }
+    //   if(isa<mlir::func::ReturnOp>(users[0]) ||
+    //   isa<mlir::func::ReturnOp>(users[1])) {
+    //     return rewriter.notifyMatchFailure(
+    //         op, "If UpdateCacheOp has two users, one must be a return op.");
+    //   }
+
+    // }
 
     rewriter.create<ttnn::UpdateCacheOp>(
         op.getLoc(), adaptor.getCache(), adaptor.getInput(),
@@ -642,10 +651,10 @@ public:
     // op) of the cache tensor will suffice.
     std::vector<mlir::Operation *> users(op.getCache().getUsers().begin(),
                                          op.getCache().getUsers().end());
-    if (users.size() != 1) {
-      return rewriter.notifyMatchFailure(
-          op, "FillCacheOp must have exactly one user");
-    }
+    // if (users.size() != 1) {
+    //   return rewriter.notifyMatchFailure(
+    //       op, "FillCacheOp must have exactly one user");
+    // }
 
     rewriter.create<ttnn::FillCacheOp>(op.getLoc(), adaptor.getCache(),
                                        adaptor.getInput(),

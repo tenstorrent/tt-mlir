@@ -1097,13 +1097,27 @@ public:
                   mlir::PatternRewriter &rewriter) const final {
     auto CachePositions = getCacheUpdatePositions(scatterOp);
     if (!CachePositions) {
+      CachePositions = getCacheUpdatePositions(scatterOp);
       return mlir::failure();
     }
 
     auto cacheUpdateInputType =
         mlir::cast<RankedTensorType>((*CachePositions).getType());
     auto cacheUpdateInputShape = cacheUpdateInputType.getShape();
-    if (cacheUpdateInputShape.size() != 1) {
+
+    // Retrieve squeezed shape of cacheUpdateInputShape
+    SmallVector<int64_t> squeezedCacheUpdateInputShape;
+    for (size_t idx = 0; idx < cacheUpdateInputShape.size(); idx++) {
+      if (cacheUpdateInputShape[idx] != 1) {
+        squeezedCacheUpdateInputShape.push_back(cacheUpdateInputShape[idx]);
+      }
+    }
+
+    if (squeezedCacheUpdateInputShape.size() == 0) {
+      squeezedCacheUpdateInputShape.push_back(1);
+    }
+
+    if (squeezedCacheUpdateInputShape.size() != 1) {
       return mlir::failure();
     }
 
@@ -1115,7 +1129,7 @@ public:
     // represents a set of aranged indices (0, cachePositions.size), so we
     // replace it with FillCacheOp. If the tensor has only one element, we
     // assume it represents the update index for UpateCacheOp.
-    if (cacheUpdateInputShape[0] != 1) {
+    if (squeezedCacheUpdateInputShape[0] != 1) {
       rewriter.replaceOpWithNewOp<FillCacheOp>(
           scatterOp, scatterOp.getResult().getType(), // Result type
           cache,                                      // Cache tensor
@@ -1196,6 +1210,14 @@ private:
     // The cachePositions tensor is expected to be a 1D blockargument tensor
     // with the same size as the cache update size.
     auto useDefChain = ttmlir::utils::getUseDefChain(scatterIndices);
+    if (isa<ConstantOp>(scatterIndices.getDefiningOp())) {
+      auto argTensorShape =
+          mlir::cast<RankedTensorType>(scatterIndices.getType()).getShape();
+      if (isEffectively1D(argTensorShape) &&
+          ttmlir::utils::volume(argTensorShape) == cacheUpdateSize) {
+        return scatterIndices;
+      }
+    }
     auto blockArgs =
         ttmlir::utils::filterBlockArguments(useDefChain.getArrayRef());
     for (auto blockArg : blockArgs) {
