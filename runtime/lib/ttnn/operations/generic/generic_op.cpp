@@ -162,8 +162,6 @@ static std::vector<uint32_t> createKernelArgs(
       uint32_t tensorIdx =
           kernelArg->arg_as_KernelArgBufferAddressOfTensor()->tensor_index();
       coreArgs[i] = ioTensors->get()[tensorIdx].buffer()->address();
-      std::cerr << "kernel tensor buffer address: 0x" << std::hex << coreArgs[i]
-                << std::dec << std::endl;
       break;
     }
     case ::tt::target::ttnn::KernelArgType::KernelArgSemaphoreAt: {
