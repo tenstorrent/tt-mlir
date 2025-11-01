@@ -85,31 +85,32 @@ module {
   }
 }
 
-// Check that we can only fuse one add into conv2d. Second add is not fused.
+// Check that we can fuse two adds into conv2d bias.
 module {
-  // CHECK-LABEL: func.func @conv2d_single_add
-  func.func @conv2d_single_add(%arg0: tensor<1x32x32x64xbf16>, %arg1: tensor<64x64x3x3xbf16>, %arg2: tensor<1x1x1x64xbf16>) -> tensor<1x30x30x64xbf16> {
+  // CHECK-LABEL: func.func @conv2d_double_add
+  func.func @conv2d_double_add(%arg0: tensor<1x32x32x64xbf16>, %arg1: tensor<64x64x3x3xbf16>, %arg2: tensor<1x1x1x64xbf16>) -> tensor<1x30x30x64xbf16> {
     %0 = ttir.empty() : tensor<1x30x30x64xbf16>
-    // CHECK: %[[CONV:.*]] = "ttir.conv2d"(%arg0, %arg1, %arg2, %0)
+    // CHECK: %[[EMPTY:.*]] = ttir.empty() : tensor<1x1x1x64xbf16>
+    // CHECK-NEXT: %[[BIASADD:.*]] = "ttir.add"(%arg2, %arg2, %[[EMPTY]])
+    // CHECK-NEXT: %[[CONV:.*]] = "ttir.conv2d"(%arg0, %arg1, %[[BIASADD]], %0)
     // CHECK-SAME: dilation = 1
     // CHECK-SAME: groups = 1
     // CHECK-SAME: padding = 0
     // CHECK-SAME: stride = 1
     %1 = "ttir.conv2d"(%arg0, %arg1, %0)
-            <{
-              stride = 1: i32,
-              padding = 0: i32,
-              dilation = 1: i32,
-              groups = 1: i32
-            }> : (tensor<1x32x32x64xbf16>, tensor<64x64x3x3xbf16>, tensor<1x30x30x64xbf16>) -> tensor<1x30x30x64xbf16>
+    <{
+    stride = 1: i32,
+    padding = 0: i32,
+    dilation = 1: i32,
+    groups = 1: i32
+    }> : (tensor<1x32x32x64xbf16>, tensor<64x64x3x3xbf16>, tensor<1x30x30x64xbf16>) -> tensor<1x30x30x64xbf16>
     %2 = ttir.empty() : tensor<1x30x30x64xbf16>
-    // We fuse this add into bias.
+    // First add is fused into bias.
     %4 = "ttir.add"(%1, %arg2, %2) : (tensor<1x30x30x64xbf16>, tensor<1x1x1x64xbf16>, tensor<1x30x30x64xbf16>) -> tensor<1x30x30x64xbf16>
     %5 = ttir.empty() : tensor<1x30x30x64xbf16>
-    // CHECK: %[[RETURNADD:.*]] = "ttir.add"(%[[CONV]], %arg2
-    // Pattern driver will try to fuse this add also but it should fail because we already fused one bias.
+    // Second add is also fused into bias (arg2 + arg2).
     %6 = "ttir.add"(%4, %arg2, %5) : (tensor<1x30x30x64xbf16>, tensor<1x1x1x64xbf16>, tensor<1x30x30x64xbf16>) -> tensor<1x30x30x64xbf16>
-    // CHECK-NEXT: return %[[RETURNADD]]
+    // CHECK-NEXT: return %[[CONV]]
     return %6: tensor<1x30x30x64xbf16>
   }
 }

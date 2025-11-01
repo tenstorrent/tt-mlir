@@ -203,6 +203,12 @@ void createLinalgToLLVMPipeline(OpPassManager &manager,
   // eliminate some nasty bufferization::clone() calls.
   manager.addPass(mlir::createConvertBufferizationToMemRefPass());
 
+  // Lowers memref.copy on non-contiguous (strided, non-identity) memrefs to
+  // linalg dialect. memref.copy on contiguous memrefs gets lowered
+  // to llvm.memcpy during FinalizeMemRefToLLVMConversionPass.
+  manager.addPass(
+      mlir::tt::llvm_util::createNonContiguousMemrefCopyToLinalgPass());
+
   // This lowers linalg to scf-based loops.
   manager.addPass(mlir::createConvertLinalgToLoopsPass());
 

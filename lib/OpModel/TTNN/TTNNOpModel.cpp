@@ -335,6 +335,8 @@ auto getOpSymbol() {
     return ::ttnn::relu;
   } else if constexpr (std::is_same_v<OpTy, Relu6Op>) {
     return ::ttnn::relu6;
+  } else if constexpr (std::is_same_v<OpTy, HardsigmoidOp>) {
+    return ::ttnn::hardsigmoid;
   } else if constexpr (std::is_same_v<OpTy, SqrtOp>) {
     return ::ttnn::sqrt;
   } else if constexpr (std::is_same_v<OpTy, SinOp>) {
@@ -451,6 +453,8 @@ auto getOpSymbol() {
     return ::ttnn::global_avg_pool2d;
   } else if constexpr (std::is_same_v<OpTy, SiluOp>) {
     return ::ttnn::silu;
+  } else if constexpr (std::is_same_v<OpTy, MishOp>) {
+    return ::ttnn::mish;
   } else {
     static_assert(ttmlir::utils::always_false(),
                   "add mapping from TTNN dialect to TTNN lib op");
@@ -912,6 +916,7 @@ UnaryEltwiseWithFastApproxModeOpModel<OpTy>::getOpRuntime(
 // Explicit template instantiation for UnaryEltwiseOpModel.
 template struct UnaryEltwiseOpModel<ReluOp>;
 template struct UnaryEltwiseOpModel<Relu6Op>;
+template struct UnaryEltwiseOpModel<HardsigmoidOp>;
 template struct UnaryEltwiseOpModel<SqrtOp>;
 template struct UnaryEltwiseOpModel<SinOp>;
 template struct UnaryEltwiseOpModel<AbsOp>;
@@ -930,6 +935,7 @@ template struct UnaryEltwiseOpModel<ReciprocalOp>;
 template struct UnaryEltwiseOpModel<CbrtOp>;
 template struct UnaryEltwiseOpModel<BitwiseNotOp>;
 template struct UnaryEltwiseOpModel<SiluOp>;
+template struct UnaryEltwiseOpModel<MishOp>;
 template struct UnaryEltwiseWithFastApproxModeOpModel<Log1pOp>;
 template struct UnaryEltwiseOpModel<Expm1Op>;
 template struct UnaryEltwiseOpModel<RsqrtOp>;

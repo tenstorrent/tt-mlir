@@ -108,6 +108,7 @@ getUnaryWithParams(UnaryWithParamAttr attr) {
           {TTMLIRUnaryOpType::Acos, TTNNUnaryOpType::ACOS},
           {TTMLIRUnaryOpType::Rsqrt, TTNNUnaryOpType::RSQRT},
           {TTMLIRUnaryOpType::Relu6, TTNNUnaryOpType::RELU6},
+          {TTMLIRUnaryOpType::Hardsigmoid, TTNNUnaryOpType::HARDSIGMOID},
           {TTMLIRUnaryOpType::Atan, TTNNUnaryOpType::ATAN},
           {TTMLIRUnaryOpType::Erf, TTNNUnaryOpType::ERF},
           {TTMLIRUnaryOpType::Erfc, TTNNUnaryOpType::ERFC},

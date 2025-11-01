@@ -1431,8 +1431,12 @@ createEltwiseUnaryOp(FlatbufferObjectCache &cache, EltwiseUnaryOp op) {
     type = ::tt::target::ttnn::EltwiseUnaryOpType::Rsqrt;
   } else if constexpr (std::is_same_v<EltwiseUnaryOp, SigmoidOp>) {
     type = ::tt::target::ttnn::EltwiseUnaryOpType::Sigmoid;
+  } else if constexpr (std::is_same_v<EltwiseUnaryOp, HardsigmoidOp>) {
+    type = ::tt::target::ttnn::EltwiseUnaryOpType::Hardsigmoid;
   } else if constexpr (std::is_same_v<EltwiseUnaryOp, SiluOp>) {
     type = ::tt::target::ttnn::EltwiseUnaryOpType::Silu;
+  } else if constexpr (std::is_same_v<EltwiseUnaryOp, MishOp>) {
+    type = ::tt::target::ttnn::EltwiseUnaryOpType::Mish;
   } else if constexpr (std::is_same_v<EltwiseUnaryOp, SinOp>) {
     type = ::tt::target::ttnn::EltwiseUnaryOpType::Sin;
   } else if constexpr (std::is_same_v<EltwiseUnaryOp, ReciprocalOp>) {
@@ -2594,8 +2598,16 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
     return createOperation(cache, createEltwiseUnaryOp(cache, sigmoidOp),
                            debugString, locInfo);
   }
+  if (auto hardsigmoidOp = dyn_cast<HardsigmoidOp>(op); hardsigmoidOp) {
+    return createOperation(cache, createEltwiseUnaryOp(cache, hardsigmoidOp),
+                           debugString, locInfo);
+  }
   if (auto siluOp = dyn_cast<SiluOp>(op); siluOp) {
     return createOperation(cache, createEltwiseUnaryOp(cache, siluOp),
+                           debugString, locInfo);
+  }
+  if (auto mishOp = dyn_cast<MishOp>(op); mishOp) {
+    return createOperation(cache, createEltwiseUnaryOp(cache, mishOp),
                            debugString, locInfo);
   }
   if (auto reciprocalOp = dyn_cast<ReciprocalOp>(op); reciprocalOp) {

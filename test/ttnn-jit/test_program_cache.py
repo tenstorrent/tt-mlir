@@ -29,8 +29,8 @@ def test_program_cache(device):
     h2, w2 = 512, 512
 
     # Create operations with different JIT parameters
-    op_single_core = jit(backend="ttnn", max_grid=(0, 0))(abs)
-    op_full_grid = jit(backend="ttnn", max_grid=(7, 7))(abs)
+    op_single_core = jit(max_grid=(0, 0))(abs)
+    op_full_grid = jit(max_grid=(7, 7))(abs)
 
     assert op_single_core.num_entries == 0, "No entries should be in the cache"
     assert op_full_grid.num_entries == 0, "No entries should be in the cache"
