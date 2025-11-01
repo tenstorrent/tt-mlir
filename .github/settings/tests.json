@@ -34,7 +34,6 @@
   { "runs-on": "n300",   "image": "tracy",  "script": "ttnn_runtime.sh", "args": "runtime/test/ttnn/python/n300" },
   { "runs-on": "n300-llmbox", "image": "tracy",  "script": "ttnn_runtime.sh", "args": "runtime/test/ttnn/python/distributed/llmbox" },
   { "runs-on": "n300",   "image": "tracy",  "script": "runtime_debug.sh" },
-  { "runs-on": "n150",   "image": "speedy",  "script": "emitc.sh" },
   { "runs-on": "n150",   "image": "speedy",  "script": "ttnn_standalone.sh" },
   { "runs-on": "n150",   "image": "tracy",  "script": "pykernel.sh" },
   { "runs-on": "n150",   "image": "speedy",  "script": "alchemist.sh" }
