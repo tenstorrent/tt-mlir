@@ -1,3 +1,5 @@
+// UNSUPPORTED: true
+// Reason: Hangs when running on silicon - likely due to https://github.com/tenstorrent/tt-metal/pull/31511
 // RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path%" -o %t.mlir %s
 // RUN: ttmlir-translate --ttnn-to-flatbuffer -o %basename_t.ttnn %t.mlir
 // RUN: ttmlir-opt --ttnn-backend-to-emitc-pipeline -o %t2.mlir %t.mlir
