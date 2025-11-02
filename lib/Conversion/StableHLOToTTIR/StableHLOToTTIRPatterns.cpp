@@ -778,7 +778,10 @@ public:
         loc, meanType, llvm::to_vector_of<int32_t>(meanType.getShape()));
     auto runningVariance = rewriter.create<ttir::OnesOp>(
         loc, varianceType,
-        llvm::to_vector_of<int32_t>(varianceType.getShape()));
+        rewriter.getDenseI32ArrayAttr(
+            llvm::to_vector_of<int32_t>(varianceType.getShape())), // shape
+        mlir::TypeAttr::get(varianceType.getElementType())         // dtype
+    );
 
     // Create empty output tensors
     auto outputEmpty = rewriter.create<ttir::EmptyOp>(loc, outputType);
