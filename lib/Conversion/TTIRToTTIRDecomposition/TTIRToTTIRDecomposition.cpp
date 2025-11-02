@@ -908,10 +908,13 @@ struct GatherToEmbeddingConversionPattern
     // Check slice sizes conditions.
     size_t fullIndexedDims = 0;
     size_t partialIndexedDims = 0;
+    size_t singletonIndexedDims = 0;
 
     for (size_t i = 0; i < inputShape.size(); ++i) {
       if (llvm::is_contained(startIndexMap, i)) {
-        if (sliceSizes[i] == inputShape[i]) {
+        if (inputShape[i] == 1) {
+          singletonIndexedDims++;
+        } else if (sliceSizes[i] == inputShape[i]) {
           fullIndexedDims++;
         } else if (sliceSizes[i] != 1) {
           partialIndexedDims++;
@@ -923,8 +926,17 @@ struct GatherToEmbeddingConversionPattern
       }
     }
 
-    size_t remainingIndexedDims = startIndexMap.size() - fullIndexedDims;
-    if ((fullIndexedDims || partialIndexedDims) && remainingIndexedDims != 1) {
+    size_t remainingIndexedDims =
+        startIndexMap.size() - fullIndexedDims - singletonIndexedDims;
+    if (partialIndexedDims && (remainingIndexedDims != 1)) {
+      return rewriter.notifyMatchFailure(
+          op,
+          "Did not satisfy slice conditions for dimensions in startIndexMap");
+    }
+
+    if (fullIndexedDims &&
+        (remainingIndexedDims > 1 ||
+         (remainingIndexedDims + singletonIndexedDims) == 0)) {
       return rewriter.notifyMatchFailure(
           op,
           "Did not satisfy slice conditions for dimensions in startIndexMap");
@@ -985,11 +997,33 @@ struct GatherToEmbeddingConversionPattern
     bool needsExpansion = false;
 
     // Create startIndexMap without dims for which sliceSizes[dim] =
-    // inputShape[dim]
-    llvm::SmallVector<int64_t> startIndexMap;
+    // inputShape[dim]. If there are dims for which sliceSizes[dim] =
+    // inputShape[dim] = 1, they are treated specialy:
+    // - if there is a partially indexed dim, they are removed
+    // - if all other indexed dims are full, one of them is kept
+    size_t fullIndexedDims = 0;
+    bool partialIndexedDimExists = false;
     for (size_t i = 0; i < originalStartIndexMap.size(); ++i) {
       int64_t dim = originalStartIndexMap[i];
       if (sliceSizes[dim] == inputShape[dim]) {
+        fullIndexedDims++;
+      } else if (sliceSizes[dim] != 1) {
+        partialIndexedDimExists = true;
+      }
+    }
+
+    llvm::SmallVector<int64_t> startIndexMap;
+    for (size_t i = 0; i < originalStartIndexMap.size(); ++i) {
+      int64_t dim = originalStartIndexMap[i];
+      if (inputShape[dim] == 1) {
+        if (partialIndexedDimExists) {
+          continue;
+        }
+        if (fullIndexedDims == originalStartIndexMap.size()) {
+          startIndexMap.push_back(dim);
+          break;
+        }
+      } else if (sliceSizes[dim] == inputShape[dim]) {
         continue;
       }
 
