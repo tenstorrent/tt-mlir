@@ -24,8 +24,9 @@ inline void setTTCoreBufferizationTypeConverter(
     auto rankedTensorType = mlir::dyn_cast<RankedTensorType>(tensorType);
     if (!rankedTensorType) {
       // Fallback to default conversion for unranked tensors.
+      auto unrankedTensorType = mlir::cast<UnrankedTensorType>(tensorType);
       return mlir::cast<bufferization::BufferLikeType>(UnrankedMemRefType::get(
-          rankedTensorType.getElementType(), memorySpace));
+          unrankedTensorType.getElementType(), memorySpace));
     }
 
     // Check if this tensor has a MetalLayoutAttr encoding.
