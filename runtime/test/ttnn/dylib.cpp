@@ -130,7 +130,8 @@ std::vector<std::string> getSoPrograms(void *so, std::string path) {
     // skip function names that are not actual programs
     if (cleanName != "setDevice" && cleanName != "main" &&
         cleanName.find("ttnn::") == std::string::npos &&
-        "create_inputs_for_" != cleanName.substr(0, 18)) {
+        "create_inputs_for_" != cleanName.substr(0, 18) &&
+        cleanName.find("_const_eval_") == std::string::npos) {
       cleanedNames.push_back(cleanName);
     }
   }
