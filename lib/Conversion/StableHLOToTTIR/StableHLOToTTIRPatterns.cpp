@@ -772,7 +772,7 @@ public:
         mlir::IntegerAttr::get(integerType, srcOp.getFeatureIndex());
 
     // Default momentum for batch norm training
-    FloatAttr momentumAttr = rewriter.getF32FloatAttr(1.0f);
+    // FloatAttr momentumAttr = rewriter.getF32FloatAttr(1.0f);
 
     auto runningMean = rewriter.create<ttir::ZerosOp>(
         loc, meanType, llvm::to_vector_of<int32_t>(meanType.getShape()));
@@ -785,13 +785,12 @@ public:
     auto batchMeanEmpty = rewriter.create<ttir::EmptyOp>(loc, meanType);
     auto batchVarianceEmpty = rewriter.create<ttir::EmptyOp>(loc, varianceType);
 
-    rewriter.replaceOpWithNewOp<mlir::tt::ttir::BatchNormTrainingOp>(
-        srcOp, TypeRange{outputType, meanType, varianceType},
-        adaptor.getOperand(), adaptor.getScale(), adaptor.getOffset(),
-        runningMean, runningVariance,
-        ValueRange{outputEmpty, batchMeanEmpty, batchVarianceEmpty},
-        adaptor.getEpsilonAttr(), dimensionAttr, momentumAttr);
-
+    auto bn = rewriter.create<mlir::tt::ttir::BatchNormInferenceOp>(
+        srcOp.getLoc(), outputType, adaptor.getOperand(), adaptor.getScale(),
+        adaptor.getOffset(), runningMean, runningVariance, outputEmpty,
+        adaptor.getEpsilonAttr(), dimensionAttr);
+    rewriter.replaceOp(
+        srcOp, ValueRange{bn.getResult(), batchMeanEmpty, batchVarianceEmpty});
     return success();
   }
 };

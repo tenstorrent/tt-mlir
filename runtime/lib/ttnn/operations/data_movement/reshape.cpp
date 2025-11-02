@@ -22,6 +22,11 @@ void run(const ::tt::target::ttnn::ReshapeOp *op, ProgramContext &context) {
                 ::tt::runtime::ttnn::utils::getTensorRefMemoryConfig(op->out()))
           : ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
                 op->memory_config());
+  if (shape.size() == 3 && shape[0] == 1 && shape[1] == 512 &&
+      shape[2] == 768) {
+    int x = 2;
+    (void)x;
+  }
   ::ttnn::Tensor out = ::ttnn::reshape(in, shape, memoryConfig);
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }

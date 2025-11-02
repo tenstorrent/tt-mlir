@@ -44,7 +44,7 @@ void run(const ::tt::target::ttnn::BatchNormTrainingOp *op,
   const ::ttnn::Tensor &bias = tensorPool.getTTNNTensorAndValidate(op->bias());
 
   float epsilon = op->epsilon();
-  float momentum = op->momentum();
+  float momentum = 1.0f;
 
   // For training: training=true
   ::ttnn::Tensor output = ::ttnn::batch_norm(
