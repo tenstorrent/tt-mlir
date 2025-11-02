@@ -1590,6 +1590,8 @@ def compile_ttir_module_to_flatbuffer(
     )
     output_file_fbb = ".".join([output_file_mlir, target_extension])
 
+    goldens = dict(builder.golden_map)
+
     # Compile TTIR MLIR -> TT{Metal,NN} MLIR
     try:
         module = _run_ttir_pipeline(
@@ -1615,7 +1617,7 @@ def compile_ttir_module_to_flatbuffer(
         to_target(
             module,
             output_file_fbb,
-            builder.golden_map,
+            goldens,
             module_logger.module_log if module_logger.module_log else [],
         )
     except Exception as e:
