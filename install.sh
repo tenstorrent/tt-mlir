@@ -92,7 +92,7 @@ while true; do
         --speedy)
             build_preset="speedy"; enable_runtime="ON"; enable_runtime_tests="ON"; enable_op_model="ON"; enable_emitc="ON"; enable_stablehlo="ON";;
         --tracy)
-            build_preset="tracy"; enable_runtime="ON"; enable_runtime_tests="ON"; enable_profiler="ON"; enable_emitc="ON"; enable_runtime_debug="ON"; enable_explorer="ON"; enable_pykernel="ON"; enable_stablehlo="ON";;
+            build_preset="tracy"; enable_runtime="ON"; enable_runtime_tests="ON"; enable_op_model="ON";  enable_profiler="ON"; enable_emitc="ON"; enable_runtime_debug="ON"; enable_explorer="ON"; enable_pykernel="ON"; enable_stablehlo="ON";;
         --skip-tests)
             skip_tests="ON";;
         --clean)
