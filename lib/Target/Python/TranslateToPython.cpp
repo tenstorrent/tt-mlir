@@ -94,11 +94,8 @@ struct PythonEmitter {
   /// any result type could not be converted.
   LogicalResult emitAssignPrefix(Operation &op);
 
-  /// Emits a global variable declaration or definition.
-  LogicalResult emitGlobalVariable(GlobalOp op);
-
-  /// Emits an assignment for a global variable.
-  LogicalResult emitGlobalVariableAssignment(AssignGlobalOp assignGlobalOp);
+  /// Emits a global statement.
+  LogicalResult emitGlobalStatement(GlobalStatementOp globalStatementOp);
 
   /// Emits the operands of the operation. All operands are emitted in order.
   LogicalResult emitOperands(Operation &op);
@@ -406,12 +403,30 @@ static LogicalResult printOperation(PythonEmitter &emitter,
 }
 
 static LogicalResult printOperation(PythonEmitter &emitter, GlobalOp globalOp) {
-  return emitter.emitGlobalVariable(globalOp);
+  raw_indented_ostream &os = emitter.ostream();
+  os << globalOp.getSymName() << " = ";
+  if (failed(emitter.emitAttribute(globalOp->getLoc(),
+                                   globalOp.getInitialValue()))) {
+    return failure();
+  }
+
+  return success();
 }
 
 static LogicalResult printOperation(PythonEmitter &emitter,
                                     AssignGlobalOp assignGlobalOp) {
-  return emitter.emitGlobalVariableAssignment(assignGlobalOp);
+  raw_indented_ostream &os = emitter.ostream();
+  os << assignGlobalOp.getName() << " = ";
+  if (failed(emitter.emitOperand(assignGlobalOp.getValue()))) {
+    return failure();
+  }
+
+  return success();
+}
+
+static LogicalResult printOperation(PythonEmitter &emitter,
+                                    GlobalStatementOp globalStatementOp) {
+  return emitter.emitGlobalStatement(globalStatementOp);
 }
 
 LogicalResult PythonEmitter::emitOperation(Operation &op) {
@@ -421,14 +436,14 @@ LogicalResult PythonEmitter::emitOperation(Operation &op) {
           .Case<ModuleOp>([&](auto op) { return printOperation(*this, op); })
           // EmitPy ops.
           .Case<CallOpaqueOp, ImportOp, AssignOp, ConstantOp, SubscriptOp,
-                GlobalOp, AssignGlobalOp>(
+                GlobalOp, AssignGlobalOp, GlobalStatementOp>(
               [&](auto op) { return printOperation(*this, op); })
-          .Case<LiteralOp>([&](auto op) {
-            cacheDeferredOpResult(op.getResult(), op.getValue());
-            return success();
-          })
           .Case<GetGlobalOp>([&](auto op) {
             cacheDeferredOpResult(op.getResult(), op.getName());
+            return success();
+          })
+          .Case<LiteralOp>([&](auto op) {
+            cacheDeferredOpResult(op.getResult(), op.getValue());
             return success();
           })
           // Func ops.
@@ -508,21 +523,9 @@ LogicalResult PythonEmitter::emitAssignPrefix(Operation &op) {
   return success();
 }
 
-LogicalResult PythonEmitter::emitGlobalVariable(GlobalOp globalOp) {
-  os << globalOp.getSymName() << " = ";
-  if (failed(emitAttribute(globalOp->getLoc(), globalOp.getInitialValue()))) {
-    return failure();
-  }
-
-  return success();
-}
-
 LogicalResult
-PythonEmitter::emitGlobalVariableAssignment(AssignGlobalOp assignGlobalOp) {
-  os << assignGlobalOp.getName() << " = ";
-  if (failed(emitOperand(assignGlobalOp.getValue()))) {
-    return failure();
-  }
+PythonEmitter::emitGlobalStatement(GlobalStatementOp globalStatementOp) {
+  os << "global " << globalStatementOp.getName();
 
   return success();
 }

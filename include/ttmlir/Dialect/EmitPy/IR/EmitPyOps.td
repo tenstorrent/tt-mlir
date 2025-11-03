@@ -208,7 +208,7 @@ def EmitPy_GlobalOp : EmitPy_Op<"global", [Symbol]> {
     Example:
 
     ```mlir
-    emitpy.global @x = #emitpy.opaque<"[]">
+    emitpy.global @x : #emitpy.opaque<"[]">
     ```
   }];
 
@@ -219,6 +219,29 @@ def EmitPy_GlobalOp : EmitPy_Op<"global", [Symbol]> {
   let assemblyFormat = [{ 
        $sym_name custom<EmitPyGlobalOpInitialValue>($initial_value) attr-dict
   }];
+}
+
+def EmitPy_GlobalStatementOp : EmitPy_Op<"global_statement",
+    [Pure, DeclareOpInterfaceMethods<SymbolUserOpInterface>]> {
+  let summary = "Marks a variable as global for the current function scope";
+  let description = [{
+    The `emitpy.global_statement` operation represents a Python `global`
+    statement.
+
+    It marks an identifier, specified by its symbol `@name`, as
+    referring to a variable in the global (module) scope, rather
+    than a new local variable.
+
+    Example:
+
+    ```mlir
+    %0 = emitpy.global_statement @x : !emitpy.opaque<"[ttnn.Tensor]">
+    ```
+  }];
+
+  let arguments = (ins FlatSymbolRefAttr:$name);
+  let results = (outs AnyType:$result);
+  let assemblyFormat = "$name `:` type($result) attr-dict";
 }
 
 def EmitPy_GetGlobalOp : EmitPy_Op<"get_global",
