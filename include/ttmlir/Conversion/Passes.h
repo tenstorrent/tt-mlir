@@ -51,7 +51,13 @@ struct MLIRModuleLogger {
       PerDialect
     };
 
+    enum class ActionMode {
+      Overwrite,  // Clear directory, start from 0
+      Append     // Continue from max index + 1
+    };
+
     DumpMode dumpMode = DumpMode::Disabled;
+    ActionMode actionMode = ActionMode::Overwrite;  // Default to overwrite
     std::string dumpDir = "";
 
     // Parse environment variables and populate config
@@ -97,6 +103,11 @@ private:
   void setPipelineName(const std::string &name);
   std::string extractModelNameFromLocation(mlir::Operation *op) const;
   static std::string sanitizeFilename(const std::string &name);
+
+  // Directory management for index continuation
+  int detectNextIndex(const std::string &targetDir) const;
+  void clearDirectory(const std::string &targetDir) const;
+  std::string getTargetDirectory() const;
 };
 
 } // namespace mlir::tt

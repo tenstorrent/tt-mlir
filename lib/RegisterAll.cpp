@@ -231,6 +231,16 @@ mlir::tt::MLIRModuleLogger::Config::fromEnvironment() {
     // If invalid value, dumpMode remains Disabled
   }
 
+  // Parse action mode
+  const char *actionMode = std::getenv("TTMLIR_DUMP_IR_ACTION");
+  if (actionMode) {
+    std::string action(actionMode);
+    if (action == "append") {
+      config.actionMode = Config::ActionMode::Append;
+    }
+    // Default is Overwrite, so no else needed
+  }
+
   // Get dump directory
   const char *dumpDir = std::getenv("TTMLIR_DUMP_IR_DIR");
   if (dumpDir) {
@@ -258,6 +268,16 @@ void mlir::tt::MLIRModuleLogger::attachContextWithDumping(
 
   // Create dump directory if it doesn't exist
   std::filesystem::create_directories(config.dumpDir);
+
+  // Determine starting index based on action mode
+  std::string targetDir = getTargetDirectory();
+  if (config.actionMode == Config::ActionMode::Overwrite) {
+    clearDirectory(targetDir);
+    totalPassCount = 0;
+  } else {  // Append mode
+    int maxIndex = detectNextIndex(targetDir);
+    totalPassCount = (maxIndex >= 0) ? maxIndex + 1 : 0;
+  }
 
   context->registerActionHandler([this, modelName = this->modelName](llvm::function_ref<void()> transform,
                                         const mlir::tracing::Action &action) mutable {
@@ -464,9 +484,60 @@ mlir::tt::MLIRModuleLogger::~MLIRModuleLogger() {
   }
 }
 
+std::string mlir::tt::MLIRModuleLogger::getTargetDirectory() const {
+  std::string safeModelName = sanitizeFilename(modelName);
+  std::string safePipelineName = sanitizeFilename(pipelineName);
+
+  return config.dumpDir + "/" + safeModelName + "/" + safePipelineName;
+}
+
+int mlir::tt::MLIRModuleLogger::detectNextIndex(const std::string &targetDir) const {
+  if (!std::filesystem::exists(targetDir)) {
+    return -1;  // Directory doesn't exist, start from 0
+  }
+
+  int maxIndex = -1;
+  try {
+    for (const auto& entry : std::filesystem::directory_iterator(targetDir)) {
+      if (entry.is_regular_file()) {
+        std::string filename = entry.path().filename().string();
+        // Look for pattern: <number>_<anything>.mlir
+        if (filename.size() > 5 && filename.substr(filename.size() - 5) == ".mlir") {
+          size_t underscorePos = filename.find('_');
+          if (underscorePos != std::string::npos) {
+            std::string indexStr = filename.substr(0, underscorePos);
+            try {
+              int index = std::stoi(indexStr);
+              if (index > maxIndex) {
+                maxIndex = index;
+              }
+            } catch (const std::invalid_argument&) {
+              // Not a valid number, skip
+            } catch (const std::out_of_range&) {
+              // Number too large, skip
+            }
+          }
+        }
+      }
+    }
+  } catch (const std::filesystem::filesystem_error&) {
+    // If we can't read the directory, start from 0
+    return -1;
+  }
+
+  return maxIndex;
+}
+
+void mlir::tt::MLIRModuleLogger::clearDirectory(const std::string &targetDir) const {
+  if (std::filesystem::exists(targetDir)) {
+    std::filesystem::remove_all(targetDir);
+  }
+  std::filesystem::create_directories(targetDir);
+}
+
 std::string mlir::tt::MLIRModuleLogger::sanitizeFilename(const std::string &name) {
   std::string result = name;
-  std::replace_if(result.begin(), result.end(), 
+  std::replace_if(result.begin(), result.end(),
       [](char c) { return !std::isalnum(c) && c != '_' && c != '-'; }, '_');
   return result;
 }

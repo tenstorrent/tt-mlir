@@ -18,6 +18,13 @@ The following environment variables control IR dumping behavior:
 - **Default**: `./ir_dumps`
 - **Description**: Directory where IR dumps will be saved
 
+### `TTMLIR_DUMP_IR_ACTION`
+- **Values**: `overwrite`, `append`
+- **Default**: `overwrite`
+- **Description**: Controls how to handle existing IR dumps
+  - `overwrite` (default): Clear target directory and start pass numbering from 0
+  - `append`: Continue pass numbering from the highest existing index + 1
+
 
 ## Usage Examples
 
@@ -45,6 +52,24 @@ export TTMLIR_DUMP_IR_DIR=/tmp/my_ir_dumps
 ttmlir-opt input.mlir -pass1 -pass2
 ```
 
+### Append to Existing Dumps
+```bash
+# Continue pass numbering from existing dumps (useful for multi-stage compilation)
+export TTMLIR_DUMP_IR=per_pass
+export TTMLIR_DUMP_IR_ACTION=append
+ttmlir-opt input.mlir -ttir-to-ttnn-backend-pipeline
+# If previous run had files up to 5_pass.mlir, this run starts at 6_pass.mlir
+```
+
+### Overwrite Existing Dumps (Default)
+```bash
+# Clear existing dumps and start fresh (default behavior)
+export TTMLIR_DUMP_IR=per_pass
+export TTMLIR_DUMP_IR_ACTION=overwrite  # This is the default
+ttmlir-opt input.mlir -ttir-to-ttnn-backend-pipeline
+# Always starts from 0_PRE-PIPELINE.mlir regardless of existing files
+```
+
 ### Complete Setup
 ```bash
 # Full configuration with per-pass dumping
@@ -67,6 +92,7 @@ Creates detailed IR dumps after every pass in a structured subdirectory layout:
 #### Pass IR Dumps
 - **Filename format**: `<total_pass_count>_<pass_name>.mlir`
 - **Content**: Complete MLIR module after the specified pass
+- **Numbering**: Continuous across multiple pipeline runs when using `TTMLIR_DUMP_IR_ACTION=append`
 - **Special files**:
   - `0_PRE-PIPELINE.mlir`: IR before any passes run
 
