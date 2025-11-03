@@ -302,6 +302,8 @@ class Builder:
                     torch.iinfo(torch.quint8).min,
                     torch.iinfo(torch.quint8).max,
                 )
+            case torch.bool:
+                return IntegerType.get_signless(1, self._ctx)
             case _:
                 raise TypeError(f"Invalid Type {dtype}")
 
