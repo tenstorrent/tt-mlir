@@ -2256,11 +2256,18 @@ public:
         emitpy::OpaqueType::get(rewriter.getContext(), "[ttnn.Tensor]");
     FlatSymbolRefAttr globalSymbol =
         SymbolRefAttr::get(rewriter.getContext(), globalVarName);
-    mlir::Value globalVar =
-        rewriter
-            .create<emitpy::GetGlobalOp>(loadCachedOp.getLoc(), tensorListType,
-                                         globalSymbol)
-            ->getResult(0);
+
+    // Create a global statement at the beginning of the function body.
+    currentInsertionPoint = rewriter.saveInsertionPoint();
+    rewriter.setInsertionPointToStart(&funcOp.getBody().front());
+    rewriter.create<emitpy::GlobalStatementOp>(loadCachedOp.getLoc(),
+                                               tensorListType, globalSymbol);
+    rewriter.restoreInsertionPoint(currentInsertionPoint);
+
+    // Retrieve a global variable.
+    mlir::Value globalVar = rewriter.create<emitpy::GetGlobalOp>(
+        loadCachedOp.getLoc(), tensorListType, globalSymbol)
+    ->getResult(0);
     operands.push_back(globalVar);
 
     // Call into the callee, no caching mechanism.
@@ -2272,8 +2279,9 @@ public:
     auto cacheOp = rewriter.create<emitpy::CallOpaqueOp>(
         loadCachedOp.getLoc(), tensorListType, wrapperFuncName, operands);
     mlir::Value cacheResult = cacheOp->getResult(0);
-    rewriter.create<emitpy::AssignGlobalOp>(loadCachedOp.getLoc(), tensorListType, globalSymbol, cacheResult);
-    
+    rewriter.create<emitpy::AssignGlobalOp>(
+        loadCachedOp.getLoc(), tensorListType, globalSymbol, cacheResult);
+
     // Unpack list of tensors.
     //
     llvm::SmallVector<Value> results;
@@ -2333,23 +2341,24 @@ public:
 // This conversion pattern removes attributes from the FuncOp
 //
 namespace {
-  class FuncOpConversionPattern
-      : public TTNNToEmitPyBaseOpConversionPattern<func::FuncOp> {
-  
-  public:
-    using TTNNToEmitPyBaseOpConversionPattern<
-        func::FuncOp>::TTNNToEmitPyBaseOpConversionPattern;
-  
-    LogicalResult
-    matchAndRewrite(func::FuncOp funcOp, OpAdaptor adaptor,
-                    ConversionPatternRewriter &rewriter) const override {
-  
-      rewriter.modifyOpInPlace(funcOp, [&funcOp]() { funcOp.removeArgAttrsAttr(); });
-  
-      return success();
-    }
-  };
-  } // namespace
+class FuncOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<func::FuncOp> {
+
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      func::FuncOp>::TTNNToEmitPyBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(func::FuncOp funcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    rewriter.modifyOpInPlace(funcOp,
+                             [&funcOp]() { funcOp.removeArgAttrsAttr(); });
+
+    return success();
+  }
+};
+} // namespace
 
 namespace {
 class DumpTensorOpConversionPattern
