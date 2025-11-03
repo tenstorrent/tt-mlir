@@ -285,7 +285,7 @@ void mlir::tt::MLIRModuleLogger::attachContextWithDumping(
     if (config.dumpMode == Config::DumpMode::PerPass && moduleCache.empty()) {
       // Try to extract model name from the IR before dumping PRE-PIPELINE
       if (modelName == "unknown" && !action.getContextIRUnits().empty()) {
-        mlir::Operation *op = action.getContextIRUnits()[0].get<mlir::Operation*>();
+        mlir::Operation *op = llvm::cast<mlir::Operation*>(action.getContextIRUnits()[0]);
         if (op) {
           std::string extractedName = extractModelNameFromLocation(op);
           if (extractedName != "unknown") {
@@ -473,12 +473,7 @@ void mlir::tt::MLIRModuleLogger::finalizeDumping() {
 
 mlir::tt::MLIRModuleLogger::~MLIRModuleLogger() {
   // Ensure final IR is dumped even if finalizeDumping() wasn't called explicitly
-  try {
-    finalizeDumping();
-  } catch (...) {
-    // Suppress exceptions in destructor to avoid termination
-    // Log error if logging is available
-  }
+  finalizeDumping();
 }
 
 std::string mlir::tt::MLIRModuleLogger::getTargetDirectory() const {
@@ -493,32 +488,24 @@ int mlir::tt::MLIRModuleLogger::detectNextIndex(const std::string &targetDir) co
   }
 
   int maxIndex = -1;
-  try {
-    for (const auto& entry : std::filesystem::directory_iterator(targetDir)) {
-      if (entry.is_regular_file()) {
-        std::string filename = entry.path().filename().string();
-        // Look for pattern: <number>_<anything>.mlir
-        if (filename.size() > 5 && filename.substr(filename.size() - 5) == ".mlir") {
-          size_t underscorePos = filename.find('_');
-          if (underscorePos != std::string::npos) {
-            std::string indexStr = filename.substr(0, underscorePos);
-            try {
-              int index = std::stoi(indexStr);
-              if (index > maxIndex) {
-                maxIndex = index;
-              }
-            } catch (const std::invalid_argument&) {
-              // Not a valid number, skip
-            } catch (const std::out_of_range&) {
-              // Number too large, skip
+  for (const auto& entry : std::filesystem::directory_iterator(targetDir)) {
+    if (entry.is_regular_file()) {
+      std::string filename = entry.path().filename().string();
+      // Look for pattern: <number>_<anything>.mlir
+      if (filename.size() > 5 && filename.substr(filename.size() - 5) == ".mlir") {
+        size_t underscorePos = filename.find('_');
+        if (underscorePos != std::string::npos) {
+          std::string indexStr = filename.substr(0, underscorePos);
+          // Try to convert to int, skip if not valid
+          int index;
+          if (sscanf(indexStr.c_str(), "%d", &index) == 1) {
+            if (index > maxIndex) {
+              maxIndex = index;
             }
           }
         }
       }
     }
-  } catch (const std::filesystem::filesystem_error&) {
-    // If we can't read the directory, start from 0
-    return -1;
   }
 
   return maxIndex;
