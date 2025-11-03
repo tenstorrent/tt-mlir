@@ -80,6 +80,17 @@ class D2M_GenericRegionComputeBinaryDstOp<string mnemonic, list<Trait> traits = 
   }];
 }
 
+class D2M_GenericRegionComputeTernaryDstOp<string mnemonic, list<Trait> traits = []> :
+    D2M_GenericRegionComputeOp<mnemonic, traits> {
+
+  let extraClassDeclaration = [{
+    mlir::SmallVector<int64_t> getOperandsLoadFromDstRegister() {
+      return {0, 1, 2};
+    }
+    bool getDstRegInPlace() { return true; }
+  }];
+}
+
 class D2M_GenericRegionDatamovementOp<string mnemonic, list<Trait> traits = []> :
     D2M_GenericRegionOp<mnemonic, [D2M_GenericRegionDatamovementOpTrait] # traits> {}
 
@@ -381,7 +392,7 @@ def D2M_TileMaximumOp : D2M_GenericRegionComputeBinaryDstOp<"tile_maximum", D2M_
     let results = (outs TTCore_Tile:$result);
 }
 
-def D2M_TileReduceSumOp : D2M_GenericRegionComputeOp<"tile_reduce_sum"> {
+def D2M_TileReduceSumOp : D2M_GenericRegionComputeTernaryDstOp<"tile_reduce_sum", D2M_TileComputeOpTraitBundle> {
   let summary = "D2M Tile Reduce Sum Op";
   let description = [{
         The `tile_reduce_sum` operation computes the sum of all elements in the input A element-wise multiplied by B and input C over the specified reduction dim(s): result <- sum<dims>(A * B, C)
@@ -393,17 +404,17 @@ def D2M_TileReduceSumOp : D2M_GenericRegionComputeOp<"tile_reduce_sum"> {
                        D2M_ReduceDimAttr:$reduce_dim);
   let results = (outs TTCore_Tile:$result);
 
+  // Note: getDstRegInPlace() and getOperandsLoadFromDstRegister() inherited from TernaryDstOp
+  // TernaryDstOp returns {0,1,2} for loads, but we only need {2} (accumulator c)
+  // Override to be more specific:
   let extraClassDeclaration = [{
     mlir::SmallVector<int64_t> getOperandsLoadFromDstRegister() {
-      return {2};
-    }
-    bool getDstRegInPlace() {
-      return true;
+      return {2};  // Only accumulator c loads from DST
     }
   }];
 }
 
-def D2M_TileReduceMaxOp : D2M_GenericRegionComputeOp<"tile_reduce_max"> {
+def D2M_TileReduceMaxOp : D2M_GenericRegionComputeTernaryDstOp<"tile_reduce_max", D2M_TileComputeOpTraitBundle> {
   let summary = "D2M Tile Reduce Max Op";
   let description = [{
         The `tile_reduce_max` operation computes the max of all elements in the input A element-wise multiplied by B and input C over the specified reduction dim(s): result <- max<dims>(A * B, C)
@@ -415,12 +426,12 @@ def D2M_TileReduceMaxOp : D2M_GenericRegionComputeOp<"tile_reduce_max"> {
                        D2M_ReduceDimAttr:$reduce_dim);
   let results = (outs TTCore_Tile:$result);
 
+  // Note: getDstRegInPlace() and getOperandsLoadFromDstRegister() inherited from TernaryDstOp
+  // TernaryDstOp returns {0,1,2} for loads, but we only need {2} (accumulator c)
+  // Override to be more specific:
   let extraClassDeclaration = [{
     mlir::SmallVector<int64_t> getOperandsLoadFromDstRegister() {
-      return {2};
-    }
-    bool getDstRegInPlace() {
-      return true;
+      return {2};  // Only accumulator c loads from DST
     }
   }];
 }

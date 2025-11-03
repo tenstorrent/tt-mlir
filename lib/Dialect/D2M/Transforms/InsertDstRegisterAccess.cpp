@@ -299,7 +299,13 @@ public:
       }
 
       // Collect stores from this op.
+      // FIX: Deduplicate users - same operation may use result multiple times (e.g., reductions)
+      llvm::SmallPtrSet<Operation *, 4> uniqueUsersSet;
       for (auto *user : computeOp->getUsers()) {
+        uniqueUsersSet.insert(user);
+      }
+
+      for (auto *user : uniqueUsersSet) {
         if (auto potentialStore = mlir::dyn_cast<affine::AffineStoreOp>(user);
             isFromCB(potentialStore)) {
 
@@ -351,11 +357,15 @@ public:
           }
 
           assert(user->hasTrait<D2MGenericRegionComputeOpTrait>());
-          assert(computeOp->hasOneUse() &&
-                 "Currently we do not support multiple "
-                 "users in the same compute dst region.");
+
           assert(computeOp->getNumResults() == 1);
-          assert(!dstRegisterAllocation.contains(computeOp));
+
+          // FIX: Support multiple users (e.g., S used by both rowmax and subtract)
+          // Allocate DST slot only once, on first user. Subsequent users reuse the slot.
+          if (dstRegisterAllocation.contains(computeOp)) {
+            continue;  // Already allocated for this op from processing a previous user
+          }
+
           // If op stores to dst in place, we don't need to allocate a new dst
           // register, just use the current dst index.
           int32_t allocatedIndex =
