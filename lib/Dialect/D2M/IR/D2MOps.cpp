@@ -1352,11 +1352,10 @@ unsigned d2m::GenericOp::getNumDims() {
 }
 
 mlir::AffineMap d2m::GenericOp::getIndexingMap(int64_t operandIndex) {
-  // If indexing_maps is empty, return an empty affine map.
-  if (getIndexingMaps().empty()) {
-    return AffineMap::get(0, 0, {}, getContext());
-  }
-  return mlir::cast<AffineMapAttr>(getIndexingMaps()[operandIndex]).getValue();
+  TT_assertv(!isExplicitDatamovementForm(),
+             "Attempting to access indexing map while in explicit "
+             "datamovement form.");
+  return getIndexingMapsValue()[operandIndex];
 }
 
 mlir::SmallVector<mlir::AffineMap> d2m::GenericOp::getIndexingMapsValue() {
@@ -1466,6 +1465,9 @@ mlir::SmallVector<int64_t> d2m::GenericOp::getLoopBounds() {
 
 mlir::SmallVector<int64_t>
 d2m::GenericOp::getParticipatingLoopDims(int64_t operandIndex) {
+  if (isExplicitDatamovementForm()) {
+    return {};
+  }
   AffineMap indexingMap = getIndexingMap(operandIndex);
   auto dimExprs =
       llvm::make_filter_range(indexingMap.getResults(), [](AffineExpr expr) {
@@ -1478,11 +1480,10 @@ d2m::GenericOp::getParticipatingLoopDims(int64_t operandIndex) {
 
 mlir::SmallVector<int64_t>
 d2m::GenericOp::getNonParticipatingLoopDims(int64_t operandIndex) {
-  AffineMap indexingMap = getIndexingMap(operandIndex);
-  // If indexing_maps is empty, return empty vector (no non-participating dims).
-  if (indexingMap.getNumDims() == 0) {
+  if (isExplicitDatamovementForm()) {
     return {};
   }
+  AffineMap indexingMap = getIndexingMap(operandIndex);
   SmallVector<int64_t> participatingDims =
       getParticipatingLoopDims(operandIndex);
   llvm::BitVector nonParticipatingDims(indexingMap.getNumDims(), true);
