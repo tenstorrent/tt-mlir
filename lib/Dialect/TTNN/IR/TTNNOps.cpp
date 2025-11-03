@@ -524,8 +524,17 @@ static bool isDefinedByOp(mlir::Value value) {
   }
   Conv2dParams params = *expectedParams;
 
-  if (!isDefinedByOp<mlir::tt::ttnn::PrepareConv2dWeightsOp>(getWeight()) &&
-      !isDefinedByOp<mlir::tt::ttcore::LoadCachedOp>(getWeight())) {
+  // Check if weight is from PrepareConv2dWeightsOp, LoadCachedOp, or already in
+  // prepared format.
+  // Prepared weights have shape [1, 1, K*K*C_in, C_out] instead
+  // of [C_out, C_in, K, K]
+  bool isWeightPrepared =
+      isDefinedByOp<mlir::tt::ttnn::PrepareConv2dWeightsOp>(getWeight()) ||
+      isDefinedByOp<mlir::tt::ttcore::LoadCachedOp>(getWeight()) ||
+      (getWeight().getType().getDimSize(0) == 1 &&
+       getWeight().getType().getDimSize(1) == 1);
+
+  if (!isWeightPrepared) {
     // Only check when the weight is not prepared because it changes the shape
     // and ordering of dims.
     if (getWeight().getType().getDimSize(WEIGHT_OUT_CHANNEL) !=
