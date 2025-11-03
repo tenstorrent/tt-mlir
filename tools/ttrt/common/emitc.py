@@ -518,14 +518,18 @@ class EmitC:
                     ttrt.runtime.close_mesh_device(device)
                     device = None
 
+                # Clean up memory, avoid Python GC calling __del__ on objects from closed so
                 import gc
 
-                del (
-                    emitc_runtime_inputs,
-                    emitc_runtime_outputs,
-                    emitc_torch_inputs,
-                    emitc_torch_outputs,
-                )
+                del emitc_runtime_inputs, emitc_runtime_outputs
+                try:
+                    del emitc_torch_inputs
+                except UnboundLocalError:
+                    pass
+                try:
+                    del emitc_torch_outputs
+                except UnboundLocalError:
+                    pass
                 gc.collect()
 
                 ttrt.runtime.test.close_so(emitc_dylib_handle)
