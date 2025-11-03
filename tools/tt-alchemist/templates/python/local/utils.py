@@ -48,6 +48,23 @@ class DeviceGetter:
             )
 
         return cls._instance
+    
+# Wrapper to abstract const-eval logic out of runtime funcs to keep them
+# cleaner. Invokes constEvalFunc iff outputs is empty.
+def constEvalFuncWrapper(constEvalFunc, inputs, outputs):
+    if not outputs:
+        outputs = constEvalFunc(inputs)
+    return outputs 
+
+# Wrapper to abstract const-eval logic out of runtime funcs to keep them
+# cleaner. Invokes constEvalFunc iff outputs is empty.
+# This is an overload of constEvalFuncWrapper for const-eval functions that
+# take zero arguments.
+def constEvalFuncWrapperZeroArg(constEvalFunc, outputs):
+  if not outputs:
+    outputs = constEvalFunc()
+  return outputs
+
 
 
 def get_scalar_from_tensor(tensor: ttnn.Tensor) -> int:
