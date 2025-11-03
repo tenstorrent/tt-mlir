@@ -644,6 +644,167 @@ class StableHLOBuilder(Builder):
             unit_attrs=unit_attrs,
         )
 
+    # ----- Tensor Creation Operations -----
+
+    def iota(
+        self,
+        output_shape: Shape,
+        iota_dimension: int,
+        dtype: Optional[Type] = None,
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+    ) -> OpView:
+        """
+        Creates ``stablehlo.iota``.
+
+        *Iota tensor creation operation.*
+
+        Creates a tensor filled with increasing integer values starting from 0
+        along the specified dimension.
+
+        For example, iota with shape [3, 4] and iota_dimension=1:
+        [[0, 1, 2, 3],
+         [0, 1, 2, 3],
+         [0, 1, 2, 3]]
+
+        Parameters
+        ----------
+        output_shape : Shape
+            The shape of the output tensor
+        iota_dimension : int
+            The dimension along which to fill with increasing values
+        dtype : *Optional[Type]*
+            The element type of the output tensor (defaults to f32)
+        unit_attrs : *Optional[List[str]]*
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpView*)
+            A tensor filled with increasing values along the specified dimension
+        """
+        if dtype is None:
+            dtype = self._get_type_from_torch_dtype(torch.float32)
+
+        output_type = self.tensor(output_shape, dtype)
+
+        with self._ctx, self._loc:
+            loc = self._get_loc_of_extra_file_callee(id=self._get_next_global_id())
+
+            op = stablehlo.IotaOp(
+                output_type,
+                IntegerAttr.get(
+                    IntegerType.get_signless(64, self._ctx), iota_dimension
+                ),
+                loc=loc,
+            )
+
+            attrs = {}
+            if unit_attrs:
+                for name in unit_attrs:
+                    attrs[name] = UnitAttr.get(self._ctx)
+            if sharding_attr is not None:
+                attrs["sdy.sharding"] = sharding_attr
+            if attrs:
+                op.operation.attributes.update(attrs)
+
+            if not self._disable_golden_check:
+                op_golden_func = builder_golden.get_golden_function(
+                    stablehlo.IotaOp,
+                    output_shape=output_shape,
+                    iota_dimension=iota_dimension,
+                )
+                if op_golden_func is not None:
+                    golden_tensor = op_golden_func(
+                        output_shape=output_shape, iota_dimension=iota_dimension
+                    )
+                    self._set_golden_tensor(op, golden_tensor)
+
+            return op
+
+    def dynamic_iota(
+        self,
+        output_shape: Operand,
+        iota_dimension: int,
+        dtype: Optional[Type] = None,
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+    ) -> OpView:
+        """
+        Creates ``stablehlo.dynamic_iota``.
+
+        *Dynamic iota tensor creation operation.*
+
+        Creates a tensor filled with increasing integer values starting from 0
+        along the specified dimension. The output shape is determined dynamically
+        from the output_shape operand.
+
+        For example, dynamic_iota with output_shape=[3, 4] and iota_dimension=1:
+        [[0, 1, 2, 3],
+         [0, 1, 2, 3],
+         [0, 1, 2, 3]]
+
+        Parameters
+        ----------
+        output_shape : Operand
+            A 1D tensor of integers specifying the shape of the output tensor
+        iota_dimension : int
+            The dimension along which to fill with increasing values
+        dtype : *Optional[Type]*
+            The element type of the output tensor (defaults to f32)
+        unit_attrs : *Optional[List[str]]*
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpView*)
+            A tensor filled with increasing values along the specified dimension
+        """
+        if dtype is None:
+            dtype = self._get_type_from_torch_dtype(torch.float32)
+
+        output_shape_golden = self._get_golden_tensor(output_shape)
+        if output_shape_golden is None:
+            raise ValueError(
+                "dynamic_iota requires a golden tensor for output_shape. "
+                "Ensure the shape operand was created with the builder (e.g., constant())."
+            )
+
+        output_shape_list = output_shape_golden.tolist()
+        output_type = self.tensor(output_shape_list, dtype)
+
+        with self._ctx, self._loc:
+            op = stablehlo.DynamicIotaOp(
+                output_type,
+                output_shape,
+                IntegerAttr.get(
+                    IntegerType.get_signless(64, self._ctx), iota_dimension
+                ),
+                loc=self._get_loc_of_extra_file_callee(id=self._get_next_global_id()),
+            )
+
+            attrs = {}
+            if unit_attrs:
+                attrs.update({name: UnitAttr.get(self._ctx) for name in unit_attrs})
+            if sharding_attr:
+                attrs["sdy.sharding"] = sharding_attr
+            op.operation.attributes.update(attrs)
+
+            if not self._disable_golden_check:
+                op_golden_func = builder_golden.get_golden_function(
+                    stablehlo.DynamicIotaOp,
+                    output_shape=output_shape_list,
+                    iota_dimension=iota_dimension,
+                )
+                if op_golden_func:
+                    golden_tensor = op_golden_func(
+                        output_shape=output_shape_list,
+                        iota_dimension=iota_dimension,
+                    )
+                    self._set_golden_tensor(op, golden_tensor)
+
+            return op
+
     # ----- Public Shardy Attribute Generators ----
 
     def mesh_axis_attr(

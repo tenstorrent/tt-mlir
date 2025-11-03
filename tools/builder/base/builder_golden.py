@@ -2752,6 +2752,36 @@ def collective_broadcast_golden(
     )
 
 
+def iota_golden(output_shape: tuple, iota_dimension: int, **kwargs) -> torch.Tensor:
+    """
+    Generate a tensor filled with increasing values along the specified dimension.
+
+    This function creates a tensor where values increase from 0 along the
+    iota_dimension. For example, with shape (3, 4) and iota_dimension=1:
+    [[0, 1, 2, 3],
+     [0, 1, 2, 3],
+     [0, 1, 2, 3]]
+
+    Parameters
+    ----------
+    output_shape : tuple
+        Shape of the output tensor
+    iota_dimension : int
+        Dimension along which to fill with increasing values
+
+    Returns
+    -------
+    torch.Tensor
+        Tensor filled with increasing values along the specified dimension
+    """
+    iota_size = output_shape[iota_dimension]
+    shape = [1] * len(output_shape)
+    shape[iota_dimension] = iota_size
+
+    iota_values = torch.arange(iota_size, dtype=torch.float32).view(shape)
+    return iota_values.expand(*output_shape)
+
+
 def get_golden_function(ttir_op_class: type, **kwargs) -> Optional[Callable]:
     """
     Get the golden function for a given TTIR operation class.
@@ -2941,6 +2971,9 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.CollectiveBroadcastOp: collective_broadcast_golden,
     # Operations with parameter transformations
     ttir.LeakyReluOp: leaky_relu_golden,
+    # StableHLO tensor creation operations
+    stablehlo.IotaOp: iota_golden,
+    stablehlo.DynamicIotaOp: iota_golden,
     # StableHLO elementwise operations
     stablehlo.AddOp: torch.add,
     stablehlo.AbsOp: torch.abs,
