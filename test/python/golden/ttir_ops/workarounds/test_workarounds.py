@@ -63,5 +63,5 @@ def test_linear_without_workaround(
         system_desc_path=request.config.getoption("--sys-desc"),
         target=target,
         device=device,
-        pipeline_options=["enable-workaround-pass=false"],
+        pipeline_options=["disable-workarounds=true"],
     )

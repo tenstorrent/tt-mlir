@@ -130,7 +130,7 @@ void createTTNNPipelineWorkaroundPass(
     OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
 
   // If the workaround pass is disabled, skip adding it.
-  if (!options.workaroundsEnabled) {
+  if (options.disableWorkarounds) {
     return;
   }
 
