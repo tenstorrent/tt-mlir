@@ -640,16 +640,39 @@ mlir::LogicalResult d2m::ViewLayoutOp::verify() {
     }
     // Can change shard shape for tiled <-> untiled
   } else {
-    // For regular reblocking, verify it's valid; total elements must match.
-    int64_t inputElements = 1, outputElements = 1;
-    for (auto d : inputType.getShape()) {
-      inputElements *= d;
-    }
-    for (auto d : resultType.getShape()) {
-      outputElements *= d;
-    }
-    if (inputElements != outputElements) {
-      return emitOpError("view must preserve total number of elements");
+    // For affine map-based views, verify logical shapes are preserved.
+    // Device tensor shapes can differ (grid redistribution, alignment changes),
+    // but the underlying logical data must be the same.
+
+    auto inputTensor = mlir::dyn_cast<mlir::RankedTensorType>(inputType);
+    auto resultTensor = mlir::dyn_cast<mlir::RankedTensorType>(resultType);
+
+    if (inputTensor && resultTensor) {
+      auto inputLayout =
+          mlir::dyn_cast_if_present<mlir::tt::ttcore::MetalLayoutAttr>(
+              inputTensor.getEncoding());
+      auto resultLayout =
+          mlir::dyn_cast_if_present<mlir::tt::ttcore::MetalLayoutAttr>(
+              resultTensor.getEncoding());
+
+      if (inputLayout && resultLayout) {
+        // Both have layouts: verify logical shapes match
+        if (inputLayout.getLogicalShape() != resultLayout.getLogicalShape()) {
+          return emitOpError("view must preserve logical shape");
+        }
+      } else if (!inputLayout && !resultLayout) {
+        // Neither has layout: verify device tensor shapes match
+        int64_t inputElements = 1, outputElements = 1;
+        for (auto d : inputType.getShape()) {
+          inputElements *= d;
+        }
+        for (auto d : resultType.getShape()) {
+          outputElements *= d;
+        }
+        if (inputElements != outputElements) {
+          return emitOpError("view must preserve total number of elements");
+        }
+      }
     }
 
     // We also should not change element type unless reinterpretting.
