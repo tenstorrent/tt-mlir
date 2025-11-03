@@ -442,4 +442,72 @@ module attributes {} {
       }> : (tensor<2x3x6x2xbf16>, tensor<3x2x3xi32>, tensor<2x2x3x3x4x2xbf16>) -> tensor<2x2x3x3x4x2xbf16>
     return %1 : tensor<2x2x3x3x4x2xbf16>
   }
+
+  // Example 24: singleton indexed dim + partially indexed dim
+  func.func @gather_24(%operand : tensor<1x3x2xbf16>, %start_indices: tensor<5x2xi32>) -> (tensor<5x2x2xbf16> {jax.result_info = "result"}) {
+    // CHECK: "ttnn.embedding"
+    %0 = ttir.empty() : tensor<5x2x2xbf16>
+    %1 = "ttir.gather"(%operand, %start_indices, %0) <{
+        collapsed_slice_dims = array<i64: 0>,
+        index_vector_dim = 1 : si64,
+        indices_are_sorted = false,
+        offset_dims = array<i64: 1, 2>,
+        operand_batching_dims = array<i64>,
+        slice_sizes = array<i64: 1,2,2>,
+        start_index_map = array<i64: 0,1>,
+        start_indices_batching_dims = array<i64>
+      }> : (tensor<1x3x2xbf16>, tensor<5x2xi32>, tensor<5x2x2xbf16>) -> tensor<5x2x2xbf16>
+    return %1 : tensor<5x2x2xbf16>
+  }
+
+  // Example 25: singleton indexed dim + fully indexed dim + one normally indexed dim
+  func.func @gather_25(%operand : tensor<1x3x2xbf16>, %start_indices: tensor<5x3xi32>) -> (tensor<5x2xbf16> {jax.result_info = "result"}) {
+    // CHECK: "ttnn.embedding"
+    %0 = ttir.empty() : tensor<5x2xbf16>
+    %1 = "ttir.gather"(%operand, %start_indices, %0) <{
+        collapsed_slice_dims = array<i64: 0,1>,
+        index_vector_dim = 1 : si64,
+        indices_are_sorted = false,
+        offset_dims = array<i64: 1>,
+        operand_batching_dims = array<i64>,
+        slice_sizes = array<i64: 1,1,2>,
+        start_index_map = array<i64: 0,1,2>,
+        start_indices_batching_dims = array<i64>
+      }> : (tensor<1x3x2xbf16>, tensor<5x3xi32>, tensor<5x2xbf16>) -> tensor<5x2xbf16>
+    return %1 : tensor<5x2xbf16>
+  }
+
+  // Example 26: singleton indexed dim + fully indexed dims
+  func.func @gather_26(%operand : tensor<1x3x2xbf16>, %start_indices: tensor<5x3xi32>) -> (tensor<5x3x2xbf16> {jax.result_info = "result"}) {
+    // CHECK: "ttnn.embedding"
+    %0 = ttir.empty() : tensor<5x3x2xbf16>
+    %1 = "ttir.gather"(%operand, %start_indices, %0) <{
+        collapsed_slice_dims = array<i64: 0>,
+        index_vector_dim = 1 : si64,
+        indices_are_sorted = false,
+        offset_dims = array<i64: 1,2>,
+        operand_batching_dims = array<i64>,
+        slice_sizes = array<i64: 1,3,2>,
+        start_index_map = array<i64: 0,1,2>,
+        start_indices_batching_dims = array<i64>
+      }> : (tensor<1x3x2xbf16>, tensor<5x3xi32>, tensor<5x3x2xbf16>) -> tensor<5x3x2xbf16>
+    return %1 : tensor<5x3x2xbf16>
+  }
+
+  // Example 27: singleton indexed dim + normally indexed dim
+  func.func @gather_27(%operand : tensor<1x3x2xbf16>, %start_indices: tensor<5x2xi32>) -> (tensor<5x2xbf16> {jax.result_info = "result"}) {
+    // CHECK: "ttnn.embedding"
+    %0 = ttir.empty() : tensor<5x2xbf16>
+    %1 = "ttir.gather"(%operand, %start_indices, %0) <{
+        collapsed_slice_dims = array<i64: 0,1>,
+        index_vector_dim = 1 : si64,
+        indices_are_sorted = false,
+        offset_dims = array<i64: 1>,
+        operand_batching_dims = array<i64>,
+        slice_sizes = array<i64: 1,1,2>,
+        start_index_map = array<i64: 0,1>,
+        start_indices_batching_dims = array<i64>
+      }> : (tensor<1x3x2xbf16>, tensor<5x2xi32>, tensor<5x2xbf16>) -> tensor<5x2xbf16>
+    return %1 : tensor<5x2xbf16>
+  }
 }
