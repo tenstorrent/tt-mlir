@@ -93,6 +93,11 @@ def get_atol_rtol_pcc(golden, calculated, atol, rtol, logging):
     if not torch.is_floating_point(calculated):
         calculated = calculated.to(torch.float64)
 
+    if golden.dtype == torch.bfloat16:
+        golden = golden.to(torch.float32)
+    if calculated.dtype == torch.bfloat16:
+        calculated = calculated.to(torch.float32)
+
     # Calculate atol and rtol
     cal_atol = torch.max(torch.abs(golden - calculated)).item()
     cal_rtol = torch.max(torch.abs((golden - calculated) / calculated)).item()
@@ -118,7 +123,7 @@ def get_atol_rtol_pcc(golden, calculated, atol, rtol, logging):
             if torch.equal(golden, calculated):
                 return 1.0
 
-            if golden.dtype == torch.bfloat16:
+            if golden.dtype == torch.bfloat16 or calculated.dtype == torch.bfloat16:
                 golden = golden.type(torch.float32)
                 calculated = calculated.type(torch.float32)
 
@@ -609,9 +614,11 @@ class FileManager:
             program_dir = os.path.join(artifacts_path, program)
             files = sorted(
                 [d for d in os.listdir(program_dir)],
-                key=lambda x: int(re.search(r"_(\d+)\.pt$", x).group(1))
-                if re.search(r"_(\d+)\.pt$", x)
-                else 0,
+                key=lambda x: (
+                    int(re.search(r"_(\d+)\.pt$", x).group(1))
+                    if re.search(r"_(\d+)\.pt$", x)
+                    else 0
+                ),
             )
             tensors = []
             for file in files:
