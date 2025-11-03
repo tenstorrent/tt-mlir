@@ -4292,8 +4292,8 @@ TEST_F(OpModelBase, FillCacheOpInterface) {
 
 TEST_F(OpModelBase, UpdateCacheOpInterface) {
   // Test UpdateCacheOp with cache, input, and update_index tensors
-  llvm::SmallVector<int64_t> cacheShape = {1, 32, 64, 512};
-  llvm::SmallVector<int64_t> inputShape = {1, 32, 3, 512};
+  llvm::SmallVector<int64_t> cacheShape = {1, 32, 64, 256};
+  llvm::SmallVector<int64_t> inputShape = {1, 32, 3, 256};
   llvm::SmallVector<int64_t> updateIndexShape = {1};
 
   auto cacheTensor = createEmptyTensor(cacheShape);
@@ -4317,9 +4317,9 @@ TEST_F(OpModelBase, UpdateCacheOpInterface) {
     const auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
         constraints;
     // Basic validation that constraints are reasonable
-    EXPECT_EQ(cbSize, 1310720);
+    EXPECT_EQ(cbSize, 655360);
     EXPECT_EQ(l1PeakSize, 0);
-    EXPECT_EQ(outputSize, 32768);
+    EXPECT_EQ(outputSize, 16384);
   } else {
     FAIL() << "Missing constraints for UpdateCacheOp; Error="
            << llvm::toString(constraintsExp.takeError()) << std::endl;
