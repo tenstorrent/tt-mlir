@@ -604,9 +604,13 @@ inline size_t countUsers(mlir::Value value) {
   return std::distance(value.user_begin(), value.user_end());
 }
 
+inline bool isConstEvalFunc(mlir::func::FuncOp funcOp) {
+  return funcOp->hasAttr(g_constEvalAttrName);
+}
+
 inline bool isConstEvalFunc(mlir::Operation *op) {
   if (auto funcOp = mlir::dyn_cast<mlir::func::FuncOp>(op)) {
-    return funcOp->hasAttr(g_constEvalAttrName);
+    return isConstEvalFunc(funcOp);
   }
   return false;
 }
