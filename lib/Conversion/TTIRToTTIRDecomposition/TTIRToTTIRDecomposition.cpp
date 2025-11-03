@@ -1016,12 +1016,13 @@ struct GatherToEmbeddingConversionPattern
     for (size_t i = 0; i < originalStartIndexMap.size(); ++i) {
       int64_t dim = originalStartIndexMap[i];
       if (inputShape[dim] == 1) {
-        if (partialIndexedDimExists) {
-          continue;
-        }
         if (fullIndexedDims == originalStartIndexMap.size()) {
           startIndexMap.push_back(dim);
+          actualIndexedDim = i;
           break;
+        }
+        if (partialIndexedDimExists || fullIndexedDims > 0) {
+          continue;
         }
       } else if (sliceSizes[dim] == inputShape[dim]) {
         continue;
@@ -1328,13 +1329,20 @@ private:
     auto expectedOutputType = op.getOutput().getType();
     auto expectedOutputShape = expectedOutputType.getShape();
     auto offsetDims = op.getOffsetDims();
+    auto collapsedSliceDims = op.getCollapsedSliceDims();
     // Because of permuting input to put the indexing dims first, the output has
     // corresponding dims in front of (other) offsetDims, as well. When size of
     // these dims in output is not 1, we need to move them to their correct
     // spot.
     bool needsOffsetReordering = false;
+    size_t numSmallerCollapsedDims = 0;
+
     if (op.getSliceSizes()[indexedDim] != 1) {
       needsOffsetReordering = true;
+      numSmallerCollapsedDims =
+          std::lower_bound(collapsedSliceDims.begin(), collapsedSliceDims.end(),
+                           indexedDim) -
+          collapsedSliceDims.begin();
     }
 
     llvm::SmallVector<int64_t> outputPermutation;
@@ -1344,10 +1352,12 @@ private:
       }
     }
     if (needsOffsetReordering) {
-      outputPermutation.push_back(op.getOffsetDims()[indexedDim]);
+      outputPermutation.push_back(
+          offsetDims[indexedDim - numSmallerCollapsedDims]);
     }
     for (size_t i = 0; i < offsetDims.size(); ++i) {
-      if (!(needsOffsetReordering && i == static_cast<size_t>(indexedDim))) {
+      if (!(needsOffsetReordering &&
+            i == static_cast<size_t>(indexedDim - numSmallerCollapsedDims))) {
         outputPermutation.push_back(offsetDims[i]);
       }
     }
