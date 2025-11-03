@@ -1628,4 +1628,21 @@ bool d2m::GenericOp::isAllParallel() {
   });
 }
 
+bool d2m::GenericOp::hasComputeOpsInRegion(unsigned regionIndex) {
+  if (regionIndex >= getNumRegions()) {
+    return false;
+  }
+
+  bool hasCompute = false;
+  getRegion(regionIndex).walk([&](Operation *op) {
+    if (op->hasTrait<D2MGenericRegionComputeOpTrait>()) {
+      hasCompute = true;
+      return WalkResult::interrupt();
+    }
+    return WalkResult::advance();
+  });
+
+  return hasCompute;
+}
+
 } // namespace mlir::tt::d2m

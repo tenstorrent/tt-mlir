@@ -78,17 +78,7 @@ public:
       Block &block = genericRegion->getBlocks().front();
 
       // Skip regions that don't have compute ops.
-      bool hasCompute = false;
-      genericRegion
-          ->walk([&](Operation *inner) {
-            if (inner->hasTrait<D2MGenericRegionComputeOpTrait>()) {
-              hasCompute = true;
-              return WalkResult::interrupt();
-            }
-            return WalkResult::advance();
-          })
-          .wasInterrupted();
-      if (!hasCompute) {
+      if (!op.hasComputeOpsInRegion(regionIndex)) {
         return failure();
       }
 

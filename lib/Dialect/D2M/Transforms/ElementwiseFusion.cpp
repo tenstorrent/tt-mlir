@@ -366,17 +366,7 @@ struct FuseD2MElementwiseOpsPattern : public OpRewritePattern<GenericOp> {
     assert(consumer.getNumRegions() == 1u);
 
     // Skip regions that don't have compute ops.
-    bool hasCompute = false;
-    consumer.getRegion(0)
-        .walk([&](Operation *op) {
-          if (op->hasTrait<D2MGenericRegionComputeOpTrait>()) {
-            hasCompute = true;
-            return WalkResult::interrupt();
-          }
-          return WalkResult::advance();
-        })
-        .wasInterrupted();
-    if (!hasCompute) {
+    if (!consumer.hasComputeOpsInRegion(0)) {
       return failure();
     }
 
