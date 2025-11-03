@@ -30,6 +30,7 @@ target_include_directories(_ttmlir_runtime
   PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}
   ${PROJECT_SOURCE_DIR}/runtime/include
+  ${PROJECT_BINARY_DIR}/runtime/include
   ${PROJECT_BINARY_DIR}/include/ttmlir/Target/Common
 )
 
@@ -56,6 +57,7 @@ if (TTMLIR_ENABLE_RUNTIME)
     SYSTEM PRIVATE ${pybind11_INCLUDE_DIRS}
     PRIVATE
       ${PROJECT_SOURCE_DIR}/runtime/include
+      ${PROJECT_BINARY_DIR}/runtime/include
       ${PROJECT_BINARY_DIR}/include/ttmlir/Target/Common
       ${PROJECT_SOURCE_DIR}/runtime/python/include
   )

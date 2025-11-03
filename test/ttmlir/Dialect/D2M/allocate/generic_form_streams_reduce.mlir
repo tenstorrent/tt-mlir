@@ -37,8 +37,11 @@ module {
     d2m.generic {block_factors = [1, 3], grid = #ttcore.grid<2x1>, indexing_maps = [#map, #map1, #map2], iterator_types = [#parallel, #reduction], threads = [#d2m.thread<compute>]}
         ins(%alloc_0, %alloc : memref<2x3x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #l1_>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #l1_>)
         outs(%alloc_1 : memref<2x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #l1_>)  {
-    ^compute0(%cb0: memref<1x1x!ttcore.tile<32x32, f32>, #l1_>, %cb1: memref<1x1x!ttcore.tile<32x32, f32>, #l1_>, %cb2: memref<1x1x!ttcore.tile<32x32, f32>, #l1_>):
-      linalg.generic {indexing_maps = [#map, #map1, #map2], iterator_types = ["parallel", "reduction"]} ins(%cb0, %cb1 : memref<1x1x!ttcore.tile<32x32, f32>, #l1_>, memref<1x1x!ttcore.tile<32x32, f32>, #l1_>) outs(%cb2 : memref<1x1x!ttcore.tile<32x32, f32>, #l1_>) {
+    ^compute0(%cb0: !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #l1_>>, %cb1: !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #l1_>>, %cb2: !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #l1_>>):
+      %arg0_unwrap = d2m.wait %cb0 : !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #l1_>> -> memref<1x1x!ttcore.tile<32x32, f32>, #l1_>
+      %arg1_unwrap = d2m.wait %cb1 : !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #l1_>> -> memref<1x1x!ttcore.tile<32x32, f32>, #l1_>
+      %arg2_unwrap = d2m.reserve %cb2 : !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #l1_>> -> memref<1x1x!ttcore.tile<32x32, f32>, #l1_>
+      linalg.generic {indexing_maps = [#map, #map1, #map2], iterator_types = ["parallel", "reduction"]} ins(%arg0_unwrap, %arg1_unwrap : memref<1x1x!ttcore.tile<32x32, f32>, #l1_>, memref<1x1x!ttcore.tile<32x32, f32>, #l1_>) outs(%arg2_unwrap : memref<1x1x!ttcore.tile<32x32, f32>, #l1_>) {
       ^bb0(%in: !ttcore.tile<32x32, f32>, %in_3: !ttcore.tile<32x32, f32>, %out: !ttcore.tile<32x32, f32>):
         %1 = "d2m.tile_reduce_sum"(%in, %in_3, %out) <{reduce_dim = #d2m<reduce_dim C>}> : (!ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
         linalg.yield %1 : !ttcore.tile<32x32, f32>

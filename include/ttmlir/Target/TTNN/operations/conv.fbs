@@ -21,6 +21,7 @@ table Conv2dConfig {
   enable_act_double_buffer: bool = null;
   enable_weights_double_buffer: bool = null;
   in_place: bool = null;
+  enable_kernel_stride_folding: bool = null;
 }
 
 enum Conv2dSliceType: ushort {

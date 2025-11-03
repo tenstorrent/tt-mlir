@@ -14,6 +14,9 @@ extern "C" {
 MLIR_CAPI_EXPORTED MlirAttribute ttmlirD2MThreadTypeAttrGet(MlirContext ctx,
                                                             uint32_t enumValue);
 
+MLIR_CAPI_EXPORTED MlirType ttmlirD2MCBTypeGet(MlirContext ctx,
+                                               MlirType shapedType);
+
 #ifdef __cplusplus
 }
 #endif

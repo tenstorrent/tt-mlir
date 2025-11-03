@@ -14,12 +14,13 @@
 namespace tt::runtime::distributed::controller {
 
 enum class ControllerState : std::uint8_t {
-  Uninitialized,         // Initial state before any setup
-  ControllerSocketBound, // Controller socket bound to the local port
-  CommandLaunched,       // Subcommand process started (e.g. ttrun)
-  ConnectedToWorkers,    // Worker connections established
-  DispatcherReady,       // Command dispatcher is operational
-  ResponseHandlerReady,  // Response handler is operational
+  Uninitialized,            // Initial state before any setup
+  ControllerSocketBound,    // Controller socket bound to the local port
+  CommandLaunched,          // Subcommand process started (e.g. ttrun)
+  ConnectedToWorkers,       // Worker connections established
+  DispatcherReady,          // Command dispatcher is operational
+  ResponseHandlerReady,     // Response handler is operational
+  RuntimeContextConfigured, // Runtime context synced to the workers
   FullyOperational, // All components running, everything launched successfully
   ShuttingDown,     // Graceful shutdown in progress
   Shutdown,         // Shutdown state
@@ -90,14 +91,42 @@ public:
           std::nullopt,
       std::optional<::tt::runtime::Device> deviceHandle = std::nullopt);
 
+  void setFabricConfig(const ::tt::runtime::FabricConfig &fabricConfig);
+
+  size_t getNumAvailableDevices();
+
   ::tt::runtime::Device
   openMeshDevice(const ::tt::runtime::MeshDeviceOptions &options = {});
-  void closeMeshDevice(const ::tt::runtime::Device &parentMeshHandle);
+
+  void closeMeshDevice(::tt::runtime::Device &parentMeshHandle);
+
+  ::tt::runtime::Device createSubMeshDevice(
+      const ::tt::runtime::Device &parentMesh,
+      const std::vector<uint32_t> &meshShape,
+      const std::optional<const std::vector<uint32_t>> &meshOffset =
+          std::nullopt);
+
+  void releaseSubMeshDevice(const ::tt::runtime::Device &subMesh);
+
+  std::vector<uint32_t> getMeshShape(const ::tt::runtime::Device &deviceHandle);
 
   ::tt::runtime::Tensor createOwnedHostTensor(
       const void *data, const std::vector<std::uint32_t> &shape,
       const std::vector<std::uint32_t> &stride, std::uint32_t itemsize,
       ::tt::target::DataType dataType);
+
+  ::tt::runtime::Tensor createMultiDeviceHostTensor(
+      const std::vector<::tt::runtime::Tensor> &tensorShards,
+      const std::unordered_map<std::string, std::string> &strategy,
+      const std::vector<uint32_t> &meshShape);
+
+  bool isTensorAllocated(const ::tt::runtime::Tensor &tensorHandle);
+
+  std::uint32_t getTensorVolume(const ::tt::runtime::Tensor &tensorHandle);
+
+  bool getTensorRetain(const ::tt::runtime::Tensor &tensorHandle);
+
+  void setTensorRetain(const ::tt::runtime::Tensor &tensorHandle, bool retain);
 
   ::tt::runtime::Layout getLayout(const ::tt::runtime::Binary &executableHandle,
                                   std::uint32_t programIndex,
@@ -122,12 +151,18 @@ public:
   memcpy(void *dst, const ::tt::runtime::Tensor &srcHandle,
          std::optional<tt::target::DataType> targetDataType = std::nullopt);
 
+  void memcpy(const ::tt::runtime::Tensor &dstHandle,
+              const ::tt::runtime::Tensor &srcHandle);
+
+  void deallocateTensor(::tt::runtime::Tensor &tensorHandle,
+                        bool force = false);
+
   ShutdownResult shutdown();
 
 private:
-  std::chrono::seconds writeTimeout_{60};
-  std::chrono::seconds readTimeout_{60};
-  std::chrono::seconds workerShutdownTimeout_{60};
+  std::chrono::seconds writeTimeout_{300};
+  std::chrono::seconds readTimeout_{300};
+  std::chrono::seconds workerShutdownTimeout_{300};
 
   std::atomic<ControllerState> controllerState_{ControllerState::Uninitialized};
   std::future<int> exitCodeFuture_;
@@ -155,39 +190,101 @@ private:
 
   void launchResponseHandler();
   void processResponseQueue();
+
+  void configureRuntimeContext();
+
   void handleErrorResponse(
       const ::tt::runtime::distributed::flatbuffer::ErrorResponse *response,
       std::unique_ptr<AwaitingResponseQueueEntry> awaitingResponse);
+
+  void handleConfigureRuntimeContextResponse(
+      const std::vector<SizedBuffer> &responseBuffers,
+      std::unique_ptr<AwaitingResponseQueueEntry> awaitingResponse);
+
   void handleGetSystemDescResponse(
       const std::vector<SizedBuffer> &responseBuffers,
       std::unique_ptr<AwaitingResponseQueueEntry> awaitingResponse);
+
+  void handleSetFabricConfigResponse(
+      const std::vector<SizedBuffer> &responseBuffers,
+      std::unique_ptr<AwaitingResponseQueueEntry> awaitingResponse);
+
+  void handleGetNumAvailableDevicesResponse(
+      const std::vector<SizedBuffer> &responseBuffers,
+      std::unique_ptr<AwaitingResponseQueueEntry> awaitingResponse);
+
   void handleOpenMeshDeviceResponse(
       const std::vector<SizedBuffer> &responseBuffers,
       std::unique_ptr<AwaitingResponseQueueEntry> awaitingResponse);
+
   void handleCloseMeshDeviceResponse(
       const std::vector<SizedBuffer> &responseBuffers,
       std::unique_ptr<AwaitingResponseQueueEntry> awaitingResponse);
+
+  void handleCreateSubMeshDeviceResponse(
+      const std::vector<SizedBuffer> &responseBuffers,
+      std::unique_ptr<AwaitingResponseQueueEntry> awaitingResponse);
+
+  void handleReleaseSubMeshDeviceResponse(
+      const std::vector<SizedBuffer> &responseBuffers,
+      std::unique_ptr<AwaitingResponseQueueEntry> awaitingResponse);
+
+  void handleGetMeshShapeResponse(
+      const std::vector<SizedBuffer> &responseBuffers,
+      std::unique_ptr<AwaitingResponseQueueEntry> awaitingResponse);
+
   void handleCreateHostTensorResponse(
       const std::vector<SizedBuffer> &responseBuffers,
       std::unique_ptr<AwaitingResponseQueueEntry> awaitingResponse);
+
+  void handleCreateMultiDeviceHostTensorFromShardsResponse(
+      const std::vector<SizedBuffer> &responseBuffers,
+      std::unique_ptr<AwaitingResponseQueueEntry> awaitingResponse);
+
+  void handleIsTensorAllocatedResponse(
+      const std::vector<SizedBuffer> &responseBuffers,
+      std::unique_ptr<AwaitingResponseQueueEntry> awaitingResponse);
+
+  void handleGetTensorVolumeResponse(
+      const std::vector<SizedBuffer> &responseBuffers,
+      std::unique_ptr<AwaitingResponseQueueEntry> awaitingResponse);
+
+  void handleGetTensorRetainResponse(
+      const std::vector<SizedBuffer> &responseBuffers,
+      std::unique_ptr<AwaitingResponseQueueEntry> awaitingResponse);
+
+  void handleSetTensorRetainResponse(
+      const std::vector<SizedBuffer> &responseBuffers,
+      std::unique_ptr<AwaitingResponseQueueEntry> awaitingResponse);
+
   void handleGetLayoutResponse(
       const std::vector<SizedBuffer> &responseBuffers,
       std::unique_ptr<AwaitingResponseQueueEntry> awaitingResponse);
+
   void handleToLayoutResponse(
       const std::vector<SizedBuffer> &responseBuffers,
       std::unique_ptr<AwaitingResponseQueueEntry> awaitingResponse);
+
   void handleSubmitResponse(
       const std::vector<SizedBuffer> &responseBuffers,
       std::unique_ptr<AwaitingResponseQueueEntry> awaitingResponse);
+
   void handleGetNumShardsResponse(
       const std::vector<SizedBuffer> &responseBuffers,
       std::unique_ptr<AwaitingResponseQueueEntry> awaitingResponse);
+
   void handleToHostResponse(
       const std::vector<SizedBuffer> &responseBuffers,
       std::unique_ptr<AwaitingResponseQueueEntry> awaitingResponse);
+
   void handleMemcpyResponse(
       const std::vector<SizedBuffer> &responseBuffers,
       std::unique_ptr<AwaitingResponseQueueEntry> awaitingResponse);
+
+  void handleDeallocateTensorResponse(
+      const std::vector<SizedBuffer> &responseBuffers,
+      std::unique_ptr<AwaitingResponseQueueEntry> awaitingResponse);
+
   void handleShutdownResponse(
       const std::vector<SizedBuffer> &responseBuffers,
       std::unique_ptr<AwaitingResponseQueueEntry> awaitingResponse);

@@ -72,11 +72,11 @@ createOwnedTTNNTensor(const void *data, const std::vector<std::uint32_t> &shape,
   if (!::tt::runtime::utils::isSupportedDataType(dataType)) {
     dataTypeToUse = ::tt::runtime::utils::getUnsupportedDataTypeAlias(dataType);
 
-    LOG_WARNING("User provided a tensor of data type: ",
-                ::tt::target::EnumNameDataType(dataType),
-                " which is not supported by runtime/ttnn. Casting to: ",
-                ::tt::target::EnumNameDataType(dataTypeToUse),
-                ", this may impact throughput and the integrity of the data.");
+    LOG_DEBUG("User provided a tensor of data type: ",
+              ::tt::target::EnumNameDataType(dataType),
+              " which is not supported by runtime/ttnn. Casting to: ",
+              ::tt::target::EnumNameDataType(dataTypeToUse),
+              ", this may impact throughput and the integrity of the data.");
 
     uint64_t numElements = std::accumulate(shape.begin(), shape.end(),
                                            static_cast<std::uint64_t>(1),
@@ -144,7 +144,7 @@ toHostSingleTensor(const ::tt::runtime::ttnn::TTNNTensorWrapper &tensorWrapper,
   // If blackhole workarounds are enabled, only untilize on device if the
   // architecture is not blackhole
   if (::tt::runtime::workaround::Env::get().blackholeWorkarounds) {
-    untilizeOnDevice &= getArch() != ::tt::runtime::Arch::BLACKHOLE;
+    untilizeOnDevice &= getArch() != ::tt::target::Arch::Blackhole;
   }
   if (untilizeOnDevice) {
     ::ttnn::Tensor hostTensor = ::ttnn::from_device(
@@ -430,6 +430,12 @@ std::uint32_t getTensorVolume(::tt::runtime::Tensor tensor) {
   return ttnnTensor.physical_volume();
 }
 
+std::uint32_t getTensorLogicalVolume(::tt::runtime::Tensor tensor) {
+  const ::ttnn::Tensor &ttnnTensor =
+      utils::getTTNNTensorFromRuntimeTensor(tensor);
+  return ttnnTensor.logical_volume();
+}
+
 TensorDesc getTensorDesc(::tt::runtime::Tensor tensor) {
   TensorDesc desc;
   desc.dataType = getTensorDataType(tensor);
@@ -451,8 +457,8 @@ void setTensorRetain(::tt::runtime::Tensor tensor, bool retain) {
   return tensorWrapper.setRetain(retain);
 }
 
-Arch getArch() {
-  return ::tt::runtime::common::toRuntimeArch(::tt::tt_metal::hal::get_arch());
+tt::target::Arch getArch() {
+  return ::tt::runtime::common::toTargetArch(::tt::tt_metal::hal::get_arch());
 }
 
 void enablePersistentKernelCache() {
@@ -706,8 +712,8 @@ getMemoryView(Device deviceHandle) {
   return memoryMap;
 }
 
-void setFabricConfig(FabricConfig config) {
-  ::tt::tt_fabric::SetFabricConfig(common::toTTFabricConfig(config));
+void setFabricConfig(tt::runtime::FabricConfig config) {
+  ::tt::tt_fabric::SetFabricConfig(common::toMetalFabricConfig(config));
   RuntimeContext::instance().setCurrentFabricConfig(config);
 }
 
@@ -878,7 +884,7 @@ void memcpy(void *dst, ::tt::runtime::Tensor src,
         "Tensor data type must be the alias of the unsupported data type: " +
             std::string(target::EnumNameDataType(unsupportedDataTypeAlias)));
 
-    LOG_WARNING(
+    LOG_DEBUG(
         "User is requesting to copy the data from a runtime tensor with "
         "data type: ",
         ::tt::target::EnumNameDataType(srcDataType),

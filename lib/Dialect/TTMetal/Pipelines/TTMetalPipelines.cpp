@@ -40,20 +40,20 @@ std::unique_ptr<Pass> createCanonicalizerPassWithOptions(
 
 void createTTIRBufferizationPipeline(
     OpPassManager &pm, const TTIRToTTMetalPipelineOptions &options) {
-  bufferization::OneShotBufferizePassOptions bufferizePassOptions;
   if (options.ttnnMode) {
+    bufferization::OneShotBufferizePassOptions bufferizePassOptions;
     bufferizePassOptions.allowUnknownOps = true;
     bufferizePassOptions.bufferizeFunctionBoundaries = false;
+    bufferizePassOptions.functionBoundaryTypeConversion =
+        bufferization::LayoutMapOption::IdentityLayoutMap;
+    bufferizePassOptions.unknownTypeConversion =
+        bufferization::LayoutMapOption::IdentityLayoutMap;
+    pm.addPass(
+        mlir::bufferization::createOneShotBufferizePass(bufferizePassOptions));
   } else {
-    bufferizePassOptions.allowUnknownOps = false;
-    bufferizePassOptions.bufferizeFunctionBoundaries = true;
+    // Use custom bufferization pass with MetalLayoutAttr support
+    pm.addPass(ttcore::createTTCoreOneShotBufferizePass());
   }
-  bufferizePassOptions.functionBoundaryTypeConversion =
-      bufferization::LayoutMapOption::IdentityLayoutMap;
-  bufferizePassOptions.unknownTypeConversion =
-      bufferization::LayoutMapOption::IdentityLayoutMap;
-  pm.addPass(
-      mlir::bufferization::createOneShotBufferizePass(bufferizePassOptions));
   // TODO(#2246)
   // bufferization::BufferDeallocationPipelineOptions
   // bufferDeallocationOptions;
@@ -91,16 +91,12 @@ void createTTIRToTTMetalFrontendPipeline(
     toD2MOptions.collapseTensorsTo2D = options.collapseTensors;
   }
   pm.addPass(tt::createTTIRToD2MPass(toD2MOptions));
-  // Grid selection is only needed for non-TTNN mode; TTNN tensors already
-  // have their grids correctly set.
-  if (!options.ttnnMode) {
-    d2m::D2MGridSelectionOptions gridOptOptions;
-    {
-      gridOptOptions.overrideDeviceShape =
-          llvm::to_vector(options.overrideDeviceShape);
-    }
-    pm.addPass(d2m::createD2MGridSelection(gridOptOptions));
+  d2m::D2MGridSelectionOptions gridOptOptions;
+  {
+    gridOptOptions.overrideDeviceShape =
+        llvm::to_vector(options.overrideDeviceShape);
   }
+  pm.addPass(d2m::createD2MGridSelection(gridOptOptions));
   pm.addPass(createCanonicalizerPassWithOptions(options));
   pm.addPass(d2m::createD2MLowerToLayout());
 }

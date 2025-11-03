@@ -5,7 +5,10 @@
 #ifndef TTMLIR_DIALECT_D2M_UTILS_UTILS_H
 #define TTMLIR_DIALECT_D2M_UTILS_UTILS_H
 
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
+
 #include "mlir/IR/BuiltinAttributes.h"
+#include "mlir/IR/BuiltinTypes.h"
 
 namespace mlir::tt::d2m::utils {
 

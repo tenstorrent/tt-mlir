@@ -203,12 +203,22 @@ void createLinalgToLLVMPipeline(OpPassManager &manager,
   // eliminate some nasty bufferization::clone() calls.
   manager.addPass(mlir::createConvertBufferizationToMemRefPass());
 
+  // Lowers memref.copy on non-contiguous (strided, non-identity) memrefs to
+  // linalg dialect. memref.copy on contiguous memrefs gets lowered
+  // to llvm.memcpy during FinalizeMemRefToLLVMConversionPass.
+  manager.addPass(
+      mlir::tt::llvm_util::createNonContiguousMemrefCopyToLinalgPass());
+
   // This lowers linalg to scf-based loops.
   manager.addPass(mlir::createConvertLinalgToLoopsPass());
 
   // This is needed to lower memref.subview before we can convert all memref ops
   // to LLVM.
   manager.addPass(mlir::memref::createExpandStridedMetadataPass());
+
+  // Converts affine dialect operations to standard control flow and arithmetic
+  // operations.
+  manager.addPass(createLowerAffinePass());
 
   // These two passes convert scf to LLVM control flow.
   manager.addPass(mlir::createSCFToControlFlowPass());

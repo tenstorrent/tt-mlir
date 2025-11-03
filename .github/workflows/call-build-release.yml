@@ -41,7 +41,7 @@ jobs:
       matrix:
         build: [
           { enable_op_model: "ON", enable_emitc: "ON", name: "speedy" },
-          { enable_perf: "ON", enable_runtime_debug: "ON", enable_explorer: "ON", enable_pykernel: "ON", name: "tracy" }
+          { enable_op_model: "ON", enable_perf: "ON", enable_runtime_debug: "ON", enable_explorer: "ON", enable_pykernel: "ON", enable_ttnn_jit: "ON", name: "tracy" }
         ]
 
     name: Build ${{ matrix.build.name }} Release
@@ -115,6 +115,7 @@ jobs:
           -DTTMLIR_ENABLE_RUNTIME_TESTS=ON \
           -DTT_RUNTIME_ENABLE_PERF_TRACE=${{ matrix.build.enable_perf }} \
           -DTTMLIR_ENABLE_PYKERNEL=${{ matrix.build.enable_pykernel }} \
+          -DTTMLIR_ENABLE_TTNN_JIT=${{ matrix.build.enable_ttnn_jit }} \
           -DTTMLIR_ENABLE_STABLEHLO=ON \
           -DTTMLIR_ENABLE_OPMODEL=${{ matrix.build.enable_op_model }} \
           -DTT_RUNTIME_DEBUG=${{ matrix.build.enable_runtime_debug }} \

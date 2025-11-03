@@ -69,16 +69,13 @@ private:
   }
 
   ttnn::UnaryOpType getActivationOpType(mlir::PatternRewriter &rewriter) const {
-    if constexpr (std::is_same_v<ActivationOp, ReluOp>) {
-      return ttnn::UnaryOpType::Relu;
-    } else if constexpr (std::is_same_v<ActivationOp, Relu6Op>) {
-      return ttnn::UnaryOpType::Relu6;
-    } else if constexpr (std::is_same_v<ActivationOp, SiluOp>) {
-      return ttnn::UnaryOpType::Silu;
-    } else {
-      static_assert(ttmlir::utils::always_false<ActivationOp>(),
-                    "Unsupported activation op");
-    }
+    // Extract op name from full operation name (e.g., "ttnn.relu" -> "relu")
+    // and convert to enum
+    llvm::StringLiteral fullOpName = ActivationOp::getOperationName();
+    llvm::StringRef opName = fullOpName.rsplit('.').second;
+    auto activation = ttnn::symbolizeUnaryOpType(opName);
+    assert(activation.has_value() && "Unsupported activation op");
+    return activation.value();
   }
 
   bool isFusable(Conv2dOp srcOp) const {
@@ -118,9 +115,12 @@ public:
 
   void runOnOperation() final {
     RewritePatternSet patterns(&getContext());
-    patterns.add<TTNNConv2dWithActivation<ReluOp>,
-                 TTNNConv2dWithActivation<Relu6Op>,
-                 TTNNConv2dWithActivation<SiluOp>>(&getContext());
+    // TODO(mvasiljevic): Add HardsigmoidOp once tt-metal issue is resolved
+    // https://github.com/tenstorrent/tt-metal/issues/30973
+    patterns.add<
+        TTNNConv2dWithActivation<ReluOp>, TTNNConv2dWithActivation<Relu6Op>,
+        TTNNConv2dWithActivation<SiluOp>, TTNNConv2dWithActivation<SigmoidOp>>(
+        &getContext());
     GreedyRewriteConfig config;
     config.setUseTopDownTraversal(true);
     (void)applyPatternsGreedily(getOperation(), std::move(patterns));

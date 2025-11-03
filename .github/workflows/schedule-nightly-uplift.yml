@@ -53,7 +53,7 @@ jobs:
              [ "$CURRENT_SFPI_INFO_SHA" != "$LATEST_SFPI_INFO_SHA" ] || \
              [ "$CURRENT_SFPI_VERSION_SHA" != "$LATEST_SFPI_VERSION_SHA" ]; then
             # Update the commit hash in Dockerfile.base
-            sed -i "s|ARG TT_METAL_COMMIT=.*|ARG TT_METAL_COMMIT=${{ env.LATEST_TT_METAL_VERSION }}|" .github/Dockerfile.base
+            sed -i "s|ARG TT_METAL_DEPENDENCIES_COMMIT=.*|ARG TT_METAL_DEPENDENCIES_COMMIT=${{ env.LATEST_TT_METAL_VERSION }}|" .github/Dockerfile.base
             DOCKERFILE_UPDATED="**Note** Dockerfile.base is modified due to dependency updates"
             echo "DOCKERFILE_UPDATED=$DOCKERFILE_UPDATED" >> $GITHUB_ENV
           fi

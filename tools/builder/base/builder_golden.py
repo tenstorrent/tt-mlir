@@ -2320,6 +2320,24 @@ def ones_golden(**kwargs) -> BuilderGoldenTensor:
     return BuilderGoldenTensor({0: torch.ones(size)}, (1, 1))
 
 
+def constant_golden(**kwargs) -> BuilderGoldenTensor:
+    """
+    Golden function for constant operation with TTIR parameter names.
+
+    Parameters
+    ----------
+    **kwargs : dict
+        Keyword arguments including 'value'
+
+    Returns
+    -------
+    BuilderGoldenTensor
+        Constant tensor
+    """
+    value = kwargs.get("value", [1])
+    return BuilderGoldenTensor({0: value}, (1, 1))
+
+
 def reverse_golden(input_tensor: BuilderGoldenTensor, **kwargs) -> BuilderGoldenTensor:
     """
     Golden function for reverse operation with TTIR parameter names.
@@ -2890,6 +2908,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     # Tensor creation
     ttir.ZerosOp: zeros_golden,
     ttir.OnesOp: ones_golden,
+    ttir.ConstantOp: constant_golden,
     ttir.ArangeOp: arange_golden,
     # Quantization operations
     ttir.QuantizeOp: quantize_golden,
@@ -2938,4 +2957,5 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     stablehlo.TanOp: torch.tan,
     # TTNN elementwise operations
     ttnn.MultiplyOp: torch.multiply,
+    ttnn.MishOp: torch.nn.functional.mish,
 }

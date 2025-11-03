@@ -32,15 +32,8 @@ namespace mlir::tt::d2m {
 // Helper definitions.
 //===----------------------------------------------------------------------===//
 
-inline ttcore::MemorySpace getMemorySpace(MemRefType memref,
-                                          ttcore::MemorySpace dflt) {
-  auto memSpace = memref.getMemorySpace();
-  return memSpace ? mlir::cast<ttcore::MemorySpaceAttr>(memSpace).getValue()
-                  : dflt;
-}
-
 inline bool isDeviceMemorySpace(MemRefType memref, ttcore::MemorySpace dflt) {
-  return ttcore::isDeviceMemorySpace(getMemorySpace(memref, dflt));
+  return ttcore::isDeviceMemorySpace(ttcore::getMemorySpace(memref, dflt));
 }
 
 //===----------------------------------------------------------------------===//
@@ -555,7 +548,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
 
     for (auto &[memref, memrefCtx] : analysis.memrefs) {
       const MemorySpace memspace =
-          getMemorySpace(memrefCtx.type, MemorySpace::System);
+          ttcore::getMemorySpace(memrefCtx.type, MemorySpace::System);
       if (!ttcore::isDeviceMemorySpace(memspace)) {
         continue;
       }

@@ -24,7 +24,7 @@ ttmlir_build_dir = os.environ.get(
 )
 
 metaldir = f"{src_dir}/third_party/tt-metal/src/tt-metal/build"
-ttmetalhome = os.environ.get("TT_METAL_HOME", "")
+ttmetalhome = os.environ.get("TT_METAL_RUNTIME_ROOT", "")
 
 os.environ["LDFLAGS"] = "-Wl,-rpath,'$ORIGIN'"
 enable_runtime = os.environ.get("TTMLIR_ENABLE_RUNTIME", "OFF") == "ON"
