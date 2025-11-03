@@ -130,6 +130,45 @@ static ttir::ConstantOp getConstantValueDefiningOp(Value value) {
   return mlir::dyn_cast_if_present<ttir::ConstantOp>(valueDef);
 }
 
+// Helper function to create a reshape operation.
+static ttir::ReshapeOp createReshapeOp(PatternRewriter &rewriter, Location loc,
+                                       Value input,
+                                       ::llvm::ArrayRef<int64_t> targetShape) {
+  auto inputType = mlir::cast<mlir::RankedTensorType>(input.getType());
+  auto shapeAttr =
+      rewriter.getI32ArrayAttr(llvm::SmallVector<int32_t>(targetShape));
+
+  return ttir::utils::createDPSOp<ttir::ReshapeOp>(
+      rewriter, loc, targetShape, inputType.getElementType(),
+      inputType.getEncoding(), input, shapeAttr);
+}
+
+// Helper function to flatten a tensor to 1D.
+static Value flattenTensor(PatternRewriter &rewriter, Location loc,
+                           Value tensor, const std::string &suffix = "") {
+  RankedTensorType tensorType = mlir::cast<RankedTensorType>(tensor.getType());
+  ArrayRef<int64_t> tensorShape = tensorType.getShape();
+
+  // Calculate total number of elements (product of all dimensions).
+  int64_t totalElements = 1;
+  for (int64_t dim : tensorShape) {
+    totalElements *= dim;
+  }
+
+  // Create new 1D shape.
+  llvm::SmallVector<int64_t> flattenedShape = {totalElements};
+
+  // Create location with optional suffix.
+  Location reshapeLocation =
+      suffix.empty() ? loc : ttmlir::utils::appendLocationSuffix(loc, suffix);
+
+  // Reshape tensor to 1D.
+  Value flattenedTensor =
+      createReshapeOp(rewriter, reshapeLocation, tensor, flattenedShape);
+
+  return flattenedTensor;
+}
+
 namespace {
 template <typename SrcOp, typename DestOp,
           typename Adaptor = typename SrcOp::Adaptor>
@@ -3212,32 +3251,6 @@ private:
     return success();
   }
 
-  Value flattenTensor(PatternRewriter &rewriter, Location loc, Value tensor,
-                      const std::string &suffix = "") const {
-    RankedTensorType tensorType =
-        mlir::cast<RankedTensorType>(tensor.getType());
-    ArrayRef<int64_t> tensorShape = tensorType.getShape();
-
-    // Calculate total number of elements (product of all dimensions).
-    int64_t totalElements = 1;
-    for (int64_t dim : tensorShape) {
-      totalElements *= dim;
-    }
-
-    // Create new 1D shape.
-    llvm::SmallVector<int64_t> flattenedShape = {totalElements};
-
-    // Create location with optional suffix.
-    Location reshapeLocation =
-        suffix.empty() ? loc : ttmlir::utils::appendLocationSuffix(loc, suffix);
-
-    // Reshape tensor to 1D.
-    Value flattenedTensor =
-        createReshapeOp(rewriter, reshapeLocation, tensor, flattenedShape);
-
-    return flattenedTensor;
-  }
-
   Value extractElementWiseScatterIndices(mlir::stablehlo::ScatterOp op,
                                          PatternRewriter &rewriter) const {
     // Indices need to match updates tensor.
@@ -3386,18 +3399,6 @@ private:
 
     TT_assertv(flattenedIndices, "Expected valid flat indices tensor");
     return flattenedIndices;
-  }
-
-  static ttir::ReshapeOp
-  createReshapeOp(PatternRewriter &rewriter, Location loc, Value input,
-                  ::llvm::ArrayRef<int64_t> targetShape) {
-    auto inputType = mlir::cast<mlir::RankedTensorType>(input.getType());
-    auto shapeAttr =
-        rewriter.getI32ArrayAttr(llvm::SmallVector<int32_t>(targetShape));
-
-    return ttir::utils::createDPSOp<ttir::ReshapeOp>(
-        rewriter, loc, targetShape, inputType.getElementType(),
-        inputType.getEncoding(), input, shapeAttr);
   }
 };
 } // namespace
@@ -3770,28 +3771,56 @@ public:
           mlir::cast<RankedTensorType>(adaptor.getOperand().getType());
 
       int64_t rank = counters.size();
-      auto indicesType = RankedTensorType::get(
-          {numIndices, rank}, rewriter.getI64Type(), inputType.getEncoding());
 
-      auto indicesAttr = DenseIntElementsAttr::get(indicesType, flatIndices);
-      Value indicesTensor = rewriter.create<ttir::ConstantOp>(
-          srcOp.getLoc(), indicesType, indicesAttr);
-      SmallVector<int32_t> insertedWindowDims =
-          llvm::to_vector(llvm::seq<int32_t>(0, rank));
+      // Calculate strides for converting multi-dimensional indices to 1D.
+      ArrayRef<int64_t> outputShape = outputType.getShape();
+      llvm::SmallVector<int64_t> strides(rank);
+      for (int64_t i = 0; i < rank; ++i) {
+        int64_t stride = 1;
+        for (int64_t j = i + 1; j < rank; ++j) {
+          stride *= outputShape[j];
+        }
+        strides[i] = stride;
+      }
 
-      ttir::utils::replaceOpWithNewDPSOp<ttir::ScatterOp>(
-          rewriter, srcOp, outputType,
-          /*input=*/fullOp.getResult(),
-          /*scatter_indices=*/indicesTensor,
-          /*update=*/adaptor.getOperand(),
-          /*update_window_dims=*/SmallVector<int32_t>{},
-          /*inserted_window_dims=*/insertedWindowDims,
-          /*input_batching_dims=*/SmallVector<int32_t>{},
-          /*scatter_indices_batching_dims=*/SmallVector<int32_t>{},
-          /*scatter_dims_to_operand_dims=*/insertedWindowDims,
-          /*index_vector_dim=*/1,
-          /*indices_are_sorted=*/false,
-          /*unique_indices=*/true);
+      // Convert multi-dimensional indices to 1D flat indices.
+      llvm::SmallVector<int64_t> flatIndices1D;
+      flatIndices1D.reserve(numIndices);
+      for (int64_t i = 0; i < numIndices; ++i) {
+        int64_t flatIdx = 0;
+        for (int64_t d = 0; d < rank; ++d) {
+          flatIdx += flatIndices[i * rank + d] * strides[d];
+        }
+        flatIndices1D.push_back(flatIdx);
+      }
+
+      auto flatIndicesType = RankedTensorType::get(
+          {numIndices}, rewriter.getI64Type(), inputType.getEncoding());
+      auto flatIndicesAttr =
+          DenseIntElementsAttr::get(flatIndicesType, flatIndices1D);
+      Value flatIndicesTensor = rewriter.create<ttir::ConstantOp>(
+          srcOp.getLoc(), flatIndicesType, flatIndicesAttr);
+
+      // Flatten input and update tensors to 1D.
+      Value flattenedInput = flattenTensor(
+          rewriter, srcOp.getLoc(), fullOp.getResult(), "_input_flatten");
+      Value flattenedUpdate = flattenTensor(
+          rewriter, srcOp.getLoc(), adaptor.getOperand(), "_update_flatten");
+
+      RankedTensorType flattenedInputType =
+          mlir::cast<RankedTensorType>(flattenedInput.getType());
+
+      auto dimAttr = rewriter.getI32IntegerAttr(0);
+      Value scatterResult = ttir::utils::createDPSOp<ttir::ScatterInDimOp>(
+          rewriter, srcOp.getLoc(), flattenedInputType.getShape(),
+          flattenedInputType.getElementType(), flattenedInputType.getEncoding(),
+          flattenedInput, flatIndicesTensor, flattenedUpdate, dimAttr);
+
+      // Reshape result back to original output shape.
+      ttir::utils::replaceOpWithNewDPSOp<ttir::ReshapeOp>(
+          rewriter, srcOp, outputType, scatterResult,
+          rewriter.getI32ArrayAttr(llvm::SmallVector<int32_t>(
+              outputShape.begin(), outputShape.end())));
 
       return success();
     }
