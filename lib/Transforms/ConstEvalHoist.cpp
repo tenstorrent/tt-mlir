@@ -176,11 +176,19 @@ private:
       return;
     }
 
+    // Shared ops are recorded separately.
     if (isSharedOp(op)) {
       sharedOps.push_back(op);
       return;
     }
 
+    // Non-cacheable ops cannot be part of const-eval subgraphs.
+    if (op->hasTrait<mlir::tt::ttcore::Trait::TTCoreNonCacheableTrait>()) {
+      return;
+    }
+
+    // If there are users which write to the result in place we cannot
+    // const-eval.
     if (isResultWrittenInPlace(op)) {
       return;
     }
@@ -197,13 +205,16 @@ private:
       return dsu.valueExists(operand);
     };
 
+    // Check if all operands can be const-eval'ed.
     if (!llvm::all_of(op->getOperands(), operandsConstEval)) {
       return;
     }
 
+    // Initialize DSU entries for results.
     llvm::for_each(op->getResults(),
                    [&](mlir::Value result) { dsu.init(result); });
 
+    // Union all operands and results except for block arguments and shared ops.
     llvm::SmallVector<mlir::Value> graphsToJoin;
     for (auto operand : op->getOperands()) {
       if (auto blockArg = mlir::dyn_cast<mlir::BlockArgument>(operand)) {
@@ -219,33 +230,13 @@ private:
       graphsToJoin.push_back(result);
     }
 
+    // Union all graphs together.
     if (graphsToJoin.size() > 0) {
       mlir::Value first = graphsToJoin[0];
       for (size_t i = 1; i < graphsToJoin.size(); ++i) {
         dsu.unionSets(first, graphsToJoin[i]);
       }
     }
-  }
-
-  bool isCacheableCreationOp(mlir::Operation *op) {
-    assert(op != nullptr);
-    if (!isCreationOp(op)) {
-      return false;
-    }
-
-    if (op->hasTrait<mlir::tt::ttcore::Trait::TTCoreNonCacheableTrait>()) {
-      return false;
-    }
-
-    // Check if any operand is a RankedTensorType, if so, it's not cacheable.
-    for (auto operand : op->getOperands()) {
-      auto operandType = operand.getType();
-      if (mlir::isa<mlir::RankedTensorType>(operandType)) {
-        return false;
-      }
-    }
-
-    return true;
   }
 
 private:
