@@ -274,13 +274,19 @@ public:
       };
 
       // Collect loads to this op.
+      // QUICK FIX: Track seen loads to avoid duplicates (S - S case)
+      llvm::DenseSet<affine::AffineLoadOp> seenLoads;
+
       for (int64_t operandIdx : computeOp.getOperandsLoadFromDstRegister()) {
         if (auto potentialLoad = computeOp->getOperand(operandIdx)
                                      .getDefiningOp<affine::AffineLoadOp>();
             isFromCB(potentialLoad)) {
-          collectDstAccess<affine::AffineLoadOp>(
-              op, potentialLoad, copyInfos, dstSliceAllocationState.allocate(),
-              outermostInnerComputeLoop);
+          // Only collect each unique load once
+          if (seenLoads.insert(potentialLoad).second) {
+            collectDstAccess<affine::AffineLoadOp>(
+                op, potentialLoad, copyInfos, dstSliceAllocationState.allocate(),
+                outermostInnerComputeLoop);
+          }
         }
       }
 
@@ -782,26 +788,43 @@ public:
     SmallVector<int64_t> loopBounds =
         op->template getParentOfType<GenericOp>().getLoopBounds();
 
+    // Extract affine loop induction variables from enclosing loops
+    // Instead of creating d2m.iter_index (which isn't converted), use actual loop vars
+    SmallVector<Value> loopInductionVars;
+    Operation *currentOp = op;
+    while (currentOp) {
+      if (auto affineLoop = currentOp->getParentOfType<affine::AffineForOp>()) {
+        loopInductionVars.push_back(affineLoop.getInductionVar());
+        currentOp = affineLoop;
+      } else {
+        break;
+      }
+    }
+    // Reverse to get outermost first
+    std::reverse(loopInductionVars.begin(), loopInductionVars.end());
+
     scf::IfOp ifOp;
     if (reduceDim == ReduceDim::R) {
-      auto iterIndex = rewriter.create<d2m::IterIndexOp>(
-          op.getLoc(), static_cast<int64_t>(1));
+      // Use loop induction var for dimension 1 (column dimension for row reduction)
+      Value iterIndex = loopInductionVars.size() > 1 ? loopInductionVars[1]
+                        : rewriter.create<arith::ConstantIndexOp>(op.getLoc(), 0);
       auto condOp = rewriter.create<arith::CmpIOp>(
           op.getLoc(), arith::CmpIPredicate::ne, iterIndex,
           index(rewriter, op.getLoc(), loopBounds[1] - 1));
       ifOp = rewriter.create<scf::IfOp>(op.getLoc(), condOp);
     } else if (reduceDim == ReduceDim::C) {
-      auto iterIndex = rewriter.create<d2m::IterIndexOp>(
-          op.getLoc(), static_cast<int64_t>(0));
+      // Use loop induction var for dimension 0 (row dimension for column reduction)
+      Value iterIndex = loopInductionVars.size() > 0 ? loopInductionVars[0]
+                        : rewriter.create<arith::ConstantIndexOp>(op.getLoc(), 0);
       auto condOp = rewriter.create<arith::CmpIOp>(
           op.getLoc(), arith::CmpIPredicate::ne, iterIndex,
           index(rewriter, op.getLoc(), loopBounds[0] - 1));
       ifOp = rewriter.create<scf::IfOp>(op.getLoc(), condOp);
     } else if (reduceDim == ReduceDim::RC) {
-      auto iterIndexR = rewriter.create<d2m::IterIndexOp>(
-          op.getLoc(), static_cast<int64_t>(1));
-      auto iterIndexC = rewriter.create<d2m::IterIndexOp>(
-          op.getLoc(), static_cast<int64_t>(0));
+      Value iterIndexR = loopInductionVars.size() > 1 ? loopInductionVars[1]
+                         : rewriter.create<arith::ConstantIndexOp>(op.getLoc(), 0);
+      Value iterIndexC = loopInductionVars.size() > 0 ? loopInductionVars[0]
+                         : rewriter.create<arith::ConstantIndexOp>(op.getLoc(), 0);
       auto condOp = rewriter.create<arith::CmpIOp>(
           op.getLoc(), arith::CmpIPredicate::ne, iterIndexR,
           index(rewriter, op.getLoc(), loopBounds[1] - 1));

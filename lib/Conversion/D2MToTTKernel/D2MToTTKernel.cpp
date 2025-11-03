@@ -85,8 +85,9 @@ static Value getCB(ConversionPatternRewriter &rewriter, Value cb) {
     assert(loadOp.getIndices().size() == 1 &&
            "Expected single index in load op, failing.");
 
-    // BUG #5: Check if this is a load from dst register (fused intermediate value)
     auto memrefType = mlir::dyn_cast<MemRefType>(loadOp.getMemref().getType());
+
+    // BUG #5: Check if this is a load from dst register (fused intermediate value)
     if (memrefType && memrefType.getMemorySpace() &&
         ttcore::getMemorySpace(loadOp.getMemref()) == ttcore::MemorySpace::RegisterDst) {
       // This is a fused intermediate value. Trace backwards:
@@ -114,6 +115,38 @@ static Value getCB(ConversionPatternRewriter &rewriter, Value cb) {
         // Recursively trace tile op's input to CB
         if (tileOp && tileOp->getNumOperands() > 0) {
           return getCB(rewriter, tileOp->getOperand(0));
+        }
+      }
+    }
+
+    // QUICK FIX: Handle temp allocations (no memspace OR L1 memspace from bufferization)
+    // Trace: load %temp ← store to %temp ← tile_op ← CB
+    // Check if this is a load from a temp allocation (intermediate result)
+    auto defOp = loadOp.getMemref().getDefiningOp();
+    bool isTempAlloc = defOp && mlir::isa<memref::AllocOp>(defOp);
+
+    if (memrefType && (!memrefType.getMemorySpace() || isTempAlloc)) {
+      Value tempMemref = loadOp.getMemref();
+
+      // Find what stored to this temp alloc
+      memref::StoreOp tempStore;
+      for (auto *user : tempMemref.getUsers()) {
+        if (auto storeOp = mlir::dyn_cast<memref::StoreOp>(user)) {
+          tempStore = storeOp;
+          break;
+        }
+      }
+
+      if (tempStore) {
+        Value storedValue = tempStore.getValueToStore();
+        Operation *sourceOp = storedValue.getDefiningOp();
+
+        // Trace through the source operation to find CB
+        if (sourceOp) {
+          // If it's a tile op, recurse on its inputs
+          if (sourceOp->getNumOperands() > 0) {
+            return getCB(rewriter, sourceOp->getOperand(0));
+          }
         }
       }
     }
@@ -189,11 +222,27 @@ static Value getInOrOutCB(ConversionPatternRewriter &rewriter, Operation *op) {
   assert(func && "Expected func op.");
   Value cb = nullptr;
   func.walk([&](LoadOrStoreOp loadStore) {
-    if (ttcore::getMemorySpace(loadStore.getMemRef()) ==
+    auto memrefType = dyn_cast<MemRefType>(loadStore.getMemRef().getType());
+    if (!memrefType) return WalkResult::advance();
+
+    auto memspaceAttr = memrefType.getMemorySpace();
+    Value memref = loadStore.getMemRef();
+
+    // Skip temp allocations - they're not real CBs
+    // Temp allocs are rank-2 or less and come from memref.alloc
+    if (memref.getDefiningOp() && mlir::isa<memref::AllocOp>(memref.getDefiningOp())) {
+      if (memrefType.getRank() <= 2) {
+        return WalkResult::advance();  // Skip temp allocs
+      }
+    }
+
+    // Check for real L1 CBs (with memspace attribute, not from alloc)
+    if (memspaceAttr && ttcore::getMemorySpace(memref) ==
         ttcore::MemorySpace::DeviceL1) {
-      cb = loadStore.getMemRef();
+      cb = memref;
       return WalkResult::interrupt();
     }
+
     return WalkResult::advance();
   });
   assert(cb && "CB not found.");
@@ -240,6 +289,35 @@ static void setInsertionPointAfterOperands(OpBuilder &rewriter,
   }
 }
 
+} // namespace
+
+// Convert memref.copy between CBs to copy_tile + pack_tile sequence
+class MemrefCopyRewriter : public OpConversionPattern<memref::CopyOp> {
+public:
+  using OpConversionPattern<memref::CopyOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(memref::CopyOp op, memref::CopyOpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    // CB-to-CB copy: use DST as intermediate
+    // src_cb → DST → dst_cb
+    auto srcCB = adaptor.getSource();
+    auto dstCB = adaptor.getTarget();
+
+    auto loc = op.getLoc();
+    auto c0 = rewriter.create<arith::ConstantIndexOp>(loc, 0);
+
+    // copy_tile: src CB → DST[0]
+    rewriter.create<ttkernel::CopyTileInitOp>(loc, srcCB);
+    rewriter.create<ttkernel::CopyTileOp>(loc, srcCB, c0, c0);
+
+    // pack_tile: DST[0] → dst CB
+    rewriter.replaceOpWithNewOp<ttkernel::PackTileOp>(
+        op, c0, dstCB, c0, rewriter.getBoolAttr(true));
+
+    return success();
+  }
+};
 } // namespace
 
 namespace {
@@ -1549,6 +1627,7 @@ void populateD2MToTTKernelPatterns(
                ttkernel::AcquireDstRewriter,
                ttkernel::MemrefLoadRewriter,
                ttkernel::MemrefStoreRewriter,
+               ttkernel::MemrefCopyRewriter,
                ttkernel::D2MCBOpRewriter<d2m::WaitOp, ttkernel::CBWaitFrontOp, ttkernel::CBPopFrontOp>,
                ttkernel::D2MCBOpRewriter<d2m::ReserveOp, ttkernel::CBReserveBackOp, ttkernel::CBPushBackOp>,
                ttkernel::D2MDMAWaitRewriter,

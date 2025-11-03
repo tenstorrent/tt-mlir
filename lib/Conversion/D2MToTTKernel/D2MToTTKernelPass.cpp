@@ -94,7 +94,22 @@ struct ConvertD2MToTTKernel
     });
     target.addLegalOp<memref::AllocOp>();
     target.addLegalOp<memref::DeallocOp>();
-    target.addLegalOp<memref::CopyOp>();
+    // Convert memref.copy when it's between tile-typed memrefs (CB-to-CB copy)
+    target.addDynamicallyLegalOp<memref::CopyOp>([&](memref::CopyOp op) {
+      auto srcType = mlir::dyn_cast<MemRefType>(op.getSource().getType());
+      auto dstType = mlir::dyn_cast<MemRefType>(op.getTarget().getType());
+      if (!srcType || !dstType) return true;  // Legal if not memrefs
+
+      // Illegal if both are tile-typed L1 memrefs (need CB-to-CB copy)
+      bool srcIsTileCB = mlir::isa<ttcore::TileType>(srcType.getElementType()) &&
+                         srcType.getMemorySpace() &&
+                         ttcore::getMemorySpace(op.getSource()) == ttcore::MemorySpace::DeviceL1;
+      bool dstIsTileCB = mlir::isa<ttcore::TileType>(dstType.getElementType()) &&
+                         dstType.getMemorySpace() &&
+                         ttcore::getMemorySpace(op.getTarget()) == ttcore::MemorySpace::DeviceL1;
+
+      return !(srcIsTileCB && dstIsTileCB);  // Illegal if both are tile CBs
+    });
     target.addLegalOp<memref::GlobalOp>();
     target.addLegalOp<memref::GetGlobalOp>();
 
@@ -112,16 +127,24 @@ struct ConvertD2MToTTKernel
       return IndexType::get(memtx.getContext());
     });
     typeConverter.addConversion([](MemRefType memref) -> Type {
-      auto memorySpace = ttcore::getMemorySpace(memref);
+      // Check if memref has memory space attribute before accessing it
+      // Temp allocations from d2m.empty() inside linalg.generic may not have memspace
+      auto memspaceAttr = memref.getMemorySpace();
+
       if (mlir::isa<ttcore::DeviceLayoutInterface>(memref.getLayout())) {
         // This memref has a device layout meaning it's an address.
         return IntegerType::get(memref.getContext(), 32);
       }
 
-      if (memorySpace == ttcore::MemorySpace::RegisterDst) {
-        // This memref abstracts tile indices in dst register, convert to index
-        // type.
-        return IndexType::get(memref.getContext());
+      // Handle memrefs WITH memory space attribute
+      if (memspaceAttr) {
+        auto memorySpace = ttcore::getMemorySpace(memref);
+
+        if (memorySpace == ttcore::MemorySpace::RegisterDst) {
+          // This memref abstracts tile indices in dst register, convert to index
+          // type.
+          return IndexType::get(memref.getContext());
+        }
       }
 
       if (mlir::isa<StridedLayoutAttr>(memref.getLayout())) {
@@ -130,6 +153,9 @@ struct ConvertD2MToTTKernel
       }
 
       // Since none of the above is true, this memref abstracts cb backing.
+      // This includes:
+      // - Memrefs with DeviceL1 memspace (real CBs)
+      // - Memrefs without memspace (temp allocs - treat as L1 CBs)
       return ttkernel::CBType::get(memref);
     });
     typeConverter.addConversion([](d2m::CBType cb) -> Type {
