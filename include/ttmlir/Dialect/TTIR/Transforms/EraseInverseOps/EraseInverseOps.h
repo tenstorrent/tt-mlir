@@ -74,10 +74,16 @@ protected:
         }
 
         // We do not want to attempt to commute any TM downwards which itself
-        // has has more than one user
+        // has more than one user, unless all users are SliceStaticOp
         if (std::distance(tmOperand->getUsers().begin(),
                           tmOperand->getUsers().end()) > 1) {
-          continue;
+          bool allSliceStatic =
+              llvm::all_of(tmOperand->getUsers(), [](Operation *user) {
+                return isa<ttir::SliceStaticOp>(user);
+              });
+          if (!allSliceStatic) {
+            continue;
+          }
         }
 
         if (!isCommuteDownwardsViable(op, tmOperand)) {

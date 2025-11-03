@@ -173,16 +173,36 @@ public:
   void
   performCommuteDownwardsRewrite(SliceStaticOp op, ReshapeOp reshapeOperand,
                                  PatternRewriter &rewriter) const override {
-    SliceStaticOp newSlice =
-        reshapeSliceStaticOp(op, reshapeOperand.getInput(),
-                             getHighestReshapeDim(reshapeOperand), rewriter);
+    // Collect all slice users of the reshape before any replacements
+    SmallVector<SliceStaticOp> sliceUsers;
+    SmallVector<Value> replacementValues;
 
-    // The reshape should produce the same output type as the original slice
-    SmallVector<int32_t> outputShape(op.getType().getShape());
-    ReshapeOp newReshape = utils::createDPSOp<ReshapeOp>(
-        rewriter, op->getLoc(), op.getType(), newSlice,
-        rewriter.getI32ArrayAttr(outputShape));
-    rewriter.replaceOp(op, newReshape);
+    // Collect all users first to avoid iterator invalidation
+    for (Operation *user : reshapeOperand->getUsers()) {
+      if (auto sliceUser = dyn_cast<SliceStaticOp>(user)) {
+        sliceUsers.push_back(sliceUser);
+      }
+    }
+
+    // Process all slice users and collect replacements
+    int64_t highestChangingDim = getHighestReshapeDim(reshapeOperand);
+    for (SliceStaticOp sliceUser : sliceUsers) {
+      SliceStaticOp newSlice = reshapeSliceStaticOp(
+          sliceUser, reshapeOperand.getInput(), highestChangingDim, rewriter);
+
+      // The reshape should produce the same output type as the original slice
+      SmallVector<int32_t> outputShape(sliceUser.getType().getShape());
+      ReshapeOp newReshape = utils::createDPSOp<ReshapeOp>(
+          rewriter, sliceUser->getLoc(), sliceUser.getType(), newSlice,
+          rewriter.getI32ArrayAttr(outputShape));
+
+      replacementValues.push_back(newReshape.getResult());
+    }
+
+    // Replace all slice users at once
+    for (size_t i = 0; i < sliceUsers.size(); ++i) {
+      rewriter.replaceOp(sliceUsers[i], replacementValues[i]);
+    }
   }
 
 private:
@@ -312,20 +332,39 @@ private:
 
   bool isCommuteDownwardsFavorable(SliceStaticOp op,
                                    ReshapeOp reshapeOperand) const override {
-    // Commuting downwards is favorable if all other operands satisfy one
-    // of the following:
-    // - Are an identical TM
-    // - Are on a consteval-able path
-    for (uint32_t i = 0; i < op->getNumOperands(); i++) {
-      if (op.isDpsInit(&op->getOpOperand(i))) {
-        continue;
-      }
-      if (checkIdenticalTms(op->getOperand(i).getDefiningOp(),
-                            reshapeOperand) ||
-          ttcore::valueTracesToConstantArgs(op->getOperand(i))) {
-        continue;
-      }
+    // Check if all users of the reshape are slices that can commute
+    SmallVector<Operation *> reshapeUsers(reshapeOperand->getUsers().begin(),
+                                          reshapeOperand->getUsers().end());
+    if (reshapeUsers.empty()) {
       return false;
+    }
+
+    // All users must be slices - if any user is not a slice, abort
+    for (Operation *user : reshapeUsers) {
+      if (!isa<SliceStaticOp>(user)) {
+        return false;
+      }
+    }
+
+    // All slice users must be viable for commute
+    for (Operation *user : reshapeUsers) {
+      auto sliceUser = cast<SliceStaticOp>(user);
+      if (!isCommuteDownwardsViable(sliceUser, reshapeOperand)) {
+        return false;
+      }
+
+      // Check if all other operands of this slice satisfy the conditions
+      for (uint32_t i = 0; i < sliceUser->getNumOperands(); i++) {
+        if (sliceUser.isDpsInit(&sliceUser->getOpOperand(i))) {
+          continue;
+        }
+        if (checkIdenticalTms(sliceUser->getOperand(i).getDefiningOp(),
+                              reshapeOperand) ||
+            ttcore::valueTracesToConstantArgs(sliceUser->getOperand(i))) {
+          continue;
+        }
+        return false;
+      }
     }
     return true;
   }
@@ -336,7 +375,9 @@ template <CommuteDirection commuteDirection>
 void populateSliceCommutePatterns(MLIRContext *ctx,
                                   RewritePatternSet &patterns) {
   patterns.insert<TTIRCommutePermuteThroughSlice<commuteDirection>>(ctx);
-  patterns.insert<TTIRCommuteReshapeThroughSlice<commuteDirection>>(ctx);
+  if constexpr (commuteDirection == CommuteDirection::DOWNWARDS) {
+    patterns.insert<TTIRCommuteReshapeThroughSlice<commuteDirection>>(ctx);
+  }
 }
 
 template void populateSliceCommutePatterns<CommuteDirection::UPWARDS>(
