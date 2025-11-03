@@ -32,6 +32,7 @@ namespace mlir::tt::ttnn {
 #define GEN_PASS_DEF_TTNNDEALLOCATE
 #define GEN_PASS_DEF_TTNNTUPLIFYTENSORS
 #define GEN_PASS_DEF_TTNNEMPYWORKAROUNDS
+#define GEN_PASS_DEF_TTNNPRETTIFYFORCODEGEN
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h.inc"
 
 class TTNNDeallocate : public impl::TTNNDeallocateBase<TTNNDeallocate> {
@@ -617,4 +618,197 @@ public:
   }
 };
 
+class TTNNPrettifyForCodegen
+    : public impl::TTNNPrettifyForCodegenBase<TTNNPrettifyForCodegen> {
+
+private:
+  struct PyLoc {
+    Location loc;
+    Operation *op;
+  };
+
+  void printFnInfo(func::FuncOp funcOp) {
+    llvm::outs() << "Fn: " << funcOp.getName() << "\n";
+    std::cout << "  Inputs count: "
+              << funcOp.getFunctionType().getInputs().size() << "\n";
+    llvm::outs() << "  Results count: "
+                 << funcOp.getFunctionType().getResults().size() << "\n";
+    llvm::outs() << "  Is private: " << funcOp.isPrivate() << "\n";
+    llvm::outs() << "  Is const-eval: "
+                 << ttmlir::utils::isConstEvalFunc(funcOp) << "\n";
+    llvm::outs() << "  Is candidate: " << isCandidateFn(funcOp) << "\n";
+  }
+
+  bool isCandidateFn(func::FuncOp funcOp) {
+    return !funcOp.isPrivate() && !ttmlir::utils::isConstEvalFunc(funcOp) &&
+           !funcOp.getFunctionType().getInputs().empty();
+  }
+
+  bool isCandidateOp(Operation *op) {
+    // Check if ttnn op
+    return isa<ttnn::TTNNDialect>(op->getDialect());
+  }
+
+  static std::string locationToStr(const mlir::Location &loc) {
+    std::string locStr;
+    llvm::raw_string_ostream(locStr) << loc;
+    return locStr;
+  }
+
+  PyLoc parseIRLocation(Operation *op) {
+    llvm::outs() << "Op: " << op->getName() << "\n";
+    llvm::outs() << "  Loc: " << op->getLoc() << "\n";
+
+    // Early exit if unknown location
+    if (op->getLoc() == UnknownLoc::get(op->getContext())) {
+      return PyLoc{op->getLoc(), op};
+    }
+
+    // Example location:
+    // loc("Tail[tail]/ReLU[tail.relu]/forward(test.py:110)/aten__relu")
+
+    std::string locStr = locationToStr(op->getLoc());
+
+    // Break locStr by the "/" character
+    std::vector<std::string> locParts;
+    for (llvm::StringRef part : llvm::split(locStr, "/")) {
+      locParts.push_back(part.str());
+    }
+
+    // The last part of the locParts is the operation name
+    std::string opName = locParts.back();
+    locParts.pop_back();
+    // Remove trailing ")" or `")` if present
+    if (!opName.empty() && opName.back() == ')') {
+      opName.pop_back();
+    }
+    if (!opName.empty() && opName.back() == '"') {
+      opName.pop_back();
+    }
+
+    // Next is function name and file line number
+    std::string funcNameAndFileLineNum = locParts.back();
+    locParts.pop_back();
+
+    // Break funcNameAndFileLineNum by the "(" and ")" characters
+    size_t openParen = funcNameAndFileLineNum.find("(");
+    size_t closeParen = funcNameAndFileLineNum.find(")");
+    std::string funcName = funcNameAndFileLineNum.substr(0, openParen);
+    std::string fileLineNum = funcNameAndFileLineNum.substr(
+        openParen + 1, closeParen - openParen - 1);
+
+    // Next are Py op type + name, like this: ReLU[tail.relu]
+    std::string pyOpTypeAndName = locParts.back();
+    locParts.pop_back();
+    // Remove leading "loc(" if present (when there's no class name)
+    if (pyOpTypeAndName.find("loc(") == 0) {
+      pyOpTypeAndName = pyOpTypeAndName.substr(4); // Remove "loc("
+    }
+    // Remove leading quote if present (from loc("...)
+    if (!pyOpTypeAndName.empty() && pyOpTypeAndName[0] == '"') {
+      pyOpTypeAndName = pyOpTypeAndName.substr(1);
+    }
+    size_t openBracket = pyOpTypeAndName.find("[");
+    size_t closeBracket = pyOpTypeAndName.find("]");
+    std::string pyOpType = pyOpTypeAndName.substr(0, openBracket);
+    std::string pyOpName =
+        pyOpTypeAndName.substr(openBracket + 1, closeBracket - openBracket - 1);
+
+    // Next, there MIGHT be a class name, and the object name, like this:
+    // Tail[tail] So first check if locParts is not empty, use placeholder
+    // `None` if empty
+    std::string className = "None";
+    std::string objectName = "None";
+    if (!locParts.empty()) {
+      std::string classNameAndObjectName = locParts.back();
+      locParts.pop_back();
+      // Remove leading "loc(" if present
+      if (classNameAndObjectName.find("loc(") == 0) {
+        classNameAndObjectName =
+            classNameAndObjectName.substr(4); // Remove "loc("
+      }
+      // Remove leading quote if present (from loc("...)
+      if (!classNameAndObjectName.empty() && classNameAndObjectName[0] == '"') {
+        classNameAndObjectName = classNameAndObjectName.substr(1);
+      }
+      size_t classOpenBracket = classNameAndObjectName.find("[");
+      size_t classCloseBracket = classNameAndObjectName.find("]");
+      className = classNameAndObjectName.substr(0, classOpenBracket);
+      objectName = classNameAndObjectName.substr(
+          classOpenBracket + 1, classCloseBracket - classOpenBracket - 1);
+    }
+
+    llvm::outs() << "    Op: " << opName << "\n";
+    llvm::outs() << "    Func: " << funcName << "\n";
+    llvm::outs() << "    File: " << fileLineNum << "\n";
+    llvm::outs() << "    Py Op Type: " << pyOpType << "\n";
+    llvm::outs() << "    Py Op Name: " << pyOpName << "\n";
+    llvm::outs() << "    Class: " << className << "\n";
+    llvm::outs() << "    Object: " << objectName << "\n";
+
+    return PyLoc{op->getLoc(), op};
+  }
+
+  SmallVector<func::FuncOp> findCandidateFns(ModuleOp moduleOp) {
+    SmallVector<func::FuncOp, 1> candidateFns;
+    moduleOp->walk([&](func::FuncOp funcOp) {
+      // printFnInfo(funcOp);
+      if (isCandidateFn(funcOp)) {
+        candidateFns.push_back(funcOp);
+      }
+    });
+    return candidateFns;
+  }
+
+  SmallVector<PyLoc> parseOpsAndGatherLocations(func::FuncOp funcOp) {
+    SmallVector<PyLoc> locations;
+
+    funcOp.walk([&](Operation *op) {
+      // llvm::outs() << "Op: " << op->getName() << "\n";
+      if (!isCandidateOp(op)) {
+        return WalkResult::advance();
+      }
+
+      PyLoc pyLoc = parseIRLocation(op);
+      locations.push_back(pyLoc);
+      return WalkResult::advance();
+    });
+
+    return locations;
+  }
+
+  void buildFunctree(SmallVector<func::FuncOp> candidateFns,
+                     SmallVector<PyLoc> locations) {
+    for (PyLoc &pyLoc : locations) {
+      (void)pyLoc;
+    }
+  }
+
+public:
+  using impl::TTNNPrettifyForCodegenBase<
+      TTNNPrettifyForCodegen>::TTNNPrettifyForCodegenBase;
+
+  void runOnOperation() final {
+    ModuleOp moduleOp = getOperation();
+    IRRewriter rewriter(&getContext());
+
+    // Need a couple passes
+    // 1. Find candidate fns
+    // 2. Parse and gather IR locations (remember ops)
+    // 3. Build functree
+    // 4. Analyze functree
+    // 5. Move from original IR to functree-aligned IR
+
+    // Open questions:
+    // - What do we do with const-eval fns?
+    // - What makes a fn a candidate fn?
+
+    SmallVector<func::FuncOp> candidateFns = findCandidateFns(moduleOp);
+    SmallVector<PyLoc> locations;
+    for (func::FuncOp funcOp : candidateFns) {
+      locations = parseOpsAndGatherLocations(funcOp);
+    }
+    buildFunctree(candidateFns, locations);
+  }
+};
 } // namespace mlir::tt::ttnn

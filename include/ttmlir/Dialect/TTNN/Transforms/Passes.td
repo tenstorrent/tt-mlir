@@ -292,4 +292,12 @@ def TTNNAdjustDeallocs: Pass<"ttnn-adjust-deallocs", "::mlir::ModuleOp"> {
   }];
 }
 
+def TTNNPrettifyForCodegen: Pass<"ttnn-prettify-for-codegen", "::mlir::ModuleOp"> {
+  let summary = "Adjust previously inserted tensor deallocation ops.";
+  let description = [{
+    This pass will adjust previously inserted tensor deallocation ops. It will
+    remove deallocations of parameter and constant tensors.
+  }];
+}
+
 #endif
