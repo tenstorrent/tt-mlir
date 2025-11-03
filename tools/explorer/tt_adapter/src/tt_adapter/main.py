@@ -20,6 +20,7 @@ OPTIMIZATION_POLICIES = {
     # "BF Interleaved": optimizer_overrides.MemoryLayoutAnalysisPolicyType.BFInterleaved,
 }
 
+
 @dataclasses.dataclass
 class TTAdapterMetadata(model_explorer.AdapterMetadata):
     settings: Dict[str, list] = dataclasses.field(default_factory=dict)
@@ -142,7 +143,10 @@ class TTAdapter(model_explorer.Adapter):
         description="Adapter for Tenstorrent MLIR dialects used in the Forge compiler.",
         source_repo="https://github.com/tenstorrent/tt-mlir/tree/main/tools/explorer/tt_adapter",
         fileExts=["mlir", "ttir", "ttnn"],
-        settings={"optimizationPolicies": list(OPTIMIZATION_POLICIES.keys()), "supportsPreload": True },
+        settings={
+            "optimizationPolicies": list(OPTIMIZATION_POLICIES.keys()),
+            "supportsPreload": True,
+        },
     )
     model_runner = None
 
@@ -152,7 +156,9 @@ class TTAdapter(model_explorer.Adapter):
         self.model_runner = runner.ModelRunner()
 
     def preload(self, model_path: str, settings: Dict):
-        if not os.path.exists(utils.IR_DUMPS_DIR) or not os.path.isdir(utils.IR_DUMPS_DIR):
+        if not os.path.exists(utils.IR_DUMPS_DIR) or not os.path.isdir(
+            utils.IR_DUMPS_DIR
+        ):
             return utils.to_adapter_format({"graphPaths": []})
 
         ir_paths = utils.list_ir_files(utils.IR_DUMPS_DIR)
@@ -162,7 +168,11 @@ class TTAdapter(model_explorer.Adapter):
             full_path = os.path.abspath(path)
             collections_path = str(utils.get_collection_path(path))
 
-            if os.access(full_path, os.R_OK) and os.access(collections_path, os.R_OK) and collections_path not in graph_paths:
+            if (
+                os.access(full_path, os.R_OK)
+                and os.access(collections_path, os.R_OK)
+                and collections_path not in graph_paths
+            ):
                 graph_paths.append(collections_path)
 
         return utils.to_adapter_format({"graphPaths": graph_paths})
@@ -230,7 +240,9 @@ class TTAdapter(model_explorer.Adapter):
             for ir_path in ir_paths:
                 graphs.append(self.__convert_model(ir_path, settings))
 
-            return utils.to_adapter_collection_format(*graphs, label=utils.get_collection_label(model_path))
+            return utils.to_adapter_collection_format(
+                *graphs, label=utils.get_collection_label(model_path)
+            )
         else:
             graph = self.__convert_model(model_path, settings)
             return utils.to_adapter_format(graph)
