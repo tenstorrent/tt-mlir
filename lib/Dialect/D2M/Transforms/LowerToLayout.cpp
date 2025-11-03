@@ -138,7 +138,9 @@ public:
 
   using OpRewritePattern<ToLayoutOp>::OpRewritePattern;
 
-  // Lower mapping changes via View (zero-copy) or Stream (lazy materialization)
+  // Lower mapping changes via View
+  // All mapping transformations (grid redistribution, alignment changes, etc.)
+  // can be expressed as affine maps and are therefore zero-cost views
   static LogicalResult lowerMappingChange(PatternRewriter &rewriter,
                                           ToLayoutOp op) {
     auto inputInfo = TensorInfo::from(op.getInput());
@@ -153,28 +155,7 @@ public:
                outputInfo.type.getElementType() &&
            "Mapping change should not change element type");
 
-    auto inputLayout = *inputInfo.layout;
-    auto outputLayout = *outputInfo.layout;
-
-    // Decision: View or Stream?
-    // View is valid when:
-    // 1. Tensor shapes match exactly (device shapes after grid distribution)
-    // 2. Memory layout type matches (sharded, interleaved, etc.)
-    //
-    // If these hold, the transformation is zero-copy and can be expressed
-    // purely through affine map composition.
-    bool sameShape = (inputInfo.type.getShape() == outputInfo.type.getShape());
-    bool sameMemLayout =
-        (inputLayout.getMemoryLayout() == outputLayout.getMemoryLayout());
-
-    if (sameShape && sameMemLayout) {
-      // Zero-copy transformation -> use ViewLayoutOp with affine map
-      return lowerAsView(rewriter, op, inputInfo, outputInfo);
-    }
-
-    // Different tensor shapes or memory layout -> requires data movement
-    // Use StreamLayoutOp for lazy materialization with transformation map
-    return lowerAsStream(rewriter, op, inputInfo, outputInfo);
+    return lowerAsView(rewriter, op, inputInfo, outputInfo);
   }
 
   static LogicalResult lowerAsView(PatternRewriter &rewriter, ToLayoutOp op,
@@ -183,22 +164,34 @@ public:
     auto inputLayout = *inputInfo.layout;
     auto outputLayout = *outputInfo.layout;
 
-    // When device shapes match, we can use a simple index map composition
-    // without going through logical space. The index maps operate on the
-    // device tensor dimensions directly.
-    //
-    // For example, if both tensors are [2,4,32,32] and we want to transpose
-    // the logical view, we compose their 2D logical index maps, not build
-    // a 4D device-to-device transformation.
+    // Check if grid shapes match
+    auto inputGrid = inputLayout.getGridShape(inputInfo.type);
+    auto outputGrid = outputLayout.getGridShape(outputInfo.type);
+    bool sameGrid = (inputGrid == outputGrid);
 
-    auto inputIndexMap = inputLayout.getIndexAffineMap();
-    auto outputIndexMap = outputLayout.getIndexAffineMap();
-    size_t logicalRank = inputLayout.getLogicalShape().size();
+    AffineMap viewMap;
 
-    // Compose: output_logical -> input_logical
-    // This gives us the view relationship at the logical level
-    auto viewMap = composeLogicalIndexMaps(rewriter.getContext(), inputIndexMap,
-                                           outputIndexMap, logicalRank);
+    if (sameGrid) {
+      // When grid shapes match, we can use a simple index map composition
+      // at the logical level without going through device space.
+      //
+      // For example, if both tensors are [2,4,32,32] and we want to transpose
+      // the logical view, we compose their 2D logical index maps.
+
+      auto inputIndexMap = inputLayout.getIndexAffineMap();
+      auto outputIndexMap = outputLayout.getIndexAffineMap();
+      size_t logicalRank = inputLayout.getLogicalShape().size();
+
+      // Compose: output_logical -> input_logical
+      // This gives us the view relationship at the logical level
+      viewMap = composeLogicalIndexMaps(rewriter.getContext(), inputIndexMap,
+                                        outputIndexMap, logicalRank);
+    } else {
+      // Different grid shapes (redistribution, alignment changes, etc.)
+      // Use the full device-to-device affine transformation via logical space
+      viewMap = utils::buildLayoutTransformMap(inputLayout, inputInfo.type,
+                                               outputLayout, outputInfo.type);
+    }
 
     // Apply the composed map as the index map on the output layout
     auto newLayout = ttcore::MetalLayoutAttr::get(
@@ -212,7 +205,7 @@ public:
                               outputInfo.type.getElementType(), newLayout);
 
     rewriter.replaceOpWithNewOp<ViewLayoutOp>(op, resultType, op.getInput(),
-                                              /*reinterpretLayout=*/true);
+                                              /*reinterpretLayout=*/false);
 
     return success();
   }
@@ -246,41 +239,6 @@ public:
       return AffineMap::getMultiDimIdentityMap(logicalRank, ctx);
     }
     return outputIndexMap;
-  }
-
-  static LogicalResult lowerAsStream(PatternRewriter &rewriter, ToLayoutOp op,
-                                     const TensorInfo &inputInfo,
-                                     const TensorInfo &outputInfo) {
-    // Use StreamLayoutOp with the affine transformation map.
-    // The map describes how to transform from input device coordinates
-    // to output device coordinates, going through the shared logical space.
-    //
-    // We attach this map to the output's MetalLayoutAttr's indexAffineMap,
-    // similar to how ViewLayoutOp works. This map will be used when the
-    // stream is materialized (during bufferization or by consumer passes).
-
-    auto inputLayout = *inputInfo.layout;
-    auto outputLayout = *outputInfo.layout;
-
-    // Build the full device-to-device transformation via affine maps
-    auto transformMap = utils::buildLayoutTransformMap(
-        inputLayout, inputInfo.type, outputLayout, outputInfo.type);
-
-    // Create the output layout with the transformation map
-    auto newOutputLayout = ttcore::MetalLayoutAttr::get(
-        rewriter.getContext(), outputLayout.getLogicalShape(),
-        outputLayout.getDimAlignments(), outputLayout.getCollapsedIntervals(),
-        outputLayout.getOobVal(), outputLayout.getMemorySpace(),
-        outputLayout.getMemoryLayout(), transformMap);
-
-    auto streamType = RankedTensorType::get(outputInfo.type.getShape(),
-                                            outputInfo.type.getElementType(),
-                                            newOutputLayout);
-
-    rewriter.replaceOpWithNewOp<StreamLayoutOp>(op, streamType, op.getInput(),
-                                                op.getOutput());
-
-    return success();
   }
 
   static LogicalResult lowerSystemLayoutChange(PatternRewriter &rewriter,
