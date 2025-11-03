@@ -30,8 +30,8 @@ module {
 
   // CHECK: func.func @forward_split(
   func.func @forward_split(%arg0: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<input>}, %arg1: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>}, %arg2: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>}, %arg3: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>}) -> tensor<32x32xbf16> {
-    // CHECK: ttcore.load_cached(@forward_split_const_eval_0, [%arg1, %arg2])
-    // CHECK: ttcore.load_cached(@forward_split_const_eval_1, [%arg2, %arg3])
+    // CHECK: ttcore.load_cached(@forward_split_const_eval_0, [%arg2, %arg3])
+    // CHECK: ttcore.load_cached(@forward_split_const_eval_1, [%arg1, %arg2])
     // CHECK: ttir.empty()
     %0 = ttir.empty() : tensor<32x32xbf16>
     // CHECK: "ttir.add"(%arg0, %arg1, %{{.*}})

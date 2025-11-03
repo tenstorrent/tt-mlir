@@ -26,22 +26,52 @@ namespace mlir::tt::transforms {
 #define GEN_PASS_DEF_UNDOCONSTEVALTRANSFORM
 #include "ttmlir/Transforms/Passes.h.inc"
 
+static bool isSharedOp(mlir::Operation *op) {
+  assert(op != nullptr);
+  return op->hasTrait<mlir::tt::ttcore::Trait::TTCoreDuplicateConstEvalTrait>();
+}
+
+static bool isResultWrittenInPlace(mlir::Operation *op) {
+  for (auto result : op->getResults()) {
+    // Check all users of this result
+    for (auto *user : result.getUsers()) {
+      // Check their operands
+      auto memEffectOp = dyn_cast<mlir::MemoryEffectOpInterface>(user);
+      if (!memEffectOp) {
+        continue;
+      }
+      llvm::SmallVector<mlir::MemoryEffects::EffectInstance> effects;
+      memEffectOp.getEffects(effects);
+      if (llvm::any_of(effects, [&](const auto &effect) {
+            return isa<mlir::MemoryEffects::Write>(effect.getEffect()) &&
+                   effect.getValue() == result;
+          })) {
+        // This result is written to, not safe for consteval
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
 //===----------------------------------------------------------------------===//
 // Hoist const-eval subgraphs to separate funcs pass
 //===----------------------------------------------------------------------===//
 
 namespace {
 struct DisjointSetUnion {
-  DisjointSetUnion(llvm::SmallVector<mlir::Value> nodes) {
-    for (auto v : nodes) {
-      parent[v] = v;
-    }
+  void init(mlir::Value v) {
+    assert(v.getDefiningOp() != nullptr &&
+           "Only values from ops can be in DSU");
+    parent[v] = v;
   }
 
-  llvm::DenseMap<mlir::Value, mlir::Value> parent;
+  bool valueExists(mlir::Value v) { return parent.find(v) != parent.end(); }
 
   mlir::Value findRoot(mlir::Value v) {
     auto it = parent.find(v);
+    assert(it != parent.end() && "Value not found in DSU");
     if (v == it->second) {
       return v;
     }
@@ -55,6 +85,8 @@ struct DisjointSetUnion {
     mlir::Value rootY = findRoot(y);
     return parent[rootX] = rootY;
   }
+
+  llvm::DenseMap<mlir::Value, mlir::Value> parent;
 };
 
 struct ConstEvalSubgraph {
@@ -77,111 +109,62 @@ namespace {
 // a Disjoint Subset Union algorithm.
 class ConstEvalAnalyze {
 public:
-  ConstEvalAnalyze(func::FuncOp *funcOp) : funcOp(funcOp) {
-    getConstsAndParams();
+  ConstEvalAnalyze(func::FuncOp funcOp)
+      : funcOp(funcOp),
+        constParams(mlir::tt::ttcore::getConstsAndParams(funcOp)) {
     buildConstEvalSubgraphs();
   }
 
-  // Recursively collapse subsets into subgraphs by iterating over ops in order
-  // and grouping them based on root idx; also collect sets of params
-  // dependencies.
   ConstEvalAnalysisResults getAnalysisResults() {
-    llvm::SmallVector<ConstEvalSubgraph, 4> finalSubgraphs;
-
-    // Create a map of root ID to input parameters
-    llvm::DenseMap<size_t, llvm::SmallPtrSet<mlir::BlockArgument, 4>>
-        rootToParamsMap;
-
-    // Collect all operations by root index.
-    llvm::DenseMap<size_t, llvm::SmallVector<Operation *, 4>> rootToOpsMap;
-
-    // Process all operations in original order and collect them by root
-    for (auto &block : funcOp->getBlocks()) {
+    llvm::DenseMap<mlir::Value, std::size_t> rootToId;
+    llvm::DenseMap<std::size_t, ConstEvalSubgraph> idToSubgraph;
+    std::size_t currentId = 0;
+    for (auto &block : funcOp.getBlocks()) {
       for (auto &op : block.getOperations()) {
-        auto opIt = opToSubgraphMap.find(&op);
-        assert(opIt != opToSubgraphMap.end() ||
-               isSharedOp(&op) && "All const-eval ops should be mapped");
-        if (opIt != opToSubgraphMap.end()) {
-          size_t subgraphId = opIt->second;
-          size_t root = findRoot(subgraphId);
-          rootToOpsMap[root].push_back(&op);
-          // Also collect params for this root
-          auto paramsIt = subgraphParams.find(subgraphId);
-          if (paramsIt != subgraphParams.end()) {
-            rootToParamsMap[root].insert(paramsIt->second.begin(),
-                                         paramsIt->second.end());
+        if (op.getNumResults() == 0 || !dsu.valueExists(op.getResult(0))) {
+          continue;
+        }
+
+        mlir::Value root = dsu.findRoot(op.getResult(0));
+        if (rootToId.find(root) == rootToId.end()) {
+          rootToId[root] = currentId++;
+        }
+
+        std::size_t id = rootToId[root];
+        auto &subgraph = idToSubgraph[id];
+        subgraph.ops.push_back(&op);
+
+        for (auto operand : op.getOperands()) {
+          if (auto blockArg = mlir::dyn_cast<mlir::BlockArgument>(operand)) {
+            assert(constParams.contains(blockArg) &&
+                   "Only const/param block args should be in DSU");
+            subgraph.inputParameters.insert(blockArg);
           }
         }
       }
     }
 
-    // Convert the maps to final subgraphs
-    for (auto [root, ops] : rootToOpsMap) {
-      ConstEvalSubgraph subgraph;
-
-      // Add input parameters
-      auto paramsIt = rootToParamsMap.find(root);
-      if (paramsIt != rootToParamsMap.end()) {
-        subgraph.inputParameters.insert(paramsIt->second.begin(),
-                                        paramsIt->second.end());
+    for (auto &[id, subgraph] : idToSubgraph) {
+      if (subgraph.ops.size() == 1 &&
+          subgraph.ops.front()
+              ->hasTrait<mlir::tt::ttcore::Trait::TTCoreCreationOpTrait>()) {
+        // Skip subgraphs that only contain a creation op
+        idToSubgraph.erase(id);
       }
-
-      // Add operations
-      subgraph.ops = ops;
-
-      finalSubgraphs.push_back(subgraph);
     }
 
-    return ConstEvalAnalysisResults{finalSubgraphs, sharedOps};
+    ConstEvalAnalysisResults results;
+    results.sharedOps = sharedOps;
+    for (auto &[id, subgraph] : idToSubgraph) {
+      results.subgraphs.push_back(subgraph);
+    }
+
+    return results;
   }
 
 private:
-  void getConstsAndParams() {
-    if (funcOp->isDeclaration()) {
-      return;
-    }
-
-    constParams = mlir::tt::ttcore::getConstsAndParams(*funcOp);
-  }
-
-  // Recurse up hierarchy to find root of given subset.
-  size_t findRoot(size_t id) {
-    auto [it, inserted] = parent.insert({id, id});
-    if (inserted) {
-      // Initialize if this is first access
-      rank[id] = 0;
-      return id;
-    }
-
-    if (it->second != id) {
-      it->second = findRoot(it->second); // Path compression
-    }
-    return it->second;
-  }
-
-  // Union operation for two subsets.
-  void unionSubgraphs(size_t x, size_t y) {
-    const size_t rootX = findRoot(x);
-    const size_t rootY = findRoot(y);
-
-    // If subgraph are already merged, do nothing.
-    if (rootX == rootY) {
-      return;
-    }
-
-    // Union by rank
-    if (rank[rootX] < rank[rootY]) {
-      parent[rootX] = rootY;
-    } else {
-      parent[rootY] = rootX;
-      if (rank[rootX] == rank[rootY]) {
-        rank[rootX]++;
-      }
-    }
-  }
-
   void buildConstEvalSubgraphs() {
-    for (auto &block : funcOp->getBlocks()) {
+    for (auto &block : funcOp.getBlocks()) {
       for (auto &opRef : block.getOperations()) {
         processOp(&opRef);
       }
@@ -189,183 +172,59 @@ private:
   }
 
   void processOp(Operation *op) {
-    // Skip terminator ops.
     if (op->hasTrait<mlir::OpTrait::IsTerminator>()) {
       return;
     }
 
-    // Handle cacheable creation ops as standalone const-eval subgraphs.
-    // These are creation ops that produce constant outputs and can be cached.
-    // If they are later consumed by other const-eval ops, they will be merged
-    // into the same subgraph via the union-find mechanism.
-    if (isCacheableCreationOp(op)) {
-      size_t targetSubgraphId = nextSubgraphId++;
-      parent[targetSubgraphId] = targetSubgraphId;
-      rank[targetSubgraphId] = 0;
-      opToSubgraphMap[op] = targetSubgraphId;
-      for (auto result : op->getResults()) {
-        valueToSubgraphMap[result] = targetSubgraphId;
-      }
-      return;
-    }
-
-    // Skip other creation ops, they have special handling.
-    if (isCreationOp(op)) {
-      return;
-    }
-
-    // Handle shared ops separately as well.
     if (isSharedOp(op)) {
       sharedOps.push_back(op);
       return;
     }
 
-    // Track which existing subgraphs this op depends on
-    llvm::SmallSet<size_t, 2> dependentSubgraphIds;
-    // Track input parameters this op depends on
-    llvm::SmallPtrSet<mlir::BlockArgument, 4> inputParams;
-    // Track creation ops this op depends on
-    llvm::SmallPtrSet<mlir::Operation *, 2> creationOps;
+    if (isResultWrittenInPlace(op)) {
+      return;
+    }
 
-    // Check if all operands are const-eval
+    auto operandsConstEval = [&](mlir::Value operand) {
+      if (auto blockArg = mlir::dyn_cast<mlir::BlockArgument>(operand)) {
+        return constParams.contains(blockArg);
+      }
+
+      if (isSharedOp(operand.getDefiningOp())) {
+        return true;
+      }
+
+      return dsu.valueExists(operand);
+    };
+
+    if (!llvm::all_of(op->getOperands(), operandsConstEval)) {
+      return;
+    }
+
+    llvm::for_each(op->getResults(),
+                   [&](mlir::Value result) { dsu.init(result); });
+
+    llvm::SmallVector<mlir::Value> graphsToJoin;
     for (auto operand : op->getOperands()) {
-      if (!operandIsConstEval(operand, inputParams, creationOps,
-                              dependentSubgraphIds)) {
-        return; // Not a const-eval op
+      if (auto blockArg = mlir::dyn_cast<mlir::BlockArgument>(operand)) {
+        continue;
       }
+      if (isSharedOp(operand.getDefiningOp())) {
+        continue;
+      }
+      graphsToJoin.push_back(operand);
     }
 
-    // Check if any of my results are written to, they are not safe for
-    // consteval
     for (auto result : op->getResults()) {
-      // Check all users of this result
-      for (auto *user : result.getUsers()) {
-        // Check their operands
-        auto memEffectOp = dyn_cast<mlir::MemoryEffectOpInterface>(user);
-        if (!memEffectOp) {
-          continue;
-        }
-        llvm::SmallVector<mlir::MemoryEffects::EffectInstance> effects;
-        memEffectOp.getEffects(effects);
-        if (llvm::any_of(effects, [&](const auto &effect) {
-              return isa<mlir::MemoryEffects::Write>(effect.getEffect()) &&
-                     effect.getValue() == result;
-            })) {
-          // This result is written to, not safe for consteval
-          return;
-        }
+      graphsToJoin.push_back(result);
+    }
+
+    if (graphsToJoin.size() > 0) {
+      mlir::Value first = graphsToJoin[0];
+      for (size_t i = 1; i < graphsToJoin.size(); ++i) {
+        dsu.unionSets(first, graphsToJoin[i]);
       }
     }
-
-    // Determine which subgraph this op belongs to
-    size_t targetSubgraphId = 0;
-    if (dependentSubgraphIds.empty()) {
-      // Create a new subset id.
-      targetSubgraphId = nextSubgraphId++;
-
-      // Initialize union-find entry for new subset.
-      parent[targetSubgraphId] = targetSubgraphId;
-      rank[targetSubgraphId] = 0;
-    } else if (dependentSubgraphIds.size() == 1) {
-      // Join existing subset.
-      targetSubgraphId = *dependentSubgraphIds.begin();
-    } else {
-      // Need to merge multiple subgraphs
-      // Convert to vector for easier handling
-      llvm::SmallVector<size_t, 2> subgraphIdVector(
-          dependentSubgraphIds.begin(), dependentSubgraphIds.end());
-
-      // Choose first as target
-      targetSubgraphId = subgraphIdVector[0];
-
-      // Union all others with the target
-      for (size_t i = 1; i < subgraphIdVector.size(); ++i) {
-        unionSubgraphs(targetSubgraphId, subgraphIdVector[i]);
-      }
-
-      // Get the actual root after unions
-      targetSubgraphId = findRoot(targetSubgraphId);
-    }
-
-    // Track this op in the subgraph
-    opToSubgraphMap[op] = targetSubgraphId;
-
-    // Add creation ops to the subgraph as well
-    for (Operation *creationOp : creationOps) {
-      opToSubgraphMap[creationOp] = targetSubgraphId;
-      // Also map the creation op's results
-      for (auto result : creationOp->getResults()) {
-        valueToSubgraphMap[result] = targetSubgraphId;
-      }
-    }
-
-    // Store input parameters for this subgraph
-    if (!inputParams.empty()) {
-      llvm::SmallPtrSet<mlir::BlockArgument, 4> &paramSet =
-          subgraphParams[targetSubgraphId];
-      paramSet.insert(inputParams.begin(), inputParams.end());
-    }
-
-    // Update value to subgraph mapping for results
-    for (auto result : op->getResults()) {
-      valueToSubgraphMap[result] = targetSubgraphId;
-    }
-  }
-
-  // Process an operand, returning true + modifying appropriate input data
-  // structure if it is const-eval, and otherwise returning false without
-  // modifying data structures.
-  bool
-  operandIsConstEval(mlir::Value operand,
-                     llvm::SmallPtrSet<mlir::BlockArgument, 4> &inputParams,
-                     llvm::SmallPtrSet<mlir::Operation *, 2> &creationOps,
-                     llvm::SmallSet<size_t, 2> &dependentSubgraphIds) {
-
-    // Case 1: this operand is a const-eval param.
-    if (auto blockArg = mlir::dyn_cast<mlir::BlockArgument>(operand)) {
-      if (constParams.contains(blockArg)) {
-        inputParams.insert(blockArg);
-        return true;
-      }
-      // Not a const param, can't be const-eval
-      return false;
-    }
-
-    // Case 2: this operand is from an op in an existing const-eval subgraph
-    if (auto it = valueToSubgraphMap.find(operand);
-        it != valueToSubgraphMap.end()) {
-      dependentSubgraphIds.insert(it->second);
-      return true;
-    }
-
-    // Case 3: operand from creation op
-    if (mlir::Operation *defOp = operand.getDefiningOp(); defOp != nullptr) {
-      // Shared ops always available
-      if (isSharedOp(defOp)) {
-        return true;
-      }
-
-      // Check if it's a valid creation op
-      if (isCreationOp(defOp)) {
-        creationOps.insert(defOp);
-        return true;
-      }
-    }
-
-    // Not const-eval
-    return false;
-  }
-
-  // Helper functions
-  bool isCreationOp(mlir::Operation *op) {
-    assert(op != nullptr);
-    return op->hasTrait<mlir::tt::ttcore::Trait::TTCoreCreationOpTrait>();
-  }
-
-  bool isSharedOp(mlir::Operation *op) {
-    assert(op != nullptr);
-    return op
-        ->hasTrait<mlir::tt::ttcore::Trait::TTCoreDuplicateConstEvalTrait>();
   }
 
   bool isCacheableCreationOp(mlir::Operation *op) {
@@ -390,30 +249,13 @@ private:
   }
 
 private:
-  // ======  Union-find data structures  ======
-  //
-  // Map of child to parent relationships, represents basic union-find tree.
-  llvm::DenseMap<size_t, size_t> parent;
-  // Rank map, for union-by-rank optimization to keep tree balanced.
-  llvm::DenseMap<size_t, size_t> rank;
-  // Maps value to its subgraph ID, to store dependencies.
-  llvm::DenseMap<mlir::Value, size_t> valueToSubgraphMap;
-  // Maps operation to its subgraph ID, for final gathering.
-  llvm::DenseMap<mlir::Operation *, size_t> opToSubgraphMap;
-  // Maps subgraph ID to its input parameters, for final gathering.
-  llvm::DenseMap<size_t, llvm::SmallPtrSet<mlir::BlockArgument, 4>>
-      subgraphParams;
-  // Unique id per graph.
-  size_t nextSubgraphId = 0;
-  //
-  // ======  -------------------------  ======
-
-  func::FuncOp *funcOp;
-
+  func::FuncOp funcOp;
   // Set of params to original func which can be const-eval'ed.
   llvm::SmallPtrSet<mlir::BlockArgument, 4> constParams;
   // Set of ops which every subgraph + original graph must duplicate.
   llvm::SmallVector<mlir::Operation *, 1> sharedOps;
+
+  DisjointSetUnion dsu;
 };
 } // namespace
 
@@ -610,7 +452,7 @@ private:
       return;
     }
     // Run the analysis to identify const-eval subgraphs
-    ConstEvalAnalyze analyzer(&funcOp);
+    ConstEvalAnalyze analyzer(funcOp);
     ConstEvalAnalysisResults analysisResults = analyzer.getAnalysisResults();
     llvm::SmallVector<ConstEvalSubgraph, 4> subgraphs =
         std::move(analysisResults.subgraphs);
