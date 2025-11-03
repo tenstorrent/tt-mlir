@@ -390,7 +390,10 @@ def custom_embeding(input, weight):
 
 
 def custom_comparison_operator(input: torch.Tensor, other: torch.Tensor, torch_op):
-    return torch_op(input, other).to(dtype=input.dtype)
+    result = torch_op(input, other).to(dtype=input.dtype)
+    if result.dim() == 0:
+        result = result.unsqueeze(0)
+    return result
 
 
 def custom_argmax(x, dim=[], keepdim=False):
