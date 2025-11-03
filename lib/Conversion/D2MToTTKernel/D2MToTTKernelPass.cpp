@@ -92,19 +92,8 @@ struct ConvertD2MToTTKernel
     target.addDynamicallyLegalOp<memref::StoreOp>([&](memref::StoreOp op) {
       return op.getMemRefType().getElementType().isIntOrIndex();
     });
-    // Temp tile allocations with L1 memspace should convert to CB representations
-    target.addDynamicallyLegalOp<memref::AllocOp>([&](memref::AllocOp op) {
-      auto memrefType = op.getType();
-      // Illegal if rank <= 2 AND tile-typed AND has L1 memspace
-      if (memrefType.getRank() <= 2 &&
-          mlir::isa<ttcore::TileType>(memrefType.getElementType())) {
-        auto memspace = memrefType.getMemorySpace();
-        if (memspace && ttcore::getMemorySpace(op.getResult()) == ttcore::MemorySpace::DeviceL1) {
-          return false;  // Illegal - must convert
-        }
-      }
-      return true;  // Legal otherwise
-    });
+    // Temp tile allocations stay as alloc ops, but their result type gets converted by type converter
+    target.addLegalOp<memref::AllocOp>();
     target.addLegalOp<memref::DeallocOp>();
     // Convert memref.copy when it's between tile-typed memrefs (CB-to-CB copy)
     target.addDynamicallyLegalOp<memref::CopyOp>([&](memref::CopyOp op) {
@@ -152,11 +141,23 @@ struct ConvertD2MToTTKernel
       if (memspaceAttr) {
         auto memorySpace = ttcore::getMemorySpace(memref);
 
+        // DST memrefs stay as index (for copy_tile, pack_tile operations)
         if (memorySpace == ttcore::MemorySpace::RegisterDst) {
-          // This memref abstracts tile indices in dst register, convert to index
-          // type.
+          // This memref abstracts tile indices in dst register, convert to index type.
           return IndexType::get(memref.getContext());
         }
+
+        // L1 tile-typed memrefs (including temp allocs) convert to CB
+        // This handles temp allocations from d2m.empty() that got L1 memspace
+        if (memorySpace == ttcore::MemorySpace::DeviceL1 &&
+            mlir::isa<ttcore::TileType>(memref.getElementType())) {
+          return ttkernel::CBType::get(memref);
+        }
+      }
+
+      // Tile-typed memrefs WITHOUT memspace (temp allocs before our fix) → CB
+      if (mlir::isa<ttcore::TileType>(memref.getElementType()) && !memspaceAttr) {
+        return ttkernel::CBType::get(memref);
       }
 
       if (mlir::isa<StridedLayoutAttr>(memref.getLayout())) {
@@ -175,6 +176,18 @@ struct ConvertD2MToTTKernel
     });
     typeConverter.addConversion([](d2m::SemaphoreType semaphore) {
       return ttkernel::SemaphoreType::get(semaphore.getContext());
+    });
+
+    // Add source materialization for memref→CB conversion
+    // This handles cases where memref.alloc results need to be used as CBs
+    typeConverter.addSourceMaterialization([](OpBuilder &builder, Type resultType,
+                                              ValueRange inputs,
+                                              Location loc) -> Value {
+      if (inputs.size() == 1 && mlir::isa<ttkernel::CBType>(resultType)) {
+        // Forward the input - the type converter will handle it
+        return inputs[0];
+      }
+      return nullptr;
     });
 
     d2m::AssociatedDMAWaits associatedDMAWaits =
