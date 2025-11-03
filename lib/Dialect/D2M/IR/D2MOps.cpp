@@ -1469,9 +1469,9 @@ mlir::SmallVector<int64_t> d2m::GenericOp::getLoopBounds() {
 
 mlir::SmallVector<int64_t>
 d2m::GenericOp::getParticipatingLoopDims(int64_t operandIndex) {
-  if (isExplicitDatamovementForm()) {
-    return {};
-  }
+  TT_debugv(!isExplicitDatamovementForm(),
+            "getParticipatingLoopDims should not be called on explicit "
+            "data movement form operations.");
   AffineMap indexingMap = getIndexingMap(operandIndex);
   auto dimExprs =
       llvm::make_filter_range(indexingMap.getResults(), [](AffineExpr expr) {
@@ -1484,9 +1484,9 @@ d2m::GenericOp::getParticipatingLoopDims(int64_t operandIndex) {
 
 mlir::SmallVector<int64_t>
 d2m::GenericOp::getNonParticipatingLoopDims(int64_t operandIndex) {
-  if (isExplicitDatamovementForm()) {
-    return {};
-  }
+  TT_debugv(!isExplicitDatamovementForm(),
+            "getNonParticipatingLoopDims should not be called on explicit "
+            "data movement form operations.");
   AffineMap indexingMap = getIndexingMap(operandIndex);
   SmallVector<int64_t> participatingDims =
       getParticipatingLoopDims(operandIndex);
