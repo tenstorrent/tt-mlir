@@ -1342,6 +1342,7 @@ void populateTTIRToD2MPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
     // Elementwise.
     D2MNamedElementwiseRewriter<ttir::AbsOp,        d2m::TileAbsOp>,
     D2MNamedElementwiseRewriter<ttir::AddOp,        d2m::TileAddOp>,
+    D2MNamedElementwiseRewriter<ttir::BitwiseNotOp, d2m::TileBitwiseNotOp>,
     D2MNamedElementwiseRewriter<ttir::CeilOp,       d2m::TileCeilOp>,
     D2MNamedElementwiseRewriter<ttir::CosOp,        d2m::TileCosOp>,
     D2MNamedElementwiseRewriter<ttir::DivOp,        d2m::TileDivOp>,

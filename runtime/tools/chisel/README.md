@@ -19,6 +19,8 @@ Short utilities built on **tt::runtime** for inspecting, executing, and debuggin
   - Useful for checking if the device ops works correctly and also if the decompositions are done correctly.
 
 ### Quick Start
+To run chisel, tt-mlir must be built with `-DTTMLIR_ENABLE_RUNTIME=ON` and `-DTT_RUNTIME_DEBUG=ON` flags.
+
 - First install the chisel
 
 ```bash
@@ -28,7 +30,7 @@ pip install -e runtime/tools/chisel
 - **Run directly (no install):**
   ```bash
   python runtime/tools/chisel/chisel/main.py \
-    -i chisel/xla_mnist/ttir_wide.mlir \
+    -i runtime/tools/chisel/test/mlir/test_fusion.mlir \
     -o output \
     --report-path report.csv \
     -f main \
@@ -38,7 +40,7 @@ pip install -e runtime/tools/chisel
 
 ### Command Line Reference
 
-- `-i, --input-file PATH`: Path to input TTIR file (default: `runtime/tools/chisel/test/mlir/test_fusion.mlir`)
+- `-i, --input-file PATH`:
 - `-o, --output-dir PATH`: Output directory for results (default: `runtime/tools/chisel/test/mlir/output`)
 - `-f, --main-function NAME`: Name of the main function to execute (default: `main` in tt-xla, `forward` in tt-forge-fe)
 - `--program-index INT`: Program index for execution (default: `0`, `1` and `2` can be if we have training binary in tt-forge-fe)
@@ -55,24 +57,36 @@ Currently not enabled through cli but there is an option to use runtime tensors 
 #### Advanced Options
 - `--flatbuffer-path PATH`: Path to save flatbuffer file (default: `runtime/tools/chisel/test/mlir/fb.ttnn`)
 - `--skip-op-pattern PATTERN`: Pattern to match operations that should be skipped (e.g., `'"ttnn.matmul"'`)
+- `--dump-ttir`: Dump the ttir IR to a file.
+- `--dump-ttnn`: Dump the ttnn IR to a file.
 
 #### Example Usage Patterns
 ```bash
 # Basic execution with random inputs
-python runtime/tools/chisel/chisel/main.py -i model.mlir -o ./output
+python runtime/tools/chisel/chisel/main.py \
+  -i runtime/tools/chisel/test/mlir/test_fusion.mlir \
+  -o ./output
 
 # Load specific inputs from disk
 python runtime/tools/chisel/chisel/main.py \
-  -i model.mlir \
+  -i runtime/tools/chisel/test/mlir/test_fusion.mlir \
   -o ./output \
   --load-inputs-from-disk \
-  --tensor-folder ./inputs/
+  --tensor-folder runtime/tools/chisel/test/mlir/tensors/
 
 # Skip specific operations during comparison
 python runtime/tools/chisel/chisel/main.py \
-  -i model.mlir \
+  -i runtime/tools/chisel/test/mlir/test_fusion.mlir \
   -o ./output \
   --skip-op-pattern "ttnn.matmul" \
+  --report-path debug_report.csv
+
+# Dump IR modules for debugging
+python runtime/tools/chisel/chisel/main.py \
+  -i runtime/tools/chisel/test/mlir/test_fusion.mlir \
+  -o ./output \
+  --dump-ttir \
+  --dump-ttnn \
   --report-path debug_report.csv
 ```
 

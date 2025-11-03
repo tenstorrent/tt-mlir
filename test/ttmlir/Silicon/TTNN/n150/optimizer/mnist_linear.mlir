@@ -1,3 +1,4 @@
+// REQUIRES: opmodel
 // RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path%" -o mnist_linear_out.mlir %s
 // RUN: FileCheck %s --input-file=mnist_linear_out.mlir
 // RUN: ttmlir-translate --ttnn-to-flatbuffer -o %t.ttnn mnist_linear_out.mlir

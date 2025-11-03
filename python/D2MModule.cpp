@@ -48,5 +48,16 @@ void populateD2MModule(nb::module_ &m) {
       .def_static("get", [](MlirContext ctx) {
         return wrap(tt::d2m::SemaphoreType::get(unwrap(ctx)));
       });
+
+  tt_type_class<tt::d2m::CBType>(m, "CBType")
+      .def_static("get",
+                  [](MlirContext ctx, MlirType shapedType) {
+                    return ttmlirD2MCBTypeGet(ctx, shapedType);
+                  })
+      .def_static(
+          "cast",
+          [](MlirType &ty) { return mlir::cast<tt::d2m::CBType>(unwrap(ty)); })
+      .def("get_underlying",
+           [](tt::d2m::CBType self) { return wrap(self.getUnderlying()); });
 }
 } // namespace mlir::ttmlir::python

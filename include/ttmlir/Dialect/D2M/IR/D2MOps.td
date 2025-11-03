@@ -241,6 +241,11 @@ def D2M_GenericOp : D2M_Op<"generic",
       }
       bool isAffineMapForm() { return !getIndexingMaps().empty(); }
       bool isLoweredLoopForm() { return !isAffineMapForm(); }
+      bool isExplicitDatamovementForm() {
+        return getBlockFactors().empty() &&
+               getIndexingMaps().empty() &&
+               getIteratorTypes().empty();
+      }
       bool isExternalSymbolForm() { return getRegions().empty(); }
       bool hasExplicitBlockFactors() { return getIndexingMaps().empty() && !getBlockFactors().empty(); }
       SmallVector<SmallVector<int64_t>> getOperandGridShapes();
@@ -255,7 +260,7 @@ def D2M_GenericOp : D2M_Op<"generic",
       SmallVector<SmallVector<int64_t>> getOperandShardShapes(bool convertTileToScalar = false);
       unsigned getNumLoops();
       unsigned getNumDims();
-      std::optional<AffineMap> getIndexingMap(int64_t operandIndex);
+      AffineMap getIndexingMap(int64_t operandIndex);
       bool hasCompatibleBlocking(GenericOp gOp);
       bool hasSkipOpEltwiseFusionTrait();
       bool hasReduction();

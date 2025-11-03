@@ -105,7 +105,9 @@ def add_missing_attributes(
 # ---------- Workflows ----------
 
 
-def split_and_execute(module: Module | str) -> List[ExecutionResult]:
+def split_and_execute(
+    module: Module | str, compile_only: bool = False
+) -> List[ExecutionResult]:
     """
     Splits the original `module` (SHLO/TTIR/TTNN) into constituent operations, compiles
     each of them down to TTNN graph, creates flatbuffer from it and runs it on device.
@@ -120,7 +122,7 @@ def split_and_execute(module: Module | str) -> List[ExecutionResult]:
     progress_msg(split_and_execute.__doc__)
 
     splitter = MLIRModuleSplitter()
-    executor = MLIRModuleExecutor()
+    executor = MLIRModuleExecutor(compile_only)
 
     results = []
 

@@ -772,11 +772,13 @@ public:
         mlir::IntegerAttr::get(integerType, srcOp.getFeatureIndex());
 
     // Default momentum for batch norm training
-    FloatAttr momentumAttr = rewriter.getF32FloatAttr(0.1f);
+    FloatAttr momentumAttr = rewriter.getF32FloatAttr(1.0f);
 
-    // Create empty tensors for running mean and variance
-    auto runningMean = rewriter.create<ttir::EmptyOp>(loc, meanType);
-    auto runningVariance = rewriter.create<ttir::EmptyOp>(loc, varianceType);
+    auto runningMean = rewriter.create<ttir::ZerosOp>(
+        loc, meanType, llvm::to_vector_of<int32_t>(meanType.getShape()));
+    auto runningVariance = rewriter.create<ttir::OnesOp>(
+        loc, varianceType,
+        llvm::to_vector_of<int32_t>(varianceType.getShape()));
 
     // Create empty output tensors
     auto outputEmpty = rewriter.create<ttir::EmptyOp>(loc, outputType);
@@ -793,6 +795,269 @@ public:
     return success();
   }
 };
+} // namespace
+
+namespace {
+
+class StableHLOToBatchNormGradOpConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::BatchNormGradOp> {
+
+  using OpConversionPattern<
+      mlir::stablehlo::BatchNormGradOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::BatchNormGradOp srcOp,
+                  mlir::stablehlo::BatchNormGradOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    // Check legality of the general batch norm conversion.
+    LogicalResult legalityResult =
+        checkBatchNormConversionLegality(srcOp, adaptor, rewriter);
+    if (!legalityResult.succeeded()) {
+      return legalityResult;
+    }
+
+    // Check that parameters have the expected shape.
+    legalityResult =
+        checkBatchNormGradParametersLegality(srcOp, adaptor, rewriter);
+    if (!legalityResult.succeeded()) {
+      return legalityResult;
+    }
+
+    auto loc = srcOp.getLoc();
+
+    // Get the input types and shapes.
+    auto operandType =
+        mlir::cast<RankedTensorType>(adaptor.getOperand().getType());
+    auto scaleType = mlir::cast<RankedTensorType>(adaptor.getScale().getType());
+    auto gradOutputType =
+        mlir::cast<RankedTensorType>(adaptor.getGradOutput().getType());
+
+    // Get output types.
+    auto gradOperandType = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(srcOp.getGradOperand().getType()));
+    auto gradScaleType = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(srcOp.getGradScale().getType()));
+    auto gradOffsetType = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(srcOp.getGradOffset().getType()));
+
+    // Get feature index and epsilon.
+    int64_t featureIndex = srcOp.getFeatureIndex();
+    FloatAttr epsilonAttr = srcOp.getEpsilonAttr();
+    float epsilon = epsilonAttr.getValueAsDouble();
+
+    // Create reduction dimensions (all dims except feature_index).
+    int64_t rank = operandType.getRank();
+    auto reductionDims = llvm::to_vector(llvm::seq<int32_t>(rank));
+    reductionDims.erase(reductionDims.begin() + featureIndex);
+    ArrayAttr reductionDimsAttr = rewriter.getI32ArrayAttr(reductionDims);
+
+    // Broadcast inputs to operand shape.
+    Value scaleBcast = broadcastFeatureToShape(
+        rewriter, loc, adaptor.getScale(), operandType, featureIndex);
+    Value meanBcast = broadcastFeatureToShape(rewriter, loc, adaptor.getMean(),
+                                              operandType, featureIndex);
+    Value varianceBcast = broadcastFeatureToShape(
+        rewriter, loc, adaptor.getVariance(), operandType, featureIndex);
+
+    // Create epsilon broadcast.
+    auto scalarType = RankedTensorType::get({}, operandType.getElementType());
+    auto epsilonDenseAttr = DenseElementsAttr::get(
+        scalarType,
+        rewriter.getFloatAttr(operandType.getElementType(), epsilon));
+    auto epsilonConstant =
+        rewriter.create<ttir::ConstantOp>(loc, scalarType, epsilonDenseAttr);
+    Value epsilonBcast = broadcastFeatureToShape(rewriter, loc, epsilonConstant,
+                                                 operandType, featureIndex);
+
+    // centered_operand = operand - mean
+    auto centeredOperand = ttir::utils::createDPSOp<ttir::SubtractOp>(
+        rewriter, loc, operandType, adaptor.getOperand(), meanBcast);
+
+    // stddev = sqrt(variance + epsilon)
+    auto variancePlusEpsilon = ttir::utils::createDPSOp<ttir::AddOp>(
+        rewriter, loc, operandType, varianceBcast, epsilonBcast);
+
+    auto stddev = ttir::utils::createDPSOp<ttir::SqrtOp>(
+        rewriter, loc, operandType, variancePlusEpsilon);
+
+    // normalized_operand = centered_operand / stddev
+    auto normalizedOperand = ttir::utils::createDPSOp<ttir::DivOp>(
+        rewriter, loc, operandType, centeredOperand, stddev);
+
+    // elements_per_feature = total_elements / feature_dim_size
+    int64_t totalElements = operandType.getNumElements();
+    float elementsPerFeature =
+        static_cast<float>(totalElements) /
+        static_cast<float>(operandType.getShape()[featureIndex]);
+    auto elementsPerFeatureAttr = DenseElementsAttr::get(
+        scalarType, rewriter.getFloatAttr(operandType.getElementType(),
+                                          elementsPerFeature));
+    auto elementsPerFeatureConst = rewriter.create<ttir::ConstantOp>(
+        loc, scalarType, elementsPerFeatureAttr);
+    auto elementsPerFeatureBcast = broadcastFeatureToShape(
+        rewriter, loc, elementsPerFeatureConst, operandType, featureIndex);
+
+    // i1 = grad_output * elements_per_feature
+    auto i1 = ttir::utils::createDPSOp<ttir::MultiplyOp>(
+        rewriter, loc, gradOutputType, adaptor.getGradOutput(),
+        elementsPerFeatureBcast);
+
+    // i2 = broadcast(sum(grad_output, reduction_dims))
+    auto sumGradOutput = ttir::utils::createDPSOp<ttir::SumOp>(
+        rewriter, loc, scaleType, adaptor.getGradOutput(),
+        rewriter.getBoolAttr(false), reductionDimsAttr);
+    auto i2 = broadcastFeatureToShape(rewriter, loc, sumGradOutput, operandType,
+                                      featureIndex);
+
+    // grad_output * centered_operand
+    auto gradTimesCentered = ttir::utils::createDPSOp<ttir::MultiplyOp>(
+        rewriter, loc, operandType, adaptor.getGradOutput(), centeredOperand);
+
+    // i3 = broadcast(sum(grad_output * centered_operand))
+    auto sumGradTimesCentered = ttir::utils::createDPSOp<ttir::SumOp>(
+        rewriter, loc, scaleType, gradTimesCentered,
+        rewriter.getBoolAttr(false), reductionDimsAttr);
+    auto i3 = broadcastFeatureToShape(rewriter, loc, sumGradTimesCentered,
+                                      operandType, featureIndex);
+
+    // i4 = i3 * centered_operand
+    auto i4 = ttir::utils::createDPSOp<ttir::MultiplyOp>(
+        rewriter, loc, operandType, i3, centeredOperand);
+
+    // i5 = i4 / (variance + epsilon)
+    auto i5 = ttir::utils::createDPSOp<ttir::DivOp>(rewriter, loc, operandType,
+                                                    i4, variancePlusEpsilon);
+
+    // i6 = i1 - i2 - i5
+    auto i1MinusI2 = ttir::utils::createDPSOp<ttir::SubtractOp>(
+        rewriter, loc, operandType, i1, i2);
+
+    auto i6 = ttir::utils::createDPSOp<ttir::SubtractOp>(
+        rewriter, loc, operandType, i1MinusI2, i5);
+
+    // grad_operand = (scale / stddev / elements_per_feature) * i6
+    auto scaleOverStddev = ttir::utils::createDPSOp<ttir::DivOp>(
+        rewriter, loc, operandType, scaleBcast, stddev);
+
+    auto scaleOverStddevOverElem = ttir::utils::createDPSOp<ttir::DivOp>(
+        rewriter, loc, operandType, scaleOverStddev, elementsPerFeatureBcast);
+
+    auto gradOperand = ttir::utils::createDPSOp<ttir::MultiplyOp>(
+        rewriter, loc, gradOperandType, scaleOverStddevOverElem, i6);
+
+    // grad_scale = sum(grad_output * normalized_operand)
+    auto gradTimesNorm = ttir::utils::createDPSOp<ttir::MultiplyOp>(
+        rewriter, loc, operandType, adaptor.getGradOutput(), normalizedOperand);
+
+    auto gradScale = ttir::utils::createDPSOp<ttir::SumOp>(
+        rewriter, loc, gradScaleType, gradTimesNorm,
+        rewriter.getBoolAttr(false), reductionDimsAttr);
+
+    // grad_offset = sum(grad_output)
+    auto gradOffset = ttir::utils::createDPSOp<ttir::SumOp>(
+        rewriter, loc, gradOffsetType, adaptor.getGradOutput(),
+        rewriter.getBoolAttr(false), reductionDimsAttr);
+
+    // Replace the operation with the three results.
+    rewriter.replaceOp(srcOp, {gradOperand, gradScale, gradOffset});
+
+    return success();
+  }
+
+private:
+  // Verify that scale, mean, variance parameters are 1D tensors with correct
+  // size.
+  LogicalResult checkBatchNormGradParametersLegality(
+      mlir::stablehlo::BatchNormGradOp srcOp,
+      mlir::stablehlo::BatchNormGradOp::Adaptor adaptor,
+      ConversionPatternRewriter &rewriter) const {
+    auto operandType =
+        mlir::cast<RankedTensorType>(adaptor.getOperand().getType());
+    auto scaleType = mlir::cast<RankedTensorType>(adaptor.getScale().getType());
+    auto meanType = mlir::cast<RankedTensorType>(adaptor.getMean().getType());
+    auto varianceType =
+        mlir::cast<RankedTensorType>(adaptor.getVariance().getType());
+
+    int64_t featureIndex = srcOp.getFeatureIndex();
+    int64_t expectedSize = operandType.getShape()[featureIndex];
+
+    // Check that parameters are 1D tensors.
+    if (scaleType.getRank() != 1) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "batch_norm_grad scale must be a 1D tensor");
+    }
+    if (meanType.getRank() != 1) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "batch_norm_grad mean must be a 1D tensor");
+    }
+    if (varianceType.getRank() != 1) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "batch_norm_grad variance must be a 1D tensor");
+    }
+
+    // Check that sizes match feature dimension.
+    if (scaleType.getDimSize(0) != expectedSize) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "batch_norm_grad scale size must match feature dimension");
+    }
+    if (meanType.getDimSize(0) != expectedSize) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "batch_norm_grad mean size must match feature dimension");
+    }
+    if (varianceType.getDimSize(0) != expectedSize) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "batch_norm_grad variance size must match feature dimension");
+    }
+
+    return success();
+  }
+
+  // Helper to create broadcast shape from feature dimension to full shape.
+  Value broadcastFeatureToShape(ConversionPatternRewriter &rewriter,
+                                Location loc, Value input,
+                                RankedTensorType targetType,
+                                int64_t featureIndex) const {
+    auto inputType = mlir::cast<RankedTensorType>(input.getType());
+    const int64_t rank = targetType.getRank();
+
+    // First reshape to match target rank if needed.
+    if (inputType.getRank() < rank) {
+      input =
+          reshapeFeatureToShape(rewriter, loc, input, targetType, featureIndex);
+    }
+
+    // Broadcast the input to the target type.
+    Value output;
+    LogicalResult result =
+        ttir::utils::broadcastValue(rewriter, input, targetType, output, loc,
+                                    /*frontUnsqueeze=*/false);
+    assert(result.succeeded() &&
+           "Broadcast should succeed after legality checks");
+    return output;
+  }
+
+  Value reshapeFeatureToShape(ConversionPatternRewriter &rewriter, Location loc,
+                              Value input, RankedTensorType targetType,
+                              int64_t featureIndex) const {
+    auto inputType = mlir::cast<RankedTensorType>(input.getType());
+    const int64_t rank = targetType.getRank();
+
+    SmallVector<int64_t> unsqueezeShape(rank, 1);
+
+    if (inputType.getRank() > 0) {
+      unsqueezeShape[featureIndex] = inputType.getDimSize(0);
+    }
+
+    auto unsqueezeType =
+        RankedTensorType::get(unsqueezeShape, targetType.getElementType());
+
+    return ttir::utils::createDPSOp<ttir::ReshapeOp>(
+        rewriter, loc, unsqueezeType, input,
+        rewriter.getI32ArrayAttr(llvm::to_vector_of<int32_t>(unsqueezeShape)));
+  }
+};
+
 } // namespace
 
 namespace {
@@ -2766,31 +3031,112 @@ public:
   matchAndRewrite(mlir::stablehlo::PadOp srcOp,
                   mlir::stablehlo::PadOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+
     LogicalResult legalityResult =
         checkConversionLegality(srcOp, adaptor, rewriter);
     if (!legalityResult.succeeded()) {
       return legalityResult;
     }
 
-    auto outputType = mlir::cast<RankedTensorType>(
-        getTypeConverter()->convertType(srcOp.getResult().getType()));
-
-    SmallVector<int32_t> padDim;
-    for (uint32_t i = 0; i < adaptor.getEdgePaddingLow().size(); i++) {
-      padDim.push_back(adaptor.getEdgePaddingLow()[i]);
-      padDim.push_back(adaptor.getEdgePaddingHigh()[i]);
-    }
-
     ttir::ConstantOp valueDef =
         getConstantValueDefiningOp(adaptor.getPaddingValue());
 
     mlir::ElementsAttr paddingValueAttr = valueDef.getValueAttr();
+    SmallVector<int64_t> steps;
+    auto outputType = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(srcOp.getResult().getType()));
 
     float value;
     if (paddingValueAttr.getElementType().isInteger()) {
       value = paddingValueAttr.getSplatValue<APInt>().signedRoundToDouble();
     } else {
       value = paddingValueAttr.getSplatValue<APFloat>().convertToDouble();
+    }
+
+    int64_t sum = 0;
+    for (int64_t eachVal : srcOp.getInteriorPadding()) {
+      steps.push_back(eachVal + 1);
+      sum += eachVal;
+    }
+    if (sum != 0) {
+      auto fullOp = rewriter.create<ttir::FullOp>(
+          srcOp.getLoc(), outputType, rewriter.getF32FloatAttr(value));
+      llvm::SmallVector<int64_t> upperbounds;
+      llvm::copy(outputType.getShape(), std::back_inserter(upperbounds));
+      int64_t index = 0;
+      for (int64_t pad : srcOp.getEdgePaddingHigh()) {
+        upperbounds[index] -= pad;
+        index++;
+      }
+
+      llvm::SmallVector<int64_t> counters;
+      llvm::SmallVector<int64_t> lowerbounds;
+      for (int64_t counter : srcOp.getEdgePaddingLow()) {
+        counters.push_back(counter);
+        lowerbounds.push_back(counter);
+      }
+      llvm::SmallVector<int64_t> flatIndices;
+      flatIndices.append(counters.begin(), counters.end());
+      int64_t numIndices = 1;
+
+      size_t current_index = 0;
+      while (current_index < counters.size() &&
+             counters[counters.size() - 1] <
+                 upperbounds[upperbounds.size() - 1]) {
+        counters[current_index] += steps[current_index];
+        bool reset = false;
+        while (current_index < counters.size() &&
+               counters[current_index] >= upperbounds[current_index]) {
+          counters[current_index] = lowerbounds[current_index];
+          current_index++;
+          if (current_index < counters.size()) {
+            counters[current_index] += steps[current_index];
+          }
+          reset = true;
+        }
+        if (current_index >= counters.size()) {
+          break;
+        }
+        if (reset) {
+          current_index = 0;
+        }
+        flatIndices.append(counters.begin(), counters.end());
+        numIndices++;
+      }
+      auto inputType =
+          mlir::cast<RankedTensorType>(adaptor.getOperand().getType());
+
+      int64_t rank = counters.size();
+      auto indicesType = RankedTensorType::get(
+          {numIndices, rank}, rewriter.getI64Type(), inputType.getEncoding());
+
+      auto indicesAttr = DenseIntElementsAttr::get(indicesType, flatIndices);
+      Value indicesTensor = rewriter.create<ttir::ConstantOp>(
+          srcOp.getLoc(), indicesType, indicesAttr);
+      SmallVector<int32_t> insertedWindowDims =
+          llvm::to_vector(llvm::seq<int32_t>(0, rank));
+
+      ttir::utils::replaceOpWithNewDPSOp<ttir::ScatterOp>(
+          rewriter, srcOp, outputType,
+          /*input=*/fullOp.getResult(),
+          /*scatter_indices=*/indicesTensor,
+          /*update=*/adaptor.getOperand(),
+          /*update_window_dims=*/SmallVector<int32_t>{},
+          /*inserted_window_dims=*/insertedWindowDims,
+          /*input_batching_dims=*/SmallVector<int32_t>{},
+          /*scatter_indices_batching_dims=*/SmallVector<int32_t>{},
+          /*scatter_dims_to_operand_dims=*/insertedWindowDims,
+          /*index_vector_dim=*/1,
+          /*indices_are_sorted=*/false,
+          /*unique_indices=*/true);
+
+      return success();
+    }
+
+    SmallVector<int32_t> padDim;
+    for (uint32_t i = 0; i < adaptor.getEdgePaddingLow().size(); i++) {
+      padDim.push_back(adaptor.getEdgePaddingLow()[i]);
+      padDim.push_back(adaptor.getEdgePaddingHigh()[i]);
     }
 
     ttir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::PadOp>(
@@ -2805,16 +3151,6 @@ private:
   checkConversionLegality(mlir::stablehlo::PadOp &srcOp,
                           mlir::stablehlo::PadOp::Adaptor adaptor,
                           ConversionPatternRewriter &rewriter) const {
-
-    // Due to lack of support by device, we do not support interior padding,
-    // so verify if interior padding is requested and exit early with error.
-    for (int64_t eachVal : srcOp.getInteriorPadding()) {
-      if (eachVal != 0) {
-        return rewriter.notifyMatchFailure(srcOp,
-                                           "Unsupported Interior Padding, only "
-                                           "0 interior padding is supported.");
-      }
-    }
 
     if (srcOp.getEdgePaddingLow().size() != srcOp.getEdgePaddingHigh().size()) {
       return rewriter.notifyMatchFailure(
@@ -3440,7 +3776,7 @@ public:
 
     rewriter.replaceOpWithNewOp<ttir::ScaledDotProductAttentionOp>(
         srcOp, outputType, query, key, value, attentionMask, outputTensor,
-        isCausalAttr, scaleAttr);
+        isCausalAttr, scaleAttr, /*slidingWindowSize=*/nullptr);
 
     return success();
   }
@@ -3708,6 +4044,7 @@ static void addBatchNormOpConversionPattern(MLIRContext *ctx,
                                                                  ctx);
   patterns.add<StableHLOToBatchNormTrainingOpConversionPattern>(typeConverter,
                                                                 ctx);
+  patterns.add<StableHLOToBatchNormGradOpConversionPattern>(typeConverter, ctx);
 }
 
 static void addRngOpConversionPattern(MLIRContext *ctx,

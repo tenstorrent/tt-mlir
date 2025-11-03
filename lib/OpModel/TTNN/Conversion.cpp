@@ -108,6 +108,7 @@ getUnaryWithParams(UnaryWithParamAttr attr) {
           {TTMLIRUnaryOpType::Acos, TTNNUnaryOpType::ACOS},
           {TTMLIRUnaryOpType::Rsqrt, TTNNUnaryOpType::RSQRT},
           {TTMLIRUnaryOpType::Relu6, TTNNUnaryOpType::RELU6},
+          {TTMLIRUnaryOpType::Hardsigmoid, TTNNUnaryOpType::HARDSIGMOID},
           {TTMLIRUnaryOpType::Atan, TTNNUnaryOpType::ATAN},
           {TTMLIRUnaryOpType::Erf, TTNNUnaryOpType::ERF},
           {TTMLIRUnaryOpType::Erfc, TTNNUnaryOpType::ERFC},
@@ -508,6 +509,15 @@ getConv2dConfig(const std::optional<Conv2dConfigAttr> &conv2dConfig) {
   if (conv2dConfig->getEnableWeightsDoubleBuffer()) {
     config.enable_weights_double_buffer =
         conv2dConfig->getEnableWeightsDoubleBuffer().getValue();
+  }
+
+  if (conv2dConfig->getInPlace()) {
+    config.in_place = conv2dConfig->getInPlace().getValue();
+  }
+
+  if (conv2dConfig->getEnableKernelStrideFolding()) {
+    config.enable_kernel_stride_folding =
+        conv2dConfig->getEnableKernelStrideFolding().getValue();
   }
 
   return config;

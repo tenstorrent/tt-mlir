@@ -54,6 +54,7 @@ table ScaledDotProductAttentionOp {
   is_causal: bool;
   attention_mask: tt.target.ttnn.TensorRef;
   scale: float = null;
+  sliding_window_size: uint32 = null;
   out: tt.target.ttnn.TensorRef;
   memcfg: tt.target.ttnn.MemoryConfig;
 }

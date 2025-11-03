@@ -6,6 +6,7 @@
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/IR/BuiltinDialect.h"
@@ -57,10 +58,10 @@ public:
       D2MGenericReplaceGlobals>::D2MGenericReplaceGlobalsBase;
   void runOnOperation() final {
     ConversionTarget target(getContext());
-    target.addLegalDialect<arith::ArithDialect, BuiltinDialect,
-                           func::FuncDialect, memref::MemRefDialect,
-                           scf::SCFDialect, tensor::TensorDialect,
-                           ttcore::TTCoreDialect, d2m::D2MDialect>();
+    target.addLegalDialect<
+        arith::ArithDialect, BuiltinDialect, func::FuncDialect,
+        linalg::LinalgDialect, memref::MemRefDialect, scf::SCFDialect,
+        tensor::TensorDialect, ttcore::TTCoreDialect, d2m::D2MDialect>();
 
     target.addDynamicallyLegalOp<ttcore::GetGlobalOp>(
         [&](ttcore::GetGlobalOp op) {

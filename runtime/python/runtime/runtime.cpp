@@ -187,6 +187,10 @@ void registerRuntimeBindings(nb::module_ &m) {
            [](tt::runtime::Tensor self) {
              return tt::runtime::getTensorVolume(self);
            })
+      .def("get_logical_volume",
+           [](tt::runtime::Tensor self) {
+             return tt::runtime::getTensorLogicalVolume(self);
+           })
       .def("get_dtype",
            [](tt::runtime::Tensor self) {
              return tt::runtime::getTensorDataType(self);
@@ -578,6 +582,8 @@ void registerRuntimeBindings(nb::module_ &m) {
       .def_static("get", &tt::runtime::perf::Env::get, nb::rv_policy::reference)
       .def("set_program_metadata", &tt::runtime::perf::Env::setProgramMetadata)
       .def("tracy_log_op_location", &tt::runtime::perf::Env::tracyLogOpLocation)
+      .def("tracy_log_input_layout_conversion",
+           &tt::runtime::perf::Env::tracyLogInputLayoutConversion)
       .def("tracy_log_const_eval_program",
            &tt::runtime::perf::Env::tracyLogConstEvalProgram)
       .def("tracy_log_program_metadata",

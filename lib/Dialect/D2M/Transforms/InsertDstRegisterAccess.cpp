@@ -17,7 +17,6 @@
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/BuiltinAttributes.h"
-#include "mlir/IR/BuiltinOps.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
 namespace mlir::tt::d2m {
@@ -74,10 +73,10 @@ public:
         continue;
       }
 
-      Region &region = op.getRegion(regionIndex);
-      Block &block = region.getBlocks().front();
+      Region *genericRegion = &op.getRegion(regionIndex);
+      Block &block = genericRegion->getBlocks().front();
 
-      Type largestDstType = utils::getRegionLargestDstElemType(region);
+      Type largestDstType = utils::getRegionLargestDstElemType(*genericRegion);
       const unsigned dstCapacity =
           ttcore::getOpChipDescAttr(op).getDstLogicalSizeTiles(
               largestDstType, false, maxDstPhysicalSizeTiles);
@@ -85,9 +84,15 @@ public:
       bool linalgToAffineFailed = false;
       block.walk([&](linalg::GenericOp linalgGenericOp) {
         if (!useTileMatmul && hasTileMatmul(linalgGenericOp)) {
-          linalgToAffineFailed |= rewriteTileMatmulAsTileMatmulBlock(
-              rewriter, op, region, linalgGenericOp, dstCapacity, modified);
-          return;
+          // Only use tile matmul block rewrite when not in explicit
+          // datamovement form. Explicit datamovement form should fall through
+          // to regular linalg-to-affine conversion.
+          if (!op.isExplicitDatamovementForm()) {
+            linalgToAffineFailed |= rewriteTileMatmulAsTileMatmulBlock(
+                rewriter, op, *genericRegion, linalgGenericOp, dstCapacity,
+                modified);
+            return;
+          }
         }
 
         rewriter.setInsertionPoint(linalgGenericOp);
@@ -98,11 +103,14 @@ public:
           linalgToAffineFailed = true;
           return;
         }
-        rewriter.eraseOp(linalgGenericOp);
-        modified |= insertDstRegisterAccess(rewriter, op, region, dstCapacity,
-                                            !linalgLoops.value().empty()
-                                                ? linalgLoops.value().front()
-                                                : nullptr);
+        assert(!linalgLoops.value().empty());
+
+        rewriter.replaceOp(linalgGenericOp, linalgLoops.value().front());
+
+        Operation *rootLoopNest = linalgLoops.value().front();
+        Region &dstRegisterAccessRegion = rootLoopNest->getRegion(0);
+        modified |= insertDstRegisterAccess(
+            rewriter, op, dstRegisterAccessRegion, dstCapacity, rootLoopNest);
       });
       if (linalgToAffineFailed) {
         return failure();
@@ -321,7 +329,7 @@ public:
         mlir::isa_and_nonnull<d2m::WaitOp, d2m::ReserveOp>(definingOp)) {
       memref = definingOp->getOperand(0);
     }
-    return mlir::cast<BlockArgument>(memref);
+    return mlir::dyn_cast<BlockArgument>(memref);
   }
 
   // Collect a single load or store to dst organized by loop nest.
@@ -339,8 +347,10 @@ public:
     auto [iter, inserted] = copyInfos.try_emplace(outermostInnerComputeLoop);
     CopyInfo &copyInfo = iter->second;
     copyInfo.push_back(loadOrStore, nextDstSliceIndex);
-    SmallVector<int64_t> guardIndices = op.getNonParticipatingLoopDims(
-        lookThroughSubView(loadOrStore.getMemRef()).getArgNumber());
+    BlockArgument blockArg = lookThroughSubView(loadOrStore.getMemRef());
+    SmallVector<int64_t> guardIndices =
+        blockArg ? op.getNonParticipatingLoopDims(blockArg.getArgNumber())
+                 : SmallVector<int64_t>{};
     if (inserted) {
       // First access in this loop nest - set the guard indices.
       copyInfo.guardIndices = guardIndices;

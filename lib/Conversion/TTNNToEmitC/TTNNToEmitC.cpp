@@ -716,6 +716,7 @@ public:
         emitter.emit(/*divisor_override=*/std::nullopt),
         emitter.getMemoryConfig(srcOp.getResult()),
         emitter.emit(srcOp.getAppliedShardScheme()),
+        emitter.emit(/*compute_kernel_config=*/std::nullopt),
         emitter.emit(srcOp.getInPlaceHalo()),
     };
 
@@ -2636,6 +2637,7 @@ public:
         emitter.emit(srcOp.getCurPosTensor()),
         emitter.emit(srcOp.getAttentionSink()),
         emitter.emit(srcOp.getScale()),
+        emitter.emit(/*slidingWindowSize=*/std::nullopt),
         emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
     };
     // NOLINTEND(clang-analyzer-cplusplus.NewDelete)
@@ -2682,6 +2684,7 @@ public:
         emitter.emit(srcOp.getAttentionMask()),
         emitter.emit(srcOp.getIsCausal()),
         emitter.emit(srcOp.getScale()),
+        emitter.emit(srcOp.getSlidingWindowSize()),
         emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
     };
     // NOLINTEND(clang-analyzer-cplusplus.NewDelete)
@@ -3549,7 +3552,7 @@ private:
   }
 
   std::string getPrefixSwapPattern() const override {
-    return "::tt::tt_metal::load_tensor_flatbuffer";
+    return "ttnn::loadTensor";
   }
 
 public:
@@ -3563,9 +3566,17 @@ public:
     ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::LoadTensorOp> emitter(
         srcOp, adaptor, rewriter);
 
+    RankedTensorType resultType = srcOp.getResult().getType();
+    mlir::tt::ttnn::TTNNLayoutAttr layoutAttr =
+        mlir::cast<mlir::tt::ttnn::TTNNLayoutAttr>(resultType.getEncoding());
+
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getFilePath()),
+        emitter.emit(layoutAttr.getLayout()),
+        emitter.emit(mlir::tt::ttcore::elementTypeToDataType(
+            layoutAttr.getScalarElementType())),
         emitter.emit(srcOp.getDevice()),
+        emitter.getMemoryConfig(srcOp.getResult()),
     };
 
     emitter.replaceOp(*this, args);
@@ -3624,7 +3635,9 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
            EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::ReluOp>,
            EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::RsqrtOp>,
            EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::Relu6Op>,
+           EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::HardsigmoidOp>,
            EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::SiluOp>,
+           EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::MishOp>,
            ElementwiseUnaryWithFloatParameterOpConversionPattern<
                mlir::tt::ttnn::LeakyReluOp>,
            EltwiseUnaryWithFastAndApproximateModeOpConversionPattern<

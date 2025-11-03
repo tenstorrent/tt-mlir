@@ -76,7 +76,9 @@ if (TTMLIR_ENABLE_RUNTIME)
       DESTINATION ${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR}
       COMPONENT SharedLib
   )
-  install(DIRECTORY ${PROJECT_BINARY_DIR}/runtime/include/tt/runtime/flatbuffer
+  install(DIRECTORY
+    ${PROJECT_SOURCE_DIR}/runtime/include/tt/runtime/flatbuffer
+    ${PROJECT_BINARY_DIR}/runtime/include/tt/runtime/flatbuffer
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/tt/runtime
     COMPONENT SharedLib
     FILES_MATCHING

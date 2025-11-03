@@ -8,19 +8,18 @@
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOpsTypes.h"
 #include "ttmlir/Dialect/D2M/Utils/Utils.h"
-#include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 
 #include "mlir/Dialect/Bufferization/IR/Bufferization.h"
+#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/IR/AffineMap.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinTypes.h"
+#include "mlir/IR/Dominance.h"
 #include "mlir/IR/PatternMatch.h"
-
-#include <functional>
 
 #define GET_OP_CLASSES
 #include "ttmlir/Dialect/D2M/IR/D2MOps.cpp.inc"
@@ -1088,17 +1087,14 @@ static mlir::LogicalResult verifyAffineBlocking(
 
 // GenericOp verification
 ::mlir::LogicalResult d2m::GenericOp::verify() {
-  if (hasPureTensorSemantics() && getIndexingMaps().size() > 0) {
-    if (this->getNumRegions() != 1) {
+  if (hasPureTensorSemantics()) {
+    if (this->getNumRegions() != 1 && !isExplicitDatamovementForm()) {
       return emitOpError(
-          "generic op with pure tensor semantics must have exactly 1 region");
+          "generic op with pure tensor semantics must have exactly 1 region "
+          "when not in explicit data movement form");
     }
 
     Region &region = this->getRegion(0);
-    if (!region.hasOneBlock()) {
-      return emitOpError(
-          "generic op with pure tensor semantics must have exactly 1 block");
-    }
 
     Block &block = region.front();
     if (block.getOperations().empty() || !mlir::isa<YieldOp>(&block.back())) {
@@ -1243,10 +1239,17 @@ static mlir::LogicalResult verifyAffineBlocking(
       }
     }
 
-    if (indexingMaps.empty()) {
-      // If there are no indexing maps, then we can no longer validate block
-      // argument shapes.
+    if (isExplicitDatamovementForm()) {
+      // Explicit datamovement form: skip shape validation.
       continue;
+    }
+
+    // When not in explicit datamovement form, indexing_maps must be non-empty.
+    if (indexingMaps.empty()) {
+      return emitOpError(
+          "indexing_maps must be non-empty unless in explicit "
+          "datamovement form (all of block_factors, indexing_maps, "
+          "and iterator_types are empty)");
     }
 
     auto valueArguments = region.getArguments().take_front(operandTypes.size());
@@ -1289,6 +1292,21 @@ static mlir::LogicalResult verifyAffineBlocking(
     }
   }
 
+  auto isReductionIterator = [](Attribute iteratorType) {
+    return mlir::cast<ttcore::IteratorTypeAttr>(iteratorType).getValue() ==
+           ttcore::IteratorType::Reduction;
+  };
+  auto isStreamingOutput = [](Value output) {
+    return output.getDefiningOp() != nullptr &&
+           mlir::dyn_cast<d2m::StreamLayoutOp>(output.getDefiningOp()) !=
+               nullptr;
+  };
+  if (llvm::any_of(getIteratorTypes(), isReductionIterator) &&
+      llvm::any_of(getOutputs(), isStreamingOutput)) {
+    return emitOpError("Streaming outputs are not supported for reduction "
+                       "iterators. Issue #5446");
+  }
+
   return success();
 }
 
@@ -1305,8 +1323,8 @@ void GenericOp::getCanonicalizationPatterns(mlir::RewritePatternSet &patterns,
         }
 
         auto replaceWithOutputCb =
-            +[](PatternRewriter &rewriter, Region &region, Operation *regionOp,
-                OpOperand &initOperand, int64_t dpsIOBoundary) -> bool {
+            [op](PatternRewriter &rewriter, Region &region, Operation *regionOp,
+                 OpOperand &initOperand, int64_t dpsIOBoundary) -> bool {
           BlockArgument blockArg =
               mlir::dyn_cast<BlockArgument>(initOperand.get());
           if (blockArg && blockArg.getArgNumber() >= dpsIOBoundary) {
@@ -1339,13 +1357,36 @@ void GenericOp::getCanonicalizationPatterns(mlir::RewritePatternSet &patterns,
 
           blockArg = region.getArgument(dpsIOBoundary);
           assert(blockArg.getNumUses() > 0);
-          Operation *popOrReserve = *blockArg.getUsers().begin();
-          if (!mlir::isa<d2m::WaitOp, d2m::ReserveOp>(popOrReserve)) {
+
+          // Find a wait/reserve that dominates the DPS operation.
+          Operation *waitOrReserve = nullptr;
+
+          // Get the parent function to compute dominance.
+          Operation *parentOp = op->getParentOp();
+          while (parentOp && !mlir::isa<FunctionOpInterface>(parentOp)) {
+            parentOp = parentOp->getParentOp();
+          }
+
+          assert(parentOp && "d2m.generic must be nested within a function");
+
+          // Use DominanceInfo for cross-block dominance checking.
+          DominanceInfo domInfo(parentOp);
+          for (Operation *user : blockArg.getUsers()) {
+            assert((mlir::isa<d2m::WaitOp, d2m::ReserveOp>(user)) &&
+                   "block argument users must be wait/reserve operations");
+            // Check if this wait/reserve dominates the regionOp.
+            if (domInfo.dominates(user, regionOp)) {
+              waitOrReserve = user;
+              break;
+            }
+          }
+
+          if (!waitOrReserve) {
             return false;
           }
 
           rewriter.modifyOpInPlace(regionOp, [&]() {
-            initOperand.assign(popOrReserve->getResult(0));
+            initOperand.assign(waitOrReserve->getResult(0));
           });
 
           if (mlir::isa_and_nonnull<EmptyOp, mlir::tensor::EmptyOp>(
@@ -1401,17 +1442,14 @@ unsigned d2m::GenericOp::getNumLoops() { return getNumDims(); }
 unsigned d2m::GenericOp::getNumDims() {
   assert(!getIndexingMaps().empty() && "GenericOp must be pre-loop generated "
                                        "with indexing maps to use this method");
-  return mlir::cast<mlir::AffineMapAttr>(getIndexingMapsAttr()[0])
-      .getAffineMap()
-      .getNumDims();
+  return getIndexingMap(0).getNumDims();
 }
 
-std::optional<mlir::AffineMap>
-d2m::GenericOp::getIndexingMap(int64_t operandIndex) {
-  if (getIndexingMaps().empty()) {
-    return std::nullopt;
-  }
-  return mlir::cast<AffineMapAttr>(getIndexingMaps()[operandIndex]).getValue();
+mlir::AffineMap d2m::GenericOp::getIndexingMap(int64_t operandIndex) {
+  TT_debugv(!isExplicitDatamovementForm(),
+            "Attempting to access indexing map while in explicit "
+            "datamovement form.");
+  return getIndexingMapsValue()[operandIndex];
 }
 
 mlir::SmallVector<mlir::AffineMap> d2m::GenericOp::getIndexingMapsValue() {
@@ -1533,12 +1571,12 @@ mlir::SmallVector<int64_t> d2m::GenericOp::getLoopBounds() {
 
 mlir::SmallVector<int64_t>
 d2m::GenericOp::getParticipatingLoopDims(int64_t operandIndex) {
-  if (getIndexingMaps().empty()) {
+  if (isExplicitDatamovementForm()) {
     return {};
   }
-  std::optional<AffineMap> indexingMap = getIndexingMap(operandIndex);
+  AffineMap indexingMap = getIndexingMap(operandIndex);
   auto dimExprs =
-      llvm::make_filter_range(indexingMap->getResults(), [](AffineExpr expr) {
+      llvm::make_filter_range(indexingMap.getResults(), [](AffineExpr expr) {
         return mlir::isa<AffineDimExpr>(expr);
       });
   return llvm::map_to_vector(dimExprs, [](AffineExpr expr) {
@@ -1548,13 +1586,13 @@ d2m::GenericOp::getParticipatingLoopDims(int64_t operandIndex) {
 
 mlir::SmallVector<int64_t>
 d2m::GenericOp::getNonParticipatingLoopDims(int64_t operandIndex) {
-  if (getIndexingMaps().empty()) {
+  if (isExplicitDatamovementForm()) {
     return {};
   }
-  std::optional<AffineMap> indexingMap = getIndexingMap(operandIndex);
+  AffineMap indexingMap = getIndexingMap(operandIndex);
   SmallVector<int64_t> participatingDims =
       getParticipatingLoopDims(operandIndex);
-  llvm::BitVector nonParticipatingDims(indexingMap->getNumDims(), true);
+  llvm::BitVector nonParticipatingDims(indexingMap.getNumDims(), true);
   llvm::for_each(participatingDims, [&nonParticipatingDims](int64_t dim) {
     nonParticipatingDims.reset(dim);
   });

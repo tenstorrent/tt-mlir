@@ -67,6 +67,7 @@ toTTNNUnaryOpType(::tt::target::ttnn::UnaryOpType unaryOpType) {
       {FbUnaryOpType::Acos, TTNNUnaryOpType::ACOS},
       {FbUnaryOpType::Rsqrt, TTNNUnaryOpType::RSQRT},
       {FbUnaryOpType::Relu6, TTNNUnaryOpType::RELU6},
+      {FbUnaryOpType::Hardsigmoid, TTNNUnaryOpType::HARDSIGMOID},
       {FbUnaryOpType::Atan, TTNNUnaryOpType::ATAN},
       {FbUnaryOpType::Erf, TTNNUnaryOpType::ERF},
       {FbUnaryOpType::Erfc, TTNNUnaryOpType::ERFC},
@@ -295,6 +296,11 @@ createConv2dConfig(const ::tt::target::ttnn::Conv2dConfig *config) {
 
   if (config->in_place()) {
     conv2dConfig.in_place = *config->in_place();
+  }
+
+  if (config->enable_kernel_stride_folding()) {
+    conv2dConfig.enable_kernel_stride_folding =
+        *config->enable_kernel_stride_folding();
   }
 
   return conv2dConfig;

@@ -339,8 +339,8 @@ Tensor createMultiDeviceHostTensor(
             tensorShards, strategy, meshShape);
       },
       [&]() -> RetType {
-        detail::fatalNotImplemented("createEmptyTensor",
-                                    HostRuntime::Distributed);
+        return ::tt::runtime::distributed::createMultiDeviceHostTensor(
+            tensorShards, strategy, meshShape);
       });
 }
 
@@ -458,6 +458,23 @@ std::uint32_t getTensorVolume(Tensor t) {
       [&]() -> RetType { return ::tt::runtime::ttmetal::getTensorVolume(t); },
       [&]() -> RetType {
         return ::tt::runtime::distributed::getTensorVolume(t);
+      });
+}
+
+std::uint32_t getTensorLogicalVolume(Tensor t) {
+  using RetType = std::uint32_t;
+  return DISPATCH_TO_CURRENT_RUNTIME(
+      RetType,
+      [&]() -> RetType {
+        return ::tt::runtime::ttnn::getTensorLogicalVolume(t);
+      },
+      [&]() -> RetType {
+        detail::fatalNotImplemented("getTensorLogicalVolume",
+                                    DeviceRuntime::TTMetal);
+      },
+      [&]() -> RetType {
+        detail::fatalNotImplemented("getTensorLogicalVolume",
+                                    HostRuntime::Distributed);
       });
 }
 
