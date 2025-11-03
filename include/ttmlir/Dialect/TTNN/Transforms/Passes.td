@@ -356,4 +356,28 @@ def TTNNCollectPerfMetrics: Pass<"ttnn-collect-perf-metrics", "::mlir::ModuleOp"
   ];
 }
 
+def TTNNPrettifyForCodegen: Pass<"ttnn-prettify-for-codegen", "::mlir::ModuleOp"> {
+  let summary = "Adjust previously inserted tensor deallocation ops.";
+  let description = [{
+    This pass will adjust previously inserted tensor deallocation ops. It will
+    remove deallocations of parameter and constant tensors.
+  }];
+}
+
+def TTNNSimplifyLocsForCodegen: Pass<"ttnn-simplify-locs-for-codegen", "::mlir::ModuleOp"> {
+  let summary = "Simplify location information for code generation.";
+  let description = [{
+    This pass simplifies location information by removing nested locations from NameLocs.
+    It only processes TTNN dialect operations and skips UnknownLocs.
+  }];
+}
+
+def TTNNRemoveDeallocs: Pass<"ttnn-remove-deallocs", "::mlir::ModuleOp"> {
+  let summary = "Remove all ttnn.deallocate operations for debugging.";
+  let description = [{
+    This pass removes all ttnn.deallocate operations from the IR.
+    Useful for debugging purposes to isolate issues related to deallocation.
+  }];
+}
+
 #endif
