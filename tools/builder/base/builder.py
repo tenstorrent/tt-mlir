@@ -358,6 +358,8 @@ class Builder:
             )
         if dtype.is_floating_point:
             return torch.randn(shape, dtype=dtype)
+        elif dtype == torch.bool:
+            return torch.randint(0, 2, shape, dtype=torch.bool)
         else:
             min_int = torch.iinfo(dtype).min
             max_int = torch.iinfo(dtype).max
