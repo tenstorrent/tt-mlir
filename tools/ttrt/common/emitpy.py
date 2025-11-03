@@ -424,138 +424,134 @@ class EmitPy:
                                         f"Output tensor {i}: {torch_output}"
                                     )
                 else:
-                    with ttnn.manage_device(device_id=0) as device:
-                        for program_index, program_name in enumerate(program_names):
-                            if self[
-                                "--program-index"
-                            ] != "all" and program_index != int(
-                                self["--program-index"]
-                            ):
-                                continue
+                    import utils
+
+                    device = utils.DeviceGetter.get_device((1, 1))
+                    for program_index, program_name in enumerate(program_names):
+                        if self["--program-index"] != "all" and program_index != int(
+                            self["--program-index"]
+                        ):
+                            continue
+                        self.logging.debug(
+                            f"evaluating program={program_name} for python file={dylib.file_path}"
+                        )
+
+                        self.logging.debug(
+                            f"loading input tensors from artifacts for program={program_index}"
+                        )
+                        fbb_run_directory = self.artifacts.get_binary_run_folder_path(
+                            bin
+                        )
+                        torch_inputs = self.file_manager.load_tensors_from_artifacts(
+                            bin, "input", fbb_run_directory
+                        )["program_" + str(program_index)]
+                        inputs = []
+                        for i in torch_inputs:
+                            inputs.append(
+                                ttnn.as_tensor(
+                                    i,
+                                    layout=ttnn.Layout.TILE,
+                                    device=device,
+                                    memory_config=ttnn.MemoryConfig(
+                                        ttnn.TensorMemoryLayout.INTERLEAVED,
+                                        ttnn.BufferType.DRAM,
+                                        None,
+                                    ),
+                                )
+                            )
+
+                        # Save artifacts before they get deallocated
+                        if self["--save-artifacts"]:
+                            program_folder = f"{self.artifacts.get_dylib_emitpy_folder_path(dylib)}/program_{program_index}"
+                            for i, input_tensor in enumerate(torch_inputs):
+                                self.artifacts.save_torch_tensor(
+                                    program_folder,
+                                    input_tensor,
+                                    f"emitpy_input_{i}.pt",
+                                )
+
+                        if self["--print-input-output-tensors"]:
+                            for i, input_tensor in enumerate(inputs):
+                                input_tensor = ttnn.from_device(input_tensor)
+                                torch_input = input_tensor.to_torch()
+                                self.logging.info(f"Input tensor {i}: {torch_input}")
+
+                        for loop in range(self["--loops"]):
                             self.logging.debug(
-                                f"evaluating program={program_name} for python file={dylib.file_path}"
+                                f"starting loop={loop+1}/{self['--loops']} for program={program_name}"
+                            )
+                            program_func = getattr(module, program_name)
+                            dylib_outputs = program_func(inputs)
+                            self.logging.debug(
+                                f"finished loop={loop+1}/{self['--loops']} for program={program_name}"
                             )
 
                             self.logging.debug(
-                                f"loading input tensors from artifacts for program={program_index}"
+                                f"comparing flatbuffer outputs to emitpy outputs"
                             )
+                            torch_dylib_outputs = []
+                            for output in dylib_outputs:
+                                output = ttnn.from_device(output)
+                                torch_dylib_outputs.append(output.to_torch())
+
                             fbb_run_directory = (
                                 self.artifacts.get_binary_run_folder_path(bin)
                             )
-                            torch_inputs = (
+                            torch_fbb_outputs = (
                                 self.file_manager.load_tensors_from_artifacts(
-                                    bin, "input", fbb_run_directory
+                                    bin, "device_output", fbb_run_directory
                                 )["program_" + str(program_index)]
                             )
-                            inputs = []
-                            for i in torch_inputs:
-                                inputs.append(
-                                    ttnn.as_tensor(
-                                        i,
-                                        layout=ttnn.Layout.TILE,
-                                        device=device,
-                                        memory_config=ttnn.MemoryConfig(
-                                            ttnn.TensorMemoryLayout.INTERLEAVED,
-                                            ttnn.BufferType.DRAM,
-                                            None,
-                                        ),
-                                    )
-                                )
 
-                            # Save artifacts before they get deallocated
                             if self["--save-artifacts"]:
                                 program_folder = f"{self.artifacts.get_dylib_emitpy_folder_path(dylib)}/program_{program_index}"
-                                for i, input_tensor in enumerate(torch_inputs):
+                                for i, output in enumerate(torch_dylib_outputs):
                                     self.artifacts.save_torch_tensor(
                                         program_folder,
-                                        input_tensor,
-                                        f"emitpy_input_{i}.pt",
+                                        output,
+                                        f"emitpy_output_{i}.pt",
                                     )
 
                             if self["--print-input-output-tensors"]:
-                                for i, input_tensor in enumerate(inputs):
-                                    input_tensor = ttnn.from_device(input_tensor)
-                                    torch_input = input_tensor.to_torch()
+                                for i, output_tensor in enumerate(dylib_outputs):
+                                    output_tensor = ttnn.from_device(output_tensor)
+                                    torch_output = output_tensor.to_torch()
                                     self.logging.info(
-                                        f"Input tensor {i}: {torch_input}"
+                                        f"Output tensor {i}: {torch_output}"
                                     )
 
-                            for loop in range(self["--loops"]):
-                                self.logging.debug(
-                                    f"starting loop={loop+1}/{self['--loops']} for program={program_name}"
+                            # Compare outputs
+                            for i in range(len(torch_fbb_outputs)):
+                                # Nan and Inf handling
+                                torch_dylib_outputs[i] = mask_torch_inf_nan(
+                                    torch_dylib_outputs[i]
                                 )
-                                program_func = getattr(module, program_name)
-                                dylib_outputs = program_func(inputs)
-                                self.logging.debug(
-                                    f"finished loop={loop+1}/{self['--loops']} for program={program_name}"
-                                )
-
-                                self.logging.debug(
-                                    f"comparing flatbuffer outputs to emitpy outputs"
-                                )
-                                torch_dylib_outputs = []
-                                for output in dylib_outputs:
-                                    output = ttnn.from_device(output)
-                                    torch_dylib_outputs.append(output.to_torch())
-
-                                fbb_run_directory = (
-                                    self.artifacts.get_binary_run_folder_path(bin)
-                                )
-                                torch_fbb_outputs = (
-                                    self.file_manager.load_tensors_from_artifacts(
-                                        bin, "device_output", fbb_run_directory
-                                    )["program_" + str(program_index)]
+                                torch_fbb_outputs[i] = mask_torch_inf_nan(
+                                    torch_fbb_outputs[i]
                                 )
 
-                                if self["--save-artifacts"]:
-                                    program_folder = f"{self.artifacts.get_dylib_emitpy_folder_path(dylib)}/program_{program_index}"
-                                    for i, output in enumerate(torch_dylib_outputs):
-                                        self.artifacts.save_torch_tensor(
-                                            program_folder,
-                                            output,
-                                            f"emitpy_output_{i}.pt",
-                                        )
-
-                                if self["--print-input-output-tensors"]:
-                                    for i, output_tensor in enumerate(dylib_outputs):
-                                        output_tensor = ttnn.from_device(output_tensor)
-                                        torch_output = output_tensor.to_torch()
-                                        self.logging.info(
-                                            f"Output tensor {i}: {torch_output}"
-                                        )
-
-                                # Compare outputs
-                                for i in range(len(torch_fbb_outputs)):
-                                    # Nan and Inf handling
-                                    torch_dylib_outputs[i] = mask_torch_inf_nan(
-                                        torch_dylib_outputs[i]
+                                if not torch.allclose(
+                                    torch_dylib_outputs[i], torch_fbb_outputs[i]
+                                ):
+                                    self.logging.error(
+                                        f"EmitPy dylib output tensor does not match flatbuffer output for program_index={program_index}, loop={loop}"
                                     )
-                                    torch_fbb_outputs[i] = mask_torch_inf_nan(
-                                        torch_fbb_outputs[i]
+                                    self.logging.debug(
+                                        f"EmitPy dylib output tensor {torch_dylib_outputs[i]}"
                                     )
-
-                                    if not torch.allclose(
-                                        torch_dylib_outputs[i], torch_fbb_outputs[i]
-                                    ):
-                                        self.logging.error(
-                                            f"EmitPy dylib output tensor does not match flatbuffer output for program_index={program_index}, loop={loop}"
-                                        )
-                                        self.logging.debug(
-                                            f"EmitPy dylib output tensor {torch_dylib_outputs[i]}"
-                                        )
-                                        self.logging.debug(
-                                            f"Flatbuffer output tensor {torch_fbb_outputs[i]}"
-                                        )
-                                        raise Exception(
-                                            f"EmitPy dylib output tensor does not match flatbuffer output for program_index={program_index}, loop={loop}"
-                                        )
-                                    else:
-                                        self.logging.debug(
-                                            f"Output tensors match for program_index={program_index}, loop={loop}"
-                                        )
-                                self.logging.info(
-                                    f"All output tensors match for {dylib.file_path}"
-                                )
+                                    self.logging.debug(
+                                        f"Flatbuffer output tensor {torch_fbb_outputs[i]}"
+                                    )
+                                    raise Exception(
+                                        f"EmitPy dylib output tensor does not match flatbuffer output for program_index={program_index}, loop={loop}"
+                                    )
+                                else:
+                                    self.logging.debug(
+                                        f"Output tensors match for program_index={program_index}, loop={loop}"
+                                    )
+                            self.logging.info(
+                                f"All output tensors match for {dylib.file_path}"
+                            )
             except Exception as e:
                 result = "error"
                 if isinstance(e, TTRTTestException):
