@@ -85,6 +85,7 @@ void mlir::tt::registerAllDialects(mlir::DialectRegistry &registry) {
   mlir::stablehlo::registerAllDialects(registry);
   mlir::sdy::registerAllDialects(registry);
   mlir::mpmd::registerAllDialects(registry);
+  mlir::tt::stablehlo::registerCustomShardingRules(registry);
 #endif
 }
 

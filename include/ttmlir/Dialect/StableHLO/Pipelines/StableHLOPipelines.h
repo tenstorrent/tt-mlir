@@ -58,6 +58,8 @@ void createStableHLOPipeline(OpPassManager &pm,
 // Registers all StableHLO passes.
 void registerStableHLOPipeline();
 
+void registerCustomShardingRules(mlir::DialectRegistry &registry);
+
 #endif // TTMLIR_ENABLE_STABLEHLO
 
 } // namespace mlir::tt::stablehlo

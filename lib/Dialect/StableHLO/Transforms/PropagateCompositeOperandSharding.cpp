@@ -17,9 +17,13 @@
 
 #include "llvm/Support/Error.h"
 
+#include "shardy/dialect/sdy/transforms/propagation/aggressive_propagation.h"
+
 namespace mlir::tt::stablehlo {
 #define GEN_PASS_DEF_PROPAGATECOMPOSITEOPERANDSHARDINGPASS
 #include "ttmlir/Dialect/StableHLO/Transforms/Passes.h.inc"
+
+
 
 class PropagateCompositeOperandShardingPass
     : public impl::PropagateCompositeOperandShardingPassBase<
