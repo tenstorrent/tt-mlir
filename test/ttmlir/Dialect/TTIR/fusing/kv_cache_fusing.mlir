@@ -9,7 +9,7 @@ module @scatter_fill_cache{
     // CHECK-NOT: ttir.broadcast
     // CHECK-NOT: ttir.reshape
     // CHECK-NOT: ttir.arange
-    // CHECK-NOT: ttir.concatenate
+    // CHECK-NOT: ttir.concat
     // CHECK-NOT: ttir.scatter
     // CHECK-NOT: ttir.update_cache
     // CHECK: %[[RET:[0-9]+]] = "ttir.fill_cache"(%arg0, %arg2) <{batch_offset = 0 : i32}> : (tensor<1x8x64x128xbf16>, tensor<1x8x15x128xbf16>) -> tensor<1x8x64x128xbf16>
@@ -59,7 +59,7 @@ module @scatter_update_cache{
     // CHECK-NOT: ttir.broadcast
     // CHECK-NOT: ttir.reshape
     // CHECK-NOT: ttir.arange
-    // CHECK-NOT: ttir.concatenate
+    // CHECK-NOT: ttir.concat
     // CHECK-NOT: ttir.scatter_in_dim
     // CHECK-NOT: ttir.fill_cache
     // CHECK: %[[RET:[0-9]+]] = "ttir.update_cache"(%arg0, %arg2, %arg1) <{batch_offset = 0 : i32}> : (tensor<1x8x64x128xbf16>, tensor<1x8x1x128xbf16>, tensor<1xi64>) -> tensor<1x8x64x128xbf16>
