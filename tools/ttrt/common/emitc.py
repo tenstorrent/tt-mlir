@@ -518,6 +518,16 @@ class EmitC:
                     ttrt.runtime.close_mesh_device(device)
                     device = None
 
+                import gc
+
+                del (
+                    emitc_runtime_inputs,
+                    emitc_runtime_outputs,
+                    emitc_torch_inputs,
+                    emitc_torch_outputs,
+                )
+                gc.collect()
+
                 ttrt.runtime.test.close_so(emitc_dylib_handle)
 
         self.logging.debug(f"finished executing emitc_dylibs")
