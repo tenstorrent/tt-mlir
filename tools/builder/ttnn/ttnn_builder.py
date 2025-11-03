@@ -21,18 +21,16 @@ class TTNNBuilder(Builder):
     def __init__(self, ctx: Context, location: Location):
         super().__init__(ctx, location)
 
-    def _get_empty_op(self, tensor_type: RankedTensorType) -> OpView:
-        """Get TTNN-specific empty operation."""
-        return ttnn.EmptyOp(tensor_type, None, None, None, None, None)
-
     # ----- Private Methods ----
 
     def _organize_eltwise_ttnn(
-        self, inputs: List[Operand], output: OpView, _: Optional[Shape]
+        self,
+        inputs: List[Operand],
+        ttnn_tensor: RankedTensorType,
     ):
-        return (*inputs, output)
+        return (ttnn_tensor, *inputs)
 
-    def _op_proxy(
+    def _op_proxy2(
         self,
         op_ttnn_function: Callable,
         inputs: List[Operand],
@@ -52,7 +50,7 @@ class TTNNBuilder(Builder):
         if organize_ttnn_args is None:
             organize_ttnn_args = self._organize_eltwise_ttnn
 
-        with self._ctx, self._loc:
+            # with self._ctx, self._loc:
             """
             output_tensor_type = self.create_ttnn_tensor(
                 shape=inputs[0].type.shape if not output_shape else output_shape,
@@ -139,6 +137,7 @@ class TTNNBuilder(Builder):
         with self._ctx, self._loc:
             # If output shape or type is not provided, calculate it using golden function.
             # This is needed because ttnn ops do not have shape or type MLIR inference trait.
+
             output_shape_and_type = self._get_output_shape_and_type(
                 organize_golden_args, inputs, op_ttnn_function, golden_kwargs
             )
@@ -164,10 +163,7 @@ class TTNNBuilder(Builder):
             )
 
             # Create output tensor using provided function or create empty tensor.
-            if output_create_fn:
-                output = output_create_fn(output_shape, output_type)
-            else:
-                output = self._empty(output_shape, output_type)
+            result_tensor = self.create_ttnn_tensor(output_shape, output_type)
 
             # Prepare location for the op.
             id = self._get_next_global_id()
@@ -176,16 +172,19 @@ class TTNNBuilder(Builder):
                 if loc is not None
                 else self._get_loc_of_extra_file_callee(id=id)
             )
-
+            print(result_tensor, inputs, output_type, ttnn_kwargs)
+            print(*organize_ttnn_args(inputs, result_tensor))
+            print(type(result_tensor))
+            print(type(inputs[0]))
             # Organize arguments and create the ttnn op.
-            if organize_ttnn_args(inputs, output) == 0:
+            if organize_ttnn_args(inputs, result_tensor) == 0:
                 op = op_ttnn_function(
                     loc=loc,
                     **ttnn_kwargs,
                 )
             else:
                 op = op_ttnn_function(
-                    *organize_ttnn_args(inputs, output),
+                    *organize_ttnn_args(inputs, result_tensor),
                     loc=loc,
                     **ttnn_kwargs,
                 )
@@ -2660,7 +2659,7 @@ class TTNNBuilder(Builder):
             organize_golden_args=lambda i: (
                 tuple([self._get_golden_tensor(i_i) for i_i in i]),
             ),
-            organize_ttnn_args=lambda i: (i),
+            organize_ttnn_args=lambda i, o: (o, i),
             unit_attrs=unit_attrs,
         )
 
