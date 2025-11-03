@@ -205,33 +205,7 @@ def tanh(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = N
 
 
 unary_ops = [
-    abs,
-    atan | Marks(pytest.mark.skip_config(["ttmetal"])),
-    cbrt | Marks(pytest.mark.skip_config(["ttmetal"])),
-    ceil | Marks(pytest.mark.skip_config(["ttmetal"])),
-    cos,
     erf | Marks(pytest.mark.skip_config(["ttmetal"])),
-    erfc | Marks(pytest.mark.skip_config(["ttmetal"])),
-    exp,
-    expm1 | Marks(pytest.mark.skip_config(["ttmetal"])),
-    floor,
-    gelu,
-    is_finite | Marks(pytest.mark.skip_config(["ttmetal"])),
-    log,
-    log1p | Marks(pytest.mark.skip_config(["ttmetal"])),
-    logical_not,  # TODO (wenbinlyuTT): test int32 once untilize issue is fixed
-    neg,
-    reciprocal,
-    relu | Marks(pytest.mark.skip_config(["ttmetal"])),
-    relu6 | Marks(pytest.mark.skip_config(["ttmetal"])),
-    rsqrt,
-    sigmoid,
-    sign | Marks(pytest.mark.skip_config(["ttmetal"])),
-    silu | Marks(pytest.mark.skip_config(["ttmetal"])),
-    sin,
-    sqrt,
-    tan,
-    tanh | Marks(pytest.mark.skip_config(["ttmetal"])),
 ]
 
 

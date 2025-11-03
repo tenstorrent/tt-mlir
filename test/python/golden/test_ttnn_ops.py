@@ -195,12 +195,11 @@ def test_repeat(shape: Shape, dims: List[int], dtype, request, device):
     )
 
 
-# Fails
+# Passes
 @pytest.mark.parametrize(
     "shapes",
     [
         [
-            (1, 8, 1, 12, 64),
             (1, 8, 1, 12, 64),
         ]
     ],
@@ -213,12 +212,11 @@ def test_repeat_interleave(
 ):
     def repeat_interleave(
         in0: Operand,
-        in1: Operand,
         builder: TTNNBuilder,
         unit_attrs: Optional[List[str]] = None,
     ):
         return builder.repeat_interleave(
-            in0, in1, repeats=repeats, dim=dim, unit_attrs=unit_attrs
+            in0, repeats=repeats, dim=dim, unit_attrs=unit_attrs
         )
 
     compile_and_execute_ttnn(

@@ -30,86 +30,6 @@ class TTNNBuilder(Builder):
     ):
         return (ttnn_tensor, *inputs)
 
-    def _op_proxy2(
-        self,
-        op_ttnn_function: Callable,
-        inputs: List[Operand],
-        unit_attrs: Optional[List[str]] = None,
-        organize_ttnn_args: Optional[Callable] = None,
-        organize_golden_args: Optional[Callable] = None,
-        output_shape: Optional[Shape] = None,
-        output_type: Optional[Type] = None,
-        golden_kwargs: dict = {},
-        ttnn_kwargs: dict = {},
-        loc: Optional[Union[str, Location]] = None,
-        skip_golden: bool = False,
-    ) -> Any:
-        if organize_golden_args is None:
-            organize_golden_args = self._organize_eltwise_golden
-
-        if organize_ttnn_args is None:
-            organize_ttnn_args = self._organize_eltwise_ttnn
-
-            # with self._ctx, self._loc:
-            """
-            output_tensor_type = self.create_ttnn_tensor(
-                shape=inputs[0].type.shape if not output_shape else output_shape,
-                element_type=inputs[0].type.element_type
-                if not output_type
-                else output_type,
-            )
-
-
-            # Prepare location for the op.
-            id = self._get_next_global_id()
-            loc = (
-                self._get_loc_from_str(loc)
-                if loc is not None
-                else self._get_loc_of_extra_file_callee(id=id)
-            )
-            print(inputs, output_type, ttnn_kwargs)
-            if output_type:
-                op = op_ttnn_function(
-                    output_type,
-                    *organize_ttnn_args(inputs),
-                    loc=loc,
-                    **ttnn_kwargs,
-                )
-            else:
-                op = op_ttnn_function(
-                    *organize_ttnn_args(inputs),
-                    loc=loc,
-                    **ttnn_kwargs,
-                )
-
-            # Set unit attributes if provided.
-            if unit_attrs is not None:
-                for attr_name in unit_attrs:
-                    op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
-
-            if not skip_golden and not self._disable_golden_check:
-                print(
-                    builder_golden.get_golden_function(
-                        op_ttnn_function, **golden_kwargs
-                    )
-                )
-                print(golden_kwargs)
-                print(op_ttnn_function)
-                op_golden_function = builder_golden.get_golden_function(
-                    op_ttnn_function, **golden_kwargs
-                )
-                if op_golden_function is not None:
-                    if len(inputs) == 0:
-                        golden_output = op_golden_function(**golden_kwargs)
-                    else:
-                        golden_output = op_golden_function(
-                            *(organize_golden_args(inputs)), **golden_kwargs
-                        )
-                    self._set_golden_tensor(op, golden_output)
-
-            return op
-            """
-
     def _op_proxy(
         self,
         op_ttnn_function: Callable,
@@ -125,9 +45,6 @@ class TTNNBuilder(Builder):
         loc: Optional[Union[str, Location]] = None,
         skip_golden: bool = False,
     ) -> Any:
-        if not golden_kwargs:
-            golden_kwargs = ttnn_kwargs
-
         if organize_ttnn_args is None:
             organize_ttnn_args = self._organize_eltwise_ttnn
 
@@ -2690,14 +2607,13 @@ class TTNNBuilder(Builder):
         return self._op_proxy(
             ttnn.RepeatOp,
             [in0],
-            ttnn_kwargs={"repeat_dimensions": dims},
+            ttnn_kwargs={"repeat_dims": dims},
             unit_attrs=unit_attrs,
         )
 
     def repeat_interleave(
         self,
         in0: Operand,
-        in1: Operand,
         repeats: int,
         dim: int,
         unit_attrs: Optional[List[str]] = None,
@@ -2727,12 +2643,12 @@ class TTNNBuilder(Builder):
         """
         return self._op_proxy(
             ttnn.RepeatInterleaveOp,
-            [in0, in1],
+            [in0],
             ttnn_kwargs={"repeats": repeats, "dim": dim},
-            organize_ttnn_args=lambda i, o: (self._get_type(o), i[0], i[1]),
-            organize_golden_args=lambda i, o: [self._get_golden_tensor(i[0])],
+            organize_ttnn_args=lambda i, o: (o, i[0]),
+            organize_golden_args=lambda i: [self._get_golden_tensor(i[0])],
             output_type=self._get_type_from_torch_dtype(
-                self._get_golden_tensor(in1).dtype
+                self._get_golden_tensor(in0).dtype
             ),
             unit_attrs=unit_attrs,
         )
@@ -2868,6 +2784,7 @@ class TTNNBuilder(Builder):
             unit_attrs=unit_attrs,
         )
 
+    # skipping for now, seems to require device
     def conv2d(
         self,
         in0: Operand,
@@ -2949,7 +2866,10 @@ class TTNNBuilder(Builder):
                 ),
                 "groups": groups,
             },
-            organize_ttnn_args=lambda i, o: (self._get_type(o), i[0], i[1], o),
+            organize_ttnn_args=lambda i, o: (o, i[0], i[1], i[2]),
+            organize_golden_args=lambda i: (
+                tuple([self._get_golden_tensor(i_i) for i_i in i]),
+            ),
             unit_attrs=unit_attrs,
         )
 

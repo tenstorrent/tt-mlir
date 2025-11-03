@@ -123,7 +123,7 @@ class TTIRBuilder(Builder):
                     loc=loc,
                     **ttir_kwargs,
                 )
-
+            print(golden_kwargs)
             # Set unit attributes if provided.
             if unit_attrs is not None:
                 for attr_name in unit_attrs:
