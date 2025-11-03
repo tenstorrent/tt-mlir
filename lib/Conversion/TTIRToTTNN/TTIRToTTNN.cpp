@@ -1627,8 +1627,14 @@ public:
   matchAndRewrite(ttir::MeshShardOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     if (adaptor.getShardType() == ttcore::MeshShardType::Identity) {
-      // Fold the op when shard type is identity.
-      rewriter.replaceOp(op, adaptor.getInput());
+      // Use ttnn.mesh_shard op for now. This is a temporary workaround until we
+      // have a proper way to handle identity shard type.
+      auto device = ::ttnn::utils::getOrInsertDevice(rewriter, op);
+      rewriter.replaceOpWithNewOp<ttnn::MeshShardOp>(
+          op, this->getTypeConverter()->convertType(op.getType()),
+          adaptor.getInput(), device, adaptor.getShardDirection(),
+          adaptor.getShardType(), adaptor.getShardShape(),
+          adaptor.getShardDims());
       return success();
     }
 
