@@ -1034,6 +1034,12 @@ static mlir::LogicalResult verifyAffineBlocking(
 // GenericOp verification
 ::mlir::LogicalResult d2m::GenericOp::verify() {
   if (hasPureTensorSemantics()) {
+    if (this->getNumRegions() != 1 && !isExplicitDatamovementForm()) {
+      return emitOpError(
+          "generic op with pure tensor semantics must have exactly 1 region "
+          "when not in explicit data movement form");
+    }
+
     Region &region = this->getRegion(0);
 
     Block &block = region.front();

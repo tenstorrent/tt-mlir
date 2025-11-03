@@ -15,10 +15,10 @@ func.func @pure_tensor_multiple_regions(%arg0: tensor<64x128xf32>, %arg1: tensor
   // CHECK: ^datamovement1
   // CHECK: ^compute0
   %1 = d2m.generic {
-    block_factors = [1, 1],
+    block_factors = [],
     grid = #ttcore.grid<1x1>,
-    indexing_maps = [#map, #map, #map],
-    iterator_types = [#parallel, #parallel],
+    indexing_maps = [],
+    iterator_types = [],
     threads = [#d2m.thread<datamovement>, #d2m.thread<datamovement>, #d2m.thread<compute>]
   }
   ins(%arg0, %arg1 : tensor<64x128xf32>, tensor<64x128xf32>)
