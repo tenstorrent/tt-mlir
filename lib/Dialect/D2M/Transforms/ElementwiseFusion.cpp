@@ -13,9 +13,9 @@
 #include "mlir/IR/AsmState.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
-
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/Support/Casting.h"
+
 #include <tuple>
 
 namespace mlir::tt::d2m {
@@ -98,6 +98,17 @@ static bool isValidElementwiseFusionTarget(GenericOp gOp) {
 
   if (gOp.hasMultiUseInputOperand()) {
     return false;
+  }
+
+  // TODO(wenbinlyuTT): fusing ops w/ implicit bcast produces dangling
+  // unary_bcast ops that yields nothing.
+  for (OpOperand *input : gOp.getDpsInputOperands()) {
+    AffineMap indexingMap = gOp.getIndexingMap(input->getOperandNumber());
+    for (AffineExpr expr : indexingMap.getResults()) {
+      if (mlir::isa<AffineConstantExpr>(expr)) {
+        return false;
+      }
+    }
   }
 
   return true;
