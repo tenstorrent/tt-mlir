@@ -3230,7 +3230,7 @@ private:
   // cachePositions input tensor if it is.
   //
   // We are looking for:
-  // %result = "ttir.scatter"(%cache, %indices, %updates)
+  // %result = "stablehlo.scatter"(%cache, %indices, %updates)
   // Where:
   //    1. %cache and %updates are 4D tensors who's shape match except on the
   //    3rd dimension,
