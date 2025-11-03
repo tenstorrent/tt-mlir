@@ -94,8 +94,9 @@ class MLIRModuleExecutor:
 
     # ----- Private methods -----
 
-    def __init__(self) -> None:
+    def __init__(self, compile_only: bool = False) -> None:
         """Constructor."""
+        self._compile_only = compile_only
         self._module: ModuleWrapper = None
         self._execution_result: ExecutionResult = None
 
@@ -263,6 +264,10 @@ class MLIRModuleExecutor:
         self._compile()
 
         if not self._execution_result.compilation_finished:
+            return self._execution_result
+
+        if self._compile_only:
+            self._execution_result.device_run_passed = True
             return self._execution_result
 
         self._generate_flatbuffer()

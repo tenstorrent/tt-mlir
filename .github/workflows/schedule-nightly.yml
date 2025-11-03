@@ -48,8 +48,9 @@ jobs:
     with:
       docker_image: ${{ needs.build-image.outputs.docker-image }}
       test_matrix: ${{ needs.prepare-run.outputs.test_matrix }}
+      timeout: ${{ fromJson(needs.prepare-run.outputs.test_timeout) }}
 
-  fail-send-msg:
+  fail-notify:
     if: always()
     needs:
       - build-macos
@@ -59,6 +60,9 @@ jobs:
       - wheels-build
       - test
     runs-on: Ubuntu-latest
+    outputs:
+      is-main: ${{ steps.branch-check.outputs.IS_MAIN }}
+      failed: ${{ steps.check.outputs.failure }}
     steps:
       - name: Check if branch is main
         id: branch-check
@@ -66,13 +70,18 @@ jobs:
       - name: Check if the needed jobs succeeded or failed
         id: check
         uses: re-actors/alls-green@v1.2.2
-        continue-on-error: true
         with:
           jobs: ${{ toJSON(needs) }}
-          allowed-failures: test_models_ops, test_sweeps
-          allowed-skips: test_models_ops, test_sweeps
+          allowed-skips: build-macos
+
+  fail-send-msg:
+    if: always()
+    needs:
+      - fail-notify
+    runs-on: Ubuntu-latest
+    steps:
       - name: Send Fail Notification
-        if: failure() && steps.check.conclusion == 'failure' && steps.branch-check.outputs.IS_MAIN == 'true'
+        if: ${{ needs.fail-notify.outputs.failed == 'true' && needs.fail-notify.outputs.is-main == 'true' }}
         uses: slackapi/slack-github-action@v1.26.0
         with:
           payload: |
