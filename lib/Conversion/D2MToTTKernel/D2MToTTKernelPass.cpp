@@ -6,11 +6,10 @@
 
 #include "ttmlir/Dialect/D2M/Analysis/CBProducerConsumer.h"
 #include "ttmlir/Dialect/D2M/IR/D2M.h"
-#include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
-#include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernel.h"
+#include "ttmlir/Dialect/TTKernel/IR/TTKernelOps.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOpsTypes.h"
 #include "ttmlir/Dialect/TTMetal/IR/TTMetal.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
@@ -54,6 +53,89 @@ struct ConvertD2MToTTKernel
     // Workaround: Passes are required to be copy-constructible but autogen'ed
     // base class copy constructors ignore Pass option fields.
     this->ttnnMode = rhs.ttnnMode;
+  }
+
+  // TODO(wenbinlyuTT): remove this WA once unary_bcast DST issue is fixed.
+  // If a compute op consumes the output of a unary bcast, that unary bcast must
+  // happen before all copy_tile calls whose outputs are also consumed by that
+  // compute op.
+  void reorderUnaryBcastOps(func::FuncOp func) {
+    func.walk([&](Block *block) {
+      for (Operation &op : *block) {
+        // Collect all unary_bcast(_init).
+        SmallVector<
+            std::pair<ttkernel::UnaryBcastInitOp, ttkernel::UnaryBcastTileOp>>
+            bcastOps;
+        if (auto bcastOp = mlir::dyn_cast<ttkernel::UnaryBcastTileOp>(op)) {
+          auto bcastInitOp =
+              mlir::cast<ttkernel::UnaryBcastInitOp>(bcastOp->getPrevNode());
+          bcastOps.emplace_back(bcastInitOp, bcastOp);
+        }
+
+        for (auto [bcastInitOp, bcastOp] : bcastOps) {
+          Value bcastDstIdx = bcastOp.getDstTileIndex();
+
+          Operation *consumer = nullptr;
+          SmallVector<Value> consumerOperands;
+
+          // Find the one and only consumer.
+          for (auto *searchOp = bcastOp->getNextNode(); searchOp;
+               searchOp = searchOp->getNextNode()) {
+            if (searchOp->hasTrait<ttkernel::TTKernelFPUOpTrait>() ||
+                searchOp->hasTrait<ttkernel::TTKernelSFPUOpTrait>()) {
+              for (auto operand : searchOp->getOperands()) {
+                consumerOperands.push_back(operand);
+                if (operand == bcastDstIdx) {
+                  consumer = searchOp;
+                }
+              }
+            }
+
+            if (!consumer) {
+              consumerOperands.clear();
+            } else {
+              break;
+            }
+          }
+          assert(consumer);
+
+          // Find all copy_tile ops that provides inputs for the consumer.
+          SmallVector<std::pair<ttkernel::CopyTileInitOp, ttkernel::CopyTileOp>>
+              copyTileOps;
+          for (auto *searchOp = consumer->getPrevNode(); searchOp;
+               searchOp = searchOp->getPrevNode()) {
+            if (auto copyOp = mlir::dyn_cast<ttkernel::CopyTileOp>(searchOp)) {
+              Value copyDstIdx = copyOp.getTileIndexDst();
+              if (llvm::is_contained(consumerOperands, copyDstIdx)) {
+                consumerOperands.erase(
+                    llvm::remove_if(consumerOperands,
+                                    [&](Value v) { return v == copyDstIdx; }),
+                    consumerOperands.end());
+                auto copyInitOp =
+                    mlir::cast<ttkernel::CopyTileInitOp>(copyOp->getPrevNode());
+                copyTileOps.emplace_back(copyInitOp, copyOp);
+              }
+            }
+          }
+          if (copyTileOps.empty()) {
+            continue;
+          }
+
+          // Move unary_bcast(_init) to the front.
+          Operation *firstCopyInitOp = nullptr;
+          for (auto [copyInitOp, _] : copyTileOps) {
+            if (!firstCopyInitOp ||
+                copyInitOp->isBeforeInBlock(firstCopyInitOp)) {
+              firstCopyInitOp = copyInitOp;
+            }
+          }
+          if (firstCopyInitOp->isBeforeInBlock(bcastInitOp)) {
+            bcastInitOp->moveBefore(firstCopyInitOp);
+            bcastOp->moveAfter(bcastInitOp);
+          }
+        }
+      }
+    });
   }
 
   void runOnOperation() final {
@@ -159,6 +241,15 @@ struct ConvertD2MToTTKernel
       signalPassFailure();
       return;
     }
+
+    getOperation().walk([this](func::FuncOp func) {
+      auto threadType = func->getAttrOfType<ttkernel::ThreadTypeAttr>(
+          ttkernel::ThreadTypeAttr::name);
+      if (threadType &&
+          threadType.getValue() == ttkernel::ThreadType::Compute) {
+        reorderUnaryBcastOps(func);
+      }
+    });
   };
 };
 } // namespace

@@ -4,7 +4,6 @@
 
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
 
-#include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/D2M/Utils/Utils.h"
@@ -14,12 +13,11 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 
 #include "mlir/Dialect/Bufferization/IR/Bufferization.h"
+#include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/IR/AffineMap.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/PatternMatch.h"
-
-#include <functional>
 
 #define GET_OP_CLASSES
 #include "ttmlir/Dialect/D2M/IR/D2MOps.cpp.inc"

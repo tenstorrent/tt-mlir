@@ -424,6 +424,17 @@ def D2M_TileReduceMaxOp : D2M_GenericRegionComputeOp<"tile_reduce_max"> {
   }];
 }
 
+def D2M_TileBcastOp : D2M_GenericRegionComputeOp<"tile_bcast"> {
+  let summary = "D2M Tile Broadcast Op";
+  let description = [{
+    The `tile_bcast` operation broadcasts a row/col/scalar tile into a full tile.
+  }];
+
+  let arguments = (ins TTCore_Tile:$input,
+                       D2M_TileBcastTypeAttr:$bcast_type);
+  let results = (outs TTCore_Tile:$result);
+}
+
 def D2M_PackerMaskResetOp : D2M_GenericRegionComputeOp<"packer_mask_reset"> {
   let summary = "D2M Packer Mask Reset Op";
   let description = [{

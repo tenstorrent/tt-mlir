@@ -4,16 +4,10 @@
 
 #include "ttmlir/Conversion/TTIRToD2M/TTIRToD2M.h"
 
+#include "ttmlir/Asserts.h"
+#include "ttmlir/Dialect/D2M/IR/D2M.h"
+#include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
-#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
-#include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
-// D2M generic/region ops
-#include "ttmlir/Dialect/D2M/IR/D2M.h"
-#include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
-#include "ttmlir/Dialect/D2M/Utils/Utils.h"
-
-#include "ttmlir/Dialect/D2M/IR/D2M.h"
-#include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
@@ -118,7 +112,7 @@ protected:
   // information with a simple 1x1 grid; actual grid optimization and proper
   // dimension alignments are computed later in the D2MGridSelection pass.
   Value createOptimalLayoutOp(Value value, ttcore::MemorySpace memSpace,
-                              bool tiled,
+                              bool tiled, bool isBcast,
                               mlir::ConversionPatternRewriter &rewriter) const {
     if (isTTNNTensor(value.getType())) {
       assert(ttnnMode && "Unexpected TTNN tensor as op operand");
@@ -139,7 +133,7 @@ protected:
     }
 
     ttcore::MetalLayoutAttr layout;
-    if (!collapseTensors) {
+    if (!collapseTensors || isBcast) {
       auto emptyIntervalType = RankedTensorType::get(
           {0, 2}, IntegerType::get(rewriter.getContext(), 64));
 
@@ -177,17 +171,17 @@ protected:
   // happens later in the D2MGridSelection pass.
   std::array<mlir::SmallVector<Value>, 2> toLayoutOperandsAndResults(
       mlir::ConversionPatternRewriter &rewriter,
-      std::array<mlir::SmallVector<Value>, 2> operandsAndResults,
-      bool tiled) const {
+      std::array<mlir::SmallVector<Value>, 2> operandsAndResults, bool tiled,
+      bool isBcast) const {
     std::array<mlir::SmallVector<Value>, 2> result;
 
     for (Value operand : operandsAndResults[0]) {
-      result[0].push_back(
-          createOptimalLayoutOp(operand, memorySpaces[0], tiled, rewriter));
+      result[0].push_back(createOptimalLayoutOp(operand, memorySpaces[0], tiled,
+                                                isBcast, rewriter));
     }
     for (Value operand : operandsAndResults[1]) {
-      result[1].push_back(
-          createOptimalLayoutOp(operand, memorySpaces[1], tiled, rewriter));
+      result[1].push_back(createOptimalLayoutOp(operand, memorySpaces[1], tiled,
+                                                isBcast, rewriter));
     }
 
     return result;
@@ -224,6 +218,79 @@ protected:
                              std::size_t rank) {
     return SmallVector<mlir::AffineMap>(arity,
                                         builder.getMultiDimIdentityMap(rank));
+  }
+
+  static SmallVector<mlir::AffineMap>
+  getBroadcastAffineMapsArray(mlir::OpBuilder &builder, ArrayRef<Value> inputs,
+                              ArrayRef<Value> outputs) {
+    TT_assertv((inputs.size() == 2 && outputs.size() == 1),
+               "Only binary ops support broadcast for now.");
+    const auto in0Type =
+        mlir::cast<mlir::RankedTensorType>(inputs[0].getType());
+    const auto in1Type =
+        mlir::cast<mlir::RankedTensorType>(inputs[1].getType());
+    const auto outType =
+        mlir::cast<mlir::RankedTensorType>(outputs[0].getType());
+
+    const auto in0Layout =
+        mlir::cast<ttcore::MetalLayoutAttr>(in0Type.getEncoding());
+    const auto in1Layout =
+        mlir::cast<ttcore::MetalLayoutAttr>(in1Type.getEncoding());
+    const auto outLayout =
+        mlir::cast<ttcore::MetalLayoutAttr>(outType.getEncoding());
+
+    // Collapsing is disabled for implicit bcast, affine maps for both
+    // d2m.generic and linalg.generic are derived from the logical shape.
+    const auto in0Shape = in0Layout.getLogicalShape();
+    const auto in1Shape = in1Layout.getLogicalShape();
+    const auto outShape = outLayout.getLogicalShape();
+
+    const int in0Rank = static_cast<int>(in0Shape.size());
+    const int in1Rank = static_cast<int>(in1Shape.size());
+    const int outRank = static_cast<int>(outShape.size());
+    TT_assert(outRank == std::max(in0Rank, in1Rank));
+
+    mlir::SmallVector<mlir::AffineExpr> in0Exprs(outRank);
+    mlir::SmallVector<mlir::AffineExpr> in1Exprs(outRank);
+
+    llvm::SmallVector<int64_t> deducedShape(outRank, -1);
+    for (int i = -1; i >= -outRank; i--) {
+      const int in0Dim = in0Rank + i;
+      const int in1Dim = in1Rank + i;
+      const int outDim = outRank + i;
+
+      // Non-existent dim is represented as -1.
+      const int64_t in0DimSize = (in0Dim >= 0) ? in0Shape[in0Dim] : -1;
+      const int64_t in1DimSize = (in1Dim >= 0) ? in1Shape[in1Dim] : -1;
+
+      // Validate broadcasting compatibility: if both dimensions exist, then
+      // they must either be equal, or at least one of them is 1.
+      TT_assertv(!((in0DimSize != -1) && (in1DimSize != -1) &&
+                   (in0DimSize != in1DimSize) && (in0DimSize != 1) &&
+                   (in1DimSize != 1)),
+                 "Incompatible bcast dims {} & {}.", in0DimSize, in1DimSize);
+
+      const bool in0Bcast = ((in0DimSize == -1) || (in0DimSize == 1)) &&
+                            (in0DimSize != in1DimSize);
+      const bool in1Bcast = ((in1DimSize == -1) || (in1DimSize == 1)) &&
+                            (in0DimSize != in1DimSize);
+      TT_assertv(!(in0Bcast && in1Bcast),
+                 "Ill-formed broadcast, needs unsqueeze.");
+
+      in0Exprs[outDim] = in0Bcast ? builder.getAffineConstantExpr(0)
+                                  : builder.getAffineDimExpr(in0Dim);
+      in1Exprs[outDim] = in1Bcast ? builder.getAffineConstantExpr(0)
+                                  : builder.getAffineDimExpr(in1Dim);
+
+      deducedShape[outDim] = std::max(in0DimSize, in1DimSize);
+    }
+
+    TT_assertv(llvm::equal(deducedShape, outShape),
+               "Deduced bcast shape doesn't match the requested output shape.");
+
+    return {AffineMap::get(outRank, 0, in0Exprs, builder.getContext()),
+            AffineMap::get(outRank, 0, in1Exprs, builder.getContext()),
+            builder.getMultiDimIdentityMap(outRank)};
   }
 
   // Convert from ttir enum to equivalent linalg enum.
@@ -331,13 +398,100 @@ private:
       std::is_same_v<TileOp, d2m::TileLtzOp> ||
       std::is_same_v<TileOp, d2m::TileLezOp>;
 
+  // Tiles only for now!!!
+  std::pair<d2m::TileBcastType, d2m::TileBcastType>
+  getImplicitBcastTypes(ConcreteOp op, ArrayRef<Value> inputs,
+                        ArrayRef<Value> outputs) const {
+    if (inputs.size() != 2 || outputs.size() != 1) {
+      return {d2m::TileBcastType::None, d2m::TileBcastType::None};
+    }
+
+    const auto lhsType =
+        mlir::cast<mlir::RankedTensorType>(inputs[0].getType());
+    const auto rhsType =
+        mlir::cast<mlir::RankedTensorType>(inputs[1].getType());
+    const auto outType =
+        mlir::cast<mlir::RankedTensorType>(outputs[0].getType());
+
+    const int lhsRank = static_cast<int>(lhsType.getRank());
+    const int rhsRank = static_cast<int>(rhsType.getRank());
+    const int outRank = static_cast<int>(outType.getRank());
+
+    if (outRank != std::max(lhsRank, rhsRank)) {
+      return {d2m::TileBcastType::None, d2m::TileBcastType::None};
+    }
+
+    const auto lhsShape = lhsType.getShape();
+    const auto rhsShape = rhsType.getShape();
+
+    mlir::SmallVector<bool> lhsIsBcast(outRank);
+    mlir::SmallVector<bool> rhsIsBcast(outRank);
+
+    for (int i = -1; i >= -outRank; i--) {
+      const int lhsDim = lhsRank + i;
+      const int rhsDim = rhsRank + i;
+      const int outDim = outRank + i;
+
+      const int64_t lhsDimSize = (lhsDim >= 0) ? lhsShape[lhsDim] : -1;
+      const int64_t rhsDimSize = (rhsDim >= 0) ? rhsShape[rhsDim] : -1;
+
+      if ((lhsDimSize != -1) && (rhsDimSize != -1) &&
+          (lhsDimSize != rhsDimSize) && (lhsDimSize != 1) &&
+          (rhsDimSize != 1)) {
+        return {d2m::TileBcastType::None, d2m::TileBcastType::None};
+      }
+
+      const bool lhsBcast = (lhsDimSize != rhsDimSize) &&
+                            ((lhsDimSize == -1) || (lhsDimSize == 1));
+      const bool rhsBcast = (lhsDimSize != rhsDimSize) &&
+                            ((rhsDimSize == -1) || (rhsDimSize == 1));
+      TT_assertv(!(lhsBcast && rhsBcast),
+                 "Ill-formed broadcast, needs unsqueeze.");
+
+      lhsIsBcast[outDim] = lhsBcast;
+      rhsIsBcast[outDim] = rhsBcast;
+    }
+
+    auto getTileBcastType = [](ArrayRef<bool> isBcast) -> d2m::TileBcastType {
+      const size_t rank = isBcast.size();
+      // My width is 1 while the other's isn't: I'm a col/scalar tile.
+      const bool isColTile = isBcast[rank - 1];
+      // My height is 1 while the other's isn't: I'm a row/scalar tile.
+      const bool isRowTile = isBcast[rank - 2];
+
+      if (isRowTile && isColTile) {
+        return d2m::TileBcastType::Scalar;
+      }
+      if (isRowTile) {
+        return d2m::TileBcastType::Row;
+      }
+      if (isColTile) {
+        return d2m::TileBcastType::Col;
+      }
+      return d2m::TileBcastType::None;
+    };
+
+    return {getTileBcastType(lhsIsBcast), getTileBcastType(rhsIsBcast)};
+  }
+
   void createComputeRegion(mlir::OpBuilder &bbBuilder, mlir::Location bbLoc,
                            mlir::ValueRange bbArgs,
                            mlir::ConversionPatternRewriter &rewriter,
                            mlir::Location loc, const size_t numInputs,
-                           const size_t numOutputs) const {
-    mlir::ValueRange operands = bbArgs.take_front(numInputs);
+                           const size_t numOutputs,
+                           const d2m::TileBcastType lhsTileBcastType,
+                           const d2m::TileBcastType rhsTileBcastType) const {
+    auto operands = llvm::to_vector(bbArgs.take_front(numInputs));
     mlir::TypeRange resultTypes = bbArgs.take_back(numOutputs);
+
+    if (lhsTileBcastType != d2m::TileBcastType::None) {
+      operands[0] = bbBuilder.create<d2m::TileBcastOp>(
+          loc, resultTypes, operands[0], lhsTileBcastType);
+    }
+    if (rhsTileBcastType != d2m::TileBcastType::None) {
+      operands[1] = bbBuilder.create<d2m::TileBcastOp>(
+          loc, resultTypes, operands[1], rhsTileBcastType);
+    }
 
     mlir::Value yield;
     if constexpr (isComparisonOp) {
@@ -358,9 +512,17 @@ private:
 
     auto [origInputs, origOutputs] =
         splitDpsSignature(adaptor, op.getDpsInits().size());
+
+    auto lhsBcastType = d2m::TileBcastType::None;
+    auto rhsBcastType = d2m::TileBcastType::None;
+    std::tie(lhsBcastType, rhsBcastType) =
+        getImplicitBcastTypes(op, origInputs, origOutputs);
+    const bool isBcast = lhsBcastType != d2m::TileBcastType::None ||
+                         rhsBcastType != d2m::TileBcastType::None;
+
     auto [inputs, outputs] =
         toLayoutOperandsAndResults(rewriter, {origInputs, origOutputs},
-                                   /*tiled*/ true);
+                                   /*tiled=*/true, isBcast);
     const std::size_t numInputs = inputs.size();
     const std::size_t numOutputs = outputs.size();
     const std::size_t numOperands = (numInputs + numOutputs);
@@ -369,8 +531,12 @@ private:
     const std::size_t physicalRank =
         ttcore::getDeviceLayout(outputs[0]).getRank() / 2;
 
-    SmallVector<mlir::AffineMap> indexingMaps =
-        getAffineMapsArray(rewriter, numOperands, physicalRank);
+    SmallVector<mlir::AffineMap> indexingMaps;
+    if (isBcast) {
+      indexingMaps = getBroadcastAffineMapsArray(rewriter, inputs, outputs);
+    } else {
+      indexingMaps = getAffineMapsArray(rewriter, numOperands, physicalRank);
+    }
     SmallVector<mlir::Attribute> iteratorTypes =
         getIteratorTypesArray(rewriter, physicalRank);
 
@@ -394,8 +560,14 @@ private:
 
         // Create 'linalg.generic' accepting 'blockArgs'.
 
-        SmallVector<mlir::AffineMap> linalgIndexingMaps =
-            getAffineMapsArray(rewriter, numOperands, physicalRank);
+        SmallVector<mlir::AffineMap> linalgIndexingMaps;
+        if (isBcast) {
+          linalgIndexingMaps =
+              getBroadcastAffineMapsArray(rewriter, inputs, outputs);
+        } else {
+          linalgIndexingMaps =
+              getAffineMapsArray(rewriter, numOperands, physicalRank);
+        }
         SmallVector<mlir::utils::IteratorType> linalgIteratorTypes =
             iteratorTypeTTIRToLinalg(rewriter, iteratorTypes);
 
@@ -410,7 +582,8 @@ private:
             [&](mlir::OpBuilder &bbBuilder, mlir::Location bbLoc,
                 mlir::ValueRange bbArgs) {
               createComputeRegion(bbBuilder, bbLoc, bbArgs, rewriter, loc,
-                                  numInputs, numOutputs);
+                                  numInputs, numOutputs, lhsBcastType,
+                                  rhsBcastType);
             });
 
         rewriter.create<d2m::YieldOp>(loc, linalgGeneric->getResults());
@@ -479,7 +652,7 @@ private:
             .getElementType()));
     auto [inputs, outputs] =
         toLayoutOperandsAndResults(rewriter, {newInputs, origOutputs},
-                                   /*tiled*/ true);
+                                   /*tiled=*/true, /*isBcast=*/false);
 
     const std::size_t numInputs = inputs.size();
     const std::size_t numOutputs = outputs.size();
@@ -712,7 +885,7 @@ private:
     auto [origInputs, origOutputs] =
         splitDpsSignature(adaptor, op.getDpsInits().size());
     auto [inputs, outputs] = toLayoutOperandsAndResults(
-        rewriter, {origInputs, origOutputs}, /*tiled*/ true);
+        rewriter, {origInputs, origOutputs}, /*tiled=*/true, /*isBcast=*/false);
 
     const std::size_t numInputs = inputs.size();
     const std::size_t numOutputs = outputs.size();
@@ -883,7 +1056,7 @@ public:
 
     auto [inputs, outputs] =
         toLayoutOperandsAndResults(rewriter, {origInputs, origOutputs},
-                                   /*tiled*/ true);
+                                   /*tiled=*/true, /*isBcast=*/false);
 
     auto inputTensorType =
         mlir::cast<mlir::RankedTensorType>(inputs[0].getType());
