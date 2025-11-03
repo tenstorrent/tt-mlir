@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
@@ -45,6 +46,8 @@ public:
           if (constsAndParams.contains(blockArg)) {
             deallocsToErase.push_back(deallocOp);
           }
+        } else if (auto loadCachedOp = mlir::dyn_cast<ttcore::LoadCachedOp>(input.getDefiningOp())) {
+          deallocsToErase.push_back(deallocOp);
         }
       });
 
