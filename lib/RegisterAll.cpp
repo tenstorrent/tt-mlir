@@ -263,6 +263,17 @@ void mlir::tt::MLIRModuleLogger::attachContextWithDumping(
                                         const mlir::tracing::Action &action) mutable {
     // Dump pre-pipeline IR only in per_pass mode
     if (config.dumpMode == Config::DumpMode::PerPass && moduleCache.empty()) {
+      // Try to extract model name from the IR before dumping PRE-PIPELINE
+      if (modelName == "unknown" && !action.getContextIRUnits().empty()) {
+        mlir::Operation *op = action.getContextIRUnits()[0].get<mlir::Operation*>();
+        if (op) {
+          std::string extractedName = extractModelNameFromLocation(op);
+          if (extractedName != "unknown") {
+            setModelName(extractedName);
+          }
+        }
+      }
+
       std::string passName = "PRE-PIPELINE", outString;
       llvm::raw_string_ostream os(outString);
       mlir::OpPrintingFlags flags;
@@ -304,18 +315,19 @@ void mlir::tt::MLIRModuleLogger::attachContextWithDumping(
       passAction.getOp()->print(os, flags);
       os.flush();
 
-      // Cache and dump to file
-      moduleCache.emplace_back(passName, outString);
-
-      // For PerPass mode: dump to separate files after every pass
-      // For PerDialect mode: dump to same file (overwriting) after every pass
-      std::string filename;
+      // Handle dumping based on mode
       if (config.dumpMode == Config::DumpMode::PerPass) {
-        filename = getOutputFilename(passName);
+        // PerPass mode: dump immediately to separate files
+        moduleCache.emplace_back(passName, outString);
+        dumpIRToFile(outString, getOutputFilename(passName));
       } else if (config.dumpMode == Config::DumpMode::PerDialect) {
-        filename = getOutputFilename("PIPELINE_FINAL");
+        // PerDialect mode: just store the latest IR, don't write yet
+        // This overwrites the previous IR string in memory (not disk)
+        lastIRContent = std::move(outString);
+        hasFinalIR = true;
+        // Cache is still populated for consistency with original behavior
+        moduleCache.emplace_back(passName, lastIRContent);
       }
-      dumpIRToFile(outString, filename);
     }
   });
 }
@@ -444,4 +456,24 @@ void mlir::tt::MLIRModuleLogger::dumpDialectCreation(
 bool mlir::tt::MLIRModuleLogger::shouldEnableIRDumping() {
   Config config = Config::fromEnvironment();
   return config.dumpMode != Config::DumpMode::Disabled;
+}
+
+void mlir::tt::MLIRModuleLogger::finalizeDumping() {
+  // For PerDialect mode: dump the final IR if we have one
+  if (config.dumpMode == Config::DumpMode::PerDialect && hasFinalIR && !lastIRContent.empty()) {
+    dumpIRToFile(lastIRContent, getOutputFilename("PIPELINE_FINAL"));
+    // Clear the content to free memory and prevent double-dumping
+    lastIRContent.clear();
+    hasFinalIR = false;
+  }
+}
+
+mlir::tt::MLIRModuleLogger::~MLIRModuleLogger() {
+  // Ensure final IR is dumped even if finalizeDumping() wasn't called explicitly
+  try {
+    finalizeDumping();
+  } catch (...) {
+    // Suppress exceptions in destructor to avoid termination
+    // Log error if logging is available
+  }
 }

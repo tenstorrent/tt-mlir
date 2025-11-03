@@ -73,11 +73,21 @@ struct MLIRModuleLogger {
   // Check if IR dumping should be enabled via environment variables
   static bool shouldEnableIRDumping();
 
+  // Finalize IR dumping (for PerDialect mode)
+  void finalizeDumping();
+
+  // Destructor to ensure final IR is dumped
+  ~MLIRModuleLogger();
+
 private:
   Config config;
   std::string modelName = "unknown";
   std::string pipelineName = "unknown";
   int totalPassCount = 0;
+  
+  // For PerDialect mode: store the last IR to dump at the end
+  std::string lastIRContent;
+  bool hasFinalIR = false;
   
   std::string getOutputFilename(const std::string &passName,
                                 const std::string &stage = "") const;

@@ -76,7 +76,8 @@ Creates one IR dump per pipeline (summary mode):
 #### Pipeline Final IR Dump
 - **Filename format**: `1_PIPELINE_FINAL.mlir`
 - **Content**: Complete MLIR module after the final pass in the pipeline
-- **Behavior**: Overwrites the same file after each pass, keeping only the final result
+- **Behavior**: Stores IR in memory after each pass, writes to disk only once at pipeline completion
+- **Performance**: Minimal I/O overhead - only serializes and writes the final IR state
 - **Purpose**: Provides a single snapshot of the pipeline's final state rather than detailed per-pass evolution
 
 ## Integration Points
