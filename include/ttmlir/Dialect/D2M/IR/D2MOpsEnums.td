@@ -21,6 +21,21 @@ def D2M_ReduceDim : I32EnumAttr<"ReduceDim", "D2M ReduceDim", [
   let cppNamespace = "::mlir::tt::d2m";
 }
 
+def D2M_TileBcastTypeNone   : I32EnumAttrCase<"None",   0, "none">;
+def D2M_TileBcastTypeCol    : I32EnumAttrCase<"Col",    1, "col">;
+def D2M_TileBcastTypeRow    : I32EnumAttrCase<"Row",    2, "row">;
+def D2M_TileBcastTypeScalar : I32EnumAttrCase<"Scalar", 3, "scalar">;
+
+def D2M_TileBcastType : I32EnumAttr<"TileBcastType", "D2M TileBcastType", [
+  D2M_TileBcastTypeNone,
+  D2M_TileBcastTypeCol,
+  D2M_TileBcastTypeRow,
+  D2M_TileBcastTypeScalar
+]> {
+  let genSpecializedAttr = 0;
+  let cppNamespace = "::mlir::tt::d2m";
+}
+
 // D2M ThreadType mirrors D2M thread type and is used by D2M_ThreadAttr
 def D2M_ThreadTypeCompute : I32EnumAttrCase<"Compute", 0, "compute">;
 def D2M_ThreadTypeDatamovement : I32EnumAttrCase<"Datamovement", 1, "datamovement">;

@@ -582,6 +582,82 @@ def test_cpu_hoistable_binary_ops(
     )
 
 
+bcast_inner_2D_shapes = [
+    [(32, 32), (1, 32)],
+    [(32, 32), (32, 1)],
+    [(32, 32), (1, 1)],
+    [(32, 96), (1, 96)],
+    [(32, 96), (32, 1)],
+    [(32, 96), (1, 1)],
+    [(96, 32), (1, 32)],
+    [(96, 32), (96, 1)],
+    [(96, 32), (1, 1)],
+    [(96, 96), (1, 96)],
+    [(96, 96), (96, 1)],
+    [(96, 96), (1, 1)],
+    [(352, 32), (1, 32)],
+    [(352, 32), (352, 1)],
+    [(352, 32), (1, 1)],
+    [(352, 96), (1, 96)],
+    [(352, 96), (352, 1)],
+    [(352, 96), (1, 1)],
+    [(352, 352), (1, 352)],
+    [(352, 352), (352, 1)],
+    [(352, 352), (1, 1)],
+    # [(7, 352, 352), (7, 1, 352)],
+    # [(7, 352, 352), (7, 352, 1)],
+    # [(7, 352, 352), (7, 1, 1)],
+    # [(3, 5, 96, 96), (3, 5, 1, 96)],
+    # [(3, 5, 96, 96), (3, 5, 96, 1)],
+    # [(3, 5, 96, 96), (3, 5, 1, 1)],
+]
+
+
+@pytest.mark.parametrize("test_fn", [add, ge])
+@pytest.mark.parametrize("shapes", bcast_inner_2D_shapes, ids=shapes_list_str)
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("target", ["ttmetal"])
+def test_broadcast_inner_2D(
+    test_fn: Callable,
+    shapes: List[Shape],
+    dtype: torch.dtype,
+    target: str,
+    request,
+    device,
+):
+    # Avoid too many test entries, test LHS & RHS bcast together.
+    def bcast_rhs_then_lhs(
+        in0: Operand,
+        in1: Operand,
+        builder: TTIRBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        in_full = torch.ones(shapes[0], dtype=dtype)
+        in_bcast = torch.ones(shapes[1], dtype=dtype)
+        builder.set_goldens(inputs={in0: in_full, in1: in_bcast})
+
+        if test_fn == add:
+            builder_fn = builder.add
+        elif test_fn == ge:
+            # Inspect input & ge compatibility.
+            builder_fn = builder.ge
+
+        out_rhs = builder_fn(in0, in1, unit_attrs=unit_attrs)
+        out_rhs_lhs = builder_fn(in1, out_rhs, unit_attrs=unit_attrs)
+        return out_rhs_lhs
+
+    compile_and_execute_ttir(
+        bcast_rhs_then_lhs,
+        shapes,
+        [dtype, dtype],
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
+        device=device,
+    )
+
+
 # Binary eltwise ops with implicit broadcasting
 # There are operations that still do not support Int32 tracked here: https://github.com/tenstorrent/tt-metal/issues/25112.
 @pytest.mark.parametrize(

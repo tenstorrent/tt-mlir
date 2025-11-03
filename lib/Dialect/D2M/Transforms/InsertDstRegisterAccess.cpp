@@ -6,6 +6,7 @@
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
 #include "ttmlir/Dialect/D2M/Utils/Utils.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
@@ -46,7 +47,13 @@ public:
       stores.emplace_back(store, indexOffset);
     }
 
-    SmallVector<int64_t> guardIndices;
+    // Accumulator guard indices: non-participating dimensions that are
+    // reduction iterators. Guard executes when dim != 0 (load accumulator for
+    // accumulation).
+    SmallVector<int64_t> accumulatorGuardIndices;
+    // Broadcast guard indices: non-participating dimensions that are parallel
+    // iterators. Guard executes when dim == 0 (load value once, then reuse).
+    SmallVector<int64_t> broadcastGuardIndices;
     SmallVector<OpAndIndexOffset<affine::AffineLoadOp>> loads;
     SmallVector<OpAndIndexOffset<affine::AffineStoreOp>> stores;
   };
@@ -287,9 +294,9 @@ public:
             dstSliceIndex = dstSliceAllocationState.allocate();
             dstSliceAllocationState.setStoreToDst();
           }
-          collectDstAccess<affine::AffineStoreOp>(op, potentialStore, copyInfos,
-                                                  dstSliceIndex,
-                                                  outermostInnerComputeLoop);
+          collectDstAccess<affine::AffineStoreOp>(
+              op, potentialStore, copyInfos, dstSliceIndex,
+              outermostInnerComputeLoop, computeOp);
 
         }
         // If the user isn't a store, it must be another compute consumer and we
@@ -333,28 +340,130 @@ public:
   static void collectDstAccess(GenericOp op, LoadOrStoreOp loadOrStore,
                                CopyInfoMap &copyInfos,
                                int64_t nextDstSliceIndex,
-                               Operation *outermostInnerComputeLoop) {
+                               Operation *outermostInnerComputeLoop,
+                               Operation *computeOp = nullptr) {
+    // If there is no outermostInnerComputeLoop, use the compute operation as
+    // the key so that all loads/stores from the same compute op share the same
+    // CopyInfo. If computeOp is also null, fall back to the load/store itself.
     if (!outermostInnerComputeLoop) {
-      // If there is no outermostInnerComputeLoop, the common ancestor is the
-      // operation itself.
-      outermostInnerComputeLoop = loadOrStore;
+      outermostInnerComputeLoop = computeOp ? computeOp : loadOrStore;
     }
 
     auto [iter, inserted] = copyInfos.try_emplace(outermostInnerComputeLoop);
     CopyInfo &copyInfo = iter->second;
     copyInfo.push_back(loadOrStore, nextDstSliceIndex);
+
+    // Guard indices are computed from both loads (inputs) and stores (outputs):
+    // - Accumulator guards: from stores (outputs) where non-participating
+    //   dimensions are reduction iterators. Guard executes when dim != 0
+    //   (load accumulator for accumulation operations like matmul).
+    // - Broadcast guards: from loads (inputs) where non-participating
+    //   dimensions are parallel iterators. Guard executes when dim == 0
+    //   (load broadcast value once on first iteration, then reuse).
     BlockArgument blockArg = lookThroughSubView(loadOrStore.getMemRef());
-    SmallVector<int64_t> guardIndices =
-        blockArg ? op.getNonParticipatingLoopDims(blockArg.getArgNumber())
-                 : SmallVector<int64_t>{};
-    if (inserted) {
-      // First access in this loop nest - set the guard indices.
-      copyInfo.guardIndices = guardIndices;
+    if (blockArg) {
+      SmallVector<int64_t> nonParticipatingDims =
+          op.getNonParticipatingLoopDims(blockArg.getArgNumber());
+      SmallVector<ttcore::IteratorType> iteratorTypes =
+          op.getIteratorTypesValue();
+
+      SmallVector<int64_t> accumulatorGuards;
+      SmallVector<int64_t> broadcastGuards;
+
+      for (int64_t dim : nonParticipatingDims) {
+        if (dim < static_cast<int64_t>(iteratorTypes.size())) {
+          if (iteratorTypes[dim] == ttcore::IteratorType::Reduction) {
+            accumulatorGuards.push_back(dim);
+          } else {
+            // Parallel iterator
+            broadcastGuards.push_back(dim);
+          }
+        }
+      }
+
+      if constexpr (std::is_same_v<LoadOrStoreOp, affine::AffineLoadOp>) {
+        // For loads (inputs): collect both broadcast and accumulator guard
+        // indices
+        // - Broadcast guards: for broadcast inputs (parallel non-participating
+        // dims)
+        // - Accumulator guards: for accumulator inputs like matmul (reduction
+        // non-participating dims)
+        if (inserted) {
+          copyInfo.broadcastGuardIndices = broadcastGuards;
+          copyInfo.accumulatorGuardIndices = accumulatorGuards;
+        } else {
+          // Merge broadcast guards from multiple inputs (union of all broadcast
+          // dims)
+          for (int64_t dim : broadcastGuards) {
+            if (llvm::find(copyInfo.broadcastGuardIndices, dim) ==
+                copyInfo.broadcastGuardIndices.end()) {
+              copyInfo.broadcastGuardIndices.push_back(dim);
+            }
+          }
+          // Merge accumulator guards from multiple inputs (union of all
+          // accumulator dims)
+          for (int64_t dim : accumulatorGuards) {
+            if (llvm::find(copyInfo.accumulatorGuardIndices, dim) ==
+                copyInfo.accumulatorGuardIndices.end()) {
+              copyInfo.accumulatorGuardIndices.push_back(dim);
+            }
+          }
+        }
+      } else {
+        // For stores (outputs): collect accumulator guard indices.
+        // Outputs can have reduction non-participating dimensions (like
+        // matmul), which need accumulator guards. Broadcast guards come from
+        // loads (inputs), not stores (outputs).
+        if (inserted) {
+          // First store access - set the guard indices
+          copyInfo.accumulatorGuardIndices = accumulatorGuards;
+          // Stores shouldn't have broadcast guards - outputs typically have all
+          // dimensions participating.
+          assert(broadcastGuards.empty() &&
+                 "Outputs with parallel non-participating dimensions are not "
+                 "supported.");
+        } else {
+          // Subsequent store access - merge accumulator guard indices (union).
+          // If guards weren't set yet (previous store had no block arg), set
+          // them now.
+          if (copyInfo.accumulatorGuardIndices.empty() &&
+              !accumulatorGuards.empty()) {
+            // Previous store(s) had no block argument, but this one does - set
+            // guards
+            copyInfo.accumulatorGuardIndices = accumulatorGuards;
+          } else if (!accumulatorGuards.empty()) {
+            // Merge accumulator guards from multiple stores (union of all
+            // accumulator dims)
+            for (int64_t dim : accumulatorGuards) {
+              if (llvm::find(copyInfo.accumulatorGuardIndices, dim) ==
+                  copyInfo.accumulatorGuardIndices.end()) {
+                copyInfo.accumulatorGuardIndices.push_back(dim);
+              }
+            }
+          }
+          // Stores shouldn't have broadcast guards
+          assert(broadcastGuards.empty() &&
+                 "Outputs with parallel non-participating dimensions are not "
+                 "supported.");
+        }
+      }
     } else {
-      // Subsequent access - verify guard indices are the same.
-      assert(
-          guardIndices == copyInfo.guardIndices &&
-          "Expected same guard indices across all accesses in this loop nest.");
+      // No block argument - if this is the first access and guards haven't been
+      // initialized yet, initialize them to empty. Otherwise, leave them as-is
+      // (they may have been set by a previous access with a block argument).
+      if (inserted) {
+        if constexpr (std::is_same_v<LoadOrStoreOp, affine::AffineLoadOp>) {
+          // For loads, initialize broadcast guards if not set
+          if (copyInfo.broadcastGuardIndices.empty()) {
+            copyInfo.broadcastGuardIndices = {};
+          }
+        } else {
+          // For stores, initialize accumulator guards if not set
+          if (copyInfo.accumulatorGuardIndices.empty()) {
+            copyInfo.accumulatorGuardIndices = {};
+          }
+        }
+      }
     }
   }
 
@@ -418,9 +527,55 @@ public:
       auto insertionPointAfterLoopNest = rewriter.saveInsertionPoint();
 
       rewriter.setInsertionPoint(loopNestOrOp);
-      auto guard = insertGuardForLoopNest(rewriter, loc, copyInfo.guardIndices);
-      if (guard) {
-        rewriter.setInsertionPointToStart(&guard.getThenRegion().front());
+      // Apply guards for loads (inputs):
+      // - Broadcast guard: load broadcast value when dim == 0 (first iteration)
+      // - Accumulator guard: load accumulator when dim != 0 (not first
+      // iteration) If we have both, combine them with OR logic; otherwise use
+      // whichever exists.
+      auto broadcastGuard =
+          insertBroadcastGuard(rewriter, loc, copyInfo.broadcastGuardIndices);
+      auto accumulatorGuardForLoads = insertAccumulatorGuard(
+          rewriter, loc, copyInfo.accumulatorGuardIndices);
+
+      scf::IfOp combinedGuard = nullptr;
+      if (accumulatorGuardForLoads && broadcastGuard) {
+        // Combine both guards with OR logic
+        auto zero = rewriter.create<arith::ConstantOp>(
+            loc, rewriter.getIndexType(),
+            rewriter.getIntegerAttr(rewriter.getIndexType(), 0));
+        auto cmp = rewriter
+                       .create<arith::ConstantOp>(loc, rewriter.getI1Type(),
+                                                  rewriter.getBoolAttr(false))
+                       .getResult();
+
+        // Accumulator guard condition: any dim != 0
+        for (int64_t index : copyInfo.accumulatorGuardIndices) {
+          auto iterIndex = rewriter.create<d2m::IterIndexOp>(loc, index);
+          auto ne = rewriter.create<arith::CmpIOp>(
+              loc, arith::CmpIPredicate::ne, iterIndex, zero);
+          cmp = rewriter.create<arith::OrIOp>(loc, cmp, ne).getResult();
+        }
+
+        // Broadcast guard condition: any dim == 0
+        for (int64_t index : copyInfo.broadcastGuardIndices) {
+          auto iterIndex = rewriter.create<d2m::IterIndexOp>(loc, index);
+          auto eq = rewriter.create<arith::CmpIOp>(
+              loc, arith::CmpIPredicate::eq, iterIndex, zero);
+          cmp = rewriter.create<arith::OrIOp>(loc, cmp, eq).getResult();
+        }
+
+        combinedGuard = rewriter.create<scf::IfOp>(loc, cmp);
+        rewriter.setInsertionPointToStart(
+            &combinedGuard.getThenRegion().front());
+        // Erase the individual guards since we've combined them
+        rewriter.eraseOp(accumulatorGuardForLoads);
+        rewriter.eraseOp(broadcastGuard);
+      } else if (accumulatorGuardForLoads) {
+        rewriter.setInsertionPointToStart(
+            &accumulatorGuardForLoads.getThenRegion().front());
+      } else if (broadcastGuard) {
+        rewriter.setInsertionPointToStart(
+            &broadcastGuard.getThenRegion().front());
       }
       dataCopyGenerate<affine::AffineLoadOp>(
           rewriter, loopNestOrOp, copyInfo.loads,
@@ -441,6 +596,10 @@ public:
           });
 
       rewriter.restoreInsertionPoint(insertionPointAfterLoopNest);
+      // Stores (outputs) generate final writeback (DST -> L1) and don't need
+      // guards. Accumulator guards are only applied to loads (inputs) for
+      // initialization. Insert stores AFTER the loop nest (for final
+      // writeback).
       dataCopyGenerate<affine::AffineStoreOp>(
           rewriter, loopNestOrOp, copyInfo.stores,
           // Load/store dst access generation.
@@ -484,10 +643,12 @@ public:
     }
   }
 
-  static scf::IfOp insertGuardForLoopNest(PatternRewriter &rewriter,
-                                          Location loc,
-                                          ArrayRef<int64_t> guardIndices) {
-    if (guardIndices.empty()) {
+  // Create a guard for accumulator semantics (dim != 0).
+  // Used for stores (outputs) with reduction non-participating dimensions.
+  static scf::IfOp
+  insertAccumulatorGuard(PatternRewriter &rewriter, Location loc,
+                         ArrayRef<int64_t> accumulatorGuardIndices) {
+    if (accumulatorGuardIndices.empty()) {
       return nullptr;
     }
     auto zero = rewriter.create<arith::ConstantOp>(
@@ -497,12 +658,46 @@ public:
                    .create<arith::ConstantOp>(loc, rewriter.getI1Type(),
                                               rewriter.getBoolAttr(false))
                    .getResult();
-    for (int64_t index : guardIndices) {
+
+    // Accumulator guards: execute when dim != 0 (not first iteration)
+    // This is for accumulation operations like matmul where we need to load
+    // the previous accumulator value when not on the first iteration.
+    for (int64_t index : accumulatorGuardIndices) {
       auto iterIndex = rewriter.create<d2m::IterIndexOp>(loc, index);
-      auto eq = rewriter.create<arith::CmpIOp>(loc, arith::CmpIPredicate::ne,
+      auto ne = rewriter.create<arith::CmpIOp>(loc, arith::CmpIPredicate::ne,
+                                               iterIndex, zero);
+      cmp = rewriter.create<arith::OrIOp>(loc, cmp, ne).getResult();
+    }
+
+    return rewriter.create<scf::IfOp>(loc, cmp);
+  }
+
+  // Create a guard for broadcast semantics (dim == 0).
+  // Used for loads (inputs) with parallel non-participating dimensions.
+  static scf::IfOp
+  insertBroadcastGuard(PatternRewriter &rewriter, Location loc,
+                       ArrayRef<int64_t> broadcastGuardIndices) {
+    if (broadcastGuardIndices.empty()) {
+      return nullptr;
+    }
+    auto zero = rewriter.create<arith::ConstantOp>(
+        loc, rewriter.getIndexType(),
+        rewriter.getIntegerAttr(rewriter.getIndexType(), 0));
+    auto cmp = rewriter
+                   .create<arith::ConstantOp>(loc, rewriter.getI1Type(),
+                                              rewriter.getBoolAttr(false))
+                   .getResult();
+
+    // Broadcast guards: execute when dim == 0 (first iteration only)
+    // This is for broadcast operations where we load the value once on the
+    // first iteration, then reuse it for subsequent iterations.
+    for (int64_t index : broadcastGuardIndices) {
+      auto iterIndex = rewriter.create<d2m::IterIndexOp>(loc, index);
+      auto eq = rewriter.create<arith::CmpIOp>(loc, arith::CmpIPredicate::eq,
                                                iterIndex, zero);
       cmp = rewriter.create<arith::OrIOp>(loc, cmp, eq).getResult();
     }
+
     return rewriter.create<scf::IfOp>(loc, cmp);
   }
 
