@@ -40,6 +40,11 @@ createOwnedHostTensor(const void *data, const std::vector<std::uint32_t> &shape,
                       const std::vector<std::uint32_t> &stride,
                       std::uint32_t itemsize, ::tt::target::DataType dataType);
 
+::tt::runtime::Tensor createMultiDeviceHostTensor(
+    const std::vector<::tt::runtime::Tensor> &tensorShards,
+    const std::unordered_map<std::string, std::string> &strategy,
+    const std::vector<uint32_t> &meshShape);
+
 bool isTensorAllocated(const ::tt::runtime::Tensor &tensorHandle);
 
 std::uint32_t getTensorVolume(const ::tt::runtime::Tensor &tensorHandle);

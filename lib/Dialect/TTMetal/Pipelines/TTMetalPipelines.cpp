@@ -40,20 +40,20 @@ std::unique_ptr<Pass> createCanonicalizerPassWithOptions(
 
 void createTTIRBufferizationPipeline(
     OpPassManager &pm, const TTIRToTTMetalPipelineOptions &options) {
-  bufferization::OneShotBufferizePassOptions bufferizePassOptions;
   if (options.ttnnMode) {
+    bufferization::OneShotBufferizePassOptions bufferizePassOptions;
     bufferizePassOptions.allowUnknownOps = true;
     bufferizePassOptions.bufferizeFunctionBoundaries = false;
+    bufferizePassOptions.functionBoundaryTypeConversion =
+        bufferization::LayoutMapOption::IdentityLayoutMap;
+    bufferizePassOptions.unknownTypeConversion =
+        bufferization::LayoutMapOption::IdentityLayoutMap;
+    pm.addPass(
+        mlir::bufferization::createOneShotBufferizePass(bufferizePassOptions));
   } else {
-    bufferizePassOptions.allowUnknownOps = false;
-    bufferizePassOptions.bufferizeFunctionBoundaries = true;
+    // Use custom bufferization pass with MetalLayoutAttr support
+    pm.addPass(ttcore::createTTCoreOneShotBufferizePass());
   }
-  bufferizePassOptions.functionBoundaryTypeConversion =
-      bufferization::LayoutMapOption::IdentityLayoutMap;
-  bufferizePassOptions.unknownTypeConversion =
-      bufferization::LayoutMapOption::IdentityLayoutMap;
-  pm.addPass(
-      mlir::bufferization::createOneShotBufferizePass(bufferizePassOptions));
   // TODO(#2246)
   // bufferization::BufferDeallocationPipelineOptions
   // bufferDeallocationOptions;

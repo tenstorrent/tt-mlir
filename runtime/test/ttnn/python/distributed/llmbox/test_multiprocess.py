@@ -11,7 +11,7 @@ import ttrt.runtime
 from ttrt.common.util import *
 from ...utils import (
     TT_MLIR_HOME,
-    TT_METAL_HOME_EXTERNAL,
+    TT_METAL_RUNTIME_ROOT_EXTERNAL,
     Storage,
     DeviceContext,
     ProgramTestConfig,
@@ -26,7 +26,7 @@ FLATBUFFER_BASE_PATH = (
     f"{TT_MLIR_HOME}/build/test/ttmlir/Runtime/TTNN/llmbox/binary/Output"
 )
 
-RANK_BINDING_PATH = f"{TT_METAL_HOME_EXTERNAL}/tests/tt_metal/distributed/config/2x4_multiprocess_rank_bindings.yaml"
+RANK_BINDING_PATH = f"{TT_METAL_RUNTIME_ROOT_EXTERNAL}/tests/tt_metal/distributed/config/2x4_multiprocess_rank_bindings.yaml"
 
 
 def launch_distributed_runtime():
@@ -35,7 +35,7 @@ def launch_distributed_runtime():
     ), f"Rank binding path not found: {RANK_BINDING_PATH}"
 
     ttrt.runtime.set_mlir_home(TT_MLIR_HOME)
-    ttrt.runtime.set_metal_home(TT_METAL_HOME_EXTERNAL)
+    ttrt.runtime.set_metal_home(TT_METAL_RUNTIME_ROOT_EXTERNAL)
 
     mp_args = ttrt.runtime.MultiProcessArgs.create(RANK_BINDING_PATH)
     mp_args.with_allow_run_as_root(True)

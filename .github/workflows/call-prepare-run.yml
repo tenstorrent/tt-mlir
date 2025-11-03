@@ -18,6 +18,11 @@ on:
         description: 'Build all components'
         required: false
         type: boolean
+      min_timeout:
+        description: 'Minimum timeout in minutes for the test job'
+        required: false
+        type: number
+        default: 40
     outputs:
       skip_build:
         description: 'Skip build if no relevant files changed'
@@ -114,12 +119,21 @@ jobs:
         with:
           files_yaml_from_source_file: '.github/settings/optional-components.yml'
 
+      - id: is-all
+        run: |
+          if [[ "${{ steps.components.outputs.workflow_any_changed }}" == "true" ]]; then
+            echo "Detected changes in workflow or settings files, building all components"
+            echo "build_all=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "build_all=${{ inputs.build_all }}" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Generate build matrix
         id: generate-build-matrix
         shell: bash
         run: |
           # If build_all is true, include all components
-          if [[ "${{ inputs.build_all }}" == "true" ]]; then
+          if [[ "${{ steps.is-all.outputs.build_all }}" == "true" ]]; then
             echo "Including all components in build matrix"
             cp .github/settings/build.json _components_matrix.json
           else
@@ -154,7 +168,7 @@ jobs:
         shell: bash
         run: |
           echo "Modified components: ${{ steps.components.outputs.modified_keys }}"
-          if [[ "${{ inputs.build_all }}" == "true" ]]; then
+          if [[ "${{ steps.is-all.outputs.build_all }}" == "true" ]]; then
             comp="-all"
           else
             comp="${{ steps.components.outputs.modified_keys }}"
@@ -168,6 +182,9 @@ jobs:
           fi
           python .github/scripts/python/generate_test_matrix.py .github/settings/tests.json "$TARGET_DURATION" "$comp"
           echo "test-matrix=$(cat _test_matrix.json | jq -c)" >> $GITHUB_OUTPUT
-          timeout=$(($TARGET_DURATION * 2 + 10))
+          timeout=$(($TARGET_DURATION * 3 + 10))
+          if [ $timeout -lt ${{ inputs.min_timeout }} ]; then
+            timeout=${{ inputs.min_timeout }}
+          fi
           echo "Test timeout set to $timeout minutes"
           echo "test_timeout=$timeout" >> $GITHUB_OUTPUT

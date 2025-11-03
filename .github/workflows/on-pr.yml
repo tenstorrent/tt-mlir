@@ -36,7 +36,8 @@ jobs:
     uses: ./.github/workflows/call-prepare-run.yml
     with:
       builder_build: true
-      build_all: ${{ github.event.pull_request.head.ref == 'uplift' }}
+      build_all: ${{ github.event.pull_request.head.ref == 'uplift' || contains(github.event.pull_request.labels.*.name, 'build_all') }}
+      min_timeout: ${{ contains(github.event.pull_request.labels.*.name, 'build_all') && 180 || 40 }}
     secrets: inherit
   release-build:
     needs: [ prepare-run, build-image ]
@@ -71,6 +72,7 @@ jobs:
     with:
       docker_image: ${{ needs.build-image.outputs.docker-image }}
       test_matrix: ${{ needs.prepare-run.outputs.test_matrix }}
+      timeout: ${{ fromJson(needs.prepare-run.outputs.test_timeout) }}
 
   # When a PR runs on the uplift branch trigger the downstream checks
   downstream-checks:
@@ -95,7 +97,7 @@ jobs:
             gh workflow run ${{ env.WORKFLOW_NAME }} \
               --repo ${{ env.TARGET_REPO }} --ref main \
               --raw-field mlir_override=${{ github.event.pull_request.head.sha }} \
-              --raw-field test_suite=custom-basic-and-models-push.json
+              --raw-field test_suite=basic-test.json:model-test-push.json
           else
             gh workflow run ${{ env.WORKFLOW_NAME }} \
               --repo ${{ env.TARGET_REPO }} --ref main \

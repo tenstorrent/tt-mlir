@@ -76,7 +76,7 @@ TEST(EmitC, YourTestName) {
 First, activate the python virtual env, and set some env variables:
 ```bash
 source python_env/bin/activate
-export TT_METAL_HOME=$(pwd)
+export TT_METAL_RUNTIME_ROOT=$(pwd)
 export PYTHONPATH=$(pwd)
 ```
 
