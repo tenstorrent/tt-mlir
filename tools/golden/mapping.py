@@ -2878,7 +2878,6 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.ReduceAndOp: reduce_and_golden,
     ttir.ReduceOrOp: reduce_or_golden,
     # Tensor manipulation
-    ttir.SortOp: sort_golden,
     ttir.TransposeOp: transpose_golden,
     ttir.ConcatOp: concat_golden,
     ttir.RepeatOp: repeat_golden,
@@ -2963,4 +2962,5 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     stablehlo.TanOp: torch.tan,
     # TTNN elementwise operations
     ttnn.MultiplyOp: torch.multiply,
+    ttnn.MishOp: torch.nn.functional.mish,
 }

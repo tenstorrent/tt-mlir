@@ -16,6 +16,7 @@ jobs:
           {runs-on: "macos-latest", c_compiler: "clang", cpp_compiler: "clang++", build_type: "Release", enable_runtime: "OFF"}
         ]
     runs-on: ${{ matrix.build.runs-on }}
+    timeout-minutes: 600
     steps:
     - uses: actions/checkout@v4
       with:
