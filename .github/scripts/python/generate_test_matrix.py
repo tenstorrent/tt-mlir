@@ -9,6 +9,7 @@ import test_common
 from itertools import product
 from datetime import datetime
 import random
+import re
 
 default_duration = 150.0  # default duration in seconds if not found in _test_durations
 do_array_unroll_for = [
@@ -109,21 +110,30 @@ def civ2_offload(test_matrix):
 
                 # get scope
                 scope_str = conf.get("scope", "all")
-                if scope_str == "all":
-                    scope = len(matching_tests)
-                elif scope_str == "half":
-                    scope = max(1, len(matching_tests) // 2)
-                    if len(matching_tests) % 2 != 0:
-                        scope += random.randint(0, 1)
-                elif scope_str == "-half":
-                    scope = max(1, len(matching_tests) // 2)
-                    if len(matching_tests) % 2 != 0:
-                        scope += random.randint(0, 1)
-                    scope = -scope
-                elif scope_str == "random":
-                    scope = random.randint(0, len(matching_tests))
+                # Parse scope string: optional minus, then optional all/half/random, then number
+                match = re.match(
+                    r"^(?:(-?)(all|half|random))?((?:[\+\-])?\d+)?$", scope_str
+                )
+                scope = 0
+                if match:
+                    sign, keyword, number = match.groups()
+                    if keyword:
+                        if keyword == "all":
+                            scope = len(matching_tests)
+                        elif keyword == "half":
+                            scope = max(1, len(matching_tests) // 2)
+                            if len(matching_tests) % 2 != 0:
+                                scope += random.randint(0, 1)
+                        elif keyword == "random":
+                            scope = random.randint(0, len(matching_tests))
+                        if sign == "-":
+                            scope = -scope
+                    if number:
+                        scope = scope + int(number)
                 else:
-                    scope = int(scope_str)
+                    print(
+                        f"Warning: Could not parse scope string '{scope_str}', defaulting to 0"
+                    )
 
                 # Mark tests with "sh-run": true based on scope
                 def set_sh_run(test_index):
@@ -155,8 +165,6 @@ def civ2_offload(test_matrix):
                 changed = True
                 if "break" in conf:
                     break
-
-                changed = True
 
     return test_matrix
 
