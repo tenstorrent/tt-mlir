@@ -968,7 +968,7 @@ struct GatherToEmbeddingConversionPattern
 
     // Create startIndexMap without dims for which sliceSizes[dim] =
     // inputShape[dim]. If there are dims for which sliceSizes[dim] =
-    // inputShape[dim] = 1, they are treated specialy:
+    // inputShape[dim] = 1, they are treated specially:
     // - if there is a partially indexed dim, they are removed
     // - if all other indexed dims are full, one of them is kept
     size_t fullIndexedDims = 0;
@@ -1015,9 +1015,9 @@ struct GatherToEmbeddingConversionPattern
         ttmlir::utils::appendLocationSuffix(op->getLoc(), "_reshapeInput"),
         inputPermuted, numIndexingDims);
 
-    // If we are indexing multiple dims, we need to tranform indices for the new
-    // single (flattened) indexing dim. If the extra indexed dims are full, we
-    // need to slice indices.
+    // If we are indexing multiple dims, we need to transform indices for the
+    // new single (flattened) indexing dim. If the extra indexed dims are full,
+    // we need to slice indices.
     auto startIndices = op.getStartIndices();
     if (numIndexingDims > 1) {
       op->emitWarning("End results might be incorrect when indexing multiple "
@@ -1225,9 +1225,8 @@ private:
       ::mlir::TypedValue<::mlir::RankedTensorType> startIndices) {
     auto startIndicesShape = startIndices.getType().getShape();
     llvm::SmallVector<int64_t, 2> newStartIndicesShape{
-        std::accumulate(startIndicesShape.begin(), startIndicesShape.end(),
-                        int64_t{1}, std::multiplies<>()),
-        1};
+        1, std::accumulate(startIndicesShape.begin(), startIndicesShape.end(),
+                           int64_t{1}, std::multiplies<>())};
     return createReshapeOp(rewriter, loc, startIndices, newStartIndicesShape);
   }
 
@@ -1246,8 +1245,9 @@ private:
     auto startIndicesShape = startIndicesType.getShape();
 
     // Create NxM matrix where each row is [0, 1, 2, ..., M-1].
-    int32_t N = startIndicesShape[0];
-    int32_t M = sliceSize;
+    int32_t N = sliceSize;
+    int32_t M =
+        startIndicesShape[0] == 1 ? startIndicesShape[1] : startIndicesShape[0];
 
     llvm::SmallVector<int32_t> matrixData(N * M);
     for (int32_t row = 0; row < N; ++row) {
@@ -1255,7 +1255,11 @@ private:
                 matrixData.begin() + (row + 1) * M, 0);
     }
     llvm::SmallVector<int64_t> expandedShape(startIndicesShape);
-    expandedShape[1] = sliceSize;
+    if (startIndicesShape[0] == 1) {
+      expandedShape[0] = sliceSize;
+    } else {
+      expandedShape[1] = sliceSize;
+    }
 
     auto expandedType = mlir::RankedTensorType::get(
         expandedShape, startIndicesType.getElementType(),
@@ -1265,10 +1269,11 @@ private:
     auto offsetConstant = rewriter.create<ttir::ConstantOp>(
         ttmlir::utils::appendLocationSuffix(loc, "_offsetConstant"),
         expandedType, offsetAttr);
-
     // Create broadcast dimensions - all dimensions map directly except the
     // expanded one.
-    llvm::SmallVector<int64_t> broadcastDimensions = {1, sliceSize};
+    llvm::SmallVector<int64_t> broadcastDimensions =
+        ttmlir::utils::getBroadcastDimensions<int64_t>(startIndicesShape,
+                                                       expandedShape);
 
     // Broadcast the original startIndices to the expanded shape.
     auto broadcastedStartIndices = ttir::utils::createDPSOp<ttir::BroadcastOp>(
