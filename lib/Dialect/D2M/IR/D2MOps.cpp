@@ -1352,9 +1352,9 @@ unsigned d2m::GenericOp::getNumDims() {
 }
 
 mlir::AffineMap d2m::GenericOp::getIndexingMap(int64_t operandIndex) {
-  TT_assertv(!isExplicitDatamovementForm(),
-             "Attempting to access indexing map while in explicit "
-             "datamovement form.");
+  TT_debugv(!isExplicitDatamovementForm(),
+            "Attempting to access indexing map while in explicit "
+            "datamovement form.");
   return getIndexingMapsValue()[operandIndex];
 }
 
