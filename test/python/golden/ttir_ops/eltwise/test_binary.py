@@ -228,11 +228,14 @@ binary_bitwise_dtypes = [
     torch.int32,
     torch.uint32,
     torch.uint16,
+    torch.uint8,
 ]
 
 
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
-@pytest.mark.parametrize("dtype", binary_bitwise_dtypes, ids=["i32", "u32", "u16"])
+@pytest.mark.parametrize(
+    "dtype", binary_bitwise_dtypes, ids=["i32", "u32", "u16", "u8"]
+)
 @pytest.mark.parametrize("target", ["ttnn", "emitpy"])
 @pytest.mark.parametrize("test_fn", binary_bitwise_ops)
 def test_bitwise_binary_ops(

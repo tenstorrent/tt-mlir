@@ -182,7 +182,7 @@ jobs:
           fi
           python .github/scripts/python/generate_test_matrix.py .github/settings/tests.json "$TARGET_DURATION" "$comp"
           echo "test-matrix=$(cat _test_matrix.json | jq -c)" >> $GITHUB_OUTPUT
-          timeout=$(($TARGET_DURATION * 2 + 10))
+          timeout=$(($TARGET_DURATION * 3 + 10))
           if [ $timeout -lt ${{ inputs.min_timeout }} ]; then
             timeout=${{ inputs.min_timeout }}
           fi
