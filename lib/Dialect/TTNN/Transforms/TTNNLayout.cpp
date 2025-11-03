@@ -6,11 +6,14 @@
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTIR/Utils/UniformTypeRewriter.h"
 #include "ttmlir/Dialect/TTIR/Utils/Utils.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Quant/IR/QuantTypes.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
+#include "mlir/IR/BuiltinTypes.h"
+#include "mlir/Support/LLVM.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
@@ -437,16 +440,27 @@ private:
     SmallVector<Type> inputTypes;
     SmallVector<Type> outputTypes(funcOp.getResultTypes());
     for (BlockArgument &arg : entryBlock.getArguments()) {
-      if (!mlir::isa<RankedTensorType>(arg.getType()) ||
-          !shouldForceInputSystemMemory(arg)) {
+      if (!mlir::isa<RankedTensorType>(arg.getType())) {
         inputTypes.push_back(arg.getType());
         continue;
       }
-      RankedTensorType ty = mlir::cast<RankedTensorType>(arg.getType());
-      RankedTensorType newType = toSystemMemoryType(funcOp.getContext(), ty);
+
+      RankedTensorType currentType =
+          mlir::cast<RankedTensorType>(arg.getType());
+
+      RankedTensorType newType;
+      if (shouldForceInputSystemMemory(arg)) {
+        newType = toSystemMemoryType(funcOp.getContext(), currentType);
+      } else {
+        newType = currentType;
+      }
+
+      if (shouldForceInputRowMajor(arg)) {
+        newType = toRowMajorType(funcOp.getContext(), newType);
+      }
 
       inputTypes.push_back(newType);
-      modified = arg.getType() != newType;
+      modified |= arg.getType() != newType;
     }
 
     if (modified) {
@@ -499,7 +513,7 @@ private:
   RankedTensorType toSystemMemoryType(MLIRContext *ctx,
                                       RankedTensorType ty) const {
     TTNNLayoutAttr newLayout = createLayoutAttr(
-        ctx, deviceGrid, ty, BufferType::SystemMemory, false /* isTiledOpt */);
+        ctx, deviceGrid, ty, BufferType::SystemMemory, /*isTiled=*/false);
     auto newType =
         RankedTensorType::get(ty.getShape(), ty.getElementType(), newLayout);
     return newType;
@@ -521,6 +535,21 @@ private:
     }
 
     return false;
+  }
+
+  bool shouldForceInputRowMajor(BlockArgument arg) const {
+    func::FuncOp owningFunc = cast<func::FuncOp>(arg.getOwner()->getParentOp());
+    if (auto typeAttr = owningFunc.getArgAttrOfType<ttcore::ArgumentTypeAttr>(
+            arg.getArgNumber(), ttcore::ArgumentTypeAttr::name)) {
+      return typeAttr.getValue() == ttcore::ArgumentType::Input;
+    }
+    return false;
+  }
+
+  RankedTensorType toRowMajorType(MLIRContext *ctx, RankedTensorType ty) const {
+    TTNNLayoutAttr rmLayout = createLayoutAttr(
+        ctx, deviceGrid, ty, BufferType::DRAM, /*isTiled=*/false);
+    return RankedTensorType::get(ty.getShape(), ty.getElementType(), rmLayout);
   }
 };
 } // namespace
