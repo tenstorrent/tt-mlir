@@ -1633,15 +1633,14 @@ private:
   }
 };
 
-// Global average pooling pattern matcher that transforms:
+// Scaled sum to mean pattern matcher that transforms:
 //   multiply(sum<dim=[2,3]>(act), 1/(h*w))
 // into:
 //   mean<dim=[2,3]>(act)
 //
-// Supports 4D input tensors with reduction over spatial dimensions (height and
-// width).
+// Matches decomposed global average pooling from torch-xla.
 
-class GlobalAveragePoolingPattern : public mlir::OpRewritePattern<MultiplyOp> {
+class ScaledSumToMeanPattern : public mlir::OpRewritePattern<MultiplyOp> {
   using mlir::OpRewritePattern<MultiplyOp>::OpRewritePattern;
 
 private:
@@ -1721,9 +1720,8 @@ private:
     auto loc = sumOp.getLoc();
 
     auto meanOp = ttir::utils::createDPSOp<MeanOp>(
-        rewriter,
-        ttmlir::utils::appendLocationSuffix(loc, "_global_avg_pool_mean"),
-        outputType, sumOp.getInput(),
+        rewriter, ttmlir::utils::appendLocationSuffix(loc, "_mean"), outputType,
+        sumOp.getInput(),
         /*keep_dim=*/rewriter.getBoolAttr(sumOp.getKeepDim()),
         /*dim_arg=*/
         rewriter.getArrayAttr({rewriter.getI32IntegerAttr(SPATIAL_HEIGHT_DIM),
@@ -2322,7 +2320,7 @@ public:
       patterns.add<PadPoolingFusionPattern>(&getContext());
       patterns.add<AveragePoolingWithPoolingDenominatorFusionPattern>(
           &getContext());
-      patterns.add<GlobalAveragePoolingPattern>(&getContext());
+      patterns.add<ScaledSumToMeanPattern>(&getContext());
       patterns.add<MatmulWithBiasFusionPattern>(&getContext());
 
       patterns.add<GeluFusionPattern>(&getContext());

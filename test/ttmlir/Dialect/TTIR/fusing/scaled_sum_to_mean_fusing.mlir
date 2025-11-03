@@ -1,7 +1,7 @@
 // RUN: ttmlir-opt --canonicalize --ttir-fusing -o %t %s
 // RUN: FileCheck %s --input-file=%t
 
-func.func @global_avg_pool(%input: tensor<1x32x112x112xbf16>) -> tensor<1x32x1x1xbf16> {
+func.func @scaled_sum_to_mean(%input: tensor<1x32x112x112xbf16>) -> tensor<1x32x1x1xbf16> {
     %0 = "ttir.constant"() <{value = dense<7.97193861E-5> : tensor<1x32xbf16>}> : () -> tensor<1x32xbf16>
     %1 = ttir.empty() : tensor<1x32xbf16>
     // CHECK-NOT: "ttir.sum"
@@ -16,7 +16,7 @@ func.func @global_avg_pool(%input: tensor<1x32x112x112xbf16>) -> tensor<1x32x1x1
     return %6 : tensor<1x32x1x1xbf16>
 }
 
-func.func @global_avg_pool_no_reshape(%input: tensor<1x32x112x112xbf16>) -> tensor<1x32xbf16> {
+func.func @scaled_sum_to_mean_no_reshape(%input: tensor<1x32x112x112xbf16>) -> tensor<1x32xbf16> {
     %0 = "ttir.constant"() <{value = dense<7.97193861E-5> : tensor<1x32xbf16>}> : () -> tensor<1x32xbf16>
     %1 = ttir.empty() : tensor<1x32xbf16>
     // CHECK-NOT: "ttir.sum"
@@ -28,7 +28,7 @@ func.func @global_avg_pool_no_reshape(%input: tensor<1x32x112x112xbf16>) -> tens
     return %4 : tensor<1x32xbf16>
 }
 
-func.func @global_avg_pool_keep_dim(%input: tensor<1x32x112x112xbf16>) -> tensor<1x32x1x1xbf16> {
+func.func @scaled_sum_to_mean_keep_dim(%input: tensor<1x32x112x112xbf16>) -> tensor<1x32x1x1xbf16> {
     %0 = "ttir.constant"() <{value = dense<7.97193861E-5> : tensor<1x32x1x1xbf16>}> : () -> tensor<1x32x1x1xbf16>
     %1 = ttir.empty() : tensor<1x32x1x1xbf16>
     // CHECK-NOT: "ttir.sum"
