@@ -21,6 +21,7 @@
 ### Table of Contents
 1. [Generate all EmitC tests and run them](#1-generate-all-emitc-tests-and-run-them)
 2. [Generate a single EmitC test and run it](#2-generate-a-single-emitc-test-and-run-it)
+3. [Generate EmitC tests with Builder](#3-generate-emitc-tests-with-builder)
 
 ## Generate all EmitC tests and run them
 
@@ -50,6 +51,9 @@
     ttrt run --emitc build/test/ttmlir/EmitC/TTNN
     ```
 
+## Generate EmitC tests with Builder
+Builder offers support for building EmitPy modules from ttir or stablehlo ops. Refer to [Builder documentation](./builder/ttir-builder.md).
+
 ## Generate a single EmitC test and run it
 
 1. Generate flatbuffers and .cpp files for EmitC test
@@ -68,5 +72,5 @@
 3. Run the flatbuffer + shared object and compare results
 
     ```bash
-    ttrt run --emitc build/test/ttmlir/EmitC/TTNN/eltwise_binary/add.mlir.ttnn
+    ttrt emitc build/test/ttmlir/EmitC/TTNN/eltwise_binary/add.mlir.so --flatbuffer build/test/ttmlir/EmitC/TTNN/eltwise_binary/add.mlir.ttnn
     ```

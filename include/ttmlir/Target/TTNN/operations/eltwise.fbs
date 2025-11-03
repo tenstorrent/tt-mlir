@@ -165,7 +165,9 @@ enum EltwiseUnaryOpType: uint32 {
   BitwiseNot,
   Relu6,
   Silu,
-  Hardsigmoid}
+  Hardsigmoid,
+  Mish
+}
 
 union EltwiseUnaryOpParams {
   EltwiseOpWithFloatParams

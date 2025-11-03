@@ -4,6 +4,8 @@
 
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreTraits.h"
+#include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Transforms/Passes.h"
 #include "ttmlir/Utils.h"
 
@@ -164,7 +166,22 @@ private:
       return;
     }
 
-    // Skip creation ops, they have special handling.
+    // Handle cacheable creation ops as standalone const-eval subgraphs.
+    // These are creation ops that produce constant outputs and can be cached.
+    // If they are later consumed by other const-eval ops, they will be merged
+    // into the same subgraph via the union-find mechanism.
+    if (isCacheableCreationOp(op)) {
+      size_t targetSubgraphId = nextSubgraphId++;
+      parent[targetSubgraphId] = targetSubgraphId;
+      rank[targetSubgraphId] = 0;
+      opToSubgraphMap[op] = targetSubgraphId;
+      for (auto result : op->getResults()) {
+        valueToSubgraphMap[result] = targetSubgraphId;
+      }
+      return;
+    }
+
+    // Skip other creation ops, they have special handling.
     if (isCreationOp(op)) {
       return;
     }
@@ -321,6 +338,27 @@ private:
     assert(op != nullptr);
     return op
         ->hasTrait<mlir::tt::ttcore::Trait::TTCoreDuplicateConstEvalTrait>();
+  }
+
+  bool isCacheableCreationOp(mlir::Operation *op) {
+    assert(op != nullptr);
+    if (!isCreationOp(op)) {
+      return false;
+    }
+
+    if (op->hasTrait<mlir::tt::ttcore::Trait::TTCoreNonCacheableTrait>()) {
+      return false;
+    }
+
+    // Check if any operand is a RankedTensorType, if so, it's not cacheable.
+    for (auto operand : op->getOperands()) {
+      auto operandType = operand.getType();
+      if (mlir::isa<mlir::RankedTensorType>(operandType)) {
+        return false;
+      }
+    }
+
+    return true;
   }
 
 private:

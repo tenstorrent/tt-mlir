@@ -379,8 +379,13 @@ inline MemorySpace getMemorySpace(MemorySpaceAttr memorySpaceAttr) {
   return memorySpaceAttr.getValue();
 }
 
-inline MemorySpace getMemorySpace(MemRefType memref) {
-  return getMemorySpace(mlir::cast<MemorySpaceAttr>(memref.getMemorySpace()));
+inline MemorySpace getMemorySpace(MemRefType memref,
+                                  MemorySpace dflt = MemorySpace::System) {
+  if (auto memSpaceAttr =
+          mlir::dyn_cast_if_present<MemorySpaceAttr>(memref.getMemorySpace())) {
+    return memSpaceAttr.getValue();
+  }
+  return dflt;
 }
 
 inline MemorySpace getMemorySpace(Type memrefType) {
