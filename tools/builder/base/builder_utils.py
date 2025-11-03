@@ -179,7 +179,7 @@ def get_metal_tensor_layout(
 
 def _compile_and_execute(
     compile_fn: Callable,
-    target: Literal["ttnn", "ttmetal", "ttnn-standalone", "emitpy"],
+    target: Literal["ttnn", "ttmetal", "emitc", "emitpy"],
     pcc: float,
     atol: float,
     rtol: float,
@@ -198,7 +198,7 @@ def _compile_and_execute(
     ----------
     compile_fn : Callable
         The compilation function to use (e.g., compile_ttir_to_flatbuffer)
-    target : Literal["ttnn", "ttmetal", "ttnn-standalone", "emitpy"]
+    target : Literal["ttnn", "ttmetal", "emitc", "emitpy"]
         Target backend to use
     pcc : float
         PCC threshold for golden comparison
@@ -520,7 +520,7 @@ def compile_and_execute_d2m(
     system_desc_path: str = "ttrt-artifacts/system_desc.ttsys",
     test_base: str = "test",
     output_root: str = ".",
-    target: Literal["ttnn", "ttmetal", "ttnn-standalone", "emitpy"] = "ttnn",
+    target: Literal["ttnn", "ttmetal", "emitc", "emitpy"] = "ttnn",
     mesh_name: str = "mesh",
     mesh_dict: OrderedDict[str, int] = OrderedDict([("x", 1), ("y", 1)]),
     module_dump: bool = True,
@@ -557,7 +557,7 @@ def compile_and_execute_d2m(
         Base name for dumped files
     output_root : str
         Path to dump all generated files
-    target : Literal["ttnn", "ttmetal", "ttnn-standalone", "emitpy"]
+    target : Literal["ttnn", "ttmetal", "emitc", "emitpy"]
         Target backend to use
     mesh_name : str
         Name of the mesh to be used
@@ -616,7 +616,7 @@ def compile_and_execute_shlo(
     system_desc_path: str = "ttrt-artifacts/system_desc.ttsys",
     test_base: str = "test",
     output_root: str = ".",
-    target: Literal["ttnn", "ttmetal", "ttnn-standalone", "emitpy"] = "ttnn",
+    target: Literal["ttnn", "ttmetal", "emitc", "emitpy"] = "ttnn",
     mesh_name: str = "mesh",
     mesh_dict: OrderedDict[str, int] = OrderedDict([("x", 1), ("y", 1)]),
     module_dump: bool = True,
@@ -655,7 +655,7 @@ def compile_and_execute_shlo(
         Base name for dumped files
     output_root : str
         Path to dump all generated files
-    target : Literal["ttnn", "ttmetal", "ttnn-standalone", "emitpy"]
+    target : Literal["ttnn", "ttmetal", "emitc", "emitpy"]
         Target backend to use
     mesh_name : str
         Name of the mesh to be used
@@ -715,12 +715,12 @@ def compile_and_execute_shlo(
 
 def compile_and_execute_ttnn(
     fn: Callable,
-    input_shapes: List[Shape],
-    input_types: Optional[List[Union[torch.dtype, TypeInfo]]] = None,
+    inputs_shapes: List[Shape],
+    inputs_types: Optional[List[Union[torch.dtype, TypeInfo]]] = None,
     system_desc_path: str = "ttrt-artifacts/system_desc.ttsys",
     test_base: str = "test",
     output_root: str = ".",
-    target: Literal["ttnn", "ttnn-standalone", "emitpy"] = "ttnn",
+    target: Literal["ttnn", "emitc", "emitpy"] = "ttnn",
     mesh_name: str = "mesh",
     mesh_dict: OrderedDict[str, int] = OrderedDict([("x", 1), ("y", 1)]),
     module_dump: bool = True,
@@ -756,7 +756,7 @@ def compile_and_execute_ttnn(
         Base name for dumped files
     output_root : str
         Path to dump all generated files
-    target : Literal["ttnn", "ttnn-standalone", "emitpy"]
+    target : Literal["ttnn", "emitc", "emitpy"]
         Target backend to use
     mesh_name : str
         Name of the mesh to be used
@@ -790,8 +790,8 @@ def compile_and_execute_ttnn(
     return _compile_and_execute(
         compile_fn=compile_ttnn_to_flatbuffer,
         fn=fn,
-        inputs_shapes=input_shapes,
-        inputs_types=input_types,
+        inputs_shapes=inputs_shapes,
+        inputs_types=inputs_types,
         system_desc_path=system_desc_path,
         test_base=test_base,
         output_root=output_root,
@@ -819,7 +819,7 @@ def compile_and_execute_ttir(
     system_desc_path: str = "ttrt-artifacts/system_desc.ttsys",
     test_base: str = "test",
     output_root: str = ".",
-    target: Literal["ttnn", "ttmetal", "ttnn-standalone", "emitpy"] = "ttnn",
+    target: Literal["ttnn", "ttmetal", "emitc", "emitpy"] = "ttnn",
     mesh_name: str = "mesh",
     mesh_dict: OrderedDict[str, int] = OrderedDict([("x", 1), ("y", 1)]),
     module_dump: bool = True,
@@ -856,7 +856,7 @@ def compile_and_execute_ttir(
         Base name for dumped files
     output_root : str
         Path to dump all generated files
-    target : Literal["ttnn", "ttmetal", "ttnn-standalone", "emitpy"]
+    target : Literal["ttnn", "ttmetal", "emitc", "emitpy"]
         Target backend to use
     mesh_name : str
         Name of the mesh to be used
@@ -1064,7 +1064,7 @@ def compile_ttnn_to_flatbuffer(
     system_desc_path: str = "ttrt-artifacts/system_desc.ttsys",
     test_base: str = "test",
     output_root: str = ".",
-    target: Literal["ttnn", "ttmetal", "ttnn-standalone", "emitpy"] = "ttnn",
+    target: Literal["ttnn", "ttmetal", "emitc", "emitpy"] = "ttnn",
     mesh_name: str = "mesh",
     mesh_dict: OrderedDict[str, int] = OrderedDict([("x", 1), ("y", 1)]),
     module_dump: bool = True,
@@ -1099,7 +1099,7 @@ def compile_ttnn_to_flatbuffer(
     output_root : str, optional
         The path to dump all generated files under
 
-    target : *Literal["ttnn", "ttmetal", "ttnn-standalone"]*, optional
+    target : *Literal["ttnn", "ttmetal", "emitc"]*, optional
         The target backend to use. Default is "ttnn"
 
     mesh_name : str, optional
