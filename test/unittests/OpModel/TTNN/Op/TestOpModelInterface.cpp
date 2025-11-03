@@ -1270,6 +1270,46 @@ TEST_F(OpModelBase, ProdOpInterface) {
   }
 }
 
+TEST_F(OpModelBase, ScatterOpInterface) {
+  // create ScatterOp
+  llvm::SmallVector<int64_t> tensorShapeA = {256, 1024};
+  llvm::SmallVector<int64_t> tensorShapeB = {128, 1024};
+
+  auto input = createEmptyTensor(tensorShapeA);
+  auto indexLayout = CreateTiledLayoutInt32(tensorShapeB, BufferType::L1,
+    TensorMemoryLayout::Interleaved);
+  auto index = createEmptyTensor(tensorShapeB, builder.getI32Type(), indexLayout);
+  auto source = createEmptyTensor(tensorShapeB);
+  auto output = createEmptyTensor(tensorShapeA);
+
+  const int32_t dim = 0;
+
+  auto scatter =
+      builder.create<ScatterOp>(builder.getUnknownLoc(), output.getType(),
+                               input, index, source, builder.getI32IntegerAttr(dim), nullptr);
+
+  // test ScatterOp interface
+  auto constraintsExp = getOpConstraints(scatter.getOperation());
+  if (constraintsExp) {
+    auto l1 = constraintsExp.get();
+    const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+        l1;
+    EXPECT_GE(cbSize, 262144);
+    EXPECT_GE(l1PeakSize, 36864);
+    EXPECT_GE(outputSize, 8192);
+  } else {
+    FAIL() << "Missing L1 constraints; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
+
+  auto runtimeExp = getOpRuntime(scatter.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << llvm::toString(runtimeExp.takeError());
+  }
+}
+
 TEST_F(OpModelBase, ReshapeOpInterface) {
   // create ReshapeOp
   llvm::SmallVector<int64_t> tensorShapeA = {64, 1024};
