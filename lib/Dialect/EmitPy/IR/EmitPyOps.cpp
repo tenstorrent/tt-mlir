@@ -102,8 +102,7 @@ static LogicalResult verifyInitializationAttribute(Operation *op,
 }
 
 template <typename SourceOp>
-LogicalResult verifyNearestGlobalSymbol(SourceOp op,
-                                        SymbolTableCollection &symbolTable) {
+LogicalResult verifyNearestGlobalSymbol(SourceOp op, SymbolTableCollection &symbolTable){
   auto global =
       symbolTable.lookupNearestSymbolFrom<GlobalOp>(op, op.getNameAttr());
   if (!global) {
@@ -407,7 +406,8 @@ static void printEmitPyGlobalOpInitialValue(OpAsmPrinter &p, GlobalOp op,
 static ParseResult parseEmitPyGlobalOpInitialValue(OpAsmParser &parser,
                                                    Attribute &initialValue) {
   if (parser.parseColon()) {
-    return parser.emitError(parser.getNameLoc(), "expected ':' after symbol name");
+    return parser.emitError(parser.getNameLoc(),
+                            "expected ':' after symbol name");
   }
 
   if (parser.parseAttribute(initialValue)) {
@@ -470,56 +470,32 @@ LogicalResult GlobalOp::verify() {
 }
 
 //===----------------------------------------------------------------------===//
+// AssignGlobalOp
+//===----------------------------------------------------------------------===//
+
+LogicalResult
+AssignGlobalOp::verifySymbolUses(SymbolTableCollection &symbolTable) {
+  return verifyNearestGlobalSymbol<AssignGlobalOp>(*this, symbolTable);
+}
+
+//===----------------------------------------------------------------------===//
+// GlobalStatementOp
+//===----------------------------------------------------------------------===//
+
+LogicalResult
+GlobalStatementOp::verifySymbolUses(SymbolTableCollection &symbolTable) {
+  return verifyNearestGlobalSymbol<GlobalStatementOp>(*this, symbolTable);
+}
+
+//===----------------------------------------------------------------------===//
 // GetGlobalOp
 //===----------------------------------------------------------------------===//
 
 LogicalResult
 GetGlobalOp::verifySymbolUses(SymbolTableCollection &symbolTable) {
-  auto global =
-      symbolTable.lookupNearestSymbolFrom<GlobalOp>(*this, getNameAttr());
-  if (!global) {
-    return emitOpError("'")
-           << getName() << "' does not reference a valid emitpy.global";
-  }
-
-  return success();
+  return verifyNearestGlobalSymbol<GetGlobalOp>(*this, symbolTable);
 }
 
-//===----------------------------------------------------------------------===//
-// AssignGlobalOp
-//===----------------------------------------------------------------------===//
-
-/* static void printEmitPyAssignGlobalOpInitialValue(OpAsmPrinter &p, AssignGlobalOp op,
-                                                  FlatSymbolRefAttr name,
-                                                  Value value) {
-  p << name << " = ";
-  p.printOperand(value);
-}
-
-static ParseResult parseEmitPyAssignGlobalOpInitialValue(OpAsmParser &parser,
-                                                         FlatSymbolRefAttr &name) {
-  if (parser.parseAttribute(name)) {
-    return failure();
-  }
-  
-  if (parser.parseEqual()) {
-    return parser.emitError(parser.getNameLoc(), "expected '=' after symbol name");
-  }
-
-  return success();
-} */
-
-LogicalResult
-AssignGlobalOp::verifySymbolUses(SymbolTableCollection &symbolTable) {
-  auto global =
-      symbolTable.lookupNearestSymbolFrom<GlobalOp>(*this, getNameAttr());
-  if (!global) {
-    return emitOpError("'")
-           << getName() << "' does not reference a valid emitpy.global";
-  }
-
-  return success();
-}
 
 #define GET_OP_CLASSES
 #include "ttmlir/Dialect/EmitPy/IR/EmitPyOps.cpp.inc"
