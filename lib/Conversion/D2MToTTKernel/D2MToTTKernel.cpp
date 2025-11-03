@@ -11,6 +11,7 @@
 #include "ttmlir/Dialect/D2M/IR/D2MTraits.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOps.h"
+#include "ttmlir/Dialect/D2M/Utils/MemRefProvenance.h"
 #include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
@@ -85,70 +86,77 @@ static Value getCB(ConversionPatternRewriter &rewriter, Value cb) {
     assert(loadOp.getIndices().size() == 1 &&
            "Expected single index in load op, failing.");
 
-    auto memrefType = mlir::dyn_cast<MemRefType>(loadOp.getMemref().getType());
+    Value memref = loadOp.getMemref();
+    auto provenance = d2m::utils::traceMemRefProvenance(memref);
 
-    // BUG #5: Check if this is a load from dst register (fused intermediate value)
-    if (memrefType && memrefType.getMemorySpace() &&
-        ttcore::getMemorySpace(loadOp.getMemref()) == ttcore::MemorySpace::RegisterDst) {
-      // This is a fused intermediate value. Trace backwards:
-      // dst_load ← dst_store ← tile_op ← tile_op_input ← CB
-      Value dstMemref = loadOp.getMemref();
-      Value loadIndex = loadOp.getIndices()[0];
+    switch (provenance.source) {
+      case d2m::utils::MemRefSource::CircularBuffer:
+        // Direct CB load - return the remapped CB
+        return rewriter.getRemappedValue(provenance.rootValue);
 
-      // Find matching store to the same dst index
-      memref::StoreOp matchingStore;
-      for (auto *user : dstMemref.getUsers()) {
-        if (auto storeOp = mlir::dyn_cast<memref::StoreOp>(user)) {
-          if (!storeOp.getIndices().empty() &&
-              storeOp.getIndices()[0] == loadIndex) {
-            matchingStore = storeOp;
-            break;
+      case d2m::utils::MemRefSource::DstRegister:
+        // Load from DST register (fused intermediate)
+        // Trace: dst_load ← dst_store ← tile_op ← tile_op_input ← CB
+        {
+          Value dstMemref = memref;
+          Value loadIndex = loadOp.getIndices()[0];
+
+          // Find matching store to the same dst index
+          memref::StoreOp matchingStore;
+          for (auto *user : dstMemref.getUsers()) {
+            if (auto storeOp = mlir::dyn_cast<memref::StoreOp>(user)) {
+              if (!storeOp.getIndices().empty() &&
+                  storeOp.getIndices()[0] == loadIndex) {
+                matchingStore = storeOp;
+                break;
+              }
+            }
+          }
+
+          if (matchingStore) {
+            Value intermediateTile = matchingStore.getValueToStore();
+            Operation *tileOp = intermediateTile.getDefiningOp();
+
+            if (tileOp && tileOp->getNumOperands() > 0) {
+              return getCB(rewriter, tileOp->getOperand(0));
+            }
           }
         }
-      }
+        break;
 
-      if (matchingStore) {
-        // Get intermediate tile value
-        Value intermediateTile = matchingStore.getValueToStore();
-        Operation *tileOp = intermediateTile.getDefiningOp();
+      case d2m::utils::MemRefSource::TempAllocation:
+        // Temp allocation from d2m.empty() - trace through to find source CB
+        // Trace: load %temp ← store to %temp ← tile_op ← CB
+        {
+          Value tempMemref = memref;
 
-        // Recursively trace tile op's input to CB
-        if (tileOp && tileOp->getNumOperands() > 0) {
-          return getCB(rewriter, tileOp->getOperand(0));
-        }
-      }
-    }
+          // Find what stored to this temp alloc
+          memref::StoreOp tempStore;
+          for (auto *user : tempMemref.getUsers()) {
+            if (auto storeOp = mlir::dyn_cast<memref::StoreOp>(user)) {
+              tempStore = storeOp;
+              break;
+            }
+          }
 
-    // QUICK FIX: Handle temp allocations (no memspace OR L1 memspace from bufferization)
-    // Trace: load %temp ← store to %temp ← tile_op ← CB
-    // Check if this is a load from a temp allocation (intermediate result)
-    auto defOp = loadOp.getMemref().getDefiningOp();
-    bool isTempAlloc = defOp && mlir::isa<memref::AllocOp>(defOp);
+          if (tempStore) {
+            Value storedValue = tempStore.getValueToStore();
+            Operation *sourceOp = storedValue.getDefiningOp();
 
-    if (memrefType && (!memrefType.getMemorySpace() || isTempAlloc)) {
-      Value tempMemref = loadOp.getMemref();
-
-      // Find what stored to this temp alloc
-      memref::StoreOp tempStore;
-      for (auto *user : tempMemref.getUsers()) {
-        if (auto storeOp = mlir::dyn_cast<memref::StoreOp>(user)) {
-          tempStore = storeOp;
-          break;
-        }
-      }
-
-      if (tempStore) {
-        Value storedValue = tempStore.getValueToStore();
-        Operation *sourceOp = storedValue.getDefiningOp();
-
-        // Trace through the source operation to find CB
-        if (sourceOp) {
-          // If it's a tile op, recurse on its inputs
-          if (sourceOp->getNumOperands() > 0) {
-            return getCB(rewriter, sourceOp->getOperand(0));
+            if (sourceOp && sourceOp->getNumOperands() > 0) {
+              return getCB(rewriter, sourceOp->getOperand(0));
+            }
           }
         }
-      }
+        break;
+
+      case d2m::utils::MemRefSource::StreamLayout:
+        // Stream layouts wrap CBs - already unwrapped by traceMemRefProvenance
+        return rewriter.getRemappedValue(provenance.rootValue);
+
+      case d2m::utils::MemRefSource::Unknown:
+        // Fall through to return the remapped memref
+        break;
     }
 
     return rewriter.getRemappedValue(loadOp.getMemref());
@@ -222,24 +230,12 @@ static Value getInOrOutCB(ConversionPatternRewriter &rewriter, Operation *op) {
   assert(func && "Expected func op.");
   Value cb = nullptr;
   func.walk([&](LoadOrStoreOp loadStore) {
-    auto memrefType = dyn_cast<MemRefType>(loadStore.getMemRef().getType());
-    if (!memrefType) return WalkResult::advance();
-
-    auto memspaceAttr = memrefType.getMemorySpace();
     Value memref = loadStore.getMemRef();
+    auto provenance = d2m::utils::traceMemRefProvenance(memref);
 
-    // Skip temp allocations - they're not real CBs
-    // Temp allocs are rank-2 or less and come from memref.alloc
-    if (memref.getDefiningOp() && mlir::isa<memref::AllocOp>(memref.getDefiningOp())) {
-      if (memrefType.getRank() <= 2) {
-        return WalkResult::advance();  // Skip temp allocs
-      }
-    }
-
-    // Check for real L1 CBs (with memspace attribute, not from alloc)
-    if (memspaceAttr && ttcore::getMemorySpace(memref) ==
-        ttcore::MemorySpace::DeviceL1) {
-      cb = memref;
+    // Only return real circular buffers, not temp allocations or DST
+    if (provenance.source == d2m::utils::MemRefSource::CircularBuffer) {
+      cb = provenance.rootValue;
       return WalkResult::interrupt();
     }
 
@@ -291,6 +287,7 @@ static void setInsertionPointAfterOperands(OpBuilder &rewriter,
 
 } // namespace
 
+namespace {
 // Convert memref.copy between CBs to copy_tile + pack_tile sequence
 class MemrefCopyRewriter : public OpConversionPattern<memref::CopyOp> {
 public:
