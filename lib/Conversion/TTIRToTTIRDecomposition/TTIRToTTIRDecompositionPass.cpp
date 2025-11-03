@@ -120,7 +120,7 @@ struct TTIRToTTIRDecompositionPass
     });
 
     target.addDynamicallyLegalOp<ttir::ReverseOp>([&](ttir::ReverseOp op) {
-      // Only decompose if not used by a non-transposed convolution
+      // Only decompose if not used by a transposed convolution.
       bool isUsedByTransposedConv = false;
       for (auto &use : op.getResult().getUses()) {
         auto *userOp = use.getOwner();

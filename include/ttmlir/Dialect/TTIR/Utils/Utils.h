@@ -270,6 +270,11 @@ inline bool hasShouldHoistAttr(mlir::Operation *op) {
 }
 
 // Helper to check if this convolution is a transposed convolution.
+// Determine if the stablehlo.convolution op represents a regular or
+// transposed convolution, based on Torch-MLIR lowering patterns:
+// https://github.com/llvm/torch-mlir/blob/main/lib/Conversion/TorchToStablehlo/Linear.cpp
+// and XLA patterns: convolution is transposed if the input dilation is
+// greater than 1.
 inline bool isTransposedConv(ttir::ConvolutionOp convolutionOp) {
   constexpr static uint32_t SPATIAL_DIM_HEIGHT = 0;
   constexpr static uint32_t SPATIAL_DIM_WIDTH = 1;

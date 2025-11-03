@@ -618,11 +618,7 @@ private:
       ConversionPatternRewriter &rewriter, ttir::ConvolutionOp op,
       OpAdaptor adaptor, mlir::tt::ttir::ConvolutionLayoutAttr convLayoutAttr,
       Value input, Value weight, llvm::ArrayRef<int64_t> outputShape) const {
-    // Determine if the stablehlo.convolution op represents a regular or
-    // transposed convolution, based on Torch-MLIR lowering patterns:
-    // https://github.com/llvm/torch-mlir/blob/main/lib/Conversion/TorchToStablehlo/Linear.cpp
-    // and XLA patterns: convolution is transposed if the input dilation is
-    // greater than 1.
+
     bool isTransposed = ttir::utils::isTransposedConv(op);
 
     auto strideAttr = rewriter.getDenseI32ArrayAttr({
@@ -716,7 +712,7 @@ private:
            static_cast<int32_t>(paddingMatrix[SPATIAL_DIM_WIDTH][1] -
                                 paddingMatrix[SPATIAL_DIM_WIDTH][0])});
       // Recomputing padding attribute based on Torch-MLIR lowering of
-      // conv_transposed2d op.
+      // conv_transposed2d op: [top, left, bottom, right].
       // https://github.com/llvm/torch-mlir/blob/main/lib/Conversion/TorchToStablehlo/Linear.cpp
       paddingAttr = rewriter.getDenseI32ArrayAttr({
           static_cast<int32_t>(
@@ -823,8 +819,8 @@ struct ReverseOpConversionPattern
     // internally.
 
     rewriter.replaceUsesWithIf(op, currentInput, [&](OpOperand &operand) {
-      return !ttir::utils::isTransposedConv(
-          dyn_cast<ttir::ConvolutionOp>(operand.getOwner()));
+      auto convOp = dyn_cast<ttir::ConvolutionOp>(operand.getOwner());
+      return !convOp || !ttir::utils::isTransposedConv(convOp);
     });
 
     return success();
