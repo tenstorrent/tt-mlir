@@ -252,8 +252,8 @@ def test_concatenate(
         target=target,
         device=device,
     )
-      
-      
+
+
 @pytest.mark.parametrize("shapes", [[(64, 64), (64, 64), (64, 64)]], ids=["64x64"])
 @pytest.mark.parametrize("dtypes", [[torch.float32] * 3], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttnn"])
