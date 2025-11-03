@@ -2784,6 +2784,114 @@ def get_golden_function(ttir_op_class: type, **kwargs) -> Optional[Callable]:
     return None
 
 
+def stablehlo_and_golden(
+    input_tensor: BuilderGoldenTensor, other_tensor: BuilderGoldenTensor, **kwargs
+) -> BuilderGoldenTensor:
+    """
+    Golden function for StableHLO and operation.
+
+    Supports both logical AND (for boolean tensors) and bitwise AND (for integer tensors).
+
+    Parameters
+    ----------
+    input_tensor : BuilderGoldenTensor
+        Left-hand side tensor.
+    other_tensor : BuilderGoldenTensor
+        Right-hand side tensor.
+
+    Returns
+    -------
+    BuilderGoldenTensor
+        Tensor containing the AND results.
+    """
+    if input_tensor.dtype == torch.bool:
+        result_bool = torch.logical_and(input_tensor, other_tensor)
+        return result_bool.to(input_tensor.dtype)
+    else:
+        return torch.bitwise_and(input_tensor, other_tensor)
+
+
+def stablehlo_or_golden(
+    input_tensor: BuilderGoldenTensor, other_tensor: BuilderGoldenTensor, **kwargs
+) -> BuilderGoldenTensor:
+    """
+    Golden function for StableHLO or operation.
+
+    Supports both logical OR (for boolean tensors) and bitwise OR (for integer tensors).
+
+    Parameters
+    ----------
+    input_tensor : BuilderGoldenTensor
+        Left-hand side tensor.
+    other_tensor : BuilderGoldenTensor
+        Right-hand side tensor.
+
+    Returns
+    -------
+    BuilderGoldenTensor
+        Tensor containing the OR results.
+    """
+    if input_tensor.dtype == torch.bool:
+        result_bool = torch.logical_or(input_tensor, other_tensor)
+        return result_bool.to(input_tensor.dtype)
+    else:
+        return torch.bitwise_or(input_tensor, other_tensor)
+
+
+def stablehlo_xor_golden(
+    input_tensor: BuilderGoldenTensor, other_tensor: BuilderGoldenTensor, **kwargs
+) -> BuilderGoldenTensor:
+    """
+    Golden function for StableHLO xor operation.
+
+    Supports both logical XOR (for boolean tensors) and bitwise XOR (for integer tensors).
+
+    Parameters
+    ----------
+    input_tensor : BuilderGoldenTensor
+        Left-hand side tensor.
+    other_tensor : BuilderGoldenTensor
+        Right-hand side tensor.
+
+    Returns
+    -------
+    BuilderGoldenTensor
+        Tensor containing the XOR results.
+    """
+    if input_tensor.dtype == torch.bool:
+        result_bool = torch.logical_xor(input_tensor, other_tensor)
+        return result_bool.to(input_tensor.dtype)
+    else:
+        return torch.bitwise_xor(input_tensor, other_tensor)
+
+
+def stablehlo_not_golden(
+    input_tensor: BuilderGoldenTensor, **kwargs
+) -> BuilderGoldenTensor:
+    """
+    Golden function for StableHLO not operation.
+
+    Supports both logical NOT (for boolean tensors) and bitwise NOT (for integer tensors).
+
+    Parameters
+    ----------
+    input_tensor : BuilderGoldenTensor
+        Input tensor to invert.
+    **kwargs : dict
+        Keyword arguments (unused for this operation).
+
+    Returns
+    -------
+    BuilderGoldenTensor
+        Tensor containing the NOT of input_tensor.
+    """
+    if input_tensor.dtype == torch.bool:
+        result_bool = torch.logical_not(input_tensor)
+        return result_bool.to(input_tensor.dtype)
+    else:
+        return torch.bitwise_not(input_tensor)
+
+
 """
 Dictionary mapping TTIR operation classes to their corresponding golden functions.
 
@@ -2955,6 +3063,10 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     stablehlo.SineOp: torch.sin,
     stablehlo.SqrtOp: torch.sqrt,
     stablehlo.TanOp: torch.tan,
+    stablehlo.AndOp: stablehlo_and_golden,
+    stablehlo.OrOp: stablehlo_or_golden,
+    stablehlo.XorOp: stablehlo_xor_golden,
+    stablehlo.NotOp: stablehlo_not_golden,
     # TTNN elementwise operations
     ttnn.MultiplyOp: torch.multiply,
     ttnn.MishOp: torch.nn.functional.mish,

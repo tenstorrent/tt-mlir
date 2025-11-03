@@ -235,6 +235,243 @@ class StableHLOBuilder(Builder):
             sharding_attr=sharding_attr,
         )
 
+    # ----- Logical and Bitwise Operations -----
+
+    def and_op(
+        self,
+        in0: Operand,
+        in1: Operand,
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+    ) -> OpView:
+        """
+        Creates ``stablehlo.and``.
+
+        *Elementwise AND operation.*
+
+        Performs elementwise AND operation between two tensors.
+        For booleans, performs logical AND.
+        For integers, performs bitwise AND.
+
+        Mathematical definition:
+        - Logical: and(x, y) = x AND y
+        - Bitwise: and(x, y) = x & y
+
+        .. code-block:: mlir
+
+            // Logical AND for booleans
+            %result = stablehlo.and(%lhs, %rhs) : tensor<3xi1>, tensor<3xi1> -> tensor<3xi1>
+            // Input tensors:
+            // lhs: [true, false, true]
+            // rhs: [true, true, false]
+            // Output tensor:
+            // [true, false, false]
+
+            // Bitwise AND for integers
+            %result = stablehlo.and(%lhs, %rhs) : tensor<3xi32>, tensor<3xi32> -> tensor<3xi32>
+            // Input tensors:
+            // lhs: [5, 6, 7]  // Binary: 101, 110, 111
+            // rhs: [3, 3, 3]  // Binary: 011, 011, 011
+            // Output tensor:
+            // [1, 2, 3]       // Binary: 001, 010, 011
+
+        Parameters
+        ----------
+        in0 : Operand
+            First input tensor (boolean or integer type)
+        in1 : Operand
+            Second input tensor (boolean or integer type)
+        unit_attrs : *Optional[List[str]]*
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpView*)
+            A tensor containing the elementwise AND of the inputs
+        """
+
+        return self._eltwise_proxy(
+            stablehlo.AndOp,
+            [in0, in1],
+            unit_attrs=unit_attrs,
+            sharding_attr=sharding_attr,
+        )
+
+    def or_op(
+        self,
+        in0: Operand,
+        in1: Operand,
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+    ) -> OpView:
+        """
+        Creates ``stablehlo.or``.
+
+        *Elementwise OR operation.*
+
+        Performs elementwise OR operation between two tensors.
+        For booleans, performs logical OR.
+        For integers, performs bitwise OR.
+
+        Mathematical definition:
+        - Logical: or(x, y) = x OR y
+        - Bitwise: or(x, y) = x | y
+
+        .. code-block:: mlir
+
+            // Logical OR for booleans
+            %result = stablehlo.or(%lhs, %rhs) : tensor<3xi1>, tensor<3xi1> -> tensor<3xi1>
+            // Input tensors:
+            // lhs: [true, false, true]
+            // rhs: [true, true, false]
+            // Output tensor:
+            // [true, true, true]
+
+            // Bitwise OR for integers
+            %result = stablehlo.or(%lhs, %rhs) : tensor<3xi32>, tensor<3xi32> -> tensor<3xi32>
+            // Input tensors:
+            // lhs: [5, 6, 7]  // Binary: 101, 110, 111
+            // rhs: [3, 3, 3]  // Binary: 011, 011, 011
+            // Output tensor:
+            // [7, 7, 7]       // Binary: 111, 111, 111
+
+        Parameters
+        ----------
+        in0 : Operand
+            First input tensor (boolean or integer type)
+        in1 : Operand
+            Second input tensor (boolean or integer type)
+        unit_attrs : *Optional[List[str]]*
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpView*)
+            A tensor containing the elementwise OR of the inputs
+        """
+
+        return self._eltwise_proxy(
+            stablehlo.OrOp,
+            [in0, in1],
+            unit_attrs=unit_attrs,
+            sharding_attr=sharding_attr,
+        )
+
+    def xor_op(
+        self,
+        in0: Operand,
+        in1: Operand,
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+    ) -> OpView:
+        """
+        Creates ``stablehlo.xor``.
+
+        *Elementwise XOR operation.*
+
+        Performs elementwise XOR operation between two tensors.
+        For booleans, performs logical XOR.
+        For integers, performs bitwise XOR.
+
+        Mathematical definition:
+        - Logical: xor(x, y) = x XOR y
+        - Bitwise: xor(x, y) = x ^ y
+
+        .. code-block:: mlir
+
+            // Logical XOR for booleans
+            %result = stablehlo.xor(%lhs, %rhs) : tensor<3xi1>, tensor<3xi1> -> tensor<3xi1>
+            // Input tensors:
+            // lhs: [true, false, true]
+            // rhs: [true, true, false]
+            // Output tensor:
+            // [false, true, true]
+
+            // Bitwise XOR for integers
+            %result = stablehlo.xor(%lhs, %rhs) : tensor<3xi32>, tensor<3xi32> -> tensor<3xi32>
+            // Input tensors:
+            // lhs: [5, 6, 7]  // Binary: 101, 110, 111
+            // rhs: [3, 3, 3]  // Binary: 011, 011, 011
+            // Output tensor:
+            // [6, 5, 4]       // Binary: 110, 101, 100
+
+        Parameters
+        ----------
+        in0 : Operand
+            First input tensor (boolean or integer type)
+        in1 : Operand
+            Second input tensor (boolean or integer type)
+        unit_attrs : *Optional[List[str]]*
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpView*)
+            A tensor containing the elementwise XOR of the inputs
+        """
+
+        return self._eltwise_proxy(
+            stablehlo.XorOp,
+            [in0, in1],
+            unit_attrs=unit_attrs,
+            sharding_attr=sharding_attr,
+        )
+
+    def not_op(
+        self,
+        in0: Operand,
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+    ) -> OpView:
+        """
+        Creates ``stablehlo.not``.
+
+        *Elementwise NOT operation.*
+
+        Performs elementwise NOT operation on a tensor.
+        For booleans, performs logical NOT.
+        For integers, performs bitwise NOT.
+
+        Mathematical definition:
+        - Logical: not(x) = NOT x
+        - Bitwise: not(x) = ~x
+
+        .. code-block:: mlir
+
+            // Logical NOT for booleans
+            %result = stablehlo.not(%input) : tensor<3xi1> -> tensor<3xi1>
+            // Input tensor:
+            // input: [true, false, true]
+            // Output tensor:
+            // [false, true, false]
+
+            // Bitwise NOT for integers
+            %result = stablehlo.not(%input) : tensor<3xi32> -> tensor<3xi32>
+            // Input tensor:
+            // input: [0, 1, 2]  // Binary: 000, 001, 010
+            // Output tensor:
+            // [-1, -2, -3]      // Binary (two's complement): 111...111, 111...110, 111...101
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor (boolean or integer type)
+        unit_attrs : *Optional[List[str]]*
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpView*)
+            A tensor containing the elementwise NOT of the input
+        """
+
+        return self._eltwise_proxy(
+            stablehlo.NotOp,
+            [in0],
+            unit_attrs=unit_attrs,
+            sharding_attr=sharding_attr,
+        )
+
     # ----- Elementwise Unary Operations -----
 
     def abs(
