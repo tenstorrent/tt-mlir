@@ -1058,41 +1058,40 @@ ScatterOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                             const OpConfig &opConfig) {
   assert(inputs.size() == 3);
 
-
   const auto inputShape = getInput().getType().getShape();
   const auto indexShape = getIndex().getType().getShape();
   const auto sourceShape = getSource().getType().getShape();
-                            
+
   llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
-    if (!check) {
-              return check.takeError();
-        }
+  if (!check) {
+    return check.takeError();
+  }
   ttcore::GridAttr deviceGrid =
-        ttcore::lookupDevice(getOperation()).getWorkerGrid();
-                            
+      ttcore::lookupDevice(getOperation()).getWorkerGrid();
+
   return opConstraintsCache().getOrCompute(
-                                  op_model::OpModel<ScatterOp>::getOpConstraints, *this, deviceGrid,
-                                  inputShape, inputs[0], indexShape, inputs[1], sourceShape, inputs[2], getDim(),
-                                  opConfig.outputLayout);
+      op_model::OpModel<ScatterOp>::getOpConstraints, *this, deviceGrid,
+      inputShape, inputs[0], indexShape, inputs[1], sourceShape, inputs[2],
+      getDim(), opConfig.outputLayout);
 }
 
 llvm::Expected<size_t>
 ScatterOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
                         const OpConfig &opConfig) {
-                          assert(inputs.size() == 3);
+  assert(inputs.size() == 3);
 
-                          const auto inputShape = getInput().getType().getShape();
-                          const auto indexShape = getIndex().getType().getShape();
-                          const auto sourceShape = getSource().getType().getShape();
-                                                    
-                          llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
-                            if (!check) {
-                                      return check.takeError();
-                                }
-                                                    
+  const auto inputShape = getInput().getType().getShape();
+  const auto indexShape = getIndex().getType().getShape();
+  const auto sourceShape = getSource().getType().getShape();
+
+  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
+  if (!check) {
+    return check.takeError();
+  }
+
   return opRuntimeCache().getOrCompute(
-      op_model::OpModel<ScatterOp>::getOpRuntime, *this, inputShape,
-      inputs[0], indexShape, inputs[1], sourceShape, inputs[2], getDim(),
+      op_model::OpModel<ScatterOp>::getOpRuntime, *this, inputShape, inputs[0],
+      indexShape, inputs[1], sourceShape, inputs[2], getDim(),
       opConfig.outputLayout);
 }
 

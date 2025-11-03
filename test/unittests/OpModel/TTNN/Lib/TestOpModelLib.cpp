@@ -688,59 +688,60 @@ TEST_F(OpModelTest, SoftmaxNumericStable) {
 }
 
 TEST_F(OpModelTest, Scatter) {
-    const llvm::SmallVector<int64_t> inputShape = {256, 1024};
-    const llvm::SmallVector<int64_t> indexSourceShape = {128, 1024};
-    const int32_t dim = 0;
-    
-    const auto workerGrid = CreateWorkerGrid(gridShapeHwN300);
-    const TTNNLayoutAttr inputLayoutDRAM = CreateTiledLayout(
-        inputShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
-    const TTNNLayoutAttr inputLayoutL1 = CreateTiledLayout(
-        inputShape, BufferType::L1, TensorMemoryLayout::Interleaved);
-    const TTNNLayoutAttr indexLayoutDRAM = CreateTiledLayoutInt32(
-        indexSourceShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
-    const TTNNLayoutAttr indexLayoutL1 = CreateTiledLayoutInt32(
-        indexSourceShape, BufferType::L1, TensorMemoryLayout::Interleaved);
-    const TTNNLayoutAttr sourceLayoutDRAM = CreateTiledLayout(
-        indexSourceShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
-    const TTNNLayoutAttr sourceLayoutL1 = CreateTiledLayout(
-        indexSourceShape, BufferType::L1, TensorMemoryLayout::Interleaved);
-        
-    auto legalExp = Device::getDeviceConstraints(workerGrid);
-    EXPECT_TRUE(static_cast<bool>(legalExp));
-  
-    // DRAM layouts
-    auto constraintsExp = OpModel<ScatterOp>::getOpConstraints(
-        CreateWorkerGrid(), inputShape, inputLayoutDRAM, indexSourceShape, indexLayoutDRAM,
-        indexSourceShape, sourceLayoutDRAM, dim, inputLayoutDRAM);
-    EXPECT_TRUE(static_cast<bool>(constraintsExp));
-    OpConstraints &opCstr = constraintsExp.get();
-    EXPECT_GE(opCstr.cbL1PeakSize, 262144);
-    EXPECT_GE(opCstr.tensorL1PeakSize, 0);
-    EXPECT_GE(opCstr.outputL1BufferSize, 0);
+  const llvm::SmallVector<int64_t> inputShape = {256, 1024};
+  const llvm::SmallVector<int64_t> indexSourceShape = {128, 1024};
+  const int32_t dim = 0;
 
-    auto runtimeExp = OpModel<ScatterOp>::getOpRuntime(
-        inputShape, inputLayoutDRAM, indexSourceShape, indexLayoutDRAM,
-        indexSourceShape, sourceLayoutDRAM, dim, inputLayoutDRAM);
-    EXPECT_TRUE(static_cast<bool>(runtimeExp));
-    EXPECT_TRUE(runtimeExp.get() > 0);
-  
-    // L1 layouts
-    constraintsExp = OpModel<ScatterOp>::getOpConstraints(
-        CreateWorkerGrid(), inputShape, inputLayoutL1, indexSourceShape, indexLayoutL1,
-        indexSourceShape, sourceLayoutL1, dim, inputLayoutL1);
-    EXPECT_TRUE(static_cast<bool>(constraintsExp));
-    opCstr = constraintsExp.get();
-    EXPECT_GE(opCstr.cbL1PeakSize, 262144);
-    EXPECT_GE(opCstr.tensorL1PeakSize, 36864);
-    EXPECT_GE(opCstr.outputL1BufferSize, 8192);
-  
-    runtimeExp = OpModel<ScatterOp>::getOpRuntime(
-        inputShape, inputLayoutL1, indexSourceShape, indexLayoutL1,
-        indexSourceShape, sourceLayoutL1, dim, inputLayoutL1);
-    EXPECT_TRUE(static_cast<bool>(runtimeExp));
-    EXPECT_TRUE(runtimeExp.get() > 0);
-  }
+  const auto workerGrid = CreateWorkerGrid(gridShapeHwN300);
+  const TTNNLayoutAttr inputLayoutDRAM = CreateTiledLayout(
+      inputShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+  const TTNNLayoutAttr inputLayoutL1 = CreateTiledLayout(
+      inputShape, BufferType::L1, TensorMemoryLayout::Interleaved);
+  const TTNNLayoutAttr indexLayoutDRAM = CreateTiledLayoutInt32(
+      indexSourceShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+  const TTNNLayoutAttr indexLayoutL1 = CreateTiledLayoutInt32(
+      indexSourceShape, BufferType::L1, TensorMemoryLayout::Interleaved);
+  const TTNNLayoutAttr sourceLayoutDRAM = CreateTiledLayout(
+      indexSourceShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+  const TTNNLayoutAttr sourceLayoutL1 = CreateTiledLayout(
+      indexSourceShape, BufferType::L1, TensorMemoryLayout::Interleaved);
+
+  auto legalExp = Device::getDeviceConstraints(workerGrid);
+  EXPECT_TRUE(static_cast<bool>(legalExp));
+
+  // DRAM layouts
+  auto constraintsExp = OpModel<ScatterOp>::getOpConstraints(
+      CreateWorkerGrid(), inputShape, inputLayoutDRAM, indexSourceShape,
+      indexLayoutDRAM, indexSourceShape, sourceLayoutDRAM, dim,
+      inputLayoutDRAM);
+  EXPECT_TRUE(static_cast<bool>(constraintsExp));
+  OpConstraints &opCstr = constraintsExp.get();
+  EXPECT_GE(opCstr.cbL1PeakSize, 262144);
+  EXPECT_GE(opCstr.tensorL1PeakSize, 0);
+  EXPECT_GE(opCstr.outputL1BufferSize, 0);
+
+  auto runtimeExp = OpModel<ScatterOp>::getOpRuntime(
+      inputShape, inputLayoutDRAM, indexSourceShape, indexLayoutDRAM,
+      indexSourceShape, sourceLayoutDRAM, dim, inputLayoutDRAM);
+  EXPECT_TRUE(static_cast<bool>(runtimeExp));
+  EXPECT_TRUE(runtimeExp.get() > 0);
+
+  // L1 layouts
+  constraintsExp = OpModel<ScatterOp>::getOpConstraints(
+      CreateWorkerGrid(), inputShape, inputLayoutL1, indexSourceShape,
+      indexLayoutL1, indexSourceShape, sourceLayoutL1, dim, inputLayoutL1);
+  EXPECT_TRUE(static_cast<bool>(constraintsExp));
+  opCstr = constraintsExp.get();
+  EXPECT_GE(opCstr.cbL1PeakSize, 262144);
+  EXPECT_GE(opCstr.tensorL1PeakSize, 36864);
+  EXPECT_GE(opCstr.outputL1BufferSize, 8192);
+
+  runtimeExp = OpModel<ScatterOp>::getOpRuntime(
+      inputShape, inputLayoutL1, indexSourceShape, indexLayoutL1,
+      indexSourceShape, sourceLayoutL1, dim, inputLayoutL1);
+  EXPECT_TRUE(static_cast<bool>(runtimeExp));
+  EXPECT_TRUE(runtimeExp.get() > 0);
+}
 
 TEST_F(OpModelTest, Reshape) {
   const llvm::SmallVector<int64_t> tensorShape = {workerCoresN300, 1024};

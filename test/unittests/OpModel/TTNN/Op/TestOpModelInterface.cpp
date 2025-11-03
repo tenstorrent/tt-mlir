@@ -1277,16 +1277,17 @@ TEST_F(OpModelBase, ScatterOpInterface) {
 
   auto input = createEmptyTensor(tensorShapeA);
   auto indexLayout = CreateTiledLayoutInt32(tensorShapeB, BufferType::L1,
-    TensorMemoryLayout::Interleaved);
-  auto index = createEmptyTensor(tensorShapeB, builder.getI32Type(), indexLayout);
+                                            TensorMemoryLayout::Interleaved);
+  auto index =
+      createEmptyTensor(tensorShapeB, builder.getI32Type(), indexLayout);
   auto source = createEmptyTensor(tensorShapeB);
   auto output = createEmptyTensor(tensorShapeA);
 
   const int32_t dim = 0;
 
-  auto scatter =
-      builder.create<ScatterOp>(builder.getUnknownLoc(), output.getType(),
-                               input, index, source, builder.getI32IntegerAttr(dim), nullptr);
+  auto scatter = builder.create<ScatterOp>(
+      builder.getUnknownLoc(), output.getType(), input, index, source,
+      builder.getI32IntegerAttr(dim), nullptr);
 
   // test ScatterOp interface
   auto constraintsExp = getOpConstraints(scatter.getOperation());
