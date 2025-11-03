@@ -332,6 +332,28 @@ void createTTIRToTTNNDevicePipeline(
   }
 }
 
+void createPrettifyXLATorchPipeline(
+    OpPassManager &pm, const PrettifyXLATorchPipelineOptions &options) {
+  // Simplify locations to remove nested location information
+  //
+  // The nested locations appear for parameters, and describe original parameter
+  // names, among other info, and will be useful for naming variables in the
+  // generated code.
+  //
+  pm.addPass(createTTNNSimplifyLocsForCodegen());
+
+  // Prettify IR by splitting into multiple functions based on source locations
+  //
+  pm.addPass(createTTNNPrettifyForCodegen());
+
+  // TODO (#6297): This is a temporary workaround - deallocs aren't placed in
+  // prettification pass yet. They are often called before a tensor is last
+  // used. A good approach today is to leave deallocs in the IR and (re)move
+  // them with an LLM later, by asking it to move deallocs to after last use.
+  //
+  pm.addPass(createTTNNRemoveDeallocs());
+}
+
 // Pipeline which lowers the Device module from TTNN to EmitC dialect.
 //
 void createTTNNToEmitCDevicePipeline(
@@ -381,6 +403,9 @@ void createTTNNToEmitPyDevicePipeline(
   auto &devicePm = pm.nest<ttcore::DeviceModuleOp>().nest<mlir::ModuleOp>();
 
   devicePm.addPass(createTTNNAdjustDeallocs());
+  if (options.enablePrettify) {
+    createPrettifyXLATorchPipeline(pm, PrettifyXLATorchPipelineOptions());
+  }
 
   // Apply EmitPy-specific workarounds before conversion
   devicePm.addPass(createTTNNEmitPyWorkarounds());
@@ -540,5 +565,15 @@ void registerTTNNPipelines() {
   mlir::PassPipelineRegistration<mlir::tt::ttnn::TTIRToEmitPyPipelineOptions>(
       "ttir-to-emitpy-pipeline", "Pipeline lowering TTIR to EmitPy.",
       mlir::tt::ttnn::createTTIRToEmitPyPipeline);
+
+  // Prettify XLA/Torch pipeline.
+  //
+  mlir::PassPipelineRegistration<
+      mlir::tt::ttnn::PrettifyXLATorchPipelineOptions>(
+      "prettify-xla-torch-pipeline",
+      "Pipeline to prettify TTNN IR for code generation from XLA/Torch. "
+      "Simplifies locations, splits functions based on source locations, "
+      "and removes deallocations.",
+      mlir::tt::ttnn::createPrettifyXLATorchPipeline);
 }
 } // namespace mlir::tt::ttnn
