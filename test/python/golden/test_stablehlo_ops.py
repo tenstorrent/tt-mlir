@@ -123,6 +123,20 @@ def log(
     return builder.log(in0, unit_attrs=unit_attrs)
 
 
+def slice(
+    in0: Operand,
+    start_indices: List[int],
+    limit_indices: List[int],
+    strides: Optional[List[int]],
+    builder: StableHLOBuilder,
+    unit_attrs: Optional[List[str]] = None,
+):
+    builder.set_graph_level_check(True)
+    return builder.slice(
+        in0, start_indices, limit_indices, strides, unit_attrs=unit_attrs
+    )
+
+
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
@@ -234,6 +248,42 @@ def test_stablehlo_multi_return_support(
         multi_return_model,
         shapes,
         dtypes,
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
+        device=device,
+    )
+
+
+@pytest.mark.parametrize(
+    "shape,start_indices,limit_indices,strides",
+    [
+        ((64, 64), [0, 0], [32, 32], None),
+        ((64, 64), [10, 20], [50, 60], [1, 1]),
+        ((128, 128), [10, 20], [100, 100], [2, 2]),
+    ],
+    ids=["basic_slice", "explicit_step", "stride_slice"],
+)
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("target", ["ttnn"])
+def test_slice(
+    shape: Shape,
+    start_indices: List[int],
+    limit_indices: List[int],
+    strides: Optional[List[int]],
+    dtype: torch.dtype,
+    target: str,
+    request,
+    device,
+):
+    def slice_op(in0: Operand, builder: StableHLOBuilder):
+        return slice(in0, start_indices, limit_indices, strides, builder)
+
+    compile_and_execute_shlo(
+        slice_op,
+        [shape],
+        [dtype],
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
