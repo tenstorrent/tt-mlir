@@ -19,15 +19,11 @@ COMMON_SHAPE_GRID_PARAMS = [
     (32, 32, (0, 0)),
     (32, 64, (0, 0)),
     (64, 64, (0, 0)),
-    (64, 128, (0, 0))
+    (64, 128, (0, 0)),
 ]
 
-COMMON_SHAPE_PARAMS = [
-    (32, 32),
-    (32, 64),
-    (64, 64),
-    (64, 128)
-]
+COMMON_SHAPE_PARAMS = [(32, 32), (32, 64), (64, 64), (64, 128)]
+
 
 def run_op_test(
     device, h, w, max_grid, dtype, op, num_inputs, buffer_type=ttnn.BufferType.L1
@@ -42,7 +38,7 @@ def run_op_test(
     print("inputs", inputs)
     golden_op = _get_ttnn_op(op)
 
-    op_jit = ttnn_jit.jit(backend="ttnn", debug=True, max_grid=max_grid)(op)
+    op_jit = ttnn_jit.jit(debug=True, max_grid=max_grid)(op)
     output_tensor = op_jit(*inputs)
     golden_tensor = (golden_op or op)(*inputs)
 
@@ -87,6 +83,7 @@ def test_composite_ops_l1(device, h, w, max_grid, dtype, op):
     run_op_test(
         device, h, w, max_grid, dtype, op, num_inputs, buffer_type=ttnn.BufferType.L1
     )
+
 
 @pytest.mark.parametrize("h , w", COMMON_SHAPE_PARAMS)
 @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32])

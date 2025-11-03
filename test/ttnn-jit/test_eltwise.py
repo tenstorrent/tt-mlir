@@ -350,6 +350,7 @@ def test_binary_ops(device, h, w, max_grid, dtype, op):
         device, h, w, max_grid, dtype, op, num_inputs=2, buffer_type=ttnn.BufferType.L1
     )
 
+
 @pytest.mark.parametrize("h , w", DRAM_INTERLEAVED_SHAPES)
 @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32])
 @pytest.mark.parametrize(
@@ -374,7 +375,14 @@ def test_binary_ops_dram(device, h, w, dtype, op):
         pytest.xfail("failing allclose for some shapes")
 
     run_op_test(
-        device, h, w, max_grid, dtype, op, num_inputs=2, buffer_type=ttnn.BufferType.DRAM
+        device,
+        h,
+        w,
+        max_grid,
+        dtype,
+        op,
+        num_inputs=2,
+        buffer_type=ttnn.BufferType.DRAM,
     )
 
 
