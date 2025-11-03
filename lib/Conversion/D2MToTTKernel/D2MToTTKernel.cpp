@@ -94,6 +94,36 @@ static Value getCB(ConversionPatternRewriter &rewriter, Value cb) {
         // Direct CB load - return the remapped CB
         return rewriter.getRemappedValue(provenance.rootValue);
 
+      case d2m::utils::MemRefSource::TempAllocation:
+        // Temp allocation from d2m.empty() - trace through to find source CB
+        // This handles both 1x1 and 2x2 temp allocs
+        // Trace: load %temp ← store to %temp ← tile_op ← tile_op_input ← CB
+        {
+          Value tempMemref = memref;
+
+          // Find what stored to this temp alloc
+          memref::StoreOp tempStore;
+          for (auto *user : tempMemref.getUsers()) {
+            if (auto storeOp = mlir::dyn_cast<memref::StoreOp>(user)) {
+              tempStore = storeOp;
+              break;
+            }
+          }
+
+          if (tempStore) {
+            Value storedValue = tempStore.getValueToStore();
+            Operation *sourceOp = storedValue.getDefiningOp();
+
+            // Recurse on the operation's input to find source CB
+            if (sourceOp && sourceOp->getNumOperands() > 0) {
+              return getCB(rewriter, sourceOp->getOperand(0));
+            }
+          }
+
+          // If we can't trace, return the remapped memref and hope type converter handles it
+          return rewriter.getRemappedValue(memref);
+        }
+
       case d2m::utils::MemRefSource::DstRegister:
         // Load from DST register (fused intermediate)
         // Trace: dst_load ← dst_store ← tile_op ← tile_op_input ← CB
@@ -119,32 +149,6 @@ static Value getCB(ConversionPatternRewriter &rewriter, Value cb) {
 
             if (tileOp && tileOp->getNumOperands() > 0) {
               return getCB(rewriter, tileOp->getOperand(0));
-            }
-          }
-        }
-        break;
-
-      case d2m::utils::MemRefSource::TempAllocation:
-        // Temp allocation from d2m.empty() - trace through to find source CB
-        // Trace: load %temp ← store to %temp ← tile_op ← CB
-        {
-          Value tempMemref = memref;
-
-          // Find what stored to this temp alloc
-          memref::StoreOp tempStore;
-          for (auto *user : tempMemref.getUsers()) {
-            if (auto storeOp = mlir::dyn_cast<memref::StoreOp>(user)) {
-              tempStore = storeOp;
-              break;
-            }
-          }
-
-          if (tempStore) {
-            Value storedValue = tempStore.getValueToStore();
-            Operation *sourceOp = storedValue.getDefiningOp();
-
-            if (sourceOp && sourceOp->getNumOperands() > 0) {
-              return getCB(rewriter, sourceOp->getOperand(0));
             }
           }
         }
@@ -400,6 +404,7 @@ public:
                   ConversionPatternRewriter &rewriter) const final {
     assert(adaptor.getIndices().size() == 1 &&
            "Expected single index in load op, failing.");
+
     rewriter.replaceOp(op, adaptor.getIndices().front());
     return success();
   };

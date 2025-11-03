@@ -92,7 +92,19 @@ struct ConvertD2MToTTKernel
     target.addDynamicallyLegalOp<memref::StoreOp>([&](memref::StoreOp op) {
       return op.getMemRefType().getElementType().isIntOrIndex();
     });
-    target.addLegalOp<memref::AllocOp>();
+    // Temp tile allocations with L1 memspace should convert to CB representations
+    target.addDynamicallyLegalOp<memref::AllocOp>([&](memref::AllocOp op) {
+      auto memrefType = op.getType();
+      // Illegal if rank <= 2 AND tile-typed AND has L1 memspace
+      if (memrefType.getRank() <= 2 &&
+          mlir::isa<ttcore::TileType>(memrefType.getElementType())) {
+        auto memspace = memrefType.getMemorySpace();
+        if (memspace && ttcore::getMemorySpace(op.getResult()) == ttcore::MemorySpace::DeviceL1) {
+          return false;  // Illegal - must convert
+        }
+      }
+      return true;  // Legal otherwise
+    });
     target.addLegalOp<memref::DeallocOp>();
     // Convert memref.copy when it's between tile-typed memrefs (CB-to-CB copy)
     target.addDynamicallyLegalOp<memref::CopyOp>([&](memref::CopyOp op) {
