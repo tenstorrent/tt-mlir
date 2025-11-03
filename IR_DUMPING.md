@@ -41,7 +41,7 @@ ttmlir-opt test/ttmlir/Conversion/ArithToStableHLO/constant_op.mlir -pass1 -pass
 # Only dump one IR per pipeline (summary mode) - final result
 export TTMLIR_DUMP_IR=per_dialect
 ttmlir-opt input.mlir -ttir-to-ttnn-backend-pipeline
-# Creates: ir_dumps/model/pipeline/1_PIPELINE_FINAL.mlir (contains final IR after all passes)
+# Creates: ir_dumps/model/1_PIPELINE_FINAL.mlir (contains final IR after all passes)
 ```
 
 ### Custom Directory
@@ -86,8 +86,8 @@ The IR dumping system creates different files depending on the dump mode:
 Creates detailed IR dumps after every pass in a structured subdirectory layout:
 
 #### Directory Structure
-- **Format**: `<model_name>/<pipeline_name>/<total_pass_count>_<pass_name>.mlir`
-- **Example**: `constant_op/stablehlo-to-ttir/3_stablehlo-to-ttir.mlir`
+- **Format**: `<model_name>/<total_pass_count>_<pass_name>.mlir`
+- **Example**: `constant_op/3_stablehlo-to-ttir.mlir`
 
 #### Pass IR Dumps
 - **Filename format**: `<total_pass_count>_<pass_name>.mlir`

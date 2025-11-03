@@ -361,9 +361,6 @@ mlir::tt::MLIRModuleLogger::getOutputFilename(const std::string &passName,
   // Create safe model name
   std::string safeModelName = sanitizeFilename(modelName);
 
-  // Create safe pipeline name
-  std::string safePipelineName = sanitizeFilename(pipelineName);
-
   // Create filename with total pass count: <total_pass_count>_<pass_name>.mlir
   std::string filename = std::to_string(totalPassCount) + "_" + safeName;
   if (!stage.empty()) {
@@ -371,9 +368,9 @@ mlir::tt::MLIRModuleLogger::getOutputFilename(const std::string &passName,
   }
   filename += ".mlir";
 
-  // Create subdirectory structure: <model_name>/<pipeline_name>/
-  std::string subdirPath = config.dumpDir + "/" + safeModelName + "/" + safePipelineName;
-  
+  // Create subdirectory structure: <model_name>/
+  std::string subdirPath = config.dumpDir + "/" + safeModelName;
+
   return subdirPath + "/" + filename;
 }
 
@@ -486,9 +483,8 @@ mlir::tt::MLIRModuleLogger::~MLIRModuleLogger() {
 
 std::string mlir::tt::MLIRModuleLogger::getTargetDirectory() const {
   std::string safeModelName = sanitizeFilename(modelName);
-  std::string safePipelineName = sanitizeFilename(pipelineName);
 
-  return config.dumpDir + "/" + safeModelName + "/" + safePipelineName;
+  return config.dumpDir + "/" + safeModelName;
 }
 
 int mlir::tt::MLIRModuleLogger::detectNextIndex(const std::string &targetDir) const {
