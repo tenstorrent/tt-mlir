@@ -194,7 +194,7 @@ struct MeshDeviceOptions {
   std::vector<uint32_t> meshOffset{0, 0};
   std::vector<int> deviceIds{};
   size_t numHWCQs = 1;
-  bool enableProgramCache = false;
+  bool enableProgramCache = true;
   std::optional<std::vector<uint32_t>> meshShape = std::nullopt;
   std::optional<size_t> l1SmallSize = std::nullopt;
   std::optional<size_t> traceRegionSize = std::nullopt;
@@ -284,6 +284,8 @@ struct SystemDesc : public Flatbuffer {
 };
 
 class TensorCache;
+class ProgramDescCache;
+
 struct Binary : public Flatbuffer {
   Binary(Flatbuffer fb);
   Binary(std::shared_ptr<void> handle);
@@ -325,6 +327,11 @@ struct Binary : public Flatbuffer {
   // Get the tensor cache associated with this binary
   std::shared_ptr<TensorCache> getConstEvalTensorCache() { return tensorCache; }
 
+  // Get the program descriptor cache associated with this binary
+  std::shared_ptr<tt::runtime::ProgramDescCache> getProgramDescCache() {
+    return programDescCache;
+  }
+
 private:
   std::uint64_t nextBinaryId();
 
@@ -332,6 +339,9 @@ private:
 
   // The tensor cache associated with this binary
   std::shared_ptr<TensorCache> tensorCache;
+
+  // Program descriptor cache associated with this binary
+  std::shared_ptr<tt::runtime::ProgramDescCache> programDescCache;
 };
 
 struct TraceCache : public detail::RuntimeCheckedObjectImpl {

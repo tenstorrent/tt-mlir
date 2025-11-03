@@ -187,6 +187,10 @@ void registerRuntimeBindings(nb::module_ &m) {
            [](tt::runtime::Tensor self) {
              return tt::runtime::getTensorVolume(self);
            })
+      .def("get_logical_volume",
+           [](tt::runtime::Tensor self) {
+             return tt::runtime::getTensorLogicalVolume(self);
+           })
       .def("get_dtype",
            [](tt::runtime::Tensor self) {
              return tt::runtime::getTensorDataType(self);

@@ -158,6 +158,10 @@ void run(const ::tt::target::ttnn::EltwiseUnaryOp *op,
     runEltwiseUnaryOp(op, tensorPool, ::ttnn::relu6);
     break;
   }
+  case ::tt::target::ttnn::EltwiseUnaryOpType::Hardsigmoid: {
+    runEltwiseUnaryOp(op, tensorPool, ::ttnn::hardsigmoid);
+    break;
+  }
   case ::tt::target::ttnn::EltwiseUnaryOpType::Sqrt: {
     runEltwiseUnaryOp(op, tensorPool, ::ttnn::sqrt);
     break;
@@ -173,6 +177,10 @@ void run(const ::tt::target::ttnn::EltwiseUnaryOp *op,
   }
   case ::tt::target::ttnn::EltwiseUnaryOpType::Silu: {
     runEltwiseUnaryOp(op, tensorPool, ::ttnn::silu);
+    break;
+  }
+  case ::tt::target::ttnn::EltwiseUnaryOpType::Mish: {
+    runEltwiseUnaryOp(op, tensorPool, ::ttnn::mish);
     break;
   }
   case ::tt::target::ttnn::EltwiseUnaryOpType::Sin: {

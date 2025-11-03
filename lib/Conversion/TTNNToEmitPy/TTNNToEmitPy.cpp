@@ -595,6 +595,7 @@ public:
                          emitter.getMemoryConfig(srcOp.getResult()),
                      "memory_config"),
         emitter.emit(srcOp.getAppliedShardScheme(), "applied_shard_scheme"),
+        emitter.emit(std::nullopt, "compute_kernel_config"),
         emitter.emit(srcOp.getInPlaceHalo(), "in_place_halo"),
     };
 
@@ -622,6 +623,17 @@ public:
     ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::MaxPool2dOp> emitter(
         maxPool2dOp, adaptor, rewriter);
 
+    SmallVector<int32_t> padding;
+    if (maxPool2dOp.getPadding().size() == 2) {
+      padding.push_back(static_cast<uint32_t>(maxPool2dOp.getPadding()[0]));
+      padding.push_back(static_cast<uint32_t>(maxPool2dOp.getPadding()[1]));
+    } else {
+      padding.push_back(static_cast<uint32_t>(maxPool2dOp.getPadding()[0]));
+      padding.push_back(static_cast<uint32_t>(maxPool2dOp.getPadding()[2]));
+      padding.push_back(static_cast<uint32_t>(maxPool2dOp.getPadding()[1]));
+      padding.push_back(static_cast<uint32_t>(maxPool2dOp.getPadding()[3]));
+    }
+
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(maxPool2dOp.getInput()),
         emitter.emit(maxPool2dOp.getBatchSize()),
@@ -632,8 +644,9 @@ public:
             maxPool2dOp.getKernelSizeAttr()),
         emitter.template emit<std::vector<uint32_t>>(
             maxPool2dOp.getStrideAttr()),
-        emitter.template emit<std::vector<uint32_t>>(
-            maxPool2dOp.getPaddingAttr()),
+        emitter.template emit<
+            std::variant<std::array<uint32_t, 2>, std::array<uint32_t, 4>>>(
+            rewriter.getI32ArrayAttr(padding)),
         emitter.template emit<std::vector<uint32_t>>(
             maxPool2dOp.getDilationAttr()),
         emitter.emit(emitter.getMemoryConfig(maxPool2dOp.getResult()),
@@ -1392,6 +1405,40 @@ public:
         "dilation",       "groups",        "dtype",       "conv_config",
         "compute_config", "memory_config"};
  */
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
+// GlobalAvgPool2dOp conversion pattern
+//
+namespace {
+class GlobalAvgPool2dOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<
+          mlir::tt::ttnn::GlobalAvgPool2dOp> {
+
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      mlir::tt::ttnn::GlobalAvgPool2dOp>::TTNNToEmitPyBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::GlobalAvgPool2dOp globalAvgPool2dOp,
+                  mlir::tt::ttnn::GlobalAvgPool2dOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::GlobalAvgPool2dOp>
+        emitter(globalAvgPool2dOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(globalAvgPool2dOp.getInput(), "input_tensor"),
+        emitter.emit(std::nullopt |
+                         emitter.getMemoryConfig(globalAvgPool2dOp.getResult()),
+                     "memory_config"),
+        emitter.emit(globalAvgPool2dOp.getDtype(), "dtype"),
+    };
+
     emitter.replaceOp(*this, args);
 
     return success();
@@ -2261,6 +2308,14 @@ public:
 namespace {
 class LoadTensorOpConversionPattern
     : public TTNNToEmitPyBaseOpConversionPattern<mlir::tt::ttnn::LoadTensorOp> {
+private:
+  std::string getPrefixSearchPattern() const override {
+    return mlir::tt::ttnn::LoadTensorOp::getOperationName().str();
+  }
+  std::string getPrefixSwapPattern() const override {
+    return "utils.load_tensor";
+  }
+
 public:
   using TTNNToEmitPyBaseOpConversionPattern<
       mlir::tt::ttnn::LoadTensorOp>::TTNNToEmitPyBaseOpConversionPattern;
@@ -2272,9 +2327,17 @@ public:
     ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::LoadTensorOp> emitter(
         srcOp, adaptor, rewriter);
 
+    RankedTensorType resultType = srcOp.getResult().getType();
+    mlir::tt::ttnn::TTNNLayoutAttr layoutAttr =
+        mlir::cast<mlir::tt::ttnn::TTNNLayoutAttr>(resultType.getEncoding());
+
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getFilePath()),
-        emitter.emit(srcOp.getDevice(), "device"),
+        emitter.emit(layoutAttr.getLayout()),
+        emitter.emit(mlir::tt::ttcore::elementTypeToDataType(
+            layoutAttr.getScalarElementType())),
+        emitter.emit(srcOp.getDevice()),
+        emitter.emit(emitter.getMemoryConfig(srcOp.getResult())),
     };
 
     emitter.replaceOp(*this, args);
@@ -2856,6 +2919,7 @@ public:
         emitter.emit(srcOp.getAttentionMask(), "attn_mask"),
         emitter.emit(srcOp.getIsCausal(), "is_causal"),
         emitter.emit<float>(srcOp.getScaleAttr(), "scale"),
+        emitter.emit(srcOp.getSlidingWindowSize(), "sliding_window_size"),
         emitter.emit(srcOp.getMemoryConfig() |
                          emitter.getMemoryConfig(srcOp.getResult()),
                      "memory_config"),
@@ -2907,6 +2971,7 @@ public:
         emitter.emit(srcOp.getCurPosTensor(), "cur_pos_tensor"),
         emitter.emit(srcOp.getAttentionSink(), "attention_sink"),
         emitter.emit(srcOp.getScale(), "scale"),
+        emitter.emit(std::nullopt, "sliding_window_size"),
         emitter.emit(srcOp.getMemoryConfig() |
                          emitter.getMemoryConfig(srcOp.getResult()),
                      "memory_config"),
@@ -3053,6 +3118,7 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
                EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::RsqrtOp>,
                EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::SignOp>,
                EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::SiluOp>,
+               EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::MishOp>,
                EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::SinOp>,
                EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::SqrtOp>,
                EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::TanOp>,
@@ -3132,8 +3198,10 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
   //
   // clang-format off
   patterns.add<AvgPool2dOpConversionPattern,
-    MaxPool2dOpConversionPattern,
-    UpsampleOpConversionPattern>(typeConverter, ctx);
+               GlobalAvgPool2dOpConversionPattern,
+               MaxPool2dOpConversionPattern,
+               UpsampleOpConversionPattern
+              >(typeConverter, ctx);
   // clang-format on
 
   // Convolution ops

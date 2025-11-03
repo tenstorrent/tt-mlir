@@ -1915,12 +1915,12 @@ public:
   LogicalResult
   matchAndRewrite(ttir::ScaledDotProductAttentionDecodeOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    FloatAttr scaleAttr = op.getScaleAttr() ? op.getScaleAttr() : nullptr;
     rewriter.replaceOpWithNewOp<ttnn::ScaledDotProductAttentionDecodeOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
         adaptor.getQuery(), adaptor.getKey(), adaptor.getValue(),
         adaptor.getIsCausal(), adaptor.getAttentionMask(),
-        adaptor.getCurPosTensor(), adaptor.getAttentionSink(), scaleAttr,
+        adaptor.getCurPosTensor(), adaptor.getAttentionSink(),
+        adaptor.getScaleAttr(),
         /*memory_config=*/nullptr);
     return success();
   }
@@ -1936,11 +1936,11 @@ public:
   LogicalResult
   matchAndRewrite(ttir::ScaledDotProductAttentionOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    FloatAttr scaleAttr = op.getScaleAttr() ? op.getScaleAttr() : nullptr;
     rewriter.replaceOpWithNewOp<ttnn::ScaledDotProductAttentionOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
         adaptor.getQuery(), adaptor.getKey(), adaptor.getValue(),
-        adaptor.getAttentionMask(), op.getIsCausal(), scaleAttr,
+        adaptor.getAttentionMask(), op.getIsCausal(), adaptor.getScaleAttr(),
+        adaptor.getSlidingWindowSizeAttr(),
         /*memory_config=*/nullptr);
     return success();
   }
@@ -2091,6 +2091,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            ElementwiseOpConversionPattern<ttir::RsqrtOp, ttnn::RsqrtOp>,
            ElementwiseOpConversionPattern<ttir::SignOp, ttnn::SignOp>,
            ElementwiseOpConversionPattern<ttir::SigmoidOp, ttnn::SigmoidOp>,
+           ElementwiseOpConversionPattern<ttir::HardsigmoidOp, ttnn::HardsigmoidOp>,
            ElementwiseOpConversionPattern<ttir::SiluOp, ttnn::SiluOp>,
            ElementwiseOpConversionPattern<ttir::Log1pOp, ttnn::Log1pOp>,
            ElementwiseOpConversionPattern<ttir::ReciprocalOp, ttnn::ReciprocalOp>,

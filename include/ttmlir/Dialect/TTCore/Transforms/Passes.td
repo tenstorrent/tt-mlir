@@ -83,4 +83,19 @@ def TTCoreOptimizationBarrierFold : Pass<"ttcore-optimization-barrier-fold", "::
   }];
 }
 
+def TTCoreOneShotBufferizePass : Pass<"ttcore-one-shot-bufferize", "::mlir::ModuleOp"> {
+  let summary = "One-Shot Bufferize with TTCore MetalLayoutAttr support";
+  let description = [{
+    This pass runs one-shot-bufferize with a custom type converter that properly
+    handles tensor types with MetalLayoutAttr encoding. It converts such tensors
+    to memref types with appropriate layout attributes (ShardLayoutAttr,
+    ViewLayoutAttr, InterleavedLayoutAttr) and explicit memory space attributes.
+    In addition to function bounadaries, d2m.global tensors are also handled.
+  }];
+  let dependentDialects = [
+    "::mlir::bufferization::BufferizationDialect",
+    "::mlir::tt::ttcore::TTCoreDialect"
+  ];
+}
+
 #endif

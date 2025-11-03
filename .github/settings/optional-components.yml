@@ -1,3 +1,6 @@
+workflow:
+  - .github/settings/**
+  - .github/workflows/**
 chisel:
   - runtime/tools/chisel/**
 emitc:
