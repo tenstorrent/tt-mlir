@@ -96,6 +96,7 @@ private:
   void setModelName(const std::string &name);
   void setPipelineName(const std::string &name);
   std::string extractModelNameFromLocation(mlir::Operation *op) const;
+  static std::string sanitizeFilename(const std::string &name);
 };
 
 } // namespace mlir::tt

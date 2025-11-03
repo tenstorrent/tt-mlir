@@ -336,27 +336,13 @@ std::string
 mlir::tt::MLIRModuleLogger::getOutputFilename(const std::string &passName,
                                               const std::string &stage) const {
   // Create a safe filename from the pass name
-  std::string safeName = passName;
-  std::replace(safeName.begin(), safeName.end(), '/', '_');
-  std::replace(safeName.begin(), safeName.end(), '<', '_');
-  std::replace(safeName.begin(), safeName.end(), '>', '_');
-  std::replace(safeName.begin(), safeName.end(), ' ', '_');
+  std::string safeName = sanitizeFilename(passName);
 
   // Create safe model name
-  std::string safeModelName = modelName;
-  std::replace(safeModelName.begin(), safeModelName.end(), '/', '_');
-  std::replace(safeModelName.begin(), safeModelName.end(), '<', '_');
-  std::replace(safeModelName.begin(), safeModelName.end(), '>', '_');
-  std::replace(safeModelName.begin(), safeModelName.end(), ' ', '_');
-  std::replace(safeModelName.begin(), safeModelName.end(), '.', '_');
+  std::string safeModelName = sanitizeFilename(modelName);
 
   // Create safe pipeline name
-  std::string safePipelineName = pipelineName;
-  std::replace(safePipelineName.begin(), safePipelineName.end(), '/', '_');
-  std::replace(safePipelineName.begin(), safePipelineName.end(), '<', '_');
-  std::replace(safePipelineName.begin(), safePipelineName.end(), '>', '_');
-  std::replace(safePipelineName.begin(), safePipelineName.end(), ' ', '_');
-  std::replace(safePipelineName.begin(), safePipelineName.end(), '.', '_');
+  std::string safePipelineName = sanitizeFilename(pipelineName);
 
   // Create filename with total pass count: <total_pass_count>_<pass_name>.mlir
   std::string filename = std::to_string(totalPassCount) + "_" + safeName;
@@ -476,4 +462,11 @@ mlir::tt::MLIRModuleLogger::~MLIRModuleLogger() {
     // Suppress exceptions in destructor to avoid termination
     // Log error if logging is available
   }
+}
+
+std::string mlir::tt::MLIRModuleLogger::sanitizeFilename(const std::string &name) {
+  std::string result = name;
+  std::replace_if(result.begin(), result.end(), 
+      [](char c) { return !std::isalnum(c) && c != '_' && c != '-'; }, '_');
+  return result;
 }
