@@ -16,8 +16,8 @@ from . import ttrt_loader
 
 
 # TODO(ctr-mcampos): update path to be configurable
-IR_DUMPS_DIR = 'ir_dumps'
-MODEL_EXTENSIONS = ['.ttir', '.mlir', '.ttnn']
+IR_DUMPS_DIR = "ir_dumps"
+MODEL_EXTENSIONS = [".ttir", ".mlir", ".ttnn"]
 
 
 def parse_mlir_str(module_str):
@@ -109,9 +109,17 @@ def add_to_dataclass(dataclass, new_attr_name: str, new_attr_value):
     dataclass[new_attr_name] = new_attr_value
     return to_dataclass(dataclass, dc_name=classname)
 
+
 def to_adapter_collection_format(*objs, **kwargs):
     res = [x if is_dataclass(x) else to_dataclass(x) for x in objs]
-    return {"graphCollections": [to_dataclass({ "label": kwargs.get('label', 'Unlabeled collection'), "graphs": res })]}
+    return {
+        "graphCollections": [
+            to_dataclass(
+                {"label": kwargs.get("label", "Unlabeled collection"), "graphs": res}
+            )
+        ]
+    }
+
 
 def to_adapter_format(*objs):
     res = [x if is_dataclass(x) else to_dataclass(x) for x in objs]
@@ -141,6 +149,7 @@ def needs_stablehlo_pass(module_path: str) -> bool:
 
     return module_dialect == ModuleDialect.STABLE_HLO
 
+
 def list_ir_files(dir_path: str):
     return [
         path
@@ -148,11 +157,15 @@ def list_ir_files(dir_path: str):
         for path in glob.glob(os.path.join(dir_path, f"**/*{extension}"))
     ]
 
+
 def get_collection_path(model_path: str):
     resolved_model_path = Path(model_path).resolve()
 
     # If the path is adirectory and has an "extension", simply return it.
-    if os.path.isdir(resolved_model_path) and MODEL_EXTENSIONS.count(resolved_model_path.suffix) > 0:
+    if (
+        os.path.isdir(resolved_model_path)
+        and MODEL_EXTENSIONS.count(resolved_model_path.suffix) > 0
+    ):
         return resolved_model_path
 
     resolved_ir_dir = Path(IR_DUMPS_DIR).resolve()
@@ -168,6 +181,7 @@ def get_collection_path(model_path: str):
 
     # Resolve to the file itself.
     return resolved_model_path
+
 
 def get_collection_label(model_path: str):
     collection_path = get_collection_path(model_path=model_path)
