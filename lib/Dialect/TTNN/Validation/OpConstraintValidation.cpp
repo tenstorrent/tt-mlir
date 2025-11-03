@@ -66,7 +66,7 @@ std::vector<ValidationResult> validateWithMultipleAttributes(
       }
 
       if (!foundMatch) {
-        results.push_back(ValidationResult::validationError(
+        results.push_back(ValidationResult::unmatchedReferenceConfig(
             "No matching reference config found"));
       }
     } else {
@@ -87,16 +87,17 @@ validateConstraints(Operation *op, llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
   // Check that operation supports OpModel interface.
   auto backend = mlir::dyn_cast<OpModel>(op);
   if (!backend) {
-    std::string errorMsg = "Backend constraints are not implemented for op " +
-                           op->getName().getStringRef().str();
-    llvm::report_fatal_error(llvm::Twine(errorMsg));
+    llvm::reportFatalInternalError(llvm::Twine("Backend constraints are not "
+                                               "implemented for op ")
+                                       .concat(op->getName().getStringRef()));
   }
 
   // Constraints are implemented for this op.
   auto deviceAttr = ttcore::lookupDevice(op);
   if (!deviceAttr) {
-    return ValidationResult::validationError(
-        "No device attribute found for operation");
+    llvm::reportFatalInternalError(
+        llvm::Twine("No device attribute found for operation ")
+            .concat(op->getName().getStringRef()));
   }
 
   TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,
@@ -119,7 +120,7 @@ validateConstraints(Operation *op, llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
     llvm::handleAllErrors(
         l1UsageExp.takeError(),
         [&](ttnn::detail::OpNotSupportedError &notSupportedErr) {
-          result = ValidationResult::notSupported(notSupportedErr.message());
+          result = ValidationResult::notImplemented(notSupportedErr.message());
         },
         [&](llvm::ErrorInfoBase &otherErr) {
           std::string errorMsg = otherErr.message();
@@ -129,7 +130,7 @@ validateConstraints(Operation *op, llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
                        op->getName(), op->getLoc(),
                        ttmlir::utils::firstNLines(errorMsg, 8),
                        config.outputLayout);
-          result = ValidationResult::backendError(std::move(errorMsg));
+          result = ValidationResult::metalBackendError(std::move(errorMsg));
         });
 
     return result;
@@ -170,7 +171,7 @@ validateConstraints(Operation *op, llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
                  op->getName(), totalInputL1Usage, tensorUsage, cBUsagePeak,
                  totalInputL1Usage + tensorUsage + cBUsagePeak,
                  static_cast<uint64_t>(tensorL1UsageCap * usableL1CacheSize));
-    return ValidationResult::validationError("Not enough L1 memory");
+    return ValidationResult::outOfMemoryError("Not enough L1 memory");
   }
 
   TTMLIR_DEBUG(

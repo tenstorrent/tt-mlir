@@ -34,6 +34,7 @@ inline std::string getReasonForLackOfSupportStr(ReasonForLackOfSupport reason) {
 
 class OpNotSupportedError : public llvm::ErrorInfo<OpNotSupportedError> {
 public:
+  // Unique identifier for the error class. Required by LLVM's ErrorInfo.
   static char ID;
 
   OpNotSupportedError(llvm::StringRef opName, ReasonForLackOfSupport reason,

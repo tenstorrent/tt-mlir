@@ -174,7 +174,7 @@ public:
         op_constraint_validation::ValidationResult originalResult =
             op_constraint_validation::validateOperation(
                 operation, inputLayouts, config, tensorL1UsageCap);
-        if (originalResult.isNotSupported()) {
+        if (originalResult.isNotImplemented()) {
           TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,
                        "Operation {} at {} not supported for validation: {}",
                        operation->getName(), operation->getLoc(),

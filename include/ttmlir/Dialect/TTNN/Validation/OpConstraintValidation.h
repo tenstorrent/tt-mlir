@@ -19,9 +19,10 @@ namespace op_constraint_validation {
 
 enum class ValidationStatus {
   Success,
-  NotSupported,
-  BackendError,
-  ValidationError
+  NotImplemented,
+  MetalBackendError,
+  UnmatchedReferenceConfig,
+  OutOfMemoryError
 };
 
 // Result of a single constraint validation test.
@@ -48,30 +49,33 @@ struct ValidationResult {
     return ValidationResult(configIndex, actualOutputLayout);
   }
 
-  static ValidationResult notSupported(std::string message) {
+  static ValidationResult error(ValidationStatus status, std::string message) {
     ValidationResult result;
-    result.status = ValidationStatus::NotSupported;
+    result.status = status;
     result.errorMessage = std::move(message);
     return result;
   }
 
-  static ValidationResult backendError(std::string message) {
-    ValidationResult result;
-    result.status = ValidationStatus::BackendError;
-    result.errorMessage = std::move(message);
-    return result;
+  static ValidationResult notImplemented(std::string message) {
+    return error(ValidationStatus::NotImplemented, std::move(message));
   }
 
-  static ValidationResult validationError(std::string message) {
-    ValidationResult result;
-    result.status = ValidationStatus::ValidationError;
-    result.errorMessage = std::move(message);
-    return result;
+  static ValidationResult metalBackendError(std::string message) {
+    return error(ValidationStatus::MetalBackendError, std::move(message));
+  }
+
+  static ValidationResult unmatchedReferenceConfig(std::string message) {
+    return error(ValidationStatus::UnmatchedReferenceConfig,
+                 std::move(message));
+  }
+
+  static ValidationResult outOfMemoryError(std::string message) {
+    return error(ValidationStatus::OutOfMemoryError, std::move(message));
   }
 
   bool isSuccess() const { return status == ValidationStatus::Success; }
-  bool isNotSupported() const {
-    return status == ValidationStatus::NotSupported;
+  bool isNotImplemented() const {
+    return status == ValidationStatus::NotImplemented;
   }
   bool isError() const { return status != ValidationStatus::Success; }
 };
