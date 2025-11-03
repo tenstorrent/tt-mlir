@@ -1346,9 +1346,7 @@ unsigned d2m::GenericOp::getNumLoops() { return getNumDims(); }
 unsigned d2m::GenericOp::getNumDims() {
   assert(!getIndexingMaps().empty() && "GenericOp must be pre-loop generated "
                                        "with indexing maps to use this method");
-  return mlir::cast<mlir::AffineMapAttr>(getIndexingMapsAttr()[0])
-      .getAffineMap()
-      .getNumDims();
+  return getIndexingMap(0).getNumDims();
 }
 
 mlir::AffineMap d2m::GenericOp::getIndexingMap(int64_t operandIndex) {
