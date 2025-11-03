@@ -22,9 +22,10 @@
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/Value.h"
 #include "mlir/Transforms/DialectConversion.h"
-
+#include <iostream>
 #include <type_traits>
 #include <utility>
+
 
 namespace mlir::tt::ttkernel {
 
@@ -840,6 +841,15 @@ public:
 
     rewriter.create<TTKernelAcquireOp>(op.getLoc(), adaptor.getCb(), numPages);
 
+    placeReleaseOp(op, adaptor, rewriter, numPages);
+
+    rewriter.replaceOp(op, adaptor.getCb());
+
+    return success();
+  };
+
+  void placeReleaseOp(d2m::WaitOp op, d2m::WaitOpAdaptor adaptor,
+    ConversionPatternRewriter &rewriter, Value numPages) const {
     Block *block = op->getBlock();
     auto release = rewriter.create<TTKernelReleaseOp>(
         op.getLoc(), adaptor.getCb(), numPages);
@@ -848,11 +858,39 @@ public:
     } else {
       rewriter.moveOpAfter(release, &block->back());
     }
+  }
 
-    rewriter.replaceOp(op, adaptor.getCb());
-
-    return success();
-  };
+  void placeReleaseOp(d2m::ReserveOp op, d2m::ReserveOpAdaptor adaptor,
+    ConversionPatternRewriter &rewriter, Value numPages) const {
+    Block *block = op->getBlock();
+    auto release = rewriter.create<TTKernelReleaseOp>(
+        op.getLoc(), adaptor.getCb(), numPages);
+    
+    // Find the first d2m::WaitOp or ttkernel::CBWaitFrontOp after the reserve
+    Operation *insertBeforeOp = nullptr;
+    for (Operation &blockOp : llvm::make_range(op->getIterator(), block->end())) {
+      if (llvm::isa<ttkernel::NocAsyncReadBarrierOp>(&blockOp)){
+        std::cout << "Found NocAsyncReadBarrierOp" << std::endl;
+      }
+      if (llvm::isa<d2m::WaitOp>(&blockOp) || 
+          llvm::isa<ttkernel::CBWaitFrontOp>(&blockOp)) {
+        insertBeforeOp = &blockOp;
+        break;
+      }
+    }
+    
+    // If we found a wait operation, insert before it
+    if (insertBeforeOp) {
+      rewriter.moveOpBefore(release, insertBeforeOp);
+    } else {
+      // Otherwise, fall back to placing at the end of the block
+      if (block->mightHaveTerminator()) {
+        rewriter.moveOpBefore(release, block->getTerminator());
+      } else {
+        rewriter.moveOpAfter(release, &block->back());
+      }
+    }
+  }
 };
 } // namespace
 

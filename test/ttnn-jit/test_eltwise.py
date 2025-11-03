@@ -350,6 +350,33 @@ def test_binary_ops(device, h, w, max_grid, dtype, op):
         device, h, w, max_grid, dtype, op, num_inputs=2, buffer_type=ttnn.BufferType.L1
     )
 
+@pytest.mark.parametrize("h , w", DRAM_INTERLEAVED_SHAPES)
+@pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32])
+@pytest.mark.parametrize(
+    "op",
+    [
+        add,
+        sub,
+        mul,
+        div,
+        pow,
+        # logical_and, logical_or, logical_xor,
+        # bitwise_or, bitwise_and, bitwise_xor, # not a supported FPU op
+        # Not supported in TTIRToD2M
+        # remainder, atan2, eq, ne, gt, ge, lt, le
+    ],
+)
+def test_binary_ops_dram(device, h, w, dtype, op):
+    max_grid = (0, 0)
+    if op == div:
+        pytest.xfail("failing allclose for some shapes")
+    if op == pow and dtype == torch.float32:
+        pytest.xfail("failing allclose for some shapes")
+
+    run_op_test(
+        device, h, w, max_grid, dtype, op, num_inputs=2, buffer_type=ttnn.BufferType.DRAM
+    )
+
 
 # ------------------------------------------------------------
 # Composite ops
