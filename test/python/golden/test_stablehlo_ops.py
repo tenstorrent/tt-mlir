@@ -226,10 +226,12 @@ def test_tan(shape: Shape, dtype: torch.dtype, target: str, request, device):
     ids=["2t_dim0", "2t_dim1", "3t_dim0_ttir", "diff_size", "3t_same", "4t_dim1"],
 )
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("target", ["ttnn"])
 def test_concatenate(
     shapes: List[Shape],
     dim: int,
     dtype: torch.dtype,
+    target: str,
     request,
     device,
 ):
