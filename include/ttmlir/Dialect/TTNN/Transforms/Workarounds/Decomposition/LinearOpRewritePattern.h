@@ -11,7 +11,9 @@
 
 namespace mlir::tt::ttnn::workarounds::decomposition {
 
-// Rewrite pattern for decomposing batched LinearOp into MatMulOp + AddOp.
+// Workaround: Decompose batched LinearOp (with bias) into MatMulOp + AddOp.
+// ttnn::linear doesn't support batched weight tensors when bias is present.
+// See: https://github.com/tenstorrent/tt-metal/issues/31634
 class LinearOpRewritePattern : public mlir::OpRewritePattern<ttnn::LinearOp> {
 public:
   using OpRewritePattern::OpRewritePattern;
