@@ -169,20 +169,33 @@ public:
       ReshapeOp, SliceStaticOp, commuteDirection>::TTIRCommuteOpRewritePattern;
 
   void performCommuteUpwardsRewrite(SliceStaticOp op, ReshapeOp reshapeUser,
-                                    PatternRewriter &rewriter) const override {}
+                                    PatternRewriter &rewriter) const override {
+    ReshapeOp newReshape = deslicedReshapeOp(op, reshapeUser, rewriter);
+
+    SliceStaticOp newSlice =
+        reshapedSliceStaticOp(op, newReshape.getResult(),
+                              getHighestReshapeDim(reshapeUser), rewriter);
+
+    SmallVector<Operation *> users(op->getUsers());
+    for (auto *user : users) {
+      assert(checkIdenticalTms(reshapeUser, user) &&
+             "shouldCommute should have ensured this is true");
+      rewriter.replaceOp(user, newSlice);
+    }
+  }
 
   void
   performCommuteDownwardsRewrite(SliceStaticOp op, ReshapeOp reshapeOperand,
                                  PatternRewriter &rewriter) const override {
     SliceStaticOp newSlice =
-        reshapeSliceStaticOp(op, reshapeOperand.getInput(),
-                             getHighestReshapeDim(reshapeOperand), rewriter);
+        reshapedSliceStaticOp(op, reshapeOperand.getInput(),
+                              getHighestReshapeDim(reshapeOperand), rewriter);
 
     // The reshape should produce the same output type as the original slice
-    SmallVector<int32_t> outputShape(op.getType().getShape());
+    SmallVector<int32_t> reshapeTargetShape(op.getType().getShape());
     ReshapeOp newReshape = utils::createDPSOp<ReshapeOp>(
         rewriter, op->getLoc(), op.getType(), newSlice,
-        rewriter.getI32ArrayAttr(outputShape));
+        rewriter.getI32ArrayAttr(reshapeTargetShape));
     rewriter.replaceOp(op, newReshape);
   }
 
@@ -237,10 +250,10 @@ private:
     return lowestSlicingDim;
   }
 
-  SliceStaticOp reshapeSliceStaticOp(SliceStaticOp op,
-                                     TypedValue<RankedTensorType> input,
-                                     int64_t highestChangingDim,
-                                     PatternRewriter &rewriter) const {
+  SliceStaticOp reshapedSliceStaticOp(SliceStaticOp op,
+                                      TypedValue<RankedTensorType> input,
+                                      int64_t highestChangingDim,
+                                      PatternRewriter &rewriter) const {
     // For dims higher than the highest changing dim, begins are 0, ends are
     // dimSize, step is 1.
     // We need to update ends and output shape with new dimSizes for those dims,
@@ -278,6 +291,34 @@ private:
         rewriter.getArrayAttr(newEnds), op.getStep());
 
     return newSlice;
+  }
+
+  ReshapeOp deslicedReshapeOp(SliceStaticOp op, ReshapeOp reshapeUser,
+                              PatternRewriter &rewriter) const {
+    SmallVector<int64_t> targetShape;
+    ArrayRef<int64_t> reshapeShape =
+        reshapeUser.getResult().getType().getShape();
+    ArrayRef<int64_t> sliceInputShape = op.getInput().getType().getShape();
+
+    auto highestReshapeDim = getHighestReshapeDim(reshapeUser);
+    size_t ndims = reshapeShape.size();
+    for (size_t i = 0; i < ndims; ++i) {
+      if (static_cast<int64_t>(i) <= highestReshapeDim) {
+        targetShape.push_back(reshapeShape[i]);
+      } else {
+        targetShape.push_back(
+            sliceInputShape[i]); // working only if reshape doesnt change ndim.
+      }
+    }
+
+    auto targetType = RankedTensorType::get(
+        targetShape, op.getInput().getType().getElementType(),
+        op.getInput().getType().getEncoding());
+    SmallVector<int32_t> targetShapeInt32(targetShape.begin(),
+                                          targetShape.end());
+    return utils::createDPSOp<ReshapeOp>(
+        rewriter, op->getLoc(), targetType, op.getInput(),
+        rewriter.getI32ArrayAttr(targetShapeInt32));
   }
 
   bool isCommuteUpwardsViable(SliceStaticOp op,
