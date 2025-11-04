@@ -17,6 +17,12 @@ inline constexpr llvm::StringRef kXlaSdyShardingAttr = "xla.sdy.sharding";
 inline constexpr llvm::StringRef kXlaSdyMeshesAttr = "xla.sdy.meshes";
 inline constexpr llvm::StringRef kDefaultMeshName = "mesh";
 
+// Composite op flattening/re-outlining related string definitions.
+inline constexpr llvm::StringLiteral kGroupAttr("reoutline.group");
+inline constexpr llvm::StringLiteral kSeedAttr("reoutline.seed");
+inline constexpr llvm::StringLiteral kOrigNameAttr("reoutline.orig_name");
+inline constexpr llvm::StringLiteral kCompAttrsAttr("reoutline.comp_attrs");
+
 inline const llvm::SmallVector<llvm::SmallVector<int64_t, 2>, 7>
     SupportedMeshes = {
         {{1, 1}, {1, 2}, {1, 4}, {1, 8}, {2, 4}, {1, 32}, {8, 4}}};

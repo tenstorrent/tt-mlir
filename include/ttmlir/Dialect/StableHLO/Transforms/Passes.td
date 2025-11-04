@@ -145,6 +145,25 @@ def DecoupleConstFanoutPass : Pass<
   ];
 }
 
+def FlattenCompositePass : Pass<"flatten-composite", "::mlir::ModuleOp"> {
+  let summary = "Inline (flatten) stablehlo.composite ops and tag cloned ops for optional re-outlining.";
+  let description = [{
+    This pass inlines each `stablehlo.composite` by cloning its callee body at the call site.
+    Every cloned op is annotated with `reoutline.group = "composite_<callee>"`.
+    The first cloned op additionally receives `reoutline.seed` (UnitAttr).
+    The original composite op is erased after wiring the cloned return values to the users.
+
+    The pass is intended to run **before** sharding propagation so that propagation happens
+    on a flattened graph. A later re-outlining pass may reconstruct composites by grouping
+    ops with the same `reoutline.group` attribute if the subgraph is closed and movable.
+  }];
+
+
+  let dependentDialects = [
+    "::mlir::func::FuncDialect"
+  ];
+}
+
 def WrapUnderManualComputationPass : Pass<"wrap-under-manual-computation", "::mlir::ModuleOp">
 {
   let summary = "Wrap all operations within a sdy manual computation op.";
@@ -229,6 +248,24 @@ def InsertExplicitReshardsPass : Pass<"insert-explicit-reshards", "::mlir::Modul
     This pass checks if the graph is already solved before running sdy.insert_explicit_reshards.
     A graph is considered solved if it contains sdy.manual_computation operations with non-empty
     manual_axes, indicating that the sharding propagation has already been completed.
+  }];
+
+  let dependentDialects = [
+    "::mlir::sdy::SdyDialect"
+  ];
+}
+
+def ReoutlineCompositePass : Pass<"reoutline-composite", "::mlir::ModuleOp"> {
+  let summary = "Reconstruct composite ops from flattened groups marked by reoutline.* attributes.";
+  let description = [{
+    This pass scans for ops annotated with `reoutline.group` and attempts to
+    re-outline them into a single composite/call if the group forms a closed,
+    movable subgraph within the function. Captured inputs become function arguments
+    and escaping values become function results. If a group is not closed or cannot
+    be moved safely due to side effects, it is skipped and the flattened form remains.
+
+    Use this after sharding propagation and reshards insertion if you want to
+    restore composite structure for subsequent conversions.
   }];
 
   let dependentDialects = [

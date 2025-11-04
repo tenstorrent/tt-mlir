@@ -649,6 +649,31 @@ bool isFullyReplicatedTensor(mlir::sdy::TensorShardingAttr tsh) {
   return true;
 }
 
+bool isShardedModule(mlir::ModuleOp &module) {
+  llvm::SmallVector<mlir::sdy::MeshOp> parsedMeshOps =
+      shardy_utils::getMeshOps(module);
+  if (parsedMeshOps.empty()) {
+    return false;
+  }
+  auto globalMeshOp = parsedMeshOps[0];
+  for (auto funcOp : module.getOps<mlir::func::FuncOp>()) {
+    for (auto inSharding :
+         getInShardingAttrs(funcOp.getContext(), funcOp, globalMeshOp)) {
+      if (!isFullyReplicatedTensor(inSharding)) {
+        return true;
+      }
+    }
+
+    for (auto outSharding :
+         getOutShardingAttrs(funcOp.getContext(), funcOp, globalMeshOp)) {
+      if (!isFullyReplicatedTensor(outSharding)) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
 // Get all mesh names from a function, returning empty vector if none found.
 llvm::SmallVector<std::string> getMeshNames(mlir::func::FuncOp &funcOp) {
   llvm::SmallVector<std::string> meshNames;
