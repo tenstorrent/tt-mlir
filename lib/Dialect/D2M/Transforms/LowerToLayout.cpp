@@ -110,10 +110,10 @@ struct CompoundComponents {
 
       // Memory layout changes (Interleaved <-> Sharded) are not currently
       // supported.
-      TT_assert(inputLayout.getMemoryLayout() ==
-                    outputLayout.getMemoryLayout() &&
-                "ToLayoutOp does not support TensorMemoryLayout changes "
-                "(Interleaved <-> Sharded)");
+      TT_assertv(inputLayout.getMemoryLayout() ==
+                     outputLayout.getMemoryLayout(),
+                 "ToLayoutOp does not support TensorMemoryLayout changes "
+                 "(Interleaved <-> Sharded)");
 
       bool shapeChanged =
           (inputInfo.type.getShape() != outputInfo.type.getShape());
@@ -149,7 +149,7 @@ public:
     auto outputInfo = TensorInfo::from(op.getOutput());
 
     // Preconditions - these should be guaranteed by the split/compound logic
-    TT_assertv(inputInfo.hasLayout() && outputInfo.hasLayout(),
+    TT_assertv((inputInfo.hasLayout() && outputInfo.hasLayout()),
                "Mapping change requires both input and output to have layouts");
     TT_assertv(inputInfo.getMemorySpace() == outputInfo.getMemorySpace(),
                "Mapping change should not change memory space");
@@ -240,7 +240,7 @@ public:
     }
 
     // Both input and output should have layouts at this point.
-    TT_assert(inputInfo.hasLayout() && outputInfo.hasLayout());
+    TT_assert((inputInfo.hasLayout() && outputInfo.hasLayout()));
 
     Value viewInput = op.getInput();
 
