@@ -27,6 +27,7 @@
   - [`EmitPy`](./emitpy.md)
 - [Optimizer](./optimizer.md)
 - [PyKernel](./pykernel.md)
+- [ttnn-jit](./ttnn-jit.md)
 - [Creating bug repros for TTNN](./ttnn-bug-repros.md)
 - [Python Bindings](./python-bindings.md)
 - [Flatbuffers](./flatbuffers.md)
