@@ -1980,13 +1980,88 @@ public:
     hoistPreprocessingOps(permuteOps);
     rewriter.setInsertionPointAfter(permuteOps.front());
 
-    // Concatenate projection outputs along last dimension.
-    ttir::ConcatOp concatenateProjections = concatenateAlongLastDim(
-        rewriter, linearOps[2].getLoc(),
-        ValueRange{linearOps[0].getResult(), linearOps[1].getResult(),
-                   linearOps[2].getResult()});
-    llvm::outs() << "Concatenate Projections: " << concatenateProjections
-                 << "\n";
+    // Extract dimensions from reshape op input and output.
+    Value reshapeOutput = reshapeOp.getResult();
+    ArrayRef<int64_t> inputShape = reshapeOp.getInput().getType().getShape();
+    int32_t batchSize = inputShape[I_BATCH_SIZE];
+    int32_t sequenceLength = inputShape[I_SEQUENCE_LENGTH];
+    int32_t hiddenSize = inputShape[I_HIDDEN_DIMENSION];
+
+    // Concatenate weights along dimension determined by linear op.
+    // Weights are the second input (B) of linear op.
+    Value queryWeightMatrix = linearOps[0].getB();
+    Value keyWeightMatrix = linearOps[1].getB();
+    Value valueWeightMatrix = linearOps[2].getB();
+    std::size_t queryWeightRank =
+        mlir::cast<RankedTensorType>(queryWeightMatrix.getType())
+            .getShape()
+            .size();
+
+    std::size_t dimToConcatWeights =
+        linearOps[0].getTransposeB()
+            ? 0
+            : (queryWeightRank - 1); // 0 if transposed, else last dim.
+
+    ttir::ConcatOp concatenatedWeightMatrix = concatenateAlongDim(
+        rewriter, valueWeightMatrix.getLoc(),
+        ValueRange{queryWeightMatrix, keyWeightMatrix, valueWeightMatrix},
+        dimToConcatWeights);
+
+    // Concatenate bias along last dimension.
+    Value queryBias = linearOps[0].getBias();
+    Value keyBias = linearOps[1].getBias();
+    Value valueBias = linearOps[2].getBias();
+    std::size_t biasRank =
+        mlir::cast<RankedTensorType>(queryBias.getType()).getShape().size();
+
+    ttir::ConcatOp concatenatedBias = concatenateAlongDim(
+        rewriter, valueBias.getLoc(), ValueRange{queryBias, keyBias, valueBias},
+        biasRank - 1);
+
+    // Get the output shape from one of the original linear ops (they all have
+    // the same shape). Original linear output: [1, 128, 768]. New concatenated
+    // linear output: [1, 128, 2304] (last dim * 3).
+    ArrayRef<int64_t> originalLinearOutputShape =
+        linearOps[0].getResult().getType().getShape();
+
+    bool transposeA = linearOps[0].getTransposeA();
+    bool transposeB = linearOps[0].getTransposeB();
+
+    llvm::SmallVector<int64_t> linearOutputShape(
+        originalLinearOutputShape.begin(), originalLinearOutputShape.end());
+
+    // Multiply the last dimension by 3 (since we're concatenating Q, K, V).
+    linearOutputShape.back() = originalLinearOutputShape.back() * 3;
+
+    // Create linear operation with concatenated weights and bias.
+    RankedTensorType linearOutputType = RankedTensorType::get(
+        linearOutputShape,
+        mlir::cast<RankedTensorType>(linearOps[0].getResult().getType())
+            .getElementType());
+
+    LinearOp linearOp = ttir::utils::createDPSOp<ttir::LinearOp>(
+        rewriter, valueBias.getLoc(), linearOutputType, reshapeOutput,
+        concatenatedWeightMatrix, concatenatedBias,
+        /*transpose_a=*/transposeA, /*transpose_b=*/transposeB);
+
+    // Create reshape operation to convert from [batch*seq, hidden*3] to [batch,
+    // seq, hidden*3].
+    SmallVector<int64_t> reshapeToSplitShape = {batchSize, sequenceLength,
+                                                hiddenSize * 3};
+    auto reshapeElementType =
+        mlir::cast<RankedTensorType>(linearOp.getResult().getType())
+            .getElementType();
+    auto reshapeEncoding =
+        mlir::cast<RankedTensorType>(linearOp.getResult().getType())
+            .getEncoding();
+
+    SmallVector<int32_t> reshapeToSplitShapeI32(reshapeToSplitShape.begin(),
+                                                reshapeToSplitShape.end());
+
+    ReshapeOp reshapeToSplit = ttir::utils::createDPSOp<ttir::ReshapeOp>(
+        rewriter, linearOp.getLoc(), reshapeToSplitShape, reshapeElementType,
+        reshapeEncoding, linearOp.getResult(),
+        rewriter.getI32ArrayAttr(reshapeToSplitShapeI32));
 
     // Create split qkv op.
     auto queryType = permuteOps[0].getOutput().getType();
@@ -1997,23 +2072,22 @@ public:
     auto valueShape = valueType.getShape();
     int32_t numHeads = queryType.getShape()[O_NUM_KV_HEADS];
 
-    Value queryOutput = rewriter.create<EmptyOp>(
-        concatenateProjections.getLoc(), queryShape, queryType.getElementType(),
-        queryType.getEncoding());
-    Value keyOutput = rewriter.create<EmptyOp>(
-        concatenateProjections.getLoc(), keyShape, keyType.getElementType(),
-        keyType.getEncoding());
-    Value valueOutput = rewriter.create<EmptyOp>(
-        concatenateProjections.getLoc(), valueShape, valueType.getElementType(),
-        valueType.getEncoding());
+    Value queryOutput = rewriter.create<EmptyOp>(linearOp.getLoc(), queryShape,
+                                                 queryType.getElementType(),
+                                                 queryType.getEncoding());
+    Value keyOutput = rewriter.create<EmptyOp>(linearOp.getLoc(), keyShape,
+                                               keyType.getElementType(),
+                                               keyType.getEncoding());
+    Value valueOutput = rewriter.create<EmptyOp>(linearOp.getLoc(), valueShape,
+                                                 valueType.getElementType(),
+                                                 valueType.getEncoding());
 
     // Determine if need to transpose key based on key and value.
     bool transposeKey = isKeyTransposed(keyShape, valueShape);
 
     auto splitOp = rewriter.create<SplitQueryKeyValueAndSplitHeadsOp>(
-        concatenateProjections.getLoc(),
-        ArrayRef<Type>{queryType, keyType, valueType},
-        concatenateProjections.getResult(), Value(), queryOutput, keyOutput,
+        linearOp.getLoc(), ArrayRef<Type>{queryType, keyType, valueType},
+        reshapeToSplit.getResult(), Value(), queryOutput, keyOutput,
         valueOutput, rewriter.getUI32IntegerAttr(numHeads), IntegerAttr(),
         rewriter.getBoolAttr(transposeKey) /*transpose_key*/);
 
@@ -2029,9 +2103,9 @@ public:
 
 private:
   // Helper function to concatenate tensors along the last dimension
-  ttir::ConcatOp
-  concatenateAlongLastDim(OpBuilder &rewriter, Location loc,
-                          ValueRange tensors) const { // Fixed: added const
+  ttir::ConcatOp concatenateAlongDim(OpBuilder &rewriter, Location loc,
+                                     ValueRange tensors,
+                                     std::size_t dim) const {
     assert(!tensors.empty() && "Cannot concatenate empty tensor list");
 
     auto firstType = mlir::cast<RankedTensorType>(tensors[0].getType());
@@ -2053,21 +2127,21 @@ private:
                "All tensors must have the same shape except last dimension");
       }
 
-      concatDimSize += shape[rank - 1];
+      concatDimSize += shape[dim];
     }
 
-    // Build the concatenated shape
+    // Build the concatenated shape.
     SmallVector<int64_t> concatenatedShape(firstShape.begin(),
                                            firstShape.end());
-    concatenatedShape[rank - 1] = concatDimSize;
+    concatenatedShape[dim] = concatDimSize;
 
     RankedTensorType concatenatedType =
         RankedTensorType::get(concatenatedShape, firstType.getElementType());
 
-    // Create concat op along last dimension (rank - 1)
+    // Create concat op along last dimension (rank - 1).
     return ttir::utils::createDPSOp<ttir::ConcatOp>(
         rewriter, loc, concatenatedType, tensors,
-        rewriter.getSI32IntegerAttr(rank - 1) /* axis */);
+        rewriter.getSI32IntegerAttr(dim) /* axis */);
   }
 
   // Recursively collect all defining ops of a value and their dependencies.
@@ -2278,11 +2352,15 @@ private:
         return false;
       }
       auto bShape = linearOp.getB().getType().getShape();
-      // Each linear op must have a [HIDDEN_DIMENSION, HIDDEN_DIMENSION] 2D
-      // weight matrix
-      if (bShape.size() != 2 ||
-          bShape[0] != reshapeInputShape[I_HIDDEN_DIMENSION] ||
-          bShape[1] != reshapeInputShape[I_HIDDEN_DIMENSION]) {
+      // Each linear op must have a 2D weight matrix where the outer dimension
+      // is HIDDEN_DIMENSION.
+      if (bShape.size() != 2) {
+        return false;
+      }
+      std::size_t weightOuterDimIndex =
+          linearOp.getTransposeB() ? 0 : 1; // 0 if transposed, else 1.
+      if (bShape[weightOuterDimIndex] !=
+          reshapeInputShape[I_HIDDEN_DIMENSION]) {
         return false;
       }
     }
