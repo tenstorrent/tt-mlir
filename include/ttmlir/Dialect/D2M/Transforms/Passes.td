@@ -43,6 +43,16 @@ def D2MSFPUTileLoopFission : Pass<"d2m-sfpu-tile-loop-fission", "::mlir::ModuleO
   ];
 }
 
+def D2MTagLinalgGenerics : Pass<"d2m-tag-linalg-generics", "::mlir::ModuleOp"> {
+  let summary = "Tag linalg generics with counter attributes.";
+  let description = [{
+    This pass uses the DestRegisterAnalysis to tag each linalg.generic operation
+    with a counter attribute that uniquely identifies its position in the generic op walk.
+  }];
+
+  let dependentDialects = ["::mlir::tt::d2m::D2MDialect"];
+}
+
 def D2MGenericTileComputeLoops : Pass<"d2m-generic-tile-compute-loops", "::mlir::ModuleOp"> {
   let summary = "";
   let description = [{

@@ -490,7 +490,7 @@ unaligned_shapes = [
 
 
 @pytest.mark.parametrize("shape", unaligned_shapes, ids=shape_str)
-@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
 @pytest.mark.parametrize("target", ["ttmetal"])
 def test_unaligned_shapes_add(
     shape: Shape, dtype: torch.dtype, target: str, request, device

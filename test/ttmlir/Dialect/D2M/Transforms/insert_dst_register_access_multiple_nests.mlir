@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttcore-register-device --d2m-generic-tile-compute-loops --d2m-insert-dst-register-access --canonicalize -o %t %s
+// RUN: ttmlir-opt --ttcore-register-device --d2m-tag-linalg-generics --d2m-generic-tile-compute-loops --d2m-insert-dst-register-access --canonicalize -o %t %s
 // RUN: FileCheck %s --input-file=%t
 
 func.func @cosh(%alloc_1 : memref<4x4x8x12x!ttcore.tile<32x32, bf16>, #ttcore.shard<2048x2048>, #ttcore.memory_space<l1>>,
