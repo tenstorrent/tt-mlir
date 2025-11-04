@@ -1620,9 +1620,9 @@ mlir::OpFoldResult mlir::tt::ttir::ConcatOp::fold(FoldAdaptor adaptor) {
       }
       hasNegative = true;
     } else {
-      if (dimValue <= 0) {
+      if (dimValue < 0) {
         return emitOpError(
-            "All dimensions must be positive except the one with -1");
+            "All dimensions must be >= 0 except the one with -1");
       }
 
       // Ensure that the non-negative dimensions match the output tensor shape.
