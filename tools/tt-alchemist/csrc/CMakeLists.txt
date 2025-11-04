@@ -9,7 +9,7 @@ set(TT_MLIR_HOME ${PROJECT_SOURCE_DIR})
 
 # Define target names
 #
-set(ALCHEMIST_LIBRARY_NAME tt-alchemist-lib)
+set(TT_ALCHEMIST_LIBRARY_NAME tt-alchemist-lib)
 
 # Sources
 #
@@ -24,14 +24,15 @@ set(LIB_SOURCES
 
 # Add library
 #
-add_library(${ALCHEMIST_LIBRARY_NAME}
+add_library(${TT_ALCHEMIST_LIBRARY_NAME}
   SHARED
   EXCLUDE_FROM_ALL
   ${LIB_SOURCES}
 )
 
 # Include dirs
-target_include_directories(${ALCHEMIST_LIBRARY_NAME}
+#
+target_include_directories(${TT_ALCHEMIST_LIBRARY_NAME}
   PUBLIC
     ${TT_ALCHEMIST_ROOT_SOURCE_DIR}/include  # External headers
   PRIVATE
@@ -39,32 +40,32 @@ target_include_directories(${ALCHEMIST_LIBRARY_NAME}
     ${TT_MLIR_HOME}/include
 )
 
-target_link_directories(${ALCHEMIST_LIBRARY_NAME}
+target_link_directories(${TT_ALCHEMIST_LIBRARY_NAME}
   PUBLIC
     ${PROJECT_BINARY_DIR}/lib
 )
 
 # Add dependencies
 #
-add_dependencies(${ALCHEMIST_LIBRARY_NAME}
+add_dependencies(${TT_ALCHEMIST_LIBRARY_NAME}
   TTMLIRCompiler
 )
 
 # Link libraries
-target_link_libraries(${ALCHEMIST_LIBRARY_NAME}
+target_link_libraries(${TT_ALCHEMIST_LIBRARY_NAME}
   PRIVATE
     TTMLIRCompiler
 )
 
 # Disable RTTI and set visibility
-target_compile_options(${ALCHEMIST_LIBRARY_NAME}
+target_compile_options(${TT_ALCHEMIST_LIBRARY_NAME}
   PRIVATE
     -fno-rtti
     -fvisibility=hidden  # Hide symbols from other translation units
 )
 
 # Define export macro for C API to make symbols visible to other translation units
-target_compile_definitions(${ALCHEMIST_LIBRARY_NAME}
+target_compile_definitions(${TT_ALCHEMIST_LIBRARY_NAME}
   PRIVATE
     TT_ALCHEMIST_EXPORT=__attribute__\(\(visibility\(\"default\"\)\)\)
 )
@@ -72,7 +73,7 @@ target_compile_definitions(${ALCHEMIST_LIBRARY_NAME}
 # Set RPATH for the library
 # At runtime, alchemist lib will look in its own directory for
 # dependencies (libTTMLIRCompiler.so, libtt_metal.so, etc.)
-set_target_properties(${ALCHEMIST_LIBRARY_NAME} PROPERTIES
+set_target_properties(${TT_ALCHEMIST_LIBRARY_NAME} PROPERTIES
   BUILD_WITH_INSTALL_RPATH TRUE
   INSTALL_RPATH "$ORIGIN"
   # Build library directly into build/lib/ alongside TTMLIRCompiler.so
@@ -111,86 +112,114 @@ add_custom_target(tt-alchemist-install-cpp-standalone
   COMMENT "Installing all required TT-NN components for C++ standalone mode"
 )
 
-# TODO: Swap these out with root source/binary dirs
-# PYTHON_SRC_DIR is /localdev/svuckovic/_workspace/repos/tt-mlir/tools/tt-alchemist/csrc/../python
-set(PYTHON_SRC_DIR ${TT_ALCHEMIST_ROOT_DIR}/python)
-set(PYTHON_BUILD_DIR ${CMAKE_CURRENT_BINARY_DIR}/../python)
+# Useful for other project to use tt-alchemist as a dependency, like tt-xla
+add_custom_target(tt-alchemist-package
+  DEPENDS
+    ${TT_ALCHEMIST_LIBRARY_NAME}
+    tt-alchemist-install-templates
+    tt-alchemist-install-cpp-standalone
+  COMMENT "Packaging tt-alchemist"
+)
 
+################################################################################
+# Python Wheel Building
+################################################################################
 
-# Python wheel building and installation
 find_package(Python3 COMPONENTS Interpreter REQUIRED)
 
-# Create Python build directory
-add_custom_command(
-  OUTPUT ${PYTHON_BUILD_DIR}
-  COMMAND ${CMAKE_COMMAND} -E make_directory ${PYTHON_BUILD_DIR}
-  COMMENT "Creating Python build directory"
-)
+# Set Python wheel paths
+set(PYTHON_SRC_DIR ${TT_ALCHEMIST_ROOT_SOURCE_DIR}/python)
+set(PYTHON_WHEEL_DIR ${TT_ALCHEMIST_ROOT_BINARY_DIR}/wheel)
 
-# Find all Python files in the source directory
-file(GLOB_RECURSE PYTHON_SOURCE_FILES
-  ${PYTHON_SRC_DIR}/*.py
-  ${PYTHON_SRC_DIR}/pyproject.toml
-)
-
-# Copy Python files
-add_custom_command(
-  OUTPUT ${PYTHON_BUILD_DIR}/pyproject.toml
-  DEPENDS ${PYTHON_SOURCE_FILES} ${PYTHON_BUILD_DIR}
-  COMMAND ${CMAKE_COMMAND} -E copy_directory ${PYTHON_SRC_DIR} ${PYTHON_BUILD_DIR}
-  COMMENT "Copying Python files to build directory"
-)
-
-# Create lib directory in the Python package
-add_custom_command(
-  OUTPUT ${PYTHON_BUILD_DIR}/tt_alchemist/lib
-  DEPENDS ${PYTHON_BUILD_DIR}/pyproject.toml
-  COMMAND ${CMAKE_COMMAND} -E make_directory ${PYTHON_BUILD_DIR}/tt_alchemist/lib
-  COMMENT "Creating lib directory in Python package"
-)
-
-# Copy all required shared libraries to the Python package
-# TODO: Eventually leverage these libs from ttnn-install for smaller footprint
-add_custom_command(
-  OUTPUT
-    ${PYTHON_BUILD_DIR}/tt_alchemist/lib/libtt-alchemist-lib.so
-    ${PYTHON_BUILD_DIR}/tt_alchemist/lib/libTTMLIRCompiler.so
-    ${PYTHON_BUILD_DIR}/tt_alchemist/lib/libtt_metal.so
-    ${PYTHON_BUILD_DIR}/tt_alchemist/lib/_ttnncpp.so
-    ${PYTHON_BUILD_DIR}/tt_alchemist/lib/libdevice.so
-    ${PYTHON_BUILD_DIR}/tt_alchemist/lib/libtt_stl.so
-    ${PYTHON_BUILD_DIR}/tt_alchemist/lib/libtracy.so.0.10.0
-  DEPENDS ${ALCHEMIST_LIBRARY_NAME} TTMLIRCompiler ${PYTHON_BUILD_DIR}/tt_alchemist/lib
-  COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:${ALCHEMIST_LIBRARY_NAME}> ${PYTHON_BUILD_DIR}/tt_alchemist/lib/
-  COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:TTMLIRCompiler> ${PYTHON_BUILD_DIR}/tt_alchemist/lib/
-  COMMAND ${CMAKE_COMMAND} -E copy ${TTMETAL_LIBRARY_DIR}/libtt_metal.so ${PYTHON_BUILD_DIR}/tt_alchemist/lib/
-  COMMAND ${CMAKE_COMMAND} -E copy ${TTMETAL_LIBRARY_DIR}/_ttnncpp.so ${PYTHON_BUILD_DIR}/tt_alchemist/lib/
-  COMMAND ${CMAKE_COMMAND} -E copy ${TTMETAL_LIBRARY_DIR}/libdevice.so ${PYTHON_BUILD_DIR}/tt_alchemist/lib/
-  COMMAND ${CMAKE_COMMAND} -E copy ${TTMETAL_LIBRARY_DIR}/libtt_stl.so ${PYTHON_BUILD_DIR}/tt_alchemist/lib/
-  COMMAND ${CMAKE_COMMAND} -E copy ${TTMETAL_LIBRARY_DIR}/libtracy.so.0.10.0 ${PYTHON_BUILD_DIR}/tt_alchemist/lib/
-  COMMENT "Copying shared libraries to Python package"
-)
-
-
-# Build wheel
-add_custom_target(build-wheel-tt-alchemist
+# Target to prepare wheel directory structure with symlinks for editable install
+add_custom_target(tt-alchemist-prepare-wheel
   DEPENDS
-    ${PYTHON_BUILD_DIR}/pyproject.toml
-    ${PYTHON_BUILD_DIR}/tt_alchemist/lib/libtt-alchemist-lib.so
-    ${PYTHON_BUILD_DIR}/tt_alchemist/lib/libTTMLIRCompiler.so
-    ${PYTHON_BUILD_DIR}/tt_alchemist/lib/libtt_metal.so
-    ${PYTHON_BUILD_DIR}/tt_alchemist/lib/_ttnncpp.so
-    ${PYTHON_BUILD_DIR}/tt_alchemist/lib/libdevice.so
-    ${PYTHON_BUILD_DIR}/tt_alchemist/lib/libtracy.so.0.10.0
-    tt-alchemist-install-templates
-  COMMAND ${Python3_EXECUTABLE} -m pip wheel -w ${CMAKE_CURRENT_BINARY_DIR}/dist ${PYTHON_BUILD_DIR} --quiet
-  WORKING_DIRECTORY ${PYTHON_BUILD_DIR}
+    ${TT_ALCHEMIST_LIBRARY_NAME}
+    tt-alchemist-package
+
+  # Clean and create wheel directory
+  COMMAND ${CMAKE_COMMAND} -E rm -rf ${PYTHON_WHEEL_DIR}
+  COMMAND ${CMAKE_COMMAND} -E make_directory ${PYTHON_WHEEL_DIR}
+
+  # Copy Python source files
+  COMMAND ${CMAKE_COMMAND} -E copy_directory ${PYTHON_SRC_DIR} ${PYTHON_WHEEL_DIR}
+
+  # Create symlink to lib directory (contains all .so files)
+  COMMAND ${CMAKE_COMMAND} -E create_symlink
+    ${PROJECT_BINARY_DIR}/lib
+    ${PYTHON_WHEEL_DIR}/tt_alchemist/lib
+
+  # Create symlink to templates
+  COMMAND ${CMAKE_COMMAND} -E create_symlink
+    ${TT_ALCHEMIST_ROOT_BINARY_DIR}/templates
+    ${PYTHON_WHEEL_DIR}/tt_alchemist/templates
+
+  # Create symlink to ttnn-install
+  COMMAND ${CMAKE_COMMAND} -E create_symlink
+    ${TTNN_INSTALL_DIR}
+    ${PYTHON_WHEEL_DIR}/tt_alchemist/ttnn_install
+
+  COMMENT "Preparing wheel directory with symlinks for editable install"
+)
+
+# Build wheel (for distribution, copies files instead of symlinks)
+add_custom_target(tt-alchemist-build-wheel
+  DEPENDS tt-alchemist-prepare-wheel
+
+  # Clean previous build artifacts
+  COMMAND ${CMAKE_COMMAND} -E rm -rf ${PYTHON_WHEEL_DIR}/build
+  COMMAND ${CMAKE_COMMAND} -E rm -rf ${PYTHON_WHEEL_DIR}/tt_alchemist.egg-info
+  COMMAND ${CMAKE_COMMAND} -E rm -rf ${CMAKE_CURRENT_BINARY_DIR}/dist
+  COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_CURRENT_BINARY_DIR}/dist
+
+  # Build wheel
+  COMMAND ${Python3_EXECUTABLE} -m pip wheel
+    -w ${CMAKE_CURRENT_BINARY_DIR}/dist
+    ${PYTHON_WHEEL_DIR}
+    --no-deps
+
+  WORKING_DIRECTORY ${PYTHON_WHEEL_DIR}
   COMMENT "Building tt-alchemist wheel"
 )
 
-# Install tt-alchemist wheel
-add_custom_target(tt-alchemist
-  DEPENDS build-wheel-tt-alchemist
-  COMMAND ${Python3_EXECUTABLE} -m pip install --force-reinstall ${CMAKE_CURRENT_BINARY_DIR}/dist/*.whl
+# Install wheel (non-editable)
+add_custom_target(tt-alchemist-install
+  DEPENDS tt-alchemist-build-wheel
+  COMMAND ${Python3_EXECUTABLE} -m pip install
+    --force-reinstall
+    ${CMAKE_CURRENT_BINARY_DIR}/dist/*.whl
   COMMENT "Installing tt-alchemist wheel"
+)
+
+# Editable install (uses symlinks, no copying)
+add_custom_target(tt-alchemist-install-editable
+  DEPENDS tt-alchemist-prepare-wheel
+  COMMAND ${Python3_EXECUTABLE} -m pip install -e ${PYTHON_WHEEL_DIR} --no-deps
+  COMMENT "Installing tt-alchemist in editable mode"
+)
+
+# Main target (alias to non-editable install)
+add_custom_target(tt-alchemist
+  DEPENDS tt-alchemist-install
+  COMMENT "Building and installing tt-alchemist"
+)
+
+################################################################################
+# Testing Direct Build Path
+################################################################################
+
+# Test executable to verify tt-alchemist works when linked directly
+add_executable(test-tt-alchemist-direct-link
+  test_direct_link.cpp
+)
+
+target_link_libraries(test-tt-alchemist-direct-link
+  PRIVATE ${TT_ALCHEMIST_LIBRARY_NAME}
+)
+
+# Test target that runs the test executable
+add_custom_target(test-tt-alchemist-direct
+  DEPENDS test-tt-alchemist-direct-link tt-alchemist-install-templates
+  COMMAND $<TARGET_FILE:test-tt-alchemist-direct-link>
+  COMMENT "Testing tt-alchemist direct linking"
 )
