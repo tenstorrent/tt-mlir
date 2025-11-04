@@ -269,7 +269,11 @@ void overrideArgs(
   for (size_t i = 0; i < programDescriptor->cbs.size(); ++i) {
     const auto *cbDesc = programDesc->cbs()->Get(i);
     auto &cb = programDescriptor->cbs[i];
-    cb.buffer = ioTensors[cbDesc->buffer()->tensor_operand_index()].buffer();
+
+    // Not all CBs have a backing L1 buffer.
+    if (cbDesc->buffer()) {
+      cb.buffer = ioTensors[cbDesc->buffer()->tensor_operand_index()].buffer();
+    }
   }
 }
 
