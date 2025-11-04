@@ -11,11 +11,12 @@ from typing import Literal
 from ttmlir.ir import *
 from ttmlir.passes import (
     ttnn_to_flatbuffer_file,
+    ttnn_to_flatbuffer_bin,
     ttnn_to_ttmetal_pipeline,
 )
 
 from ttnn_jit._src.utils import _cleanup_source_code
-from ttnn_jit._src.dispatch_op import _run_binary
+from ttnn_jit._src.dispatch_op import _run_binary, _run_binary_from_capsule
 from ttnn_jit._src import JitCache
 from ttnn_jit._src.ir_generator import generate_ir
 
@@ -29,6 +30,7 @@ class JitFunction:
         max_grid: tuple[int, int],
         compile_only: bool,
         debug: bool,
+        enable_cache: bool,
         use_ast_compiler: bool,
     ):
         self.func = func
@@ -49,7 +51,7 @@ class JitFunction:
 
         # Each JitFunction hold its own cache.
         # Hashing based off runtime tensor metadata.
-        self.cache = JitCache(64)
+        self.cache = JitCache(64) if enable_cache else None
 
     def __call__(self, *args, **kwargs):
         """Execute the JIT-compiled function."""
@@ -66,7 +68,7 @@ class JitFunction:
         kwargs["_max_grid"] = self.max_grid
 
         # Cache hit, no need to compile.
-        if self.cache.contains(*args):
+        if self.cache and self.cache.contains(*args):
             fb_binary = self.cache.get(*args)
             return _run_binary(fb_binary, args)
 
@@ -81,15 +83,21 @@ class JitFunction:
 
         options = f"system-desc-path={self.system_desc_path} ttnn-mode=true"
         if self.compile_only:
-            ir = ttnn_to_ttmetal_pipeline(ir, options)
+            ttnn_to_ttmetal_pipeline(ir, options)
             flatbuffer_bin = os.path.join(self.out_dir, self.func.__name__ + ".ttn")
             ttnn_to_flatbuffer_file(ir, flatbuffer_bin, {}, [])
             return ir
 
-        fb_binary = self.cache.compile_and_insert(str(ir), options, self.debug, *args)
-        return _run_binary(fb_binary, args)
+        if self.cache:
+            fb_binary = self.cache.compile_and_insert(str(ir), options, *args)
+            return _run_binary(fb_binary, args)
+
+        ttnn_to_ttmetal_pipeline(ir, options)
+        fb_capsule = ttnn_to_flatbuffer_bin(ir)
+        return _run_binary_from_capsule(fb_capsule, args)
 
     @property
     def num_entries(self):
         """Return the number of cache entries."""
+        assert self.cache, "Cache is not enabled"
         return self.cache.num_entries()

@@ -12,6 +12,7 @@ def jit(
     max_grid: tuple[int, int] = (7, 7),
     compile_only: bool = False,
     debug: bool = False,
+    enable_cache: bool = False,
     use_ast_compiler: bool = False,
 ):
     """
@@ -33,6 +34,7 @@ def jit(
             max_grid,
             compile_only,
             debug,
+            enable_cache,
             use_ast_compiler,
         )
 
