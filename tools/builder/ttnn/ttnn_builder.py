@@ -39,9 +39,7 @@ class TTNNBuilder(Builder):
         op_ttnn_function: Callable,
         golden_kwargs: dict = {},
     ):
-        op_golden_function = builder_golden.get_golden_function(
-            op_ttnn_function, **golden_kwargs
-        )
+        op_golden_function = get_golden_function(op_ttnn_function, **golden_kwargs)
         if op_golden_function is None:
             assert len(inputs) > 0, (
                 f"Cannot infer output shape for {op_ttnn_function.__name__}: "
