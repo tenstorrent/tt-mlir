@@ -82,17 +82,37 @@ def _get_num_pos_args(func: Callable):
 
 def _get_collapsed_linear_affine_map(context, shape, grid_shape, collapse_intervals=[(0, -1)]):
     """
-    collapse_intervals should be a list of (begin, end) tuples.
-    Example: collapse_intervals=[(0, -1), (2, 4)]
+    This function creates an affine map that represents collapsing the tensor
+    dims onto an n-dimensional grid. E.g. (Where <> is some join operator)
+
+      - 3D tensor onto a 2D grid:
+        (d0, d1, d2) -> (d0 <> d1, d2)
+
+      - 4D tensor onto a 2D grid:
+        (d0, d1, d2, d3) -> (d0 <> d1 <> d2, d3)
+
+    Note there are many ways we could collapse the above dims, by default we
+    just collapse the interval [0, -1), which collapses dim0 up to but not
+    including the last dim.  By using collapseIntervals we can achieve flexible
+    collapsing of any set of consecutive dimension ranges.
+
+      - 4D tensor onto a 3D grid collapseIntervals=[(1, -1)]:
+        (d0, d1, d2, d3) -> (d0, d1 <> d2, d3)
+
+      - 4D tensor onto a 3D grid collapseIntervals=[(0, 2)]:
+        (d0, d1, d2, d3) -> (d0 <> d1, d2, d3)
+
+      - 7D tensor onto a 4D grid collapseIntervals=[(0, 3), (-3, -1)]:
+        (d0, d1, d2, d3, d4, d5, d6) -> (d0 <> d1 <> d2, d3, d4 <> d5, d6)
     """
+  
     rank = len(shape)
     
-    # Start with a full identity mapping in a mutable list
+    # Start with a full identity mapping
     results = [AffineDimExpr.get(i, context) for i in range(rank)]
-    print("Initial Results: ", results)
 
     for interval in collapse_intervals:
-        begin, end = interval  # Unpack each tuple
+        begin, end = interval 
         # Handle negative indices
         if begin < 0:
             begin += rank
@@ -101,50 +121,31 @@ def _get_collapsed_linear_affine_map(context, shape, grid_shape, collapse_interv
         if begin >= end:
             continue
 
-        print(f"Collapsing dimensions from {begin} to {end}...")
-
         # Build collapsed expression
         collapsed_expr = AffineConstantExpr.get(0, context)
         multiplier = 1
         for d_idx in range(end - 1, begin - 1, -1):
-
-            print(f"  Processing dimension {d_idx} with size {shape[d_idx]} and current multiplier {multiplier}")
-            print("pre collapsed_expr:", collapsed_expr)
 
             dim_expr = AffineDimExpr.get(d_idx, context)
             term = dim_expr * multiplier
             collapsed_expr = term + collapsed_expr
             multiplier *= shape[d_idx]
 
-            print("post collapsed_expr:", collapsed_expr)
-
-        # Replace the range of results with the single collapsed expression
         results = results[:begin] + [collapsed_expr] + results[end:]
-        print("Final Results before adjustment: ", results)
 
     # Truncate results to match the rank of the grid shape
     if len(results) > len(grid_shape):
         results = results[:len(grid_shape)]
-    
-    print("Results after truncation (if any): ", results)
 
-    # Pad with leading zeros if the number of results is less than the grid rank.
+    # Pad with leading zeros if the number of results is less than the grid rank
     while len(results) < len(grid_shape):
         results.insert(0, AffineConstantExpr.get(0, context))
 
-    print("Results after padding (if any): ", results)
-
-    #simplify affine map
+    # Simplify affine map by simplifying each expr in results
     for i, expr in enumerate(results):
-        #convert expr into affineMap
-        print(f"expr before simplification at index {i}: ", expr)
-        #simplify expr
+
         expr = AffineExpr.simplify_affine_expr(expr, rank, 0)
-        print(f"expr after simplification at index {i}: ", expr)
         results[i] = expr
 
-    # Create the final map from the constructed results list.
-    final_map = AffineMap.get(rank, 0, results, context)
-
-    print("Final Affine Map: ", final_map)
-    return final_map
+    return AffineMap.get(rank, 0, results, context)
+ 
