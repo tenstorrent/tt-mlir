@@ -1316,6 +1316,7 @@ static bool isIdentityPooling(mlir::tt::ttir::PoolingOp op) {
 mlir::Operation *mlir::tt::ttir::PoolingOp::rewriteWithQuantizedInputs(
     mlir::PatternRewriter &rewriter, mlir::ArrayRef<mlir::Value> sourceOperands,
     mlir::ValueRange outputOperands) {
+  // NOLINTBEGIN(clang-analyzer-core.StackAddressEscape)
   // Can only commute if the pooling method is Max.
   if (this->getPoolingMethod() != PoolingMethod::Max) {
     return nullptr;
@@ -1344,6 +1345,7 @@ mlir::Operation *mlir::tt::ttir::PoolingOp::rewriteWithQuantizedInputs(
       getLoc(), resultTypes, sourceOperands, updatedOutputs, getPoolingMethod(),
       getWindowDimensions(), getWindowStrides(), getBaseDilations(),
       getWindowDilations(), getPadding());
+  // NOLINTEND(clang-analyzer-core.StackAddressEscape)
   return newOp.getOperation();
 }
 
@@ -1620,9 +1622,9 @@ mlir::OpFoldResult mlir::tt::ttir::ConcatOp::fold(FoldAdaptor adaptor) {
       }
       hasNegative = true;
     } else {
-      if (dimValue <= 0) {
+      if (dimValue < 0) {
         return emitOpError(
-            "All dimensions must be positive except the one with -1");
+            "All dimensions must be >= 0 except the one with -1");
       }
 
       // Ensure that the non-negative dimensions match the output tensor shape.
@@ -2794,7 +2796,7 @@ mlir::tt::ttir::TTNNMetalLayoutCastOp::getAliasingValues(
   return result;
 }
 
-mlir::FailureOr<mlir::BaseMemRefType>
+mlir::FailureOr<mlir::bufferization::BufferLikeType>
 mlir::tt::ttir::TTNNMetalLayoutCastOp::getBufferType(
     mlir::Value value, const mlir::bufferization::BufferizationOptions &,
     const mlir::bufferization::BufferizationState &,
