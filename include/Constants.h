@@ -11,7 +11,7 @@ namespace tt::constants {
 
 // Default L1 small size to use for the ttnn runtime (32kb).
 // This reserves a region of L1 memory for L1_SMALL buffers used by convs.
-constexpr static std::size_t L1_SMALL_SIZE = 1 << 15;
+constexpr static std::size_t L1_SMALL_SIZE = 1 << 17;
 
 } // namespace tt::constants
 
