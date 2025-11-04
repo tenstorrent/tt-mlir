@@ -4,6 +4,9 @@
 
 #include "ttmlir/Dialect/TTIR/Transforms/EraseInverseOps/EraseInverseOps.h"
 
+#include <cassert>
+#include <cstddef>
+
 #include "mlir/IR/BuiltinTypes.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
@@ -173,8 +176,7 @@ public:
     ReshapeOp newReshape = deslicedReshapeOp(op, reshapeUser, rewriter);
 
     SliceStaticOp newSlice =
-        reshapedSliceStaticOp(op, newReshape.getResult(),
-                              getHighestReshapeDim(reshapeUser), rewriter);
+        reshapedSliceStaticOp(op, newReshape.getResult(), rewriter);
 
     SmallVector<Operation *> users(op->getUsers());
     for (auto *user : users) {
@@ -188,8 +190,7 @@ public:
   performCommuteDownwardsRewrite(SliceStaticOp op, ReshapeOp reshapeOperand,
                                  PatternRewriter &rewriter) const override {
     SliceStaticOp newSlice =
-        reshapedSliceStaticOp(op, reshapeOperand.getInput(),
-                              getHighestReshapeDim(reshapeOperand), rewriter);
+        reshapedSliceStaticOp(op, reshapeOperand.getInput(), rewriter);
 
     // The reshape should produce the same output type as the original slice
     SmallVector<int32_t> reshapeTargetShape(op.getType().getShape());
@@ -200,41 +201,37 @@ public:
   }
 
 private:
-  int64_t getHighestReshapeDim(ReshapeOp reshapeOp) const {
+  int64_t getRightmostReshapeDimRTL(ReshapeOp reshapeOp) const {
     ArrayRef<int64_t> inputShape = reshapeOp.getInput().getType().getShape();
     ArrayRef<int64_t> outputShape = reshapeOp.getResult().getType().getShape();
-    int64_t minRank = std::min(inputShape.size(), outputShape.size());
+    auto inputRank = inputShape.size();
+    auto outputRank = outputShape.size();
+    int64_t minRank = std::min(inputRank, outputRank);
 
-    // Find the highest dimension that changes, starting from the end
-    for (int64_t i = minRank - 1; i >= 0; --i) {
-      if (inputShape[i] != outputShape[i]) {
+    // Find the rightmost changed dimension (counting from right to left).
+    // Return the right-to-left position (0 = rightmost, ndims-1 = leftmost).
+    for (int64_t i = 0; i < minRank; i++) {
+      if (inputShape[inputRank - 1 - i] != outputShape[outputRank - 1 - i]) {
+        llvm::outs() << "rightmostReshapeDimRTL: " << i << "\n";
         return i;
       }
     }
-    // If all dimensions match up to minRank, return the highest dimension
-    // that exists in one but not the other
-    if (inputShape.size() != outputShape.size()) {
-      return std::max(static_cast<int64_t>(inputShape.size()),
-                      static_cast<int64_t>(outputShape.size())) -
-             1;
-    }
-    return -1; // Shapes are identical (shouldn't happen with valid reshape)
+
+    // If all overlapping dimensions are identical, return -1
+    return -1;
   }
 
-  int64_t getLowestSlicingDim(SliceStaticOp sliceOp) const {
-    // Tensor is sliced along a dimension if it doesn't have the full range,
-    // which can be:
-    // - begin != 0
-    // - end != dimSize
-    // - step != 1
-
+  int64_t getLeftmostSlicedDimRTL(SliceStaticOp sliceOp) const {
     ArrayRef<int64_t> inputShape = sliceOp.getInput().getType().getShape();
     auto begins = sliceOp.getBegins().getValue();
     auto ends = sliceOp.getEnds().getValue();
     auto steps = sliceOp.getStep().getValue();
+    int64_t ndims = begins.size();
 
-    int64_t lowestSlicingDim = -1;
-    for (int64_t i = 0; i < static_cast<int64_t>(begins.size()); ++i) {
+    // Find the leftmost sliced dimension (counting from right to left).
+    // Return the right-to-left position (0 = rightmost, ndims-1 = leftmost).
+    int64_t leftmostSlicedDim = -1;
+    for (int64_t i = ndims - 1; i >= 0; --i) {
       int32_t begin = cast<IntegerAttr>(begins[i]).getInt();
       int32_t end = cast<IntegerAttr>(ends[i]).getInt();
       int32_t step = cast<IntegerAttr>(steps[i]).getInt();
@@ -242,43 +239,48 @@ private:
       int32_t adjustedEnd = (end < 0) ? (end + dimSize) : end;
       int32_t adjustedBegin = (begin < 0) ? (begin + dimSize) : begin;
 
+      // Tensor is sliced along a dimension if it doesn't have the full range,
+      // which can be:
+      // - begin != 0
+      // - end != dimSize
+      // - step != 1
+
       if (adjustedBegin != 0 || adjustedEnd != dimSize || step != 1) {
-        lowestSlicingDim = i;
+        leftmostSlicedDim = ndims - 1 - i;
         break;
       }
     }
-    return lowestSlicingDim;
+    llvm::outs() << "leftmostSlicedDim: " << leftmostSlicedDim << "\n";
+    // If no slicing is applied, return -1
+    return leftmostSlicedDim;
   }
 
   SliceStaticOp reshapedSliceStaticOp(SliceStaticOp op,
                                       TypedValue<RankedTensorType> input,
-                                      int64_t highestChangingDim,
                                       PatternRewriter &rewriter) const {
-    // For dims higher than the highest changing dim, begins are 0, ends are
-    // dimSize, step is 1.
-    // We need to update ends and output shape with new dimSizes for those dims,
-    // while dims at or below highest changing dim stay unchanged.
-    ArrayRef<int64_t> shape = input.getType().getShape();
-    auto originalEnds = op.getEnds().getValue();
-    SmallVector<Attribute> newEnds;
-    size_t ndims = shape.size();
-    newEnds.reserve(ndims);
-    for (size_t i = 0; i < ndims; ++i) {
-      if (static_cast<int64_t>(i) <= highestChangingDim) {
-        newEnds.push_back(
-            IntegerAttr::get(IntegerType::get(op->getContext(), 32), shape[i]));
-      } else {
-        newEnds.push_back(originalEnds[i]);
-      }
-    }
 
-    SmallVector<int64_t> newOutputShape;
+    int64_t leftmostSlicedDimRTL = getLeftmostSlicedDimRTL(op);
+    assert(leftmostSlicedDimRTL != -1 && "Expected valid slicing dimension");
+
+    ArrayRef<int64_t> shape = input.getType().getShape();
+    int64_t ndims = shape.size();
+    // Convert right-to-left position to left-to-right index
+    int64_t leftmostSlicedDimLTR = ndims - 1 - leftmostSlicedDimRTL;
+
+    auto originalEnds = op.getEnds().getValue();
     auto originalOutputShape = op.getType().getShape();
-    for (size_t i = 0; i < ndims; ++i) {
-      if (static_cast<int64_t>(i) <= highestChangingDim) {
-        newOutputShape.push_back(shape[i]);
+
+    SmallVector<Attribute> newEnds(ndims);
+    SmallVector<int64_t> newOutputShape(ndims);
+
+    for (int64_t i = 0; i < ndims; ++i) {
+      if (i >= leftmostSlicedDimLTR) {
+        newEnds[i] = originalEnds[i];
+        newOutputShape[i] = originalOutputShape[i];
       } else {
-        newOutputShape.push_back(originalOutputShape[i]);
+        newEnds[i] =
+            IntegerAttr::get(IntegerType::get(op->getContext(), 32), shape[i]);
+        newOutputShape[i] = shape[i];
       }
     }
 
@@ -296,18 +298,20 @@ private:
   ReshapeOp deslicedReshapeOp(SliceStaticOp op, ReshapeOp reshapeUser,
                               PatternRewriter &rewriter) const {
     SmallVector<int64_t> targetShape;
-    ArrayRef<int64_t> reshapeShape =
+    ArrayRef<int64_t> originalReshapeShape =
         reshapeUser.getResult().getType().getShape();
     ArrayRef<int64_t> sliceInputShape = op.getInput().getType().getShape();
+    int64_t ndims = sliceInputShape.size();
 
-    auto highestReshapeDim = getHighestReshapeDim(reshapeUser);
-    size_t ndims = reshapeShape.size();
-    for (size_t i = 0; i < ndims; ++i) {
-      if (static_cast<int64_t>(i) <= highestReshapeDim) {
-        targetShape.push_back(reshapeShape[i]);
+    int64_t leftmostSlicedDimRTL = getLeftmostSlicedDimRTL(op);
+    assert(leftmostSlicedDimRTL != -1 && "Expected valid slicing dimension");
+    int64_t leftmostSlicedDimLTR = ndims - 1 - leftmostSlicedDimRTL;
+
+    for (int64_t i = 0; i < ndims; ++i) {
+      if (i < leftmostSlicedDimLTR) {
+        targetShape.push_back(originalReshapeShape[i]);
       } else {
-        targetShape.push_back(
-            sliceInputShape[i]); // working only if reshape doesnt change ndim.
+        targetShape.push_back(sliceInputShape[i]);
       }
     }
 
@@ -323,14 +327,16 @@ private:
 
   bool isCommuteUpwardsViable(SliceStaticOp op,
                               ReshapeOp reshapeUser) const override {
-    // Reshape can commute if its highest changing dim is lower than lowest
-    // slicing dim
-    int64_t highestChangingDim = getHighestReshapeDim(reshapeUser);
-    int64_t lowestSlicingDim = getLowestSlicingDim(op);
-    if (highestChangingDim == -1 || lowestSlicingDim == -1) {
+    // Reshape can commute if its rightmost reshape dim (rightmost changing dim)
+    // is to the right of leftmost slicing dim (rightmost slicing dim), counting
+    // from right to left
+    int64_t rightmostReshapeDimRTL = getRightmostReshapeDimRTL(reshapeUser);
+    int64_t leftmostSlicedDimRTL = getLeftmostSlicedDimRTL(op);
+    if (rightmostReshapeDimRTL == -1 || leftmostSlicedDimRTL == -1) {
       return false;
     }
-    return highestChangingDim < lowestSlicingDim;
+    // Larger right-to-left position means further left
+    return rightmostReshapeDimRTL > leftmostSlicedDimRTL;
   }
 
   bool isCommuteUpwardsFavorable(SliceStaticOp op, ReshapeOp) const override {
@@ -342,14 +348,16 @@ private:
 
   bool isCommuteDownwardsViable(SliceStaticOp op,
                                 ReshapeOp reshapeOperand) const override {
-    // Reshape can commute if its highest changing dim is lower than lowest
-    // slicing dim
-    int64_t highestChangingDim = getHighestReshapeDim(reshapeOperand);
-    int64_t lowestSlicingDim = getLowestSlicingDim(op);
-    if (highestChangingDim == -1 || lowestSlicingDim == -1) {
+    // Reshape can commute if its rightmost reshape dim (rightmost changing dim)
+    // is to the right of leftmost slicing dim (rightmost slicing dim), counting
+    // from right to left
+    int64_t rightmostReshapeDimRTL = getRightmostReshapeDimRTL(reshapeOperand);
+    int64_t leftmostSlicedDimRTL = getLeftmostSlicedDimRTL(op);
+    if (rightmostReshapeDimRTL == -1 || leftmostSlicedDimRTL == -1) {
       return false;
     }
-    return highestChangingDim < lowestSlicingDim;
+    // Larger right-to-left position means further left
+    return rightmostReshapeDimRTL > leftmostSlicedDimRTL;
   }
 
   bool isCommuteDownwardsFavorable(SliceStaticOp op,
