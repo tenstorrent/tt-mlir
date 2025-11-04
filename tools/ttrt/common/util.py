@@ -93,17 +93,26 @@ def get_atol_rtol_pcc(golden, calculated, atol, rtol, logging):
     if not torch.is_floating_point(calculated):
         calculated = calculated.to(torch.float64)
 
-    if golden.dtype == torch.bfloat16:
-        golden = golden.to(torch.float32)
-    if calculated.dtype == torch.bfloat16:
-        calculated = calculated.to(torch.float32)
-
-    # Calculate atol and rtol
-    cal_atol = torch.max(torch.abs(golden - calculated)).item()
-    cal_rtol = torch.max(torch.abs((golden - calculated) / calculated)).item()
+    # Handle empty tensors - if either is empty, return 0.0 for atol/rtol
+    if golden.numel() == 0 or calculated.numel() == 0:
+        cal_atol = 0.0
+        cal_rtol = 0.0
+    else:
+        # Calculate atol and rtol
+        cal_atol = torch.max(torch.abs(golden - calculated)).item()
+        cal_rtol = torch.max(torch.abs((golden - calculated) / calculated)).item()
 
     # Calculate PCC
     def get_pcc(golden, calculated):
+        # Handle empty tensors - both must be empty with same shape for perfect match
+        if golden.numel() == 0 and calculated.numel() == 0:
+            if golden.shape == calculated.shape:
+                return 1.0
+            else:
+                return 0.0
+        # If only one is empty, they don't match
+        elif golden.numel() == 0 or calculated.numel() == 0:
+            return 0.0
         # Both tensors are nan
         if torch.all(torch.isnan(golden)) and torch.all(torch.isnan(calculated)):
             logging.debug("Both tensors are 'nan'")
@@ -126,6 +135,11 @@ def get_atol_rtol_pcc(golden, calculated, atol, rtol, logging):
             if golden.dtype == torch.bfloat16 or calculated.dtype == torch.bfloat16:
                 golden = golden.type(torch.float32)
                 calculated = calculated.type(torch.float32)
+
+            if golden.dtype == torch.bool or calculated.dtype == torch.bool:
+                matches = torch.sum(golden == calculated).item()
+                total = golden.numel()
+                return matches / total
 
             # Single element case
             if golden.numel() == 1:
@@ -209,9 +223,13 @@ def get_topk_diff(golden, calculated, top_k, relative=False):
 
 def golden_tensor_to_torch(golden_tensor: "ttrt.binary.GoldenTensor"):
     dtype = ttrt_datatype_to_torch_dtype(golden_tensor.dtype)
+    shape = golden_tensor.shape
+    # Handle empty tensors (tensors with at least one zero dimension)
+    if any(dim == 0 for dim in shape):
+        return torch.empty(shape, dtype=dtype)
     torch_tensor = torch.frombuffer(
         golden_tensor.get_data_buffer(), dtype=dtype
-    ).reshape(golden_tensor.shape)
+    ).reshape(shape)
     return torch_tensor
 
 

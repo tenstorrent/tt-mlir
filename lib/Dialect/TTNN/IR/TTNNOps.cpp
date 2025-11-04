@@ -1278,9 +1278,9 @@ void mlir::tt::ttnn::FullOp::build(mlir::OpBuilder &builder,
       }
       hasNegative = true;
     } else {
-      if (dimValue <= 0) {
+      if (dimValue < 0) {
         return emitOpError(
-            "All dimensions must be positive except the one with -1");
+            "All dimensions must be >= 0 except the one with -1");
       }
 
       // Ensure that the non-negative dimensions match the output tensor shape
