@@ -162,7 +162,6 @@ ArrayRef<int64_t> getGridShape(Value tensorOrMemref) {
              "Expected a tensor or memref type");
   return ttcore::getDeviceLayout(tensorOrMemref)
       .getGridShape(mlir::cast<ShapedType>(tensorOrMemref.getType()));
-
 }
 
 } // namespace mlir::tt::d2m::utils

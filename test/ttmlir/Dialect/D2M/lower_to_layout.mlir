@@ -240,44 +240,9 @@ func.func @view_alignment_change(%arg0: tensor<2x4x32x32xf32, #layout_align_32>)
 
 // -----
 
-#layout_sharded = #ttcore.metal_layout<
-  logical_shape = 64x128,
-  dim_alignments = 32x32,
-  collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>,
-  undef,
-  l1,
-  sharded
->
-
-#layout_interleaved = #ttcore.metal_layout<
-  logical_shape = 64x128,
-  dim_alignments = 32x32,
-  collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>,
-  undef,
-  l1,
-  interleaved
->
-
-// Test: Different memory layout types -> ViewLayoutOp
-func.func @view_memory_layout_type(%arg0: tensor<2x4x32x32xf32, #layout_sharded>)
-    -> tensor<2x4x32x32xf32, #layout_interleaved> {
-  %0 = d2m.empty() : tensor<2x4x32x32xf32, #layout_interleaved>
-
-  // CHECK-LABEL: @view_memory_layout_type
-  // Same tensor shape but different memory layout type (sharded vs interleaved)
-  // -> should be a view (zero-cost reinterpretation via affine map)
-  // CHECK: d2m.view_layout
-  // CHECK: ttir.sqrt
-  // CHECK-NOT: d2m.stream_layout
-
-  %1 = d2m.to_layout %arg0, %0 : tensor<2x4x32x32xf32, #layout_sharded> into tensor<2x4x32x32xf32, #layout_interleaved> -> tensor<2x4x32x32xf32, #layout_interleaved>
-
-  // Consume the view before returning
-  %2 = d2m.empty() : tensor<2x4x32x32xf32, #layout_interleaved>
-  %3 = "ttir.sqrt"(%1, %2) : (tensor<2x4x32x32xf32, #layout_interleaved>, tensor<2x4x32x32xf32, #layout_interleaved>) -> tensor<2x4x32x32xf32, #layout_interleaved>
-
-  return %3 : tensor<2x4x32x32xf32, #layout_interleaved>
-}
+// Note: TensorMemoryLayout changes (Interleaved <-> Sharded) are NOT supported
+// via ToLayoutOp as they would require actual data movement/reshuffling.
+// All layouts in this file use 'sharded' exclusively.
 
 // -----
 
@@ -360,4 +325,305 @@ func.func @view_with_offset(%arg0: tensor<2x4x32x32xf32, #layout_base>)
   %3 = "ttir.relu"(%1, %2) : (tensor<2x4x32x32xf32, #layout_offset_view>, tensor<2x4x32x32xf32, #layout_offset_view>) -> tensor<2x4x32x32xf32, #layout_offset_view>
 
   return %3 : tensor<2x4x32x32xf32, #layout_offset_view>
+}
+
+// -----
+
+// Test padding changes: smaller to bigger padding
+#layout_small_pad = #ttcore.metal_layout<
+  logical_shape = 100x200,
+  dim_alignments = 32x32,
+  collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>,
+  undef,
+  l1,
+  sharded
+>
+
+#layout_big_pad = #ttcore.metal_layout<
+  logical_shape = 100x200,
+  dim_alignments = 128x128,
+  collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>,
+  undef,
+  l1,
+  sharded
+>
+
+func.func @view_padding_increase(%arg0: tensor<2x4x32x32xf32, #layout_small_pad>)
+    -> tensor<1x2x128x128xf32, #layout_big_pad> {
+  %0 = d2m.empty() : tensor<1x2x128x128xf32, #layout_big_pad>
+
+  // CHECK-LABEL: @view_padding_increase
+  // Logical shape stays 100x200, but padding increases (32x32 -> 128x128)
+  // Device tensor shape changes: [2,4,32,32] -> [1,2,128,128]
+  // CHECK: d2m.view_layout
+  // CHECK: ttir.sigmoid
+  // CHECK-NOT: d2m.stream_layout
+
+  %1 = d2m.to_layout %arg0, %0 : tensor<2x4x32x32xf32, #layout_small_pad> into tensor<1x2x128x128xf32, #layout_big_pad> -> tensor<1x2x128x128xf32, #layout_big_pad>
+
+  %2 = d2m.empty() : tensor<1x2x128x128xf32, #layout_big_pad>
+  %3 = "ttir.sigmoid"(%1, %2) : (tensor<1x2x128x128xf32, #layout_big_pad>, tensor<1x2x128x128xf32, #layout_big_pad>) -> tensor<1x2x128x128xf32, #layout_big_pad>
+
+  return %3 : tensor<1x2x128x128xf32, #layout_big_pad>
+}
+
+// -----
+
+// Test padding changes: bigger to smaller padding
+#layout_large_pad = #ttcore.metal_layout<
+  logical_shape = 95x205,
+  dim_alignments = 128x128,
+  collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>,
+  undef,
+  l1,
+  sharded
+>
+
+#layout_medium_pad = #ttcore.metal_layout<
+  logical_shape = 95x205,
+  dim_alignments = 64x64,
+  collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>,
+  undef,
+  l1,
+  sharded
+>
+
+func.func @view_padding_decrease(%arg0: tensor<1x2x128x128xf32, #layout_large_pad>)
+    -> tensor<2x4x64x64xf32, #layout_medium_pad> {
+  %0 = d2m.empty() : tensor<2x4x64x64xf32, #layout_medium_pad>
+
+  // CHECK-LABEL: @view_padding_decrease
+  // Logical shape stays 95x205, but padding decreases (128x128 -> 64x64)
+  // Device tensor shape changes: [1,2,128,128] -> [2,4,64,64]
+  // CHECK: d2m.view_layout
+  // CHECK: ttir.tanh
+  // CHECK-NOT: d2m.stream_layout
+
+  %1 = d2m.to_layout %arg0, %0 : tensor<1x2x128x128xf32, #layout_large_pad> into tensor<2x4x64x64xf32, #layout_medium_pad> -> tensor<2x4x64x64xf32, #layout_medium_pad>
+
+  %2 = d2m.empty() : tensor<2x4x64x64xf32, #layout_medium_pad>
+  %3 = "ttir.tanh"(%1, %2) : (tensor<2x4x64x64xf32, #layout_medium_pad>, tensor<2x4x64x64xf32, #layout_medium_pad>) -> tensor<2x4x64x64xf32, #layout_medium_pad>
+
+  return %3 : tensor<2x4x64x64xf32, #layout_medium_pad>
+}
+
+// -----
+
+// Test collapsed intervals: 3D to 2D (collapse first two logical dims)
+#layout_3d_logical = #ttcore.metal_layout<
+  logical_shape = 64x64x64,
+  dim_alignments = 32x32x32,
+  collapsed_intervals = dense<[[0, 1], [1, 2], [2, 3]]> : tensor<3x2xi64>,
+  undef,
+  l1,
+  sharded
+>
+
+#layout_2d_collapse_first = #ttcore.metal_layout<
+  logical_shape = 64x64x64,
+  dim_alignments = 32x32x32,
+  collapsed_intervals = dense<[[0, 2], [2, 3]]> : tensor<2x2xi64>,
+  undef,
+  l1,
+  sharded
+>
+
+func.func @view_collapse_3d_to_2d_first(%arg0: tensor<2x2x2x32x32x32xf32, #layout_3d_logical>)
+    -> tensor<4x2x32x32xf32, #layout_2d_collapse_first> {
+  %0 = d2m.empty() : tensor<4x2x32x32xf32, #layout_2d_collapse_first>
+
+  // CHECK-LABEL: @view_collapse_3d_to_2d_first
+  // Logical shape stays 64x64x64
+  // Collapsed intervals: [[0,1],[1,2],[2,3]] (3D) -> [[0,2],[2,3]] (2D, first two dims collapsed)
+  // Grid changes from 3D [2,2,2] to 2D [4,2]
+  // CHECK: d2m.view_layout
+  // CHECK: ttir.log
+  // CHECK-NOT: d2m.stream_layout
+
+  %1 = d2m.to_layout %arg0, %0 : tensor<2x2x2x32x32x32xf32, #layout_3d_logical> into tensor<4x2x32x32xf32, #layout_2d_collapse_first> -> tensor<4x2x32x32xf32, #layout_2d_collapse_first>
+
+  %2 = d2m.empty() : tensor<4x2x32x32xf32, #layout_2d_collapse_first>
+  %3 = "ttir.log"(%1, %2) : (tensor<4x2x32x32xf32, #layout_2d_collapse_first>, tensor<4x2x32x32xf32, #layout_2d_collapse_first>) -> tensor<4x2x32x32xf32, #layout_2d_collapse_first>
+
+  return %3 : tensor<4x2x32x32xf32, #layout_2d_collapse_first>
+}
+
+// -----
+
+// Test collapsed intervals: 3D to 2D (collapse last two logical dims)
+#layout_3d = #ttcore.metal_layout<
+  logical_shape = 64x64x64,
+  dim_alignments = 32x32x32,
+  collapsed_intervals = dense<[[0, 1], [1, 2], [2, 3]]> : tensor<3x2xi64>,
+  undef,
+  l1,
+  sharded
+>
+
+#layout_2d_collapse_last = #ttcore.metal_layout<
+  logical_shape = 64x64x64,
+  dim_alignments = 32x32x32,
+  collapsed_intervals = dense<[[0, 1], [1, 3]]> : tensor<2x2xi64>,
+  undef,
+  l1,
+  sharded
+>
+
+func.func @view_collapse_3d_to_2d_last(%arg0: tensor<2x2x2x32x32x32xf32, #layout_3d>)
+    -> tensor<2x4x32x32xf32, #layout_2d_collapse_last> {
+  %0 = d2m.empty() : tensor<2x4x32x32xf32, #layout_2d_collapse_last>
+
+  // CHECK-LABEL: @view_collapse_3d_to_2d_last
+  // Logical shape stays 64x64x64
+  // Collapsed intervals: [[0,1],[1,2],[2,3]] (3D) -> [[0,1],[1,3]] (2D, last two dims collapsed)
+  // Grid changes from 3D [2,2,2] to 2D [2,4]
+  // CHECK: d2m.view_layout
+  // CHECK: ttir.reciprocal
+  // CHECK-NOT: d2m.stream_layout
+
+  %1 = d2m.to_layout %arg0, %0 : tensor<2x2x2x32x32x32xf32, #layout_3d> into tensor<2x4x32x32xf32, #layout_2d_collapse_last> -> tensor<2x4x32x32xf32, #layout_2d_collapse_last>
+
+  %2 = d2m.empty() : tensor<2x4x32x32xf32, #layout_2d_collapse_last>
+  %3 = "ttir.reciprocal"(%1, %2) : (tensor<2x4x32x32xf32, #layout_2d_collapse_last>, tensor<2x4x32x32xf32, #layout_2d_collapse_last>) -> tensor<2x4x32x32xf32, #layout_2d_collapse_last>
+
+  return %3 : tensor<2x4x32x32xf32, #layout_2d_collapse_last>
+}
+
+// -----
+
+// Test collapsed intervals: 2D to 3D (uncollapse)
+#layout_2d_src = #ttcore.metal_layout<
+  logical_shape = 64x64x64,
+  dim_alignments = 32x32x32,
+  collapsed_intervals = dense<[[0, 2], [2, 3]]> : tensor<2x2xi64>,
+  undef,
+  l1,
+  sharded
+>
+
+#layout_3d_dst = #ttcore.metal_layout<
+  logical_shape = 64x64x64,
+  dim_alignments = 32x32x32,
+  collapsed_intervals = dense<[[0, 1], [1, 2], [2, 3]]> : tensor<3x2xi64>,
+  undef,
+  l1,
+  sharded
+>
+
+func.func @view_uncollapse_2d_to_3d(%arg0: tensor<4x2x32x32xf32, #layout_2d_src>)
+    -> tensor<2x2x2x32x32x32xf32, #layout_3d_dst> {
+  %0 = d2m.empty() : tensor<2x2x2x32x32x32xf32, #layout_3d_dst>
+
+  // CHECK-LABEL: @view_uncollapse_2d_to_3d
+  // Logical shape stays 64x64x64
+  // Collapsed intervals: [[0,2],[2,3]] (2D) -> [[0,1],[1,2],[2,3]] (3D, uncollapsed)
+  // Grid changes from 2D [4,2] to 3D [2,2,2]
+  // CHECK: d2m.view_layout
+  // CHECK: ttir.rsqrt
+  // CHECK-NOT: d2m.stream_layout
+
+  %1 = d2m.to_layout %arg0, %0 : tensor<4x2x32x32xf32, #layout_2d_src> into tensor<2x2x2x32x32x32xf32, #layout_3d_dst> -> tensor<2x2x2x32x32x32xf32, #layout_3d_dst>
+
+  %2 = d2m.empty() : tensor<2x2x2x32x32x32xf32, #layout_3d_dst>
+  %3 = "ttir.rsqrt"(%1, %2) : (tensor<2x2x2x32x32x32xf32, #layout_3d_dst>, tensor<2x2x2x32x32x32xf32, #layout_3d_dst>) -> tensor<2x2x2x32x32x32xf32, #layout_3d_dst>
+
+  return %3 : tensor<2x2x2x32x32x32xf32, #layout_3d_dst>
+}
+
+// -----
+
+// Test combined: padding + collapse + grid changes
+#layout_src_combo = #ttcore.metal_layout<
+  logical_shape = 96x96x64,
+  dim_alignments = 32x32x32,
+  collapsed_intervals = dense<[[0, 1], [1, 2], [2, 3]]> : tensor<3x2xi64>,
+  undef,
+  l1,
+  sharded
+>
+
+#layout_dst_combo = #ttcore.metal_layout<
+  logical_shape = 96x96x64,
+  dim_alignments = 64x32x32,
+  collapsed_intervals = dense<[[0, 2], [2, 3]]> : tensor<2x2xi64>,
+  undef,
+  l1,
+  sharded
+>
+
+func.func @view_combined_changes(%arg0: tensor<3x3x2x32x32x32xf32, #layout_src_combo>)
+    -> tensor<9x2x32x32xf32, #layout_dst_combo> {
+  %0 = d2m.empty() : tensor<9x2x32x32xf32, #layout_dst_combo>
+
+  // CHECK-LABEL: @view_combined_changes
+  // Combined changes:
+  // - Logical shape stays 96x96x64
+  // - Padding changes (32x32x32 -> 64x32x32 alignments)
+  // - Grid changes from 3D [3,3,2] to 2D [9,2]
+  // - Collapse changes (3D -> 2D logical)
+  // CHECK: d2m.view_layout
+  // CHECK: ttir.abs
+  // CHECK-NOT: d2m.stream_layout
+
+  %1 = d2m.to_layout %arg0, %0 : tensor<3x3x2x32x32x32xf32, #layout_src_combo> into tensor<9x2x32x32xf32, #layout_dst_combo> -> tensor<9x2x32x32xf32, #layout_dst_combo>
+
+  %2 = d2m.empty() : tensor<9x2x32x32xf32, #layout_dst_combo>
+  %3 = "ttir.abs"(%1, %2) : (tensor<9x2x32x32xf32, #layout_dst_combo>, tensor<9x2x32x32xf32, #layout_dst_combo>) -> tensor<9x2x32x32xf32, #layout_dst_combo>
+
+  return %3 : tensor<9x2x32x32xf32, #layout_dst_combo>
+}
+
+// -----
+
+// Test: Chained ToLayoutOps - verify composition through existing index_map
+#layout_chain_a = #ttcore.metal_layout<
+  logical_shape = 64x64,
+  dim_alignments = 32x32,
+  collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>,
+  undef,
+  l1,
+  sharded
+>
+
+#layout_chain_b = #ttcore.metal_layout<
+  logical_shape = 64x64,
+  dim_alignments = 64x32,
+  collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>,
+  undef,
+  l1,
+  sharded
+>
+
+#layout_chain_c = #ttcore.metal_layout<
+  logical_shape = 64x64,
+  dim_alignments = 32x64,
+  collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>,
+  undef,
+  l1,
+  sharded
+>
+
+func.func @view_chained_transformations(%arg0: tensor<2x4x32x32xf32, #layout_chain_a>)
+    -> tensor<2x4x32x64xf32, #layout_chain_c> {
+  // First ToLayoutOp: A -> B (creates a view with index_map)
+  %0 = d2m.empty() : tensor<2x4x64x32xf32, #layout_chain_b>
+  %1 = d2m.to_layout %arg0, %0 : tensor<2x4x32x32xf32, #layout_chain_a> into tensor<2x4x64x32xf32, #layout_chain_b> -> tensor<2x4x64x32xf32, #layout_chain_b>
+
+  // Second ToLayoutOp: B -> C (should compose through B's index_map)
+  %2 = d2m.empty() : tensor<2x4x32x64xf32, #layout_chain_c>
+  %3 = d2m.to_layout %1, %2 : tensor<2x4x64x32xf32, #layout_chain_b> into tensor<2x4x32x64xf32, #layout_chain_c> -> tensor<2x4x32x64xf32, #layout_chain_c>
+
+  // CHECK-LABEL: @view_chained_transformations
+  // First transformation: A->B with padding change
+  // CHECK: d2m.view_layout
+  // Second transformation: B->C should compose through B's existing view
+  // CHECK: d2m.view_layout
+  // Both should lower to views, with proper composition of affine maps
+  // CHECK: ttir.sigmoid
+  // CHECK-NOT: d2m.stream_layout
+
+  %4 = d2m.empty() : tensor<2x4x32x64xf32, #layout_chain_c>
+  %5 = "ttir.sigmoid"(%3, %4) : (tensor<2x4x32x64xf32, #layout_chain_c>, tensor<2x4x32x64xf32, #layout_chain_c>) -> tensor<2x4x32x64xf32, #layout_chain_c>
+
+  return %5 : tensor<2x4x32x64xf32, #layout_chain_c>
 }
