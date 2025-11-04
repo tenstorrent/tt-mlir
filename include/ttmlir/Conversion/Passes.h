@@ -31,8 +31,6 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
 
 #include "mlir/Dialect/EmitC/IR/EmitC.h"
-#include <string>
-#include <unordered_set>
 
 namespace mlir::tt {
 
@@ -43,71 +41,8 @@ struct MLIRModuleLogger {
   mlir::MLIRContext *context;
   std::vector<std::pair<std::string, std::string>> moduleCache;
 
-  // Environment variable configuration
-  struct Config {
-    enum class DumpMode {
-      Disabled,
-      PerPass,
-      PerDialect
-    };
-
-    enum class ActionMode {
-      Overwrite,  // Clear directory, start from 0
-      Append     // Continue from max index + 1
-    };
-
-    DumpMode dumpMode = DumpMode::Disabled;
-    ActionMode actionMode = ActionMode::Overwrite;  // Default to overwrite
-    std::string dumpDir = "";
-
-    // Parse environment variables and populate config
-    static Config fromEnvironment();
-  };
-
   void attachContext(mlir::MLIRContext *ctx,
-                     std::vector<std::string> passNamesToCache = {});
-
-  // Enhanced version with environment variable support
-  void attachContextWithDumping(mlir::MLIRContext *ctx, 
-                                const std::string &modelName = "unknown",
-                                const std::string &pipelineName = "unknown");
-
-  // Dump IR at dialect creation
-  static void dumpDialectCreation(const std::string &dialectName,
-                                  mlir::MLIRContext *ctx);
-
-  // Check if IR dumping should be enabled via environment variables
-  static bool shouldEnableIRDumping();
-
-  // Finalize IR dumping (for PerDialect mode)
-  void finalizeDumping();
-
-  // Destructor to ensure final IR is dumped
-  ~MLIRModuleLogger();
-
-private:
-  Config config;
-  std::string modelName = "unknown";
-  std::string pipelineName = "unknown";
-  int totalPassCount = 0;
-  
-  // For PerDialect mode: store the last IR to dump at the end
-  std::string lastIRContent;
-  bool hasFinalIR = false;
-  
-  std::string getOutputFilename(const std::string &passName,
-                                const std::string &stage = "") const;
-  void dumpIRToFile(const std::string &irContent,
-                    const std::string &filename) const;
-  void setModelName(const std::string &name);
-  void setPipelineName(const std::string &name);
-  std::string extractModelNameFromLocation(mlir::Operation *op) const;
-  static std::string sanitizeFilename(const std::string &name);
-
-  // Directory management for index continuation
-  int detectNextIndex(const std::string &targetDir) const;
-  void clearDirectory(const std::string &targetDir) const;
-  std::string getTargetDirectory() const;
+                     std::vector<std::string> passNamesToCache);
 };
 
 } // namespace mlir::tt

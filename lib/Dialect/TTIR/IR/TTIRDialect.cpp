@@ -2,7 +2,6 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/Conversion/Passes.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIR.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
@@ -98,11 +97,6 @@ struct TTIRInlinerInterface : public DialectInlinerInterface {
 // TTIR dialect.
 //===----------------------------------------------------------------------===//
 
-// Holder to avoid circular dependency in header
-struct TTIRDialect::MLIRModuleLoggerHolder {
-  mlir::tt::MLIRModuleLogger logger;
-};
-
 void TTIRDialect::initialize() {
   addOperations<
 #define GET_OP_LIST
@@ -114,16 +108,6 @@ void TTIRDialect::initialize() {
 #include "ttmlir/Dialect/TTIR/IR/TTIROpsAttrs.cpp.inc"
       >();
   registerTypes();
-
-  // Set up IR dumping for this context (owned by the dialect)
-  // Provides automatic IR dumping for ttmlir-opt and other tools
-  if (mlir::tt::MLIRModuleLogger::shouldEnableIRDumping()) {
-    irLogger = std::make_unique<MLIRModuleLoggerHolder>();
-    irLogger->logger.attachContextWithDumping(getContext(), "ttmlir-opt", "pipeline");
-  }
-
-  // Dump dialect creation if IR dumping is enabled
-  mlir::tt::MLIRModuleLogger::dumpDialectCreation("ttir", getContext());
 }
 
 //===----------------------------------------------------------------------===//
