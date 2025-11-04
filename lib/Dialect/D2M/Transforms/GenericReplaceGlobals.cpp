@@ -41,7 +41,6 @@ public:
 
     Value operand = generic.getOperand(*index);
     rewriter.replaceAllUsesWith(op, operand);
-    rewriter.eraseOp(op);
     return success();
   }
 };
