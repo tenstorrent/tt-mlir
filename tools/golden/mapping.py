@@ -2285,6 +2285,49 @@ def slice_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
     return GoldenMapTensor(shard_map, input_tensor.mesh_shape)
 
 
+def slice_golden_stablehlo(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
+    """
+    Golden function for StableHLO slice operation.
+
+    Parameters
+    ----------
+    input_tensor : GoldenMapTensor
+        Input tensor
+    **kwargs : dict
+        Keyword arguments including:
+        - start_indices: Starting indices for each dimension
+        - limit_indices: Ending indices (exclusive) for each dimension
+        - strides: Strides for each dimension
+
+    Returns
+    -------
+    GoldenMapTensor
+        Sliced tensor
+    """
+    start_indices = kwargs.get("start_indices", [0])
+    limit_indices = kwargs.get("limit_indices", None)
+    strides = kwargs.get("strides", None)
+
+    if strides is None:
+        strides = [1] * len(start_indices)
+
+    if limit_indices is None:
+        limit_indices = [input_tensor.size(i) for i in range(len(start_indices))]
+
+    slices = []
+    for i in range(len(start_indices)):
+        start = start_indices[i] if i < len(start_indices) else 0
+        end = limit_indices[i] if i < len(limit_indices) else input_tensor.size(i)
+        stride = strides[i] if i < len(strides) else 1
+        slices.append(slice(start, end, stride))
+
+    shard_map = {}
+    for device_id, shard in input_tensor.shard_map.items():
+        shard_map[device_id] = shard[tuple(slices)]
+
+    return GoldenMapTensor(shard_map, input_tensor.mesh_shape)
+
+
 def zeros_golden(**kwargs) -> GoldenMapTensor:
     """
     Golden function for zeros operation with TTIR parameter names.
@@ -2960,7 +3003,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     stablehlo.SineOp: torch.sin,
     stablehlo.SqrtOp: torch.sqrt,
     stablehlo.TanOp: torch.tan,
-    stablehlo.SliceOp: slice_golden,
+    stablehlo.SliceOp: slice_golden_stablehlo,
     # TTNN elementwise operations
     ttnn.MultiplyOp: torch.multiply,
     ttnn.MishOp: torch.nn.functional.mish,

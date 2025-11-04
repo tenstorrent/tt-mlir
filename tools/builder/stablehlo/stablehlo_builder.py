@@ -656,45 +656,51 @@ class StableHLOBuilder(Builder):
         """
         Creates ``stablehlo.slice``.
 
-        *Tensor slicing operation.*
+        *Slice operation.*
 
-        Extracts a slice from the input tensor using statically-computed starting indices.
-        The slice is defined by start_indices, limit_indices, and strides for each dimension.
+        Extracts a slice from the operand using statically-computed starting indices
+        and produces a result tensor. start_indices contain the starting indices of
+        the slice for each dimension, limit_indices contain the ending indices
+        (exclusive) for the slice for each dimension, and strides contain the
+        strides for each dimension.
 
-        More formally, result[result_index] = operand[operand_index] where:
-        operand_index = start_indices + result_index * strides
+        More formally: result[result_index] = operand[operand_index] where
+        operand_index = start_indices + result_index * strides.
 
         .. code-block:: mlir
 
-            // Extract a 2x2 slice starting at [1, 2]
-            %result = stablehlo.slice %operand [1:3:1, 2:4:1] : tensor<3x4xi64> -> tensor<2x2xi64>
-            // Input tensor:
-            // [[0, 0, 1, 1],
-            //  [0, 0, 1, 1],
-            //  [0, 0, 0, 0]]
-            // Output tensor:
-            // [[1, 1],
-            //  [1, 1]]
+            // %operand: [
+            //            [0, 0, 0, 0],
+            //            [0, 0, 1, 1],
+            //            [0, 0, 1, 1]
+            //           ]
+            %result = "stablehlo.slice"(%operand) {
+              start_indices = array<i64: 1, 2>,
+              limit_indices = array<i64: 3, 4>,
+              strides = array<i64: 1, 1>
+            } : (tensor<3x4xi64>) -> tensor<2x2xi64>
+            // %result: [
+            //            [1, 1],
+            //            [1, 1]
+            //           ]
 
         Parameters
         ----------
         in0 : Operand
             Input tensor to slice
         start_indices : List[int]
-            Starting indices for the slice in each dimension
+            Starting indices of the slice for each dimension
         limit_indices : List[int]
-            Ending indices (exclusive) for the slice in each dimension
-        strides : Optional[List[int]]
-            Step size for each dimension. If None, defaults to 1 for all dimensions
+            Ending indices (exclusive) of the slice for each dimension
+        strides : *Optional[List[int]]*
+            Strides for each dimension (default: [1, 1, ...])
         unit_attrs : *Optional[List[str]]*
             Optional list of unit attributes
-        sharding_attr : *Optional[sdy.TensorShardingPerValueAttr]*
-            Optional sharding attribute
 
         Returns
         -------
         (*OpView*)
-            A tensor containing the sliced portion of the input
+            A tensor containing the extracted slice
         """
         if strides is None:
             strides = [1] * len(start_indices)
@@ -704,29 +710,25 @@ class StableHLOBuilder(Builder):
                 "start_indices, limit_indices, and strides must have the same length"
             )
 
-        start_indices_attr = DenseI64ArrayAttr.get(start_indices, self._ctx)
-        limit_indices_attr = DenseI64ArrayAttr.get(limit_indices, self._ctx)
-        strides_attr = DenseI64ArrayAttr.get(strides, self._ctx)
-
-        stablehlo_kwargs = {
-            "start_indices": start_indices_attr,
-            "limit_indices": limit_indices_attr,
-            "strides": strides_attr,
-        }
-
-        golden_kwargs = {
-            "begins": start_indices,
-            "ends": limit_indices,
-            "step": strides,
-        }
+        start_indices_attr = DenseI64ArrayAttr.get(start_indices, context=self._ctx)
+        limit_indices_attr = DenseI64ArrayAttr.get(limit_indices, context=self._ctx)
+        strides_attr = DenseI64ArrayAttr.get(strides, context=self._ctx)
 
         return self._op_proxy(
             stablehlo.SliceOp,
             [in0],
             unit_attrs=unit_attrs,
             sharding_attr=sharding_attr,
-            stablehlo_kwargs=stablehlo_kwargs,
-            golden_kwargs=golden_kwargs,
+            stablehlo_kwargs={
+                "start_indices": start_indices_attr,
+                "limit_indices": limit_indices_attr,
+                "strides": strides_attr,
+            },
+            golden_kwargs={
+                "start_indices": start_indices,
+                "limit_indices": limit_indices,
+                "strides": strides,
+            },
         )
 
     # ----- Public Shardy Attribute Generators ----
