@@ -5,7 +5,6 @@
 #include "ttmlir/Dialect/TTIR/Transforms/EraseInverseOps/EraseInverseOps.h"
 
 #include <cassert>
-#include <cstddef>
 
 #include "mlir/IR/BuiltinTypes.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
@@ -258,29 +257,61 @@ private:
   SliceStaticOp reshapedSliceStaticOp(SliceStaticOp op,
                                       TypedValue<RankedTensorType> input,
                                       PatternRewriter &rewriter) const {
+    ArrayRef<int64_t> shape = input.getType().getShape();
+    int64_t ndims = shape.size();
 
     int64_t leftmostSlicedDimRTL = getLeftmostSlicedDimRTL(op);
     assert(leftmostSlicedDimRTL != -1 && "Expected valid slicing dimension");
 
-    ArrayRef<int64_t> shape = input.getType().getShape();
-    int64_t ndims = shape.size();
-    // Convert right-to-left position to left-to-right index
-    int64_t leftmostSlicedDimLTR = ndims - 1 - leftmostSlicedDimRTL;
+    // Update ends and output shape to match new input shape:
+    // - ends = dim size
+    // - output shape = new shape
+    // for dims to the left of leftmost sliced dim
 
     auto originalEnds = op.getEnds().getValue();
     auto originalOutputShape = op.getType().getShape();
+    int64_t originalNdims = originalEnds.size();
 
     SmallVector<Attribute> newEnds(ndims);
     SmallVector<int64_t> newOutputShape(ndims);
 
     for (int64_t i = 0; i < ndims; ++i) {
-      if (i >= leftmostSlicedDimLTR) {
-        newEnds[i] = originalEnds[i];
-        newOutputShape[i] = originalOutputShape[i];
+      if (i > leftmostSlicedDimRTL) {
+        // For dims to the left of leftmost sliced dim, set ends=dim size
+        newEnds[ndims - 1 - i] = IntegerAttr::get(
+            IntegerType::get(op->getContext(), 32), shape[ndims - 1 - i]);
+        newOutputShape[ndims - 1 - i] = shape[ndims - 1 - i];
       } else {
-        newEnds[i] =
-            IntegerAttr::get(IntegerType::get(op->getContext(), 32), shape[i]);
-        newOutputShape[i] = shape[i];
+        // For other dims, copy original values
+        newEnds[ndims - 1 - i] = originalEnds[originalNdims - 1 - i];
+        newOutputShape[ndims - 1 - i] =
+            originalOutputShape[originalNdims - 1 - i];
+      }
+    }
+
+    // Update begins and steps to match new ends:
+    // - begins = 0
+    // - steps = 1
+    // for dims to the left of leftmost sliced dim
+
+    auto originalBegins = op.getBegins().getValue();
+    auto originalSteps = op.getStep().getValue();
+
+    SmallVector<Attribute> newBegins(ndims);
+    SmallVector<Attribute> newSteps(ndims);
+
+    for (int64_t i = 0; i < ndims; ++i) {
+      if (i > leftmostSlicedDimRTL) {
+        // For dims to the left of the leftmost sliced dim, set begins=0,
+        // steps=1
+        newBegins[ndims - 1 - i] =
+            IntegerAttr::get(IntegerType::get(op->getContext(), 32), 0);
+        newSteps[ndims - 1 - i] =
+            IntegerAttr::get(IntegerType::get(op->getContext(), 32), 1);
+      } else {
+        // For other dims, copy original values
+        newBegins[ndims - 1 - i] = originalBegins[originalNdims - 1 - i];
+        newSteps[ndims - 1 - i] = originalSteps[originalNdims - 1 - i];
       }
     }
 
@@ -289,8 +320,9 @@ private:
                               op.getType().getEncoding());
 
     SliceStaticOp newSlice = utils::createDPSOp<SliceStaticOp>(
-        rewriter, op->getLoc(), newSliceType, input, op.getBegins(),
-        rewriter.getArrayAttr(newEnds), op.getStep());
+        rewriter, op->getLoc(), newSliceType, input,
+        rewriter.getArrayAttr(newBegins), rewriter.getArrayAttr(newEnds),
+        rewriter.getArrayAttr(newSteps));
 
     return newSlice;
   }
