@@ -1468,7 +1468,7 @@ def compile_ttir_module_to_flatbuffer(
     custom_pipeline: Optional[Union[Callable, str]] = None,
     pipeline_options: List[str] = [],
     print_ir: Union[bool, str] = False,
-    goldens: Dict[Operand, BuilderGoldenTensor] = None,
+    goldens: Dict[Operand, GoldenMapTensor] = None,
 ):
     """
     Compiles a TTIR MLIR module to flatbuffer format.
@@ -1537,7 +1537,7 @@ def compile_ttir_module_to_flatbuffer(
             dumps before a crash.
         Default is False (no IR printed).
 
-    goldens : *Optional[Dict[Operand, BuilderGoldenTensor]]*, optional
+    goldens : *Optional[Dict[Operand, GoldenMapTensor]]*, optional
         Dictionary of golden tensors to use for comparison. If None, the golden
         tensors will be generated from the builder.
         Default is None.
