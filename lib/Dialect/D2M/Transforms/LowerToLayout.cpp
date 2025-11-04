@@ -157,7 +157,7 @@ public:
     AffineMap viewMap = utils::buildLayoutTransformMap(
         inputLayout, inputInfo.type, outputLayout, outputInfo.type);
 
-    // Create the output layout with the transformation map embedded
+    // Create the output layout with the transformation map embedded.
     auto newLayout = ttcore::MetalLayoutAttr::get(
         rewriter.getContext(), outputLayout.getLogicalShape(),
         outputLayout.getDimAlignments(), outputLayout.getCollapsedIntervals(),
@@ -183,7 +183,6 @@ public:
                "one of input or output must be system for now");
 
     if (op.getLayout()) {
-      // Already lowered.
       return failure();
     }
 
@@ -205,7 +204,7 @@ public:
       auto producerOutputInfo = TensorInfo::from(producer.getOutput());
 
       // Check if both producer's input and output are on device
-      // (i.e., both have layouts and neither is system memory)
+      // (i.e., both have layouts and neither is system memory).
       if (producerInputInfo.hasLayout() && producerOutputInfo.hasLayout() &&
           !producerInputInfo.isSystem() && !producerOutputInfo.isSystem()) {
         return true;
