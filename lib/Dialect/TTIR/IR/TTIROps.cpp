@@ -211,9 +211,8 @@ void mlir::tt::ttir::ClampScalarOp::getCanonicalizationPatterns(
     auto newMax = std::min(producerMax, consumerMax);
 
     // Replace with a single ClampScalarOp with the new bounds
-    rewriter.replaceOpWithNewOp<ClampScalarOp>(op, op.getResult().getType(),
-                                               producerOp.getInput(),
-                                               op.getOutput(), newMin, newMax);
+    rewriter.replaceOpWithNewOp<ClampScalarOp>(
+        op, op.getResult().getType(), producerOp.getInput(), newMin, newMax);
     return mlir::success();
   });
 
@@ -225,7 +224,7 @@ void mlir::tt::ttir::ClampScalarOp::getCanonicalizationPatterns(
 
     if (minVal.convertToFloat() == 0.0f && maxVal.convertToFloat() == 6.0f) {
       rewriter.replaceOpWithNewOp<ttir::Relu6Op>(op, op.getResult().getType(),
-                                                 op.getInput(), op.getOutput());
+                                                 op.getInput());
       return mlir::success();
     }
 
@@ -1179,7 +1178,7 @@ mlir::Operation *mlir::tt::ttir::ConvolutionOp::rewriteWithQuantizedInputs(
 
   if (biasType.has_value()) {
     // Check that bias has the same rank as the output tensor
-    auto outputType = mlir::cast<mlir::RankedTensorType>(getOutput().getType());
+    auto outputType = getType();
     if (biasType->getRank() != outputType.getRank()) {
       return emitOpError(
           "Bias tensor must have the same rank as the output tensor");
@@ -1875,7 +1874,7 @@ static mlir::OpFoldResult foldConsecutiveReshape(mlir::tt::ttir::ReshapeOp op) {
   ::mlir::RankedTensorType endsType = getEnds().getType();
   ::llvm::ArrayRef<int64_t> endsShape = endsType.getShape();
   ::mlir::ArrayAttr stepAttr = getStepAttr();
-  ::mlir::RankedTensorType outputType = getOutput().getType();
+  ::mlir::RankedTensorType outputType = getType();
 
   // Verify that the input is at least 1D tensor.
   if (inputType.getRank() < 1) {
