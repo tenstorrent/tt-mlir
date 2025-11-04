@@ -2228,6 +2228,7 @@ TEST_F(OpModelBase, maxPool2dWithIndicesOp) {
     EXPECT_GT(cbSize, 0);
     EXPECT_GT(l1PeakSize, 0);
     EXPECT_GT(outputSize, 0);
+    EXPECT_GT(totalPeakSize, 0);
   } else {
     FAIL() << "Missing L1 constraints; Error="
            << llvm::toString(constraintsExp.takeError()) << std::endl;

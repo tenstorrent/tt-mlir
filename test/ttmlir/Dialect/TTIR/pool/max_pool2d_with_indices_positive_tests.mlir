@@ -2,7 +2,7 @@
 // RUN: FileCheck %s --input-file=%t
 // Positive tests for max_pool2d_with_indices operation
 
-// Test 1: MaxPool2dWithIndicesOp without flattened compat info and with kernel specified
+// Test 1: MaxPool2dWithIndicesOp without compat info and with kernel specified
 module {
   func.func @max_pool2d_with_indices_non_flattened_with_kernel(%arg0: tensor<1x32x32x64xbf16>) -> (tensor<1x30x30x64xbf16>, tensor<1x30x30x64xui16>) {
     %0 = ttir.empty() : tensor<1x30x30x64xbf16>
@@ -19,7 +19,7 @@ module {
   }
 }
 
-// Test 2: MaxPool2dWithIndicesOp without flattened compat info and with kernel and stride specified
+// Test 2: MaxPool2dWithIndicesOp without compat info and with kernel and stride specified
 module {
   func.func @max_pool2d_with_indices_non_flattened_with_kernel(%arg0: tensor<1x32x32x64xbf16>) -> (tensor<1x15x15x64xbf16>, tensor<1x15x15x64xi32>) {
     %0 = ttir.empty() : tensor<1x15x15x64xbf16>
@@ -36,7 +36,7 @@ module {
   }
 }
 
-// Test 3: MaxPool2dWithIndicesOp with flattened compat info and with kernel, stride and dilation specified
+// Test 3: MaxPool2dWithIndicesOp with kernel, stride and dilation specified
 module {
   func.func @max_pool2d_with_indices_flattened_with_kernel_stride_dilation(%arg0: tensor<1x32x32x64xbf16>) -> (tensor<1x10x10x64xbf16>, tensor<1x10x10x64xi32>) {
     %0 = ttir.empty() : tensor<1x10x10x64xbf16>
@@ -53,7 +53,7 @@ module {
   }
 }
 
-// Test 4: MaxPool2dWithIndicesOp with flattened compat info and with kernel, stride, dilation and padding specified
+// Test 4: MaxPool2dWithIndicesOp with kernel, stride, dilation and padding specified
 module {
   func.func @max_pool2d_with_indices_flattened_with_kernel_stride_dilation_padding(%arg0: tensor<1x32x32x64xbf16>) -> (tensor<1x11x11x64xbf16>, tensor<1x11x11x64xi32>) {
     %0 = ttir.empty() : tensor<1x11x11x64xbf16>
@@ -70,7 +70,7 @@ module {
   }
 }
 
-// Test 5: MaxPool2dWithIndicesOp with flattened compat info and with kernel, stride, dilation, padding and ceil_mode specified
+// Test 5: MaxPool2dWithIndicesOp with kernel, stride, dilation, padding and ceil_mode specified
 module {
   func.func @max_pool2d_with_indices_flattened_with_kernel_stride_dilation_padding(%arg0: tensor<1x32x32x64xbf16>) -> (tensor<1x17x17x64xbf16>, tensor<1x17x17x64xi32>) {
     %0 = ttir.empty() : tensor<1x17x17x64xbf16>

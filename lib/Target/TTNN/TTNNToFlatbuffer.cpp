@@ -1858,21 +1858,11 @@ createMaxPool2dWithIndicesOp(FlatbufferObjectCache &cache,
   // Get memory config from operation result
   auto memoryConfig = getMemoryConfigIfNeeded(cache, op);
 
-  ::flatbuffers::Offset<void> extraParams = 0;
-  ::tt::target::ttnn::Pool2dExtraParams extraParamsType;
-
-  extraParamsType =
-      ::tt::target::ttnn::Pool2dExtraParams::MaxPool2dWithIndicesExtraParams;
-  extraParams =
-      ::tt::target::ttnn::CreateMaxPool2dWithIndicesExtraParams(*cache.fbb)
-          .Union();
-
   return ::tt::target::ttnn::CreateMaxPool2dWithIndicesOp(
       *cache.fbb, in, out, outIndices, op.getBatchSize(), op.getInputHeight(),
       op.getInputWidth(), op.getChannels(), kernelSize, stride, padding,
-      dilation, extraParamsType, extraParams, memoryConfig,
-      toFlatbuffer(cache, op.getAppliedShardScheme()), op.getCeilMode(),
-      op.getInPlaceHalo());
+      dilation, memoryConfig, toFlatbuffer(cache, op.getAppliedShardScheme()),
+      op.getCeilMode(), op.getInPlaceHalo());
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::GlobalAvgPool2dOp>
