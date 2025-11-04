@@ -1678,6 +1678,24 @@ public:
     addKeywordArgument(attrName);
     return rewriter.getAttr<emitpy::OpaqueAttr>(code);
   }
+  
+  // Emits Python code for ttnn.MeshShape from an array of IntegerAttr.
+  // Returns empty string if meshShapeOverride is empty.
+  std::string
+  emitMeshShape(const mlir::ArrayRef<mlir::IntegerAttr> &meshShapeOverride) {
+    if (meshShapeOverride.empty()) {
+      return "";
+    }
+    std::string code = "ttnn.MeshShape(";
+    llvm::raw_string_ostream rso(code);
+    llvm::SmallVector<uint32_t> dims;
+    for (const auto &intAttr : meshShapeOverride) {
+      dims.push_back(intAttr.getValue().getZExtValue());
+    }
+    llvm::interleaveComma(dims, rso);
+    rso << ")";
+    return rso.str();
+  }
 
   // Handles the case when a source type is convertible to `mlir::Attribute` and
   // there exists a `EmitPyTypeConverter` specialization for the TTNN target
