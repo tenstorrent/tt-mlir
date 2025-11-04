@@ -634,7 +634,7 @@ def D2M_DMAOp : D2M_GenericRegionDatamovementOp<"dma",
       %tx = d2m.dma %src, %dst, core[%c1, %c2] mcast[%c4, %c4] : (memref<6x8x!ttcore.tile<32x32, f32>, #l1_>, memref<6x8x!ttcore.tile<32x32, f32>, #l1_>) -> !d2m.mem_tx
       ```
 
-      - A lower level form, is "fully indexed" DMA, where the src and dst memrefs have thier ranks fully indexed the additional numElems argument
+      - A lower level form, is "fully indexed" DMA, where the src and dst memrefs have their ranks fully indexed the additional numElems argument
         is used to specify the number of elements to transfer. As opposed to the forms above that are not fully indexed which implicitly means to
         transfer the leftover block.  That is given memref<2x2x3x4x!ttcore.tile<>>, if we indexed by [i, j], since we only indexed a rank of 2, the remaining
         3x4 block is transferred.  In the fully indexed form, to express the same thing we would need to specify the number of elements to transfer:
