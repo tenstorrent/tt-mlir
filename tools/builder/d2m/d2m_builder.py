@@ -14,7 +14,6 @@ from collections import OrderedDict
 from ttmlir.ir import *
 from ttmlir.dialects import d2m, ttcore, tensor, quant
 from ttmlir.passes import GoldenTensor, DataType
-from ttmlir._mlir_libs import _ttmlir
 
 from builder.base.builder import *
 from golden import *
@@ -119,31 +118,6 @@ class D2MBuilder(Builder):
     def _get_empty_op(self, tensor_type: RankedTensorType) -> OpView:
         """Get D2M-specific empty operation."""
         return d2m.EmptyOp(tensor_type)
-
-    def empty(
-        self,
-        output_type: Type,
-        unit_attrs: Optional[List[str]] = None,
-    ) -> OpView:
-        """
-        Create a D2M empty operation.
-
-        Args:
-            output_type: The type of the empty tensor to create
-            unit_attrs: Optional unit attributes
-
-        Returns:
-            OpView of the empty operation result
-        """
-        with self._ctx, self._loc:
-            result = d2m.EmptyOp(output_type)
-
-            # Set unit attributes if provided
-            if unit_attrs:
-                for attr_name in unit_attrs:
-                    result.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
-
-        return result
 
     # ----- D2M Layout Operations -----
 
@@ -265,123 +239,5 @@ class D2MBuilder(Builder):
             unit_attrs=unit_attrs,
             golden_kwargs={"tilize": False},
         )
-
-    def generic_identity(
-        self,
-        input: Operand,
-        unit_attrs: Optional[List[str]] = None,
-    ) -> OpView:
-        """
-        Create a D2M generic operation that performs identity (forwarding).
-
-        This creates a generic op that simply yields its input unchanged.
-        Useful for materializing views created by ViewLayoutOp.
-
-        Args:
-            input: Input operand
-            unit_attrs: Optional unit attributes
-
-        Returns:
-            OpView of the generic operation result
-        """
-        # Handle both OpView and Value inputs
-        if hasattr(input, "result"):
-            input_val = input.result
-        else:
-            input_val = input
-
-        input_type = input_val.type
-
-        # Create output operand with same type as input
-        output = self.empty(output_type=input_type, unit_attrs=unit_attrs)
-        output_val = output.result
-
-        # Get tensor shape to determine rank
-        shaped_type = ShapedType(input_type)
-        rank = shaped_type.rank
-
-        with self._ctx, self._loc:
-            # Create identity affine map and iterator types manually
-            # Create two separate identity maps to avoid potential reuse issues
-            identity_map1 = AffineMap.get_identity(rank, context=self._ctx)
-            identity_map2 = AffineMap.get_identity(rank, context=self._ctx)
-            indexing_maps = ArrayAttr.get(
-                [
-                    AffineMapAttr.get(identity_map1),
-                    AffineMapAttr.get(identity_map2),
-                ]
-            )
-
-            # Create parallel iterator types
-            # Parse each one separately to avoid sharing
-            iterator_types = ArrayAttr.get(
-                [
-                    Attribute.parse("#ttcore.iterator_type<parallel>")
-                    for _ in range(rank)
-                ]
-            )
-
-            # Create grid and threads
-            grid_attr = Attribute.parse("#ttcore.grid<1x1>")
-            threads_attr = ArrayAttr.get([Attribute.parse("#d2m.thread<compute>")])
-
-            # Create block_factors as ArrayAttr with i64 type
-            i64_type = IntegerType.get_signless(64)
-            block_factors_list = []
-            for _ in range(rank):
-                block_factors_list.append(IntegerAttr.get(i64_type, 1))
-            block_factors_attr = ArrayAttr.get(block_factors_list)
-
-            # Create operandSegmentSizes: [num_inputs, num_outputs]
-            operand_segment_sizes = DenseI32ArrayAttr.get([1, 1])
-
-            # Create the generic op
-            generic_op = Operation.create(
-                "d2m.generic",
-                results=[input_type],
-                operands=[input_val, output_val],
-                attributes={
-                    "indexing_maps": indexing_maps,
-                    "iterator_types": iterator_types,
-                    "grid": grid_attr,
-                    "block_factors": block_factors_attr,
-                    "threads": threads_attr,
-                    "operandSegmentSizes": operand_segment_sizes,
-                },
-                regions=1,
-            )
-
-            # Populate the region with a block that yields the input
-            region = generic_op.regions[0]
-
-            # Block arguments should be circular buffer types for inputs and outputs
-            cb_input_type = Type.parse(f"!d2m.cb<{input_type}>", context=self._ctx)
-            cb_output_type = Type.parse(f"!d2m.cb<{input_type}>", context=self._ctx)
-
-            block = Block.create_at_start(region, [cb_input_type, cb_output_type])
-            with InsertionPoint(block):
-                # Identity operation: wait on input, reserve output, yield it
-                input_cb = block.arguments[0]
-                output_cb = block.arguments[1]
-
-                input_tensor = d2m.WaitOp(input_type, input_cb).result
-                output_tensor = d2m.ReserveOp(input_type, output_cb).result
-
-                # For identity, we just copy input to output (element-wise copy via linalg/tensor ops)
-                # But for now, just yield the input directly
-                d2m.YieldOp([input_tensor])
-
-            result = OpView(generic_op)
-
-            # Set unit attributes if provided
-            if unit_attrs:
-                for attr_name in unit_attrs:
-                    result.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
-
-            # Track golden tensor (pass through from input)
-            if hasattr(input, "__hash__") and input in self._goldens:
-                self._set_golden_tensor(result, self._goldens[input])
-
-            return result
 
     # NOTE: GenericRegionOperations are not implemented here; currently, we have no testcases which require generating a generic op from these bindings as opposed to going through ttir named ops.
