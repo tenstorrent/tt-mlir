@@ -78,6 +78,18 @@ Type getRegionLargestDstElemType(Region &region) {
         return WalkResult::interrupt();
       }
     }
+
+    if (op.getOperation()->getNumResults() > 0) {
+      Type outputType =
+          ttcore::getOperandInnerElementType(op.getOperation()->getResult(0));
+      if (!largestType || (getTypeNumberOfBits(outputType) >
+                           getTypeNumberOfBits(largestType))) {
+        largestType = outputType;
+      }
+      if (largestType && getTypeNumberOfBits(largestType) >= 32u) {
+        return WalkResult::interrupt();
+      }
+    }
     return WalkResult::advance();
   });
 
