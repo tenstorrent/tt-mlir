@@ -1033,7 +1033,7 @@ struct GatherToEmbeddingConversionPattern
     }
 
     if (startIndices.getType().getShape().size() != 2 ||
-        (needsExpansion && op.getIndexVectorDim() != 1)) {
+        (needsExpansion && op.getIndexVectorDim() != 0)) {
       startIndices =
           reshapeStartIndices(rewriter,
                               ttmlir::utils::appendLocationSuffix(
@@ -1244,22 +1244,18 @@ private:
         mlir::cast<RankedTensorType>(startIndices.getType());
     auto startIndicesShape = startIndicesType.getShape();
 
-    // Create NxM matrix where each row is [0, 1, 2, ..., M-1].
+    // Create NxM matrix where each column is [0, 1, 2, ..., N-1].
     int32_t N = sliceSize;
-    int32_t M =
-        startIndicesShape[0] == 1 ? startIndicesShape[1] : startIndicesShape[0];
+    int32_t M = startIndicesShape[1];
 
     llvm::SmallVector<int32_t> matrixData(N * M);
-    for (int32_t row = 0; row < N; ++row) {
-      std::iota(matrixData.begin() + row * M,
-                matrixData.begin() + (row + 1) * M, 0);
+    for (int32_t col = 0; col < M; ++col) {
+      for (int32_t row = 0; row < N; ++row) {
+        matrixData[row * M + col] = row;
+      }
     }
     llvm::SmallVector<int64_t> expandedShape(startIndicesShape);
-    if (startIndicesShape[0] == 1) {
-      expandedShape[0] = sliceSize;
-    } else {
-      expandedShape[1] = sliceSize;
-    }
+    expandedShape[0] = sliceSize;
 
     auto expandedType = mlir::RankedTensorType::get(
         expandedShape, startIndicesType.getElementType(),
@@ -1271,9 +1267,7 @@ private:
         expandedType, offsetAttr);
     // Create broadcast dimensions - all dimensions map directly except the
     // expanded one.
-    llvm::SmallVector<int64_t> broadcastDimensions =
-        ttmlir::utils::getBroadcastDimensions<int64_t>(startIndicesShape,
-                                                       expandedShape);
+    llvm::SmallVector<int64_t> broadcastDimensions = {sliceSize, 1};
 
     // Broadcast the original startIndices to the expanded shape.
     auto broadcastedStartIndices = ttir::utils::createDPSOp<ttir::BroadcastOp>(
@@ -1321,14 +1315,14 @@ private:
     }
 
     llvm::SmallVector<int64_t> outputPermutation;
+    if (needsOffsetReordering) {
+      outputPermutation.push_back(
+          offsetDims[indexedDim - numSmallerCollapsedDims]);
+    }
     for (size_t i = 0; i < expectedOutputShape.size(); ++i) {
       if (!llvm::is_contained(offsetDims, i)) {
         outputPermutation.push_back(i);
       }
-    }
-    if (needsOffsetReordering) {
-      outputPermutation.push_back(
-          offsetDims[indexedDim - numSmallerCollapsedDims]);
     }
     for (size_t i = 0; i < offsetDims.size(); ++i) {
       if (!(needsOffsetReordering &&
