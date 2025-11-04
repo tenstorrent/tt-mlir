@@ -92,7 +92,9 @@ class JitFunction:
             return ir
 
         if self.cache:
-            fb_binary = self.cache.compile_and_insert(str(ir), options, *args)
+            fb_binary = self.cache.compile_and_insert(
+                str(ir), options, self.debug, *args
+            )
             return _run_binary(fb_binary, args)
 
         ttnn_to_ttmetal_pipeline(ir, options)

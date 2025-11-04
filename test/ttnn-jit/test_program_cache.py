@@ -39,8 +39,8 @@ def test_jit_cache(device):
     h2, w2 = 320, 320
 
     # Create operations with different JIT parameters
-    op_single_core = jit(max_grid=(0, 0))(abs)
-    op_full_grid = jit(max_grid=(7, 7))(abs)
+    op_single_core = jit(max_grid=(0, 0), enable_cache=True)(abs)
+    op_full_grid = jit(max_grid=(7, 7), enable_cache=True)(abs)
 
     assert op_single_core.num_entries == 0, "No entries should be in the cache"
     assert op_full_grid.num_entries == 0, "No entries should be in the cache"
@@ -168,9 +168,9 @@ def test_program_cache_hits(device):
     tensor_full_h1_w1_bf16_0 = create_sharded_tile_tensor(
         device, 512, 512, (7, 7), torch.bfloat16
     )
-    jit_abs = jit()(abs)
-    jit_exp = jit()(exp)
-    jit_cos = jit()(cos)
+    jit_abs = jit(enable_cache=True)(abs)
+    jit_exp = jit(enable_cache=True)(exp)
+    jit_cos = jit(enable_cache=True)(cos)
     golden_map = {
         jit_abs: ttnn.abs,
         jit_exp: ttnn.exp,
@@ -199,7 +199,6 @@ def test_program_cache_hits(device):
         input_tensor = create_sharded_tile_tensor(
             device, 512, 512, (7, 7), torch.bfloat16
         )
-        print("tensor buffer address", input_tensor.buffer_address())
         for dummy in dummies:
             ttnn.deallocate(dummy)
 

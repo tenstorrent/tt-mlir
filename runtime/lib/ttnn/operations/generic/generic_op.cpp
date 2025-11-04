@@ -292,9 +292,9 @@ void run(const ::tt::target::ttnn::GenericOp *op, ProgramContext &context) {
   // op.
   std::vector<void *> tensorBuffers(ioTensors.size());
   std::vector<uint32_t> tensorBufferAddresses(ioTensors.size());
-  for (const auto &tensor : ioTensors) {
-    tensorBuffers.push_back(tensor.buffer());
-    tensorBufferAddresses.push_back(tensor.buffer()->address());
+  for (size_t i = 0; i < ioTensors.size(); ++i) {
+    tensorBuffers[i] = ioTensors[i].buffer();
+    tensorBufferAddresses[i] = ioTensors[i].buffer()->address();
   }
   std::size_t hash = ttsl::hash::hash_objects_with_default_seed(
       programDesc, programDescCache, ioTensors, tensorBuffers,
