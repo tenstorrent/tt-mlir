@@ -614,16 +614,81 @@ func.func @view_chained_transformations(%arg0: tensor<2x4x32x32xf32, #layout_cha
   %3 = d2m.to_layout %1, %2 : tensor<2x4x64x32xf32, #layout_chain_b> into tensor<2x4x32x64xf32, #layout_chain_c> -> tensor<2x4x32x64xf32, #layout_chain_c>
 
   // CHECK-LABEL: @view_chained_transformations
-  // First transformation: A->B with padding change
+  // Both transformations should be composed into a single view: A->C
+  // This tests that when B has an index_map, the second transformation
+  // properly composes through it via buildDeviceToLogicalMap
   // CHECK: d2m.view_layout
-  // Second transformation: B->C should compose through B's existing view
-  // CHECK: d2m.view_layout
-  // Both should lower to views, with proper composition of affine maps
   // CHECK: ttir.sigmoid
-  // CHECK-NOT: d2m.stream_layout
+  // CHECK-NOT: d2m.to_layout
 
   %4 = d2m.empty() : tensor<2x4x32x64xf32, #layout_chain_c>
   %5 = "ttir.sigmoid"(%3, %4) : (tensor<2x4x32x64xf32, #layout_chain_c>, tensor<2x4x32x64xf32, #layout_chain_c>) -> tensor<2x4x32x64xf32, #layout_chain_c>
 
   return %5 : tensor<2x4x32x64xf32, #layout_chain_c>
+}
+
+// -----
+
+// Test: Chained ToLayoutOps where intermediate is used - both views must exist
+#layout_chain2_a = #ttcore.metal_layout<
+  logical_shape = 64x64,
+  dim_alignments = 32x32,
+  collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>,
+  undef,
+  l1,
+  sharded
+>
+
+#layout_chain2_b = #ttcore.metal_layout<
+  logical_shape = 64x64,
+  dim_alignments = 64x32,
+  collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>,
+  undef,
+  l1,
+  sharded
+>
+
+#layout_chain2_c = #ttcore.metal_layout<
+  logical_shape = 64x64,
+  dim_alignments = 32x64,
+  collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>,
+  undef,
+  l1,
+  sharded
+>
+
+func.func @view_chained_both_used(%arg0: tensor<2x4x32x32xf32, #layout_chain2_a>)
+    -> (tensor<2x4x64x32xf32, #layout_chain2_b>, tensor<2x4x32x64xf32, #layout_chain2_c>) {
+  // First ToLayoutOp: A -> B (creates a view with index_map)
+  %0 = d2m.empty() : tensor<2x4x64x32xf32, #layout_chain2_b>
+  %1 = d2m.to_layout %arg0, %0 : tensor<2x4x32x32xf32, #layout_chain2_a> into tensor<2x4x64x32xf32, #layout_chain2_b> -> tensor<2x4x64x32xf32, #layout_chain2_b>
+
+  // Second ToLayoutOp: B -> C (should compose through B's index_map)
+  %2 = d2m.empty() : tensor<2x4x32x64xf32, #layout_chain2_c>
+  %3 = d2m.to_layout %1, %2 : tensor<2x4x64x32xf32, #layout_chain2_b> into tensor<2x4x32x64xf32, #layout_chain2_c> -> tensor<2x4x32x64xf32, #layout_chain2_c>
+
+  // CHECK-LABEL: @view_chained_both_used
+  // Both transformations are optimized: both views go back to %arg0 with composed maps
+  // First view: A->B with composed index_map
+  // CHECK: [[VIEW1:%.*]] = d2m.view_layout %arg0
+  // CHECK-SAME: tensor<2x4x32x32xf32, #{{.*}}> -> tensor<2x4x64x32xf32, #{{.*}}>
+  //
+  // Second view: A->C with fully composed index_map (composes through B's transformation)
+  // This tests that buildDeviceToLogicalMap properly handles B's existing index_map
+  // CHECK: [[VIEW2:%.*]] = d2m.view_layout %arg0
+  // CHECK-SAME: tensor<2x4x32x32xf32, #{{.*}}> -> tensor<2x4x32x64xf32, #{{.*}}>
+  //
+  // Consume both views
+  // CHECK: ttir.relu
+  // CHECK: ttir.exp
+
+  // Use the first view
+  %4 = d2m.empty() : tensor<2x4x64x32xf32, #layout_chain2_b>
+  %5 = "ttir.relu"(%1, %4) : (tensor<2x4x64x32xf32, #layout_chain2_b>, tensor<2x4x64x32xf32, #layout_chain2_b>) -> tensor<2x4x64x32xf32, #layout_chain2_b>
+
+  // Use the second view
+  %6 = d2m.empty() : tensor<2x4x32x64xf32, #layout_chain2_c>
+  %7 = "ttir.exp"(%3, %6) : (tensor<2x4x32x64xf32, #layout_chain2_c>, tensor<2x4x32x64xf32, #layout_chain2_c>) -> tensor<2x4x32x64xf32, #layout_chain2_c>
+
+  return %5, %7 : tensor<2x4x64x32xf32, #layout_chain2_b>, tensor<2x4x32x64xf32, #layout_chain2_c>
 }
