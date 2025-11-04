@@ -349,8 +349,9 @@ public:
     copyInfo.push_back(loadOrStore, nextDstSliceIndex);
     BlockArgument blockArg = lookThroughSubView(loadOrStore.getMemRef());
     SmallVector<int64_t> guardIndices =
-        blockArg ? op.getNonParticipatingLoopDims(blockArg.getArgNumber())
-                 : SmallVector<int64_t>{};
+        (blockArg && !op.isExplicitDatamovementForm())
+            ? op.getNonParticipatingLoopDims(blockArg.getArgNumber())
+            : SmallVector<int64_t>{};
     if (inserted) {
       // First access in this loop nest - set the guard indices.
       copyInfo.guardIndices = guardIndices;

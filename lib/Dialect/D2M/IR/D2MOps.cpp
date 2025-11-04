@@ -1034,6 +1034,12 @@ static mlir::LogicalResult verifyAffineBlocking(
 // GenericOp verification
 ::mlir::LogicalResult d2m::GenericOp::verify() {
   if (hasPureTensorSemantics()) {
+    if (this->getNumRegions() != 1 && !isExplicitDatamovementForm()) {
+      return emitOpError(
+          "generic op with pure tensor semantics must have exactly 1 region "
+          "when not in explicit data movement form");
+    }
+
     Region &region = this->getRegion(0);
 
     Block &block = region.front();
@@ -1346,15 +1352,13 @@ unsigned d2m::GenericOp::getNumLoops() { return getNumDims(); }
 unsigned d2m::GenericOp::getNumDims() {
   assert(!getIndexingMaps().empty() && "GenericOp must be pre-loop generated "
                                        "with indexing maps to use this method");
-  return mlir::cast<mlir::AffineMapAttr>(getIndexingMapsAttr()[0])
-      .getAffineMap()
-      .getNumDims();
+  return getIndexingMap(0).getNumDims();
 }
 
 mlir::AffineMap d2m::GenericOp::getIndexingMap(int64_t operandIndex) {
-  TT_assertv(!isExplicitDatamovementForm(),
-             "Attempting to access indexing map while in explicit "
-             "datamovement form.");
+  TT_debugv(!isExplicitDatamovementForm(),
+            "Attempting to access indexing map while in explicit "
+            "datamovement form.");
   return getIndexingMapsValue()[operandIndex];
 }
 
@@ -1465,9 +1469,9 @@ mlir::SmallVector<int64_t> d2m::GenericOp::getLoopBounds() {
 
 mlir::SmallVector<int64_t>
 d2m::GenericOp::getParticipatingLoopDims(int64_t operandIndex) {
-  if (isExplicitDatamovementForm()) {
-    return {};
-  }
+  TT_debugv(!isExplicitDatamovementForm(),
+            "getParticipatingLoopDims should not be called on explicit "
+            "data movement form operations.");
   AffineMap indexingMap = getIndexingMap(operandIndex);
   auto dimExprs =
       llvm::make_filter_range(indexingMap.getResults(), [](AffineExpr expr) {
@@ -1480,9 +1484,9 @@ d2m::GenericOp::getParticipatingLoopDims(int64_t operandIndex) {
 
 mlir::SmallVector<int64_t>
 d2m::GenericOp::getNonParticipatingLoopDims(int64_t operandIndex) {
-  if (isExplicitDatamovementForm()) {
-    return {};
-  }
+  TT_debugv(!isExplicitDatamovementForm(),
+            "getNonParticipatingLoopDims should not be called on explicit "
+            "data movement form operations.");
   AffineMap indexingMap = getIndexingMap(operandIndex);
   SmallVector<int64_t> participatingDims =
       getParticipatingLoopDims(operandIndex);
