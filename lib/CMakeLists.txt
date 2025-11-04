@@ -90,9 +90,10 @@ target_include_directories(TTMLIRCompilerStatic
 #
 add_library(TTMLIRCompiler SHARED RegisterAll.cpp)
 
-
-set_target_properties(TTMLIRCompiler PROPERTIES INSTALL_RPATH "$ORIGIN")
-set_target_properties(TTMLIRCompiler PROPERTIES BUILD_WITH_INSTALL_RPATH TRUE)
+set_target_properties(TTMLIRCompiler PROPERTIES
+  INSTALL_RPATH "$ORIGIN:$ORIGIN/../../third_party/tt-metal/src/tt-metal/build/lib"
+  BUILD_WITH_INSTALL_RPATH TRUE
+)
 
 # Forces the inclusion of all symbols in the shared object
 # This is necessary because the JIT will not be able to find the symbols otherwise

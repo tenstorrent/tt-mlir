@@ -1,12 +1,9 @@
 # InstallComponents.cmake
 # Handles installation of required TT-NN components for cpp standalone builds
 
-# Print only "install" logs, but ignore "up-to-date" logs
-set(CMAKE_INSTALL_MESSAGE LAZY)
-
 # Install directory for TT-NN components
 if(NOT DEFINED TTNN_INSTALL_DIR)
-  set(TTNN_INSTALL_DIR "${CMAKE_CURRENT_BINARY_DIR}/../ttnn-install" CACHE PATH "Directory to install TT-NN components")
+  set(TTNN_INSTALL_DIR "${TT_ALCHEMIST_ROOT_BINARY_DIR}/templates/cpp/standalone/ttnn-install" CACHE PATH "Directory to install TT-NN components")
 endif()
 
 # Create install directory
@@ -78,16 +75,4 @@ add_custom_command(
   #
   COMMAND ${CMAKE_COMMAND} -E touch ${TTNN_INSTALL_DIR}/.missing-headers-installed
   COMMENT "Installing missing headers for precompiled header"
-)
-
-# Target to install all components
-add_custom_target(install-ttnn-components
-  DEPENDS
-    ${TTNN_INSTALL_DIR}/.metalium-runtime-installed
-    ${TTNN_INSTALL_DIR}/.metalium-dev-installed
-    ${TTNN_INSTALL_DIR}/.ttnn-runtime-installed
-    ${TTNN_INSTALL_DIR}/.ttnn-dev-installed
-    ${TTNN_INSTALL_DIR}/.missing-headers-installed
-    ${TTNN_INSTALL_DIR}/.all-components-installed
-  COMMENT "Installing all required TT-NN components"
 )
