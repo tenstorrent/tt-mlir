@@ -15,7 +15,7 @@ from ttmlir.dialects import ttir, ttcore, tensor, quant
 from ttmlir.passes import GoldenTensor, DataType
 
 from builder.base.builder import *
-from builder.base import builder_golden
+from golden import *
 
 
 class TTIRBuilder(Builder):
@@ -130,7 +130,7 @@ class TTIRBuilder(Builder):
                     op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
             if not skip_golden and not self._disable_golden_check:
-                op_golden_function = builder_golden.get_golden_function(
+                op_golden_function = get_golden_function(
                     op_ttir_function, **golden_kwargs
                 )
                 if op_golden_function is not None:
@@ -3872,7 +3872,7 @@ class TTIRBuilder(Builder):
                 repeat_dims.append(shape[i])
 
         # Apply repeat shard-wise
-        single_dim_tensor_bt = BuilderGoldenTensor(
+        single_dim_tensor_bt = GoldenMapTensor(
             {
                 k: shard.repeat(*repeat_dims)
                 for k, shard in result_tensor.shard_map.items()

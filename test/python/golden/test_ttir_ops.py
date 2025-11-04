@@ -2063,6 +2063,7 @@ def test_hoisted_where(shapes, request, target: str, device):
         [(64, 512), (64, 1, 512)],  # Common ML pattern: expand dims
         [(256, 256), (512, 128)],  # Power of 2 reshape
         [(32, 3, 224, 224), (32, 150528)],  # Large ML pattern: batch flatten
+        [(0, 32, 128), (0,)],  # Edge case: zero-sized dimension
     ],
     ids=shapes_list_str,
 )
