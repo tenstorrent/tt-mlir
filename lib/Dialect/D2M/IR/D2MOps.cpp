@@ -672,6 +672,29 @@ mlir::LogicalResult StreamLayoutOp::verify() {
 // ViewLayoutOp
 //===----------------------------------------------------------------------===//
 
+void d2m::ViewLayoutOp::build(OpBuilder &builder, OperationState &state,
+                              Value input, ArrayRef<int64_t> reblockedShape,
+                              bool reinterpretLayout) {
+  auto inputType = mlir::cast<ShapedType>(input.getType());
+
+  Type resultType;
+  if (auto tensorType = mlir::dyn_cast<RankedTensorType>(inputType)) {
+    // For tensors, preserve the encoding
+    resultType = RankedTensorType::get(reblockedShape,
+                                       tensorType.getElementType(),
+                                       tensorType.getEncoding());
+  } else {
+    // For memrefs, preserve memory space and layout
+    auto memrefType = mlir::cast<MemRefType>(inputType);
+    resultType = MemRefType::get(reblockedShape,
+                                 memrefType.getElementType(),
+                                 memrefType.getLayout(),
+                                 memrefType.getMemorySpace());
+  }
+
+  build(builder, state, resultType, input, reinterpretLayout);
+}
+
 void d2m::ViewLayoutOp::getAsmResultNames(
     function_ref<void(Value, StringRef)> setNameFn) {
   setNameFn(getResult(), "view");
