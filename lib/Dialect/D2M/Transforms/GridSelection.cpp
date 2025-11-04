@@ -603,7 +603,6 @@ static void insertTTNNDRAMStreams(d2m::GenericOp genericOp,
     auto storageTensor = mlir::RankedTensorType::get(
         fakeShardedShape, metalTensor.getElementType(), storageLayout);
 
-    // auto castOp = operand.getDefiningOp<ttir::TTNNMetalLayoutCastOp>();
     builder.setInsertionPointAfter(castOp);
     auto storageOp =
         builder.create<d2m::EmptyOp>(castOp.getLoc(), storageTensor);
