@@ -473,7 +473,7 @@ void mlir::tt::MLIRModuleLogger::finalizeDumping() {
 
 mlir::tt::MLIRModuleLogger::~MLIRModuleLogger() {
   // Ensure final IR is dumped even if finalizeDumping() wasn't called explicitly
-  finalizeDumping();
+    finalizeDumping();
 }
 
 std::string mlir::tt::MLIRModuleLogger::getTargetDirectory() const {
@@ -488,19 +488,19 @@ int mlir::tt::MLIRModuleLogger::detectNextIndex(const std::string &targetDir) co
   }
 
   int maxIndex = -1;
-  for (const auto& entry : std::filesystem::directory_iterator(targetDir)) {
-    if (entry.is_regular_file()) {
-      std::string filename = entry.path().filename().string();
-      // Look for pattern: <number>_<anything>.mlir
-      if (filename.size() > 5 && filename.substr(filename.size() - 5) == ".mlir") {
-        size_t underscorePos = filename.find('_');
-        if (underscorePos != std::string::npos) {
-          std::string indexStr = filename.substr(0, underscorePos);
+    for (const auto& entry : std::filesystem::directory_iterator(targetDir)) {
+      if (entry.is_regular_file()) {
+        std::string filename = entry.path().filename().string();
+        // Look for pattern: <number>_<anything>.mlir
+        if (filename.size() > 5 && filename.substr(filename.size() - 5) == ".mlir") {
+          size_t underscorePos = filename.find('_');
+          if (underscorePos != std::string::npos) {
+            std::string indexStr = filename.substr(0, underscorePos);
           // Try to convert to int, skip if not valid
           int index;
           if (sscanf(indexStr.c_str(), "%d", &index) == 1) {
-            if (index > maxIndex) {
-              maxIndex = index;
+              if (index > maxIndex) {
+                maxIndex = index;
             }
           }
         }

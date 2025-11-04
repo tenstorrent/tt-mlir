@@ -17,12 +17,17 @@
 #include "ttmlir/RegisterAll.h"
 #include "ttmlir/Support/POCInstrumentation.h"
 
-// CLI option for IR dump level
+// CLI options for IR dumping
 static llvm::cl::opt<std::string> irDumpLevel(
     "ttmlir-ir-dump-level",
     llvm::cl::desc("Set the IR dump level (Pipeline, Pass, Transformation)"),
     llvm::cl::init("Transformation"),
     llvm::cl::value_desc("level"));
+
+static llvm::cl::opt<bool> irDumpAppend(
+    "ttmlir-ir-dump-append",
+    llvm::cl::desc("Append to existing IR dumps instead of overwriting"),
+    llvm::cl::init(false));
 
 // Helper function to parse dump level string to enum
 static mlir::tt::POCInstrumentation::DumpLevel parseDumpLevel(const std::string &level) {
@@ -63,8 +68,9 @@ int main(int argc, char **argv) {
     // Custom handling for the POC pipeline with instrumentation
     llvm::outs() << "POCInstrumentation: Detected ttir-to-ttnn-backend-pipeline, using custom handling!\n";
 
-    // Parse the dump level from CLI
+    // Parse the dump level and action mode from CLI
     auto dumpLevel = parseDumpLevel(irDumpLevel);
+    auto actionMode = getActionMode();
 
     // Create MLIR context
     mlir::MLIRContext context(registry);
@@ -90,7 +96,11 @@ int main(int argc, char **argv) {
 
     // Create PassManager with instrumentation
     mlir::PassManager pm(&context);
-    auto instrumentation = std::make_unique<mlir::tt::POCInstrumentation>("counter_log.txt", dumpLevel, /*debug=*/true);
+    auto instrumentation = std::make_unique<mlir::tt::POCInstrumentation>(
+        "./poc_ir_dumps", 
+        dumpLevel, 
+        actionMode,
+        /*debug=*/true);
     
     // Attach action handler to context to track all actions
     instrumentation->attachActionHandler(&context);
@@ -130,7 +140,11 @@ int main(int argc, char **argv) {
     config.setPassPipelineSetupFn([dumpLevel](mlir::PassManager &pm) {
       llvm::outs() << "POCInstrumentation: Adding instrumentation to PassManager (standard path)!\n";
       
-      auto instrumentation = std::make_unique<mlir::tt::POCInstrumentation>("counter_log.txt", dumpLevel, /*debug=*/true);
+      auto instrumentation = std::make_unique<mlir::tt::POCInstrumentation>(
+          "./poc_ir_dumps", 
+          dumpLevel, 
+          mlir::tt::POCInstrumentation::ActionMode::Overwrite,
+          /*debug=*/true);
       
       // Attach action handler to context to track all actions
       instrumentation->attachActionHandler(pm.getContext());

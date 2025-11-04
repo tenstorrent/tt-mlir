@@ -15,23 +15,32 @@
 
 namespace mlir::tt {
 
-/// POC instrumentation that logs counter increments to a file.
-/// This is unrelated to MLIRModuleLogger and demonstrates pass instrumentation.
+/// IR dumping instrumentation that dumps MLIR at various stages.
+/// Supports Pipeline, Pass, and Transformation level dumping.
 class POCInstrumentation : public PassInstrumentation {
 public:
   enum class DumpLevel {
-    Pipeline,       // Log only pipeline events
-    Pass,          // Log pipeline + pass events
-    Transformation // Log everything (pipeline + pass + analysis)
+    Pipeline,       // Dump only at pipeline boundaries
+    Pass,          // Dump at pipeline + pass boundaries
+    Transformation // Dump at pipeline + pass + transformation actions
   };
 
-  POCInstrumentation(const std::string &outputFile = "counter_log.txt", 
+  enum class ActionMode {
+    Overwrite,  // Clear directory, start from 0
+    Append     // Continue from max index + 1
+  };
+
+  POCInstrumentation(const std::string &outputDir = "./poc_ir_dumps", 
                     DumpLevel level = DumpLevel::Transformation,
+                    ActionMode actionMode = ActionMode::Overwrite,
                     bool debug = false);
   ~POCInstrumentation() override;
 
   // Set up action handler with the MLIR context from PassManager
   void attachActionHandler(mlir::MLIRContext *ctx);
+  
+  // Set model name (extracted from operation location)
+  void setModelName(const std::string &name);
 
   // Pipeline hooks
   void runBeforePipeline(std::optional<OperationName> name,
@@ -49,12 +58,20 @@ public:
   void runAfterAnalysis(StringRef name, TypeID id, Operation *op) override;
 
 private:
-  void logIncrement(const std::string &reason, const std::string &details = "");
+  void dumpIR(mlir::Operation *op, const std::string &name);
+  std::string extractModelNameFromLocation(mlir::Operation *op) const;
+  std::string sanitizeFilename(const std::string &name) const;
+  std::string getOutputFilename(const std::string &name) const;
+  std::string getTargetDirectory() const;
+  int detectNextIndex(const std::string &targetDir) const;
+  void clearDirectory(const std::string &targetDir) const;
 
-  std::atomic<int> counter_;
-  std::string outputFile_;
+  std::atomic<int> dumpCounter_;
+  std::string outputDir_;
+  std::string modelName_;
   std::mutex fileMutex_;
   DumpLevel level_;
+  ActionMode actionMode_;
   bool debug_;
 };
 
