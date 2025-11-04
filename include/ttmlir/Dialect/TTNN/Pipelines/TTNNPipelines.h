@@ -315,13 +315,13 @@ struct TTIRToTTNNBackendPipelineOptions
   // This allows frontends to pass in an active device without closing it.
   std::shared_ptr<::tt::tt_metal::distributed::MeshDevice> devicePtr = nullptr;
 
-  Option<std::string> optimizerMetricsOutputFile{
-      *this, "optimizer-metrics-output-file",
+  Option<std::string> ttnnMetricsOutputFile{
+      *this, "ttnn-metrics-output-file",
       llvm::cl::desc("Output file path for the metrics JSON."),
       llvm::cl::init("ttnn_metrics.json")};
 
-  Option<bool> optimizerMetricsVerboseOutputEnabled{
-      *this, "optimizer-metrics-verbose-output-enabled",
+  Option<bool> ttnnMetricsVerboseOutputEnabled{
+      *this, "ttnn-metrics-verbose-output-enabled",
       llvm::cl::desc(
           "Enable verbose output with per-operation details in metrics."),
       llvm::cl::init(true)};

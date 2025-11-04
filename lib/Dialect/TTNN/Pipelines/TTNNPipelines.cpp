@@ -93,13 +93,8 @@ void createTTNNPipelineAnalysisPasses(
     ttnn::TTNNOperationValidationAndFallbackOptions validationOptions{
         options.tensorL1UsageCap};
 
-    ttnn::TTNNCollectMetricsOptions metricsOptions{
-        options.optimizerMetricsOutputFile,
-        options.optimizerMetricsVerboseOutputEnabled};
-
     pm.addPass(createOptimizerPassesWrapper(
-        [optimizerOptions, validationOptions,
-         metricsOptions](OpPassManager &innerPm) {
+        [optimizerOptions, validationOptions](OpPassManager &innerPm) {
           // All Optimizer passes will be run inside the wrapper.
           innerPm.addPass(
               mlir::tt::ttnn::createTTNNOptimizer(optimizerOptions));
@@ -109,8 +104,6 @@ void createTTNNPipelineAnalysisPasses(
                   validationOptions));
           innerPm.addPass(
               mlir::tt::ttnn::createTTNNPrepareConv2dWeightsAndBias());
-          innerPm.addPass(
-              mlir::tt::ttnn::createTTNNCollectMetrics(metricsOptions));
         },
         wrapperOptions));
 #else
@@ -226,6 +219,10 @@ void createTTIRToTTNNBackendPipeline(
   // Run lowering to LLVM pass on hoisted funcs in CPUModule.
   ttir::LinalgToLLVMPipelineOptions linalgToLLVMOptions;
   ttir::createTTIRToCPUPipeline(pm, linalgToLLVMOptions);
+
+  ttnn::TTNNCollectMetricsOptions metricsOptions{
+      options.ttnnMetricsOutputFile, options.ttnnMetricsVerboseOutputEnabled};
+  devicePm.addPass(mlir::tt::ttnn::createTTNNCollectMetrics(metricsOptions));
 }
 
 void createTTNNBackendToEmitCPipeline(
