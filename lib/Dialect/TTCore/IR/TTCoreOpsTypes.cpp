@@ -1536,6 +1536,7 @@ uint64_t TileType::getSizeBytes() const {
     return getHeight() * getWidth() * 2;
   case DataType::BFP_Float8:
     assert(getHeight() == 32 && getWidth() == 32);
+    // 1024 + 64 (1 byte of shared exponent for every 16 elements)
     return 1088;
   case DataType::BFP_BFloat8:
     assert(getHeight() == 32 && getWidth() == 32);
