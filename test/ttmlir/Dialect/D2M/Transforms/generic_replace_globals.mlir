@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --d2m-generic-replace-globals --split-input-file %s | FileCheck %s
+// RUN: ttmlir-opt --d2m-generic-replace-globals --canonicalize --split-input-file %s | FileCheck %s
 
 #l1_ = #ttcore.memory_space<l1>
 
@@ -122,8 +122,8 @@ module {
     return %1 : tensor<2x2xf32>
   }
   // CHECK-LABEL: func.func @test_mixed_usage
-  // CHECK-SAME:     (%[[ARG0:.*]]: tensor<2x2xf32>) -> tensor<2x2xf32>
-  func.func @test_mixed_usage(%arg0: tensor<2x2xf32>) -> tensor<2x2xf32> {
+  // CHECK-SAME:     (%[[ARG0:.*]]: tensor<2x2xf32>) -> (tensor<2x2xf32>, tensor<2x2xf32>)
+  func.func @test_mixed_usage(%arg0: tensor<2x2xf32>) -> (tensor<2x2xf32>, tensor<2x2xf32>) {
     // This get_global is outside a d2m.generic, so it should remain unchanged
     // CHECK: %[[OUTSIDE_GLOBAL:.*]] = ttcore.get_global @input_global : tensor<2x2xf32>
     %outside_global = ttcore.get_global @input_global : tensor<2x2xf32>
@@ -158,6 +158,6 @@ module {
       }
       d2m.yield %result : (tensor<2x2xf32>)
     } : tensor<2x2xf32>
-    return %outside_global : tensor<2x2xf32>
+    return %outside_global, %1 : tensor<2x2xf32>, tensor<2x2xf32>
   }
 }

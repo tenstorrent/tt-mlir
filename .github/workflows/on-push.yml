@@ -69,5 +69,8 @@ jobs:
           rm -rf _test_durations*
   docs:
     if: github.ref == 'refs/heads/main'
+    needs: build-image
     uses: ./.github/workflows/call-build-docs.yml
     secrets: inherit
+    with:
+      docker-image: ${{ needs.build-image.outputs.docker-image }}

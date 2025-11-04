@@ -480,7 +480,7 @@ def build_module(
 
             @func.func(*fn_input_types, name=fn.__name__)
             def decorated_func(*inputs):
-                input_goldens: Dict[Operand, BuilderGoldenTensor] = {}
+                input_goldens: Dict[Operand, GoldenMapTensor] = {}
                 for index, (operand, dtype) in enumerate(zip(inputs, inputs_types)):
                     input_goldens[operand] = builder._generate_golden_tensor(
                         operand, dtype
@@ -491,7 +491,7 @@ def build_module(
                 result = fn(*inputs, builder)
 
                 outputs = result if hasattr(result, "__iter__") else (result,)
-                output_goldens: Dict[Operand, BuilderGoldenTensor] = {}
+                output_goldens: Dict[Operand, GoldenMapTensor] = {}
                 for op in outputs:
                     output_goldens[op] = builder._get_golden_tensor(op)
                 builder._set_goldens(output_goldens)
@@ -1409,6 +1409,8 @@ def compile_stablehlo_to_flatbuffer(
     except Exception as e:
         raise TTBuilderCompileException(e)
 
+    goldens = dict(builder.golden_map)
+
     stablehlo_pipeline(module, " ".join(shlo_pipeline_options))
     print(f"`{fn.__name__}` successfully ran stablehlo-pipeline.")
     print(module)
@@ -1448,6 +1450,7 @@ def compile_stablehlo_to_flatbuffer(
         custom_pipeline=custom_pipeline,
         pipeline_options=ttir_pipeline_options,
         print_ir=print_ir,
+        goldens=goldens,
     )
 
 
@@ -1465,6 +1468,7 @@ def compile_ttir_module_to_flatbuffer(
     custom_pipeline: Optional[Union[Callable, str]] = None,
     pipeline_options: List[str] = [],
     print_ir: Union[bool, str] = False,
+    goldens: Dict[Operand, GoldenMapTensor] = None,
 ):
     """
     Compiles a TTIR MLIR module to flatbuffer format.
@@ -1533,6 +1537,11 @@ def compile_ttir_module_to_flatbuffer(
             dumps before a crash.
         Default is False (no IR printed).
 
+    goldens : *Optional[Dict[Operand, GoldenMapTensor]]*, optional
+        Dictionary of golden tensors to use for comparison. If None, the golden
+        tensors will be generated from the builder.
+        Default is None.
+
     Returns
     -------
     str
@@ -1590,6 +1599,8 @@ def compile_ttir_module_to_flatbuffer(
     )
     output_file_fbb = ".".join([output_file_mlir, target_extension])
 
+    goldens = dict(builder.golden_map) if goldens is None else goldens
+
     # Compile TTIR MLIR -> TT{Metal,NN} MLIR
     try:
         module = _run_ttir_pipeline(
@@ -1615,7 +1626,7 @@ def compile_ttir_module_to_flatbuffer(
         to_target(
             module,
             output_file_fbb,
-            builder.golden_map,
+            goldens,
             module_logger.module_log if module_logger.module_log else [],
         )
     except Exception as e:
@@ -1894,7 +1905,7 @@ def experimental_build_stablehlo_module(
             # Wrap everything in a mlir function.
             @func.func(*fn_input_types, name=fn.__name__)
             def decorated_func(*inputs):
-                input_goldens: Dict[Operand, BuilderGoldenTensor] = {}
+                input_goldens: Dict[Operand, GoldenMapTensor] = {}
                 for index, (operand, dtype) in enumerate(zip(inputs, inputs_types)):
                     input_goldens[operand] = stablehlo_builder._generate_golden_tensor(
                         operand, dtype
@@ -1905,7 +1916,7 @@ def experimental_build_stablehlo_module(
                 result = fn(*inputs, stablehlo_builder)
 
                 outputs = result if hasattr(result, "__iter__") else (result,)
-                output_goldens: Dict[Operand, BuilderGoldenTensor] = {}
+                output_goldens: Dict[Operand, GoldenMapTensor] = {}
                 for op in outputs:
                     output_goldens[op] = stablehlo_builder._get_golden_tensor(op)
                 stablehlo_builder._set_goldens(output_goldens)
