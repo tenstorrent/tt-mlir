@@ -210,7 +210,6 @@ private:
     // Return the right-to-left position (0 = rightmost, ndims-1 = leftmost).
     for (int64_t i = 0; i < minRank; i++) {
       if (inputShape[inputRank - 1 - i] != outputShape[outputRank - 1 - i]) {
-        llvm::outs() << "rightmostReshapeDimRTL: " << i << "\n";
         return i;
       }
     }
@@ -248,7 +247,6 @@ private:
         break;
       }
     }
-    llvm::outs() << "leftmostSlicedDim: " << leftmostSlicedDim << "\n";
     // If no slicing is applied, return -1
     return leftmostSlicedDim;
   }
@@ -328,21 +326,28 @@ private:
 
   ReshapeOp deslicedReshapeOp(SliceStaticOp op, ReshapeOp reshapeUser,
                               PatternRewriter &rewriter) const {
-    SmallVector<int64_t> targetShape;
+
+    // Construct target shape for reshape:
+    // - For dims not affected by reshape (left to the rightmost reshape dim),
+    // use input shape.
+    // - For other dims, keep original reshape shape.
+
+    int64_t rightmostReshapeDimRTL = getRightmostReshapeDimRTL(reshapeUser);
+    assert(rightmostReshapeDimRTL != -1 && "Expected valid reshape dimension");
+
     ArrayRef<int64_t> originalReshapeShape =
         reshapeUser.getResult().getType().getShape();
-    ArrayRef<int64_t> sliceInputShape = op.getInput().getType().getShape();
-    int64_t ndims = sliceInputShape.size();
+    int64_t ndims = originalReshapeShape.size();
+    SmallVector<int64_t> targetShape(ndims);
 
-    int64_t leftmostSlicedDimRTL = getLeftmostSlicedDimRTL(op);
-    assert(leftmostSlicedDimRTL != -1 && "Expected valid slicing dimension");
-    int64_t leftmostSlicedDimLTR = ndims - 1 - leftmostSlicedDimRTL;
+    ArrayRef<int64_t> sliceInputShape = op.getInput().getType().getShape();
+    int64_t inputNdims = sliceInputShape.size();
 
     for (int64_t i = 0; i < ndims; ++i) {
-      if (i < leftmostSlicedDimLTR) {
-        targetShape.push_back(originalReshapeShape[i]);
+      if (i < rightmostReshapeDimRTL) {
+        targetShape[ndims - 1 - i] = sliceInputShape[inputNdims - 1 - i];
       } else {
-        targetShape.push_back(sliceInputShape[i]);
+        targetShape[ndims - 1 - i] = originalReshapeShape[ndims - 1 - i];
       }
     }
 
@@ -358,9 +363,8 @@ private:
 
   bool isCommuteUpwardsViable(SliceStaticOp op,
                               ReshapeOp reshapeUser) const override {
-    // Reshape can commute if its rightmost reshape dim (rightmost changing dim)
-    // is to the right of leftmost slicing dim (rightmost slicing dim), counting
-    // from right to left
+    // Reshape can commute if its rightmost reshape dim
+    // is to the right of leftmost slicing dim
     int64_t rightmostReshapeDimRTL = getRightmostReshapeDimRTL(reshapeUser);
     int64_t leftmostSlicedDimRTL = getLeftmostSlicedDimRTL(op);
     if (rightmostReshapeDimRTL == -1 || leftmostSlicedDimRTL == -1) {
@@ -379,9 +383,8 @@ private:
 
   bool isCommuteDownwardsViable(SliceStaticOp op,
                                 ReshapeOp reshapeOperand) const override {
-    // Reshape can commute if its rightmost reshape dim (rightmost changing dim)
-    // is to the right of leftmost slicing dim (rightmost slicing dim), counting
-    // from right to left
+    // Reshape can commute if its rightmost reshape dim
+    // is to the right of leftmost slicing dim
     int64_t rightmostReshapeDimRTL = getRightmostReshapeDimRTL(reshapeOperand);
     int64_t leftmostSlicedDimRTL = getLeftmostSlicedDimRTL(op);
     if (rightmostReshapeDimRTL == -1 || leftmostSlicedDimRTL == -1) {
