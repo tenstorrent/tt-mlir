@@ -185,6 +185,9 @@ void run(const ::tt::target::ttnn::MaxPool2dWithIndicesOp *op,
       false /* deallocate_input */, true /* reallocate_halo_output */,
       true /* return_indices */);
 
+  std::cout << outputs[0].write_to_string() << std::endl;
+  std::cout << outputs[1].write_to_string() << std::endl;
+
   tensorPool.insertTTNNTensorAndValidate(op->result(), outputs[0]);
   tensorPool.insertTTNNTensorAndValidate(op->result_indices(), outputs[1]);
 }
