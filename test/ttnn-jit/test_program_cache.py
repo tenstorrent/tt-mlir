@@ -4,11 +4,8 @@
 
 import ttnn
 import torch
-<<<<<<< HEAD
 import pytest
-=======
 import random
->>>>>>> dd1b195ea (new test)
 
 from ttnn_jit.api import jit
 
@@ -17,6 +14,7 @@ from utils import create_sharded_tile_tensor, create_dram_tensor, all_close_chec
 
 def abs(input_tensor):
     return ttnn.abs(input_tensor)
+
 
 def exp(input_tensor):
     return ttnn.exp(input_tensor)
