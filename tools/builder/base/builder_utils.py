@@ -234,15 +234,15 @@ def _compile_and_execute(
             disable_golden=disable_golden,
             device=device,
         )
-    elif target == "emitpy":
-        py_path = mlir_path + ".py"
+    # TODO: reimplement once golden checking works via emitpy
+    # elif target == "emitpy":
+    #    py_path = mlir_path + ".py"
 
-        # TODO: make this an actual logfile
-        logger = Logger("/dev/null")
-        fm = FileManager(logger)
-        dylib = EmitPyDylib(logger, fm, file_path=py_path)
-        execute_emitted_py(dylib)
-        pass
+    #    # TODO: make this an actual logfile
+    #    logger = Logger("/dev/null")
+    #    fm = FileManager(logger)
+    #    dylib = EmitPyDylib(logger, fm, file_path=py_path)
+    #    execute_emitted_py(dylib)
 
     return mlir_path
 
