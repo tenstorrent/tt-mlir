@@ -112,7 +112,7 @@ func.func @old_behavior_example(%arg0: tensor<1024x1024xf32>) -> tensor<8x8x4x4x
   return %1 : tensor<8x8x4x4x!ttcore.tile<32x32, f32>, #layout>
 }
 
-// -----
+
 // New tests for View vs Stream logic
 
 #layout_identity = #ttcore.metal_layout<
@@ -155,7 +155,7 @@ func.func @view_index_map_change(%arg0: tensor<2x4x32x32xf32, #layout_identity>)
   return %3 : tensor<2x4x32x32xf32, #layout_with_transpose>
 }
 
-// -----
+
 
 #layout_2d_grid2x4 = #ttcore.metal_layout<
   logical_shape = 64x128,
@@ -197,7 +197,7 @@ func.func @view_grid_change(%arg0: tensor<2x4x32x32xf32, #layout_2d_grid2x4>)
   return %3 : tensor<8x1x256x128xf32, #layout_2d_grid8x1>
 }
 
-// -----
+
 
 #layout_align_32 = #ttcore.metal_layout<
   logical_shape = 60x120,
@@ -238,13 +238,9 @@ func.func @view_alignment_change(%arg0: tensor<2x4x32x32xf32, #layout_align_32>)
   return %3 : tensor<1x2x64x64xf32, #layout_align_64>
 }
 
-// -----
 
-// Note: TensorMemoryLayout changes (Interleaved <-> Sharded) are NOT supported
-// via ToLayoutOp as they would require actual data movement/reshuffling.
-// All layouts in this file use 'sharded' exclusively.
 
-// -----
+
 
 #layout_tiled_a = #ttcore.metal_layout<
   logical_shape = 64x128,
@@ -286,7 +282,7 @@ func.func @view_tiled_transpose(%arg0: tensor<2x4x1x1x!ttcore.tile<32x32, f32>, 
   return %3 : tensor<2x4x1x1x!ttcore.tile<32x32, f32>, #layout_tiled_b>
 }
 
-// -----
+
 
 #layout_base = #ttcore.metal_layout<
   logical_shape = 64x128,
@@ -327,7 +323,7 @@ func.func @view_with_offset(%arg0: tensor<2x4x32x32xf32, #layout_base>)
   return %3 : tensor<2x4x32x32xf32, #layout_offset_view>
 }
 
-// -----
+
 
 // Test padding changes: smaller to bigger padding
 #layout_small_pad = #ttcore.metal_layout<
@@ -367,7 +363,7 @@ func.func @view_padding_increase(%arg0: tensor<2x4x32x32xf32, #layout_small_pad>
   return %3 : tensor<1x2x128x128xf32, #layout_big_pad>
 }
 
-// -----
+
 
 // Test padding changes: bigger to smaller padding
 #layout_large_pad = #ttcore.metal_layout<
@@ -407,7 +403,7 @@ func.func @view_padding_decrease(%arg0: tensor<1x2x128x128xf32, #layout_large_pa
   return %3 : tensor<2x4x64x64xf32, #layout_medium_pad>
 }
 
-// -----
+
 
 // Test collapsed intervals: 3D to 2D (collapse first two logical dims)
 #layout_3d_logical = #ttcore.metal_layout<
@@ -448,7 +444,7 @@ func.func @view_collapse_3d_to_2d_first(%arg0: tensor<2x2x2x32x32x32xf32, #layou
   return %3 : tensor<4x2x32x32xf32, #layout_2d_collapse_first>
 }
 
-// -----
+
 
 // Test collapsed intervals: 3D to 2D (collapse last two logical dims)
 #layout_3d = #ttcore.metal_layout<
@@ -489,7 +485,7 @@ func.func @view_collapse_3d_to_2d_last(%arg0: tensor<2x2x2x32x32x32xf32, #layout
   return %3 : tensor<2x4x32x32xf32, #layout_2d_collapse_last>
 }
 
-// -----
+
 
 // Test collapsed intervals: 2D to 3D (uncollapse)
 #layout_2d_src = #ttcore.metal_layout<
@@ -530,7 +526,7 @@ func.func @view_uncollapse_2d_to_3d(%arg0: tensor<4x2x32x32xf32, #layout_2d_src>
   return %3 : tensor<2x2x2x32x32x32xf32, #layout_3d_dst>
 }
 
-// -----
+
 
 // Test combined: padding + collapse + grid changes
 #layout_src_combo = #ttcore.metal_layout<
@@ -573,7 +569,7 @@ func.func @view_combined_changes(%arg0: tensor<3x3x2x32x32x32xf32, #layout_src_c
   return %3 : tensor<9x2x32x32xf32, #layout_dst_combo>
 }
 
-// -----
+
 
 // Test: Chained ToLayoutOps - verify composition through existing index_map
 #layout_chain_a = #ttcore.metal_layout<
@@ -627,7 +623,7 @@ func.func @view_chained_transformations(%arg0: tensor<2x4x32x32xf32, #layout_cha
   return %5 : tensor<2x4x32x64xf32, #layout_chain_c>
 }
 
-// -----
+
 
 // Test: Chained ToLayoutOps where intermediate is used - both views must exist
 #layout_chain2_a = #ttcore.metal_layout<
