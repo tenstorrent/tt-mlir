@@ -8,15 +8,56 @@ env:
   SDK_VERSION: "0"
 
 jobs:
+  build-toolchain:
+    runs-on: macos-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Get macos sdk version
+      shell: bash
+      run: |
+        echo "SDK_VERSION=$(xcrun --show-sdk-version)" >> $GITHUB_ENV
+
+    - name: Mkdir /opt/ttmlir-toolchain
+      shell: bash
+      run: |
+        sudo mkdir -p /opt/ttmlir-toolchain
+        sudo chown -R ${USER} /opt/ttmlir-toolchain
+
+    - name: 'Cache ttmlir-toolchain'
+      id: cache-toolchain
+      env:
+        SDK_VERSION: ${{ env.SDK_VERSION }}
+      uses: actions/cache@v4
+      with:
+        path: /opt/ttmlir-toolchain
+        key: macos-latest-ttmlir-toolchain-${{ hashFiles('env/**') }}-${{ env.SDK_VERSION }}
+
+    - name: 'Build ttmlir-toolchain'
+      if: steps.cache-toolchain.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+        cmake -B env/build env
+        cmake --build env/build
+
+    - name: Tar ttmlir-toolchain
+      shell: bash
+      run: |
+        tar -czf ttmlir-toolchain-macos-latest.tar.gz -C /opt/ttmlir-toolchain .
+
+    - name: Upload ttmlir-toolchain
+      uses: actions/upload-artifact@v4
+      with:
+        name: ttmlir-toolchain-macos-latest
+        path: ttmlir-toolchain-macos-latest.tar.gz
+
   build:
-    strategy:
-      fail-fast: false
-      matrix:
-        build: [
-          {runs-on: "macos-latest", c_compiler: "clang", cpp_compiler: "clang++", build_type: "Release", enable_runtime: "OFF"}
-        ]
-    runs-on: ${{ matrix.build.runs-on }}
-    timeout-minutes: 600
+    needs: build-toolchain
+    runs-on: macos-latest
     steps:
     - uses: actions/checkout@v4
       with:
@@ -27,22 +68,28 @@ jobs:
         python-version: '3.11'
 
     - name: Get macos sdk version
-      if: startsWith(matrix.build.runs-on, 'macos')
       shell: bash
       run: |
         echo "SDK_VERSION=$(xcrun --show-sdk-version)" >> $GITHUB_ENV
 
-    - name: Build and cache ttmlir-toolchain
-      uses: ./.github/actions/build-toolchain
+    - name: Download ttmlir-toolchain
+      uses: actions/download-artifact@v4
       with:
-        os: ${{ matrix.build.runs-on }}
-        sdk: ${{ env.SDK_VERSION }}
+        name: ttmlir-toolchain-macos-latest
+        path: .
+
+    - name: Extract ttmlir-toolchain
+      shell: bash
+      run: |
+        sudo mkdir -p /opt/ttmlir-toolchain
+        sudo chown -R ${USER} /opt/ttmlir-toolchain
+        tar -xzf ttmlir-toolchain-macos-latest.tar.gz -C /opt/ttmlir-toolchain
 
     - name: ccache
       uses: hendrikmuhs/ccache-action@v1.2
       with:
         create-symlink: true
-        key: ${{ matrix.build.runs-on }}-runtime-${{ matrix.build.enable_runtime }}-${{ env.SDK_VERSION }}
+        key: macos-latest-runtime-OFF-${{ env.SDK_VERSION }}
 
     - name: Set reusable strings
       id: strings
@@ -56,45 +103,44 @@ jobs:
         source env/activate
         cmake -G Ninja \
         -B ${{ steps.strings.outputs.build-output-dir }} \
-        -DCMAKE_CXX_COMPILER=${{ matrix.build.cpp_compiler }} \
-        -DCMAKE_C_COMPILER=${{ matrix.build.c_compiler }} \
-        -DCMAKE_BUILD_TYPE=${{ matrix.build.build_type }} \
+        -DCMAKE_CXX_COMPILER=clang++ \
+        -DCMAKE_C_COMPILER=clang \
+        -DCMAKE_BUILD_TYPE=Release \
         -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
         -DCMAKE_BUILD_PARALLEL_LEVEL=4 \
-        -DTTMLIR_ENABLE_RUNTIME=${{ matrix.build.enable_runtime }} \
-        -DTTMLIR_ENABLE_RUNTIME_TESTS=${{ matrix.build.enable_runtime }} \
+        -DTTMLIR_ENABLE_RUNTIME=OFF \
+        -DTTMLIR_ENABLE_RUNTIME_TESTS=OFF \
         -S ${{ github.workspace }}
 
     - name: Build
       shell: bash
       run: |
         source env/activate
-        cmake --build ${{ steps.strings.outputs.build-output-dir }} --config ${{ matrix.build.build_type }}
+        cmake --build ${{ steps.strings.outputs.build-output-dir }} --config Release
 
     - name: Lint
-      if: matrix.build.enable_runtime == 'OFF'
       shell: bash
       run: |
         source env/activate
-        cmake --build ${{ steps.strings.outputs.build-output-dir }} --config ${{ matrix.build.build_type }} -- clang-tidy
+        cmake --build ${{ steps.strings.outputs.build-output-dir }} --config Release -- clang-tidy
 
     - name: Run Test
       shell: bash
       run: |
         source env/activate
         export TTMLIR_TEST_WORKFLOW=nightly # turn on randomized mode for participating gtests
-        cmake --build ${{ steps.strings.outputs.build-output-dir }} --config ${{ matrix.build.build_type }} -- check-ttmlir
+        cmake --build ${{ steps.strings.outputs.build-output-dir }} --config Release -- check-ttmlir
 
     - name: Build ttrt
       shell: bash
       run: |
         source env/activate
-        cmake --build ${{ steps.strings.outputs.build-output-dir }} --config ${{ matrix.build.build_type }}
+        cmake --build ${{ steps.strings.outputs.build-output-dir }} --config Release
 
     - name: Upload Test Report
       uses: actions/upload-artifact@v4
       with:
-        name: test-reports-${{ matrix.build.runs-on }}
+        name: test-reports-macos-latest
         path: build/test/report.xml
 
     - name: Show Test Report
@@ -102,4 +148,4 @@ jobs:
       if: success() || failure()
       with:
         report_paths: build/test/report.xml
-        check_name: ${{ matrix.build.runs-on }} MLIR Tests
+        check_name: macos-latest MLIR Tests
