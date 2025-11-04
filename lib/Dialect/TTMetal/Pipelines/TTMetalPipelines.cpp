@@ -83,6 +83,11 @@ void createTTIRToTTMetalFrontendPipeline(
   pm.addPass(ttcore::createTTCoreRegisterDevicePass(registerDeviceOptions));
   pm.addPass(tt::createTTIRToTTIRDecompositionPass());
   pm.addPass(createCanonicalizerPassWithOptions(options));
+  if (!options.globalDataFormatTarget.empty()) {
+    d2m::D2MGlobalDataFormatConversionOptions globalFormatOptions;
+    { globalFormatOptions.targetFormat = options.globalDataFormatTarget; }
+    pm.addPass(d2m::createD2MGlobalDataFormatConversion(globalFormatOptions));
+  }
   tt::TTIRToD2MOptions toD2MOptions;
   {
     toD2MOptions.defaultInputMemSpace = options.defaultInputMemSpace;
