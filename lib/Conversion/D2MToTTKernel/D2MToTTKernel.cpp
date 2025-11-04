@@ -833,19 +833,18 @@ public:
   LogicalResult
   matchAndRewrite(D2MCBOp op, typename D2MCBOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
-    // Check if this op is inside an scf.execute_region with no_inline
-    // attribute. If so, remove the no_inline attribute.
-    Operation *parentOp = op->getParentOp();
-    while (parentOp) {
-      if (auto executeRegionOp = dyn_cast<scf::ExecuteRegionOp>(parentOp)) {
-        if (executeRegionOp->hasAttr("no_inline")) {
-          rewriter.modifyOpInPlace(executeRegionOp, [&]() {
-            executeRegionOp->removeAttr("no_inline");
-          });
-        }
-        break;
+    // For ops in merged DMA regions, each original thread is scoped in a
+    // separate scf.execute_region to ensure CB release ops for
+    // reader-writer kernels do not conflict. Now that the release ops are being
+    // inserted, remove the no_inline attribute so the scf.execute_region ops
+    // can be canonicalized.
+    if (auto executeRegionOp =
+            dyn_cast<scf::ExecuteRegionOp>(op->getParentOp())) {
+      if (executeRegionOp->hasAttr("no_inline")) {
+        rewriter.modifyOpInPlace(executeRegionOp, [&]() {
+          executeRegionOp->removeAttr("no_inline");
+        });
       }
-      parentOp = parentOp->getParentOp();
     }
 
     auto device = ttcore::lookupDevice(op);
@@ -856,63 +855,19 @@ public:
 
     rewriter.create<TTKernelAcquireOp>(op.getLoc(), adaptor.getCb(), numPages);
 
-    placeReleaseOp(op, adaptor, rewriter, numPages);
+    Block *block = op->getBlock();
+    auto release = rewriter.create<TTKernelReleaseOp>(
+        op.getLoc(), adaptor.getCb(), numPages);
+    if (block->mightHaveTerminator()) {
+      rewriter.moveOpBefore(release, block->getTerminator());
+    } else {
+      rewriter.moveOpAfter(release, &block->back());
+    }
 
     rewriter.replaceOp(op, adaptor.getCb());
 
     return success();
   };
-
-  void placeReleaseOp(d2m::WaitOp op, d2m::WaitOpAdaptor adaptor,
-                      ConversionPatternRewriter &rewriter,
-                      Value numPages) const {
-    Block *block = op->getBlock();
-    auto release = rewriter.create<TTKernelReleaseOp>(
-        op.getLoc(), adaptor.getCb(), numPages);
-    if (block->mightHaveTerminator()) {
-      rewriter.moveOpBefore(release, block->getTerminator());
-    } else {
-      rewriter.moveOpAfter(release, &block->back());
-    }
-  }
-
-  void placeReleaseOp(d2m::ReserveOp op, d2m::ReserveOpAdaptor adaptor,
-                      ConversionPatternRewriter &rewriter,
-                      Value numPages) const {
-    Block *block = op->getBlock();
-    auto release = rewriter.create<TTKernelReleaseOp>(
-        op.getLoc(), adaptor.getCb(), numPages);
-    if (block->mightHaveTerminator()) {
-      rewriter.moveOpBefore(release, block->getTerminator());
-    } else {
-      rewriter.moveOpAfter(release, &block->back());
-    }
-    // Block *block = op->getBlock();
-    // auto release = rewriter.create<TTKernelReleaseOp>(
-    //     op.getLoc(), adaptor.getCb(), numPages);
-
-    // // Find the first d2m::WaitOp or ttkernel::CBWaitFrontOp after the
-    // reserve Operation *insertBeforeOp = nullptr; for (Operation &blockOp :
-    //      llvm::make_range(op->getIterator(), block->end())) {
-    //   if (llvm::isa<d2m::WaitOp>(&blockOp) ||
-    //       llvm::isa<ttkernel::CBWaitFrontOp>(&blockOp)) {
-    //     insertBeforeOp = &blockOp;
-    //     break;
-    //   }
-    // }
-
-    // // If we found a wait operation, insert before it
-    // if (insertBeforeOp) {
-    //   rewriter.moveOpBefore(release, insertBeforeOp);
-    // } else {
-    //   // Otherwise, fall back to placing at the end of the block
-    //   if (block->mightHaveTerminator()) {
-    //     rewriter.moveOpBefore(release, block->getTerminator());
-    //   } else {
-    //     rewriter.moveOpAfter(release, &block->back());
-    //   }
-    // }
-  }
 };
 } // namespace
 
