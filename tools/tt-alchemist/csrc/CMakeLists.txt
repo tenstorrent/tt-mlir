@@ -1,6 +1,7 @@
-# Set TT_ALCHEMIST_HOME
+# Set tt-alchemist root dirs
 #
-set(TT_ALCHEMIST_HOME ${PROJECT_SOURCE_DIR}/tools/tt-alchemist)
+set(TT_ALCHEMIST_ROOT_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/..)
+set(TT_ALCHEMIST_ROOT_BINARY_DIR ${CMAKE_CURRENT_BINARY_DIR}/..)
 
 # Set TT_MLIR_HOME - not to be confused with $ENV{TT_MLIR_HOME}
 #
@@ -32,9 +33,9 @@ add_library(${ALCHEMIST_LIBRARY_NAME}
 # Include dirs
 target_include_directories(${ALCHEMIST_LIBRARY_NAME}
   PUBLIC
-    ${TT_ALCHEMIST_HOME}/include  # External headers
+    ${TT_ALCHEMIST_ROOT_SOURCE_DIR}/include  # External headers
   PRIVATE
-    ${TT_ALCHEMIST_HOME}/csrc/include  # Internal headers
+    ${TT_ALCHEMIST_ROOT_SOURCE_DIR}/csrc/include  # Internal headers
     ${TT_MLIR_HOME}/include
 )
 
@@ -80,18 +81,18 @@ set_target_properties(${ALCHEMIST_LIBRARY_NAME} PROPERTIES
 
 # Install templates
 add_custom_target(tt-alchemist-install-templates
-  COMMAND ${CMAKE_COMMAND} -E make_directory ${PYTHON_BUILD_DIR}/tt_alchemist/templates
-  # C++ templates
-  COMMAND ${CMAKE_COMMAND} -E make_directory ${PYTHON_BUILD_DIR}/tt_alchemist/templates/cpp
-  COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_CURRENT_SOURCE_DIR}/../templates/cpp/local ${PYTHON_BUILD_DIR}/tt_alchemist/templates/cpp/local
-  COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_CURRENT_SOURCE_DIR}/../templates/cpp/standalone ${PYTHON_BUILD_DIR}/tt_alchemist/templates/cpp/standalone
-  # Python templates
-  COMMAND ${CMAKE_COMMAND} -E make_directory ${PYTHON_BUILD_DIR}/tt_alchemist/templates/python
-  COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_CURRENT_SOURCE_DIR}/../templates/python/local ${PYTHON_BUILD_DIR}/tt_alchemist/templates/python/local
-  COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_CURRENT_SOURCE_DIR}/../templates/python/standalone ${PYTHON_BUILD_DIR}/tt_alchemist/templates/python/standalone
-  # # Copy cpp standalone libs
-  # COMMAND ${CMAKE_COMMAND} -E copy_directory ${TTNN_INSTALL_DIR} ${PYTHON_BUILD_DIR}/tt_alchemist/templates/cpp/standalone/ttnn-install
-  COMMENT "Copying templates and TT-NN components into Python package"
+  # Clean old templates directory to avoid stale files
+  COMMAND ${CMAKE_COMMAND} -E rm -rf ${TT_ALCHEMIST_ROOT_BINARY_DIR}/templates
+  # Create new templates directories
+  COMMAND ${CMAKE_COMMAND} -E make_directory ${TT_ALCHEMIST_ROOT_BINARY_DIR}/templates
+  COMMAND ${CMAKE_COMMAND} -E make_directory ${TT_ALCHEMIST_ROOT_BINARY_DIR}/templates/cpp
+  COMMAND ${CMAKE_COMMAND} -E copy_directory ${TT_ALCHEMIST_ROOT_SOURCE_DIR}/templates/cpp/local ${TT_ALCHEMIST_ROOT_BINARY_DIR}/templates/cpp/local
+  COMMAND ${CMAKE_COMMAND} -E copy_directory ${TT_ALCHEMIST_ROOT_SOURCE_DIR}/templates/cpp/standalone ${TT_ALCHEMIST_ROOT_BINARY_DIR}/templates/cpp/standalone
+  COMMAND ${CMAKE_COMMAND} -E make_directory ${TT_ALCHEMIST_ROOT_BINARY_DIR}/templates/python
+  COMMAND ${CMAKE_COMMAND} -E copy_directory ${TT_ALCHEMIST_ROOT_SOURCE_DIR}/templates/python/local ${TT_ALCHEMIST_ROOT_BINARY_DIR}/templates/python/local
+  COMMAND ${CMAKE_COMMAND} -E copy_directory ${TT_ALCHEMIST_ROOT_SOURCE_DIR}/templates/python/standalone ${TT_ALCHEMIST_ROOT_BINARY_DIR}/templates/python/standalone
+
+  COMMENT "Copying tt-alchemist templates"
 )
 
 # Include cpp standalone component installation utilities
@@ -100,23 +101,24 @@ include(${CMAKE_CURRENT_SOURCE_DIR}/InstalCppStandaloneComponents.cmake)
 # Target to install all components for cpp standalone
 add_custom_target(tt-alchemist-install-cpp-standalone
   DEPENDS
+    tt-alchemist-install-templates  # Templates must be installed first
     ${TTNN_INSTALL_DIR}/.metalium-runtime-installed
     ${TTNN_INSTALL_DIR}/.metalium-dev-installed
     ${TTNN_INSTALL_DIR}/.ttnn-runtime-installed
     ${TTNN_INSTALL_DIR}/.ttnn-dev-installed
     ${TTNN_INSTALL_DIR}/.missing-headers-installed
     ${TTNN_INSTALL_DIR}/.all-components-installed
-  COMMENT "Installing all required TT-NN components"
+  COMMENT "Installing all required TT-NN components for C++ standalone mode"
 )
 
+# TODO: Swap these out with root source/binary dirs
+# PYTHON_SRC_DIR is /localdev/svuckovic/_workspace/repos/tt-mlir/tools/tt-alchemist/csrc/../python
+set(PYTHON_SRC_DIR ${TT_ALCHEMIST_ROOT_DIR}/python)
+set(PYTHON_BUILD_DIR ${CMAKE_CURRENT_BINARY_DIR}/../python)
 
 
 # Python wheel building and installation
 find_package(Python3 COMPONENTS Interpreter REQUIRED)
-
-# Copy Python files to build directory
-set(PYTHON_SRC_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../python)
-set(PYTHON_BUILD_DIR ${CMAKE_CURRENT_BINARY_DIR}/../python)
 
 # Create Python build directory
 add_custom_command(

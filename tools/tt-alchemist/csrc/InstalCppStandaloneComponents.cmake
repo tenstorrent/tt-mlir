@@ -6,7 +6,7 @@ set(CMAKE_INSTALL_MESSAGE LAZY)
 
 # Install directory for TT-NN components
 if(NOT DEFINED TTNN_INSTALL_DIR)
-  set(TTNN_INSTALL_DIR "${CMAKE_CURRENT_BINARY_DIR}/../ttnn-install" CACHE PATH "Directory to install TT-NN components")
+  set(TTNN_INSTALL_DIR "${TT_ALCHEMIST_ROOT_BINARY_DIR}/templates/cpp/standalone/ttnn-install" CACHE PATH "Directory to install TT-NN components")
 endif()
 
 # Create install directory
