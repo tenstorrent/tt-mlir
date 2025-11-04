@@ -718,6 +718,7 @@ TEST_F(OpModelTest, Scatter) {
   OpConstraints &opCstr = constraintsExp.get();
   EXPECT_GE(opCstr.cbL1PeakSize, 262144);
   EXPECT_GE(opCstr.tensorL1PeakSize, 0);
+  EXPECT_GE(opCstr.peakL1MemorySize, 262144);
   EXPECT_GE(opCstr.outputL1BufferSize, 0);
 
   auto runtimeExp = OpModel<ScatterOp>::getOpRuntime(
@@ -734,6 +735,7 @@ TEST_F(OpModelTest, Scatter) {
   opCstr = constraintsExp.get();
   EXPECT_GE(opCstr.cbL1PeakSize, 262144);
   EXPECT_GE(opCstr.tensorL1PeakSize, 36864);
+  EXPECT_GE(opCstr.peakL1MemorySize, 286720);
   EXPECT_GE(opCstr.outputL1BufferSize, 8192);
 
   runtimeExp = OpModel<ScatterOp>::getOpRuntime(

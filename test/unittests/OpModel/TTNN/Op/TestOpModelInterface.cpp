@@ -1297,6 +1297,7 @@ TEST_F(OpModelBase, ScatterOpInterface) {
         l1;
     EXPECT_GE(cbSize, 262144);
     EXPECT_GE(l1PeakSize, 36864);
+    EXPECT_GE(totalPeakSize, 286720);
     EXPECT_GE(outputSize, 8192);
   } else {
     FAIL() << "Missing L1 constraints; Error="
