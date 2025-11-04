@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
 #include "ttmlir/Dialect/D2M/Utils/Utils.h"
@@ -56,12 +57,12 @@ struct TensorInfo {
   }
 
   ArrayRef<int64_t> getGridShape() const {
-    assert(hasLayout() && "Cannot get grid shape without layout");
+    TT_assertv(hasLayout(), "Cannot get grid shape without layout");
     return layout->getGridShape(type);
   }
 };
 
-// Helper to analyze compound ToLayoutOp transformations
+// Helper to analyze compound ToLayoutOp transformations.
 struct CompoundComponents {
   bool isMemorySpaceChange = false;
   bool isFormatChange = false;
@@ -70,13 +71,13 @@ struct CompoundComponents {
   bool isCompound() const {
     int count = 0;
     if (isMemorySpaceChange) {
-      count++;
+      ++count;
     }
     if (isFormatChange) {
-      count++;
+      ++count;
     }
     if (isMappingChange) {
-      count++;
+      ++count;
     }
     return count > 1;
   }
@@ -87,39 +88,40 @@ struct CompoundComponents {
 
     CompoundComponents result;
 
-    // Check memory space change
+    // Check for memory space changes (L1 <-> DRAM).
     result.isMemorySpaceChange =
         (inputInfo.getMemorySpace() != outputInfo.getMemorySpace());
 
-    // Check format change (element type)
+    // Check for format (element type) changes.
     result.isFormatChange =
         (inputInfo.type.getElementType() != outputInfo.type.getElementType());
 
-    // Check mapping change (everything else):
-    // - Grid shape changes
-    // - Tensor shape changes (collapsed_intervals, alignments)
-    // - Memory layout type changes (row-major, blocked, etc.)
-    // - Index map changes
+    // Check for "mapping" changes--this is one or more of:
+    // - Grid shape changes (redistribution across cores)
+    // - Tensor shape changes (collapsed_intervals or dim_alignments changes
+    // causing different padding)
+    // - Index map changes (logical view transformations)
+    // These can all be expressed as affine transformations.
     if (inputInfo.hasLayout() && outputInfo.hasLayout() &&
         !result.isMemorySpaceChange && !result.isFormatChange) {
 
       auto inputLayout = *inputInfo.layout;
       auto outputLayout = *outputInfo.layout;
 
-      // Different tensor shapes
+      // Memory layout changes (Interleaved <-> Sharded) are not currently
+      // supported.
+      TT_assert(inputLayout.getMemoryLayout() ==
+                    outputLayout.getMemoryLayout() &&
+                "ToLayoutOp does not support TensorMemoryLayout changes "
+                "(Interleaved <-> Sharded)");
+
       bool shapeChanged =
           (inputInfo.type.getShape() != outputInfo.type.getShape());
 
-      // Different memory layout types
-      bool memLayoutChanged =
-          (inputLayout.getMemoryLayout() != outputLayout.getMemoryLayout());
-
-      // Different index maps
       bool indexMapChanged =
           (inputLayout.getIndexAffineMap() != outputLayout.getIndexAffineMap());
 
-      result.isMappingChange =
-          shapeChanged || memLayoutChanged || indexMapChanged;
+      result.isMappingChange = shapeChanged || indexMapChanged;
     }
 
     return result;
@@ -147,13 +149,13 @@ public:
     auto outputInfo = TensorInfo::from(op.getOutput());
 
     // Preconditions - these should be guaranteed by the split/compound logic
-    assert(inputInfo.hasLayout() && outputInfo.hasLayout() &&
-           "Mapping change requires both input and output to have layouts");
-    assert(inputInfo.getMemorySpace() == outputInfo.getMemorySpace() &&
-           "Mapping change should not change memory space");
-    assert(inputInfo.type.getElementType() ==
-               outputInfo.type.getElementType() &&
-           "Mapping change should not change element type");
+    TT_assertv(inputInfo.hasLayout() && outputInfo.hasLayout(),
+               "Mapping change requires both input and output to have layouts");
+    TT_assertv(inputInfo.getMemorySpace() == outputInfo.getMemorySpace(),
+               "Mapping change should not change memory space");
+    TT_assertv(inputInfo.type.getElementType() ==
+                   outputInfo.type.getElementType(),
+               "Mapping change should not change element type");
 
     return lowerAsView(rewriter, op, inputInfo, outputInfo);
   }
@@ -164,36 +166,14 @@ public:
     auto inputLayout = *inputInfo.layout;
     auto outputLayout = *outputInfo.layout;
 
-    // Check if grid shapes match
-    auto inputGrid = inputLayout.getGridShape(inputInfo.type);
-    auto outputGrid = outputLayout.getGridShape(outputInfo.type);
-    bool sameGrid = (inputGrid == outputGrid);
+    // Build the affine map that transforms from input device coordinates
+    // to output device coordinates via the shared logical space.
+    // This handles all cases: grid redistribution, collapse changes,
+    // padding changes, and index map transformations.
+    AffineMap viewMap = utils::buildLayoutTransformMap(
+        inputLayout, inputInfo.type, outputLayout, outputInfo.type);
 
-    AffineMap viewMap;
-
-    if (sameGrid) {
-      // When grid shapes match, we can use a simple index map composition
-      // at the logical level without going through device space.
-      //
-      // For example, if both tensors are [2,4,32,32] and we want to transpose
-      // the logical view, we compose their 2D logical index maps.
-
-      auto inputIndexMap = inputLayout.getIndexAffineMap();
-      auto outputIndexMap = outputLayout.getIndexAffineMap();
-      size_t logicalRank = inputLayout.getLogicalShape().size();
-
-      // Compose: output_logical -> input_logical
-      // This gives us the view relationship at the logical level
-      viewMap = composeLogicalIndexMaps(rewriter.getContext(), inputIndexMap,
-                                        outputIndexMap, logicalRank);
-    } else {
-      // Different grid shapes (redistribution, alignment changes, etc.)
-      // Use the full device-to-device affine transformation via logical space
-      viewMap = utils::buildLayoutTransformMap(inputLayout, inputInfo.type,
-                                               outputLayout, outputInfo.type);
-    }
-
-    // Apply the composed map as the index map on the output layout
+    // Create the output layout with the transformation map embedded
     auto newLayout = ttcore::MetalLayoutAttr::get(
         rewriter.getContext(), outputLayout.getLogicalShape(),
         outputLayout.getDimAlignments(), outputLayout.getCollapsedIntervals(),
@@ -210,44 +190,13 @@ public:
     return success();
   }
 
-  // Compose two logical-level index maps for view operations
-  // When device shapes match, we operate on logical coordinates
-  //
-  // The index map transforms from logical coordinates to physical coordinates.
-  // When creating a view from input to output, we want to express:
-  //   "where output logical coords map in terms of input logical coords"
-  //
-  // Since both layouts share the same device/physical memory, and:
-  //   input_physical = inputMap(input_logical)
-  //   output_physical = outputMap(output_logical)
-  //   input_physical = output_physical (same device shape)
-  //
-  // Therefore: inputMap(input_logical) = outputMap(output_logical)
-  // Solving: input_logical = inputMap^(-1)(outputMap(output_logical))
-  //
-  // For the view, we just need to store the output's index map directly,
-  // since the ViewLayoutOp will reinterpret the input tensor's memory
-  // using the output's index map.
-  static AffineMap composeLogicalIndexMaps(MLIRContext *ctx,
-                                           AffineMap inputIndexMap,
-                                           AffineMap outputIndexMap,
-                                           size_t logicalRank) {
-    // When device shapes match, the output's index map becomes the view's
-    // index map. The ViewLayoutOp will reinterpret the input memory using
-    // this map.
-    if (outputIndexMap.isEmpty()) {
-      return AffineMap::getMultiDimIdentityMap(logicalRank, ctx);
-    }
-    return outputIndexMap;
-  }
-
   static LogicalResult lowerSystemLayoutChange(PatternRewriter &rewriter,
                                                ToLayoutOp op) {
     auto inputInfo = TensorInfo::from(op.getInput());
     auto outputInfo = TensorInfo::from(op.getOutput());
 
-    assert(inputInfo.isSystem() != outputInfo.isSystem() &&
-           "one of input or output must be system for now");
+    TT_assertv(inputInfo.isSystem() != outputInfo.isSystem(),
+               "one of input or output must be system for now");
 
     if (op.getLayout()) {
       // Already lowered.
@@ -257,7 +206,7 @@ public:
     // Use the layout of whichever side has a layout (input or output).
     auto deviceLayout =
         inputInfo.isSystem() ? outputInfo.layout : inputInfo.layout;
-    assert(deviceLayout.has_value() && "Device side must have a layout");
+    TT_assertv(deviceLayout.has_value(), "Device side must have a layout");
 
     rewriter.replaceOpWithNewOp<ToLayoutOp>(op, op.getInput(), op.getOutput(),
                                             *deviceLayout);
@@ -291,7 +240,7 @@ public:
     }
 
     // Both input and output should have layouts at this point.
-    assert(inputInfo.hasLayout() && outputInfo.hasLayout());
+    TT_assert(inputInfo.hasLayout() && outputInfo.hasLayout());
 
     Value viewInput = op.getInput();
 
@@ -300,8 +249,8 @@ public:
         (!outputInfo.isDRAM() &&
          (inputInfo.getGridShape() != outputInfo.getGridShape()));
 
-    assert(!(isSrcDramOrReblock && outputInfo.isDRAM()) &&
-           "input and output cannot both be remote");
+    TT_assertv(!(isSrcDramOrReblock && outputInfo.isDRAM()),
+               "input and output cannot both be remote");
 
     auto buildConcreteView = [&](Value fromVal, RankedTensorType fromTy,
                                  RankedTensorType toTy) -> Value {
