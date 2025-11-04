@@ -25,7 +25,7 @@ void run(const ::tt::target::ttnn::ScatterOp *op, ProgramContext &context) {
           op->memory_config());
 
   ::ttnn::Tensor out = ::ttnn::scatter(input, dim, index, source,
-                                       outputMemoryConfig, std::nullopt);
+                                       outputMemoryConfig, ::ttnn::operations::data_movement::scatter::ScatterReductionType::ADD);
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
