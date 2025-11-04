@@ -131,9 +131,8 @@ class D2MLowerToLayoutRewriter : public OpRewritePattern<ToLayoutOp> {
 public:
   using OpRewritePattern<ToLayoutOp>::OpRewritePattern;
 
-  // Lower mapping changes via View
   // All mapping transformations (grid redistribution, alignment changes, etc.)
-  // can be expressed as affine maps and are therefore zero-cost views
+  // can be expressed as affine maps and are therefore view_layout ops.
   static LogicalResult lowerMappingChange(PatternRewriter &rewriter,
                                           ToLayoutOp op) {
     auto inputInfo = TensorInfo::from(op.getInput());
@@ -148,12 +147,6 @@ public:
                    outputInfo.type.getElementType(),
                "Mapping change should not change element type");
 
-    return lowerAsView(rewriter, op, inputInfo, outputInfo);
-  }
-
-  static LogicalResult lowerAsView(PatternRewriter &rewriter, ToLayoutOp op,
-                                   const TensorInfo &inputInfo,
-                                   const TensorInfo &outputInfo) {
     auto inputLayout = *inputInfo.layout;
     auto outputLayout = *outputInfo.layout;
 
@@ -357,7 +350,6 @@ public:
       return failure();
     }
 
-    // Route to appropriate lowering based on what's changing
     if (components.isMemorySpaceChange) {
       return lowerDatamovementGeneric(rewriter, op);
     }
@@ -370,7 +362,6 @@ public:
       return lowerMappingChange(rewriter, op);
     }
 
-    // No changes? This shouldn't happen but handle gracefully
     llvm_unreachable("ToLayoutOp with no detectable changes");
   }
 };
