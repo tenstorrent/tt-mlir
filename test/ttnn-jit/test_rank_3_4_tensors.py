@@ -13,58 +13,75 @@ from utils import (
     memory_configs_equal,
 )
 
-import ast
-import inspect
-
 from ttmlir.ir import *
 
 def abs(input_tensor):
     return ttnn.abs(input_tensor)
 
 def collapsed_linear_affine_map(context, shape, grid_shape, collapse_intervals):
-    with context:
-        rank = len(shape)
-        num_results = min(len(shape), len(grid_shape))
-        map = AffineMap.get_minor_identity(rank, num_results, context)
-
-    d = [AffineDimExpr.get(i, context) for i in range(rank)]
-    const0 = AffineConstantExpr.get(0, context)
-    #results = list(map.results)
-    results = list(map.results)
-
-    minimum_dim = rank
+  
+    rank = len(shape)
+    
+    # Start with a full identity mapping in a mutable list
+    results = [AffineDimExpr.get(i, context) for i in range(rank)]
+    print("Initial Results: ", results)
 
     for begin, end in collapse_intervals:
-        #handle negative indices
+        # Handle negative indices
         if begin < 0:
             begin += rank
         if end < 0:
             end += rank
-        if begin >= rank:
+        if begin >= end:
             continue
 
-        minimum_dim = min(minimum_dim, begin)
+        print(f"Collapsing dimensions from {begin} to {end}...")
 
-        #build collapsed expression
-        collapsed = const0
+        # Build collapsed expression
+        collapsed_expr = AffineConstantExpr.get(0, context)
         multiplier = 1
+        for d_idx in range(end - 1, begin - 1, -1):
 
-        for dim in range(end - 1, begin - 1, -1):
-            collapsed = d[dim] * multiplier + collapsed
-            multiplier *= shape[dim]
+            print(f"  Processing dimension {d_idx} with size {shape[d_idx]} and current multiplier {multiplier}")
+            print("pre collapsed_expr:", collapsed_expr)
 
-        #replace results
-        results = results[:begin] + [collapsed] + results[end:]
+            dim_expr = AffineDimExpr.get(d_idx, context)
+            term = dim_expr * multiplier
+            collapsed_expr = term + collapsed_expr
+            multiplier *= shape[d_idx]
 
-    #fill implicit lower dims
-    for dim in range(minimum_dim):
-            results[dim] = d[dim]
+            print("post collapsed_expr:", collapsed_expr)
 
-    #pad with zeroes if needed
+        # Replace the range of results with the single collapsed expression
+        results = results[:begin] + [collapsed_expr] + results[end:]
+        print("Final Results before adjustment: ", results)
+
+    # Truncate results to match the rank of the grid shape
+    if len(results) > len(grid_shape):
+        results = results[:len(grid_shape)]
+    
+    print("Results after truncation (if any): ", results)
+
+    # Pad with leading zeros if the number of results is less than the grid rank.
     while len(results) < len(grid_shape):
-            results.insert(0, const0)
+        results.insert(0, AffineConstantExpr.get(0, context))
 
-    return AffineMap.get(rank, 0, results, context)
+    print("Results after padding (if any): ", results)
+
+    #simplify affine map
+    for i, expr in enumerate(results):
+        #convert expr into affineMap
+        print(f"expr before simplification at index {i}: ", expr)
+        #simplify expr
+        expr = AffineExpr.simplify_affine_expr(expr, rank, 0)
+        print(f"expr after simplification at index {i}: ", expr)
+        results[i] = expr
+
+    # Create the final map from the constructed results list.
+    final_map = AffineMap.get(rank, 0, results, context)
+
+    print("Final Affine Map: ", final_map)
+    return final_map
 
 """ def create_rank_n_sharded_tile_tensor(device, shape, max_grid, dtype=torch.float32, int_max=0):
     torch.manual_seed(0)
@@ -127,21 +144,19 @@ def test_rank_3(device, rank_1, rank_2, rank_3, max_grid, op):
     assert all_close_check(output_tensor, golden_tensor)
 
  """
-
-def test_collapsed_affine_map():
+@pytest.mark.parametrize("shape", [[2, 3, 64, 128]])
+@pytest.mark.parametrize("grid_shape", [[1, 1]])
+@pytest.mark.parametrize("collapse_intervals", [[(0, -1)]])
+def test_collapsed_affine_map(shape, grid_shape, collapse_intervals):
 
     context = Context()
-    shape = [4, 5, 6, 7]
-    grid_shape = [1, 1]
-    collapse_intervals = [(0, -1)]
 
     expected_map = AffineMap.get(
         4,
         0,
         [
-            AffineDimExpr.get(0, context),
-            AffineDimExpr.get(1, context) * 6 + AffineDimExpr.get(2, context),
-            AffineDimExpr.get(3, context),
+            ((AffineDimExpr.get(0, context) * 192) + (AffineDimExpr.get(1, context) * 64)) + AffineDimExpr.get(2, context),
+            AffineDimExpr.get(3, context)
         ],
         context,
     )
