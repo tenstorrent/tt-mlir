@@ -79,15 +79,3 @@ add_custom_command(
   COMMAND ${CMAKE_COMMAND} -E touch ${TTNN_INSTALL_DIR}/.missing-headers-installed
   COMMENT "Installing missing headers for precompiled header"
 )
-
-# Target to install all components
-add_custom_target(install-ttnn-components
-  DEPENDS
-    ${TTNN_INSTALL_DIR}/.metalium-runtime-installed
-    ${TTNN_INSTALL_DIR}/.metalium-dev-installed
-    ${TTNN_INSTALL_DIR}/.ttnn-runtime-installed
-    ${TTNN_INSTALL_DIR}/.ttnn-dev-installed
-    ${TTNN_INSTALL_DIR}/.missing-headers-installed
-    ${TTNN_INSTALL_DIR}/.all-components-installed
-  COMMENT "Installing all required TT-NN components"
-)

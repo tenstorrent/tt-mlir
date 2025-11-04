@@ -29,12 +29,6 @@ add_library(${ALCHEMIST_LIBRARY_NAME}
   ${LIB_SOURCES}
 )
 
-# Add dependencies
-#
-add_dependencies(${ALCHEMIST_LIBRARY_NAME}
-  TTMLIRCompiler
-)
-
 # Include dirs
 target_include_directories(${ALCHEMIST_LIBRARY_NAME}
   PUBLIC
@@ -49,44 +43,73 @@ target_link_directories(${ALCHEMIST_LIBRARY_NAME}
     ${PROJECT_BINARY_DIR}/lib
 )
 
+# Add dependencies
+#
+add_dependencies(${ALCHEMIST_LIBRARY_NAME}
+  TTMLIRCompiler
+)
+
 # Link libraries
 target_link_libraries(${ALCHEMIST_LIBRARY_NAME}
   PRIVATE
-    TTMLIRCompilerStatic
+    TTMLIRCompiler
 )
 
 # Disable RTTI and set visibility
 target_compile_options(${ALCHEMIST_LIBRARY_NAME}
   PRIVATE
     -fno-rtti
-    -fvisibility=hidden
+    -fvisibility=hidden  # Hide symbols from other translation units
 )
 
-# Define export macro
+# Define export macro for C API to make symbols visible to other translation units
 target_compile_definitions(${ALCHEMIST_LIBRARY_NAME}
   PRIVATE
     TT_ALCHEMIST_EXPORT=__attribute__\(\(visibility\(\"default\"\)\)\)
 )
 
 # Set RPATH for the library
-# At runtime, libtt-alchemist-lib.so will look in its own directory for
-# dependencies (libtt_metal.so, etc.)
+# At runtime, alchemist lib will look in its own directory for
+# dependencies (libTTMLIRCompiler.so, libtt_metal.so, etc.)
 set_target_properties(${ALCHEMIST_LIBRARY_NAME} PROPERTIES
   BUILD_WITH_INSTALL_RPATH TRUE
   INSTALL_RPATH "$ORIGIN"
+  # Build library directly into build/lib/ alongside TTMLIRCompiler.so
+  LIBRARY_OUTPUT_DIRECTORY ${PROJECT_BINARY_DIR}/lib
 )
 
-# Install the library
-install(TARGETS ${ALCHEMIST_LIBRARY_NAME}
-  EXPORT ${ALCHEMIST_LIBRARY_NAME}Targets
-  LIBRARY DESTINATION lib
-  ARCHIVE DESTINATION lib
-  RUNTIME DESTINATION bin
-  INCLUDES DESTINATION include
+# Install templates
+add_custom_target(tt-alchemist-install-templates
+  COMMAND ${CMAKE_COMMAND} -E make_directory ${PYTHON_BUILD_DIR}/tt_alchemist/templates
+  # C++ templates
+  COMMAND ${CMAKE_COMMAND} -E make_directory ${PYTHON_BUILD_DIR}/tt_alchemist/templates/cpp
+  COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_CURRENT_SOURCE_DIR}/../templates/cpp/local ${PYTHON_BUILD_DIR}/tt_alchemist/templates/cpp/local
+  COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_CURRENT_SOURCE_DIR}/../templates/cpp/standalone ${PYTHON_BUILD_DIR}/tt_alchemist/templates/cpp/standalone
+  # Python templates
+  COMMAND ${CMAKE_COMMAND} -E make_directory ${PYTHON_BUILD_DIR}/tt_alchemist/templates/python
+  COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_CURRENT_SOURCE_DIR}/../templates/python/local ${PYTHON_BUILD_DIR}/tt_alchemist/templates/python/local
+  COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_CURRENT_SOURCE_DIR}/../templates/python/standalone ${PYTHON_BUILD_DIR}/tt_alchemist/templates/python/standalone
+  # # Copy cpp standalone libs
+  # COMMAND ${CMAKE_COMMAND} -E copy_directory ${TTNN_INSTALL_DIR} ${PYTHON_BUILD_DIR}/tt_alchemist/templates/cpp/standalone/ttnn-install
+  COMMENT "Copying templates and TT-NN components into Python package"
 )
 
-# Include component installation utilities
-include(${CMAKE_CURRENT_SOURCE_DIR}/InstallComponents.cmake)
+# Include cpp standalone component installation utilities
+include(${CMAKE_CURRENT_SOURCE_DIR}/InstalCppStandaloneComponents.cmake)
+
+# Target to install all components for cpp standalone
+add_custom_target(tt-alchemist-install-cpp-standalone
+  DEPENDS
+    ${TTNN_INSTALL_DIR}/.metalium-runtime-installed
+    ${TTNN_INSTALL_DIR}/.metalium-dev-installed
+    ${TTNN_INSTALL_DIR}/.ttnn-runtime-installed
+    ${TTNN_INSTALL_DIR}/.ttnn-dev-installed
+    ${TTNN_INSTALL_DIR}/.missing-headers-installed
+    ${TTNN_INSTALL_DIR}/.all-components-installed
+  COMMENT "Installing all required TT-NN components"
+)
+
+
 
 # Python wheel building and installation
 find_package(Python3 COMPONENTS Interpreter REQUIRED)
@@ -129,13 +152,15 @@ add_custom_command(
 add_custom_command(
   OUTPUT
     ${PYTHON_BUILD_DIR}/tt_alchemist/lib/libtt-alchemist-lib.so
+    ${PYTHON_BUILD_DIR}/tt_alchemist/lib/libTTMLIRCompiler.so
     ${PYTHON_BUILD_DIR}/tt_alchemist/lib/libtt_metal.so
     ${PYTHON_BUILD_DIR}/tt_alchemist/lib/_ttnncpp.so
     ${PYTHON_BUILD_DIR}/tt_alchemist/lib/libdevice.so
     ${PYTHON_BUILD_DIR}/tt_alchemist/lib/libtt_stl.so
     ${PYTHON_BUILD_DIR}/tt_alchemist/lib/libtracy.so.0.10.0
-  DEPENDS ${ALCHEMIST_LIBRARY_NAME} ${PYTHON_BUILD_DIR}/tt_alchemist/lib
+  DEPENDS ${ALCHEMIST_LIBRARY_NAME} TTMLIRCompiler ${PYTHON_BUILD_DIR}/tt_alchemist/lib
   COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:${ALCHEMIST_LIBRARY_NAME}> ${PYTHON_BUILD_DIR}/tt_alchemist/lib/
+  COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:TTMLIRCompiler> ${PYTHON_BUILD_DIR}/tt_alchemist/lib/
   COMMAND ${CMAKE_COMMAND} -E copy ${TTMETAL_LIBRARY_DIR}/libtt_metal.so ${PYTHON_BUILD_DIR}/tt_alchemist/lib/
   COMMAND ${CMAKE_COMMAND} -E copy ${TTMETAL_LIBRARY_DIR}/_ttnncpp.so ${PYTHON_BUILD_DIR}/tt_alchemist/lib/
   COMMAND ${CMAKE_COMMAND} -E copy ${TTMETAL_LIBRARY_DIR}/libdevice.so ${PYTHON_BUILD_DIR}/tt_alchemist/lib/
@@ -144,33 +169,18 @@ add_custom_command(
   COMMENT "Copying shared libraries to Python package"
 )
 
-# Copy all templates and install components for cpp standalone
-add_custom_target(tt_alchemist_copy_templates
-  DEPENDS install-ttnn-components
-  COMMAND ${CMAKE_COMMAND} -E make_directory ${PYTHON_BUILD_DIR}/tt_alchemist/templates
-  # C++ templates
-  COMMAND ${CMAKE_COMMAND} -E make_directory ${PYTHON_BUILD_DIR}/tt_alchemist/templates/cpp
-  COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_CURRENT_SOURCE_DIR}/../templates/cpp/local ${PYTHON_BUILD_DIR}/tt_alchemist/templates/cpp/local
-  COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_CURRENT_SOURCE_DIR}/../templates/cpp/standalone ${PYTHON_BUILD_DIR}/tt_alchemist/templates/cpp/standalone
-  # Python templates
-  COMMAND ${CMAKE_COMMAND} -E make_directory ${PYTHON_BUILD_DIR}/tt_alchemist/templates/python
-  COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_CURRENT_SOURCE_DIR}/../templates/python/local ${PYTHON_BUILD_DIR}/tt_alchemist/templates/python/local
-  COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_CURRENT_SOURCE_DIR}/../templates/python/standalone ${PYTHON_BUILD_DIR}/tt_alchemist/templates/python/standalone
-  # Copy cpp standalone libs
-  COMMAND ${CMAKE_COMMAND} -E copy_directory ${TTNN_INSTALL_DIR} ${PYTHON_BUILD_DIR}/tt_alchemist/templates/cpp/standalone/ttnn-install
-  COMMENT "Copying templates and TT-NN components into Python package"
-)
 
 # Build wheel
 add_custom_target(build-wheel-tt-alchemist
   DEPENDS
     ${PYTHON_BUILD_DIR}/pyproject.toml
     ${PYTHON_BUILD_DIR}/tt_alchemist/lib/libtt-alchemist-lib.so
+    ${PYTHON_BUILD_DIR}/tt_alchemist/lib/libTTMLIRCompiler.so
     ${PYTHON_BUILD_DIR}/tt_alchemist/lib/libtt_metal.so
     ${PYTHON_BUILD_DIR}/tt_alchemist/lib/_ttnncpp.so
     ${PYTHON_BUILD_DIR}/tt_alchemist/lib/libdevice.so
     ${PYTHON_BUILD_DIR}/tt_alchemist/lib/libtracy.so.0.10.0
-    tt_alchemist_copy_templates
+    tt-alchemist-install-templates
   COMMAND ${Python3_EXECUTABLE} -m pip wheel -w ${CMAKE_CURRENT_BINARY_DIR}/dist ${PYTHON_BUILD_DIR} --quiet
   WORKING_DIRECTORY ${PYTHON_BUILD_DIR}
   COMMENT "Building tt-alchemist wheel"
