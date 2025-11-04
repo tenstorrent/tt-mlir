@@ -328,13 +328,13 @@ struct TTIRToTTNNBackendPipelineOptions
           "matrix multiplication and convolution operations to bfp8_b."),
       llvm::cl::init(false)};
 
-  Option<std::string> optimizerMetricsOutputFile{
-      *this, "optimizer-metrics-output-file",
+  Option<std::string> ttnnMetricsOutputFile{
+      *this, "ttnn-metrics-output-file",
       llvm::cl::desc("Output file path for the metrics JSON."),
       llvm::cl::init("ttnn_metrics.json")};
 
-  Option<bool> optimizerMetricsVerboseOutputEnabled{
-      *this, "optimizer-metrics-verbose-output-enabled",
+  Option<bool> ttnnMetricsVerboseOutputEnabled{
+      *this, "ttnn-metrics-verbose-output-enabled",
       llvm::cl::desc(
           "Enable verbose output with per-operation details in metrics."),
       llvm::cl::init(true)};

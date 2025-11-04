@@ -38,6 +38,8 @@ struct OperationMetrics {
 
 struct AggregatedMetrics {
   uint64_t totalOps = 0;
+  uint64_t totalOpsWithOutputTensor = 0;
+  uint64_t totalShardableOps = 0;
   uint64_t shardedOps = 0;
   uint64_t effectivelyShardedOps = 0;
   uint64_t shardedAndSpilledOps = 0;
@@ -46,20 +48,25 @@ struct AggregatedMetrics {
 
   double shardedPercentage = 0.0;
   double effectivelyShardedPercentage = 0.0;
+  double shardedAndSpilledPercentage = 0.0;
   double spilledPercentage = 0.0;
   double systemMemoryPercentage = 0.0;
 
   void calculatePercentages() {
-    if (totalOps == 0) {
+    if (totalShardableOps == 0) {
       return;
     }
-    shardedPercentage = (static_cast<double>(shardedOps) / totalOps) * 100.0;
+    shardedPercentage =
+        (static_cast<double>(shardedOps) / totalShardableOps) * 100.0;
     effectivelyShardedPercentage =
-        (static_cast<double>(effectivelyShardedOps) / totalOps) * 100.0;
+        (static_cast<double>(effectivelyShardedOps) / totalShardableOps) *
+        100.0;
+    shardedAndSpilledPercentage =
+        (static_cast<double>(shardedAndSpilledOps) / totalShardableOps) * 100.0;
     spilledPercentage =
-        (static_cast<double>(dramSpilledOps) / totalOps) * 100.0;
+        (static_cast<double>(dramSpilledOps) / totalShardableOps) * 100.0;
     systemMemoryPercentage =
-        (static_cast<double>(systemMemoryOps) / totalOps) * 100.0;
+        (static_cast<double>(systemMemoryOps) / totalShardableOps) * 100.0;
   }
 };
 
@@ -80,16 +87,7 @@ private:
   // Get location as string for individual op analysis
   std::string getLocationString(Operation *op) {
     if (auto nameLoc = dyn_cast<NameLoc>(op->getLoc())) {
-      llvm::outs() << "(Loc) Found NameLoc at: " << nameLoc.getName() << "\n";
       return nameLoc.getName().str();
-    }
-    if (auto fileLoc = dyn_cast<FileLineColLoc>(op->getLoc())) {
-      llvm::outs() << "(Loc) Found FileLineColLoc at: " << fileLoc.getFilename()
-                   << ":" << fileLoc.getLine() << ":" << fileLoc.getColumn()
-                   << "\n";
-      return llvm::formatv("{0}:{1}:{2}", fileLoc.getFilename(),
-                           fileLoc.getLine(), fileLoc.getColumn())
-          .str();
     }
     return "unknown";
   }
@@ -106,25 +104,19 @@ private:
     return metrics;
   }
 
-  // Find operations that are spilled to DRAM by analyzing toLayoutOps
+  // Find operations that are spilled to DRAM by analyzing toMemoryConfigOps
   void identifyDRAMSpills(func::FuncOp funcOp,
                           llvm::DenseMap<Value, bool> &spilledValues) {
-    int totalToLayoutOps = 0;
-    int dramSpillOps = 0;
-    funcOp.walk([&](ttnn::ToLayoutOp toLayoutOp) {
-      totalToLayoutOps++;
-      if (utils::producesDRAMLayout(toLayoutOp)) {
+    funcOp.walk([&](ttnn::ToMemoryConfigOp toMemoryConfigOp) {
+      if (utils::producesDRAMLayout(toMemoryConfigOp)) {
         // Mark the input operand's defining op's result as spilled
-        Value input = toLayoutOp.getInput();
+        Value input = toMemoryConfigOp.getInput();
         if (input.getDefiningOp() &&
             utils::producesShardedL1Layout(input.getDefiningOp())) {
-          dramSpillOps++;
           spilledValues[input] = true;
         }
       }
     });
-    llvm::outs() << "Total ToLayoutOps: " << totalToLayoutOps << "\n";
-    llvm::outs() << "DRAM spill ops: " << dramSpillOps << "\n";
   }
 
 public:
@@ -136,8 +128,6 @@ public:
     std::vector<OperationMetrics> operationDetails;
     AggregatedMetrics aggregatedMetrics;
     llvm::DenseMap<Value, bool> spilledValues;
-
-    // Debug: Count operations by type
     llvm::StringMap<int> operationTypeCounts;
 
     module->walk([&](func::FuncOp func) {
@@ -151,34 +141,42 @@ public:
 
       // Second pass: analyze all operations
       func->walk([&](Operation *op) {
+        // Debug: Count operations by type
+        std::string opName = op->getName().getStringRef().str();
+        operationTypeCounts[opName]++;
+
+        // Skip operations which never change (some appear only for
+        // enable-trace=true)
+        if (isa<ttnn::GetDeviceOp, ttnn::CaptureOrExecuteTraceOp,
+                ttnn::BeginTraceCaptureOp, ttnn::EndTraceCaptureOp,
+                ttnn::ExecuteTraceOp>(op)) {
+          return;
+        }
+        aggregatedMetrics.totalOps++;
+
         // Skip operations without tensor results
         if (op->getNumResults() == 0) {
           return;
         }
-
-        // Check if result is a tensor
         auto tensorType =
             dyn_cast<RankedTensorType>(op->getResult(0).getType());
         if (!tensorType) {
           return;
         }
+        aggregatedMetrics.totalOpsWithOutputTensor++;
 
-        // Skip excluded operations
-        if (isa<ttnn::GetDeviceOp, ttnn::ToLayoutOp, ttnn::PrepareConv2dBiasOp,
-                ttnn::PrepareConv2dWeightsOp>(op)) {
+        // Skip operations which make no sense to shard/spill, as they are
+        // helpers
+        if (isa<ttnn::ToMemoryConfigOp>(op)) {
           return;
         }
 
-        // Only analyze TTNN operations
+        // Only analyze TTNN operations, skip ttcore::load_cached
         if (!isa<TTNNDialect>(op->getDialect())) {
           return;
         }
 
-        // Debug: Count operations by type
-        std::string opName = op->getName().getStringRef().str();
-        operationTypeCounts[opName]++;
-
-        aggregatedMetrics.totalOps++;
+        aggregatedMetrics.totalShardableOps++;
 
         OperationMetrics opMetrics = analyzeOperation(op);
 
@@ -213,6 +211,10 @@ public:
 
     llvm::json::Object summary;
     summary["total_ops"] = static_cast<int64_t>(aggregatedMetrics.totalOps);
+    summary["total_ops_with_output_tensor"] =
+        static_cast<int64_t>(aggregatedMetrics.totalOpsWithOutputTensor);
+    summary["total_shardable_ops"] =
+        static_cast<int64_t>(aggregatedMetrics.totalShardableOps);
     summary["sharded_ops"] = static_cast<int64_t>(aggregatedMetrics.shardedOps);
     summary["effectively_sharded_ops"] =
         static_cast<int64_t>(aggregatedMetrics.effectivelyShardedOps);
@@ -231,7 +233,7 @@ public:
 
     jsonOutput["summary"] = std::move(summary);
 
-    if (optimizerMetricsVerboseOutputEnabled) {
+    if (ttnnMetricsVerboseOutputEnabled) {
       llvm::json::Array operations;
       for (const auto &opMetrics : operationDetails) {
         llvm::json::Object opJson;
@@ -243,15 +245,23 @@ public:
         opJson["layout_info"] = opMetrics.layoutInfo;
         operations.push_back(std::move(opJson));
       }
-      jsonOutput["operations"] = std::move(operations);
+      jsonOutput["shardable_operations"] = std::move(operations);
+
+      // Counts of all operation types
+      llvm::json::Object operationTypeBreakdown;
+      for (const auto &pair : operationTypeCounts) {
+        operationTypeBreakdown[pair.first()] = pair.second;
+      }
+      jsonOutput["operation_type_breakdown"] =
+          std::move(operationTypeBreakdown);
     }
 
     // Write JSON to file
     std::error_code ec;
-    llvm::raw_fd_ostream os(optimizerMetricsOutputFile, ec);
+    llvm::raw_fd_ostream os(ttnnMetricsOutputFile, ec);
     if (ec) {
       module.emitError("Failed to open output file: " +
-                       optimizerMetricsOutputFile.getValue());
+                       ttnnMetricsOutputFile.getValue());
       // pass failure
       return;
     }
@@ -264,6 +274,10 @@ public:
     llvm::outs() << "TTNN Metrics Collection Complete:\n";
     llvm::outs() << "  Total operations: " << aggregatedMetrics.totalOps
                  << "\n";
+    llvm::outs() << "  Total operations with output tensor: "
+                 << aggregatedMetrics.totalOpsWithOutputTensor << "\n";
+    llvm::outs() << "  Total shardable operations: "
+                 << aggregatedMetrics.totalShardableOps << "\n";
     llvm::outs() << "  Sharded operations: " << aggregatedMetrics.shardedOps
                  << " ("
                  << llvm::format("%.2f", aggregatedMetrics.shardedPercentage)
@@ -274,7 +288,10 @@ public:
                                  aggregatedMetrics.effectivelyShardedPercentage)
                  << "%)\n";
     llvm::outs() << "  Sharded and spilled: "
-                 << aggregatedMetrics.shardedAndSpilledOps << "\n";
+                 << aggregatedMetrics.shardedAndSpilledOps << " ("
+                 << llvm::format("%.2f",
+                                 aggregatedMetrics.shardedAndSpilledPercentage)
+                 << "%)\n";
     llvm::outs() << "  DRAM spilled: " << aggregatedMetrics.dramSpilledOps
                  << " ("
                  << llvm::format("%.2f", aggregatedMetrics.spilledPercentage)
@@ -284,14 +301,7 @@ public:
                  << llvm::format("%.2f",
                                  aggregatedMetrics.systemMemoryPercentage)
                  << "%)\n";
-    llvm::outs() << "  Metrics exported to: " << optimizerMetricsOutputFile
-                 << "\n";
-
-    // Debug: Print operation type breakdown
-    llvm::outs() << "\nOperation type breakdown:\n";
-    for (const auto &pair : operationTypeCounts) {
-      llvm::outs() << "  " << pair.first() << ": " << pair.second << "\n";
-    }
+    llvm::outs() << "  Metrics exported to: " << ttnnMetricsOutputFile << "\n";
   }
 };
 

@@ -35,10 +35,9 @@ struct OptionNames {
   static constexpr StringRef meshShape = "mesh-shape";
   static constexpr StringRef tuplifyInputIfEmpty = "tuplify-input-if-empty";
   static constexpr StringRef tensorL1UsageCap = "tensor-l1-usage-cap";
-  static constexpr StringRef optimizerMetricsOutputFile =
-      "optimizer-metrics-output-file";
-  static constexpr StringRef optimizerMetricsVerboseOutputEnabled =
-      "optimizer-metrics-verbose-output-enabled";
+  static constexpr StringRef ttnnMetricsOutputFile = "ttnn-metrics-output-file";
+  static constexpr StringRef ttnnMetricsVerboseOutputEnabled =
+      "ttnn-metrics-verbose-output-enabled";
 };
 
 using Conv2dConfigOverrideParams = Conv2dConfigParams;

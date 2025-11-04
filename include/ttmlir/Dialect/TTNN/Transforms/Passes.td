@@ -324,9 +324,9 @@ def TTNNCollectMetrics: Pass<"ttnn-collect-metrics", "::mlir::ModuleOp"> {
   }];
 
   let options = [
-    Option<"optimizerMetricsOutputFile", "optimizer-metrics-output-file", "std::string", /*default=*/"\"optimizer_metrics.json\"",
+    Option<"ttnnMetricsOutputFile", "ttnn-metrics-output-file", "std::string", /*default=*/"\"ttnn_metrics.json\"",
            "Output file path for the metrics JSON">,
-    Option<"optimizerMetricsVerboseOutputEnabled", "optimizer-metrics-verbose-output-enabled", "bool", /*default=*/"false",
+    Option<"ttnnMetricsVerboseOutputEnabled", "ttnn-metrics-verbose-output-enabled", "bool", /*default=*/"false",
            "Enable verbose output with per-operation details">
   ];
 }
