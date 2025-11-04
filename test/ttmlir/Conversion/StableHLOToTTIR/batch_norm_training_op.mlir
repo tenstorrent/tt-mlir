@@ -7,8 +7,8 @@ module @jit_batch_norm attributes {} {
       epsilon = 0.0 : f32,
       feature_index = 1 : i64
     } : (tensor<2x2x2x2xf32>, tensor<2xf32>, tensor<2xf32>) -> (tensor<2x2x2x2xf32>, tensor<2xf32>, tensor<2xf32>)
-    // CHECK: [[VAL0:%[0-9]+]] = "ttir.zeros"() <{shape = array<i32: 2>}> : () -> tensor<2xf32>
-    // CHECK: [[VAL1:%[0-9]+]] = "ttir.ones"() <{shape = array<i32: 2>}> : () -> tensor<2xf32>
+    // CHECK: [[VAL0:%[0-9]+]] = "ttir.zeros"() <{dtype = f32, shape = array<i32: 2>}> : () -> tensor<2xf32>
+    // CHECK: [[VAL1:%[0-9]+]] = "ttir.ones"() <{dtype = f32, shape = array<i32: 2>}> : () -> tensor<2xf32>
     // CHECK: [[VAL2:%[0-9]+]] = ttir.empty() : tensor<2x2x2x2xf32>
     // CHECK: [[VAL3:%[0-9]+]] = ttir.empty() : tensor<2xf32>
     // CHECK: [[VAL4:%[0-9]+]] = ttir.empty() : tensor<2xf32>

@@ -58,13 +58,13 @@ func.func public @test_sort_key_values(%arg0: tensor<1x4x64x64xf32>, %arg1: tens
   // CHECK-SAME: <{shape = [1 : i32, 4 : i32, 64 : i32, 64 : i32, 1 : i32]}>
   // CHECK-SAME: (tensor<1x4x64x64xi32>, tensor<1x4x64x64x1xi32>) -> tensor<1x4x64x64x1xi32>
   // CHECK: %[[ARANGE0:[0-9]+]] = "ttir.arange"()
-  // CHECK-SAME: <{arange_dimension = 0 : i64, end = 1 : si64, start = 0 : si64, step = 1 : si64}>
+  // CHECK-SAME: <{arange_dimension = 0 : i64, dtype = i32, end = 1 : si64, start = 0 : si64, step = 1 : si64}>
   // CHECK-SAME: -> tensor<1x4x64x64x1xi32>
   // CHECK: %[[ARANGE1:[0-9]+]] = "ttir.arange"()
-  // CHECK-SAME: <{arange_dimension = 1 : i64, end = 4 : si64, start = 0 : si64, step = 1 : si64}>
+  // CHECK-SAME: <{arange_dimension = 1 : i64, dtype = i32, end = 4 : si64, start = 0 : si64, step = 1 : si64}>
   // CHECK-SAME: -> tensor<1x4x64x64x1xi32>
   // CHECK: %[[ARANGE2:[0-9]+]] = "ttir.arange"()
-  // CHECK-SAME: <{arange_dimension = 2 : i64, end = 64 : si64, start = 0 : si64, step = 1 : si64}>
+  // CHECK-SAME: <{arange_dimension = 2 : i64, dtype = i32, end = 64 : si64, start = 0 : si64, step = 1 : si64}>
   // CHECK-SAME: -> tensor<1x4x64x64x1xi32>
   // CHECK: %[[REORDER_INDICES:[0-9]+]] = "ttir.concat"
   // CHECK-SAME: (%[[ARANGE0]], %[[ARANGE1]], %[[ARANGE2]], %[[INDICES_RESHAPE]], %{{[0-9]+}})
