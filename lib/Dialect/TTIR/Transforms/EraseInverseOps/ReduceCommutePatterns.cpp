@@ -28,8 +28,8 @@ public:
   // %1 = permute(%0, %output1) <{permutation = array<i64: 0, 2, 3, 1>}>
   //
   // This method will transform this into:
-  // %0 = permute(%arg0, %output0) <{permutation = array<i64: 0, 3, 1, 2>}>
-  // %1 = reduce(%0, %output) {keep_dim = true, dim_arg = [1: i32, 2: i32]}>
+  // %0 = permute(%arg0, %output0) <{permutation = array<i64: 0, 2, 3, 1>}>
+  // %1 = reduce(%0, %output) {keep_dim = true, dim_arg = [1: i32, 2: i32]}
   //
   // The reduce dimensions are transformed by applying the inverse permutation
   // Input and output shapes of reduce are permuted since permute op now come
