@@ -64,8 +64,6 @@ Type getRegionLargestDstElemType(Region &region) {
 
   Type largestType = nullptr;
   region.walk([&](OperandLoadStoreRegisterOpInterface op) {
-    // Only the typecast op has different input & output types, but it's a DST
-    // in-place op so we simply check all the operands of all the compute ops.
     for (Value v : op.getOperation()->getOperands()) {
       Type t = ttcore::getOperandInnerElementType(v);
 
@@ -78,7 +76,7 @@ Type getRegionLargestDstElemType(Region &region) {
         return WalkResult::interrupt();
       }
     }
-
+    // Check output type for typecast operations that cast to a larger type.
     if (op.getOperation()->getNumResults() > 0) {
       Type outputType =
           ttcore::getOperandInnerElementType(op.getOperation()->getResult(0));
