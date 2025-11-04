@@ -1233,9 +1233,9 @@ private:
   // Helper that expands start indices along the index vector dimension when
   // sliceSizes[actualIndexedDim] > 1. This creates additional indices by
   // adding consecutive values to the original indices. Because of earlier
-  // reshape, we know startIndices has shape [N, 1]. Example: startIndices =
-  // [[2],[1]], indexVectorDim=1, sliceSize=3 -> startIndices =
-  // [[2,3,4],[1,2,3]]
+  // reshape, we know startIndices has shape [1, N]. Example: startIndices =
+  // [[2, 1]], indexVectorDim=0, sliceSize=3 -> startIndices =
+  // [[2, 1], [3, 2], [4, 3]]
   static ttir::AddOp expandStartIndices(ConversionPatternRewriter &rewriter,
                                         Location loc, Value startIndices,
                                         int64_t indexVectorDim,
