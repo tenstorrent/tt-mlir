@@ -80,15 +80,19 @@ def _get_num_pos_args(func: Callable):
     )
     return num_pos_args
 
-def collapsed_linear_affine_map(context, shape, grid_shape, collapse_intervals):
-  
+def _get_collapsed_linear_affine_map(context, shape, grid_shape, collapse_intervals=[(0, -1)]):
+    """
+    collapse_intervals should be a list of (begin, end) tuples.
+    Example: collapse_intervals=[(0, -1), (2, 4)]
+    """
     rank = len(shape)
     
     # Start with a full identity mapping in a mutable list
     results = [AffineDimExpr.get(i, context) for i in range(rank)]
     print("Initial Results: ", results)
 
-    for begin, end in collapse_intervals:
+    for interval in collapse_intervals:
+        begin, end = interval  # Unpack each tuple
         # Handle negative indices
         if begin < 0:
             begin += rank
