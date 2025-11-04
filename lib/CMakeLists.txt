@@ -12,6 +12,7 @@ add_subdirectory(Conversion)
 add_subdirectory(Dialect)
 add_subdirectory(Target)
 add_subdirectory(Scheduler)
+add_subdirectory(Support)
 add_subdirectory(Transforms)
 
 get_property(dialect_libs GLOBAL PROPERTY MLIR_DIALECT_LIBS)
@@ -72,6 +73,7 @@ add_mlir_library(TTMLIRCompilerStatic
 
   LINK_LIBS PUBLIC
   ${TTMLIR_LIBS}
+  TTMLIRSupport
   coverage_config
   ${SHARDY_LIBS}
 )
