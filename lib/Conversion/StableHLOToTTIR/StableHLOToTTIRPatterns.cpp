@@ -1348,10 +1348,43 @@ public:
             : rewriter.getDenseBoolArrayAttr(
                   SmallVector<bool>(numSpatialDims, false));
 
-    ttir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::ConvolutionOp>(
-        rewriter, srcOp, outputType, adaptor.getLhs(), adaptor.getRhs(),
-        Value(), windowStridesAttr, paddingAttr, inputDilationAttr,
-        kernelDilationAttr, windowReversalAttr,
+    bool hasNegativePadding = false;
+    ArrayRef<int64_t> paddingArray = paddingAttr.asArrayRef();
+    SmallVector<int64_t> adjustedPadding;
+    for (int64_t pad : paddingArray) {
+      if (pad < 0) {
+        hasNegativePadding = true;
+        pad = 0;
+      }
+      adjustedPadding.push_back(pad);
+    }
+
+    paddingAttr = rewriter.getDenseI64ArrayAttr(adjustedPadding);
+
+    // Calculate intermediate output shape for convolution when negative padding
+    // exists.
+    SmallVector<int64_t> intermediateOutputShape(outputType.getShape().begin(),
+                                                 outputType.getShape().end());
+    auto spatialDims = dimNums.getOutputSpatialDimensions();
+    for (size_t i = 0; i < numSpatialDims; i++) {
+      int64_t padLow = paddingArray[2 * i];
+      int64_t padHigh = paddingArray[2 * i + 1];
+
+      if (padLow < 0) {
+        intermediateOutputShape[spatialDims[i]] -= padLow;
+      }
+      if (padHigh < 0) {
+        intermediateOutputShape[spatialDims[i]] -= padHigh;
+      }
+    }
+
+    RankedTensorType intermediateOutputType = RankedTensorType::get(
+        intermediateOutputShape, outputType.getElementType());
+
+    ttir::ConvolutionOp convOp = ttir::utils::createDPSOp<ttir::ConvolutionOp>(
+        rewriter, srcOp.getLoc(), intermediateOutputType, adaptor.getLhs(),
+        adaptor.getRhs(), Value(), windowStridesAttr, paddingAttr,
+        inputDilationAttr, kernelDilationAttr, windowReversalAttr,
         mlir::tt::ttir::ConvolutionLayoutAttr::get(
             getContext(), dimNums.getInputBatchDimension(),
             dimNums.getInputFeatureDimension(),
@@ -1364,6 +1397,39 @@ public:
             dimNums.getOutputSpatialDimensions()),
         adaptor.getFeatureGroupCountAttr(), adaptor.getBatchGroupCountAttr());
 
+    if (!hasNegativePadding) {
+      rewriter.replaceOp(srcOp, convOp->getResult(0));
+      return success();
+    }
+    auto convOutputType = cast<RankedTensorType>(convOp.getResult().getType());
+    auto convOutputShape = convOutputType.getShape();
+
+    SmallVector<int32_t> sliceBegins(convOutputShape.size(), 0);
+    SmallVector<int32_t> sliceEnds(convOutputShape.begin(),
+                                   convOutputShape.end());
+    SmallVector<int32_t> sliceSteps(convOutputShape.size(), 1);
+
+    // Adjust slice parameters for spatial dimensions with negative padding.
+    for (size_t i = 0; i < numSpatialDims; i++) {
+      int64_t padLow = paddingArray[2 * i];
+      int64_t padHigh = paddingArray[2 * i + 1];
+
+      if (padLow < 0 || padHigh < 0) {
+        int64_t spatialDim = spatialDims[i];
+        sliceBegins[spatialDim] = std::abs(std::min(0L, padLow));
+        sliceEnds[spatialDim] =
+            convOutputShape[spatialDim] - std::abs(std::min(0L, padHigh));
+      }
+    }
+
+    // Create slice operation to crop the output.
+    auto sliceOp = ttir::utils::createDPSOp<ttir::SliceStaticOp>(
+        rewriter, srcOp.getLoc(), outputType, convOp.getResult(),
+        rewriter.getI32ArrayAttr(sliceBegins),
+        rewriter.getI32ArrayAttr(sliceEnds),
+        rewriter.getI32ArrayAttr(sliceSteps));
+
+    rewriter.replaceOp(srcOp, sliceOp.getResult());
     return success();
   }
 };
