@@ -16,6 +16,7 @@
 #include "mlir/Dialect/Affine/ViewLikeInterfaceUtils.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/Operation.h"
@@ -832,6 +833,21 @@ public:
   LogicalResult
   matchAndRewrite(D2MCBOp op, typename D2MCBOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
+    // Check if this op is inside an scf.execute_region with no_inline
+    // attribute. If so, remove the no_inline attribute.
+    Operation *parentOp = op->getParentOp();
+    while (parentOp) {
+      if (auto executeRegionOp = dyn_cast<scf::ExecuteRegionOp>(parentOp)) {
+        if (executeRegionOp->hasAttr("no_inline")) {
+          rewriter.modifyOpInPlace(executeRegionOp, [&]() {
+            executeRegionOp->removeAttr("no_inline");
+          });
+        }
+        break;
+      }
+      parentOp = parentOp->getParentOp();
+    }
+
     auto device = ttcore::lookupDevice(op);
 
     auto cbNumPages = device.getMemrefCBNumPages(
@@ -866,29 +882,36 @@ public:
     Block *block = op->getBlock();
     auto release = rewriter.create<TTKernelReleaseOp>(
         op.getLoc(), adaptor.getCb(), numPages);
-
-    // Find the first d2m::WaitOp or ttkernel::CBWaitFrontOp after the reserve
-    Operation *insertBeforeOp = nullptr;
-    for (Operation &blockOp :
-         llvm::make_range(op->getIterator(), block->end())) {
-      if (llvm::isa<d2m::WaitOp>(&blockOp) ||
-          llvm::isa<ttkernel::CBWaitFrontOp>(&blockOp)) {
-        insertBeforeOp = &blockOp;
-        break;
-      }
-    }
-
-    // If we found a wait operation, insert before it
-    if (insertBeforeOp) {
-      rewriter.moveOpBefore(release, insertBeforeOp);
+    if (block->mightHaveTerminator()) {
+      rewriter.moveOpBefore(release, block->getTerminator());
     } else {
-      // Otherwise, fall back to placing at the end of the block
-      if (block->mightHaveTerminator()) {
-        rewriter.moveOpBefore(release, block->getTerminator());
-      } else {
-        rewriter.moveOpAfter(release, &block->back());
-      }
+      rewriter.moveOpAfter(release, &block->back());
     }
+    // Block *block = op->getBlock();
+    // auto release = rewriter.create<TTKernelReleaseOp>(
+    //     op.getLoc(), adaptor.getCb(), numPages);
+
+    // // Find the first d2m::WaitOp or ttkernel::CBWaitFrontOp after the
+    // reserve Operation *insertBeforeOp = nullptr; for (Operation &blockOp :
+    //      llvm::make_range(op->getIterator(), block->end())) {
+    //   if (llvm::isa<d2m::WaitOp>(&blockOp) ||
+    //       llvm::isa<ttkernel::CBWaitFrontOp>(&blockOp)) {
+    //     insertBeforeOp = &blockOp;
+    //     break;
+    //   }
+    // }
+
+    // // If we found a wait operation, insert before it
+    // if (insertBeforeOp) {
+    //   rewriter.moveOpBefore(release, insertBeforeOp);
+    // } else {
+    //   // Otherwise, fall back to placing at the end of the block
+    //   if (block->mightHaveTerminator()) {
+    //     rewriter.moveOpBefore(release, block->getTerminator());
+    //   } else {
+    //     rewriter.moveOpAfter(release, &block->back());
+    //   }
+    // }
   }
 };
 } // namespace

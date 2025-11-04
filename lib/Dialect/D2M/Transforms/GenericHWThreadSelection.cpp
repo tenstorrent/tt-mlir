@@ -6,6 +6,7 @@
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Utils.h"
 
+#include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/WalkPatternRewriteDriver.h"
 
@@ -86,16 +87,48 @@ public:
         op.getIndexingMaps(), op.getIteratorTypes(),
         rewriter.getArrayAttr(threads), numNewRegions);
 
+    // Helper function to wrap operations in a block with scf.execute_region.
+    auto wrapBlockOpsInExecuteRegion = [&](Block &block, Location loc) {
+      // Collect all operations in the block.
+      SmallVector<Operation *> opsToWrap;
+      for (Operation &blockOp : llvm::make_early_inc_range(block)) {
+        opsToWrap.push_back(&blockOp);
+      }
+
+      if (opsToWrap.empty()) {
+        return;
+      }
+
+      // Create scf.execute_region at the start of the block.
+      rewriter.setInsertionPointToStart(&block);
+      auto executeRegionOp =
+          rewriter.create<scf::ExecuteRegionOp>(loc, TypeRange{});
+      executeRegionOp->setAttr("no_inline", rewriter.getUnitAttr());
+
+      // Create block in execute_region WITHOUT arguments.
+      // The operations will use the parent block's arguments directly.
+      Block *executeRegionBlock = &executeRegionOp.getRegion().emplaceBlock();
+
+      // Move all operations into the execute_region.
+      for (Operation *opToMove : opsToWrap) {
+        opToMove->moveBefore(executeRegionBlock, executeRegionBlock->end());
+      }
+
+      // Add yield operation to terminate the execute_region.
+      rewriter.setInsertionPointToEnd(executeRegionBlock);
+      rewriter.create<scf::YieldOp>(loc);
+    };
+
     // Copy compute region from op to newGeneric, if it exists.
+    // Do NOT wrap it yet - only wrap if blocks get merged into it.
     if (hasComputeThread) {
       rewriter.modifyOpInPlace(op, [&] {
         newGeneric.getRegions().back().takeBody(op.getRegions().back());
       });
     }
 
-    // Copy initial dma threads to newGeneric. Merging to an empty block
-    // results in discarding cb block args, so we must copy the first
-    // numDMAHWThreads blocks instead of uniformly merging everything.
+    // Copy initial dma threads to newGeneric WITHOUT wrapping.
+    // We'll wrap them on-demand when blocks are merged into them.
     unsigned regionIndex = 0;
     for (unsigned i = 0; i < numDMAHWThreads; ++i) {
       assert(op.getRegion(i).getBlocks().size() == 1 &&
@@ -104,6 +137,9 @@ public:
         newGeneric.getRegion(regionIndex++).takeBody(op.getRegion(i));
       });
     }
+
+    // Track which regions have already had their initial ops wrapped.
+    llvm::DenseSet<unsigned> wrappedRegions;
 
     // Merge remaining DMA threads into existing DMA regions in newGeneric.
     // IMPORTANT: output DMA blocks MUST be merged after all input DMA blocks in
@@ -131,8 +167,31 @@ public:
       Block *mergeDestBlock =
           &newGeneric.getRegion(dmaMergeTargetIndex).front();
 
-      rewriter.mergeBlocks(mergeSrcBlock, mergeDestBlock,
+      // If this is the first merge into this region, wrap the existing ops
+      // first.
+      if (!wrappedRegions.contains(dmaMergeTargetIndex)) {
+        wrapBlockOpsInExecuteRegion(*mergeDestBlock, op.getLoc());
+        wrappedRegions.insert(dmaMergeTargetIndex);
+      }
+
+      // Wrap the source block's operations in execute_region before merging.
+      rewriter.setInsertionPointToEnd(mergeDestBlock);
+      auto executeRegionOp =
+          rewriter.create<scf::ExecuteRegionOp>(op.getLoc(), TypeRange{});
+      executeRegionOp->setAttr("no_inline", rewriter.getUnitAttr());
+
+      // Create block in execute_region WITHOUT arguments.
+      // The operations will use the parent block's arguments directly.
+      Block *executeRegionBlock = &executeRegionOp.getRegion().emplaceBlock();
+
+      // Merge the source block into the execute_region block, mapping the
+      // source block arguments to the parent (destination) block arguments.
+      rewriter.mergeBlocks(mergeSrcBlock, executeRegionBlock,
                            mergeDestBlock->getArguments());
+
+      // Add yield operation to terminate the execute_region.
+      rewriter.setInsertionPointToEnd(executeRegionBlock);
+      rewriter.create<scf::YieldOp>(op.getLoc());
     }
 
     rewriter.replaceOp(op, newGeneric.getResults());
