@@ -12,10 +12,12 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/StringMap.h"
 #include "llvm/Support/JSON.h"
 #include "llvm/Support/raw_ostream.h"
 
+#include <cassert>
 #include <string>
 
 namespace mlir::tt::ttnn {
@@ -32,7 +34,6 @@ struct OperationMetrics {
   bool isSpilledToDRAM = false;
   bool hasSystemMemory = false;
   std::string layoutInfo;
-  std::string memoryConfigInfo;
 };
 
 struct AggregatedMetrics {
@@ -66,38 +67,26 @@ class TTNNCollectMetrics
     : public impl::TTNNCollectMetricsBase<TTNNCollectMetrics> {
 
 private:
-  // Get layout information as string for debugging
+  // Get layout information as string for individual op analysis
   std::string getLayoutInfo(Operation *op) {
-    if (op->getNumResults() == 0) {
-      return "";
-    }
-
+    assert(op->getNumResults());
     auto tensorType = dyn_cast<RankedTensorType>(op->getResult(0).getType());
-    if (!tensorType) {
-      return "";
-    }
-
-    if (auto encoding = tensorType.getEncoding()) {
-      return llvm::formatv("{0}", encoding).str();
-    }
-    return "";
+    assert(tensorType);
+    auto encoding = tensorType.getEncoding();
+    assert(encoding);
+    return llvm::formatv("{0}", encoding).str();
   }
 
-  // Get memory config information as string for debugging
-  std::string getMemoryConfigInfo(Operation *op) {
-    // Try to find memory_config attribute
-    if (auto memConfigAttr = op->getAttr("memory_config")) {
-      return llvm::formatv("{0}", memConfigAttr).str();
-    }
-    return "";
-  }
-
-  // Get location as string for debugging
+  // Get location as string for individual op analysis
   std::string getLocationString(Operation *op) {
     if (auto nameLoc = dyn_cast<NameLoc>(op->getLoc())) {
+      llvm::outs() << "(Loc) Found NameLoc at: " << nameLoc.getName() << "\n";
       return nameLoc.getName().str();
     }
     if (auto fileLoc = dyn_cast<FileLineColLoc>(op->getLoc())) {
+      llvm::outs() << "(Loc) Found FileLineColLoc at: " << fileLoc.getFilename()
+                   << ":" << fileLoc.getLine() << ":" << fileLoc.getColumn()
+                   << "\n";
       return llvm::formatv("{0}:{1}:{2}", fileLoc.getFilename(),
                            fileLoc.getLine(), fileLoc.getColumn())
           .str();
@@ -105,13 +94,12 @@ private:
     return "unknown";
   }
 
-  // Analyze an operation and determine its metrics
+  // Analyze ops individually
   OperationMetrics analyzeOperation(Operation *op) {
     OperationMetrics metrics;
     metrics.opName = op->getName().getStringRef().str();
     metrics.location = getLocationString(op);
     metrics.layoutInfo = getLayoutInfo(op);
-    metrics.memoryConfigInfo = getMemoryConfigInfo(op);
     metrics.isSharded = utils::producesShardedL1Layout(op);
     metrics.hasSystemMemory = utils::producesSystemMemoryLayout(op);
 
@@ -126,12 +114,11 @@ private:
     funcOp.walk([&](ttnn::ToLayoutOp toLayoutOp) {
       totalToLayoutOps++;
       if (utils::producesDRAMLayout(toLayoutOp)) {
-        dramSpillOps++;
-        llvm::outs() << "Identified DRAM spill in ToLayoutOp at "
-                     << getLocationString(toLayoutOp) << "\n";
         // Mark the input operand's defining op's result as spilled
         Value input = toLayoutOp.getInput();
-        if (input.getDefiningOp()) {
+        if (input.getDefiningOp() &&
+            utils::producesShardedL1Layout(input.getDefiningOp())) {
+          dramSpillOps++;
           spilledValues[input] = true;
         }
       }
@@ -156,8 +143,6 @@ public:
     module->walk([&](func::FuncOp func) {
       // Filter out all const-eval functions.
       if (ttmlir::utils::isConstEvalFunc(func)) {
-        llvm::outs() << "Skipping const-eval function: " << func.getName().str()
-                     << "\n";
         return;
       }
 
@@ -197,25 +182,20 @@ public:
 
         OperationMetrics opMetrics = analyzeOperation(op);
 
-        // Check if this operation's result is spilled
-        if (op->getNumResults() > 0) {
+        // Check if this operation's result is spilled and update aggregated
+        // metrics
+        if (opMetrics.isSharded) {
           Value result = op->getResult(0);
           if (spilledValues.count(result) && spilledValues[result]) {
             opMetrics.isSpilledToDRAM = true;
-          }
-        }
-
-        // Update aggregated metrics
-        if (opMetrics.isSharded) {
-          aggregatedMetrics.shardedOps++;
-          if (!opMetrics.isSpilledToDRAM) {
-            aggregatedMetrics.effectivelyShardedOps++;
-          } else {
             aggregatedMetrics.shardedAndSpilledOps++;
+          } else {
+            aggregatedMetrics.effectivelyShardedOps++;
           }
+          aggregatedMetrics.shardedOps++;
         }
 
-        if (opMetrics.isSpilledToDRAM) {
+        if (utils::producesDRAMLayout(op)) {
           aggregatedMetrics.dramSpilledOps++;
         }
 
@@ -227,13 +207,10 @@ public:
       });
     });
 
-    // Calculate percentages
     aggregatedMetrics.calculatePercentages();
 
-    // Generate JSON output
     llvm::json::Object jsonOutput;
 
-    // Add aggregated metrics
     llvm::json::Object summary;
     summary["total_ops"] = static_cast<int64_t>(aggregatedMetrics.totalOps);
     summary["sharded_ops"] = static_cast<int64_t>(aggregatedMetrics.shardedOps);
@@ -254,7 +231,6 @@ public:
 
     jsonOutput["summary"] = std::move(summary);
 
-    // Add detailed operation information if verbose mode is enabled
     if (optimizerMetricsVerboseOutputEnabled) {
       llvm::json::Array operations;
       for (const auto &opMetrics : operationDetails) {
@@ -265,7 +241,6 @@ public:
         opJson["is_spilled_to_dram"] = opMetrics.isSpilledToDRAM;
         opJson["has_system_memory"] = opMetrics.hasSystemMemory;
         opJson["layout_info"] = opMetrics.layoutInfo;
-        opJson["memory_config_info"] = opMetrics.memoryConfigInfo;
         operations.push_back(std::move(opJson));
       }
       jsonOutput["operations"] = std::move(operations);

@@ -333,7 +333,7 @@ bool producesL1Layout(Operation *op) {
 
 bool producesSystemMemoryLayout(Operation *op) {
   auto ttnnLayout = getTTNNLayoutAttrFromOp(op);
-  return ttnnLayout && ttnnLayout->getBufferType() == BufferType::SystemMemory;
+  return ttnnLayout && ttnnLayout->isSystemBufferType();
 }
 
 bool producesTiledTensorLayout(Operation *op) {
