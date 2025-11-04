@@ -3035,31 +3035,112 @@ public:
   matchAndRewrite(mlir::stablehlo::PadOp srcOp,
                   mlir::stablehlo::PadOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+
     LogicalResult legalityResult =
         checkConversionLegality(srcOp, adaptor, rewriter);
     if (!legalityResult.succeeded()) {
       return legalityResult;
     }
 
-    auto outputType = mlir::cast<RankedTensorType>(
-        getTypeConverter()->convertType(srcOp.getResult().getType()));
-
-    SmallVector<int32_t> padDim;
-    for (uint32_t i = 0; i < adaptor.getEdgePaddingLow().size(); i++) {
-      padDim.push_back(adaptor.getEdgePaddingLow()[i]);
-      padDim.push_back(adaptor.getEdgePaddingHigh()[i]);
-    }
-
     ttir::ConstantOp valueDef =
         getConstantValueDefiningOp(adaptor.getPaddingValue());
 
     mlir::ElementsAttr paddingValueAttr = valueDef.getValueAttr();
+    SmallVector<int64_t> steps;
+    auto outputType = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(srcOp.getResult().getType()));
 
     float value;
     if (paddingValueAttr.getElementType().isInteger()) {
       value = paddingValueAttr.getSplatValue<APInt>().signedRoundToDouble();
     } else {
       value = paddingValueAttr.getSplatValue<APFloat>().convertToDouble();
+    }
+
+    int64_t sum = 0;
+    for (int64_t eachVal : srcOp.getInteriorPadding()) {
+      steps.push_back(eachVal + 1);
+      sum += eachVal;
+    }
+    if (sum != 0) {
+      auto fullOp = rewriter.create<ttir::FullOp>(
+          srcOp.getLoc(), outputType, rewriter.getF32FloatAttr(value));
+      llvm::SmallVector<int64_t> upperbounds;
+      llvm::copy(outputType.getShape(), std::back_inserter(upperbounds));
+      int64_t index = 0;
+      for (int64_t pad : srcOp.getEdgePaddingHigh()) {
+        upperbounds[index] -= pad;
+        index++;
+      }
+
+      llvm::SmallVector<int64_t> counters;
+      llvm::SmallVector<int64_t> lowerbounds;
+      for (int64_t counter : srcOp.getEdgePaddingLow()) {
+        counters.push_back(counter);
+        lowerbounds.push_back(counter);
+      }
+      llvm::SmallVector<int64_t> flatIndices;
+      flatIndices.append(counters.begin(), counters.end());
+      int64_t numIndices = 1;
+
+      size_t current_index = 0;
+      while (current_index < counters.size() &&
+             counters[counters.size() - 1] <
+                 upperbounds[upperbounds.size() - 1]) {
+        counters[current_index] += steps[current_index];
+        bool reset = false;
+        while (current_index < counters.size() &&
+               counters[current_index] >= upperbounds[current_index]) {
+          counters[current_index] = lowerbounds[current_index];
+          current_index++;
+          if (current_index < counters.size()) {
+            counters[current_index] += steps[current_index];
+          }
+          reset = true;
+        }
+        if (current_index >= counters.size()) {
+          break;
+        }
+        if (reset) {
+          current_index = 0;
+        }
+        flatIndices.append(counters.begin(), counters.end());
+        numIndices++;
+      }
+      auto inputType =
+          mlir::cast<RankedTensorType>(adaptor.getOperand().getType());
+
+      int64_t rank = counters.size();
+      auto indicesType = RankedTensorType::get(
+          {numIndices, rank}, rewriter.getI64Type(), inputType.getEncoding());
+
+      auto indicesAttr = DenseIntElementsAttr::get(indicesType, flatIndices);
+      Value indicesTensor = rewriter.create<ttir::ConstantOp>(
+          srcOp.getLoc(), indicesType, indicesAttr);
+      SmallVector<int32_t> insertedWindowDims =
+          llvm::to_vector(llvm::seq<int32_t>(0, rank));
+
+      ttir::utils::replaceOpWithNewDPSOp<ttir::ScatterOp>(
+          rewriter, srcOp, outputType,
+          /*input=*/fullOp.getResult(),
+          /*scatter_indices=*/indicesTensor,
+          /*update=*/adaptor.getOperand(),
+          /*update_window_dims=*/SmallVector<int32_t>{},
+          /*inserted_window_dims=*/insertedWindowDims,
+          /*input_batching_dims=*/SmallVector<int32_t>{},
+          /*scatter_indices_batching_dims=*/SmallVector<int32_t>{},
+          /*scatter_dims_to_operand_dims=*/insertedWindowDims,
+          /*index_vector_dim=*/1,
+          /*indices_are_sorted=*/false,
+          /*unique_indices=*/true);
+
+      return success();
+    }
+
+    SmallVector<int32_t> padDim;
+    for (uint32_t i = 0; i < adaptor.getEdgePaddingLow().size(); i++) {
+      padDim.push_back(adaptor.getEdgePaddingLow()[i]);
+      padDim.push_back(adaptor.getEdgePaddingHigh()[i]);
     }
 
     ttir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::PadOp>(
@@ -3074,16 +3155,6 @@ private:
   checkConversionLegality(mlir::stablehlo::PadOp &srcOp,
                           mlir::stablehlo::PadOp::Adaptor adaptor,
                           ConversionPatternRewriter &rewriter) const {
-
-    // Due to lack of support by device, we do not support interior padding,
-    // so verify if interior padding is requested and exit early with error.
-    for (int64_t eachVal : srcOp.getInteriorPadding()) {
-      if (eachVal != 0) {
-        return rewriter.notifyMatchFailure(srcOp,
-                                           "Unsupported Interior Padding, only "
-                                           "0 interior padding is supported.");
-      }
-    }
 
     if (srcOp.getEdgePaddingLow().size() != srcOp.getEdgePaddingHigh().size()) {
       return rewriter.notifyMatchFailure(

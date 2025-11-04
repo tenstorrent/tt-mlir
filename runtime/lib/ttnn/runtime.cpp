@@ -72,11 +72,11 @@ createOwnedTTNNTensor(const void *data, const std::vector<std::uint32_t> &shape,
   if (!::tt::runtime::utils::isSupportedDataType(dataType)) {
     dataTypeToUse = ::tt::runtime::utils::getUnsupportedDataTypeAlias(dataType);
 
-    LOG_WARNING("User provided a tensor of data type: ",
-                ::tt::target::EnumNameDataType(dataType),
-                " which is not supported by runtime/ttnn. Casting to: ",
-                ::tt::target::EnumNameDataType(dataTypeToUse),
-                ", this may impact throughput and the integrity of the data.");
+    LOG_DEBUG("User provided a tensor of data type: ",
+              ::tt::target::EnumNameDataType(dataType),
+              " which is not supported by runtime/ttnn. Casting to: ",
+              ::tt::target::EnumNameDataType(dataTypeToUse),
+              ", this may impact throughput and the integrity of the data.");
 
     uint64_t numElements = std::accumulate(shape.begin(), shape.end(),
                                            static_cast<std::uint64_t>(1),
@@ -884,7 +884,7 @@ void memcpy(void *dst, ::tt::runtime::Tensor src,
         "Tensor data type must be the alias of the unsupported data type: " +
             std::string(target::EnumNameDataType(unsupportedDataTypeAlias)));
 
-    LOG_WARNING(
+    LOG_DEBUG(
         "User is requesting to copy the data from a runtime tensor with "
         "data type: ",
         ::tt::target::EnumNameDataType(srcDataType),

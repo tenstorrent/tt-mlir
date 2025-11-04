@@ -33,7 +33,7 @@ jobs:
         build: ${{ fromJson(inputs.test_matrix) }}
     name: "run-tests (${{ matrix.build.runs-on }},${{ matrix.build.image }},${{ strategy.job-index }})"
 
-    runs-on: ${{ matrix.build.sh-run && format('tt-ubuntu-2204-{0}-tt-mlir', matrix.build.runs-on) || fromJson(format('["{0}", "in-service"]', matrix.build.runs-on)) }}
+    runs-on: ${{ matrix.build.sh-run && format('tt-ubuntu-2204-{0}-stable', matrix.build.runs-on) || fromJson(format('["{0}", "in-service"]', matrix.build.runs-on)) }}
 
     container:
       image: ${{ matrix.build.sh-run && format('harbor.ci.tenstorrent.net/{0}', inputs.docker_image) || inputs.docker_image }}
@@ -138,6 +138,12 @@ jobs:
         rm -rf ttrt_results || true
         mkdir -p ttrt_results
 
+        echo "Running lit tests..."
+        llvm-lit --filter-out="optimizer" --xunit-xml-output ${{ steps.strings.outputs.work-dir }}/test_reports/report_${{matrix.build.runs-on}}_${{ matrix.build.image }}_${{strategy.job-index}}_${{steps.fetch-job-id.outputs.job_id}}.xml \
+          ${{ steps.strings.outputs.build-output-dir }}/test
+
+        echo
+        echo
         echo "Running tests on ${{ matrix.build.runs-on }} with image ${{ matrix.build.image }}"
         cat << 'EOF' > _test_to_run.json
           ${{ toJson(matrix.build.tests) }}

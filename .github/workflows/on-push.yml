@@ -49,6 +49,7 @@ jobs:
     with:
       docker_image: ${{ needs.build-image.outputs.docker-image }}
       test_matrix: ${{ needs.prepare-run.outputs.test_matrix }}
+      timeout: ${{ fromJson(needs.prepare-run.outputs.test_timeout) }}
   save-durations:
     needs: test
     runs-on: ubuntu-latest
@@ -68,5 +69,8 @@ jobs:
           rm -rf _test_durations*
   docs:
     if: github.ref == 'refs/heads/main'
+    needs: build-image
     uses: ./.github/workflows/call-build-docs.yml
     secrets: inherit
+    with:
+      docker-image: ${{ needs.build-image.outputs.docker-image }}

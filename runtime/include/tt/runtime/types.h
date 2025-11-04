@@ -194,7 +194,7 @@ struct MeshDeviceOptions {
   std::vector<uint32_t> meshOffset{0, 0};
   std::vector<int> deviceIds{};
   size_t numHWCQs = 1;
-  bool enableProgramCache = false;
+  bool enableProgramCache = true;
   std::optional<std::vector<uint32_t>> meshShape = std::nullopt;
   std::optional<size_t> l1SmallSize = std::nullopt;
   std::optional<size_t> traceRegionSize = std::nullopt;

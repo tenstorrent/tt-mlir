@@ -176,13 +176,16 @@ jobs:
           cat << 'EOF' > _test_durations
             ${{ vars.TEST_DURATIONS }}
           EOF
+          cat << 'EOF' > _civ2_offload_config.json
+            ${{ vars.CIV2_OFFLOAD_CONFIG }}
+          EOF
           TARGET_DURATION=${{ vars.TARGET_DURATION }}
           if [ -z "$TARGET_DURATION" ]; then
             TARGET_DURATION=30
           fi
           python .github/scripts/python/generate_test_matrix.py .github/settings/tests.json "$TARGET_DURATION" "$comp"
           echo "test-matrix=$(cat _test_matrix.json | jq -c)" >> $GITHUB_OUTPUT
-          timeout=$(($TARGET_DURATION * 2 + 10))
+          timeout=$(($TARGET_DURATION * 3 + 10))
           if [ $timeout -lt ${{ inputs.min_timeout }} ]; then
             timeout=${{ inputs.min_timeout }}
           fi
