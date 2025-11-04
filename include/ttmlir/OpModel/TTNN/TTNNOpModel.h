@@ -1119,7 +1119,9 @@ struct OpModel<MaxPool2dWithIndicesOp> {
       int32_t inputWidth, int32_t inputChannels,
       llvm::ArrayRef<int32_t> kernelSize, llvm::ArrayRef<int32_t> stride,
       llvm::ArrayRef<int32_t> padding, llvm::ArrayRef<int32_t> dilation,
-      bool ceilMode, bool inPlaceHalo, TTNNLayoutAttr outputLayout);
+      bool ceilMode, bool inPlaceHalo, bool deallocateInput,
+      bool reallocateHaloOutput, bool returnIndices,
+      TTNNLayoutAttr outputLayout);
 
   static llvm::Expected<size_t>
   getOpRuntime(llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
@@ -1127,7 +1129,9 @@ struct OpModel<MaxPool2dWithIndicesOp> {
                int32_t inputChannels, llvm::ArrayRef<int32_t> kernelSize,
                llvm::ArrayRef<int32_t> stride, llvm::ArrayRef<int32_t> padding,
                llvm::ArrayRef<int32_t> dilation, bool ceilMode,
-               bool inPlaceHalo, TTNNLayoutAttr outputLayout);
+               bool inPlaceHalo, bool deallocateInput,
+               bool reallocateHaloOutput, bool returnIndices,
+               TTNNLayoutAttr outputLayout);
 };
 
 //===----------------------------------------------------------------------===//

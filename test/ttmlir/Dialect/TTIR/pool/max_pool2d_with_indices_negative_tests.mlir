@@ -391,3 +391,41 @@ module {
     return %2, %3 : tensor<1x2x2x2xbf16>, tensor<1x2x2x2xf32>
   }
 }
+
+// -----
+// Test 22: MaxPool2dWithIndicesOp with kernel attribute having wrong size (single element)
+module {
+  func.func @max_pool2d_with_indices_kernel_wrong_size_single(%arg0: tensor<1x1x1024x64xbf16>) -> (tensor<1x1x900x64xbf16>, tensor<1x1x900x64xi32>) {
+    %0 = ttir.empty() : tensor<1x1x900x64xbf16>
+    %1 = ttir.empty() : tensor<1x1x900x64xi32>
+    // CHECK:  error: 'ttir.max_pool2d_with_indices' op Expected integer or pair of integers, got tuple of size 1 for kernel attribute
+    %2, %3 = "ttir.max_pool2d_with_indices"(%arg0, %0, %1) <{
+      kernel = array<i32: 3>,
+      stride = array<i32: 1, 1>,
+      dilation = array<i32: 1, 1>,
+      padding = array<i32: 0, 0, 0, 0>,
+      ceil_mode = false,
+      flattened_compat_info = #ttir<flattened_compat batch_size = 1, input_height = 32, input_width = 32>
+    }> : (tensor<1x1x1024x64xbf16>, tensor<1x1x900x64xbf16>, tensor<1x1x900x64xi32>) -> (tensor<1x1x900x64xbf16>, tensor<1x1x900x64xi32>)
+    return %2, %3 : tensor<1x1x900x64xbf16>, tensor<1x1x900x64xi32>
+  }
+}
+
+// -----
+// Test 23: MaxPool2dWithIndicesOp with padding attribute having wrong size (single element)
+module {
+  func.func @max_pool2d_with_indices_padding_wrong_size_single(%arg0: tensor<1x1x1024x64xbf16>) -> (tensor<1x1x900x64xbf16>, tensor<1x1x900x64xi32>) {
+    %0 = ttir.empty() : tensor<1x1x900x64xbf16>
+    %1 = ttir.empty() : tensor<1x1x900x64xi32>
+    // CHECK:  error: 'ttir.max_pool2d_with_indices' op Expected integer, pair, or tuple of size 4, but got tuple of size 1 for padding attribute
+    %2, %3 = "ttir.max_pool2d_with_indices"(%arg0, %0, %1) <{
+      kernel = array<i32: 3, 3>,
+      stride = array<i32: 1, 1>,
+      dilation = array<i32: 1, 1>,
+      padding = array<i32: 1>,
+      ceil_mode = false,
+      flattened_compat_info = #ttir<flattened_compat batch_size = 1, input_height = 32, input_width = 32>
+    }> : (tensor<1x1x1024x64xbf16>, tensor<1x1x900x64xbf16>, tensor<1x1x900x64xi32>) -> (tensor<1x1x900x64xbf16>, tensor<1x1x900x64xi32>)
+    return %2, %3 : tensor<1x1x900x64xbf16>, tensor<1x1x900x64xi32>
+  }
+}

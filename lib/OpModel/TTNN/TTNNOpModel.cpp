@@ -4608,7 +4608,9 @@ llvm::Expected<OpConstraints> OpModel<MaxPool2dWithIndicesOp>::getOpConstraints(
     int32_t inputWidth, int32_t inputChannels,
     llvm::ArrayRef<int32_t> kernelSize, llvm::ArrayRef<int32_t> stride,
     llvm::ArrayRef<int32_t> padding, llvm::ArrayRef<int32_t> dilation,
-    bool ceilMode, bool inPlaceHalo, TTNNLayoutAttr outputLayout) {
+    bool ceilMode, bool inPlaceHalo, bool deallocateInput,
+    bool reallocateHaloOutput, bool returnIndices,
+    TTNNLayoutAttr outputLayout) {
 
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
@@ -4640,7 +4642,8 @@ llvm::Expected<OpConstraints> OpModel<MaxPool2dWithIndicesOp>::getOpConstraints(
             padding),
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(dilation),
         ceilMode, detail::getNullableMemoryConfig(outputLayout),
-        std::nullopt /* applied_shard_scheme */, inPlaceHalo);
+        std::nullopt /* applied_shard_scheme */, inPlaceHalo, deallocateInput,
+        reallocateHaloOutput, returnIndices);
   };
 
   return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
@@ -4656,6 +4659,7 @@ llvm::Expected<size_t> OpModel<MaxPool2dWithIndicesOp>::getOpRuntime(
     int32_t inputChannels, llvm::ArrayRef<int32_t> kernelSize,
     llvm::ArrayRef<int32_t> stride, llvm::ArrayRef<int32_t> padding,
     llvm::ArrayRef<int32_t> dilation, bool ceilMode, bool inPlaceHalo,
+    bool deallocateInput, bool reallocateHaloOutput, bool returnIndices,
     TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
@@ -4687,7 +4691,8 @@ llvm::Expected<size_t> OpModel<MaxPool2dWithIndicesOp>::getOpRuntime(
             padding),
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(dilation),
         ceilMode, detail::getNullableMemoryConfig(outputLayout),
-        std::nullopt /* applied_shard_scheme */, inPlaceHalo);
+        std::nullopt /* applied_shard_scheme */, inPlaceHalo, deallocateInput,
+        reallocateHaloOutput, returnIndices);
   };
 
   return operation::getOpRuntime(maxPool2DWithIndicesQuery);

@@ -840,7 +840,50 @@ public:
         /*reallocate_halo_output=*/emitter.emit(true),
         /*return_indices=*/emitter.emit(true)};
 
-    emitter.replaceOp(*this, args);
+    // MaxPool2dWithIndicesOp returns a std::vector<ttnn::Tensor> containing two
+    // elements: [0] = pooled tensor, [1] = corresponding indices. Extract both
+    // elements to replace the original MaxPool2dWithIndicesOp.
+    assert(srcOp.getNumResults() == 2 &&
+           "Expected two outputs for MaxPool2dWithIndicesOp (pooled tensor "
+           "and indices).");
+
+    using ReturnTy = std::vector<::ttnn::Tensor>;
+
+    auto maxPool2dWithIndicesOp = rewriter.create<emitc::CallOpaqueOp>(
+        srcOp.getLoc(),
+        rewriter.getType<emitc::OpaqueType>(ttnn_to_emitc::TypeNameV<ReturnTy>),
+        convertOpName(srcOp), rewriter.getArrayAttr(args),
+        /*template_args=*/nullptr, adaptor.getOperands());
+
+    SmallVector<Value> results;
+    for (unsigned i = 0; i < srcOp.getNumResults(); ++i) {
+      // Create index to access i-th element.
+      auto indexType = rewriter.getIndexType();
+      auto indexOp = rewriter.create<emitc::LiteralOp>(
+          srcOp.getLoc(), indexType, std::to_string(i));
+      Value indexVal = indexOp.getResult();
+
+      // Create LValue type for the tensor reference.
+      auto lvalueType = emitc::LValueType::get(emitc::OpaqueType::get(
+          rewriter.getContext(),
+          ttnn_to_emitc::TypeNameV<ReturnTy::value_type>));
+
+      // Get reference to the i-th element in the result vector.
+      auto subscriptOp = rewriter.create<emitc::SubscriptOp>(
+          srcOp.getLoc(), lvalueType, maxPool2dWithIndicesOp.getResult(0),
+          indexVal);
+
+      // Load the actual tensor value from the reference.
+      auto loadOp = rewriter.create<emitc::LoadOp>(
+          srcOp.getLoc(),
+          emitc::OpaqueType::get(
+              rewriter.getContext(),
+              ttnn_to_emitc::TypeNameV<ReturnTy::value_type>),
+          subscriptOp.getResult());
+      results.push_back(loadOp.getResult());
+    }
+
+    rewriter.replaceOp(srcOp, results);
     return success();
   }
 };

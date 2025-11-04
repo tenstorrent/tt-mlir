@@ -1941,49 +1941,6 @@ public:
       return sortOp.getResult(0);
     }
 
-    // MaxPool2dWithIndicesOp returns a std::vector<ttnn::Tensor> containing two
-    // elements: [0] = pooled tensor, [1] = corresponding indices. Extract both
-    // elements to replace the original MaxPool2dWithIndicesOp.
-    if constexpr (std::is_same_v<TTNNOp, tt::ttnn::MaxPool2dWithIndicesOp>) {
-      assert(op.getNumResults() == 2 &&
-             "Expected two outputs for MaxPool2dWithIndicesOp (pooled tensor "
-             "and indices).");
-      using ReturnTy = std::vector<::ttnn::Tensor>;
-      auto maxPool2dWithIndicesOp = rewriter.create<emitc::CallOpaqueOp>(
-          op.getLoc(), rewriter.getType<emitc::OpaqueType>(TypeNameV<ReturnTy>),
-          opConversionPattern.convertOpName(op), rewriter.getArrayAttr(args),
-          /*template_args=*/nullptr, operands);
-
-      SmallVector<Value> results;
-      for (unsigned i = 0; i < op.getNumResults(); ++i) {
-        // Create index to access i-th element.
-        auto indexType = rewriter.getIndexType();
-        auto indexOp = rewriter.create<emitc::LiteralOp>(op.getLoc(), indexType,
-                                                         std::to_string(i));
-        Value indexVal = indexOp.getResult();
-
-        // Create LValue type for the tensor reference.
-        auto lvalueType = emitc::LValueType::get(emitc::OpaqueType::get(
-            rewriter.getContext(), TypeNameV<ReturnTy::value_type>));
-
-        // Get reference to the i-th element in the result vector.
-        auto subscriptOp = rewriter.create<emitc::SubscriptOp>(
-            op.getLoc(), lvalueType, maxPool2dWithIndicesOp.getResult(0),
-            indexVal);
-
-        // Load the actual tensor value from the reference.
-        auto loadOp = rewriter.create<emitc::LoadOp>(
-            op.getLoc(),
-            emitc::OpaqueType::get(rewriter.getContext(),
-                                   TypeNameV<ReturnTy::value_type>),
-            subscriptOp.getResult());
-        results.push_back(loadOp.getResult());
-      }
-
-      rewriter.replaceOp(op, results);
-      return maxPool2dWithIndicesOp.getResult(0);
-    }
-
     auto resultTypes = llvm::to_vector(
         llvm::map_range(op->getResultTypes(), [&](Type type) -> Type {
           return opConversionPattern.getTypeConverter()->convertType(type);

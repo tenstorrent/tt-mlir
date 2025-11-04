@@ -14,12 +14,9 @@ table AvgPool2dExtraParams {
 
 table MaxPool2dExtraParams {}
 
-table MaxPool2dWithIndicesExtraParams {}
-
 union Pool2dExtraParams {
   AvgPool2dExtraParams,
-  MaxPool2dExtraParams,
-  MaxPool2dWithIndicesExtraParams
+  MaxPool2dExtraParams
 }
 
 table Pool2dOp {
@@ -69,7 +66,7 @@ table UpsampleOp {
   out: tt.target.ttnn.TensorRef;
 }
 
-table MaxPool2dWithIndicesOp{
+table MaxPool2dWithIndicesOp {
   in: tt.target.ttnn.TensorRef;
   result: tt.target.ttnn.TensorRef;
   result_indices: tt.target.ttnn.TensorRef;
@@ -81,7 +78,6 @@ table MaxPool2dWithIndicesOp{
   stride: [int32];
   padding: [int32];
   dilation: [int32];
-  extra_params: Pool2dExtraParams;
   memory_config: tt.target.ttnn.MemoryConfig;
   applied_shard_scheme: tt.target.ttnn.TensorMemoryLayout = null;
   ceil_mode: bool = false;
