@@ -82,7 +82,17 @@ static std::pair<Value, Value> getMcastEndCoords(PatternRewriter &rewriter,
               index(rewriter, loc, 1))};
 }
 
-static Value getCB(ConversionPatternRewriter &rewriter, Value cb) {
+static Value getCBImpl(ConversionPatternRewriter &rewriter, Value cb, int depth = 0) {
+  // Prevent infinite recursion with depth limit
+  constexpr int MAX_DEPTH = 10;
+  if (depth >= MAX_DEPTH) {
+    // Hit recursion limit - return output CB as fallback
+    if (auto loadOp = cb.getDefiningOp<memref::LoadOp>()) {
+      return getOutCB(rewriter, loadOp.getOperation());
+    }
+    return cb;
+  }
+
   if (memref::LoadOp loadOp =
           mlir::dyn_cast<memref::LoadOp>(cb.getDefiningOp());
       loadOp) {
@@ -130,7 +140,7 @@ static Value getCB(ConversionPatternRewriter &rewriter, Value cb) {
             Operation *tileOp = intermediateTile.getDefiningOp();
 
             if (tileOp && tileOp->getNumOperands() > 0) {
-              Value sourceCB = getCB(rewriter, tileOp->getOperand(0));
+              Value sourceCB = getCBImpl(rewriter, tileOp->getOperand(0), depth + 1);
               return sourceCB;
             }
           }
@@ -168,6 +178,11 @@ static Value getCB(ConversionPatternRewriter &rewriter, Value cb) {
   }
 
   llvm_unreachable("Expected load or subview op");
+}
+
+// Public interface - calls implementation with depth 0
+static Value getCB(ConversionPatternRewriter &rewriter, Value cb) {
+  return getCBImpl(rewriter, cb, 0);
 }
 
 static Value getDstIdxFromResult(Value d2mOpResult) {
