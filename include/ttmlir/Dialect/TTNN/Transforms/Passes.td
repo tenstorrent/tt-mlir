@@ -306,4 +306,29 @@ def TTNNWeightBFP8Conversion: Pass<"ttnn-weight-bfp8-conversion", "::mlir::Modul
   }];
 }
 
+def TTNNCollectMetrics: Pass<"ttnn-collect-metrics", "::mlir::ModuleOp"> {
+  let summary = "Collect and export TTNN operation metrics.";
+  let description = [{
+    This pass collects metrics about TTNN operations and their memory placement,
+    including information about sharded layouts, DRAM spills, and system memory usage.
+    The metrics are serialized to JSON format for debugging, profiling, and external analysis.
+
+    Metrics collected:
+    - total_ops: Total TTNN operations with tensor outputs
+    - sharded_ops: Operations using sharded layouts (height/width/block sharded)
+    - effectively_sharded_ops: Sharded ops that are NOT spilled to DRAM
+    - sharded_and_spilled_ops: Sharded ops whose output is spilled to DRAM
+    - dram_spilled_ops: Total operations spilled to DRAM (interleaved)
+    - system_memory_ops: Operations with system_memory buffer type
+    - Percentages: All counts as percentage of total_ops
+  }];
+
+  let options = [
+    Option<"optimizerMetricsOutputFile", "optimizer-metrics-output-file", "std::string", /*default=*/"\"optimizer_metrics.json\"",
+           "Output file path for the metrics JSON">,
+    Option<"optimizerMetricsVerboseOutputEnabled", "optimizer-metrics-verbose-output-enabled", "bool", /*default=*/"false",
+           "Enable verbose output with per-operation details">
+  ];
+}
+
 #endif
