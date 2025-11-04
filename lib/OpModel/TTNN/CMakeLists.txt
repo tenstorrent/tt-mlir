@@ -27,11 +27,12 @@ else()
     message(WARNING "TTNNOpModelLib is disabled. The optimizer will not achieve optimal performance.")
 endif()
 
-# Specify the include directories for the library
+# Specify the include directories for the library.
 target_include_directories(${LIB_NAME}
     PUBLIC
-    ${CMAKE_CURRENT_SOURCE_DIR}/
-    ${PROJECT_SOURCE_DIR}/include/ttmlir/OpModel/TTNN/)
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/>
+    $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include/ttmlir/OpModel/TTNN/>
+    $<INSTALL_INTERFACE:include/ttmlir/OpModel/TTNN>)
 
 target_link_libraries(${LIB_NAME} PUBLIC coverage_config)
 
