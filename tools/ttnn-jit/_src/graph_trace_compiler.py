@@ -4,9 +4,59 @@
 
 from ttmlir.ir import *
 from ttmlir.dialects import ttnn, func, ttcore
-from typing import Dict, List, Any, Optional, Set
+from typing import Dict, List, Any, Optional, Set, Union
+from dataclasses import dataclass
 import json
 import re
+
+
+@dataclass
+class ParsedArgument:
+    """
+    Represents a parsed argument with its type and value.
+    """
+
+    arg_type: str  # "tensor_ref", "input_tensor", "constant", "nullopt", "unsupported"
+    raw_value: str  # Original string value
+    parsed_value: Optional[
+        Union[int, float]
+    ] = None  # Parsed numeric value if applicable
+
+
+def parse_argument(arg: str) -> ParsedArgument:
+    """
+    Parse an argument string and return a structured representation.
+    This function is called once during graph creation to avoid repeated regex matching.
+    """
+    if arg == "nullopt":
+        return ParsedArgument(arg_type="nullopt", raw_value=arg)
+
+    if arg.startswith("[ unsupported type"):
+        return ParsedArgument(arg_type="unsupported", raw_value=arg)
+
+    # Check if it's a tensor reference (e.g., "tensor: 0" or "tensor:0")
+    match = re.match(r"tensor:\s*(\d+)", arg)
+    if match:
+        tensor_ref = int(match.group(1))
+        return ParsedArgument(
+            arg_type="tensor_ref", raw_value=arg, parsed_value=tensor_ref
+        )
+
+    # Check if it's an input tensor (starts with "Tensor(...")
+    if arg.startswith("Tensor("):
+        return ParsedArgument(arg_type="input_tensor", raw_value=arg)
+
+    # Try to parse as a numeric constant (float)
+    try:
+        float_val = float(arg)
+        return ParsedArgument(
+            arg_type="constant", raw_value=arg, parsed_value=float_val
+        )
+    except (ValueError, TypeError):
+        pass
+
+    # Default: treat as a generic string argument
+    return ParsedArgument(arg_type="other", raw_value=arg)
 
 
 class Vertex:
@@ -21,12 +71,14 @@ class Vertex:
         connections: List[int],
         arguments: List[Any] = None,
         params: Dict[str, Any] = None,
+        parsed_arguments: Optional[List[ParsedArgument]] = None,
     ):
         self.id = counter
         self.node_type = node_type
         self.connections = sorted(list(set(connections)))
         self.arguments = arguments or []
         self.params = params or {}
+        self.parsed_arguments = parsed_arguments  # Pre-parsed arguments for efficiency
 
         # For traversal
         self.stacking_level = 0
@@ -85,7 +137,7 @@ class ClusterVertex:
         return self.__str__()
 
 
-class Graph:
+class JitGraph:
     """
     Represents a graph structure built from the JSON data.
     """
@@ -139,21 +191,6 @@ class Graph:
     def get_parent_vertices(self, vertex_id: int) -> List[Vertex]:
         """Get all vertices that connect to this vertex."""
         return [v for v in self.vertices.values() if vertex_id in v.connections]
-
-    def merge_vertex(self, vertex: Vertex) -> None:
-        parents = self.get_parent_vertices(vertex.id)
-
-        # Update parent pointers
-        for parent in parents:
-            parent_to_child_connections = parent.connections
-            # remove vertex.id from parent_to_child_connections
-            parent_to_child_connections.remove(vertex.id)
-            parent_to_child_connections.extend(vertex.connections)
-            parent_to_child_connections = list(set(parent_to_child_connections))
-            parent.connections = sorted(parent_to_child_connections)
-
-        self.vertices.pop(vertex.id)
-        del vertex
 
     def clusterize(self) -> None:
         # iterate graph vertices with index
@@ -254,8 +291,8 @@ class Graph:
             json.dump(self.to_dict_list(), f, indent=2)
 
 
-def load_graph_from_captured_graph(captured_graph: List[Dict[str, Any]]) -> Graph:
-    graph = Graph()
+def load_graph_from_captured_graph(captured_graph: List[Dict[str, Any]]) -> JitGraph:
+    graph = JitGraph()
     for vertex_data in captured_graph:
         graph.add_vertex(vertex_data)
     graph.process_stacking_levels()
@@ -266,7 +303,7 @@ def load_graph_from_captured_graph(captured_graph: List[Dict[str, Any]]) -> Grap
     return graph
 
 
-def create_simplified_graph_from_clusterized(graph: Graph) -> Graph:
+def create_simplified_graph_from_clusterized(graph: JitGraph) -> JitGraph:
     """
     Create a simplified graph from clusters, preserving correct tensor references using CONNECTIONS.
 
@@ -275,7 +312,7 @@ def create_simplified_graph_from_clusterized(graph: Graph) -> Graph:
     - If a cluster has incoming connections from other clusters, those are its input tensors
     - We need to map those to either input arguments or results of previous simplified operations
     """
-    new_graph = Graph()
+    new_graph = JitGraph()
 
     # Build mapping: which clusters connect to which clusters
     # cluster_connections already gives us this information
@@ -374,6 +411,9 @@ def create_simplified_graph_from_clusterized(graph: Graph) -> Graph:
                 # Not a tensor argument, keep as-is
                 corrected_arguments.append(arg)
 
+        # Parse arguments once during graph creation for efficiency
+        parsed_args = [parse_argument(arg) for arg in corrected_arguments]
+
         added_vertex = new_graph.add_vertex(
             {
                 "counter": cluster_vertex.cluster_idx,
@@ -383,6 +423,9 @@ def create_simplified_graph_from_clusterized(graph: Graph) -> Graph:
                 "params": first_vertex.params,
             }
         )
+
+        # Store the parsed arguments for efficient access during IR generation
+        added_vertex.parsed_arguments = parsed_args
 
         # For some reason, ttnn::ones calls somehow always point to next node in the graph + the correct node where its resulting tensor is consumed - fixing this by taking only the consumption node
         if added_vertex.params["name"] == "ttnn::ones":
@@ -521,31 +564,14 @@ class GraphToIRCompiler:
         op_name = self._adjust_op_name(op_name)
         return op_name
 
-    def _parse_float_argument(self, arg):
-        """Parse a float value from argument string."""
-        try:
-            return float(arg)
-        except (ValueError, TypeError):
-            return None
-
-    def _is_input_tensor(self, arg):
-        """Check if argument is an input tensor (not a reference to previous operation)."""
-        return arg.startswith("Tensor(")
-
-    def _get_tensor_reference(self, arg):
-        """Extract tensor reference index from 'tensor: N' format."""
-        match = re.match(r"tensor:\s*(\d+)", arg)
-        if match:
-            return int(match.group(1))
-        return None
-
-    def _count_input_tensors(self, node):
-        """Count number of input tensor arguments."""
-        count = 0
-        for arg in node["arguments"]:
-            if self._is_input_tensor(arg):
-                count += 1
-        return count
+    def _extract_op_name_from_vertex(self, vertex: Vertex):
+        """Extract operation name from vertex."""
+        name = vertex.params.get("name", "")
+        op_name = name
+        if "::" in name:
+            op_name = name.split("::")[-1]
+        op_name = self._adjust_op_name(op_name)
+        return op_name
 
     def compile(self):
         """Generate MLIR module from captured graph."""
@@ -616,11 +642,15 @@ class GraphToIRCompiler:
             # Map operation index to MLIR values (for tracking intermediate results)
             operation_results = {}
 
-            # Process each node in the simplified graph
-            for node in self.simplified_graph.to_dict_list():
-                op_name = self._extract_op_name(node)
+            # Process each vertex in the simplified graph
+            # Use vertices directly to access pre-parsed arguments
+            vertices = sorted(
+                self.simplified_graph.vertices.values(), key=lambda v: v.id
+            )
+            for vertex in vertices:
+                op_name = self._extract_op_name_from_vertex(vertex)
                 result = self._process_node(
-                    node,
+                    vertex,
                     op_name,
                     tensor_id_to_value,
                     operation_results,
@@ -630,19 +660,33 @@ class GraphToIRCompiler:
 
                 # Store result for this operation index
                 if result is not None:
-                    operation_results[node["index"]] = result
+                    operation_results[vertex.id] = result
 
             # Return the last result
-            if len(self.simplified_graph.to_dict_list()) > 0:
-                last_node_idx = self.simplified_graph.to_dict_list()[-1]["index"]
-                final_result = operation_results[last_node_idx]
+            if len(vertices) > 0:
+                last_vertex = vertices[-1]
+                final_result = operation_results[last_vertex.id]
                 func.ReturnOp([final_result])
 
     def _process_node(
-        self, node, op_name, tensor_id_to_value, operation_results, device, result_type
+        self,
+        vertex,
+        op_name,
+        tensor_id_to_value,
+        operation_results,
+        device,
+        result_type,
     ):
-        """Process a single node and generate the corresponding MLIR operation."""
-        arguments = node["arguments"]
+        """Process a single node and generate the corresponding MLIR operation.
+
+        Uses pre-parsed arguments from the vertex for efficiency, avoiding repeated regex matching.
+        """
+        # Use pre-parsed arguments if available, otherwise fall back to parsing raw arguments
+        if vertex.parsed_arguments is not None:
+            parsed_args = vertex.parsed_arguments
+        else:
+            # Fallback for vertices that weren't parsed (shouldn't happen in normal flow)
+            parsed_args = [parse_argument(arg) for arg in vertex.arguments]
 
         # Collect operands for the operation
         operands = []
@@ -651,15 +695,15 @@ class GraphToIRCompiler:
         # Track the count of input tensors seen so far
         input_tensor_idx = 0
 
-        for arg in arguments:
-            if arg == "nullopt" or arg.startswith("[ unsupported type"):
+        for parsed_arg in parsed_args:
+            if parsed_arg.arg_type == "nullopt" or parsed_arg.arg_type == "unsupported":
                 # Skip nullopt and unsupported arguments
                 continue
 
-            # Check if it's a tensor reference (e.g., "tensor: 0")
-            # After simplification, this references the simplified operation index
-            tensor_ref = self._get_tensor_reference(arg)
-            if tensor_ref is not None:
+            if parsed_arg.arg_type == "tensor_ref":
+                # This is a tensor reference (e.g., "tensor: 0")
+                tensor_ref = parsed_arg.parsed_value
+
                 # Check if it's an intermediate result (operation index)
                 if tensor_ref in operation_results:
                     operands.append(operation_results[tensor_ref])
@@ -674,9 +718,9 @@ class GraphToIRCompiler:
                     )
                 continue
 
-            # Check if it's an input tensor (starts with "Tensor(...")
-            # This happens for operations that directly take the input
-            if self._is_input_tensor(arg):
+            if parsed_arg.arg_type == "input_tensor":
+                # This is an input tensor (starts with "Tensor(...")
+                # This happens for operations that directly take the input
                 # All "Tensor(...)" arguments refer to the original input(s)
                 # For now, we assume they reference the same input tensor(s) in order
                 # If we have multiple inputs, use input_tensor_idx to track which one
@@ -692,10 +736,9 @@ class GraphToIRCompiler:
                 input_tensor_idx += 1
                 continue
 
-            # Check if it's a numeric constant
-            float_val = self._parse_float_argument(arg)
-            if float_val is not None:
-                constant_value = float_val
+            if parsed_arg.arg_type == "constant":
+                # This is a numeric constant
+                constant_value = parsed_arg.parsed_value
 
         # Generate the MLIR operation
         return self._create_ttnn_op(

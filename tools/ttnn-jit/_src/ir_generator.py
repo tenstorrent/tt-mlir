@@ -74,8 +74,8 @@ def compare_ir(ir_graph, ir_ast):
     assert ir_str_graph == ir_str_ast, "IRs are different"
 
 
-def generate_ir(use_ast_compiler, source_code, f, debug, *args, **kwargs):
-    if use_ast_compiler:
-        return generate_ir_from_ast(source_code, debug, *args, **kwargs)
-    else:
+def generate_ir(graph_capture, source_code, f, debug, *args, **kwargs):
+    if graph_capture:
         return generate_ir_from_graph(f, debug, *args, **kwargs)
+    else:
+        return generate_ir_from_ast(source_code, debug, *args, **kwargs)

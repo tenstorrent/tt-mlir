@@ -13,7 +13,7 @@ def jit(
     compile_only: bool = False,
     debug: bool = False,
     enable_cache: bool = False,
-    use_ast_compiler: bool = False,
+    graph_capture: bool = True,
 ):
     """
     Sets up the decorated function to be JIT compiled through D2M.
@@ -22,7 +22,7 @@ def jit(
         max_grid: The maximum grid size for the JIT-compiled function.
         compile_only: If True, only compile the function to a flatbuffer.
         debug: If True, print debug information during compilation and execution.
-        use_ast_compiler: If True, use the TTIR compiler to generate the IR. Otherwise, uses graph trace
+        graph_capture: If True, use graph trace compiler to generate the IR. Otherwise, uses AST compiler (TTIR).
 
     Returns:
         A wrapped version of the function that when invoked, will JIT compile through D2M and execute the resulting flatbuffer.
@@ -35,7 +35,7 @@ def jit(
             compile_only,
             debug,
             enable_cache,
-            use_ast_compiler,
+            graph_capture,
         )
 
         if inspect.ismethod(f):

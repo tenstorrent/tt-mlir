@@ -31,14 +31,14 @@ class JitFunction:
         compile_only: bool,
         debug: bool,
         enable_cache: bool,
-        use_ast_compiler: bool,
+        graph_capture: bool,
     ):
         self.func = func
         self.source_code = _cleanup_source_code(func)
         self.max_grid = max_grid
         self.compile_only = compile_only
         self.debug = debug
-        self.use_ast_compiler = use_ast_compiler
+        self.graph_capture = graph_capture
         self.out_dir = os.path.join("generated", "pykernels")
         os.makedirs(self.out_dir, exist_ok=True)
 
@@ -73,7 +73,7 @@ class JitFunction:
             return _run_binary(fb_binary, args)
 
         ir = generate_ir(
-            self.use_ast_compiler,
+            self.graph_capture,
             self.source_code,
             self.func,
             self.debug,
