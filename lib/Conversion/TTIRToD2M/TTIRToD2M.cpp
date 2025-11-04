@@ -1087,13 +1087,13 @@ public:
     // Build affine expressions for the reshape map
     // The map goes from output device coords to input device coords
     // Device coords are: [grid_dims..., shard_dims...]
-    unsigned outputLogicalRank = static_cast<unsigned>(outputShape.size());
-    unsigned inputLogicalRank = static_cast<unsigned>(inputShape.size());
+    int32_t outputLogicalRank = static_cast<int32_t>(outputShape.size());
+    int32_t inputLogicalRank = static_cast<int32_t>(inputShape.size());
 
     // Step 1: Linearize output shard coordinates into a flat index
     // Output shard dims start at index outputLogicalRank
     AffineExpr linearIdx = rewriter.getAffineConstantExpr(0);
-    for (unsigned i = 0; i < outputLogicalRank; ++i) {
+    for (int32_t i = 0; i < outputLogicalRank; ++i) {
       AffineExpr dim = rewriter.getAffineDimExpr(outputLogicalRank + i);
       AffineExpr strideExpr = rewriter.getAffineConstantExpr(outputStrides[i]);
       linearIdx = linearIdx + dim * strideExpr;
@@ -1103,13 +1103,19 @@ public:
     SmallVector<AffineExpr> reshapeExprs;
 
     // First, add input grid dimensions (all zeros since we use 1x1x...x1 grids)
-    for (unsigned i = 0; i < inputLogicalRank; ++i) {
+    llvm::errs() << "inputLogicalRank: " << inputLogicalRank << "\n";
+    llvm::errs() << "outputLogicalRank: " << outputLogicalRank << "\n";
+    for (int32_t i = 0; i < inputLogicalRank - 2; ++i) {
       reshapeExprs.push_back(rewriter.getAffineConstantExpr(0));
+    }
+    for (int32_t i = 0; i < 2; ++i) {
+      reshapeExprs.push_back(
+          rewriter.getAffineDimExpr(outputLogicalRank - 2 + i));
     }
 
     // Then, convert linear index to input shard coordinates
     AffineExpr remainingIdx = linearIdx;
-    for (unsigned i = 0; i < inputLogicalRank; ++i) {
+    for (int32_t i = 0; i < inputLogicalRank; ++i) {
       if (i == inputLogicalRank - 1) {
         // Last dimension: just use the remaining index
         reshapeExprs.push_back(remainingIdx);
@@ -1127,7 +1133,7 @@ public:
     llvm::errs() << "]\n";
 
     // Map from output device coordinates to input device coordinates
-    unsigned outputDeviceRank = outputLogicalRank * 2;
+    int32_t outputDeviceRank = outputLogicalRank * 2;
     AffineMap reshapeMap =
         AffineMap::get(outputDeviceRank, 0, reshapeExprs, ctx);
 
@@ -1138,11 +1144,11 @@ public:
     // Create output layout with the reshape index map
     llvm::SmallVector<int64_t> outputPhysicalShape;
     // Add grid dimensions (1 for each logical dimension)
-    for (unsigned i = 0; i < outputLogicalRank; ++i) {
+    for (int32_t i = 0; i < outputLogicalRank; ++i) {
       outputPhysicalShape.push_back(1);
     }
     // Add shard dimensions (the actual output shape)
-    for (unsigned i = 0; i < outputLogicalRank; ++i) {
+    for (int32_t i = 0; i < outputLogicalRank; ++i) {
       outputPhysicalShape.push_back(outputShape[i]);
     }
 
