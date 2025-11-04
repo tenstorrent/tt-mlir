@@ -280,7 +280,18 @@ buildDeviceToLogicalMap(mlir::tt::ttcore::MetalLayoutAttr layout,
       mlir::AffineMap::get(physRank, 0, logicalExprs, context);
 
   // Compose: device -> physical -> logical
-  return physicalToLogical.compose(deviceToPhysical);
+  auto deviceToLogical = physicalToLogical.compose(deviceToPhysical);
+
+  // If the layout has an existing index map (view), compose through it.
+  // The indexAffineMap transforms device coords before the standard
+  // device->physical->logical transformation.
+  auto existingIndexMap = layout.getIndexAffineMap();
+  if (existingIndexMap && !existingIndexMap.isEmpty()) {
+    // Compose: modified_device -> device -> physical -> logical
+    deviceToLogical = deviceToLogical.compose(existingIndexMap);
+  }
+
+  return deviceToLogical;
 }
 
 // Build complete layout transformation from one layout to another.
