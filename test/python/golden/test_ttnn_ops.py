@@ -11,7 +11,6 @@ import operator
 from conftest import x86_only
 
 from builder.base.builder import Operand, Shape, TypeInfo
-from builder.base.builder_golden import BuilderGoldenTensor
 from builder.ttnn.ttnn_builder import TTNNBuilder
 from builder.base.builder_utils import compile_and_execute_ttnn
 from ttmlir.ir import DenseI32ArrayAttr
@@ -71,7 +70,7 @@ def test_clamp_tensor(shapes: List[Shape], request, device):
     )
 
 
-# Fails
+# Passes
 @pytest.mark.parametrize(
     "shapes", [[(10, 64, 32), (32, 128), (1,)]], ids=shapes_list_str
 )
@@ -174,7 +173,7 @@ def concat(
     return builder.concat([in0, in1, in2], dim=dim, unit_attrs=unit_attrs)
 
 
-# Fails
+# Passes
 @pytest.mark.parametrize("shape", [(1, 32, 32), (2, 16, 16), (1, 1, 64)], ids=shape_str)
 @pytest.mark.parametrize("dims", [[32, 1, 1], [1, 2, 2], [2, 3, 4], [1, 1, 1]])
 @pytest.mark.parametrize("dtype", [torch.float32, torch.int32], ids=["f32", "i32"])
@@ -599,6 +598,7 @@ def test_batch_norm(
     )
 
 
+# Fails
 @pytest.mark.parametrize("shape", [(1, 1, 5, 5)], ids=shape_str)
 @pytest.mark.parametrize("padding", [[0, 1, 2, 3, 4, 5, 6, 7]])
 @pytest.mark.parametrize("value", [0])
@@ -613,55 +613,6 @@ def test_pad(shape: Shape, padding: List[int], value: int, request, device):
     compile_and_execute_ttnn(
         pad,
         inputs_shapes=[shape],
-        test_base=request.node.name,
-        device=device,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
-    )
-
-
-@pytest.mark.parametrize("shape", [(32, 64)], ids=shape_str)
-@pytest.mark.parametrize("dim,begin,end,step", [(0, 0, 3, 1)])
-def test_index(
-    shape: Shape, dim: int, begin: int, end: int, step: int, request, device
-):
-    def index(
-        in0: Operand, builder: TTNNBuilder, unit_attrs: Optional[List[str]] = None
-    ):
-        return builder.index(
-            in0, dim=dim, begin=begin, end=end, step=step, unit_attrs=unit_attrs
-        )
-
-    compile_and_execute_ttnn(
-        index,
-        [shape],
-        test_base=request.node.name,
-        device=device,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
-    )
-
-
-@pytest.mark.parametrize("shape", [(4, 4)], ids=shape_str)
-@pytest.mark.parametrize("dim,begin,length,stride", [(1, 2, 2, 2)])
-def test_select(
-    shape: Shape, dim: int, begin: int, length: int, stride: int, request, device
-):
-    def select(
-        in0: Operand, builder: TTNNBuilder, unit_attrs: Optional[List[str]] = None
-    ):
-        return builder.select(
-            in0,
-            dim=dim,
-            begin=begin,
-            length=length,
-            stride=stride,
-            unit_attrs=unit_attrs,
-        )
-
-    compile_and_execute_ttnn(
-        select,
-        [shape],
         test_base=request.node.name,
         device=device,
         output_root=request.config.getoption("--path"),

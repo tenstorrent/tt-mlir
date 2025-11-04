@@ -18,8 +18,17 @@ from golden import *
 class TTNNBuilder(Builder):
     # ----- Methods -----
 
-    def __init__(self, ctx: Context, location: Location):
-        super().__init__(ctx, location)
+    def __init__(
+        self,
+        ctx: Context,
+        location: Location,
+        mesh_name: Union[List[str], str] = "mesh",
+        mesh_dict: Union[
+            List[OrderedDict[str, int]], OrderedDict[str, int]
+        ] = OrderedDict([("x", 1), ("y", 1)]),
+        disable_golden_check: bool = False,
+    ):
+        super().__init__(ctx, location, mesh_name, mesh_dict, disable_golden_check)
 
     # ----- Private Methods ----
 
@@ -92,7 +101,6 @@ class TTNNBuilder(Builder):
             print(result_tensor, inputs, output_type, ttnn_kwargs)
             print(*organize_ttnn_args(inputs, result_tensor))
             print(type(result_tensor))
-            print(type(inputs[0]))
             # Organize arguments and create the ttnn op.
             if organize_ttnn_args(inputs, result_tensor) == 0:
                 op = op_ttnn_function(
@@ -2607,7 +2615,8 @@ class TTNNBuilder(Builder):
         return self._op_proxy(
             ttnn.RepeatOp,
             [in0],
-            ttnn_kwargs={"repeat_dims": dims},
+            ttnn_kwargs={"repeat_dims": ttnn.ir.ShapeAttr.get(self._ctx, dims)},
+            golden_kwargs={"repeat_dimensions": dims},
             unit_attrs=unit_attrs,
         )
 
@@ -3110,6 +3119,7 @@ class TTNNBuilder(Builder):
             unit_attrs=unit_attrs,
         )
 
+    # Split into training and inference ops later
     def batch_norm(
         self,
         in0: Operand,
@@ -3212,6 +3222,7 @@ class TTNNBuilder(Builder):
             unit_attrs=unit_attrs,
         )
 
+    # figure out use_multicore
     def pad(
         self,
         in0: Operand,
@@ -3254,169 +3265,8 @@ class TTNNBuilder(Builder):
             ttnn.PadOp,
             [in0],
             ttnn_kwargs={"padding": padding, "value": value},
+            golden_kwargs={"padding": padding, "value": value},
             output_shape=output_shape,
-            unit_attrs=unit_attrs,
-        )
-
-    def select(
-        self,
-        in0: Operand,
-        dim: int = 0,
-        begin: int = 0,
-        length: int = 2,
-        stride: int = 2,
-        unit_attrs: Optional[List[str]] = None,
-    ) -> OpView:
-        """
-        Creates ``ttnn.select``.
-
-        *Tensor selection operation.*
-
-        Selects a slice of the input tensor along the specified dimension with given stride.
-
-        Parameters
-        ----------
-        in0 : Operand
-            Input tensor
-        dim : int, optional
-            Dimension to select from (default: 0)
-        begin : int, optional
-            Starting index (default: 0)
-        length : int, optional
-            Length of the slice (default: 2)
-        stride : int, optional
-            Stride between elements (default: 2)
-        unit_attrs : *Optional[List[str]]*, optional
-            Optional list of unit attributes
-
-        Returns
-        -------
-        (*OpView*)
-            The selected slice of the tensor
-        """
-        return self._op_proxy(
-            ttnn.IndexSelectOp,
-            [in0],
-            ttnn_kwargs={
-                "dim": dim,
-                "begin": begin,
-                "length": length,
-                "stride": stride,
-            },
-            unit_attrs=unit_attrs,
-        )
-
-    def index(
-        self,
-        in0: Operand,
-        dim: int,
-        begin: int,
-        end: int,
-        step: int,
-        unit_attrs: Optional[List[str]] = None,
-    ) -> OpView:
-        """
-        Creates ``ttnn.index``.
-
-        *Tensor indexing operation.*
-
-        Indexes into the input tensor along the specified dimension using a range of indices.
-
-        Parameters
-        ----------
-        in0 : Operand
-            Input tensor
-        dim : int
-            Dimension to index into
-        begin : int
-            Starting index
-        end : int
-            Ending index (exclusive)
-        step : int
-            Step size between indices
-        unit_attrs : *Optional[List[str]]*, optional
-            Optional list of unit attributes
-
-        Returns
-        -------
-        (*OpView*)
-            The indexed tensor
-        """
-        return self._op_proxy(
-            ttnn.IndexOp,
-            [in0],
-            ttnn_kwargs={"dim": dim, "begin": begin, "end": end, "step": step},
-            unit_attrs=unit_attrs,
-        )
-
-    def squeeze(
-        self,
-        in0: Operand,
-        dim: Optional[int] = 0,
-        unit_attrs: Optional[List[str]] = None,
-    ) -> OpView:
-        """
-        Creates ``ttnn.squeeze``.
-
-        *Tensor squeeze operation.*
-
-        Removes dimensions of size 1 from the shape of a tensor.
-        If dim is specified, only squeezes the dimension if it has size 1.
-
-        Parameters
-        ----------
-        in0 : Operand
-            Input tensor
-        dim : Optional[int], optional
-            Dimension to squeeze (default: 0)
-        unit_attrs : *Optional[List[str]]*, optional
-            Optional list of unit attributes
-
-        Returns
-        -------
-        (*OpView*)
-            Tensor with specified dimensions of size 1 removed
-        """
-        kwargs = {"dim": dim}
-        return self._op_proxy(
-            ttnn.SqueezeOp,
-            [in0],
-            ttnn_kwargs=kwargs,
-            unit_attrs=unit_attrs,
-        )
-
-    def unsqueeze(
-        self,
-        in0: Operand,
-        dim: Optional[int] = 0,
-        unit_attrs: Optional[List[str]] = None,
-    ) -> OpView:
-        """
-        Creates ``ttnn.unsqueeze``.
-
-        *Tensor unsqueeze operation.*
-
-        Adds a dimension of size 1 at the specified position.
-
-        Parameters
-        ----------
-        in0 : Operand
-            Input tensor
-        dim : Optional[int], optional
-            Position to insert the new dimension (default: 0)
-        unit_attrs : *Optional[List[str]]*, optional
-            Optional list of unit attributes
-
-        Returns
-        -------
-        (*OpView*)
-            Tensor with a new dimension of size 1 inserted
-        """
-        kwargs = {"dim": dim}
-        return self._op_proxy(
-            ttnn.UnsqueezeOp,
-            [in0],
-            ttnn_kwargs=kwargs,
             unit_attrs=unit_attrs,
         )
 
@@ -3455,6 +3305,7 @@ class TTNNBuilder(Builder):
             unit_attrs=unit_attrs,
         )
 
+    # Uh she gon` be a problem
     def zeros(
         self,
         shape: Shape,
@@ -3484,11 +3335,15 @@ class TTNNBuilder(Builder):
         """
         dtype = self._get_type_from_torch_dtype(data_type)
         output = self._create_ranked_tensor_type(shape, dtype)
+        print(data_type, dtype, output)
         return self._op_proxy(
             ttnn.ZerosOp,
             [],
-            ttnn_kwargs={"result": output, "shape": shape},
-            organize_ttnn_args=lambda i, o, shape: 0,
+            ttnn_kwargs={
+                "shape": ttnn.ir.ShapeAttr.get(self._ctx, shape),
+                "dtype": ttcore.ir.DataTypeAttr.get(self._ctx, 2),
+            },  # self._get_datatype_from_torch_dtype(data_type))},
+            golden_kwargs={"result": output, "shape": shape},
             output_type=dtype,
             unit_attrs=unit_attrs,
         )
