@@ -24,6 +24,17 @@ def add(
     return builder.add(in0, in1, unit_attrs=unit_attrs)
 
 
+def clamp(
+    in0: Operand,
+    in1: Operand,
+    in2: Operand,
+    builder: StableHLOBuilder,
+    unit_attrs: Optional[List[str]] = None,
+):
+    builder.set_graph_level_check(True)
+    return builder.clamp(in0, in1, in2, unit_attrs=unit_attrs)
+
+
 def abs(
     in0: Operand,
     builder: StableHLOBuilder,
@@ -205,6 +216,30 @@ def test_tan(shape: Shape, dtype: torch.dtype, target: str, request, device):
         tan,
         [shape],
         [dtype],
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
+        device=device,
+    )
+
+
+@pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("target", ["ttnn"])
+@pytest.mark.parametrize(
+    "test_fn",
+    [
+        clamp,
+    ],
+)
+def test_ternary_ops(
+    test_fn: Callable, shape: Shape, dtype: torch.dtype, target: str, request, device
+):
+    compile_and_execute_shlo(
+        test_fn,
+        [shape, shape, shape],
+        [dtype, dtype, dtype],
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
