@@ -7,7 +7,7 @@ import torch
 
 import pytest
 
-from ttnn_jit._src.utils import collapsed_linear_affine_map
+from ttnn_jit._src.utils import _get_collapsed_linear_affine_map
 from ttmlir.ir import *
 
 
@@ -39,7 +39,7 @@ def test_collapsed_affine_map(shape, grid_shape, collapse_intervals, idx):
     rank = len(shape)
     true_map = expected_map(idx, rank, context)
 
-    result_map = collapsed_linear_affine_map(context, shape, grid_shape, collapse_intervals)
+    result_map = _get_collapsed_linear_affine_map(context, shape, grid_shape, collapse_intervals)
 
     print("Expected Map: ", true_map)
     print("Result Map: ", result_map)
