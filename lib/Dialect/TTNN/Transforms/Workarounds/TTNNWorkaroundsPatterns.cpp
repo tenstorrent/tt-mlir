@@ -575,7 +575,6 @@ public:
               Conv2dEnableKernelStrideFoldingRewritePattern<ConvTranspose2dOp>,
           workarounds::decomposition::Conv2dSliceConfigUltraSpecificRewritePattern,
           workarounds::decomposition::Conv2dSliceConfigRewritePattern,
-          workarounds::decomposition::ConvTranspose2dMemoryConfigRewritePattern,
           workarounds::decomposition::ConcatenateHeadsOpRewritePattern>(
           &getContext());
 
