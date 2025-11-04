@@ -36,6 +36,9 @@ void createStableHLOPipeline(OpPassManager &pm,
 
   pm.addPass(createDecoupleConstFanoutPass());
 
+  // Flatten all composite ops to make sharding propagation easier.
+  pm.addPass(createFlattenCompositePass());
+
   // Apply sharding constraints.
   pm.addPass(mlir::sdy::createApplyShardingConstraintsPass());
 
@@ -74,6 +77,9 @@ void createStableHLOPipeline(OpPassManager &pm,
 
   // Split tensor dimensions according to tensor sharding annotations.
   pm.addPass(createUpdateGlobalToLocalShapesPass());
+
+  // Re-outline composite ops from flattened groups.
+  pm.addPass(createReoutlineCompositePass());
 
   // Close tensor shardings as analysis is complete.
   pm.addPass(mlir::sdy::createCloseShardingsPass());

@@ -442,8 +442,26 @@ convertShardyCCLToStableHLOCCL(MLIRContext *context,
   populateShardyCCLToStableHLOCCLPatterns(context, patterns);
   FrozenRewritePatternSet patternSet(std::move(patterns));
 
+  GreedyRewriteConfig config;
+  // We will disable constant CSE if there are any protected constants
+  // (i.e., constants from composite functions) to avoid removing them
+  // during the rewrite process.
+  const bool hasProtectedConst = [&] {
+    bool found = false;
+    rootModule.walk([&](mlir::stablehlo::ConstantOp cst) {
+      if (cst->hasAttr(sharding_utils::kGroupAttr)) {
+        found = true;
+        return mlir::WalkResult::interrupt();
+      }
+      return mlir::WalkResult::advance();
+    });
+    return found;
+  }();
+
+  config.enableConstantCSE(!hasProtectedConst);
+
   // Apply patterns greedily.
-  if (failed(applyPatternsGreedily(rootModule, patternSet))) {
+  if (failed(applyPatternsGreedily(rootModule, patternSet, config))) {
     rootModule.emitError("Could not convert shardy ccl operations into "
                          "stablehlo ccl operations");
     return mlir::failure();

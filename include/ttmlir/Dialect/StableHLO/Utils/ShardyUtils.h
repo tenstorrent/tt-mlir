@@ -176,6 +176,10 @@ private:
 // Return true if every dimension has no axes -> replicated.
 bool isFullyReplicatedTensor(mlir::sdy::TensorShardingAttr tsh);
 
+// Return true if the module has any sdy tensor sharding annotations that are
+// not fully replicated.
+bool isShardedModule(mlir::ModuleOp &module);
+
 #endif // #ifdef TTMLIR_ENABLE_STABLEHLO
 
 } // namespace mlir::tt::shardy_utils
