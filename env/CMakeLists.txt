@@ -2,9 +2,9 @@ cmake_minimum_required(VERSION 3.20.0)
 project(ttmlir-toolchain LANGUAGES CXX C)
 
 set(FLATBUFFERS_VERSION "fb9afbafc7dfe226b9db54d4923bfb8839635274")
-set(LLVM_PROJECT_VERSION "f8cb7987c64dcffb72414a40560055cb717dbf74")
-set(STABLEHLO_VERSION "e07debd5e257ec1e118f18c54068977b89f03b2f")
-set(SHARDY_VERSION "a8f93f165dd5e56a44c300ed68bb5233c43dd30c")
+set(LLVM_PROJECT_VERSION "4efe170d858eb54432f520abb4e7f0086236748b")
+set(STABLEHLO_VERSION "0a4440a5c8de45c4f9649bf3eb4913bf3f97da0d")
+set(SHARDY_VERSION "edfd6730ddfc39da5fbea8b6b202357fdf1cdb90")
 set(LLVM_BUILD_TYPE MinSizeRel CACHE STRING "Build type for LLVM")
 
 include(ExternalProject)
@@ -51,7 +51,7 @@ if(TTMLIR_BUILD_LLVM)
     ExternalProject_Add(
         llvm-project
         # Super hacky way to install the python dependencies before the build
-        PATCH_COMMAND git config user.email "tt-mlir@tenstorrent.com" && git config user.name "tenstorrent" && git apply --index "${CMAKE_CURRENT_LIST_DIR}/patches/llvm.patch" && git commit -m "tt-mlir related patch" && bash -c "source ${CMAKE_CURRENT_SOURCE_DIR}/activate && pip install -r mlir/python/requirements.txt"
+        PATCH_COMMAND bash -c "source ${CMAKE_CURRENT_SOURCE_DIR}/activate && pip install -r mlir/python/requirements.txt"
         CMAKE_GENERATOR Ninja
         CMAKE_ARGS
         -DCMAKE_BUILD_TYPE=${LLVM_BUILD_TYPE}

@@ -128,6 +128,12 @@ void createTTNNPipelineLoweringPasses(
 // Create a pass to workaround issues in the TTNN dialect.
 void createTTNNPipelineWorkaroundPass(
     OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
+
+  // If the workaround pass is disabled, skip adding it.
+  if (options.disableWorkarounds) {
+    return;
+  }
+
   TTNNWorkaroundsOptions workaroundOptions{
       options.layoutWorkaroundsEnabled,
       options.decompositionWorkaroundsEnabled};
