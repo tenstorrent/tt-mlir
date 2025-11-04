@@ -133,7 +133,7 @@ jobs:
         source env/activate
         cmake --build ${{ steps.strings.outputs.build-output-dir }} -- compile-ttmlir-tests
 
-    - name: Install all
+    - name: Install (default)
       shell: bash
       run: |
         source env/activate
