@@ -180,12 +180,18 @@ add_custom_target(tt-alchemist-prepare-wheel
     ${TTNN_INSTALL_DIR}
     ${PYTHON_WHEEL_DIR}/tt_alchemist/ttnn_install
 
-  EXCLUDE_FROM_ALL
   COMMENT "Preparing wheel directory with symlinks for editable install"
 )
 
+# Editable install (uses symlinks, no copying)
+add_custom_target(tt-alchemist-install-wheel-editable
+  DEPENDS tt-alchemist-prepare-wheel
+  COMMAND ${Python3_EXECUTABLE} -m pip install -e ${PYTHON_WHEEL_DIR} --no-deps
+  COMMENT "Installing tt-alchemist in editable mode"
+)
+
 # Build wheel (for distribution, copies files instead of symlinks)
-add_custom_target(tt-alchemist-build-wheel
+add_custom_target(tt-alchemist-build-wheel-distribution
   DEPENDS tt-alchemist-prepare-wheel
 
   # Clean previous build artifacts
@@ -201,31 +207,20 @@ add_custom_target(tt-alchemist-build-wheel
     --no-deps
 
   WORKING_DIRECTORY ${PYTHON_WHEEL_DIR}
-  EXCLUDE_FROM_ALL
   COMMENT "Building tt-alchemist wheel"
 )
 
 # Install wheel (non-editable)
-add_custom_target(tt-alchemist-install
-  DEPENDS tt-alchemist-build-wheel
+add_custom_target(tt-alchemist-install-wheel-distribution
+  DEPENDS tt-alchemist-build-wheel-distribution
   COMMAND ${Python3_EXECUTABLE} -m pip install
     --force-reinstall
     ${CMAKE_CURRENT_BINARY_DIR}/dist/*.whl
-  EXCLUDE_FROM_ALL
   COMMENT "Installing tt-alchemist wheel"
 )
 
-# Editable install (uses symlinks, no copying)
-add_custom_target(tt-alchemist-install-editable
-  DEPENDS tt-alchemist-prepare-wheel
-  COMMAND ${Python3_EXECUTABLE} -m pip install -e ${PYTHON_WHEEL_DIR} --no-deps
-  EXCLUDE_FROM_ALL
-  COMMENT "Installing tt-alchemist in editable mode"
-)
-
-# Main target (alias to non-editable install)
-add_custom_target(tt-alchemist
-  DEPENDS tt-alchemist-install
-  EXCLUDE_FROM_ALL
+# Main target (alias to editable install)
+add_custom_target(tt-alchemist ALL
+  DEPENDS tt-alchemist-install-wheel-editable
   COMMENT "Building and installing tt-alchemist"
 )
