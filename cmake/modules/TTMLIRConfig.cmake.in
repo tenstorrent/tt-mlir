@@ -12,4 +12,14 @@ set(TTMLIR_TOOLS_DIR "${TTMLIR_INSTALL_PREFIX}/bin")
 # Provide all our library targets to users.
 if(NOT TARGET TTMLIRSupport)
   @TTMLIR_CONFIG_INCLUDE_EXPORTS@
+
+  # Append include directories to all exported targets so they propagate properly.
+  foreach(target IN LISTS TTMLIR_EXPORTED_TARGETS)
+    if(TARGET TTMLIR::${target})
+      target_include_directories(TTMLIR::${target} INTERFACE
+        "${TTMLIR_INCLUDE_DIRS}"
+        "${MLIR_INCLUDE_DIRS}"
+      )
+    endif()
+  endforeach()
 endif()

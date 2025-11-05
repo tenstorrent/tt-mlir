@@ -19,7 +19,9 @@ if [ $# -lt 1 ]; then
   exit 1
 fi
 
-INSTALL_PREFIX="$1"
+# Convert to absolute path
+INSTALL_PREFIX="$(cd "$(dirname "$1")" && pwd)/$(basename "$1")"
+
 MLIR_PREFIX="${2:-/opt/ttmlir-toolchain}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
