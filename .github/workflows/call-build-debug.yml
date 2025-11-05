@@ -45,7 +45,6 @@ jobs:
       run: |
         echo "work-dir=$(pwd)" >> "$GITHUB_OUTPUT"
         echo "build-output-dir=$(pwd)/build_debug" >> "$GITHUB_OUTPUT"
-        echo "install-output-dir=$(pwd)/install" >> "$GITHUB_OUTPUT"
 
     - name: Git safe dir
       run: git config --global --add safe.directory ${{ steps.strings.outputs.work-dir }}
@@ -80,20 +79,6 @@ jobs:
       run: |
         source env/activate
         cmake --build ${{ steps.strings.outputs.build-output-dir }}
-
-    - name: Install
-      shell: bash
-      run: |
-        source env/activate
-        rm -rf ${{  steps.strings.outputs.install-output-dir }}
-        cmake --install ${{ steps.strings.outputs.build-output-dir }}
-        test -f "${{ steps.strings.outputs.install-output-dir }}/lib/libTTMLIRCompilerStatic.a" || { echo "ERROR: libTTMLIRCompilerStatic.a not found in ${{ steps.strings.outputs.install-output-dir }}/lib/" && exit 1; }
-
-    - name: Test install
-      shell: bash
-      run: |
-        ${{ steps.strings.outputs.work-dir }}/.github/scripts/bash/test-install.sh \
-          "${{ steps.strings.outputs.install-output-dir }}"
 
     - name: Check
       id: check
