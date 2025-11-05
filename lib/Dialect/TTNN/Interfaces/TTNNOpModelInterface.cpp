@@ -9,6 +9,7 @@
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
+#include "ttmlir/Dialect/TTNN/Interfaces/OpModelError.h"
 #include "ttmlir/Dialect/TTNN/Interfaces/TTNNOpModelInterface.cpp.inc"
 #include "ttmlir/OpModel/TTNN/TTNNOpModel.h"
 
@@ -24,35 +25,14 @@ namespace mlir::tt::ttnn {
 
 namespace detail {
 
+char OpNotSupportedError::ID = 0;
+
 template <typename T>
 inline std::string getAPITypeStr() {
   if constexpr (std::is_same_v<T, std::size_t>) {
     return "op_runtime";
   } else if constexpr (std::is_same_v<T, op_model::OpConstraints>) {
     return "op_constraint";
-  }
-}
-
-enum class ReasonForLackOfSupport {
-  NeedsMemoryIO,
-  MissingMetalDefinition,
-  NeedsMultiDevice,
-  NoNeedForConstraintAPI,
-  ArchitecturalMismatch,
-};
-
-inline std::string getReasonForLackOfSupportStr(ReasonForLackOfSupport reason) {
-  switch (reason) {
-  case ReasonForLackOfSupport::NeedsMemoryIO:
-    return "needs memory IO";
-  case ReasonForLackOfSupport::MissingMetalDefinition:
-    return "missing metal definition";
-  case ReasonForLackOfSupport::NeedsMultiDevice:
-    return "needs multi-device";
-  case ReasonForLackOfSupport::NoNeedForConstraintAPI:
-    return "no need for constraint API";
-  case ReasonForLackOfSupport::ArchitecturalMismatch:
-    return "architectural mismatch between dialects";
   }
 }
 
@@ -64,11 +44,8 @@ static llvm::Expected<T> issueError(mlir::Operation *op,
   static_assert(std::is_same_v<T, std::size_t> ||
                 std::is_same_v<T, op_model::OpConstraints>);
   auto opName = op->getName().getStringRef();
-  std::string error = getAPITypeStr<T>() + " is not supported for " +
-                      opName.str() + ". Reason: [" +
-                      getReasonForLackOfSupportStr(reason) + "]";
-  return llvm::make_error<llvm::StringError>(error,
-                                             llvm::inconvertibleErrorCode());
+  return llvm::make_error<OpNotSupportedError>(opName, reason,
+                                               getAPITypeStr<T>());
 }
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -2666,19 +2643,8 @@ MatmulOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 llvm::Expected<op_model::OpConstraints>
 DeallocateOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                                const OpConfig &opConfig) {
-  assert(inputs.size() == 1);
-  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
-  if (!check) {
-    return check.takeError();
-  }
-  ttcore::GridAttr deviceGrid =
-      ttcore::lookupDevice(getOperation()).getWorkerGrid();
-
-  auto inputShape = getInput().getType().getShape();
-
-  return opConstraintsCache().getOrCompute(
-      op_model::OpModel<DeallocateOp>::getOpConstraints, *this, deviceGrid,
-      inputShape, inputs[0], getForce());
+  return issueErrorForGetOpConstraints(
+      getOperation(), detail::ReasonForLackOfSupport::NoNeedForConstraintAPI);
 }
 
 llvm::Expected<size_t>
