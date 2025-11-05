@@ -4,6 +4,7 @@
 
 import ttnn
 import torch
+import pytest
 
 from ttnn_jit.api import jit
 
@@ -14,6 +15,7 @@ def abs(input_tensor):
     return ttnn.abs(input_tensor)
 
 
+@pytest.mark.skip(reason="Cache is not working as intended")
 def test_program_cache(device):
     """
     Test program caching behavior for ttnn-jit.

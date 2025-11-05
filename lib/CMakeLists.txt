@@ -26,6 +26,7 @@ set(TTMLIR_LIBS
   ${translation_libs}
   MLIRPass
   MLIRSupport
+  MLIRRegisterAllPasses
 )
 
 set(SHARDY_LIBS)

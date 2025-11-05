@@ -129,6 +129,14 @@ struct TTIRToTTMetalPipelineOptions
   Option<bool> ttnnMode{*this, "ttnn-mode",
                         llvm::cl::desc("D2M/TTNN integration mode."),
                         llvm::cl::init(false)};
+
+  // Option to set the target data format for the global data format conversion
+  // pass.
+  Option<std::string> globalDataFormatTarget{
+      *this, "global-data-format-target",
+      llvm::cl::desc("Target data format for global conversion: "
+                     "f32, bf16, or bfp_bf8. Disabled by default."),
+      llvm::cl::init("")};
 };
 
 void createTTIRBufferizationPipeline(

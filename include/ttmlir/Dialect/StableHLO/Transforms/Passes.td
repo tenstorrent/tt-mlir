@@ -124,6 +124,27 @@ def AnalyzeMeshPass : Pass<"analyze-mesh", "::mlir::ModuleOp">
   ];
 }
 
+def DecoupleConstFanoutPass : Pass<
+    "decouple-const-fanout", "::mlir::ModuleOp"> {
+  let summary = "Duplicate const-fed, value-preserving ops per-use to decouple propagation";
+  let description = [{
+    Duplicate const-fed, value-preserving ops per-use to avoid cross-path
+    coupling in sharding/shape propagation. Runs before sharding passes.
+
+    Initial target: `stablehlo.broadcast_in_dim` whose operand is a constant
+    (or rank-0 scalar) and whose result has multiple uses.
+
+    This keeps each consumer path independent, preventing one path's sharding
+    needs (e.g., via `maximum`) from affecting another path (e.g., `add` with
+    replicated bias).
+  }];
+
+  let dependentDialects = [
+    "::mlir::func::FuncDialect",
+    "::mlir::stablehlo::StablehloDialect"
+  ];
+}
+
 def WrapUnderManualComputationPass : Pass<"wrap-under-manual-computation", "::mlir::ModuleOp">
 {
   let summary = "Wrap all operations within a sdy manual computation op.";
