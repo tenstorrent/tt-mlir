@@ -314,20 +314,26 @@ def TTNNCollectMetrics: Pass<"ttnn-collect-metrics", "::mlir::ModuleOp"> {
     The metrics are serialized to JSON format for debugging, profiling, and external analysis.
 
     Metrics collected:
-    - total_ops: Total TTNN operations with tensor outputs
+    - total_ops: Total TTNN operations (excluding const-eval ops)
+    - total_ops_with_output_tensor: Total TTNN operations that produce output tensors
+    - total_shardable_ops: Total TTNN operations that can use sharded layouts
     - sharded_ops: Operations using sharded layouts (height/width/block sharded)
     - effectively_sharded_ops: Sharded ops that are NOT spilled to DRAM
     - sharded_and_spilled_ops: Sharded ops whose output is spilled to DRAM
     - dram_spilled_ops: Total operations spilled to DRAM (interleaved)
     - system_memory_ops: Operations with system_memory buffer type
-    - Percentages: All counts as percentage of total_ops
+    - Percentages: All counts as percentage of total_shardable_ops
+
+    Verbose output (--ttnn-metrics-verbose-output-enabled) includes:
+    - Detailed per-operation analysis with sharding and memory layout information for shardable ops
+    - Complete operation type breakdown with counts for all operation types (excluding const-eval functions)
   }];
 
   let options = [
     Option<"ttnnMetricsOutputFile", "ttnn-metrics-output-file", "std::string", /*default=*/"\"ttnn_metrics.json\"",
            "Output file path for the metrics JSON">,
     Option<"ttnnMetricsVerboseOutputEnabled", "ttnn-metrics-verbose-output-enabled", "bool", /*default=*/"false",
-           "Enable verbose output with per-operation details">
+           "Enable verbose output with per-operation details and operation type breakdown">
   ];
 }
 
