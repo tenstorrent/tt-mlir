@@ -194,16 +194,27 @@ class ModelRunner:
 
         csv_data = pd.read_csv(op_perf_file)
         
-        # Log CSV contents to debug LOC format
+        # Log CSV and check tracy_ops_data.csv for MLIR analysis data
         log_file = "/tmp/tt_adapter_convert_debug.log"
+        perf_dir = os.path.dirname(op_perf_file)
+        tracy_ops_data = os.path.join(perf_dir, "tracy_ops_data.csv")
+        
         with open(log_file, "a") as f:
-            f.write(f"DEBUG [get_perf_trace]: CSV has {len(csv_data)} rows\n")
-            f.write(f"DEBUG [get_perf_trace]: CSV columns: {list(csv_data.columns)}\n")
-            if len(csv_data) > 0:
-                f.write(f"DEBUG [get_perf_trace]: First 3 LOC values:\n")
-                for idx, row in csv_data.head(3).iterrows():
-                    loc_val = row.get("LOC", "MISSING")
-                    f.write(f"  Row {idx}: '{loc_val}'\n")
+            f.write(f"DEBUG [get_perf_trace]: tracy_ops_data.csv exists = {os.path.exists(tracy_ops_data)}\n")
+            if os.path.exists(tracy_ops_data):
+                try:
+                    import csv
+                    with open(tracy_ops_data, 'r') as tracy_file:
+                        reader = csv.DictReader(tracy_file)
+                        tracy_rows = list(reader)
+                        f.write(f"DEBUG [get_perf_trace]: tracy_ops_data.csv has {len(tracy_rows)} rows\n")
+                        if len(tracy_rows) > 0:
+                            f.write(f"DEBUG [get_perf_trace]: tracy_ops_data columns: {list(tracy_rows[0].keys())}\n")
+                            f.write(f"DEBUG [get_perf_trace]: First 3 rows:\n")
+                            for row in tracy_rows[:3]:
+                                f.write(f"  {row}\n")
+                except Exception as e:
+                    f.write(f"DEBUG [get_perf_trace]: Error reading tracy_ops_data.csv: {e}\n")
         
         return csv_data
 

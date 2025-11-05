@@ -617,7 +617,7 @@ class Perf:
                                     local_call_count
                                 ]
                             else:
-                                row["LOC"] = "loc(unknown)"
+                                row["LOC"] = 'loc("unknown")'
 
                             # Append the const_eval_op column with its const_eval_op data
                             if (
