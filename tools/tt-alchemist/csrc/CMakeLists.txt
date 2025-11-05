@@ -26,7 +26,6 @@ set(LIB_SOURCES
 #
 add_library(${TT_ALCHEMIST_LIBRARY_NAME}
   SHARED
-  EXCLUDE_FROM_ALL
   ${LIB_SOURCES}
 )
 
@@ -134,7 +133,7 @@ add_custom_target(tt-alchemist-install-cpp-standalone
 )
 
 # Useful for other project to use tt-alchemist as a dependency, like tt-xla
-add_custom_target(tt-alchemist-package
+add_custom_target(tt-alchemist-package ALL
   DEPENDS
     ${TT_ALCHEMIST_LIBRARY_NAME}
     tt-alchemist-install-public-headers
@@ -181,6 +180,7 @@ add_custom_target(tt-alchemist-prepare-wheel
     ${TTNN_INSTALL_DIR}
     ${PYTHON_WHEEL_DIR}/tt_alchemist/ttnn_install
 
+  EXCLUDE_FROM_ALL
   COMMENT "Preparing wheel directory with symlinks for editable install"
 )
 
@@ -201,6 +201,7 @@ add_custom_target(tt-alchemist-build-wheel
     --no-deps
 
   WORKING_DIRECTORY ${PYTHON_WHEEL_DIR}
+  EXCLUDE_FROM_ALL
   COMMENT "Building tt-alchemist wheel"
 )
 
@@ -210,6 +211,7 @@ add_custom_target(tt-alchemist-install
   COMMAND ${Python3_EXECUTABLE} -m pip install
     --force-reinstall
     ${CMAKE_CURRENT_BINARY_DIR}/dist/*.whl
+  EXCLUDE_FROM_ALL
   COMMENT "Installing tt-alchemist wheel"
 )
 
@@ -217,11 +219,13 @@ add_custom_target(tt-alchemist-install
 add_custom_target(tt-alchemist-install-editable
   DEPENDS tt-alchemist-prepare-wheel
   COMMAND ${Python3_EXECUTABLE} -m pip install -e ${PYTHON_WHEEL_DIR} --no-deps
+  EXCLUDE_FROM_ALL
   COMMENT "Installing tt-alchemist in editable mode"
 )
 
 # Main target (alias to non-editable install)
 add_custom_target(tt-alchemist
   DEPENDS tt-alchemist-install
+  EXCLUDE_FROM_ALL
   COMMENT "Building and installing tt-alchemist"
 )
