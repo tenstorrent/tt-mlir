@@ -980,6 +980,23 @@ createOp(FlatbufferObjectCache &cache, PagedUpdateCacheOp op) {
       pageTable);
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::PagedFillCacheOp>
+createOp(FlatbufferObjectCache &cache, PagedFillCacheOp op) {
+  auto cacheOperand = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getCache()));
+  auto input = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getInput()));
+  auto pageTable = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getPageTable()));
+  auto batchIdxTensor =
+      op.getBatchIdxTensor()
+          ? cache.at<::tt::target::ttnn::TensorRef>(
+                getOperandThroughDPSOps(op.getBatchIdxTensor()))
+          : 0;
+  return ::tt::target::ttnn::CreatePagedFillCacheOp(
+      *cache.fbb, cacheOperand, input, pageTable, batchIdxTensor);
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::FillCacheOp>
 createOp(FlatbufferObjectCache &cache, FillCacheOp op) {
   auto cacheOperand = cache.at<::tt::target::ttnn::TensorRef>(
@@ -2890,6 +2907,11 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   if (auto fillCacheOp = dyn_cast<FillCacheOp>(op); fillCacheOp) {
     return createOperation(cache, createOp(cache, fillCacheOp), debugString,
                            locInfo);
+  }
+  if (auto pagedFillCacheOp = dyn_cast<PagedFillCacheOp>(op);
+      pagedFillCacheOp) {
+    return createOperation(cache, createOp(cache, pagedFillCacheOp),
+                           debugString, locInfo);
   }
   if (auto permuteOp = dyn_cast<PermuteOp>(op); permuteOp) {
     return createOperation(cache, createOp(cache, permuteOp), debugString,

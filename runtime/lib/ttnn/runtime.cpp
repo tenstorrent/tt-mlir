@@ -1217,6 +1217,10 @@ getOpOutputRef(OpContext opContextHandle,
     tensorRef = opContext.type_as_FillCacheOp()->cache();
     break;
   }
+  case ::tt::target::ttnn::OpType::PagedFillCacheOp: {
+    tensorRef = opContext.type_as_PagedFillCacheOp()->cache();
+    break;
+  }
   case ::tt::target::ttnn::OpType::UpdateCacheOp: {
     tensorRef = opContext.type_as_UpdateCacheOp()->cache();
     break;
@@ -1564,6 +1568,13 @@ getOpInputRefs(OpContext opContextHandle,
   case ::tt::target::ttnn::OpType::FillCacheOp: {
     tensorRefs = {opContext.type_as_FillCacheOp()->cache(),
                   opContext.type_as_FillCacheOp()->input()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::PagedFillCacheOp: {
+    tensorRefs = {opContext.type_as_PagedFillCacheOp()->cache(),
+                  opContext.type_as_PagedFillCacheOp()->input(),
+                  opContext.type_as_PagedFillCacheOp()->page_table(),
+                  opContext.type_as_PagedFillCacheOp()->batch_idx_tensor()};
     break;
   }
   case ::tt::target::ttnn::OpType::LoadCachedOp: {

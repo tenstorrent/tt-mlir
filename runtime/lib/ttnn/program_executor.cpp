@@ -44,6 +44,7 @@
 #include "operations/embedding/embedding_backward.h"
 #include "operations/generic/generic_op.h"
 #include "operations/kv_cache/fill_cache.h"
+#include "operations/kv_cache/paged_fill_cache.h"
 #include "operations/kv_cache/paged_update_cache.h"
 #include "operations/kv_cache/update_cache.h"
 #include "operations/layout/from_device.h"
@@ -381,6 +382,10 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   }
   case ::tt::target::ttnn::OpType::FillCacheOp: {
     return operations::kv_cache::run(op->type_as_FillCacheOp(), getContext());
+  }
+  case ::tt::target::ttnn::OpType::PagedFillCacheOp: {
+    return operations::kv_cache::run(op->type_as_PagedFillCacheOp(),
+                                     getContext());
   }
   case ::tt::target::ttnn::OpType::UpsampleOp: {
     return operations::pool::run(op->type_as_UpsampleOp(), getContext());
