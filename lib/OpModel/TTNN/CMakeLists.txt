@@ -35,17 +35,3 @@ target_include_directories(${LIB_NAME}
     $<INSTALL_INTERFACE:include/ttmlir/OpModel/TTNN>)
 
 target_link_libraries(${LIB_NAME} PUBLIC coverage_config)
-
-
-# Add TTNNOpModelLib to the export set
-install(TARGETS ${LIB_NAME}
-        EXPORT TTNNOpModelLibTargets
-        LIBRARY DESTINATION lib
-        ARCHIVE DESTINATION lib
-        RUNTIME DESTINATION bin
-        INCLUDES DESTINATION include)
-
-# Export the targets
-export(EXPORT TTNNOpModelLibTargets
-       FILE "${CMAKE_CURRENT_BINARY_DIR}/TTNNOpModelLibTargets.cmake"
-       NAMESPACE TTNN::)
