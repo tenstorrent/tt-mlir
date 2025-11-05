@@ -539,13 +539,14 @@ tensorValueToFlatbuffer(FlatbufferObjectCache &cache, Value value) {
   assert(device);
   auto memref = mlir::cast<MemRefType>(value.getType());
 
-  Type elementType = memref.getElementType();
-  assert(!mlir::isa<ttcore::TileType>(elementType));
-  ttcore::DataType dtype = ttcore::elementTypeToDataType(elementType);
+  // Get scalar element type and shape (unwrapping TileType if present)
+  Type scalarElementType = ttcore::getOperandInnerElementType(value);
+  llvm::SmallVector<int64_t> scalarShape = ttcore::getScalarShape(memref);
+  std::vector<int32_t> shape = ttmlir::utils::castContainer<std::vector<int32_t>>(scalarShape);
 
-  assert(!mlir::isa<ttcore::DeviceLayoutInterface>(memref.getLayout()));
-  std::vector<int32_t> shape =
-      ttmlir::utils::castContainer<std::vector<int32_t>>(memref.getShape());
+  ttcore::DataType dtype = ttcore::elementTypeToDataType(scalarElementType);
+
+  // Function arguments may have device layouts from bufferization - ignore for TensorRef
   std::vector<int32_t> meshShape;
   int32_t elementSize = getElementSizeBytes(dtype);
   std::uint64_t size =
