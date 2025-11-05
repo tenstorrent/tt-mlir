@@ -18,7 +18,7 @@ namespace tt::runtime::ttmetal::meshshard_utils {
 namespace target = ::tt::target;
 namespace tt_metal = ::tt::tt_metal;
 namespace distributed = ::tt::tt_metal::distributed;
-namespace xtensor = ::ttnn::experimental::xtensor;
+namespace xtensor = ::tt::tt_metal::experimental::xtensor;
 
 // Copy from increment_indices() in ttnn/tensor/xtensor/partition.cpp.
 static bool incrementIndices(const ttsl::SmallVector<int> &limits,
