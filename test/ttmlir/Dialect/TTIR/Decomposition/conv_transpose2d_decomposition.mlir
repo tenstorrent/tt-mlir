@@ -39,4 +39,77 @@ module @test_conv_transpose {
     %15 = "ttir.add"(%9, %13, %14) : (tensor<1x128x64x64xf32>, tensor<1x128x64x64xf32>, tensor<1x128x64x64xf32>) -> tensor<1x128x64x64xf32>
     return %15 : tensor<1x128x64x64xf32>
   }
+
+    func.func @test_conv_transpose2d_stablehlo() -> tensor<1x224x224x3xf32> {
+    %0 = ttir.empty() : tensor<1x14x14x768xf32>
+    %1 = ttir.empty() : tensor<16x16x3x768xf32>
+    %2 = ttir.empty() : tensor<1x224x224x3xf32>
+    // CHECK: "ttir.permute"
+    // CHECK-SAME: <{permutation = array<i64: 3, 2, 0, 1>}>
+    // CHECK-SAME: (tensor<16x16x3x768xf32>, tensor<768x3x16x16xf32>)
+    // CHECK-SAME: -> tensor<768x3x16x16xf32>
+    // CHECK: "ttir.conv_transpose2d"
+    // CHECK-SAME: dilation = array<i32: 1, 1>,
+    // CHECK-SAME: groups = 1 : i32,
+    // CHECK-SAME: output_padding = array<i32: 0, 0>,
+    // CHECK-SAME: padding = array<i32: 0, 0, 0, 0>,
+    // CHECK-SAME: stride = array<i32: 16, 16>
+    // CHECK-SAME: (tensor<1x14x14x768xf32>, tensor<768x3x16x16xf32>, tensor<1x224x224x3xf32>)
+    // CHECK-SAME: -> tensor<1x224x224x3xf32>
+    %3 = "ttir.convolution"(%0, %1, %2) <{batch_group_count = 1 : i64, convolution_layout = #ttir<convolution_layout input_batch = 0, input_feature = 3, input_spatial_dimensions = 1x2, kernel_output_feature = 2, kernel_input_feature = 3, kernel_spatial_dimensions = 0x1, output_batch = 0, output_feature = 3, output_spatial_dimensions = 1x2>, feature_group_count = 1 : i64, input_dilation = array<i64: 16, 16>, padding = array<i64: 15, 15, 15, 15>, weight_dilation = array<i64: 1, 1>, window_reversal = array<i1: false, false>, window_strides = array<i64: 1, 1>}> : (tensor<1x14x14x768xf32>, tensor<16x16x3x768xf32>, tensor<1x224x224x3xf32>) -> tensor<1x224x224x3xf32>
+    return %3 : tensor<1x224x224x3xf32>
+  }
+
+  func.func @test_conv_transpose2d_stablehlo_with_reverse(%arg0: tensor<1x64x1x6400xf32>, %arg1: tensor<1x8x32x64xf32>, %arg2: tensor<32xf32>) -> tensor<1x32x1x25600xf32> {
+    // CHECK-NOT: ttir.reverse
+    %0 = ttir.empty() : tensor<1x8x32x64xf32>
+    %1 = "ttir.reverse"(%arg1, %0) <{dimensions = array<i64: 0, 1>}> : (tensor<1x8x32x64xf32>, tensor<1x8x32x64xf32>) -> tensor<1x8x32x64xf32>
+    %2 = ttir.empty() : tensor<1x32x1x25600xf32>
+    %3 = ttir.empty() : tensor<1x32x1x1xf32>
+    %4 = "ttir.reshape"(%arg2, %3) <{shape = [1 : i32, 32 : i32, 1 : i32, 1 : i32]}> : (tensor<32xf32>, tensor<1x32x1x1xf32>) -> tensor<1x32x1x1xf32>
+    // CHECK: %[[ARG0:[0-9]+]] = "ttir.permute"(%arg0, %{{[0-9]+}})
+    // CHECK-SAME: <{permutation = array<i64: 0, 2, 3, 1>}>
+    // CHECK-SAME: (tensor<1x64x1x6400xf32>, tensor<1x1x6400x64xf32>)
+    // CHECK-SAME: -> tensor<1x1x6400x64xf32>
+    // CHECK: %[[ARG1:[0-9]+]] = "ttir.permute"(%arg1, %{{[0-9]+}})
+    // CHECK-SAME: <{permutation = array<i64: 3, 2, 0, 1>}>
+    // CHECK-SAME: (tensor<1x8x32x64xf32>, tensor<64x32x1x8xf32>)
+    // CHECK-SAME: -> tensor<64x32x1x8xf32>
+    // CHECK: %[[ARG2:[0-9]+]] = "ttir.reshape"(%arg2, %{{[0-9]+}})
+    // CHECK-SAME: <{shape = [1 : i32, 1 : i32, 1 : i32, 32 : i32]}>
+    // CHECK-SAME: (tensor<32xf32>, tensor<1x1x1x32xf32>)
+    // CHECK-SAME: -> tensor<1x1x1x32xf32>
+    // CHECK: %[[CONV_T:[0-9]+]] = "ttir.conv_transpose2d"(%[[ARG0]], %[[ARG1]], %[[ARG2]], %{{[0-9]+}})
+    // CHECK-SAME: dilation = array<i32: 1, 1>,
+    // CHECK-SAME: groups = 1 : i32,
+    // CHECK-SAME: output_padding = array<i32: 0, 0>,
+    // CHECK-SAME: padding = array<i32: 0, 2, 0, 2>,
+    // CHECK-SAME: stride = array<i32: 1, 4>
+    // CHECK-SAME: (tensor<1x1x6400x64xf32>, tensor<64x32x1x8xf32>, tensor<1x1x1x32xf32>, tensor<1x1x25600x32xf32>)
+    // CHECK-SAME: -> tensor<1x1x25600x32xf32>
+    %5 = "ttir.convolution"(%arg0, %1, %4, %2) <{
+        batch_group_count = 1 : i64,
+        convolution_layout = #ttir<
+            convolution_layout
+            input_batch = 0,
+            input_feature = 1,
+            input_spatial_dimensions = 2x3,
+            kernel_output_feature = 2,
+            kernel_input_feature = 3,
+            kernel_spatial_dimensions = 0x1,
+            output_batch = 0,
+            output_feature = 1,
+            output_spatial_dimensions = 2x3>,
+        feature_group_count = 1 : i64,
+        input_dilation = array<i64: 1, 4>,
+        padding = array<i64: 0, 0, 5, 5>,
+        weight_dilation = array<i64: 1, 1>,
+        window_reversal = array<i1: false, false>,
+        window_strides = array<i64: 1, 1>}> : (tensor<1x64x1x6400xf32>, tensor<1x8x32x64xf32>, tensor<1x32x1x1xf32>, tensor<1x32x1x25600xf32>) -> tensor<1x32x1x25600xf32>
+    // CHECK: %{{[0-9]+}} = "ttir.permute"(%[[CONV_T]], %{{[0-9]+}})
+    // CHECK-SAME: permutation = array<i64: 0, 3, 1, 2>
+    // CHECK-SAME: (tensor<1x1x25600x32xf32>, tensor<1x32x1x25600xf32>)
+    // CHECK-SAME: -> tensor<1x32x1x25600xf32>
+    return %5 : tensor<1x32x1x25600xf32>
+  }
 }

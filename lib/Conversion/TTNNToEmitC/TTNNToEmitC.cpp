@@ -470,6 +470,22 @@ namespace {
 template <typename SourceOp>
 class EltwiseBinaryNGCompositeOpConversionPattern
     : public TTNNToEmitCBaseOpConversionPattern<SourceOp> {
+private:
+  std::string getPrefixSearchPattern() const override {
+    if constexpr (std::is_same_v<SourceOp, ::mlir::tt::ttnn::PowTensorOp>) {
+      return "ttnn.pow_tensor";
+    }
+
+    return "ttnn.";
+  }
+
+  std::string getPrefixSwapPattern() const override {
+    if constexpr (std::is_same_v<SourceOp, ::mlir::tt::ttnn::PowTensorOp>) {
+      return "ttnn::pow";
+    }
+
+    return "ttnn::";
+  }
 
 public:
   using TTNNToEmitCBaseOpConversionPattern<
@@ -492,6 +508,59 @@ public:
     emitter.replaceOp(*this, args);
 
     return success();
+  }
+};
+} // namespace
+
+// PowScalar op conversion pattern
+//
+// Currently, it has to insert nullopts for some parameters that are not
+// modelled in the dialect (memcfg).
+//
+namespace {
+class PowScalarOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<mlir::tt::ttnn::PowScalarOp> {
+
+private:
+  std::string getPrefixSearchPattern() const override {
+    return "ttnn.pow_scalar";
+  }
+
+  std::string getPrefixSwapPattern() const override { return "ttnn::pow"; }
+
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::PowScalarOp>::TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::PowScalarOp srcOp,
+                  mlir::tt::ttnn::PowScalarOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::PowScalarOp> emitter(
+        srcOp, adaptor, rewriter);
+
+    mlir::Attribute exponentAttr;
+    if (auto attr = mlir::dyn_cast<FloatAttr>(srcOp.getRhs())) {
+      auto exponent = attr.getValue().convertToFloat();
+      exponentAttr = emitter.template emit<float>(exponent);
+    } else if (auto attr = mlir::dyn_cast<IntegerAttr>(srcOp.getRhs())) {
+      auto exponent = static_cast<uint32_t>(attr.getValue().getSExtValue());
+      // An explicit cast to uint32_t is required here to avoid ambiguous
+      // function overload resolution during C++ code generation.
+      std::string exponentStr = "uint32_t(" + std::to_string(exponent) + ")";
+      exponentAttr = emitc::OpaqueAttr::get(rewriter.getContext(), exponentStr);
+    } else {
+      return failure();
+    }
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getLhs()),
+        exponentAttr,
+        emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
+    };
+
+    emitter.replaceOp(*this, args);
+    return mlir::success();
   }
 };
 } // namespace
@@ -647,6 +716,7 @@ public:
         emitter.emit(/*divisor_override=*/std::nullopt),
         emitter.getMemoryConfig(srcOp.getResult()),
         emitter.emit(srcOp.getAppliedShardScheme()),
+        emitter.emit(/*compute_kernel_config=*/std::nullopt),
         emitter.emit(srcOp.getInPlaceHalo()),
     };
 
@@ -704,31 +774,38 @@ public:
         emitter.emit(srcOp.getInPlaceHalo()),
         /*return_indices=*/emitter.emit(false)};
 
-    // MaxPool2d now returns std::variant<Tensor, MaxPoolWithIndicesResult>
-    // Since we always call with return_indices=false, it will always return the
-    // Tensor variant We can use std::get<0> to extract the tensor directly
-    Location loc = srcOp.getLoc();
-    auto variantType = emitc::OpaqueType::get(
-        rewriter.getContext(),
-        "std::variant<::ttnn::Tensor, "
-        "::ttnn::operations::pool::MaxPoolWithIndicesResult>");
+    emitter.replaceOp(*this, args);
+    return success();
+  }
+};
+} // namespace
 
-    auto maxPoolCall = rewriter.create<emitc::CallOpaqueOp>(
-        loc, variantType, "ttnn::max_pool2d", rewriter.getArrayAttr(args),
-        /*template_args=*/nullptr, adaptor.getOperands());
+// GlobalAvgPool2d op conversion pattern
+//
+namespace {
+class GlobalAvgPool2dOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<
+          mlir::tt::ttnn::GlobalAvgPool2dOp> {
 
-    // Extract the tensor using std::get<0> since return_indices=false
-    // guarantees Tensor variant
-    auto tensorType = cast<emitc::OpaqueType>(
-        this->getTypeConverter()->convertType(srcOp.getResult().getType()));
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::GlobalAvgPool2dOp>::TTNNToEmitCBaseOpConversionPattern;
 
-    auto extractCall = rewriter.create<emitc::CallOpaqueOp>(
-        loc, tensorType, "std::get", /*args=*/nullptr,
-        /*template_args=*/
-        rewriter.getArrayAttr({rewriter.getI32IntegerAttr(0)}),
-        maxPoolCall.getResult(0));
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::GlobalAvgPool2dOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
 
-    rewriter.replaceOp(srcOp, extractCall.getResults());
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::GlobalAvgPool2dOp> emitter(
+        srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput()),
+        emitter.getMemoryConfig(srcOp.getResult()),
+        emitter.emit(std::nullopt), // output_dtype
+    };
+
+    emitter.replaceOp(*this, args);
+
     return success();
   }
 };
@@ -1156,9 +1233,6 @@ public:
     ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::Conv2dOp> emitter(
         srcOp, adaptor, rewriter);
 
-    auto conv2dSliceConfigAttr = mlir::tt::ttnn::Conv2dSliceConfigAttr::get(
-        rewriter.getContext(), mlir::tt::ttnn::Conv2dSliceType::L1Full, 0);
-
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput()),
         emitter.emit(srcOp.getWeight()),
@@ -1180,7 +1254,7 @@ public:
         emitter.emit(srcOp.getConv2dConfig()),
         /*compute_config=*/emitter.emit(std::nullopt),
         emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
-        emitter.emit(conv2dSliceConfigAttr),
+        emitter.emit(srcOp.getConv2dSliceConfigAttr()),
     };
 
     emitter.replaceOp(*this, args);
@@ -1949,10 +2023,17 @@ public:
     // Restore the insertion point to continue with the function
     rewriter.restoreInsertionPoint(currentInsertionPoint);
 
+    const bool isZeroArgWrapper = adaptor.getInputs().size() == 0;
     // Create the function pointer type
-    auto funcPtrType = emitc::OpaqueType::get(
-        rewriter.getContext(), "::std::function<::std::vector<::ttnn::Tensor>(:"
-                               ":std::vector<::ttnn::Tensor>)>");
+    auto funcPtrType =
+        isZeroArgWrapper
+            ? emitc::OpaqueType::get(
+                  rewriter.getContext(),
+                  "::std::function<::std::vector<::ttnn::Tensor>()>")
+            : emitc::OpaqueType::get(
+                  rewriter.getContext(),
+                  "::std::function<::std::vector<::ttnn::Tensor>(:"
+                  ":std::vector<::ttnn::Tensor>)>");
     auto addressAttr =
         emitc::OpaqueAttr::get(rewriter.getContext(), "&" + callee.str());
     auto funcPtrValue = rewriter.create<emitc::ConstantOp>(
@@ -1976,9 +2057,15 @@ public:
                                                        "&", globalVar);
 
     // Call the wrapper function with the pointer
-    rewriter.create<emitc::CallOpaqueOp>(
-        srcOp.getLoc(), TypeRange{}, "ttnn::constEvalFuncWrapper",
-        ValueRange{funcPtrValue, tupleValue, addressOfOp}, ArrayAttr{});
+    if (isZeroArgWrapper) {
+      rewriter.create<emitc::CallOpaqueOp>(
+          srcOp.getLoc(), TypeRange{}, "ttnn::constEvalFuncWrapperZeroArg",
+          ValueRange{funcPtrValue, addressOfOp}, ArrayAttr{});
+    } else {
+      rewriter.create<emitc::CallOpaqueOp>(
+          srcOp.getLoc(), TypeRange{}, "ttnn::constEvalFuncWrapper",
+          ValueRange{funcPtrValue, tupleValue, addressOfOp}, ArrayAttr{});
+    }
 
     // Load the value from the global variable
     auto resultVar =
@@ -2164,6 +2251,35 @@ public:
         rewriter.getType<emitc::OpaqueAttr>("::ttnn::ccl::Topology::Linear"),
         /*userDefinedNumWorkers=*/emitter.emit(std::nullopt),
         /*userDefinedNumBuffersPerChannel=*/emitter.emit(std::nullopt),
+    };
+
+    emitter.replaceOp(*this, args);
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+class ScatterOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<mlir::tt::ttnn::ScatterOp> {
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::ScatterOp>::TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::ScatterOp srcOp,
+                  mlir::tt::ttnn::ScatterOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::ScatterOp> emitter(
+        srcOp, adaptor, rewriter);
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput()),
+        emitter.emit(srcOp.getDim()),
+        emitter.emit(srcOp.getIndex()),
+        emitter.emit(srcOp.getSource()),
+        emitter.emit(std::nullopt) |
+            emitter.getMemoryConfig(srcOp.getResult()), // mem config
+        emitter.emit(std::nullopt)                      // opt_reduction
     };
 
     emitter.replaceOp(*this, args);
@@ -2379,27 +2495,76 @@ public:
 };
 } // namespace
 
-// BatchNormOp conversion pattern
+// BatchNormInferenceOp conversion pattern
 //
 namespace {
-class BatchNormOpConversionPattern
-    : public TTNNToEmitCBaseOpConversionPattern<mlir::tt::ttnn::BatchNormOp> {
+class BatchNormInferenceOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<
+          mlir::tt::ttnn::BatchNormInferenceOp> {
+private:
+  std::string getPrefixSearchPattern() const override {
+    return "ttnn.batch_norm_inference";
+  }
+  std::string getPrefixSwapPattern() const override {
+    return "ttnn::batch_norm";
+  }
+
 public:
   using TTNNToEmitCBaseOpConversionPattern<
-      mlir::tt::ttnn::BatchNormOp>::TTNNToEmitCBaseOpConversionPattern;
+      mlir::tt::ttnn::BatchNormInferenceOp>::TTNNToEmitCBaseOpConversionPattern;
 
   LogicalResult
-  matchAndRewrite(mlir::tt::ttnn::BatchNormOp srcOp, OpAdaptor adaptor,
+  matchAndRewrite(mlir::tt::ttnn::BatchNormInferenceOp srcOp, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
-    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::BatchNormOp> emitter(
-        srcOp, adaptor, rewriter);
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::BatchNormInferenceOp>
+        emitter(srcOp, adaptor, rewriter);
 
+    // For inference BatchNormInferenceOp, training is false and momentum is 0.1
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput()),
         emitter.emit(srcOp.getRunningMean()),
         emitter.emit(srcOp.getRunningVar()),
-        emitter.emit(srcOp.getTraining()),
+        emitter.emit(false), // training
+        emitter.emit(srcOp.getEpsilon()),
+        emitter.emit(0.1f), // momentum
+        emitter.emit(srcOp.getWeight()),
+        emitter.emit(srcOp.getBias()),
+        emitter.emit(/* output= */ std::nullopt),
+        emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
+//
+// BatchNormTrainingOp conversion pattern
+//
+namespace {
+class BatchNormTrainingOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<
+          mlir::tt::ttnn::BatchNormTrainingOp> {
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::BatchNormTrainingOp>::TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::BatchNormTrainingOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::BatchNormTrainingOp>
+        emitter(srcOp, adaptor, rewriter);
+
+    // For training BatchNormTrainingOp, training is true
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput()),
+        emitter.emit(srcOp.getRunningMean()),
+        emitter.emit(srcOp.getRunningVar()),
+        emitter.emit(true), // training
         emitter.emit(srcOp.getEpsilon()),
         emitter.emit(srcOp.getMomentum()),
         emitter.emit(srcOp.getWeight()),
@@ -2408,7 +2573,18 @@ public:
         emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
     };
 
-    emitter.replaceOp(*this, args);
+    // ttnn::batch_norm with training=true returns the output tensor and
+    // updates running_mean/running_var in-place
+    auto resultType =
+        this->getTypeConverter()->convertType(srcOp.getResult().getType());
+
+    auto callOp = rewriter.create<emitc::CallOpaqueOp>(
+        srcOp.getLoc(), resultType, "ttnn::batch_norm",
+        rewriter.getArrayAttr(args), /*template_args=*/nullptr,
+        adaptor.getOperands());
+
+    // The batch stats are the updated running_mean and running_var
+    rewriter.replaceOp(srcOp, callOp.getResult(0));
 
     return success();
   }
@@ -2461,6 +2637,7 @@ public:
         emitter.emit(srcOp.getCurPosTensor()),
         emitter.emit(srcOp.getAttentionSink()),
         emitter.emit(srcOp.getScale()),
+        emitter.emit(/*slidingWindowSize=*/std::nullopt),
         emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
     };
     // NOLINTEND(clang-analyzer-cplusplus.NewDelete)
@@ -2507,6 +2684,7 @@ public:
         emitter.emit(srcOp.getAttentionMask()),
         emitter.emit(srcOp.getIsCausal()),
         emitter.emit(srcOp.getScale()),
+        emitter.emit(srcOp.getSlidingWindowSize()),
         emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
     };
     // NOLINTEND(clang-analyzer-cplusplus.NewDelete)
@@ -2827,6 +3005,73 @@ public:
           /*template_args=*/
           rewriter.getArrayAttr({rewriter.getI32IntegerAttr(i)}),
           nlpCreateQKVHeadsDecodeOp.getResult(0));
+      results.push_back(tupleGetResult.getResult(0));
+    }
+
+    rewriter.replaceOp(srcOp, results);
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+class SplitQueryKeyValueAndSplitHeadsOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<
+          mlir::tt::ttnn::SplitQueryKeyValueAndSplitHeadsOp> {
+private:
+  std::string getPrefixSearchPattern() const override {
+    return "ttnn.split_query_key_value_and_split_heads";
+  }
+  std::string getPrefixSwapPattern() const override {
+    return "ttnn::transformer::split_query_key_value_and_split_heads";
+  }
+
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+
+      mlir::tt::ttnn::SplitQueryKeyValueAndSplitHeadsOp>::
+      TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::SplitQueryKeyValueAndSplitHeadsOp srcOp,
+                  OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitc::EmitCTTNNEmitter<
+        mlir::tt::ttnn::SplitQueryKeyValueAndSplitHeadsOp>
+        emitter(srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInputTensor()),
+        emitter.emit(srcOp.getKvInputTensor()),
+        emitter.emit(srcOp.getNumHeads()),
+        emitter.emit(srcOp.getNumKvHeads()),
+        emitter.emit(srcOp.getTransposeKey()),
+        emitter.emit(srcOp.getMemoryConfig()) |
+            emitter.getMemoryConfig(srcOp.getResult(0)),
+    };
+
+    using OpReturnType =
+        std::tuple<::ttnn::Tensor, ::ttnn::Tensor, ::ttnn::Tensor>;
+
+    auto splitQueryKeyValueAndSplitHeadsOp =
+        rewriter.create<emitc::CallOpaqueOp>(
+            srcOp.getLoc(),
+            rewriter.getType<emitc::OpaqueType>(
+                ttnn_to_emitc::TypeNameV<OpReturnType>),
+            convertOpName(srcOp), rewriter.getArrayAttr(args),
+            /*template_args=*/nullptr, adaptor.getOperands());
+
+    llvm::SmallVector<mlir::Value, 3> results;
+    for (std::size_t i = 0; i < srcOp.getNumResults(); ++i) {
+      auto tupleGetResult = rewriter.create<emitc::CallOpaqueOp>(
+          srcOp.getLoc(),
+          rewriter.getType<emitc::OpaqueType>(
+              ttnn_to_emitc::TypeNameV<::ttnn::Tensor>),
+          "::std::get", /*args=*/nullptr,
+          /*template_args=*/
+          rewriter.getArrayAttr({rewriter.getI32IntegerAttr(i)}),
+          splitQueryKeyValueAndSplitHeadsOp.getResult(0));
       results.push_back(tupleGetResult.getResult(0));
     }
 
@@ -3307,7 +3552,7 @@ private:
   }
 
   std::string getPrefixSwapPattern() const override {
-    return "::tt::tt_metal::load_tensor_flatbuffer";
+    return "ttnn::loadTensor";
   }
 
 public:
@@ -3321,9 +3566,17 @@ public:
     ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::LoadTensorOp> emitter(
         srcOp, adaptor, rewriter);
 
+    RankedTensorType resultType = srcOp.getResult().getType();
+    mlir::tt::ttnn::TTNNLayoutAttr layoutAttr =
+        mlir::cast<mlir::tt::ttnn::TTNNLayoutAttr>(resultType.getEncoding());
+
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getFilePath()),
+        emitter.emit(layoutAttr.getLayout()),
+        emitter.emit(mlir::tt::ttcore::elementTypeToDataType(
+            layoutAttr.getScalarElementType())),
         emitter.emit(srcOp.getDevice()),
+        emitter.getMemoryConfig(srcOp.getResult()),
     };
 
     emitter.replaceOp(*this, args);
@@ -3382,7 +3635,9 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
            EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::ReluOp>,
            EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::RsqrtOp>,
            EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::Relu6Op>,
+           EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::HardsigmoidOp>,
            EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::SiluOp>,
+           EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::MishOp>,
            ElementwiseUnaryWithFloatParameterOpConversionPattern<
                mlir::tt::ttnn::LeakyReluOp>,
            EltwiseUnaryWithFastAndApproximateModeOpConversionPattern<
@@ -3433,13 +3688,12 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
       EltwiseBinaryNGCompositeOpConversionPattern<mlir::tt::ttnn::MaximumOp>,
       EltwiseBinaryNGCompositeOpConversionPattern<mlir::tt::ttnn::MinimumOp>,
       EltwiseBinaryOpConversionPattern<mlir::tt::ttnn::DivideOp>,
-      EltwiseBinaryCompositeOpConversionPattern<mlir::tt::ttnn::ScatterOp>,
       EltwiseBinaryCompositeOpConversionPattern<
           mlir::tt::ttnn::LogicalLeftShiftOp>,
       EltwiseBinaryCompositeOpConversionPattern<mlir::tt::ttnn::RemainderOp>,
-      EltwiseBinaryNGCompositeOpConversionPattern<mlir::tt::ttnn::PowOp>,
-      EltwiseBinaryCompositeOpConversionPattern<mlir::tt::ttnn::Atan2Op>>(
-      typeConverter, ctx);
+      EltwiseBinaryNGCompositeOpConversionPattern<mlir::tt::ttnn::PowTensorOp>,
+      EltwiseBinaryCompositeOpConversionPattern<mlir::tt::ttnn::Atan2Op>,
+      PowScalarOpConversionPattern>(typeConverter, ctx);
 
   // Eltwise ternary ops
   //
@@ -3480,6 +3734,7 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   //
   patterns.add<AvgPool2dOpConversionPattern>(typeConverter, ctx);
   patterns.add<MaxPool2dOpConversionPattern>(typeConverter, ctx);
+  patterns.add<GlobalAvgPool2dOpConversionPattern>(typeConverter, ctx);
   patterns.add<UpsampleOpConversionPattern>(typeConverter, ctx);
 
   // Convolution ops
@@ -3491,15 +3746,18 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
 
   // Other ops
   //
-  patterns.add<SoftmaxOpConversionPattern, EmbeddingOpConversionPattern,
-               DefaultOpConversionPattern<mlir::tt::ttnn::EmbeddingBackwardOp>,
-               MorehCumSumOpConversionPattern, BatchNormOpConversionPattern,
-               RMSNormOpConversionPattern>(typeConverter, ctx);
+  patterns.add<
+      SoftmaxOpConversionPattern, EmbeddingOpConversionPattern,
+      DefaultOpConversionPattern<mlir::tt::ttnn::EmbeddingBackwardOp>,
+      MorehCumSumOpConversionPattern, BatchNormInferenceOpConversionPattern,
+      BatchNormTrainingOpConversionPattern, RMSNormOpConversionPattern>(
+      typeConverter, ctx);
 
   // CCL ops
   //
   patterns.add<AllGatherOpConversionPattern>(typeConverter, ctx);
   patterns.add<ReduceScatterOpConversionPattern>(typeConverter, ctx);
+  patterns.add<ScatterOpConversionPattern>(typeConverter, ctx);
   patterns.add<CollectivePermuteOpConversionPattern>(typeConverter, ctx);
   patterns.add<MeshShardOpConversionPattern>(typeConverter, ctx);
   patterns.add<PointToPointOpConversionPattern>(typeConverter, ctx);
@@ -3547,6 +3805,8 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   // Transformers ops
   //
   patterns.add<ConcatenateHeadsOpConversionPattern>(typeConverter, ctx);
+  patterns.add<SplitQueryKeyValueAndSplitHeadsOpConversionPattern>(
+      typeConverter, ctx);
   patterns.add<RotaryEmbeddingLlamaOpConversionPattern>(typeConverter, ctx);
   patterns.add<NLPConcatHeadsDecodeOpConversionPattern>(typeConverter, ctx);
   patterns.add<ScaledDotProductAttentionDecodeOpConversionPattern>(

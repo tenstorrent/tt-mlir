@@ -30,55 +30,11 @@ class TTIR_DPSOp<string mnemonic, list<Trait> traits = []> :
 }
 
 //===----------------------------------------------------------------------===//
-// TTIR top level, bufferizable, ops
+// TTIR top level ops
 //===----------------------------------------------------------------------===//
 
-class TTIR_BufferizableOp<string mnemonic, list<Trait> traits = []> :
-    TTIR_DPSOp<mnemonic, !listconcat(
-      [ DeclareOpInterfaceMethods<BufferizableOpInterface, [ "bufferizesToMemoryRead"
-                                                           , "bufferizesToMemoryWrite"
-                                                           , "bufferize"
-                                                           , "getAliasingValues"
-                                                           , "getBufferType"
-                                                           , "isWritable"
-                                                           ]>
-      , DeclareOpInterfaceMethods<MemoryEffectsOpInterface>
-      ], traits)> {
-
-    let extraClassDefinition = [{
-      bool $cppClass::bufferizesToMemoryRead(
-          mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
-        // If the operand is an input, it is a bufferized to a memory read.
-        return isDpsInput(&operand);
-      }
-
-      bool $cppClass::bufferizesToMemoryWrite(
-          mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
-        // If the operand is an output, it is a bufferized to a memory write.
-        return isDpsInit(&operand);
-      }
-
-      bufferization::AliasingValueList $cppClass::getAliasingValues(
-          OpOperand &, const bufferization::AnalysisState &) {
-        bufferization::AliasingValueList result;
-        return result;
-      }
-
-      void $cppClass::getEffects(
-          SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>
-              &effects) {
-        ttir::getDpsEffects(*this, effects);
-      }
-
-      bool $cppClass::isWritable(
-          mlir::Value value, const mlir::bufferization::AnalysisState &) {
-        return mlir::isa<mlir::OpResult>(value) ||
-               mlir::isa<mlir::BlockArgument>(value);
-      }
-    }];
-}
-
-def TTIR_ToLayoutOp : TTIR_BufferizableOp<"to_layout"> {
+def TTIR_ToLayoutOp : TTIR_DPSOp<"to_layout",
+  [DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]> {
     let summary = "Layout op.";
     let description = [{
       ToLayout operation, transition tensors from one layout to another.  Some examples include:
@@ -118,6 +74,14 @@ def TTIR_ToLayoutOp : TTIR_BufferizableOp<"to_layout"> {
 
       bool isHostToDevice();
       bool isDeviceToHost();
+    }];
+
+    let extraClassDefinition = [{
+      void $cppClass::getEffects(
+          SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>
+              &effects) {
+        ttir::getDpsEffects(*this, effects);
+      }
     }];
 
     let hasVerifier = 1;
@@ -800,6 +764,35 @@ def TTIR_SigmoidOp: TTIR_ElementwiseUnaryOp<"sigmoid"> {
 
       Mathematical definition: sigmoid(x) = 1 / (1 + exp(-x))
     }];
+}
+
+def TTIR_HardsigmoidOp: TTIR_ElementwiseUnaryOp<"hardsigmoid"> {
+  let summary = "Elementwise hard sigmoid operation.";
+  let description = [{
+    The `hardsigmoid` operation computes the hard sigmoid activation function of each element in the input tensor.
+
+    The hard sigmoid function is a piecewise linear approximation of the sigmoid function that is computationally
+    more efficient. It is defined as:
+    - 0 if x <= -3
+    - (x + 3) / 6 if -3 < x < 3
+    - 1 if x >= 3
+
+    This activation function is commonly used in neural networks as a computationally efficient alternative to
+    the standard sigmoid function, particularly in mobile and embedded applications where computational resources
+    are limited.
+
+    Example:
+    ```mlir
+    // Compute hard sigmoid of all elements in %input
+    %result = ttir.hardsigmoid(%input, %output) : tensor<4x4xf32>, tensor<4x4xf32> -> tensor<4x4xf32>
+    // Input tensor:
+    // [-3.0, -1.0, 0.0, 3.0]
+    // Output tensor:
+    // [0.0, 0.333, 0.5, 1.0]
+    ```
+
+    Mathematical definition: hardsigmoid(x) = max(0, min(1, (x + 3) / 6))
+  }];
 }
 def TTIR_SiluOp: TTIR_ElementwiseUnaryOp<"silu"> {
   let summary = "Elementwise SiLU (Sigmoid Linear Unit) operation.";
@@ -1887,12 +1880,12 @@ def TTIR_MaximumOp : TTIR_ElementwiseBinaryOp<"maximum"> {
     }];
 }
 
-def TTIR_BatchNormOp : TTIR_DPSOp<"batch_norm"> {
+def TTIR_BatchNormInferenceOp : TTIR_DPSOp<"batch_norm_inference"> {
   let summary = "BatchNormInference operation";
   let description = [{
-    Performs batch normalization on the input tensor. Normalizes the `operand` tensor
+    Performs batch normalization inference on the input tensor. Normalizes the `operand` tensor
     across all dimensions except for the specified `dimension` (feature dimension) and
-    produces the normalized result.
+    produces the normalized result using pre-computed mean and variance.
 
     Inputs:
     - `operand` (Tensor): The input tensor to be normalized.
@@ -1904,16 +1897,15 @@ def TTIR_BatchNormOp : TTIR_DPSOp<"batch_norm"> {
     Attributes:
     - `epsilon` is a small constant added to variance for numerical stability.
     - `dimension` specifies which dimension represents the features/channels.
-    - `training` (Bool): Whether the operation is in training mode.
 
     Output:
     - `result` (Tensor): The normalized output tensor.
 
     Example:
     ```mlir
-      // Normalize a batch of activations
+      // Normalize a batch of activations (inference)
       %result = ttir.batch_norm(%operand, %scale, %offset, %mean, %variance, %output,
-                              epsilon = 0.001, dimension = 1, training = false) :
+                              epsilon = 0.001, dimension = 1) :
             (tensor<8x16x32x32xf32>, tensor<16xf32>, tensor<16xf32>,
               tensor<16xf32>, tensor<16xf32>, tensor<8x16x32x32xf32>) -> tensor<8x16x32x32xf32>
     ```
@@ -1929,10 +1921,70 @@ def TTIR_BatchNormOp : TTIR_DPSOp<"batch_norm"> {
                        AnyRankedTensor:$variance,
                        AnyRankedTensor:$output,
                        F32Attr:$epsilon,
-                       I32Attr:$dimension,
-                       BoolAttr:$training);
+                       I32Attr:$dimension);
 
   let results = (outs AnyRankedTensor:$result);
+
+  let hasVerifier = 1;
+}
+
+def TTIR_BatchNormTrainingOp : TTIR_DPSOp<"batch_norm_training"> {
+  let summary = "BatchNormTraining operation";
+  let description = [{
+    Performs batch normalization during training on the input tensor. Normalizes the `operand` tensor
+    across all dimensions except for the specified `dimension` (feature dimension) and
+    produces the normalized result along with batch statistics. Updates the running mean and variance.
+
+    Inputs:
+    - `operand` (Tensor): The input tensor to be normalized.
+    - `scale` (Tensor): The scale parameter (gamma).
+    - `offset` (Tensor): The offset parameter (beta).
+    - `running_mean` (Tensor): The running mean (updated during training).
+    - `running_variance` (Tensor): The running variance (updated during training).
+
+    Attributes:
+    - `epsilon` is a small constant added to variance for numerical stability.
+    - `dimension` specifies which dimension represents the features/channels.
+    - `momentum` is the momentum factor for updating running statistics.
+
+    Outputs:
+    - `result` (Tensor): The normalized output tensor.
+    - `batch_mean` (Tensor): The computed batch mean.
+    - `batch_variance` (Tensor): The computed batch variance.
+
+    Example:
+    ```mlir
+      // Normalize a batch of activations (training)
+      %result, %batch_mean, %batch_variance = ttir.batch_norm_training(%operand, %scale, %offset, %running_mean, %running_variance,
+                                           %output, %batch_mean_output, %batch_variance_output :
+                                           epsilon = 0.001, dimension = 1, momentum = 0.1) :
+            (tensor<8x16x32x32xf32>, tensor<16xf32>, tensor<16xf32>,
+              tensor<16xf32>, tensor<16xf32>, tensor<8x16x32x32xf32>,
+              tensor<16xf32>, tensor<16xf32>, tensor<16xf32>, tensor<16xf32>) ->
+            (tensor<8x16x32x32xf32>, tensor<16xf32>, tensor<16xf32>)
+    ```
+
+    Mathematical definition:
+      batch_mean = mean(x, dimension)
+      batch_variance = variance(x, dimension)
+      normalized = (x - batch_mean) / sqrt(batch_variance + epsilon) * scale + offset
+      running_mean = momentum * batch_mean + (1 - momentum) * running_mean
+      running_variance = momentum * batch_variance + (1 - momentum) * running_variance
+  }];
+
+  let arguments = (ins AnyRankedTensor:$operand,
+                       AnyRankedTensor:$scale,
+                       AnyRankedTensor:$offset,
+                       AnyRankedTensor:$running_mean,
+                       AnyRankedTensor:$running_variance,
+                       Variadic<AnyRankedTensor>:$outputs,
+                       F32Attr:$epsilon,
+                       I32Attr:$dimension,
+                       F32Attr:$momentum);
+
+  let results = (outs AnyRankedTensor:$result,
+                      AnyRankedTensor:$batch_mean,
+                      AnyRankedTensor:$batch_variance);
 
   let hasVerifier = 1;
 }
@@ -4150,6 +4202,8 @@ def TTIR_ClampScalarOp : TTIR_NamedOp<"clamp_scalar", [TTIR_ElementwiseUnary]> {
     let results = (outs AnyRankedTensor:$result);
 
     let hasVerifier = 1;
+
+    let hasCanonicalizer = 1;
 }
 
 def TTIR_ClampTensorOp : TTIR_NamedOp<"clamp_tensor"> {
@@ -4583,6 +4637,48 @@ def TTIR_ScatterOp: TTIR_NamedOp<"scatter"> {
   let hasVerifier = 1;
 }
 
+def TTIR_ScatterInDimOp : TTIR_NamedOp<"scatter_in_dim"> {
+  let summary = "Scatter operation with simplified dimension attributes";
+  let description = [{
+    The `scatter_in_dim` operation introduces torch style scatter in TTIR so that
+    we can lower ttir scatter -> ttir scatter_in_dim -> ttnn scatter.
+
+    Embeds the values of the source tensor into the input tensor at locations specified by the index tensor along the given dimension.
+
+    This is a simplified scatter operation that operates along a single dimension, making it more straightforward
+    to use than the general scatter operation when you only need to scatter along one axis.
+
+    Parameters:
+      - `input` (Tensor): The tensor being updated.
+      - `index` (Tensor): Indices where values will be written to.
+      - `source` (Tensor): The values to scatter into the input tensor.
+      - `output` (Tensor): The output tensor shape.
+      - `dim` (int32_t): The dimension along which to scatter.
+
+    Example:
+    ```mlir
+    // Scatter values along dimension 0
+    %input = ... : tensor<8xf32>        // Input tensor
+    %indices = ... : tensor<3xi32>      // Indices tensor
+    %source = ... : tensor<3xf32>       // Source values to scatter
+    %output = ttir.empty() : tensor<8xf32>
+    %result = ttir.scatter_in_dim(%input, %indices, %source, %output) {
+        dim = 0
+    } : tensor<8xf32>, tensor<3xi32>, tensor<3xf32>, tensor<8xf32> -> tensor<8xf32>
+    ```
+  }];
+
+  let arguments = (ins AnyRankedTensor:$input,
+                       AnyRankedTensor:$index,
+                       AnyRankedTensor:$source,
+                       AnyRankedTensor:$output,
+                       I32Attr:$dim);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let hasVerifier = 1;
+}
+
 //===----------------------------------------------------------------------===//
 // TTIR creation ops
 //===----------------------------------------------------------------------===//
@@ -4666,14 +4762,7 @@ def TTIR_ArangeOp : TTIR_CreationOp<"arange"> {
   let hasVerifier = 1;
 }
 
-def TTIR_FullOp : TTIR_CreationOp<"full",
-  [ DeclareOpInterfaceMethods<BufferizableOpInterface, [ "bufferizesToMemoryRead"
-                                                       , "bufferizesToMemoryWrite"
-                                                       , "bufferize"
-                                                       , "getAliasingValues"
-                                                       , "getBufferType"
-                                                       ]>
-  ]> {
+def TTIR_FullOp : TTIR_CreationOp<"full"> {
   let summary = "Creates a tensor filled with the specified value";
   let description = [{
     Tensor operation to create a tensor filled with a specified value.
@@ -4702,7 +4791,7 @@ def TTIR_FullOp : TTIR_CreationOp<"full",
   let hasVerifier = 1;
 }
 
-def TTIR_RandOp : TTIR_CreationOp<"rand"> {
+def TTIR_RandOp : TTIR_CreationOp<"rand", [TTCore_NonCacheableTrait]> {
   let summary = "Random number generation operation.";
   let description = [{
     Returns a tensor filled with random numbers drawn from a uniform distribution over given interval [low, high) [Default: [0, 1)].
@@ -4833,15 +4922,7 @@ def TTIR_OnesOp : TTIR_NamedFullOp<"ones"> {
   }];
 }
 
-def TTIR_EmptyOp : TTIR_CreationOp<"empty",
-  [DeclareOpInterfaceMethods<BufferizableOpInterface, [ "bufferizesToMemoryRead"
-                                                      , "bufferizesToMemoryWrite"
-                                                      , "bufferizesToAllocation"
-                                                      , "bufferize"
-                                                      , "getAliasingValues"
-                                                      , "getBufferType"
-                                                      ]>
-  ]> {
+def TTIR_EmptyOp : TTIR_CreationOp<"empty", [TTCore_NonCacheableTrait]> {
     let summary = "Empty tensor allocation operation.";
     let description = [{
       The `empty` operation creates an uninitialized tensor with the specified shape and element type.
@@ -4893,12 +4974,6 @@ def TTIR_EmptyOp : TTIR_CreationOp<"empty",
 def TTIR_ConstantOp : TTIR_CreationOp<"constant",
   [ ConstantLike
   , AllShapesMatch<["value", "result"]>
-  , DeclareOpInterfaceMethods<BufferizableOpInterface, [ "bufferizesToMemoryRead"
-                                                       , "bufferizesToMemoryWrite"
-                                                       , "bufferize"
-                                                       , "getAliasingValues"
-                                                       , "getBufferType"
-                                                       ]>
   ]> {
     let summary = "Tensor constant creation operation.";
     let description = [{
@@ -5032,12 +5107,6 @@ def TTIR_CollectivePermuteOp : TTIR_NamedOp<"collective_permute"> {
 def TTIR_MeshShardOp: TTIR_Op<"mesh_shard",
   [ Pure
   , TTIROpInterface
-  , DeclareOpInterfaceMethods<BufferizableOpInterface, [ "bufferizesToMemoryRead"
-                                                       , "bufferizesToMemoryWrite"
-                                                       , "bufferize"
-                                                       , "getAliasingValues"
-                                                       , "getBufferType"
-                                                       ]>
   ]> {
     let summary = "Mesh shard operation.";
     let description = [{
@@ -5079,22 +5148,6 @@ def TTIR_MeshShardOp: TTIR_Op<"mesh_shard",
                          DenseI64ArrayAttr:$shard_dims
     );
     let results = (outs AnyRankedTensorOrMemRef:$result);
-
-    let extraClassDefinition = [{
-      bool $cppClass::bufferizesToMemoryRead(
-          mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
-        return true;
-      }
-      bool $cppClass::bufferizesToMemoryWrite(
-          mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
-        return false;
-      }
-      bufferization::AliasingValueList $cppClass::getAliasingValues(
-          OpOperand &, const bufferization::AnalysisState &) {
-        bufferization::AliasingValueList result;
-        return result;
-      }
-    }];
 
     let hasVerifier = 1;
     let hasFolder = 1;
@@ -5385,6 +5438,8 @@ def TTIR_ConcatenateHeadsOp: TTIR_NamedOp<"concatenate_heads"> {
   let hasVerifier = 1;
 }
 
+
+
 def TTIR_ScaledDotProductAttentionDecodeOp : TTIR_NamedOp<"scaled_dot_product_attention_decode", [AttrSizedOperandSegments]> {
     let summary = "A version of scaled dot product attention specifically for decode.";
     let description = [{
@@ -5421,11 +5476,12 @@ def TTIR_ScaledDotProductAttentionDecodeOp : TTIR_NamedOp<"scaled_dot_product_at
     let hasVerifier = 1;
 }
 
+
 def TTIR_ScaledDotProductAttentionOp : TTIR_NamedOp<"scaled_dot_product_attention"> {
   let summary = "Scaled dot product attention operation.";
   let description = [{
     Scaled dot product attention.
-    The implementation is FlashAttention-2."
+    The implementation is FlashAttention-2.
 
     Args:
         query (AnyRankedTensor): The query tensor.          [batch x num_heads x query_seq_len x head_size]
@@ -5435,6 +5491,7 @@ def TTIR_ScaledDotProductAttentionOp : TTIR_NamedOp<"scaled_dot_product_attentio
         output (AnyRankedTensor): The output DPS operand [batch x num_heads x query_seq_len x head_size].
         is_causal (bool): Whether The attention is causal. Defaults to `true`.
         scale (float, optional): Defaults to `None`.
+        sliding_window_size (uint, optional): Defaults to `None`. Size of sliding window for attention. If provided && is_causal, only attends to the last `sliding_window_size` tokens. If provided && !is_causal, attends to a window of size `sliding_window_size` centered at the current position.
 
     Returns:
         AnyRankedTensor: The output tensor [batch x num_heads x seq_len x head_size].
@@ -5446,11 +5503,95 @@ def TTIR_ScaledDotProductAttentionOp : TTIR_NamedOp<"scaled_dot_product_attentio
                        Optional<AnyRankedTensor>:$attention_mask,
                        AnyRankedTensor:$output,
                        DefaultValuedAttr<BoolAttr, "true">:$is_causal,
-                       OptionalAttr<F32Attr>:$scale);
+                       OptionalAttr<F32Attr>:$scale,
+                       OptionalAttr<UI32Attr>:$sliding_window_size);
 
   let results = (outs AnyRankedTensor:$result);
 
   let hasVerifier = 1;
 }
 
+def TTIR_GlobalAvgPool2dOp: TTIR_NamedOp<"global_avg_pool2d">{
+  let summary = "A global average pooling 2d operation";
+  let description = [{
+    The `global_avg_pool2d` operation applies global average pooling over the spatial dimensions
+    (height and width) of a 4D input tensor. In essence, it should be realised as the sum-reduce style operation
+    under the hood, for performance reasons (since we include all elements, there is no need for kernel allocation).
+    It reduces spatial dimensions to 1.
+
+    This operation yields the same result as the standard avg_pool_2d operation when kernel_size == [input_height, input_width].
+    However, it is much more memory efficient, as the underlying implementation doesn't need to allocate
+    the kernel for pooling (since the operation boils down to a simple sum-reduce).
+
+    Example:
+    ```mlir
+    // Basic global average pooling reducing 32x32 spatial dimensions to 1x1
+    %input = ... : tensor<1x32x32x64xbf16>  // Input tensor with values in NHWC format
+                                            // N=1 (batch), H=32 (height), W=32 (width), C=64 (channels)
+    %output = ttir.empty() : tensor<1x1x1x64xbf16>
+    %result = "ttir.global_avg_pool2d"(%input, %output) : (tensor<1x32x32x64xbf16>, tensor<1x1x1x64xbf16>) -> tensor<1x1x1x64xbf16>
+    // Result: tensor<1x1x1x64xbf16> where each channel contains the average of all 32*32=1024 spatial locations
+
+    // Example with different input sizes
+    %large_input = ... : tensor<1x128x128x32xbf16>  // Large spatial dimensions
+    %large_output = ttir.empty() : tensor<1x1x1x32xbf16>
+    %large_result = "ttir.global_avg_pool2d"(%large_input, %large_output) : (tensor<1x128x128x32xbf16>, tensor<1x1x1x32xbf16>) -> tensor<1x1x1x32xbf16>
+    // Each output channel averages across 128*128=16384 spatial locations
+    ```
+
+    Inputs:
+    - `input`: 4D tensor with shape [N, H, W, C] where N is batch size, H is height, W is width, and C is channels
+    - `output`: Pre-allocated output tensor with shape [N, 1, 1, C] to store the result
+
+    Attributes:
+    - None (this operation has no configurable attributes, unlike regular pooling operations)
+
+    Outputs:
+    - `result`: 4D tensor with shape [N, 1, 1, C] containing the global average pooled values
+
+    Note: The operation reduces spatial dimensions (H, W) to (1, 1) by computing the average across
+    all spatial locations for each channel independently. This is equivalent to avg_pool2d with
+    kernel_size=[H, W], stride=[1, 1], and no padding, but implemented more efficiently.
+  }];
+
+  let arguments = (ins AnyRankedTensor:$input,
+                       AnyRankedTensor:$output);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let hasVerifier = 1;
+}
+
+def TTIR_SplitQueryKeyValueAndSplitHeadsOp: TTIR_NamedOp<"split_query_key_value_and_split_heads"> {
+    let summary = "Split query, key, values and split heads op used in attention layer.";
+    let description = [{
+      Splits input_tensor of shape [batch_size, sequence_size, 3 * hidden_size] into 3 tensors (Query, Key, Value) of shape [batch_size, sequence_size, hidden_size]. Then, reshapes and permutes the output tensors, to make them ready for computing attention scores.
+      If kv_input_tensor is passed in, then input_tensor of shape [batch_size, sequence_size, hidden_size] is only used for Query, and kv_input_tensor of shape [batch_size, sequence_size, 2 * hidden_size] is used for Key and Value.
+      For the sharded implementation, the input query, key and value are expected to be concatenated such that the heads are interleaved (q1 k1 v1…qn kn vn).
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input_tensor,
+                         Optional<AnyRankedTensor>:$kv_input_tensor,
+                         AnyRankedTensor:$query_output,
+                         AnyRankedTensor:$key_output,
+                         AnyRankedTensor:$value_output,
+                         UI32Attr:$num_heads,
+                         OptionalAttr<UI32Attr>:$num_kv_heads,
+                         BoolAttr:$transpose_key);
+
+    let results = (outs AnyRankedTensor:$query,
+                        AnyRankedTensor:$key,
+                        AnyRankedTensor:$value);
+
+    let extraClassDeclaration = [{
+        MutableOperandRange getDpsInitsMutable() {
+            // query_output is at index 2 (after input_tensor and kv_input_tensor)
+            // But kv_input_tensor is optional, so we need to account for that
+            unsigned startIdx = getKvInputTensor() ? 2 : 1;
+            return MutableOperandRange(*this, startIdx, 3);
+        }
+    }];
+
+    let hasVerifier = 1;
+}
 #endif

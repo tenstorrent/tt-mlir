@@ -40,11 +40,26 @@
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/DenseSet.h"
+#include "llvm/ADT/TypeSwitch.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/Error.h"
 #include "llvm/Support/ErrorHandling.h"
 
 namespace mlir::tt::ttnn {
+
+TTNNOptimizerOptions::TTNNOptimizerOptions(
+    const TTIRToTTNNBackendPipelineOptions &pipelineOptions)
+    : insertMemReconfig(pipelineOptions.insertMemReconfig),
+      overrideOutputLayout(pipelineOptions.overrideOutputLayout),
+      overrideConv2dConfig(pipelineOptions.overrideConv2dConfig),
+      memoryLayoutAnalysisEnabled(pipelineOptions.memoryLayoutAnalysisEnabled),
+      l1InterleavedFallbackAnalysisEnabled(
+          pipelineOptions.l1InterleavedFallbackAnalysisEnabled),
+      memoryLayoutAnalysisPolicy(pipelineOptions.memoryLayoutAnalysisPolicy),
+      memReconfigEnabled(pipelineOptions.memReconfigEnabled),
+      maxLegalLayouts(pipelineOptions.maxLegalLayouts),
+      rowMajorEnabled(pipelineOptions.rowMajorEnabled),
+      tensorL1UsageCap(pipelineOptions.tensorL1UsageCap) {}
 
 namespace impl {
 
@@ -92,12 +107,7 @@ public:
 
   /// A clone method to create a copy of this pass.
   std::unique_ptr<::mlir::Pass> clonePass() const override {
-    auto copy =
-        std::make_unique<DerivedT>(*static_cast<const DerivedT *>(this));
-    // `devicePtr` is not technically a pass option, so we need to copy it
-    // manually.
-    copy->devicePtr = this->devicePtr;
-    return copy;
+    return std::make_unique<DerivedT>(*static_cast<const DerivedT *>(this));
   }
 
   /// Return the dialect that must be loaded in the context before this pass.
@@ -121,16 +131,6 @@ public:
     maxLegalLayouts = std::move(options.maxLegalLayouts);
     rowMajorEnabled = std::move(options.rowMajorEnabled);
     tensorL1UsageCap = std::move(options.tensorL1UsageCap);
-    devicePtr = std::move(options.devicePtr);
-#ifdef TTMLIR_ENABLE_OPMODEL
-    // Set external device if provided
-    if (devicePtr != nullptr) {
-      op_model::SingletonDeviceContext::setExternalDevice(devicePtr);
-    } else {
-      // Open the device if no external device is provided.
-      op_model::SingletonDeviceContext::getInstance().openDevice();
-    }
-#endif
   }
 
 protected:
@@ -196,9 +196,6 @@ protected:
     return chipDesc.getUsableL1Size() * tensorL1UsageCap;
   }
 
-  // Device pointer provided by frontend (not a command line option)
-  std::shared_ptr<::tt::tt_metal::distributed::MeshDevice> devicePtr = nullptr;
-
 private:
   friend std::unique_ptr<::mlir::Pass> createTTNNOptimizer() {
     return std::make_unique<DerivedT>();
@@ -224,6 +221,12 @@ class TTNNOptimizer : public impl::TTNNOptimizerBase<TTNNOptimizer> {
 public:
   using impl::TTNNOptimizerBase<TTNNOptimizer>::TTNNOptimizerBase;
   void runOnOperation() final {
+#ifndef TTMLIR_ENABLE_OPMODEL
+    llvm::llvm_unreachable_internal(
+        "TTNNOptimizer pass requires OpModel support to be enabled.");
+#else
+    op_model::ScopedSingletonDeviceGuard deviceGuard;
+
     // Generate legal OP configuration candidates.
     // Perform memory layout analysis.
     // Perform final configuration analysis.
@@ -496,24 +499,44 @@ public:
                 utils::createShardSpecIfNeeded(layoutAttr, deviceGrid)));
           }
 
-          // Set specific Conv2d Op configuration if it is exists.
+          // Set specific Conv(Transpose)2d Op configuration if it is exists.
           //
 
-          if (auto conv2dOp = mlir::dyn_cast<ttnn::Conv2dOp>(op)) {
-            auto opAttributes = opConfigAnalysis.getResult().at(op);
-            if (std::holds_alternative<ttnn::Conv2dAttrs>(
-                    opAttributes.opSpecificAttrs)) {
-              ttnn::Conv2dAttrs conv2dAttrs =
-                  std::get<ttnn::Conv2dAttrs>(opAttributes.opSpecificAttrs);
-              if (conv2dAttrs.conv2dConfig.has_value()) {
-                conv2dOp.setConv2dConfigAttr(conv2dAttrs.conv2dConfig.value());
-              }
-              if (conv2dAttrs.deviceComputeKernelConfig.has_value()) {
-                conv2dOp.setComputeConfigAttr(
-                    conv2dAttrs.deviceComputeKernelConfig.value());
-              }
-            }
-          }
+          llvm::TypeSwitch<Operation *, void>(op)
+              .Case<ttnn::Conv2dOp>([&](ttnn::Conv2dOp convOp) {
+                auto opAttributes = opConfigAnalysis.getResult().at(op);
+                if (std::holds_alternative<ttnn::Conv2dAttrs>(
+                        opAttributes.opSpecificAttrs)) {
+                  ttnn::Conv2dAttrs conv2dAttrs =
+                      std::get<ttnn::Conv2dAttrs>(opAttributes.opSpecificAttrs);
+                  if (conv2dAttrs.conv2dConfig.has_value()) {
+                    convOp.setConv2dConfigAttr(
+                        conv2dAttrs.conv2dConfig.value());
+                  }
+                  if (conv2dAttrs.deviceComputeKernelConfig.has_value()) {
+                    convOp.setComputeConfigAttr(
+                        conv2dAttrs.deviceComputeKernelConfig.value());
+                  }
+                }
+              })
+              .Case<ttnn::ConvTranspose2dOp>(
+                  [&](ttnn::ConvTranspose2dOp convOp) {
+                    auto opAttributes = opConfigAnalysis.getResult().at(op);
+                    if (std::holds_alternative<ttnn::Conv2dAttrs>(
+                            opAttributes.opSpecificAttrs)) {
+                      ttnn::Conv2dAttrs conv2dAttrs =
+                          std::get<ttnn::Conv2dAttrs>(
+                              opAttributes.opSpecificAttrs);
+                      if (conv2dAttrs.conv2dConfig.has_value()) {
+                        convOp.setConv2dConfigAttr(
+                            conv2dAttrs.conv2dConfig.value());
+                      }
+                      // TODO(rpavlovicTT): Once
+                      // https://github.com/tenstorrent/tt-mlir/issues/3994 is
+                      // resolved, set the deviceComputeKernelConfig here as
+                      // well and merge with the Conv2dOp case above.
+                    }
+                  });
         }
       });
 
@@ -561,6 +584,7 @@ public:
           func.getContext(), funcType.getInputs(), funcResultTypes);
       func.setType(newFuncType);
     });
+#endif // TTMLIR_ENABLE_OPMODEL
   }
 
 private:

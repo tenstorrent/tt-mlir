@@ -3,16 +3,86 @@
 # SPDX-License-Identifier: Apache-2.0
 import pytest
 import ttrt
+import ttrt.runtime
 import json
 import platform
 from functools import reduce
 import operator
 import torch
 import subprocess
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Tuple, Optional
+import math
 
-ALL_BACKENDS = set(["ttnn", "ttmetal", "ttnn-standalone", "emitpy"])
+ALL_BACKENDS = set(["ttnn", "ttmetal", "emitc", "emitpy"])
 ALL_SYSTEMS = set(["n150", "n300", "llmbox", "tg", "p150", "p300"])
+
+
+_current_device = None
+_current_device_target: Optional[str] = None
+_current_device_mesh_shape: Optional[Tuple[int, int]] = None
+
+
+def _get_device_for_target(target: str, mesh_shape: Tuple[int, int], pytestconfig):
+    """Given a `target`, returns a device capable of executing a flatbuffer
+    compiled for that `target`.
+
+    For efficiency, this device is reused from the last test if possible via
+    the `_current_device`, `_current_device_target` & `_current_device_mesh_shape` caches
+    """
+    global _current_device, _current_device_target, _current_device_mesh_shape
+
+    if _current_device is not None:
+
+        # Cache hit
+        if (
+            _current_device_target == target
+            and _current_device_mesh_shape == mesh_shape
+        ):
+            return _current_device
+        else:  # Cache miss, need to teardown
+            print(
+                f"Found new target {target} with mesh shape {mesh_shape}, closing device for {_current_device_target} with {_current_device_mesh_shape}"
+            )
+            ttrt.runtime.close_mesh_device(_current_device)
+            ttrt.runtime.set_fabric_config(ttrt.runtime.FabricConfig.DISABLED)
+            _current_device = None
+            _current_device_target = None
+            _current_device_mesh_shape = None
+
+    # Open new device for target
+    print(f"Opening device for {target} with mesh shape {mesh_shape}")
+
+    mesh_options = ttrt.runtime.MeshDeviceOptions()
+
+    if pytestconfig.getoption("--disable-eth-dispatch"):
+        mesh_options.dispatch_core_type = ttrt.runtime.DispatchCoreType.WORKER
+    else:
+        mesh_options.dispatch_core_type = ttrt.runtime.DispatchCoreType.ETH
+
+    # Start with a small mesh shape that should work for most tests
+    # Tests requiring larger meshes will be handled appropriately
+    mesh_options.mesh_shape = mesh_shape
+
+    device_runtime_enum = None
+
+    if target == "ttnn":
+        device_runtime_enum = ttrt.runtime.DeviceRuntime.TTNN
+    elif target == "ttmetal":
+        device_runtime_enum = ttrt.runtime.DeviceRuntime.TTMetal
+    else:
+        raise ValueError(f"Only TTNN and TTMetal devices are supported, got {target}")
+
+    ttrt.runtime.set_current_device_runtime(device_runtime_enum)
+    if math.prod(mesh_shape) > 1:
+        ttrt.runtime.set_fabric_config(ttrt.runtime.FabricConfig.FABRIC_1D)
+    device = ttrt.runtime.open_mesh_device(mesh_options)
+    print(
+        f"Device opened for test session with target {target} & mesh shape {mesh_options.mesh_shape}."
+    )
+    _current_device = device
+    _current_device_target = target
+    _current_device_mesh_shape = mesh_shape
+    return _current_device
 
 
 def is_x86_machine():
@@ -55,6 +125,27 @@ def log_global_env_facts(record_testsuite_property, pytestconfig):
         record_testsuite_property("git_sha", "unknown")
 
 
+@pytest.fixture(scope="function")
+def device(request, pytestconfig):
+    """Device fixture that is reevaluated for every test to determine if the
+    runtime mode needs to be switched from the last test, i.e. the device must
+    be reinitialized
+    """
+    # default target is ttnn elsewhere, if no "target" is supplied it will compile to ttnn
+    target = "ttnn"
+    mesh_shape = (1, 1)
+
+    if hasattr(request.node, "callspec"):
+        target = request.node.callspec.params.get("target", "ttnn")
+
+        # Support for other backends coming soon.
+        if target not in ["ttnn", "ttmetal"]:
+            return None
+
+        mesh_shape = request.node.callspec.params.get("mesh_shape", (1, 1))
+    return _get_device_for_target(target, mesh_shape, pytestconfig)
+
+
 def pytest_addoption(parser):
     parser.addoption(
         "--path",
@@ -77,6 +168,11 @@ def pytest_addoption(parser):
         "--require-opmodel",
         action="store_true",
         help="Require tests to run only if build has opmodel enabled",
+    )
+    parser.addoption(
+        "--disable-eth-dispatch",
+        action="store_true",
+        help="disable putting dispatch on ethernet cores - place it on worker cores instead; necessary on blackhole",
     )
 
 
@@ -232,7 +328,7 @@ def _extract_operation_name(item: pytest.Item, params: Dict[str, Any]) -> None:
 def _extract_backend_and_params(item: pytest.Item, params: Dict[str, Any]) -> None:
     """Extract backend and remaining parameters"""
     # Extract backend. Default to ttnn for now, since that's what
-    # `compile_ttir_to_flatbuffer` defaults to
+    # `compile_and_execute_ttir` defaults to
     # TODO(ctod): figure out a better way to detect the backend without
     # necessitating a singleton parameter in test cases that will never need to
     # test both ttnn and ttmetal (#4518)
@@ -291,7 +387,7 @@ def pytest_runtest_setup(item: pytest.Item):
        - input_dtypes: List of abbreviated data type strings (e.g., "f32", "i32")
        - op_name: Name of the operation being tested
        - framework_op_name: Framework-specific operation name (currently same as op_name)
-       - backend: Target backend ("ttnn", "ttmetal", or "ttnn-standalone")
+       - backend: Target backend ("ttnn", "ttmetal", or "emitc")
 
     2. Prefixed properties: Operation-specific parameters with "param_" prefix. For `conv2d`, e.g.:
        - param_stride: Convolution stride parameters
@@ -359,12 +455,11 @@ def pytest_runtest_call(item: pytest.Item):
     except Exception as exc:
         exc_type = type(exc)
         exc_name = exc_type.__name__
-        try:
-            failure_stage = TTBUILDER_EXCEPTIONS[exc_name]
-        except KeyError as e:
+        if exc_name not in TTBUILDER_EXCEPTIONS.keys():
             pytest.fail(
-                f"Unknown failure detected! Please address this or correctly throw a `TTBuilder*` exception instead if this is a compilation issue, runtime error, or golden mismatch. Exception: {e}:{type(e)}"
+                f"Unknown failure detected! Please address this or correctly throw a `TTBuilder*` exception instead if this is a compilation issue, runtime error, or golden mismatch. Exception: {exc}:{type(exc)}"
             )
+        failure_stage = TTBUILDER_EXCEPTIONS[exc_name]
     finally:
         _safe_add_property(item, "failure_stage", failure_stage)
 
@@ -431,9 +526,20 @@ def pytest_collection_modifyitems(config, items):
     # Update the items list (collected tests)
     items[:] = valid_items
 
-    # Sort tests alphabetically by their nodeid to ensure consistent ordering.
-    items.sort(key=lambda x: x.nodeid)
+    # Sort tests alphabetically by their target and then nodeid to ensure consistent ordering.
+    items.sort(key=lambda x: (x.callspec.params.get("target", "ttnn"), x.nodeid))
+    items.reverse()
 
     # Report deselected items to pytest
     if deselected:
         config.hook.pytest_deselected(items=deselected)
+
+
+def pytest_sessionfinish(session):
+    global _current_device, _current_device_target, _current_device_mesh_shape
+    if _current_device is not None:
+        print("Closing device for end of session")
+        ttrt.runtime.close_mesh_device(_current_device)
+        _current_device = None
+        _current_device_target = None
+        _current_device_mesh_shape = None

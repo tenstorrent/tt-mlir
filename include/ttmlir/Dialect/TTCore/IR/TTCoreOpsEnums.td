@@ -20,6 +20,7 @@ def TTCore_UInt32 : I32EnumAttrCase<"UInt32", 9, "u32">;
 def TTCore_UInt16 : I32EnumAttrCase<"UInt16", 10, "u16">;
 def TTCore_UInt8 : I32EnumAttrCase<"UInt8", 11, "u8">;
 def TTCore_Int32: I32EnumAttrCase<"Int32", 12, "si32">;
+def TTCore_Bool : I32EnumAttrCase<"Bool", 13, "i1">;
 
 def TTCore_DataType : I32EnumAttr<"DataType", "TT DataTypes",
                            [
@@ -35,7 +36,8 @@ def TTCore_DataType : I32EnumAttr<"DataType", "TT DataTypes",
                             TTCore_UInt32,
                             TTCore_UInt16,
                             TTCore_UInt8,
-                            TTCore_Int32
+                            TTCore_Int32,
+                            TTCore_Bool
                            ]> {
   let genSpecializedAttr = 0;
   let cppNamespace = "::mlir::tt::ttcore";

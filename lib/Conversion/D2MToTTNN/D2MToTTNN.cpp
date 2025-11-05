@@ -117,12 +117,13 @@ public:
     auto device = ttcore::lookupDevice(op->getParentOp());
     TT_assert(device);
 
+    // TTNN grids are (Width, Height), while D2M grids are (Height, Width).
     ttcore::GridAttr grid = op.getGrid();
     ttnn::CoreRangeSetAttr coreRangeSet = ttnn::CoreRangeSetAttr::get(
         ctx, ttnn::CoreRangeAttr::get(
                  ctx, ttnn::CoreCoordAttr::get(ctx, 0, 0),
-                 ttnn::CoreCoordAttr::get(ctx, grid.getShape()[0] - 1,
-                                          grid.getShape()[1] - 1)));
+                 ttnn::CoreCoordAttr::get(ctx, grid.getShape()[1] - 1,
+                                          grid.getShape()[0] - 1)));
 
     llvm::SmallVector<Value> ios(size);
     llvm::SmallVector<Value> cbs(size);
@@ -142,8 +143,14 @@ public:
               "Expected TTNNMetalLayoutCastOp producing stream input.");
         }
         cbs[i] = streamLayoutOp.getStorage();
+      } else if (auto castOp =
+                     mlir::dyn_cast_if_present<ttir::TTNNMetalLayoutCastOp>(
+                         operand.getDefiningOp());
+                 castOp) {
+        ios[i] = castOp.getOperand();
+        cbs[i] = operand;
       } else {
-        llvm_unreachable("Expected stream_layout op for the input.");
+        llvm_unreachable("Expected stream_layout or cast op as operand.");
       }
       cbPorts[i] = cbPort++;
     }
@@ -154,11 +161,9 @@ public:
     }
 
     // Create CBDescriptor.
-    // TODO (vtangTT) #5031: support setting buffer ptr in CBDescriptor for
-    // aliasing.
+    ttnn::KernelCBAttr cbDescriptor;
     for (auto [i, cb] : llvm::enumerate(cbs)) {
       auto cb_memref = dyn_cast<MemRefType>(cb.getType());
-
       TT_assertv(mlir::isa<ttcore::TileType>(cb_memref.getElementType()),
                  "Only TileType supported.");
       ttcore::DataType dtype =
@@ -168,8 +173,20 @@ public:
 
       ttnn::KernelCBFormatAttr cbFormat =
           ttnn::KernelCBFormatAttr::get(ctx, i, dtype, pageSize);
-      ttnn::KernelCBAttr cbDescriptor = ttnn::KernelCBAttr::get(
-          ctx, numPages * pageSize, coreRangeSet, {cbFormat});
+
+      ttnn::KernelCBGlobalBufferAddressOfTensorAttr globalCBIndexOfTensor;
+      if (auto castOp = mlir::dyn_cast_if_present<ttir::TTNNMetalLayoutCastOp>(
+              cb.getDefiningOp())) {
+        // Input is not streamed, thus buffer must be aliased.
+        TT_assertv(ttcore::getMemorySpace(cb_memref) ==
+                       ttcore::MemorySpace::DeviceL1,
+                   "Can only alias L1 buffers.");
+        globalCBIndexOfTensor =
+            ttnn::KernelCBGlobalBufferAddressOfTensorAttr::get(ctx, i);
+      }
+      cbDescriptor =
+          ttnn::KernelCBAttr::get(ctx, numPages * pageSize, coreRangeSet,
+                                  {cbFormat}, globalCBIndexOfTensor);
       cbDescriptors[i] = cbDescriptor;
     }
 
@@ -204,6 +221,14 @@ public:
     if (auto inner =
             op.getOperand().getDefiningOp<ttir::TTNNMetalLayoutCastOp>()) {
       rewriter.replaceOp(op, inner.getOperand());
+    } else if (auto inner =
+                   op.getOperand().getDefiningOp<d2m::StreamLayoutOp>()) {
+      // Match the pattern cast(stream(cast(output_tensor))) and rewrite as just
+      // output_tensor.
+      if (auto inner2 =
+              inner.getInput().getDefiningOp<ttir::TTNNMetalLayoutCastOp>()) {
+        rewriter.replaceOp(op, inner2.getOperand());
+      }
     }
     return success();
   };
@@ -218,17 +243,7 @@ public:
   LogicalResult
   matchAndRewrite(d2m::StreamLayoutOp op, d2m::StreamLayoutOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
-
-    if (auto castOp =
-            op.getInput().getDefiningOp<ttir::TTNNMetalLayoutCastOp>()) {
-      rewriter.replaceAllUsesWith(op, castOp.getOperand());
-      rewriter.eraseOp(castOp);
-    } else {
-      llvm_unreachable("Expected TTNNMetalLayoutCastOp as stream input.");
-    }
-
-    // Canonicalization will clean up dead inputs of stream_layout.
-    rewriter.eraseOp(op);
+    rewriter.replaceOp(op, adaptor.getInput());
     return success();
   };
 };

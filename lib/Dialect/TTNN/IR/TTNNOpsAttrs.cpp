@@ -760,7 +760,8 @@ Conv2dConfigAttr Conv2dConfigAttr::get(::mlir::MLIRContext *context) {
                                /*outputLayout=*/std::nullopt,
                                /*enableActDoubleBuffer=*/nullptr,
                                /*enableWeightsDoubleBuffer=*/nullptr,
-                               /*inPlace=*/nullptr);
+                               /*inPlace=*/nullptr,
+                               /*enableKernelStrideFolding=*/nullptr);
 }
 
 // Returns default configuration.
@@ -865,6 +866,13 @@ Conv2dConfigAttr Conv2dConfigAttr::withInPlace(bool value) const {
   return params.buildConv2dConfigAttr(getContext());
 }
 
+Conv2dConfigAttr
+Conv2dConfigAttr::withEnableKernelStrideFolding(bool value) const {
+  Conv2dConfigParams params(*this);
+  params.enableKernelStrideFolding = value;
+  return params.buildConv2dConfigAttr(getContext());
+}
+
 bool Conv2dConfigAttr::hasActivation() const {
   return getActivation() != nullptr;
 }
@@ -920,6 +928,10 @@ bool Conv2dConfigAttr::hasEnableWeightsDoubleBuffer() const {
 }
 
 bool Conv2dConfigAttr::hasInPlace() const { return getInPlace() != nullptr; }
+
+bool Conv2dConfigAttr::hasEnableKernelStrideFolding() const {
+  return getEnableKernelStrideFolding() != nullptr;
+}
 
 CoreRangeSetAttr
 ShardSpecAttr::getCoreRangeSet(mlir::MLIRContext *context,
@@ -1022,7 +1034,8 @@ DeviceComputeKernelConfigAttr::withDstFullSyncEn(bool value) const {
 ::llvm::LogicalResult KernelCBAttr::verify(
     ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
     uint32_t totalSize, CoreRangeSetAttr coreRanges,
-    llvm::ArrayRef<mlir::tt::ttnn::KernelCBFormatAttr> formats) {
+    llvm::ArrayRef<mlir::tt::ttnn::KernelCBFormatAttr> formats,
+    mlir::tt::ttnn::KernelCBGlobalBufferAddressOfTensorAttr buffer) {
   return ::llvm::success();
 }
 

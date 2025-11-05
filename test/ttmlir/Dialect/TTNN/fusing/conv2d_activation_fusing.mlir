@@ -52,12 +52,12 @@ module {
     return %3 : tensor<1x30x30x64xbf16>
   }
 
-  // Test that we cannot fuse Conv2d and relu6 if Conv2d will be converted to matmul.
+  // Test that we can fuse Conv2d and relu6 if Conv2d will be converted to matmul.
   // CHECK-LABEL: func.func @conv2d_to_matmul_with_relu6
   func.func @conv2d_to_matmul_with_relu6(%arg0: tensor<1x32x32x64xbf16>, %arg1: tensor<64x64x1x1xbf16>, %arg2: tensor<1x1x1x64xbf16>) -> tensor<1x32x32x64xbf16> {
     %0 = ttir.empty() : tensor<1x32x32x64xbf16>
     // CHECK: %{{.*}} = "ttnn.conv2d"
-    // CHECK-NOT: activation ={{.*}}relu6
+    // CHECK-SAME: activation ={{.*}}relu6
     %1 = "ttir.conv2d"(%arg0, %arg1, %arg2, %0)
             <{
               stride = 1: i32,
@@ -66,11 +66,10 @@ module {
               groups = 1: i32
             }> : (tensor<1x32x32x64xbf16>, tensor<64x64x1x1xbf16>, tensor<1x1x1x64xbf16>, tensor<1x32x32x64xbf16>) -> tensor<1x32x32x64xbf16>
 
-    // CHECK: %[[RELU6:.*]] = "ttnn.relu6"
+    // CHECK-NOT: "ttnn.relu6"
     %2 = ttir.empty() : tensor<1x32x32x64xbf16>
     %3 = "ttir.relu6"(%1, %2) : (tensor<1x32x32x64xbf16>, tensor<1x32x32x64xbf16>) -> tensor<1x32x32x64xbf16>
 
-    // CHECK: return %[[RELU6]]
     return %3 : tensor<1x32x32x64xbf16>
   }
 
@@ -131,7 +130,7 @@ module {
   func.func @conv2d_with_sigmoid(%arg0: tensor<1x32x32x64xbf16>, %arg1: tensor<64x64x3x3xbf16>, %arg2: tensor<1x1x1x64xbf16>) -> tensor<1x30x30x64xbf16> {
     %0 = ttir.empty() : tensor<1x30x30x64xbf16>
     // CHECK: %{{.*}} = "ttnn.conv2d"
-    // CHECK-NOT: activation ={{.*}}sigmoid
+    // CHECK: activation ={{.*}}sigmoid
     %1 = "ttir.conv2d"(%arg0, %arg1, %arg2, %0)
             <{
               stride = 1: i32,
@@ -140,13 +139,13 @@ module {
               groups = 1: i32
             }> : (tensor<1x32x32x64xbf16>, tensor<64x64x3x3xbf16>, tensor<1x1x1x64xbf16>, tensor<1x30x30x64xbf16>) -> tensor<1x30x30x64xbf16>
 
-    // CHECK: %[[SIGMOID:.*]] = "ttnn.sigmoid"
+    // CHECK-NOT: %[[SIGMOID:.*]] = "ttnn.sigmoid"
     %2 = ttir.empty() : tensor<1x30x30x64xbf16>
 
     // Sigmoid cannot be fused with conv2d.
     %3 = "ttir.sigmoid"(%1, %2) : (tensor<1x30x30x64xbf16>, tensor<1x30x30x64xbf16>) -> tensor<1x30x30x64xbf16>
 
-    // CHECK: return %[[SIGMOID]]
     return %3 : tensor<1x30x30x64xbf16>
   }
+
 }

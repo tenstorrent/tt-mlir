@@ -4,6 +4,7 @@
 
 #include "tt/runtime/detail/distributed/worker/command_executor.h"
 #include "tt/runtime/detail/common/logger.h"
+#include "tt/runtime/detail/common/runtime_context.h"
 #include "tt/runtime/detail/common/socket.h"
 #include "tt/runtime/detail/distributed/worker/response_factory.h"
 #include "tt/runtime/runtime.h"
@@ -13,13 +14,23 @@
 
 namespace tt::runtime::distributed::worker {
 
-static const ::tt::runtime::distributed::flatbuffer::Command *
-getCommand(const SizedBuffer &command) {
-  bool isDistributedCommand =
-      ::tt::runtime::distributed::flatbuffer::CommandBufferHasIdentifier(
-          command.data());
+namespace fb = ::tt::runtime::distributed::flatbuffer;
+
+template <typename Builder, typename... Args>
+static std::unique_ptr<::flatbuffers::FlatBufferBuilder>
+buildResponse(const Builder &builderFunc, uint64_t commandId, Args &&...args) {
+
+  auto responseBuilder = std::make_unique<::flatbuffers::FlatBufferBuilder>();
+
+  builderFunc(*responseBuilder, commandId, std::forward<Args>(args)...);
+
+  return responseBuilder;
+}
+
+static const fb::Command *getCommand(const SizedBuffer &command) {
+  bool isDistributedCommand = fb::CommandBufferHasIdentifier(command.data());
   LOG_ASSERT(isDistributedCommand, "Command is not a distributed command");
-  return ::tt::runtime::distributed::flatbuffer::GetCommand(command.data());
+  return fb::GetCommand(command.data());
 }
 
 void CommandExecutor::connect(const std::string &host, uint16_t port) {
@@ -47,10 +58,15 @@ void CommandExecutor::run() {
   launchResponseSender();
   while (!shutdownRequested_.load(std::memory_order_relaxed)) {
     SizedBuffer commandData = commandQueue_.popBlocking();
-    const ::tt::runtime::distributed::flatbuffer::Command *command =
-        getCommand(commandData);
+    const fb::Command *command = getCommand(commandData);
+
+    LOG_DEBUG("Executing command: ",
+              fb::EnumNameCommandType(command->type_type()));
 
     executeCommand(command);
+
+    LOG_DEBUG("Finished executing command: ",
+              fb::EnumNameCommandType(command->type_type()));
   }
 }
 
@@ -97,17 +113,29 @@ void CommandExecutor::sendResponses() {
 }
 
 void CommandExecutor::execute(
-    uint64_t commandId,
-    const ::tt::runtime::distributed::flatbuffer::GetSystemDescCommand
-        *command) {
+    uint64_t commandId, const fb::ConfigureRuntimeContextCommand *command) {
 
-  auto responseBuilder = std::make_unique<::flatbuffers::FlatBufferBuilder>();
+  ::tt::runtime::RuntimeContext::instance().setMlirHome(
+      command->mlir_home()->c_str());
+  ::tt::runtime::RuntimeContext::instance().setMetalHome(
+      command->metal_home()->c_str());
+  ::tt::runtime::RuntimeContext::instance().setCurrentDeviceRuntime(
+      command->current_device_runtime());
+
+  std::unique_ptr<::flatbuffers::FlatBufferBuilder> responseBuilder =
+      buildResponse(ResponseFactory::buildConfigureRuntimeContextResponse,
+                    commandId);
+
+  responseQueue_.push(std::move(responseBuilder));
+}
+
+void CommandExecutor::execute(uint64_t commandId,
+                              const fb::GetSystemDescCommand *command) {
 
   std::optional<::tt::runtime::DispatchCoreType> dispatchCoreType =
       std::nullopt;
   if (command->dispatch_core_type()) {
-    dispatchCoreType = ::tt::runtime::utils::toRuntimeDispatchCoreType(
-        command->dispatch_core_type().value());
+    dispatchCoreType = command->dispatch_core_type().value();
   }
 
   std::optional<Device> device = std::nullopt;
@@ -119,21 +147,41 @@ void CommandExecutor::execute(
       ::tt::runtime::system_desc::getCurrentSystemDesc(dispatchCoreType,
                                                        device);
 
-  ResponseFactory::buildGetSystemDescResponse(*responseBuilder, commandId,
-                                              systemDesc);
+  std::unique_ptr<::flatbuffers::FlatBufferBuilder> responseBuilder =
+      buildResponse(ResponseFactory::buildGetSystemDescResponse, commandId,
+                    systemDesc);
+
+  responseQueue_.push(std::move(responseBuilder));
+}
+
+void CommandExecutor::execute(uint64_t commandId,
+                              const fb::SetFabricConfigCommand *command) {
+
+  ::tt::runtime::setFabricConfig(command->config());
+
+  std::unique_ptr<::flatbuffers::FlatBufferBuilder> responseBuilder =
+      buildResponse(ResponseFactory::buildSetFabricConfigResponse, commandId);
 
   responseQueue_.push(std::move(responseBuilder));
 }
 
 void CommandExecutor::execute(
-    uint64_t commandId,
-    const ::tt::runtime::distributed::flatbuffer::OpenMeshDeviceCommand
-        *command) {
+    uint64_t commandId, const fb::GetNumAvailableDevicesCommand *command) {
 
-  auto responseBuilder = std::make_unique<::flatbuffers::FlatBufferBuilder>();
+  size_t numDevices = ::tt::runtime::getNumAvailableDevices();
+
+  std::unique_ptr<::flatbuffers::FlatBufferBuilder> responseBuilder =
+      buildResponse(ResponseFactory::buildGetNumAvailableDevicesResponse,
+                    commandId, numDevices);
+
+  responseQueue_.push(std::move(responseBuilder));
+}
+
+void CommandExecutor::execute(uint64_t commandId,
+                              const fb::OpenMeshDeviceCommand *command) {
 
   uint32_t deviceGlobalId = command->device_global_id();
-  const ::tt::runtime::distributed::flatbuffer::MeshDeviceOptions *options =
+  const ::tt::runtime::flatbuffer::MeshDeviceOptions *options =
       command->options();
 
   ::tt::runtime::MeshDeviceOptions meshDeviceOptions;
@@ -169,9 +217,7 @@ void CommandExecutor::execute(
   }
 
   if (options->dispatch_core_type().has_value()) {
-    meshDeviceOptions.dispatchCoreType =
-        ::tt::runtime::utils::toRuntimeDispatchCoreType(
-            options->dispatch_core_type().value());
+    meshDeviceOptions.dispatchCoreType = options->dispatch_core_type().value();
   }
 
   ::tt::runtime::Device device =
@@ -181,39 +227,97 @@ void CommandExecutor::execute(
 
   devicePool_.insert_or_assign(deviceGlobalId, device);
 
-  ResponseFactory::buildOpenMeshDeviceResponse(*responseBuilder, commandId,
-                                               device);
+  std::unique_ptr<::flatbuffers::FlatBufferBuilder> responseBuilder =
+      buildResponse(ResponseFactory::buildOpenMeshDeviceResponse, commandId,
+                    device);
 
   responseQueue_.push(std::move(responseBuilder));
 }
 
-void CommandExecutor::execute(
-    uint64_t commandId,
-    const ::tt::runtime::distributed::flatbuffer::CloseMeshDeviceCommand
-        *command) {
-
-  auto responseBuilder = std::make_unique<::flatbuffers::FlatBufferBuilder>();
+void CommandExecutor::execute(uint64_t commandId,
+                              const fb::CloseMeshDeviceCommand *command) {
 
   uint32_t deviceGlobalId = command->device()->global_id();
 
   ::tt::runtime::Device device = devicePool_.at(deviceGlobalId);
+  LOG_ASSERT(device.getGlobalId() == deviceGlobalId,
+             "Parent mesh global id mismatch");
 
   ::tt::runtime::closeMeshDevice(device);
 
   devicePool_.erase(deviceGlobalId);
 
-  ResponseFactory::buildCloseMeshDeviceResponse(*responseBuilder, commandId);
+  std::unique_ptr<::flatbuffers::FlatBufferBuilder> responseBuilder =
+      buildResponse(ResponseFactory::buildCloseMeshDeviceResponse, commandId);
 
   responseQueue_.push(std::move(responseBuilder));
 }
 
-void CommandExecutor::execute(
-    uint64_t commandId,
-    const ::tt::runtime::distributed::flatbuffer::CreateHostTensorCommand
-        *command) {
+void CommandExecutor::execute(uint64_t commandId,
+                              const fb::CreateSubMeshDeviceCommand *command) {
 
-  auto responseBuilder = std::make_unique<::flatbuffers::FlatBufferBuilder>();
+  ::tt::runtime::Device parentMesh =
+      devicePool_.at(command->parent_mesh()->global_id());
+  LOG_ASSERT(parentMesh.getGlobalId() == command->parent_mesh()->global_id(),
+             "Parent mesh global id mismatch");
 
+  std::vector<uint32_t> meshShape(command->mesh_shape()->begin(),
+                                  command->mesh_shape()->end());
+
+  std::optional<std::vector<uint32_t>> meshOffset = std::nullopt;
+  if (command->mesh_offset()) {
+    meshOffset = std::vector<uint32_t>(command->mesh_offset()->begin(),
+                                       command->mesh_offset()->end());
+  }
+
+  uint32_t subMeshGlobalId = command->submesh_global_id();
+  ::tt::runtime::Device subMesh =
+      ::tt::runtime::createSubMeshDevice(parentMesh, meshShape, meshOffset);
+  subMesh.setGlobalId(subMeshGlobalId);
+  devicePool_.insert_or_assign(subMeshGlobalId, subMesh);
+
+  std::unique_ptr<::flatbuffers::FlatBufferBuilder> responseBuilder =
+      buildResponse(ResponseFactory::buildCreateSubMeshDeviceResponse,
+                    commandId, subMesh);
+
+  responseQueue_.push(std::move(responseBuilder));
+}
+
+void CommandExecutor::execute(uint64_t commandId,
+                              const fb::ReleaseSubMeshDeviceCommand *command) {
+
+  uint32_t subMeshGlobalId = command->sub_mesh()->global_id();
+
+  ::tt::runtime::Device subMesh = devicePool_.at(subMeshGlobalId);
+  LOG_ASSERT(subMesh.getGlobalId() == subMeshGlobalId,
+             "Submesh global id mismatch");
+
+  ::tt::runtime::releaseSubMeshDevice(subMesh);
+  devicePool_.erase(subMeshGlobalId);
+
+  std::unique_ptr<::flatbuffers::FlatBufferBuilder> responseBuilder =
+      buildResponse(ResponseFactory::buildReleaseSubMeshDeviceResponse,
+                    commandId);
+
+  responseQueue_.push(std::move(responseBuilder));
+}
+
+void CommandExecutor::execute(uint64_t commandId,
+                              const fb::GetMeshShapeCommand *command) {
+
+  ::tt::runtime::Device device = devicePool_.at(command->device()->global_id());
+
+  std::vector<uint32_t> shape = ::tt::runtime::getMeshShape(device);
+
+  std::unique_ptr<::flatbuffers::FlatBufferBuilder> responseBuilder =
+      buildResponse(ResponseFactory::buildGetMeshShapeResponse, commandId,
+                    shape);
+
+  responseQueue_.push(std::move(responseBuilder));
+}
+
+void CommandExecutor::execute(uint64_t commandId,
+                              const fb::CreateHostTensorCommand *command) {
   uint64_t tensorGlobalId = command->output_global_id();
   const uint8_t *tensorData = command->data()->data();
   std::vector<uint32_t> shape(command->shape()->begin(),
@@ -230,16 +334,104 @@ void CommandExecutor::execute(
 
   tensorPool_.insert_or_assign(tensorGlobalId, tensor);
 
-  ResponseFactory::buildCreateHostTensorResponse(*responseBuilder, commandId);
+  std::unique_ptr<::flatbuffers::FlatBufferBuilder> responseBuilder =
+      buildResponse(ResponseFactory::buildCreateHostTensorResponse, commandId);
 
   responseQueue_.push(std::move(responseBuilder));
 }
 
 void CommandExecutor::execute(
     uint64_t commandId,
-    const ::tt::runtime::distributed::flatbuffer::GetLayoutCommand *command) {
+    const fb::CreateMultiDeviceHostTensorFromShardsCommand *command) {
+  std::vector<::tt::runtime::Tensor> tensorShards;
+  for (const auto &inputGlobalId : *command->input_global_ids()) {
+    tensorShards.push_back(tensorPool_.at(inputGlobalId));
+  }
 
-  auto responseBuilder = std::make_unique<::flatbuffers::FlatBufferBuilder>();
+  std::unordered_map<std::string, std::string> strategy;
+  for (const auto &strategyEntry : *command->strategy_map()) {
+    strategy[strategyEntry->key()->c_str()] = strategyEntry->value()->c_str();
+  }
+
+  std::vector<uint32_t> meshShape(command->mesh_shape()->begin(),
+                                  command->mesh_shape()->end());
+
+  ::tt::runtime::Tensor multiDeviceHostTensor =
+      ::tt::runtime::createMultiDeviceHostTensor(tensorShards, strategy,
+                                                 meshShape);
+
+  multiDeviceHostTensor.setGlobalId(command->output_global_id());
+  tensorPool_.insert_or_assign(command->output_global_id(),
+                               multiDeviceHostTensor);
+
+  std::unique_ptr<::flatbuffers::FlatBufferBuilder> responseBuilder =
+      buildResponse(
+          ResponseFactory::buildCreateMultiDeviceHostTensorFromShardsResponse,
+          commandId);
+
+  responseQueue_.push(std::move(responseBuilder));
+}
+
+void CommandExecutor::execute(uint64_t commandId,
+                              const fb::IsTensorAllocatedCommand *command) {
+  uint64_t tensorGlobalId = command->tensor_global_id();
+
+  bool allocated =
+      tensorPool_.contains(tensorGlobalId)
+          ? ::tt::runtime::isTensorAllocated(tensorPool_.at(tensorGlobalId))
+          : false;
+
+  std::unique_ptr<::flatbuffers::FlatBufferBuilder> responseBuilder =
+      buildResponse(ResponseFactory::buildIsTensorAllocatedResponse, commandId,
+                    allocated);
+
+  responseQueue_.push(std::move(responseBuilder));
+}
+
+void CommandExecutor::execute(uint64_t commandId,
+                              const fb::GetTensorVolumeCommand *command) {
+  uint64_t tensorGlobalId = command->tensor_global_id();
+  ::tt::runtime::Tensor tensor = tensorPool_.at(tensorGlobalId);
+
+  uint32_t volume = ::tt::runtime::getTensorVolume(tensor);
+
+  std::unique_ptr<::flatbuffers::FlatBufferBuilder> responseBuilder =
+      buildResponse(ResponseFactory::buildGetTensorVolumeResponse, commandId,
+                    volume);
+
+  responseQueue_.push(std::move(responseBuilder));
+}
+
+void CommandExecutor::execute(uint64_t commandId,
+                              const fb::GetTensorRetainCommand *command) {
+
+  uint64_t tensorGlobalId = command->tensor_global_id();
+  ::tt::runtime::Tensor tensor = tensorPool_.at(tensorGlobalId);
+
+  bool retain = ::tt::runtime::getTensorRetain(tensor);
+
+  std::unique_ptr<::flatbuffers::FlatBufferBuilder> responseBuilder =
+      buildResponse(ResponseFactory::buildGetTensorRetainResponse, commandId,
+                    retain);
+
+  responseQueue_.push(std::move(responseBuilder));
+}
+
+void CommandExecutor::execute(uint64_t commandId,
+                              const fb::SetTensorRetainCommand *command) {
+  uint64_t tensorGlobalId = command->tensor_global_id();
+  ::tt::runtime::Tensor tensor = tensorPool_.at(tensorGlobalId);
+
+  ::tt::runtime::setTensorRetain(tensor, command->retain());
+
+  std::unique_ptr<::flatbuffers::FlatBufferBuilder> responseBuilder =
+      buildResponse(ResponseFactory::buildSetTensorRetainResponse, commandId);
+
+  responseQueue_.push(std::move(responseBuilder));
+}
+
+void CommandExecutor::execute(uint64_t commandId,
+                              const fb::GetLayoutCommand *command) {
 
   ::tt::runtime::Binary binary =
       getOrCreateBinary(command->binary(), command->binary_id());
@@ -250,16 +442,14 @@ void CommandExecutor::execute(
   layout.setGlobalId(command->output_layout_id());
   layoutPool_.insert_or_assign(command->output_layout_id(), layout);
 
-  ResponseFactory::buildGetLayoutResponse(*responseBuilder, commandId);
+  std::unique_ptr<::flatbuffers::FlatBufferBuilder> responseBuilder =
+      buildResponse(ResponseFactory::buildGetLayoutResponse, commandId);
 
   responseQueue_.push(std::move(responseBuilder));
 }
 
-void CommandExecutor::execute(
-    uint64_t commandId,
-    const ::tt::runtime::distributed::flatbuffer::ToLayoutCommand *command) {
-
-  auto responseBuilder = std::make_unique<::flatbuffers::FlatBufferBuilder>();
+void CommandExecutor::execute(uint64_t commandId,
+                              const fb::ToLayoutCommand *command) {
 
   uint64_t inputGlobalId = command->input_global_id();
   uint64_t outputGlobalId = command->output_global_id();
@@ -281,16 +471,14 @@ void CommandExecutor::execute(
 
   tensorPool_.insert_or_assign(outputGlobalId, resultTensor);
 
-  ResponseFactory::buildToLayoutResponse(*responseBuilder, commandId);
+  std::unique_ptr<::flatbuffers::FlatBufferBuilder> responseBuilder =
+      buildResponse(ResponseFactory::buildToLayoutResponse, commandId);
 
   responseQueue_.push(std::move(responseBuilder));
 }
 
-void CommandExecutor::execute(
-    uint64_t commandId,
-    const ::tt::runtime::distributed::flatbuffer::SubmitCommand *command) {
-
-  auto responseBuilder = std::make_unique<::flatbuffers::FlatBufferBuilder>();
+void CommandExecutor::execute(uint64_t commandId,
+                              const fb::SubmitCommand *command) {
 
   ::tt::runtime::Device device = devicePool_.at(command->device()->global_id());
 
@@ -317,32 +505,28 @@ void CommandExecutor::execute(
                                  outputTensors[i]);
   }
 
-  ResponseFactory::buildSubmitResponse(*responseBuilder, commandId);
+  std::unique_ptr<::flatbuffers::FlatBufferBuilder> responseBuilder =
+      buildResponse(ResponseFactory::buildSubmitResponse, commandId);
 
   responseQueue_.push(std::move(responseBuilder));
 }
 
-void CommandExecutor::execute(
-    uint64_t commandId,
-    const ::tt::runtime::distributed::flatbuffer::GetNumShardsCommand
-        *command) {
-  auto responseBuilder = std::make_unique<::flatbuffers::FlatBufferBuilder>();
+void CommandExecutor::execute(uint64_t commandId,
+                              const fb::GetNumShardsCommand *command) {
   uint64_t tensorGlobalId = command->input_global_id();
   ::tt::runtime::Tensor tensor = tensorPool_.at(tensorGlobalId);
 
   uint32_t numBuffers = ::tt::runtime::detail::getNumShards(tensor);
 
-  ResponseFactory::buildGetNumShardsResponse(*responseBuilder, commandId,
-                                             numBuffers);
+  std::unique_ptr<::flatbuffers::FlatBufferBuilder> responseBuilder =
+      buildResponse(ResponseFactory::buildGetNumShardsResponse, commandId,
+                    numBuffers);
 
   responseQueue_.push(std::move(responseBuilder));
 }
 
-void CommandExecutor::execute(
-    uint64_t commandId,
-    const ::tt::runtime::distributed::flatbuffer::ToHostCommand *command) {
-
-  auto responseBuilder = std::make_unique<::flatbuffers::FlatBufferBuilder>();
+void CommandExecutor::execute(uint64_t commandId,
+                              const fb::ToHostCommand *command) {
 
   uint64_t inputGlobalId = command->input_global_id();
 
@@ -366,16 +550,14 @@ void CommandExecutor::execute(
                                  outputTensors[i]);
   }
 
-  ResponseFactory::buildToHostResponse(*responseBuilder, commandId);
+  std::unique_ptr<::flatbuffers::FlatBufferBuilder> responseBuilder =
+      buildResponse(ResponseFactory::buildToHostResponse, commandId);
 
   responseQueue_.push(std::move(responseBuilder));
 }
 
-void CommandExecutor::execute(
-    uint64_t commandId,
-    const ::tt::runtime::distributed::flatbuffer::MemcpyCommand *command) {
-  auto responseBuilder = std::make_unique<::flatbuffers::FlatBufferBuilder>();
-
+void CommandExecutor::execute(uint64_t commandId,
+                              const fb::MemcpyCommand *command) {
   uint64_t srcGlobalId = command->src_global_id();
   ::tt::runtime::Tensor srcTensor = tensorPool_.at(srcGlobalId);
 
@@ -403,20 +585,38 @@ void CommandExecutor::execute(
     ::tt::runtime::memcpy(dstDataBuffer.value().data(), srcTensor, dstDataType);
   }
 
-  ResponseFactory::buildMemcpyResponse(*responseBuilder, commandId,
-                                       dstDataBuffer);
+  std::unique_ptr<::flatbuffers::FlatBufferBuilder> responseBuilder =
+      buildResponse(ResponseFactory::buildMemcpyResponse, commandId,
+                    dstDataBuffer);
 
   responseQueue_.push(std::move(responseBuilder));
 }
 
-void CommandExecutor::execute(
-    uint64_t commandId,
-    const ::tt::runtime::distributed::flatbuffer::ShutdownCommand *command) {
+void CommandExecutor::execute(uint64_t commandId,
+                              const fb::DeallocateTensorCommand *command) {
+  uint64_t tensorGlobalId = command->tensor_global_id();
+  ::tt::runtime::Tensor tensor = tensorPool_.at(tensorGlobalId);
+
+  if (::tt::runtime::getTensorRetain(tensor)) {
+    LOG_WARNING("Tensor is retained, will not be deallocated");
+  } else {
+    ::tt::runtime::deallocateTensor(tensor, command->force());
+    tensorPool_.erase(tensorGlobalId);
+  }
+
+  std::unique_ptr<::flatbuffers::FlatBufferBuilder> responseBuilder =
+      buildResponse(ResponseFactory::buildDeallocateTensorResponse, commandId);
+
+  responseQueue_.push(std::move(responseBuilder));
+}
+
+void CommandExecutor::execute(uint64_t commandId,
+                              const fb::ShutdownCommand *command) {
 
   LOG_INFO("Shutdown command received, shutting down command executor");
 
-  auto responseBuilder = std::make_unique<::flatbuffers::FlatBufferBuilder>();
-  ResponseFactory::buildShutdownResponse(*responseBuilder, commandId);
+  std::unique_ptr<::flatbuffers::FlatBufferBuilder> responseBuilder =
+      buildResponse(ResponseFactory::buildShutdownResponse, commandId);
 
   responseQueue_.push(std::move(responseBuilder));
 
@@ -427,56 +627,98 @@ void CommandExecutor::execute(
   LOG_INFO("Command executor shutdown complete");
 }
 
-void CommandExecutor::executeCommand(
-    const ::tt::runtime::distributed::flatbuffer::Command *command) {
+void CommandExecutor::executeCommand(const fb::Command *command) {
   switch (command->type_type()) {
-  case ::tt::runtime::distributed::flatbuffer::CommandType::
-      GetSystemDescCommand: {
+  case fb::CommandType::ConfigureRuntimeContextCommand: {
+    return execute(command->command_id(),
+                   command->type_as_ConfigureRuntimeContextCommand());
+  }
+  case fb::CommandType::GetSystemDescCommand: {
     return execute(command->command_id(),
                    command->type_as_GetSystemDescCommand());
   }
-  case ::tt::runtime::distributed::flatbuffer::CommandType::
-      OpenMeshDeviceCommand: {
+  case fb::CommandType::SetFabricConfigCommand: {
+    return execute(command->command_id(),
+                   command->type_as_SetFabricConfigCommand());
+  }
+  case fb::CommandType::GetNumAvailableDevicesCommand: {
+    return execute(command->command_id(),
+                   command->type_as_GetNumAvailableDevicesCommand());
+  }
+  case fb::CommandType::OpenMeshDeviceCommand: {
     return execute(command->command_id(),
                    command->type_as_OpenMeshDeviceCommand());
   }
-  case ::tt::runtime::distributed::flatbuffer::CommandType::
-      CloseMeshDeviceCommand: {
+  case fb::CommandType::CloseMeshDeviceCommand: {
     return execute(command->command_id(),
                    command->type_as_CloseMeshDeviceCommand());
   }
-  case ::tt::runtime::distributed::flatbuffer::CommandType::
-      CreateHostTensorCommand: {
+  case fb::CommandType::CreateSubMeshDeviceCommand: {
+    return execute(command->command_id(),
+                   command->type_as_CreateSubMeshDeviceCommand());
+  }
+  case fb::CommandType::ReleaseSubMeshDeviceCommand: {
+    return execute(command->command_id(),
+                   command->type_as_ReleaseSubMeshDeviceCommand());
+  }
+  case fb::CommandType::GetMeshShapeCommand: {
+    return execute(command->command_id(),
+                   command->type_as_GetMeshShapeCommand());
+  }
+  case fb::CommandType::CreateHostTensorCommand: {
     return execute(command->command_id(),
                    command->type_as_CreateHostTensorCommand());
   }
-  case ::tt::runtime::distributed::flatbuffer::CommandType::GetLayoutCommand: {
+  case fb::CommandType::CreateMultiDeviceHostTensorFromShardsCommand: {
+    return execute(
+        command->command_id(),
+        command->type_as_CreateMultiDeviceHostTensorFromShardsCommand());
+  }
+  case fb::CommandType::IsTensorAllocatedCommand: {
+    return execute(command->command_id(),
+                   command->type_as_IsTensorAllocatedCommand());
+  }
+  case fb::CommandType::GetTensorVolumeCommand: {
+    return execute(command->command_id(),
+                   command->type_as_GetTensorVolumeCommand());
+  }
+  case fb::CommandType::GetTensorRetainCommand: {
+    return execute(command->command_id(),
+                   command->type_as_GetTensorRetainCommand());
+  }
+  case fb::CommandType::SetTensorRetainCommand: {
+    return execute(command->command_id(),
+                   command->type_as_SetTensorRetainCommand());
+  }
+  case fb::CommandType::GetLayoutCommand: {
     return execute(command->command_id(), command->type_as_GetLayoutCommand());
   }
-  case ::tt::runtime::distributed::flatbuffer::CommandType::ToLayoutCommand: {
+  case fb::CommandType::ToLayoutCommand: {
     return execute(command->command_id(), command->type_as_ToLayoutCommand());
   }
-  case ::tt::runtime::distributed::flatbuffer::CommandType::SubmitCommand: {
+  case fb::CommandType::SubmitCommand: {
     return execute(command->command_id(), command->type_as_SubmitCommand());
   }
-  case ::tt::runtime::distributed::flatbuffer::CommandType::
-      GetNumShardsCommand: {
+  case fb::CommandType::GetNumShardsCommand: {
     return execute(command->command_id(),
                    command->type_as_GetNumShardsCommand());
   }
-  case ::tt::runtime::distributed::flatbuffer::CommandType::ToHostCommand: {
+  case fb::CommandType::ToHostCommand: {
     return execute(command->command_id(), command->type_as_ToHostCommand());
   }
-  case ::tt::runtime::distributed::flatbuffer::CommandType::MemcpyCommand: {
+  case fb::CommandType::MemcpyCommand: {
     return execute(command->command_id(), command->type_as_MemcpyCommand());
   }
-  case ::tt::runtime::distributed::flatbuffer::CommandType::ShutdownCommand: {
+  case fb::CommandType::DeallocateTensorCommand: {
+    return execute(command->command_id(),
+                   command->type_as_DeallocateTensorCommand());
+  }
+  case fb::CommandType::ShutdownCommand: {
     return execute(command->command_id(), command->type_as_ShutdownCommand());
   }
-  case ::tt::runtime::distributed::flatbuffer::CommandType::NONE: {
+  case fb::CommandType::NONE: {
     LOG_FATAL("Unhandled command type: ",
-              ::tt::runtime::distributed::flatbuffer::EnumNameCommandType(
-                  command->type_type()));
+              fb::EnumNameCommandType(command->type_type()));
   }
   }
 

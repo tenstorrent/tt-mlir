@@ -50,10 +50,10 @@ if "TT_MLIR_HOME" in os.environ:
 else:
     raise OSError("TT_MLIR_HOME environment variable is not set")
 
-if "TT_METAL_HOME" in os.environ:
-    config.environment["TT_METAL_HOME"] = os.environ["TT_METAL_HOME"]
+if "TT_METAL_RUNTIME_ROOT" in os.environ:
+    config.environment["TT_METAL_RUNTIME_ROOT"] = os.environ["TT_METAL_RUNTIME_ROOT"]
 else:
-    raise OSError("TT_METAL_HOME environment variable is not set")
+    raise OSError("TT_METAL_RUNTIME_ROOT environment variable is not set")
 
 
 # Some optimizer unittests must be run serially. There is no way to that in llvm-lit

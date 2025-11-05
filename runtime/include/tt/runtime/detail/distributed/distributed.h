@@ -17,14 +17,41 @@ SystemDesc getCurrentSystemDesc(
         std::nullopt,
     std::optional<::tt::runtime::Device> deviceHandle = std::nullopt);
 
+void setFabricConfig(const ::tt::runtime::FabricConfig &fabricConfig);
+
+size_t getNumAvailableDevices();
+
 ::tt::runtime::Device openMeshDevice(const MeshDeviceOptions &options = {});
 
-void closeMeshDevice(::tt::runtime::Device parentMesh);
+void closeMeshDevice(::tt::runtime::Device &parentMesh);
+
+::tt::runtime::Device createSubMeshDevice(
+    const ::tt::runtime::Device &parentMesh,
+    const std::vector<uint32_t> &meshShape,
+    const std::optional<const std::vector<uint32_t>> &meshOffset =
+        std::nullopt);
+
+void releaseSubMeshDevice(const ::tt::runtime::Device &subMesh);
+
+std::vector<uint32_t> getMeshShape(const ::tt::runtime::Device &meshDevice);
 
 ::tt::runtime::Tensor
 createOwnedHostTensor(const void *data, const std::vector<std::uint32_t> &shape,
                       const std::vector<std::uint32_t> &stride,
                       std::uint32_t itemsize, ::tt::target::DataType dataType);
+
+::tt::runtime::Tensor createMultiDeviceHostTensor(
+    const std::vector<::tt::runtime::Tensor> &tensorShards,
+    const std::unordered_map<std::string, std::string> &strategy,
+    const std::vector<uint32_t> &meshShape);
+
+bool isTensorAllocated(const ::tt::runtime::Tensor &tensorHandle);
+
+std::uint32_t getTensorVolume(const ::tt::runtime::Tensor &tensorHandle);
+
+bool getTensorRetain(::tt::runtime::Tensor tensorHandle);
+
+void setTensorRetain(::tt::runtime::Tensor tensorHandle, bool retain);
 
 ::tt::runtime::Layout getLayout(::tt::runtime::Binary executableHandle,
                                 std::uint32_t programIndex,
@@ -46,6 +73,11 @@ toHost(const ::tt::runtime::Tensor &tensorHandle, bool untilize = false,
 
 void memcpy(void *dst, const ::tt::runtime::Tensor &srcHandle,
             std::optional<tt::target::DataType> targetDataType = std::nullopt);
+
+void memcpy(const ::tt::runtime::Tensor &dstHandle,
+            const ::tt::runtime::Tensor &srcHandle);
+
+void deallocateTensor(::tt::runtime::Tensor &tensorHandle, bool force = false);
 
 } // namespace tt::runtime::distributed
 

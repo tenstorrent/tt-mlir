@@ -8,11 +8,16 @@
 #include "mlir/Conversion/ControlFlowToLLVM/ControlFlowToLLVM.h"
 #include "mlir/Conversion/FuncToLLVM/ConvertFuncToLLVMPass.h"
 #include "mlir/Conversion/MathToLLVM/MathToLLVM.h"
+#include "mlir/Conversion/Passes.h"
 #include "mlir/Conversion/SCFToControlFlow/SCFToControlFlow.h"
 #include "mlir/Conversion/TensorToLinalg/TensorToLinalgPass.h"
+#include "mlir/Conversion/TosaToArith/TosaToArith.h"
+#include "mlir/Conversion/TosaToLinalg/TosaToLinalg.h"
+#include "mlir/Conversion/TosaToTensor/TosaToTensor.h"
 #include "mlir/Dialect/Bufferization/Pipelines/Passes.h"
 #include "mlir/Dialect/Bufferization/Transforms/Passes.h"
 #include "mlir/Dialect/Linalg/Passes.h"
+#include "mlir/Dialect/SCF/Transforms/Passes.h"
 #include "mlir/InitAllDialects.h"
 #include "mlir/InitAllPasses.h"
 #include "mlir/Pass/PassManager.h"
@@ -203,12 +208,22 @@ void createLinalgToLLVMPipeline(OpPassManager &manager,
   // eliminate some nasty bufferization::clone() calls.
   manager.addPass(mlir::createConvertBufferizationToMemRefPass());
 
+  // Lowers memref.copy on non-contiguous (strided, non-identity) memrefs to
+  // linalg dialect. memref.copy on contiguous memrefs gets lowered
+  // to llvm.memcpy during FinalizeMemRefToLLVMConversionPass.
+  manager.addPass(
+      mlir::tt::llvm_util::createNonContiguousMemrefCopyToLinalgPass());
+
   // This lowers linalg to scf-based loops.
   manager.addPass(mlir::createConvertLinalgToLoopsPass());
 
   // This is needed to lower memref.subview before we can convert all memref ops
   // to LLVM.
   manager.addPass(mlir::memref::createExpandStridedMetadataPass());
+
+  // Converts affine dialect operations to standard control flow and arithmetic
+  // operations.
+  manager.addPass(createLowerAffinePass());
 
   // These two passes convert scf to LLVM control flow.
   manager.addPass(mlir::createSCFToControlFlowPass());

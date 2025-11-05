@@ -37,7 +37,6 @@ enum EltwiseBinaryCompositeOpType: uint32 {
   Maximum,
   Minimum,
   Remainder,
-  Scatter,
   Pow,
   Atan2,
   BitwiseAnd,
@@ -50,6 +49,23 @@ table EltwiseBinaryCompositeOp {
   type: EltwiseBinaryCompositeOpType;
   lhs: tt.target.ttnn.TensorRef;
   rhs: tt.target.ttnn.TensorRef;
+  memory_config: tt.target.ttnn.MemoryConfig;
+  out: tt.target.ttnn.TensorRef;
+}
+
+union RhsParams {
+  FP: FloatingPointType,
+  UI32: UIntegralType,
+}
+
+enum EltwiseBinaryCompositeScalarOpType: uint32 {
+  PowScalar,
+}
+
+table EltwiseBinaryCompositeScalarOp {
+  type: EltwiseBinaryCompositeScalarOpType;
+  lhs: tt.target.ttnn.TensorRef;
+  rhs: RhsParams;
   memory_config: tt.target.ttnn.MemoryConfig;
   out: tt.target.ttnn.TensorRef;
 }
@@ -148,7 +164,9 @@ enum EltwiseUnaryOpType: uint32 {
   LeakyRelu,
   BitwiseNot,
   Relu6,
-  Silu
+  Silu,
+  Hardsigmoid,
+  Mish
 }
 
 union EltwiseUnaryOpParams {
@@ -232,6 +250,7 @@ enum UnaryOpType: uint32 {
   Acos,
   Rsqrt,
   Relu6,
+  Hardsigmoid,
   Atan,
   Erf,
   Erfc,

@@ -3,7 +3,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-echo "Generating tests"
-llvm-lit $BUILD_DIR/test
+set -e -o pipefail
+
 echo "Running TTNN Runtime Python tests"
 .github/test_scripts/pytest.sh "$@"

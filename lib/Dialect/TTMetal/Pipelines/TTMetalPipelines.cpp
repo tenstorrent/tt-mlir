@@ -5,9 +5,7 @@
 #include "ttmlir/Dialect/TTMetal/Pipelines/TTMetalPipelines.h"
 
 #include "ttmlir/Conversion/Passes.h"
-#include "ttmlir/Conversion/TTIRToTTIRDecomposition/TTIRToTTIRDecomposition.h"
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
-#include "ttmlir/Dialect/LLVM/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTCore/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTIR/Pipelines/TTIRPipelines.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
@@ -16,7 +14,6 @@
 #include "mlir/Conversion/AffineToStandard/AffineToStandard.h"
 #include "mlir/Dialect/Affine/Passes.h"
 #include "mlir/Dialect/Arith/Transforms/Passes.h"
-#include "mlir/Dialect/Bufferization/Transforms/OneShotAnalysis.h"
 #include "mlir/Dialect/Bufferization/Transforms/Passes.h"
 #include "mlir/Dialect/EmitC/Transforms/Passes.h"
 #include "mlir/Dialect/Linalg/Passes.h"
@@ -43,20 +40,20 @@ std::unique_ptr<Pass> createCanonicalizerPassWithOptions(
 
 void createTTIRBufferizationPipeline(
     OpPassManager &pm, const TTIRToTTMetalPipelineOptions &options) {
-  bufferization::OneShotBufferizePassOptions bufferizePassOptions;
   if (options.ttnnMode) {
+    bufferization::OneShotBufferizePassOptions bufferizePassOptions;
     bufferizePassOptions.allowUnknownOps = true;
     bufferizePassOptions.bufferizeFunctionBoundaries = false;
+    bufferizePassOptions.functionBoundaryTypeConversion =
+        bufferization::LayoutMapOption::IdentityLayoutMap;
+    bufferizePassOptions.unknownTypeConversion =
+        bufferization::LayoutMapOption::IdentityLayoutMap;
+    pm.addPass(
+        mlir::bufferization::createOneShotBufferizePass(bufferizePassOptions));
   } else {
-    bufferizePassOptions.allowUnknownOps = false;
-    bufferizePassOptions.bufferizeFunctionBoundaries = true;
+    // Use custom bufferization pass with MetalLayoutAttr support
+    pm.addPass(ttcore::createTTCoreOneShotBufferizePass());
   }
-  bufferizePassOptions.functionBoundaryTypeConversion =
-      bufferization::LayoutMapOption::IdentityLayoutMap;
-  bufferizePassOptions.unknownTypeConversion =
-      bufferization::LayoutMapOption::IdentityLayoutMap;
-  pm.addPass(
-      mlir::bufferization::createOneShotBufferizePass(bufferizePassOptions));
   // TODO(#2246)
   // bufferization::BufferDeallocationPipelineOptions
   // bufferDeallocationOptions;
@@ -86,17 +83,25 @@ void createTTIRToTTMetalFrontendPipeline(
   pm.addPass(ttcore::createTTCoreRegisterDevicePass(registerDeviceOptions));
   pm.addPass(tt::createTTIRToTTIRDecompositionPass());
   pm.addPass(createCanonicalizerPassWithOptions(options));
-  // Configure D2M options to match the original TTIR options
+  if (!options.globalDataFormatTarget.empty()) {
+    d2m::D2MGlobalDataFormatConversionOptions globalFormatOptions;
+    { globalFormatOptions.targetFormat = options.globalDataFormatTarget; }
+    pm.addPass(d2m::createD2MGlobalDataFormatConversion(globalFormatOptions));
+  }
   tt::TTIRToD2MOptions toD2MOptions;
   {
     toD2MOptions.defaultInputMemSpace = options.defaultInputMemSpace;
     toD2MOptions.defaultOutputMemSpace = options.defaultOutputMemSpace;
-    toD2MOptions.overrideDeviceShape =
-        llvm::to_vector(options.overrideDeviceShape);
     toD2MOptions.ttnnMode = options.ttnnMode;
     toD2MOptions.collapseTensorsTo2D = options.collapseTensors;
   }
   pm.addPass(tt::createTTIRToD2MPass(toD2MOptions));
+  d2m::D2MGridSelectionOptions gridOptOptions;
+  {
+    gridOptOptions.overrideDeviceShape =
+        llvm::to_vector(options.overrideDeviceShape);
+  }
+  pm.addPass(d2m::createD2MGridSelection(gridOptOptions));
   pm.addPass(createCanonicalizerPassWithOptions(options));
   pm.addPass(d2m::createD2MLowerToLayout());
 }
@@ -105,8 +110,8 @@ void createTTIRToTTMetalMiddleendPipeline(
     OpPassManager &pm, const TTIRToTTMetalPipelineOptions &options) {
   d2m::D2MElementwiseFusionOptions elementwiseFusionOptions;
   {
-    elementwiseFusionOptions.maxDstRegisterSizeTiles =
-        options.maxDstRegisterSizeTiles;
+    elementwiseFusionOptions.maxDstPhysicalSizeTiles =
+        options.maxDstPhysicalSizeTiles;
   }
   pm.addPass(d2m::createD2MElementwiseFusion(elementwiseFusionOptions));
   pm.addPass(createLinalgElementwiseOpFusionPass());
@@ -114,13 +119,17 @@ void createTTIRToTTMetalMiddleendPipeline(
   createTTIRBufferizationPipeline(pm, options);
   if (options.ttnnMode) {
     d2m::D2MInsertStreamsOptions insertStreamsOptions;
-    { insertStreamsOptions.numStreamBuffers = options.numStreamBuffers; }
+    {
+      insertStreamsOptions.numStreamBuffers = options.numStreamBuffers;
+      insertStreamsOptions.allowL1OutputSpilling =
+          options.allowL1OutputSpilling;
+    }
     pm.addPass(d2m::createD2MInsertStreams(insertStreamsOptions));
   } else {
     d2m::D2MAllocateOptions allocateOptions;
     {
       allocateOptions.numStreamBuffers = options.numStreamBuffers;
-      allocateOptions.allowOutputSpilling = options.allowOutputSpilling;
+      allocateOptions.allowL1OutputSpilling = options.allowL1OutputSpilling;
     }
     pm.addPass(d2m::createD2MAllocate(allocateOptions));
   }
@@ -134,12 +143,16 @@ void createTTIRToTTMetalMiddleendPipeline(
   pm.addPass(d2m::createD2MGenericApplyInterchange(applyInterchangeOptions));
   d2m::D2MGenericTileComputeLoopsOptions tileComputeLoopsOptions;
   {
-    tileComputeLoopsOptions.maxDstRegisterSizeTiles =
-        options.maxDstRegisterSizeTiles;
+    tileComputeLoopsOptions.maxDstPhysicalSizeTiles =
+        options.maxDstPhysicalSizeTiles;
   }
   pm.addPass(d2m::createD2MGenericTileComputeLoops(tileComputeLoopsOptions));
   d2m::D2MInsertDstRegisterAccessOptions insertDstRegisterAccessOptions;
-  { insertDstRegisterAccessOptions.useTileMatmul = options.useTileMatmul; }
+  {
+    insertDstRegisterAccessOptions.useTileMatmul = options.useTileMatmul;
+    insertDstRegisterAccessOptions.maxDstPhysicalSizeTiles =
+        options.maxDstPhysicalSizeTiles;
+  }
   pm.addPass(
       d2m::createD2MInsertDstRegisterAccess(insertDstRegisterAccessOptions));
 
@@ -177,6 +190,7 @@ void createTTIRToTTMetalBackendPipeline(
     { d2mToTTMetalOptions.mathFidelity = options.mathFidelity; }
     pm.addPass(tt::createConvertD2MToTTMetalPass(d2mToTTMetalOptions));
   }
+  pm.addPass(ttkernel::createTTKernelHoistInits());
   // Insert DeviceZone scopes around selected ttkernel ops before EmitC
   // lowering.
   if (options.insertProfilerTraces) {

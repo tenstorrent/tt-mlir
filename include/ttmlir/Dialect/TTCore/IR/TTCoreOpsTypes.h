@@ -144,6 +144,7 @@ inline std::optional<DataType> elementTypeToDataTypeImpl(Type elementType) {
     case DataType::BFP_Float2:
     case DataType::Float32:
     case DataType::BFloat16:
+    case DataType::Int32:
       return tileType.getDataType();
     default:
       assert(false && "Unsupported tile type in elementTypeToDataTypeImpl");
@@ -165,9 +166,8 @@ inline std::optional<DataType> elementTypeToDataTypeImpl(Type elementType) {
 
   if (auto intType = dyn_cast<mlir::IntegerType>(elementType)) {
     switch (intType.getWidth()) {
-    // Booleans treated as bfloat16.
     case 1:
-      return DataType::BFloat16;
+      return DataType::Bool;
     case 8:
       return DataType::UInt8;
     case 16:
@@ -222,6 +222,8 @@ inline Type dataTypeToElementType(mlir::MLIRContext *context, DataType dtype) {
   case DataType::Int32:
     return IntegerType::get(context, 32,
                             IntegerType::SignednessSemantics::Signed);
+  case DataType::Bool:
+    return IntegerType::get(context, 1);
   }
 }
 
@@ -230,6 +232,12 @@ inline mlir::Type toTTMLIRSupportedDataType(Type elementType) {
   std::optional<DataType> dataType = elementTypeToDataTypeImpl(elementType);
 
   if (dataType) {
+    // Normalize Bool to BFloat16 for tensor storage since hardware doesn't
+    // support bool
+    if (*dataType == DataType::Bool) {
+      return dataTypeToElementType(elementType.getContext(),
+                                   DataType::BFloat16);
+    }
     return dataTypeToElementType(elementType.getContext(), *dataType);
   }
 
@@ -331,6 +339,8 @@ inline uint8_t getNumberOfBits(const DataType dtype) {
   case DataType::BFP_Float2:
   case DataType::BFP_BFloat2:
     return 2;
+  case DataType::Bool:
+    return 1;
   }
 }
 
@@ -369,8 +379,13 @@ inline MemorySpace getMemorySpace(MemorySpaceAttr memorySpaceAttr) {
   return memorySpaceAttr.getValue();
 }
 
-inline MemorySpace getMemorySpace(MemRefType memref) {
-  return getMemorySpace(mlir::cast<MemorySpaceAttr>(memref.getMemorySpace()));
+inline MemorySpace getMemorySpace(MemRefType memref,
+                                  MemorySpace dflt = MemorySpace::System) {
+  if (auto memSpaceAttr =
+          mlir::dyn_cast_if_present<MemorySpaceAttr>(memref.getMemorySpace())) {
+    return memSpaceAttr.getValue();
+  }
+  return dflt;
 }
 
 inline MemorySpace getMemorySpace(Type memrefType) {

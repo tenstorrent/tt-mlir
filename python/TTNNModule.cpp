@@ -106,7 +106,7 @@ void populateTTNNModule(nb::module_ &m) {
 
   tt_attribute_class<tt::ttnn::TTNNLayoutAttr>(m, "TTNNLayoutAttr")
       .def_static(
-          "get",
+          "get_with_linear",
           [](MlirContext ctx, MlirAffineMap linear, MlirAttribute grid,
              MlirType memref, std::optional<unsigned> memLayout = std::nullopt,
              std::optional<tt::ttcore::TensorMeshAttr> tensorMesh =
@@ -129,6 +129,26 @@ void populateTTNNModule(nb::module_ &m) {
           },
           nb::arg("ctx"), nb::arg("linear"), nb::arg("grid"), nb::arg("memref"),
           nb::arg("memLayout") = nb::none(), nb::arg("tensorMesh") = nb::none())
+      .def_static(
+          "get",
+          [](MlirContext ctx, std::vector<std::int64_t> shape, MlirType type,
+             uint32_t bufferType, MlirAttribute gridAttr,
+             std::optional<unsigned> memLayout = std::nullopt) {
+            tt::ttnn::TensorMemoryLayoutAttr memLayoutAttr;
+            if (memLayout.has_value()) {
+              memLayoutAttr = tt::ttnn::TensorMemoryLayoutAttr::get(
+                  unwrap(ctx),
+                  static_cast<tt::ttnn::TensorMemoryLayout>(memLayout.value()));
+            }
+            return wrap(tt::ttnn::TTNNLayoutAttr::get(
+                unwrap(ctx), shape, mlir::cast<Type>(unwrap(type)),
+                static_cast<tt::ttnn::BufferType>(bufferType),
+                mlir::cast<tt::ttcore::GridAttr>(unwrap(gridAttr)),
+                memLayoutAttr));
+          },
+          nb::arg("ctx"), nb::arg("shape"), nb::arg("grid"),
+          nb::arg("memrefType"), nb::arg("memLayout") = nb::none(),
+          nb::arg("tensorMesh") = nb::none())
       .def_prop_ro(
           "linear",
           [](tt::ttnn::TTNNLayoutAttr self) { return wrap(self.getLinear()); })
@@ -176,7 +196,7 @@ void populateTTNNModule(nb::module_ &m) {
              tt::ttnn::CoreRangeSetAttr coreGrid, BoolAttr transposeShards,
              std::optional<tt::ttnn::Layout> outputLayout,
              BoolAttr enableActDoubleBuffer, BoolAttr enableWeightsDoubleBuffer,
-             BoolAttr inPlace) {
+             BoolAttr inPlace, BoolAttr enableKernelStrideFolding) {
             MLIRContext *context = unwrap(ctx);
 
             return wrap(tt::ttnn::Conv2dConfigAttr::get(
@@ -184,7 +204,7 @@ void populateTTNNModule(nb::module_ &m) {
                 reallocateHaloOutput, actBlockHOverride, actBlockWDiv,
                 reshardIfNotOptimal, overrideShardingConfig, shardLayout,
                 coreGrid, transposeShards, outputLayout, enableActDoubleBuffer,
-                enableWeightsDoubleBuffer, inPlace));
+                enableWeightsDoubleBuffer, inPlace, enableKernelStrideFolding));
           })
       .def_prop_ro("weights_dtype_as_int",
                    [](tt::ttnn::Conv2dConfigAttr self)

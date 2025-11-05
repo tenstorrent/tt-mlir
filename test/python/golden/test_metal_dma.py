@@ -11,14 +11,12 @@ from ttmlir.ir import *
 
 from builder.base.builder import Operand, Shape
 from builder.ttir.ttir_builder import TTIRBuilder
-from builder.base.builder_utils import compile_ttir_to_flatbuffer
-
-from test_utils import Marks, shape_str
+from builder.base.builder_utils import compile_and_execute_ttir
 
 pytestmark = pytest.mark.frontend("ttir")
 
 
-def compile_dma_test(test_func, shape, request):
+def compile_dma_test(test_func, shape, request, device):
 
     # Back to back tolayout ops are normally folded during canonicalization into
     # a single ToLayoutOp representing the final result. The option
@@ -29,10 +27,11 @@ def compile_dma_test(test_func, shape, request):
             f"ttir-to-ttmetal-pipeline{pipeline_options}",
         ]
     )
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         test_func,
         [shape],
         target="ttmetal",
+        device=device,
         custom_pipeline=pipeline,
         test_base=request.node.name,
         print_ir="ir_dump",
@@ -41,12 +40,15 @@ def compile_dma_test(test_func, shape, request):
     )
 
 
+@pytest.mark.parametrize("target", ["ttmetal"])
 @pytest.mark.parametrize("shape", [(256, 256)])
 @pytest.mark.parametrize("memory_space", [ttcore.MemorySpace.DeviceDRAM])
 def test_host_interop_single_bank_dram_dma(
     shape: Shape,
     memory_space: ttcore.MemorySpace,
+    target: str,
     request,
+    device,
 ):
     """tests that host enqueue_read|write_buffer works for single-shard DRAM
     buffers"""
@@ -73,11 +75,7 @@ def test_host_interop_single_bank_dram_dma(
 
         return system_out
 
-    compile_dma_test(
-        tilize,
-        shape,
-        request,
-    )
+    compile_dma_test(tilize, shape, request, device=device)
 
 
 @pytest.mark.parametrize("target", ["ttmetal"])
@@ -95,6 +93,7 @@ def test_roundtrip_dma_tiled(
     end_grid: tuple[int, int],
     memory_space: ttcore.MemorySpace,
     request,
+    device,
 ):
     def tilize(
         in0: Operand,
@@ -154,13 +153,10 @@ def test_roundtrip_dma_tiled(
 
         return untilize_out
 
-    compile_dma_test(
-        tilize,
-        shape,
-        request,
-    )
+    compile_dma_test(tilize, shape, request, device=device)
 
 
+@pytest.mark.parametrize("target", ["ttmetal"])
 @pytest.mark.parametrize(
     "shape",
     [(128, 128)],
@@ -175,7 +171,9 @@ def test_roundtrip_dma_rowmajor(
     start_grid: tuple[int, int],
     end_grid: tuple[int, int],
     memory_space: ttcore.MemorySpace,
+    target: str,
     request,
+    device,
 ):
     def dram_write(
         in0: Operand,
@@ -233,15 +231,14 @@ def test_roundtrip_dma_rowmajor(
 
         return system_out
 
-    compile_dma_test(dram_write, shape, request)
+    compile_dma_test(dram_write, shape, request, device=device)
 
 
+@pytest.mark.parametrize("target", ["ttmetal"])
 @pytest.mark.parametrize("shape", [(64, 64), (64, 128), (128, 64), (128, 128)])
 @pytest.mark.parametrize("end_grid", [(1, 1), (2, 2), (1, 2), (2, 1)])
 def test_interleaved_dma(
-    shape: Shape,
-    end_grid: tuple[int, int],
-    request,
+    shape: Shape, end_grid: tuple[int, int], request, target, device
 ):
     def interleaved_dma(
         in0: Operand,
@@ -299,8 +296,4 @@ def test_interleaved_dma(
 
         return untilize_out
 
-    compile_dma_test(
-        interleaved_dma,
-        shape,
-        request,
-    )
+    compile_dma_test(interleaved_dma, shape, request, device=device)

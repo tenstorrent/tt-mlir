@@ -4,12 +4,25 @@
 
 #include "tt/runtime/detail/distributed/controller/controller.h"
 #include "tt/runtime/detail/common/logger.h"
+#include "tt/runtime/detail/common/runtime_context.h"
 #include "tt/runtime/detail/distributed/controller/command_factory.h"
 #include "tt/runtime/detail/distributed/flatbuffer/flatbuffer.h"
 #include "tt/runtime/detail/distributed/utils/utils.h"
 #include "tt/runtime/runtime.h"
-
 namespace tt::runtime::distributed::controller {
+
+namespace fb = ::tt::runtime::distributed::flatbuffer;
+
+static const fb::Response *getResponse(const SizedBuffer &response) {
+  bool isDistributedResponse = fb::ResponseBufferHasIdentifier(response.data());
+  LOG_ASSERT(isDistributedResponse, "Response is not a distributed response");
+  return fb::GetResponse(response.data());
+}
+
+static bool isResponseType(const SizedBuffer &response,
+                           fb::ResponseType responseType) {
+  return getResponse(response)->type_type() == responseType;
+}
 
 namespace debug {
 static void checkResponsesIdentical(const std::vector<SizedBuffer> &responses) {
@@ -25,6 +38,17 @@ static void checkResponsesIdentical(const std::vector<SizedBuffer> &responses) {
 #endif
 }
 
+static void checkResponseTypes(const std::vector<SizedBuffer> &responseBuffers,
+                               fb::ResponseType responseType) {
+#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
+  for (const SizedBuffer &responseBuffer : responseBuffers) {
+    DEBUG_ASSERT(isResponseType(responseBuffer, responseType),
+                 "Response is not a " +
+                     std::string(EnumNameResponseType(responseType)));
+  }
+#endif
+}
+
 static void assertNoAwaitingState(const AwaitingResponseQueueEntry &entry,
                                   const std::string &apiName) {
   DEBUG_ASSERT(!entry.awaitingHandles,
@@ -34,39 +58,79 @@ static void assertNoAwaitingState(const AwaitingResponseQueueEntry &entry,
 }
 } // namespace debug
 
-static const ::tt::runtime::distributed::flatbuffer::Response *
-getResponse(const SizedBuffer &response) {
-  bool isDistributedResponse =
-      ::tt::runtime::distributed::flatbuffer::ResponseBufferHasIdentifier(
-          response.data());
-  LOG_ASSERT(isDistributedResponse, "Response is not a distributed response");
-  return ::tt::runtime::distributed::flatbuffer::GetResponse(response.data());
+Controller::~Controller() {
+  auto currentState = controllerState_.load(std::memory_order_relaxed);
+  if (currentState != ControllerState::Uninitialized &&
+      currentState != ControllerState::Shutdown) {
+    shutdown();
+  }
 }
 
-static bool isErrorResponse(const SizedBuffer &response) {
-  return getResponse(response)->type_type() ==
-         ::tt::runtime::distributed::flatbuffer::ResponseType::ErrorResponse;
-}
+void Controller::launch(const ::tt::runtime::DistributedOptions &options) {
 
-Controller::~Controller() { shutdown(); }
+  LOG_ASSERT(controllerState_.load(std::memory_order_relaxed) ==
+                 ControllerState::Uninitialized,
+             "Controller must be uninitialized to launch");
 
-void Controller::launchLocalSubprocess(uint16_t controllerPort) {
-  constexpr size_t numWorkers = 1;
-  LOG_ASSERT(!controllerSocket_, "Controller already launched");
-  controllerSocket_ = std::make_unique<ControllerSocket>(controllerPort);
+  controllerSocket_ =
+      std::make_unique<ControllerSocket>(options.controllerPort);
   uint16_t bindPort = controllerSocket_->port();
 
-  std::string command =
-      tt::runtime::distributed::utils::getWorkerExecutableCommand(bindPort);
+  controllerState_.store(ControllerState::ControllerSocketBound,
+                         std::memory_order_relaxed);
+
+  size_t numWorkers;
+  std::string command;
+
+  switch (options.mode) {
+  case DistributedMode::LocalSubprocess: {
+    LOG_ASSERT(
+        !options.multiProcessArgs.has_value(),
+        "MultiProcess args should not be populated for LocalSubprocess mode");
+    numWorkers = 1;
+    command =
+        ::tt::runtime::distributed::utils::getWorkerExecutableCommand(bindPort);
+    break;
+  }
+  case DistributedMode::MultiProcess: {
+    LOG_ASSERT(options.multiProcessArgs.has_value(),
+               "MultiProcess mode requires MultiProcessArgs to be populated");
+    const ::tt::runtime::MultiProcessArgs &multiProcessArgs =
+        options.multiProcessArgs.value();
+    const std::string rankBindingPath = multiProcessArgs.getRankBindingPath();
+    LOG_ASSERT(!rankBindingPath.empty(), "Rank binding path cannot be empty");
+    LOG_ASSERT(std::filesystem::exists(rankBindingPath), "Rank binding path ",
+               rankBindingPath, " does not exist");
+    numWorkers =
+        ::tt::runtime::distributed::utils::getNumProcesses(rankBindingPath);
+    command = ::tt::runtime::distributed::utils::getTTRunCommand(
+        bindPort, multiProcessArgs);
+    break;
+  }
+  }
+  LOG_INFO("Launching distributed controller with command: ", command, " on ",
+           numWorkers, " worker(s)");
 
   std::future<int> asyncFuture = std::async(
       std::launch::async, [command]() { return std::system(command.c_str()); });
-  exitCodeFutures_.emplace_back(std::move(asyncFuture));
+  exitCodeFuture_ = std::move(asyncFuture);
+
+  controllerState_.store(ControllerState::CommandLaunched,
+                         std::memory_order_relaxed);
 
   workerConnections_ =
       controllerSocket_->connectToWorkers(numWorkers, writeTimeout_);
+
+  controllerState_.store(ControllerState::ConnectedToWorkers,
+                         std::memory_order_relaxed);
+
   launchCommandDispatcher();
   launchResponseHandler();
+
+  configureRuntimeContext();
+
+  controllerState_.store(ControllerState::FullyOperational,
+                         std::memory_order_relaxed);
 }
 
 void Controller::setWriteTimeout(const std::chrono::seconds &timeout) {
@@ -91,8 +155,8 @@ SystemDesc Controller::getCurrentSystemDesc(
       *commandBuilder, dispatchCoreType, deviceHandle);
 
   auto awaitingHandles = std::make_unique<std::vector<std::shared_ptr<void>>>();
-  std::shared_ptr<::tt::runtime::SystemDesc> systemDescHandle(
-      /*handle=*/nullptr);
+  std::shared_ptr<::tt::runtime::SystemDesc> systemDescHandle =
+      std::make_shared<::tt::runtime::SystemDesc>(/*handle=*/nullptr);
   awaitingHandles->push_back(std::static_pointer_cast<void>(systemDescHandle));
 
   // This command will execute synchronously and block until the response is
@@ -100,13 +164,49 @@ SystemDesc Controller::getCurrentSystemDesc(
   auto awaitingPromise = std::make_unique<std::promise<void>>();
   std::future<void> awaitingFuture = awaitingPromise->get_future();
 
-  pushToCommandAndResponseQueues(commandId, std::move(commandBuilder),
-                                 std::move(awaitingHandles),
-                                 std::move(awaitingPromise));
+  pushToCommandAndResponseQueues(
+      commandId, fb::CommandType::GetSystemDescCommand,
+      std::move(commandBuilder), std::move(awaitingHandles),
+      std::move(awaitingPromise));
 
   awaitingFuture.wait();
 
   return *systemDescHandle;
+}
+
+void Controller::setFabricConfig(
+    const ::tt::runtime::FabricConfig &fabricConfig) {
+  auto commandBuilder = std::make_unique<::flatbuffers::FlatBufferBuilder>();
+
+  uint64_t commandId = CommandFactory::buildSetFabricConfigCommand(
+      *commandBuilder, fabricConfig);
+
+  pushToCommandAndResponseQueues(commandId,
+                                 fb::CommandType::SetFabricConfigCommand,
+                                 std::move(commandBuilder));
+}
+
+size_t Controller::getNumAvailableDevices() {
+  auto commandBuilder = std::make_unique<::flatbuffers::FlatBufferBuilder>();
+
+  uint64_t commandId =
+      CommandFactory::buildGetNumAvailableDevicesCommand(*commandBuilder);
+
+  auto awaitingHandles = std::make_unique<std::vector<std::shared_ptr<void>>>();
+  std::shared_ptr<size_t> numDevicesHandle = std::make_shared<size_t>(0);
+  awaitingHandles->push_back(std::static_pointer_cast<void>(numDevicesHandle));
+
+  auto awaitingPromise = std::make_unique<std::promise<void>>();
+  std::future<void> awaitingFuture = awaitingPromise->get_future();
+
+  pushToCommandAndResponseQueues(
+      commandId, fb::CommandType::GetNumAvailableDevicesCommand,
+      std::move(commandBuilder), std::move(awaitingHandles),
+      std::move(awaitingPromise));
+
+  awaitingFuture.wait();
+
+  return *numDevicesHandle;
 }
 
 ::tt::runtime::Device
@@ -119,19 +219,80 @@ Controller::openMeshDevice(const ::tt::runtime::MeshDeviceOptions &options) {
   uint64_t commandId = CommandFactory::buildOpenMeshDeviceCommand(
       *commandBuilder, outputDeviceHandle, options);
 
-  pushToCommandAndResponseQueues(commandId, std::move(commandBuilder));
+  pushToCommandAndResponseQueues(commandId,
+                                 fb::CommandType::OpenMeshDeviceCommand,
+                                 std::move(commandBuilder));
 
   return outputDeviceHandle;
 }
 
-void Controller::closeMeshDevice(const ::tt::runtime::Device &deviceHandle) {
+void Controller::closeMeshDevice(::tt::runtime::Device &deviceHandle) {
 
   auto commandBuilder = std::make_unique<::flatbuffers::FlatBufferBuilder>();
 
   uint64_t commandId = CommandFactory::buildCloseMeshDeviceCommand(
       *commandBuilder, deviceHandle);
 
-  pushToCommandAndResponseQueues(commandId, std::move(commandBuilder));
+  pushToCommandAndResponseQueues(commandId,
+                                 fb::CommandType::CloseMeshDeviceCommand,
+                                 std::move(commandBuilder));
+}
+
+::tt::runtime::Device Controller::createSubMeshDevice(
+    const ::tt::runtime::Device &parentMesh,
+    const std::vector<uint32_t> &meshShape,
+    const std::optional<const std::vector<uint32_t>> &meshOffset) {
+
+  auto commandBuilder = std::make_unique<::flatbuffers::FlatBufferBuilder>();
+
+  ::tt::runtime::Device outputSubMeshHandle(getCurrentDeviceRuntime());
+
+  uint64_t commandId = CommandFactory::buildCreateSubMeshDeviceCommand(
+      *commandBuilder, parentMesh, outputSubMeshHandle, meshShape, meshOffset);
+
+  pushToCommandAndResponseQueues(commandId,
+                                 fb::CommandType::CreateSubMeshDeviceCommand,
+                                 std::move(commandBuilder));
+
+  return outputSubMeshHandle;
+}
+
+void Controller::releaseSubMeshDevice(const ::tt::runtime::Device &subMesh) {
+
+  auto commandBuilder = std::make_unique<::flatbuffers::FlatBufferBuilder>();
+
+  uint64_t commandId = CommandFactory::buildReleaseSubMeshDeviceCommand(
+      *commandBuilder, subMesh);
+
+  pushToCommandAndResponseQueues(commandId,
+                                 fb::CommandType::ReleaseSubMeshDeviceCommand,
+                                 std::move(commandBuilder));
+}
+
+std::vector<uint32_t>
+Controller::getMeshShape(const ::tt::runtime::Device &deviceHandle) {
+
+  auto commandBuilder = std::make_unique<::flatbuffers::FlatBufferBuilder>();
+
+  uint64_t commandId =
+      CommandFactory::buildGetMeshShapeCommand(*commandBuilder, deviceHandle);
+
+  auto awaitingHandles = std::make_unique<std::vector<std::shared_ptr<void>>>();
+  std::shared_ptr<std::vector<uint32_t>> shapeHandle =
+      std::make_shared<std::vector<uint32_t>>();
+  awaitingHandles->push_back(std::static_pointer_cast<void>(shapeHandle));
+
+  auto awaitingPromise = std::make_unique<std::promise<void>>();
+  std::future<void> awaitingFuture = awaitingPromise->get_future();
+
+  pushToCommandAndResponseQueues(
+      commandId, fb::CommandType::GetMeshShapeCommand,
+      std::move(commandBuilder), std::move(awaitingHandles),
+      std::move(awaitingPromise));
+
+  awaitingFuture.wait();
+
+  return *shapeHandle;
 }
 
 ::tt::runtime::Tensor Controller::createOwnedHostTensor(
@@ -147,9 +308,116 @@ void Controller::closeMeshDevice(const ::tt::runtime::Device &deviceHandle) {
       *commandBuilder, outputTensorHandle, data, shape, stride, itemsize,
       dataType);
 
-  pushToCommandAndResponseQueues(commandId, std::move(commandBuilder));
+  pushToCommandAndResponseQueues(commandId,
+                                 fb::CommandType::CreateHostTensorCommand,
+                                 std::move(commandBuilder));
 
   return outputTensorHandle;
+}
+
+::tt::runtime::Tensor Controller::createMultiDeviceHostTensor(
+    const std::vector<::tt::runtime::Tensor> &tensorShards,
+    const std::unordered_map<std::string, std::string> &strategy,
+    const std::vector<uint32_t> &meshShape) {
+  auto commandBuilder = std::make_unique<::flatbuffers::FlatBufferBuilder>();
+
+  ::tt::runtime::Tensor outputTensorHandle;
+
+  uint64_t commandId =
+      CommandFactory::buildCreateMultiDeviceHostTensorFromShardsCommand(
+          *commandBuilder, tensorShards, outputTensorHandle, strategy,
+          meshShape);
+
+  pushToCommandAndResponseQueues(
+      commandId, fb::CommandType::CreateMultiDeviceHostTensorFromShardsCommand,
+      std::move(commandBuilder));
+
+  return outputTensorHandle;
+}
+
+bool Controller::isTensorAllocated(const ::tt::runtime::Tensor &tensorHandle) {
+  auto commandBuilder = std::make_unique<::flatbuffers::FlatBufferBuilder>();
+
+  uint64_t commandId = CommandFactory::buildIsTensorAllocatedCommand(
+      *commandBuilder, tensorHandle);
+
+  auto awaitingHandles = std::make_unique<std::vector<std::shared_ptr<void>>>();
+  auto allocatedHandle = std::make_shared<bool>(false);
+  awaitingHandles->push_back(std::static_pointer_cast<void>(allocatedHandle));
+
+  auto awaitingPromise = std::make_unique<std::promise<void>>();
+  std::future<void> awaitingFuture = awaitingPromise->get_future();
+
+  pushToCommandAndResponseQueues(
+      commandId, fb::CommandType::IsTensorAllocatedCommand,
+      std::move(commandBuilder), std::move(awaitingHandles),
+      std::move(awaitingPromise));
+
+  awaitingFuture.wait();
+
+  return *allocatedHandle;
+}
+
+std::uint32_t
+Controller::getTensorVolume(const ::tt::runtime::Tensor &tensorHandle) {
+
+  auto commandBuilder = std::make_unique<::flatbuffers::FlatBufferBuilder>();
+
+  uint64_t commandId = CommandFactory::buildGetTensorVolumeCommand(
+      *commandBuilder, tensorHandle);
+
+  auto volumeHandle = std::make_shared<std::uint32_t>(0);
+  auto awaitingHandles = std::make_unique<std::vector<std::shared_ptr<void>>>();
+  awaitingHandles->push_back(std::static_pointer_cast<void>(volumeHandle));
+
+  auto awaitingPromise = std::make_unique<std::promise<void>>();
+  std::future<void> awaitingFuture = awaitingPromise->get_future();
+
+  pushToCommandAndResponseQueues(
+      commandId, fb::CommandType::GetTensorVolumeCommand,
+      std::move(commandBuilder), std::move(awaitingHandles),
+      std::move(awaitingPromise));
+
+  awaitingFuture.wait();
+
+  return *volumeHandle;
+}
+
+bool Controller::getTensorRetain(const ::tt::runtime::Tensor &tensorHandle) {
+
+  auto commandBuilder = std::make_unique<::flatbuffers::FlatBufferBuilder>();
+
+  uint64_t commandId = CommandFactory::buildGetTensorRetainCommand(
+      *commandBuilder, tensorHandle);
+
+  auto retainHandle = std::make_shared<bool>(false);
+
+  auto awaitingHandles = std::make_unique<std::vector<std::shared_ptr<void>>>();
+  awaitingHandles->push_back(std::static_pointer_cast<void>(retainHandle));
+
+  auto awaitingPromise = std::make_unique<std::promise<void>>();
+  std::future<void> awaitingFuture = awaitingPromise->get_future();
+
+  pushToCommandAndResponseQueues(
+      commandId, fb::CommandType::GetTensorRetainCommand,
+      std::move(commandBuilder), std::move(awaitingHandles),
+      std::move(awaitingPromise));
+
+  awaitingFuture.wait();
+
+  return *retainHandle;
+}
+
+void Controller::setTensorRetain(const ::tt::runtime::Tensor &tensorHandle,
+                                 bool retain) {
+  auto commandBuilder = std::make_unique<::flatbuffers::FlatBufferBuilder>();
+
+  uint64_t commandId = CommandFactory::buildSetTensorRetainCommand(
+      *commandBuilder, tensorHandle, retain);
+
+  pushToCommandAndResponseQueues(commandId,
+                                 fb::CommandType::SetTensorRetainCommand,
+                                 std::move(commandBuilder));
 }
 
 ::tt::runtime::Layout
@@ -163,7 +431,8 @@ Controller::getLayout(const ::tt::runtime::Binary &executableHandle,
       *commandBuilder, executableHandle, programIndex, inputIndex,
       outputLayoutHandle);
 
-  pushToCommandAndResponseQueues(commandId, std::move(commandBuilder));
+  pushToCommandAndResponseQueues(commandId, fb::CommandType::GetLayoutCommand,
+                                 std::move(commandBuilder));
 
   return outputLayoutHandle;
 }
@@ -182,7 +451,8 @@ Controller::toLayout(const ::tt::runtime::Tensor &tensorHandle,
       *commandBuilder, tensorHandle, deviceHandle, layoutHandle,
       outputTensorHandle, retain);
 
-  pushToCommandAndResponseQueues(commandId, std::move(commandBuilder));
+  pushToCommandAndResponseQueues(commandId, fb::CommandType::ToLayoutCommand,
+                                 std::move(commandBuilder));
 
   return outputTensorHandle;
 }
@@ -209,7 +479,8 @@ Controller::submit(const ::tt::runtime::Device &deviceHandle,
       *commandBuilder, deviceHandle, executableHandle, programIndex,
       inputHandles, outputHandles);
 
-  pushToCommandAndResponseQueues(commandId, std::move(commandBuilder));
+  pushToCommandAndResponseQueues(commandId, fb::CommandType::SubmitCommand,
+                                 std::move(commandBuilder));
 
   return outputHandles;
 }
@@ -236,8 +507,9 @@ Controller::toHost(const ::tt::runtime::Tensor &tensorHandle, bool untilize,
   std::future<void> awaitingFuture = awaitingPromise->get_future();
 
   pushToCommandAndResponseQueues(
-      numShardsCommandId, std::move(numShardsCommandBuilder),
-      std::move(awaitingHandles), std::move(awaitingPromise));
+      numShardsCommandId, fb::CommandType::GetNumShardsCommand,
+      std::move(numShardsCommandBuilder), std::move(awaitingHandles),
+      std::move(awaitingPromise));
 
   awaitingFuture.wait();
 
@@ -257,6 +529,7 @@ Controller::toHost(const ::tt::runtime::Tensor &tensorHandle, bool untilize,
       *toHostCommandBuilder, tensorHandle, untilize, blocking, outputHandles);
 
   pushToCommandAndResponseQueues(toHostCommandId,
+                                 fb::CommandType::ToHostCommand,
                                  std::move(toHostCommandBuilder));
 
   return outputHandles;
@@ -278,22 +551,50 @@ void Controller::memcpy(void *dst, const ::tt::runtime::Tensor &srcHandle,
   auto awaitingPromise = std::make_unique<std::promise<void>>();
   std::future<void> awaitingFuture = awaitingPromise->get_future();
 
-  pushToCommandAndResponseQueues(commandId, std::move(commandBuilder),
-                                 std::move(awaitingHandles),
-                                 std::move(awaitingPromise));
+  pushToCommandAndResponseQueues(
+      commandId, fb::CommandType::MemcpyCommand, std::move(commandBuilder),
+      std::move(awaitingHandles), std::move(awaitingPromise));
 
   awaitingFuture.wait();
 }
 
+void Controller::memcpy(const ::tt::runtime::Tensor &dstHandle,
+                        const ::tt::runtime::Tensor &srcHandle) {
+  auto commandBuilder = std::make_unique<::flatbuffers::FlatBufferBuilder>();
+
+  uint64_t commandId =
+      CommandFactory::buildMemcpyCommand(*commandBuilder, srcHandle, dstHandle);
+
+  pushToCommandAndResponseQueues(commandId, fb::CommandType::MemcpyCommand,
+                                 std::move(commandBuilder));
+}
+
+void Controller::deallocateTensor(::tt::runtime::Tensor &tensorHandle,
+                                  bool force) {
+
+  auto commandBuilder = std::make_unique<::flatbuffers::FlatBufferBuilder>();
+
+  uint64_t commandId = CommandFactory::buildDeallocateTensorCommand(
+      *commandBuilder, tensorHandle, force);
+
+  pushToCommandAndResponseQueues(commandId,
+                                 fb::CommandType::DeallocateTensorCommand,
+                                 std::move(commandBuilder));
+}
+
 void Controller::pushToCommandAndResponseQueues(
-    uint64_t commandId,
+    uint64_t commandId, const fb::CommandType &commandType,
     std::unique_ptr<::flatbuffers::FlatBufferBuilder> commandBuilder,
     std::unique_ptr<std::vector<std::shared_ptr<void>>> awaitingHandles,
     std::unique_ptr<std::promise<void>> awaitingPromise) {
+  LOG_DEBUG("Pushing command id: ", commandId,
+            " and command type: ", fb::EnumNameCommandType(commandType),
+            " to command and response queues");
   // Need to push to the response queue first to ensure the command response is
   // waited for before the command is dispatched
   awaitingResponseQueue_.push(std::make_unique<AwaitingResponseQueueEntry>(
-      commandId, std::move(awaitingHandles), std::move(awaitingPromise)));
+      commandId, commandType, std::move(awaitingHandles),
+      std::move(awaitingPromise)));
   commandQueue_.push(
       std::make_unique<CommandQueueEntry>(std::move(commandBuilder)));
 }
@@ -301,7 +602,9 @@ void Controller::pushToCommandAndResponseQueues(
 void Controller::launchCommandDispatcher() {
   LOG_ASSERT(!commandDispatcherThread_.joinable(),
              "Command dispatcher thread already running");
-  commandDispatcherThread_ = std::thread([this]() { dispatchCommands(); });
+  commandDispatcherThread_ = std::thread([this]() { processCommandQueue(); });
+  controllerState_.store(ControllerState::DispatcherReady,
+                         std::memory_order_relaxed);
 }
 
 void Controller::dispatchCommand(
@@ -325,10 +628,11 @@ void Controller::dispatchCommand(
   }
 }
 
-void Controller::dispatchCommands() {
+void Controller::processCommandQueue() {
   std::vector<std::future<ssize_t>> writeFutures;
   writeFutures.reserve(workerConnections_.size());
-  while (!(shutdownRequested_.load(std::memory_order_relaxed) &&
+  while (!(controllerState_.load(std::memory_order_relaxed) ==
+               ControllerState::ShuttingDown &&
            commandQueue_.empty())) {
     std::optional<std::unique_ptr<CommandQueueEntry>> commandEntryOpt =
         commandQueue_.popWithTimeout();
@@ -346,11 +650,14 @@ void Controller::dispatchCommands() {
 void Controller::launchResponseHandler() {
   LOG_ASSERT(!responseHandlerThread_.joinable(),
              "Response handler thread already running");
-  responseHandlerThread_ = std::thread([this]() { handleResponses(); });
+  responseHandlerThread_ = std::thread([this]() { processResponseQueue(); });
+  controllerState_.store(ControllerState::ResponseHandlerReady,
+                         std::memory_order_relaxed);
 }
 
-void Controller::handleResponses() {
-  while (!(shutdownRequested_.load(std::memory_order_relaxed) &&
+void Controller::processResponseQueue() {
+  while (!(controllerState_.load(std::memory_order_relaxed) ==
+               ControllerState::ShuttingDown &&
            awaitingResponseQueue_.empty())) {
     std::optional<std::unique_ptr<AwaitingResponseQueueEntry>>
         awaitingResponseQueueEntryOpt = awaitingResponseQueue_.popWithTimeout();
@@ -360,6 +667,13 @@ void Controller::handleResponses() {
 
     std::unique_ptr<AwaitingResponseQueueEntry> awaitingResponseQueueEntry =
         std::move(awaitingResponseQueueEntryOpt.value());
+
+    [[maybe_unused]] uint64_t commandId = awaitingResponseQueueEntry->commandId;
+    [[maybe_unused]] fb::CommandType commandType =
+        awaitingResponseQueueEntry->commandType;
+
+    LOG_DEBUG("Handling response for command id: ", commandId,
+              " and command type: ", fb::EnumNameCommandType(commandType));
 
     std::vector<std::future<SizedBuffer>> readFutures;
     readFutures.reserve(workerConnections_.size());
@@ -378,31 +692,46 @@ void Controller::handleResponses() {
     }
 
     for (const SizedBuffer &responseBuffer : responseBuffers) {
-      if (isErrorResponse(responseBuffer)) {
+      if (isResponseType(responseBuffer, fb::ResponseType::ErrorResponse)) {
         handleErrorResponse(
             getResponse(responseBuffer)->type_as_ErrorResponse(),
             std::move(awaitingResponseQueueEntry));
       }
     }
 
-    debug::checkResponsesIdentical(responseBuffers);
+    handleResponse(responseBuffers, std::move(awaitingResponseQueueEntry));
 
-    // Since we currently only support SPMD, worker responses should be
-    // identical therefore we can just handle the first response
-    const ::tt::runtime::distributed::flatbuffer::Response *response =
-        getResponse(responseBuffers[0]);
-    LOG_ASSERT(
-        response->command_id() == awaitingResponseQueueEntry->commandId,
-        "Response command id does not match awaiting response command id");
-
-    handleResponse(response, std::move(awaitingResponseQueueEntry));
+    LOG_DEBUG("Finished handling response for command id: ", commandId,
+              " and command type: ", fb::EnumNameCommandType(commandType));
   }
+}
+
+void Controller::configureRuntimeContext() {
+  auto commandBuilder = std::make_unique<::flatbuffers::FlatBufferBuilder>();
+
+  auto commandId = CommandFactory::buildConfigureRuntimeContextCommand(
+      *commandBuilder, ::tt::runtime::RuntimeContext::instance().getMlirHome(),
+      ::tt::runtime::RuntimeContext::instance().getMetalHome(),
+      ::tt::runtime::RuntimeContext::instance().getCurrentDeviceRuntime());
+
+  auto awaitingPromise = std::make_unique<std::promise<void>>();
+  std::future<void> awaitingFuture = awaitingPromise->get_future();
+
+  pushToCommandAndResponseQueues(
+      commandId, fb::CommandType::ConfigureRuntimeContextCommand,
+      std::move(commandBuilder), /*awaitingHandles=*/nullptr,
+      std::move(awaitingPromise));
+
+  awaitingFuture.wait();
+
+  controllerState_.store(ControllerState::RuntimeContextConfigured,
+                         std::memory_order_relaxed);
 }
 
 // TODO (#5136): Need better error handling for when an error occurs
 // Currently we just log a fatal error and exit the program
 void Controller::handleErrorResponse(
-    const ::tt::runtime::distributed::flatbuffer::ErrorResponse *response,
+    const fb::ErrorResponse *response,
     std::unique_ptr<AwaitingResponseQueueEntry> awaitingResponse) {
 
   auto [awaitingHandles, awaitingPromise] =
@@ -411,14 +740,43 @@ void Controller::handleErrorResponse(
   if (awaitingPromise) {
     awaitingPromise->set_value();
   }
+
   LOG_FATAL("Error response received with message: ",
             response->message()->c_str());
 }
 
-void Controller::handleGetSystemDescResponse(
-    const ::tt::runtime::distributed::flatbuffer::GetSystemDescResponse
-        *response,
+void Controller::handleConfigureRuntimeContextResponse(
+    const std::vector<SizedBuffer> &responseBuffers,
     std::unique_ptr<AwaitingResponseQueueEntry> awaitingResponse) {
+
+  debug::checkResponsesIdentical(responseBuffers);
+
+  debug::checkResponseTypes(responseBuffers,
+                            fb::ResponseType::ConfigureRuntimeContextResponse);
+
+  auto [awaitingHandles, awaitingPromise] =
+      awaitingResponse->popAwaitingState();
+
+  DEBUG_ASSERT(
+      !awaitingHandles,
+      "ConfigureRuntimeContext: There shouldn't be any awaiting handles");
+
+  DEBUG_ASSERT(awaitingPromise, "Awaiting promise must be populated");
+
+  awaitingPromise->set_value();
+}
+
+void Controller::handleGetSystemDescResponse(
+    const std::vector<SizedBuffer> &responseBuffers,
+    std::unique_ptr<AwaitingResponseQueueEntry> awaitingResponse) {
+
+  debug::checkResponsesIdentical(responseBuffers);
+
+  debug::checkResponseTypes(responseBuffers,
+                            fb::ResponseType::GetSystemDescResponse);
+
+  const fb::GetSystemDescResponse *response =
+      getResponse(responseBuffers[0])->type_as_GetSystemDescResponse();
 
   auto [awaitingHandles, awaitingPromise] =
       awaitingResponse->popAwaitingState();
@@ -444,24 +802,142 @@ void Controller::handleGetSystemDescResponse(
   awaitingPromise->set_value();
 }
 
-void Controller::handleOpenMeshDeviceResponse(
-    const ::tt::runtime::distributed::flatbuffer::OpenMeshDeviceResponse
-        *response,
+void Controller::handleSetFabricConfigResponse(
+    const std::vector<SizedBuffer> &responseBuffers,
     std::unique_ptr<AwaitingResponseQueueEntry> awaitingResponse) {
+
+  debug::checkResponsesIdentical(responseBuffers);
+
+  debug::checkResponseTypes(responseBuffers,
+                            fb::ResponseType::SetFabricConfigResponse);
+
+  debug::assertNoAwaitingState(*awaitingResponse, "SetFabricConfig");
+}
+
+void Controller::handleGetNumAvailableDevicesResponse(
+    const std::vector<SizedBuffer> &responseBuffers,
+    std::unique_ptr<AwaitingResponseQueueEntry> awaitingResponse) {
+
+  debug::checkResponsesIdentical(responseBuffers);
+
+  debug::checkResponseTypes(responseBuffers,
+                            fb::ResponseType::GetNumAvailableDevicesResponse);
+
+  // Number of devices is local to each host process, so we need to sum them up
+  uint32_t numDevices = 0;
+  for (const SizedBuffer &responseBuffer : responseBuffers) {
+    const fb::GetNumAvailableDevicesResponse *response =
+        getResponse(responseBuffer)->type_as_GetNumAvailableDevicesResponse();
+    numDevices += response->num_devices();
+  }
+
+  auto [awaitingHandles, awaitingPromise] =
+      awaitingResponse->popAwaitingState();
+
+  DEBUG_ASSERT(
+      awaitingHandles && awaitingHandles->size() == 1,
+      "GetNumAvailableDevices: Awaiting handles must be populated and contain "
+      "exactly one handle");
+
+  DEBUG_ASSERT(awaitingPromise, "Awaiting promise must be populated");
+
+  std::shared_ptr<size_t> numDevicesHandle =
+      std::static_pointer_cast<size_t>(awaitingHandles->at(0));
+  *numDevicesHandle = numDevices;
+
+  awaitingPromise->set_value();
+}
+
+void Controller::handleOpenMeshDeviceResponse(
+    const std::vector<SizedBuffer> &responseBuffers,
+    std::unique_ptr<AwaitingResponseQueueEntry> awaitingResponse) {
+
+  debug::checkResponsesIdentical(responseBuffers);
+
+  debug::checkResponseTypes(responseBuffers,
+                            fb::ResponseType::OpenMeshDeviceResponse);
+
   debug::assertNoAwaitingState(*awaitingResponse, "OpenMeshDevice");
 }
 
 void Controller::handleCloseMeshDeviceResponse(
-    const ::tt::runtime::distributed::flatbuffer::CloseMeshDeviceResponse
-        *response,
+    const std::vector<SizedBuffer> &responseBuffers,
     std::unique_ptr<AwaitingResponseQueueEntry> awaitingResponse) {
+
+  debug::checkResponsesIdentical(responseBuffers);
+
+  debug::checkResponseTypes(responseBuffers,
+                            fb::ResponseType::CloseMeshDeviceResponse);
+
   debug::assertNoAwaitingState(*awaitingResponse, "CloseMeshDevice");
 }
 
-void Controller::handleGetNumShardsResponse(
-    const ::tt::runtime::distributed::flatbuffer::GetNumShardsResponse
-        *response,
+void Controller::handleCreateSubMeshDeviceResponse(
+    const std::vector<SizedBuffer> &responseBuffers,
     std::unique_ptr<AwaitingResponseQueueEntry> awaitingResponse) {
+
+  debug::checkResponsesIdentical(responseBuffers);
+
+  debug::checkResponseTypes(responseBuffers,
+                            fb::ResponseType::CreateSubMeshDeviceResponse);
+
+  debug::assertNoAwaitingState(*awaitingResponse, "CreateSubMeshDevice");
+}
+
+void Controller::handleReleaseSubMeshDeviceResponse(
+    const std::vector<SizedBuffer> &responseBuffers,
+    std::unique_ptr<AwaitingResponseQueueEntry> awaitingResponse) {
+
+  debug::checkResponsesIdentical(responseBuffers);
+
+  debug::checkResponseTypes(responseBuffers,
+                            fb::ResponseType::ReleaseSubMeshDeviceResponse);
+
+  debug::assertNoAwaitingState(*awaitingResponse, "ReleaseSubMeshDevice");
+}
+
+void Controller::handleGetMeshShapeResponse(
+    const std::vector<SizedBuffer> &responseBuffers,
+    std::unique_ptr<AwaitingResponseQueueEntry> awaitingResponse) {
+
+  debug::checkResponsesIdentical(responseBuffers);
+
+  debug::checkResponseTypes(responseBuffers,
+                            fb::ResponseType::GetMeshShapeResponse);
+
+  const fb::GetMeshShapeResponse *response =
+      getResponse(responseBuffers[0])->type_as_GetMeshShapeResponse();
+
+  auto [awaitingHandles, awaitingPromise] =
+      awaitingResponse->popAwaitingState();
+
+  DEBUG_ASSERT(awaitingHandles && awaitingHandles->size() == 1,
+               "GetMeshShape: Awaiting handles must be populated and contain "
+               "exactly one handle");
+
+  DEBUG_ASSERT(awaitingPromise, "Awaiting promise must be populated");
+
+  std::shared_ptr<std::vector<uint32_t>> shapeHandle =
+      std::static_pointer_cast<std::vector<uint32_t>>(awaitingHandles->at(0));
+
+  for (const uint32_t &dim : *response->shape()) {
+    shapeHandle->push_back(dim);
+  }
+
+  awaitingPromise->set_value();
+}
+
+void Controller::handleGetNumShardsResponse(
+    const std::vector<SizedBuffer> &responseBuffers,
+    std::unique_ptr<AwaitingResponseQueueEntry> awaitingResponse) {
+
+  debug::checkResponsesIdentical(responseBuffers);
+
+  debug::checkResponseTypes(responseBuffers,
+                            fb::ResponseType::GetNumShardsResponse);
+
+  const fb::GetNumShardsResponse *response =
+      getResponse(responseBuffers[0])->type_as_GetNumShardsResponse();
 
   auto [awaitingHandles, awaitingPromise] =
       awaitingResponse->popAwaitingState();
@@ -482,39 +958,178 @@ void Controller::handleGetNumShardsResponse(
 }
 
 void Controller::handleCreateHostTensorResponse(
-    const ::tt::runtime::distributed::flatbuffer::CreateHostTensorResponse
-        *response,
+    const std::vector<SizedBuffer> &responseBuffers,
     std::unique_ptr<AwaitingResponseQueueEntry> awaitingResponse) {
+
+  debug::checkResponsesIdentical(responseBuffers);
+
+  debug::checkResponseTypes(responseBuffers,
+                            fb::ResponseType::CreateHostTensorResponse);
+
   debug::assertNoAwaitingState(*awaitingResponse, "CreateHostTensor");
 }
 
-void Controller::handleGetLayoutResponse(
-    const ::tt::runtime::distributed::flatbuffer::GetLayoutResponse *response,
+void Controller::handleCreateMultiDeviceHostTensorFromShardsResponse(
+    const std::vector<SizedBuffer> &responseBuffers,
     std::unique_ptr<AwaitingResponseQueueEntry> awaitingResponse) {
+
+  debug::checkResponsesIdentical(responseBuffers);
+
+  debug::checkResponseTypes(
+      responseBuffers,
+      fb::ResponseType::CreateMultiDeviceHostTensorFromShardsResponse);
+
+  debug::assertNoAwaitingState(*awaitingResponse,
+                               "CreateMultiDeviceHostTensorFromShards");
+}
+
+void Controller::handleIsTensorAllocatedResponse(
+    const std::vector<SizedBuffer> &responseBuffers,
+    std::unique_ptr<AwaitingResponseQueueEntry> awaitingResponse) {
+
+  debug::checkResponsesIdentical(responseBuffers);
+
+  debug::checkResponseTypes(responseBuffers,
+                            fb::ResponseType::IsTensorAllocatedResponse);
+
+  const fb::IsTensorAllocatedResponse *response =
+      getResponse(responseBuffers[0])->type_as_IsTensorAllocatedResponse();
+
+  auto [awaitingHandles, awaitingPromise] =
+      awaitingResponse->popAwaitingState();
+  DEBUG_ASSERT(
+      awaitingHandles && awaitingHandles->size() == 1,
+      "IsTensorAllocated: Awaiting handles must be populated and contain "
+      "exactly one handle");
+  DEBUG_ASSERT(awaitingPromise, "Awaiting promise must be populated");
+
+  std::shared_ptr<bool> allocatedHandle =
+      std::static_pointer_cast<bool>(awaitingHandles->at(0));
+  *allocatedHandle = response->allocated();
+
+  awaitingPromise->set_value();
+}
+
+void Controller::handleGetTensorVolumeResponse(
+    const std::vector<SizedBuffer> &responseBuffers,
+    std::unique_ptr<AwaitingResponseQueueEntry> awaitingResponse) {
+
+  debug::checkResponsesIdentical(responseBuffers);
+
+  debug::checkResponseTypes(responseBuffers,
+                            fb::ResponseType::GetTensorVolumeResponse);
+
+  const fb::GetTensorVolumeResponse *response =
+      getResponse(responseBuffers[0])->type_as_GetTensorVolumeResponse();
+
+  auto [awaitingHandles, awaitingPromise] =
+      awaitingResponse->popAwaitingState();
+  DEBUG_ASSERT(
+      awaitingHandles && awaitingHandles->size() == 1,
+      "GetTensorVolume: Awaiting handles must be populated and contain "
+      "exactly one handle");
+  DEBUG_ASSERT(awaitingPromise, "Awaiting promise must be populated");
+
+  std::shared_ptr<std::uint32_t> volumeHandle =
+      std::static_pointer_cast<std::uint32_t>(awaitingHandles->at(0));
+  *volumeHandle = response->volume();
+
+  awaitingPromise->set_value();
+}
+
+void Controller::handleGetTensorRetainResponse(
+    const std::vector<SizedBuffer> &responseBuffers,
+    std::unique_ptr<AwaitingResponseQueueEntry> awaitingResponse) {
+
+  debug::checkResponsesIdentical(responseBuffers);
+
+  debug::checkResponseTypes(responseBuffers,
+                            fb::ResponseType::GetTensorRetainResponse);
+
+  const fb::GetTensorRetainResponse *response =
+      getResponse(responseBuffers[0])->type_as_GetTensorRetainResponse();
+
+  auto [awaitingHandles, awaitingPromise] =
+      awaitingResponse->popAwaitingState();
+  DEBUG_ASSERT(
+      awaitingHandles && awaitingHandles->size() == 1,
+      "GetTensorRetain: Awaiting handles must be populated and contain "
+      "exactly one handle");
+  DEBUG_ASSERT(awaitingPromise, "Awaiting promise must be populated");
+
+  std::shared_ptr<bool> retainHandle =
+      std::static_pointer_cast<bool>(awaitingHandles->at(0));
+  *retainHandle = response->retain();
+  awaitingPromise->set_value();
+}
+
+void Controller::handleSetTensorRetainResponse(
+    const std::vector<SizedBuffer> &responseBuffers,
+    std::unique_ptr<AwaitingResponseQueueEntry> awaitingResponse) {
+  debug::checkResponsesIdentical(responseBuffers);
+
+  debug::checkResponseTypes(responseBuffers,
+                            fb::ResponseType::SetTensorRetainResponse);
+
+  debug::assertNoAwaitingState(*awaitingResponse, "SetTensorRetain");
+}
+
+void Controller::handleGetLayoutResponse(
+    const std::vector<SizedBuffer> &responseBuffers,
+    std::unique_ptr<AwaitingResponseQueueEntry> awaitingResponse) {
+
+  debug::checkResponsesIdentical(responseBuffers);
+
+  debug::checkResponseTypes(responseBuffers,
+                            fb::ResponseType::GetLayoutResponse);
+
   debug::assertNoAwaitingState(*awaitingResponse, "GetLayout");
 }
 
 void Controller::handleToLayoutResponse(
-    const ::tt::runtime::distributed::flatbuffer::ToLayoutResponse *response,
+    const std::vector<SizedBuffer> &responseBuffers,
     std::unique_ptr<AwaitingResponseQueueEntry> awaitingResponse) {
+
+  debug::checkResponsesIdentical(responseBuffers);
+
+  debug::checkResponseTypes(responseBuffers,
+                            fb::ResponseType::ToLayoutResponse);
+
   debug::assertNoAwaitingState(*awaitingResponse, "ToLayout");
 }
 
 void Controller::handleSubmitResponse(
-    const ::tt::runtime::distributed::flatbuffer::SubmitResponse *response,
+    const std::vector<SizedBuffer> &responseBuffers,
     std::unique_ptr<AwaitingResponseQueueEntry> awaitingResponse) {
+
+  debug::checkResponsesIdentical(responseBuffers);
+
+  debug::checkResponseTypes(responseBuffers, fb::ResponseType::SubmitResponse);
+
   debug::assertNoAwaitingState(*awaitingResponse, "Submit");
 }
 
 void Controller::handleToHostResponse(
-    const ::tt::runtime::distributed::flatbuffer::ToHostResponse *response,
+    const std::vector<SizedBuffer> &responseBuffers,
     std::unique_ptr<AwaitingResponseQueueEntry> awaitingResponse) {
+
+  debug::checkResponsesIdentical(responseBuffers);
+
+  debug::checkResponseTypes(responseBuffers, fb::ResponseType::ToHostResponse);
+
   debug::assertNoAwaitingState(*awaitingResponse, "ToHost");
 }
 
 void Controller::handleMemcpyResponse(
-    const ::tt::runtime::distributed::flatbuffer::MemcpyResponse *response,
+    const std::vector<SizedBuffer> &responseBuffers,
     std::unique_ptr<AwaitingResponseQueueEntry> awaitingResponse) {
+
+  debug::checkResponsesIdentical(responseBuffers);
+
+  debug::checkResponseTypes(responseBuffers, fb::ResponseType::MemcpyResponse);
+
+  const fb::MemcpyResponse *response =
+      getResponse(responseBuffers[0])->type_as_MemcpyResponse();
 
   auto [awaitingHandles, awaitingPromise] =
       awaitingResponse->popAwaitingState();
@@ -539,9 +1154,26 @@ void Controller::handleMemcpyResponse(
   awaitingPromise->set_value();
 }
 
-void Controller::handleShutdownResponse(
-    const ::tt::runtime::distributed::flatbuffer::ShutdownResponse *response,
+void Controller::handleDeallocateTensorResponse(
+    const std::vector<SizedBuffer> &responseBuffers,
     std::unique_ptr<AwaitingResponseQueueEntry> awaitingResponse) {
+
+  debug::checkResponsesIdentical(responseBuffers);
+
+  debug::checkResponseTypes(responseBuffers,
+                            fb::ResponseType::DeallocateTensorResponse);
+
+  debug::assertNoAwaitingState(*awaitingResponse, "DeallocateTensor");
+}
+
+void Controller::handleShutdownResponse(
+    const std::vector<SizedBuffer> &responseBuffers,
+    std::unique_ptr<AwaitingResponseQueueEntry> awaitingResponse) {
+
+  debug::checkResponsesIdentical(responseBuffers);
+
+  debug::checkResponseTypes(responseBuffers,
+                            fb::ResponseType::ShutdownResponse);
 
   auto [awaitingHandles, awaitingPromise] =
       awaitingResponse->popAwaitingState();
@@ -553,79 +1185,130 @@ void Controller::handleShutdownResponse(
 }
 
 void Controller::handleResponse(
-    const ::tt::runtime::distributed::flatbuffer::Response *response,
+    const std::vector<SizedBuffer> &responseBuffers,
     std::unique_ptr<AwaitingResponseQueueEntry> awaitingResponse) {
-  switch (response->type_type()) {
-  case ::tt::runtime::distributed::flatbuffer::ResponseType::ErrorResponse: {
-    return handleErrorResponse(response->type_as_ErrorResponse(),
-                               std::move(awaitingResponse));
+  switch (awaitingResponse->commandType) {
+  case fb::CommandType::ConfigureRuntimeContextCommand: {
+    return handleConfigureRuntimeContextResponse(responseBuffers,
+                                                 std::move(awaitingResponse));
   }
-  case ::tt::runtime::distributed::flatbuffer::ResponseType::
-      GetSystemDescResponse: {
-    return handleGetSystemDescResponse(
-        response->type_as_GetSystemDescResponse(), std::move(awaitingResponse));
+  case fb::CommandType::GetSystemDescCommand: {
+    return handleGetSystemDescResponse(responseBuffers,
+                                       std::move(awaitingResponse));
   }
-  case ::tt::runtime::distributed::flatbuffer::ResponseType::
-      OpenMeshDeviceResponse: {
-    return handleOpenMeshDeviceResponse(
-        response->type_as_OpenMeshDeviceResponse(),
-        std::move(awaitingResponse));
+  case fb::CommandType::SetFabricConfigCommand: {
+    return handleSetFabricConfigResponse(responseBuffers,
+                                         std::move(awaitingResponse));
   }
-  case ::tt::runtime::distributed::flatbuffer::ResponseType::
-      CloseMeshDeviceResponse: {
-    return handleCloseMeshDeviceResponse(
-        response->type_as_CloseMeshDeviceResponse(),
-        std::move(awaitingResponse));
+  case fb::CommandType::GetNumAvailableDevicesCommand: {
+    return handleGetNumAvailableDevicesResponse(responseBuffers,
+                                                std::move(awaitingResponse));
   }
-  case ::tt::runtime::distributed::flatbuffer::ResponseType::
-      CreateHostTensorResponse: {
-    return handleCreateHostTensorResponse(
-        response->type_as_CreateHostTensorResponse(),
-        std::move(awaitingResponse));
+  case fb::CommandType::OpenMeshDeviceCommand: {
+    return handleOpenMeshDeviceResponse(responseBuffers,
+                                        std::move(awaitingResponse));
   }
-  case ::tt::runtime::distributed::flatbuffer::ResponseType::
-      GetLayoutResponse: {
-    return handleGetLayoutResponse(response->type_as_GetLayoutResponse(),
-                                   std::move(awaitingResponse));
+  case fb::CommandType::CloseMeshDeviceCommand: {
+    return handleCloseMeshDeviceResponse(responseBuffers,
+                                         std::move(awaitingResponse));
   }
-  case ::tt::runtime::distributed::flatbuffer::ResponseType::ToLayoutResponse: {
-    return handleToLayoutResponse(response->type_as_ToLayoutResponse(),
-                                  std::move(awaitingResponse));
+  case fb::CommandType::CreateSubMeshDeviceCommand: {
+    return handleCreateSubMeshDeviceResponse(responseBuffers,
+                                             std::move(awaitingResponse));
   }
-  case ::tt::runtime::distributed::flatbuffer::ResponseType::SubmitResponse: {
-    return handleSubmitResponse(response->type_as_SubmitResponse(),
-                                std::move(awaitingResponse));
+  case fb::CommandType::ReleaseSubMeshDeviceCommand: {
+    return handleReleaseSubMeshDeviceResponse(responseBuffers,
+                                              std::move(awaitingResponse));
   }
-  case ::tt::runtime::distributed::flatbuffer::ResponseType::
-      GetNumShardsResponse: {
-    return handleGetNumShardsResponse(response->type_as_GetNumShardsResponse(),
+  case fb::CommandType::GetMeshShapeCommand: {
+    return handleGetMeshShapeResponse(responseBuffers,
                                       std::move(awaitingResponse));
   }
-  case ::tt::runtime::distributed::flatbuffer::ResponseType::ToHostResponse: {
-    return handleToHostResponse(response->type_as_ToHostResponse(),
-                                std::move(awaitingResponse));
+  case fb::CommandType::CreateHostTensorCommand: {
+    return handleCreateHostTensorResponse(responseBuffers,
+                                          std::move(awaitingResponse));
   }
-  case ::tt::runtime::distributed::flatbuffer::ResponseType::MemcpyResponse: {
-    return handleMemcpyResponse(response->type_as_MemcpyResponse(),
-                                std::move(awaitingResponse));
+  case fb::CommandType::CreateMultiDeviceHostTensorFromShardsCommand: {
+    return handleCreateMultiDeviceHostTensorFromShardsResponse(
+        responseBuffers, std::move(awaitingResponse));
   }
-  case ::tt::runtime::distributed::flatbuffer::ResponseType::ShutdownResponse: {
-    return handleShutdownResponse(response->type_as_ShutdownResponse(),
-                                  std::move(awaitingResponse));
+  case fb::CommandType::GetLayoutCommand: {
+    return handleGetLayoutResponse(responseBuffers,
+                                   std::move(awaitingResponse));
   }
-  case ::tt::runtime::distributed::flatbuffer::ResponseType::NONE: {
-    LOG_FATAL("Unhandled response type: ",
-              ::tt::runtime::distributed::flatbuffer::EnumNameResponseType(
-                  response->type_type()));
+  case fb::CommandType::IsTensorAllocatedCommand: {
+    return handleIsTensorAllocatedResponse(responseBuffers,
+                                           std::move(awaitingResponse));
+  }
+  case fb::CommandType::GetTensorVolumeCommand: {
+    return handleGetTensorVolumeResponse(responseBuffers,
+                                         std::move(awaitingResponse));
+  }
+  case fb::CommandType::GetTensorRetainCommand: {
+    return handleGetTensorRetainResponse(responseBuffers,
+                                         std::move(awaitingResponse));
+  }
+  case fb::CommandType::SetTensorRetainCommand: {
+    return handleSetTensorRetainResponse(responseBuffers,
+                                         std::move(awaitingResponse));
+  }
+  case fb::CommandType::ToLayoutCommand: {
+    return handleToLayoutResponse(responseBuffers, std::move(awaitingResponse));
+  }
+  case fb::CommandType::SubmitCommand: {
+    return handleSubmitResponse(responseBuffers, std::move(awaitingResponse));
+  }
+  case fb::CommandType::GetNumShardsCommand: {
+    return handleGetNumShardsResponse(responseBuffers,
+                                      std::move(awaitingResponse));
+  }
+  case fb::CommandType::ToHostCommand: {
+    return handleToHostResponse(responseBuffers, std::move(awaitingResponse));
+  }
+  case fb::CommandType::MemcpyCommand: {
+    return handleMemcpyResponse(responseBuffers, std::move(awaitingResponse));
+  }
+  case fb::CommandType::DeallocateTensorCommand: {
+    return handleDeallocateTensorResponse(responseBuffers,
+                                          std::move(awaitingResponse));
+  }
+  case fb::CommandType::ShutdownCommand: {
+    return handleShutdownResponse(responseBuffers, std::move(awaitingResponse));
+  }
+  case fb::CommandType::NONE: {
+    LOG_FATAL("Unhandled response type for command type: ",
+              fb::EnumNameCommandType(awaitingResponse->commandType));
   }
   }
 }
 
-void Controller::shutdown() {
+ShutdownResult Controller::shutdown() {
   LOG_INFO("Shutting down distributed controller");
 
-  LOG_ASSERT(!shutdownRequested_.load(std::memory_order_relaxed),
-             "Controller already shutdown before shutdown()");
+  ControllerState currentState =
+      controllerState_.load(std::memory_order_relaxed);
+
+  // Abnormal shutdown
+  if (currentState < ControllerState::FullyOperational) {
+    controllerState_.store(ControllerState::Shutdown,
+                           std::memory_order_relaxed);
+    return ShutdownResult{
+        .success = false,
+        .errorMessage =
+            "Controller shutdown requested before fully operational, "
+            "indicating that an error occurred in an earlier stage."};
+  }
+
+  if (currentState != ControllerState::FullyOperational) {
+    controllerState_.store(ControllerState::Shutdown,
+                           std::memory_order_relaxed);
+    return ShutdownResult{
+        .success = false,
+        .errorMessage =
+            "Unexpected controller state: " +
+            std::to_string(static_cast<std::uint8_t>(currentState)) +
+            " during shutdown"};
+  }
 
   auto commandBuilder = std::make_unique<::flatbuffers::FlatBufferBuilder>();
   auto command = CommandFactory::buildShutdownCommand(*commandBuilder);
@@ -633,30 +1316,42 @@ void Controller::shutdown() {
   auto awaitingPromise = std::make_unique<std::promise<void>>();
   std::future<void> awaitingFuture = awaitingPromise->get_future();
 
-  pushToCommandAndResponseQueues(command, std::move(commandBuilder),
-                                 /*awaitingHandles=*/nullptr,
-                                 std::move(awaitingPromise));
+  pushToCommandAndResponseQueues(
+      command, fb::CommandType::ShutdownCommand, std::move(commandBuilder),
+      /*awaitingHandles=*/nullptr, std::move(awaitingPromise));
 
   // Wait for worker shutdown
   awaitingFuture.wait();
 
-  shutdownRequested_.store(true, std::memory_order_relaxed);
+  controllerState_.store(ControllerState::ShuttingDown,
+                         std::memory_order_relaxed);
   commandDispatcherThread_.join();
   responseHandlerThread_.join();
 
-  for (auto &exitCodeFuture : exitCodeFutures_) {
-    auto exitCodeResult =
-        exitCodeFuture.wait_for(std::chrono::seconds(workerShutdownTimeout_));
-    LOG_ASSERT(exitCodeResult == std::future_status::ready,
-               "Worker subprocess failed to exit");
+  auto exitCodeResult =
+      exitCodeFuture_.wait_for(std::chrono::seconds(workerShutdownTimeout_));
 
-    int exitCode = exitCodeFuture.get();
-    LOG_ASSERT(exitCode == 0,
-               "Worker subprocess failed with exit code: ", exitCode);
+  if (exitCodeResult == std::future_status::timeout) {
+    controllerState_.store(ControllerState::Shutdown,
+                           std::memory_order_relaxed);
+    return ShutdownResult{.success = false,
+                          .errorMessage = "Worker subprocess shutdown timeout"};
   }
 
-  exitCodeFutures_.clear();
-  LOG_INFO("Distributed controller shutdown complete");
+  int exitCode = exitCodeFuture_.get();
+  if (exitCode != 0) {
+    controllerState_.store(ControllerState::Shutdown,
+                           std::memory_order_relaxed);
+    return ShutdownResult{.success = false,
+                          .errorMessage =
+                              "Worker subprocess failed with exit code: " +
+                              std::to_string(exitCode)};
+  }
+
+  LOG_INFO("Distributed controller shutdown successfully");
+
+  controllerState_.store(ControllerState::Shutdown, std::memory_order_relaxed);
+  return ShutdownResult{.success = true, .errorMessage = ""};
 }
 
 } // namespace tt::runtime::distributed::controller

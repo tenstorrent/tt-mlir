@@ -6,6 +6,8 @@
 #define TT_RUNTIME_TYPES_H
 
 #include <cassert>
+#include <filesystem>
+#include <map>
 #include <memory>
 #include <optional>
 #include <vector>
@@ -19,7 +21,15 @@
 #include "ttmlir/Target/Common/types_generated.h"
 #pragma clang diagnostic pop
 
+#include "tt/runtime/flatbuffer/flatbuffer.h"
+
 namespace tt::runtime {
+
+using ::tt::runtime::flatbuffer::DeviceRuntime;
+using ::tt::runtime::flatbuffer::DispatchCoreType;
+using ::tt::runtime::flatbuffer::FabricConfig;
+using ::tt::runtime::flatbuffer::HostRuntime;
+
 /*
 MemoryBlockTable is a list of memory blocks in the following format:
 [{"blockID": "0", "address": "0", "size": "0", "prevID": "0", "nextID": "0",
@@ -35,62 +45,23 @@ enum class MemoryBufferType {
   TRACE,
 };
 
-enum class DeviceRuntime {
-  Disabled,
-  TTNN,
-  TTMetal,
-};
-
 inline std::string toString(DeviceRuntime runtime) {
-  switch (runtime) {
-  case DeviceRuntime::TTNN:
-    return "TTNN";
-  case DeviceRuntime::TTMetal:
-    return "TTMetal";
-  case DeviceRuntime::Disabled:
-    return "Disabled";
-  }
+  return ::tt::runtime::flatbuffer::EnumNameDeviceRuntime(runtime);
 }
 
-enum class HostRuntime {
-  Local,
-  Distributed,
-};
-
 inline std::string toString(HostRuntime runtime) {
-  switch (runtime) {
-  case HostRuntime::Local:
-    return "Local";
-  case HostRuntime::Distributed:
-    return "Distributed";
-  }
+  return ::tt::runtime::flatbuffer::EnumNameHostRuntime(runtime);
 }
 
 enum class DistributedMode {
+  // Single process on the local host,
+  // mainly for testing and debugging
   LocalSubprocess,
-};
 
-enum class DispatchCoreType {
-  WORKER,
-  ETH,
+  // Multiple processes via MPI, may be same host or distributed
+  // across multiple hosts
+  MultiProcess,
 };
-
-enum class FabricConfig {
-  DISABLED,
-  FABRIC_1D,
-  FABRIC_1D_RING,
-  FABRIC_2D,
-  FABRIC_2D_TORUS_X,
-  FABRIC_2D_TORUS_Y,
-  FABRIC_2D_TORUS_XY,
-  FABRIC_2D_DYNAMIC,
-  FABRIC_2D_DYNAMIC_TORUS_X,
-  FABRIC_2D_DYNAMIC_TORUS_Y,
-  FABRIC_2D_DYNAMIC_TORUS_XY,
-  CUSTOM,
-};
-
-enum class Arch { GRAYSKULL = 1, WORMHOLE_B0 = 2, BLACKHOLE = 3, QUASAR = 4 };
 
 namespace detail {
 
@@ -223,16 +194,62 @@ struct MeshDeviceOptions {
   std::vector<uint32_t> meshOffset{0, 0};
   std::vector<int> deviceIds{};
   size_t numHWCQs = 1;
-  bool enableProgramCache = false;
+  bool enableProgramCache = true;
   std::optional<std::vector<uint32_t>> meshShape = std::nullopt;
   std::optional<size_t> l1SmallSize = std::nullopt;
   std::optional<size_t> traceRegionSize = std::nullopt;
-  std::optional<DispatchCoreType> dispatchCoreType = std::nullopt;
+  std::optional<::tt::runtime::DispatchCoreType> dispatchCoreType =
+      std::nullopt;
+};
+
+class MultiProcessArgs {
+public:
+  static MultiProcessArgs create(std::string_view rankBindingPath) {
+    return MultiProcessArgs(rankBindingPath);
+  }
+
+  MultiProcessArgs &withHosts(const std::vector<std::string> &hosts);
+  MultiProcessArgs &withHostsFilePath(std::string_view path);
+
+  std::string getRankBindingPath() const;
+  MultiProcessArgs &withRankFilePath(std::string_view path);
+
+  MultiProcessArgs &
+  withMcaOptions(const std::map<std::string, std::string> &mcaOptions);
+
+  MultiProcessArgs &withTagOutput(bool tagOutput);
+
+  MultiProcessArgs &withAllowRunAsRoot(bool allowRunAsRoot);
+
+  MultiProcessArgs &
+  withExtraMpiArgs(const std::vector<std::string> &extraMpiArgs);
+
+  std::string toArgString() const;
+
+private:
+  MultiProcessArgs(std::string_view rankBindingPath);
+
+  std::filesystem::path rankBindingPath_;
+
+  std::vector<std::string> hosts_;
+  std::filesystem::path hostsFilePath_;
+
+  std::filesystem::path rankFilePath_;
+
+  std::map<std::string, std::string> mcaOptions_;
+
+  bool tagOutput_ = true;
+
+  bool allowRunAsRoot_ = false;
+
+  std::vector<std::string> extraMpiArgs_;
 };
 
 struct DistributedOptions {
-  uint16_t port = 0;
+  uint16_t controllerPort = 0;
   DistributedMode mode = DistributedMode::LocalSubprocess;
+  // Required for MultiProcess mode
+  std::optional<MultiProcessArgs> multiProcessArgs = std::nullopt;
 };
 
 struct Flatbuffer : public detail::ObjectImpl {
@@ -267,6 +284,8 @@ struct SystemDesc : public Flatbuffer {
 };
 
 class TensorCache;
+class ProgramDescCache;
+
 struct Binary : public Flatbuffer {
   Binary(Flatbuffer fb);
   Binary(std::shared_ptr<void> handle);
@@ -308,6 +327,11 @@ struct Binary : public Flatbuffer {
   // Get the tensor cache associated with this binary
   std::shared_ptr<TensorCache> getConstEvalTensorCache() { return tensorCache; }
 
+  // Get the program descriptor cache associated with this binary
+  std::shared_ptr<tt::runtime::ProgramDescCache> getProgramDescCache() {
+    return programDescCache;
+  }
+
 private:
   std::uint64_t nextBinaryId();
 
@@ -315,6 +339,9 @@ private:
 
   // The tensor cache associated with this binary
   std::shared_ptr<TensorCache> tensorCache;
+
+  // Program descriptor cache associated with this binary
+  std::shared_ptr<tt::runtime::ProgramDescCache> programDescCache;
 };
 
 struct TraceCache : public detail::RuntimeCheckedObjectImpl {

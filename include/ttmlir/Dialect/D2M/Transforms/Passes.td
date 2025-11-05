@@ -19,7 +19,7 @@ def D2MElementwiseFusion : Pass<"d2m-elementwise-fusion", "::mlir::ModuleOp"> {
   }];
 
   list<Option> options = [
-    Option<"maxDstRegisterSizeTiles", "max-dst-register-size-tiles", "unsigned", "0", "Override the max dst size tiles or 0 if unset.">,
+    Option<"maxDstPhysicalSizeTiles", "max-dst-physical-size-tiles", "unsigned", "0", "Override the max dst physical size tiles or 0 if unset.">,
   ];
 
   let dependentDialects = [
@@ -50,7 +50,7 @@ def D2MGenericTileComputeLoops : Pass<"d2m-generic-tile-compute-loops", "::mlir:
   }];
 
   list<Option> options = [
-    Option<"maxDstRegisterSizeTiles", "max-dst-register-size-tiles", "unsigned", "0", "Override the max dst size tiles or 0 if unset.">,
+    Option<"maxDstPhysicalSizeTiles", "max-dst-physical-size-tiles", "unsigned", "0", "Override the max dst physical size tiles or 0 if unset.">,
   ];
 
   let dependentDialects = ["mlir::tt::d2m::D2MDialect"];
@@ -115,13 +115,14 @@ def D2MInsertDstRegisterAccess : Pass<"d2m-insert-dst-register-access", "::mlir:
     ```
 
     Notes:
-       - All loads and stores to L1 are replaced with ones to dst.
+       - Operand loads & stores that implicitly uses the DST are replaced with explicit affine loads & stores that go through the DST.
        - Generic op automatically inserts conditional guard for reload.
        - This pass only works on affine ops.
   }];
   let dependentDialects = ["::mlir::tt::d2m::D2MDialect", "::mlir::affine::AffineDialect", "::mlir::func::FuncDialect"];
   let options = [
     Option<"useTileMatmul", "use-tile-matmul", "bool", /*default=*/"false", "Use tile_matmul instead of tile_matmul_block">,
+    Option<"maxDstPhysicalSizeTiles", "max-dst-physical-size-tiles", "unsigned", "0", "Override the max dst physical size tiles or 0 if unset.">,
   ];
 }
 
@@ -426,6 +427,17 @@ def D2MGenericApplyInterchange : Pass<"d2m-generic-apply-interchange", "::mlir::
   ];
 }
 
+defvar D2MStreamingOptions = [
+  Option<"numStreamBuffers",
+         "num-stream-buffers",
+         "unsigned", /*default=*/"2",
+         "Number of backing buffers to allocate per stream storage (>=1) Default is 2.">,
+  Option<"allowL1OutputSpilling",
+         "allow-l1-output-spilling",
+         "bool", /*default=*/"false",
+         "Make generic outputs eligible for spilling from L1 to DRAM.">,
+];
+
 def D2MAllocate: Pass<"d2m-allocate", "::mlir::ModuleOp"> {
   let summary = "Create streams required by generic ops.";
   let description = [{
@@ -479,16 +491,7 @@ def D2MAllocate: Pass<"d2m-allocate", "::mlir::ModuleOp"> {
   }];
   let dependentDialects = ["::mlir::tt::ttcore::TTCoreDialect", "::mlir::memref::MemRefDialect"];
 
-  let options = [
-    Option<"numStreamBuffers",
-           "num-stream-buffers",
-           "unsigned", /*default=*/"2",
-           "Number of backing buffers to allocate per stream storage (>=1) Default is 2.">,
-    Option<"allowOutputSpilling",
-           "allow-output-spilling",
-           "bool", /*default=*/"false",
-           "Make generic outputs eligible for spilling to DRAM.">,
-    ];
+  let options = D2MStreamingOptions;
 }
 
 def D2MInsertStreams: Pass<"d2m-insert-streams", "::mlir::ModuleOp"> {
@@ -500,12 +503,101 @@ def D2MInsertStreams: Pass<"d2m-insert-streams", "::mlir::ModuleOp"> {
     Example:
   }];
   let dependentDialects = ["::mlir::tt::ttcore::TTCoreDialect", "::mlir::memref::MemRefDialect"];
+  let options = D2MStreamingOptions;
+}
+
+def D2MGlobalDataFormatConversion: Pass<"d2m-global-data-format-conversion", "::mlir::ModuleOp">
+{
+  let summary = "Convert all tensor data types to a target format.";
+  let description = [{
+    This pass converts all tensor element types in the function body
+    to a specified target format. Function signatures are preserved, and typecast operations
+    are automatically inserted at boundaries where type conversions are needed.
+
+    Supported target formats:
+      - "f32" (Float32)
+      - "bf16" (BFloat16, default)
+      - "bfp_bf8" (BFP_BFloat8)
+
+    Example:
+      Before:
+       func.func @forward(%arg0: tensor<64x128xf32>) -> tensor<64x128xf32> {
+        %0 = ttir.empty() : tensor<64x128xf32>
+        %1 = "ttir.exp"(%arg0, %0) : (tensor<64x128xf32>, tensor<64x128xf32>) -> tensor<64x128xf32>
+        return %1 : tensor<64x128xf32>
+       }
+
+      After (with target-format="bf16"):
+        func.func @forward(%arg0: tensor<64x128xf32>) -> tensor<64x128xf32> {
+          %0 = ttir.empty() : tensor<64x128xbf16>
+          %1 = "ttir.typecast"(%arg0, %0) <{conservative_folding = false}> : (tensor<64x128xf32>, tensor<64x128xbf16>) -> tensor<64x128xbf16>
+          %2 = ttir.empty() : tensor<64x128xbf16>
+          %3 = "ttir.exp"(%1, %2) : (tensor<64x128xbf16>, tensor<64x128xbf16>) -> tensor<64x128xbf16>
+          %4 = ttir.empty() : tensor<64x128xf32>
+          %5 = "ttir.typecast"(%3, %4) <{conservative_folding = false}> : (tensor<64x128xbf16>, tensor<64x128xf32>) -> tensor<64x128xf32>
+          return %5 : tensor<64x128xf32>
+        }
+  }];
+
   let options = [
-    Option<"numStreamBuffers",
-           "num-stream-buffers",
-           "unsigned", /*default=*/"2",
-           "Number of backing buffers to allocate per stream storage (>=1) Default is 2.">,
+    Option<"targetFormat", "target-format", "std::string", /*default=*/"\"bf16\"",
+           "Target data format for conversion: f32, bf16 (default), or bfp_bf8">
+  ];
+
+  let dependentDialects = ["mlir::tt::ttcore::TTCoreDialect", "mlir::tt::ttir::TTIRDialect"];
+}
+
+def D2MGridSelection: Pass<"d2m-grid-selection", "::mlir::ModuleOp"> {
+  let summary = "Optimized grid selection for D2M generic ops.";
+  let description = [{
+    This pass optimizes the grid selection for D2M generic operations. It walks through
+    all d2m.generic ops and updates their operand ToLayoutOps with optimal grid sizes
+    and proper dimAlignments based on the tensor physical shapes.
+
+    The TTIRToD2M conversion creates all tensors with simple 1x1 grids and minimal
+    dimAlignments. This pass then computes the optimal grid for each tensor based on
+    its physical shape, finding the largest grid dimensions that evenly divide the shape.
+    It also recomputes proper dimAlignments that account for grid-based alignment requirements.
+
+    Note: This pass is not used in TTNN mode, where grids are already correctly set.
+    The pipeline conditionally adds this pass only for non-TTNN mode.
+  }];
+  let dependentDialects = ["::mlir::tt::d2m::D2MDialect", "::mlir::tt::ttcore::TTCoreDialect"];
+  let options = [
+    ListOption<"overrideDeviceShape", "override-device-shape", "int64_t",
+        "Override the device shape for grid optimization.">,
   ];
 }
 
+def D2MGenericReplaceGlobals : Pass<"d2m-generic-replace-globals", "::mlir::ModuleOp"> {
+  let summary = "Replace `ttcore.get_global` operations with direct operand references within `d2m.generic` operations";
+  let description = [{
+    This pass replaces `ttcore.get_global` operations within `d2m.generic` operations
+    with direct references to the corresponding operands of the parent generic operation.
+    When a `ttcore.get_global` operation appears within a `d2m.generic` operation's compute
+    region, and the global has an associated index, this pass replaces the get_global
+    operation with the corresponding operand from the generic operation's operand list.
+    This transformation eliminates unnecessary global symbol lookups and enables better
+    optimization opportunities by making data flow more explicit within the generic
+    operation's regions.
+    Example transformation:
+    ```mlir
+    // Before:
+    d2m.generic ins(%arg0, %arg1 : tensor<...>, tensor<...>) {
+    ^bb0(%cb0: memref<...>, %cb1: memref<...>):
+      %global_val = ttcore.get_global @my_global : tensor<...>
+      // ... use %global_val ...
+    }
+    // After (assuming @my_global has index 0):
+    d2m.generic ins(%arg0, %arg1 : tensor<...>, tensor<...>) {
+    ^bb0(%cb0: memref<...>, %cb1: memref<...>):
+      // ... use %arg0 directly instead of %global_val ...
+    }
+    ```
+    This pass only operates on `ttcore.get_global` operations that:
+    1. Are contained within a `d2m.generic` operation
+    2. Reference a global that has a valid index attribute
+    3. The index corresponds to a valid operand in the parent generic operation
+  }];
+}
 #endif

@@ -1,0 +1,93 @@
+name: Nightly run
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 4 * * *'  # Runs at 04:00 UTC every day
+
+permissions:
+  checks: write
+  packages: write
+  contents: write
+
+jobs:
+  build-macos:
+    uses: ./.github/workflows/call-build-macos.yml
+    secrets: inherit
+  prepare-run:
+    uses: ./.github/workflows/call-prepare-run.yml
+    with:
+      builder_build: true
+      build_all: true
+    secrets: inherit
+  build-image:
+    uses: ./.github/workflows/call-build-docker.yml
+    secrets: inherit
+  release-build:
+    needs: [ prepare-run, build-image ]
+    if: needs.prepare-run.outputs.skip_build != 'true'
+    uses: ./.github/workflows/call-build-release.yml
+    secrets: inherit
+    with:
+      docker_image: ${{ needs.build-image.outputs.docker-image }}
+      runner: ${{ needs.prepare-run.outputs.runner }}
+      sh_builder: ${{ fromJson(needs.prepare-run.outputs.sh_builder) }}
+      component_matrix: ${{ needs.prepare-run.outputs.build_matrix }}
+  wheels-build:
+    needs: [ prepare-run, build-image, release-build ] # release-build required so ttnn-jit wheel is built
+    uses: ./.github/workflows/call-build-wheels.yml
+    secrets: inherit
+    with:
+      docker-tag: ${{ needs.build-image.outputs.docker-tag }}
+      docker_image: ${{ needs.build-image.outputs.docker-image }}
+  test:
+    needs: [ prepare-run, build-image, release-build ]
+    if: needs.prepare-run.outputs.skip_build != 'true'
+    uses: ./.github/workflows/call-test.yml
+    secrets: inherit
+    with:
+      docker_image: ${{ needs.build-image.outputs.docker-image }}
+      test_matrix: ${{ needs.prepare-run.outputs.test_matrix }}
+      timeout: ${{ fromJson(needs.prepare-run.outputs.test_timeout) }}
+
+  fail-notify:
+    if: always()
+    needs:
+      - build-macos
+      - prepare-run
+      - build-image
+      - release-build
+      - wheels-build
+      - test
+    runs-on: Ubuntu-latest
+    outputs:
+      is-main: ${{ steps.branch-check.outputs.IS_MAIN }}
+      failed: ${{ steps.check.outputs.failure }}
+    steps:
+      - name: Check if branch is main
+        id: branch-check
+        run: echo "IS_MAIN=$(if [ '${{ github.ref }}' == 'refs/heads/main' ]; then echo true; else echo false; fi)" >> $GITHUB_OUTPUT
+      - name: Check if the needed jobs succeeded or failed
+        id: check
+        uses: re-actors/alls-green@v1.2.2
+        with:
+          jobs: ${{ toJSON(needs) }}
+          allowed-skips: build-macos
+
+  fail-send-msg:
+    if: always()
+    needs:
+      - fail-notify
+    runs-on: Ubuntu-latest
+    steps:
+      - name: Send Fail Notification
+        if: ${{ needs.fail-notify.outputs.failed == 'true' && needs.fail-notify.outputs.is-main == 'true' }}
+        uses: slackapi/slack-github-action@v1.26.0
+        with:
+          payload: |
+            {
+              "text": "Nightly has failed!: <https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}>",
+              "channel": "C07FJP9B87M"
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_NIGHTLY_FAIL }}

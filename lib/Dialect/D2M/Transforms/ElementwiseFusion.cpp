@@ -6,16 +6,14 @@
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
 #include "ttmlir/Dialect/D2M/IR/D2MTraits.h"
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
-#include "ttmlir/Dialect/TTCore/IR/TTCore.h"
+#include "ttmlir/Dialect/D2M/Utils/Utils.h"
+#include "ttmlir/Dialect/TTCore/IR/Utils.h"
 
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
-#include "mlir/Dialect/Affine/IR/AffineValueMap.h"
 #include "mlir/IR/AsmState.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
-#include "llvm/ADT/APFloat.h"
-#include "llvm/Support/raw_ostream.h"
-#include <optional>
+
 #include <tuple>
 
 namespace mlir::tt::d2m {
@@ -39,7 +37,7 @@ static int countBinaryOps(Operation *op) {
 }
 
 static bool fitsInDstPostFusion(GenericOp producer, GenericOp consumer,
-                                OpOperand *use, unsigned dstRegisterSizeTiles) {
+                                OpOperand *use, unsigned dstCapacity) {
   auto tensorType = mlir::cast<RankedTensorType>(use->get().getType());
 
   auto shape = tensorType.getShape();
@@ -47,11 +45,11 @@ static bool fitsInDstPostFusion(GenericOp producer, GenericOp consumer,
   shape = shape.drop_back(1);
   blockSize *= shape.back();
 
-  if (blockSize > static_cast<int>(dstRegisterSizeTiles)) {
-    blockSize = dstRegisterSizeTiles;
+  if (blockSize > static_cast<int>(dstCapacity)) {
+    blockSize = dstCapacity;
   }
 
-  int dstTilesRemaining = dstRegisterSizeTiles;
+  int dstTilesRemaining = dstCapacity;
 
   // Account for number of tiles needed to store input operands after fusion.
   // -2 accounts for removal of producer init/output operand and consumer
@@ -104,7 +102,7 @@ static bool isValidElementwiseFusionTarget(GenericOp gOp) {
 }
 
 static bool isElementwiseFusable(OpOperand *fusionTargetOperand,
-                                 unsigned dstRegisterSizeTiles,
+                                 unsigned dstCapacity,
                                  bool checkConsumer = true,
                                  bool checkProducer = true) {
   if (!fusionTargetOperand) {
@@ -131,7 +129,7 @@ static bool isElementwiseFusable(OpOperand *fusionTargetOperand,
   }
 
   if (!fitsInDstPostFusion(producer, consumer, fusionTargetOperand,
-                           dstRegisterSizeTiles)) {
+                           dstCapacity)) {
     return false;
   }
 
@@ -302,12 +300,15 @@ static GenericOp createFusedGeneric(OpOperand *fusedOperand, GenericOp producer,
     }
     rewriter.clone(op, irMap);
   }
+
   YieldOp prodYield = nullptr;
   for (Operation &op : pb) {
     if (auto y = dyn_cast<YieldOp>(op)) {
       prodYield = y;
     }
   }
+  assert(prodYield);
+
   int prodResultNumber = cast<OpResult>(fusedOperand->get()).getResultNumber();
   Value repl = irMap.lookupOrDefault(prodYield.getOperand(prodResultNumber));
 
@@ -322,7 +323,14 @@ static GenericOp createFusedGeneric(OpOperand *fusedOperand, GenericOp producer,
   // operations opaquely; cloning preserves dominance as long as operands
   // are mapped.
   for (Operation &op : cb.without_terminator()) {
-    rewriter.clone(op, irMap);
+    // Special case, if there is a pop or reserve op in between the newly fused
+    // subgraph, we want to skip cloning them.
+    if (mlir::isa<d2m::WaitOp, d2m::ReserveOp>(&op) &&
+        !mlir::isa<BlockArgument>(irMap.lookup(op.getOperand(0)))) {
+      irMap.map(op.getResult(0), irMap.lookup(op.getOperand(0)));
+    } else {
+      rewriter.clone(op, irMap);
+    }
   }
 
   // Build fused yield: kept producer yields then consumer yields
@@ -345,9 +353,9 @@ static GenericOp createFusedGeneric(OpOperand *fusedOperand, GenericOp producer,
 namespace {
 struct FuseD2MElementwiseOpsPattern : public OpRewritePattern<GenericOp> {
   FuseD2MElementwiseOpsPattern(MLIRContext *context,
-                               unsigned dstRegisterSizeTiles)
+                               unsigned maxDstPhysicalSizeTiles)
       : OpRewritePattern<GenericOp>(context),
-        dstRegisterSizeTiles(dstRegisterSizeTiles) {}
+        maxDstPhysicalSizeTiles(maxDstPhysicalSizeTiles) {}
 
   LogicalResult matchAndRewrite(GenericOp consumer,
                                 PatternRewriter &rewriter) const final {
@@ -355,9 +363,16 @@ struct FuseD2MElementwiseOpsPattern : public OpRewritePattern<GenericOp> {
       return failure();
     }
 
+    assert(consumer.getNumRegions() == 1u);
+    Type largestDstType =
+        utils::getRegionLargestDstElemType(consumer.getRegion(0));
+    const unsigned dstCapacity =
+        ttcore::getOpChipDescAttr(consumer).getDstLogicalSizeTiles(
+            largestDstType, false, maxDstPhysicalSizeTiles);
+
     auto findFusableOperand = [&]() -> OpOperand * {
       for (OpOperand *use : consumer.getDpsInputOperands()) {
-        if (isElementwiseFusable(use, dstRegisterSizeTiles,
+        if (isElementwiseFusable(use, dstCapacity,
                                  // already checked consumer outside
                                  false, true)) {
           return use;
@@ -398,7 +413,7 @@ struct FuseD2MElementwiseOpsPattern : public OpRewritePattern<GenericOp> {
     return success();
   }
 
-  unsigned dstRegisterSizeTiles;
+  unsigned maxDstPhysicalSizeTiles = 0;
 };
 } // namespace
 
@@ -408,21 +423,10 @@ class D2MElementwiseFusion
   using D2MElementwiseFusionBase::D2MElementwiseFusionBase;
 
   void runOnOperation() override {
-    auto device = ttcore::lookupDevice(getOperation());
-    assert(device && "Device not found");
-    auto systemDesc = ttcore::getCurrentScopeSystemDesc(getOperation());
-    auto chipIds = device.getChipIds();
-    auto chipDesc = systemDesc.getChipDesc(chipIds[0]);
-
-    unsigned dstRegisterSizeTiles = chipDesc.getDstRegisterSizeTiles();
-    if (maxDstRegisterSizeTiles.getValue() > 0) {
-      dstRegisterSizeTiles =
-          std::min(dstRegisterSizeTiles, maxDstRegisterSizeTiles.getValue());
-    }
-
     MLIRContext *ctx = &getContext();
     RewritePatternSet patterns(ctx);
-    patterns.add<FuseD2MElementwiseOpsPattern>(ctx, dstRegisterSizeTiles);
+    patterns.add<FuseD2MElementwiseOpsPattern>(
+        ctx, maxDstPhysicalSizeTiles.getValue());
     GreedyRewriteConfig cfg;
 
     if (failed(

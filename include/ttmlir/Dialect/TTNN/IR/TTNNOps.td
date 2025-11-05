@@ -219,6 +219,28 @@ class TTNN_ElementwiseBinaryCompositeOp<string mnemonic, list<Trait> traits = []
     ];
 }
 
+class TTNN_ElementwiseBinaryCompositeScalarOp<string mnemonic, list<Trait> traits = []> :
+  TTNN_Op<mnemonic, [TTNN_MemoryConfigOpInterface] # traits> {
+  let summary = "Eltwise binary composite op.";
+  let description = [{
+    Eltwise binary composite op where the first input is a tensor and the second is a scalar.
+    It applies the op independently to each element of the tensor using the scalar.
+  }];
+
+  let arguments = (ins AnyRankedTensor:$lhs,
+                        AnyAttrOf<[F32Attr, I32Attr]>:$rhs,
+                        OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+  let results = (outs AnyRankedTensor:$result);
+
+  let builders =
+  [
+    OpBuilder<(ins "Type": $resultType, "Value": $lhs, "::mlir::Attribute": $rhs),
+    [{
+      build($_builder, $_state, resultType, lhs, rhs, /*memory_config=*/nullptr);
+    }]>
+  ];
+}
+
 class TTNN_ElementwiseTernaryOp<string mnemonic, list<Trait> traits = []> :
     TTNN_Op<mnemonic, [TTNN_MemoryConfigOpInterface] # traits> {
     let summary = "Eltwise ternary op.";
@@ -455,11 +477,24 @@ def TTNN_SigmoidOp : TTNN_ElementwiseUnaryOp<"sigmoid"> {
       Eltwise sigmoid operation.
     }];
 }
+def TTNN_HardsigmoidOp : TTNN_ElementwiseUnaryOp<"hardsigmoid"> {
+  let summary = "Eltwise hardsigmoid.";
+  let description = [{
+    Eltwise hardsigmoid operation. Computes hardsigmoid(x) = max(0, min(1, (x + 3) / 6)).
+  }];
+}
 
 def TTNN_SiluOp : TTNN_ElementwiseUnaryOp<"silu"> {
   let summary = "Eltwise SiLU.";
   let description = [{
     Eltwise SiLU (Swish) operation.
+  }];
+}
+
+def TTNN_MishOp : TTNN_ElementwiseUnaryOp<"mish"> {
+  let summary = "Eltwise Mish.";
+  let description = [{
+    Eltwise Mish operation.
   }];
 }
 
@@ -736,7 +771,7 @@ def TTNN_RemainderOp : TTNN_ElementwiseBinaryCompositeOp<"remainder"> {
     }];
 }
 
-def TTNN_PowOp : TTNN_ElementwiseBinaryCompositeOp<"pow"> {
+def TTNN_PowTensorOp : TTNN_ElementwiseBinaryCompositeOp<"pow_tensor"> {
     let summary = "Eltwise power OP.";
     let description = [{
       Performs element-wise exponentiation of lhs tensor by rhs tensor and produces a
@@ -744,13 +779,34 @@ def TTNN_PowOp : TTNN_ElementwiseBinaryCompositeOp<"pow"> {
 
       Example:
       ```
-        %result = "ttnn.pow"(%lhs, %rhs) : (tensor<6xf64>, tensor<6xf64>) -> tensor<6xf64>
+        %result = "ttnn.pow_tensor"(%lhs, %rhs) : (tensor<6xf64>, tensor<6xf64>) -> tensor<6xf64>
 
         %lhs: [-2.0, -0.0, -36.0, 5.0, 3.0, 10000.0]
         %rhs: [2.0, 2.0, 1.1, 2.0, -1.0, 10.0]
         %result: [4.0, 0.0, -nan, 25.0, 0.333333343, inf]
       ```
     }];
+}
+
+def TTNN_PowScalarOp : TTNN_ElementwiseBinaryCompositeScalarOp<"pow_scalar"> {
+  let summary = "Eltwise power OP.";
+  let description = [{
+    The `pow_scalar` operation performs an exponentiation of each element of an
+    input tensor with a scalar exponent and returns the result.
+
+    Example:
+    ```mlir
+    %result = ttnn.pow_scalar(%input) <{exponent = 2.0 : f32}> : tensor<4xf32>, tensor<4xf32> -> tensor<4xf32>
+    // Input tensors:
+    // %input: [2.0, 3.0, 4.0, 5.0]  // Bases
+    // %exponent: 2.0  // Power
+    // Output tensor: [4.0, 9.0, 16.0, 25.0]
+    ```
+
+    Restriction: TTNN API supports expoenent ≥ 0 only.
+  }];
+
+  let hasVerifier = 1;
 }
 
 def TTNN_Atan2Op :  TTNN_ElementwiseBinaryCompositeOp<"atan2"> {
@@ -1054,6 +1110,28 @@ def TTNN_NLPConcatHeadsDecodeOp: TTNN_Op<"nlp_concat_heads_decode", [TTNN_Memory
                          OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
 
     let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 1;
+}
+
+def TTNN_SplitQueryKeyValueAndSplitHeadsOp: TTNN_Op<"split_query_key_value_and_split_heads", [TTNN_MemoryConfigOpInterface]> {
+    let summary = "Split query, key, values and split heads op used in attention layer.";
+    let description = [{
+      Splits input_tensor of shape [batch_size, sequence_size, 3 * hidden_size] into 3 tensors (Query, Key, Value) of shape [batch_size, sequence_size, hidden_size]. Then, reshapes and permutes the output tensors, to make them ready for computing attention scores.
+      If kv_input_tensor is passed in, then input_tensor of shape [batch_size, sequence_size, hidden_size] is only used for Query, and kv_input_tensor of shape [batch_size, sequence_size, 2 * hidden_size] is used for Key and Value.
+      For the sharded implementation, the input query, key and value are expected to be concatenated such that the heads are interleaved (q1 k1 v1…qn kn vn).
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input_tensor,
+                         Optional<AnyRankedTensor>:$kv_input_tensor,
+                         UI32Attr:$num_heads,
+                         OptionalAttr<UI32Attr>:$num_kv_heads,
+                         BoolAttr:$transpose_key,
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+
+    let results = (outs AnyRankedTensor:$query,
+                        AnyRankedTensor:$key,
+                        AnyRankedTensor:$value);
 
     let hasVerifier = 1;
 }
@@ -1367,7 +1445,9 @@ def TTNN_PrepareConv2dWeightsOp : TTNN_Op<"prepare_conv2d_weights"> {
                          TTNN_Device:$device,
                          TTCore_DataTypeAttr:$input_dtype,
                          OptionalAttr<TTCore_DataTypeAttr>:$output_dtype,
-                         OptionalAttr<TTNN_Conv2dConfigAttr>:$conv2d_config);
+                         OptionalAttr<TTNN_Conv2dConfigAttr>:$conv2d_config,
+                         OptionalAttr<TTNN_DeviceComputeKernelConfig>:$compute_config,
+                         OptionalAttr<TTNN_Conv2dSliceConfigAttr>:$conv2d_slice_config);
 
     let results = (outs AnyRankedTensor:$result);
 
@@ -1393,7 +1473,9 @@ def TTNN_PrepareConv2dBiasOp : TTNN_Op<"prepare_conv2d_bias"> {
                          TTNN_Device:$device,
                          TTCore_DataTypeAttr:$input_dtype,
                          OptionalAttr<TTCore_DataTypeAttr>:$output_dtype,
-                         OptionalAttr<TTNN_Conv2dConfigAttr>:$conv2d_config);
+                         OptionalAttr<TTNN_Conv2dConfigAttr>:$conv2d_config,
+                         OptionalAttr<TTNN_DeviceComputeKernelConfig>:$compute_config,
+                         OptionalAttr<TTNN_Conv2dSliceConfigAttr>:$conv2d_slice_config);
 
     let results = (outs AnyRankedTensor:$result);
 
@@ -1474,7 +1556,8 @@ def TTNN_Conv2dOp : TTNN_Op<"conv2d", [TTNN_DtypeOpInterface]> {
                          I32Attr:$groups,
                          OptionalAttr<TTCore_DataTypeAttr>:$dtype,
                          OptionalAttr<TTNN_Conv2dConfigAttr>:$conv2d_config,
-                         OptionalAttr<TTNN_DeviceComputeKernelConfig>:$compute_config);
+                         OptionalAttr<TTNN_DeviceComputeKernelConfig>:$compute_config,
+                         OptionalAttr<TTNN_Conv2dSliceConfigAttr>:$conv2d_slice_config);
 
     let results = (outs AnyRankedTensor:$result);
 
@@ -1565,6 +1648,7 @@ def TTNN_ConvTranspose2dOp : TTNN_Op<"conv_transpose2d", [TTNN_DtypeOpInterface]
                          I32Attr:$groups,
                          OptionalAttr<TTCore_DataTypeAttr>:$dtype,
                          OptionalAttr<TTNN_Conv2dConfigAttr>:$conv2d_config,
+                         OptionalAttr<TTNN_DeviceComputeKernelConfig>:$compute_config,
                          OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
 
     let results = (outs AnyRankedTensor:$result);
@@ -1655,16 +1739,36 @@ def TTNN_MaxPool2dOp : TTNN_Op<"max_pool2d", [TTNN_MemoryConfigOpInterface]> {
     let hasVerifier = 1;
 }
 
-def TTNN_BatchNormOp : TTNN_Op<"batch_norm", [AttrSizedOperandSegments]> {
-    let summary = "Batch normalization op.";
+def TTNN_BatchNormInferenceOp : TTNN_Op<"batch_norm_inference", [AttrSizedOperandSegments]> {
+    let summary = "Batch normalization inference op.";
     let description = [{
-      Batch normalization operation over each channel on input tensor.
+      Batch normalization operation for inference over each channel on input tensor.
+      Uses pre-computed mean and variance.
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
                          Optional<AnyRankedTensor>:$running_mean,
                          Optional<AnyRankedTensor>:$running_var,
-                         DefaultValuedAttr<BoolAttr, "false">:$training,
+                         DefaultValuedAttr<F32Attr, "1e-05">:$epsilon,
+                         Optional<AnyRankedTensor>:$weight,
+                         Optional<AnyRankedTensor>:$bias,
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 1;
+}
+
+def TTNN_BatchNormTrainingOp : TTNN_Op<"batch_norm_training", [AttrSizedOperandSegments]> {
+    let summary = "Batch normalization training op.";
+    let description = [{
+      Batch normalization operation for training over each channel on input tensor.
+      Computes batch statistics and updates running mean and variance.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         Arg<Optional<AnyRankedTensor>, "running mean", [MemWrite]>:$running_mean,
+                         Arg<Optional<AnyRankedTensor>, "running variance", [MemWrite]>:$running_var,
                          DefaultValuedAttr<F32Attr, "1e-05">:$epsilon,
                          DefaultValuedAttr<F32Attr, "0.1">:$momentum,
                          Optional<AnyRankedTensor>:$weight,
@@ -1763,7 +1867,7 @@ def TTNN_ClampTensorOp : TTNN_Op<"clamp_tensor", [TTNN_MemoryConfigOpInterface]>
 class TTNN_CreationOp<string mnemonic, list<Trait> traits = []> :
     TTNN_Op<mnemonic, [TTCore_CreationOpTrait, TTNN_TensorSpecInterface, TTNN_DeviceOperandInterface] # traits>;
 
-def TTNN_EmptyOp : TTNN_CreationOp<"empty"> {
+def TTNN_EmptyOp : TTNN_CreationOp<"empty", [TTCore_NonCacheableTrait]> {
     let summary = "Empty op.";
     let description = [{
       Tensor empty operation
@@ -1807,7 +1911,7 @@ def TTNN_ArangeOp : TTNN_CreationOp<"arange", [CanExecuteOnHostTrait]> {
   let hasVerifier = 1;
 }
 
-def TTNN_RandOp : TTNN_CreationOp<"rand"> {
+def TTNN_RandOp : TTNN_CreationOp<"rand", [TTCore_NonCacheableTrait]> {
   let summary = "Random number generation operation.";
   let description = [{
     Returns a tensor filled with random numbers drawn from a uniform distribution over given interval [low, high) [Default: [0, 1)].
@@ -1967,11 +2071,33 @@ def TTNN_DeallocateOp : TTNN_MemFreeOp<"deallocate"> {
                          DefaultValuedAttr<BoolAttr, "false">:$force);
 }
 
-def TTNN_ScatterOp: TTNN_ElementwiseBinaryCompositeOp<"scatter"> {
+def TTNN_ScatterOp : TTNN_Op<"scatter", [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>] >{
     let summary = "Scatter op.";
     let description = [{
-      Embeds the values of the 'update' tensor into 'input' at the given index and puts the value in the 'output' tensor.
-      }];
+      Embeds the values of the source tensor into the input tensor at locations specified by the index tensor along the given dimension.
+
+      Parameters:
+        - `input` (ttnn.Tensor): The tensor being updated.
+        - `index` (ttnn.Tensor): Indices where values will be written to.
+        - `source` (ttnn.Tensor): The values to scatter into the input tensor.
+        - `dim` (int32_t): The dimension along which to scatter.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$index,
+                         AnyRankedTensor:$source,
+                         I32Attr:$dim,
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 1;
+
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        return wa::TTNNOperandsWorkaroundsFactory::createScatterOpOperandsWorkarounds(getOperation());
+      }
+    }];
 }
 
 def TTNN_AllGatherOp: TTNN_Op<"all_gather"> {
@@ -2515,6 +2641,7 @@ def TTNN_LoadTensorOp : TTNN_Op<"load_tensor"> {
   let hasVerifier = 1;
 }
 
+
 def TTNN_ScaledDotProductAttentionDecodeOp : TTNN_Op<"scaled_dot_product_attention_decode", [TTNN_MemoryConfigOpInterface, AttrSizedOperandSegments]> {
     let summary = "A version of scaled dot product attention specifically for decode.";
     let description = [{
@@ -2564,6 +2691,7 @@ def TTNN_ScaledDotProductAttentionOp : TTNN_Op<"scaled_dot_product_attention", [
           attention_mask (AnyRankedTensor, optional): Defaults to `None`. [batch x 1 x query_seq_len x kv_seq_len]. Head broadcasting is implied.
           is_causal (bool): Whether the attention is causal. Defaults to `true`.
           scale (float, optional): Defaults to `None`.
+          sliding_window_size (uint, optional): Defaults to `None`. Size of sliding window for attention. If provided && is_causal, only attends to the last `sliding_window_size` tokens. If provided && !is_causal, attends to a window of size `sliding_window_size` centered at the current position.
           memory_config (MemoryConfigAttr, optional): Memory configuration for the operation. Defaults to `None`.
 
 
@@ -2577,6 +2705,7 @@ def TTNN_ScaledDotProductAttentionOp : TTNN_Op<"scaled_dot_product_attention", [
                          Optional<AnyRankedTensor>:$attention_mask,
                          DefaultValuedAttr<BoolAttr, "true">:$is_causal,
                          OptionalAttr<F32Attr>:$scale,
+                         OptionalAttr<UI32Attr>:$sliding_window_size,
                          OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
 
     let results = (outs AnyRankedTensor:$result);
@@ -2584,4 +2713,55 @@ def TTNN_ScaledDotProductAttentionOp : TTNN_Op<"scaled_dot_product_attention", [
     let hasVerifier = 1;
 }
 
+
+def TTNN_GlobalAvgPool2dOp: TTNN_Op<"global_avg_pool2d", [
+    TTNN_MemoryConfigOpInterface,
+    TTNN_DtypeOpInterface
+]>{
+  let summary = "A global average pooling 2d operation";
+  let description = [{
+    The `global_avg_pool2d` operation applies global average pooling over the spatial dimensions
+    (height and width) of a 4D input tensor. In essence, it should be realised as the sum-reduce style operation
+    under the hood, for performance reasons (since we include all elements, there is no need for kernel allocation).
+    It reduces spatial dimensions to 1.
+
+    Example:
+    ```mlir
+    %device = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
+
+    %result = "ttnn.global_avg_pool2d"(%input) <{memory_config = #ttnn.memory_config<#dram, <interleaved>>,
+                                                           dtype = #ttcore.supportedDataTypes<bf16>}>
+              : (tensor<1x128x128x32xbf16>) -> tensor<1x1x1x32xbf16>
+    ```
+
+    Inputs:
+    - `input`: 4D tensor with shape [N, H, W, C] where N is batch size, H is height, W is width, and C is channels
+
+    Attributes:
+    - `memory_config` (optional): Memory configuration specifying where the operation should be performed
+    - `dtype` (optional): Data type for the output tensor (e.g., bf16, f32)
+
+    Outputs:
+    - `result`: 4D tensor with shape [N, 1, 1, C] containing the global average pooled values
+
+    Note: The operation reduces spatial dimensions (H, W) to (1, 1) by computing the average across
+    all spatial locations for each channel independently.
+  }];
+
+  let arguments = (ins AnyRankedTensor:$input,
+                       OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config,
+                       OptionalAttr<TTCore_DataTypeAttr>:$dtype);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let builders = [
+    OpBuilder<(ins "Type":$resultType, "Value":$input),
+    [{
+      build($_builder, $_state, resultType, input,
+            /*memory_config=*/nullptr, /*dtype=*/nullptr);
+    }]>
+  ];
+
+  let hasVerifier = 1;
+}
 #endif

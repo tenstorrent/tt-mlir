@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Conversion/TTIRToTTIRDecomposition/TTIRToTTIRDecomposition.h"
+#include "ttmlir/Dialect/TTIR/Utils/Utils.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Func/Transforms/FuncConversions.h"
@@ -71,6 +72,7 @@ struct TTIRToTTIRDecompositionPass
       target.addIllegalOp<ttir::GetDimensionSizeOp>();
       target.addIllegalOp<ttir::PoolingOp>();
       target.addIllegalOp<ttir::GatherOp>();
+      target.addIllegalOp<ttir::ScatterOp>();
       target.addIllegalOp<ttir::DotGeneralOp>();
       target.addIllegalOp<ttir::IndexSelectOp>();
       target.addIllegalOp<ttir::ReduceAndOp>();
@@ -88,14 +90,25 @@ struct TTIRToTTIRDecompositionPass
               shape.size() == 1);
     });
 
-    target.addDynamicallyLegalOp<ttir::BatchNormOp>([&](ttir::BatchNormOp op) {
-      auto scaleType = op.getScale().getType();
-      auto offsetType = op.getOffset().getType();
-      auto meanType = op.getMean().getType();
-      auto varType = op.getVariance().getType();
-      return (scaleType.getRank() == 4 && offsetType.getRank() == 4 &&
-              meanType.getRank() == 4 && varType.getRank() == 4);
-    });
+    target.addDynamicallyLegalOp<ttir::BatchNormInferenceOp>(
+        [&](ttir::BatchNormInferenceOp op) {
+          auto scaleType = op.getScale().getType();
+          auto offsetType = op.getOffset().getType();
+          auto meanType = op.getMean().getType();
+          auto varType = op.getVariance().getType();
+          return (scaleType.getRank() == 4 && offsetType.getRank() == 4 &&
+                  meanType.getRank() == 4 && varType.getRank() == 4);
+        });
+
+    target.addDynamicallyLegalOp<ttir::BatchNormTrainingOp>(
+        [&](ttir::BatchNormTrainingOp op) {
+          auto scaleType = op.getScale().getType();
+          auto offsetType = op.getOffset().getType();
+          auto meanType = op.getRunningMean().getType();
+          auto varType = op.getRunningVariance().getType();
+          return (scaleType.getRank() == 4 && offsetType.getRank() == 4 &&
+                  meanType.getRank() == 4 && varType.getRank() == 4);
+        });
 
     target.addDynamicallyLegalOp<ttir::ProdOp>([&](ttir::ProdOp op) {
       auto dimArg = op.getDimArg();
@@ -104,6 +117,21 @@ struct TTIRToTTIRDecompositionPass
       }
       uint64_t rank = op.getInput().getType().getRank();
       return (dimArg->size() == 1 || dimArg->size() == rank);
+    });
+
+    target.addDynamicallyLegalOp<ttir::ReverseOp>([&](ttir::ReverseOp op) {
+      // Only decompose if not used by a transposed convolution.
+      bool isUsedByTransposedConv = false;
+      for (auto &use : op.getResult().getUses()) {
+        auto *userOp = use.getOwner();
+        if (auto convOp = dyn_cast<ttir::ConvolutionOp>(userOp)) {
+          if (mlir::tt::ttir::utils::isTransposedConv(convOp)) {
+            isUsedByTransposedConv = true;
+            break;
+          }
+        }
+      }
+      return isUsedByTransposedConv;
     });
 
     TypeConverter typeConverter;

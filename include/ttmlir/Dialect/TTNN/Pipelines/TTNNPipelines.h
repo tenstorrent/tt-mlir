@@ -215,6 +215,12 @@ struct TTIRToTTNNBackendPipelineOptions
 
   // Option to enable/disable the workaround pass.
   //
+  Option<bool> disableWorkarounds{
+      *this, "disable-workarounds",
+      llvm::cl::desc("An option to disable/enable the whole workaround pass. "
+                     "If set to true, the workaround pass is disabled."),
+      llvm::cl::init(false)};
+
   Option<bool> layoutWorkaroundsEnabled{
       *this, "enable-layout-workaround-pass",
       llvm::cl::desc("Enable layout workaround pass. Always false when "
@@ -330,6 +336,15 @@ struct TTNNBackendToEmitCPipelineOptions
       llvm::cl::desc("Load input tensors from disk using ttnn.load_tensor "
                      "instead of generating synthetic inputs with ttnn.ones"),
       llvm::cl::init(false)};
+
+  Option<std::string> tensorLoadDirectory{
+      *this, "tensor-load-directory",
+      llvm::cl::desc("Directory path where input tensors are stored"),
+      llvm::cl::init("")};
+
+  Option<std::string> tensorLoadFilePrefix{
+      *this, "tensor-load-file-prefix",
+      llvm::cl::desc("Prefix for input tensor files"), llvm::cl::init("arg")};
 };
 
 // TTNN Backend to EmitPy PipelineOptions.
@@ -345,6 +360,15 @@ struct TTNNBackendToEmitPyPipelineOptions
       llvm::cl::desc("Load input tensors from disk using ttnn.load_tensor "
                      "instead of generating synthetic inputs with ttnn.ones"),
       llvm::cl::init(false)};
+
+  Option<std::string> tensorLoadDirectory{
+      *this, "tensor-load-directory",
+      llvm::cl::desc("Relative directory path where input tensors are stored"),
+      llvm::cl::init("")};
+
+  Option<std::string> tensorLoadFilePrefix{
+      *this, "tensor-load-file-prefix",
+      llvm::cl::desc("Prefix for input tensor files"), llvm::cl::init("arg")};
 };
 
 // TTIR to EmitC pipeline options.

@@ -32,15 +32,8 @@ namespace mlir::tt::d2m {
 // Helper definitions.
 //===----------------------------------------------------------------------===//
 
-inline ttcore::MemorySpace getMemorySpace(MemRefType memref,
-                                          ttcore::MemorySpace dflt) {
-  auto memSpace = memref.getMemorySpace();
-  return memSpace ? mlir::cast<ttcore::MemorySpaceAttr>(memSpace).getValue()
-                  : dflt;
-}
-
 inline bool isDeviceMemorySpace(MemRefType memref, ttcore::MemorySpace dflt) {
-  return ttcore::isDeviceMemorySpace(getMemorySpace(memref, dflt));
+  return ttcore::isDeviceMemorySpace(ttcore::getMemorySpace(memref, dflt));
 }
 
 //===----------------------------------------------------------------------===//
@@ -247,8 +240,8 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     }();
 
     TT_ALLOC_DEBUG("configured with {{num-stream-buffers: {}, "
-                   "allow-output-spilling: {}}",
-                   numStreamBuffers, allowOutputSpilling);
+                   "allow-l1-output-spilling: {}}",
+                   numStreamBuffers, allowL1OutputSpilling);
 
     if (moduleOp
             ->walk([&](func::FuncOp funcOp) -> WalkResult {
@@ -387,7 +380,6 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     const std::size_t outputsStart =
         genericOp.getOutputs().getBeginOperandIndex();
     ArrayAttr iteratorTypes = genericOp.getIteratorTypes();
-
     llvm::SmallVector<OperandContext> result;
 
     for (std::size_t operandIndex = 0;
@@ -398,8 +390,15 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
       operandCtx.isOutput = (operandIndex >= outputsStart);
 
       if (operandCtx.isOutput) {
-        // Outputs are currently allocated in L1 so won't use streams unless
-        // allowed to do so in `allowOutputSpilling` mode.
+        // L1 outputs are currently allocated in L1 so won't use streams unless
+        // allowed to do so in `allowL1OutputSpilling` mode.
+        // DRAM outputs always need to be spilled.
+        continue;
+      }
+
+      // In explicit datamovement form, we can't analyze reduction/broadcast
+      // dimensions, so skip this analysis.
+      if (genericOp.isExplicitDatamovementForm()) {
         continue;
       }
 
@@ -554,7 +553,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
 
     for (auto &[memref, memrefCtx] : analysis.memrefs) {
       const MemorySpace memspace =
-          getMemorySpace(memrefCtx.type, MemorySpace::System);
+          ttcore::getMemorySpace(memrefCtx.type, MemorySpace::System);
       if (!ttcore::isDeviceMemorySpace(memspace)) {
         continue;
       }
@@ -590,7 +589,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
                 (memspace == MemorySpace::DeviceDRAM) ||
                 memrefCtx.genericUsers.empty() ||
                 memrefCtx.hasNonGenericUsers ||
-                (memrefCtx.usedForOutput && !allowOutputSpilling);
+                (memrefCtx.usedForOutput && !allowL1OutputSpilling);
             if (bound) {
               b.bind(asPlannerSpace(memspace));
             }

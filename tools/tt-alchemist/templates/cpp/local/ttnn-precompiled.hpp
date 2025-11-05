@@ -48,6 +48,7 @@
 #include "ttnn/operations/transformer/concatenate_heads/concatenate_heads.hpp"
 #include "ttnn/operations/transformer/sdpa/sdpa.hpp"
 #include "ttnn/operations/transformer/sdpa_decode/sdpa_decode.hpp"
+#include "ttnn/operations/transformer/split_query_key_value_and_split_heads/split_query_key_value_and_split_heads.hpp"
 #include "ttnn/tensor/serialization.hpp"
 #include "ttnn/tensor/tensor.hpp"
 #include "ttnn/tensor/types.hpp"
@@ -140,6 +141,29 @@ uint32_t getScalarFromTensor(const ttnn::Tensor &tensor) {
       ::tt::tt_metal::host_buffer::get_host_buffer(tensorOnHost);
   const auto &buf = buffer.view_as<uint32_t>();
   return *buf.begin();
+}
+
+::ttnn::Tensor loadTensor(const std::string &filePath, ttnn::Layout layout,
+                          ttnn::DataType dtype, ttnn::MeshDevice *device,
+                          ttnn::MemoryConfig memoryConfig) {
+  ::ttnn::Tensor loadedTensor =
+      ::tt::tt_metal::load_tensor_flatbuffer(filePath);
+
+  assert(loadedTensor.device() == nullptr && "loaded tensor must be on host");
+
+  if (loadedTensor.dtype() != dtype) {
+    loadedTensor = ::ttnn::to_dtype(loadedTensor, dtype);
+  }
+
+  if (loadedTensor.layout() != layout) {
+    loadedTensor = ::ttnn::to_layout(loadedTensor, layout);
+  }
+
+  if (device != nullptr) {
+    loadedTensor = ::ttnn::to_device(loadedTensor, device, memoryConfig);
+  }
+
+  return loadedTensor;
 }
 
 } // namespace ttnn

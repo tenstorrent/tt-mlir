@@ -10,9 +10,9 @@ from ttmlir.dialects import ttcore
 from ttmlir.ir import *
 
 from builder.base.builder import Operand, Shape
-from builder.base import builder_golden
+from golden import get_golden_function
 from builder.d2m.d2m_builder import D2MBuilder
-from builder.base.builder_utils import compile_d2m_to_flatbuffer
+from builder.base.builder_utils import compile_and_execute_d2m
 
 
 pytestmark = pytest.mark.frontend("ttir")
@@ -20,7 +20,7 @@ pytestmark = pytest.mark.frontend("ttir")
 
 @pytest.mark.parametrize("shape", [(32, 64), (64, 32), (64, 64), (64, 128)])
 @pytest.mark.parametrize("target", ["ttmetal"])
-def test_tilize(shape: Shape, target: str, request):
+def test_tilize(shape: Shape, target: str, request, device):
     def tilize(
         in0: Operand,
         builder: D2MBuilder,
@@ -52,11 +52,12 @@ def test_tilize(shape: Shape, target: str, request):
 
         return from_device
 
-    compile_d2m_to_flatbuffer(
+    compile_and_execute_d2m(
         tilize,
         [shape],
         target=target,
         custom_pipeline="d2m-lower-to-layout,ttir-to-ttmetal-me-pipeline,ttir-to-ttmetal-be-pipeline",
+        device=device,
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
@@ -68,7 +69,7 @@ def test_tilize(shape: Shape, target: str, request):
 )
 @pytest.mark.parametrize("shape", [(32, 64), (64, 32), (64, 64), (64, 128)])
 @pytest.mark.parametrize("target", ["ttmetal"])
-def test_untilize(shape: Shape, target: str, request):
+def test_untilize(shape: Shape, target: str, request, device):
     def untilize(
         in0: Operand,
         builder: D2MBuilder,
@@ -76,9 +77,7 @@ def test_untilize(shape: Shape, target: str, request):
     ):
 
         input = torch.randn(shape[0] * shape[1], dtype=torch.float32).reshape(shape)
-        golden_output = builder_golden.get_golden_function(
-            ttir.ToLayoutOp, tilize=False
-        )(input)
+        golden_output = get_golden_function(ttir.ToLayoutOp, tilize=False)(input)
         builder.set_graph_input_output([input], [golden_output])
 
         to_device = builder.to_layout(
@@ -108,11 +107,12 @@ def test_untilize(shape: Shape, target: str, request):
 
         return from_device
 
-    compile_d2m_to_flatbuffer(
+    compile_and_execute_d2m(
         untilize,
         [shape],
         target=target,
         custom_pipeline="d2m-lower-to-layout,ttir-to-ttmetal-me-pipeline,ttir-to-ttmetal-be-pipeline",
+        device=device,
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
@@ -121,7 +121,7 @@ def test_untilize(shape: Shape, target: str, request):
 
 @pytest.mark.parametrize("shape", [(32, 64), (64, 32), (64, 64)])
 @pytest.mark.parametrize("target", ["ttmetal"])
-def test_tilize_untilize(shape: Shape, target: str, request):
+def test_tilize_untilize(shape: Shape, target: str, request, device):
     def tilize_untilize(
         in0: Operand,
         builder: D2MBuilder,
@@ -139,11 +139,12 @@ def test_tilize_untilize(shape: Shape, target: str, request):
         )
         return from_device
 
-    compile_d2m_to_flatbuffer(
+    compile_and_execute_d2m(
         tilize_untilize,
         [shape],
         target=target,
         custom_pipeline="d2m-lower-to-layout,ttir-to-ttmetal-me-pipeline,ttir-to-ttmetal-be-pipeline",
+        device=device,
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),

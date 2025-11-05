@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttcore-register-device --ttir-to-d2m -o %t %s
+// RUN: ttmlir-opt --ttcore-register-device --ttir-to-d2m --d2m-grid-selection -o %t %s
 // RUN: FileCheck %s --input-file=%t
 
 !ttype = tensor<128x96xf32>
@@ -147,13 +147,18 @@ module {
     // CHECK: linalg.generic{{.+}}iterator_types = ["parallel", "parallel"]
     // CHECK: d2m.tile_gelu
     %25= "ttir.gelu"(%24, %out) : (!ttype, !ttype) -> !ttype
-    return %25: !ttype
+    // named elementwise op, unary:
+    // CHECK: d2m.generic{{.+}}iterator_types = [#parallel, #parallel]
+    // CHECK: linalg.generic{{.+}}iterator_types = ["parallel", "parallel"]
+    // CHECK: d2m.tile_bitwise_not
+    %26 = "ttir.bitwise_not"(%25, %out) : (!ttype, !ttype) -> !ttype
+    return %26: !ttype
   }
 
   // CHECK-LABEL: func @named_reductions_R
   func.func @named_reductions_R(%arg: !ttype) -> (tensor<1x96xf32>) {
     %0 = ttir.empty() : tensor<1x96xf32>
-    // CHECK: ttir.constant
+    // CHECK: d2m.full
     // CHECK: d2m.generic{{.+}}iterator_types = [#reduction, #parallel]
     // CHECK: linalg.generic{{.+}}iterator_types = ["reduction", "parallel"]
     // CHECK: d2m.tile_reduce_sum{{.+}}d2m<reduce_dim C>
@@ -164,7 +169,7 @@ module {
   // CHECK-LABEL: func @named_reductions_C
   func.func @named_reductions_C(%arg: !ttype) -> (tensor<128x1xf32>) {
     %0 = ttir.empty() : tensor<128x1xf32>
-    // CHECK: ttir.constant
+    // CHECK: d2m.full
     // CHECK: d2m.generic{{.+}}iterator_types = [#parallel, #reduction]
     // CHECK: linalg.generic{{.+}}iterator_types = ["parallel", "reduction"]
     // CHECK: d2m.tile_reduce_sum{{.+}}d2m<reduce_dim R>
@@ -175,7 +180,7 @@ module {
   // CHECK-LABEL: func @named_reductions_RC
   func.func @named_reductions_RC(%arg: !ttype) -> (tensor<1x1xf32>) {
     %0 = ttir.empty() : tensor<1x1xf32>
-    // CHECK: ttir.constant
+    // CHECK: d2m.full
     // CHECK: d2m.generic{{.+}}iterator_types = [#reduction, #reduction]
     // CHECK: linalg.generic{{.+}}iterator_types = ["reduction", "reduction"]
     // CHECK: d2m.tile_reduce_sum{{.+}}d2m<reduce_dim RC>

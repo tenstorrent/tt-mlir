@@ -26,12 +26,13 @@
 #include "ttnn/operations/data_movement/permute/permute.hpp"
 #include "ttnn/operations/data_movement/repeat/repeat.hpp"
 #include "ttnn/operations/data_movement/repeat_interleave/repeat_interleave.hpp"
+#include "ttnn/operations/data_movement/scatter/scatter.hpp"
 #include "ttnn/operations/data_movement/sort/sort.hpp"
 #include "ttnn/operations/data_movement/transpose/transpose.hpp"
 #include "ttnn/operations/eltwise/binary/binary.hpp"
 #include "ttnn/operations/eltwise/binary/binary_composite.hpp"
 #include "ttnn/operations/eltwise/quantization/quantization.hpp"
-#include "ttnn/operations/eltwise/ternary/where/where.hpp"
+#include "ttnn/operations/eltwise/ternary/ternary.hpp"
 #include "ttnn/operations/eltwise/unary/unary.hpp"
 #include "ttnn/operations/embedding/embedding.hpp"
 #include "ttnn/operations/experimental/transformer/nlp_concat_heads/nlp_concat_heads.hpp"
@@ -53,6 +54,7 @@
 #include "ttnn/operations/transformer/concatenate_heads/concatenate_heads.hpp"
 #include "ttnn/operations/transformer/sdpa/sdpa.hpp"
 #include "ttnn/operations/transformer/sdpa_decode/sdpa_decode.hpp"
+#include "ttnn/operations/transformer/split_query_key_value_and_split_heads/split_query_key_value_and_split_heads.hpp"
 #include "ttnn/tensor/host_buffer/functions.hpp"
 #include "ttnn/tensor/serialization.hpp"
 #include "ttnn/tensor/shape/shape.hpp"
@@ -139,11 +141,12 @@ std::vector<std::uint32_t> getTensorShape(::tt::runtime::Tensor tensor);
 std::vector<std::uint32_t> getTensorStride(::tt::runtime::Tensor tensor);
 std::uint32_t getTensorElementSize(::tt::runtime::Tensor tensor);
 std::uint32_t getTensorVolume(::tt::runtime::Tensor tensor);
+std::uint32_t getTensorLogicalVolume(::tt::runtime::Tensor tensor);
 TensorDesc getTensorDesc(::tt::runtime::Tensor tensor);
 bool getTensorRetain(::tt::runtime::Tensor tensor);
 void setTensorRetain(::tt::runtime::Tensor tensor, bool retain);
 
-Arch getArch();
+tt::target::Arch getArch();
 
 void enablePersistentKernelCache();
 void disablePersistentKernelCache();
@@ -187,7 +190,7 @@ void readDeviceProfilerResults(Device device);
 std::unordered_map<tt::runtime::MemoryBufferType, tt::runtime::MemoryView>
 getMemoryView(Device device);
 
-void setFabricConfig(FabricConfig config);
+void setFabricConfig(tt::runtime::FabricConfig config);
 
 void wait(Event event);
 

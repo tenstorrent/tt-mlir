@@ -91,6 +91,21 @@ def parse_arguments():
         help="Pattern to match operations that should be skipped (e.g., '%%6 = \"ttnn.matmul\"')",
     )
 
+    # Dump options
+    parser.add_argument(
+        "--dump-ttir",
+        action="store_true",
+        default=False,
+        help="Dump TTIR module to chisel_ttir.mlir file",
+    )
+
+    parser.add_argument(
+        "--dump-ttnn",
+        action="store_true",
+        default=False,
+        help="Dump TTNN module to chisel_ttnn.mlir file",
+    )
+
     return parser.parse_args()
 
 
@@ -142,11 +157,13 @@ def main():
 
     # Use chisel_pipeline to compile TTIR to both golden and device modules
     try:
-        ttir_module, ttnn_module = chisel_pipeline(args.input_file)
+        ttir_module, ttnn_module = chisel_pipeline(
+            args.input_file, args.dump_ttir, args.dump_ttnn
+        )
     except Exception as e:
         raise RuntimeError(f"Failed to compile TTIR pipeline: {e}")
 
-    ttnn_to_flatbuffer_file(ttnn_module, str(args.flatbuffer_path))
+    ttnn_to_flatbuffer_file(ttnn_module, str(args.flatbuffer_path), {}, {})
 
     print("TTIR compilation completed successfully")
 

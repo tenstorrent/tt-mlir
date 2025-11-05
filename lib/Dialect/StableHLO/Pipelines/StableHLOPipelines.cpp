@@ -34,9 +34,10 @@ void createStableHLOPipeline(OpPassManager &pm,
   analyzeMeshOptions.automaticArgAnalysis = options.automaticArgAnalysis;
   pm.addPass(createAnalyzeMeshPass(analyzeMeshOptions));
 
+  pm.addPass(createDecoupleConstFanoutPass());
+
   // Apply sharding constraints.
-  pm.nest<mlir::func::FuncOp>().addPass(
-      mlir::sdy::createApplyShardingConstraintsPass());
+  pm.addPass(mlir::sdy::createApplyShardingConstraintsPass());
 
   // Propagate tensor shardings through the entire graph.
   // This propagation is taken from
@@ -60,13 +61,8 @@ void createStableHLOPipeline(OpPassManager &pm,
   pm.nest<mlir::func::FuncOp>().addPass(
       mlir::sdy::createShardingConstraintToReshardPass());
 
-  // Insert explicit reshards
-  mlir::sdy::InsertExplicitReshardsPassOptions
-      insertExplicitReshardsPassOptions;
-  insertExplicitReshardsPassOptions.enableFullVersion = true;
-  pm.nest<mlir::func::FuncOp>().addPass(
-      mlir::sdy::createInsertExplicitReshardsPass(
-          insertExplicitReshardsPassOptions));
+  // Insert explicit reshards conditionally.
+  pm.addPass(createInsertExplicitReshardsPass());
 
   // Wrap all operations under a sdy manual computation op to allow conversion
   // from stablehlo into ttir.

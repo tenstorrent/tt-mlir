@@ -1,0 +1,110 @@
+# This workflow builds a Docker images for the project, and outputs the image name for use in other workflows.
+# If docker image already exists, it will be reused.
+
+name: Build Docker Image
+
+on:
+  workflow_call:
+    outputs:
+      docker-image:
+        description: "Built docker image name"
+        value: ${{ jobs.check-if-docker-exist.outputs.docker-image || jobs.build-image.outputs.docker-image }}
+      docker-tag:
+        description: Docker image tag
+        value: ${{ jobs.check-if-docker-exist.outputs.docker-tag || jobs.build-image.outputs.docker-tag }}
+
+permissions:
+  packages: write
+  checks: write
+
+jobs:
+
+  check-if-docker-exist:
+    runs-on: ubuntu-latest
+    outputs:
+      docker-image: ${{ steps.check.outputs.docker-image }}
+      docker-tag: ${{ steps.check.outputs.docker-tag }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check if Docker image already exists
+        id: check
+        shell: bash
+        run: |
+          # Output the image name
+          set +e  # Don't exit on command failure
+          .github/build-docker-images.sh --check-only | tee docker.log
+          EXIT_CODE=$?
+          if [ $EXIT_CODE -eq 0 ]; then
+            DOCKER_CI_IMAGE=$(tail -n 1 docker.log)
+            echo "Docker image already exists: $DOCKER_CI_IMAGE"
+            echo "docker-image=$DOCKER_CI_IMAGE" >> "$GITHUB_OUTPUT"
+            DOCKER_TAG=$(.github/get-docker-tag.sh)
+            echo "DOCKER_TAG $DOCKER_TAG"
+            echo "docker-tag=$DOCKER_TAG" >> "$GITHUB_OUTPUT"
+          else
+            echo "Docker image does not exist, proceeding to build"
+          fi
+
+  build-image:
+    needs: check-if-docker-exist
+    if: needs.check-if-docker-exist.outputs.docker-image == ''
+    runs-on: tt-ubuntu-2204-large-stable
+    outputs:
+      docker-image: ${{ steps.build.outputs.docker-image }}
+      docker-tag: ${{ steps.build.outputs.docker-tag }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ github.token }}
+
+      - name: Build Docker images and output the image name
+        id: build
+        shell: bash
+        run: |
+          # Output the image name
+          set pipefail
+          .github/build-docker-images.sh | tee docker.log
+          DOCKER_CI_IMAGE=$(tail -n 1 docker.log)
+          echo "DOCKER_CI_IMAGE $DOCKER_CI_IMAGE"
+          echo "docker-image=$DOCKER_CI_IMAGE" >> "$GITHUB_OUTPUT"
+          DOCKER_TAG=$(.github/get-docker-tag.sh)
+          echo "DOCKER_TAG $DOCKER_TAG"
+          echo "docker-tag=$DOCKER_TAG" >> "$GITHUB_OUTPUT"
+
+  set-latest-tag:
+    needs: [check-if-docker-exist, build-image]
+    runs-on: ubuntu-latest
+    # Run the next steps only when pushed to main, tag docker image as latest.
+    if: (github.event_name == 'push' && github.ref == 'refs/heads/main') && (!failure())
+    steps:
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ github.token }}
+
+      - name: Set latest tag on the image
+        run: |
+          DOCKER_CI_IMAGE=${{ needs.check-if-docker-exist.outputs.docker-image }}
+          if [ -z "$DOCKER_CI_IMAGE" ]; then
+            echo "Using docker image from build-image job"
+            DOCKER_CI_IMAGE=${{ needs.build-image.outputs.docker-image }}
+          fi
+          if [ -z "$DOCKER_CI_IMAGE" ]; then
+            echo "Error: No docker image available from either check-if-docker-exist or build-image"
+            exit 1
+          fi
+          DOCKER_TAG=$(echo $DOCKER_CI_IMAGE | sed 's/^.*://')
+
+          CI_IMAGE_NAME=$(echo $DOCKER_CI_IMAGE | sed 's/:.*//')
+          echo "Setting latest tag on the image $CI_IMAGE_NAME:$DOCKER_TAG"
+          skopeo copy "docker://$CI_IMAGE_NAME:$DOCKER_TAG" "docker://$CI_IMAGE_NAME:latest"
+
+          IRD_IMAGE_NAME=$(echo $DOCKER_CI_IMAGE | sed 's/:.*//' | sed 's/-ci-/-ird-/')
+          echo "Setting latest tag on the image $IRD_IMAGE_NAME:$DOCKER_TAG"
+          skopeo copy "docker://$IRD_IMAGE_NAME:$DOCKER_TAG" "docker://$IRD_IMAGE_NAME:latest"

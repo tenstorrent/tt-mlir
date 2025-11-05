@@ -117,10 +117,50 @@ void registerRuntimeBindings(nb::module_ &m) {
                           nb::cast<tt::runtime::DispatchCoreType>(value));
           });
 
+  nb::class_<tt::runtime::MultiProcessArgs>(m, "MultiProcessArgs")
+      .def_static("create", &tt::runtime::MultiProcessArgs::create,
+                  nb::arg("rank_binding_path"))
+      .def("get_rank_binding_path",
+           &tt::runtime::MultiProcessArgs::getRankBindingPath)
+      .def("with_hosts", &tt::runtime::MultiProcessArgs::withHosts,
+           nb::rv_policy::reference_internal)
+      .def("with_hosts_file_path",
+           &tt::runtime::MultiProcessArgs::withHostsFilePath,
+           nb::rv_policy::reference_internal)
+      .def("with_rank_file_path",
+           &tt::runtime::MultiProcessArgs::withRankFilePath,
+           nb::rv_policy::reference_internal)
+      .def("with_mca_options", &tt::runtime::MultiProcessArgs::withMcaOptions,
+           nb::rv_policy::reference_internal)
+      .def("with_tag_output", &tt::runtime::MultiProcessArgs::withTagOutput,
+           nb::rv_policy::reference_internal)
+      .def("with_allow_run_as_root",
+           &tt::runtime::MultiProcessArgs::withAllowRunAsRoot,
+           nb::rv_policy::reference_internal)
+      .def("with_extra_mpi_args",
+           &tt::runtime::MultiProcessArgs::withExtraMpiArgs,
+           nb::rv_policy::reference_internal)
+      .def("to_arg_string", &tt::runtime::MultiProcessArgs::toArgString);
+
   nb::class_<tt::runtime::DistributedOptions>(m, "DistributedOptions")
       .def(nb::init<>())
-      .def_rw("port", &tt::runtime::DistributedOptions::port)
-      .def_rw("mode", &tt::runtime::DistributedOptions::mode);
+      .def_rw("controller_port",
+              &tt::runtime::DistributedOptions::controllerPort)
+      .def_rw("mode", &tt::runtime::DistributedOptions::mode)
+      .def_prop_rw(
+          "multi_process_args",
+          [](const tt::runtime::DistributedOptions &o) {
+            return o.multiProcessArgs.has_value()
+                       ? nb::cast(o.multiProcessArgs.value())
+                       : nb::none();
+          },
+          [](tt::runtime::DistributedOptions &o, nb::handle value) {
+            o.multiProcessArgs =
+                value.is_none()
+                    ? std::nullopt
+                    : std::make_optional(
+                          nb::cast<tt::runtime::MultiProcessArgs>(value));
+          });
 
   nb::class_<tt::runtime::Tensor>(m, "Tensor")
       .def("is_allocated",
@@ -146,6 +186,10 @@ void registerRuntimeBindings(nb::module_ &m) {
       .def("get_volume",
            [](tt::runtime::Tensor self) {
              return tt::runtime::getTensorVolume(self);
+           })
+      .def("get_logical_volume",
+           [](tt::runtime::Tensor self) {
+             return tt::runtime::getTensorLogicalVolume(self);
            })
       .def("get_dtype",
            [](tt::runtime::Tensor self) {
@@ -211,12 +255,12 @@ void registerRuntimeBindings(nb::module_ &m) {
       .value("Distributed", ::tt::runtime::HostRuntime::Distributed);
 
   nb::enum_<::tt::runtime::DistributedMode>(m, "DistributedMode")
-      .value("LocalSubprocess",
-             ::tt::runtime::DistributedMode::LocalSubprocess);
+      .value("LocalSubprocess", ::tt::runtime::DistributedMode::LocalSubprocess)
+      .value("MultiProcess", ::tt::runtime::DistributedMode::MultiProcess);
 
   nb::enum_<::tt::runtime::DispatchCoreType>(m, "DispatchCoreType")
-      .value("WORKER", ::tt::runtime::DispatchCoreType::WORKER)
-      .value("ETH", ::tt::runtime::DispatchCoreType::ETH);
+      .value("WORKER", ::tt::runtime::DispatchCoreType::Worker)
+      .value("ETH", ::tt::runtime::DispatchCoreType::Ethernet);
 
   nb::enum_<::tt::runtime::FabricConfig>(m, "FabricConfig")
       .value("DISABLED", ::tt::runtime::FabricConfig::DISABLED)
@@ -239,14 +283,15 @@ void registerRuntimeBindings(nb::module_ &m) {
              ::tt::runtime::FabricConfig::FABRIC_2D_DYNAMIC_TORUS_XY)
       .value("CUSTOM", ::tt::runtime::FabricConfig::CUSTOM);
 
-  nb::enum_<::tt::runtime::Arch>(m, "Arch")
-      .value("GRAYSKULL", ::tt::runtime::Arch::GRAYSKULL)
-      .value("WORMHOLE_B0", ::tt::runtime::Arch::WORMHOLE_B0)
-      .value("BLACKHOLE", ::tt::runtime::Arch::BLACKHOLE)
-      .value("QUASAR", ::tt::runtime::Arch::QUASAR);
+  nb::enum_<::tt::target::Arch>(m, "Arch")
+      .value("GRAYSKULL", ::tt::target::Arch::Grayskull)
+      .value("WORMHOLE_B0", ::tt::target::Arch::Wormhole_b0)
+      .value("BLACKHOLE", ::tt::target::Arch::Blackhole);
 
   m.def("set_mlir_home", &tt::runtime::setMlirHome, nb::arg("mlir_home"),
         "Set the MLIR home directory");
+  m.def("set_metal_home", &tt::runtime::setMetalHome, nb::arg("metal_home"),
+        "Set the Metal home directory");
   m.def("get_current_device_runtime", &tt::runtime::getCurrentDeviceRuntime,
         "Get the backend device runtime type");
   m.def("get_available_device_runtimes",
@@ -537,6 +582,8 @@ void registerRuntimeBindings(nb::module_ &m) {
       .def_static("get", &tt::runtime::perf::Env::get, nb::rv_policy::reference)
       .def("set_program_metadata", &tt::runtime::perf::Env::setProgramMetadata)
       .def("tracy_log_op_location", &tt::runtime::perf::Env::tracyLogOpLocation)
+      .def("tracy_log_input_layout_conversion",
+           &tt::runtime::perf::Env::tracyLogInputLayoutConversion)
       .def("tracy_log_const_eval_program",
            &tt::runtime::perf::Env::tracyLogConstEvalProgram)
       .def("tracy_log_program_metadata",

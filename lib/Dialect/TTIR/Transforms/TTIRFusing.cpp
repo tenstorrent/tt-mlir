@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTIR/Utils/Utils.h"
@@ -19,8 +20,12 @@ namespace mlir::tt::ttir {
 
 namespace {
 // Check if we can fuse conv followed by add into conv with bias.
+// This pattern supports both:
+// 1. Adding bias to conv without bias: conv(x, w) + b -> conv(x, w, b)
+// 2. Adding bias to conv with existing bias: conv(x, w, b1) + b2 -> conv(x, w,
+// b1+b2)
 template <typename ConvOpType>
-class TTIRConvWithBiasTemplate : public mlir::OpRewritePattern<AddOp> {
+class ConvAddBias : public mlir::OpRewritePattern<AddOp> {
   using mlir::OpRewritePattern<AddOp>::OpRewritePattern;
 
 public:
@@ -33,6 +38,16 @@ public:
 
     auto convOp = components->first;
     auto bias = components->second;
+
+    //  If conv already has bias we need to add it to the new bias.
+    //  We can do it like this because we already checked that bias has valid
+    //  shape.
+    if (convOp.getBias()) {
+      bias = utils::createDPSOp<AddOp>(
+          rewriter,
+          ttmlir::utils::appendLocationSuffix(bias.getLoc(), "_bias_add"),
+          mlir::cast<RankedTensorType>(bias.getType()), convOp.getBias(), bias);
+    }
 
     if (bias.getDefiningOp() &&
         !bias.getDefiningOp()->isBeforeInBlock(convOp)) {
@@ -65,7 +80,7 @@ private:
   std::optional<mlir::TypedValue<mlir::RankedTensorType>>
   isFusable(ConvOpType convOp,
             mlir::TypedValue<mlir::RankedTensorType> bias) const {
-    if (!convOp || convOp.getBias() || !convOp->hasOneUse()) {
+    if (!convOp || !convOp->hasOneUse()) {
       return std::nullopt;
     }
 
@@ -121,10 +136,6 @@ private:
     return std::nullopt;
   }
 };
-
-// Instantiate the template for both Conv2dOp and ConvolutionOp
-using TTIRConv2dWithBias = TTIRConvWithBiasTemplate<Conv2dOp>;
-using TTIRConvolutionWithBias = TTIRConvWithBiasTemplate<ConvolutionOp>;
 
 // This pattern detects when a reduction operation is followed by a reshape
 // operation that simply adds back dimensions that were reduced. In such cases,
@@ -365,6 +376,35 @@ public:
   }
 };
 
+static bool isFullOpWithValue(Value value, float expectedValue,
+                              float tolerance = 1e-6f) {
+  Operation *op = value.getDefiningOp();
+  if (!op) {
+    return false;
+  }
+
+  // Check if it's a ZerosOp and expected value is 0
+  if (expectedValue == 0.0f && isa<ZerosOp>(op)) {
+    return true;
+  }
+
+  // Check if it's a FullOp with the expected fill value
+  if (auto fullOp = dyn_cast<FullOp>(op)) {
+    mlir::Attribute fillValue = fullOp.getFillValue();
+    if (auto integerAttr = dyn_cast<IntegerAttr>(fillValue)) {
+      return integerAttr.getValue().getSExtValue() ==
+             static_cast<int64_t>(expectedValue);
+    }
+    if (auto floatAttr = dyn_cast<FloatAttr>(fillValue)) {
+      float actualValue = floatAttr.getValue().convertToFloat();
+      return std::abs(actualValue - expectedValue) <= tolerance;
+    }
+    llvm_unreachable("Fill value should be integer or float");
+  }
+
+  return false;
+}
+
 // This pattern detects and fuses a sequence of operations that implement
 // relu. If a zeros op is consumed by a maximum op, we can fuse the zeros and
 // maximum op into a relu op.
@@ -387,9 +427,9 @@ public:
 
     Value input;
 
-    if (isCreatingZeros(maximumOp.getLhs())) {
+    if (isFullOpWithValue(maximumOp.getLhs(), 0)) {
       input = maximumOp.getRhs();
-    } else if (isCreatingZeros(maximumOp.getRhs())) {
+    } else if (isFullOpWithValue(maximumOp.getRhs(), 0)) {
       input = maximumOp.getLhs();
     } else {
       return mlir::failure();
@@ -400,30 +440,6 @@ public:
         rewriter, maximumOp, maximumOp.getResult().getType(), input);
 
     return mlir::success();
-  }
-
-private:
-  // Check if the fill value of the full op is zero.
-  bool isFillValueZero(FullOp op) const {
-    mlir::Attribute fillValue = op.getFillValue();
-    if (auto integerAttr = dyn_cast<IntegerAttr>(fillValue)) {
-      return integerAttr.getValue().isZero();
-    }
-    if (auto floatAttr = dyn_cast<FloatAttr>(fillValue)) {
-      return floatAttr.getValue().isZero();
-    }
-    llvm_unreachable("Fill value should be integer or float");
-  }
-
-  bool isCreatingZeros(mlir::Value value) const {
-    if (auto creationOp = value.getDefiningOp<ZerosOp>()) {
-      return true;
-    }
-    if (auto creationOp = value.getDefiningOp<FullOp>()) {
-      return isFillValueZero(creationOp);
-    }
-
-    return false;
   }
 };
 
@@ -444,46 +460,74 @@ public:
   mlir::LogicalResult
   matchAndRewrite(MinimumOp minimumOp,
                   mlir::PatternRewriter &rewriter) const final {
-    // Try to match pattern: Minimum(ReLU(x), 6) or Minimum(6, ReLU(x))
-    Value lhs = minimumOp.getLhs();
-    Value rhs = minimumOp.getRhs();
+    // Try first to match pattern minimum(relu(x), 6)
+    Value relu = minimumOp.getLhs();
+    Value fullSix = minimumOp.getRhs();
 
-    auto reluOp = lhs.getDefiningOp<ReluOp>();
-    auto fullOp = rhs.getDefiningOp<FullOp>();
+    auto reluOp = relu.getDefiningOp<ReluOp>();
 
-    // Check the reversed pattern if initial match fails
+    // If lhs is not relu, try the reversed pattern minimum(6, relu(x))
     if (!reluOp) {
-      reluOp = rhs.getDefiningOp<ReluOp>();
-      fullOp = lhs.getDefiningOp<FullOp>();
+      reluOp = fullSix.getDefiningOp<ReluOp>();
+      std::swap(relu, fullSix);
     }
 
     // Verify we found the expected pattern
-    if (!reluOp || !fullOp || !isFillValueSix(fullOp)) {
+    if (!reluOp || !reluOp.getInput().hasOneUse() ||
+        !isFullOpWithValue(fullSix, 6)) {
       return mlir::failure();
     }
 
     // Replace with ReLU6
-    rewriter.setInsertionPoint(minimumOp);
     utils::replaceOpWithNewDPSOp<Relu6Op>(rewriter, minimumOp,
                                           minimumOp.getResult().getType(),
                                           reluOp.getInput());
     return mlir::success();
   }
+};
 
-private:
-  // Check if the fill value of the full op is six.
-  bool isFillValueSix(FullOp op) const {
-    if (!op) {
-      return false;
+// Hardsigmoid fusion pattern matcher that transforms:
+//   relu6(x+3) / 6
+// into:
+//   hardsigmoid(x)
+class HardsigmoidFusionPattern : public mlir::OpRewritePattern<DivOp> {
+  using mlir::OpRewritePattern<DivOp>::OpRewritePattern;
+
+public:
+  mlir::LogicalResult
+  matchAndRewrite(DivOp divOp, mlir::PatternRewriter &rewriter) const final {
+    // Match pattern: Div(Relu6(Add(x, 3)), 6)
+    Value numerator = divOp.getLhs();
+    Value denominator = divOp.getRhs();
+    auto relu6Op = numerator.getDefiningOp<Relu6Op>();
+    if (!relu6Op || !relu6Op.getResult().hasOneUse()) {
+      return mlir::failure();
     }
-    mlir::Attribute fillValue = op.getFillValue();
-    if (auto integerAttr = dyn_cast<IntegerAttr>(fillValue)) {
-      return integerAttr.getValue().getSExtValue() == 6;
+    if (!isFullOpWithValue(denominator, 6)) {
+      return mlir::failure();
     }
-    if (auto floatAttr = dyn_cast<FloatAttr>(fillValue)) {
-      return floatAttr.getValue().convertToFloat() == 6.0;
+
+    auto addOp = relu6Op.getInput().getDefiningOp<AddOp>();
+    if (!addOp || !addOp.getResult().hasOneUse()) {
+      return mlir::failure();
     }
-    return false;
+
+    // Check if one operand is constant 3 and the other is the input
+    TypedValue<RankedTensorType> input;
+    if (isFullOpWithValue(addOp.getRhs(), 3)) {
+      input = addOp.getLhs();
+    } else if (isFullOpWithValue(addOp.getLhs(), 3)) {
+      input = addOp.getRhs();
+    } else {
+      return mlir::failure();
+    }
+
+    auto hardsigmoidOp = utils::createDPSOp<HardsigmoidOp>(
+        rewriter, divOp.getLoc(), input.getType(), input);
+
+    rewriter.replaceAllOpUsesWith(divOp, hardsigmoidOp);
+
+    return mlir::success();
   }
 };
 
@@ -558,26 +602,39 @@ public:
 };
 
 template <typename ConvOpType>
-class ConvWithMultiplyTemplate : public mlir::OpRewritePattern<MultiplyOp> {
+class ConvWithMultiply : public mlir::OpRewritePattern<MultiplyOp> {
   using mlir::OpRewritePattern<MultiplyOp>::OpRewritePattern;
 
 public:
-  /// Pattern: conv(input, weight) * scale
+  /// Pattern: conv(input, weight) * scale or conv(input, weight, bias) * scale
   ///
   /// This pattern detects when a Convolution operation (with constant weights)
   /// is followed by a multiplication with a constant scale factor. It optimizes
   /// this pattern by pre-multiplying the convolution weights with the scale
   /// factor, which eliminates the runtime multiplication operation.
+  /// Supports both convolutions with and without bias.
   ///
-  /// Input pattern:
-  ///   %conv = conv(%input, %weight)  // weight is constant
-  ///   %result = multiply(%conv, %scale)  // scale is constant
+  /// Input pattern without bias:
+  ///   %conv = conv(%input, %weight)       // weight is constant
+  ///   %result = multiply(%conv, %scale)   // scale is constant
   ///   (1,1,1,out_channels)
   ///
   /// Output pattern:
   ///   %reshaped_scale = reshape(%scale) to (out_channels,1,1,1)
   ///   %scaled_weight = multiply(%weight, %reshaped_scale)
   ///   %result = conv(%input, %scaled_weight)
+  ///
+  /// Input pattern with bias:
+  ///   %conv = conv(%input, %weight, %bias)  // weight and bias are constant
+  ///   %result = multiply(%conv, %scale)     // scale is constant
+  ///   (1,1,1,out_channels)
+  ///
+  /// Output pattern:
+  ///   %reshaped_scale = reshape(%scale) to (out_channels,1,1,1)
+  ///   %scaled_weight = multiply(%weight, %reshaped_scale)
+  ///   %scaled_bias = multiply(%bias, %scale)
+  ///   %result = conv(%input, %scaled_weight, %scaled_bias)
+
   mlir::LogicalResult
   matchAndRewrite(MultiplyOp multiplyOp,
                   mlir::PatternRewriter &rewriter) const final {
@@ -621,6 +678,13 @@ public:
     // Update conv to use scaled weights and replace multiply operation.
     rewriter.modifyOpInPlace(
         convOp, [&]() { convOp.getWeightMutable().assign(scaledWeights); });
+
+    if (auto bias = convOp.getBias()) {
+      Value scaledBias = createScaledBias(rewriter, bias, convOp, scaleValue);
+      rewriter.modifyOpInPlace(
+          convOp, [&]() { convOp.getBiasMutable().assign(scaledBias); });
+    }
+
     rewriter.replaceAllOpUsesWith(multiplyOp, convOp);
 
     return mlir::success();
@@ -642,7 +706,8 @@ private:
     return std::nullopt;
   }
 
-  // We can commute only if both scale and weight are constant.
+  // We can commute if scale is constant, has valid shape, and is not dependent
+  // on convOp.
   static bool isCommutable(ConvOpType convOp,
                            mlir::TypedValue<RankedTensorType> scale) {
     // Conv should only have one use and that use should be a multiply op.
@@ -823,11 +888,19 @@ private:
         mlir::cast<RankedTensorType>(weightValue.getType()), weightValue,
         reshapedScale);
   }
+  /// Create pre-multiplied bias.
+  static Value createScaledBias(mlir::PatternRewriter &rewriter,
+                                Value biasValue, ConvOpType convOp,
+                                Value scaleValue) {
+    // Create a multiplication of the bias by the scale.
+    return utils::createDPSOp<MultiplyOp>(
+        rewriter,
+        ttmlir::utils::appendLocationSuffix(biasValue.getLoc(),
+                                            "_bias_multiply"),
+        mlir::cast<RankedTensorType>(biasValue.getType()), biasValue,
+        scaleValue);
+  }
 };
-
-// Instantiate the template for both Conv2dOp and ConvolutionOp
-using Conv2dWithMultiply = ConvWithMultiplyTemplate<Conv2dOp>;
-using ConvolutionWithMultiply = ConvWithMultiplyTemplate<ConvolutionOp>;
 
 // Tag all block arguments which are direct inputs to Conv2dOp and ConvolutionOp
 // with discardable attribute. This is used during Layouting to check if
@@ -878,11 +951,12 @@ public:
   }
 };
 
-class BatchNormDecomposition : public mlir::OpRewritePattern<BatchNormOp> {
-  using mlir::OpRewritePattern<BatchNormOp>::OpRewritePattern;
+class BatchNormDecomposition
+    : public mlir::OpRewritePattern<BatchNormInferenceOp> {
+  using mlir::OpRewritePattern<BatchNormInferenceOp>::OpRewritePattern;
 
 public:
-  // This pattern decomposes the BatchNorm operation into a sequence of
+  // This pattern decomposes the BatchNormInference operation into a sequence of
   // arithmetic operations that can be fused with Conv2d operations.
   //
   // Decomposition:
@@ -895,7 +969,7 @@ public:
   // Decomposed like this it can later be fused with Conv2d without bias as
   //    batch_norm(conv2d(x, weight),...) = conv2d(x, weight * alpha, beta)
   mlir::LogicalResult
-  matchAndRewrite(BatchNormOp batchNormOp,
+  matchAndRewrite(BatchNormInferenceOp batchNormOp,
                   mlir::PatternRewriter &rewriter) const final {
 
     // Used only paired with convolution
@@ -1185,6 +1259,131 @@ public:
   }
 };
 
+// Fuse MatmulOp followed by AddOp into a single LinearOp.
+// This pattern looks for an AddOp where one of its operands is the result of
+// a MatmulOp and the other operand is a bias term. It then replaces the
+// AddOp with a LinearOp that combines the functionality of both operations.
+// The pattern also handles the case where the MatmulOp is followed by a
+// ReshapeOp before the AddOp. In this case, it reshapes the bias term
+// accordingly and creates a LinearOp followed by a ReshapeOp to maintain the
+// original output shape.
+class MatmulWithBiasFusionPattern : public mlir::OpRewritePattern<AddOp> {
+public:
+  using mlir::OpRewritePattern<AddOp>::OpRewritePattern;
+  mlir::LogicalResult
+  matchAndRewrite(AddOp addOp, mlir::PatternRewriter &rewriter) const final {
+    if (MatmulOp matmulOp = getFusableMatmulOp(addOp); matmulOp) {
+      Value bias = addOp.getLhs() == matmulOp.getResult() ? addOp.getRhs()
+                                                          : addOp.getLhs();
+      Value matmulOpA = matmulOp.getA();
+      Value matmulOpB = matmulOp.getB();
+      LinearOp linearOp = ttir::utils::createDPSOp<ttir::LinearOp>(
+          rewriter, addOp.getLoc(), addOp.getResult().getType(), matmulOpA,
+          matmulOpB, bias, matmulOp.getTransposeA(), matmulOp.getTransposeB());
+
+      rewriter.replaceOp(addOp, linearOp);
+
+      return mlir::success();
+    }
+    if (MatmulOp matmulOp = getFusableReshapedMatmulOp(addOp); matmulOp) {
+
+      ReshapeOp reshapeOp =
+          mlir::dyn_cast<ReshapeOp>(*matmulOp.getResult().getUsers().begin());
+      TT_assertv(reshapeOp,
+                 "MatmulWithBiasFusionPattern getFusable logic is broken.");
+
+      TypedValue<RankedTensorType> bias =
+          (addOp.getLhs() == reshapeOp.getResult()) ? addOp.getRhs()
+                                                    : addOp.getLhs();
+      RankedTensorType biasType = bias.getType();
+
+      Value matmulOpA = matmulOp.getA();
+      Value matmulOpB = matmulOp.getB();
+      llvm::ArrayRef<int64_t> matmulOpShape =
+          matmulOp.getResult().getType().getShape();
+      llvm::ArrayRef<int64_t> addOpShape =
+          addOp.getResult().getType().getShape();
+      SmallVector<int32_t> matmulShapeI32(matmulOpShape.begin(),
+                                          matmulOpShape.end());
+      SmallVector<int32_t> addShapeI32(addOpShape.begin(), addOpShape.end());
+
+      Value reshapedBias = ttir::utils::createDPSOp<ttir::ReshapeOp>(
+          rewriter, addOp.getLoc(), matmulOpShape, biasType.getElementType(),
+          biasType.getEncoding(), bias,
+          rewriter.getI32ArrayAttr(matmulShapeI32));
+
+      LinearOp linearOp = ttir::utils::createDPSOp<ttir::LinearOp>(
+          rewriter, addOp.getLoc(), matmulOp.getResult().getType(), matmulOpA,
+          matmulOpB, reshapedBias, matmulOp.getTransposeA(),
+          matmulOp.getTransposeB());
+
+      RankedTensorType addOpType = addOp.getType();
+
+      Value finalReshape = ttir::utils::createDPSOp<ttir::ReshapeOp>(
+          rewriter, addOp.getLoc(), addOpShape, addOpType.getElementType(),
+          addOpType.getEncoding(), linearOp.getResult(),
+          rewriter.getI32ArrayAttr(addShapeI32));
+      rewriter.replaceOp(addOp, finalReshape);
+
+      return mlir::success();
+    }
+    return mlir::failure();
+  }
+
+private:
+  // Shared helper function to validate the matmul ops from an add op.
+  MatmulOp getValidMatmulOp(MatmulOp matmulOpLHS, MatmulOp matmulOpRHS) const {
+    if (matmulOpLHS && matmulOpRHS) {
+      // Both operands are MatmulOps, cannot fuse.
+      return nullptr;
+    }
+
+    MatmulOp matmulOp = matmulOpLHS ? matmulOpLHS : matmulOpRHS;
+    if (!matmulOp) {
+      return nullptr;
+    }
+    // Check that the MatmulOp has only one user.
+    if (!matmulOp.getResult().hasOneUse()) {
+      return nullptr;
+    }
+
+    return matmulOp;
+  }
+
+  MatmulOp getFusableReshapedMatmulOp(AddOp addOp) const {
+    // Check MatmulOp -> ReshapeOp -> AddOp pattern.
+    // This pattern should be either the LHS or RHS of the AddOp.
+
+    ReshapeOp reshapeLHS = addOp.getLhs().getDefiningOp<ReshapeOp>();
+    ReshapeOp reshapeRHS = addOp.getRhs().getDefiningOp<ReshapeOp>();
+
+    MatmulOp matmulOpLHS =
+        reshapeLHS ? reshapeLHS.getInput().getDefiningOp<MatmulOp>() : nullptr;
+
+    MatmulOp matmulOpRHS =
+        reshapeRHS ? reshapeRHS.getInput().getDefiningOp<MatmulOp>() : nullptr;
+
+    MatmulOp validMatmulOp = getValidMatmulOp(matmulOpLHS, matmulOpRHS);
+    if (validMatmulOp) {
+      // Check that the reshape op has only one user (the AddOp).
+      ReshapeOp reshapeOp =
+          (validMatmulOp == matmulOpLHS) ? reshapeLHS : reshapeRHS;
+      if (!reshapeOp.getResult().hasOneUse()) {
+        return MatmulOp(nullptr);
+      }
+    }
+    return validMatmulOp;
+  }
+
+  MatmulOp getFusableMatmulOp(AddOp addOp) const {
+    // Check if one operand is a MatmulOp with only this AddOp as its user.
+    MatmulOp matmulOpLHS = addOp.getLhs().getDefiningOp<MatmulOp>();
+    MatmulOp matmulOpRHS = addOp.getRhs().getDefiningOp<MatmulOp>();
+
+    return getValidMatmulOp(matmulOpLHS, matmulOpRHS);
+  }
+};
+
 // The following OpRewritePattern fuses:
 //     div(sum_pool(act), broadcast(reshape(sum_pool(const))))
 // to:
@@ -1457,14 +1656,6 @@ private:
   static constexpr int64_t SPATIAL_WIDTH_DIM = 3;
   static constexpr int64_t CHANNEL_DIM = 1;
 
-  struct PoolingConfig {
-    DenseI32ArrayAttr windowDimensions;
-    DenseI32ArrayAttr windowStrides;
-    DenseI32ArrayAttr windowDilations;
-    DenseI32ArrayAttr padding;
-    BoolAttr ceilMode;
-  };
-
 public:
   mlir::LogicalResult
   matchAndRewrite(MultiplyOp multiplyOp,
@@ -1482,7 +1673,7 @@ public:
     }
     // Create AvgPoolOp wrapped with two PermuteOps needed for NCHW<->NHWC
     // layout changes.
-    auto insertedOp = createWrappedAvgPool(rewriter, sumOp);
+    auto insertedOp = createWrappedGlobalAvgPool(rewriter, sumOp);
 
     // If keepDim is false, we need to reshape the output of the pooling op
     // to keep output dimension same as input.
@@ -1503,18 +1694,12 @@ private:
     if (!fullOp) {
       return false;
     }
-    Attribute fillValueAttr = fullOp.getFillValue();
-    auto floatAttr = mlir::dyn_cast_or_null<FloatAttr>(fillValueAttr);
-    if (!floatAttr) {
-      return false;
-    }
-    float fillValue = floatAttr.getValue().convertToFloat();
     int64_t inputHeight = inputShape[SPATIAL_HEIGHT_DIM];
     int64_t inputWidth = inputShape[SPATIAL_WIDTH_DIM];
     float expectedValue = 1.0f / static_cast<float>(inputHeight * inputWidth);
     float tolerance =
         std::max(FLOAT_TOLERANCE, std::abs(expectedValue) * FLOAT_TOLERANCE);
-    return std::abs(fillValue - expectedValue) <= tolerance;
+    return isFullOpWithValue(fullOp, expectedValue, tolerance);
   }
 
   bool validateSumOp(SumOp sumOp) const {
@@ -1566,11 +1751,11 @@ private:
     return permuteOp;
   }
 
-  PermuteOp createWrappedAvgPool(mlir::PatternRewriter &rewriter,
-                                 SumOp sumOp) const {
+  PermuteOp createWrappedGlobalAvgPool(mlir::PatternRewriter &rewriter,
+                                       SumOp sumOp) const {
 
-    // Input must be permuted from NCHW to NHWC for AvgPool2dOp, and then back
-    // to NCHW after pooling.
+    // Input must be permuted from NCHW to NHWC for GlobalAvgPool2dOp, and then
+    // back to NCHW after pooling.
     std::vector<int64_t> currentLayout{0, CHANNEL_DIM, SPATIAL_HEIGHT_DIM,
                                        SPATIAL_WIDTH_DIM};
     std::vector<int64_t> desiredLayout{0, SPATIAL_HEIGHT_DIM, SPATIAL_WIDTH_DIM,
@@ -1580,39 +1765,18 @@ private:
     auto permuteOp = createPermuteOp(rewriter, currentLayout, desiredLayout,
                                      sumOp.getInput());
 
-    auto poolingConfig =
-        createPoolingConfig(rewriter, sumOp.getInput().getType().getShape());
-
     auto outputType = createPoolingOutputType(permuteOp.getOutput().getType());
 
     auto loc = sumOp.getLoc();
-    auto poolingOp = ttir::utils::createDPSOp<ttir::AvgPool2dOp>(
-        rewriter, ttmlir::utils::appendLocationSuffix(loc, "_pool"), outputType,
-        permuteOp.getResult(), poolingConfig.windowDimensions,
-        poolingConfig.windowStrides, poolingConfig.windowDilations,
-        poolingConfig.padding, poolingConfig.ceilMode);
+    auto poolingOp = ttir::utils::createDPSOp<ttir::GlobalAvgPool2dOp>(
+        rewriter, ttmlir::utils::appendLocationSuffix(loc, "_global_avg_pool"),
+        outputType, permuteOp.getResult());
 
     // Permute output from NHWC back to NCHW
     auto inversePermuteOp = createPermuteOp(
         rewriter, desiredLayout, currentLayout, poolingOp.getResult());
 
     return inversePermuteOp;
-  }
-
-  PoolingConfig createPoolingConfig(mlir::PatternRewriter &rewriter,
-                                    ArrayRef<int64_t> inputShape) const {
-    PoolingConfig config;
-    int32_t inputHeight = static_cast<int32_t>(inputShape[SPATIAL_HEIGHT_DIM]);
-    int32_t inputWidth = static_cast<int32_t>(inputShape[SPATIAL_WIDTH_DIM]);
-
-    config.windowDimensions =
-        rewriter.getDenseI32ArrayAttr({inputHeight, inputWidth});
-    config.windowStrides = rewriter.getDenseI32ArrayAttr({1, 1});
-    config.windowDilations = rewriter.getDenseI32ArrayAttr({1, 1});
-    config.padding = rewriter.getDenseI32ArrayAttr({0, 0, 0, 0});
-    config.ceilMode = rewriter.getBoolAttr(false);
-
-    return config;
   }
 
   RankedTensorType createPoolingOutputType(RankedTensorType inputType) const {
@@ -2176,8 +2340,8 @@ public:
     }
     {
       RewritePatternSet patterns(&getContext());
-      patterns.add<TTIRConv2dWithBias>(&getContext());
-      patterns.add<TTIRConvolutionWithBias>(&getContext());
+      patterns.add<ConvAddBias<Conv2dOp>>(&getContext());
+      patterns.add<ConvAddBias<ConvolutionOp>>(&getContext());
 
       // Add patterns for each reduction op type.
       patterns.add<ReductionWithReshapePattern<SumOp>>(&getContext());
@@ -2195,8 +2359,8 @@ public:
       patterns.add<ReluFusionPattern>(&getContext());
 
       if (conv2dWithMultiplyEnabled) {
-        patterns.add<Conv2dWithMultiply>(&getContext());
-        patterns.add<ConvolutionWithMultiply>(&getContext());
+        patterns.add<ConvWithMultiply<Conv2dOp>>(&getContext());
+        patterns.add<ConvWithMultiply<ConvolutionOp>>(&getContext());
         patterns.add<BatchNormDecomposition>(&getContext());
       }
       patterns.add<CacheFillUpdatePattern>(&getContext());
@@ -2209,9 +2373,12 @@ public:
         patterns.add<GlobalAveragePoolingPattern>(&getContext());
       }
 
+      patterns.add<MatmulWithBiasFusionPattern>(&getContext());
+
       patterns.add<GeluFusionPattern>(&getContext());
       patterns.add<Relu6FusionPattern>(&getContext());
       patterns.add<SiluFusionPattern>(&getContext());
+      patterns.add<HardsigmoidFusionPattern>(&getContext());
 
       GreedyRewriteConfig config;
       config.setUseTopDownTraversal(true);

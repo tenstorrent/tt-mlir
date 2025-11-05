@@ -16,6 +16,7 @@
 #include "operations/data_movement/permute/permute.hpp"
 #include "operations/data_movement/repeat/repeat.hpp"
 #include "operations/data_movement/repeat_interleave/repeat_interleave.hpp"
+#include "operations/data_movement/scatter/scatter.hpp"
 #include "operations/data_movement/slice/slice.hpp"
 #include "operations/data_movement/sort/sort.hpp"
 #include "operations/data_movement/transpose/transpose.hpp"
@@ -33,6 +34,7 @@
 #include "operations/normalization/rmsnorm/rmsnorm.hpp"
 #include "operations/normalization/softmax/softmax.hpp"
 #include "operations/pool/generic/generic_pools.hpp"
+#include "operations/pool/global_avg_pool/global_avg_pool.hpp"
 #include "operations/pool/upsample/upsample.hpp"
 #include "operations/rand/rand.hpp"
 #include "operations/reduction/argmax/argmax.hpp"
@@ -42,6 +44,7 @@
 #include "operations/transformer/concatenate_heads/concatenate_heads.hpp"
 #include "operations/transformer/sdpa/sdpa.hpp"
 #include "operations/transformer/sdpa_decode/sdpa_decode.hpp"
+#include "operations/transformer/split_query_key_value_and_split_heads/split_query_key_value_and_split_heads.hpp"
 #include "tt-metalium/bfloat16.hpp"
 #include "ttnn/common/queue_id.hpp"
 #include "ttnn/core.hpp"
@@ -124,7 +127,7 @@ void setDevice(ttnn::MeshDevice *device) { DeviceGetter::setInstance(device); }
 }
 
 // Wrapper to abstract const-eval logic out of runtime funcs to keep them
-// cleaner.  Invokes constEvalFunc iff outputs is empty.
+// cleaner. Invokes constEvalFunc iff outputs is empty.
 void constEvalFuncWrapper(
     std::function<std::vector<ttnn::Tensor>(std::vector<ttnn::Tensor>)>
         constEvalFunc,
@@ -132,6 +135,19 @@ void constEvalFuncWrapper(
     std::vector<ttnn::Tensor> *outputs) {
   if (outputs->empty()) {
     *outputs = constEvalFunc(inputs);
+  }
+}
+
+// Wrapper to abstract const-eval logic out of runtime funcs to keep them
+// cleaner. Invokes constEvalFunc iff outputs is empty.
+// This is an overload of constEvalFuncWrapper for const-eval functions that
+// take zero arguments.
+void constEvalFuncWrapperZeroArg(
+    std::function<std::vector<ttnn::Tensor>()> constEvalFunc,
+    // const std::vector<ttnn::Tensor> &inputs,
+    std::vector<ttnn::Tensor> *outputs) {
+  if (outputs->empty()) {
+    *outputs = constEvalFunc();
   }
 }
 
@@ -144,6 +160,29 @@ uint32_t getScalarFromTensor(const ttnn::Tensor &tensor) {
       ::tt::tt_metal::host_buffer::get_host_buffer(tensorOnHost);
   const auto &buf = buffer.view_as<uint32_t>();
   return *buf.begin();
+}
+
+::ttnn::Tensor loadTensor(const std::string &filePath, ttnn::Layout layout,
+                          ttnn::DataType dtype, ttnn::MeshDevice *device,
+                          ttnn::MemoryConfig memoryConfig) {
+  ::ttnn::Tensor loadedTensor =
+      ::tt::tt_metal::load_tensor_flatbuffer(filePath);
+
+  assert(loadedTensor.device() == nullptr && "loaded tensor must be on host");
+
+  if (loadedTensor.dtype() != dtype) {
+    loadedTensor = ::ttnn::to_dtype(loadedTensor, dtype);
+  }
+
+  if (loadedTensor.layout() != layout) {
+    loadedTensor = ::ttnn::to_layout(loadedTensor, layout);
+  }
+
+  if (device != nullptr) {
+    loadedTensor = ::ttnn::to_device(loadedTensor, device, memoryConfig);
+  }
+
+  return loadedTensor;
 }
 
 } // namespace ttnn

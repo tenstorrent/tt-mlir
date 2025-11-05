@@ -6,7 +6,7 @@
 # other `ttrt` imports and _AFTER_ all system imports to ensure a well ordered
 # setup of the pybound `.so`. Otherwise, undefined behaviour ensues related to
 # the timing of when `TTMETAL_HOME` environment variable is set. DO NOT MOVE
-# w.r.t. other imports. This is a temporary workaround until `TT_METAL_HOME` is
+# w.r.t. other imports. This is a temporary workaround until `TT_METAL_RUNTIME_ROOT` is
 # not used anymore in TTMetal
 import ttrt.library_tweaks
 

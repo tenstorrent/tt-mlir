@@ -79,8 +79,22 @@ static bool isSafeShardedScatter(mlir::stablehlo::ScatterOp scatterOp,
 
   // Determine the "sharding axis"
   // input and updates must be sharded equivalently.
-  if (!inputDimShardings.equals(updateDimShardings)) {
+  // Allow closed/open mismatches (e.g., {} vs {?})
+  if (inputDimShardings.size() != updateDimShardings.size()) {
     return false;
+  }
+
+  for (size_t i = 0; i < inputDimShardings.size(); ++i) {
+    const auto &inputSharding = inputDimShardings[i];
+    const auto &updateSharding = updateDimShardings[i];
+
+    // Compare axes - they must match
+    if (inputSharding.getAxes() != updateSharding.getAxes()) {
+      return false;
+    }
+
+    // Allow closed/open mismatches - we only care that the axes are the same
+    // (i.e., {} and {?} should be treated as equivalent)
   }
 
   llvm::SmallVector<uint8_t> shardingAxes = {};
@@ -274,13 +288,6 @@ static FailureOr<mlir::OperationState> createNewOperationState(
                 mlir::DenseI64ArrayAttr::get(context, newSliceSizes));
 
             return mlir::success();
-          })
-          .Case<mlir::stablehlo::CompareOp>([&](auto compareOp) {
-            compareOp->emitError(
-                "Compare operation is not supported in stablehlo-pipeline for "
-                "meshes not 1x1: "
-                "https://github.com/tenstorrent/tt-mlir/issues/3497.");
-            return mlir::failure();
           })
           .Case<mlir::stablehlo::ScatterOp>([&](auto scatterOp) {
             // Check if this is a safe cache update that can be handled

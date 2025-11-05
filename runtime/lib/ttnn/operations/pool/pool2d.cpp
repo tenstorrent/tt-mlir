@@ -13,6 +13,7 @@
 #include <optional>
 #include <ttnn/operations/functions.hpp>
 #include <ttnn/operations/pool/generic/generic_pools.hpp>
+#include <ttnn/operations/pool/global_avg_pool/global_avg_pool.hpp>
 
 namespace tt::runtime::ttnn::operations::pool {
 
@@ -24,8 +25,10 @@ void runAvgPool2dOp(
         std::variant<std::array<uint32_t, 2>, std::array<uint32_t, 4>>, bool,
         bool, std::optional<int32_t>,
         const std::optional<const ::ttnn::MemoryConfig> &,
-        const std::optional<const ::ttnn::TensorMemoryLayout>, bool)> &ttnnOp) {
-  ::ttnn::Tensor input = tensorPool.getTTNNTensorAndValidate(op->in());
+        const std::optional<const ::ttnn::TensorMemoryLayout>,
+        const std::optional<::ttnn::DeviceComputeKernelConfig> &, bool)>
+        &ttnnOp) {
+  const ::ttnn::Tensor &input = tensorPool.getTTNNTensorAndValidate(op->in());
 
   std::optional<::ttnn::MemoryConfig> outputMemoryConfig =
       ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
@@ -57,20 +60,22 @@ void runAvgPool2dOp(
         *op->applied_shard_scheme());
   }
 
+  std::optional<::ttnn::DeviceComputeKernelConfig> computeKernelConfig =
+      std::nullopt;
+
   ::ttnn::Tensor out =
       ttnnOp(input, op->batch_size(), op->input_height(), op->input_width(),
              op->channels(), kernelSize, stride, padding, op->ceil_mode(),
              op->extra_params_as_AvgPool2dExtraParams()->count_include_pad(),
              /*divisor_override=*/std::nullopt, outputMemoryConfig,
-             appliedShardScheme, op->in_place_halo());
+             appliedShardScheme, computeKernelConfig, op->in_place_halo());
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
 
 void runMaxPool2dOp(
     const ::tt::target::ttnn::Pool2dOp *op, ProgramTensorPool &tensorPool,
-    const std::function<std::variant<
-        ::ttnn::Tensor, ::ttnn::operations::pool::MaxPoolWithIndicesResult>(
+    const std::function<std::vector<::ttnn::Tensor>(
         const ::ttnn::Tensor &, uint32_t, uint32_t, uint32_t, uint32_t,
         std::array<uint32_t, 2>, std::array<uint32_t, 2>,
         std::variant<std::array<uint32_t, 2>, std::array<uint32_t, 4>>,
@@ -78,7 +83,7 @@ void runMaxPool2dOp(
         const std::optional<::ttnn::MemoryConfig> &,
         const std::optional<::ttnn::TensorMemoryLayout> &, bool, bool)>
         &ttnnOp) {
-  ::ttnn::Tensor input = tensorPool.getTTNNTensorAndValidate(op->in());
+  const ::ttnn::Tensor &input = tensorPool.getTTNNTensorAndValidate(op->in());
 
   std::optional<::ttnn::MemoryConfig> outputMemoryConfig =
       ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
@@ -111,26 +116,13 @@ void runMaxPool2dOp(
         *op->applied_shard_scheme());
   }
 
-  auto result =
+  std::vector<::ttnn::Tensor> results =
       ttnnOp(input, op->batch_size(), op->input_height(), op->input_width(),
              op->channels(), kernelSize, stride, padding, dilation,
              op->ceil_mode(), outputMemoryConfig, appliedShardScheme,
              op->in_place_halo(), false /* return_indices */);
 
-  // Extract tensor from variant (we only care about the tensor, not indices for
-  // runtime)
-  ::ttnn::Tensor out = std::visit(
-      [](const auto &val) -> ::ttnn::Tensor {
-        if constexpr (std::is_same_v<std::decay_t<decltype(val)>,
-                                     ::ttnn::Tensor>) {
-          return val;
-        } else {
-          return val.output; // MaxPoolWithIndicesResult case
-        }
-      },
-      result);
-
-  tensorPool.insertTTNNTensorAndValidate(op->out(), out);
+  tensorPool.insertTTNNTensorAndValidate(op->out(), results[0]);
 }
 
 void run(const ::tt::target::ttnn::Pool2dOp *op, ProgramContext &context) {
@@ -145,4 +137,29 @@ void run(const ::tt::target::ttnn::Pool2dOp *op, ProgramContext &context) {
   }
   }
 }
+
+void run(const ::tt::target::ttnn::GlobalAvgPool2dOp *op,
+         ProgramContext &context) {
+  ProgramTensorPool &tensorPool = context.getTensorPool();
+  const ::ttnn::Tensor &input = tensorPool.getTTNNTensorAndValidate(op->in());
+
+  std::optional<::ttnn::MemoryConfig> outputMemoryConfig =
+      ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
+          op->memory_config());
+  LOG_ASSERT(::tt::runtime::ttnn::utils::inSystemMemory(op->out()) ||
+                 outputMemoryConfig.has_value(),
+             "Memory config must exist for device tensors");
+
+  std::optional<::ttnn::DataType> dtype = std::nullopt;
+  if (op->dtype()) {
+    dtype = ::tt::runtime::ttnn::utils::toTTNNDataType(*op->dtype());
+  }
+
+  // Call ttnn::global_avg_pool2d with input, memory_config, and output_dtype
+  ::ttnn::Tensor out =
+      ::ttnn::global_avg_pool2d(input, outputMemoryConfig, dtype);
+
+  tensorPool.insertTTNNTensorAndValidate(op->out(), out);
+}
+
 } // namespace tt::runtime::ttnn::operations::pool

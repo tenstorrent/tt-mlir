@@ -3,7 +3,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "mlir/CAPI/IR.h"
-#include "mlir/CAPI/Support.h"
 #include "ttmlir-c/TTAttrs.h"
 
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
@@ -40,7 +39,7 @@ MlirAttribute ttmlirTTChipDescAttrGet(
     unsigned nocDRAMAddressAlignBytes, unsigned l1UnreservedBase,
     unsigned eriscL1UnreservedBase, unsigned dramUnreservedBase,
     unsigned dramUnreservedEnd, MlirAttribute *supportedDataTypes,
-    MlirAttribute *supportedTileSizes, unsigned dstRegisterSizeTiles,
+    MlirAttribute *supportedTileSizes, unsigned dstPhysicalSizeTiles,
     unsigned numCBs, unsigned numComputeThreads,
     unsigned numDatamovementThreads) {
   std::vector<int64_t> gridVec(grid, grid + gridSize);
@@ -55,7 +54,7 @@ MlirAttribute ttmlirTTChipDescAttrGet(
       dramUnreservedEnd,
       mlir::dyn_cast<DataTypeAttr>(unwrap(*supportedDataTypes)),
       mlir::dyn_cast<TileSizeAttr>(unwrap(*supportedTileSizes)),
-      dstRegisterSizeTiles, numCBs, numComputeThreads, numDatamovementThreads));
+      dstPhysicalSizeTiles, numCBs, numComputeThreads, numDatamovementThreads));
 }
 
 MlirAttribute ttmlirTTChipCoordAttrGet(MlirContext ctx, unsigned rack,
@@ -127,16 +126,13 @@ MlirAttribute ttmlirTTSystemDescAttrGet(
 
 MlirAttribute ttmlirTTMetalLayoutAttrGet(MlirContext ctx, intptr_t logicalRank,
                                          const int64_t *logicalShape,
-                                         intptr_t gridRank,
-                                         const int64_t *gridShape,
-                                         unsigned oobVal,
+                                         intptr_t gridRank, unsigned oobVal,
                                          unsigned memorySpace) {
 
   llvm::ArrayRef<int64_t> logicalShapeRef(logicalShape, logicalRank);
-  llvm::ArrayRef<int64_t> gridShapeRef(gridShape, gridRank);
 
   return wrap(MetalLayoutAttr::get(
-      unwrap(ctx), logicalShapeRef, gridShapeRef, static_cast<OOBVal>(oobVal),
+      unwrap(ctx), logicalShapeRef, static_cast<OOBVal>(oobVal),
       static_cast<MemorySpace>(memorySpace), TensorMemoryLayout::Sharded));
 }
 

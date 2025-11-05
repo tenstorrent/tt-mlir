@@ -2,20 +2,13 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
-#include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
-#include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
-#include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
-#include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
-
-#include <numeric>
 
 namespace mlir::tt::d2m {
 #define GEN_PASS_DEF_D2MGENERICLINEARIZEMEMREF
@@ -107,81 +100,6 @@ public:
 } // namespace
 
 namespace {
-struct D2MLinearizeTileMatmulBlockRewriter final
-    : public OpRewritePattern<TileMatmulBlockOp> {
-public:
-  D2MLinearizeTileMatmulBlockRewriter(
-      ::mlir::MLIRContext *context,
-      DenseMap<Value, memref::CollapseShapeOp> &collapseOps)
-      : OpRewritePattern<TileMatmulBlockOp>(context),
-        collapseOps(&collapseOps) {}
-
-  static memref::CollapseShapeOp
-  linearize(Value val, PatternRewriter &rewriter,
-            DenseMap<Value, memref::CollapseShapeOp> *cache) {
-    auto memrefTy = mlir::cast<MemRefType>(val.getType());
-    memref::CollapseShapeOp linearized = cache->lookup(val);
-    if (!linearized) {
-      rewriter.setInsertionPointAfterValue(val);
-      SmallVector<ReassociationIndices, 4> collapsedDims = {
-          llvm::to_vector(llvm::seq<int64_t>(0, memrefTy.getRank()))};
-      assert(memref::CollapseShapeOp::isGuaranteedCollapsible(memrefTy,
-                                                              collapsedDims) &&
-             "Expected collapsible memref layout");
-      linearized = rewriter.create<memref::CollapseShapeOp>(val.getLoc(), val,
-                                                            collapsedDims);
-      cache->insert({val, linearized});
-    }
-    return linearized;
-  }
-
-  static int64_t getNumColumns(Value view) {
-    if (auto castOp = mlir::dyn_cast<memref::CastOp>(view.getDefiningOp())) {
-      view = castOp.getSource();
-    } else if (auto svOp =
-                   mlir::dyn_cast<memref::SubViewOp>(view.getDefiningOp())) {
-      view = svOp.getSource();
-    }
-    auto srcTy = mlir::cast<MemRefType>(view.getType());
-    return srcTy.getShape()[1];
-  }
-
-  LogicalResult matchAndRewrite(TileMatmulBlockOp op,
-                                PatternRewriter &rewriter) const final {
-    auto typeA = mlir::cast<MemRefType>(op.getA().getType());
-    auto typeB = mlir::cast<MemRefType>(op.getB().getType());
-
-    if (typeA.getRank() == 1 && typeB.getRank() == 1) {
-      return failure();
-    }
-
-    assert(!op.hasBlockDims() &&
-           "Unexpected block dimensions present for matmul_block. Proceeding "
-           "would override the present attributes");
-
-    int64_t rtDim = typeA.getShape()[0];
-    int64_t ktDim = typeA.getShape()[1];
-    int64_t ctDim = typeB.getShape()[1];
-    int64_t ntDim = getNumColumns(op.getB());
-
-    auto linA = linearize(op.getA(), rewriter, collapseOps);
-    auto linB = linearize(op.getB(), rewriter, collapseOps);
-    auto linO = linearize(op.getOutput(), rewriter, collapseOps);
-
-    rewriter.setInsertionPoint(op);
-    rewriter.replaceOpWithNewOp<TileMatmulBlockOp>(
-        op, linA.getResult(), linB.getResult(), linO.getResult(),
-        rewriter.getI64IntegerAttr(rtDim), rewriter.getI64IntegerAttr(ktDim),
-        rewriter.getI64IntegerAttr(ctDim), rewriter.getI64IntegerAttr(ntDim));
-
-    return success();
-  }
-
-  DenseMap<Value, memref::CollapseShapeOp> *collapseOps;
-};
-} // namespace
-
-namespace {
 class D2MGenericLinearizeMemref
     : public impl::D2MGenericLinearizeMemrefBase<D2MGenericLinearizeMemref> {
 public:
@@ -194,8 +112,6 @@ public:
     patterns.add<D2MLinearizeMemrefAccessRewriter<memref::LoadOp>,
                  D2MLinearizeMemrefAccessRewriter<memref::StoreOp>>(
         &getContext(), collapseOps);
-    patterns.add<D2MLinearizeTileMatmulBlockRewriter>(&getContext(),
-                                                      collapseOps);
     FrozenRewritePatternSet patternSet(std::move(patterns));
     if (failed(applyPatternsGreedily(getOperation(), patternSet))) {
       signalPassFailure();

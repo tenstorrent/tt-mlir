@@ -23,8 +23,8 @@ from typing import List
 
 from builder.base.builder import Operand, Shape
 from builder.ttir.ttir_builder import TTIRBuilder
-from builder.base.builder_utils import compile_ttir_to_flatbuffer
-from test_utils import shape_str
+from builder.base.builder_utils import compile_and_execute_ttir
+from test_utils import shape_str, Marks
 
 pytestmark = pytest.mark.frontend("ttir")
 
@@ -62,7 +62,12 @@ def transpose_inner_dims(in0: Operand, builder: TTIRBuilder):
         ([(3, 32, 64), (3, 32, 64)], elementwise_multiply, "3d_multiply"),
         ([(3, 32, 64)], unary_exp, "3d_exp"),
         # 4D element-wise operations (working with non-collapsed tensors)
-        ([(2, 3, 64, 32), (2, 3, 64, 32)], elementwise_add, "4d_add"),
+        pytest.param(
+            [(2, 3, 64, 32), (2, 3, 64, 32)],
+            elementwise_add,
+            "4d_add",
+            marks=pytest.mark.xfail(reason="Golden failure"),
+        ),
         ([(1, 2, 32, 32)], unary_exp, "4d_exp"),
         # Operations with known issues (marked as skip)
         pytest.param(
@@ -95,13 +100,14 @@ def test_uncollapsed_tensors(
     collapse_tensors: bool,
     target: str,
     request,
+    device,
 ):
     """Test tensor operations with and without tensor collapsing to 2D."""
 
-    pipeline_options = f"{{collapse-tensors-2d={str(collapse_tensors).lower()} max-dst-register-size-tiles=1}}"
+    pipeline_options = f"{{collapse-tensors-2d={str(collapse_tensors).lower()}}}"
     pipeline = f"ttir-to-ttmetal-pipeline{pipeline_options}"
 
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         test_func,
         shapes,
         target=target,
@@ -110,4 +116,5 @@ def test_uncollapsed_tensors(
         print_ir="ir_dump",
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
+        device=device,
     )

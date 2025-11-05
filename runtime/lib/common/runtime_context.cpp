@@ -31,10 +31,16 @@ std::string RuntimeContext::getMlirHome() const { return mlirHome_.string(); }
 void RuntimeContext::setMlirHome(std::string_view mlirHome) {
   constexpr std::string_view metalPath = "third_party/tt-metal/src/tt-metal";
   mlirHome_ = mlirHome;
-  metalHome_ = mlirHome_ / metalPath;
+  if (metalHome_.empty()) {
+    metalHome_ = mlirHome_ / metalPath;
+  }
 }
 
 std::string RuntimeContext::getMetalHome() const { return metalHome_.string(); }
+
+void RuntimeContext::setMetalHome(std::string_view metalHome) {
+  metalHome_ = metalHome;
+}
 
 DeviceRuntime RuntimeContext::getCurrentDeviceRuntime() const {
   DeviceRuntime runtime = currentDeviceRuntime_.load(std::memory_order_relaxed);
@@ -68,11 +74,13 @@ void RuntimeContext::setCurrentHostRuntime(const HostRuntime &runtime) {
   currentHostRuntime_.store(runtime, std::memory_order_relaxed);
 }
 
-FabricConfig RuntimeContext::getCurrentFabricConfig() const {
-  FabricConfig config = currentFabricConfig_.load(std::memory_order_relaxed);
+tt::runtime::FabricConfig RuntimeContext::getCurrentFabricConfig() const {
+  tt::runtime::FabricConfig config =
+      currentFabricConfig_.load(std::memory_order_relaxed);
   return config;
 }
-void RuntimeContext::setCurrentFabricConfig(const FabricConfig &config) {
+void RuntimeContext::setCurrentFabricConfig(
+    const tt::runtime::FabricConfig &config) {
   currentFabricConfig_.store(config, std::memory_order_relaxed);
 }
 

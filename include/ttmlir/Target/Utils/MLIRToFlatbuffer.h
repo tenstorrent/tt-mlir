@@ -189,6 +189,8 @@ inline ::tt::target::DataType toFlatbuffer(FlatbufferObjectCache &,
     return ::tt::target::DataType::UInt8;
   case ttcore::DataType::Int32:
     return ::tt::target::DataType::Int32;
+  case ttcore::DataType::Bool:
+    return ::tt::target::DataType::Bool;
   }
 }
 
@@ -409,7 +411,7 @@ toFlatbuffer(FlatbufferObjectCache &cache, ttcore::ChipDescAttr chipDesc) {
       chipDesc.getDramUnreservedEnd(),
       toFlatbuffer(cache, chipDesc.getSupportedDataTypes()),
       toFlatbuffer(cache, chipDesc.getSupportedTileSizes()),
-      chipDesc.getDstRegisterSizeTiles(), chipDesc.getNumCBs(),
+      chipDesc.getDstPhysicalSizeTiles(), chipDesc.getNumCBs(),
       chipDesc.getNumComputeThreads(), chipDesc.getNumDatamovementThreads());
 }
 
@@ -591,6 +593,7 @@ toFlatbuffer(FlatbufferObjectCache &, ttnn::UnaryOpType unaryOpType) {
       {MlirUnaryOpType::Acos, FbUnaryOpType::Acos},
       {MlirUnaryOpType::Rsqrt, FbUnaryOpType::Rsqrt},
       {MlirUnaryOpType::Relu6, FbUnaryOpType::Relu6},
+      {MlirUnaryOpType::Hardsigmoid, FbUnaryOpType::Hardsigmoid},
       {MlirUnaryOpType::Atan, FbUnaryOpType::Atan},
       {MlirUnaryOpType::Erf, FbUnaryOpType::Erf},
       {MlirUnaryOpType::Erfc, FbUnaryOpType::Erfc},
@@ -765,7 +768,29 @@ toFlatbuffer(FlatbufferObjectCache &cache, ttnn::Conv2dConfigAttr config) {
       toFlatbuffer(cache, config.getOutputLayout()),
       toFlatbuffer(cache, config.getEnableActDoubleBuffer()),
       toFlatbuffer(cache, config.getEnableWeightsDoubleBuffer()),
-      toFlatbuffer(cache, config.getInPlace()));
+      toFlatbuffer(cache, config.getInPlace()),
+      toFlatbuffer(cache, config.getEnableKernelStrideFolding()));
+}
+
+inline ::tt::target::ttnn::Conv2dSliceType
+toFlatbuffer(FlatbufferObjectCache &cache, ttnn::Conv2dSliceType sliceType) {
+  switch (sliceType) {
+  case ttnn::Conv2dSliceType::DramHeight:
+    return ::tt::target::ttnn::Conv2dSliceType::DramHeight;
+  case ttnn::Conv2dSliceType::DramWidth:
+    return ::tt::target::ttnn::Conv2dSliceType::DramWidth;
+  case ttnn::Conv2dSliceType::L1Full:
+    return ::tt::target::ttnn::Conv2dSliceType::L1Full;
+  }
+  llvm_unreachable("Unsupported Conv2dSliceType");
+}
+
+inline ::flatbuffers::Offset<::tt::target::ttnn::Conv2dSliceConfig>
+toFlatbuffer(FlatbufferObjectCache &cache,
+             ttnn::Conv2dSliceConfigAttr sliceConfigAttr) {
+  return ::tt::target::ttnn::CreateConv2dSliceConfig(
+      *cache.fbb, toFlatbuffer(cache, sliceConfigAttr.getSliceType()),
+      sliceConfigAttr.getNumSlices());
 }
 
 inline ::flatbuffers::Offset<::tt::target::ttnn::DeviceComputeKernelConfig>

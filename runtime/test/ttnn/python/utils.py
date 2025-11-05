@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from typing import Callable, List, Any
 
 TT_MLIR_HOME = os.environ.get("TT_MLIR_HOME", "")
+TT_METAL_RUNTIME_ROOT_EXTERNAL = os.environ.get("TT_METAL_RUNTIME_ROOT_EXTERNAL", "")
 
 
 class Storage(Enum):
@@ -101,10 +102,13 @@ class ProgramTestRunner:
 
         return inputs_runtime_with_layout, golden
 
+    def submit_program(self, device, inputs):
+        return ttrt.runtime.submit(device, self.binary.fbb, self.program_index, inputs)[
+            0
+        ]
+
     def run_program(self, device, inputs, blocking_to_host=True):
-        output = ttrt.runtime.submit(
-            device, self.binary.fbb, self.program_index, inputs
-        )[0]
+        output = self.submit_program(device, inputs)
         output = ttrt.runtime.to_host(output, untilize=True, blocking=blocking_to_host)[
             0
         ]
@@ -141,6 +145,27 @@ class DeviceContext:
 
     def __exit__(self, exc_type, exc_value, traceback):
         ttrt.runtime.close_mesh_device(self.device)
+
+
+def subprocess_get_system_descriptor(request):
+    import shutil
+    import subprocess
+
+    folder_name = "-".join([request.fspath.basename, request.node.name, "artifacts"])
+    artifacts_dir = f"{os.getcwd()}/{folder_name}"
+
+    result = subprocess.run(
+        ["ttrt", "query", "--save-artifacts", "--artifact-dir", artifacts_dir],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, f"Failed to query system descriptor: {result.stderr}"
+    system_desc = ttrt.binary.load_system_desc_from_path(
+        f"{artifacts_dir}/system_desc.ttsys"
+    )
+    shutil.rmtree(artifacts_dir)
+
+    return system_desc
 
 
 def get_runtime_tensor_from_torch(torch_tensor, storage=Storage.Borrowed):

@@ -44,21 +44,6 @@ public:
     return builder.getAttr<ttmetal::KernelArgsAttr>(rtArgs, ctArgs);
   }
 
-  static Type getOperandInnerElementType(const mlir::Value operand) {
-    auto elemType = operand.getType();
-    if (auto memRefType = mlir::dyn_cast<MemRefType>(elemType);
-        memRefType != nullptr) {
-      elemType = memRefType.getElementType();
-    }
-    // We could have a memref of tiles, so this needs to be the second query.
-    if (auto tileType = mlir::dyn_cast<ttcore::TileType>(elemType);
-        tileType != nullptr) {
-      elemType = tileType.getElementType();
-    }
-    assert(elemType.isIntOrFloat());
-    return elemType;
-  }
-
   static ArrayAttr
   convertThreadsToKernelConfigs(Builder &builder, mlir::ValueRange operands,
                                 ArrayAttr threads, ttcore::GridAttr opGrid,
@@ -78,15 +63,19 @@ public:
       case d2m::ThreadType::Compute: {
         bool fp32DestAccum = false;
         for (size_t i = 0; i < operands.size(); ++i) {
-          auto elemType = getOperandInnerElementType(operands[i]);
-          if (elemType.getIntOrFloatBitWidth() == 32) {
+          ttcore::DataType dataType = ttcore::elementTypeToDataType(
+              ttcore::getOperandInnerElementType(operands[i]));
+
+          if (getNumberOfBits(dataType) == 32) {
             fp32DestAccum = true;
           }
         }
+        // This must stay in-sync with ChipDescAttr::getDstLogicalSizeTiles().
+        constexpr bool dstFullSyncEn = false;
         std::vector<UnpackToDestMode> unpackModes{UnpackToDestMode::Default};
         kernelConfig = builder.getAttr<ttmetal::ComputeConfigAttr>(
             thread.getKernelSymbol(), coreRange, kernelArgs, mathFidelity,
-            fp32DestAccum, unpackModes);
+            fp32DestAccum, dstFullSyncEn, unpackModes);
         break;
       }
       case d2m::ThreadType::Datamovement: {
@@ -249,22 +238,29 @@ public:
 } // namespace
 
 namespace {
-class D2MMeshShardRewriter : public OpConversionPattern<ttir::MeshShardOp> {
+class D2MMeshShardRewriter : public OpConversionPattern<d2m::MeshShardOp> {
 public:
-  using OpConversionPattern<ttir::MeshShardOp>::OpConversionPattern;
+  using OpConversionPattern<d2m::MeshShardOp>::OpConversionPattern;
 
   LogicalResult
-  matchAndRewrite(ttir::MeshShardOp op, ttir::MeshShardOpAdaptor adaptor,
+  matchAndRewrite(d2m::MeshShardOp op, d2m::MeshShardOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
     Value input = adaptor.getInput();
-    Value result = op.getResult();
+
+    // Use the op's result type directly because bufferization has already
+    // determined the correct output shape. For shard_to_full operations, the
+    // result shape differs from the input (e.g., concatenating shards), while
+    // for full_to_shard it's the opposite. The bufferization pass correctly
+    // handles these transformations.
+    Type resultType = op.getResult().getType();
 
     rewriter.replaceOpWithNewOp<ttmetal::MeshShardOp>(
-        op, result.getType(), input, op.getShardType(), op.getShardDirection(),
+        op, resultType, input, op.getShardType(), op.getShardDirection(),
         op.getShardShape(), op.getShardDims());
     return success();
   };
 };
+
 } // namespace
 
 } // namespace mlir::tt::ttmetal

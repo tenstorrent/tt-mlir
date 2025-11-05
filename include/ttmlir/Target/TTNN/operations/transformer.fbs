@@ -54,6 +54,7 @@ table ScaledDotProductAttentionOp {
   is_causal: bool;
   attention_mask: tt.target.ttnn.TensorRef;
   scale: float = null;
+  sliding_window_size: uint32 = null;
   out: tt.target.ttnn.TensorRef;
   memcfg: tt.target.ttnn.MemoryConfig;
 }
@@ -68,5 +69,17 @@ table NLPCreateQKVHeadsDecodeOp {
   overlap_qk_coregrid: bool = null;
   batch_offset: tt.target.ttnn.TensorRef;
   slice_size: uint32 = null;
+  memcfg: tt.target.ttnn.MemoryConfig;
+}
+
+table SplitQueryKeyValueAndSplitHeadsOp {
+  in: tt.target.ttnn.TensorRef;
+  kv_input: tt.target.ttnn.TensorRef;
+  q_out: tt.target.ttnn.TensorRef;
+  k_out: tt.target.ttnn.TensorRef;
+  v_out: tt.target.ttnn.TensorRef;
+  num_heads: uint32;
+  num_kv_heads: uint32 = null;
+  transpose_key: bool;
   memcfg: tt.target.ttnn.MemoryConfig;
 }

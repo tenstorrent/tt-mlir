@@ -20,12 +20,16 @@ namespace mlir::tt::d2m {
 namespace {
 class D2MInsertStreamsRewriter final : public OpRewritePattern<d2m::GenericOp> {
 public:
-  D2MInsertStreamsRewriter(MLIRContext *context, unsigned numStreamBuffers)
+  D2MInsertStreamsRewriter(MLIRContext *context, unsigned numStreamBuffers,
+                           bool allowL1OutputSpilling)
       : OpRewritePattern<d2m::GenericOp>(context),
-        numStreamBuffers(numStreamBuffers) {}
+        numStreamBuffers(numStreamBuffers),
+        allowL1OutputSpilling(allowL1OutputSpilling) {}
 
   LogicalResult matchAndRewrite(d2m::GenericOp op,
                                 PatternRewriter &rewriter) const final {
+    TT_assertv(!allowL1OutputSpilling, "L1 output spilling is not allowed");
+
     // For DMA-only form, stream insertion will break semantics.
     if (op.isDMAOnlyForm()) {
       return failure();
@@ -33,9 +37,16 @@ public:
 
     bool modified = false;
     for (OpOperand &operand : op->getOpOperands()) {
-      // If input is not already a stream, insert one.
-      if (mlir::isa_and_nonnull<d2m::StreamLayoutOp>(
-              operand.get().getDefiningOp())) {
+      bool isOutput = !op.isDpsInput(&operand);
+      bool alreadyStreamed = mlir::isa_and_nonnull<d2m::StreamLayoutOp>(
+          operand.get().getDefiningOp());
+      bool isL1Memspace =
+          ttcore::getMemorySpace(mlir::cast<MemRefType>(
+              operand.get().getType())) == ttcore::MemorySpace::DeviceL1;
+
+      bool skipL1Output = isOutput && isL1Memspace && !allowL1OutputSpilling;
+
+      if (alreadyStreamed || isL1Memspace || skipL1Output) {
         continue;
       }
       insertStream(rewriter, operand, op);
@@ -57,7 +68,8 @@ public:
         ttcore::ShardLayoutAttr::get(memref, /*buffers=*/numStreamBuffers);
     auto storageMemref =
         MemRefType::get(memref.getShape(), memref.getElementType(), storageAttr,
-                        memref.getMemorySpace());
+                        rewriter.getAttr<ttcore::MemorySpaceAttr>(
+                            ttcore::MemorySpace::DeviceL1));
     auto storage = rewriter.create<memref::AllocOp>(op.getLoc(), storageMemref);
     auto streamLayout = rewriter.create<d2m::StreamLayoutOp>(
         op.getLoc(), streamMemref, operand.get(), storage);
@@ -67,6 +79,7 @@ public:
 
 private:
   unsigned numStreamBuffers;
+  bool allowL1OutputSpilling;
 };
 } // namespace
 
@@ -78,7 +91,8 @@ public:
 
   void runOnOperation() final {
     RewritePatternSet patterns(&getContext());
-    patterns.add<D2MInsertStreamsRewriter>(&getContext(), numStreamBuffers);
+    patterns.add<D2MInsertStreamsRewriter>(&getContext(), numStreamBuffers,
+                                           allowL1OutputSpilling);
     if (failed(
             mlir::applyPatternsGreedily(getOperation(), std::move(patterns)))) {
       signalPassFailure();

@@ -16,10 +16,10 @@ LICENSE @nsmithtt
 /docs/ @nsmithtt @sdjordjevicTT
 
 # tt-mlir Bindings
-/include/ttmlir/Bindings/ @ctodTT @tapspatel @vprajapati-tt @vcanicTT
-/include/ttmlir-c/ @ctodTT @tapspatel @vprajapati-tt @vcanicTT
-/lib/CAPI/ @ctodTT @tapspatel @vprajapati-tt @vcanicTT
-/python/ @ctodTT @tapspatel @vprajapati-tt @vcanicTT
+/include/ttmlir/Bindings/ @ctodTT @tapspatel @vcanicTT
+/include/ttmlir-c/ @ctodTT @tapspatel @vcanicTT
+/lib/CAPI/ @ctodTT @tapspatel @vcanicTT
+/python/ @ctodTT @tapspatel @vcanicTT
 
 # StableHLO Dialect
 include/ttmlir/Dialect/StableHLO @tenstorrent/forge-developers-mlir-stablehlo
@@ -107,6 +107,10 @@ test/ttmlir/Dialect/StableHLO @tenstorrent/forge-developers-mlir-stablehlo
 /lib/Dialect/TTIR/Transforms/EraseInverseOps/ @LPanosTT @azecevicTT @odjuricicTT
 /test/ttmlir/Dialect/TTIR/erase_inverse_ops/ @LPanosTT @azecevicTT @odjuricicTT
 
+# TTIR Fusing Passes
+/lib/Dialect/TTIR/Transforms/TTIRFusing.cpp @tenstorrent/forge-developers-mlir-core @odjuricicTT
+/test/ttmlir/Dialect/TTIR/fusing/ @tenstorrent/forge-developers-mlir-core @odjuricicTT
+
 # TTNN Dialects
 /include/ttmlir/Dialect/TTNN/ @tenstorrent/forge-developers-mlir-core
 /lib/Dialect/TTNN/ @tenstorrent/forge-developers-mlir-core
@@ -132,6 +136,10 @@ test/ttmlir/Dialect/StableHLO @tenstorrent/forge-developers-mlir-stablehlo
 /test/unittests/OpModel @tenstorrent/forge-developers-mlir-optimizer @arminaleTT @sgholamiTT
 /test/unittests/TestScheduler/ @tenstorrent/forge-developers-mlir-optimizer
 
+# TTNN Fusing Passes
+/lib/Dialect/TTNN/Transforms/TTNNFusing.cpp @tenstorrent/forge-developers-mlir-core @odjuricicTT
+/test/ttmlir/Dialect/TTNN/fusing/ @tenstorrent/forge-developers-mlir-core @odjuricicTT
+
 # LLVM Target
 /include/ttmlir/Target/LLVM/ @vwellsTT @mtopalovicTT
 /lib/Target/LLVM/ @vwellsTT @mtopalovicTT
@@ -150,12 +158,17 @@ test/ttmlir/Dialect/StableHLO @tenstorrent/forge-developers-mlir-stablehlo
 /runtime/ @tenstorrent/forge-developers-mlir-runtime
 /runtime/tools/ @tapspatel @ctodTT
 
-# PyKernel
-/tools/pykernel/ @xanderchin @vprajapati-tt @vtangTT
-/test/pykernel/ @xanderchin @vprajapati-tt @vtangTT
+# PyKernel & ttnn-jit
+/tools/pykernel/ @xanderchin @vtangTT
+/test/pykernel/ @xanderchin @vtangTT
+/tools/ttnn-jit/ @xanderchin @vtangTT @arminaleTT
+/test/ttnn-jit/ @xanderchin @vtangTT @arminaleTT
 
 # TTIRBuilder
-/tools/builder @ctodTT @tapspatel
+/tools/builder @ctodTT @tapspatel @jgrimTT
+
+# ttrt
+/tools/ttrt @ctodTT @tapspatel @jgrimTT
 
 # tt-explorer
 /tools/explorer/ @tenstorrent/forge-developers-mlir-explorer

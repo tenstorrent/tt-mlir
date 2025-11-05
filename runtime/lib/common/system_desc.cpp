@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: (c) 2024 Tenstorrent AI ULC
 //
 // SPDX-License-Identifier: Apache-2.0
+
 #include "tt/runtime/detail/common/common.h"
 #include "tt/runtime/detail/common/logger.h"
 #include "tt/runtime/runtime.h"
@@ -8,9 +9,9 @@
 #include "tt/runtime/utils.h"
 #include "tt/runtime/workarounds.h"
 #include "ttmlir/Target/Common/system_desc_bfbs_hash_generated.h"
-#include "ttmlir/Target/TTNN/Target.h"
 #include "ttmlir/Version.h"
 #include "types_generated.h"
+
 #include <cstdint>
 #include <vector>
 
@@ -47,12 +48,11 @@ static ::tt::target::Arch toFlatbuffer(::tt::ARCH arch) {
 
 static std::vector<::tt::target::ChipChannel>
 getAllDeviceConnections(const std::vector<::tt::tt_metal::IDevice *> &devices) {
-  std::set<std::tuple<chip_id_t, CoreCoord, chip_id_t, CoreCoord>>
-      connectionSet;
+  std::set<std::tuple<ChipId, CoreCoord, ChipId, CoreCoord>> connectionSet;
 
   auto addConnection = [&connectionSet](
-                           chip_id_t deviceId0, CoreCoord ethCoreCoord0,
-                           chip_id_t deviceId1, CoreCoord ethCoreCoord1) {
+                           ChipId deviceId0, CoreCoord ethCoreCoord0,
+                           ChipId deviceId1, CoreCoord ethCoreCoord1) {
     if (deviceId0 > deviceId1) {
       std::swap(deviceId0, deviceId1);
       std::swap(ethCoreCoord0, ethCoreCoord1);
@@ -76,7 +76,7 @@ getAllDeviceConnections(const std::vector<::tt::tt_metal::IDevice *> &devices) {
       if (!getConnection) {
         continue;
       }
-      std::tuple<chip_id_t, CoreCoord> connectedDevice =
+      std::tuple<ChipId, CoreCoord> connectedDevice =
           device->get_connected_ethernet_core(ethernetCore);
       addConnection(device->id(), ethernetCore, std::get<0>(connectedDevice),
                     std::get<1>(connectedDevice));
@@ -88,8 +88,7 @@ getAllDeviceConnections(const std::vector<::tt::tt_metal::IDevice *> &devices) {
 
   std::transform(
       connectionSet.begin(), connectionSet.end(), allConnections.begin(),
-      [](const std::tuple<chip_id_t, CoreCoord, chip_id_t, CoreCoord>
-             &connection) {
+      [](const std::tuple<ChipId, CoreCoord, ChipId, CoreCoord> &connection) {
         return ::tt::target::ChipChannel(
             std::get<0>(connection), toFlatbuffer(std::get<1>(connection)),
             std::get<2>(connection), toFlatbuffer(std::get<3>(connection)));
@@ -198,7 +197,7 @@ static std::unique_ptr<::tt::runtime::SystemDesc> getCurrentSystemDescImpl(
 
     auto dramUnreservedEnd = calculateDRAMUnreservedEnd(device);
 
-    constexpr std::uint32_t kDstRegisterSizeTiles = 8;
+    constexpr std::uint32_t kDstPhysicalSizeTiles = 16;
     constexpr std::uint32_t kNumComputeThreads = 1;
     constexpr std::uint32_t kNumDatamovementThreads = 2;
     chipDescs.emplace_back(::tt::target::CreateChipDesc(
@@ -208,7 +207,7 @@ static std::unique_ptr<::tt::runtime::SystemDesc> getCurrentSystemDescImpl(
         l1Alignment, pcieAlignment, dramAlignment, l1UnreservedBase,
         ::tt::tt_metal::hal::get_erisc_l1_unreserved_base(), dramUnreservedBase,
         dramUnreservedEnd, supportedDataTypes, supportedTileSizes,
-        kDstRegisterSizeTiles, NUM_CIRCULAR_BUFFERS, kNumComputeThreads,
+        kDstPhysicalSizeTiles, NUM_CIRCULAR_BUFFERS, kNumComputeThreads,
         kNumDatamovementThreads));
     chipDescIndices.push_back(chipDescIndices.size());
     // Derive chip capability
@@ -251,7 +250,8 @@ static std::unique_ptr<::tt::runtime::SystemDesc> getCurrentSystemDescImpl(
 }
 
 static std::shared_ptr<::tt::tt_metal::distributed::MeshDevice>
-createNewMeshDevice(std::optional<DispatchCoreType> dispatchCoreType) {
+createNewMeshDevice(
+    std::optional<tt::runtime::DispatchCoreType> dispatchCoreType) {
 
   ::tt::tt_metal::DispatchCoreType type =
       tt::runtime::common::getDispatchCoreType(dispatchCoreType);
@@ -262,9 +262,9 @@ createNewMeshDevice(std::optional<DispatchCoreType> dispatchCoreType) {
       DEFAULT_L1_SMALL_SIZE, DEFAULT_TRACE_REGION_SIZE, 1, type);
 }
 
-::tt::runtime::SystemDesc
-getCurrentSystemDesc(std::optional<DispatchCoreType> dispatchCoreType,
-                     std::optional<Device> meshDevice) {
+::tt::runtime::SystemDesc getCurrentSystemDesc(
+    std::optional<tt::runtime::DispatchCoreType> dispatchCoreType,
+    std::optional<Device> meshDevice) {
 
   std::shared_ptr<::tt::tt_metal::distributed::MeshDevice> meshDevicePtr;
   if (meshDevice.has_value()) {

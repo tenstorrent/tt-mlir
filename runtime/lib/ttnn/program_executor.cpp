@@ -27,6 +27,7 @@
 #include "operations/data_movement/repeat.h"
 #include "operations/data_movement/repeat_interleave.h"
 #include "operations/data_movement/reshape.h"
+#include "operations/data_movement/scatter.h"
 #include "operations/data_movement/slice.h"
 #include "operations/data_movement/sort.h"
 #include "operations/data_movement/transpose.h"
@@ -74,6 +75,7 @@
 #include "operations/transformer/rotary_embedding_llama.h"
 #include "operations/transformer/scaled_dot_product_attention.h"
 #include "operations/transformer/scaled_dot_product_attention_decode.h"
+#include "operations/transformer/split_query_key_value_and_split_heads.h"
 #include "tt/runtime/debug.h"
 #include "tt/runtime/detail/ttnn/types/types.h"
 #include "tt/runtime/perf.h"
@@ -138,11 +140,12 @@ void safe_python_call(const char *message) {
 
   // Add the runtime directory to Python path
   PyObject *sys_path = PySys_GetObject("path");
-  
-  // Get the runtime python path from environment variable or construct it from TT_MLIR_HOME
+
+  // Get the runtime python path from environment variable or construct it from
+  // TT_MLIR_HOME
   const char *runtime_python_path = std::getenv("TTMLIR_RUNTIME_PYTHON_PATH");
   std::string path_to_add;
-  
+
   if (runtime_python_path != nullptr) {
     path_to_add = runtime_python_path;
   } else {
@@ -155,7 +158,7 @@ void safe_python_call(const char *message) {
       path_to_add = "./build/runtime/python";
     }
   }
-  
+
   PyObject *runtime_path = PyUnicode_FromString(path_to_add.c_str());
   PyList_Append(sys_path, runtime_path);
   Py_DECREF(runtime_path);
@@ -197,11 +200,12 @@ void safe_python_log_operation(const char *operation_info) {
 
   // Add the runtime directory to Python path
   PyObject *sys_path = PySys_GetObject("path");
-  
-  // Get the runtime python path from environment variable or construct it from TT_MLIR_HOME
+
+  // Get the runtime python path from environment variable or construct it from
+  // TT_MLIR_HOME
   const char *runtime_python_path = std::getenv("TTMLIR_RUNTIME_PYTHON_PATH");
   std::string path_to_add;
-  
+
   if (runtime_python_path != nullptr) {
     path_to_add = runtime_python_path;
   } else {
@@ -214,7 +218,7 @@ void safe_python_log_operation(const char *operation_info) {
       path_to_add = "./build/runtime/python";
     }
   }
-  
+
   PyObject *runtime_path = PyUnicode_FromString(path_to_add.c_str());
   PyList_Append(sys_path, runtime_path);
   Py_DECREF(runtime_path);
@@ -329,6 +333,10 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
     return operations::eltwise::binary::run(
         op->type_as_EltwiseBinaryCompositeOp(), getContext());
   }
+  case ::tt::target::ttnn::OpType::EltwiseBinaryCompositeScalarOp: {
+    return operations::eltwise::binary::run(
+        op->type_as_EltwiseBinaryCompositeScalarOp(), getContext());
+  }
   case ::tt::target::ttnn::OpType::EltwiseTernaryWhereOp: {
     return operations::eltwise::ternary::run(
         op->type_as_EltwiseTernaryWhereOp(), getContext());
@@ -391,6 +399,10 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   case ::tt::target::ttnn::OpType::ConcatOp: {
     return operations::data_movement::run(op->type_as_ConcatOp(), getContext());
   }
+  case ::tt::target::ttnn::OpType::ScatterOp: {
+    return operations::data_movement::run(op->type_as_ScatterOp(),
+                                          getContext());
+  }
   case ::tt::target::ttnn::OpType::ConcatenateHeadsOp: {
     return operations::transformer::run(op->type_as_ConcatenateHeadsOp(),
                                         getContext());
@@ -410,6 +422,10 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   case ::tt::target::ttnn::OpType::NLPConcatHeadsDecodeOp: {
     return operations::transformer::run(op->type_as_NLPConcatHeadsDecodeOp(),
                                         getContext());
+  }
+  case ::tt::target::ttnn::OpType::SplitQueryKeyValueAndSplitHeadsOp: {
+    return operations::transformer::run(
+        op->type_as_SplitQueryKeyValueAndSplitHeadsOp(), getContext());
   }
   case ::tt::target::ttnn::OpType::WriteTensorOp: {
     return operations::data_movement::run(op->type_as_WriteTensorOp(),
@@ -462,6 +478,9 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   case ::tt::target::ttnn::OpType::Pool2dOp: {
     return operations::pool::run(op->type_as_Pool2dOp(), getContext());
   }
+  case ::tt::target::ttnn::OpType::GlobalAvgPool2dOp: {
+    return operations::pool::run(op->type_as_GlobalAvgPool2dOp(), getContext());
+  }
   case ::tt::target::ttnn::OpType::AllGatherOp: {
     return operations::ccl::run(op->type_as_AllGatherOp(), getContext());
   }
@@ -496,8 +515,13 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   case ::tt::target::ttnn::OpType::LoadCachedOp: {
     return operations::cache::run(op->type_as_LoadCachedOp(), getContext());
   }
-  case ::tt::target::ttnn::OpType::BatchNormOp: {
-    return operations::batch_norm::run(op->type_as_BatchNormOp(), getContext());
+  case ::tt::target::ttnn::OpType::BatchNormInferenceOp: {
+    return operations::batch_norm::run(op->type_as_BatchNormInferenceOp(),
+                                       getContext());
+  }
+  case ::tt::target::ttnn::OpType::BatchNormTrainingOp: {
+    return operations::batch_norm::run(op->type_as_BatchNormTrainingOp(),
+                                       getContext());
   }
   case ::tt::target::ttnn::OpType::DumpTensorOp: {
     return operations::tensor_serialization::run(op->type_as_DumpTensorOp(),

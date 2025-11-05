@@ -154,6 +154,7 @@ def TTNN_UnaryOpType_Dropout  : I32EnumAttrCase<"Dropout", 75, "dropout">;
 def TTNN_UnaryOpType_Fill  : I32EnumAttrCase<"Fill", 76, "fill">;
 def TTNN_UnaryOpType_PreluSfpu  : I32EnumAttrCase<"PreluSfpu", 77, "prelu_sfpu">;
 def TTNN_UnaryOpType_ZeroPoint  : I32EnumAttrCase<"ZeroPoint", 78, "zero_point">;
+def TTNN_UnaryOpType_Hardsigmoid  : I32EnumAttrCase<"Hardsigmoid", 79, "hardsigmoid">;
 
 def TTNN_UnaryOpType : I32EnumAttr<"UnaryOpType", "TTNN Unary Operation Type",
                           [
@@ -235,7 +236,8 @@ def TTNN_UnaryOpType : I32EnumAttr<"UnaryOpType", "TTNN Unary Operation Type",
                             TTNN_UnaryOpType_Dropout,
                             TTNN_UnaryOpType_Fill,
                             TTNN_UnaryOpType_PreluSfpu,
-                            TTNN_UnaryOpType_ZeroPoint
+                            TTNN_UnaryOpType_ZeroPoint,
+                            TTNN_UnaryOpType_Hardsigmoid,
                           ]> {
   let genSpecializedAttr = 0;
   let cppNamespace = "::mlir::tt::ttnn";
@@ -314,6 +316,18 @@ def TTNN_Conv2dSliceType : I32EnumAttr<"Conv2dSliceType", "Conv2d slice type", [
   I32EnumAttrCase<"DramWidth", 1, "dram_width">,
   I32EnumAttrCase<"L1Full", 2, "l1_full">,
 ]> {
+  let cppNamespace = "::mlir::tt::ttnn";
+}
+
+def TTNN_Topology_Linear : I32EnumAttrCase<"Linear",  0, "linear">;
+def TTNN_Topology_Ring  : I32EnumAttrCase<"Ring",  1, "ring">;
+
+def TTNN_Topology: I32EnumAttr<"Topology", "TTNN Topology",
+                          [
+                           TTNN_Topology_Linear,
+                           TTNN_Topology_Ring,
+                          ]> {
+  let genSpecializedAttr = 0;
   let cppNamespace = "::mlir::tt::ttnn";
 }
 

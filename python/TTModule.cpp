@@ -16,44 +16,71 @@
 namespace mlir::ttmlir::python {
 void populateTTModule(nb::module_ &m) {
   tt_attribute_class<tt::ttcore::MetalLayoutAttr>(m, "MetalLayoutAttr")
-      // 5-arg overload (no index_map provided)
+      // 4-arg overload (no memory_layout provided, defaults to Sharded)
       .def_static("get",
                   [](MlirContext ctx, std::vector<int64_t> logicalShape,
-                     std::vector<int64_t> gridShape, uint32_t oobValValue,
-                     uint32_t memorySpaceValue) {
+                     uint32_t oobValValue, uint32_t memorySpaceValue) {
                     return wrap(tt::ttcore::MetalLayoutAttr::get(
                         unwrap(ctx), ArrayRef<int64_t>(logicalShape),
-                        ArrayRef<int64_t>(gridShape),
                         static_cast<tt::ttcore::OOBVal>(oobValValue),
                         static_cast<tt::ttcore::MemorySpace>(memorySpaceValue),
                         tt::ttcore::TensorMemoryLayout::Sharded));
                   })
-      // 7-arg overload (override memory layout)
+      // 5-arg overload (override memory layout)
       .def_static("get",
                   [](MlirContext ctx, std::vector<int64_t> logicalShape,
-                     std::vector<int64_t> gridShape, uint32_t oobValValue,
-                     uint32_t memorySpaceValue, uint32_t memoryLayoutValue) {
+                     uint32_t oobValValue, uint32_t memorySpaceValue,
+                     uint32_t memoryLayoutValue) {
                     return wrap(tt::ttcore::MetalLayoutAttr::get(
                         unwrap(ctx), ArrayRef<int64_t>(logicalShape),
-                        ArrayRef<int64_t>(gridShape),
                         static_cast<tt::ttcore::OOBVal>(oobValValue),
                         static_cast<tt::ttcore::MemorySpace>(memorySpaceValue),
                         static_cast<tt::ttcore::TensorMemoryLayout>(
                             memoryLayoutValue)));
                   })
+      // 6-arg overload (with index_map, computes defaults for collapseIntervals
+      // and dimAlignments)
       .def_static(
           "get",
           [](MlirContext ctx, std::vector<int64_t> logicalShape,
-             std::vector<int64_t> gridShape, uint32_t oobValValue,
-             uint32_t memorySpaceValue, uint32_t memoryLayoutValue,
-             MlirAffineMap indexAffineMap) {
+             uint32_t oobValValue, uint32_t memorySpaceValue,
+             uint32_t memoryLayoutValue, MlirAffineMap indexMap) {
+            // Use [0, -1] as default collapsed intervals.
+            auto *context = unwrap(ctx);
+            auto intervalType =
+                RankedTensorType::get({1, 2}, IntegerType::get(context, 64));
+            auto collapsedIntervals = DenseIntElementsAttr::get(
+                intervalType, llvm::ArrayRef<int64_t>({0, -1}));
+
+            // Normalize intervals and compute alignments.
+            auto normalizedIntervals =
+                tt::ttcore::MetalLayoutAttr::normalizeAndFlattenIntervals(
+                    collapsedIntervals, logicalShape.size());
+            auto dimAlignments =
+                tt::ttcore::MetalLayoutAttr::computeTileAlignments(
+                    logicalShape, normalizedIntervals);
+
             return wrap(tt::ttcore::MetalLayoutAttr::get(
-                unwrap(ctx), ArrayRef<int64_t>(logicalShape),
-                ArrayRef<int64_t>(gridShape),
+                context, ArrayRef<int64_t>(logicalShape),
                 static_cast<tt::ttcore::OOBVal>(oobValValue),
                 static_cast<tt::ttcore::MemorySpace>(memorySpaceValue),
                 static_cast<tt::ttcore::TensorMemoryLayout>(memoryLayoutValue),
-                unwrap(indexAffineMap)));
+                collapsedIntervals, dimAlignments, unwrap(indexMap)));
+          })
+      // 8-arg overload (full specification with index_map)
+      .def_static(
+          "get",
+          [](MlirContext ctx, std::vector<int64_t> logicalShape,
+             uint32_t oobValValue, uint32_t memorySpaceValue,
+             uint32_t memoryLayoutValue, MlirAttribute collapseIntervals,
+             std::vector<int64_t> dimAlignments, MlirAffineMap indexMap) {
+            return wrap(tt::ttcore::MetalLayoutAttr::get(
+                unwrap(ctx), ArrayRef<int64_t>(logicalShape),
+                static_cast<tt::ttcore::OOBVal>(oobValValue),
+                static_cast<tt::ttcore::MemorySpace>(memorySpaceValue),
+                static_cast<tt::ttcore::TensorMemoryLayout>(memoryLayoutValue),
+                mlir::cast<DenseIntElementsAttr>(unwrap(collapseIntervals)),
+                ArrayRef<int64_t>(dimAlignments), unwrap(indexMap)));
           })
       .def("getLayout",
            [](MlirType &type)
@@ -162,7 +189,7 @@ void populateTTModule(nb::module_ &m) {
              unsigned nocDRAMAddressAlignBytes, unsigned l1UnreservedBase,
              unsigned eriscL1UnreservedBase, unsigned dramUnreservedBase,
              unsigned dramUnreservedEnd, MlirAttribute supportedDataTypes,
-             MlirAttribute supportedTileSizes, unsigned dstRegisterSizeTiles,
+             MlirAttribute supportedTileSizes, unsigned dstPhysicalSizeTiles,
              unsigned numCBs, unsigned numComputeThreads,
              unsigned numDatamovementThreads) {
             return wrap(tt::ttcore::ChipDescAttr::get(
@@ -175,12 +202,21 @@ void populateTTModule(nb::module_ &m) {
                     unwrap(supportedDataTypes)),
                 mlir::cast<tt::ttcore::TileSizeAttr>(
                     unwrap(supportedTileSizes)),
-                dstRegisterSizeTiles, numCBs, numComputeThreads,
+                dstPhysicalSizeTiles, numCBs, numComputeThreads,
                 numDatamovementThreads));
           })
       .def_prop_ro("usable_l1_size", &tt::ttcore::ChipDescAttr::getUsableL1Size)
       .def_prop_ro("usable_dram_channel_size",
                    &tt::ttcore::ChipDescAttr::getUsableDramChannelSize)
+      .def_prop_ro(
+          "get_dst_logical_size_tiles",
+          [](const tt::ttcore::ChipDescAttr &self, MlirType type,
+             bool fullSyncEn, unsigned overridePhysicalSize) {
+            return self.getDstLogicalSizeTiles(unwrap(type), fullSyncEn,
+                                               overridePhysicalSize);
+          },
+          nb::arg("type"), nb::arg("full_sync_en") = false,
+          nb::arg("override_physical_size") = 0)
       .def_prop_ro("arch", &tt::ttcore::ChipDescAttr::getArch)
       .def_prop_ro(
           "grid",

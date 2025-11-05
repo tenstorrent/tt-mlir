@@ -44,10 +44,9 @@ struct TTIRToTTMetalPipelineOptions
                                   "Use mock blackhole system desc.")),
       llvm::cl::init(ttcore::Arch::WormholeB0)};
 
-  Option<unsigned> maxDstRegisterSizeTiles{
-      *this, "max-dst-register-size-tiles",
-      llvm::cl::desc("Clamp the maximum destination register size in tiles. 0 "
-                     "means unset."),
+  Option<unsigned> maxDstPhysicalSizeTiles{
+      *this, "max-dst-physical-size-tiles",
+      llvm::cl::desc("Clamp DST's max physical size in tiles. 0 means unset."),
       llvm::cl::init(0)};
 
   ListOption<int64_t> matmulInterchange{
@@ -117,11 +116,12 @@ struct TTIRToTTMetalPipelineOptions
       llvm::cl::desc("Number of backing buffers to allocate per stream storage "
                      "(>=1). Default is 2."),
       llvm::cl::init(2)};
-  // Allocator will not consider generic outputs eligible for spilling
-  // unless this option is turned on.
-  Option<bool> allowOutputSpilling{
-      *this, "allow-output-spilling",
-      llvm::cl::desc("Make generic outputs eligible for spilling to DRAM."),
+  // Allocator will not consider generic outputs in L1 eligible for spilling
+  // unless this option is turned on. DRAM outputs are always spilled.
+  Option<bool> allowL1OutputSpilling{
+      *this, "allow-l1-output-spilling",
+      llvm::cl::desc(
+          "Make generic outputs in L1 eligible for spilling to DRAM."),
       llvm::cl::init(false)};
 
   // Option to ingest a mix of ttnn and ttir ops and lower through D2m to TTNN
@@ -129,6 +129,14 @@ struct TTIRToTTMetalPipelineOptions
   Option<bool> ttnnMode{*this, "ttnn-mode",
                         llvm::cl::desc("D2M/TTNN integration mode."),
                         llvm::cl::init(false)};
+
+  // Option to set the target data format for the global data format conversion
+  // pass.
+  Option<std::string> globalDataFormatTarget{
+      *this, "global-data-format-target",
+      llvm::cl::desc("Target data format for global conversion: "
+                     "f32, bf16, or bfp_bf8. Disabled by default."),
+      llvm::cl::init("")};
 };
 
 void createTTIRBufferizationPipeline(
