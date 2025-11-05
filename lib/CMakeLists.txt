@@ -114,20 +114,10 @@ target_link_directories(TTMLIRCompiler PRIVATE ${TTMLIR_TOOLCHAIN_DIR}/lib64)
 
 install(TARGETS TTMLIRCompiler DESTINATION ${CMAKE_INSTALL_LIBDIR} COMPONENT SharedLib)
 
-# Install TTMLIRCompilerStatic, but only add to export when StableHLO is disabled.
-# When StableHLO is enabled, it has PRIVATE dependencies on Shardy that would
-# require those targets to be in the export set.
-if(NOT TTMLIR_ENABLE_STABLEHLO)
-  install(TARGETS TTMLIRCompilerStatic
-    EXPORT TTMLIRTargets
-    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
-    COMPONENT StaticLib)
-else()
-  # Install without export - users can still link against it if they have Shardy available
-  install(TARGETS TTMLIRCompilerStatic
-    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
-    COMPONENT StaticLib)
-endif()
+install(TARGETS TTMLIRCompilerStatic
+  EXPORT TTMLIRTargets
+  ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+  COMPONENT StaticLib)
 
 # Add coverage_config to all targets in lib
 if(CODE_COVERAGE AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
