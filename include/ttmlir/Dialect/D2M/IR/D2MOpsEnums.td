@@ -32,6 +32,23 @@ def D2M_TileBcastType : I32EnumAttr<"TileBcastType", "D2M TileBcastType", [
   D2M_TileBcastTypeRow,
   D2M_TileBcastTypeScalar
 ]> {
+  let summary = "D2M tile-level broadcast types.";
+  let description = [{
+    The type of the input shape (not the direction) of a unary tile-level
+    broadcast operation.
+
+    For type Col, the input should be a single tile with a filled 0-column and
+    zeros elsewhere.
+
+    For type Row, the input should be a single tile with a filled 0-row and
+    zeros elsewhere.
+
+    For type Scalar, the input should be a single tile with a filled single
+    value at location [0,0], and zeros elsewhere.
+
+    The output will be a full tile filled with the broadcasted input values.
+  }];
+
   let genSpecializedAttr = 0;
   let cppNamespace = "::mlir::tt::d2m";
 }

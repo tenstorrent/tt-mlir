@@ -427,7 +427,7 @@ def D2M_TileReduceMaxOp : D2M_GenericRegionComputeOp<"tile_reduce_max"> {
 def D2M_TileBcastOp : D2M_GenericRegionComputeOp<"tile_bcast"> {
   let summary = "D2M Tile Broadcast Op";
   let description = [{
-    The `tile_bcast` operation does row/col/scalar broadcast inside a single tile.
+    The `tile_bcast` operation broadcasts a row/col/scalar tile into a full tile.
   }];
 
   let arguments = (ins TTCore_Tile:$input,

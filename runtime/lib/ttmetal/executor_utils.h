@@ -307,7 +307,7 @@ inline std::string createKernelFilePath(
   if (debug::Env::get().useLocForKernelName && kernelLoc) {
     path /= kernelLoc;
   } else {
-    prefix /= "ttmlir_";
+    path /= "ttmlir_";
     path += currentProgramName;
     path += "_";
     path += kernelDebugInfo;

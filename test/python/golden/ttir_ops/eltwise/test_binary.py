@@ -582,74 +582,72 @@ def test_cpu_hoistable_binary_ops(
     )
 
 
-bcast_inner_2D_shapes = [
-    [(32, 32), (1, 32)],
-    [(32, 32), (32, 1)],
-    [(32, 32), (1, 1)],
-    [(32, 96), (1, 96)],
-    [(32, 96), (32, 1)],
-    [(32, 96), (1, 1)],
-    [(96, 32), (1, 32)],
-    [(96, 32), (96, 1)],
-    [(96, 32), (1, 1)],
-    [(96, 96), (1, 96)],
-    [(96, 96), (96, 1)],
-    [(96, 96), (1, 1)],
-    [(352, 32), (1, 32)],
-    [(352, 32), (352, 1)],
-    [(352, 32), (1, 1)],
-    [(352, 96), (1, 96)],
-    [(352, 96), (352, 1)],
-    [(352, 96), (1, 1)],
-    [(352, 352), (1, 352)],
-    [(352, 352), (352, 1)],
-    [(352, 352), (1, 1)],
-    # [(7, 352, 352), (7, 1, 352)],
-    # [(7, 352, 352), (7, 352, 1)],
-    # [(7, 352, 352), (7, 1, 1)],
-    # [(3, 5, 96, 96), (3, 5, 1, 96)],
-    # [(3, 5, 96, 96), (3, 5, 96, 1)],
-    # [(3, 5, 96, 96), (3, 5, 1, 1)],
+implicit_bcast_inner_2D_shapes = [
+    (32, 32),
+    (32, 96),
+    (96, 32),
+    (96, 96),
+    (352, 32),
+    (352, 96),
+    (352, 352),
 ]
 
 
-@pytest.mark.parametrize("test_fn", [add, ge])
-@pytest.mark.parametrize("shapes", bcast_inner_2D_shapes, ids=shapes_list_str)
-@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("shape", implicit_bcast_inner_2D_shapes, ids=shape_str)
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
 @pytest.mark.parametrize("target", ["ttmetal"])
-def test_broadcast_inner_2D(
-    test_fn: Callable,
-    shapes: List[Shape],
+def test_implicit_bcast_inner_2D(
+    shape: Shape,
     dtype: torch.dtype,
     target: str,
     request,
     device,
 ):
+    shape_C = (shape[0], 1)
+    shape_R = (1, shape[1])
+    shape_S = (1, 1)
+
     # Avoid too many test entries, test LHS & RHS bcast together.
-    def bcast_rhs_then_lhs(
-        in0: Operand,
-        in1: Operand,
+    def bcast_all_cases(
+        in_F0: Operand,
+        in_C0: Operand,
+        in_R0: Operand,
+        in_S0: Operand,
         builder: TTIRBuilder,
         unit_attrs: Optional[List[str]] = None,
     ):
-        in_full = torch.ones(shapes[0], dtype=dtype)
-        in_bcast = torch.ones(shapes[1], dtype=dtype)
-        builder.set_goldens(inputs={in0: in_full, in1: in_bcast})
+        tensor_F0 = torch.rand(shape, dtype=dtype) * 2.0 - 1.0
+        tensor_C0 = torch.rand(shape_C, dtype=dtype) * 2.0 - 1.0
+        tensor_R0 = torch.rand(shape_R, dtype=dtype) * 2.0 - 1.0
+        tensor_S0 = torch.rand(shape_S, dtype=dtype) - 0.5
 
-        if test_fn == add:
-            builder_fn = builder.add
-        elif test_fn == ge:
-            # Inspect input & ge compatibility.
-            builder_fn = builder.ge
+        builder.set_goldens(
+            inputs={
+                in_F0: tensor_F0,
+                in_C0: tensor_C0,
+                in_R0: tensor_R0,
+                in_S0: tensor_S0,
+            }
+        )
 
-        out_rhs = builder_fn(in0, in1, unit_attrs=unit_attrs)
-        out_rhs_lhs = builder_fn(in1, out_rhs, unit_attrs=unit_attrs)
-        return out_rhs_lhs
+        in_R1 = builder.add(
+            builder.add(in_S0, in_R0, unit_attrs=unit_attrs),
+            in_S0,
+            unit_attrs=unit_attrs,
+        )
+        in_C1 = builder.subtract(
+            in_S0,
+            builder.subtract(in_C0, in_S0, unit_attrs=unit_attrs),
+            unit_attrs=unit_attrs,
+        )
+
+        out = builder.add(in_R1, in_C1, unit_attrs=unit_attrs)
+        return out
 
     compile_and_execute_ttir(
-        bcast_rhs_then_lhs,
-        shapes,
-        [dtype, dtype],
+        bcast_all_cases,
+        [shape, shape_C, shape_R, shape_S],
+        [dtype, dtype, dtype, dtype],
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),

@@ -454,16 +454,18 @@ private:
 
     auto getTileBcastType = [](ArrayRef<bool> isBcast) -> d2m::TileBcastType {
       const size_t rank = isBcast.size();
-      const bool isColBcast = isBcast[rank - 1];
-      const bool isRowBcast = isBcast[rank - 2];
+      // My width is 1 while the other's isn't: I'm a col/scalar tile.
+      const bool isColTile = isBcast[rank - 1];
+      // My height is 1 while the other's isn't: I'm a row/scalar tile.
+      const bool isRowTile = isBcast[rank - 2];
 
-      if (isRowBcast && isColBcast) {
+      if (isRowTile && isColTile) {
         return d2m::TileBcastType::Scalar;
       }
-      if (isRowBcast) {
+      if (isRowTile) {
         return d2m::TileBcastType::Row;
       }
-      if (isColBcast) {
+      if (isColTile) {
         return d2m::TileBcastType::Col;
       }
       return d2m::TileBcastType::None;
