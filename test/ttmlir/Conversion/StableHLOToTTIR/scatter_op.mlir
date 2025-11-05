@@ -12,7 +12,7 @@ module @jit_scatter attributes {} {
         ^bb0(%arg3: tensor<f32>, %arg4: tensor<f32>):
             stablehlo.return %arg4 : tensor<f32>
         }) : (tensor<1x3x320x320xf32>, tensor<1x1xi64>, tensor<1x3x32x32xf32>) -> tensor<1x3x320x320xf32>
-        // CHECK: [[VAL5:%[0-9]+]] = "ttir.scatter_in_dim"(%arg0, [[VAL3]], %arg2, [[VAL4]]) <{dim = 0 : i32}>
+        // CHECK: [[VAL5:%[0-9]+]] = "ttir.scatter"(%arg0, [[VAL3]], %arg2, [[VAL4]]) <{dim = 0 : i32}>
         // CHECK-SAME: (tensor<1x3x320x320xf32>, tensor<1x3x32x32xi64>, tensor<1x3x32x32xf32>, tensor<1x3x320x320xf32>) -> tensor<1x3x320x320xf32>
         return %result : tensor<1x3x320x320xf32>
         // CHECK: return [[VAL5]] : tensor<1x3x320x320xf32>
