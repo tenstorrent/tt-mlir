@@ -7,11 +7,9 @@ Welcome to the TT-Explorer wiki! TT-Explorer is a visualization and exploration 
 * Interactively debug or experiment with IR-level overrides.
 
 TT-Explorer is for use with TT-MLIR compiler results. It takes emitted MLIR files, converts them to JSON, and displays them. There are five main levels the emitted TT-MLIR file is likely to be at, and all are supported for TT-Explorer:
-* **TTNN** - High-level, PyTorch style ops (for example, `ttnn.conv2d`) used for writing and compiling models in a user-friendly format.
-* **TTIR** - Mid-level intermediate representation (IR) that introduces hardware concepts like tensor tiling, memory layouts, and op fusion. Maps to hardware capabilities.
 * **SHLO** - Scalar Hardware Lowering Ops, each op is close to a single hardware instruction.
-* **LLO** - Lower-level ops that are close to binary. May be involved in scheduling and core-level placement.
-* **Binary / Firmware** - Final compiled binaries that are loaded onto Tenstorrent chips.
+* **TTIR** - Mid-level intermediate representation (IR) that introduces hardware concepts like tensor tiling, memory layouts, and op fusion. Maps to hardware capabilities.
+* **TTNN** - High-level, PyTorch style ops (for example, `ttnn.conv2d`) used for writing and compiling models in a user-friendly format.
 
 ![Workflow Diagram for TT-Explorer](../images/tt-explorer/explorer-flow-diagram.png)
 
@@ -24,13 +22,13 @@ TT-Explorer is for use with TT-MLIR compiler results. It takes emitted MLIR file
 
 This section explains how to install TT-Explorer. Do the following:
 
-1. TT-Explorer comes packaged as a tool in the TT-MLIR repo. Clone the TT-MLIR repo:
+1. TT-Explorer comes packaged as a tool in the TT-MLIR directory. Clone the TT-MLIR repo:
 
 ```bash
 git clone https://github.com/tenstorrent/tt-mlir.git
 ```
 
-2. Navigate into the **tt-mlir** repo.
+2. Navigate into the **tt-mlir** directory.
 
 3. The environment gets installed into a toolchain directory, which is by default set to `/opt/ttmlir-toolchain`, but can be overridden by setting the environment variable `TTMLIR_TOOLCHAIN_DIR`. You need to manually create the toolchain directory as follows:
 

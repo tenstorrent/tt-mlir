@@ -7,19 +7,19 @@ For general details about the  UI, refer to [Google's Model Explorer wiki](https
 ![Toolbar added by `tt-explorer` fork](../images/tt-explorer/toolbar.png)
 
 TT-Explorer adds a toolbar to the top of the screen that features the following icons in order of appearance:
-* Play
-* Advanced Settings (Gear)
-* Code (Angle Brackets)
-* Logs (Comment Bubble)
+* Execute Model (Play icon)
+* Model Execution Settings (Gear icon)
+* Generated C Code (Angle Brackets icon)
+* Log Messages (Comment Bubble icon)
 
-## Play Icon
+## Run / Execute
 
 ![Toolbar highlighting the "execute" button](../images/tt-explorer/execute.png)
 
 The play icon invokes the `execute` function which compiles and executes the model. The icon then displays as loading until execution is finished. Pressing the icon does the following:
-* Sends the model to the server for execution
-* Updates the visualization after it executes
-* Creates overlays on the graph after the model executes. These overlays use color to visually communicate how long different nodes took to complete during execution.
+1. Runs the model through the `tt-mlir` pipeline. 
+2. Updates the visualization with results from the server execution. 
+3. Creates overlays on the graph after the model executes. These overlays use color to visually communicate how long different nodes take to complete during execution. 
 
 ### Performance Overlay
 

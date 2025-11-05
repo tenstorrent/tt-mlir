@@ -21,21 +21,43 @@ This endpoint provides the main communication channel between the client and ser
 
 #### Flow Overview
 
-This section provides a general overview of how commands flow between the client and server on your local machine.
+This section provides a general overview of how commands flow between the client and server.
 
 ![Workflow Diagram for TT-Explorer](../images/tt-explorer/explorer-api-flow.png)
 
-1. UI (Client) sends commands via HTTP to the Local Server.
+![Client Server Flow for TT-Explorer](../images/tt-explorer/explorer-api-flow2.png)
 
-2. Server (Backend) forwards commands to the TT-Adapter for execution.
+##### Flow for File Upload From Computer 
 
-3. TT-Adapter executes the model / graph operations locally (may reuse upstream code).
+1. Server starts the Flask app. 
 
-4. Adapter produces a raw response → Server processes it via `convert_adapter_response`.
+2. (This step occurs when uploading a file from your computer rather than using a link.) Client sends the uploaded file to the server. 
 
-5. Server returns JSON-wrapped results to the UI, which renders graphs, overlays, and status.
+3. Server sends confirmation the file uploaded.
 
-Everything happens on your local machine.
+4. Server (Backend) forwards commands to the TT-Adapter for execution.
+
+5. TT-Adapter executes the model / graph operations locally (may reuse upstream code).
+
+6. Adapter produces a raw response → Server processes it via `convert_adapter_response`.
+
+7. Server returns JSON-wrapped results to the UI, which renders graphs, overlays, and status.
+
+##### Flow for Link Upload 
+
+1. Server starts the Flask app. 
+
+2. Client sends the link to the file with a convert request (HTTP POST request). 
+
+3. Server sends an HTTP response to the UI, which renders graphs, overlays, and status. 
+
+4. Server (Backend) forwards commands to the TT-Adapter for execution. 
+
+5. TT-Adapter executes the model / graph operations locally (may reuse upstream code). 
+
+6. Adapter produces a raw response → Server processes it via `convert_adapter_response`. 
+
+7. Server returns JSON-wrapped results to the UI, which renders graphs, overlays, and status. 
 
 #### Sending Commands
 
