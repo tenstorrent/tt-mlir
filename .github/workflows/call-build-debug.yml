@@ -81,7 +81,7 @@ jobs:
         source env/activate
         cmake --build ${{ steps.strings.outputs.build-output-dir }}
 
-    - name: Install (default)
+    - name: Install
       shell: bash
       run: |
         source env/activate
@@ -94,7 +94,7 @@ jobs:
       run: |
         ${{ steps.strings.outputs.work-dir }}/.github/scripts/bash/test-install.sh \
           "${{ steps.strings.outputs.install-output-dir }}"
-          
+
     - name: Check
       id: check
       shell: bash
