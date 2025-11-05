@@ -583,14 +583,14 @@ public:
               reorderOperationsSethi(rewriter, outermostLoop, opTreeRoot.get());
 
               // Insert DST register loads/stores and perform allocation (inline version).
-              modified |= insertDstRegisterAccessSU(rewriter, op, region, dstCapacity,
+              modified |= insertDstRegisterAccessSU(rewriter, op, *genericRegion, dstCapacity,
                 outermostLoop);
             }
           }
         }
         else {
           // original allocator
-          modified |= insertDstRegisterAccess(rewriter, op, region, dstCapacity,
+          modified |= insertDstRegisterAccess(rewriter, op, *genericRegion, dstCapacity,
                                               !linalgLoops.value().empty()
                                                   ? linalgLoops.value().front()
                                                   : nullptr);
