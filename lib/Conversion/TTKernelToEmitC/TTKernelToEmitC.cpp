@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "ttmlir/Conversion/TTKernelToEmitC/TTKernelToEmitC.h"
 
+#include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernel.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOps.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOpsTypes.h"
@@ -636,21 +637,42 @@ public:
 
 namespace {
 template <typename SourceOp, typename Adaptor = typename SourceOp::Adaptor>
-class TTKernelTensorAccessorOpsRewriter : public OpConversionPattern<SourceOp> {
+class TTKernelClassMethodRewriter : public OpConversionPattern<SourceOp> {
 public:
-  TTKernelTensorAccessorOpsRewriter(TTKernelToEmitCTypeConverter &typeConverter,
-                                    MLIRContext *ctx)
+  TTKernelClassMethodRewriter(TTKernelToEmitCTypeConverter &typeConverter,
+                              MLIRContext *ctx)
       : OpConversionPattern<SourceOp>(typeConverter, ctx) {}
+
+  static std::string typeAsString(Type ty) {
+    if (auto i = mlir::dyn_cast<IntegerType>(ty)) {
+      if (i.getWidth() == 1) {
+        return "bool";
+      } else if (i.getWidth() == 32) {
+        return "uint32_t";
+      } else if (i.getWidth() == 64) {
+        return "uint64_t";
+      }
+      llvm_unreachable(
+          "unsupported integer type in TTKernelClassMethodRewriter");
+    } else if (auto opaque = mlir::dyn_cast<emitc::OpaqueType>(ty)) {
+      return opaque.getValue().str();
+    }
+    llvm_unreachable("unsupported emitc type in TTKernelClassMethodRewriter");
+  }
+
   LogicalResult
   matchAndRewrite(SourceOp op, Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
-    // Drop "ttkernel.tensor_accessor_" prefix
-    auto name = op.getOperation()->getName().getStringRef().drop_front(25);
+    // Drop "ttkernel.class_name." prefix
+    auto [className, methodName] = op.getOperation()->getName().getStringRef().rsplit('.');
+    if (methodName.empty()) {
+      return failure();
+    }
 
     auto operands = adaptor.getOperands();
     if (operands.empty()) {
       return rewriter.notifyMatchFailure(
-          op, "Expected TensorAccessor as first operand");
+          op, "Expected class self as first operand");
     }
 
     SmallVector<Type, 2> resultTypes;
@@ -672,9 +694,11 @@ public:
     std::string varName = "temp_" + ssaName.substr(1);
 
     // Call the member function using verbatim with placeholders {} for args.
-    std::string callStr = "uint32_t " + varName + " = {}." + name.str() + "(";
-    for (size_t i = 0; i < operands.size() - 1; i++) {
-      if (i > 0) {
+    TT_assert(resultTypes.size() == 1u);
+    std::string callStr = typeAsString(resultTypes[0]) + " " + varName +
+                          " = {}." + methodName.str() + "(";
+    for (size_t i = 1; i < operands.size(); i++) {
+      if (i > 1) {
         callStr += ", ";
       }
       callStr += "{}";
@@ -961,20 +985,16 @@ public:
                                                        funcOp.getContext());
 
     patterns.add<
-        TTKernelTensorAccessorOpsRewriter<ttkernel::TensorAccessorGetNocAddrOp>,
-        TTKernelTensorAccessorOpsRewriter<
-            ttkernel::TensorAccessorGetShardNocAddrOp>,
-        TTKernelTensorAccessorOpsRewriter<
-            ttkernel::TensorAccessorGetBankAndOffsetOp>,
-        TTKernelTensorAccessorOpsRewriter<
-            ttkernel::TensorAccessorIsLocalBankOp>,
-        TTKernelTensorAccessorOpsRewriter<
-            ttkernel::TensorAccessorIsLocalAddrOp>,
-        TTKernelTensorAccessorOpsRewriter<
-            ttkernel::TensorAccessorIsLocalPageOp>,
-        TTKernelTensorAccessorOpsRewriter<
-            ttkernel::TensorAccessorIsLocalShardOp>>(typeConverter,
-                                                     funcOp.getContext());
+        TTKernelClassMethodRewriter<ttkernel::TensorAccessorGetNocAddrOp>,
+        TTKernelClassMethodRewriter<ttkernel::TensorAccessorGetShardNocAddrOp>,
+        TTKernelClassMethodRewriter<ttkernel::TensorAccessorGetBankAndOffsetOp>,
+        TTKernelClassMethodRewriter<ttkernel::TensorAccessorIsLocalBankOp>,
+        TTKernelClassMethodRewriter<ttkernel::TensorAccessorIsLocalAddrOp>,
+        TTKernelClassMethodRewriter<ttkernel::TensorAccessorIsLocalPageOp>,
+        TTKernelClassMethodRewriter<ttkernel::TensorAccessorIsLocalShardOp>,
+        TTKernelClassMethodRewriter<
+            ttkernel::InterleavedAddrGenFastGetNocAddrOp>>(typeConverter,
+                                                           funcOp.getContext());
 
     patterns.add<ArithFloorDivRewriter>(typeConverter, funcOp.getContext());
 
