@@ -18,7 +18,11 @@
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 
+#include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
+#include "mlir/Dialect/Linalg/Utils/Utils.h"
+#include "mlir/Dialect/SparseTensor/IR/SparseTensor.h"
+#include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/Dialect/Utils/StructuredOpsUtils.h"
 #include "mlir/IR/AffineExpr.h"
 #include "mlir/IR/AffineMap.h"
@@ -1068,6 +1072,562 @@ class D2MMeshShardOpRewriter : public OpConversionPattern<ttir::MeshShardOp> {
   }
 };
 
+// Gather op conversion.
+// The ttir gather op conversion has been adapted from
+// https://github.com/openxla/stablehlo/blob/4c0d4841519aed22e3689c30b72a0e4228051249/stablehlo/conversions/linalg/transforms/StablehloLegalizeToLinalg.cpp#L1766.
+
+/*
+Example test case
+ttmlir-opt --mlir-print-ir-after-all --ttir-to-ttmetal-pipeline
+
+module {
+  func.func public @test_gather_0(%arg0: tensor<32000x1024xf32>, %arg1: tensor<1x32xi32>) -> tensor<1x32x1024xf32> {
+    %0 = ttir.empty() : tensor<1x32x1024xf32>
+    %1 = "ttir.gather"(%arg0, %arg1, %0) <{collapsed_slice_dims = array<i64: 0>, index_vector_dim = 2 : si64, indices_are_sorted = false, offset_dims = array<i64: 2>, operand_batching_dims = array<i64>, slice_sizes = array<i64: 1, 1024>, start_index_map = array<i64: 0>, start_indices_batching_dims = array<i64>}> : (tensor<32000x1024xf32>, tensor<1x32xi32>, tensor<1x32x1024xf32>) -> tensor<1x32x1024xf32>
+    return %1 : tensor<1x32x1024xf32>
+  }
+}
+
+func.func public @test_gather_0(%arg0: tensor<32000x1024xf32>, %arg1: tensor<1x32xi32>) -> tensor<1x32x1024xf32> {
+  %0 = d2m.empty() : tensor<1x32x1024xf32>
+  %1 = d2m.empty() : tensor<1x1x32000x1024xf32, #ttcore.metal_layout<logical_shape = 32000x1024, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, dram>>
+  %2 = d2m.to_layout %arg0, %1 : tensor<32000x1024xf32> into tensor<1x1x32000x1024xf32, #ttcore.metal_layout<logical_shape = 32000x1024, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, dram>> -> tensor<1x1x32000x1024xf32, #ttcore.metal_layout<logical_shape = 32000x1024, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, dram>>
+  %3 = d2m.empty() : tensor<1x1x1x32xi32, #ttcore.metal_layout<logical_shape = 1x32, dim_alignments = 32x1, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, dram>>
+  %4 = d2m.to_layout %arg1, %3 : tensor<1x32xi32> into tensor<1x1x1x32xi32, #ttcore.metal_layout<logical_shape = 1x32, dim_alignments = 32x1, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, dram>> -> tensor<1x1x1x32xi32, #ttcore.metal_layout<logical_shape = 1x32, dim_alignments = 32x1, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, dram>>
+  %5 = d2m.empty() : tensor<1x32x1024xf32>
+  %6 = d2m.empty() : tensor<1x1x32x1024xf32, #ttcore.metal_layout<logical_shape = 1x32x1024, dim_alignments = 1x32x1, collapsed_intervals = dense<[[0, 2], [2, 3]]> : tensor<2x2xi64>, undef, dram>>
+  %7 = d2m.to_layout %5, %6 : tensor<1x32x1024xf32> into tensor<1x1x32x1024xf32, #ttcore.metal_layout<logical_shape = 1x32x1024, dim_alignments = 1x32x1, collapsed_intervals = dense<[[0, 2], [2, 3]]> : tensor<2x2xi64>, undef, dram>> -> tensor<1x1x32x1024xf32, #ttcore.metal_layout<logical_shape = 1x32x1024, dim_alignments = 1x32x1, collapsed_intervals = dense<[[0, 2], [2, 3]]> : tensor<2x2xi64>, undef, dram>>
+  %8 = d2m.generic {block_factors = [1, 1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [affine_map<(d0, d1, d2) -> (0, 0)>, affine_map<(d0, d1, d2) -> (d0, d1)>, affine_map<(d0, d1, d2) -> (d1, d2)>], iterator_types = [#ttcore.iterator_type<parallel>, #ttcore.iterator_type<parallel>, #ttcore.iterator_type<parallel>], threads = [#d2m.thread<datamovement>]}
+      ins(%2, %4 : tensor<1x1x32000x1024xf32, #ttcore.metal_layout<logical_shape = 32000x1024, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, dram>>, tensor<1x1x1x32xi32, #ttcore.metal_layout<logical_shape = 1x32, dim_alignments = 32x1, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, dram>>)
+      outs(%7 : tensor<1x1x32x1024xf32, #ttcore.metal_layout<logical_shape = 1x32x1024, dim_alignments = 1x32x1, collapsed_intervals = dense<[[0, 2], [2, 3]]> : tensor<2x2xi64>, undef, dram>>)  {
+  ^datamovement0(%cb0: !d2m.cb<tensor<32000x1024xf32>, riscv_l1>, %cb1: !d2m.cb<tensor<1x32xi32>, riscv_l1>, %cb2: !d2m.cb<tensor<32x1024xf32>, riscv_l1>):
+    %11 = d2m.wait %cb0 : <tensor<32000x1024xf32>, riscv_l1> -> tensor<32000x1024xf32>
+    %12 = d2m.wait %cb1 : <tensor<1x32xi32>, riscv_l1> -> tensor<1x32xi32>
+    %13 = d2m.reserve %cb2 : <tensor<32x1024xf32>, riscv_l1> -> tensor<32x1024xf32>
+    affine.for %arg2 = 0 to 1 {
+      affine.for %arg3 = 0 to 32 {
+        affine.for %arg4 = 0 to 1024 {
+          %c0 = arith.constant 0 : index
+          %c1 = arith.constant 1 : index
+          %c2 = arith.constant 2 : index
+          %extracted = tensor.extract %12[%arg2, %arg3] : tensor<1x32xi32>
+          %14 = arith.index_cast %extracted : i32 to index
+          %c32000 = arith.constant 32000 : index
+          %15 = arith.subi %c32000, %c1 : index
+          %16 = arith.maxsi %c0, %14 : index
+          %17 = arith.minsi %16, %15 : index
+          %c2_0 = arith.constant 2 : index
+          %dim = tensor.dim %13, %c2_0 : tensor<32x1024xf32>
+          %18 = arith.addi %17, %c0 : index
+          %19 = arith.addi %18, %c0 : index
+          %20 = arith.addi %c0, %c0 : index
+          %21 = arith.addi %20, %arg4 : index
+          %22 = arith.muli %arg2, %arg3 : index
+          %tx = d2m.dma %11 [%19, %21], %13 [%22, %arg4] : (tensor<32000x1024xf32>, tensor<32x1024xf32>) -> !d2m.mem_tx
+          d2m.dma_wait %tx
+        }
+      }
+    }
+    d2m.yield %13 : (tensor<32x1024xf32>)
+  } : tensor<1x1x32x1024xf32, #ttcore.metal_layout<logical_shape = 1x32x1024, dim_alignments = 1x32x1, collapsed_intervals = dense<[[0, 2], [2, 3]]> : tensor<2x2xi64>, undef, dram>>
+  %9 = d2m.empty() : tensor<1x32x1024xf32>
+  %10 = d2m.to_layout %8, %9 : tensor<1x1x32x1024xf32, #ttcore.metal_layout<logical_shape = 1x32x1024, dim_alignments = 1x32x1, collapsed_intervals = dense<[[0, 2], [2, 3]]> : tensor<2x2xi64>, undef, dram>> into tensor<1x32x1024xf32> -> tensor<1x32x1024xf32>
+  return %10 : tensor<1x32x1024xf32>
+*/
+
+/*
+The general algorithm is as follows:
+The goal is to lower ttir.gather into d2m.generic op.
+
+We first insert necessary layout conversions for the input operand, start_indices and output tensor.
+All these will be collapsed into 2D tensors and live in dram memory space.
+
+Then we create the d2m.generic op
+This will be 1x1 grid
+Operand, start_indices and the output tensor will all be inputs into the d2m.generic op.
+However, operand iteration space does not overlap with any parts of the start_indices or output tensor iteration space.
+Thus, we will "broadcast" the operand across the start_indices and output tensor iteration space.
+
+Next, we want to fill the body of the d2m.generic op.
+We will use the algorithm found on stablehlo operations page: https://openxla.org/stablehlo/spec#gather
+The general idea is to iterate over the output tensor space, and for each index in the output tensor, we map
+the output index to some input index.
+Then we copy the value found at that input index to the output index.
+
+Finally, we need to insert layout conversions for the output of the d2m.generic op to match the original output type.
+We insert a dma op at this location to bring in the data from dram into the core.
+A future optimization is to check the "slice_sizes" (which will correspond to the inner most loop of the affine loops)
+and do a coleasced read using the dma.
+*/
+
+Value extractIndexFromTensor(OpBuilder& builder, Location loc, Value tensor,
+                             ShapedType originalType,
+                             ArrayRef<Value> tensorIndex = {}) {
+  Value extracted = builder.create<mlir::tensor::ExtractOp>(loc, tensor, tensorIndex);
+  if (extracted.getType().isIndex()) return extracted;
+  return originalType.getElementType().isUnsignedInteger()
+             ? builder.createOrFold<arith::IndexCastUIOp>(
+                   loc, builder.getIndexType(), extracted)
+             : builder.createOrFold<arith::IndexCastOp>(
+                   loc, builder.getIndexType(), extracted);
+}
+
+Value getEmptySparseTensor(OpBuilder& builder, Location loc, ShapedType type,
+                           ArrayRef<Value> dynSizes) {
+  auto allocTensor = builder.create<bufferization::AllocTensorOp>(
+    loc,
+    llvm::cast<TensorType>(type),
+    dynSizes,
+    /*copy=*/Value(),
+    /*memory_space=*/IntegerAttr());
+  return allocTensor;
+}
+
+Value getEmptyTensor(OpBuilder& builder, Location loc, ShapedType type,
+                     ArrayRef<Value> dynSizes) {
+    auto empty = builder.create<d2m::EmptyOp>(
+      loc,
+      type.getShape(),
+      type.getElementType());
+  return empty;
+}
+
+Value getEmptyTensorFor(OpBuilder& builder, Location loc, ShapedType resultType,
+                        Operation* op, ValueRange operands) {
+  bool isSparse = mlir::sparse_tensor::getSparseTensorEncoding(resultType) != nullptr;
+  // Collect the sizes for a ranked tensor to be passed as parameter to a
+  // new tensor initialization operation. This operation only needs the
+  // dynamic sizes.
+  SmallVector<Value> sizes;
+  if (!resultType.hasStaticShape()) {
+    // Ask the op for its output shape.
+    auto shapeSource = cast<InferShapedTypeOpInterface>(op);
+    SmallVector<Value, 1> reifiedShapes;
+    if (failed(shapeSource.reifyReturnTypeShapes(builder, operands, reifiedShapes))) {
+      llvm::report_fatal_error("could not reify");
+    }
+    assert(reifiedShapes.size() == 1 && "Expected one reified result");
+    // Construct sizes for the required dimensions.
+    for (const auto& en : llvm::enumerate(resultType.getShape())) {
+      if (en.value() != ShapedType::kDynamic) continue;
+      Value idx = builder.create<arith::ConstantIndexOp>(loc, en.index());
+      Value extracted = builder.create<tensor::ExtractOp>(loc, reifiedShapes[0], ValueRange{idx});
+      sizes.push_back(extracted);
+    }
+  }
+  return isSparse ? getEmptySparseTensor(builder, loc, resultType, sizes)
+                  : getEmptyTensor(builder, loc, resultType, sizes);
+}
+
+class D2MGatherOpRewriter : public OpConversionPattern<ttir::GatherOp> {
+  using OpConversionPattern<ttir::GatherOp>::OpConversionPattern;
+  LogicalResult
+  matchAndRewrite(ttir::GatherOp gatherOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    mlir::OpBuilder builder(getContext());
+    builder.setInsertionPointAfter(gatherOp);
+    Location loc = gatherOp.getLoc();
+
+    // 1) Get all the necessary values/types/attributes
+    Value startIndices = adaptor.getStartIndices();
+    Value operand = adaptor.getInput();
+
+    RankedTensorType operandType = getTypeConverter()->convertType<RankedTensorType>(operand.getType());
+    RankedTensorType startIndicesType = getTypeConverter()->convertType<RankedTensorType>(startIndices.getType());
+    RankedTensorType resultType = getTypeConverter()->convertType<RankedTensorType>(gatherOp.getType());
+
+    int64_t resultRank = resultType.getRank();
+    // slice_sizes has to have the same size as operand.rank, and doing it this
+    // way permits an unranked operand.
+    int64_t operandRank = gatherOp.getSliceSizes().size();
+    int64_t indexVectorDim = gatherOp.getIndexVectorDim();
+    ArrayRef<int64_t> offsetDims =
+        gatherOp.getOffsetDims();
+    ArrayRef<int64_t> collapsedSliceDims =
+        gatherOp.getCollapsedSliceDims();
+    ArrayRef<int64_t> operandBatchingDims =
+        gatherOp.getOperandBatchingDims();
+    ArrayRef<int64_t> startIndicesBatchingDims =
+        gatherOp.getStartIndicesBatchingDims();
+    ArrayRef<int64_t> startIndexMap =
+        gatherOp.getStartIndexMap();
+
+    // 2) Insert to metal layout conversions for operand/indices/output
+
+    // Insert to metal layout conversion for the operand.
+    auto i64Ty = builder.getI64Type();
+    auto intervalTy = RankedTensorType::get({2, 2}, i64Ty);
+    llvm::SmallVector<int64_t> dimAlignments(operandType.getShape().size(), 1);
+    dimAlignments[dimAlignments.size() - 1] = 32;
+    dimAlignments[dimAlignments.size() - 2] = 32;
+
+    auto dataOperand = llvm::SmallVector<int64_t, 4>{0, 1, 1, 2};
+    DenseIntElementsAttr collapsedIntervalsOperand = DenseIntElementsAttr::get(intervalTy, llvm::ArrayRef<int64_t>(dataOperand));
+    
+    auto metalLayout = ttcore::MetalLayoutAttr::get(
+      getContext(), operandType.getShape(), ttcore::OOBVal::Undef,
+      ttcore::MemorySpace::DeviceDRAM, ttcore::TensorMemoryLayout::Sharded, collapsedIntervalsOperand, dimAlignments);
+
+    llvm::SmallVector<int64_t> operandShape = {1, 1};
+    operandShape.append(operandType.getShape().begin(),
+                        operandType.getShape().end());
+
+    auto empty = builder.create<d2m::EmptyOp>(
+      loc,
+      operandShape,
+      operandType.getElementType(),
+      metalLayout);
+
+    auto operandLayoutOp = builder.create<d2m::ToLayoutOp>(loc, operand, empty, nullptr);
+
+    // Insert to metal layout conversion for the indices.
+    llvm::SmallVector<int64_t> indexDimAlignments(startIndicesType.getShape().size(), 1);
+    indexDimAlignments[indexDimAlignments.size() - 1] = 1;
+    indexDimAlignments[indexDimAlignments.size() - 2] = 32;
+
+    auto dataIndices = llvm::SmallVector<int64_t, 4>{0, 1, 1, 2};
+    DenseIntElementsAttr collapsedIntervalsIndices = DenseIntElementsAttr::get(intervalTy, llvm::ArrayRef<int64_t>(dataIndices));
+
+    auto indexMetalLayout = ttcore::MetalLayoutAttr::get(
+      getContext(), startIndicesType.getShape(), ttcore::OOBVal::Undef,
+      ttcore::MemorySpace::DeviceDRAM, ttcore::TensorMemoryLayout::Sharded, collapsedIntervalsIndices, indexDimAlignments);
+
+      llvm::SmallVector<int64_t> startIndicesShape = {1, 1};
+      startIndicesShape.append(startIndicesType.getShape().begin(),
+                          startIndicesType.getShape().end());
+
+    auto indexEmpty = builder.create<d2m::EmptyOp>(
+      loc,
+      startIndicesShape,
+      startIndicesType.getElementType(),
+      indexMetalLayout);
+
+    auto startIndicesLayoutOp = builder.create<d2m::ToLayoutOp>(loc, startIndices, indexEmpty, nullptr);
+
+    // Create the output tensor
+    llvm::SmallVector<int64_t> resultDimAlignments(resultType.getShape().size(), 1);
+    resultDimAlignments[resultDimAlignments.size() - 1] = 1;
+    resultDimAlignments[resultDimAlignments.size() - 2] = 32;
+    resultDimAlignments[resultDimAlignments.size() - 2] = 32;
+
+    auto dataResult = llvm::SmallVector<int64_t, 4>{0, 2, 2, 3};
+    DenseIntElementsAttr collapsedIntervalsResult = DenseIntElementsAttr::get(intervalTy, llvm::ArrayRef<int64_t>(dataResult));
+
+    auto resultMetalLayout = ttcore::MetalLayoutAttr::get(
+      getContext(), resultType.getShape(), ttcore::OOBVal::Undef,
+      ttcore::MemorySpace::DeviceDRAM, ttcore::TensorMemoryLayout::Sharded, collapsedIntervalsResult, resultDimAlignments);
+
+    Value emptyOp = getEmptyTensorFor(builder, loc, resultType, gatherOp,adaptor.getOperands());
+    llvm::SmallVector<int64_t> resultShape = {1};
+    resultShape.append(resultType.getShape().begin(),
+                          resultType.getShape().end());
+
+    auto resultEmpty = builder.create<d2m::EmptyOp>(
+      loc,
+      resultShape,
+      resultType.getElementType(),
+      resultMetalLayout);
+
+    auto resultIndicesLayoutOp = builder.create<d2m::ToLayoutOp>(loc, emptyOp, resultEmpty, nullptr);
+
+    // 3) Create the d2m.generic op
+    
+    // Define a 1x1 grid
+    tt::ttcore::GridAttr grid = ttcore::GridAttr::get(getContext(), llvm::SmallVector<int64_t, 4>{1, 1});
+    unsigned numDims = 3;
+    unsigned numSymbols = 0;
+
+    // We define 3 iterators, one for operand, one for start_indices and one for result
+
+    // Operand iteration space does not participate in iteration space of d2m.generic op, so we "broadcast" it
+    // affine_map<(d0, d1, d2) -> (0, 0)>
+    auto map1 = AffineMap::get(numDims, numSymbols,
+      {builder.getAffineConstantExpr(0), builder.getAffineConstantExpr(0)},
+      builder.getContext());
+
+    // Start indices iteration space does participate in iteration space of d2m.generic op
+    // affine_map<(d0, d1, d2) -> (d0, d1)>
+    auto map2 = AffineMap::get(numDims, numSymbols,
+      {builder.getAffineDimExpr(0), builder.getAffineDimExpr(1)},
+      builder.getContext());
+
+    // Result indices iteration space does participate in iteration space of d2m.generic op
+    // Since we collapsed dimensions to 2D, we use the last 2 iterators
+    // affine_map<(d0, d1, d2) -> (d1, d2)>
+    auto map3 = AffineMap::get(numDims, numSymbols,
+      {builder.getAffineDimExpr(1), builder.getAffineDimExpr(2)},
+      builder.getContext());
+
+    SmallVector<AffineMap, 3> maps = {map1, map2, map3};
+    auto mapArrayAttr = builder.getAffineMapArrayAttr(maps);
+
+    // Define parallel iterator types, since no reduction is involved here
+    mlir::tt::ttcore::IteratorTypeAttr attr0 = mlir::tt::ttcore::IteratorTypeAttr::get(getContext(), mlir::tt::ttcore::IteratorType::Parallel);
+    mlir::tt::ttcore::IteratorTypeAttr attr1 = mlir::tt::ttcore::IteratorTypeAttr::get(getContext(), mlir::tt::ttcore::IteratorType::Parallel);
+    mlir::tt::ttcore::IteratorTypeAttr attr2 = mlir::tt::ttcore::IteratorTypeAttr::get(getContext(), mlir::tt::ttcore::IteratorType::Parallel);
+    llvm::SmallVector<mlir::tt::ttcore::IteratorTypeAttr, 3> iteratorArrayAttr = {attr0, attr1, attr2};
+    llvm::SmallVector<mlir::Attribute, 3> iteratorAttrs(iteratorArrayAttr.begin(), iteratorArrayAttr.end());
+    mlir::ArrayAttr iteratorArrayAttrList = mlir::ArrayAttr::get(getContext(), iteratorAttrs);
+    llvm::SmallVector<int64_t, 4> blockFactors = {1, 1, 1};
+
+    llvm::SmallVector<Value> genericOpInputs = {operandLayoutOp.getResult(0), startIndicesLayoutOp.getResult(0)};
+    llvm::SmallVector<Value> genericOpOutputs = {resultIndicesLayoutOp.getResult(0)};
+
+    // All cb's live in riscv l1 memory
+    // ex: d2m.cb<tensor<32000x1024xf32>, riscv_l1>
+    llvm::SmallVector<ttcore::MemorySpace> blockArgumentMemorySpaces = {
+      ttcore::MemorySpace::DeviceRiscvL1,
+      ttcore::MemorySpace::DeviceRiscvL1,
+      ttcore::MemorySpace::DeviceRiscvL1
+    };
+    
+    // Create the d2m.generic op
+    auto genericOp = builder.create<d2m::GenericOp>(
+      loc, 
+      genericOpInputs, 
+      genericOpOutputs, 
+      mapArrayAttr, 
+      iteratorArrayAttrList, 
+      [&](OpBuilder &builder, Location bodyLoc, ValueRange blockArgs) {
+      },
+      blockArgumentMemorySpaces,
+      d2m::ThreadType::Datamovement,
+      grid, 
+      blockFactors
+    );
+
+    // Create the output to_layout op to convert back to ttir layout
+    auto finalOutput = builder.create<d2m::EmptyOp>(
+      loc,
+      resultType.getShape(),
+      resultType.getElementType());
+    auto toLayoutOp = builder.create<d2m::ToLayoutOp>(loc, genericOp.getResult(0), finalOutput, nullptr);
+
+    // 4) Fill in the body of d2m.generic op
+    // During this stage, we will develop the affine loops and index calculations to get the input index value which maps to an output index value
+    // We will then update the output tensor at the output index with the value from input tensor at the calculated input index
+
+    // Get inside the d2m generic op body
+    Region &region = genericOp.getRegion(0);
+    Block &block = region.front();
+    OpBuilder::InsertionGuard guard(rewriter); 
+    builder.setInsertionPointToEnd(&block);
+
+    Value blockOperand = block.getArgument(0);
+    Value blockIndex = block.getArgument(1);
+    Value blockOutput = block.getArgument(2);
+
+    auto blockOperandWaitOp = builder.create<d2m::WaitOp>(loc, blockOperand);
+    auto blockIndexWaitOp = builder.create<d2m::WaitOp>(loc, blockIndex);
+    auto blockOutputReserveOp = builder.create<d2m::ReserveOp>(loc, blockOutput);
+   
+    // Create affine loops for each result dimension
+    SmallVector<Value> ivs;
+    // Verify all static before using affine.for
+    for (int64_t i = 0; i < resultRank; ++i) {
+      int64_t dim = resultType.getDimSize(i);
+      auto loop = builder.create<mlir::affine::AffineForOp>(loc, 0, dim);
+      builder.setInsertionPointToStart(loop.getBody());
+      ivs.push_back(loop.getInductionVar());
+    }
+
+    /*
+    batch_dims = [d for d in axes(result) and d not in offset_dims]
+    */
+    // Dimensions in the result that aren't offset dimensions are called batch.
+    SmallVector<int64_t> batchDims;
+    for (int64_t dim = 0; dim < resultRank; ++dim) {
+      if (!llvm::is_contained(offsetDims, dim)) {
+        batchDims.push_back(dim);
+      }
+    }
+
+    // We'll need these later and creating them on demand we end up with
+    // duplicates.
+    SmallVector<Value> constants;
+    for (int64_t i = 0, e = std::max({resultRank, operandRank, int64_t{2}}); i < e; ++i) {
+      auto constOp = builder.create<mlir::arith::ConstantOp>(loc, rewriter.getIndexAttr(i));
+      constants.push_back(constOp);
+    }
+
+    // Now the complicated part. For a given output dimension we build up an
+    // index into the input. It's composed of two parts: the index coming from
+    // start_indices, and the offset from that index along the offset
+    // dimensions. Everything includes dimension shuffling and remapping as well
+    // because of the way gather is defined to allow for any-layout input by
+    // adding more attributes.
+
+    /*
+    batch_index = result_index[batch_dims...]
+    */
+    // The base gather index (`G` in the documentation) points to a place in
+    // start_indices along the batch dimensions.
+    SmallVector<Value> gatherIndex;
+    for (int64_t dim : batchDims) {
+      gatherIndex.push_back(ivs[dim]);
+    }
+
+    /*
+    start_index is defined as:
+    start_indices[bi0, ..., :, ..., biN] where bi are individual elements in batch_index and : is inserted at the index_vector_dim index, if index_vector_dim < rank(start_indices).
+    [start_indices[batch_index]] otherwise.
+    */
+    SmallVector<Value> indexFromStartIndices;
+    for (size_t i = 0, e = startIndexMap.size(); i != e; ++i) {
+      // The index along the index_vector dimension of start_indices varies.
+      // Basically indexFromStartIndices indexes into a "row" along
+      // index_vector_dim, where the row is selected by the current output
+      // index.
+      // But if index_vector_dim is equal to start_indices.rank, then
+      // start_indices gets a trailing 1 dimension added. So the row we're
+      // extracting always has length 1 and the index into it is always 0, so we
+      // just use the gather index directly
+      SmallVector<Value> gCombine(gatherIndex);
+      if (indexVectorDim != startIndicesType.getRank()) {
+        assert(indexVectorDim <= static_cast<int64_t>(gCombine.size()));
+        gCombine.insert(gCombine.begin() + indexVectorDim, constants[i]);
+      }
+
+      indexFromStartIndices.push_back(extractIndexFromTensor(
+          builder, loc, blockIndexWaitOp.getResult(), gatherOp.getStartIndices().getType(),
+          gCombine));
+    }
+
+    /*
+    For d_operand in axes(operand),
+    full_start_index[d_operand] = clamp(start_index[d_start], 0, dim(operand, d_operand) - slice_sizes[d_operand]) if d_operand = start_index_map[d_start].
+    full_start_index[d_operand] = 0 otherwise.
+    */
+    // But then start indices are shuffled by the start index map. To make a
+    // full index into the operand, all missing indices are zeroes.
+    SmallVector<Value> remappedIndexFromIndices(operandRank, constants[0]);
+    for (auto [idx, value] : llvm::enumerate(startIndexMap)) {
+      remappedIndexFromIndices[value] = indexFromStartIndices[idx];
+    }
+
+    /*
+    For d_operand in axes(operand),
+    full_batching_index[d_operand] = batch_index[d_start - (d_start < index_vector_dim ? 0 : 1)] if d_operand = operand_batching_dims[i_batching] and d_start = start_indices_batching_dims[i_batching].
+    full_batching_index[d_operand] = 0 otherwise.
+    */
+    // Now we construct the index based on the operand/start_indices batching
+    // dimensions.
+    SmallVector<Value> indexFromBatching(operandRank, constants[0]);
+    for (auto [operandDim, indicesDim] :
+          llvm::zip_equal(operandBatchingDims, startIndicesBatchingDims)) {
+      indexFromBatching[operandDim] =
+          gatherIndex[indicesDim + (indicesDim < indexVectorDim ? 0 : 1)];
+    }
+
+    /*
+    offset_index = result_index[offset_dims...]
+    */
+    auto isCollapsedOrBatching = [&](int64_t dim) {
+      return llvm::is_contained(collapsedSliceDims, dim) ||
+              llvm::is_contained(operandBatchingDims, dim);
+    };
+
+    // Now we construct the index based on the offset. First we need to remap
+    // the offset dimensions by dropping the collapsed/batching indices.
+    SmallVector<unsigned> remappedOffsetDims;
+    for (int64_t i = 0; i < operandRank; ++i) {
+      if (!isCollapsedOrBatching(i)) {
+        remappedOffsetDims.push_back(static_cast<unsigned>(i));
+      }
+    }
+    assert(remappedOffsetDims.size() == offsetDims.size());
+
+    // Clamp out of bounds indices.
+    for (int i = 0, operandIndexDim = 0; i < operandRank; ++i) {
+      // Compute the size of the output shape dimension corresponding to this
+      // index dimension. If it's collapsed set it to 1.
+      Value outputDimSize = constants[1];
+      if (!isCollapsedOrBatching(i)) {
+        outputDimSize = builder.create<mlir::tensor::DimOp>(
+            loc, blockOutputReserveOp.getResult(), offsetDims[operandIndexDim++]);
+      }
+
+      // If this is a skipped dimension, we're done and don't have to clamp.
+      if (remappedIndexFromIndices[i] == constants[0]) continue;
+      d2m::CBType thisType = mlir::cast<d2m::CBType>(blockOperand.getType());
+      
+      Value operandDimSize = builder.create<mlir::arith::ConstantOp>(
+          loc, builder.getIndexAttr(thisType.getShape()[i]));
+
+
+      Value largestValidIndex = builder.create<mlir::arith::SubIOp>(
+          loc, operandDimSize, outputDimSize);
+
+      // Clamp indices to [0, i, operand_dim-output_dim].
+      Value clamp = builder.create<mlir::arith::MinSIOp>(
+          loc,
+          builder.create<mlir::arith::MaxSIOp>(
+              loc, constants[0], remappedIndexFromIndices[i]),
+          largestValidIndex);
+      remappedIndexFromIndices[i] = clamp;
+    }
+
+    /*
+    full_offset_index = [oi0, ..., 0, ..., oiN] where oi are individual elements in offset_index, and 0 is inserted at indices from collapsed_slice_dims and operand_batching_dims.
+    */
+    // For the (remapped) offset dimensions, the index is the current index in
+    // the output. As before this is expanded to a full index into the operand
+    // by using zeros for the missing indices.
+    SmallVector<Value> indexFromOffset(operandRank, constants[0]);
+    for (auto [remappedOffsetDim, offsetDim] :
+          llvm::zip_equal(remappedOffsetDims, offsetDims)) {
+      indexFromOffset[remappedOffsetDim] = ivs[offsetDim];
+    }
+
+    /*
+    operand_index = full_start_index + full_batching_index + full_offset_index
+    */
+    // Now we add together our three indices to get the final index into the
+    // operand.
+    SmallVector<Value> combinedIndex;
+    for (int64_t i = 0; i < operandRank; ++i)
+      combinedIndex.push_back(builder.create<mlir::arith::AddIOp>(
+          loc, rewriter.getIndexType(),
+          builder.create<mlir::arith::AddIOp>(loc, rewriter.getIndexType(),
+                                                remappedIndexFromIndices[i],
+                                                indexFromBatching[i]),
+          indexFromOffset[i]));
+    
+    // 5) Create the DMA ops to read from operand and write to output
+    Value extractOperand;
+    if (isa<RankedTensorType>(operand.getType())) {
+      extractOperand = blockOperandWaitOp.getResult();
+    } else {
+      // Cannot extract from unranked tensors, cast to ranked first.
+      SmallVector<int64_t> dims(operandRank, ShapedType::kDynamic);
+      auto type = RankedTensorType::get(
+          dims, cast<TensorType>(operand.getType()).getElementType());
+      extractOperand = builder.create<mlir::tensor::CastOp>(loc, type, blockOperandWaitOp.getResult());
+    }
+
+    SmallVector<Value> finalIVs;
+    if (ivs.size() > 2) {
+      Value collapsedLeading = ivs.front();
+      for (size_t i = 1; i < ivs.size() - 1; ++i) {
+        collapsedLeading = builder.create<arith::MulIOp>(loc, collapsedLeading, ivs[i]);
+      }
+
+      Value lastDim = ivs.back();
+      finalIVs.push_back(collapsedLeading);
+      finalIVs.push_back(lastDim);
+    }
+
+    auto dmaOp = builder.create<d2m::DMAOp>(loc, extractOperand, combinedIndex, blockOutputReserveOp.getResult(), finalIVs);
+    builder.create<d2m::DMAWaitOp>(loc, dmaOp);
+
+    builder.setInsertionPointToEnd(&block);
+    builder.create<d2m::YieldOp>(loc, blockOutputReserveOp.getResult());
+    
+    rewriter.replaceOp(gatherOp, toLayoutOp.getResult(0));
+    return success();
+  }
+};
+
 } // namespace mlir::tt
 
 namespace mlir::tt {
@@ -1131,6 +1691,9 @@ void populateTTIRToD2MPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
 
   // Matmul.
   patterns.add<D2MMatmulRewriter<d2m::TileMatmulOp>>(typeConverter, ctx, defaultInputMemSpace, defaultOutputMemSpace,  ttnnMode, collapseTensors);
+
+  // Gather
+  patterns.add<D2MGatherOpRewriter>(typeConverter, ctx);
 
   // clang-format on
 }
