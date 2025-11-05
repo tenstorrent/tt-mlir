@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt -ttir-fusing -ttir-to-ttir-decomposition -ttir-fusing -o %t %s
+// RUN: ttmlir-opt -ttir-fusing -ttir-to-ttir-decomposition -ttir-implicit-broadcast-fold -ttir-fusing -o %t %s
 // RUN: FileCheck %s --input-file=%t
 
 // Test for bge-m3 model attention layer.
@@ -19,22 +19,23 @@ module {
 
     // Concatenate Q, K, V biases:
     // CHECK: "ttir.concat"
-    // CHECK-SAME: <{dim = 1 : si32}>
-    // CHECK-SAME: (tensor<68x1024xf32>, tensor<68x1024xf32>, tensor<68x1024xf32>, tensor<68x3072xf32>) -> tensor<68x3072xf32>
+    // CHECK-SAME: <{dim = 2 : si32}>
+    // CHECK-SAME: (tensor<1x1x1024xf32>, tensor<1x1x1024xf32>, tensor<1x1x1024xf32>, tensor<1x1x3072xf32>) -> tensor<1x1x3072xf32>
 
     // Linear Q, K, V projections with concatenated bias:
     // CHECK: "ttir.linear"
-    // CHECK-SAME: (tensor<68x1024xf32>, tensor<1024x3072xf32>, tensor<68x3072xf32>, tensor<68x3072xf32>) -> tensor<68x3072xf32>
+    // CHECK-SAME:  <{transpose_a = false, transpose_b = false}>
+    // CHECK-SAME: (tensor<68x1024xf32>, tensor<1024x3072xf32>, tensor<1x1x3072xf32>, tensor<1x68x3072xf32>) -> tensor<1x68x3072xf32>
 
-    // Check reshape [batch*seq, hidden*3] to [batch, seq, hidden*3]
+    // Check that linear op is reshaped.
     // CHECK: "ttir.reshape"
-    // CHECK-SAME: (tensor<68x3072xf32>, tensor<2x34x3072xf32>) -> tensor<2x34x3072xf32>
+    // CHECK-SAME: <{shape = [2 : i32, 34 : i32, 3072 : i32]}>
+    // CHECK-SAME: (tensor<1x68x3072xf32>, tensor<2x34x3072xf32>) -> tensor<2x34x3072xf32>
 
     // Split Q, K, V heads:
     // CHECK: "ttir.split_query_key_value_and_split_heads"
     // CHECK-SAME: <{num_heads = 16 : ui32, transpose_key = true}>
     // CHECK-SAME: (tensor<2x34x3072xf32>, tensor<2x16x34x64xf32>, tensor<2x16x64x34xf32>, tensor<2x16x34x64xf32>) -> (tensor<2x16x34x64xf32>, tensor<2x16x64x34xf32>, tensor<2x16x34x64xf32>)
-
 
     // Reshape input to 2D for linear operations
     %0 = ttir.empty() : tensor<68x1024xf32>
@@ -196,30 +197,27 @@ module {
 
     // Concatenate Q, K, V weights:
     // CHECK: "ttir.concat"
-    // CHECK-SAME: <{dim = 1 : si32}>
+    // CHECK-SAME:  <{dim = 1 : si32}>
     // CHECK-SAME: (tensor<768x768xbf16>, tensor<768x768xbf16>, tensor<768x768xbf16>, tensor<768x2304xbf16>) -> tensor<768x2304xbf16>
 
     // Concatenate Q, K, V biases:
     // CHECK: "ttir.concat"
-    // CHECK-SAME: <{dim = 1 : si32}>
-    // CHECK-SAME: (tensor<128x768xbf16>, tensor<128x768xbf16>, tensor<128x768xbf16>, tensor<128x2304xbf16>) -> tensor<128x2304xbf16>
+    // CHECK-SAME: <{dim = 2 : si32}>
+    // CHECK-SAME: (tensor<1x1x768xbf16>, tensor<1x1x768xbf16>, tensor<1x1x768xbf16>, tensor<1x1x2304xbf16>) -> tensor<1x1x2304xbf16>
 
     // Linear Q, K, V projections with concatenated bias:
     // CHECK: "ttir.linear"
-    // CHECK-SAME: (tensor<128x768xbf16>, tensor<768x2304xbf16>, tensor<128x2304xbf16>, tensor<128x2304xbf16>) -> tensor<128x2304xbf16>
-
-    // Check reshape [batch*seq, hidden*3] to [batch, seq, hidden*3]
-    // CHECK: "ttir.reshape"
-    // CHECK-SAME: (tensor<128x2304xbf16>, tensor<1x128x2304xbf16>) -> tensor<1x128x2304xbf16>
-
-    // Reshape input to 2D for linear operations
-    %0 = ttir.empty() : tensor<128x768xbf16>
-    %1 = "ttir.reshape"(%arg0, %0) <{shape = [128 : i32, 768 : i32]}> : (tensor<1x128x768xbf16>, tensor<128x768xbf16>) -> tensor<128x768xbf16>
+    // CHECK-SAME: <{transpose_a = false, transpose_b = false}>
+    // CHECK-SAME: (tensor<128x768xbf16>, tensor<768x2304xbf16>, tensor<1x1x2304xbf16>, tensor<1x128x2304xbf16>) -> tensor<1x128x2304xbf16>
 
     // Split Q, K, V heads:
     // CHECK: "ttir.split_query_key_value_and_split_heads"
     // CHECK-SAME: <{num_heads = 12 : ui32, transpose_key = true}>
     // CHECK-SAME: (tensor<1x128x2304xbf16>, tensor<1x12x128x64xbf16>, tensor<1x12x64x128xbf16>, tensor<1x12x128x64xbf16>) -> (tensor<1x12x128x64xbf16>, tensor<1x12x64x128xbf16>, tensor<1x12x128x64xbf16>)
+
+    // Reshape input to 2D for linear operations
+    %0 = ttir.empty() : tensor<128x768xbf16>
+    %1 = "ttir.reshape"(%arg0, %0) <{shape = [128 : i32, 768 : i32]}> : (tensor<1x128x768xbf16>, tensor<128x768xbf16>) -> tensor<128x768xbf16>
 
     // Query projection
     %2 = ttir.empty() : tensor<768x768xbf16>
@@ -356,5 +354,74 @@ module {
     %100 = "ttir.add"(%94, %98, %99) : (tensor<1x128x768xbf16>, tensor<1x128x768xbf16>, tensor<1x128x768xbf16>) -> tensor<1x128x768xbf16>
 
     return %100 : tensor<1x128x768xbf16>
+  }
+}
+
+module {
+  func.func @llama_attention(%arg0: tensor<1x32x4096xbf16>, // input [batch, seq, hidden]
+                             %arg1: tensor<4096x4096xbf16>, // query weight
+                             %arg2: tensor<4096x4096xbf16>, // key weight
+                             %arg3: tensor<4096x4096xbf16>) -> (tensor<1x32x32x128xbf16>, tensor<1x32x32x128xbf16>, tensor<1x32x32x128xbf16>)
+  {
+
+    // CHECK: func.func @llama_attention
+
+    // Concatenate Q, K, V weights:
+    // CHECK: "ttir.concat"
+    // CHECK-SAME: <{dim = 1 : si32}>
+    // CHECK-SAME: (tensor<4096x4096xbf16>, tensor<4096x4096xbf16>, tensor<4096x4096xbf16>, tensor<4096x12288xbf16>) -> tensor<4096x12288xbf16>
+
+    // Matmul Q, K, V projections with concatenated bias:
+    // CHECK: "ttir.matmul"
+    // CHECK-SAME: <{transpose_a = false, transpose_b = false}>
+    // CHECK-SAME: (tensor<32x4096xbf16>, tensor<4096x12288xbf16>, tensor<32x12288xbf16>) -> tensor<32x12288xbf16>
+
+    // Reshape matmul output.
+    // CHECK: "ttir.reshape"
+    // CHECK-SAME: <{shape = [1 : i32, 32 : i32, 12288 : i32]}>
+    // CHECK-SAME: (tensor<32x12288xbf16>, tensor<1x32x12288xbf16>) -> tensor<1x32x12288xbf16>
+
+    // Split Q, K, V heads:
+    // CHECK: "ttir.split_query_key_value_and_split_heads"
+    // CHECK-SAME: <{num_heads = 32 : ui32, transpose_key = false}>
+    // CHECK-SAME: (tensor<1x32x12288xbf16>, tensor<1x32x32x128xbf16>, tensor<1x32x32x128xbf16>, tensor<1x32x32x128xbf16>) -> (tensor<1x32x32x128xbf16>, tensor<1x32x32x128xbf16>, tensor<1x32x32x128xbf16>)
+
+    %0 = ttir.empty() : tensor<32x4096xbf16>
+    %1 = "ttir.reshape"(%arg0, %0) <{shape = [32 : i32, 4096 : i32]}> : (tensor<1x32x4096xbf16>, tensor<32x4096xbf16>) -> tensor<32x4096xbf16>
+
+    // Query head
+
+    %2 = ttir.empty() : tensor<4096x4096xbf16>
+    %3 = "ttir.permute"(%arg1, %2) <{permutation = array<i64: 1, 0>}> : (tensor<4096x4096xbf16>, tensor<4096x4096xbf16>) -> tensor<4096x4096xbf16>
+
+    %4 = "ttir.dot_general"(%1, %3) <{batch_dims_lhs = array<i64>, batch_dims_rhs = array<i64>, contract_dims_lhs = array<i64: 1>, contract_dims_rhs = array<i64: 0>}> : (tensor<32x4096xbf16>, tensor<4096x4096xbf16>) -> tensor<32x4096xbf16>
+    %5 = ttir.empty() : tensor<1x32x32x128xbf16>
+    %6 = "ttir.reshape"(%4, %5) <{shape = [1 : i32, 32 : i32, 32 : i32, 128 : i32]}> : (tensor<32x4096xbf16>, tensor<1x32x32x128xbf16>) -> tensor<1x32x32x128xbf16>
+    %7 = ttir.empty() : tensor<1x32x32x128xbf16>
+    %8 = "ttir.permute"(%6, %7) <{permutation = array<i64: 0, 2, 1, 3>}> : (tensor<1x32x32x128xbf16>, tensor<1x32x32x128xbf16>) -> tensor<1x32x32x128xbf16>
+
+    // Key head
+
+    %9 = ttir.empty() : tensor<4096x4096xbf16>
+    %10 = "ttir.permute"(%arg2, %9) <{permutation = array<i64: 1, 0>}> : (tensor<4096x4096xbf16>, tensor<4096x4096xbf16>) -> tensor<4096x4096xbf16>
+
+    %11 = "ttir.dot_general"(%1, %10) <{batch_dims_lhs = array<i64>, batch_dims_rhs = array<i64>, contract_dims_lhs = array<i64: 1>, contract_dims_rhs = array<i64: 0>}> : (tensor<32x4096xbf16>, tensor<4096x4096xbf16>) -> tensor<32x4096xbf16>
+    %12 = ttir.empty() : tensor<1x32x32x128xbf16>
+    %13 = "ttir.reshape"(%11, %12) <{shape = [1 : i32, 32 : i32, 32 : i32, 128 : i32]}> : (tensor<32x4096xbf16>, tensor<1x32x32x128xbf16>) -> tensor<1x32x32x128xbf16>
+    %14 = ttir.empty() : tensor<1x32x32x128xbf16>
+    %15 = "ttir.permute"(%13, %14) <{permutation = array<i64: 0, 2, 1, 3>}> : (tensor<1x32x32x128xbf16>, tensor<1x32x32x128xbf16>) -> tensor<1x32x32x128xbf16>
+
+    // Value head
+
+    %16 = ttir.empty() : tensor<4096x4096xbf16>
+    %17 = "ttir.permute"(%arg3, %16) <{permutation = array<i64: 1, 0>}> : (tensor<4096x4096xbf16>, tensor<4096x4096xbf16>) -> tensor<4096x4096xbf16>
+
+    %18 = "ttir.dot_general"(%1, %17) <{batch_dims_lhs = array<i64>, batch_dims_rhs = array<i64>, contract_dims_lhs = array<i64: 1>, contract_dims_rhs = array<i64: 0>}> : (tensor<32x4096xbf16>, tensor<4096x4096xbf16>) -> tensor<32x4096xbf16>
+    %19 = ttir.empty() : tensor<1x32x32x128xbf16>
+    %20 = "ttir.reshape"(%18, %19) <{shape = [1 : i32, 32 : i32, 32 : i32, 128 : i32]}> : (tensor<32x4096xbf16>, tensor<1x32x32x128xbf16>) -> tensor<1x32x32x128xbf16>
+    %21 = ttir.empty() : tensor<1x32x32x128xbf16>
+    %22 = "ttir.permute"(%20, %21) <{permutation = array<i64: 0, 2, 1, 3>}> : (tensor<1x32x32x128xbf16>, tensor<1x32x32x128xbf16>) -> tensor<1x32x32x128xbf16>
+
+    return %8, %15, %22 : tensor<1x32x32x128xbf16>, tensor<1x32x32x128xbf16>, tensor<1x32x32x128xbf16>
   }
 }
