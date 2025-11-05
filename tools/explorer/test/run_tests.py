@@ -378,10 +378,29 @@ def test_execute_and_check_perf_data_exists():
             except Exception as e:
                 print(f"DEBUG: Error checking artifacts: {e}")
 
+    # First, let's check the model_state on the server side
+    print(f"DEBUG: About to call convert_command_and_assert")
+    print(f"DEBUG: MNIST_SHARDING_PATH = {MNIST_SHARDING_PATH}")
+    
     result = convert_command_and_assert(MNIST_SHARDING_PATH)
     print(f"DEBUG: convert_command_and_assert completed successfully")
+    
+    # Read the debug log file created by tt_adapter
+    log_file = "/tmp/tt_adapter_convert_debug.log"
+    if os.path.exists(log_file):
+        print(f"\nDEBUG: Contents of {log_file}:")
+        with open(log_file, "r") as f:
+            print(f.read())
+    else:
+        print(f"DEBUG: Log file {log_file} does not exist")
     print(f"DEBUG: result type = {type(result)}")
     print(f"DEBUG: result keys = {result.keys() if isinstance(result, dict) else 'N/A'}")
+    
+    # Print the entire result for debugging
+    import json
+    print(f"DEBUG: Full result JSON (first 2000 chars):")
+    result_str = json.dumps(result, indent=2, default=str)
+    print(result_str[:2000])
 
     if isinstance(result, dict) and "graphs" in result:
         print(f"DEBUG: Number of graphs = {len(result['graphs'])}")

@@ -155,10 +155,27 @@ class TTAdapter(model_explorer.Adapter):
         self, model_path: str, settings: Dict
     ) -> model_explorer.ModelExplorerGraphs:
         import os
+        import logging
+        
+        # Log to file AND console
+        logging.basicConfig(level=logging.DEBUG)
+        logger = logging.getLogger(__name__)
+        
         optimized_model_path = self.model_runner.get_optimized_model_path(model_path)
-        print(f"DEBUG [Adapter.convert]: model_path = {model_path}")
-        print(f"DEBUG [Adapter.convert]: optimized_model_path = {optimized_model_path}")
-        print(f"DEBUG [Adapter.convert]: model_path in model_state = {model_path in self.model_runner.model_state}")
+        
+        # Write to log file for debugging subprocess issues
+        log_file = "/tmp/tt_adapter_convert_debug.log"
+        with open(log_file, "a") as f:
+            f.write(f"\n{'='*80}\n")
+            f.write(f"DEBUG [Adapter.convert]: model_path = {model_path}\n")
+            f.write(f"DEBUG [Adapter.convert]: optimized_model_path = {optimized_model_path}\n")
+            f.write(f"DEBUG [Adapter.convert]: model_path in model_state = {model_path in self.model_runner.model_state}\n")
+            f.write(f"DEBUG [Adapter.convert]: All model_state keys = {list(self.model_runner.model_state.keys())}\n")
+        
+        logger.info(f"DEBUG [Adapter.convert]: model_path = {model_path}")
+        logger.info(f"DEBUG [Adapter.convert]: optimized_model_path = {optimized_model_path}")
+        logger.info(f"DEBUG [Adapter.convert]: model_path in model_state = {model_path in self.model_runner.model_state}")
+        logger.info(f"DEBUG [Adapter.convert]: All model_state keys = {list(self.model_runner.model_state.keys())}")
         
         if model_path in self.model_runner.model_state:
             state = self.model_runner.model_state[model_path]
