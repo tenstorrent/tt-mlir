@@ -820,17 +820,25 @@ class GraphHandler:
             f.write(f"DEBUG [GraphHandler.build_graph]: perf_trace is {'None' if perf_trace is None else f'provided with {len(perf_trace)} rows'}\n")
         
         if perf_trace is not None:
-            for _, row in perf_trace.iterrows():
-                loc = parse_loc_string(row["LOC"])
+            skipped_rows = 0
+            for idx, row in perf_trace.iterrows():
+                loc_raw = row["LOC"]
+                loc = parse_loc_string(loc_raw)
                 if not loc:
+                    skipped_rows += 1
+                    with open(log_file, "a") as f:
+                        f.write(f"DEBUG [GraphHandler.build_graph]: Skipped row {idx}: LOC = '{loc_raw}'\n")
                     continue
-                # Force the full location here=,
+                # Force the full location here
                 loc = row["LOC"]
                 if loc not in self.loc_to_perf:
                     self.loc_to_perf[loc] = 0
                 self.loc_to_perf[loc] += row["DEVICE FW DURATION [ns]"]
             with open(log_file, "a") as f:
                 f.write(f"DEBUG [GraphHandler.build_graph]: Processed perf_trace, loc_to_perf has {len(self.loc_to_perf)} entries\n")
+                f.write(f"DEBUG [GraphHandler.build_graph]: Skipped {skipped_rows} rows due to LOC parse failures\n")
+                if len(self.loc_to_perf) > 0:
+                    f.write(f"DEBUG [GraphHandler.build_graph]: Sample loc_to_perf keys (first 3): {list(self.loc_to_perf.keys())[:3]}\n")
 
         if memory_trace is not None:
             for node in memory_trace:
