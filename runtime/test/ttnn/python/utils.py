@@ -68,7 +68,9 @@ class ProgramTestRunner:
 
         program = binary.get_program(program_index)
         assert not program.is_private()
-        assert program.num_inputs() == config.expected_num_inputs
+        assert (
+            program.num_inputs() == config.expected_num_inputs
+        ), f"Expected {config.expected_num_inputs} inputs, got {program.num_inputs()}"
         assert program.num_outputs() == 1, "Currently only single output is supported"
 
         self.config = config

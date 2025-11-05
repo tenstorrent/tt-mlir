@@ -21,9 +21,10 @@ from ..utils import (
     get_torch_inputs,
 )
 
-FLATBUFFER_BASE_PATH = (
-    f"{TT_MLIR_HOME}/build/test/ttmlir/Runtime/TTNN/n150/tensor_manipulation/Output"
-)
+FLATBUFFER_BASE_PATHS_AND_PROGRAMS = {
+    f"{TT_MLIR_HOME}/build/test/ttmlir/Runtime/TTNN/n150/trace/Output/mnist_linear_logits.mlir.tmp.ttnn": 5,
+    f"{TT_MLIR_HOME}/build/test/ttmlir/Runtime/TTNN/n150/tensor_manipulation/Output/linear.mlir.tmp.ttnn": 4,
+}
 
 
 def get_torch_tensor(tensor: ttrt.runtime.Tensor):
@@ -88,13 +89,15 @@ def is_callback_enabled():
 
 
 def test_intermidate_tensor_manipulation(helper: Helper, request):
-    binary_path = os.path.join(FLATBUFFER_BASE_PATH, "linear.mlir.tmp.ttnn")
+    binary_path = os.path.join(
+        FLATBUFFER_BASE_PATH, "mnist_linear_logits.mlir.tmp.ttnn"
+    )
     assert os.path.exists(binary_path), f"Binary file not found: {binary_path}"
     helper.initialize(request.node.name, binary_path)
     helper.check_constraints()
 
     test_config = ProgramTestConfig(
-        name="linear", expected_num_inputs=4, compute_golden=None
+        name="linear", expected_num_inputs=5, compute_golden=None
     )
 
     test_runner = ProgramTestRunner(test_config, helper.binary, 0)
