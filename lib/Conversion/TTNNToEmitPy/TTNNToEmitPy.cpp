@@ -2187,10 +2187,6 @@ public:
 
 // LoadCached Op conversion pattern
 //
-// This op is worked around - it only calls the consteval fn, but there is no
-// caching.
-// TODO (4936): https://github.com/tenstorrent/tt-mlir/issues/4936
-//
 namespace {
 class LoadCachedOpConversionPattern
     : public OpConversionPattern<mlir::tt::ttcore::LoadCachedOp> {
@@ -2258,6 +2254,7 @@ public:
         SymbolRefAttr::get(rewriter.getContext(), globalVarName);
 
     // Create a global statement at the beginning of the function body.
+    //
     currentInsertionPoint = rewriter.saveInsertionPoint();
     rewriter.setInsertionPointToStart(&funcOp.getBody().front());
     rewriter.create<emitpy::GlobalStatementOp>(loadCachedOp.getLoc(),
@@ -2265,6 +2262,7 @@ public:
     rewriter.restoreInsertionPoint(currentInsertionPoint);
 
     // Retrieve a global variable.
+    //
     mlir::Value globalVar =
         rewriter
             .create<emitpy::GetGlobalOp>(loadCachedOp.getLoc(), tensorListType,
@@ -2272,7 +2270,7 @@ public:
             ->getResult(0);
     operands.push_back(globalVar);
 
-    // Call into the callee, no caching mechanism.
+    // Call into the callee.
     //
     llvm::StringRef wrapperFuncName = isZeroArgWrapper
                                           ? "utils.constEvalFuncWrapperZeroArg"
