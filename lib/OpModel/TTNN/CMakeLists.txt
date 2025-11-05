@@ -17,11 +17,13 @@ if (TTMLIR_ENABLE_OPMODEL)
         message(WARNING "TT_METAL_RUNTIME_ROOT is not set")
     endif()
 
+    # Define TTMLIR_ENABLE_OPMODEL for this library and its consumers
+    target_compile_definitions(${LIB_NAME} PUBLIC TTMLIR_ENABLE_OPMODEL)
+
     # Link to tt-metal libs and include directories
     target_include_directories(${LIB_NAME} SYSTEM PUBLIC "$<BUILD_INTERFACE:${TTMETAL_INCLUDE_DIRS}>")
     set(TTNN_LIBS TTMETAL_LIBRARY DEVICE_LIBRARY TTNN_LIBRARY TT_STL_LIBRARY TRACY_LIBRARY)
     target_link_libraries(${LIB_NAME} PUBLIC ${TTNN_LIBS} PRIVATE TTMLIRTTNNUtils)
-    target_compile_definitions(${LIB_NAME} PUBLIC TTMLIR_ENABLE_OPMODEL)
 else()
     # link stubs implementation when op model library is disabled
     message(WARNING "TTNNOpModelLib is disabled. The optimizer will not achieve optimal performance.")
