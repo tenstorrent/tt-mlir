@@ -230,6 +230,12 @@ class TTAdapter(model_explorer.Adapter):
 
             # Convert TTIR to Model Explorer Graphs and Display/Return
             graph_handler = mlir.GraphHandler()
+            
+            log_file = "/tmp/tt_adapter_convert_debug.log"
+            with open(log_file, "a") as f:
+                f.write(f"DEBUG [Adapter.convert]: About to call build_graph\n")
+                f.write(f"DEBUG [Adapter.convert]: perf_trace type = {type(perf_trace)}, rows = {len(perf_trace) if perf_trace is not None else 'None'}\n")
+            
             graph, overlays = graph_handler.build_graph(
                 model_path,
                 module,
@@ -238,9 +244,22 @@ class TTAdapter(model_explorer.Adapter):
                 memory_trace,
                 golden_results,
             )
+            
+            with open(log_file, "a") as f:
+                f.write(f"DEBUG [Adapter.convert]: build_graph returned\n")
+                f.write(f"DEBUG [Adapter.convert]: overlays type = {type(overlays)}\n")
+                f.write(f"DEBUG [Adapter.convert]: overlays = {overlays}\n")
+                f.write(f"DEBUG [Adapter.convert]: overlays is truthy = {bool(overlays)}\n")
+                if isinstance(overlays, dict):
+                    f.write(f"DEBUG [Adapter.convert]: overlays keys = {list(overlays.keys())}\n")
 
             if overlays:
+                with open(log_file, "a") as f:
+                    f.write(f"DEBUG [Adapter.convert]: Adding overlays to graph\n")
                 graph = utils.add_to_dataclass(graph, "overlays", overlays)
+            else:
+                with open(log_file, "a") as f:
+                    f.write(f"DEBUG [Adapter.convert]: NOT adding overlays (empty or falsy)\n")
 
             if overrides := self.model_runner.get_overrides(model_path):
                 graph = utils.add_to_dataclass(graph, "overrides", overrides)

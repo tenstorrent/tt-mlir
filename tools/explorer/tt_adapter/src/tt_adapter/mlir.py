@@ -815,7 +815,10 @@ class GraphHandler:
         self.graph = graph_builder.Graph(id=self.graph_id)
 
         # Prepare perf data for color overlay
-        print(f"DEBUG [GraphHandler.build_graph]: perf_trace is {'None' if perf_trace is None else f'provided with {len(perf_trace)} rows'}")
+        log_file = "/tmp/tt_adapter_convert_debug.log"
+        with open(log_file, "a") as f:
+            f.write(f"DEBUG [GraphHandler.build_graph]: perf_trace is {'None' if perf_trace is None else f'provided with {len(perf_trace)} rows'}\n")
+        
         if perf_trace is not None:
             for _, row in perf_trace.iterrows():
                 loc = parse_loc_string(row["LOC"])
@@ -826,7 +829,8 @@ class GraphHandler:
                 if loc not in self.loc_to_perf:
                     self.loc_to_perf[loc] = 0
                 self.loc_to_perf[loc] += row["DEVICE FW DURATION [ns]"]
-            print(f"DEBUG [GraphHandler.build_graph]: Processed perf_trace, loc_to_perf has {len(self.loc_to_perf)} entries")
+            with open(log_file, "a") as f:
+                f.write(f"DEBUG [GraphHandler.build_graph]: Processed perf_trace, loc_to_perf has {len(self.loc_to_perf)} entries\n")
 
         if memory_trace is not None:
             for node in memory_trace:
@@ -885,13 +889,17 @@ class GraphHandler:
         # Add Overlay Data if it exists
         overlays = {}
 
-        print(f"DEBUG [GraphHandler.build_graph]: self.perf_node_data length = {len(self.perf_node_data) if self.perf_node_data else 0}")
-        print(f"DEBUG [GraphHandler.build_graph]: self.accuracy_node_data length = {len(self.accuracy_node_data) if self.accuracy_node_data else 0}")
-        print(f"DEBUG [GraphHandler.build_graph]: self.loc_to_perf length = {len(self.loc_to_perf) if self.loc_to_perf else 0}")
+        log_file = "/tmp/tt_adapter_convert_debug.log"
+        with open(log_file, "a") as f:
+            f.write(f"DEBUG [GraphHandler.build_graph]: Creating overlays dict\n")
+            f.write(f"DEBUG [GraphHandler.build_graph]: self.perf_node_data length = {len(self.perf_node_data) if self.perf_node_data else 0}\n")
+            f.write(f"DEBUG [GraphHandler.build_graph]: self.accuracy_node_data length = {len(self.accuracy_node_data) if self.accuracy_node_data else 0}\n")
+            f.write(f"DEBUG [GraphHandler.build_graph]: self.loc_to_perf length = {len(self.loc_to_perf) if self.loc_to_perf else 0}\n")
 
         # Add performance data to the graph color overlay, if it exists
         if self.perf_node_data:
-            print("DEBUG [GraphHandler.build_graph]: Adding perf_data to overlays")
+            with open(log_file, "a") as f:
+                f.write(f"DEBUG [GraphHandler.build_graph]: Adding perf_data to overlays\n")
             gradient = [
                 node_data_builder.GradientItem(stop=0, bgColor="yellow"),
                 node_data_builder.GradientItem(stop=1, bgColor="red"),
@@ -903,7 +911,8 @@ class GraphHandler:
                 graphsData={self.graph_id: graph_node_data}
             ).graphsData
         else:
-            print("DEBUG [GraphHandler.build_graph]: NOT adding perf_data - perf_node_data is empty!")
+            with open(log_file, "a") as f:
+                f.write(f"DEBUG [GraphHandler.build_graph]: NOT adding perf_data - perf_node_data is empty!\n")
 
         if self.accuracy_node_data:
             thres = [
