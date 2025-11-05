@@ -26,7 +26,7 @@ MLIR_PREFIX="${2:-/opt/ttmlir-toolchain}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
 TEST_DIR="${PROJECT_ROOT}/test/install"
-BUILD_DIR="${TEST_DIR}/build"
+BUILD_DIR="${PROJECT_ROOT}/build/test/install"
 
 # Validate install prefix
 if [ ! -d "${INSTALL_PREFIX}" ]; then

@@ -4,13 +4,16 @@ project(TestTTMLIRInstall C CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# Allow specifying TTMLIR install location via TTMLIR_DIR or CMAKE_PREFIX_PATH
-if(TTMLIR_DIR)
-  set(CMAKE_PREFIX_PATH ${TTMLIR_DIR} ${CMAKE_PREFIX_PATH})
+find_package(TTMLIR REQUIRED CONFIG HINTS ${TTMLIR_DIR})
+if(NOT TTMLIR_FOUND)
+  message(FATAL_ERROR "TTMLIR not found")
 endif()
 
-find_package(TTMLIR REQUIRED CONFIG)
-
+message(STATUS "TTMLIR found in: ${TTMLIR_DIR}")
+message(STATUS "TTMLIR_DIR: ${TTMLIR_DIR}")
+message(STATUS "TTMLIR_INCLUDE_DIRS: ${TTMLIR_INCLUDE_DIRS}")
+message(STATUS "TTMLIR_LIBRARY_DIRS: ${TTMLIR_LIBRARY_DIRS}")
+message(STATUS "TTMLIR_TOOLS_DIR: ${TTMLIR_TOOLS_DIR}")
 add_executable(test_install test_install.cpp)
 
 # Link against a basic TTMLIR library that has no StableHLO dependencies.

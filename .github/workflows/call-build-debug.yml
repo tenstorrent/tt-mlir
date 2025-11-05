@@ -45,6 +45,7 @@ jobs:
       run: |
         echo "work-dir=$(pwd)" >> "$GITHUB_OUTPUT"
         echo "build-output-dir=$(pwd)/build_debug" >> "$GITHUB_OUTPUT"
+        echo "install-output-dir=$(pwd)/install" >> "$GITHUB_OUTPUT"
 
     - name: Git safe dir
       run: git config --global --add safe.directory ${{ steps.strings.outputs.work-dir }}
@@ -80,7 +81,7 @@ jobs:
         source env/activate
         cmake --build ${{ steps.strings.outputs.build-output-dir }}
 
-    - name: Install (default)
+    - name: Install
       shell: bash
       run: |
         source env/activate

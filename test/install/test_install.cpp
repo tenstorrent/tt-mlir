@@ -9,13 +9,11 @@
 
 int main() {
   // Test that we can compile and link against a basic TTMLIR library.
-  // Use TTCore dialect as it has no StableHLO dependencies.
   mlir::DialectRegistry registry;
   registry.insert<mlir::tt::ttcore::TTCoreDialect>();
   mlir::MLIRContext context(registry);
   context.loadAllAvailableDialects();
 
-  // Create a GridAttr to verify the library actually links.
   auto gridAttr = mlir::tt::ttcore::GridAttr::get(&context);
   (void)gridAttr;
 
