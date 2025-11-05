@@ -3,11 +3,11 @@
 Welcome to the TT-Explorer wiki! TT-Explorer is a visualization and exploration tool included in the TT-MLIR repository. Based on [Google's Model Explorer](https://ai.google.dev/edge/model-explorer), TT-Explorer is adapted for use with Tenstorrent's custom, open-source compiler stack. Using TT-Explorer, you can:
 * Analyze and inspect models
 * Visualize models (attributes, performance results)
-* Explore models across SHLO, TTIR, and TTNN dialects
+* Explore models across StableHLO (SHLO), TTIR, and TTNN dialects
 * Interactively debug or experiment with IR-level overrides.
 
 TT-Explorer is for use with TT-MLIR compiler results. It takes emitted MLIR files, converts them to JSON, and displays them. There are five main levels the emitted TT-MLIR file is likely to be at, and all are supported for TT-Explorer:
-* **SHLO** - Scalar Hardware Lowering Ops, each op is close to a single hardware instruction.
+* **SHLO** - Portability layer between different ML frameworks (like TensorFlow, JAX, and PyTorch) and ML compilers (like XLA and IREE), ensuring compatibility across the ML ecosystem.
 * **TTIR** - Mid-level intermediate representation (IR) that introduces hardware concepts like tensor tiling, memory layouts, and op fusion. Maps to hardware capabilities.
 * **TTNN** - High-level, PyTorch style ops (for example, `ttnn.conv2d`) used for writing and compiling models in a user-friendly format.
 
