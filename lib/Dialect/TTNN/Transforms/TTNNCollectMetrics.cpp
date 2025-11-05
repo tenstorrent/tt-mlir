@@ -4,13 +4,14 @@
 
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
 
-#include "mlir/IR/BuiltinOps.h"
-#include "mlir/IR/Location.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
+
+#include "mlir/IR/BuiltinOps.h"
+#include "mlir/IR/Location.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/StringMap.h"
