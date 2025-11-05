@@ -1113,12 +1113,10 @@ Value getEmptySparseTensor(OpBuilder& builder, Location loc, ShapedType type,
 
 Value getEmptyTensor(OpBuilder& builder, Location loc, ShapedType type,
                      ArrayRef<Value> dynSizes) {
-    auto empty = builder.create<mlir::tensor::EmptyOp>(
+    auto empty = builder.create<d2m::EmptyOp>(
       loc,
       type.getShape(),
-      type.getElementType(),
-      dynSizes,
-      llvm::cast<RankedTensorType>(type).getEncoding());
+      type.getElementType());
   return empty;
 }
 
