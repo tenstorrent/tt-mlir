@@ -67,4 +67,3 @@ echo "Running test_install..."
 "${BUILD_DIR}/test_install"
 
 echo "SUCCESS: Install test passed!"
-

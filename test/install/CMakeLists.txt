@@ -12,4 +12,3 @@ add_executable(test_install test_install.cpp)
 target_link_libraries(test_install PRIVATE
   TTMLIR::TTMLIRCompilerStatic
 )
-
