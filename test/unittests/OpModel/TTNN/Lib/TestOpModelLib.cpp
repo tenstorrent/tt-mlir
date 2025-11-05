@@ -4606,6 +4606,7 @@ TEST_F(OpModelTest, PagedUpdateCacheOp) {
     EXPECT_EQ(opCstr.cbL1PeakSize, 233536);
     EXPECT_EQ(opCstr.tensorL1PeakSize, 0);
     EXPECT_EQ(opCstr.outputL1BufferSize, 0);
+    EXPECT_EQ(opCstr.peakL1MemorySize, 233536);
   }
 }
 
