@@ -107,3 +107,25 @@ func.func @mixed_returns(%arg0: tensor<1x1x8x24x!ttcore.tile<32x32, f32>, #layou
   // CHECK: return %[[MATERIALIZED]], %arg1
   return %view, %arg1 : tensor<8x8x1x3x!ttcore.tile<32x32, f32>, #layout8x8>, tensor<8x8x1x3x!ttcore.tile<32x32, f32>, #layout8x8>
 }
+
+// Test higher-rank tensors (3D uncollapsed) for permute TM use case
+// Grid has leading 1 (1x4x4 -> 1x8x2), demonstrating higher rank with legal grid
+// CHECK-LABEL: @higher_rank_view_return
+#layout_6d_1x4x4 = #ttcore.metal_layout<logical_shape = 64x96x192, dim_alignments = 32x32x32, collapsed_intervals = dense<[[0, 1], [1, 2], [2, 3]]> : tensor<3x2xi64>, undef, l1>
+#layout_6d_1x8x2 = #ttcore.metal_layout<logical_shape = 64x96x192, dim_alignments = 32x32x32, collapsed_intervals = dense<[[0, 1], [1, 2], [2, 3]]> : tensor<3x2xi64>, undef, l1>
+func.func @higher_rank_view_return(%arg0: tensor<1x4x4x2x3x6x!ttcore.tile<32x32, f32>, #layout_6d_1x4x4>) -> tensor<1x8x2x1x6x6x!ttcore.tile<32x32, f32>, #layout_6d_1x8x2> {
+  // CHECK: %[[VIEW:.*]] = d2m.view_layout %arg0
+  %view = d2m.view_layout %arg0 : tensor<1x4x4x2x3x6x!ttcore.tile<32x32, f32>, #layout_6d_1x4x4> -> tensor<1x8x2x1x6x6x!ttcore.tile<32x32, f32>, #layout_6d_1x8x2>
+
+  // CHECK: d2m.empty() : tensor<1x8x2x1x6x6x!ttcore.tile<32x32, f32>
+  // CHECK: %[[MATERIALIZED:.*]] = d2m.generic
+  // CHECK-SAME: grid = #ttcore.grid<1x8x2>
+  // CHECK-SAME: threads = [#d2m.thread<datamovement>]
+  // CHECK: ins(%[[VIEW]]
+  // CHECK: d2m.reserve
+  // CHECK: d2m.dma
+  // CHECK: d2m.dma_wait
+  // CHECK: d2m.yield
+  // CHECK: return %[[MATERIALIZED]]
+  return %view : tensor<1x8x2x1x6x6x!ttcore.tile<32x32, f32>, #layout_6d_1x8x2>
+}

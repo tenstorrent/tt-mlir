@@ -97,33 +97,20 @@ public:
     // Process each function in the module to find unmaterialized view returns.
     module.walk([&](func::FuncOp funcOp) {
       funcOp.walk([&](func::ReturnOp returnOp) {
-        SmallVector<Value> newOperands;
-        bool modified = false;
+        builder.setInsertionPoint(returnOp);
 
-        // Inspect each return value to determine if it needs materialization.
-        for (Value operand : returnOp.getOperands()) {
-          Operation *definingOp = operand.getDefiningOp();
+        // Inspect each return operand to determine if it needs materialization.
+        for (OpOperand &opOperand : returnOp->getOpOperands()) {
+          Operation *definingOp = opOperand.get().getDefiningOp();
 
           if (isViewOp(definingOp)) {
             // Insert a generic op to materialize the view before returning.
             // This ensures the tensor transformation represented by the view
             // actually occurs, rather than just being a symbolic operation.
-            builder.setInsertionPoint(returnOp);
             Value materialized =
-                materializeView(builder, returnOp.getLoc(), operand);
-            newOperands.push_back(materialized);
-            modified = true;
-          } else {
-            // Non-view values can be returned directly without modification.
-            newOperands.push_back(operand);
+                materializeView(builder, returnOp.getLoc(), opOperand.get());
+            opOperand.set(materialized);
           }
-        }
-
-        // Replace the return op if any views were materialized.
-        if (modified) {
-          builder.setInsertionPoint(returnOp);
-          builder.create<func::ReturnOp>(returnOp.getLoc(), newOperands);
-          returnOp.erase();
         }
       });
     });
