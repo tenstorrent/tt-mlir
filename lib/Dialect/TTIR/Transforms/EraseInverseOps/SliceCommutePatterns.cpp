@@ -245,7 +245,6 @@ private:
 
       if (adjustedBegin != 0 || adjustedEnd != dimSize || step != 1) {
         leftmostSlicedDim = ndims - 1 - i;
-        break;
       }
     }
     // If no slicing is applied, return -1
