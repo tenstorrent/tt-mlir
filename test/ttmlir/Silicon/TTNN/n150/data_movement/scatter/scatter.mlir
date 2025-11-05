@@ -8,7 +8,7 @@
 
 func.func @scatter_simple_1(%arg0: tensor<1x3x320x320xf32>, %arg1: tensor<1x3x32x32xi32>, %arg2: tensor<1x3x32x32xf32>) -> tensor<1x3x320x320xf32> {
   %empty = ttir.empty() : tensor<1x3x320x320xf32>
-  %0 = "ttir.scatter_in_dim"(%arg0, %arg1, %arg2, %empty) <{dim = 0 : i32}> : (tensor<1x3x320x320xf32>, tensor<1x3x32x32xi32>, tensor<1x3x32x32xf32>, tensor<1x3x320x320xf32>) -> tensor<1x3x320x320xf32>
+  %0 = "ttir.scatter"(%arg0, %arg1, %arg2, %empty) <{dim = 0 : i32}> : (tensor<1x3x320x320xf32>, tensor<1x3x32x32xi32>, tensor<1x3x32x32xf32>, tensor<1x3x320x320xf32>) -> tensor<1x3x320x320xf32>
   // CHECK: "ttnn.scatter"({{.*}}) <{dim = 0 : i32}>
   // CHECK-SAME: (tensor<1x3x320x320xf32, {{.*}}>, tensor<1x3x32x32xsi32, {{.*}}>, tensor<1x3x32x32xf32, {{.*}}>) -> tensor<1x3x320x320xf32, {{.*}}>
   return %0 : tensor<1x3x320x320xf32>
@@ -16,7 +16,7 @@ func.func @scatter_simple_1(%arg0: tensor<1x3x320x320xf32>, %arg1: tensor<1x3x32
 
 func.func @scatter_simple_2(%arg0: tensor<32x32xi32>, %arg1: tensor<16x32xi32>, %arg2: tensor<16x32xi32>) -> tensor<32x32xi32> {
   %empty = ttir.empty() : tensor<32x32xi32>
-  %0 = "ttir.scatter_in_dim"(%arg0, %arg1, %arg2, %empty) <{dim = 0 : i32}> : (tensor<32x32xi32>, tensor<16x32xi32>, tensor<16x32xi32>, tensor<32x32xi32>) -> tensor<32x32xi32>
+  %0 = "ttir.scatter"(%arg0, %arg1, %arg2, %empty) <{dim = 0 : i32}> : (tensor<32x32xi32>, tensor<16x32xi32>, tensor<16x32xi32>, tensor<32x32xi32>) -> tensor<32x32xi32>
   // CHECK-LABEL: func.func @scatter_simple_2
   // CHECK: "ttnn.scatter"({{.*}}) <{dim = 0 : i32}>
   // CHECK-SAME: (tensor<32x32xsi32, {{.*}}>, tensor<16x32xsi32, {{.*}}>, tensor<16x32xsi32, {{.*}}>) -> tensor<32x32xsi32, {{.*}}>
@@ -43,7 +43,7 @@ func.func @scatter_simple_3(%arg0: tensor<71x32xbf16>, %arg1: tensor<71x4x2xi64>
     %13 = ttir.empty() : tensor<284xbf16>
     %14 = "ttir.reshape"(%arg2, %13) <{shape = [284 : i32]}> : (tensor<71x4xbf16>, tensor<284xbf16>) -> tensor<284xbf16>
     %15 = ttir.empty() : tensor<2272xbf16>
-    %16 = "ttir.scatter_in_dim"(%12, %10, %14, %15) <{dim = 0 : i32}> : (tensor<2272xbf16>, tensor<284xi64>, tensor<284xbf16>, tensor<2272xbf16>) -> tensor<2272xbf16>
+    %16 = "ttir.scatter"(%12, %10, %14, %15) <{dim = 0 : i32}> : (tensor<2272xbf16>, tensor<284xi64>, tensor<284xbf16>, tensor<2272xbf16>) -> tensor<2272xbf16>
     %17 = ttir.empty() : tensor<71x32xbf16>
     %18 = "ttir.reshape"(%16, %17) <{shape = [71 : i32, 32 : i32]}> : (tensor<2272xbf16>, tensor<71x32xbf16>) -> tensor<71x32xbf16>
     return %18 : tensor<71x32xbf16>
@@ -74,6 +74,6 @@ func.func @scatter_simple_4(%arg0: tensor<1000x32xf32>, %arg1: tensor<10x32xi64>
   // CHECK: "ttnn.scatter"({{.*}}) <{dim = 0 : i32}> : (tensor<1000x32xf32, {{.*}}>, tensor<10x32xsi32, {{.*}}>, tensor<10x32xf32, {{.*}}>) -> tensor<1000x32xf32, {{.*}}>
   // CHECK: "ttnn.to_layout"({{.*}}) <{layout = #ttnn.layout<tile>}>
   %empty = ttir.empty() : tensor<1000x32xf32>
-  %0 = "ttir.scatter_in_dim"(%arg0, %arg1, %arg2, %empty) <{dim = 0 : i32}> : (tensor<1000x32xf32>, tensor<10x32xi64>, tensor<10x32xf32>, tensor<1000x32xf32>) -> tensor<1000x32xf32>
+  %0 = "ttir.scatter"(%arg0, %arg1, %arg2, %empty) <{dim = 0 : i32}> : (tensor<1000x32xf32>, tensor<10x32xi64>, tensor<10x32xf32>, tensor<1000x32xf32>) -> tensor<1000x32xf32>
   return %0 : tensor<1000x32xf32>
 }

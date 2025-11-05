@@ -4550,11 +4550,11 @@ def TTIR_Upsample2dOp : TTIR_NamedOp<"upsample2d"> {
 }
 
 
-def TTIR_ScatterInDimOp : TTIR_NamedOp<"scatter_in_dim"> {
+def TTIR_ScatterOp : TTIR_NamedOp<"scatter"> {
   let summary = "Scatter operation with simplified dimension attributes";
   let description = [{
-    The `scatter_in_dim` operation introduces torch style scatter in TTIR so that
-    we can lower ttir scatter -> ttir scatter_in_dim -> ttnn scatter.
+    The `scatter` operation introduces torch style scatter in TTIR so that
+    we can lower ttir scatter -> ttnn scatter.
 
     Embeds the values of the source tensor into the input tensor at locations specified by the index tensor along the given dimension.
 
@@ -4575,7 +4575,7 @@ def TTIR_ScatterInDimOp : TTIR_NamedOp<"scatter_in_dim"> {
     %indices = ... : tensor<3xi32>      // Indices tensor
     %source = ... : tensor<3xf32>       // Source values to scatter
     %output = ttir.empty() : tensor<8xf32>
-    %result = ttir.scatter_in_dim(%input, %indices, %source, %output) {
+    %result = ttir.scatter(%input, %indices, %source, %output) {
         dim = 0
     } : tensor<8xf32>, tensor<3xi32>, tensor<3xf32>, tensor<8xf32> -> tensor<8xf32>
     ```

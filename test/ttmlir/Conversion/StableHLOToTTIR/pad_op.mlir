@@ -79,7 +79,7 @@ module {
   func.func @main(%arg0: tensor<1x4x4x8xf32>) -> tensor<1x7x7x8xf32> {
     // CHECK: ttir.full
     // CHECK-SAME: value = 0.000000e+00 : f32
-    // CHECK: ttir.scatter_in_dim
+    // CHECK: ttir.scatter
     // CHECK-SAME: (tensor<392xf32>, tensor<128xi64>, tensor<128xf32>, tensor<392xf32>) -> tensor<392xf32>
     %cst = arith.constant dense<0.000000e+00> : tensor<f32>
     %0 = stablehlo.pad %arg0, %cst, low = [0, 0, 0, 0], high = [0, 0, 0, 0], interior = [0, 1, 1, 0] : (tensor<1x4x4x8xf32>, tensor<f32>) -> tensor<1x7x7x8xf32>
