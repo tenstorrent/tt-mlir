@@ -634,6 +634,73 @@ bool mlir::tt::ttir::Conv2dOp::isBiasCompatible(llvm::ArrayRef<int64_t> bias) {
 }
 
 //===----------------------------------------------------------------------===//
+// Conv3dOp
+//===----------------------------------------------------------------------===//
+
+// Conv3dOp verification
+::mlir::LogicalResult mlir::tt::ttir::Conv3dOp::verify() {
+  // Verify tensor ranks
+  if (this->getInput().getType().getRank() != 5) {
+    return this->emitOpError("input must be a 5D tensor");
+  }
+
+  if (this->getWeight().getType().getRank() != 5) {
+    return this->emitOpError("weight must be a 5D tensor");
+  }
+
+  // Bias is optional
+  if (this->getBias() && this->getBias().getType().getRank() != 1) {
+    return this->emitOpError("bias must be a 1D tensor");
+  }
+
+  if (this->getOutput().getType().getRank() != 5) {
+    return this->emitOpError("output must be a 5D tensor");
+  }
+
+  auto [inputDims, weightDims, biasDims] =
+      verification_utils::getConv3dInputDims(this);
+
+  verification_utils::OutputTensorDims3d outputDims =
+      verification_utils::getConv3dOutputDims(this);
+
+  auto expectedParams = verification_utils::getConv3dParams(this);
+
+  if (auto error = expectedParams.takeError()) {
+    return emitOpError() << llvm::toString(std::move(error));
+  }
+
+  verification_utils::Conv3dParams params = *expectedParams;
+  if (verifyConv3dParams(this, params).failed()) {
+    return mlir::failure();
+  }
+
+  if (verifyConv3dInputDims(this, inputDims, weightDims, biasDims, params)
+          .failed()) {
+    return mlir::failure();
+  }
+
+  if (verifyOutputDimensions(this, inputDims, weightDims, biasDims, outputDims,
+                             params)
+          .failed()) {
+    return mlir::failure();
+  }
+
+  return mlir::success();
+}
+
+// Get number of output channels
+int64_t mlir::tt::ttir::Conv3dOp::getOutputChannelSize() {
+  RankedTensorType weightTy = getWeight().getType();
+  return weightTy.getShape()[0]; // C_out is at dimension 0
+}
+
+// Verify that bias dimensions are compatible with conv3d operation
+// Bias should be 1D with size equal to number of output channels
+bool mlir::tt::ttir::Conv3dOp::isBiasCompatible(llvm::ArrayRef<int64_t> bias) {
+  return bias.size() == 1 && bias[0] == getOutputChannelSize();
+}
+
+//===----------------------------------------------------------------------===//
 // Quantize ops
 //===----------------------------------------------------------------------===//
 

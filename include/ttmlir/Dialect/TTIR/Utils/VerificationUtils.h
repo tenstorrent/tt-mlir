@@ -392,6 +392,83 @@ struct Pool2dParams {
   }
 };
 
+// Conv3d support structures
+struct Spatial3DParam {
+  int64_t depth, vertical, horizontal;
+
+  Spatial3DParam(std::tuple<int64_t, int64_t, int64_t> p)
+      : depth(std::get<0>(p)), vertical(std::get<1>(p)),
+        horizontal(std::get<2>(p)) {}
+};
+
+enum class InputDim3d : unsigned {
+  INPUT_BATCH = 0,
+  INPUT_DEPTH = 1,
+  INPUT_HEIGHT = 2,
+  INPUT_WIDTH = 3,
+  INPUT_CHANNEL = 4
+};
+
+enum class OutputDim3d : unsigned {
+  OUTPUT_BATCH = 0,
+  OUTPUT_DEPTH = 1,
+  OUTPUT_HEIGHT = 2,
+  OUTPUT_WIDTH = 3,
+  OUTPUT_CHANNEL = 4
+};
+
+enum class WeightDim3d : unsigned {
+  WEIGHT_OUT_CHANNEL = 0,
+  WEIGHT_IN_CHANNEL = 1,
+  WEIGHT_KERNEL_DEPTH = 2,
+  WEIGHT_KERNEL_HEIGHT = 3,
+  WEIGHT_KERNEL_WIDTH = 4
+};
+
+enum class BiasDim3d : unsigned { BIAS_OUT_CHANNEL = 0 };
+
+struct InputTensorDims3d {
+  int64_t batchSize;
+  int64_t inputDepth;
+  int64_t inputHeight;
+  int64_t inputWidth;
+  int64_t inputChannels;
+
+  std::array<uint32_t, 3> getPaddedInputSize(int64_t depthPadding,
+                                             int64_t verticalPadding,
+                                             int64_t horizontalPadding) const {
+    return {static_cast<uint32_t>(inputDepth + depthPadding),
+            static_cast<uint32_t>(inputHeight + verticalPadding),
+            static_cast<uint32_t>(inputWidth + horizontalPadding)};
+  }
+};
+
+struct WeightTensorDims3d {
+  int64_t outputChannels;
+  int64_t inChannPerGroup;
+  int64_t kernelDepth;
+  int64_t kernelHeight;
+  int64_t kernelWidth;
+};
+
+struct BiasTensorDims3d {
+  int64_t outputChannels;
+};
+
+struct OutputTensorDims3d {
+  int64_t batchSize;
+  int64_t outputDepth;
+  int64_t outputHeight;
+  int64_t outputWidth;
+  int64_t outputChannels;
+};
+
+struct Conv3dParams {
+  Spatial3DParam stride;
+  Spatial3DParam padding;
+  int64_t groups;
+};
+
 template <typename PoolOp>
 mlir::LogicalResult verifyFlattenedCompatInfo(PoolOp *op) {
   mlir::tt::ttir::FlattenedCompatInfoAttr flatInfo =
@@ -633,6 +710,208 @@ mlir::LogicalResult verifyPool2dParams(PoolOp *op, const Pool2dParams &params) {
       !isNonNegative(params.padding.bottom) ||
       !isNonNegative(params.padding.right)) {
     return op->emitOpError("padding attribute values must be >= 0");
+  }
+
+  return mlir::success();
+}
+
+
+inline std::tuple<InputTensorDims3d, WeightTensorDims3d,
+                  std::optional<BiasTensorDims3d>>
+getConv3dInputDims(mlir::tt::ttir::Conv3dOp *op) {
+  auto inputType = op->getInput().getType();
+  InputTensorDims3d inputDims = {
+      inputType.getDimSize(llvm::to_underlying(InputDim3d::INPUT_BATCH)),
+      inputType.getDimSize(llvm::to_underlying(InputDim3d::INPUT_DEPTH)),
+      inputType.getDimSize(llvm::to_underlying(InputDim3d::INPUT_HEIGHT)),
+      inputType.getDimSize(llvm::to_underlying(InputDim3d::INPUT_WIDTH)),
+      inputType.getDimSize(llvm::to_underlying(InputDim3d::INPUT_CHANNEL))};
+
+  auto weightType = op->getWeight().getType();
+  WeightTensorDims3d weightDims = {
+      weightType.getDimSize(llvm::to_underlying(WeightDim3d::WEIGHT_OUT_CHANNEL)),
+      weightType.getDimSize(llvm::to_underlying(WeightDim3d::WEIGHT_IN_CHANNEL)),
+      weightType.getDimSize(
+          llvm::to_underlying(WeightDim3d::WEIGHT_KERNEL_DEPTH)),
+      weightType.getDimSize(
+          llvm::to_underlying(WeightDim3d::WEIGHT_KERNEL_HEIGHT)),
+      weightType.getDimSize(
+          llvm::to_underlying(WeightDim3d::WEIGHT_KERNEL_WIDTH))};
+
+  std::optional<BiasTensorDims3d> biasDims;
+  if (op->getBias()) {
+    biasDims = {op->getBias().getType().getDimSize(
+        llvm::to_underlying(BiasDim3d::BIAS_OUT_CHANNEL))};
+  }
+
+  return {inputDims, weightDims, biasDims};
+}
+
+inline OutputTensorDims3d getConv3dOutputDims(mlir::tt::ttir::Conv3dOp *op) {
+  auto outputType = op->getOutput().getType();
+  OutputTensorDims3d outputDims;
+  outputDims.batchSize =
+      outputType.getDimSize(llvm::to_underlying(OutputDim3d::OUTPUT_BATCH));
+  outputDims.outputDepth =
+      outputType.getDimSize(llvm::to_underlying(OutputDim3d::OUTPUT_DEPTH));
+  outputDims.outputHeight =
+      outputType.getDimSize(llvm::to_underlying(OutputDim3d::OUTPUT_HEIGHT));
+  outputDims.outputWidth =
+      outputType.getDimSize(llvm::to_underlying(OutputDim3d::OUTPUT_WIDTH));
+  outputDims.outputChannels =
+      outputType.getDimSize(llvm::to_underlying(OutputDim3d::OUTPUT_CHANNEL));
+
+  return outputDims;
+}
+
+inline llvm::Expected<Conv3dParams>
+getConv3dParams(mlir::tt::ttir::Conv3dOp *op) {
+  auto stride = ttmlir::utils::getTripleOfInteger<int32_t>(
+      op->getStride());
+  if (!stride) {
+    return llvm::createStringError(llvm::toString(stride.takeError()) +
+                                   " for stride");
+  }
+
+  auto padding = ttmlir::utils::getTripleOfInteger<int32_t>(
+      op->getPadding());
+  if (!padding) {
+    return llvm::createStringError(llvm::toString(padding.takeError()) +
+                                   " for padding");
+  }
+
+  return Conv3dParams{Spatial3DParam(*stride), Spatial3DParam(*padding),
+                      op->getGroups()};
+}
+
+inline mlir::LogicalResult verifyConv3dParams(mlir::tt::ttir::Conv3dOp *op,
+                                              const Conv3dParams &params) {
+  auto isPositive = [](int64_t v) { return v > 0; };
+  auto isNonNegative = [](int64_t v) { return v >= 0; };
+
+  if (!isPositive(params.stride.depth) || !isPositive(params.stride.vertical) ||
+      !isPositive(params.stride.horizontal)) {
+    return op->emitOpError("Stride attribute values must be > 0.");
+  }
+
+  if (!isNonNegative(params.padding.depth) ||
+      !isNonNegative(params.padding.vertical) ||
+      !isNonNegative(params.padding.horizontal)) {
+    return op->emitOpError("Padding attribute values must be >= 0.");
+  }
+
+  return mlir::success();
+}
+
+inline ::mlir::LogicalResult verifyConv3dInputDims(
+    mlir::tt::ttir::Conv3dOp *op, const InputTensorDims3d &inputDims,
+    const WeightTensorDims3d &weightDims,
+    const std::optional<BiasTensorDims3d> &biasDims,
+    const Conv3dParams &params) {
+
+  if (inputDims.inputChannels % params.groups != 0) {
+    return op->emitOpError()
+           << "The number of input channels from the input tensor ("
+           << inputDims.inputChannels
+           << ") is not divisible by the number of groups (" << params.groups
+           << ").";
+  }
+
+  if (weightDims.outputChannels % params.groups != 0) {
+    return op->emitOpError()
+           << "The number of output channels from the weight tensor ("
+           << weightDims.outputChannels
+           << ") is not divisible by the number of groups (" << params.groups
+           << ").";
+  }
+
+  if (inputDims.inputChannels / params.groups != weightDims.inChannPerGroup) {
+    return op->emitOpError()
+           << "The number of input channels per group ("
+           << inputDims.inputChannels
+           << ") must match the number of input channels in the weight tensor ("
+           << weightDims.inChannPerGroup << ").";
+  }
+
+  if (biasDims && biasDims->outputChannels != weightDims.outputChannels) {
+    return op->emitOpError()
+           << "The number of output channels from the weight tensor ("
+           << weightDims.outputChannels
+           << ") must match the number of output channels in the bias tensor ("
+           << biasDims->outputChannels << ").";
+  }
+
+  // Verify that kernel size doesn't exceed padded input size
+  std::array<uint32_t, 3> paddedInputSize = inputDims.getPaddedInputSize(
+      2 * params.padding.depth, 2 * params.padding.vertical,
+      2 * params.padding.horizontal);
+  if (paddedInputSize[0] < weightDims.kernelDepth ||
+      paddedInputSize[1] < weightDims.kernelHeight ||
+      paddedInputSize[2] < weightDims.kernelWidth) {
+    return op->emitOpError()
+           << "The kernel size (" << weightDims.kernelDepth << ", "
+           << weightDims.kernelHeight << ", " << weightDims.kernelWidth
+           << ") cannot be greater than the padded input size per channel ("
+           << paddedInputSize[0] << ", " << paddedInputSize[1] << ", "
+           << paddedInputSize[2] << ").";
+  }
+
+  return mlir::success();
+}
+
+inline ::mlir::LogicalResult
+verifyOutputDimensions(mlir::tt::ttir::Conv3dOp *op,
+                       const InputTensorDims3d &inputDims,
+                       const WeightTensorDims3d &weightDims,
+                       const std::optional<BiasTensorDims3d> &biasDims,
+                       const OutputTensorDims3d &outputDims,
+                       const Conv3dParams &params) {
+
+  // Conv3d doesn't currently support dilation, so we use this formula:
+  // D_out = (D_in + 2*pD - K_D) / sD + 1
+  // H_out = (H_in + 2*pH - K_H) / sH + 1
+  // W_out = (W_in + 2*pW - K_W) / sW + 1
+  int32_t calculatedDOut = (inputDims.inputDepth + 2 * params.padding.depth -
+                            weightDims.kernelDepth) /
+                               params.stride.depth +
+                           1;
+  int32_t calculatedHOut = (inputDims.inputHeight + 2 * params.padding.vertical -
+                            weightDims.kernelHeight) /
+                               params.stride.vertical +
+                           1;
+  int32_t calculatedWOut =
+      (inputDims.inputWidth + 2 * params.padding.horizontal -
+       weightDims.kernelWidth) /
+          params.stride.horizontal +
+      1;
+
+  // Validate batch size
+  if (inputDims.batchSize != outputDims.batchSize) {
+    return op->emitOpError()
+           << "Batch size from the input tensor (" << inputDims.batchSize
+           << ") must match the first dimension of the output tensor ("
+           << outputDims.batchSize << ")";
+  }
+
+  // Validate output channels
+  if (outputDims.outputChannels != weightDims.outputChannels) {
+    return op->emitOpError()
+           << "The number of output channels from the output tensor ("
+           << outputDims.outputChannels
+           << ") must match the number of output channels in the weight "
+              "tensor ("
+           << weightDims.outputChannels << "). ";
+  }
+
+  // Validate spatial dimensions
+  if (calculatedDOut != outputDims.outputDepth ||
+      calculatedHOut != outputDims.outputHeight ||
+      calculatedWOut != outputDims.outputWidth) {
+    return op->emitOpError()
+           << "The output tensor spatial dimensions (" << outputDims.outputDepth
+           << ", " << outputDims.outputHeight << ", " << outputDims.outputWidth
+           << ") do not match the expected dimensions (" << calculatedDOut
+           << ", " << calculatedHOut << ", " << calculatedWOut << ").";
   }
 
   return mlir::success();
