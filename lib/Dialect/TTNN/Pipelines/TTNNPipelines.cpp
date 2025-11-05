@@ -221,7 +221,8 @@ void createTTIRToTTNNBackendPipeline(
   ttir::createTTIRToCPUPipeline(pm, linalgToLLVMOptions);
 
   ttnn::TTNNCollectMetricsOptions metricsOptions{
-      options.ttnnMetricsOutputFile, options.ttnnMetricsVerboseOutputEnabled};
+      options.ttnnMetricsOutputFile, options.ttnnMetricsVerboseOutputEnabled,
+      options.enableTrace};
   devicePm.addPass(mlir::tt::ttnn::createTTNNCollectMetrics(metricsOptions));
 }
 
