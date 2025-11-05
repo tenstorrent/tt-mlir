@@ -2831,6 +2831,51 @@ PagedUpdateCacheOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
       pageTableShape, inputs[3], getShareCache(), opConfig.outputLayout);
 }
 
+llvm::Expected<op_model::OpConstraints>
+PagedFillCacheOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                                   const OpConfig &opConfig) {
+  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
+  if (!check) {
+    return check.takeError();
+  }
+  ttcore::GridAttr deviceGrid =
+      ttcore::lookupDevice(getOperation()).getWorkerGrid();
+
+  auto cacheShape = getCache().getType().getShape();
+  auto inputShape = getInput().getType().getShape();
+  auto pageTableShape = getPageTable().getType().getShape();
+  std::optional<llvm::ArrayRef<int64_t>> batchIdxShape;
+  std::optional<TTNNLayoutAttr> batchIdxLayout;
+  if (getBatchIdxTensor()) {
+    batchIdxShape = getBatchIdxTensor().getType().getShape();
+    batchIdxLayout = inputs[3];
+  }
+
+  return opConstraintsCache().getOrCompute(
+      op_model::OpModel<PagedFillCacheOp>::getOpConstraints, *this, deviceGrid,
+      cacheShape, inputs[0], inputShape, inputs[1], pageTableShape, inputs[2],
+      batchIdxShape, batchIdxLayout, opConfig.outputLayout);
+}
+
+llvm::Expected<size_t>
+PagedFillCacheOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                               const OpConfig &opConfig) {
+  auto cacheShape = getCache().getType().getShape();
+  auto inputShape = getInput().getType().getShape();
+  auto pageTableShape = getPageTable().getType().getShape();
+  std::optional<llvm::ArrayRef<int64_t>> batchIdxShape;
+  std::optional<TTNNLayoutAttr> batchIdxLayout;
+
+  if (getBatchIdxTensor()) {
+    batchIdxShape = getBatchIdxTensor().getType().getShape();
+    batchIdxLayout = inputs[3];
+  }
+
+  return opRuntimeCache().getOrCompute(
+      op_model::OpModel<PagedFillCacheOp>::getOpRuntime, *this, cacheShape,
+      inputs[0], inputShape, inputs[1], pageTableShape, inputs[2],
+      batchIdxShape, batchIdxLayout, opConfig.outputLayout);
+}
 //===----------------------------------------------------------------------===//
 // WriteTensorOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//

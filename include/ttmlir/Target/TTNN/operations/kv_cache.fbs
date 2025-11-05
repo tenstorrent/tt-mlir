@@ -23,3 +23,10 @@ table PagedUpdateCacheOp {
   share_cache: bool = false;
   page_table: tt.target.ttnn.TensorRef;
 }
+
+table PagedFillCacheOp {
+  cache: tt.target.ttnn.TensorRef;
+  input: tt.target.ttnn.TensorRef;
+  page_table: tt.target.ttnn.TensorRef;
+  batch_idx_tensor: tt.target.ttnn.TensorRef;
+}

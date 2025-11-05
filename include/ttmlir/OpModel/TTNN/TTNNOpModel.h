@@ -1002,6 +1002,31 @@ struct OpModel<PagedUpdateCacheOp> {
 };
 
 //===----------------------------------------------------------------------===//
+// PagedFillCacheOp
+//===----------------------------------------------------------------------===//
+
+template <>
+struct OpModel<PagedFillCacheOp> {
+  static llvm::Expected<OpConstraints> getOpConstraints(
+      ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> cacheShape,
+      TTNNLayoutAttr cacheLayout, llvm::ArrayRef<int64_t> inputShape,
+      TTNNLayoutAttr inputLayout, llvm::ArrayRef<int64_t> pageTableShape,
+      TTNNLayoutAttr pageTableLayout,
+      std::optional<llvm::ArrayRef<int64_t>> batchIdxShape,
+      std::optional<TTNNLayoutAttr> batchIdxLayout,
+      TTNNLayoutAttr outputLayout);
+
+  static llvm::Expected<size_t>
+  getOpRuntime(llvm::ArrayRef<int64_t> cacheShape, TTNNLayoutAttr cacheLayout,
+               llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+               llvm::ArrayRef<int64_t> pageTableShape,
+               TTNNLayoutAttr pageTableLayout,
+               std::optional<llvm::ArrayRef<int64_t>> batchIdxShape,
+               std::optional<TTNNLayoutAttr> batchIdxLayout,
+               TTNNLayoutAttr outputLayout);
+};
+
+//===----------------------------------------------------------------------===//
 // Conv2dOp
 //===----------------------------------------------------------------------===//
 

@@ -4142,6 +4142,120 @@ llvm::Expected<size_t> OpModel<PagedUpdateCacheOp>::getOpRuntime(
 }
 
 //===----------------------------------------------------------------------===//
+// PagedFillCacheOp
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<OpConstraints> OpModel<PagedFillCacheOp>::getOpConstraints(
+    ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> cacheShape,
+    TTNNLayoutAttr cacheLayout, llvm::ArrayRef<int64_t> inputShape,
+    TTNNLayoutAttr inputLayout, llvm::ArrayRef<int64_t> pageTableShape,
+    TTNNLayoutAttr pageTableLayout,
+    std::optional<llvm::ArrayRef<int64_t>> batchIdxShape,
+    std::optional<TTNNLayoutAttr> batchIdxLayout, TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+  auto cacheSpecExp =
+      detail::convertToTensorSpec(device, cacheShape, cacheLayout);
+  if (!cacheSpecExp) {
+    return cacheSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec cacheSpec = cacheSpecExp.get();
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+
+  auto pageTableSpecExp =
+      detail::convertToTensorSpec(device, pageTableShape, pageTableLayout);
+  if (!pageTableSpecExp) {
+    return pageTableSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec pageTableSpec = pageTableSpecExp.get();
+
+  std::optional<::ttnn::TensorSpec> batchIdxSpec;
+  if (batchIdxShape && batchIdxLayout) {
+    auto batchIdxSpecExp =
+        detail::convertToTensorSpec(device, *batchIdxShape, *batchIdxLayout);
+    if (!batchIdxSpecExp) {
+      return batchIdxSpecExp.takeError();
+    }
+    batchIdxSpec = batchIdxSpecExp.get();
+  }
+
+  auto pagedFillCacheOpQuery = [=]() {
+    return ::ttnn::graph::query_op_constraints(
+        ::ttnn::experimental::paged_fill_cache, device, cacheSpec, inputSpec,
+        pageTableSpec, batchIdxSpec,
+        /*batch_offset=*/0,
+        /*compute_kernel_config=*/std::nullopt, /*mesh_coords=*/std::nullopt);
+  };
+
+  return operation::getOpConstraints(cacheLayout.getContext(), deviceGrid,
+                                     pagedFillCacheOpQuery);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+llvm::Expected<size_t> OpModel<PagedFillCacheOp>::getOpRuntime(
+    llvm::ArrayRef<int64_t> cacheShape, TTNNLayoutAttr cacheLayout,
+    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+    llvm::ArrayRef<int64_t> pageTableShape, TTNNLayoutAttr pageTableLayout,
+    std::optional<llvm::ArrayRef<int64_t>> batchIdxShape,
+    std::optional<TTNNLayoutAttr> batchIdxLayout, TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+  auto cacheSpecExp =
+      detail::convertToTensorSpec(device, cacheShape, cacheLayout);
+  if (!cacheSpecExp) {
+    return cacheSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec cacheSpec = cacheSpecExp.get();
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+
+  auto pageTableSpecExp =
+      detail::convertToTensorSpec(device, pageTableShape, pageTableLayout);
+  if (!pageTableSpecExp) {
+    return pageTableSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec pageTableSpec = pageTableSpecExp.get();
+
+  std::optional<::ttnn::TensorSpec> batchIdxSpec;
+  if (batchIdxShape && batchIdxLayout) {
+    auto batchIdxSpecExp =
+        detail::convertToTensorSpec(device, *batchIdxShape, *batchIdxLayout);
+    if (!batchIdxSpecExp) {
+      return batchIdxSpecExp.takeError();
+    }
+    batchIdxSpec = batchIdxSpecExp.get();
+  }
+
+  auto pagedFillCacheOpQuery = [=]() {
+    return ::ttnn::graph::query_op_runtime(
+        ::ttnn::experimental::paged_fill_cache, device, cacheSpec, inputSpec,
+        pageTableSpec, batchIdxSpec,
+        /*batch_offset=*/0,
+        /*compute_kernel_config=*/std::nullopt, /*mesh_coords=*/std::nullopt);
+  };
+
+  return operation::getOpRuntime(pagedFillCacheOpQuery);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+//===----------------------------------------------------------------------===//
 // Conv2dOp
 //===----------------------------------------------------------------------===//
 llvm::Expected<OpConstraints> OpModel<Conv2dOp>::getOpConstraints(

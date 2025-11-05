@@ -1057,6 +1057,20 @@ def TTNN_FillCacheOp : TTNN_InplaceOp<"fill_cache"> {
   let hasVerifier = 1;
 }
 
+def TTNN_PagedFillCacheOp : TTNN_InplaceOp<"paged_fill_cache"> {
+  let summary = "Paged fill cache op.";
+  let description = [{
+    Fills the `cache` tensor in-place with values from `input` at `batch_offset`.
+  }];
+
+  let arguments = (ins Arg<AnyRankedTensor, "cache tensor", [MemWrite]>:$cache,
+                       AnyRankedTensor:$input,
+                       AnyRankedTensor:$page_table,
+                       Optional<AnyRankedTensor>:$batch_idx_tensor);
+
+  let hasVerifier = 0;
+}
+
 def TTNN_EmbeddingBackwardOp : TTNN_Op<"embedding_bw", [TTNN_DtypeOpInterface, TTNN_MemoryConfigOpInterface]> {
     let summary = "Embedding backward op.";
     let description = [{
