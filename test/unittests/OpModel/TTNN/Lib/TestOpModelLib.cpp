@@ -4449,13 +4449,13 @@ TEST_F(OpModelTest, UpdateCacheOp) {
       cacheShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
   const TTNNLayoutAttr inputLayoutDRAM = CreateTiledLayout(
       inputShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
-  const TTNNLayoutAttr updateIndexLayoutDRAM = CreateTiledLayout(
+  const TTNNLayoutAttr updateIndexLayoutDRAM = CreateTiledLayoutUInt32(
       updateIndexShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
   const TTNNLayoutAttr cacheLayoutL1 = CreateTiledLayout(
       cacheShape, BufferType::L1, TensorMemoryLayout::Interleaved);
   const TTNNLayoutAttr inputLayoutL1 = CreateTiledLayout(
       inputShape, BufferType::L1, TensorMemoryLayout::Interleaved);
-  const TTNNLayoutAttr updateIndexLayoutL1 = CreateTiledLayout(
+  const TTNNLayoutAttr updateIndexLayoutL1 = CreateTiledLayoutUInt32(
       updateIndexShape, BufferType::L1, TensorMemoryLayout::Interleaved);
 
   // Test UpdateCacheOp constraints with batch_offset = 0
