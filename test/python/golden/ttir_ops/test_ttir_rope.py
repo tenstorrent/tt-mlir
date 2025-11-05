@@ -12,10 +12,15 @@ from builder.base.builder_utils import compile_and_execute_ttir
 pytestmark = pytest.mark.frontend("ttir")
 
 
-def check_op(mlir_file: str, op_name: str) -> bool:
+def check_op(mlir_file: str, target: str) -> bool:
+    op_name = (
+        "ttnn.experimental.rotary_embedding"
+        if target == "emitpy"
+        else "ttnn.rotary_embedding"
+    )
     with open(mlir_file, "r") as f:
         for line in f:
-            if f"ttnn.{op_name}" in line:
+            if op_name in line:
                 return True
     return False
 
@@ -109,8 +114,9 @@ def build_ttir(
     ],
 )
 @pytest.mark.parametrize("dtypes", [[torch.bfloat16] * 3])
+@pytest.mark.parametrize("target", ["ttnn", "emitpy"])
 def test_rotary_embedding(
-    shapes: List[Shape], dtypes: List[torch.dtype], request, device
+    shapes: List[Shape], dtypes: List[torch.dtype], target: str, request, device
 ):
     """
     Test rotary position embedding (RoPE) pattern.
@@ -147,6 +153,7 @@ def test_rotary_embedding(
         rotary_embedding,
         shapes,
         dtypes,
+        target=target,
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
@@ -154,4 +161,4 @@ def test_rotary_embedding(
         print_ir=True,
     )
 
-    assert check_op(output, "rotary_embedding")
+    assert check_op(output, target)

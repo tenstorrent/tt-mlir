@@ -3906,23 +3906,6 @@ mlir::LogicalResult RotaryEmbeddingLlamaOp::verify() {
   SmallVector<RankedTensorType> inputTypes = {inputType, cosType, sinType,
                                               outputType};
 
-  auto devicePredicate = [](mlir::RankedTensorType type) {
-    return ttnn::utils::isTensorOnDevice(type);
-  };
-
-  if (!llvm::all_of(inputTypes, devicePredicate)) {
-    return emitOpError("all input and output tensors must be on device.");
-  }
-
-  auto tilePredicate = [](mlir::RankedTensorType type) {
-    auto encoding = cast<ttnn::TTNNLayoutAttr>(type.getEncoding());
-    return encoding.isTiled();
-  };
-
-  if (!llvm::all_of(inputTypes, tilePredicate)) {
-    return emitOpError("all input and output tensors must have tiled layout.");
-  }
-
   auto rankPredicate = [](mlir::RankedTensorType type) {
     return type.getRank() == 4;
   };
