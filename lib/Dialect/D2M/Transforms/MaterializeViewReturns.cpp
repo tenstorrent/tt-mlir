@@ -17,16 +17,11 @@ namespace mlir::tt::d2m {
 
 namespace {
 
-// Check if an operation implements the ViewOpInterface.
-// View operations represent tensor transformations using affine mappings
-// without actual data movement, requiring materialization before use.
 bool isViewOp(Operation *op) {
   return mlir::isa_and_nonnull<d2m::ViewOpInterface>(op);
 }
 
 // Extract the grid attribute from a tensor's metal layout encoding.
-// The grid determines how the tensor is distributed across device cores,
-// which is needed to create the proper generic op for materialization.
 ttcore::GridAttr getGridFromType(RankedTensorType type) {
   auto layout =
       mlir::dyn_cast_if_present<ttcore::MetalLayoutAttr>(type.getEncoding());
