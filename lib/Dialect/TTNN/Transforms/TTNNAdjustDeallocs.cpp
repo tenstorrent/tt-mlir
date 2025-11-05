@@ -46,7 +46,8 @@ public:
           if (constsAndParams.contains(blockArg)) {
             deallocsToErase.push_back(deallocOp);
           }
-        } else if (auto loadCachedOp = mlir::dyn_cast<ttcore::LoadCachedOp>(input.getDefiningOp())) {
+        } else if (auto loadCachedOp = mlir::dyn_cast<ttcore::LoadCachedOp>(
+                       input.getDefiningOp())) {
           deallocsToErase.push_back(deallocOp);
         }
       });

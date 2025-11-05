@@ -11,8 +11,6 @@
 
 #include "llvm/Support/LogicalResult.h"
 #include "llvm/Support/raw_ostream.h"
-#include <llvm/Support/LogicalResult.h>
-#include <mlir/IR/OpImplementation.h>
 
 using namespace mlir;
 using namespace mlir::tt::emitpy;
@@ -102,7 +100,8 @@ static LogicalResult verifyInitializationAttribute(Operation *op,
 }
 
 template <typename SourceOp>
-LogicalResult verifyNearestGlobalSymbol(SourceOp op, SymbolTableCollection &symbolTable){
+LogicalResult verifyNearestGlobalSymbol(SourceOp op,
+                                        SymbolTableCollection &symbolTable) {
   auto global =
       symbolTable.lookupNearestSymbolFrom<GlobalOp>(op, op.getNameAttr());
   if (!global) {
@@ -495,7 +494,6 @@ LogicalResult
 GetGlobalOp::verifySymbolUses(SymbolTableCollection &symbolTable) {
   return verifyNearestGlobalSymbol<GetGlobalOp>(*this, symbolTable);
 }
-
 
 #define GET_OP_CLASSES
 #include "ttmlir/Dialect/EmitPy/IR/EmitPyOps.cpp.inc"

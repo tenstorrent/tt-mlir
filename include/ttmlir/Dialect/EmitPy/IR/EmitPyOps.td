@@ -206,7 +206,7 @@ def EmitPy_GlobalOp : EmitPy_Op<"global", [Symbol]> {
   let summary = "A global variable";
   let description = [{
     The `emitpy.global` operation defines a named global variable.
-    
+
     Example:
 
     ```mlir
@@ -218,7 +218,7 @@ def EmitPy_GlobalOp : EmitPy_Op<"global", [Symbol]> {
                        EmitPy_OpaqueOrTypedAttr:$initial_value);
 
   let hasVerifier = 1;
-  let assemblyFormat = [{ 
+  let assemblyFormat = [{
        $sym_name custom<EmitPyGlobalOpInitialValue>($initial_value) attr-dict
   }];
 }
@@ -274,6 +274,6 @@ def EmitPy_AssignGlobalOp : EmitPy_Op<"assign_global",
   let arguments = (ins FlatSymbolRefAttr:$name,
                        EmitPy_OpaqueType:$value);
   let results = (outs AnyType:$result);
-} 
+}
 
 #endif // TTMLIR_TTMLIR_DIALECT_EMITPY_EMITPYOPS_TD

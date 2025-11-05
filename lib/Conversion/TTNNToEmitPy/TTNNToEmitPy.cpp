@@ -12,7 +12,7 @@
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 
-#include <mlir/IR/Value.h>
+#include "mlir/IR/Value.h"
 #include <optional>
 
 using namespace mlir;
@@ -2265,9 +2265,11 @@ public:
     rewriter.restoreInsertionPoint(currentInsertionPoint);
 
     // Retrieve a global variable.
-    mlir::Value globalVar = rewriter.create<emitpy::GetGlobalOp>(
-        loadCachedOp.getLoc(), tensorListType, globalSymbol)
-    ->getResult(0);
+    mlir::Value globalVar =
+        rewriter
+            .create<emitpy::GetGlobalOp>(loadCachedOp.getLoc(), tensorListType,
+                                         globalSymbol)
+            ->getResult(0);
     operands.push_back(globalVar);
 
     // Call into the callee, no caching mechanism.
