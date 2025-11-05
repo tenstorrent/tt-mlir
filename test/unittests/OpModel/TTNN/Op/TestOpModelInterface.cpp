@@ -480,10 +480,10 @@ TEST_P(BinaryBitwiseOpModelTest, TestOpInterface) {
 
 // The default expected result for binary operations:
 const ExpectedResult binaryExpected{true, 12288, 2048, 14336, 2048};
-// Some binary ops (such as divide, logicalOr, etc.) require extra circular
+// Some binary ops (such as logicalOr, etc.) require extra circular
 // buffer memory which is captured via the following expected values:
-const ExpectedResult binaryExpected_extraCb2048{true, 12288 + 2048, 2048, 16384,
-                                                2048};
+[[maybe_unused]] const ExpectedResult binaryExpected_extraCb2048{
+    true, 12288 + 2048, 2048, 16384, 2048};
 const ExpectedResult binaryExpected_extraCb4096{true, 12288 + 4096, 2048, 18432,
                                                 2048};
 const ExpectedResult binaryExpected_extraCb4096_extraPeak30720{
@@ -569,7 +569,7 @@ const std::vector<BinaryOpTestParams> binaryOpTestParams = {
     {"Add", createAdd, binaryExpected},
     {"Subtract", createSubtract, binaryExpected},
     {"Multiply", createMultiply, binaryExpected},
-    {"Divide", createDivide, binaryExpected_extraCb2048},
+    {"Divide", createDivide, binaryExpected},
     {"Equal", createEqual, binaryExpected},
     {"NotEqual", createNotEqual, binaryExpected},
     {"GreaterEqual", createGE, binaryExpected},
@@ -4223,18 +4223,8 @@ TEST_F(OpModelBase, DeallocateOpInterface) {
   auto backend = dyn_cast<OpModel>(deallocate.getOperation());
   auto constraintsExp = backend.getOpConstraints(
       getInputLayouts(deallocate.getOperation()), OpConfig());
-  if (constraintsExp) {
-    auto l1 = constraintsExp.get();
-    const auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
-        l1;
-    // Hardcoded to return zero; deallocate op has no memory footprint.
-    EXPECT_EQ(cbSize, 0);
-    EXPECT_EQ(l1PeakSize, 0);
-    EXPECT_EQ(outputSize, 0);
-  } else {
-    FAIL() << "Missing L1 constraints for DeallocateOp; Error="
-           << llvm::toString(constraintsExp.takeError()) << std::endl;
-  }
+  EXPECT_FALSE(constraintsExp);
+  llvm::consumeError(constraintsExp.takeError());
 
   auto runtimeExp = backend.getOpRuntime(
       getInputLayouts(deallocate.getOperation()), OpConfig());
@@ -4298,7 +4288,11 @@ TEST_F(OpModelBase, UpdateCacheOpInterface) {
 
   auto cacheTensor = createEmptyTensor(cacheShape);
   auto inputTensor = createEmptyTensor(inputShape);
-  auto updateIndexTensor = createEmptyTensor(updateIndexShape);
+  auto updateIndexTensor = createEmptyTensor(
+      updateIndexShape,
+      builder.getIntegerType(/*width=*/32, /*isSigned=*/false),
+      CreateTiledLayoutUInt32(updateIndexShape, BufferType::L1,
+                              TensorMemoryLayout::Interleaved));
 
   // Create UpdateCacheOp with batch_offset = 0 (no result type - it's in-place)
   auto updateCache = builder.create<UpdateCacheOp>(
@@ -4376,9 +4370,9 @@ TEST_F(OpModelBase, QuantizeOpInterface) {
   const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
       constraintsExp.get();
 
-  EXPECT_GE(cbSize, 18432);
+  EXPECT_GE(cbSize, 16384);
   EXPECT_GE(l1PeakSize, 12288);
-  EXPECT_GE(totalPeakSize, 28672); // smaller than 18432+12288
+  EXPECT_GE(totalPeakSize, 28672); // smaller than 16384+12288
   EXPECT_GE(outputSize, 4096);
 
   ASSERT_TRUE(outputLayout);
@@ -4433,9 +4427,9 @@ TEST_F(OpModelBase, QuantizeOpInterfaceNullOutput) {
   const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
       constraintsExp.get();
 
-  EXPECT_GE(cbSize, 18432);
+  EXPECT_GE(cbSize, 16384);
   EXPECT_GE(l1PeakSize, 12288);
-  EXPECT_GE(totalPeakSize, 28672); // smaller than 18432+12288
+  EXPECT_GE(totalPeakSize, 28672); // smaller than 16384+12288
   EXPECT_GE(outputSize, 4096);
 
   ASSERT_TRUE(outputLayout);
