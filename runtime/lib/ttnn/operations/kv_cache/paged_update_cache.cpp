@@ -14,17 +14,17 @@ namespace tt::runtime::ttnn::operations::kv_cache {
 void run(const ::tt::target::ttnn::PagedUpdateCacheOp *op,
          ProgramContext &context) {
 
-  ::ttnn::Tensor &cacheTensor =
+  const ::ttnn::Tensor &cacheTensor =
       context.getTensorPool().getTTNNTensorAndValidate(op->cache());
-  ::ttnn::Tensor &inputTensor =
+  const ::ttnn::Tensor &inputTensor =
       context.getTensorPool().getTTNNTensorAndValidate(op->input());
   const std::optional<::ttnn::Tensor> &updateIndexTensor =
       op->update_index()
           ? std::make_optional(context.getTensorPool().getTTNNTensorAndValidate(
                 op->update_index()))
           : std::nullopt;
-  bool shareCache = op->share_cache();
-  auto pageTableTensor =
+  const bool &shareCache = op->share_cache();
+  const std::optional<::ttnn::Tensor> &pageTableTensor =
       op->page_table()
           ? std::make_optional(context.getTensorPool().getTTNNTensorAndValidate(
                 op->page_table()))
