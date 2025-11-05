@@ -4,8 +4,6 @@
 
 #include "ttmlir/Dialect/TTIR/Transforms/EraseInverseOps/EraseInverseOps.h"
 
-#include <cassert>
-
 #include "mlir/IR/BuiltinTypes.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
@@ -147,13 +145,11 @@ private:
     // - Are an identical TM
     // - Are on a consteval-able path
 
-    for (uint32_t i = 0; i < op->getNumOperands(); i++) {
-      if (op.isDpsInit(&op->getOpOperand(i))) {
-        continue;
-      }
-      if (checkIdenticalTms(op->getOperand(i).getDefiningOp(),
-                            permuteOperand) ||
-          ttcore::valueTracesToConstantArgs(op->getOperand(i))) {
+    auto dps = mlir::cast<mlir::DestinationStyleOpInterface>(op.getOperation());
+    for (mlir::OpOperand *operand : dps.getDpsInputOperands()) {
+      auto operandValue = operand->get();
+      if (checkIdenticalTms(operandValue.getDefiningOp(), permuteOperand) ||
+          ttcore::valueTracesToConstantArgs(operandValue)) {
         continue;
       }
       return false;
@@ -180,7 +176,8 @@ public:
     SmallVector<Operation *> users(op->getUsers());
     for (auto *user : users) {
       assert(checkIdenticalTms(reshapeUser, user) &&
-             "shouldCommute should have ensured this is true");
+             "isCommuteUpwardsViable/Favorable should have ensured all users "
+             "are identical TMs");
       rewriter.replaceOp(user, newSlice);
     }
   }
@@ -201,8 +198,8 @@ public:
 
 private:
   int64_t getRightmostReshapeDimRTL(ReshapeOp reshapeOp) const {
-    ArrayRef<int64_t> inputShape = reshapeOp.getInput().getType().getShape();
-    ArrayRef<int64_t> outputShape = reshapeOp.getResult().getType().getShape();
+    auto inputShape = reshapeOp.getInput().getType().getShape();
+    auto outputShape = reshapeOp.getResult().getType().getShape();
     auto inputRank = inputShape.size();
     auto outputRank = outputShape.size();
     int64_t minRank = std::min(inputRank, outputRank);
@@ -220,7 +217,7 @@ private:
   }
 
   int64_t getLeftmostSlicedDimRTL(SliceStaticOp sliceOp) const {
-    ArrayRef<int64_t> inputShape = sliceOp.getInput().getType().getShape();
+    auto inputShape = sliceOp.getInput().getType().getShape();
     auto begins = sliceOp.getBegins().getValue();
     auto ends = sliceOp.getEnds().getValue();
     auto steps = sliceOp.getStep().getValue();
@@ -254,7 +251,7 @@ private:
   SliceStaticOp reshapedSliceStaticOp(SliceStaticOp op,
                                       TypedValue<RankedTensorType> input,
                                       PatternRewriter &rewriter) const {
-    ArrayRef<int64_t> shape = input.getType().getShape();
+    auto shape = input.getType().getShape();
     int64_t ndims = shape.size();
 
     int64_t leftmostSlicedDimRTL = getLeftmostSlicedDimRTL(op);
@@ -275,8 +272,8 @@ private:
     for (int64_t i = 0; i < ndims; ++i) {
       if (i > leftmostSlicedDimRTL) {
         // For dims to the left of leftmost sliced dim, set ends=dim size
-        newEnds[ndims - 1 - i] = IntegerAttr::get(
-            IntegerType::get(op->getContext(), 32), shape[ndims - 1 - i]);
+        newEnds[ndims - 1 - i] = rewriter.getI32IntegerAttr(
+            static_cast<int32_t>(shape[ndims - 1 - i]));
         newOutputShape[ndims - 1 - i] = shape[ndims - 1 - i];
       } else {
         // For other dims, copy original values
@@ -301,10 +298,8 @@ private:
       if (i > leftmostSlicedDimRTL) {
         // For dims to the left of the leftmost sliced dim, set begins=0,
         // steps=1
-        newBegins[ndims - 1 - i] =
-            IntegerAttr::get(IntegerType::get(op->getContext(), 32), 0);
-        newSteps[ndims - 1 - i] =
-            IntegerAttr::get(IntegerType::get(op->getContext(), 32), 1);
+        newBegins[ndims - 1 - i] = rewriter.getI32IntegerAttr(0);
+        newSteps[ndims - 1 - i] = rewriter.getI32IntegerAttr(1);
       } else {
         // For other dims, copy original values
         newBegins[ndims - 1 - i] = originalBegins[originalNdims - 1 - i];
@@ -335,12 +330,11 @@ private:
     int64_t rightmostReshapeDimRTL = getRightmostReshapeDimRTL(reshapeUser);
     assert(rightmostReshapeDimRTL != -1 && "Expected valid reshape dimension");
 
-    ArrayRef<int64_t> originalReshapeShape =
-        reshapeUser.getResult().getType().getShape();
+    auto originalReshapeShape = reshapeUser.getResult().getType().getShape();
     int64_t ndims = originalReshapeShape.size();
     SmallVector<int64_t> targetShape(ndims);
 
-    ArrayRef<int64_t> sliceInputShape = op.getInput().getType().getShape();
+    auto sliceInputShape = op.getInput().getType().getShape();
     int64_t inputNdims = sliceInputShape.size();
 
     for (int64_t i = 0; i < ndims; ++i) {
@@ -400,13 +394,12 @@ private:
     // of the following:
     // - Are an identical TM
     // - Are on a consteval-able path
-    for (uint32_t i = 0; i < op->getNumOperands(); i++) {
-      if (op.isDpsInit(&op->getOpOperand(i))) {
-        continue;
-      }
-      if (checkIdenticalTms(op->getOperand(i).getDefiningOp(),
-                            reshapeOperand) ||
-          ttcore::valueTracesToConstantArgs(op->getOperand(i))) {
+
+    auto dps = mlir::cast<mlir::DestinationStyleOpInterface>(op.getOperation());
+    for (mlir::OpOperand *operand : dps.getDpsInputOperands()) {
+      auto operandValue = operand->get();
+      if (checkIdenticalTms(operandValue.getDefiningOp(), reshapeOperand) ||
+          ttcore::valueTracesToConstantArgs(operandValue)) {
         continue;
       }
       return false;
