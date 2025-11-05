@@ -19,6 +19,9 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
+#include "mlir/Dialect/Linalg/Utils/Utils.h"
+#include "mlir/Dialect/SparseTensor/IR/SparseTensor.h"
+#include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/Dialect/Utils/StructuredOpsUtils.h"
 #include "mlir/IR/AffineExpr.h"
 #include "mlir/IR/AffineMap.h"
@@ -1068,6 +1071,302 @@ class D2MMeshShardOpRewriter : public OpConversionPattern<ttir::MeshShardOp> {
   }
 };
 
+// Gather op conversion.
+// The ttir gather op conversion into linalg generic has been adapted from
+// https://github.com/openxla/stablehlo/blob/4c0d4841519aed22e3689c30b72a0e4228051249/stablehlo/conversions/linalg/transforms/StablehloLegalizeToLinalg.cpp#L1766.
+Value extractIndexFromTensor(OpBuilder& builder, Location loc, Value tensor,
+                             ShapedType originalType,
+                             ArrayRef<Value> tensorIndex = {}) {
+  Value extracted = builder.create<mlir::tensor::ExtractOp>(loc, tensor, tensorIndex);
+  if (extracted.getType().isIndex()) return extracted;
+  return originalType.getElementType().isUnsignedInteger()
+             ? builder.createOrFold<arith::IndexCastUIOp>(
+                   loc, builder.getIndexType(), extracted)
+             : builder.createOrFold<arith::IndexCastOp>(
+                   loc, builder.getIndexType(), extracted);
+}
+
+SmallVector<utils::IteratorType, 3> getParallelAndReductionIterators(
+    unsigned nLoops, unsigned nReduction) {
+  SmallVector<utils::IteratorType, 3> res(nLoops - nReduction,
+                                          utils::IteratorType::parallel);
+  res.append(nReduction, utils::IteratorType::reduction);
+  return res;
+}
+
+SmallVector<utils::IteratorType, 3> getNParallelLoopsAttrs(
+    unsigned nParallelLoops) {
+  return getParallelAndReductionIterators(nParallelLoops, 0);
+}
+
+Value getEmptySparseTensor(OpBuilder& builder, Location loc, ShapedType type,
+                           ArrayRef<Value> dynSizes) {
+  auto allocTensor = builder.create<bufferization::AllocTensorOp>(
+    loc,
+    llvm::cast<TensorType>(type),
+    dynSizes,
+    /*copy=*/Value(),
+    /*memory_space=*/IntegerAttr());
+  return allocTensor;
+}
+
+Value getEmptyTensor(OpBuilder& builder, Location loc, ShapedType type,
+                     ArrayRef<Value> dynSizes) {
+    auto empty = builder.create<mlir::tensor::EmptyOp>(
+      loc,
+      type.getShape(),
+      type.getElementType(),
+      dynSizes,
+      llvm::cast<RankedTensorType>(type).getEncoding());
+  return empty;
+}
+
+Value getEmptyTensorFor(OpBuilder& builder, Location loc, ShapedType resultType,
+                        Operation* op, ValueRange operands) {
+  bool isSparse = mlir::sparse_tensor::getSparseTensorEncoding(resultType) != nullptr;
+  // Collect the sizes for a ranked tensor to be passed as parameter to a
+  // new tensor initialization operation. This operation only needs the
+  // dynamic sizes.
+  SmallVector<Value> sizes;
+  if (!resultType.hasStaticShape()) {
+    // Ask the op for its output shape.
+    auto shapeSource = cast<InferShapedTypeOpInterface>(op);
+    SmallVector<Value, 1> reifiedShapes;
+    if (failed(shapeSource.reifyReturnTypeShapes(builder, operands, reifiedShapes))) {
+      llvm::report_fatal_error("could not reify");
+    }
+    assert(reifiedShapes.size() == 1 && "Expected one reified result");
+    // Construct sizes for the required dimensions.
+    for (const auto& en : llvm::enumerate(resultType.getShape())) {
+      if (en.value() != ShapedType::kDynamic) continue;
+      Value idx = builder.create<arith::ConstantIndexOp>(loc, en.index());
+      Value extracted = builder.create<tensor::ExtractOp>(loc, reifiedShapes[0], ValueRange{idx});
+      sizes.push_back(extracted);
+    }
+  }
+  return isSparse ? getEmptySparseTensor(builder, loc, resultType, sizes)
+                  : getEmptyTensor(builder, loc, resultType, sizes);
+}
+
+class D2MGatherOpRewriter : public OpConversionPattern<ttir::GatherOp> {
+  using OpConversionPattern<ttir::GatherOp>::OpConversionPattern;
+  LogicalResult
+  matchAndRewrite(ttir::GatherOp gatherOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    mlir::OpBuilder builder(getContext());
+    builder.setInsertionPointAfter(gatherOp);
+    Location loc = gatherOp.getLoc();
+
+    Value startIndices = adaptor.getStartIndices();
+    [[maybe_unused]]Value operand = adaptor.getOperands()[0];
+
+    auto resultType =
+        getTypeConverter()->convertType<RankedTensorType>(gatherOp.getType());
+    RankedTensorType startIndicesType =
+        cast<RankedTensorType>(startIndices.getType());
+
+    int64_t resultRank = resultType.getRank();
+    // slice_sizes has to have the same size as operand.rank, and doing it this
+    // way permits an unranked operand.
+    int64_t operandRank = gatherOp.getSliceSizes().size();
+    int64_t indexVectorDim = gatherOp.getIndexVectorDim();
+    ArrayRef<int64_t> offsetDims =
+        gatherOp.getOffsetDims();
+    ArrayRef<int64_t> collapsedSliceDims =
+        gatherOp.getCollapsedSliceDims();
+    ArrayRef<int64_t> operandBatchingDims =
+        gatherOp.getOperandBatchingDims();
+    ArrayRef<int64_t> startIndicesBatchingDims =
+        gatherOp.getStartIndicesBatchingDims();
+    ArrayRef<int64_t> startIndexMap =
+        gatherOp.getStartIndexMap();
+
+    // We'll need these later and creating them on demand we end up with
+    // duplicates, which also makes lit tests really hard to write.
+    SmallVector<Value> constants;
+    for (int64_t i = 0, e = std::max({resultRank, operandRank, int64_t{2}}); i < e; ++i) {
+      auto constOp = builder.create<mlir::arith::ConstantOp>(
+          loc, rewriter.getIndexAttr(i));
+      constants.push_back(constOp);
+    }
+
+    Value emptyOp = getEmptyTensorFor(builder, loc, resultType, gatherOp,
+                                      adaptor.getOperands());
+
+    ValueRange ins;
+    SmallVector<AffineMap, 1> indexingMaps(
+        {rewriter.getMultiDimIdentityMap(resultRank)});
+    
+    [[maybe_unused]] auto linalgOp = builder.create<mlir::linalg::GenericOp>(
+      loc,
+      resultType,
+      ins,
+      emptyOp,
+      indexingMaps,
+      getNParallelLoopsAttrs(resultRank),
+      [&](OpBuilder &b, Location loc, ValueRange args) {
+          
+      },
+      mlir::linalg::getPrunedAttributeList(gatherOp));
+
+      /*
+      Region& region = linalgOp.getRegion(); 
+      Block* block = rewriter.createBlock(&region, region.end()); 
+      block->addArguments(resultType.getElementType(), loc); 
+      OpBuilder::InsertionGuard guard(rewriter); 
+      rewriter.setInsertionPointToEnd(block);
+      */
+      Region &region = linalgOp.getRegion();
+      Block &block = region.front();
+      OpBuilder::InsertionGuard guard(rewriter); 
+      rewriter.setInsertionPointToEnd(&block);
+      builder.setInsertionPointToEnd(&block);
+
+      // Dimensions in the result that aren't offset dimensions are called batch.
+      SmallVector<int64_t> batchDims;
+      for (int64_t dim = 0; dim < resultRank; ++dim) {
+        if (!llvm::is_contained(offsetDims, dim)) {
+          batchDims.push_back(dim);
+        }
+    }
+
+    // Same as with the constants. Creating these all up front is easier than
+    // potentially getting duplicates later.
+    SmallVector<Value> linalgIndices;
+    for (int64_t i = 0; i < resultRank; ++i) {
+      linalgIndices.push_back(builder.create<mlir::linalg::IndexOp>(
+          loc, i));
+    }
+    // Now the complicated part. For a given output dimension we build up an
+    // index into the input. It's composed of two parts: the index coming from
+    // start_indices, and the offset from that index along the offset
+    // dimensions. Everything includes dimension shuffling and remapping as well
+    // because of the way gather is defined to allow for any-layout input by
+    // adding more attributes.
+
+    // The base gather index (`G` in the documentation) points to a place in
+    // start_indices along the batch dimensions.
+    SmallVector<Value> gatherIndex;
+    for (int64_t dim : batchDims) {
+      gatherIndex.push_back(linalgIndices[dim]);
+    }
+    SmallVector<Value> indexFromStartIndices;
+    for (size_t i = 0, e = startIndexMap.size(); i != e; ++i) {
+      // The index along the index_vector dimension of start_indices varies.
+      // Basically indexFromStartIndices indexes into a "row" along
+      // index_vector_dim, where the row is selected by the current output
+      // index.
+      // But if index_vector_dim is equal to start_indices.rank, then
+      // start_indices gets a trailing 1 dimension added. So the row we're
+      // extracting always has length 1 and the index into it is always 0, so we
+      // just use the gather index directly
+      SmallVector<Value> gCombine(gatherIndex);
+      if (indexVectorDim != startIndicesType.getRank()) {
+        assert(indexVectorDim <= static_cast<int64_t>(gCombine.size()));
+        gCombine.insert(gCombine.begin() + indexVectorDim, constants[i]);
+      }
+
+      indexFromStartIndices.push_back(extractIndexFromTensor(
+          builder, loc, startIndices, gatherOp.getStartIndices().getType(),
+          gCombine));
+    }
+    // But then start indices are shuffled by the start index map. To make a
+    // full index into the operand, all missing indices are zeroes.
+    SmallVector<Value> remappedIndexFromIndices(operandRank, constants[0]);
+    for (auto [idx, value] : llvm::enumerate(startIndexMap)) {
+      remappedIndexFromIndices[value] = indexFromStartIndices[idx];
+    }
+
+    // Now we construct the index based on the operand/start_indices batching
+    // dimensions.
+    SmallVector<Value> indexFromBatching(operandRank, constants[0]);
+    for (auto [operandDim, indicesDim] :
+          llvm::zip_equal(operandBatchingDims, startIndicesBatchingDims)) {
+      indexFromBatching[operandDim] =
+          gatherIndex[indicesDim + (indicesDim < indexVectorDim ? 0 : 1)];
+    }
+
+    [[maybe_unused]]auto isCollapsedOrBatching = [&](int64_t dim) {
+      return llvm::is_contained(collapsedSliceDims, dim) ||
+              llvm::is_contained(operandBatchingDims, dim);
+    };
+
+    // Now we construct the index based on the offset. First we need to remap
+    // the offset dimensions by dropping the collapsed/batching indices.
+    SmallVector<unsigned> remappedOffsetDims;
+    for (int64_t i = 0; i < operandRank; ++i) {
+      if (!isCollapsedOrBatching(i)) {
+        remappedOffsetDims.push_back(static_cast<unsigned>(i));
+      }
+    }
+    assert(remappedOffsetDims.size() == offsetDims.size());
+
+    // Clamp out of bounds indices.
+    for (int i = 0, operandIndexDim = 0; i < operandRank; ++i) {
+      // Compute the size of the output shape dimension corresponding to this
+      // index dimension. If it's collapsed set it to 1.
+      [[maybe_unused]]Value outputDimSize = constants[1];
+      if (!isCollapsedOrBatching(i)) {
+        outputDimSize = builder.create<mlir::tensor::DimOp>(
+            loc, emptyOp, offsetDims[operandIndexDim++]);
+      }
+
+      // If this is a skipped dimension, we're done and don't have to clamp.
+      if (remappedIndexFromIndices[i] == constants[0]) continue;
+
+      Value operandDimSize =
+          builder.create<mlir::tensor::DimOp>(loc, operand, i);
+      Value largestValidIndex = builder.create<mlir::arith::SubIOp>(
+          loc, operandDimSize, outputDimSize);
+
+      // Clamp indices to [0, i, operand_dim-output_dim].
+      Value clamp = builder.create<mlir::arith::MinSIOp>(
+          loc,
+          builder.create<mlir::arith::MaxSIOp>(
+              loc, constants[0], remappedIndexFromIndices[i]),
+          largestValidIndex);
+      remappedIndexFromIndices[i] = clamp;
+    }
+
+    // For the (remapped) offset dimensions, the index is the current index in
+    // the output. As before this is expanded to a full index into the operand
+    // by using zeros for the missing indices.
+    SmallVector<Value> indexFromOffset(operandRank, constants[0]);
+    for (auto [remappedOffsetDim, offsetDim] :
+          llvm::zip_equal(remappedOffsetDims, offsetDims)) {
+      indexFromOffset[remappedOffsetDim] = linalgIndices[offsetDim];
+    }
+
+    // Now we add together our three indices to get the final index into the
+    // operand.
+    SmallVector<Value> combinedIndex;
+    for (int64_t i = 0; i < operandRank; ++i)
+      combinedIndex.push_back(builder.create<mlir::arith::AddIOp>(
+          loc, rewriter.getIndexType(),
+          builder.create<mlir::arith::AddIOp>(loc, rewriter.getIndexType(),
+                                                remappedIndexFromIndices[i],
+                                                indexFromBatching[i]),
+          indexFromOffset[i]));
+    Value extractOperand;
+    if (isa<RankedTensorType>(operand.getType())) {
+      extractOperand = operand;
+    } else {
+      // Cannot extract from unranked tensors, cast to ranked first.
+      SmallVector<int64_t> dims(operandRank, ShapedType::kDynamic);
+      auto type = RankedTensorType::get(
+          dims, cast<TensorType>(operand.getType()).getElementType());
+      extractOperand = builder.create<mlir::tensor::CastOp>(loc, type, operand);
+    }
+    Value element = builder.create<mlir::tensor::ExtractOp>(
+        loc, extractOperand, combinedIndex);
+    builder.create<mlir::linalg::YieldOp>(loc, element);
+
+    rewriter.replaceOp(gatherOp, linalgOp.getResults());
+
+    return success();
+  }
+};
+
 } // namespace mlir::tt
 
 namespace mlir::tt {
@@ -1131,6 +1430,9 @@ void populateTTIRToD2MPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
 
   // Matmul.
   patterns.add<D2MMatmulRewriter<d2m::TileMatmulOp>>(typeConverter, ctx, defaultInputMemSpace, defaultOutputMemSpace,  ttnnMode, collapseTensors);
+
+  // Gather
+  patterns.add<D2MGatherOpRewriter>(typeConverter, ctx);
 
   // clang-format on
 }
