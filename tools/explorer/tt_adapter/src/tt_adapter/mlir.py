@@ -816,8 +816,6 @@ class GraphHandler:
 
         # Prepare perf data for color overlay
         log_file = "/tmp/tt_adapter_convert_debug.log"
-        with open(log_file, "a") as f:
-            f.write(f"DEBUG [GraphHandler.build_graph]: perf_trace is {'None' if perf_trace is None else f'provided with {len(perf_trace)} rows'}\n")
         
         if perf_trace is not None:
             skipped_rows = 0

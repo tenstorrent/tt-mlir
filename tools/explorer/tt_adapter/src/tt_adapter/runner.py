@@ -189,13 +189,22 @@ class ModelRunner:
         op_perf_file = (
             f"{self.model_state[model_path].model_output_dir}/perf/ops_perf_results.csv"
         )
-        print(f"DEBUG [ModelRunner.get_perf_trace]: Looking for CSV at {op_perf_file}")
-        print(f"DEBUG [ModelRunner.get_perf_trace]: File exists = {os.path.exists(op_perf_file)}")
         if not os.path.exists(op_perf_file):
             raise FileNotFoundError(f"Performance file {op_perf_file} not found.")
 
         csv_data = pd.read_csv(op_perf_file)
-        print(f"DEBUG [ModelRunner.get_perf_trace]: CSV loaded successfully, rows = {len(csv_data)}")
+        
+        # Log CSV contents to debug LOC format
+        log_file = "/tmp/tt_adapter_convert_debug.log"
+        with open(log_file, "a") as f:
+            f.write(f"DEBUG [get_perf_trace]: CSV has {len(csv_data)} rows\n")
+            f.write(f"DEBUG [get_perf_trace]: CSV columns: {list(csv_data.columns)}\n")
+            if len(csv_data) > 0:
+                f.write(f"DEBUG [get_perf_trace]: First 3 LOC values:\n")
+                for idx, row in csv_data.head(3).iterrows():
+                    loc_val = row.get("LOC", "MISSING")
+                    f.write(f"  Row {idx}: '{loc_val}'\n")
+        
         return csv_data
 
     def get_memory_usage(self, model_path):
@@ -511,18 +520,8 @@ class ModelRunner:
                 "A model is already being processed. Please wait for it to finish."
             )
         
-        # Write to log file for debugging
-        log_file = "/tmp/tt_adapter_convert_debug.log"
-        with open(log_file, "a") as f:
-            f.write(f"\n{'='*80}\n")
-            f.write(f"DEBUG [ModelRunner.run]: model_path = {model_path}\n")
-            f.write(f"DEBUG [ModelRunner.run]: About to call update_model_state\n")
-        
         self.reset_state()
         last_run = self.update_model_state(model_path)
-        
-        with open(log_file, "a") as f:
-            f.write(f"DEBUG [ModelRunner.run]: After update_model_state, model_path in model_state = {model_path in self.model_state}\n")
 
         # Set the EmitC State
         generate_cpp_code = settings.get("generateCppCode", False)
