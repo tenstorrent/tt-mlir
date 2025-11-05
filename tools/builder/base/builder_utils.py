@@ -214,6 +214,10 @@ def _compile_and_execute(
         Device to execute on (if None, opens a new device)
     skip_exec: bool
         Whether or not to skip execution in cases of hangs, throwing a `TTBuilderRuntimeException`
+    check_atol : bool
+        Whether to check absolute tolerance during golden comparison
+    check_rtol : bool
+        Whether to check relative tolerance during golden comparison
     **compile_kwargs
         All other arguments to pass through to the compile function
     """
@@ -589,6 +593,10 @@ def compile_and_execute_d2m(
         Relative tolerance for golden comparison
     disable_golden : bool
         Whether to disable golden comparison
+    check_atol : bool
+        Whether to check absolute tolerance during golden comparison
+    check_rtol : bool
+        Whether to check relative tolerance during golden comparison
     """
     return _compile_and_execute(
         compile_fn=compile_d2m_to_flatbuffer,
@@ -695,6 +703,10 @@ def compile_and_execute_shlo(
         Relative tolerance for golden comparison
     disable_golden : bool
         Whether to disable golden comparison
+    check_atol : bool
+        Whether to check absolute tolerance during golden comparison
+    check_rtol : bool
+        Whether to check relative tolerance during golden comparison
     """
     return _compile_and_execute(
         compile_fn=compile_stablehlo_to_flatbuffer,
@@ -800,6 +812,10 @@ def compile_and_execute_ttnn(
         Relative tolerance for golden comparison
     disable_golden : bool
         Whether to disable golden comparison
+    check_atol : bool
+        Whether to check absolute tolerance during golden comparison
+    check_rtol : bool
+        Whether to check relative tolerance during golden comparison
     """
     return _compile_and_execute(
         compile_fn=compile_ttnn_to_flatbuffer,
@@ -900,6 +916,10 @@ def compile_and_execute_ttir(
         Relative tolerance for golden comparison
     disable_golden : bool
         Whether to disable golden comparison
+    check_atol : bool
+        Whether to check absolute tolerance during golden comparison
+    check_rtol : bool
+        Whether to check relative tolerance during golden comparison
     """
     return _compile_and_execute(
         compile_fn=compile_ttir_to_flatbuffer,
