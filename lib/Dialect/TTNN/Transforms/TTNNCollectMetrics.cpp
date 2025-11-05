@@ -270,39 +270,6 @@ public:
     os << llvm::formatv("{0:2}", llvm::json::Value(std::move(jsonOutput)))
        << "\n";
     os.close();
-
-    // Print summary to stdout for immediate feedback
-    llvm::outs() << "TTNN Metrics Collection Complete:\n";
-    llvm::outs() << "  Total operations: " << aggregatedMetrics.totalOps
-                 << "\n";
-    llvm::outs() << "  Total operations with output tensor: "
-                 << aggregatedMetrics.totalOpsWithOutputTensor << "\n";
-    llvm::outs() << "  Total shardable operations: "
-                 << aggregatedMetrics.totalShardableOps << "\n";
-    llvm::outs() << "  Sharded operations: " << aggregatedMetrics.shardedOps
-                 << " ("
-                 << llvm::format("%.2f", aggregatedMetrics.shardedPercentage)
-                 << "%)\n";
-    llvm::outs() << "  Effectively sharded: "
-                 << aggregatedMetrics.effectivelyShardedOps << " ("
-                 << llvm::format("%.2f",
-                                 aggregatedMetrics.effectivelyShardedPercentage)
-                 << "%)\n";
-    llvm::outs() << "  Sharded and spilled: "
-                 << aggregatedMetrics.shardedAndSpilledOps << " ("
-                 << llvm::format("%.2f",
-                                 aggregatedMetrics.shardedAndSpilledPercentage)
-                 << "%)\n";
-    llvm::outs() << "  DRAM spilled: " << aggregatedMetrics.dramSpilledOps
-                 << " ("
-                 << llvm::format("%.2f", aggregatedMetrics.spilledPercentage)
-                 << "%)\n";
-    llvm::outs() << "  System memory: " << aggregatedMetrics.systemMemoryOps
-                 << " ("
-                 << llvm::format("%.2f",
-                                 aggregatedMetrics.systemMemoryPercentage)
-                 << "%)\n";
-    llvm::outs() << "  Metrics exported to: " << ttnnMetricsOutputFile << "\n";
   }
 };
 
