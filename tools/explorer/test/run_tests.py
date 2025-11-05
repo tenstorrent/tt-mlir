@@ -13,115 +13,12 @@ import logging
 import portpicker
 import sys
 
-# Debug: Print environment information at test startup
+# Debug: Environment info (only critical paths for perf data)
 print("\n" + "=" * 80)
-print("DEBUG: Environment Information")
+print("DEBUG: Critical Path Check")
 print("=" * 80)
-print(f"Python version: {sys.version}")
-print(f"Python executable: {sys.executable}")
-print(f"Working directory: {os.getcwd()}")
-print(f"BUILD_DIR env var: {os.environ.get('BUILD_DIR', 'NOT SET')}")
-print(f"INSTALL_DIR env var: {os.environ.get('INSTALL_DIR', 'NOT SET')}")
-print(f"IMAGE_NAME env var: {os.environ.get('IMAGE_NAME', 'NOT SET')}")
-print(f"TT_METAL_RUNTIME_ROOT: {os.environ.get('TT_METAL_RUNTIME_ROOT', 'NOT SET')}")
-
-# Check key paths
-build_dir = os.environ.get("BUILD_DIR", "build")
-install_dir = os.environ.get("INSTALL_DIR", "install")
-print(f"\nDEBUG: Path checks:")
-print(f"  BUILD_DIR exists: {os.path.exists(build_dir)}")
-print(f"  INSTALL_DIR exists: {os.path.exists(install_dir)}")
-
-# Check for tracy-specific indicators
-tracy_indicators = [
-    "/usr/bin/tracy",
-    "/usr/local/bin/tracy",
-    os.path.join(install_dir, "lib/libtracy.so"),
-]
-print(f"\nDEBUG: Tracy build indicators:")
-for path in tracy_indicators:
-    print(f"  {path}: {'EXISTS' if os.path.exists(path) else 'NOT FOUND'}")
-
-# Check runtime libraries
-runtime_libs = [
-    "ttrt",
-    "tt-mlir",
-    "model_explorer",
-]
-print(f"\nDEBUG: Python packages:")
-for lib in runtime_libs:
-    try:
-        mod = __import__(lib.replace("-", "_"))
-        print(
-            f"  {lib}: {getattr(mod, '__version__', 'version unknown')} at {getattr(mod, '__file__', 'unknown path')}"
-        )
-    except ImportError as e:
-        print(f"  {lib}: NOT FOUND ({e})")
-
-# Check if perf tracing is enabled
-perf_env_vars = [
-    "TT_RUNTIME_ENABLE_PERF_TRACE",
-    "TTNN_CONFIG_OVERRIDES",
-    "TT_METAL_LOGGER_LEVEL",
-    "TT_MLIR_HOME",
-    "TT_METAL_HOME",
-    "TT_METAL_RUNTIME_ROOT",
-]
-print(f"\nDEBUG: Performance-related env vars:")
-for var in perf_env_vars:
-    print(f"  {var}: {os.environ.get(var, 'NOT SET')}")
-
-# Check for Tracy perf capture tools (needed for ttrt perf)
-# TT_METAL_RUNTIME_ROOT is the new replacement for TT_METAL_HOME
-tt_metal_runtime_root = os.environ.get("TT_METAL_RUNTIME_ROOT", "")
-tt_metal_home = os.environ.get("TT_METAL_HOME", "")
-tracy_tools = []
-
-# Check TT_METAL_RUNTIME_ROOT first (new standard)
-if tt_metal_runtime_root:
-    tracy_tools.extend([
-        os.path.join(tt_metal_runtime_root, "capture-release"),
-        os.path.join(tt_metal_runtime_root, "csvexport-release"),
-    ])
-
-# Check TT_METAL_HOME (legacy)
-if tt_metal_home:
-    tracy_tools.extend([
-        os.path.join(tt_metal_home, "capture-release"),
-        os.path.join(tt_metal_home, "csvexport-release"),
-    ])
-
-# If neither env var is set, check common locations
-if not tt_metal_runtime_root and not tt_metal_home:
-    tracy_tools = [
-        "/opt/tt_metal/capture-release",
-        "/opt/tt_metal/csvexport-release",
-        "/usr/local/bin/capture-release",
-        "/usr/local/bin/csvexport-release",
-    ]
-
-print(f"\nDEBUG: Tracy perf tools (required for performance data):")
-for tool_path in tracy_tools:
-    exists = os.path.exists(tool_path)
-    executable = os.access(tool_path, os.X_OK) if exists else False
-    print(f"  {tool_path}: {'EXISTS' if exists else 'NOT FOUND'} {'(executable)' if executable else '(not executable)' if exists else ''}")
-
-# Check for ttrt-artifacts directory (where perf data is stored)
 tt_mlir_home = os.environ.get("TT_MLIR_HOME", "")
-if tt_mlir_home:
-    artifacts_dir = os.path.join(tt_mlir_home, "ttrt-artifacts")
-    print(f"\nDEBUG: ttrt-artifacts directory:")
-    print(f"  Path: {artifacts_dir}")
-    print(f"  Exists: {os.path.exists(artifacts_dir)}")
-    if os.path.exists(artifacts_dir):
-        print(f"  Writable: {os.access(artifacts_dir, os.W_OK)}")
-        # List contents if it exists
-        try:
-            contents = os.listdir(artifacts_dir)
-            print(f"  Contents: {contents if contents else '(empty)'}")
-        except Exception as e:
-            print(f"  Error listing contents: {e}")
-
+print(f"TT_MLIR_HOME: {tt_mlir_home}")
 print("=" * 80 + "\n")
 
 HOST = "localhost"
@@ -335,103 +232,42 @@ def test_execute_and_check_perf_data_exists():
     print("\n" + "=" * 80)
     print("DEBUG: test_execute_and_check_perf_data_exists - Starting")
     print("=" * 80)
-
-    # Check if expected artifacts dir exists before execution
-    tt_mlir_home = os.environ.get("TT_MLIR_HOME", "")
-    if tt_mlir_home:
-        artifacts_dir = os.path.join(tt_mlir_home, "ttrt-artifacts")
-        print(f"DEBUG: Pre-execution check - artifacts_dir: {artifacts_dir}")
-        print(f"DEBUG: Pre-execution check - artifacts_dir exists: {os.path.exists(artifacts_dir)}")
+    print(f"Model path: {MNIST_SHARDING_PATH}")
 
     execute_command_and_wait(
         MNIST_SHARDING_PATH,
         {"optimizationPolicy": "Optimizer Disabled"},
         timeout=300,
     )
-    print("DEBUG: execute_command_and_wait completed successfully")
-
-    # Check if artifacts were created after execution
-    if tt_mlir_home:
-        artifacts_dir = os.path.join(tt_mlir_home, "ttrt-artifacts")
-        print(f"DEBUG: Post-execution check - artifacts_dir exists: {os.path.exists(artifacts_dir)}")
-        if os.path.exists(artifacts_dir):
-            try:
-                contents = os.listdir(artifacts_dir)
-                print(f"DEBUG: Post-execution - artifacts_dir contents: {contents}")
-                # Check for perf directory and ops_perf_results.csv
-                for item in contents:
-                    item_path = os.path.join(artifacts_dir, item)
-                    if os.path.isdir(item_path):
-                        perf_dir = os.path.join(item_path, "perf")
-                        if os.path.exists(perf_dir):
-                            print(f"DEBUG: Found perf directory: {perf_dir}")
-                            perf_contents = os.listdir(perf_dir)
-                            print(f"DEBUG: Perf directory contents: {perf_contents}")
-                            csv_file = os.path.join(perf_dir, "ops_perf_results.csv")
-                            if os.path.exists(csv_file):
-                                print(f"DEBUG: ops_perf_results.csv EXISTS at {csv_file}")
-                                # Check file size
-                                size = os.path.getsize(csv_file)
-                                print(f"DEBUG: ops_perf_results.csv size: {size} bytes")
-                            else:
-                                print(f"DEBUG: ops_perf_results.csv NOT FOUND at {csv_file}")
-            except Exception as e:
-                print(f"DEBUG: Error checking artifacts: {e}")
-
-    # First, let's check the model_state on the server side
-    print(f"DEBUG: About to call convert_command_and_assert")
-    print(f"DEBUG: MNIST_SHARDING_PATH = {MNIST_SHARDING_PATH}")
+    print("✓ execute_command_and_wait completed")
     
     result = convert_command_and_assert(MNIST_SHARDING_PATH)
-    print(f"DEBUG: convert_command_and_assert completed successfully")
+    print("✓ convert_command_and_assert completed")
     
-    # Read the debug log file created by tt_adapter
+    # Read the debug log file created by tt_adapter (THE KEY DEBUG INFO)
     log_file = "/tmp/tt_adapter_convert_debug.log"
+    print("\n" + "=" * 80)
+    print("ADAPTER DEBUG LOG (model_path tracking):")
+    print("=" * 80)
     if os.path.exists(log_file):
-        print(f"\nDEBUG: Contents of {log_file}:")
         with open(log_file, "r") as f:
             print(f.read())
     else:
-        print(f"DEBUG: Log file {log_file} does not exist")
-    print(f"DEBUG: result type = {type(result)}")
-    print(f"DEBUG: result keys = {result.keys() if isinstance(result, dict) else 'N/A'}")
-    
-    # Print the entire result for debugging
-    import json
-    print(f"DEBUG: Full result JSON (first 2000 chars):")
-    result_str = json.dumps(result, indent=2, default=str)
-    print(result_str[:2000])
+        print(f"WARNING: Log file {log_file} does not exist")
+    print("=" * 80)
 
-    if isinstance(result, dict) and "graphs" in result:
-        print(f"DEBUG: Number of graphs = {len(result['graphs'])}")
-        if len(result["graphs"]) > 0:
-            graph = result["graphs"][0]
-            print(f"DEBUG: graph[0] keys = {graph.keys()}")
-            if "overlays" in graph:
-                overlays = graph["overlays"]
-                print(f"DEBUG: overlays type = {type(overlays)}")
-                print(f"DEBUG: overlays keys = {overlays.keys() if isinstance(overlays, dict) else overlays}")
-                print(f"DEBUG: 'perf_data' in overlays = {'perf_data' in overlays}")
-
-                # Print all overlay keys and their types for debugging
-                if isinstance(overlays, dict):
-                    for key, value in overlays.items():
-                        print(
-                            f"DEBUG: overlay['{key}'] = {type(value)} (length={len(value) if hasattr(value, '__len__') else 'N/A'})"
-                        )
-            else:
-                print("DEBUG: ERROR - No 'overlays' key in graph[0]")
-                print("DEBUG: This means tt_adapter did not add ANY overlays to the graph")
-                print("DEBUG: Possible causes:")
-                print("DEBUG:   1. perf_node_data is empty (no CSV file found or parsed)")
-                print("DEBUG:   2. memory_node_data is empty (memory profiling failed)")
-                print("DEBUG:   3. accuracy_node_data is empty (no accuracy data)")
-                print("DEBUG:   4. Build configuration issue (explorer not enabled properly)")
+    # Check result structure
+    if isinstance(result, dict) and "graphs" in result and len(result["graphs"]) > 0:
+        graph = result["graphs"][0]
+        if "overlays" not in graph:
+            print("\n✗ FAILURE: No 'overlays' key in graph")
+            print("  This confirms optimized_model_path was None in convert()")
         else:
-            print("DEBUG: ERROR - graphs list is empty")
-    else:
-        print(f"DEBUG: ERROR - result is not a dict or has no 'graphs' key")
-        print(f"DEBUG: result = {result}")
+            overlays = graph["overlays"]
+            if "perf_data" in overlays:
+                print("\n✓ SUCCESS: perf_data found in overlays")
+            else:
+                print(f"\n✗ FAILURE: perf_data missing (overlays has: {list(overlays.keys())})")
 
     print("=" * 80)
     assert "perf_data" in result["graphs"][0]["overlays"]
