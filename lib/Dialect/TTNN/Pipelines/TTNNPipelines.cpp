@@ -20,6 +20,7 @@
 
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Transforms/Passes.h"
+#include <mlir/IR/BuiltinOps.h>
 
 namespace mlir::tt::ttnn {
 //===----------------------------------------------------------------------===//
@@ -161,11 +162,19 @@ void createTTNNPipelineDeallocPass(
 void createTTIRToTTNNBackendPipeline(
     OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
   pm.addPass(mlir::createCanonicalizerPass());
+  
+  // Create DeviceModule to wrap all ops.
+  pm.addPass(ttcore::createTTCoreWrapDeviceModulePass());
+  OpPassManager &devicePm =
+      pm.nest<ttcore::DeviceModuleOp>().nest<mlir::ModuleOp>();
+
   // Element type normalization should be the first pass in the pipeline.
+  // This pass should be applied only to the ops in the Device
+  // Module, since we aren't restricted with element types on CPU.
   ttir::ElementTypeNormalizationOptions elementTypeNormalizationOptions;
   elementTypeNormalizationOptions.enableBfp8Conversion =
       options.enableBfp8Conversion;
-  pm.addPass(
+  devicePm.addPass(
       ttir::createElementTypeNormalization(elementTypeNormalizationOptions));
 
   // Add Decomposition pass here to ensure it runs before hoisting.
@@ -173,14 +182,10 @@ void createTTIRToTTNNBackendPipeline(
   decompOptions.decompConfig = DecompMode::CPUFallback;
   pm.addPass(mlir::tt::createTTIRToTTIRDecompositionPass(decompOptions));
 
-  // Create DeviceModule to wrap all ops.
-  pm.addPass(ttcore::createTTCoreWrapDeviceModulePass());
   // Create CPUModuleOp to wrap hoisted ops (if any).
   pm.addPass(ttir::createTTIRHoistTransform());
 
   // Run regular TTIR to TTNN pipeline on DeviceModule.
-  OpPassManager &devicePm =
-      pm.nest<ttcore::DeviceModuleOp>().nest<mlir::ModuleOp>();
   createTTNNPipelineTTIRPasses(devicePm, options);
 
   ttir::TTIRQuantDataTypeConversionPassOptions quantOptions;
