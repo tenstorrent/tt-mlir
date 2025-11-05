@@ -154,12 +154,56 @@ class TTAdapter(model_explorer.Adapter):
     def convert(
         self, model_path: str, settings: Dict
     ) -> model_explorer.ModelExplorerGraphs:
-        if optimized_model_path := self.model_runner.get_optimized_model_path(
-            model_path
-        ):
+        import os
+        optimized_model_path = self.model_runner.get_optimized_model_path(model_path)
+        print(f"DEBUG [Adapter.convert]: model_path = {model_path}")
+        print(f"DEBUG [Adapter.convert]: optimized_model_path = {optimized_model_path}")
+        print(f"DEBUG [Adapter.convert]: model_path in model_state = {model_path in self.model_runner.model_state}")
+        
+        if model_path in self.model_runner.model_state:
+            state = self.model_runner.model_state[model_path]
+            print(f"DEBUG [Adapter.convert]: model_state[model_path].optimized_model_path = {state.optimized_model_path}")
+            print(f"DEBUG [Adapter.convert]: model_state[model_path].model_output_dir = {state.model_output_dir}")
+            
+            # Check if paths exist
+            if state.optimized_model_path:
+                print(f"DEBUG [Adapter.convert]: optimized_model_path exists = {os.path.exists(state.optimized_model_path)}")
+            if state.model_output_dir:
+                print(f"DEBUG [Adapter.convert]: model_output_dir exists = {os.path.exists(state.model_output_dir)}")
+                perf_dir = os.path.join(state.model_output_dir, "perf")
+                csv_path = os.path.join(perf_dir, "ops_perf_results.csv")
+                print(f"DEBUG [Adapter.convert]: perf_dir exists = {os.path.exists(perf_dir)}")
+                print(f"DEBUG [Adapter.convert]: ops_perf_results.csv exists = {os.path.exists(csv_path)}")
+                if os.path.exists(csv_path):
+                    print(f"DEBUG [Adapter.convert]: ops_perf_results.csv size = {os.path.getsize(csv_path)} bytes")
+                    print(f"DEBUG [Adapter.convert]: ops_perf_results.csv readable = {os.access(csv_path, os.R_OK)}")
+                
+                # Check if we can create test files in model_output_dir
+                if os.path.exists(state.model_output_dir):
+                    print(f"DEBUG [Adapter.convert]: model_output_dir writable = {os.access(state.model_output_dir, os.W_OK)}")
+                    test_file = os.path.join(state.model_output_dir, ".test_write")
+                    try:
+                        with open(test_file, "w") as f:
+                            f.write("test")
+                        os.remove(test_file)
+                        print(f"DEBUG [Adapter.convert]: Test file creation in model_output_dir = SUCCESS")
+                    except Exception as e:
+                        print(f"DEBUG [Adapter.convert]: Test file creation in model_output_dir = FAILED: {e}")
+        
+        if optimized_model_path:
             logging.info(f"Using optimized model: {optimized_model_path}")
             # Get performance results.
-            perf_trace = self.model_runner.get_perf_trace(model_path)
+            print(f"DEBUG [Adapter.convert]: About to call get_perf_trace")
+            try:
+                perf_trace = self.model_runner.get_perf_trace(model_path)
+                print(f"DEBUG [Adapter.convert]: get_perf_trace returned successfully, rows = {len(perf_trace) if perf_trace is not None else 'None'}")
+            except FileNotFoundError as e:
+                print(f"DEBUG [Adapter.convert]: get_perf_trace raised FileNotFoundError: {e}")
+                raise
+            except Exception as e:
+                print(f"DEBUG [Adapter.convert]: get_perf_trace raised unexpected exception: {type(e).__name__}: {e}")
+                raise
+            
             memory_trace = self.model_runner.get_memory_usage(model_path)
             golden_results = self.model_runner.get_golden_results(model_path)
             cpp_code = self.model_runner.get_cpp_code(model_path)
