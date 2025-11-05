@@ -7,7 +7,9 @@
 // RUN: FileCheck %s --input-file=%t_direct.mlir
 //
 
-// CHECK: func.func @add(%arg0: !emitc.opaque<"::std::vector<::ttnn::Tensor>">) -> !emitc.opaque<"::std::vector<::ttnn::Tensor>">
+// CHECK: func.func @add(%arg0: !emitc.opaque<"::std::vector<::ttnn::Tensor>">,
+// CHECK-SAME: %arg1: !emitc.opaque<"::std::vector<::ttnn::Tensor>">)
+// CHECK-SAME: -> !emitc.opaque<"::std::vector<::ttnn::Tensor>">
 func.func @add(%arg0: tensor<64x128xf32>, %arg1: tensor<64x128xf32>) -> tensor<64x128xf32> {
   %0 = ttir.empty() : tensor<64x128xf32>
   %1 = "ttir.add"(%arg0, %arg1, %0) : (tensor<64x128xf32>, tensor<64x128xf32>, tensor<64x128xf32>) -> tensor<64x128xf32>

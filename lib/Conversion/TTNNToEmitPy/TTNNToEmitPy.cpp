@@ -3085,6 +3085,31 @@ public:
 };
 } // namespace
 
+// Func Op conversion pattern
+//
+// This conversion pattern removes arg attrs from the FuncOp. Previously,
+// ttmlir-translate would complain when translating to C++ if there were any
+// attributes from "unregistered" dialects.
+//
+namespace {
+class FuncOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<func::FuncOp> {
+
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      func::FuncOp>::TTNNToEmitPyBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(func::FuncOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    rewriter.modifyOpInPlace(srcOp, [&srcOp]() { srcOp.removeArgAttrsAttr(); });
+
+    return success();
+  }
+};
+} // namespace
+
 namespace mlir::tt {
 
 void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
@@ -3322,6 +3347,10 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
                                                              ctx);
   patterns.add<ScaledDotProductAttentionDecodeOpConversionPattern>(
       typeConverter, ctx);
+
+  // FuncOp
+  //
+  patterns.add<FuncOpConversionPattern>(typeConverter, ctx);
 }
 
 } // namespace mlir::tt
