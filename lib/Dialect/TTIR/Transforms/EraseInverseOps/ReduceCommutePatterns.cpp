@@ -24,12 +24,12 @@ public:
       PermuteOp, ReduceOpType, commuteDirection>::TTIRCommuteOpRewritePattern;
 
   // Consider the following IR pseudocode:
-  // %0 = reduce(%arg0, %output) {keep_dim = true, dim_arg = [2: i32, 3: i32]}
-  // %1 = permute(%0, %output1) <{permutation = array<i64: 0, 2, 3, 1>}>
+  // %0 = reduce(%arg0) {keep_dim = true, dim_arg = [2: i32, 3: i32]}
+  // %1 = permute(%0) <{permutation = array<i64: 0, 2, 3, 1>}>
   //
   // This method will transform this into:
-  // %0 = permute(%arg0, %output0) <{permutation = array<i64: 0, 2, 3, 1>}>
-  // %1 = reduce(%0, %output) {keep_dim = true, dim_arg = [1: i32, 2: i32]}
+  // %0 = permute(%arg0) <{permutation = array<i64: 0, 2, 3, 1>}>
+  // %1 = reduce(%0) {keep_dim = true, dim_arg = [1: i32, 2: i32]}
   //
   // The reduce dimensions are transformed by applying the inverse permutation
   // Input and output shapes of reduce are permuted since permute op now come
@@ -37,14 +37,15 @@ public:
 
   void performCommuteUpwardsRewrite(ReduceOpType op, PermuteOp permuteUser,
                                     PatternRewriter &rewriter) const override {
-    ArrayRef<int64_t> permutation = permuteUser.getPermutation();
+    auto permutation = permuteUser.getPermutation();
 
     PermuteOp newPerm = createNewPermuteOp(op.getInput(), permutation, rewriter,
                                            permuteUser->getLoc());
 
     ReduceOpType newReduce = createNewReduceOpWithPermutedDims(
-        op, newPerm->getResult(0), permutation, rewriter,
+        op, newPerm.getResult(), permutation, rewriter,
         /*inverseDimPermute=*/true);
+
     SmallVector<Operation *> users(op->getUsers());
     for (auto *user : users) {
       assert(checkIdenticalTms(permuteUser, user) &&
@@ -53,12 +54,12 @@ public:
     }
   }
   // Consider the following IR pseudocode:
-  // %0 = permute(%arg0, %output0) <{permutation = array<i64: 0, 3, 1, 2>}>
-  // %1 = reduce(%0, %output) {keep_dim = true, dim_arg = [2: i32, 3: i32]}
+  // %0 = permute(%arg0) <{permutation = array<i64: 0, 3, 1, 2>}>
+  // %1 = reduce(%0) {keep_dim = true, dim_arg = [2: i32, 3: i32]}
   //
   // This method will transform this into:
-  // %0 = reduce(%arg0, %output) {keep_dim = true, dim_arg = [1: i32, 2: i32]}
-  // %1 = permute(%0, %output1) <{permutation = array<i64: 0, 3, 1, 2>}>
+  // %0 = reduce(%arg0) {keep_dim = true, dim_arg = [1: i32, 2: i32]}
+  // %1 = permute(%0) <{permutation = array<i64: 0, 3, 1, 2>}>
   //
   // The reduce dimensions are transformed by applying the permutation
   // Input and output shapes of reduce are permuted with the inverse permutation
@@ -66,7 +67,7 @@ public:
   void
   performCommuteDownwardsRewrite(ReduceOpType op, PermuteOp permuteOperand,
                                  PatternRewriter &rewriter) const override {
-    ArrayRef<int64_t> permutation = permuteOperand.getPermutation();
+    auto permutation = permuteOperand.getPermutation();
 
     ReduceOpType newReduce = createNewReduceOpWithPermutedDims(
         op, permuteOperand.getInput(), permutation, rewriter);
@@ -74,7 +75,7 @@ public:
     PermuteOp newPerm = createNewPermuteOp(newReduce, permutation, rewriter,
                                            permuteOperand->getLoc());
 
-    rewriter.replaceAllOpUsesWith(op, newPerm);
+    rewriter.replaceOp(op, newPerm);
   }
 
 private:
@@ -82,11 +83,10 @@ private:
                                PatternRewriter &rewriter, Location loc) const {
     // Apply permutation on input type to create output type
     auto inputType = cast<RankedTensorType>(input.getType());
-    SmallVector<int64_t> inputShape(inputType.getShape());
-    SmallVector<int64_t> outputShape = ttmlir::utils::applyPermutation(
-        ArrayRef<int64_t>(inputShape), permutation);
+    auto inputShape = inputType.getShape();
+    auto outputShape = ttmlir::utils::applyPermutation(inputShape, permutation);
 
-    RankedTensorType outputType = RankedTensorType::get(
+    auto outputType = RankedTensorType::get(
         outputShape, inputType.getElementType(), inputType.getEncoding());
 
     // Create and return the new PermuteOp
@@ -113,8 +113,7 @@ private:
       ReduceOpType op, Value newInput, ArrayRef<int64_t> permutation,
       PatternRewriter &rewriter, bool inverseDimPermute = false) const {
 
-    llvm::SmallVector<int64_t> inversePermutation =
-        ttmlir::utils::inversePermutation(permutation);
+    auto inversePermutation = ttmlir::utils::inversePermutation(permutation);
 
     auto dimPermutation = inverseDimPermute ? inversePermutation : permutation;
     auto shapePermutation =
@@ -122,10 +121,10 @@ private:
 
     ArrayAttr newDimArgAttrs =
         permuteDims(*op.getDimArg(), dimPermutation, rewriter);
-    SmallVector<int64_t> shapeVec(op.getType().getShape());
-    SmallVector<int64_t> newReduceShape = ttmlir::utils::applyPermutation(
-        ArrayRef<int64_t>(shapeVec), shapePermutation);
-    RankedTensorType newReduceType =
+    auto oldReduceShape = op.getType().getShape();
+    auto newReduceShape =
+        ttmlir::utils::applyPermutation(oldReduceShape, shapePermutation);
+    auto newReduceType =
         RankedTensorType::get(newReduceShape, op.getType().getElementType(),
                               op.getType().getEncoding());
 
@@ -158,13 +157,11 @@ private:
     // - Are an identical TM
     // - Are on a consteval-able path
 
-    for (uint32_t i = 0; i < op->getNumOperands(); i++) {
-      if (op.isDpsInit(&op->getOpOperand(i))) {
-        continue;
-      }
-      if (checkIdenticalTms(op->getOperand(i).getDefiningOp(),
-                            permuteOperand) ||
-          ttcore::valueTracesToConstantArgs(op->getOperand(i))) {
+    auto dps = mlir::cast<mlir::DestinationStyleOpInterface>(op.getOperation());
+    for (mlir::OpOperand *operand : dps.getDpsInputOperands()) {
+      auto operandValue = operand->get();
+      if (checkIdenticalTms(operandValue.getDefiningOp(), permuteOperand) ||
+          ttcore::valueTracesToConstantArgs(operandValue)) {
         continue;
       }
       return false;
