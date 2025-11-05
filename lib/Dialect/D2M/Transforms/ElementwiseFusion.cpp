@@ -363,20 +363,6 @@ struct FuseD2MElementwiseOpsPattern : public OpRewritePattern<GenericOp> {
       return failure();
     }
 
-    // Guard: ensure region actually contains compute ops. DMA-only generics
-    // have no compute ops and should be ignored by this fusion.
-    bool hasCompute = false;
-    consumer.getRegion(0).walk([&](Operation *op) {
-      if (op->hasTrait<D2MGenericRegionComputeOpTrait>()) {
-        hasCompute = true;
-        return WalkResult::interrupt();
-      }
-      return WalkResult::advance();
-    });
-    if (!hasCompute) {
-      return failure();
-    }
-
     assert(consumer.getNumRegions() == 1u);
 
     Type largestDstType =
