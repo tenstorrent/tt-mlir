@@ -1332,9 +1332,9 @@ class D2MGatherOpRewriter : public OpConversionPattern<ttir::GatherOp> {
       extractOperand = builder.create<mlir::tensor::CastOp>(loc, type, operand);
     }
 
-    auto extractOp = builder.create<mlir::tensor::ExtractOp>(loc, extractOperand, combinedIndex);
-    builder.create<mlir::tensor::InsertOp>(loc, extractOp, emptyOp, ivs);
-    rewriter.replaceOp(gatherOp, emptyOp);
+    auto dmaOp = builder.create<d2m::DMAOp>(loc, extractOperand, combinedIndex, emptyOp, ivs);
+    builder.create<d2m::DMAWaitOp>(loc, dmaOp);
+    //rewriter.replaceOp(gatherOp, dmaOp);
 
     return success();
   }
