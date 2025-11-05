@@ -189,10 +189,14 @@ class ModelRunner:
         op_perf_file = (
             f"{self.model_state[model_path].model_output_dir}/perf/ops_perf_results.csv"
         )
+        print(f"DEBUG [ModelRunner.get_perf_trace]: Looking for CSV at {op_perf_file}")
+        print(f"DEBUG [ModelRunner.get_perf_trace]: File exists = {os.path.exists(op_perf_file)}")
         if not os.path.exists(op_perf_file):
             raise FileNotFoundError(f"Performance file {op_perf_file} not found.")
 
-        return pd.read_csv(op_perf_file)
+        csv_data = pd.read_csv(op_perf_file)
+        print(f"DEBUG [ModelRunner.get_perf_trace]: CSV loaded successfully, rows = {len(csv_data)}")
+        return csv_data
 
     def get_memory_usage(self, model_path):
         memory_trace = {}
@@ -461,6 +465,10 @@ class ModelRunner:
             f"--artifact-dir={self._explorer_artifacts_dir}",
             "--memory",
         ]
+
+        print(f"DEBUG [ModelRunner]: Running ttrt perf command: {' '.join(ttrt_perf_command)}")
+        print(f"DEBUG [ModelRunner]: artifact_dir = {self._explorer_artifacts_dir}")
+        print(f"DEBUG [ModelRunner]: model_output_dir = {state.model_output_dir}")
 
         ttrt_process = self.run_in_subprocess(ttrt_perf_command)
 

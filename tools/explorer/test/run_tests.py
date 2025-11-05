@@ -63,10 +63,64 @@ perf_env_vars = [
     "TT_RUNTIME_ENABLE_PERF_TRACE",
     "TTNN_CONFIG_OVERRIDES",
     "TT_METAL_LOGGER_LEVEL",
+    "TT_MLIR_HOME",
+    "TT_METAL_HOME",
+    "TT_METAL_RUNTIME_ROOT",
 ]
 print(f"\nDEBUG: Performance-related env vars:")
 for var in perf_env_vars:
     print(f"  {var}: {os.environ.get(var, 'NOT SET')}")
+
+# Check for Tracy perf capture tools (needed for ttrt perf)
+# TT_METAL_RUNTIME_ROOT is the new replacement for TT_METAL_HOME
+tt_metal_runtime_root = os.environ.get("TT_METAL_RUNTIME_ROOT", "")
+tt_metal_home = os.environ.get("TT_METAL_HOME", "")
+tracy_tools = []
+
+# Check TT_METAL_RUNTIME_ROOT first (new standard)
+if tt_metal_runtime_root:
+    tracy_tools.extend([
+        os.path.join(tt_metal_runtime_root, "capture-release"),
+        os.path.join(tt_metal_runtime_root, "csvexport-release"),
+    ])
+
+# Check TT_METAL_HOME (legacy)
+if tt_metal_home:
+    tracy_tools.extend([
+        os.path.join(tt_metal_home, "capture-release"),
+        os.path.join(tt_metal_home, "csvexport-release"),
+    ])
+
+# If neither env var is set, check common locations
+if not tt_metal_runtime_root and not tt_metal_home:
+    tracy_tools = [
+        "/opt/tt_metal/capture-release",
+        "/opt/tt_metal/csvexport-release",
+        "/usr/local/bin/capture-release",
+        "/usr/local/bin/csvexport-release",
+    ]
+
+print(f"\nDEBUG: Tracy perf tools (required for performance data):")
+for tool_path in tracy_tools:
+    exists = os.path.exists(tool_path)
+    executable = os.access(tool_path, os.X_OK) if exists else False
+    print(f"  {tool_path}: {'EXISTS' if exists else 'NOT FOUND'} {'(executable)' if executable else '(not executable)' if exists else ''}")
+
+# Check for ttrt-artifacts directory (where perf data is stored)
+tt_mlir_home = os.environ.get("TT_MLIR_HOME", "")
+if tt_mlir_home:
+    artifacts_dir = os.path.join(tt_mlir_home, "ttrt-artifacts")
+    print(f"\nDEBUG: ttrt-artifacts directory:")
+    print(f"  Path: {artifacts_dir}")
+    print(f"  Exists: {os.path.exists(artifacts_dir)}")
+    if os.path.exists(artifacts_dir):
+        print(f"  Writable: {os.access(artifacts_dir, os.W_OK)}")
+        # List contents if it exists
+        try:
+            contents = os.listdir(artifacts_dir)
+            print(f"  Contents: {contents if contents else '(empty)'}")
+        except Exception as e:
+            print(f"  Error listing contents: {e}")
 
 print("=" * 80 + "\n")
 
@@ -282,12 +336,47 @@ def test_execute_and_check_perf_data_exists():
     print("DEBUG: test_execute_and_check_perf_data_exists - Starting")
     print("=" * 80)
 
+    # Check if expected artifacts dir exists before execution
+    tt_mlir_home = os.environ.get("TT_MLIR_HOME", "")
+    if tt_mlir_home:
+        artifacts_dir = os.path.join(tt_mlir_home, "ttrt-artifacts")
+        print(f"DEBUG: Pre-execution check - artifacts_dir: {artifacts_dir}")
+        print(f"DEBUG: Pre-execution check - artifacts_dir exists: {os.path.exists(artifacts_dir)}")
+
     execute_command_and_wait(
         MNIST_SHARDING_PATH,
         {"optimizationPolicy": "Optimizer Disabled"},
         timeout=300,
     )
     print("DEBUG: execute_command_and_wait completed successfully")
+
+    # Check if artifacts were created after execution
+    if tt_mlir_home:
+        artifacts_dir = os.path.join(tt_mlir_home, "ttrt-artifacts")
+        print(f"DEBUG: Post-execution check - artifacts_dir exists: {os.path.exists(artifacts_dir)}")
+        if os.path.exists(artifacts_dir):
+            try:
+                contents = os.listdir(artifacts_dir)
+                print(f"DEBUG: Post-execution - artifacts_dir contents: {contents}")
+                # Check for perf directory and ops_perf_results.csv
+                for item in contents:
+                    item_path = os.path.join(artifacts_dir, item)
+                    if os.path.isdir(item_path):
+                        perf_dir = os.path.join(item_path, "perf")
+                        if os.path.exists(perf_dir):
+                            print(f"DEBUG: Found perf directory: {perf_dir}")
+                            perf_contents = os.listdir(perf_dir)
+                            print(f"DEBUG: Perf directory contents: {perf_contents}")
+                            csv_file = os.path.join(perf_dir, "ops_perf_results.csv")
+                            if os.path.exists(csv_file):
+                                print(f"DEBUG: ops_perf_results.csv EXISTS at {csv_file}")
+                                # Check file size
+                                size = os.path.getsize(csv_file)
+                                print(f"DEBUG: ops_perf_results.csv size: {size} bytes")
+                            else:
+                                print(f"DEBUG: ops_perf_results.csv NOT FOUND at {csv_file}")
+            except Exception as e:
+                print(f"DEBUG: Error checking artifacts: {e}")
 
     result = convert_command_and_assert(MNIST_SHARDING_PATH)
     print(f"DEBUG: convert_command_and_assert completed successfully")
@@ -313,6 +402,12 @@ def test_execute_and_check_perf_data_exists():
                         )
             else:
                 print("DEBUG: ERROR - No 'overlays' key in graph[0]")
+                print("DEBUG: This means tt_adapter did not add ANY overlays to the graph")
+                print("DEBUG: Possible causes:")
+                print("DEBUG:   1. perf_node_data is empty (no CSV file found or parsed)")
+                print("DEBUG:   2. memory_node_data is empty (memory profiling failed)")
+                print("DEBUG:   3. accuracy_node_data is empty (no accuracy data)")
+                print("DEBUG:   4. Build configuration issue (explorer not enabled properly)")
         else:
             print("DEBUG: ERROR - graphs list is empty")
     else:
