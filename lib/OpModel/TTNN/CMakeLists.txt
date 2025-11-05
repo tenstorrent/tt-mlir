@@ -37,3 +37,9 @@ target_include_directories(${LIB_NAME}
     $<INSTALL_INTERFACE:include/ttmlir/OpModel/TTNN>)
 
 target_link_libraries(${LIB_NAME} PUBLIC coverage_config)
+
+# Export for build-tree usage (needed for tests and other targets in this build)
+export(TARGETS ${LIB_NAME}
+       FILE "${CMAKE_CURRENT_BINARY_DIR}/TTNNOpModelLibTargets.cmake"
+       NAMESPACE TTNN::)
+# Note: install() is handled centrally via TTMLIRInstall.cmake
