@@ -109,6 +109,9 @@ ArrayRef<int64_t> getTensorTileShape(RankedTensorType tensorType);
 
 ArrayRef<int64_t> getTensorTileShapeOrEmpty(RankedTensorType tensorType);
 
+// Get the scalar shape of a MemRefType, unwrapping TileType if present
+llvm::SmallVector<int64_t> getScalarShape(MemRefType memrefType);
+
 llvm::SmallVector<int64_t, 2> collapseGridTo2D(ArrayRef<int64_t> gridShape);
 
 // Retrieve the layout from the shaped type (ie. getEncoding for tensors and

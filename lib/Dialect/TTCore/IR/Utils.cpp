@@ -140,6 +140,13 @@ ArrayRef<int64_t> getTensorTileShapeOrEmpty(RankedTensorType tensorType) {
                              : ArrayRef<int64_t>{};
 }
 
+llvm::SmallVector<int64_t> getScalarShape(MemRefType memrefType) {
+  if (auto tileType = mlir::dyn_cast<TileType>(memrefType.getElementType())) {
+    return tileType.getScalarShape(llvm::to_vector(memrefType.getShape()));
+  }
+  return llvm::to_vector(memrefType.getShape());
+}
+
 Type getOperandInnerElementType(const mlir::Value operand) {
   auto elemType = operand.getType();
   if (auto memRefType = mlir::dyn_cast<MemRefType>(elemType);
