@@ -4223,18 +4223,8 @@ TEST_F(OpModelBase, DeallocateOpInterface) {
   auto backend = dyn_cast<OpModel>(deallocate.getOperation());
   auto constraintsExp = backend.getOpConstraints(
       getInputLayouts(deallocate.getOperation()), OpConfig());
-  if (constraintsExp) {
-    auto l1 = constraintsExp.get();
-    const auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
-        l1;
-    // Hardcoded to return zero; deallocate op has no memory footprint.
-    EXPECT_EQ(cbSize, 0);
-    EXPECT_EQ(l1PeakSize, 0);
-    EXPECT_EQ(outputSize, 0);
-  } else {
-    FAIL() << "Missing L1 constraints for DeallocateOp; Error="
-           << llvm::toString(constraintsExp.takeError()) << std::endl;
-  }
+  EXPECT_FALSE(constraintsExp);
+  llvm::consumeError(constraintsExp.takeError());
 
   auto runtimeExp = backend.getOpRuntime(
       getInputLayouts(deallocate.getOperation()), OpConfig());
@@ -4298,7 +4288,11 @@ TEST_F(OpModelBase, UpdateCacheOpInterface) {
 
   auto cacheTensor = createEmptyTensor(cacheShape);
   auto inputTensor = createEmptyTensor(inputShape);
-  auto updateIndexTensor = createEmptyTensor(updateIndexShape);
+  auto updateIndexTensor = createEmptyTensor(
+      updateIndexShape,
+      builder.getIntegerType(/*width=*/32, /*isSigned=*/false),
+      CreateTiledLayoutUInt32(updateIndexShape, BufferType::L1,
+                              TensorMemoryLayout::Interleaved));
 
   // Create UpdateCacheOp with batch_offset = 0 (no result type - it's in-place)
   auto updateCache = builder.create<UpdateCacheOp>(
