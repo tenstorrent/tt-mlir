@@ -264,15 +264,6 @@ public:
       return mlir::failure();
     }
 
-    // Verify that the shapes are broadcast-compatible.
-    auto expType = mlir::cast<RankedTensorType>(expOp.getType());
-    auto denominatorType = mlir::cast<RankedTensorType>(denominator.getType());
-    llvm::SmallVector<int64_t> broadcastedShape;
-    if (!OpTrait::util::getBroadcastedShape(
-            expType.getShape(), denominatorType.getShape(), broadcastedShape)) {
-      return mlir::failure();
-    }
-
     // Check correct user counts for each operation in the pattern:
     // - exp should have exactly 2 users (sum reduce and div)
     // - sum reduce should have exactly 1 user (div or broadcast)
@@ -373,18 +364,6 @@ public:
     int64_t maxReduceDim =
         mlir::cast<mlir::IntegerAttr>(maxReduceDims[0]).getInt();
     if (maxReduceDim != softmaxOp.getDimension()) {
-      return mlir::failure();
-    }
-
-    // Verify that the shapes are broadcast-compatible.
-    auto originalInputType =
-        mlir::cast<RankedTensorType>(originalInput.getType());
-    auto subtractedValueType =
-        mlir::cast<RankedTensorType>(subtractedValue.getType());
-    llvm::SmallVector<int64_t> broadcastedShape;
-    if (!OpTrait::util::getBroadcastedShape(originalInputType.getShape(),
-                                            subtractedValueType.getShape(),
-                                            broadcastedShape)) {
       return mlir::failure();
     }
 
