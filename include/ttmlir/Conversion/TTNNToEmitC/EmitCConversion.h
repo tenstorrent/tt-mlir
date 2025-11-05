@@ -734,6 +734,9 @@ struct EmitCTypeConverter<::ttnn::BufferType> {
     case ttnn::BufferType::Trace:
       rso << "TRACE";
       return buf;
+    case ttnn::BufferType::RiscvL1:
+      rso << "RISCV_L1";
+      return buf;
     }
 
     llvm_unreachable("Unknown ttnn::BufferType");

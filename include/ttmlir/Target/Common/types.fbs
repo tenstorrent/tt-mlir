@@ -72,6 +72,7 @@ enum BufferType: ushort {
   SystemMemory,
   L1Small,
   Trace,
+  RiscvL1,
 }
 
 table ChipDesc {

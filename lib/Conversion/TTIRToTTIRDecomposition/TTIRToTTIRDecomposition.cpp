@@ -3199,7 +3199,6 @@ void populateTTIRToTTIRDecompositionPatterns(MLIRContext *ctx,
   patterns.add<Legalize1DConvolutionPattern>(typeConverter, ctx);
   patterns.add<ConvolutionToConv2dPattern>(typeConverter, ctx);
   patterns.add<ConvolutionToConv3dPattern>(typeConverter, ctx);
-  patterns.add<GatherToEmbeddingConversionPattern>(typeConverter, ctx);
   patterns.add<SelectToSliceConversionPattern>(typeConverter, ctx);
   patterns.add<ArangeForceLastDimensionPattern>(typeConverter, ctx);
   patterns.add<DotGeneralToMatmulConversionPattern>(typeConverter, ctx);

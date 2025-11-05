@@ -56,6 +56,8 @@ toTTNNBufferType(const mlir::tt::ttcore::MemorySpace memorySpace) {
     return BufferType::DRAM;
   case mlir::tt::ttcore::MemorySpace::DeviceL1:
     return BufferType::L1;
+  case mlir::tt::ttcore::MemorySpace::DeviceRiscvL1:
+    llvm_unreachable("MemorySpace::DeviceRiscvL1 not supported");
   case mlir::tt::ttcore::MemorySpace::RegisterDst:
     llvm_unreachable("MemorySpace::RegisterDst not supported");
   }
@@ -72,6 +74,8 @@ toTTMemorySpace(const mlir::tt::ttnn::BufferType bufferType) {
     return mlir::tt::ttcore::MemorySpace::DeviceDRAM;
   case ttnn::BufferType::L1:
     return mlir::tt::ttcore::MemorySpace::DeviceL1;
+  case ttnn::BufferType::RiscvL1:
+    assert(false && "BufferType::RiscvL1 not supported");
   case ttnn::BufferType::L1Small:
     assert(false && "BufferType::L1Small not supported");
   case ttnn::BufferType::Trace:

@@ -42,6 +42,7 @@ def TTNN_BufferType_L1 : I32EnumAttrCase<"L1", 1, "l1">;
 def TTNN_BufferType_SystemMemory : I32EnumAttrCase<"SystemMemory", 2, "system_memory">;
 def TTNN_BufferType_L1Small : I32EnumAttrCase<"L1Small", 3, "l1_small">;
 def TTNN_BufferType_Trace : I32EnumAttrCase<"Trace", 4, "trace">;
+def TTNN_BufferType_RiscvL1 : I32EnumAttrCase<"RiscvL1", 5, "riscv_l1">;
 
 def TTNN_BufferType : I32EnumAttr<"BufferType", "TTNN Buffer Type",
                            [
@@ -50,6 +51,7 @@ def TTNN_BufferType : I32EnumAttr<"BufferType", "TTNN Buffer Type",
                             TTNN_BufferType_SystemMemory,
                             TTNN_BufferType_L1Small,
                             TTNN_BufferType_Trace,
+                            TTNN_BufferType_RiscvL1,
                            ]> {
   let genSpecializedAttr = 0;
   let cppNamespace = "::mlir::tt::ttnn";

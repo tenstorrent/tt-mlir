@@ -280,6 +280,15 @@ def D2M_GenericOp : D2M_Op<"generic",
                      CArg<"ThreadType", "ThreadType::Compute">: $singleThreadType,
                      CArg<"ttcore::GridAttr", "nullptr">: $grid,
                      CArg<"ArrayRef<int64_t>", "{}">: $blockFactors)>,
+      OpBuilder<(ins "ValueRange": $inputs,
+                     "ValueRange": $outputs,
+                     "ArrayAttr": $indexingMaps,
+                     "ArrayAttr": $iteratorTypes,
+                     "llvm::function_ref<void(OpBuilder&, Location, ValueRange)>": $singleThreadRegionBuilder,
+                     "llvm::SmallVector<ttcore::MemorySpace>": $blockArgumentMemorySpaces,
+                     CArg<"ThreadType", "ThreadType::Compute">: $singleThreadType,
+                     CArg<"ttcore::GridAttr", "nullptr">: $grid,
+                     CArg<"ArrayRef<int64_t>", "{}">: $blockFactors)>,
     ];
 
     let extraClassDeclaration = [{
@@ -337,6 +346,7 @@ def D2M_GenericOp : D2M_Op<"generic",
       bool isAllParallel();
       bool hasComputeOpsInRegion(unsigned regionIndex = 0);
       bool isNontriviallyEltwiseFused();
+      SmallVector<ttcore::MemorySpace> getBlockArgumentMemorySpaces();
     }];
 }
 
