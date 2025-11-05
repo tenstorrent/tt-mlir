@@ -18,6 +18,7 @@
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 
+#include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Linalg/Utils/Utils.h"
 #include "mlir/Dialect/SparseTensor/IR/SparseTensor.h"
@@ -1158,12 +1159,10 @@ class D2MGatherOpRewriter : public OpConversionPattern<ttir::GatherOp> {
     Location loc = gatherOp.getLoc();
 
     Value startIndices = adaptor.getStartIndices();
-    [[maybe_unused]]Value operand = adaptor.getOperands()[0];
+    Value operand = adaptor.getOperands()[0];
 
-    auto resultType =
-        getTypeConverter()->convertType<RankedTensorType>(gatherOp.getType());
-    RankedTensorType startIndicesType =
-        cast<RankedTensorType>(startIndices.getType());
+    auto resultType = getTypeConverter()->convertType<RankedTensorType>(gatherOp.getType());
+    RankedTensorType startIndicesType = cast<RankedTensorType>(startIndices.getType());
 
     int64_t resultRank = resultType.getRank();
     // slice_sizes has to have the same size as operand.rank, and doing it this
@@ -1181,62 +1180,34 @@ class D2MGatherOpRewriter : public OpConversionPattern<ttir::GatherOp> {
     ArrayRef<int64_t> startIndexMap =
         gatherOp.getStartIndexMap();
 
+    Value emptyOp = getEmptyTensorFor(builder, loc, resultType, gatherOp,adaptor.getOperands());
+    SmallVector<AffineMap, 1> indexingMaps({rewriter.getMultiDimIdentityMap(resultRank)});
+
+    SmallVector<Value> ivs;
+    // Verify all static before using affine.for
+    for (int64_t i = 0; i < resultRank; ++i) {
+      int64_t dim = resultType.getDimSize(i);
+      auto loop = builder.create<mlir::affine::AffineForOp>(loc, 0, dim);
+      builder.setInsertionPointToStart(loop.getBody());
+      ivs.push_back(loop.getInductionVar());
+    }
+
+    // Dimensions in the result that aren't offset dimensions are called batch.
+    SmallVector<int64_t> batchDims;
+    for (int64_t dim = 0; dim < resultRank; ++dim) {
+      if (!llvm::is_contained(offsetDims, dim)) {
+        batchDims.push_back(dim);
+      }
+    }
+
     // We'll need these later and creating them on demand we end up with
     // duplicates, which also makes lit tests really hard to write.
     SmallVector<Value> constants;
     for (int64_t i = 0, e = std::max({resultRank, operandRank, int64_t{2}}); i < e; ++i) {
-      auto constOp = builder.create<mlir::arith::ConstantOp>(
-          loc, rewriter.getIndexAttr(i));
+      auto constOp = builder.create<mlir::arith::ConstantOp>(loc, rewriter.getIndexAttr(i));
       constants.push_back(constOp);
     }
 
-    Value emptyOp = getEmptyTensorFor(builder, loc, resultType, gatherOp,
-                                      adaptor.getOperands());
-
-    ValueRange ins;
-    SmallVector<AffineMap, 1> indexingMaps(
-        {rewriter.getMultiDimIdentityMap(resultRank)});
-    
-    [[maybe_unused]] auto linalgOp = builder.create<mlir::linalg::GenericOp>(
-      loc,
-      resultType,
-      ins,
-      emptyOp,
-      indexingMaps,
-      getNParallelLoopsAttrs(resultRank),
-      [&](OpBuilder &b, Location loc, ValueRange args) {
-          
-      },
-      mlir::linalg::getPrunedAttributeList(gatherOp));
-
-      /*
-      Region& region = linalgOp.getRegion(); 
-      Block* block = rewriter.createBlock(&region, region.end()); 
-      block->addArguments(resultType.getElementType(), loc); 
-      OpBuilder::InsertionGuard guard(rewriter); 
-      rewriter.setInsertionPointToEnd(block);
-      */
-      Region &region = linalgOp.getRegion();
-      Block &block = region.front();
-      OpBuilder::InsertionGuard guard(rewriter); 
-      rewriter.setInsertionPointToEnd(&block);
-      builder.setInsertionPointToEnd(&block);
-
-      // Dimensions in the result that aren't offset dimensions are called batch.
-      SmallVector<int64_t> batchDims;
-      for (int64_t dim = 0; dim < resultRank; ++dim) {
-        if (!llvm::is_contained(offsetDims, dim)) {
-          batchDims.push_back(dim);
-        }
-    }
-
-    // Same as with the constants. Creating these all up front is easier than
-    // potentially getting duplicates later.
-    SmallVector<Value> linalgIndices;
-    for (int64_t i = 0; i < resultRank; ++i) {
-      linalgIndices.push_back(builder.create<mlir::linalg::IndexOp>(
-          loc, i));
-    }
     // Now the complicated part. For a given output dimension we build up an
     // index into the input. It's composed of two parts: the index coming from
     // start_indices, and the offset from that index along the offset
@@ -1248,8 +1219,9 @@ class D2MGatherOpRewriter : public OpConversionPattern<ttir::GatherOp> {
     // start_indices along the batch dimensions.
     SmallVector<Value> gatherIndex;
     for (int64_t dim : batchDims) {
-      gatherIndex.push_back(linalgIndices[dim]);
+      gatherIndex.push_back(ivs[dim]);
     }
+
     SmallVector<Value> indexFromStartIndices;
     for (size_t i = 0, e = startIndexMap.size(); i != e; ++i) {
       // The index along the index_vector dimension of start_indices varies.
@@ -1270,6 +1242,7 @@ class D2MGatherOpRewriter : public OpConversionPattern<ttir::GatherOp> {
           builder, loc, startIndices, gatherOp.getStartIndices().getType(),
           gCombine));
     }
+
     // But then start indices are shuffled by the start index map. To make a
     // full index into the operand, all missing indices are zeroes.
     SmallVector<Value> remappedIndexFromIndices(operandRank, constants[0]);
@@ -1286,7 +1259,7 @@ class D2MGatherOpRewriter : public OpConversionPattern<ttir::GatherOp> {
           gatherIndex[indicesDim + (indicesDim < indexVectorDim ? 0 : 1)];
     }
 
-    [[maybe_unused]]auto isCollapsedOrBatching = [&](int64_t dim) {
+    auto isCollapsedOrBatching = [&](int64_t dim) {
       return llvm::is_contained(collapsedSliceDims, dim) ||
               llvm::is_contained(operandBatchingDims, dim);
     };
@@ -1305,7 +1278,7 @@ class D2MGatherOpRewriter : public OpConversionPattern<ttir::GatherOp> {
     for (int i = 0, operandIndexDim = 0; i < operandRank; ++i) {
       // Compute the size of the output shape dimension corresponding to this
       // index dimension. If it's collapsed set it to 1.
-      [[maybe_unused]]Value outputDimSize = constants[1];
+      Value outputDimSize = constants[1];
       if (!isCollapsedOrBatching(i)) {
         outputDimSize = builder.create<mlir::tensor::DimOp>(
             loc, emptyOp, offsetDims[operandIndexDim++]);
@@ -1334,7 +1307,7 @@ class D2MGatherOpRewriter : public OpConversionPattern<ttir::GatherOp> {
     SmallVector<Value> indexFromOffset(operandRank, constants[0]);
     for (auto [remappedOffsetDim, offsetDim] :
           llvm::zip_equal(remappedOffsetDims, offsetDims)) {
-      indexFromOffset[remappedOffsetDim] = linalgIndices[offsetDim];
+      indexFromOffset[remappedOffsetDim] = ivs[offsetDim];
     }
 
     // Now we add together our three indices to get the final index into the
@@ -1347,6 +1320,7 @@ class D2MGatherOpRewriter : public OpConversionPattern<ttir::GatherOp> {
                                                 remappedIndexFromIndices[i],
                                                 indexFromBatching[i]),
           indexFromOffset[i]));
+    
     Value extractOperand;
     if (isa<RankedTensorType>(operand.getType())) {
       extractOperand = operand;
@@ -1357,11 +1331,10 @@ class D2MGatherOpRewriter : public OpConversionPattern<ttir::GatherOp> {
           dims, cast<TensorType>(operand.getType()).getElementType());
       extractOperand = builder.create<mlir::tensor::CastOp>(loc, type, operand);
     }
-    Value element = builder.create<mlir::tensor::ExtractOp>(
-        loc, extractOperand, combinedIndex);
-    builder.create<mlir::linalg::YieldOp>(loc, element);
 
-    rewriter.replaceOp(gatherOp, linalgOp.getResults());
+    auto extractOp = builder.create<mlir::tensor::ExtractOp>(loc, extractOperand, combinedIndex);
+    builder.create<mlir::tensor::InsertOp>(loc, extractOp, emptyOp, ivs);
+    rewriter.replaceOp(gatherOp, emptyOp);
 
     return success();
   }
