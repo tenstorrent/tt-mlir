@@ -4,6 +4,8 @@
 
 #include "ttmlir/Dialect/SFPI/IR/SFPI.h"
 
+#include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/Dialect/Vector/IR/VectorOps.h"
 #include "mlir/IR/DialectImplementation.h"
 #include "mlir/InitAllDialects.h"
 #include "ttmlir/Dialect/SFPI/IR/SFPIOps.h"
