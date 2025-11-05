@@ -44,7 +44,7 @@ public:
         sliceOperandType.getElementType(), sliceOperandType.getEncoding());
 
     PermuteOp newPerm = utils::createDPSOp<PermuteOp>(
-        rewriter, op->getLoc(), newPermuteType, op.getInput(),
+        rewriter, permuteUser->getLoc(), newPermuteType, op.getInput(),
         permuteUser.getPermutation());
 
     SmallVector<Attribute> newSliceStarts = ttmlir::utils::applyPermutation(
@@ -114,7 +114,7 @@ public:
         op.getType().getShape(), newSlice.getType().getElementType(),
         newSlice.getType().getEncoding());
     PermuteOp newPerm = utils::createDPSOp<PermuteOp>(
-        rewriter, op->getLoc(), newPermuteType, newSlice,
+        rewriter, permuteOperand->getLoc(), newPermuteType, newSlice,
         permuteOperand.getPermutation());
 
     rewriter.replaceOp(op, newPerm);
@@ -219,7 +219,7 @@ public:
     // The reshape should produce the same output type as the original slice
     SmallVector<int32_t> reshapeTargetShape(op.getType().getShape());
     ReshapeOp newReshape = utils::createDPSOp<ReshapeOp>(
-        rewriter, op->getLoc(), op.getType(), newSlice,
+        rewriter, reshapeOperand->getLoc(), op.getType(), newSlice,
         rewriter.getI32ArrayAttr(reshapeTargetShape));
     rewriter.replaceOp(op, newReshape);
   }
@@ -380,7 +380,7 @@ private:
     SmallVector<int32_t> targetShapeInt32(targetShape.begin(),
                                           targetShape.end());
     return utils::createDPSOp<ReshapeOp>(
-        rewriter, op->getLoc(), targetType, op.getInput(),
+        rewriter, reshapeUser->getLoc(), targetType, op.getInput(),
         rewriter.getI32ArrayAttr(targetShapeInt32));
   }
 
