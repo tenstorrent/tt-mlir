@@ -309,6 +309,39 @@ getIntegerVector(mlir::ArrayAttr arrayAttr) {
   return result;
 }
 
+/// Extracts a tuple of three integers from an mlir::Attribute.
+/// - If `attr` is an IntegerAttr, it is interpreted as (value(attr),
+/// value(attr), value(attr))
+/// - If `attr` is a DenseArrayAttr of size 3, it is returned as (attr[0],
+/// attr[1], attr[2])
+/// - Otherwise, returns an error.
+template <typename ScalarTy, typename VectorElementTy = ScalarTy,
+          typename ReturnTy = ScalarTy>
+inline llvm::Expected<std::tuple<ReturnTy, ReturnTy, ReturnTy>>
+getTripleOfInteger(mlir::Attribute attr) {
+  // If attr is IntegerAttr, interpret it as (attr, attr, attr)
+  if (auto intAttr = mlir::dyn_cast<mlir::IntegerAttr>(attr)) {
+    ReturnTy v = integerAs<ScalarTy>(intAttr.getValue());
+    return std::make_tuple(v, v, v);
+  }
+
+  // If attr is DenseArrayAttr, interpret it as a (attr[0], attr[1], attr[2]) tuple
+  // given that it has size 3
+  auto arrayAttr =
+      mlir::dyn_cast<::mlir::detail::DenseArrayAttrImpl<VectorElementTy>>(attr);
+  if (!arrayAttr) {
+    return llvm::createStringError("Unexpected attribute type");
+  }
+
+  if (arrayAttr.size() == 3) {
+    return std::make_tuple(arrayAttr[0], arrayAttr[1], arrayAttr[2]);
+  }
+
+  return llvm::createStringError(
+      "Expected integer or array of size 3, but got array of size %lu",
+      arrayAttr.size());
+}
+
 /// Extracts a tuple of four integers from an mlir::Attribute.
 /// - If `attr` is an IntegerAttr, it is interpreted as (value(attr),
 /// value(attr), value(attr), value(attr))
