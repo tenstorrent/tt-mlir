@@ -494,7 +494,8 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
                              d2m::GenericOp genericOp,
                              GenericOpContext &genericCtx) {
     [[maybe_unused]] AsOperandPrinter asOperand{genericOp->getParentOp()};
-    ttcore::DeviceAttr device = ttcore::lookupDevice(genericOp);
+    [[maybe_unused]] ttcore::DeviceAttr device =
+        ttcore::lookupDevice(genericOp);
 
     const bool haveIterationSpaceInfo = !genericCtx.isExplicitDatamovement;
     const bool useMinPolicy = (testBufferSizePolicy == "min");
