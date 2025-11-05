@@ -107,7 +107,7 @@ TTNNScatterWorkarounds::matchAndRewrite(ttnn::ScatterOp op,
         ttmlir::utils::appendLocationSuffix(
             op.getLoc(), "_chunk_" + std::to_string(chunkIdx) + "_scatter"),
         currentResult.getType(), currentResult, chunkIndex.getResult(),
-        chunkSource.getResult(), rewriter.getI32IntegerAttr(scatterDim),
+        chunkSource.getResult(), rewriter.getI32IntegerAttr(scatterDim), op.getScatterReduceTypeAttr(),
         op.getMemoryConfigAttr());
 
     currentResult = chunkScatter.getResult();

@@ -2616,14 +2616,13 @@ public:
     if (!legalityResult.succeeded()) {
       return legalityResult;
     }
-
+    auto scatterDimsToOperandDims = op.getScatterDimsToOperandDims();
+    auto scatterReduceType = op.getScatterReduceTypeAttr();
     TypedValue<RankedTensorType> inputTensor = op.getInput();
     TypedValue<RankedTensorType> updateTensor = op.getUpdate();
     TypedValue<RankedTensorType> outputTensor = op.getOutput();
     RankedTensorType inputType = inputTensor.getType();
     ArrayRef<int64_t> inputShape = inputType.getShape();
-
-    auto scatterDimsToOperandDims = op.getScatterDimsToOperandDims();
 
     // Check if single dimension scatter.
     if (scatterDimsToOperandDims.size() == 1) {
@@ -2649,7 +2648,7 @@ public:
       // Create ScatterInDimOp.
       rewriter.replaceOpWithNewOp<ttir::ScatterInDimOp>(
           op, outputType, inputTensor, finalIndexTensor, updateTensor,
-          outputTensor, dimAttr);
+          outputTensor, dimAttr, scatterReduceType);
 
       return success();
     }
@@ -2685,7 +2684,7 @@ public:
       Value scatterResult = ttir::utils::createDPSOp<ttir::ScatterInDimOp>(
           rewriter, op.getLoc(), flattenedInputType.getShape(),
           flattenedInputType.getElementType(), flattenedInputType.getEncoding(),
-          flattenedInput, finalIndexTensor, flattenedUpdate, dimAttr);
+          flattenedInput, finalIndexTensor, flattenedUpdate, dimAttr, scatterReduceType);
 
       // Reshape result back to original input shape.
       Value reshapedResult = createReshapeOp(

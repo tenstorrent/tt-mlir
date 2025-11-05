@@ -361,6 +361,8 @@ struct EmitPyTypeConverter<mlir::tt::ttcore::ReduceType> {
       return base + ".Std";
     case ::mlir::tt::ttcore::ReduceType::Var:
       return base + ".Var";
+    case ::mlir::tt::ttcore::ReduceType::Mul:
+      return base + ".Mul";
     }
     llvm_unreachable("Unknown ttnn.ReduceType");
   }

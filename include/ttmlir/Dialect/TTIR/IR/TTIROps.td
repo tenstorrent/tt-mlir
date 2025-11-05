@@ -2221,6 +2221,65 @@ def TTIR_MeanOp : TTIR_ReductionOp<"mean"> {
   }];
 }
 
+def TTIR_MulOp : TTIR_ReductionOp<"mul"> {
+  let summary = "Mul reduction operation.";
+  let description = [{
+    The `mul` operation computes the multiplication of elements along specified dimensions of the input tensor.
+
+    This operation reduces the input tensor by computing the multiplication of all elements along the dimensions
+    specified in `dim_arg`. If `dim_arg` is not provided, the multiplication is computed over all dimensions,
+    resulting in a scalar value. If `keep_dim` is set to true, the reduced dimensions are retained
+    with a size of 1.
+
+    Example:
+    ```mlir
+    // Multiplication along dimension 1
+    %input = ... : tensor<2x3xf32>
+    %output = ttir.empty() : tensor<2xf32>
+    %result = ttir.mul(%input, %output) {keep_dim = false, dim_arg = [1: i32]} : tensor<2x3xf32>, tensor<2xf32> -> tensor<2xf32>
+    // Input tensor:
+    // [[1.0, 2.0, 3.0],
+    //  [4.0, 5.0, 6.0]]
+    // Output tensor:
+    // [6.0, 120.0]  // Multiplication of each row
+
+    // Multiplication along dimension 0
+    %input = ... : tensor<2x3xf32>
+    %output = ttir.empty() : tensor<3xf32>
+    %result = ttir.mul(%input, %output) {keep_dim = false, dim_arg = [0: i32]} : tensor<2x3xf32>, tensor<3xf32> -> tensor<3xf32>
+    // Input tensor:
+    // [[1.0, 2.0, 3.0],
+    //  [4.0, 5.0, 6.0]]
+    // Output tensor:
+    // [4.0, 10.0, 18.0]  // Multiplication of each column
+
+    // Multiplication over all dimensions
+    %input = ... : tensor<2x3xf32>
+    %output = ttir.empty() : tensor<f32>
+    %result = ttir.mul(%input, %output) {keep_dim = false} : tensor<2x3xf32>, tensor<f32> -> tensor<f32>
+    // Input tensor:
+    // [[1.0, 2.0, 3.0],
+    //  [4.0, 5.0, 6.0]]
+    // Output tensor:
+    // 720.0  // Multiplication of all elements
+    ```
+
+    Note: For integer input tensors, the result is typically rounded to the nearest integer according to the rounding mode.
+
+    Mathematical definition: mul(x, dim) = ∏ x[i] for all i in dimension dim
+
+    Inputs:
+    - `input` (Tensor): The input tensor.
+
+    Attributes:
+    - `keep_dim` (Bool): Whether to keep the reduced dimensions or not.
+    - `dim_arg` (Array of Int32): Dimensions to reduce along.
+
+    Outputs:
+    - `output` (Tensor): The result tensor after applying the reduction.
+  }];
+}
+
 def TTIR_MaxOp : TTIR_ReductionOp<"max"> {
   let summary = "Maximum reduction operation.";
   let description = [{
@@ -4534,8 +4593,8 @@ def TTIR_ScatterOp: TTIR_NamedOp<"scatter"> {
     ```mlir
     // Basic scatter example: update values at specific indices in a 1D tensor
     %input = ... : tensor<8xf32>        // Input tensor with values: [0, 0, 0, 0, 0, 0, 0, 0]
-    %indices = ... : tensor<3xi32>      // Indices tensor with values: [1, 3, 5]
-    %update = ... : tensor<3xf32>       // Update tensor with values: [10, 30, 50]
+    %indices = ... : tensor<3xi32>      // Indices tensor with values: [1, 3, 5, 1]
+    %update = ... : tensor<3xf32>       // Update tensor with values: [10, 30, 50, 60]
     %output = ttir.empty() : tensor<8xf32>  // Output tensor shape
     %result = ttir.scatter(%input, %indices, %update, %output) {
         update_window_dims = [],        // No window dimensions in update tensor
@@ -4545,14 +4604,16 @@ def TTIR_ScatterOp: TTIR_NamedOp<"scatter"> {
         scatter_dims_to_operand_dims = [0], // Map scatter dimension 0 to operand dimension 0
         index_vector_dim = 0,           // Indices are in dimension 0
         indices_are_sorted = true,      // Indices are sorted
-        unique_indices = true           // Indices are unique
+        unique_indices = true,           // Indices are unique
+        scatter_reduce_type = "SUM"    // Scatter reduce type: SUM
+
     } : tensor<8xf32>, tensor<3xi32>, tensor<3xf32>, tensor<8xf32> -> tensor<8xf32>
-    // Result: [0, 10, 0, 30, 0, 50, 0, 0]
+    // Result: [0, 70, 0, 30, 0, 50, 0, 0]
 
     // Scatter to update a 2D tensor
     %input = ... : tensor<4x4xf32>      // Input tensor (4x4 matrix of zeros)
-    %indices = ... : tensor<2x2xi32>    // Indices tensor with values: [[0, 1], [2, 3]]
-    %update = ... : tensor<2xf32>       // Update tensor with values: [100, 200]
+    %indices = ... : tensor<2x2xi32>    // Indices tensor with values: [[0, 1], [2, 3], [0, 1]]
+    %update = ... : tensor<2xf32>       // Update tensor with values: [100, 200, 300]
     %output = ttir.empty() : tensor<4x4xf32>  // Output tensor shape
     %result = ttir.scatter(%input, %indices, %update, %output) {
         update_window_dims = [],
@@ -4562,9 +4623,10 @@ def TTIR_ScatterOp: TTIR_NamedOp<"scatter"> {
         scatter_dims_to_operand_dims = [0, 1],
         index_vector_dim = 1,
         indices_are_sorted = false,
-        unique_indices = true
+        unique_indices = true,
+        scatter_reduce_type = "SUM"
     } : tensor<4x4xf32>, tensor<2x2xi32>, tensor<2xf32>, tensor<4x4xf32> -> tensor<4x4xf32>
-    // Result: A 4x4 tensor with 100 at position [0,1] and 200 at position [2,3]
+    // Result: A 4x4 tensor with 400 at position [0,1] and 200 at position [2,3]
     ```
 
     Inputs:
@@ -4581,6 +4643,7 @@ def TTIR_ScatterOp: TTIR_NamedOp<"scatter"> {
     - `index_vector_dim` (Integer): The dimension in scatter indices that contains the index vector.
     - `indices_are_sorted` (Boolean): Whether indices are sorted lexicographically.
     - `unique_indices` (Boolean): Whether indices are guaranteed to be unique.
+    - `scatter_reduce_type` (Enum): The scatter reduce type to use (SUM, MUL, MIN, MAX).
 
     Outputs:
     - `result` (Tensor): The updated tensor.
@@ -4601,7 +4664,9 @@ def TTIR_ScatterOp: TTIR_NamedOp<"scatter"> {
                        DenseI32ArrayAttr:$scatter_dims_to_operand_dims,
                        I32Attr:$index_vector_dim,
                        BoolAttr:$indices_are_sorted,
-                       BoolAttr:$unique_indices);
+                       BoolAttr:$unique_indices,
+                       TTCore_ReduceTypeAttr:$scatter_reduce_type
+);
 
   let results = (outs AnyRankedTensor:$result);
 
@@ -4625,6 +4690,8 @@ def TTIR_ScatterInDimOp : TTIR_NamedOp<"scatter_in_dim"> {
       - `source` (Tensor): The values to scatter into the input tensor.
       - `output` (Tensor): The output tensor shape.
       - `dim` (int32_t): The dimension along which to scatter.
+      - `scatter_reduce_type` (Enum): The scatter reduce type to use (SUM, MUL, MIN, MAX).
+
 
     Example:
     ```mlir
@@ -4634,7 +4701,7 @@ def TTIR_ScatterInDimOp : TTIR_NamedOp<"scatter_in_dim"> {
     %source = ... : tensor<3xf32>       // Source values to scatter
     %output = ttir.empty() : tensor<8xf32>
     %result = ttir.scatter_in_dim(%input, %indices, %source, %output) {
-        dim = 0
+        dim = 0, scatter_reduce_type = "SUM"
     } : tensor<8xf32>, tensor<3xi32>, tensor<3xf32>, tensor<8xf32> -> tensor<8xf32>
     ```
   }];
@@ -4643,7 +4710,9 @@ def TTIR_ScatterInDimOp : TTIR_NamedOp<"scatter_in_dim"> {
                        AnyRankedTensor:$index,
                        AnyRankedTensor:$source,
                        AnyRankedTensor:$output,
-                       I32Attr:$dim);
+                       I32Attr:$dim,
+                       TTCore_ReduceTypeAttr:$scatter_reduce_type
+                       );
 
   let results = (outs AnyRankedTensor:$result);
 

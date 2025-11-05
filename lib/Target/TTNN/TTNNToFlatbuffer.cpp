@@ -746,8 +746,8 @@ createOp(FlatbufferObjectCache &cache, ScatterOp op) {
   auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer);
   auto memoryConfig = getMemoryConfigIfNeeded(cache, op);
   return ::tt::target::ttnn::CreateScatterOp(*cache.fbb, input, output, index,
-                                             sourceTensor, op.getDim(),
-                                             memoryConfig);
+                                             sourceTensor, 
+                                             op.getDim(), memoryConfig, static_cast<uint32_t>(op.getScatterReduceType()));
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::CollectivePermuteOp>
