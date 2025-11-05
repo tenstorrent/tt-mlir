@@ -13,6 +13,10 @@ on:
         required: false
         type: string
         default: 'uplift'
+      custom_metal_commit_hash:
+        description: 'Custom commit hash for tt-metal to point uplift branch to. Default to current tip of main. Does not permit downgrading from main.'
+        required: false
+        type: string
 
 jobs:
   uplift-pr:
@@ -51,12 +55,50 @@ jobs:
           fi
           echo "Branch '$BRANCH_NAME' does not exist. Proceeding with uplift."
 
-      - name: Fetch latest SHA of tt-metal submodule
+      - name: Determine tt-metal version to uplift to
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          LATEST_TT_METAL_VERSION=$(gh api repos/tenstorrent/tt-metal/commits/main --jq '.sha')
-          echo "LATEST_TT_METAL_VERSION=$LATEST_TT_METAL_VERSION" >> $GITHUB_ENV
+          if [ -n "${{ inputs.custom_metal_commit_hash }}" ]; then
+            UPLIFTED_TT_METAL_VERSION="${{ inputs.custom_metal_commit_hash }}"
+            echo "Using custom tt-metal commit hash: $UPLIFTED_TT_METAL_VERSION"
+          else
+            UPLIFTED_TT_METAL_VERSION=$(gh api repos/tenstorrent/tt-metal/commits/main --jq '.sha')
+            echo "Using latest tt-metal commit from main: $UPLIFTED_TT_METAL_VERSION"
+          fi
+          echo "UPLIFTED_TT_METAL_VERSION=$UPLIFTED_TT_METAL_VERSION" >> $GITHUB_ENV
+
+      - name: Validate no downgrade + using main when using custom commit hash for safety
+        if: ${{ inputs.custom_metal_commit_hash }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          CURRENT_TT_METAL_VERSION=$(grep 'set(TT_METAL_VERSION' third_party/CMakeLists.txt | sed 's/.*"\(.*\)".*/\1/')
+          echo "Current tt-metal version: $CURRENT_TT_METAL_VERSION"
+          echo "Custom tt-metal version: ${{ env.UPLIFTED_TT_METAL_VERSION }}"
+
+          # Verify custom commit is on main branch
+          MAIN_TIP=$(gh api repos/tenstorrent/tt-metal/commits/main --jq '.sha')
+          COMPARE_TO_MAIN=$(gh api repos/tenstorrent/tt-metal/compare/${{ env.UPLIFTED_TT_METAL_VERSION }}...${MAIN_TIP} --jq '.status')
+
+          if [ "$COMPARE_TO_MAIN" = "diverged" ]; then
+            echo "::error::Custom commit hash ${{ env.UPLIFTED_TT_METAL_VERSION }} is not on the main branch"
+            echo "::error::Please use a commit hash from the main branch."
+            exit 1
+          fi
+
+          echo "Validation passed: Custom commit is on main branch"
+
+          # Verify custom commit is not a downgrade from current version
+          COMPARE_RESULT=$(gh api repos/tenstorrent/tt-metal/compare/${CURRENT_TT_METAL_VERSION}...${{ env.UPLIFTED_TT_METAL_VERSION }} --jq '.status')
+
+          if [ "$COMPARE_RESULT" = "behind" ] || [ "$COMPARE_RESULT" = "diverged" ]; then
+            echo "::error::Custom commit hash ${{ env.UPLIFTED_TT_METAL_VERSION }} would be a downgrade from current version $CURRENT_TT_METAL_VERSION (status: $COMPARE_RESULT)"
+            echo "::error::Please use a commit hash that is ahead of the current version."
+            exit 1
+          fi
+
+          echo "Validation passed: Custom commit is $COMPARE_RESULT current version"
 
       - name: Check for dependency file changes and update Dockerfile
         env:
@@ -69,24 +111,24 @@ jobs:
           CURRENT_SFPI_INFO_SHA=$(gh api repos/tenstorrent/tt-metal/contents/tt_metal/sfpi-info.sh?ref=$CURRENT_TT_METAL_VERSION --jq '.sha' 2>/dev/null || echo "not_found")
           CURRENT_SFPI_VERSION_SHA=$(gh api repos/tenstorrent/tt-metal/contents/tt_metal/sfpi-version?ref=$CURRENT_TT_METAL_VERSION --jq '.sha' 2>/dev/null || echo "not_found")
 
-          # Fetch file hashes from latest version
-          LATEST_INSTALL_DEPS_SHA=$(gh api repos/tenstorrent/tt-metal/contents/install_dependencies.sh?ref=${{ env.LATEST_TT_METAL_VERSION }} --jq '.sha' 2>/dev/null || echo "not_found")
-          LATEST_SFPI_INFO_SHA=$(gh api repos/tenstorrent/tt-metal/contents/tt_metal/sfpi-info.sh?ref=${{ env.LATEST_TT_METAL_VERSION }} --jq '.sha' 2>/dev/null || echo "not_found")
-          LATEST_SFPI_VERSION_SHA=$(gh api repos/tenstorrent/tt-metal/contents/tt_metal/sfpi-version?ref=${{ env.LATEST_TT_METAL_VERSION }} --jq '.sha' 2>/dev/null || echo "not_found")
+          # Fetch file hashes from uplifted version
+          LATEST_INSTALL_DEPS_SHA=$(gh api repos/tenstorrent/tt-metal/contents/install_dependencies.sh?ref=${{ env.UPLIFTED_TT_METAL_VERSION }} --jq '.sha' 2>/dev/null || echo "not_found")
+          LATEST_SFPI_INFO_SHA=$(gh api repos/tenstorrent/tt-metal/contents/tt_metal/sfpi-info.sh?ref=${{ env.UPLIFTED_TT_METAL_VERSION }} --jq '.sha' 2>/dev/null || echo "not_found")
+          LATEST_SFPI_VERSION_SHA=$(gh api repos/tenstorrent/tt-metal/contents/tt_metal/sfpi-version?ref=${{ env.UPLIFTED_TT_METAL_VERSION }} --jq '.sha' 2>/dev/null || echo "not_found")
 
           if [ "$CURRENT_INSTALL_DEPS_SHA" != "$LATEST_INSTALL_DEPS_SHA" ] || \
              [ "$CURRENT_SFPI_INFO_SHA" != "$LATEST_SFPI_INFO_SHA" ] || \
              [ "$CURRENT_SFPI_VERSION_SHA" != "$LATEST_SFPI_VERSION_SHA" ]; then
             # Update the commit hash in Dockerfile.base
-            sed -i "s|ARG TT_METAL_DEPENDENCIES_COMMIT=.*|ARG TT_METAL_DEPENDENCIES_COMMIT=${{ env.LATEST_TT_METAL_VERSION }}|" .github/Dockerfile.base
+            sed -i "s|ARG TT_METAL_DEPENDENCIES_COMMIT=.*|ARG TT_METAL_DEPENDENCIES_COMMIT=${{ env.UPLIFTED_TT_METAL_VERSION }}|" .github/Dockerfile.base
             DOCKERFILE_UPDATED="**Note** Dockerfile.base is modified due to dependency updates"
             echo "DOCKERFILE_UPDATED=$DOCKERFILE_UPDATED" >> $GITHUB_ENV
           fi
 
       - name: Update tt-metal reference in third_party/CMakeLists.txt
         run: |
-          echo "Updating tt-metal to SHA: ${{ env.LATEST_TT_METAL_VERSION }}"
-          sed -i "s/set(TT_METAL_VERSION \".*\")/set(TT_METAL_VERSION \"${{ env.LATEST_TT_METAL_VERSION }}\")/" third_party/CMakeLists.txt
+          echo "Updating tt-metal to SHA: ${{ env.UPLIFTED_TT_METAL_VERSION }}"
+          sed -i "s/set(TT_METAL_VERSION \".*\")/set(TT_METAL_VERSION \"${{ env.UPLIFTED_TT_METAL_VERSION }}\")/" third_party/CMakeLists.txt
 
       - name: Create Pull Request
         uses: peter-evans/create-pull-request@v7
@@ -96,10 +138,10 @@ jobs:
           committer: github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>
           author: ${{ github.actor }} <${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com>
           base: main
-          commit-message: "Uplift ${{ env.TT_METAL_SUBMODULE_PATH }} to ${{ env.LATEST_TT_METAL_VERSION }} ${{ env.TODAY }}"
-          title: "Uplift ${{ env.TT_METAL_SUBMODULE_PATH }} to ${{ env.LATEST_TT_METAL_VERSION }} ${{ env.TODAY }}"
+          commit-message: "Uplift ${{ env.TT_METAL_SUBMODULE_PATH }} to ${{ env.UPLIFTED_TT_METAL_VERSION }} ${{ env.TODAY }}"
+          title: "Uplift ${{ env.TT_METAL_SUBMODULE_PATH }} to ${{ env.UPLIFTED_TT_METAL_VERSION }} ${{ env.TODAY }}"
           body: |
-            This PR uplifts the ${{ env.TT_METAL_SUBMODULE_PATH }} to the ${{ env.LATEST_TT_METAL_VERSION }}
+            This PR uplifts the ${{ env.TT_METAL_SUBMODULE_PATH }} to the ${{ env.UPLIFTED_TT_METAL_VERSION }}
 
             ${{ env.DOCKERFILE_UPDATED }}
 
