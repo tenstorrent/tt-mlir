@@ -8,7 +8,7 @@ set(SOURCES
     Conversion.cpp
     SingletonDeviceContext.cpp
 )
-add_mlir_library(${LIB_NAME} STATIC ${SOURCES})
+add_library(${LIB_NAME} STATIC ${SOURCES})
 
 message(STATUS "TTMLIR_ENABLE_OPMODEL[${TTMLIR_ENABLE_OPMODEL}]")
 if (TTMLIR_ENABLE_OPMODEL)
@@ -17,13 +17,11 @@ if (TTMLIR_ENABLE_OPMODEL)
         message(WARNING "TT_METAL_RUNTIME_ROOT is not set")
     endif()
 
-    # Define TTMLIR_ENABLE_OPMODEL for this library and its consumers
-    target_compile_definitions(${LIB_NAME} PUBLIC TTMLIR_ENABLE_OPMODEL)
-
     # Link to tt-metal libs and include directories
     target_include_directories(${LIB_NAME} SYSTEM PUBLIC "$<BUILD_INTERFACE:${TTMETAL_INCLUDE_DIRS}>")
     set(TTNN_LIBS TTMETAL_LIBRARY DEVICE_LIBRARY TTNN_LIBRARY TT_STL_LIBRARY TRACY_LIBRARY)
     target_link_libraries(${LIB_NAME} PUBLIC ${TTNN_LIBS} PRIVATE TTMLIRTTNNUtils)
+    target_compile_definitions(${LIB_NAME} PUBLIC TTMLIR_ENABLE_OPMODEL)
 else()
     # link stubs implementation when op model library is disabled
     message(WARNING "TTNNOpModelLib is disabled. The optimizer will not achieve optimal performance.")
@@ -38,8 +36,13 @@ target_include_directories(${LIB_NAME}
 
 target_link_libraries(${LIB_NAME} PUBLIC coverage_config)
 
+# Add to export set for build-tree usage (needed by tests)
+install(TARGETS ${LIB_NAME} EXPORT TTNNOpModelLibTargets)
+
 # Export for build-tree usage (needed for tests and other targets in this build)
-export(TARGETS ${LIB_NAME}
+export(EXPORT TTNNOpModelLibTargets
        FILE "${CMAKE_CURRENT_BINARY_DIR}/TTNNOpModelLibTargets.cmake"
        NAMESPACE TTNN::)
-# Note: install() is handled centrally via TTMLIRInstall.cmake
+
+# Note: Actual installation (files to install directory) is handled centrally
+# via TTMLIRInstall.cmake as part of the TTMLIRTargets export
