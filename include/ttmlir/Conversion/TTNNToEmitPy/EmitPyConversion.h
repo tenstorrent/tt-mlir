@@ -694,6 +694,9 @@ struct EmitPyTypeConverter<::ttnn::BufferType> {
     case ttnn::BufferType::Trace:
       rso << "TRACE";
       break;
+    case ttnn::BufferType::RiscvL1:
+      rso << "RISCV_L1";
+      break;
     case ttnn::BufferType::SystemMemory:
       llvm_unreachable("Unsupported ttnn.BufferType: SystemMemory");
       break;

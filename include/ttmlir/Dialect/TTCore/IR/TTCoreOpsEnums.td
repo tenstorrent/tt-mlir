@@ -65,6 +65,7 @@ def TTCore_SystemMMIO : I32EnumAttrCase<"SystemMMIO", 1, "mmio">;
 def TTCore_DeviceDRAM : I32EnumAttrCase<"DeviceDRAM", 2, "dram">;
 def TTCore_DeviceL1 : I32EnumAttrCase<"DeviceL1", 3, "l1">;
 def TTCore_RegisterDst : I32EnumAttrCase<"RegisterDst", 4, "dst">;
+def TTCore_DeviceRiscvL1 : I32EnumAttrCase<"DeviceRiscvL1", 5, "riscv_l1">;
 
 def TTCore_MemorySpace : I32EnumAttr<"MemorySpace", "TT MemorySpace",
                            [
@@ -73,6 +74,7 @@ def TTCore_MemorySpace : I32EnumAttr<"MemorySpace", "TT MemorySpace",
                             TTCore_DeviceDRAM,
                             TTCore_DeviceL1,
                             TTCore_RegisterDst,
+                            TTCore_DeviceRiscvL1,
                            ]> {
   let genSpecializedAttr = 0;
   let cppNamespace = "::mlir::tt::ttcore";
