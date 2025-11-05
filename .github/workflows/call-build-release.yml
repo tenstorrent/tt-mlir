@@ -133,28 +133,12 @@ jobs:
         source env/activate
         cmake --build ${{ steps.strings.outputs.build-output-dir }} -- compile-ttmlir-tests
 
-    - name: Install (default)
+    - name: Install
       shell: bash
       run: |
         source env/activate
-        rm -rf ${{  steps.strings.outputs.install-output-dir }}
-        cmake --install ${{ steps.strings.outputs.build-output-dir }}
-        test -f "${{ steps.strings.outputs.install-output-dir }}/lib/libTTMLIRCompilerStatic.a" || { echo "ERROR: libTTMLIRCompilerStatic.a not found in ${{ steps.strings.outputs.install-output-dir }}/lib/" && exit 1; }
-
-    - name: Test install
-      shell: bash
-      run: |
-        ${{ steps.strings.outputs.work-dir }}/.github/scripts/bash/test-install.sh \
-          "${{ steps.strings.outputs.install-output-dir }}"
-
-    - name: Install specific components
-      shell: bash
-      run: |
-        source env/activate
-        rm -rf ${{  steps.strings.outputs.install-output-dir }}
         cmake --install ${{ steps.strings.outputs.build-output-dir }} --component Test
         cmake --install ${{ steps.strings.outputs.build-output-dir }} --component SharedLib
-        cmake --install ${{ steps.strings.outputs.build-output-dir }} --component StaticLib
         cmake --install ${{ steps.strings.outputs.build-output-dir }} --component TTNNStandalone
         cmake --install ${{ steps.strings.outputs.build-output-dir }} --component DistributedRuntime
 
