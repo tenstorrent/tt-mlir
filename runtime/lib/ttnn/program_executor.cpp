@@ -135,6 +135,67 @@ void ProgramExecutor::runCallback(
   }
 }
 
+void call_register() {
+  PyGILState_STATE gstate = PyGILState_Ensure(); // Acquire GIL
+
+  // Add the runtime directory to Python path
+  PyObject *sys_path = PySys_GetObject("path");
+
+  // Get the runtime python path from environment variable or construct it from
+  // TT_MLIR_HOME
+  const char *runtime_python_path = std::getenv("TTMLIR_RUNTIME_PYTHON_PATH");
+  std::string path_to_add;
+
+  if (runtime_python_path != nullptr) {
+    path_to_add = runtime_python_path;
+  } else {
+    // Fallback: try to construct from TT_MLIR_HOME build directory
+    const char *tt_mlir_home = std::getenv("TT_MLIR_HOME");
+    if (tt_mlir_home != nullptr) {
+      path_to_add = std::string(tt_mlir_home) + "/build/runtime/golden";
+    } else {
+      // Last resort: try relative path (for backwards compatibility)
+      path_to_add = "./build/runtime/python";
+    }
+  }
+
+  PyObject *runtime_path = PyUnicode_FromString(path_to_add.c_str());
+  PyList_Append(sys_path, runtime_path);
+  Py_DECREF(runtime_path);
+
+  // Import the golden module
+  PyObject *golden_module = PyImport_ImportModule("python.scripts.golden");
+  if (golden_module == nullptr) {
+    PyErr_Print();
+    PyGILState_Release(gstate);
+    return;
+  }
+
+  // Get the log_message function
+  PyObject *get_golden_func =
+      PyObject_GetAttrString(golden_module, "get_golden_function");
+  if (get_golden_func == nullptr || !PyCallable_Check(get_golden_func)) {
+    PyErr_Print();
+    Py_DECREF(golden_module);
+    PyGILState_Release(gstate);
+    return;
+  }
+
+  // Call the function with the message
+  PyObject *result = PyObject_CallFunction(get_golden_func, "s");
+  if (result == nullptr) {
+    PyErr_Print();
+  } else {
+    Py_DECREF(result);
+  }
+
+  // Clean up
+  Py_DECREF(get_golden_func);
+  Py_DECREF(golden_module);
+
+  PyGILState_Release(gstate); // Release GIL
+}
+
 void safe_python_call(const char *message) {
   PyGILState_STATE gstate = PyGILState_Ensure(); // Acquire GIL
 

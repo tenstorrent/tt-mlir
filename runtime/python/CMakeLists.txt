@@ -88,7 +88,10 @@ add_custom_command(TARGET _ttmlir_runtime POST_BUILD
   COMMAND ${CMAKE_COMMAND} -E copy
     ${CMAKE_CURRENT_SOURCE_DIR}/python/__init__.py
     ${CMAKE_CURRENT_BINARY_DIR}/python/__init__.py
-  COMMENT "Copying Python runtime scripts to build directory"
+  COMMAND ${CMAKE_COMMAND} -E copy_directory
+    ${CMAKE_BINARY_DIR}/python_packages/golden
+    ${CMAKE_CURRENT_BINARY_DIR}/python/golden
+  COMMENT "Copying Python runtime scripts and golden package to build directory"
 )
 
 # Install the Python runtime module
