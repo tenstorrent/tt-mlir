@@ -29,6 +29,8 @@ func.func @basic_to_layout_view_return(%arg0: tensor<256x768xf32>) -> tensor<8x8
   // CHECK-SAME: threads = [#d2m.thread<datamovement>]
   // CHECK: ins(%[[VIEW]]
   // CHECK: d2m.reserve
+  // CHECK: d2m.dma
+  // CHECK: d2m.dma_wait
   // CHECK: d2m.yield
   // CHECK: return %[[MATERIALIZED]]
   return %view : tensor<8x8x1x3x!ttcore.tile<32x32, f32>, #layout8x8>
@@ -46,6 +48,8 @@ func.func @view_returned_directly(%arg0: tensor<1x1x8x24x!ttcore.tile<32x32, f32
   // CHECK-SAME: threads = [#d2m.thread<datamovement>]
   // CHECK: ins(%[[VIEW]]
   // CHECK: d2m.reserve
+  // CHECK: d2m.dma
+  // CHECK: d2m.dma_wait
   // CHECK: d2m.yield
   // CHECK: return %[[MATERIALIZED]]
   return %view : tensor<8x8x1x3x!ttcore.tile<32x32, f32>, #layout8x8>
@@ -97,6 +101,8 @@ func.func @mixed_returns(%arg0: tensor<1x1x8x24x!ttcore.tile<32x32, f32>, #layou
   // CHECK: %[[MATERIALIZED:.*]] = d2m.generic
   // CHECK: ins(%[[VIEW]]
   // CHECK: d2m.reserve
+  // CHECK: d2m.dma
+  // CHECK: d2m.dma_wait
   // CHECK: d2m.yield
   // CHECK: return %[[MATERIALIZED]], %arg1
   return %view, %arg1 : tensor<8x8x1x3x!ttcore.tile<32x32, f32>, #layout8x8>, tensor<8x8x1x3x!ttcore.tile<32x32, f32>, #layout8x8>

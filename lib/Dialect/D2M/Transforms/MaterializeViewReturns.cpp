@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
@@ -30,9 +31,7 @@ ttcore::GridAttr getGridFromType(RankedTensorType type) {
   }
 
   auto gridShape = layout.getGridShape(type);
-  if (gridShape.empty()) {
-    return nullptr;
-  }
+  TT_assert(!gridShape.empty());
 
   MLIRContext *ctx = type.getContext();
   return ttcore::GridAttr::get(ctx, gridShape);
@@ -54,11 +53,7 @@ Value materializeView(OpBuilder &builder, Location loc, Value viewResult) {
 
   // Extract the grid from the tensor's layout to determine core distribution.
   ttcore::GridAttr grid = getGridFromType(tensorType);
-  if (!grid) {
-    // Fall back to single-core execution when grid information is unavailable.
-    SmallVector<int64_t> defaultGrid = {1, 1};
-    grid = ttcore::GridAttr::get(builder.getContext(), defaultGrid);
-  }
+  TT_assert(grid != nullptr);
 
   // Build identity affine maps for parallel iteration over all grid dimensions.
   size_t rank = grid.getShape().size();
@@ -68,15 +63,21 @@ Value materializeView(OpBuilder &builder, Location loc, Value viewResult) {
                                                          /*arity=*/2, rank);
 
   // Create a datamovement generic op that materializes the view.
-  // The region simply reserves the output circular buffer and yields it,
-  // causing the datamovement hardware to fetch data according to the view's
-  // affine map transformation.
+  // The region reserves the output circular buffer, issues a DMA to fetch data
+  // from the view (which applies the affine transformation), waits for the DMA
+  // to complete, then yields the output buffer.
+  auto indexingMap = mlir::cast<AffineMapAttr>(indexingMaps[0]);
   auto genericOp = builder.create<GenericOp>(
       loc, viewResult, emptyOp.getResult(),
-      [](OpBuilder &builder, Location loc, ValueRange blockArgs) {
-        Value output =
+      [&](OpBuilder &builder, Location loc, ValueRange blockArgs) {
+        Value outputCB =
             builder.create<d2m::ReserveOp>(loc, blockArgs[1]).getResult();
-        builder.create<d2m::YieldOp>(loc, output);
+        // Issue a DMA from the view to the output buffer.
+        // The DMA will fetch data according to the view's affine map.
+        auto dma =
+            builder.create<d2m::DMAOp>(loc, viewResult, indexingMap, outputCB);
+        builder.create<d2m::DMAWaitOp>(loc, dma);
+        builder.create<d2m::YieldOp>(loc, outputCB);
       },
       ThreadType::Datamovement, grid, SmallVector<int64_t>{1, 1});
 
