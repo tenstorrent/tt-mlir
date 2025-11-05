@@ -16,6 +16,7 @@ declare_mlir_python_sources(TTNNJITSources
         _src/dispatch_op.py
         _src/ir_generator.py
         _src/graph_trace_compiler.py
+        _src/supported_ops.py
 )
 
 add_mlir_python_modules(TTNNJITModules

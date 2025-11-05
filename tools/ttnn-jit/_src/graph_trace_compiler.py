@@ -6,6 +6,7 @@ from ttmlir.ir import *
 from ttmlir.dialects import ttnn, func, ttcore
 from typing import Dict, List, Any, Optional, Set, Union
 from dataclasses import dataclass
+import ttnn_jit._src.supported_ops as supported_ops
 import json
 import re
 
@@ -386,7 +387,8 @@ def create_simplified_graph_from_clusterized(graph: JitGraph) -> JitGraph:
 
         # Process arguments to replace "Tensor(...)" with correct references
         corrected_arguments = []
-        tensor_arg_idx = 0  # Index for tracking which Tensor(...) argument we're on
+        # Index for tracking which Tensor(...) argument we're on
+        tensor_arg_idx = 0
 
         parent_clusters = cluster_to_parent_clusters.get(cluster_vertex.cluster_idx, [])
 
@@ -435,7 +437,7 @@ def create_simplified_graph_from_clusterized(graph: JitGraph) -> JitGraph:
     return new_graph
 
 
-class GraphToIRCompiler:
+class GraphToIRTranslator:
     """
     Compiler that generates MLIR IR from a captured graph.
     Takes a captured graph, simplifies it, and generates MLIR IR.
@@ -749,31 +751,7 @@ class GraphToIRCompiler:
         self, op_name, result_type, operands, device, constant_value=None
     ):
         """Create a TTNN operation based on the operation name."""
-        # Unary operations
-        unary_ops = [
-            "abs",
-            "exp",
-            "neg",
-            "sqrt",
-            "rsqrt",
-            "log",
-            "cos",
-            "sin",
-            "ceil",
-            "floor",
-            "tanh",
-            "sigmoid",
-            "relu",
-            "gelu",
-            "silu",
-            "logical_not",
-            "bitwise_not",
-        ]
-
-        # Binary operations - all binary ops need dtype as an attribute (not parameter)
-        binary_ops = ["add", "multiply", "subtract", "divide", "pow_tensor"]
-
-        if op_name in unary_ops:
+        if op_name in supported_ops.unary_ops:
             # Unary operation
             if len(operands) != 1:
                 raise ValueError(
@@ -787,7 +765,7 @@ class GraphToIRCompiler:
             )
             return result
 
-        elif op_name in binary_ops:
+        elif op_name in supported_ops.binary_ops:
             # Binary operation
             if constant_value is not None:
                 # Need to create a constant tensor
@@ -817,7 +795,7 @@ class GraphToIRCompiler:
 
         else:
             raise NotImplementedError(
-                f"Operation {op_name} not yet supported in GraphToIRCompiler"
+                f"Operation {op_name} not yet supported in GraphToIRTranslator"
             )
 
     def _create_constant_tensor(self, value, result_type, device):

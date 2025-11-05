@@ -4,7 +4,7 @@
 
 import ast
 from ttnn_jit._src.ttir_ast import TTIRCompiler
-from ttnn_jit._src.graph_trace_compiler import GraphToIRCompiler
+from ttnn_jit._src.graph_trace_compiler import GraphToIRTranslator
 from ttnn._ttnn.graph import RunMode, begin_graph_capture, end_graph_capture
 from ttnn.graph import visualize
 
@@ -42,12 +42,12 @@ def generate_ir_from_graph(f, debug, *args, **kwargs):
     tensor_args = kwargs.get("_tensor_args", {})
     max_grid = kwargs.get("_max_grid", (0, 0))
 
-    graph_compiler = GraphToIRCompiler(
+    graph_compiler = GraphToIRTranslator(
         captured_graph, f.__name__, tensor_args, max_grid
     )
     ir = graph_compiler.compile()
 
-    print_and_verify_ir(ir, "GraphToIRCompiler (Graph-based)", debug)
+    print_and_verify_ir(ir, "GraphToIRTranslator (Graph-based)", debug)
 
     return ir
 

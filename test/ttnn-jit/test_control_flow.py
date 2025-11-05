@@ -16,10 +16,19 @@ from utils import (
     run_op_test,
 )
 
+TEST_SHAPE_GRIDS = [
+    (32, 32, (0, 0)),
+    (64, 64, (0, 0)),
+    (256, 256, (7, 7)),
+    (2048, 2048, (7, 7)),
+    (64, 128, (0, 0)),
+]
 
 # ------------------------------------------------------------
 # Control flow tests
 # ------------------------------------------------------------
+
+
 def if_else_branch(input_tensor, use_exp=True):
     """Test basic if/else branching."""
     if use_exp:
@@ -122,9 +131,7 @@ def if_inside_for_multiple_branches(input_tensor, iterations=3):
 # ------------------------------------------------------------
 # Control flow tests
 # ------------------------------------------------------------
-@pytest.mark.parametrize(
-    "h , w, max_grid", [(32, 32, (0, 0)), (64, 64, (0, 0)), (256, 256, (7, 7))]
-)
+@pytest.mark.parametrize("h , w, max_grid", TEST_SHAPE_GRIDS)
 @pytest.mark.parametrize("dtype", [torch.bfloat16])
 @pytest.mark.parametrize("use_exp", [True, False])
 def test_if_else_branch(device, h, w, max_grid, dtype, use_exp):
@@ -138,9 +145,7 @@ def test_if_else_branch(device, h, w, max_grid, dtype, use_exp):
     )
 
 
-@pytest.mark.parametrize(
-    "h , w, max_grid", [(32, 32, (0, 0)), (64, 64, (0, 0)), (256, 256, (7, 7))]
-)
+@pytest.mark.parametrize("h , w, max_grid", TEST_SHAPE_GRIDS)
 @pytest.mark.parametrize("dtype", [torch.bfloat16])
 @pytest.mark.parametrize("mode", [0, 1, 2])
 def test_nested_if(device, h, w, max_grid, dtype, mode):
@@ -154,7 +159,7 @@ def test_nested_if(device, h, w, max_grid, dtype, mode):
     )
 
 
-@pytest.mark.parametrize("h , w, max_grid", [(32, 32, (0, 0)), (64, 64, (0, 0))])
+@pytest.mark.parametrize("h , w, max_grid", TEST_SHAPE_GRIDS)
 @pytest.mark.parametrize("dtype", [torch.bfloat16])
 @pytest.mark.parametrize("apply_exp", [True, False])
 def test_if_with_ops_before_after(device, h, w, max_grid, dtype, apply_exp):
@@ -168,7 +173,7 @@ def test_if_with_ops_before_after(device, h, w, max_grid, dtype, apply_exp):
     )
 
 
-@pytest.mark.parametrize("h , w, max_grid", [(32, 32, (0, 0)), (64, 64, (0, 0))])
+@pytest.mark.parametrize("h , w, max_grid", TEST_SHAPE_GRIDS)
 @pytest.mark.parametrize("dtype", [torch.bfloat16])
 @pytest.mark.parametrize(
     "apply_exp, apply_cos", [(True, False), (False, True), (True, True)]
@@ -186,9 +191,7 @@ def test_multiple_sequential_ifs(device, h, w, max_grid, dtype, apply_exp, apply
     )
 
 
-@pytest.mark.parametrize(
-    "h , w, max_grid", [(32, 32, (0, 0)), (64, 64, (0, 0)), (256, 256, (7, 7))]
-)
+@pytest.mark.parametrize("h , w, max_grid", TEST_SHAPE_GRIDS)
 @pytest.mark.parametrize("dtype", [torch.bfloat16])
 @pytest.mark.parametrize("iterations", [1, 2, 3, 5])
 def test_for_loop_simple(device, h, w, max_grid, dtype, iterations):
@@ -202,7 +205,7 @@ def test_for_loop_simple(device, h, w, max_grid, dtype, iterations):
     )
 
 
-@pytest.mark.parametrize("h , w, max_grid", [(32, 32, (0, 0)), (64, 64, (0, 0))])
+@pytest.mark.parametrize("h , w, max_grid", TEST_SHAPE_GRIDS)
 @pytest.mark.parametrize("dtype", [torch.bfloat16])
 @pytest.mark.parametrize("iterations", [1, 2, 3])
 def test_for_loop_with_index(device, h, w, max_grid, dtype, iterations):
@@ -216,7 +219,7 @@ def test_for_loop_with_index(device, h, w, max_grid, dtype, iterations):
     )
 
 
-@pytest.mark.parametrize("h , w, max_grid", [(32, 32, (0, 0)), (64, 64, (0, 0))])
+@pytest.mark.parametrize("h , w, max_grid", TEST_SHAPE_GRIDS)
 @pytest.mark.parametrize("dtype", [torch.bfloat16])
 @pytest.mark.parametrize("outer, inner", [(2, 2), (2, 3), (3, 2)])
 def test_nested_for_loops(device, h, w, max_grid, dtype, outer, inner):
@@ -230,7 +233,7 @@ def test_nested_for_loops(device, h, w, max_grid, dtype, outer, inner):
     )
 
 
-@pytest.mark.parametrize("h , w, max_grid", [(32, 32, (0, 0)), (64, 64, (0, 0))])
+@pytest.mark.parametrize("h , w, max_grid", TEST_SHAPE_GRIDS)
 @pytest.mark.parametrize("dtype", [torch.bfloat16])
 @pytest.mark.parametrize("iterations", [2, 3, 4])
 def test_for_loop_with_if(device, h, w, max_grid, dtype, iterations):
@@ -244,7 +247,7 @@ def test_for_loop_with_if(device, h, w, max_grid, dtype, iterations):
     )
 
 
-@pytest.mark.parametrize("h , w, max_grid", [(32, 32, (0, 0)), (64, 64, (0, 0))])
+@pytest.mark.parametrize("h , w, max_grid", TEST_SHAPE_GRIDS)
 @pytest.mark.parametrize("dtype", [torch.bfloat16])
 @pytest.mark.parametrize("iterations", [3, 4, 5])
 def test_if_inside_for_multiple_branches(device, h, w, max_grid, dtype, iterations):
