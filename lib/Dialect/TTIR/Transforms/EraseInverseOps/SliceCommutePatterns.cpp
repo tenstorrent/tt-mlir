@@ -168,10 +168,10 @@ public:
 
   void performCommuteUpwardsRewrite(SliceStaticOp op, ReshapeOp reshapeUser,
                                     PatternRewriter &rewriter) const override {
-    ReshapeOp newReshape = deslicedReshapeOp(op, reshapeUser, rewriter);
+    ReshapeOp newReshape = createDeslicedReshapeOp(op, reshapeUser, rewriter);
 
     SliceStaticOp newSlice =
-        reshapedSliceStaticOp(op, newReshape.getResult(), rewriter);
+        createReshapedSliceStaticOp(op, newReshape.getResult(), rewriter);
 
     SmallVector<Operation *> users(op->getUsers());
     for (auto *user : users) {
@@ -186,7 +186,7 @@ public:
   performCommuteDownwardsRewrite(SliceStaticOp op, ReshapeOp reshapeOperand,
                                  PatternRewriter &rewriter) const override {
     SliceStaticOp newSlice =
-        reshapedSliceStaticOp(op, reshapeOperand.getInput(), rewriter);
+        createReshapedSliceStaticOp(op, reshapeOperand.getInput(), rewriter);
 
     // The reshape should produce the same output type as the original slice
     SmallVector<int32_t> reshapeTargetShape(op.getType().getShape());
@@ -248,9 +248,9 @@ private:
     return leftmostSlicedDim;
   }
 
-  SliceStaticOp reshapedSliceStaticOp(SliceStaticOp op,
-                                      TypedValue<RankedTensorType> input,
-                                      PatternRewriter &rewriter) const {
+  SliceStaticOp createReshapedSliceStaticOp(SliceStaticOp op,
+                                            TypedValue<RankedTensorType> input,
+                                            PatternRewriter &rewriter) const {
     auto shape = input.getType().getShape();
     int64_t ndims = shape.size();
 
@@ -260,7 +260,8 @@ private:
     // Update ends and output shape to match new input shape:
     // - ends = dim size
     // - output shape = new shape
-    // for dims to the left of leftmost sliced dim
+    // for dims to the left of leftmost sliced dim, otherwise copy original
+    // values
 
     auto originalEnds = op.getEnds().getValue();
     auto originalOutputShape = op.getType().getShape();
@@ -319,8 +320,8 @@ private:
     return newSlice;
   }
 
-  ReshapeOp deslicedReshapeOp(SliceStaticOp op, ReshapeOp reshapeUser,
-                              PatternRewriter &rewriter) const {
+  ReshapeOp createDeslicedReshapeOp(SliceStaticOp op, ReshapeOp reshapeUser,
+                                    PatternRewriter &rewriter) const {
 
     // Construct target shape for reshape:
     // - For dims not affected by reshape (left to the rightmost reshape dim),
@@ -358,7 +359,7 @@ private:
   bool isCommuteUpwardsViable(SliceStaticOp op,
                               ReshapeOp reshapeUser) const override {
     // Reshape can commute if its rightmost reshape dim
-    // is to the right of leftmost slicing dim
+    // is to the left of leftmost slicing dim
     int64_t rightmostReshapeDimRTL = getRightmostReshapeDimRTL(reshapeUser);
     int64_t leftmostSlicedDimRTL = getLeftmostSlicedDimRTL(op);
     if (rightmostReshapeDimRTL == -1 || leftmostSlicedDimRTL == -1) {
@@ -378,7 +379,7 @@ private:
   bool isCommuteDownwardsViable(SliceStaticOp op,
                                 ReshapeOp reshapeOperand) const override {
     // Reshape can commute if its rightmost reshape dim
-    // is to the right of leftmost slicing dim
+    // is to the left of leftmost slicing dim
     int64_t rightmostReshapeDimRTL = getRightmostReshapeDimRTL(reshapeOperand);
     int64_t leftmostSlicedDimRTL = getLeftmostSlicedDimRTL(op);
     if (rightmostReshapeDimRTL == -1 || leftmostSlicedDimRTL == -1) {
