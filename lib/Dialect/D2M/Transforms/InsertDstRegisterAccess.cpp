@@ -77,7 +77,6 @@ public:
       Region *genericRegion = &op.getRegion(regionIndex);
       Block &block = genericRegion->getBlocks().front();
 
-      // Skip regions that don't have compute ops.
       if (!op.hasComputeOpsInRegion(regionIndex)) {
         return failure();
       }

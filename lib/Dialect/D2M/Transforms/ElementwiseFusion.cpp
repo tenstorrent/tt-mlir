@@ -365,11 +365,6 @@ struct FuseD2MElementwiseOpsPattern : public OpRewritePattern<GenericOp> {
 
     assert(consumer.getNumRegions() == 1u);
 
-    // Skip regions that don't have compute ops.
-    if (!consumer.hasComputeOpsInRegion(0)) {
-      return failure();
-    }
-
     Type largestDstType =
         utils::getRegionLargestDstElemType(consumer.getRegion(0));
     const unsigned dstCapacity =
