@@ -130,6 +130,7 @@ def run_op_test(
     num_inputs,
     buffer_type=ttnn.BufferType.L1,
     graph_capture=True,
+    enable_cache=False,
 ):
     """
     Common test runner for JIT operations.
@@ -144,6 +145,7 @@ def run_op_test(
         num_inputs: Number of input tensors
         buffer_type: Buffer type (L1 or DRAM)
         graph_capture: Whether to use graph capture compiler (default: True)
+        enable_cache: Whether to enable cache for the JIT-compiled function (default: False)
     """
     if buffer_type == ttnn.BufferType.L1:
         inputs = [
@@ -155,9 +157,12 @@ def run_op_test(
     print("inputs", inputs)
     golden_op = _get_ttnn_op(op)
 
-    op_jit = ttnn_jit.jit(debug=True, max_grid=max_grid, graph_capture=graph_capture)(
-        op
-    )
+    op_jit = ttnn_jit.jit(
+        debug=True,
+        max_grid=max_grid,
+        enable_cache=enable_cache,
+        graph_capture=graph_capture,
+    )(op)
     output_tensor = op_jit(*inputs)
     golden_tensor = (golden_op or op)(*inputs)
 

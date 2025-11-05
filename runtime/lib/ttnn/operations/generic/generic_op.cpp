@@ -239,6 +239,44 @@ createProgramDescriptor(
   return programDescriptor;
 }
 
+void overrideArgs(
+    const ::tt::target::ttnn::ProgramDescriptor *programDesc,
+    const std::vector<::ttnn::Tensor> &ioTensors,
+    std::shared_ptr<::tt::tt_metal::ProgramDescriptor> programDescriptor) {
+  for (size_t i = 0; i < programDescriptor->kernels.size(); ++i) {
+    const auto *kernelDesc = programDesc->kernels()->Get(i);
+    auto &kernel = programDescriptor->kernels[i];
+    kernel.compile_time_args = createKernelArgs(*kernelDesc->ct_args());
+    kernel.common_runtime_args =
+        createKernelArgs(*kernelDesc->common_rt_args(), ioTensors);
+
+    if (kernelDesc->rt_args()) {
+      auto sizeX = kernelDesc->rt_args()->size();
+      auto sizeY = kernelDesc->rt_args()->Get(0)->args()->size();
+      kernel.runtime_args.resize(
+          sizeX, std::vector<::tt::tt_metal::KernelDescriptor::CoreRuntimeArgs>(
+                     sizeY));
+      for (unsigned int x = 0; x < sizeX; x++) {
+        for (unsigned int y = 0; y < sizeY; y++) {
+          ::tt::tt_metal::KernelDescriptor::CoreRuntimeArgs coreRuntimeArgs =
+              createKernelArgs(*kernelDesc->rt_args()->Get(x)->args()->Get(y),
+                               ioTensors);
+          kernel.runtime_args[x][y] = coreRuntimeArgs;
+        }
+      }
+    }
+  }
+  for (size_t i = 0; i < programDescriptor->cbs.size(); ++i) {
+    const auto *cbDesc = programDesc->cbs()->Get(i);
+    auto &cb = programDescriptor->cbs[i];
+
+    // Not all CBs have a backing L1 buffer.
+    if (cbDesc->buffer()) {
+      cb.buffer = ioTensors[cbDesc->buffer()->tensor_operand_index()].buffer();
+    }
+  }
+}
+
 void run(const ::tt::target::ttnn::GenericOp *op, ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
   auto size = op->io_tensors()->size();
@@ -251,17 +289,28 @@ void run(const ::tt::target::ttnn::GenericOp *op, ProgramContext &context) {
   auto programDescCache = context.getExecutableHandle().getProgramDescCache();
 
   auto *programDesc = op->program();
-  std::size_t hash =
-      ttsl::hash::hash_objects_with_default_seed(programDesc, programDescCache);
+
+  // Note: need to hash tensor buffers: even if we override the arg here during
+  // ProgramDescriptor creation, once the Program is cached, in ttnn, it won't
+  // matter, unless we implement `override_runtime_arguments` in ttnn.generic
+  // op.
+  std::vector<void *> tensorBuffers(ioTensors.size());
+  std::vector<uint32_t> tensorBufferAddresses(ioTensors.size());
+  for (size_t i = 0; i < ioTensors.size(); ++i) {
+    tensorBuffers[i] = ioTensors[i].buffer();
+    tensorBufferAddresses[i] = ioTensors[i].buffer()->address();
+  }
+  std::size_t hash = ttsl::hash::hash_objects_with_default_seed(
+      programDesc, programDescCache, ioTensors, tensorBuffers,
+      tensorBufferAddresses);
   std::shared_ptr<void> cachedPtr = programDescCache->get(hash);
 
   std::shared_ptr<::tt::tt_metal::ProgramDescriptor> programDescriptor;
   if (cachedPtr) {
-    LOG_DEBUG("Cache hit for program descriptor");
     programDescriptor =
         std::static_pointer_cast<::tt::tt_metal::ProgramDescriptor>(cachedPtr);
+    overrideArgs(programDesc, ioTensors, programDescriptor);
   } else {
-    LOG_DEBUG("Cache miss for program descriptor");
     programDescriptor = createProgramDescriptor(programDesc, ioTensors);
     programDescriptor->custom_program_hash =
         reinterpret_cast<ttsl::hash::hash_t>(hash);

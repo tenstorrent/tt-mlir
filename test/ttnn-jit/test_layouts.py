@@ -65,6 +65,7 @@ def test_l1_block_sharded_shapes(device, h, w, max_grid, op):
         op,
         num_inputs=1,
         buffer_type=ttnn.BufferType.L1,
+        enable_cache=True,
     )
 
 
@@ -85,4 +86,5 @@ def test_dram_interleaved_shapes(device, h, w, op):
         op,
         num_inputs=1,
         buffer_type=ttnn.BufferType.DRAM,
+        enable_cache=True,
     )
