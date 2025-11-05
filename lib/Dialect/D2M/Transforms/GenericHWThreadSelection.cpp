@@ -171,25 +171,15 @@ public:
 
   void wrapBlockOpsInExecuteRegion(PatternRewriter &rewriter, Block &block,
                                    Location loc) const {
-    SmallVector<Operation *> opsToWrap;
-    for (Operation &blockOp : llvm::make_early_inc_range(block)) {
-      opsToWrap.push_back(&blockOp);
-    }
-
-    if (opsToWrap.empty()) {
-      return;
-    }
-
+    Block *executeRegionBlock = rewriter.splitBlock(&block, block.begin());
     rewriter.setInsertionPointToStart(&block);
-    auto executeRegionOp =
-        rewriter.create<scf::ExecuteRegionOp>(loc, TypeRange{});
-    // Prevent canonicalization from inlining the execute_region op.
-    executeRegionOp->setAttr("no_inline", rewriter.getUnitAttr());
+    auto executeRegionOp = rewriter.create<scf::ExecuteRegionOp>(
+        loc, TypeRange{}, /*no_inline=*/rewriter.getUnitAttr());
 
-    Block *executeRegionBlock = &executeRegionOp.getRegion().emplaceBlock();
-    for (Operation *opToMove : opsToWrap) {
-      opToMove->moveBefore(executeRegionBlock, executeRegionBlock->end());
-    }
+    // splitBlock creates the executeRegionBlock in the parent region of
+    // "block".
+    executeRegionBlock->getParent()->getBlocks().remove(executeRegionBlock);
+    executeRegionOp.getRegion().push_back(executeRegionBlock);
 
     rewriter.setInsertionPointToEnd(executeRegionBlock);
     rewriter.create<scf::YieldOp>(loc);
