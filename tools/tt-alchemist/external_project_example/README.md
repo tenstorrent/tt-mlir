@@ -6,8 +6,8 @@ This example demonstrates how to use tt-alchemist from an external project.
 
 ```bash
 # From this directory
-mkdir build && cd build
-cmake -B build -DTTMLIR_BUILD_DIR=/localdev/$USER/_workspace/repos/tt-mlir/build
+cd tools/tt-alchemist/external_project_example
+cmake -B build -DTTMLIR_BUILD_DIR=$TT_MLIR_HOME/build
 cmake --build build
 ./build/example_usage
 ```

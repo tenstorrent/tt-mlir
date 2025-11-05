@@ -53,7 +53,7 @@ add_dependencies(${TT_ALCHEMIST_LIBRARY_NAME}
 
 # Link libraries
 target_link_libraries(${TT_ALCHEMIST_LIBRARY_NAME}
-  PRIVATE
+  PUBLIC
     TTMLIRCompiler
 )
 
@@ -74,10 +74,32 @@ target_compile_definitions(${TT_ALCHEMIST_LIBRARY_NAME}
 # At runtime, alchemist lib will look in its own directory for
 # dependencies (libTTMLIRCompiler.so, libtt_metal.so, etc.)
 set_target_properties(${TT_ALCHEMIST_LIBRARY_NAME} PROPERTIES
-  BUILD_WITH_INSTALL_RPATH TRUE
   INSTALL_RPATH "$ORIGIN"
+  BUILD_WITH_INSTALL_RPATH TRUE
   # Build library directly into build/lib/ alongside TTMLIRCompiler.so
   LIBRARY_OUTPUT_DIRECTORY ${PROJECT_BINARY_DIR}/lib
+)
+
+# Add interface link options to help external projects find transitive dependencies at link time
+target_link_options(${TT_ALCHEMIST_LIBRARY_NAME}
+  INTERFACE
+    -Wl,-rpath-link,${PROJECT_BINARY_DIR}/lib
+    -Wl,-rpath-link,${TTNN_INSTALL_DIR}/lib
+)
+
+# Install headers
+add_custom_target(tt-alchemist-install-public-headers
+  # Clean old headers directory to avoid stale files
+  COMMAND ${CMAKE_COMMAND} -E rm -rf ${TT_ALCHEMIST_ROOT_BINARY_DIR}/include
+  # Create new headers directory
+  COMMAND ${CMAKE_COMMAND} -E make_directory ${TT_ALCHEMIST_ROOT_BINARY_DIR}/include
+  # Copy only .hpp files from external headers (filters out README.md, etc.)
+  COMMAND ${CMAKE_COMMAND}
+    -DSOURCE_DIR=${TT_ALCHEMIST_ROOT_SOURCE_DIR}/include/tt-alchemist
+    -DDEST_DIR=${TT_ALCHEMIST_ROOT_BINARY_DIR}/include
+    -P ${CMAKE_CURRENT_SOURCE_DIR}/CopyHppFiles.cmake
+
+  COMMENT "Copying tt-alchemist headers"
 )
 
 # Install templates
@@ -102,7 +124,6 @@ include(${CMAKE_CURRENT_SOURCE_DIR}/InstalCppStandaloneComponents.cmake)
 # Target to install all components for cpp standalone
 add_custom_target(tt-alchemist-install-cpp-standalone
   DEPENDS
-    tt-alchemist-install-templates  # Templates must be installed first
     ${TTNN_INSTALL_DIR}/.metalium-runtime-installed
     ${TTNN_INSTALL_DIR}/.metalium-dev-installed
     ${TTNN_INSTALL_DIR}/.ttnn-runtime-installed
@@ -116,6 +137,7 @@ add_custom_target(tt-alchemist-install-cpp-standalone
 add_custom_target(tt-alchemist-package
   DEPENDS
     ${TT_ALCHEMIST_LIBRARY_NAME}
+    tt-alchemist-install-public-headers
     tt-alchemist-install-templates
     tt-alchemist-install-cpp-standalone
   COMMENT "Packaging tt-alchemist"
@@ -202,24 +224,4 @@ add_custom_target(tt-alchemist-install-editable
 add_custom_target(tt-alchemist
   DEPENDS tt-alchemist-install
   COMMENT "Building and installing tt-alchemist"
-)
-
-################################################################################
-# Testing Direct Build Path
-################################################################################
-
-# Test executable to verify tt-alchemist works when linked directly
-add_executable(test-tt-alchemist-direct-link
-  test_direct_link.cpp
-)
-
-target_link_libraries(test-tt-alchemist-direct-link
-  PRIVATE ${TT_ALCHEMIST_LIBRARY_NAME}
-)
-
-# Test target that runs the test executable
-add_custom_target(test-tt-alchemist-direct
-  DEPENDS test-tt-alchemist-direct-link tt-alchemist-install-templates
-  COMMAND $<TARGET_FILE:test-tt-alchemist-direct-link>
-  COMMENT "Testing tt-alchemist direct linking"
 )
