@@ -14,7 +14,7 @@ on:
         type: string
         default: 'uplift'
       custom_metal_commit_hash:
-        description: 'Custom commit hash for tt-metal to point uplift branch to. Default to current tip of main. Does not permit downgrading from main.'
+        description: '(optional) Custom commit hash for tt-metal to point uplift branch to. Default to current tip of metal main. Does not permit metal version downgrade or non-metal-main commit.'
         required: false
         type: string
 
