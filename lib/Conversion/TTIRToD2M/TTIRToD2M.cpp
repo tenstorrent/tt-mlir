@@ -1334,7 +1334,7 @@ class D2MGatherOpRewriter : public OpConversionPattern<ttir::GatherOp> {
 
     auto dmaOp = builder.create<d2m::DMAOp>(loc, extractOperand, combinedIndex, emptyOp, ivs);
     builder.create<d2m::DMAWaitOp>(loc, dmaOp);
-    //rewriter.replaceOp(gatherOp, dmaOp);
+    rewriter.replaceOp(gatherOp, emptyOp);
 
     return success();
   }
