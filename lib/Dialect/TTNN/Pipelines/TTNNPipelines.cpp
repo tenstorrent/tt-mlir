@@ -71,6 +71,9 @@ void createTTNNPipelineTTIRPasses(
     pm.addPass(mlir::tt::ttir::createTTIRExplicateTMs());
     pm.addPass(mlir::tt::ttir::createTTIREraseInverseOps());
   }
+  if (options.implicitBroadcastFoldingEnabled) {
+    pm.addPass(mlir::tt::ttir::createTTIRImplicitBroadcastFold());
+  }
   if (options.enableFusing) {
     pm.addPass(mlir::tt::ttir::createTTIRFusing(fusingOptions));
   }
@@ -156,13 +159,6 @@ void createTTNNPipelineDeallocPass(
   pm.addPass(createTTNNDeallocate());
 }
 
-void createTTNNPipelineTTIRImplicitBroadcastFoldPass(
-    OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
-  if (options.implicitBroadcastFoldingEnabled) {
-    pm.addPass(mlir::tt::ttir::createTTIRImplicitBroadcastFold());
-  }
-}
-
 void createTTIRToTTNNBackendPipeline(
     OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
   pm.addPass(mlir::createCanonicalizerPass());
@@ -187,7 +183,6 @@ void createTTIRToTTNNBackendPipeline(
   OpPassManager &devicePm =
       pm.nest<ttcore::DeviceModuleOp>().nest<mlir::ModuleOp>();
   createTTNNPipelineTTIRPasses(devicePm, options);
-  createTTNNPipelineTTIRImplicitBroadcastFoldPass(devicePm, options);
 
   ttir::TTIRQuantDataTypeConversionPassOptions quantOptions;
   quantOptions.targetBitWidth = options.quantBitWidth;
