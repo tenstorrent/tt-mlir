@@ -2066,15 +2066,18 @@ public:
     }
 
     if (mhaType == TYPE_UNBIASED) {
+      // Get the output shape from one of the original matmul ops.
       ArrayRef<int64_t> originalMatmulOutputShape =
           matmulOps[0].getResult().getType().getShape();
       llvm::SmallVector<int64_t> matmulOutputShape(
           originalMatmulOutputShape.begin(), originalMatmulOutputShape.end());
+
       // Multiply the last dimension by 3 (since we're concatenating Q, K, V).
       matmulOutputShape.back() = originalMatmulOutputShape.back() * 3;
 
       bool transposeA = matmulOps[0].getTransposeA();
       bool transposeB = matmulOps[0].getTransposeB();
+
       // Create matmul operation with concatenated weights.
       RankedTensorType matmulOutputType = RankedTensorType::get(
           matmulOutputShape,
@@ -2086,12 +2089,11 @@ public:
           /*transpose_a=*/transposeA, /*transpose_b=*/transposeB);
     }
 
-    if (!matrixMultOp) {
-      return mlir::failure();
-    }
+    TT_assertv(matrixMultOp, "Expected valid matrix multiplication operation");
 
     // Create reshape operation to convert from [batch*seq, hidden*3] to [batch,
-    // seq, hidden*3].
+    // seq, hidden*3]. If it is the same output shape, reshape folder will fold
+    // this operation.
     SmallVector<int64_t> reshapeToSplitShape = {batchSize, sequenceLength,
                                                 hiddenSize * 3};
     auto reshapeType = (mhaType == TYPE_BIASED)
@@ -2120,6 +2122,7 @@ public:
     auto valueType = (mhaType == TYPE_BIASED)
                          ? biasedPermuteOps[2].getOutput().getType()
                          : unbiasedPermuteOps[2].getOutput().getType();
+
     auto queryShape = queryType.getShape();
     auto keyShape = keyType.getShape();
     auto valueShape = valueType.getShape();
@@ -2191,7 +2194,7 @@ private:
   ttir::ConcatOp concatenateAlongDim(OpBuilder &rewriter, Location loc,
                                      ValueRange tensors,
                                      std::size_t dim) const {
-    assert(!tensors.empty() && "Cannot concatenate empty tensor list");
+    TT_assertv(!tensors.empty(), "Cannot concatenate empty tensor list.");
 
     auto firstType = mlir::cast<RankedTensorType>(tensors[0].getType());
     ArrayRef<int64_t> firstShape = firstType.getShape();
@@ -2204,12 +2207,12 @@ private:
       ArrayRef<int64_t> shape = tensorType.getShape();
 
       // Verify all tensors have the same rank and shape except last dim
-      assert(static_cast<int64_t>(shape.size()) ==
-                 rank && // Fixed: cast to int64_t
-             "All tensors must have the same rank");
+      TT_assertv(static_cast<int64_t>(shape.size()) == rank,
+                 "All tensors must have the same rank");
       for (int64_t i = 0; i < rank - 1; ++i) {
-        assert(shape[i] == firstShape[i] &&
-               "All tensors must have the same shape except last dimension");
+        TT_assertv(
+            shape[i] == firstShape[i],
+            "All tensors must have the same shape except last dimension.");
       }
 
       concatDimSize += shape[dim];
@@ -2282,7 +2285,7 @@ private:
   }
 
   PermuteOp getPermuteOp(mlir::Operation *op) const {
-    // permute op comes from: linear/ matmul op -> reshape op -> permute op
+    // Permute op comes from: linear/ matmul op -> reshape op -> permute op.
     auto users = op->getResult(0).getUsers();
     if (llvm::range_size(users) != 1) {
       return nullptr;
@@ -2342,8 +2345,8 @@ private:
               });
   }
 
-  bool isKeyTransposed(ArrayRef<int64_t> &keyShape,
-                       ArrayRef<int64_t> &queryShape) const {
+  bool isKeyTransposed(ArrayRef<int64_t> keyShape,
+                       ArrayRef<int64_t> queryShape) const {
     return (keyShape[K_HEAD_SIZE] == queryShape[O_HEAD_SIZE] &&
             keyShape[K_SEQUENCE_LENGTH] == queryShape[O_SEQUENCE_LENGTH]);
   }
@@ -2401,6 +2404,14 @@ private:
       }
     }
 
+    if (transposeKey) {
+      // If key is transposed, it should have the expected transposed shape.
+      if (keyShape[K_HEAD_SIZE] != queryShape[O_HEAD_SIZE] ||
+          keyShape[K_SEQUENCE_LENGTH] != queryShape[O_SEQUENCE_LENGTH]) {
+        return false;
+      }
+    }
+
     return true;
   }
 
@@ -2411,13 +2422,13 @@ private:
     ArrayRef<int64_t> reshapeInputShape =
         reshapeOp.getInput().getType().getShape();
     // If the input shape is not 3D, we cannot fuse. [BATCH_SIZE,
-    // SEQUENCE_LENGTH, HIDDEN_DIMENSION]
+    // SEQUENCE_LENGTH, HIDDEN_DIMENSION].
     if (reshapeInputShape.size() != 3) {
       return false;
     }
 
     // Reshape transforms [BATCH_SIZE, SEQUENCE_LENGTH, HIDDEN_DIMENSION] to
-    // [BATCH_SIZE * SEQUENCE_LENGTH, HIDDEN_DIMENSION]
+    // [BATCH_SIZE * SEQUENCE_LENGTH, HIDDEN_DIMENSION].
     ArrayRef<int64_t> reshapeOutputShape =
         reshapeOp.getResult().getType().getShape();
     if (reshapeOutputShape.size() != 2) {
@@ -2435,7 +2446,7 @@ private:
     }
 
     for (OpType matrixOp : matrixOps) {
-      // Each op must have the same input as the reshape op output
+      // Each op must have the same input as the reshape op output.
       if (matrixOp.getA() != reshapeOp.getResult()) {
         return false;
       }
