@@ -21,7 +21,7 @@ namespace {
 // View operations represent tensor transformations using affine mappings
 // without actual data movement, requiring materialization before use.
 bool isViewOp(Operation *op) {
-  return op && mlir::isa<d2m::ViewOpInterface>(op);
+  return mlir::isa_and_nonnull<d2m::ViewOpInterface>(op);
 }
 
 // Extract the grid attribute from a tensor's metal layout encoding.
