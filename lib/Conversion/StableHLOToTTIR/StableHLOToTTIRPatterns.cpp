@@ -1348,16 +1348,11 @@ public:
             : rewriter.getDenseBoolArrayAttr(
                   SmallVector<bool>(numSpatialDims, false));
 
-    bool hasNegativePadding = false;
     ArrayRef<int64_t> paddingArray = paddingAttr.asArrayRef();
-    SmallVector<int64_t> adjustedPadding;
-    for (int64_t pad : paddingArray) {
-      if (pad < 0) {
-        hasNegativePadding = true;
-        pad = 0;
-      }
-      adjustedPadding.push_back(pad);
-    }
+    bool hasNegativePadding =
+        llvm::any_of(paddingArray, [](int64_t p) { return p < 0; });
+    SmallVector<int64_t> adjustedPadding = llvm::to_vector(llvm::map_range(
+        paddingArray, [](int64_t p) { return std::max<int64_t>(p, 0); }));
 
     paddingAttr = rewriter.getDenseI64ArrayAttr(adjustedPadding);
 
