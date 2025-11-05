@@ -65,18 +65,22 @@ Currently not enabled through cli but there is an option to use runtime tensors 
 # Basic execution with random inputs
 python runtime/tools/chisel/chisel/main.py \
   -i runtime/tools/chisel/test/mlir/test_fusion.mlir \
-  -o ./output
+  -f main \
+  -o ./output \
 
 # Load specific inputs from disk
 python runtime/tools/chisel/chisel/main.py \
   -i runtime/tools/chisel/test/mlir/test_fusion.mlir \
+  -f main \
   -o ./output \
+
   --load-inputs-from-disk \
   --tensor-folder runtime/tools/chisel/test/mlir/tensors/
 
 # Skip specific operations during comparison
 python runtime/tools/chisel/chisel/main.py \
   -i runtime/tools/chisel/test/mlir/test_fusion.mlir \
+  -f main \
   -o ./output \
   --skip-op-pattern "ttnn.matmul" \
   --report-path debug_report.csv
@@ -84,6 +88,7 @@ python runtime/tools/chisel/chisel/main.py \
 # Dump IR modules for debugging
 python runtime/tools/chisel/chisel/main.py \
   -i runtime/tools/chisel/test/mlir/test_fusion.mlir \
+  -f main \
   -o ./output \
   --dump-ttir \
   --dump-ttnn \
@@ -115,6 +120,7 @@ python runtime/tools/chisel/chisel/main.py \
 # Use specific input tensors from a previous model run
 python runtime/tools/chisel/chisel/main.py \
   --input-file models/transformer.mlir \
+  --main-function main \
   --output-dir ./transformer_debug \
   --load-inputs-from-disk \
   --tensor-folder ./test_data/transformer_inputs/ \

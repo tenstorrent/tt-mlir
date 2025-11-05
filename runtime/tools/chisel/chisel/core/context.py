@@ -544,6 +544,85 @@ class ChiselContext:
             self.device_tensor_pool[arg_name] = device_tensor
         print(self.device_tensor_pool.keys())
 
+    def _identify_batch_norm_params(self):
+        """
+        Identify which function arguments are batch norm parameters.
+
+        Returns:
+            Dict mapping argument names to their parameter types
+            (variance, mean, scale/weight, offset/bias)
+        """
+        batch_norm_params = {}
+
+        # Scan through operations to find batch norm ops and their operands
+        for op in self.device_ir_module.get_function_ops():
+            if op.name in ["ttnn.batch_norm_inference", "ttir.batch_norm_inference"]:
+                operands = op.operands
+                # Standard batch norm parameter order: input, scale/weight, offset/bias, mean, variance
+                # ttnn.batch_norm_inference: input, running_mean, running_var, weight, bias
+                # ttir.batch_norm_inference: operand, scale, offset, mean, variance
+
+                if len(operands) >= 5:
+                    if op.name == "ttnn.batch_norm_inference":
+                        # input, running_mean, running_var, weight, bias
+                        param_mapping = [
+                            ("input", 0),
+                            ("mean", 1),
+                            ("variance", 2),
+                            ("weight", 3),
+                            ("bias", 4),
+                        ]
+                    else:  # ttir.batch_norm_inference
+                        # operand, scale, offset, mean, variance
+                        param_mapping = [
+                            ("input", 0),
+                            ("scale", 1),
+                            ("offset", 2),
+                            ("mean", 3),
+                            ("variance", 4),
+                        ]
+
+                    for param_type, idx in param_mapping:
+                        if idx < len(operands):
+                            operand = operands[idx]
+                            # Check if this operand is a function argument
+                            if hasattr(operand, "owner") and operand.owner is None:
+                                # It's a block argument (function input)
+                                arg_name = operand.get_name()
+                                batch_norm_params[arg_name] = param_type
+
+        return batch_norm_params
+
+    def _identify_conv_weights(self):
+        """
+        Identify which function arguments are convolution weight tensors.
+
+        Returns:
+            Set of argument names that are convolution weights
+        """
+        conv_weights = set()
+
+        # Scan through operations to find convolution ops and their weight operands
+        for op in self.device_ir_module.get_function_ops():
+            if op.name in ["ttnn.conv2d", "ttir.convolution"]:
+                operands = op.operands
+                # Convolution weight is typically the second operand
+                # ttnn.conv2d: input, weight, device/bias
+                # ttir.convolution: input, weight, output_template
+
+                if len(operands) >= 2:
+                    weight_operand = operands[1]
+                    # Check if this operand is a function argument
+                    if (
+                        hasattr(weight_operand, "owner")
+                        and weight_operand.owner is None
+                    ):
+                        # It's a block argument (function input)
+                        arg_name = weight_operand.get_name()
+                        conv_weights.add(arg_name)
+
+        return conv_weights
+
     def generate_random_inputs(self):
         """
         Generate random inputs for the program.
@@ -559,13 +638,44 @@ class ChiselContext:
                     embedding_size = shape[0]
                     break
 
+        # Identify batch norm parameter tensors and convolution weights
+        batch_norm_params = self._identify_batch_norm_params()
+        conv_weights = self._identify_conv_weights()
+
         for arg in self.device_ir_module.get_function_inputs():
             arg_name = arg.get_name()
             shape = arg.type.shape
             dtype = arg.type.element_type
             torch_dtype = ttir_dtype_maps[str(dtype)]
             if torch_dtype.is_floating_point:
-                tensor = torch.randn(shape, dtype=torch_dtype)
+                # Special initialization for batch norm parameters
+                if arg_name in batch_norm_params:
+                    param_type = batch_norm_params[arg_name]
+                    if param_type == "variance":
+                        # Variance should be positive, typically around 1.0
+                        tensor = torch.ones(shape, dtype=torch_dtype)
+                    elif param_type == "mean":
+                        # Mean should be around 0.0
+                        tensor = torch.zeros(shape, dtype=torch_dtype)
+                    elif param_type in ["scale", "weight"]:
+                        # Scale/weight typically initialized to 1.0
+                        tensor = torch.ones(shape, dtype=torch_dtype)
+                    elif param_type in ["offset", "bias"]:
+                        # Offset/bias typically initialized to 0.0
+                        tensor = torch.zeros(shape, dtype=torch_dtype)
+                    else:
+                        tensor = torch.randn(shape, dtype=torch_dtype)
+                # Special initialization for convolution weights
+                elif arg_name in conv_weights:
+                    # Use He/Kaiming initialization for convolution weights
+                    # This helps maintain variance through the network
+                    tensor = torch.empty(shape, dtype=torch_dtype)
+                    torch.nn.init.kaiming_normal_(
+                        tensor, mode="fan_in", nonlinearity="relu"
+                    )
+                else:
+                    # For input tensors, use smaller values to avoid overflow
+                    tensor = torch.randn(shape, dtype=torch_dtype) * 0.1
             elif embedding_found and embedding_size is not None:
                 tensor = torch.randint(0, embedding_size, shape)
                 embedding_found = False
