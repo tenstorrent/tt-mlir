@@ -131,98 +131,84 @@ public:
     llvm::DenseMap<Value, bool> spilledValues;
     llvm::StringMap<int> operationTypeCounts;
 
-    // Find the main model function using the ttnn.main_model attribute
-    func::FuncOp targetFunc = nullptr;
-
     module->walk([&](func::FuncOp funcOp) {
-      // Look for function with ttnn.main_model attribute (trace_0_main)
-      if (ttmlir::utils::isTraceMainFunc(funcOp)) {
-        targetFunc = funcOp;
-        return;
-      }
-    });
-
-    // Fallback: if trace not enabled, use whole @main
-    if (!targetFunc) {
-      module->walk([&](func::FuncOp funcOp) {
-        if (!ttmlir::utils::isConstEvalFunc(funcOp)) {
-          targetFunc = funcOp;
+      if (ttnnEnableTrace) {
+        if (!ttmlir::utils::isTraceMainFunc(funcOp)) {
           return;
         }
-      });
-    }
-
-    if (!targetFunc) {
-      llvm::errs()
-          << "No suitable main model function found for metrics collection\n";
-      return;
-    }
-
-    // First pass: identify DRAM spills
-    identifyDRAMSpills(targetFunc, spilledValues);
-
-    // Second pass: analyze all operations
-    targetFunc->walk([&](Operation *op) {
-      // Debug: Count operations by type
-      std::string opName = op->getName().getStringRef().str();
-      operationTypeCounts[opName]++;
-
-      // Skip operations which never change (some appear only for
-      // enable-trace=true)
-      if (isa<ttnn::GetDeviceOp, ttnn::CaptureOrExecuteTraceOp,
-              ttnn::BeginTraceCaptureOp, ttnn::EndTraceCaptureOp,
-              ttnn::ExecuteTraceOp>(op)) {
-        return;
-      }
-      aggregatedMetrics.totalOps++;
-
-      // Skip operations without tensor results
-      if (op->getNumResults() == 0) {
-        return;
-      }
-      auto tensorType = dyn_cast<RankedTensorType>(op->getResult(0).getType());
-      if (!tensorType) {
-        return;
-      }
-      aggregatedMetrics.totalOpsWithOutputTensor++;
-
-      // Skip operations which make no sense to shard/spill, as they are
-      // helpers
-      if (isa<ttnn::ToMemoryConfigOp>(op)) {
-        return;
-      }
-
-      // Only analyze TTNN operations, skip ttcore::load_cached
-      if (!isa<TTNNDialect>(op->getDialect())) {
-        return;
-      }
-
-      aggregatedMetrics.totalShardableOps++;
-
-      OperationMetrics opMetrics = analyzeOperation(op);
-
-      // Check if this operation's result is spilled and update aggregated
-      // metrics
-      if (opMetrics.isSharded) {
-        Value result = op->getResult(0);
-        if (spilledValues.count(result) && spilledValues[result]) {
-          opMetrics.isSpilledToDRAM = true;
-          aggregatedMetrics.shardedAndSpilledOps++;
-        } else {
-          aggregatedMetrics.effectivelyShardedOps++;
+      } else {
+        if (ttmlir::utils::isConstEvalFunc(funcOp)) {
+          return;
         }
-        aggregatedMetrics.shardedOps++;
       }
 
-      if (utils::producesDRAMLayout(op)) {
-        aggregatedMetrics.dramSpilledOps++;
-      }
+      // First pass: identify DRAM spills
+      identifyDRAMSpills(funcOp, spilledValues);
 
-      if (opMetrics.hasSystemMemory) {
-        aggregatedMetrics.systemMemoryOps++;
-      }
+      // Second pass: analyze all operations
+      funcOp->walk([&](Operation *op) {
+        // Debug: Count operations by type
+        std::string opName = op->getName().getStringRef().str();
+        operationTypeCounts[opName]++;
 
-      operationDetails.push_back(opMetrics);
+        // Skip operations which never change (some appear only for
+        // enable-trace=true)
+        if (isa<ttnn::GetDeviceOp, ttnn::CaptureOrExecuteTraceOp,
+                ttnn::BeginTraceCaptureOp, ttnn::EndTraceCaptureOp,
+                ttnn::ExecuteTraceOp>(op)) {
+          return;
+        }
+        aggregatedMetrics.totalOps++;
+
+        // Skip operations without tensor results
+        if (op->getNumResults() == 0) {
+          return;
+        }
+        auto tensorType =
+            dyn_cast<RankedTensorType>(op->getResult(0).getType());
+        if (!tensorType) {
+          return;
+        }
+        aggregatedMetrics.totalOpsWithOutputTensor++;
+
+        // Skip operations which make no sense to shard/spill, as they are
+        // helpers
+        if (isa<ttnn::ToMemoryConfigOp>(op)) {
+          return;
+        }
+
+        // Only analyze TTNN operations, skip ttcore::load_cached
+        if (!isa<TTNNDialect>(op->getDialect())) {
+          return;
+        }
+
+        aggregatedMetrics.totalShardableOps++;
+
+        OperationMetrics opMetrics = analyzeOperation(op);
+
+        // Check if this operation's result is spilled and update aggregated
+        // metrics
+        if (opMetrics.isSharded) {
+          Value result = op->getResult(0);
+          if (spilledValues.count(result) && spilledValues[result]) {
+            opMetrics.isSpilledToDRAM = true;
+            aggregatedMetrics.shardedAndSpilledOps++;
+          } else {
+            aggregatedMetrics.effectivelyShardedOps++;
+          }
+          aggregatedMetrics.shardedOps++;
+        }
+
+        if (utils::producesDRAMLayout(op)) {
+          aggregatedMetrics.dramSpilledOps++;
+        }
+
+        if (opMetrics.hasSystemMemory) {
+          aggregatedMetrics.systemMemoryOps++;
+        }
+
+        operationDetails.push_back(opMetrics);
+      });
     });
 
     aggregatedMetrics.calculatePercentages();

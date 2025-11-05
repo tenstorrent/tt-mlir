@@ -333,7 +333,9 @@ def TTNNCollectMetrics: Pass<"ttnn-collect-metrics", "::mlir::ModuleOp"> {
     Option<"ttnnMetricsOutputFile", "ttnn-metrics-output-file", "std::string", /*default=*/"\"ttnn_metrics.json\"",
            "Output file path for the metrics JSON">,
     Option<"ttnnMetricsVerboseOutputEnabled", "ttnn-metrics-verbose-output-enabled", "bool", /*default=*/"false",
-           "Enable verbose output with per-operation details and operation type breakdown">
+           "Enable verbose output with per-operation details and operation type breakdown">,
+    Option<"ttnnEnableTrace", "ttnn-enable-trace", "bool", /*default=*/"false",
+           "Collect metrics only for the main traced function">
   ];
 }
 
