@@ -526,11 +526,13 @@ tensorValueToFlatbuffer(FlatbufferObjectCache &cache, Value value) {
   // Get scalar element type and shape (unwrapping TileType if present)
   Type scalarElementType = ttcore::getOperandInnerElementType(value);
   llvm::SmallVector<int64_t> scalarShape = ttcore::getScalarShape(memref);
-  std::vector<int32_t> shape = ttmlir::utils::castContainer<std::vector<int32_t>>(scalarShape);
+  std::vector<int32_t> shape =
+      ttmlir::utils::castContainer<std::vector<int32_t>>(scalarShape);
 
   ttcore::DataType dtype = ttcore::elementTypeToDataType(scalarElementType);
 
-  // Function arguments may have device layouts from bufferization - ignore for TensorRef
+  // Function arguments may have device layouts from bufferization - ignore for
+  // TensorRef
   std::vector<int32_t> meshShape;
   int32_t elementSize = getElementSizeBytes(dtype);
   std::uint64_t size =
