@@ -1,9 +1,6 @@
 # InstallComponents.cmake
 # Handles installation of required TT-NN components for cpp standalone builds
 
-# Print only "install" logs, but ignore "up-to-date" logs
-set(CMAKE_INSTALL_MESSAGE LAZY)
-
 # Install directory for TT-NN components
 if(NOT DEFINED TTNN_INSTALL_DIR)
   set(TTNN_INSTALL_DIR "${TT_ALCHEMIST_ROOT_BINARY_DIR}/templates/cpp/standalone/ttnn-install" CACHE PATH "Directory to install TT-NN components")

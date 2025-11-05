@@ -105,7 +105,7 @@ add_custom_target(tt-alchemist-install-public-headers
 # Install templates
 add_custom_target(tt-alchemist-install-templates
   # Clean old templates directory to avoid stale files
-  COMMAND ${CMAKE_COMMAND} -E rm -rf ${TT_ALCHEMIST_ROOT_BINARY_DIR}/templates
+  COMMAND ${CMAKE_COMMAND} -E rm -rf ${TT_ALCHEMIST_ROOT_BINARY_DIR}/templates || cmake -E true
   # Create new templates directories
   COMMAND ${CMAKE_COMMAND} -E make_directory ${TT_ALCHEMIST_ROOT_BINARY_DIR}/templates
   COMMAND ${CMAKE_COMMAND} -E make_directory ${TT_ALCHEMIST_ROOT_BINARY_DIR}/templates/cpp
