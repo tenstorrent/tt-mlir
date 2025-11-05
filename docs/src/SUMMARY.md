@@ -23,6 +23,7 @@
     - [UI & changes to Model Explorer](./tt-explorer/ui.md)
     - [CLI](./tt-explorer/cli.md)
     - [API usage & reference](./tt-explorer/usage-api.md)
+    - [Architecture](./tt-explorer/architecture.md)
   - [`tt-alchemist`](./tt-alchemist.md)
   - [`ttnn-standalone`](./ttnn-standalone.md)
   - [`EmitPy`](./emitpy.md)
