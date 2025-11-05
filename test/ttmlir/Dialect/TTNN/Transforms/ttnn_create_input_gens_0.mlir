@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path%" --ttcore-unwrap-device-module --ttnn-tuplify-tensors --ttnn-create-input-gens -o %t %s
+// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path%" --ttcore-unwrap-device-module --ttnn-canonicalize-function-arguments --ttnn-reorder-function-arguments --ttnn-tuplify-tensors --ttnn-create-input-gens -o %t %s
 // RUN: FileCheck %s --input-file=%t
 
 module {
@@ -7,8 +7,11 @@ module {
 
   // CHECK-LABEL: @create_inputs_for_add
   // CHECK: %[[ARG0:.*]] = "ttnn.ones"
+  // CHECK-NEXT: ttcore.tuple %[[ARG0]]
+
+  // CHECK-LABEL: @create_params_for_add
   // CHECK: %[[ARG1:.*]] = "ttnn.ones"
-  // CHECK: %[[RES:.*]] = ttcore.tuple %[[ARG0]], %[[ARG1]]
+  // CHECK-NEXT: ttcore.tuple %[[ARG1]]
 
   func.func @add(%arg0 : tensor<32x32xbf16> { ttcore.argument_type = #ttcore.argument_type<constant>}, %arg1 : tensor<32x32xbf16> { ttcore.argument_type = #ttcore.argument_type<input> }) -> tensor<32x32xbf16> {
     %0 = "ttir.add"(%arg0, %arg0) : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>

@@ -98,7 +98,9 @@ struct ConvertTTNNToEmitPyPass
           patterns, typeConverter);
       target.addDynamicallyLegalOp<func::FuncOp>([&](func::FuncOp op) {
         return typeConverter.isSignatureLegal(op.getFunctionType()) &&
-               typeConverter.isLegal(&op.getBody());
+               typeConverter.isLegal(&op.getBody()) &&
+               (!op.getArgAttrs().has_value() ||
+                op.getArgAttrs().value().empty());
       });
       populateReturnOpTypeConversionPattern(patterns, typeConverter);
       target.addDynamicallyLegalOp<func::ReturnOp>(

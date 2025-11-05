@@ -11,25 +11,33 @@
 // RUN: FileCheck %s --check-prefix=CUSTOM-FULL --input-file=%t.custom_full.mlir
 
 module {
+  // DEFAULT: func.func @create_inputs_for_add()
+  // DEFAULT: "ttnn::loadTensor"
+  // DEFAULT-SAME: args = [#emitc.opaque<"\22arg1.tensorbin\22"
+  // DEFAULT: func.func @create_params_for_add()
   // DEFAULT: "ttnn::loadTensor"
   // DEFAULT-SAME: args = [#emitc.opaque<"\22arg0.tensorbin\22"
-  // DEFAULT-NEXT: "ttnn::loadTensor"
-  // DEFAULT-SAME: args = [#emitc.opaque<"\22arg1.tensorbin\22"
 
+  // CUSTOM-DIR: func.func @create_inputs_for_add()
+  // CUSTOM-DIR: "ttnn::loadTensor"
+  // CUSTOM-DIR-SAME: args = [#emitc.opaque<"\22tensors/arg1.tensorbin\22"
+  // CUSTOM-DIR: func.func @create_params_for_add()
   // CUSTOM-DIR: "ttnn::loadTensor"
   // CUSTOM-DIR-SAME: args = [#emitc.opaque<"\22tensors/arg0.tensorbin\22"
-  // CUSTOM-DIR-NEXT: "ttnn::loadTensor"
-  // CUSTOM-DIR-SAME: args = [#emitc.opaque<"\22tensors/arg1.tensorbin\22"
 
+  // CUSTOM-PREFIX: func.func @create_inputs_for_add()
+  // CUSTOM-PREFIX: "ttnn::loadTensor"
+  // CUSTOM-PREFIX-SAME: args = [#emitc.opaque<"\22input1.tensorbin\22"
+  // CUSTOM-PREFIX: func.func @create_params_for_add()
   // CUSTOM-PREFIX: "ttnn::loadTensor"
   // CUSTOM-PREFIX-SAME: args = [#emitc.opaque<"\22input0.tensorbin\22"
-  // CUSTOM-PREFIX-NEXT: "ttnn::loadTensor"
-  // CUSTOM-PREFIX-SAME: args = [#emitc.opaque<"\22input1.tensorbin\22"
 
+  // CUSTOM-FULL: func.func @create_inputs_for_add()
+  // CUSTOM-FULL: "ttnn::loadTensor"
+  // CUSTOM-FULL-SAME: args = [#emitc.opaque<"\22tensors/input1.tensorbin\22"
+  // CUSTOM-FULL: func.func @create_params_for_add()
   // CUSTOM-FULL: "ttnn::loadTensor"
   // CUSTOM-FULL-SAME: args = [#emitc.opaque<"\22tensors/input0.tensorbin\22"
-  // CUSTOM-FULL-NEXT: "ttnn::loadTensor"
-  // CUSTOM-FULL-SAME: args = [#emitc.opaque<"\22tensors/input1.tensorbin\22"
   func.func @add(%arg0 : tensor<32x32xbf16> { ttcore.argument_type = #ttcore.argument_type<constant>}, %arg1 : tensor<32x32xbf16> { ttcore.argument_type = #ttcore.argument_type<input> }) -> tensor<32x32xbf16> {
     %0 = "ttir.add"(%arg0, %arg0) : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
     %1 = "ttir.subtract"(%arg1, %0) : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>

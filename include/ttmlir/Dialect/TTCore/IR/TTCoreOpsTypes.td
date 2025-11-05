@@ -688,6 +688,26 @@ def TTCore_MeshesAttr : TTCore_Attr<"Meshes", "meshes"> {
   }];
 }
 
+def TTCore_OriginalArgPositionAttr : TTCore_Attr<"OriginalArgPosition", "original_arg_position"> {
+  let summary = "Original argument position attribute in TT dialect.";
+  let description = [{
+    Holds the original argument position for function arguments that have been
+    reordered.
+  }];
+  let parameters = (ins "unsigned":$position);
+  let assemblyFormat = "`<` $position `>`";
+}
+
+def TTCore_OriginalArgPositionsAttr : TTCore_Attr<"OriginalArgPositions", "original_arg_positions"> {
+  let summary = "Original argument positions attribute in TT dialect.";
+  let description = [{
+    Holds the original argument positions for function arguments that have been
+    reordered.
+  }];
+  let parameters = (ins ArrayRefParameter<"unsigned">:$positions);
+  let assemblyFormat = "`<` `[` $positions `]` `>`";
+}
+
 //===----------------------------------------------------------------------===//
 // TT type definitions
 //===----------------------------------------------------------------------===//

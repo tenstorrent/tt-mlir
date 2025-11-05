@@ -223,6 +223,13 @@ public:
 
 template <typename Derived>
 class TTNNInputFunctionCreatorBase {
+public:
+  struct FunctionTriple {
+    mlir::func::FuncOp forwardFunc;
+    mlir::func::FuncOp inputGenFunc;
+    mlir::func::FuncOp paramGenFunc;
+  };
+
 protected:
   void runOnOperationImpl(ModuleOp moduleOp, IRRewriter &rewriter,
                           const std::string &functionPrefix) {
@@ -255,92 +262,125 @@ protected:
       return mlir::WalkResult::advance();
     });
 
-    // Iterate over all func ops and add input tensor functions if needed.
+    // Iterate over all func ops and add input/parameter generator functions if
+    // needed.
     //
-    llvm::SmallVector<std::pair<mlir::func::FuncOp, mlir::func::FuncOp>, 1>
-        forwardAndInputFuncOps;
+    llvm::SmallVector<FunctionTriple, 1> functionTriples;
     for (mlir::func::FuncOp forwardFuncOp : forwardFuncOps) {
-      rewriter.setInsertionPointToEnd(block);
-      mlir::func::FuncOp inputFuncOp = createInputFunctionImpl(
-          rewriter, forwardFuncOp.getLoc(), forwardFuncOp, functionPrefix);
-      forwardAndInputFuncOps.emplace_back(forwardFuncOp, inputFuncOp);
+      // Check if the forward function has any arguments. If it doesn't, we
+      // do not create generator functions for it.
+      llvm::SmallVector<mlir::func::FuncOp> generatorFuncs = {nullptr, nullptr};
+
+      ::mlir::Region::BlockArgListType args = forwardFuncOp.getArguments();
+      assert(args.size() >= 0 && args.size() <= 2 &&
+             "Expected forward function to have zero, one or two arguments!");
+      for (size_t i = 0; i < args.size(); i++) {
+        rewriter.setInsertionPointToEnd(block);
+        assert(isa<TupleType>(args[i].getType()) &&
+               "Expected function argument to be of TupleType!");
+        TupleType argType = mlir::cast<TupleType>(args[i].getType());
+
+        auto typeAttr =
+            forwardFuncOp.getArgAttrOfType<ttcore::ArgumentTypeAttr>(
+                args[i].getArgNumber(), ttcore::ArgumentTypeAttr::name);
+
+        assert(typeAttr && "Expected ArgumentType attribute on all tuple "
+                           "arguments in forward function.");
+
+        ttcore::ArgumentType argTypeValue = typeAttr.getValue();
+        std::string generatorFuncName;
+        if (argTypeValue == ttcore::ArgumentType::Input) {
+          generatorFuncName =
+              "create_inputs_for_" + forwardFuncOp.getName().str();
+        } else if (argTypeValue == ttcore::ArgumentType::Parameter) {
+          generatorFuncName =
+              "create_params_for_" + forwardFuncOp.getName().str();
+        } else {
+          llvm::errs() << "Unexpected ArgumentType value on function argument "
+                          "in forward function: "
+                       << static_cast<uint32_t>(argTypeValue) << "\n";
+          llvm::report_fatal_error(
+              "Aborting due to unexpected ArgumentType value.");
+        }
+
+        auto originalArgPositionsAttr =
+            forwardFuncOp.getArgAttrOfType<ttcore::OriginalArgPositionsAttr>(
+                args[i].getArgNumber(), ttcore::OriginalArgPositionsAttr::name);
+
+        assert(originalArgPositionsAttr &&
+               "Expected OriginalArgPositions attribute on all tuple arguments "
+               "in forward function.");
+
+        generatorFuncs[i] = createGeneratorFunctionImpl(
+            rewriter, forwardFuncOp.getLoc(), argType,
+            originalArgPositionsAttr.getPositions(), generatorFuncName);
+      }
+
+      functionTriples.push_back(
+          {forwardFuncOp, generatorFuncs[0], generatorFuncs[1]});
     }
 
-    // Create a main function to call input functions and forward funcs.
+    // Create a main function to call generator functions and forward funcs.
     //
-    createMainFunction(moduleOp, rewriter, forwardAndInputFuncOps);
+    createMainFunction(moduleOp, rewriter, functionTriples);
   }
 
-  func::FuncOp createInputFunctionImpl(IRRewriter &rewriter, Location loc,
-                                       func::FuncOp forwardFuncOp,
-                                       const std::string &functionPrefix) {
+  func::FuncOp
+  createGeneratorFunctionImpl(IRRewriter &rewriter, Location loc,
+                              Type generatorFuncType,
+                              ArrayRef<unsigned> originalArgPositions,
+                              const std::string &generatorFuncName) {
     MLIRContext *ctx = rewriter.getContext();
 
-    // Create a new function that will handle the input tensors.
-    //
-    std::string inputFuncName = functionPrefix + forwardFuncOp.getName().str();
-
-    // Create the function type.
-    //
-    llvm::SmallVector<mlir::Type> returnTypes =
-        llvm::to_vector(forwardFuncOp.getFunctionType().getInputs());
-    if (returnTypes.empty()) {
-      returnTypes = {mlir::TupleType::get(ctx, {})};
-    }
-    FunctionType functionType = mlir::FunctionType::get(ctx, {}, returnTypes);
+    FunctionType functionType =
+        mlir::FunctionType::get(ctx, {}, {generatorFuncType});
 
     // Create the function.
     //
-    func::FuncOp inputFuncOp =
-        rewriter.create<mlir::func::FuncOp>(loc, inputFuncName, functionType);
+    func::FuncOp genFuncOp = rewriter.create<mlir::func::FuncOp>(
+        loc, generatorFuncName, functionType);
 
     // Add a Block to func op and set insertion point to the beginning of the
     // Block.
     //
-    rewriter.modifyOpInPlace(inputFuncOp, [&]() {
-      rewriter.setInsertionPointToStart(inputFuncOp.addEntryBlock());
+    rewriter.modifyOpInPlace(genFuncOp, [&]() {
+      rewriter.setInsertionPointToStart(genFuncOp.addEntryBlock());
     });
 
-    // Create/load input tensors.
+    // Create/load tensors for the selected tuple (input or parameter).
     //
-    assert(
-        returnTypes.size() == 1 && mlir::isa<TupleType>(returnTypes.front()) &&
-        "Expected input function to return a single tuple of input tensors!");
-
     SmallVector<Value> tensors;
     size_t argIndex = 0;
     for (const Type &type :
-         mlir::cast<mlir::TupleType>(returnTypes[0]).getTypes()) {
+         mlir::cast<mlir::TupleType>(generatorFuncType).getTypes()) {
       // Ensure that the type is a RankedTensorType.
       //
       RankedTensorType rankedTensorType =
           mlir::dyn_cast<RankedTensorType>(type);
       assert(rankedTensorType &&
-             "Expected input tensor to be of type RankedTensorType!");
+             "Expected tensor to be of type RankedTensorType!");
 
       tensors.push_back(static_cast<Derived *>(this)->createTensor(
-          rewriter, loc, rankedTensorType, argIndex));
+          rewriter, loc, rankedTensorType, originalArgPositions[argIndex]));
       argIndex++;
     }
 
-    // Create a tuple from the tensors.
+    // Create tuple from the tensors.
     //
     ttcore::TupleOp tuple =
-        rewriter.create<ttcore::TupleOp>(loc, returnTypes, tensors);
+        rewriter.create<ttcore::TupleOp>(loc, generatorFuncType, tensors);
 
-    // Create ReturnOp.
+    // Create ReturnOp with the tuple.
     //
-    rewriter.create<func::ReturnOp>(forwardFuncOp.getLoc(),
-                                    tuple->getResults());
+    rewriter.create<func::ReturnOp>(loc, tuple.getResult());
 
-    return inputFuncOp;
+    return genFuncOp;
   }
 
 private:
-  void createMainFunction(
-      ModuleOp moduleOp, IRRewriter &rewriter,
-      llvm::SmallVector<std::pair<mlir::func::FuncOp, mlir::func::FuncOp>, 1>
-          forwardAndInputFuncOps) {
+  void
+  createMainFunction(ModuleOp moduleOp, IRRewriter &rewriter,
+                     llvm::SmallVector<FunctionTriple, 1> functionTriples) {
     std::string mainFuncName = "main";
 
     // Create a function type.
@@ -364,23 +404,35 @@ private:
       rewriter.setInsertionPointToStart(mainFuncOp.addEntryBlock());
     });
 
-    for (auto [forwardFuncOp, inputFuncOp] : forwardAndInputFuncOps) {
-
+    for (auto &triple : functionTriples) {
       llvm::SmallVector<Value> operands;
-      // Generate/load the input tensors for a forwardFuncOp if needed.
+
+      // Generate/load the input tensors and parameters for a forwardFuncOp if
+      // needed.
       //
-      if (inputFuncOp) {
-        func::CallOp tensors = rewriter.create<mlir::func::CallOp>(
-            forwardFuncOp.getLoc(), inputFuncOp,
+      if (triple.inputGenFunc) {
+        // Call input generator
+        func::CallOp inputCall = rewriter.create<mlir::func::CallOp>(
+            triple.forwardFunc.getLoc(), triple.inputGenFunc,
             /*operands=*/ValueRange());
-        operands = tensors->getResults();
+
+        operands.push_back(inputCall.getResult(0));
       }
 
-      // Call a forward function. If there are input tensors, pass them as
-      // operands.
+      if (triple.paramGenFunc) {
+        // Call parameter generator
+        func::CallOp paramCall = rewriter.create<mlir::func::CallOp>(
+            triple.forwardFunc.getLoc(), triple.paramGenFunc,
+            /*operands=*/ValueRange());
+
+        operands.push_back(paramCall.getResult(0));
+      }
+
+      // Call a forward function. If there are input/parameter tensors, pass
+      // them as operands.
       //
-      rewriter.create<mlir::func::CallOp>(forwardFuncOp.getLoc(), forwardFuncOp,
-                                          operands);
+      rewriter.create<mlir::func::CallOp>(triple.forwardFunc.getLoc(),
+                                          triple.forwardFunc, operands);
     }
 
     // Return 0
@@ -516,6 +568,83 @@ private:
 class TTNNTuplifyTensors
     : public impl::TTNNTuplifyTensorsBase<TTNNTuplifyTensors> {
 
+private:
+  // Helper structure to hold information about a group of arguments to be
+  // tuplified.
+  struct TupleGroup {
+    llvm::SmallVector<Type> types;
+    llvm::SmallVector<size_t> indices;
+    llvm::SmallVector<unsigned> originalArgPositions;
+    llvm::SmallVector<DictionaryAttr> attrs;
+
+    size_t count() const { return types.size(); }
+  };
+
+  // Helper function to tuplify function inputs. Takes a function and a list of
+  // tuple groups, where each group represents arguments to be packed into a
+  // single tuple.
+  void tuplifyFunctionInputs(mlir::func::FuncOp funcOp,
+                             llvm::ArrayRef<TupleGroup> tupleGroups,
+                             llvm::ArrayRef<DictionaryAttr> tupleArgAttrs,
+                             IRRewriter &rewriter) {
+    mlir::FunctionType originalFuncType = funcOp.getFunctionType();
+
+    // Create TupleType objects for each group.
+    llvm::SmallVector<Type> newInputTypes;
+    for (const auto &group : tupleGroups) {
+      newInputTypes.push_back(mlir::TupleType::get(&getContext(), group.types));
+    }
+
+    // Create modified function type with tuple inputs.
+    FunctionType modifiedFuncType = FunctionType::get(
+        &getContext(), newInputTypes, originalFuncType.getResults());
+
+    // Update function signature.
+    rewriter.modifyOpInPlace(funcOp, [&]() {
+      funcOp.setType(modifiedFuncType);
+      if (!tupleArgAttrs.empty()) {
+        funcOp.setAllArgAttrs(tupleArgAttrs);
+      }
+    });
+
+    // Update entry block arguments.
+    Block &entryBlock = funcOp.getBlocks().front();
+    size_t tupleOffset = tupleGroups.size();
+
+    // Insert tuple arguments at the beginning.
+    for (size_t i = 0; i < tupleGroups.size(); i++) {
+      entryBlock.insertArgument(i, cast<mlir::TupleType>(newInputTypes[i]),
+                                funcOp.getLoc());
+    }
+
+    // Add GetTupleElementOp ops to unpack each tuple and preserve attributes.
+    rewriter.setInsertionPointToStart(&entryBlock);
+    for (size_t groupIdx = 0; groupIdx < tupleGroups.size(); groupIdx++) {
+      const auto &group = tupleGroups[groupIdx];
+      for (size_t elemIdx = 0; elemIdx < group.indices.size(); elemIdx++) {
+        size_t originalArgIdx = group.indices[elemIdx];
+        ttcore::GetTupleElementOp getTupleElementOp =
+            rewriter.create<ttcore::GetTupleElementOp>(
+                funcOp.getLoc(), funcOp.getArgument(groupIdx), elemIdx);
+
+        // Copy attributes from the saved argument attributes.
+        if (elemIdx < group.attrs.size() && group.attrs[elemIdx]) {
+          for (auto attr : group.attrs[elemIdx]) {
+            getTupleElementOp->setAttr(attr.getName(), attr.getValue());
+          }
+        }
+
+        // Replace all uses of the original tensor arguments.
+        rewriter.replaceAllUsesWith(
+            entryBlock.getArgument(tupleOffset + originalArgIdx),
+            getTupleElementOp);
+      }
+    }
+
+    // Erase original arguments.
+    entryBlock.eraseArguments(tupleOffset, originalFuncType.getInputs().size());
+  }
+
 public:
   using impl::TTNNTuplifyTensorsBase<
       TTNNTuplifyTensors>::TTNNTuplifyTensorsBase;
@@ -548,7 +677,13 @@ public:
     // Find all the func.func ops in the module that are target functions for
     // both input tuplification, and result tuplification.
     //
-    SmallVector<func::FuncOp, 1> targetFuncOpsInput;
+    // Separate into two categories:
+    // - const_eval functions: tuplify all args into a single tuple
+    // - regular functions: tuplify into two tuples (inputs and parameters)
+    //
+    SmallVector<func::FuncOp, 1> targetFuncOpsInput; // Regular functions
+    SmallVector<func::FuncOp, 1>
+        targetConstEvalFuncOpsInput; // Const_eval functions
     SmallVector<func::FuncOp, 1> targetFuncOpsResult;
     block->walk([&](func::FuncOp funcOp) {
       // Skip function declarations (CPU-hoisted functions).
@@ -558,6 +693,7 @@ public:
       }
 
       mlir::FunctionType functionType = funcOp.getFunctionType();
+      bool isConstEval = ttmlir::utils::isConstEvalFunc(funcOp);
 
       // Check that input is not empty and that all args are of type
       // RankedTensorType.
@@ -568,7 +704,11 @@ public:
       if ((tuplifyInputIfEmpty || !functionType.getInputs().empty()) &&
           llvm::all_of(functionType.getInputs(),
                        [](Type t) { return mlir::isa<RankedTensorType>(t); })) {
-        targetFuncOpsInput.push_back(funcOp);
+        if (isConstEval) {
+          targetConstEvalFuncOpsInput.push_back(funcOp);
+        } else {
+          targetFuncOpsInput.push_back(funcOp);
+        }
       }
 
       // Check that results are not empty and that all args are of type
@@ -582,63 +722,111 @@ public:
       return mlir::WalkResult::advance();
     });
 
-    // Iterate over all the input target func ops and modify their signatures.
+    // Iterate over all non const-eval func ops and and tuplify their inputs
+    // into a two tuples: one for inputs and one for parameters.
     //
     for (mlir::func::FuncOp targetFuncOpInput : targetFuncOpsInput) {
-      // Replace the signature of the target function so that all the tensor
-      // arguments are packed into a single tuple.
+      // Replace the signature of the target function so that the tensor
+      // arguments are packed into two tuples: one for inputs and one for
+      // parameters.
       //
       mlir::FunctionType originalFuncType = targetFuncOpInput.getFunctionType();
 
-      // Create TupleType object containing all input tensors.
+      // Separate arguments into inputs and parameters based on their
+      // ArgumentType attribute. Also save argument attributes before modifying
+      // the function signature.
       //
-      mlir::TupleType tuplifiedInputTensors =
-          mlir::TupleType::get(&getContext(), originalFuncType.getInputs());
+      TupleGroup inputGroup;
+      TupleGroup paramGroup;
 
-      // Create modified function type (signature) that takes the input tuple
-      // as an operand.
-      //
-      FunctionType modifiedFuncType = originalFuncType.clone(
-          tuplifiedInputTensors, originalFuncType.getResults());
-
-      rewriter.modifyOpInPlace(targetFuncOpInput,
-                               [&targetFuncOpInput, &modifiedFuncType]() {
-                                 targetFuncOpInput.setType(modifiedFuncType);
-                               });
-
-      // First block of the function (often referred to as "entry block") needs
-      // its arguments updated as well - the args need to match the containing
-      // func's arguments; this is implemented here by first inserting the tuple
-      // as the first argument of the block, inserting GetTupleElementOp ops to
-      // start of the block in order to unpack tuple elements, and then
-      // replacing all uses of the original block arguments with the
-      // GetTupleElementOp results - after this it's finally safe to remove
-      // original block arguments as they have no live uses anymore.
-      //
-      Block &entryBlock = targetFuncOpInput.getBlocks().front();
-      constexpr size_t paramOffset = 1;
-      entryBlock.insertArgument(/*index=*/0u, tuplifiedInputTensors,
-                                targetFuncOpInput.getLoc());
-
-      // Add GetTupleElementOp ops to unpack the tuple elements.
-      //
-      rewriter.setInsertionPointToStart(&entryBlock);
       for (size_t idx = 0; idx < originalFuncType.getNumInputs(); idx++) {
-        ttcore::GetTupleElementOp getTupleElementOp =
-            rewriter.create<ttcore::GetTupleElementOp>(
-                targetFuncOpInput.getLoc(), targetFuncOpInput.getArgument(0),
-                idx);
+        auto typeAttr =
+            targetFuncOpInput.getArgAttrOfType<ttcore::ArgumentTypeAttr>(
+                idx, ttcore::ArgumentTypeAttr::name);
 
-        // Replace all uses of the original tensor arguments with the
-        // GetTupleElementOp results.
-        rewriter.replaceAllUsesWith(entryBlock.getArgument(paramOffset + idx),
-                                    getTupleElementOp);
+        assert(typeAttr && "Expected ArgumentType attribute on argument");
+
+        auto originalArgPosAttr =
+            targetFuncOpInput.getArgAttrOfType<ttcore::OriginalArgPositionAttr>(
+                idx, ttcore::OriginalArgPositionAttr::name);
+
+        assert(originalArgPosAttr &&
+               "Expected original_arg_position attribute on argument");
+
+        auto argTypeValue = typeAttr.getValue();
+        if (argTypeValue == ttcore::ArgumentType::Input ||
+            argTypeValue == ttcore::ArgumentType::Default) {
+          inputGroup.types.push_back(originalFuncType.getInput(idx));
+          inputGroup.indices.push_back(idx);
+          inputGroup.attrs.push_back(targetFuncOpInput.getArgAttrDict(idx));
+          inputGroup.originalArgPositions.push_back(
+              originalArgPosAttr.getPosition());
+        } else if (argTypeValue == ttcore::ArgumentType::Parameter ||
+                   argTypeValue == ttcore::ArgumentType::Constant) {
+          paramGroup.types.push_back(originalFuncType.getInput(idx));
+          paramGroup.indices.push_back(idx);
+          paramGroup.attrs.push_back(targetFuncOpInput.getArgAttrDict(idx));
+          paramGroup.originalArgPositions.push_back(
+              originalArgPosAttr.getPosition());
+        }
       }
 
-      // Erase original arguments.
+      // Create argument attributes for the two tuple arguments.
+      // Mark the first tuple as "input" type and second as "parameter" type.
       //
-      entryBlock.eraseArguments(paramOffset,
-                                originalFuncType.getInputs().size());
+      llvm::SmallVector<TupleGroup> tupleGroups;
+      llvm::SmallVector<DictionaryAttr> tupleArgAttrs;
+      if (inputGroup.count() > 0 || tuplifyInputIfEmpty) {
+        tupleGroups.push_back(inputGroup);
+        llvm::SmallVector<mlir::NamedAttribute> inputTupleAttrs;
+        inputTupleAttrs.push_back(rewriter.getNamedAttr(
+            ttcore::ArgumentTypeAttr::name,
+            ttcore::ArgumentTypeAttr::get(&getContext(),
+                                          ttcore::ArgumentType::Input)));
+        inputTupleAttrs.push_back(rewriter.getNamedAttr(
+            ttcore::OriginalArgPositionsAttr::name,
+            ttcore::OriginalArgPositionsAttr::get(
+                &getContext(), inputGroup.originalArgPositions)));
+        tupleArgAttrs.push_back(rewriter.getDictionaryAttr(inputTupleAttrs));
+      }
+      if (paramGroup.count() > 0 || tuplifyInputIfEmpty) {
+        tupleGroups.push_back(paramGroup);
+        llvm::SmallVector<mlir::NamedAttribute> paramTupleAttrs;
+        paramTupleAttrs.push_back(rewriter.getNamedAttr(
+            ttcore::ArgumentTypeAttr::name,
+            ttcore::ArgumentTypeAttr::get(&getContext(),
+                                          ttcore::ArgumentType::Parameter)));
+        paramTupleAttrs.push_back(rewriter.getNamedAttr(
+            ttcore::OriginalArgPositionsAttr::name,
+            ttcore::OriginalArgPositionsAttr::get(
+                &getContext(), paramGroup.originalArgPositions)));
+        tupleArgAttrs.push_back(rewriter.getDictionaryAttr(paramTupleAttrs));
+      }
+
+      // Use helper function to perform the tuplification.
+      tuplifyFunctionInputs(targetFuncOpInput, tupleGroups, tupleArgAttrs,
+                            rewriter);
+    }
+
+    // Iterate over const_eval functions and tuplify their inputs into a single
+    // tuple (no input/parameter split).
+    //
+    for (mlir::func::FuncOp targetConstEvalFunc : targetConstEvalFuncOpsInput) {
+      mlir::FunctionType originalFuncType =
+          targetConstEvalFunc.getFunctionType();
+
+      // Create a single tuple group containing all arguments.
+      //
+      TupleGroup singleGroup;
+      for (size_t idx = 0; idx < originalFuncType.getNumInputs(); idx++) {
+        singleGroup.types.push_back(originalFuncType.getInput(idx));
+        singleGroup.indices.push_back(idx);
+        singleGroup.attrs.push_back(targetConstEvalFunc.getArgAttrDict(idx));
+      }
+
+      // Use helper function to perform the tuplification.
+      // No special tuple argument attributes needed for const_eval functions.
+      tuplifyFunctionInputs(targetConstEvalFunc, {singleGroup}, {}, rewriter);
     }
 
     // Iterate over all the result target func ops and modify their signatures.
@@ -674,7 +862,7 @@ public:
             ttcore::TupleOp tupleOp = rewriter.create<ttcore::TupleOp>(
                 returnOp.getLoc(), returnOp.getOperands());
             rewriter.modifyOpInPlace(returnOp, [&]() {
-              returnOp.getOperandsMutable().assign(tupleOp);
+              returnOp.getOperandsMutable().assign(tupleOp.getResult());
             });
           });
     }
