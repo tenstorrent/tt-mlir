@@ -3630,10 +3630,10 @@ mlir::LogicalResult mlir::tt::ttir::MeshShardOp::verify() {
 }
 
 //===----------------------------------------------------------------------===//
-// ScatterInDimOp
+// ScatterOp
 //===----------------------------------------------------------------------===//
 
-::mlir::LogicalResult mlir::tt::ttir::ScatterInDimOp::verify() {
+::mlir::LogicalResult mlir::tt::ttir::ScatterOp::verify() {
   const ::mlir::RankedTensorType inputType = getInput().getType();
   const ::mlir::RankedTensorType indexType = getIndex().getType();
   const ::mlir::RankedTensorType sourceType = getSource().getType();
