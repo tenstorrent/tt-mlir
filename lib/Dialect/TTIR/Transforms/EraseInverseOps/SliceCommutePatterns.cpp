@@ -166,6 +166,20 @@ public:
   using TTIRCommuteOpRewritePattern<
       ReshapeOp, SliceStaticOp, commuteDirection>::TTIRCommuteOpRewritePattern;
 
+  // Consider the following IR pseudocode:
+  // %0 = slice(%arg0 : tensor<1x160x160x128xbf16>) <{
+  //      begins = [0 : i32, 0 : i32, 0 : i32, 0 : i32],
+  //      ends = [1 : i32, 160 : i32, 160 : i32, 64 : i32],
+  //      step = [1 : i32, 1 : i32, 1 : i32, 1 : i32]}>
+  // %1 = reshape(%0) <{shape = [1 : i32, 1 : i32, 25600 : i32, 64 : i32]}>
+  //
+  // This method will transform this into:
+  // %0 = reshape(%arg0 : tensor<1x160x160x128xbf16>)
+  //      <{shape = [1 : i32, 1 : i32, 25600 : i32, 128 : i32]}>
+  // %1 = slice(%0) <{
+  //      begins = [0 : i32, 0 : i32, 0 : i32, 0 : i32],
+  //      ends = [1 : i32, 1 : i32, 25600 : i32, 64 : i32],
+  //      step = [1 : i32, 1 : i32, 1 : i32, 1 : i32]}>
   void performCommuteUpwardsRewrite(SliceStaticOp op, ReshapeOp reshapeUser,
                                     PatternRewriter &rewriter) const override {
     ReshapeOp newReshape = createDeslicedReshapeOp(op, reshapeUser, rewriter);
@@ -182,6 +196,20 @@ public:
     }
   }
 
+  // Consider the following IR pseudocode:
+  // %0 = reshape(%arg0 : tensor<1x1x25600x128xbf16>)
+  //      <{shape = [1 : i32, 160 : i32, 160 : i32, 128 : i32]}>
+  // %1 = slice(%0) <{
+  //      begins = [0 : i32, 0 : i32, 0 : i32, 0 : i32],
+  //      ends = [1 : i32, 160 : i32, 160 : i32, 64 : i32],
+  //      step = [1 : i32, 1 : i32, 1 : i32, 1 : i32]}>
+  //
+  // This method will transform this into:
+  // %0 = slice(%arg0 : tensor<1x1x25600x128xbf16>) <{
+  //      begins = [0 : i32, 0 : i32, 0 : i32, 0 : i32],
+  //      ends = [1 : i32, 1 : i32, 25600 : i32, 64 : i32],
+  //      step = [1 : i32, 1 : i32, 1 : i32, 1 : i32]}>
+  // %1 = reshape(%0) <{shape = [1 : i32, 160 : i32, 160 : i32, 64 : i32]}>
   void
   performCommuteDownwardsRewrite(SliceStaticOp op, ReshapeOp reshapeOperand,
                                  PatternRewriter &rewriter) const override {
