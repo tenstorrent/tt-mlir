@@ -26,9 +26,6 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  pre-commit:
-    uses: ./.github/workflows/call-pre-commit.yml
-    secrets: inherit
   build-image:
     uses: ./.github/workflows/call-build-docker.yml
     secrets: inherit
@@ -51,7 +48,7 @@ jobs:
       sh_builder: ${{ fromJson(needs.prepare-run.outputs.sh_builder) }}
       component_matrix: ${{ needs.prepare-run.outputs.build_matrix }}
   test:
-    needs: [ pre-commit, prepare-run, build-image, release-build ]
+    needs: [ prepare-run, build-image, release-build ]
     if: needs.prepare-run.outputs.skip_build != 'true'
     uses: ./.github/workflows/call-test.yml
     secrets: inherit
@@ -96,7 +93,6 @@ jobs:
   check-all-green:
     if: always()
     needs:
-      - pre-commit
       - prepare-run
       - build-image
       - release-build

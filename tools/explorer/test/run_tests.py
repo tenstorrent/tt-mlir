@@ -12,12 +12,11 @@ import os
 import logging
 import portpicker
 import sys
-import subprocess
 
 # Debug: Print environment information at test startup
-print("\n" + "="*80)
+print("\n" + "=" * 80)
 print("DEBUG: Environment Information")
-print("="*80)
+print("=" * 80)
 print(f"Python version: {sys.version}")
 print(f"Python executable: {sys.executable}")
 print(f"Working directory: {os.getcwd()}")
@@ -27,17 +26,17 @@ print(f"IMAGE_NAME env var: {os.environ.get('IMAGE_NAME', 'NOT SET')}")
 print(f"TT_METAL_RUNTIME_ROOT: {os.environ.get('TT_METAL_RUNTIME_ROOT', 'NOT SET')}")
 
 # Check key paths
-build_dir = os.environ.get('BUILD_DIR', 'build')
-install_dir = os.environ.get('INSTALL_DIR', 'install')
+build_dir = os.environ.get("BUILD_DIR", "build")
+install_dir = os.environ.get("INSTALL_DIR", "install")
 print(f"\nDEBUG: Path checks:")
 print(f"  BUILD_DIR exists: {os.path.exists(build_dir)}")
 print(f"  INSTALL_DIR exists: {os.path.exists(install_dir)}")
 
 # Check for tracy-specific indicators
 tracy_indicators = [
-    '/usr/bin/tracy',
-    '/usr/local/bin/tracy',
-    os.path.join(install_dir, 'lib/libtracy.so'),
+    "/usr/bin/tracy",
+    "/usr/local/bin/tracy",
+    os.path.join(install_dir, "lib/libtracy.so"),
 ]
 print(f"\nDEBUG: Tracy build indicators:")
 for path in tracy_indicators:
@@ -45,29 +44,31 @@ for path in tracy_indicators:
 
 # Check runtime libraries
 runtime_libs = [
-    'ttrt',
-    'tt-mlir',
-    'model_explorer',
+    "ttrt",
+    "tt-mlir",
+    "model_explorer",
 ]
 print(f"\nDEBUG: Python packages:")
 for lib in runtime_libs:
     try:
-        mod = __import__(lib.replace('-', '_'))
-        print(f"  {lib}: {getattr(mod, '__version__', 'version unknown')} at {getattr(mod, '__file__', 'unknown path')}")
+        mod = __import__(lib.replace("-", "_"))
+        print(
+            f"  {lib}: {getattr(mod, '__version__', 'version unknown')} at {getattr(mod, '__file__', 'unknown path')}"
+        )
     except ImportError as e:
         print(f"  {lib}: NOT FOUND ({e})")
 
 # Check if perf tracing is enabled
 perf_env_vars = [
-    'TT_RUNTIME_ENABLE_PERF_TRACE',
-    'TTNN_CONFIG_OVERRIDES',
-    'TT_METAL_LOGGER_LEVEL',
+    "TT_RUNTIME_ENABLE_PERF_TRACE",
+    "TTNN_CONFIG_OVERRIDES",
+    "TT_METAL_LOGGER_LEVEL",
 ]
 print(f"\nDEBUG: Performance-related env vars:")
 for var in perf_env_vars:
     print(f"  {var}: {os.environ.get(var, 'NOT SET')}")
 
-print("="*80 + "\n")
+print("=" * 80 + "\n")
 
 HOST = "localhost"
 # Use portpicker to pick a port for us. (say that 10 times fast)
@@ -277,37 +278,39 @@ def test_execute_mnist_with_overrides():
 
 
 def test_execute_and_check_perf_data_exists():
-    print("\n" + "="*80)
+    print("\n" + "=" * 80)
     print("DEBUG: test_execute_and_check_perf_data_exists - Starting")
-    print("="*80)
-    
+    print("=" * 80)
+
     execute_command_and_wait(
         MNIST_SHARDING_PATH,
         {"optimizationPolicy": "Optimizer Disabled"},
         timeout=300,
     )
     print("DEBUG: execute_command_and_wait completed successfully")
-    
+
     result = convert_command_and_assert(MNIST_SHARDING_PATH)
     print(f"DEBUG: convert_command_and_assert completed successfully")
     print(f"DEBUG: result type = {type(result)}")
     print(f"DEBUG: result keys = {result.keys() if isinstance(result, dict) else 'N/A'}")
-    
+
     if isinstance(result, dict) and "graphs" in result:
         print(f"DEBUG: Number of graphs = {len(result['graphs'])}")
-        if len(result['graphs']) > 0:
-            graph = result['graphs'][0]
+        if len(result["graphs"]) > 0:
+            graph = result["graphs"][0]
             print(f"DEBUG: graph[0] keys = {graph.keys()}")
             if "overlays" in graph:
                 overlays = graph["overlays"]
                 print(f"DEBUG: overlays type = {type(overlays)}")
                 print(f"DEBUG: overlays keys = {overlays.keys() if isinstance(overlays, dict) else overlays}")
                 print(f"DEBUG: 'perf_data' in overlays = {'perf_data' in overlays}")
-                
+
                 # Print all overlay keys and their types for debugging
                 if isinstance(overlays, dict):
                     for key, value in overlays.items():
-                        print(f"DEBUG: overlay['{key}'] = {type(value)} (length={len(value) if hasattr(value, '__len__') else 'N/A'})")
+                        print(
+                            f"DEBUG: overlay['{key}'] = {type(value)} (length={len(value) if hasattr(value, '__len__') else 'N/A'})"
+                        )
             else:
                 print("DEBUG: ERROR - No 'overlays' key in graph[0]")
         else:
@@ -315,8 +318,8 @@ def test_execute_and_check_perf_data_exists():
     else:
         print(f"DEBUG: ERROR - result is not a dict or has no 'graphs' key")
         print(f"DEBUG: result = {result}")
-    
-    print("="*80)
+
+    print("=" * 80)
     assert "perf_data" in result["graphs"][0]["overlays"]
 
 
@@ -330,32 +333,32 @@ def test_execute_model_invalid_policy():
 
 
 def test_execute_and_check_memory_data_exists():
-    print("\n" + "="*80)
+    print("\n" + "=" * 80)
     print("DEBUG: test_execute_and_check_memory_data_exists - Starting")
-    print("="*80)
-    
+    print("=" * 80)
+
     execute_command_and_wait(
         MNIST_SHARDING_PATH,
         {"optimizationPolicy": "Optimizer Disabled"},
         timeout=300,
     )
     print("DEBUG: execute_command_and_wait completed successfully")
-    
+
     result = convert_command_and_assert(MNIST_SHARDING_PATH)
     print(f"DEBUG: convert_command_and_assert completed successfully")
-    
+
     # Check what's in the result
-    if isinstance(result, dict) and "graphs" in result and len(result['graphs']) > 0:
-        graph = result['graphs'][0]
+    if isinstance(result, dict) and "graphs" in result and len(result["graphs"]) > 0:
+        graph = result["graphs"][0]
         if "overlays" in graph:
             overlays = graph["overlays"]
             print(f"DEBUG: overlays keys = {overlays.keys() if isinstance(overlays, dict) else overlays}")
-    
+
     result_str = str(result)
     print(f"DEBUG: 'display_type' in str(result) = {'display_type' in result_str}")
     print(f"DEBUG: str(result) length = {len(result_str)}")
-    print("="*80)
-    
+    print("=" * 80)
+
     assert "display_type" in str(result)
 
 

@@ -15,4 +15,4 @@ export TT_EXPLORER_GENERATED_TTNN_TEST_DIRS=$BUILD_DIR/test/python/golden/ttnn
 # Append to existing no_proxy to preserve infrastructure bypass rules (harbor, large-file-cache)
 # Using lowercase only as that's all model-explorer needs (Python requests lib / urllib checks lowercase first then falls back to uppercase)
 export no_proxy="${no_proxy:+$no_proxy,}localhost,127.0.0.1,::1"
-pytest -ssv "$@" --junit-xml=$TEST_REPORT_PATH
+pytest -svv "$@" --junit-xml=$TEST_REPORT_PATH
