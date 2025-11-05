@@ -77,6 +77,13 @@ add_mlir_library(TTMLIRCompilerStatic
   ${SHARDY_LIBS}
 )
 
+target_include_directories(TTMLIRCompilerStatic
+  INTERFACE
+    $<BUILD_INTERFACE:${TTMLIR_SOURCE_DIR}/include>
+    $<BUILD_INTERFACE:${TTMLIR_BINARY_DIR}/include>
+    $<INSTALL_INTERFACE:include>
+)
+
 #
 # Shared Target for compiler frontends
 #
@@ -104,7 +111,12 @@ target_link_libraries(TTMLIRCompiler PUBLIC coverage_config)
 target_link_directories(TTMLIRCompiler PRIVATE ${TTMLIR_TOOLCHAIN_DIR}/lib)
 target_link_directories(TTMLIRCompiler PRIVATE ${TTMLIR_TOOLCHAIN_DIR}/lib64)
 
-install(TARGETS TTMLIRCompiler DESTINATION ${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR} COMPONENT SharedLib)
+install(TARGETS TTMLIRCompiler DESTINATION ${CMAKE_INSTALL_LIBDIR} COMPONENT SharedLib)
+
+install(TARGETS TTMLIRCompilerStatic
+  EXPORT TTMLIRTargets
+  ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+  COMPONENT StaticLib)
 
 # Add coverage_config to all targets in lib
 if(CODE_COVERAGE AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")

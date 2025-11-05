@@ -8,7 +8,7 @@ set(SOURCES
     Conversion.cpp
     SingletonDeviceContext.cpp
 )
-add_library(${LIB_NAME} STATIC ${SOURCES})
+add_mlir_library(${LIB_NAME} STATIC ${SOURCES})
 
 message(STATUS "TTMLIR_ENABLE_OPMODEL[${TTMLIR_ENABLE_OPMODEL}]")
 if (TTMLIR_ENABLE_OPMODEL)
