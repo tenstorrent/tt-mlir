@@ -178,3 +178,30 @@ func.func @matmul(%arg0: memref<1x2x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<
   }) : (memref<1x2x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096>, #l1_>, memref<1x2x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096>, #l1_>) -> ()
   return %alloc : memref<1x2x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096>, #l1_>
 }
+
+// -----
+
+#map = affine_map<(d0, d1) -> (d0, d1)>
+#parallel = #ttcore.iterator_type<parallel>
+
+// CHECK: error: 'd2m.generic' op generic op with pure tensor semantics must have exactly 1 region when not in explicit data movement form
+
+func.func @pure_tensor_multiple_regions_not_explicit(%arg0: tensor<64x128xf32>, %arg1: tensor<64x128xf32>) -> tensor<64x128xf32> {
+  %0 = d2m.empty() : tensor<64x128xf32>
+  %1 = d2m.generic {
+    block_factors = [1, 1],
+    grid = #ttcore.grid<1x1>,
+    indexing_maps = [#map, #map, #map],
+    iterator_types = [#parallel, #parallel],
+    threads = [#d2m.thread<datamovement>, #d2m.thread<compute>]
+  }
+  ins(%arg0, %arg1 : tensor<64x128xf32>, tensor<64x128xf32>)
+  outs(%0 : tensor<64x128xf32>) {
+  ^bb0(%cb_in0: !d2m.cb<tensor<64x128xf32>>, %cb_in1: !d2m.cb<tensor<64x128xf32>>, %cb_out: !d2m.cb<tensor<64x128xf32>>):
+    d2m.yield %arg0 : (tensor<64x128xf32>)
+  }, {
+  ^bb0(%cb_in0_2: !d2m.cb<tensor<64x128xf32>>, %cb_in1_2: !d2m.cb<tensor<64x128xf32>>, %cb_out_2: !d2m.cb<tensor<64x128xf32>>):
+    d2m.yield %arg0 : (tensor<64x128xf32>)
+  } : tensor<64x128xf32>
+  return %1 : tensor<64x128xf32>
+}

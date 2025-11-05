@@ -1976,8 +1976,7 @@ INSTANTIATE_TEST_SUITE_P(MinimumTests, OpModelMinimumParam,
                          generateBinaryEltwiseParams(binaryEltwiseParams));
 
 INSTANTIATE_TEST_SUITE_P(DivideTests, OpModelDivideParam,
-                         generateBinaryEltwiseParams(
-                             binaryEltwiseParams, /*extraCbRequirement=*/2048));
+                         generateBinaryEltwiseParams(binaryEltwiseParams));
 
 INSTANTIATE_TEST_SUITE_P(EqualTests, OpModelEqualParam,
                          generateBinaryEltwiseParams(binaryEltwiseParams));
@@ -4450,13 +4449,13 @@ TEST_F(OpModelTest, UpdateCacheOp) {
       cacheShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
   const TTNNLayoutAttr inputLayoutDRAM = CreateTiledLayout(
       inputShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
-  const TTNNLayoutAttr updateIndexLayoutDRAM = CreateTiledLayout(
+  const TTNNLayoutAttr updateIndexLayoutDRAM = CreateTiledLayoutUInt32(
       updateIndexShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
   const TTNNLayoutAttr cacheLayoutL1 = CreateTiledLayout(
       cacheShape, BufferType::L1, TensorMemoryLayout::Interleaved);
   const TTNNLayoutAttr inputLayoutL1 = CreateTiledLayout(
       inputShape, BufferType::L1, TensorMemoryLayout::Interleaved);
-  const TTNNLayoutAttr updateIndexLayoutL1 = CreateTiledLayout(
+  const TTNNLayoutAttr updateIndexLayoutL1 = CreateTiledLayoutUInt32(
       updateIndexShape, BufferType::L1, TensorMemoryLayout::Interleaved);
 
   // Test UpdateCacheOp constraints with batch_offset = 0
@@ -4600,7 +4599,7 @@ const auto quantizeOpTestValues = testing::Values(
         detail::TestTensor{
             {32, 64}, TensorMemoryLayout::Interleaved, BufferType::L1},
         std::nullopt,
-        detail::ExpectedResult{true, 14336, 10240, 22528,
+        detail::ExpectedResult{true, 12288, 10240, 22528,
                                4096}}, // note: combined peak < cb+l1 peak
     QuantizeOpParam{
         detail::TestTensor{
@@ -4612,7 +4611,7 @@ const auto quantizeOpTestValues = testing::Values(
         detail::TestTensor{
             {32, 64}, TensorMemoryLayout::Interleaved, BufferType::L1},
         std::make_optional<int32_t>(1),
-        detail::ExpectedResult{true, 18432, 12288, 28672,
+        detail::ExpectedResult{true, 16384, 12288, 28672,
                                4096}}, // note: combined peak < cb+l1 peak
     QuantizeOpParam{
         detail::TestTensor{
@@ -4624,7 +4623,7 @@ const auto quantizeOpTestValues = testing::Values(
         detail::TestTensor{
             {128, 256}, TensorMemoryLayout::Interleaved, BufferType::L1},
         std::make_optional<int32_t>(1),
-        detail::ExpectedResult{true, 18432, 12288, 28672,
+        detail::ExpectedResult{true, 16384, 12288, 28672,
                                4096}}, // note: combined peak < cb+l1 peak
 
     // === DRAM Memory Tests ===
@@ -4638,7 +4637,7 @@ const auto quantizeOpTestValues = testing::Values(
         detail::TestTensor{
             {512, 1024}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
         std::make_optional<int32_t>(1),
-        detail::ExpectedResult{true, 18432, 0, 18432, 0}},
+        detail::ExpectedResult{true, 16384, 0, 16384, 0}},
 
     // === Mixed Memory Configuration Tests ===
     QuantizeOpParam{
@@ -4651,7 +4650,7 @@ const auto quantizeOpTestValues = testing::Values(
         detail::TestTensor{
             {64, 128}, TensorMemoryLayout::Interleaved, BufferType::L1},
         std::make_optional<int32_t>(1),
-        detail::ExpectedResult{true, 18432, 10240, 26624,
+        detail::ExpectedResult{true, 16384, 10240, 26624,
                                4096}}); // note: combined peak < cb+l1 peak
 
 INSTANTIATE_TEST_SUITE_P(QuantizeTests, OpModelQuantizeParam,
