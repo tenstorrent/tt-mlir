@@ -76,7 +76,33 @@ static void hoistOperationToFunction(mlir::Operation *opToHoist,
   llvm::SmallVector<int64_t, 3> ranks = getOperandTensorRanks(opToHoist);
   mlir::MLIRContext *context = sourceModule.getContext();
   mlir::OpBuilder typeBuilder(opToHoist);
-  auto f32Type = mlir::Float32Type::get(context);
+
+  // Helper lambda to unify tensor element types.
+  auto convertTensorElementType = [&context](Type elementType) -> Type {
+    static auto f32Type = mlir::Float32Type::get(context);
+    static auto i32Type =
+        mlir::IntegerType::get(context, 32, IntegerType::Signless);
+
+    if (elementType.isInteger()) {
+      return i32Type;
+    }
+    if (elementType.isFloat()) {
+      return f32Type;
+    }
+    return elementType;
+  };
+
+  // Helper lambda to unify tensor types.
+  auto convertTensorType =
+      [&](RankedTensorType tensorType) -> RankedTensorType {
+    auto elementType = tensorType.getElementType();
+    auto convertedElementType = convertTensorElementType(elementType);
+    if (elementType != convertedElementType) {
+      return RankedTensorType::get(tensorType.getShape(), convertedElementType,
+                                   tensorType.getEncoding());
+    }
+    return tensorType;
+  };
 
   // Convert operands and gather types for function signature.
   llvm::SmallVector<mlir::Type> operandTypes;
@@ -85,15 +111,12 @@ static void hoistOperationToFunction(mlir::Operation *opToHoist,
   for (auto operand : opToHoist->getOperands()) {
     if (auto tensorType =
             mlir::dyn_cast<mlir::RankedTensorType>(operand.getType())) {
-      if (!tensorType.getElementType().isF32()) {
-        // Create f32 version of tensor type.
-        auto f32TensorType = RankedTensorType::get(
-            tensorType.getShape(), f32Type, tensorType.getEncoding());
-        operandTypes.push_back(f32TensorType);
-
+      auto convertedTensorType = convertTensorType(tensorType);
+      if (convertedTensorType != tensorType) {
         // Create converted tensor value.
         auto emptyTensor = typeBuilder.create<mlir::tt::ttir::EmptyOp>(
-            opToHoist->getLoc(), tensorType.getShape(), f32Type);
+            opToHoist->getLoc(), tensorType.getShape(),
+            convertedTensorType.getElementType());
         auto converted = typeBuilder.create<mlir::tt::ttir::ToLayoutOp>(
             opToHoist->getLoc(), operand, emptyTensor);
         convertedOperands.push_back(converted->getResult(0));
@@ -115,9 +138,10 @@ static void hoistOperationToFunction(mlir::Operation *opToHoist,
     for (auto resultType : opToHoist->getResultTypes()) {
       if (auto tensorType =
               mlir::dyn_cast<mlir::RankedTensorType>(resultType)) {
+        auto elementType = tensorType.getElementType();
+        auto convertedElementType = convertTensorElementType(elementType);
         auto empty = typeBuilder.create<mlir::tt::ttir::EmptyOp>(
-            opToHoist->getLoc(), tensorType.getShape(),
-            tensorType.getElementType());
+            opToHoist->getLoc(), tensorType.getShape(), convertedElementType);
         convertedOperands.push_back(empty);
 
         // Add to function signature.
@@ -131,12 +155,8 @@ static void hoistOperationToFunction(mlir::Operation *opToHoist,
   llvm::SmallVector<mlir::Type> resultTypes;
   for (auto result : opToHoist->getResultTypes()) {
     if (auto tensorType = mlir::dyn_cast<mlir::RankedTensorType>(result)) {
-      if (!tensorType.getElementType().isF32()) {
-        resultTypes.push_back(RankedTensorType::get(
-            tensorType.getShape(), f32Type, tensorType.getEncoding()));
-      } else {
-        resultTypes.push_back(tensorType);
-      }
+      auto convertedTensorType = convertTensorType(tensorType);
+      resultTypes.push_back(convertedTensorType);
     } else {
       resultTypes.push_back(result);
     }
@@ -180,27 +200,21 @@ static void hoistOperationToFunction(mlir::Operation *opToHoist,
     // Clone the operation, but modify its type if needed.
     auto *clonedOp = builder.clone(*opToHoist, mapping);
 
-    // Update operand types to f32 for tensor types.
+    // Update operand types to supported tensor types.
     for (auto operand : clonedOp->getOperands()) {
       if (auto tensorType =
               mlir::dyn_cast<mlir::RankedTensorType>(operand.getType())) {
-        if (!tensorType.getElementType().isF32()) {
-          auto newType = RankedTensorType::get(tensorType.getShape(), f32Type,
-                                               tensorType.getEncoding());
-          operand.setType(newType);
-        }
+        auto convertedTensorType = convertTensorType(tensorType);
+        operand.setType(convertedTensorType);
       }
     }
 
-    // Update result types to f32 for tensor types.
+    // Update result types to supported tensor types.
     for (auto result : clonedOp->getResults()) {
       if (auto tensorType =
               mlir::dyn_cast<mlir::RankedTensorType>(result.getType())) {
-        if (!tensorType.getElementType().isF32()) {
-          auto newType = RankedTensorType::get(tensorType.getShape(), f32Type,
-                                               tensorType.getEncoding());
-          result.setType(newType);
-        }
+        auto convertedTensorType = convertTensorType(tensorType);
+        result.setType(convertedTensorType);
       }
     }
 
