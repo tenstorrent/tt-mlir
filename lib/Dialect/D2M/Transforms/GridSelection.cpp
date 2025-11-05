@@ -653,6 +653,10 @@ public:
         d2m::utils::getSquareTargetGrid(targetGridShape);
 
     module.walk([&](d2m::GenericOp genericOp) {
+      // Skip explicit datamovement form - users manage grids manually
+      if (genericOp.isExplicitDatamovementForm()) {
+        return;
+      }
       assignGrids(genericOp, targetGridShape, targetSquareGridShape);
     });
   }
