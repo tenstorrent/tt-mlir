@@ -1983,7 +1983,7 @@ public:
     }
 
     // Hoist preprocessing ops for key and value operands to appear before the
-    // query op. Insert the fused op immediately after the query op. This
+    // query head. Insert the fused op immediately after the query head. This
     // ensures all preprocessing for query, key, and value happens before the
     // fused op, and any uses of their results remain correctly ordered after
     // the fused op.
@@ -2015,8 +2015,8 @@ public:
     int32_t numHeads = queryType.getShape()[O_NUM_KV_HEADS];
     int32_t hiddenSize = queryType.getShape()[O_HEAD_SIZE] * numHeads;
 
-    // Concatenate weights along dimension determined by linear op.
-    // Weights are the second input (B) of linear op.
+    // Concatenate weights along dimension determined by transposeB attribute.
+
     Value queryWeightMatrix =
         (mhaType == TYPE_BIASED) ? linearOps[0].getB() : matmulOps[0].getB();
     Value keyWeightMatrix =
@@ -2230,7 +2230,7 @@ private:
     RankedTensorType concatenatedType =
         RankedTensorType::get(concatenatedShape, firstType.getElementType());
 
-    // Create concat op along last dimension (rank - 1).
+    // Create concat op along given dimension.
     return ttir::utils::createDPSOp<ttir::ConcatOp>(
         rewriter, loc, concatenatedType, tensors,
         rewriter.getSI32IntegerAttr(dim) /* axis */);
@@ -2242,7 +2242,7 @@ private:
                                         SmallVectorImpl<Operation *> &collected,
                                         DenseSet<Operation *> &visited) const {
     if (Operation *defOp = val.getDefiningOp()) {
-      // Only consider ops after queryPermuteOp in the block
+      // Only consider ops after queryPermuteOp in the block.
       if (defOp->getBlock() == QueryPermuteOp->getBlock()) {
         if (defOp->isBeforeInBlock(QueryPermuteOp)) {
           // Skip ops that appear before Query PermuteOp.
@@ -2251,10 +2251,10 @@ private:
       }
 
       if (!visited.insert(defOp).second) {
-        return; // Already visited
+        return; // Already visited.
       }
 
-      // Recurse through operands first
+      // Recurse through operands first.
       for (Value operand : defOp->getOperands()) {
         collectRecursivePreprocessingOps(operand, QueryPermuteOp, collected,
                                          visited);
@@ -2357,6 +2357,7 @@ private:
 
   bool validatePermuteOps(ReshapeOp reshapeOp,
                           llvm::SmallVector<PermuteOp> &permuteOps) const {
+    // Size must be 3 for Q, K, V.
     if (permuteOps.size() != 3) {
       return false;
     }
@@ -2373,6 +2374,7 @@ private:
         mlir::dyn_cast<mlir::RankedTensorType>(valueTensor.getType())
             .getShape();
 
+    // Each of Q, K, V heads must be 4D.
     if (queryShape.size() != 4 || keyShape.size() != 4 ||
         valueShape.size() != 4) {
       return false;
@@ -2399,16 +2401,18 @@ private:
       return false;
     }
 
-    // Key can be transposed or not.
+    // Query and value must have the same expected permutation.
     llvm::ArrayRef<int64_t> queryPermutation = permuteOps[0].getPermutation();
-    llvm::ArrayRef<int64_t> keyPermutation = permuteOps[1].getPermutation();
     llvm::ArrayRef<int64_t> valuePermutation = permuteOps[2].getPermutation();
     if (!llvm::equal(queryPermutation, expectedPermute) ||
         !llvm::equal(valuePermutation, expectedPermute)) {
       return false;
     }
 
+    // Key can be transposed or not.
     bool transposeKey = isKeyTransposed(keyShape, queryShape);
+    llvm::ArrayRef<int64_t> keyPermutation = permuteOps[1].getPermutation();
+
     if (!transposeKey) {
       // If key is not transposed, it should have the expected output shape.
       if (keyShape[O_SEQUENCE_LENGTH] != queryShape[O_SEQUENCE_LENGTH] ||
@@ -2441,7 +2445,7 @@ private:
     ArrayRef<int64_t> reshapeInputShape =
         reshapeOp.getInput().getType().getShape();
     // If the input shape is not 3D, we cannot fuse. [BATCH_SIZE,
-    // SEQUENCE_LENGTH, HIDDEN_DIMENSION].
+    // SEQUENCE_LENGTH, INPUT_HIDDEN_DIMENSION].
     if (reshapeInputShape.size() != 3) {
       return false;
     }
@@ -2459,7 +2463,7 @@ private:
       return false;
     }
 
-    // if size != 3, return false
+    // if size != 3, return false.
     if (matrixOps.size() != 3) {
       return false;
     }
