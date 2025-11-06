@@ -1073,7 +1073,7 @@ class D2MMeshShardOpRewriter : public OpConversionPattern<ttir::MeshShardOp> {
 };
 
 // Gather op conversion.
-// The ttir gather op conversion into linalg generic has been adapted from
+// The ttir gather op conversion has been adapted from
 // https://github.com/openxla/stablehlo/blob/4c0d4841519aed22e3689c30b72a0e4228051249/stablehlo/conversions/linalg/transforms/StablehloLegalizeToLinalg.cpp#L1766.
 Value extractIndexFromTensor(OpBuilder& builder, Location loc, Value tensor,
                              ShapedType originalType,
@@ -1179,68 +1179,126 @@ class D2MGatherOpRewriter : public OpConversionPattern<ttir::GatherOp> {
     ArrayRef<int64_t> startIndexMap =
         gatherOp.getStartIndexMap();
 
-    // Define layout attributes for all gather operands and results.
+    // Insert to metal layout conversion for the operand.
+    auto i64Ty = builder.getI64Type();
+    auto intervalTy = RankedTensorType::get({2, 2}, i64Ty);
     llvm::SmallVector<int64_t> dimAlignments(operandType.getShape().size(), 1);
     dimAlignments[dimAlignments.size() - 1] = 32;
     dimAlignments[dimAlignments.size() - 2] = 32;
 
-    auto i64Ty = IntegerType::get(rewriter.getContext(), 64);
-    auto intervalTy = RankedTensorType::get({2, 2}, i64Ty);
-    DenseIntElementsAttr collapsedIntervals = DenseIntElementsAttr::get(intervalTy, llvm::ArrayRef<llvm::ArrayRef<int64_t>>({{0, 1}, {1, 2}}));
+    auto dataOperand = llvm::SmallVector<int64_t, 4>{0, 1, 1, 2};
+    DenseIntElementsAttr collapsedIntervalsOperand = DenseIntElementsAttr::get(intervalTy, llvm::ArrayRef<int64_t>(dataOperand));
     
     auto metalLayout = ttcore::MetalLayoutAttr::get(
       getContext(), operandType.getShape(), ttcore::OOBVal::Undef,
-      ttcore::MemorySpace::DeviceDRAM, ttcore::TensorMemoryLayout::Sharded, collapsedIntervals, dimAlignments);
+      ttcore::MemorySpace::DeviceDRAM, ttcore::TensorMemoryLayout::Sharded, collapsedIntervalsOperand, dimAlignments);
 
-    [[maybe_unused]] auto empty = builder.create<d2m::EmptyOp>(
+    llvm::SmallVector<int64_t> operandShape = {1, 1};
+    operandShape.append(operandType.getShape().begin(),
+                        operandType.getShape().end());
+    auto empty = builder.create<d2m::EmptyOp>(
       loc,
-      operandType.getShape(),
+      operandShape,
       operandType.getElementType(),
       metalLayout);
 
-    /*
-    auto tensorType = mlir::cast<mlir::RankedTensorType>(value.getType());
-    auto ttnnLayout =
-        mlir::cast<ttnn::TTNNLayoutAttr>(tensorType.getEncoding());
+    [[maybe_unused]] auto operandLayoutOp = builder.create<d2m::ToLayoutOp>(loc, operand, empty, nullptr);
 
-    assertTTNNLayoutSupported(ttnnLayout);
+    // Insert to metal layout conversion for the indices.
+    llvm::SmallVector<int64_t> indexDimAlignments(startIndicesType.getShape().size(), 1);
+    indexDimAlignments[indexDimAlignments.size() - 1] = 1;
+    indexDimAlignments[indexDimAlignments.size() - 2] = 32;
 
-    ttcore::MemorySpace memSpace =
-        ttnnLayout.getBufferType() == ttnn::BufferType::DRAM
-            ? ttcore::MemorySpace::DeviceDRAM
-            : ttcore::MemorySpace::DeviceL1;
+    auto dataIndices = llvm::SmallVector<int64_t, 4>{0, 1, 1, 2};
+    DenseIntElementsAttr collapsedIntervalsIndices = DenseIntElementsAttr::get(intervalTy, llvm::ArrayRef<int64_t>(dataIndices));
 
-    auto i64Ty = IntegerType::get(rewriter.getContext(), 64);
-    auto intervalTy = RankedTensorType::get({1, 2}, i64Ty);
-    DenseIntElementsAttr collapsedIntervals =
-        DenseIntElementsAttr::get(intervalTy, llvm::ArrayRef<int64_t>({0, -1}));
+    auto indexMetalLayout = ttcore::MetalLayoutAttr::get(
+      getContext(), startIndicesType.getShape(), ttcore::OOBVal::Undef,
+      ttcore::MemorySpace::DeviceDRAM, ttcore::TensorMemoryLayout::Sharded, collapsedIntervalsIndices, indexDimAlignments);
 
-    ttcore::TensorMemoryLayout memLayout =
-        (ttnnLayout.getMemLayout().getValue() ==
-         ttnn::TensorMemoryLayout::Interleaved)
-            ? ttcore::TensorMemoryLayout::Interleaved
-            : ttcore::TensorMemoryLayout::Sharded;
+      llvm::SmallVector<int64_t> startIndicesShape = {1, 1};
+      startIndicesShape.append(startIndicesType.getShape().begin(),
+                          startIndicesType.getShape().end());
+    auto indexEmpty = builder.create<d2m::EmptyOp>(
+      loc,
+      startIndicesShape,
+      startIndicesType.getElementType(),
+      indexMetalLayout);
 
-    llvm::SmallVector<int64_t> dimAlignments(tensorType.getShape().size(), 1);
-    dimAlignments[dimAlignments.size() - 1] = 32;
-    dimAlignments[dimAlignments.size() - 2] = 32;
+    [[maybe_unused]] auto startIndicesLayoutOp = builder.create<d2m::ToLayoutOp>(loc, startIndices, indexEmpty, nullptr);
 
-    auto metalLayout = ttcore::MetalLayoutAttr::get(
-        rewriter.getContext(), tensorType.getShape(), ttcore::OOBVal::Undef,
-        memSpace, memLayout, collapsedIntervals, dimAlignments);
+    // Create the output tensor.
+    llvm::SmallVector<int64_t> resultDimAlignments(resultType.getShape().size(), 1);
+    resultDimAlignments[resultDimAlignments.size() - 1] = 1;
+    resultDimAlignments[resultDimAlignments.size() - 2] = 32;
+    resultDimAlignments[resultDimAlignments.size() - 2] = 32;
 
-    llvm::SmallVector<int64_t> unshardedShape =
-        metalLayout.getPhysicalShape(ttcore::TileType::getDefaultShape());
+    auto dataResult = llvm::SmallVector<int64_t, 4>{0, 2, 2, 3};
+    DenseIntElementsAttr collapsedIntervalsResult = DenseIntElementsAttr::get(intervalTy, llvm::ArrayRef<int64_t>(dataResult));
 
-    llvm::SmallVector<int64_t> shardedShape = metalLayout.getDeviceShape(
-        ttnnLayout.getGrid().getShape(), ttcore::TileType::getDefaultShape());
-
-    Type elementType = ttnnLayout.getElementType();
-    return mlir::RankedTensorType::get(shardedShape, elementType, metalLayout);
-    */
-
+    auto resultMetalLayout = ttcore::MetalLayoutAttr::get(
+      getContext(), resultType.getShape(), ttcore::OOBVal::Undef,
+      ttcore::MemorySpace::DeviceDRAM, ttcore::TensorMemoryLayout::Sharded, collapsedIntervalsResult, resultDimAlignments);
 
     Value emptyOp = getEmptyTensorFor(builder, loc, resultType, gatherOp,adaptor.getOperands());
+    llvm::SmallVector<int64_t> resultShape = {1};
+    resultShape.append(resultType.getShape().begin(),
+                          resultType.getShape().end());
+    auto resultEmpty = builder.create<d2m::EmptyOp>(
+      loc,
+      resultShape,
+      resultType.getElementType(),
+      resultMetalLayout);
+
+    [[maybe_unused]] auto resultIndicesLayoutOp = builder.create<d2m::ToLayoutOp>(loc, emptyOp, resultEmpty, nullptr);
+
+    // Create the D2M generic op.
+    // void GenericOp::build(::mlir::OpBuilder &odsBuilder, ::mlir::OperationState &odsState, ::mlir::TypeRange results, ::mlir::ValueRange inputs, ::mlir::ValueRange outputs, ::mlir::tt::ttcore::GridAttr grid, ::mlir::ArrayAttr block_factors, ::mlir::ArrayAttr indexing_maps, ::mlir::ArrayAttr iterator_types, ::mlir::ArrayAttr threads, unsigned regionsCount) {
+  
+    tt::ttcore::GridAttr grid = ttcore::GridAttr::get(getContext(), llvm::SmallVector<int64_t, 4>{1, 1});
+    unsigned numDims = 3;
+    unsigned numSymbols = 0;
+
+    // affine_map<(d0, d1, d2) -> (d0, d1)>
+    auto map1 = AffineMap::get(numDims, numSymbols,
+      {builder.getAffineDimExpr(0), builder.getAffineDimExpr(1)},
+      builder.getContext());
+
+    // affine_map<(d0, d1, d2) -> (0, 0)>
+    auto map2 = AffineMap::get(numDims, numSymbols,
+      {builder.getAffineConstantExpr(0), builder.getAffineConstantExpr(0)},
+      builder.getContext());
+
+    // affine_map<(d0, d1, d2) -> (d0, d1)>
+    auto map3 = AffineMap::get(numDims, numSymbols,
+      {builder.getAffineDimExpr(0), builder.getAffineDimExpr(1)},
+      builder.getContext());
+
+      SmallVector<AffineMap, 3> maps = {map1, map2, map3};
+    auto mapArrayAttr = builder.getAffineMapArrayAttr(maps);
+
+    mlir::tt::ttcore::IteratorTypeAttr attr0 = mlir::tt::ttcore::IteratorTypeAttr::get(getContext(), mlir::tt::ttcore::IteratorType::Parallel);
+    mlir::tt::ttcore::IteratorTypeAttr attr1 = mlir::tt::ttcore::IteratorTypeAttr::get(getContext(), mlir::tt::ttcore::IteratorType::Parallel);
+    mlir::tt::ttcore::IteratorTypeAttr attr2 = mlir::tt::ttcore::IteratorTypeAttr::get(getContext(), mlir::tt::ttcore::IteratorType::Parallel);
+    llvm::SmallVector<mlir::tt::ttcore::IteratorTypeAttr, 3> iteratorArrayAttr = {attr0, attr1, attr2};
+    llvm::SmallVector<mlir::Attribute, 3> iteratorAttrs(iteratorArrayAttr.begin(), iteratorArrayAttr.end());
+    mlir::ArrayAttr iteratorArrayAttrTaps = mlir::ArrayAttr::get(getContext(), iteratorAttrs);
+    llvm::SmallVector<int64_t, 4> blockFactors = {1, 1, 1};
+
+    llvm::SmallVector<Value> tapsInputs = {operandLayoutOp.getResult(0), startIndicesLayoutOp.getResult(0)};
+    llvm::SmallVector<Value> tapsOutputs = {resultIndicesLayoutOp.getResult(0)};
+    [[maybe_unused]] auto genericOp = builder.create<d2m::GenericOp>(loc, tapsInputs, tapsOutputs, mapArrayAttr, iteratorArrayAttrTaps, 
+      [&](OpBuilder &builder, Location bodyLoc, ValueRange blockArgs) {
+      },
+    d2m::ThreadType::Datamovement,
+    grid, blockFactors
+    );
+
+    Region &region = genericOp.getRegion(0);
+    Block &block = region.front();
+    OpBuilder::InsertionGuard guard(rewriter); 
+    builder.setInsertionPointToEnd(&block);
+   
     SmallVector<Value> ivs;
     // Verify all static before using affine.for
     for (int64_t i = 0; i < resultRank; ++i) {
@@ -1392,7 +1450,10 @@ class D2MGatherOpRewriter : public OpConversionPattern<ttir::GatherOp> {
 
     auto dmaOp = builder.create<d2m::DMAOp>(loc, extractOperand, combinedIndex, emptyOp, ivs);
     builder.create<d2m::DMAWaitOp>(loc, dmaOp);
-    rewriter.replaceOp(gatherOp, emptyOp);
+
+    builder.setInsertionPointToEnd(&block);
+    
+    rewriter.replaceOp(gatherOp, genericOp.getResult(0));
 
     return success();
   }
