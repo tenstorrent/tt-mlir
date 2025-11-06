@@ -23,6 +23,7 @@ option(TTMLIR_ENABLE_OPMODEL "Enable OpModel support" OFF)
 option(TTMLIR_ENABLE_OPMODEL_TESTS "Enable OpModel tests" ON)
 option(TTMLIR_ENABLE_SHARED_LIB "Enable Shared lib building" ON)
 option(TTMLIR_ENABLE_EXPLORER "Enable cloning and building the explorer tool" ON)
+option(TTMLIR_ENABLE_ALCHEMIST "Enable tt-alchemist tool" ON)
 option(CODE_COVERAGE "Enable coverage reporting" OFF)
 
 if (TTMLIR_ENABLE_RUNTIME)
@@ -103,7 +104,7 @@ endif()
 
 include(TTMLIRBuildTypes)
 
-if(NOT CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
+if(CMAKE_SOURCE_DIR STREQUAL CMAKE_BINARY_DIR)
   message(FATAL_ERROR "In-source builds are not allowed. Please make a new directory (called a build directory) and run CMake from there.")
 endif()
 
