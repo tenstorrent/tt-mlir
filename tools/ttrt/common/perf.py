@@ -360,13 +360,13 @@ class Perf:
 
             def get_available_port():
                 ip = socket.gethostbyname(socket.gethostname())
-                self.logging.info(f"Tracy binding to IP: {ip} (from gethostbyname(gethostname()))")
+                self.logging.warning(f"Tracy binding to IP: {ip} (from gethostbyname(gethostname()))")
 
                 for port in range(8086, 8500):
                     try:
                         serv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                         serv.bind((ip, port))
-                        self.logging.info(f"Tracy selected port: {port}")
+                        self.logging.warning(f"Tracy selected port: {port}")
                         return str(port)
                     except PermissionError as e:
                         pass
@@ -531,12 +531,12 @@ class Perf:
                             lines = iter(file)
                             buffer = None
                             
-                            # Debug: Log first 30 lines of the file
-                            self.logging.info(f"DEBUG: Reading {tracy_ops_data_file_path} for key '{key}'")
+                            # Debug: Log first 30 lines of the file (use WARNING level to show in CI)
+                            self.logging.warning(f"DEBUG: Reading {tracy_ops_data_file_path} for key '{key}'")
                             file.seek(0)
                             first_lines = [file.readline().strip() for _ in range(30)]
                             for i, fline in enumerate(first_lines):
-                                self.logging.info(f"DEBUG: Line {i}: {fline[:150]}")  # Truncate long lines
+                                self.logging.warning(f"DEBUG: Line {i}: {fline[:150]}")  # Truncate long lines
                             file.seek(0)
                             lines = iter(file)
 
