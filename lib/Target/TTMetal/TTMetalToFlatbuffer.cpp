@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Conversion/TTKernelToEmitC/TTKernelToEmitC.h"
+#include "ttmlir/Dialect/D2M/IR/D2MOps.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
@@ -936,6 +937,14 @@ std::shared_ptr<void> translateTTMetalToFlatbuffer(
                 cache.fbb->CreateVector<int64_t>(meshShardOp.getShardShape()),
                 cache.fbb->CreateVector<int64_t>(meshShardOp.getShardDims())),
             op);
+      } else if (auto streamLayoutOp =
+                     dyn_cast_if_present<d2m::StreamLayoutOp>(op);
+                 streamLayoutOp) {
+        // StreamLayoutOp creates a view of storage buffer for streaming.
+        // Map the view result to the same buffer as storage.
+        cache.insert(streamLayoutOp.getResult(),
+                     cache.at<target::metal::BufferRef>(
+                         streamLayoutOp.getStorage()));
       } else if (auto funcOp = dyn_cast_if_present<func::FuncOp>(op); funcOp) {
         // Unqualified walk will visit the root op itself last, we should
         // ignore this.
