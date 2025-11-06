@@ -31,6 +31,7 @@
 #include "llvm/Support/Casting.h"
 
 #include "llvm/Support/LogicalResult.h"
+#include "llvm/Support/raw_ostream.h"
 #include <cstdint>
 #include <optional>
 
@@ -1519,6 +1520,38 @@ public:
 } // namespace
 
 namespace {
+class ReduceOrOpConversionPattern
+    : public OpConversionPattern<ttir::ReduceOrOp> {
+public:
+  using OpConversionPattern<ttir::ReduceOrOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::ReduceOrOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    llvm::errs() << "Reducing ReduceOrOp to ReduceOr in TTNN\n";
+    RankedTensorType inputType =
+        mlir::cast<RankedTensorType>(adaptor.getInput().getType());
+    // auto device = ::ttnn::utils::getOrInsertDevice(rewriter, op);
+    
+    // Create zero constant for comparison (0 or 1)
+    auto zeroConstant = rewriter.create<ttnn::FullOp>(
+        op.getLoc(), inputType, rewriter.getF32FloatAttr(0.0f), nullptr
+    );
+
+    auto boolTensor = rewriter.create<ttnn::NotEqualOp>(
+        op.getLoc(), inputType, adaptor.getInput(), zeroConstant);
+
+    rewriter.replaceOpWithNewOp<ttnn::MaxOp>(
+        op, this->getTypeConverter()->convertType(op.getType()),
+        boolTensor, adaptor.getKeepDim(),
+        adaptor.getDimArg().value_or(nullptr));
+
+    return success();
+  }
+};
+} // namespace
+namespace {
 class ReduceScatterOpConversionPattern
     : public OpConversionPattern<ttir::ReduceScatterOp> {
 public:
@@ -2114,6 +2147,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            ReductionOpConversionPattern<ttir::MeanOp, ttnn::MeanOp>,
            ReductionOpConversionPattern<ttir::MaxOp, ttnn::MaxOp>,
            ReductionOpConversionPattern<ttir::MinOp, ttnn::MinOp>,
+           ReduceOrOpConversionPattern, // Added. Mountagha
            ReductionProdOpConversionPattern,
            ReductionArgMaxOpConversionPattern,
            ElementwiseUnaryWithFloatParameterOpConversionPattern<ttir::LeakyReluOp, ttnn::LeakyReluOp>,

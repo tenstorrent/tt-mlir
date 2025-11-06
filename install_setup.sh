@@ -67,6 +67,10 @@ export TTMLIR_TOOLCHAIN_DIR=/opt/ttmlir-toolchain/
 mkdir -p /opt/ttmlir-toolchain
 chown -R $USER:$USER /opt/ttmlir-toolchain
 
+# to fix the error 
+# RuntimeError: stubgen.py requires the 'typing_extensions' package on Python <3.11
+/opt/venv/bin/python3.10 -m pip install typing_extensions
+
 # -------------------------------
 # Build and activate environment
 # -------------------------------
