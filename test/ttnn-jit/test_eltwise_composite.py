@@ -13,7 +13,7 @@ from utils import (
     memory_configs_equal,
     create_dram_tensor,
     create_sharded_tile_tensor,
-    run_op_test
+    run_op_test,
 )
 
 COMMON_SHAPE_GRID_PARAMS = [
@@ -92,11 +92,11 @@ def test_composite_ops_dram(device, h, w, dtype, op):
 
 
 PASSING_LARGE_SHAPES_DTYPES_L1 = [
-        (512, 2048, torch.bfloat16),
-        (512, 4096, torch.bfloat16),
-        (512, 8192, torch.bfloat16),
-        (1024, 2048, torch.bfloat16),
-        (1024, 4096, torch.bfloat16),
+    (512, 2048, torch.bfloat16),
+    (512, 4096, torch.bfloat16),
+    (512, 8192, torch.bfloat16),
+    (1024, 2048, torch.bfloat16),
+    (1024, 4096, torch.bfloat16),
 ]
 
 
@@ -123,15 +123,13 @@ def test_large_shapes_muladd_l1(device, hidden_dim, seq_len, dtype):
 
 
 PASSING_LARGE_SHAPES_DTYPES_DRAM = [
-   
     (512, 2048, torch.float32),
-    (512, 4096, torch.float32), 
+    (512, 4096, torch.float32),
     (512, 8192, torch.float32),
     (1024, 2048, torch.float32),
     (1024, 4096, torch.float32),
     (2048, 2048, torch.float32),
     (4096, 1024, torch.float32),
-    
     (512, 2048, torch.bfloat16),
     (512, 4096, torch.bfloat16),
     (512, 8192, torch.bfloat16),
@@ -140,8 +138,8 @@ PASSING_LARGE_SHAPES_DTYPES_DRAM = [
     (1024, 4096, torch.bfloat16),
     (1024, 8192, torch.bfloat16),
     (2048, 4096, torch.bfloat16),
-    
 ]
+
 
 @pytest.mark.parametrize("hidden_dim, seq_len, dtype", PASSING_LARGE_SHAPES_DTYPES_DRAM)
 def test_large_shapes_muladd_dram(device, hidden_dim, seq_len, dtype):
