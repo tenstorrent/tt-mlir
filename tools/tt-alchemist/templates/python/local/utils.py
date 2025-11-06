@@ -12,7 +12,6 @@ ttnn.mesh_shard = ttnn_supplemental.mesh_shard
 ttnn.all_gather = ttnn_supplemental.all_gather
 ttnn.reduce_scatter = ttnn_supplemental.reduce_scatter
 ttnn.collective_permute = ttnn_supplemental.collective_permute
-ttnn.point_to_point = ttnn_supplemental.point_to_point
 
 
 class DeviceGetter:

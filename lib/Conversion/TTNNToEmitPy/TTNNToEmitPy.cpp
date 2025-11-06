@@ -2795,10 +2795,10 @@ public:
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput()),
-        emitter.emitMeshCoordinate(srcOp.getSenderCoord(), "send_coord"),
-        emitter.emitMeshCoordinate(srcOp.getReceiverCoord(), "receive_coord"),
+        emitter.emitMeshCoordinate(srcOp.getSenderCoord(), "sender_coord"),
+        emitter.emitMeshCoordinate(srcOp.getReceiverCoord(), "receiver_coord"),
         emitter.emit(mlir::tt::ttnn::Topology::Linear, "topology"),
-        emitter.emit(srcOp.getOptionalOutputTensor(), "optional_output_tensor"),
+        emitter.emit(srcOp.getOptionalOutputTensor(), "output_tensor"),
     };
 
     emitter.replaceOp(*this, args);
