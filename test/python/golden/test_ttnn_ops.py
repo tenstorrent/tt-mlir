@@ -10,7 +10,7 @@ from builder.base.builder import Operand, Shape
 from builder.ttnn.ttnn_builder import TTNNBuilder
 from builder.base.builder_utils import compile_and_execute_ttnn
 from test_utils import shape_str, shapes_list_str
-from wrappers.eltwise import *
+from op_wrappers.eltwise import *
 
 pytestmark = pytest.mark.frontend("ttnn")
 

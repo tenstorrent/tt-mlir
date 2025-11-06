@@ -68,8 +68,8 @@ def gelu(in0: Operand, builder: Builder, unit_attrs: Optional[List[str]] = None)
     return builder.gelu(in0, unit_attrs=unit_attrs)
 
 
-def isfinite(in0: Operand, builder: Builder, unit_attrs: Optional[List[str]] = None):
-    return builder.isfinite(in0, unit_attrs=unit_attrs)
+def is_finite(in0: Operand, builder: Builder, unit_attrs: Optional[List[str]] = None):
+    return builder.is_finite(in0, unit_attrs=unit_attrs)
 
 
 # Special handling for log PCC checks. Due to the vertical asymptote on the log graph,
@@ -203,16 +203,32 @@ def tanh(in0: Operand, builder: Builder, unit_attrs: Optional[List[str]] = None)
     return builder.tanh(in0, unit_attrs=unit_attrs)
 
 
-# TTNNBuilder unary ops
+# TTIRBuilder-specific unary ops
+def get_dimension_size(
+    in0: Operand,
+    parameter: int,
+    builder: TTIRBuilder,
+    unit_attrs: Optional[List[str]] = None,
+):
+    return builder.get_dimension_size(in0, parameter, unit_attrs=unit_attrs)
+
+
+# TTNNBuilder-specific unary ops
+def isfinite(
+    in0: Operand, builder: TTNNBuilder, unit_attrs: Optional[List[str]] = None
+):
+    return builder.isfinite(in0, unit_attrs=unit_attrs)
+
+
 def mish(
     in0: Operand,
-    builder: Builder,
+    builder: TTNNBuilder,
     unit_attrs: Optional[List[str]] = None,
 ):
     return builder.mish(in0, unit_attrs=unit_attrs)
 
 
-# StableHLOBuilder unary ops
+# StableHLOBuilder-specific unary ops
 def cosine(
     in0: Operand,
     builder: Builder,
@@ -274,13 +290,13 @@ def atan2(
     return builder.atan2(in0, in1, unit_attrs=unit_attrs)
 
 
-def divide(
+def div(
     in0: Operand,
     in1: Operand,
     builder: Builder,
     unit_attrs: Optional[List[str]] = None,
 ):
-    return builder.divide(in0, in1, unit_attrs=unit_attrs)
+    return builder.div(in0, in1, unit_attrs=unit_attrs)
 
 
 def logical_and(
@@ -436,7 +452,16 @@ def pow(
     return pow0
 
 
-# TTNNBuilder binary ops
+# TTNNBuilder-specific binary ops
+def divide(
+    in0: Operand,
+    in1: Operand,
+    builder: TTNNBuilder,
+    unit_attrs: Optional[List[str]] = None,
+):
+    return builder.divide(in0, in1, unit_attrs=unit_attrs)
+
+
 def pow_tensor(
     in0: Operand,
     in1: Operand,
@@ -446,11 +471,11 @@ def pow_tensor(
     return builder.pow_tensor(in0, in1, unit_attrs=unit_attrs)
 
 
-# TTNNBuilder Binary logical shift ops (int only)
+# Binary logical shift ops (int only)
 def logical_left_shift(
     in0: Operand,
     in1: Operand,
-    builder: TTNNBuilder,
+    builder: Builder,
     unit_attrs: Optional[List[str]] = None,
 ):
     logical_left_shift_0 = builder.logical_left_shift(in0, in1, unit_attrs=unit_attrs)
@@ -473,7 +498,7 @@ def logical_left_shift(
 def logical_right_shift(
     in0: Operand,
     in1: Operand,
-    builder: TTNNBuilder,
+    builder: Builder,
     unit_attrs: Optional[List[str]] = None,
 ):
     logical_right_shift_0 = builder.logical_right_shift(in0, in1, unit_attrs=unit_attrs)
@@ -519,21 +544,6 @@ def bitwise_xor(
     unit_attrs: Optional[List[str]] = None,
 ):
     return builder.bitwise_xor(in0, in1, unit_attrs=unit_attrs)
-
-
-binary_bitwise_ops = [
-    bitwise_and,
-    bitwise_or,
-    bitwise_xor,
-]
-
-
-binary_bitwise_dtypes = [
-    torch.int32,
-    torch.uint32,
-    torch.uint16,
-    torch.uint8,
-]
 
 
 # Ternary Ops

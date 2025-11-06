@@ -10,7 +10,7 @@ from builder.base.builder import Operand, Shape, TypeInfo
 from builder.stablehlo.stablehlo_builder import StableHLOBuilder
 from builder.base.builder_utils import compile_and_execute_shlo
 from test_utils import shape_str
-from wrappers.eltwise import *
+from op_wrappers.eltwise import *
 
 pytestmark = pytest.mark.frontend("shlo")
 
