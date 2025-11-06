@@ -3553,6 +3553,47 @@ public:
 } // namespace
 
 namespace {
+class StableHLOPagedFillCacheConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::CustomCallOp> {
+  using OpConversionPattern<mlir::stablehlo::CustomCallOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::CustomCallOp srcOp,
+                  mlir::stablehlo::CustomCallOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    StringAttr funcName = adaptor.getCallTargetNameAttr();
+    if (funcName != "tt.paged_fill_cache") {
+      return failure();
+    }
+
+    if ((adaptor.getOperands().size() != 4 &&
+         adaptor.getOperands().size() != 3) ||
+        srcOp.getResults().size() != 1) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "PagedUpdateCache op must have three or four operands and one "
+                 "result. Got " +
+                     std::to_string(adaptor.getOperands().size()) +
+                     " operands "
+                     "and " +
+                     std::to_string(srcOp.getResults().size()) + " results.");
+    }
+
+    Value cache = adaptor.getOperands()[0];
+    Value input = adaptor.getOperands()[1];
+    Value pageTable = adaptor.getOperands()[2];
+    Value batchIdxTensor =
+        adaptor.getOperands().size() == 4 ? adaptor.getOperands()[3] : nullptr;
+
+    rewriter.replaceOpWithNewOp<ttir::PagedFillCacheOp>(
+        srcOp, cache.getType(), cache, input, pageTable, batchIdxTensor);
+
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 class StableHLOErfOpMHLOConversionPattern
     : public OpConversionPattern<mlir::stablehlo::CustomCallOp> {
   using OpConversionPattern<mlir::stablehlo::CustomCallOp>::OpConversionPattern;
@@ -4139,6 +4180,7 @@ static void addCacheOpsConversionPattern(MLIRContext *ctx,
   patterns.add<StableHLOFillCacheConversionPattern>(typeConverter, ctx);
   patterns.add<StableHLOUpdateCacheConversionPattern>(typeConverter, ctx);
   patterns.add<StableHLOPagedUpdateCacheConversionPattern>(typeConverter, ctx);
+  patterns.add<StableHLOPagedFillCacheConversionPattern>(typeConverter, ctx);
 }
 
 static void
