@@ -2001,6 +2001,28 @@ public:
 } // namespace
 
 namespace {
+class PagedScaledDotProductAttentionDecodeOpConversionPattern
+    : public OpConversionPattern<ttir::PagedScaledDotProductAttentionDecodeOp> {
+public:
+  using OpConversionPattern<
+      ttir::PagedScaledDotProductAttentionDecodeOp>::OpConversionPattern;
+  LogicalResult
+  matchAndRewrite(ttir::PagedScaledDotProductAttentionDecodeOp op,
+                  OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    rewriter.replaceOpWithNewOp<ttnn::PagedScaledDotProductAttentionDecodeOp>(
+        op, this->getTypeConverter()->convertType(op.getType()),
+        adaptor.getQuery(), adaptor.getKey(), adaptor.getValue(),
+        adaptor.getPageTable(), adaptor.getIsCausal(),
+        adaptor.getAttentionMask(), adaptor.getCurPosTensor(),
+        adaptor.getAttentionSink(), adaptor.getScaleAttr(),
+        /*memory_config=*/nullptr);
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 class ScaledDotProductAttentionOpConversionPattern
     : public OpConversionPattern<ttir::ScaledDotProductAttentionOp> {
 public:
@@ -2237,6 +2259,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            ConcatenateHeadsOpConversionPattern,
            ScaledDotProductAttentionOpConversionPattern,
            ScaledDotProductAttentionDecodeOpConversionPattern,
+           PagedScaledDotProductAttentionDecodeOpConversionPattern,
            SplitQueryKeyValueAndSplitHeadsOpConversionPattern
            >(typeConverter, ctx);
   // ANCHOR_END: op_rewriter_pattern_set
