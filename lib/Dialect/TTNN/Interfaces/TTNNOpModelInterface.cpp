@@ -3274,6 +3274,28 @@ ConvTranspose2dOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 }
 
 //===----------------------------------------------------------------------===//
+// Conv3dOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+// Conv3d is currently an experimental operation. OpModel support (constraint
+// validation and runtime estimation) is not yet implemented. Full support can
+// be added later when Conv3d matures.
+
+llvm::Expected<op_model::OpConstraints>
+Conv3dOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                           const OpConfig &opConfig) {
+  return detail::issueErrorForGetOpConstraints(
+      getOperation(), detail::ReasonForLackOfSupport::NoNeedForConstraintAPI);
+}
+
+llvm::Expected<size_t>
+Conv3dOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                       const OpConfig &opConfig) {
+  return detail::issueErrorForGetOpRuntime(
+      getOperation(), detail::ReasonForLackOfSupport::NoNeedForConstraintAPI);
+}
+
+//===----------------------------------------------------------------------===//
 // PrepareConv2dWeightsOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 

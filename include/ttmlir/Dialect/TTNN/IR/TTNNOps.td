@@ -1618,6 +1618,96 @@ def TTNN_Conv2dOp : TTNN_Op<"conv2d", [TTNN_DtypeOpInterface]> {
     }];
 }
 
+def TTNN_Conv3dOp : TTNN_Op<"conv3d", [TTNN_DtypeOpInterface]> {
+    let summary = "Conv3d operation.";
+    let description = [{
+      Applies a 3D convolution over an input volume composed of several input planes.
+
+      Inputs:
+      - `input` (AnyRankedTensor): expected in the following format (N, D, H, W, C) where:
+        - N is the batch size
+        - D is the depth of the input volume
+        - H is the height of the input planes
+        - W is the width of the input planes
+        - C is the number of input channels
+      - `weight` (AnyRankedTensor): expected in the following format (1, 1, K_D * K_H * K_W * C, O) where:
+        - K_D is the depth of the kernel
+        - K_H is the height of the kernel
+        - K_W is the width of the kernel
+        - C is the number of input channels
+        - O is the number of output channels
+        The spatial kernel dimensions and input channels are flattened together.
+      - `bias` (Optional<AnyRankedTensor>): expected in the following format (1, 1, 1, 32, O) where:
+        - O is the number of output channels
+
+      Attributes:
+      - `in_channels` (i32): The number of input channels.
+      - `out_channels` (i32): The number of output channels.
+      - `batch_size` (i32): The batch size.
+      - `input_depth` (i32): The input depth.
+      - `input_height` (i32): The input height.
+      - `input_width` (i32): The input width.
+      - `kernel_size` (array<3xi32>): [K_D, K_H, K_W] where K_D is the kernel depth, K_H is the kernel height and K_W is the kernel width.
+      - `stride` (array<3xi32>): [sD, sH, sW] where sD is stride for depth, sH for height and sW is stride for width.
+      - `padding` (array<3xi32>): [pD, pH, pW] where pD is padding for depth, pH is padding for height and pW is padding for width.
+        Padding is symmetric (same on both sides of each dimension).
+      - `padding_mode` (StrAttr): "zeros" or "replicate" - padding fill strategy.
+      - `groups` (i32): Number of blocked connections from input channels to output channels. Input and output channels must both be divisible by groups.
+
+      Outputs:
+      - `result` (AnyRankedTensor): returned in the following format (N, D_out, H_out, W_out, O) where:
+        - `D_out = (D_in + 2*pD - K_D) / sD + 1`
+        - `H_out = (H_in + 2*pH - K_H) / sH + 1`
+        - `W_out = (W_in + 2*pW - K_W) / sW + 1`
+
+      Example:
+        %input = ttir.empty() : () -> tensor<1x8x32x32x32xbf16>
+        %weight = ttir.empty() : () -> tensor<1x1x864x64xbf16>  // 864 = 3*3*3*32
+        %bias = ttir.empty() : () -> tensor<1x1x1x32x64xbf16>
+        %device = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
+        %0 = "ttnn.conv3d"(%input, %weight, %bias, %device)
+          <{
+            in_channels = 32: i32,
+            out_channels = 64: i32,
+            batch_size = 1: i32,
+            input_depth = 8: i32,
+            input_height = 32: i32,
+            input_width = 32: i32,
+            kernel_size = array<i32: 3, 3, 3>,
+            stride = array<i32: 1, 1, 1>,
+            padding = array<i32: 0, 0, 0>,
+            padding_mode = "zeros",
+            groups = 1: i32
+          }> : (tensor<1x8x32x32x32xbf16>, tensor<1x1x864x64xbf16>, tensor<1x1x1x32x64xbf16>, !ttnn.device) -> tensor<1x6x30x30x64xbf16>
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$weight,
+                         Optional<AnyRankedTensor>:$bias,
+                         TTNN_Device:$device,
+                         I32Attr:$in_channels,
+                         I32Attr:$out_channels,
+                         I32Attr:$batch_size,
+                         I32Attr:$input_depth,
+                         I32Attr:$input_height,
+                         I32Attr:$input_width,
+                         DenseI32ArrayAttr:$kernel_size,
+                         DenseI32ArrayAttr:$stride,
+                         DenseI32ArrayAttr:$padding,
+                         DefaultValuedAttr<StrAttr, "\"zeros\"">:$padding_mode,
+                         I32Attr:$groups,
+                         OptionalAttr<TTCore_DataTypeAttr>:$dtype);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 1;
+
+    let extraClassDeclaration = [{
+      int64_t getOutputChannelSize();
+      bool isBiasCompatible(llvm::ArrayRef<int64_t> biasDims);
+    }];
+}
+
 def TTNN_ConvTranspose2dOp : TTNN_Op<"conv_transpose2d", [TTNN_DtypeOpInterface]> {
     let summary = "ConvTranspose2d operation.";
     let description = [{

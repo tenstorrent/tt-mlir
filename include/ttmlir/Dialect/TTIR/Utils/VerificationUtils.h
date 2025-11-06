@@ -467,6 +467,7 @@ struct Conv3dParams {
   Spatial3DParam stride;
   Spatial3DParam padding;
   int64_t groups;
+  llvm::StringRef padding_mode;
 };
 
 template <typename PoolOp>
@@ -781,7 +782,7 @@ getConv3dParams(mlir::tt::ttir::Conv3dOp *op) {
   }
 
   return Conv3dParams{Spatial3DParam(*stride), Spatial3DParam(*padding),
-                      op->getGroups()};
+                      op->getGroups(), op->getPaddingMode()};
 }
 
 inline mlir::LogicalResult verifyConv3dParams(mlir::tt::ttir::Conv3dOp *op,
@@ -798,6 +799,11 @@ inline mlir::LogicalResult verifyConv3dParams(mlir::tt::ttir::Conv3dOp *op,
       !isNonNegative(params.padding.vertical) ||
       !isNonNegative(params.padding.horizontal)) {
     return op->emitOpError("Padding attribute values must be >= 0.");
+  }
+
+  if (params.padding_mode != "zeros" && params.padding_mode != "replicate") {
+    return op->emitOpError(
+        "padding_mode must be either 'zeros' or 'replicate'");
   }
 
   return mlir::success();
