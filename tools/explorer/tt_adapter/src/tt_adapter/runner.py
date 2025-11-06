@@ -513,7 +513,6 @@ class ModelRunner:
                 error = f"Error while running TTRT perf (exit code {ttrt_process.returncode})"
                 self.log(error, severity=logging.error)
                 # Check if tracy files exist
-                import os
                 perf_dir = f"{self.model_state[model_path].model_output_dir}/perf"
                 if os.path.exists(perf_dir):
                     files = os.listdir(perf_dir)
