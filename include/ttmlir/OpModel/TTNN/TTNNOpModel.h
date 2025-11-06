@@ -75,7 +75,7 @@ template <>
 struct OpModel<HardsigmoidOp> : UnaryEltwiseOpModel<HardsigmoidOp> {};
 
 template <>
-struct OpModel<SqrtOp> : UnaryEltwiseOpModel<SqrtOp> {};
+struct OpModel<SqrtOp> : UnaryEltwiseWithFastApproxModeOpModel<SqrtOp> {};
 
 template <>
 struct OpModel<SinOp> : UnaryEltwiseOpModel<SinOp> {};
@@ -138,7 +138,7 @@ template <>
 struct OpModel<MishOp> : UnaryEltwiseOpModel<MishOp> {};
 
 template <>
-struct OpModel<RsqrtOp> : UnaryEltwiseOpModel<RsqrtOp> {};
+struct OpModel<RsqrtOp> : UnaryEltwiseWithFastApproxModeOpModel<RsqrtOp> {};
 
 template <>
 struct OpModel<GeluOp> : UnaryEltwiseWithFastApproxModeOpModel<GeluOp> {};
@@ -1108,6 +1108,33 @@ struct OpModel<MaxPool2dOp> {
 };
 
 //===----------------------------------------------------------------------===//
+// MaxPool2dWithIndicesOp
+//===----------------------------------------------------------------------===//
+
+template <>
+struct OpModel<MaxPool2dWithIndicesOp> {
+  static llvm::Expected<OpConstraints> getOpConstraints(
+      ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
+      TTNNLayoutAttr inputLayout, int32_t batchSize, int32_t inputHeight,
+      int32_t inputWidth, int32_t inputChannels,
+      llvm::ArrayRef<int32_t> kernelSize, llvm::ArrayRef<int32_t> stride,
+      llvm::ArrayRef<int32_t> padding, llvm::ArrayRef<int32_t> dilation,
+      bool ceilMode, bool inPlaceHalo, bool deallocateInput,
+      bool reallocateHaloOutput, bool returnIndices,
+      TTNNLayoutAttr outputLayout);
+
+  static llvm::Expected<size_t>
+  getOpRuntime(llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+               int32_t batchSize, int32_t inputHeight, int32_t inputWidth,
+               int32_t inputChannels, llvm::ArrayRef<int32_t> kernelSize,
+               llvm::ArrayRef<int32_t> stride, llvm::ArrayRef<int32_t> padding,
+               llvm::ArrayRef<int32_t> dilation, bool ceilMode,
+               bool inPlaceHalo, bool deallocateInput,
+               bool reallocateHaloOutput, bool returnIndices,
+               TTNNLayoutAttr outputLayout);
+};
+
+//===----------------------------------------------------------------------===//
 // AvgPool2dOp
 //===----------------------------------------------------------------------===//
 
@@ -1430,6 +1457,25 @@ struct OpModel<mlir::tt::ttnn::RandOp> {
       mlir::tt::ttnn::MemoryConfigAttr memoryConfig,
       mlir::tt::ttnn::Layout layout, llvm::APFloat low, llvm::APFloat high,
       uint32_t seed, mlir::tt::ttnn::TTNNLayoutAttr outputLayout);
+};
+
+//===----------------------------------------------------------------------===//
+// AssignOp
+//===----------------------------------------------------------------------===//
+
+template <>
+struct OpModel<mlir::tt::ttnn::AssignOp> {
+  static llvm::Expected<OpConstraints>
+  getOpConstraints(mlir::tt::ttcore::GridAttr deviceGrid,
+                   llvm::ArrayRef<int64_t> inputShape,
+                   TTNNLayoutAttr inputLayout,
+                   mlir::tt::ttnn::MemoryConfigAttr outputMemConfig,
+                   std::optional<mlir::tt::ttcore::DataType> outputDtype);
+
+  static llvm::Expected<size_t>
+  getOpRuntime(llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+               mlir::tt::ttnn::MemoryConfigAttr outputMemConfig,
+               std::optional<mlir::tt::ttcore::DataType> outputDtype);
 };
 
 } // namespace mlir::tt::ttnn::op_model

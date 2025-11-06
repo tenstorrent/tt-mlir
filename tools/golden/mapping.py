@@ -2288,7 +2288,6 @@ def slice_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
 def slice_golden_stablehlo(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
     """
     Golden function for StableHLO slice operation.
-
     Parameters
     ----------
     input_tensor : GoldenMapTensor
@@ -2298,7 +2297,6 @@ def slice_golden_stablehlo(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMap
         - start_indices: Starting indices for each dimension
         - limit_indices: Ending indices (exclusive) for each dimension
         - strides: Strides for each dimension
-
     Returns
     -------
     GoldenMapTensor
@@ -2981,9 +2979,6 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.CollectiveBroadcastOp: collective_broadcast_golden,
     # Operations with parameter transformations
     ttir.LeakyReluOp: leaky_relu_golden,
-    # ----- TTNN OPS -----
-    # TTNN elementwise operations
-    ttnn.MultiplyOp: torch.multiply,
     # ----- D2M OPS -----
     # D2M Layout operations (identity functions)
     d2m.ToLayoutOp: (lambda x, **kwargs: x),
@@ -3004,7 +2999,73 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     stablehlo.SqrtOp: torch.sqrt,
     stablehlo.TanOp: torch.tan,
     stablehlo.SliceOp: slice_golden_stablehlo,
-    # TTNN elementwise operations
-    ttnn.MultiplyOp: torch.multiply,
+    # ----- TTNN OPS -----
+    # Elementwise unary operations
+    ttnn.AbsOp: torch.abs,
+    ttnn.CbrtOp: cbrt_golden,
+    ttnn.CeilOp: torch.ceil,
+    ttnn.CosOp: torch.cos,
+    ttnn.ErfOp: torch.erf,
+    ttnn.ErfcOp: torch.erfc,
+    ttnn.FloorOp: torch.floor,
+    ttnn.GeluOp: torch.nn.functional.gelu,
+    ttnn.IsFiniteOp: torch.isfinite,
+    ttnn.NegOp: torch.neg,
+    ttnn.TanOp: torch.tan,
+    ttnn.AtanOp: torch.atan,
+    ttnn.TanhOp: torch.tanh,
+    ttnn.ReciprocalOp: torch.reciprocal,
+    ttnn.ReluOp: torch.relu,
+    ttnn.Relu6Op: torch.nn.functional.relu6,
+    ttnn.RsqrtOp: torch.rsqrt,
+    ttnn.SigmoidOp: torch.sigmoid,
+    ttnn.SignOp: torch.sign,
+    ttnn.SiluOp: silu_golden,
+    ttnn.SinOp: torch.sin,
+    ttnn.SqrtOp: torch.sqrt,
+    ttnn.LogOp: torch.log,
+    ttnn.Log1pOp: torch.log1p,
+    ttnn.Expm1Op: torch.expm1,
+    ttnn.ExpOp: torch.exp,
+    ttnn.LeakyReluOp: leaky_relu_golden,
     ttnn.MishOp: torch.nn.functional.mish,
+    # Elementwise binary operations
+    ttnn.AddOp: torch.add,
+    ttnn.Atan2Op: torch.atan2,
+    ttnn.MultiplyOp: torch.multiply,
+    ttnn.SubtractOp: torch.subtract,
+    ttnn.DivideOp: torch.div,
+    ttnn.MaximumOp: torch.maximum,
+    ttnn.MinimumOp: torch.minimum,
+    ttnn.RemainderOp: torch.remainder,
+    ttnn.PowTensorOp: torch.pow,
+    # Comparison operations
+    ttnn.EqualOp: equal_golden,
+    ttnn.NotEqualOp: not_equal_golden,
+    ttnn.GreaterEqualOp: greater_equal_golden,
+    ttnn.GreaterThanOp: greater_than_golden,
+    ttnn.LessEqualOp: less_equal_golden,
+    ttnn.LessThanOp: less_than_golden,
+    # Logical operations
+    ttnn.LogicalAndOp: logical_and_golden,
+    ttnn.LogicalLeftShiftOp: logical_left_shift_golden,
+    ttnn.LogicalOrOp: logical_or_golden,
+    ttnn.LogicalRightShiftOp: logical_right_shift_golden,
+    ttnn.LogicalXorOp: logical_xor_golden,
+    ttnn.LogicalNotOp: logical_not_golden,
+    # Selection operations
+    ttnn.WhereOp: torch.where,
+    # Bitwise operations
+    ttnn.BitwiseAndOp: torch.bitwise_and,
+    ttnn.BitwiseOrOp: torch.bitwise_or,
+    ttnn.BitwiseXorOp: torch.bitwise_xor,
+    ttnn.BitwiseNotOp: torch.bitwise_not,
+    # Complex operations
+    ttnn.LinearOp: linear_golden,
+    # Tensor manipulation
+    ttnn.ConcatOp: concat_golden,
+    ttnn.RepeatOp: repeat_golden,
+    ttnn.RepeatInterleaveOp: repeat_interleave_golden,
+    ttnn.ClampScalarOp: clamp_scalar_golden,
+    ttnn.ClampTensorOp: clamp_tensor_golden,
 }

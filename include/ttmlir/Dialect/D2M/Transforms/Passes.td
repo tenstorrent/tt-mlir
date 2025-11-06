@@ -600,4 +600,49 @@ def D2MGenericReplaceGlobals : Pass<"d2m-generic-replace-globals", "::mlir::Modu
     3. The index corresponds to a valid operand in the parent generic operation
   }];
 }
+
+def D2MMaterializeViewReturns : Pass<"d2m-materialize-view-returns", "::mlir::ModuleOp"> {
+  let summary = "Materialize unmaterialized views before return operations";
+  let description = [{
+    This pass detects when a return value is an unmaterialized tensor view
+    (produced by view operations like d2m.view_layout or d2m.stream_layout)
+    and emits a d2m.generic op to consume and materialize the view before
+    returning it.
+
+    View operations in D2M represent tensor transformations using affine mappings
+    without actual data movement. These views are "representational" and are
+    normally consumed by generic ops that perform the actual fetching/transformation.
+    However, when a view result is directly returned without being consumed by a
+    generic op, there's no materialization, which can cause issues downstream.
+
+    Example transformation:
+    ```mlir
+    // Before:
+    func.func @example(%arg0: tensor<1x1x8x24x!ttcore.tile<32x32, f32>, #layout>)
+        -> tensor<8x8x1x3x!ttcore.tile<32x32, f32>, #layout> {
+      %view = d2m.view_layout %arg0 : tensor<1x1x8x24x!ttcore.tile<32x32, f32>, #layout>
+          -> tensor<8x8x1x3x!ttcore.tile<32x32, f32>, #layout>
+      return %view : tensor<8x8x1x3x!ttcore.tile<32x32, f32>, #layout>
+    }
+
+    // After:
+    func.func @example(%arg0: tensor<1x1x8x24x!ttcore.tile<32x32, f32>, #layout>)
+        -> tensor<8x8x1x3x!ttcore.tile<32x32, f32>, #layout> {
+      %view = d2m.view_layout %arg0 : tensor<1x1x8x24x!ttcore.tile<32x32, f32>, #layout>
+          -> tensor<8x8x1x3x!ttcore.tile<32x32, f32>, #layout>
+      %empty = d2m.empty() : tensor<8x8x1x3x!ttcore.tile<32x32, f32>, #layout>
+      %materialized = d2m.generic {grid = #ttcore.grid<8x8>, ...}
+          ins(%view : tensor<8x8x1x3x!ttcore.tile<32x32, f32>, #layout>)
+          outs(%empty : tensor<8x8x1x3x!ttcore.tile<32x32, f32>, #layout>) {
+        ^bb0(%in: memref<...>, %out: memref<...>):
+          d2m.yield %in : memref<...>
+      } : tensor<8x8x1x3x!ttcore.tile<32x32, f32>, #layout>
+      return %materialized : tensor<8x8x1x3x!ttcore.tile<32x32, f32>, #layout>
+    }
+    ```
+
+    This pass should run after layout lowering and before bufferization.
+  }];
+  let dependentDialects = ["::mlir::tt::d2m::D2MDialect", "::mlir::tt::ttcore::TTCoreDialect"];
+}
 #endif
