@@ -62,12 +62,10 @@ flattenOneComposite(mlir::stablehlo::CompositeOp comp,
 
   // 3) Prepare mapping from callee arguments to composite operands.
   mlir::IRMapping mapping;
-  {
-    auto calleeEntry = &callee.getBody().front();
-    for (int64_t i = 0; i < static_cast<int64_t>(comp->getNumOperands()); ++i) {
-      mlir::BlockArgument arg = calleeEntry->getArgument(i);
-      mapping.map(arg, comp->getOperand(i));
-    }
+  auto &calleeEntry = callee.getBody().front();
+  for (int64_t i = 0; i < static_cast<int64_t>(comp->getNumOperands()); ++i) {
+    mlir::BlockArgument arg = calleeEntry.getArgument(i);
+    mapping.map(arg, comp->getOperand(i));
   }
 
   // 4) Clone callee body ops (excluding the terminator) at the call site.
@@ -76,26 +74,23 @@ flattenOneComposite(mlir::stablehlo::CompositeOp comp,
   bool seeded = false;
   llvm::SmallVector<mlir::Operation *> clonedOps;
 
-  {
-    auto &calleeEntry = callee.getBody().front();
-    // Insert cloned ops right before the composite op.
-    builder.setInsertionPoint(comp);
+  // Insert cloned ops right before the composite op.
+  builder.setInsertionPoint(comp);
 
-    for (mlir::Operation &inner : calleeEntry.without_terminator()) {
-      mlir::Operation *cloned = builder.clone(inner, mapping);
-      // Tag the cloned operation with the group marker.
-      cloned->setAttr(sharding_utils::kGroupAttr, groupAttr);
+  for (mlir::Operation &inner : calleeEntry.without_terminator()) {
+    mlir::Operation *cloned = builder.clone(inner, mapping);
+    // Tag the cloned operation with the group marker.
+    cloned->setAttr(sharding_utils::kGroupAttr, groupAttr);
 
-      if (!seeded) {
-        cloned->setAttr(sharding_utils::kSeedAttr, seedAttr);
-        // "tenstorrent.gelu_tanh"
-        cloned->setAttr(sharding_utils::kOrigNameAttr, origName);
-        // { approximate = "tanh" }
-        cloned->setAttr(sharding_utils::kCompAttrsAttr, origCompAttrs);
-        seeded = true;
-      }
-      clonedOps.push_back(cloned);
+    if (!seeded) {
+      cloned->setAttr(sharding_utils::kSeedAttr, seedAttr);
+      // "tenstorrent.gelu_tanh"
+      cloned->setAttr(sharding_utils::kOrigNameAttr, origName);
+      // { approximate = "tanh" }
+      cloned->setAttr(sharding_utils::kCompAttrsAttr, origCompAttrs);
+      seeded = true;
     }
+    clonedOps.push_back(cloned);
   }
 
   // 5) Handle callee terminator: replace composite results with mapped return

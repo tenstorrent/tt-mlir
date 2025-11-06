@@ -3,7 +3,7 @@
 // RUN: FileCheck %s --input-file=%t
 
 module @TwoGelus attributes {mhlo.cross_program_prefetches = [], mhlo.frontend_attributes = {xla.sdy.meshes = "{mesh = #sdy.mesh<[\22_axis_0\22=2]>}"}, mhlo.input_output_alias = [], mhlo.is_dynamic = false, mhlo.use_auto_spmd_partitioning = false} {
-    func.func @main(%arg0: tensor<32x32xf32> {mhlo.frontend_attributes = {xla.sdy.sharding = "#sdy.sharding<@mesh, [{}, {\22_axis_0\22}]>"}, mhlo.sharding = "{devices=[1,2]<=[2]}"} ) -> tensor<32x32xf32> {        
+    func.func @main(%arg0: tensor<32x32xf32> {mhlo.frontend_attributes = {xla.sdy.sharding = "#sdy.sharding<@mesh, [{}, {\22_axis_0\22}]>"}, mhlo.sharding = "{devices=[1,2]<=[2]}"} ) -> tensor<32x32xf32> {
         %0 = stablehlo.reshape %arg0 : (tensor<32x32xf32>) -> tensor<1x32x32xf32>
         %1 = stablehlo.reshape %0 : (tensor<1x32x32xf32>) -> tensor<32x32xf32>
         // CHECK: ttir.gelu
@@ -57,6 +57,3 @@ module @TwoGelus attributes {mhlo.cross_program_prefetches = [], mhlo.frontend_a
         return %12 : tensor<32x32xf32>
     }
 }
-
-// -----
-

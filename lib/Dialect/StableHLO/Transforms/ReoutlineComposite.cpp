@@ -77,7 +77,7 @@ static bool analyzeBoundary(const llvm::SmallVector<mlir::Operation *> &ops,
   llvm::SmallDenseSet<mlir::Value> captureSet;
   for (auto *op : sorted) {
     for (mlir::Value v : op->getOperands()) {
-      if (auto defOp = v.getDefiningOp()) {
+      if (auto *defOp = v.getDefiningOp()) {
         if (!inGroup.contains(defOp)) {
           captureSet.insert(v);
         }
