@@ -167,6 +167,9 @@ jobs:
       id: run-tests
       shell: bash
       run: |
+        # Print load average (1min, 5min, 15min)
+        python3 -c "import os; print(f'Load average: {os.getloadavg()}')" || true
+        
         # Copy perf artifacts for debugging (tracy_ops_data.csv, ops_perf_results.csv, etc.)
         # Do this before summary processing so we get artifacts even if tests fail
         echo "Copying perf artifacts to ttrt_results for upload..."
