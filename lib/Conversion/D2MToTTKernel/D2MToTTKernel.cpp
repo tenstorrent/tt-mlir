@@ -16,6 +16,7 @@
 #include "mlir/Dialect/Affine/ViewLikeInterfaceUtils.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/Operation.h"
@@ -832,6 +833,20 @@ public:
   LogicalResult
   matchAndRewrite(D2MCBOp op, typename D2MCBOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
+    // For ops in merged DMA regions, each original thread is scoped in a
+    // separate scf.execute_region to ensure CB release ops for
+    // reader-writer kernels do not conflict. Now that the release ops are being
+    // inserted, remove the no_inline attribute so the scf.execute_region ops
+    // can be canonicalized.
+    if (auto executeRegionOp =
+            dyn_cast<scf::ExecuteRegionOp>(op->getParentOp())) {
+      if (executeRegionOp->hasAttr("no_inline")) {
+        rewriter.modifyOpInPlace(executeRegionOp, [&]() {
+          executeRegionOp->removeAttr("no_inline");
+        });
+      }
+    }
+
     auto device = ttcore::lookupDevice(op);
 
     auto cbNumPages = device.getMemrefCBNumPages(
