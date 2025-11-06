@@ -1961,6 +1961,9 @@ class SplitQueryKeyValueAndSplitHeadsUpdatePattern
     TYPE_NONE = 2,
   };
 
+  llvm::SmallVector<int64_t> expectedPermute = {0, 2, 1, 3};
+  llvm::SmallVector<int64_t> expectedTransposedPermute = {0, 2, 3, 1};
+
 public:
   mlir::LogicalResult
   matchAndRewrite(ReshapeOp reshapeOp,
@@ -2353,7 +2356,7 @@ private:
   }
 
   bool validatePermuteOps(ReshapeOp reshapeOp,
-                          llvm::ArrayRef<PermuteOp> permuteOps) const {
+                          llvm::SmallVector<PermuteOp> &permuteOps) const {
     if (permuteOps.size() != 3) {
       return false;
     }
@@ -2397,11 +2400,22 @@ private:
     }
 
     // Key can be transposed or not.
+    llvm::ArrayRef<int64_t> queryPermutation = permuteOps[0].getPermutation();
+    llvm::ArrayRef<int64_t> keyPermutation = permuteOps[1].getPermutation();
+    llvm::ArrayRef<int64_t> valuePermutation = permuteOps[2].getPermutation();
+    if (!llvm::equal(queryPermutation, expectedPermute) ||
+        !llvm::equal(valuePermutation, expectedPermute)) {
+      return false;
+    }
+
     bool transposeKey = isKeyTransposed(keyShape, queryShape);
     if (!transposeKey) {
       // If key is not transposed, it should have the expected output shape.
       if (keyShape[O_SEQUENCE_LENGTH] != queryShape[O_SEQUENCE_LENGTH] ||
           keyShape[O_HEAD_SIZE] != queryShape[O_HEAD_SIZE]) {
+        return false;
+      }
+      if (!llvm::equal(keyPermutation, expectedPermute)) {
         return false;
       }
     }
@@ -2410,6 +2424,9 @@ private:
       // If key is transposed, it should have the expected transposed shape.
       if (keyShape[K_HEAD_SIZE] != queryShape[O_HEAD_SIZE] ||
           keyShape[K_SEQUENCE_LENGTH] != queryShape[O_SEQUENCE_LENGTH]) {
+        return false;
+      }
+      if (!llvm::equal(keyPermutation, expectedTransposedPermute)) {
         return false;
       }
     }
