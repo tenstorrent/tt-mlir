@@ -1257,6 +1257,11 @@ getOpOutputRef(OpContext opContextHandle,
     tensorRef = opContext.type_as_ScaledDotProductAttentionDecodeOp()->out();
     break;
   }
+  case ::tt::target::ttnn::OpType::PagedScaledDotProductAttentionDecodeOp: {
+    tensorRef =
+        opContext.type_as_PagedScaledDotProductAttentionDecodeOp()->out();
+    break;
+  }
   case ::tt::target::ttnn::OpType::ScaledDotProductAttentionOp: {
     tensorRef = opContext.type_as_ScaledDotProductAttentionOp()->out();
     break;
@@ -1663,6 +1668,21 @@ getOpInputRefs(OpContext opContextHandle,
         opContext.type_as_ScaledDotProductAttentionOp()->key(),
         opContext.type_as_ScaledDotProductAttentionOp()->value(),
         opContext.type_as_ScaledDotProductAttentionOp()->attention_mask()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::PagedScaledDotProductAttentionDecodeOp: {
+    tensorRefs = {
+        opContext.type_as_PagedScaledDotProductAttentionDecodeOp()->query(),
+        opContext.type_as_PagedScaledDotProductAttentionDecodeOp()->key(),
+        opContext.type_as_PagedScaledDotProductAttentionDecodeOp()->value(),
+        opContext.type_as_PagedScaledDotProductAttentionDecodeOp()
+            ->page_table(),
+        opContext.type_as_PagedScaledDotProductAttentionDecodeOp()
+            ->attention_mask(),
+        opContext.type_as_PagedScaledDotProductAttentionDecodeOp()
+            ->cur_pos_tensor(),
+        opContext.type_as_PagedScaledDotProductAttentionDecodeOp()
+            ->attention_sink()};
     break;
   }
   case ::tt::target::ttnn::OpType::RotaryEmbeddingLlamaOp: {

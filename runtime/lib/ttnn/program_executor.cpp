@@ -75,6 +75,7 @@
 #include "operations/transformer/nlp_concat_heads.h"
 #include "operations/transformer/nlp_concat_heads_decode.h"
 #include "operations/transformer/nlp_create_qkv_heads_decode.h"
+#include "operations/transformer/paged_scaled_dot_product_attention_decode.h"
 #include "operations/transformer/rotary_embedding_llama.h"
 #include "operations/transformer/scaled_dot_product_attention.h"
 #include "operations/transformer/scaled_dot_product_attention_decode.h"
@@ -439,6 +440,10 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   case ::tt::target::ttnn::OpType::ScaledDotProductAttentionDecodeOp: {
     return operations::transformer::run(
         op->type_as_ScaledDotProductAttentionDecodeOp(), getContext());
+  }
+  case ::tt::target::ttnn::OpType::PagedScaledDotProductAttentionDecodeOp: {
+    return operations::transformer::run(
+        op->type_as_PagedScaledDotProductAttentionDecodeOp(), getContext());
   }
   case ::tt::target::ttnn::OpType::ScaledDotProductAttentionOp: {
     return operations::transformer::run(

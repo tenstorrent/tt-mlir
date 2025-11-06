@@ -83,3 +83,17 @@ table SplitQueryKeyValueAndSplitHeadsOp {
   transpose_key: bool;
   memcfg: tt.target.ttnn.MemoryConfig;
 }
+
+table PagedScaledDotProductAttentionDecodeOp {
+  query: tt.target.ttnn.TensorRef;
+  key: tt.target.ttnn.TensorRef;
+  value: tt.target.ttnn.TensorRef;
+  page_table: tt.target.ttnn.TensorRef;
+  is_causal: bool;
+  attention_mask: tt.target.ttnn.TensorRef;
+  cur_pos_tensor: tt.target.ttnn.TensorRef;
+  attention_sink: tt.target.ttnn.TensorRef;
+  scale: float = null;
+  out: tt.target.ttnn.TensorRef;
+  memcfg: tt.target.ttnn.MemoryConfig;
+}
