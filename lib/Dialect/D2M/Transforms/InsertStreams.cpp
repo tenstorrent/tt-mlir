@@ -28,7 +28,8 @@ public:
 
   LogicalResult matchAndRewrite(d2m::GenericOp op,
                                 PatternRewriter &rewriter) const final {
-    TT_assertv(!allowL1OutputSpilling, "L1 output spilling is not allowed");
+    // NOTE: Disabled to enable output streaming support
+    // TT_assertv(!allowL1OutputSpilling, "L1 output spilling is not allowed");
 
     // For DMA-only form, stream insertion will break semantics.
     if (op.isDMAOnlyForm()) {
