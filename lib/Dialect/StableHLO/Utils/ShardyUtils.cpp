@@ -287,43 +287,45 @@ getDefaultTensorSdyShardingAttr(MLIRContext *context, llvm::StringRef meshName,
 // Get the argument sharding attributes.
 llvm::SmallVector<mlir::sdy::TensorShardingAttr>
 getInShardingAttrs(MLIRContext *context, func::FuncOp &funcOp,
-                   mlir::sdy::MeshOp &globalMeshOp) {
+                   mlir::sdy::MeshOp &globalMeshOp, bool createIfMissing) {
   llvm::SmallVector<mlir::sdy::TensorShardingAttr> inShardingAttrs;
+
+  auto createDefaultShardingAttr = [&](uint32_t argNum) {
+    if (!createIfMissing) {
+      return mlir::sdy::TensorShardingAttr();
+    }
+    funcOp.emitWarning("In function ")
+        << funcOp.getName() << " argument #: " << argNum
+        << " is not annotated with sdy.sharding. Using default "
+           "sharding annotation (ie all dimensions replicated)";
+    mlir::sdy::TensorShardingAttr shardingAttr =
+        shardy_utils::getDefaultTensorSdyShardingAttr(
+            context, globalMeshOp.getSymName(),
+            funcOp.getArgument(argNum).getType());
+
+    // Set argument with it's default sdy.sharding attribute
+    mlir::DictionaryAttr newDictAttr =
+        shardy_utils::addDictionaryAttrSdyShardingAnnotation(
+            context, shardingAttr,
+            funcOp.getArgAttrDict(funcOp.getArgument(argNum).getArgNumber()));
+    funcOp.setArgAttrs(argNum, newDictAttr);
+
+    return shardingAttr;
+  };
 
   for (auto arg : funcOp.getArguments()) {
     // Get the tensor sharding attribute from argument dictionary.
     mlir::sdy::TensorShardingAttr shardingAttr;
-    if (auto argAttrDict = funcOp.getArgAttrDict(arg.getArgNumber())) {
+    auto argNumber = arg.getArgNumber();
+    if (auto argAttrDict = funcOp.getArgAttrDict(argNumber)) {
       shardingAttr = mlir::dyn_cast_if_present<mlir::sdy::TensorShardingAttr>(
           argAttrDict.get(mlir::sdy::TensorShardingAttr::name));
 
       if (!shardingAttr) {
-        funcOp.emitWarning("In function ")
-            << funcOp.getName() << " argument #: " << arg.getArgNumber()
-            << " is not annotated with sdy.sharding. Using default "
-               "sharding annotation (ie all dimensions replicated)";
-        shardingAttr = shardy_utils::getDefaultTensorSdyShardingAttr(
-            context, globalMeshOp.getSymName(), arg.getType());
-
-        // Set argument with it's default sdy.sharding attribute
-        mlir::DictionaryAttr newDictAttr =
-            shardy_utils::addDictionaryAttrSdyShardingAnnotation(
-                context, shardingAttr, argAttrDict);
-        funcOp.setArgAttrs(arg.getArgNumber(), newDictAttr);
+        shardingAttr = createDefaultShardingAttr(argNumber);
       }
     } else {
-      funcOp.emitWarning("In function ")
-          << funcOp.getName() << " argument #: " << arg.getArgNumber()
-          << " does not have an attributes dictionary. Using default "
-             "sharding annotation (ie all dimensions replicated)";
-      shardingAttr = shardy_utils::getDefaultTensorSdyShardingAttr(
-          context, globalMeshOp.getSymName(), arg.getType());
-
-      // Set argument with it's default sdy.sharding attribute
-      mlir::DictionaryAttr newDictAttr =
-          shardy_utils::addDictionaryAttrSdyShardingAnnotation(context,
-                                                               shardingAttr);
-      funcOp.setArgAttrs(arg.getArgNumber(), newDictAttr);
+      shardingAttr = createDefaultShardingAttr(argNumber);
     }
 
     inShardingAttrs.push_back(shardingAttr);
@@ -658,7 +660,10 @@ bool isShardedModule(mlir::ModuleOp &module) {
   auto globalMeshOp = parsedMeshOps[0];
   for (auto funcOp : module.getOps<mlir::func::FuncOp>()) {
     for (auto inSharding :
-         getInShardingAttrs(funcOp.getContext(), funcOp, globalMeshOp)) {
+         getInShardingAttrs(funcOp.getContext(), funcOp, globalMeshOp, false)) {
+      if (!inSharding) {
+        continue;
+      }
       if (!isFullyReplicatedTensor(inSharding)) {
         return true;
       }

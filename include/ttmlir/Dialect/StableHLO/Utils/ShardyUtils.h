@@ -109,7 +109,8 @@ getDefaultTensorSdyShardingAttr(MLIRContext *context, llvm::StringRef meshName,
 // Get the argument sharding attributes.
 llvm::SmallVector<mlir::sdy::TensorShardingAttr>
 getInShardingAttrs(MLIRContext *context, func::FuncOp &funcOp,
-                   mlir::sdy::MeshOp &globalMeshOp);
+                   mlir::sdy::MeshOp &globalMeshOp,
+                   bool createIfMissing = true);
 
 // Get the result sharding attributes.
 llvm::SmallVector<mlir::sdy::TensorShardingAttr>
