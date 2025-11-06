@@ -1157,10 +1157,11 @@ class D2MGatherOpRewriter : public OpConversionPattern<ttir::GatherOp> {
     Location loc = gatherOp.getLoc();
 
     Value startIndices = adaptor.getStartIndices();
-    Value operand = adaptor.getOperands()[0];
+    Value operand = adaptor.getInput();
 
-    auto resultType = getTypeConverter()->convertType<RankedTensorType>(gatherOp.getType());
-    RankedTensorType startIndicesType = cast<RankedTensorType>(startIndices.getType());
+    RankedTensorType operandType = getTypeConverter()->convertType<RankedTensorType>(operand.getType());
+    RankedTensorType startIndicesType = getTypeConverter()->convertType<RankedTensorType>(startIndices.getType());
+    RankedTensorType resultType = getTypeConverter()->convertType<RankedTensorType>(gatherOp.getType());
 
     int64_t resultRank = resultType.getRank();
     // slice_sizes has to have the same size as operand.rank, and doing it this
@@ -1178,9 +1179,68 @@ class D2MGatherOpRewriter : public OpConversionPattern<ttir::GatherOp> {
     ArrayRef<int64_t> startIndexMap =
         gatherOp.getStartIndexMap();
 
-    Value emptyOp = getEmptyTensorFor(builder, loc, resultType, gatherOp,adaptor.getOperands());
-    SmallVector<AffineMap, 1> indexingMaps({rewriter.getMultiDimIdentityMap(resultRank)});
+    // Define layout attributes for all gather operands and results.
+    llvm::SmallVector<int64_t> dimAlignments(operandType.getShape().size(), 1);
+    dimAlignments[dimAlignments.size() - 1] = 32;
+    dimAlignments[dimAlignments.size() - 2] = 32;
 
+    auto i64Ty = IntegerType::get(rewriter.getContext(), 64);
+    auto intervalTy = RankedTensorType::get({2, 2}, i64Ty);
+    DenseIntElementsAttr collapsedIntervals = DenseIntElementsAttr::get(intervalTy, llvm::ArrayRef<llvm::ArrayRef<int64_t>>({{0, 1}, {1, 2}}));
+    
+    auto metalLayout = ttcore::MetalLayoutAttr::get(
+      getContext(), operandType.getShape(), ttcore::OOBVal::Undef,
+      ttcore::MemorySpace::DeviceDRAM, ttcore::TensorMemoryLayout::Sharded, collapsedIntervals, dimAlignments);
+
+    [[maybe_unused]] auto empty = builder.create<d2m::EmptyOp>(
+      loc,
+      operandType.getShape(),
+      operandType.getElementType(),
+      metalLayout);
+
+    /*
+    auto tensorType = mlir::cast<mlir::RankedTensorType>(value.getType());
+    auto ttnnLayout =
+        mlir::cast<ttnn::TTNNLayoutAttr>(tensorType.getEncoding());
+
+    assertTTNNLayoutSupported(ttnnLayout);
+
+    ttcore::MemorySpace memSpace =
+        ttnnLayout.getBufferType() == ttnn::BufferType::DRAM
+            ? ttcore::MemorySpace::DeviceDRAM
+            : ttcore::MemorySpace::DeviceL1;
+
+    auto i64Ty = IntegerType::get(rewriter.getContext(), 64);
+    auto intervalTy = RankedTensorType::get({1, 2}, i64Ty);
+    DenseIntElementsAttr collapsedIntervals =
+        DenseIntElementsAttr::get(intervalTy, llvm::ArrayRef<int64_t>({0, -1}));
+
+    ttcore::TensorMemoryLayout memLayout =
+        (ttnnLayout.getMemLayout().getValue() ==
+         ttnn::TensorMemoryLayout::Interleaved)
+            ? ttcore::TensorMemoryLayout::Interleaved
+            : ttcore::TensorMemoryLayout::Sharded;
+
+    llvm::SmallVector<int64_t> dimAlignments(tensorType.getShape().size(), 1);
+    dimAlignments[dimAlignments.size() - 1] = 32;
+    dimAlignments[dimAlignments.size() - 2] = 32;
+
+    auto metalLayout = ttcore::MetalLayoutAttr::get(
+        rewriter.getContext(), tensorType.getShape(), ttcore::OOBVal::Undef,
+        memSpace, memLayout, collapsedIntervals, dimAlignments);
+
+    llvm::SmallVector<int64_t> unshardedShape =
+        metalLayout.getPhysicalShape(ttcore::TileType::getDefaultShape());
+
+    llvm::SmallVector<int64_t> shardedShape = metalLayout.getDeviceShape(
+        ttnnLayout.getGrid().getShape(), ttcore::TileType::getDefaultShape());
+
+    Type elementType = ttnnLayout.getElementType();
+    return mlir::RankedTensorType::get(shardedShape, elementType, metalLayout);
+    */
+
+
+    Value emptyOp = getEmptyTensorFor(builder, loc, resultType, gatherOp,adaptor.getOperands());
     SmallVector<Value> ivs;
     // Verify all static before using affine.for
     for (int64_t i = 0; i < resultRank; ++i) {
