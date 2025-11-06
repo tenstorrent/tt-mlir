@@ -17,12 +17,16 @@ namespace mlir::tt::ttcore {
 inline void setTTCoreBufferizationTypeConverter(
     bufferization::OneShotBufferizationOptions &options) {
   options.functionArgTypeConverterFn =
-      [](TensorType tensorType, Attribute memorySpace, func::FuncOp funcOp,
-         const bufferization::BufferizationOptions &options) -> BaseMemRefType {
+      [](bufferization::TensorLikeType tensorType, Attribute memorySpace,
+         func::FuncOp funcOp,
+         const bufferization::BufferizationOptions &options)
+      -> bufferization::BufferLikeType {
     auto rankedTensorType = mlir::dyn_cast<RankedTensorType>(tensorType);
     if (!rankedTensorType) {
       // Fallback to default conversion for unranked tensors.
-      return UnrankedMemRefType::get(tensorType.getElementType(), memorySpace);
+      auto unrankedTensorType = mlir::cast<UnrankedTensorType>(tensorType);
+      return mlir::cast<bufferization::BufferLikeType>(UnrankedMemRefType::get(
+          unrankedTensorType.getElementType(), memorySpace));
     }
 
     // Check if this tensor has a MetalLayoutAttr encoding.
@@ -33,8 +37,9 @@ inline void setTTCoreBufferizationTypeConverter(
     }
 
     // For tensors without MetalLayoutAttr, use default identity layout.
-    return bufferization::getMemRefTypeWithStaticIdentityLayout(
-        rankedTensorType, memorySpace);
+    return mlir::cast<bufferization::BufferLikeType>(
+        bufferization::getMemRefTypeWithStaticIdentityLayout(rankedTensorType,
+                                                             memorySpace));
   };
 }
 

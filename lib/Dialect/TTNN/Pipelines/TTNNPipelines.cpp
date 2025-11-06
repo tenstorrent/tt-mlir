@@ -42,8 +42,7 @@ void createTTNNPipelineTTIRPasses(
       mlir::tt::ttcore::createTTPopulateArgumentTypes(options.argumentTypeMap));
   pm.addPass(mlir::createCanonicalizerPass());
   ttir::TTIRFusingOptions fusingOptions{
-      options.enableFusingConv2dWithMultiplyPattern,
-      options.enableFusingGlobalPoolPattern};
+      options.enableFusingConv2dWithMultiplyPattern};
   if (options.enableFusing) {
     pm.addPass(mlir::tt::ttir::createTTIRFusing(fusingOptions));
   }
@@ -70,6 +69,9 @@ void createTTNNPipelineTTIRPasses(
   if (options.eraseInverseOpsEnabled) {
     pm.addPass(mlir::tt::ttir::createTTIRExplicateTMs());
     pm.addPass(mlir::tt::ttir::createTTIREraseInverseOps());
+  }
+  if (options.implicitBroadcastFoldingEnabled) {
+    pm.addPass(mlir::tt::ttir::createTTIRImplicitBroadcastFold());
   }
   if (options.enableFusing) {
     pm.addPass(mlir::tt::ttir::createTTIRFusing(fusingOptions));
@@ -128,6 +130,12 @@ void createTTNNPipelineLoweringPasses(
 // Create a pass to workaround issues in the TTNN dialect.
 void createTTNNPipelineWorkaroundPass(
     OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
+
+  // If the workaround pass is disabled, skip adding it.
+  if (options.disableWorkarounds) {
+    return;
+  }
+
   TTNNWorkaroundsOptions workaroundOptions{
       options.layoutWorkaroundsEnabled,
       options.decompositionWorkaroundsEnabled};
@@ -148,13 +156,6 @@ void createTTNNPipelineLayoutDecompositionPass(
 void createTTNNPipelineDeallocPass(
     OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
   pm.addPass(createTTNNDeallocate());
-}
-
-void createTTNNPipelineTTIRImplicitBroadcastFoldPass(
-    OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
-  if (options.implicitBroadcastFoldingEnabled) {
-    pm.addPass(mlir::tt::ttir::createTTIRImplicitBroadcastFold());
-  }
 }
 
 void createTTIRToTTNNBackendPipeline(
@@ -181,7 +182,6 @@ void createTTIRToTTNNBackendPipeline(
   OpPassManager &devicePm =
       pm.nest<ttcore::DeviceModuleOp>().nest<mlir::ModuleOp>();
   createTTNNPipelineTTIRPasses(devicePm, options);
-  createTTNNPipelineTTIRImplicitBroadcastFoldPass(devicePm, options);
 
   ttir::TTIRQuantDataTypeConversionPassOptions quantOptions;
   quantOptions.targetBitWidth = options.quantBitWidth;

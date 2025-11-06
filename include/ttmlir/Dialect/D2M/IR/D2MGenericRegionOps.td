@@ -250,6 +250,26 @@ def D2M_TileSigmoidOp : D2M_GenericRegionComputeUnaryDstOp<"tile_sigmoid", D2M_T
     let results = (outs TTCore_Tile:$result);
 }
 
+def D2M_TileSiluOp : D2M_GenericRegionComputeUnaryDstOp<"tile_silu", D2M_TileComputeOpTraitBundle> {
+    let summary = "D2M Tile Sliu Op";
+    let description = [{
+        The `tile_silu` operation computes the silu of each element in the input tile.
+    }];
+
+    let arguments = (ins TTCore_Tile:$input);
+    let results = (outs TTCore_Tile:$result);
+}
+
+def D2M_TileReluOp : D2M_GenericRegionComputeUnaryDstOp<"tile_relu", D2M_TileComputeOpTraitBundle> {
+    let summary = "D2M Tile Relu Op";
+    let description = [{
+        The `tile_relu` operation computes the relu of each element in the input tile.
+    }];
+
+    let arguments = (ins TTCore_Tile:$input);
+    let results = (outs TTCore_Tile:$result);
+}
+
 def D2M_TileGeluOp : D2M_GenericRegionComputeUnaryDstOp<"tile_gelu", D2M_TileComputeOpTraitBundle> {
     let summary = "D2M Tile GELU Op";
     let description = [{
@@ -1011,7 +1031,7 @@ def D2M_YieldOp : D2M_GenericRegionOp<"yield", [
         mlir::bufferization::AliasingValueList result;
         return result;
       }
-      mlir::FailureOr<mlir::BaseMemRefType> $cppClass::getBufferType(
+      mlir::FailureOr<mlir::bufferization::BufferLikeType> $cppClass::getBufferType(
           mlir::Value, const mlir::bufferization::BufferizationOptions &,
           const mlir::bufferization::BufferizationState &,
           ::llvm::SmallVector<mlir::Value> &) {
@@ -1101,7 +1121,7 @@ class D2M_CBOp<string mnemonic, list<Trait> traits = []> : D2M_GenericRegionOp<m
       return result;
     }
 
-    mlir::FailureOr<mlir::BaseMemRefType> $cppClass::getBufferType(
+    mlir::FailureOr<mlir::bufferization::BufferLikeType> $cppClass::getBufferType(
         mlir::Value value, const mlir::bufferization::BufferizationOptions &,
         const mlir::bufferization::BufferizationState &,
         ::llvm::SmallVector<mlir::Value> &) {
@@ -1225,7 +1245,7 @@ def D2M_StoreOp : D2M_GenericRegionOp<"store",
       return result;
     }
 
-    mlir::FailureOr<mlir::BaseMemRefType> mlir::tt::d2m::StoreOp::getBufferType(
+    mlir::FailureOr<mlir::bufferization::BufferLikeType> mlir::tt::d2m::StoreOp::getBufferType(
         mlir::Value value, const mlir::bufferization::BufferizationOptions &,
         const mlir::bufferization::BufferizationState &,
         ::llvm::SmallVector<mlir::Value> &) {

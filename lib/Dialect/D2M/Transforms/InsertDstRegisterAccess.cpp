@@ -17,7 +17,6 @@
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/BuiltinAttributes.h"
-#include "mlir/IR/BuiltinOps.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
 namespace mlir::tt::d2m {
@@ -77,6 +76,10 @@ public:
       Region *genericRegion = &op.getRegion(regionIndex);
       Block &block = genericRegion->getBlocks().front();
 
+      if (!op.hasComputeOpsInRegion(regionIndex)) {
+        return failure();
+      }
+
       Type largestDstType = utils::getRegionLargestDstElemType(*genericRegion);
       const unsigned dstCapacity =
           ttcore::getOpChipDescAttr(op).getDstLogicalSizeTiles(
@@ -85,10 +88,15 @@ public:
       bool linalgToAffineFailed = false;
       block.walk([&](linalg::GenericOp linalgGenericOp) {
         if (!useTileMatmul && hasTileMatmul(linalgGenericOp)) {
-          linalgToAffineFailed |= rewriteTileMatmulAsTileMatmulBlock(
-              rewriter, op, *genericRegion, linalgGenericOp, dstCapacity,
-              modified);
-          return;
+          // Only use tile matmul block rewrite when not in explicit
+          // datamovement form. Explicit datamovement form should fall through
+          // to regular linalg-to-affine conversion.
+          if (!op.isExplicitDatamovementForm()) {
+            linalgToAffineFailed |= rewriteTileMatmulAsTileMatmulBlock(
+                rewriter, op, *genericRegion, linalgGenericOp, dstCapacity,
+                modified);
+            return;
+          }
         }
 
         rewriter.setInsertionPoint(linalgGenericOp);
@@ -345,8 +353,9 @@ public:
     copyInfo.push_back(loadOrStore, nextDstSliceIndex);
     BlockArgument blockArg = lookThroughSubView(loadOrStore.getMemRef());
     SmallVector<int64_t> guardIndices =
-        blockArg ? op.getNonParticipatingLoopDims(blockArg.getArgNumber())
-                 : SmallVector<int64_t>{};
+        (blockArg && !op.isExplicitDatamovementForm())
+            ? op.getNonParticipatingLoopDims(blockArg.getArgNumber())
+            : SmallVector<int64_t>{};
     if (inserted) {
       // First access in this loop nest - set the guard indices.
       copyInfo.guardIndices = guardIndices;

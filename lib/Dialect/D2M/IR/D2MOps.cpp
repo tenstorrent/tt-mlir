@@ -4,22 +4,21 @@
 
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
 
-#include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/D2M/Utils/Utils.h"
-#include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 
 #include "mlir/Dialect/Bufferization/IR/Bufferization.h"
+#include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/IR/AffineMap.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinTypes.h"
+#include "mlir/IR/Dominance.h"
 #include "mlir/IR/PatternMatch.h"
-
-#include <functional>
 
 #define GET_OP_CLASSES
 #include "ttmlir/Dialect/D2M/IR/D2MOps.cpp.inc"
@@ -79,7 +78,7 @@ d2m::EmptyOp::getAliasingValues(mlir::OpOperand &,
   return result;
 }
 
-mlir::FailureOr<mlir::BaseMemRefType>
+mlir::FailureOr<mlir::bufferization::BufferLikeType>
 d2m::EmptyOp::getBufferType(mlir::Value value,
                             const mlir::bufferization::BufferizationOptions &,
                             const mlir::bufferization::BufferizationState &,
@@ -127,7 +126,7 @@ d2m::FullOp::getAliasingValues(mlir::OpOperand &,
   return result;
 }
 
-mlir::FailureOr<mlir::BaseMemRefType>
+mlir::FailureOr<mlir::bufferization::BufferLikeType>
 d2m::FullOp::getBufferType(mlir::Value value,
                            const mlir::bufferization::BufferizationOptions &,
                            const mlir::bufferization::BufferizationState &,
@@ -177,7 +176,8 @@ mlir::LogicalResult d2m::MeshShardOp::bufferize(
   return success();
 }
 
-mlir::FailureOr<mlir::BaseMemRefType> d2m::MeshShardOp::getBufferType(
+mlir::FailureOr<mlir::bufferization::BufferLikeType>
+d2m::MeshShardOp::getBufferType(
     mlir::Value value, const mlir::bufferization::BufferizationOptions &,
     const mlir::bufferization::BufferizationState &,
     ::llvm::SmallVector<mlir::Value> &) {
@@ -536,7 +536,7 @@ mlir::tt::d2m::ToLayoutOp::getAliasingValues(
   return result;
 }
 
-mlir::FailureOr<mlir::BaseMemRefType>
+mlir::FailureOr<mlir::bufferization::BufferLikeType>
 ToLayoutOp::getBufferType(mlir::Value value,
                           const mlir::bufferization::BufferizationOptions &,
                           const mlir::bufferization::BufferizationState &,
@@ -597,7 +597,8 @@ mlir::bufferization::AliasingValueList d2m::StreamLayoutOp::getAliasingValues(
   return result;
 }
 
-mlir::FailureOr<mlir::BaseMemRefType> d2m::StreamLayoutOp::getBufferType(
+mlir::FailureOr<mlir::bufferization::BufferLikeType>
+d2m::StreamLayoutOp::getBufferType(
     mlir::Value value, const mlir::bufferization::BufferizationOptions &,
     const mlir::bufferization::BufferizationState &,
     ::llvm::SmallVector<mlir::Value> &) {
@@ -734,6 +735,7 @@ mlir::LogicalResult d2m::ViewLayoutOp::bufferize(
     mlir::RewriterBase &rewriter,
     const mlir::bufferization::BufferizationOptions &options,
     mlir::bufferization::BufferizationState &state) {
+  // NOLINTBEGIN(clang-analyzer-core.StackAddressEscape)
   if (mlir::isa<mlir::MemRefType>(getInput().getType())) {
     return mlir::failure();
   }
@@ -758,6 +760,7 @@ mlir::LogicalResult d2m::ViewLayoutOp::bufferize(
 
   mlir::bufferization::replaceOpWithBufferizedValues(rewriter, *this,
                                                      newOp.getResult());
+  // NOLINTEND(clang-analyzer-core.StackAddressEscape)
 
   return mlir::success();
 }
@@ -768,7 +771,8 @@ mlir::bufferization::AliasingValueList d2m::ViewLayoutOp::getAliasingValues(
   return result;
 }
 
-mlir::FailureOr<mlir::BaseMemRefType> d2m::ViewLayoutOp::getBufferType(
+mlir::FailureOr<mlir::bufferization::BufferLikeType>
+d2m::ViewLayoutOp::getBufferType(
     mlir::Value value, const mlir::bufferization::BufferizationOptions &,
     const mlir::bufferization::BufferizationState &,
     ::llvm::SmallVector<mlir::Value> &) {
@@ -1035,16 +1039,13 @@ static mlir::LogicalResult verifyAffineBlocking(
 // GenericOp verification
 ::mlir::LogicalResult d2m::GenericOp::verify() {
   if (hasPureTensorSemantics()) {
-    if (this->getNumRegions() != 1) {
+    if (this->getNumRegions() != 1 && !isExplicitDatamovementForm()) {
       return emitOpError(
-          "generic op with pure tensor semantics must have exactly 1 region");
+          "generic op with pure tensor semantics must have exactly 1 region "
+          "when not in explicit data movement form");
     }
 
     Region &region = this->getRegion(0);
-    if (!region.hasOneBlock()) {
-      return emitOpError(
-          "generic op with pure tensor semantics must have exactly 1 block");
-    }
 
     Block &block = region.front();
     if (block.getOperations().empty() || !mlir::isa<YieldOp>(&block.back())) {
@@ -1177,10 +1178,17 @@ static mlir::LogicalResult verifyAffineBlocking(
       }
     }
 
-    if (indexingMaps.empty()) {
-      // If there are no indexing maps, then we can no longer validate block
-      // argument shapes.
+    if (isExplicitDatamovementForm()) {
+      // Explicit datamovement form: skip shape validation.
       continue;
+    }
+
+    // When not in explicit datamovement form, indexing_maps must be non-empty.
+    if (indexingMaps.empty()) {
+      return emitOpError(
+          "indexing_maps must be non-empty unless in explicit "
+          "datamovement form (all of block_factors, indexing_maps, "
+          "and iterator_types are empty)");
     }
 
     auto valueArguments = region.getArguments().take_front(operandTypes.size());
@@ -1254,8 +1262,8 @@ void GenericOp::getCanonicalizationPatterns(mlir::RewritePatternSet &patterns,
         }
 
         auto replaceWithOutputCb =
-            +[](PatternRewriter &rewriter, Region &region, Operation *regionOp,
-                OpOperand &initOperand, int64_t dpsIOBoundary) -> bool {
+            [op](PatternRewriter &rewriter, Region &region, Operation *regionOp,
+                 OpOperand &initOperand, int64_t dpsIOBoundary) -> bool {
           BlockArgument blockArg =
               mlir::dyn_cast<BlockArgument>(initOperand.get());
           if (blockArg && blockArg.getArgNumber() >= dpsIOBoundary) {
@@ -1270,13 +1278,36 @@ void GenericOp::getCanonicalizationPatterns(mlir::RewritePatternSet &patterns,
 
           blockArg = region.getArgument(dpsIOBoundary);
           assert(blockArg.getNumUses() > 0);
-          Operation *popOrReserve = *blockArg.getUsers().begin();
-          if (!mlir::isa<d2m::WaitOp, d2m::ReserveOp>(popOrReserve)) {
+
+          // Find a wait/reserve that dominates the DPS operation.
+          Operation *waitOrReserve = nullptr;
+
+          // Get the parent function to compute dominance.
+          Operation *parentOp = op->getParentOp();
+          while (parentOp && !mlir::isa<FunctionOpInterface>(parentOp)) {
+            parentOp = parentOp->getParentOp();
+          }
+
+          assert(parentOp && "d2m.generic must be nested within a function");
+
+          // Use DominanceInfo for cross-block dominance checking.
+          DominanceInfo domInfo(parentOp);
+          for (Operation *user : blockArg.getUsers()) {
+            assert((mlir::isa<d2m::WaitOp, d2m::ReserveOp>(user)) &&
+                   "block argument users must be wait/reserve operations");
+            // Check if this wait/reserve dominates the regionOp.
+            if (domInfo.dominates(user, regionOp)) {
+              waitOrReserve = user;
+              break;
+            }
+          }
+
+          if (!waitOrReserve) {
             return false;
           }
 
           rewriter.modifyOpInPlace(regionOp, [&]() {
-            initOperand.assign(popOrReserve->getResult(0));
+            initOperand.assign(waitOrReserve->getResult(0));
           });
 
           if (mlir::isa_and_nonnull<EmptyOp, mlir::tensor::EmptyOp>(
@@ -1326,13 +1357,14 @@ unsigned d2m::GenericOp::getNumLoops() { return getNumDims(); }
 unsigned d2m::GenericOp::getNumDims() {
   assert(!getIndexingMaps().empty() && "GenericOp must be pre-loop generated "
                                        "with indexing maps to use this method");
-  return mlir::cast<mlir::AffineMapAttr>(getIndexingMapsAttr()[0])
-      .getAffineMap()
-      .getNumDims();
+  return getIndexingMap(0).getNumDims();
 }
 
 mlir::AffineMap d2m::GenericOp::getIndexingMap(int64_t operandIndex) {
-  return mlir::cast<AffineMapAttr>(getIndexingMaps()[operandIndex]).getValue();
+  TT_debugv(!isExplicitDatamovementForm(),
+            "Attempting to access indexing map while in explicit "
+            "datamovement form.");
+  return getIndexingMapsValue()[operandIndex];
 }
 
 mlir::SmallVector<mlir::AffineMap> d2m::GenericOp::getIndexingMapsValue() {
@@ -1442,6 +1474,9 @@ mlir::SmallVector<int64_t> d2m::GenericOp::getLoopBounds() {
 
 mlir::SmallVector<int64_t>
 d2m::GenericOp::getParticipatingLoopDims(int64_t operandIndex) {
+  TT_debugv(!isExplicitDatamovementForm(),
+            "getParticipatingLoopDims should not be called on explicit "
+            "data movement form operations.");
   AffineMap indexingMap = getIndexingMap(operandIndex);
   auto dimExprs =
       llvm::make_filter_range(indexingMap.getResults(), [](AffineExpr expr) {
@@ -1454,6 +1489,9 @@ d2m::GenericOp::getParticipatingLoopDims(int64_t operandIndex) {
 
 mlir::SmallVector<int64_t>
 d2m::GenericOp::getNonParticipatingLoopDims(int64_t operandIndex) {
+  TT_debugv(!isExplicitDatamovementForm(),
+            "getNonParticipatingLoopDims should not be called on explicit "
+            "data movement form operations.");
   AffineMap indexingMap = getIndexingMap(operandIndex);
   SmallVector<int64_t> participatingDims =
       getParticipatingLoopDims(operandIndex);
@@ -1565,17 +1603,18 @@ mlir::LogicalResult d2m::GenericOp::bufferize(
   return success();
 }
 
-mlir::FailureOr<mlir::BaseMemRefType> d2m::GenericOp::getBufferType(
-    mlir::Value value, const mlir::bufferization::BufferizationOptions &options,
-    const mlir::bufferization::BufferizationState &,
-    ::llvm::SmallVector<mlir::Value> &) {
+mlir::FailureOr<mlir::bufferization::BufferLikeType>
+d2m::GenericOp::getBufferType(mlir::Value value,
+                              const mlir::bufferization::BufferizationOptions &,
+                              const mlir::bufferization::BufferizationState &,
+                              ::llvm::SmallVector<mlir::Value> &) {
   auto tensorType = mlir::cast<RankedTensorType>(value.getType());
   if (mlir::isa<mlir::BlockArgument>(value)) {
     assert(!tensorType.getEncoding());
-    return MemRefType::get(
+    return mlir::cast<bufferization::BufferLikeType>(MemRefType::get(
         tensorType.getShape(), tensorType.getElementType(), nullptr,
         ttcore::MemorySpaceAttr::get(tensorType.getContext(),
-                                     ttcore::MemorySpace::DeviceL1));
+                                     ttcore::MemorySpace::DeviceL1)));
   }
   return ttcore::getBufferType(tensorType, /*isView=*/false);
 }
@@ -1620,6 +1659,23 @@ bool d2m::GenericOp::isAllParallel() {
     auto itAttr = mlir::cast<mlir::tt::ttcore::IteratorTypeAttr>(it);
     return itAttr.getValue() == mlir::tt::ttcore::IteratorType::Parallel;
   });
+}
+
+bool d2m::GenericOp::hasComputeOpsInRegion(unsigned regionIndex) {
+  if (regionIndex >= getNumRegions()) {
+    return false;
+  }
+
+  bool hasCompute = false;
+  getRegion(regionIndex).walk([&](Operation *op) {
+    if (op->hasTrait<D2MGenericRegionComputeOpTrait>()) {
+      hasCompute = true;
+      return WalkResult::interrupt();
+    }
+    return WalkResult::advance();
+  });
+
+  return hasCompute;
 }
 
 } // namespace mlir::tt::d2m
