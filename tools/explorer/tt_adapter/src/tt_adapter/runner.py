@@ -194,13 +194,12 @@ class ModelRunner:
 
         csv_data = pd.read_csv(op_perf_file)
         
-        # Log CSV and check tracy_ops_data.csv for MLIR analysis data
+        # Check tracy_ops_data.csv for MLIR analysis data
         log_file = "/tmp/tt_adapter_convert_debug.log"
         perf_dir = os.path.dirname(op_perf_file)
         tracy_ops_data = os.path.join(perf_dir, "tracy_ops_data.csv")
         
         with open(log_file, "a") as f:
-            f.write(f"DEBUG [get_perf_trace]: tracy_ops_data.csv exists = {os.path.exists(tracy_ops_data)}\n")
             if os.path.exists(tracy_ops_data):
                 try:
                     import csv
@@ -208,25 +207,19 @@ class ModelRunner:
                     with open(tracy_ops_data, 'r') as tracy_file:
                         reader = csv.DictReader(tracy_file, delimiter=';')
                         tracy_rows = list(reader)
-                        f.write(f"DEBUG [get_perf_trace]: tracy_ops_data.csv has {len(tracy_rows)} rows\n")
-                        if len(tracy_rows) > 0:
-                            f.write(f"DEBUG [get_perf_trace]: tracy_ops_data columns: {list(tracy_rows[0].keys())}\n")
-                            f.write(f"DEBUG [get_perf_trace]: First 3 rows:\n")
-                            for row in tracy_rows[:3]:
-                                f.write(f"  {row}\n")
-                            
-                            # Count MLIR_OP_LOCATION entries
-                            mlir_loc_count = sum(1 for row in tracy_rows if 'MLIR_OP_LOCATION' in str(row.get('MessageName', '')))
-                            tt_dnn_op_count = sum(1 for row in tracy_rows if 'TT_DNN_DEVICE_OP' in str(row.get('MessageName', '')))
-                            f.write(f"DEBUG [get_perf_trace]: MLIR_OP_LOCATION entries: {mlir_loc_count}\n")
-                            f.write(f"DEBUG [get_perf_trace]: TT_DNN_DEVICE_OP entries: {tt_dnn_op_count}\n")
-                            if mlir_loc_count == 0:
-                                f.write(f"DEBUG [get_perf_trace]: WARNING - No MLIR_OP_LOCATION entries found! Tracy may not be capturing mlir location messages.\n")
-                                f.write(f"DEBUG [get_perf_trace]: Sample message types in first 10 rows:\n")
-                                for i, row in enumerate(tracy_rows[:10]):
-                                    f.write(f"DEBUG [get_perf_trace]:   Row {i}: {row.get('MessageName', 'NO_NAME')[:100]}\n")
+                        
+                        # Count MLIR_OP_LOCATION entries
+                        mlir_loc_count = sum(1 for row in tracy_rows if 'MLIR_OP_LOCATION' in str(row.get('MessageName', '')))
+                        tt_dnn_op_count = sum(1 for row in tracy_rows if 'TT_DNN_DEVICE_OP' in str(row.get('MessageName', '')))
+                        
+                        if mlir_loc_count == 0:
+                            f.write(f"DEBUG: WARNING - No MLIR_OP_LOCATION entries found in tracy_ops_data.csv!\n")
+                        else:
+                            f.write(f"DEBUG: tracy_ops_data.csv: {mlir_loc_count} MLIR_OP_LOCATION, {tt_dnn_op_count} TT_DNN_DEVICE_OP\n")
                 except Exception as e:
-                    f.write(f"DEBUG [get_perf_trace]: Error reading tracy_ops_data.csv: {e}\n")
+                    f.write(f"DEBUG: Error reading tracy_ops_data.csv: {e}\n")
+            else:
+                f.write(f"DEBUG: tracy_ops_data.csv does not exist!\n")
         
         return csv_data
 

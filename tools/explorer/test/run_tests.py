@@ -13,22 +13,61 @@ import logging
 import portpicker
 import sys
 
-# Debug: Tracy network configuration
+# Debug: System and environment info for CI debugging
 print("\n" + "=" * 80)
-print("DEBUG: Tracy Network & Proxy Configuration")
+print("DEBUG: System Configuration")
 print("=" * 80)
 
 import subprocess
+import platform
+
+# System info
+print(f"OS: {platform.system()} {platform.release()}")
+print(f"Python: {platform.python_version()}")
+print(f"Architecture: {platform.machine()}")
+
+# CPU info
+try:
+    cpu_count_logical = os.cpu_count()
+    print(f"CPU threads (logical): {cpu_count_logical}")
+    
+    # Try to get physical core count
+    if hasattr(os, 'sched_getaffinity'):
+        affinity = len(os.sched_getaffinity(0))
+        print(f"CPU threads (affinity): {affinity}")
+    
+    # Get load average
+    if hasattr(os, 'getloadavg'):
+        load = os.getloadavg()
+        print(f"Load average (1/5/15 min): {load[0]:.2f} / {load[1]:.2f} / {load[2]:.2f}")
+except Exception as e:
+    print(f"CPU info failed: {e}")
+
+# Memory info (Linux only)
+try:
+    with open('/proc/meminfo', 'r') as f:
+        meminfo = {}
+        for line in f:
+            parts = line.split(':')
+            if len(parts) == 2:
+                key = parts[0].strip()
+                value = parts[1].strip()
+                meminfo[key] = value
+        total_mem = meminfo.get('MemTotal', 'Unknown')
+        avail_mem = meminfo.get('MemAvailable', 'Unknown')
+        print(f"Memory: {avail_mem} available / {total_mem} total")
+except:
+    pass
+
+# Network info
 try:
     hostname_output = subprocess.check_output(["hostname"], text=True).strip()
-    print(f"hostname: {hostname_output}")
+    print(f"Hostname: {hostname_output}")
     hostname_i_output = subprocess.check_output(["hostname", "-I"], text=True).strip()
-    print(f"hostname -I (all IPs): {hostname_i_output}")
+    print(f"IP addresses: {hostname_i_output}")
 except Exception as e:
-    print(f"hostname command failed: {e}")
+    print(f"Network info failed: {e}")
 
-print(f"no_proxy: {os.environ.get('no_proxy', 'NOT SET')}")
-print(f"NO_PROXY: {os.environ.get('NO_PROXY', 'NOT SET')}")
 print("=" * 80 + "\n")
 
 HOST = "localhost"
