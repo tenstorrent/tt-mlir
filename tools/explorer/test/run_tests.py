@@ -13,32 +13,22 @@ import logging
 import portpicker
 import sys
 
-# Debug: Environment info (only critical paths for perf data)
+# Debug: Tracy network configuration
 print("\n" + "=" * 80)
-print("DEBUG: Critical Path Check")
+print("DEBUG: Tracy Network & Proxy Configuration")
 print("=" * 80)
-tt_mlir_home = os.environ.get("TT_MLIR_HOME", "")
-print(f"TT_MLIR_HOME: {tt_mlir_home}")
 
-# Check network configuration for Tracy debugging
 import subprocess
 try:
     hostname_output = subprocess.check_output(["hostname"], text=True).strip()
     print(f"hostname: {hostname_output}")
+    hostname_i_output = subprocess.check_output(["hostname", "-I"], text=True).strip()
+    print(f"hostname -I (all IPs): {hostname_i_output}")
 except Exception as e:
     print(f"hostname command failed: {e}")
 
-try:
-    hostname_i_output = subprocess.check_output(["hostname", "-I"], text=True).strip()
-    print(f"hostname -I: {hostname_i_output}")
-except Exception as e:
-    print(f"hostname -I command failed: {e}")
-
-# Check proxy environment variables
 print(f"no_proxy: {os.environ.get('no_proxy', 'NOT SET')}")
 print(f"NO_PROXY: {os.environ.get('NO_PROXY', 'NOT SET')}")
-print(f"http_proxy: {os.environ.get('http_proxy', 'NOT SET')}")
-print(f"https_proxy: {os.environ.get('https_proxy', 'NOT SET')}")
 print("=" * 80 + "\n")
 
 HOST = "localhost"
@@ -249,25 +239,18 @@ def test_execute_mnist_with_overrides():
 
 
 def test_execute_and_check_perf_data_exists():
-    print("\n" + "=" * 80)
-    print("DEBUG: test_execute_and_check_perf_data_exists - Starting")
-    print("=" * 80)
-    print(f"Model path: {MNIST_SHARDING_PATH}")
-
     execute_command_and_wait(
         MNIST_SHARDING_PATH,
         {"optimizationPolicy": "Optimizer Disabled"},
         timeout=300,
     )
-    print("✓ execute_command_and_wait completed")
-    
+
     result = convert_command_and_assert(MNIST_SHARDING_PATH)
-    print("✓ convert_command_and_assert completed")
-    
+
     # Read the debug log file created by tt_adapter (THE KEY DEBUG INFO)
     log_file = "/tmp/tt_adapter_convert_debug.log"
     print("\n" + "=" * 80)
-    print("ADAPTER DEBUG LOG (model_path tracking):")
+    print("ADAPTER DEBUG LOG:")
     print("=" * 80)
     if os.path.exists(log_file):
         with open(log_file, "r") as f:
@@ -276,20 +259,15 @@ def test_execute_and_check_perf_data_exists():
         print(f"WARNING: Log file {log_file} does not exist")
     print("=" * 80)
 
-    # Check result structure
+    # Single check for perf_data presence
     if isinstance(result, dict) and "graphs" in result and len(result["graphs"]) > 0:
         graph = result["graphs"][0]
-        if "overlays" not in graph:
-            print("\n✗ FAILURE: No 'overlays' key in graph")
-            print("  This confirms optimized_model_path was None in convert()")
+        if "overlays" in graph and "perf_data" in graph["overlays"]:
+            print("\n✓ SUCCESS: perf_data found in overlays")
         else:
-            overlays = graph["overlays"]
-            if "perf_data" in overlays:
-                print("\n✓ SUCCESS: perf_data found in overlays")
-            else:
-                print(f"\n✗ FAILURE: perf_data missing (overlays has: {list(overlays.keys())})")
+            overlays_keys = list(graph.get("overlays", {}).keys()) if "overlays" in graph else "NO OVERLAYS KEY"
+            print(f"\n✗ FAILURE: perf_data missing (overlays: {overlays_keys})")
 
-    print("=" * 80)
     assert "perf_data" in result["graphs"][0]["overlays"]
 
 
@@ -303,32 +281,12 @@ def test_execute_model_invalid_policy():
 
 
 def test_execute_and_check_memory_data_exists():
-    print("\n" + "=" * 80)
-    print("DEBUG: test_execute_and_check_memory_data_exists - Starting")
-    print("=" * 80)
-
     execute_command_and_wait(
         MNIST_SHARDING_PATH,
         {"optimizationPolicy": "Optimizer Disabled"},
         timeout=300,
     )
-    print("DEBUG: execute_command_and_wait completed successfully")
-
     result = convert_command_and_assert(MNIST_SHARDING_PATH)
-    print(f"DEBUG: convert_command_and_assert completed successfully")
-
-    # Check what's in the result
-    if isinstance(result, dict) and "graphs" in result and len(result["graphs"]) > 0:
-        graph = result["graphs"][0]
-        if "overlays" in graph:
-            overlays = graph["overlays"]
-            print(f"DEBUG: overlays keys = {overlays.keys() if isinstance(overlays, dict) else overlays}")
-
-    result_str = str(result)
-    print(f"DEBUG: 'display_type' in str(result) = {'display_type' in result_str}")
-    print(f"DEBUG: str(result) length = {len(result_str)}")
-    print("=" * 80)
-
     assert "display_type" in str(result)
 
 

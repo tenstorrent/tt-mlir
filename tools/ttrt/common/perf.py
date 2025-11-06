@@ -360,11 +360,13 @@ class Perf:
 
             def get_available_port():
                 ip = socket.gethostbyname(socket.gethostname())
+                self.logging.info(f"Tracy binding to IP: {ip} (from gethostbyname(gethostname()))")
 
                 for port in range(8086, 8500):
                     try:
                         serv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                         serv.bind((ip, port))
+                        self.logging.info(f"Tracy selected port: {port}")
                         return str(port)
                     except PermissionError as e:
                         pass
