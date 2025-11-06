@@ -3742,7 +3742,8 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
            EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::BitwiseNotOp>,
            EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::NegOp>,
            EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::ReluOp>,
-           EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::RsqrtOp>,
+           EltwiseUnaryWithFastAndApproximateModeOpConversionPattern<
+               mlir::tt::ttnn::RsqrtOp>,
            EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::Relu6Op>,
            EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::HardsigmoidOp>,
            EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::SiluOp>,
@@ -3751,7 +3752,8 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
                mlir::tt::ttnn::LeakyReluOp>,
            EltwiseUnaryWithFastAndApproximateModeOpConversionPattern<
                mlir::tt::ttnn::GeluOp>,
-           EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::SqrtOp>,
+           EltwiseUnaryWithFastAndApproximateModeOpConversionPattern<
+               mlir::tt::ttnn::SqrtOp>,
            EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::SignOp>,
            EltwiseUnaryWithVectorAndFastAndApproximateModeOpConversionPattern<
                mlir::tt::ttnn::SigmoidOp>,

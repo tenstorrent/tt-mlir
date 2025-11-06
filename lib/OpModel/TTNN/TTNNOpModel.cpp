@@ -917,7 +917,7 @@ UnaryEltwiseWithFastApproxModeOpModel<OpTy>::getOpRuntime(
 template struct UnaryEltwiseOpModel<ReluOp>;
 template struct UnaryEltwiseOpModel<Relu6Op>;
 template struct UnaryEltwiseOpModel<HardsigmoidOp>;
-template struct UnaryEltwiseOpModel<SqrtOp>;
+template struct UnaryEltwiseWithFastApproxModeOpModel<SqrtOp>;
 template struct UnaryEltwiseOpModel<SinOp>;
 template struct UnaryEltwiseOpModel<AbsOp>;
 template struct UnaryEltwiseOpModel<CosOp>;
@@ -938,7 +938,7 @@ template struct UnaryEltwiseOpModel<SiluOp>;
 template struct UnaryEltwiseOpModel<MishOp>;
 template struct UnaryEltwiseWithFastApproxModeOpModel<Log1pOp>;
 template struct UnaryEltwiseOpModel<Expm1Op>;
-template struct UnaryEltwiseOpModel<RsqrtOp>;
+template struct UnaryEltwiseWithFastApproxModeOpModel<RsqrtOp>;
 template struct UnaryEltwiseWithFastApproxModeOpModel<ErfOp>;
 template struct UnaryEltwiseWithFastApproxModeOpModel<ErfcOp>;
 template struct UnaryEltwiseWithFastApproxModeOpModel<ExpOp>;
