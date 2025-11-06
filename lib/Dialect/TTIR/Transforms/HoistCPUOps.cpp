@@ -77,12 +77,12 @@ static void hoistOperationToFunction(mlir::Operation *opToHoist,
   mlir::MLIRContext *context = sourceModule.getContext();
   mlir::OpBuilder typeBuilder(opToHoist);
 
-  // Helper lambda to unify tensor element types.
-  auto convertTensorElementType = [&context](Type elementType) -> Type {
-    static auto f32Type = mlir::Float32Type::get(context);
-    static auto i32Type =
-        mlir::IntegerType::get(context, 32, IntegerType::Signless);
+  auto f32Type = mlir::Float32Type::get(context);
+  auto i32Type =
+      mlir::IntegerType::get(context, 32, mlir::IntegerType::Signless);
 
+  // Helper lambda to unify tensor element types.
+  auto convertTensorElementType = [f32Type, i32Type](Type elementType) -> Type {
     if (elementType.isInteger()) {
       return i32Type;
     }
