@@ -6,6 +6,8 @@
 #include "executor_utils.h"
 #include "meshshard_utils.h"
 
+#include <cstdio> // For fprintf, stderr (debug logging)
+
 #include "tools/profiler/op_profiler.hpp"
 #include "tracy/Tracy.hpp"
 #include "tt/runtime/debug.h"
@@ -351,10 +353,16 @@ void MCQExecutor::execute(const target::metal::EnqueueProgramCommand *command,
   meshWorkload.add_program(deviceRange, std::move(program));
 
   if (perf::Env::get().enablePerfTrace) {
+    static int device_op_count = 0;
     for (auto &[range, program] : meshWorkload.get_programs()) {
       for (auto coord : range) {
         auto deviceId = meshDevice->get_device(coord)->id();
         program.set_runtime_id(getUniqueProgramRuntimeId());
+        device_op_count++;
+        if (device_op_count <= 10) {
+          fprintf(stderr, "DEBUG [Executor]: TT_DNN_DEVICE_OP call #%d for loc='%s'\n", 
+                  device_op_count, loc);
+        }
         profiler::addProgramProfileHostMetadata(deviceId, program, loc);
       }
     }

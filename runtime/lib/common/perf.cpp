@@ -22,14 +22,19 @@ Env &Env::get(std::uint32_t dumpDeviceRate, bool enablePerfTrace,
 void Env::tracyLogOpLocation(const std::string &locInfo) const {
 #if defined(TT_RUNTIME_ENABLE_PERF_TRACE) && TT_RUNTIME_ENABLE_PERF_TRACE == 1
   // Log to stderr for CI debugging (will appear in test output)
-  static bool first_call = true;
-  if (first_call) {
-    fprintf(stderr, "DEBUG: tracyLogOpLocation called (first time)\n");
-    first_call = false;
+  static int call_count = 0;
+  call_count++;
+  
+  // Log first 10 calls and every empty call
+  if (call_count <= 10 || locInfo.empty()) {
+    fprintf(stderr, "DEBUG [Runtime]: tracyLogOpLocation call #%d: '%s'\n", 
+            call_count, locInfo.c_str());
   }
+  
   if (locInfo.empty()) {
-    fprintf(stderr, "DEBUG: tracyLogOpLocation called with EMPTY locInfo!\n");
+    fprintf(stderr, "DEBUG [Runtime]: WARNING - Empty locInfo at call #%d\n", call_count);
   }
+  
   std::string message =
       perf::toString(perf::TracyLogTag::MLIR_OP_LOCATION) + ";" + locInfo;
   TracyMessage(message.c_str(), message.size());
