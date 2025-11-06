@@ -123,43 +123,43 @@ def log(
     return builder.log(in0, unit_attrs=unit_attrs)
 
 
-def and_op(
+def and_(
     in0: Operand,
     in1: Operand,
     builder: StableHLOBuilder,
     unit_attrs: Optional[List[str]] = None,
 ):
     builder.set_graph_level_check(True)
-    return builder.and_op(in0, in1, unit_attrs=unit_attrs)
+    return builder.and_(in0, in1, unit_attrs=unit_attrs)
 
 
-def or_op(
+def or_(
     in0: Operand,
     in1: Operand,
     builder: StableHLOBuilder,
     unit_attrs: Optional[List[str]] = None,
 ):
     builder.set_graph_level_check(True)
-    return builder.or_op(in0, in1, unit_attrs=unit_attrs)
+    return builder.or_(in0, in1, unit_attrs=unit_attrs)
 
 
-def xor_op(
+def xor(
     in0: Operand,
     in1: Operand,
     builder: StableHLOBuilder,
     unit_attrs: Optional[List[str]] = None,
 ):
     builder.set_graph_level_check(True)
-    return builder.xor_op(in0, in1, unit_attrs=unit_attrs)
+    return builder.xor(in0, in1, unit_attrs=unit_attrs)
 
 
-def not_op(
+def not_(
     in0: Operand,
     builder: StableHLOBuilder,
     unit_attrs: Optional[List[str]] = None,
 ):
     builder.set_graph_level_check(True)
-    return builder.not_op(in0, unit_attrs=unit_attrs)
+    return builder.not_(in0, unit_attrs=unit_attrs)
 
 
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
@@ -288,9 +288,9 @@ def test_stablehlo_multi_return_support(
 @pytest.mark.parametrize(
     "test_fn",
     [
-        and_op,
-        or_op,
-        xor_op,
+        and_,
+        or_,
+        xor,
     ],
 )
 def test_logical_binary_ops(
@@ -314,7 +314,7 @@ def test_logical_binary_ops(
 @pytest.mark.parametrize(
     "test_fn",
     [
-        not_op,
+        not_,
     ],
 )
 def test_logical_unary_ops(
@@ -339,9 +339,9 @@ def test_logical_unary_ops(
 @pytest.mark.parametrize(
     "test_fn",
     [
-        and_op,
-        or_op,
-        xor_op,
+        and_,
+        or_,
+        xor,
     ],
 )
 def test_bitwise_binary_ops(
@@ -365,7 +365,7 @@ def test_bitwise_binary_ops(
 @pytest.mark.parametrize(
     "test_fn",
     [
-        not_op,
+        not_,
     ],
 )
 def test_bitwise_unary_ops(

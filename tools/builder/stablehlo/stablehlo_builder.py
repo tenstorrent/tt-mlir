@@ -237,7 +237,7 @@ class StableHLOBuilder(Builder):
 
     # ----- Logical and Bitwise Operations -----
 
-    def and_op(
+    def and_(
         self,
         in0: Operand,
         in1: Operand,
@@ -297,7 +297,7 @@ class StableHLOBuilder(Builder):
             sharding_attr=sharding_attr,
         )
 
-    def or_op(
+    def or_(
         self,
         in0: Operand,
         in1: Operand,
@@ -357,7 +357,7 @@ class StableHLOBuilder(Builder):
             sharding_attr=sharding_attr,
         )
 
-    def xor_op(
+    def xor(
         self,
         in0: Operand,
         in1: Operand,
@@ -417,7 +417,7 @@ class StableHLOBuilder(Builder):
             sharding_attr=sharding_attr,
         )
 
-    def not_op(
+    def not_(
         self,
         in0: Operand,
         unit_attrs: Optional[List[str]] = None,
