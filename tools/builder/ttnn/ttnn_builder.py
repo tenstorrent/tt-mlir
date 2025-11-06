@@ -32,34 +32,6 @@ class TTNNBuilder(Builder):
 
     # ----- Private Methods ----
 
-    def _get_output_shape_and_type(
-        self,
-        organize_golden_args: Callable,
-        inputs: List[Operand],
-        op_ttnn_function: Callable,
-        golden_kwargs: dict = {},
-    ):
-        op_golden_function = get_golden_function(op_ttnn_function, **golden_kwargs)
-        if op_golden_function is None:
-            assert len(inputs) > 0, (
-                f"Cannot infer output shape for {op_ttnn_function.__name__}: "
-                "no golden function available"
-            )
-            return (
-                self._get_type(inputs[0]).shape,
-                self._get_type(inputs[0]).element_type,
-            )
-
-        # If the op has no input, just call golden function with kwargs (eg ttnn.zeros).
-        if len(inputs) == 0:
-            golden_output = op_golden_function(**golden_kwargs)
-        else:
-            golden_output = op_golden_function(
-                *(organize_golden_args(inputs)), **golden_kwargs
-            )
-
-        return golden_output.shape, self._get_type_from_torch_dtype(golden_output.dtype)
-
     def _organize_eltwise_ttnn(
         self,
         inputs: List[Operand],
@@ -94,14 +66,6 @@ class TTNNBuilder(Builder):
 
             output_shape_and_type = self._get_output_shape_and_type(
                 organize_golden_args, inputs, op_ttnn_function, golden_kwargs
-<<<<<<< HEAD
-=======
-            )
-
-            output_type = self.create_ttnn_tensor(
-                shape=output_shape_and_type[0],
-                element_type=output_shape_and_type[1],
->>>>>>> c5bfbb6e0 (Add remaining ttnn builder tests)
             )
             if not output_shape_and_type:
                 assert (
@@ -214,7 +178,6 @@ class TTNNBuilder(Builder):
 
     # ----- Public TTNN Op Generators ----
 
-<<<<<<< HEAD
     def mish(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
         """
         Creates ``ttnn.mish``.
@@ -2251,8 +2214,6 @@ class TTNNBuilder(Builder):
             unit_attrs=unit_attrs,
         )
 
-=======
->>>>>>> c5bfbb6e0 (Add remaining ttnn builder tests)
     def multiply(
         self, in0: Operand, in1: Operand, unit_attrs: Optional[List[str]] = None
     ) -> OpView:
@@ -2563,7 +2524,6 @@ class TTNNBuilder(Builder):
         (*OpView*)
             Concatenated tensor
         """
-<<<<<<< HEAD
         kwargs = {"dim": dim}
         return self._op_proxy(
             ttnn.ConcatOp,
@@ -2575,10 +2535,6 @@ class TTNNBuilder(Builder):
             ),
             organize_ttnn_args=lambda i, o: (o, i),
             unit_attrs=unit_attrs,
-=======
-        return self._op_proxy(
-            ttnn.SigmoidOp, [in0], unit_attrs=unit_attrs, ttnn_kwargs={}
->>>>>>> c5bfbb6e0 (Add remaining ttnn builder tests)
         )
 
     def repeat(

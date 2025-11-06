@@ -13,6 +13,78 @@ from test_utils import shape_str, shapes_list_str
 
 pytestmark = pytest.mark.frontend("ttnn")
 
+def mish(
+    in0: Operand,
+    builder: TTNNBuilder,
+    unit_attrs: Optional[List[str]] = None,
+):
+    return builder.mish(in0, unit_attrs=unit_attrs)
+
+def sigmoid(
+    in0: Operand,
+    builder: TTNNBuilder,
+    unit_attrs: Optional[List[str]] = None,
+):
+    return builder.sigmoid(in0, unit_attrs=unit_attrs)
+
+@pytest.mark.parametrize("shape", [(32, 32)], ids=shape_str)
+@pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32], ids=["bf16", "f32"])
+@pytest.mark.parametrize("target", ["ttnn", "emitpy"])
+@pytest.mark.parametrize(
+    "test_fn",
+    [
+        mish,
+        sigmoid,
+    ],
+)
+def test_unary_ops(
+    test_fn: Callable, shape: Shape, dtype: torch.dtype, target: str, request, device
+):
+    if test_fn == mish and dtype == torch.float32:
+        pytest.xfail(
+            "Mish with float 32 causes PCC: https://github.com/tenstorrent/tt-metal/issues/31112"
+        )
+
+    compile_and_execute_ttnn(
+        test_fn,
+        [shape],
+        [dtype],
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
+        device=device,
+    )
+
+def multiply(
+    in0: Operand,
+    in1: Operand,
+    builder: TTNNBuilder,
+    unit_attrs: Optional[List[str]] = None,
+):
+    return builder.multiply(in0, in1, unit_attrs=unit_attrs)
+
+
+@pytest.mark.parametrize("shape", [(32, 32)], ids=shape_str)
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize(
+    "test_fn",
+    [
+        multiply,
+    ],
+)
+def test_binary_ops(
+    test_fn: Callable, shape: Shape, dtype: torch.dtype, request, device
+):
+    compile_and_execute_ttnn(
+        test_fn,
+        [shape, shape],
+        [dtype, dtype],
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        device=device,
+    )
 
 @pytest.mark.parametrize("shape", [(64, 128)], ids=shape_str)
 @pytest.mark.parametrize("max_arg,min_arg", [(3.0, 2.0)])
@@ -187,6 +259,7 @@ def test_concat(shapes: List[Shape], dim: int, request, device):
         [(64, 128), (128, 256)],
         [(32, 64), (64, 128)],
     ],
+    ids=shapes_list_str,
 )
 @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32], ids=["bf16", "f32"])
 @pytest.mark.parametrize("target", ["ttnn", "emitpy"])
@@ -223,7 +296,7 @@ def test_matmul(
         [(64, 128), (256, 128)],
         [(64, 128), (256, 128), (256,)],
     ],
-    ids=["no_bias", "with_bias"],
+    ids=shapes_list_str,
 )
 @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32], ids=["bf16", "f32"])
 @pytest.mark.parametrize("target", ["ttnn", "emitpy"])
