@@ -635,7 +635,7 @@ class Perf:
                                                     break
                                             
                                             if not found_end:
-                                                self.logging.warning(f"DEBUG: Line {line_num}: Multi-line format detected but no closing }; found")
+                                                self.logging.warning(f"DEBUG: Line {line_num}: Multi-line format detected but no closing }}; found")
                                     else:
                                         self.logging.warning(f"DEBUG: Line {line_num}: TT_DNN_DEVICE_OP found but not enough comma-separated parts ({len(parts)})")
                         
