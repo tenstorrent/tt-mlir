@@ -115,6 +115,8 @@ ProgramExecutor::ProgramExecutor(
       programInputIds, programOutputIds, std::move(liveTensors),
       common::DylibManager(program->dylibs()), std::move(deviceHandle),
       executableHandle, programIndex);
+  // TODO(ndrakulic@tenstorrent.com): use ttnnToFlatbuffer with moduleCache to
+  // dump TTIR and TTNN with correct locations
   const char *ttir_mlir = R"(module {
   func.func @abs(%arg0: tensor<128x128xf32>) -> tensor<128x128xf32> {
     %0 = ttir.empty() : tensor<128x128xf32>
