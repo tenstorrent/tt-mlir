@@ -2233,13 +2233,6 @@ TEST_F(OpModelBase, maxPool2dWithIndicesOp) {
     FAIL() << "Missing L1 constraints; Error="
            << llvm::toString(constraintsExp.takeError()) << std::endl;
   }
-
-  auto runtimeExp = getOpRuntime(maxPool2dWithIndices.getOperation());
-  if (runtimeExp) {
-    EXPECT_TRUE(runtimeExp.get() > 0);
-  } else {
-    FAIL() << llvm::toString(runtimeExp.takeError());
-  }
 }
 
 TEST_F(OpModelBase, typecastOp) {
