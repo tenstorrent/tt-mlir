@@ -154,7 +154,7 @@ def list_ir_files(dir_path: str):
     return [
         path
         for extension in MODEL_EXTENSIONS
-        for path in glob.glob(os.path.join(dir_path, f"**/*{extension}"))
+        for path in glob.glob(os.path.join(dir_path, f"**/*{extension}"), recursive=True)
     ]
 
 
