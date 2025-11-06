@@ -263,6 +263,42 @@ public:
 
 } // namespace
 
+namespace {
+class MemrefCopyRewriter : public OpConversionPattern<memref::CopyOp> {
+public:
+  using OpConversionPattern<memref::CopyOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(memref::CopyOp op, memref::CopyOpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    Value source = adaptor.getSource();
+    Value target = adaptor.getTarget();
+
+    // Check if source or target is from a stream_layout
+    auto sourceStream = source.getDefiningOp<d2m::StreamLayoutOp>();
+    auto targetStream = target.getDefiningOp<d2m::StreamLayoutOp>();
+
+    if (sourceStream) {
+      // Copying FROM device stream TO host
+      // Insert finish to ensure kernel completes before copy
+      rewriter.create<ttmetal::FinishOp>(op->getLoc());
+      rewriter.replaceOpWithNewOp<ttmetal::EnqueueReadBufferOp>(
+          op, sourceStream.getStorage(), target);
+      rewriter.create<ttmetal::FinishOp>(op->getLoc());
+    } else if (targetStream) {
+      // Copying FROM host TO device stream
+      rewriter.replaceOpWithNewOp<ttmetal::EnqueueWriteBufferOp>(
+          op, source, targetStream.getStorage());
+    } else {
+      // Regular memref copy - keep as is (handled by flatbuffer translator)
+      return failure();
+    }
+
+    return success();
+  }
+};
+} // namespace
+
 } // namespace mlir::tt::ttmetal
 
 namespace mlir::tt {
@@ -271,7 +307,8 @@ void populateD2MToTTMetalPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
                                   TypeConverter & /*typeConverter*/,
                                   ttmetal::MathFidelity mathFidelity) {
   patterns.add<ttmetal::MemrefAllocRewriter, ttmetal::MemrefDeallocRewriter,
-               ttmetal::D2MToLayoutRewriter, ttmetal::D2MMeshShardRewriter>(
+               ttmetal::D2MToLayoutRewriter, ttmetal::D2MMeshShardRewriter,
+               ttmetal::MemrefCopyRewriter>(
       ctx);
   patterns.add<ttmetal::D2MGenericRewriter>(ctx, mathFidelity);
 }
