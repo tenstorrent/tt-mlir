@@ -530,6 +530,15 @@ class Perf:
                         with open(tracy_ops_data_file_path, "r") as file:
                             lines = iter(file)
                             buffer = None
+                            
+                            # Debug: Log first 30 lines of the file
+                            self.logging.info(f"DEBUG: Reading {tracy_ops_data_file_path} for key '{key}'")
+                            file.seek(0)
+                            first_lines = [file.readline().strip() for _ in range(30)]
+                            for i, fline in enumerate(first_lines):
+                                self.logging.info(f"DEBUG: Line {i}: {fline[:150]}")  # Truncate long lines
+                            file.seek(0)
+                            lines = iter(file)
 
                             while True:
                                 # Use buffered line if available, otherwise get next
