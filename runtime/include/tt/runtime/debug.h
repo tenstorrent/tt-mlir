@@ -190,6 +190,8 @@ struct RuntimeChiselBridge {
   bool finalized_ = false;
   bool ownsInterpreter = false;
 #endif
+constexpr void initialize(const char *, const char *) {}
+constexpr void finalize() {}
 };
 
 } // namespace tt::runtime::debug
