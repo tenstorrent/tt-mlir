@@ -119,6 +119,7 @@ static void hoistOperationToFunction(mlir::Operation *opToHoist,
             convertedTensorType.getElementType());
         auto converted = typeBuilder.create<mlir::tt::ttir::ToLayoutOp>(
             opToHoist->getLoc(), operand, emptyTensor);
+        operandTypes.push_back(convertedTensorType);
         convertedOperands.push_back(converted->getResult(0));
       } else {
         operandTypes.push_back(tensorType);
