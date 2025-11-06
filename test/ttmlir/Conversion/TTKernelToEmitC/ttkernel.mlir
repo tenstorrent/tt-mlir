@@ -1059,6 +1059,31 @@ module {
       "ttkernel.bitwise_not_tile"(%dst0_index) : (i32) -> ()
       return
     }
+
+    // CHECK-LABEL: func @silu_tile_init
+    func.func @silu_tile_init() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: emitc.call_opaque "silu_tile_init"()
+      "ttkernel.silu_tile_init"() : () -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @relu_tile
+    func.func @relu_tile() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: %[[DST_INDEX:.*]] = "emitc.constant"
+      %dst_index = arith.constant 3 : i32
+      // CHECK: emitc.call_opaque "relu_tile"(%[[DST_INDEX]])
+      "ttkernel.relu_tile"(%dst_index) : (i32) -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @relu_tile_int32
+    func.func @relu_tile_int32() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: %[[DST0_INDEX:.*]] = "emitc.constant"
+      %dst0_index = arith.constant 1 : i32
+      // CHECK: emitc.call_opaque "relu_tile_int32"(%[[DST0_INDEX]])
+      "ttkernel.relu_tile_int32"(%dst0_index) : (i32) -> ()
+      return
+    }
   } // module
 
   //===----------------------------------------------------------------------===//

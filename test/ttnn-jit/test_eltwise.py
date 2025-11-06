@@ -13,6 +13,7 @@ from utils import (
     memory_configs_equal,
     create_dram_tensor,
     create_sharded_tile_tensor,
+    run_op_test,
 )
 
 BLOCK_SHARDED_SHAPE_GRIDS = [
@@ -43,29 +44,6 @@ DRAM_INTERLEAVED_SHAPES = [
     (64, 1024),
     (1024, 64),
 ]
-
-
-def run_op_test(
-    device, h, w, max_grid, dtype, op, num_inputs, buffer_type=ttnn.BufferType.L1
-):
-    if buffer_type == ttnn.BufferType.L1:
-        inputs = [
-            create_sharded_tile_tensor(device, h, w, max_grid, dtype)
-            for _ in range(num_inputs)
-        ]
-    else:
-        inputs = [create_dram_tensor(device, h, w, dtype) for _ in range(num_inputs)]
-    print("inputs", inputs)
-    golden_op = _get_ttnn_op(op)
-
-    op_jit = ttnn_jit.jit(debug=True, max_grid=max_grid)(op)
-    output_tensor = op_jit(*inputs)
-    golden_tensor = (golden_op or op)(*inputs)
-
-    assert memory_configs_equal(
-        output_tensor.memory_config(), golden_tensor.memory_config()
-    )
-    assert all_close_check(output_tensor, golden_tensor)
 
 
 # ------------------------------------------------------------
@@ -161,7 +139,8 @@ def rsqrt(input_tensor):
     "h , w",
     DRAM_INTERLEAVED_SHAPES,
 )
-def test_unary_op_dram(device, h, w, dtype, op):
+@pytest.mark.parametrize("graph_capture", [True, False])
+def test_unary_op_dram(device, h, w, dtype, op, graph_capture):
     if op in [log, ceil, floor, logical_not] and dtype == torch.float32:
         pytest.xfail("failing allclose for some shapes for float32")
 
@@ -175,6 +154,7 @@ def test_unary_op_dram(device, h, w, dtype, op):
         op,
         num_inputs=1,
         buffer_type=ttnn.BufferType.DRAM,
+        graph_capture=graph_capture,
     )
 
 
@@ -197,12 +177,21 @@ def test_unary_op_dram(device, h, w, dtype, op):
         # tan, sqrt
     ],
 )
-def test_unary_op_l1(device, h, w, max_grid, dtype, op):
+@pytest.mark.parametrize("graph_capture", [True, False])
+def test_unary_op_l1(device, h, w, max_grid, dtype, op, graph_capture):
     if op in [log, ceil, floor, rsqrt, logical_not] and dtype == torch.float32:
         pytest.xfail("failing allclose for some shapes for float32")
 
     run_op_test(
-        device, h, w, max_grid, dtype, op, num_inputs=1, buffer_type=ttnn.BufferType.L1
+        device,
+        h,
+        w,
+        max_grid,
+        dtype,
+        op,
+        num_inputs=1,
+        buffer_type=ttnn.BufferType.L1,
+        graph_capture=graph_capture,
     )
 
 
@@ -217,7 +206,8 @@ def test_unary_op_l1(device, h, w, max_grid, dtype, op):
     "h , w",
     DRAM_INTERLEAVED_SHAPES,
 )
-def test_bitwise_unary_op_dram(device, h, w, dtype, op):
+@pytest.mark.parametrize("graph_capture", [True, False])
+def test_bitwise_unary_op_dram(device, h, w, dtype, op, graph_capture):
     max_grid = (0, 0)
     run_op_test(
         device,
@@ -228,6 +218,7 @@ def test_bitwise_unary_op_dram(device, h, w, dtype, op):
         op,
         num_inputs=1,
         buffer_type=ttnn.BufferType.DRAM,
+        graph_capture=graph_capture,
     )
 
 
@@ -239,9 +230,18 @@ def test_bitwise_unary_op_dram(device, h, w, dtype, op):
         bitwise_not,
     ],
 )
-def test_bitwise_unary_op_l1(device, h, w, max_grid, dtype, op):
+@pytest.mark.parametrize("graph_capture", [True, False])
+def test_bitwise_unary_op_l1(device, h, w, max_grid, dtype, op, graph_capture):
     run_op_test(
-        device, h, w, max_grid, dtype, op, num_inputs=1, buffer_type=ttnn.BufferType.L1
+        device,
+        h,
+        w,
+        max_grid,
+        dtype,
+        op,
+        num_inputs=1,
+        buffer_type=ttnn.BufferType.L1,
+        graph_capture=graph_capture,
     )
 
 
@@ -293,7 +293,31 @@ def remainder(a, b):
 
 
 def pow(a, b):
-    return ttnn.pow_tensor(a, b)
+    # Test pow operation.
+    #
+    # Background:
+    # -----------
+    # The pow operation had a naming mismatch issue:
+    # - The Python ttnn API has: ttnn.pow(a, b)
+    # - The MLIR dialect has: ttnn.pow_tensor (not ttnn.pow)
+    #
+    # Original Issue:
+    # --------------
+    # PR #5154 changed the test from ttnn.pow() to ttnn.pow_tensor(), but this failed
+    # because ttnn.pow_tensor doesn't exist in the Python API. When computing the
+    # golden result (which calls the function directly without JIT), it would error:
+    #     AttributeError: module 'ttnn' has no attribute 'pow_tensor'
+    #
+    # The Fix:
+    # --------
+    # 1. Use ttnn.pow() in the test (which exists in Python API)
+    # 2. Added mapping in graph compiler: "pow" -> "pow_tensor" MLIR op
+    # 3. Added mapping in AST compiler: node.attr "pow" -> "pow_tensor" MLIR op
+    #
+    # Both compilers automatically map ttnn.pow -> ttnn.pow_tensor MLIR operation.
+    #
+    # Note: float32 tests may xfail due to numerical precision issues.
+    return ttnn.pow(a, b)
 
 
 def atan2(a, b):
@@ -340,14 +364,58 @@ def le(a, b):
         # remainder, atan2, eq, ne, gt, ge, lt, le
     ],
 )
-def test_binary_ops(device, h, w, max_grid, dtype, op):
+@pytest.mark.parametrize("graph_capture", [True, False])
+def test_binary_ops(device, h, w, max_grid, dtype, op, graph_capture):
     if op == div:
         pytest.xfail("failing allclose for some shapes")
     if op == pow and dtype == torch.float32:
         pytest.xfail("failing allclose for some shapes")
 
     run_op_test(
-        device, h, w, max_grid, dtype, op, num_inputs=2, buffer_type=ttnn.BufferType.L1
+        device,
+        h,
+        w,
+        max_grid,
+        dtype,
+        op,
+        num_inputs=2,
+        buffer_type=ttnn.BufferType.L1,
+        graph_capture=graph_capture,
+    )
+
+
+@pytest.mark.parametrize("h , w", DRAM_INTERLEAVED_SHAPES)
+@pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32])
+@pytest.mark.parametrize(
+    "op",
+    [
+        add,
+        sub,
+        mul,
+        div,
+        pow,
+        # logical_and, logical_or, logical_xor,
+        # bitwise_or, bitwise_and, bitwise_xor, # not a supported FPU op
+        # Not supported in TTIRToD2M
+        # remainder, atan2, eq, ne, gt, ge, lt, le
+    ],
+)
+def test_binary_ops_dram(device, h, w, dtype, op):
+    max_grid = (0, 0)
+    if op == div:
+        pytest.xfail("failing allclose for some shapes")
+    if op == pow and dtype == torch.float32:
+        pytest.xfail("failing allclose for some shapes")
+
+    run_op_test(
+        device,
+        h,
+        w,
+        max_grid,
+        dtype,
+        op,
+        num_inputs=2,
+        buffer_type=ttnn.BufferType.DRAM,
     )
 
 
@@ -373,8 +441,27 @@ def sinh(input_tensor):
 @pytest.mark.parametrize("h , w, max_grid", BLOCK_SHARDED_SHAPE_GRIDS)
 @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32])
 @pytest.mark.parametrize("op", [cosh, sinh])
-def test_composite_ops(device, h, w, max_grid, dtype, op):
-    run_op_test(device, h, w, max_grid, dtype, op, 1, buffer_type=ttnn.BufferType.L1)
+@pytest.mark.parametrize("graph_capture", [True, False])
+def test_composite_ops(device, h, w, max_grid, dtype, op, graph_capture):
+    run_op_test(
+        device,
+        h,
+        w,
+        max_grid,
+        dtype,
+        op,
+        1,
+        buffer_type=ttnn.BufferType.L1,
+        graph_capture=graph_capture,
+    )
+
+
+@pytest.mark.parametrize("h , w", DRAM_INTERLEAVED_SHAPES)
+@pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32])
+@pytest.mark.parametrize("op", [cosh, sinh])
+def test_composite_ops_dram(device, h, w, dtype, op):
+    max_grid = (0, 0)
+    run_op_test(device, h, w, max_grid, dtype, op, 1, buffer_type=ttnn.BufferType.DRAM)
 
 
 # ------------------------------------------------------------

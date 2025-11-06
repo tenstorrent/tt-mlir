@@ -16,7 +16,7 @@ table MaxPool2dExtraParams {}
 
 union Pool2dExtraParams {
   AvgPool2dExtraParams,
-  MaxPool2dExtraParams,
+  MaxPool2dExtraParams
 }
 
 table Pool2dOp {
@@ -64,4 +64,22 @@ table UpsampleOp {
   mode: string;
   memory_config: tt.target.ttnn.MemoryConfig;
   out: tt.target.ttnn.TensorRef;
+}
+
+table MaxPool2dWithIndicesOp {
+  in: tt.target.ttnn.TensorRef;
+  result: tt.target.ttnn.TensorRef;
+  result_indices: tt.target.ttnn.TensorRef;
+  batch_size: uint32;
+  input_height: uint32;
+  input_width: uint32;
+  channels: uint32;
+  kernel_size: [int32];
+  stride: [int32];
+  padding: [int32];
+  dilation: [int32];
+  memory_config: tt.target.ttnn.MemoryConfig;
+  applied_shard_scheme: tt.target.ttnn.TensorMemoryLayout = null;
+  ceil_mode: bool = false;
+  in_place_halo: bool = false;
 }

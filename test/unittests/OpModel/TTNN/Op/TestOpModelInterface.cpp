@@ -2168,6 +2168,73 @@ TEST_F(OpModelBase, sortOp) {
   }
 }
 
+TEST_F(OpModelBase, maxPool2dWithIndicesOp) {
+  // create MaxPool2dWithIndicesOp
+  llvm::SmallVector<int64_t> tensorShapeA = {1, 1, 128 * 128, 32};
+  llvm::SmallVector<int64_t> tensorShapeO = {1, 1, 64 * 64, 32};
+
+  auto input =
+      createEmptyTensor(tensorShapeA, builder.getBF16Type(),
+                        CreateRowMajorLayout(tensorShapeA, BufferType::DRAM,
+                                             TensorMemoryLayout::Interleaved));
+  auto pooledValues =
+      createEmptyTensor(tensorShapeO, builder.getBF16Type(),
+                        CreateRowMajorLayout(tensorShapeO, BufferType::DRAM,
+                                             TensorMemoryLayout::Interleaved));
+  auto indices =
+      createEmptyTensor(tensorShapeO, builder.getIntegerType(16, false),
+                        CreateRowMajorLayout(tensorShapeO, BufferType::DRAM,
+                                             TensorMemoryLayout::Interleaved));
+
+  // Input params
+  int32_t batchSize = 1;
+  int32_t inputHeight = 128;
+  int32_t inputWidth = 128;
+  int32_t numChannels = 32;
+
+  // Pooling params
+  int32_t kernelHeight = 3;
+  int32_t kernelWidth = 3;
+  int32_t strideHeight = 2;
+  int32_t strideWidth = 2;
+  int32_t dilationHeight = 1;
+  int32_t dilationWidth = 1;
+  int32_t paddingHeight = 0;
+  int32_t paddingWidth = 0;
+  MemoryConfigAttr memoryConfigAttr = nullptr;
+  TensorMemoryLayoutAttr appliedShardScheme = nullptr;
+  bool ceilMode = false;
+  bool inPlaceHalo = false;
+
+  llvm::SmallVector<int32_t, 2> kernelSize = {kernelHeight, kernelWidth};
+  llvm::SmallVector<int32_t, 2> stride = {strideHeight, strideWidth};
+  llvm::SmallVector<int32_t, 2> padding = {paddingHeight, paddingWidth};
+  llvm::SmallVector<int32_t, 2> dilation = {dilationHeight, dilationWidth};
+
+  // MaxPool2dWithIndicesOp returns 2 tensors: pooled values and indices
+  auto maxPool2dWithIndices = builder.create<MaxPool2dWithIndicesOp>(
+      builder.getUnknownLoc(),
+      mlir::TypeRange{pooledValues.getType(), indices.getType()}, input,
+      batchSize, inputHeight, inputWidth, numChannels, kernelSize, stride,
+      padding, dilation, memoryConfigAttr, appliedShardScheme, ceilMode,
+      inPlaceHalo);
+  maxPool2dWithIndices->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
+
+  auto constraintsExp = getOpConstraints(maxPool2dWithIndices.getOperation());
+  if (constraintsExp) {
+    auto l1 = constraintsExp.get();
+    const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+        l1;
+    EXPECT_GT(cbSize, 0);
+    EXPECT_GT(l1PeakSize, 0);
+    EXPECT_GT(outputSize, 0);
+    EXPECT_GT(totalPeakSize, 0);
+  } else {
+    FAIL() << "Missing L1 constraints; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
+}
+
 TEST_F(OpModelBase, typecastOp) {
   // create TypecastOp
   llvm::SmallVector<int64_t> tensorShape = {64, 1024};
@@ -2927,7 +2994,7 @@ TEST_F(OpModelBase, maxPool2DOp) {
 }
 
 TEST_F(OpModelBase, avgPool2DOp) {
-  // Create maxPool2DOp with flattened input tensor
+  // Create avgPool2DOp with flattened input tensor
   llvm::SmallVector<int64_t> tensorShapeA = {1, 1, 128 * 128, 32};
   llvm::SmallVector<int64_t> tensorShapeO = {1, 1, 64 * 64, 32};
 

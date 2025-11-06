@@ -780,6 +780,115 @@ public:
 };
 } // namespace
 
+// MaxPool2dWithIndices op conversion pattern
+//
+namespace {
+class MaxPool2dWithIndicesOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<
+          mlir::tt::ttnn::MaxPool2dWithIndicesOp> {
+
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::MaxPool2dWithIndicesOp>::
+      TTNNToEmitCBaseOpConversionPattern;
+
+  std::string getPrefixSearchPattern() const override {
+    return "ttnn.max_pool2d_with_indices";
+  }
+
+  std::string getPrefixSwapPattern() const override {
+    return "ttnn::max_pool2d";
+  }
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::MaxPool2dWithIndicesOp srcOp,
+                  OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::MaxPool2dWithIndicesOp>
+        emitter(srcOp, adaptor, rewriter);
+
+    SmallVector<int32_t> padding;
+    if (srcOp.getPadding().size() == 2) {
+      padding.push_back(static_cast<uint32_t>(srcOp.getPadding()[0]));
+      padding.push_back(static_cast<uint32_t>(srcOp.getPadding()[1]));
+    } else {
+      padding.push_back(static_cast<uint32_t>(srcOp.getPadding()[0]));
+      padding.push_back(static_cast<uint32_t>(srcOp.getPadding()[2]));
+      padding.push_back(static_cast<uint32_t>(srcOp.getPadding()[1]));
+      padding.push_back(static_cast<uint32_t>(srcOp.getPadding()[3]));
+    }
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput()),
+        emitter.emit(srcOp.getBatchSize()),
+        emitter.emit(srcOp.getInputHeight()),
+        emitter.emit(srcOp.getInputWidth()),
+        emitter.emit(srcOp.getChannels()),
+        emitter.template emit<std::array<uint32_t, 2>>(
+            srcOp.getKernelSizeAttr()),
+        emitter.template emit<std::array<uint32_t, 2>>(srcOp.getStrideAttr()),
+        emitter.template emit<
+            std::variant<std::array<uint32_t, 2>, std::array<uint32_t, 4>>>(
+            rewriter.getI32ArrayAttr(padding)),
+        emitter.template emit<std::array<uint32_t, 2>>(srcOp.getDilationAttr()),
+        emitter.emit(srcOp.getCeilMode()),
+        emitter.getMemoryConfig(srcOp.getResult()),
+        emitter.emit(srcOp.getAppliedShardScheme()),
+        emitter.emit(srcOp.getInPlaceHalo()),
+        /*deallocate_input=*/emitter.emit(false),
+        /*reallocate_halo_output=*/emitter.emit(true),
+        /*return_indices=*/emitter.emit(true)};
+
+    // MaxPool2dWithIndicesOp returns a std::vector<ttnn::Tensor> containing two
+    // elements: [0] = pooled tensor, [1] = corresponding indices. Extract both
+    // elements to replace the original MaxPool2dWithIndicesOp.
+    assert(srcOp.getNumResults() == 2 &&
+           "Expected two outputs for MaxPool2dWithIndicesOp (pooled tensor "
+           "and indices).");
+
+    using ReturnTy = std::vector<::ttnn::Tensor>;
+
+    auto maxPool2dWithIndicesOp = rewriter.create<emitc::CallOpaqueOp>(
+        srcOp.getLoc(),
+        rewriter.getType<emitc::OpaqueType>(ttnn_to_emitc::TypeNameV<ReturnTy>),
+        convertOpName(srcOp), rewriter.getArrayAttr(args),
+        /*template_args=*/nullptr, adaptor.getOperands());
+
+    SmallVector<Value> results;
+    for (unsigned i = 0; i < srcOp.getNumResults(); ++i) {
+      // Create index to access i-th element.
+      auto indexType = rewriter.getIndexType();
+      auto indexOp = rewriter.create<emitc::LiteralOp>(
+          srcOp.getLoc(), indexType, std::to_string(i));
+      Value indexVal = indexOp.getResult();
+
+      // Create LValue type for the tensor reference.
+      auto lvalueType = emitc::LValueType::get(emitc::OpaqueType::get(
+          rewriter.getContext(),
+          ttnn_to_emitc::TypeNameV<ReturnTy::value_type>));
+
+      // Get reference to the i-th element in the result vector.
+      auto subscriptOp = rewriter.create<emitc::SubscriptOp>(
+          srcOp.getLoc(), lvalueType, maxPool2dWithIndicesOp.getResult(0),
+          indexVal);
+
+      // Load the actual tensor value from the reference.
+      auto loadOp = rewriter.create<emitc::LoadOp>(
+          srcOp.getLoc(),
+          emitc::OpaqueType::get(
+              rewriter.getContext(),
+              ttnn_to_emitc::TypeNameV<ReturnTy::value_type>),
+          subscriptOp.getResult());
+      results.push_back(loadOp.getResult());
+    }
+
+    rewriter.replaceOp(srcOp, results);
+    return success();
+  }
+};
+} // namespace
+
 // GlobalAvgPool2d op conversion pattern
 //
 namespace {
@@ -3736,6 +3845,7 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   //
   patterns.add<AvgPool2dOpConversionPattern>(typeConverter, ctx);
   patterns.add<MaxPool2dOpConversionPattern>(typeConverter, ctx);
+  patterns.add<MaxPool2dWithIndicesOpConversionPattern>(typeConverter, ctx);
   patterns.add<GlobalAvgPool2dOpConversionPattern>(typeConverter, ctx);
   patterns.add<UpsampleOpConversionPattern>(typeConverter, ctx);
 
