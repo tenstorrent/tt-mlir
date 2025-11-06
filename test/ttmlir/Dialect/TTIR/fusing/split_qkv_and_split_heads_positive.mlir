@@ -185,7 +185,9 @@ module {
 
     return %103 : tensor<2x34x1024xf32>
   }
+}
 
+module {
   func.func @bert_attention(%arg0: tensor<1x128x768xbf16>,
                           %arg1: tensor<768x768xbf16>, %arg2: tensor<768xbf16>, // query weight, bias
                           %arg3: tensor<768x768xbf16>, %arg4: tensor<768xbf16>, // key weight, bias
