@@ -846,7 +846,11 @@ class TTCompilerBase(PyKernelAstBase):
         elif isinstance(node.value, bool):
             return op_constructor(IntegerType.get_signless(1, self.ctx), node.value)
         elif isinstance(node.value, int):
-            return op_constructor(IntegerType.get_signless(32, self.ctx), node.value)
+            # D2M dialect ops (d2m.core_index, d2m.iter_index) require I64Attr for their
+            # dimension attributes, while TTKernel ops require I32 operands.
+            # Use 64-bit for attributes, 32-bit for regular constants.
+            bitwidth = 64 if as_attr else 32
+            return op_constructor(IntegerType.get_signless(bitwidth, self.ctx), node.value)
         else:
             raise NotImplementedError(
                 f"constant type {type(node.value).__name__} not implemented"
