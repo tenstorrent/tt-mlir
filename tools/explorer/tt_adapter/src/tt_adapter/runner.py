@@ -273,14 +273,19 @@ class ModelRunner:
         stdout, stderr = process.communicate()
         
         # Log stdout at INFO level
+        import sys
         for line in stdout.splitlines():
             if line.strip():
                 self.log(line.strip())
+                print(f"STDOUT: {line.strip()}", flush=True)
+                sys.stdout.flush()
         
         # Log stderr at WARNING level to ensure it's always visible (especially C++ debug logs)
         for line in stderr.splitlines():
             if line.strip():
                 self.log(line.strip(), severity=logging.warning)
+                print(f"STDERR: {line.strip()}", flush=True)
+                sys.stdout.flush()
 
         return process
 
@@ -301,6 +306,9 @@ class ModelRunner:
             self.progress = 100
 
     def compile_and_run(self, model_path, overrides_string):
+        import sys
+        print(f"\nDEBUG [compile_and_run]: START for {model_path}", flush=True)
+        sys.stdout.flush()
         FLATBUFFER = False
         if model_path.endswith(".ttnn"):
             # This is being run from a Flatbuffer. Need To Render TTIR from Flatbuffer
@@ -498,8 +506,13 @@ class ModelRunner:
             "--memory",
         ]
 
+        import sys
+        print(f"\nDEBUG: Running ttrt perf: {' '.join(ttrt_perf_command)}", flush=True)
+        sys.stdout.flush()
         self.log(f"DEBUG: Running ttrt perf: {' '.join(ttrt_perf_command)}", severity=logging.warning)
         ttrt_process = self.run_in_subprocess(ttrt_perf_command)
+        print(f"DEBUG: ttrt perf exit code: {ttrt_process.returncode}", flush=True)
+        sys.stdout.flush()
         self.log(f"DEBUG: ttrt perf exit code: {ttrt_process.returncode}", severity=logging.warning)
 
         if ttrt_process.returncode != 0:
@@ -516,8 +529,12 @@ class ModelRunner:
                 perf_dir = f"{self.model_state[model_path].model_output_dir}/perf"
                 if os.path.exists(perf_dir):
                     files = os.listdir(perf_dir)
+                    print(f"DEBUG: Perf dir exists, files: {files}", flush=True)
+                    sys.stdout.flush()
                     self.log(f"DEBUG: Perf dir exists, files: {files}", severity=logging.warning)
                 else:
+                    print(f"DEBUG: Perf dir does not exist: {perf_dir}", flush=True)
+                    sys.stdout.flush()
                     self.log(f"DEBUG: Perf dir does not exist: {perf_dir}", severity=logging.warning)
                 raise ExplorerRunException(error)
 
