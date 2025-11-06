@@ -2061,12 +2061,27 @@ public:
                                         ? biasedPermuteOps.front()
                                         : unbiasedPermuteOps.front());
 
-    // Extract dimensions from reshape op input and output.
+    // Extract dimensions from reshape op and permute ops.
     Value reshapeOutput = reshapeOp.getResult();
     ArrayRef<int64_t> inputShape = reshapeOp.getInput().getType().getShape();
     int32_t batchSize = inputShape[I_BATCH_SIZE];
     int32_t sequenceLength = inputShape[I_SEQUENCE_LENGTH];
-    int32_t hiddenSize = inputShape[I_HIDDEN_DIMENSION];
+
+    auto queryType = (mhaType == TYPE_BIASED)
+                         ? biasedPermuteOps[0].getOutput().getType()
+                         : unbiasedPermuteOps[0].getOutput().getType();
+    auto keyType = (mhaType == TYPE_BIASED)
+                       ? biasedPermuteOps[1].getOutput().getType()
+                       : unbiasedPermuteOps[1].getOutput().getType();
+    auto valueType = (mhaType == TYPE_BIASED)
+                         ? biasedPermuteOps[2].getOutput().getType()
+                         : unbiasedPermuteOps[2].getOutput().getType();
+
+    auto queryShape = queryType.getShape();
+    auto keyShape = keyType.getShape();
+    auto valueShape = valueType.getShape();
+    int32_t numHeads = queryType.getShape()[O_NUM_KV_HEADS];
+    int32_t hiddenSize = queryType.getShape()[O_HEAD_SIZE] * numHeads;
 
     // Concatenate weights along dimension determined by linear op.
     // Weights are the second input (B) of linear op.
@@ -2184,20 +2199,6 @@ public:
         rewriter.getI32ArrayAttr(reshapeToSplitShapeI32));
 
     // Create split qkv op.
-    auto queryType = (mhaType == TYPE_BIASED)
-                         ? biasedPermuteOps[0].getOutput().getType()
-                         : unbiasedPermuteOps[0].getOutput().getType();
-    auto keyType = (mhaType == TYPE_BIASED)
-                       ? biasedPermuteOps[1].getOutput().getType()
-                       : unbiasedPermuteOps[1].getOutput().getType();
-    auto valueType = (mhaType == TYPE_BIASED)
-                         ? biasedPermuteOps[2].getOutput().getType()
-                         : unbiasedPermuteOps[2].getOutput().getType();
-
-    auto queryShape = queryType.getShape();
-    auto keyShape = keyType.getShape();
-    auto valueShape = valueType.getShape();
-    int32_t numHeads = queryType.getShape()[O_NUM_KV_HEADS];
 
     Value queryOutput = rewriter.create<EmptyOp>(
         matrixMultOp->getLoc(), queryShape, queryType.getElementType(),
@@ -2248,13 +2249,13 @@ private:
     populateMatmulOps(reshapeOp, matmulOps);
     if (!linearOps.empty() && validateMatmulOrLinearOps(reshapeOp, linearOps)) {
       populatePermuteOps(linearOps, biasedPermuteOps);
-      if (validatePermuteOps(biasedPermuteOps)) {
+      if (validatePermuteOps(reshapeOp, biasedPermuteOps)) {
         return TYPE_BIASED;
       }
     }
     if (!matmulOps.empty() && validateMatmulOrLinearOps(reshapeOp, matmulOps)) {
       populatePermuteOps(matmulOps, unbiasedPermuteOps);
-      if (validatePermuteOps(unbiasedPermuteOps)) {
+      if (validatePermuteOps(reshapeOp, unbiasedPermuteOps)) {
         return TYPE_UNBIASED;
       }
     }
@@ -2422,7 +2423,8 @@ private:
             keyShape[K_SEQUENCE_LENGTH] == queryShape[O_SEQUENCE_LENGTH]);
   }
 
-  bool validatePermuteOps(llvm::ArrayRef<PermuteOp> permuteOps) const {
+  bool validatePermuteOps(ReshapeOp reshapeOp,
+                          llvm::ArrayRef<PermuteOp> permuteOps) const {
     if (permuteOps.size() != 3) {
       return false;
     }
@@ -2498,8 +2500,8 @@ private:
       return false;
     }
 
-    // Reshape transforms [BATCH_SIZE, SEQUENCE_LENGTH, HIDDEN_DIMENSION] to
-    // [BATCH_SIZE * SEQUENCE_LENGTH, HIDDEN_DIMENSION].
+    // Reshape transforms [BATCH_SIZE, SEQUENCE_LENGTH, INPUT_HIDDEN_DIMENSION]
+    // to [BATCH_SIZE * SEQUENCE_LENGTH, INPUT_HIDDEN_DIMENSION].
     ArrayRef<int64_t> reshapeOutputShape =
         reshapeOp.getResult().getType().getShape();
     if (reshapeOutputShape.size() != 2) {
@@ -2522,8 +2524,7 @@ private:
         return false;
       }
       auto bShape = matrixOp.getB().getType().getShape();
-      // Each op must have a 2D weight matrix where the outer dimension
-      // is HIDDEN_DIMENSION.
+      // Each op must have a 2D weight matrix.
       if (bShape.size() != 2) {
         return false;
       }
