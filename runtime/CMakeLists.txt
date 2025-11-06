@@ -33,7 +33,6 @@ add_subdirectory(lib)
 add_subdirectory(python)
 add_subdirectory(tools)
 
-
 # Ensure coverage_config is applied to runtime tests if enabled
 if (TTMLIR_ENABLE_RUNTIME_TESTS)
   add_subdirectory(test)

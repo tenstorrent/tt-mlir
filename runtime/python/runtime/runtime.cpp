@@ -287,6 +287,7 @@ void registerRuntimeBindings(nb::module_ &m) {
       .value("GRAYSKULL", ::tt::target::Arch::Grayskull)
       .value("WORMHOLE_B0", ::tt::target::Arch::Wormhole_b0)
       .value("BLACKHOLE", ::tt::target::Arch::Blackhole);
+
   m.def("set_mlir_home", &tt::runtime::setMlirHome, nb::arg("mlir_home"),
         "Set the MLIR home directory");
   m.def("set_metal_home", &tt::runtime::setMetalHome, nb::arg("metal_home"),

@@ -99,7 +99,16 @@ target_include_directories(TTRuntimeDebug
     ${PROJECT_SOURCE_DIR}/runtime/include
     ${PROJECT_BINARY_DIR}/runtime/include
 )
-target_link_libraries(TTRuntimeDebug PUBLIC nanobind-static)
+if (TT_RUNTIME_DEBUG)
+  find_package(Python3 REQUIRED COMPONENTS Interpreter Development)
+  target_include_directories(TTRuntimeDebug PUBLIC
+    ${Python3_INCLUDE_DIRS}
+  )
+  target_link_libraries(TTRuntimeDebug PUBLIC
+    ${Python3_LIBRARIES}
+  )
+  target_link_libraries(TTRuntimeDebug PUBLIC nanobind-static)
+endif()
 target_link_libraries(TTRuntimeDebug PUBLIC coverage_config)
 add_dependencies(TTRuntimeDebug RUNTIME_FBS_GENERATION)
 

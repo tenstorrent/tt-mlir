@@ -103,9 +103,9 @@ class ChiselContext:
         self,
         ttir_mlir: str,
         ttnn_mlir: str,
-        output_dir: pathlib.Path=Path("./chisel_output"),
-        report_path: pathlib.Path=Path("./chisel_output/report.csv"),
-        main_fn: str="abs",
+        output_dir: pathlib.Path = Path("./chisel_output"),
+        report_path: pathlib.Path = Path("./chisel_output/report.csv"),
+        main_fn: str = "abs",
         program_index: int = 0,
         flatbuffer_path: pathlib.Path | None = None,
         function_argument_bridge_type: Literal["host", "device"] = "device",
@@ -334,7 +334,7 @@ class ChiselContext:
                 if device_tensor.tensor_ref is not None:
                     continue  # Skip if tensor reference already set
                 device_tensor.tensor_ref = tensor_ref
-                
+
             else:
                 tensor_data = retrieve_tensor_from_pool(programContext, tensor_ref)
                 data = get_torch_tensor(tensor_data)
