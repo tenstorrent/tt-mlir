@@ -683,6 +683,54 @@ def batch_norm_golden(
     return result
 
 
+def batch_norm_training_golden(
+    input_tensor: GoldenMapTensor,
+    scale: GoldenMapTensor,
+    offset: GoldenMapTensor,
+    running_mean: GoldenMapTensor,
+    running_variance: GoldenMapTensor,
+    epsilon: float = 1e-5,
+    dimension: int = 1,
+    momentum: float = 0.1,
+) -> tuple[GoldenMapTensor, GoldenMapTensor, GoldenMapTensor]:
+
+    perm = list(range(input_tensor.ndim))
+    perm[1], perm[dimension] = perm[dimension], perm[1]
+    x = input_tensor.permute(perm)
+
+    result = torch.nn.functional.batch_norm(
+        x,
+        running_mean=running_mean,
+        running_var=running_variance,
+        weight=scale,
+        bias=offset,
+        training=True,
+        momentum=momentum,
+        eps=epsilon,
+    )
+
+    inv_perm = [perm.index(i) for i in range(len(perm))]
+    result = result.permute(inv_perm)
+
+    # Compute per-channel mean and population variance across all non-channel dims
+    reduce_dims = tuple(i for i in range(x.ndim) if i != 1)
+    batch_mean = torch.mean(x, dim=reduce_dims)
+    centered = x - batch_mean.reshape([1, batch_mean.shape[0]] + [1] * (x.ndim - 2))
+    batch_variance = torch.mean(torch.square(centered), dim=reduce_dims)
+
+    new_running_mean = torch.multiply(1.0 - momentum, running_mean) + torch.multiply(
+        momentum, batch_mean
+    )
+    new_running_var = torch.multiply(1.0 - momentum, running_variance) + torch.multiply(
+        momentum, batch_variance
+    )
+
+    # new_running_mean = new_running_mean.to(input_tensor.dtype)
+    # new_running_var  = new_running_var.to(input_tensor.dtype)
+
+    return result, new_running_mean, new_running_var
+
+
 def rms_norm_golden(
     input: GoldenMapTensor,
     weight: Optional[GoldenMapTensor] = None,
@@ -2902,6 +2950,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.EmbeddingOp: embedding_golden,
     ttir.Upsample2dOp: upsample2d_golden,
     ttir.BatchNormInferenceOp: batch_norm_golden,
+    ttir.BatchNormTrainingOp: batch_norm_training_golden,
     ttir.RMSNormOp: rms_norm_golden,
     # Type operations
     ttir.TypecastOp: typecast_golden,

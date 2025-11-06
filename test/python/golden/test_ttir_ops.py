@@ -952,6 +952,66 @@ def test_batch_norm(
     )
 
 
+@pytest.mark.parametrize(
+    "shapes",
+    [
+        [
+            (1, 64, 32, 32),  # input tensor: (N, C, H, W)
+            (64,),  # scale (gamma)
+            (64,),  # offset (beta)
+            (64,),  # mean
+            (64,),  # variance
+        ]
+    ],
+    ids=shapes_list_str,
+)
+@pytest.mark.parametrize("dtypes", [[torch.float32] * 5])
+@pytest.mark.parametrize("epsilon", [1e-5])
+@pytest.mark.parametrize("dimension", [1])  # channel dimension
+@pytest.mark.parametrize("momentum", [0.1])
+def test_batch_norm_training(
+    shapes: List[Shape],
+    dtypes: List[torch.dtype],
+    epsilon: float,
+    dimension: int,
+    momentum: float,
+    request,
+    device,
+):
+    def batch_norm_training(
+        in0: Operand,
+        scale: Operand,
+        offset: Operand,
+        running_mean: Operand,
+        running_variance: Operand,
+        builder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+
+        res, batch_mean, batch_variance = builder.batch_norm_training(
+            in0,
+            scale,
+            offset,
+            running_mean,
+            running_variance,
+            epsilon=epsilon,
+            dimension=dimension,
+            momentum=momentum,
+            unit_attrs=unit_attrs,
+        )
+        return res, batch_mean, batch_variance
+
+    compile_and_execute_ttir(
+        batch_norm_training,
+        shapes,
+        dtypes,
+        test_base=request.node.name,
+        device=device,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+    )
+
+
 @pytest.mark.parametrize("shape", [(1, 1, 5, 5)], ids=shape_str)
 @pytest.mark.parametrize("padding", [[0, 1, 2, 3, 4, 5, 6, 7]])
 @pytest.mark.parametrize("value", [0])
