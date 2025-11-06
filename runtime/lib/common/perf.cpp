@@ -4,6 +4,8 @@
 
 #include "tt/runtime/perf.h"
 #include <cstdio> // For fprintf, stderr
+#include <unistd.h> // For getpid
+#include <pthread.h> // For pthread_self
 
 #if defined(TT_RUNTIME_ENABLE_PERF_TRACE) && TT_RUNTIME_ENABLE_PERF_TRACE == 1
 #include "tracy/Tracy.hpp"
@@ -23,7 +25,15 @@ void Env::tracyLogOpLocation(const std::string &locInfo) const {
 #if defined(TT_RUNTIME_ENABLE_PERF_TRACE) && TT_RUNTIME_ENABLE_PERF_TRACE == 1
   // Log to stderr for CI debugging (will appear in test output)
   static int call_count = 0;
+  static bool first_call = true;
   call_count++;
+  
+  // Log process/thread info on first call
+  if (first_call) {
+    fprintf(stderr, "DEBUG [Runtime]: tracyLogOpLocation - PID=%d, TID=%lu\n", 
+            getpid(), (unsigned long)pthread_self());
+    first_call = false;
+  }
   
   // Log first 10 calls and every empty call
   if (call_count <= 10 || locInfo.empty()) {

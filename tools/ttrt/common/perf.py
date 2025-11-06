@@ -524,15 +524,17 @@ class Perf:
 
                     # Add post-processing steps to insert location data into the ops_perf data file
                     # Get the op location to it's global call count mapping
-                    def get_mlir_analysis_results(key):
-                        call_count_mapping = {}
+            def get_mlir_analysis_results(key):
+                call_count_mapping = {}
 
-                        with open(tracy_ops_data_file_path, "r") as file:
-                            lines = iter(file)
-                            buffer = None
-                            
-                            # Debug: Log first 30 lines of the file (use WARNING level to show in CI)
-                            self.logging.warning(f"DEBUG: Reading {tracy_ops_data_file_path} for key '{key}'")
+                with open(tracy_ops_data_file_path, "r") as file:
+                    lines = iter(file)
+                    buffer = None
+                    
+                    # Debug: Log process/thread info and first 30 lines (use WARNING level to show in CI)
+                    import os
+                    import threading
+                    self.logging.warning(f"DEBUG: Reading {tracy_ops_data_file_path} for key '{key}' (PID={os.getpid()}, TID={threading.current_thread().ident})")
                             file.seek(0)
                             first_lines = [file.readline().strip() for _ in range(30)]
                             for i, fline in enumerate(first_lines):

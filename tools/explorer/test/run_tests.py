@@ -20,6 +20,14 @@ print("=" * 80)
 
 import subprocess
 import platform
+import threading
+
+# Process/thread info
+print(f"Process ID: {os.getpid()}")
+print(f"Parent Process ID: {os.getppid()}")
+print(f"Thread ID: {threading.current_thread().ident}")
+print(f"Thread name: {threading.current_thread().name}")
+print(f"Active threads in this process: {threading.active_count()}")
 
 # System info
 print(f"OS: {platform.system()} {platform.release()}")

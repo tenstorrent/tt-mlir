@@ -7,6 +7,8 @@
 #include "meshshard_utils.h"
 
 #include <cstdio> // For fprintf, stderr (debug logging)
+#include <unistd.h> // For getpid
+#include <pthread.h> // For pthread_self
 
 #include "tools/profiler/op_profiler.hpp"
 #include "tracy/Tracy.hpp"
@@ -352,21 +354,30 @@ void MCQExecutor::execute(const target::metal::EnqueueProgramCommand *command,
 
   meshWorkload.add_program(deviceRange, std::move(program));
 
-  if (perf::Env::get().enablePerfTrace) {
-    static int device_op_count = 0;
-    for (auto &[range, program] : meshWorkload.get_programs()) {
-      for (auto coord : range) {
-        auto deviceId = meshDevice->get_device(coord)->id();
-        program.set_runtime_id(getUniqueProgramRuntimeId());
-        device_op_count++;
-        if (device_op_count <= 10) {
-          fprintf(stderr, "DEBUG [Executor]: TT_DNN_DEVICE_OP call #%d for loc='%s'\n", 
-                  device_op_count, loc);
+      if (perf::Env::get().enablePerfTrace) {
+        static int device_op_count = 0;
+        static bool first_call = true;
+        
+        // Log process/thread info on first call
+        if (first_call) {
+          fprintf(stderr, "DEBUG [Executor]: TT_DNN_DEVICE_OP - PID=%d, TID=%lu\n", 
+                  getpid(), (unsigned long)pthread_self());
+          first_call = false;
         }
-        profiler::addProgramProfileHostMetadata(deviceId, program, loc);
+        
+        for (auto &[range, program] : meshWorkload.get_programs()) {
+          for (auto coord : range) {
+            auto deviceId = meshDevice->get_device(coord)->id();
+            program.set_runtime_id(getUniqueProgramRuntimeId());
+            device_op_count++;
+            if (device_op_count <= 10) {
+              fprintf(stderr, "DEBUG [Executor]: TT_DNN_DEVICE_OP call #%d for loc='%s'\n", 
+                      device_op_count, loc);
+            }
+            profiler::addProgramProfileHostMetadata(deviceId, program, loc);
+          }
+        }
       }
-    }
-  }
 
   distributed::EnqueueMeshWorkload(*mcq, meshWorkload, blockingCQ);
 
