@@ -163,8 +163,16 @@ void createTTIRToTTNNBackendPipeline(
     OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
   pm.addPass(mlir::createCanonicalizerPass());
 
+  // Add Decomposition pass here to ensure it runs before hoisting.
+  TTIRToTTIRDecompositionOptions decompOptions;
+  decompOptions.decompConfig = DecompMode::CPUFallback;
+  pm.addPass(mlir::tt::createTTIRToTTIRDecompositionPass(decompOptions));
+
   // Create DeviceModule to wrap all ops.
   pm.addPass(ttcore::createTTCoreWrapDeviceModulePass());
+  // Create CPUModuleOp to wrap hoisted ops (if any).
+  pm.addPass(ttir::createTTIRHoistTransform());
+
   OpPassManager &devicePm =
       pm.nest<ttcore::DeviceModuleOp>().nest<mlir::ModuleOp>();
 
@@ -176,14 +184,6 @@ void createTTIRToTTNNBackendPipeline(
       options.enableBfp8Conversion;
   devicePm.addPass(
       ttir::createElementTypeNormalization(elementTypeNormalizationOptions));
-
-  // Add Decomposition pass here to ensure it runs before hoisting.
-  TTIRToTTIRDecompositionOptions decompOptions;
-  decompOptions.decompConfig = DecompMode::CPUFallback;
-  pm.addPass(mlir::tt::createTTIRToTTIRDecompositionPass(decompOptions));
-
-  // Create CPUModuleOp to wrap hoisted ops (if any).
-  pm.addPass(ttir::createTTIRHoistTransform());
 
   // Run regular TTIR to TTNN pipeline on DeviceModule.
   createTTNNPipelineTTIRPasses(devicePm, options);
