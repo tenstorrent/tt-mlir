@@ -533,9 +533,12 @@ class Perf:
                         Two-pass parsing approach that's order-independent:
                         1. Collect all MLIR messages (e.g., MLIR_OP_LOCATION) with their timestamps
                         2. Collect all TT_DNN_DEVICE_OP messages with their timestamps and global_call_counts
-                        3. For each TT_DNN_DEVICE_OP, find the most recent MLIR message before it (by timestamp)
+                        3. For MLIR_OP_LOCATION: match to most recent message BEFORE device op
+                           For other types: match to closest message AFTER device op (they're logged during execution)
                         """
                         call_count_mapping = {}
+                        # Determine matching direction based on message type
+                        match_after = key in ["MLIR_PROGRAM_METADATA", "MLIR_CONST_EVAL_OP", "MLIR_INPUT_LAYOUT_CONVERSION_OP"]
 
                         # Pass 1: Collect all MLIR messages with timestamps
                         mlir_messages = []  # List of (timestamp, data) tuples
@@ -650,15 +653,22 @@ class Perf:
                         
                         self.logging.warning(f"DEBUG: Found {len(device_ops)} TT_DNN_DEVICE_OP messages ({single_line_count} single-line, {multi_line_count} multi-line)")
                         
-                        # Pass 3: Match each TT_DNN_DEVICE_OP to the most recent MLIR message before it
+                        # Pass 3: Match each TT_DNN_DEVICE_OP to MLIR message (before or after depending on type)
                         for dev_timestamp, global_call_count in device_ops:
-                            # Find the most recent MLIR message with timestamp <= dev_timestamp
                             matching_mlir_data = 'loc("unknown")'  # Default fallback
                             
-                            for mlir_timestamp, mlir_data in reversed(mlir_messages):
-                                if mlir_timestamp <= dev_timestamp:
-                                    matching_mlir_data = mlir_data
-                                    break
+                            if match_after:
+                                # Find the closest MLIR message with timestamp >= dev_timestamp (after)
+                                for mlir_timestamp, mlir_data in mlir_messages:
+                                    if mlir_timestamp >= dev_timestamp:
+                                        matching_mlir_data = mlir_data
+                                        break
+                            else:
+                                # Find the most recent MLIR message with timestamp <= dev_timestamp (before)
+                                for mlir_timestamp, mlir_data in reversed(mlir_messages):
+                                    if mlir_timestamp <= dev_timestamp:
+                                        matching_mlir_data = mlir_data
+                                        break
                             
                             if global_call_count is not None:
                                 call_count_mapping[global_call_count] = matching_mlir_data
