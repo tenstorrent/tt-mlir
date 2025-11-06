@@ -426,6 +426,60 @@ module {
   }
 }
 
+module {
+  func.func @flan_t5_attention(%arg0: tensor<1x61x512xbf16>, %arg1: tensor<384x512xbf16>, %arg2: tensor<384x512xbf16>, %arg3: tensor<384x512xbf16>) -> (tensor<1x6x61x64xbf16>, tensor<1x6x64x61xbf16>, tensor<1x6x61x64xbf16>) {
+    // Concatenate Q, K, V weights:
+    // CHECK: "ttir.concat"
+    // CHECK-SAME: <{dim = 0 : si32}>
+
+    // Matmul Q, K, V projections with concatenated bias:
+    // CHECK: "ttir.matmul"
+    // CHECK-SAME: <{transpose_a = false, transpose_b = true}>
+    // CHECK-SAME: (tensor<61x512xbf16>, tensor<1152x512xbf16>, tensor<61x1152xbf16>) -> tensor<61x1152xbf16>
+
+    // Reshape matmul output:
+    // CHECK: "ttir.reshape"
+    // CHECK-SAME: <{shape = [1 : i32, 61 : i32, 1152 : i32]}>
+    // CHECK-SAME: (tensor<61x1152xbf16>, tensor<1x61x1152xbf16>) -> tensor<1x61x1152xbf16>
+
+    // Split Q, K, V heads:
+    // CHECK: "ttir.split_query_key_value_and_split_heads"
+    // CHECK-SAME: <{num_heads = 6 : ui32, transpose_key = true}>
+    // CHECK-SAME: (tensor<1x61x1152xbf16>, tensor<1x6x61x64xbf16>, tensor<1x6x64x61xbf16>, tensor<1x6x61x64xbf16>) -> (tensor<1x6x61x64xbf16>, tensor<1x6x64x61xbf16>, tensor<1x6x61x64xbf16>)
+
+
+    %0 = ttir.empty() : tensor<61x512xbf16>
+    %1 = "ttir.reshape"(%arg0, %0) <{shape = [61 : i32, 512 : i32]}> : (tensor<1x61x512xbf16>, tensor<61x512xbf16>) -> tensor<61x512xbf16> // [batch_size, sequence_length, hidden_dimensions]
+
+    // Query projection
+    %2 = ttir.empty() : tensor<61x384xbf16>
+    %3 = "ttir.matmul"(%1, %arg1, %2) <{transpose_a = false, transpose_b = true}> : (tensor<61x512xbf16>, tensor<384x512xbf16>, tensor<61x384xbf16>) -> tensor<61x384xbf16>
+    %4 = ttir.empty() : tensor<1x61x6x64xbf16>
+    %5 = "ttir.reshape"(%3, %4) <{shape = [1 : i32, 61 : i32, 6 : i32, 64 : i32]}> : (tensor<61x384xbf16>, tensor<1x61x6x64xbf16>) -> tensor<1x61x6x64xbf16>
+    %6 = ttir.empty() : tensor<1x6x61x64xbf16>
+    %7 = "ttir.permute"(%5, %6) <{permutation = array<i64: 0, 2, 1, 3>}> : (tensor<1x61x6x64xbf16>, tensor<1x6x61x64xbf16>) -> tensor<1x6x61x64xbf16> // [batch_size, number of kv heads, sequence_length, head_size].
+
+    // Second branch: Key projection
+    %8 = ttir.empty() : tensor<61x384xbf16>
+    %9 = "ttir.matmul"(%1, %arg2, %8) <{transpose_a = false, transpose_b = true}> : (tensor<61x512xbf16>, tensor<384x512xbf16>, tensor<61x384xbf16>) -> tensor<61x384xbf16>
+    %10 = ttir.empty() : tensor<1x61x6x64xbf16>
+    %11 = "ttir.reshape"(%9, %10) <{shape = [1 : i32, 61 : i32, 6 : i32, 64 : i32]}> : (tensor<61x384xbf16>, tensor<1x61x6x64xbf16>) -> tensor<1x61x6x64xbf16>
+    %12 = ttir.empty() : tensor<1x6x64x61xbf16>
+    %13 = "ttir.permute"(%11, %12) <{permutation = array<i64: 0, 2, 3, 1>}> : (tensor<1x61x6x64xbf16>, tensor<1x6x64x61xbf16>) -> tensor<1x6x64x61xbf16>
+
+    // Third branch: Value projection
+    %14 = ttir.empty() : tensor<61x384xbf16>
+    %15 = "ttir.matmul"(%1, %arg3, %14) <{transpose_a = false, transpose_b = true}> : (tensor<61x512xbf16>, tensor<384x512xbf16>, tensor<61x384xbf16>) -> tensor<61x384xbf16>
+    %16 = ttir.empty() : tensor<1x61x6x64xbf16>
+    %17 = "ttir.reshape"(%15, %16) <{shape = [1 : i32, 61 : i32, 6 : i32, 64 : i32]}> : (tensor<61x384xbf16>, tensor<1x61x6x64xbf16>) -> tensor<1x61x6x64xbf16>
+    %18 = ttir.empty() : tensor<1x6x61x64xbf16>
+    %19 = "ttir.permute"(%17, %18) <{permutation = array<i64: 0, 2, 1, 3>}> : (tensor<1x61x6x64xbf16>, tensor<1x6x61x64xbf16>) -> tensor<1x6x61x64xbf16>
+
+    return %7, %13, %19 : tensor<1x6x61x64xbf16>, tensor<1x6x64x61xbf16>, tensor<1x6x61x64xbf16>
+  }
+}
+
+
 // The following test is after ttir-to-ttir-decomposition and canonicalization.
 // Transpose and matmul is canonicalized to matmul with transposeB = true.
 // This will change weight concatenation dimension.
