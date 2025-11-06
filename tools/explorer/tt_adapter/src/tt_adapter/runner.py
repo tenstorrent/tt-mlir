@@ -498,7 +498,9 @@ class ModelRunner:
             "--memory",
         ]
 
+        self.log(f"DEBUG: Running ttrt perf: {' '.join(ttrt_perf_command)}", severity=logging.warning)
         ttrt_process = self.run_in_subprocess(ttrt_perf_command)
+        self.log(f"DEBUG: ttrt perf exit code: {ttrt_process.returncode}", severity=logging.warning)
 
         if ttrt_process.returncode != 0:
             # 42 is the specific code for a test error instead of ttrt
@@ -508,8 +510,16 @@ class ModelRunner:
                 )
                 self.log(error, severity=logging.error)
             else:
-                error = "Error while running TTRT perf"
+                error = f"Error while running TTRT perf (exit code {ttrt_process.returncode})"
                 self.log(error, severity=logging.error)
+                # Check if tracy files exist
+                import os
+                perf_dir = f"{self.model_state[model_path].model_output_dir}/perf"
+                if os.path.exists(perf_dir):
+                    files = os.listdir(perf_dir)
+                    self.log(f"DEBUG: Perf dir exists, files: {files}", severity=logging.warning)
+                else:
+                    self.log(f"DEBUG: Perf dir does not exist: {perf_dir}", severity=logging.warning)
                 raise ExplorerRunException(error)
 
         perf = self.get_perf_trace(model_path)

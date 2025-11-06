@@ -483,14 +483,18 @@ class Perf:
                         f"host side ops time report generated at {tracy_ops_times_file_path}"
                     )
 
+                    self.logging.warning(f"DEBUG: Running tracy csvexport: {self.tracy_csvexport_tool_path} -m -s \";\" {tracy_file_path}")
                     with open(tracy_ops_data_file_path, "w") as csv_file:
-                        subprocess.run(
+                        result = subprocess.run(
                             f'{self.tracy_csvexport_tool_path} -m -s ";" {tracy_file_path}',
                             shell=True,
                             check=True,
                             stdout=csv_file,
-                            stderr=subprocess.DEVNULL,
+                            stderr=subprocess.PIPE,
+                            text=True,
                         )
+                        if result.stderr:
+                            self.logging.warning(f"DEBUG: csvexport stderr: {result.stderr}")
 
                     self.logging.info(
                         f"host side ops data report generated at {tracy_ops_data_file_path}"
@@ -561,6 +565,8 @@ class Perf:
                         mlir_messages.sort(key=lambda x: x[0])
                         if mlir_parse_errors > 0:
                             self.logging.warning(f"DEBUG: Found {len(mlir_messages)} {key} messages ({mlir_parse_errors} parse errors)")
+                        elif len(mlir_messages) == 0:
+                            self.logging.warning(f"DEBUG: WARNING - No {key} messages found!")
                         else:
                             self.logging.warning(f"DEBUG: Found {len(mlir_messages)} {key} messages")
                         

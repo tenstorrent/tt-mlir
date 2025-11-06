@@ -13,70 +13,12 @@ import logging
 import portpicker
 import sys
 
-# Debug: System and environment info for CI debugging
-print("\n" + "=" * 80)
-print("DEBUG: System Configuration")
-print("=" * 80)
-
 import subprocess
 import platform
 import threading
 
-# Process/thread info
-print(f"Process ID: {os.getpid()}")
-print(f"Parent Process ID: {os.getppid()}")
-print(f"Thread ID: {threading.current_thread().ident}")
-print(f"Thread name: {threading.current_thread().name}")
-print(f"Active threads in this process: {threading.active_count()}")
-
-# System info
-print(f"OS: {platform.system()} {platform.release()}")
-print(f"Python: {platform.python_version()}")
-print(f"Architecture: {platform.machine()}")
-
-# CPU info
-try:
-    cpu_count_logical = os.cpu_count()
-    print(f"CPU threads (logical): {cpu_count_logical}")
-    
-    # Try to get physical core count
-    if hasattr(os, 'sched_getaffinity'):
-        affinity = len(os.sched_getaffinity(0))
-        print(f"CPU threads (affinity): {affinity}")
-    
-    # Get load average
-    if hasattr(os, 'getloadavg'):
-        load = os.getloadavg()
-        print(f"Load average (1/5/15 min): {load[0]:.2f} / {load[1]:.2f} / {load[2]:.2f}")
-except Exception as e:
-    print(f"CPU info failed: {e}")
-
-# Memory info (Linux only)
-try:
-    with open('/proc/meminfo', 'r') as f:
-        meminfo = {}
-        for line in f:
-            parts = line.split(':')
-            if len(parts) == 2:
-                key = parts[0].strip()
-                value = parts[1].strip()
-                meminfo[key] = value
-        total_mem = meminfo.get('MemTotal', 'Unknown')
-        avail_mem = meminfo.get('MemAvailable', 'Unknown')
-        print(f"Memory: {avail_mem} available / {total_mem} total")
-except:
-    pass
-
-# Network info
-try:
-    hostname_output = subprocess.check_output(["hostname"], text=True).strip()
-    print(f"Hostname: {hostname_output}")
-    hostname_i_output = subprocess.check_output(["hostname", "-I"], text=True).strip()
-    print(f"IP addresses: {hostname_i_output}")
-except Exception as e:
-    print(f"Network info failed: {e}")
-
-print("=" * 80 + "\n")
+# Minimal debug info
+print(f"\nDEBUG: Container={os.environ.get('HOSTNAME', 'unknown')}, PID={os.getpid()}, Load={os.getloadavg()[0] if hasattr(os, 'getloadavg') else 'N/A'}\n")
 
 HOST = "localhost"
 # Use portpicker to pick a port for us. (say that 10 times fast)
@@ -286,15 +228,19 @@ def test_execute_mnist_with_overrides():
 
 
 def test_execute_and_check_perf_data_exists():
+    print("\nDEBUG: Starting execute_command_and_wait...")
     execute_command_and_wait(
         MNIST_SHARDING_PATH,
         {"optimizationPolicy": "Optimizer Disabled"},
         timeout=300,
     )
+    print("DEBUG: execute_command_and_wait completed")
 
+    print("DEBUG: Starting convert_command_and_assert...")
     result = convert_command_and_assert(MNIST_SHARDING_PATH)
+    print("DEBUG: convert_command_and_assert completed")
 
-    # Read the debug log file created by tt_adapter (THE KEY DEBUG INFO)
+    # Read the debug log file created by tt_adapter
     log_file = "/tmp/tt_adapter_convert_debug.log"
     print("\n" + "=" * 80)
     print("ADAPTER DEBUG LOG:")
