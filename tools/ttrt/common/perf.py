@@ -556,6 +556,7 @@ class Perf:
                                     # MLIR_CONST_EVAL_OP;true;6449925338
                                     parts = line.split(";")
                                     data = parts[1]
+                                    self.logging.warning(f"DEBUG: Found {key} line, data='{data}'")
                                     block = []
                                     for next_line in lines:
                                         next_line = next_line.strip()
@@ -565,23 +566,34 @@ class Perf:
                                             )
                                             break
                                         elif "TT_DNN_DEVICE_OP" in next_line:
+                                            self.logging.warning(f"DEBUG: Found TT_DNN_DEVICE_OP line: {next_line[:100]}")
                                             block.append(next_line)
 
                                     # Process the collected block. Find it's global call count and add it to the loc
-                                    for bline in block:
+                                    self.logging.warning(f"DEBUG: Processing {len(block)} TT_DNN_DEVICE_OP lines for this LOC")
+                                    for i, bline in enumerate(block):
+                                        self.logging.warning(f"DEBUG: Block line {i}: {bline[:100]}")
                                         parts = bline.split(",")
-                                        # Strip and split part[3] on semicolon or space, and grab the number
-                                        num_part = parts[3].strip()
-                                        digits = ""
-                                        for c in num_part:
-                                            if c.isdigit():
-                                                digits += c
-                                            else:
-                                                break
-                                        global_call_count = (
-                                            int(digits) if digits else None
-                                        )
-                                        call_count_mapping[global_call_count] = data
+                                        self.logging.warning(f"DEBUG: Split into {len(parts)} parts")
+                                        if len(parts) > 3:
+                                            # Strip and split part[3] on semicolon or space, and grab the number
+                                            num_part = parts[3].strip()
+                                            self.logging.warning(f"DEBUG: parts[3] = '{num_part}'")
+                                            digits = ""
+                                            for c in num_part:
+                                                if c.isdigit():
+                                                    digits += c
+                                                else:
+                                                    break
+                                            global_call_count = (
+                                                int(digits) if digits else None
+                                            )
+                                            self.logging.warning(f"DEBUG: Extracted global_call_count={global_call_count}, mapping to data='{data}'")
+                                            call_count_mapping[global_call_count] = data
+                                        else:
+                                            self.logging.warning(f"DEBUG: ERROR - Not enough parts in bline!")
+                                    
+                                    self.logging.warning(f"DEBUG: After processing, call_count_mapping has {len(call_count_mapping)} entries")
 
                         return call_count_mapping
 
