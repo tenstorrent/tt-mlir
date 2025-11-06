@@ -28,7 +28,7 @@ inline llvm::raw_ostream &operator<<(llvm::raw_ostream &os,
   constexpr char digits[2] = {'0', '1'};
 
   os << '<';
-  for (SmallBitVector::size_type i = 0; i < obj.size(); ++i) {
+  for (BitVector::size_type i = 0; i < obj.size(); ++i) {
     os << digits[obj.test(i)];
   }
   return os << '>';
