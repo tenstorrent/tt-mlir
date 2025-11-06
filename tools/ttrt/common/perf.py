@@ -535,28 +535,45 @@ class Perf:
                         
                         # Pass 1: Collect all MLIR messages with timestamps
                         mlir_messages = []  # List of (timestamp, data) tuples
+                        mlir_parse_errors = 0
                         
                         with open(tracy_ops_data_file_path, "r") as file:
+                            mlir_line_num = 0
                             for line in file:
+                                mlir_line_num += 1
                                 line = line.strip()
                                 if key in line:
                                     # Format: MLIR_OP_LOCATION;loc(...);timestamp
                                     parts = line.split(";")
                                     if len(parts) >= 3:
                                         data = parts[1]
-                                        timestamp = int(parts[2])
-                                        mlir_messages.append((timestamp, data))
+                                        try:
+                                            timestamp = int(parts[2])
+                                            mlir_messages.append((timestamp, data))
+                                        except ValueError:
+                                            mlir_parse_errors += 1
+                                            self.logging.warning(f"DEBUG: Line {mlir_line_num}: Failed to parse timestamp from {key}: '{parts[2]}'")
+                                    else:
+                                        mlir_parse_errors += 1
+                                        self.logging.warning(f"DEBUG: Line {mlir_line_num}: {key} found but not enough semicolon-separated parts ({len(parts)})")
                         
                         # Sort by timestamp to ensure chronological order
                         mlir_messages.sort(key=lambda x: x[0])
-                        self.logging.warning(f"DEBUG: Found {len(mlir_messages)} {key} messages")
+                        if mlir_parse_errors > 0:
+                            self.logging.warning(f"DEBUG: Found {len(mlir_messages)} {key} messages ({mlir_parse_errors} parse errors)")
+                        else:
+                            self.logging.warning(f"DEBUG: Found {len(mlir_messages)} {key} messages")
                         
                         # Pass 2: Collect all TT_DNN_DEVICE_OP messages with timestamps and global_call_counts
                         device_ops = []  # List of (timestamp, global_call_count) tuples
+                        single_line_count = 0
+                        multi_line_count = 0
                         
                         with open(tracy_ops_data_file_path, "r") as file:
                             lines = iter(file)
+                            line_num = 0
                             for line in lines:
+                                line_num += 1
                                 line_stripped = line.strip()
                                 if "TT_DNN_DEVICE_OP" in line_stripped:
                                     # Format: `TT_DNN_DEVICE_OP: "OpName", hash, deviceId, global_call_count ->
@@ -573,10 +590,14 @@ class Perf:
                                                 break
                                         global_call_count = int(digits) if digits else None
                                         
+                                        if global_call_count is None:
+                                            self.logging.warning(f"DEBUG: Line {line_num}: Failed to extract global_call_count from '{num_part}'")
+                                        
                                         # Check if this is a single-line message (ends with `;timestamp)
                                         # Single-line format: `TT_DNN_DEVICE_OP: "Op", hash, deviceId, count`;timestamp
                                         # Multi-line format: `TT_DNN_DEVICE_OP: "Op", hash, deviceId, count ->
                                         if " -> " not in line_stripped and "`;" in line_stripped:
+                                            single_line_count += 1
                                             # Single-line format: timestamp is at the end after `;
                                             # Extract timestamp from the end
                                             last_semicolon_idx = line_stripped.rfind("`;")
@@ -586,10 +607,17 @@ class Perf:
                                                     timestamp = int(timestamp_str)
                                                     device_ops.append((timestamp, global_call_count))
                                                 except ValueError:
-                                                    self.logging.warning(f"DEBUG: Failed to parse timestamp from single-line: '{timestamp_str}'")
+                                                    self.logging.warning(f"DEBUG: Line {line_num}: Failed to parse timestamp from single-line: '{timestamp_str}'")
+                                            else:
+                                                self.logging.warning(f"DEBUG: Line {line_num}: Single-line format detected but no `; found")
                                         else:
+                                            multi_line_count += 1
                                             # Multi-line JSON format: find the end }`;timestamp
+                                            found_end = False
+                                            json_lines_read = 0
                                             for next_line in lines:
+                                                line_num += 1
+                                                json_lines_read += 1
                                                 next_stripped = next_line.strip()
                                                 if next_stripped.startswith("}`;"):
                                                     # Extract timestamp after }`;
@@ -597,11 +625,21 @@ class Perf:
                                                     try:
                                                         timestamp = int(timestamp_str)
                                                         device_ops.append((timestamp, global_call_count))
+                                                        found_end = True
                                                     except ValueError:
-                                                        self.logging.warning(f"DEBUG: Failed to parse timestamp from multi-line: '{timestamp_str}'")
+                                                        self.logging.warning(f"DEBUG: Line {line_num}: Failed to parse timestamp from multi-line: '{timestamp_str}'")
                                                     break
+                                                # Safety: prevent infinite loop if format is unexpected
+                                                if json_lines_read > 200:
+                                                    self.logging.warning(f"DEBUG: Line {line_num}: Multi-line message exceeded 200 lines without finding end, skipping")
+                                                    break
+                                            
+                                            if not found_end:
+                                                self.logging.warning(f"DEBUG: Line {line_num}: Multi-line format detected but no closing }; found")
+                                    else:
+                                        self.logging.warning(f"DEBUG: Line {line_num}: TT_DNN_DEVICE_OP found but not enough comma-separated parts ({len(parts)})")
                         
-                        self.logging.warning(f"DEBUG: Found {len(device_ops)} TT_DNN_DEVICE_OP messages")
+                        self.logging.warning(f"DEBUG: Found {len(device_ops)} TT_DNN_DEVICE_OP messages ({single_line_count} single-line, {multi_line_count} multi-line)")
                         
                         # Pass 3: Match each TT_DNN_DEVICE_OP to the most recent MLIR message before it
                         for dev_timestamp, global_call_count in device_ops:
