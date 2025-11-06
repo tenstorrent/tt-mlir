@@ -13,6 +13,7 @@
 #include "ttmlir/Dialect/TTIR/Utils/Utils.h"
 #include "ttmlir/Dialect/TTIR/Utils/VerificationUtils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
+#include "ttmlir/Dialect/TTNN/Types/Types.h"
 #include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/Bufferization/IR/Bufferization.h"
@@ -3734,6 +3735,84 @@ mlir::LogicalResult mlir::tt::ttir::MeshShardOp::verify() {
                        std::to_string(inputType.getShape()[1]) + "x" +
                        std::to_string(inputType.getShape()[2]) + "x" +
                        std::to_string(inputType.getShape()[3]) + ")");
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// PagedUpdateCacheOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult PagedUpdateCacheOp::verify() {
+  auto cacheType = getCache().getType();
+  auto inputType = getInput().getType();
+  auto updateIndexType = getUpdateIndex().getType();
+  auto pageTableType = getPageTable().getType();
+
+  auto cacheShape = cacheType.getShape();
+  auto inputShape = inputType.getShape();
+  auto updateIndexShape = updateIndexType.getShape();
+  auto pageTableShape = pageTableType.getShape();
+
+  if (cacheShape.size() != 4) {
+    return emitOpError("Cache tensor must be a 4D tensor");
+  }
+
+  if (inputShape.size() != 4) {
+    return emitOpError("Input tensor must be a 4D tensor");
+  }
+
+  if (updateIndexShape.size() != 1) {
+    return emitOpError("Update index tensor must be a 1D tensor");
+  }
+
+  if (pageTableShape.size() != 2) {
+    return emitOpError("Page table tensor must be a 2D tensor");
+  }
+
+  int64_t numHeads = cacheShape[1];
+  int64_t blockSize = cacheShape[2];
+  int64_t headDim = cacheShape[3];
+  int64_t numUsers = updateIndexShape[0];
+
+  if (blockSize % ttnn::TILE_HEIGHT != 0) {
+    return emitOpError("Block size must be divisible by 32, got " +
+                       std::to_string(blockSize));
+  }
+
+  if (inputShape[0] != 1) {
+    return emitOpError("Input tensor must have dim 0 be equal to 1, got " +
+                       std::to_string(inputShape[0]));
+  }
+
+  if (inputShape[1] != numUsers) {
+    return emitOpError("Input tensor must have shape equal to the number of "
+                       "users (determined by update index shape): " +
+                       std::to_string(numUsers) + ", got " +
+                       std::to_string(inputShape[1]));
+  }
+
+  if (inputShape[2] != 32) {
+    return emitOpError("Input tensor must have dim 2 be equal to 32: " +
+                       std::to_string(numHeads) + ", got " +
+                       std::to_string(inputShape[2]) +
+                       ". If the number of heads is less than 32, it must be "
+                       "explicitly padded to 32.");
+  }
+
+  if (inputShape[3] != headDim) {
+    return emitOpError("Input tensor must have dim 3 be equal to the head "
+                       "dimension (determined by cache shape): " +
+                       std::to_string(headDim) + ", got " +
+                       std::to_string(inputShape[3]));
+  }
+
+  if (pageTableShape[0] != numUsers) {
+    return emitOpError("Page table tensor must have dim 0 be equal to the "
+                       "number of users (determined by update index shape): " +
+                       std::to_string(numUsers) + ", got " +
+                       std::to_string(pageTableShape[0]));
   }
 
   return success();

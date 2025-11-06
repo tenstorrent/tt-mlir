@@ -3716,7 +3716,48 @@ public:
         emitter.emit(srcOp.getDtype())};
 
     emitter.replaceOp(*this, args);
+    return success();
+  }
+};
+} // namespace
 
+namespace {
+class PagedUpdateCacheOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<
+          mlir::tt::ttnn::PagedUpdateCacheOp> {
+private:
+  std::string getPrefixSearchPattern() const override {
+    return "ttnn.paged_update_cache";
+  }
+  std::string getPrefixSwapPattern() const override {
+    return "ttnn::experimental::paged_update_cache";
+  }
+
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::PagedUpdateCacheOp>::TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::PagedUpdateCacheOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::PagedUpdateCacheOp> emitter(
+        srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getCache()),
+        emitter.emit(srcOp.getInput()),
+        emitc::OpaqueAttr::get(rewriter.getContext(),
+                               "std::vector<uint32_t>()"),
+        emitter.emit(srcOp.getUpdateIndex()),
+        emitter.emit(srcOp.getShareCache()),
+        emitter.emit(srcOp.getPageTable()),
+        emitter.emit(0),
+        emitter.emit(std::nullopt),
+        emitter.emit(std::nullopt),
+    };
+
+    emitter.replaceOp(*this, args);
     return success();
   }
 };
@@ -3906,6 +3947,7 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   // KV Cache ops
   //
   patterns.add<UpdateCacheOpConversionPattern>(typeConverter, ctx);
+  patterns.add<PagedUpdateCacheOpConversionPattern>(typeConverter, ctx);
   patterns.add<DefaultOpConversionPattern<mlir::tt::ttnn::FillCacheOp>>(
       typeConverter, ctx);
 

@@ -6,6 +6,7 @@
 
 #include "ttmlir/Conversion/TTIRToTTNN/Utils.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
+#include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTIR/Utils/Utils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
@@ -606,12 +607,39 @@ public:
                                          op.getCache().getUsers().end());
     if (users.size() != 1) {
       return rewriter.notifyMatchFailure(
-          op, "UpdateCacheOp must have exactly one user");
+          op, "UpdateCacheOp cache argument must have exactly one user");
     }
 
     rewriter.create<ttnn::UpdateCacheOp>(
         op.getLoc(), adaptor.getCache(), adaptor.getInput(),
         adaptor.getUpdateIndex(), adaptor.getBatchOffset());
+
+    rewriter.replaceOp(op, adaptor.getCache());
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+class PagedUpdateCacheOpConversionPattern
+    : public OpConversionPattern<ttir::PagedUpdateCacheOp> {
+public:
+  using OpConversionPattern<ttir::PagedUpdateCacheOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::PagedUpdateCacheOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    std::vector<mlir::Operation *> users(op.getCache().getUsers().begin(),
+                                         op.getCache().getUsers().end());
+    if (users.size() != 1) {
+      return rewriter.notifyMatchFailure(
+          op, "PagedUpdateCacheOp cache argument must have exactly one user");
+    }
+
+    rewriter.create<ttnn::PagedUpdateCacheOp>(
+        op.getLoc(), adaptor.getCache(), adaptor.getInput(),
+        adaptor.getUpdateIndex(), adaptor.getShareCache(),
+        adaptor.getPageTable());
 
     rewriter.replaceOp(op, adaptor.getCache());
     return success();
@@ -2172,6 +2200,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            ArangeOpConversionPattern,
            RandOpConversionPattern,
            UpdateCacheOpConversionPattern,
+           PagedUpdateCacheOpConversionPattern,
            FillCacheOpConversionPattern,
            ScatterInDimOpConversionPattern,
            PermuteOpConversionPattern,

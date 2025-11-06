@@ -4397,6 +4397,69 @@ TEST_F(OpModelBase, UpdateCacheOpInterface) {
   }
 }
 
+TEST_F(OpModelBase, PagedUpdateCacheOpInterface) {
+  // Test PagedUpdateCacheOp with cache, input, update_index, and page_table
+  // tensors
+  llvm::SmallVector<int64_t> cacheShape = {128, 8, 128, 128};
+  llvm::SmallVector<int64_t> inputShape = {1, 8, 32, 128};
+  llvm::SmallVector<int64_t> updateIndexShape = {8};
+  llvm::SmallVector<int64_t> pageTableShape = {8, 16};
+
+  auto inputLayout = CreateTiledLayout(inputShape, BufferType::L1,
+                                       TensorMemoryLayout::HeightSharded,
+                                       SmallVector<int64_t>({8, 1}));
+
+  auto updateIndexLayout = CreateRowMajorLayoutInt32(
+      updateIndexShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+  auto pageTableLayout = CreateRowMajorLayoutInt32(
+      pageTableShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+
+  auto cacheTensor = createEmptyTensor(cacheShape);
+  auto inputTensor = createEmptyTensor(inputShape, nullptr, inputLayout);
+
+  auto updateIndexTensor =
+      createEmptyTensor(updateIndexShape, mlir::IntegerType::get(&context, 32),
+                        updateIndexLayout);
+  auto pageTableTensor = createEmptyTensor(
+      pageTableShape, mlir::IntegerType::get(&context, 32, IntegerType::Signed),
+      pageTableLayout);
+
+  auto pagedUpdateCacheOp = builder.create<PagedUpdateCacheOp>(
+      builder.getUnknownLoc(), cacheTensor, inputTensor, updateIndexTensor,
+      false, pageTableTensor);
+
+  auto backend = dyn_cast<OpModel>(pagedUpdateCacheOp.getOperation());
+  ASSERT_TRUE(backend);
+
+  auto constraintsExp = backend.getOpConstraints(
+      getInputLayouts(pagedUpdateCacheOp.getOperation()), OpConfig());
+  if (constraintsExp) {
+    auto constraints = constraintsExp.get();
+    const auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+        constraints;
+    EXPECT_EQ(cbSize, 118848);
+    EXPECT_EQ(l1PeakSize, 0);
+    EXPECT_EQ(outputSize, 524288);
+  } else {
+    FAIL() << "Missing constraints for PagedUpdateCacheOp; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
+
+  // TODO(https://github.com/tenstorrent/tt-mlir/issues/5738) the runtime query
+  // sporadically hangs, disable by default for now.
+  constexpr bool skipRuntimeTest = true;
+  if (!skipRuntimeTest) {
+    auto runtimeExp = backend.getOpRuntime(
+        getInputLayouts(pagedUpdateCacheOp.getOperation()), OpConfig());
+    if (runtimeExp) {
+      EXPECT_GT(runtimeExp.get(), 0);
+    } else {
+      FAIL() << "Error getting runtime for PagedUpdateCacheOp: "
+             << llvm::toString(runtimeExp.takeError());
+    }
+  }
+}
+
 TEST_F(OpModelBase, QuantizeOpInterface) {
   llvm::SmallVector<int64_t> inputShape = {32, 64};
   llvm::SmallVector<int64_t> scaleShape = {64};
