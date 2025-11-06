@@ -1070,7 +1070,7 @@ def TTNN_PagedFillCacheOp : TTNN_InplaceOp<"paged_fill_cache"> {
 
   let extraClassDeclaration = [{
     wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
-      return wa::TTNNOperandsWorkaroundsFactory::createPagedFillCacheOpOperandsWorkarounds(this->getContext());
+      return wa::TTNNOperandsWorkaroundsFactory::createPagedFillCacheOpOperandsWorkarounds(getOperation());
     }
   }];
 

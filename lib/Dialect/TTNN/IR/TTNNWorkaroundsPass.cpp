@@ -468,19 +468,26 @@ TTNNOperandsWorkaroundsFactory::createPagedUpdateCacheOpOperandsWorkarounds(
 
 TTNNOperandsWorkarounds
 TTNNOperandsWorkaroundsFactory::createPagedFillCacheOpOperandsWorkarounds(
-    MLIRContext *context) {
+    Operation *op) {
   TTNNOperandWorkarounds nullWorkarounds;
   TTNNOperandWorkarounds pageTableWorkarounds;
-  TTNNOperandWorkarounds batchIdxTensorWorkarounds;
 
   pageTableWorkarounds.tensorLayoutWorkaround = Layout::RowMajor;
-  batchIdxTensorWorkarounds.tensorLayoutWorkaround = Layout::RowMajor;
 
+  if (op->getNumOperands() == 4) {
+    TTNNOperandWorkarounds batchIdxTensorWorkarounds;
+    batchIdxTensorWorkarounds.tensorLayoutWorkaround = Layout::RowMajor;
+
+    return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
+        .addInputOperandWorkaround(nullWorkarounds)
+        .addInputOperandWorkaround(nullWorkarounds)
+        .addInputOperandWorkaround(pageTableWorkarounds)
+        .addInputOperandWorkaround(batchIdxTensorWorkarounds);
+  }
   return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
       .addInputOperandWorkaround(nullWorkarounds)
       .addInputOperandWorkaround(nullWorkarounds)
-      .addInputOperandWorkaround(pageTableWorkarounds)
-      .addInputOperandWorkaround(batchIdxTensorWorkarounds);
+      .addInputOperandWorkaround(pageTableWorkarounds);
 }
 
 // Helper function to determine if data type workaround is required for a binary

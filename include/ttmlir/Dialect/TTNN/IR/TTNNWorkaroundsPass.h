@@ -283,7 +283,7 @@ public:
   createPagedUpdateCacheOpOperandsWorkarounds(MLIRContext *context);
 
   static TTNNOperandsWorkarounds
-  createPagedFillCacheOpOperandsWorkarounds(MLIRContext *context);
+  createPagedFillCacheOpOperandsWorkarounds(Operation *op);
 
   // Create workarounds for binary op operands.
   static TTNNOperandsWorkarounds
