@@ -214,6 +214,7 @@ def main(input_filename, target_duration, component_filter):
     for test in tests:
         runs_on = test.get("runs-on", "")
         image = test.get("image", "")
+        shrun = test.get("sh-run", False)
         key = f"{runs_on}_{image}"
 
         if key not in test_matrix:
@@ -225,12 +226,16 @@ def main(input_filename, target_duration, component_filter):
             }
 
         # Add all other fields to the tests array
-        test_copy = {k: v for k, v in test.items() if k not in ["runs-on", "image"]}
+        test_copy = {
+            k: v for k, v in test.items() if k not in ["runs-on", "image", "sh-run"]
+        }
         hash, hash_string = test_common.compute_hash(test_copy, runs_on, image)
         duration = durations.get(hash, default_duration)
         test_copy["duration"] = duration
         test_matrix[key]["tests"].append(test_copy)
         test_matrix[key]["total_duration"] += duration
+        if shrun:
+            test_matrix[key]["sh-run"] = True
 
     # Convert to list format
     test_matrix = list(test_matrix.values())

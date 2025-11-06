@@ -1364,9 +1364,8 @@ def test_argmax(shapes, dim_arg, request, device):
     )
 
 
-@pytest.mark.xfail(reason="`reverse` doesn't have a legalization. See issue #2495")
-@pytest.mark.parametrize("shape", [(64, 64)], ids=shape_str)
-@pytest.mark.parametrize("dims", [[0, 1]])
+@pytest.mark.parametrize("shape", [(256, 128, 2, 2)], ids=shape_str)
+@pytest.mark.parametrize("dims", [[2, 3]])
 def test_reverse(shape: Shape, dims: List[int], request, device):
     def reverse(
         in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None

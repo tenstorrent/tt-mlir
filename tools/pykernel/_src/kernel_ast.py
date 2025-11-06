@@ -8,22 +8,22 @@ import functools
 
 from ttmlir.ir import *
 from ttmlir.dialects import ttcore, ttkernel, func, scf, arith, memref, emitc
+from ttmlir.dialects._ods_common import get_default_loc_context
 from ttmlir.passes import pykernel_compile_pipeline, ttkernel_to_cpp
 
 from .kernel_types import ClassRegistry, Arguments
 from .base_ast import PyKernelAstBase
-from .utils import _discover_dialect_ops, _cleanup_source_code
+from .utils import _discover_dialect_ops, _cleanup_source_code, _cast, _get_type_str
 
 
-class TTKernelCompiler(PyKernelAstBase):
-    _fn_map = _discover_dialect_ops(ttkernel)
-    _fn_map["get_compile_time_arg_val"] = (
-        ttkernel.get_compile_time_arg_val,
-        [True, True],
-    )  # True for arg as attribute
-
+class TTCompilerBase(PyKernelAstBase):
     def __init__(self, name, kernel_type=None, *args, **kwargs):
-        assert kernel_type in [None, "noc", "compute"], "Invalid kernel type"
+        assert kernel_type in [
+            None,
+            "datamovement",
+            "noc",
+            "compute",
+        ], "Invalid kernel type"
         self.supported_nodes = [
             # Variables
             ast.Name,
@@ -71,6 +71,7 @@ class TTKernelCompiler(PyKernelAstBase):
             ast.Subscript,
             ast.Attribute,
             ast.List,
+            ast.Tuple,
             # Statements
             ast.Pass,
             ast.Assign,
@@ -79,17 +80,22 @@ class TTKernelCompiler(PyKernelAstBase):
             # Function-and-class-definitions
             ast.Module,
             ast.FunctionDef,
-            ast.Return,
             ast.arguments,
             ast.arg,
         ]
+
         self.name = name
-        self.ctx = Context()
+        try:
+            default_context = get_default_loc_context()
+        except ValueError:
+            default_context = None
+        self.ctx = default_context if default_context is not None else Context()
         self.cursor = Location.unknown(self.ctx)
         self.module = Module.create(self.cursor)
         self.insert_point = self.module.body
         self.func_entry = None
         self.symbol_tables = []
+        self.module_symbol_table = None
         self.kernel_type = kernel_type
 
         self.args = args
@@ -104,129 +110,6 @@ class TTKernelCompiler(PyKernelAstBase):
         # Get rid of appended metadata sent into compiler
         self.verbose = kwargs.get("_verbose", False)
         self.source_code = kwargs.get("_source_code", "")
-
-    # Root Nodes
-    def visit_FunctionDef(self, node):
-        # TODO: add alloca args name into symbol table
-        assert not self.func_entry, "Cannot declare function within a function"
-
-        rt_args = []
-        common_rt_args = []
-        ct_args = []
-        cb_args = []
-        cb_idx = []
-        operand_idx = 0
-        for i in range(len(node.args.args)):
-            # We know that all cb_args will be annotated with CircularBuffer
-            # After that we will have the positional rt_args
-            # Finally we will have the kwarg ct_args, we have to intelligently parse all of these
-            arg = node.args.args[i]
-
-            if not arg.annotation:
-                # This is a runtime arg now, wire it up into the function statement
-                # Add the name and the index
-
-                # This must be inputted as a RuntimeArgument, initialize as such, if it's an int it's always not common rt_args
-                if isinstance(self.args[i], int):
-                    # This is not a common_rt_arg for sure
-                    rt_args.append((arg.arg, len(rt_args)))
-                elif isinstance(self.args[i], Arguments):
-                    _arg = self.args[i]
-                    if _arg.is_common:
-                        common_rt_args.append((arg.arg, len(common_rt_args)))
-                    else:
-                        rt_args.append((arg.arg, len(rt_args)))
-                else:
-                    raise TypeError(
-                        "Got Positional Argument in IR, unexpected argument type provided."
-                    )
-                continue
-            elif arg.annotation.id == "CompileTimeValue":
-                # This is a CT Arg, we can package the metadata needed for passing this value in
-                if arg.arg not in self.ct_args:
-                    raise ValueError(
-                        f"Argument {arg.arg} not provided into kernel call."
-                    )
-                ct_args.append((arg.arg, self.ct_args[arg.arg]))
-                continue
-            elif not arg.annotation.id == "CircularBuffer":
-                raise TypeError(f"cannot pass {arg.annotation.id} to a pykernel")
-
-            # Follow normal logic to construct CBs
-            cb_arg = ttkernel.ir.ArgAttr.get(
-                self.ctx, ttkernel.ArgType.CBPort.value, operand_idx
-            )
-
-            cb_args.append(cb_arg)
-            cb_idx.append(i)
-
-            operand_idx += 1
-
-            tile_type = ttcore.ir.TileType.get(
-                self.ctx, 32, 32, getattr(ttcore.DataType, self.args[i].dtype)
-            )
-
-        self.func_entry = func.FuncOp(name=node.name, type=([], []))
-        # Supply cb_args as ct_args, use rt_args and ct_args "normally"
-        arg_spec = ttkernel.ir.ArgSpecAttr.get(self.ctx, [], cb_args)
-        self.func_entry.attributes[ttkernel.ir.ArgSpecAttr.name] = arg_spec
-
-        if self.kernel_type:
-            self.func_entry.attributes[
-                ttkernel.ir.ThreadTypeAttr.name
-            ] = ttkernel.ir.ThreadTypeAttr.get(self.ctx, self.kernel_type)
-        func_bb = self.func_entry.add_entry_block()
-
-        # update basic block
-        self.symbol_tables.append({})
-        with InsertionPoint(func_bb), Location.unknown():
-            # Insert verbose comment for function, to be picked up by Compiler pass it must exist within function region
-            # Need a bit of custom logic to make the function def look pretty:
-            # Get the source code from the main function decl:
-            if self.verbose and self.source_code:
-                comment = f"// --- Python Function Declaration for Above --- \n{self._get_source_comment_block(node)}\n// -- End Function Declaration"
-                emitc.verbatim(comment, [])
-
-            # Get all of the CBs using the arg_spec attr
-            for indexIndex, i in enumerate(cb_idx):
-                tile_type = ttcore.ir.TileType.get(
-                    self.ctx, 32, 32, getattr(ttcore.DataType, self.args[i].dtype)
-                )
-                cb_type = ttkernel.ir.CBType.get(
-                    self.ctx, MemRefType.get(self.args[i].tilized_shape, tile_type)
-                )
-                res = ttkernel.get_compile_time_arg_val(cb_type, indexIndex)
-                self.symbol_tables[-1][node.args.args[i].arg] = res
-
-            # Insert a point to create all of the relevant rt_args and ct_args
-            int_type = IntegerType.get_signless(32, self.ctx)
-            for name, idx in rt_args:
-                _idx = arith.ConstantOp(IndexType.get(self.ctx), idx)
-                res = ttkernel.get_arg_val(int_type, _idx)
-                self.symbol_tables[-1][name] = res
-
-            for name, idx in common_rt_args:
-                _idx = arith.ConstantOp(IndexType.get(self.ctx), idx)
-                res = ttkernel.get_common_arg_val(int_type, _idx)
-                self.symbol_tables[-1][name] = res
-
-            for name, value in ct_args:
-                if isinstance(value, bool):
-                    res = arith.ConstantOp(IntegerType.get_signless(1, self.ctx), value)
-                elif isinstance(value, int):
-                    res = arith.ConstantOp(
-                        IntegerType.get_signless(32, self.ctx), value
-                    )
-                else:
-                    raise TypeError("ct_args must be int or bool")
-                self.symbol_tables[-1][name] = res
-
-            for target in node.body:
-                self.visit(target)
-
-            # TODO: Check for a return/terminator insert one if not present
-
-        self.symbol_tables.pop()
 
     # Control Flow
     def visit_If(self, node):
@@ -281,23 +164,40 @@ class TTKernelCompiler(PyKernelAstBase):
 
     def visit_For(self, node):
         assert node.iter.func.id == "range", "Only range() supported in for loops"
-        assert (
-            len(node.iter.args) == 3
-        ), "Must specify range(start, end, step) in for loops"
-        lower_bound = self.visit(node.iter.args[0])
-        upper_bound = self.visit(node.iter.args[1])
-        step = self.visit(node.iter.args[2])
+
+        if len(node.iter.args) == 1:
+            lower_bound = arith.ConstantOp(IndexType.get(self.ctx), 0)
+            upper_bound = self.visit(node.iter.args[0])
+            step = arith.ConstantOp(IndexType.get(self.ctx), 1)
+        elif len(node.iter.args) == 2:
+            lower_bound = self.visit(node.iter.args[0])
+            upper_bound = self.visit(node.iter.args[1])
+            step = arith.ConstantOp(IndexType.get(self.ctx), 1)
+        elif len(node.iter.args) == 3:
+            lower_bound = self.visit(node.iter.args[0])
+            upper_bound = self.visit(node.iter.args[1])
+            step = self.visit(node.iter.args[2])
 
         if isinstance(lower_bound.type, memref.MemRefType):
             lower_bound = memref.LoadOp(
                 lower_bound, arith.ConstantOp(IndexType.get(self.ctx), 0)
-            )
+            ).result
         if isinstance(upper_bound.type, memref.MemRefType):
             upper_bound = memref.LoadOp(
                 upper_bound, arith.ConstantOp(IndexType.get(self.ctx), 0)
-            )
+            ).result
         if isinstance(step.type, memref.MemRefType):
-            step = memref.LoadOp(step, arith.ConstantOp(IndexType.get(self.ctx), 0))
+            step = memref.LoadOp(
+                step, arith.ConstantOp(IndexType.get(self.ctx), 0)
+            ).result
+
+        # Cast all to index type for scf.for
+        if not isinstance(lower_bound.type, IndexType):
+            lower_bound = arith.IndexCastOp(IndexType.get(self.ctx), lower_bound).result
+        if not isinstance(upper_bound.type, IndexType):
+            upper_bound = arith.IndexCastOp(IndexType.get(self.ctx), upper_bound).result
+        if not isinstance(step.type, IndexType):
+            step = arith.IndexCastOp(IndexType.get(self.ctx), step).result
 
         if self.verbose:
             comment = self._get_source_comment_block(node)
@@ -493,14 +393,21 @@ class TTKernelCompiler(PyKernelAstBase):
                 arg._ttkernel_as_attr = as_attr
                 func_arg = _load_func_arg(self.visit(arg))
                 func_args.append(func_arg)
-
-            return func(*func_args)  # type checking will occur downstream
+            kwargs = {}
+            for kw in node.keywords:
+                kwargs[kw.arg] = _load_func_arg(self.visit(kw.value))
+            return func(*func_args, **kwargs)  # type checking will occur downstream
         else:
             func_args = []
             for arg in node.args:
                 func_arg = _load_func_arg(self.visit(arg))
                 func_args.append(func_arg)
-            self.visit(node.func, func_args=func_args)  # visit_Attribute
+            kwargs = {}
+            for kw in node.keywords:
+                kwargs[kw.arg] = _load_func_arg(self.visit(kw.value))
+            return self.visit(
+                node.func, func_args=func_args, kwargs=kwargs
+            )  # visit_Attribute
 
     def visit_Print(self, node):
         fmt = ""
@@ -523,7 +430,8 @@ class TTKernelCompiler(PyKernelAstBase):
                     f"Print argument {type(arg).__name__} not supported"
                 )
 
-        ttkernel.dprint(fmt.strip(), argv)
+        fmt = fmt.strip() + "\\n"
+        ttkernel.dprint(fmt, argv)
 
     # Expressions
     def visit_Expr(self, node):
@@ -598,39 +506,55 @@ class TTKernelCompiler(PyKernelAstBase):
         if isinstance(rhs, OpView):
             rhs = rhs.result
 
-        if isinstance(lhs.type, memref.MemRefType):
+        if hasattr(lhs, "type") and isinstance(lhs.type, memref.MemRefType):
             lhs = memref.LoadOp(
                 lhs, arith.ConstantOp(IndexType.get(self.ctx), 0)
             ).result
-        if isinstance(rhs.type, memref.MemRefType):
+        if hasattr(rhs, "type") and isinstance(rhs.type, memref.MemRefType):
             rhs = memref.LoadOp(
                 rhs, arith.ConstantOp(IndexType.get(self.ctx), 0)
             ).result
+
+        if lhs.type != rhs.type:
+            rhs = _cast(rhs, lhs.type)
+        assert lhs.type == rhs.type, f"{lhs.type} != {rhs.type}"
+        mlir_type = _get_type_str(lhs.type)
+
+        def qualified_or(attr, otherwise, *args, **kwargs):
+            qualified_object_syntax = f"{mlir_type}.{attr}"
+            fn = self._fn_map.get(qualified_object_syntax, otherwise)
+            return fn(*args, **kwargs)
+
+        def unimplemented(*args, **kwargs):
+            raise NotImplementedError(f"{node.op} not implemented")
+
         match (node.op):
             case ast.Add():
-                return arith.addi(lhs, rhs)
+                return qualified_or("__add__", arith.addi, lhs, rhs)
             case ast.Sub():
-                return arith.subi(lhs, rhs)
+                return qualified_or("__sub__", arith.subi, lhs, rhs)
             case ast.Mult():
-                return arith.muli(lhs, rhs)
+                return qualified_or("__mul__", arith.muli, lhs, rhs)
+            case ast.Div():
+                return qualified_or("__truediv__", unimplemented, lhs, rhs)
+            case ast.MatMult():
+                return qualified_or("__matmul__", unimplemented, lhs, rhs)
             case ast.FloorDiv():
-                # arith.floordivsi has no conversion to emitc..
-                # return arith.floordivsi(lhs, rhs)
-                return arith.divui(lhs, rhs)
+                return qualified_or("__floordiv__", arith.divsi, lhs, rhs)
             case ast.Mod():
-                return arith.remsi(lhs, rhs)
+                return qualified_or("__mod__", arith.remsi, lhs, rhs)
+            case ast.Pow():
+                return qualified_or("__pow__", unimplemented, lhs, rhs)
             case ast.LShift():
-                return arith.shli(lhs, rhs)
+                return qualified_or("__lshift__", arith.shli, lhs, rhs)
             case ast.RShift():
-                return arith.shrsi(lhs, rhs)
+                return qualified_or("__rshift__", arith.shrsi, lhs, rhs)
             case ast.BitOr():
-                return arith.ori(lhs, rhs)
+                return qualified_or("__or__", arith.ori, lhs, rhs)
             case ast.BitAnd():
-                return arith.andi(lhs, rhs)
+                return qualified_or("__and__", arith.andi, lhs, rhs)
             case ast.BitXor():
-                return arith.xori(lhs, rhs)
-            # case ast.Div(): # only worried about integers right now
-            # return arith.divf(lhs, rhs)
+                return qualified_or("__xor__", arith.xori, lhs, rhs)
             case _:
                 raise NotImplementedError(
                     f"Binary operator {type(node.op).__name__} not implemented"
@@ -671,9 +595,17 @@ class TTKernelCompiler(PyKernelAstBase):
             raise ValueError("Compare operands not found")
 
         if isinstance(lhs.type, memref.MemRefType):
-            lhs = memref.LoadOp(lhs, arith.ConstantOp(IndexType.get(self.ctx), 0))
+            lhs = memref.LoadOp(
+                lhs, arith.ConstantOp(IndexType.get(self.ctx), 0)
+            ).result
         if isinstance(rhs.type, memref.MemRefType):
-            rhs = memref.LoadOp(rhs, arith.ConstantOp(IndexType.get(self.ctx), 0))
+            rhs = memref.LoadOp(
+                rhs, arith.ConstantOp(IndexType.get(self.ctx), 0)
+            ).result
+
+        if lhs.type != rhs.type:
+            rhs = _cast(rhs, lhs.type)
+        assert lhs.type == rhs.type, f"{lhs.type} != {rhs.type}"
 
         match (node.ops[0]):
             case ast.Eq():
@@ -743,54 +675,64 @@ class TTKernelCompiler(PyKernelAstBase):
         arr = tbl[node.value.id]
 
         # Make sure this is a memref type
-        if not hasattr(arr, "type") or not isinstance(arr.type, MemRefType):
+        if not hasattr(arr, "type") or not (
+            isinstance(arr.type, MemRefType) or isinstance(arr.type, RankedTensorType)
+        ):
             raise ValueError("Can only subscript Arrays")
 
         # Ensure slice is valid
         # Visit the slice, if not Tuple or constant
+        def _build_index(slice, shape, bounds_check_idx):
+            if hasattr(slice, "value"):
+                if slice.value >= shape[bounds_check_idx]:
+                    raise IndexError("Index out of bounds.")
+                return arith.ConstantOp(IndexType.get(self.ctx), slice.value)
+            else:
+                # Forcefully cast to IndexType if we have a BinOp, etc...
+                # Allow MLIR to take care of errors.
+                r = self.visit(slice)
+                if isinstance(r.type, IndexType):
+                    return r
+                else:
+                    return arith.IndexCastOp(IndexType.get(self.ctx), r)
 
         # Make sure that the Constant checks up against rank type
         if isinstance(node.slice, ast.Constant):
             # Make sure Constant checks up against rank
-            if arr.type.rank > 1:
-                raise IndexError("Can only index elements of Array, rank > 1")
+            if arr.type.rank < 1:
+                raise IndexError("Can only index elements of Array, rank < 1")
 
             # Check against bounds
             if arr.type.shape[0] <= node.slice.value:
                 raise IndexError("Index out of bounds.")
 
-            return memref.LoadOp(
-                arr, arith.ConstantOp(IndexType.get(self.ctx), node.slice.value)
-            )
+            idx = _build_index(node.slice, arr.type.shape, 0)
         elif isinstance(node.slice, ast.Tuple):
             # Check Rank
-            if arr.type.rank != len(node.slice.elts):
-                raise IndexError("Can only index elements of Array, rank != len(index)")
+            if len(node.slice.elts) > arr.type.rank:
+                raise IndexError("Can only index elements of Array, rank >= len(index)")
 
-            # Check against bounds
-            for i in range(len(arr.type.shape)):
-                if arr.type.shape[i] <= node.slice.elts[i].value:
-                    raise IndexError("Index out of bounds.")
-
-            return memref.LoadOp(
-                arr,
-                [
-                    arith.ConstantOp(IndexType.get(self.ctx), elt.value)
-                    for elt in node.slice.elts
-                ],
-            )
+            idx = [
+                _build_index(elt, arr.type.shape, i)
+                for i, elt in enumerate(node.slice.elts)
+            ]
         else:
-            # Forcefully cast to IndexType if we have a BinOp, etc...
-            # Allow MLIR to take care of errors.
-            idx = self.visit(node.slice)
-            idx = arith.IndexCastOp(IndexType.get(self.ctx), idx)
-            return memref.LoadOp(arr, idx)
+            idx = [_build_index(node.slice, arr.type.shape, 0)]
 
-    def visit_Attribute(self, node, func_args=[]):
+        if isinstance(arr.type, MemRefType):
+            return memref.LoadOp(arr, idx)
+        elif isinstance(arr.type, RankedTensorType):
+            return (arr, idx)
+
+    def visit_Attribute(self, node, func_args=[], kwargs={}):
         # type name should be !ttkernel.* if it has attributes
         mlir_value = self._var_exists(node.value.id)[node.value.id]
-        mlir_type = str(mlir_value.type)
-        if not mlir_type.startswith("!ttkernel."):
+        mlir_type = _get_type_str(mlir_value.type)
+        qualified_object_syntax = f"{mlir_type}.{node.attr}"
+        fn = self._fn_map.get(qualified_object_syntax, None)
+        if fn is not None:
+            return fn(mlir_value, *func_args, **kwargs)
+        elif not mlir_type.startswith("!ttkernel."):
             raise ValueError(
                 f"{node.value.id} is not a ttkernel type, thus can not have attributes."
             )
@@ -892,11 +834,16 @@ class TTKernelCompiler(PyKernelAstBase):
 
         return var
 
+    def visit_Tuple(self, node):
+        return tuple(map(self.visit, node.elts))
+
     # Literals
     def visit_Constant(self, node):
         as_attr = getattr(node, "_ttkernel_as_attr", False)
         op_constructor = IntegerAttr.get if as_attr else arith.ConstantOp
-        if isinstance(node.value, bool):
+        if callable(as_attr):
+            return as_attr(node)
+        elif isinstance(node.value, bool):
             return op_constructor(IntegerType.get_signless(1, self.ctx), node.value)
         elif isinstance(node.value, int):
             return op_constructor(IntegerType.get_signless(32, self.ctx), node.value)
@@ -904,3 +851,161 @@ class TTKernelCompiler(PyKernelAstBase):
             raise NotImplementedError(
                 f"constant type {type(node.value).__name__} not implemented"
             )
+
+
+class TTKernelCompiler(TTCompilerBase):
+    def __init__(self, name, kernel_type=None, *args, **kwargs):
+        super().__init__(name, kernel_type, *args, **kwargs)
+        self._fn_map = _discover_dialect_ops(ttkernel)
+        self.supported_nodes.append(ast.Return)
+        self._fn_map["get_compile_time_arg_val"] = (
+            ttkernel.get_compile_time_arg_val,
+            [True, True],
+        )  # True for arg as attribute
+
+        # Workaround for inconsistent operation definitions in TTKernelOps.td:
+        # - noc_async_read_tile expects I32:$id (line 1834)
+        # - noc_async_write_tile expects IndexLike:$id (line 1899)
+        # TODO: Change noc_async_read_tile to use IndexLike for consistency
+        self._fn_map["noc_async_read_tile"] = self._wrap_noc_async_read_tile
+        self._fn_map["noc_async_write_tile"] = self._wrap_noc_async_write_tile
+
+    def _wrap_noc_async_read_tile(self, tile_id, addr_gen, dst_addr):
+        """Cast tile_id to i32 for noc_async_read_tile operation."""
+        if isinstance(tile_id, OpView):
+            tile_id = tile_id.result
+
+        if hasattr(tile_id, "type") and isinstance(tile_id.type, IndexType):
+            tile_id = arith.index_cast(IntegerType.get_signless(32), tile_id)
+
+        return ttkernel.noc_async_read_tile(tile_id, addr_gen, dst_addr)
+
+    def _wrap_noc_async_write_tile(self, tile_id, addr_gen, src_addr):
+        """Extract result from operations for noc_async_write_tile."""
+        if isinstance(tile_id, OpView):
+            tile_id = tile_id.result
+
+        return ttkernel.noc_async_write_tile(tile_id, addr_gen, src_addr)
+
+    # Root Nodes
+    def visit_FunctionDef(self, node):
+        # TODO: add alloca args name into symbol table
+        assert not self.func_entry, "Cannot declare function within a function"
+
+        rt_args = []
+        common_rt_args = []
+        ct_args = []
+        cb_args = []
+        cb_idx = []
+        operand_idx = 0
+        for i in range(len(node.args.args)):
+            # We know that all cb_args will be annotated with CircularBuffer
+            # After that we will have the positional rt_args
+            # Finally we will have the kwarg ct_args, we have to intelligently parse all of these
+            arg = node.args.args[i]
+
+            if not arg.annotation:
+                # This is a runtime arg now, wire it up into the function statement
+                # Add the name and the index
+
+                # This must be inputted as a RuntimeArgument, initialize as such, if it's an int it's always not common rt_args
+                if isinstance(self.args[i], int):
+                    # This is not a common_rt_arg for sure
+                    rt_args.append((arg.arg, len(rt_args)))
+                elif isinstance(self.args[i], Arguments):
+                    _arg = self.args[i]
+                    if _arg.is_common:
+                        common_rt_args.append((arg.arg, len(common_rt_args)))
+                    else:
+                        rt_args.append((arg.arg, len(rt_args)))
+                else:
+                    raise TypeError(
+                        "Got Positional Argument in IR, unexpected argument type provided."
+                    )
+                continue
+            elif arg.annotation.id == "CompileTimeValue":
+                # This is a CT Arg, we can package the metadata needed for passing this value in
+                if arg.arg not in self.ct_args:
+                    raise ValueError(
+                        f"Argument {arg.arg} not provided into kernel call."
+                    )
+                ct_args.append((arg.arg, self.ct_args[arg.arg]))
+                continue
+            elif not arg.annotation.id == "CircularBuffer":
+                raise TypeError(f"cannot pass {arg.annotation.id} to a pykernel")
+
+            # Follow normal logic to construct CBs
+            cb_arg = ttkernel.ir.ArgAttr.get(
+                self.ctx, ttkernel.ArgType.CBPort.value, operand_idx
+            )
+
+            cb_args.append(cb_arg)
+            cb_idx.append(i)
+
+            operand_idx += 1
+
+            tile_type = ttcore.ir.TileType.get(
+                self.ctx, 32, 32, getattr(ttcore.DataType, self.args[i].dtype)
+            )
+
+        self.func_entry = func.FuncOp(name=node.name, type=([], []))
+        # Supply cb_args as ct_args, use rt_args and ct_args "normally"
+        arg_spec = ttkernel.ir.ArgSpecAttr.get(self.ctx, [], cb_args)
+        self.func_entry.attributes[ttkernel.ir.ArgSpecAttr.name] = arg_spec
+
+        if self.kernel_type:
+            self.func_entry.attributes[
+                ttkernel.ir.ThreadTypeAttr.name
+            ] = ttkernel.ir.ThreadTypeAttr.get(self.ctx, self.kernel_type)
+        func_bb = self.func_entry.add_entry_block()
+
+        # update basic block
+        self.symbol_tables.append({})
+        with InsertionPoint(func_bb), Location.unknown():
+            # Insert verbose comment for function, to be picked up by Compiler pass it must exist within function region
+            # Need a bit of custom logic to make the function def look pretty:
+            # Get the source code from the main function decl:
+            if self.verbose and self.source_code:
+                comment = f"// --- Python Function Declaration for Above --- \n{self._get_source_comment_block(node)}\n// -- End Function Declaration"
+                emitc.verbatim(comment, [])
+
+            # Get all of the CBs using the arg_spec attr
+            for indexIndex, i in enumerate(cb_idx):
+                tile_type = ttcore.ir.TileType.get(
+                    self.ctx, 32, 32, getattr(ttcore.DataType, self.args[i].dtype)
+                )
+                cb_type = ttkernel.ir.CBType.get(
+                    self.ctx, MemRefType.get(self.args[i].tilized_shape, tile_type)
+                )
+                res = ttkernel.get_compile_time_arg_val(cb_type, indexIndex)
+                self.symbol_tables[-1][node.args.args[i].arg] = res
+
+            # Insert a point to create all of the relevant rt_args and ct_args
+            int_type = IntegerType.get_signless(32, self.ctx)
+            for name, idx in rt_args:
+                _idx = arith.ConstantOp(IndexType.get(self.ctx), idx)
+                res = ttkernel.get_arg_val(int_type, _idx)
+                self.symbol_tables[-1][name] = res
+
+            for name, idx in common_rt_args:
+                _idx = arith.ConstantOp(IndexType.get(self.ctx), idx)
+                res = ttkernel.get_common_arg_val(int_type, _idx)
+                self.symbol_tables[-1][name] = res
+
+            for name, value in ct_args:
+                if isinstance(value, bool):
+                    res = arith.ConstantOp(IntegerType.get_signless(1, self.ctx), value)
+                elif isinstance(value, int):
+                    res = arith.ConstantOp(
+                        IntegerType.get_signless(32, self.ctx), value
+                    )
+                else:
+                    raise TypeError("ct_args must be int or bool")
+                self.symbol_tables[-1][name] = res
+
+            for target in node.body:
+                self.visit(target)
+
+            # TODO: Check for a return/terminator insert one if not present
+
+        self.symbol_tables.pop()
