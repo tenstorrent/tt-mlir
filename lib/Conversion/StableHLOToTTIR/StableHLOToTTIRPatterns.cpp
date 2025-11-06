@@ -3779,6 +3779,208 @@ public:
 } // namespace
 
 namespace {
+class StableHLOToTTIRPagedScaledDotProductAttentionDecodeOpConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::CustomCallOp> {
+  using OpConversionPattern<mlir::stablehlo::CustomCallOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::CustomCallOp srcOp,
+                  mlir::stablehlo::CustomCallOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    StringAttr funcName = adaptor.getCallTargetNameAttr();
+    if (funcName != "tt.paged_scaled_dot_product_attention_decode") {
+      return failure();
+    }
+
+    mlir::DictionaryAttr frontendAttributes =
+        mlir::dyn_cast_or_null<mlir::DictionaryAttr>(
+            srcOp->getDiscardableAttr("mhlo.frontend_attributes"));
+    if (!frontendAttributes) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "PagedScaledDotProductAttentionDecode op must have "
+                 "mhlo.frontend_attributes attribute.");
+    }
+
+    auto isCausalStringAttr =
+        frontendAttributes.getAs<mlir::StringAttr>("is_causal");
+    bool isCausal = true;
+    if (isCausalStringAttr) {
+
+      if (isCausalStringAttr.getValue().lower() == "true") {
+        isCausal = true;
+      } else if (isCausalStringAttr.getValue().lower() == "false") {
+        isCausal = false;
+      } else {
+        return rewriter.notifyMatchFailure(
+            srcOp, "is_causal attribute must be true or false. Received \"" +
+                       isCausalStringAttr.getValue() + "\".");
+      }
+    }
+
+    BoolAttr isCausalAttr = rewriter.getBoolAttr(isCausal);
+
+    auto scaleStringAttr = frontendAttributes.getAs<mlir::StringAttr>("scale");
+    std::optional<float> scale = std::nullopt;
+    if (scaleStringAttr) {
+      float _scale;
+      if (!llvm::to_float(scaleStringAttr.getValue(), _scale)) {
+        return rewriter.notifyMatchFailure(
+            srcOp,
+            "scale attribute string must be convertible to float. Received \"" +
+                scaleStringAttr.getValue() + "\".");
+      }
+      scale = _scale;
+    }
+
+    FloatAttr scaleAttr =
+        scale ? rewriter.getF32FloatAttr(scale.value()) : nullptr;
+
+    auto hasAttentionMaskStringAttr =
+        frontendAttributes.getAs<mlir::StringAttr>("has_attention_mask");
+    bool hasAttentionMask = false;
+    if (!hasAttentionMaskStringAttr) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "has_attention_mask attribute must be present.");
+    }
+
+    if (hasAttentionMaskStringAttr.getValue().lower() == "true") {
+      hasAttentionMask = true;
+    } else if (hasAttentionMaskStringAttr.getValue().lower() == "false") {
+      hasAttentionMask = false;
+    } else {
+      return rewriter.notifyMatchFailure(
+          srcOp,
+          "has_attention_mask attribute must be true or false. Received \"" +
+              hasAttentionMaskStringAttr.getValue() + "\".");
+    }
+
+    auto hasCurPosTensorStringAttr =
+        frontendAttributes.getAs<mlir::StringAttr>("has_cur_pos_tensor");
+    bool hasCurPosTensor = false;
+    if (!hasCurPosTensorStringAttr) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "has_cur_pos_tensor attribute must be present.");
+    }
+
+    if (hasCurPosTensorStringAttr.getValue().lower() == "true") {
+      hasAttentionMask = true;
+    } else if (hasCurPosTensorStringAttr.getValue().lower() == "false") {
+      hasCurPosTensor = false;
+    } else {
+      return rewriter.notifyMatchFailure(
+          srcOp,
+          "has_cur_pos_tensor attribute must be true or false. Received \"" +
+              hasCurPosTensorStringAttr.getValue() + "\".");
+    }
+
+    auto hasAttentionSinkStringAttr =
+        frontendAttributes.getAs<mlir::StringAttr>("has_attention_sink");
+    bool hasAttentionSink = false;
+    if (!hasAttentionSinkStringAttr) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "has_attention_sink attribute must be present.");
+    }
+
+    if (hasAttentionSinkStringAttr.getValue().lower() == "true") {
+      hasAttentionSink = true;
+    } else if (hasAttentionSinkStringAttr.getValue().lower() == "false") {
+      hasAttentionSink = false;
+    } else {
+      return rewriter.notifyMatchFailure(
+          srcOp,
+          "has_attention_sink attribute must be true or false. Received \"" +
+              hasAttentionSinkStringAttr.getValue() + "\".");
+    }
+
+    Value query = adaptor.getOperands()[0];
+    Value key = adaptor.getOperands()[1];
+    Value value = adaptor.getOperands()[2];
+    Value pageTable = adaptor.getOperands()[3];
+
+    RankedTensorType outputType = cast<RankedTensorType>(
+        getTypeConverter()->convertType(srcOp.getResult(0).getType()));
+    ttir::EmptyOp outputTensor = rewriter.create<ttir::EmptyOp>(
+        srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
+
+    if (hasAttentionMask && hasCurPosTensor && hasAttentionSink) {
+      rewriter.replaceOpWithNewOp<
+          mlir::tt::ttir::PagedScaledDotProductAttentionDecodeOp>(
+          srcOp,
+          cast<RankedTensorType>(
+              getTypeConverter()->convertType(srcOp.getResult(0).getType())),
+          query, key, value, pageTable, outputTensor, isCausalAttr,
+          adaptor.getOperands()[4], adaptor.getOperands()[5],
+          adaptor.getOperands()[6], scaleAttr);
+    } else if (hasAttentionMask && hasCurPosTensor) {
+      rewriter.replaceOpWithNewOp<
+          mlir::tt::ttir::PagedScaledDotProductAttentionDecodeOp>(
+          srcOp,
+          cast<RankedTensorType>(
+              getTypeConverter()->convertType(srcOp.getResult(0).getType())),
+          query, key, value, pageTable, outputTensor, isCausalAttr,
+          adaptor.getOperands()[4], adaptor.getOperands()[5], nullptr,
+          scaleAttr);
+    } else if (hasAttentionMask && hasAttentionSink) {
+      rewriter.replaceOpWithNewOp<
+          mlir::tt::ttir::PagedScaledDotProductAttentionDecodeOp>(
+          srcOp,
+          cast<RankedTensorType>(
+              getTypeConverter()->convertType(srcOp.getResult(0).getType())),
+          query, key, value, pageTable, outputTensor, isCausalAttr,
+          adaptor.getOperands()[4], nullptr, adaptor.getOperands()[5],
+          scaleAttr);
+    } else if (!hasAttentionMask && hasCurPosTensor && hasAttentionSink) {
+      rewriter.replaceOpWithNewOp<
+          mlir::tt::ttir::PagedScaledDotProductAttentionDecodeOp>(
+          srcOp,
+          cast<RankedTensorType>(
+              getTypeConverter()->convertType(srcOp.getResult(0).getType())),
+          query, key, value, pageTable, outputTensor, isCausalAttr, nullptr,
+          adaptor.getOperands()[4], adaptor.getOperands()[5], scaleAttr);
+    } else if (hasAttentionMask && !hasCurPosTensor && !hasAttentionSink) {
+      rewriter.replaceOpWithNewOp<
+          mlir::tt::ttir::PagedScaledDotProductAttentionDecodeOp>(
+          srcOp,
+          cast<RankedTensorType>(
+              getTypeConverter()->convertType(srcOp.getResult(0).getType())),
+          query, key, value, pageTable, outputTensor, isCausalAttr,
+          adaptor.getOperands()[4], nullptr, nullptr, scaleAttr);
+    } else if (!hasAttentionMask && hasCurPosTensor && !hasAttentionSink) {
+      rewriter.replaceOpWithNewOp<
+          mlir::tt::ttir::PagedScaledDotProductAttentionDecodeOp>(
+          srcOp,
+          cast<RankedTensorType>(
+              getTypeConverter()->convertType(srcOp.getResult(0).getType())),
+          query, key, value, pageTable, outputTensor, isCausalAttr, nullptr,
+          adaptor.getOperands()[4], nullptr, scaleAttr);
+    } else if (!hasAttentionMask && !hasCurPosTensor && hasAttentionSink) {
+      rewriter.replaceOpWithNewOp<
+          mlir::tt::ttir::PagedScaledDotProductAttentionDecodeOp>(
+          srcOp,
+          cast<RankedTensorType>(
+              getTypeConverter()->convertType(srcOp.getResult(0).getType())),
+          query, key, value, pageTable, outputTensor, isCausalAttr, nullptr,
+          nullptr, adaptor.getOperands()[4], scaleAttr);
+    } else if (!hasAttentionMask && !hasCurPosTensor && !hasAttentionSink) {
+      rewriter.replaceOpWithNewOp<
+          mlir::tt::ttir::PagedScaledDotProductAttentionDecodeOp>(
+          srcOp,
+          cast<RankedTensorType>(
+              getTypeConverter()->convertType(srcOp.getResult(0).getType())),
+          query, key, value, pageTable, outputTensor, isCausalAttr, nullptr,
+          nullptr, nullptr, scaleAttr);
+    } else {
+      llvm_unreachable("All combinations of attention mask, cur pos tensor "
+                       "and attention sink should have been handled");
+    }
+
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 class StableHLOToTTIROpOptimizationBarrierOpConversionPattern
     : public OpConversionPattern<mlir::stablehlo::OptimizationBarrierOp> {
   using OpConversionPattern<
@@ -4194,10 +4396,11 @@ addOptimizationBarrierOpConversionPattern(MLIRContext *ctx,
 static void addScaledDotProductAttentionDecodeOpConversionPattern(
     MLIRContext *ctx, RewritePatternSet &patterns,
     TypeConverter &typeConverter) {
-  patterns
-      .add<StableHLOToTTIRScaledDotProductAttentionDecodeOpConversionPattern,
-           StableHLOToTTIRScaledDotProductAttentionOpConversionPattern>(
-          typeConverter, ctx);
+  patterns.add<
+      StableHLOToTTIRScaledDotProductAttentionDecodeOpConversionPattern,
+      StableHLOToTTIRScaledDotProductAttentionOpConversionPattern,
+      StableHLOToTTIRPagedScaledDotProductAttentionDecodeOpConversionPattern>(
+      typeConverter, ctx);
 }
 
 namespace mlir::tt {
