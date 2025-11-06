@@ -536,7 +536,7 @@ class Perf:
                         3. For each TT_DNN_DEVICE_OP, find the most recent MLIR message before it (by timestamp)
                         """
                         call_count_mapping = {}
-                        
+
                         # Pass 1: Collect all MLIR messages with timestamps
                         mlir_messages = []  # List of (timestamp, data) tuples
                         mlir_parse_errors = 0
@@ -666,7 +666,7 @@ class Perf:
                             sample_keys = sorted(call_count_mapping.keys())[:3]
                             for k in sample_keys:
                                 self.logging.warning(f"DEBUG: Mapping example: {k} -> {call_count_mapping[k]}")
-                        
+
                         return call_count_mapping
 
                     global_call_count_loc_mapping = get_mlir_analysis_results(
@@ -895,9 +895,16 @@ class Perf:
 
                                 for row in reader:
                                     const_eval_op = bool(row.get("CONST_EVAL_OP"))
-                                    program_metadata = ast.literal_eval(
-                                        row.get("PROGRAM_METADATA")
-                                    )
+                                    program_metadata_str = row.get("PROGRAM_METADATA")
+                                    try:
+                                        program_metadata = ast.literal_eval(program_metadata_str)
+                                    except (ValueError, SyntaxError) as e:
+                                        self.logging.error(
+                                            f"ERROR: Failed to parse PROGRAM_METADATA: '{program_metadata_str}' "
+                                            f"(error: {e})"
+                                        )
+                                        # Try to recover by using an empty dict
+                                        program_metadata = {}
                                     device_kernel_duration = int(
                                         row.get("DEVICE KERNEL DURATION [ns]")
                                     )
