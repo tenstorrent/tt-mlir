@@ -28,7 +28,7 @@ from ttmlir.ir import (
 )
 from ttmlir.dialects import tensor, quant
 from ttmlir.passes import GoldenTensor, DataType
-from golden import GoldenMapTensor
+from golden import GoldenMapTensor, get_golden_function
 
 # ----- Public APIs -----
 
@@ -193,6 +193,27 @@ class Builder:
         self._force_graph_level_check = check
 
     # ----- Private methods -----
+
+    def _get_output_shape_and_type(
+        self,
+        organize_golden_args: Callable,
+        inputs: List[Operand],
+        op_function: Callable,
+        golden_kwargs: dict = {},
+    ):
+        op_golden_function = get_golden_function(op_function, **golden_kwargs)
+        if op_golden_function is None:
+            return
+
+        # If the op has no input, just call golden function with kwargs (eg ttir.zeros).
+        if len(inputs) == 0:
+            golden_output = op_golden_function(**golden_kwargs)
+        else:
+            golden_output = op_golden_function(
+                *(organize_golden_args(inputs)), **golden_kwargs
+            )
+
+        return golden_output.shape, golden_output.dtype
 
     def _get_datatype_from_torch_dtype(self, dtype: torch.dtype) -> DataType:
         match dtype:
