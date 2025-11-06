@@ -167,6 +167,19 @@ jobs:
       id: run-tests
       shell: bash
       run: |
+        # Copy perf artifacts for debugging (tracy_ops_data.csv, ops_perf_results.csv, etc.)
+        # Do this before summary processing so we get artifacts even if tests fail
+        echo "Copying perf artifacts to ttrt_results for upload..."
+        if [ -d "ttrt-artifacts" ]; then
+          find ttrt-artifacts -name "perf" -type d -exec cp -r {} ttrt_results/ \; 2>/dev/null || true
+          find ttrt-artifacts -name "*.csv" -exec cp {} ttrt_results/ \; 2>/dev/null || true
+          find ttrt-artifacts -name "*.tracy" -exec cp {} ttrt_results/ \; 2>/dev/null || true
+          echo "Perf artifacts copied:"
+          ls -la ttrt_results/ || true
+        else
+          echo "No ttrt-artifacts directory found"
+        fi
+        
         summary_content=$(cat _test_summary | tr '\n' '\r' | sed 's/\r/<br \/>/g')
         echo "summary=$summary_content" >> $GITHUB_OUTPUT
         mv _test_summary ${{ steps.strings.outputs.work-dir }}/test_reports/summary_${{ matrix.build.runs-on }}_${{ matrix.build.image }}_${{ strategy.job-index }}_${{ steps.fetch-job-id.outputs.job_id }}.md
