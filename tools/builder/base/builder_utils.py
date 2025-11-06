@@ -186,6 +186,8 @@ def _compile_and_execute(
     disable_golden: bool,
     device,
     skip_exec: bool = False,
+    check_atol: bool = False,
+    check_rtol: bool = False,
     **compile_kwargs,
 ) -> str:
     """
@@ -212,6 +214,10 @@ def _compile_and_execute(
         Device to execute on (if None, opens a new device)
     skip_exec: bool
         Whether or not to skip execution in cases of hangs, throwing a `TTBuilderRuntimeException`
+    check_atol : bool
+        Whether to check absolute tolerance during golden comparison
+    check_rtol : bool
+        Whether to check relative tolerance during golden comparison
     **compile_kwargs
         All other arguments to pass through to the compile function
     """
@@ -234,6 +240,8 @@ def _compile_and_execute(
             rtol=rtol,
             disable_golden=disable_golden,
             device=device,
+            check_atol=check_atol,
+            check_rtol=check_rtol,
         )
 
     return mlir_path
@@ -534,6 +542,8 @@ def compile_and_execute_d2m(
     rtol: float = 1e-05,
     disable_golden: bool = False,
     skip_exec: bool = False,
+    check_atol: bool = False,
+    check_rtol: bool = False,
 ) -> str:
     """
     Compiles and executes a D2MBuilder function through the complete pipeline.
@@ -583,6 +593,10 @@ def compile_and_execute_d2m(
         Relative tolerance for golden comparison
     disable_golden : bool
         Whether to disable golden comparison
+    check_atol : bool
+        Whether to check absolute tolerance during golden comparison
+    check_rtol : bool
+        Whether to check relative tolerance during golden comparison
     """
     return _compile_and_execute(
         compile_fn=compile_d2m_to_flatbuffer,
@@ -606,6 +620,8 @@ def compile_and_execute_d2m(
         rtol=rtol,
         disable_golden=disable_golden,
         skip_exec=skip_exec,
+        check_atol=check_atol,
+        check_rtol=check_rtol,
     )
 
 
@@ -632,6 +648,8 @@ def compile_and_execute_shlo(
     rtol: float = 1e-05,
     disable_golden: bool = False,
     skip_exec: bool = False,
+    check_atol: bool = False,
+    check_rtol: bool = False,
 ) -> str:
     """
     Compiles and executes a StableHLO function through the complete pipeline.
@@ -685,6 +703,10 @@ def compile_and_execute_shlo(
         Relative tolerance for golden comparison
     disable_golden : bool
         Whether to disable golden comparison
+    check_atol : bool
+        Whether to check absolute tolerance during golden comparison
+    check_rtol : bool
+        Whether to check relative tolerance during golden comparison
     """
     return _compile_and_execute(
         compile_fn=compile_stablehlo_to_flatbuffer,
@@ -710,6 +732,8 @@ def compile_and_execute_shlo(
         rtol=rtol,
         disable_golden=disable_golden,
         skip_exec=skip_exec,
+        check_atol=check_atol,
+        check_rtol=check_rtol,
     )
 
 
@@ -734,6 +758,8 @@ def compile_and_execute_ttnn(
     rtol: float = 1e-05,
     disable_golden: bool = False,
     skip_exec: bool = False,
+    check_atol: bool = False,
+    check_rtol: bool = False,
 ) -> str:
     """
     Compiles and executes a TTNNBuilder function through the complete pipeline.
@@ -786,6 +812,10 @@ def compile_and_execute_ttnn(
         Relative tolerance for golden comparison
     disable_golden : bool
         Whether to disable golden comparison
+    check_atol : bool
+        Whether to check absolute tolerance during golden comparison
+    check_rtol : bool
+        Whether to check relative tolerance during golden comparison
     """
     return _compile_and_execute(
         compile_fn=compile_ttnn_to_flatbuffer,
@@ -809,6 +839,8 @@ def compile_and_execute_ttnn(
         rtol=rtol,
         disable_golden=disable_golden,
         skip_exec=skip_exec,
+        check_atol=check_atol,
+        check_rtol=check_rtol,
     )
 
 
@@ -833,6 +865,8 @@ def compile_and_execute_ttir(
     rtol: float = 1e-05,
     disable_golden: bool = False,
     skip_exec: bool = False,
+    check_atol: bool = False,
+    check_rtol: bool = False,
 ) -> str:
     """
     Compiles and executes a TTIR function through the complete pipeline.
@@ -882,6 +916,10 @@ def compile_and_execute_ttir(
         Relative tolerance for golden comparison
     disable_golden : bool
         Whether to disable golden comparison
+    check_atol : bool
+        Whether to check absolute tolerance during golden comparison
+    check_rtol : bool
+        Whether to check relative tolerance during golden comparison
     """
     return _compile_and_execute(
         compile_fn=compile_ttir_to_flatbuffer,
@@ -905,6 +943,8 @@ def compile_and_execute_ttir(
         rtol=rtol,
         disable_golden=disable_golden,
         skip_exec=skip_exec,
+        check_atol=check_atol,
+        check_rtol=check_rtol,
     )
 
 
@@ -1409,6 +1449,8 @@ def compile_stablehlo_to_flatbuffer(
     except Exception as e:
         raise TTBuilderCompileException(e)
 
+    goldens = dict(builder.golden_map)
+
     stablehlo_pipeline(module, " ".join(shlo_pipeline_options))
     print(f"`{fn.__name__}` successfully ran stablehlo-pipeline.")
     print(module)
@@ -1448,6 +1490,7 @@ def compile_stablehlo_to_flatbuffer(
         custom_pipeline=custom_pipeline,
         pipeline_options=ttir_pipeline_options,
         print_ir=print_ir,
+        goldens=goldens,
     )
 
 
@@ -1465,6 +1508,7 @@ def compile_ttir_module_to_flatbuffer(
     custom_pipeline: Optional[Union[Callable, str]] = None,
     pipeline_options: List[str] = [],
     print_ir: Union[bool, str] = False,
+    goldens: Dict[Operand, GoldenMapTensor] = None,
 ):
     """
     Compiles a TTIR MLIR module to flatbuffer format.
@@ -1533,6 +1577,11 @@ def compile_ttir_module_to_flatbuffer(
             dumps before a crash.
         Default is False (no IR printed).
 
+    goldens : *Optional[Dict[Operand, GoldenMapTensor]]*, optional
+        Dictionary of golden tensors to use for comparison. If None, the golden
+        tensors will be generated from the builder.
+        Default is None.
+
     Returns
     -------
     str
@@ -1590,6 +1639,8 @@ def compile_ttir_module_to_flatbuffer(
     )
     output_file_fbb = ".".join([output_file_mlir, target_extension])
 
+    goldens = dict(builder.golden_map) if goldens is None else goldens
+
     # Compile TTIR MLIR -> TT{Metal,NN} MLIR
     try:
         module = _run_ttir_pipeline(
@@ -1615,7 +1666,7 @@ def compile_ttir_module_to_flatbuffer(
         to_target(
             module,
             output_file_fbb,
-            builder.golden_map,
+            goldens,
             module_logger.module_log if module_logger.module_log else [],
         )
     except Exception as e:
@@ -1633,6 +1684,8 @@ def execute_fb(
     rtol: float = 1e-05,
     disable_golden: bool = False,
     device=None,  # Optional device parameter for fixture reuse
+    check_atol: bool = False,
+    check_rtol: bool = False,
 ) -> None:
     """
     Takes a flatbuffer path `fb`, and executes it with random inputs supplied by `input_shapes` and `input_dtypes`
@@ -1807,13 +1860,15 @@ def execute_fb(
                     )
 
             # PCC check.
-            _, _, cal_pcc, _ = get_atol_rtol_pcc(
+            cal_atol, cal_rtol, cal_pcc, _ = get_atol_rtol_pcc(
                 golden_tensor_torch,
                 output_tensor_torch,
                 atol,
                 rtol,
                 logging,
             )
+
+            # Check PCC
             pcc_fail = cal_pcc < pcc
             if pcc_fail:
                 raise TTBuilderGoldenException(
@@ -1821,6 +1876,26 @@ def execute_fb(
                 )
             else:
                 print(f"Program level golden for output_{i} matched. pcc={cal_pcc}")
+
+            # Check atol if requested
+            if check_atol and cal_atol > atol:
+                raise TTBuilderGoldenException(
+                    f"Failed: program-level output atol check failed, actual_atol={cal_atol} > expected_atol={atol}"
+                )
+            elif check_atol:
+                print(
+                    f"Program level atol check for output_{i} passed. atol={cal_atol}"
+                )
+
+            # Check rtol if requested
+            if check_rtol and cal_rtol > rtol:
+                raise TTBuilderGoldenException(
+                    f"Failed: program-level output rtol check failed, actual_rtol={cal_rtol} > expected_rtol={rtol}"
+                )
+            elif check_rtol:
+                print(
+                    f"Program level rtol check for output_{i} passed. rtol={cal_rtol}"
+                )
 
         print("Adding program results...")
         bin.add_program_results(

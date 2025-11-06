@@ -235,7 +235,8 @@ public:
     SmallVector<Operation *> users(op->getUsers());
     for (auto *user : users) {
       assert(checkIdenticalTms(reshapeUser, user) &&
-             "shouldCommute should have ensured this is true");
+             "isCommuteUpwardsViable/Favorable should have ensured all users "
+             "are identical TMs");
     }
 
     for (auto *user : users) {
@@ -340,7 +341,8 @@ public:
     SmallVector<Operation *> users(op->getUsers());
     for (auto *user : users) {
       assert(checkIdenticalTms(permuteUser, user) &&
-             "shouldCommute should have ensured this is true");
+             "isCommuteUpwardsViable/Favorable should have ensured all users "
+             "are identical TMs");
     }
 
     for (auto *user : users) {
