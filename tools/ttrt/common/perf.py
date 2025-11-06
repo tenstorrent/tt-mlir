@@ -547,6 +547,9 @@ class Perf:
                                 mlir_line_num += 1
                                 line = line.strip()
                                 if key in line:
+                                    # Debug: Log first few lines that match key
+                                    if len(mlir_messages) < 3:
+                                        self.logging.warning(f"DEBUG: {key} line {mlir_line_num}: {line}")
                                     # Format: MLIR_OP_LOCATION;loc(...);timestamp
                                     parts = line.split(";")
                                     if len(parts) >= 3:
