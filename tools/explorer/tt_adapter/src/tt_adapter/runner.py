@@ -271,16 +271,23 @@ class ModelRunner:
         process = subprocess.Popen(
             command,
             stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
+            stderr=subprocess.PIPE,  # Capture stderr separately
             text=True,
             cwd=os.environ.get("TT_MLIR_HOME", os.getcwd()),
         )
 
-        for line in process.stdout:
-            self.log(line.strip())
-
-        process.stdout.close()
-        process.wait()
+        # Read stdout and stderr simultaneously to avoid deadlocks
+        stdout, stderr = process.communicate()
+        
+        # Log stdout at INFO level
+        for line in stdout.splitlines():
+            if line.strip():
+                self.log(line.strip())
+        
+        # Log stderr at WARNING level to ensure it's always visible (especially C++ debug logs)
+        for line in stderr.splitlines():
+            if line.strip():
+                self.log(line.strip(), severity=logging.warning)
 
         return process
 
