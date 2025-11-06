@@ -33,6 +33,20 @@ add_subdirectory(lib)
 add_subdirectory(python)
 add_subdirectory(tools)
 
+if (TT_RUNTIME_DEBUG)
+  find_package(Python3 REQUIRED COMPONENTS Interpreter Development)
+  add_library(TTRuntimeChisel STATIC lib/common/chisel_bridge.cpp)
+  set_property(TARGET TTRuntimeChisel PROPERTY CXX_STANDARD 20)
+  target_include_directories(TTRuntimeChisel PUBLIC
+    ${Python3_INCLUDE_DIRS}
+  )
+  target_link_libraries(TTRuntimeChisel PUBLIC ttmlir_runtime_bindings)
+  target_link_libraries(TTRuntimeChisel PUBLIC
+    ${Python3_LIBRARIES}
+  )
+  target_link_libraries(TTRuntimeChisel PUBLIC coverage_config)
+endif()
+
 # Ensure coverage_config is applied to runtime tests if enabled
 if (TTMLIR_ENABLE_RUNTIME_TESTS)
   add_subdirectory(test)

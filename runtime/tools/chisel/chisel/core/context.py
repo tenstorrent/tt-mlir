@@ -2,6 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 from chisel.utils.writer import ReportWriter
+from pathlib import Path
 import argparse
 import pathlib
 import numpy as np
@@ -49,6 +50,28 @@ logger = logging.getLogger("chisel")
 DEBUG = True
 
 
+class SimpleContext:
+    """
+    Simple context class for Chisel that manages the execution and comparison of MLIR operations
+    between golden (reference) and device implementations.
+    """
+
+    def __init__(self, ttir_mlir: str = None, ttnn_mlir: str = None):
+        # import pdb; pdb.set_trace()
+        self.ttir_mlir = ttir_mlir
+        self.ttnn_mlir = ttnn_mlir
+        print("ttir_mlir", ttir_mlir)
+        print("ttnn_mlir", ttnn_mlir)
+
+    def preop(self, binary, programContext, opContext):
+        print(self.ttir_mlir)
+        print("calling preop")
+
+    def postop(self, binary, programContext, opContext):
+        print(self.ttnn_mlir)
+        print("calling postop")
+
+
 class ChiselContext:
     """
     Main context class for Chisel that manages the execution and comparison of MLIR operations
@@ -78,14 +101,14 @@ class ChiselContext:
 
     def __init__(
         self,
-        ttir_module: Module,
-        ttnn_module: Module,
-        output_dir: pathlib.Path,
-        report_path: pathlib.Path,
-        main_fn: str,
+        ttir_mlir: str,
+        ttnn_mlir: str,
+        output_dir: pathlib.Path=Path("./chisel_output"),
+        report_path: pathlib.Path=Path("./chisel_output/report.csv"),
+        main_fn: str="abs",
         program_index: int = 0,
         flatbuffer_path: pathlib.Path | None = None,
-        function_argument_bridge_type: Literal["host", "device"] = "host",
+        function_argument_bridge_type: Literal["host", "device"] = "device",
         caching: bool = True,
         should_skip_op: Callable[[Operation], bool] = lambda op: False,
     ):
@@ -107,17 +130,20 @@ class ChiselContext:
         self.context = Context()
         self.context.load_all_available_dialects()
 
+        self.ttir_module = Module.parse(ttir_mlir, self.context)
+        self.ttnn_module = Module.parse(ttnn_mlir, self.context)
+
         # Load and parse both golden and device MLIR modules
         logger.debug("Loading IRs...")
         self.device_ir_module = IRModule(
-            mlir_module=ttnn_module,
+            mlir_module=self.ttnn_module,
             context=self.context,
             execution_type=ExecutionType.DEVICE,
             functions=[self.main_fn],
             current_function_name=self.main_fn,
         )
         self.golden_ir_module = IRModule(
-            mlir_module=ttir_module,
+            mlir_module=self.ttir_module,
             context=self.context,
             execution_type=ExecutionType.GOLDEN,
             functions=[self.main_fn],
@@ -136,6 +162,12 @@ class ChiselContext:
             device_module=self.modules[ExecutionType.DEVICE],
             should_skip_op=should_skip_op,
         )
+        self.registry.load_all_ops()
+        print(self.registry.tensors)
+        print(self.registry.tensor_to_location)
+        print(self.registry.op_groups)
+        print(self.registry.modules)
+        print(self.registry.last_loaded_loc)
         self.golden_tensor_pool = TensorPool(
             caching=caching, output_dir=self.output_dir / "golden"
         )
@@ -262,6 +294,7 @@ class ChiselContext:
 
     @debug_wrap(debug=DEBUG)
     def preop(self, binary, programContext, opContext):
+        print("preop")
         """
         Pre-operation callback executed before each device operation.
 
@@ -301,7 +334,7 @@ class ChiselContext:
                 if device_tensor.tensor_ref is not None:
                     continue  # Skip if tensor reference already set
                 device_tensor.tensor_ref = tensor_ref
-                self.function_argument_bridge(programContext, input_name)
+                
             else:
                 tensor_data = retrieve_tensor_from_pool(programContext, tensor_ref)
                 data = get_torch_tensor(tensor_data)
@@ -309,6 +342,7 @@ class ChiselContext:
                 self.device_tensor_pool[input_name] = TensorValue(
                     input_name, data, ExecutionType.DEVICE, tensor_ref=tensor_ref
                 )
+            self.function_argument_bridge(programContext, input_name)
 
     @debug_wrap(debug=DEBUG)
     def postop(self, binary, programContext, opContext):
@@ -325,6 +359,7 @@ class ChiselContext:
             programContext: Context of the current program
             opContext: Context of the current operation
         """
+        print("postop")
         # Extract debug information and operation location
         debug_str = get_op_debug_str(opContext)
         op_location = parse_op_location(get_op_loc_info(opContext))
@@ -482,6 +517,7 @@ class ChiselContext:
 
         elif self.function_argument_bridge_type == "device":
             # For device tensors that are function arguments, sync to golden tensors
+            print(input_name)
             if input_name in self.arg_names:
                 device_tensor = self.device_tensor_pool[input_name]
                 # Retrieve tensor data from device

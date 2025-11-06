@@ -41,6 +41,7 @@ target_link_libraries(TTMLIRRuntime
     TTRuntimePerf
     TTRuntimeWorkarounds
     TTRuntimeDylibs
+    TTRuntimeChisel
     # This ensures that symbols from libTTRuntimeTTNNTestLib.a (libA) are linked into libTTMLIRRuntime.so (libB).
     # Since the symbols from libA aren't used in libB, linker will just ignore them. By using --whole-archive,
     # we tell linker to link all the symbols anyway. We need this as symbols from libA might be used by whoever

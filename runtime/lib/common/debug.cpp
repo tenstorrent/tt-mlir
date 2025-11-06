@@ -4,6 +4,7 @@
 
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
 
+#include <iostream>
 #include <mutex>
 #include <shared_mutex>
 #include <sstream>

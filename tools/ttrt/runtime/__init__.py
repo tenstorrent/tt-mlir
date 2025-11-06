@@ -4,6 +4,9 @@
 
 try:
     from ttrt.runtime._ttmlir_runtime.runtime import (
+        OpContext,
+        CallbackContext,
+        print_callback_context_type,
         Device,
         Event,
         Tensor,

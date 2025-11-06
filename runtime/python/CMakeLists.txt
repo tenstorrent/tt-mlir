@@ -5,10 +5,23 @@
 find_package(nanobind CONFIG REQUIRED)
 find_package(pybind11 CONFIG REQUIRED)
 
-set(TTMLIR_RUNTIME_PYTHON_SRCS
-  __init__.cpp
+add_library(ttmlir_runtime_bindings STATIC
   runtime/runtime.cpp
   binary/binary.cpp
+  # any other binding TUs
+)
+
+target_include_directories(ttmlir_runtime_bindings
+  PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/runtime/include
+    ${PROJECT_BINARY_DIR}/runtime/include
+)
+
+target_link_libraries(ttmlir_runtime_bindings PUBLIC nanobind-static)
+
+set(TTMLIR_RUNTIME_PYTHON_SRCS
+  __init__.cpp
 )
 
 if (TTMLIR_ENABLE_RUNTIME_TESTS)
@@ -37,6 +50,7 @@ target_include_directories(_ttmlir_runtime
 target_link_libraries(_ttmlir_runtime
   PRIVATE
   TTMLIRRuntime
+  ttmlir_runtime_bindings
 )
 add_dependencies(_ttmlir_runtime TTMLIRRuntime)
 

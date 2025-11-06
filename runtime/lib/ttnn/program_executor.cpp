@@ -115,6 +115,38 @@ ProgramExecutor::ProgramExecutor(
       programInputIds, programOutputIds, std::move(liveTensors),
       common::DylibManager(program->dylibs()), std::move(deviceHandle),
       executableHandle, programIndex);
+const char* ttir_mlir = R"(module {
+  func.func @abs(%arg0: tensor<128x128xf32>) -> tensor<128x128xf32> {
+    %0 = ttir.empty() : tensor<128x128xf32>
+    %1 = "ttir.abs"(%arg0, %0) : (tensor<128x128xf32>, tensor<128x128xf32>) -> tensor<128x128xf32>
+    return %1 : tensor<128x128xf32>
+  }
+}
+)";
+const char* ttnn_mlir = R"(
+#dram = #ttnn.buffer_type<dram>
+#loc2 = loc("runtime/tools/chisel/test/mlir/test_abs.mlir":2:18)
+#system_desc = #ttcore.system_desc<[{role = host, target_triple = "x86_64-pc-linux"}], [{arch = <wormhole_b0>, grid = 8x8, coord_translation_offsets = 18x18, l1_size = 1499136, num_dram_channels = 12, dram_channel_size = 1073741824, noc_l1_address_align_bytes = 16, pcie_address_align_bytes = 32, noc_dram_address_align_bytes = 32, l1_unreserved_base = 101664, erisc_l1_unreserved_base = 98304, dram_unreserved_base = 2560032, dram_unreserved_end = 1073131840, supported_data_types = [<f32>, <f16>, <bf16>, <bfp_f8>, <bfp_bf8>, <bfp_f4>, <bfp_bf4>, <bfp_f2>, <bfp_bf2>, <u32>, <u16>, <u8>, <si32>], supported_tile_sizes = [ 4x16,  16x16,  32x16,  4x32,  16x32,  32x32], dst_physical_size_tiles = 16, num_cbs = 32, num_compute_threads = 1, num_datamovement_threads = 2}], [0], [1 : i32], [ 0x0x0x0]>
+#ttnn_layout = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<4x4x!ttcore.tile<32x32, f32>, #dram>, <interleaved>>
+module {
+  ttcore.device_module {
+    builtin.module attributes {ttcore.system_desc = #system_desc} {
+      ttcore.device @default_device = <workerGrid = #ttcore.grid<8x8, (d0, d1) -> (0, d0, d1)>, l1Map = (d0, d1, d2)[s0] -> (0, d0, d1, d2 + s0), dramMap = (d0, d1, d2)[s0, s1, s2, s3, s4, s5, s6] -> (0, 0, (((d0 * s1) * (s2 * (s3 * s6)) + d1 * (s2 * (s3 * s6)) + d2) floordiv s4) mod 12, ((((d0 * s1) * (s2 * (s3 * s6)) + d1 * (s2 * (s3 * s6)) + d2) floordiv s4) floordiv 12) * s4 + ((d0 * s1) * (s2 * (s3 * s6)) + d1 * (s2 * (s3 * s6)) + d2) mod s4 + s5), meshShape = , chipIds = [0]> loc(#loc)
+      func.func @abs(%arg0: tensor<128x128xf32, #ttnn_layout> loc("runtime/tools/chisel/test/mlir/test_abs.mlir":2:18)) -> tensor<128x128xf32, #ttnn_layout> {
+        %0 = "ttnn.abs"(%arg0) : (tensor<128x128xf32, #ttnn_layout>) -> tensor<128x128xf32, #ttnn_layout> loc(#loc3)
+        "ttnn.deallocate"(%arg0) <{force = false}> : (tensor<128x128xf32, #ttnn_layout>) -> () loc(#loc3)
+        return %0 : tensor<128x128xf32, #ttnn_layout> loc(#loc4)
+      } loc(#loc1)
+    } loc(#loc)
+  } loc(#loc)
+} loc(#loc)
+#loc = loc("runtime/tools/chisel/test/mlir/test_abs.mlir":1:1)
+#loc1 = loc("runtime/tools/chisel/test/mlir/test_abs.mlir":2:3)
+#loc3 = loc("runtime/tools/chisel/test/mlir/test_abs.mlir":4:10)
+#loc4 = loc("runtime/tools/chisel/test/mlir/test_abs.mlir":5:5)
+)";
+  chiselBridge.initialize(ttir_mlir, ttnn_mlir);
+
 }
 
 void ProgramExecutor::runCallback(

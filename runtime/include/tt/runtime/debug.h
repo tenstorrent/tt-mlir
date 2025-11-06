@@ -177,6 +177,21 @@ void verifyFlatbuffer(const ::flatbuffers::FlatBufferBuilder &fbb,
 #endif
 }
 
+struct RuntimeChiselBridge {
+#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
+  RuntimeChiselBridge() = default;
+  ~RuntimeChiselBridge();
+
+  void initialize(const char *ttir_mlir, const char *ttnn_mlir);
+
+  void finalize();
+
+  bool initialized_ = false;
+  bool finalized_ = false;
+  bool ownsInterpreter = false;
+#endif
+};
+
 } // namespace tt::runtime::debug
 
 #endif // TT_RUNTIME_DEBUG_H

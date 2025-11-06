@@ -59,6 +59,7 @@ private:
   const ::tt::target::ttnn::Program *program;
   Binary executableHandle;
   std::unique_ptr<ProgramContext> context;
+  ::tt::runtime::debug::RuntimeChiselBridge chiselBridge;
   bool constEvalProgram;
 
   /**
