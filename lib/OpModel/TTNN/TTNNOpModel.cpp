@@ -2496,6 +2496,160 @@ llvm::Expected<size_t> OpModel<ScaledDotProductAttentionDecodeOp>::getOpRuntime(
 }
 
 //===----------------------------------------------------------------------===//
+// PagedScaledDotProductAttentionDecodeOp
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<OpConstraints>
+OpModel<PagedScaledDotProductAttentionDecodeOp>::getOpConstraints(
+    ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> queryShape,
+    TTNNLayoutAttr queryLayout, llvm::ArrayRef<int64_t> keyShape,
+    TTNNLayoutAttr keyLayout, llvm::ArrayRef<int64_t> valueShape,
+    TTNNLayoutAttr valueLayout, llvm::ArrayRef<int64_t> pageTableShape,
+    TTNNLayoutAttr pageTableLayout, bool isCausal,
+    std::optional<llvm::ArrayRef<int64_t>> attentionMaskShape,
+    std::optional<TTNNLayoutAttr> attentionMaskLayout,
+    std::optional<llvm::ArrayRef<int64_t>> curPosTensorShape,
+    std::optional<TTNNLayoutAttr> curPosTensorLayout,
+    std::optional<llvm::ArrayRef<int64_t>> attentionSinkShape,
+    std::optional<TTNNLayoutAttr> attentionSinkLayout,
+    std::optional<llvm::APFloat> scale, TTNNLayoutAttr outputLayout) {
+
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  auto querySpecExp =
+      detail::convertToTensorSpec(device, queryShape, queryLayout);
+  if (!querySpecExp) {
+    return querySpecExp.takeError();
+  }
+  auto keySpecExp = detail::convertToTensorSpec(device, keyShape, keyLayout);
+  if (!keySpecExp) {
+    return keySpecExp.takeError();
+  }
+  auto valueSpecExp =
+      detail::convertToTensorSpec(device, valueShape, valueLayout);
+  if (!valueSpecExp) {
+    return valueSpecExp.takeError();
+  }
+  auto pageTableSpecExp =
+      detail::convertToTensorSpec(device, pageTableShape, pageTableLayout);
+  if (!pageTableSpecExp) {
+    return pageTableSpecExp.takeError();
+  }
+
+  ::ttnn::TensorSpec querySpec = querySpecExp.get();
+  ::ttnn::TensorSpec keySpec = keySpecExp.get();
+  ::ttnn::TensorSpec valueSpec = valueSpecExp.get();
+  ::ttnn::TensorSpec pageTableSpec = pageTableSpecExp.get();
+
+  std::optional<::ttnn::TensorSpec> attentionMaskSpec =
+      detail::convertToOptionalTensorSpec(device, attentionMaskShape,
+                                          attentionMaskLayout);
+  std::optional<::ttnn::TensorSpec> curPosTensorSpec =
+      detail::convertToOptionalTensorSpec(device, curPosTensorShape,
+                                          curPosTensorLayout);
+  std::optional<::ttnn::TensorSpec> attentionSinkSpec =
+      detail::convertToOptionalTensorSpec(device, attentionSinkShape,
+                                          attentionSinkLayout);
+
+  std::optional<float> scaleFloat =
+      scale ? std::make_optional(scale.value().convertToFloat()) : std::nullopt;
+  std::optional<uint32_t> slidingWindowSize = std::nullopt;
+
+  auto pagedScaledDotProductAttentionDecodeOpQuery = [=]() {
+    return ::ttnn::graph::query_op_constraints(
+        ::ttnn::transformer::paged_scaled_dot_product_attention_decode, device,
+        querySpec, keySpec, valueSpec, pageTableSpec, isCausal,
+        attentionMaskSpec, curPosTensorSpec, attentionSinkSpec, scaleFloat,
+        slidingWindowSize, detail::getNullableMemoryConfig(outputLayout),
+        /*program_config=*/std::nullopt,
+        /*compute_kernel_config=*/std::nullopt);
+  };
+
+  return operation::getOpConstraints(
+      queryLayout.getContext(), deviceGrid,
+      pagedScaledDotProductAttentionDecodeOpQuery);
+#else
+  return OpConstraints{};
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+llvm::Expected<size_t>
+OpModel<PagedScaledDotProductAttentionDecodeOp>::getOpRuntime(
+    llvm::ArrayRef<int64_t> queryShape, TTNNLayoutAttr queryLayout,
+    llvm::ArrayRef<int64_t> keyShape, TTNNLayoutAttr keyLayout,
+    llvm::ArrayRef<int64_t> valueShape, TTNNLayoutAttr valueLayout,
+    llvm::ArrayRef<int64_t> pageTableShape, TTNNLayoutAttr pageTableLayout,
+    bool isCausal, std::optional<llvm::ArrayRef<int64_t>> attentionMaskShape,
+    std::optional<TTNNLayoutAttr> attentionMaskLayout,
+    std::optional<llvm::ArrayRef<int64_t>> curPosTensorShape,
+    std::optional<TTNNLayoutAttr> curPosTensorLayout,
+    std::optional<llvm::ArrayRef<int64_t>> attentionSinkShape,
+    std::optional<TTNNLayoutAttr> attentionSinkLayout,
+    std::optional<llvm::APFloat> scale, TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  auto querySpecExp =
+      detail::convertToTensorSpec(device, queryShape, queryLayout);
+  if (!querySpecExp) {
+    return querySpecExp.takeError();
+  }
+  auto keySpecExp = detail::convertToTensorSpec(device, keyShape, keyLayout);
+  if (!keySpecExp) {
+    return keySpecExp.takeError();
+  }
+  auto valueSpecExp =
+      detail::convertToTensorSpec(device, valueShape, valueLayout);
+  if (!valueSpecExp) {
+    return valueSpecExp.takeError();
+  }
+  auto pageTableSpecExp =
+      detail::convertToTensorSpec(device, pageTableShape, pageTableLayout);
+  if (!pageTableSpecExp) {
+    return pageTableSpecExp.takeError();
+  }
+
+  ::ttnn::TensorSpec querySpec = querySpecExp.get();
+  ::ttnn::TensorSpec keySpec = keySpecExp.get();
+  ::ttnn::TensorSpec valueSpec = valueSpecExp.get();
+  ::ttnn::TensorSpec pageTableSpec = pageTableSpecExp.get();
+
+  std::optional<::ttnn::TensorSpec> attentionMaskSpec =
+      detail::convertToOptionalTensorSpec(device, attentionMaskShape,
+                                          attentionMaskLayout);
+
+  std::optional<::ttnn::TensorSpec> curPosTensorSpec =
+      detail::convertToOptionalTensorSpec(device, curPosTensorShape,
+                                          curPosTensorLayout);
+
+  std::optional<::ttnn::TensorSpec> attentionSinkSpec =
+      detail::convertToOptionalTensorSpec(device, attentionSinkShape,
+                                          attentionSinkLayout);
+
+  std::optional<float> scaleFloat =
+      scale ? std::make_optional(scale.value().convertToFloat()) : std::nullopt;
+  std::optional<uint32_t> slidingWindowSize = std::nullopt;
+
+  auto pagedScaledDotProductAttentionDecodeOpQuery = [=]() {
+    return ::ttnn::graph::query_op_runtime(
+        ::ttnn::transformer::paged_scaled_dot_product_attention_decode, device,
+        querySpec, keySpec, valueSpec, pageTableSpec, isCausal,
+        attentionMaskSpec, curPosTensorSpec, attentionSinkSpec, scaleFloat,
+        slidingWindowSize, detail::getNullableMemoryConfig(outputLayout),
+        /*program_config=*/std::nullopt,
+        /*compute_kernel_config=*/std::nullopt);
+  };
+
+  return operation::getOpRuntime(pagedScaledDotProductAttentionDecodeOpQuery);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+//===----------------------------------------------------------------------===//
 // ScaledDotProductAttentionOp
 //===----------------------------------------------------------------------===//
 

@@ -2019,6 +2019,130 @@ llvm::Expected<size_t> ScaledDotProductAttentionDecodeOp::getOpRuntime(
 }
 
 //===----------------------------------------------------------------------===//
+// PagedScaledDotProductAttentionDecodeOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+struct PagedScaledDotProductAttentionDecodeArgs {
+  llvm::SmallVector<int64_t> queryShape;
+  TTNNLayoutAttr queryLayout;
+  llvm::SmallVector<int64_t> keyShape;
+  TTNNLayoutAttr keyLayout;
+  llvm::SmallVector<int64_t> valueShape;
+  TTNNLayoutAttr valueLayout;
+  llvm::SmallVector<int64_t> pageTableShape;
+  TTNNLayoutAttr pageTableLayout;
+  bool isCausal;
+  std::optional<llvm::SmallVector<int64_t>> attentionMaskShape = std::nullopt;
+  std::optional<TTNNLayoutAttr> attentionMaskLayout = std::nullopt;
+  std::optional<llvm::SmallVector<int64_t>> curPosTensorShape = std::nullopt;
+  std::optional<TTNNLayoutAttr> curPosTensorLayout = std::nullopt;
+  std::optional<llvm::SmallVector<int64_t>> attentionSinkShape = std::nullopt;
+  std::optional<TTNNLayoutAttr> attentionSinkLayout = std::nullopt;
+  std::optional<llvm::APFloat> scale = std::nullopt;
+};
+
+static PagedScaledDotProductAttentionDecodeArgs
+unpackPagedScaledDotProductAttentionDecodeArgs(
+    const std::vector<TTNNLayoutAttr> &inputs,
+    PagedScaledDotProductAttentionDecodeOp op) {
+  PagedScaledDotProductAttentionDecodeArgs ret;
+  ret.queryShape =
+      llvm::SmallVector<int64_t>(op.getQuery().getType().getShape());
+  ret.queryLayout = inputs[0];
+  ret.keyShape = llvm::SmallVector<int64_t>(op.getKey().getType().getShape());
+  ret.keyLayout = inputs[1];
+  ret.valueShape =
+      llvm::SmallVector<int64_t>(op.getValue().getType().getShape());
+  ret.valueLayout = inputs[2];
+  ret.pageTableShape =
+      llvm::SmallVector<int64_t>(op.getPageTable().getType().getShape());
+  ret.pageTableLayout = inputs[3];
+  ret.isCausal = op.getIsCausal();
+  ret.scale = op.getScale();
+
+  TypedValue<RankedTensorType> attentionMask = op.getAttentionMask();
+  TypedValue<RankedTensorType> curPosTensor = op.getCurPosTensor();
+  TypedValue<RankedTensorType> attentionSink = op.getAttentionSink();
+
+  int32_t idx = 4;
+  if (attentionMask) {
+    ret.attentionMaskShape =
+        llvm::SmallVector<int64_t>(attentionMask.getType().getShape());
+    ret.attentionMaskLayout = inputs[idx];
+    idx++;
+  }
+  if (curPosTensor) {
+    ret.curPosTensorShape =
+        llvm::SmallVector<int64_t>(curPosTensor.getType().getShape());
+    ret.curPosTensorLayout = inputs[idx];
+    idx++;
+  }
+  if (attentionSink) {
+    ret.attentionSinkShape =
+        llvm::SmallVector<int64_t>(attentionSink.getType().getShape());
+    ret.attentionSinkLayout = inputs[idx];
+    idx++;
+  }
+
+  return ret;
+}
+
+llvm::Expected<op_model::OpConstraints>
+PagedScaledDotProductAttentionDecodeOp::getOpConstraints(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
+  assert(inputs.size() >= 4 && inputs.size() <= 6 &&
+         "ttnn::paged_scaled_dot_product_attention_decode can have 4, 5, 6, or "
+         "7 input tensors");
+
+  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
+  if (!check) {
+    return check.takeError();
+  }
+  ttcore::GridAttr deviceGrid =
+      ttcore::lookupDevice(getOperation()).getWorkerGrid();
+
+  PagedScaledDotProductAttentionDecodeArgs pagedSdpaArgs =
+      unpackPagedScaledDotProductAttentionDecodeArgs(inputs, *this);
+
+  return opConstraintsCache().getOrCompute(
+      op_model::OpModel<
+          PagedScaledDotProductAttentionDecodeOp>::getOpConstraints,
+      *this, deviceGrid, pagedSdpaArgs.queryShape, pagedSdpaArgs.queryLayout,
+      pagedSdpaArgs.keyShape, pagedSdpaArgs.keyLayout, pagedSdpaArgs.valueShape,
+      pagedSdpaArgs.valueLayout, pagedSdpaArgs.pageTableShape,
+      pagedSdpaArgs.pageTableLayout, pagedSdpaArgs.isCausal,
+      pagedSdpaArgs.attentionMaskShape, pagedSdpaArgs.attentionMaskLayout,
+      pagedSdpaArgs.curPosTensorShape, pagedSdpaArgs.curPosTensorLayout,
+      pagedSdpaArgs.attentionSinkShape, pagedSdpaArgs.attentionSinkLayout,
+      pagedSdpaArgs.scale, opConfig.outputLayout);
+}
+
+llvm::Expected<size_t> PagedScaledDotProductAttentionDecodeOp::getOpRuntime(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
+  assert(inputs.size() >= 4 && inputs.size() <= 6 &&
+         "ttnn::paged_scaled_dot_product_attention_decode can have 4, 5, 6, or "
+         "7 input tensors");
+
+  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
+  if (!check) {
+    return check.takeError();
+  }
+
+  PagedScaledDotProductAttentionDecodeArgs pagedSdpaArgs =
+      unpackPagedScaledDotProductAttentionDecodeArgs(inputs, *this);
+
+  return opRuntimeCache().getOrCompute(
+      op_model::OpModel<PagedScaledDotProductAttentionDecodeOp>::getOpRuntime,
+      *this, pagedSdpaArgs.queryShape, pagedSdpaArgs.queryLayout,
+      pagedSdpaArgs.keyShape, pagedSdpaArgs.keyLayout, pagedSdpaArgs.valueShape,
+      pagedSdpaArgs.valueLayout, pagedSdpaArgs.pageTableShape,
+      pagedSdpaArgs.pageTableLayout, pagedSdpaArgs.isCausal,
+      pagedSdpaArgs.attentionMaskShape, pagedSdpaArgs.attentionMaskLayout,
+      pagedSdpaArgs.curPosTensorShape, pagedSdpaArgs.curPosTensorLayout,
+      pagedSdpaArgs.attentionSinkShape, pagedSdpaArgs.attentionSinkLayout,
+      pagedSdpaArgs.scale, opConfig.outputLayout);
+}
+//===----------------------------------------------------------------------===//
 // ScaledDotProductAttentionOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 

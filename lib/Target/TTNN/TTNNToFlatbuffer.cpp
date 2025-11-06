@@ -2135,6 +2135,45 @@ createOp(FlatbufferObjectCache &cache, ScaledDotProductAttentionDecodeOp op) {
       attentionSink, scale, out, memoryConfig);
 }
 
+::flatbuffers::Offset<
+    ::tt::target::ttnn::PagedScaledDotProductAttentionDecodeOp>
+createOp(FlatbufferObjectCache &cache,
+         PagedScaledDotProductAttentionDecodeOp op) {
+  auto query = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getQuery()));
+  auto key = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getKey()));
+  auto value = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getValue()));
+  auto pageTable = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getPageTable()));
+  auto attentionMask = op.getAttentionMask()
+                           ? cache.at<::tt::target::ttnn::TensorRef>(
+                                 getOperandThroughDPSOps(op.getAttentionMask()))
+                           : 0;
+  auto curPosTensor = op.getCurPosTensor()
+                          ? cache.at<::tt::target::ttnn::TensorRef>(
+                                getOperandThroughDPSOps(op.getCurPosTensor()))
+                          : 0;
+  auto attentionSink = op.getAttentionSink()
+                           ? cache.at<::tt::target::ttnn::TensorRef>(
+                                 getOperandThroughDPSOps(op.getAttentionSink()))
+                           : 0;
+
+  auto isCausal = op.getIsCausal();
+  auto scale = toFlatbuffer(
+      cache, op.getScale()
+                 ? std::make_optional(op.getScale().value().convertToFloat())
+                 : std::nullopt);
+  auto memoryConfig = getMemoryConfigIfNeeded(cache, op);
+
+  auto out = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer);
+
+  return ::tt::target::ttnn::CreatePagedScaledDotProductAttentionDecodeOp(
+      *cache.fbb, query, key, value, pageTable, isCausal, attentionMask,
+      curPosTensor, attentionSink, scale, out, memoryConfig);
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::ScaledDotProductAttentionOp>
 createOp(FlatbufferObjectCache &cache, ScaledDotProductAttentionOp op) {
   // NOLINTBEGIN(clang-analyzer-cplusplus.NewDelete)
