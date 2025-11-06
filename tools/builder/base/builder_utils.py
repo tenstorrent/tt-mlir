@@ -1684,8 +1684,8 @@ def execute_fb(
     rtol: float = 1e-05,
     disable_golden: bool = False,
     device=None,  # Optional device parameter for fixture reuse
-    check_atol: bool = False,
-    check_rtol: bool = False,
+    check_atol: bool = True,
+    check_rtol: bool = True,
 ) -> None:
     """
     Takes a flatbuffer path `fb`, and executes it with random inputs supplied by `input_shapes` and `input_dtypes`
