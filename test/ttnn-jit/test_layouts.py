@@ -55,7 +55,7 @@ def abs(input_tensor):
 def test_l1_block_sharded_shapes(device, shape, max_grid, op):
 
     if max_grid in GRIDS_FAILING_ALL_SHAPES:
-            pytest.xfail("Grid fails for all shapes. Issue: #5415")
+        pytest.xfail("Grid fails for all shapes. Issue: #5415")
 
     run_op_test(
         device,

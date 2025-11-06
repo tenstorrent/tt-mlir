@@ -80,7 +80,10 @@ def _get_num_pos_args(func: Callable):
     )
     return num_pos_args
 
-def _get_collapsed_linear_affine_map(context, shape, grid_shape, collapse_intervals=[(0, -1)]):
+
+def _get_collapsed_linear_affine_map(
+    context, shape, grid_shape, collapse_intervals=[(0, -1)]
+):
     """
     This function creates an affine map that represents collapsing the tensor
     dims onto an n-dimensional grid. E.g. (Where <> is some join operator)
@@ -105,14 +108,14 @@ def _get_collapsed_linear_affine_map(context, shape, grid_shape, collapse_interv
       - 7D tensor onto a 4D grid collapseIntervals=[(0, 3), (-3, -1)]:
         (d0, d1, d2, d3, d4, d5, d6) -> (d0 <> d1 <> d2, d3, d4 <> d5, d6)
     """
-  
+
     rank = len(shape)
-    
+
     # Start with a full identity mapping
     results = [AffineDimExpr.get(i, context) for i in range(rank)]
 
     for interval in collapse_intervals:
-        begin, end = interval 
+        begin, end = interval
         # Handle negative indices
         if begin < 0:
             begin += rank
@@ -135,7 +138,7 @@ def _get_collapsed_linear_affine_map(context, shape, grid_shape, collapse_interv
 
     # Truncate results to match the rank of the grid shape
     if len(results) > len(grid_shape):
-        results = results[:len(grid_shape)]
+        results = results[: len(grid_shape)]
 
     # Pad with leading zeros if the number of results is less than the grid rank
     while len(results) < len(grid_shape):
@@ -148,4 +151,3 @@ def _get_collapsed_linear_affine_map(context, shape, grid_shape, collapse_interv
         results[i] = expr
 
     return AffineMap.get(rank, 0, results, context)
- 

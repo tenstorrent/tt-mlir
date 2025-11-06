@@ -14,7 +14,11 @@ from ttmlir.dialects import (
     ttcore,
 )
 
-from .utils import _discover_dialect_ops, _get_num_pos_args, _get_collapsed_linear_affine_map
+from .utils import (
+    _discover_dialect_ops,
+    _get_num_pos_args,
+    _get_collapsed_linear_affine_map,
+)
 
 
 class TTIRCompiler(ast.NodeVisitor):
@@ -93,12 +97,14 @@ class TTIRCompiler(ast.NodeVisitor):
         return ttnn.get_device(mesh_shape=mesh_shape_attr, mesh_offset=mesh_offset_attr)
 
     def _create_tensor_layout(self, tensor_arg):
-       
+
         data_type = self._ttcore_dtype_from_ttnn_dtype(tensor_arg.dtype)
         tile_type = ttcore.ir.TileType.get(self.ctx, 32, 32, data_type)
 
         # Create affine map, should be based of tensor shape
-        affine_map = _get_collapsed_linear_affine_map(self.ctx, tensor_arg.shape, self.max_grid)
+        affine_map = _get_collapsed_linear_affine_map(
+            self.ctx, tensor_arg.shape, self.max_grid
+        )
 
         if tensor_arg.memory_config().is_sharded():
             shard_spec = tensor_arg.memory_config().shard_spec
