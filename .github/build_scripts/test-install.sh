@@ -5,7 +5,7 @@
 #
 # Script to install and test TTMLIR by building a standalone project
 # against the installation using a standalone test project in `test/install`.
-# 
+#
 # This script expects the following environment variables to be set:
 #   WORK_DIR    - Repository root directory
 #   BUILD_DIR   - Build artifacts directory (where TTMLIR was built)
