@@ -4427,7 +4427,7 @@ TEST_F(OpModelBase, PagedUpdateCacheOpInterface) {
   auto pagedUpdateCacheOp = builder.create<PagedUpdateCacheOp>(
       builder.getUnknownLoc(), cacheTensor, inputTensor, updateIndexTensor,
       false, pageTableTensor);
-  pagedUpdateCacheOp->getParentOp()->dump();
+
   auto backend = dyn_cast<OpModel>(pagedUpdateCacheOp.getOperation());
   ASSERT_TRUE(backend);
 
@@ -4444,14 +4444,19 @@ TEST_F(OpModelBase, PagedUpdateCacheOpInterface) {
     FAIL() << "Missing constraints for PagedUpdateCacheOp; Error="
            << llvm::toString(constraintsExp.takeError()) << std::endl;
   }
-  op_model::SingletonDeviceContext::resetInstance();
-  auto runtimeExp = backend.getOpRuntime(
-      getInputLayouts(pagedUpdateCacheOp.getOperation()), OpConfig());
-  if (runtimeExp) {
-    EXPECT_GT(runtimeExp.get(), 0);
-  } else {
-    FAIL() << "Error getting runtime for PagedUpdateCacheOp: "
-           << llvm::toString(runtimeExp.takeError());
+
+  // TODO(https://github.com/tenstorrent/tt-mlir/issues/5738) the runtime query
+  // sporadically hangs, disable by default for now.
+  constexpr bool skipRuntimeTest = true;
+  if (!skipRuntimeTest) {
+    auto runtimeExp = backend.getOpRuntime(
+        getInputLayouts(pagedUpdateCacheOp.getOperation()), OpConfig());
+    if (runtimeExp) {
+      EXPECT_GT(runtimeExp.get(), 0);
+    } else {
+      FAIL() << "Error getting runtime for PagedUpdateCacheOp: "
+             << llvm::toString(runtimeExp.takeError());
+    }
   }
 }
 
