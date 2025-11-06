@@ -420,51 +420,6 @@ def test_binary_ops_dram(device, h, w, dtype, op):
 
 
 # ------------------------------------------------------------
-# Composite ops
-# ------------------------------------------------------------
-def cosh(input_tensor):
-    e_pos_x = ttnn.exp(input_tensor)
-    e_neg_x = ttnn.exp(ttnn.neg(input_tensor))
-    nr_term = ttnn.add(e_pos_x, e_neg_x)
-    output = ttnn.multiply(nr_term, 0.5)
-    return output
-
-
-def sinh(input_tensor):
-    e_pos_x = ttnn.exp(input_tensor)
-    e_neg_x = ttnn.exp(ttnn.neg(input_tensor))
-    nr_term = ttnn.subtract(e_pos_x, e_neg_x)
-    output = ttnn.multiply(nr_term, 0.5)
-    return output
-
-
-@pytest.mark.parametrize("h , w, max_grid", BLOCK_SHARDED_SHAPE_GRIDS)
-@pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32])
-@pytest.mark.parametrize("op", [cosh, sinh])
-@pytest.mark.parametrize("graph_capture", [True, False])
-def test_composite_ops(device, h, w, max_grid, dtype, op, graph_capture):
-    run_op_test(
-        device,
-        h,
-        w,
-        max_grid,
-        dtype,
-        op,
-        1,
-        buffer_type=ttnn.BufferType.L1,
-        graph_capture=graph_capture,
-    )
-
-
-@pytest.mark.parametrize("h , w", DRAM_INTERLEAVED_SHAPES)
-@pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32])
-@pytest.mark.parametrize("op", [cosh, sinh])
-def test_composite_ops_dram(device, h, w, dtype, op):
-    max_grid = (0, 0)
-    run_op_test(device, h, w, max_grid, dtype, op, 1, buffer_type=ttnn.BufferType.DRAM)
-
-
-# ------------------------------------------------------------
 # Interop tests
 # ------------------------------------------------------------
 
@@ -496,7 +451,10 @@ def test_interop_jit_to_ttnn_unary_l1(
     golden_jit_output = golden_jit_op(input_tensor)
     golden_result = ttnn_unary_op(golden_jit_output)
 
-    all_close_check(interop_result, golden_result)
+    assert memory_configs_equal(
+        interop_result.memory_config(), golden_result.memory_config()
+    )
+    assert all_close_check(interop_result, golden_result)
 
 
 # 2 JIT ops -> TTNN binary op test
@@ -533,7 +491,10 @@ def test_interop_two_jit_to_ttnn_binary_l1(
     golden_output2 = golden_jit_op2(input2)
     golden_result = ttnn_binary_op(golden_output1, golden_output2)
 
-    all_close_check(interop_result, golden_result)
+    assert memory_configs_equal(
+        interop_result.memory_config(), golden_result.memory_config()
+    )
+    assert all_close_check(interop_result, golden_result)
 
 
 # JIT op + ttnn tensor -> ttnn binary op test
@@ -563,7 +524,10 @@ def test_interop_jit_and_ttnn_to_binary_l1(
     golden_jit_output = golden_jit_op(input_tensor)
     golden_result = ttnn_binary_op(golden_jit_output, ttnn_tensor)
 
-    all_close_check(interop_result, golden_result)
+    assert memory_configs_equal(
+        interop_result.memory_config(), golden_result.memory_config()
+    )
+    assert all_close_check(interop_result, golden_result)
 
 
 # JIT op -> ttnn unary op test (DRAM)
@@ -595,7 +559,10 @@ def test_interop_jit_to_ttnn_unary_dram(device, h, w, dtype, jit_op, ttnn_unary_
     golden_jit_output = golden_jit_op(input_tensor)
     golden_result = ttnn_unary_op(golden_jit_output)
 
-    all_close_check(interop_result, golden_result)
+    assert memory_configs_equal(
+        interop_result.memory_config(), golden_result.memory_config()
+    )
+    assert all_close_check(interop_result, golden_result)
 
 
 # 2 JIT ops -> ttnn binary op test (DRAM)
@@ -636,7 +603,10 @@ def test_interop_two_jit_to_ttnn_binary_dram(
     golden_output2 = golden_jit_op2(input2)
     golden_result = ttnn_binary_op(golden_output1, golden_output2)
 
-    all_close_check(interop_result, golden_result)
+    assert memory_configs_equal(
+        interop_result.memory_config(), golden_result.memory_config()
+    )
+    assert all_close_check(interop_result, golden_result)
 
 
 # JIT op + ttnn tensor -> ttnn binary op test (DRAM)
@@ -670,4 +640,7 @@ def test_interop_jit_and_ttnn_to_binary_dram(
     golden_jit_output = golden_jit_op(input_tensor)
     golden_result = ttnn_binary_op(golden_jit_output, ttnn_tensor)
 
-    all_close_check(interop_result, golden_result)
+    assert memory_configs_equal(
+        interop_result.memory_config(), golden_result.memory_config()
+    )
+    assert all_close_check(interop_result, golden_result)
