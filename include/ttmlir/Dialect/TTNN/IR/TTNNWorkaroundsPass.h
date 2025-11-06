@@ -231,6 +231,9 @@ public:
   // Create workarounds for pooling 2d ops (max_pool2d, avg_pool2d) operands.
   static TTNNOperandsWorkarounds createPool2DOpOperandsWorkarounds();
 
+  // Create workarounds for pooling 2d with indices op operands.
+  static TTNNOperandsWorkarounds createPool2DWithIndicesOpOperandsWorkarounds();
+
   // Create workarounds for embedding op operands.
   static TTNNOperandsWorkarounds createEmbeddingOpOperandsWorkarounds();
 

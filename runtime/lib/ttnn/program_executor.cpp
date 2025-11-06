@@ -21,6 +21,7 @@
 #include "operations/creation/empty.h"
 #include "operations/creation/full.h"
 #include "operations/creation/full_with.h"
+#include "operations/data_movement/assign.h"
 #include "operations/data_movement/concat.h"
 #include "operations/data_movement/pad.h"
 #include "operations/data_movement/permute.h"
@@ -324,6 +325,9 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
     return operations::data_movement::run(op->type_as_RepeatInterleaveOp(),
                                           getContext());
   }
+  case ::tt::target::ttnn::OpType::AssignOp: {
+    return operations::data_movement::run(op->type_as_AssignOp(), getContext());
+  }
   case ::tt::target::ttnn::OpType::PrepareConv2dWeightsOp: {
     return operations::conv::run(op->type_as_PrepareConv2dWeightsOp(),
                                  getContext());
@@ -346,6 +350,10 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   }
   case ::tt::target::ttnn::OpType::GlobalAvgPool2dOp: {
     return operations::pool::run(op->type_as_GlobalAvgPool2dOp(), getContext());
+  }
+  case ::tt::target::ttnn::OpType::MaxPool2dWithIndicesOp: {
+    return operations::pool::run(op->type_as_MaxPool2dWithIndicesOp(),
+                                 getContext());
   }
   case ::tt::target::ttnn::OpType::AllGatherOp: {
     return operations::ccl::run(op->type_as_AllGatherOp(), getContext());
