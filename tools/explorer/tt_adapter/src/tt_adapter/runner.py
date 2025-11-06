@@ -486,9 +486,13 @@ class ModelRunner:
             "--memory",
         ]
 
-        print(f"DEBUG [ModelRunner]: Running ttrt perf command: {' '.join(ttrt_perf_command)}")
-        print(f"DEBUG [ModelRunner]: artifact_dir = {self._explorer_artifacts_dir}")
-        print(f"DEBUG [ModelRunner]: model_output_dir = {state.model_output_dir}")
+        # Set no_proxy to allow Tracy capture connection (localhost communication)
+        # CIv2 proxy intercepts localhost, blocking Tracy messages from TTRT to capture-release
+        existing_no_proxy = os.environ.get("no_proxy", os.environ.get("NO_PROXY", ""))
+        if existing_no_proxy and "localhost" not in existing_no_proxy:
+            os.environ["no_proxy"] = f"{existing_no_proxy},localhost,127.0.0.1,::1"
+        elif not existing_no_proxy:
+            os.environ["no_proxy"] = "localhost,127.0.0.1,::1"
 
         ttrt_process = self.run_in_subprocess(ttrt_perf_command)
 
