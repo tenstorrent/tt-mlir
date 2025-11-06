@@ -136,10 +136,18 @@ void ProgramExecutor::runCallback(
 void ProgramExecutor::execute() {
   LOG_DEBUG(LogType::LogRuntimeTTNN,
             "Starting execution of program: ", program->name()->c_str());
+  // Debug: Log first few operations to verify loc_info in flatbuffer
+  static int runtime_op_count = 0;
   for (const ::tt::target::ttnn::Operation *op : *program->operations()) {
     LOG_DEBUG(LogType::LogRuntimeTTNN,
               "Executing operation: ", op->debug_info()->c_str());
-    perf::Env::get().tracyLogOpLocation(std::string(op->loc_info()->c_str()));
+    std::string loc_info_str = std::string(op->loc_info()->c_str());
+    if (runtime_op_count < 5) {
+      fprintf(stderr, "DEBUG [Runtime]: Op #%d loc_info from flatbuffer: '%s'\n", 
+              runtime_op_count, loc_info_str.c_str());
+      runtime_op_count++;
+    }
+    perf::Env::get().tracyLogOpLocation(loc_info_str);
     perf::Env::get().tracyLogConstEvalProgram(constEvalProgram);
     perf::Env::get().tracyLogProgramMetadata(
         perf::Env::get().tracyProgramMetadata);

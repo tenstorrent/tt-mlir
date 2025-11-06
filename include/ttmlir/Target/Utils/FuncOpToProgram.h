@@ -36,6 +36,13 @@ inline std::string getOpLocInfo(mlir::Operation *op) {
   std::string str;
   llvm::raw_string_ostream os(str);
   op->getLoc().print(os);
+  // Debug: Log first few location infos during compilation
+  static int loc_count = 0;
+  if (loc_count < 5) {
+    llvm::errs() << "DEBUG [Compilation]: Op #" << loc_count 
+                 << " loc_info: " << str << "\n";
+    loc_count++;
+  }
   return str;
 }
 
