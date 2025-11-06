@@ -19,6 +19,26 @@ print("DEBUG: Critical Path Check")
 print("=" * 80)
 tt_mlir_home = os.environ.get("TT_MLIR_HOME", "")
 print(f"TT_MLIR_HOME: {tt_mlir_home}")
+
+# Check network configuration for Tracy debugging
+import subprocess
+try:
+    hostname_output = subprocess.check_output(["hostname"], text=True).strip()
+    print(f"hostname: {hostname_output}")
+except Exception as e:
+    print(f"hostname command failed: {e}")
+
+try:
+    hostname_i_output = subprocess.check_output(["hostname", "-I"], text=True).strip()
+    print(f"hostname -I: {hostname_i_output}")
+except Exception as e:
+    print(f"hostname -I command failed: {e}")
+
+# Check proxy environment variables
+print(f"no_proxy: {os.environ.get('no_proxy', 'NOT SET')}")
+print(f"NO_PROXY: {os.environ.get('NO_PROXY', 'NOT SET')}")
+print(f"http_proxy: {os.environ.get('http_proxy', 'NOT SET')}")
+print(f"https_proxy: {os.environ.get('https_proxy', 'NOT SET')}")
 print("=" * 80 + "\n")
 
 HOST = "localhost"
