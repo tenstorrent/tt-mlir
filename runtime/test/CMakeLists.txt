@@ -17,6 +17,7 @@ endif()
 
 include(GoogleTest)
 
+# TODO: can this be up-leveled to runtime/CMakeLists.txt?
 find_package(Python3 REQUIRED COMPONENTS Interpreter Development)
 if (NOT Python3_LIBRARIES)
   message(FATAL_ERROR "python libraries not found")
