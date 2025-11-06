@@ -4137,4 +4137,35 @@ mlir::tt::ttnn::ScaledDotProductAttentionDecodeOp::verify() {
   return success();
 }
 
+//===----------------------------------------------------------------------===//
+// AssignOp
+//===----------------------------------------------------------------------===//
+
+// AssignOp verification
+::mlir::LogicalResult mlir::tt::ttnn::AssignOp::verify() {
+  RankedTensorType inputType = getInput().getType();
+  RankedTensorType outputType = getResult().getType();
+  ttcore::DataType inputDType =
+      mlir::tt::ttcore::elementTypeToDataType(inputType.getElementType());
+  ttcore::DataType outputDType =
+      mlir::tt::ttcore::elementTypeToDataType(outputType.getElementType());
+
+  // Verify shape compatibility.
+  if (inputType.getShape() != outputType.getShape()) {
+    return emitOpError() << "input and output tensor must have the same shape";
+  }
+
+  // Determine expected output data type.
+  ttcore::DataType expectedOutputDType =
+      getDtype() ? getDtype().value() : inputDType;
+
+  // Verify output tensor data type.
+  if (outputDType != expectedOutputDType) {
+    return emitOpError() << "output tensor data type does not match expected "
+                            "output data type";
+  }
+
+  return success();
+}
+
 } // namespace mlir::tt::ttnn

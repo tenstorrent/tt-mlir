@@ -3694,6 +3694,34 @@ public:
 };
 } // namespace
 
+// AssignOp conversion pattern
+//
+namespace {
+class AssignOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<mlir::tt::ttnn::AssignOp> {
+
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::AssignOp>::TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::AssignOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::AssignOp> emitter(
+        srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput()), emitter.emit(srcOp.getMemoryConfig()),
+        emitter.emit(srcOp.getDtype())};
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
 namespace mlir::tt {
 
 // ANCHOR: op_rewriter_pattern_set_emitc
@@ -3726,7 +3754,8 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
                FullOpConversionPattern,
                DefaultOpConversionPattern<mlir::tt::ttnn::ArangeOp>,
                DefaultOpConversionPattern<mlir::tt::ttnn::ConstantOp>,
-               RandOpConversionPattern>(typeConverter, ctx);
+               RandOpConversionPattern,
+               AssignOpConversionPattern>(typeConverter, ctx);
   // clang-format on
 
   // Eltwise unary ops
