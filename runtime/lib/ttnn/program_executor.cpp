@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "tt/runtime/detail/ttnn/program_executor.h"
+#include <cstdio> // For fprintf, stderr
 
 #include "operations/cache/load_cached.h"
 #include "operations/ccl/all_gather.h"
