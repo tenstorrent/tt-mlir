@@ -1068,6 +1068,12 @@ def TTNN_PagedFillCacheOp : TTNN_InplaceOp<"paged_fill_cache"> {
                        AnyRankedTensor:$page_table,
                        Optional<AnyRankedTensor>:$batch_idx_tensor);
 
+  let extraClassDeclaration = [{
+    wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+      return wa::TTNNOperandsWorkaroundsFactory::createPagedFillCacheOpOperandsWorkarounds(this->getContext());
+    }
+  }];
+
   let hasVerifier = 0;
 }
 
