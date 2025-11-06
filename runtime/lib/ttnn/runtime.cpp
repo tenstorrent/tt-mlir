@@ -1254,6 +1254,7 @@ getOpOutputRef(OpContext opContextHandle,
     break;
   }
   case ::tt::target::ttnn::OpType::BatchNormTrainingOp:
+  case ::tt::target::ttnn::OpType::MaxPool2dWithIndicesOp:
   case ::tt::target::ttnn::OpType::SortOp:
   case ::tt::target::ttnn::OpType::LoadCachedOp:
   case ::tt::target::ttnn::OpType::GetDeviceOp:
@@ -1466,6 +1467,10 @@ getOpInputRefs(OpContext opContextHandle,
   }
   case ::tt::target::ttnn::OpType::GlobalAvgPool2dOp: {
     tensorRefs = {opContext.type_as_GlobalAvgPool2dOp()->in()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::MaxPool2dWithIndicesOp: {
+    tensorRefs = {opContext.type_as_MaxPool2dWithIndicesOp()->in()};
     break;
   }
   case ::tt::target::ttnn::OpType::PrepareConv2dWeightsOp: {

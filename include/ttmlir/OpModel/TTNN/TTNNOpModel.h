@@ -1108,6 +1108,33 @@ struct OpModel<MaxPool2dOp> {
 };
 
 //===----------------------------------------------------------------------===//
+// MaxPool2dWithIndicesOp
+//===----------------------------------------------------------------------===//
+
+template <>
+struct OpModel<MaxPool2dWithIndicesOp> {
+  static llvm::Expected<OpConstraints> getOpConstraints(
+      ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
+      TTNNLayoutAttr inputLayout, int32_t batchSize, int32_t inputHeight,
+      int32_t inputWidth, int32_t inputChannels,
+      llvm::ArrayRef<int32_t> kernelSize, llvm::ArrayRef<int32_t> stride,
+      llvm::ArrayRef<int32_t> padding, llvm::ArrayRef<int32_t> dilation,
+      bool ceilMode, bool inPlaceHalo, bool deallocateInput,
+      bool reallocateHaloOutput, bool returnIndices,
+      TTNNLayoutAttr outputLayout);
+
+  static llvm::Expected<size_t>
+  getOpRuntime(llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+               int32_t batchSize, int32_t inputHeight, int32_t inputWidth,
+               int32_t inputChannels, llvm::ArrayRef<int32_t> kernelSize,
+               llvm::ArrayRef<int32_t> stride, llvm::ArrayRef<int32_t> padding,
+               llvm::ArrayRef<int32_t> dilation, bool ceilMode,
+               bool inPlaceHalo, bool deallocateInput,
+               bool reallocateHaloOutput, bool returnIndices,
+               TTNNLayoutAttr outputLayout);
+};
+
+//===----------------------------------------------------------------------===//
 // AvgPool2dOp
 //===----------------------------------------------------------------------===//
 
