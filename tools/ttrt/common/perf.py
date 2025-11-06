@@ -557,10 +557,11 @@ class Perf:
                         with open(tracy_ops_data_file_path, "r") as file:
                             lines = iter(file)
                             for line in lines:
-                                line = line.strip()
-                                if "TT_DNN_DEVICE_OP" in line:
+                                line_stripped = line.strip()
+                                if "TT_DNN_DEVICE_OP" in line_stripped:
                                     # Format: `TT_DNN_DEVICE_OP: "OpName", hash, deviceId, global_call_count ->
-                                    parts = line.split(",")
+                                    # or:     `TT_DNN_DEVICE_OP: "OpName", hash, deviceId, global_call_count`;timestamp
+                                    parts = line_stripped.split(",")
                                     if len(parts) > 3:
                                         # Extract global_call_count from parts[3]
                                         num_part = parts[3].strip()
@@ -572,15 +573,33 @@ class Perf:
                                                 break
                                         global_call_count = int(digits) if digits else None
                                         
-                                        # Find the end of this multi-line JSON message to get timestamp
-                                        # The timestamp is at the end: }`;timestamp
-                                        for next_line in lines:
-                                            if next_line.strip().startswith("}`;"):
-                                                # Extract timestamp after }`;
-                                                timestamp_str = next_line.strip()[3:]  # Remove }`;
-                                                timestamp = int(timestamp_str)
-                                                device_ops.append((timestamp, global_call_count))
-                                                break
+                                        # Check if this is a single-line message (ends with `;timestamp)
+                                        # Single-line format: `TT_DNN_DEVICE_OP: "Op", hash, deviceId, count`;timestamp
+                                        # Multi-line format: `TT_DNN_DEVICE_OP: "Op", hash, deviceId, count ->
+                                        if " -> " not in line_stripped and "`;" in line_stripped:
+                                            # Single-line format: timestamp is at the end after `;
+                                            # Extract timestamp from the end
+                                            last_semicolon_idx = line_stripped.rfind("`;")
+                                            if last_semicolon_idx != -1:
+                                                timestamp_str = line_stripped[last_semicolon_idx + 2:]
+                                                try:
+                                                    timestamp = int(timestamp_str)
+                                                    device_ops.append((timestamp, global_call_count))
+                                                except ValueError:
+                                                    self.logging.warning(f"DEBUG: Failed to parse timestamp from single-line: '{timestamp_str}'")
+                                        else:
+                                            # Multi-line JSON format: find the end }`;timestamp
+                                            for next_line in lines:
+                                                next_stripped = next_line.strip()
+                                                if next_stripped.startswith("}`;"):
+                                                    # Extract timestamp after }`;
+                                                    timestamp_str = next_stripped[3:]  # Remove }`;
+                                                    try:
+                                                        timestamp = int(timestamp_str)
+                                                        device_ops.append((timestamp, global_call_count))
+                                                    except ValueError:
+                                                        self.logging.warning(f"DEBUG: Failed to parse timestamp from multi-line: '{timestamp_str}'")
+                                                    break
                         
                         self.logging.warning(f"DEBUG: Found {len(device_ops)} TT_DNN_DEVICE_OP messages")
                         
