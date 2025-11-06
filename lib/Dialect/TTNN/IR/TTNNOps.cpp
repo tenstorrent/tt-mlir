@@ -1834,6 +1834,28 @@ mlir::OpFoldResult foldConsecutiveToLayoutOp(ttnn::ToLayoutOp op) {
     return nullptr;
   }
 
+  // Don't fold if there are operations between producer and consumer when:
+  // - Producer moves to DRAM buffer type, AND
+  // - Consumer moves to L1 buffer type
+  //
+  // This preserves intentional DRAM staging for memory allocation safety.
+  // The ops in between may have been analyzed/scheduled assuming the tensor
+  // goes through DRAM. Folding would bypass DRAM and keep the tensor in L1,
+  // potentially causing memory pressure that wasn't accounted for.
+  Operation *nextOp = producerOp->getNextNode();
+  bool hasOpsBetween = (nextOp != op.getOperation());
+
+  if (hasOpsBetween) {
+    MemoryConfigAttr producerMemConfig = producerOp.getMemoryConfigAttr();
+    MemoryConfigAttr consumerMemConfig = op.getMemoryConfigAttr();
+
+    if (producerMemConfig && consumerMemConfig &&
+        producerMemConfig.getBufferType().getValue() == BufferType::DRAM &&
+        consumerMemConfig.getBufferType().getValue() == BufferType::L1) {
+      return nullptr;
+    }
+  }
+
   if (!op.getDtype()) {
     op.setDtypeAttr(producerOp.getDtypeAttr());
   }
