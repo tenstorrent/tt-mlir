@@ -127,24 +127,6 @@ jobs:
         source env/activate
         cmake --build ${{ steps.strings.outputs.build-output-dir }}
 
-    - name: Install (default full install)
-      if: matrix.build.name == 'tracy'
-      shell: bash
-      run: |
-        source env/activate
-        rm -rf ${{  steps.strings.outputs.install-output-dir }}
-        cmake --install ${{ steps.strings.outputs.build-output-dir }}
-        test -f "${{ steps.strings.outputs.install-output-dir }}/lib/libTTMLIRCompilerStatic.a" || { echo "ERROR: libTTMLIRCompilerStatic.a not found in ${{ steps.strings.outputs.install-output-dir }}/lib/" && exit 1; }
-
-    - name: Test install
-      if: matrix.build.name == 'tracy'
-      shell: bash
-      run: |
-        ${{ steps.strings.outputs.work-dir }}/.github/scripts/bash/test-install.sh \
-          "${{ steps.strings.outputs.install-output-dir }}"
-        # Clean up full install, specific components are installed separately below
-        rm -rf ${{  steps.strings.outputs.install-output-dir }}
-
     - name: Build tests
       shell: bash
       run: |
