@@ -831,8 +831,11 @@ class GraphHandler:
             
             with open(log_file, "a") as f:
                 f.write(f"DEBUG: loc_to_perf mapping has {len(self.loc_to_perf)} unique locations\n")
-                if len(self.loc_to_perf) == 1 and 'loc("unknown")' in self.loc_to_perf:
-                    f.write(f"DEBUG: WARNING - Only 'loc(\"unknown\")' in loc_to_perf (message ordering issue!)\n")
+                if self.loc_to_perf:
+                    # Show sample locations for debugging
+                    sample_locs = list(self.loc_to_perf.keys())[:3]
+                    for loc in sample_locs:
+                        f.write(f"DEBUG: Sample loc_to_perf: {loc} -> {self.loc_to_perf[loc]} ns\n")
 
         if memory_trace is not None:
             for node in memory_trace:

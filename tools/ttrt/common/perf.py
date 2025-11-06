@@ -524,79 +524,86 @@ class Perf:
 
                     # Add post-processing steps to insert location data into the ops_perf data file
                     # Get the op location to it's global call count mapping
-            def get_mlir_analysis_results(key):
-                call_count_mapping = {}
-
-                with open(tracy_ops_data_file_path, "r") as file:
-                    lines = iter(file)
-                    buffer = None
-                    
-                    # Debug: Log process/thread info and first 30 lines (use WARNING level to show in CI)
-                    import os
-                    import threading
-                    self.logging.warning(f"DEBUG: Reading {tracy_ops_data_file_path} for key '{key}' (PID={os.getpid()}, TID={threading.current_thread().ident})")
-                            file.seek(0)
-                            first_lines = [file.readline().strip() for _ in range(30)]
-                            for i, fline in enumerate(first_lines):
-                                self.logging.warning(f"DEBUG: Line {i}: {fline[:150]}")  # Truncate long lines
-                            file.seek(0)
-                            lines = iter(file)
-
-                            while True:
-                                # Use buffered line if available, otherwise get next
-                                line = buffer if buffer else next(lines, None)
-                                buffer = None
-
-                                if line is None:
-                                    break  # End of file
-
-                                # Find all the TT_DNN_DEVICE_OP under this LOC and record their global call counts
+                    def get_mlir_analysis_results(key):
+                        """
+                        Two-pass parsing approach that's order-independent:
+                        1. Collect all MLIR messages (e.g., MLIR_OP_LOCATION) with their timestamps
+                        2. Collect all TT_DNN_DEVICE_OP messages with their timestamps and global_call_counts
+                        3. For each TT_DNN_DEVICE_OP, find the most recent MLIR message before it (by timestamp)
+                        """
+                        call_count_mapping = {}
+                        
+                        # Pass 1: Collect all MLIR messages with timestamps
+                        mlir_messages = []  # List of (timestamp, data) tuples
+                        
+                        with open(tracy_ops_data_file_path, "r") as file:
+                            for line in file:
                                 line = line.strip()
                                 if key in line:
-                                    # Format of line is
-                                    # MLIR_OP_LOCATION;loc("/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/n150/const-eval/Output/const-eval.mlir.tmp.mlir":17:14);5420869271
-                                    # MLIR_CONST_EVAL_OP;true;6449925338
+                                    # Format: MLIR_OP_LOCATION;loc(...);timestamp
                                     parts = line.split(";")
-                                    data = parts[1]
-                                    self.logging.warning(f"DEBUG: Found {key} line, data='{data}'")
-                                    block = []
-                                    for next_line in lines:
-                                        next_line = next_line.strip()
-                                        if key in next_line:
-                                            buffer = (
-                                                next_line  # Save for next outer loop
-                                            )
-                                            break
-                                        elif "TT_DNN_DEVICE_OP" in next_line:
-                                            self.logging.warning(f"DEBUG: Found TT_DNN_DEVICE_OP line: {next_line[:100]}")
-                                            block.append(next_line)
-
-                                    # Process the collected block. Find it's global call count and add it to the loc
-                                    self.logging.warning(f"DEBUG: Processing {len(block)} TT_DNN_DEVICE_OP lines for this LOC")
-                                    for i, bline in enumerate(block):
-                                        self.logging.warning(f"DEBUG: Block line {i}: {bline[:100]}")
-                                        parts = bline.split(",")
-                                        self.logging.warning(f"DEBUG: Split into {len(parts)} parts")
-                                        if len(parts) > 3:
-                                            # Strip and split part[3] on semicolon or space, and grab the number
-                                            num_part = parts[3].strip()
-                                            self.logging.warning(f"DEBUG: parts[3] = '{num_part}'")
-                                            digits = ""
-                                            for c in num_part:
-                                                if c.isdigit():
-                                                    digits += c
-                                                else:
-                                                    break
-                                            global_call_count = (
-                                                int(digits) if digits else None
-                                            )
-                                            self.logging.warning(f"DEBUG: Extracted global_call_count={global_call_count}, mapping to data='{data}'")
-                                            call_count_mapping[global_call_count] = data
-                                        else:
-                                            self.logging.warning(f"DEBUG: ERROR - Not enough parts in bline!")
-                                    
-                                    self.logging.warning(f"DEBUG: After processing, call_count_mapping has {len(call_count_mapping)} entries")
-
+                                    if len(parts) >= 3:
+                                        data = parts[1]
+                                        timestamp = int(parts[2])
+                                        mlir_messages.append((timestamp, data))
+                        
+                        # Sort by timestamp to ensure chronological order
+                        mlir_messages.sort(key=lambda x: x[0])
+                        self.logging.warning(f"DEBUG: Found {len(mlir_messages)} {key} messages")
+                        
+                        # Pass 2: Collect all TT_DNN_DEVICE_OP messages with timestamps and global_call_counts
+                        device_ops = []  # List of (timestamp, global_call_count) tuples
+                        
+                        with open(tracy_ops_data_file_path, "r") as file:
+                            lines = iter(file)
+                            for line in lines:
+                                line = line.strip()
+                                if "TT_DNN_DEVICE_OP" in line:
+                                    # Format: `TT_DNN_DEVICE_OP: "OpName", hash, deviceId, global_call_count ->
+                                    parts = line.split(",")
+                                    if len(parts) > 3:
+                                        # Extract global_call_count from parts[3]
+                                        num_part = parts[3].strip()
+                                        digits = ""
+                                        for c in num_part:
+                                            if c.isdigit():
+                                                digits += c
+                                            else:
+                                                break
+                                        global_call_count = int(digits) if digits else None
+                                        
+                                        # Find the end of this multi-line JSON message to get timestamp
+                                        # The timestamp is at the end: }`;timestamp
+                                        for next_line in lines:
+                                            if next_line.strip().startswith("}`;"):
+                                                # Extract timestamp after }`;
+                                                timestamp_str = next_line.strip()[3:]  # Remove }`;
+                                                timestamp = int(timestamp_str)
+                                                device_ops.append((timestamp, global_call_count))
+                                                break
+                        
+                        self.logging.warning(f"DEBUG: Found {len(device_ops)} TT_DNN_DEVICE_OP messages")
+                        
+                        # Pass 3: Match each TT_DNN_DEVICE_OP to the most recent MLIR message before it
+                        for dev_timestamp, global_call_count in device_ops:
+                            # Find the most recent MLIR message with timestamp <= dev_timestamp
+                            matching_mlir_data = 'loc("unknown")'  # Default fallback
+                            
+                            for mlir_timestamp, mlir_data in reversed(mlir_messages):
+                                if mlir_timestamp <= dev_timestamp:
+                                    matching_mlir_data = mlir_data
+                                    break
+                            
+                            if global_call_count is not None:
+                                call_count_mapping[global_call_count] = matching_mlir_data
+                        
+                        self.logging.warning(f"DEBUG: Created mapping with {len(call_count_mapping)} entries")
+                        if len(call_count_mapping) > 0:
+                            # Show a few sample mappings for debugging
+                            sample_keys = sorted(call_count_mapping.keys())[:3]
+                            for k in sample_keys:
+                                self.logging.warning(f"DEBUG: Mapping example: {k} -> {call_count_mapping[k]}")
+                        
                         return call_count_mapping
 
                     global_call_count_loc_mapping = get_mlir_analysis_results(
