@@ -308,20 +308,27 @@ static void hoistOperationToFunction(mlir::Operation *opToHoist,
   opToHoist->erase();
 }
 
-// An analysis class which currently relies on manually tagging ops with a
-// `should_hoist` attribute, but in the future will also tag fall-back ops, etc.
 namespace {
+// Predicate type for determining whether an op should be hoisted.
+using ShouldHoistPredicate = std::function<bool(mlir::Operation *)>;
+
+// Analysis pass to find ops to hoist based on the provided predicate.
+// Currently, we only support hoisting single op at a time.
+// In the future, we may want to support hoisting sets of multiple ops
+// contiguously.
 class TTIRHoistAnalyze {
 public:
   // Data structure to hold all sets of ops to hoist--each op should be hoisted
   // continguously.  (Currently, we only support sets of size 1).
   using HoistOpSet = llvm::SmallVector<llvm::SmallSet<mlir::Operation *, 4>>;
 
-  TTIRHoistAnalyze(mlir::ModuleOp moduleOp,
-                   llvm::DenseSet<TypeID> dialectTypeIDs) {
+  TTIRHoistAnalyze(ShouldHoistPredicate predicate) : predicate{predicate} {}
+
+  HoistOpSet getHoistedOps(mlir::ModuleOp moduleOp) {
+    HoistOpSet hoistedOps;
+
     moduleOp.walk([&](mlir::Operation *nestedOp) {
-      if (nestedOp->hasAttr(ttir::ShouldHoistAttr::name) ||
-          dialectTypeIDs.contains(nestedOp->getDialect()->getTypeID())) {
+      if (predicate(nestedOp)) {
         // TODO (#1646): Add support for hoisting sets of multiple ops instead
         // of single ops.
         llvm::SmallSet<mlir::Operation *, 4> opSet;
@@ -329,12 +336,12 @@ public:
         hoistedOps.push_back(opSet);
       }
     });
+
+    return hoistedOps;
   }
 
-  HoistOpSet getResults() { return hoistedOps; }
-
 private:
-  HoistOpSet hoistedOps;
+  ShouldHoistPredicate predicate;
 };
 } // namespace
 
@@ -346,6 +353,11 @@ class TTIRHoistTransform
 public:
   using impl::TTIRHoistTransformBase<
       TTIRHoistTransform>::TTIRHoistTransformBase;
+
+  // Constructor which allows specifying a custom predicate for determining
+  // whether an op should be hoisted.
+  TTIRHoistTransform(ShouldHoistPredicate predicate)
+      : customPredicate{predicate} {}
 
   void runOnOperation() final {
     mlir::ModuleOp rootModule = getOperation();
@@ -375,8 +387,16 @@ public:
 
     auto loc = rootModule->getLoc();
 
-    TTIRHoistAnalyze analysisPass(deviceInnerModule, dialectTypeIDs);
-    const TTIRHoistAnalyze::HoistOpSet &hoistOpSets = analysisPass.getResults();
+    const auto isOpManuallyTaggedForHoisting = [](mlir::Operation *op) {
+      return op->hasAttr(ttir::ShouldHoistAttr::name);
+    };
+
+    const auto combinedPredicate = [&](mlir::Operation *op) {
+      return isOpManuallyTaggedForHoisting(op) || this->customPredicate(op);
+    };
+
+    TTIRHoistAnalyze analysisPass(combinedPredicate);
+    auto hoistOpSets = analysisPass.getHoistedOps(rootModule);
 
     // We don't want to create a CPUModuleOp etc. if we aren't hoisting any ops.
     if (hoistOpSets.empty()) {
@@ -412,23 +432,41 @@ public:
     }
   }
 
-  // TypeIDs for dialects we want to always fallback.
-  llvm::DenseSet<TypeID> dialectTypeIDs;
+private:
+  // By default, no custom ops are hoisted unless specified via constructor.
+  ShouldHoistPredicate customPredicate = [](mlir::Operation *op) {
+    return false;
+  };
 };
 } // namespace
 
 template <typename... Dialects>
 std::unique_ptr<mlir::Pass> createTTIRHoistTransformForDialects() {
-  auto pass = std::make_unique<TTIRHoistTransform>();
-  (pass->dialectTypeIDs.insert(TypeID::get<Dialects>()), ...);
+  const auto customPredicate = [](mlir::Operation *op) {
+    return ((op->getDialect()->getTypeID() == TypeID::get<Dialects>()) || ...);
+  };
+  auto pass = std::make_unique<TTIRHoistTransform>(customPredicate);
   return pass;
 }
 
-// Must explicitly instantiate any dialects we want this pass to potentially
-// fallback elsewhere due to template in .cpp file constraints.
+template <typename... Ops>
+std::unique_ptr<mlir::Pass> createTTIRHoistTransformForOps() {
+  const auto customPredicate = [](mlir::Operation *op) {
+    return (llvm::isa<Ops>(op) || ...);
+  };
+  auto pass = std::make_unique<TTIRHoistTransform>(customPredicate);
+  return pass;
+}
+
+// Must explicitly instantiate any dialects and ops we want this pass to
+// potentially fallback elsewhere due to template in .cpp file constraints.
 #ifdef TTMLIR_ENABLE_STABLEHLO
 template std::unique_ptr<mlir::Pass>
 createTTIRHoistTransformForDialects<mlir::stablehlo::StablehloDialect>();
+
+template std::unique_ptr<mlir::Pass>
+createTTIRHoistTransformForOps<stablehlo::DynamicUpdateSliceOp, stablehlo::EinsumOp>();
+
 #endif
 template std::unique_ptr<mlir::Pass>
 createTTIRHoistTransformForDialects<TTIRDialect>();
