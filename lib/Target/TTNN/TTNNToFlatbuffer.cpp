@@ -3073,6 +3073,13 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
                            createOp(cache, scaledDotProductAttentionDecodeOp),
                            debugString, locInfo);
   }
+  if (auto pagedScaledDotProductAttentionDecodeOp =
+          dyn_cast<PagedScaledDotProductAttentionDecodeOp>(op);
+      pagedScaledDotProductAttentionDecodeOp) {
+    return createOperation(
+        cache, createOp(cache, pagedScaledDotProductAttentionDecodeOp),
+        debugString, locInfo);
+  }
   if (auto scaledDotProductAttentionOp =
           dyn_cast<ScaledDotProductAttentionOp>(op);
       scaledDotProductAttentionOp) {
