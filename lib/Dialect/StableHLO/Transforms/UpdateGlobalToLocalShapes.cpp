@@ -366,6 +366,8 @@ convertShardyCCLToStableHLOCCL(MLIRContext *context,
   config.setUseTopDownTraversal();
 
   // Apply patterns greedily.
+  GreedyRewriteConfig config;
+  config.setUseTopDownTraversal();
   if (failed(applyPatternsGreedily(rootModule, patternSet, config))) {
     rootModule.emitError("Could not convert shardy ccl operations into "
                          "stablehlo ccl operations");
