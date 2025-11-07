@@ -2916,8 +2916,8 @@ public:
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput()),
-        emitter.emit(srcOp.getSinCache()),
         emitter.emit(srcOp.getCosCache()),
+        emitter.emit(srcOp.getSinCache()),
         emitter.emit(srcOp.getTokenIndex()),
         emitter.emit(srcOp.getMemoryConfig() |
                          emitter.getMemoryConfig(srcOp.getResult()),
