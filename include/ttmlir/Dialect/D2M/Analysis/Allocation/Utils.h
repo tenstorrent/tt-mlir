@@ -13,6 +13,7 @@
 #include "mlir/IR/Value.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/BitVector.h"
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/STLForwardCompat.h"
 #include "llvm/ADT/SmallVector.h"
 
@@ -150,7 +151,7 @@ constexpr bool is_iterable_v = detail::is_iterable<T>::value;
 //===---------------------------------------------------------------------===//
 
 template <typename T>
-SmallVector<T> concat(const SmallVector<SmallVector<T>> &vs) {
+SmallVector<T> concatToVector(const SmallVector<SmallVector<T>> &vs) {
   SmallVector<T> r;
   for (const auto &v : vs) {
     r.append(v.begin(), v.end());
@@ -158,27 +159,11 @@ SmallVector<T> concat(const SmallVector<SmallVector<T>> &vs) {
   return r;
 }
 
-template <typename T>
-SmallVector<T> concat(ArrayRef<T> a, ArrayRef<T> b) {
-  SmallVector<T> r;
-  r.append(std::begin(a), std::end(a));
-  r.append(std::begin(b), std::end(b));
-  return r;
-}
-
-template <typename T>
-SmallVector<T> concat(SmallVector<T> a, SmallVector<T> b) {
-  return concat(ArrayRef<T>(a), ArrayRef<T>(b));
-}
-
-template <typename T>
-SmallVector<T> concat(ArrayRef<T> a, SmallVector<T> b) {
-  return concat(a, ArrayRef<T>(b));
-}
-
-template <typename T>
-SmallVector<T> concat(SmallVector<T> a, ArrayRef<T> b) {
-  return concat(ArrayRef<T>(a), b);
+template <typename T, typename... RangeTs>
+auto concatToVector(RangeTs &&...ranges)
+    -> std::enable_if_t<(sizeof...(RangeTs) > 1), SmallVector<T>> {
+  return llvm::to_vector(
+      llvm::concat<const T>(std::forward<RangeTs>(ranges)...));
 }
 //===---------------------------------------------------------------------===//
 

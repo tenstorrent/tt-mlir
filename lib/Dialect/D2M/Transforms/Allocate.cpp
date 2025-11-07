@@ -59,7 +59,7 @@ using LiveRange = Planner::LiveRange;
 using allocation::AsOperandPrinter;
 using allocation::asSeq;
 using allocation::asShape;
-using allocation::concat;
+using allocation::concatToVector;
 using allocation::is_operation_v;
 using allocation::ordinal;
 
@@ -554,8 +554,8 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
       // WIP: for now, commit to just one buffer size "scaling policy"
       // (requested by `testBufferSizePolicy`) before examining individual
       // operands. This choice will be captured in new block factors
-      // `genericCtx.reblockedFactors` and grid/shard dim extents on
-      // `gridExtents`/`shardExtent`.
+      // `genericCtx.reblockedFactors` and grid/shard dim extents in
+      // `grid/shardExtents`.
       {
         SmallVector<int64_t> rescaling(rank, 1);
         if (useMinPolicy) {
@@ -1067,7 +1067,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
             // We get here if output streaming was enabled and the output
             // ended up spilled to DRAM. But there is no full support for
             // output streams/views as of yet, so for now just bail.
-            TT_ALLOC_ERROR("inserting output streams not supported yet");
+            TT_ALLOC_ERROR("inserting output streams not implemented yet");
             return failure();
           } /* else */
 
@@ -1229,7 +1229,8 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
                                         uint32_t buffers) {
     TT_debug(gridShape.size() == shardShape.size());
 
-    const SmallVector<int64_t> fullShape = concat(gridShape, shardShape);
+    const SmallVector<int64_t> fullShape =
+        concatToVector<int64_t>(gridShape, shardShape);
     const auto bufferLayout =
         ttcore::ShardLayoutAttr::get(shardShape, elementType, buffers);
 
@@ -1284,8 +1285,10 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     auto flatInverseMap = utils::concatInversePermutationMap(
         genericOp.getIndexingMapsValue(), /*reverse=*/false);
 
-    return {flatInverseMap.compose(concat(genericOp.getOperandGridShapes())),
-            flatInverseMap.compose(concat(genericOp.getOperandShardShapes()))};
+    return {flatInverseMap.compose(
+                concatToVector(genericOp.getOperandGridShapes())),
+            flatInverseMap.compose(
+                concatToVector(genericOp.getOperandShardShapes()))};
   }
 
   /// Return a bitmask that indicates which of the dims are "participating"
