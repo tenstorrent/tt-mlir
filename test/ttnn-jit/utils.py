@@ -127,8 +127,7 @@ def all_close_check(result, golden_result, atol=1e-1, rtol=1e-1, debug=True):
 
 def run_op_test(
     device,
-    h,
-    w,
+    shape,
     max_grid,
     dtype,
     op,
@@ -142,8 +141,7 @@ def run_op_test(
 
     Args:
         device: Device to run the operation on
-        h: Height of the input tensor
-        w: Width of the input tensor
+        shape: Shape of the input tensor
         max_grid: Maximum grid size for sharded tensors
         dtype: Data type of the input tensor
         op: Operation to test
@@ -154,11 +152,11 @@ def run_op_test(
     """
     if buffer_type == ttnn.BufferType.L1:
         inputs = [
-            create_sharded_tile_tensor(device, h, w, max_grid, dtype)
+            create_sharded_tile_tensor(device, shape, max_grid, dtype)
             for _ in range(num_inputs)
         ]
     else:
-        inputs = [create_dram_tensor(device, h, w, dtype) for _ in range(num_inputs)]
+        inputs = [create_dram_tensor(device, shape, dtype) for _ in range(num_inputs)]
     print("inputs", inputs)
     golden_op = _get_ttnn_op(op)
 
