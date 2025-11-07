@@ -499,6 +499,9 @@ class ModelRunner:
         ############################## TTRT Perf #################################
 
         ttrt_perf_command = [
+            "taskset",
+            "-c",
+            "0",
             "ttrt",
             "perf",
             flatbuffer_file,
