@@ -50,11 +50,41 @@ def update_device_tensor(
     tensor_ref: TensorRef,
     dst_tensor: RtTensor,
     src_tensor: torch.Tensor,
-) -> None:
+    tensor_value=None,  # Optional TensorValue to keep tensor alive
+) -> torch.Tensor:
+    """
+    Update a device tensor in the pool with data from a source torch tensor.
+
+    Returns the tensor that should be kept alive (either the original or a clone).
+    """
+    print(f"DEBUG update_device_tensor called:")
+    print(f"  src_tensor shape: {src_tensor.shape}")
+    print(f"  src_tensor dtype: {src_tensor.dtype}")
+    print(f"  src_tensor sample values BEFORE: {src_tensor.flatten()[:5]}")
+    print(f"  src_tensor is contiguous: {src_tensor.is_contiguous()}")
+
+    # Ensure tensor is contiguous - make a copy if needed
+    if not src_tensor.is_contiguous():
+        src_tensor = src_tensor.contiguous()
+        print(f"  Made tensor contiguous")
+
+    # IMPORTANT: Get data pointer BEFORE any other operations
     data_ptr = src_tensor.data_ptr()
     shape = dst_tensor.get_shape()
     stride = dst_tensor.get_stride()
     dtype = dst_tensor.get_dtype()
     size = torch.numel(src_tensor)
+
+    print(f"  dst_tensor shape: {shape}")
+    print(f"  dst_tensor dtype: {dtype}")
+    print(f"  Creating owned host tensor with size: {size}")
+    print(f"  data_ptr: {data_ptr}")
+
     tensor = create_owned_host_tensor(data_ptr, shape, stride, size, dtype)
     update_tensor_in_pool(program_context, tensor_ref, tensor)
+
+    print(f"  Tensor updated in pool")
+    print(f"  src_tensor sample values AFTER: {src_tensor.flatten()[:5]}")
+
+    # Return the tensor to keep it alive
+    return src_tensor

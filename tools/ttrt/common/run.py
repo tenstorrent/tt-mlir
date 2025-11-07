@@ -919,7 +919,8 @@ class Run:
                                         f"golden_output_{i}.pt",
                                     )
 
-                                if self["--print-input-output-tensors"] or golden_fail:
+                                # if self["--print-input-output-tensors"] or golden_fail:
+                                if True:
                                     torch.set_printoptions(
                                         threshold=100, edgeitems=3, linewidth=120
                                     )
@@ -938,7 +939,8 @@ class Run:
                                         )
 
                                 # Print the top k differences.
-                                if golden_fail:
+                                # if golden_fail:
+                                if True:
                                     top_k = self["--golden-diff-topk"]
                                     top_k_list = get_topk_diff(
                                         golden_tensor_torch,

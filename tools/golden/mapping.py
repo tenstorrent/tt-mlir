@@ -564,8 +564,9 @@ def conv2d_golden(
     padding = unpack_mlir_attr(padding)
     dilation = unpack_mlir_attr(dilation)
 
-    # TTIR uses NCHW format, same as PyTorch - no transpose needed
+    # Reorganize input and output tensors, golden and ttir functions have different expected tensor shapes
     copied_input_tensor = input_tensor.clone()
+    copied_input_tensor = copied_input_tensor.transpose(-2, -1).transpose(-3, -2)
 
     if copied_input_tensor.is_quantized:
         if not weight.is_quantized:
@@ -604,6 +605,7 @@ def conv2d_golden(
             dilation=dilation,
             groups=groups,
         )
+    result = result.transpose(-3, -2).transpose(-2, -1)
     return result
 
 
@@ -651,8 +653,9 @@ def conv_transpose2d_golden(
     groups = unpack_mlir_attr(groups)
     golden_bias = torch.rand((weight.size()[0]), dtype=input_tensor.dtype)
 
-    # TTIR uses NCHW format, same as PyTorch - no transpose needed
+    # Reorganize input and output tensors, golden and ttir functions have different expected tensor shapes
     copied_input_tensor = input_tensor.clone()
+    copied_input_tensor = copied_input_tensor.transpose(-2, -1).transpose(-3, -2)
     result = torch.nn.functional.conv_transpose2d(
         copied_input_tensor,
         weight,
@@ -663,6 +666,7 @@ def conv_transpose2d_golden(
         dilation=dilation,
         groups=groups,
     )
+    result = result.transpose(-3, -2).transpose(-2, -1)
     return result
 
 
@@ -720,11 +724,13 @@ def max_pool2d_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTenso
     else:
         torch_padding = padding
 
-    # TTIR uses NCHW format, same as PyTorch - no transpose needed
+    # TTIR max_pool2d is channels last. PyTorch max_pool2d is channels first.
     maxpool_object = torch.nn.MaxPool2d(
         kernel_size, stride, torch_padding, dilation, ceil_mode
     )
+    input_tensor = input_tensor.transpose(-2, -1).transpose(-3, -2)
     result = maxpool_object(input_tensor)
+    result = result.transpose(-3, -2).transpose(-2, -1)
     return result
 
 
@@ -784,20 +790,26 @@ def avg_pool2d_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTenso
     else:
         torch_padding = padding
 
-    # TTIR uses NCHW format, same as PyTorch - no transpose needed
+    # TTIR max_pool2d is channels last. PyTorch max_pool2d is channels first.
     if dilation != [1, 1]:
         raise ValueError("Dilation is not supported for torch.nn.AvgPool2d")
-    avgpool_object = torch.nn.AvgPool2d(
+    maxpool_object = torch.nn.AvgPool2d(
         kernel_size, stride, torch_padding, ceil_mode, count_include_pad
     )
-    result = avgpool_object(input_tensor)
+    input_tensor = input_tensor.transpose(-2, -1).transpose(-3, -2)
+    result = maxpool_object(input_tensor)
+    result = result.transpose(-3, -2).transpose(-2, -1)
     return result
 
 
 def pooling_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
     """
-    Custom golden function for generic pooling operation.
-    This function mimics the decomposition done in PoolingToPool2dPattern.
+    Custom golden function for generalized pooling operation.
+
+    This function handles the ttir.PoolingOp by decomposing it into appropriate
+    2D pooling operations (max, average, or sum pooling) based on the pooling_method
+    attribute. It supports flexible window dimensions and automatically determines
+    spatial dimensions for pooling.
 
     Parameters
     ----------
@@ -805,18 +817,27 @@ def pooling_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
         Input tensor for pooling
     **kwargs : dict
         Keyword arguments containing:
-        - pooling_method: Attribute - Max, Average, or Sum
-        - window_dimensions: array - Pooling window size for each dimension
-        - window_strides: array - Stride for pooling operation
-        - padding: array - Padding for pooling (8 elements for 4D tensor)
-        - window_dilations: array - Dilation for pooling operation
+        - pooling_method: Attribute - Pooling method (Max, Average, or Sum)
+        - window_dimensions: List[int] - Pooling window size for each dimension (default: [1, 1, 1, 1])
+        - window_strides: List[int] - Stride for pooling operation (default: [1, 1, 1, 1])
+        - padding: List[int] - Padding in flat format [dim0_low, dim0_high, dim1_low, dim1_high, ...]
+                               (default: [0, 0, 0, 0, 0, 0, 0, 0] for 4D tensor)
+        - window_dilations: List[int] - Dilation for pooling operation (default: [1, 1, 1, 1])
 
     Returns
     -------
     GoldenMapTensor
         Result of pooling operation
+
+    Notes
+    -----
+    - Spatial dimensions are automatically detected as dimensions with window_dimensions > 1
+    - If no spatial dimensions are detected, defaults to last two dimensions
+    - Padding format is converted from flat array [dim0_low, dim0_high, ...] to
+      [top, left, bottom, right] for PyTorch compatibility
+    - Sum pooling is computed as average pooling multiplied by kernel size
     """
-    # Extract attributes
+    # Extract pooling-specific parameters
     pooling_method = kwargs.get("pooling_method")
     window_dimensions = unpack_mlir_attr(kwargs.get("window_dimensions"))
     window_strides = unpack_mlir_attr(kwargs.get("window_strides"))
@@ -826,10 +847,11 @@ def pooling_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
     # Find spatial dimensions (those with window_dimensions > 1)
     spatial_dim_indices = [i for i, dim in enumerate(window_dimensions) if dim > 1]
 
-    # If no spatial dimensions or more than 2, this is not a 2D pooling
+    # Validate spatial dimensions
     if len(spatial_dim_indices) == 0 or len(spatial_dim_indices) > 2:
         raise ValueError(
-            f"Pooling with {len(spatial_dim_indices)} spatial dimensions not supported"
+            f"Pooling with {len(spatial_dim_indices)} spatial dimensions not supported. "
+            f"Expected 1 or 2 spatial dimensions."
         )
 
     # Default to last two dimensions if window dimensions are all 1
@@ -886,7 +908,7 @@ def pooling_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
             count_include_pad=True,
         )
         kernel_size = kernel[0] * kernel[1]
-        return result * kernel_size
+        return torch.mul(result, kernel_size)
     else:
         raise ValueError(f"Unknown pooling method: {pooling_method_str}")
 
@@ -928,23 +950,6 @@ def batch_norm_golden(
     GoldenMapTensor
         Result of batch normalization with layout transformation
     """
-    # Validate variance values
-    if torch.any(torch.isnan(variance)):
-        print("WARNING: Variance tensor contains NaN values!")
-        print(f"Variance: {variance}")
-        nan_indices = torch.where(torch.isnan(variance))[0]
-        print(f"NaN indices: {nan_indices.tolist()}")
-
-    if torch.any(variance < 0):
-        print("WARNING: Variance tensor contains negative values!")
-        print(f"Variance: {variance}")
-        neg_indices = torch.where(variance < 0)[0]
-        print(f"Negative indices: {neg_indices.tolist()}")
-        print(f"Negative values: {variance[neg_indices].tolist()}")
-        # Clamp negative variances to a small positive value
-        print("Clamping negative variance values to epsilon to prevent NaN")
-        variance = torch.clamp(variance, min=epsilon)
-
     perm = list(range(input_tensor.ndim))
     perm[1], perm[dim] = perm[dim], perm[1]
     input_tensor = input_tensor.permute(perm)
@@ -1022,6 +1027,7 @@ def typecast_golden(input_tensor: GoldenMapTensor, dtype) -> GoldenMapTensor:
     GoldenMapTensor
         Typecasted tensor
     """
+    dtype = kwargs.get("dtype", input_tensor.dtype)
     return input_tensor.to(dtype)
 
 

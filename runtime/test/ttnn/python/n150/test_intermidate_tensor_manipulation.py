@@ -25,6 +25,9 @@ FLATBUFFER_BASE_PATH = (
     f"{TT_MLIR_HOME}/build/test/ttmlir/Runtime/TTNN/n150/tensor_manipulation/Output"
 )
 
+# Global to keep tensors alive during callback execution
+_tensor_keepalive = None
+
 
 def get_torch_tensor(tensor: ttrt.runtime.Tensor):
     rt_data_ptr = tensor.get_data_buffer()
@@ -39,6 +42,10 @@ def get_torch_tensor(tensor: ttrt.runtime.Tensor):
 
 
 def update_device_tensor(program_context, tensor_ref, dst_tensor, src_tensor):
+    # Ensure tensor is contiguous - the data pointer must point to contiguous memory
+    if not src_tensor.is_contiguous():
+        src_tensor = src_tensor.contiguous()
+
     data_ptr = src_tensor.data_ptr()
     shape = dst_tensor.get_shape()
     stride = dst_tensor.get_stride()
@@ -46,6 +53,9 @@ def update_device_tensor(program_context, tensor_ref, dst_tensor, src_tensor):
     size = torch.numel(src_tensor)
     tensor = ttrt.runtime.create_owned_host_tensor(data_ptr, shape, stride, size, dtype)
     ttrt.runtime.update_tensor_in_pool(program_context, tensor_ref, tensor)
+
+    # CRITICAL: Return the tensor to keep it alive and prevent garbage collection
+    return src_tensor
 
 
 def identity(binary, programContext, opContext):
@@ -77,7 +87,10 @@ def postop(binary, programContext, opContext):
     # Each element will be 10 (from matmul) + 1 (from bias) = 11
     assert torch.allclose(torch_tensor, torch.ones_like(torch_tensor) * 11)
 
-    update_device_tensor(
+    # Keep the tensor alive to prevent garbage collection
+    # Store it in a way that outlives this callback
+    global _tensor_keepalive
+    _tensor_keepalive = update_device_tensor(
         programContext, tensor_ref, tensor, torch.ones_like(torch_tensor)
     )
 

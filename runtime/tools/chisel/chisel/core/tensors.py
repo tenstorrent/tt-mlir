@@ -30,6 +30,7 @@ class TensorValue:
         self.tensor_ref: TensorRef | None = tensor_ref
         self.tensor: Tensor | None = None
         self.execution_data = None
+        self._tensor_keepalive = None  # Keep tensor alive to prevent garbage collection
 
     def set_execution_data(self, data: Any = None):
         if data is None:
@@ -43,11 +44,12 @@ class TensorValue:
         assert self.tensor_ref is not None
         if self.tensor is None:
             self.tensor = retrieve_tensor_from_pool(program_context, self.tensor_ref)
-        update_device_tensor(
-            program_context, self.tensor_ref, self.tensor, self.execution_data
+        # Keep the tensor alive to prevent garbage collection invalidating the data pointer
+        self._tensor_keepalive = update_device_tensor(
+            program_context, self.tensor_ref, self.tensor, self.execution_data, self
         )
         self.data = self.execution_data
-        self.execution_data = None
+        # Don't clear execution_data so it can be reused for multiple updates
 
     def retrieve_tensor_from_pool(self, program_context):
         if self.tensor is None:

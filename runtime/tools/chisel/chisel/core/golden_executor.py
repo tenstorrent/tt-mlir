@@ -231,6 +231,21 @@ class GoldenExecutor:
                     kwargs["window_reversal"] = op.attributes["window_reversal"]
 
                 op_result = golden_fn(*inputs, **kwargs)
+            # Special case for ttir.conv2d - extract conv2d attributes
+            elif op_name == "ttir.conv2d":
+                # Extract required attributes
+                kwargs = {}
+                if "stride" in op.attributes:
+                    kwargs["stride"] = op.attributes["stride"]
+                if "padding" in op.attributes:
+                    kwargs["padding"] = op.attributes["padding"]
+                if "dilation" in op.attributes:
+                    kwargs["dilation"] = op.attributes["dilation"]
+                if "groups" in op.attributes:
+                    # Convert IntegerAttr to Python int
+                    kwargs["groups"] = int(op.attributes["groups"])
+
+                op_result = golden_fn(*inputs, **kwargs)
             # Special case for reduction operations - extract reduction attributes
             elif op_name in [
                 "ttir.sum",
@@ -465,6 +480,28 @@ class GoldenExecutor:
         Raises:
             AssertionError: If the execution goes past the expected location
         """
+        # Check if the device operation location exists in the golden module
+        # This can happen when device operations have locations that don't correspond
+        # to any golden operation (e.g., after operation fusion or merging)
+        if (
+            device_op_location
+            not in self.registry.modules[ExecutionType.GOLDEN].last_loc_line
+        ):
+            # Find the golden operations that correspond to this device operation group
+            if device_op_location not in self.registry.op_groups:
+                return
+
+            golden_ops = self.registry.op_groups[device_op_location].ops[
+                ExecutionType.GOLDEN
+            ]
+            if len(golden_ops) == 0:
+                return
+
+            # Execute all golden operations in this group
+            for golden_op in golden_ops:
+                self.execute(golden_op)
+            return
+
         # Get the target operation index for the given location
         target_index = self.registry.modules[ExecutionType.GOLDEN].last_loc_line[
             device_op_location

@@ -103,6 +103,9 @@ class ChiselContext:
         self.program_index = program_index
         self.function_argument_bridge_type = function_argument_bridge_type
 
+        # Set torch seed for reproducibility (matches builder test seed).
+        torch.manual_seed(0)
+
         # Initialize MLIR context and load all available dialects
         self.context = Context()
         self.context.load_all_available_dialects()
@@ -534,6 +537,9 @@ class ChiselContext:
         ):
             tensor = torch.load(path)
             arg_name = arg.get_name()
+            print(f"DEBUG load_inputs_from_disk: Loading {arg_name} from {path}")
+            print(f"  Tensor shape: {tensor.shape}")
+            print(f"  Tensor sample values: {tensor.flatten()[:5]}")
 
             golden_tensor = TensorValue(arg_name, tensor, ExecutionType.GOLDEN)
             golden_tensor.set_execution_data()

@@ -223,11 +223,33 @@ def discover_input_tensor_paths(tensor_folder):
 
     input_paths = []
     try:
-        input_paths = [f for f in tensor_folder.iterdir() if f.is_file()]
+        # Filter for input tensor files, excluding outputs and other files
+        all_files = [
+            f for f in tensor_folder.iterdir() if f.is_file() and f.suffix == ".pt"
+        ]
+
+        # Separate files based on naming convention
+        for f in all_files:
+            stem = f.stem
+            # Skip output files
+            if stem.startswith("device_output_") or stem.startswith("golden_output_"):
+                continue
+            # Handle both "input_N" and "N" naming conventions
+            if stem.startswith("input_"):
+                input_paths.append(f)
+            elif stem.isdigit():
+                input_paths.append(f)
     except OSError as e:
         raise OSError(f"Failed to read tensor folder {tensor_folder}: {e}")
 
-    return sorted(input_paths, key=lambda p: int(p.stem))
+    # Sort by extracting the numeric index
+    def get_index(path):
+        stem = path.stem
+        if stem.startswith("input_"):
+            return int(stem.replace("input_", ""))
+        return int(stem)
+
+    return sorted(input_paths, key=get_index)
 
 
 if __name__ == "__main__":

@@ -35,6 +35,12 @@ import pytest
         # Neural network operations
         ("runtime/tools/chisel/test/mlir/test_matmul.mlir", "matmul"),
         ("runtime/tools/chisel/test/mlir/test_softmax.mlir", "softmax"),
+        ("runtime/tools/chisel/test/mlir/test_convolution.mlir", "convolution"),
+        (
+            "runtime/tools/chisel/test/mlir/test_convolution_stride2.mlir",
+            "convolution_stride2",
+        ),
+        ("runtime/tools/chisel/test/mlir/test_conv2d.mlir", "conv2d"),
     ],
 )
 def test_chisel_cli_main(ttir_path: str, function_name: str):
