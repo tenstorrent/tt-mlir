@@ -682,17 +682,8 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
 
     // Verify that the select block contains only a compare op
-    auto &selectBlock = srcOp.getSelect().front();
-    for (Operation &op : selectBlock) {
-      // Skip the return operation
-      if (mlir::isa<mlir::stablehlo::ReturnOp>(op)) {
-        continue;
-      }
-      if (!mlir::isa<mlir::stablehlo::CompareOp>(op)) {
-        return rewriter.notifyMatchFailure(
-            srcOp,
-            "SelectAndScatter select block must contain only a compare op.");
-      }
+    if (failed(verifySelectBlock(srcOp, rewriter))) {
+      return failure();
     }
 
     Location loc = srcOp.getLoc();
@@ -740,9 +731,7 @@ public:
                  : rewriter.getDenseI64ArrayAttr(
                        SmallVector<int64_t>(windowDims.size() * 2, 0));
 
-    // ---------------------- Adjust tensor layouts and args for
-    // MaxPool2dWithIndices ----------------------
-
+    // Adjust tensor layouts and args for MaxPool2dWithIndices
     // Get indices of elements larger than one which correspond to spatial dims
     // (H, W)
     auto spatialDims = getIndicesofElementsLargerThanOne(windowDims);
@@ -784,18 +773,11 @@ public:
     }
 
     // Permutation for current->desired layout and it's inverse
-    // Inverse is needed for permuting final results back to current layout
     auto permutation = ttmlir::utils::generatePermutation(
         llvm::ArrayRef(currentLayout), llvm::ArrayRef(desiredLayout));
     auto inverseOfPermutation = ttmlir::utils::inversePermutation(permutation);
 
     // Adjust args to match definition in MaxPool2dWithIndices
-    // Only spatial dimensions are needed, so for example:
-    // kernel : (1, 1, 3, 3) -> (3, 3)
-    // stride : (1, 2, 2, 1) -> (2, 2)
-    // dilations (non-existent in select_and_scatter): default 1's
-    // padding: 8 elements to 4 elements (only spatial are needed)
-    // ceilMode : false
     auto kernel = rewriter.getDenseI32ArrayAttr(
         {static_cast<int32_t>(windowDims[spatialDims[0]]),
          static_cast<int32_t>(windowDims[spatialDims[1]])});
@@ -834,8 +816,8 @@ public:
         rewriter, loc, fullTensor, fullTensorPermShape, fullTensor.getType(),
         permutation, "_permuteFullTensor");
 
-    // ---------------------- MaxPool2dWithIndices ----------------------
-    // Create empty tensors for value and indices
+    // Calling MaxPool2dWithIndices op on operand
+    // and obtaining indices which will be used for ScatterInDim
     auto pooledType = RankedTensorType::get(sourcePermShape,
                                             source.getType().getElementType());
     auto indicesType =
@@ -868,7 +850,8 @@ public:
     auto reshapedFullTensor = generateReshape(
         fullTensor, reshapedFullTensorType, rewriter, "_reshapeFullTensor");
 
-    // ---------------------- ScatterInDim ----------------------
+    // Calling ScatterInDim to scatter source values back to positions
+    // in the full tensor as indicated by previously obtained indices
     auto scatterOutputType =
         mlir::cast<RankedTensorType>(reshapedFullTensorType);
 
@@ -941,6 +924,23 @@ private:
         rewriter, ttmlir::utils::appendLocationSuffix(loc, suffix),
         permutedShape, inputType.getElementType(), inputType.getEncoding(),
         input, permutation);
+  }
+
+  LogicalResult verifySelectBlock(mlir::stablehlo::SelectAndScatterOp srcOp,
+                                  PatternRewriter &rewriter) const {
+    auto &selectBlock = srcOp.getSelect().front();
+    for (Operation &op : selectBlock) {
+      // Skip the return operation
+      if (mlir::isa<mlir::stablehlo::ReturnOp>(op)) {
+        continue;
+      }
+      if (!mlir::isa<mlir::stablehlo::CompareOp>(op)) {
+        return rewriter.notifyMatchFailure(
+            srcOp,
+            "SelectAndScatter select block must contain only a compare op.");
+      }
+    }
+    return success();
   }
 };
 } // namespace
