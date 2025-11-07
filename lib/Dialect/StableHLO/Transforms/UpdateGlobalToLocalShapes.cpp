@@ -443,7 +443,9 @@ convertShardyCCLToStableHLOCCL(MLIRContext *context,
   FrozenRewritePatternSet patternSet(std::move(patterns));
 
   // Apply patterns greedily.
-  if (failed(applyPatternsGreedily(rootModule, patternSet))) {
+  GreedyRewriteConfig config;
+  config.setUseTopDownTraversal();
+  if (failed(applyPatternsGreedily(rootModule, patternSet, config))) {
     rootModule.emitError("Could not convert shardy ccl operations into "
                          "stablehlo ccl operations");
     return mlir::failure();
