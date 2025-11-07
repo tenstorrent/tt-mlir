@@ -285,6 +285,8 @@ getDefaultTensorSdyShardingAttr(MLIRContext *context, llvm::StringRef meshName,
 }
 
 // Get the argument sharding attributes.
+// If createIfMissing is true, create default sharding attributes (replicated
+// on) for any arguments that do not have sdy.sharding annotations.
 llvm::SmallVector<mlir::sdy::TensorShardingAttr>
 getInShardingAttrs(MLIRContext *context, func::FuncOp &funcOp,
                    mlir::sdy::MeshOp &globalMeshOp, bool createIfMissing) {
