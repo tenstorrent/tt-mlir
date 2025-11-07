@@ -22,6 +22,11 @@ class DeviceGetter:
     def __init__(self):
         raise RuntimeError("This is Singleton, invoke get_device() instead.")
 
+    def __del__(self):
+        if self._instance is not None:
+            ttnn.close_mesh_device(self._instance)
+        ttnn.set_fabric_config(ttnn.FabricConfig.DISABLED)
+
     @classmethod
     def get_device(cls, mesh_shape):
         if cls._instance == None:
@@ -34,6 +39,7 @@ class DeviceGetter:
                     f"mesh_shape must be a non-empty list or tuple of positive integers, got {mesh_shape}"
                 )
             cls._mesh_shape = mesh_shape
+            ttnn.set_fabric_config(ttnn.FabricConfig.FABRIC_1D)
             cls._instance = ttnn.open_mesh_device(
                 mesh_shape=ttnn.MeshShape(mesh_shape),
                 l1_small_size=cls.l1_small_size,
