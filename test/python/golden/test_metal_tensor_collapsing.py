@@ -25,28 +25,14 @@ from builder.base.builder import Operand, Shape
 from builder.ttir.ttir_builder import TTIRBuilder
 from builder.base.builder_utils import compile_and_execute_ttir
 from test_utils import shape_str, Marks
+from op_wrappers.eltwise import *
 
 pytestmark = pytest.mark.frontend("ttir")
-
-
-def elementwise_add(in0: Operand, in1: Operand, builder: TTIRBuilder):
-    """Element-wise addition operation."""
-    return builder.add(in0, in1)
 
 
 def batch_matmul(in0: Operand, in1: Operand, builder: TTIRBuilder):
     """Batch matrix multiplication operation."""
     return builder.matmul(in0, in1)
-
-
-def elementwise_multiply(in0: Operand, in1: Operand, builder: TTIRBuilder):
-    """Element-wise multiplication operation."""
-    return builder.multiply(in0, in1)
-
-
-def unary_exp(in0: Operand, builder: TTIRBuilder):
-    """Unary exponential operation."""
-    return builder.exp(in0)
 
 
 def transpose_inner_dims(in0: Operand, builder: TTIRBuilder):
@@ -58,17 +44,17 @@ def transpose_inner_dims(in0: Operand, builder: TTIRBuilder):
     "shapes,test_func,test_name",
     [
         # 3D element-wise operations (working with non-collapsed tensors)
-        ([(3, 32, 64), (3, 32, 64)], elementwise_add, "3d_add"),
-        ([(3, 32, 64), (3, 32, 64)], elementwise_multiply, "3d_multiply"),
-        ([(3, 32, 64)], unary_exp, "3d_exp"),
+        ([(3, 32, 64), (3, 32, 64)], add, "3d_add"),
+        ([(3, 32, 64), (3, 32, 64)], multiply, "3d_multiply"),
+        ([(3, 32, 64)], exp, "3d_exp"),
         # 4D element-wise operations (working with non-collapsed tensors)
         pytest.param(
             [(2, 3, 64, 32), (2, 3, 64, 32)],
-            elementwise_add,
+            add,
             "4d_add",
             marks=pytest.mark.xfail(reason="Golden failure"),
         ),
-        ([(1, 2, 32, 32)], unary_exp, "4d_exp"),
+        ([(1, 2, 32, 32)], exp, "4d_exp"),
         # Operations with known issues (marked as skip)
         pytest.param(
             [(2, 32, 64), (2, 64, 32)],
