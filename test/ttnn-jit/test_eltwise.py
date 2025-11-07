@@ -197,7 +197,14 @@ def test_unary_op_l1(device, shape, max_grid, dtype, op, graph_capture):
         pytest.xfail("failing allclose for some shapes for float32")
 
     run_op_test(
-        device, shape, max_grid, dtype, op, num_inputs=1, buffer_type=ttnn.BufferType.L1, graph_capture=graph_capture
+        device,
+        shape,
+        max_grid,
+        dtype,
+        op,
+        num_inputs=1,
+        buffer_type=ttnn.BufferType.L1,
+        graph_capture=graph_capture,
     )
 
 
@@ -238,7 +245,14 @@ def test_bitwise_unary_op_dram(device, shape, dtype, op, graph_capture):
 @pytest.mark.parametrize("graph_capture", [True, False])
 def test_bitwise_unary_op_l1(device, shape, max_grid, dtype, op, graph_capture):
     run_op_test(
-        device, shape, max_grid, dtype, op, num_inputs=1, buffer_type=ttnn.BufferType.L1, graph_capture=graph_capture
+        device,
+        shape,
+        max_grid,
+        dtype,
+        op,
+        num_inputs=1,
+        buffer_type=ttnn.BufferType.L1,
+        graph_capture=graph_capture,
     )
 
 
@@ -369,8 +383,16 @@ def test_binary_ops(device, shape, max_grid, dtype, op, graph_capture):
         pytest.xfail("failing allclose for some shapes")
 
     run_op_test(
-        device, shape, max_grid, dtype, op, num_inputs=2, buffer_type=ttnn.BufferType.L1, graph_capture=graph_capture
+        device,
+        shape,
+        max_grid,
+        dtype,
+        op,
+        num_inputs=2,
+        buffer_type=ttnn.BufferType.L1,
+        graph_capture=graph_capture,
     )
+
 
 @pytest.mark.parametrize("shape", DRAM_INTERLEAVED_SHAPES)
 @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32])

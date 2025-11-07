@@ -11,6 +11,7 @@ import ttnn_jit._src.supported_ops as supported_ops
 import json
 import re
 
+
 @dataclass
 class ParsedArgument:
     """
