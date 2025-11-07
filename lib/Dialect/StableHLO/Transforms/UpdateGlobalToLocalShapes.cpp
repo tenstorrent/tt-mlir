@@ -459,6 +459,7 @@ convertShardyCCLToStableHLOCCL(MLIRContext *context,
   }();
 
   config.enableConstantCSE(!hasProtectedConst);
+  config.setUseTopDownTraversal();
 
   // Apply patterns greedily.
   if (failed(applyPatternsGreedily(rootModule, patternSet, config))) {
