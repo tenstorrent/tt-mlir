@@ -1929,6 +1929,25 @@ class SplitQueryKeyValueAndSplitHeadsUpdatePattern
     : public mlir::OpRewritePattern<ReshapeOp> {
   using mlir::OpRewritePattern<ReshapeOp>::OpRewritePattern;
 
+  // A multi-head attention pattern looks like the following
+  // (for each of Query, Key, and Value):
+  //
+  // Attention --> Reshape ----\
+  //                           \
+  // Q/K/V Weight ------------+--> Matmul/Linear --> Reshape --> Permute (...)
+  //                           /
+  // (opt) Q/K/V Bias --------/
+  //
+  // The fused pattern concatenates weights, (if any) biases, and replaces the
+  // permute ops with outputs from splitquerykeyvalueandsplitheads op.
+  // The fused pattern looks like the following:
+  //
+  // Q/K/V Weights -----> Concat Weights \
+  //                                      \
+  // (opt)Q/K/V Biases -> Concat Biases --+--> Matmul/Linear --> Split QKV
+  //                                      /
+  // Attention ---------> Reshape -------/
+
   // Reshape input is [batch_size, sequence_length, hidden_dimensions].
   // For Multi-Head Attention:
   // Query is [batch_size, number of kv heads, sequence_length, head_size].
@@ -2202,23 +2221,12 @@ private:
 
     auto firstType = mlir::cast<RankedTensorType>(tensors[0].getType());
     ArrayRef<int64_t> firstShape = firstType.getShape();
-    int64_t rank = firstShape.size();
 
-    // Calculate the concatenated size along the last dimension
+    // Calculate the concatenated size along the given dimension.
     int64_t concatDimSize = 0;
     for (Value tensor : tensors) {
       auto tensorType = mlir::cast<RankedTensorType>(tensor.getType());
       ArrayRef<int64_t> shape = tensorType.getShape();
-
-      // Verify all tensors have the same rank and shape except last dim
-      TT_assertv(static_cast<int64_t>(shape.size()) == rank,
-                 "All tensors must have the same rank");
-      for (int64_t i = 0; i < rank - 1; ++i) {
-        TT_assertv(
-            shape[i] == firstShape[i],
-            "All tensors must have the same shape except last dimension.");
-      }
-
       concatDimSize += shape[dim];
     }
 
@@ -2317,6 +2325,7 @@ private:
         permuteOps.push_back(permuteOp);
       }
     }
+    // Sort to ensure Q, K, V order.
     std::sort(permuteOps.begin(), permuteOps.end(),
               [](mlir::Operation *a, mlir::Operation *b) {
                 return a->isBeforeInBlock(b);
@@ -2330,6 +2339,7 @@ private:
         linearOps.push_back(linearOp);
       }
     }
+    // Sort to ensure Q, K, V order.
     std::sort(linearOps.begin(), linearOps.end(),
               [](mlir::Operation *a, mlir::Operation *b) {
                 return a->isBeforeInBlock(b);
@@ -2343,6 +2353,7 @@ private:
         matmulOps.push_back(matmulOp);
       }
     }
+    // Sort to ensure Q, K, V order.
     std::sort(matmulOps.begin(), matmulOps.end(),
               [](mlir::Operation *a, mlir::Operation *b) {
                 return a->isBeforeInBlock(b);
