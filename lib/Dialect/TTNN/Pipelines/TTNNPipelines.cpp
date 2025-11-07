@@ -233,7 +233,9 @@ void createTTNNBackendToEmitCPipeline(
   } else {
     // In canonical path, run tuplification + input generation/loading.
     //
-    pm.addPass(createTTNNTuplifyTensors());
+    TTNNTuplifyTensorsOptions tuplifyOptions;
+    tuplifyOptions.tuplifyInputIfEmpty = options.tuplifyInputIfEmpty;
+    pm.addPass(createTTNNTuplifyTensors(tuplifyOptions));
 
     if (options.loadInputTensorsFromDisk) {
       TTNNLoadInputTensorsOptions loadOptions;

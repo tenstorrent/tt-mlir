@@ -770,6 +770,36 @@ def argmax_golden(
     return result.to(torch.int32)
 
 
+def matmul_golden(
+    a: BuilderGoldenTensor,
+    b: BuilderGoldenTensor,
+    transpose_a=False,
+    transpose_b=False,
+) -> BuilderGoldenTensor:
+    """
+    Custom golden function for matrix multiplication.
+
+    Parameters
+    ----------
+    a : BuilderGoldenTensor
+        First input tensor
+    b : BuilderGoldenTensor
+        Second input tensor
+    transpose_a : bool, optional
+        Whether to transpose tensor a (default: False)
+    transpose_b : bool, optional
+        Whether to transpose tensor b (default: False)
+
+    Returns
+    -------
+    BuilderGoldenTensor
+        Result of matrix multiplication
+    """
+    a = torch.transpose(a, -2, -1) if transpose_a else a
+    b = torch.transpose(b, -2, -1) if transpose_b else b
+    return torch.matmul(a, b)
+
+
 def linear_golden(
     a: GoldenMapTensor,
     b: GoldenMapTensor,
@@ -798,8 +828,8 @@ def linear_golden(
     GoldenMapTensor
         Result of linear transformation with optional bias
     """
-    a = torch.transpose(a, 0, 1) if transpose_a else a
-    b = torch.transpose(b, 0, 1) if transpose_b else b
+    a = torch.transpose(a, -2, -1) if transpose_a else a
+    b = torch.transpose(b, -2, -1) if transpose_b else b
     output = torch.matmul(a, b)
 
     if bias is None:
@@ -2939,7 +2969,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.GatherOp: gather_golden,
     # Neural network operations
     ttir.SoftmaxOp: softmax_golden,
-    ttir.MatmulOp: torch.matmul,
+    ttir.MatmulOp: matmul_golden,
     ttir.EmbeddingOp: embedding_golden,
     ttir.Upsample2dOp: upsample2d_golden,
     ttir.BatchNormInferenceOp: batch_norm_golden,
@@ -3061,6 +3091,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttnn.BitwiseXorOp: torch.bitwise_xor,
     ttnn.BitwiseNotOp: torch.bitwise_not,
     # Complex operations
+    ttnn.MatmulOp: matmul_golden,
     ttnn.LinearOp: linear_golden,
     # Tensor manipulation
     ttnn.ConcatOp: concat_golden,

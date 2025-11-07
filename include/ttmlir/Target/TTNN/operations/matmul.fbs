@@ -67,6 +67,7 @@ table MatmulOp {
   transpose_a: bool;
   transpose_b: bool;
   matmul_program_config: tt.target.ttnn.MatmulProgramConfig;
+  activation: string;
 }
 // ANCHOR_END: adding_an_op_matmul_fbs
 
@@ -77,4 +78,5 @@ table LinearOp {
   out: tt.target.ttnn.TensorRef;
   transpose_a: bool;
   transpose_b: bool;
+  activation: string;
 }
