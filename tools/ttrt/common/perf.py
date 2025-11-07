@@ -653,6 +653,15 @@ class Perf:
                         
                         self.logging.warning(f"DEBUG: Found {len(device_ops)} TT_DNN_DEVICE_OP messages ({single_line_count} single-line, {multi_line_count} multi-line)")
                         
+                        # DEBUG: Show timestamp ranges to detect units mismatch
+                        if device_ops and mlir_messages:
+                            dev_ts_min = min(t for t, _ in device_ops)
+                            dev_ts_max = max(t for t, _ in device_ops)
+                            mlir_ts_min = min(t for t, _ in mlir_messages)
+                            mlir_ts_max = max(t for t, _ in mlir_messages)
+                            self.logging.warning(f"DEBUG: Device op timestamp range: {dev_ts_min} to {dev_ts_max}")
+                            self.logging.warning(f"DEBUG: {key} timestamp range: {mlir_ts_min} to {mlir_ts_max}")
+                        
                         # Pass 3: Match each TT_DNN_DEVICE_OP to MLIR message (before or after depending on type)
                         for dev_timestamp, global_call_count in device_ops:
                             matching_mlir_data = 'loc("unknown")'  # Default fallback
