@@ -276,7 +276,11 @@ static GenericOp createFusedGeneric(OpOperand *fusedOperand, GenericOp producer,
   }
   auto mapRegionArgs = [&](Operation *op, Block &orig) {
     for (unsigned i = 0; i < op->getNumOperands(); ++i) {
-      unsigned fusedIndex = sourceToFusedIdx[{op, i}];
+      unsigned fusedIndex = 0;
+      auto it = sourceToFusedIdx.find({op, i});
+      if (it != sourceToFusedIdx.end()) {
+        fusedIndex = it->second;
+      }
       irMap.map(orig.getArgument(i), fusedBlock.getArgument(fusedIndex));
     }
   };

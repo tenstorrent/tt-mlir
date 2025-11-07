@@ -469,6 +469,86 @@ def test_eltwise_fuse_binary_reduction_tree(
     )
 
 
+@pytest.mark.parametrize("grid", gridParams)
+@pytest.mark.parametrize("shape", [(128, 128)])
+@pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["bf16"])
+@pytest.mark.parametrize("target", ["ttmetal"])
+def test_eltwise_fuse_binary_chain(
+    grid: str, shape: Shape, dtype: torch.dtype, target: str, request, device
+):
+    options = [grid]
+
+    def op_chain(
+        in0: Operand,
+        in1: Operand,
+        in2: Operand,
+        in3: Operand,
+        in4: Operand,
+        in5: Operand,
+        in6: Operand,
+        in7: Operand,
+        in8: Operand,
+        in9: Operand,
+        builder: TTIRBuilder,
+    ):
+        in_0 = torch.full(shape, 11).to(dtype)
+        in_1 = torch.full(shape, 13).to(dtype)
+        in_2 = torch.full(shape, 17).to(dtype)
+        in_3 = torch.full(shape, 19).to(dtype)
+        in_4 = torch.full(shape, 23).to(dtype)
+        in_5 = torch.full(shape, 11).to(dtype)
+        in_6 = torch.full(shape, 13).to(dtype)
+        in_7 = torch.full(shape, 17).to(dtype)
+        in_8 = torch.full(shape, 19).to(dtype)
+        in_9 = torch.full(shape, 23).to(dtype)
+
+        out_0 = builder.add(in0, in1)
+        out_1 = builder.subtract(in2, out_0)
+        out_2 = builder.multiply(out_1, in3)
+        out_3 = builder.div(in4, out_2)
+        out_4 = builder.add(out_3, in5)
+        out_5 = builder.subtract(in6, out_4)
+        out_6 = builder.multiply(out_5, in7)
+        out_7 = builder.div(in8, out_6)
+        out_8 = builder.add(out_7, in9)
+
+        out = (in_2 - (in_0 + in_1)) * in_3
+        out = in_6 - ((in_4 / out) + in_5)
+        out = (in_8 / (out * in_7)) + in_9
+
+        builder.set_goldens(
+            {
+                in0: in_0,
+                in1: in_1,
+                in2: in_2,
+                in3: in_3,
+                in4: in_4,
+                in5: in_5,
+                in6: in_6,
+                in7: in_7,
+                in8: in_8,
+                in9: in_9,
+            },
+            {out_8: out},
+        )
+
+        return out_8
+
+    compile_and_execute_ttir(
+        op_chain,
+        [shape] * 10,
+        [dtype] * 10,
+        target=target,
+        custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
+        test_base=request.node.name,
+        module_dump=True,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        print_ir=enablePrintIR,
+        device=device,
+    )
+
+
 ### ----------------------------------------------------------------------- ###
 # # Diamond Fork and Join Patterns
 ### ----------------------------------------------------------------------- ###
