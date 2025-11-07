@@ -319,6 +319,10 @@ public:
   // Create workarounds for sort op operands.
   static TTNNOperandsWorkarounds
   createSortOpOperandsWorkarounds(ttnn::SortOp op);
+
+  static TTNNOperandsWorkarounds
+  createPagedScaledDotProductAttentionDecodeOpOperandsWorkarounds(
+      Operation *op);
 };
 
 } // namespace mlir::tt::ttnn::wa

@@ -2777,6 +2777,12 @@ def TTNN_PagedScaledDotProductAttentionDecodeOp : TTNN_Op<"paged_scaled_dot_prod
 
   let results = (outs AnyRankedTensor:$result);
 
+  let extraClassDeclaration = [{
+    wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+      return wa::TTNNOperandsWorkaroundsFactory::createPagedScaledDotProductAttentionDecodeOpOperandsWorkarounds(getOperation());
+    }
+  }];
+
   let hasVerifier = 0;
 }
 
