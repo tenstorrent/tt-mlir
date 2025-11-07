@@ -481,7 +481,7 @@ static bool isDefinedByOp(mlir::Value value) {
     return mlir::failure();
   }
 
-  if (verifyOutputDimensions(this, inputDims, weightDims, biasDims, outputDims,
+if (verifyOutputDimensions(this, inputDims, weightDims, biasDims, outputDims,
                              params)
           .failed()) {
     return mlir::failure();
