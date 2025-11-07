@@ -1005,7 +1005,7 @@ public:
     rewriter.replaceOpWithNewOp<ttnn::LinearOp>(
         op, this->getTypeConverter()->convertType(op.getType()), adaptor.getA(),
         adaptor.getB(), adaptor.getBias(), adaptor.getTransposeA(),
-        adaptor.getTransposeB());
+        adaptor.getTransposeB(), /*activation=*/nullptr);
     return success();
   }
 };
@@ -1144,7 +1144,7 @@ public:
     rewriter.replaceOpWithNewOp<ttnn::MatmulOp>(
         op, this->getTypeConverter()->convertType(op.getType()), adaptor.getA(),
         adaptor.getB(), adaptor.getTransposeA(), adaptor.getTransposeB(),
-        nullptr);
+        /*matmul_program_config=*/nullptr, /*activation=*/nullptr);
     return success();
   }
 };
