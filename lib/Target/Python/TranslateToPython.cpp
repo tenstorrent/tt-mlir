@@ -143,11 +143,13 @@ private:
   /// Map from value to name of Python variable that contains the name.
   ValueMapper valueMapper;
 
-  /// The number of values in the current scope. This is used to declare the
-  /// names of values in a scope.
+  /// The number of values in the current scope per variable name. This is used
+  /// to declare the names of values in a scope.
   std::stack<llvm::StringMap<int64_t>> valueInScopeCount;
 
   /// Whether the input has been initialized.
+  /// This is used to have variable name "inputs" instead of "inputs_1" for the
+  /// function argument.
   bool initialized_input = false;
 };
 } // namespace
@@ -159,7 +161,8 @@ static bool hasDeferredEmission(Operation *op) {
 
 StringRef PythonEmitter::getOrCreateName(Value value, std::string name) {
   if (!valueMapper.count(value)) {
-    if (!initialized_input) {
+    if (!initialized_input && name == "inputs") {
+      // Only for the first appearance of the function argument "inputs".
       initialized_input = true;
       valueMapper.insert(value, name);
     } else {
@@ -505,6 +508,7 @@ LogicalResult PythonEmitter::emitAssignPrefix(Operation &op) {
   return success();
 }
 
+// Helper function to check if a string is a valid Python identifier.
 bool isValidPythonIdentifier(const std::string &name) {
   static const std::regex pattern(R"(^[A-Za-z_][A-Za-z0-9_]*$)");
   static const std::unordered_set<std::string> keywords = {
@@ -518,16 +522,23 @@ bool isValidPythonIdentifier(const std::string &name) {
          (keywords.find(name) == keywords.end());
 }
 
+// Assign a variable name to the result of the operation.
 LogicalResult PythonEmitter::emitVariableAssignment(OpResult result,
                                                     Operation &op) {
   std::string name = "var";
 
+  // Try to use the SSA name of the result as the variable name.
   std::string ssaName;
   llvm::raw_string_ostream stream(ssaName);
   mlir::OpPrintingFlags flags;
   op.getResult(0).printAsOperand(stream, flags);
   stream.flush();
   size_t dotPos = ssaName.find(".result");
+  // If the SSA name contains ".result", use the name before ".result".
+  // Otherwise, use the entire SSA name.
+  // % in the beginning should be removed.
+  // If the name is not a valid Python identifier, use "var" as the variable
+  // name. %relu.result_1 -> relu %0 -> 0 -> var
   if (dotPos != std::string::npos) {
     name = ssaName.substr(1, dotPos - 1);
   } else {
@@ -537,6 +548,9 @@ LogicalResult PythonEmitter::emitVariableAssignment(OpResult result,
     name = "var";
   }
 
+  // If the operation is a call, use the callee name as the variable name.
+  // If the name is not a valid Python identifier, use "var" as the variable
+  // name.
   if (auto calleeAttr = op.getAttr("callee")) {
     std::string calleeName;
     llvm::raw_string_ostream stream(calleeName);
@@ -548,6 +562,9 @@ LogicalResult PythonEmitter::emitVariableAssignment(OpResult result,
     }
   }
 
+  // If the operation has operands, use the first operand's name as the variable
+  // name. This is done in subscript operation to get the name of the
+  // subscripted value. inputs_1 = inputs[0]
   if (op.getNumOperands() > 0 && name == "var") {
     name = getOrCreateName(op.getOperand(0), name).str();
   }
