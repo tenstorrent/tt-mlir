@@ -425,7 +425,13 @@ enum class WeightDim3d : unsigned {
   WEIGHT_KERNEL_WIDTH = 4
 };
 
-enum class BiasDim3d : unsigned { BIAS_OUT_CHANNEL = 0 };
+enum class BiasDim3d : unsigned {
+  BIAS_DIM0 = 0,
+  BIAS_DIM1 = 1,
+  BIAS_DIM2 = 2,
+  BIAS_DIM3 = 3,
+  BIAS_OUT_CHANNEL = 4
+};
 
 struct InputTensorDims3d {
   int64_t batchSize;
