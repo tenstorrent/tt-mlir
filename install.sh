@@ -42,6 +42,7 @@ enable_emitc="OFF"
 enable_explorer="OFF"
 enable_runtime_debug="OFF"
 enable_pykernel="OFF"
+enable_ttnn_jit="OFF"
 enable_stablehlo="OFF"
 skip_tests="OFF"
 # to add: TTMLIR_ENABLE_TTIRTONVVM, CODE_COVERAGE
@@ -92,7 +93,7 @@ while true; do
         --speedy)
             build_preset="speedy"; enable_runtime="ON"; enable_runtime_tests="ON"; enable_op_model="ON"; enable_emitc="ON"; enable_stablehlo="ON";;
         --tracy)
-            build_preset="tracy"; enable_runtime="ON"; enable_runtime_tests="ON"; enable_op_model="ON";  enable_profiler="ON"; enable_emitc="ON"; enable_runtime_debug="ON"; enable_explorer="ON"; enable_pykernel="ON"; enable_stablehlo="ON";;
+            build_preset="tracy"; enable_runtime="ON"; enable_runtime_tests="ON"; enable_op_model="ON";  enable_profiler="ON"; enable_runtime_debug="ON"; enable_explorer="ON"; enable_pykernel="ON"; enable_ttnn_jit="ON"; enable_stablehlo="ON";;
         --skip-tests)
             skip_tests="ON";;
         --clean)
@@ -159,6 +160,10 @@ fi
 
 if [ "$enable_pykernel" = "ON" ]; then
     cmake_args+=("-DTTMLIR_ENABLE_PYKERNEL=ON")
+fi
+
+if [ "$enable_ttnn_jit" = "ON" ]; then
+    cmake_args+=("-DTTMLIR_ENABLE_TTNN_JIT=ON")
 fi
 
 if [ "$enable_stablehlo" = "ON" ]; then
