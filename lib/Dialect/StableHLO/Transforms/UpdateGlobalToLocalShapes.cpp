@@ -443,6 +443,8 @@ convertShardyCCLToStableHLOCCL(MLIRContext *context,
   FrozenRewritePatternSet patternSet(std::move(patterns));
 
   GreedyRewriteConfig config;
+  config.setUseTopDownTraversal();
+
   // We will disable constant CSE if there are any protected constants
   // (i.e., constants from composite functions) to avoid removing them
   // during the rewrite process.
