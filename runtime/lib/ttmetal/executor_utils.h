@@ -321,8 +321,11 @@ inline std::string createKernelFilePath(
     path += kernelConfigTypeString(kernelConfig);
 
     // Double underscore to visually separate core ranges from the rest.
-    path += "__";
-    path += coreRangeToString(coreRangeSet);
+    filename += "__";
+    filename += coreRangeToString(coreRangeSet);
+    filename += extention;
+    path /= filename;
+    return path;
   }
   path += extention;
   return path;

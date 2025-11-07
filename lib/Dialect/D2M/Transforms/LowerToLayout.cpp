@@ -96,24 +96,18 @@ struct CompoundComponents {
     result.isFormatChange =
         (inputInfo.type.getElementType() != outputInfo.type.getElementType());
 
-    // Check for "mapping" changes--this is one or more of:
-    // - Grid shape changes (redistribution across cores)
+    // Check for "mapping" changes (zero-copy transformations):
     // - Tensor shape changes (collapsed_intervals or dim_alignments changes
     // causing different padding)
     // - Index map changes (logical view transformations)
-    // These can all be expressed as affine transformations.
+    // These can be expressed as views with affine transformations.
+    // NOTE: Grid shape changes (redistribution) require DMA and are handled
+    // separately.
     if (inputInfo.hasLayout() && outputInfo.hasLayout() &&
         !result.isMemorySpaceChange && !result.isFormatChange) {
 
       auto inputLayout = *inputInfo.layout;
       auto outputLayout = *outputInfo.layout;
-
-      // Memory layout changes (Interleaved <-> Sharded) are not currently
-      // supported.
-      TT_assertv(inputLayout.getMemoryLayout() ==
-                     outputLayout.getMemoryLayout(),
-                 "ToLayoutOp does not support TensorMemoryLayout changes "
-                 "(Interleaved <-> Sharded)");
 
       bool shapeChanged =
           (inputInfo.type.getShape() != outputInfo.type.getShape());
@@ -121,7 +115,12 @@ struct CompoundComponents {
       bool indexMapChanged =
           (inputLayout.getIndexAffineMap() != outputLayout.getIndexAffineMap());
 
-      result.isMappingChange = shapeChanged || indexMapChanged;
+      // Grid reblocking requires DMA, not just a view
+      bool gridChanged =
+          (inputInfo.getGridShape() != outputInfo.getGridShape());
+
+      result.isMappingChange =
+          (shapeChanged || indexMapChanged) && !gridChanged;
     }
 
     return result;
@@ -277,6 +276,8 @@ public:
 
     const size_t gridRank = outputInfo.getGridShape().size();
 
+    // Build identity indexing maps for all operands.
+    // The view's 4D affine map will handle all address transformations.
     ArrayAttr indexingMaps, iteratorTypes;
     std::tie(indexingMaps, iteratorTypes) =
         GenericOp::buildParallelAffineMapsAndIteratorTypes(
@@ -359,7 +360,17 @@ public:
       return failure();
     }
 
-    if (components.isMemorySpaceChange) {
+    // Check if this is a grid reblocking operation (requires DMA)
+    auto inputInfo = TensorInfo::from(op.getInput());
+    auto outputInfo = TensorInfo::from(op.getOutput());
+    bool isGridReblocking = false;
+    if (inputInfo.hasLayout() && outputInfo.hasLayout() &&
+        !components.isMemorySpaceChange && !components.isFormatChange) {
+      isGridReblocking =
+          (inputInfo.getGridShape() != outputInfo.getGridShape());
+    }
+
+    if (components.isMemorySpaceChange || isGridReblocking) {
       return lowerDatamovementGeneric(rewriter, op);
     }
 
