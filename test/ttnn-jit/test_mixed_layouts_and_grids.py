@@ -32,7 +32,7 @@ def add(input_tensor1, input_tensor2):
 @pytest.mark.parametrize("op", [add])
 def test_mixed_memory_layouts(device, h, w, max_grid, dtype, op):
 
-    input_tensor_dram = create_dram_tensor(device, h, w, dtype)
+    input_dram_tensor = create_dram_tensor(device, h, w, dtype)
     input_sharded_tensor = create_sharded_tile_tensor(device, h, w, max_grid=max_grid, dtype=dtype)
 
     golden_op = _get_ttnn_op(op)
@@ -41,8 +41,8 @@ def test_mixed_memory_layouts(device, h, w, max_grid, dtype, op):
         debug=True,
         max_grid=max_grid
     )(op)
-    output_tensor = op_jit(input_tensor_dram, input_sharded_tensor)
-    golden_tensor = (golden_op or op)(input_tensor_dram, input_sharded_tensor)
+    output_tensor = op_jit(input_dram_tensor, input_sharded_tensor)
+    golden_tensor = (golden_op or op)(input_dram_tensor, input_sharded_tensor)
 
     assert all_close_check(output_tensor, golden_tensor)
 
@@ -72,4 +72,7 @@ def test_l1_varying_grids(device, h, w, grid1, grid2, dtype, op):
     output_tensor = op_jit(input_sharded_tensor1, input_sharded_tensor2)
     golden_tensor = (golden_op or op)(input_sharded_tensor1, input_sharded_tensor2)
 
+    assert memory_configs_equal(
+        output_tensor.memory_config(), golden_tensor.memory_config()
+    )
     assert all_close_check(output_tensor, golden_tensor)
