@@ -161,6 +161,18 @@ void ProgramExecutor::execute() {
   }
   LOG_DEBUG(LogType::LogRuntimeTTNN,
             "Finished execution of program: ", program->name()->c_str());
+  
+  // Send 300KB of dummy data to force Tracy buffer flush
+  // This tests if message ordering is affected by buffer batching in CIv2
+  if (perf::Env::get().enablePerfTrace) {
+    constexpr size_t chunk_size = 10000; // 10KB per message
+    constexpr size_t num_chunks = 30;    // 30 messages = 300KB total
+    std::string dummy_data(chunk_size, 'X');
+    for (size_t i = 0; i < num_chunks; ++i) {
+      std::string msg = "DUMMY_FLUSH_DATA_" + std::to_string(i) + ";" + dummy_data;
+      TracyMessage(msg.c_str(), msg.size());
+    }
+  }
 }
 
 std::vector<::tt::runtime::Tensor> ProgramExecutor::gatherOutputTensors() {
