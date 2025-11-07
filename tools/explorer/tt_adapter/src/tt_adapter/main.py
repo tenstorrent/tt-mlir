@@ -229,7 +229,7 @@ class TTAdapter(model_explorer.Adapter):
             graph_handler = mlir.GraphHandler()
             graph, _ = graph_handler.build_graph(model_path, module, self.model_runner)
 
-            return graph
+        return graph
 
     def convert(
         self, model_path: str, settings: Dict
