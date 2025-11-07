@@ -4,5 +4,6 @@
     { "image": "speedy", "script": "alchemist.sh" },
     { "image": "speedy", "script": "emitc.sh" },
     { "image": "tracy", "script": "ttnn-jit.sh" },
-    { "image": "speedy", "script": "chisel.sh" }
+    { "image": "speedy", "script": "chisel.sh" },
+    { "image": "tracy", "script": "test-install.sh" }
 ]

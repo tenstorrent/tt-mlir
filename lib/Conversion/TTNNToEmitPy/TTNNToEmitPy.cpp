@@ -504,6 +504,9 @@ public:
         emitter.emit(std::nullopt |
                          emitter.getMemoryConfig(matmulOp.getResult()),
                      "memory_config"),
+        emitter.emit(std::nullopt, "dtype"),
+        emitter.emit(std::nullopt, "program_config"),
+        emitter.emit(matmulOp.getActivation(), "activation"),
     };
 
     emitter.replaceOp(*this, args);
@@ -539,6 +542,9 @@ public:
         emitter.emit(srcOp.getTransposeB(), "transpose_b"),
         emitter.emit(std::nullopt | emitter.getMemoryConfig(srcOp.getResult()),
                      "memory_config"),
+        emitter.emit(std::nullopt, "dtype"),
+        emitter.emit(std::nullopt, "program_config"),
+        emitter.emit(srcOp.getActivation(), "activation"),
     };
 
     emitter.replaceOp(*this, args);
@@ -3050,6 +3056,35 @@ public:
 };
 } // namespace
 
+// Assign op conversion pattern
+//
+namespace {
+class AssignOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<tt::ttnn::AssignOp> {
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      tt::ttnn::AssignOp>::TTNNToEmitPyBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(tt::ttnn::AssignOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitpy::EmitPyTTNNEmitter<tt::ttnn::AssignOp> emitter(
+        srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput()),
+        emitter.emit(srcOp.getDtype(), "dtype"),
+        emitter.emit(srcOp.getMemoryConfig(), "memory_config"),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
 namespace mlir::tt {
 
 void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
@@ -3115,12 +3150,12 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
                EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::ReciprocalOp>,
                EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::ReluOp>,
                EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::Relu6Op>,
-               EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::RsqrtOp>,
+               EltwiseUnaryWithFastAndApproximateModeOpConversionPattern<mlir::tt::ttnn::RsqrtOp>,
                EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::SignOp>,
                EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::SiluOp>,
                EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::MishOp>,
                EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::SinOp>,
-               EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::SqrtOp>,
+               EltwiseUnaryWithFastAndApproximateModeOpConversionPattern<mlir::tt::ttnn::SqrtOp>,
                EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::TanOp>,
                EltwiseUnaryWithFastAndApproximateModeOpConversionPattern<mlir::tt::ttnn::GeluOp>,
                EltwiseUnaryWithFastAndApproximateModeOpConversionPattern<mlir::tt::ttnn::ExpOp>,
@@ -3177,7 +3212,8 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
                SliceDynamicOpConversionPattern,
                SliceStaticOpConversionPattern,
                SortOpConversionPattern,
-               TransposeOpConversionPattern
+               TransposeOpConversionPattern,
+               AssignOpConversionPattern
               >(typeConverter, ctx);
   // clang-format on
 

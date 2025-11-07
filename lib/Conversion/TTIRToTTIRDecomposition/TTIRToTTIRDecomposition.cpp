@@ -775,13 +775,13 @@ struct ReverseOpConversionPattern
     ArrayRef<int64_t> shape = op.getInput().getType().getShape();
     Value currentInput = adaptor.getInput();
     for (int32_t dim : dimensions) {
-      SmallVector<int64_t> indices;
-      for (int64_t i = shape[dim] - 1; i >= 0; i--) {
+      SmallVector<int32_t> indices;
+      for (int32_t i = shape[dim] - 1; i >= 0; i--) {
         indices.push_back(i);
       }
 
       auto tensorType =
-          RankedTensorType::get({shape[dim]}, rewriter.getI64Type());
+          RankedTensorType::get({shape[dim]}, rewriter.getI32Type());
 
       auto denseAttr = DenseIntElementsAttr::get(tensorType, indices);
 
