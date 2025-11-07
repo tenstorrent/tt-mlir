@@ -160,6 +160,88 @@ mlir::AffineMap buildLogicalToPhysicalMap(
   return mlir::AffineMap::get(logicalShape.size(), 0, physExprs, context);
 }
 
+// Build semi-affine map from physical indices to logical indices (inverse of
+// collapse). This expands collapsed physical dimensions back to logical
+// dimensions.
+//
+// Example:
+//   logical shape: [32, 64]
+//   physical shape: [2048] (collapsed)
+//   collapsed intervals: [[0, 2]]
+//
+//   Result: (d0) -> (d0 floordiv 64, d0 mod 64)
+mlir::AffineMap buildPhysicalToLogicalMap(
+    ArrayRef<int64_t> logicalShape, ArrayRef<int64_t> physicalShape,
+    mlir::DenseIntElementsAttr collapsedIntervals, mlir::MLIRContext *context) {
+  auto normalizedIntervals =
+      ttcore::MetalLayoutAttr::normalizeAndFlattenIntervals(
+          collapsedIntervals, logicalShape.size());
+
+  assert(normalizedIntervals.size() % 2 == 0);
+  int64_t numIntervals = normalizedIntervals.size() / 2;
+
+  SmallVector<mlir::AffineExpr> logicalExprs;
+  logicalExprs.resize(logicalShape.size());
+
+  for (int64_t i = 0; i < numIntervals; ++i) {
+    int64_t start = normalizedIntervals[i * 2];
+    int64_t end = normalizedIntervals[i * 2 + 1];
+
+    if (end - start == 1) {
+      // Single dimension - direct mapping
+      logicalExprs[start] = getAffineDimExpr(i, context);
+    } else {
+      // Multiple dimensions - expand using mod/floordiv
+      mlir::AffineExpr physDim = getAffineDimExpr(i, context);
+
+      int64_t multiplier = 1;
+      for (int64_t d = end - 1; d >= start; --d) {
+        if (d == end - 1) {
+          logicalExprs[d] = physDim % logicalShape[d];
+        } else {
+          logicalExprs[d] = (physDim.floorDiv(multiplier)) % logicalShape[d];
+        }
+        multiplier *= logicalShape[d];
+      }
+    }
+  }
+
+  return mlir::AffineMap::get(physicalShape.size(), 0, logicalExprs, context);
+}
+
+// Build affine map from device indices to physical indices.
+// This reconstructs physical coordinates from grid + shard coordinates.
+//
+// Example:
+//   physical shape: [128, 256]
+//   grid shape: [4, 8]
+//   shard sizes: [32, 32]
+//
+//   Result: (d0, d1, d2, d3) -> (d0 * 32 + d2, d1 * 32 + d3)
+//   where first 2 dims are grid coords, last 2 are shard coords.
+mlir::AffineMap buildDeviceToPhysicalMap(ArrayRef<int64_t> physicalShape,
+                                         ArrayRef<int64_t> gridShape,
+                                         mlir::MLIRContext *context) {
+  assert(physicalShape.size() == gridShape.size() &&
+         "Physical and grid must have same rank");
+
+  size_t rank = physicalShape.size();
+  SmallVector<mlir::AffineExpr> physicalExprs;
+  physicalExprs.reserve(rank);
+
+  // Device coords: [grid[0], grid[1], ..., shard[0], shard[1], ...]
+  // Physical: physical[i] = grid[i] * shardSize + shard[i]
+  for (size_t i = 0; i < rank; ++i) {
+    mlir::AffineExpr gridDim = getAffineDimExpr(i, context);
+    mlir::AffineExpr shardDim = getAffineDimExpr(rank + i, context);
+    int64_t shardSize = physicalShape[i] / gridShape[i];
+
+    physicalExprs.push_back(gridDim * shardSize + shardDim);
+  }
+
+  return mlir::AffineMap::get(rank * 2, 0, physicalExprs, context);
+}
+
 // Build semi-affine map from physical indices to device indices.
 // This distributes the physical shape across a grid.
 //
@@ -212,7 +294,8 @@ buildDeviceToLogicalMap(mlir::tt::ttcore::MetalLayoutAttr layout,
                         mlir::MLIRContext *context) {
 
   ArrayRef<int64_t> logicalShape = layout.getLogicalShape();
-  auto physicalShapeVec = layout.getPhysicalShape({});
+  ArrayRef<int64_t> tileShape = ttcore::getTensorTileShapeOrEmpty(tensorType);
+  auto physicalShapeVec = layout.getPhysicalShape(tileShape);
   ArrayRef<int64_t> physicalShape = physicalShapeVec;
   ArrayRef<int64_t> gridShape = layout.getGridShape(tensorType);
 
@@ -241,13 +324,30 @@ buildDeviceToLogicalMap(mlir::tt::ttcore::MetalLayoutAttr layout,
 
   // Step 2: physical back to  logical (inverse of collapse).
   // This requires "expanding" collapsed dimensions.
+  // For tiled tensors, both physical and logical need to be in tile units.
   auto normalizedIntervals = layout.getNormalizedIntervals();
 
   assert(normalizedIntervals.size() % 2 == 0);
   int64_t numIntervals = normalizedIntervals.size() / 2;
 
+  // Convert logical shape to tile units if tiled
+  SmallVector<int64_t> logicalShapeInUnits;
+  if (!tileShape.empty()) {
+    // Tiled: convert logical shape from scalars to tiles
+    logicalShapeInUnits.reserve(logicalShape.size());
+    for (size_t i = 0; i < logicalShape.size(); ++i) {
+      int64_t tileSize = tileShape[i];
+      assert(logicalShape[i] % tileSize == 0 &&
+             "Logical shape must be divisible by tile size");
+      logicalShapeInUnits.push_back(logicalShape[i] / tileSize);
+    }
+  } else {
+    // Non-tiled: use scalar units
+    logicalShapeInUnits.assign(logicalShape.begin(), logicalShape.end());
+  }
+
   SmallVector<mlir::AffineExpr> logicalExprs;
-  logicalExprs.resize(logicalShape.size());
+  logicalExprs.resize(logicalShapeInUnits.size());
 
   for (int64_t i = 0; i < numIntervals; ++i) {
     int64_t start = normalizedIntervals[i * 2];
@@ -266,12 +366,13 @@ buildDeviceToLogicalMap(mlir::tt::ttcore::MetalLayoutAttr layout,
       for (int64_t d = end - 1; d >= start; --d) {
         if (d == end - 1) {
           // Innermost dimension: just modulo by its size.
-          logicalExprs[d] = physDim % logicalShape[d];
+          logicalExprs[d] = physDim % logicalShapeInUnits[d];
         } else {
           // Outer dimensions: floordiv by accumulated multiplier, then modulo.
-          logicalExprs[d] = (physDim.floorDiv(multiplier)) % logicalShape[d];
+          logicalExprs[d] =
+              (physDim.floorDiv(multiplier)) % logicalShapeInUnits[d];
         }
-        multiplier *= logicalShape[d];
+        multiplier *= logicalShapeInUnits[d];
       }
     }
   }
@@ -295,7 +396,8 @@ buildDeviceToLogicalMap(mlir::tt::ttcore::MetalLayoutAttr layout,
 }
 
 // Build complete layout transformation from one layout to another.
-// Strategy: fromDevice -> logical -> toDevice.
+// Strategy: Use buildDeviceToLogicalMap for both layouts, which already handles
+// existing index maps correctly.
 mlir::AffineMap
 buildLayoutTransformMap(mlir::tt::ttcore::MetalLayoutAttr fromLayout,
                         mlir::RankedTensorType fromType,
@@ -308,26 +410,98 @@ buildLayoutTransformMap(mlir::tt::ttcore::MetalLayoutAttr fromLayout,
   assert(fromLayout.getLogicalShape() == toLayout.getLogicalShape() &&
          "ToLayoutOp requires same logical shape");
 
-  // Build fromDevice to logical map.
-  auto fromDeviceToLogical =
-      buildDeviceToLogicalMap(fromLayout, fromType, context);
+  ArrayRef<int64_t> logicalShape = fromLayout.getLogicalShape();
+  ArrayRef<int64_t> fromTileShape = ttcore::getTensorTileShapeOrEmpty(fromType);
+  ArrayRef<int64_t> toTileShape = ttcore::getTensorTileShapeOrEmpty(toType);
 
-  // Build logical to toDevice map.
-  ArrayRef<int64_t> logicalShape = toLayout.getLogicalShape();
-  auto toPhysicalShapeVec = toLayout.getPhysicalShape({});
+  // CRITICAL: Both INPUT and OUTPUT must have the same tile shape (or both
+  // untiled) for the mapping through logical space to work correctly.
+  // Tilize/untilize operations are handled separately in
+  // lowerFormatConversionGeneric.
+  assert(
+      (fromTileShape.empty() == toTileShape.empty()) &&
+      "Mapping change requires consistent tiling (both tiled or both untiled)");
+  assert((fromTileShape.empty() || fromTileShape == toTileShape) &&
+         "Mapping change with tiled tensors requires same tile shape");
+
+  // Use a consistent tile shape for converting logical shape to units.
+  // Since both sides must match, we can use either one.
+  ArrayRef<int64_t> tileShape = fromTileShape;
+
+  // Get shapes for both layouts
+  auto fromPhysicalShapeVec = fromLayout.getPhysicalShape(tileShape);
+  ArrayRef<int64_t> fromPhysicalShape = fromPhysicalShapeVec;
+  ArrayRef<int64_t> fromGridShape = fromLayout.getGridShape(fromType);
+
+  auto toPhysicalShapeVec = toLayout.getPhysicalShape(tileShape);
   ArrayRef<int64_t> toPhysicalShape = toPhysicalShapeVec;
   ArrayRef<int64_t> toGridShape = toLayout.getGridShape(toType);
 
-  auto logicalToToPhysical = buildLogicalToPhysicalMap(
-      logicalShape, toPhysicalShape, toLayout.getCollapsedIntervals(), context);
+  // For tiled tensors, physical shape is in tile units, so we need to convert
+  // logical shape to tile units to match. For non-tiled, both are in scalar
+  // units.
+  SmallVector<int64_t> logicalShapeInUnits;
+  if (!tileShape.empty()) {
+    logicalShapeInUnits.reserve(logicalShape.size());
+    for (size_t i = 0; i < logicalShape.size(); ++i) {
+      int64_t tileDim = tileShape[i];
+      assert(logicalShape[i] % tileDim == 0 &&
+             "Logical shape must be divisible by tile size");
+      logicalShapeInUnits.push_back(logicalShape[i] / tileDim);
+    }
+  } else {
+    logicalShapeInUnits.assign(logicalShape.begin(), logicalShape.end());
+  }
 
-  auto toPhysicalToToDevice =
-      buildPhysicalToDeviceMap(toPhysicalShape, toGridShape, context);
+  // Build OUTPUT device → logical map
+  // OUTPUT device → OUTPUT physical
+  auto toDeviceToToPhysical =
+      buildDeviceToPhysicalMap(toPhysicalShape, toGridShape, context);
 
-  // Compose the full chain: fromDevice -> logical -> toPhysical -> toDevice.
-  auto logicalToToDevice = toPhysicalToToDevice.compose(logicalToToPhysical);
+  // OUTPUT physical → logical (inverse of collapse)
+  auto toPhysicalToLogical =
+      buildPhysicalToLogicalMap(logicalShapeInUnits, toPhysicalShape,
+                                toLayout.getCollapsedIntervals(), context);
 
-  return logicalToToDevice.compose(fromDeviceToLogical);
+  // Compose: OUTPUT device → OUTPUT physical → logical
+  auto toDeviceToLogical = toPhysicalToLogical.compose(toDeviceToToPhysical);
+
+  // Account for existing index map on OUTPUT
+  auto toExistingIndexMap = toLayout.getIndexAffineMap();
+  if (toExistingIndexMap && !toExistingIndexMap.isEmpty()) {
+    toDeviceToLogical = toDeviceToLogical.compose(toExistingIndexMap);
+  }
+
+  // Build logical → INPUT device map
+  // logical → INPUT physical (collapse)
+  auto logicalToFromPhysical =
+      buildLogicalToPhysicalMap(logicalShapeInUnits, fromPhysicalShape,
+                                fromLayout.getCollapsedIntervals(), context);
+
+  // INPUT physical → INPUT device
+  auto fromPhysicalToFromDevice =
+      buildPhysicalToDeviceMap(fromPhysicalShape, fromGridShape, context);
+
+  // Compose: logical → INPUT physical → INPUT device
+  auto logicalToFromDevice =
+      fromPhysicalToFromDevice.compose(logicalToFromPhysical);
+
+  // Simplify before composing with existing index maps to avoid complexity
+  // growth
+  logicalToFromDevice = mlir::simplifyAffineMap(logicalToFromDevice);
+
+  // If the INPUT has an existing index_map, compose it to handle chained views
+  auto fromExistingIndexMap = fromLayout.getIndexAffineMap();
+  if (fromExistingIndexMap && !fromExistingIndexMap.isEmpty()) {
+    logicalToFromDevice = fromExistingIndexMap.compose(logicalToFromDevice);
+    logicalToFromDevice = mlir::simplifyAffineMap(logicalToFromDevice);
+  }
+
+  // Compose: OUTPUT device → logical → INPUT device
+  auto result = logicalToFromDevice.compose(toDeviceToLogical);
+
+  // Simplify and return
+  return mlir::simplifyAffineMap(result);
 }
 
 } // namespace mlir::tt::d2m::utils

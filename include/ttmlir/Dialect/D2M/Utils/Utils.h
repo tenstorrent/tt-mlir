@@ -62,6 +62,19 @@ mlir::AffineMap buildLogicalToPhysicalMap(
     ArrayRef<int64_t> logicalShape, ArrayRef<int64_t> physicalShape,
     mlir::DenseIntElementsAttr collapsedIntervals, mlir::MLIRContext *context);
 
+// Build semi-affine map: physical indices -> logical indices (inverse of
+// collapse) Expands collapsed physical dimensions back to logical dimensions.
+mlir::AffineMap buildPhysicalToLogicalMap(
+    ArrayRef<int64_t> logicalShape, ArrayRef<int64_t> physicalShape,
+    mlir::DenseIntElementsAttr collapsedIntervals, mlir::MLIRContext *context);
+
+// Build affine map: device indices -> physical indices
+// Reconstructs physical coordinates from grid + shard coordinates.
+// Result has form: (grid_dims..., shard_dims...) -> (phys_dims...)
+mlir::AffineMap buildDeviceToPhysicalMap(ArrayRef<int64_t> physicalShape,
+                                         ArrayRef<int64_t> gridShape,
+                                         mlir::MLIRContext *context);
+
 // Build semi-affine map: physical indices -> device indices
 // Maps from collapsed/padded shape to grid-distributed shape.
 // Result has form: (phys_dims...) -> (grid_dims..., shard_dims...)
@@ -78,9 +91,10 @@ buildDeviceToLogicalMap(mlir::tt::ttcore::MetalLayoutAttr layout,
                         mlir::RankedTensorType tensorType,
                         mlir::MLIRContext *context);
 
-// Build the full transformation map from one layout to another.
+// Build the full transformation map for a view operation.
 // Both layouts must have the same logical shape (ToLayoutOp invariant).
-// Result maps: fromLayout device coords -> toLayout device coords
+// Result maps: toLayout device coords -> fromLayout device coords
+// (i.e., for each output coord, where to fetch input data from)
 mlir::AffineMap
 buildLayoutTransformMap(mlir::tt::ttcore::MetalLayoutAttr fromLayout,
                         mlir::RankedTensorType fromType,

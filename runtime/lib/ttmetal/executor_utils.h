@@ -307,16 +307,19 @@ inline std::string createKernelFilePath(
   if (debug::Env::get().useLocForKernelName && kernelLoc) {
     path /= kernelLoc;
   } else {
-    prefix /= "ttmlir_";
-    path += currentProgramName;
-    path += "_";
-    path += kernelDebugInfo;
-    path += "_";
-    path += kernelConfigTypeString(kernelConfig);
+    std::string filename = "ttmlir_";
+    filename += currentProgramName;
+    filename += "_";
+    filename += kernelDebugInfo;
+    filename += "_";
+    filename += kernelConfigTypeString(kernelConfig);
 
     // Double underscore to visually separate core ranges from the rest.
-    path += "__";
-    path += coreRangeToString(coreRangeSet);
+    filename += "__";
+    filename += coreRangeToString(coreRangeSet);
+    filename += extention;
+    path /= filename;
+    return path;
   }
   path += extention;
   return path;
