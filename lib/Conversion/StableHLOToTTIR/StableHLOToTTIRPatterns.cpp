@@ -3864,7 +3864,7 @@ public:
     }
 
     if (hasCurPosTensorStringAttr.getValue().lower() == "true") {
-      hasAttentionMask = true;
+      hasCurPosTensor = true;
     } else if (hasCurPosTensorStringAttr.getValue().lower() == "false") {
       hasCurPosTensor = false;
     } else {
