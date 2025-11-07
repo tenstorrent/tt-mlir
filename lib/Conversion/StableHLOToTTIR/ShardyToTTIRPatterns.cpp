@@ -225,6 +225,24 @@ public:
             srcOp, "Error trying to parse shardy annotation.");
       }
 
+      auto isScalarTensor = [](mlir::Value v) {
+        if (auto st = llvm::dyn_cast<mlir::ShapedType>(v.getType())) {
+          return st.hasRank() && st.getRank() == 0;
+        }
+        return false;
+      };
+
+      bool isScalarResult = isScalarTensor(returnOperand.get());
+
+      // TODO(sshon): Handle other cases where we can skip the mesh_shard op.
+      if (shardyMeshSharding->getShardType() ==
+              mlir::tt::ttcore::MeshShardType::Replicate &&
+          isScalarResult) {
+        // For replicate shard on scalar, we can skip the mesh_shard op
+        shardToFullResults.push_back(returnOperand.get());
+        continue;
+      }
+
       // Create a new mesh shard op.
       auto outputType = mlir::cast<mlir::RankedTensorType>(
           getTypeConverter()->convertType(opResult.getType()));
