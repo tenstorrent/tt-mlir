@@ -37,6 +37,31 @@ class TTIRBuilder(Builder):
 
     # ----- Private methods ----
 
+    def _get_output_shape_and_type(
+        self,
+        organize_golden_args: Callable,
+        inputs: List[Operand],
+        op_ttir_function: Callable,
+        golden_kwargs: dict = {},
+    ):
+        op_golden_function = get_golden_function(op_ttir_function, **golden_kwargs)
+        if op_golden_function is None:
+            return
+
+        # If the op has no input, just call golden function with kwargs (eg ttir.zeros).
+        if len(inputs) == 0:
+            golden_output = op_golden_function(**golden_kwargs)
+        else:
+            golden_output = op_golden_function(
+                *(organize_golden_args(inputs)), **golden_kwargs
+            )
+
+        if isinstance(golden_output, (tuple, list)):
+            golden0 = golden_output[0]
+        else:
+            golden0 = golden_output
+        return golden0.shape, golden0.dtype
+
     def _get_empty_op(self, tensor_type: RankedTensorType) -> OpView:
         """Get TTIR-specific empty operation."""
         return ttir.EmptyOp(tensor_type)
@@ -140,7 +165,17 @@ class TTIRBuilder(Builder):
                         golden_output = op_golden_function(
                             *(organize_golden_args(inputs)), **golden_kwargs
                         )
-                    self._set_golden_tensor(op, golden_output)
+                    if isinstance(golden_output, (tuple, list)):
+                        results = list(op.operation.results)
+                        assert len(golden_output) == len(
+                            results
+                        ), f"Golden returned {len(golden_output)} items, but op has {len(results)} results"
+                        for mlir_result, gt in zip(results, golden_output):
+                            self._set_golden_tensor(mlir_result, gt)
+                        # Back-compat: builder_utils fetches golden by the OpView too
+                        self._set_golden_tensor(op, golden_output[0])
+                    else:
+                        self._set_golden_tensor(op, golden_output)
 
             return op
 
@@ -3239,6 +3274,65 @@ class TTIRBuilder(Builder):
             # organize_ttir_args=lambda i, o, _: (self._get_type(o), *i, o),
             unit_attrs=unit_attrs,
         )
+
+    def batch_norm_training(
+        self,
+        in0: Operand,
+        scale: Operand,
+        offset: Operand,
+        running_mean: Operand,
+        running_variance: Operand,
+        epsilon: float = 1e-5,
+        dimension: int = 1,
+        momentum: float = 0.1,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> Tuple[OpView, OpView, OpView]:
+
+        mean_shape = self.get_shape(running_mean)
+        variance_shape = self.get_shape(running_variance)
+        elem_ty = self._get_type(in0).element_type
+        batch_mean = self._empty(mean_shape, elem_ty)
+        batch_variance = self._empty(variance_shape, elem_ty)
+
+        op = self._op_proxy(
+            ttir.BatchNormTrainingOp,
+            [
+                batch_mean,
+                batch_variance,
+                in0,
+                scale,
+                offset,
+                running_mean,
+                running_variance,
+            ],
+            golden_kwargs={
+                "epsilon": epsilon,
+                "dimension": dimension,
+                "momentum": momentum,
+            },
+            ttir_kwargs={
+                "epsilon": FloatAttr.get_f32(epsilon),
+                "dimension": IntegerAttr.get(IntegerType.get_signless(32), dimension),
+                "momentum": FloatAttr.get_f32(momentum),
+            },
+            organize_ttir_args=lambda i, o, _: (
+                self._get_type(o),
+                self._get_type(i[0]),
+                self._get_type(i[1]),
+                i[2],
+                i[3],
+                i[4],
+                i[5],
+                i[6],
+                [o, i[0], i[1]],
+            ),
+            organize_golden_args=lambda inputs: self._organize_eltwise_golden(
+                inputs[2:]
+            ),
+            unit_attrs=unit_attrs,
+        )
+
+        return op.operation.results[0], op.operation.results[1], op.operation.results[2]
 
     def reshape(
         self, in0: Operand, shape: Shape, unit_attrs: Optional[List[str]] = None
