@@ -170,6 +170,9 @@ struct OperandContext {
     return operand->getOperandNumber();
   }
 
+  // The Value (either a memref.alloc or a block arg) that is
+  // the source of this operand's data, possibly through a view chain.
+  Value root;
   // This collects the set of ops defining an operand all the way to its
   // root `memref::AllocOp` or block arg.
   OperandDefChain defChain;
@@ -192,12 +195,12 @@ struct OperandContext {
 
 // A map linking `OperandContext`s with their originating `Value`s (defined
 // by `memref.alloc`s or passed as block args).
-using OperandContextMap = llvm::SmallMapVector<mlir::Value, OperandContext, 4>;
+using OperandContextList = llvm::SmallVector<OperandContext, 4>;
 
 struct GenericOpContext {
-  // Context info for each of this generic ops list of operands, in declaration
-  // order. (Note that the latter relies on `SmallMapVector` structure).
-  OperandContextMap operands;
+  // Context info for each of this generic op's operands, in declaration
+  // order (parallel to the generic op's operand list).
+  OperandContextList operands;
   // Pre-computed block factors for the modified op.
   SmallVector<int64_t> reblockedFactors;
   // Generic ops in "DMA-only" form currently operate in alias mode
@@ -591,21 +594,23 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
       operandCtx.operand = &operand;
       operandCtx.isOutput = (operandIndex >= outputsStart);
 
-      // Find `operand`s "root" memref and the op chain that links to it
-      // (this sets `operandCtx.defChain`). Populate `operandCtx.defChain`
+      // Find `operand`s "root" memref and the op chain that links to it.
+      // This sets `operandCtx.root` and `operandCtx.defChain`
       // and update this memref's slot in `analysis.memrefs`.
 
-      Value root =
+      operandCtx.root =
           getOperandDefChain(genericOp, operand.get(), operandCtx.defChain);
 
-      TT_debug(analysis.memrefs.contains(root));
-      MemrefValueContext &memrefCtx = analysis.memrefs.find(root)->second;
+      TT_debug(analysis.memrefs.contains(operandCtx.root));
+      MemrefValueContext &memrefCtx =
+          analysis.memrefs.find(operandCtx.root)->second;
 
       memrefCtx.genericUsers.insert(genericOp);
       memrefCtx.isMemspaceBound |= genericCtx.isExplicitDatamovement;
       memrefCtx.usedForOutput |= operandCtx.isOutput;
 
-      if (memref::AllocOp allocOp = root.getDefiningOp<memref::AllocOp>()) {
+      if (memref::AllocOp allocOp =
+              operandCtx.root.getDefiningOp<memref::AllocOp>()) {
         // Update the union set of all `allocOp` generic users.
         OperationSet &allocOpGenericUsers = genericUseClosure[allocOp];
         allocOpGenericUsers.insert(genericOp.getOperation());
@@ -680,16 +685,9 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
 
       // Finally, insert `operandCtx` into `genericCtx`.
 
-      // TODO(vroubtsov) is it possible for incoming IR to link to the same
-      // memref Value in different block arg slots? Guard against that
-      // explicitly for now.
-
-      const auto [_, inserted] =
-          genericCtx.operands.try_emplace(root, std::move(operandCtx));
-      TT_assertv(inserted,
-                 "memref used by more than one generic operand slot?");
+      genericCtx.operands.push_back(std::move(operandCtx));
     }
-    TT_debug(genericCtx.operands.size() == genericOp.getNumOperands());
+    TT_assert(genericCtx.operands.size() == genericOp.getNumOperands());
 
     // `genericUseClosure` is complete, use it to update
     // `MemrefValueContext::isMemspaceBound`:
@@ -816,9 +814,10 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
         // in any of these cases:
         //  - if it is placed in DRAM *explicitly*;
         //  - if the incoming IR indicates that this alloc should be pinned to
-        //  it current memspace;
+        //    it current memspace in any other explicit way (aggregated into
+        //    `isMemspaceBound`);
         //  - if it is the output of a generic op and the enabled pass options
-        //  do not allow output spilling;
+        //    do not allow output spilling;
         //  - (edge case) if it has zero generic op users;
         //
         const bool bound =
@@ -856,32 +855,39 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
               // streams which should already be present in the incoming IR.
               continue;
             }
-            OperandContext &operandCtx =
-                genericCtx.operands.find(memref)->second;
 
-            // An operand stream is required under any of these
-            // conditions:
-            // - streaming was earlier determined as required due to
-            // inter-core data movement needs;
-            // - the final memref placement is `Spill` (i.e. DRAM
-            // memspace).
-            if (operandCtx.requiresStream ||
-                (placement == PlannerSpace::Spill)) {
-              TT_debug(operandCtx.bufferType != nullptr);
-              const AllocSizeT bufferSize = ttmlir::utils::alignUp(
-                  getStreamBufferSizeBytes(operandCtx.bufferType, device),
-                  memInfo.alignment);
+            // A given user can have multiple uses of `memref` at
+            // different operand positions; each position can
+            // result in insertion of its own stream.
+            for (OperandContext &operandCtx : genericCtx.operands) {
+              if (operandCtx.root != memref) {
+                continue;
+              }
 
-              // Because we will insert stream buffer allocs just before
-              // generic ops themselves, without any other interposing
-              // allocs, it is mathematically correct to see all such
-              // buffers' live ranges as a single position coinciding with
-              // the generic op's logical time.
-              const SequenceT firstAndLast = analysis.sequencing[user];
+              // An operand stream is required under any of these
+              // conditions:
+              // - streaming was earlier determined as required due to
+              //   inter-core data movement needs;
+              // - the final memref placement is `Spill` (i.e. DRAM
+              //   memspace).
+              if (operandCtx.requiresStream ||
+                  (placement == PlannerSpace::Spill)) {
+                TT_debug(operandCtx.bufferType != nullptr);
+                const AllocSizeT bufferSize = ttmlir::utils::alignUp(
+                    getStreamBufferSizeBytes(operandCtx.bufferType, device),
+                    memInfo.alignment);
 
-              TT_debug(operandCtx.reqIndex[ordinal(placement)] < 0);
-              operandCtx.reqIndex[ordinal(placement)] =
-                  b.request(placement, bufferSize, firstAndLast, firstAndLast);
+                // Because we will insert stream buffer allocs just before
+                // generic ops themselves, without any other interposing
+                // allocs, it is mathematically correct to see all such
+                // buffers' live ranges as a single position coinciding with
+                // the generic op's logical time.
+                const SequenceT firstAndLast = analysis.sequencing[user];
+
+                TT_debug(operandCtx.reqIndex[ordinal(placement)] < 0);
+                operandCtx.reqIndex[ordinal(placement)] = b.request(
+                    placement, bufferSize, firstAndLast, firstAndLast);
+              }
             }
           }
         }
@@ -1036,9 +1042,10 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
         continue;
       }
 
-      for (const auto &[memref, operandCtx] : genericCtx.operands) {
-        TT_debug(analysis.memrefs.contains(memref));
-        const MemrefValueContext &memrefCtx = analysis.memrefs.at(memref);
+      for (const OperandContext &operandCtx : genericCtx.operands) {
+        TT_debug(analysis.memrefs.contains(operandCtx.root));
+        const MemrefValueContext &memrefCtx =
+            analysis.memrefs.at(operandCtx.root);
 
         const MemorySpace remappedMemSpace = *memrefCtx.remappedMemSpace;
 
