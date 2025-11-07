@@ -763,6 +763,179 @@ private:
 } // namespace
 
 //===----------------------------------------------------------------------===//
+// Conv3d Pattern Matching
+//===----------------------------------------------------------------------===//
+
+namespace {
+struct ConvolutionToConv3dPattern : public ConvolutionDecompositionPattern {
+public:
+  using ConvolutionDecompositionPattern::ConvolutionDecompositionPattern;
+
+  constexpr static uint32_t NUM_SPATIAL_DIMS = 3;
+  constexpr static uint32_t SPATIAL_DIM_DEPTH = 0;
+  constexpr static uint32_t SPATIAL_DIM_HEIGHT = 1;
+  constexpr static uint32_t SPATIAL_DIM_WIDTH = 2;
+
+  // NDHWC
+  static inline const std::vector<int64_t> conv3dLayout = {
+      ConvolutionDimension::BATCH,
+      SPATIAL_DIM_DEPTH,
+      SPATIAL_DIM_HEIGHT,
+      SPATIAL_DIM_WIDTH,
+      ConvolutionDimension::FEATURE,
+  };
+  // OIDHW
+  static inline const std::vector<int64_t> conv3dKernelLayout = {
+      ConvolutionKernelDimension::OUTPUT_FEATURES,
+      ConvolutionKernelDimension::INPUT_FEATURES,
+      SPATIAL_DIM_DEPTH,
+      SPATIAL_DIM_HEIGHT,
+      SPATIAL_DIM_WIDTH,
+  };
+
+  LogicalResult
+  matchAndRewrite(ttir::ConvolutionOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    if (!(isSupportedConv(op) && isNDimensional(op, NUM_SPATIAL_DIMS))) {
+      return failure();
+    }
+
+    uint64_t batchGroupCount = adaptor.getBatchGroupCount();
+
+    // For now, only support simple case without batch groups
+    if (batchGroupCount > 1) {
+      return rewriter.notifyMatchFailure(
+          op, "Conv3d does not support batch_group_count > 1 yet");
+    }
+
+    // Check that dilation is 1 for all dimensions since Conv3d doesn't support
+    // dilation yet
+    for (int64_t dilation : adaptor.getWeightDilation()) {
+      if (dilation != 1) {
+        return rewriter.notifyMatchFailure(
+            op, "Conv3d does not support dilation != 1");
+      }
+    }
+
+    // Check that padding is symmetric for all dimensions since Conv3d only
+    // supports symmetric padding
+    auto paddingMatrix =
+        getPaddingMatrix<NUM_SPATIAL_DIMS>(adaptor.getPadding());
+    for (uint32_t i = 0; i < NUM_SPATIAL_DIMS; i++) {
+      if (paddingMatrix[i][0] != paddingMatrix[i][1]) {
+        return rewriter.notifyMatchFailure(
+            op, "Conv3d only supports symmetric padding");
+      }
+    }
+
+    auto convLayoutAttr = op.getConvolutionLayoutAttr();
+    auto outputType =
+        mlir::cast<RankedTensorType>(adaptor.getOutput().getType());
+
+    // Permute input to NDHWC layout
+    Value input = adaptor.getInput();
+    RankedTensorType inputType = mlir::cast<RankedTensorType>(input.getType());
+    auto inputPermutation = generateConvPermutation(op, conv3dLayout);
+    auto permutedInputShape =
+        ttmlir::utils::applyPermutation(inputType.getShape(), inputPermutation);
+    Value permutedInput = ttir::utils::createDPSOp<ttir::PermuteOp>(
+        rewriter, ttmlir::utils::appendLocationSuffix(op.getLoc(), "_input"),
+        permutedInputShape, inputType.getElementType(), inputType.getEncoding(),
+        input, inputPermutation);
+
+    Value result = createConv3d(rewriter, op, adaptor, convLayoutAttr,
+                                permutedInput, adaptor.getWeight(),
+                                outputType.getShape());
+
+    // Apply inverse permutation to restore original layout.
+    llvm::SmallVector<int64_t> outputLayout(conv3dLayout.size(),
+                                            ConvolutionDimension::INVALID_DIM);
+    outputLayout[convLayoutAttr.getOutputBatchDimension()] =
+        ConvolutionDimension::BATCH;
+    outputLayout[convLayoutAttr.getOutputFeatureDimension()] =
+        ConvolutionDimension::FEATURE;
+    for (const auto [spatialCount, spatialDim] :
+         llvm::enumerate(convLayoutAttr.getOutputSpatialDimensions())) {
+      outputLayout[spatialDim] = spatialCount;
+    }
+    auto outputPermutation = ttmlir::utils::generatePermutation(
+        llvm::ArrayRef(conv3dLayout), llvm::ArrayRef(outputLayout));
+
+    rewriter.replaceOpWithNewOp<ttir::PermuteOp>(
+        op, op.getResult().getType(), result, adaptor.getOutput(),
+        outputPermutation);
+
+    return success();
+  }
+
+private:
+  // Create a Conv3d operation with NDHWC input and OIDHW weights.
+  Value createConv3d(
+      ConversionPatternRewriter &rewriter, ttir::ConvolutionOp op,
+      OpAdaptor adaptor, mlir::tt::ttir::ConvolutionLayoutAttr convLayoutAttr,
+      Value permutedInput, Value weight, llvm::ArrayRef<int64_t> outputShape) const {
+
+    auto strideAttr = rewriter.getDenseI32ArrayAttr({
+        static_cast<int32_t>(adaptor.getWindowStrides()[SPATIAL_DIM_DEPTH]),
+        static_cast<int32_t>(adaptor.getWindowStrides()[SPATIAL_DIM_HEIGHT]),
+        static_cast<int32_t>(adaptor.getWindowStrides()[SPATIAL_DIM_WIDTH]),
+    });
+
+    // Padding is a list of 2-tuples, the order of the 2-tuples is in
+    // most-significant spatial dimension first order. For Conv3d the most
+    // significant spatial dimension is the depth, followed by height, then
+    // width.
+    // Note: Conv3d only supports symmetric padding (validated in
+    // matchAndRewrite), so we only use the "before" padding values.
+    auto paddingMatrix =
+        getPaddingMatrix<NUM_SPATIAL_DIMS>(adaptor.getPadding());
+    auto paddingAttr = rewriter.getDenseI32ArrayAttr({
+        static_cast<int32_t>(paddingMatrix[SPATIAL_DIM_DEPTH][0]),
+        static_cast<int32_t>(paddingMatrix[SPATIAL_DIM_HEIGHT][0]),
+        static_cast<int32_t>(paddingMatrix[SPATIAL_DIM_WIDTH][0]),
+    });
+
+    auto groupsAttr =
+        rewriter.getI32IntegerAttr(adaptor.getFeatureGroupCount());
+
+    llvm::SmallVector<int64_t> newOutputShape{
+        outputShape[convLayoutAttr.getOutputBatchDimension()],
+        outputShape[convLayoutAttr
+                        .getOutputSpatialDimensions()[SPATIAL_DIM_DEPTH]],
+        outputShape[convLayoutAttr
+                        .getOutputSpatialDimensions()[SPATIAL_DIM_HEIGHT]],
+        outputShape[convLayoutAttr
+                        .getOutputSpatialDimensions()[SPATIAL_DIM_WIDTH]],
+        outputShape[convLayoutAttr.getOutputFeatureDimension()]};
+
+    RankedTensorType inputType =
+        mlir::cast<RankedTensorType>(permutedInput.getType());
+    RankedTensorType outputType = inputType.clone(newOutputShape);
+
+    // Permute weight to OIDHW layout
+    Value permutedWeight = weight;
+    auto weightType = mlir::cast<RankedTensorType>(permutedWeight.getType());
+    auto kernelPermutation =
+        generateConvKernelPermutation(op, conv3dKernelLayout);
+    auto weightOutputShape = ::ttmlir::utils::applyPermutation(
+        weightType.getShape(), kernelPermutation);
+    permutedWeight = ttir::utils::createDPSOp<ttir::PermuteOp>(
+        rewriter, ttmlir::utils::appendLocationSuffix(op.getLoc(), "_weight"),
+        weightOutputShape, weightType.getElementType(),
+        weightType.getEncoding(), permutedWeight, kernelPermutation);
+
+    // Bias is passed through as-is (expected to be 5D: 1x1x1x1xC_out)
+    mlir::Value newConv = ttir::utils::createDPSOp<ttir::Conv3dOp>(
+        rewriter, op.getLoc(), outputType, Value(permutedInput),
+        Value(permutedWeight), adaptor.getBias(), strideAttr, paddingAttr,
+        groupsAttr, /*padding_mode=*/nullptr);
+
+    return newConv;
+  }
+};
+} // namespace
+
+//===----------------------------------------------------------------------===//
 // Reverse Pattern Matching
 //===----------------------------------------------------------------------===//
 
@@ -2883,6 +3056,7 @@ void populateTTIRToTTIRDecompositionPatterns(MLIRContext *ctx,
   patterns.add<IndexToSliceConversionPattern>(typeConverter, ctx);
   patterns.add<Legalize1DConvolutionPattern>(typeConverter, ctx);
   patterns.add<ConvolutionToConv2dPattern>(typeConverter, ctx);
+  patterns.add<ConvolutionToConv3dPattern>(typeConverter, ctx);
   patterns.add<GatherToEmbeddingConversionPattern>(typeConverter, ctx);
   patterns.add<SelectToSliceConversionPattern>(typeConverter, ctx);
   patterns.add<ArangeForceLastDimensionPattern>(typeConverter, ctx);

@@ -3256,26 +3256,26 @@ def TTIR_Conv3dOp : TTIR_NamedOp<"conv3d"> {
       // Basic 3D convolution with 3x3x3 kernel
       %input = ... : tensor<1x8x28x28x4xf32>     // Batch=1, Depth=8, H=28, W=28, Channels=4
       %weight = ... : tensor<16x4x3x3x3xf32>     // 16 output channels, 4 input channels, 3x3x3 kernel
-      %bias = ... : tensor<16xf32>       // Bias for 16 output channels
+      %bias = ... : tensor<1x1x1x1x16xf32>       // Bias for 16 output channels
       %output = ttir.empty() : tensor<1x6x26x26x16xf32>
       %result = ttir.conv3d(%input, %weight, %bias, %output) {
           stride = [1, 1, 1],
           padding = [0, 0, 0],
           groups = 1,
           padding_mode = "zeros"
-      } : tensor<1x8x28x28x4xf32>, tensor<16x4x3x3x3xf32>, tensor<16xf32>, tensor<1x6x26x26x16xf32> -> tensor<1x6x26x26x16xf32>
+      } : tensor<1x8x28x28x4xf32>, tensor<16x4x3x3x3xf32>, tensor<1x1x1x1x16xf32>, tensor<1x6x26x26x16xf32> -> tensor<1x6x26x26x16xf32>
 
       // Convolution with stride 2 and padding
       %input = ... : tensor<1x8x28x28x4xf32>     // Batch size 1, Depth=8, H=28, W=28, Channels=4
       %weight = ... : tensor<16x4x3x3x3xf32>     // 16 output channels, 4 input channels, 3x3x3 kernel
-      %bias = ... : tensor<16xf32>       // Bias for 16 output channels
+      %bias = ... : tensor<1x1x1x1x16xf32>       // Bias for 16 output channels
       %output = ttir.empty() : tensor<1x4x14x14x16xf32> // Output shape with stride 2
       %result = ttir.conv3d(%input, %weight, %bias, %output) {
           stride = [2, 2, 2],
           padding = [1, 1, 1],
           groups = 1,
           padding_mode = "zeros"
-      } : tensor<1x8x28x28x4xf32>, tensor<16x4x3x3x3xf32>, tensor<16xf32>, tensor<1x4x14x14x16xf32> -> tensor<1x4x14x14x16xf32>
+      } : tensor<1x8x28x28x4xf32>, tensor<16x4x3x3x3xf32>, tensor<1x1x1x1x16xf32>, tensor<1x4x14x14x16xf32> -> tensor<1x4x14x14x16xf32>
       ```
 
       Inputs:
@@ -3291,7 +3291,7 @@ def TTIR_Conv3dOp : TTIR_NamedOp<"conv3d"> {
         - K_D is the depth of the kernel
         - K_H is the height of the kernel
         - K_W is the width of the kernel
-      - `bias` Optional<AnyRankedTensor>: expected in the following format (C_out).
+      - `bias` Optional<AnyRankedTensor>: expected in the following format (1, 1, 1, 1, C_out).
 
       Attributes:
       - `stride` (i32 | array<3xi32>): [sD, sH, sW] where sD is stride for depth, sH for height, sW for width.
