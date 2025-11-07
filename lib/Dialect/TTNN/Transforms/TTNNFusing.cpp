@@ -109,6 +109,58 @@ private:
   }
 };
 
+template <typename SrcOp, typename ActivationOp>
+class TTNNMatmulAndLinearWithActivation : public mlir::OpRewritePattern<SrcOp> {
+  using TTNNMatmulAndLinearWithActivation::template OpRewritePattern<
+      SrcOp>::OpRewritePattern;
+
+public:
+  mlir::LogicalResult
+  matchAndRewrite(SrcOp srcOp, mlir::PatternRewriter &rewriter) const final {
+    if (!isFusable(srcOp)) {
+      return failure();
+    }
+
+    ActivationOp activationOp =
+        mlir::cast<ActivationOp>(*srcOp.getResult().getUsers().begin());
+    Value activationInput = activationOp.getInput();
+    auto activationStr = getActivationString();
+
+    rewriter.modifyOpInPlace(srcOp, [&]() {
+      srcOp.setActivationAttr(rewriter.getStringAttr(activationStr));
+    });
+
+    rewriter.replaceAllUsesWith(activationOp, activationInput);
+    return mlir::success();
+  }
+
+private:
+  // After tt-metal resolves this issue:
+  // https://github.com/tenstorrent/tt-metal/issues/31393, we can use the
+  // UnaryWithParam enum directly instead of string.
+  std::string getActivationString() const {
+    llvm::StringLiteral fullOpName = ActivationOp::getOperationName();
+    llvm::StringRef opName = fullOpName.rsplit('.').second;
+    return opName.str();
+  }
+
+  bool isFusable(SrcOp srcOp) const {
+    if (srcOp.getActivation()) {
+      return false;
+    }
+
+    if (!srcOp.getResult().hasOneUse()) {
+      return false;
+    }
+
+    if (ttmlir::utils::allUsersOfType<ActivationOp>(srcOp)) {
+      return true;
+    }
+
+    return false;
+  }
+};
+
 class TTNNFusingPass : public impl::TTNNFusingBase<TTNNFusingPass> {
 public:
   using impl::TTNNFusingBase<TTNNFusingPass>::TTNNFusingBase;
@@ -119,8 +171,10 @@ public:
     // https://github.com/tenstorrent/tt-metal/issues/30973
     patterns.add<
         TTNNConv2dWithActivation<ReluOp>, TTNNConv2dWithActivation<Relu6Op>,
-        TTNNConv2dWithActivation<SiluOp>, TTNNConv2dWithActivation<SigmoidOp>>(
-        &getContext());
+        TTNNConv2dWithActivation<SiluOp>, TTNNConv2dWithActivation<SigmoidOp>,
+        TTNNMatmulAndLinearWithActivation<MatmulOp, SigmoidOp>,
+        TTNNMatmulAndLinearWithActivation<LinearOp, SigmoidOp>>(&getContext());
+
     GreedyRewriteConfig config;
     config.setUseTopDownTraversal(true);
     (void)applyPatternsGreedily(getOperation(), std::move(patterns));
