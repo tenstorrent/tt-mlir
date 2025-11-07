@@ -422,8 +422,8 @@ public:
         TTNNConv2dWithActivation<ReluOp>, TTNNConv2dWithActivation<Relu6Op>,
         TTNNConv2dWithActivation<SiluOp>, TTNNConv2dWithActivation<SigmoidOp>,
         TTNNMatmulAndLinearWithActivation<MatmulOp, SigmoidOp>,
-        TTNNMatmulAndLinearWithActivation<LinearOp, SigmoidOp>,
-        RoPEFusing>(&getContext());
+        TTNNMatmulAndLinearWithActivation<LinearOp, SigmoidOp>, RoPEFusing>(
+        &getContext());
 
     GreedyRewriteConfig config;
     config.setUseTopDownTraversal(true);
