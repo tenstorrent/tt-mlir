@@ -498,16 +498,28 @@ class ModelRunner:
 
         ############################## TTRT Perf #################################
 
-        ttrt_perf_command = [
-            "taskset",
-            "-c",
-            "0",
-            "ttrt",
-            "perf",
-            flatbuffer_file,
-            f"--artifact-dir={self._explorer_artifacts_dir}",
-            "--memory",
-        ]
+        # Check if taskset is available
+        import shutil
+        if shutil.which("taskset"):
+            ttrt_perf_command = [
+                "taskset",
+                "-c",
+                "0",
+                "ttrt",
+                "perf",
+                flatbuffer_file,
+                f"--artifact-dir={self._explorer_artifacts_dir}",
+                "--memory",
+            ]
+        else:
+            self.log("taskset not available, running ttrt perf without CPU pinning", severity=logging.warning)
+            ttrt_perf_command = [
+                "ttrt",
+                "perf",
+                flatbuffer_file,
+                f"--artifact-dir={self._explorer_artifacts_dir}",
+                "--memory",
+            ]
 
         import sys
         print(f"\nDEBUG: Running ttrt perf: {' '.join(ttrt_perf_command)}", flush=True)
