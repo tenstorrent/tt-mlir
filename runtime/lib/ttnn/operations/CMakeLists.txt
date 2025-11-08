@@ -74,6 +74,7 @@ set(TTNN_OPS_SRCS
   ${CMAKE_CURRENT_SOURCE_DIR}/trace/execute_trace.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/transformer/concatenate_heads.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/transformer/rotary_embedding_llama.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/transformer/rotary_embedding.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/transformer/nlp_create_qkv_heads_decode.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/transformer/nlp_concat_heads.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/transformer/nlp_concat_heads_decode.cpp

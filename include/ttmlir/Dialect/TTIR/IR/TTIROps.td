@@ -5546,8 +5546,6 @@ def TTIR_ConcatenateHeadsOp: TTIR_NamedOp<"concatenate_heads"> {
   let hasVerifier = 1;
 }
 
-
-
 def TTIR_ScaledDotProductAttentionDecodeOp : TTIR_NamedOp<"scaled_dot_product_attention_decode", [AttrSizedOperandSegments]> {
     let summary = "A version of scaled dot product attention specifically for decode.";
     let description = [{
