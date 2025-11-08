@@ -622,9 +622,69 @@ class TTNNPrettifyForCodegen
     : public impl::TTNNPrettifyForCodegenBase<TTNNPrettifyForCodegen> {
 
 private:
+  // @dataclass
+  // class LocationModuleCodegen:
+  //     module_class: str
+  //     module_name: str
+
+  // @dataclass
+  // class LocationCodegen:
+  //     modules: list[LocationModuleCodegen]
+  //     func_path: str
+  //     func_name: str
+  //     op_line_num: int
+  //     op_name: str
   struct PyLoc {
-    Location loc;
+    struct Module {
+      std::string moduleClass;
+      std::string moduleName;
+    };
+
+    llvm::SmallVector<Module> modules;
+    std::string funcPath;
+    std::string funcName;
+    int opLineNum;
+    std::string opName;
+
     Operation *op;
+
+    PyLoc(Operation *op) {
+      this->op = op;
+
+      // Get location without "loc(" and ")" characters.
+      std::string locStr = locationToStr(op->getLoc());
+
+      // Split locStr by "|" character.
+      // For example, given:
+      //   "Tail[tail]|ReLU[tail.relu]|/localdev/.../test.py:106|forward|107|aten__relu"
+      // Return:
+      //   ["Tail[tail]", "ReLU[tail.relu]", "/localdev/.../test.py:106",
+      //   "forward", "107", "aten__relu"]
+      llvm::SmallVector<llvm::StringRef, 5> locParts;
+      llvm::StringRef(locStr).split(locParts, "|", -1, false);
+
+      // Fill in fields from back of locParts.
+      size_t n = locParts.size();
+      this->opName = locParts[n - 1].str();
+      this->opLineNum = std::stoi(locParts[n - 2].str());
+      this->funcName = locParts[n - 3].str();
+      this->funcPath = locParts[n - 4].str();
+      this->modules = llvm::SmallVector<Module>();
+      for (size_t i = 0; i < n - 4; i++) {
+        // Split each module into class and name.
+        // For example, given:
+        //   "Tail[tail]"
+        // Return:
+        //   ["Tail", "tail"]
+        llvm::SmallVector<llvm::StringRef, 2> moduleParts;
+        locParts[i].split(moduleParts, "[", -1, false);
+        this->modules.push_back(
+            Module{/* moduleClass= */ moduleParts[0].str(),
+                   // Remove trailing "]" from module name.
+                   /* moduleName= */ moduleParts[1].str().substr(
+                       0, moduleParts[1].str().size() - 1)});
+      }
+    }
   };
 
   void printFnInfo(func::FuncOp funcOp) {
@@ -652,101 +712,16 @@ private:
   static std::string locationToStr(const mlir::Location &loc) {
     std::string locStr;
     llvm::raw_string_ostream(locStr) << loc;
+
+    // Remove the loc(" and ") characters
+    if (locStr.find("loc(\"") == 0) {
+      locStr = locStr.substr(5);
+    }
+    if (locStr.find("\")") == locStr.size() - 2) {
+      locStr = locStr.substr(0, locStr.size() - 2);
+    }
+
     return locStr;
-  }
-
-  PyLoc parseIRLocation(Operation *op) {
-    llvm::outs() << "Op: " << op->getName() << "\n";
-    llvm::outs() << "  Loc: " << op->getLoc() << "\n";
-
-    // Early exit if unknown location
-    if (op->getLoc() == UnknownLoc::get(op->getContext())) {
-      return PyLoc{op->getLoc(), op};
-    }
-
-    // Example location:
-    // loc("Tail[tail]/ReLU[tail.relu]/forward(test.py:110)/aten__relu")
-
-    std::string locStr = locationToStr(op->getLoc());
-
-    // Break locStr by the "/" character
-    std::vector<std::string> locParts;
-    for (llvm::StringRef part : llvm::split(locStr, "/")) {
-      locParts.push_back(part.str());
-    }
-
-    // The last part of the locParts is the operation name
-    std::string opName = locParts.back();
-    locParts.pop_back();
-    // Remove trailing ")" or `")` if present
-    if (!opName.empty() && opName.back() == ')') {
-      opName.pop_back();
-    }
-    if (!opName.empty() && opName.back() == '"') {
-      opName.pop_back();
-    }
-
-    // Next is function name and file line number
-    std::string funcNameAndFileLineNum = locParts.back();
-    locParts.pop_back();
-
-    // Break funcNameAndFileLineNum by the "(" and ")" characters
-    size_t openParen = funcNameAndFileLineNum.find("(");
-    size_t closeParen = funcNameAndFileLineNum.find(")");
-    std::string funcName = funcNameAndFileLineNum.substr(0, openParen);
-    std::string fileLineNum = funcNameAndFileLineNum.substr(
-        openParen + 1, closeParen - openParen - 1);
-
-    // Next are Py op type + name, like this: ReLU[tail.relu]
-    std::string pyOpTypeAndName = locParts.back();
-    locParts.pop_back();
-    // Remove leading "loc(" if present (when there's no class name)
-    if (pyOpTypeAndName.find("loc(") == 0) {
-      pyOpTypeAndName = pyOpTypeAndName.substr(4); // Remove "loc("
-    }
-    // Remove leading quote if present (from loc("...)
-    if (!pyOpTypeAndName.empty() && pyOpTypeAndName[0] == '"') {
-      pyOpTypeAndName = pyOpTypeAndName.substr(1);
-    }
-    size_t openBracket = pyOpTypeAndName.find("[");
-    size_t closeBracket = pyOpTypeAndName.find("]");
-    std::string pyOpType = pyOpTypeAndName.substr(0, openBracket);
-    std::string pyOpName =
-        pyOpTypeAndName.substr(openBracket + 1, closeBracket - openBracket - 1);
-
-    // Next, there MIGHT be a class name, and the object name, like this:
-    // Tail[tail] So first check if locParts is not empty, use placeholder
-    // `None` if empty
-    std::string className = "None";
-    std::string objectName = "None";
-    if (!locParts.empty()) {
-      std::string classNameAndObjectName = locParts.back();
-      locParts.pop_back();
-      // Remove leading "loc(" if present
-      if (classNameAndObjectName.find("loc(") == 0) {
-        classNameAndObjectName =
-            classNameAndObjectName.substr(4); // Remove "loc("
-      }
-      // Remove leading quote if present (from loc("...)
-      if (!classNameAndObjectName.empty() && classNameAndObjectName[0] == '"') {
-        classNameAndObjectName = classNameAndObjectName.substr(1);
-      }
-      size_t classOpenBracket = classNameAndObjectName.find("[");
-      size_t classCloseBracket = classNameAndObjectName.find("]");
-      className = classNameAndObjectName.substr(0, classOpenBracket);
-      objectName = classNameAndObjectName.substr(
-          classOpenBracket + 1, classCloseBracket - classOpenBracket - 1);
-    }
-
-    llvm::outs() << "    Op: " << opName << "\n";
-    llvm::outs() << "    Func: " << funcName << "\n";
-    llvm::outs() << "    File: " << fileLineNum << "\n";
-    llvm::outs() << "    Py Op Type: " << pyOpType << "\n";
-    llvm::outs() << "    Py Op Name: " << pyOpName << "\n";
-    llvm::outs() << "    Class: " << className << "\n";
-    llvm::outs() << "    Object: " << objectName << "\n";
-
-    return PyLoc{op->getLoc(), op};
   }
 
   SmallVector<func::FuncOp> findCandidateFns(ModuleOp moduleOp) {
@@ -769,7 +744,7 @@ private:
         return WalkResult::advance();
       }
 
-      PyLoc pyLoc = parseIRLocation(op);
+      PyLoc pyLoc(op);
       locations.push_back(pyLoc);
       return WalkResult::advance();
     });
@@ -780,7 +755,17 @@ private:
   void buildFunctree(SmallVector<func::FuncOp> candidateFns,
                      SmallVector<PyLoc> locations) {
     for (PyLoc &pyLoc : locations) {
-      (void)pyLoc;
+      llvm::outs() << "PyLoc: " << pyLoc.op->getName() << "\n";
+      llvm::outs() << "  Loc: " << pyLoc.op->getLoc() << "\n";
+      llvm::outs() << "  Func path: " << pyLoc.funcPath << "\n";
+      llvm::outs() << "  Func name: " << pyLoc.funcName << "\n";
+      llvm::outs() << "  Op line num: " << pyLoc.opLineNum << "\n";
+      llvm::outs() << "  Op name: " << pyLoc.opName << "\n";
+      llvm::outs() << "  Modules: " << pyLoc.modules.size() << "\n";
+      for (PyLoc::Module &module : pyLoc.modules) {
+        llvm::outs() << "    Module: " << module.moduleClass << "["
+                     << module.moduleName << "]\n";
+      }
     }
   }
 
