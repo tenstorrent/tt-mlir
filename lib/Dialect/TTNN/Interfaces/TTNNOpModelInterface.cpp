@@ -2128,6 +2128,50 @@ RotaryEmbeddingLlamaOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 }
 
 //===-----------------------------------------------------------------------===//
+// RotaryEmbeddingOp - TTNN Op Model Interface
+//===-----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::OpConstraints>
+RotaryEmbeddingOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                                    const OpConfig &opConfig) {
+  assert(inputs.size() == 3);
+
+  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
+  if (!check) {
+    return check.takeError();
+  }
+
+  ttcore::GridAttr deviceGrid =
+      ttcore::lookupDevice(getOperation()).getWorkerGrid();
+
+  auto inputShape = getInput().getType().getShape();
+  auto cosShape = getCosCache().getType().getShape();
+  auto sinShape = getSinCache().getType().getShape();
+  auto tokenIndex = getTokenIndex();
+
+  return opConstraintsCache().getOrCompute(
+      op_model::OpModel<RotaryEmbeddingOp>::getOpConstraints, *this, deviceGrid,
+      inputShape, inputs[0], cosShape, inputs[1], sinShape, inputs[2],
+      tokenIndex, opConfig.outputLayout);
+}
+
+llvm::Expected<size_t>
+RotaryEmbeddingOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                                const OpConfig &opConfig) {
+  assert(inputs.size() == 3);
+
+  auto inputShape = getInput().getType().getShape();
+  auto cosShape = getCosCache().getType().getShape();
+  auto sinShape = getSinCache().getType().getShape();
+  auto tokenIndex = getTokenIndex();
+
+  return opRuntimeCache().getOrCompute(
+      op_model::OpModel<RotaryEmbeddingOp>::getOpRuntime, *this, inputShape,
+      inputs[0], cosShape, inputs[1], sinShape, inputs[2], tokenIndex,
+      opConfig.outputLayout);
+}
+
+//===-----------------------------------------------------------------------===//
 // NLPCreateQKVHeadsDecodeOp - TTNN Op Model Interface
 // ===----------------------------------------------------------------------===//
 
