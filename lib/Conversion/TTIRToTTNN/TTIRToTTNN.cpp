@@ -2176,7 +2176,7 @@ public:
         adaptor.getIsCausal(), adaptor.getAttentionMask(),
         adaptor.getCurPosTensor(), adaptor.getAttentionSink(),
         adaptor.getScaleAttr(),
-        /*memory_config=*/nullptr);
+        /*memory_config=*/nullptr, /*program_config=*/nullptr);
     return success();
   }
 };
@@ -2210,15 +2210,61 @@ class ScaledDotProductAttentionOpConversionPattern
 public:
   using OpConversionPattern<
       ttir::ScaledDotProductAttentionOp>::OpConversionPattern;
+
   LogicalResult
   matchAndRewrite(ttir::ScaledDotProductAttentionOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    rewriter.replaceOpWithNewOp<ttnn::ScaledDotProductAttentionOp>(
-        op, this->getTypeConverter()->convertType(op.getType()),
-        adaptor.getQuery(), adaptor.getKey(), adaptor.getValue(),
-        adaptor.getAttentionMask(), op.getIsCausal(), adaptor.getScaleAttr(),
-        adaptor.getSlidingWindowSizeAttr(),
-        /*memory_config=*/nullptr);
+    auto queryType = mlir::cast<RankedTensorType>(op.getQuery().getType());
+
+    // If sequence length of query is 1, we should use the decode op
+    if (queryType.getDimSize(2) == 1) {
+      // Permute query: [B, H, 1, D] -> [1, B, H, D]
+      Value permutedQuery = ttir_to_ttnn::utils::generatePermute(
+          mlir::cast<TypedValue<mlir::RankedTensorType>>(adaptor.getQuery()),
+          {2, 0, 1, 3}, rewriter, op.getLoc());
+
+      // Broadcast mask head dimension if needed for decode op
+      Value attentionMask = adaptor.getAttentionMask();
+      if (attentionMask) {
+        auto maskType = mlir::cast<RankedTensorType>(attentionMask.getType());
+        int64_t numHeads = queryType.getDimSize(1);
+
+        if (numHeads > 1) {
+          SmallVector<int64_t> broadcastShape(maskType.getShape().begin(),
+                                              maskType.getShape().end());
+          broadcastShape[2] = numHeads;
+
+          auto broadcastType = ttnn::utils::RankedTensorTypeFactory::create(
+              maskType, broadcastShape);
+          auto broadcastDims = ttmlir::utils::getBroadcastDimensions<int64_t>(
+              maskType.getShape(), broadcastShape);
+          auto shapeAttr =
+              ttnn::ShapeAttr::get(rewriter.getContext(), broadcastDims);
+          attentionMask = rewriter.create<ttnn::RepeatOp>(
+              op.getLoc(), broadcastType, attentionMask, shapeAttr);
+        }
+      }
+
+      auto decodeOp = rewriter.create<ttnn::ScaledDotProductAttentionDecodeOp>(
+          op.getLoc(), permutedQuery.getType(), permutedQuery, adaptor.getKey(),
+          adaptor.getValue(), op.getIsCausal(), attentionMask,
+          /*cur_pos_tensor=*/Value(), /*attention_sink=*/Value(),
+          adaptor.getScaleAttr(), /*memory_config=*/nullptr,
+          /*program_config=*/nullptr);
+
+      // Permute result back: [1, B, H, D] -> [B, H, 1, D]
+      rewriter.replaceOp(
+          op, ttir_to_ttnn::utils::generatePermute(
+                  decodeOp.getResult(), {1, 2, 0, 3}, rewriter, op.getLoc()));
+    } else {
+      rewriter.replaceOpWithNewOp<ttnn::ScaledDotProductAttentionOp>(
+          op, this->getTypeConverter()->convertType(op.getType()),
+          adaptor.getQuery(), adaptor.getKey(), adaptor.getValue(),
+          adaptor.getAttentionMask(), op.getIsCausal(), adaptor.getScaleAttr(),
+          adaptor.getSlidingWindowSizeAttr(),
+          /*memory_config=*/nullptr);
+    }
+
     return success();
   }
 };

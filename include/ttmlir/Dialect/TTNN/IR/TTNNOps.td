@@ -2876,10 +2876,11 @@ def TTNN_ScaledDotProductAttentionDecodeOp : TTNN_Op<"scaled_dot_product_attenti
                          AnyRankedTensor:$value,
                          DefaultValuedAttr<BoolAttr, "true">:$is_causal,
                          Optional<AnyRankedTensor>:$attention_mask,
-                         AnyRankedTensor:$cur_pos_tensor,
+                         Optional<AnyRankedTensor>:$cur_pos_tensor,
                          Optional<AnyRankedTensor>:$attention_sink,
                          OptionalAttr<F32Attr>:$scale,
-                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config,
+                         OptionalAttr<TTNN_SDPAProgramConfigAttr>:$program_config);
 
     let results = (outs AnyRankedTensor:$result);
 
