@@ -21,6 +21,7 @@
 #include "operations/creation/empty.h"
 #include "operations/creation/full.h"
 #include "operations/creation/full_with.h"
+#include "operations/data_movement/assign.h"
 #include "operations/data_movement/concat.h"
 #include "operations/data_movement/pad.h"
 #include "operations/data_movement/permute.h"
@@ -43,6 +44,7 @@
 #include "operations/embedding/embedding_backward.h"
 #include "operations/generic/generic_op.h"
 #include "operations/kv_cache/fill_cache.h"
+#include "operations/kv_cache/paged_update_cache.h"
 #include "operations/kv_cache/update_cache.h"
 #include "operations/layout/from_device.h"
 #include "operations/layout/to_device.h"
@@ -72,6 +74,7 @@
 #include "operations/transformer/nlp_concat_heads.h"
 #include "operations/transformer/nlp_concat_heads_decode.h"
 #include "operations/transformer/nlp_create_qkv_heads_decode.h"
+#include "operations/transformer/rotary_embedding.h"
 #include "operations/transformer/rotary_embedding_llama.h"
 #include "operations/transformer/scaled_dot_product_attention.h"
 #include "operations/transformer/scaled_dot_product_attention_decode.h"
@@ -277,6 +280,10 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
     return operations::transformer::run(op->type_as_RotaryEmbeddingLlamaOp(),
                                         getContext());
   }
+  case ::tt::target::ttnn::OpType::RotaryEmbeddingOp: {
+    return operations::transformer::run(op->type_as_RotaryEmbeddingOp(),
+                                        getContext());
+  }
   case ::tt::target::ttnn::OpType::NLPCreateQKVHeadsDecodeOp: {
     return operations::transformer::run(op->type_as_NLPCreateQKVHeadsDecodeOp(),
                                         getContext());
@@ -324,6 +331,9 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
     return operations::data_movement::run(op->type_as_RepeatInterleaveOp(),
                                           getContext());
   }
+  case ::tt::target::ttnn::OpType::AssignOp: {
+    return operations::data_movement::run(op->type_as_AssignOp(), getContext());
+  }
   case ::tt::target::ttnn::OpType::PrepareConv2dWeightsOp: {
     return operations::conv::run(op->type_as_PrepareConv2dWeightsOp(),
                                  getContext());
@@ -347,6 +357,10 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   case ::tt::target::ttnn::OpType::GlobalAvgPool2dOp: {
     return operations::pool::run(op->type_as_GlobalAvgPool2dOp(), getContext());
   }
+  case ::tt::target::ttnn::OpType::MaxPool2dWithIndicesOp: {
+    return operations::pool::run(op->type_as_MaxPool2dWithIndicesOp(),
+                                 getContext());
+  }
   case ::tt::target::ttnn::OpType::AllGatherOp: {
     return operations::ccl::run(op->type_as_AllGatherOp(), getContext());
   }
@@ -365,6 +379,10 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   }
   case ::tt::target::ttnn::OpType::UpdateCacheOp: {
     return operations::kv_cache::run(op->type_as_UpdateCacheOp(), getContext());
+  }
+  case ::tt::target::ttnn::OpType::PagedUpdateCacheOp: {
+    return operations::kv_cache::run(op->type_as_PagedUpdateCacheOp(),
+                                     getContext());
   }
   case ::tt::target::ttnn::OpType::FillCacheOp: {
     return operations::kv_cache::run(op->type_as_FillCacheOp(), getContext());
