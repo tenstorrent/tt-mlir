@@ -261,17 +261,13 @@ public:
                   mlir::PatternRewriter &rewriter) const override {
     AttentionComponents components;
 
-    llvm::outs() << "SDPAFusing: " << srcOp << "\n";
-
     // Try to match this matmul as part of an attention pattern
     if (!matchAttentionPattern(srcOp.getOperation(), components)) {
-      llvm::outs() << "No match attention pattern" << srcOp << "\n";
       return failure();
     }
 
     // Validate the attention components make semantic sense
     if (!validateAttentionSemantics(components)) {
-      llvm::outs() << "No validate attention semantics" << srcOp << "\n";
       return failure();
     }
 
