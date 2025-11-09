@@ -434,6 +434,61 @@ def TTNN_MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfigAttr : TTNN_Attr<"
   let assemblyFormat = "`<` struct($in0_block_w, $per_core_m, $per_core_n, qualified($fused_activation)) `>`";
 }
 
+def TTNN_SDPAProgramConfigAttr : TTNN_Attr<"SDPAProgramConfig", "sdpa_program_config"> {
+  let summary = "TTNN SDPA (Scaled Dot Product Attention) Program Config";
+  let description = [{
+    Configuration for Scaled Dot Product Attention (SDPA) operations.
+
+    Parameters:
+    - `compute_with_storage_grid_size`: Specifies the dimensions (x, y) of the core grid
+      used for computation and storage. This determines how many cores will participate
+      in the attention calculation. For example, <8, 8> uses a 8x8 grid of 64 cores.
+
+    - `sub_core_grids`: Optional subset of core ranges within the main grid for more
+      fine-grained control over which specific cores perform the computation. If not
+      specified, all cores in the compute_with_storage_grid_size are used uniformly.
+
+    - `q_chunk_size`: The number of query sequence tokens processed together in one chunk.
+      Larger chunks can improve throughput but require more memory. This value should be
+      chosen based on the sequence length and available L1 memory per core.
+
+    - `k_chunk_size`: The number of key/value sequence tokens processed together in one chunk.
+      Similar to q_chunk_size, this controls the memory-compute trade-off for the key and
+      value matrices in the attention mechanism.
+
+    - `exp_approx_mode`: Optional flag to enable approximation mode for the exponential
+      function used in softmax computation. When set to true, uses a faster but less precise
+      exponential approximation which can improve performance with minimal accuracy impact.
+      When false or not specified, uses precise exponential calculation.
+
+    - `max_cores_per_head_batch`: Maximum number of cores allocated per attention head and
+      batch combination. This parameter limits parallelization to prevent resource over-
+      subscription. Default value is 16 cores. Lower values reduce parallelism but may
+      improve memory efficiency for multi-head attention scenarios.
+
+    Example:
+
+    ```mlir
+    #sdpa_config = #ttnn.sdpa_program_config<
+      compute_with_storage_grid_size = #ttnn.core_coord<8, 8>,
+      q_chunk_size = 128,
+      k_chunk_size = 128,
+      exp_approx_mode = true,
+      max_cores_per_head_batch = 16
+    >
+    ```
+  }];
+
+  let parameters = (ins "CoreCoordAttr":$compute_with_storage_grid_size,
+                        OptionalParameter<"CoreRangeSetAttr">:$sub_core_grids,
+                        "uint64_t":$q_chunk_size,
+                        "uint64_t":$k_chunk_size,
+                        OptionalParameter<"BoolAttr">:$exp_approx_mode,
+                        OptionalParameter<"std::optional<uint32_t>">:$max_cores_per_head_batch);
+
+  let assemblyFormat = "`<` struct(params) `>`";
+}
+
 def TTNN_Conv2dConfigAttr : TTNN_Attr<"Conv2dConfig", "conv2d_config"> {
   let summary = "TTNN Conv2dConfig attribute";
   let description = [{

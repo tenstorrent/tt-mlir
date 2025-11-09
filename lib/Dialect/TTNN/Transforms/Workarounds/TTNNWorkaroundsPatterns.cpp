@@ -25,6 +25,8 @@
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/PagedUpdateCacheOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ReduceScatterOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/RotaryEmbeddingOpRewritePattern.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ScaledDotProductAttentionDecodeConfigRewritePattern.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ScaledDotProductAttentionPadSequenceDimRewriterPattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ScatterOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/SplitQueryKeyValueAndSplitHeadsOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/SubtractOpImplicitBroadcastRewritePattern.h"
@@ -387,8 +389,11 @@ public:
           workarounds::decomposition::ConcatenateHeadsOpRewritePattern,
           workarounds::decomposition::
               SplitQueryKeyValueAndSplitHeadsOpRewritePattern,
-          workarounds::decomposition::PagedUpdateCacheOpRewritePattern>(
-          &getContext());
+          workarounds::decomposition::PagedUpdateCacheOpRewritePattern,
+          workarounds::decomposition::
+              ScaledDotProductAttentionDecodeConfigRewritePattern,
+          workarounds::decomposition::
+              ScaledDotProductAttentionPadQueryRewritePattern>(&getContext());
 
       runRewritePatterns(std::move(patterns),
                          GreedyRewriteConfig::kNoLimit /*maxIterations*/);
