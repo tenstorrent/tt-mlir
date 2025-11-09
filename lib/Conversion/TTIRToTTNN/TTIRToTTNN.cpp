@@ -6,6 +6,7 @@
 
 #include "ttmlir/Conversion/TTIRToTTNN/Utils.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
+#include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTIR/Utils/Utils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
@@ -606,12 +607,39 @@ public:
                                          op.getCache().getUsers().end());
     if (users.size() != 1) {
       return rewriter.notifyMatchFailure(
-          op, "UpdateCacheOp must have exactly one user");
+          op, "UpdateCacheOp cache argument must have exactly one user");
     }
 
     rewriter.create<ttnn::UpdateCacheOp>(
         op.getLoc(), adaptor.getCache(), adaptor.getInput(),
         adaptor.getUpdateIndex(), adaptor.getBatchOffset());
+
+    rewriter.replaceOp(op, adaptor.getCache());
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+class PagedUpdateCacheOpConversionPattern
+    : public OpConversionPattern<ttir::PagedUpdateCacheOp> {
+public:
+  using OpConversionPattern<ttir::PagedUpdateCacheOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::PagedUpdateCacheOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    std::vector<mlir::Operation *> users(op.getCache().getUsers().begin(),
+                                         op.getCache().getUsers().end());
+    if (users.size() != 1) {
+      return rewriter.notifyMatchFailure(
+          op, "PagedUpdateCacheOp cache argument must have exactly one user");
+    }
+
+    rewriter.create<ttnn::PagedUpdateCacheOp>(
+        op.getLoc(), adaptor.getCache(), adaptor.getInput(),
+        adaptor.getUpdateIndex(), adaptor.getShareCache(),
+        adaptor.getPageTable());
 
     rewriter.replaceOp(op, adaptor.getCache());
     return success();
@@ -977,7 +1005,7 @@ public:
     rewriter.replaceOpWithNewOp<ttnn::LinearOp>(
         op, this->getTypeConverter()->convertType(op.getType()), adaptor.getA(),
         adaptor.getB(), adaptor.getBias(), adaptor.getTransposeA(),
-        adaptor.getTransposeB());
+        adaptor.getTransposeB(), /*activation=*/nullptr);
     return success();
   }
 };
@@ -1116,7 +1144,7 @@ public:
     rewriter.replaceOpWithNewOp<ttnn::MatmulOp>(
         op, this->getTypeConverter()->convertType(op.getType()), adaptor.getA(),
         adaptor.getB(), adaptor.getTransposeA(), adaptor.getTransposeB(),
-        nullptr);
+        /*matmul_program_config=*/nullptr, /*activation=*/nullptr);
     return success();
   }
 };
@@ -1434,8 +1462,27 @@ public:
           /*memory_config=*/nullptr,
           /* applied_shard_scheme=*/nullptr, adaptor.getCeilMode(),
           /* in_place_halo=*/false);
+    } else if constexpr (std::is_same_v<TTIROpTy,
+                                        ttir::MaxPool2dWithIndicesOp>) {
+      // Convert all result types for MaxPool2dWithIndicesOp which returns 2
+      // tensors
+      SmallVector<Type> resultTypes;
+      if (failed(this->getTypeConverter()->convertTypes(op->getResultTypes(),
+                                                        resultTypes))) {
+        return failure();
+      }
+
+      rewriter.replaceOpWithNewOp<ttnn::MaxPool2dWithIndicesOp>(
+          op, resultTypes, adaptor.getInput(), batchSize,
+          adaptor.getFlattenedCompatInfo().getInputHeight(),
+          adaptor.getFlattenedCompatInfo().getInputWidth(), channels,
+          kernelSizeAttr, strideAttr, paddingAttr, dilationAttr,
+          /*memory_config=*/nullptr,
+          /* applied_shard_scheme=*/nullptr, adaptor.getCeilMode(),
+          /* in_place_halo=*/false);
     } else {
-      llvm_unreachable("Pool2dOp must be AvgPool2dOp or MaxPool2dOp");
+      llvm_unreachable("Pool2dOp must be AvgPool2dOp, MaxPool2dOp or "
+                       "MaxPool2dWithIndicesOp");
     }
 
     return success();
@@ -2108,6 +2155,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            ElementwiseOpConversionPattern<ttir::TanhOp, ttnn::TanhOp>,
            ElementwiseOpConversionPattern<ttir::AtanOp, ttnn::AtanOp>,
            Pooling2dOpConversionPattern<ttir::MaxPool2dOp, ttnn::MaxPool2dOp>,
+           Pooling2dOpConversionPattern<ttir::MaxPool2dWithIndicesOp, ttnn::MaxPool2dWithIndicesOp>,
            Pooling2dOpConversionPattern<ttir::AvgPool2dOp, ttnn::AvgPool2dOp>,
            GlobalAvgPool2dOpConversionPattern,
            ReductionOpConversionPattern<ttir::SumOp, ttnn::SumOp>,
@@ -2152,6 +2200,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            ArangeOpConversionPattern,
            RandOpConversionPattern,
            UpdateCacheOpConversionPattern,
+           PagedUpdateCacheOpConversionPattern,
            FillCacheOpConversionPattern,
            ScatterInDimOpConversionPattern,
            PermuteOpConversionPattern,

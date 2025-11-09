@@ -6,6 +6,7 @@
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Utils.h"
 
+#include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/WalkPatternRewriteDriver.h"
 
@@ -105,9 +106,16 @@ public:
       });
     }
 
+    // Track which regions have already had their initial ops wrapped.
+    llvm::DenseSet<unsigned> wrappedRegions;
+
     // Merge remaining DMA threads into existing DMA regions in newGeneric.
     // IMPORTANT: output DMA blocks MUST be merged after all input DMA blocks in
     // a region.
+    //
+    // When merging threads, ensure the ops from each thread are scoped in an
+    // scf.execute_region op. This greatly simplifies the logic for inserting CB
+    // ops and avoids deadlocks in reader-writer kernels.
     unsigned dmaInputThreadsMerged = 0;
     unsigned outputOperandsIndex = op.getOutputs().getBeginOperandIndex();
     for (unsigned i = numDMAHWThreads; i <= outputOperandsIndex; ++i) {
@@ -131,13 +139,50 @@ public:
       Block *mergeDestBlock =
           &newGeneric.getRegion(dmaMergeTargetIndex).front();
 
-      rewriter.mergeBlocks(mergeSrcBlock, mergeDestBlock,
+      // If this is the first merge into this region, wrap the existing ops
+      // first.
+      if (!wrappedRegions.contains(dmaMergeTargetIndex)) {
+        wrapBlockOpsInExecuteRegion(rewriter, *mergeDestBlock, op.getLoc());
+        wrappedRegions.insert(dmaMergeTargetIndex);
+      }
+
+      // Wrap the source block's operations in execute_region before merging.
+      rewriter.setInsertionPointToEnd(mergeDestBlock);
+      auto executeRegionOp =
+          rewriter.create<scf::ExecuteRegionOp>(op.getLoc(), TypeRange{});
+      // Prevent canonicalization from inlining the execute_region op.
+      executeRegionOp->setAttr("no_inline", rewriter.getUnitAttr());
+
+      // Merge the source block into the execute_region block, mapping the
+      // source block arguments to the parent (destination) block arguments.
+      // The scf.execute_region will have access to any dominating block
+      // arguments.
+      Block *executeRegionBlock = &executeRegionOp.getRegion().emplaceBlock();
+      rewriter.mergeBlocks(mergeSrcBlock, executeRegionBlock,
                            mergeDestBlock->getArguments());
+      rewriter.setInsertionPointToEnd(executeRegionBlock);
+      rewriter.create<scf::YieldOp>(op.getLoc());
     }
 
     rewriter.replaceOp(op, newGeneric.getResults());
 
     return success();
+  }
+
+  void wrapBlockOpsInExecuteRegion(PatternRewriter &rewriter, Block &block,
+                                   Location loc) const {
+    Block *executeRegionBlock = rewriter.splitBlock(&block, block.begin());
+    rewriter.setInsertionPointToStart(&block);
+    auto executeRegionOp = rewriter.create<scf::ExecuteRegionOp>(
+        loc, TypeRange{}, /*no_inline=*/rewriter.getUnitAttr());
+
+    // splitBlock creates the executeRegionBlock in the parent region of
+    // "block".
+    executeRegionBlock->getParent()->getBlocks().remove(executeRegionBlock);
+    executeRegionOp.getRegion().push_back(executeRegionBlock);
+
+    rewriter.setInsertionPointToEnd(executeRegionBlock);
+    rewriter.create<scf::YieldOp>(loc);
   }
 };
 } // namespace

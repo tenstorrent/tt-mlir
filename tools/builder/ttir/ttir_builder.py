@@ -37,27 +37,6 @@ class TTIRBuilder(Builder):
 
     # ----- Private methods ----
 
-    def _get_output_shape_and_type(
-        self,
-        organize_golden_args: Callable,
-        inputs: List[Operand],
-        op_ttir_function: Callable,
-        golden_kwargs: dict = {},
-    ):
-        op_golden_function = get_golden_function(op_ttir_function, **golden_kwargs)
-        if op_golden_function is None:
-            return
-
-        # If the op has no input, just call golden function with kwargs (eg ttir.zeros).
-        if len(inputs) == 0:
-            golden_output = op_golden_function(**golden_kwargs)
-        else:
-            golden_output = op_golden_function(
-                *(organize_golden_args(inputs)), **golden_kwargs
-            )
-
-        return golden_output.shape, golden_output.dtype
-
     def _get_empty_op(self, tensor_type: RankedTensorType) -> OpView:
         """Get TTIR-specific empty operation."""
         return ttir.EmptyOp(tensor_type)

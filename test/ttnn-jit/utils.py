@@ -2,6 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 import ttnn
+import ttnn_jit
 import torch
 from typing import Callable, Optional, Dict, Iterable
 
@@ -117,3 +118,55 @@ def all_close_check(result, golden_result, atol=1e-1, rtol=1e-1, debug=True):
         print("all_close", all_close)
 
     return all_close
+
+
+def run_op_test(
+    device,
+    h,
+    w,
+    max_grid,
+    dtype,
+    op,
+    num_inputs,
+    buffer_type=ttnn.BufferType.L1,
+    graph_capture=True,
+    enable_cache=False,
+):
+    """
+    Common test runner for JIT operations.
+
+    Args:
+        device: Device to run the operation on
+        h: Height of the input tensor
+        w: Width of the input tensor
+        max_grid: Maximum grid size for sharded tensors
+        dtype: Data type of the input tensor
+        op: Operation to test
+        num_inputs: Number of input tensors
+        buffer_type: Buffer type (L1 or DRAM)
+        graph_capture: Whether to use graph capture compiler (default: True)
+        enable_cache: Whether to enable cache for the JIT-compiled function (default: False)
+    """
+    if buffer_type == ttnn.BufferType.L1:
+        inputs = [
+            create_sharded_tile_tensor(device, h, w, max_grid, dtype)
+            for _ in range(num_inputs)
+        ]
+    else:
+        inputs = [create_dram_tensor(device, h, w, dtype) for _ in range(num_inputs)]
+    print("inputs", inputs)
+    golden_op = _get_ttnn_op(op)
+
+    op_jit = ttnn_jit.jit(
+        debug=True,
+        max_grid=max_grid,
+        enable_cache=enable_cache,
+        graph_capture=graph_capture,
+    )(op)
+    output_tensor = op_jit(*inputs)
+    golden_tensor = (golden_op or op)(*inputs)
+
+    assert memory_configs_equal(
+        output_tensor.memory_config(), golden_tensor.memory_config()
+    )
+    assert all_close_check(output_tensor, golden_tensor)

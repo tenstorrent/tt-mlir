@@ -1506,6 +1506,80 @@ def TTKernel_SigmoidTileOp : TTKernel_SFPUOp<"sigmoid_tile", [TTKernel_UnaryOpTr
     }];
 }
 
+def TTKernel_SiluTileInitOp : TTKernel_InitOp<"silu_tile_init"> {
+    let summary = "Short init function which configures compute unit for execution of silu_tile.";
+    let description = [{
+      Must be run before silu_tile.
+    }];
+
+    let arguments = (ins);
+
+    let assemblyFormat = [{
+      `(` `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_SiluTileOp : TTKernel_SFPUOp<"silu_tile", [TTKernel_UnaryOpTrait]> {
+    let summary = "Silu operation";
+    let description = [{
+      Performs element-wise computation of silu on each element of a tile
+      in DST register at index tile_index. The DST register buffer must be in
+      acquired state via *tile_regs_acquire* call. This call is blocking and is only
+      available on the compute engine.
+    }];
+
+    let arguments = (ins IndexLike:$tile_index);
+
+    let assemblyFormat = [{
+      `(` $tile_index `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_ReluTileInitOp : TTKernel_InitOp<"relu_tile_init"> {
+    let summary = "Short init function which configures compute unit for execution of relu_tile(_int32).";
+    let description = [{
+      Must be run before relu_tile(_int32).
+    }];
+
+    let arguments = (ins);
+
+    let assemblyFormat = [{
+      `(` `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_ReluTileOp : TTKernel_SFPUOp<"relu_tile", [TTKernel_UnaryOpTrait]> {
+    let summary = "Relu operation";
+    let description = [{
+      Performs element-wise computation of relu on each element of a tile
+      in DST register at index tile_index. The DST register buffer must be in
+      acquired state via *tile_regs_acquire* call. This call is blocking and is only
+      available on the compute engine.
+    }];
+
+    let arguments = (ins IndexLike:$tile_index);
+
+    let assemblyFormat = [{
+      `(` $tile_index `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_ReluTileI32Op : TTKernel_SFPUOp<"relu_tile_int32", [TTKernel_UnaryOpTrait]> {
+    let summary = "Relu operation (for int32 type)";
+    let description = [{
+      Performs element-wise computation of relu on each element of a tile
+      in DST register at index tile_index. The DST register buffer must be in
+      acquired state via *tile_regs_acquire* call. This call is blocking and is only
+      available on the compute engine.
+    }];
+
+    let arguments = (ins IndexLike:$tile_index);
+
+    let assemblyFormat = [{
+      `(` $tile_index `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
 def TTKernel_GeluTileInitOp : TTKernel_InitOp<"gelu_tile_init"> {
     let summary = "Short init function which configures compute unit for execution of gelu_tile.";
     let description = [{
