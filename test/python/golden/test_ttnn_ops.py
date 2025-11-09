@@ -179,3 +179,89 @@ def test_concat(shapes: List[Shape], dim: int, request, device):
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
     )
+
+
+@pytest.mark.parametrize(
+    "shapes",
+    [
+        [(64, 128), (128, 256)],
+        [(32, 64), (64, 128)],
+    ],
+    ids=shapes_list_str,
+)
+@pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32], ids=["bf16", "f32"])
+@pytest.mark.parametrize("target", ["ttnn", "emitpy"])
+def test_matmul(
+    shapes: List[Shape],
+    dtype: torch.dtype,
+    target: str,
+    request,
+    device,
+):
+    def matmul(
+        in0: Operand,
+        in1: Operand,
+        builder: TTNNBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        return builder.matmul(in0, in1, unit_attrs=unit_attrs)
+
+    compile_and_execute_ttnn(
+        matmul,
+        shapes,
+        [dtype, dtype],
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
+        device=device,
+    )
+
+
+@pytest.mark.parametrize(
+    "shapes",
+    [
+        [(64, 128), (256, 128)],
+        [(64, 128), (256, 128), (256,)],
+    ],
+    ids=shapes_list_str,
+)
+@pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32], ids=["bf16", "f32"])
+@pytest.mark.parametrize("target", ["ttnn", "emitpy"])
+def test_linear(
+    shapes: List[Shape],
+    dtype: torch.dtype,
+    target: str,
+    request,
+    device,
+):
+    def linear(
+        in0: Operand,
+        in1: Operand,
+        bias_or_builder,
+        builder_or_none=None,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        if builder_or_none is not None:
+            bias = bias_or_builder
+            builder = builder_or_none
+        else:
+            bias = None
+            builder = bias_or_builder
+
+        return builder.linear(
+            in0, in1, bias=bias, transpose_b=True, unit_attrs=unit_attrs
+        )
+
+    dtypes = [dtype] * len(shapes)
+
+    compile_and_execute_ttnn(
+        linear,
+        shapes,
+        dtypes,
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
+        device=device,
+    )

@@ -2128,6 +2128,50 @@ RotaryEmbeddingLlamaOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 }
 
 //===-----------------------------------------------------------------------===//
+// RotaryEmbeddingOp - TTNN Op Model Interface
+//===-----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::OpConstraints>
+RotaryEmbeddingOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                                    const OpConfig &opConfig) {
+  assert(inputs.size() == 3);
+
+  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
+  if (!check) {
+    return check.takeError();
+  }
+
+  ttcore::GridAttr deviceGrid =
+      ttcore::lookupDevice(getOperation()).getWorkerGrid();
+
+  auto inputShape = getInput().getType().getShape();
+  auto cosShape = getCosCache().getType().getShape();
+  auto sinShape = getSinCache().getType().getShape();
+  auto tokenIndex = getTokenIndex();
+
+  return opConstraintsCache().getOrCompute(
+      op_model::OpModel<RotaryEmbeddingOp>::getOpConstraints, *this, deviceGrid,
+      inputShape, inputs[0], cosShape, inputs[1], sinShape, inputs[2],
+      tokenIndex, opConfig.outputLayout);
+}
+
+llvm::Expected<size_t>
+RotaryEmbeddingOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                                const OpConfig &opConfig) {
+  assert(inputs.size() == 3);
+
+  auto inputShape = getInput().getType().getShape();
+  auto cosShape = getCosCache().getType().getShape();
+  auto sinShape = getSinCache().getType().getShape();
+  auto tokenIndex = getTokenIndex();
+
+  return opRuntimeCache().getOrCompute(
+      op_model::OpModel<RotaryEmbeddingOp>::getOpRuntime, *this, inputShape,
+      inputs[0], cosShape, inputs[1], sinShape, inputs[2], tokenIndex,
+      opConfig.outputLayout);
+}
+
+//===-----------------------------------------------------------------------===//
 // NLPCreateQKVHeadsDecodeOp - TTNN Op Model Interface
 // ===----------------------------------------------------------------------===//
 
@@ -2792,6 +2836,43 @@ UpdateCacheOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
       op_model::OpModel<UpdateCacheOp>::getOpRuntime, *this, cacheShape,
       inputs[0], inputShape, inputs[1], updateIndexShape, inputs[2],
       getBatchOffset(), opConfig.outputLayout);
+}
+
+llvm::Expected<op_model::OpConstraints>
+PagedUpdateCacheOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                                     const OpConfig &opConfig) {
+  assert(inputs.size() == 4);
+  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
+  if (!check) {
+    return check.takeError();
+  }
+  ttcore::GridAttr deviceGrid =
+      ttcore::lookupDevice(getOperation()).getWorkerGrid();
+
+  auto cacheShape = getCache().getType().getShape();
+  auto inputShape = getInput().getType().getShape();
+  auto updateIndexShape = getUpdateIndex().getType().getShape();
+  auto pageTableShape = getPageTable().getType().getShape();
+
+  return opConstraintsCache().getOrCompute(
+      op_model::OpModel<PagedUpdateCacheOp>::getOpConstraints, *this,
+      deviceGrid, cacheShape, inputs[0], inputShape, inputs[1],
+      updateIndexShape, inputs[2], pageTableShape, inputs[3], getShareCache(),
+      opConfig.outputLayout);
+}
+
+llvm::Expected<size_t>
+PagedUpdateCacheOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                                 const OpConfig &opConfig) {
+  auto cacheShape = getCache().getType().getShape();
+  auto inputShape = getInput().getType().getShape();
+  auto updateIndexShape = getUpdateIndex().getType().getShape();
+  auto pageTableShape = getPageTable().getType().getShape();
+
+  return opRuntimeCache().getOrCompute(
+      op_model::OpModel<PagedUpdateCacheOp>::getOpRuntime, *this, cacheShape,
+      inputs[0], inputShape, inputs[1], updateIndexShape, inputs[2],
+      pageTableShape, inputs[3], getShareCache(), opConfig.outputLayout);
 }
 
 //===----------------------------------------------------------------------===//
@@ -3993,6 +4074,39 @@ GlobalAvgPool2dOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
   return opRuntimeCache().getOrCompute(
       op_model::OpModel<GlobalAvgPool2dOp>::getOpRuntime, *this, inputShape,
       inputs[0], getDtype(), opConfig.outputLayout);
+}
+
+//===----------------------------------------------------------------------===//
+// AssignOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::OpConstraints>
+AssignOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                           const OpConfig &opConfig) {
+  assert(inputs.size() == 1);
+  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
+  if (!check) {
+    return check.takeError();
+  }
+  ttcore::GridAttr deviceGrid =
+      ttcore::lookupDevice(getOperation()).getWorkerGrid();
+
+  const auto inputShape = getInput().getType().getShape();
+
+  return opConstraintsCache().getOrCompute(
+      op_model::OpModel<mlir::tt::ttnn::AssignOp>::getOpConstraints, *this,
+      deviceGrid, inputShape, inputs[0], getMemoryConfig(), getDtype());
+}
+
+llvm::Expected<size_t>
+AssignOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                       const OpConfig &opConfig) {
+  assert(inputs.size() == 1);
+  const auto inputShape = getInput().getType().getShape();
+
+  return opRuntimeCache().getOrCompute(
+      op_model::OpModel<mlir::tt::ttnn::AssignOp>::getOpRuntime, *this,
+      inputShape, inputs[0], getMemoryConfig(), getDtype());
 }
 
 } // namespace mlir::tt::ttnn
