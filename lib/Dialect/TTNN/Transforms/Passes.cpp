@@ -752,8 +752,7 @@ private:
     return locations;
   }
 
-  void buildFunctree(SmallVector<func::FuncOp> candidateFns,
-                     SmallVector<PyLoc> locations) {
+  void printPyLocs(func::FuncOp candidateFn, SmallVector<PyLoc> locations) {
     for (PyLoc &pyLoc : locations) {
       llvm::outs() << "PyLoc: " << pyLoc.op->getName() << "\n";
       llvm::outs() << "  Loc: " << pyLoc.op->getLoc() << "\n";
@@ -769,6 +768,291 @@ private:
     }
   }
 
+  std::string validateLocations(SmallVector<PyLoc> locations) {
+    llvm::StringMap<PyLoc> funcPathMap;
+    for (PyLoc &pyLoc : locations) {
+      auto [it, success] = funcPathMap.try_emplace(pyLoc.funcPath, pyLoc);
+      if (!success && it->second.funcName != pyLoc.funcName) {
+        return "Found different func names at the same path: " +
+               pyLoc.funcPath + " (first func name: " + it->second.funcName +
+               ", second func name: " + pyLoc.funcName + ")";
+      }
+    }
+    return "";
+  }
+
+  // Group operations by their funcPath.
+  // Returns a map: funcPath -> (funcName, vector of PyLocs)
+  llvm::StringMap<std::pair<std::string, SmallVector<PyLoc>>>
+  groupOperationsByFunction(SmallVector<PyLoc> &locations) {
+    llvm::StringMap<std::pair<std::string, SmallVector<PyLoc>>> funcGroups;
+
+    for (PyLoc &pyLoc : locations) {
+      auto it = funcGroups.find(pyLoc.funcPath);
+      if (it == funcGroups.end()) {
+        // First time seeing this funcPath
+        SmallVector<PyLoc> ops;
+        ops.push_back(pyLoc);
+        funcGroups[pyLoc.funcPath] = {pyLoc.funcName, std::move(ops)};
+      } else {
+        // Add to existing group
+        it->second.second.push_back(pyLoc);
+      }
+    }
+
+    return funcGroups;
+  }
+
+  void printFunctionGroups(
+      const llvm::StringMap<std::pair<std::string, SmallVector<PyLoc>>>
+          &funcGroups) {
+    llvm::outs() << "\n=== Function Groups ===\n";
+    for (const auto &[funcPath, funcInfo] : funcGroups) {
+      const std::string &funcName = funcInfo.first;
+      const SmallVector<PyLoc> &locations = funcInfo.second;
+
+      llvm::outs() << "\nFunction: " << funcName << "\n";
+      llvm::outs() << "  Path: " << funcPath << "\n";
+      llvm::outs() << "  Operations: " << locations.size() << "\n";
+      for (const PyLoc &pyLoc : locations) {
+        llvm::outs() << "    - " << pyLoc.op->getName() << " (line "
+                     << pyLoc.opLineNum << ")\n";
+      }
+    }
+    llvm::outs() << "\n";
+  }
+
+  // Information about data flow for a function group
+  struct FunctionBoundaryInfo {
+    std::string funcName;
+    std::string funcPath;
+    SmallVector<PyLoc> locations;
+
+    // Values that flow INTO this function (used but not defined here)
+    SmallVector<Value> inputValues;
+
+    // Values that flow OUT of this function (defined here, used elsewhere)
+    SmallVector<Value> outputValues;
+
+    // Values that are internal (defined and used only within this function)
+    SmallVector<Value> internalValues;
+  };
+
+  // Analyze data flow for each function group
+  llvm::StringMap<FunctionBoundaryInfo> analyzeFunctionBoundaries(
+      const llvm::StringMap<std::pair<std::string, SmallVector<PyLoc>>>
+          &funcGroups) {
+    llvm::StringMap<FunctionBoundaryInfo> boundaryInfos;
+
+    for (const auto &[funcPath, funcInfo] : funcGroups) {
+      const std::string &funcName = funcInfo.first;
+      const SmallVector<PyLoc> &locations = funcInfo.second;
+
+      FunctionBoundaryInfo info;
+      info.funcName = funcName;
+      info.funcPath = funcPath.str();
+      info.locations = locations;
+
+      // Build a set of operations in this group for fast lookup
+      llvm::DenseSet<Operation *> opsInGroup;
+      for (const PyLoc &pyLoc : locations) {
+        opsInGroup.insert(pyLoc.op);
+      }
+
+      // Track all values defined within this group
+      llvm::DenseSet<Value> valuesDefinedInGroup;
+      for (const PyLoc &pyLoc : locations) {
+        for (Value result : pyLoc.op->getResults()) {
+          valuesDefinedInGroup.insert(result);
+        }
+      }
+
+      // Analyze each operation's operands and results
+      llvm::DenseSet<Value> inputValuesSet;
+      llvm::DenseSet<Value> outputValuesSet;
+      llvm::DenseSet<Value> internalValuesSet;
+
+      for (const PyLoc &pyLoc : locations) {
+        // Check operands (inputs to the op)
+        for (Value operand : pyLoc.op->getOperands()) {
+          // If this value is not defined in this group, it's an input
+          if (!valuesDefinedInGroup.contains(operand)) {
+            inputValuesSet.insert(operand);
+          }
+        }
+
+        // Check results (outputs from the op)
+        for (Value result : pyLoc.op->getResults()) {
+          bool usedOutside = false;
+          bool usedInside = false;
+
+          // Check if this result is used outside this group
+          for (Operation *user : result.getUsers()) {
+            if (opsInGroup.contains(user)) {
+              usedInside = true;
+            } else {
+              usedOutside = true;
+            }
+          }
+
+          if (usedOutside) {
+            outputValuesSet.insert(result);
+          } else if (usedInside) {
+            internalValuesSet.insert(result);
+          }
+          // Note: if a value is not used at all, we don't track it
+        }
+      }
+
+      // Convert sets to vectors
+      info.inputValues.assign(inputValuesSet.begin(), inputValuesSet.end());
+      info.outputValues.assign(outputValuesSet.begin(), outputValuesSet.end());
+      info.internalValues.assign(internalValuesSet.begin(),
+                                 internalValuesSet.end());
+
+      boundaryInfos[funcPath] = std::move(info);
+    }
+
+    return boundaryInfos;
+  }
+
+  void printFunctionBoundaries(
+      const llvm::StringMap<FunctionBoundaryInfo> &boundaryInfos) {
+    llvm::outs() << "\n=== Function Boundary Analysis ===\n";
+    for (const auto &[funcPath, info] : boundaryInfos) {
+      llvm::outs() << "\nFunction: " << info.funcName << "\n";
+      llvm::outs() << "  Path: " << info.funcPath << "\n";
+      llvm::outs() << "  Input values: " << info.inputValues.size() << "\n";
+      for (Value input : info.inputValues) {
+        llvm::outs() << "    - " << input << " (type: " << input.getType()
+                     << ")\n";
+      }
+      llvm::outs() << "  Output values: " << info.outputValues.size() << "\n";
+      for (Value output : info.outputValues) {
+        llvm::outs() << "    - " << output << " (type: " << output.getType()
+                     << ")\n";
+      }
+      llvm::outs() << "  Internal values: " << info.internalValues.size()
+                   << "\n";
+    }
+    llvm::outs() << "\n";
+  }
+
+  // Create new function declarations based on boundary information
+  llvm::StringMap<func::FuncOp> createNewFunctions(
+      IRRewriter &rewriter, ModuleOp moduleOp,
+      const llvm::StringMap<FunctionBoundaryInfo> &boundaryInfos) {
+    llvm::StringMap<func::FuncOp> newFunctions;
+
+    for (const auto &[funcPath, info] : boundaryInfos) {
+      // Collect input types from input values
+      SmallVector<Type> inputTypes;
+      for (Value input : info.inputValues) {
+        inputTypes.push_back(input.getType());
+      }
+
+      // Collect output types from output values
+      SmallVector<Type> outputTypes;
+      for (Value output : info.outputValues) {
+        outputTypes.push_back(output.getType());
+      }
+
+      // Create function type
+      FunctionType funcType =
+          FunctionType::get(rewriter.getContext(), inputTypes, outputTypes);
+
+      // Set insertion point to end of module
+      rewriter.setInsertionPointToEnd(moduleOp.getBody());
+
+      // Create the new function
+      func::FuncOp newFunc = rewriter.create<func::FuncOp>(
+          moduleOp.getLoc(), info.funcName, funcType);
+
+      // Mark as private for now (we'll make the entry point public later)
+      newFunc.setPrivate();
+
+      // Store the function
+      newFunctions[funcPath] = newFunc;
+    }
+
+    return newFunctions;
+  }
+
+  void printNewFunctions(const llvm::StringMap<func::FuncOp> &newFunctions) {
+    llvm::outs() << "\n=== Created Functions ===\n";
+    for (const auto &entry : newFunctions) {
+      llvm::StringRef funcPath = entry.getKey();
+      func::FuncOp funcOp = entry.getValue();
+
+      llvm::outs() << "\nFunction: " << funcOp.getName() << "\n";
+      llvm::outs() << "  Path: " << funcPath << "\n";
+      llvm::outs() << "  Signature: " << funcOp.getFunctionType() << "\n";
+      llvm::outs() << "  Input types: "
+                   << funcOp.getFunctionType().getInputs().size() << "\n";
+      for (Type inputType : funcOp.getFunctionType().getInputs()) {
+        llvm::outs() << "    - " << inputType << "\n";
+      }
+      llvm::outs() << "  Output types: "
+                   << funcOp.getFunctionType().getResults().size() << "\n";
+      for (Type outputType : funcOp.getFunctionType().getResults()) {
+        llvm::outs() << "    - " << outputType << "\n";
+      }
+    }
+    llvm::outs() << "\n";
+  }
+
+  // Populate function bodies by cloning operations from the original function
+  void populateFunctionBodies(
+      IRRewriter &rewriter,
+      const llvm::StringMap<FunctionBoundaryInfo> &boundaryInfos,
+      llvm::StringMap<func::FuncOp> &newFunctions) {
+
+    // For each function, we need to:
+    // 1. Create entry block with arguments
+    // 2. Clone operations in order
+    // 3. Map old values to new values
+    // 4. Add return statement
+
+    for (const auto &entry : newFunctions) {
+      llvm::StringRef funcPath = entry.getKey();
+      func::FuncOp funcOp = entry.getValue();
+      const FunctionBoundaryInfo &info = boundaryInfos.lookup(funcPath);
+
+      // Create entry block
+      Block *entryBlock = funcOp.addEntryBlock();
+      rewriter.setInsertionPointToStart(entryBlock);
+
+      // Create value mapping: old values -> new values
+      IRMapping valueMapping;
+
+      // Map input values to block arguments
+      for (size_t i = 0; i < info.inputValues.size(); i++) {
+        valueMapping.map(info.inputValues[i], entryBlock->getArgument(i));
+      }
+
+      // Clone operations in order
+      for (const PyLoc &pyLoc : info.locations) {
+        Operation *oldOp = pyLoc.op;
+        Operation *newOp = rewriter.clone(*oldOp, valueMapping);
+
+        // Update the value mapping with the results of the cloned operation
+        for (size_t i = 0; i < oldOp->getNumResults(); i++) {
+          valueMapping.map(oldOp->getResult(i), newOp->getResult(i));
+        }
+      }
+
+      // Collect output values (now mapped to new function's values)
+      SmallVector<Value> returnValues;
+      for (Value oldOutput : info.outputValues) {
+        Value newOutput = valueMapping.lookup(oldOutput);
+        returnValues.push_back(newOutput);
+      }
+
+      // Add return statement
+      rewriter.create<func::ReturnOp>(funcOp.getLoc(), returnValues);
+    }
+  }
+
 public:
   using impl::TTNNPrettifyForCodegenBase<
       TTNNPrettifyForCodegen>::TTNNPrettifyForCodegenBase;
@@ -780,6 +1064,7 @@ public:
     // Need a couple passes
     // 1. Find candidate fns
     // 2. Parse and gather IR locations (remember ops)
+    // -----
     // 3. Build functree
     // 4. Analyze functree
     // 5. Move from original IR to functree-aligned IR
@@ -788,12 +1073,40 @@ public:
     // - What do we do with const-eval fns?
     // - What makes a fn a candidate fn?
 
+    // For simplicity, supporting only one for now, but can support multiple.
     SmallVector<func::FuncOp> candidateFns = findCandidateFns(moduleOp);
-    SmallVector<PyLoc> locations;
-    for (func::FuncOp funcOp : candidateFns) {
-      locations = parseOpsAndGatherLocations(funcOp);
+    assert(candidateFns.size() == 1 &&
+           "Only one candidate fn is supported now");
+
+    func::FuncOp candidateFn = candidateFns.front();
+
+    llvm::SmallVector<PyLoc> locations =
+        parseOpsAndGatherLocations(candidateFn);
+
+    // Debug prints
+    printPyLocs(candidateFn, locations);
+
+    // Validate locations
+    std::string errorMessage = validateLocations(locations);
+    if (!errorMessage.empty()) {
+      llvm::outs() << "PrettifyForCodegen error: " << errorMessage << "\n";
+      signalPassFailure();
     }
-    buildFunctree(candidateFns, locations);
+
+    // Group operations by function
+    auto funcGroups = groupOperationsByFunction(locations);
+    printFunctionGroups(funcGroups);
+
+    // Analyze function boundaries and data flow
+    auto boundaryInfos = analyzeFunctionBoundaries(funcGroups);
+    printFunctionBoundaries(boundaryInfos);
+
+    // Create new functions based on boundary information
+    auto newFunctions = createNewFunctions(rewriter, moduleOp, boundaryInfos);
+    printNewFunctions(newFunctions);
+
+    // Populate function bodies with operations
+    populateFunctionBodies(rewriter, boundaryInfos, newFunctions);
   }
 };
 } // namespace mlir::tt::ttnn
