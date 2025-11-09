@@ -940,11 +940,18 @@ private:
 
   // Create new function declarations based on boundary information
   llvm::StringMap<func::FuncOp> createNewFunctions(
-      IRRewriter &rewriter, ModuleOp moduleOp,
+      IRRewriter &rewriter, func::FuncOp candidateFn,
       const llvm::StringMap<FunctionBoundaryInfo> &boundaryInfos) {
     llvm::StringMap<func::FuncOp> newFunctions;
 
+    // Track function name counts to generate unique names
+    llvm::StringMap<unsigned> funcNameCounts;
+
     for (const auto &[funcPath, info] : boundaryInfos) {
+      // Generate unique function name with suffix
+      unsigned count = funcNameCounts[info.funcName]++;
+      std::string uniqueName = info.funcName + "_" + std::to_string(count);
+
       // Collect input types from input values
       SmallVector<Type> inputTypes;
       for (Value input : info.inputValues) {
@@ -961,12 +968,13 @@ private:
       FunctionType funcType =
           FunctionType::get(rewriter.getContext(), inputTypes, outputTypes);
 
-      // Set insertion point to end of module
-      rewriter.setInsertionPointToEnd(moduleOp.getBody());
+      // Set insertion point to after the candidate function in the same parent
+      // module
+      rewriter.setInsertionPointAfter(candidateFn);
 
       // Create the new function
       func::FuncOp newFunc = rewriter.create<func::FuncOp>(
-          moduleOp.getLoc(), info.funcName, funcType);
+          candidateFn.getLoc(), uniqueName, funcType);
 
       // Mark as private for now (we'll make the entry point public later)
       newFunc.setPrivate();
@@ -1053,6 +1061,119 @@ private:
     }
   }
 
+  // Replace operations in the original function with calls to new functions
+  void replaceWithFunctionCalls(
+      IRRewriter &rewriter, func::FuncOp candidateFn,
+      const llvm::StringMap<FunctionBoundaryInfo> &boundaryInfos,
+      const llvm::StringMap<func::FuncOp> &newFunctions) {
+
+    // We need to process functions in the order they appear in the original IR
+    // Build a map from operations to their function info
+    llvm::DenseMap<Operation *,
+                   std::pair<llvm::StringRef, const FunctionBoundaryInfo *>>
+        opToFuncInfo;
+
+    for (const auto &entry : boundaryInfos) {
+      llvm::StringRef funcPath = entry.getKey();
+      const FunctionBoundaryInfo &info = entry.getValue();
+      for (const PyLoc &pyLoc : info.locations) {
+        opToFuncInfo[pyLoc.op] = {funcPath, &info};
+      }
+    }
+
+    // Track which operations have been processed
+    llvm::DenseSet<Operation *> processedOps;
+
+    // Mapping from old values to new values (call results)
+    IRMapping valueMapping;
+
+    // Set insertion point to the beginning of the candidate function
+    rewriter.setInsertionPointToStart(&candidateFn.getBody().front());
+
+    // Walk through the original function in order
+    SmallVector<Operation *> opsToReplace;
+    candidateFn.walk([&](Operation *op) {
+      if (opToFuncInfo.count(op)) {
+        opsToReplace.push_back(op);
+      }
+    });
+
+    // Process operations in order, grouping consecutive ops from the same
+    // function
+    llvm::StringRef currentFuncPath;
+    SmallVector<Operation *> currentGroupOps;
+
+    auto processGroup = [&]() {
+      if (currentGroupOps.empty()) {
+        return;
+      }
+
+      const auto &[funcPath, info] = opToFuncInfo[currentGroupOps.front()];
+      func::FuncOp targetFunc = newFunctions.lookup(funcPath);
+
+      // Prepare operands for the call (input values)
+      SmallVector<Value> callOperands;
+      for (Value inputValue : info->inputValues) {
+        // If this input was produced by a previous call, use the mapped value
+        if (valueMapping.contains(inputValue)) {
+          callOperands.push_back(valueMapping.lookup(inputValue));
+        } else {
+          callOperands.push_back(inputValue);
+        }
+      }
+
+      // Set insertion point to after the last operation we're about to replace
+      Operation *lastOp = currentGroupOps.back();
+      rewriter.setInsertionPointAfter(lastOp);
+
+      // Create the call
+      func::CallOp callOp = rewriter.create<func::CallOp>(
+          lastOp->getLoc(), targetFunc, callOperands);
+
+      // Map output values to call results
+      for (size_t i = 0; i < info->outputValues.size(); i++) {
+        valueMapping.map(info->outputValues[i], callOp.getResult(i));
+      }
+
+      // Replace uses of output values with call results
+      // We need to get a mutable reference to the FunctionBoundaryInfo
+      FunctionBoundaryInfo &mutableInfo =
+          const_cast<FunctionBoundaryInfo &>(*info);
+      for (size_t i = 0; i < mutableInfo.outputValues.size(); i++) {
+        mutableInfo.outputValues[i].replaceAllUsesWith(callOp.getResult(i));
+      }
+
+      // Mark operations for deletion
+      for (Operation *op : currentGroupOps) {
+        processedOps.insert(op);
+      }
+
+      currentGroupOps.clear();
+    };
+
+    for (Operation *op : opsToReplace) {
+      auto [funcPath, info] = opToFuncInfo[op];
+
+      if (funcPath != currentFuncPath) {
+        // Process previous group
+        processGroup();
+        currentFuncPath = funcPath;
+      }
+
+      currentGroupOps.push_back(op);
+    }
+
+    // Process final group
+    processGroup();
+
+    // Erase replaced operations in reverse order
+    for (auto it = opsToReplace.rbegin(); it != opsToReplace.rend(); ++it) {
+      if (processedOps.contains(*it)) {
+        rewriter.eraseOp(*it);
+      }
+    }
+  }
+
 public:
   using impl::TTNNPrettifyForCodegenBase<
       TTNNPrettifyForCodegen>::TTNNPrettifyForCodegenBase;
@@ -1102,11 +1223,16 @@ public:
     printFunctionBoundaries(boundaryInfos);
 
     // Create new functions based on boundary information
-    auto newFunctions = createNewFunctions(rewriter, moduleOp, boundaryInfos);
+    auto newFunctions =
+        createNewFunctions(rewriter, candidateFn, boundaryInfos);
     printNewFunctions(newFunctions);
 
     // Populate function bodies with operations
     populateFunctionBodies(rewriter, boundaryInfos, newFunctions);
+
+    // Replace operations in original function with calls to new functions
+    replaceWithFunctionCalls(rewriter, candidateFn, boundaryInfos,
+                             newFunctions);
   }
 };
 } // namespace mlir::tt::ttnn
