@@ -162,6 +162,337 @@ private:
   }
 };
 
+// ============================================================================
+// SDPA Fusing - Semantic Pattern Matching
+// ============================================================================
+//
+// This pattern identifies Scaled Dot Product Attention (SDPA) by its
+// mathematical semantics rather than exact IR structure:
+//
+// Attention(Q, K, V) = softmax(scale * (Q @ K^T) + mask) @ V
+//
+// The matcher uses data-flow analysis to identify:
+// - Two matmuls (Q@K^T for scores, scores@V for output)
+// - Softmax normalization between them
+// - Scale operation (multiply/divide with constant)
+// - Optional mask addition
+//
+// This replaces the brittle structural matching with flexible semantic matching
+// that handles various IR lowerings, optimizations, and layout transformations.
+
+namespace {
+
+// Components of attention computation extracted via semantic matching
+struct AttentionComponents {
+  Value query;
+  Value key;
+  Value value;
+  Value mask; // Can be null for maskless attention
+  float scale = 1.0f;
+  MatmulOp qkMatmul;
+  MatmulOp attentionMatmul;
+  SoftmaxOp softmax;
+};
+
+// Check if operation is a layout transformation (transparent for data flow)
+bool isLayoutOp(Operation *op) {
+  return isa<ReshapeOp, PermuteOp, RepeatOp>(op);
+}
+
+// Traverse backwards through layout operations to find source tensor
+Value traceToSourceTensor(Value v) {
+  while (v) {
+    Operation *defOp = v.getDefiningOp();
+    if (!defOp || !isLayoutOp(defOp)) {
+      break;
+    }
+    // All layout ops we care about have single input
+    v = defOp->getOperand(0);
+  }
+  return v;
+}
+
+// Extract constant scale value from multiply or divide operation
+std::optional<float> extractConstantScale(Value scaleVal) {
+  if (!scaleVal) {
+    return std::nullopt;
+  }
+
+  Operation *defOp = scaleVal.getDefiningOp();
+  if (!defOp) {
+    return std::nullopt;
+  }
+
+  // Try ttnn.full
+  if (auto fullOp = dyn_cast<FullOp>(defOp)) {
+    if (auto fillValueAttr = dyn_cast<FloatAttr>(fullOp.getFillValue())) {
+      return fillValueAttr.getValue().convertToFloat();
+    }
+    if (auto fillValueAttr = dyn_cast<IntegerAttr>(fullOp.getFillValue())) {
+      return static_cast<float>(fillValueAttr.getValue().getSExtValue());
+    }
+  }
+
+  // Could extend to handle other constant forms (splat, etc.)
+  return std::nullopt;
+}
+
+// Check if value has broadcast semantics typical of attention mask
+bool looksLikeMask(Value v) {
+  auto type = mlir::dyn_cast<RankedTensorType>(v.getType());
+  if (!type || type.getRank() != 4) {
+    return false;
+  }
+  // Attention masks typically broadcast over heads: [batch, 1, seq, seq]
+  return type.getShape()[1] == 1;
+}
+
+} // namespace
+
+// This is scaled dot product attention (SDPA) fusing pattern.
+// Uses semantic matching to identify attention computation regardless of
+// exact IR structure, layout transformations, or optimization level.
+class SDPAFusing : public mlir::OpRewritePattern<MatmulOp> {
+  using SDPAFusing::OpRewritePattern<MatmulOp>::OpRewritePattern;
+
+public:
+  mlir::LogicalResult
+  matchAndRewrite(MatmulOp srcOp,
+                  mlir::PatternRewriter &rewriter) const override {
+    AttentionComponents components;
+
+    llvm::outs() << "SDPAFusing: " << srcOp << "\n";
+
+    // Try to match this matmul as part of an attention pattern
+    if (!matchAttentionPattern(srcOp.getOperation(), components)) {
+      llvm::outs() << "No match attention pattern" << srcOp << "\n";
+      return failure();
+    }
+
+    // Validate the attention components make semantic sense
+    if (!validateAttentionSemantics(components)) {
+      llvm::outs() << "No validate attention semantics" << srcOp << "\n";
+      return failure();
+    }
+
+    // Determine the result type from the final output
+    // The attentionMatmul is the final computation before any output layout ops
+    auto resultType = components.query.getType();
+
+    // Create scaled_dot_product_attention op
+    auto scaleAttr = components.scale != 1.0f
+                         ? rewriter.getF32FloatAttr(components.scale)
+                         : nullptr;
+
+    auto sdpaOp = rewriter.create<ScaledDotProductAttentionOp>(
+        components.attentionMatmul.getLoc(), resultType, components.query,
+        components.key, components.value, components.mask,
+        /*is_causal=*/false, scaleAttr,
+        /*sliding_window_size=*/nullptr,
+        /*memory_config=*/nullptr);
+
+    // Replace the final matmul and let dead code elimination clean up
+    rewriter.replaceOp(components.attentionMatmul, sdpaOp.getResult());
+    return mlir::success();
+  }
+
+private:
+  // Main pattern matcher: identifies attention by semantic structure
+  bool matchAttentionPattern(Operation *anchor,
+                             AttentionComponents &components) const {
+    // Start from a matmul and see if it's the attention@V matmul
+    auto matmul = dyn_cast<MatmulOp>(anchor);
+    if (!matmul) {
+      return false;
+    }
+
+    // Check if this matmul has softmax feeding into it (attention scores @ V)
+    Value attentionScoresVal = matmul.getA();
+    SoftmaxOp softmax = findSoftmaxInChain(attentionScoresVal);
+    if (!softmax) {
+      // Not the final matmul, might be the Q@K^T matmul
+      return false;
+    }
+
+    components.attentionMatmul = matmul;
+    components.softmax = softmax;
+
+    // Extract V by tracing through layout ops
+    components.value = traceToSourceTensor(matmul.getB());
+
+    // Find the Q@K^T matmul before the softmax
+    Value beforeSoftmax = softmax.getInput();
+
+    // Extract scale and mask from the chain before softmax
+    if (!extractScaleAndMask(beforeSoftmax, components.scale,
+                             components.mask)) {
+      return false;
+    }
+
+    // Find the Q@K^T matmul
+    MatmulOp qkMatmul = findMatmulInChain(beforeSoftmax);
+    if (!qkMatmul) {
+      return false;
+    }
+
+    components.qkMatmul = qkMatmul;
+
+    // Extract Q and K by tracing through layout ops
+    components.query = traceToSourceTensor(qkMatmul.getA());
+    components.key = traceToSourceTensor(qkMatmul.getB());
+
+    return components.query && components.key && components.value;
+  }
+
+  // Find softmax in the data flow chain, possibly wrapped in typecasts
+  SoftmaxOp findSoftmaxInChain(Value v) const {
+    // Walk backwards through reshapes and typecasts
+    for (int depth = 0; depth < 5 && v; ++depth) {
+      Operation *defOp = v.getDefiningOp();
+      if (!defOp) {
+        break;
+      }
+
+      if (auto softmax = dyn_cast<SoftmaxOp>(defOp)) {
+        return softmax;
+      }
+
+      // Softmax is often wrapped: typecast(softmax(typecast(...)))
+      if (isa<TypecastOp, ReshapeOp>(defOp)) {
+        v = defOp->getOperand(0);
+        continue;
+      }
+
+      break;
+    }
+    return nullptr;
+  }
+
+  // Find matmul in the data flow chain
+  MatmulOp findMatmulInChain(Value v) const {
+    // Walk backwards through various ops to find matmul
+    for (int depth = 0; depth < 10 && v; ++depth) {
+      Operation *defOp = v.getDefiningOp();
+      if (!defOp) {
+        break;
+      }
+
+      if (auto matmul = dyn_cast<MatmulOp>(defOp)) {
+        return matmul;
+      }
+
+      // Continue through transparent operations
+      if (isa<TypecastOp, ReshapeOp, AddOp, MultiplyOp>(defOp)) {
+        // For binary ops, try first operand (usually the data path)
+        v = defOp->getOperand(0);
+        continue;
+      }
+
+      break;
+    }
+    return nullptr;
+  }
+
+  // Extract scale factor and optional mask from the chain before softmax
+  bool extractScaleAndMask(Value v, float &scale, Value &mask) const {
+    scale = 1.0f;
+    mask = nullptr;
+
+    // Walk backwards through the chain looking for multiply and add
+    for (int depth = 0; depth < 8 && v; ++depth) {
+      Operation *defOp = v.getDefiningOp();
+      if (!defOp) {
+        break;
+      }
+
+      // Look for scale (multiply operation)
+      if (auto mulOp = dyn_cast<MultiplyOp>(defOp)) {
+        // One operand should be constant, other is data
+        auto scaleVal = extractConstantScale(mulOp.getRhs());
+        if (!scaleVal) {
+          scaleVal = extractConstantScale(mulOp.getLhs());
+        }
+        if (scaleVal) {
+          scale = *scaleVal;
+        }
+        v = scaleVal ? mulOp.getLhs() : mulOp.getRhs();
+        continue;
+      }
+
+      // Look for mask (add operation with broadcast)
+      if (auto addOp = dyn_cast<AddOp>(defOp)) {
+        Value lhs = addOp.getLhs();
+        Value rhs = addOp.getRhs();
+
+        // Identify which is the mask by broadcast semantics
+        if (looksLikeMask(rhs)) {
+          mask = rhs;
+          v = lhs;
+          continue;
+        } else if (looksLikeMask(lhs)) {
+          mask = lhs;
+          v = rhs;
+          continue;
+        }
+      }
+
+      // Continue through typecasts and reshapes
+      if (isa<TypecastOp, ReshapeOp>(defOp)) {
+        v = defOp->getOperand(0);
+        continue;
+      }
+
+      // Found the Q@K^T matmul or something else
+      break;
+    }
+
+    return true; // Scale and mask are optional
+  }
+
+  // Validate that the extracted components form valid attention
+  bool validateAttentionSemantics(const AttentionComponents &components) const {
+    // All core components must exist
+    if (!components.query || !components.key || !components.value ||
+        !components.qkMatmul || !components.attentionMatmul ||
+        !components.softmax) {
+      return false;
+    }
+
+    // Get tensor types
+    auto qType = mlir::dyn_cast<RankedTensorType>(components.query.getType());
+    auto kType = mlir::dyn_cast<RankedTensorType>(components.key.getType());
+    auto vType = mlir::dyn_cast<RankedTensorType>(components.value.getType());
+
+    if (!qType || !kType || !vType) {
+      return false;
+    }
+
+    // Check dimensions are reasonable for attention
+    // Q, K, V should be 3D or 4D tensors
+    if (qType.getRank() < 3 || qType.getRank() > 4 || kType.getRank() < 3 ||
+        kType.getRank() > 4 || vType.getRank() < 3 || vType.getRank() > 4) {
+      return false;
+    }
+
+    // Head dimension should match between Q and K (last dim of Q, last dim of
+    // K)
+    int64_t qHeadDim = qType.getShape()[qType.getRank() - 1];
+    int64_t kHeadDim = kType.getShape()[kType.getRank() - 1];
+    // int64_t vHeadDim = vType.getShape()[vType.getRank() - 1];
+
+    if (qHeadDim != kHeadDim) {
+      return false;
+    }
+
+    // Scale should be positive and reasonable (typically 1/sqrt(head_dim))
+    if (components.scale <= 0.0f || components.scale > 1.0f) {
+      return false;
+    }
+
+    return true;
+  }
+};
+
 // This is rope fusing pattern. Given this formula:
 // (x * cos) + (rotate_half(x) * sin)
 // into ttnn rotary_embedding op from ttnn.
@@ -422,8 +753,8 @@ public:
         TTNNConv2dWithActivation<ReluOp>, TTNNConv2dWithActivation<Relu6Op>,
         TTNNConv2dWithActivation<SiluOp>, TTNNConv2dWithActivation<SigmoidOp>,
         TTNNMatmulAndLinearWithActivation<MatmulOp, SigmoidOp>,
-        TTNNMatmulAndLinearWithActivation<LinearOp, SigmoidOp>, RoPEFusing>(
-        &getContext());
+        TTNNMatmulAndLinearWithActivation<LinearOp, SigmoidOp>, RoPEFusing,
+        SDPAFusing>(&getContext());
 
     GreedyRewriteConfig config;
     config.setUseTopDownTraversal(true);
