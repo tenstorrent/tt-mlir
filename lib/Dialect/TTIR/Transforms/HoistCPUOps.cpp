@@ -286,7 +286,8 @@ static void hoistOperationToFunction(mlir::Operation *opToHoist,
        llvm::zip(opToHoist->getResults(), callOp.getResults())) {
     if (auto tensorType =
             mlir::dyn_cast<mlir::RankedTensorType>(result.getType())) {
-      if (!tensorType.getElementType().isF32()) {
+      auto convertedTensorType = convertTensorType(tensorType);
+      if (tensorType != convertedTensorType) {
         auto converted = opBuilder.create<mlir::tt::ttir::EmptyOp>(
             opToHoist->getLoc(), tensorType.getShape(),
             tensorType.getElementType());
