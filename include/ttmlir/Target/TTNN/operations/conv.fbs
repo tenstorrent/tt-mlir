@@ -127,3 +127,25 @@ table ConvTranspose2dOp {
   compute_config: tt.target.ttnn.DeviceComputeKernelConfig;
   memory_config: tt.target.ttnn.MemoryConfig;
 }
+
+table Conv3dOp {
+  input: tt.target.ttnn.TensorRef;
+  weight: tt.target.ttnn.TensorRef;
+  bias: tt.target.ttnn.TensorRef;
+  out: tt.target.ttnn.TensorRef;
+  device: tt.target.DeviceRef;
+  in_channels: uint32;
+  out_channels: uint32;
+  batch_size: uint32;
+  input_depth: uint32;
+  input_height: uint32;
+  input_width: uint32;
+  kernel_size: [int32];
+  stride: [int32];
+  padding: [int32];
+  padding_mode: string;
+  groups: uint32;
+  output_dtype: tt.target.DataType = null;
+  compute_config: tt.target.ttnn.DeviceComputeKernelConfig;
+  memory_config: tt.target.ttnn.MemoryConfig;
+}
