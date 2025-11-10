@@ -73,7 +73,7 @@ namespace {
 /// Emitter that uses dialect specific emitters to emit Python code.
 struct PythonEmitter {
   explicit PythonEmitter(raw_ostream &os) : os(os) {
-    valueInScopeCount.push(llvm::StringMap<int64_t>{});
+    valueInScopeCount.push(0);
   }
 
   /// Emits attribute or returns failure.
@@ -144,7 +144,7 @@ private:
 
   /// The number of values in the current scope per variable name. This is used
   /// to declare the names of values in a scope.
-  std::stack<llvm::StringMap<int64_t>> valueInScopeCount;
+  std::stack<int64_t> valueInScopeCount;
 };
 } // namespace
 
@@ -155,8 +155,7 @@ static bool hasDeferredEmission(Operation *op) {
 
 StringRef PythonEmitter::getOrCreateName(Value value, std::string name) {
   if (!valueMapper.count(value)) {
-    valueMapper.insert(
-        value, formatv("{0}_{1}", name, ++valueInScopeCount.top()[name]));
+    valueMapper.insert(value, name);
   }
   return *valueMapper.begin(value);
 }
@@ -297,8 +296,13 @@ static LogicalResult printFunctionArgs(PythonEmitter &emitter, Operation &op,
                                        Region::BlockArgListType arguments) {
   raw_indented_ostream &os = emitter.ostream();
   std::string argName = "inputs";
+  func::FuncOp functionOp = mlir::cast<func::FuncOp>(op);
 
   return interleaveCommaWithError(arguments, os, [&](BlockArgument arg) {
+    if (auto suggestNameAttr =
+            functionOp.getArgAttr(arg.getArgNumber(), "emitpy.suggest_name")) {
+      argName = mlir::cast<StringAttr>(suggestNameAttr).getValue();
+    }
     return emitter.emitOperand(arg, argName);
   });
 }
@@ -537,10 +541,14 @@ std::string validateVariableName(const std::string &name) {
 // Assign a variable name to the result of the operation.
 LogicalResult PythonEmitter::emitVariableAssignment(OpResult result,
                                                     Operation &op) {
-  std::string name = "var";
+  std::string name = "";
+
   if (auto suggestNameAttr = op.getAttr("suggest_name")) {
     name = mlir::cast<StringAttr>(suggestNameAttr).getValue();
     name = validateVariableName(name);
+  }
+  if (name.empty()) {
+    name = "var_" + std::to_string(valueInScopeCount.top()++);
   }
   os << getOrCreateName(result, name) << " = ";
   return success();
