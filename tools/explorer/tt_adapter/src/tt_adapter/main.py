@@ -156,12 +156,11 @@ class TTAdapter(model_explorer.Adapter):
         self.model_runner = runner.ModelRunner()
 
     def preload(self, model_path: str, settings: Dict):
-        if not os.path.exists(utils.IR_DUMPS_DIR) or not os.path.isdir(
-            utils.IR_DUMPS_DIR
-        ):
+        ir_dumps_dir = utils.get_resolved_ir_dumps_dir()
+        if not os.path.exists(ir_dumps_dir) or not os.path.isdir(ir_dumps_dir):
             return utils.to_adapter_format({"graphPaths": []})
 
-        ir_paths = utils.list_ir_files(utils.IR_DUMPS_DIR)
+        ir_paths = utils.list_ir_files(ir_dumps_dir)
 
         graph_paths = []
         for path in ir_paths:

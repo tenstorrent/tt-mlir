@@ -16,9 +16,11 @@ from . import ttrt_loader
 
 
 # TODO(ctr-mcampos): update path to be configurable
-IR_DUMPS_DIR = "ir_dumps"
+IR_DUMPS_DIR = "~/explorer"
 MODEL_EXTENSIONS = [".ttir", ".mlir", ".ttnn"]
 
+def get_resolved_ir_dumps_dir():
+    return str(Path(IR_DUMPS_DIR).expanduser().resolve())
 
 def parse_mlir_str(module_str):
     with ttmlir.ir.Context() as ctx:
@@ -168,7 +170,7 @@ def get_collection_path(model_path: str):
     ):
         return resolved_model_path
 
-    resolved_ir_dir = Path(IR_DUMPS_DIR).resolve()
+    resolved_ir_dir = get_resolved_ir_dumps_dir()
 
     for parent in resolved_model_path.parents:
         if parent == resolved_ir_dir:
