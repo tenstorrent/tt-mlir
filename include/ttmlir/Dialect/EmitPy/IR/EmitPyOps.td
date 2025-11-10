@@ -267,6 +267,12 @@ def EmitPy_AssignGlobalOp : EmitPy_Op<"assign_global",
   let summary = "Assign a value to a global variable";
   let description = [{
     The `emitpy.assign_global` assignes the value to an existing named global variable.
+
+    Example:
+
+    ```mlir
+    %3 = "emitpy.assign_global"(%2) <{name = @g_cached_result_const_eval_no_input_const_eval_0}> : (!emitpy.opaque<"[ttnn.Tensor]">) -> !emitpy.opaque<"[ttnn.Tensor]">
+    ```
   }];
 
   let arguments = (ins FlatSymbolRefAttr:$name,
