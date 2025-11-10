@@ -1990,7 +1990,6 @@ class SplitQueryKeyValueAndSplitHeadsUpdatePattern
 
   llvm::SmallVector<int64_t> expectedPermute = {0, 2, 1, 3};
   llvm::SmallVector<int64_t> expectedTransposedPermute = {0, 2, 3, 1};
-  std::int32_t GQAQueryHeadsCoefficient = 2;
 
 public:
   mlir::LogicalResult
@@ -2266,6 +2265,7 @@ private:
     int32_t numQueryHeads = queryType.getShape()[Q_NUM_HEADS];
     int32_t numKVHeads = keyType.getShape()[O_NUM_KV_HEADS];
     int32_t hiddenSize = keyType.getShape()[O_HEAD_SIZE] * numKVHeads;
+    int32_t GQAQueryHeadsCoefficient = numQueryHeads / numKVHeads;
 
     // Input tensor is output of linear/matmul [0].
     // kv_input_tensor is concatenated linear/matmul output of [1] and [2].
@@ -2345,7 +2345,8 @@ private:
 
       // Create matmul operation with concatenated weights.
       // Multiply the last dimension by 2 (since we're concatenating K, V).
-      matmulOutputShape.back() = originalMatmulOutputShape.back() * 2;
+      matmulOutputShape.back() =
+          originalMatmulOutputShape.back() * GQAQueryHeadsCoefficient;
 
       RankedTensorType matmulOutputType = RankedTensorType::get(
           matmulOutputShape,
@@ -2635,10 +2636,23 @@ private:
     ArrayRef<int64_t> valueShape =
         mlir::dyn_cast<mlir::RankedTensorType>(valueTensor.getType())
             .getShape();
-    return (queryShape[Q_NUM_HEADS] ==
-            GQAQueryHeadsCoefficient * keyShape[O_NUM_KV_HEADS]) &&
-           (queryShape[Q_NUM_HEADS] ==
-            GQAQueryHeadsCoefficient * valueShape[O_NUM_KV_HEADS]);
+    int64_t queryHeads = queryShape[Q_NUM_HEADS];
+    int64_t keyHeads = keyShape[O_NUM_KV_HEADS];
+    int64_t valueHeads = valueShape[O_NUM_KV_HEADS];
+    // Check if queryHeads is divisible by both keyHeads and valueHeads
+    if (queryHeads % keyHeads != 0 || queryHeads % valueHeads != 0) {
+      return false;
+    }
+    // Check if the coefficients are the same
+    int64_t keyCoefficient = queryHeads / keyHeads;
+    int64_t valueCoefficient = queryHeads / valueHeads;
+    if (keyCoefficient != valueCoefficient) {
+      return false;
+    }
+    if (keyCoefficient < 2) {
+      return false;
+    }
+    return keyCoefficient == valueCoefficient;
   }
 
   bool isMHA(llvm::SmallVector<PermuteOp> &permuteOps) const {
