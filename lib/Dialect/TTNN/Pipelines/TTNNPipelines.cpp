@@ -20,7 +20,6 @@
 
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Transforms/Passes.h"
-#include <mlir/IR/BuiltinOps.h>
 
 namespace mlir::tt::ttnn {
 //===----------------------------------------------------------------------===//
