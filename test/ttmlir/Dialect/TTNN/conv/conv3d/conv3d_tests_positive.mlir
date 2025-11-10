@@ -1,0 +1,96 @@
+// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline -o %t %s
+// RUN: FileCheck %s --input-file=%t
+module {
+  // Test simple 3D convolution
+  func.func @conv3d_simple(%arg0: tensor<1x8x28x28x4xbf16>, %arg1: tensor<16x4x3x3x3xbf16>) -> tensor<1x6x26x26x16xbf16> {
+    %0 = ttir.empty() : tensor<1x6x26x26x16xbf16>
+    // CHECK: "ttnn.reshape"
+    // CHECK: "ttnn.conv3d"
+    %1 = "ttir.conv3d"(%arg0, %arg1, %0)
+            <{
+              stride = array<i32: 1, 1, 1>,
+              padding = array<i32: 0, 0, 0>,
+              groups = 1 : i32,
+              padding_mode = "zeros"
+            }> : (tensor<1x8x28x28x4xbf16>, tensor<16x4x3x3x3xbf16>, tensor<1x6x26x26x16xbf16>) -> tensor<1x6x26x26x16xbf16>
+    return %1 : tensor<1x6x26x26x16xbf16>
+  }
+
+  // Test 3D convolution with stride
+  func.func @conv3d_with_stride(%arg0: tensor<1x8x28x28x16xbf16>, %arg1: tensor<32x16x3x3x3xbf16>) -> tensor<1x4x14x14x32xbf16> {
+    %0 = ttir.empty() : tensor<1x4x14x14x32xbf16>
+    // CHECK: "ttnn.reshape"
+    // CHECK: "ttnn.conv3d"
+    %1 = "ttir.conv3d"(%arg0, %arg1, %0)
+            <{
+              stride = array<i32: 2, 2, 2>,
+              padding = array<i32: 1, 1, 1>,
+              groups = 1 : i32,
+              padding_mode = "zeros"
+            }> : (tensor<1x8x28x28x16xbf16>, tensor<32x16x3x3x3xbf16>, tensor<1x4x14x14x32xbf16>) -> tensor<1x4x14x14x32xbf16>
+    return %1 : tensor<1x4x14x14x32xbf16>
+  }
+
+  // Test 3D convolution with bias
+  func.func @conv3d_with_bias(%arg0: tensor<1x8x28x28x4xbf16>, %arg1: tensor<16x4x3x3x3xbf16>, %arg2: tensor<1x1x1x1x16xbf16>) -> tensor<1x6x26x26x16xbf16> {
+    %0 = ttir.empty() : tensor<1x6x26x26x16xbf16>
+    // CHECK: "ttnn.reshape"
+    // CHECK: "ttnn.repeat"
+    // CHECK: "ttnn.conv3d"
+    %1 = "ttir.conv3d"(%arg0, %arg1, %arg2, %0)
+            <{
+              stride = array<i32: 1, 1, 1>,
+              padding = array<i32: 0, 0, 0>,
+              groups = 1 : i32,
+              padding_mode = "zeros"
+            }> : (tensor<1x8x28x28x4xbf16>, tensor<16x4x3x3x3xbf16>, tensor<1x1x1x1x16xbf16>, tensor<1x6x26x26x16xbf16>) -> tensor<1x6x26x26x16xbf16>
+    return %1 : tensor<1x6x26x26x16xbf16>
+  }
+
+  // Test 3D convolution with different padding mode
+  func.func @conv3d_padding_replicate(%arg0: tensor<1x8x28x28x4xbf16>, %arg1: tensor<16x4x3x3x3xbf16>) -> tensor<1x8x28x28x16xbf16> {
+    %0 = ttir.empty() : tensor<1x8x28x28x16xbf16>
+    // CHECK: "ttnn.reshape"
+    // CHECK: "ttnn.conv3d"
+    // CHECK-SAME: padding_mode = "replicate"
+    %1 = "ttir.conv3d"(%arg0, %arg1, %0)
+            <{
+              stride = array<i32: 1, 1, 1>,
+              padding = array<i32: 1, 1, 1>,
+              groups = 1 : i32,
+              padding_mode = "replicate"
+            }> : (tensor<1x8x28x28x4xbf16>, tensor<16x4x3x3x3xbf16>, tensor<1x8x28x28x16xbf16>) -> tensor<1x8x28x28x16xbf16>
+    return %1 : tensor<1x8x28x28x16xbf16>
+  }
+
+  // Test 3D convolution with groups
+  func.func @conv3d_with_groups(%arg0: tensor<1x8x28x28x8xbf16>, %arg1: tensor<16x4x3x3x3xbf16>) -> tensor<1x6x26x26x16xbf16> {
+    %0 = ttir.empty() : tensor<1x6x26x26x16xbf16>
+    // CHECK: "ttnn.reshape"
+    // CHECK: "ttnn.conv3d"
+    // CHECK-SAME: groups = 2
+    %1 = "ttir.conv3d"(%arg0, %arg1, %0)
+            <{
+              stride = array<i32: 1, 1, 1>,
+              padding = array<i32: 0, 0, 0>,
+              groups = 2 : i32,
+              padding_mode = "zeros"
+            }> : (tensor<1x8x28x28x8xbf16>, tensor<16x4x3x3x3xbf16>, tensor<1x6x26x26x16xbf16>) -> tensor<1x6x26x26x16xbf16>
+    return %1 : tensor<1x6x26x26x16xbf16>
+  }
+
+  // Test 3D convolution with larger kernel
+  func.func @conv3d_large_kernel(%arg0: tensor<1x16x32x32x8xbf16>, %arg1: tensor<32x8x5x5x5xbf16>) -> tensor<1x12x28x28x32xbf16> {
+    %0 = ttir.empty() : tensor<1x12x28x28x32xbf16>
+    // CHECK: "ttnn.reshape"
+    // CHECK: "ttnn.conv3d"
+    %1 = "ttir.conv3d"(%arg0, %arg1, %0)
+            <{
+              stride = array<i32: 1, 1, 1>,
+              padding = array<i32: 0, 0, 0>,
+              groups = 1 : i32,
+              padding_mode = "zeros"
+            }> : (tensor<1x16x32x32x8xbf16>, tensor<32x8x5x5x5xbf16>, tensor<1x12x28x28x32xbf16>) -> tensor<1x12x28x28x32xbf16>
+    return %1 : tensor<1x12x28x28x32xbf16>
+  }
+}
