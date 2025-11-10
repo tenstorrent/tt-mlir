@@ -14,7 +14,6 @@ include "mlir/Interfaces/SideEffectInterfaces.td"
 include "mlir/IR/BuiltinAttributes.td"
 include "mlir/IR/CommonTypeConstraints.td"
 include "mlir/IR/CommonAttrConstraints.td"
-include "mlir/IR/OpAsmInterface.td"
 include "mlir/IR/OpBase.td"
 include "mlir/IR/RegionKindInterface.td"
 
@@ -23,7 +22,7 @@ include "mlir/IR/RegionKindInterface.td"
 //===----------------------------------------------------------------------===//
 
 
-def EmitPy_CallOpaqueOp : EmitPy_Op<"call_opaque", [PyExpressionInterface, DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmResultNames"]>]> {
+def EmitPy_CallOpaqueOp : EmitPy_Op<"call_opaque", [PyExpressionInterface]> {
   let summary = "Opaque call operation";
   let description = [{
     The `emitpy.call_opaque` operation represents a Python function call. The callee

@@ -272,6 +272,8 @@ void createTTNNBackendToEmitPyPipeline(
   }
 
   pm.addPass(createConvertTTNNToEmitPyPass());
+
+  pm.addPass(createEmitPyPostProcessingPass());
 }
 
 void createTTIRToEmitCPipeline(OpPassManager &pm,

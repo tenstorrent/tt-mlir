@@ -198,6 +198,15 @@ def ConvertTTNNToEmitPy : Pass<"convert-ttnn-to-emitpy", "::mlir::ModuleOp"> {
   let dependentDialects = ["mlir::tt::emitpy::EmitPyDialect", "mlir::tt::ttnn::TTNNDialect"];
 }
 
+def EmitPyPostProcessing : Pass<"emitpy-post-processing", "::mlir::ModuleOp"> {
+  let summary = "Post-processing pass to add suggested names for EmitPy pipeline.";
+  let description = [{
+    This pass adds suggested names for operands based on operations on EmitPy IR.
+  }];
+  let constructor = "createEmitPyPostProcessingPass()";
+  let dependentDialects = ["mlir::tt::emitpy::EmitPyDialect"];
+}
+
 def ConvertTTKernelToEmitC : Pass<"convert-ttkernel-to-emitc", "::mlir::ModuleOp"> {
   let summary = "Convert TTKernel dialect to EmitC dialect.";
   let dependentDialects = ["mlir::emitc::EmitCDialect", "mlir::func::FuncDialect",
