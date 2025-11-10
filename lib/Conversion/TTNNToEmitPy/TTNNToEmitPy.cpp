@@ -2709,15 +2709,12 @@ public:
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput(), "input_tensor"),
         emitter.emit(srcOp.getScatterDim(), "dim"),
-        /*multi_device_global_semaphore*/
-        /*barrier_semaphore*/
-        emitter.emit(srcOp.getNumLinks(), "num_links"),
-        emitter.emit(emitter.getMemoryConfig(srcOp.getResult()),
-                     "memory_config"),
-        // Topology was not listed as an argument in the ttnn op. It will be
-        // added in the future.
-        emitter.emit(mlir::tt::ttcore::Topology::Linear, "topology"),
         emitter.emit(srcOp.getClusterAxis(), "cluster_axis"),
+        emitter.emit(srcOp.getSubDeviceId(), "subdevice_id"),
+        emitter.emit(srcOp.getMemoryConfig(), "memory_config"),
+        emitter.emit(srcOp.getOptionalOutputTensor(), "output_tensor"),
+        emitter.emit(srcOp.getNumLinks(), "num_links"),
+        emitter.emit(srcOp.getTopology(), "topology"),
     };
 
     emitter.replaceOp(*this, args);

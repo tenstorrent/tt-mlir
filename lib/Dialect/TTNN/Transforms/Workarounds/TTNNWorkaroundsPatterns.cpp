@@ -374,7 +374,6 @@ public:
     llvm::SmallVector<int64_t> inputTypeShape(inputType.getShape());
     Location loc = op.getLoc();
     uint32_t clusterAxis = op.getClusterAxis();
-    Value deviceValue = op.getDevice();
     auto deviceDesc = ttcore::lookupDevice(op);
     ::llvm::ArrayRef<int64_t> meshShape = deviceDesc.getMeshShape();
 
@@ -420,8 +419,8 @@ public:
     ttnn::ReduceScatterOp reduceScatterOp =
         rewriter.create<ttnn::ReduceScatterOp>(
             ttmlir::utils::appendLocationSuffix(loc, "_reduceScatter"),
-            scatteredInputType, op.getInput(), deviceValue, op.getReduceType(),
-            dimension, clusterAxis);
+            scatteredInputType, op.getInput(), op.getReduceType(), dimension,
+            clusterAxis, nullptr, nullptr, nullptr, nullptr, nullptr);
 
     // Replace all_reduce op with all_gather op.
     rewriter.replaceOpWithNewOp<ttnn::AllGatherOp>(
