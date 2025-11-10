@@ -467,19 +467,21 @@ mlir::FailureOr<SystemDescAttr> SystemDescAttr::getFromBuffer(
   }
 
   std::vector<ChipChannelAttr> chipChannelList;
-  for (const auto *element : *chipChannelConnections) {
-    std::vector<int64_t> ethernetCoreCoord0Vec = {
-        element->ethernet_core_coord0().y(),
-        element->ethernet_core_coord0().x()};
+  if (chipChannelConnections) {
+    for (const auto *element : *chipChannelConnections) {
+      std::vector<int64_t> ethernetCoreCoord0Vec = {
+          element->ethernet_core_coord0().y(),
+          element->ethernet_core_coord0().x()};
 
-    std::vector<int64_t> ethernetCoreCoord1Vec = {
-        element->ethernet_core_coord1().y(),
-        element->ethernet_core_coord1().x()};
+      std::vector<int64_t> ethernetCoreCoord1Vec = {
+          element->ethernet_core_coord1().y(),
+          element->ethernet_core_coord1().x()};
 
-    auto chipChannelAttr = ChipChannelAttr::get(
-        context, element->device_id0(), ethernetCoreCoord0Vec,
-        element->device_id1(), ethernetCoreCoord1Vec);
-    chipChannelList.push_back(chipChannelAttr);
+      auto chipChannelAttr = ChipChannelAttr::get(
+          context, element->device_id0(), ethernetCoreCoord0Vec,
+          element->device_id1(), ethernetCoreCoord1Vec);
+      chipChannelList.push_back(chipChannelAttr);
+    }
   }
 
   // Generate system desc attribute
