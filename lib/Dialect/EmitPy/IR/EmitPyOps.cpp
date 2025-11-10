@@ -416,10 +416,53 @@ static ParseResult parseEmitPyGlobalOpInitialValue(OpAsmParser &parser,
   return success();
 }
 
+static bool isValidPythonIdentifier(StringRef name) {
+  if (name.empty()) {
+    return false;
+  }
+
+  static constexpr const char *pythonKeywords[] = {
+      "False",  "None",   "True",    "and",      "as",       "assert", "async",
+      "await",  "break",  "class",   "continue", "def",      "del",    "elif",
+      "else",   "except", "finally", "for",      "from",     "global", "if",
+      "import", "in",     "is",      "lambda",   "nonlocal", "not",    "or",
+      "pass",   "raise",  "return",  "try",      "while",    "with",   "yield"};
+
+  for (const char *keyword : pythonKeywords) {
+    if (name == keyword) {
+      return false;
+    }
+  }
+
+  char first = name[0];
+  if (!((first >= 'a' && first <= 'z') || (first >= 'A' && first <= 'Z') ||
+        first == '_')) {
+    return false;
+  }
+
+  for (char c : name) {
+    if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+          (c >= '0' && c <= '9') || c == '_')) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
 LogicalResult GlobalOp::verify() {
   Attribute value = getInitialValue();
   if (!value) {
     return emitOpError() << "requires initial value for global variable";
+  }
+
+  StringRef name = getName();
+  if (!isValidPythonIdentifier(name)) {
+    return emitOpError()
+           << "symbol name '" << name
+           << "' is not a valid Python identifier (must start with letter or "
+              "underscore, contain only letters, digits, and underscores, and "
+              "not be a Python keyword)";
   }
 
   return success();
