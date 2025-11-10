@@ -76,6 +76,10 @@ public:
       Region *genericRegion = &op.getRegion(regionIndex);
       Block &block = genericRegion->getBlocks().front();
 
+      if (!op.hasComputeOpsInRegion(regionIndex)) {
+        return failure();
+      }
+
       Type largestDstType = utils::getRegionLargestDstElemType(*genericRegion);
       const unsigned dstCapacity =
           ttcore::getOpChipDescAttr(op).getDstLogicalSizeTiles(

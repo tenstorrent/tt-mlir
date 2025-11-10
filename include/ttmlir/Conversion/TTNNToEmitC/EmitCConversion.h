@@ -1864,7 +1864,7 @@ public:
 
     // MaxPool2dOp return a std::vector<ttnn::Tensor> containing a single
     // element. We can guarantee this because MaxPool2dOp always has
-    // `return_indices=false`.
+    // `return_indices=false` - otherwise it would be MaxPool2dWithIndicesOp.
     // Extract first/single element to replace the original MaxPool2dOp.
     if constexpr (std::is_same_v<TTNNOp, tt::ttnn::MaxPool2dOp>) {
       assert(op->getNumResults() == 1 &&
