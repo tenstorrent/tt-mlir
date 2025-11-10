@@ -22,7 +22,7 @@ runs:
       uses: actions/cache@v4
       with:
         path: /opt/ttmlir-toolchain
-        key: ${{ inputs.os }}-ttmlir-toolchain-${{ hashFiles('env/**') }}-${{ inputs.sdk }}
+        key: ${{ inputs.os }}-ttmlir-toolchain-${{ hashFiles('env/**', '!env/build/**') }}-${{ inputs.sdk }}
 
     - name: 'Build ttmlir-toolchain'
       if: steps.cache-toolchain.outputs.cache-hit != 'true'
