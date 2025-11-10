@@ -212,13 +212,20 @@ public:
     ttcore::MemorySpaceAttr outputMemorySpace =
         mlir::dyn_cast_if_present<ttcore::MemorySpaceAttr>(
             outputTy.getMemorySpace());
-    bool inputMemorySpaceSet = inputMemorySpace != nullptr;
-    bool outputMemorySpaceSet = outputMemorySpace != nullptr;
-    assert((inputMemorySpaceSet != outputMemorySpaceSet) &&
-           "expected either input or output to have memory space");
 
-    // No memoryspace implicitly means host.
-    if (inputMemorySpace) {
+    // Determine if memory spaces are device (L1/DRAM) or host (System/null)
+    bool inputIsDevice = inputMemorySpace &&
+                         ttcore::isDeviceMemorySpace(inputMemorySpace.getValue());
+    bool outputIsDevice = outputMemorySpace &&
+                          ttcore::isDeviceMemorySpace(outputMemorySpace.getValue());
+
+    // Exactly one side should be device memory (the other is host/System)
+    assert((inputIsDevice != outputIsDevice) &&
+           "expected either input or output to be device memory space (L1/DRAM)");
+
+    // Device input means Device→Host (EnqueueReadBuffer)
+    // Host/System input means Host→Device (EnqueueWriteBuffer)
+    if (inputIsDevice) {
       assert(!mlir::dyn_cast_if_present<ttcore::HostLayoutAttr>(
           inputTy.getLayout()));
       rewriter.replaceOpWithNewOp<ttmetal::EnqueueReadBufferOp>(op, input,
