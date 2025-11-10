@@ -311,7 +311,7 @@ static void hoistOperationToFunction(mlir::Operation *opToHoist,
 
 namespace {
 // Predicate type for determining whether an op should be hoisted.
-using ShouldHoistPredicate = std::function<bool(mlir::Operation *)>;
+using ShouldHoistPredicateType = std::function<bool(mlir::Operation *)>;
 
 // Analysis pass to find ops to hoist based on the provided predicate.
 // Currently, we only support hoisting single op at a time.
@@ -323,7 +323,7 @@ public:
   // continguously.  (Currently, we only support sets of size 1).
   using HoistOpSet = llvm::SmallVector<llvm::SmallSet<mlir::Operation *, 4>>;
 
-  TTIRHoistAnalyze(ShouldHoistPredicate predicate) : predicate{predicate} {}
+  TTIRHoistAnalyze(ShouldHoistPredicateType predicate) : predicate{predicate} {}
 
   HoistOpSet getHoistedOps(mlir::ModuleOp moduleOp) {
     HoistOpSet hoistedOps;
@@ -342,7 +342,7 @@ public:
   }
 
 private:
-  ShouldHoistPredicate predicate;
+  ShouldHoistPredicateType predicate;
 };
 } // namespace
 
@@ -357,7 +357,7 @@ public:
 
   // Constructor which allows specifying a custom predicate for determining
   // whether an op should be hoisted.
-  TTIRHoistTransform(ShouldHoistPredicate predicate)
+  TTIRHoistTransform(ShouldHoistPredicateType predicate)
       : customPredicate{predicate} {}
 
   void runOnOperation() final {
@@ -435,7 +435,7 @@ public:
 
 private:
   // By default, no custom ops are hoisted unless specified via constructor.
-  ShouldHoistPredicate customPredicate = [](mlir::Operation *op) {
+  ShouldHoistPredicateType customPredicate = [](mlir::Operation *op) {
     return false;
   };
 };
@@ -453,7 +453,7 @@ std::unique_ptr<mlir::Pass> createTTIRHoistTransformForDialects() {
 template <typename... Ops>
 std::unique_ptr<mlir::Pass> createTTIRHoistTransformForOps() {
   const auto customPredicate = [](mlir::Operation *op) {
-    return (llvm::isa<Ops>(op) || ...);
+    return llvm::isa<Ops...>(op);
   };
   auto pass = std::make_unique<TTIRHoistTransform>(customPredicate);
   return pass;

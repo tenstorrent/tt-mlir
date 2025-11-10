@@ -30,7 +30,6 @@
 #include "ttmlir/Dialect/TTCore/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 #include "ttmlir/Transforms/Passes.h"
-#include <stablehlo/dialect/StablehloOps.h>
 
 #ifdef TTMLIR_ENABLE_STABLEHLO
 #include "stablehlo/conversions/linalg/transforms/Passes.h"
