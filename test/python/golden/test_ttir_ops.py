@@ -796,7 +796,7 @@ def test_max_pool2d(
     [([2, 2], [2, 2], [1, 1], [0, 0, 0, 0], False)],
 )
 @pytest.mark.parametrize("shape", [(1, 128, 128, 32)], ids=shape_str)
-@pytest.mark.parametrize("dtype", [torch.float32])
+@pytest.mark.parametrize("dtype", [torch.float32, torch.int32], ids=["f32", "i32"])
 @pytest.mark.parametrize("target", ["ttnn"])
 def test_hoisted_max_pool2d(
     shape: Shape,
@@ -1992,17 +1992,18 @@ def test_hoisted_max(shape, dim_arg, keep_dim, request, target: str, device):
 
 @x86_only
 @pytest.mark.parametrize(
-    "shape,begins,ends,step",
+    "shape,begins,ends,step,dtype",
     [
-        ((64, 64), [0, 0], [32, 32], None),
-        ((128, 128), [10, 20], [50, 60], [1, 1]),
-        ((32, 64, 64), [5, 10, 15], [25, 50, 55], [2, 2, 1]),
+        ((64, 64), [0, 0], [32, 32], None, torch.float32),
+        ((128, 128), [10, 20], [50, 60], [1, 1], torch.int32),
+        ((32, 64, 64), [5, 10, 15], [25, 50, 55], [2, 2, 1], torch.int32),
     ],
-    ids=["basic_slice", "explicit_step", "3d_slice"],
+    ids=["basic_slice_f32", "explicit_step_f32", "3d_slice_i32"],
 )
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
 def test_hoisted_slice(
     shape: Shape,
+    dtype: torch.dtype,
     begins: List[int],
     ends: List[int],
     step: List[int],
@@ -2019,6 +2020,7 @@ def test_hoisted_slice(
     compile_and_execute_ttir(
         slice_wrapper,
         [shape],
+        [dtype],
         test_base=request.node.name,
         target=target,
         device=device,
@@ -2091,16 +2093,19 @@ def test_reshape(shapes, dtype: torch.dtype, request, device):
 
 @x86_only
 @pytest.mark.parametrize(
-    "input_shape,output_shape",
+    "input_shape,output_shape,dtype",
     [
-        # (input_shape, output_shape)
-        ((2, 3, 4), (24,)),
-        ((128, 128), (16384,)),
-        ((128, 64, 32), (128, 2048)),
+        # (input_shape, output_shape, dtype)
+        ((2, 3, 4), (24,), torch.float32),
+        ((128, 128), (16384,), torch.float32),
+        ((128, 64, 32), (128, 2048), torch.int32),
     ],
+    ids=["3d_to_1d_f32", "2d_to_1d_f32", "3d_to_2d_i32"],
 )
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
-def test_hoisted_reshape(input_shape, output_shape, request, target: str, device):
+def test_hoisted_reshape(
+    input_shape, output_shape, dtype, request, target: str, device
+):
     def reshape_wrapper(in0: Operand, builder: TTIRBuilder):
         return builder.reshape(in0, output_shape, unit_attrs=["ttir.should_hoist"])
 
@@ -2109,6 +2114,7 @@ def test_hoisted_reshape(input_shape, output_shape, request, target: str, device
     compile_and_execute_ttir(
         reshape_wrapper,
         [input_shape],
+        [dtype],
         test_base=request.node.name,
         target=target,
         device=device,
@@ -2119,16 +2125,17 @@ def test_hoisted_reshape(input_shape, output_shape, request, target: str, device
 
 @x86_only
 @pytest.mark.parametrize(
-    "input_shape,dims",
+    "input_shape,dims,dtype",
     [
         # (input_shape, permutation)
-        ((2, 3, 4), [2, 1]),
-        ((128, 128), [1, 0]),
-        ((128, 64, 32), [0, 2]),
+        ((2, 3, 4), [2, 1], torch.float32),
+        ((128, 128), [1, 0], torch.float32),
+        ((128, 64, 32), [0, 2], torch.int32),
     ],
+    ids=["3d_perm_f32", "2d_perm_f32", "3d_perm_i32"],
 )
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
-def test_hoisted_transpose(input_shape, dims, request, target: str, device):
+def test_hoisted_transpose(input_shape, dims, dtype, request, target: str, device):
     def transpose_wrapper(in0: Operand, builder: TTIRBuilder):
         # For 2D tensors with permutation [1, 0], swap dimensions 0 and 1
         # For 3D tensors with permutation [2, 1, 0], swap dimensions 0 and 2
@@ -2143,6 +2150,7 @@ def test_hoisted_transpose(input_shape, dims, request, target: str, device):
     compile_and_execute_ttir(
         transpose_wrapper,
         [input_shape],
+        [dtype],
         test_base=request.node.name,
         target=target,
         device=device,
