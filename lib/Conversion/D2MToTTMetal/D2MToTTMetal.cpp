@@ -149,10 +149,20 @@ public:
   LogicalResult
   matchAndRewrite(memref::AllocOp op, memref::AllocOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
-    auto address = op->getAttrOfType<IntegerAttr>("address");
-    assert(op.getMemref().getType().getMemorySpace() &&
-           "No memref memory space found, failing.");
     auto memrefType = op.getMemref().getType();
+
+    // Skip System memory allocations - these are host buffers, not device buffers
+    if (auto memSpace = mlir::dyn_cast_if_present<ttcore::MemorySpaceAttr>(
+            memrefType.getMemorySpace())) {
+      if (ttcore::isSystemMemorySpace(memSpace.getValue())) {
+        // Leave System memory allocs as-is (host buffers)
+        return failure();
+      }
+    }
+
+    auto address = op->getAttrOfType<IntegerAttr>("address");
+    assert(memrefType.getMemorySpace() &&
+           "No memref memory space found, failing.");
 
     auto layout = mlir::dyn_cast_if_present<ttcore::DeviceLayoutInterface>(
         memrefType.getLayout());
