@@ -485,7 +485,9 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
           TT_debugv(mlir::isa<BlockArgument>(memref),
                     "expected a block arg: {}", memref);
           memrefCtx.type = mlir::cast<MemRefType>(memref.getType());
-          memrefCtx.size = getMemrefSizeBytes(memrefCtx.type, device);
+          if (isDeviceMemorySpace(memrefCtx.type, MemorySpace::DeviceL1)) {
+            memrefCtx.size = getMemrefSizeBytes(memrefCtx.type, device);
+          }
         } else {
           // An existing `analysis.memrefs` entry means `operand` is ultimately
           // rooted in a `memref::AllocOp`.
