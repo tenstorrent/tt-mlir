@@ -1,0 +1,49 @@
+services:
+  explorer:
+    build:
+      context: ..
+      dockerfile: Dockerfile.explorer
+    container_name: tt-explorer-app-local
+    restart: unless-stopped
+    command: ["-u", "0.0.0.0", "-x"]
+    ports:
+      - "8080:8080"
+    networks:
+      - explorer-local-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  nginx:
+    build:
+      context: ./nginx
+      dockerfile: Dockerfile
+    container_name: tt-explorer-nginx-local
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    environment:
+      - FQDN=localhost
+    volumes:
+      - ./nginx/nginx.local.conf:/etc/nginx/templates/default.conf.template:ro
+      - /etc/ssl/certs/ca-certificates.crt:/etc/ssl/certs/ca-certificates.crt:ro
+    networks:
+      - explorer-local-network
+    depends_on:
+      explorer:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+networks:
+  explorer-local-network:
+    driver: bridge
+    name: explorer-local-network
+
