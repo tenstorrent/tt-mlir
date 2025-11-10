@@ -3895,10 +3895,6 @@ mlir::LogicalResult RotaryEmbeddingLlamaOp::verify() {
   mlir::RankedTensorType sinType = getSinCache().getType();
   mlir::RankedTensorType outputType = getResult().getType();
 
-  if (inputType != outputType) {
-    return emitOpError("input and output tensor types must match.");
-  }
-
   if (cosType != sinType) {
     return emitOpError("cos and sin tensor types must match.");
   }
