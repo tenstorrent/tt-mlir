@@ -124,7 +124,7 @@ class MLIRModuleSplitter:
 
         if any(isinstance(op, _ttcore_ops_gen.CPUModuleOp) for op in funcs_list):
             raise ValueError(
-                "MLIRModuleSplitter does not support modules containing hoisted ops."
+                "MLIRModuleSplitter does not support modules containing CPU-hoisted ops."
             )
 
         # Extract operations from DeviceModuleOp if present.
