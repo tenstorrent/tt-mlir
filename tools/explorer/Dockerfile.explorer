@@ -1,94 +1,137 @@
-FROM ubuntu:22.04
+# TT-Explorer Dockerfile
+#
+# Builds a containerized version of TT-Explorer, a web-based visualization and
+# debugging tool for TT-MLIR models.
+#
+# This Dockerfile:
+#   - Installs all required system dependencies (clang 17, Python 3.11, build tools)
+#   - Clones and builds tt-mlir from the main branch
+#   - Builds the tt-explorer web application
+#   - Configures entrypoint to serve explorer on port 8080
+#
+# Platform: linux/amd64 (forced for consistency across build platforms)
+#
+# Usage:
+#   docker build -f Dockerfile.explorer -t tt-explorer .
+#   docker run -p 8080:8080 tt-explorer
+#
+# For production deployment with OAuth2 and HTTPS, see docker-compose.yml
+# For local development without authentication, see docker-compose.local.yml
+#
+FROM --platform=linux/amd64 ubuntu:22.04
+
 SHELL ["/bin/bash", "-c"]
-
-# Set environment variables
 ENV DEBIAN_FRONTEND=noninteractive
+WORKDIR /tmp/build
 
-# Install dependencies
+# Install base dependencies and Python 3.11
 RUN <<EOT
+set -e
 apt-get update
 apt-get install -y \
-    software-properties-common \
     build-essential \
-    python3-pip \
+    ccache \
+    cmake \
+    curl \
+    doxygen \
+    gh \
     git \
-    libhwloc-dev \
-    pandoc \
-    libtbb-dev \
+    graphviz \
+    jq \
+    lcov \
+    libboost-all-dev \
     libcapstone-dev \
-    pkg-config \
+    libgtest-dev \
+    libhwloc-dev \
+    libtbb-dev \
+    libyaml-cpp-dev \
     linux-tools-generic \
     ninja-build \
-    wget \
-    libgtest-dev \
-    cmake \
-    ccache \
-    doxygen \
-    graphviz \
-    libyaml-cpp-dev \
-    libboost-all-dev \
-    curl \
-    jq \
+    pandoc \
+    pkg-config \
+    python3-pip \
+    software-properties-common \
     sudo \
-    gh \
-    lcov \
+    wget \
     unzip
 
-# Install Python 3.11
-add-apt-repository ppa:deadsnakes/ppa && \
-    apt-get update && \
-    apt-get install -y python3.11 python3.11-dev python3.11-venv python3.11-distutils
+add-apt-repository ppa:deadsnakes/ppa
+apt-get update
+apt-get install -y python3.11 python3.11-dev python3.11-venv python3.11-distutils
 
-# Setup / install metal dependencies
-wget https://raw.githubusercontent.com/tenstorrent/tt-metal/7aee9a53eac0023e3660668448e1fbb105038d63/{install_dependencies.sh,tt_metal/sfpi-version.sh}
-bash install_dependencies.sh --docker
+apt-get clean
+rm -rf /var/lib/apt/lists/*
 EOT
 
 # Install clang 17
-RUN wget https://apt.llvm.org/llvm.sh && \
-    chmod u+x llvm.sh && \
-    ./llvm.sh 17 && \
-    apt install -y libc++-17-dev libc++abi-17-dev && \
-    ln -s /usr/bin/clang-17 /usr/bin/clang && \
-    ln -s /usr/bin/clang++-17 /usr/bin/clang++ && \
-    ln -s /usr/bin/clangd-17 /usr/bin/clangd
-
-# Set working directory and clone repository
-WORKDIR /workspace
 RUN <<EOT
-# Clone tt-mlir repository
+set -e
+wget https://apt.llvm.org/llvm.sh
+chmod u+x llvm.sh
+./llvm.sh 17
+apt-get install -y libc++-17-dev libc++abi-17-dev
+ln -s /usr/bin/clang-17 /usr/bin/clang
+ln -s /usr/bin/clang++-17 /usr/bin/clang++
+ln -s /usr/bin/clangd-17 /usr/bin/clangd
+rm llvm.sh
+apt-get clean
+rm -rf /var/lib/apt/lists/*
+EOT
+
+# Download and run TT-Metal dependencies installer
+RUN <<EOT
+set -e
+wget https://raw.githubusercontent.com/tenstorrent/tt-metal/refs/heads/main/install_dependencies.sh
+wget https://raw.githubusercontent.com/tenstorrent/tt-metal/refs/heads/main/tt_metal/sfpi-version
+wget https://raw.githubusercontent.com/tenstorrent/tt-metal/refs/heads/main/tt_metal/sfpi-info.sh
+chmod u+x install_dependencies.sh sfpi-info.sh
+bash install_dependencies.sh --docker
+rm install_dependencies.sh
+EOT
+
+WORKDIR /workspace
+
+# Clone tt-mlir repository and setup toolchain directory
+RUN <<EOT
+set -e
 git clone https://github.com/tenstorrent/tt-mlir.git .
 git submodule update --init --recursive
 
-# Create toolchain directory
 export TTMLIR_TOOLCHAIN_DIR=/opt/ttmlir-toolchain/
 sudo mkdir -p "${TTMLIR_TOOLCHAIN_DIR}"
 sudo chown -R "${USER}" "${TTMLIR_TOOLCHAIN_DIR}"
-
-# Compile and generate toolchain
-cmake -B env/build env
-cmake --build env/build
-source env/activate
-
-# Build tt-explorer
-cmake -G Ninja -B build \
-   -DTT_RUNTIME_ENABLE_PERF_TRACE=ON \
-   -DTTMLIR_ENABLE_RUNTIME=ON \
-   -DTT_RUNTIME_DEBUG=ON \
-   -DTTMLIR_ENABLE_STABLEHLO=ON
-
-# build explorer
-cmake --build build -- explorer
-
-# Create entrypoint script that activates environment and runs tt-explorer
-cat > /usr/local/bin/start-explorer.sh << 'SCRIPT'
-#!/bin/bash
-cd /workspace
-source env/activate
-exec /workspace/build/bin/tt-explorer "$@"
-SCRIPT
-
-chmod +x /usr/local/bin/start-explorer.sh
 EOT
 
-ENTRYPOINT ["/usr/local/bin/start-explorer.sh", "-x"]
+# Build toolchain (external dependencies like LLVM, Flatbuffers, etc.)
+RUN <<EOT
+set -e
+cmake -B env/build env
+cmake --build env/build
+EOT
+
+# Build main tt-mlir project
+RUN <<EOT
+set -e
+source env/activate
+
+cmake -G Ninja -B build \
+    -DTT_RUNTIME_ENABLE_PERF_TRACE=ON \
+    -DTTMLIR_ENABLE_RUNTIME=ON \
+    -DTT_RUNTIME_DEBUG=ON \
+    -DTTMLIR_ENABLE_STABLEHLO=ON
+
+cmake --build build
+EOT
+
+# Build tt-explorer specifically
+RUN <<EOT
+set -e
+source env/activate
+cmake --build build -- explorer
+EOT
+
+# Copy and configure entrypoint script
+COPY hosted/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh", "-x"]

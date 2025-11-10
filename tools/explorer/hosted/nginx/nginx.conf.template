@@ -1,0 +1,179 @@
+# Upstream configuration for tt-explorer application
+upstream explorer_backend {
+    server explorer:8080;
+    keepalive 32;
+}
+
+# OAuth2 Proxy upstream
+upstream oauth2_proxy {
+    server oauth2-proxy:4180;
+    keepalive 32;
+}
+
+# ACME shared memory zone
+acme_shared_zone zone=acme_shared:1M;
+
+# ACME issuer configuration
+acme_issuer acme_server {
+    uri         ${ACME_DIRECTORY_URL};
+    contact     ${ACME_CONTACT};
+    accept_terms_of_service;
+}
+
+    # HTTP server for ACME challenges and redirects
+    server {
+        listen 80;
+        server_name ${FQDN};
+
+        # Handle ACME challenges
+        location /.well-known/acme-challenge/ {
+            # ACME module handles this automatically
+        }
+
+        # Redirect everything else to HTTPS
+        location / {
+            return 301 https://$host$request_uri;
+        }
+    }
+
+    # HTTPS server with ACME certificate and reverse proxy
+    server {
+        listen 443 ssl;
+        server_name ${FQDN};
+
+        # Allow larger file uploads
+        client_max_body_size 1G;
+
+        # ACME certificate configuration
+        acme_certificate acme_server;
+        ssl_certificate       $acme_certificate;
+        ssl_certificate_key   $acme_certificate_key;
+        ssl_certificate_cache max=2;
+
+        # SSL configuration
+        ssl_protocols TLSv1.2 TLSv1.3;
+        ssl_ciphers ECDHE-RSA-AES128-GCM-SHA256:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-RSA-AES128-SHA256:ECDHE-RSA-AES256-SHA384;
+        ssl_prefer_server_ciphers on;
+        ssl_session_cache shared:SSL:10m;
+        ssl_session_timeout 10m;
+
+        # Handle large headers from OAuth2 providers (especially Entra ID)
+        large_client_header_buffers 4 32k;
+
+        # Security headers
+        add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+        add_header X-Frame-Options DENY always;
+        add_header X-Content-Type-Options nosniff always;
+        add_header X-XSS-Protection "1; mode=block" always;
+        add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+
+        # Proxy settings for tt-explorer application
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Host $host;
+        proxy_set_header X-Forwarded-Port $server_port;
+
+        # Timeout settings
+        proxy_connect_timeout 30s;
+        proxy_send_timeout 30s;
+        proxy_read_timeout 30s;
+
+        # Buffer settings for better performance
+        proxy_buffering on;
+        proxy_buffer_size 16k;
+        proxy_buffers 8 16k;
+        proxy_busy_buffers_size 16k;
+
+        # Health check endpoint (unauthenticated)
+        location /health {
+            access_log off;
+            return 200 "healthy\n";
+            add_header Content-Type text/plain;
+        }
+
+        # OAuth2 Proxy endpoints (unauthenticated)
+        location /oauth2/ {
+            proxy_pass http://oauth2_proxy;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_set_header X-Forwarded-Host $host;
+            proxy_set_header X-Auth-Request-Redirect $request_uri;
+
+            # Disable buffering to handle large OAuth2 headers
+            proxy_buffering off;
+        }
+
+        # OAuth2 Proxy auth endpoint for auth_request
+        location = /oauth2/auth {
+            internal;
+            proxy_pass http://oauth2_proxy;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_set_header X-Forwarded-Uri $request_uri;
+            proxy_set_header Content-Length "";
+            proxy_pass_request_body off;
+
+            # Disable buffering to handle large OAuth2 headers
+            proxy_buffering off;
+        }
+
+        # Reverse proxy all requests to tt-explorer application (authenticated)
+        location / {
+            auth_request /oauth2/auth;
+            error_page 401 = /oauth2/sign_in;
+
+            # Pass authentication headers to backend
+            auth_request_set $user $upstream_http_x_auth_request_user;
+            auth_request_set $email $upstream_http_x_auth_request_email;
+            auth_request_set $auth_token $upstream_http_x_auth_request_access_token;
+            proxy_set_header X-User $user;
+            proxy_set_header X-Email $email;
+            proxy_set_header X-Access-Token $auth_token;
+
+            # Handle cookie refresh - oauth2-proxy splits cookies >4KB into multiple parts
+            auth_request_set $auth_cookie $upstream_http_set_cookie;
+            add_header Set-Cookie $auth_cookie;
+
+            # Handle multi-part cookies for large tokens (Entra ID, etc.)
+            # OAuth2-proxy splits cookies exceeding 4KB limit
+            auth_request_set $auth_cookie_name_upstream_1 $upstream_cookie__oauth2_proxy_1;
+
+            # Extract cookie attributes from first Set-Cookie header and append to second part
+            if ($auth_cookie ~* "(; .*)") {
+                set $auth_cookie_name_0 $auth_cookie;
+                set $auth_cookie_name_1 "_oauth2_proxy_1=$auth_cookie_name_upstream_1$1";
+            }
+
+            # Send both Set-Cookie headers if there was a second part
+            if ($auth_cookie_name_upstream_1) {
+                add_header Set-Cookie $auth_cookie_name_0;
+                add_header Set-Cookie $auth_cookie_name_1;
+            }
+
+            proxy_pass http://explorer_backend;
+            
+            # Disable request buffering for large file uploads (stream directly to backend)
+            proxy_request_buffering off;
+            
+            # Handle WebSocket connections
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection "upgrade";
+        }
+
+        # Static file handling (authenticated)
+        location /static/ {
+            auth_request /oauth2/auth;
+            error_page 401 = /oauth2/sign_in;
+
+            proxy_pass http://explorer_backend;
+            expires 1y;
+            add_header Cache-Control "public, immutable";
+        }
+    }
