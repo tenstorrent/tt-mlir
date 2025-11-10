@@ -1961,11 +1961,17 @@ class SplitQueryKeyValueAndSplitHeadsUpdatePattern
     I_SEQUENCE_LENGTH = 1,
     I_HIDDEN_DIMENSION = 2,
   };
-  enum MHAExpectedOutputDimensions {
+  enum ExpectedOutputDimensions {
     O_BATCH_SIZE = 0,
     O_NUM_KV_HEADS = 1,
     O_SEQUENCE_LENGTH = 2,
     O_HEAD_SIZE = 3,
+  };
+  enum GQAQueryOutputDimensions {
+    Q_BATCH_SIZE = 0,
+    Q_NUM_HEADS = 1,
+    Q_SEQUENCE_LENGTH = 2,
+    Q_HEAD_SIZE = 3,
   };
   enum MHATransposedKeyDimensions {
     K_BATCH_SIZE = 0,
@@ -1974,30 +1980,33 @@ class SplitQueryKeyValueAndSplitHeadsUpdatePattern
     K_SEQUENCE_LENGTH = 3,
   };
 
-  enum MHAType {
-    TYPE_BIASED = 0,
-    TYPE_UNBIASED = 1,
-    TYPE_NONE = 2,
+  enum AttentionType {
+    T_MHA_BIASED = 0,
+    T_MHA_UNBIASED = 1,
+    T_GQA_BIASED = 2,
+    T_GQA_UNBIASED = 3,
+    T_NONE = 4,
   };
 
   llvm::SmallVector<int64_t> expectedPermute = {0, 2, 1, 3};
   llvm::SmallVector<int64_t> expectedTransposedPermute = {0, 2, 3, 1};
+  std::int32_t GQAQueryHeadsCoefficient = 2;
 
 public:
   mlir::LogicalResult
   matchAndRewrite(ReshapeOp reshapeOp,
                   mlir::PatternRewriter &rewriter) const final {
-    // Check for Multi-Head Attention linear or matmul ops
-    // that use reshape output.
+    // Check for Multi-Head Attention/ Grouped Query Attention
+    // linear or matmul ops that use reshape output.
     llvm::SmallVector<LinearOp> linearOps = {};
     llvm::SmallVector<MatmulOp> matmulOps = {};
     llvm::SmallVector<PermuteOp> biasedPermuteOps = {};
     llvm::SmallVector<PermuteOp> unbiasedPermuteOps = {};
 
-    MHAType mhaType = findMHAType(reshapeOp, linearOps, matmulOps,
-                                  biasedPermuteOps, unbiasedPermuteOps);
+    AttentionType attentionType = findAttentionType(
+        reshapeOp, linearOps, matmulOps, biasedPermuteOps, unbiasedPermuteOps);
 
-    if (mhaType == TYPE_NONE) {
+    if (attentionType == T_NONE) {
       return mlir::failure();
     }
 
@@ -2006,11 +2015,42 @@ public:
     // ensures all preprocessing for query, key, and value happens before the
     // fused op, and any uses of their results remain correctly ordered after
     // the fused op.
-    hoistPreprocessingOps(mhaType == TYPE_BIASED ? biasedPermuteOps
-                                                 : unbiasedPermuteOps);
-    rewriter.setInsertionPointAfter(mhaType == TYPE_BIASED
-                                        ? biasedPermuteOps.front()
-                                        : unbiasedPermuteOps.front());
+    if (attentionType == T_MHA_BIASED || attentionType == T_GQA_BIASED) {
+      hoistPreprocessingOps(biasedPermuteOps);
+      rewriter.setInsertionPointAfter(biasedPermuteOps.front());
+    }
+    if (attentionType == T_MHA_UNBIASED || attentionType == T_GQA_UNBIASED) {
+      hoistPreprocessingOps(unbiasedPermuteOps);
+      rewriter.setInsertionPointAfter(unbiasedPermuteOps.front());
+    }
+
+    // Fuse attention patterns based on detected attention type.
+    // Fuse the multi-head attention pattern.
+    if (attentionType == T_MHA_BIASED || attentionType == T_MHA_UNBIASED) {
+      return fuseMHA(rewriter, reshapeOp, attentionType, linearOps, matmulOps,
+                     biasedPermuteOps, unbiasedPermuteOps);
+    }
+
+    // Fuse the grouped query attention pattern.
+    if (attentionType == T_GQA_BIASED || attentionType == T_GQA_UNBIASED) {
+      return fuseGQA(rewriter, reshapeOp, attentionType, linearOps, matmulOps,
+                     biasedPermuteOps, unbiasedPermuteOps);
+    }
+
+    return mlir::failure();
+  }
+
+private:
+  mlir::LogicalResult
+  fuseMHA(mlir::PatternRewriter &rewriter, ReshapeOp reshapeOp,
+          AttentionType attentionType, llvm::SmallVector<LinearOp> &linearOps,
+          llvm::SmallVector<MatmulOp> &matmulOps,
+          llvm::SmallVector<PermuteOp> &biasedPermuteOps,
+          llvm::SmallVector<PermuteOp> &unbiasedPermuteOps) const {
+
+    TT_assertv(
+        (attentionType == T_MHA_BIASED || attentionType == T_MHA_UNBIASED),
+        "fuseMHA called with invalid attention type.");
 
     // Extract dimensions from reshape op and permute ops.
     Value reshapeOutput = reshapeOp.getResult();
@@ -2018,13 +2058,13 @@ public:
     int32_t batchSize = inputShape[I_BATCH_SIZE];
     int32_t sequenceLength = inputShape[I_SEQUENCE_LENGTH];
 
-    auto queryType = (mhaType == TYPE_BIASED)
+    auto queryType = (attentionType == T_MHA_BIASED)
                          ? biasedPermuteOps[0].getOutput().getType()
                          : unbiasedPermuteOps[0].getOutput().getType();
-    auto keyType = (mhaType == TYPE_BIASED)
+    auto keyType = (attentionType == T_MHA_BIASED)
                        ? biasedPermuteOps[1].getOutput().getType()
                        : unbiasedPermuteOps[1].getOutput().getType();
-    auto valueType = (mhaType == TYPE_BIASED)
+    auto valueType = (attentionType == T_MHA_BIASED)
                          ? biasedPermuteOps[2].getOutput().getType()
                          : unbiasedPermuteOps[2].getOutput().getType();
 
@@ -2036,19 +2076,22 @@ public:
 
     // Concatenate weights along dimension determined by transposeB attribute.
 
-    Value queryWeightMatrix =
-        (mhaType == TYPE_BIASED) ? linearOps[0].getB() : matmulOps[0].getB();
-    Value keyWeightMatrix =
-        (mhaType == TYPE_BIASED) ? linearOps[1].getB() : matmulOps[1].getB();
-    Value valueWeightMatrix =
-        (mhaType == TYPE_BIASED) ? linearOps[2].getB() : matmulOps[2].getB();
+    Value queryWeightMatrix = (attentionType == T_MHA_BIASED)
+                                  ? linearOps[0].getB()
+                                  : matmulOps[0].getB();
+    Value keyWeightMatrix = (attentionType == T_MHA_BIASED)
+                                ? linearOps[1].getB()
+                                : matmulOps[1].getB();
+    Value valueWeightMatrix = (attentionType == T_MHA_BIASED)
+                                  ? linearOps[2].getB()
+                                  : matmulOps[2].getB();
     std::size_t queryWeightRank =
         mlir::cast<RankedTensorType>(queryWeightMatrix.getType())
             .getShape()
             .size();
 
     std::size_t dimToConcatWeights =
-        (mhaType == TYPE_BIASED)
+        (attentionType == T_MHA_BIASED)
             ? linearOps[0].getTransposeB()
                   ? 0
                   : (queryWeightRank - 1) // 0 if transposed, else last dim.
@@ -2065,7 +2108,7 @@ public:
     // bias if applicable).
     Operation *matrixMultOp = nullptr;
 
-    if (mhaType == TYPE_BIASED) {
+    if (attentionType == T_MHA_BIASED) {
       // Concatenate bias along last dimension.
       Value queryBias = linearOps[0].getBias();
       Value keyBias = linearOps[1].getBias();
@@ -2102,7 +2145,7 @@ public:
           /*transpose_a=*/transposeA, /*transpose_b=*/transposeB);
     }
 
-    if (mhaType == TYPE_UNBIASED) {
+    if (attentionType == T_MHA_UNBIASED) {
       // Get the output shape from one of the original matmul ops.
       ArrayRef<int64_t> originalMatmulOutputShape =
           matmulOps[0].getResult().getType().getShape();
@@ -2133,7 +2176,7 @@ public:
     // this operation.
     SmallVector<int64_t> reshapeToSplitShape = {batchSize, sequenceLength,
                                                 hiddenSize * 3};
-    auto reshapeType = (mhaType == TYPE_BIASED)
+    auto reshapeType = (attentionType == T_MHA_BIASED)
                            ? linearOps[0].getResult().getType()
                            : matmulOps[0].getResult().getType();
     auto reshapeElementType =
@@ -2170,7 +2213,7 @@ public:
         valueOutput, rewriter.getUI32IntegerAttr(numHeads), IntegerAttr(),
         rewriter.getBoolAttr(transposeKey) /*transpose_key*/);
 
-    if (mhaType == TYPE_BIASED) {
+    if (attentionType == T_MHA_BIASED) {
       rewriter.replaceAllUsesWith(biasedPermuteOps[0].getResult(),
                                   splitOp.getResult(0));
       rewriter.replaceAllUsesWith(biasedPermuteOps[1].getResult(),
@@ -2178,7 +2221,7 @@ public:
       rewriter.replaceAllUsesWith(biasedPermuteOps[2].getResult(),
                                   splitOp.getResult(2));
     }
-    if (mhaType == TYPE_UNBIASED) {
+    if (attentionType == T_MHA_UNBIASED) {
       rewriter.replaceAllUsesWith(unbiasedPermuteOps[0].getResult(),
                                   splitOp.getResult(0));
       rewriter.replaceAllUsesWith(unbiasedPermuteOps[1].getResult(),
@@ -2190,27 +2233,241 @@ public:
     return mlir::success();
   }
 
-private:
-  MHAType findMHAType(ReshapeOp reshapeOp,
-                      llvm::SmallVector<LinearOp> &linearOps,
-                      llvm::SmallVector<MatmulOp> &matmulOps,
-                      llvm::SmallVector<PermuteOp> &biasedPermuteOps,
-                      llvm::SmallVector<PermuteOp> &unbiasedPermuteOps) const {
+  mlir::LogicalResult
+  fuseGQA(mlir::PatternRewriter &rewriter, ReshapeOp reshapeOp,
+          AttentionType attentionType, llvm::SmallVector<LinearOp> &linearOps,
+          llvm::SmallVector<MatmulOp> &matmulOps,
+          llvm::SmallVector<PermuteOp> &biasedPermuteOps,
+          llvm::SmallVector<PermuteOp> &unbiasedPermuteOps) const {
+
+    TT_assertv(
+        (attentionType == T_GQA_BIASED || attentionType == T_GQA_UNBIASED),
+        "fuseGQA called with invalid attention type.");
+
+    // Extract dimensions from reshape op and permute ops.
+    Value reshapeOutput = reshapeOp.getResult();
+    ArrayRef<int64_t> inputShape = reshapeOp.getInput().getType().getShape();
+    int32_t batchSize = inputShape[I_BATCH_SIZE];
+    int32_t sequenceLength = inputShape[I_SEQUENCE_LENGTH];
+
+    auto queryType = (attentionType == T_MHA_BIASED)
+                         ? biasedPermuteOps[0].getOutput().getType()
+                         : unbiasedPermuteOps[0].getOutput().getType();
+    auto keyType = (attentionType == T_MHA_BIASED)
+                       ? biasedPermuteOps[1].getOutput().getType()
+                       : unbiasedPermuteOps[1].getOutput().getType();
+    auto valueType = (attentionType == T_MHA_BIASED)
+                         ? biasedPermuteOps[2].getOutput().getType()
+                         : unbiasedPermuteOps[2].getOutput().getType();
+
+    auto queryShape = queryType.getShape();
+    auto keyShape = keyType.getShape();
+    auto valueShape = valueType.getShape();
+    int32_t numQueryHeads = queryType.getShape()[Q_NUM_HEADS];
+    int32_t numKVHeads = keyType.getShape()[O_NUM_KV_HEADS];
+    int32_t hiddenSize = keyType.getShape()[O_HEAD_SIZE] * numKVHeads;
+
+    // Input tensor is output of linear/matmul [0].
+    // kv_input_tensor is concatenated linear/matmul output of [1] and [2].
+
+    // Concatenate KV weights along dimension determined by transposeB
+    // attribute.
+    Value keyWeightMatrix = (attentionType == T_MHA_BIASED)
+                                ? linearOps[1].getB()
+                                : matmulOps[1].getB();
+    Value valueWeightMatrix = (attentionType == T_MHA_BIASED)
+                                  ? linearOps[2].getB()
+                                  : matmulOps[2].getB();
+    std::size_t keyWeightRank =
+        mlir::cast<RankedTensorType>(keyWeightMatrix.getType())
+            .getShape()
+            .size();
+    std::size_t dimToConcatKVWeights =
+        (attentionType == T_MHA_BIASED)
+            ? linearOps[1].getTransposeB()
+                  ? 0
+                  : (keyWeightRank - 1) // 0 if transposed, else last dim.
+        : matmulOps[1].getTransposeB()
+            ? 0
+            : (keyWeightRank - 1); // 0 if transposed, else last dim.
+    ttir::ConcatOp concatenatedWeightMatrix = concatenateAlongDim(
+        rewriter, valueWeightMatrix.getLoc(),
+        ValueRange{keyWeightMatrix, valueWeightMatrix}, dimToConcatKVWeights);
+
+    // Create matrix multiplication operation with concatenated weights (and
+    // bias if applicable).
+    Operation *matrixMultOp = nullptr;
+
+    if (attentionType == T_GQA_BIASED) {
+      // Concatenate bias along last dimension.
+      Value keyBias = linearOps[1].getBias();
+      Value valueBias = linearOps[2].getBias();
+      std::size_t biasRank =
+          mlir::cast<RankedTensorType>(keyBias.getType()).getShape().size();
+
+      ttir::ConcatOp concatenatedBias =
+          concatenateAlongDim(rewriter, valueBias.getLoc(),
+                              ValueRange{keyBias, valueBias}, biasRank - 1);
+
+      // Get the output shape from original key linear op.
+      ArrayRef<int64_t> originalLinearOutputShape =
+          linearOps[1].getResult().getType().getShape();
+
+      bool transposeA = linearOps[1].getTransposeA();
+      bool transposeB = linearOps[1].getTransposeB();
+
+      llvm::SmallVector<int64_t> linearOutputShape(
+          originalLinearOutputShape.begin(), originalLinearOutputShape.end());
+
+      // Create linear operation with concatenated weights and bias.
+      // Multiply the last dimension by 2 (since we're concatenating K, V).
+      linearOutputShape.back() = originalLinearOutputShape.back() * 2;
+
+      RankedTensorType linearOutputType = RankedTensorType::get(
+          linearOutputShape,
+          mlir::cast<RankedTensorType>(linearOps[1].getResult().getType())
+              .getElementType());
+
+      matrixMultOp = ttir::utils::createDPSOp<ttir::LinearOp>(
+          rewriter, valueBias.getLoc(), linearOutputType, reshapeOutput,
+          concatenatedWeightMatrix, concatenatedBias,
+          /*transpose_a=*/transposeA, /*transpose_b=*/transposeB);
+    }
+    if (attentionType == T_GQA_UNBIASED) {
+      // Get the output shape from original key matmul op.
+      ArrayRef<int64_t> originalMatmulOutputShape =
+          matmulOps[1].getResult().getType().getShape();
+      llvm::SmallVector<int64_t> matmulOutputShape(
+          originalMatmulOutputShape.begin(), originalMatmulOutputShape.end());
+
+      bool transposeA = matmulOps[1].getTransposeA();
+      bool transposeB = matmulOps[1].getTransposeB();
+
+      // Create matmul operation with concatenated weights.
+      // Multiply the last dimension by 2 (since we're concatenating K, V).
+      matmulOutputShape.back() = originalMatmulOutputShape.back() * 2;
+
+      RankedTensorType matmulOutputType = RankedTensorType::get(
+          matmulOutputShape,
+          mlir::cast<RankedTensorType>(matmulOps[1].getResult().getType())
+              .getElementType());
+      matrixMultOp = ttir::utils::createDPSOp<ttir::MatmulOp>(
+          rewriter, reshapeOutput.getLoc(), matmulOutputType, reshapeOutput,
+          concatenatedWeightMatrix,
+          /*transpose_a=*/transposeA, /*transpose_b=*/transposeB);
+    }
+
+    TT_assertv(matrixMultOp, "Expected valid matrix multiplication operation");
+    // Reshape query matrix multiplication output to [batch_size, sequence_size,
+    // hidden_size].
+    SmallVector<int64_t> reshapeToSplitShape = {batchSize, sequenceLength,
+                                                hiddenSize * 2};
+    auto queryReshapeType = (attentionType == T_GQA_BIASED)
+                                ? linearOps[1].getResult().getType()
+                                : matmulOps[1].getResult().getType();
+    auto queryReshapeElementType =
+        mlir::cast<RankedTensorType>(queryReshapeType).getElementType();
+    auto queryReshapeEncoding =
+        mlir::cast<RankedTensorType>(queryReshapeType).getEncoding();
+    SmallVector<int32_t> reshapeToSplitShapeI32(reshapeToSplitShape.begin(),
+                                                reshapeToSplitShape.end());
+    ReshapeOp queryReshape = ttir::utils::createDPSOp<ttir::ReshapeOp>(
+        rewriter, matrixMultOp->getLoc(), reshapeToSplitShape,
+        queryReshapeElementType, queryReshapeEncoding,
+        matrixMultOp->getResult(0),
+        rewriter.getI32ArrayAttr(reshapeToSplitShapeI32));
+    // Reshape matrix multiplication output to [batch_size, sequence_size,
+    // hidden_size*2].
+    SmallVector<int64_t> kvReshapeToSplitShape = {batchSize, sequenceLength,
+                                                  hiddenSize * 2};
+    auto kvReshapeType = (attentionType == T_GQA_BIASED)
+                             ? linearOps[1].getResult().getType()
+                             : matmulOps[1].getResult().getType();
+    auto kvReshapeElementType =
+        mlir::cast<RankedTensorType>(kvReshapeType).getElementType();
+    auto kvReshapeEncoding =
+        mlir::cast<RankedTensorType>(kvReshapeType).getEncoding();
+    SmallVector<int32_t> kvReshapeToSplitShapeI32(kvReshapeToSplitShape.begin(),
+                                                  kvReshapeToSplitShape.end());
+    ReshapeOp kvReshape = ttir::utils::createDPSOp<ttir::ReshapeOp>(
+        rewriter, matrixMultOp->getLoc(), kvReshapeToSplitShape,
+        kvReshapeElementType, kvReshapeEncoding, matrixMultOp->getResult(0),
+        rewriter.getI32ArrayAttr(kvReshapeToSplitShapeI32));
+
+    // Create split qkv op.
+
+    Value queryOutput = rewriter.create<EmptyOp>(
+        matrixMultOp->getLoc(), queryShape, queryType.getElementType(),
+        queryType.getEncoding());
+    Value keyOutput = rewriter.create<EmptyOp>(matrixMultOp->getLoc(), keyShape,
+                                               keyType.getElementType(),
+                                               keyType.getEncoding());
+    Value valueOutput = rewriter.create<EmptyOp>(
+        matrixMultOp->getLoc(), valueShape, valueType.getElementType(),
+        valueType.getEncoding());
+
+    // Determine if need to transpose key based on key and value.
+    bool transposeKey = isKeyTransposed(keyShape, valueShape);
+    auto splitOp = rewriter.create<SplitQueryKeyValueAndSplitHeadsOp>(
+        matrixMultOp->getLoc(), ArrayRef<Type>{queryType, keyType, valueType},
+        queryReshape.getResult(), kvReshape.getResult(), queryOutput, keyOutput,
+        valueOutput, rewriter.getUI32IntegerAttr(numQueryHeads),
+        rewriter.getUI32IntegerAttr(numKVHeads),
+        rewriter.getBoolAttr(transposeKey) /*transpose_key*/);
+
+    // replace uses of permute ops with split op results.
+    if (attentionType == T_GQA_BIASED) {
+      rewriter.replaceAllUsesWith(biasedPermuteOps[0].getResult(),
+                                  splitOp.getResult(0));
+      rewriter.replaceAllUsesWith(biasedPermuteOps[1].getResult(),
+                                  splitOp.getResult(1));
+      rewriter.replaceAllUsesWith(biasedPermuteOps[2].getResult(),
+                                  splitOp.getResult(2));
+    }
+    if (attentionType == T_GQA_UNBIASED) {
+      rewriter.replaceAllUsesWith(unbiasedPermuteOps[0].getResult(),
+                                  splitOp.getResult(0));
+      rewriter.replaceAllUsesWith(unbiasedPermuteOps[1].getResult(),
+                                  splitOp.getResult(1));
+      rewriter.replaceAllUsesWith(unbiasedPermuteOps[2].getResult(),
+                                  splitOp.getResult(2));
+    }
+    return mlir::success();
+  }
+
+  AttentionType
+  findAttentionType(ReshapeOp reshapeOp, llvm::SmallVector<LinearOp> &linearOps,
+                    llvm::SmallVector<MatmulOp> &matmulOps,
+                    llvm::SmallVector<PermuteOp> &biasedPermuteOps,
+                    llvm::SmallVector<PermuteOp> &unbiasedPermuteOps) const {
     populateLinearOps(reshapeOp, linearOps);
     populateMatmulOps(reshapeOp, matmulOps);
     if (!linearOps.empty() && validateMatmulOrLinearOps(reshapeOp, linearOps)) {
       populatePermuteOps(linearOps, biasedPermuteOps);
-      if (validatePermuteOps(reshapeOp, biasedPermuteOps)) {
-        return TYPE_BIASED;
+      if (!validatePermuteOps(reshapeOp, biasedPermuteOps)) {
+        return T_NONE;
+      }
+      if (isGQA(biasedPermuteOps)) {
+        return T_GQA_BIASED;
+      }
+      if (isMHA(biasedPermuteOps)) {
+        return T_MHA_BIASED;
       }
     }
+
     if (!matmulOps.empty() && validateMatmulOrLinearOps(reshapeOp, matmulOps)) {
       populatePermuteOps(matmulOps, unbiasedPermuteOps);
-      if (validatePermuteOps(reshapeOp, unbiasedPermuteOps)) {
-        return TYPE_UNBIASED;
+      if (!validatePermuteOps(reshapeOp, unbiasedPermuteOps)) {
+        return T_NONE;
+      }
+      if (isGQA(unbiasedPermuteOps)) {
+        return T_GQA_UNBIASED;
+      }
+      if (isMHA(unbiasedPermuteOps)) {
+        return T_MHA_UNBIASED;
       }
     }
-    return TYPE_NONE;
+    return T_NONE;
   }
 
   // Helper function to concatenate tensors along given dimension.
@@ -2366,6 +2623,40 @@ private:
             keyShape[K_SEQUENCE_LENGTH] == queryShape[O_SEQUENCE_LENGTH]);
   }
 
+  bool isGQA(llvm::SmallVector<PermuteOp> &permuteOps) const {
+    Value queryTensor = permuteOps[0]->getResult(0);
+    Value keyTensor = permuteOps[1]->getResult(0);
+    Value valueTensor = permuteOps[2]->getResult(0);
+    ArrayRef<int64_t> queryShape =
+        mlir::dyn_cast<mlir::RankedTensorType>(queryTensor.getType())
+            .getShape();
+    ArrayRef<int64_t> keyShape =
+        mlir::dyn_cast<mlir::RankedTensorType>(keyTensor.getType()).getShape();
+    ArrayRef<int64_t> valueShape =
+        mlir::dyn_cast<mlir::RankedTensorType>(valueTensor.getType())
+            .getShape();
+    return (queryShape[Q_NUM_HEADS] ==
+            GQAQueryHeadsCoefficient * keyShape[O_NUM_KV_HEADS]) &&
+           (queryShape[Q_NUM_HEADS] ==
+            GQAQueryHeadsCoefficient * valueShape[O_NUM_KV_HEADS]);
+  }
+
+  bool isMHA(llvm::SmallVector<PermuteOp> &permuteOps) const {
+    Value queryTensor = permuteOps[0]->getResult(0);
+    Value keyTensor = permuteOps[1]->getResult(0);
+    Value valueTensor = permuteOps[2]->getResult(0);
+    ArrayRef<int64_t> queryShape =
+        mlir::dyn_cast<mlir::RankedTensorType>(queryTensor.getType())
+            .getShape();
+    ArrayRef<int64_t> keyShape =
+        mlir::dyn_cast<mlir::RankedTensorType>(keyTensor.getType()).getShape();
+    ArrayRef<int64_t> valueShape =
+        mlir::dyn_cast<mlir::RankedTensorType>(valueTensor.getType())
+            .getShape();
+    return (queryShape[O_NUM_KV_HEADS] == keyShape[O_NUM_KV_HEADS]) &&
+           (queryShape[O_NUM_KV_HEADS] == valueShape[O_NUM_KV_HEADS]);
+  }
+
   bool validatePermuteOps(ReshapeOp reshapeOp,
                           llvm::SmallVector<PermuteOp> &permuteOps) const {
     // Size must be 3 for Q, K, V.
@@ -2397,9 +2688,8 @@ private:
       return false;
     }
 
-    if (queryShape[O_NUM_KV_HEADS] != keyShape[O_NUM_KV_HEADS] ||
-        queryShape[O_NUM_KV_HEADS] != valueShape[O_NUM_KV_HEADS]) {
-      // Number of kv heads must match.
+    // Check if GQA or MHA by comparing number of heads.
+    if (!isGQA(permuteOps) && !isMHA(permuteOps)) {
       return false;
     }
 

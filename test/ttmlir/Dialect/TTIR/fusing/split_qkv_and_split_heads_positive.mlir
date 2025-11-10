@@ -481,7 +481,6 @@ module {
   }
 }
 
-
 // The following test is after ttir-to-ttir-decomposition and canonicalization.
 // Transpose and matmul is canonicalized to matmul with transposeB = true.
 // This will change weight concatenation dimension.
@@ -530,5 +529,54 @@ module {
     %18 = ttir.empty() : tensor<1x32x32x128xbf16>
     %19 = "ttir.permute"(%17, %18) <{permutation = array<i64: 0, 2, 1, 3>}> : (tensor<1x32x32x128xbf16>, tensor<1x32x32x128xbf16>) -> tensor<1x32x32x128xbf16>
     return %7, %13, %19 : tensor<1x32x32x128xbf16>, tensor<1x32x32x128xbf16>, tensor<1x32x32x128xbf16>
+  }
+}
+
+module {
+  func.func @llama_qkv_projection(%arg0: tensor<1x136x3072xbf16>,  // input
+                                   %arg1: tensor<1024x3072xbf16>,  // query weight
+                                   %arg2: tensor<1024x3072xbf16>,  // key weight
+                                   %arg3: tensor<1024x3072xbf16>,  // value weight
+                                   %arg4: tensor<3072xbf16>)       // bias
+                                   -> (tensor<1x8x136x128xbf16>, tensor<1x8x136x128xbf16>, tensor<1x8x136x128xbf16>) {
+
+    // Reshape input to 2D for matmul
+    %0 = ttir.empty() : tensor<136x3072xbf16>
+    %1 = "ttir.reshape"(%arg0, %0) <{shape = [136 : i32, 3072 : i32]}> : (tensor<1x136x3072xbf16>, tensor<136x3072xbf16>) -> tensor<136x3072xbf16>
+
+    // Query projection
+    %2 = ttir.empty() : tensor<3072x1024xbf16>
+    %3 = "ttir.permute"(%arg1, %2) <{permutation = array<i64: 1, 0>}> : (tensor<1024x3072xbf16>, tensor<3072x1024xbf16>) -> tensor<3072x1024xbf16>
+    %4 = "ttir.dot_general"(%1, %3) <{batch_dims_lhs = array<i64>, batch_dims_rhs = array<i64>, contract_dims_lhs = array<i64: 1>, contract_dims_rhs = array<i64: 0>}> : (tensor<136x3072xbf16>, tensor<3072x1024xbf16>) -> tensor<136x1024xbf16>
+
+    // Reshape and split query heads: [136, 1024] -> [1, 136, 8, 128] -> [1, 8, 136, 128]
+    %5 = ttir.empty() : tensor<1x136x8x128xbf16>
+    %6 = "ttir.reshape"(%4, %5) <{shape = [1 : i32, 136 : i32, 8 : i32, 128 : i32]}> : (tensor<136x1024xbf16>, tensor<1x136x8x128xbf16>) -> tensor<1x136x8x128xbf16>
+    %7 = ttir.empty() : tensor<1x8x136x128xbf16>
+    %8 = "ttir.permute"(%6, %7) <{permutation = array<i64: 0, 2, 1, 3>}> : (tensor<1x136x8x128xbf16>, tensor<1x8x136x128xbf16>) -> tensor<1x8x136x128xbf16>
+
+    // Key projection
+    %9 = ttir.empty() : tensor<3072x1024xbf16>
+    %10 = "ttir.permute"(%arg2, %9) <{permutation = array<i64: 1, 0>}> : (tensor<1024x3072xbf16>, tensor<3072x1024xbf16>) -> tensor<3072x1024xbf16>
+    %11 = "ttir.dot_general"(%1, %10) <{batch_dims_lhs = array<i64>, batch_dims_rhs = array<i64>, contract_dims_lhs = array<i64: 1>, contract_dims_rhs = array<i64: 0>}> : (tensor<136x3072xbf16>, tensor<3072x1024xbf16>) -> tensor<136x1024xbf16>
+
+    // Reshape and split key heads: [136, 1024] -> [1, 136, 8, 128] -> [1, 8, 136, 128]
+    %12 = ttir.empty() : tensor<1x136x8x128xbf16>
+    %13 = "ttir.reshape"(%11, %12) <{shape = [1 : i32, 136 : i32, 8 : i32, 128 : i32]}> : (tensor<136x1024xbf16>, tensor<1x136x8x128xbf16>) -> tensor<1x136x8x128xbf16>
+    %14 = ttir.empty() : tensor<1x8x136x128xbf16>
+    %15 = "ttir.permute"(%13, %14) <{permutation = array<i64: 0, 2, 1, 3>}> : (tensor<1x136x8x128xbf16>, tensor<1x8x136x128xbf16>) -> tensor<1x8x136x128xbf16>
+
+    // Value projection
+    %16 = ttir.empty() : tensor<3072x1024xbf16>
+    %17 = "ttir.permute"(%arg3, %16) <{permutation = array<i64: 1, 0>}> : (tensor<1024x3072xbf16>, tensor<3072x1024xbf16>) -> tensor<3072x1024xbf16>
+    %18 = "ttir.dot_general"(%1, %17) <{batch_dims_lhs = array<i64>, batch_dims_rhs = array<i64>, contract_dims_lhs = array<i64: 1>, contract_dims_rhs = array<i64: 0>}> : (tensor<136x3072xbf16>, tensor<3072x1024xbf16>) -> tensor<136x1024xbf16>
+
+    // Reshape and split value heads: [136, 1024] -> [1, 136, 8, 128] -> [1, 8, 136, 128]
+    %19 = ttir.empty() : tensor<1x136x8x128xbf16>
+    %20 = "ttir.reshape"(%18, %19) <{shape = [1 : i32, 136 : i32, 8 : i32, 128 : i32]}> : (tensor<136x1024xbf16>, tensor<1x136x8x128xbf16>) -> tensor<1x136x8x128xbf16>
+    %21 = ttir.empty() : tensor<1x8x136x128xbf16>
+    %22 = "ttir.permute"(%20, %21) <{permutation = array<i64: 0, 2, 1, 3>}> : (tensor<1x136x8x128xbf16>, tensor<1x8x136x128xbf16>) -> tensor<1x8x136x128xbf16>
+
+    return %8, %15, %22 : tensor<1x8x136x128xbf16>, tensor<1x8x136x128xbf16>, tensor<1x8x136x128xbf16>
   }
 }
