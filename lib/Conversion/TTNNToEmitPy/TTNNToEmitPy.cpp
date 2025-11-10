@@ -2207,11 +2207,11 @@ public:
 
     // Create a global variable for caching.
     //
-    std::string globalVarName = "g_cached_result_" + calleeName.str();
+    std::string globalVarName = "CACHED_" + calleeName.str();
     rewriter.create<emitpy::GlobalOp>(
         loadCachedOp.getLoc(),
         StringAttr::get(rewriter.getContext(), globalVarName),
-        emitpy::OpaqueAttr::get(rewriter.getContext(), "[]"));
+        emitpy::OpaqueAttr::get(rewriter.getContext(), "None"));
     rewriter.restoreInsertionPoint(currentInsertionPoint);
 
     // Create a function variable.

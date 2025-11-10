@@ -23,8 +23,8 @@ module {
 
 // CHECK-LABEL: func.func @forward_const_eval_0
 
-// CHECK: emitpy.global @g_cached_result_forward_const_eval_0 : #emitpy.opaque<"[]">
+// CHECK: emitpy.global @CACHED_forward_const_eval_0 : #emitpy.opaque<"None">
 // CHECK-LABEL: func.func @forward
-// CHECK: %{{.*}} = emitpy.global_statement @g_cached_result_forward_const_eval_0 : !emitpy.opaque<"[ttnn.Tensor]">
-// CHECK: %{{.*}} = emitpy.get_global @g_cached_result_forward_const_eval_0 : !emitpy.opaque<"[ttnn.Tensor]">
-// CHECK: %{{.*}} = "emitpy.assign_global"(%{{.*}}) <{name = @g_cached_result_forward_const_eval_0}> : (!emitpy.opaque<"[ttnn.Tensor]">) -> !emitpy.opaque<"[ttnn.Tensor]">
+// CHECK: %{{.*}} = emitpy.global_statement @CACHED_forward_const_eval_0 : !emitpy.opaque<"[ttnn.Tensor]">
+// CHECK: %{{.*}} = emitpy.get_global @CACHED_forward_const_eval_0 : !emitpy.opaque<"[ttnn.Tensor]">
+// CHECK: %{{.*}} = "emitpy.assign_global"(%{{.*}}) <{name = @CACHED_forward_const_eval_0}> : (!emitpy.opaque<"[ttnn.Tensor]">) -> !emitpy.opaque<"[ttnn.Tensor]">
