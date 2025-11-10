@@ -24,3 +24,14 @@ target_link_libraries(worker PRIVATE
   TTRuntimeDistributedWorker
   ${METAL_LIBS}
 )
+
+# All libraries are installed under ${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR}
+# Therefore we need to point the install rpath to the library directory
+set_target_properties(worker PROPERTIES INSTALL_RPATH "${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR}")
+
+install(
+  TARGETS worker
+  DESTINATION ${CMAKE_INSTALL_BINDIR}/ttmlir/runtime/distributed
+  COMPONENT DistributedRuntime
+  EXCLUDE_FROM_ALL
+)

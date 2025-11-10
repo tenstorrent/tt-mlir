@@ -21,6 +21,8 @@
 
 namespace tt::runtime {
 
+SystemDesc::SystemDesc(Flatbuffer fb) : Flatbuffer(fb) {}
+
 Binary::Binary(Flatbuffer fb)
     : Flatbuffer(fb), binaryId(nextBinaryId()),
       tensorCache(std::make_shared<TensorCache>()),
