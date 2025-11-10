@@ -150,12 +150,74 @@ def needs_stablehlo_pass(module_path: str) -> bool:
     return module_dialect == ModuleDialect.STABLE_HLO
 
 
+def _parse_numeric_prefix(text):
+    """
+    Parse numeric prefix from underscore-separated text.
+
+    Returns:
+        tuple: (numbers_list, remaining_text)
+        For "1_pipeline_name" -> ([1], "pipeline_name")
+        For "1_2_3_pass.mlir" -> ([1, 2, 3], "pass.mlir")
+    """
+    # Split by underscore and extract numbers
+    parts = text.split("_")
+    numbers = []
+    remaining_parts = []
+
+    for part in parts:
+        try:
+            numbers.append(int(part))
+        except ValueError:
+            # First non-number part means we've reached the end of numbers
+            remaining_parts = parts[len(numbers) :]
+            break
+
+    # Reconstruct remaining text
+    remaining = "_".join(remaining_parts)
+
+    return numbers, remaining
+
+
+def _get_sort_key(file_path, root_dir):
+    """
+    Generate sorting key for a file path.
+
+    Returns tuple: (model_name, pipeline_number, remaining_pipeline_dir, pass_sequence, remaining_filename)
+    """
+    rel_path = os.path.relpath(file_path, root_dir)
+    parts = rel_path.split(os.sep)
+
+    # Extract components (assuming structure: .../model_name/pipeline_dir/.../filename)
+    key = []
+    for i, part in enumerate(parts):
+        numbers, remaining = _parse_numeric_prefix(part)
+        if i == 0 or numbers:
+            key.append(numbers)
+            key.append(remaining)
+
+    print("key for file ", file_path, " is ", key)
+    return key
+
+
 def list_ir_files(dir_path: str):
-    return [
+    """
+    Recursively find all IR files and return them in sorted order.
+
+    Sorting hierarchy: model_name → pipeline_number → pass_sequence → filename
+    Example: model_a/1_pipeline/1_pass.mlir → model_a/1_pipeline/1_0_subpass.mlir → model_b/...
+    """
+    files = [
         path
         for extension in MODEL_EXTENSIONS
-        for path in glob.glob(os.path.join(dir_path, f"**/*{extension}"), recursive=True)
+        for path in glob.glob(
+            os.path.join(dir_path, f"**/*{extension}"), recursive=True
+        )
     ]
+    print(files)
+    print(sorted(files, key=lambda f: _get_sort_key(f, dir_path)))
+    # Sort files using custom hierarchical sorting
+    # This ensures consistent ordering across filesystems for compiler passes
+    return sorted(files, key=lambda f: _get_sort_key(f, dir_path))
 
 
 def get_collection_path(model_path: str):
