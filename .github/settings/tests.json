@@ -1,3 +1,4 @@
 [
-  { "runs-on": "n150",   "image": "tracy", "sh-run": true, "script": "pytest.sh", "args": ["tools/explorer/test/run_tests.py", "-k", "test_execute_and_check_perf_data_exists"], "reqs": "--force-reinstall $BUILD_DIR/bin/wheels/tt_adapter*.whl $BUILD_DIR/bin/wheels/ai_edge_model_explorer*.whl" }
+  { "runs-on": "n150",   "image": "tracy", "sh-run": true, "script": "pytest.sh", "args": ["tools/explorer/test/run_tests.py", "-k", "test_execute_and_check_perf_data_exists"], "reqs": "--force-reinstall $BUILD_DIR/bin/wheels/tt_adapter*.whl $BUILD_DIR/bin/wheels/ai_edge_model_explorer*.whl" },
+  { "runs-on": "n150", "image": "tracy", "script": "ttrt.sh", "args": ["perf", "Silicon/TTNN/$RUNS_ON/perf"] }
 ]

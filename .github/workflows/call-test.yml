@@ -175,6 +175,28 @@ jobs:
         cat /sys/devices/system/clocksource/clocksource0/current_clocksource 2>/dev/null || echo "No clocksource info available"
         dmesg 2>/dev/null | grep -i tsc || echo "No TSC info in dmesg (may need root)"
         
+        # Check if tracy_ops_data.csv has interleaved or separated message ordering
+        echo "Checking Tracy message ordering in ops data..."
+        find ttrt-artifacts -name "tracy_ops_data.csv" -type f 2>/dev/null | while read csv; do
+          echo "Analyzing: $csv"
+          mlir_loc_lines=$(grep -n "MLIR_OP_LOCATION" "$csv" | head -5 | cut -d: -f1 | tr '\n' ' ')
+          device_op_lines=$(grep -n "TT_DNN_DEVICE_OP" "$csv" | head -5 | cut -d: -f1 | tr '\n' ' ')
+          echo "  First 5 MLIR_OP_LOCATION lines: $mlir_loc_lines"
+          echo "  First 5 TT_DNN_DEVICE_OP lines: $device_op_lines"
+          
+          # Check if messages are interleaved (difference between consecutive line numbers < 50)
+          first_mlir=$(echo $mlir_loc_lines | awk '{print $1}')
+          first_device=$(echo $device_op_lines | awk '{print $1}')
+          if [ -n "$first_mlir" ] && [ -n "$first_device" ]; then
+            diff=$((first_device - first_mlir))
+            if [ ${diff#-} -lt 50 ]; then
+              echo "  ✓ Messages appear INTERLEAVED (diff: $diff lines)"
+            else
+              echo "  ✗ Messages appear SEPARATED (diff: $diff lines)"
+            fi
+          fi
+        done || true
+        
         # Copy perf artifacts for debugging (tracy_ops_data.csv, ops_perf_results.csv, etc.)
         # Do this before summary processing so we get artifacts even if tests fail
         echo "Copying perf artifacts to ttrt_results for upload..."
