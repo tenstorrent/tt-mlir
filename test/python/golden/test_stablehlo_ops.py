@@ -411,10 +411,42 @@ def test_slice(
     device,
 ):
     def slice_fn(in0: Operand, builder: StableHLOBuilder):
-        return slice(in0, start_indices, limit_indices, strides, builder)
+            return slice(in0, start_indices, limit_indices, strides, builder)
 
     compile_and_execute_shlo(
         slice_fn,
+        [shape],
+        [dtype],
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
+        device=device,
+    )
+
+@pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
+@pytest.mark.parametrize("start_indices_val", [[32, 32]], ids=shape_str)
+@pytest.mark.parametrize("slice_sizes", [[64, 64]], ids=shape_str)
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("target", ["ttnn"])
+def test_dynamic_slice(
+    shape: Shape,
+    start_indices_val: List[int],
+    slice_sizes: List[int],
+    dtype: torch.dtype,
+    target: str,
+    request,
+    device,
+):
+    def dynamic_slice_fn(in0: Operand, builder: StableHLOBuilder):
+        
+        builder.set_graph_level_check(True)
+        return builder.dynamic_slice(
+            in0, start_indices_val, slice_sizes=slice_sizes
+        )
+
+    compile_and_execute_shlo(
+        dynamic_slice_fn,
         [shape],
         [dtype],
         test_base=request.node.name,

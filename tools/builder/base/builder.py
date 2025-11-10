@@ -386,7 +386,15 @@ class Builder:
             return RankedTensorType.get(shape, dtype, encoding)
 
     def _organize_eltwise_golden(self, inputs: List[Operand]) -> List[GoldenMapTensor]:
-        return [self._goldens[inp] for inp in inputs]
+        _organize_eltwise_golden_list = []
+        for inp in inputs:
+            if isinstance(inp, list):
+                _organize_eltwise_golden_list.extend(
+                    [self._goldens[i] for i in inp]
+                )
+            else:
+                _organize_eltwise_golden_list.append(self._goldens[inp])
+        return _organize_eltwise_golden_list
 
     def _generate_random_tensor(
         self, shape: Shape, dtype: Union[torch.dtype, TypeInfo]
