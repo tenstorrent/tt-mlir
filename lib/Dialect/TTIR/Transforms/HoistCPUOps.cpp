@@ -466,7 +466,8 @@ template std::unique_ptr<mlir::Pass>
 createTTIRHoistTransformForDialects<mlir::stablehlo::StablehloDialect>();
 
 template std::unique_ptr<mlir::Pass>
-createTTIRHoistTransformForOps<stablehlo::DynamicUpdateSliceOp, stablehlo::EinsumOp>();
+createTTIRHoistTransformForOps<stablehlo::DynamicUpdateSliceOp,
+                               stablehlo::EinsumOp>();
 
 #endif
 template std::unique_ptr<mlir::Pass>
