@@ -2208,11 +2208,14 @@ def TTNN_ReduceScatterOp: TTNN_Op<"reduce_scatter"> {
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
-                         TTNN_Device:$device,
                          TTCore_ReduceTypeAttr:$reduce_type,
                          SI32Attr:$scatter_dim,
                          UI32Attr:$cluster_axis,
-                         DefaultValuedAttr<UI32Attr, "1">:$num_links);
+                         OptionalAttr<UI32Attr>:$sub_device_id,
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config,
+                         Optional<AnyRankedTensor>:$optional_output_tensor,
+                         OptionalAttr<UI32Attr>:$num_links,
+                         OptionalAttr<TTCore_TopologyAttr>:$topology);
 
     let results = (outs AnyRankedTensor:$result);
 
