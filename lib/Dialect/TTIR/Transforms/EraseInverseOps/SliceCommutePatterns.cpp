@@ -140,20 +140,8 @@ private:
 
   bool isCommuteDownwardsFavorable(SliceStaticOp op,
                                    PermuteOp permuteOperand) const override {
-    // Commuting downwards is favorable if the all other operands a satisfy one
-    // of the following:
-    // - Are an identical TM
-    // - Are on a consteval-able path
-
-    auto dps = mlir::cast<mlir::DestinationStyleOpInterface>(op.getOperation());
-    for (mlir::OpOperand *operand : dps.getDpsInputOperands()) {
-      auto operandValue = operand->get();
-      if (checkIdenticalTms(operandValue.getDefiningOp(), permuteOperand) ||
-          ttcore::valueTracesToConstantArgs(operandValue)) {
-        continue;
-      }
-      return false;
-    }
+    // Commuting a permute downwards through a slice is always favorable as
+    // slice only has one operand, and here we know it is a permute.
     return true;
   }
 };
@@ -240,8 +228,13 @@ private:
       }
     }
 
-    // If all overlapping dimensions are identical, return -1
-    return -1;
+    // If it is an identity reshape, there is no point in commuting.
+    if (inputShape == outputShape) {
+      return -1;
+    }
+    // If all overlapping dimensions are identical, first changed dimension is
+    // the next one.
+    return minRank;
   }
 
   int64_t getLeftmostSlicedDimRTL(SliceStaticOp sliceOp) const {
@@ -285,54 +278,43 @@ private:
     int64_t leftmostSlicedDimRTL = getLeftmostSlicedDimRTL(op);
     assert(leftmostSlicedDimRTL != -1 && "Expected valid slicing dimension");
 
-    // Update ends and output shape to match new input shape:
+    // Update begins, ends, steps, and output shape to match new input shape:
+    // - begins = 0
     // - ends = dim size
+    // - steps = 1
     // - output shape = new shape
     // for dims to the left of leftmost sliced dim, otherwise copy original
     // values
 
+    auto originalBegins = op.getBegins().getValue();
     auto originalEnds = op.getEnds().getValue();
+    auto originalSteps = op.getStep().getValue();
     auto originalOutputShape = op.getType().getShape();
     int64_t originalNdims = originalEnds.size();
 
+    SmallVector<Attribute> newBegins(ndims);
     SmallVector<Attribute> newEnds(ndims);
+    SmallVector<Attribute> newSteps(ndims);
     SmallVector<int64_t> newOutputShape(ndims);
 
     for (int64_t i = 0; i < ndims; ++i) {
+      // Convert RTL position i to LTR dimension indices
+      int64_t dim = ndims - 1 - i;
+      int64_t originalDim = originalNdims - 1 - i;
       if (i > leftmostSlicedDimRTL) {
-        // For dims to the left of leftmost sliced dim, set ends=dim size
-        newEnds[ndims - 1 - i] = rewriter.getI32IntegerAttr(
-            static_cast<int32_t>(shape[ndims - 1 - i]));
-        newOutputShape[ndims - 1 - i] = shape[ndims - 1 - i];
+        // For dims to the left of leftmost sliced dim, set begins=0,
+        // ends=dim size, steps=1
+        newBegins[dim] = rewriter.getI32IntegerAttr(0);
+        newEnds[dim] =
+            rewriter.getI32IntegerAttr(static_cast<int32_t>(shape[dim]));
+        newSteps[dim] = rewriter.getI32IntegerAttr(1);
+        newOutputShape[dim] = shape[dim];
       } else {
         // For other dims, copy original values
-        newEnds[ndims - 1 - i] = originalEnds[originalNdims - 1 - i];
-        newOutputShape[ndims - 1 - i] =
-            originalOutputShape[originalNdims - 1 - i];
-      }
-    }
-
-    // Update begins and steps to match new ends:
-    // - begins = 0
-    // - steps = 1
-    // for dims to the left of leftmost sliced dim
-
-    auto originalBegins = op.getBegins().getValue();
-    auto originalSteps = op.getStep().getValue();
-
-    SmallVector<Attribute> newBegins(ndims);
-    SmallVector<Attribute> newSteps(ndims);
-
-    for (int64_t i = 0; i < ndims; ++i) {
-      if (i > leftmostSlicedDimRTL) {
-        // For dims to the left of the leftmost sliced dim, set begins=0,
-        // steps=1
-        newBegins[ndims - 1 - i] = rewriter.getI32IntegerAttr(0);
-        newSteps[ndims - 1 - i] = rewriter.getI32IntegerAttr(1);
-      } else {
-        // For other dims, copy original values
-        newBegins[ndims - 1 - i] = originalBegins[originalNdims - 1 - i];
-        newSteps[ndims - 1 - i] = originalSteps[originalNdims - 1 - i];
+        newBegins[dim] = originalBegins[originalDim];
+        newEnds[dim] = originalEnds[originalDim];
+        newSteps[dim] = originalSteps[originalDim];
+        newOutputShape[dim] = originalOutputShape[originalDim];
       }
     }
 
@@ -419,20 +401,8 @@ private:
 
   bool isCommuteDownwardsFavorable(SliceStaticOp op,
                                    ReshapeOp reshapeOperand) const override {
-    // Commuting downwards is favorable if all other operands satisfy one
-    // of the following:
-    // - Are an identical TM
-    // - Are on a consteval-able path
-
-    auto dps = mlir::cast<mlir::DestinationStyleOpInterface>(op.getOperation());
-    for (mlir::OpOperand *operand : dps.getDpsInputOperands()) {
-      auto operandValue = operand->get();
-      if (checkIdenticalTms(operandValue.getDefiningOp(), reshapeOperand) ||
-          ttcore::valueTracesToConstantArgs(operandValue)) {
-        continue;
-      }
-      return false;
-    }
+    // Commuting a reshape downwards through a slice is always favorable as
+    // slice only has one operand, and here we know it is a reshape.
     return true;
   }
 };
