@@ -264,10 +264,11 @@ inline ::tt::target::BufferType toFlatbuffer(FlatbufferObjectCache &,
     return ::tt::target::BufferType::DRAM;
   case ttcore::MemorySpace::DeviceL1:
     return ::tt::target::BufferType::L1;
-  case ttcore::MemorySpace::SystemMMIO:
   case ttcore::MemorySpace::System:
+    return ::tt::target::BufferType::SystemMemory;
+  case ttcore::MemorySpace::SystemMMIO:
   case ttcore::MemorySpace::RegisterDst:
-    llvm_unreachable("MemorySpace::RegisterDst not supported");
+    llvm_unreachable("MemorySpace::SystemMMIO/RegisterDst not supported");
   }
 }
 
