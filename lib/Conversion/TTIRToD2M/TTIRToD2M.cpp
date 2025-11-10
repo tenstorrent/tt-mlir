@@ -1419,8 +1419,14 @@ class D2MGatherOpRewriter : public OpConversionPattern<ttir::GatherOp> {
       // If this is a skipped dimension, we're done and don't have to clamp.
       if (remappedIndexFromIndices[i] == constants[0]) continue;
 
-      Value operandDimSize =
-          builder.create<mlir::tensor::DimOp>(loc, blockOperand.getTensorType(), i);
+      // taps
+      // d2m::CBType::get(mlir::RankedTensorType::get(shardShape, tensorType.getElementType()))
+      d2m::CBType thisType = mlir::cast<d2m::CBType>(blockOperand.getType());
+      
+      Value operandDimSize = builder.create<mlir::arith::ConstantOp>(
+          loc, builder.getIndexAttr(thisType.getShape()[i]));
+
+
       Value largestValidIndex = builder.create<mlir::arith::SubIOp>(
           loc, operandDimSize, outputDimSize);
 
