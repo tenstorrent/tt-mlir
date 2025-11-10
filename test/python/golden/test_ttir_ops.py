@@ -2490,10 +2490,8 @@ def test_mesh_shard_devices(
         (32, 32),
         (32, 40),
         (40, 32),
-        pytest.param((1, 1, 32, 32, 32), marks=pytest.mark.xfail(reason="run error")),
-        pytest.param(
-            (1, 1, 1, 1, 1, 1, 32, 32, 32), marks=pytest.mark.xfail(reason="run error")
-        ),
+        (1, 1, 32, 32, 32),
+        (1, 1, 1, 1, 1, 1, 32, 32, 32),
     ],
     ids=shape_str,
 )
@@ -2542,7 +2540,6 @@ def test_all_gather(
 @pytest.mark.parametrize(
     "test_shape",
     [
-        pytest.param((1, 1, 1, 256, 256), marks=pytest.mark.xfail(reason="run error")),
         (1, 1, 256, 256),
         (1, 1, 256, 257),
         (1, 1, 256, 255),
@@ -2553,9 +2550,9 @@ def test_all_gather(
         (64, 64),
         (64, 65),
         (32, 64),
-        pytest.param(
-            (33, 65), marks=pytest.mark.xfail(reason="run error")
-        ),  # all_gather + local reduce case
+        (33, 65),  # all_gather + local reduce case
+        (1, 1, 1, 256, 256),
+        (1, 1, 1, 1, 1, 1, 32, 32, 32),
     ],
     ids=shape_str,
 )
@@ -2612,6 +2609,8 @@ def test_all_reduce(
         (128, 129),
         (64, 128),
         (64, 24),
+        (1, 1, 1, 256, 256),
+        (1, 1, 1, 1, 1, 1, 32, 32, 32),
     ],
     ids=shape_str,
 )
