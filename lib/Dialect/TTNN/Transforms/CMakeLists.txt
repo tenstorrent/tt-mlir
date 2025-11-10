@@ -17,7 +17,6 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         TTNNToPython.cpp
         TTNNTraceHoistTransform.cpp
         TTNNUniqueLocs.cpp
-        Workarounds/Decomposition/AllGatherOpRewritePattern.cpp
         Workarounds/Decomposition/ArgMaxOpRewritePattern.cpp
         Workarounds/Decomposition/PagedUpdateCacheOpRewritePattern.cpp
         Workarounds/Decomposition/ConcatOpDecompositionRewritePattern.cpp
@@ -30,7 +29,6 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         Workarounds/Decomposition/EmbeddingOpSqueezeWeightRewritePattern.cpp
         Workarounds/Decomposition/LinearOpRewritePattern.cpp
         Workarounds/Decomposition/MultiplyOpDecompositionRewritePattern.cpp
-        Workarounds/Decomposition/ReduceScatterOpRewritePattern.cpp
         Workarounds/Decomposition/ScatterOpRewritePattern.cpp
         Workarounds/Decomposition/UpsampleOpRewritePattern.cpp
         Workarounds/Decomposition/SubtractOpImplicitBroadcastRewritePattern.cpp
