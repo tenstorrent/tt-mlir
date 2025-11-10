@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from typing import List
 
-from ttmlir.dialects import func
+from ttmlir.dialects import func, _ttcore_ops_gen
 
 from .utils import ModuleWrapper, OpWrapper, convert_to_module_wrapper
 
@@ -120,9 +120,25 @@ class MLIRModuleSplitter:
         """
         Builds a mapping of function names to their corresponding func.func operations.
         """
-        self._func_map = {
-            func_op.name.value: func_op for func_op in self._module.operations
-        }
+        funcs_list = self._module.operations
+
+        if any(isinstance(op, _ttcore_ops_gen.CPUModuleOp) for op in funcs_list):
+            raise ValueError(
+                "MLIRModuleSplitter does not support modules containing hoisted ops."
+            )
+
+        # Extract operations from DeviceModuleOp if present.
+        if isinstance(funcs_list[0], _ttcore_ops_gen.DeviceModuleOp):
+            funcs_list = (
+                funcs_list[0]
+                .bodyRegion.blocks[0]
+                .operations[0]  # builtin.module
+                .regions[0]
+                .blocks[0]
+                .operations
+            )
+
+        self._func_map = {func_op.name.value: func_op for func_op in funcs_list}
 
     @property
     def _main_func(self) -> func.FuncOp:
