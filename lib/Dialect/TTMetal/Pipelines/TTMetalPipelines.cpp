@@ -103,7 +103,9 @@ void createTTIRToTTMetalFrontendPipeline(
   }
   pm.addPass(d2m::createD2MGridSelection(gridOptOptions));
   pm.addPass(createCanonicalizerPassWithOptions(options));
-  pm.addPass(d2m::createD2MLowerToLayout());
+  // TEMPORARILY DISABLED: D2MLowerToLayout creates bounces for format changes
+  // Using D2MToLayoutRewriter in D2MToTTMetal conversion instead (like gen4)
+  // pm.addPass(d2m::createD2MLowerToLayout());
 }
 
 void createTTIRToTTMetalMiddleendPipeline(
