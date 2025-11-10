@@ -424,10 +424,26 @@ memrefTypeToFlatbuffer(FlatbufferObjectCache &cache, MemRefType memref,
   target::metal::BufferDetail bufferDetailType;
   flatbuffers::Offset<void> bufferDetail;
 
-  if (!memref.getMemorySpace()) {
-    std::vector<int32_t> stride =
-        ttmlir::utils::castContainer<std::vector<int32_t>>(
-            memref.getStridesAndOffset().first);
+  // Check if this is System memory (host buffer)
+  bool isSystemMemory = false;
+  if (auto memSpace = mlir::dyn_cast_if_present<ttcore::MemorySpaceAttr>(
+          memref.getMemorySpace())) {
+    isSystemMemory = ttcore::isSystemMemorySpace(memSpace.getValue());
+  }
+
+  if (!memref.getMemorySpace() || isSystemMemory) {
+    // System memory or no memory space = host buffer
+    std::vector<int32_t> stride;
+
+    // ShardLayoutAttr doesn't support getStridesAndOffset()
+    // For System memory, compute simple row-major strides from shape
+    if (mlir::isa<ttcore::ShardLayoutAttr>(memref.getLayout())) {
+      stride = ttmlir::utils::castContainer<std::vector<int32_t>>(
+          ttmlir::utils::calculateStrides(memref.getShape()));
+    } else {
+      stride = ttmlir::utils::castContainer<std::vector<int32_t>>(
+          memref.getStridesAndOffset().first);
+    }
 
     bufferDetailType = target::metal::BufferDetail::SystemBuffer;
     bufferDetail =
