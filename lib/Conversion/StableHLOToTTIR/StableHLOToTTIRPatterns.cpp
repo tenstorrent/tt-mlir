@@ -1348,6 +1348,19 @@ public:
             : rewriter.getDenseBoolArrayAttr(
                   SmallVector<bool>(numSpatialDims, false));
 
+    // Negative padding handling strategy:
+    // 1. Convolution ops don't support negative padding directly, so we split
+    // the operation into two steps when negative padding is detected
+    // 2. First, run convolution with padding clamped to zero (resulting in a
+    // larger intermediate output than the final desired shape)
+    // 3. Then, slice the intermediate output to achieve the effect of negative
+    // padding (cropping edges based on the magnitude of negative padding
+    // values)
+    //
+    // Example: padding=[-1, -1] means "crop 1 pixel from each edge of the
+    // output"
+    //   - Run conv with padding=[0, 0] to get larger intermediate result
+    //   - Slice [1:-1, 1:-1] to remove the edges and get final output
     ArrayRef<int64_t> paddingArray = paddingAttr.asArrayRef();
     bool hasNegativePadding =
         llvm::any_of(paddingArray, [](int64_t p) { return p < 0; });
