@@ -2610,3 +2610,493 @@ class TTNNBuilder(Builder):
             ),
             unit_attrs=unit_attrs,
         )
+
+    # class TTNN_ReductionOp
+
+    def argmax(
+        self,
+        in0: Operand,
+        dim: int,
+        keep_dim: bool = False,
+        use_multicore: bool = True,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpView:
+        """
+        Creates ``ttnn.argmax``.
+
+        *Argmax reduction operation.*
+
+        Returns the indices of the maximum values along the specified dimensions.
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor
+        dim : int
+            Dimension to reduce over
+        keep_dim : bool, optional
+            If True, retains reduced dimensions with length 1 (default: False)
+        use_multicore : bool, optional
+            If True, utilizes multicore processing for the operation (default: True)
+        unit_attrs : *Optional[List[str]]*, optional
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpView*)
+            Tensor containing the indices of maximum values
+        """
+        golden_kwargs = {"dim_arg": dim, "keep_dim": keep_dim}
+        ttnn_kwargs = {"dim": dim, "keep_dim": keep_dim, "use_multicore": use_multicore}
+        return self._op_proxy(
+            ttnn.ArgMaxOp,
+            [in0],
+            ttnn_kwargs=ttnn_kwargs,
+            golden_kwargs=golden_kwargs,
+            output_type=IntegerType.get_signless(32, self._ctx),
+            unit_attrs=unit_attrs,
+        )
+
+    def sum(
+        self,
+        in0: Operand,
+        dim_arg: List[int] = [0],
+        keep_dim: bool = True,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpView:
+        """
+        Creates ``ttnn.sum``.
+
+        *Sum reduction operation.*
+
+        The `sum` operation computes the sum of elements along specified dimensions of the input tensor.
+        If `dim_arg` is not provided, the sum is computed over all dimensions. If `keep_dim` is True,
+        the reduced dimensions are retained with a size of 1.
+
+        .. code-block:: mlir
+
+            // Sum along dimension 1
+            %input = ... : tensor<2x3xf32>
+            %output = ttnn.empty() : tensor<2xf32>
+            %result = ttnn.sum(%input, %output) {keep_dim = false, dim_arg = [1: i32]} : tensor<2x3xf32>, tensor<2xf32> -> tensor<2xf32>
+            // Input: [[1.0, 2.0, 3.0],
+            //         [4.0, 5.0, 6.0]]
+            // Output: [6.0, 15.0]  // Sum of each row
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor
+        dim_arg : List[int], optional
+            Dimensions to reduce over (default: [0])
+        keep_dim : bool, optional
+            If True, retains reduced dimensions with length 1 (default: True)
+        unit_attrs : *Optional[List[str]]*, optional
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpView*)
+            Tensor with summed values
+        """
+        return self._op_proxy(
+            ttnn.SumOp,
+            [in0],
+            ttnn_kwargs={"dim_arg": dim_arg, "keep_dim": keep_dim},
+            unit_attrs=unit_attrs,
+        )
+
+    def mean(
+        self,
+        in0: Operand,
+        dim_arg: List[int] = [0],
+        keep_dim: bool = True,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpView:
+        """
+        Creates ``ttnn.mean``.
+
+        *Mean reduction operation.*
+
+        Computes the mean of elements along specified dimensions of the input tensor.
+        If `dim_arg` is not provided, the mean is computed over all dimensions.
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor
+        dim_arg : List[int], optional
+            Dimensions to reduce over (default: [0])
+        keep_dim : bool, optional
+            If True, retains reduced dimensions with length 1 (default: True)
+        unit_attrs : *Optional[List[str]]*, optional
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpView*)
+            Tensor with mean values
+        """
+        return self._op_proxy(
+            ttnn.MeanOp,
+            [in0],
+            ttnn_kwargs={"dim_arg": dim_arg, "keep_dim": keep_dim},
+            unit_attrs=unit_attrs,
+        )
+
+    def max(
+        self,
+        in0: Operand,
+        dim_arg: int = None,
+        keep_dim: bool = True,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpView:
+        """
+        Creates ``ttnn.max``.
+
+        *Maximum reduction operation.*
+
+        Returns the maximum values along the specified dimension.
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor
+        dim_arg : int, optional
+            Dimension to reduce over (default: None, reduces over all dimensions)
+        keep_dim : bool, optional
+            If True, retains reduced dimensions with length 1 (default: True)
+        unit_attrs : *Optional[List[str]]*, optional
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpView*)
+            Tensor with maximum values
+        """
+        # Handle ttnn and golden function arguments for edge cases
+        ttnn_kwargs = {"keep_dim": keep_dim}
+        input_shape = list(self.get_shape(in0))
+        ndim = len(input_shape)
+        if dim_arg is not None:
+            golden_kwargs = {"dim_arg": dim_arg, "keep_dim": keep_dim}
+            ttnn_kwargs["dim_arg"] = [dim_arg]
+            output_shape = input_shape.copy()
+            output_shape[dim_arg] = 1
+        else:
+            golden_kwargs = {"dim_arg": None, "keep_dim": keep_dim}
+            output_shape = [1] * ndim
+
+        return self._op_proxy(
+            ttnn.MaxOp,
+            [in0],
+            golden_kwargs=golden_kwargs,
+            ttnn_kwargs=ttnn_kwargs,
+            output_shape=output_shape,
+            unit_attrs=unit_attrs,
+        )
+
+    def min(
+        self,
+        in0: Operand,
+        dim_arg: int = None,
+        keep_dim: bool = True,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpView:
+        """
+        Creates ``ttnn.min``.
+
+        *Minimum reduction operation.*
+
+        Returns the minimum values along the specified dimension.
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor
+        dim_arg : int, optional
+            Dimension to reduce over (default: None, reduces over all dimensions)
+        keep_dim : bool, optional
+            If True, retains reduced dimensions with length 1 (default: True)
+        unit_attrs : *Optional[List[str]]*, optional
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpView*)
+            Tensor with minimum values
+        """
+        # Handle ttnn and golden function arguments for edge cases
+        ttnn_kwargs = {"keep_dim": keep_dim}
+        output_shape = [1] * len(self.get_shape(in0))
+        if dim_arg:
+            ttnn_kwargs["dim_arg"] = [dim_arg]
+        if not keep_dim:
+            output_shape = torch.Size([1])
+
+        return self._op_proxy(
+            ttnn.MinOp,
+            [in0],
+            ttnn_kwargs=ttnn_kwargs,
+            output_shape=output_shape,
+            unit_attrs=unit_attrs,
+        )
+
+    def reshape(
+        self, in0: Operand, shape: Shape, unit_attrs: Optional[List[str]] = None
+    ) -> OpView:
+        """
+        Creates ``ttnn.reshape``.
+
+        *Tensor reshape operation.*
+
+        The `reshape` operation changes the shape of a tensor without changing the data or number of elements.
+        The total number of elements in the tensor must remain the same after reshaping. This operation is
+        commonly used in neural networks to change the dimensionality of tensors between layers.
+
+        .. code-block:: mlir
+
+            // Reshape a 2x3 tensor to a 1x6 tensor
+            %input = ... : tensor<2x3xf32>  // Input tensor with shape [2,3]
+            %output = ttnn.empty() : tensor<1x6xf32>  // Output tensor with shape [1,6]
+            %result = ttnn.reshape(%input, %output) {shape = [1, 6]} :
+                tensor<2x3xf32>, tensor<1x6xf32> -> tensor<1x6xf32>
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor to reshape
+        shape : Shape
+            The new shape for the tensor
+        unit_attrs : *Optional[List[str]]*, optional
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpView*)
+            The reshaped tensor
+        """
+        kwargs = {"shape": shape}
+        return self._op_proxy(
+            ttnn.ReshapeOp,
+            [in0],
+            ttnn_kwargs=kwargs,
+            unit_attrs=unit_attrs,
+        )
+
+    def pad(
+        self,
+        in0: Operand,
+        padding: List[int],
+        value: int,
+        use_multicore: bool = True,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpView:
+        """
+        Creates ``ttnn.pad``.
+
+        *Tensor padding operation.*
+
+        Pads a tensor with a constant value. The padding amount is specified for each dimension
+        and can be asymmetric (different padding at the start and end of each dimension).
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor to pad
+        in1 : Operand
+            Output tensor
+        padding : *List[int]*
+            Amount of padding for each dimension
+        value : int
+            Value to use for padding
+        use_multicore : bool, optional
+            If True, utilizes multicore processing for the operation (default: False)
+        unit_attrs : *Optional[List[str]]*, optional
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpView*)
+            The padded tensor
+        """
+        output_shape = []
+        for i in range(len(padding) // 2):
+            output_shape.append(
+                self.get_shape(in0)[i] + padding[2 * i] + padding[2 * i + 1]
+            )
+        return self._op_proxy(
+            ttnn.PadOp,
+            [in0],
+            ttnn_kwargs={
+                "padding": padding,
+                "value": value,
+                "use_multicore": use_multicore,
+            },
+            golden_kwargs={"padding": padding, "value": value},
+            output_shape=output_shape,
+            unit_attrs=unit_attrs,
+        )
+
+    def permute(
+        self,
+        in0: Operand,
+        permutation: List[int],
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpView:
+        """
+        Creates ``ttnn.permute``.
+
+        *Tensor permutation operation.*
+
+        Permutes the dimensions of the input tensor according to the given permutation.
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor
+        permutation : *List[int]*
+            The desired ordering of dimensions
+        unit_attrs : *Optional[List[str]]*
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpView*)
+            Tensor with permuted dimensions
+        """
+        input_shape = self.get_shape(in0)
+        output_shape = [input_shape[i] for i in permutation]
+        return self._op_proxy(
+            ttnn.PermuteOp,
+            [in0],
+            ttnn_kwargs={"permutation": DenseI64ArrayAttr.get(permutation)},
+            golden_kwargs={"permutation": permutation},
+            output_shape=output_shape,
+            unit_attrs=unit_attrs,
+        )
+
+    def transpose(
+        self,
+        in0: Operand,
+        dim0: int = 0,
+        dim1: int = 1,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpView:
+        """
+        Creates ``ttnn.transpose``.
+
+        *Tensor transpose operation.*
+
+        Swaps two dimensions of a tensor.
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor
+        dim0 : int, optional
+            First dimension to swap (default: 0)
+        dim1 : int, optional
+            Second dimension to swap (default: 1)
+        unit_attrs : *Optional[List[str]]*, optional
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpView*)
+            Tensor with swapped dimensions
+        """
+        kwargs = {"dim0": dim0, "dim1": dim1}
+        return self._op_proxy(
+            ttnn.TransposeOp,
+            [in0],
+            ttnn_kwargs=kwargs,
+            golden_kwargs=kwargs,
+            unit_attrs=unit_attrs,
+        )
+
+    def slice(
+        self,
+        in0: Operand,
+        begins: List[int],
+        ends: List[int],
+        step: List[int] = None,
+        unit_attrs: List[str] = None,
+    ) -> OpView:
+        # If step is not provided, use 1 for each dimension
+        if step is None:
+            step = [1] * len(begins)
+
+        # Ensure begins, ends, and step have the same length
+        if not (len(begins) == len(ends) == len(step)):
+            raise ValueError("begins, ends, and step must have the same length")
+
+        # Get the input shape
+        input_shape = self.get_shape(in0)
+
+        # Ensure we're not slicing more dimensions than exist
+        if len(begins) > len(input_shape):
+            raise ValueError("Cannot slice more dimensions than input has")
+
+        # Calculate the output shape
+        output_shape = []
+
+        # Process dimensions that are being sliced
+        for i, (b, e, s) in enumerate(zip(begins, ends, step)):
+            # Handle negative indices
+            dim_size = input_shape[i]
+            if b < 0:
+                b += dim_size
+            if e < 0:
+                e += dim_size
+
+            # Clamp to valid range
+            b = max(0, min(b, dim_size))
+            e = max(0, min(e, dim_size))
+
+            # Calculate dimension size using correct formula
+            # For positive step: ceil((e - b) / s)
+            if s > 0:
+                if e > b:
+                    size = (e - b + s - 1) // s
+                else:
+                    size = 0
+            else:
+                # Negative step not typically supported in MLIR/TOSA
+                raise ValueError("Negative step not supported")
+
+            output_shape.append(size)
+
+        # Add remaining dimensions that aren't being sliced
+        for i in range(len(begins), len(input_shape)):
+            output_shape.append(input_shape[i])
+
+        # Create the attributes
+        from ttmlir.ir import ArrayAttr, IntegerAttr, IntegerType
+
+        # Create integer attributes for each value
+        begins_int_attrs = [
+            IntegerAttr.get(IntegerType.get_signless(32), b) for b in begins
+        ]
+        ends_int_attrs = [
+            IntegerAttr.get(IntegerType.get_signless(32), e) for e in ends
+        ]
+        step_int_attrs = [
+            IntegerAttr.get(IntegerType.get_signless(32), s) for s in step
+        ]
+
+        # Create array attributes
+        begins_attr = ArrayAttr.get(begins_int_attrs, self._ctx)
+        ends_attr = ArrayAttr.get(ends_int_attrs, self._ctx)
+        step_attr = ArrayAttr.get(step_int_attrs, self._ctx)
+
+        kwargs = {"begins": begins_attr, "ends": ends_attr, "step": step_attr}
+        # Use op_proxy
+        return self._op_proxy(
+            ttnn.SliceStaticOp,
+            [in0],
+            ttnn_kwargs=kwargs,
+            golden_kwargs=kwargs,
+            output_shape=output_shape,
+            unit_attrs=unit_attrs,
+        )

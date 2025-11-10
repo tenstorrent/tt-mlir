@@ -766,24 +766,26 @@ def argmax_golden(
     GoldenMapTensor
         Indices of maximum values along specified dimension as int32 tensor
     """
-    result = torch.argmax(input_tensor, dim=dim_arg[0], keepdim=keep_dim)
+    if not isinstance(dim_arg, int):
+        dim_arg = dim_arg[0]
+    result = torch.argmax(input_tensor, dim=dim_arg, keepdim=keep_dim)
     return result.to(torch.int32)
 
 
 def matmul_golden(
-    a: BuilderGoldenTensor,
-    b: BuilderGoldenTensor,
+    a: GoldenMapTensor,
+    b: GoldenMapTensor,
     transpose_a=False,
     transpose_b=False,
-) -> BuilderGoldenTensor:
+) -> GoldenMapTensor:
     """
     Custom golden function for matrix multiplication.
 
     Parameters
     ----------
-    a : BuilderGoldenTensor
+    a : GoldenMapTensor
         First input tensor
-    b : BuilderGoldenTensor
+    b : GoldenMapTensor
         Second input tensor
     transpose_a : bool, optional
         Whether to transpose tensor a (default: False)
@@ -792,7 +794,7 @@ def matmul_golden(
 
     Returns
     -------
-    BuilderGoldenTensor
+    GoldenMapTensor
         Result of matrix multiplication
     """
     a = torch.transpose(a, -2, -1) if transpose_a else a
@@ -3048,13 +3050,24 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttnn.BitwiseOrOp: torch.bitwise_or,
     ttnn.BitwiseXorOp: torch.bitwise_xor,
     ttnn.BitwiseNotOp: torch.bitwise_not,
+    # Reduction operations
+    ttnn.SumOp: sum_golden,
+    ttnn.MeanOp: mean_golden,
+    ttnn.MaxOp: max_golden,
+    ttnn.MinOp: min_golden,
+    ttnn.ArgMaxOp: argmax_golden,
     # Complex operations
     ttnn.MatmulOp: matmul_golden,
     ttnn.LinearOp: linear_golden,
     # Tensor manipulation
+    ttnn.TransposeOp: transpose_golden,
     ttnn.ConcatOp: concat_golden,
     ttnn.RepeatOp: repeat_golden,
     ttnn.RepeatInterleaveOp: repeat_interleave_golden,
+    ttnn.ReshapeOp: reshape_golden,
+    ttnn.PermuteOp: permute_golden,
     ttnn.ClampScalarOp: clamp_scalar_golden,
     ttnn.ClampTensorOp: clamp_tensor_golden,
+    ttnn.PadOp: pad_golden,
+    ttnn.SliceStaticOp: slice_golden,
 }
