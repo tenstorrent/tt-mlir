@@ -200,7 +200,7 @@ struct IterablePrintAdaptor {
 } // namespace detail
 
 /// Syntactic sugar helper for printing iterable containers in `[V0, V1, ...]`
-/// format. format.
+/// format.
 /// @code
 ///     llvm::dbgs() << asSeq(...) << ...
 /// @endcode

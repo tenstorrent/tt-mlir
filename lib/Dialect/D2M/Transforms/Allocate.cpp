@@ -325,7 +325,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     // assumption be removed?). Conversely, generic ops are allowed to have
     // their operands rooted at memrefs that are not allocated withing `funcOp`,
     // e.g. passed in as func arguments. Therefore, the two
-    // sets of memref values, (a) those allocated within `funcOp1 and (b) those
+    // sets of memref values, (a) those allocated within `funcOp` and (b) those
     // defining generic op operands are incomparable (neither is a subset of the
     // other). We try to track this carefully.
 
@@ -554,11 +554,14 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
           asSeq(getShardBlockFactors(genericOp)),
           getParticipatingDimMask(genericOp));
 
-      // WIP: for now, commit to just one buffer size "scaling policy"
-      // (requested by `testBufferSizePolicy`) before examining individual
-      // operands. This choice will be captured in new block factors
-      // `genericCtx.reblockedFactors` and grid/shard dim extents in
-      // `grid/shardExtents`.
+      // WIP: There is a set of valid stream buffer sizes and selecting them
+      // optimally is one of the goals of this pass. Eventually, this decision
+      // will involve integration with the `GenericOpBufferAnalysis` API. In the
+      // interim, however, we implement a simple binary choice policy, "keep
+      // incoming shapes or pick a small-ish buffer" chosen by the
+      // `testBufferSizePolicy` test pass option. Choices made by the policy
+      // will be captured in new block factors `genericCtx.reblockedFactors` and
+      // grid/shard dim extents in `grid/shardExtents`.
       {
         SmallVector<int64_t> rescaling(rank, 1);
         if (useMinPolicy) {
