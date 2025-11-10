@@ -178,3 +178,6 @@ add_custom_target(tt-alchemist
   COMMAND ${Python3_EXECUTABLE} -m pip install --force-reinstall ${CMAKE_CURRENT_BINARY_DIR}/dist/*.whl
   COMMENT "Installing tt-alchemist wheel"
 )
+
+# Add the pybind11 module subdirectory
+add_subdirectory(python_module)
