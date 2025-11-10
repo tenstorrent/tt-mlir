@@ -2178,6 +2178,204 @@ def index_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
     return torch.index_select(input_tensor, dim, indices)
 
 
+def dynamic_slice_golden(
+    input_tensor: GoldenMapTensor,
+    *start_indices_tensors,
+    **kwargs,
+) -> GoldenMapTensor:
+    """
+    Golden function for dynamic_slice operation.
+
+    Parameters
+    ----------
+    input_tensor : GoldenMapTensor
+        Input tensor to slice
+    *start_indices_tensors : GoldenMapTensor
+        One tensor per dimension, each providing the start index for that dimension.
+        Scalars or rank-1 tensors are supported; values are interpreted as integers.
+    **kwargs : dict
+        Keyword arguments including 'slice_sizes' as MLIR attribute
+
+    Returns
+    -------
+    GoldenMapTensor
+        Dynamically sliced tensor
+    """
+
+    slice_sizes = unpack_mlir_attr(kwargs.get("slice_sizes", []))
+    rank = len(slice_sizes)
+    assert rank == len(start_indices_tensors), "start_indices_tensors must match rank"
+
+    # Extract start indices (use shard-0 for validation)
+    starts: List[int] = []
+    x0 = input_tensor.shard_at(0)
+    for d, st in enumerate(start_indices_tensors):
+        val0 = st if not isinstance(st, GoldenMapTensor) else st.shard_at(0)
+        # Support scalar or single-element tensors
+        if isinstance(val0, torch.Tensor):
+            if val0.ndim == 0:
+                starts.append(int(val0.item()))
+            else:
+                # Take first element for simplicity
+                starts.append(int(val0.reshape(-1)[0].item()))
+        else:
+            starts.append(int(val0))
+
+        # Bounds check
+        max_valid = x0.size(d) - slice_sizes[d]
+        if starts[d] < 0 or starts[d] > max_valid:
+            raise IndexError(
+                f"dynamic_slice start index out of bounds for dim {d}: {starts[d]} not in [0,{max_valid}]"
+            )
+
+    # Build slices
+    slicers = tuple(slice(starts[d], starts[d] + slice_sizes[d]) for d in range(rank))
+
+    shard_map = {}
+    for device_id, shard in input_tensor.shard_map.items():
+        shard_map[device_id] = shard[slicers]
+
+    return GoldenMapTensor(shard_map, input_tensor.mesh_shape)
+
+def slice_golden_stablehlo(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
+    """
+    Golden function for StableHLO slice operation.
+    Parameters
+    ----------
+    input_tensor : GoldenMapTensor
+        Input tensor
+    **kwargs : dict
+        Keyword arguments including:
+        - start_indices: Starting indices for each dimension
+        - limit_indices: Ending indices (exclusive) for each dimension
+        - strides: Strides for each dimension
+    Returns
+    -------
+    GoldenMapTensor
+        Sliced tensor
+    """
+    start_indices = kwargs.get("start_indices", [0])
+    limit_indices = kwargs.get("limit_indices", None)
+    strides = kwargs.get("strides", None)
+
+    if strides is None:
+        strides = [1] * len(start_indices)
+
+    if limit_indices is None:
+        limit_indices = [input_tensor.size(i) for i in range(len(start_indices))]
+
+    slices = []
+    for i in range(len(start_indices)):
+        start = start_indices[i] if i < len(start_indices) else 0
+        end = limit_indices[i] if i < len(limit_indices) else input_tensor.size(i)
+        stride = strides[i] if i < len(strides) else 1
+        slices.append(slice(start, end, stride))
+
+    shard_map = {}
+    for device_id, shard in input_tensor.shard_map.items():
+        shard_map[device_id] = shard[tuple(slices)]
+
+    return GoldenMapTensor(shard_map, input_tensor.mesh_shape)
+
+
+def zeros_golden(**kwargs) -> GoldenMapTensor:
+    """
+    Golden function for zeros operation with TTIR parameter names.
+
+    Parameters
+    ----------
+    **kwargs : dict
+        Keyword arguments including 'size'
+
+    Returns
+    -------
+    GoldenMapTensor
+        Zero tensor
+    """
+    size = kwargs.get("shape", [1])
+    return GoldenMapTensor({0: torch.zeros(size)}, (1, 1))
+
+
+def ones_golden(**kwargs) -> GoldenMapTensor:
+    """
+    Golden function for ones operation with TTIR parameter names.
+
+    Parameters
+    ----------
+    **kwargs : dict
+        Keyword arguments including 'size'
+
+    Returns
+    -------
+    GoldenMapTensor
+        Ones tensor
+    """
+    size = kwargs.get("shape", [1])
+    return GoldenMapTensor({0: torch.ones(size)}, (1, 1))
+
+
+def reverse_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
+    """
+    Golden function for reverse operation with TTIR parameter names.
+
+    Parameters
+    ----------
+    input_tensor : GoldenMapTensor
+        Input tensor
+    **kwargs : dict
+        Keyword arguments including 'dims'
+
+    Returns
+    -------
+    GoldenMapTensor
+        Reversed tensor
+    """
+    dims = kwargs.get("dimensions", [0])
+    return torch.flip(input_tensor, dims)
+
+
+def arange_golden(single_dim_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
+    """
+    Golden function for arange operation using TTIR kwargs.
+
+    Expected kwargs from builder (ttir_kwargs):
+    - start: int
+    - end: int
+    - step: int
+    - arange_dimension: int (ignored here; layout handled by builder output shape)
+    """
+    start = kwargs.get("start", 0)
+    end = kwargs.get("end", 0)
+    step = kwargs.get("step", 1)
+    output_shards = {}
+    for device_id, shard in single_dim_tensor.shard_map.items():
+        output_shards[device_id] = torch.arange(
+            start=start, end=end, step=step, dtype=torch.float32
+        )
+    return GoldenMapTensor(output_shards, single_dim_tensor.mesh_shape)
+
+
+def cumsum_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
+    """
+    Golden function for cumsum operation with TTIR parameter names.
+
+    Parameters
+    ----------
+    input_tensor : GoldenMapTensor
+        Input tensor
+    **kwargs : dict
+        Keyword arguments containing:
+        - dim: int - Dimension along which to compute cumulative sum
+
+    Returns
+    -------
+    GoldenMapTensor
+        Cumulative sum of input tensor along specified dimension
+    """
+    dim = kwargs.get("dim", 0)  # Use the dim parameter from ttir_kwargs
+    return torch.cumsum(input_tensor, dim=dim)
+
+
 def repeat_interleave_golden(
     input_tensor: GoldenMapTensor, **kwargs
 ) -> GoldenMapTensor:
@@ -4424,6 +4622,9 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     # StableHLO tensor manipulation operations
     stablehlo.TransposeOp: stablehlo_transpose_golden,
     stablehlo.SelectOp: stablehlo_select_golden,
+    stablehlo.ConcatenateOp: concat_golden,
+    stablehlo.ConstantOp: constant_golden,
+    stablehlo.DynamicSliceOp: dynamic_slice_golden,
     # ----- TTNN OPS -----
     # Elementwise unary operations
     ttnn.AbsOp: torch.abs,
