@@ -1165,7 +1165,9 @@ public:
     auto arg =
         rewriter.getAttr<ArgAttr>(ArgType::BufferAddress, op.getOperandIndex());
     size_t argIndex;
-    if (ttnnMode) {
+    // Always use runtime args for buffer addresses (override ttnnMode for DSL)
+    bool useRuntimeArgs = true || ttnnMode;  // Force true, keep ttnnMode to avoid unused warning
+    if (useRuntimeArgs) {
       rewriter.modifyOpInPlace(entry, [&]() {
         argIndex = ArgSpecAttr::appendRuntimeArg(entry, arg);
       });
