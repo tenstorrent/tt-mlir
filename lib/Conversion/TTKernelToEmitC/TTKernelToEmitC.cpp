@@ -647,16 +647,24 @@ public:
     if (auto i = mlir::dyn_cast<IntegerType>(ty)) {
       if (i.getWidth() == 1) {
         return "bool";
-      } else if (i.getWidth() == 32) {
+      }
+
+      if (i.getWidth() == 32) {
         return "uint32_t";
-      } else if (i.getWidth() == 64) {
+      }
+
+      if (i.getWidth() == 64) {
         return "uint64_t";
       }
+
       llvm_unreachable(
           "unsupported integer type in TTKernelClassMethodRewriter");
-    } else if (auto opaque = mlir::dyn_cast<emitc::OpaqueType>(ty)) {
+    }
+
+    if (auto opaque = mlir::dyn_cast<emitc::OpaqueType>(ty)) {
       return opaque.getValue().str();
     }
+
     llvm_unreachable("unsupported emitc type in TTKernelClassMethodRewriter");
   }
 
@@ -664,7 +672,8 @@ public:
   matchAndRewrite(SourceOp op, Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
     // Drop "ttkernel.class_name." prefix
-    auto [className, methodName] = op.getOperation()->getName().getStringRef().rsplit('.');
+    auto [className, methodName] =
+        op.getOperation()->getName().getStringRef().rsplit('.');
     if (methodName.empty()) {
       return failure();
     }
