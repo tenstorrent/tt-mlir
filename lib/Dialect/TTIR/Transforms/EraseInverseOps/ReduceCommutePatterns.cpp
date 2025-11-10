@@ -47,9 +47,16 @@ public:
         /*inverseDimPermute=*/true);
 
     SmallVector<Operation *> users(op->getUsers());
+    // All users should be identical TMs before we start
+    // replacing them. We must not reference `permuteUser` during/after
+    // replacements, as it will be erased on its turn.
+    assert(llvm::all_of(users,
+                        [&](Operation *user) {
+                          return checkIdenticalTms(permuteUser, user);
+                        }) &&
+           "shouldCommute should have ensured identical TM users");
+
     for (auto *user : users) {
-      assert(checkIdenticalTms(permuteUser, user) &&
-             "shouldCommute should have ensured this is true");
       rewriter.replaceOp(user, newReduce);
     }
   }
