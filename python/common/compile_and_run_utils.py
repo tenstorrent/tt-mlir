@@ -12,7 +12,7 @@ from enum import Enum
 from multiprocessing import queues
 from typing import Callable, Tuple
 
-from ttmlir.dialects import stablehlo
+# from ttmlir.dialects import stablehlo
 from ttmlir.ir import Context, Module, OpView
 
 

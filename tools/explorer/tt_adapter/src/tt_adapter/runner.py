@@ -100,17 +100,17 @@ class ModelRunner:
         self._build_dir = os.environ["TT_MLIR_HOME"] + "/build"
         os.makedirs(self._explorer_artifacts_dir, exist_ok=True)
 
-        if self._ttrt is not None:
-            self._ttrt.API.initialize_apis()
+        # if self._ttrt is not None:
+        #     self._ttrt.API.initialize_apis()
 
-            # Save the system descriptor.
-            self._ttrt.API.Query(
-                args={
-                    "--save-artifacts": True,
-                    "--artifact-dir": self._explorer_artifacts_dir,
-                    "--quiet": True,
-                }
-            )()
+        #     # Save the system descriptor.
+        #     self._ttrt.API.Query(
+        #         args={
+        #             "--save-artifacts": True,
+        #             "--artifact-dir": self._explorer_artifacts_dir,
+        #             "--quiet": True,
+        #         }
+        #     )()
 
         logging.info("ModelRunner initialized.")
 

@@ -17,7 +17,7 @@ import itertools
 import operator
 import torch
 import torch.nn.functional
-from ttmlir.dialects import ttir, stablehlo, d2m, ttnn
+from ttmlir.dialects import ttir, d2m, ttnn
 from ttmlir.ir import (
     Attribute,
     ArrayAttr,
