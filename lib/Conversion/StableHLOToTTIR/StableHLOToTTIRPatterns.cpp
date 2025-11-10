@@ -897,6 +897,7 @@ private:
     }
     return indices;
   }
+
   RankedTensorType getNHWFlattenedType(RankedTensorType unflattenedType) const {
     llvm::ArrayRef<int64_t> shape = unflattenedType.getShape();
     assert(shape.size() == 4 && "Expected 4D NHWC tensor");
@@ -905,6 +906,7 @@ private:
     return RankedTensorType::get(flattenedShape,
                                  unflattenedType.getElementType());
   }
+
   ttir::ReshapeOp
   generateReshape(mlir::TypedValue<mlir::RankedTensorType> input,
                   RankedTensorType outputType, PatternRewriter &rewriter,
