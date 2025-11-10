@@ -133,6 +133,10 @@ void populatePassesModule(nb::module_ &m) {
         mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
         mlir::PassManager pm(moduleOp->getName());
 
+        pm.enableIRPrinting();
+          
+      );
+
         pm.addPass(tt::createConvertTTNNToTTIRPass());
 
         const auto *pipeline =

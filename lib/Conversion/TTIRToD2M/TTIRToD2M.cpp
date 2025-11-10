@@ -1259,19 +1259,19 @@ class D2MGatherOpRewriter : public OpConversionPattern<ttir::GatherOp> {
     unsigned numDims = 3;
     unsigned numSymbols = 0;
 
-    // affine_map<(d0, d1, d2) -> (d0, d1)>
-    auto map1 = AffineMap::get(numDims, numSymbols,
-      {builder.getAffineDimExpr(0), builder.getAffineDimExpr(1)},
-      builder.getContext());
-
     // affine_map<(d0, d1, d2) -> (0, 0)>
-    auto map2 = AffineMap::get(numDims, numSymbols,
+    auto map1 = AffineMap::get(numDims, numSymbols,
       {builder.getAffineConstantExpr(0), builder.getAffineConstantExpr(0)},
       builder.getContext());
 
     // affine_map<(d0, d1, d2) -> (d0, d1)>
-    auto map3 = AffineMap::get(numDims, numSymbols,
+    auto map2 = AffineMap::get(numDims, numSymbols,
       {builder.getAffineDimExpr(0), builder.getAffineDimExpr(1)},
+      builder.getContext());
+
+    // affine_map<(d0, d1, d2) -> (d1, d2)>
+    auto map3 = AffineMap::get(numDims, numSymbols,
+      {builder.getAffineDimExpr(1), builder.getAffineDimExpr(2)},
       builder.getContext());
 
       SmallVector<AffineMap, 3> maps = {map1, map2, map3};
@@ -1287,6 +1287,8 @@ class D2MGatherOpRewriter : public OpConversionPattern<ttir::GatherOp> {
 
     llvm::SmallVector<Value> tapsInputs = {operandLayoutOp.getResult(0), startIndicesLayoutOp.getResult(0)};
     llvm::SmallVector<Value> tapsOutputs = {resultIndicesLayoutOp.getResult(0)};
+    
+    // create generic op
     [[maybe_unused]] auto genericOp = builder.create<d2m::GenericOp>(loc, tapsInputs, tapsOutputs, mapArrayAttr, iteratorArrayAttrTaps, 
       [&](OpBuilder &builder, Location bodyLoc, ValueRange blockArgs) {
       },
@@ -1294,10 +1296,24 @@ class D2MGatherOpRewriter : public OpConversionPattern<ttir::GatherOp> {
     grid, blockFactors
     );
 
+    // create to layout for generic op
+    auto finalOutput = builder.create<d2m::EmptyOp>(
+      loc,
+      resultType.getShape(),
+      resultType.getElementType());
+    [[maybe_unused]] auto toLayoutOp = builder.create<d2m::ToLayoutOp>(loc, genericOp.getResult(0), finalOutput, nullptr);
+
     Region &region = genericOp.getRegion(0);
     Block &block = region.front();
     OpBuilder::InsertionGuard guard(rewriter); 
     builder.setInsertionPointToEnd(&block);
+
+    Value blockOperand = block.getArgument(0);
+    [[maybe_unused]] Value blockIndex = block.getArgument(1);
+    [[maybe_unused]] Value blockOutput = block.getArgument(2);
+
+    auto blockIndexWaitOp = builder.create<d2m::WaitOp>(loc, blockIndex);
+    auto blockOutputReserveOp = builder.create<d2m::ReserveOp>(loc, blockOutput);
    
     SmallVector<Value> ivs;
     // Verify all static before using affine.for
@@ -1355,7 +1371,7 @@ class D2MGatherOpRewriter : public OpConversionPattern<ttir::GatherOp> {
       }
 
       indexFromStartIndices.push_back(extractIndexFromTensor(
-          builder, loc, startIndices, gatherOp.getStartIndices().getType(),
+          builder, loc, blockIndexWaitOp.getResult(), gatherOp.getStartIndices().getType(),
           gCombine));
     }
 
@@ -1397,14 +1413,14 @@ class D2MGatherOpRewriter : public OpConversionPattern<ttir::GatherOp> {
       Value outputDimSize = constants[1];
       if (!isCollapsedOrBatching(i)) {
         outputDimSize = builder.create<mlir::tensor::DimOp>(
-            loc, emptyOp, offsetDims[operandIndexDim++]);
+            loc, blockOutputReserveOp.getResult(), offsetDims[operandIndexDim++]);
       }
 
       // If this is a skipped dimension, we're done and don't have to clamp.
       if (remappedIndexFromIndices[i] == constants[0]) continue;
 
       Value operandDimSize =
-          builder.create<mlir::tensor::DimOp>(loc, operand, i);
+          builder.create<mlir::tensor::DimOp>(loc, blockOperand.getTensorType(), i);
       Value largestValidIndex = builder.create<mlir::arith::SubIOp>(
           loc, operandDimSize, outputDimSize);
 
@@ -1439,21 +1455,22 @@ class D2MGatherOpRewriter : public OpConversionPattern<ttir::GatherOp> {
     
     Value extractOperand;
     if (isa<RankedTensorType>(operand.getType())) {
-      extractOperand = operand;
+      extractOperand = blockOperand;
     } else {
       // Cannot extract from unranked tensors, cast to ranked first.
       SmallVector<int64_t> dims(operandRank, ShapedType::kDynamic);
       auto type = RankedTensorType::get(
           dims, cast<TensorType>(operand.getType()).getElementType());
-      extractOperand = builder.create<mlir::tensor::CastOp>(loc, type, operand);
+      extractOperand = builder.create<mlir::tensor::CastOp>(loc, type, blockOperand);
     }
 
-    auto dmaOp = builder.create<d2m::DMAOp>(loc, extractOperand, combinedIndex, emptyOp, ivs);
+    auto dmaOp = builder.create<d2m::DMAOp>(loc, extractOperand, combinedIndex, blockOutputReserveOp.getResult(), ivs);
     builder.create<d2m::DMAWaitOp>(loc, dmaOp);
 
     builder.setInsertionPointToEnd(&block);
+    builder.create<d2m::YieldOp>(loc, blockOutput);
     
-    rewriter.replaceOp(gatherOp, genericOp.getResult(0));
+    rewriter.replaceOp(gatherOp, toLayoutOp.getResult(0));
 
     return success();
   }

@@ -1570,6 +1570,7 @@ def compile_ttir_module_to_flatbuffer(
         mlir_suffix = "_ttnn.mlir"
         target_extension = "ttnn"
     elif target == "ttmetal":
+        print("HELLLOOOOOO")
         pipeline_fn = (
             custom_pipeline if custom_pipeline else ttir_to_ttmetal_backend_pipeline
         )
