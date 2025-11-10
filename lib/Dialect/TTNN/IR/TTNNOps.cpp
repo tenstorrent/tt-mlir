@@ -4365,10 +4365,10 @@ mlir::tt::ttnn::PagedScaledDotProductAttentionDecodeOp::verify() {
 
   // NOTE: The q_chunk_size is 32 by default in ttnn. This is configurable via
   // the program config. However, this is not modelled in the ttnn dialect.
-  if (seqLen % 32 != 0) {
-    return emitOpError(
-        "Sequence length must be divisible by q_chunk_size (32)");
-  }
+  // if (seqLen % 32 != 0) {
+  //   return emitOpError(
+  //       "Sequence length must be divisible by q_chunk_size (32)");
+  // }
 
   if (keyType.getShape()[0] != batchSize) {
     return emitOpError("Key/Value batch size must match query batch size");

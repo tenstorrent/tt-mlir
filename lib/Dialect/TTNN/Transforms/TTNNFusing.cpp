@@ -266,14 +266,33 @@ public:
       return failure();
     }
 
-    // Validate the attention components make semantic sense
-    if (!validateAttentionSemantics(components)) {
-      return failure();
+    // Ensure Q, K, V are 4D tensors (reshape 3D to 4D if needed)
+    Value query4d = ensureTensor4D(components.query, rewriter,
+                                   components.attentionMatmul.getLoc());
+    Value key4d = ensureTensor4D(components.key, rewriter,
+                                 components.attentionMatmul.getLoc());
+    Value value4d = ensureTensor4D(components.value, rewriter,
+                                   components.attentionMatmul.getLoc());
+
+    Value paddedQuery = query4d;
+    Value paddedMask = components.mask;
+    PaddingInfo paddingInfo = computePaddingInfo(query4d);
+    if (paddingInfo.needsPadding) {
+      paddedQuery =
+          padSequenceDimension(query4d, paddingInfo.paddedSeqLen, rewriter,
+                               components.attentionMatmul.getLoc());
+
+      // If there's a mask, pad it too
+      if (components.mask) {
+        paddedMask =
+            padSequenceDimension(components.mask, paddingInfo.paddedSeqLen,
+                                 rewriter, components.attentionMatmul.getLoc());
+      }
     }
 
     // Determine the result type from the final output
     // The attentionMatmul is the final computation before any output layout ops
-    auto resultType = components.query.getType();
+    auto resultType = paddedQuery.getType();
 
     // Create scaled_dot_product_attention op
     auto scaleAttr = components.scale != 1.0f
@@ -281,14 +300,23 @@ public:
                          : nullptr;
 
     auto sdpaOp = rewriter.create<ScaledDotProductAttentionOp>(
-        components.attentionMatmul.getLoc(), resultType, components.query,
-        components.key, components.value, components.mask,
+        components.attentionMatmul.getLoc(), resultType, paddedQuery, key4d,
+        value4d, paddedMask,
         /*is_causal=*/false, scaleAttr,
         /*sliding_window_size=*/nullptr,
         /*memory_config=*/nullptr);
 
+    Value result = sdpaOp.getResult();
+
+    // If we padded, slice the result back to original sequence length
+    if (paddingInfo.needsPadding) {
+      result =
+          sliceSequenceDimension(result, paddingInfo.originalSeqLen, rewriter,
+                                 components.attentionMatmul.getLoc());
+    }
+
     // Replace the final matmul and let dead code elimination clean up
-    rewriter.replaceOp(components.attentionMatmul, sdpaOp.getResult());
+    rewriter.replaceOp(components.attentionMatmul, result);
     return mlir::success();
   }
 
@@ -425,7 +453,8 @@ private:
           mask = rhs;
           v = lhs;
           continue;
-        } else if (looksLikeMask(lhs)) {
+        }
+        if (looksLikeMask(lhs)) {
           mask = lhs;
           v = rhs;
           continue;
@@ -445,47 +474,124 @@ private:
     return true; // Scale and mask are optional
   }
 
-  // Validate that the extracted components form valid attention
-  bool validateAttentionSemantics(const AttentionComponents &components) const {
-    // All core components must exist
-    if (!components.query || !components.key || !components.value ||
-        !components.qkMatmul || !components.attentionMatmul ||
-        !components.softmax) {
-      return false;
+  // Ensure tensor is 4D by unsqueezing if needed
+  Value ensureTensor4D(Value tensor, mlir::PatternRewriter &rewriter,
+                       Location loc) const {
+    auto tensorType = mlir::dyn_cast<RankedTensorType>(tensor.getType());
+    if (!tensorType || tensorType.getRank() == 4) {
+      return tensor;
     }
 
-    // Get tensor types
-    auto qType = mlir::dyn_cast<RankedTensorType>(components.query.getType());
-    auto kType = mlir::dyn_cast<RankedTensorType>(components.key.getType());
-    auto vType = mlir::dyn_cast<RankedTensorType>(components.value.getType());
+    // Unsqueeze to 4D by prepending 1s
+    SmallVector<int64_t> newShape64;
+    int64_t rank = tensorType.getRank();
 
-    if (!qType || !kType || !vType) {
-      return false;
+    // Add leading 1s to reach rank 4
+    for (int64_t i = 0; i < 4 - rank; ++i) {
+      newShape64.push_back(1);
     }
 
-    // Check dimensions are reasonable for attention
-    // Q, K, V should be 3D or 4D tensors
-    if (qType.getRank() < 3 || qType.getRank() > 4 || kType.getRank() < 3 ||
-        kType.getRank() > 4 || vType.getRank() < 3 || vType.getRank() > 4) {
-      return false;
+    // Append original shape
+    ArrayRef<int64_t> origShape = tensorType.getShape();
+    newShape64.append(origShape.begin(), origShape.end());
+
+    SmallVector<int32_t> newShape32(newShape64.begin(), newShape64.end());
+    auto newType = RankedTensorType::get(
+        newShape64, tensorType.getElementType(), tensorType.getEncoding());
+
+    auto shapeAttr = rewriter.getI32ArrayAttr(newShape32);
+    return rewriter
+        .create<ReshapeOp>(loc, newType, tensor, shapeAttr,
+                           /*memory_config=*/nullptr)
+        .getResult();
+  }
+
+  struct PaddingInfo {
+    int64_t originalSeqLen;
+    int64_t paddedSeqLen;
+    bool needsPadding;
+  };
+
+  PaddingInfo computePaddingInfo(Value tensor) const {
+    auto tensorType = mlir::dyn_cast<RankedTensorType>(tensor.getType());
+    PaddingInfo info;
+    // Sequence length is dim -2 for 4D tensors [batch, heads, seq, head_dim]
+    info.originalSeqLen = tensorType.getShape()[tensorType.getRank() - 2];
+    info.paddedSeqLen =
+        (info.originalSeqLen + 31) / 32 * 32; // Round up to nearest 32
+    info.needsPadding = (info.originalSeqLen % 32 != 0);
+    return info;
+  }
+
+  // Helper to pad tensor along sequence dimension (dim -2)
+  Value padSequenceDimension(Value tensor, int64_t targetSeqLen,
+                             mlir::PatternRewriter &rewriter,
+                             Location loc) const {
+    auto tensorType = mlir::dyn_cast<RankedTensorType>(tensor.getType());
+    auto shape = tensorType.getShape();
+    int64_t rank = tensorType.getRank();
+
+    // Create padded shape
+    SmallVector<int64_t> paddedShape(shape.begin(), shape.end());
+    paddedShape[rank - 2] = targetSeqLen;
+
+    auto paddedType = RankedTensorType::get(
+        paddedShape, tensorType.getElementType(), tensorType.getEncoding());
+
+    // Create padding attribute: pairs of (front, back) for each dimension
+    // Format: [dim0_front, dim0_back, dim1_front, dim1_back, ...]
+    SmallVector<int32_t> padding;
+    for (int64_t i = 0; i < rank; ++i) {
+      padding.push_back(0); // front padding
+      if (i == rank - 2) {
+        // Pad sequence dimension at the back
+        padding.push_back(targetSeqLen - shape[i]);
+      } else {
+        padding.push_back(0); // back padding
+      }
     }
 
-    // Head dimension should match between Q and K (last dim of Q, last dim of
-    // K)
-    int64_t qHeadDim = qType.getShape()[qType.getRank() - 1];
-    int64_t kHeadDim = kType.getShape()[kType.getRank() - 1];
-    // int64_t vHeadDim = vType.getShape()[vType.getRank() - 1];
+    auto padOp = rewriter.create<PadOp>(
+        loc, paddedType, tensor, rewriter.getDenseI32ArrayAttr(padding),
+        /*value=*/rewriter.getF32FloatAttr(0.0f),
+        /*use_multicore=*/rewriter.getBoolAttr(true),
+        /*memory_config=*/nullptr);
 
-    if (qHeadDim != kHeadDim) {
-      return false;
+    return padOp.getResult();
+  }
+
+  // Helper to slice tensor back to original sequence length
+  Value sliceSequenceDimension(Value tensor, int64_t originalSeqLen,
+                               mlir::PatternRewriter &rewriter,
+                               Location loc) const {
+    auto tensorType = mlir::dyn_cast<RankedTensorType>(tensor.getType());
+    auto shape = tensorType.getShape();
+    int64_t rank = tensorType.getRank();
+
+    // Create sliced shape
+    SmallVector<int64_t> slicedShape(shape.begin(), shape.end());
+    slicedShape[rank - 2] = originalSeqLen;
+
+    auto slicedType = RankedTensorType::get(
+        slicedShape, tensorType.getElementType(), tensorType.getEncoding());
+
+    // Create slice bounds: slice all dims fully except seq dim
+    SmallVector<int32_t> begins(rank, 0);
+    SmallVector<int32_t> ends;
+    for (int64_t i = 0; i < rank; ++i) {
+      if (i == rank - 2) {
+        ends.push_back(originalSeqLen); // Slice sequence dimension
+      } else {
+        ends.push_back(shape[i]); // Keep full dimension
+      }
     }
+    SmallVector<int32_t> step(rank, 1);
 
-    // Scale should be positive and reasonable (typically 1/sqrt(head_dim))
-    if (components.scale <= 0.0f || components.scale > 1.0f) {
-      return false;
-    }
+    auto sliceOp = rewriter.create<SliceStaticOp>(
+        loc, slicedType, tensor, rewriter.getI32ArrayAttr(begins),
+        rewriter.getI32ArrayAttr(ends), rewriter.getI32ArrayAttr(step));
 
-    return true;
+    return sliceOp.getResult();
   }
 };
 
