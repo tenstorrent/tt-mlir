@@ -32,8 +32,8 @@ namespace tt::runtime::common {
 using DylibHandleMap = std::unordered_map<uint32_t, void *>;
 
 struct WrappedTensor {
-  float *start;
-  float *alignedStart;
+  void *start;
+  void *alignedStart;
   int64_t startIdx;
   int64_t *sizesAndStrides;
 };
@@ -70,7 +70,7 @@ std::vector<common::WrappedTensor> inline packTensors(
                    allSizesAndStrides.back().begin() + rank,
                    [](uint32_t s) -> int64_t { return s; });
 
-    float *rawDataPtr = static_cast<float *>(getTensorDataPtr(tensorRef));
+    void *rawDataPtr = getTensorDataPtr(tensorRef);
     packedTensors.emplace_back(rawDataPtr, rawDataPtr, 0,
                                allSizesAndStrides.back().data());
   }
