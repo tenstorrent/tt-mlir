@@ -2264,8 +2264,8 @@ private:
     auto valueShape = valueType.getShape();
     int32_t numQueryHeads = queryType.getShape()[Q_NUM_HEADS];
     int32_t numKVHeads = keyType.getShape()[O_NUM_KV_HEADS];
-    int32_t hiddenSize = keyType.getShape()[O_HEAD_SIZE] * numKVHeads;
-    int32_t GQAQueryHeadsCoefficient = numQueryHeads / numKVHeads;
+    int32_t KVHiddenSize = keyType.getShape()[O_HEAD_SIZE] * numKVHeads;
+    int32_t queryHiddenSize = queryType.getShape()[Q_HEAD_SIZE] * numQueryHeads;
 
     // Input tensor is output of linear/matmul [0].
     // kv_input_tensor is concatenated linear/matmul output of [1] and [2].
@@ -2345,8 +2345,7 @@ private:
 
       // Create matmul operation with concatenated weights.
       // Multiply the last dimension by 2 (since we're concatenating K, V).
-      matmulOutputShape.back() =
-          originalMatmulOutputShape.back() * GQAQueryHeadsCoefficient;
+      matmulOutputShape.back() = originalMatmulOutputShape.back() * 2;
 
       RankedTensorType matmulOutputType = RankedTensorType::get(
           matmulOutputShape,
@@ -2361,26 +2360,28 @@ private:
     TT_assertv(matrixMultOp, "Expected valid matrix multiplication operation");
     // Reshape query matrix multiplication output to [batch_size, sequence_size,
     // hidden_size].
-    SmallVector<int64_t> reshapeToSplitShape = {batchSize, sequenceLength,
-                                                hiddenSize * 2};
-    auto queryReshapeType = (attentionType == T_GQA_BIASED)
-                                ? linearOps[1].getResult().getType()
-                                : matmulOps[1].getResult().getType();
+    Operation *queryOp = (attentionType == T_GQA_BIASED)
+                             ? static_cast<Operation *>(linearOps[0])
+                             : static_cast<Operation *>(matmulOps[0]);
+    Value queryMatmulOutput = queryOp->getResult(0);
+    SmallVector<int64_t> queryReshapeShape = {batchSize, sequenceLength,
+                                              queryHiddenSize};
+
+    auto queryReshapeType = queryOp->getResult(0).getType();
     auto queryReshapeElementType =
         mlir::cast<RankedTensorType>(queryReshapeType).getElementType();
     auto queryReshapeEncoding =
         mlir::cast<RankedTensorType>(queryReshapeType).getEncoding();
-    SmallVector<int32_t> reshapeToSplitShapeI32(reshapeToSplitShape.begin(),
-                                                reshapeToSplitShape.end());
+    SmallVector<int32_t> queryReshapeShapeI32(queryReshapeShape.begin(),
+                                              queryReshapeShape.end());
     ReshapeOp queryReshape = ttir::utils::createDPSOp<ttir::ReshapeOp>(
-        rewriter, matrixMultOp->getLoc(), reshapeToSplitShape,
-        queryReshapeElementType, queryReshapeEncoding,
-        matrixMultOp->getResult(0),
-        rewriter.getI32ArrayAttr(reshapeToSplitShapeI32));
+        rewriter, matrixMultOp->getLoc(), queryReshapeShape,
+        queryReshapeElementType, queryReshapeEncoding, queryMatmulOutput,
+        rewriter.getI32ArrayAttr(queryReshapeShapeI32));
     // Reshape matrix multiplication output to [batch_size, sequence_size,
     // hidden_size*2].
     SmallVector<int64_t> kvReshapeToSplitShape = {batchSize, sequenceLength,
-                                                  hiddenSize * 2};
+                                                  KVHiddenSize * 2};
     auto kvReshapeType = (attentionType == T_GQA_BIASED)
                              ? linearOps[1].getResult().getType()
                              : matmulOps[1].getResult().getType();
