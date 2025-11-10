@@ -1272,6 +1272,174 @@ private:
 } // namespace
 
 namespace {
+class Conv3dOpConversionPattern : public OpConversionPattern<ttir::Conv3dOp> {
+public:
+  using OpConversionPattern<ttir::Conv3dOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::Conv3dOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    // Get device for TTNN operation
+    auto device = ::ttnn::utils::getOrInsertDevice(rewriter, op);
+
+    // Extract tensor types
+    auto inputTy = mlir::cast<RankedTensorType>(adaptor.getInput().getType());
+    auto weightTy =
+        mlir::cast<RankedTensorType>(adaptor.getWeight().getType());
+
+    // Extract dimensions from input tensor: (N, D, H, W, C)
+    auto batchSizeAttr = rewriter.getI32IntegerAttr(inputTy.getDimSize(0));
+    auto inputDepthAttr = rewriter.getI32IntegerAttr(inputTy.getDimSize(1));
+    auto inputHeightAttr = rewriter.getI32IntegerAttr(inputTy.getDimSize(2));
+    auto inputWidthAttr = rewriter.getI32IntegerAttr(inputTy.getDimSize(3));
+    auto inChannelsAttr = rewriter.getI32IntegerAttr(inputTy.getDimSize(4));
+
+    // Extract output channels from result tensor
+    auto outChannelsAttr = rewriter.getI32IntegerAttr(
+        op.getResult().getType().getDimSize(4));
+
+    // Extract kernel size from weight tensor: (O, C/G, K_D, K_H, K_W)
+    auto kernelSizeAttr = rewriter.getDenseI32ArrayAttr(
+        {static_cast<int32_t>(weightTy.getDimSize(2)),
+         static_cast<int32_t>(weightTy.getDimSize(3)),
+         static_cast<int32_t>(weightTy.getDimSize(4))});
+
+    // Convert stride attribute
+    auto strideAttr =
+        attrToTripleI32ArrayAttr(adaptor.getStride(), rewriter, "stride");
+    if (auto error = strideAttr.takeError()) {
+      return rewriter.notifyMatchFailure(op, llvm::toString(std::move(error)));
+    }
+
+    // Convert padding attribute
+    auto paddingAttr =
+        attrToTripleI32ArrayAttr(adaptor.getPadding(), rewriter, "padding");
+    if (auto error = paddingAttr.takeError()) {
+      return rewriter.notifyMatchFailure(op, llvm::toString(std::move(error)));
+    }
+
+    // Groups attribute
+    auto groupsAttr = rewriter.getI32IntegerAttr(adaptor.getGroups());
+
+    // Padding mode attribute
+    auto paddingModeAttr = adaptor.getPaddingModeAttr();
+
+    // Extract output dtype from encoding
+    auto outputLayoutAttr =
+        mlir::cast<ttnn::TTNNLayoutAttr>(op.getType().getEncoding());
+    auto outputDtypeAttr =
+        rewriter.getAttr<ttcore::DataTypeAttr>(outputLayoutAttr.getDataType());
+
+    // Reshape weight tensor: (O, C/G, K_D, K_H, K_W) → (1, 1, K_D*K_H*K_W*C/G, O)
+    Value reshapedWeight = reshapeWeightForConv3d(
+        adaptor.getWeight(), weightTy, rewriter, op.getLoc());
+
+    // Repeat bias tensor if present: (1,1,1,1,O) → (1,1,1,32,O)
+    Value reshapedBias = adaptor.getBias();
+    if (reshapedBias) {
+      reshapedBias = reshapeBiasForConv3d(
+          reshapedBias,
+          mlir::cast<RankedTensorType>(reshapedBias.getType()), rewriter,
+          op.getLoc());
+    }
+
+    // Create TTNN Conv3dOp
+    rewriter.replaceOpWithNewOp<ttnn::Conv3dOp>(
+        op, getTypeConverter()->convertType(op.getResult().getType()),
+        adaptor.getInput(), reshapedWeight, reshapedBias, device,
+        inChannelsAttr, outChannelsAttr, batchSizeAttr, inputDepthAttr,
+        inputHeightAttr, inputWidthAttr, kernelSizeAttr, *strideAttr,
+        *paddingAttr, paddingModeAttr, groupsAttr, outputDtypeAttr);
+
+    return success();
+  }
+
+private:
+  // Helper to convert attributes to 3-element DenseI32ArrayAttr
+  llvm::Expected<DenseI32ArrayAttr>
+  attrToTripleI32ArrayAttr(mlir::Attribute attr,
+                           ConversionPatternRewriter &rewriter,
+                           StringRef attrName) const {
+    // Case 1: Single integer → convert to triple (value, value, value)
+    if (auto intAttr = mlir::dyn_cast<mlir::IntegerAttr>(attr)) {
+      auto triple = ttmlir::utils::getTripleOfInteger<int32_t>(attr);
+      if (auto error = triple.takeError()) {
+        return std::move(error);
+      }
+      return rewriter.getDenseI32ArrayAttr(
+          {std::get<0>(*triple), std::get<1>(*triple), std::get<2>(*triple)});
+    }
+
+    // Case 2: Already a DenseI32ArrayAttr → return as-is
+    if (auto denseAttr = dyn_cast<DenseI32ArrayAttr>(attr)) {
+      if (denseAttr.size() == 3) {
+        return denseAttr;
+      }
+      return llvm::createStringError(
+          "Expected 3 elements for '%s', but got %zu", attrName.data(),
+          denseAttr.size());
+    }
+
+    // Case 3: Error
+    return llvm::createStringError("Unexpected attribute type for '%s'",
+                                   attrName.data());
+  }
+
+  // Helper to reshape weight tensor for Conv3d
+  // Transforms: (O, C/G, K_D, K_H, K_W) → (1, 1, K_D*K_H*K_W*C, O)
+  Value reshapeWeightForConv3d(Value weight, RankedTensorType weightTy,
+                                PatternRewriter &rewriter, Location loc) const {
+    llvm::ArrayRef<int64_t> weightShape = weightTy.getShape();
+    int64_t outChannels = weightShape[0];
+    int64_t inChannPerGroup = weightShape[1];
+    int64_t kernelDepth = weightShape[2];
+    int64_t kernelHeight = weightShape[3];
+    int64_t kernelWidth = weightShape[4];
+
+    // Calculate flattened dimension: K_D * K_H * K_W * C
+    int64_t flattenedDim =
+        kernelDepth * kernelHeight * kernelWidth * inChannPerGroup;
+
+    // New shape: (1, 1, K_D*K_H*K_W*C, O)
+    llvm::SmallVector<int64_t> newShape = {1, 1, flattenedDim, outChannels};
+    llvm::SmallVector<int32_t> newShapeI32(newShape.begin(), newShape.end());
+
+    // Create output type for reshape using the factory
+    RankedTensorType outputType =
+        ttnn::utils::RankedTensorTypeFactory::create(weightTy, newShape);
+
+    // Create reshape operation
+    return rewriter.create<ttnn::ReshapeOp>(
+        loc, outputType, weight, rewriter.getI32ArrayAttr(newShapeI32),
+        /*memory_config=*/nullptr);
+  }
+
+  // Helper to repeat bias tensor for Conv3d
+  // Transforms: (1, 1, 1, 1, O) → (1, 1, 1, 32, O) using repeat
+  Value reshapeBiasForConv3d(Value bias, RankedTensorType biasTy,
+                             PatternRewriter &rewriter, Location loc) const {
+    llvm::ArrayRef<int64_t> biasShape = biasTy.getShape();
+    int64_t outChannels = biasShape[4];
+
+    // New shape: (1, 1, 1, 32, O) - repeat dimension 3 by 32 times
+    llvm::SmallVector<int64_t> newShape = {1, 1, 1, 32, outChannels};
+
+    // Repeat dims: [1, 1, 1, 32, 1] - repeat 4th dimension 32 times
+    auto repeatDims = rewriter.getAttr<ttnn::ShapeAttr>(
+        llvm::ArrayRef<int64_t>{1, 1, 1, 32, 1});
+
+    // Create output type using the factory
+    RankedTensorType outputType =
+        ttnn::utils::RankedTensorTypeFactory::create(biasTy, newShape);
+
+    // Create repeat operation
+    return rewriter.create<ttnn::RepeatOp>(loc, outputType, bias, repeatDims);
+  }
+};
+} // namespace
+
+namespace {
 class ConvTranspose2dOpConversionPattern
     : public OpConversionPattern<ttir::ConvTranspose2dOp> {
 public:
@@ -2271,6 +2439,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            RMSNormOpConversionPattern,
            MatmulOpConversionPattern,
            Conv2dOpConversionPattern,
+           Conv3dOpConversionPattern,
            ConvTranspose2dOpConversionPattern,
            MeshShardOpConversionPattern,
            AllReduceOpConversionPattern,

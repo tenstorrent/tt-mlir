@@ -924,10 +924,24 @@ private:
         weightOutputShape, weightType.getElementType(),
         weightType.getEncoding(), permutedWeight, kernelPermutation);
 
-    // Bias is passed through as-is (expected to be 5D: 1x1x1x1xC_out)
+    // If bias is provided, reshape it to 1D (C_out)
+    Value biasValue = adaptor.getBias();
+    if (biasValue) {
+      auto biasType = mlir::cast<RankedTensorType>(biasValue.getType());
+      // Extract output channels dimension
+      int64_t outChannels = newOutputShape[4]; // Feature dimension in NDHWC
+      SmallVector<int64_t> biasOutputShape = {outChannels};
+      SmallVector<int32_t> biasOutputShapeI32(biasOutputShape.begin(),
+                                               biasOutputShape.end());
+      biasValue = ttir::utils::createDPSOp<ttir::ReshapeOp>(
+          rewriter, ttmlir::utils::appendLocationSuffix(op.getLoc(), "_bias"),
+          biasOutputShape, biasType.getElementType(), biasType.getEncoding(),
+          biasValue, rewriter.getI32ArrayAttr(biasOutputShapeI32));
+    }
+
     mlir::Value newConv = ttir::utils::createDPSOp<ttir::Conv3dOp>(
         rewriter, op.getLoc(), outputType, Value(permutedInput),
-        Value(permutedWeight), adaptor.getBias(), strideAttr, paddingAttr,
+        Value(permutedWeight), biasValue, strideAttr, paddingAttr,
         groupsAttr, /*padding_mode=*/nullptr);
 
     return newConv;

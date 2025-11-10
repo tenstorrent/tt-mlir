@@ -1385,6 +1385,52 @@ public:
 };
 } // namespace
 
+// Conv3d op conversion pattern
+//
+namespace {
+class Conv3dOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<mlir::tt::ttnn::Conv3dOp> {
+
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::Conv3dOp>::TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::Conv3dOp srcOp,
+                  mlir::tt::ttnn::Conv3dOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::Conv3dOp> emitter(
+        srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput()),
+        emitter.emit(srcOp.getWeight()),
+        emitter.emit(srcOp.getDevice()),
+        emitter.emit(srcOp.getInChannels()),
+        emitter.emit(srcOp.getOutChannels()),
+        emitter.emit(srcOp.getBatchSize()),
+        emitter.emit(srcOp.getInputDepth()),
+        emitter.emit(srcOp.getInputHeight()),
+        emitter.emit(srcOp.getInputWidth()),
+        emitter.emit<std::array<uint32_t, 3>>(srcOp.getKernelSizeAttr()),
+        emitter.emit<std::array<uint32_t, 3>>(srcOp.getStrideAttr()),
+        emitter.emit<std::array<uint32_t, 3>>(srcOp.getPaddingAttr()),
+        emitter.emit(srcOp.getPaddingMode()),
+        emitter.emit(srcOp.getGroups()),
+        emitter.emit(srcOp.getDtype()),
+        emitter.emit(srcOp.getBias()),
+        /*compute_config=*/emitter.emit(std::nullopt),
+        emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
 // ConvTranspose2d op conversion pattern
 //
 namespace {
@@ -4102,6 +4148,7 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   patterns.add<PrepareConv2dWeightsOpConversionPattern>(typeConverter, ctx);
   patterns.add<PrepareConv2dBiasOpConversionPattern>(typeConverter, ctx);
   patterns.add<Conv2dOpConversionPattern>(typeConverter, ctx);
+  patterns.add<Conv3dOpConversionPattern>(typeConverter, ctx);
   patterns.add<ConvTranspose2dOpConversionPattern>(typeConverter, ctx);
 
   // Other ops
