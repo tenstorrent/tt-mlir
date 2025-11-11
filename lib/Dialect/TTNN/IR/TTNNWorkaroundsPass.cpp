@@ -102,6 +102,36 @@ TTNNOperandsWorkaroundsFactory::createPool2DOpOperandsWorkarounds() {
       .addOutputOperandWorkaround(rowMajorLayoutBF16Workaround);
 }
 
+// Factory method to create a set of workarounds for 2d max pooling with
+// indices. This operation returns two outputs:
+//   [0] pooled values (bf16 row-major)
+//   [1] indices (uint16 row-major)
+// The input can be in row-major or tile layout, but outputs are always
+// row-major.
+TTNNOperandsWorkarounds
+TTNNOperandsWorkaroundsFactory::createPool2DWithIndicesOpOperandsWorkarounds() {
+  // Input workaround: bf16 row-major.
+  wa::TTNNOperandWorkarounds inputWorkaround;
+  inputWorkaround.tensorLayoutWorkaround = Layout::RowMajor;
+  inputWorkaround.tensorDataTypeWorkaround = ttcore::DataType::BFloat16;
+
+  // Output[0] workaround: pooled values (bf16 row-major).
+  wa::TTNNOperandWorkarounds outputValuesWorkaround;
+  outputValuesWorkaround.tensorLayoutWorkaround = Layout::RowMajor;
+  outputValuesWorkaround.tensorDataTypeWorkaround = ttcore::DataType::BFloat16;
+
+  // Output[1] workaround: indices (uint16 row-major).
+  wa::TTNNOperandWorkarounds outputIndicesWorkaround;
+  outputIndicesWorkaround.tensorLayoutWorkaround = Layout::RowMajor;
+  outputIndicesWorkaround.tensorDataTypeWorkaround = ttcore::DataType::UInt16;
+
+  // Create empty workarounds and append input + both outputs.
+  return wa::TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
+      .addInputOperandWorkaround(inputWorkaround)
+      .addOutputOperandWorkaround(outputValuesWorkaround)
+      .addOutputOperandWorkaround(outputIndicesWorkaround);
+}
+
 // Factory method to create a set of workarounds for embedding operation
 // operands. The embedding operation expects the input to be in row-major layout
 // and the weight operand to use the bf16 data type. Since the output of the
@@ -415,6 +445,27 @@ TTNNOperandsWorkaroundsFactory::createUpdateCacheOpOperandsWorkarounds(
       .addInputOperandWorkaround(typeWorkarounds);
 }
 
+TTNNOperandsWorkarounds
+TTNNOperandsWorkaroundsFactory::createPagedUpdateCacheOpOperandsWorkarounds(
+    MLIRContext *context) {
+  TTNNOperandWorkarounds nullWorkarounds;
+  TTNNOperandWorkarounds
+      inputWorkarounds; // Input sharding requires specific virtual grid. This
+                        // is handled by an explicit rewrite pattern instead.
+  TTNNOperandWorkarounds updateIndexWorkarounds;
+  TTNNOperandWorkarounds pageTableWorkarounds;
+
+  updateIndexWorkarounds.tensorLayoutWorkaround = Layout::RowMajor;
+
+  pageTableWorkarounds.tensorLayoutWorkaround = Layout::RowMajor;
+
+  return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
+      .addInputOperandWorkaround(nullWorkarounds)
+      .addInputOperandWorkaround(inputWorkarounds)
+      .addInputOperandWorkaround(updateIndexWorkarounds)
+      .addInputOperandWorkaround(pageTableWorkarounds);
+}
+
 // Helper function to determine if data type workaround is required for a binary
 // op. Set the workaround data type based on the binary op.
 static std::optional<mlir::tt::ttcore::DataType>
@@ -488,6 +539,53 @@ TTNNOperandsWorkaroundsFactory::createBinaryOpOperandsWorkarounds(
       .addInputOperandWorkaround(operandWorkaround)
       .addInputOperandWorkaround(operandWorkaround)
       .addOutputOperandWorkaround(operandWorkaround);
+}
+
+TTNNOperandsWorkarounds
+TTNNOperandsWorkaroundsFactory::createRotaryEmbeddingOpOperandsWorkarounds(
+    ttnn::RotaryEmbeddingOp op) {
+  TTNNOperandWorkarounds inputWorkaround;
+  TTNNOperandWorkarounds sinWorkaround;
+  TTNNOperandWorkarounds cosWorkaround;
+  TTNNOperandWorkarounds outputWorkaround;
+
+  auto deviceWorkaround = [](TTNNLayoutAttr encoding,
+                             TTNNOperandWorkarounds &workaround) {
+    if (!encoding.isDeviceBufferType()) {
+      workaround.tensorBufferTypeWorkaround = BufferType::DRAM;
+    }
+  };
+
+  auto inputEncoding =
+      mlir::cast<TTNNLayoutAttr>(op.getInput().getType().getEncoding());
+  auto sinEncoding =
+      mlir::cast<TTNNLayoutAttr>(op.getSinCache().getType().getEncoding());
+  auto cosEncoding =
+      mlir::cast<TTNNLayoutAttr>(op.getCosCache().getType().getEncoding());
+  auto outputEncoding = mlir::cast<TTNNLayoutAttr>(op.getType().getEncoding());
+
+  deviceWorkaround(inputEncoding, inputWorkaround);
+  deviceWorkaround(sinEncoding, sinWorkaround);
+  deviceWorkaround(cosEncoding, cosWorkaround);
+  deviceWorkaround(outputEncoding, outputWorkaround);
+
+  auto tileWorkaround = [](TTNNLayoutAttr encoding,
+                           TTNNOperandWorkarounds &workaround) {
+    if (!encoding.isTiled()) {
+      workaround.tensorLayoutWorkaround = Layout::Tile;
+    }
+  };
+
+  tileWorkaround(inputEncoding, inputWorkaround);
+  tileWorkaround(sinEncoding, sinWorkaround);
+  tileWorkaround(cosEncoding, cosWorkaround);
+  tileWorkaround(outputEncoding, outputWorkaround);
+
+  return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
+      .addInputOperandWorkaround(inputWorkaround)
+      .addInputOperandWorkaround(sinWorkaround)
+      .addInputOperandWorkaround(cosWorkaround)
+      .addOutputOperandWorkaround(outputWorkaround);
 }
 
 TTNNOperandsWorkarounds

@@ -618,22 +618,8 @@ private:
       ConversionPatternRewriter &rewriter, ttir::ConvolutionOp op,
       OpAdaptor adaptor, mlir::tt::ttir::ConvolutionLayoutAttr convLayoutAttr,
       Value input, Value weight, llvm::ArrayRef<int64_t> outputShape) const {
-    // Determine if the stablehlo.convolution op represents a regular or
-    // transposed convolution, based on Torch-MLIR lowering patterns:
-    // https://github.com/llvm/torch-mlir/blob/main/lib/Conversion/TorchToStablehlo/Linear.cpp
-    // and XLA patterns: convolution is transposed if the input dilation is
-    // greater than 1.
-    bool isTransposed =
-        convLayoutAttr.getKernelInputFeatureDimension() ==
-            convLayoutAttr.getInputSpatialDimensions()[SPATIAL_DIM_WIDTH] &&
-        convLayoutAttr.getKernelOutputFeatureDimension() ==
-            convLayoutAttr.getInputSpatialDimensions()[SPATIAL_DIM_HEIGHT] &&
-        convLayoutAttr.getInputSpatialDimensions() !=
-            convLayoutAttr.getKernelSpatialDimensions() &&
-        convLayoutAttr.getOutputSpatialDimensions() !=
-            convLayoutAttr.getKernelSpatialDimensions();
-    isTransposed |= llvm::any_of(adaptor.getInputDilation(),
-                                 [](int64_t d) { return d > 1; });
+
+    bool isTransposed = ttir::utils::isTransposedConv(op);
 
     auto strideAttr = rewriter.getDenseI32ArrayAttr({
         static_cast<int32_t>(adaptor.getWindowStrides()[SPATIAL_DIM_HEIGHT]),
@@ -726,13 +712,9 @@ private:
            static_cast<int32_t>(paddingMatrix[SPATIAL_DIM_WIDTH][1] -
                                 paddingMatrix[SPATIAL_DIM_WIDTH][0])});
       // Recomputing padding attribute based on Torch-MLIR lowering of
-      // conv_transposed2d op.
+      // conv_transposed2d op: [top, left, bottom, right].
       // https://github.com/llvm/torch-mlir/blob/main/lib/Conversion/TorchToStablehlo/Linear.cpp
       paddingAttr = rewriter.getDenseI32ArrayAttr({
-          static_cast<int32_t>(
-              (weightType.getShape()[SPATIAL_DIM_HEIGHT] - 1) *
-                  adaptor.getWeightDilation()[SPATIAL_DIM_HEIGHT] -
-              paddingMatrix[SPATIAL_DIM_HEIGHT][0]),
           static_cast<int32_t>(
               (weightType.getShape()[SPATIAL_DIM_HEIGHT] - 1) *
                   adaptor.getWeightDilation()[SPATIAL_DIM_HEIGHT] -
@@ -741,6 +723,10 @@ private:
               (weightType.getShape()[SPATIAL_DIM_WIDTH] - 1) *
                   adaptor.getWeightDilation()[SPATIAL_DIM_WIDTH] -
               paddingMatrix[SPATIAL_DIM_WIDTH][0]),
+          static_cast<int32_t>(
+              (weightType.getShape()[SPATIAL_DIM_HEIGHT] - 1) *
+                  adaptor.getWeightDilation()[SPATIAL_DIM_HEIGHT] -
+              paddingMatrix[SPATIAL_DIM_HEIGHT][0]),
           static_cast<int32_t>(
               (weightType.getShape()[SPATIAL_DIM_WIDTH] - 1) *
                   adaptor.getWeightDilation()[SPATIAL_DIM_WIDTH] -
@@ -781,22 +767,6 @@ struct ReverseOpConversionPattern
     : public OpConversionPattern<ttir::ReverseOp> {
   using OpConversionPattern<ttir::ReverseOp>::OpConversionPattern;
 
-  // Helper to check if this convolution is a transposed convolution.
-  bool isTransposedConv(ttir::ConvolutionOp op) const {
-    if (!op) {
-      return false;
-    }
-    auto convLayoutAttr = op.getConvolutionLayoutAttr();
-    return convLayoutAttr.getKernelInputFeatureDimension() ==
-               convLayoutAttr.getInputSpatialDimensions()[1] &&
-           convLayoutAttr.getKernelOutputFeatureDimension() ==
-               convLayoutAttr.getInputSpatialDimensions()[0] &&
-           convLayoutAttr.getInputSpatialDimensions() !=
-               convLayoutAttr.getKernelSpatialDimensions() &&
-           convLayoutAttr.getOutputSpatialDimensions() !=
-               convLayoutAttr.getKernelSpatialDimensions();
-  }
-
   LogicalResult
   matchAndRewrite(ttir::ReverseOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
@@ -805,13 +775,13 @@ struct ReverseOpConversionPattern
     ArrayRef<int64_t> shape = op.getInput().getType().getShape();
     Value currentInput = adaptor.getInput();
     for (int32_t dim : dimensions) {
-      SmallVector<int64_t> indices;
-      for (int64_t i = shape[dim] - 1; i >= 0; i--) {
+      SmallVector<int32_t> indices;
+      for (int32_t i = shape[dim] - 1; i >= 0; i--) {
         indices.push_back(i);
       }
 
       auto tensorType =
-          RankedTensorType::get({shape[dim]}, rewriter.getI64Type());
+          RankedTensorType::get({shape[dim]}, rewriter.getI32Type());
 
       auto denseAttr = DenseIntElementsAttr::get(tensorType, indices);
 
@@ -849,8 +819,8 @@ struct ReverseOpConversionPattern
     // internally.
 
     rewriter.replaceUsesWithIf(op, currentInput, [&](OpOperand &operand) {
-      return !isTransposedConv(
-          dyn_cast<ttir::ConvolutionOp>(operand.getOwner()));
+      auto convOp = dyn_cast<ttir::ConvolutionOp>(operand.getOwner());
+      return !convOp || !ttir::utils::isTransposedConv(convOp);
     });
 
     return success();
@@ -908,10 +878,13 @@ struct GatherToEmbeddingConversionPattern
     // Check slice sizes conditions.
     size_t fullIndexedDims = 0;
     size_t partialIndexedDims = 0;
+    size_t singletonIndexedDims = 0;
 
     for (size_t i = 0; i < inputShape.size(); ++i) {
       if (llvm::is_contained(startIndexMap, i)) {
-        if (sliceSizes[i] == inputShape[i]) {
+        if (inputShape[i] == 1) {
+          singletonIndexedDims++;
+        } else if (sliceSizes[i] == inputShape[i]) {
           fullIndexedDims++;
         } else if (sliceSizes[i] != 1) {
           partialIndexedDims++;
@@ -923,8 +896,17 @@ struct GatherToEmbeddingConversionPattern
       }
     }
 
-    size_t remainingIndexedDims = startIndexMap.size() - fullIndexedDims;
-    if ((fullIndexedDims || partialIndexedDims) && remainingIndexedDims != 1) {
+    size_t remainingIndexedDims =
+        startIndexMap.size() - fullIndexedDims - singletonIndexedDims;
+    if (partialIndexedDims && (remainingIndexedDims != 1)) {
+      return rewriter.notifyMatchFailure(
+          op,
+          "Did not satisfy slice conditions for dimensions in startIndexMap");
+    }
+
+    if (fullIndexedDims &&
+        (remainingIndexedDims > 1 ||
+         (remainingIndexedDims + singletonIndexedDims) == 0)) {
       return rewriter.notifyMatchFailure(
           op,
           "Did not satisfy slice conditions for dimensions in startIndexMap");
@@ -985,11 +967,34 @@ struct GatherToEmbeddingConversionPattern
     bool needsExpansion = false;
 
     // Create startIndexMap without dims for which sliceSizes[dim] =
-    // inputShape[dim]
-    llvm::SmallVector<int64_t> startIndexMap;
+    // inputShape[dim]. If there are dims for which sliceSizes[dim] =
+    // inputShape[dim] = 1, they are treated specially:
+    // - if there is a partially indexed dim, they are removed
+    // - if all other indexed dims are full, one of them is kept
+    size_t fullIndexedDims = 0;
+    bool partialIndexedDimExists = false;
     for (size_t i = 0; i < originalStartIndexMap.size(); ++i) {
       int64_t dim = originalStartIndexMap[i];
       if (sliceSizes[dim] == inputShape[dim]) {
+        fullIndexedDims++;
+      } else if (sliceSizes[dim] != 1) {
+        partialIndexedDimExists = true;
+      }
+    }
+
+    llvm::SmallVector<int64_t> startIndexMap;
+    for (size_t i = 0; i < originalStartIndexMap.size(); ++i) {
+      int64_t dim = originalStartIndexMap[i];
+      if (inputShape[dim] == 1) {
+        if (fullIndexedDims == originalStartIndexMap.size()) {
+          startIndexMap.push_back(dim);
+          actualIndexedDim = i;
+          break;
+        }
+        if (partialIndexedDimExists || fullIndexedDims > 0) {
+          continue;
+        }
+      } else if (sliceSizes[dim] == inputShape[dim]) {
         continue;
       }
 
@@ -1010,9 +1015,9 @@ struct GatherToEmbeddingConversionPattern
         ttmlir::utils::appendLocationSuffix(op->getLoc(), "_reshapeInput"),
         inputPermuted, numIndexingDims);
 
-    // If we are indexing multiple dims, we need to tranform indices for the new
-    // single (flattened) indexing dim. If the extra indexed dims are full, we
-    // need to slice indices.
+    // If we are indexing multiple dims, we need to transform indices for the
+    // new single (flattened) indexing dim. If the extra indexed dims are full,
+    // we need to slice indices.
     auto startIndices = op.getStartIndices();
     if (numIndexingDims > 1) {
       op->emitWarning("End results might be incorrect when indexing multiple "
@@ -1028,7 +1033,7 @@ struct GatherToEmbeddingConversionPattern
     }
 
     if (startIndices.getType().getShape().size() != 2 ||
-        (needsExpansion && op.getIndexVectorDim() != 1)) {
+        (needsExpansion && op.getIndexVectorDim() != 0)) {
       startIndices =
           reshapeStartIndices(rewriter,
                               ttmlir::utils::appendLocationSuffix(
@@ -1220,18 +1225,17 @@ private:
       ::mlir::TypedValue<::mlir::RankedTensorType> startIndices) {
     auto startIndicesShape = startIndices.getType().getShape();
     llvm::SmallVector<int64_t, 2> newStartIndicesShape{
-        std::accumulate(startIndicesShape.begin(), startIndicesShape.end(),
-                        int64_t{1}, std::multiplies<>()),
-        1};
+        1, std::accumulate(startIndicesShape.begin(), startIndicesShape.end(),
+                           int64_t{1}, std::multiplies<>())};
     return createReshapeOp(rewriter, loc, startIndices, newStartIndicesShape);
   }
 
   // Helper that expands start indices along the index vector dimension when
   // sliceSizes[actualIndexedDim] > 1. This creates additional indices by
   // adding consecutive values to the original indices. Because of earlier
-  // reshape, we know startIndices has shape [N, 1]. Example: startIndices =
-  // [[2],[1]], indexVectorDim=1, sliceSize=3 -> startIndices =
-  // [[2,3,4],[1,2,3]]
+  // reshape, we know startIndices has shape [1, N]. Example: startIndices =
+  // [[2, 1]], indexVectorDim=0, sliceSize=3 -> startIndices =
+  // [[2, 1], [3, 2], [4, 3]]
   static ttir::AddOp expandStartIndices(ConversionPatternRewriter &rewriter,
                                         Location loc, Value startIndices,
                                         int64_t indexVectorDim,
@@ -1240,17 +1244,18 @@ private:
         mlir::cast<RankedTensorType>(startIndices.getType());
     auto startIndicesShape = startIndicesType.getShape();
 
-    // Create NxM matrix where each row is [0, 1, 2, ..., M-1].
-    int32_t N = startIndicesShape[0];
-    int32_t M = sliceSize;
+    // Create NxM matrix where each column is [0, 1, 2, ..., N-1].
+    int32_t N = sliceSize;
+    int32_t M = startIndicesShape[1];
 
     llvm::SmallVector<int32_t> matrixData(N * M);
-    for (int32_t row = 0; row < N; ++row) {
-      std::iota(matrixData.begin() + row * M,
-                matrixData.begin() + (row + 1) * M, 0);
+    for (int32_t col = 0; col < M; ++col) {
+      for (int32_t row = 0; row < N; ++row) {
+        matrixData[row * M + col] = row;
+      }
     }
     llvm::SmallVector<int64_t> expandedShape(startIndicesShape);
-    expandedShape[1] = sliceSize;
+    expandedShape[0] = sliceSize;
 
     auto expandedType = mlir::RankedTensorType::get(
         expandedShape, startIndicesType.getElementType(),
@@ -1260,10 +1265,9 @@ private:
     auto offsetConstant = rewriter.create<ttir::ConstantOp>(
         ttmlir::utils::appendLocationSuffix(loc, "_offsetConstant"),
         expandedType, offsetAttr);
-
     // Create broadcast dimensions - all dimensions map directly except the
     // expanded one.
-    llvm::SmallVector<int64_t> broadcastDimensions = {1, sliceSize};
+    llvm::SmallVector<int64_t> broadcastDimensions = {sliceSize, 1};
 
     // Broadcast the original startIndices to the expanded shape.
     auto broadcastedStartIndices = ttir::utils::createDPSOp<ttir::BroadcastOp>(
@@ -1294,26 +1298,35 @@ private:
     auto expectedOutputType = op.getOutput().getType();
     auto expectedOutputShape = expectedOutputType.getShape();
     auto offsetDims = op.getOffsetDims();
+    auto collapsedSliceDims = op.getCollapsedSliceDims();
     // Because of permuting input to put the indexing dims first, the output has
     // corresponding dims in front of (other) offsetDims, as well. When size of
     // these dims in output is not 1, we need to move them to their correct
     // spot.
     bool needsOffsetReordering = false;
+    size_t numSmallerCollapsedDims = 0;
+
     if (op.getSliceSizes()[indexedDim] != 1) {
       needsOffsetReordering = true;
+      numSmallerCollapsedDims =
+          std::lower_bound(collapsedSliceDims.begin(), collapsedSliceDims.end(),
+                           indexedDim) -
+          collapsedSliceDims.begin();
     }
 
     llvm::SmallVector<int64_t> outputPermutation;
+    if (needsOffsetReordering) {
+      outputPermutation.push_back(
+          offsetDims[indexedDim - numSmallerCollapsedDims]);
+    }
     for (size_t i = 0; i < expectedOutputShape.size(); ++i) {
       if (!llvm::is_contained(offsetDims, i)) {
         outputPermutation.push_back(i);
       }
     }
-    if (needsOffsetReordering) {
-      outputPermutation.push_back(op.getOffsetDims()[indexedDim]);
-    }
     for (size_t i = 0; i < offsetDims.size(); ++i) {
-      if (!(needsOffsetReordering && i == static_cast<size_t>(indexedDim))) {
+      if (!(needsOffsetReordering &&
+            i == static_cast<size_t>(indexedDim - numSmallerCollapsedDims))) {
         outputPermutation.push_back(offsetDims[i]);
       }
     }

@@ -222,12 +222,12 @@ unary_ops = [
     logical_not,  # TODO (wenbinlyuTT): test int32 once untilize issue is fixed
     neg,
     reciprocal,
-    relu | Marks(pytest.mark.skip_config(["ttmetal"])),
+    relu,
     relu6 | Marks(pytest.mark.skip_config(["ttmetal"])),
     rsqrt,
     sigmoid,
     sign | Marks(pytest.mark.skip_config(["ttmetal"])),
-    silu | Marks(pytest.mark.skip_config(["ttmetal"])),
+    silu,
     sin,
     sqrt,
     tan,
@@ -373,8 +373,6 @@ def test_get_dimension_size(
     ):
         return get_dimension_size(in0, dimension, builder, unit_attrs=unit_attrs)
 
-    if target == "emitpy":
-        pytest.xfail("Unknown issue causing hang")
     pipeline_options = []
     compile_and_execute_ttir(
         wrapper_func,

@@ -28,7 +28,7 @@ from ttmlir.ir import (
 )
 from ttmlir.dialects import tensor, quant
 from ttmlir.passes import GoldenTensor, DataType
-from builder.base.builder_golden import BuilderGoldenTensor
+from golden import GoldenMapTensor, get_golden_function
 
 # ----- Public APIs -----
 
@@ -70,7 +70,7 @@ class Builder:
         self._goldens_to_store: List[Operand] = []
 
         # Map from operand to its golden tensor.
-        self._goldens: Dict[Operand, BuilderGoldenTensor] = {}
+        self._goldens: Dict[Operand, GoldenMapTensor] = {}
 
         # Map from operand to its location string.
         self._operand_to_loc: Dict[Operand, str] = {}
@@ -168,8 +168,8 @@ class Builder:
 
     def set_goldens_from_builder_tensor(
         self,
-        inputs: Dict[Operand, BuilderGoldenTensor],
-        outputs: Dict[Operand, BuilderGoldenTensor] = None,
+        inputs: Dict[Operand, GoldenMapTensor],
+        outputs: Dict[Operand, GoldenMapTensor] = None,
     ):
         self._set_goldens(inputs)
 
@@ -183,6 +183,29 @@ class Builder:
         self._set_goldens(self._create_builder_golden_from_torch_tensor(operands))
         self.set_goldens_to_check(operands.keys())
 
+        print("*************** Goldens to store ***************")
+        print(f"  Count: {len(self._goldens_to_store)}")
+        for operand in self._goldens_to_store:
+            print(
+                f"  - {operand.name if hasattr(operand, 'name') else type(operand).__name__}"
+            )
+
+        print("\n*************** Operand to loc ***************")
+        for operand, loc in self._operand_to_loc.items():
+            op_str = (
+                operand.name if hasattr(operand, "name") else type(operand).__name__
+            )
+            print(f"  {op_str}: {loc}")
+
+        print("\n*************** Goldens ***************")
+        print(f"  Total goldens: {len(self._goldens)}")
+        for operand, golden in self._goldens.items():
+            op_str = (
+                operand.name if hasattr(operand, "name") else type(operand).__name__
+            )
+            shape_str = str(golden.shape) if hasattr(golden, "shape") else "?"
+            print(f"  {op_str} -> shape={shape_str}")
+
     def set_goldens_to_check(self, operands: List[Operand], override: bool = False):
         if override:
             self._goldens_to_store = operands
@@ -193,6 +216,27 @@ class Builder:
         self._force_graph_level_check = check
 
     # ----- Private methods -----
+
+    def _get_output_shape_and_type(
+        self,
+        organize_golden_args: Callable,
+        inputs: List[Operand],
+        op_function: Callable,
+        golden_kwargs: dict = {},
+    ):
+        op_golden_function = get_golden_function(op_function, **golden_kwargs)
+        if op_golden_function is None:
+            return
+
+        # If the op has no input, just call golden function with kwargs (eg ttir.zeros).
+        if len(inputs) == 0:
+            golden_output = op_golden_function(**golden_kwargs)
+        else:
+            golden_output = op_golden_function(
+                *(organize_golden_args(inputs)), **golden_kwargs
+            )
+
+        return golden_output.shape, golden_output.dtype
 
     def _get_datatype_from_torch_dtype(self, dtype: torch.dtype) -> DataType:
         match dtype:
@@ -341,9 +385,7 @@ class Builder:
             dtype = data_type if data_type is not None else F32Type.get(self._ctx)
             return RankedTensorType.get(shape, dtype, encoding)
 
-    def _organize_eltwise_golden(
-        self, inputs: List[Operand]
-    ) -> List[BuilderGoldenTensor]:
+    def _organize_eltwise_golden(self, inputs: List[Operand]) -> List[GoldenMapTensor]:
         return [self._goldens[inp] for inp in inputs]
 
     def _generate_random_tensor(
@@ -368,12 +410,12 @@ class Builder:
 
     def _generate_golden_tensor(
         self, operand: Operand, dtype: Union[torch.dtype, TypeInfo]
-    ) -> BuilderGoldenTensor:
+    ) -> GoldenMapTensor:
         random_tensor = self._generate_random_tensor(self.get_shape(operand), dtype)
-        return BuilderGoldenTensor({0: random_tensor}, mesh_shape=self._mesh_shape)
+        return GoldenMapTensor({0: random_tensor}, mesh_shape=self._mesh_shape)
 
     def _generate_golden_device_tensor(
-        self, loc: str, builder_golden_tensor: BuilderGoldenTensor
+        self, loc: str, builder_golden_tensor: GoldenMapTensor
     ) -> Dict[int, GoldenTensor]:
         device_golden_info: Dict[int, GoldenTensor] = {}
         contiguous_tensor = builder_golden_tensor.contiguous()
@@ -393,8 +435,8 @@ class Builder:
     def _create_builder_golden_from_torch_tensor(
         self,
         inputs: Dict[Operand, Union[Callable, torch.Tensor, Dict[int, torch.Tensor]]],
-    ) -> Dict[Operand, BuilderGoldenTensor]:
-        input_goldens: Dict[Operand, BuilderGoldenTensor] = {}
+    ) -> Dict[Operand, GoldenMapTensor]:
+        input_goldens: Dict[Operand, GoldenMapTensor] = {}
         for operand, tensor_or_shard_map_or_callable in inputs.items():
             if callable(tensor_or_shard_map_or_callable):
                 operand_shape = self.get_shape(operand)
@@ -408,15 +450,15 @@ class Builder:
                     raise RuntimeError(
                         f"Error calling initialization function for operand {operand}: {e}"
                     )
-                golden_tensor = BuilderGoldenTensor(
+                golden_tensor = GoldenMapTensor(
                     {0: generated_tensor}, mesh_shape=self._mesh_shape
                 )
             elif isinstance(tensor_or_shard_map_or_callable, torch.Tensor):
-                golden_tensor = BuilderGoldenTensor(
+                golden_tensor = GoldenMapTensor(
                     {0: tensor_or_shard_map_or_callable}, mesh_shape=self._mesh_shape
                 )
             else:
-                golden_tensor = BuilderGoldenTensor(
+                golden_tensor = GoldenMapTensor(
                     tensor_or_shard_map_or_callable, mesh_shape=self._mesh_shape
                 )
             input_goldens[operand] = golden_tensor
@@ -426,7 +468,7 @@ class Builder:
     def _set_golden_tensor(
         self,
         operand: Operand,
-        golden: BuilderGoldenTensor,
+        golden: GoldenMapTensor,
     ):
         self._goldens[operand] = golden
 
@@ -439,7 +481,7 @@ class Builder:
 
     def _set_goldens(
         self,
-        goldens: Dict[Operand, BuilderGoldenTensor],
+        goldens: Dict[Operand, GoldenMapTensor],
     ):
         for operand, golden in goldens.items():
             self._set_golden_tensor(operand, golden)
@@ -447,7 +489,7 @@ class Builder:
     def _get_golden_tensor(
         self,
         operand: Operand,
-    ) -> BuilderGoldenTensor:
+    ) -> GoldenMapTensor:
         return self._goldens[operand]
 
     def _set_input_ordering(self, inputs: List[Operand]):

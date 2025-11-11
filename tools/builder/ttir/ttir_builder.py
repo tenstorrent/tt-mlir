@@ -15,7 +15,7 @@ from ttmlir.dialects import ttir, ttcore, tensor, quant
 from ttmlir.passes import GoldenTensor, DataType
 
 from builder.base.builder import *
-from builder.base import builder_golden
+from golden import *
 
 
 class TTIRBuilder(Builder):
@@ -36,29 +36,6 @@ class TTIRBuilder(Builder):
     # ----- Public methods -----
 
     # ----- Private methods ----
-
-    def _get_output_shape_and_type(
-        self,
-        organize_golden_args: Callable,
-        inputs: List[Operand],
-        op_ttir_function: Callable,
-        golden_kwargs: dict = {},
-    ):
-        op_golden_function = builder_golden.get_golden_function(
-            op_ttir_function, **golden_kwargs
-        )
-        if op_golden_function is None:
-            return
-
-        # If the op has no input, just call golden function with kwargs (eg ttir.zeros).
-        if len(inputs) == 0:
-            golden_output = op_golden_function(**golden_kwargs)
-        else:
-            golden_output = op_golden_function(
-                *(organize_golden_args(inputs)), **golden_kwargs
-            )
-
-        return golden_output.shape, golden_output.dtype
 
     def _get_empty_op(self, tensor_type: RankedTensorType) -> OpView:
         """Get TTIR-specific empty operation."""
@@ -153,7 +130,7 @@ class TTIRBuilder(Builder):
                     op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
             if not skip_golden and not self._disable_golden_check:
-                op_golden_function = builder_golden.get_golden_function(
+                op_golden_function = get_golden_function(
                     op_ttir_function, **golden_kwargs
                 )
                 if op_golden_function is not None:
@@ -3895,7 +3872,7 @@ class TTIRBuilder(Builder):
                 repeat_dims.append(shape[i])
 
         # Apply repeat shard-wise
-        single_dim_tensor_bt = BuilderGoldenTensor(
+        single_dim_tensor_bt = GoldenMapTensor(
             {
                 k: shard.repeat(*repeat_dims)
                 for k, shard in result_tensor.shard_map.items()

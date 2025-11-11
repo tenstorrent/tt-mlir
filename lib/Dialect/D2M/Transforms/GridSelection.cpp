@@ -497,7 +497,8 @@ static void recreateGenericOp(d2m::GenericOp genericOp) {
                       .getUnderlying());
             }
           }
-        });
+        },
+        /*singleThreadType=*/genericOp.getRegionThreadType(0));
 
     genericOp.replaceAllUsesWith(newGenericOp);
     genericOp.erase();
@@ -549,6 +550,23 @@ static void insertTTNNDRAMStreams(d2m::GenericOp genericOp,
       continue;
     }
 
+    // Do not "restream" metal -> ttnn -> metal sequences. This happens when the
+    // output of a generic is the input to another generic. The output is
+    // already streamed, but the cast back to ttnn silently erases the index
+    // map. Instead, we just forward the already streamed metal tensor to the
+    // current generic.
+    auto castOp = operand.getDefiningOp<ttir::TTNNMetalLayoutCastOp>();
+    TT_assertv(
+        castOp,
+        "If one d2m.generic operand is from TTNN, they must all be from TTNN.");
+    auto producerCastOp =
+        castOp.getInput().getDefiningOp<ttir::TTNNMetalLayoutCastOp>();
+    if (producerCastOp) {
+      castOp.getResult().replaceAllUsesExcept(producerCastOp.getInput(),
+                                              producerCastOp);
+      continue;
+    }
+
     llvm::SmallVector<int64_t> unshardedShape =
         baseMetalLayout.getPhysicalShape(ttcore::TileType::getDefaultShape());
     // TTNN DRAM interleaved tensors are represented as having a 1x1 grid.
@@ -585,7 +603,6 @@ static void insertTTNNDRAMStreams(d2m::GenericOp genericOp,
     auto storageTensor = mlir::RankedTensorType::get(
         fakeShardedShape, metalTensor.getElementType(), storageLayout);
 
-    auto castOp = operand.getDefiningOp<ttir::TTNNMetalLayoutCastOp>();
     builder.setInsertionPointAfter(castOp);
     auto storageOp =
         builder.create<d2m::EmptyOp>(castOp.getLoc(), storageTensor);

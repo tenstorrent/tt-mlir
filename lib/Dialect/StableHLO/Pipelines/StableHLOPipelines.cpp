@@ -37,8 +37,7 @@ void createStableHLOPipeline(OpPassManager &pm,
   pm.addPass(createDecoupleConstFanoutPass());
 
   // Apply sharding constraints.
-  pm.nest<mlir::func::FuncOp>().addPass(
-      mlir::sdy::createApplyShardingConstraintsPass());
+  pm.addPass(mlir::sdy::createApplyShardingConstraintsPass());
 
   // Propagate tensor shardings through the entire graph.
   // This propagation is taken from

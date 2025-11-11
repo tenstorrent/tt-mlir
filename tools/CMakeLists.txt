@@ -3,6 +3,7 @@ add_subdirectory(ttmlir-lsp-server)
 
 if(TTMLIR_ENABLE_BINDINGS_PYTHON AND MLIR_ENABLE_BINDINGS_PYTHON)
   add_subdirectory(builder)
+  add_subdirectory(golden)
 
   if (TTMLIR_ENABLE_PYKERNEL)
     add_subdirectory(pykernel)
@@ -22,4 +23,7 @@ endif()
 
 add_subdirectory(ttmlir-translate)
 add_subdirectory(ttnn-standalone)
-add_subdirectory(tt-alchemist)
+
+if (TTMLIR_ENABLE_ALCHEMIST)
+  add_subdirectory(tt-alchemist)
+endif()

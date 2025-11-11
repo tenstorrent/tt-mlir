@@ -215,6 +215,12 @@ struct TTIRToTTNNBackendPipelineOptions
 
   // Option to enable/disable the workaround pass.
   //
+  Option<bool> disableWorkarounds{
+      *this, "disable-workarounds",
+      llvm::cl::desc("An option to disable/enable the whole workaround pass. "
+                     "If set to true, the workaround pass is disabled."),
+      llvm::cl::init(false)};
+
   Option<bool> layoutWorkaroundsEnabled{
       *this, "enable-layout-workaround-pass",
       llvm::cl::desc("Enable layout workaround pass. Always false when "
@@ -247,12 +253,6 @@ struct TTIRToTTNNBackendPipelineOptions
   Option<bool> enableFusingConv2dWithMultiplyPattern{
       *this, "enable-fusing-conv2d-with-multiply-pattern",
       llvm::cl::desc("Enable Conv2dWithMultiply pattern in the fusing pass."),
-      llvm::cl::init(false)};
-
-  Option<bool> enableFusingGlobalPoolPattern{
-      *this, "enable-fusing-global-avg-pool-pattern",
-      llvm::cl::desc(
-          "Enable GlobalAveragePoolingPattern pattern in the fusing pass."),
       llvm::cl::init(false)};
 
   Option<ttcore::TTArgumentTypeMap, ttcore::ArgumentTypeMapParser>
