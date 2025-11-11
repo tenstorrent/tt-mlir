@@ -64,19 +64,25 @@ class ProgramTestConfig:
 
 
 class ProgramTestRunner:
-    def __init__(self, config: ProgramTestConfig, binary: Binary, program_index: int):
+    def __init__(
+        self, binary: Binary, program_index: int, config: ProgramTestConfig = None
+    ):
 
         program = binary.get_program(program_index)
         assert not program.is_private()
-        assert (
-            program.num_inputs() == config.expected_num_inputs
-        ), f"Expected {config.expected_num_inputs} inputs, got {program.num_inputs()}"
-        assert program.num_outputs() == 1, "Currently only single output is supported"
 
-        self.config = config
+        self.config = None
         self.binary = binary
         self.program = program
         self.program_index = program_index
+        if config:
+            assert (
+                program.num_inputs() == config.expected_num_inputs
+            ), f"Expected {config.expected_num_inputs} inputs, got {program.num_inputs()}"
+            assert (
+                program.num_outputs() == 1
+            ), "Currently only single output is supported"
+            self.config = config
 
     def get_inputs_and_golden(self, device, borrow=True):
         inputs_torch = get_torch_inputs(self.program)
@@ -99,7 +105,7 @@ class ProgramTestRunner:
         ]
 
         golden = None
-        if self.config.compute_golden:
+        if self.config and self.config.compute_golden:
             golden = self.config.compute_golden(inputs_torch)
 
         return inputs_runtime_with_layout, golden
