@@ -105,13 +105,13 @@ static LogicalResult reenableDpsFromAttr(ModuleOp moduleOp) {
     }
 
     Value returnVal = returnOp.getOperands()[0];
+    Value outputTensor = funcOp.getArgument(outputArgIdx);
 
     // Check if the return value is a block argument--this indicates the hoisted
     // op has been optimized away, and we must replace it with a copy s.t. the
     // output tensor gets the proper value.
     if (auto blockArg = llvm::dyn_cast<BlockArgument>(returnVal)) {
       // This is a NOOP case - we need to copy the input to the output.
-      Value outputTensor = funcOp.getArgument(outputArgIdx);
 
       rewriter.setInsertionPoint(returnOp);
 
@@ -178,7 +178,6 @@ static LogicalResult reenableDpsFromAttr(ModuleOp moduleOp) {
           // Process the DPS operation that feeds into expand_shape.
           for (OpOperand &initOperand : dpsOp.getDpsInitsMutable()) {
             if (auto emptyOp = findEmptyOp(initOperand.get())) {
-              Value outputTensor = funcOp.getArgument(outputArgIdx);
               // For expand_shape, we need reassociation indices.
               transformed = replaceEmptyWithOutput(
                   emptyOp, outputTensor, expandOp.getReassociationIndices());
@@ -193,23 +192,15 @@ static LogicalResult reenableDpsFromAttr(ModuleOp moduleOp) {
       // Process all init operands.
       for (OpOperand &initOperand : dpsOp.getDpsInitsMutable()) {
         if (auto emptyOp = findEmptyOp(initOperand.get())) {
-          Value outputTensor = funcOp.getArgument(outputArgIdx);
           transformed = replaceEmptyWithOutput(emptyOp, outputTensor);
         }
       }
     }
-    // Handle other operations.
-    else {
-      funcOp->emitWarning()
-          << "Unhandled operation type: " << producer->getName().getStringRef()
-          << ". Operation must implement DestinationStyleOpInterface or be "
-             "tensor.expand_shape.";
-    }
-
+    // Insert linalg.copy if the DPS semantic can't be re-enabled directly.
     if (!transformed) {
-      funcOp->emitWarning()
-          << "Could not find any tensor.empty operations to replace";
-      return WalkResult::skip();
+      rewriter.setInsertionPoint(returnOp);
+      rewriter.create<linalg::CopyOp>(returnOp.getLoc(), returnVal,
+                                      outputTensor);
     }
 
     // Remove the mapping attribute since we've applied it.

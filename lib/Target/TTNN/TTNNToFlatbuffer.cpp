@@ -336,8 +336,8 @@ createOp(FlatbufferObjectCache &cache, EmptyOp op) {
 ::flatbuffers::Offset<::tt::target::ttnn::FullOp>
 createOp(FlatbufferObjectCache &cache, FullOp op) {
   auto shape = op.getShape().getShape().vec();
-  auto device = cache.at<::tt::target::DeviceRef>(
-      getOperandThroughDPSOps(op.getDevice()));
+  auto device =
+      op.getDevice() ? cache.at<::tt::target::DeviceRef>(op.getDevice()) : 0;
   ::tt::target::ttnn::FillValueType fillValueType;
   ::flatbuffers::Offset<void> fillValue;
   if (auto fillValueAttr = mlir::dyn_cast<mlir::FloatAttr>(op.getFillValue())) {

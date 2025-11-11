@@ -54,6 +54,16 @@ namespace mlir::tt::ttir {
 //===----------------------------------------------------------------------===//
 
 #ifdef TTMLIR_ENABLE_STABLEHLO
+// We should explicitly allow-list any StableHLO ops that we want to hoist to
+// CPU here. Before adding an op here, make sure that the op is supported in
+// StableHLO to TOSA/Linalg conversion.
+// Note: when allow-listing an op, explicit template instantiation should be
+// added to HoistCPUOps.cpp.
+auto createHoistAllowlistedStablehloOpsPass() {
+  return ttir::createTTIRHoistTransformForOps<stablehlo::DynamicUpdateSliceOp,
+                                              stablehlo::EinsumOp>();
+}
+
 void createStableHLOToTTIRPipeline(
     OpPassManager &pm, const StableHLOToTTIRPipelineOptions &options) {
   if (options.arithDialectConversionsEnabled) {
@@ -72,10 +82,17 @@ void createStableHLOToTTIRPipeline(
   pm.addPass(createConvertStableHLOToTTIRPass(passOptions));
 
   if (options.enableCPUFallback) {
-    // Fallback any remaining SHLO ops to CPU.
+    // Wrap all ops in DeviceModule.
     pm.addPass(ttcore::createTTCoreWrapDeviceModulePass());
-    pm.addPass(ttir::createTTIRHoistTransformForDialects<
-               stablehlo::StablehloDialect>());
+
+    // Fallback allow-listed SHLO ops to the CPU module.
+    pm.addPass(createHoistAllowlistedStablehloOpsPass());
+
+    // Run StableHLOToTTIR pass again on the DeviceModule to produce a failure
+    // if any unsupported ops have not been hoisted.
+    auto &devicePm = pm.nest<ttcore::DeviceModuleOp>().nest<mlir::ModuleOp>();
+    passOptions.enablePartialConversion = false;
+    devicePm.addPass(createConvertStableHLOToTTIRPass(passOptions));
   }
 }
 #endif

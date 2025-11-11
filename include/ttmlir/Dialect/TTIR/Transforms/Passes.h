@@ -26,6 +26,9 @@ namespace mlir::tt::ttir {
 template <typename... Dialects>
 std::unique_ptr<Pass> createTTIRHoistTransformForDialects();
 
+template <typename... Ops>
+std::unique_ptr<Pass> createTTIRHoistTransformForOps();
+
 } // namespace mlir::tt::ttir
 
 #endif

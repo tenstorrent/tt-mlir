@@ -2523,6 +2523,61 @@ class TTIRBuilder(Builder):
             unit_attrs=unit_attrs,
         )
 
+    def sort(
+        self,
+        in0: Operand,
+        dim: int = -1,
+        descending: bool = False,
+        stable: bool = False,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpView:
+        """
+        Creates ``ttir.sort``.
+
+        *Tensor sort operation.*
+
+        Sorts the elements of a tensor along a specified dimension.
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor
+        dim : int, optional
+            Dimension along which to sort (default: -1, the last dimension)
+        descending : bool, optional
+            If True, sorts in descending order (default: False)
+        stable : bool, optional
+            If True, uses a stable sorting algorithm (default: False)
+        unit_attrs : *Optional[List[str]]*, optional
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpView*)
+            Sorted tensor
+        """
+        ttir_kwargs = {"dim": dim, "descending": descending, "stable": stable}
+        golden_kwargs = {"dim": dim, "descending": descending, "stable": stable}
+
+        return self._op_proxy(
+            ttir.SortOp,
+            [in0],
+            ttir_kwargs=ttir_kwargs,
+            output_create_fn=lambda shape, type: (
+                self._empty(shape, type),
+                self._empty(shape, self._get_type_from_torch_dtype(torch.int32)),
+            ),
+            organize_ttir_args=lambda i, o, _: (
+                self._get_type(o[0]),
+                self._get_type(o[1]),
+                i[0],
+                [o[0], o[1]],
+            ),
+            golden_kwargs=golden_kwargs,
+            organize_golden_args=lambda i: [self._get_golden_tensor(i[0])],
+            unit_attrs=unit_attrs,
+        )
+
     def transpose(
         self,
         in0: Operand,
