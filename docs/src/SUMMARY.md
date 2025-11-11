@@ -24,7 +24,6 @@
     - [CLI](./tt-explorer/cli.md)
     - [API usage & reference](./tt-explorer/usage-api.md)
     - [Architecture](./tt-explorer/architecture.md)
-    - [Roadmap](./tt-explorer/roadmap.md)
   - [`tt-alchemist`](./tt-alchemist.md)
   - [`ttnn-standalone`](./ttnn-standalone.md)
   - [`EmitPy`](./emitpy.md)
