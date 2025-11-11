@@ -91,6 +91,7 @@ void createTTNNPipelineAnalysisPasses(
     // Wrap all Optimizer passes with device lifecycle management.
     OptimizerPassesWrapperOptions wrapperOptions;
     wrapperOptions.devicePtr = options.devicePtr;
+    wrapperOptions.tensorL1UsageCap = options.tensorL1UsageCap;
 
     ttnn::TTNNOperationValidationAndFallbackOptions validationOptions{
         options.tensorL1UsageCap};
