@@ -3060,6 +3060,10 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttnn.Expm1Op: torch.expm1,
     ttnn.ExpOp: torch.exp,
     ttnn.LeakyReluOp: leaky_relu_golden,
+    # StableHLO tensor manipulation operations
+    stablehlo.TransposeOp: permute_golden,
+    # TTNN elementwise operations
+    ttnn.MultiplyOp: torch.multiply,
     ttnn.MishOp: torch.nn.functional.mish,
     # Elementwise binary operations
     ttnn.AddOp: torch.add,
