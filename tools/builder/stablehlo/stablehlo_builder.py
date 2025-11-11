@@ -119,6 +119,29 @@ class StableHLOBuilder(Builder):
     def _get_mesh(self, mesh_name: str = "mesh") -> sdy.Mesh:
         return self.mesh(mesh_name, self._get_mesh_attr(mesh_name))
 
+    def _get_output_shape_and_type(
+        self,
+        organize_golden_args: Callable,
+        inputs: List[Operand],
+        op_stablehlo_function: Callable,
+        golden_kwargs: dict = {},
+    ):
+        op_golden_function = builder_golden.get_golden_function(
+            op_stablehlo_function, **golden_kwargs
+        )
+        if op_golden_function is None:
+            return None
+
+        # If the op has no input, just call golden function with kwargs (e.g., zeros).
+        if len(inputs) == 0:
+            golden_output = op_golden_function(**golden_kwargs)
+        else:
+            golden_output = op_golden_function(
+                *(organize_golden_args(inputs)), **golden_kwargs
+            )
+
+        return golden_output.shape, golden_output.dtype
+
     def _op_proxy(
         self,
         op_stablehlo_function: Callable,
@@ -149,11 +172,61 @@ class StableHLOBuilder(Builder):
                 else self._get_loc_of_extra_file_callee(id=id)
             )
 
-            op = op_stablehlo_function(
-                *inputs,
-                loc=loc,
-                **stablehlo_kwargs,
-            )
+            # Most StableHLO ops have MLIR type inference, so output is not needed.
+            # Only create output if user explicitly provides output_shape, output_type, or output_create_fn
+            # (e.g., for ops like broadcast_in_dim that don't have type inference)
+            output = None
+            if (
+                output_shape is not None
+                or output_type is not None
+                or output_create_fn is not None
+            ):
+                # User explicitly requested output creation
+                # Try to get shape/type from golden function if not fully provided
+                output_shape_and_type = self._get_output_shape_and_type(
+                    organize_golden_args, inputs, op_stablehlo_function, golden_kwargs
+                )
+
+                if not output_shape_and_type:
+                    # No golden function - user must provide both shape and type
+                    assert (
+                        output_shape is not None
+                    ), "Output shape must be provided if there is no golden function for this op"
+                    assert (
+                        output_type is not None
+                    ), "Output type must be provided if there is no golden function for this op"
+                else:
+                    (
+                        calculated_output_shape,
+                        calculated_output_type,
+                    ) = output_shape_and_type
+                    # Use provided values if available, otherwise use calculated
+                    output_shape = (
+                        calculated_output_shape
+                        if output_shape is None
+                        else output_shape
+                    )
+                    output_type = (
+                        self._get_type_from_torch_dtype(calculated_output_type)
+                        if output_type is None
+                        else output_type
+                    )
+
+                # Create output tensor
+                if output_create_fn is not None:
+                    output = output_create_fn(output_shape, output_type)
+                else:
+                    output = self._create_ranked_tensor_type(output_shape, output_type)
+
+            # Custom argument organization and create the stabelhlo op
+            if organize_stablehlo_args is not None:
+                stablehlo_args = organize_stablehlo_args(
+                    inputs, output, stablehlo_kwargs
+                )
+                op = op_stablehlo_function(*stablehlo_args, loc=loc, **stablehlo_kwargs)
+            else:
+                # Default: elementwise binary operations
+                op = op_stablehlo_function(*inputs, loc=loc, **stablehlo_kwargs)
 
             if unit_attrs is not None:
                 for attr_name in unit_attrs:
@@ -642,6 +715,63 @@ class StableHLOBuilder(Builder):
             stablehlo.LogOp,
             [in0],
             unit_attrs=unit_attrs,
+        )
+
+    # ----- Tensor Manipulation Operations -----
+
+    def concatenate(
+        self,
+        inputs: List[Operand],
+        dim: int = 0,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpView:
+        """
+        Creates ``stablehlo.concatenate``.
+
+        *Tensor concatenation operation.*
+
+        Concatenates a variadic number of tensors in `inputs` along `dim`
+        dimension in the same order as the given arguments. All input tensors
+        must have the same shape except in the concatenating dimension.
+
+        .. code-block:: mlir
+
+            // Concatenate two tensors along dimension 0
+            %result = stablehlo.concatenate %input0, %input1, dim = 0 : (tensor<2x3xf32>, tensor<1x3xf32>) -> tensor<3x3xf32>
+            // Input tensors:
+            // input0: [[1.0, 2.0, 3.0],
+            //          [4.0, 5.0, 6.0]]
+            // input1: [[7.0, 8.0, 9.0]]
+            // Output tensor:
+            // [[1.0, 2.0, 3.0],
+            //  [4.0, 5.0, 6.0],
+            //  [7.0, 8.0, 9.0]]
+
+        Parameters
+        ----------
+        inputs : List[Operand]
+            List of input tensors to concatenate. All tensors must have the same
+            rank and matching dimensions except along the concatenation dimension.
+        dim : int, optional
+            Dimension along which to concatenate. Must be in range [0, rank).
+            Default is 0.
+        unit_attrs : *Optional[List[str]]*
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpView*)
+            A tensor containing all input tensors concatenated along the specified dimension
+        """
+        return self._op_proxy(
+            stablehlo.ConcatenateOp,
+            inputs,
+            organize_stablehlo_args=lambda i, o, k: (i,),
+            stablehlo_kwargs={"dimension": dim},
+            organize_golden_args=lambda i: (
+                tuple([self._get_golden_tensor(inp) for inp in i]),
+            ),
+            golden_kwargs={"dim": dim},
         )
 
     def transpose(
