@@ -5,8 +5,9 @@
 from __future__ import annotations
 
 import inspect
+import math
 from dataclasses import dataclass
-from typing import List, Optional, Union, Tuple, Callable, Dict, Any
+from typing import List, Optional, Union, Tuple, Callable, Dict, Any, Sequence
 import torch
 from enum import Enum, auto
 import re
@@ -969,6 +970,86 @@ class StableHLOBuilder(Builder):
             sharding_attr=sharding_attr,
             stablehlo_kwargs={"permutation": permutation},
         )
+
+    def reshape(
+        self,
+        in0: Operand,
+        shape: Sequence[int],
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+    ) -> OpView:
+        """
+        Creates ``stablehlo.reshape``.
+
+        *Tensor reshape operation.*
+
+        Reinterprets the dimensions of ``in0`` without changing the data layout.
+        Constraint: product of dimensions must be equal; no -1 or dynamic dims here.
+
+        .. code-block:: mlir
+
+            %input = ... : tensor<2x3xf32>
+            %result = stablehlo.reshape %input : (tensor<2x3xf32>) -> tensor<1x6xf32>
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor to reshape
+        shape : Sequence[int]
+            The desired output shape
+        unit_attrs : *Optional[List[str]]*
+            Optional list of unit attributes
+        sharding_attr : *Optional[sdy.TensorShardingPerValueAttr]*
+            Optional sharding attribute for the output tensor
+
+        Returns
+        -------
+        (*OpView*)
+            The reshaped tensor
+        """
+
+        with self._ctx, self._loc:
+            input_type = self._get_type(in0)
+            shape_tuple = tuple(int(d) for d in shape)
+
+            # Reject negative or inferred dims for static reshape. Zero-sized dims are allowed.
+            if any((not isinstance(d, int)) or (d < 0) for d in shape_tuple):
+                raise ValueError(
+                    f"stablehlo.reshape expects a static non-negative-int shape, got {shape_tuple}"
+                )
+
+            if math.prod(input_type.shape) != math.prod(shape_tuple):
+                raise ValueError(
+                    "number of elements must be the same for reshape: "
+                    f"{math.prod(input_type.shape)} != {math.prod(shape_tuple)}"
+                )
+
+            element_type = input_type.element_type
+            result_type = RankedTensorType.get(shape_tuple, element_type)
+
+            op_id = self._get_next_global_id()
+            loc = self._get_loc_of_extra_file_callee(id=op_id)
+
+            op = stablehlo.ReshapeOp(result_type, in0, loc=loc)
+
+            if unit_attrs is not None:
+                for attr_name in unit_attrs:
+                    op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+            if sharding_attr is not None:
+                op.operation.attributes["sdy.sharding"] = sharding_attr
+
+            if not self._disable_golden_check:
+                op_golden_function = get_golden_function(
+                    stablehlo.ReshapeOp, shape=shape_tuple
+                )
+                if op_golden_function is not None:
+                    golden_output = op_golden_function(
+                        *(self._organize_eltwise_golden([in0])), shape=shape_tuple
+                    )
+                    self._set_golden_tensor(op, golden_output)
+
+            return op
 
     # ----- Public Shardy Attribute Generators ----
 
