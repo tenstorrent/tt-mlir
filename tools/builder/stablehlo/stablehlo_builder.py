@@ -774,6 +774,61 @@ class StableHLOBuilder(Builder):
             golden_kwargs={"dim": dim},
         )
 
+    def transpose(
+        self,
+        in0: Operand,
+        permutation: List[int],
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+    ) -> OpView:
+        """
+        Creates ``stablehlo.transpose``.
+
+        *Tensor transpose operation.*
+
+        Permutes the dimensions of the input tensor according to the given permutation.
+        This operation rearranges the axes of the tensor without changing the data.
+
+        Mathematical definition: For a tensor with dimensions [d0, d1, ..., dn-1] and
+        permutation [p0, p1, ..., pn-1], the output tensor has dimensions
+        [d_p0, d_p1, ..., d_pn-1].
+
+        .. code-block:: mlir
+            // Transpose a 2x3 tensor by swapping dimensions 0 and 1
+            %result = stablehlo.transpose(%input) {permutation = array<i64: 1, 0>} :
+                tensor<2x3xf32> -> tensor<3x2xf32>
+            // Input tensor:
+            // [[1.0, 2.0, 3.0],
+            //  [4.0, 5.0, 6.0]]
+            // Output tensor:
+            // [[1.0, 4.0],
+            //  [2.0, 5.0],
+            //  [3.0, 6.0]]
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor to transpose
+        permutation : List[int]
+            The desired ordering of dimensions (0-indexed)
+        unit_attrs : Optional[List[str]]
+            Optional list of unit attributes
+        sharding_attr : Optional[sdy.TensorShardingPerValueAttr]
+            Optional tensor sharding attribute for distributed execution
+
+        Returns
+        -------
+        (*OpView*)
+            A tensor with permuted dimensions according to the permutation
+        """
+        return self._op_proxy(
+            stablehlo.TransposeOp,
+            [in0],
+            unit_attrs=unit_attrs,
+            sharding_attr=sharding_attr,
+            stablehlo_kwargs={"permutation": permutation},
+        )
+
     # ----- Public Shardy Attribute Generators ----
 
     def mesh_axis_attr(
