@@ -3030,6 +3030,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     stablehlo.SqrtOp: torch.sqrt,
     stablehlo.TanOp: torch.tan,
     stablehlo.SliceOp: slice_golden_stablehlo,
+    stablehlo.ConcatenateOp: concat_golden,
     # ----- TTNN OPS -----
     # Elementwise unary operations
     ttnn.AbsOp: torch.abs,
