@@ -20,6 +20,9 @@ static void runRotaryEmbedding(const ::tt::target::ttnn::RotaryEmbeddingOp *op,
       tensorPool.getTTNNTensorAndValidate(op->sin_cache());
   std::optional<uint32_t> tokenIndex = op->token_index();
   std::optional<::ttnn::DeviceComputeKernelConfig> computeConfig;
+
+  std::get<::ttnn::WormholeComputeKernelConfig>(*computeConfig).math_fidelity =
+      MathFidelity::HiFi4;
   if (op->compute_config()) {
     computeConfig =
         utils::createDeviceComputeKernelConfig(op->compute_config());
