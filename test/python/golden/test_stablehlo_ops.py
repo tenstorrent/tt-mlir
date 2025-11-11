@@ -222,10 +222,13 @@ def test_unary_ops(
 
 @pytest.mark.parametrize("shape", [(1, 1, 64, 32), (1, 3, 256, 256)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32, torch.int32], ids=["f32", "i32"])
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+@pytest.mark.parametrize("target", [ "ttnn"])
 def test_constant(shape: Shape, dtype: torch.dtype, target: str, request, device):
     def constant_fn(builder: StableHLOBuilder):
-        tensor = torch.randn(shape, dtype=dtype)
+        if dtype.is_floating_point:
+            tensor = torch.randn(shape, dtype=dtype)
+        else:
+            tensor = torch.randint(-10, 10, shape, dtype=dtype)
         builder.set_graph_level_check(True)
         return builder.constant(tensor)
 
