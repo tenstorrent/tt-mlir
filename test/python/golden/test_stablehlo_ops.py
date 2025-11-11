@@ -122,6 +122,7 @@ def log(
     builder.set_graph_level_check(True)
     return builder.log(in0, unit_attrs=unit_attrs)
 
+
 def broadcast_in_dim(
     in0: Operand,
     builder: StableHLOBuilder,
@@ -255,6 +256,7 @@ def test_stablehlo_multi_return_support(
         target=target,
         device=device,
     )
+
 
 @pytest.mark.parametrize("shape", [(128,)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
