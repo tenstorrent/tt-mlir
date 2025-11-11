@@ -9,7 +9,7 @@ from typing import Callable, List, Optional, Tuple
 from builder.base.builder import Operand, Shape, TypeInfo
 from builder.stablehlo.stablehlo_builder import StableHLOBuilder
 from builder.base.builder_utils import compile_and_execute_shlo
-from test_utils import shape_str
+from test_utils import shape_str, shapes_list_str
 
 pytestmark = pytest.mark.frontend("shlo")
 
@@ -218,6 +218,154 @@ def test_unary_ops(
         target=target,
         device=device,
     )
+
+
+# ==== StableHLO: reshape tests =================================================
+
+
+_GENERIC_SHAPES = [
+    [(2, 3), (3, 2)],  # swap
+    [(2, 3), (6,)],  # flatten
+    [(1, 784), (1, 28, 28)],  # unflatten
+    [(4, 8, 16), (4, 128)],  # 3D->2D
+    [(64, 512), (64, 1, 512)],  # expand dims
+    [(128, 128), (64, 256)],  # 2D arrangement
+]
+
+
+@pytest.mark.parametrize("shapes", _GENERIC_SHAPES, ids=shapes_list_str)
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize(
+    "target",
+    [
+        pytest.param("ttnn", id="ttnn"),
+        pytest.param(
+            "ttmetal",
+            id="ttmetal",
+            marks=pytest.mark.xfail(
+                reason="reshape lowering not yet supported in TTMetal backend"
+            ),
+        ),
+    ],
+)
+def test_reshape_basic(
+    shapes: tuple[Shape, Shape], dtype: torch.dtype, target: str, request, device
+):
+    input_shape, output_shape = shapes
+
+    def reshape_wrapper(in0: Operand, builder: StableHLOBuilder):
+        if hasattr(builder, "set_graph_level_check"):
+            builder.set_graph_level_check(True)
+        return builder.reshape(in0, output_shape)
+
+    reshape_wrapper.__name__ = "reshape"
+
+    compile_and_execute_shlo(
+        reshape_wrapper,
+        [input_shape],
+        [dtype],
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
+        device=device,
+    )
+
+
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+def test_reshape_identity(dtype: torch.dtype, target: str, request, device):
+    """
+    Identity reshape should pass on all targets.
+    """
+    input_shape = (10,)
+    output_shape = (10,)
+
+    def reshape_wrapper(in0: Operand, builder: StableHLOBuilder):
+        if hasattr(builder, "set_graph_level_check"):
+            builder.set_graph_level_check(True)
+        return builder.reshape(in0, output_shape)
+
+    reshape_wrapper.__name__ = "reshape_identity"
+
+    compile_and_execute_shlo(
+        reshape_wrapper,
+        [input_shape],
+        [dtype],
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
+        device=device,
+    )
+
+
+@pytest.mark.parametrize(
+    "target",
+    [
+        pytest.param("ttnn", id="ttnn"),
+        pytest.param(
+            "ttmetal",
+            marks=pytest.mark.xfail(
+                reason="reshape lowering not yet supported in TTMetal backend"
+            ),
+        ),
+    ],
+    ids=["ttnn", "ttmetal"],
+)
+def test_reshape_zero_dim_optional(target, request, device):
+    """
+    Zero-size tensors: reshape must preserve element count (= 0).
+    """
+    input_shape = (0, 6)
+    output_shape = (0, 2, 3)
+
+    def reshape_wrapper(in0: Operand, builder: StableHLOBuilder):
+        if hasattr(builder, "set_graph_level_check"):
+            builder.set_graph_level_check(True)
+        return builder.reshape(in0, output_shape)
+
+    reshape_wrapper.__name__ = "reshape"
+
+    compile_and_execute_shlo(
+        reshape_wrapper,
+        [input_shape],
+        [torch.float32],
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
+        device=device,
+    )
+
+
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+def test_reshape_mismatch_raises(target, request, device):
+    """
+    Element-count mismatch must raise. It may surface as a ValueError from the
+    builder or as a TTBuilderCompileException during compile/exec; accept any Exception.
+    """
+    input_shape = (2, 3)  # 6
+    output_shape = (4, 2)  # 8 -> not match
+
+    def reshape_wrapper(in0: Operand, builder: StableHLOBuilder):
+        if hasattr(builder, "set_graph_level_check"):
+            builder.set_graph_level_check(True)
+        return builder.reshape(in0, output_shape)
+
+    reshape_wrapper.__name__ = "reshape"
+
+    with pytest.raises(Exception):
+        compile_and_execute_shlo(
+            reshape_wrapper,
+            [input_shape],
+            [torch.float32],
+            test_base=request.node.name,
+            output_root=request.config.getoption("--path"),
+            system_desc_path=request.config.getoption("--sys-desc"),
+            target=target,
+            device=device,
+        )
 
 
 # Special handling for tan PCC checks. Due to the vertical asymptote on the tan graph, small changes in input values result in large changes in output values at multiples of pi/2, so both graph and golden tensors must be constrained accordingly.
