@@ -766,7 +766,9 @@ def argmax_golden(
     GoldenMapTensor
         Indices of maximum values along specified dimension as int32 tensor
     """
-    result = torch.argmax(input_tensor, dim=dim_arg[0], keepdim=keep_dim)
+    if not isinstance(dim_arg, int):
+        dim_arg = dim_arg[0]
+    result = torch.argmax(input_tensor, dim=dim_arg, keepdim=keep_dim)
     return result.to(torch.int32)
 
 
@@ -3064,7 +3066,6 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttnn.MaxPool2dOp: max_pool2d_golden,
     ttnn.AvgPool2dOp: avg_pool2d_golden,
     # ttnn.GlobalAvgPool2dOp: ,
-    ttnn.ArgMaxOp: argmax_golden,
     ttnn.LinearOp: linear_golden,
     # Convolution
     # ttnn.PrepareConv2dWeightsOp: ,

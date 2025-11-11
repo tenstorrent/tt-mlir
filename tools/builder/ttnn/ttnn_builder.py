@@ -2032,8 +2032,9 @@ class TTNNBuilder(Builder):
     def argmax(
         self,
         in0: Operand,
-        dim_arg: List[int],
+        dim: int,
         keep_dim: bool = False,
+        use_multicore: bool = False,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpView:
         """
@@ -2047,10 +2048,12 @@ class TTNNBuilder(Builder):
         ----------
         in0 : Operand
             Input tensor
-        dim_arg : List[int]
-            Dimensions to reduce over
+        dim : int
+            Dimension to reduce over
         keep_dim : bool, optional
             If True, retains reduced dimensions with length 1 (default: False)
+        use_multicore : bool, optional
+            If True, utilizes multicore processing for the operation (default: False)
         unit_attrs : *Optional[List[str]]*, optional
             Optional list of unit attributes
 
@@ -2059,11 +2062,13 @@ class TTNNBuilder(Builder):
         (*OpView*)
             Tensor containing the indices of maximum values
         """
-        kwargs = {"dim_arg": dim_arg, "keep_dim": keep_dim}
+        golden_kwargs = {"dim_arg": dim, "keep_dim": keep_dim}
+        ttnn_kwargs = {"dim": dim, "keep_dim": keep_dim, "use_multicore": use_multicore}
         return self._op_proxy(
             ttnn.ArgMaxOp,
             [in0],
-            ttnn_kwargs=kwargs,
+            ttnn_kwargs=ttnn_kwargs,
+            golden_kwargs=golden_kwargs,
             output_type=IntegerType.get_signless(32, self._ctx),
             unit_attrs=unit_attrs,
         )
@@ -3222,12 +3227,12 @@ class TTNNBuilder(Builder):
             unit_attrs=unit_attrs,
         )
 
-    # figure out use_multicore
     def pad(
         self,
         in0: Operand,
         padding: List[int],
         value: int,
+        use_multicore: bool = True,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpView:
         """
@@ -3248,6 +3253,8 @@ class TTNNBuilder(Builder):
             Amount of padding for each dimension
         value : int
             Value to use for padding
+        use_multicore : bool, optional
+            If True, utilizes multicore processing for the operation (default: False)
         unit_attrs : *Optional[List[str]]*, optional
             Optional list of unit attributes
 
@@ -3264,7 +3271,11 @@ class TTNNBuilder(Builder):
         return self._op_proxy(
             ttnn.PadOp,
             [in0],
-            ttnn_kwargs={"padding": padding, "value": value},
+            ttnn_kwargs={
+                "padding": padding,
+                "value": value,
+                "use_multicore": use_multicore,
+            },
             golden_kwargs={"padding": padding, "value": value},
             output_shape=output_shape,
             unit_attrs=unit_attrs,
@@ -3576,11 +3587,14 @@ class TTNNBuilder(Builder):
         (*OpView*)
             Tensor with permuted dimensions
         """
+        input_shape = self.get_shape(in0)
+        output_shape = [input_shape[i] for i in permutation]
         return self._op_proxy(
             ttnn.PermuteOp,
             [in0],
             ttnn_kwargs={"permutation": DenseI64ArrayAttr.get(permutation)},
-            organize_golden_args=lambda i, o: [self._get_golden_tensor(i[0])],
+            golden_kwargs={"permutation": permutation},
+            output_shape=output_shape,
             unit_attrs=unit_attrs,
         )
 
@@ -4493,14 +4507,15 @@ class TTNNBuilder(Builder):
         ends_attr = ArrayAttr.get(ends_int_attrs, self._ctx)
         step_attr = ArrayAttr.get(step_int_attrs, self._ctx)
 
+        kwargs = {"begins": begins_attr, "ends": ends_attr, "step": step_attr}
         # Use op_proxy
         return self._op_proxy(
             ttnn.SliceStaticOp,
             [in0],
-            organize_ttnn_args=lambda i, o: (self._get_type(o), i[0], o),
+            ttnn_kwargs=kwargs,
+            golden_kwargs=kwargs,
             output_shape=output_shape,
             unit_attrs=unit_attrs,
-            ttnn_kwargs={"begins": begins_attr, "ends": ends_attr, "step": step_attr},
         )
 
     # CCL ops

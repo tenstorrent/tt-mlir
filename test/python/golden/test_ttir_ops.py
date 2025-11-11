@@ -316,7 +316,7 @@ def squeeze(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] 
     return builder.squeeze(in0, unit_attrs=unit_attrs)
 
 
-@pytest.mark.xfail(reason="Fails Golden")
+# @pytest.mark.xfail(reason="Fails Golden")
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dim_arg", [0])
 @pytest.mark.parametrize("keep_dim", [False])
