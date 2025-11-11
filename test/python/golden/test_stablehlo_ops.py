@@ -262,7 +262,7 @@ def test_transpose(
         device=device,
     )
 
-    
+
 @pytest.mark.parametrize(
     "shapes,dim",
     [
