@@ -220,6 +220,27 @@ def test_unary_ops(
     )
 
 
+@pytest.mark.parametrize("shape", [(1, 1, 64, 32), (1, 3, 256, 256)], ids=shape_str)
+@pytest.mark.parametrize("dtype", [torch.float32, torch.int32], ids=["f32", "i32"])
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+def test_constant(shape: Shape, dtype: torch.dtype, target: str, request, device):
+    def constant_fn(builder: StableHLOBuilder):
+        tensor = torch.randn(shape, dtype=dtype)
+        builder.set_graph_level_check(True)
+        return builder.constant(tensor)
+
+    compile_and_execute_shlo(
+        constant_fn,
+        [],
+        [],
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
+        device=device,
+    )
+
+
 # Special handling for tan PCC checks. Due to the vertical asymptote on the tan graph, small changes in input values result in large changes in output values at multiples of pi/2, so both graph and golden tensors must be constrained accordingly.
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
