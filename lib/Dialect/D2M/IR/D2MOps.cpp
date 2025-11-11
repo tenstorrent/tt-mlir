@@ -20,6 +20,8 @@
 #include "mlir/IR/Dominance.h"
 #include "mlir/IR/PatternMatch.h"
 
+#include <iostream>
+
 #define GET_OP_CLASSES
 #include "ttmlir/Dialect/D2M/IR/D2MOps.cpp.inc"
 
@@ -892,6 +894,23 @@ void d2m::GenericOp::build(
   llvm::SmallVector<mlir::Location> locs(state.operands.size(), state.location);
   OpBuilder::InsertionGuard guard(builder);
   Block *block = builder.createBlock(&region, region.end(), blockTypes, locs);
+  singleThreadRegionBuilder(builder, state.location, block->getArguments());
+}
+
+void d2m::GenericOp::build(
+    mlir::OpBuilder &builder, mlir::OperationState &state, ValueRange inputs,
+    ValueRange outputs, ArrayAttr indexingMaps, ArrayAttr iteratorTypes,
+    llvm::function_ref<void(OpBuilder &, Location, ValueRange)>
+        singleThreadRegionBuilder,
+    llvm::SmallVector<mlir::Type> cbTypes,
+    ThreadType singleThreadType, ttcore::GridAttr grid,
+    ArrayRef<int64_t> blockFactors) {
+  build(builder, state, inputs, outputs, indexingMaps, iteratorTypes,
+        singleThreadType, grid, blockFactors);
+  Region &region = *state.regions.front().get();
+  llvm::SmallVector<mlir::Location> locs(state.operands.size(), state.location);
+  OpBuilder::InsertionGuard guard(builder);
+  Block *block = builder.createBlock(&region, region.end(), cbTypes, locs);
   singleThreadRegionBuilder(builder, state.location, block->getArguments());
 }
 

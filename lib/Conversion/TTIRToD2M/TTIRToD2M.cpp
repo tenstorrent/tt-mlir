@@ -1287,11 +1287,45 @@ class D2MGatherOpRewriter : public OpConversionPattern<ttir::GatherOp> {
 
     llvm::SmallVector<Value> tapsInputs = {operandLayoutOp.getResult(0), startIndicesLayoutOp.getResult(0)};
     llvm::SmallVector<Value> tapsOutputs = {resultIndicesLayoutOp.getResult(0)};
+
+    /*
+    llvm::SmallVector<Type> blockTypes =
+      llvm::map_to_vector(TypeRange(state.operands), [&](Type t) -> Type {
+        mlir::RankedTensorType tensorType = mlir::cast<RankedTensorType>(t);
+        auto layout =
+            mlir::cast<ttcore::MetalLayoutAttr>(tensorType.getEncoding());
+        auto shardShape = layout.getShardShape(tensorType);
+        return d2m::CBType::get(mlir::RankedTensorType::get(
+            shardShape, tensorType.getElementType()));
+      });
+    */
+
+    llvm::SmallVector<Type> blockTypes;
+    blockTypes.push_back(d2m::CBType::get(mlir::RankedTensorType::get(operandType.getShape(), operandType.getElementType()), ttcore::MemorySpace::DeviceRiscvL1));
+    blockTypes.push_back(d2m::CBType::get(mlir::RankedTensorType::get(startIndicesType.getShape(), startIndicesType.getElementType()), ttcore::MemorySpace::DeviceRiscvL1));
+    
+    // collapse output shape 
+    auto initialShape = resultType.getShape();
+    llvm::SmallVector<int64_t, 2> collapsedShape;
+
+    if (initialShape.size() <= 2) {
+        collapsedShape.assign(initialShape.begin(), initialShape.end());
+    } else {
+        int64_t leading = 1;
+        for (size_t i = 0; i < initialShape.size() - 1; ++i)
+            leading *= initialShape[i];
+
+        collapsedShape.push_back(leading);
+        collapsedShape.push_back(initialShape.back());
+    }
+
+    blockTypes.push_back(d2m::CBType::get(mlir::RankedTensorType::get(collapsedShape, resultType.getElementType()), ttcore::MemorySpace::DeviceRiscvL1));
     
     // create generic op
     [[maybe_unused]] auto genericOp = builder.create<d2m::GenericOp>(loc, tapsInputs, tapsOutputs, mapArrayAttr, iteratorArrayAttrTaps, 
       [&](OpBuilder &builder, Location bodyLoc, ValueRange blockArgs) {
       },
+    blockTypes,
     d2m::ThreadType::Datamovement,
     grid, blockFactors
     );

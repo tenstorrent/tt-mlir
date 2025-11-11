@@ -96,7 +96,7 @@ def D2M_CB : D2M_Type<"CB", "cb", [ShapedTypeInterface, Bufferization_TensorLike
         const mlir::bufferization::BufferizationOptions &,
         llvm::function_ref<mlir::InFlightDiagnostic()>) {
         auto underlying = MemRefType::get(getShape(), getElementType(), nullptr,
-            ttcore::MemorySpaceAttr::get(getContext(), ttcore::MemorySpace::DeviceRiscvL1));
+            ttcore::MemorySpaceAttr::get(getContext(), getMemorySpace()));
         return mlir::cast<bufferization::BufferLikeType>(get(
                 mlir::cast<ShapedType>(underlying)));
       }
