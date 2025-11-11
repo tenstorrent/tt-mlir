@@ -11,12 +11,32 @@
 #include "mlir/IR/AsmState.h"
 #include "mlir/IR/Operation.h"
 #include "mlir/IR/Value.h"
+#include "llvm/ADT/ArrayRef.h"
+#include "llvm/ADT/BitVector.h"
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/STLForwardCompat.h"
+#include "llvm/ADT/SmallVector.h"
 
 #include <tuple>
 #include <type_traits>
 #include <utility>
 
+//===---------------------------------------------------------------------===//
+namespace llvm {
+
+inline llvm::raw_ostream &operator<<(llvm::raw_ostream &os,
+                                     const BitVector &obj) {
+  constexpr char digits[2] = {'0', '1'};
+
+  os << '<';
+  for (BitVector::size_type i = 0; i < obj.size(); ++i) {
+    os << digits[obj.test(i)];
+  }
+  return os << '>';
+}
+
+} // namespace llvm
+//===---------------------------------------------------------------------===//
 namespace mlir::tt::d2m::allocation {
 
 inline bool debugEnabled() {
@@ -45,12 +65,14 @@ inline bool debugEnabled() {
     OS.resetColor();                                                           \
   } while (false)
 
+//===---------------------------------------------------------------------===//
+
 /// Namespace-local shortcut for `llvm::to_underlying(e)`.
 template <typename Enum>
 [[nodiscard]] constexpr std::underlying_type_t<Enum> ordinal(Enum e) {
   return llvm::to_underlying(e);
 }
-
+//===---------------------------------------------------------------------===//
 namespace detail {
 template <typename T, typename = void>
 struct is_operation : std::false_type {};
@@ -64,6 +86,7 @@ struct is_operation<T, std::void_t<decltype(std::declval<T>().getOperaton())>>
 template <typename T>
 constexpr bool is_operation_v = detail::is_operation<T>::value;
 
+//===---------------------------------------------------------------------===//
 namespace detail {
 template <typename Compare, typename... Fields>
 class lexicographical_field_comparator : Compare {
@@ -107,7 +130,101 @@ auto make_lexicographical_field_comparator(Fields... fields) {
   return detail::lexicographical_field_comparator<Compare, Fields...>{
       std::make_tuple(fields...)};
 }
+//===---------------------------------------------------------------------===//
+namespace detail {
 
+using std::begin;
+using std::end;
+
+template <typename T, typename = void>
+struct is_iterable : std::false_type {};
+
+template <typename T>
+struct is_iterable<T, std::void_t<decltype(begin(std::declval<T>())),
+                                  decltype(end(std::declval<T>()))>>
+    : std::true_type {};
+
+} // namespace detail
+
+template <typename T>
+constexpr bool is_iterable_v = detail::is_iterable<T>::value;
+//===---------------------------------------------------------------------===//
+
+template <typename T>
+SmallVector<T> concatToVector(const SmallVector<SmallVector<T>> &vs) {
+  SmallVector<T> r;
+  for (const auto &v : vs) {
+    r.append(v.begin(), v.end());
+  }
+  return r;
+}
+
+template <typename T, typename... RangeTs>
+auto concatToVector(RangeTs &&...ranges)
+    -> std::enable_if_t<(sizeof...(RangeTs) > 1), SmallVector<T>> {
+  return llvm::to_vector(
+      llvm::concat<const T>(std::forward<RangeTs>(ranges)...));
+}
+//===---------------------------------------------------------------------===//
+
+namespace detail {
+
+template <char... Cs>
+struct CharSeq {
+  static void print(llvm::raw_ostream &os) { ((os << Cs), ...); }
+};
+
+template <typename T, typename SepSeq = CharSeq<>, typename OpenSeq = CharSeq<>,
+          typename CloseSeq = CharSeq<>>
+struct IterablePrintAdaptor {
+  const T *obj;
+  friend llvm::raw_ostream &operator<<(llvm::raw_ostream &os,
+                                       const IterablePrintAdaptor &adaptor) {
+    OpenSeq::print(os);
+    {
+      bool first = true;
+      for (const auto &dim : *adaptor.obj) {
+        if (first) {
+          first = false;
+        } else {
+          SepSeq::print(os);
+        }
+        os << dim;
+      }
+    }
+    CloseSeq::print(os);
+
+    return os;
+  }
+};
+} // namespace detail
+
+/// Syntactic sugar helper for printing iterable containers in `[V0, V1, ...]`
+/// format.
+/// @code
+///     llvm::dbgs() << asSeq(...) << ...
+/// @endcode
+template <typename T>
+auto asSeq(const T &obj)
+    -> std::enable_if_t<is_iterable_v<T>,
+                        detail::IterablePrintAdaptor<
+                            T, detail::CharSeq<',', ' '>, detail::CharSeq<'['>,
+                            detail::CharSeq<']'>>> {
+  return {&obj};
+}
+
+/// Syntactic sugar helper for printing shapes in `D0xD1x...` format. A "shape"
+/// is loosely understood to be anything that is iterable. Usage:
+/// @code
+///     llvm::dbgs() << asShape(...) << ...
+/// @endcode
+template <typename T>
+auto asShape(const T &obj)
+    -> std::enable_if_t<is_iterable_v<T>,
+                        detail::IterablePrintAdaptor<T, detail::CharSeq<'x'>>> {
+  return {&obj};
+}
+//===---------------------------------------------------------------------===//
 /// Syntactic sugar helper for printing MLIR Value %-names with
 /// the same IDs as generated by the stock IR tools.
 ///
@@ -127,15 +244,15 @@ struct AsOperandPrinter {
     mlir::Value *value = nullptr;
 
     friend llvm::raw_ostream &operator<<(llvm::raw_ostream &os,
-                                         const PrintAdaptor &obj) {
-      if (obj.op != nullptr) {
-        if (obj.op->getNumResults() > 0) {
-          obj.op->getResult(0).printAsOperand(os, obj.parent->state);
+                                         const PrintAdaptor &adaptor) {
+      if (adaptor.op != nullptr) {
+        if (adaptor.op->getNumResults() > 0) {
+          adaptor.op->getResult(0).printAsOperand(os, adaptor.parent->state);
         } else {
-          os << obj.op->getName();
+          os << adaptor.op->getName();
         }
       } else {
-        obj.value->printAsOperand(os, obj.parent->state);
+        adaptor.value->printAsOperand(os, adaptor.parent->state);
       }
       return os;
     }
