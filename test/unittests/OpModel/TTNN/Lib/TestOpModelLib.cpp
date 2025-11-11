@@ -2243,8 +2243,10 @@ TEST_P(OpModelLinearParam, LinearParam) {
   }
 }
 
+// Disabled due to bias shape constraint failure in tt-metal matmul op,
+// see https://github.com/tenstorrent/tt-mlir/issues/5789
 INSTANTIATE_TEST_SUITE_P(
-    LinearInterleavedTests, OpModelLinearParam,
+    DISABLED_LinearInterleavedTests, OpModelLinearParam,
     ::testing::Values(
         std::make_tuple(detail::interleaved2048X2048Dram,
                         detail::interleaved2048X2048Dram,
@@ -2291,8 +2293,11 @@ INSTANTIATE_TEST_SUITE_P(
             llvm::SmallVector<int64_t>{8, 8},
             detail::ExpectedResult{true, 786432, 262144, 1048576, 131072})));
 
+// Disabled due to bias shape incompatibility: padded second last dimension of
+// bias (1792 = 56*32) not equal to tile height (32)
+// See https://github.com/tenstorrent/tt-mlir/issues/5789
 INSTANTIATE_TEST_SUITE_P(
-    LinearShardedTests, OpModelLinearParam,
+    DISABLED_LinearShardedTests, OpModelLinearParam,
     ::testing::Values(
         std::make_tuple(detail::TestTensor{{56 * 32, 56 * 32},
                                            TensorMemoryLayout::BlockSharded,

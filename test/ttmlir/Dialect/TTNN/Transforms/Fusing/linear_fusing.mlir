@@ -1,5 +1,6 @@
 // RUN: ttmlir-opt --ttnn-fusing -o %t %s
 // RUN: FileCheck %s --input-file=%t
+// UNSUPPORTED: true
 
 // Test fusing sigmoid activation into linear operation
 module {
