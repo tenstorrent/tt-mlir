@@ -24,6 +24,117 @@ def add(
     return builder.add(in0, in1, unit_attrs=unit_attrs)
 
 
+def div(
+    in0: Operand,
+    in1: Operand,
+    builder: StableHLOBuilder,
+    unit_attrs: Optional[List[str]] = None,
+):
+    builder.set_graph_level_check(True)
+    return builder.div(in0, in1, unit_attrs=unit_attrs)
+
+
+def max(
+    in0: Operand,
+    in1: Operand,
+    builder: StableHLOBuilder,
+    unit_attrs: Optional[List[str]] = None,
+):
+    builder.set_graph_level_check(True)
+    return builder.max(in0, in1, unit_attrs=unit_attrs)
+
+
+def min(
+    in0: Operand,
+    in1: Operand,
+    builder: StableHLOBuilder,
+    unit_attrs: Optional[List[str]] = None,
+):
+    builder.set_graph_level_check(True)
+    return builder.min(in0, in1, unit_attrs=unit_attrs)
+
+
+def multiply(
+    in0: Operand,
+    in1: Operand,
+    builder: StableHLOBuilder,
+    unit_attrs: Optional[List[str]] = None,
+):
+    builder.set_graph_level_check(True)
+    return builder.multiply(in0, in1, unit_attrs=unit_attrs)
+
+
+def subtract(
+    in0: Operand,
+    in1: Operand,
+    builder: StableHLOBuilder,
+    unit_attrs: Optional[List[str]] = None,
+):
+    builder.set_graph_level_check(True)
+    return builder.subtract(in0, in1, unit_attrs=unit_attrs)
+
+
+def remainder(
+    in0: Operand,
+    in1: Operand,
+    builder: StableHLOBuilder,
+    unit_attrs: Optional[List[str]] = None,
+):
+    builder.set_graph_level_check(True)
+    return builder.remainder(in0, in1, unit_attrs=unit_attrs)
+
+
+def pow(
+    in0: Operand,
+    in1: Operand,
+    builder: StableHLOBuilder,
+    unit_attrs: Optional[List[str]] = None,
+):
+    builder.set_graph_level_check(True)
+    return builder.pow(in0, in1, unit_attrs=unit_attrs)
+
+
+def atan2(
+    in0: Operand,
+    in1: Operand,
+    builder: StableHLOBuilder,
+    unit_attrs: Optional[List[str]] = None,
+):
+    builder.set_graph_level_check(True)
+    return builder.atan2(in0, in1, unit_attrs=unit_attrs)
+
+
+def shift_right_logical(
+    in0: Operand,
+    in1: Operand,
+    builder: StableHLOBuilder,
+    unit_attrs: Optional[List[str]] = None,
+):
+    builder.set_graph_level_check(True)
+    return builder.shift_right_logical(in0, in1, unit_attrs=unit_attrs)
+
+
+def shift_left(
+    in0: Operand,
+    in1: Operand,
+    builder: StableHLOBuilder,
+    unit_attrs: Optional[List[str]] = None,
+):
+    builder.set_graph_level_check(True)
+    return builder.shift_left(in0, in1, unit_attrs=unit_attrs)
+
+
+def select(
+    condition: Operand,
+    in0: Operand,
+    in1: Operand,
+    builder: StableHLOBuilder,
+    unit_attrs: Optional[List[str]] = None,
+):
+    builder.set_graph_level_check(True)
+    return builder.select(condition, in0, in1, unit_attrs=unit_attrs)
+
+
 def abs(
     in0: Operand,
     builder: StableHLOBuilder,
@@ -130,6 +241,16 @@ def log(
     "test_fn",
     [
         add,
+        div,
+        max,
+        min,
+        multiply,
+        subtract,
+        remainder,
+        pow,
+        atan2,
+        shift_right_logical,
+        shift_left,
     ],
 )
 def test_binary_ops(
@@ -173,6 +294,33 @@ def test_unary_ops(
         test_fn,
         [shape],
         [dtype],
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
+        device=device,
+    )
+
+
+@pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+def test_select_op(shape: Shape, dtype: torch.dtype, target: str, request, device):
+    def select_test(
+        condition: Operand,
+        in0: Operand,
+        in1: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        builder.set_graph_level_check(True)
+        return builder.select(condition, in0, in1, unit_attrs=unit_attrs)
+
+    # Create a boolean condition tensor shape for select
+    compile_and_execute_shlo(
+        select_test,
+        [shape, shape, shape],  # condition, true_val, false_val
+        [torch.bool, dtype, dtype],  # condition is bool, others are the specified dtype
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
