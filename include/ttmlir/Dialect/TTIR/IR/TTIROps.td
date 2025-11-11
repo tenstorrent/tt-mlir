@@ -3073,6 +3073,35 @@ def TTIR_UpdateCacheOp : TTIR_NamedOp<"update_cache"> {
   let hasVerifier = 1;
 }
 
+def TTIR_PagedUpdateCacheOp : TTIR_NamedOp<"paged_update_cache"> {
+  let summary = "Paged update cache op.";
+  let description = [{
+      Inputs:
+        - `cache`: The cache tensor to be updated. This tensor is modified in place [max_num_blocks, num_heads, block_size, head_dim]
+        - `input`: The input tensor containing new values. [1, num_users, num_heads (padded to 32), head_dim]
+        - `update_index`: Indices specifying where to update the cache. [num_users]
+        - `share_cache`: Whether the cache tensors share memory regions. Defaults to False.
+        - `page_table`: The page table for managing memory regions during updates. [num_users, max_num_blocks_per_seq]
+
+      Outputs:
+        - `result`: The updated cache tensor.
+  }];
+
+  let arguments = (ins AnyRankedTensor:$cache,
+                       AnyRankedTensor:$input,
+                       AnyRankedTensor:$update_index,
+                       DefaultValuedAttr<BoolAttr, "false">:$share_cache,
+                       AnyRankedTensor:$page_table);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getCacheMutable(); }
+  }];
+
+  let hasVerifier = 1;
+}
+
 def TTIR_FillCacheOp : TTIR_NamedOp<"fill_cache"> {
   let summary = "Cache filling operation.";
   let description = [{
@@ -3514,7 +3543,6 @@ def TTIR_PoolingOp : TTIR_NamedOp<"pooling", [AttrSizedOperandSegments, DeclareO
         window_dilations = [1, 1, 1, 1],
         padding = [0, 0, 0, 0, 0, 0, 0, 0]
     } : tensor<1x32x32x16xf32>, tensor<1x15x15x16xf32> -> tensor<1x15x15x16xf32>
-    ```
 
     Inputs:
     - `inputs` (Variadic Tensor): Input tensors to be pooled.
@@ -3685,6 +3713,83 @@ def TTIR_MaxPool2dOp : TTIR_NamedOp<"max_pool2d"> {
     let hasVerifier = 1;
 
     let hasFolder = 1;
+}
+
+def TTIR_MaxPool2dWithIndicesOp : TTIR_NamedOp<"max_pool2d_with_indices"> {
+    let summary = "2D maximum pooling operation with indices.";
+    let description = [{
+      The `max_pool2d_with_indices` operation applies a 2D maximum pooling over an input tensor composed of several input planes
+      and also returns the indices of the maximum values within each pooling window.
+
+    This operation performs downsampling by dividing the input into local regions and computing the maximum value
+    of each region, along with the index (location) of that maximum value within the original input tensor. It reduces the
+    spatial dimensions (height and width) of an input tensor while preserving the batch and channel dimensions.
+    This is commonly used in neural networks to reduce the spatial size of feature maps while retaining the most
+    important features, and the indices can be used for unpooling operations or gradient computation.
+
+    Example:
+    ```mlir
+    // Basic 2D max pooling with indices using a 2x2 kernel and stride 1
+    %input = ... : tensor<1x3x3x1xf32>  // 3x3 input tensor with values:
+                                        // [[[1, 2, 3],
+                                        //   [4, 5, 6],
+                                        //   [7, 8, 9]]]]
+    %output = ttir.empty() : tensor<1x2x2x1xf32>
+    %indices_output = ttir.empty() : tensor<1x2x2x1xi32>
+    %result, %indices = ttir.max_pool2d_with_indices(%input, %output, %indices_output) {
+        kernel = [2, 2],
+        stride = [1, 1],
+        dilation = [1, 1],
+        padding = [0, 0, 0, 0],
+        ceil_mode = false
+    } : tensor<1x3x3x1xf32>, tensor<1x2x2x1xf32>, tensor<1x2x2x1xi32> -> tensor<1x2x2x1xf32>, tensor<1x2x2x1xi32>
+    // Result values: [[[5, 6],
+    //                  [8, 9]]]]
+    // Result indices: [[[4, 5],    // 5 is at index 4, 6 is at index 5
+    //                   [7, 8]]]]   // 8 is at index 7, 9 is at index 8
+    // Where: 5 = max(1,2,4,5), 6 = max(2,3,5,6), 8 = max(4,5,7,8), 9 = max(5,6,8,9)
+    ```
+
+    Inputs:
+    - `input` (Tensor): Input tensor in NHWC format (batch, height, width, channels).
+    - `output` (Tensor): Output tensor for the pooled values.
+    - `indices_output` (Tensor): Output tensor for the indices of maximum values.
+
+    Attributes:
+    - `kernel` (i32 | array<2xi32>):
+        - i32: Same kernel size for height and width dimensions (kH = kW = value).
+        - array<2xi32>: [kH, kW] where kH is kernel size for height and kW is kernel size for width.
+    - `stride` (i32 | array<2xi32>):
+        - i32: Same stride for height and width dimensions (sH = sW = value).
+        - array<2xi32>: [sH, sW] where sH is stride for height and sW is stride for width.
+    - `dilation` (i32 | array<2xi32>):
+        - i32: Same dilation for height and width dimensions (dH = dW = value).
+        - array<2xi32>: [dH, dW] where dH is dilation for height and dW is dilation for width.
+    - `padding` (i32 | array<2xi32> | array<4xi32>):
+        - i32: Same padding for all sides (pT = pL = pB = pR = value).
+        - array<2xi32>: [pH, pW] where pH is padding for height (top/bottom) and pW is padding for width (left/right).
+        - array<4xi32>: [pT, pL, pB, pR] for top, left, bottom, and right padding respectively.
+    - `ceil_mode` (Boolean): When true, uses ceil instead of floor for output shape calculation.
+
+    Outputs:
+    - `result` (Tensor): Output tensor after maximum pooling.
+    - `indices` (Tensor): Output tensor containing the indices of the maximum values in the input tensor.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         Variadic<AnyRankedTensor>:$output,
+                         AnyAttrOf<[I32Attr, DenseI32ArrayAttr]>:$kernel,
+                         AnyAttrOf<[I32Attr, DenseI32ArrayAttr]>:$stride,
+                         AnyAttrOf<[I32Attr, DenseI32ArrayAttr]>:$dilation,
+                         AnyAttrOf<[I32Attr, DenseI32ArrayAttr]>:$padding,
+                         BoolAttr:$ceil_mode,
+                         DefaultValuedAttr<TTIR_FlattenedCompatInfoAttr, "nullptr">:$flattened_compat_info);
+
+    let results = (outs AnyRankedTensor:$result,
+                        AnyRankedTensor:$result_indices);
+
+    let hasVerifier = 1;
+
 }
 
 def TTIR_ReshapeOp: TTIR_NamedOp<"reshape", [TTIR_TensorManipulation]> {
@@ -5437,8 +5542,6 @@ def TTIR_ConcatenateHeadsOp: TTIR_NamedOp<"concatenate_heads"> {
 
   let hasVerifier = 1;
 }
-
-
 
 def TTIR_ScaledDotProductAttentionDecodeOp : TTIR_NamedOp<"scaled_dot_product_attention_decode", [AttrSizedOperandSegments]> {
     let summary = "A version of scaled dot product attention specifically for decode.";

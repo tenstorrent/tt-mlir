@@ -125,6 +125,9 @@ public:
       builder->create<emitc::IncludeOp>(
           loc, "compute_kernel_api/eltwise_unary/bitwise_not.h",
           /*isStandard=*/false);
+      builder->create<emitc::IncludeOp>(
+          loc, "compute_kernel_api/eltwise_unary/relu.h",
+          /*isStandard=*/false);
       // Must define macros REDUCE_OP and REDUCE_DIM before including reduce.h
       // because they are default template parameters values in reduce api.
       builder->create<emitc::VerbatimOp>(loc,

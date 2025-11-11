@@ -1118,6 +1118,10 @@ getOpOutputRef(OpContext opContextHandle,
     tensorRef = opContext.type_as_PadOp()->out();
     break;
   }
+  case ::tt::target::ttnn::OpType::AssignOp: {
+    tensorRef = opContext.type_as_AssignOp()->output();
+    break;
+  }
   case ::tt::target::ttnn::OpType::ConcatOp: {
     tensorRef = opContext.type_as_ConcatOp()->out();
     break;
@@ -1218,6 +1222,10 @@ getOpOutputRef(OpContext opContextHandle,
     tensorRef = opContext.type_as_UpdateCacheOp()->cache();
     break;
   }
+  case ::tt::target::ttnn::OpType::PagedUpdateCacheOp: {
+    tensorRef = opContext.type_as_PagedUpdateCacheOp()->cache();
+    break;
+  }
   case ::tt::target::ttnn::OpType::PointToPointOp: {
     tensorRef = opContext.type_as_PointToPointOp()->out();
     break;
@@ -1232,6 +1240,10 @@ getOpOutputRef(OpContext opContextHandle,
   }
   case ::tt::target::ttnn::OpType::RotaryEmbeddingLlamaOp: {
     tensorRef = opContext.type_as_RotaryEmbeddingLlamaOp()->out();
+    break;
+  }
+  case ::tt::target::ttnn::OpType::RotaryEmbeddingOp: {
+    tensorRef = opContext.type_as_RotaryEmbeddingOp()->out();
     break;
   }
   case ::tt::target::ttnn::OpType::NLPConcatHeadsOp: {
@@ -1255,6 +1267,7 @@ getOpOutputRef(OpContext opContextHandle,
     break;
   }
   case ::tt::target::ttnn::OpType::BatchNormTrainingOp:
+  case ::tt::target::ttnn::OpType::MaxPool2dWithIndicesOp:
   case ::tt::target::ttnn::OpType::SortOp:
   case ::tt::target::ttnn::OpType::LoadCachedOp:
   case ::tt::target::ttnn::OpType::GetDeviceOp:
@@ -1422,6 +1435,10 @@ getOpInputRefs(OpContext opContextHandle,
     tensorRefs = {opContext.type_as_PadOp()->in()};
     break;
   }
+  case ::tt::target::ttnn::OpType::AssignOp: {
+    tensorRefs = {opContext.type_as_AssignOp()->input()};
+    break;
+  }
   case ::tt::target::ttnn::OpType::ConcatOp: {
     tensorRefs = utils::convertFbTensorRefsToVector(
         opContext.type_as_ConcatOp()->inputs());
@@ -1467,6 +1484,10 @@ getOpInputRefs(OpContext opContextHandle,
   }
   case ::tt::target::ttnn::OpType::GlobalAvgPool2dOp: {
     tensorRefs = {opContext.type_as_GlobalAvgPool2dOp()->in()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::MaxPool2dWithIndicesOp: {
+    tensorRefs = {opContext.type_as_MaxPool2dWithIndicesOp()->in()};
     break;
   }
   case ::tt::target::ttnn::OpType::PrepareConv2dWeightsOp: {
@@ -1536,6 +1557,13 @@ getOpInputRefs(OpContext opContextHandle,
     tensorRefs = {opContext.type_as_UpdateCacheOp()->cache(),
                   opContext.type_as_UpdateCacheOp()->input(),
                   opContext.type_as_UpdateCacheOp()->update_index()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::PagedUpdateCacheOp: {
+    tensorRefs = {opContext.type_as_PagedUpdateCacheOp()->cache(),
+                  opContext.type_as_PagedUpdateCacheOp()->input(),
+                  opContext.type_as_PagedUpdateCacheOp()->update_index(),
+                  opContext.type_as_PagedUpdateCacheOp()->page_table()};
     break;
   }
   case ::tt::target::ttnn::OpType::FillCacheOp: {
@@ -1636,6 +1664,12 @@ getOpInputRefs(OpContext opContextHandle,
                   opContext.type_as_RotaryEmbeddingLlamaOp()->cos_cache(),
                   opContext.type_as_RotaryEmbeddingLlamaOp()->sin_cache(),
                   opContext.type_as_RotaryEmbeddingLlamaOp()->trans_mat()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::RotaryEmbeddingOp: {
+    tensorRefs = {opContext.type_as_RotaryEmbeddingOp()->input(),
+                  opContext.type_as_RotaryEmbeddingOp()->cos_cache(),
+                  opContext.type_as_RotaryEmbeddingOp()->sin_cache()};
     break;
   }
   case ::tt::target::ttnn::OpType::NLPCreateQKVHeadsDecodeOp: {

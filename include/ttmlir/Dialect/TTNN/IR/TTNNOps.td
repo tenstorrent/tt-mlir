@@ -1018,6 +1018,32 @@ def TTNN_UpdateCacheOp : TTNN_InplaceOp<"update_cache"> {
   let hasVerifier = 1;
 }
 
+def TTNN_PagedUpdateCacheOp : TTNN_InplaceOp<"paged_update_cache"> {
+  let summary = "Paged update cache op.";
+  let description = [{
+      Inputs:
+        - `cache`: The cache tensor to be updated. This tensor is modified in place [max_num_blocks, num_heads, block_size, head_dim]
+        - `input`: The input tensor containing new values. [1, num_users, num_heads (padded to 32), head_dim]
+        - `update_index`: Indices specifying where to update the cache. [num_users]
+        - `share_cache`: Whether the cache tensors share memory regions. Defaults to False.
+        - `page_table`: The page table for managing memory regions during updates. [num_users, max_num_blocks_per_seq]
+  }];
+
+  let arguments = (ins Arg<AnyRankedTensor, "cache tensor", [MemWrite]>:$cache,
+                       AnyRankedTensor:$input,
+                       AnyRankedTensor:$update_index,
+                       DefaultValuedAttr<BoolAttr, "false">:$share_cache,
+                       AnyRankedTensor:$page_table);
+
+  let extraClassDeclaration = [{
+    wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+      return wa::TTNNOperandsWorkaroundsFactory::createPagedUpdateCacheOpOperandsWorkarounds(this->getContext());
+    }
+  }];
+
+  let hasVerifier = 1;
+}
+
 def TTNN_FillCacheOp : TTNN_InplaceOp<"fill_cache"> {
   let summary = "Fill static cache tensor.";
   let description = [{
@@ -1397,7 +1423,8 @@ def TTNN_LinearOp : TTNN_Op<"linear"> {
                          AnyRankedTensor:$b,
                          Optional<AnyRankedTensor>:$bias,
                          DefaultValuedAttr<BoolAttr, "false">:$transpose_a,
-                         DefaultValuedAttr<BoolAttr, "false">:$transpose_b);
+                         DefaultValuedAttr<BoolAttr, "false">:$transpose_b,
+                         OptionalAttr<StrAttr>:$activation);
 
     let results = (outs AnyRankedTensor:$result);
 
@@ -1416,7 +1443,8 @@ def TTNN_MatmulOp : TTNN_Op<"matmul"> {
                             TTNN_MatmulMultiCoreReuseMultiCastProgramConfigAttr,
                             TTNN_MatmulMultiCoreReuseMultiCast1DProgramConfigAttr,
                             TTNN_MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfigAttr
-                         ]>>:$matmul_program_config);
+                         ]>>:$matmul_program_config,
+                         OptionalAttr<StrAttr>:$activation);
 
     let results = (outs AnyRankedTensor:$result);
 
@@ -1733,6 +1761,40 @@ def TTNN_MaxPool2dOp : TTNN_Op<"max_pool2d", [TTNN_MemoryConfigOpInterface]> {
     let extraClassDeclaration = [{
       wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
         return wa::TTNNOperandsWorkaroundsFactory::createPool2DOpOperandsWorkarounds();
+      }
+    }];
+
+    let hasVerifier = 1;
+}
+
+def TTNN_MaxPool2dWithIndicesOp : TTNN_Op<"max_pool2d_with_indices", [TTNN_MemoryConfigOpInterface]> {
+    let summary = "Applies a 2D max pooling over an input signal composed of several input planes, returning both values and indices.";
+    let description = [{
+      Applies a 2D max pooling over an input signal composed of several input planes.
+      Returns both the maximum values and the indices of where those values were found in the input tensor.
+      The indices can be used for unpooling operations or gradient computation.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         SI32Attr:$batch_size,
+                         SI32Attr:$input_height,
+                         SI32Attr:$input_width,
+                         SI32Attr:$channels,
+                         DenseI32ArrayAttr:$kernel_size,
+                         DenseI32ArrayAttr:$stride,
+                         DenseI32ArrayAttr:$padding,
+                         DenseI32ArrayAttr:$dilation,
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config,
+                         OptionalAttr<TTNN_TensorMemoryLayoutAttr>:$applied_shard_scheme,
+                         BoolAttr:$ceil_mode,
+                         BoolAttr:$in_place_halo);
+
+    let results = (outs AnyRankedTensor:$result,
+                        AnyRankedTensor:$result_indices);
+
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        return wa::TTNNOperandsWorkaroundsFactory::createPool2DWithIndicesOpOperandsWorkarounds();
       }
     }];
 
@@ -2566,6 +2628,41 @@ def TTNN_RotaryEmbeddingLlamaOp : TTNN_Op<"rotary_embedding_llama", [TTNN_Memory
     let hasVerifier = 1;
 }
 
+def TTNN_RotaryEmbeddingOp : TTNN_Op<"rotary_embedding", [TTNN_MemoryConfigOpInterface]> {
+  let summary = "Rotary embedding op in TTNN dialect.";
+  let description = [{
+    Applies rotary embedding to the input tensor using precomputed cosine and sine caches.
+    Formula used:
+      x_rotated = x * cos + rotate_half(x) * sin
+      where rotate_half(x) swaps the first and second halves of the last dimension of x.
+
+    Example:
+      ```mlir
+      %result = ttnn.rotary_embedding(%input, %cos_cache, %sin_cache)
+        {memory_config = #ttnn.memory_config<interleaved>}
+        : tensor<1x32x1024x64xf16>, tensor<1x1x1024x64xf16>, tensor<1x1x1024x64xf16>
+        -> tensor<1x32x1024x64xf16>
+      ```
+  }];
+
+  let arguments = (ins AnyRankedTensor:$input,
+                       AnyRankedTensor:$cos_cache,
+                       AnyRankedTensor:$sin_cache,
+                       OptionalAttr<UI32Attr>:$token_index,
+                       OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config,
+                       OptionalAttr<TTNN_DeviceComputeKernelConfig>:$compute_config);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let extraClassDeclaration = [{
+    wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+      return wa::TTNNOperandsWorkaroundsFactory::createRotaryEmbeddingOpOperandsWorkarounds(*this);
+    }
+  }];
+
+  let hasVerifier = 1;
+}
+
 def TTNN_NLPConcatHeadsOp : TTNN_Op<"nlp_concat_heads", [TTNN_MemoryConfigOpInterface]> {
   let summary = "nlp_concat_heads op in TTNN dialect.";
   let description = [{
@@ -2763,5 +2860,24 @@ def TTNN_GlobalAvgPool2dOp: TTNN_Op<"global_avg_pool2d", [
   ];
 
   let hasVerifier = 1;
+}
+
+def TTNN_AssignOp : TTNN_Op<"assign", [TTNN_MemoryConfigOpInterface, TTNN_DtypeOpInterface]> {
+    let summary = "Assign Tensor";
+    let description = [{
+      Returns a new tensor which is a new copy of input tensor.
+      Alternatively, copies input tensor ``input`` to ``optional_output_tensor``
+      if their shapes and memory layouts match, and returns input_b tensor.
+      Input tensors can be of any data type.
+      Output tensor will be of same data type as Input tensor.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         TTNN_MemoryConfigAttr:$memory_config,
+                         OptionalAttr<TTCore_DataTypeAttr>:$dtype);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 1;
 }
 #endif

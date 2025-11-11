@@ -13,6 +13,7 @@ from utils import (
     memory_configs_equal,
     create_dram_tensor,
     create_sharded_tile_tensor,
+    run_op_test,
 )
 
 # Generates all shapes with 1 to 4 tiles per core in each dimension, with every grid from single core to 8x8.
@@ -41,29 +42,6 @@ DRAM_INTERLEAVED_SHAPE_GRIDS = (
 )
 
 
-def run_op_test(
-    device, h, w, max_grid, dtype, op, num_inputs, buffer_type=ttnn.BufferType.L1
-):
-    if buffer_type == ttnn.BufferType.L1:
-        inputs = [
-            create_sharded_tile_tensor(device, h, w, max_grid, dtype)
-            for _ in range(num_inputs)
-        ]
-    else:
-        inputs = [create_dram_tensor(device, h, w, dtype) for _ in range(num_inputs)]
-    print("inputs", inputs)
-    golden_op = _get_ttnn_op(op)
-
-    op_jit = ttnn_jit.jit(debug=True, max_grid=max_grid)(op)
-    output_tensor = op_jit(*inputs)
-    golden_tensor = (golden_op or op)(*inputs)
-
-    assert memory_configs_equal(
-        output_tensor.memory_config(), golden_tensor.memory_config()
-    )
-    assert all_close_check(output_tensor, golden_tensor)
-
-
 def abs(input_tensor):
     return ttnn.abs(input_tensor)
 
@@ -87,6 +65,7 @@ def test_l1_block_sharded_shapes(device, h, w, max_grid, op):
         op,
         num_inputs=1,
         buffer_type=ttnn.BufferType.L1,
+        enable_cache=True,
     )
 
 
@@ -107,4 +86,5 @@ def test_dram_interleaved_shapes(device, h, w, op):
         op,
         num_inputs=1,
         buffer_type=ttnn.BufferType.DRAM,
+        enable_cache=True,
     )
