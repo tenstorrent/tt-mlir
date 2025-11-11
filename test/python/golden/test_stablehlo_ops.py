@@ -123,6 +123,16 @@ def log(
     return builder.log(in0, unit_attrs=unit_attrs)
 
 
+def transpose(
+    in0: Operand,
+    builder: StableHLOBuilder,
+    permutation: List[int],
+    unit_attrs: Optional[List[str]] = None,
+):
+    builder.set_graph_level_check(True)
+    return builder.transpose(in0, permutation, unit_attrs=unit_attrs)
+
+
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
@@ -203,6 +213,46 @@ def test_tan(shape: Shape, dtype: torch.dtype, target: str, request, device):
 
     compile_and_execute_shlo(
         tan,
+        [shape],
+        [dtype],
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
+        device=device,
+    )
+
+
+@pytest.mark.parametrize("shape", [(2, 3, 4), (128, 64)], ids=shape_str)
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+@pytest.mark.parametrize(
+    "permutation",
+    [
+        [1, 0],
+        [2, 1, 0],
+        [0, 2, 1],
+    ],
+)
+def test_transpose(
+    shape: Shape,
+    dtype: torch.dtype,
+    permutation: List[int],
+    target: str,
+    request,
+    device,
+):
+    if len(shape) != len(permutation):
+        pytest.skip(f"Permutation {permutation} doesn't match shape rank {len(shape)}")
+
+    # Skip ttmetal for dimensions > 2
+    if target == "ttmetal" and len(shape) > 2:
+        pytest.skip(
+            f"ttmetal does not support transpose for dimensions > 2, got shape with {len(shape)} dimensions"
+        )
+
+    compile_and_execute_shlo(
+        lambda in0, builder: transpose(in0, builder, permutation),
         [shape],
         [dtype],
         test_base=request.node.name,
