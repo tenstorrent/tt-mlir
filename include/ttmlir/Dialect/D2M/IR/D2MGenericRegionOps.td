@@ -149,6 +149,26 @@ def D2M_TileRecipOp : D2M_GenericRegionComputeUnaryDstOp<"tile_recip", D2M_TileC
     let results = (outs TTCore_Tile:$result);
 }
 
+def D2M_TileMulScalarOp : D2M_GenericRegionComputeUnaryDstOp<"tile_mul_scalar", D2M_TileComputeOpTraitBundle> {
+    let summary = "D2M Tile Multiply by Scalar Op";
+    let description = [{
+        The `tile_mul_scalar` operation multiplies each element in the input tile by a scalar value.
+    }];
+
+    let arguments = (ins TTCore_Tile:$input, F32Attr:$parameter);
+    let results = (outs TTCore_Tile:$result);
+}
+
+def D2M_TilePowScalarOp : D2M_GenericRegionComputeUnaryDstOp<"tile_pow_scalar", D2M_TileComputeOpTraitBundle> {
+    let summary = "D2M Tile Power by Scalar Op";
+    let description = [{
+        The `tile_pow_scalar` operation raises each element in the input tile to a scalar exponent.
+    }];
+
+    let arguments = (ins TTCore_Tile:$input, F32Attr:$parameter);
+    let results = (outs TTCore_Tile:$result);
+}
+
 def D2M_TilePowOp : D2M_GenericRegionComputeBinaryDstOp<"tile_pow", D2M_TileComputeOpTraitBundle> {
     let summary = "D2M Tile Pow Op";
     let description = [{

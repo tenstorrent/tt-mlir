@@ -30,48 +30,51 @@ def digamma_composite(
     builder: TTIRBuilder,
     unit_attrs: Optional[List[str]] = None,
 ):
-    constant_tensors = [
-        torch.full(shape, 0.5).to(dtype),
-        torch.full(shape, 0.083333333).to(dtype),
-        torch.full(shape, 0.008333333333333333).to(dtype),
-        torch.full(shape, 0.003968253968253968).to(dtype),
-        torch.full(shape, 0.004166666666666667).to(dtype),
-        torch.full(shape, 0.007575757575757576).to(dtype),
-        torch.full(shape, 0.021092796092796094).to(dtype),
-        torch.full(shape, 0.08333333333333333).to(dtype),
-    ]
-    constants = [builder.constant(i, unit_attrs=unit_attrs) for i in constant_tensors]
 
     # create builder output
     recip = builder.reciprocal(x, unit_attrs=unit_attrs)
-    term1 = builder.multiply(recip, constants[0], unit_attrs=unit_attrs)
+    term1 = builder.multiply_scalar(recip, 0.5, unit_attrs=unit_attrs)
 
-    recip_square = builder.multiply(recip, recip, unit_attrs=unit_attrs)
-    term2 = builder.multiply(recip_square, constants[1], unit_attrs=unit_attrs)
+    recip_square = builder.pow_scalar(recip, 2, unit_attrs=unit_attrs)
+    term2 = builder.multiply_scalar(
+        recip_square, 0.08333333333333333, unit_attrs=unit_attrs
+    )
     intermediate2 = builder.subtract(term1, term2)
 
-    recip_pow_4 = builder.multiply(recip_square, recip_square, unit_attrs=unit_attrs)
-    term3 = builder.multiply(recip_pow_4, constants[2], unit_attrs=unit_attrs)
+    recip_pow_4 = builder.pow_scalar(recip, 4, unit_attrs=unit_attrs)
+    term3 = builder.multiply_scalar(
+        recip_pow_4, 0.008333333333333333, unit_attrs=unit_attrs
+    )
     intermediate3 = builder.add(intermediate2, term3)
 
-    recip_pow_6 = builder.multiply(recip_pow_4, recip_square, unit_attrs=unit_attrs)
-    term4 = builder.multiply(recip_pow_6, constants[3], unit_attrs=unit_attrs)
+    recip_pow_6 = builder.pow_scalar(recip, 6, unit_attrs=unit_attrs)
+    term4 = builder.multiply_scalar(
+        recip_pow_6, 0.003968253968253968, unit_attrs=unit_attrs
+    )
     intermediate4 = builder.subtract(intermediate3, term4)
 
-    recip_pow_8 = builder.multiply(recip_pow_6, recip_square, unit_attrs=unit_attrs)
-    term5 = builder.multiply(recip_pow_8, constants[4], unit_attrs=unit_attrs)
+    recip_pow_8 = builder.pow_scalar(recip, 8, unit_attrs=unit_attrs)
+    term5 = builder.multiply_scalar(
+        recip_pow_8, 0.004166666666666667, unit_attrs=unit_attrs
+    )
     intermediate5 = builder.add(intermediate4, term5)
 
-    recip_pow_10 = builder.multiply(recip_pow_8, recip_square, unit_attrs=unit_attrs)
-    term6 = builder.multiply(recip_pow_10, constants[5], unit_attrs=unit_attrs)
+    recip_pow_10 = builder.pow_scalar(recip, 10, unit_attrs=unit_attrs)
+    term6 = builder.multiply_scalar(
+        recip_pow_10, 0.007575757575757576, unit_attrs=unit_attrs
+    )
     intermediate6 = builder.subtract(intermediate5, term6)
 
-    recip_pow_12 = builder.multiply(recip_pow_10, recip_square, unit_attrs=unit_attrs)
-    term7 = builder.multiply(recip_pow_12, constants[6], unit_attrs=unit_attrs)
+    recip_pow_12 = builder.pow_scalar(recip, 12, unit_attrs=unit_attrs)
+    term7 = builder.multiply_scalar(
+        recip_pow_12, 0.021092796092796094, unit_attrs=unit_attrs
+    )
     intermediate7 = builder.add(intermediate6, term7)
 
-    recip_pow_14 = builder.multiply(recip_pow_12, recip_square, unit_attrs=unit_attrs)
-    term8 = builder.multiply(recip_pow_14, constants[7], unit_attrs=unit_attrs)
+    recip_pow_14 = builder.pow_scalar(recip, 14, unit_attrs=unit_attrs)
+    term8 = builder.multiply_scalar(
+        recip_pow_14, 0.08333333333333333, unit_attrs=unit_attrs
+    )
     intermediate8 = builder.subtract(intermediate7, term8)
 
     log_x = builder.log(x)
@@ -294,7 +297,13 @@ def polygamma_composite(
 
 # Support for the range (1, +inf)
 @pytest.mark.parametrize("shape", [(128, 128)])
-@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize(
+    "dtype",
+    [
+        torch.float32,
+    ],
+    ids=["f32"],
+)
 @pytest.mark.parametrize("target", ["ttmetal"])
 def test_digamma(
     shape: Shape,

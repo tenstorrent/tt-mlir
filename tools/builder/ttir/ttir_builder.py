@@ -1279,6 +1279,98 @@ class TTIRBuilder(Builder):
             unit_attrs=unit_attrs,
         )
 
+    def multiply_scalar(
+        self,
+        in0: Operand,
+        parameter: float,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpView:
+        """
+        Creates ``ttir.multiply_scalar``.
+
+        *Elementwise multiply by scalar operation.*
+
+        Multiplies each element in the input tensor by a scalar value.
+        For each element x in the input tensor:
+        - returns x * parameter
+
+        .. code-block:: mlir
+
+            // Multiply all elements by 2.5
+            %result = ttir.multiply_scalar(%input, %output) {parameter = 2.5 : f32} : tensor<4xf32>, tensor<4xf32> -> tensor<4xf32>
+            // Input tensor:
+            // [1.0, 2.0, 3.0, 4.0]
+            // Output tensor:
+            // [2.5, 5.0, 7.5, 10.0]
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor to be multiplied
+        parameter : float
+            Scalar value to multiply by
+        unit_attrs : *Optional[List[str]]*, optional
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpView*)
+            A tensor containing the multiplied values
+        """
+        ttir_kwargs = {"parameter": parameter}
+        return self._op_proxy(
+            ttir.MultiplyScalarOp,
+            [in0],
+            ttir_kwargs=ttir_kwargs,
+            unit_attrs=unit_attrs,
+        )
+
+    def pow_scalar(
+        self,
+        in0: Operand,
+        parameter: float,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpView:
+        """
+        Creates ``ttir.pow_scalar``.
+
+        *Elementwise power by scalar operation.*
+
+        Raises each element in the input tensor to a scalar exponent.
+        For each element x in the input tensor:
+        - returns x ^ parameter
+
+        .. code-block:: mlir
+
+            // Raise all elements to power of 2
+            %result = ttir.pow_scalar(%input, %output) {parameter = 2.0 : f32} : tensor<4xf32>, tensor<4xf32> -> tensor<4xf32>
+            // Input tensor:
+            // [1.0, 2.0, 3.0, 4.0]
+            // Output tensor:
+            // [1.0, 4.0, 9.0, 16.0]
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor (base values)
+        parameter : float
+            Scalar exponent value
+        unit_attrs : *Optional[List[str]]*, optional
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpView*)
+            A tensor containing the powered values
+        """
+        ttir_kwargs = {"parameter": parameter}
+        return self._op_proxy(
+            ttir.PowScalarOp,
+            [in0],
+            ttir_kwargs=ttir_kwargs,
+            unit_attrs=unit_attrs,
+        )
+
     # class TTIR_ElementwiseBinaryOp
 
     def eq(
