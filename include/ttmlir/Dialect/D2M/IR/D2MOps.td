@@ -260,6 +260,7 @@ def D2M_GenericOp : D2M_Op<"generic",
       bool hasReduction();
       bool hasMultiUseInputOperand();
       bool isAllParallel();
+      bool hasComputeOpsInRegion(unsigned regionIndex = 0);
     }];
 }
 

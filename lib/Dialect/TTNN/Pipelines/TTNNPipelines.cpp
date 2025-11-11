@@ -42,8 +42,7 @@ void createTTNNPipelineTTIRPasses(
       mlir::tt::ttcore::createTTPopulateArgumentTypes(options.argumentTypeMap));
   pm.addPass(mlir::createCanonicalizerPass());
   ttir::TTIRFusingOptions fusingOptions{
-      options.enableFusingConv2dWithMultiplyPattern,
-      options.enableFusingGlobalPoolPattern};
+      options.enableFusingConv2dWithMultiplyPattern};
   if (options.enableFusing) {
     pm.addPass(mlir::tt::ttir::createTTIRFusing(fusingOptions));
   }
@@ -162,12 +161,6 @@ void createTTNNPipelineDeallocPass(
 void createTTIRToTTNNBackendPipeline(
     OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
   pm.addPass(mlir::createCanonicalizerPass());
-  // Element type normalization should be the first pass in the pipeline.
-  ttir::ElementTypeNormalizationOptions elementTypeNormalizationOptions;
-  elementTypeNormalizationOptions.enableBfp8Conversion =
-      options.enableBfp8Conversion;
-  pm.addPass(
-      ttir::createElementTypeNormalization(elementTypeNormalizationOptions));
 
   // Add Decomposition pass here to ensure it runs before hoisting.
   TTIRToTTIRDecompositionOptions decompOptions;
@@ -179,9 +172,19 @@ void createTTIRToTTNNBackendPipeline(
   // Create CPUModuleOp to wrap hoisted ops (if any).
   pm.addPass(ttir::createTTIRHoistTransform());
 
-  // Run regular TTIR to TTNN pipeline on DeviceModule.
   OpPassManager &devicePm =
       pm.nest<ttcore::DeviceModuleOp>().nest<mlir::ModuleOp>();
+
+  // Element type normalization should be the first pass in the pipeline.
+  // This pass should be applied only to the ops in the Device
+  // Module, since we aren't restricted with element types on CPU.
+  ttir::ElementTypeNormalizationOptions elementTypeNormalizationOptions;
+  elementTypeNormalizationOptions.enableBfp8Conversion =
+      options.enableBfp8Conversion;
+  devicePm.addPass(
+      ttir::createElementTypeNormalization(elementTypeNormalizationOptions));
+
+  // Run regular TTIR to TTNN pipeline on DeviceModule.
   createTTNNPipelineTTIRPasses(devicePm, options);
 
   ttir::TTIRQuantDataTypeConversionPassOptions quantOptions;
@@ -234,7 +237,9 @@ void createTTNNBackendToEmitCPipeline(
   } else {
     // In canonical path, run tuplification + input generation/loading.
     //
-    pm.addPass(createTTNNTuplifyTensors());
+    TTNNTuplifyTensorsOptions tuplifyOptions;
+    tuplifyOptions.tuplifyInputIfEmpty = options.tuplifyInputIfEmpty;
+    pm.addPass(createTTNNTuplifyTensors(tuplifyOptions));
 
     if (options.loadInputTensorsFromDisk) {
       TTNNLoadInputTensorsOptions loadOptions;

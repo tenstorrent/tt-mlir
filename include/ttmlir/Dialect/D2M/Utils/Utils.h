@@ -13,8 +13,8 @@
 namespace mlir::tt::d2m::utils {
 
 // Calculate a reblock affine map between tensor shapes.
-mlir::AffineMap calculateReblockMap(ArrayRef<int64_t> fromTensorShape,
-                                    ArrayRef<int64_t> toTensorShape,
+mlir::AffineMap calculateReblockMap(mlir::ArrayRef<int64_t> fromTensorShape,
+                                    mlir::ArrayRef<int64_t> toTensorShape,
                                     mlir::MLIRContext *context);
 
 // Get square target grid shape.
@@ -42,7 +42,7 @@ Type getRegionLargestDstElemType(Region &region);
 //        (d0, d1, d2) -> (d0, d1, d2, d1, d0, d2)
 //   3. Invert the permutation, remapping the results to input iterators:
 //        (d0, d1, d2, d3, d4, d5) -> (d0, d1, d2)
-AffineMap concatInversePermutationMap(SmallVector<AffineMap> affineMaps,
+AffineMap concatInversePermutationMap(mlir::ArrayRef<AffineMap> affineMaps,
                                       bool reverse);
 
 } // namespace mlir::tt::d2m::utils

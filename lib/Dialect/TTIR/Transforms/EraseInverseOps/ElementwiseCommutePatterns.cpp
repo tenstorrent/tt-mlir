@@ -71,7 +71,8 @@ public:
     // user edges that do not have an inverse on them.
     for (auto *user : users) {
       assert(checkIdenticalTms(tmUser, user) &&
-             "shouldCommute should have ensured this is true");
+             "isCommuteUpwardsViable/Favorable should have ensured all users "
+             "are identical TMs");
     }
 
     for (auto *user : users) {
