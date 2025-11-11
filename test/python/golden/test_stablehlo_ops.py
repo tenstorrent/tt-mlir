@@ -123,6 +123,16 @@ def log(
     return builder.log(in0, unit_attrs=unit_attrs)
 
 
+def get_dimension_size(
+    in0: Operand,
+    builder: StableHLOBuilder,
+    unit_attrs: Optional[List[str]] = None,
+    dimension: int = 0,
+):
+    builder.set_graph_level_check(True)
+    return builder.get_dimension_size(in0, dimension=dimension, unit_attrs=unit_attrs)
+
+
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
@@ -169,6 +179,33 @@ def test_binary_ops(
 def test_unary_ops(
     test_fn: Callable, shape: Shape, dtype: torch.dtype, target: str, request, device
 ):
+    compile_and_execute_shlo(
+        test_fn,
+        [shape],
+        [dtype],
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
+        device=device,
+    )
+
+
+@pytest.mark.parametrize(
+    "shape,dimension,expected",
+    [
+        ((2, 3, 4), 0, 2),
+        ((2, 3, 4), 1, 3),
+        ((2, 3, 4), 2, 4),
+    ],
+    ids=["dim0", "dim1", "dim2"],
+)
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("target", ["ttnn"])
+def test_get_dimension_size(shape, dimension, expected, dtype, target, request, device):
+    def test_fn(in0: Operand, builder: StableHLOBuilder):
+        return builder.get_dimension_size(in0, dimension=dimension)
+
     compile_and_execute_shlo(
         test_fn,
         [shape],

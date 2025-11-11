@@ -644,6 +644,61 @@ class StableHLOBuilder(Builder):
             unit_attrs=unit_attrs,
         )
 
+    def get_dimension_size(
+        self,
+        operand: Operand,
+        dimension: int,
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+    ) -> OpView:
+        """
+        Creates ``stablehlo.get_dimension_size``.
+
+        *Gets the size of a dimension of the operand at runtime.*
+
+        Returns a scalar value containing the size of the specified dimension of the
+        operand tensor. The returned value will have type `tensor<i32>`.
+
+        Parameters
+        ----------
+        operand : Operand
+            Input tensor to query the dimension size from
+        dimension : int
+            The index of the dimension to get the size of
+        unit_attrs : *Optional[List[str]]*
+            Optional list of unit attributes
+        sharding_attr : *Optional[sdy.TensorShardingPerValueAttr]*
+            Optional sharding attribute for the output
+
+        Returns
+        -------
+        (*OpView*)
+            A scalar tensor containing the size of the specified dimension
+
+        Example
+        -------
+        .. code-block:: python
+
+            # Get size of dimension 1 of a tensor with shape [2,3,4]
+            dim_size = builder.get_dimension_size(input_tensor, 1)
+            # dim_size will be a tensor<i32> containing the value 3
+        """
+
+        def organize_golden_args(inputs):
+            # For golden verification, we need the shape of the input tensor
+            shape = inputs[0].type.shape
+            # Return the dimension size directly
+            return [shape[dimension]]
+
+        return self._op_proxy(
+            stablehlo.GetDimensionSizeOp,
+            [operand],
+            unit_attrs=unit_attrs,
+            sharding_attr=sharding_attr,
+            organize_golden_args=organize_golden_args,
+            stablehlo_kwargs={"dimension": dimension},
+        )
+
     # ----- Public Shardy Attribute Generators ----
 
     def mesh_axis_attr(
