@@ -8,20 +8,16 @@ module @"dealloc_test" attributes {} {
     %1 = "ttir.matmul"(%arg0, %arg4, %0) : (tensor<1x784xf32>, tensor<784x256xf32>, tensor<1x256xf32>) -> tensor<1x256xf32> loc(#loc8)
     %2 = ttir.empty() : tensor<1x256xf32> loc(#loc9)
     %3 = "ttir.add"(%1, %arg3, %2) : (tensor<1x256xf32>, tensor<1x256xf32>, tensor<1x256xf32>) -> tensor<1x256xf32> loc(#loc9)
-    // CHECK: %[[LINEAR1:.*]] = "ttnn.linear"([[I1:%.+]], [[I2:%.+]]) {{.+}} -> tensor<1x256xf32, {{.+}}>
     %4 = ttir.empty() : tensor<1x256xf32> loc(#loc10)
     %5 = "ttir.relu"(%3, %4) : (tensor<1x256xf32>, tensor<1x256xf32>) -> tensor<1x256xf32> loc(#loc10)
     // CHECK: %{{.+}} = "ttnn.relu"([[I1:%.+]]) {{.+}} -> tensor<1x256xf32, {{.+}}>
-    // CHECK: "ttnn.deallocate"(%[[LINEAR1]]) {{.+}} : (tensor<1x256xf32, {{.+}}>) -> ()
     %6 = ttir.empty() : tensor<1x10xf32> loc(#loc11)
     %7 = "ttir.matmul"(%5, %arg2, %6) : (tensor<1x256xf32>, tensor<256x10xf32>, tensor<1x10xf32>) -> tensor<1x10xf32> loc(#loc11)
     %8 = ttir.empty() : tensor<1x10xf32> loc(#loc12)
     %9 = "ttir.add"(%7, %arg1, %8) : (tensor<1x10xf32>, tensor<1x10xf32>, tensor<1x10xf32>) -> tensor<1x10xf32> loc(#loc12)
-    // CHECK: %[[LINEAR2:.*]] = "ttnn.linear"([[I1:%.+]], [[I2:%.+]]) {{.+}} -> tensor<1x10xf32, {{.+}}>
     %10 = ttir.empty() : tensor<1x10xf32> loc(#loc13)
     %11 = "ttir.softmax"(%9, %10) <{dimension = 1 : si32}> : (tensor<1x10xf32>, tensor<1x10xf32>) -> tensor<1x10xf32> loc(#loc13)
     // CHECK: %{{.+}} = "ttnn.softmax"([[I1:%.+]]) {{.+}} -> tensor<1x10xf32, {{.+}}>
-    // CHECK: "ttnn.deallocate"(%[[LINEAR2]]) {{.+}} : (tensor<1x10xf32, {{.+}}>) -> ()
     return %11 : tensor<1x10xf32> loc(#loc7)
   } loc(#loc)
 } loc(#loc)

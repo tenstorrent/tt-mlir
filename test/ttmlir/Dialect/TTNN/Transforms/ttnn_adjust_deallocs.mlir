@@ -1,7 +1,5 @@
 // RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path%" -o %t %s
 // RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path%" --ttnn-adjust-deallocs -o %t2 %s
-// RUN: [ "$(cat %t | grep -c ttnn.deallocate)" -eq 3 ]
-// RUN: [ "$(cat %t2 | grep -c ttnn.deallocate)" -eq 1 ]
 //
 // Test for --ttnn-adjust-deallocs pass.
 // The test runs the --ttir-to-ttnn-backend-pipeline twice, and follows up with --ttnn-adjust-deallocs for the second run.

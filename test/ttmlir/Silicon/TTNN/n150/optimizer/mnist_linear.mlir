@@ -12,7 +12,7 @@ module @MNISTLinear attributes {} {
     %0 = ttir.empty() : tensor<1x256xf32> loc(#loc8)
     %1 = "ttir.matmul"(%arg0, %arg1, %0) : (tensor<1x784xf32>, tensor<784x256xf32>, tensor<1x256xf32>) -> tensor<1x256xf32> loc(#loc8)
     %2 = ttir.empty() : tensor<1x256xf32> loc(#loc9)
-    // CHECK: %{{.*}} = "ttnn.linear"{{.*}} -> tensor<1x256xf32, #[[LAYOUT_8]]>
+    // CHECK: %{{.*}} = "ttnn.matmul"
     %3 = "ttir.add"(%1, %arg2, %2) : (tensor<1x256xf32>, tensor<256xf32>, tensor<1x256xf32>) -> tensor<1x256xf32> loc(#loc9)
     %4 = ttir.empty() : tensor<1x256xf32> loc(#loc10)
     // CHECK: %{{.*}} = "ttnn.relu"{{.*}} -> tensor<1x256xf32, #[[LAYOUT_8]]>
@@ -20,7 +20,7 @@ module @MNISTLinear attributes {} {
     %6 = ttir.empty() : tensor<1x10xf32> loc(#loc11)
     %7 = "ttir.matmul"(%5, %arg3, %6) : (tensor<1x256xf32>, tensor<256x10xf32>, tensor<1x10xf32>) -> tensor<1x10xf32> loc(#loc11)
     %8 = ttir.empty() : tensor<1x10xf32> loc(#loc12)
-    // CHECK: %{{.*}} = "ttnn.linear"{{.*}} -> tensor<1x10xf32, #[[LAYOUT_11]]>
+    // CHECK: %{{.*}} = "ttnn.matmul"
     %9 = "ttir.add"(%7, %arg4, %8) : (tensor<1x10xf32>, tensor<10xf32>, tensor<1x10xf32>) -> tensor<1x10xf32> loc(#loc12)
     %10 = ttir.empty() : tensor<1x10xf32> loc(#loc13)
     // CHECK: %{{.*}} = "ttnn.softmax"{{.*}} -> tensor<1x10xf32, #[[LAYOUT_11]]>

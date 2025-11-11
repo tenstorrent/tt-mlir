@@ -2246,12 +2246,14 @@ TEST_P(OpModelLinearParam, LinearParam) {
 INSTANTIATE_TEST_SUITE_P(
     LinearInterleavedTests, OpModelLinearParam,
     ::testing::Values(
-        std::make_tuple(detail::interleaved2048X2048Dram,
-                        detail::interleaved2048X2048Dram,
-                        detail::interleaved2048X2048Dram,
-                        detail::interleaved2048X2048Dram,
-                        llvm::SmallVector<int64_t>{8, 8},
-                        detail::ExpectedResult{true, 655360, 0, 655360, 0}),
+        // Disabled due to bias shape constraint failure in tt-metal matmul op,
+        // see https://github.com/tenstorrent/tt-mlir/issues/5789
+        // std::make_tuple(detail::interleaved2048X2048Dram,
+        //                 detail::interleaved2048X2048Dram,
+        //                 detail::interleaved2048X2048Dram,
+        //                 detail::interleaved2048X2048Dram,
+        //                 llvm::SmallVector<int64_t>{8, 8},
+        //                 detail::ExpectedResult{true, 655360, 0, 655360, 0}),
         std::make_tuple(
             detail::interleaved2048X2048Dram, detail::interleaved2048X2048Dram,
             detail::interleaved2048X2048Dram, detail::inerleaved2048X2048L1,
