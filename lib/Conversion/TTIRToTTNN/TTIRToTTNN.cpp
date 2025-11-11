@@ -32,7 +32,6 @@
 #include "llvm/Support/Casting.h"
 
 #include "llvm/Support/LogicalResult.h"
-#include "llvm/Support/raw_ostream.h"
 #include <cstdint>
 #include <optional>
 
@@ -297,6 +296,10 @@ public:
   LogicalResult
   matchAndRewrite(TTIROpTy op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    if constexpr (std::is_same_v<TTIROpTy, ttir::ReduceOrOp>) {
+      return rewriter.notifyMatchFailure(
+          op, "ReduceOrOp should be handled by ReduceOrOpConversionPattern");
+    }
     rewriter.replaceOpWithNewOp<TTNNOpTy>(
         op, this->getTypeConverter()->convertType(op.getType()),
         adaptor.getInput(), adaptor.getKeepDim(),
@@ -1576,22 +1579,21 @@ public:
   matchAndRewrite(ttir::ReduceOrOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
-    llvm::errs() << "Reducing ReduceOrOp to ReduceOr in TTNN\n";
     RankedTensorType inputType =
         mlir::cast<RankedTensorType>(adaptor.getInput().getType());
     // auto device = ::ttnn::utils::getOrInsertDevice(rewriter, op);
     
     // Create zero constant for comparison (0 or 1)
-    auto zeroConstant = rewriter.create<ttnn::FullOp>(
-        op.getLoc(), inputType, rewriter.getF32FloatAttr(0.0f), nullptr
+    Value zeroConstant = rewriter.create<ttnn::ZerosOp>(
+        op.getLoc(), inputType, /*memory_config=*/nullptr
     );
 
-    auto boolTensor = rewriter.create<ttnn::NotEqualOp>(
+    Value mask = rewriter.create<ttnn::NotEqualOp>(
         op.getLoc(), inputType, adaptor.getInput(), zeroConstant);
 
     rewriter.replaceOpWithNewOp<ttnn::MaxOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
-        boolTensor, adaptor.getKeepDim(),
+        mask, adaptor.getKeepDim(),
         adaptor.getDimArg().value_or(nullptr));
 
     return success();
@@ -2246,6 +2248,9 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            ScaledDotProductAttentionDecodeOpConversionPattern,
            SplitQueryKeyValueAndSplitHeadsOpConversionPattern
            >(typeConverter, ctx);
+  // PatternBenefit so that ReduceOrOpConversionPattern gets higher priority than
+  // ReductionOpConversionPattern
+  patterns.add<ReduceOrOpConversionPattern>(typeConverter, ctx, mlir::PatternBenefit(10));
   // ANCHOR_END: op_rewriter_pattern_set
   // clang-format on
 }

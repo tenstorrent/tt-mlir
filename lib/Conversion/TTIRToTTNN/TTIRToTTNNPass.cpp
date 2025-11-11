@@ -45,6 +45,10 @@ struct ConvertTTIRToTTNNPass
     target.addLegalOp<ttcore::DeviceOp>();
     target.addLegalOp<ttcore::OptimizationBarrierOp>();
 
+    // Force ReduceOrOp to be illegal so that our custom pattern is used.
+    // Not sure if it's really needed.
+    // target.addIllegalOp<ttir::ReduceOrOp>();
+
     TypeConverter typeConverter;
     // All types map 1:1.
     typeConverter.addConversion([](Type type) { return type; });

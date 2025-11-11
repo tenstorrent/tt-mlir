@@ -1961,7 +1961,7 @@ def reduce_or_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor
     """
     dim_arg = kwargs.get("dim_arg", [0])
     keep_dim = kwargs.get("keep_dim", True)
-    return torch.any(input_tensor, dim=tuple(dim_arg), keepdim=keep_dim)
+    return torch.any(input_tensor, dim=tuple(dim_arg), keepdim=keep_dim).to(torch.float32)
 
 
 def transpose_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
