@@ -902,15 +902,27 @@ void d2m::GenericOp::build(
     ValueRange outputs, ArrayAttr indexingMaps, ArrayAttr iteratorTypes,
     llvm::function_ref<void(OpBuilder &, Location, ValueRange)>
         singleThreadRegionBuilder,
-    llvm::SmallVector<mlir::Type> cbTypes,
+    llvm::SmallVector<ttcore::MemorySpace> blockArgumentMemorySpaces,
     ThreadType singleThreadType, ttcore::GridAttr grid,
     ArrayRef<int64_t> blockFactors) {
   build(builder, state, inputs, outputs, indexingMaps, iteratorTypes,
         singleThreadType, grid, blockFactors);
+  llvm::SmallVector<Type> blockTypes =
+      llvm::map_to_vector(llvm::enumerate(TypeRange(state.operands)), [&](auto indexedPair) -> Type {
+        auto i = indexedPair.index();
+        Type t = indexedPair.value();
+
+        mlir::RankedTensorType tensorType = mlir::cast<RankedTensorType>(t);
+        auto layout =
+            mlir::cast<ttcore::MetalLayoutAttr>(tensorType.getEncoding());
+        auto shardShape = layout.getShardShape(tensorType);
+        return d2m::CBType::get(mlir::RankedTensorType::get(
+            shardShape, tensorType.getElementType()), blockArgumentMemorySpaces[i]);
+      });
   Region &region = *state.regions.front().get();
   llvm::SmallVector<mlir::Location> locs(state.operands.size(), state.location);
   OpBuilder::InsertionGuard guard(builder);
-  Block *block = builder.createBlock(&region, region.end(), cbTypes, locs);
+  Block *block = builder.createBlock(&region, region.end(), blockTypes, locs);
   singleThreadRegionBuilder(builder, state.location, block->getArguments());
 }
 
@@ -1678,6 +1690,22 @@ bool d2m::GenericOp::isAllParallel() {
     auto itAttr = mlir::cast<mlir::tt::ttcore::IteratorTypeAttr>(it);
     return itAttr.getValue() == mlir::tt::ttcore::IteratorType::Parallel;
   });
+}
+
+SmallVector<ttcore::MemorySpace> d2m::GenericOp::getBlockArgumentMemorySpaces() {
+  SmallVector<ttcore::MemorySpace> memorySpaces;
+
+  for (Region &region : getRegions()) {
+    for (BlockArgument arg : region.getArguments()) {
+      if (auto cbType = mlir::dyn_cast<d2m::CBType>(arg.getType())) {
+        memorySpaces.push_back(cbType.getMemorySpace());
+      }
+    }
+
+    break;
+  }
+
+  return memorySpaces;
 }
 
 } // namespace mlir::tt::d2m

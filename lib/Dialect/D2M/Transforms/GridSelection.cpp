@@ -498,6 +498,7 @@ static void recreateGenericOp(d2m::GenericOp genericOp) {
             }
           }
         },
+        genericOp.getBlockArgumentMemorySpaces(),
         /*singleThreadType=*/genericOp.getRegionThreadType(0));
 
     genericOp.replaceAllUsesWith(newGenericOp);
