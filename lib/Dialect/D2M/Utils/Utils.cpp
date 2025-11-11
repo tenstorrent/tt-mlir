@@ -19,6 +19,11 @@ mlir::AffineMap calculateReblockMap(mlir::ArrayRef<int64_t> inputShape,
 
   size_t rank = inputShape.size();
   assert(rank % 2 == 0);
+
+  if (inputShape == outputShape) {
+    return AffineMap::getMultiDimIdentityMap(rank, ctx);
+  }
+
   size_t halfRank = rank / 2;
 
   mlir::ArrayRef<int64_t> inputShardShape = inputShape.drop_front(halfRank);
@@ -64,8 +69,6 @@ Type getRegionLargestDstElemType(Region &region) {
 
   Type largestType = nullptr;
   region.walk([&](OperandLoadStoreRegisterOpInterface op) {
-    // Only the typecast op has different input & output types, but it's a DST
-    // in-place op so we simply check all the operands of all the compute ops.
     for (Value v : op.getOperation()->getOperands()) {
       Type t = ttcore::getOperandInnerElementType(v);
 
@@ -78,6 +81,18 @@ Type getRegionLargestDstElemType(Region &region) {
         return WalkResult::interrupt();
       }
     }
+    // Check output type for typecast operations that cast to a larger type.
+    if (op.getOperation()->getNumResults() > 0) {
+      Type outputType =
+          ttcore::getOperandInnerElementType(op.getOperation()->getResult(0));
+      if (!largestType || (getTypeNumberOfBits(outputType) >
+                           getTypeNumberOfBits(largestType))) {
+        largestType = outputType;
+      }
+      if (largestType && getTypeNumberOfBits(largestType) >= 32u) {
+        return WalkResult::interrupt();
+      }
+    }
     return WalkResult::advance();
   });
 
@@ -86,7 +101,7 @@ Type getRegionLargestDstElemType(Region &region) {
   return largestType;
 }
 
-AffineMap concatInversePermutationMap(SmallVector<AffineMap> affineMaps,
+AffineMap concatInversePermutationMap(mlir::ArrayRef<AffineMap> affineMaps,
                                       bool reverse) {
   assert(!affineMaps.empty());
 
