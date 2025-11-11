@@ -241,6 +241,8 @@ inline ::tt::target::BufferType toFlatbuffer(FlatbufferObjectCache &,
     return ::tt::target::BufferType::L1Small;
   case ttnn::BufferType::Trace:
     return ::tt::target::BufferType::Trace;
+  case ttnn::BufferType::RiscvL1:
+    return ::tt::target::BufferType::RiscvL1;
   }
   llvm_unreachable("Unknown ttnn::BufferType");
 }
@@ -264,6 +266,8 @@ inline ::tt::target::BufferType toFlatbuffer(FlatbufferObjectCache &,
     return ::tt::target::BufferType::DRAM;
   case ttcore::MemorySpace::DeviceL1:
     return ::tt::target::BufferType::L1;
+  case ttcore::MemorySpace::DeviceRiscvL1:
+    return ::tt::target::BufferType::RiscvL1;
   case ttcore::MemorySpace::SystemMMIO:
   case ttcore::MemorySpace::System:
   case ttcore::MemorySpace::RegisterDst:

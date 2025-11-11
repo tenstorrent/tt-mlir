@@ -1312,6 +1312,7 @@ class D2MGatherOpRewriter : public OpConversionPattern<ttir::GatherOp> {
     [[maybe_unused]] Value blockIndex = block.getArgument(1);
     [[maybe_unused]] Value blockOutput = block.getArgument(2);
 
+    auto blockOperandWaitOp = builder.create<d2m::WaitOp>(loc, blockOperand);
     auto blockIndexWaitOp = builder.create<d2m::WaitOp>(loc, blockIndex);
     auto blockOutputReserveOp = builder.create<d2m::ReserveOp>(loc, blockOutput);
    
@@ -1461,20 +1462,32 @@ class D2MGatherOpRewriter : public OpConversionPattern<ttir::GatherOp> {
     
     Value extractOperand;
     if (isa<RankedTensorType>(operand.getType())) {
-      extractOperand = blockOperand;
+      extractOperand = blockOperandWaitOp.getResult();
     } else {
       // Cannot extract from unranked tensors, cast to ranked first.
       SmallVector<int64_t> dims(operandRank, ShapedType::kDynamic);
       auto type = RankedTensorType::get(
           dims, cast<TensorType>(operand.getType()).getElementType());
-      extractOperand = builder.create<mlir::tensor::CastOp>(loc, type, blockOperand);
+      extractOperand = builder.create<mlir::tensor::CastOp>(loc, type, blockOperandWaitOp.getResult());
     }
 
-    auto dmaOp = builder.create<d2m::DMAOp>(loc, extractOperand, combinedIndex, blockOutputReserveOp.getResult(), ivs);
+    SmallVector<Value> finalIVs;
+    if (ivs.size() > 2) {
+      Value collapsedLeading = ivs.front();
+      for (size_t i = 1; i < ivs.size() - 1; ++i) {
+        collapsedLeading = builder.create<arith::MulIOp>(loc, collapsedLeading, ivs[i]);
+      }
+
+      Value lastDim = ivs.back();
+      finalIVs.push_back(collapsedLeading);
+      finalIVs.push_back(lastDim);
+    }
+
+    auto dmaOp = builder.create<d2m::DMAOp>(loc, extractOperand, combinedIndex, blockOutputReserveOp.getResult(), finalIVs);
     builder.create<d2m::DMAWaitOp>(loc, dmaOp);
 
     builder.setInsertionPointToEnd(&block);
-    builder.create<d2m::YieldOp>(loc, blockOutput);
+    builder.create<d2m::YieldOp>(loc, blockOutputReserveOp.getResult());
     
     rewriter.replaceOp(gatherOp, toLayoutOp.getResult(0));
 

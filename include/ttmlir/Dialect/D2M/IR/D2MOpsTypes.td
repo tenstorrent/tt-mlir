@@ -37,17 +37,27 @@ def D2M_CB : D2M_Type<"CB", "cb", [ShapedTypeInterface, Bufferization_TensorLike
         allows RankedTensorType) to enable fully formed generic ops that come
         through the pipeline via DSL paths.
     }];
-    let parameters = (ins "ShapedType":$underlying);
-    let assemblyFormat = "`<` $underlying `>`";
+    let parameters = (ins
+      "ShapedType":$underlying,
+      OptionalParameter<"ttcore::MemorySpace">:$memorySpace
+    );
+
+    let assemblyFormat = "`<` $underlying `,`$memorySpace `>`";
 
     let skipDefaultBuilders = 1;
     let builders = [
       TypeBuilder<(ins "mlir::ShapedType":$underlying), [{
-        return $_get($_ctxt, underlying);
+        return $_get($_ctxt, underlying, ttcore::MemorySpace::DeviceL1);
       }]>,
       TypeBuilderWithInferredContext<(ins "mlir::ShapedType":$underlying), [{
-        return $_get(underlying.getContext(), underlying);
+        return $_get(underlying.getContext(), underlying, ttcore::MemorySpace::DeviceL1);
       }]>,
+      TypeBuilder<(ins "mlir::ShapedType":$underlying, "ttcore::MemorySpace":$memorySpace), [{
+        return $_get($_ctxt, underlying, memorySpace);
+      }]>, 
+      TypeBuilderWithInferredContext<(ins "mlir::ShapedType":$underlying, "ttcore::MemorySpace":$memorySpace), [{
+          return $_get(underlying.getContext(), underlying, memorySpace);
+      }]>
     ];
 
     let extraClassDeclaration = [{
@@ -86,7 +96,7 @@ def D2M_CB : D2M_Type<"CB", "cb", [ShapedTypeInterface, Bufferization_TensorLike
         const mlir::bufferization::BufferizationOptions &,
         llvm::function_ref<mlir::InFlightDiagnostic()>) {
         auto underlying = MemRefType::get(getShape(), getElementType(), nullptr,
-            ttcore::MemorySpaceAttr::get(getContext(), ttcore::MemorySpace::DeviceL1));
+            ttcore::MemorySpaceAttr::get(getContext(), ttcore::MemorySpace::DeviceRiscvL1));
         return mlir::cast<bufferization::BufferLikeType>(get(
                 mlir::cast<ShapedType>(underlying)));
       }

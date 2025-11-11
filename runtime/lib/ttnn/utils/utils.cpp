@@ -231,6 +231,8 @@ fromTTNNTensorMemoryLayout(::ttnn::TensorMemoryLayout tensorMemoryLayout) {
     return ::ttnn::BufferType::L1_SMALL;
   case ::tt::target::BufferType::Trace:
     return ::ttnn::BufferType::TRACE;
+  case ::tt::target::BufferType::RiscvL1:
+    return ::ttnn::BufferType::L1;
   }
 };
 

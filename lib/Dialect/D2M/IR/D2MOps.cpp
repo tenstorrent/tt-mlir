@@ -1614,7 +1614,7 @@ d2m::GenericOp::getBufferType(mlir::Value value,
     return mlir::cast<bufferization::BufferLikeType>(MemRefType::get(
         tensorType.getShape(), tensorType.getElementType(), nullptr,
         ttcore::MemorySpaceAttr::get(tensorType.getContext(),
-                                     ttcore::MemorySpace::DeviceL1)));
+                                     ttcore::MemorySpace::DeviceRiscvL1)));
   }
   return ttcore::getBufferType(tensorType, /*isView=*/false);
 }
