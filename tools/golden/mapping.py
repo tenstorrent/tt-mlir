@@ -2467,6 +2467,46 @@ def leaky_relu_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTenso
     return torch.nn.functional.leaky_relu(input_tensor, negative_slope=parameter)
 
 
+def multiply_scalar_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
+    """
+    Golden function for multiply_scalar operation with TTIR parameter names.
+
+    Parameters
+    ----------
+    input_tensor : GoldenMapTensor
+        Input tensor
+    **kwargs : dict
+        Keyword arguments including 'parameter' (the scalar to multiply by)
+
+    Returns
+    -------
+    GoldenMapTensor
+        Tensor multiplied by scalar
+    """
+    parameter = kwargs.get("parameter", 1.0)
+    return torch.mul(input_tensor, parameter)
+
+
+def pow_scalar_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
+    """
+    Golden function for pow_scalar operation with TTIR parameter names.
+
+    Parameters
+    ----------
+    input_tensor : GoldenMapTensor
+        Input tensor (base values)
+    **kwargs : dict
+        Keyword arguments including 'parameter' (the scalar exponent)
+
+    Returns
+    -------
+    GoldenMapTensor
+        Tensor raised to the scalar exponent
+    """
+    parameter = kwargs.get("parameter", 1.0)
+    return torch.pow(input_tensor, parameter)
+
+
 def silu_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
     """
     Golden function for silu operation with TTIR parameter names.
@@ -3271,6 +3311,8 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.CollectiveBroadcastOp: collective_broadcast_golden,
     # Operations with parameter transformations
     ttir.LeakyReluOp: leaky_relu_golden,
+    ttir.MultiplyScalarOp: multiply_scalar_golden,
+    ttir.PowScalarOp: pow_scalar_golden,
     # ----- D2M OPS -----
     # D2M Layout operations (identity functions)
     d2m.ToLayoutOp: (lambda x, **kwargs: x),

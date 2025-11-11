@@ -1140,6 +1140,46 @@ def TTIR_LeakyReluOp : TTIR_ElementwiseUnaryWithFloatParameterOp<"leaky_relu"> {
     }];
 }
 
+def TTIR_MultiplyScalarOp : TTIR_ElementwiseUnaryWithFloatParameterOp<"multiply_scalar"> {
+    let summary = "Eltwise multiply by scalar operation.";
+    let description = [{
+      The multiply_scalar operation multiplies each element of the input tensor by a scalar value.
+
+      y = x * parameter
+
+      where `parameter` is a user-defined scalar constant.
+
+      Inputs:
+      - `input` (Tensor): The input tensor to be multiplied.
+
+      Outputs:
+      - `output` (Tensor): The tensor after multiplying by the scalar.
+
+      Attributes:
+      - `parameter` (float): The scalar value to multiply by.
+    }];
+}
+
+def TTIR_PowScalarOp : TTIR_ElementwiseUnaryWithFloatParameterOp<"pow_scalar"> {
+    let summary = "Eltwise power by scalar operation.";
+    let description = [{
+      The pow_scalar operation raises each element of the input tensor to a scalar exponent.
+
+      y = x ^ parameter
+
+      where `parameter` is a user-defined scalar constant representing the exponent.
+
+      Inputs:
+      - `input` (Tensor): The input tensor (base values).
+
+      Outputs:
+      - `output` (Tensor): The tensor after raising to the scalar exponent.
+
+      Attributes:
+      - `parameter` (float): The scalar exponent value.
+    }];
+}
+
 class TTIR_ElementwiseBinaryOp<string mnemonic, list<Trait> traits = []> :
     TTIR_ElementwiseOp<mnemonic, [ThreeOperands, TTIR_ElementwiseBinary, TTIR_QuantizableOpInterface] #  traits> {
     let summary = "Base class for elementwise operations with two input tensors.";

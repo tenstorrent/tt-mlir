@@ -361,7 +361,9 @@ using ComputeOpMap = OpMap<
   std::pair<d2m::TileGeluOp,        std::pair<ttkernel::GeluTileInitOp,            ttkernel::GeluTileOp>>,
   std::pair<d2m::TileLogOp,         std::pair<ttkernel::LogTileInitOp,             ttkernel::LogTileOp>>,
   std::pair<d2m::TileLogicalNotOp,  std::pair<ttkernel::LogicalNotUnaryTileInitOp, ttkernel::LogicalNotUnaryTileOp>>,
+  std::pair<d2m::TileMulScalarOp,   std::pair<ttkernel::BinopWithScalarTileInitOp, ttkernel::MulUnaryTileOp>>,
   std::pair<d2m::TileNegativeOp,    std::pair<ttkernel::NegativeTileInitOp,        ttkernel::NegativeTileOp>>,
+  std::pair<d2m::TilePowScalarOp,   std::pair<ttkernel::PowerTileInitOp,           ttkernel::PowUnaryTileOp>>,
   std::pair<d2m::TileRecipOp,       std::pair<ttkernel::RecipTileInitOp,           ttkernel::RecipTileOp>>,
   std::pair<d2m::TileReluOp,        std::pair<ttkernel::ReluTileInitOp,            ttkernel::ReluTileOp>>,
   std::pair<d2m::TileRsqrtOp,       std::pair<ttkernel::RsqrtTileInitOp,           ttkernel::RsqrtTileOp>>,
@@ -609,8 +611,21 @@ public:
     rewriter.setInsertionPoint(insertionPoint->getBlock(), insertionPoint);
 
     rewriter.create<InitOp>(op->getLoc());
-    if constexpr (std::is_same_v<SFPUOp, ttkernel::CeilTileOp> ||
-                  std::is_same_v<SFPUOp, ttkernel::FloorTileOp>) {
+    if constexpr (std::is_same_v<SFPUOp, ttkernel::MulUnaryTileOp>) {
+      // Convert the float parameter to a uint32_t representation (reinterpret
+      // bits)
+      float paramValue = op.getParameter().convertToFloat();
+      uint32_t paramAsInt = *reinterpret_cast<uint32_t *>(&paramValue);
+      Value paramValue32 = i32(rewriter, op->getLoc(), paramAsInt);
+      rewriter.create<SFPUOp>(op->getLoc(), adaptor.getInput(), paramValue32);
+    } else if constexpr (std::is_same_v<SFPUOp, ttkernel::PowUnaryTileOp>) {
+      // Convert the float parameter to an integer (truncate)
+      float paramValue = op.getParameter().convertToFloat();
+      int32_t paramAsInt = static_cast<int32_t>(paramValue);
+      Value paramValue32 = i32(rewriter, op->getLoc(), paramAsInt);
+      rewriter.create<SFPUOp>(op->getLoc(), adaptor.getInput(), paramValue32);
+    } else if constexpr (std::is_same_v<SFPUOp, ttkernel::CeilTileOp> ||
+                         std::is_same_v<SFPUOp, ttkernel::FloorTileOp>) {
       const auto elemType =
           mlir::cast<ttcore::TileType>(op.getInput().getType())
               .getElementType();
@@ -1468,7 +1483,9 @@ void populateD2MToTTKernelPatterns(
                ttkernel::D2MSFPUOpsRewriter<d2m::TileGeluOp>,
                ttkernel::D2MSFPUOpsRewriter<d2m::TileLogOp>,
                ttkernel::D2MSFPUOpsRewriter<d2m::TileLogicalNotOp>,
+               ttkernel::D2MSFPUOpsRewriter<d2m::TileMulScalarOp>,
                ttkernel::D2MSFPUOpsRewriter<d2m::TileNegativeOp>,
+               ttkernel::D2MSFPUOpsRewriter<d2m::TilePowScalarOp>,
                ttkernel::D2MSFPUOpsRewriter<d2m::TileRecipOp>,
                ttkernel::D2MSFPUOpsRewriter<d2m::TileReluOp>,
                ttkernel::D2MSFPUOpsRewriter<d2m::TileRsqrtOp>,

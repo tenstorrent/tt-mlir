@@ -441,6 +441,128 @@ private:
 
 // ----------------------------------------------------------------------------
 //
+// Rewrite elementwise ops with float parameters by emitting a matching D2M tile
+// version of the op into a d2m.generic/linalg.generic nest.
+namespace {
+template <typename ConcreteOp, typename TileOp>
+class D2MNamedElementwiseWithFloatParamRewriter final
+    : public mlir::OpConversionPattern<ConcreteOp>,
+      D2MNamedRewriterCommon {
+
+public:
+  D2MNamedElementwiseWithFloatParamRewriter<ConcreteOp, TileOp>(
+      const TypeConverter &typeConverter, mlir::MLIRContext *ctx,
+      ttcore::MemorySpace defaultInputMemSpace,
+      ttcore::MemorySpace defaultOutputMemSpace, bool ttnnMode,
+      bool collapseTensors)
+      : OpConversionPattern<ConcreteOp>(typeConverter, ctx),
+        D2MNamedRewriterCommon(defaultInputMemSpace, defaultOutputMemSpace,
+                               ttnnMode, collapseTensors) {}
+
+private:
+  void createComputeRegion(mlir::OpBuilder &bbBuilder, mlir::Location bbLoc,
+                           mlir::ValueRange bbArgs,
+                           mlir::ConversionPatternRewriter &rewriter,
+                           mlir::Location loc, const size_t numInputs,
+                           const size_t numOutputs,
+                           mlir::FloatAttr parameter) const {
+    mlir::ValueRange operands = bbArgs.take_front(numInputs);
+    mlir::TypeRange resultTypes = bbArgs.take_back(numOutputs);
+
+    mlir::Value yield =
+        bbBuilder.create<TileOp>(loc, resultTypes, operands[0], parameter);
+    bbBuilder.create<mlir::linalg::YieldOp>(bbLoc, yield);
+  }
+
+  LogicalResult
+  matchAndRewrite(ConcreteOp op, typename ConcreteOp::Adaptor adaptor,
+                  mlir::ConversionPatternRewriter &rewriter) const final {
+    mlir::Location loc = op->getLoc();
+
+    auto [origInputs, origOutputs] =
+        splitDpsSignature(adaptor, op.getDpsInits().size());
+    auto [inputs, outputs] =
+        toLayoutOperandsAndResults(rewriter, {origInputs, origOutputs},
+                                   /*tiled*/ true);
+    const std::size_t numInputs = inputs.size();
+    const std::size_t numOutputs = outputs.size();
+    const std::size_t numOperands = (numInputs + numOutputs);
+    assert(numOperands == op->getNumOperands());
+
+    const std::size_t physicalRank =
+        ttcore::getDeviceLayout(outputs[0]).getRank() / 2;
+
+    SmallVector<mlir::AffineMap> indexingMaps =
+        getAffineMapsArray(rewriter, numOperands, physicalRank);
+    SmallVector<mlir::Attribute> iteratorTypes =
+        getIteratorTypesArray(rewriter, physicalRank);
+
+    // Create 'd2m.generic' accepting 'op's operands.
+    auto generic = rewriter.create<d2m::GenericOp>(
+        loc, inputs, outputs, rewriter.getAffineMapArrayAttr(indexingMaps),
+        rewriter.getArrayAttr(iteratorTypes));
+
+    // Create one bb in 'generic''s region and set its arguments.
+    auto insertPoint = rewriter.saveInsertionPoint();
+    rewriter.startOpModification(generic);
+    {
+      mlir::Region &region = generic->getRegions().front();
+      mlir::Block *block = rewriter.createBlock(&region);
+
+      // Populate 'block'.
+      {
+        auto blockArgsVec = createBlockArguments(
+            rewriter, block, loc, TypeRange(inputs), TypeRange(outputs));
+        ArrayRef<Value> blockArgs(blockArgsVec);
+
+        // Create 'linalg.generic' accepting 'blockArgs'.
+        SmallVector<mlir::AffineMap> linalgIndexingMaps =
+            getAffineMapsArray(rewriter, numOperands, physicalRank);
+        SmallVector<mlir::utils::IteratorType> linalgIteratorTypes =
+            iteratorTypeTTIRToLinalg(rewriter, iteratorTypes);
+
+        auto linalgGeneric = rewriter.create<mlir::linalg::GenericOp>(
+            loc,
+            /* result tensor types */
+            llvm::to_vector(
+                mlir::ValueRange(blockArgs.take_back(numOutputs)).getTypes()),
+            /* inputs */ blockArgs.take_front(numInputs),
+            /* outputs */ blockArgs.take_back(numOutputs), linalgIndexingMaps,
+            linalgIteratorTypes,
+            [&](mlir::OpBuilder &bbBuilder, mlir::Location bbLoc,
+                mlir::ValueRange bbArgs) {
+              createComputeRegion(bbBuilder, bbLoc, bbArgs, rewriter, loc,
+                                  numInputs, numOutputs, op.getParameterAttr());
+            });
+
+        rewriter.create<d2m::YieldOp>(loc, linalgGeneric->getResults());
+      }
+    }
+    rewriter.finalizeOpModification(generic);
+    rewriter.restoreInsertionPoint(insertPoint);
+
+    rewriter.replaceOp(op, unLayoutResult(rewriter, generic->getResult(0),
+                                          op->getResult(0).getType()));
+    return llvm::success();
+  }
+
+  static SmallVector<mlir::AffineMap>
+  getAffineMapsArray(mlir::OpBuilder &builder, std::size_t arity,
+                     std::size_t rank) {
+    return getIdentityAffineMapsArray(builder, arity, rank);
+  }
+
+  static SmallVector<mlir::Attribute>
+  getIteratorTypesArray(mlir::OpBuilder &builder, std::size_t rank) {
+    auto parallel = ttcore::IteratorTypeAttr::get(
+        builder.getContext(), ttcore::IteratorType::Parallel);
+    return SmallVector<mlir::Attribute>(rank, parallel);
+  }
+};
+} // namespace
+
+// ----------------------------------------------------------------------------
+//
 // Rewriting reduction ops is similar to the elementwise group except for
 // ops whose tiled counterparts require a scaler operand ('weights', etc).
 // This rewriter will emit a single tile scaler operand that will be
@@ -1091,9 +1213,11 @@ void populateTTIRToD2MPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
     D2MNamedElementwiseRewriter<ttir::LogOp,        d2m::TileLogOp>,
     D2MNamedElementwiseRewriter<ttir::LogicalNotOp, d2m::TileLogicalNotOp>,
     D2MNamedElementwiseRewriter<ttir::MultiplyOp,   d2m::TileMulOp>,
+    D2MNamedElementwiseWithFloatParamRewriter<ttir::MultiplyScalarOp, d2m::TileMulScalarOp>,
     D2MNamedElementwiseRewriter<ttir::MaximumOp,    d2m::TileMaximumOp>,
     D2MNamedElementwiseRewriter<ttir::NegOp,        d2m::TileNegativeOp>,
     D2MNamedElementwiseRewriter<ttir::PowOp,        d2m::TilePowOp>,
+    D2MNamedElementwiseWithFloatParamRewriter<ttir::PowScalarOp, d2m::TilePowScalarOp>,
     D2MNamedElementwiseRewriter<ttir::ReciprocalOp, d2m::TileRecipOp>,
     D2MNamedElementwiseRewriter<ttir::ReluOp,       d2m::TileReluOp>,
     D2MNamedElementwiseRewriter<ttir::RsqrtOp,      d2m::TileRsqrtOp>,

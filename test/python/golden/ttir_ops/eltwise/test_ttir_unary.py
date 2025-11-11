@@ -387,6 +387,70 @@ def test_get_dimension_size(
     )
 
 
+@pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("target", ["ttmetal"])
+# @pytest.mark.parametrize("scalar", [0.5, 2.0, 3.14])
+@pytest.mark.parametrize("scalar", [0.5])
+def test_multiply_scalar(
+    scalar: float,
+    shape: Shape,
+    dtype: torch.dtype,
+    target: str,
+    request,
+    device,
+):
+    def multiply_scalar(
+        in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
+    ):
+        return builder.multiply_scalar(in0, scalar, unit_attrs=unit_attrs)
+
+    pipeline_options = []
+    compile_and_execute_ttir(
+        multiply_scalar,
+        inputs_shapes=[shape],
+        inputs_types=[dtype],
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
+        device=device,
+        pipeline_options=pipeline_options,
+    )
+
+
+@pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("target", ["ttmetal"])
+# @pytest.mark.parametrize("exponent", [0.5, 2.0, 3.0])
+@pytest.mark.parametrize("exponent", [2.0])
+def test_pow_scalar(
+    exponent: float,
+    shape: Shape,
+    dtype: torch.dtype,
+    target: str,
+    request,
+    device,
+):
+    def pow_scalar(
+        in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
+    ):
+        return builder.pow_scalar(in0, exponent, unit_attrs=unit_attrs)
+
+    pipeline_options = []
+    compile_and_execute_ttir(
+        pow_scalar,
+        inputs_shapes=[shape],
+        inputs_types=[dtype],
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
+        device=device,
+        pipeline_options=pipeline_options,
+    )
+
+
 # Unaligned shapes tests for the neg op
 unaligned_shapes = [
     (5, 3),

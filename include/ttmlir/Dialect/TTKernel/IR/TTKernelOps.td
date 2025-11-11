@@ -1535,6 +1535,64 @@ def TTKernel_SiluTileOp : TTKernel_SFPUOp<"silu_tile", [TTKernel_UnaryOpTrait]> 
     }];
 }
 
+def TTKernel_BinopWithScalarTileInitOp : TTKernel_InitOp<"binop_with_scalar_tile_init"> {
+    let summary = "Init function for binary operations with scalar tile operations.";
+    let description = [{
+      Must be run before binary operations with scalar like mul_unary_tile.
+    }];
+
+    let arguments = (ins);
+
+    let assemblyFormat = [{
+      `(` `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_MulUnaryTileOp : TTKernel_SFPUOp<"mul_unary_tile", [TTKernel_UnaryOpTrait]> {
+    let summary = "Multiply by scalar operation";
+    let description = [{
+      Performs element-wise multiplication of a tile by a scalar value.
+      DST[dst0_index] <- DST[dst0_index] * scalar
+      The DST register buffer must be in acquired state via *tile_regs_acquire* call.
+      This call is blocking and is only available on the compute engine.
+    }];
+
+    let arguments = (ins IndexLike:$dst0_index, I32:$param);
+
+    let assemblyFormat = [{
+      `(` $dst0_index `,` $param `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_PowerTileInitOp : TTKernel_InitOp<"power_tile_init"> {
+    let summary = "Init function for power_tile operation.";
+    let description = [{
+      Must be run before power_tile.
+    }];
+
+    let arguments = (ins);
+
+    let assemblyFormat = [{
+      `(` `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_PowUnaryTileOp : TTKernel_SFPUOp<"power_tile", [TTKernel_UnaryOpTrait]> {
+    let summary = "Power by scalar operation";
+    let description = [{
+      Performs element-wise exponentiation of a tile by a scalar value.
+      DST[dst0_index] <- DST[dst0_index] ^ scalar
+      The DST register buffer must be in acquired state via *tile_regs_acquire* call.
+      This call is blocking and is only available on the compute engine.
+    }];
+
+    let arguments = (ins IndexLike:$dst0_index, I32:$param);
+
+    let assemblyFormat = [{
+      `(` $dst0_index `,` $param `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
 def TTKernel_ReluTileInitOp : TTKernel_InitOp<"relu_tile_init"> {
     let summary = "Short init function which configures compute unit for execution of relu_tile(_int32).";
     let description = [{
