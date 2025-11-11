@@ -170,10 +170,64 @@ jobs:
         # Print load average (1min, 5min, 15min)
         python3 -c "import os; print(f'Load average: {os.getloadavg()}')" || true
         
+        # Check system resources
+        echo "System resources:"
+        echo "  CPU cores: $(nproc 2>/dev/null || echo 'unknown')"
+        echo "  Memory: $(free -h 2>/dev/null | grep Mem | awk '{print $2 " total, " $3 " used, " $7 " available"}' || echo 'unknown')"
+        echo "  Load average: $(cat /proc/loadavg 2>/dev/null | awk '{print $1 " " $2 " " $3}' || echo 'unknown')"
+        
         # Check clocksource and TSC for Tracy timestamp accuracy
         echo "Checking clocksource and TSC stability..."
         cat /sys/devices/system/clocksource/clocksource0/current_clocksource 2>/dev/null || echo "No clocksource info available"
         dmesg 2>/dev/null | grep -i tsc || echo "No TSC info in dmesg (may need root)"
+        
+        # Check Tracy library locations
+        echo "Checking Tracy library locations..."
+        tracy_paths=(
+          "build/lib/libtracy.so"
+          "third_party/tt-metal/src/tt-metal/build/lib/libtracy.so"
+          "install/lib/libtracy.so"
+          "$BUILD_DIR/lib/libtracy.so"
+          "$INSTALL_DIR/lib/libtracy.so"
+        )
+        for path in "${tracy_paths[@]}"; do
+          if [ -f "$path" ]; then
+            echo "  ✓ Found: $path ($(ls -lh "$path" | awk '{print $5}'))"
+          else
+            echo "  ✗ Missing: $path"
+          fi
+        done
+        
+        # Check shared library dependencies for ttrt, tt-mlir, and tt-metal
+        echo "Checking shared library dependencies..."
+        
+        # Find ttrt binary
+        ttrt_bin=$(which ttrt 2>/dev/null || echo "")
+        if [ -n "$ttrt_bin" ]; then
+          echo "  ttrt binary: $ttrt_bin"
+          ldd "$ttrt_bin" 2>/dev/null | grep -i tracy || echo "    (no tracy libs found)"
+        fi
+        
+        # Check tt-mlir compiler library
+        mlir_lib="$BUILD_DIR/lib/libTTMLIRCompiler.so"
+        if [ -f "$mlir_lib" ]; then
+          echo "  tt-mlir compiler lib: $mlir_lib"
+          readelf -d "$mlir_lib" 2>/dev/null | grep -E 'NEEDED.*tracy|RPATH|RUNPATH' | head -10 || echo "    (no tracy dependencies)"
+        fi
+        
+        # Check tt-metal library
+        metal_lib="third_party/tt-metal/src/tt-metal/build/lib/libtt_metal.so"
+        if [ -f "$metal_lib" ]; then
+          echo "  tt-metal lib: $metal_lib"
+          readelf -d "$metal_lib" 2>/dev/null | grep -E 'NEEDED.*tracy|RPATH|RUNPATH' | head -10 || echo "    (no tracy dependencies)"
+        fi
+        
+        # Check runtime library (where tracy is actually used)
+        runtime_lib="$BUILD_DIR/lib/libTTRuntimeTTNN.so"
+        if [ -f "$runtime_lib" ]; then
+          echo "  tt-runtime lib: $runtime_lib"
+          readelf -d "$runtime_lib" 2>/dev/null | grep -E 'NEEDED.*tracy|RPATH|RUNPATH' | head -10 || echo "    (no tracy dependencies)"
+        fi
         
         # Check if tracy_ops_data.csv has interleaved or separated message ordering
         echo "Checking Tracy message ordering in ops data..."
