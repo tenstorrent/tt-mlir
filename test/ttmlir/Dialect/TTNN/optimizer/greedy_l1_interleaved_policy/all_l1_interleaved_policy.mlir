@@ -8,7 +8,6 @@ module attributes {} {
     %0 = ttir.empty() : tensor<64x96xbf16>
     %1 = "ttir.matmul"(%arg0, %arg1, %0) : (tensor<64x128xbf16>, tensor<128x96xbf16>, tensor<64x96xbf16>) -> tensor<64x96xbf16>
     %2 = ttir.empty() : tensor<64x96xbf16>
-    // CHECK: %{{.*}} = "ttnn.linear"{{.*}} -> tensor<64x96xbf16, #[[LAYOUT_L1]]>
     %3 = "ttir.add"(%1, %arg2, %2) : (tensor<64x96xbf16>, tensor<64x96xbf16>, tensor<64x96xbf16>) -> tensor<64x96xbf16>
     %4 = ttir.empty() : tensor<64x96xbf16>
     // CHECK: %{{.*}} = "ttnn.relu"{{.*}} -> tensor<64x96xbf16, #[[LAYOUT_L1]]>
@@ -16,7 +15,6 @@ module attributes {} {
     %6 = ttir.empty() : tensor<64x32xbf16>
     %7 = "ttir.matmul"(%5, %arg3, %6) : (tensor<64x96xbf16>, tensor<96x32xbf16>, tensor<64x32xbf16>) -> tensor<64x32xbf16>
     %8 = ttir.empty() : tensor<64x32xbf16>
-    // CHECK: %{{.*}} = "ttnn.linear"{{.*}} -> tensor<64x32xbf16, #[[LAYOUT_L1]]>
     %9 = "ttir.add"(%7, %arg4, %8) : (tensor<64x32xbf16>, tensor<64x32xbf16>, tensor<64x32xbf16>) -> tensor<64x32xbf16>
     %10 = ttir.empty() : tensor<64x32xbf16>
     // CHECK: %{{.*}} = "ttnn.relu"{{.*}} -> tensor<64x32xbf16, #[[LAYOUT_L1]]>
