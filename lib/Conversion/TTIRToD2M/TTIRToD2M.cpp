@@ -1654,10 +1654,15 @@ class D2MScatterOpRewriter : public OpConversionPattern<ttir::ScatterOp> {
     [[maybe_unused]] auto updatesLayoutOp = builder.create<d2m::ToLayoutOp>(loc, updates, updatesEmpty, nullptr);
 
     // Create d2m::EmptyOp for output
-    auto newOutputEmpty = builder.create<d2m::EmptyOp>(
+
+    // We need to create a copy of the input tensor to use as the output base.
+    // Currently a hack to use d2m::ToLayoutOp to perform the copy where the pre/post metal layouts are the same.
+    auto copiedInputEmpty = builder.create<d2m::EmptyOp>(
       loc,
-      outputType.getShape(),
-      outputType.getElementType());
+      inputType.getShape(),
+      inputType.getElementType());
+
+    [[maybe_unused]] auto copiedInputLayoutOp = builder.create<d2m::ToLayoutOp>(loc, input, copiedInputEmpty, nullptr);
 
     // Insert to metal layout conversion for the output.
     llvm::SmallVector<int64_t> outputAlignments(outputType.getShape().size(), 1);
@@ -1694,7 +1699,7 @@ class D2MScatterOpRewriter : public OpConversionPattern<ttir::ScatterOp> {
       outputType.getElementType(),
       outputMetalLayout);
 
-    [[maybe_unused]] auto outputLayoutOp = builder.create<d2m::ToLayoutOp>(loc, newOutputEmpty, outputEmpty, nullptr);
+    [[maybe_unused]] auto outputLayoutOp = builder.create<d2m::ToLayoutOp>(loc, copiedInputLayoutOp.getResult(0), outputEmpty, nullptr);
 
     /////////////////// Let's create the D2M generic op ///////////////////
 
@@ -1781,18 +1786,6 @@ class D2MScatterOpRewriter : public OpConversionPattern<ttir::ScatterOp> {
     [[maybe_unused]] auto scatterIndicesWaitOp = builder.create<d2m::WaitOp>(loc, scatterIndicesBlockArgument);
     [[maybe_unused]] auto updateWaitOp = builder.create<d2m::WaitOp>(loc, updateBlockArgument);
     [[maybe_unused]] auto outputReserveOp = builder.create<d2m::ReserveOp>(loc, outputBlockArgument);
-
-    // We are going to create a nested loop structure to iterate over the updates tensor
-    SmallVector<Value> ivs;
-    
-    for (int64_t i = 0; i < updateRank; ++i) {
-      int64_t dim = updateType.getDimSize(i);
-      auto loop = builder.create<mlir::affine::AffineForOp>(loc, 0, dim);
-      builder.setInsertionPointToStart(loop.getBody());
-      ivs.push_back(loop.getInductionVar());
-    }
-
-
 
     rewriter.replaceOp(scatterOp, finalOutputToLayoutOp.getResult(0));
     return success();
