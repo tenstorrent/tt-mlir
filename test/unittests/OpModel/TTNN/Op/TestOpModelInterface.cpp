@@ -1777,13 +1777,13 @@ TEST_F(OpModelBase, RotaryEmbeddingOpInterface) {
   auto constraintsExp = getOpConstraints(rotaryEmbedding.getOperation());
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
-    const auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+    const auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts] =
         l1;
     EXPECT_EQ(cbSize, 49152);
     EXPECT_EQ(l1PeakSize, 65536);
     EXPECT_EQ(outputSize, 65536);
     EXPECT_EQ(totalPeakSize, 114688);
-    EXPECT_TRUE(outputLayout != nullptr);
+    EXPECT_TRUE(outputLayouts.size() > 0);
   } else {
     FAIL() << "Missing L1 constraints for RotaryEmbeddingOp; Error="
            << llvm::toString(constraintsExp.takeError());

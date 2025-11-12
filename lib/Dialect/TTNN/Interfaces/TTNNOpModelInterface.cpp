@@ -2317,7 +2317,7 @@ RotaryEmbeddingOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
   return opConstraintsCache().getOrCompute(
       op_model::OpModel<RotaryEmbeddingOp>::getOpConstraints, *this, deviceGrid,
       inputShape, inputs[0], cosShape, inputs[1], sinShape, inputs[2],
-      tokenIndex, opConfig.outputLayout);
+      tokenIndex, opConfig.outputLayouts[0]);
 }
 
 llvm::Expected<size_t>
@@ -2333,7 +2333,7 @@ RotaryEmbeddingOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
   return opRuntimeCache().getOrCompute(
       op_model::OpModel<RotaryEmbeddingOp>::getOpRuntime, *this, inputShape,
       inputs[0], cosShape, inputs[1], sinShape, inputs[2], tokenIndex,
-      opConfig.outputLayout);
+      opConfig.outputLayouts[0]);
 }
 
 //===-----------------------------------------------------------------------===//
