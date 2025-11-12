@@ -32,7 +32,6 @@
 #include "llvm/Support/Casting.h"
 
 #include "llvm/Support/LogicalResult.h"
-#include "llvm/Support/raw_ostream.h"
 #include <cstdint>
 #include <optional>
 
