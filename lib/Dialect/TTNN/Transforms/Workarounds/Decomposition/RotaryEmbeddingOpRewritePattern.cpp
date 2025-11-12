@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/RotaryEmbeddingOpRewritePattern.h"
+
 #include "ttmlir/Dialect/TTNN/Types/Types.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 
@@ -18,11 +19,11 @@ LogicalResult RotaryEmbeddingOpRewritePattern::matchAndRewrite(
     return failure();
   }
 
-  if (resultShape[resultShape.size() - 2] % TILE_HEIGHT == 0) {
+  int64_t originalSeqLen = resultShape[resultShape.size() - 2];
+  if (originalSeqLen % TILE_HEIGHT == 0) {
     return failure();
   }
 
-  int64_t originalSeqLen = resultShape[resultShape.size() - 2];
   SmallVector<int64_t> paddedResultShape(resultShape);
   paddedResultShape[paddedResultShape.size() - 2] =
       llvm::divideCeil(originalSeqLen, TILE_HEIGHT) * TILE_HEIGHT;

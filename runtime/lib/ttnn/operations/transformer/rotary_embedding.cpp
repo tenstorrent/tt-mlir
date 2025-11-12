@@ -19,8 +19,10 @@ static void runRotaryEmbedding(const ::tt::target::ttnn::RotaryEmbeddingOp *op,
   const ::ttnn::Tensor &sinCache =
       tensorPool.getTTNNTensorAndValidate(op->sin_cache());
   std::optional<uint32_t> tokenIndex = op->token_index();
-  std::optional<::ttnn::DeviceComputeKernelConfig> computeConfig;
+  std::optional<::ttnn::DeviceComputeKernelConfig> computeConfig(
+      ::ttnn::WormholeComputeKernelConfig{});
 
+  // https://github.com/tenstorrent/tt-mlir/issues/5790
   std::get<::ttnn::WormholeComputeKernelConfig>(*computeConfig).math_fidelity =
       MathFidelity::HiFi4;
   if (op->compute_config()) {
