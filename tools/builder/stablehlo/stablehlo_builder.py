@@ -1079,10 +1079,11 @@ class StableHLOBuilder(Builder):
         ]
         return self._op_proxy(
             stablehlo.DynamicSliceOp,
-            [in0, start_indices_op],
+            [in0],
             unit_attrs=unit_attrs,
             sharding_attr=sharding_attr,
             stablehlo_kwargs={
+                "start_indices": start_indices_op,
                 "slice_sizes": DenseI64ArrayAttr.get(slice_sizes, context=self._ctx),
             },
             golden_kwargs={
