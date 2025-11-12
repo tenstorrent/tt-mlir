@@ -308,6 +308,60 @@ class StableHLOBuilder(Builder):
             sharding_attr=sharding_attr,
         )
 
+    def clamp(
+        self,
+        min: Operand,
+        operand: Operand,
+        max: Operand,
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+    ) -> OpView:
+        """
+        Creates ``stablehlo.clamp``.
+
+        *Elementwise clamp operation.*
+
+        Clamps each element of the operand tensor between a minimum and maximum value.
+        For each element, returns min if element < min, max if element > max, otherwise element.
+
+        Mathematical definition: clamp(min, x, max) = min(max(x, min), max)
+
+        .. code-block:: mlir
+
+            // Clamp elements between min and max
+            %result = stablehlo.clamp(%min, %operand, %max) : tensor<3xf32>, tensor<3xf32>, tensor<3xf32> -> tensor<3xf32>
+            // Input tensors:
+            // min: [5, 10, 15]
+            // operand: [3, 13, 23]
+            // max: [10, 15, 20]
+            // Output tensor:
+            // [5, 13, 20]
+
+        Parameters
+        ----------
+        min : Operand
+            Minimum value tensor (can be scalar or tensor)
+        operand : Operand
+            Input tensor to be clamped
+        max : Operand
+            Maximum value tensor (can be scalar or tensor)
+        unit_attrs : *Optional[List[str]]*
+            Optional list of unit attributes
+        sharding_attr : *Optional[sdy.TensorShardingPerValueAttr]*
+            Optional sharding attribute
+
+        Returns
+        -------
+        (*OpView*)
+            A tensor containing the clamped values
+        """
+        return self._eltwise_proxy(
+            stablehlo.ClampOp,
+            [min, operand, max],
+            unit_attrs=unit_attrs,
+            sharding_attr=sharding_attr,
+        )
+
     # ----- Elementwise Unary Operations -----
 
     def abs(

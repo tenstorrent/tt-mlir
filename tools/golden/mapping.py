@@ -2978,6 +2978,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     stablehlo.AddOp: torch.add,
     stablehlo.AbsOp: torch.abs,
     stablehlo.CeilOp: torch.ceil,
+    stablehlo.ClampOp: torch.clamp,
     stablehlo.CosineOp: torch.cos,
     stablehlo.ExpOp: torch.exp,
     stablehlo.FloorOp: torch.floor,
