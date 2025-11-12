@@ -3,10 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #ifndef TT_RUNTIME_DETAIL_TTNN_UTILS_H
-#define TT_RUNTIME_DETAIL_TTNN_UTILS_H
-
-#include "flatbuffers/vector.h"
-#include "tt/runtime/detail/ttnn/ttnn.h"
+#define TT_RUNTIME_DETAIL_TTNN_UTILS_H                                         \
+  #include "flatbuffers/vector.h" #include "tt/runtime/detail/ttnn/ttnn.h"
 #include "tt/runtime/detail/ttnn/types/types.h"
 #include "ttmlir/Target/Common/types_generated.h"
 #include "ttmlir/Target/TTNN/Target.h"
@@ -70,20 +68,24 @@ fromTTNNStorageType(::ttnn::StorageType storageType);
 ::ttnn::Layout
 inferLayoutFromTileShape(const ::tt::target::ttnn::TensorRef *tensorRef);
 
-CoreCoord toTTNNCoreCoord(const ::tt::target::ttnn::CoreCoord &coreCoord);
+tt::tt_metal::CoreCoord
+toTTNNCoreCoord(const ::tt::target::ttnn::CoreCoord &coreCoord);
 
-::tt::target::ttnn::CoreCoord fromTTNNCoreCoord(const CoreCoord &coreCoord);
+::tt::target::ttnn::CoreCoord
+fromTTNNCoreCoord(const tt::tt_metal::CoreCoord &coreCoord);
 
-CoreRange toTTNNCoreRange(const tt::target::ttnn::CoreRange &coreRange);
+tt::tt_metal::CoreRange
+toTTNNCoreRange(const tt::target::ttnn::CoreRange &coreRange);
 
-::tt::target::ttnn::CoreRange fromTTNNCoreRange(const CoreRange &coreRange);
+::tt::target::ttnn::CoreRange
+fromTTNNCoreRange(const tt::tt_metal::CoreRange &coreRange);
 
-CoreRangeSet
+tt::tt_metal::CoreRangeSet
 toTTNNCoreRangeSet(const tt::target::ttnn::CoreRangeSet &coreRangeSet);
 
 ::flatbuffers::Offset<::tt::target::ttnn::CoreRangeSet>
 fromTTNNCoreRangeSet(::flatbuffers::FlatBufferBuilder &fbb,
-                     const CoreRangeSet &coreRangeSet);
+                     const tt::tt_metal::CoreRangeSet &coreRangeSet);
 
 ::ttnn::ShardOrientation
 toTTNNShardOrientation(tt::target::ttnn::ShardOrientation orientation);
