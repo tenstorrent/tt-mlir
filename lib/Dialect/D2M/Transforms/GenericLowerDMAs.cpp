@@ -52,11 +52,14 @@ public:
   buildStreamIndex(OpBuilder &builder, Location loc,
                    ArrayRef<int64_t> gridShape, ArrayRef<int64_t> blockFactors,
                    ArrayRef<int64_t> shardShape, AffineMap dmaIndexingMap,
-                   AffineMap gridIndexingMap, AffineMap coreVirtualizationMap) {
-    assert(dmaIndexingMap.getNumDims() == gridIndexingMap.getNumDims());
-    assert(dmaIndexingMap.getNumResults() == gridIndexingMap.getNumResults());
+                   AffineMap outputOperandIndexingMap,
+                   AffineMap coreVirtualizationMap) {
+    assert(dmaIndexingMap.getNumDims() ==
+           outputOperandIndexingMap.getNumDims());
+    assert(dmaIndexingMap.getNumResults() ==
+           outputOperandIndexingMap.getNumResults());
     assert(dmaIndexingMap.getNumResults() == shardShape.size());
-    assert(gridIndexingMap.isProjectedPermutation(true) &&
+    assert(outputOperandIndexingMap.isProjectedPermutation(true) &&
            "Grid indexing map must be a permutation");
 
     SmallVector<Value> streamIndex;
@@ -66,9 +69,10 @@ public:
     // Compute virtualized core indices from raw physical core indices using the
     // core virtualization map. This ensures both grid and shard indices are
     // in the virtual (viewed) coord space of the generic op's output operand.
-    SmallVector<Value> physicalCoreIndices(gridIndexingMap.getNumResults());
-    for (unsigned gridIndex = 0; gridIndex < gridIndexingMap.getNumResults();
-         gridIndex++) {
+    SmallVector<Value> physicalCoreIndices(
+        outputOperandIndexingMap.getNumResults());
+    for (unsigned gridIndex = 0;
+         gridIndex < outputOperandIndexingMap.getNumResults(); gridIndex++) {
       physicalCoreIndices[gridIndex] = builder.create<CoreIndexOp>(
           loc, builder.getIndexType(), builder.getI64IntegerAttr(gridIndex));
     }
@@ -79,7 +83,8 @@ public:
     } else {
       virtualGridIndices = physicalCoreIndices;
     }
-    TT_assertv(virtualGridIndices.size() == gridIndexingMap.getNumResults(),
+    TT_assertv(virtualGridIndices.size() ==
+                   outputOperandIndexingMap.getNumResults(),
                "Core virtualization map must have the same number of results "
                "as the grid indexing map");
 
@@ -106,7 +111,8 @@ public:
         // Identify the corresponding grid dimension that participates in the
         // dma access.
         std::optional<unsigned> gridResult =
-            gridIndexingMap.getResultPosition(dmaIndexingMap.getResult(result));
+            outputOperandIndexingMap.getResultPosition(
+                dmaIndexingMap.getResult(result));
 
         //
         // The following assert is pretty subtle. If this operand dimension
@@ -114,13 +120,13 @@ public:
         // grid result is the same as the operand result. This protects against
         // permutations of the grid, ie. transposes.  For example, let's
         // consider a matmul case:
-        //   dmaIndexingMap:  (m, n, k) -> (m, k)
-        //   dmaIndexingMap:  (m, n, k) -> (k, n)
-        //   gridIndexingMap: (m, n, k) -> (m, n)
+        //   dmaIndexingMap:           (m, n, k) -> (m, k)
+        //   dmaIndexingMap:           (m, n, k) -> (k, n)
+        //   outputOperandIndexingMap: (m, n, k) -> (m, n)
         //                                     ^
         // This assert ensures that the m's line up. A counter example would be:
-        //   dmaIndexingMap:  (m, n, k) -> (m, k)
-        //   gridIndexingMap: (m, n, k) -> (n, m)
+        //   dmaIndexingMap:           (m, n, k) -> (m, k)
+        //   outputOperandIndexingMap: (m, n, k) -> (n, m)
         //
         // Not currently supported.
         //
@@ -309,7 +315,7 @@ public:
     unsigned outputOperandsIndex =
         genericParent.getOutputs().getBeginOperandIndex();
     // The output and the grid indexing must always be aligned.
-    AffineMap gridIndexingMap =
+    AffineMap outputOperandIndexingMap =
         mlir::cast<AffineMapAttr>(
             genericParent.getIndexingMaps()[outputOperandsIndex])
             .getValue();
@@ -323,7 +329,7 @@ public:
 
     SmallVector<Value> streamIndices = buildStreamIndex(
         rewriter, loc, memrefGridShape, genericParent.getBlockFactorsValue(),
-        memrefShardShape, dmaIndexingMap, gridIndexingMap,
+        memrefShardShape, dmaIndexingMap, outputOperandIndexingMap,
         coreVirtualizationMap);
 
     ttcore::DeviceAttr device = genericParent.getDevice();

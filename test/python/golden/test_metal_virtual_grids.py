@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: (c) 2024 Tenstorrent AI ULC
+# SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
 
@@ -14,7 +14,6 @@ from conftest import x86_only
 
 from ttmlir.dialects import ttir, ttcore
 from builder.base.builder import Operand, Shape, TypeInfo
-from builder.base.builder_golden import BuilderGoldenTensor
 from builder.ttir.ttir_builder import TTIRBuilder
 from builder.base.builder_utils import (
     compile_ttir_to_flatbuffer,
