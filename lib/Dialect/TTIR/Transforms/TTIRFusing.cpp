@@ -1070,13 +1070,13 @@ public:
 };
 
 // Fuses the sum of two convolutions into a single convolution:
-//   conv2d(x, w1, b1) + conv2d(x, w2, b2)  ->  conv2d(x, padded_w2 + w1, b1 +
-//   b2)
+//   conv2d(x, w1, b1) + conv2d(x, w2, b2)
+//   ->  conv2d(x, w1 + padded_w2, b1 + b2)
 //
 // Implements the RepVGG pattern where:
 //   - w1 is a 3x3 kernel with padding 1
 //   - w2 is a 1x1 kernel with padding 0
-//   - padded_w2 is w2 padded to 3x3 with padding 1
+//   - padded_w2 is w2 padded to 3x3 with 0s
 //   - Both convolutions share the same input, stride, dilation, and groups
 //
 // This pattern was is used in YOLOv9.
