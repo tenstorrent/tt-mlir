@@ -222,6 +222,110 @@ public:
 
 using FuncBodyTypeConverter = FuncBodyTypeCast::FuncBodyTypeConverter;
 
+// This pattern converts weight operands of matmul and conv2d operations
+// to bfp8_b type, while leaving activations in high precision.
+// This is used for mixed precision training/inference where weights are
+// in lower precision but activations remain in higher precision.
+class WeightsTypeCast : public mlir::ConversionPattern {
+public:
+  WeightsTypeCast(const mlir::TypeConverter &converter, mlir::MLIRContext *ctx)
+      : mlir::ConversionPattern(converter, MatchAnyOpTypeTag(), 1, ctx) {}
+
+  LogicalResult
+  matchAndRewrite(mlir::Operation *op, llvm::ArrayRef<mlir::Value> operands,
+                  mlir::ConversionPatternRewriter &rewriter) const final {
+
+    // Only match matmul and conv2d operations
+    bool isMatmul = llvm::isa<ttir::MatmulOp>(op);
+    bool isConv2d = llvm::isa<ttir::Conv2dOp>(op);
+    if (!isMatmul && !isConv2d) {
+      return rewriter.notifyMatchFailure(op, "not a matmul or conv2d op");
+    }
+
+    // Determine which operands are weights
+    // For matmul: operand 1 (b) is typically the weight
+    // For conv2d: operand 1 (weight) and optionally operand 2 (bias) are
+    // weights
+    llvm::SmallVector<unsigned> weightIndices;
+    if (isMatmul) {
+      weightIndices.push_back(1); // b operand
+    } else if (isConv2d) {
+      weightIndices.push_back(1); // weight operand
+      // Check if bias exists (it's optional)
+      if (op->getNumOperands() > 2 && op->getOperand(2)) {
+        auto biasType =
+            mlir::dyn_cast<mlir::RankedTensorType>(op->getOperand(2).getType());
+        if (biasType) {
+          weightIndices.push_back(2); // bias operand
+        }
+      }
+    }
+
+    // Check if any weight operand has float type (bf16 or f32)
+    bool hasFloatWeights = false;
+    for (unsigned idx : weightIndices) {
+      if (auto tensorType = mlir::dyn_cast<mlir::RankedTensorType>(
+              op->getOperand(idx).getType())) {
+        mlir::Type elType = tensorType.getElementType();
+        if (mlir::isa<mlir::BFloat16Type, mlir::Float32Type>(elType)) {
+          hasFloatWeights = true;
+          break;
+        }
+      }
+    }
+
+    if (!hasFloatWeights) {
+      return rewriter.notifyMatchFailure(op, "no float weight operands");
+    }
+
+    // Create new operands with converted weights
+    llvm::SmallVector<mlir::Value> newOperands(op->getOperands());
+
+    for (unsigned idx : weightIndices) {
+      mlir::Value weight = op->getOperand(idx);
+      auto weightType =
+          mlir::dyn_cast<mlir::RankedTensorType>(weight.getType());
+      if (!weightType) {
+        continue;
+      }
+
+      mlir::Type elType = weightType.getElementType();
+      // Convert float types (bf16 or f32) to bfp8_b
+      if (mlir::isa<mlir::BFloat16Type, mlir::Float32Type>(elType)) {
+        // Create target type: tile<bfp8_b>
+        mlir::Type bfp8Type = ttcore::TileType::get(
+            op->getContext(), ttcore::TileType::getDefaultShape(),
+            ttcore::DataType::BFP_BFloat8);
+        mlir::RankedTensorType targetType = weightType.clone(bfp8Type);
+
+        // Insert typecast operation
+        mlir::Value convertedWeight =
+            ttir::utils::createDPSOp<ttir::TypecastOp>(rewriter, op->getLoc(),
+                                                       targetType, weight);
+        newOperands[idx] = convertedWeight;
+      }
+    }
+
+    // Clone the operation with new operands
+    mlir::Operation *newOp =
+        rewriter.create(op->getLoc(), op->getName().getIdentifier(),
+                        newOperands, op->getResultTypes(), op->getAttrs());
+
+    // Replace the old operation
+    rewriter.replaceOp(op, newOp->getResults());
+    return success();
+  }
+
+  struct WeightsTypeConverter : mlir::TypeConverter {
+    WeightsTypeConverter() {
+      // Identity conversion - we don't change types, we insert casts
+      addConversion([](mlir::Type type) { return type; });
+    }
+  };
+};
+
+using WeightsTypeConverter = WeightsTypeCast::WeightsTypeConverter;
+
 struct ElementTypeNormalization
     : public impl::ElementTypeNormalizationBase<ElementTypeNormalization> {
   using impl::ElementTypeNormalizationBase<
@@ -241,6 +345,24 @@ struct ElementTypeNormalization
             mlir::applyPatternsGreedily(getOperation(), std::move(patterns)))) {
       signalPassFailure();
       return;
+    }
+
+    if (experimentalBfp8Weights) {
+      mlir::ConversionTarget target(getContext());
+      WeightsTypeConverter weightsConverter;
+
+      // All ops are legal - we're just adding casts before matmul/conv2d ops
+      target.markUnknownOpDynamicallyLegal(
+          [](mlir::Operation *op) { return true; });
+
+      mlir::RewritePatternSet weightsPatterns(&getContext());
+      weightsPatterns.add<WeightsTypeCast>(weightsConverter, &getContext());
+
+      if (failed(mlir::applyPartialConversion(getOperation(), target,
+                                              std::move(weightsPatterns)))) {
+        signalPassFailure();
+        return;
+      }
     }
 
     if (enableBfp8Conversion) {

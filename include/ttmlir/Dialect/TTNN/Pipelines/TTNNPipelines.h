@@ -304,6 +304,12 @@ struct TTIRToTTNNBackendPipelineOptions
       llvm::cl::desc("Enables conversion from bfloat16 to bfp8_b."),
       llvm::cl::init(false)};
 
+  Option<bool> experimentalBfp8Weights{
+      *this, "experimental-bfp8-weights",
+      llvm::cl::desc("Experimental: Enables conversion of weight tensors in "
+                     "matmul and conv2d operations to bfp8_b."),
+      llvm::cl::init(false)};
+
   // Option to provide a pointer to an already opened device. When provided,
   // the optimizer will use this device instead of opening a new one.
   // This allows frontends to pass in an active device without closing it.
