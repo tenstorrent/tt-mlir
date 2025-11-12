@@ -2807,8 +2807,6 @@ public:
         emitter.emit(srcOp.getPageTable()),
         emitter.emit(srcOp.getIsCausal()),
         emitter.emit(srcOp.getAttentionMask()),
-        emitc::OpaqueAttr::get(rewriter.getContext(),
-                               "std::vector<uint32_t>()"),
         emitter.emit(srcOp.getCurPosTensor()),
         emitter.emit(srcOp.getAttentionSink()),
         emitter.emit(srcOp.getScale()),
