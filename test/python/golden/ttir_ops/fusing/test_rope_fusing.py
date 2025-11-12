@@ -173,7 +173,7 @@ def test_rotary_embedding(
 )
 @pytest.mark.parametrize("dtypes", [[torch.bfloat16] * 3])
 @pytest.mark.parametrize("target", ["ttnn"])
-def test_rotary_embedding(
+def test_rotary_embedding_failure(
     shapes: List[Shape], dtypes: List[torch.dtype], target: str, request, device
 ):
     """
