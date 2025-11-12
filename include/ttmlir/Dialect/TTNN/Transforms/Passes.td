@@ -300,4 +300,12 @@ def TTNNPrettifyForCodegen: Pass<"ttnn-prettify-for-codegen", "::mlir::ModuleOp"
   }];
 }
 
+def TTNNSimplifyLocsForCodegen: Pass<"ttnn-simplify-locs-for-codegen", "::mlir::ModuleOp"> {
+  let summary = "Simplify location information for code generation.";
+  let description = [{
+    This pass simplifies location information by removing nested locations from NameLocs.
+    It only processes TTNN dialect operations and skips UnknownLocs.
+  }];
+}
+
 #endif
