@@ -4748,6 +4748,109 @@ mlir::tt::ttir::ScaledDotProductAttentionDecodeOp::verify() {
 }
 
 //===----------------------------------------------------------------------===//
+// PagedScaledDotProductAttentionDecodeOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult
+mlir::tt::ttir::PagedScaledDotProductAttentionDecodeOp::verify() {
+
+  RankedTensorType queryType = getQuery().getType();
+  RankedTensorType keyType = getKey().getType();
+  RankedTensorType valueType = getValue().getType();
+  RankedTensorType pageTableType = getPageTable().getType();
+
+  auto queryShape = queryType.getShape();
+  auto keyShape = keyType.getShape();
+  auto pageTableShape = pageTableType.getShape();
+
+  auto numUsers = queryShape[1];
+  auto numQueryHeads = queryShape[2];
+  auto headSize = queryShape[3];
+  auto numKVHeads = keyShape[1];
+  auto blockSize = keyShape[2];
+
+  // Verify element types.
+  if (queryType.getElementType() != keyType.getElementType() ||
+      queryType.getElementType() != valueType.getElementType()) {
+    return emitOpError(
+        "Query, key, and value must have the same element type.");
+  }
+
+  if (!queryType.getElementType().isFloat()) {
+    return emitOpError("Query, key, and value must be float tensors.");
+  }
+
+  if (!pageTableType.getElementType().isInteger()) {
+    return emitOpError("Page table must be an integer tensor.");
+  }
+
+  // Verify key and value are identical shapes/dtypes
+  if (keyType != valueType) {
+    return emitOpError("Key and value must have the same shape and data type.");
+  }
+
+  // Verify ranks.
+  if (queryType.getShape().size() != 4) {
+    return emitOpError("Query must be a 4D tensor.");
+  }
+  if (keyType.getShape().size() != 4) {
+    return emitOpError("Key/Value tensor must be a 4D tensor.");
+  }
+  if (pageTableType.getShape().size() != 2) {
+    return emitOpError("Page table tensor must be a 2D tensor.");
+  }
+
+  // Verify shapes.
+  if (headSize != keyShape[3]) {
+    return emitOpError("Query head size must match key/value head size.");
+  }
+  if (numQueryHeads % numKVHeads != 0) {
+    return emitOpError(
+        "Query num heads must be divisible by key/value num heads.");
+  }
+  if (blockSize % 32 != 0) {
+    return emitOpError("Block size must be divisible by 32.");
+  }
+
+  if (pageTableShape[0] != numUsers) {
+    return emitOpError(
+        "Page table number of users must match query number of users.");
+  }
+
+  bool isCausal = getIsCausal();
+  if (isCausal) {
+    if (getAttentionMask()) {
+      return emitOpError(
+          "Attention mask is not allowed when is_causal is true.");
+    }
+  } else {
+    if (!getAttentionMask()) {
+      return emitOpError("Attention mask is required when is_causal is false.");
+    }
+  }
+
+  if (getCurPosTensor()) {
+    if (getCurPosTensor().getType().getShape().size() != 1) {
+      return emitOpError("Cur pos tensor must be a 1D tensor.");
+    }
+    if (getCurPosTensor().getType().getShape()[0] != numUsers) {
+      return emitOpError(
+          "Cur pos tensor number of users must match query number of users.");
+    }
+  }
+
+  if (getAttentionSink()) {
+    return emitOpError("Attention sink is not currently verified.");
+  }
+
+  if (getAttentionMask()) {
+    return emitOpError("Attention mask is not currently verified.");
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // ScaledDotProductAttentionOp
 //===----------------------------------------------------------------------===//
 

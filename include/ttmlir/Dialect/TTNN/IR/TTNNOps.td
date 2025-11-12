@@ -2817,7 +2817,7 @@ def TTNN_PagedScaledDotProductAttentionDecodeOp : TTNN_Op<"paged_scaled_dot_prod
     }
   }];
 
-  let hasVerifier = 0;
+  let hasVerifier = 1;
 }
 
 def TTNN_ScaledDotProductAttentionOp : TTNN_Op<"scaled_dot_product_attention", [TTNN_MemoryConfigOpInterface]> {
