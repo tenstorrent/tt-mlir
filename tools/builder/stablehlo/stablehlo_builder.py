@@ -127,9 +127,7 @@ class StableHLOBuilder(Builder):
         op_stablehlo_function: Callable,
         golden_kwargs: dict = {},
     ):
-        op_golden_function = builder_golden.get_golden_function(
-            op_stablehlo_function, **golden_kwargs
-        )
+        op_golden_function = get_golden_function(op_stablehlo_function, **golden_kwargs)
         if op_golden_function is None:
             return None
 
@@ -1008,48 +1006,37 @@ class StableHLOBuilder(Builder):
             The reshaped tensor
         """
 
-        with self._ctx, self._loc:
-            input_type = self._get_type(in0)
-            shape_tuple = tuple(int(d) for d in shape)
+        input_type = self._get_type(in0)
+        shape_tuple = tuple(int(d) for d in shape)
 
-            # Reject negative or inferred dims for static reshape. Zero-sized dims are allowed.
-            if any((not isinstance(d, int)) or (d < 0) for d in shape_tuple):
-                raise ValueError(
-                    f"stablehlo.reshape expects a static non-negative-int shape, got {shape_tuple}"
-                )
+        # static-only: allow zero, forbid negatives / inferred (-1)
+        if any((not isinstance(d, int)) or (d < 0) for d in shape_tuple):
+            raise ValueError(
+                f"stablehlo.reshape expects a static non-negative-int shape, got {shape_tuple}"
+            )
 
-            if math.prod(input_type.shape) != math.prod(shape_tuple):
-                raise ValueError(
-                    "number of elements must be the same for reshape: "
-                    f"{math.prod(input_type.shape)} != {math.prod(shape_tuple)}"
-                )
+        if math.prod(input_type.shape) != math.prod(shape_tuple):
+            raise ValueError(
+                "number of elements must be the same for reshape: "
+                f"{math.prod(input_type.shape)} != {math.prod(shape_tuple)}"
+            )
 
-            element_type = input_type.element_type
-            result_type = RankedTensorType.get(shape_tuple, element_type)
+        out_elem_type = input_type.element_type
 
-            op_id = self._get_next_global_id()
-            loc = self._get_loc_of_extra_file_callee(id=op_id)
-
-            op = stablehlo.ReshapeOp(result_type, in0, loc=loc)
-
-            if unit_attrs is not None:
-                for attr_name in unit_attrs:
-                    op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
-
-            if sharding_attr is not None:
-                op.operation.attributes["sdy.sharding"] = sharding_attr
-
-            if not self._disable_golden_check:
-                op_golden_function = get_golden_function(
-                    stablehlo.ReshapeOp, shape=shape_tuple
-                )
-                if op_golden_function is not None:
-                    golden_output = op_golden_function(
-                        *(self._organize_eltwise_golden([in0])), shape=shape_tuple
-                    )
-                    self._set_golden_tensor(op, golden_output)
-
-            return op
+        return self._op_proxy(
+            stablehlo.ReshapeOp,
+            inputs=[in0],
+            unit_attrs=unit_attrs,
+            sharding_attr=sharding_attr,
+            # create result type inside _op_proxy using these hints:
+            output_shape=shape_tuple,
+            output_type=out_elem_type,
+            # tell how to call the op: ReshapeOp(result_type, in0)
+            organize_stablehlo_args=lambda i, o, k: (o, i[0]),
+            # golden wiring: provide input tensor(s) and pass `shape`
+            organize_golden_args=lambda i: (self._get_golden_tensor(i[0]),),
+            golden_kwargs={"shape": shape_tuple},
+        )
 
     # ----- Public Shardy Attribute Generators ----
 
