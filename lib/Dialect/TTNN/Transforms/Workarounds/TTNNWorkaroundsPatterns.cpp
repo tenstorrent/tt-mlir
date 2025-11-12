@@ -22,6 +22,7 @@
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/EmbeddingOpSqueezeWeightRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ExplicateOperandBroadcastsRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/LinearOpRewritePattern.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/MeshShardScalarOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/MultiplyOpDecompositionRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/PagedUpdateCacheOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ReduceScatterOpRewritePattern.h"
@@ -575,7 +576,8 @@ public:
               Conv2dEnableKernelStrideFoldingRewritePattern<ConvTranspose2dOp>,
           workarounds::decomposition::Conv2dSliceConfigRewritePattern,
           workarounds::decomposition::ConcatenateHeadsOpRewritePattern,
-          workarounds::decomposition::PagedUpdateCacheOpRewritePattern>(
+          workarounds::decomposition::PagedUpdateCacheOpRewritePattern,
+          workarounds::decomposition::MeshShardScalarOpRewritePattern>(
           &getContext());
 
       runRewritePatterns(std::move(patterns),
