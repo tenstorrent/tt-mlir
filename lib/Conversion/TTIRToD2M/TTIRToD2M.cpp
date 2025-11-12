@@ -1758,7 +1758,32 @@ class D2MScatterOpRewriter : public OpConversionPattern<ttir::ScatterOp> {
       grid,
       blockFactors);
 
-    return mlir::success();
+    // create to layout for generic op
+    auto finalOutput = builder.create<d2m::EmptyOp>(
+      loc,
+      outputType.getShape(),
+      outputType.getElementType());
+
+    [[maybe_unused]] auto finalOutputToLayoutOp = builder.create<d2m::ToLayoutOp>(loc, genericOp.getResult(0), finalOutput, nullptr);
+
+    //////////////////////// Fill in the region of the generic op ///////////////////
+    Region &region = genericOp.getRegion(0);
+    Block &block = region.front();
+    OpBuilder::InsertionGuard guard(rewriter); 
+    builder.setInsertionPointToEnd(&block);
+
+    Value inputBlockArgument = block.getArgument(0);
+    Value scatterIndicesBlockArgument = block.getArgument(1);
+    Value updateBlockArgument = block.getArgument(2);
+    Value outputBlockArgument = block.getArgument(3);
+
+    [[maybe_unused]] auto inputWaitOp = builder.create<d2m::WaitOp>(loc, inputBlockArgument);
+    [[maybe_unused]] auto scatterIndicesWaitOp = builder.create<d2m::WaitOp>(loc, scatterIndicesBlockArgument);
+    [[maybe_unused]] auto updateWaitOp = builder.create<d2m::WaitOp>(loc, updateBlockArgument);
+    [[maybe_unused]] auto outputReserveOp = builder.create<d2m::ReserveOp>(loc, outputBlockArgument);
+
+    rewriter.replaceOp(scatterOp, finalOutputToLayoutOp.getResult(0));
+    return success();
   }
 };
 
