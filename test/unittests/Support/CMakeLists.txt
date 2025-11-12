@@ -13,4 +13,5 @@ target_include_directories(TTMLIRSupportTests
 target_link_libraries(TTMLIRSupportTests
   PRIVATE
     MLIRSupport
+    MLIRIR
 )
