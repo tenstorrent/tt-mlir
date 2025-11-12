@@ -2236,9 +2236,27 @@ public:
     RankedTensorType reduceOutputType = mlir::cast<RankedTensorType>(
         getTypeConverter()->convertType(op.getResult().getType()));
 
-    ttir::utils::replaceOpWithNewDPSOp<ttir::SumOp>(
-        rewriter, op, reduceOutputType, adaptor.getInput(), op.getKeepDim(),
-        op.getDimArgAttr());
+    mlir::Value sumOp = ttir::utils::createDPSOp<ttir::SumOp>(
+        rewriter, op.getLoc(), reduceOutputType, adaptor.getInput(),
+        op.getKeepDim(), op.getDimArgAttr());
+
+    // Create zero constant.
+    Attribute zerAttr =
+        rewriter.getFloatAttr(reduceOutputType.getElementType(), 0.0);
+
+    ElementsAttr zeroConstantAttr =
+        DenseElementsAttr::get(reduceOutputType, zerAttr);
+    mlir::Value zeroConstant = rewriter.create<ttir::ConstantOp>(
+        ttmlir::utils::appendLocationSuffix(op.getLoc(), "_zeroConstant"),
+        reduceOutputType, zeroConstantAttr);
+
+    // Compare sum != 0.
+    mlir::Value cmpOp = ttir::utils::createDPSOp<ttir::NotEqualOp>(
+        rewriter, op.getLoc(), reduceOutputType, sumOp, zeroConstant);
+
+    // typecast boolean result to float type.
+    ttir::utils::replaceOpWithNewDPSOp<ttir::TypecastOp>(
+        rewriter, op, reduceOutputType, cmpOp);
 
     return success();
   }

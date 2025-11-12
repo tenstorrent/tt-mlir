@@ -297,12 +297,6 @@ public:
   LogicalResult
   matchAndRewrite(TTIROpTy op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    llvm::errs() << "ReductionOpConversionPattern invoked for Mountagha"
-                 << TTIROpTy::getOperationName() << "\n";
-    if constexpr (std::is_same_v<TTIROpTy, ttir::ReduceOrOp>) {
-      return rewriter.notifyMatchFailure(
-          op, "ReduceOrOp should be handled by ReduceOrOpConversionPattern");
-    }
     rewriter.replaceOpWithNewOp<TTNNOpTy>(
         op, this->getTypeConverter()->convertType(op.getType()),
         adaptor.getInput(), adaptor.getKeepDim(),
@@ -1573,38 +1567,6 @@ public:
 } // namespace
 
 namespace {
-class ReduceOrOpConversionPattern
-    : public OpConversionPattern<ttir::ReduceOrOp> {
-public:
-  using OpConversionPattern<ttir::ReduceOrOp>::OpConversionPattern;
-
-  LogicalResult
-  matchAndRewrite(ttir::ReduceOrOp op, OpAdaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override {
-
-    RankedTensorType inputType =
-        mlir::cast<RankedTensorType>(adaptor.getInput().getType());
-    // auto device = ::ttnn::utils::getOrInsertDevice(rewriter, op);
-    llvm::errs() << "Lowering ReduceOrOp to TTNN MaxOp Mountagha\n";
-    // Create zero constant for comparison (0 or 1)
-    Attribute zeroAttr = rewriter.getFloatAttr(inputType.getElementType(), 0.0);
-    Value zeroConstant = rewriter.create<ttnn::FullOp>(
-        op.getLoc(), inputType, zeroAttr, nullptr
-    );
-
-    Value mask = rewriter.create<ttnn::NotEqualOp>(
-        op.getLoc(), inputType, adaptor.getInput(), zeroConstant);
-
-    rewriter.replaceOpWithNewOp<ttnn::MaxOp>(
-        op, this->getTypeConverter()->convertType(op.getType()),
-        mask, adaptor.getKeepDim(),
-        adaptor.getDimArg().value_or(nullptr));
-
-    return success();
-  }
-};
-} // namespace
-namespace {
 class ReduceScatterOpConversionPattern
     : public OpConversionPattern<ttir::ReduceScatterOp> {
 public:
@@ -2201,7 +2163,6 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            ReductionOpConversionPattern<ttir::MeanOp, ttnn::MeanOp>,
            ReductionOpConversionPattern<ttir::MaxOp, ttnn::MaxOp>,
            ReductionOpConversionPattern<ttir::MinOp, ttnn::MinOp>,
-           ReduceOrOpConversionPattern, // Added. Mountagha
            ReductionProdOpConversionPattern,
            ReductionArgMaxOpConversionPattern,
            ElementwiseUnaryWithFloatParameterOpConversionPattern<ttir::LeakyReluOp, ttnn::LeakyReluOp>,
@@ -2252,9 +2213,6 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            ScaledDotProductAttentionDecodeOpConversionPattern,
            SplitQueryKeyValueAndSplitHeadsOpConversionPattern
            >(typeConverter, ctx);
-  // PatternBenefit so that ReduceOrOpConversionPattern gets higher priority than
-  // ReductionOpConversionPattern
-  patterns.add<ReduceOrOpConversionPattern>(typeConverter, ctx, mlir::PatternBenefit(10));
   // ANCHOR_END: op_rewriter_pattern_set
   // clang-format on
 }
