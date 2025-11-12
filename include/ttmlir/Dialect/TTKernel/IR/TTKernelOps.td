@@ -2224,6 +2224,20 @@ def TTKernel_GetInterleavedAddrGenFastOp : TTKernel_Op<"get_interleaved_addr_gen
     }];
 }
 
+def TTKernel_InterleavedAddrGenFastGetNocAddrOp : TTKernel_Op<"interleaved_addr_gen_fast.get_noc_addr"> {
+    let summary = "InterleavedAddrGenFastGetNocAddr";
+    let description = [{
+      Returns an raw noc address from an interleaved addr gen struct.
+    }];
+
+    let arguments = (ins TTKernel_InterleavedAddrGenFast:$self, I32:$id, I32:$offset, Optional<I8>:$noc);
+    let results = (outs TTKernel_NocAddr:$result);
+
+    let assemblyFormat = [{
+      `(` $self `,` $id `,` $offset `,` $noc `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
 def TTKernel_MyXOp : TTKernel_Op<"my_x", [Pure]> {
     let summary = "MyX";
     let description = [{
@@ -2376,7 +2390,7 @@ def TTKernel_TensorAccessorOp : TTKernel_Op<"TensorAccessor"> {
   }];
 }
 
-def TTKernel_TensorAccessorGetNocAddrOp : TTKernel_Op<"tensor_accessor_get_noc_addr"> {
+def TTKernel_TensorAccessorGetNocAddrOp : TTKernel_Op<"tensor_accessor.get_noc_addr"> {
   let summary = "TensorAccessor's get_noc_addr";
   let description = [{
     get_noc_addr using information stored in the TensorAccessor.
@@ -2389,7 +2403,7 @@ def TTKernel_TensorAccessorGetNocAddrOp : TTKernel_Op<"tensor_accessor_get_noc_a
   }];
 }
 
-def TTKernel_TensorAccessorGetShardNocAddrOp : TTKernel_Op<"tensor_accessor_get_shard_noc_addr"> {
+def TTKernel_TensorAccessorGetShardNocAddrOp : TTKernel_Op<"tensor_accessor.get_shard_noc_addr"> {
   let summary = "TensorAccessor's get_shard_noc_addr";
   let description = [{
     Returns noc addr of a shard.
@@ -2402,7 +2416,7 @@ def TTKernel_TensorAccessorGetShardNocAddrOp : TTKernel_Op<"tensor_accessor_get_
   }];
 }
 
-def TTKernel_TensorAccessorGetBankAndOffsetOp : TTKernel_Op<"tensor_accessor_get_bank_and_offset"> {
+def TTKernel_TensorAccessorGetBankAndOffsetOp : TTKernel_Op<"tensor_accessor.get_bank_and_offset"> {
   let summary = "TensorAccessor's get_bank_and_offset";
   let description = [{
     Returns bank id and page offset.
@@ -2415,7 +2429,7 @@ def TTKernel_TensorAccessorGetBankAndOffsetOp : TTKernel_Op<"tensor_accessor_get
   }];
 }
 
-def TTKernel_TensorAccessorIsLocalBankOp : TTKernel_Op<"tensor_accessor_is_local_bank"> {
+def TTKernel_TensorAccessorIsLocalBankOp : TTKernel_Op<"tensor_accessor.is_local_bank"> {
   let summary = "TensorAccessor's is_local_bank";
   let description = [{
     Returns bool indicating bank locality.
@@ -2428,7 +2442,7 @@ def TTKernel_TensorAccessorIsLocalBankOp : TTKernel_Op<"tensor_accessor_is_local
   }];
 }
 
-def TTKernel_TensorAccessorIsLocalAddrOp : TTKernel_Op<"tensor_accessor_is_local_addr"> {
+def TTKernel_TensorAccessorIsLocalAddrOp : TTKernel_Op<"tensor_accessor.is_local_addr"> {
   let summary = "TensorAccessor's is_local_addr";
   let description = [{
     Returns bool indicating addr locality.
@@ -2441,7 +2455,7 @@ def TTKernel_TensorAccessorIsLocalAddrOp : TTKernel_Op<"tensor_accessor_is_local
   }];
 }
 
-def TTKernel_TensorAccessorIsLocalPageOp : TTKernel_Op<"tensor_accessor_is_local_page"> {
+def TTKernel_TensorAccessorIsLocalPageOp : TTKernel_Op<"tensor_accessor.is_local_page"> {
   let summary = "TensorAccessor's is_local_page";
   let description = [{
     Returns bool indicating page locality.
@@ -2454,7 +2468,7 @@ def TTKernel_TensorAccessorIsLocalPageOp : TTKernel_Op<"tensor_accessor_is_local
   }];
 }
 
-def TTKernel_TensorAccessorIsLocalShardOp : TTKernel_Op<"tensor_accessor_is_local_shard"> {
+def TTKernel_TensorAccessorIsLocalShardOp : TTKernel_Op<"tensor_accessor.is_local_shard"> {
   let summary = "TensorAccessor's is_local_shard";
   let description = [{
     Returns bool indicating shard locality.
