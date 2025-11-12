@@ -20,9 +20,10 @@ namespace mlir::tt::ttir {
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h.inc"
 
 namespace {
-// Move all operations in the use-def chain of a value before a target
-// operation. This ensures that operations in the UD chain can be const-evaled
-// before the target operation.
+// Moves the use-define chain of a value before a target operation.
+// Used when operations are moved or new operations are added to ensure that
+// operations are not placed before the definitions of their inputs, preserving
+// MLIR's topological ordering.
 static void moveUDChainBefore(Value value, Operation *targetOp) {
   if (!value.getDefiningOp() ||
       value.getDefiningOp()->isBeforeInBlock(targetOp)) {
@@ -44,6 +45,7 @@ static void moveUDChainBefore(Value value, Operation *targetOp) {
     op->moveBefore(targetOp);
   }
 }
+
 // Check if we can fuse conv followed by add into conv with bias.
 // This pattern supports both:
 // 1. Adding bias to conv without bias: conv(x, w) + b -> conv(x, w, b)
@@ -73,12 +75,12 @@ public:
           mlir::cast<RankedTensorType>(bias.getType()), convOp.getBias(), bias);
     }
 
-    // Move bias UD chain before conv to ensure operations can be const-evaled.
+    // Move bias UD chain before conv to keep the ordering of ops.
     moveUDChainBefore(bias, convOp);
 
     rewriter.modifyOpInPlace(convOp,
                              [&]() { convOp.getBiasMutable().assign(bias); });
-    rewriter.replaceAllOpUsesWith(srcOp, convOp);
+    rewriter.replaceOp(srcOp, convOp);
     // The original conv op will be removed by DCE since it's no longer
     // used.
     return mlir::success();
@@ -663,8 +665,7 @@ public:
     // Reshape scale to match weight dimensions and pre-multiply weights.
     Value reshapedScale = createReshapedScale(rewriter, scaleValue, convOp);
 
-    // Move reshaped scale UD chain before conv to ensure weight scale can be
-    // const-evaled.
+    // Move scale UD chain before conv to keep the ordering of ops.
     moveUDChainBefore(reshapedScale, convOp);
 
     rewriter.setInsertionPoint(convOp);
@@ -1068,47 +1069,34 @@ public:
   }
 };
 
-// This pattern fuses two convolutions that are added together where one has
-// kernel 3x3 with pad 1 and the other has kernel 1x1 with pad 0, which can be
-// found in yolov9 model. They can be fused by converting the 1x1 kernel conv to
-// 3x3 with pad 1, adding kernels and adding biases.
-//
-// Pattern: conv2d(x, w1, b1) + conv2d(x, w2, b2)
-//   where w1 is 3x3 kernel with pad 1, w2 is 1x1 kernel with pad 0
-//   -> conv2d(x, padded_w2 + w1, b1 + b2) with 3x3 kernel and pad 1
+// RepConvN pattern that matches and transforms:
+//   conv2d(x, w1, b1) + conv2d(x, w2, b2)
+// into:
+//   conv2d(x, padded_w2 + w1, b1 + b2)
+// where w1 is 3x3 kernel with pad 1, w2 is 1x1 kernel with pad 0, and padded_w2
+// is w2 padded to 3x3 with pad 1.
+// This pattern is found in yolov9 models.
 class RepConvNFusionPattern : public mlir::OpRewritePattern<AddOp> {
   using mlir::OpRewritePattern<AddOp>::OpRewritePattern;
 
 public:
   mlir::LogicalResult
   matchAndRewrite(AddOp addOp, mlir::PatternRewriter &rewriter) const final {
-    // Check if this pattern is applicable.
-    llvm::outs() << "Checking for RepConvN pattern\n";
     auto components = getConvPair(addOp);
     if (!components) {
       return mlir::failure();
     }
-    llvm::outs() << "Found RepConvN pattern to fuse\n";
 
     Conv2dOp conv3x3 = components->first;
     Conv2dOp conv1x1 = components->second;
 
-    // Pad the 1x1 weight to 3x3.
-    Value paddedWeight1x1 = createPaddedWeight(rewriter, conv1x1);
-
-    // Move padded weight UD chain before conv3x3 to ensure weight padding can
-    // be const-evaled.
-    moveUDChainBefore(paddedWeight1x1, conv3x3);
+    auto paddedWeight = createPaddedWeight(rewriter, conv1x1);
 
     rewriter.setInsertionPoint(conv3x3);
+    addWeight(rewriter, conv3x3, paddedWeight);
+    addBias(rewriter, conv3x3, conv1x1);
 
-    // Add fused weights to conv3x3.
-    addFusedWeights(rewriter, conv3x3, paddedWeight1x1);
-
-    // Add fused bias to conv3x3.
-    addFusedBias(rewriter, conv3x3, conv1x1);
-
-    rewriter.replaceAllOpUsesWith(addOp, conv3x3);
+    rewriter.replaceOp(addOp, conv3x3);
 
     return mlir::success();
   }
@@ -1125,18 +1113,14 @@ private:
       return std::nullopt;
     }
 
-    // Both convolutions must have only one use (this add operation)
     if (!lhsConv->hasOneUse() || !rhsConv->hasOneUse()) {
       return std::nullopt;
     }
 
-    // Both convolutions must use the same input
     if (lhsConv.getInput() != rhsConv.getInput()) {
       return std::nullopt;
     }
 
-    // Check if we have the repconvn pattern: one 3x3 with pad 1, one 1x1 with
-    // pad 0
     if (isRepConvNPattern(lhsConv, rhsConv)) {
       return std::make_pair(lhsConv, rhsConv);
     }
@@ -1146,39 +1130,32 @@ private:
     return std::nullopt;
   }
 
-  // Check if the two convolutions match the repconvn pattern:
+  // Checks if the two convolutions match the repconvn pattern:
   // - First has kernel 3x3 with padding 1
   // - The other has kernel 1x1 with padding 0
   // - They have the same stride, dilation, and groups
   static bool isRepConvNPattern(Conv2dOp conv1, Conv2dOp conv2) {
-    // Check kernel sizes and paddings
     if (!hasKernelShape(conv1, 3, 3) || !hasKernelShape(conv2, 1, 1)) {
-      llvm::outs() << "Kernel shapes do not match\n";
       return false;
     }
     if (!hasPaddingValues(conv1, 1) || !hasPaddingValues(conv2, 0)) {
-      llvm::outs() << "Padding values do not match\n";
       return false;
     }
-    // Check stride, dilation, and groups
     if (conv1.getStride() != conv2.getStride() ||
         conv1.getDilation() != conv2.getDilation() ||
         conv1.getGroups() != conv2.getGroups()) {
-      llvm::outs() << "Stride, dilation, or groups do not match\n";
       return false;
     }
-    llvm::outs() << "Conv pair matches RepConvN pattern\n";
     return true;
   }
 
-  static bool hasKernelShape(Conv2dOp &conv, int64_t kH, int64_t kW) {
+  static bool hasKernelShape(Conv2dOp conv, int64_t kH, int64_t kW) {
     auto shape = conv.getWeight().getType().getShape();
     return shape.size() == 4 && shape[2] == kH && shape[3] == kW;
   }
 
-  static bool hasPaddingValues(Conv2dOp &conv, int32_t padValue) {
+  static bool hasPaddingValues(Conv2dOp conv, int32_t padValue) {
     auto padding = conv.getPadding();
-    // padding can be either I32Attr or DenseI32ArrayAttr
     if (auto denseAttr = llvm::dyn_cast<DenseI32ArrayAttr>(padding)) {
       auto paddingValues = denseAttr.asArrayRef();
       return llvm::all_of(paddingValues,
@@ -1190,82 +1167,69 @@ private:
     return false;
   }
 
-  /// Create padded weight by padding 1x1 weight to 3x3.
+  // Creates a padded weight by padding the 1x1 weight to 3x3.
   static Value createPaddedWeight(mlir::PatternRewriter &rewriter,
-                                  Conv2dOp conv1x1) {
-    Location loc = conv1x1.getLoc();
-
-    // Get the 1x1 weight
-    Value weight1x1 = conv1x1.getWeight();
-    RankedTensorType weight1x1Type =
-        mlir::cast<RankedTensorType>(weight1x1.getType());
+                                  Conv2dOp conv) {
+    auto weight1x1 = conv.getWeight();
+    auto weight1x1Type = mlir::cast<RankedTensorType>(weight1x1.getType());
     auto weight1x1Shape = weight1x1Type.getShape();
 
-    // Create new shape for 3x3 weight: (O, C/G, 3, 3)
+    // Create new shape for 3x3 weight: (N, C, 3, 3)
     SmallVector<int64_t> weight3x3Shape = {weight1x1Shape[0], weight1x1Shape[1],
                                            3, 3};
-    RankedTensorType weight3x3Type =
+    auto weight3x3Type =
         RankedTensorType::get(weight3x3Shape, weight1x1Type.getElementType(),
                               weight1x1Type.getEncoding());
 
     // Pad the 1x1 weight to 3x3 by adding zeros around it
-    // Padding format: [dim0_low, dim0_high, dim1_low, dim1_high, ...]
-    // For weight shape (O, C/G, K_H, K_W), we pad spatial dims 2 and 3
-    // We want: [0, 0, 0, 0, 1, 1, 1, 1] to pad K_H and K_W dimensions
     SmallVector<int32_t> paddingValues = {0, 0, 0, 0, 1, 1, 1, 1};
-
-    // Pad the weight - createDPSOp automatically creates the output tensor
     return utils::createDPSOp<PadOp>(
-        rewriter, ttmlir::utils::appendLocationSuffix(loc, "_pad"),
+        rewriter, ttmlir::utils::appendLocationSuffix(conv.getLoc(), "_pad"),
         weight3x3Type, weight1x1, rewriter.getDenseI32ArrayAttr(paddingValues),
         rewriter.getF32FloatAttr(0.0));
   }
 
-  /// Add fused weights to conv3x3 by creating fused weights and updating the
-  /// convolution.
-  static void addFusedWeights(mlir::PatternRewriter &rewriter, Conv2dOp conv3x3,
-                              Value paddedWeight1x1) {
-    Value weight3x3 = conv3x3.getWeight();
-    // Move padded weight UD chain before weight3x3 to ensure operations can be
-    // const-evaled.
-    moveUDChainBefore(paddedWeight1x1, conv3x3);
+  // Modifies conv to use a combined weight created by adding the additional
+  // weight to the existing weight from conv.
+  static void addWeight(mlir::PatternRewriter &rewriter, Conv2dOp conv,
+                        Value additionalWeight) {
+    auto existingWeight = conv.getWeight();
+    assert(existingWeight.getType() == additionalWeight.getType() &&
+           "Expected same weight type");
 
-    RankedTensorType weight3x3Type =
-        mlir::cast<RankedTensorType>(weight3x3.getType());
-    Value fusedWeight = utils::createDPSOp<AddOp>(
+    // Move additional weight UD chain before conv to ensure it is before addOp.
+    moveUDChainBefore(additionalWeight, conv);
+
+    auto combinedWeight = utils::createDPSOp<AddOp>(
         rewriter,
-        ttmlir::utils::appendLocationSuffix(conv3x3.getLoc(), "_weight_add"),
-        weight3x3Type, paddedWeight1x1, weight3x3);
-
+        ttmlir::utils::appendLocationSuffix(conv.getLoc(), "_weight_add"),
+        existingWeight.getType(), additionalWeight, existingWeight);
     rewriter.modifyOpInPlace(
-        conv3x3, [&]() { conv3x3.getWeightMutable().assign(fusedWeight); });
+        conv, [&]() { conv.getWeightMutable().assign(combinedWeight); });
   }
 
-  /// Add fused bias to conv3x3 by handling all bias cases and updating the
-  /// convolution.
-  static void addFusedBias(mlir::PatternRewriter &rewriter, Conv2dOp conv3x3,
-                           Conv2dOp conv1x1) {
-    if (conv3x3.getBias() && conv1x1.getBias()) {
-      // Both have bias: add them
-      Value bias3x3 = conv3x3.getBias();
-      Value bias1x1 = conv1x1.getBias();
-      // Move bias1x1 UD chain before bias3x3 to ensure operations can be
-      // const-evaled.
-      moveUDChainBefore(bias1x1, conv3x3);
+  // Modifies conv1 to use a combined bias created by adding bias2 to bias1. If
+  // only conv2 has bias, assigns it to conv1.
+  static void addBias(mlir::PatternRewriter &rewriter, Conv2dOp conv1,
+                      Conv2dOp conv2) {
+    auto bias1 = conv1.getBias();
+    auto bias2 = conv2.getBias();
 
-      RankedTensorType biasType =
-          mlir::cast<RankedTensorType>(bias3x3.getType());
-      Value fusedBias = utils::createDPSOp<AddOp>(
+    if (bias1 && bias2) {
+      assert(bias1.getType() == bias2.getType() && "Expected same bias type");
+
+      // Move bias2 UD chain before conv1 to ensure it is before addOp.
+      moveUDChainBefore(bias2, conv1);
+
+      auto combinedBias = utils::createDPSOp<AddOp>(
           rewriter,
-          ttmlir::utils::appendLocationSuffix(bias3x3.getLoc(), "_bias_add"),
-          biasType, bias3x3, bias1x1);
+          ttmlir::utils::appendLocationSuffix(bias1.getLoc(), "_bias_add"),
+          bias1.getType(), bias2, bias1);
       rewriter.modifyOpInPlace(
-          conv3x3, [&]() { conv3x3.getBiasMutable().assign(fusedBias); });
-    } else if (conv1x1.getBias()) {
-      // Only 1x1 has bias, add it to conv3x3
-      rewriter.modifyOpInPlace(conv3x3, [&]() {
-        conv3x3.getBiasMutable().assign(conv1x1.getBias());
-      });
+          conv1, [&]() { conv1.getBiasMutable().assign(combinedBias); });
+    } else if (bias2) {
+      rewriter.modifyOpInPlace(conv1,
+                               [&]() { conv1.getBiasMutable().assign(bias2); });
     }
   }
 };
