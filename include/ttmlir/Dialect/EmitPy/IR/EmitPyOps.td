@@ -241,6 +241,8 @@ def EmitPy_GlobalStatementOp : EmitPy_Op<"global_statement",
 
   let arguments = (ins FlatSymbolRefAttr:$name);
   let results = (outs AnyType:$result);
+
+  let hasVerifier = 1;
   let assemblyFormat = "$name `:` type($result) attr-dict";
 }
 
@@ -259,6 +261,8 @@ def EmitPy_GetGlobalOp : EmitPy_Op<"get_global",
 
   let arguments = (ins FlatSymbolRefAttr:$name);
   let results = (outs AnyType:$result);
+
+  let hasVerifier = 1;
   let assemblyFormat = "$name `:` type($result) attr-dict";
 }
 
@@ -278,6 +282,8 @@ def EmitPy_AssignGlobalOp : EmitPy_Op<"assign_global",
   let arguments = (ins FlatSymbolRefAttr:$name,
                        EmitPy_OpaqueType:$value);
   let results = (outs AnyType:$result);
+
+  let hasVerifier = 1;
 }
 
 #endif // TTMLIR_TTMLIR_DIALECT_EMITPY_EMITPYOPS_TD

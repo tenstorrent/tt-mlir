@@ -12,6 +12,9 @@
 #include "llvm/Support/LogicalResult.h"
 #include "llvm/Support/raw_ostream.h"
 
+#include "llvm/ADT/StringRef.h"
+#include <string_view>
+
 using namespace mlir;
 using namespace mlir::tt::emitpy;
 
@@ -107,6 +110,52 @@ LogicalResult verifyNearestGlobalSymbol(SourceOp op,
   if (!global) {
     return op->emitOpError("'")
            << op.getName() << "' does not reference a valid emitpy.global";
+  }
+
+  return success();
+}
+
+static bool isValidPythonIdentifier(StringRef name) {
+  if (name.empty()) {
+    return false;
+  }
+
+  static constexpr std::array<std::string_view, 35> pythonKeywords = {
+      "False",  "None",   "True",    "and",      "as",       "assert", "async",
+      "await",  "break",  "class",   "continue", "def",      "del",    "elif",
+      "else",   "except", "finally", "for",      "from",     "global", "if",
+      "import", "in",     "is",      "lambda",   "nonlocal", "not",    "or",
+      "pass",   "raise",  "return",  "try",      "while",    "with",   "yield"};
+
+  for (const auto keyword : pythonKeywords) {
+    if (static_cast<std::string_view>(name) == keyword) {
+      return false;
+    }
+  }
+
+  unsigned char first = static_cast<unsigned char>(name[0]);
+  if (!(std::isalpha(first) || first == '_')) {
+    return false;
+  }
+
+  for (const auto c : name.drop_front()) {
+    if (!(std::isalnum(static_cast<unsigned char>(c)) || c == '_')) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+template <typename SourceOp>
+LogicalResult verifyValidPythonIdentifier(SourceOp op) {
+  StringRef name = op.getName();
+  if (!isValidPythonIdentifier(name)) {
+    return op.emitOpError()
+           << "variable name '" << name
+           << "' is not a valid Python identifier (must start with letter or "
+              "underscore, contain only letters, digits, and underscores, and "
+              "not be a Python keyword)";
   }
 
   return success();
@@ -416,61 +465,22 @@ static ParseResult parseEmitPyGlobalOpInitialValue(OpAsmParser &parser,
   return success();
 }
 
-static bool isValidPythonIdentifier(StringRef name) {
-  if (name.empty()) {
-    return false;
-  }
-
-  static constexpr const char *pythonKeywords[] = {
-      "False",  "None",   "True",    "and",      "as",       "assert", "async",
-      "await",  "break",  "class",   "continue", "def",      "del",    "elif",
-      "else",   "except", "finally", "for",      "from",     "global", "if",
-      "import", "in",     "is",      "lambda",   "nonlocal", "not",    "or",
-      "pass",   "raise",  "return",  "try",      "while",    "with",   "yield"};
-
-  for (const char *keyword : pythonKeywords) {
-    if (name == keyword) {
-      return false;
-    }
-  }
-
-  char first = name[0];
-  if (!((first >= 'a' && first <= 'z') || (first >= 'A' && first <= 'Z') ||
-        first == '_')) {
-    return false;
-  }
-
-  for (char c : name) {
-    if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
-          (c >= '0' && c <= '9') || c == '_')) {
-      return false;
-    }
-  }
-
-  return true;
-}
-
 LogicalResult GlobalOp::verify() {
   Attribute value = getInitialValue();
   if (!value) {
     return emitOpError() << "requires initial value for global variable";
   }
 
-  StringRef name = getName();
-  if (!isValidPythonIdentifier(name)) {
-    return emitOpError()
-           << "symbol name '" << name
-           << "' is not a valid Python identifier (must start with letter or "
-              "underscore, contain only letters, digits, and underscores, and "
-              "not be a Python keyword)";
-  }
-
-  return success();
+  return verifyValidPythonIdentifier(*this);
 }
 
 //===----------------------------------------------------------------------===//
 // AssignGlobalOp
 //===----------------------------------------------------------------------===//
+
+LogicalResult AssignGlobalOp::verify() {
+  return verifyValidPythonIdentifier(*this);
+}
 
 LogicalResult
 AssignGlobalOp::verifySymbolUses(SymbolTableCollection &symbolTable) {
@@ -481,6 +491,10 @@ AssignGlobalOp::verifySymbolUses(SymbolTableCollection &symbolTable) {
 // GlobalStatementOp
 //===----------------------------------------------------------------------===//
 
+LogicalResult GlobalStatementOp::verify() {
+  return verifyValidPythonIdentifier(*this);
+}
+
 LogicalResult
 GlobalStatementOp::verifySymbolUses(SymbolTableCollection &symbolTable) {
   return verifyNearestGlobalSymbol<GlobalStatementOp>(*this, symbolTable);
@@ -489,6 +503,10 @@ GlobalStatementOp::verifySymbolUses(SymbolTableCollection &symbolTable) {
 //===----------------------------------------------------------------------===//
 // GetGlobalOp
 //===----------------------------------------------------------------------===//
+
+LogicalResult GetGlobalOp::verify() {
+  return verifyValidPythonIdentifier(*this);
+}
 
 LogicalResult
 GetGlobalOp::verifySymbolUses(SymbolTableCollection &symbolTable) {
