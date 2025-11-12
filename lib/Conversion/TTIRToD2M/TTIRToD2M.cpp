@@ -1695,7 +1695,68 @@ class D2MScatterOpRewriter : public OpConversionPattern<ttir::ScatterOp> {
       outputMetalLayout);
 
     [[maybe_unused]] auto outputLayoutOp = builder.create<d2m::ToLayoutOp>(loc, newOutputEmpty, outputEmpty, nullptr);
-    
+
+    /////////////////// Let's create the D2M generic op ///////////////////
+
+    // Create the affine maps
+    unsigned numDims = 2;
+    unsigned numSymbols = 0;
+
+    // Create affine map for input
+    auto inputAffineMap = AffineMap::get(numDims, numSymbols, {builder.getAffineConstantExpr(0), builder.getAffineConstantExpr(0)}, builder.getContext());
+
+    // Create affine map for scatterIndices
+    auto scatterIndicesAffineMap = AffineMap::get(numDims, numSymbols, {builder.getAffineConstantExpr(0), builder.getAffineConstantExpr(0)}, builder.getContext());
+
+    // Create affine map for update
+    auto updateAffineMap = AffineMap::get(numDims, numSymbols, {builder.getAffineDimExpr(0), builder.getAffineDimExpr(1)}, builder.getContext());
+
+    // Create affine map for output
+    auto outputAffineMap = AffineMap::get(numDims, numSymbols, {builder.getAffineConstantExpr(0), builder.getAffineConstantExpr(0)}, builder.getContext());
+
+    SmallVector<AffineMap, 4> affineMapsList = {inputAffineMap, scatterIndicesAffineMap, updateAffineMap, outputAffineMap};
+    auto affineMapsListAttr = builder.getAffineMapArrayAttr(affineMapsList);
+
+    // Create iterator types
+    mlir::tt::ttcore::IteratorTypeAttr inputIteratorTypeAttr = mlir::tt::ttcore::IteratorTypeAttr::get(getContext(), mlir::tt::ttcore::IteratorType::Parallel);
+    mlir::tt::ttcore::IteratorTypeAttr scatterIndicesIteratorTypeAttr = mlir::tt::ttcore::IteratorTypeAttr::get(getContext(), mlir::tt::ttcore::IteratorType::Parallel);
+    mlir::tt::ttcore::IteratorTypeAttr updateIteratorTypeAttr = mlir::tt::ttcore::IteratorTypeAttr::get(getContext(), mlir::tt::ttcore::IteratorType::Parallel);
+    mlir::tt::ttcore::IteratorTypeAttr outputIteratorTypeAttr = mlir::tt::ttcore::IteratorTypeAttr::get(getContext(), mlir::tt::ttcore::IteratorType::Parallel);
+
+    llvm::SmallVector<mlir::tt::ttcore::IteratorTypeAttr, 4> iteratorArrayAttrList = {inputIteratorTypeAttr, scatterIndicesIteratorTypeAttr, updateIteratorTypeAttr, outputIteratorTypeAttr};
+    llvm::SmallVector<mlir::Attribute, 4> iteratorAttr(iteratorArrayAttrList.begin(), iteratorArrayAttrList.end());
+    mlir::ArrayAttr iteratorArrayAttr = mlir::ArrayAttr::get(getContext(), iteratorAttr);
+
+    // Create block factors
+    llvm::SmallVector<int64_t, 4> blockFactors = {1, 1, 1, 1};
+
+    // Create grid
+    tt::ttcore::GridAttr grid = ttcore::GridAttr::get(getContext(), llvm::SmallVector<int64_t, 4>{1, 1});
+
+    // Create input and output lists for the generic op
+    llvm::SmallVector<Value> genericOpInputs = {inputLayoutOp.getResult(0), scatterIndicesLayoutOp.getResult(0), updatesLayoutOp.getResult(0)};
+    llvm::SmallVector<Value> genericOpOutputs = {outputLayoutOp.getResult(0)};
+
+    // Create block argument memory spaces
+    llvm::SmallVector<ttcore::MemorySpace> blockArgumentMemorySpaces = {
+      ttcore::MemorySpace::DeviceRiscvL1,
+      ttcore::MemorySpace::DeviceRiscvL1,
+      ttcore::MemorySpace::DeviceRiscvL1,
+      ttcore::MemorySpace::DeviceRiscvL1
+    };
+
+    // Create the D2M generic op
+    [[maybe_unused]] auto genericOp = builder.create<d2m::GenericOp>(
+      loc, 
+      genericOpInputs, 
+      genericOpOutputs, 
+      affineMapsListAttr, 
+      iteratorArrayAttr, 
+      [&](OpBuilder &builder, Location bodyLoc, ValueRange blockArgs) {},
+      blockArgumentMemorySpaces,
+      d2m::ThreadType::Datamovement,
+      grid,
+      blockFactors);
 
     return mlir::success();
   }
