@@ -17,11 +17,11 @@ from utils import (
     run_op_test,
 )
 
-# Generates all shapes with 1 to 4 tiles per core in each dimension, with every grid from single core to 8x8.
-# TTNN grids are (Width, Height), while tensor shapes are (Height, Width).
+
 BLOCK_SHARDED_SHAPE_GRIDS = []
 
-# 2D shapes
+# Generates all rank 2 shapes with 1 to 4 tiles per core in each dimension, with every grid from single core to 8x8.
+# TTNN grids are (Width, Height), while tensor shapes are (Height, Width).
 BLOCK_SHARDED_SHAPE_GRIDS.extend(
     [
         ((h * 32 * (grid_h + 1), w * 32 * (grid_w + 1)), (grid_w, grid_h))
@@ -31,17 +31,17 @@ BLOCK_SHARDED_SHAPE_GRIDS.extend(
     ]
 )
 
-# 3D shapes
+# Generates all rank 3 shapes with 1 to 2 tiles per core in the 2nd and 3rd rank, with every grid from single core to 8x8.
 BLOCK_SHARDED_SHAPE_GRIDS.extend(
     [
         ((batch, h * 32 * (grid_h + 1), w * 32 * (grid_w + 1)), (grid_w, grid_h))
         for batch, h, w, grid_h, grid_w in itertools.product(
-            [1, 2, 4, 8], range(1, 3), range(1, 3), range(0, 4), range(0, 4)
+            [1, 2, 4, 8], range(1, 3), range(1, 3), range(8), range(8)
         )
     ]
 )
 
-# 4D shapes
+# Generates all rank 4 shapes with 1 to 2 tiles per core in the 3rd and 4th rank, with every grid from single core to 8x8.
 BLOCK_SHARDED_SHAPE_GRIDS.extend(
     [
         (
@@ -49,7 +49,7 @@ BLOCK_SHARDED_SHAPE_GRIDS.extend(
             (grid_w, grid_h),
         )
         for batch1, batch2, h, w, grid_h, grid_w in itertools.product(
-            [1, 2], [1, 2, 4], range(1, 3), range(1, 3), range(0, 3), range(0, 3)
+            [1, 2], [1, 2, 4], range(1, 3), range(1, 3), range(8), range(8)
         )
     ]
 )
@@ -73,15 +73,6 @@ DRAM_INTERLEAVED_SHAPE_GRIDS.extend(
 )
 
 # 3D shapes
-DRAM_INTERLEAVED_SHAPE_GRIDS.extend(
-    [
-        (batch, h, w)
-        for batch, h, w in itertools.product(
-            [1, 2, 4, 8], [32, 64, 128, 256, 512], [32, 64, 128, 256, 512]
-        )
-    ]
-)
-
 DRAM_INTERLEAVED_SHAPE_GRIDS.extend(
     [
         (batch, h, w)
