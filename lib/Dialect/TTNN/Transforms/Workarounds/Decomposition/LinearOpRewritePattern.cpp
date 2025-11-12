@@ -28,6 +28,41 @@ static bool isBatchedLinearOp(ttnn::LinearOp linearOp) {
                                   [](int64_t dim) { return dim > 1; });
 }
 
+// Check if bias has batch size > 1.
+static bool hasBatchedBias(ttnn::LinearOp linearOp) {
+  RankedTensorType biasType = linearOp.getBias().getType();
+  if (!biasType) {
+    return false;
+  }
+  auto biasShape = biasType.getShape();
+  int64_t biasRank = biasShape.size();
+
+  if (biasRank <= 2) {
+    return false;
+  }
+
+  int64_t biasBatchSize = 1;
+  for (int64_t i = 0; i < biasRank - 2; i++) {
+    biasBatchSize *= biasShape[i];
+  }
+
+  return biasBatchSize > 1;
+}
+
+// // Check if bias height doesn't match tile height.
+// static bool hasInvalidBiasHeight(ttnn::LinearOp linearOp) {
+//   RankedTensorType biasType = linearOp.getBias().getType();
+//   auto biasShape = biasType.getShape();
+//   int64_t biasRank = biasShape.size();
+
+//   // Can't check height if rank < 2
+//   if (biasRank < 2) {
+//     return false;
+//   }
+//   constexpr int64_t tileHeight = ttnn::TILE_HEIGHT;
+//   return biasShape[biasRank - 2] != tileHeight;
+// }
+
 // Calculate the output shape of a matmul operation following tt-metal's logic.
 // Reference: ttnn/cpp/ttnn/operations/matmul/matmul.cpp
 static SmallVector<int64_t>
@@ -36,12 +71,58 @@ computeMatmulOutputShape(llvm::ArrayRef<int64_t> shapeA, bool transposeA,
   int64_t rankA = shapeA.size();
   int64_t rankB = shapeB.size();
 
-  if (rankA == 1 || rankB == 1) {
-    TT_assertv(false,
-               "Should not reach linear op workaround if rankA or rankB is 1");
+  SmallVector<int64_t> outputShape;
+
+  // Handle rank 1 cases
+  if (rankA == 1 && rankB == 1) {
+    // vector dot vector -> scalar (represented as shape [1])
+    outputShape.push_back(1);
+    return outputShape;
   }
 
-  SmallVector<int64_t> outputShape;
+  if (rankA == 1) {
+    // vector-matrix: (K,) x (..., K, N) -> (..., N)
+    // Treat vector as (1, K), result shape takes batch dims from B
+    if (rankB >= 2) {
+      // Copy batch dimensions from B
+      for (int64_t i = 0; i < rankB - 2; i++) {
+        outputShape.push_back(shapeB[i]);
+      }
+      // Add the final dimension - need to check bounds for transpose case
+      if (transposeB) {
+        outputShape.push_back(shapeB[rankB - 2]);
+      } else {
+        outputShape.push_back(shapeB[rankB - 1]);
+      }
+    } else {
+      // rankB == 1 was already handled above, this shouldn't happen
+      outputShape.push_back(shapeB[0]);
+    }
+    return outputShape;
+  }
+
+  if (rankB == 1) {
+    // matrix-vector: (..., M, K) x (K,) -> (..., M)
+    // Treat vector as (K, 1), result shape takes batch dims from A
+    if (rankA >= 2) {
+      // Copy batch dimensions from A
+      for (int64_t i = 0; i < rankA - 2; i++) {
+        outputShape.push_back(shapeA[i]);
+      }
+      // Add the final dimension - need to check bounds for transpose case
+      if (transposeA) {
+        outputShape.push_back(shapeA[rankA - 1]);
+      } else {
+        outputShape.push_back(shapeA[rankA - 2]);
+      }
+    } else {
+      // rankA == 1 was already handled above, this shouldn't happen
+      outputShape.push_back(shapeA[0]);
+    }
+    return outputShape;
+  }
+
+  // Both tensors have rank >= 2 - safe to access [rank-2] and [rank-1]
   SmallVector<int64_t> batchShapeA(shapeA.begin(), shapeA.end() - 2);
   SmallVector<int64_t> batchShapeB(shapeB.begin(), shapeB.end() - 2);
   mlir::OpTrait::util::getBroadcastedShape(batchShapeA, batchShapeB,
@@ -71,7 +152,11 @@ LinearOpRewritePattern::matchAndRewrite(ttnn::LinearOp srcOp,
                                         PatternRewriter &rewriter) const {
 
   // Only decompose if input B is batched AND bias exists
-  if (!isBatchedLinearOp(srcOp) || !srcOp.getBias()) {
+  if (!srcOp.getBias()) {
+    return failure();
+  }
+
+  if (!isBatchedLinearOp(srcOp) && !hasBatchedBias(srcOp)) {
     return failure();
   }
 
