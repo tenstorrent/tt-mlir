@@ -19,8 +19,10 @@ from . import ttrt_loader
 IR_DUMPS_DIR = "~/explorer"
 MODEL_EXTENSIONS = [".ttir", ".mlir", ".ttnn"]
 
+
 def get_resolved_ir_dumps_dir():
     return str(Path(IR_DUMPS_DIR).expanduser().resolve())
+
 
 def parse_mlir_str(module_str):
     with ttmlir.ir.Context() as ctx:
@@ -156,7 +158,9 @@ def list_ir_files(dir_path: str):
     return [
         path
         for extension in MODEL_EXTENSIONS
-        for path in glob.glob(os.path.join(dir_path, f"**/*{extension}"), recursive=True)
+        for path in glob.glob(
+            os.path.join(dir_path, f"**/*{extension}"), recursive=True
+        )
     ]
 
 
