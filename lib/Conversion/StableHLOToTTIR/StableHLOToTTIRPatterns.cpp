@@ -1819,7 +1819,8 @@ private:
 template <typename SrcOpT>
 static llvm::ErrorOr<ttcore::ReduceType> getReduceType(SrcOpT srcOp) {
   if constexpr (!std::is_same<SrcOpT, mlir::stablehlo::AllReduceOp>::value &&
-                !std::is_same<SrcOpT, mlir::stablehlo::ReduceScatterOp>::value &&
+                !std::is_same<SrcOpT,
+                              mlir::stablehlo::ReduceScatterOp>::value &&
                 !std::is_same<SrcOpT, mlir::stablehlo::ScatterOp>::value) {
     return llvm::ErrorOr<ttcore::ReduceType>(
         std::make_error_code(std::errc::operation_not_supported));
@@ -2445,9 +2446,10 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
     auto outputType = mlir::cast<RankedTensorType>(
         this->getTypeConverter()->convertType(srcOp.getResults()[0].getType()));
-    
+
     // Convert reduceType stablehlo attribute into ttir attribute
-    llvm::ErrorOr<ttcore::ReduceType> scatter_reduce_type = getReduceType(srcOp);
+    llvm::ErrorOr<ttcore::ReduceType> scatter_reduce_type =
+        getReduceType(srcOp);
     if (!scatter_reduce_type) {
       return rewriter.notifyMatchFailure(
           srcOp, "ScatterOp cannot specify reduce type.");
@@ -2471,7 +2473,6 @@ public:
     auto indicesAreSorted = adaptor.getIndicesAreSorted();
     auto uniqueIndices = adaptor.getUniqueIndices();
 
-
     ttir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::ScatterOp>(
         rewriter, srcOp, outputType, operand, scatterIndices, update,
         llvm::SmallVector<int32_t>(updateWindowsDims),
@@ -2479,7 +2480,7 @@ public:
         llvm::SmallVector<int32_t>(inputBatchingDims),
         llvm::SmallVector<int32_t>(scatterIndicesBatchingDims),
         llvm::SmallVector<int32_t>(scatterDimsToOperandDims), indexVectorDim,
-        indicesAreSorted, uniqueIndices,  *scatter_reduce_type);
+        indicesAreSorted, uniqueIndices, *scatter_reduce_type);
 
     return success();
   }

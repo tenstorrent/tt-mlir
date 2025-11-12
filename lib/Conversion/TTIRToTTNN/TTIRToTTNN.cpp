@@ -1713,7 +1713,8 @@ public:
     rewriter.replaceOpWithNewOp<ttnn::ScatterOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
         adaptor.getInput(), adaptor.getIndex(), adaptor.getSource(),
-        rewriter.getI32IntegerAttr(op.getDim()), adaptor.getScatterReduceTypeAttr(), nullptr);
+        rewriter.getI32IntegerAttr(op.getDim()),
+        adaptor.getScatterReduceTypeAttr(), nullptr);
     return success();
   }
 };

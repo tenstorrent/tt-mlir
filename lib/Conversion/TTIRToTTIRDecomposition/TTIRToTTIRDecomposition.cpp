@@ -2684,7 +2684,8 @@ public:
       Value scatterResult = ttir::utils::createDPSOp<ttir::ScatterInDimOp>(
           rewriter, op.getLoc(), flattenedInputType.getShape(),
           flattenedInputType.getElementType(), flattenedInputType.getEncoding(),
-          flattenedInput, finalIndexTensor, flattenedUpdate, dimAttr, scatterReduceType);
+          flattenedInput, finalIndexTensor, flattenedUpdate, dimAttr,
+          scatterReduceType);
 
       // Reshape result back to original input shape.
       Value reshapedResult = createReshapeOp(
