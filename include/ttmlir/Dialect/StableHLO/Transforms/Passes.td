@@ -148,14 +148,48 @@ def DecoupleConstFanoutPass : Pass<
 def FlattenCompositePass : Pass<"flatten-composite", "::mlir::ModuleOp"> {
   let summary = "Inline (flatten) stablehlo.composite ops and tag cloned ops for optional re-outlining.";
   let description = [{
-    This pass inlines each `stablehlo.composite` by cloning its callee body at the call site.
+    This pass inlines each `stablehlo.composite` by cloning the callee body at its call site.
     Every cloned op is annotated with `reoutline.group = "composite_<callee>"`.
-    The first cloned op additionally receives `reoutline.seed` (UnitAttr).
-    The original composite op is erased after wiring the cloned return values to the users.
+    The first cloned op additionally receives a `reoutline.seed` (UnitAttr).
+    After rewiring the cloned return values to the original users, the composite op itself is erased.
 
-    The pass is intended to run **before** sharding propagation so that propagation happens
-    on a flattened graph. A later re-outlining pass may reconstruct composites by grouping
-    ops with the same `reoutline.group` attribute if the subgraph is closed and movable.
+    This pass is intended to run **before** sharding propagation so that propagation
+    occurs on a fully flattened graph. A later re-outlining pass may reconstruct
+    composite ops by grouping operations with the same `reoutline.group` attribute,
+    provided that the subgraph is closed and movable.
+
+    This pass also checks whether the arguments and results of the composite are sharded,
+    and performs inlining only if sharding (not replicated) is detected.
+
+    Example, this pass will convert the following code:
+    ```mlir
+      module @Composite attributes {mhlo.cross_program_prefetches = [], mhlo.input_output_alias = [], mhlo.is_dynamic = false, mhlo.use_auto_spmd_partitioning = false} {
+        sdy.mesh @mesh = <["_axis_0_updated"=1, "_axis_0"=2]>
+        func.func @main(%arg0: tensor<32x32xf32> {sdy.sharding = #sdy.sharding<@mesh, \[{}, {"_axis_0"}\]>, ttcore.shard_status = #ttcore.shard_status<presharded>}) -> (tensor<32x32xf32> {ttcore.shard_status = #ttcore.shard_status<unsharded>}) {
+          %0 = stablehlo.composite "tt.some_composite" %arg0 {composite_attributes = {approximate = "tanh"}, decomposition = @tt.some_composite.impl} : (tensor<32x32xf32>) -> tensor<32x32xf32>
+          return %0 : tensor<32x32xf32>
+        }
+        func.func private @tt.some_composite.impl(%arg0: tensor<32x32xf32> {ttcore.shard_status = #ttcore.shard_status<unsharded>}) -> (tensor<32x32xf32> {ttcore.shard_status = #ttcore.shard_status<unsharded>}) {
+          %cst = stablehlo.constant dense<5.000000e-01> : tensor<f32>
+          %0 = stablehlo.broadcast_in_dim %cst, dims = [] : (tensor<f32>) -> tensor<32x32xf32>
+          %1 = stablehlo.multiply %arg0, %0 : tensor<32x32xf32>
+          return %1 : tensor<32x32xf32>
+        }
+      }
+    ```
+
+    Into:
+    ```mlir
+    module @Composite attributes {mhlo.cross_program_prefetches = [], mhlo.input_output_alias = [], mhlo.is_dynamic = false, mhlo.use_auto_spmd_partitioning = false} {
+      sdy.mesh @mesh = <["_axis_0_updated"=1, "_axis_0"=2]>
+      func.func @main(%arg0: tensor<32x32xf32> {sdy.sharding = #sdy.sharding<@mesh, \[{}, {"_axis_0"}\]>, ttcore.shard_status = #ttcore.shard_status<presharded>}) -> (tensor<32x32xf32> {ttcore.shard_status = #ttcore.shard_status<unsharded>}) {
+        %cst = stablehlo.constant {reoutline.comp_attrs = {approximate = "tanh"}, reoutline.group = "composite_tt.some_composite.impl", reoutline.orig_name = "tt.some_composite", reoutline.seed} dense<5.000000e-01> : tensor<f32>
+        %0 = stablehlo.broadcast_in_dim %cst, dims = [] {reoutline.group = "composite_tt.some_composite.impl"} : (tensor<f32>) -> tensor<32x32xf32>
+        %1 = stablehlo.multiply %arg0, %0 {reoutline.group = "composite_tt.some_composite.impl"} : tensor<32x32xf32>
+        return %1 : tensor<32x32xf32>
+      }
+    }
+    ```
   }];
 
 
@@ -266,7 +300,51 @@ def ReoutlineCompositePass : Pass<"reoutline-composite", "::mlir::ModuleOp"> {
 
     Use this after sharding propagation and reshards insertion if you want to
     restore composite structure for subsequent conversions.
-  }];
+
+    Example, this pass will convert the following code:
+    ```mlir
+    module @Reoutline attributes {mhlo.cross_program_prefetches = [], mhlo.input_output_alias = [], mhlo.is_dynamic = false, mhlo.use_auto_spmd_partitioning = false} {
+      sdy.mesh @mesh = <["_axis_0_updated"=1, "_axis_0"=2]>
+      func.func @main(%arg0: tensor<32x32xf32> {ttcore.shard_status = #ttcore.shard_status<presharded>}) -> (tensor<32x32xf32> {ttcore.shard_status = #ttcore.shard_status<unsharded>}) {
+        %cst = stablehlo.constant {reoutline.comp_attrs = {approximate = "tanh"}, reoutline.group = "composite_tt.some_composite.impl", reoutline.orig_name = "tt.some_composite", reoutline.seed} dense<5.000000e-01> : tensor<f32>
+        %0 = stablehlo.broadcast_in_dim %cst, dims = [] {reoutline.group = "composite_tt.some_composite.impl"} : (tensor<f32>) -> tensor<32x32xf32>
+        %1 = stablehlo.multiply %arg0, %0 {reoutline.group = "composite_tt.some_composite.impl"} : tensor<32x32xf32>
+        return %1 : tensor<32x32xf32>
+      }
+    }
+    ```
+
+    Into:
+    ```mlir
+    module @Reoutline attributes {mhlo.cross_program_prefetches = [], mhlo.input_output_alias = [], mhlo.is_dynamic = false, mhlo.use_auto_spmd_partitioning = false} {
+      sdy.mesh @mesh = <["_axis_0_updated"=1, "_axis_0"=2]>
+      func.func @main(%arg0: tensor<32x32xf32> {ttcore.shard_status = #ttcore.shard_status<presharded>}) -> (tensor<32x32xf32> {ttcore.shard_status = #ttcore.shard_status<unsharded>}) {
+        %0 = stablehlo.composite "tt.some_composite" %arg0 {composite_attributes = {approximate = "tanh"}, decomposition = @outlined_composite_tt.some_composite.impl} : (tensor<32x32xf32>) -> tensor<32x32xf32>
+        return %0 : tensor<32x32xf32>
+      }
+      func.func private @outlined_composite_tt.some_composite.impl(%arg0: tensor<32x32xf32>) -> tensor<32x32xf32> {
+        %cst = stablehlo.constant {reoutline.comp_attrs = {approximate = "tanh"}, reoutline.orig_name = "tt.some_composite"} dense<5.000000e-01> : tensor<f32>
+        %0 = stablehlo.broadcast_in_dim %cst, dims = [] : (tensor<f32>) -> tensor<32x32xf32>
+        %1 = stablehlo.multiply %arg0, %0 : tensor<32x32xf32>
+        return %1 : tensor<32x32xf32>
+      }
+    }
+    ```
+
+    But this pass wouldn't re-outline if the group is not closed:
+    ```mlir
+    module @ReoutlineNotInGroup attributes {mhlo.cross_program_prefetches = [], mhlo.input_output_alias = [], mhlo.is_dynamic = false, mhlo.use_auto_spmd_partitioning = false} {
+      sdy.mesh @mesh = <["_axis_0_updated"=1, "_axis_0"=2]>
+      func.func @main(%arg0: tensor<32x32xf32> {ttcore.shard_status = #ttcore.shard_status<presharded>}) -> (tensor<32x32xf32> {ttcore.shard_status = #ttcore.shard_status<unsharded>}) {
+        %cst = stablehlo.constant {reoutline.comp_attrs = {approximate = "tanh"}, reoutline.group = "composite_tt.some_composite.impl", reoutline.orig_name = "tt.some_composite", reoutline.seed} dense<5.000000e-01> : tensor<f32>
+        %0 = stablehlo.broadcast_in_dim %cst, dims = [] {reoutline.group = "composite_tt.some_composite.impl"} : (tensor<f32>) -> tensor<32x32xf32>
+        %1 = stablehlo.add %arg0, %0 : tensor<32x32xf32> // not in group
+        %2 = stablehlo.multiply %arg0, %1 {reoutline.group = "composite_tt.some_composite.impl"} : tensor<32x32xf32>
+        return %2 : tensor<32x32xf32>
+      }
+    }
+    ```
+    }];
 
   let dependentDialects = [
     "::mlir::sdy::SdyDialect"

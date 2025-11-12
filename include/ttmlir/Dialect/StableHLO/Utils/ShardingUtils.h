@@ -22,6 +22,7 @@ inline constexpr llvm::StringLiteral kGroupAttr("reoutline.group");
 inline constexpr llvm::StringLiteral kSeedAttr("reoutline.seed");
 inline constexpr llvm::StringLiteral kOrigNameAttr("reoutline.orig_name");
 inline constexpr llvm::StringLiteral kCompAttrsAttr("reoutline.comp_attrs");
+inline constexpr llvm::StringLiteral kDecompositionAttr("decomposition");
 
 inline const llvm::SmallVector<llvm::SmallVector<int64_t, 2>, 7>
     SupportedMeshes = {

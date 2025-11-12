@@ -15,43 +15,59 @@ namespace mlir::tt::stablehlo {
 #define GEN_PASS_DEF_FLATTENCOMPOSITEPASS
 #include "ttmlir/Dialect/StableHLO/Transforms/Passes.h.inc"
 
-/// Inline a single stablehlo.composite op. Returns success if it was flattened.
+// Inline a single stablehlo.composite op. Returns success if it was flattened.
 static mlir::LogicalResult
 flattenOneComposite(mlir::stablehlo::CompositeOp comp,
-                    mlir::SymbolTable &symTable) {
+                    mlir::SymbolTable &symTable, mlir::OpBuilder &builder) {
   mlir::Operation *op = comp.getOperation();
-  mlir::OpBuilder builder(op);
+  mlir::MLIRContext *context = builder.getContext();
 
   // 0) Read metadata from the original composite.
-  mlir::StringAttr origName = builder.getStringAttr(comp.getName());
+  mlir::StringAttr origName = mlir::StringAttr::get(context, comp.getName());
   // Preserve original composite attributes.
   mlir::DictionaryAttr origCompAttrs = comp.getCompositeAttributes();
   if (!origCompAttrs) {
     // Create an empty attribute if none exists.
-    origCompAttrs = mlir::DictionaryAttr::get(builder.getContext());
+    origCompAttrs = mlir::DictionaryAttr::get(context);
   }
 
   // 1) Resolve callee from 'decomposition' (SymbolRefAttr).
   // stablehlo.composite "name" %arg {decomposition = @foo}
-  auto decompAttr = op->getAttrOfType<mlir::SymbolRefAttr>("decomposition");
+  auto decompAttr = op->getAttrOfType<mlir::SymbolRefAttr>(
+      sharding_utils::kDecompositionAttr);
   if (!decompAttr) {
-    // Some forks expose an accessor; use it if available:
-    // decompAttr = comp.getDecompositionAttr();
+    comp.emitOpError()
+        << "missing required SymbolRefAttr attribute '"
+        << sharding_utils::kDecompositionAttr
+        << "' (stablehlo.composite requires a 'decomposition' target).";
     return mlir::failure();
   }
 
   // SymbolRefAttr may be nested; use the leaf for func name.
   mlir::StringAttr leaf = decompAttr.getLeafReference();
   mlir::func::FuncOp callee = symTable.lookup<mlir::func::FuncOp>(leaf);
-  if (!callee || callee.getBody().empty()) {
+
+  if (!callee) {
+    comp.emitOpError() << "failed to resolve callee function '" << leaf
+                       << "' referenced by attribute '"
+                       << sharding_utils::kDecompositionAttr << "' (full ref: '"
+                       << decompAttr
+                       << "'). Please ensure the symbol is defined and visible "
+                          "to the symbol table.";
+    return mlir::failure();
+  }
+  if (callee.getBody().empty()) {
+    comp.emitOpError()
+        << "callee function '" << leaf
+        << "' has an empty body; cannot inline/flatten composite '" << origName
+        << "'. The decomposition target must define a non-empty body.";
     return mlir::failure();
   }
 
-  // We will inline *before* the composite op.
+  // We will inline before the composite op.
   builder.setInsertionPoint(comp);
-  // mlir::OpBuilder builder(comp);
 
-  // 2) Build a unique group id for all cloned ops.
+  // 2) Build a group id for all cloned ops.
   std::string groupName;
   {
     llvm::raw_string_ostream os(groupName);
@@ -69,8 +85,8 @@ flattenOneComposite(mlir::stablehlo::CompositeOp comp,
   }
 
   // 4) Clone callee body ops (excluding the terminator) at the call site.
-  //    Track the first cloned op to attach the 'seed' attribute.
-  //    'seed' includes the info composite attributes and original name.
+  // Track the first cloned op to attach the 'seed' attribute.
+  // 'seed' includes the info composite attributes and original name.
   bool seeded = false;
   llvm::SmallVector<mlir::Operation *> clonedOps;
 
@@ -99,11 +115,18 @@ flattenOneComposite(mlir::stablehlo::CompositeOp comp,
   auto ret = llvm::dyn_cast<mlir::func::ReturnOp>(
       callee.getBody().front().getTerminator());
   if (!ret) {
+    comp.emitOpError() << "expected callee function '" << leaf
+                       << "' to end with a 'return' operation.";
     return mlir::failure();
   }
 
   for (int64_t i = 0; i < static_cast<int64_t>(comp->getNumResults()); ++i) {
     mlir::Value mapped = mapping.lookupOrNull(ret.getOperand(i));
+    if (!mapped) {
+      comp.emitOpError() << "failed to map return operand #" << i << " of '"
+                         << leaf << "' during inlining.";
+      return mlir::failure();
+    }
     comp.getResult(i).replaceAllUsesWith(mapped);
   }
 
@@ -141,17 +164,22 @@ public:
     }
 
     mlir::SymbolTable symTable(module);
+    mlir::MLIRContext *context = module.getContext();
+    mlir::OpBuilder builder(context);
 
     for (mlir::func::FuncOp funcOp : module.getOps<mlir::func::FuncOp>()) {
       for (auto compositeOp : llvm::make_early_inc_range(
                funcOp.getOps<mlir::stablehlo::CompositeOp>())) {
-        if (mlir::failed(flattenOneComposite(compositeOp, symTable))) {
+        if (mlir::failed(flattenOneComposite(compositeOp, symTable, builder))) {
+          compositeOp.emitOpError() << "failed to inline/flatten composite '"
+                                    << compositeOp.getName() << "'";
           signalPassFailure();
           return;
         }
       }
     }
 
+    // Finally, clean up any dead private callees.
     eraseDeadPrivateCallees(module);
   }
 };

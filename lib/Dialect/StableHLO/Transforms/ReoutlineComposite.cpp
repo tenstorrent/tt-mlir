@@ -268,10 +268,6 @@ void replaceWithComposite(mlir::func::FuncOp parentFunc,
     }
   }
 
-  // Some forks name this attribute differently ("call_target_name" vs "name").
-  // Match your textual IR; in your dump it prints as: composite
-  // "tenstorrent.gelu_tanh" ...
-  constexpr llvm::StringLiteral kDecompKey("decomposition");
   constexpr llvm::StringLiteral kCompAttrsKey("composite_attributes");
   constexpr llvm::StringLiteral kNameKey("name");
 
@@ -279,7 +275,7 @@ void replaceWithComposite(mlir::func::FuncOp parentFunc,
                              mlir::stablehlo::CompositeOp::getOperationName());
   state.addOperands(operands);
   state.addTypes(resultTypes);
-  state.addAttribute(kDecompKey, decomp);
+  state.addAttribute(sharding_utils::kDecompositionAttr, decomp);
   state.addAttribute(kCompAttrsKey, compAttrs);
   state.addAttribute(kNameKey, targetName);
 
