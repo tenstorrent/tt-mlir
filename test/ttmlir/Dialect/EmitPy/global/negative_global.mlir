@@ -9,6 +9,63 @@ module {
 // -----
 
 module {
+  // CHECK: error: 'emitpy.global' op variable name must not be a keyword
+  emitpy.global @global = #emitpy.opaque<"None">
+}
+
+// -----
+
+module {
+  // CHECK: error: @ identifier expected to start with letter or '_'
+  emitpy.global @123invalid = #emitpy.opaque<"None">
+}
+
+// -----
+
+module {
+  // CHECK: error: 'emitpy.global' op variable name may only contain alphanumeric characters and '_'
+  emitpy.global @in$valid = #emitpy.opaque<"None">
+}
+
+// -----
+
+module {
+  emitpy.global @typed_global = 0
+
+  func.func @get_global_type_mismatch() -> !emitpy.opaque<"[ttnn.Tensor]"> {
+    // CHECK: error: 'emitpy.get_global' op result type ('!emitpy.opaque<"[ttnn.Tensor]">') does not match global's type ('i64')
+    %0 = emitpy.get_global @typed_global : !emitpy.opaque<"[ttnn.Tensor]">
+    return %0 : !emitpy.opaque<"[ttnn.Tensor]">
+  }
+}
+
+// -----
+
+module {
+  emitpy.global @typed_global = 0
+
+  func.func @assign_global_type_mismatch(%arg0: !emitpy.opaque<"[ttnn.Tensor]">) -> !emitpy.opaque<"[ttnn.Tensor]"> {
+    // CHECK: error: 'emitpy.assign_global' op result type ('!emitpy.opaque<"[ttnn.Tensor]">') does not match global's type ('i64')
+    %0 = "emitpy.assign_global"(%arg0) <{name = @typed_global}> : (!emitpy.opaque<"[ttnn.Tensor]">) -> !emitpy.opaque<"[ttnn.Tensor]">
+    return %0 : !emitpy.opaque<"[ttnn.Tensor]">
+  }
+}
+
+// -----
+
+module {
+  emitpy.global @typed_global = 0
+
+  func.func @global_statement_type_mismatch() -> !emitpy.opaque<"[ttnn.Tensor]"> {
+    // CHECK: error: 'emitpy.global_statement' op result type ('!emitpy.opaque<"[ttnn.Tensor]">') does not match global's type ('i64')
+    %0 = emitpy.global_statement @typed_global : !emitpy.opaque<"[ttnn.Tensor]">
+    return %0 : !emitpy.opaque<"[ttnn.Tensor]">
+  }
+}
+
+// -----
+
+module {
   func.func @get_global_nonexistent() -> !emitpy.opaque<"[ttnn.Tensor]"> {
     // CHECK: error: 'emitpy.get_global' op 'nonexistent_global' does not reference a valid emitpy.global
     %0 = emitpy.get_global @nonexistent_global : !emitpy.opaque<"[ttnn.Tensor]">
@@ -34,18 +91,4 @@ module {
     %0 = emitpy.global_statement @nonexistent_global : !emitpy.opaque<"[ttnn.Tensor]">
     return %0 : !emitpy.opaque<"[ttnn.Tensor]">
   }
-}
-
-// -----
-
-module {
-  // CHECK: error: 'emitpy.global' op variable name 'global' is not a valid Python identifier
-  emitpy.global @global : #emitpy.opaque<"None">
-}
-
-// -----
-
-module {
-  // CHECK: error: @ identifier expected to start with letter or '_'
-  emitpy.global @123invalid : #emitpy.opaque<"None">
 }
