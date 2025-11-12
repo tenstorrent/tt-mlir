@@ -1116,17 +1116,16 @@ public:
       return mlir::failure();
     }
 
-    Value cache = scatterOp.getInput();
-    Value updates = scatterOp.getUpdate();
+    auto cache = scatterOp.getInput();
+    auto updates = scatterOp.getUpdate();
 
-    int32_t batchSize =
-        mlir::cast<RankedTensorType>(cache.getType()).getShape()[0];
+    int32_t batchSize = cache.getType().getShape()[0];
 
     // If the cachePositions tensor has more than one element we assume it
     // represents a set of aranged indices (0, cachePositions.size), so we
     // replace it with FillCacheOp. If the tensor has only one element, we
     // assume it represents the update index for UpateCacheOp.
-    RankedTensorType updatesType = cast<RankedTensorType>(updates.getType());
+    RankedTensorType updatesType = updates.getType();
     if (cacheUpdateInputShape[0] != 1) {
       // Fill cache requires that each batch is filled separately. So, we will
       // insert a FillCacheOp for each batch. This requires slicing out each
@@ -1188,7 +1187,8 @@ public:
       // [1, num_heads, B, head_size]. So, we must permute the updates tensor to
       // this shape.
       if (batchSize > 1) {
-        SmallVector<int64_t> permutedShape = ttmlir::utils::applyPermutation(updatesType.getShape(), {2, 1, 0, 3});
+        SmallVector<int64_t> permutedShape = ttmlir::utils::applyPermutation(
+            updatesType.getShape(), {2, 1, 0, 3});
         RankedTensorType permutedUpdatesType =
             RankedTensorType::get(permutedShape, updatesType.getElementType(),
                                   updatesType.getEncoding());
