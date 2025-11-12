@@ -280,7 +280,7 @@ def EmitPy_AssignGlobalOp : EmitPy_Op<"assign_global",
   }];
 
   let arguments = (ins FlatSymbolRefAttr:$name,
-                       EmitPy_OpaqueType:$value);
+                       AnyType:$value);
   let results = (outs AnyType:$result);
 
   let hasVerifier = 1;
