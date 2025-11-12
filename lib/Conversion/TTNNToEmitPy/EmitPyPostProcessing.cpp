@@ -38,9 +38,9 @@ public:
         std::string argName =
             calleeAttr.getValue().str() + "_" +
             std::to_string(inputCounter[calleeAttr.getValue()]++);
-        // Only insert into valueNames if the operation has results
-        if (callOp.getNumResults() > 0) {
-          valueNames.insert({callOp.getResult(0), argName});
+        // Insert all results into valueNames for multi-result operations
+        for (unsigned i = 0; i < callOp.getNumResults(); ++i) {
+          valueNames.insert({callOp.getResult(i), argName});
         }
         StringAttr suggestName = StringAttr::get(ctx, argName);
         callOp->setAttr("suggest_name", suggestName);
@@ -53,9 +53,9 @@ public:
         std::string argName =
             calleeAttr.getValue().str() + "_" +
             std::to_string(inputCounter[calleeAttr.getValue()]++);
-        // Only insert into valueNames if the operation has results
-        if (callOp.getNumResults() > 0) {
-          valueNames.insert({callOp.getResult(0), argName});
+        // Insert all results into valueNames for multi-result operations
+        for (unsigned i = 0; i < callOp.getNumResults(); ++i) {
+          valueNames.insert({callOp.getResult(i), argName});
         }
         StringAttr suggestName = StringAttr::get(ctx, argName);
         callOp->setAttr("suggest_name", suggestName);
