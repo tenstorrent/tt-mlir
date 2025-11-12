@@ -1,4 +1,5 @@
-// RUN: echo "0"
+// RUN: ttmlir-opt --ttnn-fusing -o %t %s
+// RUN: FileCheck %s --input-file=%t
 
 // Test fusing sigmoid activation into linear operation
 module {
