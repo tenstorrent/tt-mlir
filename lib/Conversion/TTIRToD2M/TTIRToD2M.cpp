@@ -1519,12 +1519,12 @@ class D2MScatterOpRewriter : public OpConversionPattern<ttir::ScatterOp> {
 
     auto inputType = getTypeConverter()->convertType<RankedTensorType>(input.getType());
     auto scatterIndicesType = getTypeConverter()->convertType<RankedTensorType>(scatterIndices.getType());
-    auto updatesType = getTypeConverter()->convertType<RankedTensorType>(updates.getType());
+    auto updateType = getTypeConverter()->convertType<RankedTensorType>(updates.getType());
     auto outputType = getTypeConverter()->convertType<RankedTensorType>(output.getType());
 
     int64_t inputRank = inputType.getRank();
     int64_t scatterIndicesRank = scatterIndicesType.getRank();
-    int64_t updatesRank = updatesType.getRank();
+    int64_t updateRank = updateType.getRank();
     int64_t outputRank = outputType.getRank();
 
     // Get scatter dimension attributes.
@@ -1616,7 +1616,7 @@ class D2MScatterOpRewriter : public OpConversionPattern<ttir::ScatterOp> {
     [[maybe_unused]] auto scatterIndicesLayoutOp = builder.create<d2m::ToLayoutOp>(loc, scatterIndices, scatterIndicesEmpty, nullptr);
 
     // Insert to metal layout conversion for the updates.
-    llvm::SmallVector<int64_t> updatesAlignments(updatesType.getShape().size(), 1);
+    llvm::SmallVector<int64_t> updatesAlignments(updateType.getShape().size(), 1);
     updatesAlignments[updatesAlignments.size() - 1] = 32;
     updatesAlignments[updatesAlignments.size() - 2] = 32;
     updatesAlignments[updatesAlignments.size() - 3] = 1;
@@ -1626,18 +1626,18 @@ class D2MScatterOpRewriter : public OpConversionPattern<ttir::ScatterOp> {
     DenseIntElementsAttr updatesCollapsedDimsAttr = DenseIntElementsAttr::get(intervalTy, llvm::ArrayRef<int64_t>(updatesCollapsedDims));
 
     auto updatesMetalLayout = ttcore::MetalLayoutAttr::get(
-      getContext(), updatesType.getShape(), ttcore::OOBVal::Undef,
+      getContext(), updateType.getShape(), ttcore::OOBVal::Undef,
       ttcore::MemorySpace::DeviceDRAM, ttcore::TensorMemoryLayout::Sharded, updatesCollapsedDimsAttr, updatesAlignments);
 
-    // Create new shape that collapses the leading dimensions in updatesType into 2D
-    llvm::SmallVector<int64_t> newUpdatesShape(updatesType.getShape().begin(), updatesType.getShape().end());
+    // Create new shape that collapses the leading dimensions in updateType into 2D
+    llvm::SmallVector<int64_t> newUpdatesShape(updateType.getShape().begin(), updateType.getShape().end());
 
-    if (updatesRank > 2) {
-      int64_t collapsedLeading = updatesType.getDimSize(0);
-      for (int64_t i = 1; i < updatesRank - 1; ++i) {
-        collapsedLeading *= updatesType.getDimSize(i);
+    if (updateRank > 2) {
+      int64_t collapsedLeading = updateType.getDimSize(0);
+      for (int64_t i = 1; i < updateRank - 1; ++i) {
+        collapsedLeading *= updateType.getDimSize(i);
       }
-      newUpdatesShape = {collapsedLeading, updatesType.getDimSize(updatesRank - 1)};
+      newUpdatesShape = {collapsedLeading, updateType.getDimSize(updateRank - 1)};
     }
 
     // Add mesh shape information
@@ -1648,7 +1648,7 @@ class D2MScatterOpRewriter : public OpConversionPattern<ttir::ScatterOp> {
     auto updatesEmpty = builder.create<d2m::EmptyOp>(
       loc,
       updatesWithMeshShape,
-      updatesType.getElementType(),
+      updateType.getElementType(),
       updatesMetalLayout);
 
     [[maybe_unused]] auto updatesLayoutOp = builder.create<d2m::ToLayoutOp>(loc, updates, updatesEmpty, nullptr);
@@ -1673,7 +1673,7 @@ class D2MScatterOpRewriter : public OpConversionPattern<ttir::ScatterOp> {
       getContext(), outputType.getShape(), ttcore::OOBVal::Undef,
       ttcore::MemorySpace::DeviceDRAM, ttcore::TensorMemoryLayout::Sharded, outputCollapsedDimsAttr, outputAlignments);
 
-    // Create new shape that collapses the leading dimensions in updatesType into 2D
+    // Create new shape that collapses the leading dimensions in updateType into 2D
     llvm::SmallVector<int64_t> newOutputShape(outputType.getShape().begin(), outputType.getShape().end());
 
     if (outputRank > 2) {
@@ -1781,6 +1781,18 @@ class D2MScatterOpRewriter : public OpConversionPattern<ttir::ScatterOp> {
     [[maybe_unused]] auto scatterIndicesWaitOp = builder.create<d2m::WaitOp>(loc, scatterIndicesBlockArgument);
     [[maybe_unused]] auto updateWaitOp = builder.create<d2m::WaitOp>(loc, updateBlockArgument);
     [[maybe_unused]] auto outputReserveOp = builder.create<d2m::ReserveOp>(loc, outputBlockArgument);
+
+    // We are going to create a nested loop structure to iterate over the updates tensor
+    SmallVector<Value> ivs;
+    
+    for (int64_t i = 0; i < updateRank; ++i) {
+      int64_t dim = updateType.getDimSize(i);
+      auto loop = builder.create<mlir::affine::AffineForOp>(loc, 0, dim);
+      builder.setInsertionPointToStart(loop.getBody());
+      ivs.push_back(loop.getInductionVar());
+    }
+
+
 
     rewriter.replaceOp(scatterOp, finalOutputToLayoutOp.getResult(0));
     return success();
