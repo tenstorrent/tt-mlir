@@ -1154,9 +1154,11 @@ public:
           SmallVector<int64_t> sliceOutputShape(updatesType.getShape());
           sliceOutputShape[0] = 1;
 
+          // Encoding should not be set when this pass is run. Guard against it.
+          assert(!updatesType.getEncoding());
+
           RankedTensorType slicedUpdatesType = RankedTensorType::get(
-              sliceOutputShape, updatesType.getElementType(),
-              updatesType.getEncoding());
+              sliceOutputShape, updatesType.getElementType(), nullptr);
 
           // Create slice op.
           auto slicedUpdates = ttir::utils::createDPSOp<SliceStaticOp>(
@@ -1189,9 +1191,11 @@ public:
       if (batchSize > 1) {
         SmallVector<int64_t> permutedShape = ttmlir::utils::applyPermutation(
             updatesType.getShape(), {2, 1, 0, 3});
-        RankedTensorType permutedUpdatesType =
-            RankedTensorType::get(permutedShape, updatesType.getElementType(),
-                                  updatesType.getEncoding());
+
+        // Encoding should not be set when this pass is run. Guard against it.
+        assert(!updatesType.getEncoding());
+        RankedTensorType permutedUpdatesType = RankedTensorType::get(
+            permutedShape, updatesType.getElementType(), nullptr);
         updates = ttir::utils::createDPSOp<PermuteOp>(
             rewriter, scatterOp.getLoc(), permutedUpdatesType, updates,
             rewriter.getDenseI64ArrayAttr({2, 1, 0, 3}));
