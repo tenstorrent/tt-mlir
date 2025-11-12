@@ -178,13 +178,13 @@ def _parse_numeric_prefix(text):
     return numbers, remaining
 
 
-def _get_sort_key(file_path, root_dir):
+def _get_sort_key(file_path):
     """
     Generate sorting key for a file path.
 
     Returns tuple: (model_name, pipeline_number, remaining_pipeline_dir, pass_sequence, remaining_filename)
     """
-    rel_path = os.path.relpath(file_path, root_dir)
+    rel_path = os.path.relpath(file_path, IR_DUMPS_DIR)
     parts = rel_path.split(os.sep)
 
     # Extract components (assuming structure: .../model_name/pipeline_dir/.../filename)
@@ -214,10 +214,9 @@ def list_ir_files(dir_path: str):
         )
     ]
     print(files)
-    print(sorted(files, key=lambda f: _get_sort_key(f, dir_path)))
     # Sort files using custom hierarchical sorting
     # This ensures consistent ordering across filesystems for compiler passes
-    return sorted(files, key=lambda f: _get_sort_key(f, dir_path))
+    return sorted(files, key=lambda f: _get_sort_key(f))
 
 
 def get_collection_path(model_path: str):
