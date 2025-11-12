@@ -275,7 +275,7 @@ def EmitPy_AssignGlobalOp : EmitPy_Op<"assign_global",
     Example:
 
     ```mlir
-    %3 = "emitpy.assign_global"(%2) <{name = @g_cached_result_const_eval_no_input_const_eval_0}> : (!emitpy.opaque<"[ttnn.Tensor]">) -> !emitpy.opaque<"[ttnn.Tensor]">
+    %3 = "emitpy.assign_global"(%2) <{name = @CACHED_const_eval_no_input_const_eval_0}> : (!emitpy.opaque<"[ttnn.Tensor]">) -> !emitpy.opaque<"[ttnn.Tensor]">
     ```
   }];
 
