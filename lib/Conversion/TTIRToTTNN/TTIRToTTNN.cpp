@@ -1745,17 +1745,16 @@ public:
 } // namespace
 
 //===----------------------------------------------------------------------===//
-// ScatterInDimOp
+// ScatterOp
 //===----------------------------------------------------------------------===//
 
 namespace {
-class ScatterInDimOpConversionPattern
-    : public OpConversionPattern<ttir::ScatterInDimOp> {
-  using OpConversionPattern<ttir::ScatterInDimOp>::OpConversionPattern;
+class ScatterOpConversionPattern : public OpConversionPattern<ttir::ScatterOp> {
+  using OpConversionPattern<ttir::ScatterOp>::OpConversionPattern;
 
 public:
   LogicalResult
-  matchAndRewrite(ttir::ScatterInDimOp op, OpAdaptor adaptor,
+  matchAndRewrite(ttir::ScatterOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     rewriter.replaceOpWithNewOp<ttnn::ScatterOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
@@ -2202,7 +2201,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            UpdateCacheOpConversionPattern,
            PagedUpdateCacheOpConversionPattern,
            FillCacheOpConversionPattern,
-           ScatterInDimOpConversionPattern,
+           ScatterOpConversionPattern,
            PermuteOpConversionPattern,
            UpsampleOpConversionPattern,
            AllToAllOpConversionPattern,
