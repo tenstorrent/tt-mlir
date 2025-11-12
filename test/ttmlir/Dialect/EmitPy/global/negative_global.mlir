@@ -35,3 +35,17 @@ module {
     return %0 : !emitpy.opaque<"[ttnn.Tensor]">
   }
 }
+
+// -----
+
+module {
+  // CHECK: error: 'emitpy.global' op variable name 'global' is not a valid Python identifier
+  emitpy.global @global : #emitpy.opaque<"None">
+}
+
+// -----
+
+module {
+  // CHECK: error: @ identifier expected to start with letter or '_'
+  emitpy.global @123invalid : #emitpy.opaque<"None">
+}
