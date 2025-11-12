@@ -437,7 +437,8 @@ updateStreamLayoutOps(ArrayRef<StreamLayoutUpdateInfo> streamLayoutsToUpdate,
 // now have new types with optimized grids. We must recreate the generic to
 // reflect these type changes, including updating the region body and any
 // nested linalg.generic result types.
-static void recreateGenericOp(d2m::GenericOp genericOp) {
+static void recreateGenericOp(d2m::GenericOp genericOp,
+                              ArrayRef<int64_t> targetSquareGridShape) {
   OpBuilder builder(genericOp->getContext());
   llvm::SmallVector<Value> newOperands;
   for (Value operand : genericOp.getOperands()) {
@@ -457,7 +458,7 @@ static void recreateGenericOp(d2m::GenericOp genericOp) {
     builder.setInsertionPoint(genericOp);
     auto newGenericOp = builder.create<d2m::GenericOp>(
         genericOp.getLoc(), newInputs, newOutputs, genericOp.getIndexingMaps(),
-        genericOp.getIteratorTypes(),
+        genericOp.getIteratorTypes(), targetSquareGridShape,
         [&](OpBuilder &b, Location loc, ValueRange blockArgs) {
           IRMapping mapping;
           Block &oldBlock = oldRegion.front();
@@ -637,7 +638,7 @@ static void assignGrids(d2m::GenericOp genericOp,
     insertTTNNDRAMStreams(genericOp, targetSquareGridShape);
   }
 
-  recreateGenericOp(genericOp);
+  recreateGenericOp(genericOp, targetSquareGridShape);
 }
 
 // ----------------------------------------------------------------------------

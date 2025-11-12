@@ -42,7 +42,8 @@ ttcore::GridAttr getGridFromType(RankedTensorType type) {
 // view is directly returned without being consumed by a generic op, we must
 // insert a datamovement generic that forces the actual tensor transformation to
 // occur.
-Value materializeView(OpBuilder &builder, Location loc, Value viewResult) {
+Value materializeView(OpBuilder &builder, Location loc, Value viewResult,
+                      ArrayRef<int64_t> targetSquareGridShape) {
   auto tensorType = mlir::cast<RankedTensorType>(viewResult.getType());
 
   // Allocate output storage for the materialized view result.
@@ -68,7 +69,7 @@ Value materializeView(OpBuilder &builder, Location loc, Value viewResult) {
   // to complete, then yields the output buffer.
   auto indexingMap = mlir::cast<AffineMapAttr>(indexingMaps[0]);
   auto genericOp = builder.create<GenericOp>(
-      loc, viewResult, emptyOp.getResult(),
+      loc, viewResult, emptyOp.getResult(), targetSquareGridShape,
       [&](OpBuilder &builder, Location loc, ValueRange blockArgs) {
         Value outputCB =
             builder.create<d2m::ReserveOp>(loc, blockArgs[1]).getResult();
@@ -94,6 +95,8 @@ public:
     ModuleOp module = getOperation();
     OpBuilder builder(&getContext());
 
+    llvm::SmallVector<int64_t> targetSquareGridShape =
+        d2m::utils::getSquareTargetGrid(getTargetGridShape());
     // Process each function in the module to find unmaterialized view returns.
     module.walk([&](func::FuncOp funcOp) {
       funcOp.walk([&](func::ReturnOp returnOp) {
@@ -108,12 +111,24 @@ public:
             // This ensures the tensor transformation represented by the view
             // actually occurs, rather than just being a symbolic operation.
             Value materialized =
-                materializeView(builder, returnOp.getLoc(), opOperand.get());
+                materializeView(builder, returnOp.getLoc(), opOperand.get(),
+                                targetSquareGridShape);
             opOperand.set(materialized);
           }
         }
       });
     });
+  }
+
+private:
+  // Helper to get defined device shape if an override is not provided.
+  llvm::SmallVector<int64_t> getTargetGridShape() {
+    // Get from device if no override given.
+    ::mlir::ModuleOp moduleOp = getOperation();
+    mlir::tt::ttcore::DeviceAttr device =
+        mlir::tt::ttcore::lookupDevice(moduleOp);
+    TT_assertv(device, "Device not found");
+    return llvm::to_vector(device.getWorkerGrid().getShape());
   }
 };
 
