@@ -32,6 +32,7 @@
 #include "llvm/Support/Casting.h"
 
 #include "llvm/Support/LogicalResult.h"
+#include "llvm/Support/raw_ostream.h"
 #include <cstdint>
 #include <optional>
 
@@ -296,6 +297,8 @@ public:
   LogicalResult
   matchAndRewrite(TTIROpTy op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    llvm::errs() << "ReductionOpConversionPattern invoked for Mountagha"
+                 << TTIROpTy::getOperationName() << "\n";
     if constexpr (std::is_same_v<TTIROpTy, ttir::ReduceOrOp>) {
       return rewriter.notifyMatchFailure(
           op, "ReduceOrOp should be handled by ReduceOrOpConversionPattern");
@@ -1582,10 +1585,11 @@ public:
     RankedTensorType inputType =
         mlir::cast<RankedTensorType>(adaptor.getInput().getType());
     // auto device = ::ttnn::utils::getOrInsertDevice(rewriter, op);
-    
+    llvm::errs() << "Lowering ReduceOrOp to TTNN MaxOp Mountagha\n";
     // Create zero constant for comparison (0 or 1)
-    Value zeroConstant = rewriter.create<ttnn::ZerosOp>(
-        op.getLoc(), inputType, /*memory_config=*/nullptr
+    Attribute zeroAttr = rewriter.getFloatAttr(inputType.getElementType(), 0.0);
+    Value zeroConstant = rewriter.create<ttnn::FullOp>(
+        op.getLoc(), inputType, zeroAttr, nullptr
     );
 
     Value mask = rewriter.create<ttnn::NotEqualOp>(
