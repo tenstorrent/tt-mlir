@@ -16,7 +16,10 @@
 
 namespace mlir::tt::ttnn {
 #define GEN_PASS_DEF_TTNNPRETTIFYFORCODEGEN
+#define GEN_PASS_DEF_TTNNSIMPLIFYLOCSFORCODEGEN
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h.inc"
+
+namespace {
 
 class TTNNPrettifyForCodegen
     : public impl::TTNNPrettifyForCodegenBase<TTNNPrettifyForCodegen> {
@@ -52,8 +55,39 @@ private:
     PyLoc(Operation *op) {
       this->op = op;
 
+      // Skip unknown locs.
+      if (isa<UnknownLoc>(op->getLoc())) {
+        this->isValid = false;
+        return;
+      }
+
+      // Non TTNN dialect ops are not target.
+      if (!isa<ttnn::TTNNDialect>(op->getDialect())) {
+        this->isValid = false;
+        return;
+      }
+
+      // Allow NameLocs only
+      if (!isa<NameLoc>(op->getLoc())) {
+        // TODO (svuckovic): should we fail the pass for this?
+        this->isValid = false;
+        return;
+      }
+
+      // Simplify the location - remove nested locations.
+      std::cout << "Simplifying loc: " << "\n";
+      op->getLoc().print(llvm::outs());
+      std::cout << "\n";
+      mlir::Location simplifiedLoc = simplifyNameLoc(op->getLoc());
+      std::cout << "Simplified loc: " << "\n";
+      simplifiedLoc.print(llvm::outs());
+      std::cout << "\n";
+
       // Get location without "loc(" and ")" characters.
-      std::string locStr = locationToStr(op->getLoc());
+      std::string locStr = locationToStr(simplifiedLoc);
+
+      op->dump();
+      std::cout << "Parsing loc: " << locStr << "\n";
 
       // Split locStr by "|" character.
       // For example, given:
@@ -67,10 +101,10 @@ private:
       // Validate that we have at least 4 parts (funcPath, funcName, opLineNum,
       // opName)
       size_t n = locParts.size();
-      if (n < 4) {
-        this->isValid = false;
-        return;
-      }
+      // if (n < 4) {
+      //   this->isValid = false;
+      //   return;
+      // }
 
       // Fill in fields from back of locParts.
       this->opName = locParts[n - 1].str();
@@ -117,6 +151,17 @@ private:
   bool isCandidateOp(Operation *op) {
     // Check if ttnn op
     return isa<ttnn::TTNNDialect>(op->getDialect());
+  }
+
+  static mlir::Location simplifyNameLoc(mlir::Location loc) {
+    if (auto nameLoc = mlir::dyn_cast<mlir::NameLoc>(loc)) {
+      // Get the name string and create a new NameLoc without nested location
+      return mlir::NameLoc::get(
+          nameLoc.getName()
+          // Omitting the second parameter uses UnknownLoc by default
+      );
+    }
+    return loc;
   }
 
   static std::string locationToStr(const mlir::Location &loc) {
@@ -647,4 +692,55 @@ public:
                              newFunctions);
   }
 };
+
+class TTNNSimplifyLocsForCodegen
+    : public impl::TTNNSimplifyLocsForCodegenBase<TTNNSimplifyLocsForCodegen> {
+
+private:
+  mlir::Location simplifyNameLoc(mlir::Location loc) {
+    // If not NameLoc, return pass failure
+    if (!isa<NameLoc>(loc)) {
+      getOperation()->emitError("Location is not a NameLoc");
+      signalPassFailure();
+    }
+
+    auto nameLoc = mlir::dyn_cast<mlir::NameLoc>(loc);
+
+    // Get the name string and create a new NameLoc without nested location
+    return mlir::NameLoc::get(
+        nameLoc.getName()
+        // Omitting the second parameter uses UnknownLoc by default
+    );
+  }
+
+public:
+  using impl::TTNNSimplifyLocsForCodegenBase<
+      TTNNSimplifyLocsForCodegen>::TTNNSimplifyLocsForCodegenBase;
+
+  void runOnOperation() final {
+    ModuleOp moduleOp = getOperation();
+
+    // Walk through all operations in the module
+    moduleOp.walk([&](Operation *op) {
+      // Skip UnknownLocs
+      if (isa<UnknownLoc>(op->getLoc())) {
+        return WalkResult::advance();
+      }
+
+      // Only process TTNN dialect ops
+      if (!isa<ttnn::TTNNDialect>(op->getDialect())) {
+        return WalkResult::advance();
+      }
+
+      // Simplify the location
+      mlir::Location simplifiedLoc = simplifyNameLoc(op->getLoc());
+      op->setLoc(simplifiedLoc);
+
+      return WalkResult::advance();
+    });
+  }
+};
+
+} // namespace
+
 } // namespace mlir::tt::ttnn
