@@ -198,6 +198,20 @@ jobs:
           fi
         done
         
+        # Global search for libtracy.so in common locations
+        echo "  Searching for all libtracy.so files..."
+        find . -name "libtracy.so*" -type f 2>/dev/null | while read found; do
+          echo "    Found: $found ($(ls -lh "$found" | awk '{print $5}'))"
+        done || echo "    (find command failed or no files found)"
+        
+        # Also check system library paths
+        echo "  Checking system library paths..."
+        for syspath in /usr/lib /usr/local/lib /lib /lib64 /usr/lib64; do
+          if [ -f "$syspath/libtracy.so" ]; then
+            echo "    ✓ Found in: $syspath"
+          fi
+        done
+        
         # Check shared library dependencies for ttrt, tt-mlir, and tt-metal
         echo "Checking shared library dependencies..."
         
