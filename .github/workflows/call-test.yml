@@ -215,52 +215,46 @@ jobs:
         # Check shared library dependencies for ttrt, tt-mlir, and tt-metal
         echo "Checking shared library dependencies..."
         
-        # Find ttrt binary
-        ttrt_bin=$(which ttrt 2>/dev/null || echo "")
-        if [ -n "$ttrt_bin" ]; then
-          echo "  ttrt binary: $ttrt_bin"
-          ldd "$ttrt_bin" 2>/dev/null | grep -i tracy || echo "    (no tracy in ldd output)"
+        # Check the ttrt Python package's runtime libraries
+        echo "  Looking for ttrt runtime libraries..."
+        find . -path "*/ttrt/runtime/*.so" -type f 2>/dev/null | head -3 | while read lib; do
+          echo "    Found: $lib"
+          ldd "$lib" 2>/dev/null | grep -i tracy && echo "      ^ Has tracy dependency" || true
+        done
+        
+        # Check install directory libs
+        echo "  Checking install/lib/*.so..."
+        if [ -d "install/lib" ]; then
+          for lib in install/lib/libTTRuntimeTTNN.so install/lib/libtt_metal.so install/lib/libtracy.so*; do
+            if [ -f "$lib" ]; then
+              echo "    $lib:"
+              readelf -d "$lib" 2>/dev/null | grep -E 'NEEDED.*tracy|RPATH|RUNPATH' | head -3 || echo "      (no tracy references)"
+            fi
+          done
         else
-          echo "  ttrt binary: NOT FOUND"
+          echo "    install/lib not found"
         fi
         
-        # Check tt-mlir compiler library
-        mlir_lib="$BUILD_DIR/lib/libTTMLIRCompiler.so"
-        if [ -f "$mlir_lib" ]; then
-          echo "  tt-mlir compiler lib: $mlir_lib"
-          echo "    NEEDED entries:"
-          readelf -d "$mlir_lib" 2>/dev/null | grep NEEDED | head -5 || echo "      (readelf failed)"
-          echo "    RPATH/RUNPATH:"
-          readelf -d "$mlir_lib" 2>/dev/null | grep -E 'RPATH|RUNPATH' || echo "      (none)"
+        # Check build directory libs
+        echo "  Checking build/lib/*.so..."
+        if [ -d "build/lib" ]; then
+          for lib in build/lib/libTTRuntimeTTNN.so build/lib/libtt_metal.so build/lib/libtracy.so*; do
+            if [ -f "$lib" ]; then
+              echo "    $lib:"
+              readelf -d "$lib" 2>/dev/null | grep -E 'NEEDED.*tracy|RPATH|RUNPATH' | head -3 || echo "      (no tracy references)"
+            fi
+          done
         else
-          echo "  tt-mlir compiler lib: NOT FOUND ($mlir_lib)"
+          echo "    build/lib not found"
         fi
         
-        # Check tt-metal library
-        metal_lib="third_party/tt-metal/src/tt-metal/build/lib/libtt_metal.so"
-        if [ -f "$metal_lib" ]; then
-          echo "  tt-metal lib: $metal_lib"
-          echo "    NEEDED entries:"
-          readelf -d "$metal_lib" 2>/dev/null | grep NEEDED | grep -i tracy || echo "      (no tracy)"
-          readelf -d "$metal_lib" 2>/dev/null | grep NEEDED | head -5 || echo "      (readelf failed)"
-          echo "    RPATH/RUNPATH:"
-          readelf -d "$metal_lib" 2>/dev/null | grep -E 'RPATH|RUNPATH' || echo "      (none)"
-        else
-          echo "  tt-metal lib: NOT FOUND ($metal_lib)"
-        fi
-        
-        # Check runtime library (where tracy is actually used)
-        runtime_lib="$BUILD_DIR/lib/libTTRuntimeTTNN.so"
-        if [ -f "$runtime_lib" ]; then
-          echo "  tt-runtime lib: $runtime_lib"
-          echo "    NEEDED entries:"
-          readelf -d "$runtime_lib" 2>/dev/null | grep NEEDED | grep -i tracy || echo "      (no tracy)"
-          readelf -d "$runtime_lib" 2>/dev/null | grep NEEDED | head -5 || echo "      (readelf failed)"
-          echo "    RPATH/RUNPATH:"
-          readelf -d "$runtime_lib" 2>/dev/null | grep -E 'RPATH|RUNPATH' || echo "      (none)"
-        else
-          echo "  tt-runtime lib: NOT FOUND ($runtime_lib)"
-        fi
+        # Check any .so files that link to tracy
+        echo "  Searching for any .so files linking to libtracy..."
+        find . -name "*.so*" -type f 2>/dev/null | while read sofile; do
+          if readelf -d "$sofile" 2>/dev/null | grep -q "libtracy"; then
+            echo "    $sofile links to libtracy"
+          fi
+        done | head -5 || echo "    (none found)"
         
         # Check if tracy_ops_data.csv has interleaved or separated message ordering
         echo "Checking Tracy message ordering in ops data..."
