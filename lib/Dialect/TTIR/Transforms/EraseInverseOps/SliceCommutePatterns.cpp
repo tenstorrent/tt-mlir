@@ -65,11 +65,18 @@ public:
         rewriter.getArrayAttr(newSliceEnds),
         rewriter.getArrayAttr(newSliceSteps));
 
+    // All users must be identical TMs.
+    // We must not reference `permuteUser` during/after replacements, as it will
+    // be erased on its turn.
     SmallVector<Operation *> users(op->getUsers());
+    assert(llvm::all_of(users,
+                        [&](Operation *user) {
+                          return checkIdenticalTms(permuteUser, user);
+                        }) &&
+           "isCommuteUpwardsViable/Favorable should have ensured all users "
+           "are identical TMs");
+
     for (auto *user : users) {
-      assert(checkIdenticalTms(permuteUser, user) &&
-             "isCommuteUpwardsViable/Favorable should have ensured all users "
-             "are identical TMs");
       rewriter.replaceOp(user, newSlice);
     }
   }
@@ -175,11 +182,18 @@ public:
     SliceStaticOp newSlice =
         createReshapedSliceStaticOp(op, newReshape.getResult(), rewriter);
 
+    // All users must be identical TMs.
+    // We must not reference `reshapeUser` during/after replacements, as it will
+    // be erased on its turn.
     SmallVector<Operation *> users(op->getUsers());
+    assert(llvm::all_of(users,
+                        [&](Operation *user) {
+                          return checkIdenticalTms(reshapeUser, user);
+                        }) &&
+           "isCommuteUpwardsViable/Favorable should have ensured all users "
+           "are identical TMs");
+
     for (auto *user : users) {
-      assert(checkIdenticalTms(reshapeUser, user) &&
-             "isCommuteUpwardsViable/Favorable should have ensured all users "
-             "are identical TMs");
       rewriter.replaceOp(user, newSlice);
     }
   }
