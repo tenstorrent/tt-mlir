@@ -301,8 +301,9 @@ def polygamma_composite(
     "dtype",
     [
         torch.float32,
+        torch.bfloat16,
     ],
-    ids=["f32"],
+    ids=["f32", "bf16"],
 )
 @pytest.mark.parametrize("target", ["ttmetal"])
 def test_digamma(
