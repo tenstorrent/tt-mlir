@@ -9,6 +9,7 @@
 
 #include "mlir/Dialect/Quant/IR/QuantTypes.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+#include <iostream>
 
 namespace mlir::tt::ttir {
 #define GEN_PASS_DEF_ELEMENTTYPENORMALIZATION
@@ -235,28 +236,46 @@ public:
   matchAndRewrite(mlir::Operation *op, llvm::ArrayRef<mlir::Value> operands,
                   mlir::ConversionPatternRewriter &rewriter) const final {
 
-    // Only match matmul and conv2d operations
+    // Only match matmul, conv2d, and convolution operations
     bool isMatmul = llvm::isa<ttir::MatmulOp>(op);
     bool isConv2d = llvm::isa<ttir::Conv2dOp>(op);
-    if (!isMatmul && !isConv2d) {
-      return rewriter.notifyMatchFailure(op, "not a matmul or conv2d op");
+    bool isConvolution = llvm::isa<ttir::ConvolutionOp>(op);
+    if (!isMatmul && !isConv2d && !isConvolution) {
+      return rewriter.notifyMatchFailure(
+          op, "not a matmul, conv2d, or convolution op");
     }
 
     // Determine which operands are weights
     // For matmul: operand 1 (b) is typically the weight
-    // For conv2d: operand 1 (weight) and optionally operand 2 (bias) are
-    // weights
+    // For conv2d and convolution: operand 1 (weight) and optionally operand 2
+    // (bias) are weights
     llvm::SmallVector<unsigned> weightIndices;
     if (isMatmul) {
       weightIndices.push_back(1); // b operand
     } else if (isConv2d) {
+      auto conv2dOp = llvm::cast<ttir::Conv2dOp>(op);
       weightIndices.push_back(1); // weight operand
-      // Check if bias exists (it's optional)
-      if (op->getNumOperands() > 2 && op->getOperand(2)) {
-        auto biasType =
-            mlir::dyn_cast<mlir::RankedTensorType>(op->getOperand(2).getType());
-        if (biasType) {
-          weightIndices.push_back(2); // bias operand
+      // Check if bias exists using the named accessor
+      if (conv2dOp.getBias()) {
+        // Find the index of the bias operand
+        for (unsigned i = 0; i < op->getNumOperands(); ++i) {
+          if (op->getOperand(i) == conv2dOp.getBias()) {
+            weightIndices.push_back(i);
+            break;
+          }
+        }
+      }
+    } else if (isConvolution) {
+      auto convolutionOp = llvm::cast<ttir::ConvolutionOp>(op);
+      weightIndices.push_back(1); // weight operand
+      // Check if bias exists using the named accessor
+      if (convolutionOp.getBias()) {
+        // Find the index of the bias operand
+        for (unsigned i = 0; i < op->getNumOperands(); ++i) {
+          if (op->getOperand(i) == convolutionOp.getBias()) {
+            weightIndices.push_back(i);
+            break;
+          }
         }
       }
     }
@@ -351,9 +370,77 @@ struct ElementTypeNormalization
       mlir::ConversionTarget target(getContext());
       WeightsTypeConverter weightsConverter;
 
-      // All ops are legal - we're just adding casts before matmul/conv2d ops
+      // Mark all ops as legal by default
       target.markUnknownOpDynamicallyLegal(
           [](mlir::Operation *op) { return true; });
+
+      // Helper lambda to check if weight operands have bfp8 typecasts
+      auto hasWeightsWithBfp8 = [](mlir::Operation *op,
+                                   llvm::ArrayRef<unsigned> weightIndices) {
+        for (unsigned idx : weightIndices) {
+          if (idx >= op->getNumOperands()) {
+            continue;
+          }
+          mlir::Value weight = op->getOperand(idx);
+          // Check if the weight operand is produced by a typecast to bfp8
+          if (auto typecastOp = weight.getDefiningOp<ttir::TypecastOp>()) {
+            auto resultType =
+                mlir::dyn_cast<mlir::RankedTensorType>(typecastOp.getType());
+            if (resultType) {
+              auto tileType =
+                  mlir::dyn_cast<ttcore::TileType>(resultType.getElementType());
+              if (tileType &&
+                  tileType.getDataType() == ttcore::DataType::BFP_BFloat8) {
+                return true; // Found a weight with bfp8 typecast
+              }
+            }
+          }
+        }
+        return false;
+      };
+
+      // Mark matmul ops as illegal unless their weights already have bfp8
+      // typecasts
+      target.addDynamicallyLegalOp<ttir::MatmulOp>(
+          [hasWeightsWithBfp8](ttir::MatmulOp op) {
+            return hasWeightsWithBfp8(op.getOperation(), {1});
+          });
+
+      // Mark conv2d ops as illegal unless their weights already have bfp8
+      // typecasts
+      target.addDynamicallyLegalOp<ttir::Conv2dOp>(
+          [hasWeightsWithBfp8](ttir::Conv2dOp op) {
+            llvm::SmallVector<unsigned> weightIndices = {1};
+            // Use named accessor to check for bias
+            if (op.getBias()) {
+              // Find the index of the bias operand
+              for (unsigned i = 0; i < op->getNumOperands(); ++i) {
+                if (op->getOperand(i) == op.getBias()) {
+                  weightIndices.push_back(i);
+                  break;
+                }
+              }
+            }
+            return hasWeightsWithBfp8(op.getOperation(), weightIndices);
+          });
+
+      // Mark convolution ops as illegal unless their weights already have bfp8
+      // typecasts
+      target.addDynamicallyLegalOp<ttir::ConvolutionOp>(
+          [hasWeightsWithBfp8](ttir::ConvolutionOp op) {
+            llvm::SmallVector<unsigned> weightIndices = {1};
+            // Use named accessor to check for bias
+            if (op.getBias()) {
+              // Find the index of the bias operand
+              for (unsigned i = 0; i < op->getNumOperands(); ++i) {
+                if (op->getOperand(i) == op.getBias()) {
+                  weightIndices.push_back(i);
+                  break;
+                }
+              }
+            }
+            return hasWeightsWithBfp8(op.getOperation(), weightIndices);
+          });
 
       mlir::RewritePatternSet weightsPatterns(&getContext());
       weightsPatterns.add<WeightsTypeCast>(weightsConverter, &getContext());

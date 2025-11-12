@@ -161,14 +161,6 @@ void createTTNNPipelineDeallocPass(
 void createTTIRToTTNNBackendPipeline(
     OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
   pm.addPass(mlir::createCanonicalizerPass());
-  // Element type normalization should be the first pass in the pipeline.
-  ttir::ElementTypeNormalizationOptions elementTypeNormalizationOptions;
-  elementTypeNormalizationOptions.enableBfp8Conversion =
-      options.enableBfp8Conversion;
-  elementTypeNormalizationOptions.experimentalBfp8Weights =
-      options.experimentalBfp8Weights;
-  pm.addPass(
-      ttir::createElementTypeNormalization(elementTypeNormalizationOptions));
 
   // Add Decomposition pass here to ensure it runs before hoisting.
   TTIRToTTIRDecompositionOptions decompOptions;
@@ -189,6 +181,8 @@ void createTTIRToTTNNBackendPipeline(
   ttir::ElementTypeNormalizationOptions elementTypeNormalizationOptions;
   elementTypeNormalizationOptions.enableBfp8Conversion =
       options.enableBfp8Conversion;
+  elementTypeNormalizationOptions.experimentalBfp8Weights =
+      options.experimentalBfp8Weights;
   devicePm.addPass(
       ttir::createElementTypeNormalization(elementTypeNormalizationOptions));
 
