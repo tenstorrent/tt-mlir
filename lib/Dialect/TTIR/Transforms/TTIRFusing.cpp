@@ -2059,7 +2059,7 @@ public:
     llvm::SmallVector<PermuteOp> permuteOps = {};
 
     // Currently, only supporting Multi-Head Attention.
-    // TODO: Extend to support Grouped Query Attention.
+    // TODO(@ddilbazTT): Extend to support Grouped Query Attention.
     if (!isMHA(reshapeOp, matmulOps, permuteOps)) {
       return failure();
     }
@@ -2284,7 +2284,7 @@ private:
     }
   }
 
-  PermuteOp getPermuteOp(mlir::Operation *op) const {
+  PermuteOp getPermuteOp(MatMulOpType op) const {
     // Permute op comes from: linear/ matmul op -> reshape op -> permute op.
     auto users = op->getResult(0).getUsers();
     if (llvm::range_size(users) != 1) {
@@ -2341,6 +2341,17 @@ private:
 
   bool validatePermuteOps(ReshapeOp reshapeOp,
                           llvm::SmallVector<PermuteOp> &permuteOps) const {
+
+    // Output of permute ops are the query, key, value heads respectively.
+    // There should be exactly 3 permute ops.
+    // Permute op output shapes must match expected MHA head shapes:
+    // [batch_size, number of kv heads, sequence_length, head_size].
+    // If key is transposed, its shape must match expected transposed shape:
+    // [batch_size, number of kv heads, head_size, sequence_length].
+    // Expected permutation for query and value is [0, 2, 1, 3].
+    // Expected permutation for key is either [0, 2, 1, 3] or [0, 2, 3, 1]
+    // (transposed).
+
     // Size must be 3 for Q, K, V.
     if (permuteOps.size() != 3) {
       return false;
@@ -2420,6 +2431,10 @@ private:
   bool
   validateMatmulOrLinearOps(ReshapeOp reshapeOp,
                             llvm::SmallVector<MatMulOpType> matrixOps) const {
+    // There must be exactly 3 matmul/linear ops (for Q, K, V).
+    if (matrixOps.size() != 3) {
+      return false;
+    }
 
     ArrayRef<int64_t> reshapeInputShape =
         reshapeOp.getInput().getType().getShape();
@@ -2439,11 +2454,6 @@ private:
     if (reshapeOutputShape[0] != reshapeInputShape[I_BATCH_SIZE] *
                                      reshapeInputShape[I_SEQUENCE_LENGTH] ||
         reshapeOutputShape[1] != reshapeInputShape[I_HIDDEN_DIMENSION]) {
-      return false;
-    }
-
-    // if size != 3, return false.
-    if (matrixOps.size() != 3) {
       return false;
     }
 

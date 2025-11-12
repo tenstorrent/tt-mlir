@@ -29,4 +29,49 @@ module {
     %3, %4, %5 = "ttir.split_query_key_value_and_split_heads"(%input, %input_kv, %0, %1, %2) <{ num_heads = 32 : ui32, transpose_key = false }> : (tensor<8x16x1024xbf16>, tensor<8x16x2048xbf16>, tensor<8x32x16x32xbf16>, tensor<8x32x16x32xbf16>, tensor<8x32x16x32xbf16>) -> (tensor<8x32x16x32xbf16>, tensor<8x32x16x32xbf16>, tensor<8x32x16x32xbf16>)
     return %3, %4, %5 : tensor<8x32x16x32xbf16>, tensor<8x32x16x32xbf16>, tensor<8x32x16x32xbf16>
   }
+
+  func.func @bge_m3(%input: tensor<2x34x3072xf32>) -> (tensor<2x16x34x64xf32>, tensor<2x16x64x34xf32>, tensor<2x16x34x64xf32>) {
+    %0 = ttir.empty() : tensor<2x16x34x64xf32>
+    %1 = ttir.empty() : tensor<2x16x64x34xf32>
+    %2 = ttir.empty() : tensor<2x16x34x64xf32>
+    // CHECK: ttnn.split_query_key_value_and_split_heads
+    %3, %4, %5 = "ttir.split_query_key_value_and_split_heads"(%input, %0, %1, %2) <{ num_heads = 16 : ui32, transpose_key = true }> : (tensor<2x34x3072xf32>, tensor<2x16x34x64xf32>, tensor<2x16x64x34xf32>, tensor<2x16x34x64xf32>) -> (tensor<2x16x34x64xf32>, tensor<2x16x64x34xf32>, tensor<2x16x34x64xf32>)
+    return %3, %4, %5 : tensor<2x16x34x64xf32>, tensor<2x16x64x34xf32>, tensor<2x16x34x64xf32>
+  }
+
+  func.func @bert(%input: tensor<1x128x2304xbf16>) -> (tensor<1x12x128x64xbf16>, tensor<1x12x64x128xbf16>, tensor<1x12x128x64xbf16>) {
+    %0 = ttir.empty() : tensor<1x12x128x64xbf16>
+    %1 = ttir.empty() : tensor<1x12x64x128xbf16>
+    %2 = ttir.empty() : tensor<1x12x128x64xbf16>
+    // CHECK: ttnn.split_query_key_value_and_split_heads
+    %3, %4, %5 = "ttir.split_query_key_value_and_split_heads"(%input, %0, %1, %2) <{ num_heads = 12 : ui32, transpose_key = true }> : (tensor<1x128x2304xbf16>, tensor<1x12x128x64xbf16>, tensor<1x12x64x128xbf16>, tensor<1x12x128x64xbf16>) -> (tensor<1x12x128x64xbf16>, tensor<1x12x64x128xbf16>, tensor<1x12x128x64xbf16>)
+    return %3, %4, %5 : tensor<1x12x128x64xbf16>, tensor<1x12x64x128xbf16>, tensor<1x12x128x64xbf16>
+  }
+
+  func.func @llama(%input: tensor<1x32x12288xbf16>) -> (tensor<1x32x32x128xbf16>, tensor<1x32x32x128xbf16>, tensor<1x32x32x128xbf16>) {
+    %0 = ttir.empty() : tensor<1x32x32x128xbf16>
+    %1 = ttir.empty() : tensor<1x32x32x128xbf16>
+    %2 = ttir.empty() : tensor<1x32x32x128xbf16>
+    // CHECK: ttnn.split_query_key_value_and_split_heads
+    %3, %4, %5 = "ttir.split_query_key_value_and_split_heads"(%input, %0, %1, %2) <{ num_heads = 32 : ui32, transpose_key = false }> : (tensor<1x32x12288xbf16>, tensor<1x32x32x128xbf16>, tensor<1x32x32x128xbf16>, tensor<1x32x32x128xbf16>) -> (tensor<1x32x32x128xbf16>, tensor<1x32x32x128xbf16>, tensor<1x32x32x128xbf16>)
+    return %3, %4, %5 : tensor<1x32x32x128xbf16>, tensor<1x32x32x128xbf16>, tensor<1x32x32x128xbf16>
+  }
+
+  func.func @flan_t5(%input: tensor<1x61x1152xbf16>) -> (tensor<1x6x61x64xbf16>, tensor<1x6x64x61xbf16>, tensor<1x6x61x64xbf16>) {
+    %0 = ttir.empty() : tensor<1x6x61x64xbf16>
+    %1 = ttir.empty() : tensor<1x6x64x61xbf16>
+    %2 = ttir.empty() : tensor<1x6x61x64xbf16>
+    // CHECK: ttnn.split_query_key_value_and_split_heads
+    %3, %4, %5 = "ttir.split_query_key_value_and_split_heads"(%input, %0, %1, %2) <{ num_heads = 6 : ui32, transpose_key = true }> : (tensor<1x61x1152xbf16>, tensor<1x6x61x64xbf16>, tensor<1x6x64x61xbf16>, tensor<1x6x61x64xbf16>) -> (tensor<1x6x61x64xbf16>, tensor<1x6x64x61xbf16>, tensor<1x6x61x64xbf16>)
+    return %3, %4, %5 : tensor<1x6x61x64xbf16>, tensor<1x6x64x61xbf16>, tensor<1x6x61x64xbf16>
+  }
+
+  func.func @llama_transpose_b(%input: tensor<1x32x12288xbf16>) -> (tensor<1x32x32x128xbf16>, tensor<1x32x32x128xbf16>, tensor<1x32x32x128xbf16>) {
+    %0 = ttir.empty() : tensor<1x32x32x128xbf16>
+    %1 = ttir.empty() : tensor<1x32x32x128xbf16>
+    %2 = ttir.empty() : tensor<1x32x32x128xbf16>
+    // CHECK: ttnn.split_query_key_value_and_split_heads
+    %3, %4, %5 = "ttir.split_query_key_value_and_split_heads"(%input, %0, %1, %2) <{ num_heads = 32 : ui32, transpose_key = false }> : (tensor<1x32x12288xbf16>, tensor<1x32x32x128xbf16>, tensor<1x32x32x128xbf16>, tensor<1x32x32x128xbf16>) -> (tensor<1x32x32x128xbf16>, tensor<1x32x32x128xbf16>, tensor<1x32x32x128xbf16>)
+    return %3, %4, %5 : tensor<1x32x32x128xbf16>, tensor<1x32x32x128xbf16>, tensor<1x32x32x128xbf16>
+  }
 }
