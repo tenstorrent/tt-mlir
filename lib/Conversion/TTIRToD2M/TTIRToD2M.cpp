@@ -1515,14 +1515,17 @@ class D2MScatterOpRewriter : public OpConversionPattern<ttir::ScatterOp> {
     Value input = adaptor.getInput();
     Value scatterIndices = adaptor.getScatterIndices();
     Value updates = adaptor.getUpdate();
+    Value output = adaptor.getOutput();
 
     auto inputType = getTypeConverter()->convertType<RankedTensorType>(input.getType());
     auto scatterIndicesType = getTypeConverter()->convertType<RankedTensorType>(scatterIndices.getType());
     auto updatesType = getTypeConverter()->convertType<RankedTensorType>(updates.getType());
+    auto outputType = getTypeConverter()->convertType<RankedTensorType>(output.getType());
 
     int64_t inputRank = inputType.getRank();
     int64_t scatterIndicesRank = scatterIndicesType.getRank();
     int64_t updatesRank = updatesType.getRank();
+    int64_t outputRank = outputType.getRank();
 
     // Get scatter dimension attributes.
     [[maybe_unused]] ArrayRef<int32_t> updateWindowDims = scatterOp.getUpdateWindowDims();
@@ -1650,7 +1653,49 @@ class D2MScatterOpRewriter : public OpConversionPattern<ttir::ScatterOp> {
 
     [[maybe_unused]] auto updatesLayoutOp = builder.create<d2m::ToLayoutOp>(loc, updates, updatesEmpty, nullptr);
 
+    // Create d2m::EmptyOp for output
+    auto newOutputEmpty = builder.create<d2m::EmptyOp>(
+      loc,
+      outputType.getShape(),
+      outputType.getElementType());
 
+    // Insert to metal layout conversion for the output.
+    llvm::SmallVector<int64_t> outputAlignments(outputType.getShape().size(), 1);
+    outputAlignments[outputAlignments.size() - 1] = 32;
+    outputAlignments[outputAlignments.size() - 2] = 32;
+    outputAlignments[outputAlignments.size() - 3] = 1;
+    outputAlignments[outputAlignments.size() - 4] = 1;
+
+    auto outputCollapsedDims = llvm::SmallVector<int64_t, 4>{0, 2, 2, 3};
+    DenseIntElementsAttr outputCollapsedDimsAttr = DenseIntElementsAttr::get(intervalTy, llvm::ArrayRef<int64_t>(outputCollapsedDims));
+
+    auto outputMetalLayout = ttcore::MetalLayoutAttr::get(
+      getContext(), outputType.getShape(), ttcore::OOBVal::Undef,
+      ttcore::MemorySpace::DeviceDRAM, ttcore::TensorMemoryLayout::Sharded, outputCollapsedDimsAttr, outputAlignments);
+
+    // Create new shape that collapses the leading dimensions in updatesType into 2D
+    llvm::SmallVector<int64_t> newOutputShape(outputType.getShape().begin(), outputType.getShape().end());
+
+    if (outputRank > 2) {
+      int64_t collapsedLeading = outputType.getDimSize(0);
+      for (int64_t i = 1; i < outputRank - 1; ++i) {
+        collapsedLeading *= outputType.getDimSize(i);
+      }
+      newOutputShape = {collapsedLeading, outputType.getDimSize(outputRank - 1)};
+    }
+
+    // Add mesh shape information
+    llvm::SmallVector<int64_t> outputWithMeshShape = {1, 1};
+    outputWithMeshShape.append(newOutputShape.begin(), newOutputShape.end());
+
+    auto outputEmpty = builder.create<d2m::EmptyOp>(
+      loc,
+      outputWithMeshShape,
+      outputType.getElementType(),
+      outputMetalLayout);
+
+    [[maybe_unused]] auto outputLayoutOp = builder.create<d2m::ToLayoutOp>(loc, newOutputEmpty, outputEmpty, nullptr);
+    
 
     return mlir::success();
   }
