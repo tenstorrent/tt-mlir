@@ -1069,14 +1069,18 @@ public:
   }
 };
 
-// RepConvN pattern that matches and transforms:
-//   conv2d(x, w1, b1) + conv2d(x, w2, b2)
-// into:
-//   conv2d(x, padded_w2 + w1, b1 + b2)
-// where w1 is 3x3 kernel with pad 1, w2 is 1x1 kernel with pad 0, and padded_w2
-// is w2 padded to 3x3 with pad 1.
-// This pattern is found in yolov9 models.
-class RepConvNFusionPattern : public mlir::OpRewritePattern<AddOp> {
+// Fuses the sum of two convolutions into a single convolution:
+//   conv2d(x, w1, b1) + conv2d(x, w2, b2)  ->  conv2d(x, padded_w2 + w1, b1 +
+//   b2)
+//
+// Implements the RepVGG pattern where:
+//   - w1 is a 3x3 kernel with padding 1
+//   - w2 is a 1x1 kernel with padding 0
+//   - padded_w2 is w2 padded to 3x3 with padding 1
+//   - Both convolutions share the same input, stride, dilation, and groups
+//
+// This pattern was is used in YOLOv9.
+class RepVGGConvSumFusionPattern : public mlir::OpRewritePattern<AddOp> {
   using mlir::OpRewritePattern<AddOp>::OpRewritePattern;
 
 public:
@@ -1121,20 +1125,20 @@ private:
       return std::nullopt;
     }
 
-    if (isRepConvNPattern(lhsConv, rhsConv)) {
+    if (isRepVGGConvPair(lhsConv, rhsConv)) {
       return std::make_pair(lhsConv, rhsConv);
     }
-    if (isRepConvNPattern(rhsConv, lhsConv)) {
+    if (isRepVGGConvPair(rhsConv, lhsConv)) {
       return std::make_pair(rhsConv, lhsConv);
     }
     return std::nullopt;
   }
 
-  // Checks if the two convolutions match the repconvn pattern:
-  // - First has kernel 3x3 with padding 1
-  // - The other has kernel 1x1 with padding 0
-  // - They have the same stride, dilation, and groups
-  static bool isRepConvNPattern(Conv2dOp conv1, Conv2dOp conv2) {
+  // Checks if the two convolutions match the RepVGG conv sum pattern:
+  // - First has 3x3 kernel with padding 1
+  // - Second has 1x1 kernel with padding 0
+  // - They must have the same stride, dilation, and groups
+  static bool isRepVGGConvPair(Conv2dOp conv1, Conv2dOp conv2) {
     if (!hasKernelShape(conv1, 3, 3) || !hasKernelShape(conv2, 1, 1)) {
       return false;
     }
@@ -2879,7 +2883,7 @@ public:
         patterns.add<ConvWithMultiply<ConvolutionOp>>(&getContext());
         patterns.add<BatchNormDecomposition>(&getContext());
       }
-      patterns.add<RepConvNFusionPattern>(&getContext());
+      patterns.add<RepVGGConvSumFusionPattern>(&getContext());
       patterns.add<ConcatenateHeadsUpdatePattern>(&getContext());
       patterns.add<SplitQueryKeyValueAndSplitHeadsUpdatePattern<MatmulOp>>(
           &getContext());
