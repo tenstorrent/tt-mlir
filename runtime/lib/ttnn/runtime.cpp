@@ -24,6 +24,7 @@
 #include "ttmlir/Target/TTNN/program_generated.h"
 #include "ttmlir/Target/TTNN/types_generated.h"
 #include "ttmlir/Version.h"
+#include "ttnn/operations/core/core.hpp"
 #include "ttnn/tensor/serialization.hpp"
 #include "ttnn/tensor/tensor_utils.hpp"
 #include "ttnn/tensor/types.hpp"
@@ -128,8 +129,18 @@ toHostSingleTensor(const ::tt::runtime::ttnn::TTNNTensorWrapper &tensorWrapper,
   if (utils::isOnHost(inputTensor.storage_type())) {
     ::ttnn::Tensor hostTensor = inputTensor;
     if (untilize) {
-      hostTensor = ::ttnn::to_layout(hostTensor, ::ttnn::Layout::ROW_MAJOR,
-                                     std::nullopt, std::nullopt);
+      // Special handling for BFP8/BFP4: unpack to FP32 row-major on host
+      // BFP8 can only exist in TILE layout, so we need to convert to FP32
+      // first, then convert to ROW_MAJOR layout
+      if (hostTensor.dtype() == ::ttnn::DataType::BFLOAT8_B ||
+          hostTensor.dtype() == ::ttnn::DataType::BFLOAT4_B) {
+        hostTensor = ::ttnn::to_dtype(hostTensor, ::ttnn::DataType::FLOAT32);
+        hostTensor = ::ttnn::to_layout(hostTensor, ::ttnn::Layout::ROW_MAJOR,
+                                       std::nullopt, std::nullopt);
+      } else {
+        hostTensor = ::ttnn::to_layout(hostTensor, ::ttnn::Layout::ROW_MAJOR,
+                                       std::nullopt, std::nullopt);
+      }
     }
     return utils::createRuntimeTensorFromTTNN(
         hostTensor, /*meshEvent=*/std::nullopt, shouldRetain);
@@ -174,8 +185,18 @@ toHostSingleTensor(const ::tt::runtime::ttnn::TTNNTensorWrapper &tensorWrapper,
       ::ttnn::from_device(inputTensor, /*blocking=*/blocking);
 
   if (untilize) {
-    hostTensor = ::ttnn::to_layout(hostTensor, ::ttnn::Layout::ROW_MAJOR,
-                                   std::nullopt, std::nullopt);
+    // Special handling for BFP8/BFP4: unpack to FP32 row-major on host
+    // BFP8 can only exist in TILE layout, so we need to convert to FP32 first,
+    // then convert to ROW_MAJOR layout
+    if (hostTensor.dtype() == ::ttnn::DataType::BFLOAT8_B ||
+        hostTensor.dtype() == ::ttnn::DataType::BFLOAT4_B) {
+      hostTensor = ::ttnn::to_dtype(hostTensor, ::ttnn::DataType::FLOAT32);
+      hostTensor = ::ttnn::to_layout(hostTensor, ::ttnn::Layout::ROW_MAJOR,
+                                     std::nullopt, std::nullopt);
+    } else {
+      hostTensor = ::ttnn::to_layout(hostTensor, ::ttnn::Layout::ROW_MAJOR,
+                                     std::nullopt, std::nullopt);
+    }
   }
 
   std::optional<::ttnn::MeshEvent> meshEvent = std::nullopt;
