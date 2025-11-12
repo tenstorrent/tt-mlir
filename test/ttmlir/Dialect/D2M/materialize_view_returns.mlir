@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --d2m-materialize-view-returns %s | FileCheck %s
+// RUN: ttmlir-opt --ttcore-register-device --d2m-materialize-view-returns %s | FileCheck %s
 // SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
 //
 // SPDX-License-Identifier: Apache-2.0

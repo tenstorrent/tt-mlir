@@ -10,20 +10,22 @@
 // grid now has three parameters: grid, physGrid, and mapping
 //   (1st) grid:  The primary 'virtual' grid; this is used almost everywhere
 //   (2nd) physGrid: The physical grid; primarily defines active core range
-//   (3rd) mapping: Maps physical grid coords to virtual grid indices (used in DMA stream indexing)
-#gridAttr = #ttcore.grid<1x64, 8x8, (d0,d1) -> (0, 8*d0 + d1)>
+//   (3rd) mapping: Maps physical grid coords to deviceID (unused) and virtual grid indices (used in DMA stream indexing)
+#gridAttr = #ttcore.grid<1x64, (d0,d1) -> (0, 0, 8*d0 + d1)>
+//                                         ^ first result is deviceID
 
 // ShardLayoutAttr has a new optional param coreVirtualizationMap. This behaves
 // like a built-in view applied *after* any views into this memref, but _before_
 // the shard layout and device maps. A non-empty core virt map indicates that
 // the grid of the memref is virtual.
-#virtShardLayoutAttr = #ttcore.shard<16384x4096, 1, (d0, d1) -> (d1 floordiv 8, d1 mod 8)>
+#virtShardLayoutAttr = #ttcore.shard<16384x4096, 1, (d0, d1, d2, d3) -> (d1 floordiv 8, d1 mod 8, d2, d3)>
 
 !virtGridT = memref<1x64x4x4x!ttcore.tile<32x32, f32>, #virtShardLayoutAttr, #ttcore.memory_space<l1>>
 
-// NOTE: streaming a virtual grid tensor DOES NOT fold/absorb its affine map
+// NOTE: The stream itself should NOT fold the affine map within the
+// virtShardLayoutAttr into itself (during canonicalization or otherwise).
 !streamT   = memref<1x64x4x4x!ttcore.tile<32x32, f32>, #ttcore.view<(d0,d1,d2,d3) -> (d0,d1,d2,d3)>, #ttcore.memory_space<l1>>
-!cbT2 = memref<4x4x!ttcore.tile<32x32, f32>, #ttcore.memory_space<l1>>
+!cbT = !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #ttcore.memory_space<l1>>>
 
 // CHECK: func.func @virtual_grid_blocked
 func.func @virtual_grid_blocked(%arg0 : !virtGridT) -> () {
@@ -46,7 +48,7 @@ func.func @virtual_grid_blocked(%arg0 : !virtGridT) -> () {
     ins(%StreamIn : !streamT)
     outs(%Out     : !virtGridT)
   {
-    ^compute0(%cb0 : !cbT2, %cb1 : !cbT2):
+    ^compute0(%cb0 : !cbT, %cb1 : !cbT):
   }
 
   return

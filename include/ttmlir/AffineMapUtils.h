@@ -36,7 +36,8 @@ llvm::SmallVector<int64_t> evalShape(mlir::AffineMap map, Vector shape) {
 /// values.
 inline mlir::AffineMap
 replaceAffineMapSymbols(mlir::AffineMap map, mlir::ArrayRef<int64_t> symbols) {
-  assert(map.getNumSymbols() == symbols.size());
+  TT_assertv(map.getNumSymbols() == symbols.size(),
+             "Number of symbols must match number of replacement values");
 
   mlir::SmallVector<mlir::AffineExpr> symReplacements;
   for (unsigned i = 0; i < map.getNumSymbols(); ++i) {
@@ -76,6 +77,13 @@ generateAffineMapFromShardStrides(mlir::ArrayRef<int64_t> strides,
 
   auto map = mlir::AffineMap::get(strides.size() * 2, 0, mapExprs, context);
   return map;
+}
+
+/// Returns a new affine map by dropping the last N results of input map
+inline mlir::AffineMap affineMapDropBackResults(mlir::AffineMap map,
+                                                unsigned numResultsToDrop) {
+  return map.dropResults(llvm::to_vector(llvm::seq<int64_t>(
+      map.getNumResults() - numResultsToDrop, map.getNumResults())));
 }
 
 /// Returns a new affine map with only the selected result.

@@ -180,7 +180,7 @@ public:
     auto indexingMap = mlir::cast<AffineMapAttr>(indexingMaps[0]);
 
     rewriter.replaceOpWithNewOp<GenericOp>(
-        op, viewInput, viewOutput, getTargetGridShape(),
+        op, viewInput, viewOutput,
         [&](OpBuilder &builder, Location loc, ValueRange blockArgs) {
           DMAOp dma;
           Value yield;
@@ -219,7 +219,7 @@ public:
            "one of input or output must be tiled for now");
 
     rewriter.replaceOpWithNewOp<GenericOp>(
-        op, op.getInput(), op.getOutput(), getTargetGridShape(),
+        op, op.getInput(), op.getOutput(),
         [=](OpBuilder &builder, Location loc, ValueRange blockArgs) {
           Value src = builder.create<WaitOp>(loc, blockArgs[0]).getResult();
           Value dst = builder.create<ReserveOp>(loc, blockArgs[1]).getResult();
@@ -272,7 +272,7 @@ public:
   ArrayRef<int64_t> getTargetGridShape() const { return targetGridShape; }
 
 private:
-  const llvm::SmallVector<int64_t> targetGridShape;
+  llvm::SmallVector<int64_t> targetGridShape;
 };
 } // namespace
 
@@ -292,7 +292,7 @@ class D2MSplitCompoundLayoutRewriter : public OpRewritePattern<ToLayoutOp> {
     computeVirtualGridBounceShape(ArrayRef<int64_t> virtualGridShape,
                                   ArrayRef<int64_t> deviceGridShape) const {
 
-      // TODO: Generalize to N dimensions.
+      // TODO(bgrady-tt): Generalize to N dimensions.
       assert(virtualGridShape.size() == 2);
       assert(virtualGridShape[0] > deviceGridShape[0] ^
              virtualGridShape[1] > deviceGridShape[1]);

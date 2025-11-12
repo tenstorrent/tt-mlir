@@ -815,15 +815,14 @@ mlir::OpFoldResult d2m::ViewLayoutOp::fold(FoldAdaptor adaptor) {
 void d2m::GenericOp::build(mlir::OpBuilder &builder,
                            mlir::OperationState &state, ValueRange inputs,
                            ValueRange outputs, ArrayAttr indexingMaps,
-                           ArrayAttr iteratorTypes,
-                           ArrayRef<int64_t> targetGridShape,
-                           ThreadType singleThreadType, ttcore::GridAttr grid,
+                           ArrayAttr iteratorTypes, ThreadType singleThreadType,
+                           ttcore::GridAttr grid,
                            ArrayRef<int64_t> blockFactors) {
   TT_assertv(!indexingMaps.empty(), "expected non-empty indexing maps");
   TT_assertv(outputs.size() == 1u, "expected single output");
 
   if (!grid) {
-    auto gridShape = d2m::utils::getGridShape(outputs[0]);
+    auto gridShape = ttcore::getGridShape(outputs[0]);
 
     // Check if output operand has a virtual grid and IS NOT a view. If so,
     // infer a physical grid shape and inverse map for the grid attr such that
@@ -834,24 +833,16 @@ void d2m::GenericOp::build(mlir::OpBuilder &builder,
     auto metalLayout = mlir::dyn_cast<ttcore::MetalLayoutAttr>(layout);
     if (!outputIsView && metalLayout &&
         !metalLayout.getIndexAffineMap().isEmpty()) {
-      // For now, assume virtual grid phys shape is the target grid shape.
-      // Virtual grids will not be inferred that assume anything but a full
-      // compute grid; in the future it will be necessary to *choose* a compute
-      // grid here that satisfies the following constraints:
-      //   vgrid = evalShape(gridInvMap,pgrid)
-      //   pgrid = evalShape(tensorFwdMap,vgrid)
-      auto physGridShape = llvm::to_vector(targetGridShape);
 
-      auto [_, invMap] = ttmlir::d2m::VirtualGridUtil::createCoreVirtMaps(
-          builder.getContext(), gridShape, targetGridShape);
+      // Use the implied physical grid shape of the output tensor to generate
+      // the required inverse mapping from the virtual grid to the physical
+      // grid.
+      auto shapedType = mlir::cast<ShapedType>(outputs[0].getType());
+      auto physicalGridShape = metalLayout.getPhysicalGridShape(shapedType);
+      auto [_, invMap] = ttmlir::d2m::utils::grids::createCoreVirtMaps(
+          builder.getContext(), gridShape, physicalGridShape);
 
-      TT_assertv(
-          ttmlir::utils::volume(ArrayRef<int64_t>(physGridShape)) ==
-              ttmlir::utils::volume(targetGridShape),
-          "target grid shape volume must match virtual grid phys shape volume");
-
-      grid =
-          builder.getAttr<ttcore::GridAttr>(gridShape, physGridShape, invMap);
+      grid = builder.getAttr<ttcore::GridAttr>(gridShape, invMap);
     } else {
       grid = builder.getAttr<ttcore::GridAttr>(gridShape);
     }
@@ -903,13 +894,12 @@ void d2m::GenericOp::build(mlir::OpBuilder &builder,
 void d2m::GenericOp::build(
     mlir::OpBuilder &builder, mlir::OperationState &state, ValueRange inputs,
     ValueRange outputs, ArrayAttr indexingMaps, ArrayAttr iteratorTypes,
-    ArrayRef<int64_t> targetGridShape,
     llvm::function_ref<void(OpBuilder &, Location, ValueRange)>
         singleThreadRegionBuilder,
     ThreadType singleThreadType, ttcore::GridAttr grid,
     ArrayRef<int64_t> blockFactors) {
   build(builder, state, inputs, outputs, indexingMaps, iteratorTypes,
-        targetGridShape, singleThreadType, grid, blockFactors);
+        singleThreadType, grid, blockFactors);
   llvm::SmallVector<Type> blockTypes =
       llvm::map_to_vector(TypeRange(state.operands), [&](Type t) -> Type {
         mlir::RankedTensorType tensorType = mlir::cast<RankedTensorType>(t);
@@ -928,7 +918,7 @@ void d2m::GenericOp::build(
 
 void d2m::GenericOp::build(
     mlir::OpBuilder &builder, mlir::OperationState &state, ValueRange inputs,
-    ValueRange outputs, ArrayRef<int64_t> targetGridShape,
+    ValueRange outputs,
     llvm::function_ref<void(OpBuilder &, Location, ValueRange)>
         singleThreadRegionBuilder,
     ThreadType singleThreadType, ttcore::GridAttr grid,
@@ -944,7 +934,7 @@ void d2m::GenericOp::build(
   auto [indexingMaps, iteratorTypes] = buildParallelAffineMapsAndIteratorTypes(
       builder, inputs.size() + outputs.size(), rank);
   build(builder, state, inputs, outputs, indexingMaps, iteratorTypes,
-        targetGridShape, singleThreadRegionBuilder, singleThreadType, grid);
+        singleThreadRegionBuilder, singleThreadType, grid);
 }
 
 bool d2m::GenericOp::bufferizesToMemoryRead(
@@ -1126,6 +1116,70 @@ static mlir::LogicalResult verifyAffineBlocking(
         })) {
       return emitOpError("output grid shape must be divisible by the generic "
                          "op's grid shape");
+    }
+  }
+
+  if (!getGrid().getMapping().isEmpty()) {
+
+    if (getGrid().getMapping().getNumInputs() != 2ul) {
+      return emitOpError(
+          "GenericOp virtual grid affine map must have 2 inputs, or be empty.");
+    }
+
+    // Generic op with defined physical->virtual mapping in its grid attr should
+    // have output operand(s) with a virtual->physical mapping defined in the
+    // layout attr.
+    for (auto output : getOutputs()) {
+      mlir::ShapedType outputType =
+          mlir::cast<mlir::ShapedType>(output.getType());
+
+      std::optional<AffineMap> maybeFwdMap =
+          ttcore::getDeviceLayout(outputType).getVirtualizationMapIfExists();
+      if (!maybeFwdMap) {
+        return emitOpError(
+            "GenericOp with virtual grid attribute must have an output operand "
+            "with a non-empty virtual grid mapping.");
+      }
+      AffineMap fwdMap = *maybeFwdMap;
+
+      // Drop the shard dim results from the virtual grid mapping.
+      if (fwdMap.getNumResults() % 2 != 0) {
+        return emitOpError("GenericOp output operand's virtual grid mapping "
+                           "must have an even number of results.");
+      }
+
+      fwdMap = ttmlir::utils::affineMapDropBackResults(
+          fwdMap, fwdMap.getNumResults() / 2);
+      // first result is deviceID, so drop it
+      auto invMap = getGrid().getMapping().dropResult(0);
+
+      if (invMap.getNumInputs() != fwdMap.getNumResults()) {
+        return emitOpError(
+            "GenericOp grid and output operand mapping functions do not "
+            "compose (mismatched number of inputs and results).");
+      }
+
+      // Check roundtrip consistency between physical->virtual and
+      // virtual->physical mappings; inv(fwd(shape)) == shape.
+      auto roundtripMap = invMap.compose(fwdMap);
+
+      bool success = true;
+      auto virtGridShape = getGrid().getShape();
+      ttmlir::utils::sample(virtGridShape, [&](ArrayRef<int64_t> point) {
+        // Pad point with dummy shard dims to align with expected fwdMap args.
+        SmallVector<int64_t> dummyShardDims(point.size(), 0);
+        SmallVector<int64_t> pointWithDummyShardDims = llvm::to_vector(
+            llvm::concat<int64_t>(SmallVector<int64_t>(point), dummyShardDims));
+
+        auto roundtripPoint = roundtripMap.compose(pointWithDummyShardDims);
+        if (roundtripPoint != point) {
+          success = false;
+        }
+      });
+      if (!success) {
+        return emitOpError(
+            "roundtrip virtual grid mapping consistency check failed");
+      }
     }
   }
 
