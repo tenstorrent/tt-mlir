@@ -2881,7 +2881,6 @@ mlir::tt::ttnn::CollectivePermuteOp::fold(FoldAdaptor adaptor) {
     return emitOpError("Page table tensor must be a 2D tensor");
   }
 
-  int64_t numHeads = cacheShape[1];
   int64_t blockSize = cacheShape[2];
   int64_t headDim = cacheShape[3];
   int64_t numUsers = updateIndexShape[0];
@@ -2901,14 +2900,6 @@ mlir::tt::ttnn::CollectivePermuteOp::fold(FoldAdaptor adaptor) {
                        "users (determined by update index shape): " +
                        std::to_string(numUsers) + ", got " +
                        std::to_string(inputShape[1]));
-  }
-
-  if (inputShape[2] != 32) {
-    return emitOpError("Input tensor must have dim 2 be equal to 32: " +
-                       std::to_string(numHeads) + ", got " +
-                       std::to_string(inputShape[2]) +
-                       ". If the number of heads is less than 32, it must be "
-                       "explicitly padded to 32.");
   }
 
   if (inputShape[3] != headDim) {
