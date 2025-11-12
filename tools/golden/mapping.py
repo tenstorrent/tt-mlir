@@ -2352,7 +2352,6 @@ def slice_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
 
 def dynamic_slice_golden(
     input_tensor: GoldenMapTensor,
-    *start_indices_tensors,
     **kwargs,
 ) -> GoldenMapTensor:
     """
@@ -2374,6 +2373,7 @@ def dynamic_slice_golden(
         Dynamically sliced tensor
     """
 
+    start_indices_tensors = unpack_mlir_attr(kwargs.get("start_indices", []))
     slice_sizes = unpack_mlir_attr(kwargs.get("slice_sizes", []))
     rank = len(slice_sizes)
     assert rank == len(start_indices_tensors), "start_indices_tensors must match rank"
@@ -2383,15 +2383,7 @@ def dynamic_slice_golden(
     x0 = input_tensor.shard_at(0)
     for d, st in enumerate(start_indices_tensors):
         val0 = st if not isinstance(st, GoldenMapTensor) else st.shard_at(0)
-        # Support scalar or single-element tensors
-        if isinstance(val0, torch.Tensor):
-            if val0.ndim == 0:
-                starts.append(int(val0.item()))
-            else:
-                # Take first element for simplicity
-                starts.append(int(val0.reshape(-1)[0].item()))
-        else:
-            starts.append(int(val0))
+        starts.append(val0) 
 
         # Bounds check
         max_valid = x0.size(d) - slice_sizes[d]
