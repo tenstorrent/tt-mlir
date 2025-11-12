@@ -85,8 +85,10 @@ def _get_collapsed_linear_affine_map(
     context, shape, grid_shape, collapse_intervals=[(0, -1)]
 ):
     """
-    This function creates an affine map that represents collapsing the tensor
-    dims onto an n-dimensional grid. E.g. (Where <> is some join operator)
+    This function creates an affine map for use in constructing TTNNLayoutAttr.
+    Its default behavior must match TTNN's dimension collapsing behavior.
+    It is based on collapsedLinearAffineMap() in TTCoreOpsTypes.cpp.
+    It collapses tensor dimensions onto an n-dimensional grid, e.g.:
 
       - 3D tensor onto a 2D grid:
         (d0, d1, d2) -> (d0 <> d1, d2)
@@ -94,18 +96,18 @@ def _get_collapsed_linear_affine_map(
       - 4D tensor onto a 2D grid:
         (d0, d1, d2, d3) -> (d0 <> d1 <> d2, d3)
 
-    Note there are many ways we could collapse the above dims, by default we
-    just collapse the interval [0, -1), which collapses dim0 up to but not
-    including the last dim.  By using collapseIntervals we can achieve flexible
-    collapsing of any set of consecutive dimension ranges.
+    By default, it collapses the interval [0, -1), which matches TTNN's default
+    collapsing. You can specify collapse_intervals for flexible collapsing.
 
-      - 4D tensor onto a 3D grid collapseIntervals=[(1, -1)]:
+    Examples:
+
+      - 4D tensor onto a 3D grid collapse_intervals=[(1, -1)]:
         (d0, d1, d2, d3) -> (d0, d1 <> d2, d3)
 
-      - 4D tensor onto a 3D grid collapseIntervals=[(0, 2)]:
+      - 4D tensor onto a 3D grid collapse_intervals=[(0, 2)]:
         (d0, d1, d2, d3) -> (d0 <> d1, d2, d3)
 
-      - 7D tensor onto a 4D grid collapseIntervals=[(0, 3), (-3, -1)]:
+      - 7D tensor onto a 4D grid collapse_intervals=[(0, 3), (-3, -1)]:
         (d0, d1, d2, d3, d4, d5, d6) -> (d0 <> d1 <> d2, d3, d4 <> d5, d6)
     """
 
