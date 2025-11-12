@@ -1992,6 +1992,103 @@ TEST_F(OpModelBase, ScaledDotProductAttentionDecodeOpInterface) {
   }
 }
 
+TEST_F(OpModelBase, PagedScaledDotProductAttentionDecodeOpInterface) {
+  int64_t numBlocks = 128;
+  int64_t numUsers = 32;
+  int64_t numHeads = 12;
+  int64_t blockSize = 32;
+  int64_t headSize = 64;
+  int64_t numBlocksPerUser = 4;
+
+  llvm::SmallVector<int64_t> queryShape{1, numUsers, numHeads, headSize};
+  llvm::SmallVector<int64_t> keyValueShape{numBlocks, numHeads, blockSize,
+                                           headSize};
+
+  llvm::SmallVector<int64_t> pageTableShape{numUsers, numBlocksPerUser};
+  llvm::SmallVector<int64_t> curPosShape{numUsers};
+
+  auto tiledElemType = ttcore::TileType::get(builder.getBF16Type());
+  auto pageTableType = builder.getI32Type();
+  auto curPosType = builder.getI32Type();
+
+  auto gridAttr = ttcore::GridAttr::get(&context);
+  auto tensorMemoryLayoutAttr =
+      TensorMemoryLayoutAttr::get(&context, TensorMemoryLayout::Interleaved);
+
+  auto queryLayout =
+      TTNNLayoutAttr::get(&context, queryShape, tiledElemType, BufferType::DRAM,
+                          gridAttr, tensorMemoryLayoutAttr);
+  auto keyValueLayout =
+      TTNNLayoutAttr::get(&context, keyValueShape, tiledElemType,
+                          BufferType::DRAM, gridAttr, tensorMemoryLayoutAttr);
+  auto pageTableLayout =
+      TTNNLayoutAttr::get(&context, pageTableShape, pageTableType,
+                          BufferType::DRAM, gridAttr, tensorMemoryLayoutAttr);
+  auto curPosLayout =
+      TTNNLayoutAttr::get(&context, curPosShape, curPosType, BufferType::DRAM,
+                          gridAttr, tensorMemoryLayoutAttr);
+
+  auto query = createEmptyTensor(queryShape, tiledElemType, queryLayout);
+  auto key = createEmptyTensor(keyValueShape, tiledElemType, keyValueLayout);
+  auto value = createEmptyTensor(keyValueShape, tiledElemType, keyValueLayout);
+  auto pageTable =
+      createEmptyTensor(pageTableShape, pageTableType, pageTableLayout);
+  auto curPos = createEmptyTensor(curPosShape, curPosType, curPosLayout);
+
+  auto outputType =
+      createRankedTensorType(queryShape, tiledElemType, queryLayout);
+
+  auto sdpAttentionDecode =
+      builder.create<PagedScaledDotProductAttentionDecodeOp>(
+          builder.getUnknownLoc(), outputType, query, key, value, pageTable,
+          /*is_causal=*/true,
+          /*attention_mask*/ nullptr,
+          /*cur_pos_tensor=*/curPos,
+          /*attention_sink=*/nullptr,
+          /*scale=*/builder.getF32FloatAttr(0.125f),
+          /*memory_config=*/nullptr);
+
+  OpModel backend = dyn_cast<OpModel>(sdpAttentionDecode.getOperation());
+  auto constraintsExp = backend.getOpConstraints(
+      getInputLayouts(sdpAttentionDecode), OpConfig(queryLayout));
+  if (constraintsExp) {
+    const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+        constraintsExp.get();
+
+    EXPECT_LE(cbSize, 483328);
+    EXPECT_LE(totalPeakSize, 483328);
+    EXPECT_LE(l1PeakSize, 2048);
+    EXPECT_EQ(outputSize, 0);
+
+    ASSERT_TRUE(outputLayout);
+    EXPECT_EQ(outputLayout.getLayout(), Layout::Tile);
+    EXPECT_TRUE(outputLayout.hasInterleavedDRAMTensorMemoryLayout());
+  } else {
+    FAIL()
+        << "Missing L1 constraints for PagedScaledDotProductAttentionDecodeOp; "
+           "Error="
+        << llvm::toString(constraintsExp.takeError());
+  }
+
+  // TODO(https://github.com/tenstorrent/tt-mlir/issues/5738) the runtime query
+  // sporadically hangs, disable by default for now.
+  // Note, this issue was originally filed for the PagedUpdateCacheOp test. But
+  // it is likely that this issue is also the cause for the
+  // PagedScaledDotProductAttentionDecodeOp test as both ops use a page table to
+  // index the cache tensor(s).
+  constexpr bool skipRuntimeTest = true;
+  if (!skipRuntimeTest) {
+    auto runtimeExp = getOpRuntime(sdpAttentionDecode.getOperation());
+    if (runtimeExp) {
+      EXPECT_TRUE(runtimeExp.get() > 0);
+    } else {
+      FAIL() << "Runtime test failed for "
+                "PagedScaledDotProductAttentionDecodeOp; Error="
+             << llvm::toString(runtimeExp.takeError());
+    }
+  }
+}
+
 TEST_F(OpModelBase, ScaledDotProductAttentionOpInterface) {
   int64_t batchSize = 1;
   int64_t numHeads = 1;
