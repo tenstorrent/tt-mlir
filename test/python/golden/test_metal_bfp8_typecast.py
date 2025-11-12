@@ -13,91 +13,20 @@ from ttmlir.dialects import ttir
 from builder.base.builder import Operand, Shape, TypeInfo
 from builder.ttir.ttir_builder import TTIRBuilder
 from builder.base.builder_utils import (
-    compile_ttir_to_flatbuffer,
     compile_and_execute_ttir,
 )
 
+from test_metal_matmul import create_matmul_constrained_inputs
+
 from test_utils import (
-    Marks,
     shape_str,
-    make_shard_shape,
-    shard_wrap_factory,
 )
 
 pytestmark = pytest.mark.frontend("ttir")
 
-enablePrintIR = True
 
-
-# Matmul runs on the FPU and so needs special care around accuracy checks.
-# 1. F32 inputs are truncated into TF32, losing 13 mantissa bits. When positive
-#    and negative values with very close abs values are added together, some
-#    arithmetic operations will have over 5 orders of magnitude of differences
-#    in their operands. TF32 dosn't have this much "dynamic range".
-# 2. When the CPU doesn't have native F16/BF16 support, torch will use
-#    software-emulated arithmetic operations to generate the matmul golden
-#    output, which is too slow.
-# Solution: constraint the input range to within (0.001, 0.999) to avoid large
-# differences of magnitudes in the calculation.
-def create_matmul_constrained_inputs(lhs_shape, rhs_shape):
-    def matmul_constrained_inputs(
-        in0: Operand, in1: Operand, builder: TTIRBuilder, unit_attrs: List[str] = None
-    ):
-        in_lhs = torch.rand(lhs_shape, dtype=torch.float32) * 0.999 + 0.001
-        in_rhs = torch.rand(rhs_shape, dtype=torch.float32) * 0.999 + 0.001
-        builder.set_goldens(inputs={in0: in_lhs, in1: in_rhs})
-        return builder.matmul(in0, in1, unit_attrs=unit_attrs)
-
-    return matmul_constrained_inputs
-
-
-def add_f32_tensors(
-    in0: Operand,
-    in1: Operand,
-    builder: TTIRBuilder,
-):
-    """Add two f32 tensors of ones"""
-    shape = (256, 256)
-    # shape = (256, 256)
-    input_0 = torch.rand(shape, dtype=torch.bfloat16)
-    input_1 = torch.rand(shape, dtype=torch.bfloat16)
-    result = builder.add(in0, in1)
-    output_0 = (input_0 + input_1).to(torch.bfloat16)
-    builder.set_goldens({in0: input_0, in1: input_1}, {result: output_0})
-    return result
-
-
-@pytest.mark.parametrize(
-    "grid", ["override-device-shape=1,1 global-data-format-target=bfp_bf8"]
-)
-# @pytest.mark.parametrize("dtype", ["global-data-format-target=f32"])
-# @pytest.mark.parametrize("grid", ["override-device-shape=1,1"])
-@pytest.mark.parametrize("shape", [(256, 256)])
-@pytest.mark.parametrize("target", ["ttmetal"])
-def test_add_f32_tensors(grid: str, shape: Shape, target: str, request):
-    """Test add operation with two f32 tensors"""
-    options = [grid]
-
-    compile_ttir_to_flatbuffer(
-        add_f32_tensors,
-        [shape, shape],
-        # [torch.float32, torch.float32],  # Two f32 inputs
-        [torch.bfloat16, torch.bfloat16],
-        target=target,
-        custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
-        test_base=request.node.name,
-        module_dump=True,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
-        print_ir=enablePrintIR,
-    )
-
-
-@pytest.mark.parametrize(
-    "grid", ["override-device-shape=1,1 global-data-format-target=bfp_bf8"]
-)
-# @pytest.mark.parametrize("grid", ["override-device-shape=1,1"])
-@pytest.mark.parametrize("shape", [(256, 256)])
+@pytest.mark.parametrize("grid", ["global-data-format-target=bfp_bf8"])
+@pytest.mark.parametrize("shape", [(512, 512)])
 @pytest.mark.parametrize("target", ["ttmetal"])
 def test_exp_f32(grid: str, shape: Shape, target: str, request, device):
     """Test unary exp operation on f32 tensor"""
@@ -107,8 +36,8 @@ def test_exp_f32(grid: str, shape: Shape, target: str, request, device):
         in0: Operand,
         builder: TTIRBuilder,
     ):
-        shape = (256, 256)
-        input_0 = torch.rand(shape, dtype=torch.float32)  # * 0.999 + 0.001
+        shape = (512, 512)
+        input_0 = torch.rand(shape, dtype=torch.float32)
         result = builder.exp(in0)
         output_0 = torch.exp(input_0)
         builder.set_goldens({in0: input_0}, {result: output_0})
@@ -117,7 +46,40 @@ def test_exp_f32(grid: str, shape: Shape, target: str, request, device):
     compile_and_execute_ttir(
         exp_f32,
         [shape],
-        [torch.float32],  # Input is f32
+        [torch.float32],
+        target=target,
+        device=device,
+        custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
+        test_base=request.node.name,
+        module_dump=True,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        print_ir=False,
+    )
+
+
+@pytest.mark.parametrize("grid", ["global-data-format-target=bfp_bf8"])
+@pytest.mark.parametrize("shape", [(512, 512)])
+@pytest.mark.parametrize("target", ["ttmetal"])
+def test_cos_bf16(grid: str, shape: Shape, target: str, request, device):
+    """Test unary cos operation on bf16 tensor"""
+    options = [grid]
+
+    def cos_bf16(
+        in0: Operand,
+        builder: TTIRBuilder,
+    ):
+        shape = (512, 512)
+        input_0 = torch.rand(shape, dtype=torch.bfloat16)
+        result = builder.cos(in0)
+        output_0 = torch.cos(input_0).to(torch.bfloat16)
+        builder.set_goldens({in0: input_0}, {result: output_0})
+        return result
+
+    compile_and_execute_ttir(
+        cos_bf16,
+        [shape],
+        [torch.bfloat16],
         target=target,
         device=device,
         custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
@@ -133,9 +95,9 @@ def test_exp_f32(grid: str, shape: Shape, target: str, request, device):
 @pytest.mark.parametrize(
     "shape",
     [
-        # (512, 512, 512),
-        # (512, 1024, 1024),
-        # (512, 1024, 2048),
+        (512, 512, 512),
+        (512, 1024, 1024),
+        (512, 1024, 2048),
         (1024, 1024, 1024),
         (1024, 1024, 2048),
     ],
@@ -176,4 +138,5 @@ def test_matmul_ttnn_shapes_double_buffered(
         print_ir=True,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
+        pcc=0.94,  # Adjusted for bfp8
     )
