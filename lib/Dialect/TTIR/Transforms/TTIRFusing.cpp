@@ -1188,9 +1188,7 @@ public:
       // [1, num_heads, B, head_size]. So, we must permute the updates tensor to
       // this shape.
       if (batchSize > 1) {
-        SmallVector<int64_t> permutedShape(updatesType.getShape());
-        permutedShape = ttmlir::utils::applyPermutation(updatesType.getShape(),
-                                                        {2, 1, 0, 3});
+        SmallVector<int64_t> permutedShape = ttmlir::utils::applyPermutation(updatesType.getShape(), {2, 1, 0, 3});
         RankedTensorType permutedUpdatesType =
             RankedTensorType::get(permutedShape, updatesType.getElementType(),
                                   updatesType.getEncoding());
