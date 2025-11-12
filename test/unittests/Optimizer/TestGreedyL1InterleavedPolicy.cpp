@@ -189,7 +189,7 @@ TEST_F(GreedyL1InterleavedPolicyBase, VerifyGreedyPolicy) {
 
   // All layouts should be using L1 buffer type
   for (const auto &[op, config] : greedyConfig.configs) {
-    ASSERT_TRUE(config.outputLayout.hasL1BufferType());
+    ASSERT_TRUE(config.outputLayouts.front().hasL1BufferType());
   }
 
   // Precedence order for op D should be: C, A, B

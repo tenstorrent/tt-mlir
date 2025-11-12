@@ -65,7 +65,9 @@ inline llvm::raw_ostream &operator<<(llvm::raw_ostream &os,
   for (const auto &[idx, value] : memReconfigEntry.reshardOutputConfigMap) {
     os << "(" << idx << ": ";
     for (const auto &config : value) {
-      os << config.outputLayout << ", ";
+      for (size_t i = 0; i < config.getNumOutputs(); ++i) {
+        os << config.getOutputLayout(i) << ", ";
+      }
     }
     os << ")\n";
   }

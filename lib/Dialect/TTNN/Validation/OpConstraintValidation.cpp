@@ -52,15 +52,16 @@ validateWithMultipleAttributes(Operation *op,
       continue;
     }
 
-    TTNNLayoutAttr actualOutput = constraintResult.actualOutputLayout;
+    llvm::SmallVector<TTNNLayoutAttr> actualOutputs =
+        constraintResult.actualOutputLayouts;
 
     // 2. Search referenceConfigs for matching (outputLayout + opSpecificAttr).
     if (!referenceConfigs.empty()) {
       bool foundMatch = false;
       for (size_t i = 0; i < referenceConfigs.size(); ++i) {
-        if (referenceConfigs[i].outputLayout == actualOutput &&
+        if (referenceConfigs[i].outputLayouts == actualOutputs &&
             referenceConfigs[i].opSpecificAttrs == testConfig.opSpecificAttrs) {
-          results.push_back(ValidationResult::success(i, actualOutput));
+          results.push_back(ValidationResult::success(i, actualOutputs));
           foundMatch = true;
           break;
         }
@@ -72,7 +73,7 @@ validateWithMultipleAttributes(Operation *op,
       }
     } else {
       // No reference configs to search - consider validation success as match.
-      results.push_back(ValidationResult::success(0, actualOutput));
+      results.push_back(ValidationResult::success(0, actualOutputs));
     }
   }
 

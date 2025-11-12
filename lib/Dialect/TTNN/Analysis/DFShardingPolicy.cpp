@@ -181,7 +181,8 @@ void DFShardingPolicy::run() {
 
     // TODO(odjuricic): Add constraint check if op can write to dram.
     if (!resolvedShardSolution.selectedOpConfig[l1ChainConfig.getLastOp()]
-             .outputLayout.hasDRAMBufferType()) {
+             .outputLayouts.front()
+             .hasDRAMBufferType()) {
       l1ChainConfig.spillEndToDRAM = true;
     }
 
@@ -212,11 +213,11 @@ void DFShardingPolicy::pickOpShardConfigs(ShardSolver &shardSolver,
         maxCoreUsage = accMaxCoreUsage[op][configIterator.index()];
         selectedConfig = configIterator.get();
       } else if (accMaxCoreUsage[op][configIterator.index()] == maxCoreUsage) {
-        assert(configIterator->outputLayout.getMemLayout() &&
+        assert(configIterator->outputLayouts.front().getMemLayout() &&
                "TensorMemoryLayout is not set");
         // If we have a tie, prefer layout that is not BlockSharded.
         //
-        if (configIterator->outputLayout.getMemLayout().getValue() !=
+        if (configIterator->outputLayouts.front().getMemLayout().getValue() !=
             ttnn::TensorMemoryLayout::BlockSharded) {
           selectedConfig = configIterator.get();
         }

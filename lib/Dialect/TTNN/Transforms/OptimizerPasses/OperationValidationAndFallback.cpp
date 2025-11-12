@@ -183,18 +183,18 @@ public:
 
         if (originalResult.isSuccess()) {
           // Check if config has output layout before comparing
-          if (config.outputLayout &&
-              originalResult.actualOutputLayout != config.outputLayout) {
+          if (config.outputLayouts.size() > 0 &&
+              originalResult.actualOutputLayouts != config.outputLayouts) {
             // Output layout mismatch - need to update the IR to match the
             // expected layout and insert necessary conversions back to the
             // expected layout.
             TTMLIR_DEBUG(
                 ttmlir::LogComponent::OpValidation,
                 "Operation {} at {} passed validation with original config "
-                "but output layouts mismatch: expected output layout: {}, "
-                "backend output layout: {}",
-                operation->getName(), operation->getLoc(), config.outputLayout,
-                originalResult.actualOutputLayout);
+                "but output layouts mismatch: expected output layouts: {}, "
+                "backend output layouts: {}",
+                operation->getName(), operation->getLoc(), config.outputLayouts,
+                originalResult.actualOutputLayouts);
             // Passing inputLayouts as both original and working layouts
             // because we didn't change input layouts.
             fallbacks::applyFallbackTransformations(
@@ -239,11 +239,13 @@ private:
 
     if (operation->getNumResults() > 0) {
       // Extract output layout from result type
-      if (auto tensorType = mlir::dyn_cast<RankedTensorType>(
-              operation->getResultTypes()[0])) {
-        if (auto layoutAttr = mlir::dyn_cast_or_null<TTNNLayoutAttr>(
-                tensorType.getEncoding())) {
-          config.outputLayout = layoutAttr;
+      for (size_t i = 0; i < operation->getNumResults(); ++i) {
+        if (auto tensorType = mlir::dyn_cast<RankedTensorType>(
+                operation->getResultTypes()[i])) {
+          if (auto layoutAttr = mlir::dyn_cast_or_null<TTNNLayoutAttr>(
+                  tensorType.getEncoding())) {
+            config.outputLayouts.push_back(layoutAttr);
+          }
         }
       }
     }
@@ -512,12 +514,15 @@ testFallbackCombination(Operation *op, const OpConfig &originalConfig,
 
   // For all fallbacks, constrain output layout to be DRAM Interleaved.
   OpConfig testConfig = originalConfig;
-  if (testConfig.outputLayout) {
-    testConfig.outputLayout = originalConfig.outputLayout;
-    testConfig.outputLayout =
-        testConfig.outputLayout.withBufferType(BufferType::DRAM);
-    testConfig.outputLayout = testConfig.outputLayout.withMemoryLayout(
-        TensorMemoryLayout::Interleaved);
+  if (testConfig.outputLayouts.size() > 0) {
+    testConfig.outputLayouts = originalConfig.outputLayouts;
+    for (size_t i = 0; i < testConfig.outputLayouts.size(); ++i) {
+      testConfig.outputLayouts[i] =
+          testConfig.outputLayouts[i].withBufferType(BufferType::DRAM);
+      testConfig.outputLayouts[i] =
+          testConfig.outputLayouts[i].withMemoryLayout(
+              TensorMemoryLayout::Interleaved);
+    }
   }
 
   return op_constraint_validation::validateOperation(op, inputLayouts,
@@ -544,45 +549,46 @@ void applyFallbackTransformations(
     applyInputOperandChange(operation, i, originalLayout, transformedLayout);
   }
 
-  if (!config.outputLayout) {
+  if (config.outputLayouts.empty()) {
     // Current operation doesn't have expected output layout, nothing more to
     // do.
     return;
   }
 
+  assert(result.actualOutputLayouts.size() == config.outputLayouts.size());
   // Handle output layout changes if backend produced different layout
-  if (result.actualOutputLayout != config.outputLayout) {
-    if (result.actualOutputLayout.getLayout() ==
-            config.outputLayout.getLayout() &&
-        result.actualOutputLayout.getDataType() ==
-            config.outputLayout.getDataType() &&
-        result.actualOutputLayout.getBufferType() ==
-            config.outputLayout.getBufferType() &&
-        result.actualOutputLayout.getMemLayout() ==
-            config.outputLayout.getMemLayout()) {
-      // This may happen if GridAttr is different, which should not matter for
-      // any memory layout other than Sharded. Since fallbacks do not go into
-      // Sharded memory layout, we can avoid this case for now.
-      return;
+  for (size_t i = 0; i < result.actualOutputLayouts.size(); ++i) {
+    if (result.actualOutputLayouts[i] != config.outputLayouts[i]) {
+      if (result.actualOutputLayouts[i].getLayout() ==
+              config.outputLayouts[i].getLayout() &&
+          result.actualOutputLayouts[i].getDataType() ==
+              config.outputLayouts[i].getDataType() &&
+          result.actualOutputLayouts[i].getBufferType() ==
+              config.outputLayouts[i].getBufferType() &&
+          result.actualOutputLayouts[i].getMemLayout() ==
+              config.outputLayouts[i].getMemLayout()) {
+        // This may happen if GridAttr is different, which should not matter for
+        // any memory layout other than Sharded. Since fallbacks do not go into
+        // Sharded memory layout, we can avoid this case for now.
+        continue;
+      }
+
+      // Step 1: Update operation's result type to what backend actually
+      // produced
+      auto oldResultType =
+          mlir::dyn_cast<RankedTensorType>(operation->getResult(i).getType());
+      assert(oldResultType && "Operation result type must be RankedTensorType");
+      auto newResultType = RankedTensorType::get(
+          oldResultType.getShape(),
+          result.actualOutputLayouts[i].getScalarElementType(),
+          result.actualOutputLayouts[i]);
+      operation->getResult(i).setType(newResultType);
+
+      // Step 2: Add revert ToLayoutOp to convert back to expected layout for
+      // consumers
+      applyOutputLayoutRevert(operation, result.actualOutputLayouts[i],
+                              config.outputLayouts[i]);
     }
-
-    // Step 1: Update operation's result type to what backend actually
-    // produced
-    assert(operation->getNumResults() == 1 &&
-           "Currently only single-result operations are supported");
-    auto oldResultType =
-        mlir::dyn_cast<RankedTensorType>(operation->getResult(0).getType());
-    assert(oldResultType && "Operation result type must be RankedTensorType");
-    auto newResultType =
-        RankedTensorType::get(oldResultType.getShape(),
-                              result.actualOutputLayout.getScalarElementType(),
-                              result.actualOutputLayout);
-    operation->getResult(0).setType(newResultType);
-
-    // Step 2: Add revert ToLayoutOp to convert back to expected layout for
-    // consumers
-    applyOutputLayoutRevert(operation, result.actualOutputLayout,
-                            config.outputLayout);
   }
 }
 

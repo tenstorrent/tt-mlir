@@ -179,7 +179,7 @@ bool ShardSolver::resolveStep() {
             continue;
           }
 
-          TTNNLayoutAttr inputLayout = producerConfigs[producerId].outputLayout;
+          TTNNLayoutAttr inputLayout = producerConfigs[producerId].getOutputLayout(0);
 
           // Try custom checker first.
           if (tryCustomShardCompatible(
@@ -906,7 +906,8 @@ ShardSolver::produceMaxCoreUsage() {
     //
     for (size_t i = 0; i < configs.size(); ++i) {
       const OpConfig &config = configs[i];
-      uint64_t coreUsage = config.outputLayout.getGrid().getGridVolume();
+      uint64_t coreUsage =
+          config.outputLayouts.front().getGrid().getGridVolume();
       accCoreUsage[op].push_back(coreUsage);
     }
 
