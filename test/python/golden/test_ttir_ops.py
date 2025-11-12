@@ -588,6 +588,181 @@ def test_conv_transpose2d(
 
 
 @pytest.mark.parametrize(
+    "shapes,stride,padding,dilation,groups",
+    [
+        # ResNet initial 7x7 conv: stride=2, padding=3
+        (
+            [(1, 3, 224, 224), (64, 3, 7, 7), (1, 1, 1, 64)],
+            [2, 2],
+            [3, 3, 3, 3],
+            [1, 1],
+            1,
+        ),
+        # ResNet 1x1 conv: stride=1, no padding
+        (
+            [(1, 64, 56, 56), (64, 64, 1, 1), (1, 1, 1, 64)],
+            [1, 1],
+            [0, 0, 0, 0],
+            [1, 1],
+            1,
+        ),
+        # ResNet 3x3 conv: stride=1, padding=1
+        (
+            [(1, 64, 56, 56), (64, 64, 3, 3), (1, 1, 1, 64)],
+            [1, 1],
+            [1, 1, 1, 1],
+            [1, 1],
+            1,
+        ),
+        # ResNet bottleneck 1x1 expansion: stride=1, no padding
+        (
+            [(1, 64, 56, 56), (256, 64, 1, 1), (1, 1, 1, 256)],
+            [1, 1],
+            [0, 0, 0, 0],
+            [1, 1],
+            1,
+        ),
+        # ResNet stride 2 downsampling: 3x3 conv
+        (
+            [(1, 64, 56, 56), (128, 64, 3, 3), (1, 1, 1, 128)],
+            [2, 2],
+            [1, 1, 1, 1],
+            [1, 1],
+            1,
+        ),
+        # Small test case
+        (
+            [(1, 16, 32, 32), (32, 16, 3, 3), (1, 1, 1, 32)],
+            [1, 1],
+            [1, 1, 1, 1],
+            [1, 1],
+            1,
+        ),
+    ],
+    ids=[
+        "resnet_initial_7x7",
+        "resnet_1x1_conv",
+        "resnet_3x3_conv",
+        "resnet_bottleneck_expansion",
+        "resnet_stride2_downsample",
+        "small_3x3",
+    ],
+)
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
+def test_convolution(
+    shapes: List[Shape],
+    stride: List[int],
+    padding: List[int],
+    dilation: List[int],
+    groups: int,
+    dtype: torch.dtype,
+    request,
+    device,
+):
+    """Test the ttir.convolution op with various ResNet-style configurations"""
+
+    def convolution(
+        in0: Operand,
+        weight: Operand,
+        bias: Operand,
+        builder: TTIRBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        return builder.convolution(
+            in0,
+            weight,
+            bias,
+            window_strides=stride,
+            padding=padding,
+            weight_dilation=dilation,
+            feature_group_count=groups,
+            unit_attrs=unit_attrs,
+        )
+
+    compile_and_execute_ttir(
+        convolution,
+        shapes,
+        [dtype] * len(shapes),
+        test_base=request.node.name,
+        device=device,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+    )
+
+
+@pytest.mark.parametrize(
+    "shapes,stride,padding,dilation,groups",
+    [
+        # Depthwise convolution (groups = input_channels)
+        (
+            [(1, 32, 28, 28), (32, 1, 3, 3), (1, 1, 1, 32)],
+            [1, 1],
+            [1, 1, 1, 1],
+            [1, 1],
+            32,
+        ),
+        # Group convolution (4 groups)
+        (
+            [(1, 64, 32, 32), (64, 16, 3, 3), (1, 1, 1, 64)],
+            [1, 1],
+            [1, 1, 1, 1],
+            [1, 1],
+            4,
+        ),
+        # Dilated convolution
+        (
+            [(1, 32, 32, 32), (64, 32, 3, 3), (1, 1, 1, 64)],
+            [1, 1],
+            [2, 2, 2, 2],
+            [2, 2],
+            1,
+        ),
+    ],
+    ids=["depthwise_conv", "group_conv_4groups", "dilated_conv"],
+)
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+def test_convolution_groups_dilation(
+    shapes: List[Shape],
+    stride: List[int],
+    padding: List[int],
+    dilation: List[int],
+    groups: int,
+    dtype: torch.dtype,
+    request,
+    device,
+):
+    """Test convolution with group and dilation patterns"""
+
+    def convolution_grouped(
+        in0: Operand,
+        weight: Operand,
+        bias: Operand,
+        builder: TTIRBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        return builder.convolution(
+            in0,
+            weight,
+            bias,
+            window_strides=stride,
+            padding=padding,
+            weight_dilation=dilation,
+            feature_group_count=groups,
+            unit_attrs=unit_attrs,
+        )
+
+    compile_and_execute_ttir(
+        convolution_grouped,
+        shapes,
+        [dtype] * len(shapes),
+        test_base=request.node.name,
+        device=device,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+    )
+
+
+@pytest.mark.parametrize(
     "kernel,stride,dilation,padding,ceil_mode",
     [([2, 2], [2, 2], [1, 1], [0, 0, 0, 0], False)],
 )
@@ -785,6 +960,87 @@ def test_batch_norm(
         batch_norm,
         shapes,
         dtypes,
+        test_base=request.node.name,
+        device=device,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+    )
+
+
+@pytest.mark.parametrize(
+    "pooling_method,window_dims,window_strides,padding,window_dilations",
+    [
+        # ResNet-style max pooling: 3x3 window, stride 2 (NHWC format)
+        (
+            "Max",
+            [1, 3, 3, 1],
+            [1, 2, 2, 1],
+            [0, 0, 0, 0, 0, 0, 0, 0],
+            [1, 1, 1, 1],
+        ),
+        # Average pooling: 2x2 window, stride 2 (NHWC format)
+        (
+            "Average",
+            [1, 2, 2, 1],
+            [1, 2, 2, 1],
+            [0, 0, 0, 0, 0, 0, 0, 0],
+            [1, 1, 1, 1],
+        ),
+        # Sum pooling: 2x2 window, stride 2 (NHWC format)
+        (
+            "Sum",
+            [1, 2, 2, 1],
+            [1, 2, 2, 1],
+            [0, 0, 0, 0, 0, 0, 0, 0],
+            [1, 1, 1, 1],
+        ),
+        # Max pooling with padding (NHWC format)
+        (
+            "Max",
+            [1, 3, 3, 1],
+            [1, 1, 1, 1],
+            [0, 0, 1, 1, 0, 0, 1, 1],
+            [1, 1, 1, 1],
+        ),
+    ],
+    ids=["resnet_max_3x3_s2", "avg_2x2_s2", "sum_2x2_s2", "max_3x3_padded"],
+)
+@pytest.mark.parametrize(
+    "shape", [(1, 64, 56, 56), (1, 32, 32, 32)], ids=["resnet_56x56", "32x32"]
+)
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
+def test_pooling(
+    shape: Shape,
+    dtype: torch.dtype,
+    pooling_method: str,
+    window_dims: List[int],
+    window_strides: List[int],
+    padding: List[int],
+    window_dilations: List[int],
+    request,
+    device,
+):
+    """Test the generalized ttir.pooling operation with various configurations"""
+
+    def pooling(
+        in0: Operand,
+        builder: TTIRBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        return builder.pooling(
+            in0,
+            pooling_method=pooling_method,
+            window_dimensions=window_dims,
+            window_strides=window_strides,
+            padding=padding,
+            window_dilations=window_dilations,
+            unit_attrs=unit_attrs,
+        )
+
+    compile_and_execute_ttir(
+        pooling,
+        [shape],
+        [dtype],
         test_base=request.node.name,
         device=device,
         output_root=request.config.getoption("--path"),

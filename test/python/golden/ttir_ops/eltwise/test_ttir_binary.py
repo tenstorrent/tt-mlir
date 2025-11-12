@@ -458,8 +458,7 @@ def test_comparison_ops(
     )
 
 
-# Unaligned shapes for binary ops
-# Unaligned shapes tests for neg op
+# Unaligned shapes for the add op
 unaligned_shapes = [
     (5, 3),
     (32, 1),
