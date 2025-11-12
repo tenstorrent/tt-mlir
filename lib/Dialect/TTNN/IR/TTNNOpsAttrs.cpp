@@ -1135,3 +1135,26 @@ TTNNLayoutAttr TTNNLayoutAttr::withLayout(Layout layout,
   Type elementType = utils::getElementType(getContext(), layout, getDataType());
   return withElementType(elementType, tensorShape);
 }
+
+bool NDTTNNLayoutAttr::isInterleaved() const {
+  return getMemLayout().getValue() == TensorMemoryLayout::Interleaved;
+}
+
+bool NDTTNNLayoutAttr::isSharded() const {
+  return getMemLayout().getValue() != TensorMemoryLayout::Interleaved;
+}
+
+bool NDTTNNLayoutAttr::isLegacyBlockSharded(
+    ArrayRef<int64_t> tensorShape) const {
+  return getMemLayout().getValue() == TensorMemoryLayout::BlockSharded;
+}
+
+bool NDTTNNLayoutAttr::isLegacyWidthSharded(
+    ArrayRef<int64_t> tensorShape) const {
+  return getMemLayout().getValue() == TensorMemoryLayout::WidthSharded;
+}
+
+bool NDTTNNLayoutAttr::isLegacyHeightSharded(
+    ArrayRef<int64_t> tensorShape) const {
+  return getMemLayout().getValue() == TensorMemoryLayout::HeightSharded;
+}

@@ -255,6 +255,18 @@ def TTNN_ShardOrientation : I32EnumAttr<"ShardOrientation", "TTNN ShardOrientati
   let cppNamespace = "::mlir::tt::ttnn";
 }
 
+def TTNN_ShardDistributionStrategy_RoundRobin1D : I32EnumAttrCase<"RoundRobin1D", 0, "round_robin_1d">;
+def TTNN_ShardDistributionStrategy_Grid2D : I32EnumAttrCase<"Grid2D", 1, "grid_2d">;
+
+def TTNN_ShardDistributionStrategy : I32EnumAttr<"ShardDistributionStrategy", "TTNN ShardDistributionStrategy",
+                           [
+                            TTNN_ShardDistributionStrategy_RoundRobin1D,
+                            TTNN_ShardDistributionStrategy_Grid2D,
+                           ]> {
+  let genSpecializedAttr = 0;
+  let cppNamespace = "::mlir::tt::ttnn";
+}
+
 def TTNN_MathFidelityLoFi : I32EnumAttrCase<"LoFi", 0, "lofi">;
 def TTNN_MathFidelityHiFi2 : I32EnumAttrCase<"HiFi2", 2, "hifi2">;
 def TTNN_MathFidelityHiFi3 : I32EnumAttrCase<"HiFi3", 3, "hifi3">;
