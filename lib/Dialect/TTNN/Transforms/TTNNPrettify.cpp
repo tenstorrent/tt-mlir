@@ -190,8 +190,9 @@ private:
     return candidateFns;
   }
 
-  SmallVector<PyLoc> parseOpsAndGatherLocations(func::FuncOp funcOp) {
-    SmallVector<PyLoc> locations;
+  llvm::DenseMap<Operation *, PyLoc>
+  parseOpsAndGatherLocations(func::FuncOp funcOp) {
+    llvm::DenseMap<Operation *, PyLoc> opToLocation;
 
     funcOp.walk([&](Operation *op) {
       // llvm::outs() << "Op: " << op->getName() << "\n";
@@ -201,16 +202,18 @@ private:
 
       PyLoc pyLoc(op);
       if (pyLoc.isValid) {
-        locations.push_back(pyLoc);
+        opToLocation.insert({op, pyLoc});
       }
       return WalkResult::advance();
     });
 
-    return locations;
+    return opToLocation;
   }
 
-  void printPyLocs(func::FuncOp candidateFn, SmallVector<PyLoc> locations) {
-    for (PyLoc &pyLoc : locations) {
+  void printPyLocs(func::FuncOp candidateFn,
+                   const llvm::DenseMap<Operation *, PyLoc> &opToLocation) {
+    for (const auto &entry : opToLocation) {
+      const PyLoc &pyLoc = entry.second;
       llvm::outs() << "PyLoc: " << pyLoc.op->getName() << "\n";
       llvm::outs() << "  Loc: " << pyLoc.op->getLoc() << "\n";
       llvm::outs() << "  Func path: " << pyLoc.funcPath << "\n";
@@ -218,16 +221,18 @@ private:
       llvm::outs() << "  Op line num: " << pyLoc.opLineNum << "\n";
       llvm::outs() << "  Op name: " << pyLoc.opName << "\n";
       llvm::outs() << "  Modules: " << pyLoc.modules.size() << "\n";
-      for (PyLoc::Module &module : pyLoc.modules) {
+      for (const PyLoc::Module &module : pyLoc.modules) {
         llvm::outs() << "    Module: " << module.moduleClass << "["
                      << module.moduleName << "]\n";
       }
     }
   }
 
-  std::string validateLocations(SmallVector<PyLoc> locations) {
+  std::string
+  validateLocations(const llvm::DenseMap<Operation *, PyLoc> &opToLocation) {
     llvm::StringMap<PyLoc> funcPathMap;
-    for (PyLoc &pyLoc : locations) {
+    for (const auto &entry : opToLocation) {
+      const PyLoc &pyLoc = entry.second;
       auto [it, success] = funcPathMap.try_emplace(pyLoc.funcPath, pyLoc);
       if (!success && it->second.funcName != pyLoc.funcName) {
         return "Found different func names at the same path: " +
@@ -241,20 +246,66 @@ private:
   // Group operations by their funcPath.
   // Returns a map: funcPath -> (funcName, vector of PyLocs)
   llvm::StringMap<std::pair<std::string, SmallVector<PyLoc>>>
-  groupOperationsByFunction(SmallVector<PyLoc> &locations) {
+  groupOperationsByFunction(
+      func::FuncOp &candidateFn,
+      const llvm::DenseMap<Operation *, PyLoc> &opToLocation) {
     llvm::StringMap<std::pair<std::string, SmallVector<PyLoc>>> funcGroups;
 
-    for (PyLoc &pyLoc : locations) {
-      auto it = funcGroups.find(pyLoc.funcPath);
-      if (it == funcGroups.end()) {
-        // First time seeing this funcPath
-        SmallVector<PyLoc> ops;
-        ops.push_back(pyLoc);
-        funcGroups[pyLoc.funcPath] = {pyLoc.funcName, std::move(ops)};
-      } else {
-        // Add to existing group
-        it->second.second.push_back(pyLoc);
+    // Track previous funcPath to detect changes
+    std::string prevFuncPath = "";
+    std::string currentFuncName = "";
+    SmallVector<PyLoc> currentGroup;
+    unsigned groupCounter = 0;
+
+    // Walk ops in the function body in order
+    // TODO (svuckovic): improve by doing an on-line topological walk:
+    // Start from root node(s), and then add children that belong to the current
+    // group. Only after all possible children are added, create a break. This
+    // will minimize the number of groups.
+    candidateFn.walk([&](Operation *op) {
+      auto locIt = opToLocation.find(op);
+      if (locIt == opToLocation.end()) {
+        // Skip operations not in our map (non-TTNN ops)
+        return WalkResult::advance();
       }
+
+      const PyLoc &pyLoc = locIt->second;
+
+      // Check if funcPath changed (make a "cut")
+      if (!prevFuncPath.empty() && pyLoc.funcPath != prevFuncPath) {
+        // Print current group
+        llvm::outs() << "Current group: " << currentGroup.size() << "\n";
+        for (PyLoc &pyLoc : currentGroup) {
+          // Print pyloc op name and modules
+          llvm::outs() << "  - " << pyLoc.op->getName() << " (modules: ";
+          for (const PyLoc::Module &module : pyLoc.modules) {
+            llvm::outs() << module.moduleClass << "[" << module.moduleName
+                         << "] ";
+          }
+          llvm::outs() << ")\n";
+        }
+        llvm::outs() << "\n";
+
+        // Save the current group with a unique key
+        std::string uniqueKey =
+            prevFuncPath + "_group_" + std::to_string(groupCounter++);
+        funcGroups[uniqueKey] = {currentFuncName, std::move(currentGroup)};
+        currentGroup = SmallVector<PyLoc>();
+      }
+
+      // Add current op to the group
+      currentGroup.push_back(pyLoc);
+      prevFuncPath = pyLoc.funcPath;
+      currentFuncName = pyLoc.funcName;
+
+      return WalkResult::advance();
+    });
+
+    // Don't forget to save the last group
+    if (!currentGroup.empty()) {
+      std::string uniqueKey =
+          prevFuncPath + "_group_" + std::to_string(groupCounter++);
+      funcGroups[uniqueKey] = {currentFuncName, std::move(currentGroup)};
     }
 
     return funcGroups;
@@ -524,7 +575,6 @@ private:
       const llvm::StringMap<FunctionBoundaryInfo> &boundaryInfos,
       const llvm::StringMap<func::FuncOp> &newFunctions) {
 
-    // We need to process functions in the order they appear in the original IR
     // Build a map from operations to their function info
     llvm::DenseMap<Operation *,
                    std::pair<llvm::StringRef, const FunctionBoundaryInfo *>>
@@ -538,16 +588,7 @@ private:
       }
     }
 
-    // Track which operations have been processed
-    llvm::DenseSet<Operation *> processedOps;
-
-    // Mapping from old values to new values (call results)
-    IRMapping valueMapping;
-
-    // Set insertion point to the beginning of the candidate function
-    rewriter.setInsertionPointToStart(&candidateFn.getBody().front());
-
-    // Walk through the original function in order
+    // Walk through the original function in order and collect all operations
     SmallVector<Operation *> opsToReplace;
     candidateFn.walk([&](Operation *op) {
       if (opToFuncInfo.count(op)) {
@@ -555,18 +596,116 @@ private:
       }
     });
 
-    // Process operations in order, grouping consecutive ops from the same
-    // function
-    llvm::StringRef currentFuncPath;
-    SmallVector<Operation *> currentGroupOps;
+    // Collect all operations by funcPath (not just consecutive ones)
+    llvm::StringMap<SmallVector<Operation *>> opsByFunction;
 
-    auto processGroup = [&]() {
-      if (currentGroupOps.empty()) {
-        return;
+    for (Operation *op : opsToReplace) {
+      auto [funcPath, info] = opToFuncInfo[op];
+      opsByFunction[funcPath].push_back(op);
+    }
+
+    // Build dependency graph: funcA -> funcB means funcB depends on funcA
+    // (funcB uses values produced by funcA)
+    llvm::StringMap<llvm::DenseSet<llvm::StringRef>> dependencies;
+    llvm::StringMap<llvm::DenseSet<Operation *>> opsInFunctionSet;
+
+    // First, build sets of operations for each function for fast lookup
+    for (const auto &entry : opsByFunction) {
+      llvm::StringRef funcPath = entry.getKey();
+      for (Operation *op : entry.getValue()) {
+        opsInFunctionSet[funcPath].insert(op);
+      }
+    }
+
+    // Analyze dependencies: for each function, find which other functions it
+    // depends on
+    for (const auto &entry : opsByFunction) {
+      llvm::StringRef funcPath = entry.getKey();
+      llvm::DenseSet<llvm::StringRef> &deps = dependencies[funcPath];
+
+      // Check all operations in this function
+      for (Operation *op : entry.getValue()) {
+        // Check all operands of this operation
+        for (Value operand : op->getOperands()) {
+          Operation *definingOp = operand.getDefiningOp();
+          if (!definingOp) {
+            continue; // Block argument, not from another function
+          }
+
+          // Find which function this operand comes from
+          for (const auto &otherEntry : opsByFunction) {
+            llvm::StringRef otherFuncPath = otherEntry.getKey();
+            if (otherFuncPath == funcPath) {
+              continue; // Skip self-dependencies
+            }
+
+            if (opsInFunctionSet[otherFuncPath].contains(definingOp)) {
+              // This function depends on otherFuncPath
+              deps.insert(otherFuncPath);
+              break;
+            }
+          }
+        }
+      }
+    }
+
+    // Topological sort to determine function order
+    SmallVector<llvm::StringRef> functionOrder;
+    llvm::DenseSet<llvm::StringRef> visited;
+    llvm::DenseSet<llvm::StringRef> inProgress;
+
+    std::function<bool(llvm::StringRef)> visit =
+        [&](llvm::StringRef funcPath) -> bool {
+      if (visited.contains(funcPath)) {
+        return true;
+      }
+      if (inProgress.contains(funcPath)) {
+        // Cycle detected! This shouldn't happen in valid IR
+        llvm::errs() << "Cycle detected in function dependencies at: "
+                     << funcPath << "\n";
+        return false;
       }
 
-      const auto &[funcPath, info] = opToFuncInfo[currentGroupOps.front()];
+      inProgress.insert(funcPath);
+
+      // Visit all dependencies first
+      if (dependencies.contains(funcPath)) {
+        for (llvm::StringRef dep : dependencies[funcPath]) {
+          if (!visit(dep)) {
+            return false;
+          }
+        }
+      }
+
+      inProgress.erase(funcPath);
+      visited.insert(funcPath);
+      functionOrder.push_back(funcPath);
+      return true;
+    };
+
+    // Visit all functions
+    for (const auto &entry : opsByFunction) {
+      if (!visit(entry.getKey())) {
+        // Error: cycle in dependencies
+        return;
+      }
+    }
+
+    // Mapping from old values to new values (call results)
+    IRMapping valueMapping;
+
+    // Track the last call we created for sequential insertion
+    Operation *lastCallOp = nullptr;
+
+    // Track which operations have been processed
+    llvm::DenseSet<Operation *> processedOps;
+
+    // Process each unique function in the order they first appear
+    for (llvm::StringRef funcPath : functionOrder) {
+      const FunctionBoundaryInfo *info =
+          opToFuncInfo[opsByFunction[funcPath].front()].second;
       func::FuncOp targetFunc = newFunctions.lookup(funcPath);
+      SmallVector<Operation *> &opsInFunction = opsByFunction[funcPath];
 
       // Prepare operands for the call (input values)
       SmallVector<Value> callOperands;
@@ -579,13 +718,22 @@ private:
         }
       }
 
-      // Set insertion point to after the last operation we're about to replace
-      Operation *lastOp = currentGroupOps.back();
-      rewriter.setInsertionPointAfter(lastOp);
+      // Insert the call after the last call we created (or before first op if
+      // this is the first call)
+      if (lastCallOp) {
+        rewriter.setInsertionPointAfter(lastCallOp);
+      } else {
+        Operation *firstOp = opsInFunction.front();
+        rewriter.setInsertionPoint(firstOp);
+      }
 
       // Create the call
+      Operation *lastOp = opsInFunction.back();
       func::CallOp callOp = rewriter.create<func::CallOp>(
           lastOp->getLoc(), targetFunc, callOperands);
+
+      // Track this call for the next insertion
+      lastCallOp = callOp;
 
       // Map output values to call results
       for (size_t i = 0; i < info->outputValues.size(); i++) {
@@ -593,7 +741,6 @@ private:
       }
 
       // Replace uses of output values with call results
-      // We need to get a mutable reference to the FunctionBoundaryInfo
       FunctionBoundaryInfo &mutableInfo =
           const_cast<FunctionBoundaryInfo &>(*info);
       for (size_t i = 0; i < mutableInfo.outputValues.size(); i++) {
@@ -601,27 +748,10 @@ private:
       }
 
       // Mark operations for deletion
-      for (Operation *op : currentGroupOps) {
+      for (Operation *op : opsInFunction) {
         processedOps.insert(op);
       }
-
-      currentGroupOps.clear();
-    };
-
-    for (Operation *op : opsToReplace) {
-      auto [funcPath, info] = opToFuncInfo[op];
-
-      if (funcPath != currentFuncPath) {
-        // Process previous group
-        processGroup();
-        currentFuncPath = funcPath;
-      }
-
-      currentGroupOps.push_back(op);
     }
-
-    // Process final group
-    processGroup();
 
     // Erase replaced operations in reverse order
     for (auto it = opsToReplace.rbegin(); it != opsToReplace.rend(); ++it) {
@@ -658,21 +788,21 @@ public:
 
     func::FuncOp candidateFn = candidateFns.front();
 
-    llvm::SmallVector<PyLoc> locations =
+    llvm::DenseMap<Operation *, PyLoc> opToLocation =
         parseOpsAndGatherLocations(candidateFn);
 
     // Debug prints
-    printPyLocs(candidateFn, locations);
+    printPyLocs(candidateFn, opToLocation);
 
     // Validate locations
-    std::string errorMessage = validateLocations(locations);
+    std::string errorMessage = validateLocations(opToLocation);
     if (!errorMessage.empty()) {
       llvm::outs() << "PrettifyForCodegen error: " << errorMessage << "\n";
       signalPassFailure();
     }
 
     // Group operations by function
-    auto funcGroups = groupOperationsByFunction(locations);
+    auto funcGroups = groupOperationsByFunction(candidateFn, opToLocation);
     printFunctionGroups(funcGroups);
 
     // Analyze function boundaries and data flow
