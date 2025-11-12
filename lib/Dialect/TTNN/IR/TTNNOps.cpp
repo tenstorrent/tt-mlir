@@ -4313,6 +4313,9 @@ mlir::tt::ttnn::PagedScaledDotProductAttentionDecodeOp::verify() {
   }
 
   if (getCurPosTensor()) {
+    if (!getCurPosTensor().getType().getElementType().isInteger()) {
+      return emitOpError("Cur pos tensor must be an integer tensor.");
+    }
     if (getCurPosTensor().getType().getShape().size() != 1) {
       return emitOpError("Cur pos tensor must be a 1D tensor.");
     }
