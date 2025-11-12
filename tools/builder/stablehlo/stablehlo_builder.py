@@ -771,6 +771,93 @@ class StableHLOBuilder(Builder):
             unit_attrs=unit_attrs,
         )
 
+    def slice(
+        self,
+        in0: Operand,
+        start_indices: List[int],
+        limit_indices: List[int],
+        strides: Optional[List[int]] = None,
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+    ) -> OpView:
+        """
+        Creates ``stablehlo.slice``.
+
+        *Slice operation.*
+
+        Extracts a slice from the operand using statically-computed starting indices
+        and produces a result tensor. start_indices contain the starting indices of
+        the slice for each dimension, limit_indices contain the ending indices
+        (exclusive) for the slice for each dimension, and strides contain the
+        strides for each dimension.
+
+        More formally: result[result_index] = operand[operand_index] where
+        operand_index = start_indices + result_index * strides.
+
+        .. code-block:: mlir
+
+            // %operand: [
+            //            [0, 0, 0, 0],
+            //            [0, 0, 1, 1],
+            //            [0, 0, 1, 1]
+            //           ]
+            %result = "stablehlo.slice"(%operand) {
+              start_indices = array<i64: 1, 2>,
+              limit_indices = array<i64: 3, 4>,
+              strides = array<i64: 1, 1>
+            } : (tensor<3x4xi64>) -> tensor<2x2xi64>
+            // %result: [
+            //            [1, 1],
+            //            [1, 1]
+            //           ]
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor to slice
+        start_indices : List[int]
+            Starting indices of the slice for each dimension
+        limit_indices : List[int]
+            Ending indices (exclusive) of the slice for each dimension
+        strides : *Optional[List[int]]*
+            Strides for each dimension (default: [1, 1, ...])
+        unit_attrs : *Optional[List[str]]*
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpView*)
+            A tensor containing the extracted slice
+        """
+        if strides is None:
+            strides = [1] * len(start_indices)
+
+        if not (len(start_indices) == len(limit_indices) == len(strides)):
+            raise ValueError(
+                "start_indices, limit_indices, and strides must have the same length"
+            )
+
+        start_indices_attr = DenseI64ArrayAttr.get(start_indices, context=self._ctx)
+        limit_indices_attr = DenseI64ArrayAttr.get(limit_indices, context=self._ctx)
+        strides_attr = DenseI64ArrayAttr.get(strides, context=self._ctx)
+
+        return self._op_proxy(
+            stablehlo.SliceOp,
+            [in0],
+            unit_attrs=unit_attrs,
+            sharding_attr=sharding_attr,
+            stablehlo_kwargs={
+                "start_indices": start_indices_attr,
+                "limit_indices": limit_indices_attr,
+                "strides": strides_attr,
+            },
+            golden_kwargs={
+                "start_indices": start_indices,
+                "limit_indices": limit_indices,
+                "strides": strides,
+            },
+        )
+
     # ----- Tensor Manipulation Operations -----
 
     def concatenate(
