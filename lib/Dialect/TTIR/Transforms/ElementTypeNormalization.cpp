@@ -236,22 +236,43 @@ public:
   matchAndRewrite(mlir::Operation *op, llvm::ArrayRef<mlir::Value> operands,
                   mlir::ConversionPatternRewriter &rewriter) const final {
 
-    // Only match matmul, conv2d, and convolution operations
+    // Only match matmul, conv2d, convolution, dot_general, and linear
+    // operations
     bool isMatmul = llvm::isa<ttir::MatmulOp>(op);
     bool isConv2d = llvm::isa<ttir::Conv2dOp>(op);
     bool isConvolution = llvm::isa<ttir::ConvolutionOp>(op);
-    if (!isMatmul && !isConv2d && !isConvolution) {
+    bool isDotGeneral = llvm::isa<ttir::DotGeneralOp>(op);
+    bool isLinear = llvm::isa<ttir::LinearOp>(op);
+    if (!isMatmul && !isConv2d && !isConvolution && !isDotGeneral &&
+        !isLinear) {
       return rewriter.notifyMatchFailure(
-          op, "not a matmul, conv2d, or convolution op");
+          op, "not a matmul, conv2d, convolution, dot_general, or linear op");
     }
 
     // Determine which operands are weights
     // For matmul: operand 1 (b) is typically the weight
     // For conv2d and convolution: operand 1 (weight) and optionally operand 2
     // (bias) are weights
+    // For dot_general: operand 1 (rhs) is the weight
+    // For linear: operand 1 (b) is the weight and optionally operand 2 (bias)
     llvm::SmallVector<unsigned> weightIndices;
     if (isMatmul) {
       weightIndices.push_back(1); // b operand
+    } else if (isDotGeneral) {
+      weightIndices.push_back(1); // rhs operand
+    } else if (isLinear) {
+      auto linearOp = llvm::cast<ttir::LinearOp>(op);
+      weightIndices.push_back(1); // b operand
+      // Check if bias exists using the named accessor
+      if (linearOp.getBias()) {
+        // Find the index of the bias operand
+        for (unsigned i = 0; i < op->getNumOperands(); ++i) {
+          if (op->getOperand(i) == linearOp.getBias()) {
+            weightIndices.push_back(i);
+            break;
+          }
+        }
+      }
     } else if (isConv2d) {
       auto conv2dOp = llvm::cast<ttir::Conv2dOp>(op);
       weightIndices.push_back(1); // weight operand
@@ -428,6 +449,31 @@ struct ElementTypeNormalization
       // typecasts
       target.addDynamicallyLegalOp<ttir::ConvolutionOp>(
           [hasWeightsWithBfp8](ttir::ConvolutionOp op) {
+            llvm::SmallVector<unsigned> weightIndices = {1};
+            // Use named accessor to check for bias
+            if (op.getBias()) {
+              // Find the index of the bias operand
+              for (unsigned i = 0; i < op->getNumOperands(); ++i) {
+                if (op->getOperand(i) == op.getBias()) {
+                  weightIndices.push_back(i);
+                  break;
+                }
+              }
+            }
+            return hasWeightsWithBfp8(op.getOperation(), weightIndices);
+          });
+
+      // Mark dot_general ops as illegal unless their weights already have bfp8
+      // typecasts
+      target.addDynamicallyLegalOp<ttir::DotGeneralOp>(
+          [hasWeightsWithBfp8](ttir::DotGeneralOp op) {
+            return hasWeightsWithBfp8(op.getOperation(), {1});
+          });
+
+      // Mark linear ops as illegal unless their weights already have bfp8
+      // typecasts
+      target.addDynamicallyLegalOp<ttir::LinearOp>(
+          [hasWeightsWithBfp8](ttir::LinearOp op) {
             llvm::SmallVector<unsigned> weightIndices = {1};
             // Use named accessor to check for bias
             if (op.getBias()) {
