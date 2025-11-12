@@ -2249,13 +2249,13 @@ private:
     int32_t batchSize = inputShape[I_BATCH_SIZE];
     int32_t sequenceLength = inputShape[I_SEQUENCE_LENGTH];
 
-    auto queryType = (attentionType == T_MHA_BIASED)
+    auto queryType = (attentionType == T_GQA_BIASED)
                          ? biasedPermuteOps[0].getOutput().getType()
                          : unbiasedPermuteOps[0].getOutput().getType();
-    auto keyType = (attentionType == T_MHA_BIASED)
+    auto keyType = (attentionType == T_GQA_BIASED)
                        ? biasedPermuteOps[1].getOutput().getType()
                        : unbiasedPermuteOps[1].getOutput().getType();
-    auto valueType = (attentionType == T_MHA_BIASED)
+    auto valueType = (attentionType == T_GQA_BIASED)
                          ? biasedPermuteOps[2].getOutput().getType()
                          : unbiasedPermuteOps[2].getOutput().getType();
 
@@ -2272,10 +2272,10 @@ private:
 
     // Concatenate KV weights along dimension determined by transposeB
     // attribute.
-    Value keyWeightMatrix = (attentionType == T_MHA_BIASED)
+    Value keyWeightMatrix = (attentionType == T_GQA_BIASED)
                                 ? linearOps[1].getB()
                                 : matmulOps[1].getB();
-    Value valueWeightMatrix = (attentionType == T_MHA_BIASED)
+    Value valueWeightMatrix = (attentionType == T_GQA_BIASED)
                                   ? linearOps[2].getB()
                                   : matmulOps[2].getB();
     std::size_t keyWeightRank =
@@ -2283,7 +2283,7 @@ private:
             .getShape()
             .size();
     std::size_t dimToConcatKVWeights =
-        (attentionType == T_MHA_BIASED)
+        (attentionType == T_GQA_BIASED)
             ? linearOps[1].getTransposeB()
                   ? 0
                   : (keyWeightRank - 1) // 0 if transposed, else last dim.
