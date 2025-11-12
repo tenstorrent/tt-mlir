@@ -1503,6 +1503,159 @@ class D2MGatherOpRewriter : public OpConversionPattern<ttir::GatherOp> {
   }
 };
 
+class D2MScatterOpRewriter : public OpConversionPattern<ttir::ScatterOp> {
+  using OpConversionPattern<ttir::ScatterOp>::OpConversionPattern;
+  LogicalResult
+  matchAndRewrite(ttir::ScatterOp scatterOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    mlir::OpBuilder builder(getContext());
+    builder.setInsertionPointAfter(scatterOp);
+    Location loc = scatterOp.getLoc();
+
+    Value input = adaptor.getInput();
+    Value scatterIndices = adaptor.getScatterIndices();
+    Value updates = adaptor.getUpdate();
+
+    auto inputType = getTypeConverter()->convertType<RankedTensorType>(input.getType());
+    auto scatterIndicesType = getTypeConverter()->convertType<RankedTensorType>(scatterIndices.getType());
+    auto updatesType = getTypeConverter()->convertType<RankedTensorType>(updates.getType());
+
+    int64_t inputRank = inputType.getRank();
+    int64_t scatterIndicesRank = scatterIndicesType.getRank();
+    int64_t updatesRank = updatesType.getRank();
+
+    // Get scatter dimension attributes.
+    [[maybe_unused]] ArrayRef<int32_t> updateWindowDims = scatterOp.getUpdateWindowDims();
+    [[maybe_unused]] ArrayRef<int32_t> insertedWindowDims = scatterOp.getInsertedWindowDims();
+    [[maybe_unused]] ArrayRef<int32_t> inputBatchingDims = scatterOp.getInputBatchingDims();
+    [[maybe_unused]] ArrayRef<int32_t> scatterIndicesBatchingDims = scatterOp.getScatterIndicesBatchingDims();
+    [[maybe_unused]] ArrayRef<int32_t> scatterDimsToOperandDims = scatterOp.getScatterDimsToOperandDims();
+    [[maybe_unused]] int64_t indexVectorDim = scatterOp.getIndexVectorDim();
+    [[maybe_unused]] bool indicesAreSorted = scatterOp.getIndicesAreSorted();
+    [[maybe_unused]] bool uniqueIndices = scatterOp.getUniqueIndices();
+
+    // Commonly used parameters
+    auto i64Ty = builder.getI64Type();
+    auto intervalTy = RankedTensorType::get({2, 2}, i64Ty);
+
+    // Insert to metal layout conversion for the input.
+    llvm::SmallVector<int64_t> inputAlignments(inputType.getShape().size(), 1);
+    inputAlignments[inputAlignments.size() - 1] = 32;
+    inputAlignments[inputAlignments.size() - 2] = 32;
+    inputAlignments[inputAlignments.size() - 3] = 1;
+    inputAlignments[inputAlignments.size() - 4] = 1;
+
+    auto inputCollapsedDims = llvm::SmallVector<int64_t, 4>{0, 2, 2, 3};
+    DenseIntElementsAttr inputCollapsedDimsAttr = DenseIntElementsAttr::get(intervalTy, llvm::ArrayRef<int64_t>(inputCollapsedDims));
+
+    auto inputMetalLayout = ttcore::MetalLayoutAttr::get(
+      getContext(), inputType.getShape(), ttcore::OOBVal::Undef,
+      ttcore::MemorySpace::DeviceDRAM, ttcore::TensorMemoryLayout::Sharded, inputCollapsedDimsAttr, inputAlignments);
+
+    // Create new shape that collapses the leading dimensions in inputType into 2D
+    llvm::SmallVector<int64_t> newInputShape(inputType.getShape().begin(), inputType.getShape().end());
+
+    if (inputRank > 2) {
+      int64_t collapsedLeading = inputType.getDimSize(0);
+      for (int64_t i = 1; i < inputRank - 1; ++i) {
+        collapsedLeading *= inputType.getDimSize(i);
+      }
+      newInputShape = {collapsedLeading, inputType.getDimSize(inputRank - 1)};
+    }
+
+    // Add mesh shape information
+    llvm::SmallVector<int64_t> inputWithMeshShape = {1, 1};
+    inputWithMeshShape.append(newInputShape.begin(), newInputShape.end());
+
+    // Create d2m::ToLayoutOp for input
+    auto inputEmpty = builder.create<d2m::EmptyOp>(
+      loc,
+      inputWithMeshShape,
+      inputType.getElementType(),
+      inputMetalLayout);
+
+    [[maybe_unused]] auto inputLayoutOp = builder.create<d2m::ToLayoutOp>(loc, input, inputEmpty, nullptr);
+
+    // Insert to metal layout conversion for the scatterIndices.
+    llvm::SmallVector<int64_t> scatterIndicesAlignments(scatterIndicesType.getShape().size(), 1);
+    scatterIndicesAlignments[scatterIndicesAlignments.size() - 1] = 1;
+    scatterIndicesAlignments[scatterIndicesAlignments.size() - 2] = 1;
+
+    auto scatterIndicesCollapsedDims = llvm::SmallVector<int64_t, 4>{0, 1, 1, 2};
+    DenseIntElementsAttr scatterIndicesCollapsedDimsAttr = DenseIntElementsAttr::get(intervalTy, llvm::ArrayRef<int64_t>(scatterIndicesCollapsedDims));
+
+    auto scatterIndicesMetalLayout = ttcore::MetalLayoutAttr::get(
+      getContext(), scatterIndicesType.getShape(), ttcore::OOBVal::Undef,
+      ttcore::MemorySpace::DeviceDRAM, ttcore::TensorMemoryLayout::Sharded, scatterIndicesCollapsedDimsAttr, scatterIndicesAlignments);
+
+    // Create new shape that collapses the leading dimensions in scatterIndicesType into 2D
+    llvm::SmallVector<int64_t> newScatterIndicesShape(scatterIndicesType.getShape().begin(), scatterIndicesType.getShape().end());
+
+    if (scatterIndicesRank > 2) {
+      int64_t collapsedLeading = scatterIndicesType.getDimSize(0);
+      for (int64_t i = 1; i < scatterIndicesRank - 1; ++i) {
+        collapsedLeading *= scatterIndicesType.getDimSize(i);
+      }
+      newScatterIndicesShape = {collapsedLeading, scatterIndicesType.getDimSize(scatterIndicesRank - 1)};
+    }
+
+    // Add mesh shape information
+    llvm::SmallVector<int64_t> scatterIndicesWithMeshShape = {1, 1};
+    scatterIndicesWithMeshShape.append(newScatterIndicesShape.begin(), newScatterIndicesShape.end());
+
+    // Create d2m::ToLayoutOp for scatterIndices
+    auto scatterIndicesEmpty = builder.create<d2m::EmptyOp>(
+      loc,
+      scatterIndicesWithMeshShape,
+      scatterIndicesType.getElementType(),
+      scatterIndicesMetalLayout);
+
+    [[maybe_unused]] auto scatterIndicesLayoutOp = builder.create<d2m::ToLayoutOp>(loc, scatterIndices, scatterIndicesEmpty, nullptr);
+
+    // Insert to metal layout conversion for the updates.
+    llvm::SmallVector<int64_t> updatesAlignments(updatesType.getShape().size(), 1);
+    updatesAlignments[updatesAlignments.size() - 1] = 32;
+    updatesAlignments[updatesAlignments.size() - 2] = 32;
+    updatesAlignments[updatesAlignments.size() - 3] = 1;
+    updatesAlignments[updatesAlignments.size() - 4] = 1;
+
+    auto updatesCollapsedDims = llvm::SmallVector<int64_t, 4>{0, 2, 2, 3};
+    DenseIntElementsAttr updatesCollapsedDimsAttr = DenseIntElementsAttr::get(intervalTy, llvm::ArrayRef<int64_t>(updatesCollapsedDims));
+
+    auto updatesMetalLayout = ttcore::MetalLayoutAttr::get(
+      getContext(), updatesType.getShape(), ttcore::OOBVal::Undef,
+      ttcore::MemorySpace::DeviceDRAM, ttcore::TensorMemoryLayout::Sharded, updatesCollapsedDimsAttr, updatesAlignments);
+
+    // Create new shape that collapses the leading dimensions in updatesType into 2D
+    llvm::SmallVector<int64_t> newUpdatesShape(updatesType.getShape().begin(), updatesType.getShape().end());
+
+    if (updatesRank > 2) {
+      int64_t collapsedLeading = updatesType.getDimSize(0);
+      for (int64_t i = 1; i < updatesRank - 1; ++i) {
+        collapsedLeading *= updatesType.getDimSize(i);
+      }
+      newUpdatesShape = {collapsedLeading, updatesType.getDimSize(updatesRank - 1)};
+    }
+
+    // Add mesh shape information
+    llvm::SmallVector<int64_t> updatesWithMeshShape = {1, 1};
+    updatesWithMeshShape.append(newUpdatesShape.begin(), newUpdatesShape.end());
+
+    // Create d2m::ToLayoutOp for updates
+    auto updatesEmpty = builder.create<d2m::EmptyOp>(
+      loc,
+      updatesWithMeshShape,
+      updatesType.getElementType(),
+      updatesMetalLayout);
+
+    [[maybe_unused]] auto updatesLayoutOp = builder.create<d2m::ToLayoutOp>(loc, updates, updatesEmpty, nullptr);
+
+
+
+    return mlir::success();
+  }
+};
+
 } // namespace mlir::tt
 
 namespace mlir::tt {
@@ -1569,6 +1722,9 @@ void populateTTIRToD2MPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
 
   // Gather
   patterns.add<D2MGatherOpRewriter>(typeConverter, ctx);
+
+  // Scatter
+  patterns.add<D2MScatterOpRewriter>(typeConverter, ctx);
 
   // clang-format on
 }

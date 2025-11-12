@@ -71,7 +71,7 @@ struct TTIRToTTIRDecompositionPass
       target.addIllegalOp<ttir::ConvolutionOp>();
       target.addIllegalOp<ttir::GetDimensionSizeOp>();
       target.addIllegalOp<ttir::PoolingOp>();
-      target.addIllegalOp<ttir::ScatterOp>();
+      //target.addIllegalOp<ttir::ScatterOp>();
       target.addIllegalOp<ttir::DotGeneralOp>();
       target.addIllegalOp<ttir::IndexSelectOp>();
       target.addIllegalOp<ttir::ReduceAndOp>();
