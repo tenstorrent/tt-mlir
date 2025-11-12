@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
 #include "ttmlir/Dialect/D2M/Utils/Utils.h"
@@ -52,10 +53,76 @@ struct TensorInfo {
   }
 
   ArrayRef<int64_t> getGridShape() const {
-    assert(hasLayout() && "Cannot get grid shape without layout");
+    TT_assertv(hasLayout(), "Cannot get grid shape without layout");
     return layout->getGridShape(type);
   }
 };
+
+// Helper to analyze compound ToLayoutOp transformations.
+struct CompoundComponents {
+  bool isMemorySpaceChange = false;
+  bool isFormatChange = false;
+  bool isMappingChange = false;
+
+  bool isCompound() const {
+    int count = 0;
+    if (isMemorySpaceChange) {
+      ++count;
+    }
+    if (isFormatChange) {
+      ++count;
+    }
+    if (isMappingChange) {
+      ++count;
+    }
+    return count > 1;
+  }
+
+  static CompoundComponents analyze(Value input, Value output) {
+    auto inputInfo = TensorInfo::from(input);
+    auto outputInfo = TensorInfo::from(output);
+
+    CompoundComponents result;
+
+    // Check for memory space changes (L1 <-> DRAM).
+    result.isMemorySpaceChange =
+        (inputInfo.getMemorySpace() != outputInfo.getMemorySpace());
+
+    // Check for format (element type) changes.
+    result.isFormatChange =
+        (inputInfo.type.getElementType() != outputInfo.type.getElementType());
+
+    // Check for "mapping" changes (zero-copy transformations):
+    // - Tensor shape changes (collapsed_intervals or dim_alignments changes
+    // causing different padding)
+    // - Index map changes (logical view transformations)
+    // These can be expressed as views with affine transformations.
+    // NOTE: Grid shape changes (redistribution) require DMA and are handled
+    // separately.
+    if (inputInfo.hasLayout() && outputInfo.hasLayout() &&
+        !result.isMemorySpaceChange && !result.isFormatChange) {
+
+      auto inputLayout = *inputInfo.layout;
+      auto outputLayout = *outputInfo.layout;
+
+      bool shapeChanged =
+          (inputInfo.type.getShape() != outputInfo.type.getShape());
+
+      bool indexMapChanged =
+          (inputLayout.getIndexAffineMap() != outputLayout.getIndexAffineMap());
+
+      // Grid reblocking requires DMA, not just a view
+      bool gridChanged =
+          (inputInfo.getGridShape() != outputInfo.getGridShape());
+
+      result.isMappingChange =
+          (shapeChanged || indexMapChanged) && !gridChanged;
+    }
+
+    return result;
+  }
+};
+
 } // namespace
 
 namespace {
@@ -63,10 +130,47 @@ class D2MLowerToLayoutRewriter : public OpRewritePattern<ToLayoutOp> {
 public:
   using OpRewritePattern<ToLayoutOp>::OpRewritePattern;
 
-  static LogicalResult lowerLayoutChange(PatternRewriter &rewriter,
-                                         ToLayoutOp op) {
-    assert(false &&
-           "TODO issue https://github.com/tenstorrent/tt-mlir/issues/3037");
+  // All mapping transformations (grid redistribution, alignment changes, etc.)
+  // can be expressed as affine maps and are therefore view_layout ops.
+  static LogicalResult lowerMappingChange(PatternRewriter &rewriter,
+                                          ToLayoutOp op) {
+    auto inputInfo = TensorInfo::from(op.getInput());
+    auto outputInfo = TensorInfo::from(op.getOutput());
+
+    // Preconditions - these should be guaranteed by the split/compound logic
+    TT_assertv((inputInfo.hasLayout() && outputInfo.hasLayout()),
+               "Mapping change requires both input and output to have layouts");
+    TT_assertv(inputInfo.getMemorySpace() == outputInfo.getMemorySpace(),
+               "Mapping change should not change memory space");
+    TT_assertv(inputInfo.type.getElementType() ==
+                   outputInfo.type.getElementType(),
+               "Mapping change should not change element type");
+
+    auto inputLayout = *inputInfo.layout;
+    auto outputLayout = *outputInfo.layout;
+
+    // Build the affine map that transforms from input device coordinates
+    // to output device coordinates via the shared logical space.
+    // This handles all cases: grid redistribution, collapse changes,
+    // padding changes, and index map transformations.
+    AffineMap viewMap = utils::buildLayoutTransformMap(
+        inputLayout, inputInfo.type, outputLayout, outputInfo.type);
+
+    // Create the output layout with the transformation map embedded.
+    auto newLayout = ttcore::MetalLayoutAttr::get(
+        rewriter.getContext(), outputLayout.getLogicalShape(),
+        outputLayout.getDimAlignments(), outputLayout.getCollapsedIntervals(),
+        outputLayout.getOobVal(), outputLayout.getMemorySpace(),
+        outputLayout.getMemoryLayout(), viewMap);
+
+    auto resultType =
+        RankedTensorType::get(outputInfo.type.getShape(),
+                              outputInfo.type.getElementType(), newLayout);
+
+    rewriter.replaceOpWithNewOp<ViewLayoutOp>(op, resultType, op.getInput(),
+                                              /*reinterpretLayout=*/false);
+
+    return success();
   }
 
   static LogicalResult lowerSystemLayoutChange(PatternRewriter &rewriter,
@@ -74,18 +178,17 @@ public:
     auto inputInfo = TensorInfo::from(op.getInput());
     auto outputInfo = TensorInfo::from(op.getOutput());
 
-    assert(inputInfo.isSystem() != outputInfo.isSystem() &&
-           "one of input or output must be system for now");
+    TT_assertv(inputInfo.isSystem() != outputInfo.isSystem(),
+               "one of input or output must be system for now");
 
     if (op.getLayout()) {
-      // Already lowered.
       return failure();
     }
 
     // Use the layout of whichever side has a layout (input or output).
     auto deviceLayout =
         inputInfo.isSystem() ? outputInfo.layout : inputInfo.layout;
-    assert(deviceLayout.has_value() && "Device side must have a layout");
+    TT_assertv(deviceLayout.has_value(), "Device side must have a layout");
 
     rewriter.replaceOpWithNewOp<ToLayoutOp>(op, op.getInput(), op.getOutput(),
                                             *deviceLayout);
@@ -100,7 +203,7 @@ public:
       auto producerOutputInfo = TensorInfo::from(producer.getOutput());
 
       // Check if both producer's input and output are on device
-      // (i.e., both have layouts and neither is system memory)
+      // (i.e., both have layouts and neither is system memory).
       if (producerInputInfo.hasLayout() && producerOutputInfo.hasLayout() &&
           !producerInputInfo.isSystem() && !producerOutputInfo.isSystem()) {
         return true;
@@ -119,7 +222,7 @@ public:
     }
 
     // Both input and output should have layouts at this point.
-    assert(inputInfo.hasLayout() && outputInfo.hasLayout());
+    TT_assert((inputInfo.hasLayout() && outputInfo.hasLayout()));
 
     Value viewInput = op.getInput();
 
@@ -128,8 +231,8 @@ public:
         (!outputInfo.isDRAM() &&
          (inputInfo.getGridShape() != outputInfo.getGridShape()));
 
-    assert(!(isSrcDramOrReblock && outputInfo.isDRAM()) &&
-           "input and output cannot both be remote");
+    TT_assertv(!(isSrcDramOrReblock && outputInfo.isDRAM()),
+               "input and output cannot both be remote");
 
     auto buildConcreteView = [&](Value fromVal, RankedTensorType fromTy,
                                  RankedTensorType toTy) -> Value {
@@ -164,6 +267,8 @@ public:
 
     const size_t gridRank = outputInfo.getGridShape().size();
 
+    // Build identity indexing maps for all operands.
+    // The view's 4D affine map will handle all address transformations.
     ArrayAttr indexingMaps, iteratorTypes;
     std::tie(indexingMaps, iteratorTypes) =
         GenericOp::buildParallelAffineMapsAndIteratorTypes(
@@ -227,7 +332,8 @@ public:
 
   LogicalResult matchAndRewrite(ToLayoutOp op,
                                 PatternRewriter &rewriter) const final {
-    auto components = op.compoundComponents();
+    auto components =
+        CompoundComponents::analyze(op.getInput(), op.getOutput());
 
     if (components.isCompound()) {
       return failure();
@@ -244,11 +350,17 @@ public:
       return failure();
     }
 
-    if (components.isLayoutChange) {
-      return lowerLayoutChange(rewriter, op);
+    // Check if this is a grid reblocking operation (requires DMA)
+    auto inputInfo = TensorInfo::from(op.getInput());
+    auto outputInfo = TensorInfo::from(op.getOutput());
+    bool isGridReblocking = false;
+    if (inputInfo.hasLayout() && outputInfo.hasLayout() &&
+        !components.isMemorySpaceChange && !components.isFormatChange) {
+      isGridReblocking =
+          (inputInfo.getGridShape() != outputInfo.getGridShape());
     }
 
-    if (components.isGridChange || components.isMemorySpaceChange) {
+    if (components.isMemorySpaceChange || isGridReblocking) {
       return lowerDatamovementGeneric(rewriter, op);
     }
 
@@ -256,7 +368,11 @@ public:
       return lowerFormatConversionGeneric(rewriter, op);
     }
 
-    llvm_unreachable("Unknown compound component");
+    if (components.isMappingChange) {
+      return lowerMappingChange(rewriter, op);
+    }
+
+    llvm_unreachable("ToLayoutOp with no detectable changes");
   }
 };
 } // namespace
@@ -370,7 +486,8 @@ public:
 
   LogicalResult matchAndRewrite(ToLayoutOp op,
                                 PatternRewriter &rewriter) const final {
-    auto components = op.compoundComponents();
+    auto components =
+        CompoundComponents::analyze(op.getInput(), op.getOutput());
 
     if (!components.isCompound()) {
       return failure();
@@ -446,8 +563,8 @@ public:
             ttcore::getTensorTileShape(outputInfo.type));
         bounce(rewriter, op, bounceType);
       }
-    } else if (components.isLayoutChange && ttcore::isTiled(inputInfo.type)) {
-      // Layout change with tiled data - bounce through scalar.
+    } else if (components.isMappingChange && ttcore::isTiled(inputInfo.type)) {
+      // Mapping change with tiled data - bounce through scalar.
       Type scalarType = inputInfo.type.getElementType();
       if (auto tileType = mlir::dyn_cast<ttcore::TileType>(scalarType)) {
         scalarType = tileType.getElementType();
@@ -458,13 +575,6 @@ public:
                                        /*memSpace=*/{},
                                        /*newTensorGrid=*/{}, scalarType,
                                        /*tileShape=*/std::nullopt);
-      bounce(rewriter, op, bounceType);
-    } else if (components.isGridChange) {
-      // Grid change - create intermediate with input's grid but output's
-      // layout.
-      auto bounceType = typeBuilder.modifyDeviceType(
-          outputInfo.type, *outputInfo.layout,
-          /*memSpace=*/{}, inputInfo.getGridShape());
       bounce(rewriter, op, bounceType);
     } else {
       // Note we should eventually support DRAM <-> DRAM, or System <-> System

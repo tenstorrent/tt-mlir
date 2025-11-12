@@ -45,6 +45,62 @@ Type getRegionLargestDstElemType(Region &region);
 AffineMap concatInversePermutationMap(mlir::ArrayRef<AffineMap> affineMaps,
                                       bool reverse);
 
+// Layout transformation utilities:
+// These functions build semi-affine maps for the different stages of layout
+// transformations. The overall transformation chain is:
+//   logical -> physical -> device -> view
+// where:
+//   - logical: The original tensor shape (shared across all layouts)
+//   - physical: After collapse and padding (shape may change per layout)
+//   - device: After distribution across grid (includes grid dimensions)
+//   - view: After applying index map (optional reinterpretation)
+
+// Build semi-affine map: logical indices -> physical indices
+// Handles collapse of dimensions (based on collapsed_intervals).
+// Note: Does NOT handle padding - padding affects shapes, not index mapping.
+mlir::AffineMap buildLogicalToPhysicalMap(
+    ArrayRef<int64_t> logicalShape, ArrayRef<int64_t> physicalShape,
+    mlir::DenseIntElementsAttr collapsedIntervals, mlir::MLIRContext *context);
+
+// Build semi-affine map: physical indices -> logical indices (inverse of
+// collapse) Expands collapsed physical dimensions back to logical dimensions.
+mlir::AffineMap buildPhysicalToLogicalMap(
+    ArrayRef<int64_t> logicalShape, ArrayRef<int64_t> physicalShape,
+    mlir::DenseIntElementsAttr collapsedIntervals, mlir::MLIRContext *context);
+
+// Build affine map: device indices -> physical indices
+// Reconstructs physical coordinates from grid + shard coordinates.
+// Result has form: (grid_dims..., shard_dims...) -> (phys_dims...)
+mlir::AffineMap buildDeviceToPhysicalMap(ArrayRef<int64_t> physicalShape,
+                                         ArrayRef<int64_t> gridShape,
+                                         mlir::MLIRContext *context);
+
+// Build semi-affine map: physical indices -> device indices
+// Maps from collapsed/padded shape to grid-distributed shape.
+// Result has form: (phys_dims...) -> (grid_dims..., shard_dims...)
+mlir::AffineMap buildPhysicalToDeviceMap(ArrayRef<int64_t> physicalShape,
+                                         ArrayRef<int64_t> gridShape,
+                                         mlir::MLIRContext *context);
+
+// Build semi-affine map: device indices -> logical indices (pseudo-inverse)
+// This is the "inverse" of the logical->physical->device chain.
+// Only valid within the logical region (padding regions produce undefined
+// results, which is acceptable since they're never accessed).
+mlir::AffineMap
+buildDeviceToLogicalMap(mlir::tt::ttcore::MetalLayoutAttr layout,
+                        mlir::RankedTensorType tensorType,
+                        mlir::MLIRContext *context);
+
+// Build the full transformation map for a view operation.
+// Both layouts must have the same logical shape (ToLayoutOp invariant).
+// Result maps: toLayout device coords -> fromLayout device coords
+// (i.e., for each output coord, where to fetch input data from)
+mlir::AffineMap
+buildLayoutTransformMap(mlir::tt::ttcore::MetalLayoutAttr fromLayout,
+                        mlir::RankedTensorType fromType,
+                        mlir::tt::ttcore::MetalLayoutAttr toLayout,
+                        mlir::RankedTensorType toType);
+
 } // namespace mlir::tt::d2m::utils
 
 #endif
