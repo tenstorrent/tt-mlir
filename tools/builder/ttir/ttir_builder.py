@@ -2043,7 +2043,7 @@ class TTIRBuilder(Builder):
     def argmax(
         self,
         in0: Operand,
-        dim_arg: List[int],
+        dim_arg: List[int] = None,
         keep_dim: bool = False,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpView:
@@ -2082,7 +2082,7 @@ class TTIRBuilder(Builder):
     def sum(
         self,
         in0: Operand,
-        dim_arg: List[int] = [0],
+        dim_arg: List[int] = None,
         keep_dim: bool = True,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpView:
@@ -2131,7 +2131,7 @@ class TTIRBuilder(Builder):
     def mean(
         self,
         in0: Operand,
-        dim_arg: List[int] = [0],
+        dim_arg: List[int] = None,
         keep_dim: bool = True,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpView:
@@ -2169,7 +2169,7 @@ class TTIRBuilder(Builder):
     def max(
         self,
         in0: Operand,
-        dim_arg: int = None,
+        dim_arg: List[int] = None,
         keep_dim: bool = True,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpView:
@@ -2196,32 +2196,18 @@ class TTIRBuilder(Builder):
         (*OpView*)
             Tensor with maximum values
         """
-        # Handle ttir and golden function arguments for edge cases
-        ttir_kwargs = {"keep_dim": keep_dim}
-        input_shape = list(self.get_shape(in0))
-        ndim = len(input_shape)
-        if dim_arg is not None:
-            golden_kwargs = {"dim_arg": dim_arg, "keep_dim": keep_dim}
-            ttir_kwargs["dim_arg"] = [dim_arg]
-            output_shape = input_shape.copy()
-            output_shape[dim_arg] = 1
-        else:
-            golden_kwargs = {"dim_arg": None, "keep_dim": keep_dim}
-            output_shape = [1] * ndim
-
+        kwargs = {"dim_arg": dim_arg, "keep_dim": keep_dim}
         return self._op_proxy(
             ttir.MaxOp,
             [in0],
-            golden_kwargs=golden_kwargs,
-            ttir_kwargs=ttir_kwargs,
-            output_shape=output_shape,
+            ttir_kwargs=kwargs,
             unit_attrs=unit_attrs,
         )
 
     def min(
         self,
         in0: Operand,
-        dim_arg: int = None,
+        dim_arg: List[int] = None,
         keep_dim: bool = True,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpView:
@@ -2248,19 +2234,11 @@ class TTIRBuilder(Builder):
         (*OpView*)
             Tensor with minimum values
         """
-        # Handle ttir and golden function arguments for edge cases
-        ttir_kwargs = {"keep_dim": keep_dim}
-        output_shape = [1] * len(self.get_shape(in0))
-        if dim_arg:
-            ttir_kwargs["dim_arg"] = [dim_arg]
-        if not keep_dim:
-            output_shape = torch.Size([1])
-
+        kwargs = {"dim_arg": dim_arg, "keep_dim": keep_dim}
         return self._op_proxy(
             ttir.MinOp,
             [in0],
-            ttir_kwargs=ttir_kwargs,
-            output_shape=output_shape,
+            ttir_kwargs=kwargs,
             unit_attrs=unit_attrs,
         )
 
@@ -2268,8 +2246,8 @@ class TTIRBuilder(Builder):
     def reduce_and(
         self,
         in0: Operand,
+        dim_arg: List[int] = None,
         keep_dim: bool = True,
-        dim_args: Optional[List] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpView:
         """
@@ -2298,7 +2276,7 @@ class TTIRBuilder(Builder):
         return self._op_proxy(
             ttir.ReduceAndOp,
             [in0],
-            ttir_kwargs={"dim_arg": dim_args, "keep_dim": keep_dim},
+            ttir_kwargs={"dim_arg": dim_arg, "keep_dim": keep_dim},
             unit_attrs=unit_attrs,
         )
 
@@ -2306,8 +2284,8 @@ class TTIRBuilder(Builder):
     def reduce_or(
         self,
         in0: Operand,
+        dim_arg: List[int] = None,
         keep_dim: bool = True,
-        dim_args: Optional[List] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpView:
         """
@@ -2336,7 +2314,7 @@ class TTIRBuilder(Builder):
         return self._op_proxy(
             ttir.ReduceOrOp,
             [in0],
-            ttir_kwargs={"dim_arg": dim_args, "keep_dim": keep_dim},
+            ttir_kwargs={"dim_arg": dim_arg, "keep_dim": keep_dim},
             unit_attrs=unit_attrs,
             output_type=F32Type.get(self._ctx),
         )
@@ -2344,7 +2322,7 @@ class TTIRBuilder(Builder):
     def prod(
         self,
         in0: Operand,
-        dim_arg: List[int],
+        dim_arg: List[int] = None,
         keep_dim: bool = False,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpView:

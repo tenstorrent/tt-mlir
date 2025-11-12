@@ -966,11 +966,8 @@ def TTNN_ProdOp : TTNN_Op<"prod"> {
 
   let extraClassDeclaration = [{
     wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
-      mlir::Type elementType = getInput().getType().getElementType();
-      bool allDimensions = !getDimArg();
       return
-        wa::TTNNOperandsWorkaroundsFactory::createReduceProdOpOperandsWorkarounds(
-                                                    elementType, allDimensions);
+        wa::TTNNOperandsWorkaroundsFactory::createReduceProdOpOperandsWorkarounds();
     }
   }];
 

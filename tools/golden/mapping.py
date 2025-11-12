@@ -747,7 +747,7 @@ def typecast_golden(input_tensor: GoldenMapTensor, dtype) -> GoldenMapTensor:
 
 
 def argmax_golden(
-    input_tensor: GoldenMapTensor, dim_arg, keep_dim=False
+    input_tensor: GoldenMapTensor, dim_arg=None, keep_dim=False
 ) -> GoldenMapTensor:
     """
     Custom golden function for argmax.
@@ -756,17 +756,29 @@ def argmax_golden(
     ----------
     input_tensor : GoldenMapTensor
         Input tensor to find argmax of
-    dim_arg : List[int]
-        List containing dimension to find argmax along
+    dim_arg : List[int], optional
+        List of dimensions to reduce over. If None, reduces over all dimensions (default: None)
     keep_dim : bool, optional
         Whether to keep the reduced dimension (default: False)
 
     Returns
     -------
     GoldenMapTensor
-        Indices of maximum values along specified dimension as int32 tensor
+        Indices of maximum values along specified dimension(s) as int32 tensor
     """
-    result = torch.argmax(input_tensor, dim=dim_arg[0], keepdim=keep_dim)
+    if dim_arg is None:
+        # Reduce over all dimensions - return flattened index
+        result = torch.argmax(input_tensor, keepdim=keep_dim)
+    elif len(dim_arg) == 1:
+        # Single dimension reduction
+        result = torch.argmax(input_tensor, dim=dim_arg[0], keepdim=keep_dim)
+    else:
+        # Multiple dimensions - reduce sequentially from highest to lowest
+        # Sort in descending order to maintain correct dimension indices
+        sorted_dims = sorted(dim_arg, reverse=True)
+        result = input_tensor
+        for dim in sorted_dims:
+            result = torch.argmax(result, dim=dim, keepdim=keep_dim)
     return result.to(torch.int32)
 
 
@@ -1288,27 +1300,42 @@ def max_golden(
     ----------
     input_tensor : GoldenMapTensor
         Input tensor to find maximum of
-    dim_arg : int, optional
-        Dimension to find maximum along (default: None for all dimensions)
+    dim_arg : List[int], optional
+        List of dimensions to reduce over. If None, reduces over all dimensions (default: None)
     keep_dim : bool, optional
         Whether to keep the reduced dimension (default: True)
 
     Returns
     -------
     GoldenMapTensor
-        Maximum values along specified dimension or global maximum
+        Maximum values along specified dimension(s) or global maximum
     """
-    if dim_arg is not None:
-        values, indices = torch.max(input_tensor, dim=dim_arg, keepdim=keep_dim)
+    if dim_arg is None:
+        # For all dimensions reduction
+        result = torch.max(input_tensor)
+        if keep_dim:
+            # Reshape to match expected output with all dims = 1
+            output_shape = [1] * input_tensor.dim()
+            return result.reshape(*output_shape)
+        else:
+            return result
+    elif len(dim_arg) == 1:
+        # Single dimension reduction
+        values, indices = torch.max(input_tensor, dim=dim_arg[0], keepdim=keep_dim)
         return values
     else:
-        # For all dimensions reduction, reshape to match expected output
-        result = torch.max(input_tensor)
-        output_shape = [1] * input_tensor.dim()
-        return result.reshape(*output_shape)
+        # Multiple dimensions - reduce sequentially from highest to lowest
+        # Sort in descending order to maintain correct dimension indices
+        sorted_dims = sorted(dim_arg, reverse=True)
+        result = input_tensor
+        for dim in sorted_dims:
+            result, _ = torch.max(result, dim=dim, keepdim=keep_dim)
+        return result
 
 
-def min_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
+def min_golden(
+    input_tensor: GoldenMapTensor, dim_arg=None, keep_dim=True
+) -> GoldenMapTensor:
     """
     Golden function for min operation.
 
@@ -1316,30 +1343,41 @@ def min_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
     ----------
     input_tensor : GoldenMapTensor
         Input tensor
-    **kwargs : dict
-        Keyword arguments containing:
-        - dim_arg: int, optional - Dimension to reduce over (default: None, reduces over all dimensions)
-        - keep_dim: bool, optional - If True, retains reduced dimensions with length 1 (default: True)
+    dim_arg : List[int], optional
+        List of dimensions to reduce over. If None, reduces over all dimensions (default: None)
+    keep_dim : bool, optional
+        If True, retains reduced dimensions with length 1 (default: True)
 
     Returns
     -------
     GoldenMapTensor
-        Tensor with minimum values
+        Tensor with minimum values along specified dimension(s) or global minimum
     """
-    dim_arg = kwargs.get("dim_arg", None)
-    keep_dim = kwargs.get("keep_dim", True)
-
     if dim_arg is None:
-        return torch.min(input_tensor)
+        # For all dimensions reduction
+        result = torch.min(input_tensor)
+        if keep_dim:
+            # Reshape to match expected output with all dims = 1
+            output_shape = [1] * input_tensor.dim()
+            return result.reshape(*output_shape)
+        else:
+            return result
+    elif len(dim_arg) == 1:
+        # Single dimension reduction
+        values, indices = torch.min(input_tensor, dim=dim_arg[0], keepdim=keep_dim)
+        return values
     else:
-        # Extract the first dimension if dim_arg is a list
-        if isinstance(dim_arg, list) and len(dim_arg) > 0:
-            dim_arg = dim_arg[0]
-        return torch.min(input_tensor, dim=dim_arg, keepdim=keep_dim)
+        # Multiple dimensions - reduce sequentially from highest to lowest
+        # Sort in descending order to maintain correct dimension indices
+        sorted_dims = sorted(dim_arg, reverse=True)
+        result = input_tensor
+        for dim in sorted_dims:
+            result, _ = torch.min(result, dim=dim, keepdim=keep_dim)
+        return result
 
 
 def prod_golden(
-    input_tensor: GoldenMapTensor, dim_arg, keep_dim=False
+    input_tensor: GoldenMapTensor, dim_arg=None, keep_dim=False
 ) -> GoldenMapTensor:
     """
     Custom golden function for prod operation with conditional logic.
@@ -1348,26 +1386,36 @@ def prod_golden(
     ----------
     input_tensor : GoldenMapTensor
         Input tensor to compute product of
-    dim_arg : List[int]
-        List of dimensions to compute product along
+    dim_arg : List[int], optional
+        List of dimensions to reduce over. If None, reduces over all dimensions (default: None)
     keep_dim : bool, optional
         Whether to keep the reduced dimension (default: False)
 
     Returns
     -------
     GoldenMapTensor
-        Product of tensor elements along specified dimensions
+        Product of tensor elements along specified dimension(s) or global product
     """
-    if len(dim_arg) == 1:
+    if dim_arg is None:
+        # For all dimensions reduction
+        result = torch.prod(input_tensor)
+        if keep_dim:
+            # Reshape to match expected output with all dims = 1
+            output_shape = [1] * input_tensor.dim()
+            return result.reshape(*output_shape)
+        else:
+            return result
+    elif len(dim_arg) == 1:
+        # Single dimension reduction
         return torch.prod(input_tensor, dim=dim_arg[0], keepdim=keep_dim)
     else:
-        # Multiple dimensions - reduce to scalar
-        output_tensor = input_tensor.clone()
-
-        for device_id, shard in output_tensor.shard_map.items():
-            shard = torch.tensor([torch.prod(input_tensor.shard_at(device_id)).item()])
-
-        return output_tensor
+        # Multiple dimensions - reduce sequentially from highest to lowest
+        # Sort in descending order to maintain correct dimension indices
+        sorted_dims = sorted(dim_arg, reverse=True)
+        result = input_tensor
+        for dim in sorted_dims:
+            result = torch.prod(result, dim=dim, keepdim=keep_dim)
+        return result
 
 
 def embedding_golden(
