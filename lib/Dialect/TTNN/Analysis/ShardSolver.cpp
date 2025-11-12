@@ -184,7 +184,8 @@ bool ShardSolver::resolveStep() {
           std::vector<OpConfig::OpSpecificAttrs> consumerOpSpecificAttrs =
               getUniqueOpSpecificAttrs(consumerConfigs);
 
-          TTNNLayoutAttr inputLayout = producerConfigs[producerId].outputLayout;
+          TTNNLayoutAttr inputLayout =
+              producerConfigs[producerId].outputLayouts.front();
 
           auto checkShardCompatCallback = [&](llvm::Expected<std::size_t> res) {
             if (res) {
@@ -357,7 +358,7 @@ bool ShardSolver::preprocessFirstOp() {
       continue;
     }
 
-    TTNNLayoutAttr firstOpLayout = firstOpConfigs[i].outputLayout;
+    TTNNLayoutAttr firstOpLayout = firstOpConfigs[i].outputLayouts.front();
     assert(firstOpLayout.hasShardedL1TensorMemoryLayout());
 
     if (!supportsInterleavedInputShardedOutput(firstOp, firstOpConfigs[i],
@@ -412,7 +413,8 @@ void ShardSolver::checkShardCompatibleForInputLayout(
       for (consumerConfigIdx = 0; consumerConfigIdx < consumerConfigs.size();
            ++consumerConfigIdx) {
 
-        if (consumerConfigs[consumerConfigIdx].outputLayout == outputLayout &&
+        if (consumerConfigs[consumerConfigIdx].outputLayouts.front() ==
+                outputLayout &&
             consumerConfigs[consumerConfigIdx].opSpecificAttrs ==
                 opSpecificAttr) {
           break;
@@ -901,10 +903,10 @@ llvm::Expected<TTNNLayoutAttr> ShardSolver::checkShardCompatible(
   }
 
   auto [cBUsagePeak, tensorUsage, peakMemoryUsage, outputTensorUsage,
-        outputLayout] = l1UsageExp.get();
+        outputLayouts] = l1UsageExp.get();
 
-  if (consumerConfig.outputLayout &&
-      outputLayout != consumerConfig.outputLayout) {
+  if (consumerConfig.outputLayouts.front() &&
+      outputLayouts.front() != consumerConfig.outputLayouts.front()) {
     std::string message = "Output layout mismatch: backend returned layout "
                           "doesn't match requested consumer layout";
     TTMLIR_TRACE(ttmlir::LogComponent::Optimizer, "{}", message);
@@ -941,7 +943,7 @@ llvm::Expected<TTNNLayoutAttr> ShardSolver::checkShardCompatible(
       producerL1OutputUsage,
       cBUsagePeak + outputTensorUsage + producerL1OutputUsage);
 
-  return outputLayout;
+  return outputLayouts.front();
 }
 
 // Preprocess ShardSolver search space to make a helper structure which links
@@ -999,7 +1001,8 @@ ShardSolver::produceMaxCoreUsage() {
     //
     for (size_t i = 0; i < configs.size(); ++i) {
       const OpConfig &config = configs[i];
-      uint64_t coreUsage = config.outputLayout.getGrid().getGridVolume();
+      uint64_t coreUsage =
+          config.outputLayouts.front().getGrid().getGridVolume();
       accCoreUsage[op].push_back(coreUsage);
     }
 

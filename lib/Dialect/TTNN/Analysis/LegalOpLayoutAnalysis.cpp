@@ -111,25 +111,25 @@ bool incompatibleWithOverride(
   }
 
   if (layoutOverride->grid.has_value()) {
-    if (config.outputLayout.getGrid().getShape()[0] !=
+    if (config.outputLayouts[0].getGrid().getShape()[0] !=
             layoutOverride->grid.value()[0] ||
-        config.outputLayout.getGrid().getShape()[1] !=
+        config.outputLayouts[0].getGrid().getShape()[1] !=
             layoutOverride->grid.value()[1]) {
       return true;
     }
   }
   if (layoutOverride->bufferType.has_value() &&
-      config.outputLayout.getBufferType() !=
+      config.outputLayouts[0].getBufferType() !=
           layoutOverride->bufferType.value()) {
     return true;
   }
   if (layoutOverride->tensorMemoryLayout.has_value() &&
-      config.outputLayout.getMemLayout().getValue() !=
+      config.outputLayouts[0].getMemLayout().getValue() !=
           layoutOverride->tensorMemoryLayout.value()) {
     return true;
   }
   if (layoutOverride->memoryLayout.has_value() &&
-      config.outputLayout.isTiled() !=
+      config.outputLayouts[0].isTiled() !=
           (layoutOverride->memoryLayout.value() == Layout::Tile)) {
     return true;
   }

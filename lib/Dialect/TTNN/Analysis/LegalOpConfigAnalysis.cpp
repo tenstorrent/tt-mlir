@@ -212,7 +212,7 @@ void LegalOpConfigAnalysis::fillOpSpecificAttrs() {
           for (const OpConfig &existingOpConfig : analysisResult) {
             // Create a new OpConfig pairing the existing layout with the new
             // conv config.
-            newLegalConfigs.emplace_back(existingOpConfig.outputLayout,
+            newLegalConfigs.emplace_back(existingOpConfig.outputLayouts[0],
                                          Conv2dAttrs{configAttr, std::nullopt});
           }
         };
