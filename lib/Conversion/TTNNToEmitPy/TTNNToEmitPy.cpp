@@ -2272,9 +2272,12 @@ public:
 
     // Call into the callee.
     //
-    llvm::StringRef wrapperFuncName = isZeroArgWrapper
-                                          ? "utils.constEvalFuncWrapperZeroArg"
-                                          : "utils.constEvalFuncWrapper";
+    static constexpr StringRef constEvalFuncWrapperZeroArg =
+        "utils.constEvalFuncWrapperZeroArg";
+    static constexpr StringRef constEvalFuncWrapper =
+        "utils.constEvalFuncWrapper";
+    llvm::StringRef wrapperFuncName =
+        isZeroArgWrapper ? constEvalFuncWrapperZeroArg : constEvalFuncWrapper;
 
     auto cacheOp = rewriter.create<emitpy::CallOpaqueOp>(
         loadCachedOp.getLoc(), tensorListType, wrapperFuncName, operands);
