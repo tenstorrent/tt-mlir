@@ -17,17 +17,16 @@ from utils import (
 )
 
 COMMON_SHAPE_GRID_PARAMS = [
-    (32, 32, (0, 0)),
-    (32, 64, (0, 0)),
-    (64, 64, (0, 0)),
-    (64, 128, (0, 0)),
-    (128, 128, (0, 0)),
-    (256, 256, (7, 7)),
-    (256, 512, (7, 7)),
-    (512, 512, (7, 7)),
-    (512, 1024, (7, 7)),
-    (1024, 1024, (7, 7)),
-    (1024, 2048, (7, 7)),
+    ((32, 32), (0, 0)),
+    ((32, 64), (0, 0)),
+    ((64, 64), (0, 0)),
+    ((64, 128), (0, 0)),
+    ((256, 256), (7, 7)),
+    ((256, 512), (7, 7)),
+    ((512, 512), (7, 7)),
+    ((512, 1024), (7, 7)),
+    ((1024, 1024), (7, 7)),
+    ((1024, 2048), (7, 7)),
 ]
 
 COMMON_SHAPE_PARAMS = [(32, 32), (32, 64), (64, 64), (64, 128), (128, 128)]
@@ -58,31 +57,30 @@ def mul_add(input_tensor_a, input_tensor_b, input_tensor_c):
     return output
 
 
-@pytest.mark.parametrize("h , w, max_grid", COMMON_SHAPE_GRID_PARAMS)
+@pytest.mark.parametrize("shape, max_grid", COMMON_SHAPE_GRID_PARAMS)
 @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32])
 @pytest.mark.parametrize("op", [cosh, sinh, mul_add])
-def test_composite_ops_l1(device, h, w, max_grid, dtype, op):
+def test_composite_ops_l1(device, shape, max_grid, dtype, op):
     num_inputs = 1
     if op is mul_add:
         num_inputs = 3
-    if op is mul_add and (h, w) == (256, 512) and dtype is torch.bfloat16:
+    if op is mul_add and shape == (256, 512) and dtype is torch.bfloat16:
         pytest.xfail("OOM error.")
     run_op_test(
-        device, h, w, max_grid, dtype, op, num_inputs, buffer_type=ttnn.BufferType.L1
+        device, shape, max_grid, dtype, op, num_inputs, buffer_type=ttnn.BufferType.L1
     )
 
 
-@pytest.mark.parametrize("h , w", COMMON_SHAPE_PARAMS)
+@pytest.mark.parametrize("shape", COMMON_SHAPE_PARAMS)
 @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32])
 @pytest.mark.parametrize("op", [cosh, sinh, mul_add])
-def test_composite_ops_dram(device, h, w, dtype, op):
+def test_composite_ops_dram(device, shape, dtype, op):
     num_inputs = 1
     if op is mul_add:
         num_inputs = 3
     run_op_test(
         device,
-        h,
-        w,
+        shape,
         max_grid=(0, 0),
         dtype=dtype,
         op=op,
@@ -92,91 +90,81 @@ def test_composite_ops_dram(device, h, w, dtype, op):
 
 
 PASSING_LARGE_SHAPES_DTYPES_L1 = [
-    (512, 2048, torch.bfloat16),
-    (512, 4096, torch.bfloat16),
-    (512, 8192, torch.bfloat16),
-    (1024, 2048, torch.bfloat16),
-    (1024, 4096, torch.bfloat16),
+    ((2048, 512), torch.bfloat16),
+    ((4096, 512), torch.bfloat16),
+    ((8192, 512), torch.bfloat16),
+    ((2048, 1024), torch.bfloat16),
+    ((4096, 1024), torch.bfloat16),
 ]
 
 
-@pytest.mark.parametrize("hidden_dim, seq_len, dtype", PASSING_LARGE_SHAPES_DTYPES_L1)
-def test_large_shapes_muladd_l1(device, hidden_dim, seq_len, dtype):
+@pytest.mark.parametrize("shape, dtype", PASSING_LARGE_SHAPES_DTYPES_L1)
+def test_large_shapes_muladd_l1(device, shape, dtype):
 
-    max_grid = (7, 7)
+    num_inputs = 3
 
-    A = create_sharded_tile_tensor(device, seq_len, hidden_dim, max_grid, dtype)
-    B = create_sharded_tile_tensor(device, seq_len, hidden_dim, max_grid, dtype)
-    C = create_sharded_tile_tensor(device, seq_len, hidden_dim, max_grid, dtype)
-
-    # JIT path
-    op_jit = ttnn_jit.jit(debug=True, max_grid=max_grid)(mul_add)
-    interop_result = op_jit(A, B, C)
-
-    # Golden path
-    golden_result = mul_add(A, B, C)
-
-    assert memory_configs_equal(
-        interop_result.memory_config(), golden_result.memory_config()
+    run_op_test(
+        device,
+        shape,
+        max_grid=(7, 7),
+        dtype=dtype,
+        op=mul_add,
+        num_inputs=num_inputs,
+        buffer_type=ttnn.BufferType.L1,
     )
-    assert all_close_check(interop_result, golden_result, atol=1e-1, rtol=1e-1)
 
 
 PASSING_LARGE_SHAPES_DTYPES_DRAM = [
-    (512, 2048, torch.float32),
-    (512, 4096, torch.float32),
-    (512, 8192, torch.float32),
-    (1024, 2048, torch.float32),
-    (1024, 4096, torch.float32),
-    (2048, 2048, torch.float32),
-    (4096, 1024, torch.float32),
-    (512, 2048, torch.bfloat16),
-    (512, 4096, torch.bfloat16),
-    (512, 8192, torch.bfloat16),
-    (512, 16384, torch.bfloat16),
-    (1024, 2048, torch.bfloat16),
-    (1024, 4096, torch.bfloat16),
-    (1024, 8192, torch.bfloat16),
-    (2048, 4096, torch.bfloat16),
+    ((2048, 512), torch.float32),
+    ((4096, 512), torch.float32),
+    ((8192, 512), torch.float32),
+    ((2048, 1024), torch.float32),
+    ((4096, 1024), torch.float32),
+    ((2048, 2048), torch.float32),
+    ((1024, 4096), torch.float32),
+    ((2048, 512), torch.bfloat16),
+    ((4096, 512), torch.bfloat16),
+    ((8192, 512), torch.bfloat16),
+    ((16384, 512), torch.bfloat16),
+    ((2048, 1024), torch.bfloat16),
+    ((4096, 1024), torch.bfloat16),
+    ((8192, 1024), torch.bfloat16),
+    ((4096, 2048), torch.bfloat16),
 ]
 
 
-@pytest.mark.parametrize("hidden_dim, seq_len, dtype", PASSING_LARGE_SHAPES_DTYPES_DRAM)
-def test_large_shapes_muladd_dram(device, hidden_dim, seq_len, dtype):
+@pytest.mark.parametrize("shape, dtype", PASSING_LARGE_SHAPES_DTYPES_DRAM)
+def test_large_shapes_muladd_dram(device, shape, dtype):
 
-    A = create_dram_tensor(device, seq_len, hidden_dim, dtype)
-    B = create_dram_tensor(device, seq_len, hidden_dim, dtype)
-    C = create_dram_tensor(device, seq_len, hidden_dim, dtype)
+    num_inputs = 3
 
-    # JIT path
-    op_jit = ttnn_jit.jit(debug=True, max_grid=(0, 0))(mul_add)
-    interop_result = op_jit(A, B, C)
-
-    # Golden path
-    golden_result = mul_add(A, B, C)
-
-    assert memory_configs_equal(
-        interop_result.memory_config(), golden_result.memory_config()
+    run_op_test(
+        device,
+        shape,
+        max_grid=(0, 0),
+        dtype=dtype,
+        op=mul_add,
+        num_inputs=num_inputs,
+        buffer_type=ttnn.BufferType.DRAM,
     )
-    assert all_close_check(interop_result, golden_result, atol=1e-1, rtol=1e-1)
 
 
-@pytest.mark.parametrize("h, w, max_grid", COMMON_SHAPE_GRID_PARAMS)
+@pytest.mark.parametrize("shape, max_grid", COMMON_SHAPE_GRID_PARAMS)
 @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
 @pytest.mark.xfail(
     reason="Broadcasting requires either h or w to be 1, but sharded tensor must be at least 32 x 32. Assert error."
 )
-def test_muladd_broadcast_jit_l1(device, h, w, max_grid, dtype):
+def test_muladd_broadcast_jit_l1(device, shape, max_grid, dtype):
 
     if max_grid == (7, 7):
         pytest.skip(
             "Fatal error in /tt-mlir/third_party/tt-metal/src/tt-metal/tt_metal/api/tt-metalium/math.hpp:27, 'Divide by zero error in div_up'"
         )
 
-    A = create_sharded_tile_tensor(device, h, w, max_grid, dtype)
-    B = create_sharded_tile_tensor(device, h, w, max_grid, dtype)
+    A = create_sharded_tile_tensor(device, shape, max_grid, dtype)
+    B = create_sharded_tile_tensor(device, shape, max_grid, dtype)
     # broadcast C
-    C = create_sharded_tile_tensor(device, 1, w, max_grid, dtype)
+    C = create_sharded_tile_tensor(device, 1, shape[1], max_grid, dtype)
 
     # JIT path
     op_jit = ttnn_jit.jit(debug=True, max_grid=max_grid)(mul_add)
@@ -192,17 +180,17 @@ def test_muladd_broadcast_jit_l1(device, h, w, max_grid, dtype):
 
 
 @pytest.mark.parametrize(
-    "h, w", [(32, 32), (64, 64), (128, 128), (256, 256), (512, 512)]
+    "shape", [(32, 32), (64, 64), (128, 128), (256, 256), (512, 512)]
 )
 @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
 @pytest.mark.xfail(reason="All tests failing allclose.")
-def test_muladd_broadcast_jit_dram(device, h, w, dtype):
+def test_muladd_broadcast_jit_dram(device, shape, dtype):
 
     max_grid = (0, 0)
-    A = create_dram_tensor(device, h, w, dtype)
-    B = create_dram_tensor(device, h, w, dtype)
+    A = create_dram_tensor(device, shape, dtype)
+    B = create_dram_tensor(device, shape, dtype)
     # broadcast C
-    C = create_dram_tensor(device, 1, w, dtype)
+    C = create_dram_tensor(device, 1, shape[1], dtype)
 
     # JIT path
     op_jit = ttnn_jit.jit(debug=True, max_grid=max_grid)(mul_add)
