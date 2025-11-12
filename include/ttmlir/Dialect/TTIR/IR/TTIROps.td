@@ -5598,7 +5598,7 @@ def TTIR_PagedScaledDotProductAttentionDecodeOp : TTIR_NamedOp<"paged_scaled_dot
 
   let results = (outs AnyRankedTensor:$result);
 
-  let hasVerifier = 0;
+  let hasVerifier = 1;
 }
 
 
