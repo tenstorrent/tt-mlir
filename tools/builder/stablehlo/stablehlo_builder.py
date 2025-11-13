@@ -11,6 +11,7 @@ import torch
 from enum import Enum, auto
 import re
 from collections import OrderedDict
+import math
 
 from ttmlir.ir import *
 from ttmlir.dialects import stablehlo, sdy, mpmd
@@ -969,6 +970,311 @@ class StableHLOBuilder(Builder):
             sharding_attr=sharding_attr,
             stablehlo_kwargs={"permutation": permutation},
         )
+
+    # ----- Reduce Operations -----
+
+    def _reduce_op_proxy(
+        self,
+        in0: Operand,
+        dimensions: List[int],
+        init_attr: Attribute,
+        reduce_op_creator: Callable,
+        loc: Optional[Location] = None,
+    ) -> OpView:
+        """
+        Helper method to create a StableHLO reduce operation.
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor to reduce
+        dimensions : List[int]
+            Dimensions along which to reduce
+        init_attr : Attribute
+            Initial value attribute
+        reduce_op_creator : Callable
+            Function that creates the reduce operation in the body
+        loc : Optional[Location]
+            Location for the operation
+
+        Returns
+        -------
+        OpView
+            The reduce operation result
+        """
+        with self._ctx, self._loc:
+            if loc is None:
+                id = self._get_next_global_id()
+                loc = self._get_loc_of_extra_file_callee(id=id)
+
+            input_type = RankedTensorType(in0.type)
+            element_type = input_type.element_type
+
+            input_shape = list(input_type.shape)
+            dimensions_set = set(dimensions)
+            output_shape = [
+                input_shape[i]
+                for i in range(len(input_shape))
+                if i not in dimensions_set
+            ]
+
+            output_type = RankedTensorType.get(output_shape, element_type)
+
+            init_value = stablehlo.ConstantOp(init_attr, loc=loc).result
+
+            reduce_op = stablehlo.ReduceOp(
+                [output_type],
+                inputs=[in0],
+                init_values=[init_value],
+                dimensions=dimensions,
+                loc=loc,
+            )
+
+            reduction_type = RankedTensorType.get([], element_type)
+            block = Block.create_at_start(
+                reduce_op.regions[0], [reduction_type, reduction_type]
+            )
+
+            with InsertionPoint(block):
+                reduce_result = reduce_op_creator(
+                    block.arguments[0], block.arguments[1], loc
+                )
+                stablehlo.ReturnOp([reduce_result], loc=loc)
+
+            return reduce_op.result
+
+    def reduce_sum(
+        self,
+        in0: Operand,
+        dimensions: List[int],
+        keep_dims: bool = False,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpView:
+        """
+        Creates ``stablehlo.reduce`` with sum reduction.
+
+        *Sum reduction operation.*
+
+        Reduces the input tensor by summing elements along the specified dimensions.
+
+        Mathematical definition: For each output element, sum all input elements
+        along the specified reduction dimensions.
+
+        .. code-block:: mlir
+
+            // Sum along dimension 0
+            %result = stablehlo.reduce(%input init: %init) applies stablehlo.add across dimensions = [0] :
+                (tensor<2x3xf32>, tensor<f32>) -> tensor<3xf32>
+            // Input tensor:
+            // [[1.0, 2.0, 3.0],
+            //  [4.0, 5.0, 6.0]]
+            // Output tensor:
+            // [5.0, 7.0, 9.0]
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor to reduce
+        dimensions : List[int]
+            Dimensions along which to reduce (0-indexed)
+        keep_dims : bool, optional
+            Whether to keep the reduced dimensions with size 1. Default is False.
+        unit_attrs : Optional[List[str]]
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpView*)
+            A tensor with reduced dimensions
+        """
+        input_type = RankedTensorType(in0.type)
+        element_type = input_type.element_type
+        zero_attr = self._get_zero_attr(element_type)
+
+        def add_creator(arg0, arg1, loc):
+            return stablehlo.AddOp(arg0, arg1, loc=loc).result
+
+        result = self._reduce_op_proxy(in0, dimensions, zero_attr, add_creator)
+
+        if not self._disable_golden_check:
+            input_golden = self._get_golden_tensor(in0)
+            output_golden = torch.sum(input_golden, dim=dimensions, keepdim=keep_dims)
+            self._set_golden_tensor(result, output_golden)
+
+        return result
+
+    def reduce_max(
+        self,
+        in0: Operand,
+        dimensions: List[int],
+        keep_dims: bool = False,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpView:
+        """
+        Creates ``stablehlo.reduce`` with max reduction.
+
+        *Max reduction operation.*
+
+        Reduces the input tensor by taking the maximum element along the specified dimensions.
+
+        Mathematical definition: For each output element, find the maximum of all input
+        elements along the specified reduction dimensions.
+
+        .. code-block:: mlir
+
+            // Max along dimension 0
+            %result = stablehlo.reduce(%input init: %init) applies stablehlo.maximum across dimensions = [0] :
+                (tensor<2x3xf32>, tensor<f32>) -> tensor<3xf32>
+            // Input tensor:
+            // [[1.0, 5.0, 3.0],
+            //  [4.0, 2.0, 6.0]]
+            // Output tensor:
+            // [4.0, 5.0, 6.0]
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor to reduce
+        dimensions : List[int]
+            Dimensions along which to reduce (0-indexed)
+        keep_dims : bool, optional
+            Whether to keep the reduced dimensions with size 1. Default is False.
+        unit_attrs : Optional[List[str]]
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpView*)
+            A tensor with reduced dimensions
+        """
+        input_type = RankedTensorType(in0.type)
+        element_type = input_type.element_type
+        neg_inf_attr = self._get_neg_inf_attr(element_type)
+
+        def max_creator(arg0, arg1, loc):
+            return stablehlo.MaxOp(arg0, arg1, loc=loc).result
+
+        result = self._reduce_op_proxy(in0, dimensions, neg_inf_attr, max_creator)
+
+        if not self._disable_golden_check:
+            input_golden = self._get_golden_tensor(in0)
+            if dimensions:
+                output_golden = torch.amax(
+                    input_golden, dim=dimensions, keepdim=keep_dims
+                )
+            else:
+                output_golden = torch.amax(input_golden, keepdim=keep_dims)
+            self._set_golden_tensor(result, output_golden)
+
+        return result
+
+    def reduce_min(
+        self,
+        in0: Operand,
+        dimensions: List[int],
+        keep_dims: bool = False,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpView:
+        """
+        Creates ``stablehlo.reduce`` with min reduction.
+
+        *Min reduction operation.*
+
+        Reduces the input tensor by taking the minimum element along the specified dimensions.
+
+        Mathematical definition: For each output element, find the minimum of all input
+        elements along the specified reduction dimensions.
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor to reduce
+        dimensions : List[int]
+            Dimensions along which to reduce (0-indexed)
+        keep_dims : bool, optional
+            Whether to keep the reduced dimensions with size 1. Default is False.
+        unit_attrs : Optional[List[str]]
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpView*)
+            A tensor with reduced dimensions
+        """
+        input_type = RankedTensorType(in0.type)
+        element_type = input_type.element_type
+        pos_inf_attr = self._get_pos_inf_attr(element_type)
+
+        def min_creator(arg0, arg1, loc):
+            return stablehlo.MinOp(arg0, arg1, loc=loc).result
+
+        result = self._reduce_op_proxy(in0, dimensions, pos_inf_attr, min_creator)
+
+        if not self._disable_golden_check:
+            input_golden = self._get_golden_tensor(in0)
+            if dimensions:
+                output_golden = torch.amin(
+                    input_golden, dim=dimensions, keepdim=keep_dims
+                )
+            else:
+                output_golden = torch.amin(input_golden, keepdim=keep_dims)
+            self._set_golden_tensor(result, output_golden)
+
+        return result
+
+    def _get_zero_attr(self, element_type: Type) -> Attribute:
+        """Create a zero constant attribute for the given element type."""
+        if IntegerType.isinstance(element_type):
+            return DenseElementsAttr.get_splat(
+                RankedTensorType.get([], element_type), IntegerAttr.get(element_type, 0)
+            )
+        else:
+            return DenseElementsAttr.get_splat(
+                RankedTensorType.get([], element_type), FloatAttr.get(element_type, 0.0)
+            )
+
+    def _get_one_attr(self, element_type: Type) -> Attribute:
+        """Create a one constant attribute for the given element type."""
+        if IntegerType.isinstance(element_type):
+            return DenseElementsAttr.get_splat(
+                RankedTensorType.get([], element_type), IntegerAttr.get(element_type, 1)
+            )
+        else:
+            return DenseElementsAttr.get_splat(
+                RankedTensorType.get([], element_type), FloatAttr.get(element_type, 1.0)
+            )
+
+    def _get_neg_inf_attr(self, element_type: Type) -> Attribute:
+        """Create a negative infinity constant attribute for the given element type."""
+        if IntegerType.isinstance(element_type):
+            int_type = IntegerType(element_type)
+            width = int_type.width
+            min_val = -(2 ** (width - 1))
+            return DenseElementsAttr.get_splat(
+                RankedTensorType.get([], element_type),
+                IntegerAttr.get(element_type, min_val),
+            )
+        else:
+            return DenseElementsAttr.get_splat(
+                RankedTensorType.get([], element_type),
+                FloatAttr.get(element_type, -math.inf),
+            )
+
+    def _get_pos_inf_attr(self, element_type: Type) -> Attribute:
+        """Create a positive infinity constant attribute for the given element type."""
+        if IntegerType.isinstance(element_type):
+            int_type = IntegerType(element_type)
+            width = int_type.width
+            max_val = (2 ** (width - 1)) - 1
+            return DenseElementsAttr.get_splat(
+                RankedTensorType.get([], element_type),
+                IntegerAttr.get(element_type, max_val),
+            )
+        else:
+            return DenseElementsAttr.get_splat(
+                RankedTensorType.get([], element_type),
+                FloatAttr.get(element_type, math.inf),
+            )
 
     # ----- Public Shardy Attribute Generators ----
 
