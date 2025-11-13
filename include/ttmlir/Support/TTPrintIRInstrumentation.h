@@ -26,7 +26,8 @@ public:
   };
 
   struct TTPrintIRInstrumentationOptions {
-    std::string outputDir = "~/explorer";
+    std::string outputDir =
+        "~/explorer"; // Default path for tt-explorer integration
     DumpLevel level = DumpLevel::Transformation;
     bool debug = true;
     std::string modelName = ""; // Empty means extract from operation location
@@ -36,45 +37,94 @@ public:
   TTPrintIRInstrumentation(TTPrintIRInstrumentationOptions options);
   ~TTPrintIRInstrumentation() override;
 
+  //===--------------------------------------------------------------------===//
+  // Configuration and Setup
+  //===--------------------------------------------------------------------===//
+
   // Set up action handler with the MLIR context from PassManager
   void attachActionHandler(mlir::MLIRContext *ctx);
 
   // Set model name (extracted from operation location)
   void setModelName(const std::string &name);
 
-  // Pipeline hooks
+  //===--------------------------------------------------------------------===//
+  // Pipeline Instrumentation Hooks
+  //===--------------------------------------------------------------------===//
+
+  // Called before a pass pipeline begins execution
   void runBeforePipeline(std::optional<OperationName> name,
                          const PipelineParentInfo &parentInfo) override;
+
+  // Called after a pass pipeline completes execution
   void runAfterPipeline(std::optional<OperationName> name,
                         const PipelineParentInfo &parentInfo) override;
 
-  // Pass hooks
+  //===--------------------------------------------------------------------===//
+  // Pass Instrumentation Hooks
+  //===--------------------------------------------------------------------===//
+
+  // Called before a pass begins execution
   void runBeforePass(Pass *pass, Operation *op) override;
+
+  // Called after a pass completes successfully
   void runAfterPass(Pass *pass, Operation *op) override;
+
+  // Called when a pass execution fails
   void runAfterPassFailed(Pass *pass, Operation *op) override;
 
-  // Analysis hooks
+  //===--------------------------------------------------------------------===//
+  // Analysis Instrumentation Hooks
+  //===--------------------------------------------------------------------===//
+
+  // Called before an analysis is computed
   void runBeforeAnalysis(StringRef name, TypeID id, Operation *op) override;
+
+  // Called after an analysis is computed
   void runAfterAnalysis(StringRef name, TypeID id, Operation *op) override;
 
 private:
+  //===--------------------------------------------------------------------===//
+  // Core IR Dumping Logic
+  //===--------------------------------------------------------------------===//
+
+  // Dump the current IR to a file
   void dumpIR(mlir::Operation *op, const std::string &name);
+
+  // Extract model name from operation location metadata
   std::string extractModelNameFromLocation(mlir::Operation *op) const;
+
+  //===--------------------------------------------------------------------===//
+  // File and Path Management
+  //===--------------------------------------------------------------------===//
+
+  // Sanitize a string for use as a filename
   std::string sanitizeFilename(const std::string &name) const;
+
+  // Generate the full output filename for a dump
   std::string getOutputFilename(const std::string &name) const;
+
+  // Get the target directory path for the current model
   std::string getTargetDirectory() const;
+
+  // Initialize the dump counter (resets to 0)
   void initializeDumpCounter();
+
+  // Clear (remove) a directory and recreate it
   void clearDirectory(const std::string &targetDir) const;
 
-  std::atomic<int> dumpCounter_;
-  std::string outputDir_;
-  std::string modelName_;
-  std::string pipelineName_;
-  std::mutex fileMutex_;
-  DumpLevel level_;
-  bool debug_;
+  //===--------------------------------------------------------------------===//
+  // Member Variables
+  //===--------------------------------------------------------------------===//
+
+  std::atomic<int> dumpCounter_; ///< Counter for naming dump files
+  std::string outputDir_;        ///< Base output directory path
+  std::string modelName_;        ///< Name of the model being processed
+  std::string pipelineName_;     ///< Optional pipeline identifier
+  std::mutex fileMutex_;         ///< Protects file operations
+  DumpLevel level_;              ///< Level of instrumentation detail
+  bool debug_;                   ///< Enable debug output
 };
 
 } // namespace mlir::tt
 
-#endif // TTMLIR_SUPPORT_POCINSTRUMENTATION_H
+#endif // TTMLIR_SUPPORT_TTPRINTIRINSTRUMENTATION_H
