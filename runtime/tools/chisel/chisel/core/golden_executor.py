@@ -140,14 +140,69 @@ class GoldenExecutor:
 
         # Execute the operation using the golden function
         try:
-            op_result = golden_fn(*inputs) if inputs else golden_fn()
+            if op_name == "ttir.convolution":
+                # Extract required attributes
+                kwargs = {}
+                if "padding" in op.attributes:
+                    kwargs["padding"] = op.attributes["padding"]
+                if "window_strides" in op.attributes:
+                    kwargs["window_strides"] = op.attributes["window_strides"]
+                if "input_dilation" in op.attributes:
+                    kwargs["input_dilation"] = op.attributes["input_dilation"]
+                if "weight_dilation" in op.attributes:
+                    kwargs["weight_dilation"] = op.attributes["weight_dilation"]
+                # Note: convolution_layout is skipped because ConvolutionLayoutAttr doesn't have
+                # Python bindings yet. For now, we assume standard NCHW layout which is PyTorch's default.
+                # TODO: Add Python bindings for ConvolutionLayoutAttr to support custom layouts
+                if "feature_group_count" in op.attributes:
+                    # Convert IntegerAttr to Python int
+                    kwargs["feature_group_count"] = int(
+                        op.attributes["feature_group_count"]
+                    )
+                if "batch_group_count" in op.attributes:
+                    # Convert IntegerAttr to Python int
+                    kwargs["batch_group_count"] = int(
+                        op.attributes["batch_group_count"]
+                    )
+                if "window_reversal" in op.attributes:
+                    kwargs["window_reversal"] = op.attributes["window_reversal"]
+
+                op_result = golden_fn(*inputs, **kwargs)
+            elif op_name == "ttir.pad":
+                # Extract required attributes for pad operation
+                padding_attr = op.attributes["padding"]
+                value_attr = op.attributes["value"]
+                value = float(value_attr.value)
+
+                # Convert padding ArrayAttr to list of integers
+                padding = [int(x) for x in padding_attr]
+                kwargs = {}
+                if "padding" in op.attributes:
+                    kwargs["padding"] = padding
+                if "value" in op.attributes:
+                    kwargs["value"] = value
+
+                op_result = golden_fn(*inputs, **kwargs)
+            elif op_name == "ttir.pooling":
+                pooling_method = op.attributes["pooling_method"]
+                window_dimensions = op.attributes["window_dimensions"]
+                window_strides = op.attributes["window_strides"]
+                padding = op.attributes["padding"]
+                window_dilations = op.attributes["window_dilations"]
+
+                op_result = golden_fn(
+                    *inputs,
+                    pooling_method=pooling_method,
+                    window_dimensions=window_dimensions,
+                    window_strides=window_strides,
+                    padding=padding,
+                    window_dilations=window_dilations,
+                )
+            else:
+                op_result = golden_fn(*inputs) if inputs else golden_fn()
         except Exception as e:
             print(f"Error executing golden function for {op_name}: {e}")
             raise
-
-        # Handle function returns specially
-        if op.name == "func.return":
-            return op_result
 
         # Process operation outputs
         for output in outputs:
@@ -162,6 +217,13 @@ class GoldenExecutor:
                 self.golden_tensor_pool[tensor_name] = golden_value
             else:
                 self.golden_tensor_pool[tensor_name].set_execution_data(op_result)
+
+            # Debug: Verify what was stored
+            stored_tensor = self.golden_tensor_pool[tensor_name].execution_data
+            if stored_tensor is not None and hasattr(stored_tensor, "shape"):
+                print(
+                    f"  Verified stored tensor {tensor_name}: shape={stored_tensor.shape}"
+                )
 
         print(f"Finished execution of operation: {op.name}")
         return op_result

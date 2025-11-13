@@ -703,13 +703,12 @@ def max_pool2d_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTenso
     else:
         torch_padding = padding
 
-    # TTIR max_pool2d is channels last. PyTorch max_pool2d is channels first.
+    # TTIR tensors are already in NCHW format (channels first), same as PyTorch.
+    # No layout transformation needed.
     maxpool_object = torch.nn.MaxPool2d(
         kernel_size, stride, torch_padding, dilation, ceil_mode
     )
-    input_tensor = input_tensor.transpose(-2, -1).transpose(-3, -2)
     result = maxpool_object(input_tensor)
-    result = result.transpose(-3, -2).transpose(-2, -1)
     return result
 
 
@@ -769,15 +768,14 @@ def avg_pool2d_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTenso
     else:
         torch_padding = padding
 
-    # TTIR max_pool2d is channels last. PyTorch max_pool2d is channels first.
+    # TTIR tensors are already in NCHW format (channels first), same as PyTorch.
+    # No layout transformation needed.
     if dilation != [1, 1]:
         raise ValueError("Dilation is not supported for torch.nn.AvgPool2d")
     maxpool_object = torch.nn.AvgPool2d(
         kernel_size, stride, torch_padding, ceil_mode, count_include_pad
     )
-    input_tensor = input_tensor.transpose(-2, -1).transpose(-3, -2)
     result = maxpool_object(input_tensor)
-    result = result.transpose(-3, -2).transpose(-2, -1)
     return result
 
 
@@ -2666,6 +2664,9 @@ def constant_golden(**kwargs) -> GoldenMapTensor:
         Constant tensor
     """
     value = kwargs.get("value", [1])
+    # Convert value to torch tensor if it's not already one
+    if not isinstance(value, torch.Tensor):
+        value = torch.tensor(value)
     return GoldenMapTensor({0: value}, (1, 1))
 
 
