@@ -2669,7 +2669,6 @@ public:
         emitter.emit(srcOp.getClusterAxis(), "cluster_axis"),
         emitter.emit(srcOp.getSubDeviceId(), "subdevice_id"),
         emitter.emit(srcOp.getMemoryConfig(), "memory_config"),
-        emitter.emit(srcOp.getOptionalOutputTensor(), "output_tensor"),
         emitter.emit(srcOp.getNumLinks(), "num_links"),
         emitter.emit(srcOp.getTopology(), "topology"),
     };
@@ -2687,14 +2686,6 @@ namespace {
 class ReduceScatterOpConversionPattern
     : public TTNNToEmitPyBaseOpConversionPattern<
           mlir::tt::ttnn::ReduceScatterOp> {
-private:
-  std::string getPrefixSearchPattern() const override {
-    return "ttnn.reduce_scatter";
-  }
-  std::string getPrefixSwapPattern() const override {
-    return "ttnn.experimental.reduce_scatter_minimal_async";
-  }
-
 public:
   using TTNNToEmitPyBaseOpConversionPattern<
       mlir::tt::ttnn::ReduceScatterOp>::TTNNToEmitPyBaseOpConversionPattern;
@@ -2712,7 +2703,6 @@ public:
         emitter.emit(srcOp.getClusterAxis(), "cluster_axis"),
         emitter.emit(srcOp.getSubDeviceId(), "subdevice_id"),
         emitter.emit(srcOp.getMemoryConfig(), "memory_config"),
-        emitter.emit(srcOp.getOptionalOutputTensor(), "output_tensor"),
         emitter.emit(srcOp.getNumLinks(), "num_links"),
         emitter.emit(srcOp.getTopology(), "topology"),
     };

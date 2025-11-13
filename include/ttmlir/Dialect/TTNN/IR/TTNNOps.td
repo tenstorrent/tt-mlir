@@ -2190,7 +2190,6 @@ def TTNN_AllGatherOp: TTNN_Op<"all_gather"> {
                          UI32Attr:$cluster_axis,
                          OptionalAttr<UI32Attr>:$sub_device_id,
                          OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config,
-                         Optional<AnyRankedTensor>:$optional_output_tensor,
                          OptionalAttr<UI32Attr>:$num_links,
                          OptionalAttr<TTCore_TopologyAttr>:$topology);
 
@@ -2213,7 +2212,6 @@ def TTNN_ReduceScatterOp: TTNN_Op<"reduce_scatter"> {
                          UI32Attr:$cluster_axis,
                          OptionalAttr<UI32Attr>:$sub_device_id,
                          OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config,
-                         Optional<AnyRankedTensor>:$optional_output_tensor,
                          OptionalAttr<UI32Attr>:$num_links,
                          OptionalAttr<TTCore_TopologyAttr>:$topology);
 
