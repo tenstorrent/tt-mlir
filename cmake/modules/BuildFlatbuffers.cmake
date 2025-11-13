@@ -43,6 +43,7 @@ foreach(FILE ${sources})
     ARGS --scoped-enums --warnings-as-errors
     ARGS --keep-prefix
     ARGS --gen-name-strings
+    ARGS --gen-object-api
     ARGS -o "${CMAKE_CURRENT_BINARY_DIR}/${FILE_DIR}/" "${FILE}"
     COMMENT "Generating flatbuffer file: ${FBS_GEN_FILE}"
     DEPENDS ${FILE} ${deps} ${sources}
