@@ -308,6 +308,20 @@ struct TTIRToTTNNBackendPipelineOptions
   // the optimizer will use this device instead of opening a new one.
   // This allows frontends to pass in an active device without closing it.
   std::shared_ptr<::tt::tt_metal::distributed::MeshDevice> devicePtr = nullptr;
+
+  // Option to configure target dialect for the Ops in the CPU module.
+  // Can either be LLVM or TTNN.
+  //
+  enum class CpuModuleTargetDialect { LLVM, TTNN };
+
+  Option<CpuModuleTargetDialect> cpuModuleTargetDialect{
+      *this, "cpu-module-target-dialect",
+      llvm::cl::desc("Specify target dialect for the Ops in the CPU module."),
+      llvm::cl::values(clEnumValN(CpuModuleTargetDialect::TTNN, "ttnn",
+                                  "Target TTNN dialect."),
+                       clEnumValN(CpuModuleTargetDialect::LLVM, "llvm",
+                                  "Target LLVM dialect.")),
+      llvm::cl::init(CpuModuleTargetDialect::LLVM)};
 };
 
 // TTNN Backend to EmitC PipelineOptions.
@@ -370,7 +384,9 @@ struct TTNNBackendToEmitPyPipelineOptions
 // TTNNBackendToEmitCPipelineOptions to reuse the options.
 //
 struct TTIRToEmitCPipelineOptions : public TTIRToTTNNBackendPipelineOptions,
-                                    public TTNNBackendToEmitCPipelineOptions {};
+                                    public TTNNBackendToEmitCPipelineOptions {
+  TTIRToEmitCPipelineOptions() { cpuModuleTargetDialect.setValue(CpuModuleTargetDialect::LLVM); }
+};
 
 // TTIR to EmitPy pipeline options.
 // Inherit from TTIRToTTNNBackendPipelineOptions and
@@ -378,6 +394,7 @@ struct TTIRToEmitCPipelineOptions : public TTIRToTTNNBackendPipelineOptions,
 //
 struct TTIRToEmitPyPipelineOptions : public TTIRToTTNNBackendPipelineOptions,
                                      public TTNNBackendToEmitPyPipelineOptions {
+  TTIRToEmitPyPipelineOptions() { cpuModuleTargetDialect.setValue(CpuModuleTargetDialect::TTNN); }
 };
 
 //===----------------------------------------------------------------------===//

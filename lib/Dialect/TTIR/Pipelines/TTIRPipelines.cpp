@@ -264,11 +264,8 @@ void createLinalgToLLVMPipeline(OpPassManager &manager,
   }
 }
 
-void createTTIRToCPUPipeline(OpPassManager &manager,
+void createTTIRToCPUPipeline(OpPassManager &cpuPm,
                              const LinalgToLLVMPipelineOptions &options) {
-  OpPassManager &cpuPm =
-      manager.nest<ttcore::CPUModuleOp>().nest<mlir::ModuleOp>();
-
 #ifdef TTMLIR_ENABLE_STABLEHLO
   // Directly convert any hoisted SHLO ops into linalg ops.
   cpuPm.addPass(stablehlo::createStablehloLegalizeToLinalgPass());

@@ -573,6 +573,30 @@ public:
       //
       entryBlock.eraseArguments(paramOffset,
                                 originalFuncType.getInputs().size());
+
+      // Update corresponding call sites.
+      //
+      moduleOp.walk([&](mlir::func::CallOp callOp) {
+        if (callOp.getCallee() != targetFuncOpInput.getName()) {
+          return;
+        }
+
+        // Create tuple of operands.
+        //
+        rewriter.setInsertionPoint(callOp);
+        ttcore::TupleOp tupleOp = rewriter.create<ttcore::TupleOp>(
+            callOp.getLoc(), callOp.getOperands());
+
+        // Create new call op with the tuple as the single argument.
+        //
+        mlir::func::CallOp newCallOp = rewriter.create<mlir::func::CallOp>(
+            callOp.getLoc(), targetFuncOpInput,
+            /*operands=*/ValueRange{tupleOp});
+
+        // Replace old call op with the new one.
+        //
+        rewriter.replaceOp(callOp, newCallOp.getResults());
+      });
     }
 
     // Iterate over all the result target func ops and modify their signatures.
@@ -611,6 +635,34 @@ public:
               returnOp.getOperandsMutable().assign(tupleOp);
             });
           });
+
+      // Update corresponding call sites.
+      //
+      moduleOp.walk([&](mlir::func::CallOp callOp) {
+        if (callOp.getCallee() != targetFuncOpResult.getName()) {
+          return;
+        }
+
+        // Create new call op.
+        //
+        mlir::func::CallOp newCallOp = rewriter.create<mlir::func::CallOp>(
+            callOp.getLoc(), targetFuncOpResult, callOp.getOperands());
+
+        // Unpack the tuple results.
+        //
+        llvm::SmallVector<Value, 4> unpackedResults;
+        rewriter.setInsertionPointAfter(newCallOp);
+        for (size_t idx = 0; idx < originalFuncType.getNumResults(); idx++) {
+          ttcore::GetTupleElementOp getTupleElementOp =
+              rewriter.create<ttcore::GetTupleElementOp>(
+                  callOp.getLoc(), newCallOp.getResult(0), idx);
+          unpackedResults.push_back(getTupleElementOp.getResult());
+        }
+
+        // Replace old call op with unpacked results.
+        //
+        rewriter.replaceOp(callOp, unpackedResults);
+      });
     }
   }
 };

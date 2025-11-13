@@ -20,6 +20,10 @@
 
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Transforms/Passes.h"
+#include <llvm/Support/ErrorHandling.h>
+#include <mlir/Dialect/Func/IR/FuncOps.h>
+#include <mlir/Dialect/LLVMIR/LLVMDialect.h>
+#include <mlir/IR/Builders.h>
 
 namespace mlir::tt::ttnn {
 //===----------------------------------------------------------------------===//
@@ -27,16 +31,19 @@ namespace mlir::tt::ttnn {
 //===----------------------------------------------------------------------===//
 
 void createTTNNPipelineTTIRPasses(
-    OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
+    OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options,
+    bool shouldRegisterDevice = true) {
+  if (shouldRegisterDevice) {
 
-  ttcore::TTCoreRegisterDevicePassOptions registerDeviceOptions;
-  {
-    registerDeviceOptions.systemDescPath = options.systemDescPath;
-    registerDeviceOptions.mockSystemDescArch = options.mockSystemDescArch;
-    registerDeviceOptions.meshShape = llvm::to_vector(options.meshShape);
+    ttcore::TTCoreRegisterDevicePassOptions registerDeviceOptions;
+    {
+      registerDeviceOptions.systemDescPath = options.systemDescPath;
+      registerDeviceOptions.mockSystemDescArch = options.mockSystemDescArch;
+      registerDeviceOptions.meshShape = llvm::to_vector(options.meshShape);
+    }
+    pm.addPass(mlir::tt::ttcore::createTTCoreRegisterDevicePass(
+        registerDeviceOptions));
   }
-  pm.addPass(
-      mlir::tt::ttcore::createTTCoreRegisterDevicePass(registerDeviceOptions));
 
   pm.addPass(
       mlir::tt::ttcore::createTTPopulateArgumentTypes(options.argumentTypeMap));
@@ -158,6 +165,205 @@ void createTTNNPipelineDeallocPass(
   pm.addPass(createTTNNDeallocate());
 }
 
+template <typename Dialect>
+class VerifyAllOpsInDialectPass
+    : public PassWrapper<VerifyAllOpsInDialectPass<Dialect>,
+                         OperationPass<mlir::ModuleOp>> {
+public:
+  void runOnOperation() override {
+    mlir::ModuleOp module = this->getOperation();
+    if (!verifyAllOpsAreInDialect(module)) {
+      mlir::emitError(module.getLoc())
+          << "Module contains operations outside of "
+          << Dialect::getDialectNamespace() << " dialect.";
+      this->signalPassFailure();
+    }
+  }
+
+private:
+  bool verifyAllOpsAreInDialect(mlir::ModuleOp module) {
+    bool allInDialect = true;
+    module.walk([&](mlir::Operation *op) {
+      if (!llvm::isa<Dialect>(op->getDialect()) &&
+          !llvm::isa<mlir::ModuleOp>(op) &&
+          !llvm::isa<mlir::func::FuncOp>(op) &&
+          !llvm::isa<mlir::func::ReturnOp>(op)) {
+        allInDialect = false;
+        return WalkResult::interrupt();
+      }
+      return WalkResult::advance();
+    });
+    return allInDialect;
+  }
+};
+
+// Pass which should:
+// 1. look for func.call ops inside DeviceModuleOp which have
+// {ttir.hoisted_call} attribute
+// 2. for each such func.call, find the corresponding func.func definition
+// 3. delete the function
+// 4. find function with same name inside CPUModuleOp
+// 5. move that function definition to DeviceModuleOp
+// 6. update the func.call to point to the new function definition
+class TTNNLayoutHoistedFuncCallRewriter
+    : public OpRewritePattern<func::CallOp> {
+public:
+  using OpRewritePattern<func::CallOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(func::CallOp callOp,
+                                PatternRewriter &rewriter) const override {
+    // Check if this is a hoisted call inside DeviceModuleOp
+    if (!callOp->hasAttr("ttir.cpu_hoist_call")) {
+      return failure();
+    }
+
+    auto deviceModule = callOp->getParentOfType<ttcore::DeviceModuleOp>();
+    if (!deviceModule) {
+      return failure();
+    }
+
+    // Find the corresponding func.func definition in the same module
+    auto deviceModuleOp = callOp->getParentOfType<mlir::ModuleOp>();
+    if (!deviceModuleOp) {
+      return failure();
+    }
+
+    StringRef stubCaleeName = callOp.getCallee();
+    auto stubFuncOp = deviceModuleOp.lookupSymbol<func::FuncOp>(stubCaleeName);
+    if (!stubFuncOp) {
+      return failure();
+    }
+
+    // Find the top-level module to locate CPUModuleOp
+    auto topLevelModule = deviceModule->getParentOfType<mlir::ModuleOp>();
+    if (!topLevelModule) {
+      return failure();
+    }
+
+    // Find CPUModuleOp
+    ttcore::CPUModuleOp cpuModule = nullptr;
+    topLevelModule.walk([&](ttcore::CPUModuleOp cpu) {
+      cpuModule = cpu;
+      return WalkResult::interrupt();
+    });
+
+    if (!cpuModule) {
+      return failure();
+    }
+
+    // Remove suffix "_decl" from the function name
+    // and find the function in CPUModuleOp
+    auto hoistedFuncName = stubCaleeName.str();
+    if (hoistedFuncName.size() > 5 &&
+        hoistedFuncName.substr(hoistedFuncName.size() - 5) == "_decl") {
+      hoistedFuncName = hoistedFuncName.substr(0, hoistedFuncName.size() - 5);
+    }
+
+    func::FuncOp hoistedFuncOp = nullptr;
+    cpuModule.walk([&](func::FuncOp func) {
+      if (func.getSymName() == hoistedFuncName) {
+        hoistedFuncOp = func;
+        return WalkResult::interrupt();
+      }
+      return WalkResult::advance();
+    });
+
+    if (!hoistedFuncOp) {
+      return failure();
+    }
+
+    // Clone the function from CPU module to device module
+    rewriter.setInsertionPointToStart(&deviceModuleOp.getBodyRegion().front());
+    rewriter.clone(*hoistedFuncOp);
+
+    // Remove the original function definition from device module
+    rewriter.eraseOp(stubFuncOp);
+
+    // Remove the function from CPU module
+    rewriter.eraseOp(hoistedFuncOp);
+
+    // Update the call op to point to the new function
+    callOp.setCallee(hoistedFuncName);
+
+    // Remove the attribute
+    callOp->removeAttr("ttir.cpu_hoist_call");
+
+    // Remove the last function argument, as it is required for DPS semantics,
+    // which we don't need for EmitPy
+    hoistedFuncOp = deviceModuleOp.lookupSymbol<func::FuncOp>(hoistedFuncName);
+
+    auto oldType = hoistedFuncOp.getFunctionType();
+    SmallVector<Type, 4> newInputTypes(oldType.getInputs().begin(),
+                                       oldType.getInputs().end() - 1);
+    auto newType =
+        rewriter.getFunctionType(newInputTypes, oldType.getResults());
+    hoistedFuncOp.setType(newType);
+
+    auto &entryBlock = hoistedFuncOp.front();
+    entryBlock.getArgument(entryBlock.getNumArguments() - 1).dropAllUses();
+    entryBlock.eraseArgument(entryBlock.getNumArguments() - 1);
+
+    // Remove the last argument from the call op
+    // callOp->era(callOp.getNumOperands() - 1);
+    llvm::SmallVector<Value, 4> newOperands;
+    for (size_t i = 0; i < callOp.getNumOperands() - 1; ++i) {
+      newOperands.push_back(callOp.getOperand(i));
+    }
+    OpBuilder builder(callOp);
+    auto newCallOp = builder.create<func::CallOp>(callOp.getLoc(),
+                                                  hoistedFuncOp, newOperands);
+    rewriter.replaceOp(callOp, newCallOp.getResults());
+
+    return success();
+  }
+};
+
+// pass which uses TTNNLayoutHoistedFuncCallRewriter to rewrite all hoisted
+// func.call ops
+class TTNNLayoutHoistedFuncCallsPass
+    : public PassWrapper<TTNNLayoutHoistedFuncCallsPass,
+                         OperationPass<mlir::ModuleOp>> {
+public:
+  using PassWrapper<TTNNLayoutHoistedFuncCallsPass,
+                    OperationPass<mlir::ModuleOp>>::PassWrapper;
+  void runOnOperation() final {
+    mlir::ModuleOp module = this->getOperation();
+    mlir::RewritePatternSet patterns(&getContext());
+    patterns.add<TTNNLayoutHoistedFuncCallRewriter>(&getContext());
+    if (failed(applyPatternsGreedily(module, std::move(patterns)))) {
+      signalPassFailure();
+    }
+  }
+};
+
+void lowerCPUModule(OpPassManager &pm,
+                    const TTIRToTTNNBackendPipelineOptions &options) {
+  auto &cpuPm = pm.nest<ttcore::CPUModuleOp>().nest<mlir::ModuleOp>();
+
+  switch (options.cpuModuleTargetDialect) {
+  case TTIRToTTNNBackendPipelineOptions::CpuModuleTargetDialect::LLVM: {
+    // Lower CPUModule ops to LLVM IR.
+    ttir::LinalgToLLVMPipelineOptions linalgToLLVMOptions;
+    ttir::createTTIRToCPUPipeline(cpuPm, linalgToLLVMOptions);
+
+    // Verify all ops are in LLVM dialect after lowering.
+    cpuPm.addPass(
+        std::make_unique<VerifyAllOpsInDialectPass<LLVM::LLVMDialect>>());
+    break;
+  }
+  case TTIRToTTNNBackendPipelineOptions::CpuModuleTargetDialect::TTNN: {
+    // Lower CPUModule ops to TTNN.
+    createTTNNPipelineTTIRPasses(cpuPm, options, false);
+    createTTNNPipelineLoweringPasses(cpuPm, options);
+
+    // Verify all ops are in TTNN dialect after lowering.
+    cpuPm.addPass(
+        std::make_unique<VerifyAllOpsInDialectPass<tt::ttnn::TTNNDialect>>());
+    break;
+  }
+  }
+}
+
 void createTTIRToTTNNBackendPipeline(
     OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
   pm.addPass(mlir::createCanonicalizerPass());
@@ -185,7 +391,7 @@ void createTTIRToTTNNBackendPipeline(
       ttir::createElementTypeNormalization(elementTypeNormalizationOptions));
 
   // Run regular TTIR to TTNN pipeline on DeviceModule.
-  createTTNNPipelineTTIRPasses(devicePm, options);
+  createTTNNPipelineTTIRPasses(devicePm, options, true);
 
   ttir::TTIRQuantDataTypeConversionPassOptions quantOptions;
   quantOptions.targetBitWidth = options.quantBitWidth;
@@ -214,9 +420,8 @@ void createTTIRToTTNNBackendPipeline(
 
   createTTNNPipelineDeallocPass(devicePm, options);
 
-  // Run lowering to LLVM pass on hoisted funcs in CPUModule.
-  ttir::LinalgToLLVMPipelineOptions linalgToLLVMOptions;
-  ttir::createTTIRToCPUPipeline(pm, linalgToLLVMOptions);
+  // Lower the ops in the CPUModule according to the configured target dialect.
+  lowerCPUModule(pm, options);
 }
 
 void createTTNNBackendToEmitCPipeline(
@@ -256,26 +461,34 @@ void createTTNNBackendToEmitCPipeline(
 
 void createTTNNBackendToEmitPyPipeline(
     OpPassManager &pm, const TTNNBackendToEmitPyPipelineOptions &options) {
+  // Device module passes
+  //
+  {
+    auto &devicePm = pm.nest<ttcore::DeviceModuleOp>().nest<mlir::ModuleOp>();
 
-  pm.addPass(createTTNNAdjustDeallocs());
+    devicePm.addPass(createTTNNAdjustDeallocs());
 
-  pm.addPass(ttcore::createTTCoreUnwrapDeviceModulePass());
+    devicePm.addPass(std::make_unique<TTNNLayoutHoistedFuncCallsPass>());
 
-  // Apply EmitPy-specific workarounds before conversion
-  pm.addPass(createTTNNEmitPyWorkarounds());
+    // Unwrap DeviceModuleOp
+    devicePm.addPass(ttcore::createTTCoreUnwrapDeviceModulePass());
 
-  pm.addPass(createTTNNTuplifyTensors());
+    // Apply EmitPy-specific workarounds before conversion
+    devicePm.addPass(createTTNNEmitPyWorkarounds());
 
-  if (options.loadInputTensorsFromDisk) {
-    TTNNLoadInputTensorsOptions loadOptions;
-    loadOptions.tensorLoadDirectory = options.tensorLoadDirectory;
-    loadOptions.tensorLoadFilePrefix = options.tensorLoadFilePrefix;
-    pm.addPass(createTTNNLoadInputTensors(loadOptions));
-  } else {
-    pm.addPass(createTTNNCreateInputGenerators());
+    devicePm.addPass(createTTNNTuplifyTensors());
+
+    if (options.loadInputTensorsFromDisk) {
+      TTNNLoadInputTensorsOptions loadOptions;
+      loadOptions.tensorLoadDirectory = options.tensorLoadDirectory;
+      loadOptions.tensorLoadFilePrefix = options.tensorLoadFilePrefix;
+      devicePm.addPass(createTTNNLoadInputTensors(loadOptions));
+    } else {
+      devicePm.addPass(createTTNNCreateInputGenerators());
+    }
+
+    devicePm.addPass(createConvertTTNNToEmitPyPass());
   }
-
-  pm.addPass(createConvertTTNNToEmitPyPass());
 }
 
 void createTTIRToEmitCPipeline(OpPassManager &pm,
@@ -346,7 +559,8 @@ void registerTTNNPipelines() {
   mlir::PassPipelineRegistration<mlir::tt::ttnn::TTIRToEmitPyPipelineOptions>(
       "ttir-to-emitpy-pipeline",
       "Pipeline lowering TTIR to EmitPy. Under the hood, it runs "
-      "--ttir-to-ttnn-backend-pipeline and --ttnn-backend-to-emitpy-pipeline.",
+      "--ttir-to-ttnn-backend-pipeline and "
+      "--ttnn-backend-to-emitpy-pipeline.",
       mlir::tt::ttnn::createTTIRToEmitPyPipeline);
 }
 } // namespace mlir::tt::ttnn

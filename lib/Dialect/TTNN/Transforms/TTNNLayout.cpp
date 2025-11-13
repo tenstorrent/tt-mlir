@@ -3,9 +3,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
+#include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTIR/Utils/UniformTypeRewriter.h"
 #include "ttmlir/Dialect/TTIR/Utils/Utils.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
@@ -115,14 +117,19 @@ static bool shouldMeshShardOpForceSystemMemory(mlir::Operation *srcOp) {
 namespace {
 class TTNNLayoutTensorTypeConverter : public TypeConverter {
 public:
-  TTNNLayoutTensorTypeConverter(MLIRContext *ctx, ttcore::GridAttr deviceGrid) {
+  TTNNLayoutTensorTypeConverter(
+      MLIRContext *ctx, ttcore::GridAttr deviceGrid,
+      BufferType defaultBufferType = g_defaultMemorySpaceDevice,
+      bool isTiled = true) {
     addConversion([](Type type) { return type; });
-    addConversion([ctx, deviceGrid](RankedTensorType type) -> Type {
+    addConversion([ctx, deviceGrid, defaultBufferType,
+                   isTiled](RankedTensorType type) -> Type {
       if (isa_and_nonnull<TTNNLayoutAttr>(type.getEncoding())) {
         return type;
       }
 
-      TTNNLayoutAttr newLayout = createLayoutAttr(ctx, deviceGrid, type);
+      TTNNLayoutAttr newLayout =
+          createLayoutAttr(ctx, deviceGrid, type, defaultBufferType, isTiled);
       return RankedTensorType::get(type.getShape(), type.getElementType(),
                                    newLayout);
     });
@@ -579,13 +586,35 @@ public:
   using impl::TTNNLayoutBase<TTNNLayout>::TTNNLayoutBase;
 
   void runOnOperation() final {
+    ttcore::DeviceOp deviceOp = ttcore::lookupDeviceOp(getOperation());
+
+    // If there is no DeviceOp in the module, that means that we're in a
+    // CPU-hoisted module. Use the default layouts.
+    if (!deviceOp) {
+      TTNNLayoutTensorTypeConverter typeDefaultConverter(
+          &getContext(), ttcore::GridAttr::get(&getContext()),
+          BufferType::SystemMemory, false /* isTiled */);
+      RewritePatternSet patterns(&getContext());
+      // Set the tensor layouts to have proper values
+      patterns.add<ttir::UniformTypeRewriter>(typeDefaultConverter,
+                                              &getContext());
+
+      FrozenRewritePatternSet patternSet(std::move(patterns));
+      if (failed(applyPatternsGreedily(getOperation(), patternSet))) {
+        signalPassFailure();
+      }
+
+      return;
+    }
+
+    auto device = deviceOp.getDeviceAttr();
+    assert(device && "Device not found");
+
     // First add default attribute to all tensors. Example:
     // Given tensor type: tensor<15x10x32xf32>
     // we construct a ttnn layout attribute with default values:
     // ttnn_layout<affine_map, grid<1x1>, memref<<15x64>xf32, #system_memory>
     {
-      ttcore::DeviceAttr device = ttcore::lookupDevice(getOperation());
-      assert(device && "Device not found");
       TTNNLayoutTensorTypeConverter typeDefaultConverter(
           &getContext(), device.getWorkerGrid());
       RewritePatternSet patterns(&getContext());
