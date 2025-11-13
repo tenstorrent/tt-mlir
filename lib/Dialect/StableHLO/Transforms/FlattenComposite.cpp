@@ -79,6 +79,14 @@ flattenOneComposite(mlir::stablehlo::CompositeOp comp,
   // 3) Prepare mapping from callee arguments to composite operands.
   mlir::IRMapping mapping;
   auto &calleeEntry = callee.getBody().front();
+  if (static_cast<int64_t>(calleeEntry.getNumArguments()) !=
+      comp.getNumOperands()) {
+    comp.emitOpError() << "number of operands (" << comp.getNumOperands()
+                       << ") does not match number of callee arguments ("
+                       << calleeEntry.getNumArguments() << ") in function '"
+                       << leaf << "' during inlining.";
+    return mlir::failure();
+  }
   for (int64_t i = 0; i < static_cast<int64_t>(comp->getNumOperands()); ++i) {
     mlir::BlockArgument arg = calleeEntry.getArgument(i);
     mapping.map(arg, comp->getOperand(i));
@@ -120,6 +128,13 @@ flattenOneComposite(mlir::stablehlo::CompositeOp comp,
     return mlir::failure();
   }
 
+  if (static_cast<int64_t>(ret.getNumOperands()) != comp.getNumResults()) {
+    comp.emitOpError() << "number of return operands (" << ret.getNumOperands()
+                       << ") does not match number of composite results ("
+                       << comp.getNumResults() << ") in function '" << leaf
+                       << "' during inlining.";
+    return mlir::failure();
+  }
   for (int64_t i = 0; i < static_cast<int64_t>(comp->getNumResults()); ++i) {
     mlir::Value mapped = mapping.lookupOrNull(ret.getOperand(i));
     if (!mapped) {
