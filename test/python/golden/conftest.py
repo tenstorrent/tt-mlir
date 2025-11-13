@@ -523,6 +523,34 @@ def pytest_collection_modifyitems(config, items):
                         )
                     )
 
+        # Mark tests with skip_exec to skip execution but allow compilation
+        for marker in item.iter_markers(name="skip_exec"):
+            for platform_config in marker.args:
+
+                # All of the operations we need to do on these are set membership based
+                platform_config = set(platform_config)
+
+                reason = marker.kwargs.get("reason", "")
+
+                # Verify this is a valid configuration
+                if not platform_config <= ALL_BACKENDS.union(ALL_SYSTEMS):
+                    outliers = platform_config - ALL_BACKENDS.union(ALL_SYSTEMS)
+                    raise ValueError(
+                        f"Invalid skip_exec config: {platform_config}, invalid entries: {outliers}. Please ensure that all entries in the config are members of {ALL_SYSTEMS} or {ALL_BACKENDS}"
+                    )
+
+                board_id = get_board_id(system_desc)
+
+                if platform_config <= set([current_target, board_id]):
+                    # Set skip_exec attribute on the item instead of marking as skipped
+                    item.skip_exec = True
+                    xfail_reason = f"Execution skipped for platform/target combination: {platform_config}. {reason}"
+                    item.skip_exec_reason = xfail_reason
+                    # Mark test as xfail so it's expected to fail
+                    item.add_marker(
+                        pytest.mark.xfail(reason=xfail_reason, strict=False)
+                    )
+
     # Update the items list (collected tests)
     items[:] = valid_items
 
