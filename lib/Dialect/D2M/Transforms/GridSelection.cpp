@@ -417,11 +417,13 @@ updateStreamLayoutOps(ArrayRef<StreamLayoutUpdateInfo> streamLayoutsToUpdate,
     // We expect the StreamLayout to be used only by the GenericOp we're
     // optimizing. Check that all uses are either the GenericOp itself or
     // operations nested within the GenericOp's region.
-    for (Operation *user : streamLayout.getResult().getUsers()) {
-      assert((user == genericOp || genericOp->isAncestor(user)) &&
-             "StreamLayout should only be used by the GenericOp being "
-             "optimized or operations within its region");
-    }
+    assert(llvm::all_of(streamLayout.getResult().getUsers(),
+                        [&](Operation *user) {
+                          return user == genericOp ||
+                                 genericOp->isAncestor(user);
+                        }) &&
+           "StreamLayout should only be used by the GenericOp being "
+           "optimized or operations within its region");
     streamLayout.getResult().replaceAllUsesWith(newStreamLayout.getResult());
     streamLayout.erase();
 
