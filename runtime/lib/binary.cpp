@@ -5,7 +5,12 @@
 #include <atomic>
 #include <fstream>
 
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wcovered-switch-default"
+
 #include "flatbuffers/idl.h"
+
+#pragma clang diagnostic pop
 
 #include "tt/runtime/detail/common/logger.h"
 #include "tt/runtime/detail/ttnn/types/program_desc_cache.h"
