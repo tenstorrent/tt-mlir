@@ -905,44 +905,26 @@ public:
 } // namespace
 
 namespace {
-// Rewriter for d2m.push → ttkernel.cb_push_back
-class D2MPushOpRewriter : public OpConversionPattern<d2m::PushOp> {
+// Template rewriter for d2m.push/pop → ttkernel.cb_push_back/cb_pop_front
+template <typename D2MReleaseOp, typename TTKernelReleaseOp>
+class D2MCBReleaseOpRewriter : public OpConversionPattern<D2MReleaseOp> {
 public:
-  using OpConversionPattern<d2m::PushOp>::OpConversionPattern;
+  using OpConversionPattern<D2MReleaseOp>::OpConversionPattern;
+
+  static_assert(std::is_same_v<D2MReleaseOp, d2m::PushOp> ||
+                std::is_same_v<D2MReleaseOp, d2m::PopOp>);
 
   LogicalResult
-  matchAndRewrite(d2m::PushOp op, d2m::PushOpAdaptor adaptor,
+  matchAndRewrite(D2MReleaseOp op, typename D2MReleaseOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
     auto device = ttcore::lookupDevice(op);
 
     auto cbNumPages = device.getMemrefCBNumPages(
-        op.getCb().getType().getUnderlyingAs<MemRefType>());
+        op.getCb().getType().template getUnderlyingAs<MemRefType>());
     auto numPages = i32(rewriter, op->getLoc(), cbNumPages);
 
-    rewriter.replaceOpWithNewOp<ttkernel::CBPushBackOp>(op, adaptor.getCb(),
-                                                         numPages);
-    return success();
-  }
-};
-} // namespace
-
-namespace {
-// Rewriter for d2m.pop → ttkernel.cb_pop_front
-class D2MPopOpRewriter : public OpConversionPattern<d2m::PopOp> {
-public:
-  using OpConversionPattern<d2m::PopOp>::OpConversionPattern;
-
-  LogicalResult
-  matchAndRewrite(d2m::PopOp op, d2m::PopOpAdaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const final {
-    auto device = ttcore::lookupDevice(op);
-
-    auto cbNumPages = device.getMemrefCBNumPages(
-        op.getCb().getType().getUnderlyingAs<MemRefType>());
-    auto numPages = i32(rewriter, op->getLoc(), cbNumPages);
-
-    rewriter.replaceOpWithNewOp<ttkernel::CBPopFrontOp>(op, adaptor.getCb(),
-                                                         numPages);
+    rewriter.replaceOpWithNewOp<TTKernelReleaseOp>(op, adaptor.getCb(),
+                                                    numPages);
     return success();
   }
 };
@@ -1573,8 +1555,8 @@ void populateD2MToTTKernelPatterns(
                ttkernel::MemrefStoreRewriter,
                ttkernel::D2MCBOpRewriter<d2m::WaitOp, ttkernel::CBWaitFrontOp, ttkernel::CBPopFrontOp>,
                ttkernel::D2MCBOpRewriter<d2m::ReserveOp, ttkernel::CBReserveBackOp, ttkernel::CBPushBackOp>,
-               ttkernel::D2MPushOpRewriter,
-               ttkernel::D2MPopOpRewriter,
+               ttkernel::D2MCBReleaseOpRewriter<d2m::PushOp, ttkernel::CBPushBackOp>,
+               ttkernel::D2MCBReleaseOpRewriter<d2m::PopOp, ttkernel::CBPopFrontOp>,
                ttkernel::D2MDMAWaitRewriter,
                ttkernel::D2MCoreIndexRewriter,
                ttkernel::D2MNullTxRewriter,
