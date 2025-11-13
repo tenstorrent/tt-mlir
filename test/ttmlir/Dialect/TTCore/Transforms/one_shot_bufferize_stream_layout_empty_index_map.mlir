@@ -6,7 +6,7 @@
 // that getIndexAffineMapOrIdentity is used instead of getIndexAffineMap to handle
 // the case where the index map is empty or null.
 
-#layout = #ttcore.metal_layout<logical_shape = 64x64, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1>
+#layout = #ttcore.metal_layout<logical_shape = 64x64, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded, index_map = map(0)>
 
 // CHECK: #[[MEM_SPACE:.*]] = #ttcore.memory_space<l1>
 // CHECK: module attributes {ttcore.system_desc = #system_desc} {
