@@ -1607,7 +1607,6 @@ public:
         static_cast<uint32_t>(adaptor.getClusterAxis()),
         /*sub_device_id=*/nullptr,
         /*memory_config=*/nullptr,
-        /*optional_output_tensor=*/nullptr,
         /*num_links=*/nullptr,
         /*topology=*/nullptr);
 
@@ -1654,7 +1653,6 @@ public:
         static_cast<uint32_t>(adaptor.getClusterAxis()),
         /*sub_device_id=*/nullptr,
         /*memory_config=*/nullptr,
-        /*optional_output_tensor=*/nullptr,
         /*num_links=*/nullptr,
         /*topology=*/nullptr);
 

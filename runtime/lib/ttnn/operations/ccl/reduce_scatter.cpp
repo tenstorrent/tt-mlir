@@ -39,14 +39,6 @@ void run(const ::tt::target::ttnn::ReduceScatterOp *op,
       ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
           op->memory_config());
   std::optional<::ttnn::Tensor> optionalOutputTensor = std::nullopt;
-  if (op->optional_output_tensor()) {
-    optionalOutputTensor = std::make_optional(
-        tensorPool.getTTNNTensorAndValidate(op->optional_output_tensor()));
-    LOG_ASSERT(optionalOutputTensor->storage_type() ==
-                   ::ttnn::StorageType::DEVICE,
-               "Optional output tensor of all_gather must be DEVICE. id:",
-               op->optional_output_tensor()->global_id());
-  }
 
   std::optional<uint32_t> numLinks =
       op->num_links() ? std::make_optional<uint32_t>(op->num_links().value())
@@ -59,7 +51,7 @@ void run(const ::tt::target::ttnn::ReduceScatterOp *op,
 
   ::ttnn::Tensor out = ::ttnn::reduce_scatter(
       input, scatterDimension, clusterAxis, subDeviceId, outputMemoryConfig,
-      optionalOutputTensor, numLinks, topology);
+      /*optionalOutputTensor=*/std::nullopt, numLinks, topology);
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
