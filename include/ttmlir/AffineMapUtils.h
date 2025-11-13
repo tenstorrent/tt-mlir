@@ -36,7 +36,8 @@ llvm::SmallVector<int64_t> evalShape(mlir::AffineMap map, Vector shape) {
 /// values.
 inline mlir::AffineMap
 replaceAffineMapSymbols(mlir::AffineMap map, mlir::ArrayRef<int64_t> symbols) {
-  assert(map.getNumSymbols() == symbols.size());
+  TT_assertv(map.getNumSymbols() == symbols.size(),
+             "Number of symbols must match number of replacement values");
 
   mlir::SmallVector<mlir::AffineExpr> symReplacements;
   for (unsigned i = 0; i < map.getNumSymbols(); ++i) {

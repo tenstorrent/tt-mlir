@@ -14,12 +14,9 @@
 #include "llvm/ADT/SmallVector.h"
 
 namespace ttmlir::d2m {
-using namespace llvm;
-using namespace mlir;
 
 class VirtualGridUtil {
 public:
-  static std::pair<AffineMap, AffineMap>
   /// Generates a pair of forward and inverse affine maps that allow
   /// implementing a virtual grid as a physical-view pair of tensors/memrefs.
   ///
@@ -32,8 +29,13 @@ public:
   /// map is restricted to only the grid dimensions; shard dims CANNOT
   /// participate in virtual grid dim exprs (and vice-versa) or reblocking will
   /// not work reliably.
-  createCoreVirtMaps(MLIRContext *context, ArrayRef<int64_t> virtualGrid,
-                     ArrayRef<int64_t> targetGrid) {
+  static std::pair<mlir::AffineMap, mlir::AffineMap>
+  createCoreVirtMaps(mlir::MLIRContext *context,
+                     llvm::ArrayRef<int64_t> virtualGrid,
+                     llvm::ArrayRef<int64_t> targetGrid) {
+
+    using namespace llvm;
+    using namespace mlir;
 
     TT_assertv(targetGrid.size() == 2ul,
                "Target grid must have 2 dimensions {1}", targetGrid.size());
