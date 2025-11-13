@@ -1073,7 +1073,7 @@ ScatterOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
   return opConstraintsCache().getOrCompute(
       op_model::OpModel<ScatterOp>::getOpConstraints, *this, deviceGrid,
       inputShape, inputs[0], indexShape, inputs[1], sourceShape, inputs[2],
-      getDim(), opConfig.outputLayout);
+      getDim(), opConfig.outputLayouts[0]);
 }
 
 llvm::Expected<size_t>
@@ -1093,7 +1093,7 @@ ScatterOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
   return opRuntimeCache().getOrCompute(
       op_model::OpModel<ScatterOp>::getOpRuntime, *this, inputShape, inputs[0],
       indexShape, inputs[1], sourceShape, inputs[2], getDim(),
-      opConfig.outputLayout);
+      opConfig.outputLayouts[0]);
 }
 
 //===----------------------------------------------------------------------===//
