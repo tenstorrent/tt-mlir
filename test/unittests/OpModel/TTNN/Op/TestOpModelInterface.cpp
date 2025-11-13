@@ -1712,6 +1712,50 @@ TEST_F(OpModelBase, RotaryEmbeddingLlamaOpInterface) {
   }
 }
 
+TEST_F(OpModelBase, RotaryEmbeddingOpInterface) {
+  int64_t batchSize = 1;
+  int64_t numHeads = 32;
+  int64_t sequenceSize = 1024;
+  int64_t headSize = 64;
+
+  llvm::SmallVector<int64_t> inputShape{batchSize, numHeads, sequenceSize,
+                                        headSize};
+  llvm::SmallVector<int64_t> rotationShape{1, 1, sequenceSize, headSize};
+
+  auto input = createEmptyTensor(inputShape);
+  auto cos = createEmptyTensor(rotationShape);
+  auto sin = createEmptyTensor(rotationShape);
+  auto outputType = createRankedTensorType(inputShape);
+
+  auto rotaryEmbedding = builder.create<RotaryEmbeddingOp>(
+      builder.getUnknownLoc(), outputType, input, cos, sin,
+      /*tokenIndex=*/nullptr,
+      /*memory_config=*/nullptr, /*compute_config=*/nullptr);
+
+  auto constraintsExp = getOpConstraints(rotaryEmbedding.getOperation());
+  if (constraintsExp) {
+    auto l1 = constraintsExp.get();
+    const auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+        l1;
+    EXPECT_EQ(cbSize, 49152);
+    EXPECT_EQ(l1PeakSize, 65536);
+    EXPECT_EQ(outputSize, 65536);
+    EXPECT_EQ(totalPeakSize, 114688);
+    EXPECT_TRUE(outputLayout != nullptr);
+  } else {
+    FAIL() << "Missing L1 constraints for RotaryEmbeddingOp; Error="
+           << llvm::toString(constraintsExp.takeError());
+  }
+
+  auto runtimeExp = getOpRuntime(rotaryEmbedding.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << "Runtime test failed for RotaryEmbeddingOp; Error="
+           << llvm::toString(runtimeExp.takeError());
+  }
+}
+
 TEST_F(OpModelBase, NLPCreateQKVHeadsDecodeOpInterface) {
   int32_t sequenceSize = 1;
   int32_t batchSize = 32;

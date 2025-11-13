@@ -20,6 +20,7 @@ namespace mlir::tt::ttnn {
 class SortOp;
 class SliceDynamicOp;
 class SliceStaticOp;
+class RotaryEmbeddingOp;
 } // namespace mlir::tt::ttnn
 
 namespace mlir::tt::ttnn::wa {
@@ -284,6 +285,9 @@ public:
   // Create workarounds for binary op operands.
   static TTNNOperandsWorkarounds
   createBinaryOpOperandsWorkarounds(mlir::Operation *op);
+
+  static TTNNOperandsWorkarounds
+  createRotaryEmbeddingOpOperandsWorkarounds(ttnn::RotaryEmbeddingOp op);
 
   static TTNNOperandsWorkarounds createTanhOpOperandsWorkarounds();
 

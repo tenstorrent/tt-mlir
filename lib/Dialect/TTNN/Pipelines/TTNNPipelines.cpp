@@ -161,12 +161,6 @@ void createTTNNPipelineDeallocPass(
 void createTTIRToTTNNBackendPipeline(
     OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
   pm.addPass(mlir::createCanonicalizerPass());
-  // Element type normalization should be the first pass in the pipeline.
-  ttir::ElementTypeNormalizationOptions elementTypeNormalizationOptions;
-  elementTypeNormalizationOptions.enableBfp8Conversion =
-      options.enableBfp8Conversion;
-  pm.addPass(
-      ttir::createElementTypeNormalization(elementTypeNormalizationOptions));
 
   // Add Decomposition pass here to ensure it runs before hoisting.
   TTIRToTTIRDecompositionOptions decompOptions;
@@ -178,9 +172,19 @@ void createTTIRToTTNNBackendPipeline(
   // Create CPUModuleOp to wrap hoisted ops (if any).
   pm.addPass(ttir::createTTIRHoistTransform());
 
-  // Run regular TTIR to TTNN pipeline on DeviceModule.
   OpPassManager &devicePm =
       pm.nest<ttcore::DeviceModuleOp>().nest<mlir::ModuleOp>();
+
+  // Element type normalization should be the first pass in the pipeline.
+  // This pass should be applied only to the ops in the Device
+  // Module, since we aren't restricted with element types on CPU.
+  ttir::ElementTypeNormalizationOptions elementTypeNormalizationOptions;
+  elementTypeNormalizationOptions.enableBfp8Conversion =
+      options.enableBfp8Conversion;
+  devicePm.addPass(
+      ttir::createElementTypeNormalization(elementTypeNormalizationOptions));
+
+  // Run regular TTIR to TTNN pipeline on DeviceModule.
   createTTNNPipelineTTIRPasses(devicePm, options);
 
   ttir::TTIRQuantDataTypeConversionPassOptions quantOptions;
