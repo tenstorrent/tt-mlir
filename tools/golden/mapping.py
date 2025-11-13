@@ -497,6 +497,158 @@ def conv_transpose2d_golden(
     return result
 
 
+def convolution_golden(
+    input_tensor: GoldenMapTensor,
+    weight: GoldenMapTensor,
+    bias: Optional[GoldenMapTensor] = None,
+    **kwargs,
+) -> GoldenMapTensor:
+    """
+    Custom golden function for generalized convolution operation.
+    This function handles the ttir.convolution operation by transforming it to match
+    PyTorch's conv2d expectations, handling arbitrary input layouts via the convolution_layout.
+    Parameters
+    ----------
+    input_tensor : GoldenMapTensor
+        Input tensor for convolution
+    weight : GoldenMapTensor
+        Convolution weight tensor
+    bias : GoldenMapTensor, optional
+        Optional bias tensor (default: None)
+    **kwargs : dict
+        Keyword arguments containing:
+        - window_strides: List[int] - Stride for convolution (default: [1, 1])
+        - padding: List[int] - Padding in [top, left, bottom, right] format (default: [0, 0, 0, 0])
+        - input_dilation: List[int] - Input dilation (default: [1, 1])
+        - weight_dilation: List[int] - Weight dilation (default: [1, 1])
+        - window_reversal: List[bool] - Window reversal (default: [False, False])
+        - convolution_layout: Attribute - Dimension numbering specification
+        - feature_group_count: int - Number of feature groups (default: 1)
+        - batch_group_count: int - Number of batch groups (default: 1)
+    Returns
+    -------
+    GoldenMapTensor
+        Result of convolution operation
+    """
+    # Extract convolution-specific parameters
+    window_strides = unpack_mlir_attr(kwargs.get("window_strides", [1, 1]))
+    padding = unpack_mlir_attr(kwargs.get("padding", [0, 0, 0, 0]))
+    input_dilation = unpack_mlir_attr(kwargs.get("input_dilation", [1, 1]))
+    weight_dilation = unpack_mlir_attr(kwargs.get("weight_dilation", [1, 1]))
+    feature_group_count = kwargs.get("feature_group_count", 1)
+    batch_group_count = kwargs.get("batch_group_count", 1)
+    convolution_layout = kwargs.get("convolution_layout", None)
+
+    # Note: For simplicity, we assume batch_group_count == 1 (not handling batch groups in golden)
+    if batch_group_count != 1:
+        raise ValueError(
+            f"Golden function does not support batch_group_count > 1, got {batch_group_count}"
+        )
+
+    # Handle layout transformation
+    # Parse convolution_layout to determine current tensor layout
+    # PyTorch expects input in NCHW format and weights in [O, I, H, W] format
+    if convolution_layout is not None:
+        # Get the layout dimensions from the attribute
+        # The attribute has methods like getInputBatchDimension(), getInputFeatureDimension(), etc.
+        input_batch_dim = convolution_layout.input_batch_dimension
+        input_feature_dim = convolution_layout.input_feature_dimension
+        input_spatial_dims = list(convolution_layout.input_spatial_dimensions)
+
+        # Current layout is defined by the positions
+        # We need to permute to NCHW: [batch, feature, spatial_0, spatial_1, ...]
+        current_layout = [None] * input_tensor.ndim
+        current_layout[input_batch_dim] = 0  # batch goes to position 0
+        current_layout[input_feature_dim] = 1  # feature goes to position 1
+        for i, spatial_dim in enumerate(input_spatial_dims):
+            current_layout[spatial_dim] = (
+                2 + i
+            )  # spatial dims go to positions 2, 3, ...
+
+        # Check if we need to permute (i.e., if current_layout != [0, 1, 2, 3, ...])
+        if current_layout != list(range(input_tensor.ndim)):
+            # Create inverse permutation to go from current layout to NCHW
+            permutation = [current_layout.index(i) for i in range(input_tensor.ndim)]
+            input_tensor = input_tensor.permute(permutation)
+
+        # Similarly for output, we need to know how to permute back
+        output_batch_dim = convolution_layout.output_batch_dimension
+        output_feature_dim = convolution_layout.output_feature_dimension
+        output_spatial_dims = list(convolution_layout.output_spatial_dimensions)
+
+        # Output permutation: from NCHW back to output layout
+        output_permutation = [None] * (len(output_spatial_dims) + 2)
+        output_permutation[output_batch_dim] = 0
+        output_permutation[output_feature_dim] = 1
+        for i, spatial_dim in enumerate(output_spatial_dims):
+            output_permutation[spatial_dim] = 2 + i
+
+    # Extract only spatial dimensions from strides and dilations
+    # TTIR uses 4D strides/dilations [batch, channel, height, width]
+    # PyTorch conv2d expects 2D [height, width]
+    if len(window_strides) == 4:
+        stride = [window_strides[2], window_strides[3]]  # Extract spatial dims
+    elif len(window_strides) == 2:
+        stride = window_strides
+    else:
+        stride = [1, 1]
+
+    if len(weight_dilation) == 4:
+        dilation = [weight_dilation[2], weight_dilation[3]]  # Extract spatial dims
+    elif len(weight_dilation) == 2:
+        dilation = weight_dilation
+    else:
+        dilation = [1, 1]
+
+    # Convert padding from [top, left, bottom, right] to PyTorch format [height, width]
+    # PyTorch expects symmetric padding, so we check if padding is symmetric
+    if len(padding) == 4:
+        top, left, bottom, right = padding
+        if top == bottom and left == right:
+            torch_padding = [top, left]
+        else:
+            # For asymmetric padding, we need to manually pad the input
+            import torch.nn.functional as F
+
+            # PyTorch F.pad expects padding in reverse order: [left, right, top, bottom]
+            manual_padding = [left, right, top, bottom]
+            input_tensor = F.pad(input_tensor, manual_padding, mode="constant", value=0)
+            torch_padding = [0, 0]
+    elif len(padding) == 2:
+        torch_padding = padding
+    else:
+        torch_padding = [0, 0]
+
+    # Handle bias
+    if bias is not None:
+        bias = bias.squeeze()
+
+    # Now input_tensor is in NCHW format, call PyTorch conv2d directly
+    groups = feature_group_count
+
+    result = torch.nn.functional.conv2d(
+        input_tensor,
+        weight,
+        bias=bias,
+        stride=tuple(stride) if isinstance(stride, list) else stride,
+        padding=tuple(torch_padding)
+        if isinstance(torch_padding, list)
+        else torch_padding,
+        dilation=tuple(dilation) if isinstance(dilation, list) else dilation,
+        groups=groups,
+    )
+
+    # Permute output back to the expected output layout if needed
+    if convolution_layout is not None and output_permutation != list(
+        range(result.ndim)
+    ):
+        # Create permutation from NCHW to output layout
+        inverse_output_perm = [output_permutation.index(i) for i in range(result.ndim)]
+        result = result.permute(inverse_output_perm)
+
+    return result
+
+
 def max_pool2d_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
     """
     Custom golden function for max_pool2d with layout transformation.
@@ -627,6 +779,113 @@ def avg_pool2d_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTenso
     result = maxpool_object(input_tensor)
     result = result.transpose(-3, -2).transpose(-2, -1)
     return result
+
+
+def pooling_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
+    """
+    Custom golden function for generalized pooling operation.
+    This function handles the ttir.PoolingOp by decomposing it into appropriate
+    2D pooling operations (max, average, or sum pooling) based on the pooling_method
+    attribute. It supports flexible window dimensions and automatically determines
+    spatial dimensions for pooling.
+    Parameters
+    ----------
+    input_tensor : GoldenMapTensor
+        Input tensor for pooling
+    **kwargs : dict
+        Keyword arguments containing:
+        - pooling_method: Attribute - Pooling method (Max, Average, or Sum)
+        - window_dimensions: List[int] - Pooling window size for each dimension (default: [1, 1, 1, 1])
+        - window_strides: List[int] - Stride for pooling operation (default: [1, 1, 1, 1])
+        - padding: List[int] - Padding in flat format [dim0_low, dim0_high, dim1_low, dim1_high, ...]
+                               (default: [0, 0, 0, 0, 0, 0, 0, 0] for 4D tensor)
+        - window_dilations: List[int] - Dilation for pooling operation (default: [1, 1, 1, 1])
+    Returns
+    -------
+    GoldenMapTensor
+        Result of pooling operation
+    Notes
+    -----
+    - Spatial dimensions are automatically detected as dimensions with window_dimensions > 1
+    - If no spatial dimensions are detected, defaults to last two dimensions
+    - Padding format is converted from flat array [dim0_low, dim0_high, ...] to
+      [top, left, bottom, right] for PyTorch compatibility
+    - Sum pooling is computed as average pooling multiplied by kernel size
+    """
+    # Extract pooling-specific parameters
+    pooling_method = kwargs.get("pooling_method")
+    window_dimensions = unpack_mlir_attr(kwargs.get("window_dimensions"))
+    window_strides = unpack_mlir_attr(kwargs.get("window_strides"))
+    padding = unpack_mlir_attr(kwargs.get("padding"))
+    window_dilations = unpack_mlir_attr(kwargs.get("window_dilations"))
+
+    # Find spatial dimensions (those with window_dimensions > 1)
+    spatial_dim_indices = [i for i, dim in enumerate(window_dimensions) if dim > 1]
+
+    # Validate spatial dimensions
+    if len(spatial_dim_indices) == 0 or len(spatial_dim_indices) > 2:
+        raise ValueError(
+            f"Pooling with {len(spatial_dim_indices)} spatial dimensions not supported. "
+            f"Expected 1 or 2 spatial dimensions."
+        )
+
+    # Default to last two dimensions if window dimensions are all 1
+    num_dims = len(window_dimensions)
+    if len(spatial_dim_indices) < 2:
+        spatial_dim_indices = [num_dims - 2, num_dims - 1]
+
+    # Extract kernel, stride, dilation, and padding for the spatial dimensions
+    kernel = [window_dimensions[i] for i in spatial_dim_indices]
+    stride = [window_strides[i] for i in spatial_dim_indices]
+    dilation = [window_dilations[i] for i in spatial_dim_indices]
+
+    # Convert padding from flat array to [top, left, bottom, right] format
+    # padding is [dim0_low, dim0_high, dim1_low, dim1_high, dim2_low, dim2_high, dim3_low, dim3_high]
+    pool_padding = [
+        padding[2 * spatial_dim_indices[0]],  # top
+        padding[2 * spatial_dim_indices[1]],  # left
+        padding[2 * spatial_dim_indices[0] + 1],  # bottom
+        padding[2 * spatial_dim_indices[1] + 1],  # right
+    ]
+
+    # Get pooling method enum value
+    pooling_method_str = str(pooling_method)
+
+    # Call the appropriate golden function based on pooling method
+    if "Max" in pooling_method_str:
+        return max_pool2d_golden(
+            input_tensor,
+            kernel=kernel,
+            stride=stride,
+            padding=pool_padding,
+            dilation=dilation,
+            ceil_mode=False,
+        )
+    elif "Average" in pooling_method_str:
+        return avg_pool2d_golden(
+            input_tensor,
+            kernel=kernel,
+            stride=stride,
+            padding=pool_padding,
+            dilation=dilation,
+            ceil_mode=False,
+            count_include_pad=True,
+        )
+    elif "Sum" in pooling_method_str:
+        # Sum pooling = average pooling * kernel size
+        result = avg_pool2d_golden(
+            input_tensor,
+            kernel=kernel,
+            stride=stride,
+            padding=pool_padding,
+            dilation=dilation,
+            ceil_mode=False,
+            count_include_pad=True,
+        )
+        kernel_size = kernel[0] * kernel[1]
+        return torch.mul(result, kernel_size)
+    else:
+        raise ValueError(f"Unknown pooling method: {pooling_method_str}")
 
 
 def batch_norm_golden(
@@ -2315,6 +2574,47 @@ def slice_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
     return GoldenMapTensor(shard_map, input_tensor.mesh_shape)
 
 
+def slice_golden_stablehlo(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
+    """
+    Golden function for StableHLO slice operation.
+    Parameters
+    ----------
+    input_tensor : GoldenMapTensor
+        Input tensor
+    **kwargs : dict
+        Keyword arguments including:
+        - start_indices: Starting indices for each dimension
+        - limit_indices: Ending indices (exclusive) for each dimension
+        - strides: Strides for each dimension
+    Returns
+    -------
+    GoldenMapTensor
+        Sliced tensor
+    """
+    start_indices = kwargs.get("start_indices", [0])
+    limit_indices = kwargs.get("limit_indices", None)
+    strides = kwargs.get("strides", None)
+
+    if strides is None:
+        strides = [1] * len(start_indices)
+
+    if limit_indices is None:
+        limit_indices = [input_tensor.size(i) for i in range(len(start_indices))]
+
+    slices = []
+    for i in range(len(start_indices)):
+        start = start_indices[i] if i < len(start_indices) else 0
+        end = limit_indices[i] if i < len(limit_indices) else input_tensor.size(i)
+        stride = strides[i] if i < len(strides) else 1
+        slices.append(slice(start, end, stride))
+
+    shard_map = {}
+    for device_id, shard in input_tensor.shard_map.items():
+        shard_map[device_id] = shard[tuple(slices)]
+
+    return GoldenMapTensor(shard_map, input_tensor.mesh_shape)
+
+
 def zeros_golden(**kwargs) -> GoldenMapTensor:
     """
     Golden function for zeros operation with TTIR parameter names.
@@ -2949,8 +3249,10 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.CbrtOp: cbrt_golden,
     ttir.Conv2dOp: conv2d_golden,
     ttir.ConvTranspose2dOp: conv_transpose2d_golden,
+    ttir.ConvolutionOp: convolution_golden,
     ttir.MaxPool2dOp: max_pool2d_golden,
     ttir.AvgPool2dOp: avg_pool2d_golden,
+    ttir.PoolingOp: pooling_golden,
     ttir.ArgMaxOp: argmax_golden,
     ttir.LinearOp: linear_golden,
     ttir.DotGeneralOp: dot_general_golden,
@@ -2978,6 +3280,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     stablehlo.AddOp: torch.add,
     stablehlo.AbsOp: torch.abs,
     stablehlo.CeilOp: torch.ceil,
+    stablehlo.ClampOp: torch.clamp,
     stablehlo.CosineOp: torch.cos,
     stablehlo.ExpOp: torch.exp,
     stablehlo.FloorOp: torch.floor,
@@ -2988,6 +3291,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     stablehlo.SineOp: torch.sin,
     stablehlo.SqrtOp: torch.sqrt,
     stablehlo.TanOp: torch.tan,
+    stablehlo.SliceOp: slice_golden_stablehlo,
     # stablehlo complex operations
     stablehlo.DotGeneralOp: dot_general_golden,
     stablehlo.ConcatenateOp: concat_golden,
@@ -3020,6 +3324,10 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttnn.Expm1Op: torch.expm1,
     ttnn.ExpOp: torch.exp,
     ttnn.LeakyReluOp: leaky_relu_golden,
+    # StableHLO tensor manipulation operations
+    stablehlo.TransposeOp: permute_golden,
+    # TTNN elementwise operations
+    ttnn.MultiplyOp: torch.multiply,
     ttnn.MishOp: torch.nn.functional.mish,
     # Elementwise binary operations
     ttnn.AddOp: torch.add,

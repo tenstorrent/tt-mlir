@@ -1116,30 +1116,101 @@ public:
       return mlir::failure();
     }
 
-    Value cache = scatterOp.getInput();
-    Value updates = scatterOp.getUpdate();
-    auto batchOffsetAttr = rewriter.getI32IntegerAttr(0);
+    auto cache = scatterOp.getInput();
+    auto updates = scatterOp.getUpdate();
+
+    int32_t batchSize = cache.getType().getShape()[0];
 
     // If the cachePositions tensor has more than one element we assume it
     // represents a set of aranged indices (0, cachePositions.size), so we
     // replace it with FillCacheOp. If the tensor has only one element, we
     // assume it represents the update index for UpateCacheOp.
+    RankedTensorType updatesType = updates.getType();
     if (cacheUpdateInputShape[0] != 1) {
-      rewriter.replaceOpWithNewOp<FillCacheOp>(
-          scatterOp, scatterOp.getResult().getType(), // Result type
-          cache,                                      // Cache tensor
-          updates,                                    // Updates tensor
-          batchOffsetAttr                             // Batch offset
-      );
+      // Fill cache requires that each batch is filled separately. So, we will
+      // insert a FillCacheOp for each batch. This requires slicing out each
+      // batch.
+
+      if (batchSize > 1) {
+
+        for (int32_t batchOffset = 0; batchOffset < batchSize; batchOffset++) {
+          auto batchOffsetAttr = rewriter.getI32IntegerAttr(batchOffset);
+
+          // Slice starts at the batch offset for the batch dim, and starts at 0
+          // for all other dims.
+          SmallVector<int32_t> sliceStarts = {batchOffset, 0, 0, 0};
+
+          // Slice ends at the dim size for every dim, except the batch dim
+          // where the slice ends at batch offset + 1.
+          SmallVector<int32_t> sliceEnds = SmallVector<int32_t>(
+              updatesType.getShape().begin(), updatesType.getShape().end());
+          sliceEnds[0] = batchOffset + 1;
+
+          // Slice steps is 1 for every dim as we do not wish to skip any
+          SmallVector<int32_t> sliceSteps = {1, 1, 1, 1};
+
+          // Slice output shape is the same as the fill value shape, except the
+          // batch dim is 1 since we sliced out a single batch.
+          SmallVector<int64_t> sliceOutputShape(updatesType.getShape());
+          sliceOutputShape[0] = 1;
+
+          // Encoding should not be set when this pass is run. Guard against it.
+          assert(!updatesType.getEncoding());
+
+          RankedTensorType slicedUpdatesType = RankedTensorType::get(
+              sliceOutputShape, updatesType.getElementType(), nullptr);
+
+          // Create slice op.
+          auto slicedUpdates = ttir::utils::createDPSOp<SliceStaticOp>(
+              rewriter, scatterOp.getLoc(), slicedUpdatesType, updates,
+              rewriter.getI32ArrayAttr(sliceStarts),
+              rewriter.getI32ArrayAttr(sliceEnds),
+              rewriter.getI32ArrayAttr(sliceSteps));
+          // create fill cache op for this batch.
+          cache = rewriter.create<FillCacheOp>(
+              scatterOp.getLoc(),
+              scatterOp.getResult().getType(), // Result type
+              cache,                           // Cache tensor
+              slicedUpdates,                   // Updates tensor
+              batchOffsetAttr                  // Batch offset
+          );
+        }
+      } else {
+        cache = rewriter.create<FillCacheOp>(
+            scatterOp.getLoc(), scatterOp.getResult().getType(), // Result type
+            cache,                                               // Cache tensor
+            updates, // Updates tensor
+            0        // Batch offset
+        );
+      }
     } else {
-      rewriter.replaceOpWithNewOp<UpdateCacheOp>(
-          scatterOp, scatterOp.getResult().getType(), // Result type
-          cache,                                      // Cache tensor
-          updates,                                    // Updates tensor
-          *CachePositions,                            // Cache Idx
-          batchOffsetAttr                             // Batch offset
+      // Unlike ttnn.fill_cache, we can perform ttnn.update_cache on the entire
+      // batch at once. However this requires that the fill value is in the form
+      // [1, num_heads, B, head_size]. So, we must permute the updates tensor to
+      // this shape.
+      if (batchSize > 1) {
+        SmallVector<int64_t> permutedShape = ttmlir::utils::applyPermutation(
+            updatesType.getShape(), {2, 1, 0, 3});
+
+        // Encoding should not be set when this pass is run. Guard against it.
+        assert(!updatesType.getEncoding());
+        RankedTensorType permutedUpdatesType = RankedTensorType::get(
+            permutedShape, updatesType.getElementType(), nullptr);
+        updates = ttir::utils::createDPSOp<PermuteOp>(
+            rewriter, scatterOp.getLoc(), permutedUpdatesType, updates,
+            rewriter.getDenseI64ArrayAttr({2, 1, 0, 3}));
+      }
+      cache = rewriter.create<UpdateCacheOp>(
+          scatterOp.getLoc(),
+          scatterOp.getResult().getType(), // Result type
+          cache,                           // Cache tensor
+          updates,                         // Updates tensor
+          *CachePositions,                 // Cache Idx
+          0                                // Batch offset
       );
     }
+
+    rewriter.replaceOp(scatterOp, cache);
 
     return mlir::success();
   }

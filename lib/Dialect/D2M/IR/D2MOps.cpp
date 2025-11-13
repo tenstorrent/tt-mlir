@@ -1045,17 +1045,21 @@ static mlir::LogicalResult verifyAffineBlocking(
           "when not in explicit data movement form");
     }
 
-    Region &region = this->getRegion(0);
+    // Only check yield terminator for non-explicit-datamovement form.
+    // Explicit datamovement form allows users to manage terminators themselves.
+    if (!isExplicitDatamovementForm()) {
+      Region &region = this->getRegion(0);
 
-    Block &block = region.front();
-    if (block.getOperations().empty() || !mlir::isa<YieldOp>(&block.back())) {
-      return emitOpError(
-          "generic op with pure tensor semantics must have yield terminator");
-    }
+      Block &block = region.front();
+      if (block.getOperations().empty() || !mlir::isa<YieldOp>(&block.back())) {
+        return emitOpError(
+            "generic op with pure tensor semantics must have yield terminator");
+      }
 
-    if (block.back().getNumOperands() != getNumResults()) {
-      return emitOpError("yield terminator must have the same number of "
-                         "arguments as generic results");
+      if (block.back().getNumOperands() != getNumResults()) {
+        return emitOpError("yield terminator must have the same number of "
+                           "arguments as generic results");
+      }
     }
   }
 
