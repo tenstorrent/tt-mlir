@@ -35,24 +35,18 @@ def TTCore_GridAttr : TTCore_Attr<"Grid", "grid"> {
 
   let parameters = (ins
                         ArrayRefParameter<"int64_t">:$shape,
-                        ArrayRefParameter<"int64_t">:$physShape,
                         DefaultValuedParameter<
                           "AffineMap",
                           "$_builder.getEmptyAffineMap()">:$mapping);
-  let assemblyFormat = "`<` custom<DimensionList>($shape) `,` custom<DimensionList>($physShape) (`,` $mapping^)? `>`";
+  let assemblyFormat = "`<` custom<DimensionList>($shape) (`,` $mapping^)? `>`";
 
   let extraClassDeclaration = [{
       static GridAttr get(::mlir::MLIRContext *context) {
         return GridAttr::get(context, {1, 1});
       }
 
-      static GridAttr get(::mlir::MLIRContext *context, ArrayRef<int64_t> shape, AffineMap map) {
-        return GridAttr::get(context, shape, shape, map);
-      }
-
       static GridAttr get(::mlir::MLIRContext *context, ArrayRef<int64_t> shape) {
-        // note: grid shape is assumed equal to physical grid shape
-        return GridAttr::get(context, shape, shape, AffineMap::get(context));
+        return GridAttr::get(context, shape, AffineMap::get(context));
       }
 
       static GridAttr get(::mlir::MLIRContext *context, std::int64_t rank) {

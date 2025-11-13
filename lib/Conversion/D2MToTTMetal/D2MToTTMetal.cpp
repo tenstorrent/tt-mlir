@@ -53,8 +53,6 @@ public:
 
     auto coreRange =
         ttmetal::CoreRangeAttr::getPhysicalCoreRange(opGrid, deviceGridShape);
-    llvm::dbgs() << "\nttcore.grid: " << opGrid << "\n";
-    llvm::dbgs() << "inferred physical core range: " << coreRange << "\n";
 
     for (Attribute threadAttr : threads) {
       d2m::ThreadAttr thread = mlir::cast<d2m::ThreadAttr>(threadAttr);

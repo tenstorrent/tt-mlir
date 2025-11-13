@@ -805,9 +805,6 @@ SmallVector<int64_t>
 GridAttr::getPhysicalGridShape(ArrayRef<int64_t> deviceGridShape) {
 
   // physShape == virtual shape if mapping function is empty
-  llvm::dbgs() << "gridAttr: " << *this << "\n";
-  llvm::dbgs() << "deviceGridShape: " << *this << "\n";
-  llvm::dbgs() << "mapping function: " << getMapping() << "\n";
   if (getMapping().isEmpty()) {
     return llvm::to_vector(getShape());
   }
@@ -856,20 +853,7 @@ GridAttr::getPhysicalGridShape(ArrayRef<int64_t> deviceGridShape) {
     if (virtualGridVolume % x == 0) {
       int y = virtualGridVolume / x;
       if (y <= deviceGridShape[0] && x <= deviceGridShape[1]) {
-        llvm::dbgs() << "Checking physical grid shape: " << y << "x" << x
-                     << "\n";
-
         if (checkInjective({y, x})) {
-
-          // -------------------- REMOVE THIS --------------------------
-          llvm::dbgs() << "Found injective physical grid shape: " << y << "x"
-                       << x << "\n";
-          auto candidate = SmallVector<int64_t>{y, x};
-          auto p = llvm::to_vector(getPhysShape());
-          TT_assertv(p == candidate, "Physical grid shape must match virtual "
-                                     "grid shape if mapping function is empty");
-          // -------------------- REMOVE THIS --------------------------
-
           return {y, x};
         }
       }

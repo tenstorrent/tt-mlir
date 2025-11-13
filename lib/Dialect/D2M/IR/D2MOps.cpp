@@ -840,18 +840,11 @@ void d2m::GenericOp::build(mlir::OpBuilder &builder,
       // grid here that satisfies the following constraints:
       //   vgrid = evalShape(gridInvMap,pgrid)
       //   pgrid = evalShape(tensorFwdMap,vgrid)
-      auto physGridShape = llvm::to_vector(targetGridShape);
 
       auto [_, invMap] = ttmlir::d2m::VirtualGridUtil::createCoreVirtMaps(
           builder.getContext(), gridShape, targetGridShape);
 
-      TT_assertv(
-          ttmlir::utils::volume(ArrayRef<int64_t>(physGridShape)) ==
-              ttmlir::utils::volume(targetGridShape),
-          "target grid shape volume must match virtual grid phys shape volume");
-
-      grid =
-          builder.getAttr<ttcore::GridAttr>(gridShape, physGridShape, invMap);
+      grid = builder.getAttr<ttcore::GridAttr>(gridShape, invMap);
     } else {
       grid = builder.getAttr<ttcore::GridAttr>(gridShape);
     }
