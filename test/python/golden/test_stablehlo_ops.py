@@ -423,3 +423,114 @@ def test_slice(
         target=target,
         device=device,
     )
+
+
+# ----- Reduce Operations -----
+
+
+def reduce_sum(
+    in0: Operand,
+    builder: StableHLOBuilder,
+    dimensions: List[int],
+    unit_attrs: Optional[List[str]] = None,
+):
+    return builder.reduce_sum(in0, dimensions, unit_attrs=unit_attrs)
+
+
+def reduce_max(
+    in0: Operand,
+    builder: StableHLOBuilder,
+    dimensions: List[int],
+    unit_attrs: Optional[List[str]] = None,
+):
+    return builder.reduce_max(in0, dimensions, unit_attrs=unit_attrs)
+
+
+def reduce_min(
+    in0: Operand,
+    builder: StableHLOBuilder,
+    dimensions: List[int],
+    unit_attrs: Optional[List[str]] = None,
+):
+    return builder.reduce_min(in0, dimensions, unit_attrs=unit_attrs)
+
+
+@pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("target", ["ttnn"])
+@pytest.mark.parametrize("dimensions", [[0], [1]])
+def test_reduce_sum(
+    shape: Shape,
+    dtype: torch.dtype,
+    dimensions: List[int],
+    target: str,
+    request,
+    device,
+):
+    def reduce_sum_wrapper(in0: Operand, builder: StableHLOBuilder):
+        return reduce_sum(in0, builder, dimensions)
+
+    compile_and_execute_shlo(
+        reduce_sum_wrapper,
+        [shape],
+        [dtype],
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
+        device=device,
+    )
+
+
+@pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("target", ["ttnn"])
+@pytest.mark.parametrize("dimensions", [[0], [1]])
+def test_reduce_max(
+    shape: Shape,
+    dtype: torch.dtype,
+    dimensions: List[int],
+    target: str,
+    request,
+    device,
+):
+    def reduce_max_wrapper(in0: Operand, builder: StableHLOBuilder):
+        return reduce_max(in0, builder, dimensions)
+
+    compile_and_execute_shlo(
+        reduce_max_wrapper,
+        [shape],
+        [dtype],
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
+        device=device,
+    )
+
+
+@pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("target", ["ttnn"])
+@pytest.mark.parametrize("dimensions", [[0], [1]])
+def test_reduce_min(
+    shape: Shape,
+    dtype: torch.dtype,
+    dimensions: List[int],
+    target: str,
+    request,
+    device,
+):
+    def reduce_min_wrapper(in0: Operand, builder: StableHLOBuilder):
+        return reduce_min(in0, builder, dimensions)
+
+    compile_and_execute_shlo(
+        reduce_min_wrapper,
+        [shape],
+        [dtype],
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
+        device=device,
+    )
