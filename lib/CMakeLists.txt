@@ -25,6 +25,7 @@ set(TTMLIR_LIBS
   ${conversion_libs}
   ${extension_libs}
   ${translation_libs}
+  TTMLIRSupport
   MLIRPass
   MLIRSupport
   MLIRRegisterAllPasses
