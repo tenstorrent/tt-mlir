@@ -71,6 +71,7 @@ def TTCore_GridAttr : TTCore_Attr<"Grid", "grid"> {
         }
         return cGridVolume;
       }
+      SmallVector<int64_t> getPhysicalGridShape(ArrayRef<int64_t> deviceGridShape);
 
       uint64_t getRank() const { return getShape().size(); }
   }];

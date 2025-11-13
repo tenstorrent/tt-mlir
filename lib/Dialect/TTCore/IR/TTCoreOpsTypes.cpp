@@ -801,6 +801,83 @@ static llvm::SmallVector<int64_t> applyCollapsedIntervalsAndAlignments(
   return resultShape;
 }
 
+SmallVector<int64_t>
+GridAttr::getPhysicalGridShape(ArrayRef<int64_t> deviceGridShape) {
+
+  // physShape == virtual shape if mapping function is empty
+  llvm::dbgs() << "gridAttr: " << *this << "\n";
+  llvm::dbgs() << "deviceGridShape: " << *this << "\n";
+  llvm::dbgs() << "mapping function: " << getMapping() << "\n";
+  if (getMapping().isEmpty()) {
+    return llvm::to_vector(getShape());
+  }
+
+  TT_assertv(deviceGridShape.size() == 2ul, "Device grid shape must be 2D.");
+  TT_assertv(deviceGridShape[0] == deviceGridShape[1],
+             "Device grid shape must be square.");
+  TT_assertv(getShape().size() == 2ul, "Virtual grid shape is limited to 2D.");
+  TT_assertv(getMapping().getNumInputs() == 2ul,
+             "Grid mapping function must have 2 inputs.");
+
+  // Checks that a physical grid shape injectively maps onto the virtual grid
+  // using the provided mapping function.
+  auto checkInjective = [&](ArrayRef<int64_t> physGridShape) {
+    auto map = getMapping();
+    auto vGrid = getShape();
+    auto virtualVolume = ttmlir::utils::volume(vGrid);
+    SmallVector<bool, 128> bitmap(virtualVolume, false);
+    for (int y = 0; y < physGridShape[0]; y++) {
+      for (int x = 0; x < physGridShape[1]; x++) {
+        auto vCoord = ArrayRef<int64_t>{map.compose({y, x})}.drop_front(1);
+        TT_assertv(vCoord.size() == 2ul, "Virtual grid coordinate must be 2D.");
+
+        auto index = vCoord[0] * vGrid[1] + vCoord[1];
+        // if location is already occupied, the physical grid is invalid
+        if (bitmap[index]) {
+          return false;
+        }
+        // if the location is not within the virtual grid, the physical grid is
+        // invalid
+        if (vCoord[0] >= vGrid[0] || vCoord[1] >= vGrid[1]) {
+          return false;
+        }
+        bitmap[index] = true;
+      }
+    }
+    return true;
+  };
+
+  // Generate all possible grid shapes.
+  // The physical grid volume must equal the virtual grid volume.
+  // The physical grid shape must not exceed the device grid dimensions.
+  // For now, assume that the phys grid shape is a rectangle.
+  auto virtualGridVolume = ttmlir::utils::volume(getShape());
+  for (int x = virtualGridVolume; x > 0; x--) {
+    if (virtualGridVolume % x == 0) {
+      int y = virtualGridVolume / x;
+      if (y <= deviceGridShape[0] && x <= deviceGridShape[1]) {
+        llvm::dbgs() << "Checking physical grid shape: " << y << "x" << x
+                     << "\n";
+
+        if (checkInjective({y, x})) {
+
+          // -------------------- REMOVE THIS --------------------------
+          llvm::dbgs() << "Found injective physical grid shape: " << y << "x"
+                       << x << "\n";
+          auto candidate = SmallVector<int64_t>{y, x};
+          auto p = llvm::to_vector(getPhysShape());
+          TT_assertv(p == candidate, "Physical grid shape must match virtual "
+                                     "grid shape if mapping function is empty");
+          // -------------------- REMOVE THIS --------------------------
+
+          return {y, x};
+        }
+      }
+    }
+  }
+  llvm_unreachable("No injective physical grid shape found.");
+}
+
 llvm::SmallVector<int64_t>
 MetalLayoutAttr::getPhysicalShape(ArrayRef<int64_t> tileShape) const {
   llvm::SmallVector<int64_t> normalizedIntervals = getNormalizedIntervals();

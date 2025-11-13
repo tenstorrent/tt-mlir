@@ -54,105 +54,8 @@ protected:
     assert(!targetGridShape.empty());
   }
 
-  std::pair<unsigned, double>
-  findMaxDimAndAspectRatio(ArrayRef<int64_t> physicalShape) const {
-
-    // Find max aspect ratio between any dim and the other dims combined.
-    double aspectRatio = 1.0;
-    unsigned maxDimIndex = 0;
-    for (size_t i = 0; i < physicalShape.size(); ++i) {
-      double ratio = physicalShape[i];
-      for (size_t j = 0; j < physicalShape.size(); ++j) {
-        if (i == j) {
-          continue;
-        }
-        ratio /= physicalShape[j];
-      }
-      if (ratio > aspectRatio) {
-        aspectRatio = ratio;
-        maxDimIndex = i;
-      }
-    }
-    return {maxDimIndex, aspectRatio};
-  }
-
-  // The following is a simple heuristic that determines (A) if a tensor _can_
-  // be implemented as a virtual grid and (B) if it makes sense to do so based
-  // on low grid utilization with regular block sharding.
-  bool shouldImplementAsVirtualGrid(ArrayRef<int64_t> physicalShape) const {
-    auto [maxRatioIndex, aspectRatio] = findMaxDimAndAspectRatio(physicalShape);
-    auto regularShardedGridVolume =
-        ttmlir::utils::volume<int64_t>(computeOptimalGrid(physicalShape));
-    bool lowGridUtilization =
-        regularShardedGridVolume < 0.5 * getTargetGridVolume();
-    bool dimIsDivisibleByGridVolume =
-        physicalShape[maxRatioIndex] % getTargetGridVolume() == 0;
-    return lowGridUtilization && dimIsDivisibleByGridVolume;
-  }
-
-  llvm::SmallVector<int64_t>
-  computeOptimalVirtualGrid(ArrayRef<int64_t> physicalShape,
-                            unsigned shardedDimIndex) const {
-
-    // for now, can only support if largest dim is divisible by grid volume
-    int64_t gridVolume = getTargetGridVolume();
-    TT_assertv((physicalShape[shardedDimIndex] % gridVolume == 0),
-               "Sharded dimension in virtual gridPhysical shape dimension is "
-               "not divisible by grid volume {1}",
-               shardedDimIndex, gridVolume);
-
-    llvm::SmallVector<int64_t> grid;
-    for (size_t i = 0; i < physicalShape.size(); ++i) {
-      if (i == shardedDimIndex) {
-        grid.push_back(gridVolume);
-      } else {
-        grid.push_back(1);
-      }
-    }
-    int64_t virtualGridVolume = std::accumulate(grid.begin(), grid.end(), 1,
-                                                std::multiplies<int64_t>());
-    TT_assertv((virtualGridVolume % gridVolume == 0),
-               "Virtual grid volume should be divisible by target grid volume");
-    return grid;
-  }
-
-  int64_t getTargetGridVolume() const {
-    return std::accumulate(targetSquareGridShape.begin(),
-                           targetSquareGridShape.end(), uint64_t{1},
-                           std::multiplies<uint64_t>());
-  }
-
-  ArrayRef<int64_t> getTargetGridShape() const {
+  ArrayRef<int64_t> getTargetSquareGridShape() const {
     return ArrayRef<int64_t>(targetSquareGridShape);
-  }
-
-  // Compute optimal grid shape that works for all provided layout infos.
-  llvm::SmallVector<int64_t>
-  computeOptimalGrid(ArrayRef<int64_t> physicalShape) const {
-    llvm::SmallVector<int64_t> grid;
-    grid.reserve(physicalShape.size());
-
-    assert(physicalShape.size() >= targetSquareGridShape.size());
-
-    const size_t gridRankDiff =
-        physicalShape.size() - targetSquareGridShape.size();
-    grid.assign(gridRankDiff, 1);
-
-    for (size_t i = gridRankDiff; i < physicalShape.size(); ++i) {
-      const int64_t dim = physicalShape[i];
-      assert(dim > 0);
-      // Find largest grid dimension that divides evenly.
-      for (int64_t g = targetSquareGridShape[i - gridRankDiff]; g > 0; g--) {
-        if (dim % g == 0) {
-          grid.push_back(g);
-          break;
-        }
-      }
-    }
-
-    assert(grid.size() == physicalShape.size());
-
-    return grid;
   }
 
   static bool isTTNNTensor(Type type) {
@@ -222,36 +125,6 @@ protected:
 
     Type elementType = ttnnLayout.getElementType();
     return mlir::RankedTensorType::get(shardedShape, elementType, metalLayout);
-  }
-
-  Value createVirtualGridToLayoutOp(
-      Value value, ttcore::MetalLayoutAttr layout,
-      ArrayRef<int64_t> logicalShape, ArrayRef<int64_t> unshardedShape,
-      ArrayRef<int64_t> tileShape, ttcore::MemorySpace memSpace,
-      Type elementType, mlir::ConversionPatternRewriter &rewriter) const {
-
-    auto [maxRatioIndex, aspectRatio] =
-        findMaxDimAndAspectRatio(unshardedShape);
-    auto virtualGridShape =
-        computeOptimalVirtualGrid(unshardedShape, maxRatioIndex);
-
-    auto [fwdMap, _] = ttmlir::d2m::VirtualGridUtil::createCoreVirtMaps(
-        rewriter.getContext(), virtualGridShape, targetSquareGridShape);
-
-    llvm::SmallVector<int64_t> shardedShape =
-        layout.getDeviceShape(virtualGridShape, tileShape);
-
-    auto virtualLayout = ttcore::MetalLayoutAttr::get(
-        rewriter.getContext(), logicalShape, ttcore::OOBVal::Undef, memSpace,
-        ttcore::TensorMemoryLayout::Sharded, fwdMap);
-
-    auto emptyOp = rewriter.create<d2m::EmptyOp>(value.getLoc(), shardedShape,
-                                                 elementType, virtualLayout);
-
-    auto toLayoutOp =
-        rewriter.create<d2m::ToLayoutOp>(value.getLoc(), value, emptyOp)
-            ->getResult(0);
-    return toLayoutOp;
   }
 
   // Create a ToLayout operation for a value using the provided layout
@@ -520,7 +393,7 @@ private:
     // Create 'd2m.generic' accepting 'op's operands.
     auto generic = rewriter.create<d2m::GenericOp>(
         loc, inputs, outputs, rewriter.getAffineMapArrayAttr(indexingMaps),
-        rewriter.getArrayAttr(iteratorTypes), getTargetGridShape());
+        rewriter.getArrayAttr(iteratorTypes), getTargetSquareGridShape());
 
     // Create one bb in 'generic''s region and set its arguments.
     auto insertPoint = rewriter.saveInsertionPoint();
@@ -642,7 +515,7 @@ private:
     // Create 'd2m.generic' accepting extended operands.
     auto generic = rewriter.create<d2m::GenericOp>(
         loc, inputs, outputs, rewriter.getAffineMapArrayAttr(indexingMaps),
-        rewriter.getArrayAttr(iteratorTypes), getTargetGridShape());
+        rewriter.getArrayAttr(iteratorTypes), getTargetSquareGridShape());
 
     // Create one bb in 'generic''s region and set its arguments.
     auto insertPoint = rewriter.saveInsertionPoint();
@@ -877,7 +750,7 @@ private:
     // Create 'd2m.generic' accepting 'op's operands.
     auto generic = rewriter.create<d2m::GenericOp>(
         loc, inputs, outputs, rewriter.getAffineMapArrayAttr(indexingMaps),
-        rewriter.getArrayAttr(iteratorTypes), getTargetGridShape());
+        rewriter.getArrayAttr(iteratorTypes), getTargetSquareGridShape());
 
     // Create one bb in 'generic''s region and set its arguments.
     auto insertPoint = rewriter.saveInsertionPoint();
@@ -1074,7 +947,7 @@ public:
     // For inner permute, we alse need a GenericOp to transpose each individual
     // tile.
     auto generic = rewriter.create<d2m::GenericOp>(
-        loc, inputs, outputs, getTargetGridShape(),
+        loc, inputs, outputs, getTargetSquareGridShape(),
         [&](OpBuilder &builder, Location bodyLoc, ValueRange blockArgs) {
           assert(blockArgs.size() == 2);
           auto identityMap = builder.getMultiDimIdentityMap(2);
