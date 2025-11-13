@@ -191,6 +191,18 @@ std::string TTPrintIRInstrumentation::extractModelNameFromLocation(
   mlir::Location loc = op->getLoc();
 
   // Try to extract filename from FileLineColLoc
+  // Examples from real test files:
+  //   #loc8 =
+  //   loc("/proj_sw/user_dev/sdjukic/tt-xla-repo/tt-xla/third_party/tt_forge_models/mnist/image_classification/jax/mlp/model_implementation.py":16:12
+  //   to :39)
+  //   -> "model_implementation" (extracts filename without path/extension)
+  //
+  //   %arg0: tensor<128xf32> ... loc("variables['params']['Dense_0']['bias']")
+  //   -> "variables['params']['Dense_0']['bias']" (no path separators,
+  //   unchanged)
+  //
+  //   #loc = loc("ResNetForImageClassification")
+  //   -> "ResNetForImageClassification" (module name, unchanged)
   if (mlir::isa<mlir::FileLineColLoc>(loc)) {
     mlir::FileLineColLoc fileLoc = mlir::cast<mlir::FileLineColLoc>(loc);
     llvm::StringRef filename = fileLoc.getFilename();
@@ -209,7 +221,15 @@ std::string TTPrintIRInstrumentation::extractModelNameFromLocation(
     }
   }
 
-  // Try to extract from FusedLoc
+  // Try to extract from FusedLoc (multiple locations fused together)
+  // Example from real test files:
+  //   #loc42 = loc(callsite(#loc33 at #loc34))
+  //   where #loc33 and #loc34 reference different source locations
+  //   -> returns filename from first FileLineColLoc found in the fused location
+  //   list
+  //
+  //   loc(callsite(#loc74 at #loc75)) creates a fused location from two
+  //   sub-locations
   if (mlir::isa<mlir::FusedLoc>(loc)) {
     mlir::FusedLoc fusedLoc = mlir::cast<mlir::FusedLoc>(loc);
     for (mlir::Location subLoc : fusedLoc.getLocations()) {
