@@ -586,7 +586,8 @@ getPrepareConv2dWeightsOpOutputTensorSpec(
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(dilation),
         hasBias, groups, device, *inputDtype, outputDtype,
         conv2dConfigConverted,
-        /* compute_config_ */ std::nullopt, /* conv2d_slice_config_=*/ std::nullopt);
+        /* compute_config_ */ std::nullopt,
+        /* conv2d_slice_config_=*/std::nullopt);
   };
 
   auto prepareConvTranspose2dWeightsOpQuery = [=]() {
@@ -686,7 +687,8 @@ getPrepareConv2dBiasOpOutputTensorSpec(
             padding),
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(dilation),
         groups, device, *inputDtype, outputDtype, localConfig,
-        /*compute_config_=*/std::nullopt, /* conv2d_slice_config_=*/std::nullopt);
+        /*compute_config_=*/std::nullopt,
+        /* conv2d_slice_config_=*/std::nullopt);
   };
 
   auto prepareConvTranspose2dBiasOpQuery = [=]() {
@@ -4300,7 +4302,8 @@ llvm::Expected<OpConstraints> OpModel<Conv2dOp>::getOpConstraints(
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(dilation),
         groups, outputDtype, biasSpec, conv2dConfigConverted,
         deviceComputeKernelConfigConverted,
-        detail::getNullableMemoryConfig(outputLayout), /* conv2d_slice_config_=*/std::nullopt);
+        detail::getNullableMemoryConfig(outputLayout),
+        /* conv2d_slice_config_=*/std::nullopt);
   };
 
   return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
