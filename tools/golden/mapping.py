@@ -329,6 +329,77 @@ def unpack_mlir_attr(attr):
     raise ValueError(f"Unexpected attribute type: {type(attr)}")
 
 
+def resolve_op_class(op_name: str) -> Optional[type]:
+    """
+    Resolve a qualified operation name (e.g., "ttnn.multiply", "ttir.AddOp")
+    to its op class (e.g., ttnn.MultiplyOp). Unqualified names are not supported.
+
+    Supports:
+      - Exact class: "ttir.AddOp"
+      - Snake/lower: "ttnn.multiply" -> "ttnn.MultiplyOp"
+      - Mixed: "stablehlo.cosine" -> "stablehlo.CosineOp"
+
+    Returns the op class if found, else None.
+    """
+    if not isinstance(op_name, str):
+        raise TypeError("op_name must be a string")
+
+    name = op_name.strip()
+    if "." not in name:
+        return None  # disallow unqualified lookups
+
+    dialect_raw, class_raw = name.split(".", 1)
+    dialect = dialect_raw.lower()
+
+    DIALECTS = {"ttir": ttir, "stablehlo": stablehlo, "d2m": d2m, "ttnn": ttnn}
+    mod = DIALECTS.get(dialect)
+    if mod is None:
+        return None
+
+    # Fast path: exact attribute present
+    # if hasattr(mod, class_raw):
+    #    return getattr(mod, class_raw)
+
+    # Build a normalized target (strip trailing 'op', remove underscores, lowercase)
+    def normalize(s: str) -> str:
+        s = s.strip()
+        s = s[:-2] if s.lower().endswith("op") else s
+        return s.replace("_", "").lower()
+
+    target = normalize(class_raw)
+    # Try a reasonable TitleCase + Op guess (e.g., "multiply" -> "MultiplyOp")
+    if "_" in class_raw or class_raw.islower():
+        guessed = "".join(part.capitalize() for part in class_raw.split("_"))
+        if not guessed.lower().endswith("op"):
+            guessed += "Op"
+        if hasattr(mod, guessed):
+            return getattr(mod, guessed)
+
+    # Fallback: scan module for any *Op whose base matches target
+    for attr in dir(mod):
+        if not attr.endswith("Op"):
+            continue
+        base = normalize(attr)
+        if base == target:
+            return getattr(mod, attr)
+
+    return None
+
+
+def get_golden_by_op_function_str(op_function_str: str) -> Optional[Callable]:
+    """
+    Return the golden function from GOLDEN_MAPPINGS for a qualified op name.
+    Only accepts qualified names like "ttir.AddOp" or "ttnn.multiply".
+    """
+    op_type = resolve_op_class(op_function_str)
+
+    if op_type is None:
+        return None
+    if op_type in GOLDEN_MAPPINGS:
+        return GOLDEN_MAPPINGS[op_type]
+    return None
+
+
 def cbrt_golden(x: GoldenMapTensor) -> GoldenMapTensor:
     """
     Custom golden function for cubic root.

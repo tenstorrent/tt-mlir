@@ -1745,8 +1745,7 @@ void registerCallback() {
   // Double check this is necessary: *********
   try {
     // Call the function with error handling
-    PyObject *result =
-        PyObject_CallFunction(register_func, "s", "Lord help me");
+    PyObject *result = PyObject_CallFunction(register_func, "s", "Placeholder");
     if (result == nullptr) {
       PyErr_Print();
       // Print more detailed error info
