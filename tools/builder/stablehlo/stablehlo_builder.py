@@ -540,7 +540,11 @@ class StableHLOBuilder(Builder):
         return self._op_proxy(
             stablehlo.DotGeneralOp,
             [in0, in1],
-            organize_stablehlo_args=lambda inputs: (result_type, inputs[0], inputs[1]),
+            organize_stablehlo_args=lambda inputs, *_: (
+                result_type,
+                inputs[0],
+                inputs[1],
+            ),
             organize_golden_args=lambda inputs: (
                 self._get_golden_tensor(inputs[0]),
                 self._get_golden_tensor(inputs[1]),
