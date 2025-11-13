@@ -96,9 +96,9 @@ struct URBGXorshift32 final : URBGBase<T> {
   using Base::min;
   using typename Base::result_type;
 
-  URBGXorshift32(const T seed) : state(seed) { TT_assert(state != 0u); }
+  URBGXorshift32(T seed) : state(seed) { TT_assert(state != 0u); }
 
-  void seed(const result_type seed) {
+  void seed(result_type seed) {
     TT_assert(seed != 0u);
     state = seed;
   }
@@ -128,9 +128,9 @@ struct URBGXorshift64 final : URBGBase<T> {
   using Base::min;
   using typename Base::result_type;
 
-  URBGXorshift64(const T seed) : state(seed) { TT_assert(state != 0u); }
+  URBGXorshift64(T seed) : state(seed) { TT_assert(state != 0u); }
 
-  void seed(const result_type seed) {
+  void seed(result_type seed) {
     TT_assert(seed != 0u);
     state = seed;
   }
