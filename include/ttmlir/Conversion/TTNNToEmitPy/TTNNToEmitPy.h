@@ -15,7 +15,7 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
 
 std::unique_ptr<OperationPass<ModuleOp>> createConvertTTNNToEmitPyPass();
 
-std::unique_ptr<OperationPass<ModuleOp>> createEmitPyPostProcessingPass();
+std::unique_ptr<OperationPass<ModuleOp>> createEmitPyNameVarsPass();
 
 } // namespace mlir::tt
 
