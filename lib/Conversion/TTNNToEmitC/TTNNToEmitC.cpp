@@ -1937,17 +1937,17 @@ private:
 //
 namespace {
 class RandOpConversionPattern
-    : public TTNNToEmitCBaseOpConversionPattern<tt::ttnn::RandOp> {
+    : public TTNNToEmitCBaseOpConversionPattern<mlir::tt::ttnn::RandOp> {
 public:
   using TTNNToEmitCBaseOpConversionPattern<
-      tt::ttnn::RandOp>::TTNNToEmitCBaseOpConversionPattern;
+      mlir::tt::ttnn::RandOp>::TTNNToEmitCBaseOpConversionPattern;
 
   LogicalResult
-  matchAndRewrite(tt::ttnn::RandOp srcOp, OpAdaptor adaptor,
+  matchAndRewrite(mlir::tt::ttnn::RandOp srcOp, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
-    ttnn_to_emitc::EmitCTTNNEmitter<tt::ttnn::RandOp> emitter(srcOp, adaptor,
-                                                              rewriter);
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::RandOp> emitter(
+        srcOp, adaptor, rewriter);
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getSize()),
@@ -2584,17 +2584,17 @@ public:
 //
 namespace {
 class SortOpConversionPattern
-    : public TTNNToEmitCBaseOpConversionPattern<tt::ttnn::SortOp> {
+    : public TTNNToEmitCBaseOpConversionPattern<mlir::tt::ttnn::SortOp> {
 public:
   using TTNNToEmitCBaseOpConversionPattern<
-      tt::ttnn::SortOp>::TTNNToEmitCBaseOpConversionPattern;
+      mlir::tt::ttnn::SortOp>::TTNNToEmitCBaseOpConversionPattern;
 
   LogicalResult
-  matchAndRewrite(tt::ttnn::SortOp srcOp, OpAdaptor adaptor,
+  matchAndRewrite(mlir::tt::ttnn::SortOp srcOp, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
-    ttnn_to_emitc::EmitCTTNNEmitter<tt::ttnn::SortOp> emitter(srcOp, adaptor,
-                                                              rewriter);
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::SortOp> emitter(
+        srcOp, adaptor, rewriter);
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput()),
@@ -2880,21 +2880,22 @@ public:
 //
 namespace {
 class PointToPointOpConversionPattern
-    : public TTNNToEmitCBaseOpConversionPattern<tt::ttnn::PointToPointOp> {
+    : public TTNNToEmitCBaseOpConversionPattern<
+          mlir::tt::ttnn::PointToPointOp> {
 public:
   using TTNNToEmitCBaseOpConversionPattern<
-      tt::ttnn::PointToPointOp>::TTNNToEmitCBaseOpConversionPattern;
+      mlir::tt::ttnn::PointToPointOp>::TTNNToEmitCBaseOpConversionPattern;
 
   LogicalResult
-  matchAndRewrite(tt::ttnn::PointToPointOp srcOp,
-                  tt::ttnn::PointToPointOp::Adaptor adaptor,
+  matchAndRewrite(mlir::tt::ttnn::PointToPointOp srcOp,
+                  mlir::tt::ttnn::PointToPointOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
     rewriter.create<emitc::VerbatimOp>(
         srcOp.getLoc(),
         "assert(0 && \"PointToPoint  operation is "
         "not supported in emitc yet.\"); // ::ttnn::PointToPoint");
-    ttnn_to_emitc::EmitCTTNNEmitter<tt::ttnn::PointToPointOp> emitter(
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::PointToPointOp> emitter(
         srcOp, adaptor, rewriter);
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput()),
