@@ -182,6 +182,86 @@ public:
     return mlir::success();
   }
 };
+
+class TTNNMultiplyToTTIRConversionPattern
+    : public mlir::OpConversionPattern<mlir::tt::ttnn::MultiplyOp> {
+  using mlir::OpConversionPattern<
+      mlir::tt::ttnn::MultiplyOp>::OpConversionPattern;
+
+public:
+  mlir::LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::MultiplyOp srcOp,
+                  mlir::tt::ttnn::MultiplyOp::Adaptor adaptor,
+                  mlir::ConversionPatternRewriter &rewriter) const override {
+
+    auto outputType = mlir::cast<mlir::RankedTensorType>(
+        this->getTypeConverter()->convertType(srcOp.getResult().getType()));
+
+    // Try to extract scalar from either operand
+    auto lhsScalar = extractConstantScalarAsFloat(adaptor.getLhs());
+    auto rhsScalar = extractConstantScalarAsFloat(adaptor.getRhs());
+
+    // If one operand is a scalar constant, convert to multiply_scalar
+    if (lhsScalar.has_value()) {
+      // lhs is scalar: scalar * tensor -> tensor * scalar (commutative)
+      mlir::tt::ttir::utils::replaceOpWithNewDPSOp<
+          mlir::tt::ttir::MultiplyScalarOp>(
+          rewriter, srcOp, outputType, adaptor.getRhs(),
+          rewriter.getF32FloatAttr(*lhsScalar));
+      return mlir::success();
+    }
+
+    if (rhsScalar.has_value()) {
+      // rhs is scalar: tensor * scalar
+      mlir::tt::ttir::utils::replaceOpWithNewDPSOp<
+          mlir::tt::ttir::MultiplyScalarOp>(
+          rewriter, srcOp, outputType, adaptor.getLhs(),
+          rewriter.getF32FloatAttr(*rhsScalar));
+      return mlir::success();
+    }
+
+    // Neither operand is scalar, use regular multiply
+    mlir::tt::ttir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::MultiplyOp>(
+        rewriter, srcOp, outputType, adaptor.getOperands());
+
+    return mlir::success();
+  }
+
+private:
+  std::optional<float> extractConstantScalarAsFloat(mlir::Value val) const {
+    // Check if value comes from a ttnn.full operation with fill value
+    if (auto fullOp = val.getDefiningOp<mlir::tt::ttnn::FullOp>()) {
+      if (auto fillValue = fullOp.getFillValue()) {
+        if (auto floatAttr = mlir::dyn_cast<mlir::FloatAttr>(fillValue)) {
+          return static_cast<float>(floatAttr.getValueAsDouble());
+        }
+        if (auto intAttr = mlir::dyn_cast<mlir::IntegerAttr>(fillValue)) {
+          return static_cast<float>(intAttr.getInt());
+        }
+      }
+    }
+
+    // Check if value comes from a ttnn.constant operation with splat value
+    if (auto constantOp = val.getDefiningOp<mlir::tt::ttnn::ConstantOp>()) {
+      if (auto valueAttr = constantOp.getValue()) {
+        if (valueAttr.isSplat()) {
+          auto elementType = valueAttr.getElementType();
+          if (elementType.isIntOrFloat()) {
+            if (mlir::isa<mlir::IntegerType>(elementType)) {
+              return static_cast<float>(
+                  valueAttr.getSplatValue<llvm::APInt>().getSExtValue());
+            } else {
+              return static_cast<float>(
+                  valueAttr.getSplatValue<llvm::APFloat>().convertToDouble());
+            }
+          }
+        }
+      }
+    }
+
+    return std::nullopt;
+  }
+};
 } // namespace
 
 static void
@@ -210,6 +290,8 @@ addElementwiseUnaryOpsConversionPatterns(mlir::MLIRContext *ctx,
                                                   mlir::tt::ttir::IsFiniteOp>,
            TTNNToTTIRElementwiseConversionPattern<mlir::tt::ttnn::NegOp,
                                                   mlir::tt::ttir::NegOp>,
+           TTNNToTTIRElementwiseConversionPattern<mlir::tt::ttnn::ReciprocalOp,
+                                                  mlir::tt::ttir::ReciprocalOp>,
            TTNNToTTIRElementwiseConversionPattern<mlir::tt::ttnn::RsqrtOp,
                                                   mlir::tt::ttir::RsqrtOp>,
            TTNNToTTIRElementwiseConversionPattern<mlir::tt::ttnn::SinOp,
@@ -249,8 +331,6 @@ addElementwiseBinaryOpsConversionPatterns(mlir::MLIRContext *ctx,
                                                   mlir::tt::ttir::MaximumOp>,
            TTNNToTTIRElementwiseConversionPattern<mlir::tt::ttnn::MinOp,
                                                   mlir::tt::ttir::MinimumOp>,
-           TTNNToTTIRElementwiseConversionPattern<mlir::tt::ttnn::MultiplyOp,
-                                                  mlir::tt::ttir::MultiplyOp>,
            TTNNToTTIRElementwiseConversionPattern<mlir::tt::ttnn::SubtractOp,
                                                   mlir::tt::ttir::SubtractOp>,
            TTNNToTTIRElementwiseConversionPattern<mlir::tt::ttnn::RemainderOp,
@@ -267,6 +347,9 @@ addElementwiseBinaryOpsConversionPatterns(mlir::MLIRContext *ctx,
            TTNNToTTIRElementwiseConversionPattern<
                mlir::tt::ttnn::LogicalLeftShiftOp,
                mlir::tt::ttir::LogicalLeftShiftOp>>(typeConverter, ctx);
+
+  // Add custom multiply pattern that converts to multiply_scalar when possible
+  patterns.add<TTNNMultiplyToTTIRConversionPattern>(typeConverter, ctx);
 }
 
 static void

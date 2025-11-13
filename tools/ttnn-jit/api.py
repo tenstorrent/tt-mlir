@@ -13,7 +13,7 @@ def jit(
     compile_only: bool = False,
     debug: bool = False,
     enable_cache: bool = False,
-    graph_capture: bool = True,
+    graph_capture: bool = False,
 ):
     """
     Sets up the decorated function to be JIT compiled through D2M.

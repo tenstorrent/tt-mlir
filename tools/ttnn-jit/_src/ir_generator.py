@@ -78,4 +78,6 @@ def generate_ir(graph_capture, source_code, f, debug, *args, **kwargs):
     if graph_capture:
         return generate_ir_from_graph(f, debug, *args, **kwargs)
     else:
-        return generate_ir_from_ast(source_code, debug, *args, **kwargs)
+        tmp = generate_ir_from_ast(source_code, debug, *args, **kwargs)
+        print(tmp)
+        return tmp
