@@ -59,12 +59,12 @@ module {
   // CHECK: emitpy.global @value = #emitpy.opaque<"None">
   emitpy.global @value = #emitpy.opaque<"None">
 
-  func.func @assign_value(%arg0: !emitpy.opaque<"[ttnn.Tensor]">) -> !emitpy.opaque<"[ttnn.Tensor]"> {
+  func.func @assign_value(%arg0: !emitpy.opaque<"[ttnn.Tensor]">) -> () {
     // CHECK: emitpy.global_statement @value : !emitpy.opaque<"[ttnn.Tensor]">
     %0 = emitpy.global_statement @value : !emitpy.opaque<"[ttnn.Tensor]">
-    // CHECK: %{{.*}} = "emitpy.assign_global"(%{{.*}}) <{name = @value}> : (!emitpy.opaque<"[ttnn.Tensor]">) -> !emitpy.opaque<"[ttnn.Tensor]">
-    %1 = emitpy.assign_global @value = %arg0 : !emitpy.opaque<"[ttnn.Tensor]">
-    return %0 : !emitpy.opaque<"[ttnn.Tensor]">
+    // CHECK: emitpy.assign_global @value = %{{.*}} : !emitpy.opaque<"[ttnn.Tensor]">
+    emitpy.assign_global @value = %arg0 : !emitpy.opaque<"[ttnn.Tensor]">
+    return
   }
 }
 
@@ -74,12 +74,12 @@ module {
   // CHECK: emitpy.global @counter = 0
   emitpy.global @counter = 0
 
-  func.func @assign_counter(%arg0: i64) -> i64 {
+  func.func @assign_counter(%arg0: i64) -> () {
     // CHECK: emitpy.global_statement @counter : i64
     %0 = emitpy.global_statement @counter : i64
-    // CHECK: %{{.*}} = "emitpy.assign_global"(%{{.*}}) <{name = @counter}> : (i64) -> i64
-    %1 = "emitpy.assign_global"(%arg0) <{name = @counter}> : (i64) -> i64
-    return %0 : i64
+    // CHECK: emitpy.assign_global @counter = %{{.*}} : i64
+    emitpy.assign_global @counter = %arg0 : i64
+    return
   }
 }
 
@@ -118,11 +118,11 @@ module {
   func.func @workflow(%arg0: !emitpy.opaque<"[ttnn.Tensor]">) -> !emitpy.opaque<"[ttnn.Tensor]"> {
     // CHECK: %{{.*}} = emitpy.global_statement @global_var : !emitpy.opaque<"[ttnn.Tensor]">
     %0 = emitpy.global_statement @global_var : !emitpy.opaque<"[ttnn.Tensor]">
+    // CHECK: emitpy.assign_global @global_var = %{{.*}} : !emitpy.opaque<"[ttnn.Tensor]">
+    emitpy.assign_global @global_var = %arg0 : !emitpy.opaque<"[ttnn.Tensor]">
     // CHECK: %{{.*}} = emitpy.get_global @global_var : !emitpy.opaque<"[ttnn.Tensor]">
     %1 = emitpy.get_global @global_var : !emitpy.opaque<"[ttnn.Tensor]">
-    // CHECK: %{{.*}} = "emitpy.assign_global"(%{{.*}}) <{name = @global_var}> : (!emitpy.opaque<"[ttnn.Tensor]">) -> !emitpy.opaque<"[ttnn.Tensor]">
-    %2 = "emitpy.assign_global"(%arg0) <{name = @global_var}> : (!emitpy.opaque<"[ttnn.Tensor]">) -> !emitpy.opaque<"[ttnn.Tensor]">
-    return %2 : !emitpy.opaque<"[ttnn.Tensor]">
+    return %1 : !emitpy.opaque<"[ttnn.Tensor]">
   }
 }
 

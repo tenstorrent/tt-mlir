@@ -44,10 +44,10 @@ module {
 module {
   emitpy.global @typed_global = 0
 
-  func.func @assign_global_type_mismatch(%arg0: !emitpy.opaque<"[ttnn.Tensor]">) -> !emitpy.opaque<"[ttnn.Tensor]"> {
-    // CHECK: error: 'emitpy.assign_global' op result type ('!emitpy.opaque<"[ttnn.Tensor]">') does not match global's type ('i64')
-    %0 = "emitpy.assign_global"(%arg0) <{name = @typed_global}> : (!emitpy.opaque<"[ttnn.Tensor]">) -> !emitpy.opaque<"[ttnn.Tensor]">
-    return %0 : !emitpy.opaque<"[ttnn.Tensor]">
+  func.func @assign_global_type_mismatch(%arg0: !emitpy.opaque<"[ttnn.Tensor]">) -> () {
+    // CHECK: error: 'emitpy.assign_global' op value type ('!emitpy.opaque<"[ttnn.Tensor]">') does not match global's type ('i64')
+    emitpy.assign_global @typed_global = %arg0 : !emitpy.opaque<"[ttnn.Tensor]">
+    return
   }
 }
 
@@ -88,10 +88,10 @@ module {
 // -----
 
 module {
-  func.func @assign_global_nonexistent(%arg0: !emitpy.opaque<"[ttnn.Tensor]">) -> !emitpy.opaque<"[ttnn.Tensor]"> {
+  func.func @assign_global_nonexistent(%arg0: !emitpy.opaque<"[ttnn.Tensor]">) -> () {
     // CHECK: error: 'emitpy.assign_global' op 'nonexistent_global' does not reference a valid emitpy.global
-    %0 = "emitpy.assign_global"(%arg0) <{name = @nonexistent_global}> : (!emitpy.opaque<"[ttnn.Tensor]">) -> !emitpy.opaque<"[ttnn.Tensor]">
-    return %0 : !emitpy.opaque<"[ttnn.Tensor]">
+    emitpy.assign_global @nonexistent_global = %arg0 : !emitpy.opaque<"[ttnn.Tensor]">
+    return
   }
 }
 
@@ -100,10 +100,10 @@ module {
 module {
   emitpy.global @global_var = #emitpy.opaque<"None">
 
-  func.func @assign_another_global_nonexistent(%arg0: !emitpy.opaque<"[ttnn.Tensor]">) -> !emitpy.opaque<"[ttnn.Tensor]"> {
+  func.func @assign_another_global_nonexistent(%arg0: !emitpy.opaque<"[ttnn.Tensor]">) -> () {
     // CHECK: error: 'emitpy.assign_global' op 'global_var_1' does not reference a valid emitpy.global
-    %0 = "emitpy.assign_global"(%arg0) <{name = @global_var_1}> : (!emitpy.opaque<"[ttnn.Tensor]">) -> !emitpy.opaque<"[ttnn.Tensor]">
-    return %0 : !emitpy.opaque<"[ttnn.Tensor]">
+    emitpy.assign_global @global_var_1 = %arg0 : !emitpy.opaque<"[ttnn.Tensor]">
+    return
   }
 }
 

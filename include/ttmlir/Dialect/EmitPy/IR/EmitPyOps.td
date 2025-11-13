@@ -275,15 +275,15 @@ def EmitPy_AssignGlobalOp : EmitPy_Op<"assign_global",
     Example:
 
     ```mlir
-    %3 = "emitpy.assign_global"(%2) <{name = @CACHED_const_eval_no_input_const_eval_0}> : (!emitpy.opaque<"[ttnn.Tensor]">) -> !emitpy.opaque<"[ttnn.Tensor]">
+    emitpy.assign_global @value = %arg0 : !emitpy.opaque<"[ttnn.Tensor]">
     ```
   }];
 
   let arguments = (ins FlatSymbolRefAttr:$name,
                        AnyType:$value);
-  let results = (outs AnyType:$result);
 
   let hasVerifier = 1;
+  let hasCustomAssemblyFormat = 1;
 }
 
 #endif // TTMLIR_TTMLIR_DIALECT_EMITPY_EMITPYOPS_TD
