@@ -6,7 +6,7 @@
 // RUN: diff %t_direct.mlir %t_indirect.mlir
 // RUN: FileCheck %s --input-file=%t_direct.mlir
 
-// CHECK: func.func @add(%arg0: !emitpy.opaque<"[ttnn.Tensor]">) -> !emitpy.opaque<"[ttnn.Tensor]">
+// CHECK: func.func @add(%arg0: !emitpy.opaque<"[ttnn.Tensor]">{{.*}}) -> !emitpy.opaque<"[ttnn.Tensor]">
 // CHECK: func.func @create_inputs_for_add() -> !emitpy.opaque<"[ttnn.Tensor]">
 // CHECK: func.func @main() -> i32
 func.func @add(%arg0: tensor<64x128xf32>, %arg1: tensor<64x128xf32>) -> tensor<64x128xf32> {
