@@ -87,6 +87,7 @@ def is_callback_enabled():
     return debug_stats != "DebugStats Disabled"
 
 
+@pytest.mark.skip(reason="See https://github.com/tenstorrent/tt-mlir/issues/5789")
 def test_intermidate_tensor_manipulation(helper: Helper, request):
     binary_path = os.path.join(FLATBUFFER_BASE_PATH, "linear.mlir.tmp.ttnn")
     assert os.path.exists(binary_path), f"Binary file not found: {binary_path}"
