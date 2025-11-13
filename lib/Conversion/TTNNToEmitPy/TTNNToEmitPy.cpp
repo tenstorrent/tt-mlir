@@ -2639,7 +2639,7 @@ public:
                      "memory_config"),
         // Topology was not listed as an argument in the ttnn op. It will be
         // added in the future.
-        emitter.emit(mlir::tt::ttnn::Topology::Linear, "topology"),
+        emitter.emit(mlir::tt::ttcore::Topology::Linear, "topology"),
         emitter.emit(srcOp.getClusterAxis(), "cluster_axis"),
     };
 
@@ -2681,7 +2681,7 @@ public:
         emitter.emit(srcOp.getReduceType(), "math_op"),
         emitter.emit(emitter.getMemoryConfig(srcOp.getResult()),
                      "memory_config"),
-        emitter.emit(mlir::tt::ttnn::Topology::Linear, "topology"),
+        emitter.emit(mlir::tt::ttcore::Topology::Linear, "topology"),
     };
 
     emitter.replaceOp(*this, args);
@@ -2713,7 +2713,7 @@ public:
         emitter.emit(srcOp.getInput()),
         emitter.emitMeshCoordinate(srcOp.getSendCoord(), "send_coord"),
         emitter.emitMeshCoordinate(srcOp.getReceiveCoord(), "receive_coord"),
-        emitter.emit(mlir::tt::ttnn::Topology::Linear, "topology"),
+        emitter.emit(mlir::tt::ttcore::Topology::Linear, "topology"),
         emitter.emit(srcOp.getAccumTensor(), "optional_output_tensor"),
     };
 
