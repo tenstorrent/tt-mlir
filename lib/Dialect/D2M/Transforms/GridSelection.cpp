@@ -361,7 +361,8 @@ static void updateToLayoutOps(ArrayRef<ToLayoutUpdateInfo> toLayoutsToUpdate,
 // transpose dimensions, requiring special handling.
 static void
 updateStreamLayoutOps(ArrayRef<StreamLayoutUpdateInfo> streamLayoutsToUpdate,
-                      ArrayRef<int64_t> targetSquareGridShape) {
+                      ArrayRef<int64_t> targetSquareGridShape,
+                      d2m::GenericOp genericOp) {
   if (streamLayoutsToUpdate.empty()) {
     return;
   }
@@ -414,9 +415,13 @@ updateStreamLayoutOps(ArrayRef<StreamLayoutUpdateInfo> streamLayoutsToUpdate,
         streamLayout.getInput(), newStorageEmpty);
 
     // We expect the StreamLayout to be used only by the GenericOp we're
-    // optimizing. Assert this assumption to catch unexpected sharing.
-    assert(streamLayout.getResult().hasOneUse() &&
-           "StreamLayout should only be used by the GenericOp being optimized");
+    // optimizing. Check that all uses are either the GenericOp itself or
+    // operations nested within the GenericOp's region.
+    for (Operation *user : streamLayout.getResult().getUsers()) {
+      assert((user == genericOp || genericOp->isAncestor(user)) &&
+             "StreamLayout should only be used by the GenericOp being "
+             "optimized or operations within its region");
+    }
     streamLayout.getResult().replaceAllUsesWith(newStreamLayout.getResult());
     streamLayout.erase();
 
@@ -624,7 +629,8 @@ static void assignGrids(d2m::GenericOp genericOp,
     }
 
     if (!streamLayoutsToUpdate.empty()) {
-      updateStreamLayoutOps(streamLayoutsToUpdate, targetSquareGridShape);
+      updateStreamLayoutOps(streamLayoutsToUpdate, targetSquareGridShape,
+                            genericOp);
     }
   } else {
     insertTTNNDRAMStreams(genericOp, targetSquareGridShape);
