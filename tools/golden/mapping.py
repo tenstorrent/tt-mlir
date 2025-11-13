@@ -2366,9 +2366,9 @@ def reshape_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
                     shape = _maybe_extract_shape_from_type(result_type)
 
     if shape is None:
-        raise ValueError(
-            "reshape_golden requires a target shape. Provide 'shape', or supply 'result_type' / 'op' for fallback."
-        )
+        # Backward-compatibility: if no shape/context is provided (as in Chisel CLI path),
+        # treat it as identity reshape (use the input tensor's current shape).
+        shape = input_tensor.shape
 
     shape_tuple = tuple(_dim_to_int(dim) for dim in shape)
 
