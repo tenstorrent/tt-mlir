@@ -1,7 +1,10 @@
 
 # TestUtils lib provides extensions to gtest functionality.
 
-find_package(GTest REQUIRED)
+if (NOT GTest_FOUND)
+  message(WARNING "GTest not found")
+  return()
+endif()
 
 set(TESTLIB TTMLIRTestUtils)
 add_library(${TESTLIB})
