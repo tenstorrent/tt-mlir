@@ -23,6 +23,7 @@
 
 #include <regex>
 #include <stack>
+#include <string>
 #include <unordered_set>
 
 using namespace mlir;
@@ -74,6 +75,7 @@ namespace {
 struct PythonEmitter {
   explicit PythonEmitter(raw_ostream &os) : os(os) {
     valueInScopeCount.push(0);
+    usedNames.push(std::set<std::string>());
   }
 
   /// Emits attribute or returns failure.
@@ -119,8 +121,12 @@ struct PythonEmitter {
     Scope(PythonEmitter &emitter)
         : valueMapperScope(emitter.valueMapper), emitter(emitter) {
       emitter.valueInScopeCount.push(emitter.valueInScopeCount.top());
+      emitter.usedNames.push(emitter.usedNames.top());
     }
-    ~Scope() { emitter.valueInScopeCount.pop(); }
+    ~Scope() {
+      emitter.valueInScopeCount.pop();
+      emitter.usedNames.pop();
+    }
 
   private:
     llvm::ScopedHashTableScope<Value, std::string> valueMapperScope;
@@ -129,6 +135,9 @@ struct PythonEmitter {
 
   /// Returns wether the Value is assigned to a Python variable in the scope.
   bool hasValueInScope(Value value) { return valueMapper.count(value); };
+
+  /// Reserve a name to prevent collisions.
+  void reserveName(const std::string &name) { usedNames.top().insert(name); }
 
   /// Returns the output stream.
   raw_indented_ostream &ostream() { return os; };
@@ -145,6 +154,9 @@ private:
   /// The number of values in the current scope per variable name. This is used
   /// to declare the names of values in a scope.
   std::stack<int64_t> valueInScopeCount;
+
+  /// The set of names used in the current scope.
+  std::stack<std::set<std::string>> usedNames;
 };
 } // namespace
 
@@ -155,7 +167,11 @@ static bool hasDeferredEmission(Operation *op) {
 
 StringRef PythonEmitter::getOrCreateName(Value value, std::string name) {
   if (!valueMapper.count(value)) {
+    while (usedNames.top().count(name)) {
+      name = name + "_" + std::to_string(valueInScopeCount.top()++);
+    }
     valueMapper.insert(value, name);
+    usedNames.top().insert(name);
   }
   return *valueMapper.begin(value);
 }
@@ -164,7 +180,8 @@ std::string PythonEmitter::getSubscriptName(SubscriptOp op) {
   std::string name;
   llvm::raw_string_ostream ss(name);
   auto index = op.getIndex();
-  ss << "[" << getOrCreateName(index, "subscript") << "]";
+  std::string indexName = "index_" + std::to_string(valueInScopeCount.top()++);
+  ss << "[" << getOrCreateName(index, indexName) << "]";
   return name;
 }
 
@@ -300,7 +317,7 @@ static LogicalResult printFunctionArgs(PythonEmitter &emitter, Operation &op,
 
   return interleaveCommaWithError(arguments, os, [&](BlockArgument arg) {
     if (auto suggestNameAttr =
-            functionOp.getArgAttr(arg.getArgNumber(), "emitpy.suggest_name")) {
+            functionOp.getArgAttr(arg.getArgNumber(), "emitpy.name")) {
       argName = mlir::cast<StringAttr>(suggestNameAttr).getValue();
     }
     return emitter.emitOperand(arg, argName);
@@ -333,6 +350,7 @@ static LogicalResult printOperation(PythonEmitter &emitter,
   Operation &op = *functionOp.getOperation();
   raw_indented_ostream &os = emitter.ostream();
   StringRef callee = functionOp.getName();
+  emitter.reserveName(callee.str());
   os << "def";
   os << " " << callee;
   os << "(";
@@ -493,7 +511,8 @@ LogicalResult PythonEmitter::emitAssignPrefix(Operation &op) {
   }
   default: {
     interleaveComma(op.getResults(), os, [&](Value result) {
-      os << getOrCreateName(result, "prefix");
+      std::string name = "v_" + std::to_string(valueInScopeCount.top()++);
+      os << getOrCreateName(result, name);
     });
     os << " = ";
   }
@@ -532,7 +551,7 @@ std::string validateVariableName(const std::string &name) {
   }
 
   if (!isValidPythonIdentifier(result)) {
-    result = "var";
+    result = "";
   }
 
   return result;
@@ -543,7 +562,7 @@ LogicalResult PythonEmitter::emitVariableAssignment(OpResult result,
                                                     Operation &op) {
   std::string name = "";
 
-  if (auto suggestNameAttr = op.getAttr("suggest_name")) {
+  if (auto suggestNameAttr = op.getAttr("emitpy.name")) {
     name = mlir::cast<StringAttr>(suggestNameAttr).getValue();
     name = validateVariableName(name);
   }
