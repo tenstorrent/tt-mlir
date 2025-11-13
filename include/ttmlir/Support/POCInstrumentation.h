@@ -30,7 +30,7 @@ public:
     Append     // Continue from max index + 1
   };
 
-  POCInstrumentation(const std::string &outputDir = "./poc_ir_dumps",
+  POCInstrumentation(const std::string &outputDir = "~/explorer",
                      DumpLevel level = DumpLevel::Transformation,
                      ActionMode actionMode = ActionMode::Overwrite,
                      bool debug = false);

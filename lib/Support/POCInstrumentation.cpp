@@ -5,6 +5,8 @@
 #include "ttmlir/Support/POCInstrumentation.h"
 #include "mlir/IR/Operation.h"
 #include "mlir/Pass/Pass.h"
+#include "llvm/ADT/SmallVector.h"
+#include "llvm/Support/FileSystem.h"
 #include "llvm/Support/raw_ostream.h"
 #include <algorithm>
 #include <filesystem>
@@ -15,8 +17,12 @@ namespace mlir::tt {
 POCInstrumentation::POCInstrumentation(const std::string &outputDir,
                                        DumpLevel level, ActionMode actionMode,
                                        bool debug)
-    : dumpCounter_(0), outputDir_(outputDir), modelName_("unknown"),
-      level_(level), actionMode_(actionMode), debug_(debug) {
+    : dumpCounter_(0), modelName_("unknown"), level_(level),
+      actionMode_(actionMode), debug_(debug) {
+  // Expand ~ to home directory using LLVM utility
+  llvm::SmallVector<char, 256> expandedPath;
+  llvm::sys::fs::expand_tilde(outputDir, expandedPath);
+  outputDir_ = std::string(expandedPath.begin(), expandedPath.end());
   // Create output directory
   std::filesystem::create_directories(outputDir_);
 
