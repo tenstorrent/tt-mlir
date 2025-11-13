@@ -317,6 +317,23 @@ jobs:
           echo "    ttrt not installed or not importable"
         fi
         
+        # Verify all libraries in ttrt/runtime resolve to the same tracy
+        echo "  Verifying all ttrt/runtime libraries use same tracy..."
+        if [ -d "build/python_packages/ttrt/runtime" ]; then
+          echo "    Checking build/python_packages/ttrt/runtime/*.so:"
+          for lib in build/python_packages/ttrt/runtime/libTTMLIRRuntime.so \
+                     build/python_packages/ttrt/runtime/libtt_metal.so \
+                     build/python_packages/ttrt/runtime/_ttnncpp.so; do
+            if [ -f "$lib" ]; then
+              tracy_path=$(ldd "$lib" 2>/dev/null | grep libtracy | awk '{print $3}')
+              echo "      $(basename $lib) -> $tracy_path"
+            fi
+          done
+          
+          echo "    All tracy files should point to the same location above."
+          echo "    If they point to different paths, that's the problem!"
+        fi
+        
         # Check if tracy_ops_data.csv has interleaved or separated message ordering
         echo "Checking Tracy message ordering in ops data..."
         find ttrt-artifacts -name "tracy_ops_data.csv" -type f 2>/dev/null | while read csv; do
