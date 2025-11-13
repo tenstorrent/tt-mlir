@@ -573,11 +573,6 @@ getPrepareConv2dWeightsOpOutputTensorSpec(
   std::optional<::ttnn::operations::conv::conv2d::Conv2dConfig>
       conv2dConfigConverted = conversion::getConv2dConfig(conv2dConfig);
 
-  std::optional<::ttnn::operations::conv::conv2d::Conv2dSliceConfig>
-      sliceConfig = ::ttnn::operations::conv::conv2d::Conv2dSliceConfig{
-          .slice_type = ::ttnn::operations::conv::conv2d::Conv2dSliceConfig::
-              SliceType::L1_FULL};
-
   // Create query closure
   auto prepareConv2dWeightsOpQuery = [=]() {
     return ::ttnn::graph::query_op_constraints(
@@ -591,7 +586,7 @@ getPrepareConv2dWeightsOpOutputTensorSpec(
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(dilation),
         hasBias, groups, device, *inputDtype, outputDtype,
         conv2dConfigConverted,
-        /* compute_config_ */ std::nullopt, sliceConfig);
+        /* compute_config_ */ std::nullopt, /* conv2d_slice_config_=*/ std::nullopt);
   };
 
   auto prepareConvTranspose2dWeightsOpQuery = [=]() {
@@ -681,9 +676,6 @@ getPrepareConv2dBiasOpOutputTensorSpec(
       localConfig = *conv2dConfigConverted;
     }
 
-    std::optional<::ttnn::operations::conv::conv2d::Conv2dSliceConfig>
-        sliceConfig = std::nullopt;
-
     return ::ttnn::graph::query_op_constraints(
         &::ttnn::operations::conv::conv2d::prepare_conv_bias, device,
         biasTensor, inputSpec.memory_config(), inputSpec.layout(), in_channels,
@@ -694,7 +686,7 @@ getPrepareConv2dBiasOpOutputTensorSpec(
             padding),
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(dilation),
         groups, device, *inputDtype, outputDtype, localConfig,
-        /*compute_config_=*/std::nullopt, sliceConfig);
+        /*compute_config_=*/std::nullopt, /* conv2d_slice_config_=*/std::nullopt);
   };
 
   auto prepareConvTranspose2dBiasOpQuery = [=]() {
@@ -4205,10 +4197,6 @@ llvm::Expected<OpConstraints> OpModel<Conv2dOp>::getOpConstraints(
       deviceComputeKernelConfigConverted =
           conversion::getDeviceComputeKernelConfig(deviceComputeKernelConfig);
 
-  std::optional<::ttnn::operations::conv::conv2d::Conv2dSliceConfig>
-      sliceConfig = ::ttnn::operations::conv::conv2d::Conv2dSliceConfig();
-  sliceConfig->slice_type =
-      ::ttnn::operations::conv::conv2d::Conv2dSliceConfig::SliceType::L1_FULL;
   // Create query closure
   auto conv2dOpQuery = [=]() {
     return ::ttnn::graph::query_op_constraints(
@@ -4221,7 +4209,7 @@ llvm::Expected<OpConstraints> OpModel<Conv2dOp>::getOpConstraints(
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(dilation),
         groups, outputDtype, biasSpec, conv2dConfigConverted,
         deviceComputeKernelConfigConverted,
-        detail::getNullableMemoryConfig(outputLayout), sliceConfig);
+        detail::getNullableMemoryConfig(outputLayout), /* conv2d_slice_config_=*/std::nullopt);
   };
 
   return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
@@ -4511,11 +4499,6 @@ llvm::Expected<OpConstraints> OpModel<PrepareConv2dWeightsOp>::getOpConstraints(
   } else if (outputDtype.has_value()) {
     convertedOutputDtype = conversion::getDataType(outputDtype.value());
   }
-  // The following parameter does not exist in the op yet.
-  std::optional<::ttnn::operations::conv::conv2d::Conv2dSliceConfig>
-      sliceConfig = ::ttnn::operations::conv::conv2d::Conv2dSliceConfig{
-          .slice_type = ::ttnn::operations::conv::conv2d::Conv2dSliceConfig::
-              SliceType::L1_FULL};
 
   auto prepareConv2dWeightsQuery = [=]() {
     return ::ttnn::graph::query_op_constraints(
@@ -4531,7 +4514,7 @@ llvm::Expected<OpConstraints> OpModel<PrepareConv2dWeightsOp>::getOpConstraints(
         hasBias, groups, device, conversion::getDataType(inputDtype),
         convertedOutputDtype, conversion::getConv2dConfig(conv2dConfig),
         conversion::getDeviceComputeKernelConfig(deviceComputeKernelConfig),
-        sliceConfig);
+        /* conv2d_slice_config_=*/std::nullopt);
   };
 
   return operation::getOpConstraints(weightLayout.getContext(), deviceGrid,
