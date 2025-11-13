@@ -1,5 +1,5 @@
 add_mlir_library(TTMLIRSupport
-  POCInstrumentation.cpp
+  TTPrintIRInstrumentation.cpp
 
   ADDITIONAL_HEADER_DIRS
   ${TTMLIR_SOURCE_DIR}/include/ttmlir/Support

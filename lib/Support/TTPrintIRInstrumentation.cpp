@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/Support/POCInstrumentation.h"
+#include "ttmlir/Support/TTPrintIRInstrumentation.h"
 #include "mlir/IR/Operation.h"
 #include "mlir/Pass/Pass.h"
 #include "llvm/ADT/SmallVector.h"
@@ -14,7 +14,8 @@
 
 namespace mlir::tt {
 
-POCInstrumentation::POCInstrumentation(POCInstrumentationOptions options)
+TTPrintIRInstrumentation::TTPrintIRInstrumentation(
+    TTPrintIRInstrumentationOptions options)
     : dumpCounter_(0), pipelineName_(options.pipelineName), fileMutex_(),
       level_(options.level), debug_(options.debug) {
   // Set model name - use provided name or default to "unknown"
@@ -34,7 +35,7 @@ POCInstrumentation::POCInstrumentation(POCInstrumentationOptions options)
   }
 
   if (debug_) {
-    llvm::outs() << "POCInstrumentation: Constructor called, output dir: "
+    llvm::outs() << "TTPrintIRInstrumentation: Constructor called, output dir: "
                  << outputDir_ << ", model: " << modelName_
                  << (pipelineName_.empty() ? ""
                                            : ", pipeline: " + pipelineName_)
@@ -42,23 +43,23 @@ POCInstrumentation::POCInstrumentation(POCInstrumentationOptions options)
   }
 }
 
-POCInstrumentation::~POCInstrumentation() {
+TTPrintIRInstrumentation::~TTPrintIRInstrumentation() {
   if (debug_) {
-    llvm::outs() << "POCInstrumentation: Destructor called, total dumps: "
+    llvm::outs() << "TTPrintIRInstrumentation: Destructor called, total dumps: "
                  << dumpCounter_.load() << "\n";
   }
 }
 
-void POCInstrumentation::attachActionHandler(mlir::MLIRContext *ctx) {
+void TTPrintIRInstrumentation::attachActionHandler(mlir::MLIRContext *ctx) {
   if (!ctx) {
-    llvm::errs()
-        << "POCInstrumentation: Cannot attach action handler - null context\n";
+    llvm::errs() << "TTPrintIRInstrumentation: Cannot attach action handler - "
+                    "null context\n";
     return;
   }
 
   if (debug_) {
-    llvm::outs()
-        << "POCInstrumentation: Registering action handler with context\n";
+    llvm::outs() << "TTPrintIRInstrumentation: Registering action handler with "
+                    "context\n";
   }
 
   // Register an action handler to dump IR on PassExecutionAction
@@ -89,29 +90,29 @@ void POCInstrumentation::attachActionHandler(mlir::MLIRContext *ctx) {
   });
 }
 
-void POCInstrumentation::initializeDumpCounter() { dumpCounter_ = 0; }
+void TTPrintIRInstrumentation::initializeDumpCounter() { dumpCounter_ = 0; }
 
-void POCInstrumentation::setModelName(const std::string &name) {
+void TTPrintIRInstrumentation::setModelName(const std::string &name) {
   modelName_ = name;
   // Initialize counter when model name is first set
   initializeDumpCounter();
 }
 
-void POCInstrumentation::runBeforePipeline(
+void TTPrintIRInstrumentation::runBeforePipeline(
     std::optional<OperationName> name, const PipelineParentInfo &parentInfo) {
   // Pipeline dumps happen at boundaries for all levels
 }
 
-void POCInstrumentation::runAfterPipeline(
+void TTPrintIRInstrumentation::runAfterPipeline(
     std::optional<OperationName> name, const PipelineParentInfo &parentInfo) {
   // Pipeline dumps happen at boundaries for all levels
 }
 
-void POCInstrumentation::runBeforePass(Pass *pass, Operation *op) {
+void TTPrintIRInstrumentation::runBeforePass(Pass *pass, Operation *op) {
   // Pass dumps handled in runAfterPass
 }
 
-void POCInstrumentation::runAfterPass(Pass *pass, Operation *op) {
+void TTPrintIRInstrumentation::runAfterPass(Pass *pass, Operation *op) {
   // Only dump if level is Pass or higher (not Pipeline-only)
   if (level_ == DumpLevel::Pipeline) {
     return;
@@ -133,21 +134,22 @@ void POCInstrumentation::runAfterPass(Pass *pass, Operation *op) {
   dumpIR(op, passName);
 }
 
-void POCInstrumentation::runAfterPassFailed(Pass *pass, Operation *op) {
+void TTPrintIRInstrumentation::runAfterPassFailed(Pass *pass, Operation *op) {
   // Don't dump on failed passes
 }
 
-void POCInstrumentation::runBeforeAnalysis(StringRef name, TypeID id,
-                                           Operation *op) {
+void TTPrintIRInstrumentation::runBeforeAnalysis(StringRef name, TypeID id,
+                                                 Operation *op) {
   // Analysis tracking not needed for IR dumps
 }
 
-void POCInstrumentation::runAfterAnalysis(StringRef name, TypeID id,
-                                          Operation *op) {
+void TTPrintIRInstrumentation::runAfterAnalysis(StringRef name, TypeID id,
+                                                Operation *op) {
   // Analysis tracking not needed for IR dumps
 }
 
-void POCInstrumentation::dumpIR(mlir::Operation *op, const std::string &name) {
+void TTPrintIRInstrumentation::dumpIR(mlir::Operation *op,
+                                      const std::string &name) {
   if (!op) {
     return;
   }
@@ -171,18 +173,19 @@ void POCInstrumentation::dumpIR(mlir::Operation *op, const std::string &name) {
     file.close();
 
     if (debug_) {
-      llvm::outs() << "POCInstrumentation: Dumped IR to " << filename << "\n";
+      llvm::outs() << "TTPrintIRInstrumentation: Dumped IR to " << filename
+                   << "\n";
     }
   } else {
-    llvm::errs() << "POCInstrumentation: Failed to open file " << filename
+    llvm::errs() << "TTPrintIRInstrumentation: Failed to open file " << filename
                  << ": " << ec.message() << "\n";
   }
 
   dumpCounter_++;
 }
 
-std::string
-POCInstrumentation::extractModelNameFromLocation(mlir::Operation *op) const {
+std::string TTPrintIRInstrumentation::extractModelNameFromLocation(
+    mlir::Operation *op) const {
   if (!op) {
     return "unknown";
   }
@@ -236,7 +239,7 @@ POCInstrumentation::extractModelNameFromLocation(mlir::Operation *op) const {
 }
 
 std::string
-POCInstrumentation::sanitizeFilename(const std::string &name) const {
+TTPrintIRInstrumentation::sanitizeFilename(const std::string &name) const {
   std::string result = name;
   std::replace_if(
       result.begin(), result.end(),
@@ -245,7 +248,7 @@ POCInstrumentation::sanitizeFilename(const std::string &name) const {
 }
 
 std::string
-POCInstrumentation::getOutputFilename(const std::string &name) const {
+TTPrintIRInstrumentation::getOutputFilename(const std::string &name) const {
   std::string safeName = sanitizeFilename(name);
   std::string safeModelName = sanitizeFilename(modelName_);
 
@@ -257,12 +260,13 @@ POCInstrumentation::getOutputFilename(const std::string &name) const {
   return subdirPath + "/" + filename;
 }
 
-std::string POCInstrumentation::getTargetDirectory() const {
+std::string TTPrintIRInstrumentation::getTargetDirectory() const {
   std::string safeModelName = sanitizeFilename(modelName_);
   return outputDir_ + "/" + safeModelName;
 }
 
-void POCInstrumentation::clearDirectory(const std::string &targetDir) const {
+void TTPrintIRInstrumentation::clearDirectory(
+    const std::string &targetDir) const {
   if (std::filesystem::exists(targetDir)) {
     std::filesystem::remove_all(targetDir);
   }

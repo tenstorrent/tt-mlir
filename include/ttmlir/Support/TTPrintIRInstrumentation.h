@@ -2,8 +2,8 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#ifndef TTMLIR_SUPPORT_POCINSTRUMENTATION_H
-#define TTMLIR_SUPPORT_POCINSTRUMENTATION_H
+#ifndef TTMLIR_SUPPORT_TTPRINTIRINSTRUMENTATION_H
+#define TTMLIR_SUPPORT_TTPRINTIRINSTRUMENTATION_H
 
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/Pass/PassInstrumentation.h"
@@ -17,7 +17,7 @@ namespace mlir::tt {
 
 /// IR dumping instrumentation that dumps MLIR at various stages.
 /// Supports Pipeline, Pass, and Transformation level dumping.
-class POCInstrumentation : public PassInstrumentation {
+class TTPrintIRInstrumentation : public PassInstrumentation {
 public:
   enum class DumpLevel {
     Pipeline,      // Dump only at pipeline boundaries
@@ -25,7 +25,7 @@ public:
     Transformation // Dump at pipeline + pass + transformation actions
   };
 
-  struct POCInstrumentationOptions {
+  struct TTPrintIRInstrumentationOptions {
     std::string outputDir = "~/explorer";
     DumpLevel level = DumpLevel::Transformation;
     bool debug = true;
@@ -33,8 +33,8 @@ public:
     std::string pipelineName = ""; // Optional pipeline name for organization
   };
 
-  POCInstrumentation(POCInstrumentationOptions options);
-  ~POCInstrumentation() override;
+  TTPrintIRInstrumentation(TTPrintIRInstrumentationOptions options);
+  ~TTPrintIRInstrumentation() override;
 
   // Set up action handler with the MLIR context from PassManager
   void attachActionHandler(mlir::MLIRContext *ctx);
