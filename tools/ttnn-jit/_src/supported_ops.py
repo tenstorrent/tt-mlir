@@ -11,6 +11,7 @@ unary_ops = [
     "abs",
     "exp",
     "neg",
+    "reciprocal",
     "sqrt",
     "rsqrt",
     "log",
