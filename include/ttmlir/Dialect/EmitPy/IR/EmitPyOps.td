@@ -240,6 +240,8 @@ def EmitPy_GlobalStatementOp : EmitPy_Op<"global_statement",
 
   let arguments = (ins FlatSymbolRefAttr:$name);
   let results = (outs AnyType:$result);
+
+  let hasVerifier = 1;
   let assemblyFormat = "$name `:` type($result) attr-dict";
 }
 
@@ -258,6 +260,8 @@ def EmitPy_GetGlobalOp : EmitPy_Op<"get_global",
 
   let arguments = (ins FlatSymbolRefAttr:$name);
   let results = (outs AnyType:$result);
+
+  let hasVerifier = 1;
   let assemblyFormat = "$name `:` type($result) attr-dict";
 }
 
@@ -266,11 +270,19 @@ def EmitPy_AssignGlobalOp : EmitPy_Op<"assign_global",
   let summary = "Assign a value to a global variable";
   let description = [{
     The `emitpy.assign_global` assignes the value to an existing named global variable.
+
+    Example:
+
+    ```mlir
+    emitpy.assign_global @value = %arg0 : !emitpy.opaque<"[ttnn.Tensor]">
+    ```
   }];
 
   let arguments = (ins FlatSymbolRefAttr:$name,
-                       EmitPy_OpaqueType:$value);
-  let results = (outs AnyType:$result);
+                       AnyType:$value);
+
+  let hasVerifier = 1;
+  let hasCustomAssemblyFormat = 1;
 }
 
 #endif // TTMLIR_TTMLIR_DIALECT_EMITPY_EMITPYOPS_TD
