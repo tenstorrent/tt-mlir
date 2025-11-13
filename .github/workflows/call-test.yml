@@ -334,7 +334,7 @@ jobs:
           echo "    If they point to different paths, that's the problem!"
         fi
         
-        # Check which libraries ttrt actually loads at runtime
+        # Check which libraries ttrt actually loads at runtime (ttrt already installed from earlier steps)
         echo "  Checking which libraries ttrt loads at runtime..."
         python3 -c 'import sys; import ttrt; print(f"    ttrt loaded from: {ttrt.__file__}"); print(f"    Python loaded modules with \"tt\" or \"mlir\":"); [print(f"      {name}: {mod.__file__}") for name, mod in sys.modules.items() if ("tt" in name.lower() or "mlir" in name.lower()) and hasattr(mod, "__file__") and mod.__file__]' 2>&1 || echo "    (Failed to import ttrt)"
         
