@@ -2,11 +2,8 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "operations/transformer/scaled_dot_product_attention_decode.h"
-#include "tt/runtime/detail/common/logger.h"
-#include "tt/runtime/detail/ttnn/ttnn.h"
+#include "operations/transformer/paged_scaled_dot_product_attention_decode.h"
 
-#include "tt/runtime/detail/ttnn/operations/utils.h"
 #include "tt/runtime/detail/ttnn/utils.h"
 
 namespace tt::runtime::ttnn::operations::transformer {
