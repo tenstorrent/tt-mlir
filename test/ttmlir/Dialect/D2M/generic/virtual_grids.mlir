@@ -21,7 +21,8 @@
 
 !virtGridT = memref<1x64x4x4x!ttcore.tile<32x32, f32>, #virtShardLayoutAttr, #ttcore.memory_space<l1>>
 
-// NOTE: streaming a virtual grid tensor DOES NOT fold/absorb its affine map
+// NOTE: The stream itself should NOT fold the affine map within the
+// virtShardLayoutAttr into itself (during canonicalization or otherwise).
 !streamT   = memref<1x64x4x4x!ttcore.tile<32x32, f32>, #ttcore.view<(d0,d1,d2,d3) -> (d0,d1,d2,d3)>, #ttcore.memory_space<l1>>
 !cbT2 = memref<4x4x!ttcore.tile<32x32, f32>, #ttcore.memory_space<l1>>
 
