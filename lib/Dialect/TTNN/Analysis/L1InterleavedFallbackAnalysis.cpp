@@ -391,8 +391,8 @@ L1InterleavedFallbackAnalysis::checkUpgradeToL1Interleaved(
     TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
                  "Output layout mismatch for op {0}:"
                  "\nexpected: {1},\nactual: {2},",
-                 consumerOp->getName(), consumerConfig.outputLayout,
-                 outputLayout);
+                 consumerOp->getName(), consumerConfig.outputLayouts.front(),
+                 outputLayouts.front());
     return llvm::createStringError(llvm::inconvertibleErrorCode(),
                                    "Output layout mismatch for op %s.",
                                    consumerOp->getName().getStringRef().data());
@@ -407,7 +407,7 @@ L1InterleavedFallbackAnalysis::checkUpgradeToL1Interleaved(
                  "\n outputLayout: {1}, l1Usage: {2}, "
                  "producerL1OutputUsage: {3}, tensorUsage: {4}, "
                  "outputTensorUsage: {5}, cBUsagePeak: {6}",
-                 consumerOp->getName(), outputLayout,
+                 consumerOp->getName(), outputLayouts.front(),
                  cBUsagePeak + tensorUsage + producersL1OutputUsage,
                  producersL1OutputUsage, tensorUsage, outputTensorUsage,
                  cBUsagePeak);
@@ -428,8 +428,8 @@ L1InterleavedFallbackAnalysis::checkUpgradeToL1Interleaved(
                  "L1 usage: cBUsagePeak: {2}, tensorUsage: {3}, "
                  "outputTensorUsage: {4}, "
                  "producerL1OutputUsage: {5}, totalL1Usage: {6}",
-                 consumerOp->getName(), outputLayout, cBUsagePeak, tensorUsage,
-                 outputTensorUsage, producersL1OutputUsage,
+                 consumerOp->getName(), outputLayouts.front(), cBUsagePeak,
+                 tensorUsage, outputTensorUsage, producersL1OutputUsage,
                  cBUsagePeak + tensorUsage + producersL1OutputUsage);
 
     return outputLayouts.front();
@@ -473,7 +473,7 @@ L1InterleavedFallbackAnalysis::checkUpgradeToL1Interleaved(
       "OutputLayout: {1}\n"
       "L1 usage: cBUsagePeak: {2}, tensorUsage: {3}, outputTensorUsage: {4}, "
       "producerL1OutputUsage: {5}, totalL1Usage: {6}",
-      consumerOp->getName(), outputLayout, cBUsagePeak, tensorUsage,
+      consumerOp->getName(), outputLayouts.front(), cBUsagePeak, tensorUsage,
       outputTensorUsage, producersL1OutputUsage,
       cBUsagePeak + tensorUsage + producersL1OutputUsage);
 
