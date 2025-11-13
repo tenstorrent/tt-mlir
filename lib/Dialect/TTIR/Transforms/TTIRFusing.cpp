@@ -2161,55 +2161,39 @@ private:
         rewriter.getSI32IntegerAttr(dim) /* axis */);
   }
 
-  // Recursively collect all defining ops of a value and their dependencies.
-  // Avoid cycles or duplicates using a visited set.
-  void collectRecursivePreprocessingOps(Value val, Operation *queryPermuteOp,
-                                        SmallVectorImpl<Operation *> &collected,
-                                        DenseSet<Operation *> &visited) const {
-    if (Operation *defOp = val.getDefiningOp()) {
-      // Only consider ops after queryPermuteOp in the block.
-      if (defOp->getBlock() == queryPermuteOp->getBlock()) {
-        if (defOp->isBeforeInBlock(queryPermuteOp)) {
-          // Skip ops that appear before queryPermuteOp.
-          return;
-        }
-      }
-
-      if (!visited.insert(defOp).second) {
-        return; // Already visited.
-      }
-
-      // Recurse through operands first.
-      for (Value operand : defOp->getOperands()) {
-        collectRecursivePreprocessingOps(operand, queryPermuteOp, collected,
-                                         visited);
-      }
-
-      collected.push_back(defOp);
-    }
-  }
-
   void hoistPreprocessingOps(llvm::SmallVector<PermuteOp> permuteOps) const {
     PermuteOp queryPermuteOp = permuteOps[0];
-    llvm::SmallVector<Operation *> preOpsToMove;
-    llvm::DenseSet<Operation *> visited;
 
-    auto collectFromOperands = [&](Operation *targetOp) {
-      for (Value operand : targetOp->getOperands()) {
-        collectRecursivePreprocessingOps(operand, queryPermuteOp, preOpsToMove,
-                                         visited);
+    // Collect all values that need to be hoisted (from Key and Value operands).
+    llvm::SetVector<mlir::Value> allValues;
+
+    // Collect use-def chains for Key PermuteOp operands.
+    for (Value operand : permuteOps[1]->getOperands()) {
+      llvm::SetVector<mlir::Value> udChain =
+          ttmlir::utils::getUseDefChain(operand);
+      allValues.insert(udChain.begin(), udChain.end());
+    }
+
+    // Collect use-def chains for Value PermuteOp operands.
+    for (Value operand : permuteOps[2]->getOperands()) {
+      llvm::SetVector<mlir::Value> udChain =
+          ttmlir::utils::getUseDefChain(operand);
+      allValues.insert(udChain.begin(), udChain.end());
+    }
+
+    // Filter to get operations.
+    llvm::SetVector<mlir::Operation *> opsToMove =
+        ttmlir::utils::filterOperations(allValues.getArrayRef());
+
+    // Topologically sort to maintain dependencies.
+    llvm::SetVector<mlir::Operation *> sortedOps = topologicalSort(opsToMove);
+
+    // Move only operations that appear after queryPermuteOp.
+    for (mlir::Operation *op : sortedOps) {
+      if (op->getBlock() == queryPermuteOp->getBlock() &&
+          !op->isBeforeInBlock(queryPermuteOp)) {
+        op->moveBefore(queryPermuteOp);
       }
-    };
-
-    // Collect prepocessing ops for Key PermuteOp.
-    collectFromOperands(permuteOps[1]);
-    // Collect prepocessing ops for Value PermuteOp.
-    collectFromOperands(permuteOps[2]);
-
-    // Hoist preprocessing ops before Query PermuteOp — all of which are after
-    // Query PermuteOp.
-    for (Operation *preOp : preOpsToMove) {
-      preOp->moveBefore(queryPermuteOp);
     }
   }
 
