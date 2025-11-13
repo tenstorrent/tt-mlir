@@ -73,17 +73,18 @@ toMetalFabricConfig(tt::runtime::FabricConfig cfg) {
   LOG_FATAL("Unknown tt::runtime::FabricConfig value");
 }
 
-inline CoreRangeSet toCoreRangeSet(
+inline tt::tt_metal::CoreRangeSet toCoreRangeSet(
     const ::flatbuffers::Vector<const tt::target::Dim2dRange *> *coreRangeSet) {
-  std::set<CoreRange> coreRanges;
+  std::set<tt::tt_metal::CoreRange> coreRanges;
   for (const ::tt::target::Dim2dRange *coreRange : *coreRangeSet) {
-    CoreCoord start(coreRange->loc().x(), coreRange->loc().y());
+    tt::tt_metal::CoreCoord start(coreRange->loc().x(), coreRange->loc().y());
     // End is inclusive
-    CoreCoord end(coreRange->loc().x() + coreRange->size().x() - 1,
-                  coreRange->loc().y() + coreRange->size().y() - 1);
+    tt::tt_metal::CoreCoord end(
+        coreRange->loc().x() + coreRange->size().x() - 1,
+        coreRange->loc().y() + coreRange->size().y() - 1);
     coreRanges.emplace(start, end);
   }
-  return CoreRangeSet(coreRanges);
+  return tt::tt_metal::CoreRangeSet(coreRanges);
 }
 
 inline ::tt::DataFormat toDataFormat(::tt::target::DataType dataType) {

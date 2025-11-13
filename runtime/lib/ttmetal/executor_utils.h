@@ -111,7 +111,7 @@ createMeshBufferForShardedMetalBuffer(
       shardedBufferConfig->shard_spec_buffer();
   const target::metal::ShardSpec *shardSpec = shardSpecBuffer->shard_spec();
 
-  CoreRangeSet coreRangeSet =
+  tt::tt_metal::CoreRangeSet coreRangeSet =
       common::toCoreRangeSet(shardSpec->core_range_set());
   std::array<uint32_t, 2> shardShape = {
       static_cast<uint32_t>(shardSpec->shard_shape()->y()),
@@ -277,11 +277,12 @@ inline std::string parseLocFromDebugInfo(const char *programDebugInfo) {
   return debugInfo.substr(0, pos);
 }
 
-// Produces string representation of CoreRangeSet that is suitable for embedding
-// in file name. Encode core range set so that ranges are separated by
-// double underscore '__'. Range is represented with start and end coordinates
-// as "startY_startX-endY_endX".
-inline std::string coreRangeToString(const CoreRangeSet &coreRanges) {
+// Produces string representation of tt::tt_metal::CoreRangeSet that is suitable
+// for embedding in file name. Encode core range set so that ranges are
+// separated by double underscore '__'. Range is represented with start and end
+// coordinates as "startY_startX-endY_endX".
+inline std::string
+coreRangeToString(const tt::tt_metal::CoreRangeSet &coreRanges) {
   std::string result;
   for (const auto &coreRange : coreRanges.ranges()) {
     result += std::to_string(coreRange.start_coord.y) + "_" +
@@ -298,7 +299,7 @@ inline std::string coreRangeToString(const CoreRangeSet &coreRanges) {
 
 inline std::string createKernelFilePath(
     const char *currentProgramName, const char *kernelDebugInfo,
-    const char *kernelLoc, const CoreRangeSet &coreRangeSet,
+    const char *kernelLoc, const tt::tt_metal::CoreRangeSet &coreRangeSet,
     const std::variant<tt_metal::DataMovementConfig, tt_metal::ComputeConfig,
                        tt_metal::EthernetConfig> &kernelConfig,
     std::filesystem::path prefix = {}, const char *extention = ".cpp") {
@@ -340,7 +341,7 @@ inline void writeFile(const std::string &fileName, const std::string &source) {
 
 inline tt_metal::KernelHandle createKernel(
     tt_metal::Program &program, const std::string &kernelSource,
-    const CoreRangeSet &coreRangeSet,
+    const tt::tt_metal::CoreRangeSet &coreRangeSet,
     const std::variant<tt_metal::DataMovementConfig, tt_metal::ComputeConfig,
                        tt_metal::EthernetConfig> &kernelConfig,
     const char *currentProgramName, const char *programDebugInfo,

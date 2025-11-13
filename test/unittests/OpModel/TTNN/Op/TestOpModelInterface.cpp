@@ -4365,7 +4365,9 @@ TEST_F(OpModelBase, RandOpInterface) {
   }
 }
 
-TEST_F(OpModelBase, DeallocateOpInterface) {
+// Disabled due to hang caused by tt-metal commit f050acd9a8
+// (mesh device synchronization barrier changes in finish calls)
+TEST_F(OpModelBase, DISABLED_DeallocateOpInterface) {
   // Test basic DeallocateOp with L1 memory
   llvm::SmallVector<int64_t> tensorShape = {workerCoresN300, 1024};
   auto inputTensor = createEmptyTensor(tensorShape);

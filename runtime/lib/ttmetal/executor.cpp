@@ -298,7 +298,7 @@ void MCQExecutor::execute(const target::metal::EnqueueProgramCommand *command,
     std::string kernelSourceString(kernelSource->source()->c_str(),
                                    kernelSource->source()->size());
 
-    CoreRangeSet coreRangeSet =
+    tt::tt_metal::CoreRangeSet coreRangeSet =
         common::toCoreRangeSet(kernelConfig->core_range_set());
 
     auto createSemaphore = [&](std::uint32_t initialValue,
@@ -338,7 +338,7 @@ void MCQExecutor::execute(const target::metal::EnqueueProgramCommand *command,
       continue;
     }
 
-    CoreRangeSet coreRangeSet = common::toCoreRangeSet(
+    tt::tt_metal::CoreRangeSet coreRangeSet = common::toCoreRangeSet(
         metalBuffer->circular_buffer_config()->core_range_set());
     tt_metal::CircularBufferConfig config =
         createCircularBufferConfig(cbRef, meshBuffers);
