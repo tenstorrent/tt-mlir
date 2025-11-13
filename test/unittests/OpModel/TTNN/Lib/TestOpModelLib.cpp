@@ -4673,6 +4673,47 @@ TEST_F(OpModelTest, PagedUpdateCacheOp) {
   }
 }
 
+TEST_F(OpModelTest, PagedFillCacheOp) {
+  // Test basic PagedUpdateCacheOp with DRAM cache, input, update_index, and
+  // page_table tensors
+  const llvm::SmallVector<int64_t> cacheShape = {128, 4, 32, 256};
+  const llvm::SmallVector<int64_t> inputShape = {1, 12, 65, 256};
+  const llvm::SmallVector<int64_t> batchOffsetShape = {1};
+  const llvm::SmallVector<int64_t> pageTableShape = {8, 16};
+  const auto workerGrid = CreateWorkerGrid(gridShapeHwN300);
+
+  const TTNNLayoutAttr cacheLayout = CreateTiledLayout(
+      cacheShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+  const TTNNLayoutAttr inputLayout = CreateTiledLayout(
+      inputShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+  const TTNNLayoutAttr batchOffsetLayout = CreateRowMajorLayoutInt32(
+      batchOffsetShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+  const TTNNLayoutAttr pageTableLayout = CreateRowMajorLayoutInt32(
+      pageTableShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+
+  auto constraintsExp = OpModel<PagedFillCacheOp>::getOpConstraints(
+      workerGrid, cacheShape, cacheLayout, inputShape, inputLayout,
+      pageTableShape, pageTableLayout, batchOffsetShape, batchOffsetLayout,
+      cacheLayout);
+  EXPECT_TRUE(static_cast<bool>(constraintsExp));
+
+  if (constraintsExp) {
+    OpConstraints &opCstr = constraintsExp.get();
+    EXPECT_EQ(opCstr.cbL1PeakSize, 32836);
+    EXPECT_EQ(opCstr.tensorL1PeakSize, 0);
+    EXPECT_EQ(opCstr.outputL1BufferSize, 0);
+    EXPECT_EQ(opCstr.peakL1MemorySize, 32836);
+  }
+
+  auto runtimeExp = OpModel<PagedFillCacheOp>::getOpRuntime(
+      cacheShape, cacheLayout, inputShape, inputLayout, pageTableShape,
+      pageTableLayout, batchOffsetShape, batchOffsetLayout, cacheLayout);
+  EXPECT_TRUE(static_cast<bool>(runtimeExp));
+  if (runtimeExp) {
+    EXPECT_GT(runtimeExp.get(), 0);
+  }
+}
+
 //===----------------------------------------------------------------------===//
 // QuantizeOp Tests
 //===----------------------------------------------------------------------===//
