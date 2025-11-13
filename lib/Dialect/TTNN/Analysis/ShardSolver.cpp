@@ -200,7 +200,7 @@ bool ShardSolver::resolveStep() {
               TTMLIR_TRACE(
                   ttmlir::LogComponent::Optimizer,
                   "Backend chose valid consumer layout {}, consumerId {}",
-                  result.actualOutputLayout, result.configIndex);
+                  result.actualOutputLayouts[0], result.configIndex);
               edgeProducerBitset.set(producerId);
               edgeConsumerBitset.set(result.configIndex);
               paths.push_back(Path(
@@ -563,7 +563,7 @@ bool ShardSolver::insertReshard(const Edge &edge) {
                  consumerConfigs.size());
     for ([[maybe_unused]] auto config : consumerConfigs) {
       TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer, "\t{}",
-                   config.outputLayout);
+                   config.outputLayouts.front());
     }
 
     TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,

@@ -188,13 +188,14 @@ public:
             // Output layout mismatch - need to update the IR to match the
             // expected layout and insert necessary conversions back to the
             // expected layout.
+            // TODO(gfeng): print all output layouts
             TTMLIR_DEBUG(
                 ttmlir::LogComponent::OpValidation,
                 "Operation {} at {} passed validation with original config "
-                "but output layouts mismatch: expected output layouts: {}, "
-                "backend output layouts: {}",
-                operation->getName(), operation->getLoc(), config.outputLayouts,
-                originalResult.actualOutputLayouts);
+                "but output layouts mismatch: expected output layouts[0]: {}, "
+                "backend output layouts[0]: {}",
+                operation->getName(), operation->getLoc(),
+                config.outputLayouts[0], originalResult.actualOutputLayouts[0]);
             // Passing inputLayouts as both original and working layouts
             // because we didn't change input layouts.
             fallbacks::applyFallbackTransformations(
