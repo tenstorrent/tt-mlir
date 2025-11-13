@@ -2903,6 +2903,8 @@ PagedUpdateCacheOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 llvm::Expected<op_model::OpConstraints>
 PagedFillCacheOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                                    const OpConfig &opConfig) {
+  assert(inputs.size() >= 3 && inputs.size() <= 4 &&
+         "PagedFillCacheOp must have 3 or 4 inputs");
   llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
   if (!check) {
     return check.takeError();
@@ -2929,6 +2931,8 @@ PagedFillCacheOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
 llvm::Expected<size_t>
 PagedFillCacheOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
                                const OpConfig &opConfig) {
+  assert(inputs.size() >= 3 && inputs.size() <= 4 &&
+         "PagedFillCacheOp must have 3 or 4 inputs");
   auto cacheShape = getCache().getType().getShape();
   auto inputShape = getInput().getType().getShape();
   auto pageTableShape = getPageTable().getType().getShape();
