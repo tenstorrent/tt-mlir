@@ -2179,7 +2179,7 @@ def TTNN_ScatterOp : TTNN_Op<"scatter">{
     }];
 }
 
-def TTNN_AllGatherOp: TTNN_Op<"all_gather"> {
+def TTNN_AllGatherOp: TTNN_Op<"all_gather", [TTNN_MemoryConfigOpInterface]> {
     let summary = "All gather op.";
     let description = [{
         Tensor All Gather operation
@@ -2200,7 +2200,7 @@ def TTNN_AllGatherOp: TTNN_Op<"all_gather"> {
     let hasFolder = 1;
 }
 
-def TTNN_ReduceScatterOp: TTNN_Op<"reduce_scatter"> {
+def TTNN_ReduceScatterOp: TTNN_Op<"reduce_scatter", [TTNN_MemoryConfigOpInterface]> {
     let summary = "Reduce scatter op.";
     let description = [{
         Tensor Reduce Scatter operation
