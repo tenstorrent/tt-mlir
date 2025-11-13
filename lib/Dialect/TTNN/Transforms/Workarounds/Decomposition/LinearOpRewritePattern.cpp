@@ -98,7 +98,7 @@ LinearOpRewritePattern::matchAndRewrite(ttnn::LinearOp srcOp,
       ttmlir::utils::appendLocationSuffix(srcOp.getLoc(), "_decomp_matmul"),
       matmulOutputType, srcOp.getA(), srcOp.getB(), srcOp.getTransposeA(),
       srcOp.getTransposeB(),
-      /*matmul_program_config=*/mlir::Attribute());
+      /*matmul_program_config=*/mlir::Attribute(), /*activation=*/nullptr);
 
   // Step 2: Create Add operation with bias
   AddOp addOp = rewriter.create<ttnn::AddOp>(

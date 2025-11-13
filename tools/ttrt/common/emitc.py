@@ -411,8 +411,12 @@ class EmitC:
                             for i, emitc_runtime_input in enumerate(
                                 emitc_runtime_inputs
                             ):
+                                # Ensure inputs are converted to host and untilized before tensor conversion
+                                host_input = ttrt.runtime.to_host(
+                                    emitc_runtime_input, untilize=True
+                                )[0]
                                 emitc_torch_input = convert_runtime_to_torch_tensor(
-                                    emitc_runtime_input
+                                    host_input
                                 )
                                 emitc_torch_inputs.append(emitc_torch_input)
 
@@ -447,8 +451,12 @@ class EmitC:
                         or compare_to_ttnn
                     ):
                         for i, emitc_runtime_output in enumerate(emitc_runtime_outputs):
+                            # Ensure outputs are converted to host and untilized before tensor conversion
+                            host_output = ttrt.runtime.to_host(
+                                emitc_runtime_output, untilize=True
+                            )[0]
                             emitc_torch_output = convert_runtime_to_torch_tensor(
-                                emitc_runtime_output
+                                host_output
                             )
                             emitc_torch_outputs.append(emitc_torch_output)
 
@@ -517,6 +525,20 @@ class EmitC:
                 if device is not None:
                     ttrt.runtime.close_mesh_device(device)
                     device = None
+
+                # Clean up memory, avoid Python GC calling __del__ on objects from closed so
+                import gc
+
+                del emitc_runtime_inputs, emitc_runtime_outputs
+                try:
+                    del emitc_torch_inputs
+                except UnboundLocalError:
+                    pass
+                try:
+                    del emitc_torch_outputs
+                except UnboundLocalError:
+                    pass
+                gc.collect()
 
                 ttrt.runtime.test.close_so(emitc_dylib_handle)
 

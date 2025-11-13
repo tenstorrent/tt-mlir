@@ -6,6 +6,7 @@ import textwrap
 import inspect
 import importlib
 from typing import Callable
+from ttmlir.ir import *
 
 
 def _discover_dialect_ops(dialect, denylist=None):
@@ -78,3 +79,77 @@ def _get_num_pos_args(func: Callable):
         ]
     )
     return num_pos_args
+
+
+def _get_collapsed_linear_affine_map(
+    context, shape, grid_shape, collapse_intervals=[(0, -1)]
+):
+    """
+    This function creates an affine map for use in constructing TTNNLayoutAttr.
+    Its default behavior must match TTNN's dimension collapsing behavior.
+    It is based on collapsedLinearAffineMap() in TTCoreOpsTypes.cpp.
+    It collapses tensor dimensions onto an n-dimensional grid, e.g.:
+
+      - 3D tensor onto a 2D grid:
+        (d0, d1, d2) -> (d0 <> d1, d2)
+
+      - 4D tensor onto a 2D grid:
+        (d0, d1, d2, d3) -> (d0 <> d1 <> d2, d3)
+
+    By default, it collapses the interval [0, -1), which matches TTNN's default
+    collapsing. You can specify collapse_intervals for flexible collapsing.
+
+    Examples:
+
+      - 4D tensor onto a 3D grid collapse_intervals=[(1, -1)]:
+        (d0, d1, d2, d3) -> (d0, d1 <> d2, d3)
+
+      - 4D tensor onto a 3D grid collapse_intervals=[(0, 2)]:
+        (d0, d1, d2, d3) -> (d0 <> d1, d2, d3)
+
+      - 7D tensor onto a 4D grid collapse_intervals=[(0, 3), (-3, -1)]:
+        (d0, d1, d2, d3, d4, d5, d6) -> (d0 <> d1 <> d2, d3, d4 <> d5, d6)
+    """
+
+    rank = len(shape)
+
+    # Start with a full identity mapping
+    results = [AffineDimExpr.get(i, context) for i in range(rank)]
+
+    for interval in collapse_intervals:
+        begin, end = interval
+        # Handle negative indices
+        if begin < 0:
+            begin += rank
+        if end < 0:
+            end += rank
+        if begin >= end:
+            continue
+
+        # Build collapsed expression
+        collapsed_expr = AffineConstantExpr.get(0, context)
+        multiplier = 1
+        for d_idx in range(end - 1, begin - 1, -1):
+
+            dim_expr = AffineDimExpr.get(d_idx, context)
+            term = dim_expr * multiplier
+            collapsed_expr = term + collapsed_expr
+            multiplier *= shape[d_idx]
+
+        results = results[:begin] + [collapsed_expr] + results[end:]
+
+    # Truncate results to match the rank of the grid shape
+    if len(results) > len(grid_shape):
+        results = results[: len(grid_shape)]
+
+    # Pad with leading zeros if the number of results is less than the grid rank
+    while len(results) < len(grid_shape):
+        results.insert(0, AffineConstantExpr.get(0, context))
+
+    # Simplify affine map by simplifying each expr in results
+    for i, expr in enumerate(results):
+
+        expr = AffineExpr.simplify_affine_expr(expr, rank, 0)
+        results[i] = expr
+
+    return AffineMap.get(rank, 0, results, context)

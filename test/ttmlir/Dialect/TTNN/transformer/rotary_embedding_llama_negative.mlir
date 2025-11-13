@@ -10,29 +10,6 @@ module {
   }
 }
 
-
-// -----
-#system_memory = #ttnn.buffer_type<system_memory>
-#system_memory_encoding = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 32 + d1 * 32 + d2, d3), <1x1>, memref<1x1x!ttcore.tile<32x32, bf16>, #system_memory>>
-module {
-  func.func @row_major(%input: tensor<1x1x32x32xbf16, #system_memory_encoding>, %cos: tensor<1x1x32x32xbf16, #system_memory_encoding>, %sin: tensor<1x1x32x32xbf16, #system_memory_encoding>, %trans_mat: tensor<1x1x32x32xbf16, #system_memory_encoding>) -> tensor<1x1x32x32xbf16, #system_memory_encoding> {
-    // CHECK: error: 'ttnn.rotary_embedding_llama' op all input tensors must be on device.
-    %0 = "ttnn.rotary_embedding_llama"(%input, %cos, %sin, %trans_mat) <{ is_decode_mode = false }> : (tensor<1x1x32x32xbf16, #system_memory_encoding>, tensor<1x1x32x32xbf16, #system_memory_encoding>, tensor<1x1x32x32xbf16, #system_memory_encoding>, tensor<1x1x32x32xbf16, #system_memory_encoding>) -> tensor<1x1x32x32xbf16, #system_memory_encoding>
-    return %0 : tensor<1x1x32x32xbf16, #system_memory_encoding>
-  }
-}
-
-// -----
-#dram = #ttnn.buffer_type<dram>
-#row_major_encoding = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 32 + d1 * 32 + d2, d3), <1x1>, memref<32x32xbf16, #dram>, <interleaved>>
-module {
-  func.func @row_major(%input: tensor<1x1x32x32xbf16, #row_major_encoding>, %cos: tensor<1x1x32x32xbf16, #row_major_encoding>, %sin: tensor<1x1x32x32xbf16, #row_major_encoding>, %trans_mat: tensor<1x1x32x32xbf16, #row_major_encoding>) -> tensor<1x1x32x32xbf16, #row_major_encoding> {
-    // CHECK: error: 'ttnn.rotary_embedding_llama' op all input tensors must have tiled layout.
-    %0 = "ttnn.rotary_embedding_llama"(%input, %cos, %sin, %trans_mat) <{ is_decode_mode = false }> : (tensor<1x1x32x32xbf16, #row_major_encoding>, tensor<1x1x32x32xbf16, #row_major_encoding>, tensor<1x1x32x32xbf16, #row_major_encoding>, tensor<1x1x32x32xbf16, #row_major_encoding>) -> tensor<1x1x32x32xbf16, #row_major_encoding>
-    return %0 : tensor<1x1x32x32xbf16, #row_major_encoding>
-  }
-}
-
 // -----
 #dram = #ttnn.buffer_type<dram>
 #dram_interleaved_encoding = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 32 + d1 * 32 + d2, d3), <1x1>, memref<1x1x!ttcore.tile<32x32, bf16>, #dram>, <interleaved>>

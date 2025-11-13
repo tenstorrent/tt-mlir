@@ -420,7 +420,7 @@ def test_attributes():
     # CHECK: %[[TA:.*]] = ttkernel.TensorAccessor({{.*}})
     ta = TensorAccessor(args, 0, 1024)
 
-    # CHECK: ttkernel.tensor_accessor_get_noc_addr(%[[TA]], %[[BANK_ID]], {{.*}})
+    # CHECK: ttkernel.tensor_accessor.get_noc_addr(%[[TA]], %[[BANK_ID]], {{.*}})
     noc_addr = ta.get_noc_addr(bank_id, 0)
     return
 

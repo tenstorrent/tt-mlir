@@ -328,6 +328,23 @@ getPairOfInteger(mlir::Attribute attr) {
   return std::make_pair(x, y);
 }
 
+// Extracts a vector of integers of type ElementTy from an mlir::ArrayAttr.
+// Returns an error if any of the elements is not an IntegerAttr.
+template <typename ElementTy>
+inline llvm::Expected<llvm::SmallVector<ElementTy>>
+getIntegerVector(mlir::ArrayAttr arrayAttr) {
+  llvm::SmallVector<ElementTy> result;
+  for (mlir::Attribute attr : arrayAttr.getValue()) {
+    if (auto intAttr = mlir::dyn_cast<mlir::IntegerAttr>(attr)) {
+      result.push_back(integerAs<ElementTy>(intAttr.getValue()));
+    } else {
+      return llvm::createStringError("Expected integer attribute");
+    }
+  }
+
+  return result;
+}
+
 /// Extracts a tuple of four integers from an mlir::Attribute.
 /// - If `attr` is an IntegerAttr, it is interpreted as (value(attr),
 /// value(attr), value(attr), value(attr))

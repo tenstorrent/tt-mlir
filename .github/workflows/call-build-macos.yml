@@ -2,6 +2,11 @@ name: Build on macos-latest
 
 on:
   workflow_dispatch:  # Manual trigger
+    inputs:
+      run-linter:
+        description: 'Run linter'
+        type: boolean
+        default: false
   workflow_call:
 
 env:
@@ -72,7 +77,7 @@ jobs:
         cmake --build ${{ steps.strings.outputs.build-output-dir }} --config ${{ matrix.build.build_type }}
 
     - name: Lint
-      if: matrix.build.enable_runtime == 'OFF'
+      if: inputs.run-linter && matrix.build.enable_runtime == 'OFF'
       shell: bash
       run: |
         source env/activate

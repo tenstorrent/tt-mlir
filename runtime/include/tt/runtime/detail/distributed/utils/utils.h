@@ -6,6 +6,8 @@
 #define TT_RUNTIME_DETAIL_DISTRIBUTED_UTILS_UTILS_H
 
 #include "tt/runtime/types.h"
+
+#include <cstdint>
 #include <string>
 
 namespace tt::runtime::distributed::utils {

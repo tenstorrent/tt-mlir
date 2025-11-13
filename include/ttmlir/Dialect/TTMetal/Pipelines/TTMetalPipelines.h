@@ -116,13 +116,24 @@ struct TTIRToTTMetalPipelineOptions
       llvm::cl::desc("Number of backing buffers to allocate per stream storage "
                      "(>=1). Default is 2."),
       llvm::cl::init(2)};
-  // Allocator will not consider generic outputs in L1 eligible for spilling
+
+  // The allocator will not consider generic outputs in L1 eligible for spilling
   // unless this option is turned on. DRAM outputs are always spilled.
   Option<bool> allowL1OutputSpilling{
       *this, "allow-l1-output-spilling",
       llvm::cl::desc(
           "Make generic outputs in L1 eligible for spilling to DRAM."),
       llvm::cl::init(false)};
+  // If a positive value given, the allocator will use it for L1 capacity
+  // instead of reading from `ChipDescAttr`. Used for testing.
+  Option<std::int64_t> testAssumel1Capacity{
+      *this, "test-assume-l1-capacity",
+      llvm::cl::desc("Assume given L1 capacity."), llvm::cl::init(0)};
+  // WIP pass option to control the allocator logic for sizing stream buffers.
+  Option<std::string> testBufferSizePolicy{
+      *this, "test-buffer-size-policy",
+      llvm::cl::desc("Set policy for sizing stream buffers ('min', 'max')."),
+      llvm::cl::init("max")};
 
   // Option to ingest a mix of ttnn and ttir ops and lower through D2m to TTNN
   // GenericOp.

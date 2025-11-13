@@ -37,8 +37,8 @@ struct StableHLOToTTIRPipelineOptions
   Option<bool> enableCPUFallback{
       *this, "enable-cpu-fallback",
       llvm::cl::desc("Enable partial conversion and fallback any unconverted "
-                     "ops instead of a full conversion."),
-      llvm::cl::init(false)};
+                     "and explicitly allow-listed ops to the CPU."),
+      llvm::cl::init(true)};
 };
 #endif
 

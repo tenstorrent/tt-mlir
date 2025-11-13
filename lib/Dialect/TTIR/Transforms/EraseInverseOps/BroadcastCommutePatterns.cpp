@@ -232,12 +232,16 @@ public:
         rewriter, op->getLoc(), tmResultType, newReshape,
         newBroadcastDimensions);
 
+    // All users must be identical TMs.
+    // We must not reference `reshapeUser` during/after replacements, as it will
+    // be erased on its turn.
     SmallVector<Operation *> users(op->getUsers());
-    for (auto *user : users) {
-      assert(checkIdenticalTms(reshapeUser, user) &&
-             "isCommuteUpwardsViable/Favorable should have ensured all users "
-             "are identical TMs");
-    }
+    assert(llvm::all_of(users,
+                        [&](Operation *user) {
+                          return checkIdenticalTms(reshapeUser, user);
+                        }) &&
+           "isCommuteUpwardsViable/Favorable should have ensured all users "
+           "are identical TMs");
 
     for (auto *user : users) {
       rewriter.replaceOp(user, newBroadcast);
@@ -338,12 +342,16 @@ public:
         rewriter, op->getLoc(), tmResultType, newPermute,
         newBroadcastDimensions);
 
+    // All users must be identical TMs.
+    // We must not reference `permuteUser` during/after replacements, as it will
+    // be erased on its turn.
     SmallVector<Operation *> users(op->getUsers());
-    for (auto *user : users) {
-      assert(checkIdenticalTms(permuteUser, user) &&
-             "isCommuteUpwardsViable/Favorable should have ensured all users "
-             "are identical TMs");
-    }
+    assert(llvm::all_of(users,
+                        [&](Operation *user) {
+                          return checkIdenticalTms(permuteUser, user);
+                        }) &&
+           "isCommuteUpwardsViable/Favorable should have ensured all users "
+           "are identical TMs");
 
     for (auto *user : users) {
       rewriter.replaceOp(user, newBroadcast);

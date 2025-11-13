@@ -69,11 +69,12 @@ public:
     // In the future this function may be called when this is not
     // the case, and we'll need to insert user clones on the
     // user edges that do not have an inverse on them.
-    for (auto *user : users) {
-      assert(checkIdenticalTms(tmUser, user) &&
-             "isCommuteUpwardsViable/Favorable should have ensured all users "
-             "are identical TMs");
-    }
+    assert(llvm::all_of(users,
+                        [&](Operation *user) {
+                          return checkIdenticalTms(tmUser, user);
+                        }) &&
+           "isCommuteUpwardsViable/Favorable should have ensured all users "
+           "are identical TMs");
 
     for (auto *user : users) {
       rewriter.replaceOp(user, newEltwise);

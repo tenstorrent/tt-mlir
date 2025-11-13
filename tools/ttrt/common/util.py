@@ -140,11 +140,15 @@ def get_atol_rtol_pcc(golden, calculated, atol, rtol, logging):
             if golden.numel() == 1:
                 return float(torch.isclose(golden, calculated, atol=atol, rtol=rtol))
 
-            # If both tensors are contant
+            # If both tensors are constants
             if torch.max(golden) == torch.min(golden) and torch.max(
                 calculated
             ) == torch.min(calculated):
-                return torch.isclose(torch.max(golden), torch.max(calculated)).item()
+                return float(
+                    torch.isclose(
+                        torch.max(golden), torch.max(calculated), atol=atol, rtol=rtol
+                    ).item()
+                )
 
             cal_pcc = np.ma.corrcoef(
                 np.ma.masked_invalid(torch.squeeze(golden).detach().numpy()).flatten(),

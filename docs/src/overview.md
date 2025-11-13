@@ -1,306 +1,686 @@
 # Introduction
 
-The following document provides an overview of the TT-MLIR
-project, with a focus on the technical specifications of an MLIR-based
-compiler stack. So what exactly is an MLIR-based compiler stack? MLIR
-(Multi Level Intermediate Representation) is a subproject coming out
-of the LLVM Project. It seeks to introduce extensibility and sustainable
-code design to a very modular compiler framework. This essentially means
-to take a much larger more involved compiler (like LLVM) and split it
-into sub-compilers that each produce their own Intermediate
-Representation (IR) of what you've fed the compiler.
+Welcome to tt-mlir, Tenstorrent's open-source [MLIR](https://mlir.llvm.org)-based compiler infrastructure
+designed to optimize and deploy machine learning models and other computational
+workloads on Tenstorrent hardware. This documentation provides an overview of the
+key components, features, and usage of tt-mlir.
 
-Disclaimer: This is intended to be a working document, if you find something incorrect or incomplete please feel free to create a PR.
+## Architecture & Dialect Overview
 
-## Motivations
-
-The idea of having a multi-level IR might not seem so far fetched, in
-fact it resembles some of our current software
-stacks. The idea of going from a High Level TVM Graph → Lowered PyBUDA Graph →
-Netlist, with each layer having their own level of optimizations is
-quite a familiar concept. However, there are problems with the
-reusability and integration of optimizations for the current software compiler
-stack. Currently, users are almost forced to choose between a top-down
-optimization or bottom-up optimization, with both requiring
-"expert-level" expertise to optimize for desired performance. Developing
-2 entirely different projects is taxing, and it's hard to translate the
-benefits of BUDA over to metal (or the other way around). One of the primary
-goals of tt-mlir is to enable a consistent programming model between software
-stacks, concepts for improving optimizations in the compiler stack should 1-1
-carry over to hand-written TTNN.
-
-The benefits grow even further when one can understand all the possible entry points that
-multiple IRs present. Existing MLIR based projects like [OpenXLA](https://openxla.org) and [torch-mlir](https://github.com/llvm/torch-mlir)
-can natively output MLIR in a dialect that can be transcribed to the
-TTIR dialect as well!
-
-# What is MLIR and why use it?
-
-MLIR is a compiler infrastructure that is designed to be modular and extensible. The main benefits the tt-mlir project hopes to gain by using MLIR include:
-
-- Industry Standard Compiler Framework
-  - Lots of boilerplate algorithms, data structures, and useful software that is common to compiler development
-- Ecosystem
-  - Hook into existing front-end MLIR projects
-- Testing framework
-  - A battle-tested test infrastructure that will enable us to write fine grained tests and rely less on end-to-end testing
-  - Common IR Serialization Format that's easy to test, debug, and edit
-
-Additional documentation to highlight the benefits of MLIR can be found here:
-- [MLIR Whitepaper](https://ieeexplore.ieee.org/abstract/document/9370308)
-- [MLIR Documentation](https://mlir.llvm.org)
-
-## MLIR: Overview
-
-MLIR is at it's root an interpreter that can parse "readable" text in
-some .mlir format. The unique properties lie in the modularity of the
-parsing itself. MLIR is built upon a collection of **Dialects**, each of
-these Dialects define a collection of **Operations**, **Types**, and
-**Attributes**. These dialects follow their own syntax, and they can encode
-any amount of information. The benefit is that MLIR provides bindings
-and hooks such that a user can directly translate these IRs into usable
-artifacts for that layer of complexity. An example of this would be the
-relatively high level TOSA Dialect, which is used to represent computation
-over tensors, and then lowering that to a more hardware specific dialect
-that closely models the programming model of the hardware or underlying backend.
-It is the dialect system itself which powers the
-multi-level functionality of MLIR, with different dialects a user can
-essentially "lower" through their software stack by just transforming
-between the different dialects for their layers. Dialects can exist in a
-broad range from purely mathematical dialects, to a LinAlg Dialect, or a
-Tensorflow Dialect defined for ML Graphs. Each dialect encodes its own
-information and their operations can use the Types/Attributes of other
-dialects as parameters. Multiple dialects are possible in one module,
-and encouraged to highlight optimizations of different dialects. In our
-usecase for the TT Stack, MLIR acts a "mid-level" compiler which makes
-the task of joining together various entry points and backends much
-simpler.
-
-### MLIR Primitives
-
-So what does MLIR look like, how does it work and get parsed? The
-hierarchy of an MLIR module is as shown:
-```mlir
-#permutation = array<i64: 0, 2, 1>
-
-module {
-  func.func @forward(%input: tensor<32x64x128xf32>) -> tensor<32x128x64xf32> {
-    %output = ttir.empty() : tensor<32x128x64xf32>
-    %result = "ttir.permute"(%input, %output) <{permutation = #permutation}> : (tensor<32x64x128xf32>, tensor<32x128x64xf32>) -> tensor<32x128x64xf32>
-    return %result : tensor<32x128x64xf32>
-  }
+<style>
+.container {
+    max-width: 1200px;
+    margin: 0 auto;
+    color: var(--fg);
 }
-```
 
--   Attributes (defined using #)
+.svg-container {
+    background: var(--sidebar-bg);
+    border: 2px solid var(--table-border-color);
+    border-radius: 8px;
+    padding: 20px;
+    margin-bottom: 20px;
+    overflow-x: auto;
+    color: var(--sidebar-fg);
+}
 
-    -   The syntax of actually creating an attribute is modular, and
-        custom assembly instructions for different attributes can be
-        applied.
+svg {
+    display: block;
+    margin: 0 auto;
+}
 
--   Operations
+.node {
+    cursor: pointer;
+    transition: all 0.2s;
+}
 
-    -   These operations are accessed with the . method, so you'll see
-        some examples like `func.func` or `ttir.empty`. Each operation
-        also provides it's own assembly instructions but often strictly
-        defines the type of result
+.node:hover rect {
+    fill: var(--theme-hover);
+    stroke: var(--table-border-color);
+    stroke-width: 3;
+}
 
-    -   Quotes are added around `ttir.permute` since it's part of a
-        custom dialect.
+.node.active rect {
+    fill: var(--sidebar-bg);
+    stroke: var(--sidebar-fg);
+    stroke-width: 3;
+}
 
-    -   Operations typically have operands (arguments) and results which
-        are highlighted with %, these results and operands help to show
-        the relationship between operations
+.node rect {
+    fill: var(--bg);
+    stroke: var(--table-border-color);
+    stroke-width: 2;
+    rx: 5;
+}
 
--   Types
+.node tspan {
+    fill: currentColor;
+    font-size: 14px;
+    pointer-events: none;
+}
 
-    -   Types are shown as dataformats throughout *this* compiled mlir
-        module, where tensor and array are some examples.
+.node.active tspan {
+    fill: var(--sidebar-active);
+}
 
-    -   They help to demonstrate the transformation of information and
-        its representation as it's processed across this module.
+.code-container {
+    overflow: hidden;
+}
 
-### MLIR Workflow
+.tabs {
+    display: flex;
+    border-bottom: 2px var(--table-border-color);
+}
 
-The overall MLIR workflow doesn't necessarily involve writing .mlir files
-or even modifying them. The Intermediate Representations are truly just
-representations, we can parse them to demonstrate what the graph looks
-like at that current stage of optimization, or run a **pass** through
-them to optimize certain functions. The overall framework is designed
-with the following architecture in mind:
+.tab {
+    padding: 12px 24px;
+    cursor: pointer;
+    border: 1px solid var(--table-border-color);
+    transition: background 0.2s;
+}
 
-1.  Graph Information exists
+.tab:hover {
+    background: var(--theme-hover);
+}
 
-2.  Graph Information is transformed (through any which method) into a
-    high-level MLIR representation
+.tab.active {
+    background: var(--sidebar-bg);
+    color: var(--sidebar-active);
+    border-bottom: 2px solid var(--sidebar-fg);
+}
 
-3.  **Passes** are run on the high-level implementation to lower into
-    TTIR, a common IR that can be lowered into multiple backends
+.code-content {
+    display: none;
+}
 
-4.  Depending on the usecase more passes are run to lower to whatever
-    backend the user would like (ex: TTNN Backend)
+.code-content.active {
+    display: block;
+}
+</style>
 
-### What are Passes?
+<div class="container">
+<div class="svg-container">
+<svg version="1.1" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:xl="http://www.w3.org/1999/xlink" xmlns="http://www.w3.org/2000/svg" viewBox="808 -2091 713 418" width="713" height="418">
+  <defs>
+    <marker orient="auto" overflow="visible" markerUnits="strokeWidth" id="FilledArrow_Marker" stroke-linejoin="miter" stroke-miterlimit="10" viewBox="-1 -4 10 8" markerWidth="10" markerHeight="8">
+      <g>
+        <path d="M 8 0 L 0 -3 L 0 3 Z" fill="currentColor" stroke="currentColor" stroke-width="1"/>
+      </g>
+    </marker>
+    <marker orient="auto" overflow="visible" markerUnits="strokeWidth" id="FilledArrow_Marker_2" stroke-linejoin="miter" stroke-miterlimit="10" viewBox="-9 -4 10 8" markerWidth="10" markerHeight="8">
+      <g>
+        <path d="M -8 0 L 0 3 L 0 -3 Z" fill="currentColor" stroke="currentColor" stroke-width="1"/>
+      </g>
+    </marker>
+  </defs>
+  <g id="Canvas_78" fill="none" stroke-opacity="1" stroke="none" fill-opacity="1" stroke-dasharray="none">
+    <g id="Canvas_78_Layer_1">
+      <g id="Graphic_1182">
+        <rect x="908.8457" y="-2079.621" width="134.70312" height="50.5" fill="#777"/>
+        <rect x="908.8457" y="-2079.621" width="134.70312" height="50.5" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1"/>
+        <clipPath id="clip_path">
+          <rect x="0" y="0" width="134.70312" height="50.5" fill="#777"/>
+        </clipPath>
+        <text clip-path="url(#clip_path)" transform="translate(913.8457 -2063.595)" fill="currentColor">
+          <tspan font-size="16" fill="currentColor" x="23.231563" y="15" xml:space="preserve">StableHLO</tspan>
+        </text>
+      </g>
+      <g class="node active" data-class="TTIR" onclick="switchTab('TTIR')">
+        <rect x="908.8457" y="-2002.5541" width="134.70312" height="50.5" fill="#7c69f9"/>
+        <rect x="908.8457" y="-2002.5541" width="134.70312" height="50.5" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1"/>
+        <clipPath id="clip_path_2">
+          <rect x="0" y="0" width="134.70312" height="50.5" fill="#7c69f9"/>
+        </clipPath>
+        <text clip-path="url(#clip_path_2)" transform="translate(913.8457 -1986.5281)" fill="currentColor">
+          <tspan font-size="16" fill="currentColor" x="45.61556" y="15" xml:space="preserve">TTIR</tspan>
+        </text>
+      </g>
+      <g id="Line_1213">
+        <line x1="976.1973" y1="-2029.121" x2="976.1973" y2="-2012.4541" marker-end="url(#FilledArrow_Marker)" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1"/>
+      </g>
+      <g id="Graphic_1214">
+        <text transform="translate(1048.5489 -1995.8041)" fill="currentColor">
+          <a href="https://github.com/tenstorrent/tt-mlir" target="_blank">
+          <tspan font-family="var(--mono-font)" font-size="32" fill="currentColor" x="20.982445" y="27" xml:space="preserve">tt-mlir</tspan>
+          </a>
+        </text>
+      </g>
+      <g class="node" data-class="D2M" onclick="switchTab('D2M')">
+        <rect x="826.4317" y="-1925.4872" width="134.70312" height="50.5" fill="#7c69f9"/>
+        <rect x="826.4317" y="-1925.4872" width="134.70312" height="50.5" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1"/>
+        <clipPath id="clip_path_3">
+          <rect x="0" y="0" width="134.70312" height="50.5" fill="#7c69f9"/>
+        </clipPath>
+        <text clip-path="url(#clip_path_3)" transform="translate(831.4317 -1909.4612)" fill="currentColor">
+          <tspan font-size="16" fill="currentColor" x="45.30356" y="15" xml:space="preserve">D2M</tspan>
+        </text>
+      </g>
+      <g id="Line_1216">
+        <line x1="949.1954" y1="-1952.0541" x2="928.0161" y2="-1932.249" marker-end="url(#FilledArrow_Marker)" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1"/>
+      </g>
+      <g class="node" data-class="TTNN" onclick="switchTab('TTNN')">
+        <rect x="991.2598" y="-1925.4872" width="134.70312" height="50.5" fill="#7c69f9"/>
+        <rect x="991.2598" y="-1925.4872" width="134.70312" height="50.5" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1"/>
+        <clipPath id="clip_path_4">
+          <rect x="0" y="0" width="134.70312" height="50.5" fill="#7c69f9"/>
+        </clipPath>
+        <text clip-path="url(#clip_path_4)" transform="translate(996.2598 -1909.4612)" fill="currentColor">
+          <tspan font-size="16" fill="currentColor" x="41.615562" y="15" xml:space="preserve">TTNN</tspan>
+        </text>
+      </g>
+      <g id="Line_1218">
+        <line x1="1003.1992" y1="-1952.0541" x2="1024.3784" y2="-1932.249" marker-end="url(#FilledArrow_Marker)" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1"/>
+      </g>
+      <g id="Line_1219">
+        <line x1="971.0348" y1="-1900.2372" x2="981.3598" y2="-1900.2372" marker-end="url(#FilledArrow_Marker)" marker-start="url(#FilledArrow_Marker_2)" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1"/>
+      </g>
+      <g class="node" data-class="TTKernel" onclick="switchTab('TTKernel')">
+        <rect x="819.3868" y="-1838.63" width="74.39641" height="50.5" fill="#7c69f9"/>
+        <rect x="819.3868" y="-1838.63" width="74.39641" height="50.5" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1"/>
+        <clipPath id="clip_path_5">
+          <rect x="0" y="0" width="74.39641" height="50.5" fill="#7c69f9"/>
+        </clipPath>
+        <text clip-path="url(#clip_path_5)" transform="translate(824.3868 -1822.604)" fill="currentColor">
+          <tspan font-size="16" fill="currentColor" x=".05420404" y="15" xml:space="preserve">TTKernel</tspan>
+        </text>
+      </g>
+      <g class="node" data-class="TTMetal" onclick="switchTab('TTMetal')">
+        <rect x="893.7832" y="-1838.63" width="74.39641" height="50.5" fill="#7c69f9"/>
+        <rect x="893.7832" y="-1838.63" width="74.39641" height="50.5" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1"/>
+        <clipPath id="clip_path_6">
+          <rect x="0" y="0" width="74.39641" height="50.5" fill="#7c69f9"/>
+        </clipPath>
+        <text clip-path="url(#clip_path_6)" transform="translate(898.7832 -1822.604)" fill="currentColor">
+          <tspan font-size="16" fill="currentColor" x="3.158204" y="15" xml:space="preserve">TTMetal</tspan>
+        </text>
+      </g>
+      <g id="Line_1222">
+        <line x1="882.9694" y1="-1874.9872" x2="871.2963" y2="-1847.7306" marker-end="url(#FilledArrow_Marker)" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1"/>
+      </g>
+      <g id="Line_1223">
+        <line x1="904.597" y1="-1874.9872" x2="916.2702" y2="-1847.7306" marker-end="url(#FilledArrow_Marker)" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1"/>
+      </g>
+      <g id="Line_1225">
+        <line x1="1227.8571" y1="-2029.121" x2="1227.8571" y2="-1685" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"/>
+      </g>
+      <g id="Graphic_1226">
+        <text transform="translate(1260.05 -1995.8041)" fill="currentColor">
+          <a href="https://github.com/tenstorrent/tt-metal" target="_blank">
+          <tspan font-family="var(--mono-font)" font-size="32" fill="currentColor" x="17.022064" y="27" xml:space="preserve">tt-metalium</tspan>
+          </a>
+        </text>
+      </g>
+      <g id="Graphic_1227">
+        <path d="M 1260.0057 -1884.0868 L 1195.7086 -1884.0868 C 1188.1031 -1884.0868 1181.9306 -1872.7748 1181.9306 -1858.8368 C 1181.9306 -1844.8988 1188.1031 -1833.5868 1195.7086 -1833.5868 L 1260.0057 -1833.5868 C 1267.6112 -1833.5868 1273.7837 -1844.8988 1273.7837 -1858.8368 C 1273.7837 -1872.7748 1267.6112 -1884.0868 1260.0057 -1884.0868 Z" fill="#7c69f9"/>
+        <path d="M 1260.0057 -1884.0868 L 1195.7086 -1884.0868 C 1188.1031 -1884.0868 1181.9306 -1872.7748 1181.9306 -1858.8368 C 1181.9306 -1844.8988 1188.1031 -1833.5868 1195.7086 -1833.5868 L 1260.0057 -1833.5868 C 1267.6112 -1833.5868 1273.7837 -1844.8988 1273.7837 -1858.8368 C 1273.7837 -1872.7748 1267.6112 -1884.0868 1260.0057 -1884.0868 Z" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1"/>
+        <clipPath id="clip_path_7">
+          <path d="M 78.07511 0 L 13.77796 0 C 6.172526 0 0 11.312 0 25.25 C 0 39.188 6.172526 50.5 13.77796 50.5 L 78.07511 50.5 C 85.68054 50.5 91.85307 39.188 91.85307 25.25 C 91.85307 11.312 85.68054 0 78.07511 0 Z" fill="#7c69f9"/>
+        </clipPath>
+        <text clip-path="url(#clip_path_7)" transform="translate(1196.1159 -1877.2848)" fill="currentColor">
+          <tspan font-size="16" fill="currentColor" x="10.549228" y="15" xml:space="preserve">tt-mlir </tspan>
+          <tspan font-size="16" fill="currentColor" x="4.765228" y="33.448" xml:space="preserve">runtime</tspan>
+        </text>
+      </g>
+      <g id="Graphic_1228">
+        <rect x="1313.2592" y="-1925.4872" width="134.70312" height="50.5" fill="#f1572b"/>
+        <rect x="1313.2592" y="-1925.4872" width="134.70312" height="50.5" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1"/>
+        <clipPath id="clip_path_8">
+          <rect x="0" y="0" width="134.70312" height="50.5" fill="#f1572b"/>
+        </clipPath>
+        <text clip-path="url(#clip_path_8)" transform="translate(1318.2592 -1909.4612)" fill="currentColor">
+          <tspan font-size="16" fill="currentColor" x="45.30356" y="15" xml:space="preserve">tt-nn</tspan>
+        </text>
+      </g>
+      <g id="Graphic_1229">
+        <rect x="1313.2592" y="-1838.63" width="134.70312" height="50.5" fill="#3eb7de"/>
+        <rect x="1313.2592" y="-1838.63" width="134.70312" height="50.5" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1"/>
+        <clipPath id="clip_path_9">
+          <rect x="0" y="0" width="134.70312" height="50.5" fill="#3eb7de"/>
+        </clipPath>
+        <text clip-path="url(#clip_path_9)" transform="translate(1318.2592 -1822.604)" fill="currentColor">
+          <tspan font-size="16" fill="currentColor" x="34.487562" y="15" xml:space="preserve">tt-metal</tspan>
+        </text>
+      </g>
+      <g id="Line_1230">
+        <line x1="1125.9629" y1="-1900.2372" x2="1313.2592" y2="-1900.2372" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="4.0,4.0" stroke-width="1"/>
+      </g>
+      <g id="Line_1231">
+        <line x1="968.1796" y1="-1813.38" x2="1313.2592" y2="-1813.38" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="4.0,4.0" stroke-width="1"/>
+      </g>
+      <g id="Graphic_1232">
+        <path d="M 819.3868 -1737.2183 C 819.3868 -1742.0022 820.3317 -1742.594 827.2334 -1747.3284 L 827.3063 -1747.3774 C 834.2445 -1752.1613 834.3167 -1752.1613 841.4372 -1752.1613 C 850.9182 -1752.1613 893.7832 -1752.1613 893.7832 -1752.1613 L 893.7832 -1701.6613 L 819.3868 -1701.6613 L 819.3868 -1737.2183 Z" fill="#ff914d"/>
+        <path d="M 819.3868 -1737.2183 C 819.3868 -1742.0022 820.3317 -1742.594 827.2334 -1747.3284 L 827.3063 -1747.3774 C 834.2445 -1752.1613 834.3167 -1752.1613 841.4372 -1752.1613 C 850.9182 -1752.1613 893.7832 -1752.1613 893.7832 -1752.1613 L 893.7832 -1701.6613 L 819.3868 -1701.6613 L 819.3868 -1737.2183 Z M 819.3868 -1737.4648 C 819.3868 -1742.0022 819.4597 -1742.0022 834.3167 -1742.0022 L 834.3167 -1742.0022 C 834.3167 -1752.1118 834.3167 -1752.1613 841.0012 -1752.1613" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1"/>
+        <clipPath id="clip_path_10">
+          <path d="M 0 14.94295 C 0 10.159085 .9448344 9.567225 7.846589 4.83285 L 7.919498 4.783865 C 14.857707 0 14.929872 0 22.050352 0 C 31.53143 0 74.39641 0 74.39641 0 L 74.39641 50.5 L 0 50.5 L 0 14.94295 Z" fill="#ff914d"/>
+        </clipPath>
+        <text clip-path="url(#clip_path_10)" transform="translate(824.3868 -1736.1353)" fill="currentColor">
+          <tspan font-size="16" fill="currentColor" x="10.414204" y="15" xml:space="preserve">EmitC</tspan>
+        </text>
+      </g>
+      <g id="Graphic_1233">
+        <path d="M 1032.4116 -1706.7113 L 1032.4116 -1747.1113 C 1032.4116 -1749.8989 1007.2276 -1752.1613 976.1973 -1752.1613 C 945.167 -1752.1613 919.983 -1749.8989 919.983 -1747.1113 L 919.983 -1706.7113 C 919.983 -1703.9237 945.167 -1701.6613 976.1973 -1701.6613 C 1007.2276 -1701.6613 1032.4116 -1703.9237 1032.4116 -1706.7113" fill="#ff914d"/>
+        <path d="M 1032.4116 -1706.7113 L 1032.4116 -1747.1113 C 1032.4116 -1749.8989 1007.2276 -1752.1613 976.1973 -1752.1613 C 945.167 -1752.1613 919.983 -1749.8989 919.983 -1747.1113 L 919.983 -1706.7113 C 919.983 -1703.9237 945.167 -1701.6613 976.1973 -1701.6613 C 1007.2276 -1701.6613 1032.4116 -1703.9237 1032.4116 -1706.7113 M 1032.4116 -1747.1113 C 1032.4116 -1744.3237 1007.2276 -1742.0613 976.1973 -1742.0613 C 945.167 -1742.0613 919.983 -1744.3237 919.983 -1747.1113" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1"/>
+        <clipPath id="clip_path_11">
+          <path d="M 112.42867 45.45 L 112.42867 5.05 C 112.42867 2.2624 87.24465 0 56.21434 0 C 25.184023 0 0 2.2624 0 5.05 L 0 45.45 C 0 48.2376 25.184023 50.5 56.21434 50.5 C 87.24465 50.5 112.42867 48.2376 112.42867 45.45" fill="#ff914d"/>
+        </clipPath>
+        <text clip-path="url(#clip_path_11)" transform="translate(924.983 -1742.8343)" fill="currentColor">
+          <tspan font-size="16" fill="currentColor" x="22.174336" y="15" xml:space="preserve">TTMetal </tspan>
+          <tspan font-size="16" fill="currentColor" x="17.262336" y="33.448" xml:space="preserve">Flatbuffer</tspan>
+        </text>
+      </g>
+      <g id="Graphic_1234">
+        <path d="M 1114.8257 -1763.1996 L 1114.8257 -1803.5996 C 1114.8257 -1806.3872 1089.6417 -1808.6496 1058.6114 -1808.6496 C 1027.581 -1808.6496 1002.397 -1806.3872 1002.397 -1803.5996 L 1002.397 -1763.1996 C 1002.397 -1760.412 1027.581 -1758.1496 1058.6114 -1758.1496 C 1089.6417 -1758.1496 1114.8257 -1760.412 1114.8257 -1763.1996" fill="#ff914d"/>
+        <path d="M 1114.8257 -1763.1996 L 1114.8257 -1803.5996 C 1114.8257 -1806.3872 1089.6417 -1808.6496 1058.6114 -1808.6496 C 1027.581 -1808.6496 1002.397 -1806.3872 1002.397 -1803.5996 L 1002.397 -1763.1996 C 1002.397 -1760.412 1027.581 -1758.1496 1058.6114 -1758.1496 C 1089.6417 -1758.1496 1114.8257 -1760.412 1114.8257 -1763.1996 M 1114.8257 -1803.5996 C 1114.8257 -1800.812 1089.6417 -1798.5496 1058.6114 -1798.5496 C 1027.581 -1798.5496 1002.397 -1800.812 1002.397 -1803.5996" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1"/>
+        <clipPath id="clip_path_12">
+          <path d="M 112.42867 45.45 L 112.42867 5.05 C 112.42867 2.2624 87.24465 0 56.21434 0 C 25.184023 0 0 2.2624 0 5.05 L 0 45.45 C 0 48.2376 25.184023 50.5 56.21434 50.5 C 87.24465 50.5 112.42867 48.2376 112.42867 45.45" fill="#ff914d"/>
+        </clipPath>
+        <text clip-path="url(#clip_path_12)" transform="translate(1007.397 -1799.3226)" fill="currentColor">
+          <tspan font-size="16" fill="currentColor" x="30.478336" y="15" xml:space="preserve">TTNN </tspan>
+          <tspan font-size="16" fill="currentColor" x="17.262336" y="33.448" xml:space="preserve">Flatbuffer</tspan>
+        </text>
+      </g>
+      <g id="Line_1235">
+        <line x1="856.585" y1="-1788.13" x2="856.585" y2="-1762.0613" marker-end="url(#FilledArrow_Marker)" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1"/>
+      </g>
+      <g id="Line_1236">
+        <line x1="944.185" y1="-1788.13" x2="958.4787" y2="-1760.7955" marker-end="url(#FilledArrow_Marker)" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1"/>
+      </g>
+      <g id="Line_1237">
+        <line x1="893.7832" y1="-1726.9113" x2="910.083" y2="-1726.9113" marker-end="url(#FilledArrow_Marker)" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1"/>
+      </g>
+      <g id="Line_1238">
+        <line x1="1058.6114" y1="-1874.9872" x2="1058.6114" y2="-1818.5496" marker-end="url(#FilledArrow_Marker)" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1"/>
+      </g>
+      <g id="Graphic_1239">
+        <circle cx="1202.977" cy="-1762.1496" r="4.00000639160739" fill="#ff914d"/>
+        <circle cx="1202.977" cy="-1762.1496" r="4.00000639160739" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1"/>
+      </g>
+      <g id="Line_1240">
+        <line x1="1032.4116" y1="-1735.6462" x2="1199.0241" y2="-1761.5353" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1"/>
+      </g>
+      <g id="Line_1241">
+        <line x1="1114.8257" y1="-1775.125" x2="1199.0194" y2="-1762.732" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1"/>
+      </g>
+      <g id="Line_1242">
+        <line x1="1203.974" y1="-1766.024" x2="1218.8925" y2="-1823.9992" marker-end="url(#FilledArrow_Marker)" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1"/>
+      </g>
+      <g id="Line_1243">
+        <line x1="1272.1298" y1="-1870.836" x2="1303.7039" y2="-1879.3933" marker-end="url(#FilledArrow_Marker)" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1"/>
+      </g>
+      <g id="Line_1244">
+        <line x1="1271.7931" y1="-1845.7622" x2="1303.7704" y2="-1836.2464" marker-end="url(#FilledArrow_Marker)" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1"/>
+      </g>
+      <g id="Line_1245">
+        <line x1="1380.6107" y1="-1874.9872" x2="1380.6107" y2="-1848.53" marker-end="url(#FilledArrow_Marker)" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1"/>
+      </g>
+      <g id="Group_1269">
+        <g id="Graphic_1286">
+          <path d="M 1316.0863 -1747.0456 L 1316.0863 -1742.2706 L 1314.797 -1742.1274 L 1313.46 -1741.984 L 1313.3168 -1737.1136 L 1313.1735 -1732.1953 L 1314.606 -1732.1953 C 1315.37 -1732.1953 1316.0863 -1732.0043 1316.1818 -1731.7178 C 1316.2773 -1731.479 1316.2773 -1727.6113 1316.1818 -1723.1705 L 1316.0385 -1715.053 L 1314.7493 -1714.9098 L 1313.46 -1714.7665 L 1313.3168 -1709.896 L 1313.1735 -1705.0255 L 1314.7493 -1704.8822 L 1316.325 -1704.739 L 1316.1818 -1702.1127 C 1316.0863 -1700.6802 1316.2295 -1698.9135 1316.516 -1698.1972 C 1316.9935 -1696.908 1317.1368 -1696.8602 1320.2405 -1696.8602 C 1324.1083 -1696.8602 1324.6813 -1697.1467 1324.538 -1699.009 L 1324.4426 -1700.4415 L 1328.4536 -1700.8712 C 1333.2286 -1701.3487 1333.8971 -1700.919 1333.6583 -1697.3377 L 1333.5151 -1695.189 L 1357.8676 -1695.189 L 1382.2202 -1695.189 L 1382.3635 -1697.9107 C 1382.459 -1699.6297 1382.7455 -1700.6802 1383.0797 -1700.728 C 1385.4672 -1700.8712 1396.975 -1700.9667 1419.6086 -1701.0622 L 1445.9666 -1701.1577 L 1445.9666 -1719.3028 C 1445.9666 -1737.1136 1445.9666 -1737.4478 1446.9216 -1737.4478 C 1447.8289 -1737.4478 1447.8766 -1737.782 1447.8766 -1742.4139 C 1447.8766 -1746.9979 1447.7811 -1747.4276 1446.9216 -1747.7141 C 1446.1576 -1747.9529 1445.9666 -1748.4304 1445.9666 -1749.9106 L 1445.9666 -1751.7729 L 1381.0265 -1751.7729 L 1316.0863 -1751.7729 Z M 1445.0116 -1749.3854 C 1445.0116 -1747.9529 1445.0116 -1747.9529 1442.1466 -1747.9529 L 1439.2816 -1747.9529 L 1439.2816 -1742.7481 C 1439.2816 -1736.9226 1439.2339 -1736.9703 1442.9106 -1736.9703 L 1445.0116 -1736.9703 L 1445.0116 -1719.5415 L 1445.0116 -1702.1127 L 1413.4966 -1702.1127 L 1381.9815 -1702.1127 L 1381.9337 -1699.1522 C 1381.886 -1696.7647 1381.7905 -1696.4782 1381.5517 -1697.8152 L 1381.2652 -1699.4865 L 1363.0247 -1699.6297 L 1344.7364 -1699.7252 L 1344.7364 -1698.5792 C 1344.7364 -1697.9585 1344.5931 -1697.0035 1344.4021 -1696.526 C 1344.1156 -1695.9052 1343.9724 -1696.144 1343.7814 -1697.5765 L 1343.5426 -1699.4865 L 1338.9108 -1699.6297 C 1334.4701 -1699.773 1334.3268 -1699.773 1334.0403 -1700.9667 C 1333.7061 -1702.1605 1333.7061 -1702.1605 1328.8356 -1702.0172 L 1323.965 -1701.874 L 1323.7263 -1699.964 L 1323.4876 -1698.054 L 1320.6225 -1698.054 L 1317.7575 -1698.054 L 1317.5188 -1701.0622 C 1317.3755 -1702.7335 1317.3755 -1704.166 1317.471 -1704.3092 C 1317.5665 -1704.4047 1324.729 -1704.5002 1333.3241 -1704.5002 C 1341.9191 -1704.5002 1349.2726 -1704.6435 1349.7024 -1704.7867 C 1350.3231 -1705.0255 1350.4664 -1705.9805 1350.4664 -1710.0393 C 1350.4664 -1712.761 1350.4186 -1715.053 1350.3709 -1715.1008 C 1350.2754 -1715.1485 1342.8264 -1715.3395 1333.8493 -1715.4828 L 1317.4233 -1715.7215 L 1317.471 -1723.6003 L 1317.471 -1731.479 L 1333.8493 -1731.7178 L 1350.2276 -1731.9566 L 1350.3709 -1736.6838 C 1350.4664 -1739.7398 1350.3231 -1741.602 1349.9411 -1742.0319 C 1349.5114 -1742.557 1346.5031 -1742.7004 1333.3241 -1742.7004 L 1317.28 -1742.7004 L 1317.3755 -1746.6636 C 1317.4233 -1748.8124 1317.5188 -1750.6269 1317.5188 -1750.7224 C 1317.5188 -1750.7701 1346.2166 -1750.8179 1381.2652 -1750.8179 L 1445.0116 -1750.8179 Z M 1447.3036 -1742.7481 C 1447.3991 -1739.8353 1447.2559 -1738.5938 1446.8261 -1738.355 C 1446.4919 -1738.1163 1444.8684 -1737.9253 1443.2449 -1737.9253 L 1440.2844 -1737.9253 L 1440.1411 -1742.2706 C 1440.0456 -1744.6581 1440.0934 -1746.7114 1440.2366 -1746.8069 C 1440.3321 -1746.9501 1441.9556 -1746.9501 1443.8179 -1746.9024 L 1447.1604 -1746.7591 Z M 1349.0339 -1737.209 L 1349.0339 -1732.6728 L 1331.6528 -1732.6728 C 1311.5978 -1732.6728 1313.46 -1732.1476 1313.7943 -1737.8298 L 1313.9375 -1741.029 L 1331.3663 -1741.2679 C 1340.9641 -1741.411 1348.8429 -1741.5544 1348.9384 -1741.6499 C 1348.9861 -1741.6976 1349.0339 -1739.692 1349.0339 -1737.209 Z M 1349.0339 -1709.9915 L 1349.0339 -1705.4553 L 1332.8466 -1705.4553 C 1323.965 -1705.4553 1315.9908 -1705.5985 1315.179 -1705.7418 L 1313.6988 -1706.076 L 1313.6988 -1709.4663 C 1313.6988 -1713.1908 1313.9375 -1713.8115 1315.37 -1714.1935 C 1315.8953 -1714.289 1323.6786 -1714.4323 1332.7033 -1714.48 L 1349.0339 -1714.5278 Z M 1342.5876 -1697.3377 C 1342.5876 -1696.1917 1342.4921 -1696.144 1338.9108 -1696.0007 C 1335.2818 -1695.8575 1335.1863 -1695.9052 1335.1863 -1697.0035 C 1335.1863 -1698.6747 1335.5206 -1698.818 1339.2451 -1698.6747 C 1342.4444 -1698.5315 1342.5876 -1698.4837 1342.5876 -1697.3377 Z M 1380.0715 -1697.3377 L 1380.0715 -1695.9052 L 1362.8814 -1695.9052 L 1345.6914 -1695.9052 L 1345.6914 -1697.3377 L 1345.6914 -1698.7702 L 1362.8814 -1698.7702 L 1380.0715 -1698.7702 Z" fill="currentColor"/>
+          <path d="M 1316.0863 -1747.0456 L 1316.0863 -1742.2706 L 1314.797 -1742.1274 L 1313.46 -1741.984 L 1313.3168 -1737.1136 L 1313.1735 -1732.1953 L 1314.606 -1732.1953 C 1315.37 -1732.1953 1316.0863 -1732.0043 1316.1818 -1731.7178 C 1316.2773 -1731.479 1316.2773 -1727.6113 1316.1818 -1723.1705 L 1316.0385 -1715.053 L 1314.7493 -1714.9098 L 1313.46 -1714.7665 L 1313.3168 -1709.896 L 1313.1735 -1705.0255 L 1314.7493 -1704.8822 L 1316.325 -1704.739 L 1316.1818 -1702.1127 C 1316.0863 -1700.6802 1316.2295 -1698.9135 1316.516 -1698.1972 C 1316.9935 -1696.908 1317.1368 -1696.8602 1320.2405 -1696.8602 C 1324.1083 -1696.8602 1324.6813 -1697.1467 1324.538 -1699.009 L 1324.4426 -1700.4415 L 1328.4536 -1700.8712 C 1333.2286 -1701.3487 1333.8971 -1700.919 1333.6583 -1697.3377 L 1333.5151 -1695.189 L 1357.8676 -1695.189 L 1382.2202 -1695.189 L 1382.3635 -1697.9107 C 1382.459 -1699.6297 1382.7455 -1700.6802 1383.0797 -1700.728 C 1385.4672 -1700.8712 1396.975 -1700.9667 1419.6086 -1701.0622 L 1445.9666 -1701.1577 L 1445.9666 -1719.3028 C 1445.9666 -1737.1136 1445.9666 -1737.4478 1446.9216 -1737.4478 C 1447.8289 -1737.4478 1447.8766 -1737.782 1447.8766 -1742.4139 C 1447.8766 -1746.9979 1447.7811 -1747.4276 1446.9216 -1747.7141 C 1446.1576 -1747.9529 1445.9666 -1748.4304 1445.9666 -1749.9106 L 1445.9666 -1751.7729 L 1381.0265 -1751.7729 L 1316.0863 -1751.7729 Z M 1445.0116 -1749.3854 C 1445.0116 -1747.9529 1445.0116 -1747.9529 1442.1466 -1747.9529 L 1439.2816 -1747.9529 L 1439.2816 -1742.7481 C 1439.2816 -1736.9226 1439.2339 -1736.9703 1442.9106 -1736.9703 L 1445.0116 -1736.9703 L 1445.0116 -1719.5415 L 1445.0116 -1702.1127 L 1413.4966 -1702.1127 L 1381.9815 -1702.1127 L 1381.9337 -1699.1522 C 1381.886 -1696.7647 1381.7905 -1696.4782 1381.5517 -1697.8152 L 1381.2652 -1699.4865 L 1363.0247 -1699.6297 L 1344.7364 -1699.7252 L 1344.7364 -1698.5792 C 1344.7364 -1697.9585 1344.5931 -1697.0035 1344.4021 -1696.526 C 1344.1156 -1695.9052 1343.9724 -1696.144 1343.7814 -1697.5765 L 1343.5426 -1699.4865 L 1338.9108 -1699.6297 C 1334.4701 -1699.773 1334.3268 -1699.773 1334.0403 -1700.9667 C 1333.7061 -1702.1605 1333.7061 -1702.1605 1328.8356 -1702.0172 L 1323.965 -1701.874 L 1323.7263 -1699.964 L 1323.4876 -1698.054 L 1320.6225 -1698.054 L 1317.7575 -1698.054 L 1317.5188 -1701.0622 C 1317.3755 -1702.7335 1317.3755 -1704.166 1317.471 -1704.3092 C 1317.5665 -1704.4047 1324.729 -1704.5002 1333.3241 -1704.5002 C 1341.9191 -1704.5002 1349.2726 -1704.6435 1349.7024 -1704.7867 C 1350.3231 -1705.0255 1350.4664 -1705.9805 1350.4664 -1710.0393 C 1350.4664 -1712.761 1350.4186 -1715.053 1350.3709 -1715.1008 C 1350.2754 -1715.1485 1342.8264 -1715.3395 1333.8493 -1715.4828 L 1317.4233 -1715.7215 L 1317.471 -1723.6003 L 1317.471 -1731.479 L 1333.8493 -1731.7178 L 1350.2276 -1731.9566 L 1350.3709 -1736.6838 C 1350.4664 -1739.7398 1350.3231 -1741.602 1349.9411 -1742.0319 C 1349.5114 -1742.557 1346.5031 -1742.7004 1333.3241 -1742.7004 L 1317.28 -1742.7004 L 1317.3755 -1746.6636 C 1317.4233 -1748.8124 1317.5188 -1750.6269 1317.5188 -1750.7224 C 1317.5188 -1750.7701 1346.2166 -1750.8179 1381.2652 -1750.8179 L 1445.0116 -1750.8179 Z M 1447.3036 -1742.7481 C 1447.3991 -1739.8353 1447.2559 -1738.5938 1446.8261 -1738.355 C 1446.4919 -1738.1163 1444.8684 -1737.9253 1443.2449 -1737.9253 L 1440.2844 -1737.9253 L 1440.1411 -1742.2706 C 1440.0456 -1744.6581 1440.0934 -1746.7114 1440.2366 -1746.8069 C 1440.3321 -1746.9501 1441.9556 -1746.9501 1443.8179 -1746.9024 L 1447.1604 -1746.7591 Z M 1349.0339 -1737.209 L 1349.0339 -1732.6728 L 1331.6528 -1732.6728 C 1311.5978 -1732.6728 1313.46 -1732.1476 1313.7943 -1737.8298 L 1313.9375 -1741.029 L 1331.3663 -1741.2679 C 1340.9641 -1741.411 1348.8429 -1741.5544 1348.9384 -1741.6499 C 1348.9861 -1741.6976 1349.0339 -1739.692 1349.0339 -1737.209 Z M 1349.0339 -1709.9915 L 1349.0339 -1705.4553 L 1332.8466 -1705.4553 C 1323.965 -1705.4553 1315.9908 -1705.5985 1315.179 -1705.7418 L 1313.6988 -1706.076 L 1313.6988 -1709.4663 C 1313.6988 -1713.1908 1313.9375 -1713.8115 1315.37 -1714.1935 C 1315.8953 -1714.289 1323.6786 -1714.4323 1332.7033 -1714.48 L 1349.0339 -1714.5278 Z M 1342.5876 -1697.3377 C 1342.5876 -1696.1917 1342.4921 -1696.144 1338.9108 -1696.0007 C 1335.2818 -1695.8575 1335.1863 -1695.9052 1335.1863 -1697.0035 C 1335.1863 -1698.6747 1335.5206 -1698.818 1339.2451 -1698.6747 C 1342.4444 -1698.5315 1342.5876 -1698.4837 1342.5876 -1697.3377 Z M 1380.0715 -1697.3377 L 1380.0715 -1695.9052 L 1362.8814 -1695.9052 L 1345.6914 -1695.9052 L 1345.6914 -1697.3377 L 1345.6914 -1698.7702 L 1362.8814 -1698.7702 L 1380.0715 -1698.7702 Z" stroke="currentColor" stroke-linecap="butt" stroke-linejoin="round" stroke-width="0"/>
+        </g>
+        <g id="Graphic_1285">
+          <path d="M 1351.6124 -1746.3771 C 1351.4691 -1745.9951 1351.4214 -1744.4194 1351.5169 -1742.8914 L 1351.6601 -1740.074 L 1355.7189 -1740.074 L 1359.7777 -1740.074 L 1359.7777 -1743.4166 L 1359.7777 -1746.7591 L 1355.8144 -1746.9024 C 1352.8061 -1746.9979 1351.8034 -1746.9024 1351.6124 -1746.3771 Z M 1359.0614 -1743.4166 L 1359.0614 -1740.7903 L 1355.7666 -1740.7903 L 1352.4719 -1740.7903 L 1352.4719 -1743.4166 L 1352.5196 -1746.0429 L 1355.7666 -1746.0429 L 1359.0614 -1746.0429 Z" fill="currentColor"/>
+          <path d="M 1351.6124 -1746.3771 C 1351.4691 -1745.9951 1351.4214 -1744.4194 1351.5169 -1742.8914 L 1351.6601 -1740.074 L 1355.7189 -1740.074 L 1359.7777 -1740.074 L 1359.7777 -1743.4166 L 1359.7777 -1746.7591 L 1355.8144 -1746.9024 C 1352.8061 -1746.9979 1351.8034 -1746.9024 1351.6124 -1746.3771 Z M 1359.0614 -1743.4166 L 1359.0614 -1740.7903 L 1355.7666 -1740.7903 L 1352.4719 -1740.7903 L 1352.4719 -1743.4166 L 1352.5196 -1746.0429 L 1355.7666 -1746.0429 L 1359.0614 -1746.0429 Z" stroke="currentColor" stroke-linecap="butt" stroke-linejoin="round" stroke-width="0"/>
+        </g>
+        <g id="Graphic_1284">
+          <path d="M 1361.1624 -1746.3771 C 1361.0192 -1745.9951 1360.9714 -1744.4194 1361.0669 -1742.8914 L 1361.2102 -1740.074 L 1365.269 -1740.074 L 1369.3277 -1740.074 L 1369.3277 -1743.4166 L 1369.3277 -1746.7591 L 1365.3644 -1746.9024 C 1362.3562 -1746.9979 1361.3534 -1746.9024 1361.1624 -1746.3771 Z M 1368.6114 -1743.4166 L 1368.6114 -1740.7903 L 1365.269 -1740.7903 L 1361.9264 -1740.7903 L 1361.9264 -1743.4166 L 1361.9264 -1746.0429 L 1365.269 -1746.0429 L 1368.6114 -1746.0429 Z" fill="currentColor"/>
+          <path d="M 1361.1624 -1746.3771 C 1361.0192 -1745.9951 1360.9714 -1744.4194 1361.0669 -1742.8914 L 1361.2102 -1740.074 L 1365.269 -1740.074 L 1369.3277 -1740.074 L 1369.3277 -1743.4166 L 1369.3277 -1746.7591 L 1365.3644 -1746.9024 C 1362.3562 -1746.9979 1361.3534 -1746.9024 1361.1624 -1746.3771 Z M 1368.6114 -1743.4166 L 1368.6114 -1740.7903 L 1365.269 -1740.7903 L 1361.9264 -1740.7903 L 1361.9264 -1743.4166 L 1361.9264 -1746.0429 L 1365.269 -1746.0429 L 1368.6114 -1746.0429 Z" stroke="currentColor" stroke-linecap="butt" stroke-linejoin="round" stroke-width="0"/>
+        </g>
+        <g id="Graphic_1283">
+          <path d="M 1370.617 -1743.5599 L 1370.7602 -1740.074 L 1374.628 -1739.9308 C 1378.9732 -1739.7876 1379.1165 -1739.883 1379.1165 -1743.7509 C 1379.1165 -1746.9024 1378.9732 -1746.9979 1374.4847 -1746.9979 L 1370.4737 -1746.9979 Z M 1377.875 -1743.5599 L 1377.875 -1741.029 L 1374.6757 -1740.8858 L 1371.4764 -1740.7426 L 1371.4764 -1743.4166 L 1371.4764 -1746.0429 L 1374.7234 -1746.0429 L 1377.9227 -1746.0429 Z" fill="currentColor"/>
+          <path d="M 1370.617 -1743.5599 L 1370.7602 -1740.074 L 1374.628 -1739.9308 C 1378.9732 -1739.7876 1379.1165 -1739.883 1379.1165 -1743.7509 C 1379.1165 -1746.9024 1378.9732 -1746.9979 1374.4847 -1746.9979 L 1370.4737 -1746.9979 Z M 1377.875 -1743.5599 L 1377.875 -1741.029 L 1374.6757 -1740.8858 L 1371.4764 -1740.7426 L 1371.4764 -1743.4166 L 1371.4764 -1746.0429 L 1374.7234 -1746.0429 L 1377.9227 -1746.0429 Z" stroke="currentColor" stroke-linecap="butt" stroke-linejoin="round" stroke-width="0"/>
+        </g>
+        <g id="Graphic_1282">
+          <path d="M 1380.0715 -1743.4166 L 1380.0715 -1739.7876 L 1384.2735 -1739.9308 L 1388.4277 -1740.074 L 1388.4277 -1743.4166 L 1388.4277 -1746.7591 L 1384.2735 -1746.9024 L 1380.0715 -1747.0456 Z M 1387.234 -1743.4166 L 1387.234 -1740.7903 L 1384.1302 -1740.7903 L 1381.0265 -1740.7903 L 1381.0265 -1743.4166 L 1381.0265 -1746.0429 L 1384.1302 -1746.0429 L 1387.234 -1746.0429 Z" fill="currentColor"/>
+          <path d="M 1380.0715 -1743.4166 L 1380.0715 -1739.7876 L 1384.2735 -1739.9308 L 1388.4277 -1740.074 L 1388.4277 -1743.4166 L 1388.4277 -1746.7591 L 1384.2735 -1746.9024 L 1380.0715 -1747.0456 Z M 1387.234 -1743.4166 L 1387.234 -1740.7903 L 1384.1302 -1740.7903 L 1381.0265 -1740.7903 L 1381.0265 -1743.4166 L 1381.0265 -1746.0429 L 1384.1302 -1746.0429 L 1387.234 -1746.0429 Z" stroke="currentColor" stroke-linecap="butt" stroke-linejoin="round" stroke-width="0"/>
+        </g>
+        <g id="Graphic_1281">
+          <path d="M 1395.5425 -1746.3294 C 1395.3993 -1745.9951 1395.3515 -1744.4194 1395.447 -1742.8914 L 1395.5903 -1740.074 L 1399.649 -1740.074 L 1403.7078 -1740.074 L 1403.851 -1743.5599 L 1403.9943 -1746.9979 L 1399.8878 -1746.9979 C 1396.8795 -1746.9979 1395.7335 -1746.8069 1395.5425 -1746.3294 Z M 1402.9915 -1743.4166 L 1402.9915 -1740.7426 L 1399.7923 -1740.8858 L 1396.593 -1741.029 L 1396.593 -1743.5599 L 1396.5453 -1746.0429 L 1399.7445 -1746.0429 L 1402.9915 -1746.0429 Z" fill="currentColor"/>
+          <path d="M 1395.5425 -1746.3294 C 1395.3993 -1745.9951 1395.3515 -1744.4194 1395.447 -1742.8914 L 1395.5903 -1740.074 L 1399.649 -1740.074 L 1403.7078 -1740.074 L 1403.851 -1743.5599 L 1403.9943 -1746.9979 L 1399.8878 -1746.9979 C 1396.8795 -1746.9979 1395.7335 -1746.8069 1395.5425 -1746.3294 Z M 1402.9915 -1743.4166 L 1402.9915 -1740.7426 L 1399.7923 -1740.8858 L 1396.593 -1741.029 L 1396.593 -1743.5599 L 1396.5453 -1746.0429 L 1399.7445 -1746.0429 L 1402.9915 -1746.0429 Z" stroke="currentColor" stroke-linecap="butt" stroke-linejoin="round" stroke-width="0"/>
+        </g>
+        <g id="Graphic_1280">
+          <path d="M 1405.0925 -1746.3771 C 1404.9493 -1745.9951 1404.9015 -1744.4194 1404.997 -1742.8914 L 1405.1403 -1740.074 L 1409.199 -1740.074 L 1413.2578 -1740.074 L 1413.2578 -1743.4166 L 1413.2578 -1746.7591 L 1409.2945 -1746.9024 C 1406.2863 -1746.9979 1405.2835 -1746.9024 1405.0925 -1746.3771 Z M 1412.5416 -1743.4166 L 1412.5416 -1740.7903 L 1409.199 -1740.7903 L 1405.8565 -1740.7903 L 1405.8565 -1743.4166 L 1405.8565 -1746.0429 L 1409.199 -1746.0429 L 1412.5416 -1746.0429 Z" fill="currentColor"/>
+          <path d="M 1405.0925 -1746.3771 C 1404.9493 -1745.9951 1404.9015 -1744.4194 1404.997 -1742.8914 L 1405.1403 -1740.074 L 1409.199 -1740.074 L 1413.2578 -1740.074 L 1413.2578 -1743.4166 L 1413.2578 -1746.7591 L 1409.2945 -1746.9024 C 1406.2863 -1746.9979 1405.2835 -1746.9024 1405.0925 -1746.3771 Z M 1412.5416 -1743.4166 L 1412.5416 -1740.7903 L 1409.199 -1740.7903 L 1405.8565 -1740.7903 L 1405.8565 -1743.4166 L 1405.8565 -1746.0429 L 1409.199 -1746.0429 L 1412.5416 -1746.0429 Z" stroke="currentColor" stroke-linecap="butt" stroke-linejoin="round" stroke-width="0"/>
+        </g>
+        <g id="Graphic_1279">
+          <path d="M 1414.547 -1743.5599 L 1414.6903 -1740.074 L 1418.749 -1740.074 L 1422.8078 -1740.074 L 1422.951 -1742.4139 C 1423.2376 -1746.9024 1423.142 -1746.9979 1418.4626 -1746.9979 L 1414.4038 -1746.9979 Z M 1422.0916 -1743.4166 L 1422.0916 -1740.7903 L 1418.749 -1740.7903 L 1415.4066 -1740.7903 L 1415.4066 -1743.4166 L 1415.4066 -1746.0429 L 1418.749 -1746.0429 L 1422.0916 -1746.0429 Z" fill="currentColor"/>
+          <path d="M 1414.547 -1743.5599 L 1414.6903 -1740.074 L 1418.749 -1740.074 L 1422.8078 -1740.074 L 1422.951 -1742.4139 C 1423.2376 -1746.9024 1423.142 -1746.9979 1418.4626 -1746.9979 L 1414.4038 -1746.9979 Z M 1422.0916 -1743.4166 L 1422.0916 -1740.7903 L 1418.749 -1740.7903 L 1415.4066 -1740.7903 L 1415.4066 -1743.4166 L 1415.4066 -1746.0429 L 1418.749 -1746.0429 L 1422.0916 -1746.0429 Z" stroke="currentColor" stroke-linecap="butt" stroke-linejoin="round" stroke-width="0"/>
+        </g>
+        <g id="Graphic_1278">
+          <path d="M 1424.097 -1743.5599 L 1424.2403 -1740.074 L 1428.1081 -1739.9308 C 1432.4534 -1739.7876 1432.5966 -1739.883 1432.5966 -1743.7509 C 1432.5966 -1746.9024 1432.4534 -1746.9979 1427.9648 -1746.9979 L 1423.9538 -1746.9979 Z M 1431.6416 -1743.4166 L 1431.6416 -1740.7903 L 1428.2991 -1740.7903 L 1424.9566 -1740.7903 L 1424.9566 -1743.4166 L 1424.9566 -1746.0429 L 1428.2991 -1746.0429 L 1431.6416 -1746.0429 Z" fill="currentColor"/>
+          <path d="M 1424.097 -1743.5599 L 1424.2403 -1740.074 L 1428.1081 -1739.9308 C 1432.4534 -1739.7876 1432.5966 -1739.883 1432.5966 -1743.7509 C 1432.5966 -1746.9024 1432.4534 -1746.9979 1427.9648 -1746.9979 L 1423.9538 -1746.9979 Z M 1431.6416 -1743.4166 L 1431.6416 -1740.7903 L 1428.2991 -1740.7903 L 1424.9566 -1740.7903 L 1424.9566 -1743.4166 L 1424.9566 -1746.0429 L 1428.2991 -1746.0429 L 1431.6416 -1746.0429 Z" stroke="currentColor" stroke-linecap="butt" stroke-linejoin="round" stroke-width="0"/>
+        </g>
+        <g id="Graphic_1277">
+          <path d="M 1358.7749 -1737.782 C 1357.8199 -1737.209 1357.7721 -1715.8648 1358.7749 -1715.053 C 1359.2047 -1714.671 1362.7382 -1714.5278 1370.5692 -1714.6233 L 1381.7427 -1714.7665 L 1381.886 -1725.0328 L 1381.9815 -1735.3468 L 1380.5967 -1736.6838 L 1379.212 -1737.973 L 1369.3277 -1738.0686 C 1363.9319 -1738.1163 1359.1569 -1737.973 1358.7749 -1737.782 Z M 1379.6895 -1736.1586 L 1381.0265 -1734.8693 L 1381.0265 -1725.176 L 1381.0265 -1715.4828 L 1370.044 -1715.4828 L 1359.0614 -1715.4828 L 1359.0614 -1726.131 C 1359.0614 -1732.0043 1359.2047 -1736.9703 1359.3957 -1737.1136 C 1359.5389 -1737.3046 1363.8842 -1737.4478 1369.0412 -1737.4478 L 1378.3525 -1737.4478 Z" fill="currentColor"/>
+          <path d="M 1358.7749 -1737.782 C 1357.8199 -1737.209 1357.7721 -1715.8648 1358.7749 -1715.053 C 1359.2047 -1714.671 1362.7382 -1714.5278 1370.5692 -1714.6233 L 1381.7427 -1714.7665 L 1381.886 -1725.0328 L 1381.9815 -1735.3468 L 1380.5967 -1736.6838 L 1379.212 -1737.973 L 1369.3277 -1738.0686 C 1363.9319 -1738.1163 1359.1569 -1737.973 1358.7749 -1737.782 Z M 1379.6895 -1736.1586 L 1381.0265 -1734.8693 L 1381.0265 -1725.176 L 1381.0265 -1715.4828 L 1370.044 -1715.4828 L 1359.0614 -1715.4828 L 1359.0614 -1726.131 C 1359.0614 -1732.0043 1359.2047 -1736.9703 1359.3957 -1737.1136 C 1359.5389 -1737.3046 1363.8842 -1737.4478 1369.0412 -1737.4478 L 1378.3525 -1737.4478 Z" stroke="currentColor" stroke-linecap="butt" stroke-linejoin="round" stroke-width="0"/>
+        </g>
+        <g id="Graphic_1276">
+          <path d="M 1365.1734 -1731.8133 C 1364.0274 -1731.097 1363.8364 -1730.6673 1363.8364 -1728.8528 C 1363.8364 -1726.9906 1364.0274 -1726.6086 1365.269 -1725.8923 C 1366.5104 -1725.176 1366.7014 -1724.794 1366.7014 -1723.1705 C 1366.7014 -1721.4038 1366.8924 -1721.165 1368.4682 -1720.3055 C 1370.235 -1719.3983 1370.2827 -1719.3983 1372.0494 -1720.3055 C 1373.673 -1721.165 1373.864 -1721.4038 1373.864 -1723.1705 C 1373.864 -1724.794 1374.055 -1725.176 1375.2964 -1725.8923 C 1376.538 -1726.6086 1376.729 -1726.9428 1376.729 -1728.9006 C 1376.729 -1730.8106 1376.5857 -1731.1926 1375.4397 -1731.7656 C 1374.6757 -1732.0998 1374.0072 -1732.4818 1373.864 -1732.5296 C 1373.7207 -1732.625 1373.6252 -1731.0493 1373.6252 -1729.0916 C 1373.6252 -1725.7013 1373.5297 -1725.4626 1372.1927 -1724.3166 C 1370.426 -1722.884 1370.1394 -1722.884 1368.4682 -1724.221 C 1366.8924 -1725.558 1366.0807 -1728.8528 1367.37 -1728.8528 C 1367.7997 -1728.8528 1368.134 -1728.6618 1368.134 -1728.4708 C 1368.134 -1728.232 1368.6592 -1727.8023 1369.3277 -1727.5158 C 1370.3304 -1727.0383 1370.7602 -1727.086 1371.7152 -1727.7068 C 1372.3837 -1728.1366 1372.909 -1728.6618 1372.909 -1728.8528 C 1372.909 -1729.187 1367.2267 -1732.7206 1366.7492 -1732.625 C 1366.606 -1732.625 1365.8897 -1732.243 1365.1734 -1731.8133 Z" fill="currentColor"/>
+          <path d="M 1365.1734 -1731.8133 C 1364.0274 -1731.097 1363.8364 -1730.6673 1363.8364 -1728.8528 C 1363.8364 -1726.9906 1364.0274 -1726.6086 1365.269 -1725.8923 C 1366.5104 -1725.176 1366.7014 -1724.794 1366.7014 -1723.1705 C 1366.7014 -1721.4038 1366.8924 -1721.165 1368.4682 -1720.3055 C 1370.235 -1719.3983 1370.2827 -1719.3983 1372.0494 -1720.3055 C 1373.673 -1721.165 1373.864 -1721.4038 1373.864 -1723.1705 C 1373.864 -1724.794 1374.055 -1725.176 1375.2964 -1725.8923 C 1376.538 -1726.6086 1376.729 -1726.9428 1376.729 -1728.9006 C 1376.729 -1730.8106 1376.5857 -1731.1926 1375.4397 -1731.7656 C 1374.6757 -1732.0998 1374.0072 -1732.4818 1373.864 -1732.5296 C 1373.7207 -1732.625 1373.6252 -1731.0493 1373.6252 -1729.0916 C 1373.6252 -1725.7013 1373.5297 -1725.4626 1372.1927 -1724.3166 C 1370.426 -1722.884 1370.1394 -1722.884 1368.4682 -1724.221 C 1366.8924 -1725.558 1366.0807 -1728.8528 1367.37 -1728.8528 C 1367.7997 -1728.8528 1368.134 -1728.6618 1368.134 -1728.4708 C 1368.134 -1728.232 1368.6592 -1727.8023 1369.3277 -1727.5158 C 1370.3304 -1727.0383 1370.7602 -1727.086 1371.7152 -1727.7068 C 1372.3837 -1728.1366 1372.909 -1728.6618 1372.909 -1728.8528 C 1372.909 -1729.187 1367.2267 -1732.7206 1366.7492 -1732.625 C 1366.606 -1732.625 1365.8897 -1732.243 1365.1734 -1731.8133 Z" stroke="currentColor" stroke-linecap="butt" stroke-linejoin="round" stroke-width="0"/>
+        </g>
+        <g id="Graphic_1275">
+          <path d="M 1402.705 -1737.782 C 1401.75 -1737.209 1401.7023 -1715.8648 1402.705 -1715.053 C 1403.1348 -1714.671 1406.6683 -1714.5278 1414.4993 -1714.6233 L 1425.6728 -1714.7665 L 1425.7683 -1725.2716 L 1425.9116 -1735.7766 L 1424.3358 -1736.8748 C 1422.8556 -1737.973 1422.4258 -1738.0208 1413.1146 -1738.0686 C 1407.7665 -1738.1163 1403.087 -1737.973 1402.705 -1737.782 Z M 1423.6673 -1736.254 L 1424.9566 -1735.108 L 1424.9566 -1725.2716 L 1424.9566 -1715.4828 L 1414.165 -1715.5783 L 1403.3735 -1715.7215 L 1403.4213 -1726.3698 C 1403.4213 -1732.1953 1403.4213 -1737.0658 1403.469 -1737.209 C 1403.469 -1737.3523 1407.7188 -1737.4478 1412.9236 -1737.4478 C 1422.187 -1737.4 1422.3303 -1737.4 1423.6673 -1736.254 Z" fill="currentColor"/>
+          <path d="M 1402.705 -1737.782 C 1401.75 -1737.209 1401.7023 -1715.8648 1402.705 -1715.053 C 1403.1348 -1714.671 1406.6683 -1714.5278 1414.4993 -1714.6233 L 1425.6728 -1714.7665 L 1425.7683 -1725.2716 L 1425.9116 -1735.7766 L 1424.3358 -1736.8748 C 1422.8556 -1737.973 1422.4258 -1738.0208 1413.1146 -1738.0686 C 1407.7665 -1738.1163 1403.087 -1737.973 1402.705 -1737.782 Z M 1423.6673 -1736.254 L 1424.9566 -1735.108 L 1424.9566 -1725.2716 L 1424.9566 -1715.4828 L 1414.165 -1715.5783 L 1403.3735 -1715.7215 L 1403.4213 -1726.3698 C 1403.4213 -1732.1953 1403.4213 -1737.0658 1403.469 -1737.209 C 1403.469 -1737.3523 1407.7188 -1737.4478 1412.9236 -1737.4478 C 1422.187 -1737.4 1422.3303 -1737.4 1423.6673 -1736.254 Z" stroke="currentColor" stroke-linecap="butt" stroke-linejoin="round" stroke-width="0"/>
+        </g>
+        <g id="Graphic_1274">
+          <path d="M 1408.9603 -1731.6223 C 1407.7665 -1730.8106 1407.5278 -1730.2853 1407.5278 -1728.8528 C 1407.5278 -1727.277 1407.7188 -1726.895 1409.2945 -1725.94 C 1410.918 -1724.9373 1411.109 -1724.603 1411.109 -1722.8363 C 1411.109 -1721.1173 1411.2523 -1720.8308 1412.7803 -1720.1145 C 1414.356 -1719.3505 1414.4993 -1719.3505 1416.1228 -1720.3055 C 1417.5553 -1721.165 1417.794 -1721.547 1417.794 -1723.1228 C 1417.794 -1724.6986 1418.0328 -1725.0806 1419.4653 -1725.9878 C 1420.8978 -1726.895 1421.1366 -1727.277 1421.1366 -1728.8528 C 1421.1366 -1730.4286 1420.8978 -1730.8106 1419.513 -1731.67 C 1418.6536 -1732.243 1417.8418 -1732.6728 1417.6986 -1732.6728 C 1417.603 -1732.6728 1417.5076 -1731.0493 1417.5076 -1729.0438 C 1417.5553 -1725.558 1417.5076 -1725.367 1416.1228 -1724.2688 C 1415.3588 -1723.648 1414.4993 -1723.1228 1414.2128 -1723.1228 C 1413.0668 -1723.1705 1411.2045 -1725.367 1410.918 -1727.086 C 1410.536 -1729.1393 1411.0135 -1729.3303 1412.9713 -1727.85 C 1414.2606 -1726.895 1414.4038 -1726.895 1415.5976 -1727.659 C 1416.266 -1728.1366 1416.839 -1728.6618 1416.839 -1728.8528 C 1416.839 -1729.2348 1411.2523 -1732.6728 1410.727 -1732.625 C 1410.536 -1732.625 1409.7243 -1732.1476 1408.9603 -1731.6223 Z" fill="currentColor"/>
+          <path d="M 1408.9603 -1731.6223 C 1407.7665 -1730.8106 1407.5278 -1730.2853 1407.5278 -1728.8528 C 1407.5278 -1727.277 1407.7188 -1726.895 1409.2945 -1725.94 C 1410.918 -1724.9373 1411.109 -1724.603 1411.109 -1722.8363 C 1411.109 -1721.1173 1411.2523 -1720.8308 1412.7803 -1720.1145 C 1414.356 -1719.3505 1414.4993 -1719.3505 1416.1228 -1720.3055 C 1417.5553 -1721.165 1417.794 -1721.547 1417.794 -1723.1228 C 1417.794 -1724.6986 1418.0328 -1725.0806 1419.4653 -1725.9878 C 1420.8978 -1726.895 1421.1366 -1727.277 1421.1366 -1728.8528 C 1421.1366 -1730.4286 1420.8978 -1730.8106 1419.513 -1731.67 C 1418.6536 -1732.243 1417.8418 -1732.6728 1417.6986 -1732.6728 C 1417.603 -1732.6728 1417.5076 -1731.0493 1417.5076 -1729.0438 C 1417.5553 -1725.558 1417.5076 -1725.367 1416.1228 -1724.2688 C 1415.3588 -1723.648 1414.4993 -1723.1228 1414.2128 -1723.1228 C 1413.0668 -1723.1705 1411.2045 -1725.367 1410.918 -1727.086 C 1410.536 -1729.1393 1411.0135 -1729.3303 1412.9713 -1727.85 C 1414.2606 -1726.895 1414.4038 -1726.895 1415.5976 -1727.659 C 1416.266 -1728.1366 1416.839 -1728.6618 1416.839 -1728.8528 C 1416.839 -1729.2348 1411.2523 -1732.6728 1410.727 -1732.625 C 1410.536 -1732.625 1409.7243 -1732.1476 1408.9603 -1731.6223 Z" stroke="currentColor" stroke-linecap="butt" stroke-linejoin="round" stroke-width="0"/>
+        </g>
+        <g id="Graphic_1273">
+          <path d="M 1355.0504 -1711.3763 C 1354.6684 -1710.4213 1354.6684 -1706.6968 1355.0504 -1705.7418 C 1355.2891 -1705.121 1356.1486 -1704.9777 1359.3002 -1704.9777 L 1363.2157 -1704.9777 L 1363.5022 -1706.7445 C 1363.6932 -1707.7473 1363.6932 -1709.3708 1363.5022 -1710.3258 L 1363.2157 -1712.1403 L 1359.3002 -1712.1403 C 1356.1486 -1712.1403 1355.2891 -1711.997 1355.0504 -1711.3763 Z M 1362.4039 -1708.559 L 1362.4039 -1705.9328 L 1359.3002 -1705.9328 L 1356.1964 -1705.9328 L 1356.1964 -1708.559 L 1356.1964 -1711.1853 L 1359.3002 -1711.1853 L 1362.4039 -1711.1853 Z" fill="currentColor"/>
+          <path d="M 1355.0504 -1711.3763 C 1354.6684 -1710.4213 1354.6684 -1706.6968 1355.0504 -1705.7418 C 1355.2891 -1705.121 1356.1486 -1704.9777 1359.3002 -1704.9777 L 1363.2157 -1704.9777 L 1363.5022 -1706.7445 C 1363.6932 -1707.7473 1363.6932 -1709.3708 1363.5022 -1710.3258 L 1363.2157 -1712.1403 L 1359.3002 -1712.1403 C 1356.1486 -1712.1403 1355.2891 -1711.997 1355.0504 -1711.3763 Z M 1362.4039 -1708.559 L 1362.4039 -1705.9328 L 1359.3002 -1705.9328 L 1356.1964 -1705.9328 L 1356.1964 -1708.559 L 1356.1964 -1711.1853 L 1359.3002 -1711.1853 L 1362.4039 -1711.1853 Z" stroke="currentColor" stroke-linecap="butt" stroke-linejoin="round" stroke-width="0"/>
+        </g>
+        <g id="Graphic_1272">
+          <path d="M 1376.347 -1708.7023 L 1376.4902 -1705.2165 L 1380.4535 -1705.0732 C 1384.751 -1704.93 1384.4645 -1704.6912 1384.4645 -1708.0815 C 1384.4645 -1708.75 1384.4645 -1709.9438 1384.4167 -1710.7078 L 1384.369 -1712.1403 L 1380.3102 -1712.1403 L 1376.2037 -1712.1403 Z M 1383.796 -1708.7023 L 1383.6527 -1706.1715 L 1380.4535 -1706.0283 L 1377.2065 -1705.885 L 1377.2065 -1708.559 L 1377.2065 -1711.1853 L 1380.5967 -1711.1853 L 1383.9392 -1711.1853 Z" fill="currentColor"/>
+          <path d="M 1376.347 -1708.7023 L 1376.4902 -1705.2165 L 1380.4535 -1705.0732 C 1384.751 -1704.93 1384.4645 -1704.6912 1384.4645 -1708.0815 C 1384.4645 -1708.75 1384.4645 -1709.9438 1384.4167 -1710.7078 L 1384.369 -1712.1403 L 1380.3102 -1712.1403 L 1376.2037 -1712.1403 Z M 1383.796 -1708.7023 L 1383.6527 -1706.1715 L 1380.4535 -1706.0283 L 1377.2065 -1705.885 L 1377.2065 -1708.559 L 1377.2065 -1711.1853 L 1380.5967 -1711.1853 L 1383.9392 -1711.1853 Z" stroke="currentColor" stroke-linecap="butt" stroke-linejoin="round" stroke-width="0"/>
+        </g>
+        <g id="Graphic_1271">
+          <path d="M 1399.267 -1708.7023 L 1399.4103 -1705.2165 L 1403.1825 -1705.0732 C 1407.5278 -1704.93 1407.7665 -1705.0732 1407.7665 -1708.4158 C 1407.7665 -1712.0925 1407.7188 -1712.1403 1403.1348 -1712.1403 L 1399.1238 -1712.1403 Z M 1406.716 -1708.7023 L 1406.5728 -1706.1715 L 1403.3735 -1706.0283 L 1400.1265 -1705.885 L 1400.1265 -1708.559 L 1400.1265 -1711.1853 L 1403.5168 -1711.1853 L 1406.8593 -1711.1853 Z" fill="currentColor"/>
+          <path d="M 1399.267 -1708.7023 L 1399.4103 -1705.2165 L 1403.1825 -1705.0732 C 1407.5278 -1704.93 1407.7665 -1705.0732 1407.7665 -1708.4158 C 1407.7665 -1712.0925 1407.7188 -1712.1403 1403.1348 -1712.1403 L 1399.1238 -1712.1403 Z M 1406.716 -1708.7023 L 1406.5728 -1706.1715 L 1403.3735 -1706.0283 L 1400.1265 -1705.885 L 1400.1265 -1708.559 L 1400.1265 -1711.1853 L 1403.5168 -1711.1853 L 1406.8593 -1711.1853 Z" stroke="currentColor" stroke-linecap="butt" stroke-linejoin="round" stroke-width="0"/>
+        </g>
+        <g id="Graphic_1270">
+          <path d="M 1420.277 -1708.7023 L 1420.4203 -1705.2165 L 1424.479 -1705.2165 L 1428.5378 -1705.2165 L 1428.6811 -1708.7023 L 1428.8243 -1712.1403 L 1424.479 -1712.1403 L 1420.1338 -1712.1403 Z M 1427.5828 -1708.7023 L 1427.4873 -1706.1715 L 1424.3358 -1706.0283 L 1421.1366 -1705.885 L 1421.1366 -1708.559 L 1421.1366 -1711.1853 L 1424.3836 -1711.1853 L 1427.6783 -1711.1853 Z" fill="currentColor"/>
+          <path d="M 1420.277 -1708.7023 L 1420.4203 -1705.2165 L 1424.479 -1705.2165 L 1428.5378 -1705.2165 L 1428.6811 -1708.7023 L 1428.8243 -1712.1403 L 1424.479 -1712.1403 L 1420.1338 -1712.1403 Z M 1427.5828 -1708.7023 L 1427.4873 -1706.1715 L 1424.3358 -1706.0283 L 1421.1366 -1705.885 L 1421.1366 -1708.559 L 1421.1366 -1711.1853 L 1424.3836 -1711.1853 L 1427.6783 -1711.1853 Z" stroke="currentColor" stroke-linecap="butt" stroke-linejoin="round" stroke-width="0"/>
+        </g>
+      </g>
+      <g id="Line_1287">
+        <line x1="1380.6107" y1="-1788.13" x2="1380.6107" y2="-1761.6729" marker-end="url(#FilledArrow_Marker)" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1"/>
+      </g>
+    </g>
+  </g>
+</svg>
 
-Transformations in MLIR are represented as passes that occur during the
-parsing of some information. These passes can be executed when parsing
-or generating MLIR modules. These transformations can have a myriad of
-purposes, and are completely user defined as to how they modify the
-module. Some examples of passes can be for lowering purposes as
-mentioned before, where a dialect is parsed and then each operation is
-transformed to a lowered dialect following some set of user defined
-rules. Passes are also used for optimizations and backend code
-transformation in the context of this project. They're a powerful tool
-and provide most of the functionality to transform between layers of
-dialects, and they provide a simple platform for modifications of an
-MLIR module.
 
-## Why not make our own?
+</div>
 
-Now that I've described the functionality of the MLIR framework, it
-seems like making an in house multi level Intermediate Representation
-system would be pretty similar, so why are we going through the effort
-of implementing this framework?
+<div class="code-container">
+<div class="tabs">
+    <div class="tab active" data-tab="TTIR" onclick="switchTab('TTIR')">TTIR</div>
+    <div class="tab" data-tab="TTNN" onclick="switchTab('TTNN')">TTNN</div>
+    <div class="tab" data-tab="D2M" onclick="switchTab('D2M')">D2M</div>
+    <div class="tab" data-tab="TTKernel" onclick="switchTab('TTKernel')">TTKernel</div>
+    <div class="tab" data-tab="TTMetal" onclick="switchTab('TTMetal')">TTMetal</div>
+</div>
 
-One of the biggest reason can be attributed to the active developer
-community surrounding the project, being a part of the LLVM Project
-means that there is solid developer support, and the framework is
-designed to be a tool for many different paradigms of compute. This
-scalability and strong mission statement lend to the strengths of MLIR
-being a solid platform to use as a middle layer in our compiler stack.
-Furthermore, as a functional benefit of being part of a larger open
-source project, MLIR has a whole library of tests and infrastructure
-that we can leverage for solid code health while starting a new project.
+<div class="code-content active" id="TTIR">
+<pre>
+<code class="language-mlir">// TTIR: Named ops on tensors (akin to shlo, tosa, etc)
+//
+// This should be the default IR that users who need a higher-level abstraction
+// over tensors.
+//
+// Example IR:
+func.func @simple_linear(
+  %arg0: tensor<64x128xbf16>,
+  %arg1: tensor<128x64xbf16>,
+  %bias: tensor<64x64xbf16>) -> tensor<64x64xbf16> {
+  %0 = ttir.empty() : tensor<64x64xbf16>
+  %1 = "ttir.linear"(%arg0, %arg1, %bias, %0) : (tensor<64x128xbf16>, tensor<128x64xbf16>, tensor<64x64xbf16>, tensor<64x64xbf16>) -> tensor<64x64xbf16>
+  return %1 : tensor<64x64xbf16>
+}
+</code>
+</pre>
+</div>
 
-### Automation
+<div class="code-content" id="TTNN">
+<pre>
+<code class="language-mlir">// TTNN: Named ops on tensors (akin to shlo, tosa, etc)
+//
+// The TTNN dialect models the tt-nn API (from the tt-metalium project)
+// as closely as possible. It is intended to be a high-level IR over tensors.
+//
+// Example IR:
+#ttnn_layout = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<2x4x!ttcore.tile<32x32, bf16>, #dram>, &lt;interleaved>>
+#ttnn_layout1 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<4x2x!ttcore.tile<32x32, bf16>, #dram>, &lt;interleaved>>
+#ttnn_layout2 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<2x2x!ttcore.tile<32x32, bf16>, #dram>, &lt;interleaved>>
+func.func @simple_linear(
+    %arg0: tensor<64x128xbf16, #ttnn_layout>,
+    %arg1: tensor<128x64xbf16, #ttnn_layout1>,
+    %arg2: tensor<64x64xbf16, #ttnn_layout2>
+  ) -> tensor<64x64xbf16, #ttnn_layout2> {
+  %0 = "ttnn.linear"(%arg0, %arg1, %arg2) <{
+    transpose_a = false,
+    transpose_b = false
+  }> : (tensor<64x128xbf16, #ttnn_layout>, tensor<128x64xbf16, #ttnn_layout1>, tensor<64x64xbf16, #ttnn_layout2>) -> tensor<64x64xbf16, #ttnn_layout2>
+  "ttnn.deallocate"(%arg2) <{force = false}> : (tensor<64x64xbf16, #ttnn_layout2>) -> ()
+  "ttnn.deallocate"(%arg1) <{force = false}> : (tensor<128x64xbf16, #ttnn_layout1>) -> ()
+  "ttnn.deallocate"(%arg0) <{force = false}> : (tensor<64x128xbf16, #ttnn_layout>) -> ()
+  return %0 : tensor<64x64xbf16, #ttnn_layout2>
+}
+</code>
+</pre>
+</div>
 
-It's not only about developer support, another key benefit of MLIR is
-that it's built with autogeneration in mind. Through TableGen a lot of
-the boilerplate of creating this multi-level IR become abstracted away
-to truly focus on implementation and execution. This automation is built
-on top of a pre-existing robust framework with a lot of implementations
-and support from other large players in the ML scene. By integrating
-with these automation pipelines, we allow for external developers to
-have a much simpler entry-point into our software stack!
+<div class="code-content" id="D2M">
+<pre>
+<code class="language-mlir">// D2M: Generic compute dialect (akin to linalg)
+//
+// The D2M dialect models generic compute on tensors and memrefs,
+// similar to linalg.generic, but with constructs that map well to
+// the Tenstorrent execution model (e.g., sharded tensors, grids,
+// explicit datamovement).
+//
+// Example IR:
+#layout = #ttcore.metal_layout&lt;logical_shape = 64x128, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1>
+#layout1 = #ttcore.metal_layout&lt;logical_shape = 128x96, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1>
+#layout2 = #ttcore.metal_layout&lt;logical_shape = 64x96, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1>
+#map = affine_map<(d0, d1, d2) -> (d0, d2)>
+#map1 = affine_map<(d0, d1, d2) -> (d2, d1)>
+#map2 = affine_map<(d0, d1, d2) -> (d0, d1)>
+#parallel = #ttcore.iterator_type<parallel>
+#reduction = #ttcore.iterator_type<reduction>
+func.func @simple_matmul(
+    %arg0: tensor<64x128xbf16>,
+    %arg1: tensor<128x96xbf16>
+  ) -> tensor<64x96xbf16> {
+  %0 = d2m.empty() : tensor<64x96xbf16>
+  %1 = d2m.empty() : tensor<1x1x2x4x!ttcore.tile<32x32, bf16>, #layout>
+  %2 = d2m.to_layout %arg0, %1 : tensor<64x128xbf16> into tensor<1x1x2x4x!ttcore.tile<32x32, bf16>, #layout> -> tensor<1x1x2x4x!ttcore.tile<32x32, bf16>, #layout>
+  %3 = d2m.empty() : tensor<1x1x4x3x!ttcore.tile<32x32, bf16>, #layout1>
+  %4 = d2m.to_layout %arg1, %3 : tensor<128x96xbf16> into tensor<1x1x4x3x!ttcore.tile<32x32, bf16>, #layout1> -> tensor<1x1x4x3x!ttcore.tile<32x32, bf16>, #layout1>
+  %5 = d2m.empty() : tensor<1x1x2x3x!ttcore.tile<32x32, bf16>, #layout2>
+  %6 = d2m.to_layout %0, %5 : tensor<64x96xbf16> into tensor<1x1x2x3x!ttcore.tile<32x32, bf16>, #layout2> -> tensor<1x1x2x3x!ttcore.tile<32x32, bf16>, #layout2>
+  %7 = d2m.generic {
+    block_factors = [1, 1, 1],
+    grid = #ttcore.grid<1x1>,
+    indexing_maps = [#map, #map1, #map2],
+    iterator_types = [#parallel, #parallel, #reduction],
+    threads = [#d2m.thread<compute>]
+  } ins(%2, %4 : tensor<1x1x2x4x!ttcore.tile<32x32, bf16>, #layout>, tensor<1x1x4x3x!ttcore.tile<32x32, bf16>, #layout1>)
+   outs(%6 : tensor<1x1x2x3x!ttcore.tile<32x32, bf16>, #layout2>)  {
+  ^compute0(%cb0: !d2m.cb<tensor<2x4x!ttcore.tile<32x32, bf16>>>, %cb1: !d2m.cb<tensor<4x3x!ttcore.tile<32x32, bf16>>>, %cb2: !d2m.cb<tensor<2x3x!ttcore.tile<32x32, bf16>>>):
+    %10 = d2m.wait %cb0 : <tensor<2x4x!ttcore.tile<32x32, bf16>>> -> tensor<2x4x!ttcore.tile<32x32, bf16>>
+    %11 = d2m.wait %cb1 : <tensor<4x3x!ttcore.tile<32x32, bf16>>> -> tensor<4x3x!ttcore.tile<32x32, bf16>>
+    %12 = d2m.reserve %cb2 : <tensor<2x3x!ttcore.tile<32x32, bf16>>> -> tensor<2x3x!ttcore.tile<32x32, bf16>>
+    %13 = linalg.generic {
+      indexing_maps = [#map, #map1, #map2],
+      iterator_types = ["parallel", "parallel", "reduction"]
+    } ins(%10, %11 : tensor<2x4x!ttcore.tile<32x32, bf16>>, tensor<4x3x!ttcore.tile<32x32, bf16>>) outs(%12 : tensor<2x3x!ttcore.tile<32x32, bf16>>) {
+    ^bb0(%in: !ttcore.tile<32x32, bf16>, %in_0: !ttcore.tile<32x32, bf16>, %out: !ttcore.tile<32x32, bf16>):
+      %14 = "d2m.tile_matmul"(%in, %in_0, %out) : (!ttcore.tile<32x32, bf16>, !ttcore.tile<32x32, bf16>, !ttcore.tile<32x32, bf16>) -> !ttcore.tile<32x32, bf16>
+      linalg.yield %14 : !ttcore.tile<32x32, bf16>
+    } -> tensor<2x3x!ttcore.tile<32x32, bf16>>
+    d2m.yield %13 : (tensor<2x3x!ttcore.tile<32x32, bf16>>)
+  } : tensor<1x1x2x3x!ttcore.tile<32x32, bf16>, #layout2>
+  %8 = d2m.empty() : tensor<64x96xbf16>
+  %9 = d2m.to_layout %7, %8 : tensor<1x1x2x3x!ttcore.tile<32x32, bf16>, #layout2> into tensor<64x96xbf16> -> tensor<64x96xbf16>
+  return %9 : tensor<64x96xbf16>
+}
+</code>
+</pre>
+</div>
 
-# TT-MLIR: Bringing MLIR to the TT Stack
+<div class="code-content" id="TTKernel">
+<pre>
+<code class="language-mlir">// TTKernel: tt-metal device kernel dialect.
+//
+// The TTKernel dialect models low-level kernels that run on Tenstorrent
+// devices. It exposes concepts such as circular buffers, tile registers,
+// noc transactions and explicit synchronization. It is intended to be a
+// 1-1 mapping to tt-metalium kernels.
+//
+// Example Datamovement Kernel IR:
+func.func private @datamovement_kernel() attributes {
+    ttkernel.arg_spec = #ttkernel.arg_spec&lt;ct_args = [
+      &lt;arg_type = cb_port, operand_index = 0>,
+      &lt;arg_type = cb_port, operand_index = 1>
+    ]>,
+    ttkernel.thread = #ttkernel.thread&lt;noc>
+  } {
+  %0 = ttkernel.get_compile_time_arg_val(0) : () -> !ttkernel.cb&lt;1, !ttcore.tile&lt;32x32, bf16>>
+  %1 = ttkernel.get_compile_time_arg_val(1) : () -> !ttkernel.cb&lt;1024, bf16>
+  %c1_i32 = arith.constant 1 : i32
+  ttkernel.cb_reserve_back(%0, %c1_i32) : (!ttkernel.cb&lt;1, !ttcore.tile&lt;32x32, bf16>>, i32) -> ()
+  ttkernel.cb_push_back(%0, %c1_i32) : (!ttkernel.cb&lt;1, !ttcore.tile&lt;32x32, bf16>>, i32) -> ()
+  return
+}
+//
+// Example Compute Kernel IR:
+func.func private @compute_kernel8() attributes {
+    ttkernel.arg_spec = #ttkernel.arg_spec&lt;ct_args = [
+      &lt;arg_type = cb_port, operand_index = 0>,
+      &lt;arg_type = cb_port, operand_index = 1>,
+      &lt;arg_type = cb_port, operand_index = 2>
+    ]>,
+    ttkernel.thread = #ttkernel.thread&lt;compute>
+  } {
+  %0 = ttkernel.get_compile_time_arg_val(0) : () -> !ttkernel.cb&lt;1, !ttcore.tile&lt;32x32, bf16>>
+  %1 = ttkernel.get_compile_time_arg_val(1) : () -> !ttkernel.cb&lt;1, !ttcore.tile&lt;32x32, bf16>>
+  %2 = ttkernel.get_compile_time_arg_val(2) : () -> !ttkernel.cb&lt;1, !ttcore.tile&lt;32x32, bf16>>
+  %c0 = arith.constant 0 : index
+  %c1_i32 = arith.constant 1 : i32
+  %c1_i32_0 = arith.constant 1 : i32
+  %c1_i32_1 = arith.constant 1 : i32
+  %c1_i32_2 = arith.constant 1 : i32
+  %c0_i32 = arith.constant 0 : i32
+  "ttkernel.mm_block_init"(%0, %1, %2, %c0_i32, %c1_i32_1, %c1_i32, %c1_i32_0) : (!ttkernel.cb&lt;1, !ttcore.tile&lt;32x32, bf16>>, !ttkernel.cb&lt;1, !ttcore.tile&lt;32x32, bf16>>, !ttkernel.cb&lt;1, !ttcore.tile&lt;32x32, bf16>>, i32, i32, i32, i32) -> ()
+  %c4 = arith.constant 4 : index
+  %c1 = arith.constant 1 : index
+  %c0_3 = arith.constant 0 : index
+  scf.for %arg0 = %c0_3 to %c4 step %c1 {
+    %c1_i32_4 = arith.constant 1 : i32
+    ttkernel.cb_wait_front(%0, %c1_i32_4) : (!ttkernel.cb&lt;1, !ttcore.tile&lt;32x32, bf16>>, i32) -> ()
+    %c1_i32_5 = arith.constant 1 : i32
+    ttkernel.cb_wait_front(%1, %c1_i32_5) : (!ttkernel.cb&lt;1, !ttcore.tile&lt;32x32, bf16>>, i32) -> ()
+    %c1_i32_6 = arith.constant 1 : i32
+    ttkernel.cb_reserve_back(%2, %c1_i32_6) : (!ttkernel.cb&lt;1, !ttcore.tile&lt;32x32, bf16>>, i32) -> ()
+    ttkernel.tile_regs_acquire() : () -> ()
+    %3 = arith.cmpi ne, %arg0, %c0_3 : index
+    scf.if %3 {
+      ttkernel.copy_tile_init(%2) : (!ttkernel.cb&lt;1, !ttcore.tile&lt;32x32, bf16>>) -> ()
+      ttkernel.copy_tile(%2, %c0_3, %c0_3) : (!ttkernel.cb&lt;1, !ttcore.tile&lt;32x32, bf16>>, index, index) -> ()
+    }
+    "ttkernel.mm_block_init_short"(%0, %1, %c0_i32, %c1_i32_1, %c1_i32, %c1_i32_0) : (!ttkernel.cb&lt;1, !ttcore.tile&lt;32x32, bf16>>, !ttkernel.cb&lt;1, !ttcore.tile&lt;32x32, bf16>>, i32, i32, i32, i32) -> ()
+    %c0_7 = arith.constant 0 : index
+    %c0_8 = arith.constant 0 : index
+    "ttkernel.experimental::matmul_block"(%0, %1, %c0_7, %c0_8, %c0, %c0_i32, %c1_i32_1, %c1_i32, %c1_i32_0, %c1_i32_2) : (!ttkernel.cb&lt;1, !ttcore.tile&lt;32x32, bf16>>, !ttkernel.cb&lt;1, !ttcore.tile&lt;32x32, bf16>>, index, index, index, i32, i32, i32, i32, i32) -> ()
+    ttkernel.pack_tile(%c0_3, %2, %c0_3, true) : (index, !ttkernel.cb&lt;1, !ttcore.tile&lt;32x32, bf16>>, index) -> ()
+    ttkernel.cb_pop_front(%0, %c1_i32_4) : (!ttkernel.cb&lt;1, !ttcore.tile&lt;32x32, bf16>>, i32) -> ()
+    ttkernel.cb_pop_front(%1, %c1_i32_5) : (!ttkernel.cb&lt;1, !ttcore.tile&lt;32x32, bf16>>, i32) -> ()
+    ttkernel.cb_push_back(%2, %c1_i32_6) : (!ttkernel.cb&lt;1, !ttcore.tile&lt;32x32, bf16>>, i32) -> ()
+    %c1_i32_4 = arith.constant 1 : i32
+    ttkernel.cb_wait_front(%2, %c1_i32_4) : (!ttkernel.cb&lt;1, !ttcore.tile&lt;32x32, bf16>>, i32) -> ()
+    ttkernel.cb_pop_front(%2, %c1_i32_4) : (!ttkernel.cb&lt;1, !ttcore.tile&lt;32x32, bf16>>, i32) -> ()
+  }
+  return
+}
+</code>
+</pre>
+</div>
 
-Now that we have defined this pretty cool project, let's look at the
-implementation details of bringing MLIR (and related optimizations) into
-the TT Stack. Since it acts as a mid-level compiler we can start by
-defining the "bottom" and "top" layers of the compiler. BUDA already has
-a well defined set of frontend optimizations to some TVM defined graph
-and is knowledgeable of the hardware that these models want to run on.
-We want to interrupt the BUDA stack to only give us the frontend
-compiled graph before any hardware specific lowering is to occur. What
-this will produce is information that is agnostic to different backends
-and their execution on TT hardware, but this is still valid information
-to optimize at *different levels* for later compilation. The "bottom" of
-our graph is now defined as the backend that will produce the
-machine-specific code to be executed. While MLIR could allow for any
-level of complexity downwards for the bottom, we will define a very
-aggressive TTNN backend for the MVP.
-Desired Optimization List:
+<div class="code-content" id="TTMetal">
+<pre>
+<code class="language-mlir">// TTMetal: tt-metal host/device interop dialect.
+//
+// The TTMetal dialect models host-side operations for managing Tenstorrent
+// devices, such as buffer allocation, data transfer, and enqueueing programs.
+//
+// Example IR:
+func.func @simple_matmul(
+    %arg0: memref&lt;64x128xbf16>,
+    %arg1: memref&lt;128x96xbf16>
+  ) -> memref&lt;64x96xbf16> {
+  %0 = "ttmetal.create_buffer"() &lt;{address = 13312 : i64}> : () -> memref&lt;2x4x1x1x!ttcore.tile&lt;32x32, bf16>, #ttcore.shard&lt;2048x2048>, #ttcore.memory_space&lt;l1>>
+  %1 = "ttmetal.create_buffer"() &lt;{address = 1024 : i64}> : () -> memref&lt;2x4x32x32xbf16, #ttcore.shard&lt;64x2>, #ttcore.memory_space&lt;l1>>
+  "ttmetal.enqueue_write_buffer"(%arg0, %1) : (memref&lt;64x128xbf16>, memref&lt;2x4x32x32xbf16, #ttcore.shard&lt;64x2>, #ttcore.memory_space&lt;l1>>) -> ()
+  "ttmetal.enqueue_program"(%1, %0, %1, %0) &lt;{
+    cb_ports = array&lt;i64: 0, 1>,
+    kernelConfigs = [
+      #ttmetal.noc_config&lt;@datamovement_kernel0, #ttmetal.core_range&lt;0x0, 2x4>, #ttmetal.kernel_args&lt;ct_args = [&lt;cb_port[0]>, &lt;cb_port[1]>]>, noc0>,
+      #ttmetal.noc_config&lt;@datamovement_kernel1, #ttmetal.core_range&lt;0x0, 2x4>, #ttmetal.kernel_args&lt; ct_args = [&lt;cb_port[0]>, &lt;cb_port[1]>]>, noc1>,
+      #ttmetal.compute_config&lt;@compute_kernel2, #ttmetal.core_range&lt;0x0, 2x4>, #ttmetal.kernel_args&lt; ct_args = [&lt;cb_port[0]>, &lt;cb_port[1]>]>, hifi4, false, false, false, [default]>
+    ],
+    operandSegmentSizes = array&lt;i32: 2, 2>
+  }> : (memref&lt;2x4x32x32xbf16, #ttcore.shard&lt;64x2>, #ttcore.memory_space&lt;l1>>, memref&lt;2x4x1x1x!ttcore.tile&lt;32x32, bf16>, #ttcore.shard&lt;2048x2048>, #ttcore.memory_space&lt;l1>>, memref&lt;2x4x32x32xbf16, #ttcore.shard&lt;64x2>, #ttcore.memory_space&lt;l1>>, memref&lt;2x4x1x1x!ttcore.tile&lt;32x32, bf16>, #ttcore.shard&lt;2048x2048>, #ttcore.memory_space&lt;l1>>) -> ()
+  "ttmetal.deallocate_buffer"(%1) : (memref&lt;2x4x32x32xbf16, #ttcore.shard&lt;64x2>, #ttcore.memory_space&lt;l1>>) -> ()
+  %2 = "ttmetal.create_buffer"() &lt;{address = 11264 : i64}> : () -> memref&lt;4x3x1x1x!ttcore.tile&lt;32x32, bf16>, #ttcore.shard&lt;2048x2048>, #ttcore.memory_space&lt;l1>>
+  %3 = "ttmetal.create_buffer"() &lt;{address = 1024 : i64}> : () -> memref&lt;4x3x32x32xbf16, #ttcore.shard&lt;64x2>, #ttcore.memory_space&lt;l1>>
+  "ttmetal.enqueue_write_buffer"(%arg1, %3) : (memref&lt;128x96xbf16>, memref&lt;4x3x32x32xbf16, #ttcore.shard&lt;64x2>, #ttcore.memory_space&lt;l1>>) -> ()
+  "ttmetal.enqueue_program"(%3, %2, %3, %2) &lt;{
+    cb_ports = array&lt;i64: 0, 1>,
+    kernelConfigs = [
+      #ttmetal.noc_config&lt;@datamovement_kernel3, #ttmetal.core_range&lt;0x0, 4x3>,#ttmetal.kernel_args&lt; ct_args = [&lt;cb_port[0]>, &lt;cb_port[1]>]>, noc0>,
+      #ttmetal.noc_config&lt;@datamovement_kernel4, #ttmetal.core_range&lt;0x0, 4x3>, #ttmetal.kernel_args&lt; ct_args = [&lt;cb_port[0]>, &lt;cb_port[1]>]>, noc1>,
+      #ttmetal.compute_config&lt;@compute_kernel5, #ttmetal.core_range&lt;0x0, 4x3>, #ttmetal.kernel_args&lt; ct_args = [&lt;cb_port[0]>, &lt;cb_port[1]>]>, hifi4, false, false, false, [default]>
+    ],
+    operandSegmentSizes = array&lt;i32: 2, 2>
+  }> : (memref&lt;4x3x32x32xbf16, #ttcore.shard&lt;64x2>, #ttcore.memory_space&lt;l1>>, memref&lt;4x3x1x1x!ttcore.tile&lt;32x32, bf16>, #ttcore.shard&lt;2048x2048>, #ttcore.memory_space&lt;l1>>, memref&lt;4x3x32x32xbf16, #ttcore.shard&lt;64x2>, #ttcore.memory_space&lt;l1>>, memref&lt;4x3x1x1x!ttcore.tile&lt;32x32, bf16>, #ttcore.shard&lt;2048x2048>, #ttcore.memory_space&lt;l1>>) -> ()
+  "ttmetal.deallocate_buffer"(%3) : (memref&lt;4x3x32x32xbf16, #ttcore.shard&lt;64x2>, #ttcore.memory_space&lt;l1>>) -> ()
+  %4 = "ttmetal.create_buffer"() &lt;{address = 9216 : i64}> : () -> memref&lt;2x3x1x1x!ttcore.tile&lt;32x32, bf16>, #ttcore.shard&lt;2048x2048>, #ttcore.memory_space&lt;l1>>
+  %5 = "ttmetal.create_buffer"() &lt;{address = 1024 : i64}> : () -> memref&lt;2x4x1x1x!ttcore.tile&lt;32x32, bf16>, #ttcore.shard&lt;2048x2048, 2>, #ttcore.memory_space&lt;l1>>
+  "ttmetal.enqueue_program"(%0, %2, %4, %5, %6, %4) &lt;{
+    cb_ports = array&lt;i64: 0, 1, 2>,
+    kernelConfigs = [
+      #ttmetal.noc_config&lt;@datamovement_kernel6, #ttmetal.core_range&lt;0x0, 2x3>, #ttmetal.kernel_args&lt; ct_args = [&lt;cb_port[0]>, &lt;cb_port[1]>, &lt;cb_port[2]>, &lt;semaphore[0]>, &lt;semaphore[1]>, &lt;semaphore[2]>, &lt;semaphore[3]>, &lt;buffer_address[0]>]>, noc0>,
+      #ttmetal.noc_config&lt;@datamovement_kernel7, #ttmetal.core_range&lt;0x0, 2x3>, #ttmetal.kernel_args&lt; ct_args = [&lt;cb_port[0]>, &lt;cb_port[1]>, &lt;cb_port[2]>, &lt;semaphore[0]>, &lt;semaphore[1]>, &lt;semaphore[2]>, &lt;semaphore[3]>, &lt;buffer_address[1]>]>, noc1>,
+      #ttmetal.compute_config&lt;@compute_kernel8, #ttmetal.core_range&lt;0x0, 2x3>, #ttmetal.kernel_args&lt; ct_args = [&lt;cb_port[0]>, &lt;cb_port[1]>, &lt;cb_port[2]>]>, hifi4, false, false, false, [default]>
+    ],
+    operandSegmentSizes = array&lt;i32: 3, 3>
+  }> : (memref&lt;2x4x1x1x!ttcore.tile&lt;32x32, bf16>, #ttcore.shard&lt;2048x2048>, #ttcore.memory_space&lt;l1>>, memref&lt;4x3x1x1x!ttcore.tile&lt;32x32, bf16>, #ttcore.shard&lt;2048x2048>, #ttcore.memory_space&lt;l1>>, memref&lt;2x3x1x1x!ttcore.tile&lt;32x32, bf16>, #ttcore.shard&lt;2048x2048>, #ttcore.memory_space&lt;l1>>, memref&lt;2x4x1x1x!ttcore.tile&lt;32x32, bf16>, #ttcore.shard&lt;2048x2048, 2>, #ttcore.memory_space&lt;l1>>, memref&lt;4x3x1x1x!ttcore.tile&lt;32x32, bf16>, #ttcore.shard&lt;2048x2048, 2>, #ttcore.memory_space&lt;l1>>, memref&lt;2x3x1x1x!ttcore.tile&lt;32x32, bf16>, #ttcore.shard&lt;2048x2048>, #ttcore.memory_space&lt;l1>>) -> ()
+  "ttmetal.deallocate_buffer"(%6) : (memref&lt;4x3x1x1x!ttcore.tile&lt;32x32, bf16>, #ttcore.shard&lt;2048x2048, 2>, #ttcore.memory_space&lt;l1>>) -> ()
+  "ttmetal.deallocate_buffer"(%2) : (memref&lt;4x3x1x1x!ttcore.tile&lt;32x32, bf16>, #ttcore.shard&lt;2048x2048>, #ttcore.memory_space&lt;l1>>) -> ()
+  "ttmetal.deallocate_buffer"(%5) : (memref&lt;2x4x1x1x!ttcore.tile&lt;32x32, bf16>, #ttcore.shard&lt;2048x2048, 2>, #ttcore.memory_space&lt;l1>>) -> ()
+  "ttmetal.deallocate_buffer"(%0) : (memref&lt;2x4x1x1x!ttcore.tile&lt;32x32, bf16>, #ttcore.shard&lt;2048x2048>, #ttcore.memory_space&lt;l1>>) -> ()
+  %alloc = memref.alloc() : memref&lt;64x96xbf16>
+  %7 = "ttmetal.create_buffer"() &lt;{address = 1024 : i64}> : () -> memref&lt;2x3x32x32xbf16, #ttcore.shard&lt;64x2>, #ttcore.memory_space&lt;l1>>
+  "ttmetal.enqueue_program"(%4, %7, %4, %7) &lt;{
+    cb_ports = array&lt;i64: 0, 1>,
+    kernelConfigs = [
+      #ttmetal.noc_config&lt;@datamovement_kernel9, #ttmetal.core_range&lt;0x0, 2x3>, #ttmetal.kernel_args&lt; ct_args = [&lt;cb_port[0]>, &lt;cb_port[1]>]>, noc0>,
+      #ttmetal.noc_config&lt;@datamovement_kernel10, #ttmetal.core_range&lt;0x0, 2x3>, #ttmetal.kernel_args&lt; ct_args = [&lt;cb_port[0]>, &lt;cb_port[1]>]>, noc1>,
+      #ttmetal.compute_config&lt;@compute_kernel11, #ttmetal.core_range&lt;0x0, 2x3>, #ttmetal.kernel_args&lt; ct_args = [&lt;cb_port[0]>, &lt;cb_port[1]>]>, hifi4, false, false, false, [default]>
+    ],
+    operandSegmentSizes = array&lt;i32: 2, 2>
+  }> : (memref&lt;2x3x1x1x!ttcore.tile&lt;32x32, bf16>, #ttcore.shard&lt;2048x2048>, #ttcore.memory_space&lt;l1>>, memref&lt;2x3x32x32xbf16, #ttcore.shard&lt;64x2>, #ttcore.memory_space&lt;l1>>, memref&lt;2x3x1x1x!ttcore.tile&lt;32x32, bf16>, #ttcore.shard&lt;2048x2048>, #ttcore.memory_space&lt;l1>>, memref&lt;2x3x32x32xbf16, #ttcore.shard&lt;64x2>, #ttcore.memory_space&lt;l1>>) -> ()
+  "ttmetal.deallocate_buffer"(%4) : (memref&lt;2x3x1x1x!ttcore.tile&lt;32x32, bf16>, #ttcore.shard&lt;2048x2048>, #ttcore.memory_space&lt;l1>>) -> ()
+  "ttmetal.enqueue_read_buffer"(%7, %alloc) : (memref&lt;2x3x32x32xbf16, #ttcore.shard&lt;64x2>, #ttcore.memory_space&lt;l1>>, memref&lt;64x96xbf16>) -> ()
+  "ttmetal.finish"() : () -> ()
+  "ttmetal.deallocate_buffer"(%7) : (memref&lt;2x3x32x32xbf16, #ttcore.shard&lt;64x2>, #ttcore.memory_space&lt;l1>>) -> ()
+  return %alloc : memref&lt;64x96xbf16>
+}
+</code>
+</pre>
+</div>
+</div>
+</div>
 
--   Forge-FE (frontend)
+<script>
+function switchTab(className) {
+    // Remove active class from all nodes and tabs
+    document.querySelectorAll('.node').forEach(n => n.classList.remove('active'));
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.code-content').forEach(c => c.classList.remove('active'));
 
-    -   Graph Optimizations, Constant Folding, Operation Fusion
+    // Add active class to selected node and tab
+    document.querySelector(`.node[data-class="${className}"]`).classList.add('active');
+    document.querySelector(`.tab[data-tab="${className}"]`).classList.add('active');
+    document.getElementById(className).classList.add('active');
+}
+</script>
 
--   TT-MLIR (mid-level)
-
-    -   Data Storage, Memory Configuration, Grid Configuration
-
--   TTNN (backend)
-
-    -   Kernel Configuration\*, Network Optimization
-
-*\*Subject to Change / Be Moved to TT-MLIR*
-
-## **TT-MLIR Dialects**
-
-Now that we have defined the series of optimizations that we would like
-to see implemented in TT-MLIR, we can begin to help define the dialects
-that would help to support these different levels of optimizations. For
-more detail on each of these dialects, please refer to the GitHub Wiki
-and TableGen descriptors. I think that Nick does a great job of
-documenting the key functionality.
-
-### TT Dialect
-The TT Dialect is **only** for common Types and Attributes used throughout the many levels of the mid level compiler.
-
-### TTIR Dialect
-
-The TTIR Dialect is defined as the common dialect for TT-MLIR, as such it doesn't define anything hardware/backend specific. It lists out general actions that would take place on TT hardware such as dispatch, layout, and kernel operations.
-
-#### Generic Operation
-
-This is one of two operations that's crucial to understand the intended optimization characteristics of the TTIR Dialect. The generic operation dictates the actions that would be taken to dispatch some instruction to TT hardware such that it executes some instruction. Parametrically, the operation consumes inputs, outputs, maps to read the tensors, and access-types to the memory. These parameters highlight the optimizations that can be performed at this level to change the location of the memory, transpose using variant access maps, or even the grid upon which the computation takes place. The operation also contains a block in which the exact behaviour for that operation to occur is stored.
-
-#### Layout Operation
-
-The layout operation is key in describing the storage of memory throughout the execution graph. Layout determines the sharding spec, location of the memory, data types, and tile sizes of some tensor. While generic describes the dispatch for some data-wise transformation to take place, the data itself is laid out across the chip through the layout operation.
-
-Both of these operations describe the key functionality of the TTIR dialect and the optimization space that it provides.
-
-## Built-in MLIR Dialects
-
-The functionality of TT-MLIR Dialects also depends / is inspired by the
-functionality of Built-in MLIR Dialects like Affine and LinAlg. Below
-are summaries of some of the key members of these Dialects
-
-### Affine Dialect
-
-\[[Reference](https://mlir.llvm.org/docs/Dialects/Affine/#affine-maps)\]
-Affine maps help to describe transformations on coordinate systems,
-while this may not really make sense, imagine trying to index a rank 2
-tensor. By getting t\[x, y\] I can access the element in the Xth row and
-Yth column, but if I wanted to transpose the tensor I might have to
-re-layout the entire tensor such that the data would be accessible using
-t\[x, y\] to get the element in the Yth row and Xth column. This
-transpose can also be represented using an Affine Map to transform (x,
-y) -\> (y, x) and this would let the tensor data remain in place while
-the access method is modified. This extends even further to more complex
-transformations such that stride lengths or unique indexing methods can
-be implemented without complicated manipulation.
-
-### Tensor Dialect
-
-\[[Reference](https://mlir.llvm.org/docs/Dialects/TensorOps/)\]
-The tensor dialect defines the functionality and Type of the fundamental
-Tensor. This dialect contains members that would represent manipulation
-and representation of tensors as multi-dimensional data with shapes and
-datatypes. Not much else is different about this dialect, the reference
-covers key topics if implementation details are needed.
-
-### Func Dialect
-\[[Reference](https://mlir.llvm.org/docs/Dialects/Func/)\]
-
-### TOSA Dialect
-\[[Reference](https://mlir.llvm.org/docs/Dialects/TOSA/)\]
-
-### SCF Dialect
-\[[Reference](https://mlir.llvm.org/docs/Dialects/SCFDialect/)\]
-
-### EmitC Dialect
-\[[Reference](https://mlir.llvm.org/docs/Dialects/EmitC/)\]
-
-## tt-explorer - Performance Optimization Tool
-
-A unique project related to TT-MLIR is the integration of Performance
-Optimization Tools such that users are easily able to visualize and
-readily tune their models without needing an expert level understanding
-of the tech stack.
-['tt-explorer'](./tt-explorer/tt-explorer.md)
-is built with Google AI's [Model
-Explorer](https://github.com/google-ai-edge/model-explorer)
-as a base for the visualization tool, and a [custom
-adapter](https://github.com/vprajapati-tt/tt-adapter) to
-parse TT-MLIR projects. This would allow users to readily tune their
-models, and optimize for the TTIR layer (ex: they can change certain
-memory to be laid out in L1 instead of DRAM, or change the grid layout
-of an operation to be larger than what was previously assigned). After
-compilation with these overrides, the runtime information can then be
-fed directly into a Tracy Performance Analysis for the user to visualize
-the impacts of their tuning, seeing which operations were least
-performant and continuing in a gamified design loop for iterative
-performance tuning!
+## Related Tenstorrent Projects
+- [tt-forge](https://github.com/tenstorrent/tt-forge)
+- [tt-xla](https://github.com/tenstorrent/tt-xla)
+- [tt-metalium](https://github.com/tenstorrent/tt-metal)
+- [tt-forge-fe](https://github.com/tenstorrent/tt-forge-fe)
+- [tt-tvm](https://github.com/tenstorrent/tt-tvm)
