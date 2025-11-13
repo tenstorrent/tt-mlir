@@ -3,8 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #ifndef TT_RUNTIME_DETAIL_TTNN_UTILS_H
-#define TT_RUNTIME_DETAIL_TTNN_UTILS_H                                         \
-  #include "flatbuffers/vector.h" #include "tt/runtime/detail/ttnn/ttnn.h"
+#define TT_RUNTIME_DETAIL_TTNN_UTILS_H #include "flatbuffers/vector.h"
+#include "tt/runtime/detail/ttnn/ttnn.h"
 #include "tt/runtime/detail/ttnn/types/types.h"
 #include "ttmlir/Target/Common/types_generated.h"
 #include "ttmlir/Target/TTNN/Target.h"
