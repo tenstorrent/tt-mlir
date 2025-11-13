@@ -1702,15 +1702,12 @@ getOpInputRefs(OpContext opContextHandle,
 
 void registerCallback() {
   PyGILState_STATE gstate = PyGILState_Ensure(); // Acquire GIL
-
   // Add the runtime directory to Python path
   PyObject *sys_path = PySys_GetObject("path");
-
   // Get the runtime python path from environment variable or construct it from
   // TT_MLIR_HOME
   const char *runtime_python_path = std::getenv("TTMLIR_RUNTIME_PYTHON_PATH");
   std::string path_to_add;
-
   if (runtime_python_path != nullptr) {
     path_to_add = runtime_python_path;
   } else {
@@ -1745,12 +1742,33 @@ void registerCallback() {
     return;
   }
 
-  // Call the function with the message
-  PyObject *result = PyObject_CallFunction(register_func, "s");
-  if (result == nullptr) {
-    PyErr_Print();
-  } else {
-    Py_DECREF(result);
+  // Double check this is necessary: *********
+  try {
+    // Call the function with error handling
+    PyObject *result =
+        PyObject_CallFunction(register_func, "s", "Lord help me");
+    if (result == nullptr) {
+      PyErr_Print();
+      // Print more detailed error info
+      if (PyErr_Occurred()) {
+        PyObject *ptype, *pvalue, *ptraceback;
+        PyErr_Fetch(&ptype, &pvalue, &ptraceback);
+
+        if (pvalue) {
+          PyObject *str = PyObject_Str(pvalue);
+          if (str) {
+            std::cout << "Python error: " << PyUnicode_AsUTF8(str) << std::endl;
+            Py_DECREF(str);
+          }
+        }
+
+        PyErr_Restore(ptype, pvalue, ptraceback);
+      }
+    } else {
+      Py_DECREF(result);
+    }
+  } catch (...) {
+    std::cout << "C++ exception in registerCallback" << std::endl;
   }
 
   // Clean up
@@ -1763,7 +1781,16 @@ void registerCallback() {
 std::vector<::tt::runtime::Tensor>
 submit(Device deviceHandle, Binary executableHandle, std::uint32_t programIndex,
        std::vector<::tt::runtime::Tensor> &inputs) {
-  // registerCallback();
+
+  // Double check this is necessary: *********
+  if (!Py_IsInitialized()) {
+    std::cout << "Initializing New Python interpreter" << std::endl;
+    Py_Initialize();
+  } else {
+    std::cout << "Python interpreter already initialized" << std::endl;
+  }
+
+  registerCallback();
   ProgramExecutor executor(deviceHandle, executableHandle, programIndex,
                            inputs);
   executor.execute();

@@ -2,21 +2,21 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-# import _ttmlir_runtime as runtime
 import golden
+import ttrt.runtime
 
 
-# def golden.py????
+def pre_op_callback(binary, program_context, op_context):
+    print("PRE OP CALLBACK CALLED")
 
 
-def pre_op_callback():
-    pass
-
-
-def post_op_callback():
+def post_op_callback(binary, program_context, op_context):
     print("POST OP CALLBACK CALLED")
 
 
-def register():
+def register(message: str):
     print("REGISTER CALLED")
-    # runtime.register_post_callback(post_op_callback)
+    print(f"Message from C++ runtime: {message}")
+
+    callback_env = ttrt.runtime.DebugHooks.get(pre_op_callback, post_op_callback)
+    print("REGISTER CALLBACK ENVIRONMENT:", callback_env)
