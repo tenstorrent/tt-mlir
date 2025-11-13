@@ -14,23 +14,33 @@
 
 namespace mlir::tt {
 
-POCInstrumentation::POCInstrumentation(const std::string &outputDir,
-                                       DumpLevel level, ActionMode actionMode,
-                                       bool debug)
-    : dumpCounter_(0), modelName_("unknown"), level_(level),
-      actionMode_(actionMode), debug_(debug) {
+POCInstrumentation::POCInstrumentation(POCInstrumentationOptions options)
+    : dumpCounter_(0), level_(options.level), actionMode_(options.actionMode),
+      debug_(options.debug), pipelineName_(options.pipelineName) {
+  // Set model name - use provided name or default to "unknown"
+  modelName_ = options.modelName.empty() ? "unknown" : options.modelName;
+
   // Expand ~ to home directory using LLVM utility
   llvm::SmallVector<char, 256> expandedPath;
-  llvm::sys::fs::expand_tilde(outputDir, expandedPath);
+  llvm::sys::fs::expand_tilde(options.outputDir, expandedPath);
   outputDir_ = std::string(expandedPath.begin(), expandedPath.end());
+
   // Create output directory
   std::filesystem::create_directories(outputDir_);
+
+  // Initialize counter if model name was provided explicitly
+  if (!options.modelName.empty()) {
+    initializeDumpCounter();
+  }
 
   if (debug_) {
     llvm::outs() << "POCInstrumentation: Constructor called, output dir: "
                  << outputDir_ << ", action mode: "
                  << (actionMode_ == ActionMode::Overwrite ? "Overwrite"
                                                           : "Append")
+                 << ", model: " << modelName_
+                 << (pipelineName_.empty() ? ""
+                                           : ", pipeline: " + pipelineName_)
                  << "\n";
   }
 }
@@ -82,10 +92,7 @@ void POCInstrumentation::attachActionHandler(mlir::MLIRContext *ctx) {
   });
 }
 
-void POCInstrumentation::setModelName(const std::string &name) {
-  modelName_ = name;
-
-  // Initialize counter based on action mode when model name is first set
+void POCInstrumentation::initializeDumpCounter() {
   std::string targetDir = getTargetDirectory();
   if (actionMode_ == ActionMode::Overwrite) {
     clearDirectory(targetDir);
@@ -94,6 +101,12 @@ void POCInstrumentation::setModelName(const std::string &name) {
     int maxIndex = detectNextIndex(targetDir);
     dumpCounter_ = (maxIndex >= 0) ? maxIndex + 1 : 0;
   }
+}
+
+void POCInstrumentation::setModelName(const std::string &name) {
+  modelName_ = name;
+  // Initialize counter based on action mode when model name is first set
+  initializeDumpCounter();
 }
 
 void POCInstrumentation::runBeforePipeline(

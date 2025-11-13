@@ -30,10 +30,16 @@ public:
     Append     // Continue from max index + 1
   };
 
-  POCInstrumentation(const std::string &outputDir = "~/explorer",
-                     DumpLevel level = DumpLevel::Transformation,
-                     ActionMode actionMode = ActionMode::Overwrite,
-                     bool debug = false);
+  struct POCInstrumentationOptions {
+    std::string outputDir = "~/explorer";
+    DumpLevel level = DumpLevel::Transformation;
+    ActionMode actionMode = ActionMode::Overwrite;
+    bool debug = true;
+    std::string modelName = ""; // Empty means extract from operation location
+    std::string pipelineName = ""; // Optional pipeline name for organization
+  };
+
+  POCInstrumentation(POCInstrumentationOptions options = {});
   ~POCInstrumentation() override;
 
   // Set up action handler with the MLIR context from PassManager
@@ -69,6 +75,7 @@ private:
   std::atomic<int> dumpCounter_;
   std::string outputDir_;
   std::string modelName_;
+  std::string pipelineName_;
   std::mutex fileMutex_;
   DumpLevel level_;
   ActionMode actionMode_;
