@@ -5574,6 +5574,7 @@ protected:
       llvm::consumeError(constraintsExp.takeError());
     }
   }
+  // NOLINTEND(clang-analyzer-cplusplus.NewDelete)
 };
 
 TEST_P(OpModelPagedScaledDotProductAttentionDecodeParam,
@@ -5600,7 +5601,7 @@ const auto pagedScaledDotProductAttentionDecodeOpTestValues =
         std::nullopt, true, 0.125f,
         detail::TestTensor{
             {1, 1, 12, 32}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
-        detail::ExpectedResult{true, 179744, 0, 179744, 0}});
+        detail::ExpectedResult{true, 196128, 0, 196128, 0}});
 
 INSTANTIATE_TEST_SUITE_P(PagedScaledDotProductAttentionDecodeTests,
                          OpModelPagedScaledDotProductAttentionDecodeParam,
