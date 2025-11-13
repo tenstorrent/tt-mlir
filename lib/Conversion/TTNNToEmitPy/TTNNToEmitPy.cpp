@@ -2603,14 +2603,6 @@ namespace {
 class ReduceScatterOpConversionPattern
     : public TTNNToEmitPyBaseOpConversionPattern<
           mlir::tt::ttnn::ReduceScatterOp> {
-private:
-  std::string getPrefixSearchPattern() const override {
-    return "ttnn.reduce_scatter";
-  }
-  std::string getPrefixSwapPattern() const override {
-    return "ttnn.experimental.reduce_scatter_minimal_async";
-  }
-
 public:
   using TTNNToEmitPyBaseOpConversionPattern<
       mlir::tt::ttnn::ReduceScatterOp>::TTNNToEmitPyBaseOpConversionPattern;
