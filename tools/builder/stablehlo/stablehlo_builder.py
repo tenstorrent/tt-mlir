@@ -970,7 +970,6 @@ class StableHLOBuilder(Builder):
             stablehlo_kwargs={"permutation": permutation},
         )
 
-
     def constant(
         self,
         tensor: torch.Tensor,
@@ -1074,7 +1073,9 @@ class StableHLOBuilder(Builder):
             A new tensor representing the slice
         """
         start_indices_op = [
-            self.constant(torch.tensor(i, dtype=torch.int64)) if isinstance(i, int) else i
+            self.constant(torch.tensor(i, dtype=torch.int64))
+            if isinstance(i, int)
+            else i
             for i in start_indices
         ]
         return self._op_proxy(

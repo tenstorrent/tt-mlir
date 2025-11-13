@@ -222,7 +222,7 @@ def test_unary_ops(
 
 @pytest.mark.parametrize("shape", [(1, 1, 64, 32), (1, 3, 256, 256)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32, torch.int32], ids=["f32", "i32"])
-@pytest.mark.parametrize("target", [ "ttnn"])
+@pytest.mark.parametrize("target", ["ttnn"])
 def test_constant(shape: Shape, dtype: torch.dtype, target: str, request, device):
     def constant_fn(builder: StableHLOBuilder):
         if dtype.is_floating_point:
@@ -463,11 +463,9 @@ def test_dynamic_slice(
     device,
 ):
     def dynamic_slice_fn(in0: Operand, builder: StableHLOBuilder):
-        
+
         builder.set_graph_level_check(True)
-        return builder.dynamic_slice(
-            in0, start_indices_val, slice_sizes=slice_sizes
-        )
+        return builder.dynamic_slice(in0, start_indices_val, slice_sizes=slice_sizes)
 
     compile_and_execute_shlo(
         dynamic_slice_fn,
