@@ -10,7 +10,6 @@
 #include "mlir/Transforms/DialectConversion.h"
 #include <atomic>
 #include <fstream>
-#include <mutex>
 #include <string>
 
 namespace mlir::tt {
@@ -120,7 +119,6 @@ private:
   std::string outputDir_;        ///< Base output directory path
   std::string modelName_;        ///< Name of the model being processed
   std::string pipelineName_;     ///< Optional pipeline identifier
-  std::mutex fileMutex_;         ///< Protects file operations
   DumpLevel level_;              ///< Level of instrumentation detail
   bool debug_;                   ///< Enable debug output
 };

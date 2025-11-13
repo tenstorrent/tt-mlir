@@ -16,7 +16,7 @@ namespace mlir::tt {
 
 TTPrintIRInstrumentation::TTPrintIRInstrumentation(
     TTPrintIRInstrumentationOptions options)
-    : dumpCounter_(0), pipelineName_(options.pipelineName), fileMutex_(),
+    : dumpCounter_(0), pipelineName_(options.pipelineName),
       level_(options.level), debug_(options.debug) {
   // Set model name - use provided name or default to "unknown"
   modelName_ = options.modelName.empty() ? "unknown" : options.modelName;
@@ -153,8 +153,6 @@ void TTPrintIRInstrumentation::dumpIR(mlir::Operation *op,
   if (!op) {
     return;
   }
-
-  std::lock_guard<std::mutex> lock(fileMutex_);
 
   // Get output filename
   std::string filename = getOutputFilename(name);
