@@ -1116,6 +1116,10 @@ getOpOutputRef(OpContext opContextHandle,
     tensorRef = opContext.type_as_Conv2dOp()->out();
     break;
   }
+  case ::tt::target::ttnn::OpType::Conv3dOp: {
+    tensorRef = opContext.type_as_Conv3dOp()->out();
+    break;
+  }
   case ::tt::target::ttnn::OpType::ConvTranspose2dOp: {
     tensorRef = opContext.type_as_ConvTranspose2dOp()->out();
     break;
@@ -1447,6 +1451,10 @@ getOpInputRefs(OpContext opContextHandle,
   }
   case ::tt::target::ttnn::OpType::Conv2dOp: {
     tensorRefs = {opContext.type_as_Conv2dOp()->input()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::Conv3dOp: {
+    tensorRefs = {opContext.type_as_Conv3dOp()->input()};
     break;
   }
   case ::tt::target::ttnn::OpType::ConvTranspose2dOp: {

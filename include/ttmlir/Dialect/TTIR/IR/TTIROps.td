@@ -3316,13 +3316,6 @@ def TTIR_Conv3dOp : TTIR_NamedOp<"conv3d"> {
                          I32Attr:$groups,
                          DefaultValuedAttr<StrAttr, "\"zeros\"">:$padding_mode);
 
-    let extraClassDeclaration = [{
-      // Get number of output channels
-      int64_t getOutputChannelSize();
-      bool isBiasCompatible(llvm::ArrayRef<int64_t> biasDims);
-      MutableOperandRange getDpsInitsMutable() { return ttir::getDpsOutputs(this); }
-    }];
-
     let results = (outs AnyRankedTensor:$result);
 
     let hasVerifier = 1;

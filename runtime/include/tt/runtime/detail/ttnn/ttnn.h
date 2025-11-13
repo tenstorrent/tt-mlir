@@ -16,6 +16,7 @@
 #include "ttnn/device.hpp"
 #include "ttnn/events.hpp"
 #include "ttnn/operations/conv/conv2d/conv2d.hpp"
+#include "ttnn/operations/experimental/conv3d/conv3d.hpp"
 #include "ttnn/operations/copy/typecast/typecast.hpp"
 #include "ttnn/operations/core/core.hpp"
 #include "ttnn/operations/creation.hpp"

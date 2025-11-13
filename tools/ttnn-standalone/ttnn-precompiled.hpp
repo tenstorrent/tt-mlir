@@ -10,6 +10,7 @@
 #include "operations/conv/conv2d/conv2d.hpp"
 #include "operations/conv/conv2d/prepare_conv2d_weights.hpp"
 #include "operations/conv/conv_transpose2d/conv_transpose2d.hpp"
+#include "operations/experimental/conv3d/conv3d.hpp"
 #include "operations/core/core.hpp"
 #include "operations/creation.hpp"
 #include "operations/data_movement/concat/concat.hpp"

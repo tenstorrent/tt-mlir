@@ -1344,10 +1344,29 @@ public:
           op.getLoc());
     }
 
-    // Create TTNN Conv3dOp
+    // Convert input to ROW_MAJOR layout (required by TTNN Conv3d API)
+    auto inputLayoutAttr = mlir::cast<ttnn::TTNNLayoutAttr>(inputTy.getEncoding());
+    auto rowMajorLayoutAttr =
+        ttnn::LayoutAttr::get(op.getContext(), ttnn::Layout::RowMajor);
+    RankedTensorType rowMajorInputType =
+        ttnn::utils::RankedTensorTypeFactory::create(inputTy, ttnn::Layout::RowMajor);
+
+    // Create memory config and dtype for the layout conversion
+    ttnn::BufferTypeAttr inputBufferTypeAttr = ttnn::BufferTypeAttr::get(
+        op.getContext(), inputLayoutAttr.getBufferType());
+    ttnn::MemoryConfigAttr inputMemoryConfigAttr = ttnn::MemoryConfigAttr::get(
+        op.getContext(), inputLayoutAttr.getMemLayout(), inputBufferTypeAttr,
+        std::nullopt);
+    auto inputDtype = rewriter.getAttr<ttcore::DataTypeAttr>(inputLayoutAttr.getDataType());
+
+    Value rowMajorInput = rewriter.create<ttnn::ToLayoutOp>(
+        op.getLoc(), rowMajorInputType, adaptor.getInput(), rowMajorLayoutAttr,
+        inputDtype, inputMemoryConfigAttr);
+
+    // Create TTNN Conv3dOp with ROW_MAJOR input and TILE weight/bias
     rewriter.replaceOpWithNewOp<ttnn::Conv3dOp>(
         op, getTypeConverter()->convertType(op.getResult().getType()),
-        adaptor.getInput(), reshapedWeight, reshapedBias, device,
+        rowMajorInput, reshapedWeight, reshapedBias, device,
         inChannelsAttr, outChannelsAttr, batchSizeAttr, inputDepthAttr,
         inputHeightAttr, inputWidthAttr, kernelSizeAttr, *strideAttr,
         *paddingAttr, paddingModeAttr, groupsAttr, outputDtypeAttr);
@@ -1387,7 +1406,8 @@ private:
   }
 
   // Helper to reshape weight tensor for Conv3d
-  // Transforms: (O, C/G, K_D, K_H, K_W) → (1, 1, K_D*K_H*K_W*C, O)
+  // Transforms: (O, C/G, K_D, K_H, K_W) → (K_D*K_H*K_W*C, O)
+  // Note: Conv3d expects 2D weight tensor where logical_shape()[0] = patch_size
   Value reshapeWeightForConv3d(Value weight, RankedTensorType weightTy,
                                 PatternRewriter &rewriter, Location loc) const {
     llvm::ArrayRef<int64_t> weightShape = weightTy.getShape();
@@ -1397,12 +1417,12 @@ private:
     int64_t kernelHeight = weightShape[3];
     int64_t kernelWidth = weightShape[4];
 
-    // Calculate flattened dimension: K_D * K_H * K_W * C
+    // Calculate flattened dimension: K_D * K_H * K_W * C (patch_size)
     int64_t flattenedDim =
         kernelDepth * kernelHeight * kernelWidth * inChannPerGroup;
 
-    // New shape: (1, 1, K_D*K_H*K_W*C, O)
-    llvm::SmallVector<int64_t> newShape = {1, 1, flattenedDim, outChannels};
+    // New shape: (K_D*K_H*K_W*C, O) - 2D tensor as required by Conv3d
+    llvm::SmallVector<int64_t> newShape = {flattenedDim, outChannels};
     llvm::SmallVector<int32_t> newShapeI32(newShape.begin(), newShape.end());
 
     // Create output type for reshape using the factory
@@ -1416,25 +1436,36 @@ private:
   }
 
   // Helper to repeat bias tensor for Conv3d
-  // Transforms: (1, 1, 1, 1, O) → (1, 1, 1, 32, O) using repeat
+  // Transforms: (1, 1, 1, 1, O) → (32, O) using repeat
+  // Note: Conv3d expects 2D bias tensor where logical_shape()[1] = output_channels
   Value reshapeBiasForConv3d(Value bias, RankedTensorType biasTy,
                              PatternRewriter &rewriter, Location loc) const {
     llvm::ArrayRef<int64_t> biasShape = biasTy.getShape();
     int64_t outChannels = biasShape[4];
 
-    // New shape: (1, 1, 1, 32, O) - repeat dimension 3 by 32 times
-    llvm::SmallVector<int64_t> newShape = {1, 1, 1, 32, outChannels};
+    // New shape: (32, O) - 2D tensor as required by Conv3d
+    llvm::SmallVector<int64_t> newShape = {32, outChannels};
 
-    // Repeat dims: [1, 1, 1, 32, 1] - repeat 4th dimension 32 times
+    // Repeat dims: [1, 1, 1, 32, 1] - repeat 4th dimension 32 times from 5D input
     auto repeatDims = rewriter.getAttr<ttnn::ShapeAttr>(
         llvm::ArrayRef<int64_t>{1, 1, 1, 32, 1});
 
-    // Create output type using the factory
+    // Create intermediate 5D type for repeat operation
+    llvm::SmallVector<int64_t> intermediate5DShape = {1, 1, 1, 32, outChannels};
+    RankedTensorType intermediate5DType =
+        ttnn::utils::RankedTensorTypeFactory::create(biasTy, intermediate5DShape);
+
+    // Create repeat operation to get (1, 1, 1, 32, O)
+    Value repeated5D = rewriter.create<ttnn::RepeatOp>(loc, intermediate5DType, bias, repeatDims);
+
+    // Reshape from 5D to 2D
+    llvm::SmallVector<int32_t> newShapeI32(newShape.begin(), newShape.end());
     RankedTensorType outputType =
         ttnn::utils::RankedTensorTypeFactory::create(biasTy, newShape);
 
-    // Create repeat operation
-    return rewriter.create<ttnn::RepeatOp>(loc, outputType, bias, repeatDims);
+    return rewriter.create<ttnn::ReshapeOp>(
+        loc, outputType, repeated5D, rewriter.getI32ArrayAttr(newShapeI32),
+        /*memory_config=*/nullptr);
   }
 };
 } // namespace

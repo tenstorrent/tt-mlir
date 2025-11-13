@@ -100,7 +100,7 @@ struct Conv2dParams {
 } // namespace conv2d_verification
 
 namespace conv3d_verification {
-// Conv3d tensors use 5D/4D shapes (not flattened)
+// Conv3d input/output tensors use 5D shapes, weight/bias use 2D shapes
 enum InputDim : unsigned {
   INPUT_BATCH = 0,
   INPUT_DEPTH = 1,
@@ -117,19 +117,16 @@ enum OutputDim : unsigned {
   OUTPUT_CHANNEL = 4
 };
 
+// Weight is 2D: [kD*kH*kW*C_in, O]
 enum WeightDim : unsigned {
-  WEIGHT_FIRST_DIM = 0,  // Must be 1
-  WEIGHT_SECOND_DIM = 1, // Must be 1
-  WEIGHT_FLATTENED = 2,  // kD*kH*kW*C_in
-  WEIGHT_OUT_CHANNEL = 3 // Must be O
+  WEIGHT_FLATTENED = 0,  // kD*kH*kW*C_in (patch_size)
+  WEIGHT_OUT_CHANNEL = 1 // O (output channels)
 };
 
+// Bias is 2D: [32, O]
 enum BiasDim : unsigned {
-  BIAS_FIRST_DIM = 0,   // Must be 1
-  BIAS_SECOND_DIM = 1,  // Must be 1
-  BIAS_THIRD_DIM = 2,   // Must be 1
-  BIAS_FOURTH_DIM = 3,  // Must be 32
-  BIAS_OUT_CHANNEL = 4  // Must be O
+  BIAS_TILE_HEIGHT = 0,  // Must be 32 (tile height)
+  BIAS_OUT_CHANNEL = 1   // Must be O (output channels)
 };
 
 struct InputTensorDims3d {
@@ -387,11 +384,11 @@ mlir::LogicalResult verifyTensorRanks(mlir::tt::ttnn::Conv3dOp *op) {
   if (op->getInput().getType().getRank() != 5) {
     return op->emitOpError("input must be a 5D tensor [N, D, H, W, C]");
   }
-  if (op->getWeight().getType().getRank() != 4) {
-    return op->emitOpError("weight must be a 4D tensor [1, 1, kD*kH*kW*C, O]");
+  if (op->getWeight().getType().getRank() != 2) {
+    return op->emitOpError("weight must be a 2D tensor [kD*kH*kW*C, O]");
   }
-  if (op->getBias() && op->getBias().getType().getRank() != 5) {
-    return op->emitOpError("bias must be a 5D tensor [1, 1, 1, 32, O]");
+  if (op->getBias() && op->getBias().getType().getRank() != 2) {
+    return op->emitOpError("bias must be a 2D tensor [32, O]");
   }
   if (op->getResult().getType().getRank() != 5) {
     return op->emitOpError("result must be a 5D tensor [N, D_out, H_out, W_out, O]");
@@ -490,19 +487,12 @@ getAndVerifyConv3dParams(mlir::tt::ttnn::Conv3dOp *op) {
     const std::optional<BiasTensorDims3d> &biasDims,
     const Conv3dParams &params) {
 
-  // Verify weight shape constraints
-  auto weightShape = op->getWeight().getType().getShape();
-  if (weightShape[WEIGHT_FIRST_DIM] != 1 ||
-      weightShape[WEIGHT_SECOND_DIM] != 1) {
-    return op->emitOpError("weight tensor first two dimensions must be 1");
-  }
-
-  // Verify bias shape constraints
+  // Verify bias shape constraints (2D: [32, O])
   if (op->getBias()) {
     auto biasShape = op->getBias().getType().getShape();
-    if (biasShape[BIAS_FIRST_DIM] != 1 || biasShape[BIAS_SECOND_DIM] != 1 ||
-        biasShape[BIAS_THIRD_DIM] != 1 || biasShape[BIAS_FOURTH_DIM] != 32) {
-      return op->emitOpError("bias must have shape [1, 1, 1, 32, O]");
+    if (biasShape[BIAS_TILE_HEIGHT] != 32) {
+      return op->emitOpError("bias first dimension must be 32 (tile height), got ")
+             << biasShape[BIAS_TILE_HEIGHT];
     }
   }
 

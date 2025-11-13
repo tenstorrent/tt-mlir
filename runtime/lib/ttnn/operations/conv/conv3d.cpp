@@ -83,7 +83,7 @@ void run(const ::tt::target::ttnn::Conv3dOp *op, ProgramContext &context) {
                  outputMemoryConfig.has_value(),
              "Memory config must exist for device tensors");
 
-  ::ttnn::Tensor out = ::ttnn::operations::experimental::conv3d::invoke(
+  ::ttnn::Tensor out = ::ttnn::experimental::conv3d(
       input, weight, bias, config, outputMemoryConfig, computeConfig);
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
