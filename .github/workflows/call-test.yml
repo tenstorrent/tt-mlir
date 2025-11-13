@@ -250,11 +250,37 @@ jobs:
         
         # Check any .so files that link to tracy
         echo "  Searching for any .so files linking to libtracy..."
+        tracy_linking_libs=()
         find . -name "*.so*" -type f 2>/dev/null | while read sofile; do
           if readelf -d "$sofile" 2>/dev/null | grep -q "libtracy"; then
             echo "    $sofile links to libtracy"
+            tracy_linking_libs+=("$sofile")
           fi
         done | head -5 || echo "    (none found)"
+        
+        # For each library that links to tracy, show which tracy it resolves to
+        echo "  Resolving libtracy.so for each linking library..."
+        for lib in ./build/runtime/lib/libTTMLIRRuntime.so \
+                   ./build/python_packages/ttrt/runtime/_ttnncpp.so \
+                   ./build/python_packages/ttrt/runtime/libtt_metal.so \
+                   ./install/lib/libtt_metal.so; do
+          if [ -f "$lib" ]; then
+            echo "    $lib:"
+            echo "      RPATH/RUNPATH:"
+            readelf -d "$lib" 2>/dev/null | grep -E 'RPATH|RUNPATH' || echo "        (none)"
+            echo "      Resolves libtracy to:"
+            ldd "$lib" 2>/dev/null | grep libtracy || echo "        (ldd failed or no tracy)"
+          fi
+        done
+        
+        # Check if all libtracy.so files are the same (by comparing inodes or hashes)
+        echo "  Comparing libtracy.so files..."
+        find . -name "libtracy.so*" -type f 2>/dev/null | while read tracy_file; do
+          inode=$(ls -i "$tracy_file" 2>/dev/null | awk '{print $1}')
+          size=$(ls -lh "$tracy_file" 2>/dev/null | awk '{print $5}')
+          md5=$(md5sum "$tracy_file" 2>/dev/null | awk '{print $1}' || echo "N/A")
+          echo "    $tracy_file: inode=$inode size=$size md5=$md5"
+        done
         
         # Check if tracy_ops_data.csv has interleaved or separated message ordering
         echo "Checking Tracy message ordering in ops data..."
