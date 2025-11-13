@@ -304,7 +304,8 @@ jobs:
         
         # Check where ttrt wheel installs tt-mlir
         echo "  Checking ttrt wheel installation..."
-        ttrt_location=$(python -c "import ttrt; print(ttrt.__file__)" 2>/dev/null || echo "")
+        PYTHON_CMD=$(command -v python || command -v python3)
+        ttrt_location=$($PYTHON_CMD -c "import ttrt; print(ttrt.__file__)" 2>/dev/null || echo "")
         if [ -n "$ttrt_location" ]; then
           ttrt_dir=$(dirname "$ttrt_location")
           echo "    ttrt installed at: $ttrt_dir"
@@ -336,12 +337,14 @@ jobs:
         
         # Check which libraries ttrt actually loads at runtime (ttrt already installed from earlier steps)
         echo "  Checking which libraries ttrt loads at runtime..."
-        python -c 'import sys; import ttrt; print(f"    ttrt loaded from: {ttrt.__file__}"); print(f"    Python loaded modules with \"tt\" or \"mlir\":"); [print(f"      {name}: {mod.__file__}") for name, mod in sys.modules.items() if ("tt" in name.lower() or "mlir" in name.lower()) and hasattr(mod, "__file__") and mod.__file__]' 2>&1 || echo "    (Failed to import ttrt)"
+        # Use venv python if available, fallback to python3
+        PYTHON_CMD=$(command -v python || command -v python3)
+        $PYTHON_CMD -c 'import sys; import ttrt; print(f"    ttrt loaded from: {ttrt.__file__}"); print(f"    Python loaded modules with \"tt\" or \"mlir\":"); [print(f"      {name}: {mod.__file__}") for name, mod in sys.modules.items() if ("tt" in name.lower() or "mlir" in name.lower()) and hasattr(mod, "__file__") and mod.__file__]' 2>&1 || echo "    (Failed to import ttrt)"
         
         # Use /proc/maps to see what .so files are loaded by a ttrt process
         echo "  Testing which .so files ttrt actually loads..."
         echo "    Starting ttrt runtime to check loaded libraries..."
-        timeout 5 python -c 'import ttrt.runtime; import os; print(f"    ttrt runtime PID: {os.getpid()}"); print(f"    Loaded .so files containing \"metal\" or \"MLIR\" or \"tracy\":"); [print(f"      {parts[5]}") for line in open(f"/proc/{os.getpid()}/maps") if ".so" in line and any(x in line for x in ["metal", "MLIR", "Runtime", "tracy"]) for parts in [line.split()] if len(parts) >= 6]; import time; time.sleep(3)' 2>&1 || echo "    (Failed to check loaded libraries)"
+        timeout 5 $PYTHON_CMD -c 'import ttrt.runtime; import os; print(f"    ttrt runtime PID: {os.getpid()}"); print(f"    Loaded .so files containing \"metal\" or \"MLIR\" or \"tracy\":"); [print(f"      {parts[5]}") for line in open(f"/proc/{os.getpid()}/maps") if ".so" in line and any(x in line for x in ["metal", "MLIR", "Runtime", "tracy"]) for parts in [line.split()] if len(parts) >= 6]; import time; time.sleep(3)' 2>&1 || echo "    (Failed to check loaded libraries)"
         
         # Check if tracy_ops_data.csv has interleaved or separated message ordering
         echo "Checking Tracy message ordering in ops data..."
