@@ -3052,7 +3052,8 @@ mlir::tt::ttnn::CollectivePermuteOp::fold(FoldAdaptor adaptor) {
     }
   }
 
-  int64_t numHeads = cacheShape[1];
+  int64_t numCacheHeads = cacheShape[1];
+  int64_t numInputHeads = inputShape[1];
   int64_t blockSize = cacheShape[2];
   int64_t headDim = cacheShape[3];
 
@@ -3061,8 +3062,9 @@ mlir::tt::ttnn::CollectivePermuteOp::fold(FoldAdaptor adaptor) {
                        std::to_string(blockSize));
   }
 
-  if (inputShape[1] != numHeads) {
-    return emitOpError("Input must have same number of heads as cache.");
+  if (numInputHeads % numCacheHeads != 0) {
+    return emitOpError("Input must have a number of heads that is a multiple "
+                       "of the number of heads in the cache.");
   }
 
   if (inputShape[3] != headDim) {
