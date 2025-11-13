@@ -14,6 +14,7 @@
 #include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/Affine/ViewLikeInterfaceUtils.h"
+#include "mlir/Dialect/EmitC/IR/EmitC.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
@@ -1223,6 +1224,25 @@ public:
 } // namespace
 
 namespace {
+class D2MSignpostOpRewriter : public OpConversionPattern<d2m::SignpostOp> {
+public:
+  using OpConversionPattern<d2m::SignpostOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(d2m::SignpostOp op, d2m::SignpostOpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    // Create scoped profiler marker wrapped in braces to avoid variable conflicts
+    rewriter.create<emitc::VerbatimOp>(op.getLoc(), "{");
+    rewriter.create<emitc::VerbatimOp>(
+        op.getLoc(), "DeviceZoneScopedN(\"" + op.getName().str() + "\");");
+    rewriter.create<emitc::VerbatimOp>(op.getLoc(), "}");
+    rewriter.eraseOp(op);
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 class D2MPackerMaskResetRewriter
     : public OpConversionPattern<d2m::PackerMaskResetOp> {
 public:
@@ -1505,6 +1525,7 @@ void populateD2MToTTKernelPatterns(
                ttkernel::D2MDMAWaitRewriter,
                ttkernel::D2MCoreIndexRewriter,
                ttkernel::D2MNullTxRewriter,
+               ttkernel::D2MSignpostOpRewriter,
                ttkernel::D2MPackerMaskResetRewriter,
                ttkernel::MemRefCollapseRewriter,
                ttkernel::D2MSemaphoreUpdateRewriter<d2m::SemaphoreSetOp>,

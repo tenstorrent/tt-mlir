@@ -297,6 +297,23 @@ def D2M_EmptyOp : D2M_Op<"empty", [
   let assemblyFormat = "`(` `)` attr-dict `:` type($result)";
 }
 
+def D2M_SignpostOp : D2M_Op<"signpost", []> {
+  let summary = "Signpost/profiler region marker operation";
+  let description = [{
+    Marks a profiling region with a custom name for Tracy profiler visualization.
+    This operation is a no-op during execution but generates Tracy DeviceZoneScoped
+    markers in the emitted code.
+
+    Example:
+    ```mlir
+    d2m.signpost "my_custom_region"
+    ```
+  }];
+
+  let arguments = (ins StrAttr:$name);
+  let assemblyFormat = "$name attr-dict";
+}
+
 def D2M_FullOp : D2M_Op<"full", [
     MemoryEffects<[MemAlloc]>,
     DeclareOpInterfaceMethods<BufferizableOpInterface, [
