@@ -67,10 +67,17 @@ void populateTTNNModule(nb::module_ &m) {
       .def_static(
           "get",
           [](MlirContext ctx, MlirAttribute tensorMemoryLayoutAttr,
-             MlirAttribute bufferTypeAttr, MlirAttribute shardSpecAttr) {
+             MlirAttribute bufferTypeAttr,
+             std::optional<MlirAttribute> shardSpec = std::nullopt) {
+            MlirAttribute shardSpecAttr = {nullptr};
+            if (shardSpec.has_value()) {
+              shardSpecAttr = shardSpec.value();
+            }
             return ttmlirTTNNMemoryConfigAttrGet(ctx, tensorMemoryLayoutAttr,
                                                  bufferTypeAttr, shardSpecAttr);
-          })
+          },
+          nb::arg("ctx"), nb::arg("tensorMemoryLayoutAttr"),
+          nb::arg("bufferTypeAttr"), nb::arg("shardSpec") = nb::none())
       .def_prop_ro("buffer_type", &tt::ttnn::MemoryConfigAttr::getBufferType)
       .def_prop_ro("tensor_memory_layout",
                    &tt::ttnn::MemoryConfigAttr::getTensorMemoryLayout)
