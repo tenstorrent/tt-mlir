@@ -3169,7 +3169,7 @@ def TTNN_PagedFillCacheOp : TTIR_NamedOp<"paged_fill_cache"> {
       MutableOperandRange getDpsInitsMutable() { return getCacheMutable(); }
   }];
 
-  let hasVerifier = 0;
+  let hasVerifier = 1;
 }
 
 def TTIR_BroadcastOp : TTIR_NamedOp<"broadcast"> {

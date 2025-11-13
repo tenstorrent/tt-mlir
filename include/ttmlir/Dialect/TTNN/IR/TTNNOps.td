@@ -1074,7 +1074,7 @@ def TTNN_PagedFillCacheOp : TTNN_InplaceOp<"paged_fill_cache"> {
     }
   }];
 
-  let hasVerifier = 0;
+  let hasVerifier = 1;
 }
 
 def TTNN_EmbeddingBackwardOp : TTNN_Op<"embedding_bw", [TTNN_DtypeOpInterface, TTNN_MemoryConfigOpInterface]> {
