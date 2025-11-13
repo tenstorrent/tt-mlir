@@ -3152,10 +3152,10 @@ def TTIR_FillCacheOp : TTIR_NamedOp<"fill_cache"> {
   }];
 }
 
-def TTNN_PagedFillCacheOp : TTIR_NamedOp<"paged_fill_cache"> {
+def TTIR_PagedFillCacheOp : TTIR_NamedOp<"paged_fill_cache"> {
   let summary = "Paged fill cache op.";
   let description = [{
-    Fills the `cache` tensor in-place with values from `input` at `batch_offset`.
+    Fills the `cache` tensor in-place with values from `input` at `batch_idx_tensor`.
   }];
 
   let arguments = (ins AnyRankedTensor:$cache,

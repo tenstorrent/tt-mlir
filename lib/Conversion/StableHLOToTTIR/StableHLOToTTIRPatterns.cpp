@@ -3974,7 +3974,7 @@ public:
          adaptor.getOperands().size() != 3) ||
         srcOp.getResults().size() != 1) {
       return rewriter.notifyMatchFailure(
-          srcOp, "PagedUpdateCache op must have three or four operands and one "
+          srcOp, "PagedFillCache op must have three or four operands and one "
                  "result. Got " +
                      std::to_string(adaptor.getOperands().size()) +
                      " operands "
