@@ -973,7 +973,7 @@ class StableHLOBuilder(Builder):
 
     # ----- Reduce Operations -----
 
-    def _create_reduce_op(
+    def _reduce_op_proxy(
         self,
         in0: Operand,
         dimensions: List[int],
@@ -1094,7 +1094,7 @@ class StableHLOBuilder(Builder):
         def add_creator(arg0, arg1, loc):
             return stablehlo.AddOp(arg0, arg1, loc=loc).result
 
-        result = self._create_reduce_op(in0, dimensions, zero_attr, add_creator)
+        result = self._reduce_op_proxy(in0, dimensions, zero_attr, add_creator)
 
         if not self._disable_golden_check:
             input_golden = self._get_golden_tensor(in0)
@@ -1154,7 +1154,7 @@ class StableHLOBuilder(Builder):
         def max_creator(arg0, arg1, loc):
             return stablehlo.MaxOp(arg0, arg1, loc=loc).result
 
-        result = self._create_reduce_op(in0, dimensions, neg_inf_attr, max_creator)
+        result = self._reduce_op_proxy(in0, dimensions, neg_inf_attr, max_creator)
 
         if not self._disable_golden_check:
             input_golden = self._get_golden_tensor(in0)
@@ -1208,7 +1208,7 @@ class StableHLOBuilder(Builder):
         def min_creator(arg0, arg1, loc):
             return stablehlo.MinOp(arg0, arg1, loc=loc).result
 
-        result = self._create_reduce_op(in0, dimensions, pos_inf_attr, min_creator)
+        result = self._reduce_op_proxy(in0, dimensions, pos_inf_attr, min_creator)
 
         if not self._disable_golden_check:
             input_golden = self._get_golden_tensor(in0)
