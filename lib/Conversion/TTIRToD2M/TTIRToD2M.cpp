@@ -933,7 +933,7 @@ public:
     // Stream storage layout should NOT have an index map, otherwise it
     // gets inferred later as having a virtual grid.
     auto resultLayoutWithoutReblockMap = ttcore::MetalLayoutAttr::get(
-        ctx, inputLayout.getLogicalShape(), inputLayout.getDimAlignments(),
+        ctx, permuted.logicalShape, permuted.dimAlignments,
         inputLayout.getCollapsedIntervals(), inputLayout.getOobVal(),
         inputLayout.getMemorySpace(), inputLayout.getMemoryLayout(),
         AffineMap::get(ctx));
