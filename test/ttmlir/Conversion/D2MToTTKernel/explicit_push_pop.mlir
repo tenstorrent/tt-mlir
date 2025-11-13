@@ -41,4 +41,23 @@ module {
     return
   }
 
+  // Test backward compatibility: implicit release still works without explicit push/pop
+  // CHECK-LABEL: func.func private @compute_kernel
+  func.func @test_implicit_release(%in0: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>,
+                                   %out: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>) {
+    d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#map_, #map_], iterator_types = [#parallel_, #parallel_], threads = [#d2m.thread<compute>]}
+        ins(%in0 : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>)
+        outs(%out : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>)  {
+    ^compute0(%arg0_cb: !d2m.cb<memref<1x1x!ttype_f32, #l1_>>, %arg1_cb: !d2m.cb<memref<1x1x!ttype_f32, #l1_>>):
+      %cb0 = d2m.wait %arg0_cb : !d2m.cb<memref<1x1x!ttype_f32, #l1_>> -> memref<1x1x!ttype_f32, #l1_>
+      %cb1 = d2m.reserve %arg1_cb : !d2m.cb<memref<1x1x!ttype_f32, #l1_>> -> memref<1x1x!ttype_f32, #l1_>
+      // No explicit pop/push - should still insert implicit releases
+      // CHECK: ttkernel.cb_wait_front
+      // CHECK: ttkernel.cb_reserve_back
+      // CHECK: ttkernel.cb_pop_front
+      // CHECK: ttkernel.cb_push_back
+    }
+    return
+  }
+
 }
