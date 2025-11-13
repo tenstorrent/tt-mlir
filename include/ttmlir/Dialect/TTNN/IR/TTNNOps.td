@@ -1630,15 +1630,16 @@ def TTNN_Conv3dOp : TTNN_Op<"conv3d", [TTNN_DtypeOpInterface]> {
         - H is the height of the input planes
         - W is the width of the input planes
         - C is the number of input channels
-      - `weight` (AnyRankedTensor): expected in the following format (1, 1, K_D * K_H * K_W * C, O) where:
+      - `weight` (AnyRankedTensor): expected in the following format (K_D * K_H * K_W * C, O) where:
         - K_D is the depth of the kernel
         - K_H is the height of the kernel
         - K_W is the width of the kernel
         - C is the number of input channels
         - O is the number of output channels
-        The spatial kernel dimensions and input channels are flattened together.
-      - `bias` (Optional<AnyRankedTensor>): expected in the following format (1, 1, 1, 32, O) where:
+        The spatial kernel dimensions and input channels are flattened together into a 2D tensor.
+      - `bias` (Optional<AnyRankedTensor>): expected in the following format (32, O) where:
         - O is the number of output channels
+        This is a 2D tensor with 32 rows (tile height) as required by the TTNN API.
 
       Attributes:
       - `in_channels` (i32): The number of input channels.
@@ -1662,8 +1663,8 @@ def TTNN_Conv3dOp : TTNN_Op<"conv3d", [TTNN_DtypeOpInterface]> {
 
       Example:
         %input = ttir.empty() : () -> tensor<1x8x32x32x32xbf16>
-        %weight = ttir.empty() : () -> tensor<1x1x864x64xbf16>  // 864 = 3*3*3*32
-        %bias = ttir.empty() : () -> tensor<1x1x1x32x64xbf16>
+        %weight = ttir.empty() : () -> tensor<864x64xbf16>  // 864 = 3*3*3*32 (2D tensor)
+        %bias = ttir.empty() : () -> tensor<32x64xbf16>     // 2D tensor
         %device = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
         %0 = "ttnn.conv3d"(%input, %weight, %bias, %device)
           <{
@@ -1678,7 +1679,7 @@ def TTNN_Conv3dOp : TTNN_Op<"conv3d", [TTNN_DtypeOpInterface]> {
             padding = array<i32: 0, 0, 0>,
             padding_mode = "zeros",
             groups = 1: i32
-          }> : (tensor<1x8x32x32x32xbf16>, tensor<1x1x864x64xbf16>, tensor<1x1x1x32x64xbf16>, !ttnn.device) -> tensor<1x6x30x30x64xbf16>
+          }> : (tensor<1x8x32x32x32xbf16>, tensor<864x64xbf16>, tensor<32x64xbf16>, !ttnn.device) -> tensor<1x6x30x30x64xbf16>
     }];
 
     let arguments = (ins AnyRankedTensor:$input,

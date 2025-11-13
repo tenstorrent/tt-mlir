@@ -810,7 +810,7 @@ public:
       }
     }
 
-    // Check that padding is symmetric for all dimensions since Conv3d only
+    // Padding must be symmetric for all dimensions since Conv3d only
     // supports symmetric padding
     auto paddingMatrix =
         getPaddingMatrix<NUM_SPATIAL_DIMS>(adaptor.getPadding());
@@ -851,6 +851,8 @@ public:
          llvm::enumerate(convLayoutAttr.getOutputSpatialDimensions())) {
       outputLayout[spatialDim] = spatialCount;
     }
+
+    // Set the output to NCDHW layout 
     auto outputPermutation = ttmlir::utils::generatePermutation(
         llvm::ArrayRef(conv3dLayout), llvm::ArrayRef(outputLayout));
 
