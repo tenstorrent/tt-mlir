@@ -15,8 +15,8 @@
 namespace mlir::tt {
 
 POCInstrumentation::POCInstrumentation(POCInstrumentationOptions options)
-    : dumpCounter_(0), level_(options.level), actionMode_(options.actionMode),
-      debug_(options.debug), pipelineName_(options.pipelineName) {
+    : dumpCounter_(0), pipelineName_(options.pipelineName), fileMutex_(),
+      level_(options.level), debug_(options.debug) {
   // Set model name - use provided name or default to "unknown"
   modelName_ = options.modelName.empty() ? "unknown" : options.modelName;
 
@@ -35,10 +35,7 @@ POCInstrumentation::POCInstrumentation(POCInstrumentationOptions options)
 
   if (debug_) {
     llvm::outs() << "POCInstrumentation: Constructor called, output dir: "
-                 << outputDir_ << ", action mode: "
-                 << (actionMode_ == ActionMode::Overwrite ? "Overwrite"
-                                                          : "Append")
-                 << ", model: " << modelName_
+                 << outputDir_ << ", model: " << modelName_
                  << (pipelineName_.empty() ? ""
                                            : ", pipeline: " + pipelineName_)
                  << "\n";
@@ -92,20 +89,11 @@ void POCInstrumentation::attachActionHandler(mlir::MLIRContext *ctx) {
   });
 }
 
-void POCInstrumentation::initializeDumpCounter() {
-  std::string targetDir = getTargetDirectory();
-  if (actionMode_ == ActionMode::Overwrite) {
-    clearDirectory(targetDir);
-    dumpCounter_ = 0;
-  } else { // Append mode
-    int maxIndex = detectNextIndex(targetDir);
-    dumpCounter_ = (maxIndex >= 0) ? maxIndex + 1 : 0;
-  }
-}
+void POCInstrumentation::initializeDumpCounter() { dumpCounter_ = 0; }
 
 void POCInstrumentation::setModelName(const std::string &name) {
   modelName_ = name;
-  // Initialize counter based on action mode when model name is first set
+  // Initialize counter when model name is first set
   initializeDumpCounter();
 }
 
@@ -272,34 +260,6 @@ POCInstrumentation::getOutputFilename(const std::string &name) const {
 std::string POCInstrumentation::getTargetDirectory() const {
   std::string safeModelName = sanitizeFilename(modelName_);
   return outputDir_ + "/" + safeModelName;
-}
-
-int POCInstrumentation::detectNextIndex(const std::string &targetDir) const {
-  if (!std::filesystem::exists(targetDir)) {
-    return -1; // Directory doesn't exist, start from 0
-  }
-
-  int maxIndex = -1;
-  for (const auto &entry : std::filesystem::directory_iterator(targetDir)) {
-    if (entry.is_regular_file()) {
-      std::string filename = entry.path().filename().string();
-      // Look for pattern: <number>_<anything>.mlir
-      if (filename.size() > 5 &&
-          filename.substr(filename.size() - 5) == ".mlir") {
-        size_t underscorePos = filename.find('_');
-        if (underscorePos != std::string::npos) {
-          std::string indexStr = filename.substr(0, underscorePos);
-          int index;
-          if (sscanf(indexStr.c_str(), "%d", &index) == 1) {
-            if (index > maxIndex) {
-              maxIndex = index;
-            }
-          }
-        }
-      }
-    }
-  }
-  return maxIndex;
 }
 
 void POCInstrumentation::clearDirectory(const std::string &targetDir) const {

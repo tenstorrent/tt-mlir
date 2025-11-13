@@ -25,21 +25,15 @@ public:
     Transformation // Dump at pipeline + pass + transformation actions
   };
 
-  enum class ActionMode {
-    Overwrite, // Clear directory, start from 0
-    Append     // Continue from max index + 1
-  };
-
   struct POCInstrumentationOptions {
     std::string outputDir = "~/explorer";
     DumpLevel level = DumpLevel::Transformation;
-    ActionMode actionMode = ActionMode::Overwrite;
     bool debug = true;
     std::string modelName = ""; // Empty means extract from operation location
     std::string pipelineName = ""; // Optional pipeline name for organization
   };
 
-  POCInstrumentation(POCInstrumentationOptions options = {});
+  POCInstrumentation(POCInstrumentationOptions options);
   ~POCInstrumentation() override;
 
   // Set up action handler with the MLIR context from PassManager
@@ -69,7 +63,7 @@ private:
   std::string sanitizeFilename(const std::string &name) const;
   std::string getOutputFilename(const std::string &name) const;
   std::string getTargetDirectory() const;
-  int detectNextIndex(const std::string &targetDir) const;
+  void initializeDumpCounter();
   void clearDirectory(const std::string &targetDir) const;
 
   std::atomic<int> dumpCounter_;
@@ -78,7 +72,6 @@ private:
   std::string pipelineName_;
   std::mutex fileMutex_;
   DumpLevel level_;
-  ActionMode actionMode_;
   bool debug_;
 };
 
