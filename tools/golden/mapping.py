@@ -2350,6 +2350,7 @@ def slice_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
 
     return GoldenMapTensor(shard_map, input_tensor.mesh_shape)
 
+
 def dynamic_slice_golden(
     input_tensor: GoldenMapTensor,
     **kwargs,
@@ -2383,7 +2384,7 @@ def dynamic_slice_golden(
     x0 = input_tensor.shard_at(0)
     for d, st in enumerate(start_indices_tensors):
         val0 = st if not isinstance(st, GoldenMapTensor) else st.shard_at(0)
-        starts.append(val0) 
+        starts.append(val0)
 
         # Bounds check
         max_valid = x0.size(d) - slice_sizes[d]
