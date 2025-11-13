@@ -17,6 +17,11 @@ namespace ttmlir::d2m {
 
 class VirtualGridUtil {
 public:
+  VirtualGridUtil(const VirtualGridUtil &) = delete;
+  VirtualGridUtil(VirtualGridUtil &&) = delete;
+  VirtualGridUtil &operator=(const VirtualGridUtil &) = delete;
+  VirtualGridUtil &operator=(VirtualGridUtil &&) = delete;
+
   /// Generates a pair of forward and inverse affine maps that allow
   /// implementing a virtual grid as a physical-view pair of tensors/memrefs.
   ///

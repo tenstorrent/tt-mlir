@@ -1122,6 +1122,84 @@ static mlir::LogicalResult verifyAffineBlocking(
     }
   }
 
+  if (!getGrid().getMapping().isEmpty()) {
+
+    if (getGrid().getMapping().getNumInputs() != 2ul) {
+      return emitOpError(
+          "GenericOp virtual grid affine map must have 2 inputs, or be empty.");
+    }
+
+    // Generic op with defined physical->virtual mapping in its grid attr should
+    // have output operand(s) with a virtual->physical mapping defined in the
+    // layout attr.
+    for (auto output : getOutputs()) {
+      mlir::ShapedType outputType =
+          mlir::cast<mlir::ShapedType>(output.getType());
+
+      AffineMap fwdMap;
+      if (auto tensor =
+              mlir::dyn_cast_if_present<RankedTensorType>(outputType)) {
+        auto layout = mlir::dyn_cast_if_present<ttcore::MetalLayoutAttr>(
+            tensor.getEncoding());
+        fwdMap = layout.getIndexAffineMap();
+        if (fwdMap.isEmpty()) {
+          return emitOpError(
+              "GenericOp output tensor must have a non-empty index affine "
+              "map if grid affine map is defined.");
+        }
+      } else if (auto memref =
+                     mlir::dyn_cast_if_present<MemRefType>(outputType)) {
+        auto layout = mlir::dyn_cast_if_present<ttcore::ShardLayoutAttr>(
+            memref.getLayout());
+        fwdMap = layout.getCoreVirtualizationMap();
+        if (fwdMap.isEmpty()) {
+          return emitOpError(
+              "GenericOp output memref must have a non-empty core "
+              "virtualization affine map if grid affine map is defined.");
+        }
+      }
+
+      // Drop the shard dim results from the virtual grid mapping.
+      if (fwdMap.getNumResults() % 2 != 0) {
+        return emitOpError("GenericOp output operand's virtual grid mapping "
+                           "must have an even number of results.");
+      }
+
+      fwdMap = ttmlir::utils::affineMapDropBackResults(
+          fwdMap, fwdMap.getNumResults() / 2);
+      // first result is deviceID, so drop it
+      auto invMap = getGrid().getMapping().dropResult(0);
+
+      if (invMap.getNumInputs() != fwdMap.getNumResults()) {
+        return emitOpError(
+            "GenericOp grid and output operand mapping functions do not "
+            "compose (mismatched number of inputs and results).");
+      }
+
+      // Check roundtrip consistency between physical->virtual and
+      // virtual->physical mappings; inv(fwd(shape)) == shape.
+      auto roundtripMap = invMap.compose(fwdMap);
+
+      bool success = true;
+      auto virtGridShape = getGrid().getShape();
+      ttmlir::utils::sample(virtGridShape, [&](ArrayRef<int64_t> point) {
+        // Pad point with dummy shard dims to align with expected fwdMap args.
+        SmallVector<int64_t> dummyShardDims(point.size(), 0);
+        SmallVector<int64_t> pointWithDummyShardDims = llvm::to_vector(
+            llvm::concat<int64_t>(SmallVector<int64_t>(point), dummyShardDims));
+
+        auto roundtripPoint = roundtripMap.compose(pointWithDummyShardDims);
+        if (roundtripPoint != point) {
+          success = false;
+        }
+      });
+      if (!success) {
+        return emitOpError(
+            "roundtrip virtual grid mapping consistency check failed");
+      }
+    }
+  }
+
   if (!llvm::all_equal(llvm::map_range(getIndexingMapsValue(), [](AffineMap m) {
         return m.getNumDims();
       }))) {

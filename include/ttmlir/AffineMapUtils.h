@@ -79,6 +79,13 @@ generateAffineMapFromShardStrides(mlir::ArrayRef<int64_t> strides,
   return map;
 }
 
+/// Returns a new affine map by dropping the last N results of input map
+inline mlir::AffineMap affineMapDropBackResults(mlir::AffineMap map,
+                                                unsigned numResultsToDrop) {
+  return map.dropResults(llvm::to_vector(llvm::seq<int64_t>(
+      map.getNumResults() - numResultsToDrop, map.getNumResults())));
+}
+
 /// Returns a new affine map with only the selected result.
 inline mlir::AffineMap affineMapSelectOneOutput(mlir::AffineMap map,
                                                 unsigned selectedResult) {
