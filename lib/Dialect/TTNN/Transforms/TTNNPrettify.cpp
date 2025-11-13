@@ -13,6 +13,7 @@
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringMap.h"
 #include "llvm/ADT/StringRef.h"
+#include <queue>
 
 namespace mlir::tt::ttnn {
 #define GEN_PASS_DEF_TTNNPRETTIFYFORCODEGEN
@@ -75,19 +76,19 @@ private:
       }
 
       // Simplify the location - remove nested locations.
-      std::cout << "Simplifying loc: " << "\n";
-      op->getLoc().print(llvm::outs());
-      std::cout << "\n";
+      // std::cout << "Simplifying loc: " << "\n";
+      // op->getLoc().print(llvm::outs());
+      // std::cout << "\n";
       mlir::Location simplifiedLoc = simplifyNameLoc(op->getLoc());
-      std::cout << "Simplified loc: " << "\n";
-      simplifiedLoc.print(llvm::outs());
-      std::cout << "\n";
+      // std::cout << "Simplified loc: " << "\n";
+      // simplifiedLoc.print(llvm::outs());
+      // std::cout << "\n";
 
       // Get location without "loc(" and ")" characters.
       std::string locStr = locationToStr(simplifiedLoc);
 
-      op->dump();
-      std::cout << "Parsing loc: " << locStr << "\n";
+      // op->dump();
+      // std::cout << "Parsing loc: " << locStr << "\n";
 
       // Split locStr by "|" character.
       // For example, given:
@@ -120,7 +121,7 @@ private:
         //   ["Tail", "tail"]
         llvm::SmallVector<llvm::StringRef, 2> moduleParts;
         locParts[i].split(moduleParts, "[", -1, false);
-        std::cout << locStr << "\n";
+        // std::cout << locStr << "\n";
         this->modules.push_back(
             Module{/* moduleClass= */ moduleParts[0].str(),
                    // Remove trailing "]" from module name.
@@ -243,6 +244,68 @@ private:
     return "";
   }
 
+  struct OpPyLoc {
+    Operation *op;
+    PyLoc pyLoc;
+    int distanceFromRoot;
+  };
+
+  struct CompareOpPyLoc {
+    std::string *currentFuncName;
+
+    CompareOpPyLoc(std::string *currentFuncName)
+        : currentFuncName(currentFuncName) {}
+
+    bool operator()(const OpPyLoc &a, const OpPyLoc &b) const {
+      bool debug = false;
+
+      bool isASameGroup = a.pyLoc.funcPath == *currentFuncName;
+      bool isBSameGroup = b.pyLoc.funcPath == *currentFuncName;
+
+      if (debug) {
+        llvm::outs() << "Comparing " << a.op->getName() << " and "
+                     << b.op->getName() << "\n";
+        llvm::outs() << "  a.pyLoc.funcPath: " << a.pyLoc.funcPath << "\n";
+        llvm::outs() << "  b.pyLoc.funcPath: " << b.pyLoc.funcPath << "\n";
+        llvm::outs() << "  *currentFuncName: " << *currentFuncName << "\n";
+        llvm::outs() << "  a.distanceFromRoot: " << a.distanceFromRoot << "\n";
+        llvm::outs() << "  b.distanceFromRoot: " << b.distanceFromRoot << "\n";
+
+        llvm::outs() << "  isASameGroup: " << isASameGroup << "\n";
+        llvm::outs() << "  isBSameGroup: " << isBSameGroup << "\n";
+      }
+
+      bool result;
+      std::string reason;
+
+      if (isASameGroup && isBSameGroup) {
+        result = a.distanceFromRoot >
+                 b.distanceFromRoot; // b wins if a distance is greater
+        reason = result ? "a has greater distance (lower priority)"
+                        : "b has greater distance (lower priority)";
+      } else if (isASameGroup && !isBSameGroup) {
+        result = false; // a wins
+        reason = "a is same group, b is different (a has lower priority)";
+      } else if (!isASameGroup && isBSameGroup) {
+        result = true; // b wins
+        reason = "b is same group, a is different (b has lower priority)";
+      } else {
+        // This arbitrarily chooses the next op when there's a tie.
+        result = a.pyLoc.funcPath < b.pyLoc.funcPath;
+        reason = result ? "a.funcPath < b.funcPath (a has lower priority)"
+                        : "b.funcPath < a.funcPath (b has lower priority)";
+      }
+
+      if (debug) {
+        llvm::outs() << "  Winner (closer to front): "
+                     << (result ? b.op->getName() : a.op->getName()) << " ("
+                     << reason << ")\n";
+      }
+
+      return result;
+    }
+  };
+
   // Group operations by their funcPath.
   // Returns a map: funcPath -> (funcName, vector of PyLocs)
   llvm::StringMap<std::pair<std::string, SmallVector<PyLoc>>>
@@ -257,24 +320,86 @@ private:
     SmallVector<PyLoc> currentGroup;
     unsigned groupCounter = 0;
 
-    // Walk ops in the function body in order
-    // TODO (svuckovic): improve by doing an on-line topological walk:
-    // Start from root node(s), and then add children that belong to the current
-    // group. Only after all possible children are added, create a break. This
-    // will minimize the number of groups.
-    candidateFn.walk([&](Operation *op) {
-      auto locIt = opToLocation.find(op);
-      if (locIt == opToLocation.end()) {
-        // Skip operations not in our map (non-TTNN ops)
-        return WalkResult::advance();
+    // Track which operations have been processed (across all groups)
+    llvm::DenseSet<Operation *> processedOps;
+
+    // Track which operations are in the priority queue (to avoid duplicates)
+    llvm::DenseSet<Operation *> inQueue;
+
+    // map op -> oppyloc
+    llvm::DenseMap<Operation *, OpPyLoc> opToOpPyLoc;
+
+    // Keep track of operations that are available to be added to the current
+    // group. Use priority queue
+    CompareOpPyLoc comparator(&prevFuncPath);
+    std::priority_queue<OpPyLoc, SmallVector<OpPyLoc>, CompareOpPyLoc>
+        availableOps(comparator);
+
+    // Initialize availableOps with root operations in the function.
+    // Root operations are those that have no dependencies within opToLocation
+    for (const auto &entry : opToLocation) {
+      Operation *op = entry.first;
+      const PyLoc &pyLoc = entry.second;
+
+      // If deallocate op, skip
+      if (isa<ttnn::DeallocateOp>(op)) {
+        continue;
       }
 
-      const PyLoc &pyLoc = locIt->second;
+      bool hasInternalDeps = false;
+      for (Value operand : op->getOperands()) {
+        Operation *definingOp = operand.getDefiningOp();
+        if (definingOp && opToLocation.count(definingOp)) {
+          hasInternalDeps = true;
+          break;
+        }
+      }
+
+      if (!hasInternalDeps) {
+        // Root operation - add to priority queue with distance 0
+        availableOps.push({op, pyLoc, 0});
+        inQueue.insert(op);
+        opToOpPyLoc.insert({op, {op, pyLoc, 0}});
+      }
+    }
+
+    // Print all ops in queue
+    llvm::outs() << "Root ops in queue: " << inQueue.size() << "\n";
+    // for (Operation *op : inQueue) {
+    //   llvm::outs() << "  - " << op->getName() << "\n";
+    // }
+
+    for (Operation *op : inQueue) {
+      auto it = opToOpPyLoc.find(op);
+      if (it == opToOpPyLoc.end()) {
+        llvm::errs() << "DIDNT FIND OP IN OPTOOPPYLOC\n";
+        exit(1);
+      }
+
+      const OpPyLoc &opPyLoc = it->second;
+      llvm::outs() << "  - " << opPyLoc.op->getName() << " - "
+                   << opPyLoc.distanceFromRoot << " - "
+                   << opPyLoc.pyLoc.funcPath << "\n";
+    }
+
+    while (!availableOps.empty()) {
+      OpPyLoc opPyLoc = availableOps.top();
+      availableOps.pop();
+      inQueue.erase(opPyLoc.op);
+      opToOpPyLoc.erase(opPyLoc.op);
+
+      // Skip if already processed (can happen with duplicates in queue)
+      if (processedOps.count(opPyLoc.op)) {
+        continue;
+      }
+
+      const PyLoc &pyLoc = opPyLoc.pyLoc;
 
       // Check if funcPath changed (make a "cut")
       if (!prevFuncPath.empty() && pyLoc.funcPath != prevFuncPath) {
         // Print current group
         llvm::outs() << "Current group: " << currentGroup.size() << "\n";
+        llvm::outs() << "  Func path: " << prevFuncPath << "\n";
         for (PyLoc &pyLoc : currentGroup) {
           // Print pyloc op name and modules
           llvm::outs() << "  - " << pyLoc.op->getName() << " (modules: ";
@@ -283,6 +408,21 @@ private:
                          << "] ";
           }
           llvm::outs() << ")\n";
+        }
+        llvm::outs() << "  Ops currently in queue: " << inQueue.size() << "\n";
+        llvm::outs() << "    - " << opPyLoc.op->getName() << " - "
+                     << opPyLoc.distanceFromRoot << " - "
+                     << opPyLoc.pyLoc.funcPath << "\n";
+        for (Operation *op : inQueue) {
+          auto it = opToOpPyLoc.find(op);
+          if (it == opToOpPyLoc.end()) {
+            llvm::errs() << "DIDNT FIND OP IN OPTOOPPYLOC\n";
+            exit(1);
+          }
+          const OpPyLoc &opPyLoc = it->second;
+          llvm::outs() << "    - " << opPyLoc.op->getName() << " - "
+                       << opPyLoc.distanceFromRoot << " - "
+                       << opPyLoc.pyLoc.funcPath << "\n";
         }
         llvm::outs() << "\n";
 
@@ -295,11 +435,48 @@ private:
 
       // Add current op to the group
       currentGroup.push_back(pyLoc);
+      processedOps.insert(opPyLoc.op);
       prevFuncPath = pyLoc.funcPath;
       currentFuncName = pyLoc.funcName;
 
-      return WalkResult::advance();
-    });
+      // Add dependent operations to the priority queue
+      // (operations that use results of this operation)
+      for (Value result : opPyLoc.op->getResults()) {
+        for (Operation *userOp : result.getUsers()) {
+          // Skip if already processed or in queue
+          if (processedOps.count(userOp) || inQueue.count(userOp)) {
+            continue;
+          }
+
+          // Only add if it's in our operation set
+          auto userLocIt = opToLocation.find(userOp);
+          if (userLocIt != opToLocation.end()) {
+            // Check if all dependencies are now satisfied
+            bool allDepsSatisfied = true;
+            for (Value operand : userOp->getOperands()) {
+              Operation *definingOp = operand.getDefiningOp();
+              if (definingOp && opToLocation.count(definingOp)) {
+                // Check if this dependency has been processed
+                if (!processedOps.count(definingOp)) {
+                  allDepsSatisfied = false;
+                  break;
+                }
+              }
+            }
+
+            if (allDepsSatisfied) {
+              // Add to priority queue with incremented distance
+              availableOps.push(
+                  {userOp, userLocIt->second, opPyLoc.distanceFromRoot + 1});
+              inQueue.insert(userOp);
+              opToOpPyLoc.insert(
+                  {userOp,
+                   {userOp, userLocIt->second, opPyLoc.distanceFromRoot + 1}});
+            }
+          }
+        }
+      }
+    }
 
     // Don't forget to save the last group
     if (!currentGroup.empty()) {
@@ -792,12 +969,12 @@ public:
         parseOpsAndGatherLocations(candidateFn);
 
     // Debug prints
-    printPyLocs(candidateFn, opToLocation);
+    // printPyLocs(candidateFn, opToLocation);
 
     // Validate locations
     std::string errorMessage = validateLocations(opToLocation);
     if (!errorMessage.empty()) {
-      llvm::outs() << "PrettifyForCodegen error: " << errorMessage << "\n";
+      llvm::errs() << "PrettifyForCodegen error: " << errorMessage << "\n";
       signalPassFailure();
     }
 
