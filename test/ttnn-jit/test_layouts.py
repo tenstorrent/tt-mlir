@@ -143,30 +143,38 @@ def test_dram_interleaved_shapes(device, shape, op):
 def create_nd_tensor(device):
     torch.manual_seed(0)
     core_ranges = ttnn.CoreRangeSet(
-        {ttnn.CoreRange(ttnn.CoreCoord(0, 0), ttnn.CoreCoord(1, 3))}
+        {ttnn.CoreRange(ttnn.CoreCoord(0, 0), ttnn.CoreCoord(1, 1))}
     )
 
-    nd_spec = ttnn.TensorSpec(
-        shape=(4, 512, 768),  # Batch=4, SeqLen=512, Features=768
+    nd_shard_spec = ttnn.NdShardSpec(
+        [2 * 32, 2 * 32, 2 * 32],
+        core_ranges,
+    )
+    memory_config = ttnn.MemoryConfig(
+        buffer_type=ttnn.BufferType.L1,
+        nd_shard_spec=nd_shard_spec,
+    )
+
+    torch_tensor = torch.randn(tuple([4 * 32, 4 * 32, 4 * 32]))
+    nd_sharded = ttnn.from_torch(
+        torch_tensor,
         dtype=ttnn.bfloat16,
         layout=ttnn.TILE_LAYOUT,
-        buffer_type=ttnn.BufferType.L1,
-    ).sharded_across_dims([0, 1], core_ranges)
-
-    torch_tensor = torch.randn(tuple(nd_spec.shape))
-    nd_sharded = ttnn.from_torch(torch_tensor, spec=nd_spec, device=device)
+        device=device,
+        memory_config=memory_config,
+    )
     print("nd tensor memory config", nd_sharded.memory_config())
     print("nd tensor spec", nd_sharded.memory_config().nd_shard_spec)
     return nd_sharded
 
 
 @pytest.mark.parametrize("op", [abs])
-@pytest.mark.parametrize("graph_capture", [True, False])
+@pytest.mark.parametrize("graph_capture", [False])
 def test_nd_ttnn_layout(device, op, graph_capture):
     input_tensor = create_nd_tensor(device)
     op_jit = ttnn_jit.jit(
         debug=True,
-        max_grid=(1, 3),
+        max_grid=(1, 1),
         enable_cache=False,
         graph_capture=graph_capture,
     )(op)

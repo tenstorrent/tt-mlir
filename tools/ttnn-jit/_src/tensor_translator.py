@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
+#
+# SPDX-License-Identifier: Apache-2.0
 from ttmlir.ir import *
 from ttmlir.dialects import ttcore, ttnn
 
@@ -13,6 +16,7 @@ def _ttcore_dtype_from_ttnn_dtype(dtype):
         case _:
             raise ValueError(f"Unsupported dtype: {dtype}")
 
+
 def _mlir_buffer_type_from_ttnn_buffer_type(buffer_type):
     match int(buffer_type):
         case 0:
@@ -21,6 +25,7 @@ def _mlir_buffer_type_from_ttnn_buffer_type(buffer_type):
             return ttnn.BufferType.L1
         case _:
             raise ValueError(f"Unsupported buffer type: {buffer_type}")
+
 
 def _mlir_memory_layout_from_ttnn_memory_layout(memory_layout):
     match int(memory_layout):
@@ -34,6 +39,31 @@ def _mlir_memory_layout_from_ttnn_memory_layout(memory_layout):
             return ttnn.TensorMemoryLayout.BlockSharded
         case _:
             raise ValueError(f"Unsupported memory layout: {memory_layout}")
+
+
+def _mlir_shard_orientation_from_ttnn_shard_orientation(shard_orientation):
+    match int(shard_orientation):
+        case 0:
+            return ttnn.ShardOrientation.RowMajor
+        case 1:
+            return ttnn.ShardOrientation.ColMajor
+        case _:
+            raise ValueError(f"Unsupported shard orientation: {shard_orientation}")
+
+
+def _mlir_shard_distribution_strategy_from_ttnn_shard_distribution_strategy(
+    shard_distribution_strategy,
+):
+    match int(shard_distribution_strategy):
+        case 0:
+            return ttnn.ShardDistributionStrategy.RoundRobin1D
+        case 1:
+            return ttnn.ShardDistributionStrategy.Grid2D
+        case _:
+            raise ValueError(
+                f"Unsupported shard distribution strategy: {shard_distribution_strategy}"
+            )
+
 
 def _get_collapsed_linear_affine_map(
     context, shape, grid_rank, collapse_intervals=[(0, -1)]
@@ -168,24 +198,77 @@ def _create_block_sharded_tensor_layout(context, max_grid, tensor_arg):
     return ttnn_layout
 
 
+def _create_nd_sharded_tensor_layout(context, max_grid, tensor_arg):
+    data_type = _ttcore_dtype_from_ttnn_dtype(tensor_arg.dtype)
+    tile_type = ttcore.ir.TileType.get(context, 32, 32, data_type)
+
+    shard_spec = tensor_arg.memory_config().nd_shard_spec
+    assert shard_spec is not None, "Expected an ND sharded tensor"
+    shard_shape = list(shard_spec.shard_shape)
+
+    # Create ttcore grid atttr based off max_grid passed by user
+    grid_size_x = max_grid[0] + 1
+    grid_size_y = max_grid[1] + 1
+
+    # TTNN writes grids as (width, height) but compiler expects (height, width)
+    grid = ttcore.ir.GridAttr.get(context, [grid_size_y, grid_size_x])
+
+    # Create memref, tile type only.
+    print("shard_shape", shard_shape)
+    shard_shape[-2] = shard_shape[-2] // 32
+    shard_shape[-1] = shard_shape[-1] // 32
+    print("shard_shape", shard_shape)
+    buffer_type = ttnn.ir.BufferTypeAttr.get(context, ttnn.BufferType.L1)
+    memref = MemRefType.get(shard_shape, tile_type, None, buffer_type)
+
+    mem_layout = ttnn.ir.TensorMemoryLayoutAttr.get(
+        context,
+        _mlir_memory_layout_from_ttnn_memory_layout(
+            tensor_arg.memory_config().memory_layout
+        ),
+    )  # ND Layouts are denoted as block sharded by default in TTNN, even when not equivalent to legacy block sharding
+    shard_orientation = ttnn.ir.ShardOrientationAttr.get(
+        context, int(shard_spec.orientation)
+    )
+    shard_distribution_strategy = ttnn.ir.ShardDistributionStrategyAttr.get(
+        context, int(shard_spec.shard_distribution_strategy)
+    )
+    ttnn_layout = ttnn.ir.TTNNNDLayoutAttr.get(
+        context,
+        grid,
+        memref,
+        mem_layout,
+        int(shard_spec.orientation),
+        int(shard_spec.shard_distribution_strategy),
+    )
+    return ttnn_layout
+
+
 def create_tensor_layout(context, max_grid, tensor_arg):
     if tensor_arg.memory_config().is_sharded():
-        print("Armin memory config", tensor_arg.memory_config())
-        print("Armin buffer type", _mlir_buffer_type_from_ttnn_buffer_type(tensor_arg.memory_config().buffer_type))
         assert (
-            tensor_arg.memory_config().shard_spec is not None
-        ), "ND sharded tensors are not supported. Sharded tensors must have a legacy shard spec"
-        assert (
-            _mlir_buffer_type_from_ttnn_buffer_type(tensor_arg.memory_config().buffer_type) == ttnn.BufferType.L1
+            _mlir_buffer_type_from_ttnn_buffer_type(
+                tensor_arg.memory_config().buffer_type
+            )
+            == ttnn.BufferType.L1
         ), "Sharded tensors are only supported in L1"
-        assert (
-            _mlir_memory_layout_from_ttnn_memory_layout(tensor_arg.memory_config().memory_layout)
-            == ttnn.TensorMemoryLayout.BlockSharded
-        ), "Sharded tensors are only supported in block sharded"
-        return _create_block_sharded_tensor_layout(context, max_grid, tensor_arg)
+
+        if tensor_arg.memory_config().shard_spec is None:
+            return _create_nd_sharded_tensor_layout(context, max_grid, tensor_arg)
+        else:
+            assert (
+                _mlir_memory_layout_from_ttnn_memory_layout(
+                    tensor_arg.memory_config().memory_layout
+                )
+                == ttnn.TensorMemoryLayout.BlockSharded
+            ), "Sharded tensors are only supported in block sharded"
+            return _create_block_sharded_tensor_layout(context, max_grid, tensor_arg)
     else:
         assert (
-            _mlir_buffer_type_from_ttnn_buffer_type(tensor_arg.memory_config().buffer_type) == ttnn.BufferType.DRAM
+            _mlir_buffer_type_from_ttnn_buffer_type(
+                tensor_arg.memory_config().buffer_type
+            )
+            == ttnn.BufferType.DRAM
         ), "Interleaved tensors are only supported in DRAM"
         assert (
             max_grid[0] == 0 and max_grid[1] == 0

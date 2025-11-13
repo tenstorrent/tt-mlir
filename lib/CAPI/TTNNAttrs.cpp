@@ -182,7 +182,7 @@ MlirAttribute ttmlirTTNNTTNNLayoutAttrGet(MlirContext ctx, MlirAffineMap linear,
 }
 
 MlirAttribute
-ttmlirTTNNNDTTNNLayoutAttrGet(MlirContext ctx, MlirAttribute grid,
+ttmlirTTNNTTNNNDLayoutAttrGet(MlirContext ctx, MlirAttribute grid,
                               MlirType memref, MlirAttribute memLayout,
                               unsigned *shardOrientation = nullptr,
                               unsigned *shardDistributionStrategy = nullptr) {
@@ -198,7 +198,7 @@ ttmlirTTNNNDTTNNLayoutAttrGet(MlirContext ctx, MlirAttribute grid,
         static_cast<ShardDistributionStrategy>(*shardDistributionStrategy));
   }
 
-  return wrap(NDTTNNLayoutAttr::get(
+  return wrap(TTNNNDLayoutAttr::get(
       unwrap(ctx), mlir::cast<mlir::tt::ttcore::GridAttr>(unwrap(grid)),
       mlir::cast<mlir::MemRefType>(unwrap(memref)),
       mlir::cast<TensorMemoryLayoutAttr>(unwrap(memLayout)),

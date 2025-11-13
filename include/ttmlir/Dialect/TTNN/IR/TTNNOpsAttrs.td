@@ -209,7 +209,7 @@ def TTNN_NDShardSpecAttr : TTNN_Attr<"NDShardSpec", "nd_shard_spec"> {
   let assemblyFormat = "`<` params `>`";
 }
 
-def TTNN_NDTTNNLayoutAttr: TTNN_Attr<"NDTTNNLayout", "nd_ttnn_layout"> {
+def TTNN_TTNNNDLayoutAttr: TTNN_Attr<"TTNNNDLayout", "ttnn_nd_layout"> {
  let summary = "Tensor encoding attribute used for types in ttnn";
  let description = [{
  }];
