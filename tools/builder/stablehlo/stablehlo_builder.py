@@ -970,6 +970,129 @@ class StableHLOBuilder(Builder):
             stablehlo_kwargs={"permutation": permutation},
         )
 
+    def constant(
+        self,
+        tensor: torch.Tensor,
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+    ) -> OpView:
+        """
+        Creates ``stablehlo.constant``.
+
+        *Constant tensor operation.*
+
+        Creates a tensor from a literal value.
+
+        Parameters
+        ----------
+        tensor : torch.Tensor
+            The tensor value to use for the constant
+        unit_attrs : *Optional[List[str]]*
+            Optional list of unit attributes
+        sharding_attr : *Optional[sdy.TensorShardingPerValueAttr]*
+            Optional sharding attribute
+
+        Returns
+        -------
+        (*OpView*)
+            A new constant tensor
+        """
+        if not isinstance(tensor, torch.Tensor):
+            raise TypeError("constant expects a torch.Tensor input")
+
+        if tensor.numel() == 0:
+            raise ValueError("Cannot create constant with empty tensor")
+
+        mlir_dtype = self._get_type_from_torch_dtype(tensor.dtype)
+        shape = list(tensor.shape)
+        tensor_type = RankedTensorType.get(shape, mlir_dtype)
+
+        flat_values = tensor.flatten().tolist()
+
+        if tensor.numel() == 1 or len(set(flat_values)) == 1:
+            # Splat case
+            if isinstance(mlir_dtype, IntegerType):
+                attr = IntegerAttr.get(mlir_dtype, int(flat_values[0]))
+            elif isinstance(mlir_dtype, FloatType):
+                attr = FloatAttr.get(mlir_dtype, float(flat_values[0]))
+            else:
+                raise NotImplementedError(f"Unsupported MLIR type: {mlir_dtype}")
+
+            value_attr = DenseElementsAttr.get_splat(tensor_type, attr)
+        else:
+            # Non-splat case
+            if isinstance(mlir_dtype, IntegerType):
+                elems = [IntegerAttr.get(mlir_dtype, int(v)) for v in flat_values]
+            elif isinstance(mlir_dtype, FloatType):
+                elems = [FloatAttr.get(mlir_dtype, float(v)) for v in flat_values]
+            else:
+                raise NotImplementedError(f"Unsupported MLIR type: {mlir_dtype}")
+
+            value_attr = DenseElementsAttr.get(elems, tensor_type)
+
+        return self._op_proxy(
+            stablehlo.ConstantOp,
+            [],
+            unit_attrs=unit_attrs,
+            sharding_attr=sharding_attr,
+            stablehlo_kwargs={"value": value_attr},
+            golden_kwargs={"value": tensor},
+        )
+
+    def dynamic_slice(
+        self,
+        in0: Operand,
+        start_indices: List[int],
+        slice_sizes: List[int],
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+    ) -> OpView:
+        """
+        Creates ``stablehlo.dynamic_slice``.
+
+        *Dynamic slice operation.*
+
+        Extracts a slice from a dynamic tensor.
+
+        Parameters
+        ----------
+        in0 : Operand
+            The input tensor
+        start_indices : List[int]
+            The starting indices of the slice for each dimension
+        slice_sizes : List[int]
+            The size of the slice for each dimension
+        unit_attrs : *Optional[List[str]]*
+            Optional list of unit attributes
+        sharding_attr : *Optional[sdy.TensorShardingPerValueAttr]*
+            Optional sharding attribute
+
+        Returns
+        -------
+        (*OpView*)
+            A new tensor representing the slice
+        """
+        start_indices_op = [
+            self.constant(torch.tensor(i, dtype=torch.int64))
+            if isinstance(i, int)
+            else i
+            for i in start_indices
+        ]
+        return self._op_proxy(
+            stablehlo.DynamicSliceOp,
+            [in0],
+            unit_attrs=unit_attrs,
+            sharding_attr=sharding_attr,
+            stablehlo_kwargs={
+                "start_indices": start_indices_op,
+                "slice_sizes": DenseI64ArrayAttr.get(slice_sizes, context=self._ctx),
+            },
+            golden_kwargs={
+                "start_indices": start_indices,
+                "slice_sizes": slice_sizes,
+            },
+        )
+
     # ----- Public Shardy Attribute Generators ----
 
     def mesh_axis_attr(
