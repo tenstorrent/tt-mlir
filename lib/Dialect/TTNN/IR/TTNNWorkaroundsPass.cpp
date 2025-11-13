@@ -810,92 +810,37 @@ TTNNOperandsWorkarounds TTNNOperandsWorkaroundsFactory::
 
   auto sdpaOp = cast<PagedScaledDotProductAttentionDecodeOp>(op);
 
-  if (sdpaOp.getAttentionMask() && sdpaOp.getCurPosTensor() &&
-      sdpaOp.getAttentionSink()) {
-    return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
-        .addInputOperandWorkaround(emptyWorkaround)
-        .addInputOperandWorkaround(emptyWorkaround)
-        .addInputOperandWorkaround(emptyWorkaround)
-        .addInputOperandWorkaround(rowMajorLayoutWorkaround) // page table
-        .addInputOperandWorkaround(emptyWorkaround)
-        .addInputOperandWorkaround(rowMajorLayoutWorkaround) // cur pos tensor
-        .addInputOperandWorkaround(emptyWorkaround)
-        .addOutputOperandWorkaround(emptyWorkaround);
+  TTNNOperandsWorkarounds operandsWorkaround =
+      TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds();
+
+  // Query, key, and value need no workarounds.
+  operandsWorkaround =
+      operandsWorkaround.addInputOperandWorkaround(emptyWorkaround);
+  operandsWorkaround =
+      operandsWorkaround.addInputOperandWorkaround(emptyWorkaround);
+  operandsWorkaround =
+      operandsWorkaround.addInputOperandWorkaround(emptyWorkaround);
+
+  if (sdpaOp.getPageTable()) {
+    operandsWorkaround =
+        operandsWorkaround.addInputOperandWorkaround(rowMajorLayoutWorkaround);
   }
-  if (sdpaOp.getAttentionMask() && sdpaOp.getCurPosTensor() &&
-      !sdpaOp.getAttentionSink()) {
-    return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
-        .addInputOperandWorkaround(emptyWorkaround)
-        .addInputOperandWorkaround(emptyWorkaround)
-        .addInputOperandWorkaround(emptyWorkaround)
-        .addInputOperandWorkaround(rowMajorLayoutWorkaround) // page table
-        .addInputOperandWorkaround(emptyWorkaround)
-        .addInputOperandWorkaround(rowMajorLayoutWorkaround) // cur pos tensor
-        .addOutputOperandWorkaround(emptyWorkaround);
+
+  if (sdpaOp.getCurPosTensor()) {
+    operandsWorkaround =
+        operandsWorkaround.addInputOperandWorkaround(rowMajorLayoutWorkaround);
   }
-  if (sdpaOp.getAttentionMask() && !sdpaOp.getCurPosTensor() &&
-      sdpaOp.getAttentionSink()) {
-    return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
-        .addInputOperandWorkaround(emptyWorkaround)
-        .addInputOperandWorkaround(emptyWorkaround)
-        .addInputOperandWorkaround(emptyWorkaround)
-        .addInputOperandWorkaround(rowMajorLayoutWorkaround) // page table
-        .addInputOperandWorkaround(emptyWorkaround)
-        .addInputOperandWorkaround(emptyWorkaround)
-        .addOutputOperandWorkaround(emptyWorkaround);
+
+  if (sdpaOp.getAttentionSink()) {
+    operandsWorkaround =
+        operandsWorkaround.addInputOperandWorkaround(emptyWorkaround);
   }
-  if (sdpaOp.getAttentionMask() && !sdpaOp.getCurPosTensor() &&
-      !sdpaOp.getAttentionSink()) {
-    return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
-        .addInputOperandWorkaround(emptyWorkaround)
-        .addInputOperandWorkaround(emptyWorkaround)
-        .addInputOperandWorkaround(emptyWorkaround)
-        .addInputOperandWorkaround(rowMajorLayoutWorkaround) // page table
-        .addInputOperandWorkaround(emptyWorkaround)
-        .addOutputOperandWorkaround(emptyWorkaround);
-  }
-  if (!sdpaOp.getAttentionMask() && sdpaOp.getCurPosTensor() &&
-      sdpaOp.getAttentionSink()) {
-    return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
-        .addInputOperandWorkaround(emptyWorkaround)
-        .addInputOperandWorkaround(emptyWorkaround)
-        .addInputOperandWorkaround(emptyWorkaround)
-        .addInputOperandWorkaround(rowMajorLayoutWorkaround) // page table
-        .addInputOperandWorkaround(rowMajorLayoutWorkaround) // cur pos tensor
-        .addInputOperandWorkaround(emptyWorkaround)
-        .addOutputOperandWorkaround(emptyWorkaround);
-  }
-  if (!sdpaOp.getAttentionMask() && sdpaOp.getCurPosTensor() &&
-      !sdpaOp.getAttentionSink()) {
-    return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
-        .addInputOperandWorkaround(emptyWorkaround)
-        .addInputOperandWorkaround(emptyWorkaround)
-        .addInputOperandWorkaround(emptyWorkaround)
-        .addInputOperandWorkaround(rowMajorLayoutWorkaround) // page table
-        .addInputOperandWorkaround(rowMajorLayoutWorkaround) // cur pos tensor
-        .addOutputOperandWorkaround(emptyWorkaround);
-  }
-  if (!sdpaOp.getAttentionMask() && !sdpaOp.getCurPosTensor() &&
-      sdpaOp.getAttentionSink()) {
-    return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
-        .addInputOperandWorkaround(emptyWorkaround)
-        .addInputOperandWorkaround(emptyWorkaround)
-        .addInputOperandWorkaround(emptyWorkaround)
-        .addInputOperandWorkaround(rowMajorLayoutWorkaround) // page table
-        .addInputOperandWorkaround(emptyWorkaround)
-        .addOutputOperandWorkaround(emptyWorkaround);
-  }
-  if (!sdpaOp.getAttentionMask() && !sdpaOp.getCurPosTensor() &&
-      !sdpaOp.getAttentionSink()) {
-    return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
-        .addInputOperandWorkaround(emptyWorkaround)
-        .addInputOperandWorkaround(emptyWorkaround)
-        .addInputOperandWorkaround(emptyWorkaround)
-        .addInputOperandWorkaround(rowMajorLayoutWorkaround) // page table
-        .addOutputOperandWorkaround(emptyWorkaround);
-  }
-  llvm_unreachable("All combinations of attention mask, cur pos tensor and "
-                   "attention sink should have been handled");
+
+  // Need no workaround for output tensor.
+  operandsWorkaround =
+      operandsWorkaround.addOutputOperandWorkaround(emptyWorkaround);
+
+  return operandsWorkaround;
 }
 
 template TTNNOperandsWorkarounds

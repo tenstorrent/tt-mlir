@@ -4842,14 +4842,6 @@ mlir::tt::ttir::PagedScaledDotProductAttentionDecodeOp::verify() {
     }
   }
 
-  if (getAttentionSink()) {
-    return emitOpError("Attention sink is not currently verified.");
-  }
-
-  if (getAttentionMask()) {
-    return emitOpError("Attention mask is not currently verified.");
-  }
-
   return success();
 }
 

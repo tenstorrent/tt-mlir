@@ -4300,83 +4300,35 @@ public:
     Value key = adaptor.getOperands()[1];
     Value value = adaptor.getOperands()[2];
     Value pageTable = adaptor.getOperands()[3];
+    Value attentionMask = nullptr;
+    Value curPosTensor = nullptr;
+    Value attentionSink = nullptr;
+    int64_t operandIndex = 4;
+    if (hasAttentionMask) {
+      attentionMask = adaptor.getOperands()[operandIndex];
+      operandIndex++;
+    }
+    if (hasCurPosTensor) {
+      curPosTensor = adaptor.getOperands()[operandIndex];
+      operandIndex++;
+    }
+    if (hasAttentionSink) {
+      attentionSink = adaptor.getOperands()[operandIndex];
+      operandIndex++;
+    }
 
     RankedTensorType outputType = cast<RankedTensorType>(
         getTypeConverter()->convertType(srcOp.getResult(0).getType()));
     ttir::EmptyOp outputTensor = rewriter.create<ttir::EmptyOp>(
         srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
 
-    if (hasAttentionMask && hasCurPosTensor && hasAttentionSink) {
-      rewriter.replaceOpWithNewOp<
-          mlir::tt::ttir::PagedScaledDotProductAttentionDecodeOp>(
-          srcOp,
-          cast<RankedTensorType>(
-              getTypeConverter()->convertType(srcOp.getResult(0).getType())),
-          query, key, value, pageTable, outputTensor, isCausalAttr,
-          adaptor.getOperands()[4], adaptor.getOperands()[5],
-          adaptor.getOperands()[6], scaleAttr);
-    } else if (hasAttentionMask && hasCurPosTensor) {
-      rewriter.replaceOpWithNewOp<
-          mlir::tt::ttir::PagedScaledDotProductAttentionDecodeOp>(
-          srcOp,
-          cast<RankedTensorType>(
-              getTypeConverter()->convertType(srcOp.getResult(0).getType())),
-          query, key, value, pageTable, outputTensor, isCausalAttr,
-          adaptor.getOperands()[4], adaptor.getOperands()[5], nullptr,
-          scaleAttr);
-    } else if (hasAttentionMask && hasAttentionSink) {
-      rewriter.replaceOpWithNewOp<
-          mlir::tt::ttir::PagedScaledDotProductAttentionDecodeOp>(
-          srcOp,
-          cast<RankedTensorType>(
-              getTypeConverter()->convertType(srcOp.getResult(0).getType())),
-          query, key, value, pageTable, outputTensor, isCausalAttr,
-          adaptor.getOperands()[4], nullptr, adaptor.getOperands()[5],
-          scaleAttr);
-    } else if (!hasAttentionMask && hasCurPosTensor && hasAttentionSink) {
-      rewriter.replaceOpWithNewOp<
-          mlir::tt::ttir::PagedScaledDotProductAttentionDecodeOp>(
-          srcOp,
-          cast<RankedTensorType>(
-              getTypeConverter()->convertType(srcOp.getResult(0).getType())),
-          query, key, value, pageTable, outputTensor, isCausalAttr, nullptr,
-          adaptor.getOperands()[4], adaptor.getOperands()[5], scaleAttr);
-    } else if (hasAttentionMask && !hasCurPosTensor && !hasAttentionSink) {
-      rewriter.replaceOpWithNewOp<
-          mlir::tt::ttir::PagedScaledDotProductAttentionDecodeOp>(
-          srcOp,
-          cast<RankedTensorType>(
-              getTypeConverter()->convertType(srcOp.getResult(0).getType())),
-          query, key, value, pageTable, outputTensor, isCausalAttr,
-          adaptor.getOperands()[4], nullptr, nullptr, scaleAttr);
-    } else if (!hasAttentionMask && hasCurPosTensor && !hasAttentionSink) {
-      rewriter.replaceOpWithNewOp<
-          mlir::tt::ttir::PagedScaledDotProductAttentionDecodeOp>(
-          srcOp,
-          cast<RankedTensorType>(
-              getTypeConverter()->convertType(srcOp.getResult(0).getType())),
-          query, key, value, pageTable, outputTensor, isCausalAttr, nullptr,
-          adaptor.getOperands()[4], nullptr, scaleAttr);
-    } else if (!hasAttentionMask && !hasCurPosTensor && hasAttentionSink) {
-      rewriter.replaceOpWithNewOp<
-          mlir::tt::ttir::PagedScaledDotProductAttentionDecodeOp>(
-          srcOp,
-          cast<RankedTensorType>(
-              getTypeConverter()->convertType(srcOp.getResult(0).getType())),
-          query, key, value, pageTable, outputTensor, isCausalAttr, nullptr,
-          nullptr, adaptor.getOperands()[4], scaleAttr);
-    } else if (!hasAttentionMask && !hasCurPosTensor && !hasAttentionSink) {
-      rewriter.replaceOpWithNewOp<
-          mlir::tt::ttir::PagedScaledDotProductAttentionDecodeOp>(
-          srcOp,
-          cast<RankedTensorType>(
-              getTypeConverter()->convertType(srcOp.getResult(0).getType())),
-          query, key, value, pageTable, outputTensor, isCausalAttr, nullptr,
-          nullptr, nullptr, scaleAttr);
-    } else {
-      llvm_unreachable("All combinations of attention mask, cur pos tensor "
-                       "and attention sink should have been handled");
-    }
+    rewriter.replaceOpWithNewOp<
+        mlir::tt::ttir::PagedScaledDotProductAttentionDecodeOp>(
+        srcOp,
+        cast<RankedTensorType>(
+            getTypeConverter()->convertType(srcOp.getResult(0).getType())),
+        query, key, value, pageTable, outputTensor, isCausalAttr, attentionMask,
+        curPosTensor, attentionSink, scaleAttr);
 
     return success();
   }
