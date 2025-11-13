@@ -176,6 +176,32 @@ class TTNNBuilder(Builder):
             ttnn_layout_attr = self.create_tensor_encoding(shape, element_type)
             return RankedTensorType.get(shape, element_type, ttnn_layout_attr)
 
+    def create_l1_width_sharded_tiled_encoding(
+        self, shape: Shape, element_type: Type
+    ) -> ttnn.ir.TTNNLayoutAttr:
+        with self._ctx, self._loc:
+            data_type = util.element_type_to_data_type(element_type)
+            tile_element_type = ttcore.ir.TileType.get(self._ctx, 32, 32, data_type)
+            buffer_type = ttnn.BufferType.L1
+            grid_attr = ttcore.ir.GridAttr.get(self._ctx, [1, 1])
+            return ttnn.ir.TTNNLayoutAttr.get(
+                self._ctx,
+                shape,
+                tile_element_type,
+                buffer_type,
+                grid_attr,
+                ttnn.TensorMemoryLayout.WidthSharded,
+            )
+
+    def create_l1_width_sharded_tiled_ttnn_tensor(
+        self, shape: Shape, element_type: Type
+    ) -> RankedTensorType:
+        with self._ctx, self._loc:
+            ttnn_layout_attr = self.create_l1_width_sharded_tiled_encoding(
+                shape, element_type
+            )
+            return RankedTensorType.get(shape, element_type, ttnn_layout_attr)
+
     # ----- Public TTNN Op Generators ----
 
     def mish(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
@@ -2610,3 +2636,95 @@ class TTNNBuilder(Builder):
             ),
             unit_attrs=unit_attrs,
         )
+
+    def rms_norm(
+        self,
+        input_tensor: Operand,
+        weight: Operand,
+        epsilon: float = 1.0e-5,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpView:
+        """
+        Creates ``ttnn.rms_norm``.
+
+        *RMS Normalization operation.*
+
+        Applies Root Mean Square (RMS) normalization to the input tensor.
+        RMS normalization normalizes the input tensor based on the root mean square of its elements.
+
+        Mathematical definition: rms_norm(x) = x / sqrt(mean(x^2) + epsilon) * weight
+
+        Parameters
+        ----------
+        input_tensor : Operand
+            Input tensor to be normalized
+        weight : Operand
+            Weight tensor for scaling
+        epsilon : float
+            Small constant to avoid division by zero (default is 1.0e-5)
+        unit_attrs : Optional[List[str]]
+        OpView
+            A tensor containing the RMS normalized output
+        """
+        with self._ctx, self._loc:
+            # Check if sharding is requested
+            l1_width_sharded = (
+                unit_attrs is not None and "l1_width_sharded" in unit_attrs
+            )
+
+            # Create output tensor with appropriate layout
+            if l1_width_sharded:
+                output_type = self.create_l1_width_sharded_tiled_ttnn_tensor(
+                    shape=input_tensor.type.shape,
+                    element_type=input_tensor.type.element_type,
+                )
+            else:
+                output_type = self.create_ttnn_tensor(
+                    shape=input_tensor.type.shape,
+                    element_type=input_tensor.type.element_type,
+                )
+
+            # Prepare location for the operation
+            id = self._get_next_global_id()
+            loc = self._get_loc_of_extra_file_callee(id=id)
+
+            # Create the RMSNorm operation
+            op = ttnn.RMSNormOp(
+                output_type,
+                input_tensor,
+                weight=weight,
+                epsilon=epsilon,
+                loc=loc,
+            )
+
+            if unit_attrs is not None:
+                for attr_name in unit_attrs:
+                    op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+            if l1_width_sharded:
+                original_output_type = self.create_ttnn_tensor(
+                    shape=op.result.type.shape,
+                    element_type=op.result.type.element_type,
+                )
+
+                tensor_memory_layout_attr = ttnn.ir.TensorMemoryLayoutAttr.get(
+                    self._ctx, ttnn.TensorMemoryLayout.Interleaved
+                )
+                buffer_type_attr = ttnn.ir.BufferTypeAttr.get(
+                    self._ctx, ttnn.BufferType.DRAM
+                )
+                memoryConfigAttr = ttnn.ir.MemoryConfigAttr.get(
+                    self._ctx, tensor_memory_layout_attr, buffer_type_attr
+                )
+                data_type = self._get_data_type_attribute(op.result)
+                output_to_dram = ttnn.ToLayoutOp(
+                    original_output_type,
+                    op.result,
+                    layout=ttnn.ir.LayoutAttr.get(self._ctx, ttnn.Layout.Tile),
+                    memory_config=memoryConfigAttr,
+                    loc=loc,
+                    dtype=data_type,
+                )
+                return output_to_dram
+
+            return op
