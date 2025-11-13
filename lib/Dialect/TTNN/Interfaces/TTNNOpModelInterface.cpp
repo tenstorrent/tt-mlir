@@ -2089,22 +2089,28 @@ unpackPagedScaledDotProductAttentionDecodeArgs(
   TypedValue<RankedTensorType> curPosTensor = op.getCurPosTensor();
   TypedValue<RankedTensorType> attentionSink = op.getAttentionSink();
 
-  int32_t idx = 4;
+  size_t idx = 4;
   if (attentionMask) {
     ret.attentionMaskShape =
         llvm::SmallVector<int64_t>(attentionMask.getType().getShape());
+    assert(idx < inputs.size() &&
+           "Op has attention mask but no attention mask layout was provided.");
     ret.attentionMaskLayout = inputs[idx];
     idx++;
   }
   if (curPosTensor) {
     ret.curPosTensorShape =
         llvm::SmallVector<int64_t>(curPosTensor.getType().getShape());
+    assert(idx < inputs.size() &&
+           "Op has cur pos tensor but no cur pos tensor layout was provided.");
     ret.curPosTensorLayout = inputs[idx];
     idx++;
   }
   if (attentionSink) {
     ret.attentionSinkShape =
         llvm::SmallVector<int64_t>(attentionSink.getType().getShape());
+    assert(idx < inputs.size() &&
+           "Op has attention sink but no attention sink layout was provided.");
     ret.attentionSinkLayout = inputs[idx];
     idx++;
   }

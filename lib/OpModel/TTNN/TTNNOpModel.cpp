@@ -2559,7 +2559,7 @@ llvm::Expected<size_t> OpModel<ScaledDotProductAttentionDecodeOp>::getOpRuntime(
 
   std::optional<float> scaleFloat =
       scale ? std::make_optional(scale.value().convertToFloat()) : std::nullopt;
-  std::optional<uint32_t> slidingWindowSize = std::nullopt;
+
   // The current position information is required for this op. It can either be
   // passed as a tensor or as a uint vector. The uint vector is not wrapped in a
   // std::optional so we must pass an empty vector.
@@ -2568,7 +2568,8 @@ llvm::Expected<size_t> OpModel<ScaledDotProductAttentionDecodeOp>::getOpRuntime(
     return ::ttnn::graph::query_op_runtime(
         ::ttnn::transformer::scaled_dot_product_attention_decode, device,
         querySpec, keySpec, valueSpec, isCausal, attentionMaskSpec, curPosEmpty,
-        curPosTensorSpec, attentionSinkSpec, scaleFloat, slidingWindowSize,
+        curPosTensorSpec, attentionSinkSpec, scaleFloat,
+        /*slidingWindowSize=*/std::nullopt,
         detail::getNullableMemoryConfig(outputLayout),
         /*program_config=*/std::nullopt,
         /*compute_kernel_config=*/std::nullopt);
@@ -2641,14 +2642,14 @@ OpModel<PagedScaledDotProductAttentionDecodeOp>::getOpConstraints(
 
   std::optional<float> scaleFloat =
       scale ? std::make_optional(scale.value().convertToFloat()) : std::nullopt;
-  std::optional<uint32_t> slidingWindowSize = std::nullopt;
 
   auto pagedScaledDotProductAttentionDecodeOpQuery = [=]() {
     return ::ttnn::graph::query_op_constraints(
         ::ttnn::transformer::paged_scaled_dot_product_attention_decode, device,
         querySpec, keySpec, valueSpec, pageTableSpec, isCausal,
         attentionMaskSpec, curPosTensorSpec, attentionSinkSpec, scaleFloat,
-        slidingWindowSize, detail::getNullableMemoryConfig(outputLayout),
+        /*slidingWindowSize=*/std::nullopt,
+        detail::getNullableMemoryConfig(outputLayout),
         /*program_config=*/std::nullopt,
         /*compute_kernel_config=*/std::nullopt);
   };
