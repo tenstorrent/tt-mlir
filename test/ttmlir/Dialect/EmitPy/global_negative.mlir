@@ -2,8 +2,15 @@
 // Negative tests for EmitPy global ops.
 
 module {
-  // CHECK: error: 'emitpy.global' op requires attribute 'initial_value'
-  "emitpy.global"() <{sym_name = "missing_initial_value"}> : () -> ()
+  // CHECK: error: custom op 'emitpy.global' expected initial value for global variable
+  emitpy.global @global_var_missing_initial_value =
+}
+
+// -----
+
+module {
+  // CHECK: error: custom op 'emitpy.global' expected '=' after symbol name
+  emitpy.global @global_var
 }
 
 // -----
