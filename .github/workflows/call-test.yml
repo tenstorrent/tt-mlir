@@ -336,35 +336,12 @@ jobs:
         
         # Check which libraries ttrt actually loads at runtime
         echo "  Checking which libraries ttrt loads at runtime..."
-        cat > /tmp/check_ttrt_modules.py << 'EOF'
-import sys
-import ttrt
-print(f'    ttrt loaded from: {ttrt.__file__}')
-print(f'    Python loaded modules with "tt" or "mlir":')
-for name, mod in sys.modules.items():
-    if ('tt' in name.lower() or 'mlir' in name.lower()) and hasattr(mod, '__file__') and mod.__file__:
-        print(f'      {name}: {mod.__file__}')
-EOF
-        python3 /tmp/check_ttrt_modules.py 2>&1 || echo "    (Failed to import ttrt)"
+        python3 -c 'import sys; import ttrt; print(f"    ttrt loaded from: {ttrt.__file__}"); print(f"    Python loaded modules with \"tt\" or \"mlir\":"); [print(f"      {name}: {mod.__file__}") for name, mod in sys.modules.items() if ("tt" in name.lower() or "mlir" in name.lower()) and hasattr(mod, "__file__") and mod.__file__]' 2>&1 || echo "    (Failed to import ttrt)"
         
         # Use /proc/maps to see what .so files are loaded by a ttrt process
         echo "  Testing which .so files ttrt actually loads..."
         echo "    Starting ttrt runtime to check loaded libraries..."
-        cat > /tmp/check_loaded_libs.py << 'EOF'
-import ttrt.runtime
-import os
-print(f'    ttrt runtime PID: {os.getpid()}')
-print(f'    Loaded .so files containing "metal" or "MLIR" or "tracy":')
-with open(f'/proc/{os.getpid()}/maps', 'r') as f:
-    for line in f:
-        if '.so' in line and any(x in line for x in ['metal', 'MLIR', 'Runtime', 'tracy']):
-            parts = line.split()
-            if len(parts) >= 6:
-                print(f'      {parts[5]}')
-import time
-time.sleep(3)
-EOF
-        timeout 5 python3 /tmp/check_loaded_libs.py 2>&1 || echo "    (Failed to check loaded libraries)"
+        timeout 5 python3 -c 'import ttrt.runtime; import os; print(f"    ttrt runtime PID: {os.getpid()}"); print(f"    Loaded .so files containing \"metal\" or \"MLIR\" or \"tracy\":"); [print(f"      {parts[5]}") for line in open(f"/proc/{os.getpid()}/maps") if ".so" in line and any(x in line for x in ["metal", "MLIR", "Runtime", "tracy"]) for parts in [line.split()] if len(parts) >= 6]; import time; time.sleep(3)' 2>&1 || echo "    (Failed to check loaded libraries)"
         
         # Check if tracy_ops_data.csv has interleaved or separated message ordering
         echo "Checking Tracy message ordering in ops data..."
