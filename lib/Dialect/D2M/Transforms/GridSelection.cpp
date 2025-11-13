@@ -138,10 +138,9 @@ static llvm::SmallVector<int64_t> computePhysicalShape(
   if (auto tileType =
           mlir::dyn_cast<ttcore::TileType>(tensorType.getElementType())) {
     tileShape = llvm::to_vector(tileType.getShape());
-  }
-  // Always tile-align when calculating the physical shape, even in the row
-  // major case.
-  if (tileShape.empty()) {
+  } else {
+    // Always tile-align when calculating the physical shape, even in the row
+    // major case.
     tileShape = llvm::to_vector(ttcore::TileType::getDefaultShape());
   }
 
