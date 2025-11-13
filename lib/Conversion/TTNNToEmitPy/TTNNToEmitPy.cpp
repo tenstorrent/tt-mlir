@@ -11,8 +11,8 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
-
 #include "mlir/IR/Value.h"
+
 #include <optional>
 
 using namespace mlir;
