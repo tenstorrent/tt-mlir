@@ -128,7 +128,7 @@ struct ConvertD2MToTTKernel
         // This memref abstracts index offsets into a subview.
         return IndexType::get(memref.getContext());
       }
-
+      
       // Since none of the above is true, this memref abstracts cb backing.
       return ttkernel::CBType::get(memref);
     });
