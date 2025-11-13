@@ -6,6 +6,7 @@ from ttmlir.ir import *
 from ttmlir.dialects import ttnn, func, ttcore
 from typing import Dict, List, Any, Optional, Set, Union
 from dataclasses import dataclass
+from .utils import _get_collapsed_linear_affine_map
 import ttnn_jit._src.supported_ops as supported_ops
 import json
 import re
@@ -502,11 +503,13 @@ class GraphToIRTranslator:
 
     def _create_tensor_layout(self, tensor_arg):
         """Create TTNN layout attribute from tensor."""
-        assert len(tensor_arg.shape) == 2
         data_type = self._ttcore_dtype_from_ttnn_dtype(tensor_arg.dtype)
         tile_type = ttcore.ir.TileType.get(self.ctx, 32, 32, data_type)
-        identity_map = AffineMap.get_identity(2, self.ctx)
 
+        # Create affine map, should be based of tensor shape
+        affine_map = _get_collapsed_linear_affine_map(
+            self.ctx, tensor_arg.shape, self.max_grid
+        )
         if tensor_arg.memory_config().is_sharded():
             shard_spec = tensor_arg.memory_config().shard_spec
             shard_shape = shard_spec.shape
@@ -523,7 +526,7 @@ class GraphToIRTranslator:
             )
             ttnn_layout = ttnn.ir.TTNNLayoutAttr.get_with_linear(
                 self.ctx,
-                identity_map,
+                affine_map,
                 grid,
                 memref,
                 ttnn.TensorMemoryLayout.BlockSharded,
@@ -540,7 +543,7 @@ class GraphToIRTranslator:
             memref = MemRefType.get(shape, tile_type, None, buffer_type)
             return ttnn.ir.TTNNLayoutAttr.get_with_linear(
                 self.ctx,
-                identity_map,
+                affine_map,
                 grid,
                 memref,
                 ttnn.TensorMemoryLayout.Interleaved,
