@@ -2115,6 +2115,9 @@ unpackPagedScaledDotProductAttentionDecodeArgs(
 llvm::Expected<op_model::OpConstraints>
 PagedScaledDotProductAttentionDecodeOp::getOpConstraints(
     const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
+  // See the comment in caledDotProductAttentionDecodeOp::getOpConstraints for
+  // an explanation of this lint suppression.
+  // NOLINTBEGIN(clang-analyzer-cplusplus.NewDelete)
   assert(inputs.size() >= 4 && inputs.size() <= 6 &&
          "ttnn::paged_scaled_dot_product_attention_decode can have 4, 5, 6, or "
          "7 input tensors");
@@ -2140,10 +2143,14 @@ PagedScaledDotProductAttentionDecodeOp::getOpConstraints(
       pagedSdpaArgs.curPosTensorShape, pagedSdpaArgs.curPosTensorLayout,
       pagedSdpaArgs.attentionSinkShape, pagedSdpaArgs.attentionSinkLayout,
       pagedSdpaArgs.scale, opConfig.outputLayout);
+  // NOLINTEND(clang-analyzer-cplusplus.NewDelete)
 }
 
 llvm::Expected<size_t> PagedScaledDotProductAttentionDecodeOp::getOpRuntime(
     const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
+  // See the comment in caledDotProductAttentionDecodeOp::getOpConstraints for
+  // an explanation of this lint suppression.
+  // NOLINTBEGIN(clang-analyzer-cplusplus.NewDelete)
   assert(inputs.size() >= 4 && inputs.size() <= 6 &&
          "ttnn::paged_scaled_dot_product_attention_decode can have 4, 5, 6, or "
          "7 input tensors");
@@ -2166,6 +2173,7 @@ llvm::Expected<size_t> PagedScaledDotProductAttentionDecodeOp::getOpRuntime(
       pagedSdpaArgs.curPosTensorShape, pagedSdpaArgs.curPosTensorLayout,
       pagedSdpaArgs.attentionSinkShape, pagedSdpaArgs.attentionSinkLayout,
       pagedSdpaArgs.scale, opConfig.outputLayout);
+  // NOLINTEND(clang-analyzer-cplusplus.NewDelete)
 }
 //===----------------------------------------------------------------------===//
 // ScaledDotProductAttentionOp - TTNN Op Model Interface
