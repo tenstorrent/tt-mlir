@@ -66,8 +66,7 @@ TTNNReduceScatterWorkarounds::matchAndRewrite(ttnn::ReduceScatterOp op,
       paddedOutputType, reshapeInput.getResult(), op.getReduceType(),
       adjustedScatterDim, op.getClusterAxis(),
       /*sub_device_id=*/nullptr, /*memory_config=*/nullptr,
-      /*optional_output_tensor=*/nullptr, /*num_links=*/nullptr,
-      /*topology=*/nullptr);
+      /*num_links=*/nullptr, /*topology=*/nullptr);
 
   // Reshape back to original dimensionality
   SmallVector<int32_t> outputShapeI32(outputShape.begin(), outputShape.end());

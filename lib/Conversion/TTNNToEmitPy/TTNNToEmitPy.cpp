@@ -2585,7 +2585,6 @@ public:
         emitter.emit(srcOp.getClusterAxis(), "cluster_axis"),
         emitter.emit(srcOp.getSubDeviceId(), "subdevice_id"),
         emitter.emit(srcOp.getMemoryConfig(), "memory_config"),
-        emitter.emit(srcOp.getOptionalOutputTensor(), "output_tensor"),
         emitter.emit(srcOp.getNumLinks(), "num_links"),
         emitter.emit(srcOp.getTopology(), "topology"),
     };
@@ -2620,7 +2619,6 @@ public:
         emitter.emit(srcOp.getClusterAxis(), "cluster_axis"),
         emitter.emit(srcOp.getSubDeviceId(), "subdevice_id"),
         emitter.emit(srcOp.getMemoryConfig(), "memory_config"),
-        emitter.emit(srcOp.getOptionalOutputTensor(), "output_tensor"),
         emitter.emit(srcOp.getNumLinks(), "num_links"),
         emitter.emit(srcOp.getTopology(), "topology"),
     };

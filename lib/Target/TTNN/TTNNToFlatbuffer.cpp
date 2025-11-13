@@ -733,11 +733,6 @@ createOp(FlatbufferObjectCache &cache, AllGatherOp op) {
   auto numLinks = op.getNumLinks()
                       ? std::make_optional<uint32_t>(op.getNumLinks().value())
                       : std::nullopt;
-  auto optionalOutputTensor =
-      op.getOptionalOutputTensor()
-          ? cache.getOrCreate(op.getOptionalOutputTensor(),
-                              tensorValueToFlatbuffer)
-          : 0;
   auto topology = op.getTopology()
                       ? std::make_optional<::tt::target::ttnn::Topology>(
                             static_cast<::tt::target::ttnn::Topology>(
@@ -746,7 +741,7 @@ createOp(FlatbufferObjectCache &cache, AllGatherOp op) {
 
   return ::tt::target::ttnn::CreateAllGatherOp(
       *cache.fbb, input, output, op.getAllGatherDim(), op.getClusterAxis(),
-      subDeviceId, memoryConfig, optionalOutputTensor, numLinks, topology);
+      subDeviceId, memoryConfig, numLinks, topology);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::ReduceScatterOp>
@@ -766,11 +761,6 @@ createOp(FlatbufferObjectCache &cache, ReduceScatterOp op) {
   auto numLinks = op.getNumLinks()
                       ? std::make_optional<uint32_t>(op.getNumLinks().value())
                       : std::nullopt;
-  auto optionalOutputTensor =
-      op.getOptionalOutputTensor()
-          ? cache.getOrCreate(op.getOptionalOutputTensor(),
-                              tensorValueToFlatbuffer)
-          : 0;
   auto topology = op.getTopology()
                       ? std::make_optional<::tt::target::ttnn::Topology>(
                             static_cast<::tt::target::ttnn::Topology>(
@@ -779,7 +769,7 @@ createOp(FlatbufferObjectCache &cache, ReduceScatterOp op) {
   return ::tt::target::ttnn::CreateReduceScatterOp(
       *cache.fbb, input, output, op.getScatterDim(),
       static_cast<uint32_t>(op.getReduceType()), op.getClusterAxis(),
-      subDeviceId, memoryConfig, optionalOutputTensor, numLinks, topology);
+      subDeviceId, memoryConfig, numLinks, topology);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::ScatterOp>

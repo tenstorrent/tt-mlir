@@ -421,14 +421,13 @@ public:
         rewriter.create<ttnn::ReduceScatterOp>(
             ttmlir::utils::appendLocationSuffix(loc, "_reduceScatter"),
             scatteredInputType, op.getInput(), op.getReduceType(), dimension,
-            clusterAxis, nullptr, nullptr, nullptr, nullptr, nullptr);
+            clusterAxis, nullptr, nullptr, nullptr, nullptr);
 
     // Replace all_reduce op with all_gather op.
     rewriter.replaceOpWithNewOp<ttnn::AllGatherOp>(
         op, op.getType(), reduceScatterOp.getResult(), dimension, clusterAxis,
         nullptr /*sub_device_id*/, nullptr /*memory_config*/,
-        nullptr /*optional_output_tensor*/, nullptr /*num_links*/,
-        nullptr /*topology*/);
+        nullptr /*num_links*/, nullptr /*topology*/);
     return success();
   }
 
@@ -467,8 +466,7 @@ private:
         ttmlir::utils::appendLocationSuffix(loc, "_allGather"),
         allGatherOutputType, leadingReshapeOp.getResult(), 0, clusterAxis,
         nullptr /*sub_device_id*/, nullptr /*memory_config*/,
-        nullptr /*optional_output_tensor*/, nullptr /*num_links*/,
-        nullptr /*topology*/);
+        nullptr /*num_links*/, nullptr /*topology*/);
     // Create a new reduce op.
     ArrayAttr reduceDimAttr =
         rewriter.getI32ArrayAttr(llvm::ArrayRef<int32_t>{0});

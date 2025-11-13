@@ -2326,7 +2326,6 @@ public:
         emitter.emit(srcOp.getClusterAxis()),
         emitter.emit(srcOp.getSubDeviceId()),
         emitter.emit(srcOp.getMemoryConfig()),
-        emitter.emit(srcOp.getOptionalOutputTensor()),
         emitter.emit(srcOp.getNumLinks()),
         emitter.emit(srcOp.getTopology()),
     };
@@ -2359,7 +2358,6 @@ public:
         emitter.emit(srcOp.getClusterAxis()),
         emitter.emit(srcOp.getSubDeviceId()),
         emitter.emit(srcOp.getMemoryConfig()),
-        emitter.emit(srcOp.getOptionalOutputTensor()),
         emitter.emit(srcOp.getNumLinks()),
         emitter.emit(srcOp.getTopology()),
     };
