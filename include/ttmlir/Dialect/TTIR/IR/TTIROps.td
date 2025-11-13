@@ -1876,6 +1876,54 @@ def TTIR_MaximumOp : TTIR_ElementwiseBinaryOp<"maximum"> {
     }];
 }
 
+def TTIR_GeluBWOp : TTIR_ElementwiseBinaryOp<"gelu_bw"> {
+  let summary = "Backward pass operation for the GELU activation function.";
+  let description = [{
+    The `gelu_bw` operation computes the gradient of the GELU (Gaussian Error Linear Unit)
+    activation function with respect to its input during backpropagation. This is an elementwise
+    binary operation that multiplies the incoming gradient with the derivative of GELU.
+
+    Inputs:
+    - `lhs` (Tensor): The gradient tensor flowing back from the loss (grad_output).
+    - `rhs` (Tensor): The original input tensor that was fed to the forward GELU operation.
+
+    Attributes:
+    - `approximate` (string): The GELU approximation algorithm to use. Can be "none" (exact)
+      or "tanh" (tanh approximation). Defaults to "none".
+
+    Output:
+    - `result` (Tensor): The gradient with respect to the input tensor.
+
+    Example:
+    ```mlir
+    // Compute GELU backward pass
+    %result = ttir.gelu_bw(%grad, %input, %output) :
+      (tensor<4x4xf32>, tensor<4x4xf32>, tensor<4x4xf32>) -> tensor<4x4xf32>
+
+    // With tanh approximation
+    %result = ttir.gelu_bw(%grad, %input, %output) {approximate = "tanh"} :
+      (tensor<4x4xf32>, tensor<4x4xf32>, tensor<4x4xf32>) -> tensor<4x4xf32>
+    ```
+
+    Mathematical definition (approximate = "none"):
+      gelu_bw(grad, x) = grad * (cdf(x) + x * pdf(x))
+    where cdf is the cumulative distribution function and pdf is the probability density
+    function of the standard normal distribution.
+
+    Mathematical definition (approximate = "tanh"):
+      gelu_bw(grad, x) = grad * d/dx[0.5 * x * (1 + tanh(sqrt(2/pi) * (x + 0.044715 * x^3)))]
+  }];
+
+  let arguments = (ins AnyRankedTensor:$lhs,
+                       AnyRankedTensor:$rhs,
+                       AnyRankedTensor:$output,
+                       DefaultValuedAttr<StrAttr, "\"none\"">:$approximate);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let hasVerifier = 1;
+}
+
 def TTIR_BatchNormInferenceOp : TTIR_Op<"batch_norm_inference"> {
   let summary = "BatchNormInference operation";
   let description = [{

@@ -1250,6 +1250,31 @@ createEltwiseBinaryCompositeScalarOp(FlatbufferObjectCache &cache,
       *cache.fbb, type, lhs, rhsType, rhsValue, memoryConfig, out);
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::ExperimentalEltwiseBinaryBackwardOp>
+createExperimentalEltwiseBinaryBackwardOp(FlatbufferObjectCache &cache,
+                                          GeluBWOp op) {
+  ::tt::target::ttnn::ExperimentalEltwiseBinaryBackwardOpType type =
+      ::tt::target::ttnn::ExperimentalEltwiseBinaryBackwardOpType::GeluBW;
+
+  auto grad = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getLhs()));
+  auto input = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getRhs()));
+
+  auto approximate = toFlatbuffer(cache, op.getApproximate());
+
+  ::flatbuffers::Optional<::tt::target::DataType> outputDtype =
+      toFlatbuffer(cache, op.getDtype());
+
+  auto memoryConfig = getMemoryConfigIfNeeded(cache, op);
+
+  auto out = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer);
+
+  return ::tt::target::ttnn::CreateExperimentalEltwiseBinaryBackwardOp(
+      *cache.fbb, type, grad, input, approximate, outputDtype, memoryConfig,
+      out);
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::EltwiseTernaryWhereOp>
 createEltwiseTernaryWhereOp(FlatbufferObjectCache &cache, WhereOp op) {
 
@@ -2812,6 +2837,11 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   if (auto geluOp = dyn_cast<GeluOp>(op); geluOp) {
     return createOperation(cache, createEltwiseUnaryOp(cache, geluOp),
                            debugString, locInfo);
+  }
+  if (auto geluBWOp = dyn_cast<GeluBWOp>(op); geluBWOp) {
+    return createOperation(
+        cache, createExperimentalEltwiseBinaryBackwardOp(cache, geluBWOp),
+        debugString, locInfo);
   }
   if (auto tanOp = dyn_cast<TanOp>(op); tanOp) {
     return createOperation(cache, createEltwiseUnaryOp(cache, tanOp),

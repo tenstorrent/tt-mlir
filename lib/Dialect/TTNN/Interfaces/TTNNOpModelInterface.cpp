@@ -1112,6 +1112,50 @@ Atan2Op::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 }
 
 //===----------------------------------------------------------------------===//
+// GeluBWOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::OpConstraints>
+GeluBWOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                           const OpConfig &opConfig) {
+  assert(inputs.size() == 2);
+
+  const auto inputShapeA = getLhs().getType().getShape();
+  const auto inputShapeB = getRhs().getType().getShape();
+
+  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
+  if (!check) {
+    return check.takeError();
+  }
+  ttcore::GridAttr deviceGrid =
+      ttcore::lookupDevice(getOperation()).getWorkerGrid();
+
+  std::string approximate =
+      getApproximate().empty() ? "none" : getApproximate().str();
+
+  return opConstraintsCache().getOrCompute(
+      op_model::OpModel<GeluBWOp>::getOpConstraints, getOperation(), deviceGrid,
+      inputShapeA, inputs[0], inputShapeB, inputs[1], approximate,
+      opConfig.outputLayout);
+}
+
+llvm::Expected<size_t>
+GeluBWOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                       const OpConfig &opConfig) {
+  assert(inputs.size() == 2);
+
+  const auto inputShapeA = getLhs().getType().getShape();
+  const auto inputShapeB = getRhs().getType().getShape();
+
+  std::string approximate =
+      getApproximate().empty() ? "none" : getApproximate().str();
+
+  return opRuntimeCache().getOrCompute(
+      op_model::OpModel<GeluBWOp>::getOpRuntime, getOperation(), inputShapeA,
+      inputs[0], inputShapeB, inputs[1], approximate, opConfig.outputLayout);
+}
+
+//===----------------------------------------------------------------------===//
 // RemainderOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 

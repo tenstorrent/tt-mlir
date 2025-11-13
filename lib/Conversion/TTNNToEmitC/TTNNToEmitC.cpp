@@ -427,6 +427,38 @@ public:
 };
 } // namespace
 
+// GeluBWOp conversion pattern
+namespace {
+class ExperimentalGeluBWOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<mlir::tt::ttnn::GeluBWOp> {
+
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::GeluBWOp>::TTNNToEmitCBaseOpConversionPattern;
+  using Adaptor = mlir::tt::ttnn::GeluBWOp::Adaptor;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::GeluBWOp srcOp, Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::GeluBWOp> emitter(
+        srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getLhs()),
+        emitter.emit(srcOp.getRhs()),
+        emitter.emit(srcOp.getApproximate()),
+        emitter.emit(srcOp.getDtype()),
+        emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
 // Eltwise Binary Composite op conversion pattern
 //
 // Currently, it has to insert nullopts for some parameters that are not
@@ -4053,6 +4085,10 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
       EltwiseBinaryNGCompositeOpConversionPattern<mlir::tt::ttnn::PowTensorOp>,
       EltwiseBinaryCompositeOpConversionPattern<mlir::tt::ttnn::Atan2Op>,
       PowScalarOpConversionPattern>(typeConverter, ctx);
+
+  // Experimental binary backward ops
+  //
+  patterns.add<ExperimentalGeluBWOpConversionPattern>(typeConverter, ctx);
 
   // Eltwise ternary ops
   //

@@ -3179,6 +3179,83 @@ mlir::tt::ttnn::CollectivePermuteOp::fold(FoldAdaptor adaptor) {
 }
 
 //===----------------------------------------------------------------------===//
+// GeluBWOp
+//===----------------------------------------------------------------------===//
+
+// GeluBWOp verification
+::mlir::LogicalResult mlir::tt::ttnn::GeluBWOp::verify() {
+  llvm::StringRef approximate = getApproximate();
+
+  if (approximate != "none" && approximate != "tanh") {
+    return emitOpError("approximate attribute must be either 'none' or 'tanh', "
+                       "but got '")
+           << approximate << "'";
+  }
+
+  RankedTensorType lhsType = getLhs().getType();
+  RankedTensorType rhsType = getRhs().getType();
+  RankedTensorType resultType = getResult().getType();
+
+  int64_t lhsRank = lhsType.getRank();
+  int64_t rhsRank = rhsType.getRank();
+  int64_t resultRank = resultType.getRank();
+
+  if (lhsRank < 2 || lhsRank > 4) {
+    return emitOpError(
+               "gradient tensor (lhs) must have rank 2, 3, or 4, but got rank ")
+           << lhsRank;
+  }
+
+  if (rhsRank < 2 || rhsRank > 4) {
+    return emitOpError(
+               "input tensor (rhs) must have rank 2, 3, or 4, but got rank ")
+           << rhsRank;
+  }
+
+  if (resultRank < 2 || resultRank > 4) {
+    return emitOpError("result tensor must have rank 2, 3, or 4, but got rank ")
+           << resultRank;
+  }
+
+  if (lhsRank != rhsRank) {
+    return emitOpError("gradient tensor (lhs) and input tensor (rhs) must have "
+                       "the same rank, "
+                       "but got lhs rank ")
+           << lhsRank << " and rhs rank " << rhsRank;
+  }
+
+  if (lhsRank != resultRank) {
+    return emitOpError(
+               "input tensors and result tensor must have the same rank, "
+               "but got input rank ")
+           << lhsRank << " and result rank " << resultRank;
+  }
+
+  mlir::Type lhsElemType = lhsType.getElementType();
+  mlir::Type rhsElemType = rhsType.getElementType();
+  mlir::Type resultElemType = resultType.getElementType();
+
+  if (!lhsElemType.isBF16()) {
+    return emitOpError(
+               "gradient tensor (lhs) element type must be bfloat16, but got ")
+           << lhsElemType;
+  }
+
+  if (!rhsElemType.isBF16()) {
+    return emitOpError(
+               "input tensor (rhs) element type must be bfloat16, but got ")
+           << rhsElemType;
+  }
+
+  if (!resultElemType.isBF16()) {
+    return emitOpError("result tensor element type must be bfloat16, but got ")
+           << resultElemType;
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // Reduction ops
 //===----------------------------------------------------------------------===//
 

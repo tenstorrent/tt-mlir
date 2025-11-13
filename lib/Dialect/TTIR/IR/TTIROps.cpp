@@ -4972,4 +4972,81 @@ mlir::tt::ttir::PagedScaledDotProductAttentionDecodeOp::verify() {
   return success();
 }
 
+//===----------------------------------------------------------------------===//
+// GeluBWOp
+//===----------------------------------------------------------------------===//
+
+// GeluBWOp verification
+::mlir::LogicalResult mlir::tt::ttir::GeluBWOp::verify() {
+  llvm::StringRef approximate = getApproximate();
+
+  if (approximate != "none" && approximate != "tanh") {
+    return emitOpError("approximate attribute must be either 'none' or 'tanh', "
+                       "but got '")
+           << approximate << "'";
+  }
+
+  RankedTensorType lhsType = getLhs().getType();
+  RankedTensorType rhsType = getRhs().getType();
+  RankedTensorType outputType = getOutput().getType();
+
+  int64_t lhsRank = lhsType.getRank();
+  int64_t rhsRank = rhsType.getRank();
+  int64_t outputRank = outputType.getRank();
+
+  if (lhsRank < 2 || lhsRank > 4) {
+    return emitOpError(
+               "gradient tensor (lhs) must have rank 2, 3, or 4, but got rank ")
+           << lhsRank;
+  }
+
+  if (rhsRank < 2 || rhsRank > 4) {
+    return emitOpError(
+               "input tensor (rhs) must have rank 2, 3, or 4, but got rank ")
+           << rhsRank;
+  }
+
+  if (outputRank < 2 || outputRank > 4) {
+    return emitOpError("output tensor must have rank 2, 3, or 4, but got rank ")
+           << outputRank;
+  }
+
+  if (lhsRank != rhsRank) {
+    return emitOpError("gradient tensor (lhs) and input tensor (rhs) must have "
+                       "the same rank, "
+                       "but got lhs rank ")
+           << lhsRank << " and rhs rank " << rhsRank;
+  }
+
+  if (lhsRank != outputRank) {
+    return emitOpError(
+               "input tensors and output tensor must have the same rank, "
+               "but got input rank ")
+           << lhsRank << " and output rank " << outputRank;
+  }
+
+  mlir::Type lhsElemType = lhsType.getElementType();
+  mlir::Type rhsElemType = rhsType.getElementType();
+  mlir::Type outputElemType = outputType.getElementType();
+
+  if (!lhsElemType.isBF16()) {
+    return emitOpError(
+               "gradient tensor (lhs) element type must be bfloat16, but got ")
+           << lhsElemType;
+  }
+
+  if (!rhsElemType.isBF16()) {
+    return emitOpError(
+               "input tensor (rhs) element type must be bfloat16, but got ")
+           << rhsElemType;
+  }
+
+  if (!outputElemType.isBF16()) {
+    return emitOpError("output tensor element type must be bfloat16, but got ")
+           << outputElemType;
+  }
+
+  return success();
+}
+
 } // namespace mlir::tt::ttir

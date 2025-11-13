@@ -1541,6 +1541,28 @@ public:
 } // namespace
 
 namespace {
+class GeluBWOpConversionPattern : public OpConversionPattern<ttir::GeluBWOp> {
+public:
+  using OpConversionPattern<ttir::GeluBWOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::GeluBWOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto outputLayoutAttr =
+        mlir::cast<ttnn::TTNNLayoutAttr>(op.getType().getEncoding());
+    auto outputDtypeAttr =
+        rewriter.getAttr<ttcore::DataTypeAttr>(outputLayoutAttr.getDataType());
+
+    rewriter.replaceOpWithNewOp<ttnn::GeluBWOp>(
+        op, this->getTypeConverter()->convertType(op.getResult().getType()),
+        adaptor.getLhs(), adaptor.getRhs(), outputDtypeAttr,
+        /*memory_config=*/nullptr, op.getApproximate());
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 class TypecastOpConversionPattern
     : public OpConversionPattern<ttir::TypecastOp> {
   using OpConversionPattern<ttir::TypecastOp>::OpConversionPattern;
@@ -2293,7 +2315,8 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            ScaledDotProductAttentionOpConversionPattern,
            ScaledDotProductAttentionDecodeOpConversionPattern,
            PagedScaledDotProductAttentionDecodeOpConversionPattern,
-           SplitQueryKeyValueAndSplitHeadsOpConversionPattern
+           SplitQueryKeyValueAndSplitHeadsOpConversionPattern,
+           GeluBWOpConversionPattern
            >(typeConverter, ctx);
   // ANCHOR_END: op_rewriter_pattern_set
   // clang-format on
