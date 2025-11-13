@@ -4,12 +4,13 @@
 
 import pytest
 import torch
-from typing import Callable, List, Optional
+from typing import Callable, List, Optional, Tuple
+from collections import OrderedDict
 
 from builder.base.builder import Operand, Shape
 from builder.ttnn.ttnn_builder import TTNNBuilder
 from builder.base.builder_utils import compile_and_execute_ttnn
-from test_utils import Marks, shape_str, shapes_list_str
+from test_utils import Marks, shape_str, shapes_list_str, ttnn_shard_wrap_factory
 
 pytestmark = pytest.mark.frontend("ttnn")
 
@@ -438,6 +439,66 @@ def test_slice(
         [shape],
         test_base=request.node.name,
         device=device,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+    )
+
+
+@pytest.mark.parametrize(
+    "test_shape",
+    [
+        (1, 32, 32, 32),
+        (1, 32, 32, 1),
+        (32, 32, 1, 1),
+        (1, 32, 32),
+        (32, 32),
+        (32, 40),
+        (40, 32),
+        pytest.param((1, 1, 32, 32, 32), marks=pytest.mark.xfail(reason="run error")),
+        pytest.param(
+            (1, 1, 1, 1, 1, 1, 32, 32, 32), marks=pytest.mark.xfail(reason="run error")
+        ),
+    ],
+    ids=shape_str,
+)
+@pytest.mark.parametrize(
+    "mesh_shape", [(2, 4), (1, 8), (1, 2), (1, 32), (8, 4)], ids=shape_str
+)
+@pytest.mark.parametrize("all_gather_dim", range(4))
+@pytest.mark.parametrize("cluster_axis", [0, 1])
+@pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32], ids=["bf16", "f32"])
+def test_all_gather(
+    test_shape: Shape,
+    mesh_shape: Tuple[int, int],
+    all_gather_dim: int,
+    cluster_axis: int,
+    dtype: torch.dtype,
+    request,
+    device,
+):
+    if all_gather_dim >= len(test_shape):
+        pytest.skip("all_gather_dim is out of range")
+    if mesh_shape[cluster_axis] == 1:
+        pytest.skip("all_gather across 1 device is meaningless")
+
+    def all_gather(mesh_shard_in: Operand, builder: TTNNBuilder):
+        return builder.all_gather(
+            mesh_shard_in,
+            device,
+            all_gather_dim=all_gather_dim,
+            cluster_axis=cluster_axis,
+        )
+
+    test_bundle = ttnn_shard_wrap_factory(test_shape, mesh_shape, all_gather, device)
+
+    compile_and_execute_ttnn(
+        test_bundle.test_fn,
+        [test_bundle.input_shape],
+        [dtype],
+        mesh_name="mesh",
+        device=device,
+        mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
+        test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
     )

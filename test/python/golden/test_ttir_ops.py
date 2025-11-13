@@ -19,7 +19,7 @@ from test_utils import (
     shape_str,
     shapes_list_str,
     make_shard_shape,
-    shard_wrap_factory,
+    ttir_shard_wrap_factory,
 )
 
 pytestmark = pytest.mark.frontend("ttir")
@@ -2874,7 +2874,7 @@ def test_all_gather(
             cluster_axis=cluster_axis,
         )
 
-    test_bundle = shard_wrap_factory(test_shape, mesh_shape, all_gather)
+    test_bundle = ttir_shard_wrap_factory(test_shape, mesh_shape, all_gather)
 
     compile_and_execute_ttir(
         test_bundle.test_fn,
@@ -2933,7 +2933,7 @@ def test_all_reduce(
             cluster_axis=cluster_axis,
         )
 
-    test_bundle = shard_wrap_factory(test_shape, mesh_shape, all_reduce)
+    test_bundle = ttir_shard_wrap_factory(test_shape, mesh_shape, all_reduce)
 
     compile_and_execute_ttir(
         test_bundle.test_fn,
@@ -2996,7 +2996,7 @@ def test_reduce_scatter(
             cluster_axis=cluster_axis,
         )
 
-    test_bundle = shard_wrap_factory(test_shape, mesh_shape, reduce_scatter)
+    test_bundle = ttir_shard_wrap_factory(test_shape, mesh_shape, reduce_scatter)
 
     compile_and_execute_ttir(
         test_bundle.test_fn,
@@ -3092,7 +3092,7 @@ def test_collective_permute(
             source_target_pairs=source_target_pairs,
         )
 
-    test_bundle = shard_wrap_factory(test_shape, mesh_shape, collective_permute)
+    test_bundle = ttir_shard_wrap_factory(test_shape, mesh_shape, collective_permute)
 
     compile_and_execute_ttir(
         test_bundle.test_fn,
@@ -3166,7 +3166,7 @@ def test_all_to_all(
             replica_groups=replica_groups,
         )
 
-    test_bundle = shard_wrap_factory(test_shape, mesh_shape, all_to_all)
+    test_bundle = ttir_shard_wrap_factory(test_shape, mesh_shape, all_to_all)
 
     compile_and_execute_ttir(
         test_bundle.test_fn,
@@ -3228,7 +3228,7 @@ def test_collective_broadcast(
             replica_groups=replica_groups,
         )
 
-    test_bundle = shard_wrap_factory(test_shape, mesh_shape, collective_broadcast)
+    test_bundle = ttir_shard_wrap_factory(test_shape, mesh_shape, collective_broadcast)
 
     compile_and_execute_ttir(
         test_bundle.test_fn,

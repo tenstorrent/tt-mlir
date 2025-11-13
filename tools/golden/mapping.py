@@ -3070,4 +3070,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttnn.ClampTensorOp: clamp_tensor_golden,
     ttnn.PadOp: pad_golden,
     ttnn.SliceStaticOp: slice_golden,
+    # CCL (Collective Communication Library) operations
+    ttnn.MeshShardOp: mesh_shard_golden,
+    ttnn.AllGatherOp: all_gather_golden,
 }

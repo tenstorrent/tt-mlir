@@ -10,6 +10,7 @@ import torch
 from ttmlir.ir import *
 from ttmlir import util
 from ttmlir.dialects import ttnn, ttcore
+from ttrt.runtime import Device
 
 from builder.base.builder import *
 from golden import *
@@ -3099,4 +3100,55 @@ class TTNNBuilder(Builder):
             golden_kwargs=kwargs,
             output_shape=output_shape,
             unit_attrs=unit_attrs,
+        )
+
+    # CCL ops
+
+    def mesh_shard(
+        self,
+        input: Operand,
+        device: Device,
+        shard_type: str,
+        shard_direction: str,
+        shard_shape: Tuple[int, ...],
+        shard_dims: Tuple[int, ...],
+    ) -> OpView:
+        # device = ttcore.ir.Device.get(self._ctx)
+        device = ttnn.ir.Device.get(self._ctx)
+        ttnn_kwargs = {
+            "shard_type": Attribute.parse(shard_type),
+            "shard_direction": Attribute.parse(shard_direction),
+            "shard_shape": shard_shape,
+            "shard_dims": shard_dims,
+        }
+        golden_kwargs = dict(ttnn_kwargs, mesh_shape=self.mesh_shape)
+        ttnn_kwargs["device"] = device
+        return self._op_proxy(
+            ttnn.MeshShardOp,
+            [input],
+            # organize_ttnn_args=lambda i, o, _: (self._get_type(o), i[0]),
+            ttnn_kwargs=ttnn_kwargs,
+            golden_kwargs=golden_kwargs,
+        )
+
+    def all_gather(
+        self,
+        input: Operand,
+        device: Device,
+        all_gather_dim: int,
+        cluster_axis: int,
+        num_links: int = 1,
+    ) -> OpView:
+        golden_kwargs = {"all_gather_dim": all_gather_dim, "cluster_axis": cluster_axis}
+        ttnn_kwargs = {
+            "device": device,
+            "all_gather_dim": all_gather_dim,
+            "cluster_axis": cluster_axis,
+            "num_links": num_links,
+        }
+        return self._op_proxy(
+            ttnn.AllGatherOp,
+            [input],
+            golden_kwargs=kwargs,
+            ttnn_kwargs=kwargs,
         )

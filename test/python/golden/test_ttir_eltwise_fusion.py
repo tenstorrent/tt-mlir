@@ -17,7 +17,7 @@ from test_utils import (
     Marks,
     shape_str,
     make_shard_shape,
-    shard_wrap_factory,
+    ttir_shard_wrap_factory,
 )
 
 
