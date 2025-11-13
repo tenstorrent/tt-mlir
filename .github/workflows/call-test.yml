@@ -282,6 +282,41 @@ jobs:
           echo "    $tracy_file: inode=$inode size=$size md5=$md5"
         done
         
+        # Check tt-mlir libraries in Python packages
+        echo "  Checking tt-mlir libraries in Python packages..."
+        for pkg_dir in ./build/python_packages/ttmlir ./build/python_packages/ttrt; do
+          if [ -d "$pkg_dir" ]; then
+            echo "    In $pkg_dir:"
+            find "$pkg_dir" -name "*TTMLIR*.so" -type f 2>/dev/null | while read mlir_lib; do
+              echo "      Found: $mlir_lib"
+              if readelf -d "$mlir_lib" 2>/dev/null | grep -q "libtracy"; then
+                echo "        ✓ Links to tracy"
+                echo "        RPATH/RUNPATH:"
+                readelf -d "$mlir_lib" 2>/dev/null | grep -E 'RPATH|RUNPATH' | head -2
+                echo "        Resolves to:"
+                ldd "$mlir_lib" 2>/dev/null | grep libtracy | head -1
+              else
+                echo "        ✗ Does not link to tracy"
+              fi
+            done
+          fi
+        done
+        
+        # Check where ttrt wheel installs tt-mlir
+        echo "  Checking ttrt wheel installation..."
+        ttrt_location=$(python3 -c "import ttrt; print(ttrt.__file__)" 2>/dev/null || echo "")
+        if [ -n "$ttrt_location" ]; then
+          ttrt_dir=$(dirname "$ttrt_location")
+          echo "    ttrt installed at: $ttrt_dir"
+          echo "    Looking for tt-mlir libs in ttrt installation..."
+          find "$ttrt_dir" -name "*TTMLIR*.so" -type f 2>/dev/null | head -3 | while read lib; do
+            echo "      $lib"
+            ldd "$lib" 2>/dev/null | grep libtracy || echo "        (no tracy)"
+          done
+        else
+          echo "    ttrt not installed or not importable"
+        fi
+        
         # Check if tracy_ops_data.csv has interleaved or separated message ordering
         echo "Checking Tracy message ordering in ops data..."
         find ttrt-artifacts -name "tracy_ops_data.csv" -type f 2>/dev/null | while read csv; do
