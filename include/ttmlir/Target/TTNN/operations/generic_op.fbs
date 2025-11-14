@@ -38,11 +38,20 @@ table KernelGlobalCBIndexOfTensor {
   tensor_operand_index: uint32;
 }
 
+table KernelCBAddress {
+  address: uint32;
+}
+
+union KernelGlobalCBOrAddress {
+  KernelGlobalCBIndexOfTensor,
+  KernelCBAddress,
+}
+
 table KernelCBDescriptor {
   total_size: uint32;
   core_range: tt.target.ttnn.CoreRangeSet;
   formats: [KernelCBFormat];
-  buffer: KernelGlobalCBIndexOfTensor;
+  buffer: KernelGlobalCBOrAddress;
 }
 
 table ComputeKernelConfig {
