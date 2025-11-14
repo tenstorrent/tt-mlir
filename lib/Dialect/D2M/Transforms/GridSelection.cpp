@@ -403,29 +403,10 @@ analyzeOperandsAndComputeGrids(d2m::GenericOp genericOp,
       continue;
     }
 
-    llvm::SmallVector<int64_t> tileShape;
-    if (auto tileType =
-            mlir::dyn_cast<ttcore::TileType>(operandType.getElementType())) {
-      tileShape = llvm::to_vector(tileType.getShape());
-    }
+    // Compute physical shape and find the optimal grid that evenly divides it.
+    llvm::SmallVector<int64_t> physShape = computePhysicalShape(
+        operandLayout, operandType, targetSquareGridShape, builder);
 
-    // Compute alignments assuming the target square grid, then get the physical
-    // shape that would result from those alignments. The logical shape is
-    // already correct from TTIRToD2M (transposed if needed).
-    llvm::SmallVector<int64_t> targetAlignments = computeGridAwareDimAlignments(
-        operandLayout.getLogicalShape(), targetSquareGridShape,
-        operandLayout.getNormalizedIntervals());
-
-    auto tempLayout = ttcore::MetalLayoutAttr::get(
-        builder.getContext(), operandLayout.getLogicalShape(),
-        operandLayout.getOobVal(), operandLayout.getMemorySpace(),
-        operandLayout.getMemoryLayout(), operandLayout.getCollapsedIntervals(),
-        targetAlignments);
-
-    llvm::SmallVector<int64_t> physShape = tempLayout.getPhysicalShape(
-        llvm::ArrayRef(tileShape.data(), tileShape.size()));
-
-    // Find the optimal grid that evenly divides the physical shape.
     auto [optimalGrid, isVirtualGrid] =
         computeOptimalGrid(physShape, targetSquareGridShape);
 
@@ -446,27 +427,8 @@ analyzeOperandsAndComputeGrids(d2m::GenericOp genericOp,
           auto inputLayout =
               mlir::cast<ttcore::MetalLayoutAttr>(inputType.getEncoding());
 
-          llvm::SmallVector<int64_t> inputTileShape;
-          if (auto tileType = mlir::dyn_cast<ttcore::TileType>(
-                  inputType.getElementType())) {
-            inputTileShape = llvm::to_vector(tileType.getShape());
-          }
-
-          llvm::SmallVector<int64_t> inputAlignments =
-              computeGridAwareDimAlignments(
-                  inputLayout.getLogicalShape(), targetSquareGridShape,
-                  inputLayout.getNormalizedIntervals());
-
-          auto inputTempLayout = ttcore::MetalLayoutAttr::get(
-              builder.getContext(), inputLayout.getLogicalShape(),
-              inputLayout.getOobVal(), inputLayout.getMemorySpace(),
-              inputLayout.getMemoryLayout(),
-              inputLayout.getCollapsedIntervals(), inputAlignments);
-
-          llvm::SmallVector<int64_t> inputPhysShape =
-              inputTempLayout.getPhysicalShape(
-                  llvm::ArrayRef(inputTileShape.data(), inputTileShape.size()));
-
+          llvm::SmallVector<int64_t> inputPhysShape = computePhysicalShape(
+              inputLayout, inputType, targetSquareGridShape, builder);
           auto [inputOptimalGrid, isVirtualGrid] =
               computeOptimalGrid(inputPhysShape, targetSquareGridShape);
 
