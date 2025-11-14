@@ -143,7 +143,7 @@ PASSING_LARGE_SHAPES_DTYPES_DRAM = [
 
 @pytest.mark.parametrize("shape, dtype", PASSING_LARGE_SHAPES_DTYPES_DRAM)
 @pytest.mark.xfail(
-    "mul_add fails allclose, see https://github.com/tenstorrent/tt-mlir/issues/5873"
+    reason="mul_add fails allclose, see https://github.com/tenstorrent/tt-mlir/issues/5873"
 )
 def test_large_shapes_muladd_dram(device, shape, dtype):
 
