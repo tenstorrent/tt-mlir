@@ -31,24 +31,11 @@ jobs:
         shell: bash
         run: |
           # Output the image name
-          set +e  # Don't exit on command failure
-          .github/build-docker-images.sh --check-only | tee docker.log
-          EXIT_CODE=$?
-          if [ $EXIT_CODE -eq 0 ]; then
-            DOCKER_CI_IMAGE=$(tail -n 1 docker.log)
-            echo "Docker image already exists: $DOCKER_CI_IMAGE"
-            echo "docker-image=$DOCKER_CI_IMAGE" >> "$GITHUB_OUTPUT"
-            DOCKER_TAG=$(.github/get-docker-tag.sh)
-            echo "DOCKER_TAG $DOCKER_TAG"
-            echo "docker-tag=$DOCKER_TAG" >> "$GITHUB_OUTPUT"
-          else
-            echo "Docker image does not exist, proceeding to build"
-          fi
 
   build-image:
     needs: check-if-docker-exist
     if: needs.check-if-docker-exist.outputs.docker-image == ''
-    runs-on: docker-builder
+    runs-on: tt-ubuntu-2204-large-stable
     outputs:
       docker-image: ${{ steps.build.outputs.docker-image }}
       docker-tag: ${{ steps.build.outputs.docker-tag }}
