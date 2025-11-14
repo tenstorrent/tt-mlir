@@ -2637,7 +2637,7 @@ TEST_F(OpModelBase, Conv2dInterfaceConfigs) {
   const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
       constraintsExp.get();
 
-  // TODO: consider updating these values when this issue is resolved:
+  // TODO(nsmith): consider updating these values when this issue is resolved:
   // https://github.com/tenstorrent/tt-mlir/issues/5306
   EXPECT_EQ(cbSize, 69696);
   EXPECT_EQ(l1PeakSize, 61836);
