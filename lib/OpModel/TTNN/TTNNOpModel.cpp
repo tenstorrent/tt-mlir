@@ -1654,6 +1654,98 @@ llvm::Expected<size_t> OpModel<SoftmaxOp>::getOpRuntime(
 }
 
 //===----------------------------------------------------------------------===//
+// ScatterOp
+//===----------------------------------------------------------------------===//
+llvm::Expected<OpConstraints> OpModel<ScatterOp>::getOpConstraints(
+    ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
+    TTNNLayoutAttr inputLayout, llvm::ArrayRef<int64_t> indexShape,
+    TTNNLayoutAttr indexLayout, llvm::ArrayRef<int64_t> sourceShape,
+    TTNNLayoutAttr sourceLayout, int32_t dim, TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+
+  auto indexSpecExp =
+      detail::convertToTensorSpec(device, indexShape, indexLayout);
+  if (!indexSpecExp) {
+    return indexSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec indexSpec = indexSpecExp.get();
+
+  auto sourceSpecExp =
+      detail::convertToTensorSpec(device, sourceShape, sourceLayout);
+  if (!sourceSpecExp) {
+    return sourceSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec sourceSpec = sourceSpecExp.get();
+
+  // Create query closure
+  auto scatterOpQuery = [=]() {
+    return ::ttnn::graph::query_op_constraints(
+        ::ttnn::scatter, device, inputSpec, dim, indexSpec, sourceSpec,
+        detail::getNullableMemoryConfig(outputLayout),
+        /* opt_reduction */ std::nullopt);
+  };
+
+  return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
+                                     scatterOpQuery);
+#else
+  return OpConstraints{};
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+llvm::Expected<size_t> OpModel<ScatterOp>::getOpRuntime(
+    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+    llvm::ArrayRef<int64_t> indexShape, TTNNLayoutAttr indexLayout,
+    llvm::ArrayRef<int64_t> sourceShape, TTNNLayoutAttr sourceLayout,
+    int32_t dim, TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+
+  auto indexSpecExp =
+      detail::convertToTensorSpec(device, indexShape, indexLayout);
+  if (!indexSpecExp) {
+    return indexSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec indexSpec = indexSpecExp.get();
+
+  auto sourceSpecExp =
+      detail::convertToTensorSpec(device, sourceShape, sourceLayout);
+  if (!sourceSpecExp) {
+    return sourceSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec sourceSpec = sourceSpecExp.get();
+
+  // Create query closure
+  auto scatterOpRuntimeQuery = [=]() {
+    return ::ttnn::graph::query_op_runtime(
+        ::ttnn::scatter, device, inputSpec, dim, indexSpec, sourceSpec,
+        detail::getNullableMemoryConfig(outputLayout),
+        /* opt_reduction */ std::nullopt);
+  };
+
+  return operation::getOpRuntime(scatterOpRuntimeQuery);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+//===----------------------------------------------------------------------===//
 // ReshapeOp
 //===----------------------------------------------------------------------===//
 llvm::Expected<OpConstraints> OpModel<ReshapeOp>::getOpConstraints(

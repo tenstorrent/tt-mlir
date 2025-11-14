@@ -27,7 +27,8 @@ namespace tt::runtime::system_desc {
 using HalMemType = ::tt::tt_metal::HalMemType;
 using BufferType = ::tt::tt_metal::BufferType;
 
-static ::tt::target::Dim2d toFlatbuffer(const CoreCoord &coreCoord) {
+static ::tt::target::Dim2d
+toFlatbuffer(const tt::tt_metal::CoreCoord &coreCoord) {
   return ::tt::target::Dim2d(coreCoord.y, coreCoord.x);
 }
 
@@ -48,11 +49,14 @@ static ::tt::target::Arch toFlatbuffer(::tt::ARCH arch) {
 
 static std::vector<::tt::target::ChipChannel>
 getAllDeviceConnections(const std::vector<::tt::tt_metal::IDevice *> &devices) {
-  std::set<std::tuple<ChipId, CoreCoord, ChipId, CoreCoord>> connectionSet;
+  std::set<std::tuple<ChipId, tt::tt_metal::CoreCoord, ChipId,
+                      tt::tt_metal::CoreCoord>>
+      connectionSet;
 
-  auto addConnection = [&connectionSet](
-                           ChipId deviceId0, CoreCoord ethCoreCoord0,
-                           ChipId deviceId1, CoreCoord ethCoreCoord1) {
+  auto addConnection = [&connectionSet](ChipId deviceId0,
+                                        tt::tt_metal::CoreCoord ethCoreCoord0,
+                                        ChipId deviceId1,
+                                        tt::tt_metal::CoreCoord ethCoreCoord1) {
     if (deviceId0 > deviceId1) {
       std::swap(deviceId0, deviceId1);
       std::swap(ethCoreCoord0, ethCoreCoord1);
@@ -61,9 +65,9 @@ getAllDeviceConnections(const std::vector<::tt::tt_metal::IDevice *> &devices) {
   };
 
   for (const ::tt::tt_metal::IDevice *device : devices) {
-    std::unordered_set<CoreCoord> activeEthernetCores =
+    std::unordered_set<tt::tt_metal::CoreCoord> activeEthernetCores =
         device->get_active_ethernet_cores(true);
-    for (const CoreCoord &ethernetCore : activeEthernetCores) {
+    for (const tt::tt_metal::CoreCoord &ethernetCore : activeEthernetCores) {
       bool getConnection = true;
       // Skip on blackhole. When link is down, get_connected_ethernet_core
       // will throw an exception.
@@ -76,7 +80,7 @@ getAllDeviceConnections(const std::vector<::tt::tt_metal::IDevice *> &devices) {
       if (!getConnection) {
         continue;
       }
-      std::tuple<ChipId, CoreCoord> connectedDevice =
+      std::tuple<ChipId, tt::tt_metal::CoreCoord> connectedDevice =
           device->get_connected_ethernet_core(ethernetCore);
       addConnection(device->id(), ethernetCore, std::get<0>(connectedDevice),
                     std::get<1>(connectedDevice));
@@ -88,7 +92,8 @@ getAllDeviceConnections(const std::vector<::tt::tt_metal::IDevice *> &devices) {
 
   std::transform(
       connectionSet.begin(), connectionSet.end(), allConnections.begin(),
-      [](const std::tuple<ChipId, CoreCoord, ChipId, CoreCoord> &connection) {
+      [](const std::tuple<ChipId, tt::tt_metal::CoreCoord, ChipId,
+                          tt::tt_metal::CoreCoord> &connection) {
         return ::tt::target::ChipChannel(
             std::get<0>(connection), toFlatbuffer(std::get<1>(connection)),
             std::get<2>(connection), toFlatbuffer(std::get<3>(connection)));
@@ -99,9 +104,9 @@ getAllDeviceConnections(const std::vector<::tt::tt_metal::IDevice *> &devices) {
 
 ::tt::target::Dim2d
 getCoordinateTranslationOffsets(const ::tt::tt_metal::IDevice *device) {
-  const CoreCoord workerNWCorner =
+  const tt::tt_metal::CoreCoord workerNWCorner =
       device->worker_core_from_logical_core({0, 0});
-  const CoreCoord workerNWCornerTranslated =
+  const tt::tt_metal::CoreCoord workerNWCornerTranslated =
       device->virtual_noc0_coordinate(0, workerNWCorner);
   return ::tt::target::Dim2d(workerNWCornerTranslated.y,
                              workerNWCornerTranslated.x);
@@ -112,8 +117,8 @@ getCoordinateTranslationOffsets(const ::tt::tt_metal::IDevice *device) {
 // function intends to estimate some conservative max number.
 static std::uint32_t
 calculateDRAMUnreservedEnd(const ::tt::tt_metal::IDevice *device) {
-  CoreCoord deviceGridSize = device->logical_grid_size();
-  CoreCoord dramGridSize = device->dram_grid_size();
+  tt::tt_metal::CoreCoord deviceGridSize = device->logical_grid_size();
+  tt::tt_metal::CoreCoord dramGridSize = device->dram_grid_size();
   std::uint32_t totalCores = deviceGridSize.x * deviceGridSize.y +
                              device->get_active_ethernet_cores().size();
   std::uint32_t totalDramCores = dramGridSize.x * dramGridSize.y;
