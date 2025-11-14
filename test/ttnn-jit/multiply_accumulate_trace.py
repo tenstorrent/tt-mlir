@@ -17,8 +17,13 @@ from utils import (
 )
 
 
-@ttnn_jit.jit(max_grid=(0, 0), debug=True, enable_cache=True)
+@ttnn_jit.jit(max_grid=(0, 0), debug=False, enable_cache=True)
 def muladd(input_tensor_a, input_tensor_b, input_tensor_c):
+
+    return ttnn.add(ttnn.multiply(input_tensor_b, input_tensor_c), input_tensor_a)
+
+
+def muladd_no_jit(input_tensor_a, input_tensor_b, input_tensor_c):
 
     return ttnn.add(ttnn.multiply(input_tensor_b, input_tensor_c), input_tensor_a)
 
@@ -200,3 +205,99 @@ def test_muladd_dram_trace(h, w):
 
     ttnn.release_trace(device, tid)
     ttnn.close_device(device)
+
+
+# COPIED FROM TT-METAL
+def comp_pcc(golden, calculated, pcc=0.99):
+    import numpy as np
+
+    # 1. Convert to torch tensors
+    golden = torch.Tensor(golden)
+    calculated = torch.Tensor(calculated)
+
+    # 2. Handle dtype mismatches
+    if golden.dtype != calculated.dtype:
+        calculated = calculated.type(golden.dtype)
+
+    # 3. Handle special cases
+    if torch.all(torch.isnan(golden)) and torch.all(torch.isnan(calculated)):
+        return True, 1.0  # Both NaN
+
+    if torch.all(torch.isnan(golden)) or torch.all(torch.isnan(calculated)):
+        return False, 0.0  # One NaN, one not
+
+    if torch.any(golden.bool()) != torch.any(calculated.bool()):
+        return False, 0.0  # One all zero, one not
+
+    # 4. Mask infs and nans
+    golden = golden.clone()
+    golden[
+        torch.logical_or(
+            torch.isnan(golden),
+            torch.logical_or(torch.isinf(golden), torch.isneginf(golden)),
+        )
+    ] = 0
+    calculated = calculated.clone()
+    calculated[
+        torch.logical_or(
+            torch.isnan(calculated),
+            torch.logical_or(torch.isinf(calculated), torch.isneginf(calculated)),
+        )
+    ] = 0
+
+    # 5. Convert bfloat16 to float32 for better precision
+    if golden.dtype == torch.bfloat16:
+        golden = golden.type(torch.float32)
+        calculated = calculated.type(torch.float32)
+
+    # 6. Compute PCC using numpy correlation
+    cal_pcc = np.min(
+        np.ma.corrcoef(
+            np.ma.masked_invalid(torch.squeeze(golden).detach().numpy()).flatten(),
+            np.ma.masked_invalid(torch.squeeze(calculated).detach().numpy()).flatten(),
+        )
+    )
+
+    return cal_pcc >= pcc, cal_pcc
+
+
+@pytest.mark.parametrize(
+    "h, w",
+    [(32, 32)],
+)
+def test_muladd_dram_compare(h, w):
+    device = ttnn.open_device(device_id=0)
+
+    dtype = torch.bfloat16
+    max_grid = (0, 0)
+
+    torch_input_a = torch.randn((h, w), dtype=dtype)
+    torch_input_b = torch.randn((h, w), dtype=dtype)
+    torch_input_c = torch.randn((h, w), dtype=dtype)
+
+    tensor_spec = ttnn.TensorSpec(
+        shape=(h, w),
+        dtype=ttnn.DataType.BFLOAT16,
+        layout=ttnn.TILE_LAYOUT,
+        memory_layout=ttnn.TensorMemoryLayout.INTERLEAVED,
+        buffer_type=ttnn.BufferType.DRAM,
+    )
+
+    input_a_tensor = ttnn.from_torch(torch_input_a, spec=tensor_spec, device=device)
+    input_b_tensor = ttnn.from_torch(torch_input_b, spec=tensor_spec, device=device)
+    input_c_tensor = ttnn.from_torch(torch_input_c, spec=tensor_spec, device=device)
+
+    op_jit = muladd
+    output_tensor = op_jit(input_a_tensor, input_b_tensor, input_c_tensor)
+    golden = muladd_no_jit(input_a_tensor, input_b_tensor, input_c_tensor)
+
+    matching = torch.allclose(
+        output_tensor.cpu().to_torch(), golden.cpu().to_torch(), atol=1, rtol=1
+    )
+    print("Tensors are matching:", matching)
+
+    matching_pcc, pcc = comp_pcc(
+        golden.cpu().to_torch(), output_tensor.cpu().to_torch()
+    )
+    print(f"PCC: {pcc}")
+    assert matching_pcc
