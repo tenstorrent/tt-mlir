@@ -233,6 +233,48 @@ class GoldenExecutor:
                 if "permutation" in op.attributes:
                     kwargs["permutation"] = op.attributes["permutation"]
                 op_result = golden_fn(*inputs, **kwargs)
+            elif op_name == "ttir.pooling":
+                # Special handling for pooling: needs pooling-specific attributes
+                kwargs = {}
+                if "window_dimensions" in op.attributes:
+                    kwargs["window_dimensions"] = op.attributes["window_dimensions"]
+                if "window_strides" in op.attributes:
+                    kwargs["window_strides"] = op.attributes["window_strides"]
+                if "padding" in op.attributes:
+                    kwargs["padding"] = op.attributes["padding"]
+                if "window_dilations" in op.attributes:
+                    kwargs["window_dilations"] = op.attributes["window_dilations"]
+                if "pooling_method" in op.attributes:
+                    kwargs["pooling_method"] = op.attributes["pooling_method"]
+                op_result = golden_fn(*inputs, **kwargs)
+            elif op_name == "ttir.convolution":
+                # Special handling for convolution: needs convolution-specific attributes
+                kwargs = {}
+                if "window_strides" in op.attributes:
+                    kwargs["window_strides"] = op.attributes["window_strides"]
+                if "padding" in op.attributes:
+                    kwargs["padding"] = op.attributes["padding"]
+                if "input_dilation" in op.attributes:
+                    kwargs["input_dilation"] = op.attributes["input_dilation"]
+                if "weight_dilation" in op.attributes:
+                    kwargs["weight_dilation"] = op.attributes["weight_dilation"]
+                if "feature_group_count" in op.attributes:
+                    kwargs["feature_group_count"] = op.attributes["feature_group_count"]
+                if "batch_group_count" in op.attributes:
+                    kwargs["batch_group_count"] = op.attributes["batch_group_count"]
+                if "convolution_layout" in op.attributes:
+                    kwargs["convolution_layout"] = op.attributes["convolution_layout"]
+                if "window_reversal" in op.attributes:
+                    kwargs["window_reversal"] = op.attributes["window_reversal"]
+                op_result = golden_fn(*inputs, **kwargs)
+            elif op_name == "ttir.batch_norm_inference":
+                # Special handling for batch_norm_inference: needs epsilon and dimension attributes
+                kwargs = {}
+                if "epsilon" in op.attributes:
+                    kwargs["epsilon"] = float(op.attributes["epsilon"])
+                if "dimension" in op.attributes:
+                    kwargs["dim"] = int(op.attributes["dimension"])
+                op_result = golden_fn(*inputs, **kwargs)
             else:
                 op_result = golden_fn(*inputs) if inputs else golden_fn()
         except Exception as e:

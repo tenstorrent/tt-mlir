@@ -4,6 +4,18 @@
 import torch
 
 
+def _to_scalar(x):
+    """Convert tensor or GoldenMapTensor to Python scalar."""
+    # Check if it's a GoldenMapTensor by looking for shard_map attribute
+    if hasattr(x, "shard_map"):
+        # Get the first shard and convert to scalar
+        first_shard = next(iter(x.shard_map.values()))
+        return first_shard.item()
+    else:
+        # Regular tensor
+        return x.item()
+
+
 def _to_common_shape(x, y):
     if x.shape == y.shape:
         return x, y
@@ -78,7 +90,7 @@ def compute_abs_err(ttir_result, ttnn_result):
         return torch.inf
 
     abs_err = torch.max(torch.abs(ttir_result - ttnn_result))
-    return abs_err.item()
+    return _to_scalar(abs_err)
 
 
 def compute_rel_err(ttir_result, ttnn_result):
@@ -98,8 +110,19 @@ def compute_rel_err(ttir_result, ttnn_result):
             return 0.0
         return torch.inf
 
-    rel_err = torch.max(torch.abs((ttir_result - ttnn_result) / (ttir_result + 1e-8)))
-    return rel_err.item()
+    rel_err = torch.max(
+        torch.abs(torch.div(ttir_result - ttnn_result, ttir_result + 1e-8))
+    )
+    return _to_scalar(rel_err)
+
+
+def _flatten_to_tensor(obj):
+    """Convert a tensor or dict of tensors to a single flattened tensor."""
+    if isinstance(obj, dict):
+        # Concatenate all shard tensors
+        tensors = [t.flatten() for t in obj.values()]
+        return torch.cat(tensors) if tensors else torch.tensor([])
+    return obj.flatten()
 
 
 def compute_pcc(ttir_result, ttnn_result):
@@ -127,6 +150,10 @@ def compute_pcc(ttir_result, ttnn_result):
         print(f"Warning: Masking failed with error: {e}")
         pass
 
+    # Handle case where masking returns dict (when shards have different shapes after masking)
+    x = _flatten_to_tensor(x)
+    y = _flatten_to_tensor(y)
+
     # We can adjust tolerances here if needed
     def equal(a, b, rtol=1e-2, atol=1e-2) -> float:
         """Normally NaN; for debugging we use equality-style fallback."""
@@ -138,19 +165,20 @@ def compute_pcc(ttir_result, ttnn_result):
     if min(x.numel(), y.numel()) < 2:
         return equal(x, y)
 
-    x_centered = x - x.mean()
-    y_centered = y - y.mean()
+    x_centered = x - torch.mean(x)
+    y_centered = y - torch.mean(y)
 
     # Zero variance (constant vector) -> Pearson undefined -> fallback
     # NOTE: This would normally be NaN, but for result verification we return
     # 1.0 if tensors are (numerically) equal, otherwise 0.0.
-    sx2 = torch.sum(x_centered**2)
-    sy2 = torch.sum(y_centered**2)
-    if sx2.item() == 0.0 or sy2.item() == 0.0:
+    sx2 = torch.sum(torch.pow(x_centered, 2))
+    sy2 = torch.sum(torch.pow(y_centered, 2))
+    # Extract scalar values to check for zero variance
+    if _to_scalar(sx2) == 0.0 or _to_scalar(sy2) == 0.0:
         return equal(x, y)
 
-    numerator = torch.sum(x_centered * y_centered)
-    denominator = torch.sqrt(sx2 * sy2)
-    pcc = numerator / denominator
+    numerator = torch.sum(torch.mul(x_centered, y_centered))
+    denominator = torch.sqrt(torch.mul(sx2, sy2))
+    pcc = torch.div(numerator, denominator)
 
-    return float(pcc)
+    return _to_scalar(pcc)

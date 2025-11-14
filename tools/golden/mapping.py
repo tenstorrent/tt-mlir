@@ -157,6 +157,16 @@ class GoldenMapTensor:
     def __rsub__(self, other):
         return self._binary_map(other, lambda a, b: operator.sub(b, a))
 
+    def __or__(self, other):
+        return self._binary_map(other, operator.or_)
+
+    def __and__(self, other):
+        return self._binary_map(other, operator.and_)
+
+    def __invert__(self):
+        out_shards = {k: operator.invert(t) for k, t in self._shard_map.items()}
+        return GoldenMapTensor(out_shards, self._mesh_shape)
+
     @staticmethod
     def _walk_tree(*trees) -> Iterable:
         # Yield leaves in a nested structure.
@@ -530,13 +540,13 @@ def convolution_golden(
     GoldenMapTensor
         Result of convolution operation
     """
-    # Extract convolution-specific parameters
+
     window_strides = unpack_mlir_attr(kwargs.get("window_strides", [1, 1]))
     padding = unpack_mlir_attr(kwargs.get("padding", [0, 0, 0, 0]))
     input_dilation = unpack_mlir_attr(kwargs.get("input_dilation", [1, 1]))
     weight_dilation = unpack_mlir_attr(kwargs.get("weight_dilation", [1, 1]))
-    feature_group_count = kwargs.get("feature_group_count", 1)
-    batch_group_count = kwargs.get("batch_group_count", 1)
+    feature_group_count = unpack_mlir_attr(kwargs.get("feature_group_count", 1))
+    batch_group_count = unpack_mlir_attr(kwargs.get("batch_group_count", 1))
     convolution_layout = kwargs.get("convolution_layout", None)
 
     # Note: For simplicity, we assume batch_group_count == 1 (not handling batch groups in golden)
@@ -548,12 +558,55 @@ def convolution_golden(
     # Handle layout transformation
     # Parse convolution_layout to determine current tensor layout
     # PyTorch expects input in NCHW format and weights in [O, I, H, W] format
+    # Helper function to parse ConvolutionLayoutAttr from string representation
+    # Since Python bindings for ConvolutionLayoutAttr don't exist, we parse the string
+    def parse_convolution_layout(layout_str):
+        """Parse ConvolutionLayoutAttr string into a dict of values.
+
+        Example input:
+        #ttir<convolution_layout input_batch = 0, input_feature = 1,
+               input_spatial_dimensions = 2x3, kernel_output_feature = 0, ...>
+        """
+        import re
+
+        layout_dict = {}
+
+        # Extract single integer values
+        # Use word boundary \b to match exact field names and avoid substring matches
+        for field in [
+            "input_batch",
+            "input_feature",
+            "kernel_output_feature",
+            "kernel_input_feature",
+            "output_batch",
+            "output_feature",
+        ]:
+            match = re.search(rf"\b{field}\s*=\s*(\d+)", layout_str)
+            if match:
+                layout_dict[field] = int(match.group(1))
+
+        # Extract dimension lists (e.g., "2x3" -> [2, 3])
+        for field in [
+            "input_spatial_dimensions",
+            "kernel_spatial_dimensions",
+            "output_spatial_dimensions",
+        ]:
+            match = re.search(rf"\b{field}\s*=\s*([\dx]+)", layout_str)
+            if match:
+                dims_str = match.group(1)
+                layout_dict[field] = [int(d) for d in dims_str.split("x")]
+
+        return layout_dict
+
     if convolution_layout is not None:
-        # Get the layout dimensions from the attribute
-        # The attribute has methods like getInputBatchDimension(), getInputFeatureDimension(), etc.
-        input_batch_dim = convolution_layout.input_batch_dimension
-        input_feature_dim = convolution_layout.input_feature_dimension
-        input_spatial_dims = list(convolution_layout.input_spatial_dimensions)
+        # Parse the layout from its string representation
+        layout_str = str(convolution_layout)
+        layout_info = parse_convolution_layout(layout_str)
+
+        # Get the layout dimensions
+        input_batch_dim = layout_info["input_batch"]
+        input_feature_dim = layout_info["input_feature"]
+        input_spatial_dims = layout_info["input_spatial_dimensions"]
 
         # Current layout is defined by the positions
         # We need to permute to NCHW: [batch, feature, spatial_0, spatial_1, ...]
@@ -572,9 +625,9 @@ def convolution_golden(
             input_tensor = input_tensor.permute(permutation)
 
         # Similarly for output, we need to know how to permute back
-        output_batch_dim = convolution_layout.output_batch_dimension
-        output_feature_dim = convolution_layout.output_feature_dimension
-        output_spatial_dims = list(convolution_layout.output_spatial_dimensions)
+        output_batch_dim = layout_info["output_batch"]
+        output_feature_dim = layout_info["output_feature"]
+        output_spatial_dims = layout_info["output_spatial_dimensions"]
 
         # Output permutation: from NCHW back to output layout
         output_permutation = [None] * (len(output_spatial_dims) + 2)
@@ -582,6 +635,26 @@ def convolution_golden(
         output_permutation[output_feature_dim] = 1
         for i, spatial_dim in enumerate(output_spatial_dims):
             output_permutation[spatial_dim] = 2 + i
+
+        # Handle weight/kernel layout transformation
+        # PyTorch expects weights in [output_channels, input_channels, H, W] format
+        kernel_output_feature_dim = layout_info["kernel_output_feature"]
+        kernel_input_feature_dim = layout_info["kernel_input_feature"]
+        kernel_spatial_dims = layout_info["kernel_spatial_dimensions"]
+
+        # Create layout for weight tensor: [output_feat, input_feat, spatial_0, spatial_1, ...]
+        weight_layout = [None] * weight.ndim
+        weight_layout[
+            kernel_output_feature_dim
+        ] = 0  # output feature goes to position 0
+        weight_layout[kernel_input_feature_dim] = 1  # input feature goes to position 1
+        for i, spatial_dim in enumerate(kernel_spatial_dims):
+            weight_layout[spatial_dim] = 2 + i  # spatial dims go to positions 2, 3, ...
+
+        # Check if we need to permute weight
+        if weight_layout != list(range(weight.ndim)):
+            weight_permutation = [weight_layout.index(i) for i in range(weight.ndim)]
+            weight = weight.permute(weight_permutation)
 
     # Extract only spatial dimensions from strides and dilations
     # TTIR uses 4D strides/dilations [batch, channel, height, width]
@@ -639,12 +712,13 @@ def convolution_golden(
     )
 
     # Permute output back to the expected output layout if needed
-    if convolution_layout is not None and output_permutation != list(
-        range(result.ndim)
-    ):
-        # Create permutation from NCHW to output layout
-        inverse_output_perm = [output_permutation.index(i) for i in range(result.ndim)]
-        result = result.permute(inverse_output_perm)
+    if convolution_layout is not None:
+        if output_permutation != list(range(result.ndim)):
+            # Create permutation from NCHW to output layout
+            inverse_output_perm = [
+                output_permutation.index(i) for i in range(result.ndim)
+            ]
+            result = result.permute(inverse_output_perm)
 
     return result
 
@@ -769,7 +843,7 @@ def avg_pool2d_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTenso
     else:
         torch_padding = padding
 
-    # TTIR max_pool2d is channels last. PyTorch max_pool2d is channels first.
+    # TTIR avg_pool2d is channels last. PyTorch avg_pool2d is channels first.
     if dilation != [1, 1]:
         raise ValueError("Dilation is not supported for torch.nn.AvgPool2d")
     maxpool_object = torch.nn.AvgPool2d(
@@ -851,10 +925,15 @@ def pooling_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
     # Get pooling method enum value
     pooling_method_str = str(pooling_method)
 
+    # Convert input from NCHW (ttir.pooling format) to NHWC (expected by pool2d_golden functions)
+    # NCHW [batch, channels, height, width] -> NHWC [batch, height, width, channels]
+    # Transpose: (0, 1, 2, 3) -> (0, 2, 3, 1)
+    input_tensor_nhwc = input_tensor.transpose(-3, -2).transpose(-2, -1)
+
     # Call the appropriate golden function based on pooling method
     if "Max" in pooling_method_str:
-        return max_pool2d_golden(
-            input_tensor,
+        result = max_pool2d_golden(
+            input_tensor_nhwc,
             kernel=kernel,
             stride=stride,
             padding=pool_padding,
@@ -862,8 +941,8 @@ def pooling_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
             ceil_mode=False,
         )
     elif "Average" in pooling_method_str:
-        return avg_pool2d_golden(
-            input_tensor,
+        result = avg_pool2d_golden(
+            input_tensor_nhwc,
             kernel=kernel,
             stride=stride,
             padding=pool_padding,
@@ -874,7 +953,7 @@ def pooling_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
     elif "Sum" in pooling_method_str:
         # Sum pooling = average pooling * kernel size
         result = avg_pool2d_golden(
-            input_tensor,
+            input_tensor_nhwc,
             kernel=kernel,
             stride=stride,
             padding=pool_padding,
@@ -883,9 +962,15 @@ def pooling_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
             count_include_pad=True,
         )
         kernel_size = kernel[0] * kernel[1]
-        return torch.mul(result, kernel_size)
+        result = torch.mul(result, kernel_size)
     else:
         raise ValueError(f"Unknown pooling method: {pooling_method_str}")
+
+    # Convert result back from NHWC to NCHW
+    # NHWC [batch, height, width, channels] -> NCHW [batch, channels, height, width]
+    # Transpose: (0, 1, 2, 3) -> (0, 3, 1, 2)
+    result = result.transpose(-2, -1).transpose(-3, -2)
+    return result
 
 
 def batch_norm_golden(
@@ -986,7 +1071,7 @@ def rms_norm_golden(
     return rms_norm.to(input.dtype)
 
 
-def typecast_golden(input_tensor: GoldenMapTensor, dtype) -> GoldenMapTensor:
+def typecast_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
     """
     Custom golden function for typecasting.
 
@@ -1002,7 +1087,60 @@ def typecast_golden(input_tensor: GoldenMapTensor, dtype) -> GoldenMapTensor:
     GoldenMapTensor
         Typecasted tensor
     """
+    dtype = kwargs.get("dtype", input_tensor.dtype)
     return input_tensor.to(dtype)
+
+
+def broadcast_to_golden(
+    input_tensor: BuilderGoldenTensor, **kwargs
+) -> BuilderGoldenTensor:
+    """
+    Golden function for broadcast_to operation with TTIR parameter names.
+
+    Parameters
+    ----------
+    input_tensor : BuilderGoldenTensor
+        Input tensor
+    **kwargs : dict
+        Keyword arguments including 'shape'
+
+    Returns
+    -------
+    BuilderGoldenTensor
+        Broadcasted tensor
+    """
+    shape = kwargs.get("shape", input_tensor.shape)
+    return torch.broadcast_to(input_tensor, shape)
+
+
+def where_golden(
+    a: BuilderGoldenTensor,
+    b: BuilderGoldenTensor,
+    c: BuilderGoldenTensor,
+    **kwargs,
+) -> BuilderGoldenTensor:
+    """
+    Golden function for ttir.where operation.
+
+    Parameters
+    ----------
+    a : BuilderGoldenTensor
+        Condition tensor
+    b : BuilderGoldenTensor
+        Tensor to select values from when condition is True
+    c : BuilderGoldenTensor
+        Tensor to select values from when condition is False
+    **kwargs : dict
+        Additional attributes
+
+    Returns
+    -------
+    BuilderGoldenTensor
+        Result tensor after element-wise selection.
+    """
+
+    a = a.to(torch.bool)
+    return torch.where(a, b, c)
 
 
 def argmax_golden(
@@ -3399,7 +3537,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.LogicalXorOp: logical_xor_golden,
     ttir.LogicalNotOp: logical_not_golden,
     # Selection operations
-    ttir.WhereOp: torch.where,
+    ttir.WhereOp: where_golden,
     # Bitwise operations
     ttir.BitwiseAndOp: torch.bitwise_and,
     ttir.BitwiseOrOp: torch.bitwise_or,
@@ -3427,7 +3565,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.ClampScalarOp: clamp_scalar_golden,
     ttir.ClampTensorOp: clamp_tensor_golden,
     ttir.CumSumOp: cumsum_golden,
-    ttir.BroadcastOp: torch.broadcast_to,
+    ttir.BroadcastOp: broadcast_to_golden,
     ttir.PadOp: pad_golden,
     ttir.IndexSelectOp: select_golden,
     ttir.IndexOp: index_golden,
