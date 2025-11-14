@@ -28,24 +28,23 @@ public:
   using OpRewritePattern<DMAOp>::OpRewritePattern;
 
   // Returns a tuple of the stream index and the index bounds. The stream index
-  // represents the position in the stream that the DMA will is currently on,
+  // represents the position in the stream that the DMA is currently on,
   // and is relative per core. The index bounds represent the index upper
   // bounds.
-  static std::tuple<SmallVector<Value>, SmallVector<int64_t>>
-  buildStreamIndex(OpBuilder &builder, Location loc,
-                   ArrayRef<int64_t> gridShape, ArrayRef<int64_t> blockFactors,
-                   ArrayRef<int64_t> shardShape, AffineMap dmaIndexingMap,
-                   AffineMap gridIndexingMap) {
+  static SmallVector<Value> buildStreamIndex(OpBuilder &builder, Location loc,
+                                             ArrayRef<int64_t> gridShape,
+                                             ArrayRef<int64_t> blockFactors,
+                                             ArrayRef<int64_t> shardShape,
+                                             AffineMap dmaIndexingMap,
+                                             AffineMap gridIndexingMap) {
     assert(dmaIndexingMap.getNumDims() == gridIndexingMap.getNumDims());
-    assert(dmaIndexingMap.getNumResults() == gridIndexingMap.getNumResults());
+    assert(dmaIndexingMap.getNumResults() >= gridIndexingMap.getNumResults());
     assert(dmaIndexingMap.getNumResults() == shardShape.size());
     assert(gridIndexingMap.isProjectedPermutation(true) &&
            "Grid indexing map must be a permutation");
 
     SmallVector<Value> streamIndex;
-    SmallVector<int64_t> indexBounds;
     streamIndex.reserve(dmaIndexingMap.getNumResults());
-    indexBounds.reserve(dmaIndexingMap.getNumResults());
     for (unsigned result = 0; result < dmaIndexingMap.getNumResults();
          result++) {
 
@@ -67,6 +66,8 @@ public:
       } else {
         unsigned dim = mlir::cast<AffineDimExpr>(dimOrConstant).getPosition();
 
+        // Identify the corresponding grid dimension that participates in the
+        // dma access.
         std::optional<unsigned> gridResult =
             gridIndexingMap.getResultPosition(dmaIndexingMap.getResult(result));
 
@@ -86,20 +87,23 @@ public:
         //
         // Not currently supported.
         //
-        assert(!gridResult || *gridResult == result);
+        if (gridIndexingMap.getNumResults() == dmaIndexingMap.getNumResults()) {
+          // Only enforce a 1-1 relationship between the participating dma and
+          // grid dimensions when the maps have the same dimensionality.
+          assert(!gridResult || *gridResult == result);
+        }
         bool isGridDim = gridResult.has_value();
         Value iterIndex = builder.create<IterIndexOp>(
             loc, builder.getIndexType(), builder.getI64IntegerAttr(dim));
 
         if (isGridDim) {
-          // The grid dimension is always 1-1 with the result position. Consider
-          // the case where interchange moves k to the outermost loop. We'd have
-          // output map: (k, m, n) -> (m, n)
-          // In this example we want (m, n) to map to grid dims (0, 1) (not
-          // their dim positions i.e. (1, 2)).
-          const unsigned gridDim = result;
+          // Consider the case where interchange moves k to the outermost loop.
+          // We'd have output map: (k, m, n) -> (m, n) In this example we want
+          // (m, n) to map to grid dims (0, 1) (not their dim positions i.e. (1,
+          // 2)).
+          const unsigned gridDim = gridResult.value();
 
-          // gridI * blockFactorI + iterI
+          // gridI * blockFactorI + iterI = index in virtual space
           Value blockFactor = builder.create<arith::ConstantOp>(
               loc, builder.getIndexType(),
               builder.getIndexAttr(blockFactors[dim]));
@@ -114,9 +118,8 @@ public:
         }
       }
       streamIndex.push_back(index);
-      indexBounds.push_back(gridShape[result]);
     }
-    return std::make_tuple(streamIndex, indexBounds);
+    return streamIndex;
   }
 
   static size_t getElementSizeBytes(MemRefType memref) {
@@ -140,8 +143,7 @@ public:
   static size_t calculateCoalescingFactor(AffineMap memoryMap,
                                           ArrayRef<int64_t> gridShape,
                                           ArrayRef<int64_t> shardShape,
-                                          size_t elemSizeBytes,
-                                          ArrayRef<int64_t> indexBounds) {
+                                          size_t elemSizeBytes) {
     size_t coalescingFactor = ttmlir::utils::volume(shardShape);
     SmallVector<int64_t> memoryIndex;
     memoryIndex.resize(gridShape.size() + shardShape.size());
@@ -270,8 +272,8 @@ public:
     return loopNest;
   }
 
-  // Analyzes a DMA stream and returns a vector of stream indices, the
-  // underlying shard shape, and the max coalescing factor
+  // Analyzes a DMA stream and returns a vector of stream indices and the max
+  // coalescing factor.
   static std::pair<SmallVector<Value>, size_t>
   analyzeStream(PatternRewriter &rewriter, Location loc,
                 AffineMap dmaIndexingMap, MemRefType memref,
@@ -290,18 +292,27 @@ public:
             genericParent.getIndexingMaps()[outputOperandsIndex])
             .getValue();
 
-    auto [streamIndices, indexBounds] = buildStreamIndex(
-        rewriter, loc, memrefGridShape, genericParent.getBlockFactorsValue(),
-        memrefShardShape, dmaIndexingMap, gridIndexingMap);
+    // in the case of a N-D grid, collapse the grid to 2D and drop the leading
+    // grid dimensions before building the stream indices.
+    SmallVector<int64_t> collapsedGridShape =
+        ttcore::collapseGridTo2D(memrefGridShape);
+
+    AffineMap collapsedGridIndexingMap =
+        (collapsedGridShape == memrefGridShape)
+            ? gridIndexingMap
+            : ttcore::dropLeadingGridDimensions2D(gridIndexingMap);
+
+    SmallVector<Value> streamIndices = buildStreamIndex(
+        rewriter, loc, collapsedGridShape, genericParent.getBlockFactorsValue(),
+        memrefShardShape, dmaIndexingMap, collapsedGridIndexingMap);
 
     ttcore::DeviceAttr device = genericParent.getDevice();
     std::pair<MemRefType, AffineMap> underlyingMemrefAndView =
         viewInterface.applyViews();
     AffineMap memoryMap = device.getMemoryMap(underlyingMemrefAndView,
                                               0 /* use default page size*/);
-    size_t coalescingFactor =
-        calculateCoalescingFactor(memoryMap, memrefGridShape, memrefShardShape,
-                                  elemSizeBytes, indexBounds);
+    size_t coalescingFactor = calculateCoalescingFactor(
+        memoryMap, memrefGridShape, memrefShardShape, elemSizeBytes);
 
     return {streamIndices, coalescingFactor};
   }
@@ -322,7 +333,10 @@ public:
                           : dma.getDst().getDefiningOp());
 
     // analyze remote stream (either src or dst) to extract a vec of stream
-    // indices and a max coalescing factor
+    // indices and a max coalescing factor.
+    // StreamIndices are the index values of the remote buffer.
+    // CoalescingFactor is the greatest common divisor of the number of elements
+    // that can be coalesced into a single DMA operation.
     auto [streamIndices, coalescingFactor] =
         analyzeStream(rewriter, dma.getLoc(), *affine_map, memref, defining_op,
                       dma->getParentOfType<d2m::GenericOp>());
@@ -334,7 +348,7 @@ public:
 
     Operation *newDma;
     if (coalescingFactor == shardVolume) {
-      // Fully contiguous DMA; lower to a single operation
+      // Fully contiguous DMA; lower to a single operation.
       auto srcIndices =
           dma.isSrcRemote() ? streamIndices : SmallVector<Value>();
       auto dstIndices =
@@ -343,7 +357,8 @@ public:
           dma.getLoc(), dma.getSrc(), srcIndices, dma.getDst(), dstIndices,
           dma.getMcastStartIndex(), dma.getMcastShape());
     } else {
-
+      // The memory access has some stride/gaps so multiple DMA operations are
+      // needed.
       scf::LoopNest loopNest =
           buildCoalescedGatherLoop(rewriter, dma.getLoc(), dma, streamIndices,
                                    memrefShardShape, coalescingFactor);

@@ -32,7 +32,7 @@ public:
 
   static bool compatibleDeviceGrid(ttcore::DeviceAttr device,
                                    ttcore::GridAttr grid) {
-    return device.getWorkerGrid().getShape().size() == grid.getShape().size();
+    return device.getWorkerGrid().getShape().size() <= grid.getShape().size();
   }
 
   static BlockArgument createSemaphore(PatternRewriter &builder, Location loc,
@@ -52,11 +52,12 @@ public:
     return semaphore;
   }
 
+  // This function returns a vector of iterator types with length equal to the
+  // number of dimensions of the logical grid.
   static SmallVector<ttcore::IteratorType>
   calculateMcastIterators(ttcore::GridAttr grid, ttcore::DeviceAttr device,
                           AffineMap operandIndexingMap,
                           ArrayAttr iteratorTypes) {
-    assert(grid.getShape().size() == 2 && "Currently only support 2D grid");
     assert(grid.getShape().size() == operandIndexingMap.getNumResults());
     assert(compatibleDeviceGrid(device, grid));
 

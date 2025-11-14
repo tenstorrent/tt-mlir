@@ -119,7 +119,9 @@ protected:
   // dimension alignments are computed later in the D2MGridSelection pass.
   Value createOptimalLayoutOp(Value value, ttcore::MemorySpace memSpace,
                               bool tiled,
-                              mlir::ConversionPatternRewriter &rewriter) const {
+                              mlir::ConversionPatternRewriter &rewriter,
+                              std::optional<llvm::SmallVector<int64_t>>
+                                  customDimAlignments = std::nullopt) const {
     if (isTTNNTensor(value.getType())) {
       assert(ttnnMode && "Unexpected TTNN tensor as op operand");
       return rewriter.create<ttir::TTNNMetalLayoutCastOp>(
@@ -146,10 +148,17 @@ protected:
       DenseIntElementsAttr emptyCollapseIntervals =
           DenseIntElementsAttr::get(emptyIntervalType, ArrayRef<int64_t>{});
 
-      layout = ttcore::MetalLayoutAttr::get(
-          rewriter.getContext(), logicalShape, ttcore::OOBVal::Undef, memSpace,
-          ttcore::TensorMemoryLayout::Sharded, emptyCollapseIntervals);
-
+      if (customDimAlignments.has_value()) {
+        layout = ttcore::MetalLayoutAttr::get(
+            rewriter.getContext(), logicalShape, ttcore::OOBVal::Undef,
+            memSpace, ttcore::TensorMemoryLayout::Sharded,
+            emptyCollapseIntervals, customDimAlignments.value());
+      } else {
+        layout = ttcore::MetalLayoutAttr::get(
+            rewriter.getContext(), logicalShape, ttcore::OOBVal::Undef,
+            memSpace, ttcore::TensorMemoryLayout::Sharded,
+            emptyCollapseIntervals);
+      }
     } else {
       layout = ttcore::MetalLayoutAttr::get(
           rewriter.getContext(), logicalShape, ttcore::OOBVal::Undef, memSpace,
@@ -177,17 +186,18 @@ protected:
   // happens later in the D2MGridSelection pass.
   std::array<mlir::SmallVector<Value>, 2> toLayoutOperandsAndResults(
       mlir::ConversionPatternRewriter &rewriter,
-      std::array<mlir::SmallVector<Value>, 2> operandsAndResults,
-      bool tiled) const {
+      std::array<mlir::SmallVector<Value>, 2> operandsAndResults, bool tiled,
+      std::optional<llvm::SmallVector<int64_t>> customDimAlignments =
+          std::nullopt) const {
     std::array<mlir::SmallVector<Value>, 2> result;
 
     for (Value operand : operandsAndResults[0]) {
-      result[0].push_back(
-          createOptimalLayoutOp(operand, memorySpaces[0], tiled, rewriter));
+      result[0].push_back(createOptimalLayoutOp(operand, memorySpaces[0], tiled,
+                                                rewriter, customDimAlignments));
     }
     for (Value operand : operandsAndResults[1]) {
-      result[1].push_back(
-          createOptimalLayoutOp(operand, memorySpaces[1], tiled, rewriter));
+      result[1].push_back(createOptimalLayoutOp(operand, memorySpaces[1], tiled,
+                                                rewriter, customDimAlignments));
     }
 
     return result;
@@ -403,7 +413,8 @@ private:
             loc,
             /* result tensor types */
             llvm::to_vector(
-                mlir::ValueRange(blockArgs.take_back(numOutputs)).getTypes()),
+                static_cast<mlir::ValueRange>(blockArgs.take_back(numOutputs))
+                    .getTypes()),
             /* inputs */ blockArgs.take_front(numInputs),
             /* outputs */ blockArgs.take_back(numOutputs), linalgIndexingMaps,
             linalgIteratorTypes,
@@ -537,7 +548,8 @@ private:
             loc,
             /* result tensor types */
             llvm::to_vector(
-                mlir::ValueRange(blockArgs.take_back(numOutputs)).getTypes()),
+                static_cast<mlir::ValueRange>(blockArgs.take_back(numOutputs))
+                    .getTypes()),
             /* inputs */ blockArgs.take_front(numInputs),
             /* outputs */ blockArgs.take_back(numOutputs), linalgIndexingMaps,
             linalgIteratorTypes,
@@ -858,13 +870,113 @@ public:
     auto permutation = op.getPermutation();
 
     const int64_t permuteSize = static_cast<int64_t>(permutation.size());
+    assert(permuteSize >= 2 && "Permute size must be >= 2");
+    bool isInnerPermute =
+        (permuteSize == 2 || (permutation[permuteSize - 2] == permuteSize - 1 &&
+                              permutation[permuteSize - 1] == permuteSize - 2));
+    if (permuteSize > 2 && isInnerPermute) {
+      // Will need to implement splitInnerPermute here to recursively handle the
+      // inner permute.
+      return failure();
+    }
     // Transpose pattern on inner dims.
-    if (permuteSize == 2 || permutation[permuteSize - 2] == permuteSize - 1 ||
-        permutation[permuteSize - 1] == permuteSize - 2) {
+    if (isInnerPermute) {
       return permuteInnerDims(op, adaptor, rewriter);
     }
     // Unhandled conversion case.
-    return failure();
+    return permuteOuterDims(op, adaptor, rewriter);
+  }
+
+  // Handler for permutation of outer dims.
+  LogicalResult
+  permuteOuterDims(ttir::PermuteOp op, typename ConcreteOp::Adaptor adaptor,
+                   mlir::ConversionPatternRewriter &rewriter) const {
+    mlir::MLIRContext *ctx = rewriter.getContext();
+
+    auto [origInputs, origOutputs] =
+        splitDpsSignature(adaptor, op.getDpsInits().size());
+
+    // TODO (anuragsingh): Support custom dim alignments in LowerToLayout.cpp
+    // (Issue: #3037). For now, we require tile-alignment on the last two
+    // dimensions for outer permutes to work correctly (for downstream tiling
+    // ops).
+    auto origInputTensorType =
+        mlir::cast<mlir::RankedTensorType>(origInputs[0].getType());
+    const auto origInputShape = origInputTensorType.getShape();
+    constexpr int64_t tileHeight = ttcore::TileType::getDefaultShape()[0];
+    constexpr int64_t tileWidth = ttcore::TileType::getDefaultShape()[1];
+    assert(origInputShape[origInputShape.size() - 2] % tileHeight == 0 &&
+           "Second-to-last dimension must be tile-aligned for outer permute");
+    assert(origInputShape[origInputShape.size() - 1] % tileWidth == 0 &&
+           "Last dimension must be tile-aligned for outer permute");
+
+    // Tile-align the last two dimensions.
+    llvm::SmallVector<int64_t> dimAlignments(origInputShape.size(), 1);
+    dimAlignments[origInputShape.size() - 2] = tileHeight;
+    dimAlignments[origInputShape.size() - 1] = tileWidth;
+
+    // Do not tilize.
+    auto [inputs, outputs] =
+        toLayoutOperandsAndResults(rewriter, {origInputs, origOutputs},
+                                   /*tiled*/ false, dimAlignments);
+
+    const auto inputTensorType =
+        mlir::cast<mlir::RankedTensorType>(inputs[0].getType());
+    const ArrayRef<int64_t> inputShape = inputTensorType.getShape();
+    const unsigned deviceRank = static_cast<unsigned>(inputShape.size());
+
+    const auto inputLayout =
+        mlir::cast<ttcore::MetalLayoutAttr>(inputTensorType.getEncoding());
+    const ArrayRef<int64_t> permutation = op.getPermutation();
+    auto permuted = computePermutation(
+        rewriter, permutation, inputShape, deviceRank,
+        inputLayout.getLogicalShape(), inputLayout.getDimAlignments());
+
+    // Compose the transpose map with the input's layout index affine map.
+    AffineMap composedMap = permuted.transposeMap.compose(
+        inputLayout.getIndexAffineMapOrIdentity(deviceRank));
+
+    const auto viewLayout = ttcore::MetalLayoutAttr::get(
+        ctx, inputLayout.getLogicalShape(), inputLayout.getDimAlignments(),
+        inputLayout.getCollapsedIntervals(), inputLayout.getOobVal(),
+        inputLayout.getMemorySpace(), inputLayout.getMemoryLayout(),
+        composedMap);
+    const auto viewTensorType = mlir::RankedTensorType::get(
+        permuted.physicalShape, inputTensorType.getElementType(), viewLayout);
+
+    auto storage = rewriter.create<d2m::EmptyOp>(
+        op.getLoc(), permuted.physicalShape, inputTensorType.getElementType(),
+        viewLayout);
+    auto stream = rewriter.create<d2m::StreamLayoutOp>(
+        op.getLoc(), viewTensorType, inputs[0], storage);
+    inputs[0] = stream.getResult();
+    llvm::errs() << "inputs: " << inputs[0] << "\n";
+    llvm::errs() << "outputs: " << outputs[0] << "\n";
+    // Create a DMA-only generic whose input is the stream layout and whose
+    // output is the op result. Follow the DMA form used by existing tests:
+    // reserve the output CB, DMA from input to output using the generic's
+    // affine iteration (identity map), wait for the transaction, then yield
+    // the reserved output tensor.
+    Value streamSrc = inputs[0];
+    auto generic = rewriter.create<d2m::GenericOp>(
+        op.getLoc(), inputs, outputs,
+        [&](OpBuilder &builder, Location bodyLoc, ValueRange blockArgs) {
+          assert(blockArgs.size() == 2 && "expected 1 input and 1 output CB");
+          // Acquire output tensor from CB.
+          Value outputCB =
+              builder.create<d2m::ReserveOp>(bodyLoc, blockArgs[1]).getResult();
+          // Use affine-form DMA with identity map over the generic dims.
+          auto indexingMap = builder.getMultiDimIdentityMap(4);
+          auto dma = builder.create<d2m::DMAOp>(
+              bodyLoc, streamSrc, AffineMapAttr::get(indexingMap), outputCB);
+          builder.create<d2m::DMAWaitOp>(bodyLoc, dma);
+          builder.create<d2m::YieldOp>(bodyLoc, outputCB);
+        },
+        d2m::ThreadType::Datamovement);
+
+    rewriter.replaceOp(op, unLayoutResult(rewriter, generic->getResult(0),
+                                          op->getResult(0).getType()));
+    return success();
   }
 
   // Handler for permutation of inner dims (i.e. transpose).
@@ -885,9 +997,9 @@ public:
         toLayoutOperandsAndResults(rewriter, {origInputs, origOutputs},
                                    /*tiled*/ true);
 
-    auto inputTensorType =
+    const auto inputTensorType =
         mlir::cast<mlir::RankedTensorType>(inputs[0].getType());
-    auto inputShape = inputTensorType.getShape();
+    const ArrayRef<int64_t> inputShape = inputTensorType.getShape();
     const unsigned deviceRank = static_cast<unsigned>(inputShape.size());
     auto inputLayout =
         mlir::cast<ttcore::MetalLayoutAttr>(inputTensorType.getEncoding());
