@@ -70,6 +70,11 @@ chown -R $USER:$USER /opt/ttmlir-toolchain
 # -------------------------------
 # Build and activate environment
 # -------------------------------
+
+# to fix the error
+# RuntimeError: stubgen.py requires the 'typing_extensions' package on Python <3.11
+/opt/venv/bin/python3.10 -m pip install typing_extensions
+
 cmake -B env/build env
 cmake --build env/build
 source env/activate
