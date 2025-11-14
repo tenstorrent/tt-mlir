@@ -269,18 +269,21 @@ std::string
 TTPrintIRInstrumentation::getOutputFilename(const std::string &name) const {
   std::string safeName = sanitizeFilename(name);
   std::string safeModelName = sanitizeFilename(modelName_);
+  std::string safePipelineName = sanitizeFilename(pipelineName_);
 
-  // Format: <outputDir>/<modelName>/<counter>_<name>.mlir
+  // Format: <outputDir>/<modelName>/<pipelineName>/<counter>_<name>.mlir
   std::string filename =
       std::to_string(dumpCounter_.load()) + "_" + safeName + ".mlir";
-  std::string subdirPath = outputDir_ + "/" + safeModelName;
+  std::string subdirPath =
+      outputDir_ + "/" + safeModelName + "/" + safePipelineName;
 
   return subdirPath + "/" + filename;
 }
 
 std::string TTPrintIRInstrumentation::getTargetDirectory() const {
   std::string safeModelName = sanitizeFilename(modelName_);
-  return outputDir_ + "/" + safeModelName;
+  std::string safePipelineName = sanitizeFilename(pipelineName_);
+  return outputDir_ + "/" + safeModelName + "/" + safePipelineName;
 }
 
 void TTPrintIRInstrumentation::clearDirectory(
