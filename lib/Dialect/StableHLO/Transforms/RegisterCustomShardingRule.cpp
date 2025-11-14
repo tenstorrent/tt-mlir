@@ -83,9 +83,9 @@ private:
   getCustomCallShardingRule(mlir::stablehlo::CustomCallOp op) const {
     llvm::StringRef target = op.getCallTargetName();
 
-    auto it = customCallShardingRules.find(target);
-    if (it != customCallShardingRules.end()) {
-      return it->second(op);
+    auto shardOpFunc = customCallShardingRules.lookup(target);
+    if (shardOpFunc) {
+      return shardOpFunc(op);
     }
 
     op.getOperation()->emitWarning()
