@@ -88,7 +88,8 @@ private:
   //===--------------------------------------------------------------------===//
 
   // Dump the current IR to a file
-  void dumpIR(mlir::Operation *op, const std::string &name);
+  void dumpIR(mlir::Operation *op, const std::string &name,
+              const std::string &source = "unknown");
 
   // Extract model name from operation location metadata
   std::string extractModelNameFromLocation(mlir::Operation *op) const;

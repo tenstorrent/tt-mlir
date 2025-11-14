@@ -84,7 +84,7 @@ void TTPrintIRInstrumentation::attachActionHandler(mlir::MLIRContext *ctx) {
         }
 
         std::string passName = passAction.getPass().getName().str();
-        dumpIR(op, passName);
+        dumpIR(op, passName, "transformation_action");
       }
     }
   });
@@ -131,7 +131,7 @@ void TTPrintIRInstrumentation::runAfterPass(Pass *pass, Operation *op) {
   }
 
   std::string passName = pass->getName().str();
-  dumpIR(op, passName);
+  dumpIR(op, passName, "pass_instrumentation");
 }
 
 void TTPrintIRInstrumentation::runAfterPassFailed(Pass *pass, Operation *op) {
@@ -149,7 +149,8 @@ void TTPrintIRInstrumentation::runAfterAnalysis(StringRef name, TypeID id,
 }
 
 void TTPrintIRInstrumentation::dumpIR(mlir::Operation *op,
-                                      const std::string &name) {
+                                      const std::string &name,
+                                      const std::string &source) {
   if (!op) {
     return;
   }
@@ -171,8 +172,8 @@ void TTPrintIRInstrumentation::dumpIR(mlir::Operation *op,
     file.close();
 
     if (debug_) {
-      llvm::outs() << "TTPrintIRInstrumentation: Dumped IR to " << filename
-                   << "\n";
+      llvm::outs() << "TTPrintIRInstrumentation: [" << source
+                   << "] Dumped IR to " << filename << "\n";
     }
   } else {
     llvm::errs() << "TTPrintIRInstrumentation: Failed to open file " << filename

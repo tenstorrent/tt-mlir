@@ -4,7 +4,9 @@
 
 #include "ttmlir/Support/TTPrintIRInstrumentation.h"
 
+#include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/Func/Transforms/Passes.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/Pass/PassManager.h"
@@ -19,72 +21,211 @@
 
 using namespace mlir::tt;
 
-// Helper function to create a simple MLIR module
-mlir::OwningOpRef<mlir::ModuleOp> createTestModule(mlir::MLIRContext &context) {
-  mlir::OpBuilder builder(&context);
-  auto module = mlir::ModuleOp::create(builder.getUnknownLoc());
+// Type aliases for cleaner code
+using Options = TTPrintIRInstrumentation::TTPrintIRInstrumentationOptions;
+using DumpLevel = TTPrintIRInstrumentation::DumpLevel;
+using PipelineFunction = std::function<void(mlir::PassManager &)>;
 
-  // Create a simple function
-  auto funcType = builder.getFunctionType({}, {});
-  auto funcOp = builder.create<mlir::func::FuncOp>(builder.getUnknownLoc(),
-                                                   "test_func", funcType);
-  funcOp.setPrivate();
-  module.push_back(funcOp);
+namespace {
+namespace test {
 
-  return module;
-}
+struct Constants {
+  // Example output path:
+  // test_ttmlir_ir_print-abc123/test_model/test_pipeline/0_Canonicalizer.mlir
+  static constexpr const char *kTempDirPrefix = "test_ttmlir_ir_print";
+  static constexpr const char *kTestModel = "test_model";
+  static constexpr const char *kTestPipeline = "test_pipeline";
+};
 
-// Helper function to create a unique temp directory
-std::filesystem::path createUniqueTempDir() {
-  llvm::SmallString<256> tempDir;
-  if (llvm::sys::fs::createUniqueDirectory("test_ttmlir_ir_print", tempDir)) {
-    ADD_FAILURE() << "Could not create temporary directory";
-    return {};
+// File system utilities for test operations
+class FileSystem {
+public:
+  static std::filesystem::path createUniqueTempDir() {
+    llvm::SmallString<256> tempDir;
+    if (llvm::sys::fs::createUniqueDirectory(Constants::kTempDirPrefix,
+                                             tempDir)) {
+      ADD_FAILURE() << "Could not create temporary directory";
+      return {};
+    }
+    return tempDir.str().str();
   }
-  return tempDir.str().str();
-}
 
-// Helper function to check if any .mlir files exist in directory
-bool hasMlirFiles(const std::filesystem::path &dir) {
-  if (!std::filesystem::exists(dir) || !std::filesystem::is_directory(dir)) {
+  static int countMlirFiles(const std::filesystem::path &dir) {
+    if (!std::filesystem::exists(dir) || !std::filesystem::is_directory(dir)) {
+      return 0;
+    }
+
+    int count = 0;
+    for (const auto &entry : std::filesystem::directory_iterator(dir)) {
+      if (entry.is_regular_file() && entry.path().extension() == ".mlir") {
+        count++;
+      }
+    }
+    return count;
+  }
+
+  static bool hasMlirFiles(const std::filesystem::path &dir) {
+    if (!std::filesystem::exists(dir) || !std::filesystem::is_directory(dir)) {
+      return false;
+    }
+
+    for (const auto &entry : std::filesystem::directory_iterator(dir)) {
+      if (entry.is_regular_file() && entry.path().extension() == ".mlir") {
+        return true;
+      }
+    }
     return false;
   }
+};
 
-  for (const auto &entry : std::filesystem::directory_iterator(dir)) {
-    if (entry.is_regular_file() && entry.path().extension() == ".mlir") {
-      return true;
-    }
+// MLIR utilities for creating test constructs
+class Utils {
+public:
+  static mlir::Location createTestLoc(mlir::OpBuilder &builder) {
+    return mlir::FileLineColLoc::get(builder.getStringAttr(__FILE__), __LINE__,
+                                     0);
   }
-  return false;
+
+  static mlir::OwningOpRef<mlir::ModuleOp>
+  createTestModule(mlir::MLIRContext &context) {
+    mlir::OpBuilder builder(&context);
+    auto loc = createTestLoc(builder);
+
+    auto module = mlir::ModuleOp::create(loc);
+
+    // Create function directly inline
+    auto funcType = builder.getFunctionType({}, {});
+    auto funcOp =
+        builder.create<mlir::func::FuncOp>(loc, "test_func", funcType);
+    funcOp.setPrivate();
+
+    // Create function body inline
+    auto &block = funcOp.getBody().emplaceBlock();
+    builder.setInsertionPointToStart(&block);
+
+    auto const1 = builder.create<mlir::arith::ConstantIntOp>(loc, 42, 32);
+    auto const2 = builder.create<mlir::arith::ConstantIntOp>(loc, 24, 32);
+    (void)builder.create<mlir::arith::AddIOp>(loc, const1, const2);
+    builder.create<mlir::func::ReturnOp>(loc);
+
+    module.push_back(funcOp);
+    return module;
+  }
+};
+
+// Pipeline factory for creating different types of pass pipelines
+namespace Pipelines {
+inline PipelineFunction simpleCanonicalizer() {
+  return [](mlir::PassManager &pm) {
+    pm.addPass(mlir::createCanonicalizerPass());
+  };
 }
 
-TEST(TTPrintIRInstrumentationTest, BasicCompilationWithFileOutput) {
-  std::filesystem::path tempDir = createUniqueTempDir();
-  std::filesystem::path expectedOutputDir =
-      tempDir / "test_model" / "test_pipeline";
+inline PipelineFunction complexOptimization() {
+  return [](mlir::PassManager &pm) {
+    pm.addPass(mlir::createCanonicalizerPass());
+    pm.addPass(mlir::createCSEPass());
+    pm.addPass(mlir::createCanonicalizerPass());
+    pm.addPass(mlir::createCSEPass());
+    pm.addPass(mlir::createCanonicalizerPass());
+  };
+}
+} // namespace Pipelines
 
-  // Setup MLIR context and module
-  mlir::MLIRContext context;
-  context.loadDialect<mlir::func::FuncDialect>();
-  auto module = createTestModule(context);
-  mlir::PassManager pm(&context);
+} // namespace test
+} // namespace
 
-  TTPrintIRInstrumentation::TTPrintIRInstrumentationOptions options;
-  options.outputDir = tempDir.string();
-  options.modelName = "test_model";
-  options.pipelineName = "test_pipeline";
+// Test fixture class providing common setup/teardown
+class InstrumentationTest : public ::testing::Test {
+protected:
+  void SetUp() override {
+    tempDir = test::FileSystem::createUniqueTempDir();
+    expectedOutputDir =
+        tempDir / test::Constants::kTestModel / test::Constants::kTestPipeline;
 
-  // Add instrumentation and a pass to trigger it
-  addTTPrintIRInstrumentation(pm, options);
-  pm.addPass(mlir::createCanonicalizerPass());
+    context = std::make_unique<mlir::MLIRContext>();
+    context->loadDialect<mlir::func::FuncDialect>();
+    context->loadDialect<mlir::arith::ArithDialect>();
+    module = test::Utils::createTestModule(*context);
+    pm = std::make_unique<mlir::PassManager>(context.get());
+  }
 
-  // Run compilation
-  ASSERT_TRUE(succeeded(pm.run(*module)));
+  void TearDown() override { std::filesystem::remove_all(tempDir); }
 
-  // Verify output files were created
-  EXPECT_TRUE(std::filesystem::exists(expectedOutputDir));
-  EXPECT_TRUE(std::filesystem::is_directory(expectedOutputDir));
-  EXPECT_TRUE(hasMlirFiles(expectedOutputDir));
+  // Helper methods for cleaner test code
+  int countOutputFiles() const {
+    return test::FileSystem::countMlirFiles(expectedOutputDir);
+  }
 
-  std::filesystem::remove_all(tempDir);
+  bool hasOutput() const { return std::filesystem::exists(expectedOutputDir); }
+
+public:
+  std::filesystem::path tempDir;
+  std::filesystem::path expectedOutputDir;
+  std::unique_ptr<mlir::MLIRContext> context;
+  mlir::OwningOpRef<mlir::ModuleOp> module;
+  std::unique_ptr<mlir::PassManager> pm;
+};
+
+namespace {
+namespace test {
+
+// Helper to create default instrumentation options
+Options createOptions(InstrumentationTest &fixture) {
+  Options options;
+  options.outputDir = fixture.tempDir.string();
+  options.modelName = Constants::kTestModel;
+  options.pipelineName = Constants::kTestPipeline;
+  return options;
+}
+
+// Simple helper that just runs the instrumentation
+void runWith(InstrumentationTest &fixture, Options options,
+             PipelineFunction pipelineFn) {
+  addTTPrintIRInstrumentation(*fixture.pm, options);
+  pipelineFn(*fixture.pm);
+  ASSERT_TRUE(succeeded(fixture.pm->run(*fixture.module)));
+}
+
+} // namespace test
+} // namespace
+
+TEST_F(InstrumentationTest, Pipeline) {
+  auto options = test::createOptions(*this);
+  options.level = DumpLevel::Pipeline;
+  test::runWith(*this, options, test::Pipelines::simpleCanonicalizer());
+
+  EXPECT_EQ(countOutputFiles(), 1);
+}
+
+TEST_F(InstrumentationTest, Pass) {
+  auto options = test::createOptions(*this);
+  options.level = DumpLevel::Pass;
+  test::runWith(*this, options, test::Pipelines::simpleCanonicalizer());
+
+  EXPECT_EQ(countOutputFiles(), 1);
+}
+
+TEST_F(InstrumentationTest, Pass_Complex) {
+  auto options = test::createOptions(*this);
+  options.level = DumpLevel::Pass;
+  test::runWith(*this, options, test::Pipelines::complexOptimization());
+
+  EXPECT_GT(countOutputFiles(), 1);
+}
+
+TEST_F(InstrumentationTest, Transformation) {
+  auto options = test::createOptions(*this);
+  options.level = DumpLevel::Transformation;
+  test::runWith(*this, options, test::Pipelines::simpleCanonicalizer());
+
+  EXPECT_EQ(countOutputFiles(), 1);
+}
+
+TEST_F(InstrumentationTest, Transformation_Complex) {
+  auto options = test::createOptions(*this);
+  options.level = DumpLevel::Transformation;
+  test::runWith(*this, options, test::Pipelines::complexOptimization());
+
+  EXPECT_GT(countOutputFiles(), 1);
 }

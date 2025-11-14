@@ -15,6 +15,7 @@ get_target_property(TTMLIR_SUPPORT_DEPS TTMLIRSupport LINK_LIBRARIES)
 
 target_link_libraries(TTMLIRSupportTests
   PRIVATE
+    MLIRArithDialect
     MLIRIR
     MLIRFuncDialect
     MLIRTransforms
