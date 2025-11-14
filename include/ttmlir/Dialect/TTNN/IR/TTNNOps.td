@@ -2464,7 +2464,7 @@ def TTNN_PointToPointOp: TTNN_Op<"point_to_point"> {
   let arguments = (ins AnyRankedTensor:$input,
                          DenseI64ArrayAttr:$sender_coord,
                          DenseI64ArrayAttr:$receiver_coord,
-                         Optional<AnyRankedTensor>:$optional_output_tensor);
+                         Arg<Optional<AnyRankedTensor>, "optional output tensor", [MemWrite]>:$optional_output_tensor);
   let results = (outs AnyRankedTensor:$result);
   let hasVerifier = 1;
 }
