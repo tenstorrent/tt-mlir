@@ -118,7 +118,8 @@ public:
     // ops and avoids deadlocks in reader-writer kernels.
     unsigned dmaInputThreadsMerged = 0;
     unsigned outputOperandsIndex = op.getOutputs().getBeginOperandIndex();
-    for (unsigned i = numDMAHWThreads; i <= outputOperandsIndex; ++i) {
+    unsigned numRegionsToProcess = hasComputeThread ? op.getNumRegions() - 1 : op.getNumRegions();
+    for (unsigned i = numDMAHWThreads; i < numRegionsToProcess; ++i) {
       assert(op.getRegion(i).getBlocks().size() == 1 &&
              "all datamovement regions should have exactly one block");
       Block *mergeSrcBlock = &op.getRegion(i).front();

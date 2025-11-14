@@ -737,21 +737,18 @@ public:
       return failure();
     }
 
+    auto genericOp = op->template getParentOfType<GenericOp>();
+
+    // Skip packer mask reset insertion for explicit datamovement form since
+    // there are no affine loops yet and d2m.iter_index requires loop context
+    if (genericOp.isExplicitDatamovementForm()) {
+      return failure();
+    }
+
     rewriter.setInsertionPointAfter(op);
     ReduceDim reduceDim = op.getReduceDim();
 
-    auto genericOp = op->template getParentOfType<GenericOp>();
     SmallVector<int64_t> loopBounds = genericOp.getLoopBounds();
-
-    // In explicit datamovement form, block_factors may be empty but we can
-    // infer loop bounds from the enclosing linalg.generic
-    if (loopBounds.empty() && genericOp.isExplicitDatamovementForm()) {
-      auto linalgGenericOp = op->template getParentOfType<linalg::GenericOp>();
-      if (linalgGenericOp) {
-        auto iteratorTypes = linalgGenericOp.getIteratorTypesArray();
-        loopBounds.resize(iteratorTypes.size(), 1);
-      }
-    }
 
     scf::IfOp ifOp;
     if (reduceDim == ReduceDim::R) {
