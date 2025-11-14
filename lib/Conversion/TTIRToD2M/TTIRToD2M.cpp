@@ -208,6 +208,19 @@ protected:
                                             output);
   }
 
+  static llvm::SmallVector<mlir::Value>
+  createDpsOutputs(Location loc, OpBuilder builder,
+                   ArrayRef<RankedTensorType> types) {
+    llvm::SmallVector<mlir::Value> dpsOutputs;
+    dpsOutputs.reserve(types.size());
+    for (auto type : types) {
+      ttir::EmptyOp empty = builder.create<ttir::EmptyOp>(
+          loc, type.getShape(), type.getElementType(), type.getEncoding());
+      dpsOutputs.push_back(empty);
+    }
+    return dpsOutputs;
+  }
+
   // Common need to navigate DPS (<inputs>;<inits>) operand split:
   // note that this requires only 'getDpsInits()' to be available.
   template <typename Adaptor>
@@ -358,15 +371,15 @@ private:
                   mlir::ConversionPatternRewriter &rewriter) const final {
     mlir::Location loc = op->getLoc();
 
-    auto [origInputs, origOutputs] =
-        splitDpsSignature(adaptor, op.getDpsInits().size());
+    auto origOutputs =
+        createDpsOutputs(loc, rewriter, {op.getResult().getType()});
+    auto origInputs = adaptor.getOperands();
     auto [inputs, outputs] =
         toLayoutOperandsAndResults(rewriter, {origInputs, origOutputs},
                                    /*tiled*/ true);
     const std::size_t numInputs = inputs.size();
     const std::size_t numOutputs = outputs.size();
     const std::size_t numOperands = (numInputs + numOutputs);
-    assert(numOperands == op->getNumOperands());
 
     const std::size_t physicalRank =
         ttcore::getDeviceLayout(outputs[0]).getRank() / 2;
@@ -472,8 +485,9 @@ private:
     mlir::MLIRContext *ctx = rewriter.getContext();
     mlir::Location loc = op->getLoc();
 
-    auto [origInputs, origOutputs] =
-        splitDpsSignature(adaptor, op.getDpsInits().size());
+    auto origInputs = adaptor.getOperands();
+    auto origOutputs =
+        createDpsOutputs(loc, rewriter, {op.getResult().getType()});
     SmallVector<mlir::Value> newInputs(origInputs.begin(), origInputs.end());
     newInputs.emplace_back(createScaler(
         rewriter, loc,
@@ -711,8 +725,9 @@ private:
 
     mlir::Location loc = op->getLoc();
 
-    auto [origInputs, origOutputs] =
-        splitDpsSignature(adaptor, op.getDpsInits().size());
+    auto origOutputs =
+        createDpsOutputs(loc, rewriter, {op.getResult().getType()});
+    auto origInputs = adaptor.getOperands();
     auto [inputs, outputs] = toLayoutOperandsAndResults(
         rewriter, {origInputs, origOutputs}, /*tiled*/ true);
 
@@ -880,8 +895,9 @@ public:
     mlir::MLIRContext *ctx = rewriter.getContext();
     mlir::Location loc = op->getLoc();
 
-    auto [origInputs, origOutputs] =
-        splitDpsSignature(adaptor, op.getDpsInits().size());
+    auto origInputs = adaptor.getOperands();
+    auto origOutputs =
+        createDpsOutputs(loc, rewriter, {op.getResult().getType()});
 
     auto [inputs, outputs] =
         toLayoutOperandsAndResults(rewriter, {origInputs, origOutputs},

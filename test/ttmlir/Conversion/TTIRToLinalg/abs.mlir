@@ -3,10 +3,9 @@
 
 module attributes {} {
   func.func @test_abs(%arg0: tensor<64x128xf32>) -> tensor<64x128xf32> {
-    // CHECK:  = tensor.empty() : [[SIZE:tensor<64x128xf32>]]
     // CHECK: [[VAL1:%[0-9]+]] = tosa.abs
     %1 = "ttir.abs"(%arg0) : (tensor<64x128xf32>) -> tensor<64x128xf32>
-    // CHECK: return [[VAL1]] : [[SIZE]]
+    // CHECK: return [[VAL1]]
     return %1 : tensor<64x128xf32>
   }
 }

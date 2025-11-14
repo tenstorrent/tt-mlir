@@ -3,7 +3,6 @@
 
 module attributes {} {
   func.func @test_matmul(%arg0: tensor<1x784xf32>, %arg1: tensor<784x512xf32>) -> tensor<1x512xf32> {
-    // CHECK: = tensor.empty() : [[SIZE:tensor<1x512xf32>]]
     // CHECK: = tosa.reshape %arg0
     // CHECK: = tosa.reshape %arg1
     // CHECK: = tosa.matmul

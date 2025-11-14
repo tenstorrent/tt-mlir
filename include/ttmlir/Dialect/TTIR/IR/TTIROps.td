@@ -277,7 +277,7 @@ def TTIR_WhereOp: TTIR_ElementwiseTernaryOp<"where"> {
 }
 
 class TTIR_ElementwiseUnaryOp<string mnemonic, list<Trait> traits = []> :
-    TTIR_ElementwiseOp<mnemonic, [TwoOperands, TTIR_ElementwiseUnary, TTIR_QuantizableOpInterface] # traits> {
+    TTIR_ElementwiseOp<mnemonic, [OneOperand, TTIR_ElementwiseUnary, TTIR_QuantizableOpInterface] # traits> {
     let summary = "Base class for elementwise operations with one input tensor.";
     let description = [{
       A base class for elementwise operations that apply a unary function to a single input tensor.
@@ -1122,7 +1122,7 @@ def TTIR_LeakyReluOp : TTIR_ElementwiseUnaryWithFloatParameterOp<"leaky_relu"> {
 }
 
 class TTIR_ElementwiseBinaryOp<string mnemonic, list<Trait> traits = []> :
-    TTIR_ElementwiseOp<mnemonic, [ThreeOperands, TTIR_ElementwiseBinary, TTIR_QuantizableOpInterface] #  traits> {
+    TTIR_ElementwiseOp<mnemonic, [TwoOperands, TTIR_ElementwiseBinary, TTIR_QuantizableOpInterface] #  traits> {
     let summary = "Base class for elementwise operations with two input tensors.";
     let description = [{
       A base class for elementwise operations that apply a binary function to corresponding

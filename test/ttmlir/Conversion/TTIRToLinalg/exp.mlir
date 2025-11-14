@@ -3,10 +3,9 @@
 
 module {
   func.func @test_exp(%arg0: tensor<13x21x3xf32>) -> tensor<13x21x3xf32> {
-    // CHECK:  = tensor.empty() : [[SIZE:tensor<13x21x3xf32>]]
     // CHECK: [[VAL1:%[0-9]+]] = tosa.exp
     %1 = "ttir.exp"(%arg0) : (tensor<13x21x3xf32>) -> tensor<13x21x3xf32>
-    // CHECK: return [[VAL1]] : [[SIZE]]
+    // CHECK: return [[VAL1]]
     return %1 : tensor<13x21x3xf32>
   }
 }

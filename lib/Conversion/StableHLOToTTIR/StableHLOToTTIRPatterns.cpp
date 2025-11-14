@@ -1125,17 +1125,11 @@ public:
         loc, varianceType,
         llvm::to_vector_of<int32_t>(varianceType.getShape()));
 
-    // Create empty output tensors
-    auto outputEmpty = rewriter.create<ttir::EmptyOp>(loc, outputType);
-    auto batchMeanEmpty = rewriter.create<ttir::EmptyOp>(loc, meanType);
-    auto batchVarianceEmpty = rewriter.create<ttir::EmptyOp>(loc, varianceType);
-
     rewriter.replaceOpWithNewOp<mlir::tt::ttir::BatchNormTrainingOp>(
         srcOp, TypeRange{outputType, meanType, varianceType},
         adaptor.getOperand(), adaptor.getScale(), adaptor.getOffset(),
-        runningMean, runningVariance,
-        ValueRange{outputEmpty, batchMeanEmpty, batchVarianceEmpty},
-        adaptor.getEpsilonAttr(), dimensionAttr, momentumAttr);
+        runningMean, runningVariance, adaptor.getEpsilonAttr(), dimensionAttr,
+        momentumAttr);
 
     return success();
   }
@@ -1223,12 +1217,12 @@ public:
     auto variancePlusEpsilon = rewriter.create<ttir::AddOp>(
         loc, operandType, varianceBcast, epsilonBcast);
 
-    auto stddev = rewriter.create<ttir::SqrtOp>(
-        loc, operandType, variancePlusEpsilon);
+    auto stddev =
+        rewriter.create<ttir::SqrtOp>(loc, operandType, variancePlusEpsilon);
 
     // normalized_operand = centered_operand / stddev
-    auto normalizedOperand = rewriter.create<ttir::DivOp>(
-        loc, operandType, centeredOperand, stddev);
+    auto normalizedOperand =
+        rewriter.create<ttir::DivOp>(loc, operandType, centeredOperand, stddev);
 
     // elements_per_feature = total_elements / feature_dim_size
     int64_t totalElements = operandType.getNumElements();
@@ -1249,8 +1243,8 @@ public:
 
     // i2 = broadcast(sum(grad_output, reduction_dims))
     auto sumGradOutput = rewriter.create<ttir::SumOp>(
-        loc, scaleType, adaptor.getGradOutput(),
-        rewriter.getBoolAttr(false), reductionDimsAttr);
+        loc, scaleType, adaptor.getGradOutput(), rewriter.getBoolAttr(false),
+        reductionDimsAttr);
     auto i2 = broadcastFeatureToShape(rewriter, loc, sumGradOutput, operandType,
                                       featureIndex);
 
@@ -1266,23 +1260,23 @@ public:
                                       operandType, featureIndex);
 
     // i4 = i3 * centered_operand
-    auto i4 = rewriter.create<ttir::MultiplyOp>(
-        loc, operandType, i3, centeredOperand);
+    auto i4 = rewriter.create<ttir::MultiplyOp>(loc, operandType, i3,
+                                                centeredOperand);
 
     // i5 = i4 / (variance + epsilon)
-    auto i5 = rewriter.create<ttir::DivOp>(loc, operandType, i4,
-                                            variancePlusEpsilon);
+    auto i5 =
+        rewriter.create<ttir::DivOp>(loc, operandType, i4, variancePlusEpsilon);
 
     // i6 = i1 - i2 - i5
-    auto i1MinusI2 = rewriter.create<ttir::SubtractOp>(
-        loc, operandType, i1, i2);
+    auto i1MinusI2 =
+        rewriter.create<ttir::SubtractOp>(loc, operandType, i1, i2);
 
-    auto i6 = rewriter.create<ttir::SubtractOp>(
-        loc, operandType, i1MinusI2, i5);
+    auto i6 =
+        rewriter.create<ttir::SubtractOp>(loc, operandType, i1MinusI2, i5);
 
     // grad_operand = (scale / stddev / elements_per_feature) * i6
-    auto scaleOverStddev = rewriter.create<ttir::DivOp>(
-        loc, operandType, scaleBcast, stddev);
+    auto scaleOverStddev =
+        rewriter.create<ttir::DivOp>(loc, operandType, scaleBcast, stddev);
 
     auto scaleOverStddevOverElem = rewriter.create<ttir::DivOp>(
         loc, operandType, scaleOverStddev, elementsPerFeatureBcast);
@@ -1300,8 +1294,8 @@ public:
 
     // grad_offset = sum(grad_output)
     auto gradOffset = rewriter.create<ttir::SumOp>(
-        loc, gradOffsetType, adaptor.getGradOutput(), rewriter.getBoolAttr(false),
-        reductionDimsAttr);
+        loc, gradOffsetType, adaptor.getGradOutput(),
+        rewriter.getBoolAttr(false), reductionDimsAttr);
 
     // Replace the operation with the three results.
     rewriter.replaceOp(srcOp, {gradOperand, gradScale, gradOffset});
@@ -2277,8 +2271,10 @@ public:
                                       unsqueezeShape.end());
       auto reshapeDimAttr = rewriter.getI32ArrayAttr(reshapeDim);
 
+      RankedTensorType unsqueezedType =
+          RankedTensorType::get(unsqueezeShape, inputType.getElementType());
       ttir::ReshapeOp reshapeOp = rewriter.create<ttir::ReshapeOp>(
-          srcOp.getLoc(), outputType, adaptor.getOperand(), reshapeDimAttr);
+          srcOp.getLoc(), unsqueezedType, adaptor.getOperand(), reshapeDimAttr);
 
       ::llvm::ArrayRef<int64_t> inputShape = unsqueezeShape;
       ::llvm::ArrayRef<int64_t> outputShape = outputType.getShape();
@@ -2981,8 +2977,10 @@ public:
 
     for (Value startIndex : startIndicesRange) {
       auto reshapedIndex = rewriter.create<ttir::ReshapeOp>(
-          srcOp.getLoc(), RankedTensorType::get(singleElementTensorType.getShape(),
-                                                startIndexElementType), singleElementTensorType.getEncoding(),
+          srcOp.getLoc(),
+          RankedTensorType::get(singleElementTensorType.getShape(),
+                                startIndexElementType,
+                                singleElementTensorType.getEncoding()),
           startIndex, rewriter.getI32ArrayAttr({1}));
       startIndicesValues1D.push_back(reshapedIndex);
     }
@@ -2990,12 +2988,12 @@ public:
     auto startIndicesTensorType = RankedTensorType::get(
         {static_cast<int64_t>(startIndicesValues1D.size())},
         startIndexElementType);
-    auto startIndicesTensor =
-        rewriter.create<mlir::tt::ttir::ConcatOp>(
-            srcOp.getLoc(), RankedTensorType::get(startIndicesTensorType.getShape(),
-                                                  startIndexElementType,
-                                                  startIndicesTensorType.getEncoding()),
-            startIndicesValues1D, /*dim=*/0);
+    auto startIndicesTensor = rewriter.create<mlir::tt::ttir::ConcatOp>(
+        srcOp.getLoc(),
+        RankedTensorType::get(startIndicesTensorType.getShape(),
+                              startIndexElementType,
+                              startIndicesTensorType.getEncoding()),
+        startIndicesValues1D, /*dim=*/0);
 
     // Create a 1D constant tensor with slice_sizes values.
     auto sliceSizes = srcOp.getSliceSizes();
@@ -3010,9 +3008,10 @@ public:
     // Create an add op that adds the slice sizes to start indices to get end
     // indices.
     auto endIndicesTensor = rewriter.create<mlir::tt::ttir::AddOp>(
-        srcOp.getLoc(), RankedTensorType::get(startIndicesTensorType.getShape(),
-                                              startIndexElementType,
-                                              startIndicesTensorType.getEncoding()),
+        srcOp.getLoc(),
+        RankedTensorType::get(startIndicesTensorType.getShape(),
+                              startIndexElementType,
+                              startIndicesTensorType.getEncoding()),
         startIndicesTensor, sliceSizesConstant);
 
     rewriter.create<mlir::tt::ttir::SliceDynamicOp>(
@@ -3227,10 +3226,6 @@ public:
         getTypeConverter()->convertType(srcOp.getResultTypes().front()));
     SmallVector<Type> outputTypes{valueType};
 
-    SmallVector<Value> outputTensors{rewriter.create<ttir::EmptyOp>(
-        loc, valueType.getShape(), valueType.getElementType(),
-        valueType.getEncoding())};
-
     // Step 2: Determine Sort Type and output tensor preparation for 'indices'.
 
     SortType sortType;
@@ -3241,9 +3236,6 @@ public:
           getTypeConverter()->convertType(srcOp.getResultTypes()[1]));
 
       outputTypes.push_back(indicesType);
-      outputTensors.push_back(rewriter.create<ttir::EmptyOp>(
-          loc, indicesType.getShape(), indicesType.getElementType(),
-          indicesType.getEncoding()));
     } else {
       sortType = (srcOp.getInputs().size() == 1) ? SortType::kValueOnly
                                                  : SortType::kKeyValue;
@@ -3253,15 +3245,12 @@ public:
           valueType.getShape(), indexType, valueType.getEncoding());
 
       outputTypes.push_back(indicesType);
-      outputTensors.push_back(rewriter.create<ttir::EmptyOp>(
-          loc, indicesType.getShape(), indicesType.getElementType(),
-          indicesType.getEncoding()));
     }
 
     // Step 3: Emit SortOp.
 
     auto sortOp = rewriter.create<ttir::SortOp>(
-        loc, outputTypes, adaptor.getInputs().front(), outputTensors,
+        loc, outputTypes, adaptor.getInputs().front(),
         rewriter.getSI32IntegerAttr(sortDim),
         rewriter.getBoolAttr(*isDescending), rewriter.getBoolAttr(isStable));
 
@@ -3296,8 +3285,7 @@ public:
     // Reshape indices to [*shape, 1]
     SmallVector<int32_t> reshapeDim(shape.begin(), shape.end());
     auto reshape = rewriter.create<ttir::ReshapeOp>(
-        loc, expandedType, indices,
-        rewriter.getI32ArrayAttr(reshapeDim));
+        loc, expandedType, indices, rewriter.getI32ArrayAttr(reshapeDim));
 
     // Generate iota-based index components (for all dims except sorting dim).
     // Sorted indices is used for sorting dim.
@@ -3320,8 +3308,8 @@ public:
                                             indicesType.getEncoding());
     // Concatenate iota(s) with the original indices tensor; this will act as
     // index tensor for GatherOp.
-    Value concatIndices = rewriter.create<ttir::ConcatOp>(
-        loc, concatType, toConcat, rank);
+    Value concatIndices =
+        rewriter.create<ttir::ConcatOp>(loc, concatType, toConcat, rank);
 
     // Prepare Gather attributes
     // collapsedDims specifies which dimensions of the gathered slice should be
@@ -3754,9 +3742,8 @@ public:
     // TODO (pglusac): Change to bit cast once we support it or remove if
     // rand starts supporting uint32.
     // See https://github.com/tenstorrent/tt-mlir/issues/5078
-    auto typecastOp =
-        rewriter.create<mlir::tt::ttir::TypecastOp>(
-            srcOp.getLoc(), outputType, randOp.getResult());
+    auto typecastOp = rewriter.create<mlir::tt::ttir::TypecastOp>(
+        srcOp.getLoc(), outputType, randOp.getResult());
 
     // HACK (pglusac): Output state is discarded, initial state is returned as
     // a result. https://github.com/tenstorrent/tt-mlir/issues/5101
@@ -4115,11 +4102,6 @@ public:
     Value value = adaptor.getOperands()[2];
     Value curPosTensor = adaptor.getOperands()[3];
 
-    RankedTensorType outputType = cast<RankedTensorType>(
-        getTypeConverter()->convertType(srcOp.getResult(0).getType()));
-    ttir::EmptyOp outputTensor = rewriter.create<ttir::EmptyOp>(
-        srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
-
     if (hasAttentionMask && hasAttentionSink) {
       rewriter.replaceOpWithNewOp<
           mlir::tt::ttir::ScaledDotProductAttentionDecodeOp>(
@@ -4127,7 +4109,7 @@ public:
           cast<RankedTensorType>(
               getTypeConverter()->convertType(srcOp.getResult(0).getType())),
           query, key, value, isCausalAttr, adaptor.getOperands()[4],
-          curPosTensor, adaptor.getOperands()[5], outputTensor, scaleAttr);
+          curPosTensor, adaptor.getOperands()[5], scaleAttr);
     } else if (hasAttentionMask) {
       rewriter.replaceOpWithNewOp<
           mlir::tt::ttir::ScaledDotProductAttentionDecodeOp>(
@@ -4135,7 +4117,7 @@ public:
           cast<RankedTensorType>(
               getTypeConverter()->convertType(srcOp.getResult(0).getType())),
           query, key, value, isCausalAttr, adaptor.getOperands()[4],
-          curPosTensor, nullptr, outputTensor, scaleAttr);
+          curPosTensor, nullptr, scaleAttr);
     } else if (hasAttentionSink) {
       rewriter.replaceOpWithNewOp<
           mlir::tt::ttir::ScaledDotProductAttentionDecodeOp>(
@@ -4143,7 +4125,7 @@ public:
           cast<RankedTensorType>(
               getTypeConverter()->convertType(srcOp.getResult(0).getType())),
           query, key, value, isCausalAttr, nullptr, curPosTensor,
-          adaptor.getOperands()[4], outputTensor, scaleAttr);
+          adaptor.getOperands()[4], scaleAttr);
     } else if (!hasAttentionMask && !hasAttentionSink) {
       rewriter.replaceOpWithNewOp<
           mlir::tt::ttir::ScaledDotProductAttentionDecodeOp>(
@@ -4151,7 +4133,7 @@ public:
           cast<RankedTensorType>(
               getTypeConverter()->convertType(srcOp.getResult(0).getType())),
           query, key, value, isCausalAttr, nullptr, curPosTensor, nullptr,
-          outputTensor, scaleAttr);
+          scaleAttr);
     } else {
       if (hasAttentionMask || hasAttentionSink) {
         llvm_unreachable("All combinations of attention mask "
@@ -4387,17 +4369,14 @@ public:
     RankedTensorType outputType = cast<RankedTensorType>(
         getTypeConverter()->convertType(srcOp.getResult(0).getType()));
 
-    ttir::EmptyOp outputTensor = rewriter.create<ttir::EmptyOp>(
-        srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
-
     Value attentionMask = nullptr;
     if (adaptor.getOperands().size() == 4) {
       attentionMask = adaptor.getOperands()[3];
     }
 
     rewriter.replaceOpWithNewOp<ttir::ScaledDotProductAttentionOp>(
-        srcOp, outputType, query, key, value, attentionMask, outputTensor,
-        isCausalAttr, scaleAttr, /*slidingWindowSize=*/nullptr);
+        srcOp, outputType, query, key, value, attentionMask, isCausalAttr,
+        scaleAttr, /*slidingWindowSize=*/nullptr);
 
     return success();
   }

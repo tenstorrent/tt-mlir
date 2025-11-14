@@ -985,7 +985,8 @@ public:
           op.getLoc(), resultType, matmulResult, shapeOp.getResult());
     }
 
-    Value dest = adaptor.getOutput();
+    Value dest = rewriter.create<ttir::EmptyOp>(
+        op.getLoc(), op.getType().getShape(), op.getType().getElementType());
     auto copyOp =
         rewriter.create<linalg::CopyOp>(op.getLoc(), matmulResult, dest);
     rewriter.replaceOp(op, copyOp.getResult(0));
@@ -1182,9 +1183,10 @@ public:
 
       // Since tensor::ExtractSliceOp doesn't support DPS, we need to copy
       // the result into the output buffer
-      Value output = adaptor.getOutput();
+      Value dest = rewriter.create<ttir::EmptyOp>(
+          op.getLoc(), op.getType().getShape(), op.getType().getElementType());
       auto copyResult =
-          rewriter.create<linalg::CopyOp>(op.getLoc(), result, output);
+          rewriter.create<linalg::CopyOp>(op.getLoc(), result, dest);
       rewriter.replaceOp(op, copyResult);
 
       return success();
@@ -1315,7 +1317,8 @@ public:
 
       // Since tensor::ExtractSliceOp doesn't support DPS, we need to copy
       // the result into the output buffer
-      Value output = adaptor.getOutput();
+      Value output = rewriter.create<ttir::EmptyOp>(
+          op.getLoc(), op.getType().getShape(), op.getType().getElementType());
       auto copyResult =
           rewriter.create<linalg::CopyOp>(op.getLoc(), result, output);
       rewriter.replaceOp(op, copyResult);
@@ -2064,9 +2067,8 @@ public:
     auto divisor = rewriter.create<tosa::ConstOp>(
         op.getLoc(), resultType, cast<DenseElementsAttr>(divisorAttr));
 
-    auto divOp = rewriter.create<linalg::DivOp>(
-        op.getLoc(), resultType, ValueRange{sum, divisor},
-        ValueRange{adaptor.getOutput()});
+    auto divOp = rewriter.create<linalg::DivOp>(op.getLoc(), resultType,
+                                                ValueRange{sum, divisor});
 
     rewriter.replaceOp(op, divOp.getResult(0));
     return success();
@@ -2112,9 +2114,10 @@ public:
                                                       input, shapeOp);
 
     // Handle DPS semantics - directly copy to output.
-    Value output = adaptor.getOutput();
+    ttir::EmptyOp output = rewriter.create<ttir::EmptyOp>(
+        op.getLoc(), resultType.getShape(), resultType.getElementType());
     auto copyOp = rewriter.create<linalg::CopyOp>(
-        op.getLoc(), ValueRange{reshapeOp}, output);
+        op.getLoc(), ValueRange{reshapeOp}, ValueRange{output});
     rewriter.replaceOp(op, copyOp.getResult(0));
 
     return success();
