@@ -318,9 +318,9 @@ public:
     std::optional<::mlir::ArrayAttr> dimArg = op.getDimArg();
     int64_t size = dimArg ? dimArg->size() : inputRank;
 
-    // [TODO](mmanzoor) Decompose ttnn.prod op into multiple ttnn.prod to handle
-    // reduction along multiple dimensions.
-    // https://github.com/tenstorrent/tt-mlir/issues/1861
+    // Multi-dimensional reductions (except for reducing all dimensions) should
+    // be decomposed in the decomposition pass, so size should be 1 or inputRank
+    // here.
     if ((size > 1) && (size < inputRank)) {
       return rewriter.notifyMatchFailure(
           op, "tt-metal only supports reduce(prod) along one dimension or all "

@@ -109,7 +109,8 @@ getDefaultTensorSdyShardingAttr(MLIRContext *context, llvm::StringRef meshName,
 // Get the argument sharding attributes.
 llvm::SmallVector<mlir::sdy::TensorShardingAttr>
 getInShardingAttrs(MLIRContext *context, func::FuncOp &funcOp,
-                   mlir::sdy::MeshOp &globalMeshOp);
+                   mlir::sdy::MeshOp &globalMeshOp,
+                   bool createIfMissing = true);
 
 // Get the result sharding attributes.
 llvm::SmallVector<mlir::sdy::TensorShardingAttr>
@@ -175,6 +176,10 @@ private:
 
 // Return true if every dimension has no axes -> replicated.
 bool isFullyReplicatedTensor(mlir::sdy::TensorShardingAttr tsh);
+
+// Return true if the module has any sdy tensor sharding annotations that are
+// not fully replicated.
+bool isShardedModule(mlir::ModuleOp &module);
 
 #endif // #ifdef TTMLIR_ENABLE_STABLEHLO
 

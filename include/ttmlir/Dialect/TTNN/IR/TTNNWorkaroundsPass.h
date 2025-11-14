@@ -313,9 +313,7 @@ public:
   createReductionOpOperandsWorkarounds(mlir::Operation *op);
 
   // Create workaround for reduce (full) product op operands.
-  static TTNNOperandsWorkarounds
-  createReduceProdOpOperandsWorkarounds(mlir::Type elementType,
-                                        bool allDimensions);
+  static TTNNOperandsWorkarounds createReduceProdOpOperandsWorkarounds();
 
   // Create workarounds for sort op operands.
   static TTNNOperandsWorkarounds

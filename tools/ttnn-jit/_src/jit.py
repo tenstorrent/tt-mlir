@@ -84,6 +84,9 @@ class JitFunction:
         options = f"system-desc-path={self.system_desc_path} ttnn-mode=true"
         if self.compile_only:
             ttnn_to_ttmetal_pipeline(ir, options)
+            if self.debug:
+                print("---- IR Dump after ttnn_to_ttmetal_pipeline ----")
+                print(ir)
             flatbuffer_bin = os.path.join(self.out_dir, self.func.__name__ + ".ttn")
             ttnn_to_flatbuffer_file(ir, flatbuffer_bin, {}, [])
             return ir
@@ -95,6 +98,9 @@ class JitFunction:
             return _run_binary(fb_binary, args)
 
         ttnn_to_ttmetal_pipeline(ir, options)
+        if self.debug:
+            print("---- IR Dump after ttnn_to_ttmetal_pipeline ----")
+            print(ir)
         fb_capsule = ttnn_to_flatbuffer_bin(ir)
         return _run_binary_from_capsule(fb_capsule, args)
 

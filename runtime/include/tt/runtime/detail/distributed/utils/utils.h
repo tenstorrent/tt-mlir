@@ -12,13 +12,16 @@
 
 namespace tt::runtime::distributed::utils {
 
-std::string getWorkerExecutableCommand(std::uint16_t port);
+std::string getWorkerExecutableCommand(
+    std::uint16_t port,
+    const std::optional<std::string> &workerPathOpt = std::nullopt);
 
 uint32_t getNumProcesses(const std::string &rankBindingPath);
 
 std::string
 getTTRunCommand(uint16_t port,
-                const ::tt::runtime::MultiProcessArgs &multiProcessArgs);
+                const ::tt::runtime::MultiProcessArgs &multiProcessArgs,
+                const std::optional<std::string> &workerPathOpt = std::nullopt);
 
 } // namespace tt::runtime::distributed::utils
 

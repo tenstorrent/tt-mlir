@@ -1,3 +1,5 @@
+// UNSUPPORTED: true
+// Disabled due to tt-metal commit ef4cb98c5b breaking dynamic slice with tensor args
 // RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path%" -o %t.mlir %s
 // RUN: FileCheck %s --input-file=%t.mlir
 // RUN: ttmlir-translate --ttnn-to-flatbuffer -o %t.ttnn %t.mlir

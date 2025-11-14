@@ -966,11 +966,8 @@ def TTNN_ProdOp : TTNN_Op<"prod"> {
 
   let extraClassDeclaration = [{
     wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
-      mlir::Type elementType = getInput().getType().getElementType();
-      bool allDimensions = !getDimArg();
       return
-        wa::TTNNOperandsWorkaroundsFactory::createReduceProdOpOperandsWorkarounds(
-                                                    elementType, allDimensions);
+        wa::TTNNOperandsWorkaroundsFactory::createReduceProdOpOperandsWorkarounds();
     }
   }];
 
@@ -2133,7 +2130,7 @@ def TTNN_DeallocateOp : TTNN_MemFreeOp<"deallocate"> {
                          DefaultValuedAttr<BoolAttr, "false">:$force);
 }
 
-def TTNN_ScatterOp : TTNN_Op<"scatter", [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>] >{
+def TTNN_ScatterOp : TTNN_Op<"scatter">{
     let summary = "Scatter op.";
     let description = [{
       Embeds the values of the source tensor into the input tensor at locations specified by the index tensor along the given dimension.
