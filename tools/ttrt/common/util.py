@@ -87,9 +87,6 @@ def get_atol_rtol_pcc(golden, calculated, atol, rtol, logging):
     import numpy as np
     import torch
 
-    golden_is_bool = golden.dtype == torch.bool
-    calculated_is_bool = calculated.dtype == torch.bool
-
     # abs() and masked_fill() don't support unsigned integers
     if not torch.is_floating_point(golden):
         golden = golden.to(torch.float64)
@@ -106,7 +103,7 @@ def get_atol_rtol_pcc(golden, calculated, atol, rtol, logging):
         cal_rtol = torch.max(torch.abs((golden - calculated) / calculated)).item()
 
     # Calculate PCC
-    def get_pcc(golden, calculated, golden_is_bool=False, calculated_is_bool=False):
+    def get_pcc(golden, calculated):
         # Handle empty tensors - both must be empty with same shape for perfect match
         if golden.numel() == 0 and calculated.numel() == 0:
             if golden.shape == calculated.shape:
@@ -135,14 +132,10 @@ def get_atol_rtol_pcc(golden, calculated, atol, rtol, logging):
             if torch.equal(golden, calculated):
                 return 1.0
 
-            if golden.dtype == torch.bfloat16 or calculated.dtype == torch.bfloat16:
+            if golden.dtype == torch.bfloat16:
                 golden = golden.type(torch.float32)
+            if calculated.dtype == torch.bfloat16:
                 calculated = calculated.type(torch.float32)
-
-            if golden_is_bool or calculated_is_bool:
-                matches = torch.sum(golden == calculated).item()
-                total = golden.numel()
-                return matches / total
 
             # Single element case
             if golden.numel() == 1:
@@ -174,7 +167,7 @@ def get_atol_rtol_pcc(golden, calculated, atol, rtol, logging):
 
             return cal_pcc
 
-    cal_pcc = get_pcc(golden, calculated, golden_is_bool, calculated_is_bool)
+    cal_pcc = get_pcc(golden, calculated)
 
     return (
         cal_atol,
@@ -639,11 +632,9 @@ class FileManager:
             program_dir = os.path.join(artifacts_path, program)
             files = sorted(
                 [d for d in os.listdir(program_dir)],
-                key=lambda x: (
-                    int(re.search(r"_(\d+)\.pt$", x).group(1))
-                    if re.search(r"_(\d+)\.pt$", x)
-                    else 0
-                ),
+                key=lambda x: int(re.search(r"_(\d+)\.pt$", x).group(1))
+                if re.search(r"_(\d+)\.pt$", x)
+                else 0,
             )
             tensors = []
             for file in files:

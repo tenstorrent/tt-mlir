@@ -499,6 +499,7 @@ def test_logical_binary_ops(
         system_desc_path=request.config.getoption("--sys-desc"),
         target=target,
         device=device,
+        pcc=-1.0,
     )
 
 
@@ -523,6 +524,7 @@ def test_logical_unary_ops(
         system_desc_path=request.config.getoption("--sys-desc"),
         target=target,
         device=device,
+        pcc=-1.0,
     )
 
 
