@@ -194,19 +194,34 @@ public:
       ttnn::KernelCBFormatAttr cbFormat =
           ttnn::KernelCBFormatAttr::get(ctx, i, dtype, pageSize);
 
-      ttnn::KernelCBGlobalBufferAddressOfTensorAttr globalCBIndexOfTensor;
-      if (auto castOp = mlir::dyn_cast_if_present<ttir::TTNNMetalLayoutCastOp>(
-              cb.getDefiningOp())) {
-        // Input is not streamed, thus buffer must be aliased.
+      if (!llvm::isa<ttir::TTNNMetalLayoutCastOp>(cb.getDefiningOp())) {
+        ttnn::KernelCBAddressAttr cbAddress;
+        if (llvm::isa<memref::AllocOp>(cb.getDefiningOp())) {
+          auto memrefOp = mlir::cast<memref::AllocOp>(cb.getDefiningOp());
+          cbAddress = ttnn::KernelCBAddressAttr::get(ctx, memrefOp->getAttrOfType<IntegerAttr>("address").getInt());
+        } else if (llvm::isa<d2m::StreamLayoutOp>(cb.getDefiningOp())) {
+          auto streamLayoutOp = mlir::cast<d2m::StreamLayoutOp>(cb.getDefiningOp());
+          auto memrefOp = mlir::cast<memref::AllocOp>(streamLayoutOp.getStorage().getDefiningOp());
+          cbAddress = ttnn::KernelCBAddressAttr::get(ctx, memrefOp->getAttrOfType<IntegerAttr>("address").getInt());
+        } else {
+          llvm_unreachable("Expected memref::AllocOp or d2m::StreamLayoutOp as defining op.");
+        }
+        cbDescriptor =
+          ttnn::KernelCBAttr::get(ctx, numPages * pageSize, coreRangeSet,
+                                  {cbFormat}, cbAddress);
+      } else{
+        // If not a memref or not streamed
+        ttnn::KernelCBGlobalBufferAddressOfTensorAttr globalCBIndexOfTensor;
+
         TT_assertv(ttcore::getMemorySpace(cb_memref) ==
                        ttcore::MemorySpace::DeviceL1,
                    "Can only alias L1 buffers.");
         globalCBIndexOfTensor =
             ttnn::KernelCBGlobalBufferAddressOfTensorAttr::get(ctx, i);
-      }
-      cbDescriptor =
+        cbDescriptor =
           ttnn::KernelCBAttr::get(ctx, numPages * pageSize, coreRangeSet,
                                   {cbFormat}, globalCBIndexOfTensor);
+      }
       cbDescriptors[i] = cbDescriptor;
     }
 

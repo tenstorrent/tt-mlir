@@ -2400,22 +2400,23 @@ createOp(FlatbufferObjectCache &cache, GenericOp op) {
     ::tt::target::ttnn::KernelGlobalCBOrAddress bufferType =
         ::tt::target::ttnn::KernelGlobalCBOrAddress::NONE;
     ::flatbuffers::Offset<void> buffer;
-    if (auto bufferAttr =
-            llvm::dyn_cast<KernelCBGlobalBufferAddressOfTensorAttr>(
-                kernelCbAttr.getBuffer());
-        bufferAttr) {
-      bufferType = ::tt::target::ttnn::KernelGlobalCBOrAddress::
-          KernelGlobalCBIndexOfTensor;
-      buffer = ::tt::target::ttnn::CreateKernelGlobalCBIndexOfTensor(
-                   *cache.fbb, bufferAttr.getTensorOperandIndex())
-                   .Union();
-    } else if (auto bufferAttr = llvm::dyn_cast<KernelCBAddressAttr>(
-                   kernelCbAttr.getBuffer());
-               bufferAttr) {
-      bufferType = ::tt::target::ttnn::KernelGlobalCBOrAddress::KernelCBAddress;
-      buffer = ::tt::target::ttnn::CreateKernelCBAddress(
-                   *cache.fbb, bufferAttr.getCbAddress())
-                   .Union();
+    if (auto bufferAttrBase = kernelCbAttr.getBuffer(); bufferAttrBase) {
+      if (auto bufferAttr =
+              llvm::dyn_cast<KernelCBGlobalBufferAddressOfTensorAttr>(
+                  bufferAttrBase)) {
+        bufferType = ::tt::target::ttnn::KernelGlobalCBOrAddress::
+            KernelGlobalCBIndexOfTensor;
+        buffer = ::tt::target::ttnn::CreateKernelGlobalCBIndexOfTensor(
+                     *cache.fbb, bufferAttr.getTensorOperandIndex())
+                     .Union();
+      } else if (auto bufferAttr =
+                     llvm::dyn_cast<KernelCBAddressAttr>(bufferAttrBase)) {
+        bufferType =
+            ::tt::target::ttnn::KernelGlobalCBOrAddress::KernelCBAddress;
+        buffer = ::tt::target::ttnn::CreateKernelCBAddress(
+                     *cache.fbb, bufferAttr.getCbAddress())
+                     .Union();
+      }
     }
 
     cbs.push_back(::tt::target::ttnn::CreateKernelCBDescriptorDirect(
