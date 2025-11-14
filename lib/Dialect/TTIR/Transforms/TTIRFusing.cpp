@@ -1752,7 +1752,12 @@ private:
 // Scaled sum to mean pattern matcher that transforms:
 //   multiply(sum<dim=[2,3]>(act), 1/(h*w))
 // into:
-//   mean<dim=[2,3]>(act)
+//   mean<dim=3>(reshape(act, [N,C,1,H*W]))
+//
+// The pattern reshapes input from [N, C, H, W] to [N, C, 1, H*W], then applies
+// mean on dimension 3 with keepdim=true.
+// If the original sum had keepdim=false, then the result is reshaped to remove
+// the spatial dimensions too.
 //
 // Matches decomposed global average pooling from torch-xla.
 
@@ -1769,39 +1774,34 @@ public:
   mlir::LogicalResult
   matchAndRewrite(MultiplyOp multiplyOp,
                   mlir::PatternRewriter &rewriter) const final {
-
     SumOp sumOp = multiplyOp.getLhs().getDefiningOp<SumOp>();
-    if (!validateSumOp(sumOp)) {
+    if (!isValidSum(sumOp)) {
       return mlir::failure();
     }
 
-    FullOp fullOp = multiplyOp.getRhs().getDefiningOp<FullOp>();
+    FullOp scaleOp = multiplyOp.getRhs().getDefiningOp<FullOp>();
     auto inputShape = sumOp.getInput().getType().getShape();
-    if (!validateFullOp(fullOp, inputShape)) {
+    if (!isValidScale(scaleOp, inputShape)) {
       return mlir::failure();
     }
 
-    auto meanOp = createMeanOp(rewriter, sumOp);
+    auto input = sumOp.getInput();
+    auto loc = sumOp.getLoc();
 
-    rewriter.replaceOp(multiplyOp, meanOp.getResult());
+    auto reshapedInput = createInputReshape(rewriter, loc, input);
+    auto meanOp = createMean(rewriter, loc, reshapedInput);
 
-    return mlir::success();
-  };
-
-private:
-  bool validateFullOp(FullOp fullOp, ArrayRef<int64_t> inputShape) const {
-    if (!fullOp) {
-      return false;
+    auto result = meanOp.getResult();
+    if (!sumOp.getKeepDim()) {
+      result = createOutputReshape(rewriter, loc, result);
     }
-    int64_t inputHeight = inputShape[SPATIAL_HEIGHT_DIM];
-    int64_t inputWidth = inputShape[SPATIAL_WIDTH_DIM];
-    float expectedValue = 1.0f / static_cast<float>(inputHeight * inputWidth);
-    float tolerance =
-        std::max(FLOAT_TOLERANCE, std::abs(expectedValue) * FLOAT_TOLERANCE);
-    return isFullOpWithValue(fullOp, expectedValue, tolerance);
+
+    rewriter.replaceOp(multiplyOp, result);
+    return mlir::success();
   }
 
-  bool validateSumOp(SumOp sumOp) const {
+private:
+  static bool isValidSum(SumOp sumOp) {
     if (!sumOp || !sumOp.getDimArg() || !sumOp->hasOneUse()) {
       return false;
     }
@@ -1811,7 +1811,6 @@ private:
       return false;
     }
 
-    // Check that dimensions 2 and 3 are being reduced (height and width)
     auto reduceDims = *sumOp.getDimArg();
     if (reduceDims.size() != 2) {
       return false;
@@ -1829,42 +1828,71 @@ private:
            dimSet.contains(SPATIAL_WIDTH_DIM);
   }
 
-  MeanOp createMeanOp(mlir::PatternRewriter &rewriter, SumOp sumOp) const {
-    auto outputType =
-        createPoolingOutputType(sumOp.getInput().getType(), sumOp.getKeepDim());
-
-    auto loc = sumOp.getLoc();
-
-    auto meanOp = ttir::utils::createDPSOp<MeanOp>(
-        rewriter, ttmlir::utils::appendLocationSuffix(loc, "_mean"), outputType,
-        sumOp.getInput(),
-        /*keep_dim=*/rewriter.getBoolAttr(sumOp.getKeepDim()),
-        /*dim_arg=*/
-        rewriter.getArrayAttr({rewriter.getI32IntegerAttr(SPATIAL_HEIGHT_DIM),
-                               rewriter.getI32IntegerAttr(SPATIAL_WIDTH_DIM)}));
-
-    return meanOp;
+  static bool isValidScale(FullOp fullOp, ArrayRef<int64_t> inputShape) {
+    if (!fullOp) {
+      return false;
+    }
+    int64_t h = inputShape[SPATIAL_HEIGHT_DIM];
+    int64_t w = inputShape[SPATIAL_WIDTH_DIM];
+    float expectedValue = 1.0f / static_cast<float>(h * w);
+    float tolerance =
+        std::max(FLOAT_TOLERANCE, std::abs(expectedValue) * FLOAT_TOLERANCE);
+    return isFullOpWithValue(fullOp, expectedValue, tolerance);
   }
 
-  RankedTensorType createPoolingOutputType(RankedTensorType inputType,
-                                           bool keepDim) const {
-    SmallVector<int64_t> poolOutputShape;
-    ArrayRef<int64_t> inputShape = inputType.getShape();
+  static ReshapeOp createInputReshape(mlir::PatternRewriter &rewriter,
+                                      Location loc, Value input) {
+    auto inputType = mlir::cast<RankedTensorType>(input.getType());
+    auto shape = inputType.getShape();
 
-    if (keepDim) {
-      poolOutputShape.assign(inputShape.begin(), inputShape.end());
-      poolOutputShape[SPATIAL_HEIGHT_DIM] = 1;
-      poolOutputShape[SPATIAL_WIDTH_DIM] = 1;
-    } else {
-      poolOutputShape.reserve(inputShape.size() - 2);
-      for (size_t i = 0; i < inputShape.size(); ++i) {
-        if (i != SPATIAL_HEIGHT_DIM && i != SPATIAL_WIDTH_DIM) {
-          poolOutputShape.push_back(inputShape[i]);
-        }
+    SmallVector<int64_t> newShape(shape.begin(), shape.end());
+    newShape[SPATIAL_HEIGHT_DIM] = 1;
+    newShape[SPATIAL_WIDTH_DIM] =
+        shape[SPATIAL_HEIGHT_DIM] * shape[SPATIAL_WIDTH_DIM];
+
+    SmallVector<int32_t> newShapeI32(newShape.begin(), newShape.end());
+    return ttir::utils::createDPSOp<ReshapeOp>(
+        rewriter, ttmlir::utils::appendLocationSuffix(loc, "_reshape"),
+        newShape, inputType.getElementType(), inputType.getEncoding(), input,
+        rewriter.getI32ArrayAttr(newShapeI32));
+  }
+
+  static MeanOp createMean(mlir::PatternRewriter &rewriter, Location loc,
+                           Value reshaped) {
+    auto reshapedType = mlir::cast<RankedTensorType>(reshaped.getType());
+    auto shape = reshapedType.getShape();
+
+    SmallVector<int64_t> outputShape(shape.begin(), shape.end());
+    outputShape[SPATIAL_WIDTH_DIM] = 1;
+
+    auto outputType = RankedTensorType::get(
+        outputShape, reshapedType.getElementType(), reshapedType.getEncoding());
+
+    return ttir::utils::createDPSOp<MeanOp>(
+        rewriter, ttmlir::utils::appendLocationSuffix(loc, "_mean"), outputType,
+        reshaped, /*keep_dim=*/rewriter.getBoolAttr(true),
+        /*dim_arg=*/
+        rewriter.getArrayAttr({rewriter.getI32IntegerAttr(SPATIAL_WIDTH_DIM)}));
+  }
+
+  static ReshapeOp createOutputReshape(mlir::PatternRewriter &rewriter,
+                                       Location loc, Value meanResult) {
+    auto meanType = mlir::cast<RankedTensorType>(meanResult.getType());
+    auto shape = meanType.getShape();
+
+    SmallVector<int64_t> newShape;
+    newShape.reserve(shape.size() - 2);
+    for (size_t i = 0; i < shape.size(); ++i) {
+      if (i != SPATIAL_HEIGHT_DIM && i != SPATIAL_WIDTH_DIM) {
+        newShape.push_back(shape[i]);
       }
     }
-    return RankedTensorType::get(poolOutputShape, inputType.getElementType(),
-                                 inputType.getEncoding());
+
+    SmallVector<int32_t> newShapeI32(newShape.begin(), newShape.end());
+    return ttir::utils::createDPSOp<ReshapeOp>(
+        rewriter, ttmlir::utils::appendLocationSuffix(loc, "_reshape_output"),
+        newShape, meanType.getElementType(), meanType.getEncoding(), meanResult,
+        rewriter.getI32ArrayAttr(newShapeI32));
   }
 };
 
