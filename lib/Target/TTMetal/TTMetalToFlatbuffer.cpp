@@ -2,7 +2,9 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "ttmlir/Asserts.h"
 #include "ttmlir/Conversion/TTKernelToEmitC/TTKernelToEmitC.h"
+#include "ttmlir/Dialect/D2M/Utils/Utils.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
@@ -18,6 +20,7 @@
 #include "ttmlir/Target/Utils/FlatbufferObjectCache.h"
 #include "ttmlir/Target/Utils/MLIRToFlatbuffer.h"
 #include "ttmlir/Target/Utils/Utils.h"
+#include "ttmlir/Utils.h"
 #include "ttmlir/Version.h"
 
 #include "flatbuffers/buffer.h"
@@ -250,6 +253,25 @@ createShardedBufferConfigForDRAMMemref(FlatbufferObjectCache &cache,
       *cache.fbb, dummyTensorSize, dummyShardSize, shardSpecBuffer);
 }
 
+// Returns a physical grid corresponding to the physicalextent of the virtual
+// grid. Used to create fake grid shapes that will allow allocation of virtual
+// grid memrefs. Checks that the virtual grid volume aligns with the target
+// grid volume.
+static SmallVector<int64_t>
+getPhysicalGridShapeForVirtualGrid(ttcore::ShardLayoutAttr shardLayout,
+                                   ttcore::DeviceAttr device,
+                                   ArrayRef<int64_t> memrefGridShape) {
+  auto squareTargetGrid =
+      d2m::utils::getSquareTargetGrid(device.getWorkerGrid().getShape());
+  auto squareTargetGridVolume =
+      ttmlir::utils::volume(ArrayRef<int64_t>(squareTargetGrid));
+  auto memrefGridVolume =
+      ttmlir::utils::volume(ArrayRef<int64_t>(memrefGridShape));
+  TT_assertv(memrefGridVolume == squareTargetGridVolume,
+             "Virtual grid volume must match squared target grid volume");
+  return squareTargetGrid;
+}
+
 static flatbuffers::Offset<target::metal::ShardedBufferConfig>
 createShardedBufferConfigForL1Memref(FlatbufferObjectCache &cache,
                                      MemRefType memref,
@@ -267,7 +289,14 @@ createShardedBufferConfigForL1Memref(FlatbufferObjectCache &cache,
 
   ArrayRef<int64_t> stride = shardLayout.getStride();
   int64_t elementSize = stride[stride.size() - 1];
-  auto memrefGridShape = shardLayout.getGridShape(memref);
+  SmallVector<int64_t> memrefGridShape =
+      llvm::to_vector(shardLayout.getGridShape(memref));
+
+  if (!shardLayout.getCoreVirtualizationMap().isEmpty()) {
+    memrefGridShape = getPhysicalGridShapeForVirtualGrid(shardLayout, device,
+                                                         memrefGridShape);
+  }
+
   auto memrefShardShape = shardLayout.getShardShape(memref);
   auto extendedMapping = extendMappingForHigherDimGrid(
       device.getWorkerGrid().getMapping(), memrefGridShape.size());
@@ -395,7 +424,13 @@ memrefTypeToCircularBufferConfigFlatbuffer(FlatbufferObjectCache &cache,
   assert(shardLayout &&
          "expected shard layout for circular buffer config generation");
 
-  auto memrefGridShape = shardLayout.getGridShape(memref);
+  SmallVector<int64_t> memrefGridShape =
+      llvm::to_vector(shardLayout.getGridShape(memref));
+
+  if (!shardLayout.getCoreVirtualizationMap().isEmpty()) {
+    memrefGridShape = getPhysicalGridShapeForVirtualGrid(shardLayout, device,
+                                                         memrefGridShape);
+  }
 
   auto extendedMapping = extendMappingForHigherDimGrid(
       device.getWorkerGrid().getMapping(), memrefGridShape.size());

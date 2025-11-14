@@ -8,9 +8,11 @@
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 // D2M generic/region ops
+#include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/D2M/IR/D2M.h"
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/D2M/Utils/Utils.h"
+#include "ttmlir/Utils.h"
 
 #include "ttmlir/Dialect/D2M/IR/D2M.h"
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
@@ -911,9 +913,17 @@ public:
         permuted.physicalShape, inputTensorType.getElementType(), resultLayout);
 
     // For inner permute, we need as streamLayout to do reblocking.
+
+    // Stream storage layout should NOT have an index map, otherwise it
+    // gets inferred later as having a virtual grid.
+    auto resultLayoutWithoutReblockMap = ttcore::MetalLayoutAttr::get(
+        ctx, permuted.logicalShape, permuted.dimAlignments,
+        inputLayout.getCollapsedIntervals(), inputLayout.getOobVal(),
+        inputLayout.getMemorySpace(), inputLayout.getMemoryLayout(),
+        AffineMap::get(ctx));
     auto storage = rewriter.create<d2m::EmptyOp>(
         loc, permuted.physicalShape, inputTensorType.getElementType(),
-        resultLayout);
+        resultLayoutWithoutReblockMap);
     auto stream =
         rewriter.create<d2m::StreamLayoutOp>(loc, viewType, inputs[0], storage);
     inputs[0] = stream.getResult();

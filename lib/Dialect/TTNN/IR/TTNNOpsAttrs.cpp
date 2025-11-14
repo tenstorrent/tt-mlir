@@ -7,6 +7,7 @@
 #include "ttmlir/Dialect/TTCore/Utils/CoreRangeSet.h"
 #include "ttmlir/Dialect/TTNN/Utils/Conv2dConfigParams.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
+#include "ttmlir/AffineMapUtils.h"
 #include "ttmlir/Utils.h"
 
 #include <cassert>

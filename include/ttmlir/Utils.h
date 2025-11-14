@@ -87,66 +87,6 @@ inline void sample(const Vector &shape, Fn fn) {
   }
 }
 
-template <typename Vector>
-llvm::SmallVector<int64_t> evalShape(mlir::AffineMap map, Vector shape) {
-  mlir::SmallVector<int64_t> lastIndex;
-  for (auto dim : shape) {
-    lastIndex.push_back(dim - 1);
-  }
-
-  auto result = map.compose(lastIndex);
-  for (auto &dim : result) {
-    dim += 1;
-  }
-  return result;
-}
-
-inline mlir::AffineMap
-replaceAffineMapSymbols(mlir::AffineMap map, mlir::ArrayRef<int64_t> symbols) {
-  assert(map.getNumSymbols() == symbols.size());
-
-  mlir::SmallVector<mlir::AffineExpr> symReplacements;
-  for (unsigned i = 0; i < map.getNumSymbols(); ++i) {
-    symReplacements.push_back(
-        getAffineConstantExpr(symbols[i], map.getContext()));
-  }
-
-  mlir::SmallVector<mlir::AffineExpr> dimReplacements;
-  for (unsigned i = 0; i < map.getNumDims(); ++i) {
-    dimReplacements.push_back(getAffineDimExpr(i, map.getContext()));
-  }
-
-  unsigned numResultSyms = 0;
-  return map.replaceDimsAndSymbols(dimReplacements, symReplacements,
-                                   map.getNumDims(), numResultSyms);
-}
-
-// Generates an affine map translating ND grid x ND shard coordinates into ND
-// grid + a linearized offset i.e. collapsing all shard dims into a single
-// byte offset based on provided shard strides.
-//
-// i.e. if strides = [4, 2] --> (g0, g1, s0, s1) -> (g0, g1, 4*s0 + 2*s1)
-inline mlir::AffineMap
-generateAffineMapFromShardStrides(mlir::ArrayRef<int64_t> strides,
-                                  mlir::MLIRContext *context) {
-  int64_t rank = strides.size();
-  mlir::SmallVector<mlir::AffineExpr> mapExprs(rank + 1);
-
-  for (int64_t i = 0; i < rank; i++) {
-    mapExprs[i] = getAffineDimExpr(i, context);
-  }
-
-  mapExprs[rank] = getAffineConstantExpr(0, context);
-  for (int64_t i = rank - 1; i >= 0; i--) {
-    mlir::AffineExpr shardDim = getAffineDimExpr(rank + i, context);
-    mlir::AffineExpr stride = getAffineConstantExpr(strides[i], context);
-    mapExprs[rank] = shardDim * stride + mapExprs[rank];
-  }
-
-  auto map = mlir::AffineMap::get(strides.size() * 2, 0, mapExprs, context);
-  return map;
-}
-
 template <typename T>
 T volume(mlir::ArrayRef<T> shape, T stride = 1) {
   return std::accumulate(shape.begin(), shape.end(), stride,
@@ -161,6 +101,29 @@ std::string join(Range &&R, llvm::StringRef separator) {
   return llvm::join(
       llvm::map_range(R, [](auto &v) { return llvm::Twine(v).str(); }),
       separator);
+}
+
+// Converts an iterable collection to a vector of strings using stringstream.
+template <typename Range>
+llvm::SmallVector<std::string> iterableToStrings(Range &&iterable) {
+  llvm::SmallVector<std::string> result;
+  for (const auto &elem : iterable) {
+    std::string strbuffer;
+    llvm::raw_string_ostream ss(strbuffer);
+    ss << elem;
+    result.push_back(strbuffer);
+  }
+  return result;
+}
+
+// Formats an iterable collection as a string with parentheses and separator.
+// Example: formatIterable({1, 2, 3}) -> "(1,2,3)"
+// Example: formatIterable({1, 2, 3}, "x") -> "(1x2x3)"
+template <typename Range>
+std::string formatIterable(Range &&iterable, llvm::StringRef separator = ",") {
+  auto stringVec = iterableToStrings(iterable);
+  std::string content = ttmlir::utils::join(stringVec, separator);
+  return "(" + content + ")";
 }
 
 // Prepacks `MlirAttribute`s stored in input array into a vector of
