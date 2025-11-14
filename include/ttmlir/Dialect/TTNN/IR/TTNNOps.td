@@ -1423,7 +1423,8 @@ def TTNN_LinearOp : TTNN_Op<"linear"> {
                          AnyRankedTensor:$b,
                          Optional<AnyRankedTensor>:$bias,
                          DefaultValuedAttr<BoolAttr, "false">:$transpose_a,
-                         DefaultValuedAttr<BoolAttr, "false">:$transpose_b);
+                         DefaultValuedAttr<BoolAttr, "false">:$transpose_b,
+                         OptionalAttr<StrAttr>:$activation);
 
     let results = (outs AnyRankedTensor:$result);
 
@@ -1442,7 +1443,8 @@ def TTNN_MatmulOp : TTNN_Op<"matmul"> {
                             TTNN_MatmulMultiCoreReuseMultiCastProgramConfigAttr,
                             TTNN_MatmulMultiCoreReuseMultiCast1DProgramConfigAttr,
                             TTNN_MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfigAttr
-                         ]>>:$matmul_program_config);
+                         ]>>:$matmul_program_config,
+                         OptionalAttr<StrAttr>:$activation);
 
     let results = (outs AnyRankedTensor:$result);
 
@@ -2131,7 +2133,7 @@ def TTNN_DeallocateOp : TTNN_MemFreeOp<"deallocate"> {
                          DefaultValuedAttr<BoolAttr, "false">:$force);
 }
 
-def TTNN_ScatterOp : TTNN_Op<"scatter", [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>] >{
+def TTNN_ScatterOp : TTNN_Op<"scatter">{
     let summary = "Scatter op.";
     let description = [{
       Embeds the values of the source tensor into the input tensor at locations specified by the index tensor along the given dimension.
@@ -2624,6 +2626,41 @@ def TTNN_RotaryEmbeddingLlamaOp : TTNN_Op<"rotary_embedding_llama", [TTNN_Memory
     let results = (outs AnyRankedTensor:$result);
 
     let hasVerifier = 1;
+}
+
+def TTNN_RotaryEmbeddingOp : TTNN_Op<"rotary_embedding", [TTNN_MemoryConfigOpInterface]> {
+  let summary = "Rotary embedding op in TTNN dialect.";
+  let description = [{
+    Applies rotary embedding to the input tensor using precomputed cosine and sine caches.
+    Formula used:
+      x_rotated = x * cos + rotate_half(x) * sin
+      where rotate_half(x) swaps the first and second halves of the last dimension of x.
+
+    Example:
+      ```mlir
+      %result = ttnn.rotary_embedding(%input, %cos_cache, %sin_cache)
+        {memory_config = #ttnn.memory_config<interleaved>}
+        : tensor<1x32x1024x64xf16>, tensor<1x1x1024x64xf16>, tensor<1x1x1024x64xf16>
+        -> tensor<1x32x1024x64xf16>
+      ```
+  }];
+
+  let arguments = (ins AnyRankedTensor:$input,
+                       AnyRankedTensor:$cos_cache,
+                       AnyRankedTensor:$sin_cache,
+                       OptionalAttr<UI32Attr>:$token_index,
+                       OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config,
+                       OptionalAttr<TTNN_DeviceComputeKernelConfig>:$compute_config);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let extraClassDeclaration = [{
+    wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+      return wa::TTNNOperandsWorkaroundsFactory::createRotaryEmbeddingOpOperandsWorkarounds(*this);
+    }
+  }];
+
+  let hasVerifier = 1;
 }
 
 def TTNN_NLPConcatHeadsOp : TTNN_Op<"nlp_concat_heads", [TTNN_MemoryConfigOpInterface]> {

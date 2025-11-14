@@ -119,6 +119,7 @@ declare_mlir_python_extension(TTMLIRPythonExtensions.Main
     TTMLIRCAPI
   PRIVATE_LINK_LIBS
     TTMLIRCompilerStatic
+    TTMLIRPassTracker
     MLIRArmNeonToLLVMIRTranslation
     MLIRArmSMEToLLVMIRTranslation
     MLIRArmSVEToLLVMIRTranslation
@@ -135,6 +136,12 @@ declare_mlir_python_extension(TTMLIRPythonExtensions.Main
     MLIRX86VectorTransforms
   PYTHON_BINDINGS_LIBRARY nanobind
 )
+
+# Create a separate library for PassTracker compiled with -fno-rtti to match MLIR
+add_library(TTMLIRPassTracker STATIC PassTracker.cpp)
+target_compile_options(TTMLIRPassTracker PRIVATE -fno-rtti)
+target_include_directories(TTMLIRPassTracker PRIVATE ${MLIR_INCLUDE_DIRS})
+target_link_libraries(TTMLIRPassTracker PRIVATE MLIRPass MLIRIR LLVMSupport)
 
 set(MLIR_BINDINGS_PYTHON_NB_DOMAIN "ttmlir")
 
@@ -213,6 +220,14 @@ add_mlir_python_modules(TTMLIRPythonModules
   COMMON_CAPI_LINK_LIBS
     TTMLIRPythonCAPI
 )
+
+# HACK: Use flat namespace on macOS to allow RTTI symbols from MLIRPass/LLVMSupport
+# to be found at runtime. This is needed because PassInstrumentation RTTI isn't
+# exported by default from the pre-built MLIR libraries.
+if(APPLE)
+  set_property(TARGET TTMLIRPythonModules.extension._ttmlir.dso
+    APPEND PROPERTY LINK_FLAGS "-Wl,-flat_namespace,-undefined,dynamic_lookup")
+endif()
 
 # PyWheel Component to create install directives for the packaged TTMLIR bindings wheel:
 install(DIRECTORY ${CMAKE_BINARY_DIR}/python_packages/ DESTINATION . COMPONENT TTMLIRPythonWheel EXCLUDE_FROM_ALL)

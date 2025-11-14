@@ -31,6 +31,8 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.cpp.inc"
 
 namespace mlir::tt::ttnn {
+using mlir::RankedTensorType;
+
 //===----------------------------------------------------------------------===//
 // Utils
 //===----------------------------------------------------------------------===//
@@ -1832,6 +1834,28 @@ mlir::OpFoldResult foldConsecutiveToLayoutOp(ttnn::ToLayoutOp op) {
     return nullptr;
   }
 
+  // Don't fold if there are operations between producer and consumer when:
+  // - Producer moves to DRAM buffer type, AND
+  // - Consumer moves to L1 buffer type
+  //
+  // This preserves intentional DRAM staging for memory allocation safety.
+  // The ops in between may have been analyzed/scheduled assuming the tensor
+  // goes through DRAM. Folding would bypass DRAM and keep the tensor in L1,
+  // potentially causing memory pressure that wasn't accounted for.
+  Operation *nextOp = producerOp->getNextNode();
+  bool hasOpsBetween = (nextOp != op.getOperation());
+
+  if (hasOpsBetween) {
+    MemoryConfigAttr producerMemConfig = producerOp.getMemoryConfigAttr();
+    MemoryConfigAttr consumerMemConfig = op.getMemoryConfigAttr();
+
+    if (producerMemConfig && consumerMemConfig &&
+        producerMemConfig.getBufferType().getValue() == BufferType::DRAM &&
+        consumerMemConfig.getBufferType().getValue() == BufferType::L1) {
+      return nullptr;
+    }
+  }
+
   if (!op.getDtype()) {
     op.setDtypeAttr(producerOp.getDtypeAttr());
   }
@@ -2778,11 +2802,6 @@ mlir::tt::ttnn::CollectivePermuteOp::fold(FoldAdaptor adaptor) {
 //===----------------------------------------------------------------------===//
 
 ::mlir::LogicalResult UpdateCacheOp::verify() {
-  if (getBatchOffset() != 0) {
-    return emitOpError(
-        "Only single-batch is supported. Batch offset must be 0");
-  }
-
   const ::mlir::RankedTensorType cacheType = getCache().getType();
   const ::mlir::RankedTensorType inputType = getInput().getType();
 
@@ -2807,17 +2826,16 @@ mlir::tt::ttnn::CollectivePermuteOp::fold(FoldAdaptor adaptor) {
     return emitOpError("Input tensor must be a 4D tensor");
   }
 
-  if (inputType.getShape()[2] != 1) {
-    return emitOpError("Input tensor requires that dim 2 have size 1, got "
-                       "input dim 2 size = " +
-                       std::to_string(inputType.getShape()[2]));
+  if (inputType.getShape()[0] != 1) {
+    return emitOpError("Input tensor requires that dim 0 have size 1, got "
+                       "input dim 0 size = " +
+                       std::to_string(inputType.getShape()[0]));
   }
 
-  if (cacheType.getShape()[0] != inputType.getShape()[0] ||
-      cacheType.getShape()[1] != inputType.getShape()[1] ||
+  if (cacheType.getShape()[1] != inputType.getShape()[1] ||
       cacheType.getShape()[3] != inputType.getShape()[3]) {
     return emitOpError("Cache tensor shape must match input tensor shape on "
-                       "all dimensions except dim 2. Got cache shape (" +
+                       "dims 1 and 3. Got cache shape (" +
                        std::to_string(cacheType.getShape()[0]) + ", " +
                        std::to_string(cacheType.getShape()[1]) + ", " +
                        std::to_string(cacheType.getShape()[2]) + ", " +
@@ -2927,11 +2945,6 @@ mlir::tt::ttnn::CollectivePermuteOp::fold(FoldAdaptor adaptor) {
 //===----------------------------------------------------------------------===//
 
 ::mlir::LogicalResult FillCacheOp::verify() {
-  if (getBatchOffset() != 0) {
-    return emitOpError(
-        "Only single-batch is supported. Batch offset must be 0");
-  }
-
   const ::mlir::RankedTensorType cacheType = getCache().getType();
   const ::mlir::RankedTensorType inputType = getInput().getType();
 
@@ -2965,11 +2978,10 @@ mlir::tt::ttnn::CollectivePermuteOp::fold(FoldAdaptor adaptor) {
         ", input dim 2 size = " + std::to_string(inputType.getShape()[2]));
   }
 
-  if (cacheType.getShape()[0] != inputType.getShape()[0] ||
-      cacheType.getShape()[1] != inputType.getShape()[1] ||
+  if (cacheType.getShape()[1] != inputType.getShape()[1] ||
       cacheType.getShape()[3] != inputType.getShape()[3]) {
     return emitOpError("Cache tensor shape must match input tensor shape on "
-                       "all dimensions except dim 2. Got cache shape (" +
+                       "dims 1 and 3. Got cache shape (" +
                        std::to_string(cacheType.getShape()[0]) + ", " +
                        std::to_string(cacheType.getShape()[1]) + ", " +
                        std::to_string(cacheType.getShape()[2]) + ", " +
@@ -3878,6 +3890,34 @@ mlir::LogicalResult RotaryEmbeddingLlamaOp::verify() {
   // Output shape should match input shape
   if (outputType.getShape() != inputType.getShape()) {
     return emitOpError("output shape must match input shape.");
+  }
+
+  return mlir::success();
+}
+
+//===----------------------------------------------------------------------===//
+// RotaryEmbeddingOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult RotaryEmbeddingOp::verify() {
+  mlir::RankedTensorType inputType = getInput().getType();
+  mlir::RankedTensorType cosType = getCosCache().getType();
+  mlir::RankedTensorType sinType = getSinCache().getType();
+  mlir::RankedTensorType outputType = getResult().getType();
+
+  if (cosType != sinType) {
+    return emitOpError("cos and sin tensor types must match.");
+  }
+
+  SmallVector<RankedTensorType> inputTypes = {inputType, cosType, sinType,
+                                              outputType};
+
+  auto rankPredicate = [](mlir::RankedTensorType type) {
+    return type.getRank() == 4;
+  };
+
+  if (!llvm::all_of(inputTypes, rankPredicate)) {
+    return emitOpError("all input and output tensors must be 4D tensors.");
   }
 
   return mlir::success();

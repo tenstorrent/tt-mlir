@@ -687,6 +687,64 @@ TEST_F(OpModelTest, SoftmaxNumericStable) {
   EXPECT_TRUE(runtimeExp.get() > 0);
 }
 
+TEST_F(OpModelTest, Scatter) {
+  const llvm::SmallVector<int64_t> inputShape = {256, 1024};
+  const llvm::SmallVector<int64_t> indexSourceShape = {128, 1024};
+  const int32_t dim = 0;
+
+  const auto workerGrid = CreateWorkerGrid(gridShapeHwN300);
+  const TTNNLayoutAttr inputLayoutDRAM = CreateTiledLayout(
+      inputShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+  const TTNNLayoutAttr inputLayoutL1 = CreateTiledLayout(
+      inputShape, BufferType::L1, TensorMemoryLayout::Interleaved);
+  const TTNNLayoutAttr indexLayoutDRAM = CreateTiledLayoutInt32(
+      indexSourceShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+  const TTNNLayoutAttr indexLayoutL1 = CreateTiledLayoutInt32(
+      indexSourceShape, BufferType::L1, TensorMemoryLayout::Interleaved);
+  const TTNNLayoutAttr sourceLayoutDRAM = CreateTiledLayout(
+      indexSourceShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+  const TTNNLayoutAttr sourceLayoutL1 = CreateTiledLayout(
+      indexSourceShape, BufferType::L1, TensorMemoryLayout::Interleaved);
+
+  auto legalExp = Device::getDeviceConstraints(workerGrid);
+  EXPECT_TRUE(static_cast<bool>(legalExp));
+
+  // DRAM layouts
+  auto constraintsExp = OpModel<ScatterOp>::getOpConstraints(
+      CreateWorkerGrid(), inputShape, inputLayoutDRAM, indexSourceShape,
+      indexLayoutDRAM, indexSourceShape, sourceLayoutDRAM, dim,
+      inputLayoutDRAM);
+  EXPECT_TRUE(static_cast<bool>(constraintsExp));
+  OpConstraints &opCstr = constraintsExp.get();
+  EXPECT_GE(opCstr.cbL1PeakSize, 262144);
+  EXPECT_GE(opCstr.tensorL1PeakSize, 0);
+  EXPECT_GE(opCstr.peakL1MemorySize, 262144);
+  EXPECT_GE(opCstr.outputL1BufferSize, 0);
+
+  auto runtimeExp = OpModel<ScatterOp>::getOpRuntime(
+      inputShape, inputLayoutDRAM, indexSourceShape, indexLayoutDRAM,
+      indexSourceShape, sourceLayoutDRAM, dim, inputLayoutDRAM);
+  EXPECT_TRUE(static_cast<bool>(runtimeExp));
+  EXPECT_TRUE(runtimeExp.get() > 0);
+
+  // L1 layouts
+  constraintsExp = OpModel<ScatterOp>::getOpConstraints(
+      CreateWorkerGrid(), inputShape, inputLayoutL1, indexSourceShape,
+      indexLayoutL1, indexSourceShape, sourceLayoutL1, dim, inputLayoutL1);
+  EXPECT_TRUE(static_cast<bool>(constraintsExp));
+  opCstr = constraintsExp.get();
+  EXPECT_GE(opCstr.cbL1PeakSize, 262144);
+  EXPECT_GE(opCstr.tensorL1PeakSize, 36864);
+  EXPECT_GE(opCstr.peakL1MemorySize, 286720);
+  EXPECT_GE(opCstr.outputL1BufferSize, 8192);
+
+  runtimeExp = OpModel<ScatterOp>::getOpRuntime(
+      inputShape, inputLayoutL1, indexSourceShape, indexLayoutL1,
+      indexSourceShape, sourceLayoutL1, dim, inputLayoutL1);
+  EXPECT_TRUE(static_cast<bool>(runtimeExp));
+  EXPECT_TRUE(runtimeExp.get() > 0);
+}
+
 TEST_F(OpModelTest, Reshape) {
   const llvm::SmallVector<int64_t> tensorShape = {workerCoresN300, 1024};
   const auto workerGrid = CreateWorkerGrid(gridShapeHwN300);
@@ -2243,8 +2301,10 @@ TEST_P(OpModelLinearParam, LinearParam) {
   }
 }
 
+// Disabled due to bias shape constraint failure in tt-metal matmul op,
+// see https://github.com/tenstorrent/tt-mlir/issues/5789
 INSTANTIATE_TEST_SUITE_P(
-    LinearInterleavedTests, OpModelLinearParam,
+    DISABLED_LinearInterleavedTests, OpModelLinearParam,
     ::testing::Values(
         std::make_tuple(detail::interleaved2048X2048Dram,
                         detail::interleaved2048X2048Dram,
@@ -2291,8 +2351,11 @@ INSTANTIATE_TEST_SUITE_P(
             llvm::SmallVector<int64_t>{8, 8},
             detail::ExpectedResult{true, 786432, 262144, 1048576, 131072})));
 
+// Disabled due to bias shape incompatibility: padded second last dimension of
+// bias (1792 = 56*32) not equal to tile height (32)
+// See https://github.com/tenstorrent/tt-mlir/issues/5789
 INSTANTIATE_TEST_SUITE_P(
-    LinearShardedTests, OpModelLinearParam,
+    DISABLED_LinearShardedTests, OpModelLinearParam,
     ::testing::Values(
         std::make_tuple(detail::TestTensor{{56 * 32, 56 * 32},
                                            TensorMemoryLayout::BlockSharded,

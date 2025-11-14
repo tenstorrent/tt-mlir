@@ -4,7 +4,7 @@
 
 # User Guide
 
-- [Getting Started](./getting-started.md)
+- [Building & Getting Started](./getting-started.md)
   - [Docker Notes](./docker-notes.md)
   - [Ubuntu VM on macOS](./macos-ubuntu-vm.md)
 - [Testing](./testing.md)

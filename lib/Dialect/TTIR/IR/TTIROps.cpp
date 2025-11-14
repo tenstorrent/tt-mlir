@@ -3686,11 +3686,6 @@ mlir::LogicalResult mlir::tt::ttir::MeshShardOp::verify() {
 //===----------------------------------------------------------------------===//
 
 ::mlir::LogicalResult mlir::tt::ttir::UpdateCacheOp::verify() {
-  if (getBatchOffset() != 0) {
-    return emitOpError(
-        "Only single-batch is supported. Batch offset must be 0");
-  }
-
   const ::mlir::RankedTensorType cacheType = getCache().getType();
   const ::mlir::RankedTensorType inputType = getInput().getType();
 
@@ -3715,17 +3710,16 @@ mlir::LogicalResult mlir::tt::ttir::MeshShardOp::verify() {
     return emitOpError("Input tensor must be a 4D tensor");
   }
 
-  if (inputType.getShape()[2] != 1) {
-    return emitOpError("Input tensor requires that dim 2 have size 1, got "
-                       "input dim 2 size = " +
-                       std::to_string(inputType.getShape()[2]));
+  if (inputType.getShape()[0] != 1) {
+    return emitOpError("Input tensor requires that dim 0 have size 1, got "
+                       "input dim 0 size = " +
+                       std::to_string(inputType.getShape()[0]));
   }
 
-  if (cacheType.getShape()[0] != inputType.getShape()[0] ||
-      cacheType.getShape()[1] != inputType.getShape()[1] ||
+  if (cacheType.getShape()[1] != inputType.getShape()[1] ||
       cacheType.getShape()[3] != inputType.getShape()[3]) {
     return emitOpError("Cache tensor shape must match input tensor shape on "
-                       "all dimensions except dim 2. Got cache shape (" +
+                       "dims 1 and 3. Got cache shape (" +
                        std::to_string(cacheType.getShape()[0]) + ", " +
                        std::to_string(cacheType.getShape()[1]) + ", " +
                        std::to_string(cacheType.getShape()[2]) + ", " +
@@ -3823,11 +3817,6 @@ mlir::LogicalResult mlir::tt::ttir::MeshShardOp::verify() {
 //===----------------------------------------------------------------------===//
 
 ::mlir::LogicalResult mlir::tt::ttir::FillCacheOp::verify() {
-  if (getBatchOffset() != 0) {
-    return emitOpError(
-        "Only single-batch is supported. Batch offset must be 0");
-  }
-
   const ::mlir::RankedTensorType cacheType = getCache().getType();
   const ::mlir::RankedTensorType inputType = getInput().getType();
 
@@ -3861,11 +3850,10 @@ mlir::LogicalResult mlir::tt::ttir::MeshShardOp::verify() {
         ", input dim 2 size = " + std::to_string(inputType.getShape()[2]));
   }
 
-  if (cacheType.getShape()[0] != inputType.getShape()[0] ||
-      cacheType.getShape()[1] != inputType.getShape()[1] ||
+  if (cacheType.getShape()[1] != inputType.getShape()[1] ||
       cacheType.getShape()[3] != inputType.getShape()[3]) {
     return emitOpError("Cache tensor shape must match input tensor shape on "
-                       "all dimensions except dim 2. Got cache shape (" +
+                       "dims 1 and 3. Got cache shape (" +
                        std::to_string(cacheType.getShape()[0]) + ", " +
                        std::to_string(cacheType.getShape()[1]) + ", " +
                        std::to_string(cacheType.getShape()[2]) + ", " +

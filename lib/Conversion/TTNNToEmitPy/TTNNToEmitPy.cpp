@@ -504,6 +504,9 @@ public:
         emitter.emit(std::nullopt |
                          emitter.getMemoryConfig(matmulOp.getResult()),
                      "memory_config"),
+        emitter.emit(std::nullopt, "dtype"),
+        emitter.emit(std::nullopt, "program_config"),
+        emitter.emit(matmulOp.getActivation(), "activation"),
     };
 
     emitter.replaceOp(*this, args);
@@ -539,6 +542,9 @@ public:
         emitter.emit(srcOp.getTransposeB(), "transpose_b"),
         emitter.emit(std::nullopt | emitter.getMemoryConfig(srcOp.getResult()),
                      "memory_config"),
+        emitter.emit(std::nullopt, "dtype"),
+        emitter.emit(std::nullopt, "program_config"),
+        emitter.emit(srcOp.getActivation(), "activation"),
     };
 
     emitter.replaceOp(*this, args);
@@ -2883,6 +2889,48 @@ public:
 };
 } // namespace
 
+// RotaryEmbeddingOp conversion pattern
+//
+namespace {
+class RotaryEmbeddingOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<
+          mlir::tt::ttnn::RotaryEmbeddingOp> {
+private:
+  std::string getPrefixSearchPattern() const override {
+    return "ttnn.rotary_embedding";
+  }
+  std::string getPrefixSwapPattern() const override {
+    return "ttnn.experimental.rotary_embedding";
+  }
+
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      mlir::tt::ttnn::RotaryEmbeddingOp>::TTNNToEmitPyBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::RotaryEmbeddingOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::RotaryEmbeddingOp>
+        emitter(srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput()),
+        emitter.emit(srcOp.getCosCache()),
+        emitter.emit(srcOp.getSinCache()),
+        emitter.emit(srcOp.getTokenIndex()),
+        emitter.emit(srcOp.getMemoryConfig() |
+                         emitter.getMemoryConfig(srcOp.getResult()),
+                     "memory_config"),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
 // ScaledDotProductAttentionOp conversion pattern
 //
 namespace {
@@ -3312,6 +3360,7 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
   patterns.add<SplitQueryKeyValueAndSplitHeadsOpConversionPattern>(
       typeConverter, ctx);
   patterns.add<RotaryEmbeddingLlamaOpConversionPattern>(typeConverter, ctx);
+  patterns.add<RotaryEmbeddingOpConversionPattern>(typeConverter, ctx);
   patterns.add<ScaledDotProductAttentionOpConversionPattern>(typeConverter,
                                                              ctx);
   patterns.add<ScaledDotProductAttentionDecodeOpConversionPattern>(

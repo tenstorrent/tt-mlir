@@ -465,14 +465,16 @@ struct OpModel<SoftmaxOp> {
 template <>
 struct OpModel<ScatterOp> {
   static llvm::Expected<OpConstraints> getOpConstraints(
-      ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShapeA,
-      TTNNLayoutAttr inputLayoutA, llvm::ArrayRef<int64_t> inputShapeB,
-      TTNNLayoutAttr inputLayoutB, TTNNLayoutAttr outputLayout);
+      ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
+      TTNNLayoutAttr inputLayout, llvm::ArrayRef<int64_t> indexShape,
+      TTNNLayoutAttr indexLayout, llvm::ArrayRef<int64_t> sourceShape,
+      TTNNLayoutAttr sourceLayout, int32_t dim, TTNNLayoutAttr outputLayout);
 
   static llvm::Expected<size_t>
-  getOpRuntime(llvm::ArrayRef<int64_t> inputShapeA, TTNNLayoutAttr inputLayoutA,
-               llvm::ArrayRef<int64_t> inputShapeB, TTNNLayoutAttr inputLayoutB,
-               TTNNLayoutAttr outputLayout);
+  getOpRuntime(llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+               llvm::ArrayRef<int64_t> indexShape, TTNNLayoutAttr indexLayout,
+               llvm::ArrayRef<int64_t> sourceShape, TTNNLayoutAttr sourceLayout,
+               int32_t dim, TTNNLayoutAttr outputLayout);
 };
 
 //===----------------------------------------------------------------------===//
@@ -734,6 +736,27 @@ struct OpModel<RotaryEmbeddingLlamaOp> {
                llvm::ArrayRef<int64_t> transMatShape,
                TTNNLayoutAttr transMatLayout, bool isDecodeMode,
                TTNNLayoutAttr outputLayout);
+};
+
+//===-----------------------------------------------------------------------===//
+// RotaryEmbeddingOp
+// ===----------------------------------------------------------------------===//
+
+template <>
+struct OpModel<RotaryEmbeddingOp> {
+  static llvm::Expected<OpConstraints>
+  getOpConstraints(ttcore::GridAttr deviceGrid,
+                   llvm::ArrayRef<int64_t> inputShape,
+                   TTNNLayoutAttr inputLayout, llvm::ArrayRef<int64_t> cosShape,
+                   TTNNLayoutAttr cosLayout, llvm::ArrayRef<int64_t> sinShape,
+                   TTNNLayoutAttr sinLayout, std::optional<uint32_t> tokenIndex,
+                   TTNNLayoutAttr outputLayout);
+
+  static llvm::Expected<size_t>
+  getOpRuntime(llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+               llvm::ArrayRef<int64_t> cosShape, TTNNLayoutAttr cosLayout,
+               llvm::ArrayRef<int64_t> sinShape, TTNNLayoutAttr sinLayout,
+               std::optional<uint32_t> tokenIndex, TTNNLayoutAttr outputLayout);
 };
 
 //===-----------------------------------------------------------------------===//

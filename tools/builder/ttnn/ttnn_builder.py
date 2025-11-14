@@ -135,7 +135,7 @@ class TTNNBuilder(Builder):
     def _get_data_type_attribute(self, operand: Operand) -> ttcore.ir.DataTypeAttr:
         with self._ctx, self._loc:
             dtype = ttnn.ir.TTNNLayoutAttr.maybe_downcast(
-                operand.type.encoding
+                self._get_type(operand).encoding
             ).data_type_as_int
             return ttcore.ir.DataTypeAttr.get(self._ctx, dtype)
 
@@ -2309,6 +2309,72 @@ class TTNNBuilder(Builder):
             ttnn.DivideOp,
             [in0, in1],
             ttnn_kwargs=ttnn_kwargs,
+            unit_attrs=unit_attrs,
+        )
+
+    def matmul(
+        self,
+        in0: Operand,
+        in1: Operand,
+        transpose_a: bool = False,
+        transpose_b: bool = False,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpView:
+        """
+        Creates ``ttnn.matmul``.
+
+        *Matrix multiplication operation.*
+
+        Performs matrix multiplication between two tensors. Supports optional
+        transposition of either input tensor before multiplication. For 2D tensors,
+        this computes the standard matrix product. For tensors with more dimensions,
+        it applies batched matrix multiplication.
+
+        Mathematical definition: matmul(A, B) = A @ B
+
+        .. code-block:: mlir
+
+            // Basic matrix multiplication
+            %result = ttnn.matmul(%a, %b) : tensor<3x4xf32>, tensor<4x5xf32> -> tensor<3x5xf32>
+            // Input tensors:
+            // a: [[1.0, 2.0, 3.0, 4.0],
+            //     [5.0, 6.0, 7.0, 8.0],
+            //     [9.0, 10.0, 11.0, 12.0]]
+            // b: [[1.0, 0.0, 0.0, 0.0, 0.0],
+            //     [0.0, 1.0, 0.0, 0.0, 0.0],
+            //     [0.0, 0.0, 1.0, 0.0, 0.0],
+            //     [0.0, 0.0, 0.0, 1.0, 0.0]]
+            // Output tensor:
+            // [[1.0, 2.0, 3.0, 4.0, 0.0],
+            //  [5.0, 6.0, 7.0, 8.0, 0.0],
+            //  [9.0, 10.0, 11.0, 12.0, 0.0]]
+
+        Parameters
+        ----------
+        in0 : Operand
+            First input tensor
+        in1 : Operand
+            Second input tensor
+        transpose_a : bool
+            Whether to transpose the first tensor before multiplication (default: False)
+        transpose_b : bool
+            Whether to transpose the second tensor before multiplication (default: False)
+        unit_attrs : *Optional[List[str]]*
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpView*)
+            Result of matrix multiplication
+        """
+        return self._op_proxy(
+            ttnn.MatmulOp,
+            [in0, in1],
+            golden_kwargs={
+                "transpose_a": transpose_a,
+                "transpose_b": transpose_b,
+            },
+            ttnn_kwargs={"transpose_a": transpose_a, "transpose_b": transpose_b},
             unit_attrs=unit_attrs,
         )
 

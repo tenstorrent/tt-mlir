@@ -336,8 +336,8 @@ createOp(FlatbufferObjectCache &cache, EmptyOp op) {
 ::flatbuffers::Offset<::tt::target::ttnn::FullOp>
 createOp(FlatbufferObjectCache &cache, FullOp op) {
   auto shape = op.getShape().getShape().vec();
-  auto device = cache.at<::tt::target::DeviceRef>(
-      getOperandThroughDPSOps(op.getDevice()));
+  auto device =
+      op.getDevice() ? cache.at<::tt::target::DeviceRef>(op.getDevice()) : 0;
   ::tt::target::ttnn::FillValueType fillValueType;
   ::flatbuffers::Offset<void> fillValue;
   if (auto fillValueAttr = mlir::dyn_cast<mlir::FloatAttr>(op.getFillValue())) {
@@ -430,8 +430,10 @@ createOp(FlatbufferObjectCache &cache, LinearOp op) {
                         getOperandThroughDPSOps(op.getBias()))
                   : flatbuffers::Offset<::tt::target::ttnn::TensorRef>();
   auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer);
-  return ::tt::target::ttnn::CreateLinearOp(
-      *cache.fbb, a, b, bias, output, op.getTransposeA(), op.getTransposeB());
+  auto activation = toFlatbuffer(cache, op.getActivation()).value_or(0);
+  return ::tt::target::ttnn::CreateLinearOp(*cache.fbb, a, b, bias, output,
+                                            op.getTransposeA(),
+                                            op.getTransposeB(), activation);
 }
 
 // ANCHOR: adding_an_op_matmul_serialize_to_binary
@@ -475,9 +477,11 @@ createOp(FlatbufferObjectCache &cache, MatmulOp op) {
     }
   }
 
+  auto activation = toFlatbuffer(cache, op.getActivation()).value_or(0);
+
   return ::tt::target::ttnn::CreateMatmulOp(
       *cache.fbb, a, b, output, op.getTransposeA(), op.getTransposeB(),
-      matmulProgramConfigType, matmulProgramConfigDesc);
+      matmulProgramConfigType, matmulProgramConfigDesc, activation);
 }
 // ANCHOR_END: adding_an_op_matmul_serialize_to_binary
 
@@ -2332,6 +2336,23 @@ createOp(FlatbufferObjectCache &cache, RotaryEmbeddingLlamaOp op) {
       memoryConfig, computeConfig.value_or(0));
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::RotaryEmbeddingOp>
+createOp(FlatbufferObjectCache &cache, RotaryEmbeddingOp op) {
+  auto in = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getInput()));
+  auto cosCache = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getCosCache()));
+  auto sinCache = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getSinCache()));
+  auto tokenIndex = toFlatbuffer(cache, op.getTokenIndex());
+  auto out = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer);
+  auto memoryConfig = getMemoryConfigIfNeeded(cache, op);
+  auto computeConfig = toFlatbuffer(cache, op.getComputeConfig());
+  return ::tt::target::ttnn::CreateRotaryEmbeddingOp(
+      *cache.fbb, in, cosCache, sinCache, tokenIndex, out, memoryConfig,
+      computeConfig.value_or(0));
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::NLPCreateQKVHeadsDecodeOp>
 createOp(FlatbufferObjectCache &cache, NLPCreateQKVHeadsDecodeOp op) {
   auto in = cache.at<::tt::target::ttnn::TensorRef>(
@@ -2990,6 +3011,11 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   if (auto rotaryEmbeddingLlamaOp = dyn_cast<RotaryEmbeddingLlamaOp>(op);
       rotaryEmbeddingLlamaOp) {
     return createOperation(cache, createOp(cache, rotaryEmbeddingLlamaOp),
+                           debugString, locInfo);
+  }
+  if (auto rotaryEmbeddingOp = dyn_cast<RotaryEmbeddingOp>(op);
+      rotaryEmbeddingOp) {
+    return createOperation(cache, createOp(cache, rotaryEmbeddingOp),
                            debugString, locInfo);
   }
   if (auto nlpCreateQKVHeadsDecodeOp = dyn_cast<NLPCreateQKVHeadsDecodeOp>(op);
