@@ -1872,12 +1872,108 @@ class D2MScatterOpRewriter : public OpConversionPattern<ttir::ScatterOp> {
     for (int64_t i = 0; i < inputRank; ++i) {
       fullStartIndex.push_back(builder.create<mlir::arith::ConstantOp>(loc, builder.getIndexAttr(0)));
     }
+
     for (size_t dim = 0; dim < scatterDimsToOperandDims.size(); ++dim) {
       Value scatterDims = builder.create<mlir::arith::ConstantOp>(loc, builder.getIndexAttr(dim));
       fullStartIndex[scatterDimsToOperandDims[dim]] = builder.create<mlir::tensor::ExtractOp>(loc, startIndex.getResult(), ValueRange{scatterDims});
     }
-    
-    
+
+    /*
+    full_batching_index = [0] * inputs.ndim
+
+    for dim in range(inputs.shape[0]):
+        if dim in input_batching_dims:
+            batching_idx = input_batching_dims.index(dim)
+            start_dim = scatter_indices_batching_dims[batching_idx]
+
+            if start_dim < index_vector_dim:
+                index_value = update_scatter_index[start_dim]
+            else:
+                index_value = update_scatter_index[start_dim - 1]
+
+            full_batching_index[dim] = index_value
+        else:
+            full_batching_index[dim] = 0
+    */
+    SmallVector<Value> fullBatchingIndex;
+
+    for (int64_t i = 0; i < inputRank; ++i) {
+      fullBatchingIndex.push_back(builder.create<mlir::arith::ConstantOp>(loc, builder.getIndexAttr(0)));
+    }
+
+    for (int64_t dim = 0; dim < inputRank; ++dim) {
+      if (llvm::is_contained(inputBatchingDims, dim)) {
+        auto it = llvm::find(inputBatchingDims, dim);
+        int64_t batchingIdx = std::distance(inputBatchingDims.begin(), it);
+        int64_t startDim = scatterIndicesBatchingDims[batchingIdx];
+
+        if (startDim < indexVectorDim) {
+          fullBatchingIndex[dim] = updateScatterIndex[startDim];
+        } else {
+          fullBatchingIndex[dim] = updateScatterIndex[startDim - 1];
+        }
+      } else {
+        fullBatchingIndex[dim] = builder.create<mlir::arith::ConstantOp>(loc, builder.getIndexAttr(0));
+      }
+    }
+
+    /*
+    update_window_index = [update_index[d] for d in update_window_dims]
+    */
+    SmallVector<Value> updateWindowIndex;
+    for (int64_t dim : updateWindowDims) {
+      updateWindowIndex.push_back(update_index[dim]);
+    }
+
+    /*
+    zero_indices = set(inserted_window_dims) | set(input_batching_dims)
+    total_len = len(update_window_index) + len(zero_indices)
+
+    full_window_index = [
+        0 if i in zero_indices else update_window_index.pop(0)
+        for i in range(total_len)
+    ]
+    */
+
+    SmallVector<Value> fullWindowIndex;
+    size_t updateWindowIndexPos = 0;
+    size_t totalLen = updateWindowDims.size() + insertedWindowDims.size();
+
+    for (size_t i = 0; i < totalLen; ++i) {
+      if (llvm::is_contained(insertedWindowDims, static_cast<int32_t>(i)) ||
+          llvm::is_contained(inputBatchingDims, static_cast<int32_t>(i))) {
+        fullWindowIndex.push_back(builder.create<mlir::arith::ConstantOp>(loc, builder.getIndexAttr(0)));
+      } else {
+        fullWindowIndex.push_back(updateWindowIndex[updateWindowIndexPos++]);
+      }
+    }
+
+    /*
+    result_index = [
+        int(a) + int(b) + int(c) 
+        for a, b, c in zip(full_start_index, full_batching_index, full_window_index)
+    ]
+    */
+
+    SmallVector<Value> resultIndex;
+    for (int64_t i = 0; i < inputRank; ++i) {
+      Value sum1 = builder.create<mlir::arith::AddIOp>(loc, rewriter.getIndexType(), fullStartIndex[i], fullBatchingIndex[i]);
+      Value sum2 = builder.create<mlir::arith::AddIOp>(loc, rewriter.getIndexType(), sum1, fullWindowIndex[i]);
+      resultIndex.push_back(sum2);
+    }
+
+    ///*
+    //if is_index_in_bounds(output, result_index):
+    //    output[tuple(result_index)] = updates[i, j, k, a, b]
+    //*/
+    auto dmaOp = builder.create<d2m::DMAOp>(loc, updateWaitOp.getResult(), update_index, outputReserveOp.getResult(), resultIndex);
+    builder.create<d2m::DMAWaitOp>(loc, dmaOp);
+
+    builder.setInsertionPointToEnd(&block);
+
+    // This is crashing, I don't know why
+    //builder.create<d2m::YieldOp>(loc, outputReserveOp.getResult());
+
     rewriter.replaceOp(scatterOp, finalOutputToLayoutOp.getResult(0));
     return success();
   }
