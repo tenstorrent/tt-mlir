@@ -483,7 +483,7 @@ static bool isDefinedByOp(mlir::Value value) {
     return mlir::failure();
   }
 
-if (verifyOutputDimensions(this, inputDims, weightDims, biasDims, outputDims,
+  if (verifyOutputDimensions(this, inputDims, weightDims, biasDims, outputDims,
                              params)
           .failed()) {
     return mlir::failure();
@@ -524,25 +524,17 @@ bool mlir::tt::ttnn::Conv2dOp::isBiasCompatible(llvm::ArrayRef<int64_t> bias) {
   auto [inputDims, weightDims, biasDims] = getConv3dInputDims(this);
   auto outputDims = getConv3dOutputDims(this);
 
-  if (verifyConv3dInputDims(this, inputDims, weightDims, biasDims, params).failed()) {
+  if (verifyConv3dInputDims(this, inputDims, weightDims, biasDims, params)
+          .failed()) {
     return mlir::failure();
   }
 
-  if (verifyConv3dOutputDims(this, inputDims, weightDims, biasDims, outputDims,params).failed()) {
+  if (verifyConv3dOutputDims(this, inputDims, weightDims, outputDims, params)
+          .failed()) {
     return mlir::failure();
   }
 
   return mlir::success();
-}
-
-int64_t mlir::tt::ttnn::Conv3dOp::getOutputChannelSize() {
-  RankedTensorType weightTy = getWeight().getType();
-  return weightTy.getShape()[3]; // Weight shape: [1, 1, kD*kH*kW*C, O]
-}
-
-bool mlir::tt::ttnn::Conv3dOp::isBiasCompatible(llvm::ArrayRef<int64_t> bias) {
-  return bias[0] == 1 && bias[1] == 1 && bias[2] == 1 && bias[3] == 32 &&
-         bias[4] == getOutputChannelSize();
 }
 
 //===----------------------------------------------------------------------===//

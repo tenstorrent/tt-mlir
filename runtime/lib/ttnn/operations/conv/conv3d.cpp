@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: (c) 2024 Tenstorrent AI ULC
+// SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
 //
 // SPDX-License-Identifier: Apache-2.0
 
@@ -11,6 +11,34 @@
 #include "ttmlir/Target/TTNN/program_generated.h"
 #include "ttnn/types.hpp"
 
+namespace {
+::ttnn::operations::experimental::conv3d::Conv3dConfig
+createConv3dConfig(const ::tt::target::ttnn::Conv3dOp *op,
+                   const std::array<uint32_t, 3> &kernelSize,
+                   const std::array<uint32_t, 3> &stride,
+                   const std::array<uint32_t, 3> &padding,
+                   const std::optional<::ttnn::DataType> &outputDtype,
+                   ::ttnn::MeshDevice &targetDevice) {
+  ::ttnn::operations::experimental::conv3d::Conv3dConfig config;
+
+  config.dtype = outputDtype.value_or(::ttnn::DataType::BFLOAT16);
+  config.weights_dtype = ::ttnn::DataType::BFLOAT16;
+  config.output_layout = ::ttnn::Layout::ROW_MAJOR;
+
+  config.output_channels = op->out_channels();
+  config.kernel_size = kernelSize;
+  config.stride = stride;
+  config.padding = padding;
+  config.padding_mode = op->padding_mode()->str();
+  config.groups = op->groups();
+
+  config.compute_with_storage_grid_size =
+      targetDevice.compute_with_storage_grid_size();
+
+  return config;
+}
+} // namespace
+
 namespace tt::runtime::ttnn::operations::conv {
 void run(const ::tt::target::ttnn::Conv3dOp *op, ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
@@ -19,16 +47,15 @@ void run(const ::tt::target::ttnn::Conv3dOp *op, ProgramContext &context) {
   const ::ttnn::Tensor &weight =
       tensorPool.getTTNNTensorAndValidate(op->weight());
 
-  std::optional<::ttnn::Tensor> bias =
-      op->bias()
-          ? std::make_optional(tensorPool.getTTNNTensorAndValidate(op->bias()))
-          : std::nullopt;
+  std::optional<::ttnn::Tensor> bias;
+  if (const auto *bias_value = op->bias()) {
+    bias = tensorPool.getTTNNTensorAndValidate(bias_value);
+  }
 
   LOG_ASSERT(op->kernel_size()->size() == 3,
              "Kernel size expected to have 3 elements");
   LOG_ASSERT(op->stride()->size() == 3, "Stride expected to have 3 elements");
-  LOG_ASSERT(op->padding()->size() == 3,
-             "Padding expected to have 3 elements");
+  LOG_ASSERT(op->padding()->size() == 3, "Padding expected to have 3 elements");
 
   std::array<uint32_t, 3> kernelSize, stride, padding;
   std::copy_n(op->kernel_size()->begin(), 3, kernelSize.begin());
@@ -41,39 +68,15 @@ void run(const ::tt::target::ttnn::Conv3dOp *op, ProgramContext &context) {
         ::tt::runtime::ttnn::utils::toTTNNDataType(*(op->output_dtype()));
   }
 
-  ::ttnn::operations::experimental::conv3d::Conv3dConfig config;
-
-  // Data types
-  config.dtype = outputDtype.value_or(::ttnn::DataType::BFLOAT16);
-  config.weights_dtype = ::ttnn::DataType::BFLOAT16;
-  config.output_layout = ::ttnn::Layout::ROW_MAJOR;
-
-  // Blocking parameters - use defaults that work for most shapes
-  // 0 = auto-select optimal values based on tensor shapes
-  config.T_out_block = 1;
-  config.W_out_block = 1;
-  config.H_out_block = 1;
-  config.C_out_block = 0;
-  config.C_in_block = 0;
-
-  // Convolution parameters
-  config.output_channels = op->out_channels();
-  config.kernel_size = kernelSize;
-  config.stride = stride;
-  config.padding = padding;
-  config.padding_mode = op->padding_mode()->str();
-  config.groups = op->groups();
-
   ::ttnn::MeshDevice &targetDevice = context.getMeshDevice();
 
-  // Query device capabilities for grid size
-  config.compute_with_storage_grid_size =
-      targetDevice.compute_with_storage_grid_size();
+  auto config = createConv3dConfig(op, kernelSize, stride, padding, outputDtype,
+                                   targetDevice);
 
   std::optional<::ttnn::DeviceComputeKernelConfig> computeConfig;
-  if (op->compute_config()) {
+  if (const auto *compute_config_value = op->compute_config()) {
     computeConfig =
-        utils::createDeviceComputeKernelConfig(op->compute_config());
+        utils::createDeviceComputeKernelConfig(compute_config_value);
   }
 
   std::optional<::ttnn::MemoryConfig> outputMemoryConfig =

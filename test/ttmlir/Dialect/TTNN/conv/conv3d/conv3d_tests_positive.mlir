@@ -35,7 +35,6 @@ module {
   func.func @conv3d_with_bias(%arg0: tensor<1x8x28x28x4xbf16>, %arg1: tensor<16x4x3x3x3xbf16>, %arg2: tensor<1x1x1x1x16xbf16>) -> tensor<1x6x26x26x16xbf16> {
     %0 = ttir.empty() : tensor<1x6x26x26x16xbf16>
     // CHECK: "ttnn.reshape"
-    // CHECK: "ttnn.repeat"
     // CHECK: "ttnn.conv3d"
     %1 = "ttir.conv3d"(%arg0, %arg1, %arg2, %0)
             <{

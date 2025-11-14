@@ -737,25 +737,22 @@ createOp(FlatbufferObjectCache &cache, Conv3dOp op) {
   ::flatbuffers::Offset<::flatbuffers::Vector<int32_t>> padding =
       toFlatbuffer(cache, op.getPadding());
 
-  // Convert padding_mode string attribute
-  auto paddingModeStr = op.getPaddingMode();
-  auto paddingMode = cache.fbb->CreateString(paddingModeStr.str());
+  auto paddingMode = cache.fbb->CreateString(op.getPaddingMode().str());
 
   ::flatbuffers::Optional<::tt::target::DataType> outputDtype;
-  if (op.getDtype()) {
-    outputDtype = toFlatbuffer(cache, *op.getDtype());
+  if (auto dtype = op.getDtype()) {
+    outputDtype = toFlatbuffer(cache, *dtype);
   }
 
-  // Conv3dOp does not have a compute_config attribute in its MLIR definition
-  // (unlike Conv2dOp), so we always pass nullopt. The TTNN runtime handles
-  // null compute_config by using sensible defaults.
-  // TODO(future): Consider adding OptionalAttr<TTNN_DeviceComputeKernelConfig>
-  // to Conv3dOp in TTNNOps.td if performance tuning is needed.
   std::optional<
       ::flatbuffers::Offset<::tt::target::ttnn::DeviceComputeKernelConfig>>
-      computeConfig = std::nullopt;
+      computeConfig;
+  if (auto config = op.getComputeConfig()) {
+    computeConfig = toFlatbuffer(cache, *config);
+  }
 
-  auto memoryConfig = getMemoryConfigFromTensorTypeIfNeeded(cache, op.getResult());
+  auto memoryConfig =
+      getMemoryConfigFromTensorTypeIfNeeded(cache, op.getResult());
 
   return ::tt::target::ttnn::CreateConv3dOp(
       *cache.fbb, input, weight, bias, output,

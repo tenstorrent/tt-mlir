@@ -119,14 +119,14 @@ enum OutputDim : unsigned {
 
 // Weight is 2D: [kD*kH*kW*C_in, O]
 enum WeightDim : unsigned {
-  WEIGHT_FLATTENED = 0,  // kD*kH*kW*C_in (patch_size)
+  WEIGHT_FLATTENED = 0,  // kD*kH*kW*C_in/groups (patch_size)
   WEIGHT_OUT_CHANNEL = 1 // O (output channels)
 };
 
-// Bias is 2D: [32, O]
+// Bias is 2D: [1, O]
 enum BiasDim : unsigned {
-  BIAS_TILE_HEIGHT = 0,  // Must be 32 (tile height)
-  BIAS_OUT_CHANNEL = 1   // Must be O (output channels)
+  BIAS_FIRST_DIM = 0,  // Must be 1
+  BIAS_OUT_CHANNEL = 1 // Must be O (output channels)
 };
 
 struct InputTensorDims3d {
@@ -139,13 +139,14 @@ struct InputTensorDims3d {
 
 struct WeightTensorDims3d {
   int64_t outputChannels;
-  int64_t flattenedKernelChannels; // kD*kH*kW*C_in
+  int64_t flattenedKernelChannels; // kD*kH*kW*C_in/groups
   int64_t kernelDepth;
   int64_t kernelHeight;
   int64_t kernelWidth;
 };
 
 struct BiasTensorDims3d {
+  int64_t firstDim;
   int64_t outputChannels;
 };
 
@@ -385,22 +386,24 @@ mlir::LogicalResult verifyTensorRanks(mlir::tt::ttnn::Conv3dOp *op) {
     return op->emitOpError("input must be a 5D tensor [N, D, H, W, C]");
   }
   if (op->getWeight().getType().getRank() != 2) {
-    return op->emitOpError("weight must be a 2D tensor [kD*kH*kW*C, O]");
+    return op->emitOpError("weight must be a 2D tensor [kD*kH*kW*C/G, O]");
   }
   if (op->getBias() && op->getBias().getType().getRank() != 2) {
-    return op->emitOpError("bias must be a 2D tensor [32, O]");
+    return op->emitOpError("bias must be a 2D tensor [1, O]");
   }
   if (op->getResult().getType().getRank() != 5) {
-    return op->emitOpError("result must be a 5D tensor [N, D_out, H_out, W_out, O]");
+    return op->emitOpError(
+        "result must be a 5D tensor [N, D_out, H_out, W_out, O]");
   }
   return mlir::success();
 }
 
-std::tuple<InputTensorDims3d, WeightTensorDims3d, std::optional<BiasTensorDims3d>>
+std::tuple<InputTensorDims3d, WeightTensorDims3d,
+           std::optional<BiasTensorDims3d>>
 getConv3dInputDims(mlir::tt::ttnn::Conv3dOp *op) {
-  InputTensorDims3d inputDims = {
-      op->getBatchSize(), op->getInputDepth(), op->getInputHeight(),
-      op->getInputWidth(), op->getInChannels()};
+  InputTensorDims3d inputDims = {op->getBatchSize(), op->getInputDepth(),
+                                 op->getInputHeight(), op->getInputWidth(),
+                                 op->getInChannels()};
 
   WeightTensorDims3d weightDims = {
       op->getOutChannels(),
@@ -409,7 +412,8 @@ getConv3dInputDims(mlir::tt::ttnn::Conv3dOp *op) {
 
   std::optional<BiasTensorDims3d> biasDims;
   if (op->getBias()) {
-    biasDims = {op->getBias().getType().getDimSize(BIAS_OUT_CHANNEL)};
+    biasDims = {op->getBias().getType().getDimSize(BIAS_FIRST_DIM),
+                op->getBias().getType().getDimSize(BIAS_OUT_CHANNEL)};
   }
 
   return {inputDims, weightDims, biasDims};
@@ -435,9 +439,8 @@ getAndVerifyConv3dParams(mlir::tt::ttnn::Conv3dOp *op) {
 
   llvm::ArrayRef<int32_t> kernelSize = op->getKernelSize();
   if (kernelSize.size() != 3) {
-    return llvm::createStringError(
-        "kernel_size must have 3 values, got: " +
-        std::to_string(kernelSize.size()));
+    return llvm::createStringError("kernel_size must have 3 values, got: " +
+                                   std::to_string(kernelSize.size()));
   }
 
   if (!llvm::all_of(kernelSize, [](int32_t v) { return v >= 1; })) {
@@ -447,8 +450,8 @@ getAndVerifyConv3dParams(mlir::tt::ttnn::Conv3dOp *op) {
 
   llvm::ArrayRef<int32_t> stride = op->getStride();
   if (stride.size() != 3) {
-    return llvm::createStringError(
-        "stride must have 3 values, got: " + std::to_string(stride.size()));
+    return llvm::createStringError("stride must have 3 values, got: " +
+                                   std::to_string(stride.size()));
   }
   if (!llvm::all_of(stride, [](int32_t v) { return v >= 1; })) {
     return llvm::createStringError("stride values must be > 0, got: " +
@@ -457,8 +460,8 @@ getAndVerifyConv3dParams(mlir::tt::ttnn::Conv3dOp *op) {
 
   llvm::ArrayRef<int32_t> padding = op->getPadding();
   if (padding.size() != 3) {
-    return llvm::createStringError(
-        "padding must have 3 values, got: " + std::to_string(padding.size()));
+    return llvm::createStringError("padding must have 3 values, got: " +
+                                   std::to_string(padding.size()));
   }
   if (!llvm::all_of(padding, [](int32_t v) { return v >= 0; })) {
     return llvm::createStringError("padding values must be >= 0, got: " +
@@ -481,31 +484,23 @@ getAndVerifyConv3dParams(mlir::tt::ttnn::Conv3dOp *op) {
                       Spatial3DParam(padding), op->getGroups(), paddingMode};
 }
 
-::mlir::LogicalResult verifyConv3dInputDims(
-    mlir::tt::ttnn::Conv3dOp *op, const InputTensorDims3d &inputDims,
-    const WeightTensorDims3d &weightDims,
-    const std::optional<BiasTensorDims3d> &biasDims,
-    const Conv3dParams &params) {
-
-  // Verify bias shape constraints (2D: [32, O])
-  if (op->getBias()) {
-    auto biasShape = op->getBias().getType().getShape();
-    if (biasShape[BIAS_TILE_HEIGHT] != 32) {
-      return op->emitOpError("bias first dimension must be 32 (tile height), got ")
-             << biasShape[BIAS_TILE_HEIGHT];
-    }
-  }
+::mlir::LogicalResult
+verifyConv3dInputDims(mlir::tt::ttnn::Conv3dOp *op,
+                      const InputTensorDims3d &inputDims,
+                      const WeightTensorDims3d &weightDims,
+                      const std::optional<BiasTensorDims3d> &biasDims,
+                      const Conv3dParams &params) {
 
   if (inputDims.inputChannels % params.groups != 0) {
-    return op->emitOpError() << "in_channels (" << inputDims.inputChannels
-                             << ") must be divisible by groups ("
-                             << params.groups << ")";
+    return op->emitOpError()
+           << "in_channels (" << inputDims.inputChannels
+           << ") must be divisible by groups (" << params.groups << ")";
   }
 
   if (weightDims.outputChannels % params.groups != 0) {
-    return op->emitOpError() << "out_channels (" << weightDims.outputChannels
-                             << ") must be divisible by groups ("
-                             << params.groups << ")";
+    return op->emitOpError()
+           << "out_channels (" << weightDims.outputChannels
+           << ") must be divisible by groups (" << params.groups << ")";
   }
 
   int64_t expectedFlattenedDim =
@@ -513,18 +508,23 @@ getAndVerifyConv3dParams(mlir::tt::ttnn::Conv3dOp *op) {
       params.kernelSize.vertical * params.kernelSize.horizontal;
 
   if (expectedFlattenedDim != weightDims.flattenedKernelChannels) {
-    return op->emitOpError()
-           << "weight flattened dimension ("
-           << weightDims.flattenedKernelChannels
-           << ") must equal kD*kH*kW*C_in/groups (" << expectedFlattenedDim
-           << ")";
+    return op->emitOpError() << "weight flattened dimension ("
+                             << weightDims.flattenedKernelChannels
+                             << ") must equal kD*kH*kW*C_in/groups ("
+                             << expectedFlattenedDim << ")";
   }
 
-  if (biasDims && biasDims->outputChannels != weightDims.outputChannels) {
-    return op->emitOpError() << "bias output channels ("
-                             << biasDims->outputChannels
-                             << ") must match weight output channels ("
-                             << weightDims.outputChannels << ")";
+  if (biasDims) {
+    if (biasDims->outputChannels != weightDims.outputChannels) {
+      return op->emitOpError()
+             << "bias output channels (" << biasDims->outputChannels
+             << ") must match weight output channels ("
+             << weightDims.outputChannels << ")";
+    }
+    if (biasDims->firstDim != 1) {
+      return op->emitOpError("bias first dimension must be 1, got ")
+             << biasDims->firstDim;
+    }
   }
 
   return mlir::success();
@@ -532,54 +532,54 @@ getAndVerifyConv3dParams(mlir::tt::ttnn::Conv3dOp *op) {
 
 ::mlir::LogicalResult verifyConv3dOutputDims(
     mlir::tt::ttnn::Conv3dOp *op, const InputTensorDims3d &inputDims,
-    const WeightTensorDims3d &weightDims,
-    const std::optional<BiasTensorDims3d> &biasDims,
-    const OutputTensorDims3d &outputDims, const Conv3dParams &params) {
+    const WeightTensorDims3d &weightDims, const OutputTensorDims3d &outputDims,
+    const Conv3dParams &params) {
 
-  int32_t calculatedDOut =
-      (inputDims.inputDepth + 2 * params.padding.depth -
-       params.kernelSize.depth) /
-          params.stride.depth + 1;
+  int32_t calculatedDOut = (inputDims.inputDepth + 2 * params.padding.depth -
+                            params.kernelSize.depth) /
+                               params.stride.depth +
+                           1;
 
   int32_t calculatedHOut =
       (inputDims.inputHeight + 2 * params.padding.vertical -
        params.kernelSize.vertical) /
-          params.stride.vertical + 1;
+          params.stride.vertical +
+      1;
 
   int32_t calculatedWOut =
       (inputDims.inputWidth + 2 * params.padding.horizontal -
        params.kernelSize.horizontal) /
-          params.stride.horizontal + 1;
+          params.stride.horizontal +
+      1;
 
   if (outputDims.batchSize != inputDims.batchSize) {
-    return op->emitOpError() << "output batch size (" << outputDims.batchSize
-                             << ") must match input batch size ("
-                             << inputDims.batchSize << ")";
+    return op->emitOpError()
+           << "output batch size (" << outputDims.batchSize
+           << ") must match input batch size (" << inputDims.batchSize << ")";
   }
 
   if (outputDims.outputDepth != calculatedDOut) {
-    return op->emitOpError() << "output depth (" << outputDims.outputDepth
-                             << ") does not match calculated depth ("
-                             << calculatedDOut << ")";
+    return op->emitOpError()
+           << "output depth (" << outputDims.outputDepth
+           << ") does not match calculated depth (" << calculatedDOut << ")";
   }
 
   if (outputDims.outputHeight != calculatedHOut) {
-    return op->emitOpError() << "output height (" << outputDims.outputHeight
-                             << ") does not match calculated height ("
-                             << calculatedHOut << ")";
+    return op->emitOpError()
+           << "output height (" << outputDims.outputHeight
+           << ") does not match calculated height (" << calculatedHOut << ")";
   }
 
   if (outputDims.outputWidth != calculatedWOut) {
-    return op->emitOpError() << "output width (" << outputDims.outputWidth
-                             << ") does not match calculated width ("
-                             << calculatedWOut << ")";
+    return op->emitOpError()
+           << "output width (" << outputDims.outputWidth
+           << ") does not match calculated width (" << calculatedWOut << ")";
   }
 
   if (outputDims.outputChannels != weightDims.outputChannels) {
-    return op->emitOpError()
-           << "output channels (" << outputDims.outputChannels
-           << ") must match weight output channels ("
-           << weightDims.outputChannels << ")";
+    return op->emitOpError() << "output channels (" << outputDims.outputChannels
+                             << ") must match weight output channels ("
+                             << weightDims.outputChannels << ")";
   }
 
   return mlir::success();

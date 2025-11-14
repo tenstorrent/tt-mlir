@@ -722,7 +722,6 @@ mlir::LogicalResult verifyPool2dParams(PoolOp *op, const Pool2dParams &params) {
   return mlir::success();
 }
 
-
 inline std::tuple<InputTensorDims3d, WeightTensorDims3d,
                   std::optional<BiasTensorDims3d>>
 getConv3dInputDims(mlir::tt::ttir::Conv3dOp *op) {
@@ -736,8 +735,10 @@ getConv3dInputDims(mlir::tt::ttir::Conv3dOp *op) {
 
   auto weightType = op->getWeight().getType();
   WeightTensorDims3d weightDims = {
-      weightType.getDimSize(llvm::to_underlying(WeightDim3d::WEIGHT_OUT_CHANNEL)),
-      weightType.getDimSize(llvm::to_underlying(WeightDim3d::WEIGHT_IN_CHANNEL)),
+      weightType.getDimSize(
+          llvm::to_underlying(WeightDim3d::WEIGHT_OUT_CHANNEL)),
+      weightType.getDimSize(
+          llvm::to_underlying(WeightDim3d::WEIGHT_IN_CHANNEL)),
       weightType.getDimSize(
           llvm::to_underlying(WeightDim3d::WEIGHT_KERNEL_DEPTH)),
       weightType.getDimSize(
@@ -773,15 +774,13 @@ inline OutputTensorDims3d getConv3dOutputDims(mlir::tt::ttir::Conv3dOp *op) {
 
 inline llvm::Expected<Conv3dParams>
 getConv3dParams(mlir::tt::ttir::Conv3dOp *op) {
-  auto stride = ttmlir::utils::getTripleOfInteger<int32_t>(
-      op->getStride());
+  auto stride = ttmlir::utils::getTripleOfInteger<int32_t>(op->getStride());
   if (!stride) {
     return llvm::createStringError(llvm::toString(stride.takeError()) +
                                    " for stride");
   }
 
-  auto padding = ttmlir::utils::getTripleOfInteger<int32_t>(
-      op->getPadding());
+  auto padding = ttmlir::utils::getTripleOfInteger<int32_t>(op->getPadding());
   if (!padding) {
     return llvm::createStringError(llvm::toString(padding.takeError()) +
                                    " for padding");
@@ -815,11 +814,12 @@ inline mlir::LogicalResult verifyConv3dParams(mlir::tt::ttir::Conv3dOp *op,
   return mlir::success();
 }
 
-inline ::mlir::LogicalResult verifyConv3dInputDims(
-    mlir::tt::ttir::Conv3dOp *op, const InputTensorDims3d &inputDims,
-    const WeightTensorDims3d &weightDims,
-    const std::optional<BiasTensorDims3d> &biasDims,
-    const Conv3dParams &params) {
+inline ::mlir::LogicalResult
+verifyConv3dInputDims(mlir::tt::ttir::Conv3dOp *op,
+                      const InputTensorDims3d &inputDims,
+                      const WeightTensorDims3d &weightDims,
+                      const std::optional<BiasTensorDims3d> &biasDims,
+                      const Conv3dParams &params) {
 
   if (inputDims.inputChannels % params.groups != 0) {
     return op->emitOpError()
@@ -871,13 +871,11 @@ inline ::mlir::LogicalResult verifyConv3dInputDims(
   return mlir::success();
 }
 
-inline ::mlir::LogicalResult
-verifyOutputDimensions(mlir::tt::ttir::Conv3dOp *op,
-                       const InputTensorDims3d &inputDims,
-                       const WeightTensorDims3d &weightDims,
-                       const std::optional<BiasTensorDims3d> &biasDims,
-                       const OutputTensorDims3d &outputDims,
-                       const Conv3dParams &params) {
+inline ::mlir::LogicalResult verifyOutputDimensions(
+    mlir::tt::ttir::Conv3dOp *op, const InputTensorDims3d &inputDims,
+    const WeightTensorDims3d &weightDims,
+    const std::optional<BiasTensorDims3d> &biasDims,
+    const OutputTensorDims3d &outputDims, const Conv3dParams &params) {
 
   // Conv3d doesn't currently support dilation, so we use this formula:
   // D_out = (D_in + 2*pD - K_D) / sD + 1
@@ -887,10 +885,11 @@ verifyOutputDimensions(mlir::tt::ttir::Conv3dOp *op,
                             weightDims.kernelDepth) /
                                params.stride.depth +
                            1;
-  int32_t calculatedHOut = (inputDims.inputHeight + 2 * params.padding.vertical -
-                            weightDims.kernelHeight) /
-                               params.stride.vertical +
-                           1;
+  int32_t calculatedHOut =
+      (inputDims.inputHeight + 2 * params.padding.vertical -
+       weightDims.kernelHeight) /
+          params.stride.vertical +
+      1;
   int32_t calculatedWOut =
       (inputDims.inputWidth + 2 * params.padding.horizontal -
        weightDims.kernelWidth) /

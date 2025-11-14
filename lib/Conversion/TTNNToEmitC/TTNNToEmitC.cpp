@@ -1395,6 +1395,12 @@ public:
   using TTNNToEmitCBaseOpConversionPattern<
       mlir::tt::ttnn::Conv3dOp>::TTNNToEmitCBaseOpConversionPattern;
 
+  std::string getPrefixSearchPattern() const override { return "ttnn.conv3d"; }
+
+  std::string getPrefixSwapPattern() const override {
+    return "ttnn::experimental::conv3d";
+  }
+
   LogicalResult
   matchAndRewrite(mlir::tt::ttnn::Conv3dOp srcOp,
                   mlir::tt::ttnn::Conv3dOp::Adaptor adaptor,
@@ -1420,7 +1426,9 @@ public:
         emitter.emit(srcOp.getGroups()),
         emitter.emit(srcOp.getDtype()),
         emitter.emit(srcOp.getBias()),
-        /*compute_config=*/emitter.emit(std::nullopt),
+        /*compute_config=*/
+        emitter.emit(std::nullopt), // TODO(@vkovinicTT): Add EmitC support for
+                                    // DeviceComputeKernelConfigAttr
         emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
     };
 
