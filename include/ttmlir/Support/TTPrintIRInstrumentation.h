@@ -7,6 +7,7 @@
 
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/Pass/PassInstrumentation.h"
+#include "mlir/Pass/PassManager.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include <atomic>
 #include <fstream>
@@ -122,6 +123,15 @@ private:
   DumpLevel level_;              ///< Level of instrumentation detail
   bool debug_;                   ///< Enable debug output
 };
+
+//===--------------------------------------------------------------------===//
+// Convenience Functions
+//===--------------------------------------------------------------------===//
+
+/// Convenience function for adding TTPrintIRInstrumentation to a PassManager
+void addTTPrintIRInstrumentation(
+    PassManager &pm,
+    TTPrintIRInstrumentation::TTPrintIRInstrumentationOptions options = {});
 
 } // namespace mlir::tt
 

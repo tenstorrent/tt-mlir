@@ -294,4 +294,14 @@ void TTPrintIRInstrumentation::clearDirectory(
   std::filesystem::create_directories(targetDir);
 }
 
+//===--------------------------------------------------------------------===//
+// Convenience Functions
+//===--------------------------------------------------------------------===//
+
+void addTTPrintIRInstrumentation(
+    PassManager &pm,
+    TTPrintIRInstrumentation::TTPrintIRInstrumentationOptions options) {
+  pm.addInstrumentation(std::make_unique<TTPrintIRInstrumentation>(options));
+}
+
 } // namespace mlir::tt
