@@ -2455,16 +2455,16 @@ def TTNN_PointToPointOp: TTNN_Op<"point_to_point"> {
     distributed tensor computations, where a specific device (send_coord) sends its local tensor
     data to a target device (receive_coord).
 
-    If `accum_tensor` is not provided, a new output tensor will be allocated automatically
-    at the receiver. If provided, the data will be written into the specified accum tensor.
+    If `optional_output_tensor` is not provided, a new output tensor will be allocated automatically
+    at the receiver. If provided, the data will be written into the specified output tensor.
 
     The operation returns a multi-device tensor whose buffer layout follows the mesh configuration.
   }];
 
   let arguments = (ins AnyRankedTensor:$input,
-                         DenseI64ArrayAttr:$send_coord,
-                         DenseI64ArrayAttr:$receive_coord,
-                         Optional<AnyRankedTensor>:$accum_tensor);
+                         DenseI64ArrayAttr:$sender_coord,
+                         DenseI64ArrayAttr:$receiver_coord,
+                         Arg<Optional<AnyRankedTensor>, "optional output tensor", [MemWrite]>:$optional_output_tensor);
   let results = (outs AnyRankedTensor:$result);
   let hasVerifier = 1;
 }

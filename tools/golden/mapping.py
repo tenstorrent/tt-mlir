@@ -2714,6 +2714,9 @@ def constant_golden(**kwargs) -> GoldenMapTensor:
         Constant tensor
     """
     value = kwargs.get("value", [1])
+    # Convert value to torch tensor if it's not already one
+    if not isinstance(value, torch.Tensor):
+        value = torch.tensor(value)
     return GoldenMapTensor({0: value}, (1, 1))
 
 
