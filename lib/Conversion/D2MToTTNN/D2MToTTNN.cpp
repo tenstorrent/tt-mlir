@@ -198,18 +198,22 @@ public:
         ttnn::KernelCBAddressAttr cbAddress;
         if (llvm::isa<memref::AllocOp>(cb.getDefiningOp())) {
           auto memrefOp = mlir::cast<memref::AllocOp>(cb.getDefiningOp());
-          cbAddress = ttnn::KernelCBAddressAttr::get(ctx, memrefOp->getAttrOfType<IntegerAttr>("address").getInt());
+          cbAddress = ttnn::KernelCBAddressAttr::get(
+              ctx, memrefOp->getAttrOfType<IntegerAttr>("address").getInt());
         } else if (llvm::isa<d2m::StreamLayoutOp>(cb.getDefiningOp())) {
-          auto streamLayoutOp = mlir::cast<d2m::StreamLayoutOp>(cb.getDefiningOp());
-          auto memrefOp = mlir::cast<memref::AllocOp>(streamLayoutOp.getStorage().getDefiningOp());
-          cbAddress = ttnn::KernelCBAddressAttr::get(ctx, memrefOp->getAttrOfType<IntegerAttr>("address").getInt());
+          auto streamLayoutOp =
+              mlir::cast<d2m::StreamLayoutOp>(cb.getDefiningOp());
+          auto memrefOp = mlir::cast<memref::AllocOp>(
+              streamLayoutOp.getStorage().getDefiningOp());
+          cbAddress = ttnn::KernelCBAddressAttr::get(
+              ctx, memrefOp->getAttrOfType<IntegerAttr>("address").getInt());
         } else {
-          llvm_unreachable("Expected memref::AllocOp or d2m::StreamLayoutOp as defining op.");
+          llvm_unreachable("Expected memref::AllocOp or d2m::StreamLayoutOp as "
+                           "defining op.");
         }
-        cbDescriptor =
-          ttnn::KernelCBAttr::get(ctx, numPages * pageSize, coreRangeSet,
-                                  {cbFormat}, cbAddress);
-      } else{
+        cbDescriptor = ttnn::KernelCBAttr::get(
+            ctx, numPages * pageSize, coreRangeSet, {cbFormat}, cbAddress);
+      } else {
         // If not a memref or not streamed
         ttnn::KernelCBGlobalBufferAddressOfTensorAttr globalCBIndexOfTensor;
 
@@ -219,8 +223,8 @@ public:
         globalCBIndexOfTensor =
             ttnn::KernelCBGlobalBufferAddressOfTensorAttr::get(ctx, i);
         cbDescriptor =
-          ttnn::KernelCBAttr::get(ctx, numPages * pageSize, coreRangeSet,
-                                  {cbFormat}, globalCBIndexOfTensor);
+            ttnn::KernelCBAttr::get(ctx, numPages * pageSize, coreRangeSet,
+                                    {cbFormat}, globalCBIndexOfTensor);
       }
       cbDescriptors[i] = cbDescriptor;
     }
