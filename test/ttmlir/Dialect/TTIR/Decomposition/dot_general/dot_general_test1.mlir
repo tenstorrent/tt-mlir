@@ -6,7 +6,7 @@ module @jit_dot_general {
     // CHECK: "ttir.permute"
     // CHECK: {permutation = array<i64: 1, 0>}> : (tensor<127x1xf32>, tensor<1x127xf32>) -> tensor<1x127xf32>
     // CHECK: "ttir.matmul"
-    // CHECK: (tensor<1x127xf32>, tensor<127x2xf32>, tensor<1x2xf32>) -> tensor<1x2xf32>
+    // CHECK: (tensor<1x127xf32>, tensor<127x2xf32>) -> tensor<1x2xf32>
     return %0 : tensor<1x2xf32>
   }
 }

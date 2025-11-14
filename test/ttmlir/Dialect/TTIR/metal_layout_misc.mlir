@@ -101,7 +101,7 @@ func.func @add_4d_all_unaligned(%arg0: tensor<2x3x5x193xf32>, %arg1: tensor<2x3x
     // CHECK-DAG: = "ttmetal.create_buffer"{{.*}} : () -> memref<6x7x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>
     %0 = ttir.empty() : tensor<2x3x5x193xf32>
     // CHECK: "ttmetal.enqueue_program"
-    %1 = "ttir.add"(%arg0, %arg1, %0) : (tensor<2x3x5x193xf32>, tensor<2x3x5x193xf32>, tensor<2x3x5x193xf32>) -> tensor<2x3x5x193xf32>
+    %1 = "ttir.add"(%arg0, %arg1) : (tensor<2x3x5x193xf32>, tensor<2x3x5x193xf32>) -> tensor<2x3x5x193xf32>
     // CHECK: "ttmetal.enqueue_read_buffer"
     // CHECK: "ttmetal.finish"
     return %1 : tensor<2x3x5x193xf32>

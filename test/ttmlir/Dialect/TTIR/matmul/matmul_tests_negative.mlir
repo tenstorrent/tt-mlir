@@ -79,8 +79,7 @@ module {
 module {
   func.func @matmul_negative_2d_transpose_2d_inner_dimension_mismatch(%arg0: tensor<128x64xbf16>, %arg1: tensor<64x128xbf16>) -> tensor<128x128xbf16> {
     // CHECK: error: 'ttir.matmul' op Input A[-1](128) and B[-2](64) must have matching inner dimensions
-    %0 = ttir.empty() : tensor<128x128xbf16>
-    %1 = "ttir.matmul"(%arg0, %arg1, %0) <{transpose_a = true}> : (tensor<128x64xbf16>, tensor<64x128xbf16>, tensor<128x128xbf16>) -> tensor<128x128xbf16>
+    %1 = "ttir.matmul"(%arg0, %arg1) <{transpose_a = true}> : (tensor<128x64xbf16>, tensor<64x128xbf16>) -> tensor<128x128xbf16>
     return %1 : tensor<128x128xbf16>
   }
 }
@@ -89,8 +88,7 @@ module {
 module {
   func.func @matmul_negative_2d_2d_transpose_inner_dimension_mismatch(%arg0: tensor<64x128xbf16>, %arg1: tensor<128x64xbf16>) -> tensor<64x64xbf16> {
     // CHECK: error: 'ttir.matmul' op Input A[-1](128) and B[-2](64) must have matching inner dimensions
-    %0 = ttir.empty() : tensor<64x64xbf16>
-    %1 = "ttir.matmul"(%arg0, %arg1, %0) <{transpose_b = true}> : (tensor<64x128xbf16>, tensor<128x64xbf16>, tensor<64x64xbf16>) -> tensor<64x64xbf16>
+    %1 = "ttir.matmul"(%arg0, %arg1) <{transpose_b = true}> : (tensor<64x128xbf16>, tensor<128x64xbf16>) -> tensor<64x64xbf16>
     return %1 : tensor<64x64xbf16>
   }
 }
@@ -156,8 +154,7 @@ module {
 module {
   func.func @matmul_negative_2d_transpose_2d_output_shape_mismatch(%arg0: tensor<128x64xbf16>, %arg1: tensor<128x64xbf16>) -> tensor<128x128xbf16> {
     // CHECK: error: 'ttir.matmul' op Output shape dimension[0](128) doesn't match the expected output shape dimension[0](64)
-    %0 = ttir.empty() : tensor<128x128xbf16>
-    %1 = "ttir.matmul"(%arg0, %arg1, %0) <{transpose_a = true}> : (tensor<128x64xbf16>, tensor<128x64xbf16>, tensor<128x128xbf16>) -> tensor<128x128xbf16>
+    %1 = "ttir.matmul"(%arg0, %arg1) <{transpose_a = true}> : (tensor<128x64xbf16>, tensor<128x64xbf16>) -> tensor<128x128xbf16>
     return %1 : tensor<128x128xbf16>
   }
 }
@@ -166,7 +163,7 @@ module {
 module {
   func.func @matmul_negative_2d_2d_transpose_output_shape_mismatch(%arg0: tensor<64x128xbf16>, %arg1: tensor<64x128xbf16>) -> tensor<128x128xbf16> {
     // CHECK: error: 'ttir.matmul' op Output shape dimension[0](128) doesn't match the expected output shape dimension[0](64)
-    %1 = "ttir.matmul"(%arg0, %arg1, %0) <{transpose_b = true}> : (tensor<64x128xbf16>, tensor<64x128xbf16>, tensor<128x128xbf16>) -> tensor<128x128xbf16>
+    %1 = "ttir.matmul"(%arg0, %arg1) <{transpose_b = true}> : (tensor<64x128xbf16>, tensor<64x128xbf16>) -> tensor<128x128xbf16>
     return %1 : tensor<128x128xbf16>
   }
 }

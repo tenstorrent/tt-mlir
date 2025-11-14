@@ -30,34 +30,20 @@ module @scatter_fill_cache{
     %16 = "ttir.arange"() <{arange_dimension = 0 : i64, end = 1 : si64, start = 0 : si64, step = 1 : si64}> : () -> tensor<1xi64>
     %18 = "ttir.multiply"(%16, %1) : (tensor<1xi64>, tensor<1xi64>) -> tensor<1xi64>
     %20 = "ttir.add"(%18) : (tensor<1xi64>) -> tensor<1xi64>
-    %21 = ttir.empty() : tensor<1x1x1x1xi64>
-    %22 = "ttir.reshape"(%20, %21) <{shape = [1 : i32, 1 : i32, 1 : i32, 1 : i32]}> : (tensor<1xi64>, tensor<1x1x1x1xi64>) -> tensor<1x1x1x1xi64>
-    %23 = ttir.empty() : tensor<1x8x15x128xi64>
-    %24 = "ttir.broadcast"(%22, %23) <{broadcast_dimensions = array<i64: 1, 8, 15, 128>}> : (tensor<1x1x1x1xi64>, tensor<1x8x15x128xi64>) -> tensor<1x8x15x128xi64>
-    %25 = ttir.empty() : tensor<1x8x15x128x1xi64>
-    %26 = "ttir.reshape"(%24, %25) <{shape = [1 : i32, 8 : i32, 15 : i32, 128 : i32, 1 : i32]}> : (tensor<1x8x15x128xi64>, tensor<1x8x15x128x1xi64>) -> tensor<1x8x15x128x1xi64>
-    %27 = ttir.empty() : tensor<1x8x1x1xi64>
-    %28 = "ttir.reshape"(%15, %27) <{shape = [1 : i32, 8 : i32, 1 : i32, 1 : i32]}> : (tensor<8xi64>, tensor<1x8x1x1xi64>) -> tensor<1x8x1x1xi64>
-    %29 = ttir.empty() : tensor<1x8x15x128xi64>
-    %30 = "ttir.broadcast"(%28, %29) <{broadcast_dimensions = array<i64: 1, 1, 15, 128>}> : (tensor<1x8x1x1xi64>, tensor<1x8x15x128xi64>) -> tensor<1x8x15x128xi64>
-    %31 = ttir.empty() : tensor<1x8x15x128x1xi64>
-    %32 = "ttir.reshape"(%30, %31) <{shape = [1 : i32, 8 : i32, 15 : i32, 128 : i32, 1 : i32]}> : (tensor<1x8x15x128xi64>, tensor<1x8x15x128x1xi64>) -> tensor<1x8x15x128x1xi64>
-    %33 = ttir.empty() : tensor<1x1x15x1xi64>
-    %34 = "ttir.reshape"(%arg1, %33) <{shape = [1 : i32, 1 : i32, 15 : i32, 1 : i32]}> : (tensor<15xi64>, tensor<1x1x15x1xi64>) -> tensor<1x1x15x1xi64>
-    %35 = ttir.empty() : tensor<1x8x15x128xi64>
-    %36 = "ttir.broadcast"(%34, %35) <{broadcast_dimensions = array<i64: 1, 8, 1, 128>}> : (tensor<1x1x15x1xi64>, tensor<1x8x15x128xi64>) -> tensor<1x8x15x128xi64>
-    %37 = ttir.empty() : tensor<1x8x15x128x1xi64>
-    %38 = "ttir.reshape"(%36, %37) <{shape = [1 : i32, 8 : i32, 15 : i32, 128 : i32, 1 : i32]}> : (tensor<1x8x15x128xi64>, tensor<1x8x15x128x1xi64>) -> tensor<1x8x15x128x1xi64>
-    %39 = ttir.empty() : tensor<1x1x1x128xi64>
-    %40 = "ttir.reshape"(%10, %39) <{shape = [1 : i32, 1 : i32, 1 : i32, 128 : i32]}> : (tensor<128xi64>, tensor<1x1x1x128xi64>) -> tensor<1x1x1x128xi64>
-    %41 = ttir.empty() : tensor<1x8x15x128xi64>
-    %42 = "ttir.broadcast"(%40, %41) <{broadcast_dimensions = array<i64: 1, 8, 15, 1>}> : (tensor<1x1x1x128xi64>, tensor<1x8x15x128xi64>) -> tensor<1x8x15x128xi64>
-    %43 = ttir.empty() : tensor<1x8x15x128x1xi64>
-    %44 = "ttir.reshape"(%42, %43) <{shape = [1 : i32, 8 : i32, 15 : i32, 128 : i32, 1 : i32]}> : (tensor<1x8x15x128xi64>, tensor<1x8x15x128x1xi64>) -> tensor<1x8x15x128x1xi64>
-    %45 = ttir.empty() : tensor<1x8x15x128x4xi64>
-    %46 = "ttir.concat"(%26, %32, %38, %44, %45) <{dim = 4 : si32}> : (tensor<1x8x15x128x1xi64>, tensor<1x8x15x128x1xi64>, tensor<1x8x15x128x1xi64>, tensor<1x8x15x128x1xi64>, tensor<1x8x15x128x4xi64>) -> tensor<1x8x15x128x4xi64>
-    %47 = ttir.empty() : tensor<1x8x64x128xbf16>
-    %48 = "ttir.scatter"(%arg0, %46, %arg2, %47) <{index_vector_dim = 4 : i32, indices_are_sorted = false, input_batching_dims = array<i32>, inserted_window_dims = array<i32: 0, 1, 2, 3>, scatter_dims_to_operand_dims = array<i32: 0, 1, 2, 3>, scatter_indices_batching_dims = array<i32>, unique_indices = false, update_window_dims = array<i32>}> : (tensor<1x8x64x128xbf16>, tensor<1x8x15x128x4xi64>, tensor<1x8x15x128xbf16>, tensor<1x8x64x128xbf16>) -> tensor<1x8x64x128xbf16>
+    %22 = "ttir.reshape"(%20) <{shape = [1 : i32, 1 : i32, 1 : i32, 1 : i32]}> : (tensor<1xi64>) -> tensor<1x1x1x1xi64>
+    %24 = "ttir.broadcast"(%22) <{broadcast_dimensions = array<i64: 1, 8, 15, 128>}> : (tensor<1x1x1x1xi64>) -> tensor<1x8x15x128xi64>
+    %26 = "ttir.reshape"(%24) <{shape = [1 : i32, 8 : i32, 15 : i32, 128 : i32, 1 : i32]}> : (tensor<1x8x15x128xi64>) -> tensor<1x8x15x128x1xi64>
+    %28 = "ttir.reshape"(%15) <{shape = [1 : i32, 8 : i32, 1 : i32, 1 : i32]}> : (tensor<8xi64>) -> tensor<1x8x1x1xi64>
+    %30 = "ttir.broadcast"(%28) <{broadcast_dimensions = array<i64: 1, 1, 15, 128>}> : (tensor<1x8x1x1xi64>) -> tensor<1x8x15x128xi64>
+    %32 = "ttir.reshape"(%30) <{shape = [1 : i32, 8 : i32, 15 : i32, 128 : i32, 1 : i32]}> : (tensor<1x8x15x128xi64>) -> tensor<1x8x15x128x1xi64>
+    %34 = "ttir.reshape"(%arg1) <{shape = [1 : i32, 1 : i32, 15 : i32, 1 : i32]}> : (tensor<15xi64>) -> tensor<1x1x15x1xi64>
+    %36 = "ttir.broadcast"(%34) <{broadcast_dimensions = array<i64: 1, 8, 1, 128>}> : (tensor<1x1x15x1xi64>) -> tensor<1x8x15x128xi64>
+    %38 = "ttir.reshape"(%36) <{shape = [1 : i32, 8 : i32, 15 : i32, 128 : i32, 1 : i32]}> : (tensor<1x8x15x128xi64>) -> tensor<1x8x15x128x1xi64>
+    %40 = "ttir.reshape"(%10) <{shape = [1 : i32, 1 : i32, 1 : i32, 128 : i32]}> : (tensor<128xi64>) -> tensor<1x1x1x128xi64>
+    %42 = "ttir.broadcast"(%40) <{broadcast_dimensions = array<i64: 1, 8, 15, 1>}> : (tensor<1x1x1x128xi64>) -> tensor<1x8x15x128xi64>
+    %44 = "ttir.reshape"(%42) <{shape = [1 : i32, 8 : i32, 15 : i32, 128 : i32, 1 : i32]}> : (tensor<1x8x15x128xi64>) -> tensor<1x8x15x128x1xi64>
+    %46 = "ttir.concat"(%26, %32, %38, %44) <{dim = 4 : si32}> : (tensor<1x8x15x128x1xi64>, tensor<1x8x15x128x1xi64>, tensor<1x8x15x128x1xi64>, tensor<1x8x15x128x1xi64>) -> tensor<1x8x15x128x4xi64>
+    %48 = "ttir.scatter"(%arg0, %46, %arg2) <{index_vector_dim = 4 : i32, indices_are_sorted = false, input_batching_dims = array<i32>, inserted_window_dims = array<i32: 0, 1, 2, 3>, scatter_dims_to_operand_dims = array<i32: 0, 1, 2, 3>, scatter_indices_batching_dims = array<i32>, unique_indices = false, update_window_dims = array<i32>}> : (tensor<1x8x64x128xbf16>, tensor<1x8x15x128x4xi64>, tensor<1x8x15x128xbf16>) -> tensor<1x8x64x128xbf16>
     return %48 : tensor<1x8x64x128xbf16>
   }
 }
@@ -91,34 +77,20 @@ module @scatter_update_cache{
     %16 = "ttir.arange"() <{arange_dimension = 0 : i64, end = 1 : si64, start = 0 : si64, step = 1 : si64}> : () -> tensor<1xi64>
     %18 = "ttir.multiply"(%16, %1) : (tensor<1xi64>, tensor<1xi64>) -> tensor<1xi64>
     %20 = "ttir.add"(%18) : (tensor<1xi64>) -> tensor<1xi64>
-    %21 = ttir.empty() : tensor<1x1x1x1xi64>
-    %22 = "ttir.reshape"(%20, %21) <{shape = [1 : i32, 1 : i32, 1 : i32, 1 : i32]}> : (tensor<1xi64>, tensor<1x1x1x1xi64>) -> tensor<1x1x1x1xi64>
-    %23 = ttir.empty() : tensor<1x8x1x128xi64>
-    %24 = "ttir.broadcast"(%22, %23) <{broadcast_dimensions = array<i64: 1, 8, 1, 128>}> : (tensor<1x1x1x1xi64>, tensor<1x8x1x128xi64>) -> tensor<1x8x1x128xi64>
-    %25 = ttir.empty() : tensor<1x8x1x128x1xi64>
-    %26 = "ttir.reshape"(%24, %25) <{shape = [1 : i32, 8 : i32, 1 : i32, 128 : i32, 1 : i32]}> : (tensor<1x8x1x128xi64>, tensor<1x8x1x128x1xi64>) -> tensor<1x8x1x128x1xi64>
-    %27 = ttir.empty() : tensor<1x8x1x1xi64>
-    %28 = "ttir.reshape"(%15, %27) <{shape = [1 : i32, 8 : i32, 1 : i32, 1 : i32]}> : (tensor<8xi64>, tensor<1x8x1x1xi64>) -> tensor<1x8x1x1xi64>
-    %29 = ttir.empty() : tensor<1x8x1x128xi64>
-    %30 = "ttir.broadcast"(%28, %29) <{broadcast_dimensions = array<i64: 1, 1, 1, 128>}> : (tensor<1x8x1x1xi64>, tensor<1x8x1x128xi64>) -> tensor<1x8x1x128xi64>
-    %31 = ttir.empty() : tensor<1x8x1x128x1xi64>
-    %32 = "ttir.reshape"(%30, %31) <{shape = [1 : i32, 8 : i32, 1 : i32, 128 : i32, 1 : i32]}> : (tensor<1x8x1x128xi64>, tensor<1x8x1x128x1xi64>) -> tensor<1x8x1x128x1xi64>
-    %33 = ttir.empty() : tensor<1x1x1x1xi64>
-    %34 = "ttir.reshape"(%arg1, %33) <{shape = [1 : i32, 1 : i32, 1 : i32, 1 : i32]}> : (tensor<1xi64>, tensor<1x1x1x1xi64>) -> tensor<1x1x1x1xi64>
-    %35 = ttir.empty() : tensor<1x8x1x128xi64>
-    %36 = "ttir.broadcast"(%34, %35) <{broadcast_dimensions = array<i64: 1, 8, 1, 128>}> : (tensor<1x1x1x1xi64>, tensor<1x8x1x128xi64>) -> tensor<1x8x1x128xi64>
-    %37 = ttir.empty() : tensor<1x8x1x128x1xi64>
-    %38 = "ttir.reshape"(%36, %37) <{shape = [1 : i32, 8 : i32, 1 : i32, 128 : i32, 1 : i32]}> : (tensor<1x8x1x128xi64>, tensor<1x8x1x128x1xi64>) -> tensor<1x8x1x128x1xi64>
-    %39 = ttir.empty() : tensor<1x1x1x128xi64>
-    %40 = "ttir.reshape"(%10, %39) <{shape = [1 : i32, 1 : i32, 1 : i32, 128 : i32]}> : (tensor<128xi64>, tensor<1x1x1x128xi64>) -> tensor<1x1x1x128xi64>
-    %41 = ttir.empty() : tensor<1x8x1x128xi64>
-    %42 = "ttir.broadcast"(%40, %41) <{broadcast_dimensions = array<i64: 1, 8, 1, 1>}> : (tensor<1x1x1x128xi64>, tensor<1x8x1x128xi64>) -> tensor<1x8x1x128xi64>
-    %43 = ttir.empty() : tensor<1x8x1x128x1xi64>
-    %44 = "ttir.reshape"(%42, %43) <{shape = [1 : i32, 8 : i32, 1 : i32, 128 : i32, 1 : i32]}> : (tensor<1x8x1x128xi64>, tensor<1x8x1x128x1xi64>) -> tensor<1x8x1x128x1xi64>
-    %45 = ttir.empty() : tensor<1x8x1x128x4xi64>
-    %46 = "ttir.concat"(%26, %32, %38, %44, %45) <{dim = 4 : si32}> : (tensor<1x8x1x128x1xi64>, tensor<1x8x1x128x1xi64>, tensor<1x8x1x128x1xi64>, tensor<1x8x1x128x1xi64>, tensor<1x8x1x128x4xi64>) -> tensor<1x8x1x128x4xi64>
-    %47 = ttir.empty() : tensor<1x8x64x128xbf16>
-    %48 = "ttir.scatter"(%arg0, %46, %arg2, %47) <{index_vector_dim = 4 : i32, indices_are_sorted = false, input_batching_dims = array<i32>, inserted_window_dims = array<i32: 0, 1, 2, 3>, scatter_dims_to_operand_dims = array<i32: 0, 1, 2, 3>, scatter_indices_batching_dims = array<i32>, unique_indices = false, update_window_dims = array<i32>}> : (tensor<1x8x64x128xbf16>, tensor<1x8x1x128x4xi64>, tensor<1x8x1x128xbf16>, tensor<1x8x64x128xbf16>) -> tensor<1x8x64x128xbf16>
+    %22 = "ttir.reshape"(%20) <{shape = [1 : i32, 1 : i32, 1 : i32, 1 : i32]}> : (tensor<1xi64>) -> tensor<1x1x1x1xi64>
+    %24 = "ttir.broadcast"(%22) <{broadcast_dimensions = array<i64: 1, 8, 1, 128>}> : (tensor<1x1x1x1xi64>) -> tensor<1x8x1x128xi64>
+    %26 = "ttir.reshape"(%24) <{shape = [1 : i32, 8 : i32, 1 : i32, 128 : i32, 1 : i32]}> : (tensor<1x8x1x128xi64>) -> tensor<1x8x1x128x1xi64>
+    %28 = "ttir.reshape"(%15) <{shape = [1 : i32, 8 : i32, 1 : i32, 1 : i32]}> : (tensor<8xi64>) -> tensor<1x8x1x1xi64>
+    %30 = "ttir.broadcast"(%28) <{broadcast_dimensions = array<i64: 1, 1, 1, 128>}> : (tensor<1x8x1x1xi64>) -> tensor<1x8x1x128xi64>
+    %32 = "ttir.reshape"(%30) <{shape = [1 : i32, 8 : i32, 1 : i32, 128 : i32, 1 : i32]}> : (tensor<1x8x1x128xi64>) -> tensor<1x8x1x128x1xi64>
+    %34 = "ttir.reshape"(%arg1) <{shape = [1 : i32, 1 : i32, 1 : i32, 1 : i32]}> : (tensor<1xi64>) -> tensor<1x1x1x1xi64>
+    %36 = "ttir.broadcast"(%34) <{broadcast_dimensions = array<i64: 1, 8, 1, 128>}> : (tensor<1x1x1x1xi64>) -> tensor<1x8x1x128xi64>
+    %38 = "ttir.reshape"(%36) <{shape = [1 : i32, 8 : i32, 1 : i32, 128 : i32, 1 : i32]}> : (tensor<1x8x1x128xi64>) -> tensor<1x8x1x128x1xi64>
+    %40 = "ttir.reshape"(%10) <{shape = [1 : i32, 1 : i32, 1 : i32, 128 : i32]}> : (tensor<128xi64>) -> tensor<1x1x1x128xi64>
+    %42 = "ttir.broadcast"(%40) <{broadcast_dimensions = array<i64: 1, 8, 1, 1>}> : (tensor<1x1x1x128xi64>) -> tensor<1x8x1x128xi64>
+    %44 = "ttir.reshape"(%42) <{shape = [1 : i32, 8 : i32, 1 : i32, 128 : i32, 1 : i32]}> : (tensor<1x8x1x128xi64>) -> tensor<1x8x1x128x1xi64>
+    %46 = "ttir.concat"(%26, %32, %38, %44) <{dim = 4 : si32}> : (tensor<1x8x1x128x1xi64>, tensor<1x8x1x128x1xi64>, tensor<1x8x1x128x1xi64>, tensor<1x8x1x128x1xi64>) -> tensor<1x8x1x128x4xi64>
+    %48 = "ttir.scatter"(%arg0, %46, %arg2) <{index_vector_dim = 4 : i32, indices_are_sorted = false, input_batching_dims = array<i32>, inserted_window_dims = array<i32: 0, 1, 2, 3>, scatter_dims_to_operand_dims = array<i32: 0, 1, 2, 3>, scatter_indices_batching_dims = array<i32>, unique_indices = false, update_window_dims = array<i32>}> : (tensor<1x8x64x128xbf16>, tensor<1x8x1x128x4xi64>, tensor<1x8x1x128xbf16>) -> tensor<1x8x64x128xbf16>
     return %48 : tensor<1x8x64x128xbf16>
   }
 }

@@ -68,25 +68,19 @@ module @gelu_tanh2 attributes {mhlo.num_partitions = 1 : i32, mhlo.num_replicas 
     %3 = "ttir.constant"() <{value = dense<4.471500e-02> : tensor<f32>}> : () -> tensor<f32>
     %5 = "ttir.multiply"(%arg0, %arg0) : (tensor<32x32xf32>, tensor<32x32xf32>) -> tensor<32x32xf32>
     %7 = "ttir.multiply"(%5, %arg0) : (tensor<32x32xf32>, tensor<32x32xf32>) -> tensor<32x32xf32>
-    %8 = ttir.empty() : tensor<1x1xf32>
-    %9 = "ttir.reshape"(%3, %8) <{shape = [1 : i32, 1 : i32]}> : (tensor<f32>, tensor<1x1xf32>) -> tensor<1x1xf32>
+    %9 = "ttir.reshape"(%3) <{shape = [1 : i32, 1 : i32]}> : (tensor<f32>) -> tensor<1x1xf32>
     %11 = "ttir.broadcast"(%9, %10) <{broadcast_dimensions = array<i64: 32, 32>}> : (tensor<1x1xf32>, tensor<32x32xf32>) -> tensor<32x32xf32>
     %13 = "ttir.multiply"(%11) : (tensor<32x32xf32>) -> tensor<32x32xf32>
     %15 = "ttir.add"(%arg0, %13) : (tensor<32x32xf32>, tensor<32x32xf32>) -> tensor<32x32xf32>
-    %16 = ttir.empty() : tensor<1x1xf32>
-    %17 = "ttir.reshape"(%2, %16) <{shape = [1 : i32, 1 : i32]}> : (tensor<f32>, tensor<1x1xf32>) -> tensor<1x1xf32>
+    %17 = "ttir.reshape"(%2) <{shape = [1 : i32, 1 : i32]}> : (tensor<f32>) -> tensor<1x1xf32>
     %19 = "ttir.broadcast"(%17, %18) <{broadcast_dimensions = array<i64: 32, 32>}> : (tensor<1x1xf32>, tensor<32x32xf32>) -> tensor<32x32xf32>
     %21 = "ttir.multiply"(%19, %15) : (tensor<32x32xf32>, tensor<32x32xf32>) -> tensor<32x32xf32>
     %23 = "ttir.tanh"(%21) : (tensor<32x32xf32>) -> tensor<32x32xf32>
-    %24 = ttir.empty() : tensor<1x1xf32>
-    %25 = "ttir.reshape"(%1, %24) <{shape = [1 : i32, 1 : i32]}> : (tensor<f32>, tensor<1x1xf32>) -> tensor<1x1xf32>
-    %26 = ttir.empty() : tensor<32x32xf32>
-    %27 = "ttir.broadcast"(%25, %26) <{broadcast_dimensions = array<i64: 32, 32>}> : (tensor<1x1xf32>, tensor<32x32xf32>) -> tensor<32x32xf32>
+    %25 = "ttir.reshape"(%1) <{shape = [1 : i32, 1 : i32]}> : (tensor<f32>) -> tensor<1x1xf32>
+    %27 = "ttir.broadcast"(%25) <{broadcast_dimensions = array<i64: 32, 32>}> : (tensor<1x1xf32>) -> tensor<32x32xf32>
     %29 = "ttir.add"(%27, %23) : (tensor<32x32xf32>, tensor<32x32xf32>) -> tensor<32x32xf32>
-    %30 = ttir.empty() : tensor<1x1xf32>
-    %31 = "ttir.reshape"(%0, %30) <{shape = [1 : i32, 1 : i32]}> : (tensor<f32>, tensor<1x1xf32>) -> tensor<1x1xf32>
-    %32 = ttir.empty() : tensor<32x32xf32>
-    %33 = "ttir.broadcast"(%31, %32) <{broadcast_dimensions = array<i64: 32, 32>}> : (tensor<1x1xf32>, tensor<32x32xf32>) -> tensor<32x32xf32>
+    %31 = "ttir.reshape"(%0) <{shape = [1 : i32, 1 : i32]}> : (tensor<f32>) -> tensor<1x1xf32>
+    %33 = "ttir.broadcast"(%31) <{broadcast_dimensions = array<i64: 32, 32>}> : (tensor<1x1xf32>) -> tensor<32x32xf32>
     %35 = "ttir.multiply"(%33, %29) : (tensor<32x32xf32>, tensor<32x32xf32>) -> tensor<32x32xf32>
     %37 = "ttir.multiply"(%arg0, %35) : (tensor<32x32xf32>, tensor<32x32xf32>) -> tensor<32x32xf32>
     return %37 : tensor<32x32xf32>

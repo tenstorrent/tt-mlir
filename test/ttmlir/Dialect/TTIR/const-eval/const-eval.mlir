@@ -98,14 +98,12 @@ module {
   func.func @forward_reuse_zeros(%arg0: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<input>}, %arg1: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>}, %arg2: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>}, %arg3: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>}) -> tensor<32x32xbf16> {
       // CHECK: = ttcore.load_cached(@forward_reuse_zeros_const_eval_0, [%arg1, %arg2])
       %0 = "ttir.zeros"() <{shape = array<i32:32, 32>}> : () -> tensor<32x32xbf16>
-      // CHECK: = ttir.empty()
-      // CHECK: = "ttir.add"(%arg0, %{{.*}}, %{{.*}})
+      // CHECK: = "ttir.add"(%arg0, %{{.*}}
       %2 = "ttir.add"(%arg0)  : (tensor<32x32xbf16>) -> tensor<32x32xbf16>
       %4 = "ttir.add"(%arg1)  : (tensor<32x32xbf16>) -> tensor<32x32xbf16>
       %6 = "ttir.add"(%arg2)  : (tensor<32x32xbf16>) -> tensor<32x32xbf16>
       %8 = "ttir.multiply"(%4) : (tensor<32x32xbf16>) -> tensor<32x32xbf16>
-      // CHECK: = ttir.empty()
-      // CHECK: = "ttir.multiply"(%{{.*}}, %{{.*}}, %{{.*}})
+      // CHECK: = "ttir.multiply"(%{{.*}}, %{{.*}}
       %10 = "ttir.multiply"(%2) : (tensor<32x32xbf16>) -> tensor<32x32xbf16>
       return %10 : tensor<32x32xbf16>
     }
@@ -115,21 +113,18 @@ module {
   // CHECK-LABEL: func.func @forward_with_full_const_eval_0
   // CHECK: "ttir.full"
   // CHECK-SAME: fill_value = 3.000000e+00 : f32
-  // CHECK: "ttir.multiply"(%{{.*}}, %{{.*}}, %{{.*}})
-  // CHECK: "ttir.add"(%{{.*}}, %{{.*}}, %{{.*}})
+  // CHECK: "ttir.multiply"(%{{.*}}, %{{.*}}
+  // CHECK: "ttir.add"(%{{.*}}, %{{.*}}
 
   // CHECK: func.func @forward_with_full(
   func.func @forward_with_full(%arg0: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<input>}, %arg1: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>}, %arg2: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>}) -> tensor<32x32xbf16> {
       // CHECK: = ttcore.load_cached(@forward_with_full_const_eval_0, [%arg1, %arg2])
       %0 = "ttir.full"() <{fill_value = 3.000000e+00 : f32, shape = array<i32: 32, 32>}> : () -> tensor<32x32xbf16>
-      %1 = ttir.empty() : tensor<32x32xbf16>
-      %2 = "ttir.multiply"(%arg1, %0, %1) : (tensor<32x32xbf16>, tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
-      %3 = ttir.empty() : tensor<32x32xbf16>
-      %4 = "ttir.add"(%2, %arg2, %3) : (tensor<32x32xbf16>, tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
+      %2 = "ttir.multiply"(%arg1, %0) : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
+      %4 = "ttir.add"(%2, %arg2) : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
       // CHECK: = ttir.empty()
-      %5 = ttir.empty() : tensor<32x32xbf16>
       // CHECK: = "ttir.add"(%arg0, %{{.*}}, %{{.*}})
-      %6 = "ttir.add"(%arg0, %4, %5) : (tensor<32x32xbf16>, tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
+      %6 = "ttir.add"(%arg0, %4) : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
       return %6 : tensor<32x32xbf16>
     }
 }
