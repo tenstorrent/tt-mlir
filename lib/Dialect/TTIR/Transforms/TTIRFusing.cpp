@@ -2007,16 +2007,6 @@ public:
     int32_t batchSize = inputShape[I_BATCH_SIZE];
     int32_t sequenceLength = inputShape[I_SEQUENCE_LENGTH];
 
-    auto queryType = permuteOps[0].getType();
-    auto keyType = permuteOps[1].getType();
-    auto valueType = permuteOps[2].getType();
-
-    auto queryShape = queryType.getShape();
-    auto keyShape = keyType.getShape();
-    auto valueShape = valueType.getShape();
-    int32_t numHeads = queryType.getShape()[O_NUM_KV_HEADS];
-    int32_t hiddenSize = queryType.getShape()[O_HEAD_SIZE] * numHeads;
-
     // Concatenate weights along dimension determined by transposeB attribute.
 
     TypedValue<RankedTensorType> queryWeightMatrix = matmulOps[0].getB();
@@ -2025,6 +2015,11 @@ public:
 
     MatMulOpType queryMatmulOp = matmulOps[0];
     std::size_t dimToConcatWeights = queryMatmulOp.getTransposeB() ? 0 : 1;
+
+    // Assert that queryMatmulOp A and B have rank 2.
+    TT_assertv((queryMatmulOp.getA().getType().getRank() == 2 &&
+                queryMatmulOp.getB().getType().getRank() == 2),
+               "Expected rank 2 for MatMulOp operands A and B");
 
     ttir::ConcatOp concatenatedWeightMatrix = concatenateAlongDim(
         rewriter, valueWeightMatrix.getLoc(),
@@ -2077,6 +2072,16 @@ public:
     // Create reshape operation to convert from [batch*seq, hidden*3] to [batch,
     // seq, hidden*3]. If it is the same output shape, reshape folder will fold
     // this operation.
+    auto queryType = permuteOps[0].getType();
+    auto keyType = permuteOps[1].getType();
+    auto valueType = permuteOps[2].getType();
+
+    auto queryShape = queryType.getShape();
+    auto keyShape = keyType.getShape();
+    auto valueShape = valueType.getShape();
+    int32_t numHeads = queryType.getShape()[O_NUM_KV_HEADS];
+    int32_t hiddenSize = queryType.getShape()[O_HEAD_SIZE] * numHeads;
+
     SmallVector<int64_t> reshapeToSplitShape = {batchSize, sequenceLength,
                                                 hiddenSize * 3};
     auto reshapeElementType = queryMatmulOp.getType().getElementType();
@@ -2189,9 +2194,11 @@ private:
     llvm::SetVector<mlir::Operation *> sortedOps = topologicalSort(opsToMove);
 
     // Move only operations that appear after queryPermuteOp.
+
     for (mlir::Operation *op : sortedOps) {
-      if (op->getBlock() == queryPermuteOp->getBlock() &&
-          !op->isBeforeInBlock(queryPermuteOp)) {
+      TT_assertv(op->getBlock() == queryPermuteOp->getBlock(),
+                 "Expected all ops to be in the same block.");
+      if (!op->isBeforeInBlock(queryPermuteOp)) {
         op->moveBefore(queryPermuteOp);
       }
     }
@@ -2370,6 +2377,7 @@ private:
       return false;
     }
 
+    ArrayRef<int64_t> firstBShape = matrixOps[0].getB().getType().getShape();
     for (MatMulOpType matrixOp : matrixOps) {
       // Each op must have the same input as the reshape op output.
       if (matrixOp.getA() != reshapeOp.getResult()) {
@@ -2378,6 +2386,10 @@ private:
       auto bShape = matrixOp.getB().getType().getShape();
       // Each op must have a 2D weight matrix.
       if (bShape.size() != 2) {
+        return false;
+      }
+      // Check that B shape is the same for all ops.
+      if (bShape != firstBShape) {
         return false;
       }
     }
@@ -2392,6 +2404,23 @@ private:
     if ((matrixOps[0].getTransposeB() != matrixOps[1].getTransposeB()) ||
         (matrixOps[0].getTransposeB() != matrixOps[2].getTransposeB())) {
       return false;
+    }
+
+    // If matrix op is Linear Op, check that bias is present and has the same
+    // shape.
+    if constexpr (std::is_same_v<LinearOp, MatMulOpType>) {
+      TypedValue<RankedTensorType> queryBias = matrixOps[0].getBias();
+      TypedValue<RankedTensorType> keyBias = matrixOps[1].getBias();
+      TypedValue<RankedTensorType> valueBias = matrixOps[2].getBias();
+      if (!queryBias || !keyBias || !valueBias) {
+        return false;
+      }
+      auto queryBiasShape = queryBias.getType().getShape();
+      auto keyBiasShape = keyBias.getType().getShape();
+      auto valueBiasShape = valueBias.getType().getShape();
+      if (queryBiasShape != keyBiasShape || queryBiasShape != valueBiasShape) {
+        return false;
+      }
     }
 
     return true;
