@@ -1697,6 +1697,19 @@ static mlir::OpFoldResult foldConsecutiveReshape(mlir::tt::ttir::ReshapeOp op) {
 }
 
 //===----------------------------------------------------------------------===//
+// RearrangeOp
+//===----------------------------------------------------------------------===//
+
+// RearrangeOp verification
+::mlir::LogicalResult mlir::tt::ttir::RearrangeOp::verify() {
+  return success();
+}
+
+::mlir::AffineMap getPatternAffineMap() {
+
+}
+
+//===----------------------------------------------------------------------===//
 // BroadcastOp
 //===----------------------------------------------------------------------===//
 
