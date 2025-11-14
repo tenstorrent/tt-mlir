@@ -2418,6 +2418,90 @@ private:
     return mlir::dyn_cast_if_present<ttir::FullOp>(currentOp);
   }
 };
+
+// This pattern fuses a sequence of permute -> reshape -> permute where the
+// two permutes are inverses of each other. It replaces the sequence with a
+// single reshape operation with the shape permuted according to the first
+// permute's permutation.
+//
+// Pattern: invPermute (P_inv) -> reshape -> permute (P)
+// Rewrite: reshape (with shape from original reshape, permuted by P)
+//
+// Conditions:
+// - permute has reshape as its defining op
+// - reshape doesn't have users other than permute
+// - reshape's defining op is invPermute
+// - invPermute doesn't have other users
+// - invPermute's permutation is the inverse of permute's permutation
+class PermuteReshapePermuteFusionPattern
+    : public mlir::OpRewritePattern<PermuteOp> {
+  using mlir::OpRewritePattern<PermuteOp>::OpRewritePattern;
+
+public:
+  mlir::LogicalResult
+  matchAndRewrite(PermuteOp permute,
+                  mlir::PatternRewriter &rewriter) const final {
+    llvm::outs() << "+ P found\n";
+    // Check that permute's input is a ReshapeOp
+    ReshapeOp reshapeOp = permute.getInput().getDefiningOp<ReshapeOp>();
+    if (!reshapeOp) {
+      return mlir::failure();
+    }
+    llvm::outs() << "  - R found\n";
+    // Check that reshape doesn't have users other than permute
+    if (!reshapeOp.getResult().hasOneUse()) {
+      return mlir::failure();
+    }
+
+    // Check that reshape's defining op is a PermuteOp
+    PermuteOp invPermute = reshapeOp.getInput().getDefiningOp<PermuteOp>();
+    if (!invPermute) {
+      return mlir::failure();
+    }
+    llvm::outs() << "  - P_inv found\n";
+    // Check that invPermute doesn't have other users
+    if (!invPermute.getResult().hasOneUse()) {
+      return mlir::failure();
+    }
+
+    // Check that invPermute's permutation is inverse of permute's permutation
+    ArrayRef<int64_t> permPerm = permute.getPermutation();
+    ArrayRef<int64_t> invPermPerm = invPermute.getPermutation();
+    SmallVector<int64_t> invPerm = ttmlir::utils::inversePermutation(permPerm);
+
+    if (!llvm::equal(invPermPerm, invPerm)) {
+      return mlir::failure();
+    }
+    llvm::outs() << "  - P and P_inv are inverses\n";
+    // Get the original reshape shape
+    auto reshapeShapeAttr = reshapeOp.getShape();
+    SmallVector<int64_t> reshapeShape;
+    for (mlir::Attribute attr : reshapeShapeAttr) {
+      int64_t dimValue = mlir::cast<mlir::IntegerAttr>(attr).getInt();
+      reshapeShape.push_back(dimValue);
+    }
+
+    // Apply permute's permutation to the reshape shape
+    SmallVector<int64_t> newShape = ttmlir::utils::applyPermutation(
+        llvm::ArrayRef<int64_t>(reshapeShape), permPerm);
+
+    // Get the input to invPermute (the original input)
+    Value originalInput = invPermute.getInput();
+    auto inputType = mlir::cast<RankedTensorType>(originalInput.getType());
+
+    // Create the new reshape with the permuted shape
+    SmallVector<int32_t> newShapeI32(newShape.begin(), newShape.end());
+    auto newReshape = ttir::utils::createDPSOp<ReshapeOp>(
+        rewriter, permute.getLoc(), newShape, inputType.getElementType(),
+        inputType.getEncoding(), originalInput,
+        rewriter.getI32ArrayAttr(newShapeI32));
+
+    rewriter.replaceOp(permute, newReshape);
+    llvm::outs() << "  - Replaced with new R\n";
+    return mlir::success();
+  }
+};
+
 } // namespace
 
 class TTIRFusingPass : public impl::TTIRFusingBase<TTIRFusingPass> {
@@ -2471,6 +2555,7 @@ public:
       patterns.add<Relu6FusionPattern>(&getContext());
       patterns.add<SiluFusionPattern>(&getContext());
       patterns.add<HardsigmoidFusionPattern>(&getContext());
+      patterns.add<PermuteReshapePermuteFusionPattern>(&getContext());
 
       GreedyRewriteConfig config;
       config.setUseTopDownTraversal(true);
