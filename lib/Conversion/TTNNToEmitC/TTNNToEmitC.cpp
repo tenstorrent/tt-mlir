@@ -724,7 +724,11 @@ public:
         emitter.getMemoryConfig(srcOp.getResult()),
         emitter.emit(srcOp.getAppliedShardScheme()),
         emitter.emit(/*compute_kernel_config=*/std::nullopt),
-        emitter.emit(srcOp.getInPlaceHalo()),
+        emitter.emit(/*deallocate_input=*/false),
+        emitter.emit(
+            !srcOp.getInPlaceHalo()), // reallocate_halo_output = !in_place_halo
+        emitter.emit(std::nullopt),
+        emitter.emit(std::nullopt),
     };
 
     emitter.replaceOp(*this, args);
@@ -778,8 +782,12 @@ public:
         emitter.emit(srcOp.getCeilMode()),
         emitter.getMemoryConfig(srcOp.getResult()),
         emitter.emit(srcOp.getAppliedShardScheme()),
-        emitter.emit(srcOp.getInPlaceHalo()),
-        /*return_indices=*/emitter.emit(false)};
+        emitter.emit(/*deallocate_input=*/false),
+        emitter.emit(
+            !srcOp.getInPlaceHalo()), // reallocate_halo_output = !in_place_halo
+        /*return_indices=*/emitter.emit(false),
+        emitter.emit(std::nullopt),
+        emitter.emit(std::nullopt)};
 
     emitter.replaceOp(*this, args);
     return success();
@@ -842,10 +850,12 @@ public:
         emitter.emit(srcOp.getCeilMode()),
         emitter.getMemoryConfig(srcOp.getResult()),
         emitter.emit(srcOp.getAppliedShardScheme()),
-        emitter.emit(srcOp.getInPlaceHalo()),
         /*deallocate_input=*/emitter.emit(false),
-        /*reallocate_halo_output=*/emitter.emit(true),
-        /*return_indices=*/emitter.emit(true)};
+        /*reallocate_halo_output=*/emitter.emit(!srcOp.getInPlaceHalo()),
+        /*return_indices=*/emitter.emit(true),
+        emitter.emit(std::nullopt),
+        emitc::OpaqueAttr::get(rewriter.getContext(),
+                               "::ttnn::Layout::ROW_MAJOR")};
 
     // MaxPool2dWithIndicesOp returns a std::vector<ttnn::Tensor> containing two
     // elements: [0] = pooled tensor, [1] = corresponding indices. Extract both
