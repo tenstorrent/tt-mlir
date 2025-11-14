@@ -97,8 +97,7 @@ private:
         outputShape, inputType.getElementType(), inputType.getEncoding());
 
     // Create and return the new PermuteOp
-    return ttir::utils::createDPSOp<PermuteOp>(rewriter, loc, outputType, input,
-                                               permutation);
+    return rewriter.create<PermuteOp>(loc, outputType, input, permutation);
   }
 
   ArrayAttr permuteDims(ArrayAttr dimArg, ArrayRef<int64_t> permutation,
@@ -135,9 +134,8 @@ private:
         RankedTensorType::get(newReduceShape, op.getType().getElementType(),
                               op.getType().getEncoding());
 
-    return utils::createDPSOp<ReduceOpType>(
-        rewriter, op->getLoc(), newReduceType, newInput, op.getKeepDimAttr(),
-        newDimArgAttrs);
+    return rewriter.create<ReduceOpType>(op->getLoc(), newReduceType, newInput,
+                                         op.getKeepDimAttr(), newDimArgAttrs);
   }
 
   bool isCommuteUpwardsViable(ReduceOpType op, PermuteOp) const override {

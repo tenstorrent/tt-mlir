@@ -929,8 +929,8 @@ private:
                   RankedTensorType outputType, PatternRewriter &rewriter,
                   StringRef suffix) const {
     return rewriter.create<ttir::ReshapeOp>(
-        ttmlir::utils::appendLocationSuffix(input.getLoc(), suffix),
-        outputType, input,
+        ttmlir::utils::appendLocationSuffix(input.getLoc(), suffix), outputType,
+        input,
         rewriter.getI32ArrayAttr(SmallVector<int32_t>(
             outputType.getShape().begin(), outputType.getShape().end())));
   }
@@ -939,10 +939,11 @@ private:
       OpBuilder &rewriter, Location loc, mlir::Value input,
       ArrayRef<int64_t> permutedShape, RankedTensorType inputType,
       ArrayRef<int64_t> permutation, StringRef suffix) const {
+    RankedTensorType permuteType = RankedTensorType::get(
+        permutedShape, inputType.getElementType(), inputType.getEncoding());
     return rewriter.create<ttir::PermuteOp>(
-        ttmlir::utils::appendLocationSuffix(loc, suffix),
-        permutedShape, inputType.getElementType(), inputType.getEncoding(),
-        input, permutation);
+        ttmlir::utils::appendLocationSuffix(loc, suffix), permuteType, input,
+        permutation);
   }
 
   LogicalResult verifySelectBlock(mlir::stablehlo::SelectAndScatterOp srcOp,
