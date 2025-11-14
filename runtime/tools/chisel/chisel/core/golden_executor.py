@@ -225,12 +225,27 @@ class GoldenExecutor:
                         op_result = golden_fn(*inputs, **kwargs)
                 else:
                     op_result = golden_fn(*inputs, **kwargs)
+            elif op_name == "ttir.pad":
+                # Extract required attributes for pad operation
+                padding_attr = op.attributes["padding"]
+                value_attr = op.attributes["value"]
+                value = float(value_attr.value)
+
+                # Convert padding ArrayAttr to list of integers
+                padding = [int(x) for x in padding_attr]
+                kwargs = {}
+                if "padding" in op.attributes:
+                    kwargs["padding"] = padding
+                if "value" in op.attributes:
+                    kwargs["value"] = value
+
+                op_result = golden_fn(*inputs, **kwargs)
             else:
                 # Pass attributes as kwargs to all golden functions
-                if inputs:
-                    op_result = golden_fn(*inputs, **kwargs)
-                else:
-                    op_result = golden_fn(**kwargs) if kwargs else golden_fn()
+                # if inputs:
+                #     op_result = golden_fn(*inputs, **kwargs)
+                # else:
+                op_result = golden_fn(*inputs) if inputs else golden_fn()
         except Exception as e:
             print(f"Error executing golden function for {op_name}: {e}")
             raise
