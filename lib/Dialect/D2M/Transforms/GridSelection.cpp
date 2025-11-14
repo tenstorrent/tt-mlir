@@ -334,7 +334,7 @@ static void optimizeToLayoutGrid(d2m::ToLayoutOp toLayoutOp,
   // If using a virtual grid, compute required forward index affine map.
   AffineMap indexAffineMap = AffineMap::get(builder.getContext());
   if (isVirtualGrid) {
-    auto [fwdMap, _] = ttmlir::d2m::VirtualGridUtil::createCoreVirtMaps(
+    auto [fwdMap, _] = ttmlir::d2m::utils::grids::createCoreVirtMaps(
         builder.getContext(), optimalGrid, targetSquareGridShape);
     indexAffineMap = fwdMap;
   }
@@ -541,8 +541,7 @@ updateStreamLayoutOps(ArrayRef<StreamLayoutUpdateInfo> streamLayoutsToUpdate,
 // now have new types with optimized grids. We must recreate the generic to
 // reflect these type changes, including updating the region body and any
 // nested linalg.generic result types.
-static void recreateGenericOp(d2m::GenericOp genericOp,
-                              ArrayRef<int64_t> targetSquareGridShape) {
+static void recreateGenericOp(d2m::GenericOp genericOp) {
   OpBuilder builder(genericOp->getContext());
   llvm::SmallVector<Value> newOperands;
   for (Value operand : genericOp.getOperands()) {
@@ -562,7 +561,7 @@ static void recreateGenericOp(d2m::GenericOp genericOp,
     builder.setInsertionPoint(genericOp);
     auto newGenericOp = builder.create<d2m::GenericOp>(
         genericOp.getLoc(), newInputs, newOutputs, genericOp.getIndexingMaps(),
-        genericOp.getIteratorTypes(), targetSquareGridShape,
+        genericOp.getIteratorTypes(),
         [&](OpBuilder &b, Location loc, ValueRange blockArgs) {
           IRMapping mapping;
           Block &oldBlock = oldRegion.front();
@@ -742,7 +741,7 @@ static void assignGrids(d2m::GenericOp genericOp,
     insertTTNNDRAMStreams(genericOp, targetSquareGridShape);
   }
 
-  recreateGenericOp(genericOp, targetSquareGridShape);
+  recreateGenericOp(genericOp);
 }
 
 // ----------------------------------------------------------------------------

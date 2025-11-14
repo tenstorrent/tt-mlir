@@ -815,9 +815,8 @@ mlir::OpFoldResult d2m::ViewLayoutOp::fold(FoldAdaptor adaptor) {
 void d2m::GenericOp::build(mlir::OpBuilder &builder,
                            mlir::OperationState &state, ValueRange inputs,
                            ValueRange outputs, ArrayAttr indexingMaps,
-                           ArrayAttr iteratorTypes,
-                           ArrayRef<int64_t> targetGridShape,
-                           ThreadType singleThreadType, ttcore::GridAttr grid,
+                           ArrayAttr iteratorTypes, ThreadType singleThreadType,
+                           ttcore::GridAttr grid,
                            ArrayRef<int64_t> blockFactors) {
   TT_assertv(!indexingMaps.empty(), "expected non-empty indexing maps");
   TT_assertv(outputs.size() == 1u, "expected single output");
@@ -834,15 +833,14 @@ void d2m::GenericOp::build(mlir::OpBuilder &builder,
     auto metalLayout = mlir::dyn_cast<ttcore::MetalLayoutAttr>(layout);
     if (!outputIsView && metalLayout &&
         !metalLayout.getIndexAffineMap().isEmpty()) {
-      // For now, assume virtual grid phys shape is the target grid shape.
-      // Virtual grids will not be inferred that assume anything but a full
-      // compute grid; in the future it will be necessary to *choose* a compute
-      // grid here that satisfies the following constraints:
-      //   vgrid = evalShape(gridInvMap,pgrid)
-      //   pgrid = evalShape(tensorFwdMap,vgrid)
 
-      auto [_, invMap] = ttmlir::d2m::VirtualGridUtil::createCoreVirtMaps(
-          builder.getContext(), gridShape, targetGridShape);
+      // Use the implied physical grid shape of the output tensor to generate
+      // the required inverse mapping from the virtual grid to the physical
+      // grid.
+      auto shapedType = mlir::cast<ShapedType>(outputs[0].getType());
+      auto physicalGridShape = metalLayout.getPhysicalGridShape(shapedType);
+      auto [_, invMap] = ttmlir::d2m::utils::grids::createCoreVirtMaps(
+          builder.getContext(), gridShape, physicalGridShape);
 
       grid = builder.getAttr<ttcore::GridAttr>(gridShape, invMap);
     } else {
@@ -896,13 +894,12 @@ void d2m::GenericOp::build(mlir::OpBuilder &builder,
 void d2m::GenericOp::build(
     mlir::OpBuilder &builder, mlir::OperationState &state, ValueRange inputs,
     ValueRange outputs, ArrayAttr indexingMaps, ArrayAttr iteratorTypes,
-    ArrayRef<int64_t> targetGridShape,
     llvm::function_ref<void(OpBuilder &, Location, ValueRange)>
         singleThreadRegionBuilder,
     ThreadType singleThreadType, ttcore::GridAttr grid,
     ArrayRef<int64_t> blockFactors) {
   build(builder, state, inputs, outputs, indexingMaps, iteratorTypes,
-        targetGridShape, singleThreadType, grid, blockFactors);
+        singleThreadType, grid, blockFactors);
   llvm::SmallVector<Type> blockTypes =
       llvm::map_to_vector(TypeRange(state.operands), [&](Type t) -> Type {
         mlir::RankedTensorType tensorType = mlir::cast<RankedTensorType>(t);
@@ -921,7 +918,7 @@ void d2m::GenericOp::build(
 
 void d2m::GenericOp::build(
     mlir::OpBuilder &builder, mlir::OperationState &state, ValueRange inputs,
-    ValueRange outputs, ArrayRef<int64_t> targetGridShape,
+    ValueRange outputs,
     llvm::function_ref<void(OpBuilder &, Location, ValueRange)>
         singleThreadRegionBuilder,
     ThreadType singleThreadType, ttcore::GridAttr grid,
@@ -937,7 +934,7 @@ void d2m::GenericOp::build(
   auto [indexingMaps, iteratorTypes] = buildParallelAffineMapsAndIteratorTypes(
       builder, inputs.size() + outputs.size(), rank);
   build(builder, state, inputs, outputs, indexingMaps, iteratorTypes,
-        targetGridShape, singleThreadRegionBuilder, singleThreadType, grid);
+        singleThreadRegionBuilder, singleThreadType, grid);
 }
 
 bool d2m::GenericOp::bufferizesToMemoryRead(

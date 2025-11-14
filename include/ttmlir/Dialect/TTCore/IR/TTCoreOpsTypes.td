@@ -487,6 +487,9 @@ def TTCore_MetalLayoutAttr : TTCore_Attr<"MetalLayout", "metal_layout", [TTCore_
     // Returns the full rank (including grid dimensions).
     unsigned getRank() const { return getNormalizedIntervals().size(); }
 
+    // Computes the implied physical grid shape using the grid shape and index map (if present)
+    llvm::SmallVector<int64_t> getPhysicalGridShape(ShapedType tensorType) const;
+
     bool isView() { return false; }
   }];
 }

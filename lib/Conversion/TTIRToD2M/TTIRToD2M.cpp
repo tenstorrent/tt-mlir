@@ -12,7 +12,6 @@
 #include "ttmlir/Dialect/D2M/IR/D2M.h"
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/D2M/Utils/Utils.h"
-#include "ttmlir/Dialect/D2M/Utils/VirtualGrid.h"
 #include "ttmlir/Utils.h"
 
 #include "ttmlir/Dialect/D2M/IR/D2M.h"
@@ -44,19 +43,9 @@ protected:
 
   D2MNamedRewriterCommon(ttcore::MemorySpace defaultInputMemSpace,
                          ttcore::MemorySpace defaultOutputMemSpace,
-                         ArrayRef<int64_t> targetGridShape, bool ttnnMode,
-                         bool collapseTensors)
+                         bool ttnnMode, bool collapseTensors)
       : memorySpaces{defaultInputMemSpace, defaultOutputMemSpace},
-        ttnnMode(ttnnMode), collapseTensors(collapseTensors),
-        targetGridShape(targetGridShape),
-        targetSquareGridShape(
-            d2m::utils::getSquareTargetGrid(targetGridShape)) {
-    assert(!targetGridShape.empty());
-  }
-
-  ArrayRef<int64_t> getTargetSquareGridShape() const {
-    return ArrayRef<int64_t>(targetSquareGridShape);
-  }
+        ttnnMode(ttnnMode), collapseTensors(collapseTensors) {}
 
   static bool isTTNNTensor(Type type) {
     auto tensor = mlir::dyn_cast<RankedTensorType>(type);
@@ -312,9 +301,6 @@ protected:
 
   // Automatically collapse higher-rank tensors to 2D.
   bool collapseTensors;
-
-  llvm::SmallVector<int64_t> targetGridShape;
-  llvm::SmallVector<int64_t> targetSquareGridShape;
 };
 } // namespace
 
@@ -332,11 +318,11 @@ public:
   D2MNamedElementwiseRewriter<ConcreteOp, TileOp>(
       const TypeConverter &typeConverter, mlir::MLIRContext *ctx,
       ttcore::MemorySpace defaultInputMemSpace,
-      ttcore::MemorySpace defaultOutputMemSpace,
-      ArrayRef<int64_t> targetGridShape, bool ttnnMode, bool collapseTensors)
+      ttcore::MemorySpace defaultOutputMemSpace, bool ttnnMode,
+      bool collapseTensors)
       : OpConversionPattern<ConcreteOp>(typeConverter, ctx),
         D2MNamedRewriterCommon(defaultInputMemSpace, defaultOutputMemSpace,
-                               targetGridShape, ttnnMode, collapseTensors) {}
+                               ttnnMode, collapseTensors) {}
 
 private:
   static constexpr bool isComparisonOp =
@@ -393,7 +379,7 @@ private:
     // Create 'd2m.generic' accepting 'op's operands.
     auto generic = rewriter.create<d2m::GenericOp>(
         loc, inputs, outputs, rewriter.getAffineMapArrayAttr(indexingMaps),
-        rewriter.getArrayAttr(iteratorTypes), getTargetSquareGridShape());
+        rewriter.getArrayAttr(iteratorTypes));
 
     // Create one bb in 'generic''s region and set its arguments.
     auto insertPoint = rewriter.saveInsertionPoint();
@@ -471,11 +457,11 @@ public:
   D2MNamedReductionRewriter<ConcreteOp, TileOp>(
       const TypeConverter &typeConverter, mlir::MLIRContext *ctx,
       ttcore::MemorySpace defaultInputMemSpace,
-      ttcore::MemorySpace defaultOutputMemSpace,
-      ArrayRef<int64_t> targetGridShape, bool ttnnMode, bool collapseTensors)
+      ttcore::MemorySpace defaultOutputMemSpace, bool ttnnMode,
+      bool collapseTensors)
       : OpConversionPattern<ConcreteOp>(typeConverter, ctx),
         D2MNamedRewriterCommon(defaultInputMemSpace, defaultOutputMemSpace,
-                               targetGridShape, ttnnMode, collapseTensors) {}
+                               ttnnMode, collapseTensors) {}
 
 private:
   LogicalResult
@@ -515,7 +501,7 @@ private:
     // Create 'd2m.generic' accepting extended operands.
     auto generic = rewriter.create<d2m::GenericOp>(
         loc, inputs, outputs, rewriter.getAffineMapArrayAttr(indexingMaps),
-        rewriter.getArrayAttr(iteratorTypes), getTargetSquareGridShape());
+        rewriter.getArrayAttr(iteratorTypes));
 
     // Create one bb in 'generic''s region and set its arguments.
     auto insertPoint = rewriter.saveInsertionPoint();
@@ -711,12 +697,11 @@ class D2MMatmulRewriter final
 public:
   D2MMatmulRewriter(const TypeConverter &typeConverter, mlir::MLIRContext *ctx,
                     ttcore::MemorySpace defaultInputMemSpace,
-                    ttcore::MemorySpace defaultOutputMemSpace,
-                    ArrayRef<int64_t> targetGridShape, bool ttnnMode,
+                    ttcore::MemorySpace defaultOutputMemSpace, bool ttnnMode,
                     bool collapseTensors)
       : OpConversionPattern<ConcreteOp>(typeConverter, ctx),
         D2MNamedRewriterCommon(defaultInputMemSpace, defaultOutputMemSpace,
-                               targetGridShape, ttnnMode, collapseTensors) {}
+                               ttnnMode, collapseTensors) {}
 
 private:
   LogicalResult
@@ -750,7 +735,7 @@ private:
     // Create 'd2m.generic' accepting 'op's operands.
     auto generic = rewriter.create<d2m::GenericOp>(
         loc, inputs, outputs, rewriter.getAffineMapArrayAttr(indexingMaps),
-        rewriter.getArrayAttr(iteratorTypes), getTargetSquareGridShape());
+        rewriter.getArrayAttr(iteratorTypes));
 
     // Create one bb in 'generic''s region and set its arguments.
     auto insertPoint = rewriter.saveInsertionPoint();
@@ -863,12 +848,11 @@ class D2MPermuteRewriter final
 public:
   D2MPermuteRewriter(const TypeConverter &typeConverter, mlir::MLIRContext *ctx,
                      ttcore::MemorySpace defaultInputMemSpace,
-                     ttcore::MemorySpace defaultOutputMemSpace,
-                     ArrayRef<int64_t> targetGridShape, bool ttnnMode,
+                     ttcore::MemorySpace defaultOutputMemSpace, bool ttnnMode,
                      bool collapseTensors)
       : OpConversionPattern<ConcreteOp>(typeConverter, ctx),
         D2MNamedRewriterCommon(defaultInputMemSpace, defaultOutputMemSpace,
-                               targetGridShape, ttnnMode, collapseTensors) {}
+                               ttnnMode, collapseTensors) {}
 
   LogicalResult
   matchAndRewrite(ttir::PermuteOp op, typename ConcreteOp::Adaptor adaptor,
@@ -947,7 +931,7 @@ public:
     // For inner permute, we alse need a GenericOp to transpose each individual
     // tile.
     auto generic = rewriter.create<d2m::GenericOp>(
-        loc, inputs, outputs, getTargetSquareGridShape(),
+        loc, inputs, outputs,
         [&](OpBuilder &builder, Location bodyLoc, ValueRange blockArgs) {
           assert(blockArgs.size() == 2);
           auto identityMap = builder.getMultiDimIdentityMap(2);
@@ -1101,8 +1085,7 @@ void populateTTIRToD2MPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
                                TypeConverter &typeConverter,
                                ttcore::MemorySpace defaultInputMemSpace,
                                ttcore::MemorySpace defaultOutputMemSpace,
-                               ArrayRef<int64_t> targetGridShape, bool ttnnMode,
-                               bool collapseTensors) {
+                               bool ttnnMode, bool collapseTensors) {
   // clang-format off
   patterns.add<
     // Elementwise.
@@ -1146,7 +1129,7 @@ void populateTTIRToD2MPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
     D2MNamedElementwiseRewriter<ttir::TypecastOp,     d2m::TileTypecastOp>,
     // Permute (handles tranpose ops, since they're canonicalized into permutes).
     D2MPermuteRewriter
-  >(typeConverter, ctx, defaultInputMemSpace, defaultOutputMemSpace, targetGridShape,ttnnMode, collapseTensors);
+  >(typeConverter, ctx, defaultInputMemSpace, defaultOutputMemSpace, ttnnMode, collapseTensors);
 
 
   // ToLayout 1:1 conversion.
@@ -1159,7 +1142,7 @@ void populateTTIRToD2MPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
   patterns.add<D2MMeshShardOpRewriter>(typeConverter, ctx);
 
   // Matmul.
-  patterns.add<D2MMatmulRewriter<d2m::TileMatmulOp>>(typeConverter, ctx, defaultInputMemSpace, defaultOutputMemSpace, targetGridShape, ttnnMode, collapseTensors);
+  patterns.add<D2MMatmulRewriter<d2m::TileMatmulOp>>(typeConverter, ctx, defaultInputMemSpace, defaultOutputMemSpace,  ttnnMode, collapseTensors);
 
   // clang-format on
 }
@@ -1201,8 +1184,7 @@ public:
     RewritePatternSet patterns(ctx);
     populateTTIRToD2MPatterns(ctx, patterns, typeConverter,
                               defaultInputMemSpace, defaultOutputMemSpace,
-                              getTargetGridShape(), ttnnMode,
-                              collapseTensorsTo2D);
+                              ttnnMode, collapseTensorsTo2D);
 
     ConversionTarget target(*ctx);
     target.addIllegalDialect<mlir::tt::ttir::TTIRDialect>();
@@ -1218,18 +1200,6 @@ public:
     if (failed(applyPartialConversion(module, target, std::move(patterns)))) {
       signalPassFailure();
     }
-  }
-
-private:
-  // Helper to get defined device shape if an override is not provided.
-  llvm::SmallVector<int64_t> getTargetGridShape() {
-
-    // Get from device if no override given.
-    ::mlir::ModuleOp moduleOp = getOperation();
-    mlir::tt::ttcore::DeviceAttr device =
-        mlir::tt::ttcore::lookupDevice(moduleOp);
-    assert(device && "Device not found");
-    return llvm::to_vector(device.getWorkerGrid().getShape());
   }
 };
 } // namespace

@@ -180,7 +180,7 @@ public:
     auto indexingMap = mlir::cast<AffineMapAttr>(indexingMaps[0]);
 
     rewriter.replaceOpWithNewOp<GenericOp>(
-        op, viewInput, viewOutput, getTargetGridShape(),
+        op, viewInput, viewOutput,
         [&](OpBuilder &builder, Location loc, ValueRange blockArgs) {
           DMAOp dma;
           Value yield;
@@ -219,7 +219,7 @@ public:
            "one of input or output must be tiled for now");
 
     rewriter.replaceOpWithNewOp<GenericOp>(
-        op, op.getInput(), op.getOutput(), getTargetGridShape(),
+        op, op.getInput(), op.getOutput(),
         [=](OpBuilder &builder, Location loc, ValueRange blockArgs) {
           Value src = builder.create<WaitOp>(loc, blockArgs[0]).getResult();
           Value dst = builder.create<ReserveOp>(loc, blockArgs[1]).getResult();
