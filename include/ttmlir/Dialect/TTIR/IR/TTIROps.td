@@ -3862,6 +3862,22 @@ def TTIR_ReshapeOp: TTIR_NamedOp<"reshape", [TTIR_TensorManipulation]> {
     let hasFolder = 1;
 }
 
+def TTIR_RearrangeOp: TTIR_NamedOp<"rearrange", [TTIR_TensorManipulation]> {
+    let summary = "Tensor rearrange operation.";
+    let description = [{
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input, StringAttr:$pattern);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 1;
+
+    let extraClassDeclaration = [{
+        AffineMap getPatternAffineMap();
+    }];
+}
+
 def TTIR_PadOp: TTIR_NamedOp<"pad"> {
     let summary = "Tensor padding operation.";
     let description = [{
