@@ -278,23 +278,71 @@ private:
       bool result;
       std::string reason;
 
-      if (isASameGroup && isBSameGroup) {
-        result = a.distanceFromRoot >
-                 b.distanceFromRoot; // b wins if a distance is greater
-        reason = result ? "a has greater distance (lower priority)"
-                        : "b has greater distance (lower priority)";
-      } else if (isASameGroup && !isBSameGroup) {
+      // return false - a wins
+      // return true - b wins
+
+      // First break by group
+      //
+      if (isASameGroup && !isBSameGroup) {
         result = false; // a wins
-        reason = "a is same group, b is different (a has lower priority)";
+        reason = "a is same group, b is different (a has higher priority)";
       } else if (!isASameGroup && isBSameGroup) {
         result = true; // b wins
-        reason = "b is same group, a is different (b has lower priority)";
+        reason = "b is same group, a is different (b has higher priority)";
+      } else if (isASameGroup == isBSameGroup) {
+        // Now break by deallocate ops
+        //
+        bool aIsDeallocate = isa<ttnn::DeallocateOp>(a.op);
+        bool bIsDeallocate = isa<ttnn::DeallocateOp>(b.op);
+        if (aIsDeallocate && !bIsDeallocate) {
+          result = true;
+          reason = "a is deallocate, b is not (b has higher priority)";
+        } else if (!aIsDeallocate && bIsDeallocate) {
+          result = false;
+          reason = "b is deallocate, a is not (a has higher priority)";
+        } else {
+          // Now break by distance
+          result = a.distanceFromRoot > b.distanceFromRoot;
+          reason = result ? "a has greater distance (b wins)"
+                          : "b has greater distance (a wins)";
+        }
       } else {
-        // This arbitrarily chooses the next op when there's a tie.
-        result = a.pyLoc.funcPath < b.pyLoc.funcPath;
-        reason = result ? "a.funcPath < b.funcPath (a has lower priority)"
-                        : "b.funcPath < a.funcPath (b has lower priority)";
+        // This should never happen
+        llvm::errs()
+            << "Both ops are in the same group and are not deallocate ops"
+            << "\n";
+        exit(1);
       }
+
+      // if (isASameGroup && isBSameGroup) {
+      //   result = a.distanceFromRoot >
+      //            b.distanceFromRoot; // `b` wins if `a` distance is greater
+      //   reason = result ? "a has greater distance (b wins)"
+      //                   : "b has greater distance (a wins)";
+      // } else if (isASameGroup && !isBSameGroup) {
+      //   result = false; // a wins
+      //   reason = "a is same group, b is different (a has higher priority)";
+      // } else if (!isASameGroup && isBSameGroup) {
+      //   result = true; // b wins
+      //   reason = "b is same group, a is different (b has higher priority)";
+      // } else {
+      //   // Deallocate ops should always go last.
+      //   bool aIsDeallocate = isa<ttnn::DeallocateOp>(a.op);
+      //   bool bIsDeallocate = isa<ttnn::DeallocateOp>(b.op);
+      //   if (aIsDeallocate && !bIsDeallocate) {
+      //     result = true;
+      //     reason = "a is deallocate, b is not (b has higher priority)";
+      //   } else if (!aIsDeallocate && bIsDeallocate) {
+      //     result = false;
+      //     reason = "b is deallocate, a is not (a has higher priority)";
+      //   } else {
+      //     // This arbitrarily chooses the next op when there's a tie.
+      //     result = a.pyLoc.funcPath < b.pyLoc.funcPath;
+      //     reason = result ? "a.funcPath < b.funcPath (a has higher priority)"
+      //                     : "b.funcPath < a.funcPath (b has higher
+      //                     priority)";
+      //   }
+      // }
 
       if (debug) {
         llvm::outs() << "  Winner (closer to front): "
@@ -306,18 +354,98 @@ private:
     }
   };
 
+  struct FuncGroup {
+    // What the function will be named in the new IR
+    std::string funcName;
+
+    int index = -1;
+
+    // The operations and their PyLocs in the group
+    SmallVector<OpPyLoc> opPyLocs;
+
+    // Generate name based on modules of the ops in the group
+    void generateFuncName() {
+      // If we were to list module classes for each op, like this:
+      //   - modules: ResNetModel ResNetEncoder ResNetStage ResNetBasicLayer
+      //   Sequential ResNetConvLayer Conv2d
+      //   - modules: ResNetModel ResNetEncoder ResNetStage ResNetBasicLayer
+      //   Sequential ResNetConvLayer BatchNorm2d
+      //   - modules: ResNetModel ResNetEncoder ResNetStage ResNetBasicLayer
+      //   Sequential ResNetConvLayer ReLU
+      // we want to find the LCA of them, which in this case is ResNetConvLayer
+      //
+
+      bool debug = false;
+      if (debug) {
+        llvm::outs() << "Group asdf: " << funcName << "\n";
+        for (const OpPyLoc &opPyLoc : opPyLocs) {
+          llvm::outs() << "  - " << "modules: ";
+          for (const PyLoc::Module &module : opPyLoc.pyLoc.modules) {
+            llvm::outs() << module.moduleClass << " ";
+          }
+          llvm::outs() << "\n";
+        }
+      }
+
+      if (opPyLocs.empty()) {
+        this->funcName = "forward";
+        if (index >= 0) {
+          this->funcName += "_" + std::to_string(index);
+        }
+        return;
+      }
+
+      // First find the smalles length module class list
+      size_t minLength = std::numeric_limits<size_t>::max();
+      for (const OpPyLoc &opPyLoc : opPyLocs) {
+        if (opPyLoc.pyLoc.modules.size() < minLength) {
+          minLength = opPyLoc.pyLoc.modules.size();
+        }
+      }
+
+      // Then go through the module class list from behind and find the first
+      // one that all the ops share
+      for (size_t i = minLength - 1; i >= 0; i--) {
+        bool allMatch = true;
+        std::string moduleClass = opPyLocs[0].pyLoc.modules[i].moduleClass;
+        for (const OpPyLoc &opPyLoc : opPyLocs) {
+          if (opPyLoc.pyLoc.modules[i].moduleClass != moduleClass) {
+            allMatch = false;
+            break;
+          }
+        }
+
+        if (allMatch) {
+          this->funcName = moduleClass;
+          if (index >= 0) {
+            this->funcName += "_" + std::to_string(index);
+          }
+          return;
+        }
+      }
+
+      // llvm::SmallVector<std::string> intersectionModuleClasses;
+      // for (const OpPyLoc &opPyLoc : opPyLocs) {
+      //   for (const PyLoc::Module &module : opPyLoc.pyLoc.modules) {
+      //     intersectionModuleClasses.push_back(module.moduleClass);
+      //   }
+      // }
+      // join the module classes with underscores
+      // funcName = llvm::join(intersectionModuleClasses, "_");
+    }
+  };
+
   // Group operations by their funcPath.
   // Returns a map: funcPath -> (funcName, vector of PyLocs)
-  llvm::StringMap<std::pair<std::string, SmallVector<PyLoc>>>
-  groupOperationsByFunction(
+  llvm::StringMap<FuncGroup> groupOperationsByFunction(
       func::FuncOp &candidateFn,
       const llvm::DenseMap<Operation *, PyLoc> &opToLocation) {
-    llvm::StringMap<std::pair<std::string, SmallVector<PyLoc>>> funcGroups;
+    llvm::StringMap<FuncGroup> funcGroups;
 
     // Track previous funcPath to detect changes
     std::string prevFuncPath = "";
     std::string currentFuncName = "";
-    SmallVector<PyLoc> currentGroup;
+    FuncGroup currentGroup;
     unsigned groupCounter = 0;
 
     // Track which operations have been processed (across all groups)
@@ -398,14 +526,19 @@ private:
       // Check if funcPath changed (make a "cut")
       if (!prevFuncPath.empty() && pyLoc.funcPath != prevFuncPath) {
         // Print current group
-        llvm::outs() << "Current group: " << currentGroup.size() << "\n";
+        llvm::outs() << "Current group: " << currentGroup.opPyLocs.size()
+                     << "\n";
         llvm::outs() << "  Func path: " << prevFuncPath << "\n";
-        for (PyLoc &pyLoc : currentGroup) {
+        for (const OpPyLoc &opPyLoc : currentGroup.opPyLocs) {
           // Print pyloc op name and modules
-          llvm::outs() << "  - " << pyLoc.op->getName() << " (modules: ";
-          for (const PyLoc::Module &module : pyLoc.modules) {
+          llvm::outs() << "  - " << opPyLoc.op->getName() << " (modules: ";
+          for (const PyLoc::Module &module : opPyLoc.pyLoc.modules) {
             llvm::outs() << module.moduleClass << "[" << module.moduleName
                          << "] ";
+          }
+          if (groupCounter >= 3 and groupCounter <= 7) {
+            llvm::outs() << "  PRINTING WHOLE OP:\n";
+            opPyLoc.op->dump();
           }
           llvm::outs() << ")\n";
         }
@@ -424,17 +557,22 @@ private:
                        << opPyLoc.distanceFromRoot << " - "
                        << opPyLoc.pyLoc.funcPath << "\n";
         }
-        llvm::outs() << "\n";
 
         // Save the current group with a unique key
+        currentGroup.funcName = "forward_" + std::to_string(groupCounter);
+        currentGroup.index = groupCounter;
+        currentGroup.generateFuncName();
+        llvm::outs() << "  Func name: " << currentGroup.funcName << "\n";
         std::string uniqueKey =
             prevFuncPath + "_group_" + std::to_string(groupCounter++);
-        funcGroups[uniqueKey] = {currentFuncName, std::move(currentGroup)};
-        currentGroup = SmallVector<PyLoc>();
+        funcGroups[uniqueKey] = currentGroup;
+        currentGroup = FuncGroup();
+
+        llvm::outs() << "\n";
       }
 
       // Add current op to the group
-      currentGroup.push_back(pyLoc);
+      currentGroup.opPyLocs.push_back(opPyLoc);
       processedOps.insert(opPyLoc.op);
       prevFuncPath = pyLoc.funcPath;
       currentFuncName = pyLoc.funcName;
@@ -479,29 +617,27 @@ private:
     }
 
     // Don't forget to save the last group
-    if (!currentGroup.empty()) {
+    if (!currentGroup.opPyLocs.empty()) {
+      currentGroup.funcName = "forward_" + std::to_string(groupCounter);
+      currentGroup.index = groupCounter;
+      currentGroup.generateFuncName();
       std::string uniqueKey =
           prevFuncPath + "_group_" + std::to_string(groupCounter++);
-      funcGroups[uniqueKey] = {currentFuncName, std::move(currentGroup)};
+      funcGroups[uniqueKey] = currentGroup;
     }
 
     return funcGroups;
   }
 
-  void printFunctionGroups(
-      const llvm::StringMap<std::pair<std::string, SmallVector<PyLoc>>>
-          &funcGroups) {
+  void printFunctionGroups(const llvm::StringMap<FuncGroup> &funcGroups) {
     llvm::outs() << "\n=== Function Groups ===\n";
-    for (const auto &[funcPath, funcInfo] : funcGroups) {
-      const std::string &funcName = funcInfo.first;
-      const SmallVector<PyLoc> &locations = funcInfo.second;
-
-      llvm::outs() << "\nFunction: " << funcName << "\n";
+    for (const auto &[funcPath, funcGroup] : funcGroups) {
+      llvm::outs() << "\nFunction: " << funcGroup.funcName << "\n";
       llvm::outs() << "  Path: " << funcPath << "\n";
-      llvm::outs() << "  Operations: " << locations.size() << "\n";
-      for (const PyLoc &pyLoc : locations) {
-        llvm::outs() << "    - " << pyLoc.op->getName() << " (line "
-                     << pyLoc.opLineNum << ")\n";
+      llvm::outs() << "  Operations: " << funcGroup.opPyLocs.size() << "\n";
+      for (const OpPyLoc &opPyLoc : funcGroup.opPyLocs) {
+        llvm::outs() << "    - " << opPyLoc.op->getName() << " (line "
+                     << opPyLoc.pyLoc.opLineNum << ")\n";
       }
     }
     llvm::outs() << "\n";
@@ -511,7 +647,7 @@ private:
   struct FunctionBoundaryInfo {
     std::string funcName;
     std::string funcPath;
-    SmallVector<PyLoc> locations;
+    SmallVector<OpPyLoc> opPyLocs;
 
     // Values that flow INTO this function (used but not defined here)
     SmallVector<Value> inputValues;
@@ -524,30 +660,26 @@ private:
   };
 
   // Analyze data flow for each function group
-  llvm::StringMap<FunctionBoundaryInfo> analyzeFunctionBoundaries(
-      const llvm::StringMap<std::pair<std::string, SmallVector<PyLoc>>>
-          &funcGroups) {
+  llvm::StringMap<FunctionBoundaryInfo>
+  analyzeFunctionBoundaries(const llvm::StringMap<FuncGroup> &funcGroups) {
     llvm::StringMap<FunctionBoundaryInfo> boundaryInfos;
 
-    for (const auto &[funcPath, funcInfo] : funcGroups) {
-      const std::string &funcName = funcInfo.first;
-      const SmallVector<PyLoc> &locations = funcInfo.second;
-
+    for (const auto &[funcPath, funcGroup] : funcGroups) {
       FunctionBoundaryInfo info;
-      info.funcName = funcName;
-      info.funcPath = funcPath.str();
-      info.locations = locations;
+      info.funcName = funcGroup.funcName;
+      info.funcPath = funcPath;
+      info.opPyLocs = funcGroup.opPyLocs;
 
       // Build a set of operations in this group for fast lookup
       llvm::DenseSet<Operation *> opsInGroup;
-      for (const PyLoc &pyLoc : locations) {
-        opsInGroup.insert(pyLoc.op);
+      for (const OpPyLoc &opPyLoc : funcGroup.opPyLocs) {
+        opsInGroup.insert(opPyLoc.op);
       }
 
       // Track all values defined within this group
       llvm::DenseSet<Value> valuesDefinedInGroup;
-      for (const PyLoc &pyLoc : locations) {
-        for (Value result : pyLoc.op->getResults()) {
+      for (const OpPyLoc &opPyLoc : funcGroup.opPyLocs) {
+        for (Value result : opPyLoc.op->getResults()) {
           valuesDefinedInGroup.insert(result);
         }
       }
@@ -557,9 +689,9 @@ private:
       llvm::DenseSet<Value> outputValuesSet;
       llvm::DenseSet<Value> internalValuesSet;
 
-      for (const PyLoc &pyLoc : locations) {
+      for (const OpPyLoc &opPyLoc : funcGroup.opPyLocs) {
         // Check operands (inputs to the op)
-        for (Value operand : pyLoc.op->getOperands()) {
+        for (Value operand : opPyLoc.op->getOperands()) {
           // If this value is not defined in this group, it's an input
           if (!valuesDefinedInGroup.contains(operand)) {
             inputValuesSet.insert(operand);
@@ -567,7 +699,7 @@ private:
         }
 
         // Check results (outputs from the op)
-        for (Value result : pyLoc.op->getResults()) {
+        for (Value result : opPyLoc.op->getResults()) {
           bool usedOutside = false;
           bool usedInside = false;
 
@@ -724,8 +856,8 @@ private:
       }
 
       // Clone operations in order
-      for (const PyLoc &pyLoc : info.locations) {
-        Operation *oldOp = pyLoc.op;
+      for (const OpPyLoc &opPyLoc : info.opPyLocs) {
+        Operation *oldOp = opPyLoc.op;
         Operation *newOp = rewriter.clone(*oldOp, valueMapping);
 
         // Update the value mapping with the results of the cloned operation
@@ -760,8 +892,8 @@ private:
     for (const auto &entry : boundaryInfos) {
       llvm::StringRef funcPath = entry.getKey();
       const FunctionBoundaryInfo &info = entry.getValue();
-      for (const PyLoc &pyLoc : info.locations) {
-        opToFuncInfo[pyLoc.op] = {funcPath, &info};
+      for (const OpPyLoc &opPyLoc : info.opPyLocs) {
+        opToFuncInfo[opPyLoc.op] = {funcPath, &info};
       }
     }
 
