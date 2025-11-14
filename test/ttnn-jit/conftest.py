@@ -4,6 +4,7 @@
 
 import pytest
 import ttnn
+import torch
 
 
 @pytest.fixture(scope="module")
