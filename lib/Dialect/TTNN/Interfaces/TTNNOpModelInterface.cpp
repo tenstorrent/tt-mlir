@@ -1112,12 +1112,12 @@ Atan2Op::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 }
 
 //===----------------------------------------------------------------------===//
-// GeluBWOp - TTNN Op Model Interface
+// GeluBackwardOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
 llvm::Expected<op_model::OpConstraints>
-GeluBWOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
-                           const OpConfig &opConfig) {
+GeluBackwardOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                                 const OpConfig &opConfig) {
   assert(inputs.size() == 2);
 
   const auto inputShapeA = getLhs().getType().getShape();
@@ -1130,18 +1130,15 @@ GeluBWOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
   ttcore::GridAttr deviceGrid =
       ttcore::lookupDevice(getOperation()).getWorkerGrid();
 
-  std::string approximate =
-      getApproximate().empty() ? "none" : getApproximate().str();
-
   return opConstraintsCache().getOrCompute(
-      op_model::OpModel<GeluBWOp>::getOpConstraints, getOperation(), deviceGrid,
-      inputShapeA, inputs[0], inputShapeB, inputs[1], approximate,
-      opConfig.outputLayout);
+      op_model::OpModel<GeluBackwardOp>::getOpConstraints, getOperation(),
+      deviceGrid, inputShapeA, inputs[0], inputShapeB, inputs[1],
+      getApproximate().str(), opConfig.outputLayout);
 }
 
 llvm::Expected<size_t>
-GeluBWOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
-                       const OpConfig &opConfig) {
+GeluBackwardOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                             const OpConfig &opConfig) {
   assert(inputs.size() == 2);
 
   const auto inputShapeA = getLhs().getType().getShape();
@@ -1151,8 +1148,9 @@ GeluBWOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
       getApproximate().empty() ? "none" : getApproximate().str();
 
   return opRuntimeCache().getOrCompute(
-      op_model::OpModel<GeluBWOp>::getOpRuntime, getOperation(), inputShapeA,
-      inputs[0], inputShapeB, inputs[1], approximate, opConfig.outputLayout);
+      op_model::OpModel<GeluBackwardOp>::getOpRuntime, getOperation(),
+      inputShapeA, inputs[0], inputShapeB, inputs[1], approximate,
+      opConfig.outputLayout);
 }
 
 //===----------------------------------------------------------------------===//
