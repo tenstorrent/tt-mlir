@@ -739,8 +739,19 @@ public:
 
     rewriter.setInsertionPointAfter(op);
     ReduceDim reduceDim = op.getReduceDim();
-    SmallVector<int64_t> loopBounds =
-        op->template getParentOfType<GenericOp>().getLoopBounds();
+
+    auto genericOp = op->template getParentOfType<GenericOp>();
+    SmallVector<int64_t> loopBounds = genericOp.getLoopBounds();
+
+    // In explicit datamovement form, block_factors may be empty but we can
+    // infer loop bounds from the enclosing linalg.generic
+    if (loopBounds.empty() && genericOp.isExplicitDatamovementForm()) {
+      auto linalgGenericOp = op->template getParentOfType<linalg::GenericOp>();
+      if (linalgGenericOp) {
+        auto iteratorTypes = linalgGenericOp.getIteratorTypesArray();
+        loopBounds.resize(iteratorTypes.size(), 1);
+      }
+    }
 
     scf::IfOp ifOp;
     if (reduceDim == ReduceDim::R) {
