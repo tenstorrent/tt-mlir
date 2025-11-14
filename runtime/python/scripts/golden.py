@@ -8,13 +8,13 @@ import torch
 
 import golden
 import ttrt.runtime
-from ttrt.common.util import *
+from ttrt.common.util import ttrt_datatype_to_torch_dtype, get_atol_rtol_pcc
 
 
 class CallbackRuntimeConfig:
     def __init__(self):
-        self.tensors = {}
-        self.counter = 0
+        self.input_tensors = {}
+        self.op_counter = 0
 
 
 def pre_op_callback(callback_runtime_config, binary, program_context, op_context):
@@ -30,7 +30,9 @@ def pre_op_callback(callback_runtime_config, binary, program_context, op_context
         runtime_input_torch = torch.frombuffer(rt_buffer, dtype=dtype).flatten()
         runtime_inputs.append(runtime_input_torch)
 
-    callback_runtime_config.tensors[callback_runtime_config.counter] = runtime_inputs
+    callback_runtime_config.input_tensors[
+        callback_runtime_config.op_counter
+    ] = runtime_inputs
 
 
 def post_op_callback(callback_runtime_config, binary, program_context, op_context):
@@ -43,18 +45,20 @@ def post_op_callback(callback_runtime_config, binary, program_context, op_contex
     golden_fn = golden.get_golden_by_op_function_str(op_function_str)
     if not golden_fn:
         print(f"No golden mapping for operation: {op_function_str}")
-        callback_runtime_config.counter += 1
+        callback_runtime_config.op_counter += 1
         return
 
     op_output_tensor_map = ttrt.runtime.get_op_output_tensor(
         op_context, program_context
     )
     if len(op_output_tensor_map) == 0:
-        callback_runtime_config.counter += 1
+        callback_runtime_config.op_counter += 1
         print("Output tensor is empty - skipping golden comparison")
         return
 
-    runtime_inputs = callback_runtime_config.tensors[callback_runtime_config.counter]
+    runtime_inputs = callback_runtime_config.input_tensors[
+        callback_runtime_config.op_counter
+    ]
 
     for device_id, op_output_tensor in op_output_tensor_map.items():
         rt_buffer = op_output_tensor.get_data_buffer()
@@ -71,7 +75,7 @@ def post_op_callback(callback_runtime_config, binary, program_context, op_contex
     )
     print(a, b, cal_pcc, output_str)
 
-    callback_runtime_config.counter += 1
+    callback_runtime_config.op_counter += 1
 
 
 def pre_op_get_callback_fn(callback_runtime_config):
@@ -86,7 +90,7 @@ def register(message: str):
     print("REGISTER CALLED")
     callback_runtime_config = CallbackRuntimeConfig()
     # post_op_callback_runtime_config = CallbackRuntimeConfig()
-    callback_env = ttrt.runtime.DebugHooks.get(
+    callback_env = ttrt.runtime.GoldenHooks.get(
         pre_op_get_callback_fn(callback_runtime_config),
         post_op_get_callback_fn(callback_runtime_config),
     )

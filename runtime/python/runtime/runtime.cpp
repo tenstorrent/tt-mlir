@@ -403,14 +403,17 @@ void registerRuntimeBindings(nb::module_ &m) {
   m.def(
       "submit",
       [](::tt::runtime::Device device, ::tt::runtime::Binary &executable,
-         std::uint32_t programIndex, std::vector<::tt::runtime::Tensor> &inputs)
-          -> std::vector<::tt::runtime::Tensor> {
-        return ::tt::runtime::submit(device, executable, programIndex, inputs);
+         std::uint32_t programIndex, std::vector<::tt::runtime::Tensor> &inputs,
+         bool registerGolden) -> std::vector<::tt::runtime::Tensor> {
+        return ::tt::runtime::submit(device, executable, programIndex, inputs,
+                                     registerGolden);
       },
       nb::arg("device"), nb::arg("executable"), nb::arg("program_index"),
-      nb::arg("inputs"),
-      "Submit a ttnn binary for execution, returns a vector of output tensors."
-      "The input tensors will be moved and consumed.");
+      nb::arg("inputs"), nb::arg("register_golden") = true,
+      "Submit a binary for execution, returns a vector of output tensors. "
+      "The input tensors will be moved and consumed. "
+      "If register_golden is None or True (default), golden callbacks are "
+      "registered.");
   m.def(
       "wait", [](::tt::runtime::Event event) { ::tt::runtime::wait(event); },
       nb::arg("event"));
@@ -618,6 +621,33 @@ void registerRuntimeBindings(nb::module_ &m) {
       .def("__str__", [](const tt::runtime::debug::Hooks &hooks) {
         std::stringstream os;
         os << hooks;
+        return os.str();
+      });
+
+  nb::class_<tt::runtime::debug::GoldenHooks>(m, "GoldenHooks")
+      .def_static(
+          "get",
+          [](nb::callable pre_op_func, nb::callable post_op_func) {
+#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
+            return tt::runtime::debug::GoldenHooks::get(
+                [pre_op_func](tt::runtime::Binary Binary,
+                              tt::runtime::CallbackContext programContext,
+                              tt::runtime::OpContext opContext) {
+                  pre_op_func(Binary, programContext, opContext);
+                },
+                [post_op_func](tt::runtime::Binary Binary,
+                               tt::runtime::CallbackContext programContext,
+                               tt::runtime::OpContext opContext) {
+                  post_op_func(Binary, programContext, opContext);
+                });
+#else
+            tt::runtime::debug::GoldenHooks::get();
+            return std::nullopt;
+#endif
+          })
+      .def("__str__", [](const tt::runtime::debug::GoldenHooks &hooks) {
+        std::stringstream os;
+        os << "GoldenHooks";
         return os.str();
       });
 

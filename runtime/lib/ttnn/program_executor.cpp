@@ -123,15 +123,22 @@ ProgramExecutor::ProgramExecutor(
 }
 
 void ProgramExecutor::runCallback(
+    std::optional<debug::GoldenHooks::CallbackFn> goldenCallback,
     std::optional<debug::Hooks::CallbackFn> callback, Binary &executableHandle,
     const ::tt::target::ttnn::Operation *opContext,
     ProgramContext *programContext) {
+  std::shared_ptr<void> programContextPtr =
+      ::tt::runtime::utils::unsafeBorrowShared(programContext);
+  std::shared_ptr<void> opContextPtr = ::tt::runtime::utils::unsafeBorrowShared(
+      const_cast<::tt::target::ttnn::Operation *>(opContext));
+  if (goldenCallback) {
+    PyGILState_STATE gstate = PyGILState_Ensure();
+    (*goldenCallback)(executableHandle,
+                      CallbackContext(programContextPtr, DeviceRuntime::TTNN),
+                      OpContext(opContextPtr, DeviceRuntime::TTNN));
+    PyGILState_Release(gstate);
+  }
   if (callback) {
-    std::shared_ptr<void> programContextPtr =
-        ::tt::runtime::utils::unsafeBorrowShared(programContext);
-    std::shared_ptr<void> opContextPtr =
-        ::tt::runtime::utils::unsafeBorrowShared(
-            const_cast<::tt::target::ttnn::Operation *>(opContext));
     (*callback)(executableHandle,
                 CallbackContext(programContextPtr, DeviceRuntime::TTNN),
                 OpContext(opContextPtr, DeviceRuntime::TTNN));
@@ -261,8 +268,7 @@ void safe_python_log_operation(const char *operation_info) {
 void ProgramExecutor::execute() {
   LOG_DEBUG(LogType::LogRuntimeTTNN,
             "Starting execution of program: ", program->name()->c_str());
-
-  // Initialize Python interpreter and print hello world
+  // Initialize Python interpreter
   if (!Py_IsInitialized()) {
     std::cout << "Initializing New Python interpreter" << std::endl;
     Py_Initialize();
@@ -278,17 +284,18 @@ void ProgramExecutor::execute() {
     perf::Env::get().tracyLogConstEvalProgram(constEvalProgram);
     perf::Env::get().tracyLogProgramMetadata(
         perf::Env::get().tracyProgramMetadata);
-    runCallback(debug::Hooks::get().getPreOperatorCallback(), executableHandle,
+    runCallback(debug::GoldenHooks::get().getPreOperatorCallback(),
+                debug::Hooks::get().getPreOperatorCallback(), executableHandle,
                 op, context.get());
     runOperation(op);
-    runCallback(debug::Hooks::get().getPostOperatorCallback(), executableHandle,
+    runCallback(debug::GoldenHooks::get().getPostOperatorCallback(),
+                debug::Hooks::get().getPostOperatorCallback(), executableHandle,
                 op, context.get());
     safe_python_log_operation(op->debug_info()->c_str());
     dumpPerfCountersIfNeeded();
   }
   LOG_DEBUG(LogType::LogRuntimeTTNN,
             "Finished execution of program: ", program->name()->c_str());
-  // Py_Finalize();
 }
 
 std::vector<::tt::runtime::Tensor> ProgramExecutor::gatherOutputTensors() {

@@ -1700,7 +1700,7 @@ getOpInputRefs(OpContext opContextHandle,
   return rtTensorRefs;
 }
 
-void registerCallback() {
+void registerGoldenHook() {
   PyGILState_STATE gstate = PyGILState_Ensure(); // Acquire GIL
   // Add the runtime directory to Python path
   PyObject *sys_path = PySys_GetObject("path");
@@ -1767,7 +1767,7 @@ void registerCallback() {
       Py_DECREF(result);
     }
   } catch (...) {
-    std::cout << "C++ exception in registerCallback" << std::endl;
+    std::cout << "C++ exception in registerGoldenHook" << std::endl;
   }
 
   // Clean up
@@ -1779,17 +1779,17 @@ void registerCallback() {
 
 std::vector<::tt::runtime::Tensor>
 submit(Device deviceHandle, Binary executableHandle, std::uint32_t programIndex,
-       std::vector<::tt::runtime::Tensor> &inputs) {
+       std::vector<::tt::runtime::Tensor> &inputs, bool registerGolden) {
 
-  // Double check this is necessary: *********
-  if (!Py_IsInitialized()) {
-    std::cout << "Initializing New Python interpreter" << std::endl;
-    Py_Initialize();
-  } else {
-    std::cout << "Python interpreter already initialized" << std::endl;
+  if (registerGolden) {
+    if (!Py_IsInitialized()) {
+      std::cout << "Initializing New Python interpreter" << std::endl;
+      Py_Initialize();
+    } else {
+      std::cout << "Python interpreter already initialized" << std::endl;
+    }
+    registerGoldenHook();
   }
-
-  registerCallback();
   ProgramExecutor executor(deviceHandle, executableHandle, programIndex,
                            inputs);
   executor.execute();

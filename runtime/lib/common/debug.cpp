@@ -33,6 +33,19 @@ Hooks::get(std::optional<debug::Hooks::CallbackFn> preOperatorCallback,
   return config;
 }
 
+const GoldenHooks &GoldenHooks::get(
+    std::optional<debug::GoldenHooks::CallbackFn> preOperatorCallback,
+    std::optional<debug::GoldenHooks::CallbackFn> postOperatorCallback) {
+  static GoldenHooks config(preOperatorCallback, postOperatorCallback);
+  if (preOperatorCallback.has_value()) {
+    config.preOperatorCallback = preOperatorCallback;
+  }
+  if (postOperatorCallback.has_value()) {
+    config.postOperatorCallback = postOperatorCallback;
+  }
+  return config;
+}
+
 Stats &Stats::get() {
   static Stats stats;
   return stats;

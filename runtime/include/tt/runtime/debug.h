@@ -117,6 +117,55 @@ private:
 #endif
 };
 
+// A dedicated set of hooks for golden comparison callbacks, independent of
+// DebugHooks.
+struct GoldenHooks {
+  using CallbackFn = std::function<void(Binary, CallbackContext, OpContext)>;
+#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
+  static const GoldenHooks &
+  get(std::optional<CallbackFn> preOperatorCallback = std::nullopt,
+      std::optional<CallbackFn> postOperatorCallback = std::nullopt);
+#else
+  constexpr static GoldenHooks get() { return GoldenHooks(); }
+#endif
+
+  std::optional<CallbackFn> getPreOperatorCallback() const {
+#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
+    return preOperatorCallback;
+#else
+    return std::nullopt;
+#endif
+  }
+
+  std::optional<CallbackFn> getPostOperatorCallback() const {
+#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
+    return postOperatorCallback;
+#else
+    return std::nullopt;
+#endif
+  }
+
+  void unregisterHooks() const {
+#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
+    preOperatorCallback = std::nullopt;
+    postOperatorCallback = std::nullopt;
+#endif
+  }
+
+private:
+#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
+  GoldenHooks(std::optional<CallbackFn> preOperatorCallback,
+              std::optional<CallbackFn> postOperatorCallback)
+      : preOperatorCallback(preOperatorCallback),
+        postOperatorCallback(postOperatorCallback) {}
+
+  mutable std::optional<CallbackFn> preOperatorCallback;
+  mutable std::optional<CallbackFn> postOperatorCallback;
+#else
+  constexpr GoldenHooks() = default;
+#endif
+};
+
 inline std::ostream &operator<<(std::ostream &os, const Hooks &hooks) {
   os << "debug::Hooks{\n"
      << "\t"

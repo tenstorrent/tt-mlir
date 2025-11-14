@@ -1089,17 +1089,19 @@ void setFabricConfig(tt::runtime::FabricConfig config) {
 
 std::vector<Tensor> submit(Device deviceHandle, Binary executableHandle,
                            std::uint32_t programIndex,
-                           std::vector<Tensor> &inputs) {
+                           std::vector<Tensor> &inputs, bool registerGolden) {
   using RetType = std::vector<Tensor>;
   return DISPATCH_TO_CURRENT_RUNTIME(
       RetType,
       [&]() -> RetType {
         return ::tt::runtime::ttnn::submit(deviceHandle, executableHandle,
-                                           programIndex, inputs);
+                                           programIndex, inputs,
+                                           registerGolden);
       },
       [&]() -> RetType {
         return ::tt::runtime::ttmetal::submit(deviceHandle, executableHandle,
-                                              programIndex, inputs);
+                                              programIndex, inputs,
+                                              registerGolden);
       },
       [&]() -> RetType {
         return ::tt::runtime::distributed::submit(

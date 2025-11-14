@@ -18,6 +18,7 @@ try:
         PerfEnv,
         DebugHooks,
         DebugStats,
+        GoldenHooks,
         MeshDeviceOptions,
         MultiProcessArgs,
         DistributedOptions,

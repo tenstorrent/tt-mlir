@@ -143,7 +143,7 @@ void deallocateTensor(Tensor &tensor, bool force);
 
 std::vector<Tensor> submit(Device deviceHandle, Binary executableHandle,
                            std::uint32_t programIndex,
-                           std::vector<Tensor> &inputs);
+                           std::vector<Tensor> &inputs, bool registerGolden);
 
 std::string getOpDebugString(OpContext opContextHandle);
 

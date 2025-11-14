@@ -9,6 +9,9 @@ if (NOT TTMETAL_RUNTIME_ENABLED)
   return()
 endif()
 
+# Python is required for optional golden callback registration (CPython embedding)
+find_package(Python3 REQUIRED COMPONENTS Development)
+
 add_library(TTRuntimeTTMetal
   STATIC
   runtime.cpp
@@ -22,8 +25,10 @@ target_include_directories(TTRuntimeTTMetal PUBLIC
   ${PROJECT_SOURCE_DIR}/runtime/include
   ${PROJECT_BINARY_DIR}/runtime/include
   ${PROJECT_BINARY_DIR}/include/ttmlir/Target/Common
+  ${Python3_INCLUDE_DIRS}
 )
 target_include_directories(TTRuntimeTTMetal SYSTEM PUBLIC "$<BUILD_INTERFACE:${TTMETAL_INCLUDE_DIRS}>")
 target_link_libraries(TTRuntimeTTMetal PUBLIC TTMETAL_LIBRARY DEVICE_LIBRARY)
+target_link_libraries(TTRuntimeTTMetal PUBLIC ${Python3_LIBRARIES})
 target_link_libraries(TTRuntimeTTMetal PUBLIC coverage_config)
 add_dependencies(TTRuntimeTTMetal TTMETAL_LIBRARY DEVICE_LIBRARY tt-metal FBS_GENERATION RUNTIME_FBS_GENERATION)

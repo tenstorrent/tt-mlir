@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include <Python.h>
 #include <optional>
 #include <variant>
 
@@ -24,6 +25,67 @@ namespace tt::runtime::ttmetal {
 
 namespace target = ::tt::target;
 namespace tt_metal = ::tt::tt_metal;
+
+// Register golden callbacks by importing embedded Python script and calling
+// register()
+static void registerGoldenHook() {
+  PyGILState_STATE gstate = PyGILState_Ensure();
+  PyObject *sys_path = PySys_GetObject("path");
+  const char *runtime_python_path = std::getenv("TTMLIR_RUNTIME_PYTHON_PATH");
+  std::string path_to_add;
+  if (runtime_python_path != nullptr) {
+    path_to_add = runtime_python_path;
+  } else {
+    const char *tt_mlir_home = std::getenv("TT_MLIR_HOME");
+    if (tt_mlir_home != nullptr) {
+      path_to_add = std::string(tt_mlir_home) + "/build/runtime/python";
+    } else {
+      path_to_add = "./build/runtime/python";
+    }
+  }
+  PyObject *runtime_path = PyUnicode_FromString(path_to_add.c_str());
+  PyList_Append(sys_path, runtime_path);
+  Py_DECREF(runtime_path);
+
+  PyObject *golden_module = PyImport_ImportModule("python.scripts.golden");
+  if (golden_module == nullptr) {
+    PyErr_Print();
+    PyGILState_Release(gstate);
+    return;
+  }
+  PyObject *register_func = PyObject_GetAttrString(golden_module, "register");
+  if (register_func == nullptr || !PyCallable_Check(register_func)) {
+    PyErr_Print();
+    Py_DECREF(golden_module);
+    PyGILState_Release(gstate);
+    return;
+  }
+  try {
+    PyObject *result = PyObject_CallFunction(register_func, "s", "Placeholder");
+    if (result == nullptr) {
+      PyErr_Print();
+      if (PyErr_Occurred()) {
+        PyObject *ptype, *pvalue, *ptraceback;
+        PyErr_Fetch(&ptype, &pvalue, &ptraceback);
+        if (pvalue) {
+          PyObject *str = PyObject_Str(pvalue);
+          if (str) {
+            std::cout << "Python error: " << PyUnicode_AsUTF8(str) << std::endl;
+            Py_DECREF(str);
+          }
+        }
+        PyErr_Restore(ptype, pvalue, ptraceback);
+      }
+    } else {
+      Py_DECREF(result);
+    }
+  } catch (...) {
+    std::cout << "C++ exception in registerGoldenHook" << std::endl;
+  }
+  Py_DECREF(register_func);
+  Py_DECREF(golden_module);
+  PyGILState_Release(gstate);
+}
 
 static const target::metal::TTMetalBinary *getBinary(Flatbuffer binary) {
   bool isTTMetal = target::metal::SizePrefixedTTMetalBinaryBufferHasIdentifier(
@@ -925,7 +987,16 @@ DistributedHostBuffer getDistributedHostBuffer(Tensor tensor) {
 
 std::vector<Tensor> submit(Device deviceHandle, Binary executableHandle,
                            std::uint32_t programIndex,
-                           std::vector<Tensor> &inputs) {
+                           std::vector<Tensor> &inputs, bool registerGolden) {
+  if (registerGolden) {
+    if (!Py_IsInitialized()) {
+      std::cout << "Initializing New Python interpreter" << std::endl;
+      Py_Initialize();
+    } else {
+      std::cout << "Python interpreter already initialized" << std::endl;
+    }
+    registerGoldenHook();
+  }
   const target::metal::TTMetalBinary &fbb = *getBinary(executableHandle);
   const target::metal::Program *program = fbb.programs()->Get(programIndex);
   tt_metal::distributed::MeshDevice &meshDevice =
