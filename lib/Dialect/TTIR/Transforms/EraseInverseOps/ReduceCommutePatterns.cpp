@@ -153,8 +153,8 @@ private:
   }
 
   bool isCommuteDownwardsViable(ReduceOpType op, PermuteOp) const override {
-    // Commute when reduce has keepdim = false is not currently supported
-    return op.getKeepDim();
+    // Disabled as upwards commute is sufficient for now
+    return false;
   }
 
   bool isCommuteDownwardsFavorable(ReduceOpType op,
