@@ -220,6 +220,54 @@ def test_unary_ops(
     )
 
 
+@pytest.mark.parametrize(
+    "shapes,batch_dims_lhs,contract_dims_lhs,batch_dims_rhs,contract_dims_rhs",
+    [
+        (
+            [(4, 10, 3, 5, 7), (4, 10, 5, 7, 3)],
+            [0],
+            [3],
+            [0],
+            [2],
+        )
+    ],
+)
+def test_dot_general(
+    shapes: List[Shape],
+    batch_dims_lhs: List[int],
+    contract_dims_lhs: List[int],
+    batch_dims_rhs: List[int],
+    contract_dims_rhs: List[int],
+    request,
+    device,
+):
+    def dot_general(
+        in0: Operand,
+        in1: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        return builder.dot_general(
+            in0,
+            in1,
+            batch_dims_lhs,
+            contract_dims_lhs,
+            batch_dims_rhs,
+            contract_dims_rhs,
+            unit_attrs=unit_attrs,
+        )
+
+    compile_and_execute_shlo(
+        dot_general,
+        shapes,
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target="ttnn",
+        device=device,
+    )
+
+
 # Special handling for tan PCC checks. Due to the vertical asymptote on the tan graph, small changes in input values result in large changes in output values at multiples of pi/2, so both graph and golden tensors must be constrained accordingly.
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])

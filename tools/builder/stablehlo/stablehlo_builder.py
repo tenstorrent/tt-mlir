@@ -467,6 +467,99 @@ class StableHLOBuilder(Builder):
             sharding_attr=sharding_attr,
         )
 
+    def dot_general(
+        self,
+        in0: Operand,
+        in1: Operand,
+        batch_dims_lhs: List[int],
+        contract_dims_lhs: List[int],
+        batch_dims_rhs: List[int],
+        contract_dims_rhs: List[int],
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+    ) -> OpView:
+        """
+        Creates ``stablehlo.dot_general``.
+
+        *Generalized dot product operation.*
+
+        Flexible tensor operation that generalizes matrix multiplication by allowing user to specify which
+        dimensions of two tensors to contract. Matrix multiplication is a special case of this operation,
+        where the contraction happens along the last axis of the first tensor and the second-to-last axis of the second tensor.
+        From StableHLO DotGeneral Op https://openxla.org/stablehlo/spec#dot_general
+
+        Parameters
+        ----------
+        in0 : Operand
+            Left-hand side input tensor
+        in1 : Operand
+            Right-hand side input tensor
+        batch_dims_lhs : *List[int]*
+            Batch dimensions for the left-hand side tensor
+        contract_dims_lhs : *List[int]*
+            Contracting dimensions for the left-hand side tensor
+        batch_dims_rhs : *List[int]*
+            Batch dimensions for the right-hand side tensor
+        contract_dims_rhs : *List[int]*
+            Contracting dimensions for the right-hand side tensor
+        unit_attrs : *Optional[List[str]]*, optional
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpView*)
+        """
+        from ttmlir.ir import ArrayAttr, IntegerAttr, IntegerType
+
+        # Create dimension numbers attribute using proper MLIR attribute construction
+        dot_dimension_numbers = stablehlo.DotDimensionNumbers.get(
+            context=self._ctx,
+            lhs_batching_dimensions=batch_dims_lhs,
+            lhs_contracting_dimensions=contract_dims_lhs,
+            rhs_batching_dimensions=batch_dims_rhs,
+            rhs_contracting_dimensions=contract_dims_rhs,
+        )
+
+        lhs_rhape = in0.type.shape
+        rhs_shape = in1.type.shape
+
+        result_shape = []
+        # Add batch dimensions
+        for dim in batch_dims_lhs:
+            result_shape.append(lhs_rhape[dim])
+
+        # add non-batch, non-contract dimensions from lhs and rhs
+        for i, dim_size in enumerate(lhs_rhape):
+            if i not in batch_dims_lhs and i not in contract_dims_lhs:
+                result_shape.append(dim_size)
+        for i, dim_size in enumerate(rhs_shape):
+            if i not in batch_dims_rhs and i not in contract_dims_rhs:
+                result_shape.append(dim_size)
+
+        result_type = RankedTensorType.get(result_shape, in0.type.element_type)
+        return self._op_proxy(
+            stablehlo.DotGeneralOp,
+            [in0, in1],
+            organize_stablehlo_args=lambda inputs, *_: (
+                result_type,
+                inputs[0],
+                inputs[1],
+            ),
+            organize_golden_args=lambda inputs: (
+                self._get_golden_tensor(inputs[0]),
+                self._get_golden_tensor(inputs[1]),
+            ),
+            stablehlo_kwargs={"dot_dimension_numbers": dot_dimension_numbers},
+            golden_kwargs={
+                "batch_dims_lhs": batch_dims_lhs,
+                "contract_dims_lhs": contract_dims_lhs,
+                "batch_dims_rhs": batch_dims_rhs,
+                "contract_dims_rhs": contract_dims_rhs,
+            },
+            unit_attrs=unit_attrs,
+            sharding_attr=sharding_attr,
+        )
+
     def exp(
         self,
         in0: Operand,

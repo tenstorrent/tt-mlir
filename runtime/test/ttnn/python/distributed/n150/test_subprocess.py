@@ -23,18 +23,30 @@ FLATBUFFER_BASE_PATH = (
 )
 
 
+def launch_distributed_runtime():
+    ttrt.runtime.set_mlir_home(TT_MLIR_HOME)
+    ttrt.runtime.set_current_host_runtime(ttrt.runtime.HostRuntime.Distributed)
+    distributed_options = ttrt.runtime.DistributedOptions()
+    distributed_options.mode = ttrt.runtime.DistributedMode.LocalSubprocess
+    ttrt.runtime.launch_distributed_runtime(distributed_options)
+
+
+def shutdown_distributed_runtime():
+    ttrt.runtime.shutdown_distributed_runtime()
+    ttrt.runtime.set_current_host_runtime(ttrt.runtime.HostRuntime.Local)
+
+
 def test_system_desc(request):
     system_desc_local = subprocess_get_system_descriptor(request)
 
-    ttrt.runtime.set_mlir_home(TT_MLIR_HOME)
-    ttrt.runtime.set_current_host_runtime(ttrt.runtime.HostRuntime.Distributed)
-    ttrt.runtime.launch_distributed_runtime()
+    launch_distributed_runtime()
+
     system_desc = ttrt.runtime.get_current_system_desc()
     assert system_desc is not None
-    ttrt.runtime.shutdown_distributed_runtime()
+
+    shutdown_distributed_runtime()
 
     assert system_desc.as_json() == system_desc_local.as_json()
-    ttrt.runtime.set_current_host_runtime(ttrt.runtime.HostRuntime.Local)
 
 
 @pytest.mark.parametrize("num_loops", [64])
@@ -63,9 +75,7 @@ def test_flatbuffer_execution(request, num_loops):
 
     test_runner = ProgramTestRunner(test_config, binary, 0)
 
-    ttrt.runtime.set_mlir_home(TT_MLIR_HOME)
-    ttrt.runtime.set_current_host_runtime(ttrt.runtime.HostRuntime.Distributed)
-    ttrt.runtime.launch_distributed_runtime()
+    launch_distributed_runtime()
 
     with DeviceContext(mesh_shape=[1, 1]) as device:
         inputs_runtime_with_layout, golden = test_runner.get_inputs_and_golden(
@@ -86,5 +96,4 @@ def test_flatbuffer_execution(request, num_loops):
             ttrt.runtime.memcpy(output_torch.data_ptr(), output)
             assert_pcc(output_torch, golden)
 
-    ttrt.runtime.shutdown_distributed_runtime()
-    ttrt.runtime.set_current_host_runtime(ttrt.runtime.HostRuntime.Local)
+    shutdown_distributed_runtime()

@@ -128,6 +128,35 @@ computeGridAwareDimAlignments(ArrayRef<int64_t> logicalShape,
 // Grid optimization utilities
 // ----------------------------------------------------------------------------
 
+// Compute physical shape for a MetalLayoutAttr by first computing grid-aware
+// dimension alignments and then deriving the physical shape (always
+// tile-aligned).
+static llvm::SmallVector<int64_t> computePhysicalShape(
+    ttcore::MetalLayoutAttr layout, mlir::RankedTensorType tensorType,
+    ArrayRef<int64_t> targetSquareGridShape, OpBuilder &builder) {
+  llvm::SmallVector<int64_t> tileShape;
+  if (auto tileType =
+          mlir::dyn_cast<ttcore::TileType>(tensorType.getElementType())) {
+    tileShape = llvm::to_vector(tileType.getShape());
+  } else {
+    // Always tile-align when calculating the physical shape, even in the row
+    // major case.
+    tileShape = llvm::to_vector(ttcore::TileType::getDefaultShape());
+  }
+
+  llvm::SmallVector<int64_t> alignments = computeGridAwareDimAlignments(
+      layout.getLogicalShape(), targetSquareGridShape,
+      layout.getNormalizedIntervals());
+
+  auto tempLayout = ttcore::MetalLayoutAttr::get(
+      builder.getContext(), layout.getLogicalShape(), layout.getOobVal(),
+      layout.getMemorySpace(), layout.getMemoryLayout(),
+      layout.getCollapsedIntervals(), alignments);
+
+  return tempLayout.getPhysicalShape(
+      llvm::ArrayRef(tileShape.data(), tileShape.size()));
+}
+
 // Compute optimal grid shape for a given physical shape and target grid by
 // finding the largest grid dimensions that evenly divide the physical shape.
 // This ensures maximum utilization of available worker cores while maintaining
@@ -273,29 +302,9 @@ analyzeOperandsAndComputeGrids(d2m::GenericOp genericOp,
       continue;
     }
 
-    llvm::SmallVector<int64_t> tileShape;
-    if (auto tileType =
-            mlir::dyn_cast<ttcore::TileType>(operandType.getElementType())) {
-      tileShape = llvm::to_vector(tileType.getShape());
-    }
-
-    // Compute alignments assuming the target square grid, then get the physical
-    // shape that would result from those alignments. The logical shape is
-    // already correct from TTIRToD2M (transposed if needed).
-    llvm::SmallVector<int64_t> targetAlignments = computeGridAwareDimAlignments(
-        operandLayout.getLogicalShape(), targetSquareGridShape,
-        operandLayout.getNormalizedIntervals());
-
-    auto tempLayout = ttcore::MetalLayoutAttr::get(
-        builder.getContext(), operandLayout.getLogicalShape(),
-        operandLayout.getOobVal(), operandLayout.getMemorySpace(),
-        operandLayout.getMemoryLayout(), operandLayout.getCollapsedIntervals(),
-        targetAlignments);
-
-    llvm::SmallVector<int64_t> physShape = tempLayout.getPhysicalShape(
-        llvm::ArrayRef(tileShape.data(), tileShape.size()));
-
-    // Find the optimal grid that evenly divides the physical shape.
+    // Compute physical shape and find the optimal grid that evenly divides it.
+    llvm::SmallVector<int64_t> physShape = computePhysicalShape(
+        operandLayout, operandType, targetSquareGridShape, builder);
     llvm::SmallVector<int64_t> optimalGrid =
         computeOptimalGrid(physShape, targetSquareGridShape);
 
@@ -315,27 +324,8 @@ analyzeOperandsAndComputeGrids(d2m::GenericOp genericOp,
           auto inputLayout =
               mlir::cast<ttcore::MetalLayoutAttr>(inputType.getEncoding());
 
-          llvm::SmallVector<int64_t> inputTileShape;
-          if (auto tileType = mlir::dyn_cast<ttcore::TileType>(
-                  inputType.getElementType())) {
-            inputTileShape = llvm::to_vector(tileType.getShape());
-          }
-
-          llvm::SmallVector<int64_t> inputAlignments =
-              computeGridAwareDimAlignments(
-                  inputLayout.getLogicalShape(), targetSquareGridShape,
-                  inputLayout.getNormalizedIntervals());
-
-          auto inputTempLayout = ttcore::MetalLayoutAttr::get(
-              builder.getContext(), inputLayout.getLogicalShape(),
-              inputLayout.getOobVal(), inputLayout.getMemorySpace(),
-              inputLayout.getMemoryLayout(),
-              inputLayout.getCollapsedIntervals(), inputAlignments);
-
-          llvm::SmallVector<int64_t> inputPhysShape =
-              inputTempLayout.getPhysicalShape(
-                  llvm::ArrayRef(inputTileShape.data(), inputTileShape.size()));
-
+          llvm::SmallVector<int64_t> inputPhysShape = computePhysicalShape(
+              inputLayout, inputType, targetSquareGridShape, builder);
           llvm::SmallVector<int64_t> inputOptimalGrid =
               computeOptimalGrid(inputPhysShape, targetSquareGridShape);
 
@@ -370,7 +360,8 @@ static void updateToLayoutOps(ArrayRef<ToLayoutUpdateInfo> toLayoutsToUpdate,
 // transpose dimensions, requiring special handling.
 static void
 updateStreamLayoutOps(ArrayRef<StreamLayoutUpdateInfo> streamLayoutsToUpdate,
-                      ArrayRef<int64_t> targetSquareGridShape) {
+                      ArrayRef<int64_t> targetSquareGridShape,
+                      d2m::GenericOp genericOp) {
   if (streamLayoutsToUpdate.empty()) {
     return;
   }
@@ -423,9 +414,15 @@ updateStreamLayoutOps(ArrayRef<StreamLayoutUpdateInfo> streamLayoutsToUpdate,
         streamLayout.getInput(), newStorageEmpty);
 
     // We expect the StreamLayout to be used only by the GenericOp we're
-    // optimizing. Assert this assumption to catch unexpected sharing.
-    assert(streamLayout.getResult().hasOneUse() &&
-           "StreamLayout should only be used by the GenericOp being optimized");
+    // optimizing. Check that all uses are either the GenericOp itself or
+    // operations nested within the GenericOp's region.
+    assert(llvm::all_of(streamLayout.getResult().getUsers(),
+                        [&](Operation *user) {
+                          return user == genericOp ||
+                                 genericOp->isAncestor(user);
+                        }) &&
+           "StreamLayout should only be used by the GenericOp being "
+           "optimized or operations within its region");
     streamLayout.getResult().replaceAllUsesWith(newStreamLayout.getResult());
     streamLayout.erase();
 
@@ -633,7 +630,8 @@ static void assignGrids(d2m::GenericOp genericOp,
     }
 
     if (!streamLayoutsToUpdate.empty()) {
-      updateStreamLayoutOps(streamLayoutsToUpdate, targetSquareGridShape);
+      updateStreamLayoutOps(streamLayoutsToUpdate, targetSquareGridShape,
+                            genericOp);
     }
   } else {
     insertTTNNDRAMStreams(genericOp, targetSquareGridShape);

@@ -11,7 +11,7 @@ from ttnn.graph import visualize
 
 def print_and_verify_ir(ir, method_name, debug):
     if debug:
-        print("---- After " + method_name + " ----")
+        print("---- IR Dump after " + method_name + " ----")
         print(ir)
     ir.operation.verify()
 
@@ -20,6 +20,7 @@ def generate_ir_from_ast(source_code, debug, *args, **kwargs):
     # Parse and compile
     m = ast.parse(source_code)
     if debug:
+        print("---- IR Dump after AST traversal ----")
         print(ast.dump(m, indent=2) + "\n")
 
     # TODO (#5043): emit ttnn IR instead of TTIR, TTIR should be fallback.
