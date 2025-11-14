@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttir-to-ttmetal-pipeline="system-desc-path=%system_desc_path% override-device-shape=1,1 collapse-tensors-2d=false" -o %t.mlir %s
+// RUN: ttmlir-opt --ttir-to-ttmetal-pipeline="system-desc-path=%system_desc_path% collapse-tensors-2d=false" -o %t.mlir %s
 // RUN: ttmlir-translate --ttmetal-to-flatbuffer -o %basename_t.ttm %t.mlir
 // RUN: FileCheck %s --input-file=%t.mlir
 

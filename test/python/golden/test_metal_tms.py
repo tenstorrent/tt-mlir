@@ -35,9 +35,6 @@ def test_permute_abs(
         return res
 
     options = ["collapse-tensors-2d=false"]
-    # Workaround for ttmetal, only support 1x1 grid atm.
-    if target == "ttmetal":
-        options.append("override-device-shape=1,1")
 
     compile_and_execute_ttir(
         permute_with_abs,

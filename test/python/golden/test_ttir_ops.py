@@ -1343,95 +1343,6 @@ def test_reverse(shape: Shape, dims: List[int], request, device):
     )
 
 
-@pytest.mark.skip(reason="See issue #3685")
-@pytest.mark.parametrize("shape", [(4, 4)])
-@pytest.mark.parametrize("dim_args", [[0, 1]])
-def test_reduce_and(shape: Shape, dim_args: List[int], request, device):
-    def reduce_and(
-        in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
-    ):
-        return builder.reduce_and(in0, dim_args=dim_args, unit_attrs=unit_attrs)
-
-    compile_and_execute_ttir(
-        reduce_and,
-        [shape],
-        [torch.int32],
-        test_base=request.node.name,
-        device=device,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
-    )
-
-
-def reduce_or(
-    in0: Operand,
-    builder: TTIRBuilder,
-    dim_args: List[int],
-    keep_dim: bool = False,
-    unit_attrs: Optional[List[str]] = None,
-):
-    return builder.reduce_or(
-        in0, dim_args=dim_args, keep_dim=keep_dim, unit_attrs=unit_attrs
-    )
-
-
-@pytest.mark.xfail(reason="only floats are supported in runtime. See issue #1775")
-@pytest.mark.parametrize("shape", [(4, 4)], ids=shape_str)
-@pytest.mark.parametrize("dim_args", [[0, 1]])
-def test_reduce_or(shape: Shape, dim_args: List[int], request, device):
-    def reduce_or_wrapper(
-        in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
-    ):
-        return reduce_or(in0, builder, dim_args=dim_args, unit_attrs=unit_attrs)
-
-    compile_and_execute_ttir(
-        reduce_or_wrapper,
-        [shape],
-        [torch.int32],
-        test_base=request.node.name,
-        device=device,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
-    )
-
-
-def permute(
-    in0: Operand,
-    builder: TTIRBuilder,
-    permutation: List[int],
-    unit_attrs: Optional[List[str]] = None,
-):
-    return builder.permute(
-        in0,
-        permutation=permutation,
-        unit_attrs=unit_attrs,
-    )
-
-
-@pytest.mark.parametrize("shapes", [[(2, 3, 4)]], ids=shapes_list_str)
-@pytest.mark.parametrize("permutation", [[1, 2, 0]])
-def test_permute(shapes: List[Shape], permutation: List[int], request, device):
-    # Create a wrapper function that captures permutation
-    def permute_wrapper(
-        in0: Operand,
-        builder: TTIRBuilder,
-        unit_attrs: Optional[List[str]] = None,
-    ):
-        return permute(in0, builder, permutation, unit_attrs)
-
-    # Set the name for better test identification.
-    permute_wrapper.__name__ = "permute"
-
-    compile_and_execute_ttir(
-        permute_wrapper,
-        shapes,
-        test_base=request.node.name,
-        device=device,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
-    )
-
-
 @pytest.mark.parametrize(
     "shapes", [[(10, 64, 32, 3), (10, 128, 128, 3)]], ids=shapes_list_str
 )
@@ -2164,13 +2075,6 @@ def test_matmul(
 @pytest.mark.parametrize(
     "test_fn,inputs_shapes,inputs_dtypes",
     [
-        (transpose, [(64, 32)], [torch.float32]),
-        pytest.param(
-            reshape,
-            [(64, 32)],
-            [torch.float32],
-            marks=[pytest.mark.skip_config(["ttmetal"])],
-        ),
         pytest.param(
             embedding,
             [(33, 32), (512, 128)],
