@@ -1702,11 +1702,177 @@ static mlir::OpFoldResult foldConsecutiveReshape(mlir::tt::ttir::ReshapeOp op) {
 
 // RearrangeOp verification
 ::mlir::LogicalResult mlir::tt::ttir::RearrangeOp::verify() {
+  llvm::StringRef patternStr = getPattern();
+  llvm::SmallVector<llvm::StringRef> parts;
+  patternStr.split(parts, "->");
+
+  if (parts.size() != 2) {
+    return emitOpError() << "pattern must contain exactly one '->' separator.";
+  }
+
+  auto map = getPatternAffineMap();
+  if (getInput().getType().getRank() != map.getNumDims()) {
+    return emitOpError() << "number of dimensions in the pattern's input ("
+                         << map.getNumDims()
+                         << ") must match the rank of the input tensor ("
+                         << getInput().getType().getRank() << ").";
+  }
+
+  SmallVector<int64_t> lastInputIndex;
+  for (int64_t dim : getInput().getType().getShape()) {
+    lastInputIndex.push_back(dim - 1);
+  }
+  SmallVector<int64_t> lastOutputIndex = map.compose(lastInputIndex);
+  SmallVector<int64_t> expectedOutputShape;
+  for (int64_t i = 0; i < map.getNumResults(); i++) {
+    expectedOutputShape.push_back(lastOutputIndex[i] + 1);
+  }
+
+  if (getResult().getType().getShape() !=
+      ArrayRef<int64_t>(expectedOutputShape)) {
+    return emitOpError() << "output tensor shape ("
+                         << ttmlir::utils::join(
+                                getResult().getType().getShape(), ",")
+                         << ") does not match the expected shape ("
+                         << ttmlir::utils::join(expectedOutputShape, ",")
+                         << ").";
+  }
+
   return success();
 }
 
-::mlir::AffineMap getPatternAffineMap() {
+::mlir::AffineMap mlir::tt::ttir::RearrangeOp::getPatternAffineMap() {
+  // We need to write a routine to convert the pattern string to an affine map.
+  // Example patterns:
+  // >>> rearrange(images, 'b h w c -> b h w c').shape
+  // (32, 30, 40, 3)
+  //
+  // # stacked and reordered axes to "b c h w" format
+  // >>> rearrange(images, 'b h w c -> b c h w').shape
+  // (32, 3, 30, 40)
+  //
+  // # concatenate images along height (vertical axis), 960 = 32 * 30
+  // >>> rearrange(images, 'b h w c -> (b h) w c').shape
+  // (960, 40, 3)
+  //
+  // # concatenated images along horizontal axis, 1280 = 32 * 40
+  // >>> rearrange(images, 'b h w c -> h (b w) c').shape
+  // (30, 1280, 3)
+  //
+  // # flattened each image into a vector, 3600 = 30 * 40 * 3
+  // >>> rearrange(images, 'b h w c -> b (c h w)').shape
+  // (32, 3600)
+  //
+  // # split each image into 4 smaller (top-left, top-right, bottom-left, bottom-right), 128 = 32 * 2 * 2
+  // >>> rearrange(images, 'b (h1 h) (w1 w) c -> (b h1 w1) h w c', h1=2, w1=2).shape
+  // (128, 15, 20, 3)
+  //
+  // # space-to-depth operation
+  // >>> rearrange(images, 'b (h h1) (w w1) c -> b h w (c h1 w1)', h1=2, w1=2).shape
+  // (32, 15, 20, 12)
 
+  llvm::StringRef patternStr = getPattern();
+  llvm::SmallVector<llvm::StringRef> parts;
+  patternStr.split(parts, "->");
+
+  assert(parts.size() == 2 &&
+         "RearrangeOp pattern must contain exactly one '->' separator.");
+
+  llvm::StringRef inputPattern = parts[0].trim();
+  llvm::StringRef outputPattern = parts[1].trim();
+
+  // Helper lambda to parse dimension names from a pattern
+  auto parseDims = [](llvm::StringRef pattern) -> llvm::SmallVector<llvm::SmallVector<llvm::StringRef>> {
+    llvm::SmallVector<llvm::SmallVector<llvm::StringRef>> result;
+    llvm::SmallVector<llvm::StringRef> currentGroup;
+    bool inParens = false;
+    size_t i = 0;
+
+    while (i < pattern.size()) {
+      char c = pattern[i];
+
+      if (c == '(') {
+        inParens = true;
+        i++;
+        continue;
+      }
+
+      if (c == ')') {
+        if (!currentGroup.empty()) {
+          result.push_back(currentGroup);
+          currentGroup.clear();
+        }
+        inParens = false;
+        i++;
+        continue;
+      }
+
+      if (c == ' ' && !inParens && !currentGroup.empty()) {
+        result.push_back(currentGroup);
+        currentGroup.clear();
+        i++;
+        continue;
+      }
+
+      if (c == ' ') {
+        i++;
+        continue;
+      }
+
+      // Parse dimension name
+      size_t start = i;
+      while (i < pattern.size() && pattern[i] != ' ' && pattern[i] != ')' && pattern[i] != '(') {
+        i++;
+      }
+
+      if (i > start) {
+        currentGroup.push_back(pattern.substr(start, i - start));
+      }
+    }
+
+    if (!currentGroup.empty()) {
+      result.push_back(currentGroup);
+    }
+
+    return result;
+  };
+
+  auto inputDims = parseDims(inputPattern);
+  auto outputDims = parseDims(outputPattern);
+
+  // Build a map from dimension name to input position
+  llvm::DenseMap<llvm::StringRef, unsigned> dimToInputPos;
+  unsigned pos = 0;
+  for (const auto &group : inputDims) {
+    for (llvm::StringRef dim : group) {
+      dimToInputPos[dim] = pos;
+    }
+    pos++;
+  }
+
+  // Build the affine expressions for the output
+  llvm::SmallVector<mlir::AffineExpr> exprs;
+  mlir::MLIRContext *context = getContext();
+
+  for (const auto &group : outputDims) {
+    if (group.size() == 1) {
+      // Single dimension - just map to input position
+      unsigned inputPos = dimToInputPos[group[0]];
+      exprs.push_back(mlir::getAffineDimExpr(inputPos, context));
+    } else {
+      // Multiple dimensions - need to multiply and add them
+      // For flattening like (b h), we create: b * h_size + h
+      // But AffineMap doesn't directly support this without knowing sizes
+      // For now, we create a product expression
+      mlir::AffineExpr expr = mlir::getAffineDimExpr(dimToInputPos[group[0]], context);
+      for (size_t i = 1; i < group.size(); i++) {
+        expr = expr * mlir::getAffineDimExpr(dimToInputPos[group[i]], context);
+      }
+      exprs.push_back(expr);
+    }
+  }
+
+  return mlir::AffineMap::get(inputDims.size(), 0, exprs, context);
 }
 
 //===----------------------------------------------------------------------===//

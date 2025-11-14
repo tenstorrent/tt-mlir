@@ -3862,12 +3862,12 @@ def TTIR_ReshapeOp: TTIR_NamedOp<"reshape", [TTIR_TensorManipulation]> {
     let hasFolder = 1;
 }
 
-def TTIR_RearrangeOp: TTIR_NamedOp<"rearrange", [TTIR_TensorManipulation]> {
+def TTIR_RearrangeOp : TTIR_Op<"rearrange", [Pure, TTIROpInterface, TTIR_TensorManipulation]> {
     let summary = "Tensor rearrange operation.";
     let description = [{
     }];
 
-    let arguments = (ins AnyRankedTensor:$input, StringAttr:$pattern);
+    let arguments = (ins AnyRankedTensor:$input, Builtin_StringAttr:$pattern);
 
     let results = (outs AnyRankedTensor:$result);
 
