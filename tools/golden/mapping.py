@@ -1141,6 +1141,7 @@ def typecast_golden(input_tensor: GoldenMapTensor, dtype) -> GoldenMapTensor:
     GoldenMapTensor
         Typecasted tensor
     """
+    dtype = kwargs.get("dtype", input_tensor.dtype)
     return input_tensor.to(dtype)
 
 

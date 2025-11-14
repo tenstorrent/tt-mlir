@@ -267,6 +267,14 @@ class GoldenExecutor:
                 if "window_reversal" in op.attributes:
                     kwargs["window_reversal"] = op.attributes["window_reversal"]
                 op_result = golden_fn(*inputs, **kwargs)
+            elif op_name == "ttir.batch_norm_inference":
+                # Special handling for batch_norm_inference: needs epsilon and dimension attributes
+                kwargs = {}
+                if "epsilon" in op.attributes:
+                    kwargs["epsilon"] = float(op.attributes["epsilon"])
+                if "dimension" in op.attributes:
+                    kwargs["dim"] = int(op.attributes["dimension"])
+                op_result = golden_fn(*inputs, **kwargs)
             else:
                 op_result = golden_fn(*inputs) if inputs else golden_fn()
         except Exception as e:
