@@ -11,3 +11,8 @@ def device():
     d = ttnn.open_device(device_id=0)
     yield d
     ttnn.close_device(d)
+
+
+@pytest.fixture(scope="function", autouse=True)
+def set_seed():
+    torch.manual_seed(0)
