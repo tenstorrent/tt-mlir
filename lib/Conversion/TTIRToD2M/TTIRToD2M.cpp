@@ -1723,17 +1723,15 @@ class D2MScatterOpRewriter : public OpConversionPattern<ttir::ScatterOp> {
     auto affineMapsListAttr = builder.getAffineMapArrayAttr(affineMapsList);
 
     // Create iterator types
-    mlir::tt::ttcore::IteratorTypeAttr inputIteratorTypeAttr = mlir::tt::ttcore::IteratorTypeAttr::get(getContext(), mlir::tt::ttcore::IteratorType::Parallel);
-    mlir::tt::ttcore::IteratorTypeAttr scatterIndicesIteratorTypeAttr = mlir::tt::ttcore::IteratorTypeAttr::get(getContext(), mlir::tt::ttcore::IteratorType::Parallel);
-    mlir::tt::ttcore::IteratorTypeAttr updateIteratorTypeAttr = mlir::tt::ttcore::IteratorTypeAttr::get(getContext(), mlir::tt::ttcore::IteratorType::Parallel);
-    mlir::tt::ttcore::IteratorTypeAttr outputIteratorTypeAttr = mlir::tt::ttcore::IteratorTypeAttr::get(getContext(), mlir::tt::ttcore::IteratorType::Parallel);
+    mlir::tt::ttcore::IteratorTypeAttr iteratorOneAttr = mlir::tt::ttcore::IteratorTypeAttr::get(getContext(), mlir::tt::ttcore::IteratorType::Parallel);
+    mlir::tt::ttcore::IteratorTypeAttr iteratorTwoAttr = mlir::tt::ttcore::IteratorTypeAttr::get(getContext(), mlir::tt::ttcore::IteratorType::Parallel);
 
-    llvm::SmallVector<mlir::tt::ttcore::IteratorTypeAttr, 4> iteratorArrayAttrList = {inputIteratorTypeAttr, scatterIndicesIteratorTypeAttr, updateIteratorTypeAttr, outputIteratorTypeAttr};
-    llvm::SmallVector<mlir::Attribute, 4> iteratorAttr(iteratorArrayAttrList.begin(), iteratorArrayAttrList.end());
+    llvm::SmallVector<mlir::tt::ttcore::IteratorTypeAttr, 2> iteratorArrayAttrList = {iteratorOneAttr, iteratorTwoAttr};
+    llvm::SmallVector<mlir::Attribute, 2> iteratorAttr(iteratorArrayAttrList.begin(), iteratorArrayAttrList.end());
     mlir::ArrayAttr iteratorArrayAttr = mlir::ArrayAttr::get(getContext(), iteratorAttr);
 
     // Create block factors
-    llvm::SmallVector<int64_t, 4> blockFactors = {1, 1, 1, 1};
+    llvm::SmallVector<int64_t, 2> blockFactors = {1, 1};
 
     // Create grid
     tt::ttcore::GridAttr grid = ttcore::GridAttr::get(getContext(), llvm::SmallVector<int64_t, 4>{1, 1});
@@ -1972,7 +1970,7 @@ class D2MScatterOpRewriter : public OpConversionPattern<ttir::ScatterOp> {
     builder.setInsertionPointToEnd(&block);
 
     // This is crashing, I don't know why
-    //builder.create<d2m::YieldOp>(loc, outputReserveOp.getResult());
+    builder.create<d2m::YieldOp>(loc, outputReserveOp.getResult());
 
     rewriter.replaceOp(scatterOp, finalOutputToLayoutOp.getResult(0));
     return success();
