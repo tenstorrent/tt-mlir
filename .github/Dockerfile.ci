@@ -22,6 +22,8 @@ WORKDIR $BUILD_DIR/$PROJECT_NAME
 # Show last commit
 RUN git log -1
 
+ENV CMAKE_BUILD_PARALLEL_LEVEL=16
+
 RUN <<EOT
 # ANCHOR: environment_build
 cmake -B env/build env
