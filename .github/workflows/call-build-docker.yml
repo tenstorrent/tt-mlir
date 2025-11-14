@@ -55,6 +55,7 @@ jobs:
         shell: bash
         run: |
           # Output the image name
+          export CMAKE_BUILD_PARALLEL_LEVEL=16
           set pipefail
           .github/build-docker-images.sh | tee docker.log
           DOCKER_CI_IMAGE=$(tail -n 1 docker.log)
