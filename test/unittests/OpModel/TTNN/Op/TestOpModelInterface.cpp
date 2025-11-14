@@ -4554,6 +4554,60 @@ TEST_F(OpModelBase, PagedUpdateCacheOpInterface) {
   }
 }
 
+TEST_F(OpModelBase, PagedFillCacheOpInterface) {
+  // Test PagedUpdateCacheOp with cache, input, update_index, and page_table
+  // tensors
+  llvm::SmallVector<int64_t> cacheShape = {128, 4, 32, 256};
+  llvm::SmallVector<int64_t> inputShape = {1, 12, 65, 256};
+  llvm::SmallVector<int64_t> batchOffsetShape = {1};
+  llvm::SmallVector<int64_t> pageTableShape = {8, 16};
+
+  auto batchOffsetLayout = CreateRowMajorLayoutInt32(
+      batchOffsetShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+  auto pageTableLayout = CreateRowMajorLayoutInt32(
+      pageTableShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+
+  auto cacheTensor = createEmptyTensor(cacheShape);
+  auto inputTensor = createEmptyTensor(inputShape);
+
+  auto batchOffsetTensor =
+      createEmptyTensor(batchOffsetShape, mlir::IntegerType::get(&context, 32),
+                        batchOffsetLayout);
+  auto pageTableTensor = createEmptyTensor(
+      pageTableShape, mlir::IntegerType::get(&context, 32, IntegerType::Signed),
+      pageTableLayout);
+
+  auto pagedFillCacheOp = builder.create<PagedFillCacheOp>(
+      builder.getUnknownLoc(), cacheTensor, inputTensor, pageTableTensor,
+      batchOffsetTensor);
+
+  auto backend = dyn_cast<OpModel>(pagedFillCacheOp.getOperation());
+  ASSERT_TRUE(backend);
+
+  auto constraintsExp = backend.getOpConstraints(
+      getInputLayouts(pagedFillCacheOp.getOperation()), OpConfig());
+  if (constraintsExp) {
+    auto constraints = constraintsExp.get();
+    const auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+        constraints;
+    EXPECT_EQ(cbSize, 32836);
+    EXPECT_EQ(l1PeakSize, 0);
+    EXPECT_EQ(outputSize, 131072);
+  } else {
+    FAIL() << "Missing constraints for PagedFillCacheOp; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
+
+  auto runtimeExp = backend.getOpRuntime(
+      getInputLayouts(pagedFillCacheOp.getOperation()), OpConfig());
+  if (runtimeExp) {
+    EXPECT_GT(runtimeExp.get(), 0);
+  } else {
+    FAIL() << "Error getting runtime for PagedFillCacheOp: "
+           << llvm::toString(runtimeExp.takeError());
+  }
+}
+
 TEST_F(OpModelBase, QuantizeOpInterface) {
   llvm::SmallVector<int64_t> inputShape = {32, 64};
   llvm::SmallVector<int64_t> scaleShape = {64};

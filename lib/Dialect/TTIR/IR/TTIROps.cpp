@@ -3869,6 +3869,84 @@ mlir::LogicalResult mlir::tt::ttir::MeshShardOp::verify() {
 }
 
 //===----------------------------------------------------------------------===//
+// PagedFillCacheOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult mlir::tt::ttir::PagedFillCacheOp::verify() {
+  auto cacheType = getCache().getType();
+  auto inputType = getInput().getType();
+  auto pageTableType = getPageTable().getType();
+
+  auto cacheShape = cacheType.getShape();
+  auto inputShape = inputType.getShape();
+  auto pageTableShape = pageTableType.getShape();
+
+  if (cacheShape.size() != 4) {
+    return emitOpError("Cache tensor must be a 4D tensor");
+  }
+
+  if (inputShape.size() != 4) {
+    return emitOpError("Input tensor must be a 4D tensor");
+  }
+
+  if (pageTableShape.size() != 2) {
+    return emitOpError("Page table tensor must be a 2D tensor");
+  }
+
+  if (cacheType.getElementType() != inputType.getElementType()) {
+    return emitOpError("Cache and input tensors must have the same dtype");
+  }
+
+  if (!cacheType.getElementType().isFloat()) {
+    return emitOpError("Cache tensor must be a floating point type");
+  }
+
+  if (!inputType.getElementType().isFloat()) {
+    return emitOpError("Input tensor must be a floating point type");
+  }
+
+  if (!pageTableType.getElementType().isInteger()) {
+    return emitOpError("Page table tensor must be an integer type");
+  }
+
+  if (getBatchIdxTensor()) {
+    auto batchIdxTensorType = getBatchIdxTensor().getType();
+    if (batchIdxTensorType.getShape().size() != 1) {
+      return emitOpError("Batch index tensor must be a 1D tensor");
+    }
+    if (batchIdxTensorType.getShape()[0] != 1) {
+      return emitOpError(
+          "Batch index tensor must have dim 0 be equal to 1, got " +
+          std::to_string(batchIdxTensorType.getShape()[0]));
+    }
+    if (!batchIdxTensorType.getElementType().isInteger()) {
+      return emitOpError("Batch index tensor must be an integer type");
+    }
+  }
+
+  int64_t numCacheHeads = cacheShape[1];
+  int64_t numInputHeads = inputShape[1];
+  int64_t blockSize = cacheShape[2];
+  int64_t headDim = cacheShape[3];
+
+  if (blockSize % 32 != 0) {
+    return emitOpError("Block size must be divisible by 32, got " +
+                       std::to_string(blockSize));
+  }
+
+  if (numInputHeads % numCacheHeads != 0) {
+    return emitOpError("Input must have a number of heads that is a multiple "
+                       "of the number of heads in the cache.");
+  }
+
+  if (inputShape[3] != headDim) {
+    return emitOpError("Input must have same head dimension as cache.");
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // ReverseOp
 //===----------------------------------------------------------------------===//
 
