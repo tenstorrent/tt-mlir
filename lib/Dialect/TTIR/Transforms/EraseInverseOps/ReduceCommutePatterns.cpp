@@ -59,6 +59,7 @@ public:
     for (auto *user : users) {
       rewriter.replaceOp(user, newReduce);
     }
+    llvm::outs() << "^^ commuted permute upwards through reduce\n";
   }
   // Consider the following IR pseudocode:
   // %0 = permute(%arg0) <{permutation = array<i64: 0, 3, 1, 2>}>
@@ -83,6 +84,7 @@ public:
                                            permuteOperand->getLoc());
 
     rewriter.replaceOp(op, newPerm);
+    llvm::outs() << "vv commuted permute downwards through reduce\n";
   }
 
 private:
@@ -154,7 +156,8 @@ private:
 
   bool isCommuteDownwardsViable(ReduceOpType op, PermuteOp) const override {
     // Commute when reduce has keepdim = false is not currently supported
-    return op.getKeepDim();
+    // return op.getKeepDim();
+    return false;
   }
 
   bool isCommuteDownwardsFavorable(ReduceOpType op,
