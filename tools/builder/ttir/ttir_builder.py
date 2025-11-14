@@ -6236,6 +6236,43 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
         """
         return self._op_proxy(ttir.GeluOp, [in0], unit_attrs)
 
+    def gelu_backward(
+        self,
+        grad: Operand,
+        input: Operand,
+        approximate: str = "none",
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpView:
+        """
+        Creates ``ttir.gelu_backward``.
+
+        *GELU backward operation.*
+
+        Computes the gradient of the GELU activation function during backpropagation.
+
+        Parameters
+        ----------
+        grad : Operand
+            Gradient tensor from the next layer
+        input : Operand
+            Input tensor from the forward pass
+        approximate : str, optional
+            Approximation mode: "none" (default) or "tanh"
+        unit_attrs : *Optional[List[str]]*, optional
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpView*)
+            Gradient tensor with respect to the input
+        """
+        return self._op_proxy(
+            ttir.GeluBackwardOp,
+            [grad, input],
+            unit_attrs,
+            ttir_kwargs={"approximate": approximate},
+        )
+
     def is_finite(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
         """
         Creates ``ttir.is_finite``.

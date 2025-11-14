@@ -3179,11 +3179,11 @@ mlir::tt::ttnn::CollectivePermuteOp::fold(FoldAdaptor adaptor) {
 }
 
 //===----------------------------------------------------------------------===//
-// GeluBWOp
+// GeluBackwardOp
 //===----------------------------------------------------------------------===//
 
-// GeluBWOp verification
-::mlir::LogicalResult mlir::tt::ttnn::GeluBWOp::verify() {
+// GeluBackwardOp verification
+::mlir::LogicalResult mlir::tt::ttnn::GeluBackwardOp::verify() {
   llvm::StringRef approximate = getApproximate();
 
   if (approximate != "none" && approximate != "tanh") {
@@ -3229,27 +3229,6 @@ mlir::tt::ttnn::CollectivePermuteOp::fold(FoldAdaptor adaptor) {
                "input tensors and result tensor must have the same rank, "
                "but got input rank ")
            << lhsRank << " and result rank " << resultRank;
-  }
-
-  mlir::Type lhsElemType = lhsType.getElementType();
-  mlir::Type rhsElemType = rhsType.getElementType();
-  mlir::Type resultElemType = resultType.getElementType();
-
-  if (!lhsElemType.isBF16()) {
-    return emitOpError(
-               "gradient tensor (lhs) element type must be bfloat16, but got ")
-           << lhsElemType;
-  }
-
-  if (!rhsElemType.isBF16()) {
-    return emitOpError(
-               "input tensor (rhs) element type must be bfloat16, but got ")
-           << rhsElemType;
-  }
-
-  if (!resultElemType.isBF16()) {
-    return emitOpError("result tensor element type must be bfloat16, but got ")
-           << resultElemType;
   }
 
   return success();

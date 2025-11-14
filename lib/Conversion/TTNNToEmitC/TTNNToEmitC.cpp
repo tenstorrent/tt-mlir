@@ -427,28 +427,33 @@ public:
 };
 } // namespace
 
-// GeluBWOp conversion pattern
+// GeluBackwardOp conversion pattern
 namespace {
-class ExperimentalGeluBWOpConversionPattern
-    : public TTNNToEmitCBaseOpConversionPattern<mlir::tt::ttnn::GeluBWOp> {
+class ExperimentalGeluBackwardOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<
+          mlir::tt::ttnn::GeluBackwardOp> {
+private:
+  std::string getPrefixSearchPattern() const override { return "ttnn.gelu_bw"; }
+  std::string getPrefixSwapPattern() const override {
+    return "ttnn::experimental::gelu_backward";
+  }
 
 public:
   using TTNNToEmitCBaseOpConversionPattern<
-      mlir::tt::ttnn::GeluBWOp>::TTNNToEmitCBaseOpConversionPattern;
-  using Adaptor = mlir::tt::ttnn::GeluBWOp::Adaptor;
+      mlir::tt::ttnn::GeluBackwardOp>::TTNNToEmitCBaseOpConversionPattern;
+  using Adaptor = mlir::tt::ttnn::GeluBackwardOp::Adaptor;
 
   LogicalResult
-  matchAndRewrite(mlir::tt::ttnn::GeluBWOp srcOp, Adaptor adaptor,
+  matchAndRewrite(mlir::tt::ttnn::GeluBackwardOp srcOp, Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
-    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::GeluBWOp> emitter(
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::GeluBackwardOp> emitter(
         srcOp, adaptor, rewriter);
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getLhs()),
         emitter.emit(srcOp.getRhs()),
         emitter.emit(srcOp.getApproximate()),
-        emitter.emit(srcOp.getDtype()),
         emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
     };
 
@@ -4088,7 +4093,7 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
 
   // Experimental binary backward ops
   //
-  patterns.add<ExperimentalGeluBWOpConversionPattern>(typeConverter, ctx);
+  patterns.add<ExperimentalGeluBackwardOpConversionPattern>(typeConverter, ctx);
 
   // Eltwise ternary ops
   //

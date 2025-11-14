@@ -133,6 +133,39 @@ public:
 };
 } // namespace
 
+// GeluBackwardOp conversion pattern
+//
+namespace {
+class GeluBackwardOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<
+          mlir::tt::ttnn::GeluBackwardOp> {
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      mlir::tt::ttnn::GeluBackwardOp>::TTNNToEmitPyBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::GeluBackwardOp srcOp, Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::GeluBackwardOp> emitter(
+        srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getLhs()),
+        emitter.emit(srcOp.getRhs()),
+        emitter.emit(srcOp.getApproximate(), "approximate"),
+        emitter.emit(srcOp.getMemoryConfig() |
+                         emitter.getMemoryConfig(srcOp.getResult()),
+                     "memory_config"),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
 // EltwiseUnaryWithFastAndApproximateModeOp conversion pattern
 //
 namespace {
@@ -3293,7 +3326,8 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
                EltwiseBinaryCompositeWithDTypeOpConversionPattern<mlir::tt::ttnn::PowTensorOp>,
                EltwiseBinaryCompositeWithDTypeOpConversionPattern<mlir::tt::ttnn::MinimumOp>,
                EltwiseBinaryCompositeWithDTypeOpConversionPattern<mlir::tt::ttnn::MaximumOp>,
-               PowScalarOpConversionPattern>(typeConverter, ctx);
+               PowScalarOpConversionPattern,
+               GeluBackwardOpConversionPattern>(typeConverter, ctx);
   // clang-format on
 
   patterns.add<EltwiseTernaryOpConversionPattern<ttnn::WhereOp>>(typeConverter,

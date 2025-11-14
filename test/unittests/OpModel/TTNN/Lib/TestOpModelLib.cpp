@@ -1869,6 +1869,115 @@ protected:
   }
 };
 
+struct GeluBackwardParam {
+  detail::TestTensor input;
+  detail::TestTensor grad;
+  std::string approximate;
+  detail::TestTensor output;
+  detail::ExpectedResult expectedResult;
+};
+
+class OpModelGeluBackwardParam
+    : public OpModelTest,
+      public testing::WithParamInterface<GeluBackwardParam> {
+protected:
+  void RunTest() {
+    const auto [inputShape, inputTensorLayout, inputBufferType,
+                inputVirtualGrid] = GetParam().input;
+    const auto [gradShape, gradTensorLayout, gradBufferType, gradVirtualGrid] =
+        GetParam().grad;
+    const auto [outputShape, outputTensorLayout, outputBufferType,
+                outputVirtualGrid] = GetParam().output;
+    const auto approximate = GetParam().approximate;
+    const auto [expectedLegal, expectedCbSize, expectedPeakSize,
+                expectedTotalPeakSize, expectedOutputSize] =
+        GetParam().expectedResult;
+    const TTNNLayoutAttr inputLayout = CreateTiledLayout(
+        inputShape, inputBufferType, inputTensorLayout, inputVirtualGrid);
+    const TTNNLayoutAttr gradLayout = CreateTiledLayout(
+        gradShape, gradBufferType, gradTensorLayout, gradVirtualGrid);
+    const TTNNLayoutAttr outputLayout = CreateTiledLayout(
+        outputShape, outputBufferType, outputTensorLayout, outputVirtualGrid);
+
+    auto constraintsExp = OpModel<GeluBackwardOp>::getOpConstraints(
+        CreateWorkerGrid(), gradShape, gradLayout, inputShape, inputLayout,
+        approximate, outputLayout);
+
+    EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
+    if (expectedLegal) {
+      const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
+                  outputLayoutReadBack] = constraintsExp.get();
+      EXPECT_EQ_OR_GE(cbSize, expectedCbSize, expectedCbSize == 0);
+      EXPECT_EQ_OR_GE(l1PeakSize, expectedPeakSize, expectedPeakSize == 0);
+      EXPECT_EQ_OR_GE(totalPeakSize, expectedTotalPeakSize,
+                      expectedTotalPeakSize == 0);
+      EXPECT_EQ_OR_GE(outputSize, expectedOutputSize, expectedOutputSize == 0);
+      ExpectLayoutsEQ(outputLayout, outputLayoutReadBack);
+    } else {
+      llvm::consumeError(constraintsExp.takeError());
+    }
+
+    auto runtimeExp = OpModel<GeluBackwardOp>::getOpRuntime(
+        gradShape, gradLayout, inputShape, inputLayout, approximate,
+        outputLayout);
+    EXPECT_EQ(static_cast<bool>(runtimeExp), expectedLegal);
+    if (expectedLegal) {
+      EXPECT_TRUE(runtimeExp.get() > 0);
+    } else {
+      llvm::consumeError(runtimeExp.takeError());
+    }
+  }
+};
+
+TEST_P(OpModelGeluBackwardParam, GeluBackwardOp) { RunTest(); }
+
+const auto geluBackwardOpTestValues = testing::Values(
+    // === Mixed memory, "none" approximation ===
+    GeluBackwardParam{
+        detail::TestTensor{
+            {1, 1, 32, 32}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        detail::TestTensor{
+            {1, 1, 32, 32}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        "none",
+        detail::TestTensor{
+            {1, 1, 32, 32}, TensorMemoryLayout::Interleaved, BufferType::L1},
+        detail::ExpectedResult{true, 0, 0, 0, 0}},
+
+    // === Mixed memory, "tanh" approximation ===
+    GeluBackwardParam{
+        detail::TestTensor{
+            {1, 1, 32, 32}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        detail::TestTensor{
+            {1, 1, 32, 32}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        "tanh",
+        detail::TestTensor{
+            {1, 1, 32, 32}, TensorMemoryLayout::Interleaved, BufferType::L1},
+        detail::ExpectedResult{true, 0, 0, 0, 0}},
+
+    // === All L1, "none" approximation ===
+    GeluBackwardParam{
+        detail::TestTensor{
+            {1, 1, 64, 64}, TensorMemoryLayout::Interleaved, BufferType::L1},
+        detail::TestTensor{
+            {1, 1, 64, 64}, TensorMemoryLayout::Interleaved, BufferType::L1},
+        "none",
+        detail::TestTensor{
+            {1, 1, 64, 64}, TensorMemoryLayout::Interleaved, BufferType::L1},
+        detail::ExpectedResult{true, 0, 0, 0, 0}},
+
+    // === All L1, "tanh" approximation ===
+    GeluBackwardParam{
+        detail::TestTensor{
+            {1, 1, 64, 64}, TensorMemoryLayout::Interleaved, BufferType::L1},
+        detail::TestTensor{
+            {1, 1, 64, 64}, TensorMemoryLayout::Interleaved, BufferType::L1},
+        "tanh",
+        detail::TestTensor{
+            {1, 1, 64, 64}, TensorMemoryLayout::Interleaved, BufferType::L1},
+        detail::ExpectedResult{true, 0, 0, 0, 0}});
+INSTANTIATE_TEST_SUITE_P(GeluBackwardTests, OpModelGeluBackwardParam,
+                         geluBackwardOpTestValues);
+
 // Type aliases for binary operations
 using OpModelAddParam = OpModelBinaryEltwiseParam<AddOp>;
 using OpModelMultiplyParam = OpModelBinaryEltwiseParam<MultiplyOp>;

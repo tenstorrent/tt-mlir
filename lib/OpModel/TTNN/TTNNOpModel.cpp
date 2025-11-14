@@ -1284,10 +1284,10 @@ template struct BinaryCompositeOpModel<RemainderOp>;
 template struct BinaryCompositeOpModel<Atan2Op>;
 
 //===----------------------------------------------------------------------===//
-// GeluBWOp
+// GeluBackwardOp
 //===----------------------------------------------------------------------===//
 
-llvm::Expected<OpConstraints> OpModel<GeluBWOp>::getOpConstraints(
+llvm::Expected<OpConstraints> OpModel<GeluBackwardOp>::getOpConstraints(
     ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShapeA,
     TTNNLayoutAttr inputLayoutA, llvm::ArrayRef<int64_t> inputShapeB,
     TTNNLayoutAttr inputLayoutB, std::string approximate,
@@ -1327,7 +1327,7 @@ llvm::Expected<OpConstraints> OpModel<GeluBWOp>::getOpConstraints(
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
-llvm::Expected<size_t> OpModel<GeluBWOp>::getOpRuntime(
+llvm::Expected<size_t> OpModel<GeluBackwardOp>::getOpRuntime(
     llvm::ArrayRef<int64_t> inputShapeA, TTNNLayoutAttr inputLayoutA,
     llvm::ArrayRef<int64_t> inputShapeB, TTNNLayoutAttr inputLayoutB,
     std::string approximate, TTNNLayoutAttr outputLayout) {

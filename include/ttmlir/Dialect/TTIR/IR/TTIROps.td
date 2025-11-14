@@ -1876,7 +1876,7 @@ def TTIR_MaximumOp : TTIR_ElementwiseBinaryOp<"maximum"> {
     }];
 }
 
-def TTIR_GeluBWOp : TTIR_ElementwiseBinaryOp<"gelu_bw"> {
+def TTIR_GeluBackwardOp : TTIR_ElementwiseBinaryOp<"gelu_bw"> {
   let summary = "Backward pass operation for the GELU activation function.";
   let description = [{
     The `gelu_bw` operation computes the gradient of the GELU (Gaussian Error Linear Unit)

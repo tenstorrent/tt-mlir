@@ -3329,6 +3329,65 @@ TEST_F(OpModelBase, LeakyReluOp) {
   }
 }
 
+TEST_F(OpModelBase, GeluBackwardOp) {
+  // Create GeluBackwardOp with flattened input tensor
+  llvm::SmallVector<int64_t> tensorShape = {workerCoresN300, 1024};
+
+  auto inputNone = createEmptyTensor(tensorShape);
+  auto gradNone = createEmptyTensor(tensorShape);
+  auto outputTypeNone = createRankedTensorType(tensorShape);
+
+  GeluBackwardOp geluBackwardOpNone = builder.create<GeluBackwardOp>(
+      builder.getUnknownLoc(), outputTypeNone, gradNone, inputNone, nullptr,
+      nullptr, builder.getStringAttr("none"));
+  geluBackwardOpNone->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
+
+  auto constraintsExpNone = getOpConstraints(geluBackwardOpNone.getOperation());
+  if (!constraintsExpNone) {
+    FAIL() << "Missing L1 constraints; Error="
+           << llvm::toString(constraintsExpNone.takeError()) << std::endl;
+  }
+  const auto &[cbSizeNone, l1PeakSizeNone, totalPeakSizeNone, outputSizeNone,
+               outputLayoutNone] = constraintsExpNone.get();
+  EXPECT_EQ(cbSizeNone, 12288);
+  EXPECT_EQ(l1PeakSizeNone, 2048);
+  EXPECT_EQ(outputSizeNone, 2048);
+
+  auto runtimeExpNone = getOpRuntime(geluBackwardOpNone.getOperation());
+  if (runtimeExpNone) {
+    EXPECT_TRUE(runtimeExpNone.get() > 0);
+  } else {
+    FAIL() << llvm::toString(runtimeExpNone.takeError());
+  }
+
+  auto inputTanh = createEmptyTensor(tensorShape);
+  auto gradTanh = createEmptyTensor(tensorShape);
+  auto outputTypeTanh = createRankedTensorType(tensorShape);
+
+  GeluBackwardOp geluBackwardOpTanh = builder.create<GeluBackwardOp>(
+      builder.getUnknownLoc(), outputTypeTanh, gradTanh, inputTanh, nullptr,
+      nullptr, builder.getStringAttr("tanh"));
+  geluBackwardOpTanh->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
+
+  auto constraintsExpTanh = getOpConstraints(geluBackwardOpTanh.getOperation());
+  if (!constraintsExpTanh) {
+    FAIL() << "Missing L1 constraints; Error="
+           << llvm::toString(constraintsExpTanh.takeError()) << std::endl;
+  }
+  const auto &[cbSizeTanh, l1PeakSizeTanh, totalPeakSizeTanh, outputSizeTanh,
+               outputLayoutTanh] = constraintsExpTanh.get();
+  EXPECT_EQ(cbSizeTanh, 12288);
+  EXPECT_EQ(l1PeakSizeTanh, 2048);
+  EXPECT_EQ(outputSizeTanh, 2048);
+
+  auto runtimeExpTanh = getOpRuntime(geluBackwardOpTanh.getOperation());
+  if (runtimeExpTanh) {
+    EXPECT_TRUE(runtimeExpTanh.get() > 0);
+  } else {
+    FAIL() << llvm::toString(runtimeExpTanh.takeError());
+  }
+}
+
 TEST_F(OpModelBase, clampScalarOp) {
   // Create ClampScalarOp with flattened input tensor
   llvm::SmallVector<int64_t> tensorShape = {workerCoresN300, 1024};

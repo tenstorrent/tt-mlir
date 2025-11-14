@@ -4973,11 +4973,11 @@ mlir::tt::ttir::PagedScaledDotProductAttentionDecodeOp::verify() {
 }
 
 //===----------------------------------------------------------------------===//
-// GeluBWOp
+// GeluBackwardOp
 //===----------------------------------------------------------------------===//
 
-// GeluBWOp verification
-::mlir::LogicalResult mlir::tt::ttir::GeluBWOp::verify() {
+// GeluBackwardOp verification
+::mlir::LogicalResult mlir::tt::ttir::GeluBackwardOp::verify() {
   llvm::StringRef approximate = getApproximate();
 
   if (approximate != "none" && approximate != "tanh") {
@@ -5023,27 +5023,6 @@ mlir::tt::ttir::PagedScaledDotProductAttentionDecodeOp::verify() {
                "input tensors and output tensor must have the same rank, "
                "but got input rank ")
            << lhsRank << " and output rank " << outputRank;
-  }
-
-  mlir::Type lhsElemType = lhsType.getElementType();
-  mlir::Type rhsElemType = rhsType.getElementType();
-  mlir::Type outputElemType = outputType.getElementType();
-
-  if (!lhsElemType.isBF16()) {
-    return emitOpError(
-               "gradient tensor (lhs) element type must be bfloat16, but got ")
-           << lhsElemType;
-  }
-
-  if (!rhsElemType.isBF16()) {
-    return emitOpError(
-               "input tensor (rhs) element type must be bfloat16, but got ")
-           << rhsElemType;
-  }
-
-  if (!outputElemType.isBF16()) {
-    return emitOpError("output tensor element type must be bfloat16, but got ")
-           << outputElemType;
   }
 
   return success();

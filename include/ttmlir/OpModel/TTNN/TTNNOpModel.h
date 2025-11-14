@@ -288,11 +288,11 @@ template <>
 struct OpModel<Atan2Op> : BinaryCompositeOpModel<Atan2Op> {};
 
 //===----------------------------------------------------------------------===//
-// GeluBWOp
+// GeluBackwardOp
 //===----------------------------------------------------------------------===//
 
 template <>
-struct OpModel<GeluBWOp> {
+struct OpModel<GeluBackwardOp> {
   static llvm::Expected<OpConstraints> getOpConstraints(
       ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShapeA,
       TTNNLayoutAttr inputLayoutA, llvm::ArrayRef<int64_t> inputShapeB,

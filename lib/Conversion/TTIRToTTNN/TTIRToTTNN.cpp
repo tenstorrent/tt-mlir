@@ -1541,19 +1541,20 @@ public:
 } // namespace
 
 namespace {
-class GeluBWOpConversionPattern : public OpConversionPattern<ttir::GeluBWOp> {
+class GeluBackwardOpConversionPattern
+    : public OpConversionPattern<ttir::GeluBackwardOp> {
 public:
-  using OpConversionPattern<ttir::GeluBWOp>::OpConversionPattern;
+  using OpConversionPattern<ttir::GeluBackwardOp>::OpConversionPattern;
 
   LogicalResult
-  matchAndRewrite(ttir::GeluBWOp op, OpAdaptor adaptor,
+  matchAndRewrite(ttir::GeluBackwardOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     auto outputLayoutAttr =
         mlir::cast<ttnn::TTNNLayoutAttr>(op.getType().getEncoding());
     auto outputDtypeAttr =
         rewriter.getAttr<ttcore::DataTypeAttr>(outputLayoutAttr.getDataType());
 
-    rewriter.replaceOpWithNewOp<ttnn::GeluBWOp>(
+    rewriter.replaceOpWithNewOp<ttnn::GeluBackwardOp>(
         op, this->getTypeConverter()->convertType(op.getResult().getType()),
         adaptor.getLhs(), adaptor.getRhs(), outputDtypeAttr,
         /*memory_config=*/nullptr, op.getApproximate());
@@ -2316,7 +2317,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            ScaledDotProductAttentionDecodeOpConversionPattern,
            PagedScaledDotProductAttentionDecodeOpConversionPattern,
            SplitQueryKeyValueAndSplitHeadsOpConversionPattern,
-           GeluBWOpConversionPattern
+           GeluBackwardOpConversionPattern
            >(typeConverter, ctx);
   // ANCHOR_END: op_rewriter_pattern_set
   // clang-format on
