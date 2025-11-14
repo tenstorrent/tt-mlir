@@ -1299,7 +1299,7 @@ public:
         emitter.emit(srcOp.getGroups()),
         emitter.emit(srcOp.getDtype()),
         emitter.emit(srcOp.getBias()),
-        /*compute_config=*/emitter.emit(std::nullopt),
+        /*compute_config=*/emitter.emit(std::nullopt), // TODO: Add EmitC support for DeviceComputeKernelConfigAttr
         emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
     };
 

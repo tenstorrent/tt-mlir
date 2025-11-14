@@ -11,36 +11,15 @@
 #include "ttmlir/Target/TTNN/program_generated.h"
 #include "ttnn/types.hpp"
 
-namespace tt::runtime::ttnn::operations::conv {
-void run(const ::tt::target::ttnn::Conv3dOp *op, ProgramContext &context) {
-  ProgramTensorPool &tensorPool = context.getTensorPool();
-  const ::ttnn::Tensor &input =
-      tensorPool.getTTNNTensorAndValidate(op->input());
-  const ::ttnn::Tensor &weight =
-      tensorPool.getTTNNTensorAndValidate(op->weight());
-
-  std::optional<::ttnn::Tensor> bias =
-      op->bias()
-          ? std::make_optional(tensorPool.getTTNNTensorAndValidate(op->bias()))
-          : std::nullopt;
-
-  LOG_ASSERT(op->kernel_size()->size() == 3,
-             "Kernel size expected to have 3 elements");
-  LOG_ASSERT(op->stride()->size() == 3, "Stride expected to have 3 elements");
-  LOG_ASSERT(op->padding()->size() == 3,
-             "Padding expected to have 3 elements");
-
-  std::array<uint32_t, 3> kernelSize, stride, padding;
-  std::copy_n(op->kernel_size()->begin(), 3, kernelSize.begin());
-  std::copy_n(op->stride()->begin(), 3, stride.begin());
-  std::copy_n(op->padding()->begin(), 3, padding.begin());
-
-  std::optional<::ttnn::DataType> outputDtype;
-  if (op->output_dtype()) {
-    outputDtype =
-        ::tt::runtime::ttnn::utils::toTTNNDataType(*(op->output_dtype()));
-  }
-
+namespace {
+// Helper to create Conv3dConfig from operation parameters
+::ttnn::operations::experimental::conv3d::Conv3dConfig
+createConv3dConfig(const ::tt::target::ttnn::Conv3dOp *op,
+                   const std::array<uint32_t, 3> &kernelSize,
+                   const std::array<uint32_t, 3> &stride,
+                   const std::array<uint32_t, 3> &padding,
+                   const std::optional<::ttnn::DataType> &outputDtype,
+                   ::ttnn::MeshDevice &targetDevice) {
   ::ttnn::operations::experimental::conv3d::Conv3dConfig config;
 
   // Data types
@@ -64,16 +43,53 @@ void run(const ::tt::target::ttnn::Conv3dOp *op, ProgramContext &context) {
   config.padding_mode = op->padding_mode()->str();
   config.groups = op->groups();
 
-  ::ttnn::MeshDevice &targetDevice = context.getMeshDevice();
-
   // Query device capabilities for grid size
   config.compute_with_storage_grid_size =
       targetDevice.compute_with_storage_grid_size();
 
+  return config;
+}
+} // namespace
+
+namespace tt::runtime::ttnn::operations::conv {
+void run(const ::tt::target::ttnn::Conv3dOp *op, ProgramContext &context) {
+  ProgramTensorPool &tensorPool = context.getTensorPool();
+  const ::ttnn::Tensor &input =
+      tensorPool.getTTNNTensorAndValidate(op->input());
+  const ::ttnn::Tensor &weight =
+      tensorPool.getTTNNTensorAndValidate(op->weight());
+
+  std::optional<::ttnn::Tensor> bias;
+  if (const auto *bias_value = op->bias()) {
+    bias = tensorPool.getTTNNTensorAndValidate(bias_value);
+  }
+
+  LOG_ASSERT(op->kernel_size()->size() == 3,
+             "Kernel size expected to have 3 elements");
+  LOG_ASSERT(op->stride()->size() == 3, "Stride expected to have 3 elements");
+  LOG_ASSERT(op->padding()->size() == 3,
+             "Padding expected to have 3 elements");
+
+  std::array<uint32_t, 3> kernelSize, stride, padding;
+  std::copy_n(op->kernel_size()->begin(), 3, kernelSize.begin());
+  std::copy_n(op->stride()->begin(), 3, stride.begin());
+  std::copy_n(op->padding()->begin(), 3, padding.begin());
+
+  std::optional<::ttnn::DataType> outputDtype;
+  if (op->output_dtype()) {
+    outputDtype =
+        ::tt::runtime::ttnn::utils::toTTNNDataType(*(op->output_dtype()));
+  }
+
+  ::ttnn::MeshDevice &targetDevice = context.getMeshDevice();
+
+  auto config = createConv3dConfig(op, kernelSize, stride, padding,
+                                   outputDtype, targetDevice);
+
   std::optional<::ttnn::DeviceComputeKernelConfig> computeConfig;
-  if (op->compute_config()) {
+  if (const auto *compute_config_value = op->compute_config()) {
     computeConfig =
-        utils::createDeviceComputeKernelConfig(op->compute_config());
+        utils::createDeviceComputeKernelConfig(compute_config_value);
   }
 
   std::optional<::ttnn::MemoryConfig> outputMemoryConfig =

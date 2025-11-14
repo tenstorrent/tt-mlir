@@ -119,13 +119,13 @@ enum OutputDim : unsigned {
 
 // Weight is 2D: [kD*kH*kW*C_in, O]
 enum WeightDim : unsigned {
-  WEIGHT_FLATTENED = 0,  // kD*kH*kW*C_in (patch_size)
+  WEIGHT_FLATTENED = 0,  // kD*kH*kW*C_in/groups (patch_size)
   WEIGHT_OUT_CHANNEL = 1 // O (output channels)
 };
 
-// Bias is 2D: [32, O]
+// Bias is 2D: [1, O]
 enum BiasDim : unsigned {
-  BIAS_TILE_HEIGHT = 0,  // Must be 32 (tile height)
+  BIAS_FIRST_DIM = 0,        // Must be 1
   BIAS_OUT_CHANNEL = 1   // Must be O (output channels)
 };
 
@@ -139,13 +139,14 @@ struct InputTensorDims3d {
 
 struct WeightTensorDims3d {
   int64_t outputChannels;
-  int64_t flattenedKernelChannels; // kD*kH*kW*C_in
+  int64_t flattenedKernelChannels; // kD*kH*kW*C_in/groups
   int64_t kernelDepth;
   int64_t kernelHeight;
   int64_t kernelWidth;
 };
 
 struct BiasTensorDims3d {
+  int64_t firstDim;
   int64_t outputChannels;
 };
 
@@ -384,11 +385,11 @@ mlir::LogicalResult verifyTensorRanks(mlir::tt::ttnn::Conv3dOp *op) {
   if (op->getInput().getType().getRank() != 5) {
     return op->emitOpError("input must be a 5D tensor [N, D, H, W, C]");
   }
-  if (op->getWeight().getType().getRank() != 2) {w
+  if (op->getWeight().getType().getRank() != 2) {
     return op->emitOpError("weight must be a 2D tensor [kD*kH*kW*C/G, O]");
   }
   if (op->getBias() && op->getBias().getType().getRank() != 2) {
-    return op->emitOpError("bias must be a 2D tensor [32, O]");
+    return op->emitOpError("bias must be a 2D tensor [1, O]");
   }
   if (op->getResult().getType().getRank() != 5) {
     return op->emitOpError("result must be a 5D tensor [N, D_out, H_out, W_out, O]");
@@ -409,7 +410,7 @@ getConv3dInputDims(mlir::tt::ttnn::Conv3dOp *op) {
 
   std::optional<BiasTensorDims3d> biasDims;
   if (op->getBias()) {
-    biasDims = {op->getBias().getType().getDimSize(BIAS_OUT_CHANNEL)};
+    biasDims = {op->getBias().getType().getDimSize(BIAS_FIRST_DIM), op->getBias().getType().getDimSize(BIAS_OUT_CHANNEL)};
   }
 
   return {inputDims, weightDims, biasDims};
@@ -487,14 +488,6 @@ getAndVerifyConv3dParams(mlir::tt::ttnn::Conv3dOp *op) {
     const std::optional<BiasTensorDims3d> &biasDims,
     const Conv3dParams &params) {
 
-  // Verify bias shape constraints (2D: [32, O])
-  if (op->getBias()) {
-    auto biasShape = op->getBias().getType().getShape();
-    if (biasShape[BIAS_TILE_HEIGHT] != 32) {
-      return op->emitOpError("bias first dimension must be 32 (tile height), got ")
-             << biasShape[BIAS_TILE_HEIGHT];
-    }
-  }
 
   if (inputDims.inputChannels % params.groups != 0) {
     return op->emitOpError() << "in_channels (" << inputDims.inputChannels
@@ -520,11 +513,17 @@ getAndVerifyConv3dParams(mlir::tt::ttnn::Conv3dOp *op) {
            << ")";
   }
 
-  if (biasDims && biasDims->outputChannels != weightDims.outputChannels) {
-    return op->emitOpError() << "bias output channels ("
-                             << biasDims->outputChannels
-                             << ") must match weight output channels ("
-                             << weightDims.outputChannels << ")";
+  if (biasDims) {
+    if (biasDims->outputChannels != weightDims.outputChannels) {
+      return op->emitOpError() << "bias output channels ("
+                               << biasDims->outputChannels
+                               << ") must match weight output channels ("
+                               << weightDims.outputChannels << ")";
+    }
+    if (biasDims->firstDim != 1) {
+      return op->emitOpError("bias first dimension must be 1, got ")
+             << biasDims->firstDim;
+    }
   }
 
   return mlir::success();
@@ -533,7 +532,6 @@ getAndVerifyConv3dParams(mlir::tt::ttnn::Conv3dOp *op) {
 ::mlir::LogicalResult verifyConv3dOutputDims(
     mlir::tt::ttnn::Conv3dOp *op, const InputTensorDims3d &inputDims,
     const WeightTensorDims3d &weightDims,
-    const std::optional<BiasTensorDims3d> &biasDims,
     const OutputTensorDims3d &outputDims, const Conv3dParams &params) {
 
   int32_t calculatedDOut =
