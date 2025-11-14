@@ -15,7 +15,7 @@
 // CHECK-NEXT:    memref.copy %[[STREAM]], %[[ALLOC_OUT]] : memref<2x2x2x2x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #[[MEM_SPACE]]> to memref<2x2x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096>, #[[MEM_SPACE]]>
 // CHECK-NEXT:    return %[[ALLOC_OUT]] : memref<2x2x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096>, #[[MEM_SPACE]]>
 
-#layout = #ttcore.metal_layout<logical_shape = 128x128, dim_alignments = 64x64, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1>
+#layout = #ttcore.metal_layout<logical_shape = 128x128, dim_alignments = 64x64, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded, index_map = map(0)>
 
 module {
   func.func @stream_layout_test(
