@@ -160,20 +160,8 @@ ArrayRef<int64_t> getGridShape(Value tensorOrMemref) {
   TT_assertv((mlir::isa<RankedTensorType>(tensorOrMemref.getType()) ||
               mlir::isa<MemRefType>(tensorOrMemref.getType())),
              "Expected a tensor or memref type");
-
-  Attribute layout =
-      (mlir::isa<RankedTensorType>(tensorOrMemref.getType())
-           ? mlir::dyn_cast<RankedTensorType>(tensorOrMemref.getType())
-                 .getEncoding()
-           : mlir::dyn_cast<MemRefType>(tensorOrMemref.getType()).getLayout());
-
-  if (auto deviceLayout =
-          mlir::dyn_cast_if_present<ttcore::DeviceLayoutInterface>(layout)) {
-    return deviceLayout.getGridShape(
-        mlir::dyn_cast<ShapedType>(tensorOrMemref.getType()));
-  } else {
-    return {};
-  }
+  return ttcore::getDeviceLayout(tensorOrMemref)
+      .getGridShape(mlir::cast<ShapedType>(tensorOrMemref.getType()));
 }
 
 } // namespace mlir::tt::d2m::utils

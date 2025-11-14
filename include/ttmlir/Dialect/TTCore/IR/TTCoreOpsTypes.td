@@ -289,6 +289,10 @@ def TTCore_ShardLayoutAttr : TTCore_Attr<"ShardLayout", "shard", [TTCore_DeviceL
 
     AffineMap getAffineMap() const;
 
+    std::optional<mlir::AffineMap> getVirtualizationMapIfExists() {
+      return getCoreVirtualizationMap();
+    }
+
     unsigned getRank() const { return getStride().size(); }
   }];
 }
@@ -489,6 +493,10 @@ def TTCore_MetalLayoutAttr : TTCore_Attr<"MetalLayout", "metal_layout", [TTCore_
 
     // Computes the implied physical grid shape using the grid shape and index map (if present)
     llvm::SmallVector<int64_t> getPhysicalGridShape(ShapedType tensorType) const;
+
+    std::optional<mlir::AffineMap> getVirtualizationMapIfExists() {
+      return getIndexAffineMap();
+    }
 
     bool isView() { return false; }
   }];

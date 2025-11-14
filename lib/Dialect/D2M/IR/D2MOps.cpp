@@ -1133,28 +1133,14 @@ static mlir::LogicalResult verifyAffineBlocking(
       mlir::ShapedType outputType =
           mlir::cast<mlir::ShapedType>(output.getType());
 
-      AffineMap fwdMap;
-      if (auto tensor =
-              mlir::dyn_cast_if_present<RankedTensorType>(outputType)) {
-        auto layout = mlir::dyn_cast_if_present<ttcore::MetalLayoutAttr>(
-            tensor.getEncoding());
-        fwdMap = layout.getIndexAffineMap();
-        if (fwdMap.isEmpty()) {
-          return emitOpError(
-              "GenericOp output tensor must have a non-empty index affine "
-              "map if grid affine map is defined.");
-        }
-      } else if (auto memref =
-                     mlir::dyn_cast_if_present<MemRefType>(outputType)) {
-        auto layout = mlir::dyn_cast_if_present<ttcore::ShardLayoutAttr>(
-            memref.getLayout());
-        fwdMap = layout.getCoreVirtualizationMap();
-        if (fwdMap.isEmpty()) {
-          return emitOpError(
-              "GenericOp output memref must have a non-empty core "
-              "virtualization affine map if grid affine map is defined.");
-        }
+      std::optional<AffineMap> maybeFwdMap =
+          ttcore::getDeviceLayout(outputType).getVirtualizationMapIfExists();
+      if (!maybeFwdMap) {
+        return emitOpError(
+            "GenericOp with virtual grid attribute must have an output operand "
+            "with a non-empty virtual grid mapping.");
       }
+      AffineMap fwdMap = *maybeFwdMap;
 
       // Drop the shard dim results from the virtual grid mapping.
       if (fwdMap.getNumResults() % 2 != 0) {
