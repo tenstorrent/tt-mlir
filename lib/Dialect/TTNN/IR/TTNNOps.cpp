@@ -4346,35 +4346,40 @@ mlir::tt::ttnn::PagedScaledDotProductAttentionDecodeOp::verify() {
   if (keyType != valueType) {
     return emitOpError("Key and value must have the same type");
   }
-  if (queryType.getShape().size() != 4) {
-    return emitOpError("Query must be a 4D tensor");
+
+  size_t queryRank = queryType.getShape().size();
+  size_t keyRank = keyType.getShape().size();
+  size_t resultRank = resultType.getShape().size();
+
+  if (queryRank != 3 && queryRank != 4) {
+    return emitOpError("Query must be a 3D or 4D tensor");
   }
-  if (keyType.getShape().size() != 4) {
-    return emitOpError("Key/Value must be a 4D tensor");
+  if (keyRank != 3 && keyRank != 4) {
+    return emitOpError("Key/Value must be a 3D or 4D tensor");
   }
-  if (resultType.getShape().size() != 4) {
-    return emitOpError("Output must be a 4D tensor");
+  if (resultRank != 3 && resultRank != 4) {
+    return emitOpError("Output must be a 3D or 4D tensor");
+  }
+  if (queryRank != resultRank) {
+    return emitOpError("Query and result must have the same rank");
+  }
+  if (keyRank != queryRank) {
+    return emitOpError("Query, key, and value must have the same rank");
   }
 
-  int64_t batchSize = queryType.getShape()[0];
-  int64_t nQueryHeads = queryType.getShape()[1];
-  int64_t nKVHeads = keyType.getShape()[1];
-  int64_t headSize = queryType.getShape()[3];
-  int64_t seqLen = queryType.getShape()[2];
-  int64_t maxSeqLen = keyType.getShape()[2];
+  int64_t batchSize = (queryRank == 4) ? queryType.getShape()[0] : 1;
+  int64_t nQueryHeads = queryType.getShape()[queryRank - 3];
+  int64_t keyBatchSize = (keyRank == 4) ? keyType.getShape()[0] : 1;
+  int64_t nKVHeads = keyType.getShape()[keyRank - 3];
+  int64_t headSize = queryType.getShape()[queryRank - 1];
+  int64_t seqLen = queryType.getShape()[queryRank - 2];
+  int64_t maxSeqLen = keyType.getShape()[keyRank - 2];
 
-  // NOTE: The q_chunk_size is 32 by default in ttnn. This is configurable via
-  // the program config. However, this is not modelled in the ttnn dialect.
-  // if (seqLen % 32 != 0) {
-  //   return emitOpError(
-  //       "Sequence length must be divisible by q_chunk_size (32)");
-  // }
-
-  if (keyType.getShape()[0] != batchSize) {
+  if (keyBatchSize != batchSize) {
     return emitOpError("Key/Value batch size must match query batch size");
   }
 
-  if (keyType.getShape()[3] != headSize) {
+  if (keyType.getShape()[keyRank - 1] != headSize) {
     return emitOpError("Key/Value head size must match query head size");
   }
 
