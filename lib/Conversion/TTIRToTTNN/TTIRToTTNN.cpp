@@ -1828,7 +1828,19 @@ public:
     auto meshDevice = ttcore::lookupDevice(op);
     llvm::SmallVector<int64_t> meshShape{meshDevice.getMeshShape()};
 
-    Value finalValue;
+    ttnn::TTNNLayoutAttr layoutAttr = mlir::cast<ttnn::TTNNLayoutAttr>(
+        op.getResult().getType().getEncoding());
+    ttnn::BufferTypeAttr bufferTypeAttr =
+        ttnn::BufferTypeAttr::get(op.getContext(), layoutAttr.getBufferType());
+    ttnn::MemoryConfigAttr memoryConfigAttr =
+        ttnn::MemoryConfigAttr::get(op.getContext(), layoutAttr.getMemLayout(),
+                                    bufferTypeAttr, std::nullopt);
+    ttcore::DataTypeAttr dTypeAttr =
+        ttcore::DataTypeAttr::get(op.getContext(), layoutAttr.getDataType());
+
+    Value finalValue = rewriter.create<ttnn::AssignOp>(
+        op.getLoc(), inputType, adaptor.getInput(), memoryConfigAttr,
+        dTypeAttr);
     auto replicaGroups = ttmlir::utils::denseElementsAttrTo2D<int64_t>(
         adaptor.getReplicaGroups());
 
@@ -1837,11 +1849,13 @@ public:
     for (const auto &group : replicaGroups) {
       auto sourceCoord = rewriter.getDenseI64ArrayAttr(
           ttmlir::utils::linearIdToCoord(group[0], meshShape));
-      for (const auto &targetId : group) {
+      for (size_t idx = 1; idx < group.size(); idx++) {
+        // Skip the first device in the group because the buffer is already
+        // cloned
         finalValue = rewriter.create<ttnn::PointToPointOp>(
             op.getLoc(), inputType, adaptor.getInput(), sourceCoord,
             rewriter.getDenseI64ArrayAttr(
-                ttmlir::utils::linearIdToCoord(targetId, meshShape)),
+                ttmlir::utils::linearIdToCoord(group[idx], meshShape)),
             finalValue);
       }
     }
@@ -2050,11 +2064,26 @@ public:
     }
     // Step 2: Reorganize sliced data using PointToPoint communication.
     // For each group of devices, perform pairwise sends via PointToPoint ops.
-    // Each sender sends its slices to all devices in the group (including
-    // itself).
+    // Each sender sends its slices to all devices in the group.
 
-    // Buffers to hold the output for each device (initialized as empty).
+    // Buffers to hold the output for each device (initialized as cloned).
+
+    ttnn::TTNNLayoutAttr layoutAttr = mlir::cast<ttnn::TTNNLayoutAttr>(
+        op.getResult().getType().getEncoding());
+    ttnn::BufferTypeAttr bufferTypeAttr =
+        ttnn::BufferTypeAttr::get(op.getContext(), layoutAttr.getBufferType());
+    ttnn::MemoryConfigAttr memoryConfigAttr =
+        ttnn::MemoryConfigAttr::get(op.getContext(), layoutAttr.getMemLayout(),
+                                    bufferTypeAttr, std::nullopt);
+    ttcore::DataTypeAttr dTypeAttr =
+        ttcore::DataTypeAttr::get(op.getContext(), layoutAttr.getDataType());
+
     llvm::SmallVector<Value> reorgBuffers(splitCount);
+    for (int32_t i = 0; i < splitCount; i++) {
+      reorgBuffers[i] = rewriter.create<ttnn::AssignOp>(
+          loc, sliceOpResults[i].getType(), sliceOpResults[i], memoryConfigAttr,
+          dTypeAttr);
+    }
 
     auto meshShape = ttcore::lookupDevice(op).getMeshShape();
     // for each group of devices,
@@ -2066,6 +2095,10 @@ public:
             ttmlir::utils::linearIdToCoord(group[senderIdx], meshShape));
         for (size_t receiverIdx = 0; receiverIdx < group.size();
              receiverIdx++) {
+          if (senderIdx == receiverIdx) {
+            // No need to send to itself because the buffer is already cloned
+            continue;
+          }
           auto receiverCoord = rewriter.getDenseI64ArrayAttr(
               ttmlir::utils::linearIdToCoord(group[receiverIdx], meshShape));
           reorgBuffers[senderIdx] = rewriter.create<ttnn::PointToPointOp>(
