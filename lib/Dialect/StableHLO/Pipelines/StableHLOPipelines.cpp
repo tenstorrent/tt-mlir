@@ -36,6 +36,8 @@ void createStableHLOPipeline(OpPassManager &pm,
 
   pm.addPass(createDecoupleConstFanoutPass());
 
+  pm.addPass(createRegisterCustomShardingRulePass());
+
   // Apply sharding constraints.
   pm.addPass(mlir::sdy::createApplyShardingConstraintsPass());
 
