@@ -220,36 +220,39 @@ def test_unary_ops(
     )
 
 
-# ==== StableHLO: reshape tests =================================================
-
-
-_GENERIC_SHAPES = [
-    [(2, 3), (3, 2)],  # swap
-    [(2, 3), (6,)],  # flatten
-    [(1, 784), (1, 28, 28)],  # unflatten
-    [(4, 8, 16), (4, 128)],  # 3D->2D
-    [(64, 512), (64, 1, 512)],  # expand dims
-    [(128, 128), (64, 256)],  # 2D arrangement
+_RESHAPE_CASES = [
+    # shapes, semantic id, xfail_ttmetal?
+    ([(2, 3), (3, 2)], "swap", True),
+    ([(2, 3), (6,)], "flatten", True),
+    ([(1, 784), (1, 28, 28)], "unflatten", True),
+    ([(4, 8, 16), (4, 128)], "3d_to_2d", True),
+    ([(64, 512), (64, 1, 512)], "expand_dims", True),
+    ([(128, 128), (64, 256)], "rearrange_2d", True),
+    ([(10,), (10,)], "identity", False),
+    ([(0, 6), (0, 2, 3)], "zero_dim", True),
 ]
 
-
-@pytest.mark.parametrize("shapes", _GENERIC_SHAPES, ids=shapes_list_str)
-@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
-@pytest.mark.parametrize(
-    "target",
-    [
-        pytest.param("ttnn", id="ttnn"),
-        pytest.param(
-            "ttmetal",
-            id="ttmetal",
-            marks=pytest.mark.xfail(
+_RESHAPE_PARAMS = []
+for shapes, case_id, xfail_ttmetal in _RESHAPE_CASES:
+    # ttnn: expected to pass
+    _RESHAPE_PARAMS.append(pytest.param(shapes, "ttnn", id=f"{case_id}-ttnn"))
+    # ttmetal: mark as xfail for cases known to be unsupported
+    marks = []
+    if xfail_ttmetal:
+        marks.append(
+            pytest.mark.xfail(
                 reason="reshape lowering not yet supported in TTMetal backend"
-            ),
-        ),
-    ],
-)
-def test_reshape_basic(
-    shapes: tuple[Shape, Shape], dtype: torch.dtype, target: str, request, device
+            )
+        )
+    _RESHAPE_PARAMS.append(
+        pytest.param(shapes, "ttmetal", id=f"{case_id}-ttmetal", marks=marks)
+    )
+
+
+@pytest.mark.parametrize("shapes, target", _RESHAPE_PARAMS)
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+def test_reshape(
+    shapes: tuple[Shape, Shape], target: str, dtype: torch.dtype, request, device
 ):
     input_shape, output_shape = shapes
 
@@ -258,79 +261,12 @@ def test_reshape_basic(
             builder.set_graph_level_check(True)
         return builder.reshape(in0, output_shape)
 
-    reshape_wrapper.__name__ = "reshape"
+    reshape_wrapper.__name__ = f"reshape"
 
     compile_and_execute_shlo(
         reshape_wrapper,
         [input_shape],
         [dtype],
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
-        target=target,
-        device=device,
-    )
-
-
-@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
-def test_reshape_identity(dtype: torch.dtype, target: str, request, device):
-    """
-    Identity reshape should pass on all targets.
-    """
-    input_shape = (10,)
-    output_shape = (10,)
-
-    def reshape_wrapper(in0: Operand, builder: StableHLOBuilder):
-        if hasattr(builder, "set_graph_level_check"):
-            builder.set_graph_level_check(True)
-        return builder.reshape(in0, output_shape)
-
-    reshape_wrapper.__name__ = "reshape_identity"
-
-    compile_and_execute_shlo(
-        reshape_wrapper,
-        [input_shape],
-        [dtype],
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
-        target=target,
-        device=device,
-    )
-
-
-@pytest.mark.parametrize(
-    "target",
-    [
-        pytest.param("ttnn", id="ttnn"),
-        pytest.param(
-            "ttmetal",
-            marks=pytest.mark.xfail(
-                reason="reshape lowering not yet supported in TTMetal backend"
-            ),
-        ),
-    ],
-    ids=["ttnn", "ttmetal"],
-)
-def test_reshape_zero_dim_optional(target, request, device):
-    """
-    Zero-size tensors: reshape must preserve element count (= 0).
-    """
-    input_shape = (0, 6)
-    output_shape = (0, 2, 3)
-
-    def reshape_wrapper(in0: Operand, builder: StableHLOBuilder):
-        if hasattr(builder, "set_graph_level_check"):
-            builder.set_graph_level_check(True)
-        return builder.reshape(in0, output_shape)
-
-    reshape_wrapper.__name__ = "reshape"
-
-    compile_and_execute_shlo(
-        reshape_wrapper,
-        [input_shape],
-        [torch.float32],
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
