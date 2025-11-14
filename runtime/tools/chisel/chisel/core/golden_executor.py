@@ -151,19 +151,6 @@ class GoldenExecutor:
         # Retrieve input tensors from the pool
         inputs = [self.golden_tensor_pool[name].execution_data for name in input_names]
 
-        # Collect operation attributes to pass as kwargs
-        # Unpack MLIR attributes to Python types for golden functions
-        kwargs = {}
-        for named_attr in op.attributes:
-            attr_name = named_attr.name
-            attr_value = named_attr.attr
-            try:
-                kwargs[attr_name] = unpack_mlir_attr(attr_value)
-            except ValueError:
-                # If unpacking fails, pass the raw attribute
-                # (some golden functions may handle MLIR attributes directly)
-                kwargs[attr_name] = attr_value
-
         # Execute the operation using the golden function
         try:
             if op_name == "ttir.dot_general":
@@ -240,11 +227,13 @@ class GoldenExecutor:
                     kwargs["value"] = value
 
                 op_result = golden_fn(*inputs, **kwargs)
+            elif op_name == "ttir.permute":
+                # Special handling for permute: needs permutation attribute
+                kwargs = {}
+                if "permutation" in op.attributes:
+                    kwargs["permutation"] = op.attributes["permutation"]
+                op_result = golden_fn(*inputs, **kwargs)
             else:
-                # Pass attributes as kwargs to all golden functions
-                # if inputs:
-                #     op_result = golden_fn(*inputs, **kwargs)
-                # else:
                 op_result = golden_fn(*inputs) if inputs else golden_fn()
         except Exception as e:
             print(f"Error executing golden function for {op_name}: {e}")
