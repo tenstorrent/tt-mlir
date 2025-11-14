@@ -721,10 +721,27 @@ createOp(FlatbufferObjectCache &cache, AllGatherOp op) {
   auto input = cache.at<::tt::target::ttnn::TensorRef>(
       getOperandThroughDPSOps(op.getInput()));
   auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer);
-  auto device = getOperandThroughDPSOps(op.getDevice());
+  std::optional<uint8_t> subDeviceId =
+      op.getSubDeviceId() ? std::make_optional<uint8_t>(static_cast<uint8_t>(
+                                op.getSubDeviceId().value()))
+                          : std::nullopt;
+
+  // Convert optional values to flatbuffer format
+  auto memoryConfig = op.getMemoryConfig()
+                          ? toFlatbuffer(cache, op.getMemoryConfig().value())
+                          : 0;
+  auto numLinks = op.getNumLinks()
+                      ? std::make_optional<uint32_t>(op.getNumLinks().value())
+                      : std::nullopt;
+  auto topology = op.getTopology()
+                      ? std::make_optional<::tt::target::ttnn::Topology>(
+                            static_cast<::tt::target::ttnn::Topology>(
+                                op.getTopology().value()))
+                      : std::nullopt;
+
   return ::tt::target::ttnn::CreateAllGatherOp(
-      *cache.fbb, input, output, cache.at<::tt::target::DeviceRef>(device),
-      op.getAllGatherDim(), op.getClusterAxis(), op.getNumLinks());
+      *cache.fbb, input, output, op.getAllGatherDim(), op.getClusterAxis(),
+      subDeviceId, memoryConfig, numLinks, topology);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::ReduceScatterOp>
@@ -732,11 +749,27 @@ createOp(FlatbufferObjectCache &cache, ReduceScatterOp op) {
   auto input = cache.at<::tt::target::ttnn::TensorRef>(
       getOperandThroughDPSOps(op.getInput()));
   auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer);
-  auto device = getOperandThroughDPSOps(op.getDevice());
+  std::optional<uint8_t> subDeviceId =
+      op.getSubDeviceId() ? std::make_optional<uint8_t>(static_cast<uint8_t>(
+                                op.getSubDeviceId().value()))
+                          : std::nullopt;
+
+  // Convert optional values to flatbuffer format
+  auto memoryConfig = op.getMemoryConfig()
+                          ? toFlatbuffer(cache, op.getMemoryConfig().value())
+                          : 0;
+  auto numLinks = op.getNumLinks()
+                      ? std::make_optional<uint32_t>(op.getNumLinks().value())
+                      : std::nullopt;
+  auto topology = op.getTopology()
+                      ? std::make_optional<::tt::target::ttnn::Topology>(
+                            static_cast<::tt::target::ttnn::Topology>(
+                                op.getTopology().value()))
+                      : std::nullopt;
   return ::tt::target::ttnn::CreateReduceScatterOp(
-      *cache.fbb, input, output, cache.at<::tt::target::DeviceRef>(device),
-      op.getScatterDim(), static_cast<uint32_t>(op.getReduceType()),
-      op.getClusterAxis(), op.getNumLinks());
+      *cache.fbb, input, output, op.getScatterDim(),
+      static_cast<uint32_t>(op.getReduceType()), op.getClusterAxis(),
+      subDeviceId, memoryConfig, numLinks, topology);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::ScatterOp>

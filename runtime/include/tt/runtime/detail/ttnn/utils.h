@@ -160,6 +160,9 @@ inline T getScalarFromTensor(const ::ttnn::Tensor &tensor) {
   return data[0];
 }
 
+::tt::tt_fabric::Topology
+toTTNNTopology(const ::tt::target::ttnn::Topology topology);
+
 } // namespace tt::runtime::ttnn::utils
 
 #endif

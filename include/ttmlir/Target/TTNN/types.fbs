@@ -91,3 +91,10 @@ table FloatingPointType {
 table UIntegralType {
   value: uint32;
 }
+
+enum Topology: ushort {
+  Ring,
+  Linear,
+  Mesh,
+  Torus,
+}

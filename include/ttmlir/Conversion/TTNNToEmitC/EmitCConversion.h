@@ -299,6 +299,11 @@ struct TypeName<::ttnn::BufferType> {
 };
 
 template <>
+struct TypeName<::mlir::tt::ttnn::Topology> {
+  inline static const std::string value = "::mlir::tt::ttnn::Topology";
+};
+
+template <>
 struct TypeName<::ttnn::Shape> {
   inline static const std::string value = "::ttnn::Shape";
 };
@@ -712,6 +717,44 @@ struct EmitCTypeConverter<::ttnn::BufferType> {
     }
 
     llvm_unreachable("Unknown ttnn::BufferType");
+  }
+};
+
+template <>
+struct EmitCTypeConverter<::mlir::tt::ttnn::Topology> {
+  static std::optional<std::string> convert(mlir::Attribute attr) {
+    if (auto topologyAttr =
+            mlir::dyn_cast_if_present<mlir::tt::ttnn::TopologyAttr>(attr)) {
+      return convert(topologyAttr);
+    }
+    return {};
+  }
+
+  static std::string convert(mlir::tt::ttnn::TopologyAttr attr) {
+    return convert(attr.getValue());
+  }
+
+  static std::string convert(mlir::tt::ttnn::Topology attr) {
+    std::string buf;
+    llvm::raw_string_ostream rso(buf);
+
+    rso << TypeNameV<::mlir::tt::ttnn::Topology> << "::";
+    switch (attr) {
+    case mlir::tt::ttnn::Topology::Ring:
+      rso << "Ring";
+      return buf;
+    case mlir::tt::ttnn::Topology::Linear:
+      rso << "Linear";
+      return buf;
+    case mlir::tt::ttnn::Topology::Mesh:
+      rso << "Mesh";
+      return buf;
+    case mlir::tt::ttnn::Topology::Torus:
+      rso << "Torus";
+      return buf;
+    }
+
+    llvm_unreachable("Unknown mlir::tt::ttnn::Topology");
   }
 };
 
@@ -1582,6 +1625,16 @@ struct TTNNTarget<tt::ttnn::Conv2dConfigAttr> {
 template <>
 struct TTNNTarget<tt::ttnn::Conv2dSliceConfigAttr> {
   using type = ::ttnn::operations::conv::conv2d::Conv2dSliceConfig;
+};
+
+template <>
+struct TTNNTarget<tt::ttnn::Topology> {
+  using type = ::mlir::tt::ttnn::Topology;
+};
+
+template <>
+struct TTNNTarget<tt::ttnn::TopologyAttr> {
+  using type = ::mlir::tt::ttnn::Topology;
 };
 
 template <typename T>

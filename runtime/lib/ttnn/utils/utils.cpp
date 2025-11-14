@@ -522,4 +522,18 @@ void *getRawHostDataPtr(const ::ttnn::Tensor &tensor) {
   return static_cast<void *>(hostBuffer.view_bytes().data());
 }
 
+::tt::tt_fabric::Topology
+toTTNNTopology(const ::tt::target::ttnn::Topology topology) {
+  switch (topology) {
+  case ::tt::target::ttnn::Topology::Ring:
+    return ::tt::tt_fabric::Topology::Ring;
+  case ::tt::target::ttnn::Topology::Linear:
+    return ::tt::tt_fabric::Topology::Linear;
+  case ::tt::target::ttnn::Topology::Mesh:
+    return ::tt::tt_fabric::Topology::Mesh;
+  case ::tt::target::ttnn::Topology::Torus:
+    return ::tt::tt_fabric::Topology::Torus;
+  }
+}
+
 } // namespace tt::runtime::ttnn::utils

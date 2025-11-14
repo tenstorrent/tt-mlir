@@ -319,13 +319,17 @@ def TTNN_Conv2dSliceType : I32EnumAttr<"Conv2dSliceType", "Conv2d slice type", [
   let cppNamespace = "::mlir::tt::ttnn";
 }
 
-def TTNN_Topology_Linear : I32EnumAttrCase<"Linear",  0, "linear">;
-def TTNN_Topology_Ring  : I32EnumAttrCase<"Ring",  1, "ring">;
+def TTNN_Topology_Ring  : I32EnumAttrCase<"Ring",  0, "ring">;
+def TTNN_Topology_Linear : I32EnumAttrCase<"Linear",  1, "linear">;
+def TTNN_Topology_Mesh : I32EnumAttrCase<"Mesh",  2, "mesh">;
+def TTNN_Topology_Torus : I32EnumAttrCase<"Torus",  3, "torus">;
 
 def TTNN_Topology: I32EnumAttr<"Topology", "TTNN Topology",
                           [
-                           TTNN_Topology_Linear,
                            TTNN_Topology_Ring,
+                           TTNN_Topology_Linear,
+                           TTNN_Topology_Mesh,
+                           TTNN_Topology_Torus,
                           ]> {
   let genSpecializedAttr = 0;
   let cppNamespace = "::mlir::tt::ttnn";
