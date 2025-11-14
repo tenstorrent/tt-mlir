@@ -384,8 +384,8 @@ mlir::LogicalResult verifyTensorRanks(mlir::tt::ttnn::Conv3dOp *op) {
   if (op->getInput().getType().getRank() != 5) {
     return op->emitOpError("input must be a 5D tensor [N, D, H, W, C]");
   }
-  if (op->getWeight().getType().getRank() != 2) {
-    return op->emitOpError("weight must be a 2D tensor [kD*kH*kW*C, O]");
+  if (op->getWeight().getType().getRank() != 2) {w
+    return op->emitOpError("weight must be a 2D tensor [kD*kH*kW*C/G, O]");
   }
   if (op->getBias() && op->getBias().getType().getRank() != 2) {
     return op->emitOpError("bias must be a 2D tensor [32, O]");

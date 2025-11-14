@@ -1585,12 +1585,13 @@ def TTNN_Conv3dOp : TTNN_Op<"conv3d", [TTNN_DtypeOpInterface]> {
         - H is the height of the input planes
         - W is the width of the input planes
         - C is the number of input channels
-      - `weight` (AnyRankedTensor): expected in the following format (K_D * K_H * K_W * C, O) where:
+      - `weight` (AnyRankedTensor): expected in the following format (K_D * K_H * K_W * C / G, O) where:
         - K_D is the depth of the kernel
         - K_H is the height of the kernel
         - K_W is the width of the kernel
         - C is the number of input channels
         - O is the number of output channels
+        - G is the number of groups
         The spatial kernel dimensions and input channels are flattened together into a 2D tensor.
       - `bias` (Optional<AnyRankedTensor>): expected in the following format (32, O) where:
         - O is the number of output channels
@@ -1617,7 +1618,7 @@ def TTNN_Conv3dOp : TTNN_Op<"conv3d", [TTNN_DtypeOpInterface]> {
         - `W_out = (W_in + 2*pW - K_W) / sW + 1`
 
       Example:
-        %input = ttir.empty() : () -> tensor<1x8x32x32x32xbf16>
+        %input = ttir.empty() : () -> tensor<1x28x28x28x32xbf16>
         %weight = ttir.empty() : () -> tensor<864x64xbf16>  // 864 = 3*3*3*32 (2D tensor)
         %bias = ttir.empty() : () -> tensor<32x64xbf16>     // 2D tensor
         %device = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
@@ -1626,15 +1627,15 @@ def TTNN_Conv3dOp : TTNN_Op<"conv3d", [TTNN_DtypeOpInterface]> {
             in_channels = 32: i32,
             out_channels = 64: i32,
             batch_size = 1: i32,
-            input_depth = 8: i32,
-            input_height = 32: i32,
-            input_width = 32: i32,
+            input_depth = 28: i32,
+            input_height = 28: i32,
+            input_width = 28: i32,
             kernel_size = array<i32: 3, 3, 3>,
             stride = array<i32: 1, 1, 1>,
             padding = array<i32: 0, 0, 0>,
             padding_mode = "zeros",
             groups = 1: i32
-          }> : (tensor<1x8x32x32x32xbf16>, tensor<864x64xbf16>, tensor<32x64xbf16>, !ttnn.device) -> tensor<1x6x30x30x64xbf16>
+          }> : (tensor<1x28x28x28x32xbf16>, tensor<864x64xbf16>, tensor<32x64xbf16>, !ttnn.device) -> tensor<1x26x26x26x64xbf16>
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
@@ -1657,11 +1658,6 @@ def TTNN_Conv3dOp : TTNN_Op<"conv3d", [TTNN_DtypeOpInterface]> {
     let results = (outs AnyRankedTensor:$result);
 
     let hasVerifier = 1;
-
-    let extraClassDeclaration = [{
-      int64_t getOutputChannelSize();
-      bool isBiasCompatible(llvm::ArrayRef<int64_t> biasDims);
-    }];
 }
 
 def TTNN_ConvTranspose2dOp : TTNN_Op<"conv_transpose2d", [TTNN_DtypeOpInterface]> {
