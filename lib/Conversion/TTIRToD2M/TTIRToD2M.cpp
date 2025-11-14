@@ -1788,117 +1788,96 @@ class D2MScatterOpRewriter : public OpConversionPattern<ttir::ScatterOp> {
     [[maybe_unused]] auto outputReserveOp = builder.create<d2m::ReserveOp>(loc, outputBlockArgument);
 
     // Create affine loops to iterate over the update tensor
-    SmallVector<Value> ivs;
+    llvm::SmallVector<int64_t> axes = {0, 1, 2, 3};
+    SmallVector<Value> update_index;
     for (int64_t i = 0; i < updateRank; ++i) {
       int64_t dim = updateType.getDimSize(i);
       auto loop = builder.create<mlir::affine::AffineForOp>(loc, 0, dim);
       builder.setInsertionPointToStart(loop.getBody());
-      ivs.push_back(loop.getInductionVar());
+      update_index.push_back(loop.getInductionVar());
     }
-
-    // Compute update scatter dims = dims of update NOT in update_window_dims
+    
+    /*
+    update_scatter_dims = [d for d in axes(updates[0]) and d not in update_window_dims]
+    */
     SmallVector<int64_t> updateScatterDims;
-    for (int64_t d = 0; d < updateRank; ++d) {
-      if (!llvm::is_contained(updateWindowDims, static_cast<int32_t>(d))) {
-        updateScatterDims.push_back(d);
+    for (int64_t axis : axes) {
+      if (!llvm::is_contained(updateWindowDims, axis)) {
+        updateScatterDims.push_back(axis);
       }
     }
 
-    // Compure update scatter index
+    /*
+    update_scatter_index = update_index[update_scatter_dims...]
+    */
     SmallVector<Value> updateScatterIndex;
-    for (int64_t d : updateScatterDims) {
-      updateScatterIndex.push_back(ivs[d]);
+    for (int64_t dim : updateScatterDims) {
+      updateScatterIndex.push_back(update_index[dim]);
     }
 
-    // Compute start index from scatter indices
-    SmallVector<Value> startIndex;
+    /*
+    start_index is defined as:
+    scatter_indices[si0, ..., :, ..., siN] where si are individual elements in update_scatter_index and : is inserted at the index_vector_dim index, if index_vector_dim < rank(scatter_indices).
+    [scatter_indices[update_scatter_index]] otherwise.
+    */
+    SmallVector<OpFoldResult> offsets;
+    SmallVector<OpFoldResult> sizes;
+    SmallVector<OpFoldResult> strides;
 
     if (indexVectorDim < scatterIndicesRank) {
-      
+      size_t scatterLen = updateScatterIndex.size() + 1;
+      size_t updateIndexCopyPos = 0;
+    
+      for (size_t dim = 0; dim < scatterLen; ++dim) {
+        if (static_cast<int64_t>(dim) == indexVectorDim) {
+          offsets.push_back(builder.getIndexAttr(0));
+          Value dimVal = builder.create<mlir::tensor::DimOp>(loc, scatterIndicesWaitOp.getResult(), dim);
+          sizes.push_back(dimVal);
+          strides.push_back(builder.getIndexAttr(1));
+        }
+        else {
+          Value indexVal = updateScatterIndex[updateIndexCopyPos++];
+          offsets.push_back(indexVal);
+          sizes.push_back(builder.getIndexAttr(1));
+          strides.push_back(builder.getIndexAttr(1));
+        }
+      }
     }
     else {
-      // [scatter_indices[update_scatter_index]]
-      // insert tensor extract op for scatter_indices[update_scatter_index]
-      [[maybe_unused]] auto scatterIndicesExtractOp = builder.create<mlir::tensor::ExtractOp>(loc, scatterIndicesWaitOp.getResult(), updateScatterIndex);
+      size_t scatterLen = updateScatterIndex.size();
+      size_t updateIndexCopyPos = 0;
+
+      for (size_t dim = 0; dim < scatterLen; ++dim) {
+        Value indexVal = updateScatterIndex[updateIndexCopyPos++];
+        offsets.push_back(indexVal);
+        sizes.push_back(builder.getIndexAttr(1));
+        strides.push_back(builder.getIndexAttr(1));
+      }
     }
 
-    [[maybe_unused]] auto scatterIndicesExtractOp = builder.create<mlir::tensor::ExtractOp>(loc, scatterIndicesWaitOp.getResult(), updateScatterIndex);
+    [[maybe_unused]] auto startIndex = builder.create<mlir::tensor::ExtractSliceOp>(
+        loc,
+        scatterIndicesWaitOp.getResult(),
+        offsets,
+        sizes,
+        strides);
 
     /*
-    this is the ivs (affine loop induction variables)
-    print("update_index:", update_index)
-    update_index: (0, 0, 0, 0, 0)
-    update_index: (0, 0, 0, 0, 1)
-    update_index: (0, 0, 0, 1, 0)
-    update_index: (0, 0, 0, 1, 1)
-
-    this is tensor dim
-    print("update_scatter_dims:", update_scatter_dims)
-    update_scatter_dims: [0, 1, 2]
-    update_scatter_dims: [0, 1, 2]
-    update_scatter_dims: [0, 1, 2]
-    update_scatter_dims: [0, 1, 2]
-
-    this is the ivs (affine loop induction variables)
-    print("update_scatter_index:", update_scatter_index)
-    update_scatter_index: (0, 0, 0)
-    update_scatter_index: (0, 0, 0)
-    update_scatter_index: (0, 0, 1)
-    update_scatter_index: (0, 0, 1)
-    update_scatter_index: (0, 0, 2)
-    update_scatter_index: (0, 1, 1)
-    update_scatter_index: (0, 1, 2)
-    update_scatter_index: (0, 1, 2)
-    update_scatter_index: (0, 1, 2)
-    update_scatter_index: (0, 1, 2)
-
-    this is actual values from the tensor
-    print("start_index:", start_index)
-    start_index: (0, 0)
-    start_index: (0, 0)
-    start_index: (0, 0)
-    start_index: (1, 1)
-    start_index: (1, 1)
-    start_index: (2, 2)
-    start_index: (2, 2)
-    start_index: (1, 1)
-    start_index: (1, 1)
-    start_index: (2, 2)
-    start_index: (2, 2)
-    start_index: (3, 0)
+    full_start_index = [0] * inputs.ndim
+    for scatter_dims in range(len(scatter_dims_to_operand_dims)):
+        full_start_index[scatter_dims_to_operand_dims[scatter_dims]] = start_index[scatter_dims]
     */
-
-    /*
+    SmallVector<Value> fullStartIndex;
     
-start_index is defined as:
-scatter_indices[si0, ..., :, ..., siN] where si are individual elements in update_scatter_index and : is inserted at the index_vector_dim index, if index_vector_dim < rank(scatter_indices).
-[scatter_indices[update_scatter_index]] otherwise.
-
-        # If index_vector_dim < rank(scatter_indices), we build an index tuple with a slice
-        if index_vector_dim < scatter_idx_rank:
-            # build indexing tuple of length scatter_idx_rank:
-            # at position index_vector_dim -> slice(None) (":")
-            # else consume elements from update_scatter_index in order
-            idx_tuple = []
-            it = iter(update_scatter_index)
-            for dim in range(scatter_idx_rank):
-                if dim == index_vector_dim:
-                    idx_tuple.append(slice(None))
-                else:
-                    # If update_scatter_index has fewer elements than needed, it will raise,
-                    # but that indicates mismatched shapes/attributes.
-                    idx_tuple.append(next(it))
-            # evaluate
-            start_vector = scatter_indices[tuple(idx_tuple)]
-            # start_vector expected to be a 1-D array or scalar containing index vector.
-            start_index = tuple(int(x) for x in np.array(start_vector).reshape(-1))
-        else:
-            # index_vector_dim >= rank(scatter_indices) -> index_vector is stored at the keyed location
-            # The scatter_indices are indexed directly by update_scatter_index
-            start_vector = scatter_indices[update_scatter_index]
-            start_index = tuple(int(x) for x in np.array(start_vector).reshape(-1))
-    */
-
+    for (int64_t i = 0; i < inputRank; ++i) {
+      fullStartIndex.push_back(builder.create<mlir::arith::ConstantOp>(loc, builder.getIndexAttr(0)));
+    }
+    for (size_t dim = 0; dim < scatterDimsToOperandDims.size(); ++dim) {
+      Value scatterDims = builder.create<mlir::arith::ConstantOp>(loc, builder.getIndexAttr(dim));
+      fullStartIndex[scatterDimsToOperandDims[dim]] = builder.create<mlir::tensor::ExtractOp>(loc, startIndex.getResult(), ValueRange{scatterDims});
+    }
+    
+    
     rewriter.replaceOp(scatterOp, finalOutputToLayoutOp.getResult(0));
     return success();
   }
