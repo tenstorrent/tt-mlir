@@ -152,6 +152,16 @@ module {
     // CHECK: linalg.generic{{.+}}iterator_types = ["parallel", "parallel"]
     // CHECK: d2m.tile_bitwise_not
     %26 = "ttir.bitwise_not"(%25, %out) : (!ttype, !ttype) -> !ttype
+    // named elementwise op, unary:
+    // CHECK: d2m.generic{{.+}}iterator_types = [#parallel, #parallel]
+    // CHECK: linalg.generic{{.+}}iterator_types = ["parallel", "parallel"]
+    // CHECK: d2m.tile_silu
+    %27= "ttir.silu"(%26, %out) : (!ttype, !ttype) -> !ttype
+    // named elementwise op, unary:
+    // CHECK: d2m.generic{{.+}}iterator_types = [#parallel, #parallel]
+    // CHECK: linalg.generic{{.+}}iterator_types = ["parallel", "parallel"]
+    // CHECK: d2m.tile_relu
+    %28= "ttir.relu"(%27, %out) : (!ttype, !ttype) -> !ttype
     return %26: !ttype
   }
 

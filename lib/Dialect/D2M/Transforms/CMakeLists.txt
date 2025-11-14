@@ -13,6 +13,7 @@ add_mlir_dialect_library(MLIRD2MTransforms
         InsertDstRegisterAccess.cpp
         InsertStreams.cpp
         LowerToLayout.cpp
+        MaterializeViewReturns.cpp
         ElementwiseFusion.cpp
         SFPUTileLoopFission.cpp
         GlobalDataFormatConversion.cpp

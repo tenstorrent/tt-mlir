@@ -28,7 +28,12 @@ from .tensors import TensorPool, TensorValue
 from .enums import ExecutionType
 from .registry import Registry
 
-from golden import GOLDEN_MAPPINGS, get_golden_function
+from golden import (
+    GOLDEN_MAPPINGS,
+    get_golden_function,
+    GoldenMapTensor,
+    unpack_mlir_attr,
+)
 
 
 # Mapping of abbreviated operation names to their full class names
@@ -102,9 +107,17 @@ class GoldenExecutor:
         print(f"Starting execution of operation: {op.name}")
         print(f"Operation ASM: {op.get_asm(enable_debug_info=True)}")
 
-        # Handle special case for empty operations
+        # Handle special cases that don't need golden functions
         op_name = op.name
         if op_name == "ttir.empty":
+            return None
+
+        if op_name == "func.return":
+            # For func.return, just return the input tensor value from the pool
+            inputs_mlir = get_op_inputs(op)
+            if inputs_mlir:
+                input_names = [input.get_name() for input in inputs_mlir]
+                return self.golden_tensor_pool[input_names[0]].execution_data
             return None
 
         # Validate operation is supported
@@ -138,16 +151,89 @@ class GoldenExecutor:
         # Retrieve input tensors from the pool
         inputs = [self.golden_tensor_pool[name].execution_data for name in input_names]
 
+        # Collect operation attributes to pass as kwargs
+        # Unpack MLIR attributes to Python types for golden functions
+        kwargs = {}
+        for named_attr in op.attributes:
+            attr_name = named_attr.name
+            attr_value = named_attr.attr
+            try:
+                kwargs[attr_name] = unpack_mlir_attr(attr_value)
+            except ValueError:
+                # If unpacking fails, pass the raw attribute
+                # (some golden functions may handle MLIR attributes directly)
+                kwargs[attr_name] = attr_value
+
         # Execute the operation using the golden function
         try:
-            op_result = golden_fn(*inputs) if inputs else golden_fn()
+            if op_name == "ttir.dot_general":
+                batch_dims_lhs = []
+                batch_dims_rhs = []
+                contract_dims_lhs = []
+                contract_dims_rhs = []
+
+                if "batch_dims_lhs" in op.attributes:
+                    batch_dims_lhs = [int(x) for x in op.attributes["batch_dims_lhs"]]
+                if "batch_dims_rhs" in op.attributes:
+                    batch_dims_rhs = [int(x) for x in op.attributes["batch_dims_rhs"]]
+                if "contract_dims_lhs" in op.attributes:
+                    contract_dims_lhs = [
+                        int(x) for x in op.attributes["contract_dims_lhs"]
+                    ]
+                if "contract_dims_rhs" in op.attributes:
+                    contract_dims_rhs = [
+                        int(x) for x in op.attributes["contract_dims_rhs"]
+                    ]
+
+                # Simple implementation for common case: no batching, use torch.tensordot
+                if len(batch_dims_lhs) == 0 and len(batch_dims_rhs) == 0:
+                    # For simple case with no batching, use torch.tensordot directly
+                    try:
+                        op_result = torch.tensordot(
+                            inputs[0],
+                            inputs[1],
+                            dims=(contract_dims_lhs, contract_dims_rhs),
+                        )
+                    except Exception as e:
+                        raise
+                else:
+                    # For batched case, wrap inputs as GoldenMapTensor and use golden function
+                    dot_kwargs = {
+                        "batch_dims_lhs": batch_dims_lhs,
+                        "batch_dims_rhs": batch_dims_rhs,
+                        "contract_dims_lhs": contract_dims_lhs,
+                        "contract_dims_rhs": contract_dims_rhs,
+                    }
+                    wrapped_inputs = []
+                    for inp in inputs:
+                        if isinstance(inp, GoldenMapTensor):
+                            wrapped_inputs.append(inp)
+                        else:
+                            wrapped_inputs.append(GoldenMapTensor({0: inp}, (1, 1)))
+                    op_result = golden_fn(*wrapped_inputs, **dot_kwargs)
+            elif op_name == "ttir.broadcast":
+                # Special handling for broadcast: torch.broadcast_to needs the target shape
+                # The second input (from ttir.empty) was filtered out, so we get the shape
+                # from the operation's result type
+                if outputs and len(outputs) > 0:
+                    output_type = outputs[0].type
+                    if hasattr(output_type, "shape"):
+                        target_shape = list(output_type.shape)
+                        op_result = golden_fn(inputs[0], target_shape)
+                    else:
+                        # Fallback if we can't get shape
+                        op_result = golden_fn(*inputs, **kwargs)
+                else:
+                    op_result = golden_fn(*inputs, **kwargs)
+            else:
+                # Pass attributes as kwargs to all golden functions
+                if inputs:
+                    op_result = golden_fn(*inputs, **kwargs)
+                else:
+                    op_result = golden_fn(**kwargs) if kwargs else golden_fn()
         except Exception as e:
             print(f"Error executing golden function for {op_name}: {e}")
             raise
-
-        # Handle function returns specially
-        if op.name == "func.return":
-            return op_result
 
         # Process operation outputs
         for output in outputs:

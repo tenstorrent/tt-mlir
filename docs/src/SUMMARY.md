@@ -4,7 +4,7 @@
 
 # User Guide
 
-- [Getting Started](./getting-started.md)
+- [Building & Getting Started](./getting-started.md)
   - [Docker Notes](./docker-notes.md)
   - [Ubuntu VM on macOS](./macos-ubuntu-vm.md)
 - [Testing](./testing.md)
@@ -24,7 +24,6 @@
     - [CLI](./tt-explorer/cli.md)
     - [API usage & reference](./tt-explorer/usage-api.md)
     - [Architecture](./tt-explorer/architecture.md)
-    - [Roadmap](./tt-explorer/roadmap.md)
   - [`tt-alchemist`](./tt-alchemist.md)
   - [`ttnn-standalone`](./ttnn-standalone.md)
   - [`EmitPy`](./emitpy.md)

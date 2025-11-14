@@ -1,18 +1,67 @@
 # `tt-explorer` - API
+This page documents the TT-Adapter API, the programmatic interface provided by TT-Explorer, Tenstorrent’s fork of Google’s Model Explorer. While Model Explorer focuses on visualizing and interacting with machine learning models through its UI, TT-Explorer extends it with the ability to send commands, convert models, execute them, and query execution status programmatically, leveraging the same underlying graph structures and model representations that Model Explorer uses.
+
+The TT-Adapter API enables automation of workflows, integration of model execution into scripts, and interaction with models on the server without relying on the UI. This reference explains request and response formats, supported commands, and how editable attributes are represented, providing all the details needed to work with TT-Explorer programmatically.
+
+It is especially useful when managing multiple models, performing batch conversions, or integrating TT-Explorer functionality into automated pipelines — tasks that would be cumbersome or impractical through the UI alone.
 
 ## TT-Adapter
 
-The following is a reference for the REST API provided by TT-Adapter.
-
-First, a short info-dump on how an extensible API can be built on top of Model Explorer.
+This section provides a reference for the TT-Adapter REST API, as well as an explanation of how TT-Explorer creates an extensible API on top of Google's Model Explorer.
 
 ### Building an API using Model Explorer
 
-The `/apipost/v1/send_command` endpoint provides an extensible platform with which commands are sent to be executed directly by the adapter specified. This becomes the main endpoint through which communication is facilitated between the server and client, the commands respond with an "adapter response".
+Google's Model Explorer defines the endpoint `/apipost/v1/send_command` as a generic command-receiving mechanism. This endpoint lets the server accept requests to perform operations on a model. Specifically, it:
+* Accepts JSON commands describing an action (for example, convert a model or run an analysis).
+* Parses commands to ensure they follow the correct format.
+* Forwards the command to the installed adapter—here, TT-Adapter.
+* Wraps the output in a standard JSON response that the UI (TT-Explorer’s interface) can interpret.
+
+This endpoint provides the main communication channel between the client and server. Commands sent here are executed by the specified adapter and return a structured “adapter response,” allowing developers to interact programmatically with models through TT-Explorer.
+
+#### Flow Overview
+
+This section provides a general overview of how commands flow between the client and server.
+
+![Workflow Diagram for TT-Explorer](../images/tt-explorer/explorer-api-flow.png)
+
+![Client Server Flow for TT-Explorer](../images/tt-explorer/explorer-api-flow2.png)
+
+##### Flow for File Upload From Computer
+
+1. Server starts the Flask app.
+
+2. (This step occurs when uploading a file from your computer rather than using a link.) Client sends the uploaded file to the server.
+
+3. Server sends confirmation the file uploaded.
+
+4. Server (Backend) forwards commands to the TT-Adapter for execution.
+
+5. TT-Adapter executes the model / graph operations locally (may reuse upstream code).
+
+6. Adapter produces a raw response → Server processes it via `convert_adapter_response`.
+
+7. Server returns JSON-wrapped results to the UI, which renders graphs, overlays, and status.
+
+##### Flow for Link Upload
+
+1. Server starts the Flask app.
+
+2. Client sends the link to the file with a convert request (HTTP POST request).
+
+3. Server sends an HTTP response to the UI, which renders graphs, overlays, and status.
+
+4. Server (Backend) forwards commands to the TT-Adapter for execution.
+
+5. TT-Adapter executes the model / graph operations locally (may reuse upstream code).
+
+6. Adapter produces a raw response → Server processes it via `convert_adapter_response`.
+
+7. Server returns JSON-wrapped results to the UI, which renders graphs, overlays, and status.
 
 #### Sending Commands
 
-The body of the command must be JSON, and conform to the following interface (described below as a [Typescript interface](https://www.typescriptlang.org/docs/handbook/2/everyday-types.html#interfaces)). Specific commands may narrow the field types or extend this interface providing extra information. But all interfaces should be based on this.
+Commands sent to the `/apipost/v1/send_command` endpoint must be formatted as JSON and follow a standard structure. The base structure is described using a [Typescript interface](https://www.typescriptlang.org/docs/handbook/2/everyday-types.html#interfaces) for clarity, though in practice it is just a JSON object. Specific commands may add extra fields or restrict some values, but all fields in the base interface must still be present for the server to process the command correctly.
 
 ```typescript
 interface ExtensionCommand {
@@ -24,9 +73,7 @@ interface ExtensionCommand {
 }
 ```
 
-More often than not, functions do not need all of these fields, but they must all be present to properly process the command sent into the handling function on the server.
-
-On the server side, the signature that all function that handle commands have to follow is:
+On the server side, all functions that handle commands must follow this required parameter signature:
 
 ```python
 class TTAdapter(Adapter):
@@ -36,11 +83,11 @@ class TTAdapter(Adapter):
     pass
 ```
 
-This function is invoked and called from a new instance every time. This is important to understand for the idea of persisting information on the server. As all requests to the server are _stateless_, the onus is often on the end-user to keep track of important information such as the path of a model they've uploaded, or the paths of important artifacts that the server has produced. `tt-explorer` aims to make this as easy as possible, but this may not always be possible due to the very nature of how the server works.
+Information does not persist between requests—each request gets a new instance of TT-Adapter. As all requests to the server are stateless, each command-handling function receives input only through its parameters (`model_path` and `settings`). Any data needed for execution must be passed in the request, and the client is responsible for keeping track of important information such as the path of an uploaded model or the locations of artifacts produced by the server.
 
-Information can be processed in this function as defined by the user, and often settings becomes a versatile endpoint to provide more information and context for the execution of some function. As an example, refer to `ModelRunner:initialize`, this function doesn't use any of the parameter, as such they are not processed at all, and the function only executes a static initialization process regardless of the parameters passed into the command.
+This design ensures that each request is isolated and predictable, while the `settings` dictionary provides a flexible way to supply additional context for execution. For example, `ModelRunner:initialize` ignores its parameters entirely and performs a static initialization regardless of the values passed.
 
-#### Example request
+#### Example Request
 
 Below is an example of the JSON request sent from the UI to the server:
 
@@ -69,15 +116,17 @@ Below is an example of the JSON request sent from the UI to the server:
 }
 ```
 
-### Adapter Response
+### Adapter Response Processing
 
-Model Explorer was not made to allow for such an extensible framework to be tacked onto it. As such, the adapter response is processed in a very particular way before it is sent back to the user.
+TT-Explorer extends Model Explorer with an adapter framework, but the original Model Explorer was not designed for this level of extensibility. As a result, adapter responses must be processed in a specific way before being returned to the client.
 
-In particular, refer to [`model_explorer.utils.convert_adapter_response`](https://github.com/google-ai-edge/model-explorer/blob/main/src/server/package/src/model_explorer/utils.py#L40) which is run on the output of every function.
+The function [`model_explorer.utils.convert_adapter_response`](https://github.com/google-ai-edge/model-explorer/blob/main/src/server/package/src/model_explorer/utils.py#L40) is applied to the output of every adapter function. This ensures compatibility with the upstream (Google Model Explorer) implementation and enforces a consistent response format.
 
-This means that for compatibility reasons (i.e. to not stray too much from the upstream implementation that we are based off of) responses sent from the server must be in JSON format **only** and wrap the data on a `graph` property.
+For compatibility, all responses sent from the server (the backend component of TT-Explorer that executes adapter commands) must:
+* Be in JSON format
+* Wrap the payload within a `graphs` property
 
-Below is the base typescript interface that the UI expects for the json response. Commands can define custom data _inside_ the `graph` property.
+The TypeScript interface expected by the UI is as follows:
 
 ```typescript
 /** A response received from the extension. */
@@ -90,9 +139,11 @@ interface ExtensionResponse<
 }
 ```
 
-For custom adapter responses. This limits the transfer of raw bytes data through different MIME Types, and requires the `tt_adapter.utils.to_adapter_format` which turns any `dict` object into a model explorer adapter compatible response. While this framework works well for graphs, it makes an "extensible" API difficult to implement.
+Custom adapter responses must conform to this structure. This restriction prevents the direct transfer of raw bytes through unsupported MIME types and requires the use of `tt_adapter.utils.to_adapter_format`, which converts any Python `dict` into a Model Explorer–compatible adapter response. While this framework works well for graphs, it makes building a fully extensible API more challenging. All responses must fit within the `graphs` JSON wrapper and adhere to a fixed structure.
 
 ## Current API Reference
+
+This section shows all the different API functions that are available:
 
 ### `convert`
 
@@ -218,7 +269,7 @@ type AdapterStatusCheckResponse = ExtensionResponse<[{
 }
 ```
 
-## Editable attributes
+## Editable Attributes
 
 To enable an attribute to be edited, a response coming from the server should contain the `editable` field on the attribute.
 
@@ -415,7 +466,7 @@ The UI will then check the `value` property in the attribute for the following c
 
 - Is a [double precision floating point number](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Number#number_encoding)
 - Is not [`NaN`](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/NaN#observably_distinct_nan_values)
-- Is grater than or equal to `0`
+- Is greater than or equal to `0`
 - Is less than or equal to `1`
 
 If all of the conditions are true, then the `value` will be rendered as a progress bar.

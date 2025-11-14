@@ -149,7 +149,6 @@ private:
 /// Determine whether op result should be emitted in a deferred way.
 static bool hasDeferredEmission(Operation *op) {
   return isa_and_nonnull<LiteralOp, GetGlobalOp>(op);
-  return isa_and_nonnull<LiteralOp, GetGlobalOp>(op);
 }
 
 StringRef PythonEmitter::getOrCreateName(Value value) {

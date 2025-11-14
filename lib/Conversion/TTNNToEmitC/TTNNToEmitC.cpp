@@ -625,6 +625,10 @@ public:
         emitter.emit(srcOp.getTransposeA()),
         emitter.emit(srcOp.getTransposeB()),
         emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
+        /*dtype=*/emitter.emit(std::nullopt),
+        /*program_config=*/emitter.emit(std::nullopt),
+        emitter.emit(std::nullopt),
+        emitter.emit(srcOp.getActivation()),
     };
 
     emitter.replaceOp(*this, args);
@@ -660,6 +664,9 @@ public:
         emitter.emit(srcOp.getTransposeA()),
         emitter.emit(srcOp.getTransposeB()),
         emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
+        /*dtype=*/emitter.emit(std::nullopt),
+        /*program_config=*/emitter.emit(std::nullopt),
+        emitter.emit(srcOp.getActivation()),
     };
     // ANCHOR_END: adding_an_op_matmul_ttnn_to_emitc_array_attrs
 
@@ -775,6 +782,115 @@ public:
         /*return_indices=*/emitter.emit(false)};
 
     emitter.replaceOp(*this, args);
+    return success();
+  }
+};
+} // namespace
+
+// MaxPool2dWithIndices op conversion pattern
+//
+namespace {
+class MaxPool2dWithIndicesOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<
+          mlir::tt::ttnn::MaxPool2dWithIndicesOp> {
+
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::MaxPool2dWithIndicesOp>::
+      TTNNToEmitCBaseOpConversionPattern;
+
+  std::string getPrefixSearchPattern() const override {
+    return "ttnn.max_pool2d_with_indices";
+  }
+
+  std::string getPrefixSwapPattern() const override {
+    return "ttnn::max_pool2d";
+  }
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::MaxPool2dWithIndicesOp srcOp,
+                  OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::MaxPool2dWithIndicesOp>
+        emitter(srcOp, adaptor, rewriter);
+
+    SmallVector<int32_t> padding;
+    if (srcOp.getPadding().size() == 2) {
+      padding.push_back(static_cast<uint32_t>(srcOp.getPadding()[0]));
+      padding.push_back(static_cast<uint32_t>(srcOp.getPadding()[1]));
+    } else {
+      padding.push_back(static_cast<uint32_t>(srcOp.getPadding()[0]));
+      padding.push_back(static_cast<uint32_t>(srcOp.getPadding()[2]));
+      padding.push_back(static_cast<uint32_t>(srcOp.getPadding()[1]));
+      padding.push_back(static_cast<uint32_t>(srcOp.getPadding()[3]));
+    }
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput()),
+        emitter.emit(srcOp.getBatchSize()),
+        emitter.emit(srcOp.getInputHeight()),
+        emitter.emit(srcOp.getInputWidth()),
+        emitter.emit(srcOp.getChannels()),
+        emitter.template emit<std::array<uint32_t, 2>>(
+            srcOp.getKernelSizeAttr()),
+        emitter.template emit<std::array<uint32_t, 2>>(srcOp.getStrideAttr()),
+        emitter.template emit<
+            std::variant<std::array<uint32_t, 2>, std::array<uint32_t, 4>>>(
+            rewriter.getI32ArrayAttr(padding)),
+        emitter.template emit<std::array<uint32_t, 2>>(srcOp.getDilationAttr()),
+        emitter.emit(srcOp.getCeilMode()),
+        emitter.getMemoryConfig(srcOp.getResult()),
+        emitter.emit(srcOp.getAppliedShardScheme()),
+        emitter.emit(srcOp.getInPlaceHalo()),
+        /*deallocate_input=*/emitter.emit(false),
+        /*reallocate_halo_output=*/emitter.emit(true),
+        /*return_indices=*/emitter.emit(true)};
+
+    // MaxPool2dWithIndicesOp returns a std::vector<ttnn::Tensor> containing two
+    // elements: [0] = pooled tensor, [1] = corresponding indices. Extract both
+    // elements to replace the original MaxPool2dWithIndicesOp.
+    assert(srcOp.getNumResults() == 2 &&
+           "Expected two outputs for MaxPool2dWithIndicesOp (pooled tensor "
+           "and indices).");
+
+    using ReturnTy = std::vector<::ttnn::Tensor>;
+
+    auto maxPool2dWithIndicesOp = rewriter.create<emitc::CallOpaqueOp>(
+        srcOp.getLoc(),
+        rewriter.getType<emitc::OpaqueType>(ttnn_to_emitc::TypeNameV<ReturnTy>),
+        convertOpName(srcOp), rewriter.getArrayAttr(args),
+        /*template_args=*/nullptr, adaptor.getOperands());
+
+    SmallVector<Value> results;
+    for (unsigned i = 0; i < srcOp.getNumResults(); ++i) {
+      // Create index to access i-th element.
+      auto indexType = rewriter.getIndexType();
+      auto indexOp = rewriter.create<emitc::LiteralOp>(
+          srcOp.getLoc(), indexType, std::to_string(i));
+      Value indexVal = indexOp.getResult();
+
+      // Create LValue type for the tensor reference.
+      auto lvalueType = emitc::LValueType::get(emitc::OpaqueType::get(
+          rewriter.getContext(),
+          ttnn_to_emitc::TypeNameV<ReturnTy::value_type>));
+
+      // Get reference to the i-th element in the result vector.
+      auto subscriptOp = rewriter.create<emitc::SubscriptOp>(
+          srcOp.getLoc(), lvalueType, maxPool2dWithIndicesOp.getResult(0),
+          indexVal);
+
+      // Load the actual tensor value from the reference.
+      auto loadOp = rewriter.create<emitc::LoadOp>(
+          srcOp.getLoc(),
+          emitc::OpaqueType::get(
+              rewriter.getContext(),
+              ttnn_to_emitc::TypeNameV<ReturnTy::value_type>),
+          subscriptOp.getResult());
+      results.push_back(loadOp.getResult());
+    }
+
+    rewriter.replaceOp(srcOp, results);
     return success();
   }
 };
@@ -2875,6 +2991,47 @@ public:
 };
 } // namespace
 
+// RotaryEmbeddingOp conversion pattern
+//
+namespace {
+class RotaryEmbeddingOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<
+          mlir::tt::ttnn::RotaryEmbeddingOp> {
+private:
+  std::string getPrefixSearchPattern() const override {
+    return "ttnn.rotary_embedding";
+  }
+  std::string getPrefixSwapPattern() const override {
+    return "ttnn::experimental::rotary_embedding";
+  }
+
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::RotaryEmbeddingOp>::TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::RotaryEmbeddingOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::RotaryEmbeddingOp> emitter(
+        srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput()),
+        emitter.emit(srcOp.getCosCache()),
+        emitter.emit(srcOp.getSinCache()),
+        emitter.emit(srcOp.getTokenIndex()),
+        emitter.emit(srcOp.getMemoryConfig()) |
+            emitter.getMemoryConfig(srcOp.getResult()),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
 namespace {
 class NLPConcatHeadsOpConversionPattern
     : public TTNNToEmitCBaseOpConversionPattern<
@@ -3585,6 +3742,75 @@ public:
 };
 } // namespace
 
+// AssignOp conversion pattern
+//
+namespace {
+class AssignOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<mlir::tt::ttnn::AssignOp> {
+
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::AssignOp>::TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::AssignOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::AssignOp> emitter(
+        srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput()), emitter.emit(srcOp.getMemoryConfig()),
+        emitter.emit(srcOp.getDtype())};
+
+    emitter.replaceOp(*this, args);
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+class PagedUpdateCacheOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<
+          mlir::tt::ttnn::PagedUpdateCacheOp> {
+private:
+  std::string getPrefixSearchPattern() const override {
+    return "ttnn.paged_update_cache";
+  }
+  std::string getPrefixSwapPattern() const override {
+    return "ttnn::experimental::paged_update_cache";
+  }
+
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::PagedUpdateCacheOp>::TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::PagedUpdateCacheOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::PagedUpdateCacheOp> emitter(
+        srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getCache()),
+        emitter.emit(srcOp.getInput()),
+        emitc::OpaqueAttr::get(rewriter.getContext(),
+                               "std::vector<uint32_t>()"),
+        emitter.emit(srcOp.getUpdateIndex()),
+        emitter.emit(srcOp.getShareCache()),
+        emitter.emit(srcOp.getPageTable()),
+        emitter.emit(0),
+        emitter.emit(std::nullopt),
+        emitter.emit(std::nullopt),
+    };
+
+    emitter.replaceOp(*this, args);
+    return success();
+  }
+};
+} // namespace
+
 namespace mlir::tt {
 
 // ANCHOR: op_rewriter_pattern_set_emitc
@@ -3617,7 +3843,8 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
                FullOpConversionPattern,
                DefaultOpConversionPattern<mlir::tt::ttnn::ArangeOp>,
                DefaultOpConversionPattern<mlir::tt::ttnn::ConstantOp>,
-               RandOpConversionPattern>(typeConverter, ctx);
+               RandOpConversionPattern,
+               AssignOpConversionPattern>(typeConverter, ctx);
   // clang-format on
 
   // Eltwise unary ops
@@ -3633,7 +3860,8 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
            EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::BitwiseNotOp>,
            EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::NegOp>,
            EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::ReluOp>,
-           EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::RsqrtOp>,
+           EltwiseUnaryWithFastAndApproximateModeOpConversionPattern<
+               mlir::tt::ttnn::RsqrtOp>,
            EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::Relu6Op>,
            EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::HardsigmoidOp>,
            EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::SiluOp>,
@@ -3642,7 +3870,8 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
                mlir::tt::ttnn::LeakyReluOp>,
            EltwiseUnaryWithFastAndApproximateModeOpConversionPattern<
                mlir::tt::ttnn::GeluOp>,
-           EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::SqrtOp>,
+           EltwiseUnaryWithFastAndApproximateModeOpConversionPattern<
+               mlir::tt::ttnn::SqrtOp>,
            EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::SignOp>,
            EltwiseUnaryWithVectorAndFastAndApproximateModeOpConversionPattern<
                mlir::tt::ttnn::SigmoidOp>,
@@ -3734,6 +3963,7 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   //
   patterns.add<AvgPool2dOpConversionPattern>(typeConverter, ctx);
   patterns.add<MaxPool2dOpConversionPattern>(typeConverter, ctx);
+  patterns.add<MaxPool2dWithIndicesOpConversionPattern>(typeConverter, ctx);
   patterns.add<GlobalAvgPool2dOpConversionPattern>(typeConverter, ctx);
   patterns.add<UpsampleOpConversionPattern>(typeConverter, ctx);
 
@@ -3765,6 +3995,7 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   // KV Cache ops
   //
   patterns.add<UpdateCacheOpConversionPattern>(typeConverter, ctx);
+  patterns.add<PagedUpdateCacheOpConversionPattern>(typeConverter, ctx);
   patterns.add<DefaultOpConversionPattern<mlir::tt::ttnn::FillCacheOp>>(
       typeConverter, ctx);
 
@@ -3808,6 +4039,7 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   patterns.add<SplitQueryKeyValueAndSplitHeadsOpConversionPattern>(
       typeConverter, ctx);
   patterns.add<RotaryEmbeddingLlamaOpConversionPattern>(typeConverter, ctx);
+  patterns.add<RotaryEmbeddingOpConversionPattern>(typeConverter, ctx);
   patterns.add<NLPConcatHeadsDecodeOpConversionPattern>(typeConverter, ctx);
   patterns.add<ScaledDotProductAttentionDecodeOpConversionPattern>(
       typeConverter, ctx);

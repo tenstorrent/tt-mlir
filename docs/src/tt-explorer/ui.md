@@ -1,52 +1,67 @@
-# `tt-explorer` UI
+# TT-Explorer UI
 
-For general reference of the UI, refer to the [model-explorer wiki](https://github.com/google-ai-edge/model-explorer/wiki). This section will highlight specific UI elements added to the Tenstorrent fork of model-explorer.
+For general details about the  UI, refer to [Google's Model Explorer wiki](https://github.com/google-ai-edge/model-explorer/wiki). This page highlights unique UI elements added to the Tenstorrent fork of Google's Model Explorer.
 
 ## Model Execution
 
 ![Toolbar added by `tt-explorer` fork](../images/tt-explorer/toolbar.png)
 
-In the top right of the screen an additional button has been added to the top bar, it sends the model to the server for execution and updates the visualization once it has been executed. Once the model has executed, _overlays_ are also created. These overlays provide information on how the execution went.
+TT-Explorer adds a toolbar to the top of the screen that features the following icons in order of appearance:
+* Execute Model (Play icon)
+* Model Execution Settings (Gear icon)
+* Generated C Code (Angle Brackets icon)
+* Log Messages (Comment Bubble icon)
+
+## Run / Execute
+
+![Toolbar highlighting the "execute" button](../images/tt-explorer/execute.png)
+
+The play icon invokes the `execute` function which compiles and executes the model. The icon then displays as loading until execution is finished. Pressing the icon does the following:
+1. Runs the model through the `tt-mlir` pipeline.
+2. Updates the visualization with results from the server execution.
+3. Creates overlays on the graph after the model executes. These overlays use color to visually communicate how long different nodes take to complete during execution.
 
 ### Performance Overlay
 
 ![Example of performance overlays for a graph](../images/tt-explorer/perf-overlay.png)
 
-The performance overlay is generated on **every** execution, it highlights the time it took to execute each node on the graph. This is visualized with a gradient from Yellow -> Red, with Yellow being the lowest time amongst all nodes on the graph, and Red being highest.
+After every execution, the performance overlay appears. It uses a color gradient from yellow to red to represent the execution time of each node:
+* Yellow nodes represent the fastest execution times (relative to other nodes).
+* Red nodes indicate the slowest execution times.
+
+This helps you quickly identify bottlenecks or costly operations in the model graph.
 
 ### Accuracy Overlay
 
-The accuracy overlay is _only_ generated when executing from a compatible flatbuffer (`.ttnn` file extension with Debug Info). The overlay consists of either Green or Red node overlays. Green if the node passed a "golden" test, Red if not.
+The accuracy overlay only appears after executing from a compatible flatbuffer (`.ttnn` file extension with debug info included). It shows a pass/fail status for each node based on a comparison against a "golden" (expected) reference:
+* Green nodes passed the accuracy check
+* Red nodes failed the check
 
-The value for the overlay is the actual Pearson Correlation Coefficient (PCC) value with the "golden" tensor subtracted by the expected PCC value. If the number is `< 0` we know it doesn't match the expected PCC, otherwise it is an accurate comparison.
+This overlay is useful for validating that model outputs remain correct after transformations or optimizations.
+
+The overlay value represents the difference between the actual Pearson Correlation Coefficient (PCC) for the node's output and the expected PCC from the golden reference. If the PCC difference is negative (lower than expected), the node fails the accuracy check. Otherwise it is considered accurate.
 
 ## Advanced Settings
 
 ![Toolbar highlighting the "configuration" button](../images/tt-explorer/configure.png)
 
-This menu will open a window with some advanced settings for Model execution.
+Clicking the gear icon opens a menu with advanced settings for model execution.
 
-### Opt. Policy
+### Optimization Policy
 
-This dropdown provides a list of **Optimization Policies** which will be used when the model is executed. These policies are applied when lowering from a `ttir` module to an executable `ttnn` module.
+This dropdown provides a list of **Optimization Policies** which can be applied when lowering from a `ttir` module to an executable `ttnn` module.
 
 ### Generate C++ Code
 
-This toggle will run the `EmitC` pass in the `tt-mlir` compiler to generate TTNN C++ Code and make it available to you after running a model. Default value for this toggle is `Off`.
+This toggle runs the `EmitC` pass in the `tt-mlir` compiler to generate TTNN C++ Code and make it available to you after running a model. The default value for this toggle is `Off`.
 
-## "Play" Button
-
-![Toolbar highlighting the "execute" button](../images/tt-explorer/execute.png)
-
-This button invokes the `execute` function which will compile and execute the model. The button will then be "loading" until execution is finished. Once execution is finished a performance trace should be overlayed on the graph and it should reload.
-
-## "Code" Button
+## Code Icon
 
 ![Toolbar highlighting the "code" button](../images/tt-explorer/code.png)
 
 If the `Generate C++ Code` option is enabled, this button will become available to view and download the C++ code in a window within explorer.
 
-## "Logs" Button
+## Logs Icon
 
 ![Toolbar highlighting the "logs" button](../images/tt-explorer/logs.png)
 
@@ -56,4 +71,4 @@ This button will open a window to view the shell logs while execution is running
 
 ![Example of fields with overrides enabled](../images/tt-explorer/overrides.png)
 
-Certain Nodes on the graph will have attributes that are presented as editable fields. These are fields which have overrides available. This value can be changed and then sent to be recompiled, invalid configurations will result in errors.
+Certain nodes on the graph have attributes that are presented as editable fields. These are fields which have overrides available. This value can be changed and then sent to be recompiled, with invalid configurations resulting in errors.

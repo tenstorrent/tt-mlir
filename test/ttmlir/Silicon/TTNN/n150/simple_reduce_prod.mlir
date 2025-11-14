@@ -11,8 +11,8 @@ module {
     // CHECK: "ttnn.prod"
     // CHECK-SAME: dim_arg = 1
     // CHECK-SAME: keep_dim = false
-    // CHECK-SAME: tensor<128x10x32x4xf32,
-    // CHECK-SAME: -> tensor<128x32x4xf32,
+    // CHECK-SAME: tensor<128x10x32x4xbf16,
+    // CHECK-SAME: -> tensor<128x32x4xbf16,
     %1 = "ttir.prod"(%arg0, %0) <{dim_arg = [1: i32], keep_dim = false}> : (tensor<128x10x32x4xf32>, tensor<128x32x4xf32>) -> tensor<128x32x4xf32>
     return %1 : tensor<128x32x4xf32>
   }
@@ -23,8 +23,8 @@ module {
     // CHECK: "ttnn.prod"
     // CHECK-SAME: dim_arg = 1
     // CHECK-SAME: keep_dim = true
-    // CHECK-SAME: tensor<128x10x32x4xf32,
-    // CHECK-SAME: -> tensor<128x1x32x4xf32,
+    // CHECK-SAME: tensor<128x10x32x4xbf16,
+    // CHECK-SAME: -> tensor<128x1x32x4xbf16,
     %1 = "ttir.prod"(%arg0, %0) <{dim_arg = [1 : i32], keep_dim = true}> : (tensor<128x10x32x4xf32>, tensor<128x1x32x4xf32>) -> tensor<128x1x32x4xf32>
     return %1 : tensor<128x1x32x4xf32>
   }
