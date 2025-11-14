@@ -22,6 +22,21 @@ namespace mlir::tt::d2m {
 #define GEN_PASS_DEF_D2MGENERICLOWERDMAS
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h.inc"
 
+static std::tuple<SmallVector<Value>, SmallVector<Value>, SmallVector<Value>>
+getLoopBounds(OpBuilder &builder, Location loc, ArrayRef<int64_t> shardShape) {
+  Value zero = builder.create<arith::ConstantOp>(loc, builder.getIndexType(),
+                                                 builder.getIndexAttr(0));
+  Value one = builder.create<arith::ConstantOp>(loc, builder.getIndexType(),
+                                                builder.getIndexAttr(1));
+  SmallVector<Value> lbs(shardShape.size(), zero);
+  SmallVector<Value> ubs(llvm::map_range(shardShape, [&](int64_t dim) {
+    return builder.create<arith::ConstantOp>(loc, builder.getIndexType(),
+                                             builder.getIndexAttr(dim));
+  }));
+  SmallVector<Value> step(shardShape.size(), one);
+  return std::make_tuple(lbs, ubs, step);
+}
+
 namespace {
 class D2MGenericLowerAffineDMAsRewritePattern : public OpRewritePattern<DMAOp> {
 public:
@@ -178,22 +193,6 @@ public:
     return coalescingFactor;
   }
 
-  static std::tuple<SmallVector<Value>, SmallVector<Value>, SmallVector<Value>>
-  getLoopBounds(OpBuilder &builder, Location loc,
-                ArrayRef<int64_t> shardShape) {
-    Value zero = builder.create<arith::ConstantOp>(loc, builder.getIndexType(),
-                                                   builder.getIndexAttr(0));
-    Value one = builder.create<arith::ConstantOp>(loc, builder.getIndexType(),
-                                                  builder.getIndexAttr(1));
-    SmallVector<Value> lbs(shardShape.size(), zero);
-    SmallVector<Value> ubs(llvm::map_range(shardShape, [&](int64_t dim) {
-      return builder.create<arith::ConstantOp>(loc, builder.getIndexType(),
-                                               builder.getIndexAttr(dim));
-    }));
-    SmallVector<Value> step(shardShape.size(), one);
-    return std::make_tuple(lbs, ubs, step);
-  }
-
   // Uses coalescing factor to build an optimized gather loop with uniform
   // packet size.
   static scf::LoopNest buildCoalescedGatherLoop(OpBuilder &builder,
@@ -344,7 +343,7 @@ public:
           dma.isDstRemote() ? streamIndices : SmallVector<Value>();
       newDma = rewriter.create<d2m::DMAOp>(
           dma.getLoc(), dma.getSrc(), srcIndices, dma.getDst(), dstIndices,
-          dma.getMcastStartIndex(), dma.getMcastShape());
+          dma.getMcastStartIndex(), dma.getMcastShape(), coalescingFactor);
     } else {
       // The memory access has some stride/gaps so multiple DMA operations are
       // needed.
@@ -361,7 +360,7 @@ public:
 } // namespace
 
 namespace {
-class D2MGenericLowerToFullyIndexedDMARewritePattern
+class D2MGenericLowerImplicitSizedDMARewritePattern
     : public OpRewritePattern<DMAOp> {
 public:
   using OpRewritePattern<DMAOp>::OpRewritePattern;
@@ -371,6 +370,70 @@ public:
     if (dma.isAffine()) {
       // Lower to affine first.
       // Or if it's already fully lowered, nothing to do.
+      return failure();
+    }
+
+    if (dma.hasExplicitSize()) {
+      // Altready has a size, nothing to do.
+      return failure();
+    }
+
+    size_t appliedIndexCount = dma.getSrcIndices().size();
+    ArrayRef<int64_t> fullShape =
+        cast<mlir::ShapedType>(dma.getSrc().getType()).getShape();
+    ArrayRef<int64_t> unappliedShape = fullShape.drop_front(appliedIndexCount);
+
+    if (unappliedShape.empty()) {
+      // Just tack on a size of 1, already fully indexed.
+      rewriter.replaceOpWithNewOp<d2m::DMAOp>(
+          dma, dma.getSrc(), dma.getSrcIndices(), dma.getDst(),
+          dma.getDstIndices(), dma.getMcastStartIndex(), dma.getMcastShape(),
+          /*numElems=*/1);
+      return success();
+    }
+
+    auto [lbs, ubs, steps] =
+        getLoopBounds(rewriter, dma->getLoc(), unappliedShape);
+
+    // Create a loop around the unapplied indices.
+    auto nullDmaTx = rewriter.create<d2m::NullTxOp>(dma.getLoc());
+    scf::LoopNest loopNest = scf::buildLoopNest(
+        rewriter, dma->getLoc(), lbs, ubs, steps, ValueRange(nullDmaTx),
+        [&](OpBuilder &builder, Location loc, ValueRange iters,
+            ValueRange /*args*/) {
+          auto srcIndices =
+              llvm::to_vector(llvm::concat<Value>(dma.getSrcIndices(), iters));
+          auto dstIndices =
+              llvm::to_vector(llvm::concat<Value>(dma.getDstIndices(), iters));
+          auto dmaOp = builder.create<d2m::DMAOp>(
+              dma.getLoc(), dma.getSrc(), srcIndices, dma.getDst(), dstIndices,
+              dma.getMcastStartIndex(), dma.getMcastShape(), /*numElems=*/1);
+          return SmallVector<Value>{dmaOp->getResult(0)};
+        });
+
+    rewriter.replaceOp(dma, loopNest.loops.front());
+
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+class D2MGenericLowerFullyIndexedDMARewritePattern
+    : public OpRewritePattern<DMAOp> {
+public:
+  using OpRewritePattern<DMAOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(DMAOp dma,
+                                PatternRewriter &rewriter) const final {
+    if (dma.isAffine()) {
+      // Lower to affine first.
+      // Or if it's already fully lowered, nothing to do.
+      return failure();
+    }
+
+    if (!dma.hasExplicitSize()) {
+      // Lower explicit size first.
       return failure();
     }
 
@@ -490,7 +553,8 @@ public:
   void runOnOperation() final {
     RewritePatternSet patterns(&getContext());
     patterns.add<D2MGenericLowerAffineDMAsRewritePattern,
-                 D2MGenericLowerToFullyIndexedDMARewritePattern>(&getContext());
+                 D2MGenericLowerImplicitSizedDMARewritePattern,
+                 D2MGenericLowerFullyIndexedDMARewritePattern>(&getContext());
     populateAffineToStdConversionPatterns(patterns);
     if (failed(applyPatternsGreedily(getOperation(), std::move(patterns)))) {
       signalPassFailure();

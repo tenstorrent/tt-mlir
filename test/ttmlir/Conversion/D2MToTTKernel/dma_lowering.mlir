@@ -103,4 +103,20 @@ func.func @test_dma_wait_write(%arg0: memref<2x2x!ttcore.tile<32x32, f32>, #l1_>
   return
 }
 
+// Remote to local DMA (L1 from another core)
+// CHECK-LABEL: func.func @test_remote_to_local_partial
+func.func @test_remote_to_local_partial(%dst: memref<2x2x!ttcore.tile<32x32, f32>, #l1_>) attributes {d2m.thread = #d2m.thread<datamovement>} {
+  %c0 = arith.constant 0 : index
+  %c1 = arith.constant 1 : index
+  %src = d2m.get_global_operand(0) : memref<1x2x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096>, #l1_>
+  // CHECK: scf.for
+  // CHECK: scf.for
+  // CHECK: ttkernel.get_noc_addr
+  // CHECK: ttkernel.get_write_ptr
+  // CHECK: ttkernel.noc_async_read
+  %0 = d2m.dma %src[%c0, %c1], %dst : (memref<1x2x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096>, #l1_>, memref<2x2x!ttcore.tile<32x32, f32>, #l1_>) -> !d2m.mem_tx
+  d2m.dma_wait %0
+  return
+}
+
 }
