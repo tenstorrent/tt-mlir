@@ -650,7 +650,8 @@ bool mlir::tt::ttir::Conv2dOp::isBiasCompatible(llvm::ArrayRef<int64_t> bias) {
 
   // Bias is optional
   if (this->getBias() && this->getBias().getType().getRank() != 5) {
-    return this->emitOpError("bias must be a 5D tensor with shape (1,1,1,1,C_out)");
+    return this->emitOpError(
+        "bias must be a 5D tensor with shape (1,1,1,1,C_out)");
   }
 
   if (this->getOutput().getType().getRank() != 5) {
@@ -686,19 +687,6 @@ bool mlir::tt::ttir::Conv2dOp::isBiasCompatible(llvm::ArrayRef<int64_t> bias) {
   }
 
   return mlir::success();
-}
-
-// Get number of output channels
-int64_t mlir::tt::ttir::Conv3dOp::getOutputChannelSize() {
-  RankedTensorType weightTy = getWeight().getType();
-  return weightTy.getShape()[0]; // C_out is at dimension 0
-}
-
-// Verify that bias dimensions are compatible with conv3d operation
-// Bias should be 5D with shape (1,1,1,1,C_out)
-bool mlir::tt::ttir::Conv3dOp::isBiasCompatible(llvm::ArrayRef<int64_t> bias) {
-  return bias.size() == 5 && bias[0] == 1 && bias[1] == 1 && bias[2] == 1 &&
-         bias[3] == 1 && bias[4] == getOutputChannelSize();
 }
 
 //===----------------------------------------------------------------------===//

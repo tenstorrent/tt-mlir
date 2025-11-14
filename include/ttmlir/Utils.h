@@ -325,8 +325,8 @@ getTripleOfInteger(mlir::Attribute attr) {
     return std::make_tuple(v, v, v);
   }
 
-  // If attr is DenseArrayAttr, interpret it as a (attr[0], attr[1], attr[2]) tuple
-  // given that it has size 3
+  // If attr is DenseArrayAttr, interpret it as a (attr[0], attr[1], attr[2])
+  // tuple given that it has size 3
   auto arrayAttr =
       mlir::dyn_cast<::mlir::detail::DenseArrayAttrImpl<VectorElementTy>>(attr);
   if (!arrayAttr) {

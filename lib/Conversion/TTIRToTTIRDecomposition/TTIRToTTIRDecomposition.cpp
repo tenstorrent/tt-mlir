@@ -843,9 +843,9 @@ public:
         permutedInputShape, inputType.getElementType(), inputType.getEncoding(),
         input, inputPermutation);
 
-    Value result = createConv3d(rewriter, op, adaptor, convLayoutAttr,
-                                permutedInput, adaptor.getWeight(),
-                                outputType.getShape());
+    Value result =
+        createConv3d(rewriter, op, adaptor, convLayoutAttr, permutedInput,
+                     adaptor.getWeight(), outputType.getShape());
 
     // Apply inverse permutation to restore original layout.
     llvm::SmallVector<int64_t> outputLayout(conv3dLayout.size(),
@@ -859,23 +859,24 @@ public:
       outputLayout[spatialDim] = spatialCount;
     }
 
-    // Set the output to NCDHW layout 
+    // Set the output to NCDHW layout
     auto outputPermutation = ttmlir::utils::generatePermutation(
         llvm::ArrayRef(conv3dLayout), llvm::ArrayRef(outputLayout));
 
-    rewriter.replaceOpWithNewOp<ttir::PermuteOp>(
-        op, op.getResult().getType(), result, adaptor.getOutput(),
-        outputPermutation);
+    rewriter.replaceOpWithNewOp<ttir::PermuteOp>(op, op.getResult().getType(),
+                                                 result, adaptor.getOutput(),
+                                                 outputPermutation);
 
     return success();
   }
 
 private:
   // Create a Conv3d operation with NDHWC input and OIDHW weights.
-  Value createConv3d(
-      ConversionPatternRewriter &rewriter, ttir::ConvolutionOp op,
-      OpAdaptor adaptor, mlir::tt::ttir::ConvolutionLayoutAttr convLayoutAttr,
-      Value permutedInput, Value weight, llvm::ArrayRef<int64_t> outputShape) const {
+  Value createConv3d(ConversionPatternRewriter &rewriter,
+                     ttir::ConvolutionOp op, OpAdaptor adaptor,
+                     mlir::tt::ttir::ConvolutionLayoutAttr convLayoutAttr,
+                     Value permutedInput, Value weight,
+                     llvm::ArrayRef<int64_t> outputShape) const {
 
     auto strideAttr = rewriter.getDenseI32ArrayAttr({
         static_cast<int32_t>(adaptor.getWindowStrides()[SPATIAL_DIM_DEPTH]),
@@ -926,25 +927,52 @@ private:
         weightOutputShape, weightType.getElementType(),
         weightType.getEncoding(), permutedWeight, kernelPermutation);
 
-    // If bias is provided, reshape it to 1D (C_out)
+    // If bias is provided, permute it to NDHWC format (1,1,1,1,C_out)
     Value biasValue = adaptor.getBias();
     if (biasValue) {
       auto biasType = mlir::cast<RankedTensorType>(biasValue.getType());
-      // Extract output channels dimension
-      int64_t outChannels = newOutputShape[4]; // Feature dimension in NDHWC
-      SmallVector<int64_t> biasOutputShape = {outChannels};
-      SmallVector<int32_t> biasOutputShapeI32(biasOutputShape.begin(),
-                                               biasOutputShape.end());
-      biasValue = ttir::utils::createDPSOp<ttir::ReshapeOp>(
-          rewriter, ttmlir::utils::appendLocationSuffix(op.getLoc(), "_bias"),
-          biasOutputShape, biasType.getElementType(), biasType.getEncoding(),
-          biasValue, rewriter.getI32ArrayAttr(biasOutputShapeI32));
+
+      // Generate bias layout from convolution_layout (same as output layout)
+      llvm::SmallVector<int64_t> biasLayout(conv3dLayout.size(),
+                                            ConvolutionDimension::INVALID_DIM);
+      biasLayout[convLayoutAttr.getOutputBatchDimension()] =
+          ConvolutionDimension::BATCH;
+      biasLayout[convLayoutAttr.getOutputFeatureDimension()] =
+          ConvolutionDimension::FEATURE;
+      for (const auto [spatialCount, spatialDim] :
+           llvm::enumerate(convLayoutAttr.getOutputSpatialDimensions())) {
+        biasLayout[spatialDim] = spatialCount;
+      }
+
+      // Permute bias from current layout to NDHWC if needed
+      auto biasPermutation = ttmlir::utils::generatePermutation(
+          llvm::ArrayRef(biasLayout), llvm::ArrayRef(conv3dLayout));
+
+      bool isIdentity = true;
+      for (size_t i = 0; i < biasPermutation.size(); ++i) {
+        if (biasPermutation[i] != static_cast<int32_t>(i)) {
+          isIdentity = false;
+          break;
+        }
+      }
+
+      if (!isIdentity) {
+        llvm::SmallVector<int64_t> permutedBiasShape =
+            ttmlir::utils::applyPermutation(biasType.getShape(),
+                                            biasPermutation);
+        biasValue = ttir::utils::createDPSOp<ttir::PermuteOp>(
+            rewriter,
+            ttmlir::utils::appendLocationSuffix(op.getLoc(), "_bias_permute"),
+            permutedBiasShape, biasType.getElementType(),
+            biasType.getEncoding(), biasValue, biasPermutation);
+      }
+      // Bias is now in NDHWC format (1,1,1,1,C_out) as required by Conv3dOp
     }
 
     mlir::Value newConv = ttir::utils::createDPSOp<ttir::Conv3dOp>(
         rewriter, op.getLoc(), outputType, Value(permutedInput),
-        Value(permutedWeight), biasValue, strideAttr, paddingAttr,
-        groupsAttr, /*padding_mode=*/nullptr);
+        Value(permutedWeight), biasValue, strideAttr, paddingAttr, groupsAttr,
+        /*padding_mode=*/nullptr);
 
     return newConv;
   }
