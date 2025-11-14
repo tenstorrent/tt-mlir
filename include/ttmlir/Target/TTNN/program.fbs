@@ -79,6 +79,7 @@ union OpType {
   NamedFullOp,
   NLPConcatHeadsDecodeOp,
   PadOp,
+  PagedScaledDotProductAttentionDecodeOp,
   PagedUpdateCacheOp,
   PermuteOp,
   PointToPointOp,
