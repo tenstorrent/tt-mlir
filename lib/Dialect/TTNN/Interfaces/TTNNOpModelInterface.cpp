@@ -251,7 +251,7 @@ getPoolingOpConstraints(OpT op, const std::vector<TTNNLayoutAttr> &inputs,
       inputs[0], op.getBatchSize(), op.getInputHeight(), op.getInputWidth(),
       op.getChannels(), op.getKernelSize(), op.getStride(), op.getPadding(),
       op.getDilation(), op.getCeilMode(), op.getInPlaceHalo(),
-      opConfig.outputLayouts[0]);
+      (opConfig.outputLayouts.empty() ? nullptr : opConfig.outputLayouts[0]));
 }
 
 template <typename OpT>
@@ -267,7 +267,7 @@ getPoolingOpRuntime(OpT op, const std::vector<TTNNLayoutAttr> &inputs,
       op.getBatchSize(), op.getInputHeight(), op.getInputWidth(),
       op.getChannels(), op.getKernelSize(), op.getStride(), op.getPadding(),
       op.getDilation(), op.getCeilMode(), op.getInPlaceHalo(),
-      opConfig.outputLayouts[0]);
+      (opConfig.outputLayouts.empty() ? nullptr : opConfig.outputLayouts[0]));
 }
 
 template <typename OpT>
@@ -1667,7 +1667,8 @@ ToMemoryConfigOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
 
   return opConstraintsCache().getOrCompute(
       op_model::OpModel<ToMemoryConfigOp>::getOpConstraints, *this, deviceGrid,
-      inputShape, inputs[0], getMemoryConfig(), opConfig.outputLayouts[0]);
+      inputShape, inputs[0], getMemoryConfig(),
+      (opConfig.outputLayouts.empty() ? nullptr : opConfig.outputLayouts[0]));
 }
 
 llvm::Expected<size_t>
@@ -1679,7 +1680,8 @@ ToMemoryConfigOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 
   return opRuntimeCache().getOrCompute(
       op_model::OpModel<ToMemoryConfigOp>::getOpRuntime, *this, inputShape,
-      inputs[0], getMemoryConfig(), opConfig.outputLayouts[0]);
+      inputs[0], getMemoryConfig(),
+      (opConfig.outputLayouts.empty() ? nullptr : opConfig.outputLayouts[0]));
 }
 
 //===----------------------------------------------------------------------===//
@@ -2951,7 +2953,7 @@ FillCacheOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
   return opConstraintsCache().getOrCompute(
       op_model::OpModel<FillCacheOp>::getOpConstraints, *this, deviceGrid,
       cacheShape, inputs[0], inputShape, inputs[1], getBatchOffset(),
-      opConfig.outputLayouts[0]);
+      (opConfig.outputLayouts.empty() ? nullptr : opConfig.outputLayouts[0]));
 }
 
 llvm::Expected<size_t>
@@ -2964,7 +2966,7 @@ FillCacheOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
   return opRuntimeCache().getOrCompute(
       op_model::OpModel<FillCacheOp>::getOpRuntime, *this, cacheShape,
       inputs[0], inputShape, inputs[1], getBatchOffset(),
-      opConfig.outputLayouts[0]);
+      (opConfig.outputLayouts.empty() ? nullptr : opConfig.outputLayouts[0]));
 }
 
 //===----------------------------------------------------------------------===//
@@ -2989,7 +2991,8 @@ UpdateCacheOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
   return opConstraintsCache().getOrCompute(
       op_model::OpModel<UpdateCacheOp>::getOpConstraints, *this, deviceGrid,
       cacheShape, inputs[0], inputShape, inputs[1], updateIndexShape, inputs[2],
-      getBatchOffset(), opConfig.outputLayouts[0]);
+      getBatchOffset(),
+      (opConfig.outputLayouts.empty() ? nullptr : opConfig.outputLayouts[0]));
 }
 
 llvm::Expected<size_t>
@@ -3003,7 +3006,8 @@ UpdateCacheOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
   return opRuntimeCache().getOrCompute(
       op_model::OpModel<UpdateCacheOp>::getOpRuntime, *this, cacheShape,
       inputs[0], inputShape, inputs[1], updateIndexShape, inputs[2],
-      getBatchOffset(), opConfig.outputLayouts[0]);
+      getBatchOffset(),
+      (opConfig.outputLayouts.empty() ? nullptr : opConfig.outputLayouts[0]));
 }
 
 llvm::Expected<op_model::OpConstraints>
@@ -3026,7 +3030,7 @@ PagedUpdateCacheOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
       op_model::OpModel<PagedUpdateCacheOp>::getOpConstraints, *this,
       deviceGrid, cacheShape, inputs[0], inputShape, inputs[1],
       updateIndexShape, inputs[2], pageTableShape, inputs[3], getShareCache(),
-      opConfig.outputLayouts[0]);
+      (opConfig.outputLayouts.empty() ? nullptr : opConfig.outputLayouts[0]));
 }
 
 llvm::Expected<size_t>
@@ -3040,7 +3044,8 @@ PagedUpdateCacheOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
   return opRuntimeCache().getOrCompute(
       op_model::OpModel<PagedUpdateCacheOp>::getOpRuntime, *this, cacheShape,
       inputs[0], inputShape, inputs[1], updateIndexShape, inputs[2],
-      pageTableShape, inputs[3], getShareCache(), opConfig.outputLayouts[0]);
+      pageTableShape, inputs[3], getShareCache(),
+      (opConfig.outputLayouts.empty() ? nullptr : opConfig.outputLayouts[0]));
 }
 
 llvm::Expected<op_model::OpConstraints>
@@ -3739,7 +3744,7 @@ UpsampleOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
   return opConstraintsCache().getOrCompute(
       op_model::OpModel<UpsampleOp>::getOpConstraints, *this, deviceGrid,
       inputShape, inputs[0], getScaleFactor(), getMode(),
-      opConfig.outputLayouts[0]);
+      (opConfig.outputLayouts.empty() ? nullptr : opConfig.outputLayouts[0]));
 }
 
 llvm::Expected<size_t>
@@ -3751,7 +3756,8 @@ UpsampleOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 
   return opRuntimeCache().getOrCompute(
       op_model::OpModel<UpsampleOp>::getOpRuntime, *this, inputShape, inputs[0],
-      getScaleFactor(), getMode(), opConfig.outputLayouts[0]);
+      getScaleFactor(), getMode(),
+      (opConfig.outputLayouts.empty() ? nullptr : opConfig.outputLayouts[0]));
 }
 
 //===----------------------------------------------------------------------===//
