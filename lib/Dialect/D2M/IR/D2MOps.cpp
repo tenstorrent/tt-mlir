@@ -1297,9 +1297,10 @@ void GenericOp::getCanonicalizationPatterns(mlir::RewritePatternSet &patterns,
           // Use DominanceInfo for cross-block dominance checking.
           DominanceInfo domInfo(parentOp);
           for (Operation *user : blockArg.getUsers()) {
-            assert((mlir::isa<d2m::WaitOp, d2m::ReserveOp>(user)) &&
-                   "block argument users must be wait/reserve operations");
+            assert((mlir::isa<d2m::WaitOp, d2m::ReserveOp, d2m::PushOp, d2m::PopOp>(user)) &&
+                   "block argument users must be wait/reserve/push/pop operations");
             // Check if this wait/reserve dominates the regionOp.
+            // Note: push/pop don't have results, so they won't be selected here.
             if (domInfo.dominates(user, regionOp)) {
               waitOrReserve = user;
               break;
@@ -1595,9 +1596,39 @@ mlir::LogicalResult d2m::GenericOp::bufferize(
           cbType.getBufferType(options, [&]() { return this->emitError(); });
       mlir::BlockArgument newArg =
           block.insertArgument(argNumber, *newArgType, oldArg.getLoc());
-      auto toTensor = rewriter.create<bufferization::ToTensorOp>(
-          bufferGeneric.getLoc(), oldArg.getType(), newArg);
-      rewriter.replaceAllUsesWith(oldArg, toTensor.getResult());
+
+      // Separate uses into tensor-semantic and memref-semantic operations
+      llvm::SmallVector<OpOperand *> tensorSemanticUses;
+      llvm::SmallVector<OpOperand *> memrefSemanticUses;
+
+      for (OpOperand &use : oldArg.getUses()) {
+        Operation *user = use.getOwner();
+        // d2m.push/pop operate on memref CBs
+        if (mlir::isa<d2m::PushOp, d2m::PopOp>(user)) {
+          memrefSemanticUses.push_back(&use);
+        } else {
+          tensorSemanticUses.push_back(&use);
+        }
+      }
+
+      // Only create to_tensor if there are tensor-semantic uses
+      if (!tensorSemanticUses.empty()) {
+        auto toTensor = rewriter.create<bufferization::ToTensorOp>(
+            bufferGeneric.getLoc(), oldArg.getType(), newArg);
+        for (OpOperand *use : tensorSemanticUses) {
+          rewriter.modifyOpInPlace(use->getOwner(), [&]() {
+            use->set(toTensor.getResult());
+          });
+        }
+      }
+
+      // Memref-semantic ops use the memref arg directly
+      for (OpOperand *use : memrefSemanticUses) {
+        rewriter.modifyOpInPlace(use->getOwner(), [&]() {
+          use->set(newArg);
+        });
+      }
+
       block.eraseArgument(argNumber + 1);
     }
   }
