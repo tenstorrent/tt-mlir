@@ -25,6 +25,8 @@
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/PagedUpdateCacheOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ReduceScatterOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/RotaryEmbeddingOpRewritePattern.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ScaledDotProductAttentionOpRewritePattern.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ScaledDotProductAttentionUnsqueezeRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ScatterOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/SubtractOpImplicitBroadcastRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/UpsampleOpRewritePattern.h"
@@ -575,8 +577,11 @@ public:
           workarounds::decomposition::
               Conv2dEnableKernelStrideFoldingRewritePattern<ConvTranspose2dOp>,
           workarounds::decomposition::ConcatenateHeadsOpRewritePattern,
-          workarounds::decomposition::PagedUpdateCacheOpRewritePattern>(
-          &getContext());
+          workarounds::decomposition::PagedUpdateCacheOpRewritePattern,
+          workarounds::decomposition::
+              ScaledDotProductAttentionPadQueryRewritePattern,
+          workarounds::decomposition::
+              ScaledDotProductAttentionUnsqueezeRewritePattern>(&getContext());
 
       runRewritePatterns(std::move(patterns),
                          GreedyRewriteConfig::kNoLimit /*maxIterations*/);

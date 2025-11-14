@@ -8,6 +8,7 @@
 #include "ttmlir/Utils.h"
 
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+#include "llvm/Support/raw_ostream.h"
 
 namespace mlir::tt::ttnn {
 #define GEN_PASS_DEF_TTNNFUSING
@@ -166,162 +167,75 @@ private:
 // SDPA Fusing - Semantic Pattern Matching
 // ============================================================================
 //
-// This pattern identifies Scaled Dot Product Attention (SDPA) by its
+// This pattern identifies Scaled Dot Product Attention (SDPA) by matching its
 // mathematical semantics rather than exact IR structure:
 //
 // Attention(Q, K, V) = softmax(scale * (Q @ K^T) + mask) @ V
 //
-// The matcher uses data-flow analysis to identify:
-// - Two matmuls (Q@K^T for scores, scores@V for output)
-// - Softmax normalization between them
-// - Scale operation (multiply/divide with constant)
-// - Optional mask addition
+// The pattern is matched by working backwards from the final matmul:
 //
-// This replaces the brittle structural matching with flexible semantic matching
-// that handles various IR lowerings, optimizations, and layout transformations.
-
-namespace {
-
-// Components of attention computation extracted via semantic matching
-struct AttentionComponents {
-  Value query;
-  Value key;
-  Value value;
-  Value mask; // Can be null for maskless attention
-  float scale = 1.0f;
-  MatmulOp qkMatmul;
-  MatmulOp attentionMatmul;
-  SoftmaxOp softmax;
-};
-
-// Check if operation is a layout transformation (transparent for data flow)
-bool isLayoutOp(Operation *op) {
-  return isa<ReshapeOp, PermuteOp, RepeatOp>(op);
-}
-
-// Traverse backwards through layout operations to find source tensor
-Value traceToSourceTensor(Value v) {
-  while (v) {
-    Operation *defOp = v.getDefiningOp();
-    if (!defOp || !isLayoutOp(defOp)) {
-      break;
-    }
-    // All layout ops we care about have single input
-    v = defOp->getOperand(0);
-  }
-  return v;
-}
-
-// Extract constant scale value from multiply or divide operation
-std::optional<float> extractConstantScale(Value scaleVal) {
-  if (!scaleVal) {
-    return std::nullopt;
-  }
-
-  Operation *defOp = scaleVal.getDefiningOp();
-  if (!defOp) {
-    return std::nullopt;
-  }
-
-  // Try ttnn.full
-  if (auto fullOp = dyn_cast<FullOp>(defOp)) {
-    if (auto fillValueAttr = dyn_cast<FloatAttr>(fullOp.getFillValue())) {
-      return fillValueAttr.getValue().convertToFloat();
-    }
-    if (auto fillValueAttr = dyn_cast<IntegerAttr>(fullOp.getFillValue())) {
-      return static_cast<float>(fillValueAttr.getValue().getSExtValue());
-    }
-  }
-
-  // Could extend to handle other constant forms (splat, etc.)
-  return std::nullopt;
-}
-
-// Check if value has broadcast semantics typical of attention mask
-bool looksLikeMask(Value v) {
-  auto type = mlir::dyn_cast<RankedTensorType>(v.getType());
-  if (!type || type.getRank() != 4) {
-    return false;
-  }
-  // Attention masks typically broadcast over heads: [batch, 1, seq, seq]
-  return type.getShape()[1] == 1;
-}
-
-} // namespace
-
-// This is scaled dot product attention (SDPA) fusing pattern.
-// Uses semantic matching to identify attention computation regardless of
-// exact IR structure, layout transformations, or optimization level.
-class SDPAFusing : public mlir::OpRewritePattern<MatmulOp> {
-  using SDPAFusing::OpRewritePattern<MatmulOp>::OpRewritePattern;
+// 1. scores@V matmul (attention output):
+//    attention_output = matmul(attention_scores, V)
+//
+// 2. Softmax normalization (produces attention scores):
+//    attention_scores = softmax(scaled_qk_scores)
+//
+// 3. Optional mask addition (adds attention mask before softmax):
+//    masked_qk_scores = add(scaled_qk_scores, attention_mask)
+//    where attention_mask has shape [batch, 1, query_seq_len, kv_seq_len]
+//
+// 4. Optional scaling (scales the QK^T scores):
+//    scaled_qk_scores = multiply(qk_scores, scale_constant)
+//
+// 5. Q@K^T matmul (computes attention scores):
+//    qk_scores = matmul(Q, K^T)
+//
+// The matcher walks through the IR backwards starting from the final matmul,
+// skipping through layout operations (reshape, permute, repeat) which are
+// transparent to the data flow. It extracts scale and mask from the chain
+// between softmax and the Q@K^T matmul, then verifies the Q@K^T matmul exists.
+//
+class TTNNSDPAFusing : public mlir::OpRewritePattern<MatmulOp> {
+  using TTNNSDPAFusing::OpRewritePattern<MatmulOp>::OpRewritePattern;
 
 public:
   mlir::LogicalResult
   matchAndRewrite(MatmulOp srcOp,
                   mlir::PatternRewriter &rewriter) const override {
     AttentionComponents components;
-
-    // Try to match this matmul as part of an attention pattern
     if (!matchAttentionPattern(srcOp.getOperation(), components)) {
       return failure();
     }
 
-    // Ensure Q, K, V are 4D tensors (reshape 3D to 4D if needed)
-    Value query4d = ensureTensor4D(components.query, rewriter,
-                                   components.attentionMatmul.getLoc());
-    Value key4d = ensureTensor4D(components.key, rewriter,
-                                 components.attentionMatmul.getLoc());
-    Value value4d = ensureTensor4D(components.value, rewriter,
-                                   components.attentionMatmul.getLoc());
-
-    Value paddedQuery = query4d;
-    Value paddedMask = components.mask;
-    PaddingInfo paddingInfo = computePaddingInfo(query4d);
-    if (paddingInfo.needsPadding) {
-      paddedQuery =
-          padSequenceDimension(query4d, paddingInfo.paddedSeqLen, rewriter,
-                               components.attentionMatmul.getLoc());
-
-      // If there's a mask, pad it too
-      if (components.mask) {
-        paddedMask =
-            padSequenceDimension(components.mask, paddingInfo.paddedSeqLen,
-                                 rewriter, components.attentionMatmul.getLoc());
-      }
-    }
-
-    // Determine the result type from the final output
-    // The attentionMatmul is the final computation before any output layout ops
-    auto resultType = paddedQuery.getType();
-
-    // Create scaled_dot_product_attention op
     auto scaleAttr = components.scale != 1.0f
                          ? rewriter.getF32FloatAttr(components.scale)
                          : nullptr;
 
     auto sdpaOp = rewriter.create<ScaledDotProductAttentionOp>(
-        components.attentionMatmul.getLoc(), resultType, paddedQuery, key4d,
-        value4d, paddedMask,
+        components.attentionMatmul.getLoc(),
+        components.attentionMatmul.getResult().getType(), components.query,
+        components.key, components.value, components.mask,
         /*is_causal=*/false, scaleAttr,
         /*sliding_window_size=*/nullptr,
         /*memory_config=*/nullptr);
 
-    Value result = sdpaOp.getResult();
-
-    // If we padded, slice the result back to original sequence length
-    if (paddingInfo.needsPadding) {
-      result =
-          sliceSequenceDimension(result, paddingInfo.originalSeqLen, rewriter,
-                                 components.attentionMatmul.getLoc());
-    }
-
-    // Replace the final matmul and let dead code elimination clean up
-    rewriter.replaceOp(components.attentionMatmul, result);
+    rewriter.replaceOp(components.attentionMatmul, sdpaOp.getResult());
     return mlir::success();
   }
 
 private:
-  // Main pattern matcher: identifies attention by semantic structure
+  struct AttentionComponents {
+    Value query;
+    Value key;
+    Value value;
+    Value mask; // Can be null for maskless attention
+    float scale = 1.0f;
+    MatmulOp qkMatmul;
+    MatmulOp attentionMatmul;
+    SoftmaxOp softmax;
+  };
+
+  // High-level pattern matching
   bool matchAttentionPattern(Operation *anchor,
                              AttentionComponents &components) const {
     // Start from a matmul and see if it's the attention@V matmul
@@ -331,267 +245,152 @@ private:
     }
 
     // Check if this matmul has softmax feeding into it (attention scores @ V)
-    Value attentionScoresVal = matmul.getA();
-    SoftmaxOp softmax = findSoftmaxInChain(attentionScoresVal);
+    SoftmaxOp softmax = findOpInChain<SoftmaxOp>(matmul.getA());
     if (!softmax) {
-      // Not the final matmul, might be the Q@K^T matmul
       return false;
     }
 
     components.attentionMatmul = matmul;
     components.softmax = softmax;
 
-    // Extract V by tracing through layout ops
     components.value = traceToSourceTensor(matmul.getB());
 
-    // Find the Q@K^T matmul before the softmax
-    Value beforeSoftmax = softmax.getInput();
-
-    // Extract scale and mask from the chain before softmax
-    if (!extractScaleAndMask(beforeSoftmax, components.scale,
-                             components.mask)) {
+    // Extract scale and mask, which returns the value after stripping them
+    Value qkMatmulOutput = extractScaleAndMask(
+        softmax.getInput(), components.scale, components.mask);
+    if (!qkMatmulOutput) {
       return false;
     }
 
-    // Find the Q@K^T matmul
-    MatmulOp qkMatmul = findMatmulInChain(beforeSoftmax);
+    // Find Q@K^T matmul directly from the output
+    MatmulOp qkMatmul = findOpInChain<MatmulOp>(qkMatmulOutput);
     if (!qkMatmul) {
       return false;
     }
 
     components.qkMatmul = qkMatmul;
 
-    // Extract Q and K by tracing through layout ops
     components.query = traceToSourceTensor(qkMatmul.getA());
     components.key = traceToSourceTensor(qkMatmul.getB());
 
     return components.query && components.key && components.value;
   }
 
-  // Find softmax in the data flow chain, possibly wrapped in typecasts
-  SoftmaxOp findSoftmaxInChain(Value v) const {
-    // Walk backwards through reshapes and typecasts
-    for (int depth = 0; depth < 5 && v; ++depth) {
+  template <typename OpType>
+  OpType findOpInChain(Value v) const {
+    while (v) {
       Operation *defOp = v.getDefiningOp();
       if (!defOp) {
-        break;
+        return nullptr;
       }
 
-      if (auto softmax = dyn_cast<SoftmaxOp>(defOp)) {
-        return softmax;
+      if (auto targetOp = dyn_cast<OpType>(defOp)) {
+        return targetOp;
       }
 
-      // Softmax is often wrapped: typecast(softmax(typecast(...)))
-      if (isa<TypecastOp, ReshapeOp>(defOp)) {
+      if (isLayoutOp(defOp)) {
         v = defOp->getOperand(0);
         continue;
       }
 
-      break;
+      return nullptr;
     }
     return nullptr;
   }
 
-  // Find matmul in the data flow chain
-  MatmulOp findMatmulInChain(Value v) const {
-    // Walk backwards through various ops to find matmul
-    for (int depth = 0; depth < 10 && v; ++depth) {
-      Operation *defOp = v.getDefiningOp();
-      if (!defOp) {
-        break;
-      }
-
-      if (auto matmul = dyn_cast<MatmulOp>(defOp)) {
-        return matmul;
-      }
-
-      // Continue through transparent operations
-      if (isa<TypecastOp, ReshapeOp, AddOp, MultiplyOp>(defOp)) {
-        // For binary ops, try first operand (usually the data path)
-        v = defOp->getOperand(0);
-        continue;
-      }
-
-      break;
-    }
-    return nullptr;
-  }
-
-  // Extract scale factor and optional mask from the chain before softmax
-  bool extractScaleAndMask(Value v, float &scale, Value &mask) const {
+  Value extractScaleAndMask(Value v, float &scale, Value &mask) const {
     scale = 1.0f;
     mask = nullptr;
 
-    // Walk backwards through the chain looking for multiply and add
-    for (int depth = 0; depth < 8 && v; ++depth) {
+    while (v) {
       Operation *defOp = v.getDefiningOp();
       if (!defOp) {
         break;
       }
 
-      // Look for scale (multiply operation)
       if (auto mulOp = dyn_cast<MultiplyOp>(defOp)) {
-        // One operand should be constant, other is data
-        auto scaleVal = extractConstantScale(mulOp.getRhs());
-        if (!scaleVal) {
-          scaleVal = extractConstantScale(mulOp.getLhs());
-        }
-        if (scaleVal) {
+        if (auto scaleVal = extractConstantScale(mulOp.getRhs())) {
           scale = *scaleVal;
+          v = mulOp.getLhs();
+          continue;
         }
-        v = scaleVal ? mulOp.getLhs() : mulOp.getRhs();
-        continue;
+        if (auto scaleVal = extractConstantScale(mulOp.getLhs())) {
+          scale = *scaleVal;
+          v = mulOp.getRhs();
+          continue;
+        }
       }
 
-      // Look for mask (add operation with broadcast)
       if (auto addOp = dyn_cast<AddOp>(defOp)) {
-        Value lhs = addOp.getLhs();
-        Value rhs = addOp.getRhs();
-
-        // Identify which is the mask by broadcast semantics
-        if (looksLikeMask(rhs)) {
-          mask = rhs;
-          v = lhs;
+        if (looksLikeMask(addOp.getRhs())) {
+          mask = addOp.getRhs();
+          v = addOp.getLhs();
           continue;
         }
-        if (looksLikeMask(lhs)) {
-          mask = lhs;
-          v = rhs;
+        if (looksLikeMask(addOp.getLhs())) {
+          mask = addOp.getLhs();
+          v = addOp.getRhs();
           continue;
         }
       }
 
-      // Continue through typecasts and reshapes
-      if (isa<TypecastOp, ReshapeOp>(defOp)) {
+      if (isLayoutOp(defOp)) {
         v = defOp->getOperand(0);
         continue;
       }
 
-      // Found the Q@K^T matmul or something else
       break;
     }
 
-    return true; // Scale and mask are optional
+    return v;
   }
 
-  // Ensure tensor is 4D by unsqueezing if needed
-  Value ensureTensor4D(Value tensor, mlir::PatternRewriter &rewriter,
-                       Location loc) const {
-    auto tensorType = mlir::dyn_cast<RankedTensorType>(tensor.getType());
-    if (!tensorType || tensorType.getRank() == 4) {
-      return tensor;
+  bool isLayoutOp(Operation *op) const {
+    return isa<ReshapeOp, PermuteOp, RepeatOp, TypecastOp>(op);
+  }
+
+  Value traceToSourceTensor(Value v) const {
+    while (v) {
+      Operation *defOp = v.getDefiningOp();
+      if (!defOp || !isLayoutOp(defOp)) {
+        break;
+      }
+
+      v = defOp->getOperand(0);
+    }
+    return v;
+  }
+
+  std::optional<float> extractConstantScale(Value scaleVal) const {
+    if (!scaleVal) {
+      return std::nullopt;
     }
 
-    // Unsqueeze to 4D by prepending 1s
-    SmallVector<int64_t> newShape64;
-    int64_t rank = tensorType.getRank();
-
-    // Add leading 1s to reach rank 4
-    for (int64_t i = 0; i < 4 - rank; ++i) {
-      newShape64.push_back(1);
+    Operation *defOp = scaleVal.getDefiningOp();
+    if (!defOp) {
+      return std::nullopt;
     }
 
-    // Append original shape
-    ArrayRef<int64_t> origShape = tensorType.getShape();
-    newShape64.append(origShape.begin(), origShape.end());
-
-    SmallVector<int32_t> newShape32(newShape64.begin(), newShape64.end());
-    auto newType = RankedTensorType::get(
-        newShape64, tensorType.getElementType(), tensorType.getEncoding());
-
-    auto shapeAttr = rewriter.getI32ArrayAttr(newShape32);
-    return rewriter
-        .create<ReshapeOp>(loc, newType, tensor, shapeAttr,
-                           /*memory_config=*/nullptr)
-        .getResult();
-  }
-
-  struct PaddingInfo {
-    int64_t originalSeqLen;
-    int64_t paddedSeqLen;
-    bool needsPadding;
-  };
-
-  PaddingInfo computePaddingInfo(Value tensor) const {
-    auto tensorType = mlir::dyn_cast<RankedTensorType>(tensor.getType());
-    PaddingInfo info;
-    // Sequence length is dim -2 for 4D tensors [batch, heads, seq, head_dim]
-    info.originalSeqLen = tensorType.getShape()[tensorType.getRank() - 2];
-    info.paddedSeqLen =
-        (info.originalSeqLen + 31) / 32 * 32; // Round up to nearest 32
-    info.needsPadding = (info.originalSeqLen % 32 != 0);
-    return info;
-  }
-
-  // Helper to pad tensor along sequence dimension (dim -2)
-  Value padSequenceDimension(Value tensor, int64_t targetSeqLen,
-                             mlir::PatternRewriter &rewriter,
-                             Location loc) const {
-    auto tensorType = mlir::dyn_cast<RankedTensorType>(tensor.getType());
-    auto shape = tensorType.getShape();
-    int64_t rank = tensorType.getRank();
-
-    // Create padded shape
-    SmallVector<int64_t> paddedShape(shape.begin(), shape.end());
-    paddedShape[rank - 2] = targetSeqLen;
-
-    auto paddedType = RankedTensorType::get(
-        paddedShape, tensorType.getElementType(), tensorType.getEncoding());
-
-    // Create padding attribute: pairs of (front, back) for each dimension
-    // Format: [dim0_front, dim0_back, dim1_front, dim1_back, ...]
-    SmallVector<int32_t> padding;
-    for (int64_t i = 0; i < rank; ++i) {
-      padding.push_back(0); // front padding
-      if (i == rank - 2) {
-        // Pad sequence dimension at the back
-        padding.push_back(targetSeqLen - shape[i]);
-      } else {
-        padding.push_back(0); // back padding
+    if (auto fullOp = dyn_cast<FullOp>(defOp)) {
+      if (auto fillValueAttr = dyn_cast<FloatAttr>(fullOp.getFillValue())) {
+        return fillValueAttr.getValue().convertToFloat();
+      }
+      if (auto fillValueAttr = dyn_cast<IntegerAttr>(fullOp.getFillValue())) {
+        return static_cast<float>(fillValueAttr.getValue().getSExtValue());
       }
     }
 
-    auto padOp = rewriter.create<PadOp>(
-        loc, paddedType, tensor, rewriter.getDenseI32ArrayAttr(padding),
-        /*value=*/rewriter.getF32FloatAttr(0.0f),
-        /*use_multicore=*/rewriter.getBoolAttr(true),
-        /*memory_config=*/nullptr);
-
-    return padOp.getResult();
+    return std::nullopt;
   }
 
-  // Helper to slice tensor back to original sequence length
-  Value sliceSequenceDimension(Value tensor, int64_t originalSeqLen,
-                               mlir::PatternRewriter &rewriter,
-                               Location loc) const {
-    auto tensorType = mlir::dyn_cast<RankedTensorType>(tensor.getType());
-    auto shape = tensorType.getShape();
-    int64_t rank = tensorType.getRank();
-
-    // Create sliced shape
-    SmallVector<int64_t> slicedShape(shape.begin(), shape.end());
-    slicedShape[rank - 2] = originalSeqLen;
-
-    auto slicedType = RankedTensorType::get(
-        slicedShape, tensorType.getElementType(), tensorType.getEncoding());
-
-    // Create slice bounds: slice all dims fully except seq dim
-    SmallVector<int32_t> begins(rank, 0);
-    SmallVector<int32_t> ends;
-    for (int64_t i = 0; i < rank; ++i) {
-      if (i == rank - 2) {
-        ends.push_back(originalSeqLen); // Slice sequence dimension
-      } else {
-        ends.push_back(shape[i]); // Keep full dimension
-      }
+  bool looksLikeMask(Value v) const {
+    auto type = mlir::dyn_cast<RankedTensorType>(v.getType());
+    if (!type || type.getRank() != 4) {
+      return false;
     }
-    SmallVector<int32_t> step(rank, 1);
-
-    auto sliceOp = rewriter.create<SliceStaticOp>(
-        loc, slicedType, tensor, rewriter.getI32ArrayAttr(begins),
-        rewriter.getI32ArrayAttr(ends), rewriter.getI32ArrayAttr(step));
-
-    return sliceOp.getResult();
+    // Attention masks typically broadcast over heads: [batch x 1 x
+    // query_seq_len x kv_seq_len]
+    return type.getShape()[1] == 1;
   }
 };
 
@@ -856,7 +655,7 @@ public:
         TTNNConv2dWithActivation<SiluOp>, TTNNConv2dWithActivation<SigmoidOp>,
         TTNNMatmulAndLinearWithActivation<MatmulOp, SigmoidOp>,
         TTNNMatmulAndLinearWithActivation<LinearOp, SigmoidOp>, RoPEFusing,
-        SDPAFusing>(&getContext());
+        TTNNSDPAFusing>(&getContext());
 
     GreedyRewriteConfig config;
     config.setUseTopDownTraversal(true);
