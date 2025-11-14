@@ -825,7 +825,7 @@ def TTNN_Atan2Op :  TTNN_ElementwiseBinaryCompositeOp<"atan2"> {
     }];
 }
 
-def TTNN_GeluBWOp : TTNN_ElementwiseBinaryOp<"gelu_bw"> {
+def TTNN_GeluBackwardOp : TTNN_ElementwiseBinaryOp<"gelu_bw"> {
   let summary = "Backward pass operation for the GELU activation function.";
   let description = [{
     Computes the gradient of the GELU (Gaussian Error Linear Unit) activation

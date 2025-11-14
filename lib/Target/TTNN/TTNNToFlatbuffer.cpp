@@ -1191,7 +1191,7 @@ createEltwiseBinaryCompositeScalarOp(FlatbufferObjectCache &cache,
 
 ::flatbuffers::Offset<::tt::target::ttnn::ExperimentalEltwiseBinaryBackwardOp>
 createExperimentalEltwiseBinaryBackwardOp(FlatbufferObjectCache &cache,
-                                          GeluBWOp op) {
+                                          GeluBackwardOp op) {
   ::tt::target::ttnn::ExperimentalEltwiseBinaryBackwardOpType type =
       ::tt::target::ttnn::ExperimentalEltwiseBinaryBackwardOpType::GeluBW;
 
@@ -2738,9 +2738,9 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
     return createOperation(cache, createEltwiseUnaryOp(cache, geluOp),
                            debugString, locInfo);
   }
-  if (auto geluBWOp = dyn_cast<GeluBWOp>(op); geluBWOp) {
+  if (auto geluBackwardOp = dyn_cast<GeluBackwardOp>(op); geluBackwardOp) {
     return createOperation(
-        cache, createExperimentalEltwiseBinaryBackwardOp(cache, geluBWOp),
+        cache, createExperimentalEltwiseBinaryBackwardOp(cache, geluBackwardOp),
         debugString, locInfo);
   }
   if (auto tanOp = dyn_cast<TanOp>(op); tanOp) {
