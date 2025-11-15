@@ -217,6 +217,31 @@ class Builder:
 
     # ----- Private methods -----
 
+    def _get_output_type_v2(
+        self,
+        operands: List[Operand],
+        op_ttir_function: Callable,
+        ttir_kwargs: Dict[str, Attr] = {},
+        kwargs: Dict[str, bool] = {},
+    ) -> RankedTensorType:
+        op_golden_function = get_golden_function(op_ttir_function, **kwargs)
+        golden_operands = self._get_golden_tensors(operands)
+        golden_output = op_golden_function(*golden_operands, ttir_kwargs)
+        return self._create_ranked_tensor_type(
+            golden_output.shape, self._get_type_from_torch_dtype(golden_output.dtype)
+        )
+
+    def _get_output_golden_v2(
+        self,
+        operands: List[Operand],
+        op_ttir_function: Callable,
+        ttir_kwargs: Dict[str, Attr] = {},
+        kwargs: Dict[str, bool] = {},
+    ) -> GoldenMapTensor:
+        op_golden_function = get_golden_function(op_ttir_function, **kwargs)
+        golden_operands = self._get_golden_tensors(operands)
+        return op_golden_function(*golden_operands, ttir_kwargs)
+
     def _get_output_shape_and_type(
         self,
         organize_golden_args: Callable,
@@ -237,6 +262,10 @@ class Builder:
             )
 
         return golden_output.shape, golden_output.dtype
+
+    def _get_default_loc(self) -> Location:
+        with self._ctx:
+            return Location.unknown()
 
     def _get_datatype_from_torch_dtype(self, dtype: torch.dtype) -> DataType:
         match dtype:
@@ -492,6 +521,12 @@ class Builder:
     ) -> GoldenMapTensor:
         return self._goldens[operand]
 
+    def _get_golden_tensors(
+        self,
+        operands: List[Operand],
+    ) -> List[GoldenMapTensor]:
+        return [self._goldens[operand] for operand in operands]
+
     def _set_input_ordering(self, inputs: List[Operand]):
         self._ordered_inputs = inputs
 
@@ -501,7 +536,6 @@ class Builder:
     # ----- Shared Empty Operations -----
 
     def _empty(self, shape: Shape, data_type: Optional[Type] = None) -> OpView:
-        """Create an empty operation using the dialect-specific EmptyOp."""
         dtype = data_type if data_type is not None else F32Type.get(self._ctx)
         return self._create_empty_from_tensor_type(
             shape, self._create_ranked_tensor_type(shape, dtype)
@@ -510,7 +544,6 @@ class Builder:
     def _create_empty_from_tensor_type(
         self, shape: Shape, tensor_type: RankedTensorType
     ) -> OpView:
-        """Create empty operation from tensor type using dialect-specific EmptyOp."""
         with self._ctx, self._loc:
             op = self._get_empty_op(tensor_type)
             return op
