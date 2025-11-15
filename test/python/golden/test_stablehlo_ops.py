@@ -131,7 +131,7 @@ def broadcast_in_dim(
     unit_attrs: Optional[List[str]] = None,
 ):
     builder.set_graph_level_check(True)
-    return builder.broadcast_int_dim(
+    return builder.broadcast_in_dim(
         in0,
         broadcast_dimensions=broadcast_dimensions,
         output_shape=output_shape,
