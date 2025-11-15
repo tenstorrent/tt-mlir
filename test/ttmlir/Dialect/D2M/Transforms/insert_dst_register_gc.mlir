@@ -57,21 +57,21 @@ func.func @eltwise_binary_with_dst(%cb0: memref<1x1x!ttcore.tile<32x32, f32>, #l
                                     %cb2: memref<1x1x!ttcore.tile<32x32, f32>, #l1_>) {
   %dst = d2m.acquire_dst() : memref<4x1x1x!ttcore.tile<32x32, f32>, #dst_>
   %c0 = arith.constant 0 : index
-  
+
   %0 = affine.load %cb0[%c0, %c0] : memref<1x1x!ttcore.tile<32x32, f32>, #l1_>
   affine.store %0, %dst[0, %c0, %c0] : memref<4x1x1x!ttcore.tile<32x32, f32>, #dst_>
-  
+
   %1 = affine.load %cb1[%c0, %c0] : memref<1x1x!ttcore.tile<32x32, f32>, #l1_>
   affine.store %1, %dst[1, %c0, %c0] : memref<4x1x1x!ttcore.tile<32x32, f32>, #dst_>
-  
+
   %2 = affine.load %dst[0, %c0, %c0] : memref<4x1x1x!ttcore.tile<32x32, f32>, #dst_>
   %3 = affine.load %dst[1, %c0, %c0] : memref<4x1x1x!ttcore.tile<32x32, f32>, #dst_>
   %4 = "d2m.tile_add"(%2, %3) : (!ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
   affine.store %4, %dst[2, %c0, %c0] : memref<4x1x1x!ttcore.tile<32x32, f32>, #dst_>
-  
+
   %5 = affine.load %dst[2, %c0, %c0] : memref<4x1x1x!ttcore.tile<32x32, f32>, #dst_>
   affine.store %5, %cb2[%c0, %c0] : memref<1x1x!ttcore.tile<32x32, f32>, #l1_>
-  
+
   return
 }
 
@@ -92,7 +92,7 @@ func.func @multiple_dst_regions(%cb0: memref<2x2x!ttcore.tile<32x32, f32>, #l1_>
                                 %cb1: memref<2x2x!ttcore.tile<32x32, f32>, #l1_>) {
   %c0 = arith.constant 0 : index
   %c1 = arith.constant 1 : index
-  
+
   %dst1 = d2m.acquire_dst() : memref<2x2x2x!ttcore.tile<32x32, f32>, #dst_>
   affine.for %i = 0 to 2 {
     affine.for %j = 0 to 2 {
@@ -100,7 +100,7 @@ func.func @multiple_dst_regions(%cb0: memref<2x2x!ttcore.tile<32x32, f32>, #l1_>
       affine.store %0, %dst1[0, %i, %j] : memref<2x2x2x!ttcore.tile<32x32, f32>, #dst_>
     }
   }
-  
+
   %dst2 = d2m.acquire_dst() : memref<2x2x2x!ttcore.tile<32x32, f32>, #dst_>
   affine.for %i = 0 to 2 {
     affine.for %j = 0 to 2 {
@@ -108,7 +108,7 @@ func.func @multiple_dst_regions(%cb0: memref<2x2x!ttcore.tile<32x32, f32>, #l1_>
       affine.store %0, %dst2[0, %i, %j] : memref<2x2x2x!ttcore.tile<32x32, f32>, #dst_>
     }
   }
-  
+
   return
 }
 
@@ -137,28 +137,28 @@ func.func @dst_with_accumulation(%cb0: memref<3x3x!ttcore.tile<32x32, f32>, #l1_
                                  %cb2: memref<3x2x!ttcore.tile<32x32, f32>, #l1_>) {
   %c0 = arith.constant 0 : index
   %c1 = arith.constant 1 : index
-  
+
   %dst = d2m.acquire_dst() : memref<3x3x2x!ttcore.tile<32x32, f32>, #dst_>
-  
+
   affine.for %i = 0 to 3 {
     affine.for %j = 0 to 3 {
       %0 = affine.load %cb0[%i, %j] : memref<3x3x!ttcore.tile<32x32, f32>, #l1_>
       affine.store %0, %dst[0, %i, %j] : memref<3x3x2x!ttcore.tile<32x32, f32>, #dst_>
     }
   }
-  
+
   affine.for %i = 0 to 3 {
     affine.for %j = 0 to 2 {
       %0 = affine.load %cb1[%i, %j] : memref<3x2x!ttcore.tile<32x32, f32>, #l1_>
       affine.store %0, %dst[1, %i, %j] : memref<3x3x2x!ttcore.tile<32x32, f32>, #dst_>
     }
   }
-  
+
   affine.for %i = 0 to 3 {
     affine.for %j = 0 to 2 {
       %0 = affine.load %cb2[%i, %j] : memref<3x2x!ttcore.tile<32x32, f32>, #l1_>
       affine.store %0, %dst[2, %i, %j] : memref<3x3x2x!ttcore.tile<32x32, f32>, #dst_>
-      
+
       %1 = affine.load %dst[0, %i, %c0] : memref<3x3x2x!ttcore.tile<32x32, f32>, #dst_>
       %2 = affine.load %dst[1, %i, %j] : memref<3x3x2x!ttcore.tile<32x32, f32>, #dst_>
       %3 = affine.load %dst[2, %i, %j] : memref<3x3x2x!ttcore.tile<32x32, f32>, #dst_>
@@ -166,14 +166,14 @@ func.func @dst_with_accumulation(%cb0: memref<3x3x!ttcore.tile<32x32, f32>, #l1_
       affine.store %4, %dst[2, %i, %j] : memref<3x3x2x!ttcore.tile<32x32, f32>, #dst_>
     }
   }
-  
+
   affine.for %i = 0 to 3 {
     affine.for %j = 0 to 2 {
       %0 = affine.load %dst[2, %i, %j] : memref<3x3x2x!ttcore.tile<32x32, f32>, #dst_>
       affine.store %0, %cb2[%i, %j] : memref<3x2x!ttcore.tile<32x32, f32>, #l1_>
     }
   }
-  
+
   return
 }
 
@@ -201,16 +201,16 @@ func.func @dst_with_accumulation(%cb0: memref<3x3x!ttcore.tile<32x32, f32>, #l1_
 func.func @unary_in_place(%cb0: memref<2x4x!ttcore.tile<32x32, f32>, #l1_>,
                           %cb1: memref<2x4x!ttcore.tile<32x32, f32>, #l1_>) {
   %c0 = arith.constant 0 : index
-  
+
   %dst = d2m.acquire_dst() : memref<1x2x4x!ttcore.tile<32x32, f32>, #dst_>
-  
+
   affine.for %i = 0 to 2 {
     affine.for %j = 0 to 4 {
       %0 = affine.load %cb0[%i, %j] : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
       affine.store %0, %dst[0, %i, %j] : memref<1x2x4x!ttcore.tile<32x32, f32>, #dst_>
     }
   }
-  
+
   affine.for %i = 0 to 2 {
     affine.for %j = 0 to 4 {
       %0 = affine.load %dst[0, %i, %j] : memref<1x2x4x!ttcore.tile<32x32, f32>, #dst_>
@@ -218,14 +218,14 @@ func.func @unary_in_place(%cb0: memref<2x4x!ttcore.tile<32x32, f32>, #l1_>,
       affine.store %1, %dst[0, %i, %j] : memref<1x2x4x!ttcore.tile<32x32, f32>, #dst_>
     }
   }
-  
+
   affine.for %i = 0 to 2 {
     affine.for %j = 0 to 4 {
       %0 = affine.load %dst[0, %i, %j] : memref<1x2x4x!ttcore.tile<32x32, f32>, #dst_>
       affine.store %0, %cb1[%i, %j] : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
     }
   }
-  
+
   return
 }
 
@@ -245,38 +245,38 @@ func.func @eltwise_large_dst(%cb0: memref<4x4x!ttcore.tile<32x32, bf16>, #l1_>,
                              %cb1: memref<4x4x!ttcore.tile<32x32, bf16>, #l1_>,
                              %cb2: memref<4x4x!ttcore.tile<32x32, bf16>, #l1_>) {
   %c0 = arith.constant 0 : index
-  
+
   %dst = d2m.acquire_dst() : memref<8x4x4x!ttcore.tile<32x32, bf16>, #dst_>
-  
+
   affine.for %i = 0 to 4 {
     affine.for %j = 0 to 4 {
       %0 = affine.load %cb0[%i, %j] : memref<4x4x!ttcore.tile<32x32, bf16>, #l1_>
       affine.store %0, %dst[0, %i, %j] : memref<8x4x4x!ttcore.tile<32x32, bf16>, #dst_>
-      
+
       %1 = affine.load %cb1[%i, %j] : memref<4x4x!ttcore.tile<32x32, bf16>, #l1_>
       affine.store %1, %dst[1, %i, %j] : memref<8x4x4x!ttcore.tile<32x32, bf16>, #dst_>
     }
   }
-  
+
   affine.for %i = 0 to 4 {
     affine.for %j = 0 to 4 {
       %0 = affine.load %dst[0, %i, %j] : memref<8x4x4x!ttcore.tile<32x32, bf16>, #dst_>
       %1 = affine.load %dst[1, %i, %j] : memref<8x4x4x!ttcore.tile<32x32, bf16>, #dst_>
       %2 = "d2m.tile_add"(%0, %1) : (!ttcore.tile<32x32, bf16>, !ttcore.tile<32x32, bf16>) -> !ttcore.tile<32x32, bf16>
       affine.store %2, %dst[2, %i, %j] : memref<8x4x4x!ttcore.tile<32x32, bf16>, #dst_>
-      
+
       %3 = affine.load %dst[2, %i, %j] : memref<8x4x4x!ttcore.tile<32x32, bf16>, #dst_>
       %4 = "d2m.tile_mul"(%3, %3) : (!ttcore.tile<32x32, bf16>, !ttcore.tile<32x32, bf16>) -> !ttcore.tile<32x32, bf16>
       affine.store %4, %dst[3, %i, %j] : memref<8x4x4x!ttcore.tile<32x32, bf16>, #dst_>
     }
   }
-  
+
   affine.for %i = 0 to 4 {
     affine.for %j = 0 to 4 {
       %0 = affine.load %dst[3, %i, %j] : memref<8x4x4x!ttcore.tile<32x32, bf16>, #dst_>
       affine.store %0, %cb2[%i, %j] : memref<4x4x!ttcore.tile<32x32, bf16>, #l1_>
     }
   }
-  
+
   return
 }
