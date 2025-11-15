@@ -419,7 +419,6 @@ def build_module(
 
     .. code-block:: mlir
 
-        #any = #ttcore.operand_constraint<...>
         module {
             func.func @test_add(
                 %arg0: tensor<32x32xf32>,
