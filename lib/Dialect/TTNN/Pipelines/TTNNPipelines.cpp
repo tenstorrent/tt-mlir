@@ -217,6 +217,11 @@ void createTTIRToTTNNBackendPipeline(
   // Run lowering to LLVM pass on hoisted funcs in CPUModule.
   ttir::LinalgToLLVMPipelineOptions linalgToLLVMOptions;
   ttir::createTTIRToCPUPipeline(pm, linalgToLLVMOptions);
+
+  ttnn::TTNNCollectMetricsOptions metricsOptions{
+      options.ttnnMetricsOutputFile, options.ttnnMetricsVerboseOutputEnabled,
+      options.enableTrace};
+  devicePm.addPass(mlir::tt::ttnn::createTTNNCollectMetrics(metricsOptions));
 }
 
 void createTTNNBackendToEmitCPipeline(
