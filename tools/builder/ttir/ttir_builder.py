@@ -18,7 +18,18 @@ from builder.base.builder import *
 from golden import *
 
 
-class TTIRBuilder(Builder):
+class TTIRBuilderMeta(type):
+    def __new__(mcls, name, bases, namespace):
+        cls = super().__new__(mcls, name, bases, namespace)
+        cls.build_opname_to_opview_map()
+        cls.build_opview_to_builder_map()
+        return cls
+
+
+class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
+    opname_to_opview_map: Dict[str, OpView] = {}
+    opview_to_builder_map: Dict[OpView, Callable] = {}
+
     # ----- Methods -----
 
     def __init__(
@@ -33,12 +44,38 @@ class TTIRBuilder(Builder):
     ):
         super().__init__(ctx, location, mesh_name, mesh_dict, disable_golden_check)
 
-    # ----- Public methods -----
+    # ----- Class helper methods -----
+
+    def tag(name):
+        def decorator(func):
+            func._tag = name
+            return func
+
+        return decorator
+
+    @classmethod
+    def build_opname_to_opview_map(cls):
+        for name, obj in inspect.getmembers(ttir, inspect.isclass):
+            if issubclass(obj, OpView) and obj is not OpView:
+                op_name = getattr(obj, "OPERATION_NAME", None)
+
+                if op_name is not None:
+                    cls.opname_to_opview_map[op_name] = obj
+
+    @classmethod
+    def build_opview_to_builder_map(cls):
+        for attr_name in dir(cls):
+            attr = getattr(cls, attr_name)
+            func = attr
+
+            if callable(attr) and hasattr(func, "_tag"):
+                cls.opview_to_builder_map[func._tag] = attr
+
+    def get_opview_from_method(self, method: func) -> OpView:
+        return getattr(method, "_tag", None)
 
     # ----- Private methods ----
-
     def _get_empty_op(self, tensor_type: RankedTensorType) -> OpView:
-        """Get TTIR-specific empty operation."""
         return ttir.EmptyOp(tensor_type)
 
     def _organize_eltwise_ttir(
@@ -143,6 +180,29 @@ class TTIRBuilder(Builder):
                     self._set_golden_tensor(op, golden_output)
 
             return op
+
+    def _op_proxy_v2(
+        self,
+        op_ttir_function: Callable,
+        inputs: List[Operand],
+        output_type: OpView,
+        loc: Location,
+        ttir_kwargs: Dict[str, Attr] = {},
+        golden_output: GoldenMapTensor = None,
+        skip_golden: bool = False,
+    ) -> Any:
+        with self._ctx, self._loc:
+            op = op_ttir_function(
+                output_type,
+                *inputs,
+                loc=loc,
+                **ttir_kwargs,
+            )
+
+        if not skip_golden and not self._disable_golden_check:
+            self._set_golden_tensor(op, golden_output)
+
+        return op
 
     # ----- Public Op Generators ----
 
@@ -4167,50 +4227,46 @@ class TTIRBuilder(Builder):
             unit_attrs=unit_attrs,
         )
 
-    # class TTIR_GenericElementwiseBinaryOp
-
+    @tag(ttir.AddOp)
     def add(
-        self, in0: Operand, in1: Operand, unit_attrs: Optional[List[str]] = None
+        self,
+        in0: Operand,
+        in1: Operand,
+        output_shape: List[int] = None,
+        output_type: torch.dtype = torch.float32,
+        ttir_kwargs: Optional[Dict[str, Any]] = {},
+        loc: Optional[str] = None,
     ) -> OpView:
-        """
-        Creates ``ttir.add``.
+        ttir_op = self.get_opview_from_method(TTIRBuilder.add)
 
-        *Elementwise addition operation.*
+        if loc is None:
+            stack = inspect.stack()
+            caller_frame = stack[1]
+            filename = caller_frame.filename
+            lineno = caller_frame.lineno
+            loc = Location.name(f"{filename}:{lineno}")
+        else:
+            loc = Location.name(loc)
 
-        Performs elementwise addition between two tensors.
-        For each pair of corresponding elements, adds the element in the second
-        tensor to the element in the first tensor.
+        if output_shape is None:
+            output_ranked_tensor_type = self._get_output_type_v2(
+                [in0, in1], ttir_op, ttir_kwargs
+            )
+        else:
+            output_ranked_tensor_type = self._create_ranked_tensor_type(
+                output_shape, self._get_type_from_torch_dtype(output_type)
+            )
 
-        Mathematical definition: add(x, y) = x + y
+        output_dps = self._get_empty_op(output_ranked_tensor_type)
+        golden_output = self._get_output_golden_v2([in0, in1], ttir_op, ttir_kwargs)
 
-        .. code-block:: mlir
-
-            // Add corresponding elements
-            %result = ttir.add(%lhs, %rhs, %output) : tensor<3xf32>, tensor<3xf32>, tensor<3xf32> -> tensor<3xf32>
-            // Input tensors:
-            // lhs: [3.5, 0.0, -1.2]
-            // rhs: [1.5, 2.0, -3.2]
-            // Output tensor:
-            // [5.0, 2.0, -4.4]
-
-        Parameters
-        ----------
-        in0 : Operand
-            First input tensor
-        in1 : Operand
-            Second input tensor
-        unit_attrs : *Optional[List[str]]*
-            Optional list of unit attributes
-
-        Returns
-        -------
-        (*OpView*)
-            A tensor containing the elementwise sum of the inputs
-        """
-        return self._op_proxy(
-            ttir.AddOp,
-            [in0, in1],
-            unit_attrs=unit_attrs,
+        return self._op_proxy_v2(
+            ttir_op,
+            [in0, in1, output_dps],
+            output_ranked_tensor_type,
+            loc,
+            ttir_kwargs,
+            golden_output,
         )
 
     def atan2(

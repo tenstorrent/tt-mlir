@@ -3161,35 +3161,15 @@ def get_golden_function(ttir_op_class: type, **kwargs) -> Optional[Callable]:
     if ttir_op_class in GOLDEN_MAPPINGS:
         return GOLDEN_MAPPINGS[ttir_op_class]
 
-    return None
+    assert False, f"No golden function found for TTIR operation: {ttir_op_class}"
 
 
-"""
-Dictionary mapping TTIR operation classes to their corresponding golden functions.
+def add_golden(
+    lhs: GoldenMapTensor, rhs: GoldenMapTensor, ttir_kwargs: Dict[str, Attr]
+) -> GoldenMapTensor:
+    return torch.add(lhs, rhs)
 
-This dictionary provides a centralized mapping between TTIR operation types and their
-PyTorch-based golden reference implementations. Each key is a TTIR operation class
-(e.g., ttir.AbsOp) and each value is the corresponding golden function that computes
-the expected output for that operation.
 
-The mapping supports:
-    - Elementwise unary operations (abs, ceil, cos, etc.)
-    - Elementwise binary operations (add, multiply, subtract, etc.)
-    - Elementwise ternary operations (where, select, etc.)
-    - Comparison operations (eq, ne, lt, gt, etc.)
-    - Bitwise operations (and, or, xor, not)
-    - Reduction operations (sum, mean, max, min, etc.)
-    - Tensor manipulation (transpose, concat, reshape, etc.)
-    - Neural network operations (matmul, embedding, conv2d, etc.)
-    - Layout operations (to_layout, view_layout)
-    - Quantization operations (quantize, dequantize, requantize)
-    - Collective communication operations (all_gather, all_reduce, etc.)
-
-Usage:
-    golden_fn = GOLDEN_MAPPINGS.get(ttir.AbsOp)
-    if golden_fn:
-        result = golden_fn(input_tensor)
-"""
 GOLDEN_MAPPINGS: Dict[type, Callable] = {
     # ----- TTIR OPS -----
     # Elementwise unary operations
@@ -3220,7 +3200,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.Expm1Op: torch.expm1,
     ttir.ExpOp: torch.exp,
     # Elementwise binary operations
-    ttir.AddOp: torch.add,
+    ttir.AddOp: add_golden,
     ttir.Atan2Op: torch.atan2,
     ttir.MultiplyOp: torch.multiply,
     ttir.SubtractOp: torch.subtract,
@@ -3346,6 +3326,8 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     # stablehlo complex operations
     stablehlo.DotGeneralOp: dot_general_golden,
     stablehlo.ConcatenateOp: concat_golden,
+    # StableHLO tensor manipulation operations
+    stablehlo.TransposeOp: permute_golden,
     # ----- TTNN OPS -----
     # Elementwise unary operations
     ttnn.AbsOp: torch.abs,
@@ -3375,8 +3357,6 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttnn.Expm1Op: torch.expm1,
     ttnn.ExpOp: torch.exp,
     ttnn.LeakyReluOp: leaky_relu_golden,
-    # StableHLO tensor manipulation operations
-    stablehlo.TransposeOp: permute_golden,
     # TTNN elementwise operations
     ttnn.MultiplyOp: torch.multiply,
     ttnn.MishOp: torch.nn.functional.mish,
