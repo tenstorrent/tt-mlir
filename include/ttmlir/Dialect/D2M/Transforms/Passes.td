@@ -171,6 +171,28 @@ def D2MInsertDstRegisterAccess : Pass<"d2m-insert-dst-register-access", "::mlir:
   ];
 }
 
+//
+// Graph coloring dst register allocation pass
+//
+def D2MInsertDstRegisterGC : Pass<"d2m-insert-dst-register-gc", "::mlir::func::FuncOp"> {
+  let summary = "Allocate DST registers using a graph coloring algorithm.";
+  let description = [{
+    This pass implements a Chaitin-Briggs style graph coloring register allocator
+    for DST registers. It can be used as a drop-in replacement for the basic
+    `d2m-insert-dst-register-access` pass.
+  }];
+
+  let dependentDialects = [
+    "::mlir::tt::d2m::D2MDialect",
+    "::mlir::func::FuncDialect"
+  ];
+
+  let options = [
+    Option<"maxDstPhysicalSizeTiles", "max-dst-physical-size-tiles", "unsigned",
+           "0", "Override the max dst physical size tiles or 0 if unset.">,
+  ];
+}
+
 def D2MGenericLinearizeMemref: Pass<"d2m-generic-linearize-memref", "::mlir::ModuleOp"> {
   let summary = "Linearize memref operands for generic ops.";
   let description = [{
