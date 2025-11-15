@@ -18,9 +18,8 @@ module attributes {} {
 
   func.func @arange_multiple_users() -> (tensor<1x1024x1xi32>, tensor<1x1x1024xi32>) {
     %0 = "ttir.arange"() <{arange_dimension = 0 : i64, end = 1024 : si64, start = 0 : si64, step = 1 : si64}> : () -> tensor<1024xi32>
-    %2 = "ttir.reshape"(%0, %1) <{shape = [1 : i32, 1024 : i32, 1 : i32]}> : (tensor<1024xi32>, tensor<1x1024x1xi32>) -> tensor<1x1024x1xi32>
-    %3 = ttir.empty() : tensor<1x1x1024xi32>
-    %4 = "ttir.reshape"(%0, %3) <{shape = [1 : i32, 1 : i32, 1024 : i32]}> : (tensor<1024xi32>, tensor<1x1x1024xi32>) -> tensor<1x1x1024xi32>
+    %2 = "ttir.reshape"(%0) <{shape = [1 : i32, 1024 : i32, 1 : i32]}> : (tensor<1024xi32>) -> tensor<1x1024x1xi32>
+    %4 = "ttir.reshape"(%0) <{shape = [1 : i32, 1 : i32, 1024 : i32]}> : (tensor<1024xi32>) -> tensor<1x1x1024xi32>
     // Verify that the arange is op in IR is before both reshape ops
     // CHECK: "ttnn.arange"
     // CHECK: "ttnn.reshape"

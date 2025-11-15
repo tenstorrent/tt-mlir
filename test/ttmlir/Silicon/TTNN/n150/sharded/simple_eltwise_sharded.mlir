@@ -33,16 +33,14 @@ func.func @ge(%arg0: tensor<224x64xf32>, %arg1: tensor<224x64xf32>) -> tensor<22
 }
 
 func.func @reshape(%arg0: tensor<4x2x224x64xbf16>) -> tensor<2x4x224x64xbf16> {
-  %0 = ttir.empty() : tensor<2x4x224x64xbf16>
   // CHECK: "ttnn.reshape"
-  %1 = "ttir.reshape"(%arg0, %0) <{shape = [2: i32, 4: i32, 224: i32, 64: i32]}> : (tensor<4x2x224x64xbf16>, tensor<2x4x224x64xbf16>) -> tensor<2x4x224x64xbf16>
+  %1 = "ttir.reshape"(%arg0) <{shape = [2: i32, 4: i32, 224: i32, 64: i32]}> : (tensor<4x2x224x64xbf16>) -> tensor<2x4x224x64xbf16>
   return %1 : tensor<2x4x224x64xbf16>
 }
 
 func.func @squeeze(%arg0: tensor<1x2x1x224x64xbf16>) -> tensor<1x2x224x64xbf16> {
-  %0 = ttir.empty() : tensor<1x2x224x64xbf16>
   // CHECK: "ttnn.reshape"
-  %1 = "ttir.squeeze"(%arg0, %0) <{dim = 2 : si32}> : (tensor<1x2x1x224x64xbf16>, tensor<1x2x224x64xbf16>) -> tensor<1x2x224x64xbf16>
+  %1 = "ttir.squeeze"(%arg0) <{dim = 2 : si32}> : (tensor<1x2x1x224x64xbf16>) -> tensor<1x2x224x64xbf16>
   return %1 : tensor<1x2x224x64xbf16>
 }
 

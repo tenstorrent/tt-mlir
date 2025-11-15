@@ -17,7 +17,7 @@ module {
     // CHECK-SAME: -> tensor<1x3x224x224x!quant.uniform<i32:f32, 2.000000e-02>,
     %1 = "ttir.constant"() <{value = dense<2.000000e-02> : tensor<1xf32>}> : () -> tensor<1xf32>
     %2 = "ttir.constant"() <{value = dense<0> : tensor<1xi32>}> : () -> tensor<1xi32>
-    %4 = "ttir.quantize_unrolled"(%arg0, %1, %2) : (tensor<1x3x224x224xf32>, tensor<1xf32>, tensor<1xi32>, tensor<1x3x224x224x!quant.uniform<i32:f32) -> tensor<1x3x224x224x!quant.uniform<i32:f32, 2.000000e-02>>
+    %4 = "ttir.quantize_unrolled"(%arg0, %1, %2) : (tensor<1x3x224x224xf32>, tensor<1xf32>, tensor<1xi32>) -> tensor<1x3x224x224x!quant.uniform<i32:f32, 2.000000e-02>>
     return %4 : tensor<1x3x224x224x!quant.uniform<i32:f32, 2.000000e-02>>
   }
   func.func @quantize_per_axis_scale_per_tensor_zp(%arg0: tensor<1x3x224x224xf32>) -> tensor<1x3x224x224x!quant.uniform<i32:f32:1, {1.000000e-02,2.000000e-02,3.000000e-02}>> {
@@ -35,8 +35,7 @@ module {
     // CHECK-SAME: -> tensor<1x3x224x224x!quant.uniform<i32:f32:1, {1.000000e-02,2.000000e-02,3.000000e-02}>,
     %1 = "ttir.constant"() <{value = dense<[0.00999999977, 2.000000e-02, 3.000000e-02]> : tensor<3xf32>}> : () -> tensor<3xf32>
     %2 = "ttir.constant"() <{value = dense<0> : tensor<3xi32>}> : () -> tensor<3xi32>
-    %3 = ttir.empty() : tensor<1x3x224x224x!quant.uniform<i32:f32:1, {1.000000e-02,2.000000e-02,3.000000e-02}>>
-    %4 = "ttir.quantize_unrolled"(%arg0, %1, %2, %3) <{axis = 1 : i32}> : (tensor<1x3x224x224xf32>, tensor<3xf32>, tensor<3xi32>, tensor<1x3x224x224x!quant.uniform<i32:f32:1, {1.000000e-02,2.000000e-02,3.000000e-02}>>) -> tensor<1x3x224x224x!quant.uniform<i32:f32:1, {1.000000e-02,2.000000e-02,3.000000e-02}>>
+    %4 = "ttir.quantize_unrolled"(%arg0, %1, %2) <{axis = 1 : i32}> : (tensor<1x3x224x224xf32>, tensor<3xf32>, tensor<3xi32>) -> tensor<1x3x224x224x!quant.uniform<i32:f32:1, {1.000000e-02,2.000000e-02,3.000000e-02}>>
     return %4 : tensor<1x3x224x224x!quant.uniform<i32:f32:1, {1.000000e-02,2.000000e-02,3.000000e-02}>>
   }
   func.func @quantize_per_axis_scale_per_axis_zp(%arg0: tensor<1x3x224x224xf32>) -> tensor<1x3x224x224x!quant.uniform<i32:f32:1, {1.000000e-02:10,2.000000e-02:20,3.000000e-02:30}>> {
@@ -54,7 +53,7 @@ module {
     // CHECK-SAME: -> tensor<1x3x224x224x!quant.uniform<i32:f32:1, {1.000000e-02:10,2.000000e-02:20,3.000000e-02:30}>,
     %1 = "ttir.constant"() <{value = dense<[0.00999999977, 2.000000e-02, 3.000000e-02]> : tensor<3xf32>}> : () -> tensor<3xf32>
     %2 = "ttir.constant"() <{value = dense<[10, 20, 30]> : tensor<3xi32>}> : () -> tensor<3xi32>
-    %4 = "ttir.quantize_unrolled"(%arg0, %1, %2, %3) <{axis = 1 : i32}> : (tensor<1x3x224x224xf32>, tensor<3xf32>, tensor<3xi32>, tensor<1x3x224x224x!quant.uniform<i32:f32:1, {1.000000e-02:10,2.000000e-02:20,3.000000e-02:30}>>) -> tensor<1x3x224x224x!quant.uniform<i32:f32:1, {1.000000e-02:10,2.000000e-02:20,3.000000e-02:30}>>
+    %4 = "ttir.quantize_unrolled"(%arg0, %1, %2) <{axis = 1 : i32}> : (tensor<1x3x224x224xf32>, tensor<3xf32>, tensor<3xi32>) -> tensor<1x3x224x224x!quant.uniform<i32:f32:1, {1.000000e-02:10,2.000000e-02:20,3.000000e-02:30}>>
     return %4 : tensor<1x3x224x224x!quant.uniform<i32:f32:1, {1.000000e-02:10,2.000000e-02:20,3.000000e-02:30}>>
   }
 }

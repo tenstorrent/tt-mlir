@@ -15,8 +15,7 @@ module @"tt-forge-graph" attributes {} {
     %7 = "ttir.matmul"(%5, %arg2) : (tensor<1x256xf32>, tensor<256x10xf32>) -> tensor<1x10xf32> loc(#loc11)
     // CHECK: = "ttnn.add" -> tensor<1x10xf32, #[[LAYOUT_11]]>
     %9 = "ttir.add"(%7, %arg1) : (tensor<1x10xf32>, tensor<1x10xf32>) -> tensor<1x10xf32> loc(#loc12)
-    %10 = ttir.empty() : tensor<1x10xf32> loc(#loc13)
-    %11 = "ttir.softmax"(%9, %10) <{dimension = 1 : si32}> : (tensor<1x10xf32>, tensor<1x10xf32>) -> tensor<1x10xf32> loc(#loc13)
+    %11 = "ttir.softmax"(%9) <{dimension = 1 : si32}> : (tensor<1x10xf32>) -> tensor<1x10xf32> loc(#loc13)
     return %11 : tensor<1x10xf32> loc(#loc7)
   } loc(#loc)
 } loc(#loc)
