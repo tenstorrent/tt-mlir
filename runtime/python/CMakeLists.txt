@@ -2,6 +2,20 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
+find_package(Python3 REQUIRED COMPONENTS Interpreter Development Development.Module)
+if (NOT Python3_LIBRARIES)
+  message(FATAL_ERROR "python libraries not found")
+endif()
+list(APPEND CMAKE_PREFIX_PATH "${Python3_SITEARCH}" "${Python3_SITELIB}")
+if (NOT TARGET Python::Module AND TARGET Python3::Module)
+  add_library(Python::Module ALIAS Python3::Module)
+endif()
+if (NOT DEFINED Python_EXECUTABLE AND DEFINED Python3_EXECUTABLE)
+  set(Python_EXECUTABLE "${Python3_EXECUTABLE}" CACHE FILEPATH "" FORCE)
+endif()
+if (NOT DEFINED Python_INCLUDE_DIRS AND DEFINED Python3_INCLUDE_DIRS)
+  set(Python_INCLUDE_DIRS "${Python3_INCLUDE_DIRS}" CACHE PATH "" FORCE)
+endif()
 find_package(nanobind CONFIG REQUIRED)
 find_package(pybind11 CONFIG REQUIRED)
 
@@ -13,6 +27,11 @@ set(TTMLIR_RUNTIME_PYTHON_SRCS
 
 if (TTMLIR_ENABLE_RUNTIME_TESTS)
   list(APPEND TTMLIR_RUNTIME_PYTHON_SRCS runtime/test.cpp)
+endif()
+
+# Add macOS stubs when runtime is disabled but pykernel is enabled
+if (APPLE AND NOT TTMLIR_ENABLE_RUNTIME AND TTMLIR_ENABLE_PYKERNEL)
+  list(APPEND TTMLIR_RUNTIME_PYTHON_SRCS runtime/stubs_macos.cpp)
 endif()
 
 nanobind_add_module(

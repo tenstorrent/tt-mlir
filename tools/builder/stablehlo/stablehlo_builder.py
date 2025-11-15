@@ -11,6 +11,7 @@ import torch
 from enum import Enum, auto
 import re
 from collections import OrderedDict
+import math
 
 from ttmlir.ir import *
 from ttmlir.dialects import stablehlo, sdy, mpmd
@@ -119,6 +120,29 @@ class StableHLOBuilder(Builder):
     def _get_mesh(self, mesh_name: str = "mesh") -> sdy.Mesh:
         return self.mesh(mesh_name, self._get_mesh_attr(mesh_name))
 
+    def _get_output_shape_and_type(
+        self,
+        organize_golden_args: Callable,
+        inputs: List[Operand],
+        op_stablehlo_function: Callable,
+        golden_kwargs: dict = {},
+    ):
+        op_golden_function = builder_golden.get_golden_function(
+            op_stablehlo_function, **golden_kwargs
+        )
+        if op_golden_function is None:
+            return None
+
+        # If the op has no input, just call golden function with kwargs (e.g., zeros).
+        if len(inputs) == 0:
+            golden_output = op_golden_function(**golden_kwargs)
+        else:
+            golden_output = op_golden_function(
+                *(organize_golden_args(inputs)), **golden_kwargs
+            )
+
+        return golden_output.shape, golden_output.dtype
+
     def _op_proxy(
         self,
         op_stablehlo_function: Callable,
@@ -149,11 +173,61 @@ class StableHLOBuilder(Builder):
                 else self._get_loc_of_extra_file_callee(id=id)
             )
 
-            op = op_stablehlo_function(
-                *inputs,
-                loc=loc,
-                **stablehlo_kwargs,
-            )
+            # Most StableHLO ops have MLIR type inference, so output is not needed.
+            # Only create output if user explicitly provides output_shape, output_type, or output_create_fn
+            # (e.g., for ops like broadcast_in_dim that don't have type inference)
+            output = None
+            if (
+                output_shape is not None
+                or output_type is not None
+                or output_create_fn is not None
+            ):
+                # User explicitly requested output creation
+                # Try to get shape/type from golden function if not fully provided
+                output_shape_and_type = self._get_output_shape_and_type(
+                    organize_golden_args, inputs, op_stablehlo_function, golden_kwargs
+                )
+
+                if not output_shape_and_type:
+                    # No golden function - user must provide both shape and type
+                    assert (
+                        output_shape is not None
+                    ), "Output shape must be provided if there is no golden function for this op"
+                    assert (
+                        output_type is not None
+                    ), "Output type must be provided if there is no golden function for this op"
+                else:
+                    (
+                        calculated_output_shape,
+                        calculated_output_type,
+                    ) = output_shape_and_type
+                    # Use provided values if available, otherwise use calculated
+                    output_shape = (
+                        calculated_output_shape
+                        if output_shape is None
+                        else output_shape
+                    )
+                    output_type = (
+                        self._get_type_from_torch_dtype(calculated_output_type)
+                        if output_type is None
+                        else output_type
+                    )
+
+                # Create output tensor
+                if output_create_fn is not None:
+                    output = output_create_fn(output_shape, output_type)
+                else:
+                    output = self._create_ranked_tensor_type(output_shape, output_type)
+
+            # Custom argument organization and create the stabelhlo op
+            if organize_stablehlo_args is not None:
+                stablehlo_args = organize_stablehlo_args(
+                    inputs, output, stablehlo_kwargs
+                )
+                op = op_stablehlo_function(*stablehlo_args, loc=loc, **stablehlo_kwargs)
+            else:
+                # Default: elementwise binary operations
+                op = op_stablehlo_function(*inputs, loc=loc, **stablehlo_kwargs)
 
             if unit_attrs is not None:
                 for attr_name in unit_attrs:
@@ -231,6 +305,60 @@ class StableHLOBuilder(Builder):
         return self._eltwise_proxy(
             stablehlo.AddOp,
             [in0, in1],
+            unit_attrs=unit_attrs,
+            sharding_attr=sharding_attr,
+        )
+
+    def clamp(
+        self,
+        min: Operand,
+        operand: Operand,
+        max: Operand,
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+    ) -> OpView:
+        """
+        Creates ``stablehlo.clamp``.
+
+        *Elementwise clamp operation.*
+
+        Clamps each element of the operand tensor between a minimum and maximum value.
+        For each element, returns min if element < min, max if element > max, otherwise element.
+
+        Mathematical definition: clamp(min, x, max) = min(max(x, min), max)
+
+        .. code-block:: mlir
+
+            // Clamp elements between min and max
+            %result = stablehlo.clamp(%min, %operand, %max) : tensor<3xf32>, tensor<3xf32>, tensor<3xf32> -> tensor<3xf32>
+            // Input tensors:
+            // min: [5, 10, 15]
+            // operand: [3, 13, 23]
+            // max: [10, 15, 20]
+            // Output tensor:
+            // [5, 13, 20]
+
+        Parameters
+        ----------
+        min : Operand
+            Minimum value tensor (can be scalar or tensor)
+        operand : Operand
+            Input tensor to be clamped
+        max : Operand
+            Maximum value tensor (can be scalar or tensor)
+        unit_attrs : *Optional[List[str]]*
+            Optional list of unit attributes
+        sharding_attr : *Optional[sdy.TensorShardingPerValueAttr]*
+            Optional sharding attribute
+
+        Returns
+        -------
+        (*OpView*)
+            A tensor containing the clamped values
+        """
+        return self._eltwise_proxy(
+            stablehlo.ClampOp,
+            [min, operand, max],
             unit_attrs=unit_attrs,
             sharding_attr=sharding_attr,
         )
@@ -335,6 +463,99 @@ class StableHLOBuilder(Builder):
         return self._eltwise_proxy(
             stablehlo.CosineOp,
             [in0],
+            unit_attrs=unit_attrs,
+            sharding_attr=sharding_attr,
+        )
+
+    def dot_general(
+        self,
+        in0: Operand,
+        in1: Operand,
+        batch_dims_lhs: List[int],
+        contract_dims_lhs: List[int],
+        batch_dims_rhs: List[int],
+        contract_dims_rhs: List[int],
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+    ) -> OpView:
+        """
+        Creates ``stablehlo.dot_general``.
+
+        *Generalized dot product operation.*
+
+        Flexible tensor operation that generalizes matrix multiplication by allowing user to specify which
+        dimensions of two tensors to contract. Matrix multiplication is a special case of this operation,
+        where the contraction happens along the last axis of the first tensor and the second-to-last axis of the second tensor.
+        From StableHLO DotGeneral Op https://openxla.org/stablehlo/spec#dot_general
+
+        Parameters
+        ----------
+        in0 : Operand
+            Left-hand side input tensor
+        in1 : Operand
+            Right-hand side input tensor
+        batch_dims_lhs : *List[int]*
+            Batch dimensions for the left-hand side tensor
+        contract_dims_lhs : *List[int]*
+            Contracting dimensions for the left-hand side tensor
+        batch_dims_rhs : *List[int]*
+            Batch dimensions for the right-hand side tensor
+        contract_dims_rhs : *List[int]*
+            Contracting dimensions for the right-hand side tensor
+        unit_attrs : *Optional[List[str]]*, optional
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpView*)
+        """
+        from ttmlir.ir import ArrayAttr, IntegerAttr, IntegerType
+
+        # Create dimension numbers attribute using proper MLIR attribute construction
+        dot_dimension_numbers = stablehlo.DotDimensionNumbers.get(
+            context=self._ctx,
+            lhs_batching_dimensions=batch_dims_lhs,
+            lhs_contracting_dimensions=contract_dims_lhs,
+            rhs_batching_dimensions=batch_dims_rhs,
+            rhs_contracting_dimensions=contract_dims_rhs,
+        )
+
+        lhs_rhape = in0.type.shape
+        rhs_shape = in1.type.shape
+
+        result_shape = []
+        # Add batch dimensions
+        for dim in batch_dims_lhs:
+            result_shape.append(lhs_rhape[dim])
+
+        # add non-batch, non-contract dimensions from lhs and rhs
+        for i, dim_size in enumerate(lhs_rhape):
+            if i not in batch_dims_lhs and i not in contract_dims_lhs:
+                result_shape.append(dim_size)
+        for i, dim_size in enumerate(rhs_shape):
+            if i not in batch_dims_rhs and i not in contract_dims_rhs:
+                result_shape.append(dim_size)
+
+        result_type = RankedTensorType.get(result_shape, in0.type.element_type)
+        return self._op_proxy(
+            stablehlo.DotGeneralOp,
+            [in0, in1],
+            organize_stablehlo_args=lambda inputs, *_: (
+                result_type,
+                inputs[0],
+                inputs[1],
+            ),
+            organize_golden_args=lambda inputs: (
+                self._get_golden_tensor(inputs[0]),
+                self._get_golden_tensor(inputs[1]),
+            ),
+            stablehlo_kwargs={"dot_dimension_numbers": dot_dimension_numbers},
+            golden_kwargs={
+                "batch_dims_lhs": batch_dims_lhs,
+                "contract_dims_lhs": contract_dims_lhs,
+                "batch_dims_rhs": batch_dims_rhs,
+                "contract_dims_rhs": contract_dims_rhs,
+            },
             unit_attrs=unit_attrs,
             sharding_attr=sharding_attr,
         )
@@ -644,6 +865,92 @@ class StableHLOBuilder(Builder):
             unit_attrs=unit_attrs,
         )
 
+    def slice(
+        self,
+        in0: Operand,
+        start_indices: List[int],
+        limit_indices: List[int],
+        strides: Optional[List[int]] = None,
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+    ) -> OpView:
+        """
+        Creates ``stablehlo.slice``.
+
+        *Slice operation.*
+
+        Extracts a slice from the operand using statically-computed starting indices
+        and produces a result tensor. start_indices contain the starting indices of
+        the slice for each dimension, limit_indices contain the ending indices
+        (exclusive) for the slice for each dimension, and strides contain the
+        strides for each dimension.
+
+        More formally: result[result_index] = operand[operand_index] where
+        operand_index = start_indices + result_index * strides.
+
+        .. code-block:: mlir
+
+            // %operand: [
+            //            [0, 0, 0, 0],
+            //            [0, 0, 1, 1],
+            //            [0, 0, 1, 1]
+            //           ]
+            %result = "stablehlo.slice"(%operand) {
+              start_indices = array<i64: 1, 2>,
+              limit_indices = array<i64: 3, 4>,
+              strides = array<i64: 1, 1>
+            } : (tensor<3x4xi64>) -> tensor<2x2xi64>
+            // %result: [
+            //            [1, 1],
+            //            [1, 1]
+            //           ]
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor to slice
+        start_indices : List[int]
+            Starting indices of the slice for each dimension
+        limit_indices : List[int]
+            Ending indices (exclusive) of the slice for each dimension
+        strides : *Optional[List[int]]*
+            Strides for each dimension (default: [1, 1, ...])
+        unit_attrs : *Optional[List[str]]*
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpView*)
+            A tensor containing the extracted slice
+        """
+        if strides is None:
+            strides = [1] * len(start_indices)
+
+        if not (len(start_indices) == len(limit_indices) == len(strides)):
+            raise ValueError(
+                "start_indices, limit_indices, and strides must have the same length"
+            )
+
+        start_indices_attr = DenseI64ArrayAttr.get(start_indices, context=self._ctx)
+        limit_indices_attr = DenseI64ArrayAttr.get(limit_indices, context=self._ctx)
+        strides_attr = DenseI64ArrayAttr.get(strides, context=self._ctx)
+
+        return self._op_proxy(
+            stablehlo.SliceOp,
+            [in0],
+            unit_attrs=unit_attrs,
+            sharding_attr=sharding_attr,
+            stablehlo_kwargs={
+                "start_indices": start_indices_attr,
+                "limit_indices": limit_indices_attr,
+                "strides": strides_attr,
+            },
+            golden_kwargs={
+                "start_indices": start_indices,
+                "limit_indices": limit_indices,
+                "strides": strides,
+            },
+        )
     def broadcast_in_dim(
         self,
         in0: Operand,
@@ -701,6 +1008,424 @@ class StableHLOBuilder(Builder):
             unit_attrs=unit_attrs,
             sharding_attr=sharding_attr,
         )
+
+
+    # ----- Tensor Manipulation Operations -----
+
+    def concatenate(
+        self,
+        inputs: List[Operand],
+        dim: int = 0,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpView:
+        """
+        Creates ``stablehlo.concatenate``.
+
+        *Tensor concatenation operation.*
+
+        Concatenates a variadic number of tensors in `inputs` along `dim`
+        dimension in the same order as the given arguments. All input tensors
+        must have the same shape except in the concatenating dimension.
+
+        .. code-block:: mlir
+
+            // Concatenate two tensors along dimension 0
+            %result = stablehlo.concatenate %input0, %input1, dim = 0 : (tensor<2x3xf32>, tensor<1x3xf32>) -> tensor<3x3xf32>
+            // Input tensors:
+            // input0: [[1.0, 2.0, 3.0],
+            //          [4.0, 5.0, 6.0]]
+            // input1: [[7.0, 8.0, 9.0]]
+            // Output tensor:
+            // [[1.0, 2.0, 3.0],
+            //  [4.0, 5.0, 6.0],
+            //  [7.0, 8.0, 9.0]]
+
+        Parameters
+        ----------
+        inputs : List[Operand]
+            List of input tensors to concatenate. All tensors must have the same
+            rank and matching dimensions except along the concatenation dimension.
+        dim : int, optional
+            Dimension along which to concatenate. Must be in range [0, rank).
+            Default is 0.
+        unit_attrs : *Optional[List[str]]*
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpView*)
+            A tensor containing all input tensors concatenated along the specified dimension
+        """
+        return self._op_proxy(
+            stablehlo.ConcatenateOp,
+            inputs,
+            organize_stablehlo_args=lambda i, o, k: (i,),
+            stablehlo_kwargs={"dimension": dim},
+            organize_golden_args=lambda i: (
+                tuple([self._get_golden_tensor(inp) for inp in i]),
+            ),
+            golden_kwargs={"dim": dim},
+        )
+
+    def transpose(
+        self,
+        in0: Operand,
+        permutation: List[int],
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+    ) -> OpView:
+        """
+        Creates ``stablehlo.transpose``.
+
+        *Tensor transpose operation.*
+
+        Permutes the dimensions of the input tensor according to the given permutation.
+        This operation rearranges the axes of the tensor without changing the data.
+
+        Mathematical definition: For a tensor with dimensions [d0, d1, ..., dn-1] and
+        permutation [p0, p1, ..., pn-1], the output tensor has dimensions
+        [d_p0, d_p1, ..., d_pn-1].
+
+        .. code-block:: mlir
+            // Transpose a 2x3 tensor by swapping dimensions 0 and 1
+            %result = stablehlo.transpose(%input) {permutation = array<i64: 1, 0>} :
+                tensor<2x3xf32> -> tensor<3x2xf32>
+            // Input tensor:
+            // [[1.0, 2.0, 3.0],
+            //  [4.0, 5.0, 6.0]]
+            // Output tensor:
+            // [[1.0, 4.0],
+            //  [2.0, 5.0],
+            //  [3.0, 6.0]]
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor to transpose
+        permutation : List[int]
+            The desired ordering of dimensions (0-indexed)
+        unit_attrs : Optional[List[str]]
+            Optional list of unit attributes
+        sharding_attr : Optional[sdy.TensorShardingPerValueAttr]
+            Optional tensor sharding attribute for distributed execution
+
+        Returns
+        -------
+        (*OpView*)
+            A tensor with permuted dimensions according to the permutation
+        """
+        return self._op_proxy(
+            stablehlo.TransposeOp,
+            [in0],
+            unit_attrs=unit_attrs,
+            sharding_attr=sharding_attr,
+            stablehlo_kwargs={"permutation": permutation},
+        )
+
+    # ----- Reduce Operations -----
+
+    def _reduce_op_proxy(
+        self,
+        in0: Operand,
+        dimensions: List[int],
+        init_attr: Attribute,
+        reduce_op_creator: Callable,
+        loc: Optional[Location] = None,
+    ) -> OpView:
+        """
+        Helper method to create a StableHLO reduce operation.
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor to reduce
+        dimensions : List[int]
+            Dimensions along which to reduce
+        init_attr : Attribute
+            Initial value attribute
+        reduce_op_creator : Callable
+            Function that creates the reduce operation in the body
+        loc : Optional[Location]
+            Location for the operation
+
+        Returns
+        -------
+        OpView
+            The reduce operation result
+        """
+        with self._ctx, self._loc:
+            if loc is None:
+                id = self._get_next_global_id()
+                loc = self._get_loc_of_extra_file_callee(id=id)
+
+            input_type = RankedTensorType(in0.type)
+            element_type = input_type.element_type
+
+            input_shape = list(input_type.shape)
+            dimensions_set = set(dimensions)
+            output_shape = [
+                input_shape[i]
+                for i in range(len(input_shape))
+                if i not in dimensions_set
+            ]
+
+            output_type = RankedTensorType.get(output_shape, element_type)
+
+            init_value = stablehlo.ConstantOp(init_attr, loc=loc).result
+
+            reduce_op = stablehlo.ReduceOp(
+                [output_type],
+                inputs=[in0],
+                init_values=[init_value],
+                dimensions=dimensions,
+                loc=loc,
+            )
+
+            reduction_type = RankedTensorType.get([], element_type)
+            block = Block.create_at_start(
+                reduce_op.regions[0], [reduction_type, reduction_type]
+            )
+
+            with InsertionPoint(block):
+                reduce_result = reduce_op_creator(
+                    block.arguments[0], block.arguments[1], loc
+                )
+                stablehlo.ReturnOp([reduce_result], loc=loc)
+
+            return reduce_op.result
+
+    def reduce_sum(
+        self,
+        in0: Operand,
+        dimensions: List[int],
+        keep_dims: bool = False,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpView:
+        """
+        Creates ``stablehlo.reduce`` with sum reduction.
+
+        *Sum reduction operation.*
+
+        Reduces the input tensor by summing elements along the specified dimensions.
+
+        Mathematical definition: For each output element, sum all input elements
+        along the specified reduction dimensions.
+
+        .. code-block:: mlir
+
+            // Sum along dimension 0
+            %result = stablehlo.reduce(%input init: %init) applies stablehlo.add across dimensions = [0] :
+                (tensor<2x3xf32>, tensor<f32>) -> tensor<3xf32>
+            // Input tensor:
+            // [[1.0, 2.0, 3.0],
+            //  [4.0, 5.0, 6.0]]
+            // Output tensor:
+            // [5.0, 7.0, 9.0]
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor to reduce
+        dimensions : List[int]
+            Dimensions along which to reduce (0-indexed)
+        keep_dims : bool, optional
+            Whether to keep the reduced dimensions with size 1. Default is False.
+        unit_attrs : Optional[List[str]]
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpView*)
+            A tensor with reduced dimensions
+        """
+        input_type = RankedTensorType(in0.type)
+        element_type = input_type.element_type
+        zero_attr = self._get_zero_attr(element_type)
+
+        def add_creator(arg0, arg1, loc):
+            return stablehlo.AddOp(arg0, arg1, loc=loc).result
+
+        result = self._reduce_op_proxy(in0, dimensions, zero_attr, add_creator)
+
+        if not self._disable_golden_check:
+            input_golden = self._get_golden_tensor(in0)
+            output_golden = torch.sum(input_golden, dim=dimensions, keepdim=keep_dims)
+            self._set_golden_tensor(result, output_golden)
+
+        return result
+
+    def reduce_max(
+        self,
+        in0: Operand,
+        dimensions: List[int],
+        keep_dims: bool = False,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpView:
+        """
+        Creates ``stablehlo.reduce`` with max reduction.
+
+        *Max reduction operation.*
+
+        Reduces the input tensor by taking the maximum element along the specified dimensions.
+
+        Mathematical definition: For each output element, find the maximum of all input
+        elements along the specified reduction dimensions.
+
+        .. code-block:: mlir
+
+            // Max along dimension 0
+            %result = stablehlo.reduce(%input init: %init) applies stablehlo.maximum across dimensions = [0] :
+                (tensor<2x3xf32>, tensor<f32>) -> tensor<3xf32>
+            // Input tensor:
+            // [[1.0, 5.0, 3.0],
+            //  [4.0, 2.0, 6.0]]
+            // Output tensor:
+            // [4.0, 5.0, 6.0]
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor to reduce
+        dimensions : List[int]
+            Dimensions along which to reduce (0-indexed)
+        keep_dims : bool, optional
+            Whether to keep the reduced dimensions with size 1. Default is False.
+        unit_attrs : Optional[List[str]]
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpView*)
+            A tensor with reduced dimensions
+        """
+        input_type = RankedTensorType(in0.type)
+        element_type = input_type.element_type
+        neg_inf_attr = self._get_neg_inf_attr(element_type)
+
+        def max_creator(arg0, arg1, loc):
+            return stablehlo.MaxOp(arg0, arg1, loc=loc).result
+
+        result = self._reduce_op_proxy(in0, dimensions, neg_inf_attr, max_creator)
+
+        if not self._disable_golden_check:
+            input_golden = self._get_golden_tensor(in0)
+            if dimensions:
+                output_golden = torch.amax(
+                    input_golden, dim=dimensions, keepdim=keep_dims
+                )
+            else:
+                output_golden = torch.amax(input_golden, keepdim=keep_dims)
+            self._set_golden_tensor(result, output_golden)
+
+        return result
+
+    def reduce_min(
+        self,
+        in0: Operand,
+        dimensions: List[int],
+        keep_dims: bool = False,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpView:
+        """
+        Creates ``stablehlo.reduce`` with min reduction.
+
+        *Min reduction operation.*
+
+        Reduces the input tensor by taking the minimum element along the specified dimensions.
+
+        Mathematical definition: For each output element, find the minimum of all input
+        elements along the specified reduction dimensions.
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor to reduce
+        dimensions : List[int]
+            Dimensions along which to reduce (0-indexed)
+        keep_dims : bool, optional
+            Whether to keep the reduced dimensions with size 1. Default is False.
+        unit_attrs : Optional[List[str]]
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpView*)
+            A tensor with reduced dimensions
+        """
+        input_type = RankedTensorType(in0.type)
+        element_type = input_type.element_type
+        pos_inf_attr = self._get_pos_inf_attr(element_type)
+
+        def min_creator(arg0, arg1, loc):
+            return stablehlo.MinOp(arg0, arg1, loc=loc).result
+
+        result = self._reduce_op_proxy(in0, dimensions, pos_inf_attr, min_creator)
+
+        if not self._disable_golden_check:
+            input_golden = self._get_golden_tensor(in0)
+            if dimensions:
+                output_golden = torch.amin(
+                    input_golden, dim=dimensions, keepdim=keep_dims
+                )
+            else:
+                output_golden = torch.amin(input_golden, keepdim=keep_dims)
+            self._set_golden_tensor(result, output_golden)
+
+        return result
+
+    def _get_zero_attr(self, element_type: Type) -> Attribute:
+        """Create a zero constant attribute for the given element type."""
+        if IntegerType.isinstance(element_type):
+            return DenseElementsAttr.get_splat(
+                RankedTensorType.get([], element_type), IntegerAttr.get(element_type, 0)
+            )
+        else:
+            return DenseElementsAttr.get_splat(
+                RankedTensorType.get([], element_type), FloatAttr.get(element_type, 0.0)
+            )
+
+    def _get_one_attr(self, element_type: Type) -> Attribute:
+        """Create a one constant attribute for the given element type."""
+        if IntegerType.isinstance(element_type):
+            return DenseElementsAttr.get_splat(
+                RankedTensorType.get([], element_type), IntegerAttr.get(element_type, 1)
+            )
+        else:
+            return DenseElementsAttr.get_splat(
+                RankedTensorType.get([], element_type), FloatAttr.get(element_type, 1.0)
+            )
+
+    def _get_neg_inf_attr(self, element_type: Type) -> Attribute:
+        """Create a negative infinity constant attribute for the given element type."""
+        if IntegerType.isinstance(element_type):
+            int_type = IntegerType(element_type)
+            width = int_type.width
+            min_val = -(2 ** (width - 1))
+            return DenseElementsAttr.get_splat(
+                RankedTensorType.get([], element_type),
+                IntegerAttr.get(element_type, min_val),
+            )
+        else:
+            return DenseElementsAttr.get_splat(
+                RankedTensorType.get([], element_type),
+                FloatAttr.get(element_type, -math.inf),
+            )
+
+    def _get_pos_inf_attr(self, element_type: Type) -> Attribute:
+        """Create a positive infinity constant attribute for the given element type."""
+        if IntegerType.isinstance(element_type):
+            int_type = IntegerType(element_type)
+            width = int_type.width
+            max_val = (2 ** (width - 1)) - 1
+            return DenseElementsAttr.get_splat(
+                RankedTensorType.get([], element_type),
+                IntegerAttr.get(element_type, max_val),
+            )
+        else:
+            return DenseElementsAttr.get_splat(
+                RankedTensorType.get([], element_type),
+                FloatAttr.get(element_type, math.inf),
+            )
 
     # ----- Public Shardy Attribute Generators ----
 

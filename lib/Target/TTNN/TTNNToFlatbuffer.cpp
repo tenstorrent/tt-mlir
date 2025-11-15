@@ -1030,23 +1030,23 @@ createOp(FlatbufferObjectCache &cache, PointToPointOp op) {
       getOperandThroughDPSOps(op.getInput()));
   auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer);
 
-  llvm::ArrayRef<int64_t> sendCoord = op.getSendCoordAttr();
-  std::vector<uint32_t> sendCoordVec(sendCoord.begin(), sendCoord.end());
-  auto sendVec = cache.fbb->CreateVector<uint32_t>(sendCoordVec);
+  llvm::ArrayRef<int64_t> senderCoord = op.getSenderCoordAttr();
+  std::vector<uint32_t> senderCoordVec(senderCoord.begin(), senderCoord.end());
+  auto senderVec = cache.fbb->CreateVector<uint32_t>(senderCoordVec);
 
-  llvm::ArrayRef<int64_t> receiveCoord = op.getReceiveCoordAttr();
-  std::vector<uint32_t> receiveCoordVec(receiveCoord.begin(),
-                                        receiveCoord.end());
-  auto receiveVec = cache.fbb->CreateVector<uint32_t>(receiveCoordVec);
+  llvm::ArrayRef<int64_t> receiverCoord = op.getReceiverCoordAttr();
+  std::vector<uint32_t> receiverCoordVec(receiverCoord.begin(),
+                                         receiverCoord.end());
+  auto receiverVec = cache.fbb->CreateVector<uint32_t>(receiverCoordVec);
 
-  ::flatbuffers::Offset<::tt::target::ttnn::TensorRef> accumTensor = 0;
-  if (op.getAccumTensor()) {
-    accumTensor = cache.at<::tt::target::ttnn::TensorRef>(
-        getOperandThroughDPSOps(op.getAccumTensor()));
+  ::flatbuffers::Offset<::tt::target::ttnn::TensorRef> optionalOutputTensor = 0;
+  if (op.getOptionalOutputTensor()) {
+    optionalOutputTensor = cache.at<::tt::target::ttnn::TensorRef>(
+        getOperandThroughDPSOps(op.getOptionalOutputTensor()));
   }
 
   return ::tt::target::ttnn::CreatePointToPointOp(
-      *cache.fbb, input, output, sendVec, receiveVec, accumTensor);
+      *cache.fbb, input, output, senderVec, receiverVec, optionalOutputTensor);
 }
 
 template <typename EltwiseBinaryOp>

@@ -5,6 +5,7 @@
 #ifndef TTMLIR_SUPPORT_LOGGER_H
 #define TTMLIR_SUPPORT_LOGGER_H
 
+#include "mlir/IR/Operation.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/FormatVariadic.h"
@@ -17,6 +18,16 @@
 #include <type_traits>
 
 namespace ttmlir {
+
+inline std::string opToString(mlir::Operation *op) {
+  std::string s;
+  llvm::raw_string_ostream os(s);
+  mlir::OpPrintingFlags flags;
+  flags.elideLargeElementsAttrs();
+  op->print(os, flags);
+  os.flush();
+  return s;
+}
 
 // Log components for different components
 enum class LogComponent { Optimizer, OpValidation, Allocator, Test, General };

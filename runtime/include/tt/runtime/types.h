@@ -247,7 +247,10 @@ private:
 
 struct DistributedOptions {
   uint16_t controllerPort = 0;
-  DistributedMode mode = DistributedMode::LocalSubprocess;
+  DistributedMode mode = DistributedMode::MultiProcess;
+  // Optional, if not provided, the distributed worker path will be derived from
+  // the MLIR home.
+  std::optional<std::string> workerPath = std::nullopt;
   // Required for MultiProcess mode
   std::optional<MultiProcessArgs> multiProcessArgs = std::nullopt;
 };
@@ -273,6 +276,7 @@ struct Flatbuffer : public detail::ObjectImpl {
 
 struct SystemDesc : public Flatbuffer {
   using Flatbuffer::Flatbuffer;
+  SystemDesc(Flatbuffer fb);
 
   static SystemDesc loadFromPath(const char *path);
 

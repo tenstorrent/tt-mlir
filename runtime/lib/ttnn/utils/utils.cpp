@@ -285,40 +285,44 @@ inferLayoutFromTileShape(const ::tt::target::ttnn::TensorRef *tensorRef) {
   return inferLayoutFromTileShape(tileShape);
 }
 
-CoreCoord toTTNNCoreCoord(const ::tt::target::ttnn::CoreCoord &coreCoord) {
-  return CoreCoord(coreCoord.x(), coreCoord.y());
+tt::tt_metal::CoreCoord
+toTTNNCoreCoord(const ::tt::target::ttnn::CoreCoord &coreCoord) {
+  return tt::tt_metal::CoreCoord(coreCoord.x(), coreCoord.y());
 }
 
-::tt::target::ttnn::CoreCoord fromTTNNCoreCoord(const CoreCoord &coreCoord) {
+::tt::target::ttnn::CoreCoord
+fromTTNNCoreCoord(const tt::tt_metal::CoreCoord &coreCoord) {
   return ::tt::target::ttnn::CoreCoord(coreCoord.x, coreCoord.y);
 }
 
-CoreRange toTTNNCoreRange(const tt::target::ttnn::CoreRange &coreRange) {
-  CoreCoord start = toTTNNCoreCoord(coreRange.start_coord());
-  CoreCoord end = toTTNNCoreCoord(coreRange.end_coord());
-  return CoreRange(start, end);
+tt::tt_metal::CoreRange
+toTTNNCoreRange(const tt::target::ttnn::CoreRange &coreRange) {
+  tt::tt_metal::CoreCoord start = toTTNNCoreCoord(coreRange.start_coord());
+  tt::tt_metal::CoreCoord end = toTTNNCoreCoord(coreRange.end_coord());
+  return tt::tt_metal::CoreRange(start, end);
 }
 
-::tt::target::ttnn::CoreRange fromTTNNCoreRange(const CoreRange &coreRange) {
+::tt::target::ttnn::CoreRange
+fromTTNNCoreRange(const tt::tt_metal::CoreRange &coreRange) {
   return tt::target::ttnn::CoreRange(fromTTNNCoreCoord(coreRange.start_coord),
                                      fromTTNNCoreCoord(coreRange.end_coord));
 }
 
-CoreRangeSet
+tt::tt_metal::CoreRangeSet
 toTTNNCoreRangeSet(const tt::target::ttnn::CoreRangeSet &coreRangeSet) {
-  std::set<CoreRange> coreRanges;
+  std::set<tt::tt_metal::CoreRange> coreRanges;
   for (const tt::target::ttnn::CoreRange *coreRange :
        *coreRangeSet.core_ranges()) {
     coreRanges.emplace(toTTNNCoreRange(*coreRange));
   }
-  return CoreRangeSet(coreRanges);
+  return tt::tt_metal::CoreRangeSet(coreRanges);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::CoreRangeSet>
 fromTTNNCoreRangeSet(flatbuffers::FlatBufferBuilder &fbb,
-                     const CoreRangeSet &coreRangeSet) {
+                     const tt::tt_metal::CoreRangeSet &coreRangeSet) {
   std::vector<tt::target::ttnn::CoreRange> coreRanges;
-  for (const CoreRange &coreRange : coreRangeSet.ranges()) {
+  for (const tt::tt_metal::CoreRange &coreRange : coreRangeSet.ranges()) {
     coreRanges.emplace_back(fromTTNNCoreRange(coreRange));
   }
   return tt::target::ttnn::CreateCoreRangeSetDirect(fbb, &coreRanges);
@@ -411,7 +415,8 @@ createMemoryConfigIfNeeded(const ::tt::target::ttnn::MemoryConfig *memcfg) {
 
     const tt::target::ttnn::CoreRangeSet *targetCoreRangeSet =
         memcfg->shard_spec()->core_range_set();
-    CoreRangeSet ttnnCoreRangeSet = toTTNNCoreRangeSet(*targetCoreRangeSet);
+    tt::tt_metal::CoreRangeSet ttnnCoreRangeSet =
+        toTTNNCoreRangeSet(*targetCoreRangeSet);
     ::ttnn::ShardOrientation ttnnShardOrientation =
         toTTNNShardOrientation(memcfg->shard_spec()->orientation());
     metalShardSpec = ::tt::tt_metal::ShardSpec(ttnnCoreRangeSet, ttnnShardShape,

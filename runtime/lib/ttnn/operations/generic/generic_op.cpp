@@ -180,7 +180,7 @@ static ::tt::tt_metal::KernelDescriptor
 createKernelDescriptor(const ::tt::target::ttnn::KernelDescriptor &kernelDesc,
                        const std::vector<::ttnn::Tensor> &ioTensors) {
   std::string kernelSource = kernelDesc.source()->str();
-  CoreRangeSet coreRanges =
+  tt::tt_metal::CoreRangeSet coreRanges =
       tt::runtime::ttnn::utils::toTTNNCoreRangeSet(*kernelDesc.core_ranges());
   ::tt::tt_metal::KernelDescriptor::CommonRuntimeArgs commonRuntimeArgs =
       createKernelArgs(*kernelDesc.common_rt_args(), ioTensors);

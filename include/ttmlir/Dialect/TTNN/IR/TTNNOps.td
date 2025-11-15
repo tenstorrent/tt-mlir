@@ -966,11 +966,8 @@ def TTNN_ProdOp : TTNN_Op<"prod"> {
 
   let extraClassDeclaration = [{
     wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
-      mlir::Type elementType = getInput().getType().getElementType();
-      bool allDimensions = !getDimArg();
       return
-        wa::TTNNOperandsWorkaroundsFactory::createReduceProdOpOperandsWorkarounds(
-                                                    elementType, allDimensions);
+        wa::TTNNOperandsWorkaroundsFactory::createReduceProdOpOperandsWorkarounds();
     }
   }];
 
@@ -2133,7 +2130,7 @@ def TTNN_DeallocateOp : TTNN_MemFreeOp<"deallocate"> {
                          DefaultValuedAttr<BoolAttr, "false">:$force);
 }
 
-def TTNN_ScatterOp : TTNN_Op<"scatter", [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>] >{
+def TTNN_ScatterOp : TTNN_Op<"scatter">{
     let summary = "Scatter op.";
     let description = [{
       Embeds the values of the source tensor into the input tensor at locations specified by the index tensor along the given dimension.
@@ -2458,16 +2455,16 @@ def TTNN_PointToPointOp: TTNN_Op<"point_to_point"> {
     distributed tensor computations, where a specific device (send_coord) sends its local tensor
     data to a target device (receive_coord).
 
-    If `accum_tensor` is not provided, a new output tensor will be allocated automatically
-    at the receiver. If provided, the data will be written into the specified accum tensor.
+    If `optional_output_tensor` is not provided, a new output tensor will be allocated automatically
+    at the receiver. If provided, the data will be written into the specified output tensor.
 
     The operation returns a multi-device tensor whose buffer layout follows the mesh configuration.
   }];
 
   let arguments = (ins AnyRankedTensor:$input,
-                         DenseI64ArrayAttr:$send_coord,
-                         DenseI64ArrayAttr:$receive_coord,
-                         Optional<AnyRankedTensor>:$accum_tensor);
+                         DenseI64ArrayAttr:$sender_coord,
+                         DenseI64ArrayAttr:$receiver_coord,
+                         Arg<Optional<AnyRankedTensor>, "optional output tensor", [MemWrite]>:$optional_output_tensor);
   let results = (outs AnyRankedTensor:$result);
   let hasVerifier = 1;
 }
