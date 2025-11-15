@@ -180,6 +180,7 @@ module {
               affine.store %0, %subview_4[%arg3, %arg4] : memref<2x4x!ttcore.tile<32x32, f32>, strided<[4, 1], offset: ?>, #l1_>
             }
           }
+          d2m.release_dst %dst : memref<1x2x4x!ttcore.tile<32x32, f32>, #dst_>
         }
       }
     }

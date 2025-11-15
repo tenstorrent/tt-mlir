@@ -30,24 +30,8 @@
 namespace mlir::tt::d2m {
 
 LogicalResult AcquireDstOp::verify() {
-  // TODO (bnorris): Verify that the result is used by a release_dst operation.
-  // For now, we allow acquire_dst without release_dst to support gradual
-  // adoption of explicit liveness tracking. This verifier should be enforced
-  // once all passes insert release_dst properly. Issue: #tbd
-
-  // Implementation below is disabled until all passes properly insert
-  // d2m.release_dst ops. To enable verification once Stage 4b is complete, set
-  // ENFORCE_RELEASE_DST_PAIRING to true. This will enforce that every
-  // acquire_dst has a corresponding release_dst for liveness tracking.
-  constexpr bool ENFORCE_RELEASE_DST_PAIRING = false;
-
-  if (!ENFORCE_RELEASE_DST_PAIRING) {
-    return mlir::success();
-  }
-
-  // Check that the result is used by a release_dst operation (at least one
-  // use). We allow multiple uses in some cases, but there must be at least one
-  // release.
+  // Verify that the result is used by a release_dst operation. This ensures
+  // explicit liveness tracking for DST registers throughout the IR.
   bool hasRelease = false;
   for (auto *user : getResult().getUsers()) {
     if (mlir::isa<mlir::tt::d2m::ReleaseDstOp>(user)) {
@@ -65,11 +49,20 @@ LogicalResult AcquireDstOp::verify() {
 
 LogicalResult ReleaseDstOp::verify() {
   Operation *definingOp = getDst().getDefiningOp();
-  if (definingOp && mlir::isa<mlir::tt::d2m::AcquireDstOp>(definingOp)) {
-    return mlir::success();
+  if (!definingOp || !mlir::isa<mlir::tt::d2m::AcquireDstOp>(definingOp)) {
+    return emitOpError(
+        "operand must be the result of a d2m.acquire_dst operation");
   }
-  return emitOpError(
-      "operand must be the result of a d2m.acquire_dst operation");
+
+  // Verify that there are no uses of the DST value after this release
+  if (llvm::any_of(getDst().getUses(), [this](const mlir::OpOperand &use) {
+        return use.getOwner() != getOperation() &&
+               getOperation()->isBeforeInBlock(use.getOwner());
+      })) {
+    return emitOpError("DST value used after release_dst operation");
+  }
+
+  return mlir::success();
 }
 
 void d2m::GenericOp::getEffects(
