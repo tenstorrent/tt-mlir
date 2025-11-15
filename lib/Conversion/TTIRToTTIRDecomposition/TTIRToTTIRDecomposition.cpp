@@ -2254,7 +2254,7 @@ public:
     mlir::Value cmpOp = ttir::utils::createDPSOp<ttir::NotEqualOp>(
         rewriter, op.getLoc(), reduceOutputType, sumOp, zeroConstant);
 
-    // typecast boolean result to float type.
+    // Typecast boolean result to float type.
     ttir::utils::replaceOpWithNewDPSOp<ttir::TypecastOp>(
         rewriter, op, reduceOutputType, cmpOp);
 
