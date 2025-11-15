@@ -8,6 +8,8 @@ from ttmlir.ir import Operation
 
 from ..core.enums import ExecutionType
 
+from golden.mapping import GoldenMapTensor
+
 
 class ReportWriter:
     def __init__(self, file_path, asm_state) -> None:
@@ -42,6 +44,23 @@ class ReportWriter:
             sorted([self._format_tensor(tensor, kind) for tensor in tensors])
         )
 
+    def _format_tensor_data(self, tensor_data):
+        """Convert tensor data (torch.Tensor or GoldenMapTensor) to string representation."""
+        if tensor_data is None:
+            return ""
+
+        # Handle GoldenMapTensor by extracting the first shard
+        if GoldenMapTensor is not None and isinstance(tensor_data, GoldenMapTensor):
+            # Get the first shard from the shard_map
+            shard_map = tensor_data.shard_map
+            if shard_map:
+                first_shard = next(iter(shard_map.values()))
+                return str(first_shard)
+            return ""
+
+        # Handle regular torch tensors
+        return str(tensor_data)
+
     def write_row(self, **kwargs):
         assert "location" in kwargs
         assert "golden_ops" in kwargs
@@ -65,6 +84,14 @@ class ReportWriter:
         if "device_inputs" in kwargs:
             kwargs["device_inputs"] = self._format_tensors(
                 kwargs["device_inputs"], ExecutionType.DEVICE
+            )
+        if "golden_output_tensor" in kwargs:
+            kwargs["golden_output_tensor"] = self._format_tensor_data(
+                kwargs["golden_output_tensor"]
+            )
+        if "device_output_tensor" in kwargs:
+            kwargs["device_output_tensor"] = self._format_tensor_data(
+                kwargs["device_output_tensor"]
             )
         line = [kwargs.get(col, " ") for col in self.column_names]
         self._write([line])
