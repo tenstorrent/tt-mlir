@@ -190,6 +190,8 @@ def D2MInsertDstRegisterGC : Pass<"d2m-insert-dst-register-gc", "::mlir::func::F
   let options = [
     Option<"maxDstPhysicalSizeTiles", "max-dst-physical-size-tiles", "unsigned",
            "0", "Override the max dst physical size tiles or 0 if unset.">,
+    Option<"coloringStrategy", "coloring-strategy", "std::string",
+           "\"chaitin-briggs\"", "Graph coloring strategy to use: chaitin-briggs, greedy, or pbqp.">,
   ];
 }
 

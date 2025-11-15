@@ -2,16 +2,13 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "ttmlir/Dialect/D2M/Analysis/DstCapacityAnalysis.h"
+#include "ttmlir/Dialect/D2M/Transforms/GraphColoringStrategy.h"
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
+#include "ttmlir/Dialect/D2M/Utils/Utils.h"
 
 #include "mlir/Analysis/Liveness.h"
-#include "mlir/Dialect/Affine/IR/AffineOps.h"
-#include "mlir/Dialect/Arith/IR/Arith.h"
-#include "mlir/Dialect/ControlFlow/IR/ControlFlowOps.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
-#include "mlir/IR/BuiltinOps.h"
-#include "mlir/Interfaces/FunctionInterfaces.h"
-#include "mlir/Pass/Pass.h"
 
 using namespace mlir;
 
@@ -21,43 +18,6 @@ namespace mlir::tt::d2m {
 
 namespace {
 
-class InterferenceGraph {
-  llvm::DenseMap<Value, llvm::SmallVector<Value, 4>> graph;
-
-public:
-  void addNode(Value v) {
-    if (graph.find(v) == graph.end()) {
-      graph[v] = {};
-    }
-  }
-
-  void addEdge(Value u, Value v) {
-    addNode(u);
-    addNode(v);
-    if (std::find(graph[u].begin(), graph[u].end(), v) == graph[u].end()) {
-      graph[u].push_back(v);
-    }
-    if (std::find(graph[v].begin(), graph[v].end(), u) == graph[v].end()) {
-      graph[v].push_back(u);
-    }
-  }
-
-  bool hasInterference() { return !graph.empty(); }
-
-  void print(raw_ostream &os) {
-    for (const auto &[v, neighbors] : graph) {
-      os << "Value: ";
-      v.print(os);
-      os << "\n  Interferes with:\n";
-      for (auto n : neighbors) {
-        os << "    ";
-        n.print(os);
-        os << "\n";
-      }
-    }
-  }
-};
-
 struct D2MInsertDstRegisterGCPass
     : public impl::D2MInsertDstRegisterGCBase<D2MInsertDstRegisterGCPass> {
 
@@ -66,6 +26,20 @@ struct D2MInsertDstRegisterGCPass
   D2MInsertDstRegisterGCPass(const D2MInsertDstRegisterGCOptions &options)
       : D2MInsertDstRegisterGCBase(options) {}
 
+  std::unique_ptr<ColoringStrategy> createColoringStrategy() {
+    std::string strategy = this->coloringStrategy.getValue();
+    if (strategy == "greedy") {
+      return std::make_unique<GreedyColoring>();
+    }
+    if (strategy == "pbqp") {
+      // TODO(bnorris): Implement PBQP-based coloring strategy.
+      llvm::errs() << "Warning: PBQP strategy not yet implemented, falling "
+                      "back to Chaitin-Briggs\n";
+      return std::make_unique<ChaitinBriggsColoring>();
+    }
+    return std::make_unique<ChaitinBriggsColoring>();
+  }
+
   void runOnOperation() override {
     auto func = getOperation();
     if (func.isExternal()) {
@@ -73,6 +47,13 @@ struct D2MInsertDstRegisterGCPass
     }
 
     auto &liveness = getAnalysis<Liveness>();
+    DstCapacityAnalysis dstCapacityAnalysis(func);
+
+    uint32_t numColors = dstCapacityAnalysis.getMinDstCapacity();
+    if (maxDstPhysicalSizeTiles > 0) {
+      numColors = std::min(
+          numColors, static_cast<uint32_t>(maxDstPhysicalSizeTiles.getValue()));
+    }
 
     InterferenceGraph ig;
     for (auto &block : func.getBody()) {
@@ -88,7 +69,10 @@ struct D2MInsertDstRegisterGCPass
     }
 
     if (ig.hasInterference()) {
-      ig.print(llvm::outs());
+      auto strategy = createColoringStrategy();
+      auto coloring = strategy->colorGraph(ig, numColors);
+      // TODO (Stage 4): Use coloring result to rewrite IR and insert
+      // acquire/release ops.
     }
   }
 };

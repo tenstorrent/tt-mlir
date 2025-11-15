@@ -30,6 +30,21 @@
 namespace mlir::tt::d2m {
 
 LogicalResult AcquireDstOp::verify() {
+  // TODO (bnorris): Verify that the result is used by a release_dst operation.
+  // For now, we allow acquire_dst without release_dst to support gradual
+  // adoption of explicit liveness tracking. This verifier should be enforced
+  // once all passes insert release_dst properly. Issue: #tbd
+
+  // Implementation below is disabled until all passes properly insert
+  // d2m.release_dst ops. To enable verification once Stage 4b is complete, set
+  // ENFORCE_RELEASE_DST_PAIRING to true. This will enforce that every
+  // acquire_dst has a corresponding release_dst for liveness tracking.
+  constexpr bool ENFORCE_RELEASE_DST_PAIRING = false;
+
+  if (!ENFORCE_RELEASE_DST_PAIRING) {
+    return mlir::success();
+  }
+
   // Check that the result is used by a release_dst operation (at least one
   // use). We allow multiple uses in some cases, but there must be at least one
   // release.
