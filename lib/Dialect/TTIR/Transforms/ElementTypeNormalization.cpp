@@ -222,6 +222,119 @@ public:
 
 using FuncBodyTypeConverter = FuncBodyTypeCast::FuncBodyTypeConverter;
 
+// This pattern converts weight operands of matmul and conv2d operations
+// to bfp8_b type, while leaving activations in high precision.
+// This is used for mixed precision training/inference where weights are
+// in lower precision but activations remain in higher precision.
+// NOTE: We only convert weight tensors, not bias tensors, since bias tensors
+// are typically small and don't provide significant memory savings.
+class WeightsTypeCast : public mlir::ConversionPattern {
+public:
+  WeightsTypeCast(const mlir::TypeConverter &converter, mlir::MLIRContext *ctx)
+      : mlir::ConversionPattern(converter, MatchAnyOpTypeTag(), 1, ctx) {}
+
+  LogicalResult
+  matchAndRewrite(mlir::Operation *op, llvm::ArrayRef<mlir::Value> operands,
+                  mlir::ConversionPatternRewriter &rewriter) const final {
+
+    // Helper to check if a weight tensor has float type (bf16 or f32)
+    auto hasFloatType = [](mlir::Value weight) -> bool {
+      if (auto tensorType =
+              mlir::dyn_cast<mlir::RankedTensorType>(weight.getType())) {
+        mlir::Type elType = tensorType.getElementType();
+        return mlir::isa<mlir::BFloat16Type, mlir::Float32Type>(elType);
+      }
+      return false;
+    };
+
+    // Helper to convert a weight to bfp8
+    auto convertWeightToBfp8 =
+        [&](mlir::Value weight) -> std::optional<mlir::Value> {
+      auto weightType =
+          mlir::dyn_cast<mlir::RankedTensorType>(weight.getType());
+      if (!weightType) {
+        return std::nullopt;
+      }
+
+      mlir::Type elType = weightType.getElementType();
+      // Convert float types (bf16 or f32) to bfp8_b
+      if (mlir::isa<mlir::BFloat16Type, mlir::Float32Type>(elType)) {
+        // Create target type: tile<bfp8_b>
+        mlir::Type bfp8Type = ttcore::TileType::get(
+            op->getContext(), ttcore::TileType::getDefaultShape(),
+            ttcore::DataType::BFP_BFloat8);
+        mlir::RankedTensorType targetType = weightType.clone(bfp8Type);
+
+        // Insert typecast operation
+        return ttir::utils::createDPSOp<ttir::TypecastOp>(
+            rewriter, op->getLoc(), targetType, weight);
+      }
+      return std::nullopt;
+    };
+
+    // Get weight operand using named accessors
+    mlir::Value weightOperand;
+    unsigned weightOperandIdx = 0;
+
+    if (auto matmulOp = llvm::dyn_cast<ttir::MatmulOp>(op)) {
+      weightOperand = matmulOp.getB();
+      weightOperandIdx = 1;
+    } else if (auto conv2dOp = llvm::dyn_cast<ttir::Conv2dOp>(op)) {
+      weightOperand = conv2dOp.getWeight();
+      weightOperandIdx = 1;
+    } else if (auto convTranspose2dOp =
+                   llvm::dyn_cast<ttir::ConvTranspose2dOp>(op)) {
+      weightOperand = convTranspose2dOp.getWeight();
+      weightOperandIdx = 1;
+    } else if (auto convolutionOp = llvm::dyn_cast<ttir::ConvolutionOp>(op)) {
+      weightOperand = convolutionOp.getWeight();
+      weightOperandIdx = 1;
+    } else if (auto dotGeneralOp = llvm::dyn_cast<ttir::DotGeneralOp>(op)) {
+      weightOperand = dotGeneralOp.getRhs();
+      weightOperandIdx = 1;
+    } else if (auto linearOp = llvm::dyn_cast<ttir::LinearOp>(op)) {
+      weightOperand = linearOp.getB();
+      weightOperandIdx = 1;
+    } else {
+      return rewriter.notifyMatchFailure(
+          op, "not a supported operation with weights");
+    }
+
+    // Check if weight has float type
+    if (!hasFloatType(weightOperand)) {
+      return rewriter.notifyMatchFailure(op, "weight is not float type");
+    }
+
+    // Convert the weight to bfp8
+    auto convertedWeight = convertWeightToBfp8(weightOperand);
+    if (!convertedWeight) {
+      return rewriter.notifyMatchFailure(op, "failed to convert weight");
+    }
+
+    // Create new operands with converted weight
+    llvm::SmallVector<mlir::Value> newOperands(op->getOperands());
+    newOperands[weightOperandIdx] = *convertedWeight;
+
+    // Clone the operation with new operands
+    mlir::Operation *newOp =
+        rewriter.create(op->getLoc(), op->getName().getIdentifier(),
+                        newOperands, op->getResultTypes(), op->getAttrs());
+
+    // Replace the old operation
+    rewriter.replaceOp(op, newOp->getResults());
+    return success();
+  }
+
+  struct WeightsTypeConverter : mlir::TypeConverter {
+    WeightsTypeConverter() {
+      // Identity conversion - we don't change types, we insert casts
+      addConversion([](mlir::Type type) { return type; });
+    }
+  };
+};
+
+using WeightsTypeConverter = WeightsTypeCast::WeightsTypeConverter;
+
 struct ElementTypeNormalization
     : public impl::ElementTypeNormalizationBase<ElementTypeNormalization> {
   using impl::ElementTypeNormalizationBase<
@@ -241,6 +354,97 @@ struct ElementTypeNormalization
             mlir::applyPatternsGreedily(getOperation(), std::move(patterns)))) {
       signalPassFailure();
       return;
+    }
+
+    if (experimentalBfp8Weights) {
+      mlir::ConversionTarget target(getContext());
+      WeightsTypeConverter weightsConverter;
+
+      // Mark all ops as legal by default
+      target.markUnknownOpDynamicallyLegal(
+          [](mlir::Operation *op) { return true; });
+
+      // Helper lambda to check if a weight operand is already bfp8
+      // This checks both:
+      // 1. If the weight is produced by a typecast to bfp8
+      // 2. If the weight tensor itself already has bfp8 element type
+      auto isWeightBfp8 = [](mlir::Value weight) -> bool {
+        auto weightType =
+            mlir::dyn_cast<mlir::RankedTensorType>(weight.getType());
+        if (!weightType) {
+          return false;
+        }
+
+        // Check if the element type is already bfp8
+        if (auto tileType =
+                mlir::dyn_cast<ttcore::TileType>(weightType.getElementType())) {
+          if (tileType.getDataType() == ttcore::DataType::BFP_BFloat8) {
+            return true;
+          }
+        }
+
+        // Check if the weight is produced by a typecast to bfp8
+        if (auto typecastOp = weight.getDefiningOp<ttir::TypecastOp>()) {
+          auto resultType =
+              mlir::dyn_cast<mlir::RankedTensorType>(typecastOp.getType());
+          if (resultType) {
+            auto tileType =
+                mlir::dyn_cast<ttcore::TileType>(resultType.getElementType());
+            if (tileType &&
+                tileType.getDataType() == ttcore::DataType::BFP_BFloat8) {
+              return true;
+            }
+          }
+        }
+
+        return false;
+      };
+
+      // Mark matmul ops as illegal unless their weights already have bfp8
+      target.addDynamicallyLegalOp<ttir::MatmulOp>(
+          [&isWeightBfp8](ttir::MatmulOp op) {
+            return isWeightBfp8(op.getB());
+          });
+
+      // Mark conv2d ops as illegal unless their weights already have bfp8
+      target.addDynamicallyLegalOp<ttir::Conv2dOp>(
+          [&isWeightBfp8](ttir::Conv2dOp op) {
+            return isWeightBfp8(op.getWeight());
+          });
+
+      // Mark conv_transpose2d ops as illegal unless their weights already have
+      // bfp8
+      target.addDynamicallyLegalOp<ttir::ConvTranspose2dOp>(
+          [&isWeightBfp8](ttir::ConvTranspose2dOp op) {
+            return isWeightBfp8(op.getWeight());
+          });
+
+      // Mark convolution ops as illegal unless their weights already have bfp8
+      target.addDynamicallyLegalOp<ttir::ConvolutionOp>(
+          [&isWeightBfp8](ttir::ConvolutionOp op) {
+            return isWeightBfp8(op.getWeight());
+          });
+
+      // Mark dot_general ops as illegal unless their weights already have bfp8
+      target.addDynamicallyLegalOp<ttir::DotGeneralOp>(
+          [&isWeightBfp8](ttir::DotGeneralOp op) {
+            return isWeightBfp8(op.getRhs());
+          });
+
+      // Mark linear ops as illegal unless their weights already have bfp8
+      target.addDynamicallyLegalOp<ttir::LinearOp>(
+          [&isWeightBfp8](ttir::LinearOp op) {
+            return isWeightBfp8(op.getB());
+          });
+
+      mlir::RewritePatternSet weightsPatterns(&getContext());
+      weightsPatterns.add<WeightsTypeCast>(weightsConverter, &getContext());
+
+      if (failed(mlir::applyPartialConversion(getOperation(), target,
+                                              std::move(weightsPatterns)))) {
+        signalPassFailure();
+        return;
+      }
     }
 
     if (enableBfp8Conversion) {

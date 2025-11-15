@@ -75,6 +75,7 @@ def ElementTypeNormalization: Pass<"ttir-element-type-normalization", "::mlir::M
 
   list<Option> options = [
     Option<"enableBfp8Conversion", "enable-bfp8-conversion", "bool", "false", "When enabled this pass will convert all bfloat16 types into bfp8_b types.">,
+    Option<"experimentalBfp8Weights", "experimental-bfp8-weights", "bool", "false", "When enabled this pass will convert weight tensors of matmul and conv2d operations to bfp8_b types.">,
   ];
 }
 

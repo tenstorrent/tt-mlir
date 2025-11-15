@@ -181,6 +181,8 @@ void createTTIRToTTNNBackendPipeline(
   ttir::ElementTypeNormalizationOptions elementTypeNormalizationOptions;
   elementTypeNormalizationOptions.enableBfp8Conversion =
       options.enableBfp8Conversion;
+  elementTypeNormalizationOptions.experimentalBfp8Weights =
+      options.experimentalBfp8Weights;
   devicePm.addPass(
       ttir::createElementTypeNormalization(elementTypeNormalizationOptions));
 
