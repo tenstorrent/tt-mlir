@@ -4196,9 +4196,6 @@ mlir::tt::ttnn::ScaledDotProductAttentionDecodeOp::verify() {
   if (queryRank != resultRank) {
     return emitOpError("Query and result must have the same rank");
   }
-  if (keyRank != queryRank) {
-    return emitOpError("Query, key, and value must have the same rank");
-  }
 
   int64_t batchSize = (queryRank == 4) ? queryType.getShape()[0] : 1;
   int64_t nQueryHeads = queryType.getShape()[queryRank - 3];
