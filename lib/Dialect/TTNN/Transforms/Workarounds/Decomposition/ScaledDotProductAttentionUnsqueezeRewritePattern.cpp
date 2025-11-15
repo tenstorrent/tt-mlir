@@ -78,9 +78,8 @@ LogicalResult ScaledDotProductAttentionUnsqueezeRewritePattern::matchAndRewrite(
     return failure();
   }
 
-  // Only apply workaround if inputs are 3D
-  if (queryType.getRank() != 3 || keyType.getRank() != 3 ||
-      valueType.getRank() != 3) {
+  if (queryType.getRank() == 4 && keyType.getRank() == 4 &&
+      valueType.getRank() == 4) {
     return failure();
   }
 
@@ -91,12 +90,6 @@ LogicalResult ScaledDotProductAttentionUnsqueezeRewritePattern::matchAndRewrite(
 
   // Handle attention mask if present
   Value mask = srcOp.getAttentionMask();
-  if (mask) {
-    auto maskType = mlir::dyn_cast<RankedTensorType>(mask.getType());
-    if (maskType && maskType.getRank() == 3) {
-      mask = unsqueezeTo4D(mask, rewriter, srcOp.getLoc());
-    }
-  }
 
   // Create new SDPA op with 4D inputs
   auto sdpaOp = rewriter.create<ScaledDotProductAttentionOp>(
@@ -106,8 +99,10 @@ LogicalResult ScaledDotProductAttentionUnsqueezeRewritePattern::matchAndRewrite(
 
   Value result = sdpaOp.getResult();
 
-  // Squeeze output back to 3D
-  result = squeezeTo3D(result, rewriter, srcOp.getLoc());
+  // Squeeze output back to 3D if query was originally 3D
+  if (queryType.getRank() == 3) {
+    result = squeezeTo3D(result, rewriter, srcOp.getLoc());
+  }
 
   rewriter.replaceOp(srcOp, result);
   return success();
