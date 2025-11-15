@@ -951,6 +951,7 @@ class StableHLOBuilder(Builder):
                 "strides": strides,
             },
         )
+
     def broadcast_in_dim(
         self,
         in0: Operand,
@@ -1008,7 +1009,6 @@ class StableHLOBuilder(Builder):
             unit_attrs=unit_attrs,
             sharding_attr=sharding_attr,
         )
-
 
     # ----- Tensor Manipulation Operations -----
 

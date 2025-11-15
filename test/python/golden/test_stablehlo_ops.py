@@ -176,6 +176,8 @@ def broadcast_in_dim(
         output_shape=output_shape,
         unit_attrs=unit_attrs,
     )
+
+
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
@@ -597,7 +599,7 @@ def test_reduce_min(
         device=device,
     )
 
- 
+
 @pytest.mark.parametrize("shape", [(128,)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttnn"])
