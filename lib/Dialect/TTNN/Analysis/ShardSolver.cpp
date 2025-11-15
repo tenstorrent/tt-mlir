@@ -184,7 +184,8 @@ bool ShardSolver::resolveStep() {
           std::vector<OpConfig::OpSpecificAttrs> consumerOpSpecificAttrs =
               getUniqueOpSpecificAttrs(consumerConfigs);
 
-          TTNNLayoutAttr inputLayout = producerConfigs[producerId].outputLayout;
+          TTNNLayoutAttr inputLayout =
+              producerConfigs[producerId].outputLayouts.front();
 
           auto checkShardCompatCallback = [&](llvm::Expected<std::size_t> res) {
             if (res) {
@@ -192,7 +193,8 @@ bool ShardSolver::resolveStep() {
               TTMLIR_TRACE(
                   ttmlir::LogComponent::Optimizer,
                   "Backend chose valid consumer layout {}, consumerId {}",
-                  consumerConfigs[consumerId].outputLayout, consumerId);
+                  consumerConfigs[consumerId].outputLayouts.front(),
+                  consumerId);
               assert(consumerId <=
                      std::numeric_limits<decltype(Path::consumerId)>::max());
               paths.push_back(Path(producerId, consumerId));
@@ -305,9 +307,9 @@ bool ShardSolver::supportsInterleavedInputShardedOutput(
   TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
                "Checking interleaved to sharded for op {} \n\tinputTensor {} "
                "\n\tinputLayout: {} "
-               "\n\toutputLayout: {}",
+               "\n\toutputLayouts[0]: {}",
                op->getName(), tensorType, inputLayout,
-               outputConfig.outputLayout);
+               outputConfig.outputLayouts.front());
   llvm::Expected<TTNNLayoutAttr> shardCompatible =
       checkShardCompatible(op->getOperand(0), inputLayout, op, outputConfig);
 
@@ -357,7 +359,7 @@ bool ShardSolver::preprocessFirstOp() {
       continue;
     }
 
-    TTNNLayoutAttr firstOpLayout = firstOpConfigs[i].outputLayout;
+    TTNNLayoutAttr firstOpLayout = firstOpConfigs[i].outputLayouts.front();
     assert(firstOpLayout.hasShardedL1TensorMemoryLayout());
 
     if (!supportsInterleavedInputShardedOutput(firstOp, firstOpConfigs[i],
@@ -412,7 +414,8 @@ void ShardSolver::checkShardCompatibleForInputLayout(
       for (consumerConfigIdx = 0; consumerConfigIdx < consumerConfigs.size();
            ++consumerConfigIdx) {
 
-        if (consumerConfigs[consumerConfigIdx].outputLayout == outputLayout &&
+        if (consumerConfigs[consumerConfigIdx].outputLayouts.front() ==
+                outputLayout &&
             consumerConfigs[consumerConfigIdx].opSpecificAttrs ==
                 opSpecificAttr) {
           break;
@@ -530,7 +533,7 @@ bool ShardSolver::insertReshard(const Edge &edge) {
                  consumerConfigs.size());
     for ([[maybe_unused]] auto config : consumerConfigs) {
       TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer, "\t{}",
-                   config.outputLayout);
+                   config.outputLayouts.front());
     }
 
     TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
@@ -892,19 +895,19 @@ llvm::Expected<TTNNLayoutAttr> ShardSolver::checkShardCompatible(
     TTMLIR_DEBUG(
         ttmlir::LogComponent::Optimizer,
         "OpModel constraints failed: {0}->{1} :: {2}, \nproducerLayout: {3}, "
-        "\nconsumerLayout: {4}",
+        "\nconsumerLayouts[0]: {4}",
         producerOperand.getLoc(), consumerOp->getName(),
         ttmlir::utils::firstNLines(llvm::toStringWithoutConsuming(error), 4),
-        producerLayout, consumerConfig.outputLayout);
+        producerLayout, consumerConfig.outputLayouts.front());
 
     return error;
   }
 
   auto [cBUsagePeak, tensorUsage, peakMemoryUsage, outputTensorUsage,
-        outputLayout] = l1UsageExp.get();
+        outputLayouts] = l1UsageExp.get();
 
-  if (consumerConfig.outputLayout &&
-      outputLayout != consumerConfig.outputLayout) {
+  if (consumerConfig.outputLayouts.front() &&
+      outputLayouts.front() != consumerConfig.outputLayouts.front()) {
     std::string message = "Output layout mismatch: backend returned layout "
                           "doesn't match requested consumer layout";
     TTMLIR_TRACE(ttmlir::LogComponent::Optimizer, "{}", message);
@@ -917,31 +920,32 @@ llvm::Expected<TTNNLayoutAttr> ShardSolver::checkShardCompatible(
       (producerL1OutputUsage + tensorUsage + cBUsagePeak) < usableL1CacheSize;
 
   if (!l1UsageValid) {
-    TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
-                 "Not enough L1 memory. OpModel constraints failed: {0}->{1} "
-                 "\n producerLayout: {2}, \noutputLayout: {3}, \nl1Usage: {4}, "
-                 "producerL1OutputUsage: {5}, "
-                 "outputTensorUsage: {6}, cBUsagePeak: {7}",
-                 producerOperand.getLoc(), consumerOp->getName(),
-                 producerLayout, outputLayout,
-                 cBUsagePeak + outputTensorUsage + producerL1OutputUsage,
-                 producerL1OutputUsage, outputTensorUsage, cBUsagePeak);
+    TTMLIR_DEBUG(
+        ttmlir::LogComponent::Optimizer,
+        "Not enough L1 memory. OpModel constraints failed: {0}->{1} "
+        "\n producerLayout: {2}, \noutputLayouts[0]: {3}, \nl1Usage: {4}, "
+        "producerL1OutputUsage: {5}, "
+        "outputTensorUsage: {6}, cBUsagePeak: {7}",
+        producerOperand.getLoc(), consumerOp->getName(), producerLayout,
+        outputLayouts.front(),
+        cBUsagePeak + outputTensorUsage + producerL1OutputUsage,
+        producerL1OutputUsage, outputTensorUsage, cBUsagePeak);
     return llvm::createStringError("Not enough L1 memory");
   }
 
   TTMLIR_DEBUG(
       ttmlir::LogComponent::Optimizer,
       "OpModel constraints valid. Producer: {0} -> Consumer: {1}\n"
-      "ProducerLayout: {2}\nOutputLayout: {3}\n"
+      "ProducerLayout: {2}\nOutputLayouts[0]: {3}\n"
       "L1 usage: cBUsagePeak: {4}, tensorUsage: {5}, outputTensorUsage: {6}, "
       "producerL1OutputUsage: {7}, totalL1Usage: {8}\n"
       "=== End of debug dump ===",
       producerOperand.getLoc(), consumerOp->getName(), producerLayout,
-      outputLayout, cBUsagePeak, tensorUsage, outputTensorUsage,
+      outputLayouts.front(), cBUsagePeak, tensorUsage, outputTensorUsage,
       producerL1OutputUsage,
       cBUsagePeak + outputTensorUsage + producerL1OutputUsage);
 
-  return outputLayout;
+  return outputLayouts.front();
 }
 
 // Preprocess ShardSolver search space to make a helper structure which links
@@ -999,7 +1003,8 @@ ShardSolver::produceMaxCoreUsage() {
     //
     for (size_t i = 0; i < configs.size(); ++i) {
       const OpConfig &config = configs[i];
-      uint64_t coreUsage = config.outputLayout.getGrid().getGridVolume();
+      uint64_t coreUsage =
+          config.outputLayouts.front().getGrid().getGridVolume();
       accCoreUsage[op].push_back(coreUsage);
     }
 

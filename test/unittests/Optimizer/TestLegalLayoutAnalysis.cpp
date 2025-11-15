@@ -184,7 +184,7 @@ TEST_P(LegalLayoutAnalysisTest, LegalLayoutAnalysisVariants) {
       // Validate legal layouts
       int shardedLayoutCount = 0;
       for (const auto &opConfig : legalLayoutsResult) {
-        const auto &layout = opConfig.outputLayout;
+        const auto &layout = opConfig.outputLayouts.front();
 
         // Check RowMajor-specific constraints
         EXPECT_TRUE(rowMajorEnabled || layout.isTiled());

@@ -26,7 +26,10 @@ llvm::DenseMap<Operation *, std::vector<OpConfig>> filterShardedOnly(
   for (const auto &configs : legalConfigs) {
     std::vector<OpConfig> opShardedConfigs;
     for (const OpConfig &config : configs.second) {
-      if (config.outputLayout.hasShardedL1TensorMemoryLayout()) {
+      if (std::any_of(config.outputLayouts.begin(), config.outputLayouts.end(),
+                      [](const TTNNLayoutAttr &layout) {
+                        return layout.hasShardedL1TensorMemoryLayout();
+                      })) {
         opShardedConfigs.push_back(config);
       }
     }
@@ -43,8 +46,11 @@ llvm::DenseMap<Operation *, std::vector<OpConfig>> filterDRAMAndL1Interleaved(
   for (const auto &configs : legalConfigs) {
     std::vector<OpConfig> opL1InterleavedConfigs;
     for (const auto &config : configs.second) {
-      if (config.outputLayout.hasDRAMBufferType() ||
-          config.outputLayout.hasInterleavedL1TensorMemoryLayout()) {
+      if (std::any_of(config.outputLayouts.begin(), config.outputLayouts.end(),
+                      [](const TTNNLayoutAttr &layout) {
+                        return layout.hasDRAMBufferType() ||
+                               layout.hasInterleavedL1TensorMemoryLayout();
+                      })) {
         opL1InterleavedConfigs.push_back(config);
       }
     }

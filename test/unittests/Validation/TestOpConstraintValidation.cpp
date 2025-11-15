@@ -122,7 +122,7 @@ TEST_F(OpConstraintValidationTest, ValidateOperationRealAddOp) {
   // The exact result depends on OpModel implementation
   if (result.isSuccess()) {
     EXPECT_GE(result.configIndex, 0u);
-    EXPECT_TRUE(result.actualOutputLayout);
+    EXPECT_TRUE(result.actualOutputLayouts.size() > 0);
   } else {
     // Validation failed - check that error message is populated
     EXPECT_FALSE(result.errorMessage.empty());
@@ -150,7 +150,7 @@ TEST_F(OpConstraintValidationTest, ValidateWithMultipleAttributesRealAddOp) {
     // Result can be success or any error type - just check it's valid
     if (result.isSuccess()) {
       EXPECT_GE(result.configIndex, 0u);
-      EXPECT_TRUE(result.actualOutputLayout);
+      EXPECT_TRUE(result.actualOutputLayouts.size() > 0);
     } else {
       EXPECT_FALSE(result.errorMessage.empty());
     }

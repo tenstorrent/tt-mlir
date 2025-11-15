@@ -278,7 +278,7 @@ void L1InterleavedFallbackAnalysis::tryUpgradeToL1Interleaved(Operation *op) {
   // Partition configs to prioritize those matching current tiling preference.
   std::partition(opL1InterleavedConfigs.begin(), opL1InterleavedConfigs.end(),
                  [isCurrentlyTiled](const OpConfig &config) {
-                   bool configTiled = config.outputLayout.isTiled();
+                   bool configTiled = config.outputLayouts.front().isTiled();
                    return configTiled == isCurrentlyTiled;
                  });
 
@@ -302,7 +302,7 @@ void L1InterleavedFallbackAnalysis::tryUpgradeToL1Interleaved(Operation *op) {
       continue;
     }
     TTNNLayoutAttr l1InterleavedLayout = possibleL1Layout.get();
-    assert(l1InterleavedLayout == opL1InterleavedConfig.outputLayout &&
+    assert(l1InterleavedLayout == opL1InterleavedConfig.outputLayouts.front() &&
            "Expected output layout to match the one in OpConfig");
     analysisResult.upgradedConfigs[op] = opL1InterleavedConfig;
     break;
@@ -349,7 +349,7 @@ L1InterleavedFallbackAnalysis::checkUpgradeToL1Interleaved(
       }
       auto it = analysisResult.upgradedConfigs.find(operand.getDefiningOp());
       if (it != analysisResult.upgradedConfigs.end()) {
-        inputLayouts.push_back(it->second.outputLayout);
+        inputLayouts.push_back(it->second.outputLayouts.front());
         continue;
       }
     }
@@ -377,7 +377,7 @@ L1InterleavedFallbackAnalysis::checkUpgradeToL1Interleaved(
                  "OpModel constraints failed for op {0} :: {1},"
                  "\nconsumerLayout: {2}",
                  consumerOp->getName(), ttmlir::utils::firstNLines(errorStr, 4),
-                 consumerConfig.outputLayout);
+                 consumerConfig.outputLayouts.front());
 
     return llvm::createStringError(llvm::inconvertibleErrorCode(),
                                    "OpModel constraints failed for op %s.",
@@ -385,14 +385,14 @@ L1InterleavedFallbackAnalysis::checkUpgradeToL1Interleaved(
   }
 
   auto [cBUsagePeak, tensorUsage, peakMemoryUsage, outputTensorUsage,
-        outputLayout] = l1UsageExp.get();
+        outputLayouts] = l1UsageExp.get();
 
-  if (outputLayout != consumerConfig.outputLayout) {
+  if (outputLayouts.front() != consumerConfig.outputLayouts.front()) {
     TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
                  "Output layout mismatch for op {0}:"
                  "\nexpected: {1},\nactual: {2},",
-                 consumerOp->getName(), consumerConfig.outputLayout,
-                 outputLayout);
+                 consumerOp->getName(), consumerConfig.outputLayouts.front(),
+                 outputLayouts.front());
     return llvm::createStringError(llvm::inconvertibleErrorCode(),
                                    "Output layout mismatch for op %s.",
                                    consumerOp->getName().getStringRef().data());
@@ -407,7 +407,7 @@ L1InterleavedFallbackAnalysis::checkUpgradeToL1Interleaved(
                  "\n outputLayout: {1}, l1Usage: {2}, "
                  "producerL1OutputUsage: {3}, tensorUsage: {4}, "
                  "outputTensorUsage: {5}, cBUsagePeak: {6}",
-                 consumerOp->getName(), outputLayout,
+                 consumerOp->getName(), outputLayouts.front(),
                  cBUsagePeak + tensorUsage + producersL1OutputUsage,
                  producersL1OutputUsage, tensorUsage, outputTensorUsage,
                  cBUsagePeak);
@@ -428,11 +428,11 @@ L1InterleavedFallbackAnalysis::checkUpgradeToL1Interleaved(
                  "L1 usage: cBUsagePeak: {2}, tensorUsage: {3}, "
                  "outputTensorUsage: {4}, "
                  "producerL1OutputUsage: {5}, totalL1Usage: {6}",
-                 consumerOp->getName(), outputLayout, cBUsagePeak, tensorUsage,
-                 outputTensorUsage, producersL1OutputUsage,
+                 consumerOp->getName(), outputLayouts.front(), cBUsagePeak,
+                 tensorUsage, outputTensorUsage, producersL1OutputUsage,
                  cBUsagePeak + tensorUsage + producersL1OutputUsage);
 
-    return outputLayout;
+    return outputLayouts.front();
   }
 
   assert(consumerOp->hasOneUse() && "Consumer must have exactly one user");
@@ -447,7 +447,7 @@ L1InterleavedFallbackAnalysis::checkUpgradeToL1Interleaved(
 
     llvm::Expected<TTNNLayoutAttr> nextConsumerOpL1Layout =
         checkUpgradeToL1Interleaved(nextConsumerOp, nextConsumerOpConfig,
-                                    consumerOp, outputLayout);
+                                    consumerOp, outputLayouts.front());
 
     if (!nextConsumerOpL1Layout) {
       llvm::Error error = nextConsumerOpL1Layout.takeError();
@@ -462,7 +462,7 @@ L1InterleavedFallbackAnalysis::checkUpgradeToL1Interleaved(
           nextConsumerOp->getName().getStringRef().data());
     }
     TTNNLayoutAttr nextConsumerOpLayout = nextConsumerOpL1Layout.get();
-    assert(nextConsumerOpLayout == nextConsumerOpConfig.outputLayout &&
+    assert(nextConsumerOpLayout == nextConsumerOpConfig.outputLayouts.front() &&
            "Expected consumer of updated op layout to match the one in "
            "OpConfig");
   }
@@ -473,11 +473,11 @@ L1InterleavedFallbackAnalysis::checkUpgradeToL1Interleaved(
       "OutputLayout: {1}\n"
       "L1 usage: cBUsagePeak: {2}, tensorUsage: {3}, outputTensorUsage: {4}, "
       "producerL1OutputUsage: {5}, totalL1Usage: {6}",
-      consumerOp->getName(), outputLayout, cBUsagePeak, tensorUsage,
+      consumerOp->getName(), outputLayouts.front(), cBUsagePeak, tensorUsage,
       outputTensorUsage, producersL1OutputUsage,
       cBUsagePeak + tensorUsage + producersL1OutputUsage);
 
-  return outputLayout;
+  return outputLayouts.front();
 }
 
 } // namespace mlir::tt::ttnn

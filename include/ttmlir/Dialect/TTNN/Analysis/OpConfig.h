@@ -19,7 +19,7 @@ namespace mlir::tt::ttnn {
 
 struct OpConfig {
   // Desired output layout for the op.
-  TTNNLayoutAttr outputLayout;
+  llvm::SmallVector<TTNNLayoutAttr> outputLayouts;
   // Holds attributes for the op. For most cases, a new type should be
   // added to the following std::variant.
   using OpSpecificAttrs = std::variant<UninitializedAttrs, Conv2dAttrs>;
@@ -28,12 +28,23 @@ struct OpConfig {
   // Default Config Constructors.
   OpConfig() = default;
   OpConfig(TTNNLayoutAttr outputLayout)
-      : outputLayout(outputLayout), opSpecificAttrs(UninitializedAttrs{}) {}
+      : outputLayouts({outputLayout}), opSpecificAttrs(UninitializedAttrs{}) {}
   OpConfig(TTNNLayoutAttr outputLayout, OpSpecificAttrs attrs)
-      : outputLayout(outputLayout), opSpecificAttrs(std::move(attrs)) {}
+      : outputLayouts({outputLayout}), opSpecificAttrs(std::move(attrs)) {}
   // Op Specific Constructors.
   OpConfig(TTNNLayoutAttr outputLayout, Conv2dAttrs config)
-      : outputLayout(outputLayout), opSpecificAttrs(std::move(config)) {}
+      : outputLayouts({outputLayout}), opSpecificAttrs(std::move(config)) {}
+
+  OpConfig(llvm::SmallVector<TTNNLayoutAttr> outputLayouts)
+      : outputLayouts(std::move(outputLayouts)),
+        opSpecificAttrs(UninitializedAttrs{}) {}
+  OpConfig(llvm::SmallVector<TTNNLayoutAttr> outputLayouts,
+           OpSpecificAttrs attrs)
+      : outputLayouts(std::move(outputLayouts)),
+        opSpecificAttrs(std::move(attrs)) {}
+  OpConfig(llvm::SmallVector<TTNNLayoutAttr> outputLayouts, Conv2dAttrs config)
+      : outputLayouts(std::move(outputLayouts)),
+        opSpecificAttrs(std::move(config)) {}
 
   // Some utility functions.
   bool isAttrUninitialized() const {
@@ -43,8 +54,16 @@ struct OpConfig {
     // is provided so that the caller doesn't need to worry about std::nullopt.
     return std::holds_alternative<UninitializedAttrs>(opSpecificAttrs);
   }
+
+  TTNNLayoutAttr getOutputLayout(size_t index = 0) const {
+    return index < outputLayouts.size() ? outputLayouts[index]
+                                        : TTNNLayoutAttr{};
+  }
+
+  size_t getNumOutputs() const { return outputLayouts.size(); }
+
   bool operator==(const OpConfig &other) const {
-    if (outputLayout != other.outputLayout) {
+    if (outputLayouts != other.outputLayouts) {
       return false;
     }
     // Compare variants using std::visit with a generic comparison.
@@ -63,8 +82,11 @@ struct OpConfig {
   }
   bool operator!=(const OpConfig &other) const { return !(*this == other); }
   void dump() const {
-    if (outputLayout) {
-      outputLayout.dump();
+    for (size_t i = 0; i < outputLayouts.size(); ++i) {
+      if (outputLayouts[i]) {
+        llvm::outs() << "Output " << i << ": ";
+        outputLayouts[i].dump();
+      }
     }
     std::visit([](const auto &config) { config.dump(); }, opSpecificAttrs);
   }

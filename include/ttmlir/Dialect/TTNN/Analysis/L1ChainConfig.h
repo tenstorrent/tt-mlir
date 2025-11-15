@@ -111,7 +111,11 @@ inline llvm::raw_ostream &operator<<(llvm::raw_ostream &os,
     os << "\n\t";
     opL1MemSpec.op->print(os);
     os << "@ loc: " << utils::getOpLocName(opL1MemSpec.op);
-    os << "\n\t\t outputLayout: " << opL1MemSpec.config.outputLayout;
+    os << "\n\t\t outputLayouts: [";
+    for (size_t i = 0; i < opL1MemSpec.config.getNumOutputs(); ++i) {
+      os << opL1MemSpec.config.getOutputLayout(i) << ", ";
+    }
+    os << "]\n";
   }
   return os;
 }
