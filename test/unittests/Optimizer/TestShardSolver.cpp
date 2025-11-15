@@ -235,7 +235,8 @@ TEST_F(ShardSolverBase, VerifyProduceMaxCoreUsage) {
       return consumerConfig.outputLayouts.front();
     }
 
-    if (consumerConfig.outputLayouts.empty()) {
+    if (consumerConfig.outputLayouts.empty() ||
+        !consumerConfig.outputLayouts.front()) {
       // ShardSolver invokes this function with consumerConfig.outputLayout
       // being null, so we need to find the correct config among the
       // consumer legal configs. To do this, we will match the producer
