@@ -4198,6 +4198,16 @@ verifyReduceOp(llvm::function_ref<mlir::InFlightDiagnostic()> emitOpError,
 }
 
 //===----------------------------------------------------------------------===//
+// MulOp
+//===----------------------------------------------------------------------===//
+
+// MulOp verification.
+::mlir::LogicalResult mlir::tt::ttir::MulOp::verify() {
+  return verifyReduceOp([&]() { return emitOpError(); }, getInput().getType(),
+                        getDimArg(), getKeepDim(), getType().getShape());
+}
+
+//===----------------------------------------------------------------------===//
 // Reduce MinOp
 //===----------------------------------------------------------------------===//
 

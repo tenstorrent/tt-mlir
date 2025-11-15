@@ -779,6 +779,9 @@ struct EmitCTypeConverter<ttcore::ReduceType> {
     case ttcore::ReduceType::Var:
       rso << "VAR";
       return buf;
+    case ttcore::ReduceType::Mul:
+      rso << "MUL";
+      return buf;
     }
 
     llvm_unreachable("Unknown ttcore::ReduceType");

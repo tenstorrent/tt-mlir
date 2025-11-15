@@ -126,6 +126,7 @@ def TTCore_ReduceType_Max  : I32EnumAttrCase<"Max",  2, "max">;
 def TTCore_ReduceType_Min  : I32EnumAttrCase<"Min",  3, "min">;
 def TTCore_ReduceType_Std  : I32EnumAttrCase<"Std",  4, "std">;
 def TTCore_ReduceType_Var  : I32EnumAttrCase<"Var",  5, "var">;
+def TTCore_ReduceType_Mul  : I32EnumAttrCase<"Mul",  6, "mul">;
 
 def TTCore_ReduceType: I32EnumAttr<"ReduceType", "TT Reduce Type",
                           [
@@ -135,6 +136,7 @@ def TTCore_ReduceType: I32EnumAttr<"ReduceType", "TT Reduce Type",
                            TTCore_ReduceType_Min,
                            TTCore_ReduceType_Std,
                            TTCore_ReduceType_Var,
+                           TTCore_ReduceType_Mul,
                           ]> {
   let genSpecializedAttr = 0;
   let cppNamespace = "::mlir::tt::ttcore";
