@@ -28,4 +28,3 @@ target_link_libraries(${TESTSUITE}
     MLIRTensorDialect
     coverage_config
 )
-
