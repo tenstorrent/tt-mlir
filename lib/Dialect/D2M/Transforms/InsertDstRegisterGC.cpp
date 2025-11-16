@@ -11,7 +11,6 @@
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/PatternMatch.h"
-#include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Utils.h"
 
 using namespace mlir;
@@ -111,7 +110,8 @@ struct D2MInsertDstRegisterGCPass
           if (cbType == nullptr) {
             if (auto loadOp = mlir::dyn_cast<affine::AffineLoadOp>(op)) {
               cbType = loadOp.getMemRefType();
-            } else if (auto storeOp = mlir::dyn_cast<affine::AffineStoreOp>(op)) {
+            } else if (auto storeOp =
+                           mlir::dyn_cast<affine::AffineStoreOp>(op)) {
               cbType = storeOp.getMemRefType();
             }
           }
@@ -180,31 +180,68 @@ struct D2MInsertDstRegisterGCPass
         rewriter.create<ReleaseDstOp>(genericOp.getLoc(),
                                       acquireDst.getResult());
 
-        // Rewrite affine loads and stores to use assigned DST slice indices.
+        // Generate data copy loops and rewrite loads/stores.
+        // Process loads: generate L1→DST copy, then replace with DST load
         for (size_t accessIndex = 0; accessIndex < dstAccesses.size();
              ++accessIndex) {
           auto &[op, origIdx] = dstAccesses[accessIndex];
           uint32_t assignedSlice = coloring[accessIndex];
 
           if (auto loadOp = mlir::dyn_cast<affine::AffineLoadOp>(op)) {
-            // Replace the original slice index with the colored one.
-            SmallVector<Value> indices = loadOp.getIndices();
-            if (!indices.empty()) {
-              indices[0] = rewriter.create<arith::ConstantIndexOp>(
-                  loadOp.getLoc(), assignedSlice);
-              rewriter.replaceOpWithNewOp<affine::AffineLoadOp>(
-                  loadOp, acquireDst.getResult(), indices);
-            }
+            // Generate L1 → DST copy before the load
+            rewriter.setInsertionPoint(loadOp);
+
+            // Load from L1 (cb) using the original map and indices
+            auto l1Value = rewriter.create<affine::AffineLoadOp>(
+                loadOp.getLoc(), loadOp.getMemRef(), loadOp.getMap(),
+                loadOp.getIndices());
+
+            // Create DST affine map by inserting the slice constant at position
+            // 0
+            auto dstMap = loadOp.getMap().insertResult(
+                getAffineConstantExpr(assignedSlice, &getContext()), 0);
+
+            // DST indices are the same as L1 indices (slice is in the map)
+            SmallVector<Value> dstIndices(loadOp.getIndices().begin(),
+                                          loadOp.getIndices().end());
+
+            // Store to DST
+            rewriter.create<affine::AffineStoreOp>(
+                loadOp.getLoc(), l1Value.getResult(), acquireDst.getResult(),
+                dstMap, dstIndices);
+
+            // Replace original load with load from DST
+            rewriter.replaceOpWithNewOp<affine::AffineLoadOp>(
+                loadOp, acquireDst.getResult(), dstMap, dstIndices);
+
           } else if (auto storeOp = mlir::dyn_cast<affine::AffineStoreOp>(op)) {
-            // Replace the original slice index with the colored one.
-            SmallVector<Value> indices = storeOp.getIndices();
-            if (!indices.empty()) {
-              indices[0] = rewriter.create<arith::ConstantIndexOp>(
-                  storeOp.getLoc(), assignedSlice);
-              rewriter.replaceOpWithNewOp<affine::AffineStoreOp>(
-                  storeOp, storeOp.getValueToStore(), acquireDst.getResult(),
-                  indices);
-            }
+            // Generate DST → L1 copy after computing the value
+            // TODO(bnorris): Some of these stores may be unnecessary if the
+            // value is used immediately and should be removed by subsequent
+            // liveness analysis.
+            rewriter.setInsertionPoint(storeOp);
+
+            // Create DST affine map by inserting the slice constant at position
+            // 0
+            auto dstMap = storeOp.getMap().insertResult(
+                getAffineConstantExpr(assignedSlice, &getContext()), 0);
+
+            // DST indices are the same as L1 indices (slice is in the map)
+            SmallVector<Value> dstIndices(storeOp.getIndices().begin(),
+                                          storeOp.getIndices().end());
+
+            // Store value to DST first
+            rewriter.create<affine::AffineStoreOp>(
+                storeOp.getLoc(), storeOp.getValueToStore(),
+                acquireDst.getResult(), dstMap, dstIndices);
+
+            // Then load from DST and store to L1 (cb)
+            auto dstValue = rewriter.create<affine::AffineLoadOp>(
+                storeOp.getLoc(), acquireDst.getResult(), dstMap, dstIndices);
+
+            rewriter.replaceOpWithNewOp<affine::AffineStoreOp>(
+                storeOp, dstValue.getResult(), storeOp.getMemRef(),
+                storeOp.getMap(), storeOp.getIndices());
           }
         }
       }
@@ -214,7 +251,8 @@ struct D2MInsertDstRegisterGCPass
 private:
   // Identify DST accesses that need coloring based on compute operations.
   // This uses the OperandLoadStoreRegisterOpInterface to find which operands
-  // need to be loaded from DST registers.
+  // need to be loaded from DST registers, similar to InsertDstRegisterAccess.
+  // Unlike that pass, we use graph coloring instead of linear allocation.
   SmallVector<std::pair<Operation *, int64_t>>
   identifyDstAccesses(GenericOp genericOp, Region &region) {
     SmallVector<std::pair<Operation *, int64_t>> dstAccesses;

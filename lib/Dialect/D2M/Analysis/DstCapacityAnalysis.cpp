@@ -6,7 +6,6 @@
 
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/D2M/Utils/Utils.h"
-#include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 
 #include <limits>
 
@@ -20,8 +19,12 @@ using namespace mlir::tt;
 /// on the largest element size used in DST accesses.
 ///
 /// \p op The root operation (typically a func::FuncOp) to analyze.
-/// \p fullSyncEn Enable full sync mode (true = max capacity, false = half capacity).
-/// \p overridePhysicalSize Override physical DST size, or 0 to use chip default.
+/// \p fullSyncEn Enable full sync mode (true = max capacity, false = half
+///   capacity).
+///   true: f16/bf16=16 tiles, f32=8 tiles
+///   false: f16/bf16=8 tiles, f32=4 tiles
+/// \p overridePhysicalSize Override physical DST size, or 0 to use chip
+///   default.
 d2m::DstCapacityAnalysis::DstCapacityAnalysis(Operation *op, bool fullSyncEn,
                                               unsigned overridePhysicalSize) {
   uint32_t minCapacity = std::numeric_limits<uint32_t>::max();
@@ -33,7 +36,7 @@ d2m::DstCapacityAnalysis::DstCapacityAnalysis(Operation *op, bool fullSyncEn,
     foundGenericOp = true;
     for (uint32_t regionIndex = 0; regionIndex < genericOp.getNumRegions();
          regionIndex++) {
-      // Only consider compute regions (skip data movement and other regions).
+      // Only consider compute regions (skip data movement regions).
       if (genericOp.getRegionThreadType(regionIndex) !=
           d2m::ThreadType::Compute) {
         continue;
@@ -50,14 +53,15 @@ d2m::DstCapacityAnalysis::DstCapacityAnalysis(Operation *op, bool fullSyncEn,
 
       minCapacity = std::min(minCapacity, currentCapacity);
     }
-    LLVM_DEBUG(llvm::dbgs()
-               << "DST Capacity Analysis: Largest DST type: " << largestDstType
-               << " fullSyncEn: " << fullSyncEn
-               << " Capacity: " << minCapacity << "\n");
+
+    // Note: Do not remove this debug statement, it is used for testing. It is
+    // only emitted when the DEBUG_TYPE is set to "dst-capacity-analysis"
+    // (command line option --debug-only=dst-capacity-analysis).
+    LLVM_DEBUG(llvm::dbgs() << "DST Capacity Analysis: Largest DST type: "
+                            << largestDstType << " fullSyncEn: " << fullSyncEn
+                            << " Capacity: " << minCapacity << "\n");
   });
 
-  // If no GenericOp operations were found, use a conservative default.
-  // This provides a reasonable fallback for functions with no compute regions.
   if (!foundGenericOp) {
     minDstCapacity = kDefaultDstCapacity;
   } else {
