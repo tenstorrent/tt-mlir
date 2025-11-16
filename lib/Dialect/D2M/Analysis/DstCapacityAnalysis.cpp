@@ -10,6 +10,8 @@
 
 #include <limits>
 
+#define DEBUG_TYPE "dst-capacity-analysis"
+
 using namespace mlir;
 using namespace mlir::tt;
 
@@ -18,9 +20,13 @@ using namespace mlir::tt;
 /// on the largest element size used in DST accesses.
 ///
 /// \p op The root operation (typically a func::FuncOp) to analyze.
-d2m::DstCapacityAnalysis::DstCapacityAnalysis(Operation *op) {
+/// \p fullSyncEn Enable full sync mode (true = max capacity, false = half capacity).
+/// \p overridePhysicalSize Override physical DST size, or 0 to use chip default.
+d2m::DstCapacityAnalysis::DstCapacityAnalysis(Operation *op, bool fullSyncEn,
+                                              unsigned overridePhysicalSize) {
   uint32_t minCapacity = std::numeric_limits<uint32_t>::max();
   bool foundGenericOp = false;
+  Type largestDstType = nullptr;
 
   // Walk all GenericOp operations in the operation tree.
   op->walk([&](d2m::GenericOp genericOp) {
@@ -34,16 +40,20 @@ d2m::DstCapacityAnalysis::DstCapacityAnalysis(Operation *op) {
       }
       Region *region = &genericOp.getRegion(regionIndex);
 
-      Type largestDstType = d2m::utils::getRegionLargestDstElemType(*region);
+      largestDstType = d2m::utils::getRegionLargestDstElemType(*region);
 
       // Query the hardware configuration to get DST capacity for largest
       // element size.
       uint32_t currentCapacity =
           ttcore::getOpChipDescAttr(genericOp).getDstLogicalSizeTiles(
-              largestDstType, false, 0);
+              largestDstType, fullSyncEn, overridePhysicalSize);
 
       minCapacity = std::min(minCapacity, currentCapacity);
     }
+    LLVM_DEBUG(llvm::dbgs()
+               << "DST Capacity Analysis: Largest DST type: " << largestDstType
+               << " fullSyncEn: " << fullSyncEn
+               << " Capacity: " << minCapacity << "\n");
   });
 
   // If no GenericOp operations were found, use a conservative default.
