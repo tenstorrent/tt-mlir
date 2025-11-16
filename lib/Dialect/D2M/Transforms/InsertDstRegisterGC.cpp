@@ -4,7 +4,6 @@
 
 #include "ttmlir/Dialect/D2M/Analysis/DstCapacityAnalysis.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
-#include "ttmlir/Dialect/D2M/Transforms/GraphColoringStrategy.h"
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
 
 #include "mlir/Analysis/Liveness.h"
@@ -35,6 +34,13 @@ struct D2MInsertDstRegisterGCPass
     return !region.getOps<AcquireDstOp>().empty();
   }
 
+  // Check if a generic region has acquire_dst but no release_dst.
+  static bool hasAcquireDstWithoutRelease(Region &region) {
+    bool hasAcquire = !region.getOps<AcquireDstOp>().empty();
+    bool hasRelease = !region.getOps<ReleaseDstOp>().empty();
+    return hasAcquire && !hasRelease;
+  }
+
   void runOnOperation() override {
     auto func = getOperation();
     if (func.isExternal()) {
@@ -49,7 +55,26 @@ struct D2MInsertDstRegisterGCPass
                    static_cast<uint32_t>(maxDstPhysicalSizeTiles.getValue()));
     }
 
-    // Process each d2m.generic operation that doesn't already have acquire_dst.
+    // First pass: Add release_dst to function body if it has acquire_dst but no
+    // release_dst.
+    if (hasAcquireDstWithoutRelease(func.getBody())) {
+      IRRewriter rewriter(&getContext());
+      Block &block = func.getBody().front();
+
+      // Insert before the terminator if it exists
+      if (!block.empty() && block.back().hasTrait<OpTrait::IsTerminator>()) {
+        rewriter.setInsertionPoint(&block.back());
+      } else {
+        rewriter.setInsertionPointToEnd(&block);
+      }
+
+      // Find all acquire_dst operations and add release_dst for each
+      for (auto acquireDst : func.getOps<AcquireDstOp>()) {
+        rewriter.create<ReleaseDstOp>(func.getLoc(), acquireDst.getResult());
+      }
+    }
+
+    // Process each d2m.generic operation.
     func.walk([&](GenericOp genericOp) {
       for (auto &region : genericOp->getRegions()) {
         if (hasAcquireDstOp(region)) {
@@ -58,23 +83,17 @@ struct D2MInsertDstRegisterGCPass
         }
 
         // Identify DST accesses that need allocation.
-        auto dstLoads = identifyDstLoads(genericOp, region);
-        auto dstStores = identifyDstStores(genericOp, region);
+        auto dstAccesses = identifyDstAccesses(genericOp, region);
 
-        if (dstLoads.empty() && dstStores.empty()) {
+        if (dstAccesses.empty()) {
           continue;
         }
 
         // Infer CB type - find the canonical type used in DST accesses.
         MemRefType cbType = nullptr;
-        for (auto &[loadOp, idx] : dstLoads) {
+        for (auto &[op, idx] : dstAccesses) {
           if (cbType == nullptr) {
-            cbType = mlir::cast<MemRefType>(loadOp.getMemRef().getType());
-          }
-        }
-        for (auto &[storeOp, idx] : dstStores) {
-          if (cbType == nullptr) {
-            cbType = mlir::cast<MemRefType>(storeOp.getMemRef().getType());
+            cbType = mlir::cast<MemRefType>(op->getOperand(1).getType());
           }
         }
 
@@ -83,16 +102,82 @@ struct D2MInsertDstRegisterGCPass
           return signalPassFailure();
         }
 
-        // Calculate DST shape: allocate maximum available capacity like the
-        // original pass.
+        // Build interference graph from DST accesses using index-based
+        // adjacency list.
+        size_t totalAccesses = dstAccesses.size();
+        std::vector<std::vector<size_t>> interferenceGraph(totalAccesses);
+
+        // Add interference edges based on liveness analysis.
+        // For simplicity, assume any two DST accesses in the same region
+        // interfere
+        // TODO: Implement proper liveness-based interference detection
+        for (size_t i = 0; i < totalAccesses; ++i) {
+          for (size_t j = i + 1; j < totalAccesses; ++j) {
+            interferenceGraph[i].push_back(j);
+            interferenceGraph[j].push_back(i);
+          }
+        }
+
+        // Calculate number of available colors (DST slices).
         const int64_t volume = ttmlir::utils::volume(cbType.getShape());
         if (volume > static_cast<int64_t>(totalDstTiles)) {
           genericOp.emitError("CB volume exceeds available DST tiles");
           return signalPassFailure();
         }
-        const int64_t numDstSlices = totalDstTiles / volume;
+        const uint32_t numColors = totalDstTiles / volume;
 
-        SmallVector<int64_t> dstShape({numDstSlices});
+        // Color the interference graph using greedy coloring with degree
+        // ordering. Sort nodes by degree (highest degree first) for better
+        // coloring results.
+        std::vector<size_t> nodes(totalAccesses);
+        for (size_t i = 0; i < totalAccesses; ++i) {
+          nodes[i] = i;
+        }
+        std::sort(nodes.begin(), nodes.end(), [&](size_t a, size_t b) {
+          return interferenceGraph[a].size() > interferenceGraph[b].size();
+        });
+
+        std::vector<unsigned> coloring(totalAccesses, UINT_MAX);
+        std::vector<bool> usedColors(numColors, false);
+
+        for (size_t nodeIdx : nodes) {
+          // Reset used colors
+          std::fill(usedColors.begin(), usedColors.end(), false);
+
+          // Mark colors used by neighbors
+          for (size_t neighbor : interferenceGraph[nodeIdx]) {
+            if (coloring[neighbor] != UINT_MAX) {
+              usedColors[coloring[neighbor]] = true;
+            }
+          }
+
+          // Find first available color
+          unsigned color = 0;
+          for (; color < numColors; ++color) {
+            if (!usedColors[color]) {
+              break;
+            }
+          }
+
+          // If no color available, this is a spill
+          if (color >= numColors) {
+            genericOp.emitError(
+                "Graph coloring failed - not enough DST slices available");
+            return signalPassFailure();
+          }
+
+          coloring[nodeIdx] = color;
+        }
+
+        // Find the maximum color used to determine DST allocation size.
+        uint32_t maxColor = 0;
+        for (uint32_t color : coloring) {
+          maxColor = std::max(maxColor, color);
+        }
+        const int64_t numDstSlicesNeeded = maxColor + 1;
+
+        // Create DST type with the required number of slices.
+        SmallVector<int64_t> dstShape({numDstSlicesNeeded});
         dstShape.append(cbType.getShape().begin(), cbType.getShape().end());
 
         MemRefType dstType = MemRefType::get(
@@ -117,59 +202,60 @@ struct D2MInsertDstRegisterGCPass
         rewriter.create<ReleaseDstOp>(genericOp.getLoc(),
                                       acquireDst.getResult());
 
-        // TODO: Implement graph coloring to assign operations to slice indices
-        // 0..numDstSlices-1 instead of sequential allocation. This will enable
-        // DST slice reuse for non-interfering operations.
+        // Rewrite affine loads and stores to use assigned DST slice indices.
+        for (size_t accessIndex = 0; accessIndex < dstAccesses.size();
+             ++accessIndex) {
+          auto &[op, origIdx] = dstAccesses[accessIndex];
+          uint32_t assignedSlice = coloring[accessIndex];
+
+          if (auto loadOp = mlir::dyn_cast<affine::AffineLoadOp>(op)) {
+            // Replace the original slice index with the colored one.
+            SmallVector<Value> indices = loadOp.getIndices();
+            if (!indices.empty()) {
+              indices[0] = rewriter.create<arith::ConstantIndexOp>(
+                  loadOp.getLoc(), assignedSlice);
+              rewriter.replaceOpWithNewOp<affine::AffineLoadOp>(
+                  loadOp, acquireDst.getResult(), indices);
+            }
+          } else if (auto storeOp = mlir::dyn_cast<affine::AffineStoreOp>(op)) {
+            // Replace the original slice index with the colored one.
+            SmallVector<Value> indices = storeOp.getIndices();
+            if (!indices.empty()) {
+              indices[0] = rewriter.create<arith::ConstantIndexOp>(
+                  storeOp.getLoc(), assignedSlice);
+              rewriter.replaceOpWithNewOp<affine::AffineStoreOp>(
+                  storeOp, storeOp.getValueToStore(), acquireDst.getResult(),
+                  indices);
+            }
+          }
+        }
       }
     });
   }
 
 private:
-  // Identify DST loads that need allocation.
-  SmallVector<std::pair<affine::AffineLoadOp, int64_t>>
-  identifyDstLoads(GenericOp genericOp, Region &region) {
-    SmallVector<std::pair<affine::AffineLoadOp, int64_t>> dstLoads;
+  // Identify DST accesses that need coloring (loads/stores to DST memory).
+  SmallVector<std::pair<Operation *, int64_t>>
+  identifyDstAccesses(GenericOp genericOp, Region &region) {
+    SmallVector<std::pair<Operation *, int64_t>> dstAccesses;
     int nextIndex = 0;
 
-    region.walk([&](OperandLoadStoreRegisterOpInterface computeOp) {
-      auto notDstMemspace = [](auto op) {
-        return op && ttcore::getMemorySpace(op.getMemRef()) !=
-                         ttcore::MemorySpace::RegisterDst;
-      };
+    auto isDstMemspace = [](auto op) {
+      return op && ttcore::getMemorySpace(op.getMemRef()) ==
+                       ttcore::MemorySpace::RegisterDst;
+    };
 
-      for (int64_t operandIdx : computeOp.getOperandsLoadFromDstRegister()) {
-        if (auto loadOp = computeOp->getOperand(operandIdx)
-                              .getDefiningOp<affine::AffineLoadOp>();
-            notDstMemspace(loadOp)) {
-          dstLoads.emplace_back(loadOp, nextIndex++);
-        }
+    region.walk([&](Operation *op) {
+      if (auto loadOp = mlir::dyn_cast<affine::AffineLoadOp>(op);
+          isDstMemspace(loadOp)) {
+        dstAccesses.emplace_back(loadOp, nextIndex++);
+      } else if (auto storeOp = mlir::dyn_cast<affine::AffineStoreOp>(op);
+                 isDstMemspace(storeOp)) {
+        dstAccesses.emplace_back(storeOp, nextIndex++);
       }
     });
 
-    return dstLoads;
-  }
-
-  // Identify DST stores that need allocation.
-  SmallVector<std::pair<affine::AffineStoreOp, int64_t>>
-  identifyDstStores(GenericOp genericOp, Region &region) {
-    SmallVector<std::pair<affine::AffineStoreOp, int64_t>> dstStores;
-    int nextIndex = 0;
-
-    region.walk([&](OperandLoadStoreRegisterOpInterface computeOp) {
-      auto notDstMemspace = [](auto op) {
-        return op && ttcore::getMemorySpace(op.getMemRef()) !=
-                         ttcore::MemorySpace::RegisterDst;
-      };
-
-      for (auto *user : computeOp->getUsers()) {
-        if (auto storeOp = mlir::dyn_cast<affine::AffineStoreOp>(user);
-            notDstMemspace(storeOp)) {
-          dstStores.emplace_back(storeOp, nextIndex++);
-        }
-      }
-    });
-
-    return dstStores;
+    return dstAccesses;
   }
 };
 
