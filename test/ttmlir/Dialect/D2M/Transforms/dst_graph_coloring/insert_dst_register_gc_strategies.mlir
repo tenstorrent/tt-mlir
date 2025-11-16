@@ -361,7 +361,7 @@ func.func @test_diamond_pattern(%cb0: memref<1x1x!ttcore.tile<32x32, f32>, #l1_>
   %4 = "d2m.tile_add"(%2, %3) : (!ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
   affine.store %4, %cb2[%c0, %c0] : memref<1x1x!ttcore.tile<32x32, f32>, #l1_>
 
-  // Release dst0 early (key optimization point!).
+  // Release dst0 early
   d2m.release_dst %dst0 : memref<1x1x1x!ttcore.tile<32x32, f32>, #dst_>
 
   // Middle of diamond: dst1 and dst2 both live (dst0 is dead).
@@ -375,7 +375,7 @@ func.func @test_diamond_pattern(%cb0: memref<1x1x!ttcore.tile<32x32, f32>, #l1_>
   %8 = "d2m.tile_add"(%6, %7) : (!ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
   affine.store %8, %cb2[%c0, %c0] : memref<1x1x!ttcore.tile<32x32, f32>, #l1_>
 
-  // Release dst1 early (key optimization point!).
+  // Release dst1 early
   d2m.release_dst %dst1 : memref<1x1x1x!ttcore.tile<32x32, f32>, #dst_>
 
   // Bottom of diamond: dst2 and dst3 both live (dst0 and dst1 are dead).
