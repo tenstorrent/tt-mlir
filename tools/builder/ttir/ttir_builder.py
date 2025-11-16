@@ -12,7 +12,7 @@ from enum import Enum, auto
 import re
 
 from ttmlir.ir import *
-from ttmlir.dialects import ttir, ttcore, tensor, quant
+from ttmlir.dialects import ttir, ttcore, tensor, quant, func
 from ttmlir.passes import GoldenTensor, DataType
 
 from builder.base.builder import *
@@ -24,12 +24,14 @@ class TTIRBuilderMeta(type):
         cls = super().__new__(mcls, name, bases, namespace)
         cls.build_opname_to_opview_map()
         cls.build_opview_to_builder_map()
+        cls.build_opview_to_parser_map()
         return cls
 
 
 class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
     opname_to_opview_map: Dict[str, OpView] = {}
     opview_to_builder_map: Dict[OpView, Callable] = {}
+    opview_to_parser_map: Dict[OpView, Callable] = {}
 
     # ----- Methods -----
 
@@ -54,6 +56,13 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
 
         return decorator
 
+    def parse(name):
+        def decorator(func):
+            func._parse = name
+            return func
+
+        return decorator
+
     @classmethod
     def build_opname_to_opview_map(cls):
         for name, obj in inspect.getmembers(ttir, inspect.isclass):
@@ -72,8 +81,25 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
             if callable(attr) and hasattr(func, "_tag"):
                 cls.opview_to_builder_map[func._tag] = attr
 
+    @classmethod
+    def build_opview_to_parser_map(cls):
+        for attr_name in dir(cls):
+            attr = getattr(cls, attr_name)
+            func = attr
+
+            if callable(attr) and hasattr(func, "_parse"):
+                cls.opview_to_parser_map[func._parse] = attr
+
     def get_opview_from_method(self, method: func) -> OpView:
         return getattr(method, "_tag", None)
+
+    def get_opview_from_parser(self, parser: func) -> OpView:
+        return getattr(parser, "_parse", None)
+
+    def get_parser_from_opview(self, opview: OpView) -> Callable:
+        if opview not in self.opview_to_parser_map:
+            assert False, f"No parser found for opview {opview}"
+        return self.opview_to_parser_map.get(opview)
 
     # ----- Private methods ----
 
@@ -412,6 +438,30 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
             self._set_golden_tensor(op, golden_output)
 
         return op
+
+    @parse(ttir.ConstantOp)
+    def constant_parser(
+        self,
+        old_op: ttir.ConstantOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> global_dict:
+        ttir_op = self.get_opview_from_parser(TTIRBuilder.constant_parser)
+        value_attr = old_op.value
+        result = old_op.result.type
+
+        new_op = ttir_op(
+            result,
+            value_attr,
+            loc=old_op.location,
+        )
+
+        if not self._disable_golden_check:
+            op_golden_function = get_golden_function(ttir_op)
+            golden_output = op_golden_function(value_attr)
+            self._set_golden_tensor(new_op, golden_output)
+        
+        global_dict[old_op.result] = new_op
+        return global_dict
 
     @tag(ttir.ConstantOp)
     def constant(
@@ -5294,3 +5344,81 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
             organize_golden_args=lambda i: [self._get_golden_tensor(i[0])],
             unit_attrs=unit_attrs,
         )
+
+    def _build_op_from_parsed_op(
+        self,
+        parsed_op: Operation,
+        global_dict: Dict[Operand, Operand],
+    ) -> global_dict:
+        parsed_function = self.get_parser_from_opview(type(parsed_op))
+        global_dict = parsed_function(self, parsed_op, global_dict)
+        return global_dict
+
+    @staticmethod
+    def get_input_types(ttir_builder: TTIRBuilder, parsed_module: Module):
+        inputs_types = []
+        inputs_shapes = []
+        for entry in parsed_module.body.operations:
+            if isinstance(entry, func.FuncOp):
+                for arg in entry.type.inputs:
+                    if isinstance(arg, RankedTensorType):
+                        inputs_types.append(arg.element_type)
+                        inputs_shapes.append(arg.shape)
+                    else:
+                        raise ValueError("Only ranked tensor types are supported")
+
+        return [
+            ttir_builder._create_ranked_tensor_type(
+                shape,
+                dtype,
+            )
+            for (shape, dtype) in zip(inputs_shapes, inputs_types)
+        ]
+
+    @staticmethod
+    def from_module(ctx: Context, parsed_module: Module) -> Tuple(TTIRBuilder, Module):
+        loc = Location.unknown(ctx)
+
+        with ctx, loc:
+            ttir_builder = TTIRBuilder(ctx, loc, (1, 1))
+            new_module = Module.create()
+
+            fn_input_types = TTIRBuilder.get_input_types(ttir_builder, parsed_module)
+
+            with InsertionPoint(new_module.body):
+                @func.func(*fn_input_types, name="parsed_module")
+                def decorated_func(*inputs):
+                    input_goldens: Dict[Operand, GoldenMapTensor] = {}
+                    for index, (operand, dtype) in enumerate(zip(inputs, fn_input_types)):
+                        input_goldens[operand] = ttir_builder._generate_golden_tensor(
+                            operand, torch.float32
+                        )
+                    ttir_builder._set_goldens(input_goldens)
+                    ttir_builder._set_input_ordering(inputs)
+
+                    global_dict = {}
+                    for entry in parsed_module.body.operations:
+                        if isinstance(entry, func.FuncOp):
+                            for i, arg in enumerate(entry.arguments):
+                                global_dict[arg] = inputs[i]
+                    
+                    global_result = None
+                    for entry in parsed_module.body.operations:
+                        for block in entry.body:
+                            for op in block.operations:
+                                if isinstance(op, func.ReturnOp):
+                                    global_result = tuple(global_dict[operand] for operand in op.operands)
+                                else:
+                                    global_dict = ttir_builder._build_op_from_parsed_op(op, global_dict)
+
+                              
+                    outputs = global_result if hasattr(global_result, "__iter__") else (global_result,)
+                    output_goldens: Dict[Operand, GoldenMapTensor] = {}
+                    for op in outputs:
+                        output_goldens[op] = ttir_builder._get_golden_tensor(op)
+                    ttir_builder._set_goldens(output_goldens)
+                    ttir_builder._set_output_ordering(outputs)
+
+                    return global_result
+
+        return ttir_builder, new_module
