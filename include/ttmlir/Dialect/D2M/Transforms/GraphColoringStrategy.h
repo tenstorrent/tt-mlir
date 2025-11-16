@@ -8,13 +8,14 @@
 #include "mlir/IR/Value.h"
 #include "mlir/Support/LogicalResult.h"
 #include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/SmallVector.h"
 
 namespace mlir::tt::d2m {
 
 /// Interference graph for graph coloring register allocation.
 ///
 /// An interference graph is a graph where:
-/// - Each node represents a virtual register (e.g., a DST value).
+/// - Each node represents a virtual register (e.g., a DST value) or operation.
 /// - Each edge connects two nodes if their values interfere (i.e., they are
 ///   simultaneously live and cannot use the same physical register).
 ///
@@ -32,7 +33,19 @@ public:
   unsigned degree(mlir::Value v) const;
   const llvm::SmallVector<mlir::Value> &neighbors(mlir::Value v) const;
   llvm::SmallVector<mlir::Value> getNodes() const;
+  const llvm::DenseMap<mlir::Value, llvm::SmallVector<mlir::Value>> &
+  getGraph() const {
+    return graph;
+  }
   void print(llvm::raw_ostream &os) const;
+
+  /// Build interference graph for DST operations within a region.
+  /// This analyzes DST memory accesses and determines which operations
+  /// interfere. Returns an index-based adjacency list where indices correspond
+  /// to dstOperations.
+  static std::vector<std::vector<size_t>> buildIndexGraphFromDstOperations(
+      mlir::Region &region,
+      mlir::ArrayRef<std::pair<mlir::Operation *, int64_t>> dstAccesses);
 };
 
 /// Abstract strategy for graph coloring algorithms.

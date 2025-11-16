@@ -4,6 +4,7 @@
 
 #include "ttmlir/Dialect/D2M/Analysis/DstCapacityAnalysis.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
+#include "ttmlir/Dialect/D2M/Transforms/GraphColoringStrategy.h"
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
 
 #include "mlir/Analysis/Liveness.h"
@@ -102,21 +103,13 @@ struct D2MInsertDstRegisterGCPass
           return signalPassFailure();
         }
 
-        // Build interference graph from DST accesses using index-based
-        // adjacency list.
+        // Build interference graph from DST accesses using liveness-based
+        // analysis. This follows the standard register allocation approach
+        // adapted for DST operations.
+        auto interferenceGraph =
+            InterferenceGraph::buildIndexGraphFromDstOperations(region,
+                                                                dstAccesses);
         size_t totalAccesses = dstAccesses.size();
-        std::vector<std::vector<size_t>> interferenceGraph(totalAccesses);
-
-        // Add interference edges based on liveness analysis.
-        // For simplicity, assume any two DST accesses in the same region
-        // interfere
-        // TODO: Implement proper liveness-based interference detection
-        for (size_t i = 0; i < totalAccesses; ++i) {
-          for (size_t j = i + 1; j < totalAccesses; ++j) {
-            interferenceGraph[i].push_back(j);
-            interferenceGraph[j].push_back(i);
-          }
-        }
 
         // Calculate number of available colors (DST slices).
         const int64_t volume = ttmlir::utils::volume(cbType.getShape());
