@@ -14,6 +14,7 @@ func.func @empty_function() {
 // Test: Isolated acquire_dst (no liveness interference).
 func.func @isolated_acquire_dst() {
   %dst = d2m.acquire_dst() : memref<1x!ttcore.tile<32x32, f32>, #dst_>
+  d2m.release_dst %dst : memref<1x!ttcore.tile<32x32, f32>, #dst_>
   return
 }
 
@@ -25,6 +26,8 @@ func.func @isolated_acquire_dst() {
 func.func @independent_dst_allocations() {
   %dst0 = d2m.acquire_dst() : memref<1x!ttcore.tile<32x32, f32>, #dst_>
   %dst1 = d2m.acquire_dst() : memref<1x!ttcore.tile<32x32, f32>, #dst_>
+  d2m.release_dst %dst0 : memref<1x!ttcore.tile<32x32, f32>, #dst_>
+  d2m.release_dst %dst1 : memref<1x!ttcore.tile<32x32, f32>, #dst_>
   return
 }
 
@@ -40,6 +43,7 @@ func.func @aliased_block_arguments() {
   cf.br ^bb1(%dst, %dst : memref<1x!ttcore.tile<32x32, f32>, #dst_>, memref<1x!ttcore.tile<32x32, f32>, #dst_>)
 
 ^bb1(%arg0: memref<1x!ttcore.tile<32x32, f32>, #dst_>, %arg1: memref<1x!ttcore.tile<32x32, f32>, #dst_>):
+  d2m.release_dst %arg0 : memref<1x!ttcore.tile<32x32, f32>, #dst_>
   return
 }
 
@@ -68,6 +72,11 @@ func.func @many_acquire_dst() {
      %arg2: memref<1x!ttcore.tile<32x32, f32>, #dst_>,
      %arg3: memref<1x!ttcore.tile<32x32, f32>, #dst_>,
      %arg4: memref<1x!ttcore.tile<32x32, f32>, #dst_>):
+  d2m.release_dst %arg0 : memref<1x!ttcore.tile<32x32, f32>, #dst_>
+  d2m.release_dst %arg1 : memref<1x!ttcore.tile<32x32, f32>, #dst_>
+  d2m.release_dst %arg2 : memref<1x!ttcore.tile<32x32, f32>, #dst_>
+  d2m.release_dst %arg3 : memref<1x!ttcore.tile<32x32, f32>, #dst_>
+  d2m.release_dst %arg4 : memref<1x!ttcore.tile<32x32, f32>, #dst_>
   return
 }
 
@@ -85,6 +94,8 @@ func.func @type_mismatch_dst() {
   cf.br ^bb1(%dst_f32, %dst_f16 : memref<1x!ttcore.tile<32x32, f32>, #dst_>, memref<1x!ttcore.tile<32x32, f16>, #dst_>)
 
 ^bb1(%arg0: memref<1x!ttcore.tile<32x32, f32>, #dst_>, %arg1: memref<1x!ttcore.tile<32x32, f16>, #dst_>):
+  d2m.release_dst %arg0 : memref<1x!ttcore.tile<32x32, f32>, #dst_>
+  d2m.release_dst %arg1 : memref<1x!ttcore.tile<32x32, f16>, #dst_>
   return
 }
 
@@ -111,5 +122,6 @@ func.func @complex_liveness(%cond: i1) {
   cf.br ^bb3(%arg1 : memref<2x!ttcore.tile<32x32, f32>, #dst_>)
 
 ^bb3(%arg2: memref<2x!ttcore.tile<32x32, f32>, #dst_>):
+  d2m.release_dst %arg2 : memref<2x!ttcore.tile<32x32, f32>, #dst_>
   return
 }

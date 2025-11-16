@@ -5,9 +5,11 @@
 
 // CHECK-LABEL: func.func @test_pass_simple
 // CHECK: %{{.*}} = d2m.acquire_dst() : memref<1x!ttcore.tile<32x32, f32>, #dst{{.*}}>
+// CHECK: d2m.release_dst
 // CHECK: return
 func.func @test_pass_simple() {
   %dst = d2m.acquire_dst() : memref<1x!ttcore.tile<32x32, f32>, #dst_>
+  d2m.release_dst %dst : memref<1x!ttcore.tile<32x32, f32>, #dst_>
   return
 }
 
@@ -21,6 +23,8 @@ func.func @test_pass_simple() {
 // CHECK: %{{.*}} = d2m.acquire_dst() : memref<1x!ttcore.tile<32x32, f32>, #dst{{.*}}>
 // CHECK: cf.br ^bb1
 // CHECK: ^bb1(%{{.*}}: memref<1x!ttcore.tile<32x32, f32>, #dst{{.*}}>, %{{.*}}: memref<1x!ttcore.tile<32x32, f32>, #dst{{.*}}>):
+// CHECK: d2m.release_dst
+// CHECK: d2m.release_dst
 // CHECK: return
 func.func @test_multiple_acquire() {
   %c0 = arith.constant 0 : index
@@ -31,6 +35,8 @@ func.func @test_multiple_acquire() {
   cf.br ^bb1(%dst0, %dst1 : memref<1x!ttcore.tile<32x32, f32>, #dst_>, memref<1x!ttcore.tile<32x32, f32>, #dst_>)
 
 ^bb1(%arg0: memref<1x!ttcore.tile<32x32, f32>, #dst_>, %arg1: memref<1x!ttcore.tile<32x32, f32>, #dst_>):
+  d2m.release_dst %arg0 : memref<1x!ttcore.tile<32x32, f32>, #dst_>
+  d2m.release_dst %arg1 : memref<1x!ttcore.tile<32x32, f32>, #dst_>
   return
 }
 
@@ -52,6 +58,7 @@ func.func @test_multiple_acquire() {
 // CHECK: affine.store %{{.*}}, %{{.*}}[2
 // CHECK: affine.load %{{.*}}[2
 // CHECK: affine.store %{{.*}}, %arg2
+// CHECK: d2m.release_dst
 func.func @eltwise_binary_with_dst(%cb0: memref<1x1x!ttcore.tile<32x32, f32>, #l1_>,
                                     %cb1: memref<1x1x!ttcore.tile<32x32, f32>, #l1_>,
                                     %cb2: memref<1x1x!ttcore.tile<32x32, f32>, #l1_>) {
@@ -72,6 +79,7 @@ func.func @eltwise_binary_with_dst(%cb0: memref<1x1x!ttcore.tile<32x32, f32>, #l
   %5 = affine.load %dst[2, %c0, %c0] : memref<4x1x1x!ttcore.tile<32x32, f32>, #dst_>
   affine.store %5, %cb2[%c0, %c0] : memref<1x1x!ttcore.tile<32x32, f32>, #l1_>
 
+  d2m.release_dst %dst : memref<4x1x1x!ttcore.tile<32x32, f32>, #dst_>
   return
 }
 
@@ -88,6 +96,8 @@ func.func @eltwise_binary_with_dst(%cb0: memref<1x1x!ttcore.tile<32x32, f32>, #l
 // CHECK: %{{.*}} = d2m.acquire_dst() : memref<2x2x2x!ttcore.tile<32x32, f32>, #dst{{.*}}>
 // CHECK: affine.for %{{.*}} = 0 to 2
 // CHECK: affine.for %{{.*}} = 0 to 2
+// CHECK: d2m.release_dst
+// CHECK: d2m.release_dst
 func.func @multiple_dst_regions(%cb0: memref<2x2x!ttcore.tile<32x32, f32>, #l1_>,
                                 %cb1: memref<2x2x!ttcore.tile<32x32, f32>, #l1_>) {
   %c0 = arith.constant 0 : index
@@ -109,6 +119,8 @@ func.func @multiple_dst_regions(%cb0: memref<2x2x!ttcore.tile<32x32, f32>, #l1_>
     }
   }
 
+  d2m.release_dst %dst1 : memref<2x2x2x!ttcore.tile<32x32, f32>, #dst_>
+  d2m.release_dst %dst2 : memref<2x2x2x!ttcore.tile<32x32, f32>, #dst_>
   return
 }
 
@@ -132,6 +144,7 @@ func.func @multiple_dst_regions(%cb0: memref<2x2x!ttcore.tile<32x32, f32>, #l1_>
 // CHECK: affine.load %{{.*}}[2
 // CHECK: "d2m.tile_matmul"
 // CHECK: affine.store %{{.*}}, %{{.*}}[2
+// CHECK: d2m.release_dst
 func.func @dst_with_accumulation(%cb0: memref<3x3x!ttcore.tile<32x32, f32>, #l1_>,
                                  %cb1: memref<3x2x!ttcore.tile<32x32, f32>, #l1_>,
                                  %cb2: memref<3x2x!ttcore.tile<32x32, f32>, #l1_>) {
@@ -174,6 +187,7 @@ func.func @dst_with_accumulation(%cb0: memref<3x3x!ttcore.tile<32x32, f32>, #l1_
     }
   }
 
+  d2m.release_dst %dst : memref<3x3x2x!ttcore.tile<32x32, f32>, #dst_>
   return
 }
 
@@ -226,6 +240,7 @@ func.func @unary_in_place(%cb0: memref<2x4x!ttcore.tile<32x32, f32>, #l1_>,
     }
   }
 
+  d2m.release_dst %dst : memref<1x2x4x!ttcore.tile<32x32, f32>, #dst_>
   return
 }
 
@@ -241,6 +256,7 @@ func.func @unary_in_place(%cb0: memref<2x4x!ttcore.tile<32x32, f32>, #l1_>,
 // CHECK: affine.load
 // CHECK: "d2m.tile_add"
 // CHECK: "d2m.tile_mul"
+// CHECK: d2m.release_dst
 func.func @eltwise_large_dst(%cb0: memref<4x4x!ttcore.tile<32x32, bf16>, #l1_>,
                              %cb1: memref<4x4x!ttcore.tile<32x32, bf16>, #l1_>,
                              %cb2: memref<4x4x!ttcore.tile<32x32, bf16>, #l1_>) {
@@ -278,5 +294,6 @@ func.func @eltwise_large_dst(%cb0: memref<4x4x!ttcore.tile<32x32, bf16>, #l1_>,
     }
   }
 
+  d2m.release_dst %dst : memref<8x4x4x!ttcore.tile<32x32, bf16>, #dst_>
   return
 }
