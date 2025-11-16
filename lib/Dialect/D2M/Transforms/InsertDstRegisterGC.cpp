@@ -98,6 +98,8 @@ struct D2MInsertDstRegisterGCPass
         }
 
         // Identify DST accesses that need allocation.
+        // Note: linalg operations should be converted to affine loops by
+        // a separate pass before running this pass.
         auto dstAccesses = identifyDstAccesses(genericOp, region);
 
         if (dstAccesses.empty()) {
@@ -253,6 +255,9 @@ private:
   // This uses the OperandLoadStoreRegisterOpInterface to find which operands
   // need to be loaded from DST registers, similar to InsertDstRegisterAccess.
   // Unlike that pass, we use graph coloring instead of linear allocation.
+  //
+  // Note: linalg.generic operations should be converted to affine loops before
+  // calling this function.
   SmallVector<std::pair<Operation *, int64_t>>
   identifyDstAccesses(GenericOp genericOp, Region &region) {
     SmallVector<std::pair<Operation *, int64_t>> dstAccesses;

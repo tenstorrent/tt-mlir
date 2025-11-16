@@ -171,55 +171,85 @@ std::vector<std::vector<size_t>> buildIndexGraphFromDstOperations(
   //            last use of the loaded value.
   // For stores: The DST space is needed from when the value is produced
   //             until the store operation completes.
+  //
+  // For operations inside loops or nested regions, we use a conservative
+  // approach: assume all DST accesses within the same loop/region interfere
+  // with each other, since loop iterations may overlap in execution.
+  // TODO (bnorris): Implement precise dependence analysis
 
-  for (mlir::Block &block : region) {
-    // Track which DST accesses are currently live at each program point.
-    llvm::SmallPtrSet<mlir::Operation *, 16> currentlyLive;
+  // Collect all DST access operations in program order
+  llvm::SmallVector<mlir::Operation *> dstAccessOps;
+  for (const auto &[op, idx] : dstAccesses) {
+    dstAccessOps.push_back(op);
+  }
 
-    // Walk backwards through operations in the block.
-    for (auto it = block.rbegin(); it != block.rend(); ++it) {
-      mlir::Operation *op = &*it;
+  // For operations in nested regions (loops), assume conservative interference
+  // Build a map from each DST access to its containing loops
+  llvm::DenseMap<mlir::Operation *, llvm::SmallVector<mlir::Operation *>>
+      opToLoops;
+  for (mlir::Operation *op : dstAccessOps) {
+    llvm::SmallVector<mlir::Operation *> loops;
+    mlir::Operation *parent = op->getParentOp();
+    while (parent && parent->getParentRegion() == &region) {
+      if (isa<affine::AffineForOp>(parent)) {
+        loops.push_back(parent);
+      }
+      parent = parent->getParentOp();
+    }
+    opToLoops[op] = loops;
+  }
 
-      // Process uses of values - this is where load results become live
-      for (mlir::Value operand : op->getOperands()) {
-        if (auto defOp = operand.getDefiningOp()) {
-          if (opToIndex.count(defOp)) {
-            // This DST load's result is being used - it becomes live
-            currentlyLive.insert(defOp);
+  // Build interference: operations interfere if they share a common loop
+  // or if their SSA value live ranges overlap
+  for (size_t i = 0; i < dstAccessOps.size(); ++i) {
+    mlir::Operation *op1 = dstAccessOps[i];
+    const auto &loops1 = opToLoops[op1];
+
+    for (size_t j = i + 1; j < dstAccessOps.size(); ++j) {
+      mlir::Operation *op2 = dstAccessOps[j];
+      const auto &loops2 = opToLoops[op2];
+
+      bool interferes = false;
+
+      // Check if they share a common loop - if so, they interfere
+      for (mlir::Operation *loop1 : loops1) {
+        if (std::find(loops2.begin(), loops2.end(), loop1) != loops2.end()) {
+          interferes = true;
+          break;
+        }
+      }
+
+      // Also check SSA value liveness for operations not in loops
+      if (!interferes && loops1.empty() && loops2.empty()) {
+        // Both operations are at the same nesting level (not in loops)
+        // Check if their live ranges overlap using SSA dominance
+        if (auto load1 = mlir::dyn_cast<affine::AffineLoadOp>(op1)) {
+          // Check if load1's result is live at op2's location
+          for (mlir::OpOperand &use : load1.getResult().getUses()) {
+            mlir::Operation *user = use.getOwner();
+            if (user == op2 || op2->isBeforeInBlock(user)) {
+              interferes = true;
+              break;
+            }
+          }
+        }
+        if (auto load2 = mlir::dyn_cast<affine::AffineLoadOp>(op2)) {
+          // Check if load2's result is live at op1's location
+          for (mlir::OpOperand &use : load2.getResult().getUses()) {
+            mlir::Operation *user = use.getOwner();
+            if (user == op1 || op1->isBeforeInBlock(user)) {
+              interferes = true;
+              break;
+            }
           }
         }
       }
 
-      // If this operation is a DST access, it interferes with all currently
-      // live DST operations.
-      if (opToIndex.count(op)) {
-        size_t opIndex = opToIndex[op];
-
-        // Add interference edges with all currently live DST accesses
-        for (mlir::Operation *liveOp : currentlyLive) {
-          if (liveOp != op && opToIndex.count(liveOp)) {
-            size_t liveIndex = opToIndex[liveOp];
-            // Add bidirectional edge (avoid duplicates by checking)
-            if (std::find(interferenceGraph[opIndex].begin(),
-                          interferenceGraph[opIndex].end(),
-                          liveIndex) == interferenceGraph[opIndex].end()) {
-              interferenceGraph[opIndex].push_back(liveIndex);
-              interferenceGraph[liveIndex].push_back(opIndex);
-            }
-          }
-        }
-
-        // If this is a load, it's now defined, so remove from live set
-        // (walking backwards, definition kills the live range)
-        if (isa<affine::AffineLoadOp>(op)) {
-          currentlyLive.erase(op);
-        }
-
-        // If this is a store, mark it as live (it needs DST space for the
-        // value being stored)
-        if (isa<affine::AffineStoreOp>(op)) {
-          currentlyLive.insert(op);
-        }
+      if (interferes) {
+        size_t idx1 = opToIndex[op1];
+        size_t idx2 = opToIndex[op2];
+        interferenceGraph[idx1].push_back(idx2);
+        interferenceGraph[idx2].push_back(idx1);
       }
     }
   }
