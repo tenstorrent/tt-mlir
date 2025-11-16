@@ -26,9 +26,10 @@ constexpr uint32_t kDefaultDstCapacity = 8;
 ///
 /// This information is required by the graph coloring register allocation pass
 /// (D2MInsertDstRegisterGC) to determine the number of available colors
-/// (physical DST slices) that can be allocated. By using the minimum across all
-/// ops, we ensure that the allocation strategy works correctly regardless of
-/// which operation's region is executing.
+/// (physical DST slices) that can be allocated. We use the minimum capacity
+/// across all ops to find the most constrained operation (typically the one
+/// with the largest element type). This ensures the allocation never exceeds
+/// what any operation can actually use, preventing allocation failures.
 ///
 /// Usage:
 ///   DstCapacityAnalysis analysis(funcOp);
@@ -44,10 +45,12 @@ public:
 
   /// Returns the minimum DST capacity (in tiles) available for this function.
   ///
-  /// This value represents the maximum number of DST tiles that can be
-  /// simultaneously allocated across all operations in the function. It is
-  /// computed as the minimum capacity across all GenericOp compute regions,
-  /// ensuring correctness regardless of operation type or data types used.
+  /// This value represents the safe upper bound on the number of DST tiles
+  /// that can be simultaneously allocated. It is computed by finding the most
+  /// constrained GenericOp (the one with the smallest capacity, typically due
+  /// to using larger element types). Using this minimum ensures that the
+  /// allocation strategy will work correctly for all operations in the
+  /// function.
   ///
   /// \return The minimum DST capacity in tiles.
   uint32_t getMinDstCapacity() const { return minDstCapacity; }
