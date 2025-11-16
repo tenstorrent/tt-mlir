@@ -1914,6 +1914,25 @@ def execute_fb(
             logging.debug(f"{tensor}\n")
 
 
+def load_mlir_file(
+  file_path: str, 
+  target: Literal["ttir", "ttnn", "d2m", "stablehlo"] = "ttir",
+) -> (Builder, Module):
+    with open(file_path, "r", encoding="utf-8") as f:
+        mlir_text = f.read()
+
+    ctx = Context()
+    module = Module.parse(mlir_text, ctx)
+
+    with ctx:
+        if target == "ttir":
+            builder, module = TTIRBuilder.from_module(ctx, module)
+            return builder, module
+        elif target == "ttmetal" or target == "ttnn" or target == "d2m":
+            assert False, "Loading TTMetal/TTNN/D2M MLIR files is not supported yet."
+
+    return None, None
+
 # ----- Experimental Public APIs -----
 
 

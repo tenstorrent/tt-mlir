@@ -155,6 +155,9 @@ class Builder:
     def get_shape(self, input: Operand) -> Shape:
         return self._get_type(input).shape
 
+    def get_type(self, input: Operand) -> Type:
+        return self._get_type(input).element_type
+
     def set_goldens(
         self,
         inputs: Dict[Operand, Union[Callable, torch.tensor, Dict[int : torch.tensor]]],
@@ -182,29 +185,6 @@ class Builder:
     ):
         self._set_goldens(self._create_builder_golden_from_torch_tensor(operands))
         self.set_goldens_to_check(operands.keys())
-
-        print("*************** Goldens to store ***************")
-        print(f"  Count: {len(self._goldens_to_store)}")
-        for operand in self._goldens_to_store:
-            print(
-                f"  - {operand.name if hasattr(operand, 'name') else type(operand).__name__}"
-            )
-
-        print("\n*************** Operand to loc ***************")
-        for operand, loc in self._operand_to_loc.items():
-            op_str = (
-                operand.name if hasattr(operand, "name") else type(operand).__name__
-            )
-            print(f"  {op_str}: {loc}")
-
-        print("\n*************** Goldens ***************")
-        print(f"  Total goldens: {len(self._goldens)}")
-        for operand, golden in self._goldens.items():
-            op_str = (
-                operand.name if hasattr(operand, "name") else type(operand).__name__
-            )
-            shape_str = str(golden.shape) if hasattr(golden, "shape") else "?"
-            print(f"  {op_str} -> shape={shape_str}")
 
     def set_goldens_to_check(self, operands: List[Operand], override: bool = False):
         if override:
@@ -237,6 +217,10 @@ class Builder:
             )
 
         return golden_output.shape, golden_output.dtype
+
+    def _get_default_loc(self) -> Location:
+        with self._ctx:
+            return Location.unknown()
 
     def _get_datatype_from_torch_dtype(self, dtype: torch.dtype) -> DataType:
         match dtype:
@@ -492,6 +476,12 @@ class Builder:
     ) -> GoldenMapTensor:
         return self._goldens[operand]
 
+    def _get_golden_tensors(
+        self,
+        operands: List[Operand],
+    ) -> List[GoldenMapTensor]:
+        return [self._goldens[operand] for operand in operands]
+
     def _set_input_ordering(self, inputs: List[Operand]):
         self._ordered_inputs = inputs
 
@@ -501,7 +491,6 @@ class Builder:
     # ----- Shared Empty Operations -----
 
     def _empty(self, shape: Shape, data_type: Optional[Type] = None) -> OpView:
-        """Create an empty operation using the dialect-specific EmptyOp."""
         dtype = data_type if data_type is not None else F32Type.get(self._ctx)
         return self._create_empty_from_tensor_type(
             shape, self._create_ranked_tensor_type(shape, dtype)
@@ -510,13 +499,11 @@ class Builder:
     def _create_empty_from_tensor_type(
         self, shape: Shape, tensor_type: RankedTensorType
     ) -> OpView:
-        """Create empty operation from tensor type using dialect-specific EmptyOp."""
         with self._ctx, self._loc:
             op = self._get_empty_op(tensor_type)
             return op
 
     def _get_empty_op(self, tensor_type: RankedTensorType) -> OpView:
-        """Get dialect-specific empty operation. Must be implemented by subclasses."""
         raise NotImplementedError("Subclasses must implement _get_empty_op")
 
     # ----- Shared Metal Tensor Layout -----
@@ -531,7 +518,6 @@ class Builder:
         index_map: Optional[AffineMap] = None,
         memory_layout=None,  # Will default to ttcore.TensorMemoryLayout.Sharded in the utility
     ):
-        """Create a metal tensor layout using the shared implementation."""
         from builder.base.builder_utils import get_metal_tensor_layout
         from ttmlir.dialects import ttcore
 
