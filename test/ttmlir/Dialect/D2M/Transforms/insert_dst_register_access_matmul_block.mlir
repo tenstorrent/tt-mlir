@@ -32,6 +32,7 @@ module {
         // CHECK: %[[FINAL_VAL:.*]] = affine.load %[[DST]]
         // Check that final result is stored back to original #l1 memory space
         // CHECK: affine.store %[[FINAL_VAL]], %[[ARG2]]
+        // CHECK: d2m.release_dst %[[DST]]
         linalg.yield %0 : !ttcore.tile<32x32, f32>
       }
     }
@@ -104,6 +105,7 @@ module {
       // Check writeback: load from dst, store to l1
       // CHECK: %[[FINAL_VAL:.*]] = affine.load %[[DST]][0, %[[WB_I]], %[[WB_J]]] : memref<1x3x2x!ttcore.tile<32x32, f16>, #dst>
       // CHECK: affine.store %[[FINAL_VAL]], {{%.*}}[%[[WB_I]], %[[WB_J]]] : memref<3x2x!ttcore.tile<32x32, f16>, #l1>
+      // CHECK: d2m.release_dst %[[DST]]
     }
     return
   }

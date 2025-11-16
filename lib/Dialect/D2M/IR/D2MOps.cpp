@@ -26,46 +26,36 @@
 namespace mlir::tt::d2m {
 
 LogicalResult AcquireDstOp::verify() {
-  // TODO (bnorris): Verify that the result is used by a release_dst operation.
-  // For now, we allow acquire_dst without release_dst to support gradual
-  // adoption of explicit liveness tracking. This verifier should be enforced
-  // once all passes insert release_dst properly. Issue: #tbd
+  // TODO: The verifier should be smarter about checking for release_dst across
+  // basic blocks.
 
-  // Implementation below is disabled until all passes properly insert
-  // d2m.release_dst ops. To enable verification once Stage 4b is complete, set
-  // ENFORCE_RELEASE_DST_PAIRING to true. This will enforce that every
-  // acquire_dst has a corresponding release_dst for liveness tracking.
-  constexpr bool ENFORCE_RELEASE_DST_PAIRING = false;
-
-  if (!ENFORCE_RELEASE_DST_PAIRING) {
-    return mlir::success();
-  }
-
-  // Check that the result is used by a release_dst operation (at least one
-  // use). We allow multiple uses in some cases, but there must be at least one
-  // release.
-  bool hasRelease = false;
-  for (auto *user : getResult().getUsers()) {
-    if (mlir::isa<mlir::tt::d2m::ReleaseDstOp>(user)) {
-      hasRelease = true;
-      break;
-    }
-  }
-
-  if (!hasRelease) {
-    return emitOpError(
-        "result must be used by a corresponding d2m.release_dst operation");
-  }
   return mlir::success();
 }
 
 LogicalResult ReleaseDstOp::verify() {
   Operation *definingOp = getDst().getDefiningOp();
-  if (definingOp && mlir::isa<mlir::tt::d2m::AcquireDstOp>(definingOp)) {
-    return mlir::success();
+  if (!definingOp || !mlir::isa<mlir::tt::d2m::AcquireDstOp>(definingOp)) {
+    if (auto blockArg = mlir::dyn_cast<BlockArgument>(getDst())) {
+      // This is okay, it means it's a dst value passed through basic blocks.
+    } else {
+      return emitOpError(
+          "operand must be the result of a d2m.acquire_dst operation or a "
+          "block argument");
+    }
   }
-  return emitOpError(
-      "operand must be the result of a d2m.acquire_dst operation");
+
+  // Verify that there are no uses of the DST value after this release
+  Operation *releaseOp = getOperation();
+  Block *releaseBlock = releaseOp->getBlock();
+  if (llvm::any_of(getDst().getUses(), [&](const mlir::OpOperand &use) {
+        Operation *user = use.getOwner();
+        return user != releaseOp && user->getBlock() == releaseBlock &&
+               releaseOp->isBeforeInBlock(user);
+      })) {
+    return emitOpError("DST value used after release_dst operation");
+  }
+
+  return mlir::success();
 }
 
 void d2m::GenericOp::getEffects(
