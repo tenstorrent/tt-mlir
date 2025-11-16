@@ -4,6 +4,8 @@
 
 #include "ttmlir/Dialect/D2M/Transforms/GraphColoringStrategy.h"
 
+#include "mlir/Dialect/Affine/IR/AffineOps.h"
+#include "mlir/IR/Builders.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/raw_ostream.h"
 #include <algorithm>
@@ -234,6 +236,57 @@ LogicalResult GreedyColoring::colorIndexGraph(
   }
 
   return success();
+}
+
+//===----------------------------------------------------------------------===//
+//                          InterferenceGraph Implementation
+//===----------------------------------------------------------------------===//
+
+std::vector<std::vector<size_t>>
+InterferenceGraph::buildIndexGraphFromDstOperations(
+    mlir::Region &region,
+    mlir::ArrayRef<std::pair<mlir::Operation *, int64_t>> dstAccesses) {
+
+  size_t totalAccesses = dstAccesses.size();
+  std::vector<std::vector<size_t>> interferenceGraph(totalAccesses);
+
+  // Create mapping from operations to indices
+  llvm::DenseMap<mlir::Operation *, size_t> opToIndex;
+  for (size_t i = 0; i < totalAccesses; ++i) {
+    opToIndex[dstAccesses[i].first] = i;
+  }
+
+  // Build interference graph using data flow analysis similar to register
+  // allocation
+  for (mlir::Block &block : region) {
+    llvm::SmallPtrSet<mlir::Operation *, 16> currentlyLiveOps;
+
+    // Walk backwards through operations in the block
+    for (auto it = block.rbegin(); it != block.rend(); ++it) {
+      mlir::Operation *op = &*it;
+
+      // If this operation is a DST store, it interferes with all currently
+      // live DST operations (since it writes to DST memory)
+      if (opToIndex.count(op) && isa<affine::AffineStoreOp>(op)) {
+        size_t opIndex = opToIndex[op];
+        for (mlir::Operation *liveOp : currentlyLiveOps) {
+          if (opToIndex.count(liveOp)) {
+            size_t liveIndex = opToIndex[liveOp];
+            interferenceGraph[opIndex].push_back(liveIndex);
+            interferenceGraph[liveIndex].push_back(opIndex);
+          }
+        }
+        currentlyLiveOps.erase(op);
+      }
+
+      // For DST load operations, add them to currently live set
+      if (opToIndex.count(op) && isa<affine::AffineLoadOp>(op)) {
+        currentlyLiveOps.insert(op);
+      }
+    }
+  }
+
+  return interferenceGraph;
 }
 
 } // namespace mlir::tt::d2m
