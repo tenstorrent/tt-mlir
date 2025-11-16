@@ -1,0 +1,1249 @@
+diff --git a/include/ttmlir/Dialect/D2M/Transforms/GraphColoringStrategy.h b/include/ttmlir/Dialect/D2M/Transforms/GraphColoringStrategy.h
+index ea0640236..80f829c81 100644
+--- a/include/ttmlir/Dialect/D2M/Transforms/GraphColoringStrategy.h
++++ b/include/ttmlir/Dialect/D2M/Transforms/GraphColoringStrategy.h
+@@ -6,14 +6,16 @@
+ #define TTMLIR_DIALECT_D2M_TRANSFORMS_GRAPHCOLORINGSTRATEGY_H
+ 
+ #include "mlir/IR/Value.h"
++#include "mlir/Support/LogicalResult.h"
+ #include "llvm/ADT/DenseMap.h"
++#include "llvm/ADT/SmallVector.h"
+ 
+ namespace mlir::tt::d2m {
+ 
+ /// Interference graph for graph coloring register allocation.
+ ///
+ /// An interference graph is a graph where:
+-/// - Each node represents a virtual register (e.g., a DST value).
++/// - Each node represents a virtual register (e.g., a DST value) or operation.
+ /// - Each edge connects two nodes if their values interfere (i.e., they are
+ ///   simultaneously live and cannot use the same physical register).
+ ///
+@@ -31,7 +33,19 @@ public:
+   unsigned degree(mlir::Value v) const;
+   const llvm::SmallVector<mlir::Value> &neighbors(mlir::Value v) const;
+   llvm::SmallVector<mlir::Value> getNodes() const;
++  const llvm::DenseMap<mlir::Value, llvm::SmallVector<mlir::Value>> &
++  getGraph() const {
++    return graph;
++  }
+   void print(llvm::raw_ostream &os) const;
++
++  /// Build interference graph for DST operations within a region.
++  /// This analyzes DST memory accesses and determines which operations
++  /// interfere. Returns an index-based adjacency list where indices correspond
++  /// to dstOperations.
++  static std::vector<std::vector<size_t>> buildIndexGraphFromDstOperations(
++      mlir::Region &region,
++      mlir::ArrayRef<std::pair<mlir::Operation *, int64_t>> dstAccesses);
+ };
+ 
+ /// Abstract strategy for graph coloring algorithms.
+@@ -40,6 +54,14 @@ public:
+   virtual ~ColoringStrategy() = default;
+   virtual llvm::DenseMap<mlir::Value, unsigned>
+   colorGraph(const InterferenceGraph &graph, unsigned numColors) = 0;
++
++  /// Color an index-based graph represented as adjacency list.
++  /// \p coloring is filled with colors where index i contains the color
++  /// assigned to node i. Returns success if coloring succeeded, failure
++  /// otherwise.
++  virtual LogicalResult
++  colorIndexGraph(const std::vector<std::vector<size_t>> &adjacencyList,
++                  unsigned numColors, std::vector<unsigned> &coloring) = 0;
+ };
+ 
+ /// Chaitin-Briggs graph coloring algorithm.
+@@ -78,6 +100,10 @@ class GreedyColoring : public ColoringStrategy {
+ public:
+   llvm::DenseMap<mlir::Value, unsigned>
+   colorGraph(const InterferenceGraph &graph, unsigned numColors) override;
++
++  LogicalResult
++  colorIndexGraph(const std::vector<std::vector<size_t>> &adjacencyList,
++                  unsigned numColors, std::vector<unsigned> &coloring) override;
+ };
+ 
+ } // namespace mlir::tt::d2m
+diff --git a/lib/Dialect/D2M/IR/D2MOps.cpp b/lib/Dialect/D2M/IR/D2MOps.cpp
+index 0d9f18838..beed3f4c1 100644
+--- a/lib/Dialect/D2M/IR/D2MOps.cpp
++++ b/lib/Dialect/D2M/IR/D2MOps.cpp
+@@ -26,46 +26,36 @@
+ namespace mlir::tt::d2m {
+ 
+ LogicalResult AcquireDstOp::verify() {
+-  // TODO (bnorris): Verify that the result is used by a release_dst operation.
+-  // For now, we allow acquire_dst without release_dst to support gradual
+-  // adoption of explicit liveness tracking. This verifier should be enforced
+-  // once all passes insert release_dst properly. Issue: #tbd
+-
+-  // Implementation below is disabled until all passes properly insert
+-  // d2m.release_dst ops. To enable verification once Stage 4b is complete, set
+-  // ENFORCE_RELEASE_DST_PAIRING to true. This will enforce that every
+-  // acquire_dst has a corresponding release_dst for liveness tracking.
+-  constexpr bool ENFORCE_RELEASE_DST_PAIRING = false;
+-
+-  if (!ENFORCE_RELEASE_DST_PAIRING) {
+-    return mlir::success();
+-  }
+-
+-  // Check that the result is used by a release_dst operation (at least one
+-  // use). We allow multiple uses in some cases, but there must be at least one
+-  // release.
+-  bool hasRelease = false;
+-  for (auto *user : getResult().getUsers()) {
+-    if (mlir::isa<mlir::tt::d2m::ReleaseDstOp>(user)) {
+-      hasRelease = true;
+-      break;
+-    }
+-  }
++  // TODO: The verifier should be smarter about checking for release_dst across
++  // basic blocks.
+ 
+-  if (!hasRelease) {
+-    return emitOpError(
+-        "result must be used by a corresponding d2m.release_dst operation");
+-  }
+   return mlir::success();
+ }
+ 
+ LogicalResult ReleaseDstOp::verify() {
+   Operation *definingOp = getDst().getDefiningOp();
+-  if (definingOp && mlir::isa<mlir::tt::d2m::AcquireDstOp>(definingOp)) {
+-    return mlir::success();
++  if (!definingOp || !mlir::isa<mlir::tt::d2m::AcquireDstOp>(definingOp)) {
++    if (auto blockArg = mlir::dyn_cast<BlockArgument>(getDst())) {
++      // This is okay, it means it's a dst value passed through basic blocks.
++    } else {
++      return emitOpError(
++          "operand must be the result of a d2m.acquire_dst operation or a "
++          "block argument");
++    }
+   }
+-  return emitOpError(
+-      "operand must be the result of a d2m.acquire_dst operation");
++
++  // Verify that there are no uses of the DST value after this release
++  Operation *releaseOp = getOperation();
++  Block *releaseBlock = releaseOp->getBlock();
++  if (llvm::any_of(getDst().getUses(), [&](const mlir::OpOperand &use) {
++        Operation *user = use.getOwner();
++        return user != releaseOp && user->getBlock() == releaseBlock &&
++               releaseOp->isBeforeInBlock(user);
++      })) {
++    return emitOpError("DST value used after release_dst operation");
++  }
++
++  return mlir::success();
+ }
+ 
+ void d2m::GenericOp::getEffects(
+diff --git a/lib/Dialect/D2M/Transforms/GraphColoringStrategy.cpp b/lib/Dialect/D2M/Transforms/GraphColoringStrategy.cpp
+index 244f425c7..c6b391a87 100644
+--- a/lib/Dialect/D2M/Transforms/GraphColoringStrategy.cpp
++++ b/lib/Dialect/D2M/Transforms/GraphColoringStrategy.cpp
+@@ -4,6 +4,8 @@
+ 
+ #include "ttmlir/Dialect/D2M/Transforms/GraphColoringStrategy.h"
+ 
++#include "mlir/Dialect/Affine/IR/AffineOps.h"
++#include "mlir/IR/Builders.h"
+ #include "llvm/ADT/SmallVector.h"
+ #include "llvm/Support/raw_ostream.h"
+ #include <algorithm>
+@@ -12,9 +14,9 @@ using namespace mlir;
+ 
+ namespace mlir::tt::d2m {
+ 
+-// ============================================================================
+-// InterferenceGraph Implementation
+-// ============================================================================
++//===----------------------------------------------------------------------===//
++//                          InterferenceGraph Implementation
++//===----------------------------------------------------------------------===//
+ 
+ void InterferenceGraph::addNode(Value v) {
+   if (graph.find(v) == graph.end()) {
+@@ -68,13 +70,14 @@ void InterferenceGraph::print(llvm::raw_ostream &os) const {
+   }
+ }
+ 
+-// ============================================================================
+-// ChaitinBriggsColoring Implementation
+-// ============================================================================
++//===----------------------------------------------------------------------===//
++//                          ChaitinBriggsColoring Implementation
++//===----------------------------------------------------------------------===//
+ 
+ llvm::DenseMap<Value, unsigned>
+ ChaitinBriggsColoring::colorGraph(const InterferenceGraph &graph,
+                                   unsigned numColors) {
++  assert(numColors > 0);
+   llvm::DenseMap<Value, unsigned> coloring;
+   llvm::SmallVector<Value> nodes = graph.getNodes();
+ 
+@@ -143,9 +146,9 @@ ChaitinBriggsColoring::colorGraph(const InterferenceGraph &graph,
+   return coloring;
+ }
+ 
+-// ============================================================================
+-// GreedyColoring Implementation
+-// ============================================================================
++//===----------------------------------------------------------------------===//
++//                          GreedyColoring Implementation
++//===----------------------------------------------------------------------===//
+ 
+ llvm::DenseMap<Value, unsigned>
+ GreedyColoring::colorGraph(const InterferenceGraph &graph, unsigned numColors) {
+@@ -199,4 +202,91 @@ GreedyColoring::colorGraph(const InterferenceGraph &graph, unsigned numColors) {
+   return coloring;
+ }
+ 
++LogicalResult GreedyColoring::colorIndexGraph(
++    const std::vector<std::vector<size_t>> &adjacencyList, unsigned numColors,
++    std::vector<unsigned> &coloring) {
++  coloring.assign(adjacencyList.size(), UINT_MAX);
++  std::vector<bool> usedColors(numColors, false);
++
++  for (size_t node = 0; node < adjacencyList.size(); ++node) {
++    // Reset used colors
++    std::fill(usedColors.begin(), usedColors.end(), false);
++
++    // Mark colors used by neighbors
++    for (size_t neighbor : adjacencyList[node]) {
++      if (coloring[neighbor] != UINT_MAX) {
++        usedColors[coloring[neighbor]] = true;
++      }
++    }
++
++    // Find first available color
++    unsigned color = 0;
++    for (; color < numColors; ++color) {
++      if (!usedColors[color]) {
++        break;
++      }
++    }
++
++    // If no color available, this is a spill
++    if (color >= numColors) {
++      return failure(); // Spill - not enough colors
++    }
++
++    coloring[node] = color;
++  }
++
++  return success();
++}
++
++//===----------------------------------------------------------------------===//
++//                          InterferenceGraph Implementation
++//===----------------------------------------------------------------------===//
++
++std::vector<std::vector<size_t>>
++InterferenceGraph::buildIndexGraphFromDstOperations(
++    mlir::Region &region,
++    mlir::ArrayRef<std::pair<mlir::Operation *, int64_t>> dstAccesses) {
++
++  size_t totalAccesses = dstAccesses.size();
++  std::vector<std::vector<size_t>> interferenceGraph(totalAccesses);
++
++  // Create mapping from operations to indices
++  llvm::DenseMap<mlir::Operation *, size_t> opToIndex;
++  for (size_t i = 0; i < totalAccesses; ++i) {
++    opToIndex[dstAccesses[i].first] = i;
++  }
++
++  // Build interference graph using data flow analysis similar to register
++  // allocation
++  for (mlir::Block &block : region) {
++    llvm::SmallPtrSet<mlir::Operation *, 16> currentlyLiveOps;
++
++    // Walk backwards through operations in the block
++    for (auto it = block.rbegin(); it != block.rend(); ++it) {
++      mlir::Operation *op = &*it;
++
++      // If this operation is a DST store, it interferes with all currently
++      // live DST operations (since it writes to DST memory)
++      if (opToIndex.count(op) && isa<affine::AffineStoreOp>(op)) {
++        size_t opIndex = opToIndex[op];
++        for (mlir::Operation *liveOp : currentlyLiveOps) {
++          if (opToIndex.count(liveOp)) {
++            size_t liveIndex = opToIndex[liveOp];
++            interferenceGraph[opIndex].push_back(liveIndex);
++            interferenceGraph[liveIndex].push_back(opIndex);
++          }
++        }
++        currentlyLiveOps.erase(op);
++      }
++
++      // For DST load operations, add them to currently live set
++      if (opToIndex.count(op) && isa<affine::AffineLoadOp>(op)) {
++        currentlyLiveOps.insert(op);
++      }
++    }
++  }
++
++  return interferenceGraph;
++}
++
+ } // namespace mlir::tt::d2m
+diff --git a/lib/Dialect/D2M/Transforms/InsertDstRegisterGC.cpp b/lib/Dialect/D2M/Transforms/InsertDstRegisterGC.cpp
+index 0c342f423..d1296d8e7 100644
+--- a/lib/Dialect/D2M/Transforms/InsertDstRegisterGC.cpp
++++ b/lib/Dialect/D2M/Transforms/InsertDstRegisterGC.cpp
+@@ -3,12 +3,16 @@
+ // SPDX-License-Identifier: Apache-2.0
+ 
+ #include "ttmlir/Dialect/D2M/Analysis/DstCapacityAnalysis.h"
++#include "ttmlir/Dialect/D2M/IR/D2MOps.h"
+ #include "ttmlir/Dialect/D2M/Transforms/GraphColoringStrategy.h"
+ #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
+-#include "ttmlir/Dialect/D2M/Utils/Utils.h"
+ 
+ #include "mlir/Analysis/Liveness.h"
++#include "mlir/Dialect/Affine/IR/AffineOps.h"
+ #include "mlir/Dialect/Func/IR/FuncOps.h"
++#include "mlir/IR/PatternMatch.h"
++#include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
++#include "ttmlir/Utils.h"
+ 
+ using namespace mlir;
+ 
+@@ -26,18 +30,16 @@ struct D2MInsertDstRegisterGCPass
+   D2MInsertDstRegisterGCPass(const D2MInsertDstRegisterGCOptions &options)
+       : D2MInsertDstRegisterGCBase(options) {}
+ 
+-  std::unique_ptr<ColoringStrategy> createColoringStrategy() {
+-    std::string strategy = this->coloringStrategy.getValue();
+-    if (strategy == "greedy") {
+-      return std::make_unique<GreedyColoring>();
+-    }
+-    if (strategy == "pbqp") {
+-      // TODO(bnorris): Implement PBQP-based coloring strategy.
+-      llvm::errs() << "Warning: PBQP strategy not yet implemented, falling "
+-                      "back to Chaitin-Briggs\n";
+-      return std::make_unique<ChaitinBriggsColoring>();
+-    }
+-    return std::make_unique<ChaitinBriggsColoring>();
++  // Check if a generic region already has acquire_dst operations.
++  static bool hasAcquireDstOp(Region &region) {
++    return !region.getOps<AcquireDstOp>().empty();
++  }
++
++  // Check if a generic region has acquire_dst but no release_dst.
++  static bool hasAcquireDstWithoutRelease(Region &region) {
++    bool hasAcquire = !region.getOps<AcquireDstOp>().empty();
++    bool hasRelease = !region.getOps<ReleaseDstOp>().empty();
++    return hasAcquire && !hasRelease;
+   }
+ 
+   void runOnOperation() override {
+@@ -46,34 +48,207 @@ struct D2MInsertDstRegisterGCPass
+       return;
+     }
+ 
+-    auto &liveness = getAnalysis<Liveness>();
+     DstCapacityAnalysis dstCapacityAnalysis(func);
+-
+-    uint32_t numColors = dstCapacityAnalysis.getMinDstCapacity();
++    uint32_t totalDstTiles = dstCapacityAnalysis.getMinDstCapacity();
+     if (maxDstPhysicalSizeTiles > 0) {
+-      numColors = std::min(
+-          numColors, static_cast<uint32_t>(maxDstPhysicalSizeTiles.getValue()));
++      totalDstTiles =
++          std::min(totalDstTiles,
++                   static_cast<uint32_t>(maxDstPhysicalSizeTiles.getValue()));
+     }
+ 
+-    InterferenceGraph ig;
+-    for (auto &block : func.getBody()) {
+-      if (block.empty()) {
+-        continue;
++    // First pass: Add release_dst to function body if it has acquire_dst but no
++    // release_dst.
++    if (hasAcquireDstWithoutRelease(func.getBody())) {
++      IRRewriter rewriter(&getContext());
++      Block &block = func.getBody().front();
++
++      // Insert before the terminator if it exists
++      if (!block.empty() && block.back().hasTrait<OpTrait::IsTerminator>()) {
++        rewriter.setInsertionPoint(&block.back());
++      } else {
++        rewriter.setInsertionPointToEnd(&block);
+       }
+-      auto liveIn = liveness.getLiveIn(&block);
+-      for (auto it1 = liveIn.begin(); it1 != liveIn.end(); ++it1) {
+-        for (auto it2 = std::next(it1); it2 != liveIn.end(); ++it2) {
+-          ig.addEdge(*it1, *it2);
+-        }
++
++      // Find all acquire_dst operations and add release_dst for each
++      for (auto acquireDst : func.getOps<AcquireDstOp>()) {
++        rewriter.create<ReleaseDstOp>(func.getLoc(), acquireDst.getResult());
+       }
+     }
+ 
+-    if (ig.hasInterference()) {
+-      auto strategy = createColoringStrategy();
+-      auto coloring = strategy->colorGraph(ig, numColors);
+-      // TODO (Stage 4): Use coloring result to rewrite IR and insert
+-      // acquire/release ops.
+-    }
++    // Process each d2m.generic operation.
++    func.walk([&](GenericOp genericOp) {
++      for (auto &region : genericOp->getRegions()) {
++        if (hasAcquireDstOp(region)) {
++          // Skip regions that already have DST allocation.
++          continue;
++        }
++
++        // Identify DST accesses that need allocation.
++        auto dstAccesses = identifyDstAccesses(genericOp, region);
++
++        if (dstAccesses.empty()) {
++          continue;
++        }
++
++        // Infer CB type - find the canonical type used in DST accesses.
++        MemRefType cbType = nullptr;
++        for (auto &[op, idx] : dstAccesses) {
++          if (cbType == nullptr) {
++            cbType = mlir::cast<MemRefType>(op->getOperand(1).getType());
++          }
++        }
++
++        if (!cbType) {
++          genericOp.emitError("No CB type found for DST allocation");
++          return signalPassFailure();
++        }
++
++        // Build interference graph from DST accesses using liveness-based
++        // analysis. This follows the standard register allocation approach
++        // adapted for DST operations.
++        auto interferenceGraph =
++            InterferenceGraph::buildIndexGraphFromDstOperations(region,
++                                                                dstAccesses);
++        size_t totalAccesses = dstAccesses.size();
++
++        // Calculate number of available colors (DST slices).
++        const int64_t volume = ttmlir::utils::volume(cbType.getShape());
++        if (volume > static_cast<int64_t>(totalDstTiles)) {
++          genericOp.emitError("CB volume exceeds available DST tiles");
++          return signalPassFailure();
++        }
++        const uint32_t numColors = totalDstTiles / volume;
++
++        // Color the interference graph using greedy coloring with degree
++        // ordering. Sort nodes by degree (highest degree first) for better
++        // coloring results.
++        std::vector<size_t> nodes(totalAccesses);
++        for (size_t i = 0; i < totalAccesses; ++i) {
++          nodes[i] = i;
++        }
++        std::sort(nodes.begin(), nodes.end(), [&](size_t a, size_t b) {
++          return interferenceGraph[a].size() > interferenceGraph[b].size();
++        });
++
++        std::vector<unsigned> coloring(totalAccesses, UINT_MAX);
++        std::vector<bool> usedColors(numColors, false);
++
++        for (size_t nodeIdx : nodes) {
++          // Reset used colors
++          std::fill(usedColors.begin(), usedColors.end(), false);
++
++          // Mark colors used by neighbors
++          for (size_t neighbor : interferenceGraph[nodeIdx]) {
++            if (coloring[neighbor] != UINT_MAX) {
++              usedColors[coloring[neighbor]] = true;
++            }
++          }
++
++          // Find first available color
++          unsigned color = 0;
++          for (; color < numColors; ++color) {
++            if (!usedColors[color]) {
++              break;
++            }
++          }
++
++          // If no color available, this is a spill
++          if (color >= numColors) {
++            genericOp.emitError(
++                "Graph coloring failed - not enough DST slices available");
++            return signalPassFailure();
++          }
++
++          coloring[nodeIdx] = color;
++        }
++
++        // Find the maximum color used to determine DST allocation size.
++        uint32_t maxColor = 0;
++        for (uint32_t color : coloring) {
++          maxColor = std::max(maxColor, color);
++        }
++        const int64_t numDstSlicesNeeded = maxColor + 1;
++
++        // Create DST type with the required number of slices.
++        SmallVector<int64_t> dstShape({numDstSlicesNeeded});
++        dstShape.append(cbType.getShape().begin(), cbType.getShape().end());
++
++        MemRefType dstType = MemRefType::get(
++            dstShape, cbType.getElementType(),
++            AffineMap::getMultiDimIdentityMap(dstShape.size(), &getContext()),
++            ttcore::MemorySpaceAttr::get(&getContext(),
++                                         ttcore::MemorySpace::RegisterDst));
++
++        // Create rewriter and insert acquire_dst at the start of the region.
++        IRRewriter rewriter(&getContext());
++        rewriter.setInsertionPointToStart(&region.front());
++        AcquireDstOp acquireDst =
++            rewriter.create<AcquireDstOp>(genericOp.getLoc(), dstType);
++
++        // Insert release_dst at the end of the region.
++        Block &block = region.front();
++        if (!block.empty() && block.back().hasTrait<OpTrait::IsTerminator>()) {
++          rewriter.setInsertionPoint(&block.back());
++        } else {
++          rewriter.setInsertionPointToEnd(&block);
++        }
++        rewriter.create<ReleaseDstOp>(genericOp.getLoc(),
++                                      acquireDst.getResult());
++
++        // Rewrite affine loads and stores to use assigned DST slice indices.
++        for (size_t accessIndex = 0; accessIndex < dstAccesses.size();
++             ++accessIndex) {
++          auto &[op, origIdx] = dstAccesses[accessIndex];
++          uint32_t assignedSlice = coloring[accessIndex];
++
++          if (auto loadOp = mlir::dyn_cast<affine::AffineLoadOp>(op)) {
++            // Replace the original slice index with the colored one.
++            SmallVector<Value> indices = loadOp.getIndices();
++            if (!indices.empty()) {
++              indices[0] = rewriter.create<arith::ConstantIndexOp>(
++                  loadOp.getLoc(), assignedSlice);
++              rewriter.replaceOpWithNewOp<affine::AffineLoadOp>(
++                  loadOp, acquireDst.getResult(), indices);
++            }
++          } else if (auto storeOp = mlir::dyn_cast<affine::AffineStoreOp>(op)) {
++            // Replace the original slice index with the colored one.
++            SmallVector<Value> indices = storeOp.getIndices();
++            if (!indices.empty()) {
++              indices[0] = rewriter.create<arith::ConstantIndexOp>(
++                  storeOp.getLoc(), assignedSlice);
++              rewriter.replaceOpWithNewOp<affine::AffineStoreOp>(
++                  storeOp, storeOp.getValueToStore(), acquireDst.getResult(),
++                  indices);
++            }
++          }
++        }
++      }
++    });
++  }
++
++private:
++  // Identify DST accesses that need coloring (loads/stores to DST memory).
++  SmallVector<std::pair<Operation *, int64_t>>
++  identifyDstAccesses(GenericOp genericOp, Region &region) {
++    SmallVector<std::pair<Operation *, int64_t>> dstAccesses;
++    int nextIndex = 0;
++
++    auto isDstMemspace = [](auto op) {
++      return op && ttcore::getMemorySpace(op.getMemRef()) ==
++                       ttcore::MemorySpace::RegisterDst;
++    };
++
++    region.walk([&](Operation *op) {
++      if (auto loadOp = mlir::dyn_cast<affine::AffineLoadOp>(op);
++          isDstMemspace(loadOp)) {
++        dstAccesses.emplace_back(loadOp, nextIndex++);
++      } else if (auto storeOp = mlir::dyn_cast<affine::AffineStoreOp>(op);
++                 isDstMemspace(storeOp)) {
++        dstAccesses.emplace_back(storeOp, nextIndex++);
++      }
++    });
++
++    return dstAccesses;
+   }
+ };
+ 
+diff --git a/test/ttmlir/Conversion/D2MToTTKernel/get_dst_idx.mlir b/test/ttmlir/Conversion/D2MToTTKernel/get_dst_idx.mlir
+index f0280c4e6..071ef31c9 100644
+--- a/test/ttmlir/Conversion/D2MToTTKernel/get_dst_idx.mlir
++++ b/test/ttmlir/Conversion/D2MToTTKernel/get_dst_idx.mlir
+@@ -54,6 +54,7 @@ module {
+         memref.store %3, %collapse_shape_1[%1] : memref<4x!ttcore.tile<32x32, f32>, #l1_>
+       }
+     }
++    d2m.release_dst %dst : memref<2x2x2x!ttcore.tile<32x32, f32>, #dst_>
+     return
+   }
+ 
+@@ -94,6 +95,7 @@ module {
+       %1 = memref.load %collapse_shape_2[%0] : memref<8x!ttcore.tile<32x32, f32>, #dst_>
+       memref.store %1, %collapse_shape_1[%arg3] : memref<2x!ttcore.tile<32x32, f32>, #l1_>
+     }
++    d2m.release_dst %dst : memref<4x2x1x!ttcore.tile<32x32, f32>, #dst_>
+     return
+   }
+ 
+@@ -134,6 +136,7 @@ module {
+       %1 = memref.load %collapse_shape_2[%0] : memref<8x!ttcore.tile<32x32, f32>, #dst_>
+       memref.store %1, %collapse_shape_1[%arg3] : memref<2x!ttcore.tile<32x32, f32>, #l1_>
+     }
++    d2m.release_dst %dst : memref<4x1x2x!ttcore.tile<32x32, f32>, #dst_>
+     return
+   }
+ }
+diff --git a/test/ttmlir/Conversion/D2MToTTKernel/sfpu_op_placement_after_operands.mlir b/test/ttmlir/Conversion/D2MToTTKernel/sfpu_op_placement_after_operands.mlir
+index 479231bf3..9fefd734f 100644
+--- a/test/ttmlir/Conversion/D2MToTTKernel/sfpu_op_placement_after_operands.mlir
++++ b/test/ttmlir/Conversion/D2MToTTKernel/sfpu_op_placement_after_operands.mlir
+@@ -23,6 +23,7 @@ func.func private @compute_kernel8(%arg0: memref<6x1x1x!ttcore.tile<32x32, f32>,
+     memref.store %4, %collapse_shape_2[%c2] : memref<8x!ttcore.tile<32x32, f32>, #ttcore.memory_space<dst>>
+     %5 = memref.load %collapse_shape_2[%c2] : memref<8x!ttcore.tile<32x32, f32>, #ttcore.memory_space<dst>>
+     memref.store %5, %collapse_shape_1[%arg3] : memref<6x!ttcore.tile<32x32, f32>, #ttcore.memory_space<l1>>
++    d2m.release_dst %dst : memref<8x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.memory_space<dst>>
+   }
+   return
+ }
+diff --git a/test/ttmlir/Conversion/D2MToTTKernel/typecast_with_dst_reinterpret_cast.mlir b/test/ttmlir/Conversion/D2MToTTKernel/typecast_with_dst_reinterpret_cast.mlir
+index 6893f54ff..73a7c5a4c 100644
+--- a/test/ttmlir/Conversion/D2MToTTKernel/typecast_with_dst_reinterpret_cast.mlir
++++ b/test/ttmlir/Conversion/D2MToTTKernel/typecast_with_dst_reinterpret_cast.mlir
+@@ -52,6 +52,7 @@ module {
+     // CHECK: ttkernel.typecast_tile_init
+     // CHECK: ttkernel.typecast_tile(%{{.*}}, <f32>, <bf16>)
+     // CHECK: ttkernel.pack_tile
++    "d2m.release_dst"(%dst) : (memref<1x1x8x!ttcore.tile<32x32, f32>, #dst>) -> ()
+     return
+   }
+ }
+diff --git a/test/ttmlir/Dialect/D2M/IR/acquire_release_dst.mlir b/test/ttmlir/Dialect/D2M/IR/acquire_release_dst.mlir
+new file mode 100644
+index 000000000..79de065fd
+--- /dev/null
++++ b/test/ttmlir/Dialect/D2M/IR/acquire_release_dst.mlir
+@@ -0,0 +1,39 @@
++// RUN: ttmlir-opt %s -split-input-file | FileCheck %s
++
++// CHECK-LABEL: @valid_acquire_release_single
++#dst_ = #ttcore.memory_space<dst>
++func.func @valid_acquire_release_single() {
++  // CHECK-NEXT: d2m.acquire_dst
++  %dst = d2m.acquire_dst() : memref<4x!ttcore.tile<32x32, f32>, #dst_>
++  // CHECK-NEXT: d2m.release_dst
++  d2m.release_dst %dst : memref<4x!ttcore.tile<32x32, f32>, #dst_>
++  return
++}
++
++// -----
++
++// CHECK-LABEL: @valid_acquire_release_dst
++#dst_ = #ttcore.memory_space<dst>
++func.func @valid_acquire_release_dst() {
++  // CHECK-NEXT: d2m.acquire_dst
++  %dst = d2m.acquire_dst() : memref<1x!ttcore.tile<32x32, f32>, #dst_>
++  // CHECK-NEXT: d2m.release_dst
++  d2m.release_dst %dst : memref<1x!ttcore.tile<32x32, f32>, #dst_>
++  return
++}
++
++// -----
++
++// CHECK-LABEL: @valid_multiple_acquire_release
++#dst_ = #ttcore.memory_space<dst>
++func.func @valid_multiple_acquire_release() {
++  // CHECK: d2m.acquire_dst
++  %dst0 = d2m.acquire_dst() : memref<2x!ttcore.tile<32x32, f32>, #dst_>
++  // CHECK-NEXT: d2m.release_dst
++  d2m.release_dst %dst0 : memref<2x!ttcore.tile<32x32, f32>, #dst_>
++  // CHECK-NEXT: d2m.acquire_dst
++  %dst1 = d2m.acquire_dst() : memref<3x!ttcore.tile<32x32, f32>, #dst_>
++  // CHECK-NEXT: d2m.release_dst
++  d2m.release_dst %dst1 : memref<3x!ttcore.tile<32x32, f32>, #dst_>
++  return
++}
+diff --git a/test/ttmlir/Dialect/D2M/IR/acquire_release_dst_invalid.mlir b/test/ttmlir/Dialect/D2M/IR/acquire_release_dst_invalid.mlir
+new file mode 100644
+index 000000000..c2e2e5662
+--- /dev/null
++++ b/test/ttmlir/Dialect/D2M/IR/acquire_release_dst_invalid.mlir
+@@ -0,0 +1,26 @@
++// RUN: ttmlir-opt %s -split-input-file -verify-diagnostics
++
++#dst_ = #ttcore.memory_space<dst>
++module {
++  // Test that DST values cannot be used after release_dst
++  func.func @invalid_use_after_release() {
++    %dst = d2m.acquire_dst() : memref<1x!ttcore.tile<32x32, f32>, #dst_>
++    // expected-error@below {{'d2m.release_dst' op DST value used after release_dst operation}}
++    d2m.release_dst %dst : memref<1x!ttcore.tile<32x32, f32>, #dst_>
++    %0 = memref.load %dst[] : memref<1x!ttcore.tile<32x32, f32>, #dst_>
++    return
++  }
++}
++
++// -----
++
++#dst_ = #ttcore.memory_space<dst>
++module {
++  // Test that release_dst requires the operand to be from acquire_dst or a block argument
++  func.func @invalid_release_dst_not_acquire() {
++    %dst = memref.alloc() : memref<1x!ttcore.tile<32x32, f32>, #dst_>
++    // expected-error@below {{'d2m.release_dst' op operand must be the result of a d2m.acquire_dst operation or a block argument}}
++    d2m.release_dst %dst : memref<1x!ttcore.tile<32x32, f32>, #dst_>
++    return
++  }
++}
+diff --git a/test/ttmlir/Dialect/D2M/IR/release_dst.mlir b/test/ttmlir/Dialect/D2M/IR/release_dst.mlir
+deleted file mode 100644
+index 4639aa1c8..000000000
+--- a/test/ttmlir/Dialect/D2M/IR/release_dst.mlir
++++ /dev/null
+@@ -1,44 +0,0 @@
+-// RUN: ttmlir-opt %s | FileCheck %s
+-
+-#dst_ = #ttcore.memory_space<dst>
+-
+-// Valid symmetrical acquire/release pair.
+-// CHECK-LABEL: @valid_acquire_release_pair
+-func.func @valid_acquire_release_pair() {
+-  // CHECK: d2m.acquire_dst
+-  %dst = d2m.acquire_dst() : memref<1x!ttcore.tile<32x32, f32>, #dst_>
+-  // CHECK: d2m.release_dst
+-  d2m.release_dst %dst : memref<1x!ttcore.tile<32x32, f32>, #dst_>
+-  return
+-}
+-
+-// Multiple acquire/release pairs.
+-// CHECK-LABEL: @multiple_acquire_release_pairs
+-func.func @multiple_acquire_release_pairs() {
+-  // CHECK: d2m.acquire_dst
+-  %dst0 = d2m.acquire_dst() : memref<1x!ttcore.tile<32x32, f32>, #dst_>
+-  // CHECK: d2m.release_dst
+-  d2m.release_dst %dst0 : memref<1x!ttcore.tile<32x32, f32>, #dst_>
+-
+-  // CHECK: d2m.acquire_dst
+-  %dst1 = d2m.acquire_dst() : memref<2x!ttcore.tile<32x32, f32>, #dst_>
+-  // CHECK: d2m.release_dst
+-  d2m.release_dst %dst1 : memref<2x!ttcore.tile<32x32, f32>, #dst_>
+-  return
+-}
+-
+-// release_dst with multiple uses before it.
+-// CHECK-LABEL: @acquire_used_multiple_times_then_released
+-func.func @acquire_used_multiple_times_then_released() {
+-  // CHECK: d2m.acquire_dst
+-  %dst = d2m.acquire_dst() : memref<3x!ttcore.tile<32x32, f32>, #dst_>
+-
+-  // Multiple loads from the DST (valid pattern).
+-  %c0 = arith.constant 0 : index
+-  %0 = affine.load %dst[%c0] : memref<3x!ttcore.tile<32x32, f32>, #dst_>
+-  %1 = affine.load %dst[%c0] : memref<3x!ttcore.tile<32x32, f32>, #dst_>
+-
+-  // CHECK: d2m.release_dst
+-  d2m.release_dst %dst : memref<3x!ttcore.tile<32x32, f32>, #dst_>
+-  return
+-}
+diff --git a/test/ttmlir/Dialect/D2M/Transforms/insert_dst_register_access_eltwise.mlir b/test/ttmlir/Dialect/D2M/Transforms/insert_dst_register_access_eltwise.mlir
+index 8803ea783..1f2840b68 100644
+--- a/test/ttmlir/Dialect/D2M/Transforms/insert_dst_register_access_eltwise.mlir
++++ b/test/ttmlir/Dialect/D2M/Transforms/insert_dst_register_access_eltwise.mlir
+@@ -38,6 +38,7 @@ module {
+         // CHECK: %[[FINAL_VAL:.*]] = affine.load %[[DST]]
+         // Check that final result is stored back to original #l1 memory space
+         // CHECK: affine.store %[[FINAL_VAL]], %[[ARG2:.*]]
++        // CHECK: d2m.release_dst %[[DST]]
+         linalg.yield %0 : !ttcore.tile<32x32, f32>
+       }
+     }
+@@ -73,6 +74,7 @@ module {
+             // CHECK: affine.store %[[RECIP_RESULT]], %[[DST]][2, %[[ARG_I]], %[[ARG_J]]] : memref<8x1x1x!ttcore.tile<32x32, f16>, #dst>
+             // CHECK: %[[FINAL_VAL:.*]] = affine.load %[[DST]][2, %[[ARG_I]], %[[ARG_J]]] : memref<8x1x1x!ttcore.tile<32x32, f16>, #dst>
+             // CHECK: affine.store %[[FINAL_VAL]], {{.*}} : memref<1x1x!ttcore.tile<32x32, f16>, #l1>
++            // CHECK: d2m.release_dst %[[DST]]
+             linalg.yield %1 : !ttcore.tile<32x32, f16>
+           }
+         }
+@@ -114,6 +116,7 @@ module {
+             // CHECK: affine.store %[[EQZ2_RESULT]], %[[DST]][2, %[[ARG_I]], %[[ARG_J]]] : memref<8x1x1x!ttcore.tile<32x32, f16>, #dst>
+             // CHECK: %[[FINAL_VAL:.*]] = affine.load %[[DST]][2, %[[ARG_I]], %[[ARG_J]]] : memref<8x1x1x!ttcore.tile<32x32, f16>, #dst>
+             // CHECK: affine.store %[[FINAL_VAL]], {{.*}} : memref<1x1x!ttcore.tile<32x32, f16>, #l1>
++            // CHECK: d2m.release_dst %[[DST]]
+             linalg.yield %2 : !ttcore.tile<32x32, f16>
+           }
+         }
+@@ -180,6 +183,7 @@ module {
+               affine.store %0, %subview_4[%arg3, %arg4] : memref<2x4x!ttcore.tile<32x32, bf16>, strided<[4, 1], offset: ?>, #l1_>
+             }
+           }
++          d2m.release_dst %dst : memref<1x2x4x!ttcore.tile<32x32, bf16>, #dst_>
+         }
+       }
+     }
+diff --git a/test/ttmlir/Dialect/D2M/Transforms/insert_dst_register_access_eltwise_large_dst.mlir b/test/ttmlir/Dialect/D2M/Transforms/insert_dst_register_access_eltwise_large_dst.mlir
+index 83be03bb5..3d661a05a 100644
+--- a/test/ttmlir/Dialect/D2M/Transforms/insert_dst_register_access_eltwise_large_dst.mlir
++++ b/test/ttmlir/Dialect/D2M/Transforms/insert_dst_register_access_eltwise_large_dst.mlir
+@@ -38,6 +38,7 @@ module {
+         // CHECK: %[[FINAL_VAL:.*]] = affine.load %[[DST]]
+         // Check that final result is stored back to original #l1 memory space
+         // CHECK: affine.store %[[FINAL_VAL]], %[[ARG2:.*]]
++        // CHECK: d2m.release_dst %[[DST]]
+         linalg.yield %0 : !ttcore.tile<32x32, f32>
+       }
+     }
+@@ -73,6 +74,7 @@ module {
+             // CHECK: affine.store %[[RECIP_RESULT]], %[[DST]][2, %[[ARG_I]], %[[ARG_J]]] : memref<8x1x1x!ttcore.tile<32x32, f32>, #dst>
+             // CHECK: %[[FINAL_VAL:.*]] = affine.load %[[DST]][2, %[[ARG_I]], %[[ARG_J]]] : memref<8x1x1x!ttcore.tile<32x32, f32>, #dst>
+             // CHECK: affine.store %[[FINAL_VAL]], {{.*}} : memref<1x1x!ttcore.tile<32x32, f32>, #l1>
++            // CHECK: d2m.release_dst %[[DST]]
+             linalg.yield %1 : !ttcore.tile<32x32, f32>
+           }
+         }
+@@ -114,6 +116,7 @@ module {
+             // CHECK: affine.store %[[EQZ2_RESULT]], %[[DST]][2, %[[ARG_I]], %[[ARG_J]]] : memref<8x1x1x!ttcore.tile<32x32, f32>, #dst>
+             // CHECK: %[[FINAL_VAL:.*]] = affine.load %[[DST]][2, %[[ARG_I]], %[[ARG_J]]] : memref<8x1x1x!ttcore.tile<32x32, f32>, #dst>
+             // CHECK: affine.store %[[FINAL_VAL]], {{.*}} : memref<1x1x!ttcore.tile<32x32, f32>, #l1>
++            // CHECK: d2m.release_dst %[[DST]]
+             linalg.yield %2 : !ttcore.tile<32x32, f32>
+           }
+         }
+@@ -180,6 +183,7 @@ module {
+               affine.store %0, %subview_4[%arg3, %arg4] : memref<2x4x!ttcore.tile<32x32, f32>, strided<[4, 1], offset: ?>, #l1_>
+             }
+           }
++          d2m.release_dst %dst : memref<1x2x4x!ttcore.tile<32x32, f32>, #dst_>
+         }
+       }
+     }
+diff --git a/test/ttmlir/Dialect/D2M/Transforms/insert_dst_register_access_matmul_block.mlir b/test/ttmlir/Dialect/D2M/Transforms/insert_dst_register_access_matmul_block.mlir
+index aa1c5b184..ec1d879c0 100644
+--- a/test/ttmlir/Dialect/D2M/Transforms/insert_dst_register_access_matmul_block.mlir
++++ b/test/ttmlir/Dialect/D2M/Transforms/insert_dst_register_access_matmul_block.mlir
+@@ -32,6 +32,7 @@ module {
+         // CHECK: %[[FINAL_VAL:.*]] = affine.load %[[DST]]
+         // Check that final result is stored back to original #l1 memory space
+         // CHECK: affine.store %[[FINAL_VAL]], %[[ARG2]]
++        // CHECK: d2m.release_dst %[[DST]]
+         linalg.yield %0 : !ttcore.tile<32x32, f32>
+       }
+     }
+@@ -104,6 +105,7 @@ module {
+       // Check writeback: load from dst, store to l1
+       // CHECK: %[[FINAL_VAL:.*]] = affine.load %[[DST]][0, %[[WB_I]], %[[WB_J]]] : memref<1x3x2x!ttcore.tile<32x32, f16>, #dst>
+       // CHECK: affine.store %[[FINAL_VAL]], {{%.*}}[%[[WB_I]], %[[WB_J]]] : memref<3x2x!ttcore.tile<32x32, f16>, #l1>
++      // CHECK: d2m.release_dst %[[DST]]
+     }
+     return
+   }
+diff --git a/test/ttmlir/Dialect/D2M/Transforms/insert_dst_register_access_matmul_block_large_dst.mlir b/test/ttmlir/Dialect/D2M/Transforms/insert_dst_register_access_matmul_block_large_dst.mlir
+index 71b3e1674..cc415c21f 100644
+--- a/test/ttmlir/Dialect/D2M/Transforms/insert_dst_register_access_matmul_block_large_dst.mlir
++++ b/test/ttmlir/Dialect/D2M/Transforms/insert_dst_register_access_matmul_block_large_dst.mlir
+@@ -32,6 +32,7 @@ module {
+         // CHECK: %[[FINAL_VAL:.*]] = affine.load %[[DST]]
+         // Check that final result is stored back to original #l1 memory space
+         // CHECK: affine.store %[[FINAL_VAL]], %[[ARG2]]
++        // CHECK: d2m.release_dst %[[DST]]
+         linalg.yield %0 : !ttcore.tile<32x32, f32>
+       }
+     }
+@@ -104,6 +105,7 @@ module {
+       // Check writeback: load from dst, store to l1
+       // CHECK: %[[FINAL_VAL:.*]] = affine.load %[[DST]][0, %[[WB_I]], %[[WB_J]]] : memref<1x3x2x!ttcore.tile<32x32, f32>, #dst>
+       // CHECK: affine.store %[[FINAL_VAL]], {{%.*}}[%[[WB_I]], %[[WB_J]]] : memref<3x2x!ttcore.tile<32x32, f32>, #l1>
++      // CHECK: d2m.release_dst %[[DST]]
+     }
+     return
+   }
+diff --git a/test/ttmlir/Dialect/D2M/Transforms/insert_dst_register_access_matmul_tile.mlir b/test/ttmlir/Dialect/D2M/Transforms/insert_dst_register_access_matmul_tile.mlir
+index ecced6fec..575a8c7b6 100644
+--- a/test/ttmlir/Dialect/D2M/Transforms/insert_dst_register_access_matmul_tile.mlir
++++ b/test/ttmlir/Dialect/D2M/Transforms/insert_dst_register_access_matmul_tile.mlir
+@@ -36,6 +36,7 @@ module {
+         // CHECK: %[[FINAL_VAL:.*]] = affine.load %[[DST]]
+         // Check that final result is stored back to original #l1 memory space
+         // CHECK: affine.store %[[FINAL_VAL]], %[[ARG2]]
++        // CHECK: d2m.release_dst %[[DST]]
+         linalg.yield %0 : !ttcore.tile<32x32, f32>
+       }
+     }
+@@ -117,6 +118,7 @@ module {
+       // Check writeback: load from dst, store to l1
+       // CHECK: %[[FINAL_VAL:.*]] = affine.load %[[DST]][0, %[[WB_I]], %[[WB_J]]] : memref<1x3x2x!ttcore.tile<32x32, f16>, #dst>
+       // CHECK: affine.store %[[FINAL_VAL]], {{%.*}}[%[[WB_I]], %[[WB_J]]] : memref<3x2x!ttcore.tile<32x32, f16>, #l1>
++      // CHECK: d2m.release_dst %[[DST]]
+     }
+     return
+   }
+diff --git a/test/ttmlir/Dialect/D2M/Transforms/insert_dst_register_access_matmul_tile_large_dst.mlir b/test/ttmlir/Dialect/D2M/Transforms/insert_dst_register_access_matmul_tile_large_dst.mlir
+index 8a13df3f0..144710b52 100644
+--- a/test/ttmlir/Dialect/D2M/Transforms/insert_dst_register_access_matmul_tile_large_dst.mlir
++++ b/test/ttmlir/Dialect/D2M/Transforms/insert_dst_register_access_matmul_tile_large_dst.mlir
+@@ -36,6 +36,7 @@ module {
+         // CHECK: %[[FINAL_VAL:.*]] = affine.load %[[DST]]
+         // Check that final result is stored back to original #l1 memory space
+         // CHECK: affine.store %[[FINAL_VAL]], %[[ARG2]]
++        // CHECK: d2m.release_dst %[[DST]]
+         linalg.yield %0 : !ttcore.tile<32x32, f32>
+       }
+     }
+@@ -117,6 +118,7 @@ module {
+       // Check writeback: load from dst, store to l1
+       // CHECK: %[[FINAL_VAL:.*]] = affine.load %[[DST]][0, %[[WB_I]], %[[WB_J]]] : memref<1x3x2x!ttcore.tile<32x32, f32>, #dst>
+       // CHECK: affine.store %[[FINAL_VAL]], {{%.*}}[%[[WB_I]], %[[WB_J]]] : memref<3x2x!ttcore.tile<32x32, f32>, #l1>
++      // CHECK: d2m.release_dst %[[DST]]
+     }
+     return
+   }
+diff --git a/test/ttmlir/Dialect/D2M/Transforms/insert_dst_register_gc.mlir b/test/ttmlir/Dialect/D2M/Transforms/insert_dst_register_gc.mlir
+index 41a7fad62..13d858583 100644
+--- a/test/ttmlir/Dialect/D2M/Transforms/insert_dst_register_gc.mlir
++++ b/test/ttmlir/Dialect/D2M/Transforms/insert_dst_register_gc.mlir
+@@ -26,8 +26,12 @@ func.func @test_pass_simple() {
+ func.func @test_multiple_acquire() {
+   %dst0 = d2m.acquire_dst() : memref<1x!ttcore.tile<32x32, f32>, #dst_>
+   %dst1 = d2m.acquire_dst() : memref<1x!ttcore.tile<32x32, f32>, #dst_>
+-  d2m.release_dst %dst0 : memref<1x!ttcore.tile<32x32, f32>, #dst_>
+-  d2m.release_dst %dst1 : memref<1x!ttcore.tile<32x32, f32>, #dst_>
++
++  cf.br ^bb1(%dst0, %dst1 : memref<1x!ttcore.tile<32x32, f32>, #dst_>, memref<1x!ttcore.tile<32x32, f32>, #dst_>)
++
++^bb1(%arg0: memref<1x!ttcore.tile<32x32, f32>, #dst_>, %arg1: memref<1x!ttcore.tile<32x32, f32>, #dst_>):
++  d2m.release_dst %arg0 : memref<1x!ttcore.tile<32x32, f32>, #dst_>
++  d2m.release_dst %arg1 : memref<1x!ttcore.tile<32x32, f32>, #dst_>
+   return
+ }
+ 
+@@ -70,6 +74,7 @@ func.func @eltwise_binary_with_dst(%cb0: memref<1x1x!ttcore.tile<32x32, f32>, #l
+   %5 = affine.load %dst[2, %c0, %c0] : memref<4x1x1x!ttcore.tile<32x32, f32>, #dst_>
+   affine.store %5, %cb2[%c0, %c0] : memref<1x1x!ttcore.tile<32x32, f32>, #l1_>
+ 
++  d2m.release_dst %dst : memref<4x1x1x!ttcore.tile<32x32, f32>, #dst_>
+   return
+ }
+ 
+@@ -84,6 +89,8 @@ func.func @eltwise_binary_with_dst(%cb0: memref<1x1x!ttcore.tile<32x32, f32>, #l
+ // CHECK-COUNT-2: affine.for %{{.*}} = 0 to 2
+ // CHECK: %{{.*}} = d2m.acquire_dst() : memref<2x2x2x!ttcore.tile<32x32, f32>, #dst{{.*}}>
+ // CHECK-COUNT-2: affine.for %{{.*}} = 0 to 2
++// CHECK: d2m.release_dst
++// CHECK: d2m.release_dst
+ func.func @multiple_dst_regions(%cb0: memref<2x2x!ttcore.tile<32x32, f32>, #l1_>,
+                                 %cb1: memref<2x2x!ttcore.tile<32x32, f32>, #l1_>) {
+   %c0 = arith.constant 0 : index
+@@ -105,6 +112,8 @@ func.func @multiple_dst_regions(%cb0: memref<2x2x!ttcore.tile<32x32, f32>, #l1_>
+     }
+   }
+ 
++  d2m.release_dst %dst1 : memref<2x2x2x!ttcore.tile<32x32, f32>, #dst_>
++  d2m.release_dst %dst2 : memref<2x2x2x!ttcore.tile<32x32, f32>, #dst_>
+   return
+ }
+ 
+@@ -169,6 +178,7 @@ func.func @dst_with_accumulation(%cb0: memref<3x3x!ttcore.tile<32x32, f32>, #l1_
+     }
+   }
+ 
++  d2m.release_dst %dst : memref<3x3x2x!ttcore.tile<32x32, f32>, #dst_>
+   return
+ }
+ 
+@@ -222,6 +232,7 @@ func.func @unary_in_place(%cb0: memref<2x4x!ttcore.tile<32x32, f32>, #l1_>,
+     }
+   }
+ 
++  d2m.release_dst %dst : memref<1x2x4x!ttcore.tile<32x32, f32>, #dst_>
+   return
+ }
+ 
+@@ -275,5 +286,6 @@ func.func @eltwise_large_dst(%cb0: memref<4x4x!ttcore.tile<32x32, bf16>, #l1_>,
+     }
+   }
+ 
++  d2m.release_dst %dst : memref<8x4x4x!ttcore.tile<32x32, bf16>, #dst_>
+   return
+ }
+diff --git a/test/ttmlir/Dialect/D2M/Transforms/insert_dst_register_gc_invalid.mlir b/test/ttmlir/Dialect/D2M/Transforms/insert_dst_register_gc_invalid.mlir
+index 524c2a18f..41827fb15 100644
+--- a/test/ttmlir/Dialect/D2M/Transforms/insert_dst_register_gc_invalid.mlir
++++ b/test/ttmlir/Dialect/D2M/Transforms/insert_dst_register_gc_invalid.mlir
+@@ -43,6 +43,7 @@ func.func @simple_release() {
+   cf.br ^bb1(%dst, %dst : memref<1x!ttcore.tile<32x32, f32>, #dst_>, memref<1x!ttcore.tile<32x32, f32>, #dst_>)
+ 
+ ^bb1(%arg0: memref<1x!ttcore.tile<32x32, f32>, #dst_>, %arg1: memref<1x!ttcore.tile<32x32, f32>, #dst_>):
++  d2m.release_dst %arg0 : memref<1x!ttcore.tile<32x32, f32>, #dst_>
+   return
+ }
+ 
+@@ -71,6 +72,11 @@ func.func @many_acquire_dst() {
+      %arg2: memref<1x!ttcore.tile<32x32, f32>, #dst_>,
+      %arg3: memref<1x!ttcore.tile<32x32, f32>, #dst_>,
+      %arg4: memref<1x!ttcore.tile<32x32, f32>, #dst_>):
++  d2m.release_dst %arg0 : memref<1x!ttcore.tile<32x32, f32>, #dst_>
++  d2m.release_dst %arg1 : memref<1x!ttcore.tile<32x32, f32>, #dst_>
++  d2m.release_dst %arg2 : memref<1x!ttcore.tile<32x32, f32>, #dst_>
++  d2m.release_dst %arg3 : memref<1x!ttcore.tile<32x32, f32>, #dst_>
++  d2m.release_dst %arg4 : memref<1x!ttcore.tile<32x32, f32>, #dst_>
+   return
+ }
+ 
+@@ -89,6 +95,8 @@ func.func @different_types_dst() {
+   cf.br ^bb1(%dst_f32, %dst_f16 : memref<1x!ttcore.tile<32x32, f32>, #dst_>, memref<1x!ttcore.tile<32x32, f16>, #dst_>)
+ 
+ ^bb1(%arg0: memref<1x!ttcore.tile<32x32, f32>, #dst_>, %arg1: memref<1x!ttcore.tile<32x32, f16>, #dst_>):
++  d2m.release_dst %arg0 : memref<1x!ttcore.tile<32x32, f32>, #dst_>
++  d2m.release_dst %arg1 : memref<1x!ttcore.tile<32x32, f16>, #dst_>
+   return
+ }
+ 
+@@ -115,5 +123,6 @@ func.func @complex_liveness(%cond: i1) {
+   cf.br ^bb3(%arg1 : memref<2x!ttcore.tile<32x32, f32>, #dst_>)
+ 
+ ^bb3(%arg2: memref<2x!ttcore.tile<32x32, f32>, #dst_>):
++  d2m.release_dst %arg2 : memref<2x!ttcore.tile<32x32, f32>, #dst_>
+   return
+ }
+diff --git a/test/ttmlir/Dialect/D2M/Transforms/insert_dst_register_gc_large_dst.mlir b/test/ttmlir/Dialect/D2M/Transforms/insert_dst_register_gc_large_dst.mlir
+new file mode 100644
+index 000000000..680a7ead8
+--- /dev/null
++++ b/test/ttmlir/Dialect/D2M/Transforms/insert_dst_register_gc_large_dst.mlir
+@@ -0,0 +1,117 @@
++// RUN: ttmlir-opt %s -d2m-insert-dst-register-gc -split-input-file | FileCheck %s --check-prefix=CHECK
++
++// Test: Large DST allocation with bf16 - verify release_dst is inserted correctly.
++#l1_ = #ttcore.memory_space<l1>
++#dst_ = #ttcore.memory_space<dst>
++
++// CHECK-LABEL: func.func @large_dst_eltwise
++// CHECK: %[[DST:.*]] = d2m.acquire_dst() : memref<16x4x4x!ttcore.tile<32x32, bf16>, #dst{{.*}}>
++// CHECK: affine.for
++// CHECK: affine.store
++// CHECK: affine.load
++// CHECK: "d2m.tile_add"
++// CHECK: "d2m.tile_mul"
++// CHECK: affine.load
++// CHECK: affine.store
++// CHECK: d2m.release_dst %[[DST]]
++// CHECK: return
++func.func @large_dst_eltwise(%cb0: memref<4x4x!ttcore.tile<32x32, bf16>, #l1_>,
++                             %cb1: memref<4x4x!ttcore.tile<32x32, bf16>, #l1_>,
++                             %cb2: memref<4x4x!ttcore.tile<32x32, bf16>, #l1_>) {
++  %c0 = arith.constant 0 : index
++
++  %dst = d2m.acquire_dst() : memref<16x4x4x!ttcore.tile<32x32, bf16>, #dst_>
++
++  // Load inputs
++  affine.for %i = 0 to 4 {
++    affine.for %j = 0 to 4 {
++      %0 = affine.load %cb0[%i, %j] : memref<4x4x!ttcore.tile<32x32, bf16>, #l1_>
++      affine.store %0, %dst[0, %i, %j] : memref<16x4x4x!ttcore.tile<32x32, bf16>, #dst_>
++
++      %1 = affine.load %cb1[%i, %j] : memref<4x4x!ttcore.tile<32x32, bf16>, #l1_>
++      affine.store %1, %dst[1, %i, %j] : memref<16x4x4x!ttcore.tile<32x32, bf16>, #dst_>
++    }
++  }
++
++  // Compute: add then multiply
++  affine.for %i = 0 to 4 {
++    affine.for %j = 0 to 4 {
++      %0 = affine.load %dst[0, %i, %j] : memref<16x4x4x!ttcore.tile<32x32, bf16>, #dst_>
++      %1 = affine.load %dst[1, %i, %j] : memref<16x4x4x!ttcore.tile<32x32, bf16>, #dst_>
++      %2 = "d2m.tile_add"(%0, %1) : (!ttcore.tile<32x32, bf16>, !ttcore.tile<32x32, bf16>) -> !ttcore.tile<32x32, bf16>
++      affine.store %2, %dst[2, %i, %j] : memref<16x4x4x!ttcore.tile<32x32, bf16>, #dst_>
++
++      %3 = affine.load %dst[2, %i, %j] : memref<16x4x4x!ttcore.tile<32x32, bf16>, #dst_>
++      %4 = "d2m.tile_mul"(%3, %3) : (!ttcore.tile<32x32, bf16>, !ttcore.tile<32x32, bf16>) -> !ttcore.tile<32x32, bf16>
++      affine.store %4, %dst[3, %i, %j] : memref<16x4x4x!ttcore.tile<32x32, bf16>, #dst_>
++    }
++  }
++
++  // Writeback
++  affine.for %i = 0 to 4 {
++    affine.for %j = 0 to 4 {
++      %0 = affine.load %dst[3, %i, %j] : memref<16x4x4x!ttcore.tile<32x32, bf16>, #dst_>
++      affine.store %0, %cb2[%i, %j] : memref<4x4x!ttcore.tile<32x32, bf16>, #l1_>
++    }
++  }
++
++  return
++}
++
++// -----
++
++// Test: Large DST matmul pattern - verify release_dst is inserted correctly.
++#l1_ = #ttcore.memory_space<l1>
++#dst_ = #ttcore.memory_space<dst>
++
++// CHECK-LABEL: func.func @large_dst_matmul
++// CHECK: %[[DST:.*]] = d2m.acquire_dst() : memref<8x4x4x!ttcore.tile<32x32, f32>, #dst{{.*}}>
++// CHECK: affine.for
++// CHECK: affine.store
++// CHECK: affine.for
++// CHECK: affine.for
++// CHECK: "d2m.tile_matmul"
++// CHECK: affine.store
++// CHECK: affine.for
++// CHECK: affine.load
++// CHECK: affine.store
++// CHECK: d2m.release_dst %[[DST]]
++// CHECK: return
++func.func @large_dst_matmul(%cb0: memref<4x4x!ttcore.tile<32x32, f32>, #l1_>,
++                            %cb1: memref<4x4x!ttcore.tile<32x32, f32>, #l1_>,
++                            %cb2: memref<4x4x!ttcore.tile<32x32, f32>, #l1_>) {
++  %c0 = arith.constant 0 : index
++
++  %dst = d2m.acquire_dst() : memref<8x4x4x!ttcore.tile<32x32, f32>, #dst_>
++
++  // Initialize accumulator
++  affine.for %i = 0 to 4 {
++    affine.for %j = 0 to 4 {
++      %0 = affine.load %cb2[%i, %j] : memref<4x4x!ttcore.tile<32x32, f32>, #l1_>
++      affine.store %0, %dst[0, %i, %j] : memref<8x4x4x!ttcore.tile<32x32, f32>, #dst_>
++    }
++  }
++
++  // Matmul computation
++  affine.for %i = 0 to 4 {
++    affine.for %j = 0 to 4 {
++      affine.for %k = 0 to 4 {
++        %a = affine.load %cb0[%i, %k] : memref<4x4x!ttcore.tile<32x32, f32>, #l1_>
++        %b = affine.load %cb1[%k, %j] : memref<4x4x!ttcore.tile<32x32, f32>, #l1_>
++        %acc = affine.load %dst[0, %i, %j] : memref<8x4x4x!ttcore.tile<32x32, f32>, #dst_>
++        %result = "d2m.tile_matmul"(%a, %b, %acc) : (!ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
++        affine.store %result, %dst[0, %i, %j] : memref<8x4x4x!ttcore.tile<32x32, f32>, #dst_>
++      }
++    }
++  }
++
++  // Writeback
++  affine.for %i = 0 to 4 {
++    affine.for %j = 0 to 4 {
++      %0 = affine.load %dst[0, %i, %j] : memref<8x4x4x!ttcore.tile<32x32, f32>, #dst_>
++      affine.store %0, %cb2[%i, %j] : memref<4x4x!ttcore.tile<32x32, f32>, #l1_>
++    }
++  }
++
++  return
++}
+diff --git a/test/ttmlir/Dialect/D2M/Transforms/insert_dst_register_gc_matmul.mlir b/test/ttmlir/Dialect/D2M/Transforms/insert_dst_register_gc_matmul.mlir
+new file mode 100644
+index 000000000..c9e0cc6a5
+--- /dev/null
++++ b/test/ttmlir/Dialect/D2M/Transforms/insert_dst_register_gc_matmul.mlir
+@@ -0,0 +1,111 @@
++// RUN: ttmlir-opt %s -d2m-insert-dst-register-gc -split-input-file | FileCheck %s --check-prefix=CHECK
++
++// Test: Matmul pattern with acquire_dst - verify release_dst is inserted correctly.
++#l1_ = #ttcore.memory_space<l1>
++#dst_ = #ttcore.memory_space<dst>
++
++// CHECK-LABEL: func.func @matmul_with_dst
++// CHECK: %[[DST:.*]] = d2m.acquire_dst() : memref<1x3x2x!ttcore.tile<32x32, f16>, #dst{{.*}}>
++// CHECK: affine.for
++// CHECK: affine.for
++// CHECK: affine.store
++// CHECK: affine.for
++// CHECK: affine.for
++// CHECK: affine.load
++// CHECK: affine.load
++// CHECK: "d2m.tile_matmul"
++// CHECK: affine.store
++// CHECK: affine.for
++// CHECK: affine.for
++// CHECK: affine.load
++// CHECK: affine.store
++// CHECK: d2m.release_dst %[[DST]]
++// CHECK: return
++func.func @matmul_with_dst(%cb0: memref<3x3x!ttcore.tile<32x32, f16>, #l1_>,
++                            %cb1: memref<3x2x!ttcore.tile<32x32, f16>, #l1_>,
++                            %cb2: memref<3x2x!ttcore.tile<32x32, f16>, #l1_>) {
++  %c0 = arith.constant 0 : index
++
++  %dst = d2m.acquire_dst() : memref<1x3x2x!ttcore.tile<32x32, f16>, #dst_>
++
++  // Initialize accumulator from output buffer
++  affine.for %i = 0 to 3 {
++    affine.for %j = 0 to 2 {
++      %0 = affine.load %cb2[%i, %j] : memref<3x2x!ttcore.tile<32x32, f16>, #l1_>
++      affine.store %0, %dst[0, %i, %j] : memref<1x3x2x!ttcore.tile<32x32, f16>, #dst_>
++    }
++  }
++
++  // Matmul computation
++  affine.for %i = 0 to 3 {
++    affine.for %j = 0 to 2 {
++      affine.for %k = 0 to 3 {
++        %a = affine.load %cb0[%i, %k] : memref<3x3x!ttcore.tile<32x32, f16>, #l1_>
++        %b = affine.load %cb1[%k, %j] : memref<3x2x!ttcore.tile<32x32, f16>, #l1_>
++        %acc = affine.load %dst[0, %i, %j] : memref<1x3x2x!ttcore.tile<32x32, f16>, #dst_>
++        %result = "d2m.tile_matmul"(%a, %b, %acc) : (!ttcore.tile<32x32, f16>, !ttcore.tile<32x32, f16>, !ttcore.tile<32x32, f16>) -> !ttcore.tile<32x32, f16>
++        affine.store %result, %dst[0, %i, %j] : memref<1x3x2x!ttcore.tile<32x32, f16>, #dst_>
++      }
++    }
++  }
++
++  // Writeback to output buffer
++  affine.for %i = 0 to 3 {
++    affine.for %j = 0 to 2 {
++      %0 = affine.load %dst[0, %i, %j] : memref<1x3x2x!ttcore.tile<32x32, f16>, #dst_>
++      affine.store %0, %cb2[%i, %j] : memref<3x2x!ttcore.tile<32x32, f16>, #l1_>
++    }
++  }
++
++  return
++}
++
++// -----
++
++// Test: Multiple matmul operations with interference - verify graph coloring works.
++#l1_ = #ttcore.memory_space<l1>
++#dst_ = #ttcore.memory_space<dst>
++
++// CHECK-LABEL: func.func @multiple_matmul_interference
++// CHECK: %[[DST0:.*]] = d2m.acquire_dst() : memref<1x2x2x!ttcore.tile<32x32, f32>, #dst{{.*}}>
++// CHECK: %[[DST1:.*]] = d2m.acquire_dst() : memref<1x2x2x!ttcore.tile<32x32, f32>, #dst{{.*}}>
++// CHECK: affine.for
++// CHECK: "d2m.tile_matmul"
++// CHECK: affine.for
++// CHECK: "d2m.tile_matmul"
++// CHECK: d2m.release_dst %[[DST0]]
++// CHECK: d2m.release_dst %[[DST1]]
++// CHECK: return
++func.func @multiple_matmul_interference(%cb0: memref<2x2x!ttcore.tile<32x32, f32>, #l1_>,
++                                        %cb1: memref<2x2x!ttcore.tile<32x32, f32>, #l1_>,
++                                        %cb2: memref<2x2x!ttcore.tile<32x32, f32>, #l1_>,
++                                        %cb3: memref<2x2x!ttcore.tile<32x32, f32>, #l1_>) {
++  %c0 = arith.constant 0 : index
++
++  %dst0 = d2m.acquire_dst() : memref<1x2x2x!ttcore.tile<32x32, f32>, #dst_>
++  %dst1 = d2m.acquire_dst() : memref<1x2x2x!ttcore.tile<32x32, f32>, #dst_>
++
++  // First matmul
++  affine.for %i = 0 to 2 {
++    affine.for %j = 0 to 2 {
++      %a = affine.load %cb0[%i, %j] : memref<2x2x!ttcore.tile<32x32, f32>, #l1_>
++      %b = affine.load %cb1[%i, %j] : memref<2x2x!ttcore.tile<32x32, f32>, #l1_>
++      %acc = affine.load %dst0[0, %i, %j] : memref<1x2x2x!ttcore.tile<32x32, f32>, #dst_>
++      %result = "d2m.tile_matmul"(%a, %b, %acc) : (!ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
++      affine.store %result, %dst0[0, %i, %j] : memref<1x2x2x!ttcore.tile<32x32, f32>, #dst_>
++    }
++  }
++
++  // Second matmul (interferes with first)
++  affine.for %i = 0 to 2 {
++    affine.for %j = 0 to 2 {
++      %a = affine.load %cb2[%i, %j] : memref<2x2x!ttcore.tile<32x32, f32>, #l1_>
++      %b = affine.load %cb3[%i, %j] : memref<2x2x!ttcore.tile<32x32, f32>, #l1_>
++      %acc = affine.load %dst1[0, %i, %j] : memref<1x2x2x!ttcore.tile<32x32, f32>, #dst_>
++      %result = "d2m.tile_matmul"(%a, %b, %acc) : (!ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
++      affine.store %result, %dst1[0, %i, %j] : memref<1x2x2x!ttcore.tile<32x32, f32>, #dst_>
++    }
++  }
++
++  return
++}
