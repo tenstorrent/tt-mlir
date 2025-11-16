@@ -4409,10 +4409,6 @@ mlir::tt::ttnn::PagedScaledDotProductAttentionDecodeOp::verify() {
       return emitOpError("Attention mask at dim 3 must match key/value "
                          "sequence length (max sequence length)");
     }
-  } else {
-    if (!getIsCausal()) {
-      return emitOpError("Attention mask is required when is_causal is false");
-    }
   }
 
   if (getIsCausal()) {

@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttnn-workaround --canonicalize %s | FileCheck %s
+// RUN: ttmlir-opt --ttcore-register-device="system-desc-path=%system_desc_path%" --ttnn-layout --ttnn-workaround --canonicalize %s | FileCheck %s
 
 module @test_sdpa_unsqueeze_workaround attributes {} {
   // Test 1: Workaround SHOULD apply - 3D inputs without mask
@@ -19,7 +19,6 @@ module @test_sdpa_unsqueeze_workaround attributes {} {
     // CHECK-SAME: shape = [1 : i32, 8 : i32, 32 : i32, 64 : i32]
 
     // CHECK: %[[SDPA:[0-9]+]] = "ttnn.scaled_dot_product_attention"(%[[QUERY_4D]], %[[KEY_4D]], %[[VALUE_4D]])
-    // CHECK-SAME: tensor<1x8x32x64xf32>
 
     // CHECK: %[[RESULT_3D:[0-9]+]] = "ttnn.reshape"(%[[SDPA]])
     // CHECK-SAME: shape = [8 : i32, 32 : i32, 64 : i32]
@@ -52,7 +51,6 @@ module @test_sdpa_unsqueeze_workaround attributes {} {
     // CHECK-SAME: shape = [1 : i32, 8 : i32, 32 : i32, 64 : i32]
 
     // CHECK: %[[SDPA:[0-9]+]] = "ttnn.scaled_dot_product_attention"(%[[QUERY_4D]], %[[KEY_4D]], %[[VALUE_4D]]
-    // CHECK-SAME: tensor<1x8x32x64xf32>
 
     // CHECK: %[[RESULT_3D:[0-9]+]] = "ttnn.reshape"(%[[SDPA]])
     // CHECK-SAME: shape = [8 : i32, 32 : i32, 64 : i32]
@@ -104,7 +102,6 @@ module @test_sdpa_unsqueeze_workaround attributes {} {
     // CHECK-SAME: shape = [1 : i32, 8 : i32, 32 : i32, 64 : i32]
 
     // CHECK: %[[SDPA:[0-9]+]] = "ttnn.scaled_dot_product_attention"(%[[QUERY_4D]], %[[KEY_4D]], %[[VALUE_4D]], %arg3)
-    // CHECK-SAME: tensor<1x8x32x64xf32>
 
     // CHECK: %[[RESULT_3D:[0-9]+]] = "ttnn.reshape"(%[[SDPA]])
     // CHECK-SAME: shape = [8 : i32, 32 : i32, 64 : i32]

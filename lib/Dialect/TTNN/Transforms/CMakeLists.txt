@@ -31,7 +31,7 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         Workarounds/Decomposition/MultiplyOpDecompositionRewritePattern.cpp
         Workarounds/Decomposition/ReduceScatterOpRewritePattern.cpp
         Workarounds/Decomposition/ScatterOpRewritePattern.cpp
-        Workarounds/Decomposition/ScaledDotProductAttentionOpRewritePattern.cpp
+        Workarounds/Decomposition/ScaledDotProductAttentionPadSequenceDimRewriterPattern.cpp
         Workarounds/Decomposition/ScaledDotProductAttentionUnsqueezeRewritePattern.cpp
         Workarounds/Decomposition/UpsampleOpRewritePattern.cpp
         Workarounds/Decomposition/RotaryEmbeddingOpRewritePattern.cpp

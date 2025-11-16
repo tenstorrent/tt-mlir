@@ -207,9 +207,11 @@ public:
       return failure();
     }
 
-    auto scaleAttr = components.scale != 1.0f
-                         ? rewriter.getF32FloatAttr(components.scale)
-                         : nullptr;
+    // auto scaleAttr = components.scale != 1.0f
+    //                      ? rewriter.getF32FloatAttr(components.scale)
+    //                      : nullptr;
+
+    auto scaleAttr = rewriter.getF32FloatAttr(components.scale);
 
     auto sdpaOp = rewriter.create<ScaledDotProductAttentionOp>(
         components.attentionMatmul.getLoc(),
