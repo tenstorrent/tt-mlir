@@ -257,8 +257,9 @@ public:
   LogicalResult
   matchAndRewrite(d2m::ReleaseDstOp op, d2m::ReleaseDstOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
+    // Convert d2m.release_dst to ttkernel.tile_regs_release.
+    // The DST memref operand is not needed (DST is implicit in TTKernel).
     rewriter.create<ttkernel::TileRegsReleaseOp>(op.getLoc());
-    // Dst is an implicit resource in TTKernel, so we can just erase it.
     rewriter.eraseOp(op);
     return success();
   };

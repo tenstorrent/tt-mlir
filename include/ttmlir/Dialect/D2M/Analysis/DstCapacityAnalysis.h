@@ -26,10 +26,7 @@ constexpr uint32_t kDefaultDstCapacity = 8;
 ///
 /// This information is required by the graph coloring register allocation pass
 /// (D2MInsertDstRegisterGC) to determine the number of available colors
-/// (physical DST slices) that can be allocated. We use the minimum capacity
-/// across all ops to find the most constrained operation (typically the one
-/// with the largest element type). This ensures the allocation never exceeds
-/// what any operation can actually use, preventing allocation failures.
+/// (physical DST slices) that can be allocated.
 ///
 /// Usage:
 ///   DstCapacityAnalysis analysis(funcOp);

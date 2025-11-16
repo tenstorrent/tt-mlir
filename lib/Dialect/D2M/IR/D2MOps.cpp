@@ -26,18 +26,10 @@
 namespace mlir::tt::d2m {
 
 LogicalResult AcquireDstOp::verify() {
-  // Check that the result is used by a release_dst operation (at least one
-  // use). We allow multiple uses in some cases, but there must be at least one
-  // release.
-  bool hasRelease = false;
-  for (auto *user : getResult().getUsers()) {
-    if (mlir::isa<mlir::tt::d2m::ReleaseDstOp>(user)) {
-      hasRelease = true;
-      break;
-    }
-  }
-
-  if (!hasRelease) {
+  // Check that the result is used by at least one release_dst operation.
+  if (!llvm::any_of(getResult().getUsers(), [](Operation *user) {
+        return mlir::isa<mlir::tt::d2m::ReleaseDstOp>(user);
+      })) {
     return emitOpError(
         "result must be used by a corresponding d2m.release_dst operation");
   }

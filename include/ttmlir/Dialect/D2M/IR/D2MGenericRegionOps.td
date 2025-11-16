@@ -607,11 +607,8 @@ def D2M_ReleaseDstOp : D2M_GenericRegionComputeOp<"release_dst",
   ]> {
     let summary = "Release a DST register, signaling the end of its liveness.";
     let description = [{
-      This op explicitly marks the end of a DST register's life range,
-      freeing it for immediate reuse by the register allocator. It provides a
-      clear signal for liveness analysis, enabling more efficient register
-      allocation by allowing the graph coloring pass to reuse DST slices
-      sooner.
+      Marks the end of a DST register's lifetime, allowing the register
+      allocator to immediately reuse it for subsequent operations.
 
       Example IR:
 
