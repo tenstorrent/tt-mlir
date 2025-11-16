@@ -135,6 +135,7 @@ ChaitinBriggsColoring::colorGraph(const InterferenceGraph &graph,
   }
 
   // Handle nodes with degree >= K (spill nodes).
+  assert(numColors > 0);
   unsigned nextColor = 0;
   for (auto v : nodes) {
     if (!coloring.count(v)) {
@@ -144,6 +145,95 @@ ChaitinBriggsColoring::colorGraph(const InterferenceGraph &graph,
   }
 
   return coloring;
+}
+
+LogicalResult ChaitinBriggsColoring::colorIndexGraph(
+    const std::vector<std::vector<size_t>> &adjacencyList, unsigned numColors,
+    std::vector<unsigned> &coloring) {
+  coloring.assign(adjacencyList.size(), UINT_MAX);
+  size_t numNodes = adjacencyList.size();
+
+  // Simplification phase: remove nodes with degree < K.
+  std::vector<size_t> simplifyStack;
+  std::vector<bool> removed(numNodes, false);
+
+  while (true) {
+    bool found = false;
+    for (size_t node = 0; node < numNodes; ++node) {
+      if (removed[node]) {
+        continue;
+      }
+
+      // Count active neighbors (not removed).
+      unsigned degree = 0;
+      for (size_t neighbor : adjacencyList[node]) {
+        if (!removed[neighbor]) {
+          degree++;
+        }
+      }
+
+      if (degree < numColors) {
+        simplifyStack.push_back(node);
+        removed[node] = true;
+        found = true;
+        break;
+      }
+    }
+
+    if (!found) {
+      break;
+    }
+  }
+
+  // Selection phase: assign colors by popping from stack.
+  while (!simplifyStack.empty()) {
+    size_t node = simplifyStack.back();
+    simplifyStack.pop_back();
+
+    std::vector<bool> usedColors(numColors, false);
+    for (size_t neighbor : adjacencyList[node]) {
+      if (coloring[neighbor] != UINT_MAX && coloring[neighbor] < numColors) {
+        usedColors[coloring[neighbor]] = true;
+      }
+    }
+
+    unsigned color = 0;
+    while (color < numColors && usedColors[color]) {
+      color++;
+    }
+
+    if (color >= numColors) {
+      return failure(); // Spill - not enough colors.
+    }
+
+    coloring[node] = color;
+  }
+
+  // Handle nodes with degree >= K (potential spill nodes).
+  // Try to color them, but if we can't, it's a spill.
+  for (size_t node = 0; node < numNodes; ++node) {
+    if (coloring[node] == UINT_MAX) {
+      std::vector<bool> usedColors(numColors, false);
+      for (size_t neighbor : adjacencyList[node]) {
+        if (coloring[neighbor] != UINT_MAX && coloring[neighbor] < numColors) {
+          usedColors[coloring[neighbor]] = true;
+        }
+      }
+
+      unsigned color = 0;
+      while (color < numColors && usedColors[color]) {
+        color++;
+      }
+
+      if (color >= numColors) {
+        return failure(); // Spill - not enough colors.
+      }
+
+      coloring[node] = color;
+    }
+  }
+
+  return success();
 }
 
 //===----------------------------------------------------------------------===//

@@ -82,6 +82,10 @@ class ChaitinBriggsColoring : public ColoringStrategy {
 public:
   llvm::DenseMap<mlir::Value, unsigned>
   colorGraph(const InterferenceGraph &graph, unsigned numColors) override;
+
+  LogicalResult
+  colorIndexGraph(const std::vector<std::vector<size_t>> &adjacencyList,
+                  unsigned numColors, std::vector<unsigned> &coloring) override;
 };
 
 /// Greedy graph coloring algorithm inspired by LLVM's RegAllocGreedy.

@@ -29,12 +29,8 @@ func.func @test_pass_simple() {
 func.func @test_multiple_acquire() {
   %dst0 = d2m.acquire_dst() : memref<1x!ttcore.tile<32x32, f32>, #dst_>
   %dst1 = d2m.acquire_dst() : memref<1x!ttcore.tile<32x32, f32>, #dst_>
-
-  cf.br ^bb1(%dst0, %dst1 : memref<1x!ttcore.tile<32x32, f32>, #dst_>, memref<1x!ttcore.tile<32x32, f32>, #dst_>)
-
-^bb1(%arg0: memref<1x!ttcore.tile<32x32, f32>, #dst_>, %arg1: memref<1x!ttcore.tile<32x32, f32>, #dst_>):
-  d2m.release_dst %arg0 : memref<1x!ttcore.tile<32x32, f32>, #dst_>
-  d2m.release_dst %arg1 : memref<1x!ttcore.tile<32x32, f32>, #dst_>
+  d2m.release_dst %dst0 : memref<1x!ttcore.tile<32x32, f32>, #dst_>
+  d2m.release_dst %dst1 : memref<1x!ttcore.tile<32x32, f32>, #dst_>
   return
 }
 
