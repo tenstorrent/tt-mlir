@@ -218,6 +218,138 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
 
     # ----- Public Op Generators ----
 
+    @parse(ttir.PadOp)
+    def pad_parser(
+        self,
+        old_op: ttir.PadOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> global_dict:
+        ttir_op = self.get_opview_from_parser(TTIRBuilder.pad_parser)
+        in0 = global_dict[old_op.input]
+        output = global_dict[old_op.output]
+        padding_attr = old_op.padding
+        value_attr = old_op.value
+        result = old_op.result.type
+
+        new_op = ttir_op(
+            result,
+            in0,
+            output,
+            padding_attr,
+            value_attr,
+            loc=old_op.location,
+        )
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(in0)
+            op_golden_function = get_golden_function(ttir_op)
+            golden_output = op_golden_function(input0, padding_attr, value_attr)
+            self._set_golden_tensor(new_op, golden_output)
+
+        global_dict[old_op.result] = new_op
+        return global_dict
+
+    @parse(ttir.DotGeneralOp)
+    def dot_general_parser(
+        self,
+        old_op: ttir.DotGeneralOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> global_dict:
+        ttir_op = self.get_opview_from_parser(TTIRBuilder.dot_general_parser)
+        in0 = global_dict[old_op.lhs]
+        in1 = global_dict[old_op.rhs]
+        batch_dims_lhs_attr = old_op.batch_dims_lhs
+        contract_dims_lhs_attr = old_op.contract_dims_lhs
+        batch_dims_rhs_attr = old_op.batch_dims_rhs
+        contract_dims_rhs_attr = old_op.contract_dims_rhs
+        result = old_op.result.type
+
+        new_op = ttir_op(
+            result,
+            in0,
+            in1,
+            batch_dims_lhs_attr,
+            contract_dims_lhs_attr,
+            batch_dims_rhs_attr,
+            contract_dims_rhs_attr,
+            loc=old_op.location,
+        )
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(in0)
+            input1 = self._get_golden_tensor(in1)
+            op_golden_function = get_golden_function(ttir_op)
+            golden_output = op_golden_function(
+                input0,
+                input1,
+                batch_dims_lhs_attr,
+                contract_dims_lhs_attr,
+                batch_dims_rhs_attr,
+                contract_dims_rhs_attr,
+            )
+            self._set_golden_tensor(new_op, golden_output)
+
+        global_dict[old_op.result] = new_op
+        return global_dict
+
+    @parse(ttir.BroadcastOp)
+    def broadcast_parser(
+        self,
+        old_op: ttir.BroadcastOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> global_dict:
+        ttir_op = self.get_opview_from_parser(TTIRBuilder.broadcast_parser)
+        in0 = global_dict[old_op.input]
+        output = global_dict[old_op.output]
+        broadcast_dimensions_attr = old_op.broadcast_dimensions
+        result = old_op.result.type
+
+        new_op = ttir_op(
+            result,
+            in0,
+            output,
+            broadcast_dimensions_attr,
+            loc=old_op.location,
+        )
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(in0)
+            op_golden_function = get_golden_function(ttir_op)
+            golden_output = op_golden_function(input0, broadcast_dimensions_attr)
+            self._set_golden_tensor(new_op, golden_output)
+
+        global_dict[old_op.result] = new_op
+        return global_dict
+
+    @parse(ttir.PermuteOp)
+    def permute_parser(
+        self,
+        old_op: ttir.PermuteOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> global_dict:
+        ttir_op = self.get_opview_from_parser(TTIRBuilder.permute_parser)
+        in0 = global_dict[old_op.input]
+        output = global_dict[old_op.output]
+        permutation_attr = old_op.permutation
+        result = old_op.result.type
+
+        new_op = ttir_op(
+            result,
+            in0,
+            output,
+            permutation_attr,
+            loc=old_op.location,
+        )
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(in0)
+            op_golden_function = get_golden_function(ttir_op)
+            golden_output = op_golden_function(input0, permutation_attr)
+            self._set_golden_tensor(new_op, golden_output)
+
+        global_dict[old_op.result] = new_op
+        return global_dict
+
     @parse(ttir.ReshapeOp)
     def reshape_parser(
         self,
