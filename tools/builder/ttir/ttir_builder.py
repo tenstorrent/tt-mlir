@@ -218,6 +218,171 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
 
     # ----- Public Op Generators ----
 
+    @parse(ttir.PoolingOp)
+    def pooling_parser(
+        self,
+        old_op: ttir.PoolingOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> global_dict:
+        ttir_op = self.get_opview_from_parser(TTIRBuilder.pooling_parser)
+
+        new_inputs = []
+        for old_input in old_op.inputs:
+            new_inputs.append(global_dict[old_input])
+
+        new_outputs = []
+        for old_output in old_op.outputs:
+            new_outputs.append(global_dict[old_output])
+
+        pooling_method_attr = old_op.pooling_method
+        window_dimensions_attr = old_op.window_dimensions
+        window_strides_attr = old_op.window_strides
+        padding_attr = old_op.padding
+        window_dilations_attr = old_op.window_dilations
+        base_dilations_attr = old_op.base_dilations
+        result = old_op.result.type
+
+        new_op = ttir_op(
+            [result],
+            new_inputs,
+            new_outputs,
+            pooling_method_attr,
+            window_dimensions_attr,
+            window_strides_attr,
+            base_dilations_attr,
+            window_dilations_attr,
+            padding_attr,
+            loc=old_op.location,
+        )
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensors(new_inputs)[0]
+            op_golden_function = get_golden_function(ttir_op)
+            golden_output = op_golden_function(
+                input0,
+                pooling_method_attr,
+                window_dimensions_attr,
+                window_strides_attr,
+                base_dilations_attr,
+                window_dilations_attr,
+                padding_attr,
+            )
+            self._set_golden_tensor(new_op, golden_output)
+
+        global_dict[old_op.result] = new_op
+        return global_dict
+
+    @parse(ttir.BatchNormInferenceOp)
+    def batch_norm_inference_parser(
+        self,
+        old_op: ttir.BatchNormInferenceOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> global_dict:
+        ttir_op = self.get_opview_from_parser(
+            TTIRBuilder.batch_norm_inference_parser
+        )
+        in0 = global_dict[old_op.operand]
+        scale = global_dict[old_op.scale]
+        offset = global_dict[old_op.offset]
+        mean = global_dict[old_op.mean]
+        variance = global_dict[old_op.variance]
+        output = global_dict[old_op.output]
+        epsilon_attr = old_op.epsilon
+        dimension_attr = old_op.dimension
+        result = old_op.result.type
+
+        new_op = ttir_op(
+            result,
+            in0,
+            scale,
+            offset,
+            mean,
+            variance,
+            output,
+            epsilon_attr,
+            dimension_attr,
+            loc=old_op.location,
+        )
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(in0)
+            scale0 = self._get_golden_tensor(scale)
+            offset0 = self._get_golden_tensor(offset)
+            mean0 = self._get_golden_tensor(mean)
+            variance0 = self._get_golden_tensor(variance)
+            op_golden_function = get_golden_function(ttir_op)
+            golden_output = op_golden_function(
+                input0,
+                scale0,
+                offset0,
+                mean0,
+                variance0,
+                epsilon_attr,
+                dimension_attr,
+            )
+            self._set_golden_tensor(new_op, golden_output)
+
+        global_dict[old_op.result] = new_op
+        return global_dict
+
+    @parse(ttir.ConvolutionOp)
+    def convolution_parser(
+        self,
+        old_op: ttir.ConvolutionOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> global_dict:
+        ttir_op = self.get_opview_from_parser(TTIRBuilder.convolution_parser)
+        in0 = global_dict[old_op.input]
+        weight = global_dict[old_op.weight]
+        output = global_dict[old_op.output]
+        window_strides_attr = old_op.window_strides
+        padding_attr = old_op.padding
+        input_dilation_attr = old_op.input_dilation
+        weight_dilation_attr = old_op.weight_dilation
+        window_reversal_attr = old_op.window_reversal
+        convolution_layout_attr = old_op.convolution_layout
+        feature_group_count_attr = old_op.feature_group_count
+        batch_group_count_attr = old_op.batch_group_count
+        result = old_op.result.type
+
+        new_op = ttir_op(
+            result,
+            in0,
+            weight,
+            output,
+            window_strides_attr,
+            padding_attr,
+            input_dilation_attr,
+            weight_dilation_attr,
+            window_reversal_attr,
+            convolution_layout_attr,
+            feature_group_count_attr,
+            batch_group_count_attr,
+            loc=old_op.location,
+        )
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(in0)
+            weight0 = self._get_golden_tensor(weight)
+            op_golden_function = get_golden_function(ttir_op)
+            golden_output = op_golden_function(
+                input0,
+                weight0,
+                None,
+                window_strides_attr,
+                padding_attr,
+                input_dilation_attr,
+                weight_dilation_attr,
+                window_reversal_attr,
+                convolution_layout_attr,
+                feature_group_count_attr,
+                batch_group_count_attr,
+            )
+            self._set_golden_tensor(new_op, golden_output)
+
+        global_dict[old_op.result] = new_op
+        return global_dict
+
     @parse(ttir.PadOp)
     def pad_parser(
         self,
