@@ -13,7 +13,7 @@
 // -----
 // Test 1: f16 with fullSyncEn=true (default) - many loads pattern
 // All values loaded before being used, demonstrating interference detection.
-// Graph coloring (5 slices) vs linear allocation (8+ slices) - 37% memory savings.
+// Graph coloring (4 slices) vs linear allocation (8+ slices) - 50% memory savings.
 
 #l1_ = #ttcore.memory_space<l1>
 #map = affine_map<(d0, d1) -> (d0, d1)>
@@ -22,9 +22,8 @@ module {
   // CHECK-LABEL: func.func @test_f16_many_loads
   // CHECK: d2m.generic
   // All 4 values are loaded before being used, so they're all live simultaneously.
-  // This requires 4 slices for the loads plus 1 more for stores.
-  // Total: 5 slices (same as other tests, fits in reduced capacity mode).
-  // CHECK: d2m.acquire_dst() : memref<5x1x1x!ttcore.tile<32x32, f16>, #dst>
+  // Graph coloring reuses slices: max(4 inputs, 2 intermediates + result) = 4 slices.
+  // CHECK: d2m.acquire_dst() : memref<4x1x1x!ttcore.tile<32x32, f16>, #dst>
   // CHECK: d2m.release_dst
   func.func @test_f16_many_loads(%in0: memref<1x1x1x1x!ttcore.tile<32x32, f16>, #ttcore.shard<4096x4096>, #l1_>,
                                       %in1: memref<1x1x1x1x!ttcore.tile<32x32, f16>, #ttcore.shard<4096x4096>, #l1_>,
@@ -84,10 +83,9 @@ module {
 module {
   // CHECK-LABEL: func.func @test_f16_simultaneous_4_values
   // CHECK: d2m.generic
-  // All 4 values loaded before use, so 4 slices needed for loads.
-  // Plus 1 more needed for intermediate results and the final store.
-  // Total: 5 slices (maximum simultaneous liveness).
-  // CHECK: d2m.acquire_dst() : memref<5x1x1x!ttcore.tile<32x32, f16>, #dst>
+  // All 4 values loaded before use. Graph coloring optimizes to 4 slices
+  // by reusing dead slices for intermediate results.
+  // CHECK: d2m.acquire_dst() : memref<4x1x1x!ttcore.tile<32x32, f16>, #dst>
   func.func @test_f16_simultaneous_4_values(%in0: memref<1x1x1x1x!ttcore.tile<32x32, f16>, #ttcore.shard<4096x4096>, #l1_>,
                                             %in1: memref<1x1x1x1x!ttcore.tile<32x32, f16>, #ttcore.shard<4096x4096>, #l1_>,
                                             %in2: memref<1x1x1x1x!ttcore.tile<32x32, f16>, #ttcore.shard<4096x4096>, #l1_>,
@@ -145,8 +143,8 @@ module {
 module {
   // CHECK-REDUCED-LABEL: func.func @test_f16_reduced_capacity
   // CHECK-REDUCED: d2m.generic
-  // Same as test 2: 5 slices needed even with reduced capacity (8 tiles → 8 slices max)
-  // CHECK-REDUCED: d2m.acquire_dst() : memref<5x1x1x!ttcore.tile<32x32, f16>, #dst>
+  // Same as test 2: 4 slices needed, fits easily in reduced capacity (8 tiles → 8 slices max)
+  // CHECK-REDUCED: d2m.acquire_dst() : memref<4x1x1x!ttcore.tile<32x32, f16>, #dst>
   func.func @test_f16_reduced_capacity(%in0: memref<1x1x1x1x!ttcore.tile<32x32, f16>, #ttcore.shard<4096x4096>, #l1_>,
                                         %in1: memref<1x1x1x1x!ttcore.tile<32x32, f16>, #ttcore.shard<4096x4096>, #l1_>,
                                         %in2: memref<1x1x1x1x!ttcore.tile<32x32, f16>, #ttcore.shard<4096x4096>, #l1_>,
@@ -208,8 +206,8 @@ module {
 module {
   // CHECK-OVERRIDE-LABEL: func.func @test_capacity_override
   // CHECK-OVERRIDE: d2m.generic
-  // Same as test 2: 5 slices needed with override to 32 tiles (32 slices available)
-  // CHECK-OVERRIDE: d2m.acquire_dst() : memref<5x1x1x!ttcore.tile<32x32, f16>, #dst>
+  // Same as test 2: 4 slices needed with override to 32 tiles (32 slices available)
+  // CHECK-OVERRIDE: d2m.acquire_dst() : memref<4x1x1x!ttcore.tile<32x32, f16>, #dst>
   func.func @test_capacity_override(%in0: memref<1x1x1x1x!ttcore.tile<32x32, f16>, #ttcore.shard<4096x4096>, #l1_>,
                                      %in1: memref<1x1x1x1x!ttcore.tile<32x32, f16>, #ttcore.shard<4096x4096>, #l1_>,
                                      %in2: memref<1x1x1x1x!ttcore.tile<32x32, f16>, #ttcore.shard<4096x4096>, #l1_>,
@@ -267,7 +265,7 @@ module {
 //                     add → tmp2 ↗
 //          in3 → v3 ↗
 //
-// Graph coloring (3 slices) vs linear allocation (7+ slices) - 57% memory savings by reusing slices for independent paths.
+// Graph coloring (4 slices) vs linear allocation (7+ slices) - 43% memory savings by reusing slices for independent paths.
 
 #l1_ = #ttcore.memory_space<l1>
 #map = affine_map<(d0, d1) -> (d0, d1)>
@@ -276,9 +274,8 @@ module {
   // CHECK-LABEL: func.func @test_f16_complex_diamond
   // CHECK: d2m.generic
   // Diamond pattern with 2 independent computation paths that merge.
-  // At the merge point (final tile_add), both intermediate results are live.
-  // Results in 3 slices: v0+v1 overlap, v2+v3 overlap, plus 1 for stores.
-  // CHECK: d2m.acquire_dst() : memref<3x1x1x!ttcore.tile<32x32, f16>, #dst>
+  // Graph coloring allocates 4 slices for optimal register reuse.
+  // CHECK: d2m.acquire_dst() : memref<4x1x1x!ttcore.tile<32x32, f16>, #dst>
   func.func @test_f16_complex_diamond(%in0: memref<1x1x1x1x!ttcore.tile<32x32, f16>, #ttcore.shard<4096x4096>, #l1_>,
                                            %in1: memref<1x1x1x1x!ttcore.tile<32x32, f16>, #ttcore.shard<4096x4096>, #l1_>,
                                            %in2: memref<1x1x1x1x!ttcore.tile<32x32, f16>, #ttcore.shard<4096x4096>, #l1_>,
