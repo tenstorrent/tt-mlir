@@ -12,21 +12,27 @@
 module {
   // DEFAULT-LABEL: func.func @binary
   // DEFAULT: %[[DST0:.*]] = d2m.acquire_dst
+  // DEFAULT-NEXT: affine.for %
   // DEFAULT: affine.store
   // DEFAULT: d2m.tile_maximum
   // DEFAULT: d2m.release_dst %[[DST0]]
+  // DEFAULT-NEXT: return
 
   // CHAITIN-LABEL: func.func @binary
   // CHAITIN: %[[DST0:.*]] = d2m.acquire_dst
+  // CHAITIN-NEXT: affine.for %
   // CHAITIN: affine.store
   // CHAITIN: d2m.tile_maximum
   // CHAITIN: d2m.release_dst %[[DST0]]
+  // CHAITIN-NEXT: return
 
   // GREEDY-LABEL: func.func @binary
   // GREEDY: %[[DST0:.*]] = d2m.acquire_dst
+  // GREEDY-NEXT: affine.for %
   // GREEDY: affine.store
   // GREEDY: d2m.tile_maximum
   // GREEDY: d2m.release_dst %[[DST0]]
+  // GREEDY-NEXT: return
 
   func.func @binary(%in0: memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #l1_>,
                     %in1: memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #l1_>,
@@ -60,27 +66,33 @@ module {
 
   // DEFAULT-LABEL: func.func @ternary_with_interference_and_reuse
   // DEFAULT: %[[DST0:.*]] = d2m.acquire_dst
+  // DEFAULT-NEXT: affine.for %
   // DEFAULT: d2m.tile_maximum
   // DEFAULT: d2m.release_dst %[[DST0]]
-  // DEFAULT: %[[DST1:.*]] = d2m.acquire_dst
+  // DEFAULT-NEXT: %[[DST1:.*]] = d2m.acquire_dst
   // DEFAULT: d2m.tile_add
   // DEFAULT: d2m.release_dst %[[DST1]]
+  // DEFAULT-NEXT: return
 
   // CHAITIN-LABEL: func.func @ternary_with_interference_and_reuse
   // CHAITIN: %[[DST0:.*]] = d2m.acquire_dst
+  // CHAITIN-NEXT: affine.for %
   // CHAITIN: d2m.tile_maximum
   // CHAITIN: d2m.release_dst %[[DST0]]
-  // CHAITIN: %[[DST1:.*]] = d2m.acquire_dst
+  // CHAITIN-NEXT: %[[DST1:.*]] = d2m.acquire_dst
   // CHAITIN: d2m.tile_add
   // CHAITIN: d2m.release_dst %[[DST1]]
+  // CHAITIN-NEXT: return
 
   // GREEDY-LABEL: func.func @ternary_with_interference_and_reuse
   // GREEDY: %[[DST0:.*]] = d2m.acquire_dst
+  // GREEDY-NEXT: affine.for %
   // GREEDY: d2m.tile_maximum
   // GREEDY: d2m.release_dst %[[DST0]]
-  // GREEDY: %[[DST1:.*]] = d2m.acquire_dst
+  // GREEDY-NEXT: %[[DST1:.*]] = d2m.acquire_dst
   // GREEDY: d2m.tile_add
   // GREEDY: d2m.release_dst %[[DST1]]
+  // GREEDY-NEXT: return
 
   func.func @ternary_with_interference_and_reuse(%in0: memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #l1_>,
                                        %in1: memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #l1_>,
