@@ -218,6 +218,71 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
 
     # ----- Public Op Generators ----
 
+    @parse(ttir.MultiplyOp)
+    def multiply_parser(
+        self,
+        old_op: ttir.MultiplyOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> global_dict:
+        ttir_op = self.get_opview_from_parser(TTIRBuilder.multiply_parser)
+        lhs = global_dict[old_op.lhs]
+        rhs = global_dict[old_op.rhs]
+        output = global_dict[old_op.output]
+        result = old_op.result.type
+
+        new_op = ttir_op(
+            result,
+            lhs,
+            rhs,
+            output,
+            loc=old_op.location,
+        )
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(lhs)
+            input1 = self._get_golden_tensor(rhs)
+            op_golden_function = get_golden_function(ttir_op)
+            golden_output = op_golden_function(input0, input1)
+            self._set_golden_tensor(new_op, golden_output)
+
+        global_dict[old_op.result] = new_op
+        return global_dict
+
+    @parse(ttir.SumOp)
+    def sum_parser(
+        self,
+        old_op: ttir.SumOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> global_dict:
+        ttir_op = self.get_opview_from_parser(TTIRBuilder.sum_parser)
+        in0 = global_dict[old_op.input]
+        output = global_dict[old_op.output]
+        dim_arg_attr = old_op.dim_arg
+        keep_dim_attr = old_op.keep_dim
+        result = old_op.result.type
+
+        new_op = ttir_op(
+            result,
+            in0,
+            output,
+            keep_dim_attr,
+            dim_arg=dim_arg_attr,
+            loc=old_op.location,
+        )
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(in0)
+            op_golden_function = get_golden_function(ttir_op)
+            golden_output = op_golden_function(
+                input0,
+                dim_arg_attr,
+                keep_dim_attr,
+            )
+            self._set_golden_tensor(new_op, golden_output)
+
+        global_dict[old_op.result] = new_op
+        return global_dict
+
     @parse(ttir.AddOp)
     def add_parser(
         self,
