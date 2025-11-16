@@ -12,9 +12,9 @@ using namespace mlir;
 
 namespace mlir::tt::d2m {
 
-// ============================================================================
-// InterferenceGraph Implementation
-// ============================================================================
+//===----------------------------------------------------------------------===//
+//                          InterferenceGraph Implementation
+//===----------------------------------------------------------------------===//
 
 void InterferenceGraph::addNode(Value v) {
   if (graph.find(v) == graph.end()) {
@@ -68,13 +68,14 @@ void InterferenceGraph::print(llvm::raw_ostream &os) const {
   }
 }
 
-// ============================================================================
-// ChaitinBriggsColoring Implementation
-// ============================================================================
+//===----------------------------------------------------------------------===//
+//                          ChaitinBriggsColoring Implementation
+//===----------------------------------------------------------------------===//
 
 llvm::DenseMap<Value, unsigned>
 ChaitinBriggsColoring::colorGraph(const InterferenceGraph &graph,
                                   unsigned numColors) {
+  assert(numColors > 0);
   llvm::DenseMap<Value, unsigned> coloring;
   llvm::SmallVector<Value> nodes = graph.getNodes();
 
@@ -143,9 +144,9 @@ ChaitinBriggsColoring::colorGraph(const InterferenceGraph &graph,
   return coloring;
 }
 
-// ============================================================================
-// GreedyColoring Implementation
-// ============================================================================
+//===----------------------------------------------------------------------===//
+//                          GreedyColoring Implementation
+//===----------------------------------------------------------------------===//
 
 llvm::DenseMap<Value, unsigned>
 GreedyColoring::colorGraph(const InterferenceGraph &graph, unsigned numColors) {
