@@ -21,9 +21,13 @@ static void runScaledDotProductAttentionDecodeOp(
   const ::ttnn::Tensor &key = tensorPool.getTTNNTensorAndValidate(op->key());
   const ::ttnn::Tensor &value =
       tensorPool.getTTNNTensorAndValidate(op->value());
-  const ::ttnn::Tensor &curPosTensor =
-      tensorPool.getTTNNTensorAndValidate(op->cur_pos_tensor());
   bool isCausal = op->is_causal();
+
+  std::optional<::ttnn::Tensor> curPosTensor = std::nullopt;
+  if (op->cur_pos_tensor()) {
+    curPosTensor.emplace(
+        tensorPool.getTTNNTensorAndValidate(op->cur_pos_tensor()));
+  }
 
   std::optional<::ttnn::Tensor> attentionMask = std::nullopt;
   if (op->attention_mask()) {

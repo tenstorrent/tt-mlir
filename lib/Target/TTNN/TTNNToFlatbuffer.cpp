@@ -2112,8 +2112,10 @@ createOp(FlatbufferObjectCache &cache, ScaledDotProductAttentionDecodeOp op) {
       getOperandThroughDPSOps(op.getKey()));
   auto value = cache.at<::tt::target::ttnn::TensorRef>(
       getOperandThroughDPSOps(op.getValue()));
-  auto curPosTensor = cache.at<::tt::target::ttnn::TensorRef>(
-      getOperandThroughDPSOps(op.getCurPosTensor()));
+  auto curPosTensor = op.getCurPosTensor()
+                          ? cache.at<::tt::target::ttnn::TensorRef>(
+                                getOperandThroughDPSOps(op.getCurPosTensor()))
+                          : 0;
   auto attentionMask = op.getAttentionMask()
                            ? cache.at<::tt::target::ttnn::TensorRef>(
                                  getOperandThroughDPSOps(op.getAttentionMask()))

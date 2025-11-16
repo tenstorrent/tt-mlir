@@ -4143,19 +4143,10 @@ mlir::tt::ttnn::ScaledDotProductAttentionDecodeOp::verify() {
   RankedTensorType queryType = getQuery().getType();
   RankedTensorType keyType = getKey().getType();
   RankedTensorType valueType = getValue().getType();
-  RankedTensorType curPosTensorType = getCurPosTensor().getType();
   RankedTensorType resultType = getResult().getType();
 
   if (queryType != resultType) {
     return emitOpError("Query and result must have the same type");
-  }
-
-  if (!curPosTensorType.getElementType().isInteger()) {
-    return emitOpError("Cur pos tensor must be a tensor of integers");
-  }
-
-  if (curPosTensorType.getShape().size() != 1) {
-    return emitOpError("Cur pos tensor must be a 1D tensor");
   }
 
   if (keyType != valueType) {
@@ -4176,14 +4167,27 @@ mlir::tt::ttnn::ScaledDotProductAttentionDecodeOp::verify() {
   }
 
   int64_t batchSize = queryType.getShape()[1];
+
+  if (getCurPosTensor()) {
+    RankedTensorType curPosTensorType = getCurPosTensor().getType();
+
+    if (!curPosTensorType.getElementType().isInteger()) {
+      return emitOpError("Cur pos tensor must be a tensor of integers");
+    }
+
+    if (curPosTensorType.getShape().size() != 1) {
+      return emitOpError("Cur pos tensor must be a 1D tensor");
+    }
+
+    if (curPosTensorType.getShape()[0] != batchSize) {
+      return emitOpError(
+          "Cur pos tensor batch size must match query batch size");
+    }
+  }
   int64_t nQueryHeads = queryType.getShape()[2];
   int64_t nKVHeads = keyType.getShape()[1];
   int64_t headSize = queryType.getShape()[3];
   int64_t maxSeqLen = keyType.getShape()[2];
-
-  if (curPosTensorType.getShape()[0] != batchSize) {
-    return emitOpError("Cur pos tensor batch size must match query batch size");
-  }
 
   if (keyType.getShape()[0] != batchSize) {
     return emitOpError("Key/Value batch size must match query batch size");
