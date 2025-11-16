@@ -46,7 +46,7 @@ public:
   D2MInsertDstRegisterAccessRewriter(mlir::MLIRContext *ctx, bool useTileMatmul,
                                      unsigned maxDstPhysicalSizeTiles)
       : OpRewritePattern<GenericOp>(ctx), useTileMatmul(useTileMatmul),
-        maxDstPhysicalSizeTiles(maxDstPhysicalSizeTiles) {};
+        maxDstPhysicalSizeTiles(maxDstPhysicalSizeTiles){};
 
   template <typename OpT>
   using OpAndIndexOffset = std::pair<OpT, int64_t>;
