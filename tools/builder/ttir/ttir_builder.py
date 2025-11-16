@@ -218,6 +218,65 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
 
     # ----- Public Op Generators ----
 
+    @parse(ttir.ReshapeOp)
+    def reshape_parser(
+        self,
+        old_op: ttir.ReshapeOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> global_dict:
+        ttir_op = self.get_opview_from_parser(TTIRBuilder.reshape_parser)
+        in0 = global_dict[old_op.input]
+        output = global_dict[old_op.output]
+        shape_attr = old_op.shape
+        result = old_op.result.type
+
+        new_op = ttir_op(
+            result,
+            in0,
+            output,
+            shape_attr,
+            loc=old_op.location,
+        )
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(in0)
+            op_golden_function = get_golden_function(ttir_op)
+            golden_output = op_golden_function(input0, shape_attr)
+            self._set_golden_tensor(new_op, golden_output)
+
+        global_dict[old_op.result] = new_op
+        return global_dict
+
+    @parse(ttir.MaximumOp)
+    def maximum_parser(
+        self,
+        old_op: ttir.MaximumOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> global_dict:
+        ttir_op = self.get_opview_from_parser(TTIRBuilder.maximum_parser)
+        lhs = global_dict[old_op.lhs]
+        rhs = global_dict[old_op.rhs]
+        output = global_dict[old_op.output]
+        result = old_op.result.type
+
+        new_op = ttir_op(
+            result,
+            lhs,
+            rhs,
+            output,
+            loc=old_op.location,
+        )
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(lhs)
+            input1 = self._get_golden_tensor(rhs)
+            op_golden_function = get_golden_function(ttir_op)
+            golden_output = op_golden_function(input0, input1)
+            self._set_golden_tensor(new_op, golden_output)
+
+        global_dict[old_op.result] = new_op
+        return global_dict
+
     @parse(ttir.MultiplyOp)
     def multiply_parser(
         self,
