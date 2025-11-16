@@ -25,143 +25,32 @@ struct GraphColoringStrategyTest : public gtest::Test {
 };
 
 //===----------------------------------------------------------------------===//
-// Tests for InterferenceGraph
-//===----------------------------------------------------------------------===//
-
-TEST_F(GraphColoringStrategyTest, InterferenceGraphEmpty) {
-  InterferenceGraph graph;
-
-  EXPECT_EQ(graph.getNodes().size(), 0u);
-}
-
-TEST_F(GraphColoringStrategyTest, InterferenceGraphAddNodes) {
-  InterferenceGraph graph;
-  OpBuilder builder(ctx.get());
-
-  auto tensorType = RankedTensorType::get({32, 32}, builder.getF32Type());
-  auto val1 =
-      builder
-          .create<arith::ConstantOp>(builder.getUnknownLoc(), tensorType,
-                                     builder.getZeroAttr(tensorType))
-          .getResult();
-  auto val2 =
-      builder
-          .create<arith::ConstantOp>(builder.getUnknownLoc(), tensorType,
-                                     builder.getZeroAttr(tensorType))
-          .getResult();
-
-  graph.addNode(val1);
-  graph.addNode(val2);
-
-  auto nodes = graph.getNodes();
-  EXPECT_EQ(nodes.size(), 2u);
-  EXPECT_EQ(graph.degree(val1), 0u);
-  EXPECT_EQ(graph.degree(val2), 0u);
-}
-
-TEST_F(GraphColoringStrategyTest, InterferenceGraphAddEdges) {
-  InterferenceGraph graph;
-  OpBuilder builder(ctx.get());
-
-  auto tensorType = RankedTensorType::get({32, 32}, builder.getF32Type());
-  auto val1 =
-      builder
-          .create<arith::ConstantOp>(builder.getUnknownLoc(), tensorType,
-                                     builder.getZeroAttr(tensorType))
-          .getResult();
-  auto val2 =
-      builder
-          .create<arith::ConstantOp>(builder.getUnknownLoc(), tensorType,
-                                     builder.getZeroAttr(tensorType))
-          .getResult();
-  auto val3 =
-      builder
-          .create<arith::ConstantOp>(builder.getUnknownLoc(), tensorType,
-                                     builder.getZeroAttr(tensorType))
-          .getResult();
-
-  graph.addEdge(val1, val2);
-  graph.addEdge(val2, val3);
-
-  EXPECT_EQ(graph.degree(val1), 1u);
-  EXPECT_EQ(graph.degree(val2), 2u);
-  EXPECT_EQ(graph.degree(val3), 1u);
-
-  auto neighbors1 = graph.neighbors(val1);
-  auto neighbors2 = graph.neighbors(val2);
-  auto neighbors3 = graph.neighbors(val3);
-
-  EXPECT_EQ(neighbors1.size(), 1u);
-  EXPECT_EQ(neighbors2.size(), 2u);
-  EXPECT_EQ(neighbors3.size(), 1u);
-
-  EXPECT_TRUE(llvm::is_contained(neighbors1, val2));
-  EXPECT_TRUE(llvm::is_contained(neighbors2, val1));
-  EXPECT_TRUE(llvm::is_contained(neighbors2, val3));
-  EXPECT_TRUE(llvm::is_contained(neighbors3, val2));
-}
-
-TEST_F(GraphColoringStrategyTest, InterferenceGraphSelfEdgeIgnored) {
-  InterferenceGraph graph;
-  OpBuilder builder(ctx.get());
-
-  auto tensorType = RankedTensorType::get({32, 32}, builder.getF32Type());
-  auto val = builder
-                 .create<arith::ConstantOp>(builder.getUnknownLoc(), tensorType,
-                                            builder.getZeroAttr(tensorType))
-                 .getResult();
-
-  graph.addEdge(val, val);
-
-  EXPECT_EQ(graph.degree(val), 0u);
-}
-
-//===----------------------------------------------------------------------===//
 // Tests for ChaitinBriggsColoring
 //===----------------------------------------------------------------------===//
 
 TEST_F(GraphColoringStrategyTest, ChaitinBriggsColoringEmptyGraph) {
   ChaitinBriggsColoring coloring;
-  InterferenceGraph graph;
+  std::vector<std::vector<size_t>> adjacencyList;
+  std::vector<unsigned> result;
 
-  auto result = coloring.colorGraph(graph, 3);
+  EXPECT_TRUE(succeeded(coloring.colorGraph(adjacencyList, 3, result)));
   EXPECT_TRUE(result.empty());
 }
 
 TEST_F(GraphColoringStrategyTest, ChaitinBriggsColoringSimpleGraph) {
   ChaitinBriggsColoring coloring;
-  InterferenceGraph graph;
-  OpBuilder builder(ctx.get());
+  // Graph: 0 -- 1 -- 2 (linear chain)
+  std::vector<std::vector<size_t>> adjacencyList = {{1}, {0, 2}, {1}};
+  std::vector<unsigned> result;
 
-  auto tensorType = RankedTensorType::get({32, 32}, builder.getF32Type());
-  auto val1 =
-      builder
-          .create<arith::ConstantOp>(builder.getUnknownLoc(), tensorType,
-                                     builder.getZeroAttr(tensorType))
-          .getResult();
-  auto val2 =
-      builder
-          .create<arith::ConstantOp>(builder.getUnknownLoc(), tensorType,
-                                     builder.getZeroAttr(tensorType))
-          .getResult();
-  auto val3 =
-      builder
-          .create<arith::ConstantOp>(builder.getUnknownLoc(), tensorType,
-                                     builder.getZeroAttr(tensorType))
-          .getResult();
-
-  graph.addEdge(val1, val2);
-  graph.addEdge(val2, val3);
-
-  auto result = coloring.colorGraph(graph, 2);
-
+  EXPECT_TRUE(succeeded(coloring.colorGraph(adjacencyList, 2, result)));
   EXPECT_EQ(result.size(), 3u);
-  EXPECT_TRUE(result.count(val1));
-  EXPECT_TRUE(result.count(val2));
-  EXPECT_TRUE(result.count(val3));
 
-  EXPECT_NE(result[val1], result[val2]);
-  EXPECT_NE(result[val2], result[val3]);
+  // Nodes 0 and 1 should have different colors.
+  EXPECT_NE(result[0], result[1]);
+  // Nodes 1 and 2 should have different colors.
+  EXPECT_NE(result[1], result[2]);
+  // Nodes 0 and 2 can have the same color (not adjacent).
 }
 
 TEST_F(GraphColoringStrategyTest, ChaitinBriggsColoringIndexGraph) {
@@ -170,7 +59,7 @@ TEST_F(GraphColoringStrategyTest, ChaitinBriggsColoringIndexGraph) {
   std::vector<std::vector<size_t>> adjList = {{1}, {0, 2}, {1}};
 
   std::vector<unsigned> coloringResult;
-  auto result = coloring.colorIndexGraph(adjList, 2, coloringResult);
+  auto result = coloring.colorGraph(adjList, 2, coloringResult);
 
   EXPECT_TRUE(succeeded(result));
   EXPECT_EQ(coloringResult.size(), 3u);
@@ -185,7 +74,7 @@ TEST_F(GraphColoringStrategyTest, ChaitinBriggsColoringSpill) {
   std::vector<std::vector<size_t>> adjList = {{1, 2}, {0, 2}, {0, 1}};
 
   std::vector<unsigned> coloringResult;
-  auto result = coloring.colorIndexGraph(adjList, 2, coloringResult);
+  auto result = coloring.colorGraph(adjList, 2, coloringResult);
 
   EXPECT_TRUE(failed(result));
 }
@@ -196,7 +85,7 @@ TEST_F(GraphColoringStrategyTest, ChaitinBriggsColoringNoColors) {
   std::vector<std::vector<size_t>> adjList = {{1}, {0}};
   std::vector<unsigned> coloringResult;
 
-  auto result = coloring.colorIndexGraph(adjList, 0, coloringResult);
+  auto result = coloring.colorGraph(adjList, 0, coloringResult);
   EXPECT_TRUE(failed(result));
 }
 
@@ -206,46 +95,27 @@ TEST_F(GraphColoringStrategyTest, ChaitinBriggsColoringNoColors) {
 
 TEST_F(GraphColoringStrategyTest, GreedyColoringEmptyGraph) {
   GreedyColoring coloring;
-  InterferenceGraph graph;
+  std::vector<std::vector<size_t>> adjacencyList;
+  std::vector<unsigned> result;
 
-  auto result = coloring.colorGraph(graph, 3);
+  EXPECT_TRUE(succeeded(coloring.colorGraph(adjacencyList, 3, result)));
   EXPECT_EQ(result.size(), 0u);
 }
 
 TEST_F(GraphColoringStrategyTest, GreedyColoringSimpleGraph) {
   GreedyColoring coloring;
-  InterferenceGraph graph;
-  OpBuilder builder(ctx.get());
+  // Graph: 0 -- 1 -- 2 (linear chain)
+  std::vector<std::vector<size_t>> adjacencyList = {{1}, {0, 2}, {1}};
+  std::vector<unsigned> result;
 
-  auto tensorType = RankedTensorType::get({32, 32}, builder.getF32Type());
-  auto val1 =
-      builder
-          .create<arith::ConstantOp>(builder.getUnknownLoc(), tensorType,
-                                     builder.getZeroAttr(tensorType))
-          .getResult();
-  auto val2 =
-      builder
-          .create<arith::ConstantOp>(builder.getUnknownLoc(), tensorType,
-                                     builder.getZeroAttr(tensorType))
-          .getResult();
-  auto val3 =
-      builder
-          .create<arith::ConstantOp>(builder.getUnknownLoc(), tensorType,
-                                     builder.getZeroAttr(tensorType))
-          .getResult();
-
-  graph.addEdge(val1, val2);
-  graph.addEdge(val2, val3);
-
-  auto result = coloring.colorGraph(graph, 2);
-
+  EXPECT_TRUE(succeeded(coloring.colorGraph(adjacencyList, 2, result)));
   EXPECT_EQ(result.size(), 3u);
-  EXPECT_TRUE(result.count(val1));
-  EXPECT_TRUE(result.count(val2));
-  EXPECT_TRUE(result.count(val3));
 
-  EXPECT_NE(result[val1], result[val2]);
-  EXPECT_NE(result[val2], result[val3]);
+  // Nodes 0 and 1 should have different colors.
+  EXPECT_NE(result[0], result[1]);
+  // Nodes 1 and 2 should have different colors.
+  EXPECT_NE(result[1], result[2]);
+  // Nodes 0 and 2 can have the same color (not adjacent).
 }
 
 TEST_F(GraphColoringStrategyTest, GreedyColoringIndexGraph) {
@@ -254,7 +124,7 @@ TEST_F(GraphColoringStrategyTest, GreedyColoringIndexGraph) {
   std::vector<std::vector<size_t>> adjList = {{1}, {0, 2}, {1}};
 
   std::vector<unsigned> coloringResult;
-  auto result = coloring.colorIndexGraph(adjList, 2, coloringResult);
+  auto result = coloring.colorGraph(adjList, 2, coloringResult);
 
   EXPECT_TRUE(succeeded(result));
   EXPECT_EQ(coloringResult.size(), 3u);
@@ -269,10 +139,9 @@ TEST_F(GraphColoringStrategyTest, GreedyColoringSpill) {
   std::vector<std::vector<size_t>> adjList = {{1, 2}, {0, 2}, {0, 1}};
 
   std::vector<unsigned> coloringResult;
-  auto result = coloring.colorIndexGraph(adjList, 2, coloringResult);
-  (void)result;
+  auto result = coloring.colorGraph(adjList, 2, coloringResult);
 
-  EXPECT_EQ(coloringResult.size(), 3u);
+  EXPECT_TRUE(failed(result));
 }
 
 } // namespace mlir::tt::d2m

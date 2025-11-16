@@ -136,8 +136,8 @@ struct D2MInsertDstRegisterGCPass
         // Use the selected coloring strategy to assign DST slices.
         auto strategy = createColoringStrategy();
         std::vector<unsigned> coloring;
-        if (failed(strategy->colorIndexGraph(interferenceGraph, numColors,
-                                             coloring))) {
+        if (failed(
+                strategy->colorGraph(interferenceGraph, numColors, coloring))) {
           genericOp.emitError(
               "Graph coloring failed - not enough DST slices available");
           return signalPassFailure();
