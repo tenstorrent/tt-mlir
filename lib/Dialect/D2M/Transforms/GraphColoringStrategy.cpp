@@ -200,4 +200,40 @@ GreedyColoring::colorGraph(const InterferenceGraph &graph, unsigned numColors) {
   return coloring;
 }
 
+LogicalResult GreedyColoring::colorIndexGraph(
+    const std::vector<std::vector<size_t>> &adjacencyList, unsigned numColors,
+    std::vector<unsigned> &coloring) {
+  coloring.assign(adjacencyList.size(), UINT_MAX);
+  std::vector<bool> usedColors(numColors, false);
+
+  for (size_t node = 0; node < adjacencyList.size(); ++node) {
+    // Reset used colors
+    std::fill(usedColors.begin(), usedColors.end(), false);
+
+    // Mark colors used by neighbors
+    for (size_t neighbor : adjacencyList[node]) {
+      if (coloring[neighbor] != UINT_MAX) {
+        usedColors[coloring[neighbor]] = true;
+      }
+    }
+
+    // Find first available color
+    unsigned color = 0;
+    for (; color < numColors; ++color) {
+      if (!usedColors[color]) {
+        break;
+      }
+    }
+
+    // If no color available, this is a spill
+    if (color >= numColors) {
+      return failure(); // Spill - not enough colors
+    }
+
+    coloring[node] = color;
+  }
+
+  return success();
+}
+
 } // namespace mlir::tt::d2m

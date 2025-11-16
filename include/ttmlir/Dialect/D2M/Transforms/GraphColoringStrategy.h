@@ -6,6 +6,7 @@
 #define TTMLIR_DIALECT_D2M_TRANSFORMS_GRAPHCOLORINGSTRATEGY_H
 
 #include "mlir/IR/Value.h"
+#include "mlir/Support/LogicalResult.h"
 #include "llvm/ADT/DenseMap.h"
 
 namespace mlir::tt::d2m {
@@ -40,6 +41,14 @@ public:
   virtual ~ColoringStrategy() = default;
   virtual llvm::DenseMap<mlir::Value, unsigned>
   colorGraph(const InterferenceGraph &graph, unsigned numColors) = 0;
+
+  /// Color an index-based graph represented as adjacency list.
+  /// \p coloring is filled with colors where index i contains the color
+  /// assigned to node i. Returns success if coloring succeeded, failure
+  /// otherwise.
+  virtual LogicalResult
+  colorIndexGraph(const std::vector<std::vector<size_t>> &adjacencyList,
+                  unsigned numColors, std::vector<unsigned> &coloring) = 0;
 };
 
 /// Chaitin-Briggs graph coloring algorithm.
@@ -78,6 +87,10 @@ class GreedyColoring : public ColoringStrategy {
 public:
   llvm::DenseMap<mlir::Value, unsigned>
   colorGraph(const InterferenceGraph &graph, unsigned numColors) override;
+
+  LogicalResult
+  colorIndexGraph(const std::vector<std::vector<size_t>> &adjacencyList,
+                  unsigned numColors, std::vector<unsigned> &coloring) override;
 };
 
 } // namespace mlir::tt::d2m
