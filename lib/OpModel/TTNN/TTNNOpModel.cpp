@@ -4837,7 +4837,7 @@ llvm::Expected<OpConstraints> OpModel<MaxPool2dOp>::getOpConstraints(
         ceilMode, detail::getNullableMemoryConfig(outputLayout),
         std::nullopt /* applied_shard_scheme */, false /* deallocate_input */,
         !inPlaceHalo /* reallocate_halo_output */, false /* return_indices */,
-        inputSpec.data_type(), inputSpec.layout());
+        ::tt::tt_metal::DataType::BFLOAT16, ::tt::tt_metal::Layout::ROW_MAJOR);
   };
 
   return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
@@ -4886,7 +4886,7 @@ llvm::Expected<size_t> OpModel<MaxPool2dOp>::getOpRuntime(
         ceilMode, detail::getNullableMemoryConfig(outputLayout),
         std::nullopt /* applied_shard_scheme */, false /* deallocate_input */,
         !inPlaceHalo /* reallocate_halo_output */, false /* return_indices */,
-        inputSpec.data_type(), inputSpec.layout());
+        ::tt::tt_metal::DataType::BFLOAT16, ::tt::tt_metal::Layout::ROW_MAJOR);
   };
 
   return operation::getOpRuntime(maxPool2DQuery);
@@ -5056,7 +5056,7 @@ llvm::Expected<OpConstraints> OpModel<AvgPool2dOp>::getOpConstraints(
         detail::getNullableMemoryConfig(outputLayout),
         std::nullopt /* applied_shard_scheme */, computeKernelConfig,
         false /* deallocate_input */, !inPlaceHalo /* reallocate_halo_output */,
-        inputSpec.data_type(), inputSpec.layout());
+        ::tt::tt_metal::DataType::BFLOAT16, ::tt::tt_metal::Layout::ROW_MAJOR);
   };
 
   return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
@@ -5112,7 +5112,7 @@ llvm::Expected<size_t> OpModel<AvgPool2dOp>::getOpRuntime(
         detail::getNullableMemoryConfig(outputLayout),
         std::nullopt /* applied_shard_scheme */, computeKernelConfig,
         false /* deallocate_input */, !inPlaceHalo /* reallocate_halo_output */,
-        inputSpec.data_type(), inputSpec.layout());
+        ::tt::tt_metal::DataType::BFLOAT16, ::tt::tt_metal::Layout::ROW_MAJOR);
   };
 
   return operation::getOpRuntime(avgPool2DQuery);
