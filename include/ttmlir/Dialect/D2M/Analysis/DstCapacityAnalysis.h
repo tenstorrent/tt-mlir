@@ -6,7 +6,6 @@
 #define TTMLIR_DIALECT_D2M_ANALYSIS_DSTCAPACITYANALYSIS_H
 
 #include "mlir/IR/Operation.h"
-#include "mlir/Pass/AnalysisManager.h"
 
 #include <cstdint>
 
@@ -29,8 +28,9 @@ constexpr uint32_t kDefaultDstCapacity = 8;
 /// (physical DST slices) that can be allocated.
 ///
 /// Usage:
-///   DstCapacityAnalysis analysis(funcOp, /*fullSyncEn=*/true, /*overridePhysicalSize=*/0);
-///   uint32_t numColors = analysis.getMinDstCapacity();
+///   DstCapacityAnalysis analysis(funcOp, /*fullSyncEn=*/true,
+///   /*overridePhysicalSize=*/0); uint32_t numColors =
+///   analysis.getMinDstCapacity();
 class DstCapacityAnalysis {
 public:
   /// Constructs the analysis by walking the operation to find the minimum
@@ -38,10 +38,12 @@ public:
   ///
   /// \p op The operation (typically a FuncOp) to analyze. All nested
   ///      d2m::GenericOp operations are examined.
-  /// \p fullSyncEn Enable full sync mode (true = max capacity, false = half capacity).
+  /// \p fullSyncEn Enable full sync mode (true = max capacity, false = half
+  /// capacity).
   ///               true: f16/bf16=16 tiles, f32=8 tiles
   ///               false: f16/bf16=8 tiles, f32=4 tiles
-  /// \p overridePhysicalSize Override physical DST size, or 0 to use chip default.
+  /// \p overridePhysicalSize Override physical DST size (in tiles), or 0 to use
+  /// chip default.
   DstCapacityAnalysis(Operation *op, bool fullSyncEn = true,
                       unsigned overridePhysicalSize = 0);
 

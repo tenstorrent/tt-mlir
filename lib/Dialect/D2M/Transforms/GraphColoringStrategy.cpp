@@ -5,9 +5,6 @@
 #include "ttmlir/Dialect/D2M/Transforms/GraphColoringStrategy.h"
 
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
-#include "mlir/IR/Builders.h"
-#include "llvm/ADT/SmallVector.h"
-#include "llvm/Support/raw_ostream.h"
 #include <algorithm>
 
 using namespace mlir;
@@ -15,7 +12,7 @@ using namespace mlir;
 namespace mlir::tt::d2m {
 
 //===----------------------------------------------------------------------===//
-//                          ChaitinBriggsColoring Implementation
+//                    ChaitinBriggsColoring Implementation
 //===----------------------------------------------------------------------===//
 
 LogicalResult ChaitinBriggsColoring::colorGraph(
@@ -166,32 +163,63 @@ std::vector<std::vector<size_t>> buildIndexGraphFromDstOperations(
     opToIndex[dstAccesses[i].first] = i;
   }
 
-  // Build interference graph using data flow analysis similar to register
-  // allocation.
+  // Build interference graph using SSA value liveness analysis.
+  // Two DST accesses interfere if their live ranges overlap - this means
+  // they both need DST space at the same time.
+  //
+  // For loads: The DST space is needed from the load operation until the
+  //            last use of the loaded value.
+  // For stores: The DST space is needed from when the value is produced
+  //             until the store operation completes.
+
   for (mlir::Block &block : region) {
-    llvm::SmallPtrSet<mlir::Operation *, 16> currentlyLiveOps;
+    // Track which DST accesses are currently live at each program point.
+    llvm::SmallPtrSet<mlir::Operation *, 16> currentlyLive;
 
     // Walk backwards through operations in the block.
     for (auto it = block.rbegin(); it != block.rend(); ++it) {
       mlir::Operation *op = &*it;
 
-      // If this operation is a DST store, it interferes with all currently
-      // live DST operations (since it writes to DST memory).
-      if (opToIndex.count(op) && isa<affine::AffineStoreOp>(op)) {
-        size_t opIndex = opToIndex[op];
-        for (mlir::Operation *liveOp : currentlyLiveOps) {
-          if (opToIndex.count(liveOp)) {
-            size_t liveIndex = opToIndex[liveOp];
-            interferenceGraph[opIndex].push_back(liveIndex);
-            interferenceGraph[liveIndex].push_back(opIndex);
+      // Process uses of values - this is where load results become live
+      for (mlir::Value operand : op->getOperands()) {
+        if (auto defOp = operand.getDefiningOp()) {
+          if (opToIndex.count(defOp)) {
+            // This DST load's result is being used - it becomes live
+            currentlyLive.insert(defOp);
           }
         }
-        currentlyLiveOps.erase(op);
       }
 
-      // For DST load operations, add them to currently live set.
-      if (opToIndex.count(op) && isa<affine::AffineLoadOp>(op)) {
-        currentlyLiveOps.insert(op);
+      // If this operation is a DST access, it interferes with all currently
+      // live DST operations.
+      if (opToIndex.count(op)) {
+        size_t opIndex = opToIndex[op];
+
+        // Add interference edges with all currently live DST accesses
+        for (mlir::Operation *liveOp : currentlyLive) {
+          if (liveOp != op && opToIndex.count(liveOp)) {
+            size_t liveIndex = opToIndex[liveOp];
+            // Add bidirectional edge (avoid duplicates by checking)
+            if (std::find(interferenceGraph[opIndex].begin(),
+                          interferenceGraph[opIndex].end(),
+                          liveIndex) == interferenceGraph[opIndex].end()) {
+              interferenceGraph[opIndex].push_back(liveIndex);
+              interferenceGraph[liveIndex].push_back(opIndex);
+            }
+          }
+        }
+
+        // If this is a load, it's now defined, so remove from live set
+        // (walking backwards, definition kills the live range)
+        if (isa<affine::AffineLoadOp>(op)) {
+          currentlyLive.erase(op);
+        }
+
+        // If this is a store, mark it as live (it needs DST space for the
+        // value being stored)
+        if (isa<affine::AffineStoreOp>(op)) {
+          currentlyLive.insert(op);
+        }
       }
     }
   }

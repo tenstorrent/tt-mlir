@@ -7,8 +7,6 @@
 
 #include "mlir/IR/Value.h"
 #include "mlir/Support/LogicalResult.h"
-#include "llvm/ADT/DenseMap.h"
-#include "llvm/ADT/SmallVector.h"
 
 namespace mlir::tt::d2m {
 
