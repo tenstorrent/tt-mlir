@@ -42,6 +42,21 @@ struct D2MInsertDstRegisterGCPass
     return hasAcquire && !hasRelease;
   }
 
+  // Create the coloring strategy based on pass options.
+  std::unique_ptr<ColoringStrategy> createColoringStrategy() {
+    std::string strategy = this->coloringStrategy.getValue();
+    if (strategy == "greedy") {
+      return std::make_unique<GreedyColoring>();
+    }
+    if (strategy == "pbqp") {
+      // TODO(bnorris): Implement PBQP-based coloring strategy.
+      llvm::errs() << "Warning: PBQP strategy not yet implemented, falling "
+                      "back to Chaitin-Briggs\n";
+      return std::make_unique<ChaitinBriggsColoring>();
+    }
+    return std::make_unique<ChaitinBriggsColoring>();
+  }
+
   void runOnOperation() override {
     auto func = getOperation();
     if (func.isExternal()) {
@@ -109,7 +124,6 @@ struct D2MInsertDstRegisterGCPass
         auto interferenceGraph =
             InterferenceGraph::buildIndexGraphFromDstOperations(region,
                                                                 dstAccesses);
-        size_t totalAccesses = dstAccesses.size();
 
         // Calculate number of available colors (DST slices).
         const int64_t volume = ttmlir::utils::volume(cbType.getShape());
@@ -119,47 +133,14 @@ struct D2MInsertDstRegisterGCPass
         }
         const uint32_t numColors = totalDstTiles / volume;
 
-        // Color the interference graph using greedy coloring with degree
-        // ordering. Sort nodes by degree (highest degree first) for better
-        // coloring results.
-        std::vector<size_t> nodes(totalAccesses);
-        for (size_t i = 0; i < totalAccesses; ++i) {
-          nodes[i] = i;
-        }
-        std::sort(nodes.begin(), nodes.end(), [&](size_t a, size_t b) {
-          return interferenceGraph[a].size() > interferenceGraph[b].size();
-        });
-
-        std::vector<unsigned> coloring(totalAccesses, UINT_MAX);
-        std::vector<bool> usedColors(numColors, false);
-
-        for (size_t nodeIdx : nodes) {
-          // Reset used colors
-          std::fill(usedColors.begin(), usedColors.end(), false);
-
-          // Mark colors used by neighbors
-          for (size_t neighbor : interferenceGraph[nodeIdx]) {
-            if (coloring[neighbor] != UINT_MAX) {
-              usedColors[coloring[neighbor]] = true;
-            }
-          }
-
-          // Find first available color
-          unsigned color = 0;
-          for (; color < numColors; ++color) {
-            if (!usedColors[color]) {
-              break;
-            }
-          }
-
-          // If no color available, this is a spill
-          if (color >= numColors) {
-            genericOp.emitError(
-                "Graph coloring failed - not enough DST slices available");
-            return signalPassFailure();
-          }
-
-          coloring[nodeIdx] = color;
+        // Use the selected coloring strategy to assign DST slices.
+        auto strategy = createColoringStrategy();
+        std::vector<unsigned> coloring;
+        if (failed(strategy->colorIndexGraph(interferenceGraph, numColors,
+                                             coloring))) {
+          genericOp.emitError(
+              "Graph coloring failed - not enough DST slices available");
+          return signalPassFailure();
         }
 
         // Find the maximum color used to determine DST allocation size.
