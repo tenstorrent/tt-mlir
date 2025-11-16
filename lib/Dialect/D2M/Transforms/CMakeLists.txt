@@ -11,8 +11,8 @@ add_mlir_dialect_library(MLIRD2MTransforms
         GenericTileComputeLoops.cpp
         GraphColoringStrategy.cpp
         GridSelection.cpp
-        InsertDstRegisterGC.cpp
         InsertDstRegisterAccess.cpp
+        InsertDstRegisterGC.cpp
         InsertStreams.cpp
         LinalgToAffine.cpp
         LowerToLayout.cpp

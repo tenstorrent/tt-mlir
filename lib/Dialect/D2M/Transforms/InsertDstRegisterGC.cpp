@@ -63,13 +63,13 @@ struct D2MInsertDstRegisterGCPass
       return;
     }
 
-    DstCapacityAnalysis dstCapacityAnalysis(func);
+    // Analyze DST capacity based on fullSyncEn setting and optional override.
+    DstCapacityAnalysis dstCapacityAnalysis(
+        func, this->fullSyncEn,
+        maxDstPhysicalSizeTiles > 0
+            ? static_cast<uint32_t>(maxDstPhysicalSizeTiles.getValue())
+            : 0);
     uint32_t totalDstTiles = dstCapacityAnalysis.getMinDstCapacity();
-    if (maxDstPhysicalSizeTiles > 0) {
-      totalDstTiles =
-          std::min(totalDstTiles,
-                   static_cast<uint32_t>(maxDstPhysicalSizeTiles.getValue()));
-    }
 
     // First pass: Add release_dst to function body if it has acquire_dst but no
     // release_dst.
@@ -109,7 +109,11 @@ struct D2MInsertDstRegisterGCPass
         MemRefType cbType = nullptr;
         for (auto &[op, idx] : dstAccesses) {
           if (cbType == nullptr) {
-            cbType = mlir::cast<MemRefType>(op->getOperand(1).getType());
+            if (auto loadOp = mlir::dyn_cast<affine::AffineLoadOp>(op)) {
+              cbType = loadOp.getMemRefType();
+            } else if (auto storeOp = mlir::dyn_cast<affine::AffineStoreOp>(op)) {
+              cbType = storeOp.getMemRefType();
+            }
           }
         }
 
@@ -208,24 +212,37 @@ struct D2MInsertDstRegisterGCPass
   }
 
 private:
-  // Identify DST accesses that need coloring (loads/stores to DST memory).
+  // Identify DST accesses that need coloring based on compute operations.
+  // This uses the OperandLoadStoreRegisterOpInterface to find which operands
+  // need to be loaded from DST registers.
   SmallVector<std::pair<Operation *, int64_t>>
   identifyDstAccesses(GenericOp genericOp, Region &region) {
     SmallVector<std::pair<Operation *, int64_t>> dstAccesses;
     int nextIndex = 0;
 
-    auto isDstMemspace = [](auto op) {
-      return op && ttcore::getMemorySpace(op.getMemRef()) ==
+    // Helper to check if an operation loads from non-DST memory space
+    auto notDstMemspace = [](auto op) {
+      return op && ttcore::getMemorySpace(op.getMemRef()) !=
                        ttcore::MemorySpace::RegisterDst;
     };
 
-    region.walk([&](Operation *op) {
-      if (auto loadOp = mlir::dyn_cast<affine::AffineLoadOp>(op);
-          isDstMemspace(loadOp)) {
-        dstAccesses.emplace_back(loadOp, nextIndex++);
-      } else if (auto storeOp = mlir::dyn_cast<affine::AffineStoreOp>(op);
-                 isDstMemspace(storeOp)) {
-        dstAccesses.emplace_back(storeOp, nextIndex++);
+    // Walk operations that implement the interface to determine DST needs
+    region.walk([&](OperandLoadStoreRegisterOpInterface computeOp) {
+      // Collect loads for operands that need DST
+      for (int64_t operandIdx : computeOp.getOperandsLoadFromDstRegister()) {
+        if (auto potentialLoad = computeOp->getOperand(operandIdx)
+                                     .getDefiningOp<affine::AffineLoadOp>();
+            notDstMemspace(potentialLoad)) {
+          dstAccesses.emplace_back(potentialLoad, nextIndex++);
+        }
+      }
+
+      // Collect stores from this op's result
+      for (auto *user : computeOp->getUsers()) {
+        if (auto storeOp = mlir::dyn_cast<affine::AffineStoreOp>(user);
+            notDstMemspace(storeOp)) {
+          dstAccesses.emplace_back(storeOp, nextIndex++);
+        }
       }
     });
 
