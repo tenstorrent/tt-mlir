@@ -218,6 +218,77 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
 
     # ----- Public Op Generators ----
 
+    @parse(ttir.AddOp)
+    def add_parser(
+        self,
+        old_op: ttir.AddOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> global_dict:
+        ttir_op = self.get_opview_from_parser(TTIRBuilder.add_parser)
+        lhs = global_dict[old_op.lhs]
+        rhs = global_dict[old_op.rhs]
+        output = global_dict[old_op.output]
+        result = old_op.result.type
+
+        new_op = ttir_op(
+            result,
+            lhs,
+            rhs,
+            output,
+            loc=old_op.location,
+        )
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(lhs)
+            input1 = self._get_golden_tensor(rhs)
+            op_golden_function = get_golden_function(ttir_op)
+            golden_output = op_golden_function(input0, input1)
+            self._set_golden_tensor(new_op, golden_output)
+
+        global_dict[old_op.result] = new_op
+        return global_dict
+
+    @parse(ttir.EmptyOp)
+    def empty_parser(
+        self,
+        old_op: ttir.EmptyOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> global_dict:
+        ttir_op = self.get_opview_from_parser(TTIRBuilder.empty_parser)
+        result = old_op.result.type
+
+        new_op = ttir_op(
+            result,
+            loc=old_op.location,
+        )
+        
+        global_dict[old_op.result] = new_op
+        return global_dict
+
+    @parse(ttir.ConstantOp)
+    def constant_parser(
+        self,
+        old_op: ttir.ConstantOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> global_dict:
+        ttir_op = self.get_opview_from_parser(TTIRBuilder.constant_parser)
+        value_attr = old_op.value
+        result = old_op.result.type
+
+        new_op = ttir_op(
+            result,
+            value_attr,
+            loc=old_op.location,
+        )
+
+        if not self._disable_golden_check:
+            op_golden_function = get_golden_function(ttir_op)
+            golden_output = op_golden_function(value_attr)
+            self._set_golden_tensor(new_op, golden_output)
+        
+        global_dict[old_op.result] = new_op
+        return global_dict
+
     @tag(ttir.PoolingOp)
     def pooling(
         self,
@@ -438,30 +509,6 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
             self._set_golden_tensor(op, golden_output)
 
         return op
-
-    @parse(ttir.ConstantOp)
-    def constant_parser(
-        self,
-        old_op: ttir.ConstantOp,
-        global_dict: Dict[Operand, Operand],
-    ) -> global_dict:
-        ttir_op = self.get_opview_from_parser(TTIRBuilder.constant_parser)
-        value_attr = old_op.value
-        result = old_op.result.type
-
-        new_op = ttir_op(
-            result,
-            value_attr,
-            loc=old_op.location,
-        )
-
-        if not self._disable_golden_check:
-            op_golden_function = get_golden_function(ttir_op)
-            golden_output = op_golden_function(value_attr)
-            self._set_golden_tensor(new_op, golden_output)
-        
-        global_dict[old_op.result] = new_op
-        return global_dict
 
     @tag(ttir.ConstantOp)
     def constant(
@@ -5376,7 +5423,53 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
         ]
 
     @staticmethod
+    def get_output_types(ttir_builder: TTIRBuilder, parsed_module: Module):
+        output_types = []
+        output_shapes = []
+        for entry in parsed_module.body.operations:
+            if isinstance(entry, func.FuncOp):
+                for ret in entry.type.results:
+                    if isinstance(ret, RankedTensorType):
+                        output_types.append(ret.element_type)
+                        output_shapes.append(ret.shape)
+                    else:
+                        raise ValueError("Only ranked tensor types are supported")
+
+        return [
+            ttir_builder._create_ranked_tensor_type(
+                shape,
+                dtype,
+            )
+            for (shape, dtype) in zip(output_shapes, output_types)
+        ]
+
+    @staticmethod
     def from_module(ctx: Context, parsed_module: Module) -> Tuple(TTIRBuilder, Module):
+        def _convert_to_mlir_value(obj):
+            if hasattr(obj, "operation") and hasattr(obj.operation, "results"):
+                results = obj.operation.results
+                if len(results) == 1:
+                    return results[0]
+                else:
+                    return results
+            elif hasattr(obj, "type"):
+                return obj
+            else:
+                return obj
+
+        def _process_multi_return_result(result):
+            if hasattr(result, "__iter__") and not isinstance(result, str):
+                converted_results = []
+                for item in result:
+                    converted = _convert_to_mlir_value(item)
+                    if hasattr(converted, "__iter__") and not hasattr(converted, "type"):
+                        converted_results.extend(converted)
+                    else:
+                        converted_results.append(converted)
+                return tuple(converted_results)
+            else:
+                return _convert_to_mlir_value(result)
+
         loc = Location.unknown(ctx)
 
         with ctx, loc:
@@ -5384,6 +5477,7 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
             new_module = Module.create()
 
             fn_input_types = TTIRBuilder.get_input_types(ttir_builder, parsed_module)
+            fn_output_types = TTIRBuilder.get_output_types(ttir_builder, parsed_module)
 
             with InsertionPoint(new_module.body):
                 @func.func(*fn_input_types, name="parsed_module")
@@ -5419,6 +5513,6 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
                     ttir_builder._set_goldens(output_goldens)
                     ttir_builder._set_output_ordering(outputs)
 
-                    return global_result
+                    return _process_multi_return_result(global_result)
 
         return ttir_builder, new_module
