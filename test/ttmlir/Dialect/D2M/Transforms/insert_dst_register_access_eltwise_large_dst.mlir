@@ -38,6 +38,7 @@ module {
         // CHECK: %[[FINAL_VAL:.*]] = affine.load %[[DST]]
         // Check that final result is stored back to original #l1 memory space
         // CHECK: affine.store %[[FINAL_VAL]], %[[ARG2:.*]]
+        // CHECK: d2m.release_dst %[[DST]]
         linalg.yield %0 : !ttcore.tile<32x32, f32>
       }
     }
@@ -73,6 +74,7 @@ module {
             // CHECK: affine.store %[[RECIP_RESULT]], %[[DST]][2, %[[ARG_I]], %[[ARG_J]]] : memref<8x1x1x!ttcore.tile<32x32, f32>, #dst>
             // CHECK: %[[FINAL_VAL:.*]] = affine.load %[[DST]][2, %[[ARG_I]], %[[ARG_J]]] : memref<8x1x1x!ttcore.tile<32x32, f32>, #dst>
             // CHECK: affine.store %[[FINAL_VAL]], {{.*}} : memref<1x1x!ttcore.tile<32x32, f32>, #l1>
+            // CHECK: d2m.release_dst %[[DST]]
             linalg.yield %1 : !ttcore.tile<32x32, f32>
           }
         }
@@ -114,6 +116,7 @@ module {
             // CHECK: affine.store %[[EQZ2_RESULT]], %[[DST]][2, %[[ARG_I]], %[[ARG_J]]] : memref<8x1x1x!ttcore.tile<32x32, f32>, #dst>
             // CHECK: %[[FINAL_VAL:.*]] = affine.load %[[DST]][2, %[[ARG_I]], %[[ARG_J]]] : memref<8x1x1x!ttcore.tile<32x32, f32>, #dst>
             // CHECK: affine.store %[[FINAL_VAL]], {{.*}} : memref<1x1x!ttcore.tile<32x32, f32>, #l1>
+            // CHECK: d2m.release_dst %[[DST]]
             linalg.yield %2 : !ttcore.tile<32x32, f32>
           }
         }

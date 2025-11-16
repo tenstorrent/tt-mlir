@@ -37,4 +37,3 @@ func.func @valid_multiple_acquire_release() {
   d2m.release_dst %dst1 : memref<3x!ttcore.tile<32x32, f32>, #dst_>
   return
 }
-

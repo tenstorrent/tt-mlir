@@ -30,34 +30,31 @@
 namespace mlir::tt::d2m {
 
 LogicalResult AcquireDstOp::verify() {
-  // Verify that the result is used by a release_dst operation. This ensures
-  // explicit liveness tracking for DST registers throughout the IR.
-  bool hasRelease = false;
-  for (auto *user : getResult().getUsers()) {
-    if (mlir::isa<mlir::tt::d2m::ReleaseDstOp>(user)) {
-      hasRelease = true;
-      break;
-    }
-  }
+  // TODO: The verifier should be smarter about checking for release_dst across
+  // basic blocks.
 
-  if (!hasRelease) {
-    return emitOpError(
-        "result must be used by a corresponding d2m.release_dst operation");
-  }
   return mlir::success();
 }
 
 LogicalResult ReleaseDstOp::verify() {
   Operation *definingOp = getDst().getDefiningOp();
   if (!definingOp || !mlir::isa<mlir::tt::d2m::AcquireDstOp>(definingOp)) {
-    return emitOpError(
-        "operand must be the result of a d2m.acquire_dst operation");
+    if (auto blockArg = mlir::dyn_cast<BlockArgument>(getDst())) {
+      // This is okay, it means it's a dst value passed through basic blocks.
+    } else {
+      return emitOpError(
+          "operand must be the result of a d2m.acquire_dst operation or a "
+          "block argument");
+    }
   }
 
   // Verify that there are no uses of the DST value after this release
-  if (llvm::any_of(getDst().getUses(), [this](const mlir::OpOperand &use) {
-        return use.getOwner() != getOperation() &&
-               getOperation()->isBeforeInBlock(use.getOwner());
+  Operation *releaseOp = getOperation();
+  Block *releaseBlock = releaseOp->getBlock();
+  if (llvm::any_of(getDst().getUses(), [&](const mlir::OpOperand &use) {
+        Operation *user = use.getOwner();
+        return user != releaseOp && user->getBlock() == releaseBlock &&
+               releaseOp->isBeforeInBlock(user);
       })) {
     return emitOpError("DST value used after release_dst operation");
   }
