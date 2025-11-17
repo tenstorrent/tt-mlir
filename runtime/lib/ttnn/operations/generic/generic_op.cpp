@@ -294,15 +294,8 @@ void run(const ::tt::target::ttnn::GenericOp *op, ProgramContext &context) {
   // ProgramDescriptor creation, once the Program is cached, in ttnn, it won't
   // matter, unless we implement `override_runtime_arguments` in ttnn.generic
   // op.
-  std::vector<void *> tensorBuffers(ioTensors.size());
-  std::vector<uint32_t> tensorBufferAddresses(ioTensors.size());
-  for (size_t i = 0; i < ioTensors.size(); ++i) {
-    tensorBuffers[i] = ioTensors[i].buffer();
-    tensorBufferAddresses[i] = ioTensors[i].buffer()->address();
-  }
   std::size_t hash = ttsl::hash::hash_objects_with_default_seed(
-      programDesc, programDescCache, ioTensors, tensorBuffers,
-      tensorBufferAddresses);
+      programDesc, programDescCache, ioTensors);
   std::shared_ptr<void> cachedPtr = programDescCache->get(hash);
 
   std::shared_ptr<::tt::tt_metal::ProgramDescriptor> programDescriptor;
