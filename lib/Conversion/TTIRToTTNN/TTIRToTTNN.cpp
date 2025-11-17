@@ -663,11 +663,11 @@ public:
           op, "PagedFillCacheOp cache argument must have exactly one user");
     }
 
-    rewriter.replaceOpWithNewOp<ttnn::PagedFillCacheOp>(
-        op, this->getTypeConverter()->convertType(op.getType()),
-        adaptor.getCache(), adaptor.getInput(), adaptor.getPageTable(),
-        adaptor.getBatchIdxTensor());
+    rewriter.create<ttnn::PagedFillCacheOp>(
+        op.getLoc(), adaptor.getCache(), adaptor.getInput(),
+        adaptor.getPageTable(), adaptor.getBatchIdxTensor());
 
+    rewriter.replaceOp(op, adaptor.getCache());
     return success();
   }
 };
