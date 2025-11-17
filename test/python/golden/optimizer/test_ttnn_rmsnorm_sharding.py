@@ -2,7 +2,6 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-import re
 from typing import List, Optional
 
 import pytest
@@ -36,31 +35,12 @@ def test_rmsnorm_sharding(
         builder: TTNNBuilder,
         unit_attrs: Optional[List[str]] = None,
     ):
-        # Create torch tensors for golden reference
-        torch.manual_seed(42)
-        input_shape = shapes[0]
-        weight_shape = shapes[1]
-        print(f"Input shape: {input_shape}, Weight shape: {weight_shape}")
-        torch_input = torch.randn(input_shape, dtype=dtypes[0])
-        torch_weight = torch.randn(weight_shape, dtype=dtypes[0])
 
         result = builder.rms_norm(
             input_tensor,
             weight=weight,
             epsilon=epsilon,
             unit_attrs=["l1_width_sharded"],
-        )
-
-        builder.set_goldens(
-            {input_tensor: torch_input, weight: torch_weight},
-            {
-                result: torch.rms_norm(
-                    torch_input,
-                    normalized_shape=weight_shape,
-                    weight=torch_weight,
-                    eps=epsilon,
-                )
-            },
         )
         return result
 
