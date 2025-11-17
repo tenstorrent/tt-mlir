@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "ttmlir/Conversion/TTIRToTTNN/Utils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTNN/Utils/TransformUtils.h"
@@ -213,67 +214,67 @@ public:
       return failure();
     }
 
+    if (components.canFuse().failed()) {
+      return failure();
+    }
+
+    auto queryType = mlir::cast<RankedTensorType>(components.query.getType());
+    bool isSdpaDecode = queryType.getShape()[queryType.getRank() - 2] == 1;
+
+    Value query =
+        prepareQueryForSDPA(components.query, components.key, rewriter,
+                            components.attentionMatmul.getLoc());
+    queryType = mlir::cast<RankedTensorType>(query.getType());
+    if (!query) {
+      return failure();
+    }
+
     Value sdpaResult;
-
-    RankedTensorType queryType =
-        mlir::cast<RankedTensorType>(components.query.getType());
-    if (queryType.getShape()[queryType.getRank() - 2] == 1) {
-      // Transform query to decode format [1, batch, num_heads, head_size] if
-      // needed
-      Value transformedQuery =
-          transformQueryForDecode(components.query, components.key, rewriter,
-                                  components.attentionMatmul.getLoc());
-
-      if (!transformedQuery) {
-        return failure();
-      }
-
+    if (isSdpaDecode) {
       Value broadcastedMask =
-          broadcastMask(components.mask, transformedQuery, components.key,
-                        rewriter, components.attentionMatmul.getLoc());
+          broadcastMask(components.mask, query, components.key, rewriter,
+                        components.attentionMatmul.getLoc());
 
       // SDPA decode output will have shape [1, batch, num_heads, head_size]
-      auto transformedQueryType =
-          mlir::cast<RankedTensorType>(transformedQuery.getType());
       auto sdpaDecodeResultType = utils::RankedTensorTypeFactory::create(
-          transformedQueryType, transformedQueryType.getShape());
+          queryType, queryType.getShape());
 
-      auto sdpaDecodeResult =
+      sdpaResult =
           rewriter
               .create<ScaledDotProductAttentionDecodeOp>(
                   components.attentionMatmul.getLoc(), sdpaDecodeResultType,
-                  transformedQuery, components.key, components.value,
+                  query, components.key, components.value,
                   /*is_causal=*/false, broadcastedMask,
                   /*cur_pos_tensor=*/nullptr,
                   /*attention_sink=*/nullptr,
                   rewriter.getF32FloatAttr(components.scale),
                   /*memory_config=*/nullptr)
               .getResult();
-
-      // Reverse transform: [1, batch, num_heads, head_size] back to original
-      // shape
-      sdpaResult = reverseTransformFromDecode(
-          sdpaDecodeResult, components.query, rewriter,
-          components.attentionMatmul.getLoc());
     } else {
       // Broadcast attention mask by batch, query_seq, and kv_seq dimensions if
       // needed
       Value broadcastedMask =
-          broadcastMask(components.mask, components.query, components.key,
-                        rewriter, components.attentionMatmul.getLoc());
+          broadcastMask(components.mask, query, components.key, rewriter,
+                        components.attentionMatmul.getLoc());
 
-      sdpaResult = rewriter
-                       .create<ScaledDotProductAttentionOp>(
-                           components.attentionMatmul.getLoc(),
-                           components.attentionMatmul.getResult().getType(),
-                           components.query, components.key, components.value,
-                           broadcastedMask,
-                           /*is_causal=*/false,
-                           rewriter.getF32FloatAttr(components.scale),
-                           /*sliding_window_size=*/nullptr,
-                           /*memory_config=*/nullptr)
-                       .getResult();
+      // SDPA decode output will have shape [1, batch, num_heads, head_size]
+      auto sdpaResultType = utils::RankedTensorTypeFactory::create(
+          queryType, queryType.getShape());
+
+      sdpaResult =
+          rewriter
+              .create<ScaledDotProductAttentionOp>(
+                  components.attentionMatmul.getLoc(), sdpaResultType, query,
+                  components.key, components.value, broadcastedMask,
+                  /*is_causal=*/false,
+                  rewriter.getF32FloatAttr(components.scale),
+                  /*sliding_window_size=*/nullptr,
+                  /*memory_config=*/nullptr)
+              .getResult();
     }
+
+    sdpaResult = revertOutputShapes(sdpaResult, components.query, rewriter,
+                                    components.attentionMatmul.getLoc());
 
     rewriter.replaceOp(components.attentionMatmul, sdpaResult);
     return mlir::success();
@@ -289,6 +290,44 @@ private:
     MatmulOp qkMatmul;
     MatmulOp attentionMatmul;
     SoftmaxOp softmax;
+
+    LogicalResult canFuse() const {
+      if (!query || !key || !value) {
+        return failure();
+      }
+
+      auto queryType = mlir::dyn_cast<RankedTensorType>(query.getType());
+      auto keyType = mlir::dyn_cast<RankedTensorType>(key.getType());
+      auto valueType = mlir::dyn_cast<RankedTensorType>(value.getType());
+
+      int64_t queryRank = queryType.getRank();
+      if (queryRank != 3 && queryRank != 4) {
+        return failure();
+      }
+
+      if (keyType.getRank() != 4 || valueType.getRank() != 4) {
+        return failure();
+      }
+
+      // If query is squeezed to 3D, verify it can be unqueezed to 4D
+      auto keyShape = keyType.getShape();
+      if (queryRank == 3) {
+        auto queryShape = queryType.getShape();
+        int64_t batchSize = keyShape[0];
+
+        // Check that batch*num_heads is divisible by batch size
+        if (queryShape[0] % batchSize != 0) {
+          return failure();
+        }
+      }
+
+      if (!qkMatmul->hasOneUse() || !softmax->hasOneUse() ||
+          !attentionMatmul->hasOneUse()) {
+        return failure();
+      }
+
+      return success();
+    }
   };
 
   // High-level pattern matching
@@ -444,18 +483,17 @@ private:
     if (!type || type.getRank() != 4) {
       return false;
     }
-    // Attention masks typically broadcast over heads: [batch x 1 x
-    // query_seq_len x kv_seq_len]
+    // Attention masks typically broadcast over heads:
+    // [batch x 1 x query_seq_len x kv_seq_len]
     return type.getShape()[1] == 1;
   }
 
   // Broadcast attention mask by batch, query_seq, and kv_seq dimensions if
-  // needed This applies to both prefill and decode cases Expected mask shape:
-  // [batch, 1, query_seq_len, kv_seq_len]
+  // needed This applies to both prefill and decode cases
+  // Expected mask shape: [batch, 1, query_seq_len, kv_seq_len]
   Value broadcastMask(Value mask, Value query, Value key,
                       mlir::PatternRewriter &rewriter, Location loc) const {
     if (!mask) {
-      llvm::errs() << "DEBUG: mask is null\n";
       return mask;
     }
 
@@ -463,24 +501,16 @@ private:
     auto queryType = mlir::cast<RankedTensorType>(query.getType());
     auto keyType = mlir::cast<RankedTensorType>(key.getType());
     auto maskShape = maskType.getShape();
-    auto queryShape = queryType.getShape();
-
-    for (size_t i = 0; i < queryShape.size(); ++i) {
-      if (i < queryShape.size() - 1) {
-        llvm::errs() << ", ";
-      }
-    }
 
     if (maskShape.size() != 4) {
       return mask;
     }
 
     SmallVector<int64_t> targetShape = {
-        keyType.getShape()[0], // batch from key
-        1,                     // num_heads (always 1 for masks)
-        queryType
-            .getShape()[queryType.getRank() - 2], // query_seq_len from query
-        keyType.getShape()[2]                     // kv_seq_len from key
+        keyType.getShape()[0],   // batch from key
+        1,                       // num_heads (always 1 for masks)
+        queryType.getShape()[2], // query_seq_len from query
+        keyType.getShape()[2]    // kv_seq_len from key
     };
 
     // Check if broadcasting is needed
@@ -490,7 +520,6 @@ private:
 
     auto repeatDims =
         ttmlir::utils::getBroadcastDimensions<int64_t>(maskShape, targetShape);
-
     auto repeatDimsAttr = ShapeAttr::get(rewriter.getContext(), repeatDims);
 
     auto broadcastType =
@@ -505,53 +534,46 @@ private:
   // Reverse transform from decode format [1, batch, num_heads, head_size] back
   // to original shape This reverses the transformations applied by
   // transformQueryForDecode
-  Value reverseTransformFromDecode(Value sdpaDecodeOutput, Value originalQuery,
-                                   mlir::PatternRewriter &rewriter,
-                                   Location loc) const {
+  Value revertOutputShapes(Value sdpa, Value originalQuery,
+                           mlir::PatternRewriter &rewriter,
+                           Location loc) const {
     auto originalQueryType =
         mlir::cast<RankedTensorType>(originalQuery.getType());
-    auto sdpaOutputType =
-        mlir::cast<RankedTensorType>(sdpaDecodeOutput.getType());
+    auto sdpaOutputType = mlir::cast<RankedTensorType>(sdpa.getType());
 
     auto originalShape = originalQueryType.getShape();
     auto outputShape = sdpaOutputType.getShape();
     int64_t originalRank = originalQueryType.getRank();
 
-    // Reverse permute [1, batch, num_heads, head_size] -> [batch, num_heads, 1,
-    // head_size]
-    int64_t batchSize = outputShape[1];
-    int64_t numHeads = outputShape[2];
-    int64_t headSize = outputShape[3];
+    if (originalShape[originalRank - 2] == 1) {
+      // Reverse permute [1, batch, num_heads, head_size] -> [batch, num_heads,
+      // 1, head_size]
+      SmallVector<int64_t> permuteIndices = {1, 2, 0, 3};
+      SmallVector<int64_t> permutedShape =
+          ttmlir::utils::applyPermutation(outputShape, permuteIndices);
+      auto permutedType =
+          utils::RankedTensorTypeFactory::create(sdpaOutputType, permutedShape);
 
-    SmallVector<int64_t> unpermutedShape = {batchSize, numHeads, 1, headSize};
-    auto unpermutedType =
-        utils::RankedTensorTypeFactory::create(sdpaOutputType, unpermutedShape);
-
-    auto unpermutedResult =
-        rewriter.create<PermuteOp>(loc, unpermutedType, sdpaDecodeOutput,
-                                   rewriter.getDenseI64ArrayAttr({1, 2, 0, 3}),
-                                   /*memory_config=*/ttnn::MemoryConfigAttr(),
-                                   /*pad_value=*/mlir::FloatAttr());
-
-    // If original was 3D, reshape back [batch, num_heads, 1, head_size] ->
-    // [batch*num_heads, 1, head_size]
-    if (originalRank == 3) {
-      SmallVector<int32_t> finalShapeI32 = {
-          static_cast<int32_t>(originalShape[0]), 1,
-          static_cast<int32_t>(originalShape[2])};
-      auto finalShapeAttr = rewriter.getI32ArrayAttr(finalShapeI32);
-
-      auto finalType = utils::RankedTensorTypeFactory::create(originalQueryType,
-                                                              originalShape);
-
-      auto reshapeOp = rewriter.create<ReshapeOp>(
-          loc, finalType, unpermutedResult.getResult(), finalShapeAttr,
-          /*memory_config=*/ttnn::MemoryConfigAttr());
-
-      return reshapeOp.getResult();
+      sdpa =
+          rewriter
+              .create<PermuteOp>(loc, permutedType, sdpa,
+                                 rewriter.getDenseI64ArrayAttr(permuteIndices),
+                                 /*memory_config=*/nullptr,
+                                 /*pad_value=*/nullptr)
+              .getResult();
     }
 
-    return unpermutedResult.getResult();
+    if (originalRank == 3) {
+      // Reshape back [batch, num_heads, 1, head_size] -> [batch*num_heads, 1,
+      // head_size]
+      auto typedSdpa =
+          mlir::cast<mlir::TypedValue<mlir::RankedTensorType>>(sdpa);
+      sdpa = ttir_to_ttnn::utils::generateReshape(typedSdpa, originalShape,
+                                                  rewriter, sdpa.getLoc())
+                 .getResult();
+    }
+
+    return sdpa;
   }
 
   // Transform query tensor to decode format [1, batch, num_heads, head_size]
@@ -563,73 +585,49 @@ private:
   //   head_size]
   //                                        then permute to [1, batch,
   //                                        num_heads, head_size]
-  Value transformQueryForDecode(Value query, Value key,
-                                mlir::PatternRewriter &rewriter,
-                                Location loc) const {
+  Value prepareQueryForSDPA(Value query, Value key,
+                            mlir::PatternRewriter &rewriter,
+                            Location loc) const {
     auto queryType = mlir::cast<RankedTensorType>(query.getType());
     auto keyType = mlir::cast<RankedTensorType>(key.getType());
 
     auto queryShape = queryType.getShape();
     auto keyShape = keyType.getShape();
-    int64_t queryRank = queryType.getRank();
 
-    if (keyType.getRank() != 4) {
-      return nullptr;
+    if (queryType.getRank() == 3) {
+      int64_t batchSize = keyShape[0];
+      SmallVector<int64_t> reshapedShape = {
+          batchSize, queryShape[0] / batchSize, queryShape[1], queryShape[2]};
+
+      auto typedQuery =
+          mlir::cast<mlir::TypedValue<mlir::RankedTensorType>>(query);
+      query = ttir_to_ttnn::utils::generateReshape(typedQuery, reshapedShape,
+                                                   rewriter, query.getLoc())
+                  .getResult();
+
+      queryType = mlir::cast<RankedTensorType>(query.getType());
+      queryShape = queryType.getShape();
     }
-    int64_t batchSize = keyShape[0];
 
-    Value inputToPermute = query;
-    int64_t numHeads;
-    int64_t headSize;
-
-    if (queryRank == 3) {
-      // For 3D tensors [batch*num_heads, 1, head_size]
-      // Extract num_heads by dividing first dimension by batch size
-      int64_t batchTimesNumHeads = queryShape[0];
-      headSize = queryShape[2];
-
-      if (batchTimesNumHeads % batchSize != 0) {
-        return nullptr;
-      }
-
-      numHeads = batchTimesNumHeads / batchSize;
-
-      // Reshape from [batch*num_heads, 1, head_size] to [batch, num_heads, 1,
+    if (queryShape[queryShape.size() - 2] == 1) {
+      // Permute from [batch, num_heads, 1, head_size] to [1, batch, num_heads,
       // head_size]
-      SmallVector<int32_t> reshapedShapeI32 = {
-          static_cast<int32_t>(batchSize), static_cast<int32_t>(numHeads), 1,
-          static_cast<int32_t>(headSize)};
-      auto reshapedShapeAttr = rewriter.getI32ArrayAttr(reshapedShapeI32);
+      SmallVector<int64_t> permuteIndices = {2, 0, 1, 3};
+      SmallVector<int64_t> permutedShape =
+          ttmlir::utils::applyPermutation(queryShape, permuteIndices);
+      auto permutedType =
+          utils::RankedTensorTypeFactory::create(queryType, permutedShape);
 
-      SmallVector<int64_t> reshapedShape = {batchSize, numHeads, 1, headSize};
-      auto reshapedType =
-          utils::RankedTensorTypeFactory::create(queryType, reshapedShape);
-
-      auto reshapeOp = rewriter.create<ReshapeOp>(
-          loc, reshapedType, query, reshapedShapeAttr,
-          /*memory_config=*/ttnn::MemoryConfigAttr());
-
-      inputToPermute = reshapeOp.getResult();
-    } else if (queryRank == 4 && queryShape[2] == 1) {
-      numHeads = queryShape[1];
-      headSize = queryShape[3];
-    } else {
-      return nullptr;
+      query =
+          rewriter
+              .create<PermuteOp>(loc, permutedType, query,
+                                 rewriter.getDenseI64ArrayAttr(permuteIndices),
+                                 /*memory_config=*/nullptr,
+                                 /*pad_value=*/nullptr)
+              .getResult();
     }
 
-    // Permute from [batch, num_heads, 1, head_size] to [1, batch, num_heads,
-    // head_size]
-    SmallVector<int64_t> finalShape = {1, batchSize, numHeads, headSize};
-    auto finalType =
-        utils::RankedTensorTypeFactory::create(queryType, finalShape);
-
-    auto permuteOp =
-        rewriter.create<PermuteOp>(loc, finalType, inputToPermute,
-                                   rewriter.getDenseI64ArrayAttr({2, 0, 1, 3}),
-                                   /*memory_config=*/ttnn::MemoryConfigAttr(),
-                                   /*pad_value=*/mlir::FloatAttr());
-
-    return permuteOp.getResult();
+    return query;
   }
 };
 
