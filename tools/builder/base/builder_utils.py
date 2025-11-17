@@ -12,7 +12,7 @@ from typing import Callable, List, Optional, Tuple, Union, Literal, Dict
 from collections import OrderedDict
 
 from ttmlir.ir import *
-from ttmlir.dialects import func, ttcore, ttnn
+from ttmlir.dialects import func, ttcore, ttnn, ttir
 from ttmlir.passmanager import PassManager
 from ttmlir.passes import (
     tt_populate_argument_types,
@@ -1927,11 +1927,93 @@ def load_mlir_file(
     with ctx:
         if target == "ttir":
             builder, module = TTIRBuilder.from_module(ctx, module)
-            return builder, module
         elif target == "ttmetal" or target == "ttnn" or target == "d2m":
             assert False, "Loading TTMetal/TTNN/D2M MLIR files is not supported yet."
 
-    return None, None
+    return builder, module
+
+def split_ttir_builder_into_single_ops(
+    builder: TTIRBuilder,
+    module: Module,
+) -> List[Tuple[Builder, Module]]:
+    single_op_builders = []
+    single_op_modules = []
+
+    ctx = builder.context
+    loc = Location.unknown(ctx)
+
+    with loc, ctx:
+        for func_op in module.body.operations:
+            if not isinstance(func_op, func.FuncOp):
+                continue
+
+            function_arguments = []
+            for arg in func_op.arguments:
+                function_arguments.append(arg)
+
+            for block in func_op.body.blocks:
+                for inner_op in block.operations:
+                    if isinstance(inner_op, func.ReturnOp):
+                        continue
+                    
+                    if isinstance(inner_op, ttir.EmptyOp):
+                        continue
+
+                    single_op_builder = TTIRBuilder(ctx, loc)
+                    single_op_module = Module.create()
+
+                    op_input_types = []
+                    for operand in inner_op.operands:
+                        op_input_types.append(operand.type)
+                    op_output_types = []
+                    for result in inner_op.results:
+                        op_output_types.append(result.type)
+
+                    print("TAPSSSS")
+                    print(inner_op)
+                    print("TAPSSSS")
+
+                    with InsertionPoint(single_op_module.body):
+                        @func.func(*op_input_types, name="taps_module")
+                        def decorated_func(*inputs):
+                            input_goldens: Dict[Operand, GoldenMapTensor] = {}
+                            
+                            for i, op_input in enumerate(inner_op.operands):
+                                print(type(op_input))
+                                #breakpoint()
+                                if op_input.owner:
+                                    taps = op_input
+                                    print("HEHEHEH")
+                                else:
+                                    taps = op_input.owner
+                                    print("HEHEHEH")
+
+                                if taps not in builder._goldens.keys():
+                                    continue
+                                input_goldens[inputs[i]] = builder._get_golden_tensor(taps)
+
+                            single_op_builder._set_goldens(input_goldens)
+                            single_op_builder._set_input_ordering(inputs)
+
+                            global_dict = {}
+                            for i, operand in enumerate(inner_op.operands):
+                                global_dict[operand] = inputs[i]
+
+                            global_dict = single_op_builder._build_op_from_parsed_op(inner_op, global_dict)
+                            outputs = (global_dict[inner_op.result],)
+
+                            output_goldens: Dict[Operand, GoldenMapTensor] = {}
+                            for op in outputs:
+                                output_goldens[op] = single_op_builder._get_golden_tensor(op)
+                            single_op_builder._set_goldens(output_goldens)
+                            single_op_builder._set_output_ordering(outputs)
+
+                            return _process_multi_return_result(outputs)
+  
+                    single_op_modules.append(single_op_module)
+                    single_op_builders.append(single_op_builder)
+
+    return list(zip(single_op_builders, single_op_modules))
 
 # ----- Experimental Public APIs -----
 

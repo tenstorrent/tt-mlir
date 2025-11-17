@@ -1004,6 +1004,7 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
             input = self._get_golden_tensor(in0)
             op_golden_function = get_golden_function(ttir_op)
             golden_output = op_golden_function(input, padding_attr, value_attr)
+            self._set_golden_tensor(op, golden_output)
 
         return op
 
@@ -5925,7 +5926,6 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
                                     global_result = tuple(global_dict[operand] for operand in op.operands)
                                 else:
                                     global_dict = ttir_builder._build_op_from_parsed_op(op, global_dict)
-
                               
                     outputs = global_result if hasattr(global_result, "__iter__") else (global_result,)
                     output_goldens: Dict[Operand, GoldenMapTensor] = {}
