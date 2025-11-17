@@ -934,43 +934,43 @@ def test_batch_norm(
 @pytest.mark.parametrize(
     "pooling_method,window_dims,window_strides,padding,window_dilations",
     [
-        # ResNet-style max pooling: 3x3 window, stride 2 (NHWC format)
+        # ResNet-style max pooling: 3x3 window, stride 2 (NCHW format)
         (
             "Max",
-            [1, 3, 3, 1],
-            [1, 2, 2, 1],
+            [1, 1, 3, 3],
+            [1, 1, 2, 2],
             [0, 0, 0, 0, 0, 0, 0, 0],
             [1, 1, 1, 1],
         ),
-        # Average pooling: 2x2 window, stride 2 (NHWC format)
+        # Average pooling: 2x2 window, stride 2 (NCHW format)
         (
             "Average",
-            [1, 2, 2, 1],
-            [1, 2, 2, 1],
+            [1, 1, 2, 2],
+            [1, 1, 2, 2],
             [0, 0, 0, 0, 0, 0, 0, 0],
             [1, 1, 1, 1],
         ),
-        # Sum pooling: 2x2 window, stride 2 (NHWC format)
+        # Sum pooling: 2x2 window, stride 2 (NCHW format)
         (
             "Sum",
-            [1, 2, 2, 1],
-            [1, 2, 2, 1],
+            [1, 1, 2, 2],
+            [1, 1, 2, 2],
             [0, 0, 0, 0, 0, 0, 0, 0],
             [1, 1, 1, 1],
         ),
-        # Max pooling with padding (NHWC format)
+        # Max pooling with padding (NCHW format)
         (
             "Max",
-            [1, 3, 3, 1],
+            [1, 1, 3, 3],
             [1, 1, 1, 1],
-            [0, 0, 1, 1, 0, 0, 1, 1],
+            [0, 0, 0, 0, 1, 1, 1, 1],
             [1, 1, 1, 1],
         ),
     ],
     ids=["resnet_max_3x3_s2", "avg_2x2_s2", "sum_2x2_s2", "max_3x3_padded"],
 )
 @pytest.mark.parametrize(
-    "shape", [(1, 64, 56, 56), (1, 32, 32, 32)], ids=["resnet_56x56", "32x32"]
+    "shape", [(1, 64, 114, 114), (1, 32, 64, 64)], ids=["resnet_114x114", "64x64"]
 )
 @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
 def test_pooling(

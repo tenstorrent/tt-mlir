@@ -1091,22 +1091,20 @@ def typecast_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
     return input_tensor.to(dtype)
 
 
-def broadcast_to_golden(
-    input_tensor: BuilderGoldenTensor, **kwargs
-) -> BuilderGoldenTensor:
+def broadcast_to_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
     """
     Golden function for broadcast_to operation with TTIR parameter names.
 
     Parameters
     ----------
-    input_tensor : BuilderGoldenTensor
+    input_tensor : GoldenMapTensor
         Input tensor
     **kwargs : dict
         Keyword arguments including 'shape'
 
     Returns
     -------
-    BuilderGoldenTensor
+    GoldenMapTensor
         Broadcasted tensor
     """
     shape = kwargs.get("shape", input_tensor.shape)
@@ -1114,28 +1112,28 @@ def broadcast_to_golden(
 
 
 def where_golden(
-    a: BuilderGoldenTensor,
-    b: BuilderGoldenTensor,
-    c: BuilderGoldenTensor,
+    a: GoldenMapTensor,
+    b: GoldenMapTensor,
+    c: GoldenMapTensor,
     **kwargs,
-) -> BuilderGoldenTensor:
+) -> GoldenMapTensor:
     """
     Golden function for ttir.where operation.
 
     Parameters
     ----------
-    a : BuilderGoldenTensor
+    a : GoldenMapTensor
         Condition tensor
-    b : BuilderGoldenTensor
+    b : GoldenMapTensor
         Tensor to select values from when condition is True
-    c : BuilderGoldenTensor
+    c : GoldenMapTensor
         Tensor to select values from when condition is False
     **kwargs : dict
         Additional attributes
 
     Returns
     -------
-    BuilderGoldenTensor
+    GoldenMapTensor
         Result tensor after element-wise selection.
     """
 
