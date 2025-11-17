@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt %s -d2m-insert-dst-register-gc -verify-diagnostics -split-input-file
+// RUN: ttmlir-opt %s --ttcore-register-device -d2m-insert-dst-register-gc -verify-diagnostics -split-input-file
 
 #dst_ = #ttcore.memory_space<dst>
 
@@ -92,4 +92,41 @@ func.func @complex_liveness(%cond: i1) {
   d2m.release_dst %dst0 : memref<2x!ttcore.tile<32x32, f32>, #dst_>
   d2m.release_dst %dst1 : memref<2x!ttcore.tile<32x32, f32>, #dst_>
   return
+}
+
+// -----
+
+#l1_ = #ttcore.memory_space<l1>
+#map = affine_map<(d0, d1) -> (d0, d1)>
+
+// Test: CB volume exceeds available DST capacity.
+// Default capacity for f16 with fullSyncEn=true is 16 tiles.
+// This test uses a 5x5 tile CB (25 tiles), which exceeds the 16-tile limit.
+module {
+  func.func @cb_exceeds_dst_capacity(%in0: memref<1x1x5x5x!ttcore.tile<32x32, f16>, #ttcore.shard<20480x4096>, #l1_>,
+                                      %out: memref<1x1x5x5x!ttcore.tile<32x32, f16>, #ttcore.shard<20480x4096>, #l1_>) {
+    // expected-error @bellow {{CB volume exceeds available DST tiles}}
+    d2m.generic {
+      block_factors = [1, 1],
+      grid = #ttcore.grid<1x1>,
+      indexing_maps = [#map, #map],
+      iterator_types = [#ttcore.iterator_type<parallel>, #ttcore.iterator_type<parallel>],
+      threads = [#d2m.thread<compute>]
+    } ins(%in0 : memref<1x1x5x5x!ttcore.tile<32x32, f16>, #ttcore.shard<20480x4096>, #l1_>)
+      outs(%out : memref<1x1x5x5x!ttcore.tile<32x32, f16>, #ttcore.shard<20480x4096>, #l1_>) {
+    ^compute0(%cb0: !d2m.cb<memref<5x5x!ttcore.tile<32x32, f16>, #l1_>>,
+              %cb_out: !d2m.cb<memref<5x5x!ttcore.tile<32x32, f16>, #l1_>>):
+      %mem0 = d2m.wait %cb0 : !d2m.cb<memref<5x5x!ttcore.tile<32x32, f16>, #l1_>> -> memref<5x5x!ttcore.tile<32x32, f16>, #l1_>
+      %mem_out = d2m.reserve %cb_out : !d2m.cb<memref<5x5x!ttcore.tile<32x32, f16>, #l1_>> -> memref<5x5x!ttcore.tile<32x32, f16>, #l1_>
+
+      affine.for %i = 0 to 5 {
+        affine.for %j = 0 to 5 {
+          %v0 = affine.load %mem0[%i, %j] : memref<5x5x!ttcore.tile<32x32, f16>, #l1_>
+          %result = "d2m.tile_abs"(%v0) : (!ttcore.tile<32x32, f16>) -> !ttcore.tile<32x32, f16>
+          affine.store %result, %mem_out[%i, %j] : memref<5x5x!ttcore.tile<32x32, f16>, #l1_>
+        }
+      }
+    }
+    return
+  }
 }

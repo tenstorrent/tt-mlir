@@ -31,7 +31,6 @@ d2m::DstCapacityAnalysis::DstCapacityAnalysis(Operation *op, bool fullSyncEn,
   bool foundGenericOp = false;
   Type largestDstType = nullptr;
 
-  // Walk all GenericOp operations in the operation tree.
   op->walk([&](d2m::GenericOp genericOp) {
     foundGenericOp = true;
     for (uint32_t regionIndex = 0; regionIndex < genericOp.getNumRegions();
