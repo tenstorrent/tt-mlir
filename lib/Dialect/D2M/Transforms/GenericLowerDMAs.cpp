@@ -48,12 +48,13 @@ public:
   // represents the position in the stream that the DMA is currently accessing,
   // and is relative per core. The index bounds represent the index upper
   // bounds.
-  static SmallVector<Value>
-  buildStreamIndex(OpBuilder &builder, Location loc,
-                   ArrayRef<int64_t> gridShape, ArrayRef<int64_t> blockFactors,
-                   ArrayRef<int64_t> shardShape, AffineMap dmaIndexingMap,
-                   AffineMap outputOperandIndexingMap,
-                   AffineMap coreVirtualizationMap) {
+  static SmallVector<Value> buildStreamIndex(OpBuilder &builder, Location loc,
+                                             ArrayRef<int64_t> gridShape,
+                                             ArrayRef<int64_t> blockFactors,
+                                             ArrayRef<int64_t> shardShape,
+                                             AffineMap dmaIndexingMap,
+                                             AffineMap outputOperandIndexingMap,
+                                             AffineMap coreVirtualizationMap) {
     assert(dmaIndexingMap.getNumDims() ==
            outputOperandIndexingMap.getNumDims());
     assert(dmaIndexingMap.getNumResults() ==
@@ -64,7 +65,6 @@ public:
 
     SmallVector<Value> streamIndex;
     streamIndex.reserve(dmaIndexingMap.getNumResults());
-    indexBounds.reserve(dmaIndexingMap.getNumResults());
 
     // Compute virtualized core indices from raw physical core indices using the
     // core virtualization map. This ensures both grid and shard indices are
