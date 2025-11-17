@@ -292,6 +292,24 @@ inline bool isTransposedConv(ttir::ConvolutionOp convolutionOp) {
           convLayoutAttr.getKernelSpatialDimensions();
   isTransposed |= llvm::any_of(convolutionOp.getInputDilation(),
                                [](int64_t d) { return d > 1; });
+
+  // Transposed convolution must have output spatial dimensions larger than
+  // input spatial dimensions.
+  auto inputType =
+      mlir::cast<RankedTensorType>(convolutionOp.getInput().getType());
+  auto outputType =
+      mlir::cast<RankedTensorType>(convolutionOp.getResult().getType());
+  if (inputType && outputType) {
+    auto inputSpatialDims = convLayoutAttr.getInputSpatialDimensions();
+    auto outputSpatialDims = convLayoutAttr.getOutputSpatialDimensions();
+    bool outputLarger =
+        outputType.getShape()[outputSpatialDims[SPATIAL_DIM_HEIGHT]] >
+            inputType.getShape()[inputSpatialDims[SPATIAL_DIM_HEIGHT]] ||
+        outputType.getShape()[outputSpatialDims[SPATIAL_DIM_WIDTH]] >
+            inputType.getShape()[inputSpatialDims[SPATIAL_DIM_WIDTH]];
+    isTransposed &= outputLarger;
+  }
+
   return isTransposed;
 }
 } // namespace mlir::tt::ttir::utils
