@@ -472,6 +472,20 @@ class GraphToIRTranslator:
             case _:
                 raise ValueError(f"Unsupported dtype: {dtype}")
 
+    def _mlir_memory_layout_from_ttnn_memory_layout(self, memory_layout):
+        print(f"Memory layout: {memory_layout}")
+        match str(memory_layout):
+            case "TensorMemoryLayout.INTERLEAVED":
+                return ttnn.TensorMemoryLayout.Interleaved
+            case "TensorMemoryLayout.HEIGHT_SHARDED":
+                return ttnn.TensorMemoryLayout.HeightSharded
+            case "TensorMemoryLayout.WIDTH_SHARDED":
+                return ttnn.TensorMemoryLayout.WidthSharded
+            case "TensorMemoryLayout.BLOCK_SHARDED":
+                return ttnn.TensorMemoryLayout.BlockSharded
+            case _:
+                raise ValueError(f"Unsupported memory layout: {memory_layout}")
+
     def _ttcore_dtype_from_ttnn_dtype(self, dtype):
         match str(dtype):
             case "DataType.BFLOAT16":
@@ -501,6 +515,25 @@ class GraphToIRTranslator:
         # Add more as needed
         return None
 
+    def _get_grid(self, max_grid, memory_layout):
+        # IMPORTANT: TTNN writes grids as (width, height) but compiler expects (height, width)
+        grid_size_x = max_grid[0] + 1
+        grid_size_y = max_grid[1] + 1
+
+        if memory_layout == ttnn.TensorMemoryLayout.BlockSharded:
+            return ttcore.ir.GridAttr.get(self.ctx, [grid_size_y, grid_size_x])
+        elif memory_layout == ttnn.TensorMemoryLayout.HeightSharded:
+            return ttcore.ir.GridAttr.get(self.ctx, [grid_size_y * grid_size_x, 1])
+        elif memory_layout == ttnn.TensorMemoryLayout.WidthSharded:
+            return ttcore.ir.GridAttr.get(self.ctx, [1, grid_size_y * grid_size_x])
+        elif memory_layout == ttnn.TensorMemoryLayout.Interleaved:
+            assert (
+                max_grid[0] == 0 and max_grid[1] == 0
+            ), "The grid for DRAM interleaved tensors is always 1x1"
+            return ttcore.ir.GridAttr.get(self.ctx, [1, 1])
+        else:
+            raise ValueError(f"Invalid memory layout: {memory_layout}")
+
     def _create_tensor_layout(self, tensor_arg):
         """Create TTNN layout attribute from tensor."""
         data_type = self._ttcore_dtype_from_ttnn_dtype(tensor_arg.dtype)
@@ -513,11 +546,7 @@ class GraphToIRTranslator:
         if tensor_arg.memory_config().is_sharded():
             shard_spec = tensor_arg.memory_config().shard_spec
             shard_shape = shard_spec.shape
-            grid_size_x = self.max_grid[0] + 1
-            grid_size_y = self.max_grid[1] + 1
 
-            # TTNN writes grids as (width, height) but compiler expects (height, width)
-            grid = ttcore.ir.GridAttr.get(self.ctx, [grid_size_y, grid_size_x])
             shard_shape_tile_x = shard_shape[0] // 32
             shard_shape_tile_y = shard_shape[1] // 32
             buffer_type = ttnn.ir.BufferTypeAttr.get(self.ctx, ttnn.BufferType.L1)
@@ -527,24 +556,25 @@ class GraphToIRTranslator:
             ttnn_layout = ttnn.ir.TTNNLayoutAttr.get_with_linear(
                 self.ctx,
                 affine_map,
-                grid,
+                self._get_grid(
+                    self.max_grid,
+                    self._mlir_memory_layout_from_ttnn_memory_layout(
+                        tensor_arg.memory_config().memory_layout
+                    ),
+                ),
                 memref,
-                ttnn.TensorMemoryLayout.BlockSharded,
+                tensor_arg.memory_config().memory_layout,
                 None,
             )
             return ttnn_layout
         else:
-            assert (
-                self.max_grid[0] == 0 and self.max_grid[1] == 0
-            ), "The grid for DRAM interleaved tensors is always 1x1"
             buffer_type = ttnn.ir.BufferTypeAttr.get(self.ctx, ttnn.BufferType.DRAM)
-            grid = ttcore.ir.GridAttr.get(self.ctx, [1, 1])
             shape = [tensor_arg.shape[0] // 32, tensor_arg.shape[1] // 32]
             memref = MemRefType.get(shape, tile_type, None, buffer_type)
             return ttnn.ir.TTNNLayoutAttr.get_with_linear(
                 self.ctx,
                 affine_map,
-                grid,
+                self._get_grid(self.max_grid, self._mlir_memory_layout_from_ttnn_memory_layout(tensor_arg.memory_config().memory_layout)),
                 memref,
                 ttnn.TensorMemoryLayout.Interleaved,
                 None,
