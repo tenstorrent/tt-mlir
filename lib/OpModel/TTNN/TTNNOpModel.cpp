@@ -4836,8 +4836,7 @@ llvm::Expected<OpConstraints> OpModel<MaxPool2dOp>::getOpConstraints(
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(dilation),
         ceilMode, detail::getNullableMemoryConfig(outputLayout),
         std::nullopt /* applied_shard_scheme */, false /* deallocate_input */,
-        !inPlaceHalo /* reallocate_halo_output */, false /* return_indices */,
-        ::tt::tt_metal::DataType::BFLOAT16, ::tt::tt_metal::Layout::ROW_MAJOR);
+        !inPlaceHalo /* reallocate_halo_output */, false /* return_indices */);
   };
 
   return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
@@ -4885,8 +4884,7 @@ llvm::Expected<size_t> OpModel<MaxPool2dOp>::getOpRuntime(
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(dilation),
         ceilMode, detail::getNullableMemoryConfig(outputLayout),
         std::nullopt /* applied_shard_scheme */, false /* deallocate_input */,
-        !inPlaceHalo /* reallocate_halo_output */, false /* return_indices */,
-        ::tt::tt_metal::DataType::BFLOAT16, ::tt::tt_metal::Layout::ROW_MAJOR);
+        !inPlaceHalo /* reallocate_halo_output */, false /* return_indices */);
   };
 
   return operation::getOpRuntime(maxPool2DQuery);
@@ -5043,6 +5041,7 @@ llvm::Expected<OpConstraints> OpModel<AvgPool2dOp>::getOpConstraints(
   std::optional<int32_t> divisorOverride = std::nullopt;
   std::optional<::ttnn::DeviceComputeKernelConfig> computeKernelConfig =
       std::nullopt;
+
   // Create query closure
   auto avgPool2DQuery = [=]() {
     return ::ttnn::graph::query_op_constraints(
@@ -5055,8 +5054,8 @@ llvm::Expected<OpConstraints> OpModel<AvgPool2dOp>::getOpConstraints(
         ceilMode, countIncludePad, divisorOverride,
         detail::getNullableMemoryConfig(outputLayout),
         std::nullopt /* applied_shard_scheme */, computeKernelConfig,
-        false /* deallocate_input */, !inPlaceHalo /* reallocate_halo_output */,
-        ::tt::tt_metal::DataType::BFLOAT16, ::tt::tt_metal::Layout::ROW_MAJOR);
+        false /* deallocate_input */,
+        !inPlaceHalo /* reallocate_halo_output */);
   };
 
   return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
@@ -5111,8 +5110,8 @@ llvm::Expected<size_t> OpModel<AvgPool2dOp>::getOpRuntime(
         ceilMode, countIncludePad, divisorOverride,
         detail::getNullableMemoryConfig(outputLayout),
         std::nullopt /* applied_shard_scheme */, computeKernelConfig,
-        false /* deallocate_input */, !inPlaceHalo /* reallocate_halo_output */,
-        ::tt::tt_metal::DataType::BFLOAT16, ::tt::tt_metal::Layout::ROW_MAJOR);
+        false /* deallocate_input */,
+        !inPlaceHalo /* reallocate_halo_output */);
   };
 
   return operation::getOpRuntime(avgPool2DQuery);
