@@ -17,20 +17,20 @@ module {
   func.func @test_cast_no_stream(%arg0: tensor<32x32xf32, #l1_layout>) -> tensor<32x32xf32, #l1_layout> {
     // CHECK: %[[CAST:.*]] = ttir.ttnn_metal_layout_cast {{.*}}
     // CHECK: %[[CAST0:.*]] = ttir.ttnn_metal_layout_cast
-    %cast = ttir.ttnn_metal_layout_cast %arg0 : tensor<32x32xf32, #l1_layout> -> memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #l1_1>
+    %cast = ttir.ttnn_metal_layout_cast %arg0 : tensor<32x32xf32, #l1_layout> -> memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_1>
     %0 = d2m.empty() : tensor<32x32xf32, #l1_layout>
-    %cast_0 = ttir.ttnn_metal_layout_cast %0 : tensor<32x32xf32, #l1_layout> -> memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #l1_1>
+    %cast_0 = ttir.ttnn_metal_layout_cast %0 : tensor<32x32xf32, #l1_layout> -> memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_1>
 
     // CHECK: ins(%[[CAST]] : {{.*}})
     // CHECK: outs(%[[CAST0]] : {{.*}})
     d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#map, #map], iterator_types = [#parallel, #parallel], threads = [#d2m.thread<compute>]}
-      ins(%cast : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #l1_1>)
-      outs(%cast_0 : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #l1_1>)  {
+      ins(%cast : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_1>)
+      outs(%cast_0 : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_1>)  {
     ^compute0(%cb0: !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #l1_1>>, %cb1: !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #l1_1>>):
       %in = d2m.wait %cb0 : !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #l1_1>> -> memref<1x1x!ttcore.tile<32x32, f32>, #l1_1>
       %out = d2m.reserve %cb1 : !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #l1_1>> -> memref<1x1x!ttcore.tile<32x32, f32>, #l1_1>
     }
-    %cast_1 = ttir.ttnn_metal_layout_cast %cast_0 : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #l1_1> -> tensor<32x32xf32, #l1_layout>
+    %cast_1 = ttir.ttnn_metal_layout_cast %cast_0 : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_1> -> tensor<32x32xf32, #l1_layout>
     return %cast_1 : tensor<32x32xf32, #l1_layout>
   }
 
@@ -40,20 +40,20 @@ module {
     // CHECK: %[[CAST0:.*]] = ttir.ttnn_metal_layout_cast
     // CHECK: %[[ALLOC:.*]] = memref.alloc()
     // CHECK: %[[STREAM:.*]] = "d2m.stream_layout"(%[[CAST]], %[[ALLOC]])
-    %cast = ttir.ttnn_metal_layout_cast %arg0 : tensor<32x32xf32, #dram_layout> -> memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #dram_1>
+    %cast = ttir.ttnn_metal_layout_cast %arg0 : tensor<32x32xf32, #dram_layout> -> memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #dram_1>
     %0 = d2m.empty() : tensor<32x32xf32, #l1_layout>
-    %cast_0 = ttir.ttnn_metal_layout_cast %0 : tensor<32x32xf32, #l1_layout> -> memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #l1_1>
+    %cast_0 = ttir.ttnn_metal_layout_cast %0 : tensor<32x32xf32, #l1_layout> -> memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_1>
 
     // CHECK: ins(%[[STREAM]] : {{.*}})
     // CHECK: outs(%[[CAST0]] : {{.*}})
     d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#map, #map], iterator_types = [#parallel, #parallel], threads = [#d2m.thread<compute>]}
-      ins(%cast : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #dram_1>)
-      outs(%cast_0 : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #l1_1>)  {
+      ins(%cast : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #dram_1>)
+      outs(%cast_0 : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_1>)  {
     ^compute0(%cb0: !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #dram_1>>, %cb1: !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #l1_1>>):
       %in = d2m.wait %cb0 : !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #dram_1>> -> memref<1x1x!ttcore.tile<32x32, f32>, #dram_1>
       %out = d2m.reserve %cb1 : !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #l1_1>> -> memref<1x1x!ttcore.tile<32x32, f32>, #l1_1>
     }
-    %cast_1 = ttir.ttnn_metal_layout_cast %cast_0 : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #l1_1> -> tensor<32x32xf32, #l1_layout>
+    %cast_1 = ttir.ttnn_metal_layout_cast %cast_0 : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_1> -> tensor<32x32xf32, #l1_layout>
     return %cast_1 : tensor<32x32xf32, #l1_layout>
   }
 }

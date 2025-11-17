@@ -2,6 +2,8 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "ttmlir/AffineMapUtils.h"
+#include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Support/Logger.h"
@@ -51,15 +53,41 @@ public:
                                              ArrayRef<int64_t> blockFactors,
                                              ArrayRef<int64_t> shardShape,
                                              AffineMap dmaIndexingMap,
-                                             AffineMap gridIndexingMap) {
-    assert(dmaIndexingMap.getNumDims() == gridIndexingMap.getNumDims());
-    assert(dmaIndexingMap.getNumResults() == gridIndexingMap.getNumResults());
+                                             AffineMap outputOperandIndexingMap,
+                                             AffineMap coreVirtualizationMap) {
+    assert(dmaIndexingMap.getNumDims() ==
+           outputOperandIndexingMap.getNumDims());
+    assert(dmaIndexingMap.getNumResults() ==
+           outputOperandIndexingMap.getNumResults());
     assert(dmaIndexingMap.getNumResults() == shardShape.size());
-    assert(gridIndexingMap.isProjectedPermutation(true) &&
+    assert(outputOperandIndexingMap.isProjectedPermutation(true) &&
            "Grid indexing map must be a permutation");
 
     SmallVector<Value> streamIndex;
     streamIndex.reserve(dmaIndexingMap.getNumResults());
+
+    // Compute virtualized core indices from raw physical core indices using the
+    // core virtualization map. This ensures both grid and shard indices are
+    // in the virtual (viewed) coord space of the generic op's output operand.
+    SmallVector<Value> physicalCoreIndices(
+        outputOperandIndexingMap.getNumResults());
+    for (unsigned gridIndex = 0;
+         gridIndex < outputOperandIndexingMap.getNumResults(); gridIndex++) {
+      physicalCoreIndices[gridIndex] = builder.create<CoreIndexOp>(
+          loc, builder.getIndexType(), builder.getI64IntegerAttr(gridIndex));
+    }
+    SmallVector<Value> virtualGridIndices;
+    if (!coreVirtualizationMap.isEmpty()) {
+      virtualGridIndices = ttmlir::utils::fullyApplyAffineMap(
+          builder, loc, coreVirtualizationMap, physicalCoreIndices);
+    } else {
+      virtualGridIndices = physicalCoreIndices;
+    }
+    TT_assertv(virtualGridIndices.size() ==
+                   outputOperandIndexingMap.getNumResults(),
+               "Core virtualization map must have the same number of results "
+               "as the grid indexing map");
+
     for (unsigned result = 0; result < dmaIndexingMap.getNumResults();
          result++) {
 
@@ -83,7 +111,8 @@ public:
         // Identify the corresponding grid dimension that participates in the
         // dma access.
         std::optional<unsigned> gridResult =
-            gridIndexingMap.getResultPosition(dmaIndexingMap.getResult(result));
+            outputOperandIndexingMap.getResultPosition(
+                dmaIndexingMap.getResult(result));
 
         //
         // The following assert is pretty subtle. If this operand dimension
@@ -91,17 +120,18 @@ public:
         // grid result is the same as the operand result. This protects against
         // permutations of the grid, ie. transposes.  For example, let's
         // consider a matmul case:
-        //   dmaIndexingMap:  (m, n, k) -> (m, k)
-        //   dmaIndexingMap:  (m, n, k) -> (k, n)
-        //   gridIndexingMap: (m, n, k) -> (m, n)
+        //   dmaIndexingMap:           (m, n, k) -> (m, k)
+        //   dmaIndexingMap:           (m, n, k) -> (k, n)
+        //   outputOperandIndexingMap: (m, n, k) -> (m, n)
         //                                     ^
         // This assert ensures that the m's line up. A counter example would be:
-        //   dmaIndexingMap:  (m, n, k) -> (m, k)
-        //   gridIndexingMap: (m, n, k) -> (n, m)
+        //   dmaIndexingMap:           (m, n, k) -> (m, k)
+        //   outputOperandIndexingMap: (m, n, k) -> (n, m)
         //
         // Not currently supported.
         //
-        if (gridIndexingMap.getNumResults() == dmaIndexingMap.getNumResults()) {
+        if (outputOperandIndexingMap.getNumResults() ==
+            dmaIndexingMap.getNumResults()) {
           // Only enforce a 1-1 relationship between the participating dma and
           // grid dimensions when the maps have the same dimensionality.
           assert(!gridResult || *gridResult == result);
@@ -121,8 +151,9 @@ public:
           Value blockFactor = builder.create<arith::ConstantOp>(
               loc, builder.getIndexType(),
               builder.getIndexAttr(blockFactors[dim]));
-          index = builder.create<CoreIndexOp>(
-              loc, builder.getIndexType(), builder.getI64IntegerAttr(gridDim));
+
+          index = virtualGridIndices[gridDim];
+
           index = builder.create<arith::MulIOp>(loc, builder.getIndexType(),
                                                 index, blockFactor);
           index = builder.create<arith::AddIOp>(loc, builder.getIndexType(),
@@ -285,14 +316,22 @@ public:
     unsigned outputOperandsIndex =
         genericParent.getOutputs().getBeginOperandIndex();
     // The output and the grid indexing must always be aligned.
-    AffineMap gridIndexingMap =
+    AffineMap outputOperandIndexingMap =
         mlir::cast<AffineMapAttr>(
             genericParent.getIndexingMaps()[outputOperandsIndex])
             .getValue();
 
+    // extract core virtualization map with just grid yx results
+    AffineMap coreVirtualizationMap = genericParent.getGrid().getMapping();
+    if (!coreVirtualizationMap.isEmpty()) {
+      coreVirtualizationMap =
+          genericParent.getGrid().getMapping().dropResult(0);
+    }
+
     SmallVector<Value> streamIndices = buildStreamIndex(
         rewriter, loc, memrefGridShape, genericParent.getBlockFactorsValue(),
-        memrefShardShape, dmaIndexingMap, gridIndexingMap);
+        memrefShardShape, dmaIndexingMap, outputOperandIndexingMap,
+        coreVirtualizationMap);
 
     ttcore::DeviceAttr device = genericParent.getDevice();
     std::pair<MemRefType, AffineMap> underlyingMemrefAndView =

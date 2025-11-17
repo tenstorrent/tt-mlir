@@ -33,7 +33,8 @@ def TTCore_GridAttr : TTCore_Attr<"Grid", "grid"> {
     TT grid attribute
   }];
 
-  let parameters = (ins ArrayRefParameter<"int64_t">:$shape,
+  let parameters = (ins
+                        ArrayRefParameter<"int64_t">:$shape,
                         DefaultValuedParameter<
                           "AffineMap",
                           "$_builder.getEmptyAffineMap()">:$mapping);
@@ -64,6 +65,7 @@ def TTCore_GridAttr : TTCore_Attr<"Grid", "grid"> {
         }
         return cGridVolume;
       }
+      SmallVector<int64_t> getPhysicalGridShape(ArrayRef<int64_t> deviceGridShape);
 
       uint64_t getRank() const { return getShape().size(); }
   }];
@@ -271,18 +273,25 @@ def TTCore_ShardLayoutAttr : TTCore_Attr<"ShardLayout", "shard", [TTCore_DeviceL
     a grid of cores.
   }];
   let parameters = (ins ArrayRefParameter<"int64_t">:$stride,
-                        DefaultValuedParameter<"uint32_t", "1">:$buffers);
+                        "uint32_t":$buffers,
+                        DefaultValuedParameter<"AffineMap", "$_builder.getEmptyAffineMap()">:$coreVirtualizationMap
+                        );
 
-  let assemblyFormat = "`<` custom<DimensionList>($stride) (`,` $buffers^)? `>`";
+  let assemblyFormat = "`<` custom<DimensionList>($stride) `,` $buffers (`,` $coreVirtualizationMap^)? `>`";
 
   let extraClassDeclaration = [{
     static ShardLayoutAttr get(::mlir::MLIRContext *context, ArrayRef<int64_t> shape, uint64_t elementSize, uint32_t buffers);
     static ShardLayoutAttr get(ArrayRef<int64_t> shape, Type elementType, uint32_t buffers);
     static ShardLayoutAttr get(MemRefType memrefType, uint32_t buffers);
+    static ShardLayoutAttr get(::mlir::MLIRContext *context, ArrayRef<int64_t> strides, uint32_t buffers);
 
     bool isView() { return false; }
 
     AffineMap getAffineMap() const;
+
+    std::optional<mlir::AffineMap> getVirtualizationMapIfExists() {
+      return getCoreVirtualizationMap();
+    }
 
     unsigned getRank() const { return getStride().size(); }
   }];
@@ -426,6 +435,13 @@ def TTCore_MetalLayoutAttr : TTCore_Attr<"MetalLayout", "metal_layout", [TTCore_
                                      ArrayRef<int64_t> logicalShape,
                                      OOBVal oobVal, MemorySpace memorySpace,
                                      TensorMemoryLayout memoryLayout,
+                                     mlir::AffineMap indexAffineMap
+                                     );
+
+    static MetalLayoutAttr get(::mlir::MLIRContext *context,
+                                     ArrayRef<int64_t> logicalShape,
+                                     OOBVal oobVal, MemorySpace memorySpace,
+                                     TensorMemoryLayout memoryLayout,
                                      DenseIntElementsAttr collapseIntervals);
     static MetalLayoutAttr get(::mlir::MLIRContext *context,
                                      ArrayRef<int64_t> logicalShape,
@@ -474,6 +490,13 @@ def TTCore_MetalLayoutAttr : TTCore_Attr<"MetalLayout", "metal_layout", [TTCore_
 
     // Returns the full rank (including grid dimensions).
     unsigned getRank() const { return getNormalizedIntervals().size(); }
+
+    // Computes the implied physical grid shape using the grid shape and index map (if present)
+    llvm::SmallVector<int64_t> getPhysicalGridShape(ShapedType tensorType) const;
+
+    std::optional<mlir::AffineMap> getVirtualizationMapIfExists() {
+      return getIndexAffineMap();
+    }
 
     bool isView() { return false; }
   }];
