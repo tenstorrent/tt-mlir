@@ -2710,7 +2710,8 @@ class TTNNBuilder(Builder):
     def rms_norm(
         self,
         input_tensor: Operand,
-        weight: Operand,
+        weight: Optional[Operand] = None,
+        bias: Optional[Operand] = None,
         epsilon: float = 1.0e-5,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpView:
@@ -2722,18 +2723,20 @@ class TTNNBuilder(Builder):
         Applies Root Mean Square (RMS) normalization to the input tensor.
         RMS normalization normalizes the input tensor based on the root mean square of its elements.
 
-        Mathematical definition: rms_norm(x) = x / sqrt(mean(x^2) + epsilon) * weight
+        Mathematical definition: rms_norm(x) = (x / sqrt(mean(x^2) + epsilon)) * weight + bias
 
         Parameters
         ----------
         input_tensor : Operand
             Input tensor to be normalized
-        weight : Operand
-            Weight tensor for scaling
+        weight : Optional[Operand]
+            Optional weight tensor for scaling (default: None)
+        bias : Optional[Operand]
+            Optional bias tensor for shifting (default: None)
         epsilon : float
             Small constant to avoid division by zero (default is 1.0e-5)
         unit_attrs : Optional[List[str]]
-            Optional list of unit attributes
+            Optional list of unit attributes, here used to specify L1 width sharding
 
         Returns
         -------
@@ -2742,20 +2745,38 @@ class TTNNBuilder(Builder):
         """
         # Check if L1 width sharding is requested
         l1_width_sharded = unit_attrs is not None and "l1_width_sharded" in unit_attrs
+        if l1_width_sharded:
+            # Remove the l1_width_sharded attribute for internal processing
+            unit_attrs = [attr for attr in unit_attrs if attr != "l1_width_sharded"]
 
-        ttnn_kwargs = {"weight": weight, "epsilon": epsilon}
+        # Build TTNN kwargs - only include non-None optional parameters
+        ttnn_kwargs = {"epsilon": epsilon}
+        if weight is not None:
+            ttnn_kwargs["weight"] = weight
+        if bias is not None:
+            ttnn_kwargs["bias"] = bias
+
+        # Determine normalized_shape from weight/bias tensor if available, otherwise use last input dimension
+        if weight is not None:
+            normalized_shape = list(weight.type.shape)
+        elif bias is not None:
+            normalized_shape = list(bias.type.shape)
+        else:
+            normalized_shape = [input_tensor.type.shape[-1]]
+
+        golden_kwargs = {"epsilon": epsilon, "normalized_shape": normalized_shape}
+        if weight is not None:
+            golden_kwargs["weight"] = self._get_golden_tensor(weight)
+        if bias is not None:
+            golden_kwargs["bias"] = self._get_golden_tensor(bias)
 
         if l1_width_sharded:
             return self._op_proxy_l1_sharded_executed_op_with_dram_final_output(
                 ttnn.RMSNormOp,
                 [input_tensor],
-                ttnn_kwargs,
-                unit_attrs,
-                golden_kwargs={
-                    "weight": self._get_golden_tensor(weight),
-                    "epsilon": epsilon,
-                    "normalized_shape": weight.type.shape,
-                },
+                ttnn_kwargs=ttnn_kwargs,
+                unit_attrs=unit_attrs,
+                golden_kwargs=golden_kwargs,
             )
         else:
             return self._op_proxy(
@@ -2765,4 +2786,5 @@ class TTNNBuilder(Builder):
                 output_type=input_tensor.type.element_type,
                 ttnn_kwargs=ttnn_kwargs,
                 unit_attrs=unit_attrs,
+                golden_kwargs=golden_kwargs,
             )
