@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from typing import List
 
-from ttmlir.dialects import func
+from ttmlir.dialects import func, _ttcore_ops_gen
 
 from .utils import ModuleWrapper, OpWrapper, convert_to_module_wrapper
 
@@ -120,9 +120,25 @@ class MLIRModuleSplitter:
         """
         Builds a mapping of function names to their corresponding func.func operations.
         """
-        self._func_map = {
-            func_op.name.value: func_op for func_op in self._module.operations
-        }
+        funcs_list = self._module.operations
+
+        if any(isinstance(op, _ttcore_ops_gen.CPUModuleOp) for op in funcs_list):
+            raise ValueError(
+                "MLIRModuleSplitter does not support modules containing CPU-hoisted ops."
+            )
+
+        # Extract operations from DeviceModuleOp if present.
+        if isinstance(funcs_list[0], _ttcore_ops_gen.DeviceModuleOp):
+            funcs_list = (
+                funcs_list[0]
+                .bodyRegion.blocks[0]
+                .operations[0]  # builtin.module
+                .regions[0]
+                .blocks[0]
+                .operations
+            )
+
+        self._func_map = {func_op.name.value: func_op for func_op in funcs_list}
 
     @property
     def _main_func(self) -> func.FuncOp:
@@ -151,9 +167,16 @@ class MLIRModuleSplitter:
                 # Handle nested call.
                 if op.name == "func.call":
                     self._process_call_op(op)
+                # Wrap raw op and store it. Ops will be turned to modules on demand.
                 else:
-                    # Wrap raw op and store it. Ops will be turned to modules on demand.
-                    op_wrapper = self._module.wrap_op(op)
+                    # Handle stablehlo.composite ops that need to have their decomposition functions in the same module.
+                    op_str = str(op)
+                    if "stablehlo.composite" in op_str:
+                        decomposition_func = self._extract_decomposition_func(op_str)
+                        op_wrapper = self._module.wrap_op(op, decomposition_func)
+                    else:
+                        op_wrapper = self._module.wrap_op(op)
+
                     self._sub_ops.append(op_wrapper)
 
     def _process_call_op(self, call_op: func.CallOp) -> None:
@@ -161,3 +184,11 @@ class MLIRModuleSplitter:
         callee = str(call_op.callee).replace("@", "")
         assert callee in self._func_map, f"Function {callee} not found in the module."
         self._process_func_op(self._func_map[callee])
+
+    def _extract_decomposition_func(self, op_str: str) -> func.FuncOp:
+        decomposition_start = op_str.find("decomposition = @")
+        decomposition_start += len("decomposition = @")
+        decomposition_end = op_str.find("}", decomposition_start)
+        callee = op_str[decomposition_start:decomposition_end].strip()
+        assert callee in self._func_map, f"Function {callee} not found in the module."
+        return self._func_map[callee]

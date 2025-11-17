@@ -618,6 +618,335 @@ private:
 };
 } // namespace
 
+// Decompose SelectAndScatter into MaxPool2dWithIndices + ScatterInDim:
+// 1. MaxPool2dWithIndices finds the maximum values and their flattened indices
+// within each pooling window.
+// 2. ScatterInDim scatters the corresponding source values back into those
+// positions.
+//
+// This decomposition currently supports only SelectAndScatter operations where
+// the select function uses MAX, which corresponds to the case appearing in
+// MaxPool2d backward. Other types in Select block are not used in our
+// workloads.
+//
+// If multiple windows overlap (e.g., stride < window size), several source
+// values may map to the same index. In that case, ScatterInDim reduces them
+// using the reduction function specified in the scatter operation (e.g., add,
+// multiply, etc.).
+//
+// Example:
+// --------
+// Input tensor (4x4):
+//   [[ 1,  5,  2,  4],
+//    [ 7,  3,  8,  6],
+//    [ 0,  9, 11, 10],
+//    [12, 13, 14, 15]]
+//
+// Window size: 2x2, stride: 2
+//
+// Source tensor (same shape as pooled output):
+//   [[10, 20],
+//    [30, 40]]
+//
+// Step 1: MaxPool2dWithIndices
+//   - For each 2x2 window, find the maximum value and record its **flattened
+//   index** within the input:
+//       Window (0,0): max = 7  → index = 4
+//       Window (0,1): max = 8  → index = 6
+//       Window (1,0): max = 13 → index = 13
+//       Window (1,1): max = 15 → index = 15
+//
+//   - Max values: [[ 7,  8],
+//                  [13, 15]]
+//   - Indices:    [[ 4,  6],
+//                  [13, 15]]
+//
+// Step 2: ScatterInDim
+//   - Scatter the source values [[10,20],[30,40]] into the flattened positions
+//   above.
+//   - Result (reshaped back to 4x4):
+//       [[ 0,  0,  0,  0],
+//        [10,  0, 20,  0],
+//        [ 0,  0,  0,  0],
+//        [ 0, 30,  0, 40]]
+namespace {
+class StableHLOToTTIRSelectAndScatterOpConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::SelectAndScatterOp> {
+  using OpConversionPattern<
+      mlir::stablehlo::SelectAndScatterOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::SelectAndScatterOp srcOp,
+                  mlir::stablehlo::SelectAndScatterOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    // Verify that the select block contains only a compare op
+    if (failed(verifySelectBlock(srcOp, rewriter))) {
+      return failure();
+    }
+
+    Location loc = srcOp.getLoc();
+    auto operand = srcOp.getOperand();
+    auto source = srcOp.getSource();
+    auto initValue_ = srcOp.getInitValue();
+
+    // Get window attributes
+    auto windowDims = srcOp.getWindowDimensionsAttr();
+    auto windowStrides_ = srcOp.getWindowStridesAttr();
+    auto padding_ = srcOp.getPaddingAttr();
+
+    // Initial value in tensor which we scatter into
+    // If not present, defaults to zero
+    auto operandType = mlir::cast<RankedTensorType>(operand.getType());
+    float fillValue = 0.0f;
+
+    if (initValue_) {
+      if (auto constOp =
+              initValue_.getDefiningOp<mlir::stablehlo::ConstantOp>()) {
+        auto valAttr = mlir::cast<DenseFPElementsAttr>(constOp.getValue());
+        fillValue = valAttr.getValues<APFloat>()[0].convertToFloat();
+      } else {
+        llvm::report_fatal_error("initValue_ must be a stablehlo.constant");
+      }
+    }
+
+    auto fullTensorOp = rewriter.create<ttir::FullOp>(
+        loc, operandType, rewriter.getF32FloatAttr(fillValue));
+
+    // Tensor which we scatter into
+    auto fullTensor = fullTensorOp.getResult();
+
+    // Generate defaults if they dont exist
+    // Default window strides is all ones
+    auto windowStrides = windowStrides_
+                             ? windowStrides_
+                             : rewriter.getDenseI64ArrayAttr(
+                                   SmallVector<int64_t>(windowDims.size(), 1));
+
+    // Default padding is all zeros
+    auto padding =
+        padding_ ? rewriter.getDenseI64ArrayAttr(
+                       SmallVector<int64_t>(padding_.getValues<int64_t>()))
+                 : rewriter.getDenseI64ArrayAttr(
+                       SmallVector<int64_t>(windowDims.size() * 2, 0));
+
+    // Adjust tensor layouts and args for MaxPool2dWithIndices
+    // Get indices of elements larger than one which correspond to spatial dims
+    // (H, W)
+    auto spatialDims = getIndicesofElementsLargerThanOne(windowDims);
+    if (spatialDims.empty()) {
+      return rewriter.notifyMatchFailure(srcOp, "No elements larger than one");
+    }
+
+    // Generate desired and current layouts (desired = N,H,W,C)
+    // Generate permutation for current->desired layout
+
+    const int64_t SPATIAL_H = -3;
+    const int64_t SPATIAL_W = -2;
+    const int64_t NON_SPATIAL = -1;
+
+    // Desired layout (N,H,W,C)
+    std::vector<int64_t> desiredLayout(operand.getType().getRank(),
+                                       NON_SPATIAL);
+    desiredLayout[operand.getType().getRank() - 3] = SPATIAL_H;
+    desiredLayout[operand.getType().getRank() - 2] = SPATIAL_W;
+
+    int64_t nonSpatialCount = 0;
+    for (int64_t i = 0; i < static_cast<int64_t>(desiredLayout.size()); ++i) {
+      if (desiredLayout[i] == NON_SPATIAL) {
+        desiredLayout[i] = nonSpatialCount++;
+      }
+    }
+
+    // Current layout
+    std::vector<int64_t> currentLayout(operand.getType().getRank(),
+                                       NON_SPATIAL);
+    currentLayout[spatialDims[0]] = SPATIAL_H;
+    currentLayout[spatialDims[1]] = SPATIAL_W;
+
+    nonSpatialCount = 0;
+    for (int64_t i = 0; i < static_cast<int64_t>(currentLayout.size()); ++i) {
+      if (currentLayout[i] == NON_SPATIAL) {
+        currentLayout[i] = nonSpatialCount++;
+      }
+    }
+
+    // Permutation for current->desired layout and it's inverse
+    auto permutation = ttmlir::utils::generatePermutation(
+        llvm::ArrayRef(currentLayout), llvm::ArrayRef(desiredLayout));
+    auto inverseOfPermutation = ttmlir::utils::inversePermutation(permutation);
+
+    // Adjust args to match definition in MaxPool2dWithIndices
+    auto kernel = rewriter.getDenseI32ArrayAttr(
+        {static_cast<int32_t>(windowDims[spatialDims[0]]),
+         static_cast<int32_t>(windowDims[spatialDims[1]])});
+
+    auto stride = rewriter.getDenseI32ArrayAttr(
+        {static_cast<int32_t>(windowStrides[spatialDims[0]]),
+         static_cast<int32_t>(windowStrides[spatialDims[1]])});
+
+    auto dilations = rewriter.getDenseI32ArrayAttr({1, 1});
+
+    auto paddingAttr = rewriter.getDenseI32ArrayAttr({
+        static_cast<int32_t>(padding[2 * spatialDims[0]]),     // top
+        static_cast<int32_t>(padding[2 * spatialDims[1]]),     // left
+        static_cast<int32_t>(padding[2 * spatialDims[0] + 1]), // bottom
+        static_cast<int32_t>(padding[2 * spatialDims[1] + 1]), // right
+    });
+
+    auto ceilMode = rewriter.getBoolAttr(false);
+
+    // Apply input permutation to operand, source and tensor which we scatter
+    // into (to N,H,W,C)
+    auto operandPermShape = ::ttmlir::utils::applyPermutation(
+        operand.getType().getShape(), permutation);
+    auto sourcePermShape = ::ttmlir::utils::applyPermutation(
+        source.getType().getShape(), permutation);
+    auto fullTensorPermShape = ::ttmlir::utils::applyPermutation(
+        fullTensor.getType().getShape(), permutation);
+
+    operand = applyPermutationToValue(rewriter, loc, operand, operandPermShape,
+                                      operand.getType(), permutation,
+                                      "_permuteInput");
+    source = applyPermutationToValue(rewriter, loc, source, sourcePermShape,
+                                     source.getType(), permutation,
+                                     "_permuteSource");
+    fullTensor = applyPermutationToValue(
+        rewriter, loc, fullTensor, fullTensorPermShape, fullTensor.getType(),
+        permutation, "_permuteFullTensor");
+
+    // Calling MaxPool2dWithIndices op on operand
+    // and obtaining indices which will be used for ScatterInDim
+    auto pooledType = RankedTensorType::get(sourcePermShape,
+                                            source.getType().getElementType());
+    auto indicesType =
+        RankedTensorType::get(sourcePermShape,
+                              rewriter.getIntegerType(32)); // i32 for indices
+
+    Value pooledEmpty = rewriter.create<ttir::EmptyOp>(loc, pooledType);
+    Value indicesEmpty = rewriter.create<ttir::EmptyOp>(loc, indicesType);
+
+    auto maxPoolOp = rewriter.create<ttir::MaxPool2dWithIndicesOp>(
+        loc, TypeRange{pooledType, indicesType}, operand,
+        ValueRange{pooledEmpty, indicesEmpty}, kernel, stride, dilations,
+        paddingAttr, ceilMode);
+
+    auto indices = maxPoolOp.getResultIndices();
+
+    // Reshape for ScatterInDim (N,H*W,1,C)
+    auto reshapedIndicesType =
+        getNHWFlattenedType(mlir::cast<RankedTensorType>(indices.getType()));
+    auto reshapedIndices = generateReshape(indices, reshapedIndicesType,
+                                           rewriter, "_reshapeIndices");
+
+    auto reshapedSourceType =
+        getNHWFlattenedType(mlir::cast<RankedTensorType>(source.getType()));
+    auto reshapedSource =
+        generateReshape(source, reshapedSourceType, rewriter, "_reshapeSource");
+
+    auto reshapedFullTensorType =
+        getNHWFlattenedType(mlir::cast<RankedTensorType>(fullTensor.getType()));
+    auto reshapedFullTensor = generateReshape(
+        fullTensor, reshapedFullTensorType, rewriter, "_reshapeFullTensor");
+
+    // Calling ScatterInDim to scatter source values back to positions
+    // in the full tensor as indicated by previously obtained indices
+    auto scatterOutputType =
+        mlir::cast<RankedTensorType>(reshapedFullTensorType);
+
+    // TODO(umales): Right now, if there are multiple source values mapping to
+    // the same index, they are overwritten. Once
+    // https://github.com/tenstorrent/tt-mlir/issues/5091 is resolved, we can
+    // add reduction type in call to ScatterInDim. Reduction type will be
+    // derived from the scatter block in SelectAndScatter.
+
+    auto scatterResult = ttir::utils::createDPSOp<ttir::ScatterInDimOp>(
+        rewriter, loc, scatterOutputType,
+        reshapedFullTensor,           // input tensor
+        reshapedIndices,              // index tensor
+        reshapedSource,               // source tensor
+        rewriter.getI32IntegerAttr(1) // dim = 1 (the H*W flattened dimension)
+    );
+
+    // Reshape back to N,H,W,C
+    auto finalOutputType = RankedTensorType::get(
+        fullTensorPermShape, scatterOutputType.getElementType());
+    auto finalResult = generateReshape(scatterResult, finalOutputType, rewriter,
+                                       "_reshapeToNHWC");
+
+    // Apply inverse permutation to get back to original layout
+    auto originalShape = ::ttmlir::utils::applyPermutation(
+        finalResult.getType().getShape(), inverseOfPermutation);
+    auto finalPermutedResult = applyPermutationToValue(
+        rewriter, loc, finalResult, originalShape, finalResult.getType(),
+        inverseOfPermutation, "_permuteBackToOriginal");
+
+    rewriter.replaceOp(srcOp, finalPermutedResult);
+    return success();
+  }
+
+private:
+  llvm::SmallVector<int64_t>
+  getIndicesofElementsLargerThanOne(llvm::ArrayRef<int64_t> array) const {
+    llvm::SmallVector<int64_t> indices;
+    for (int32_t i = 0; i < static_cast<int64_t>(array.size()); ++i) {
+      if (array[i] > 1) {
+        indices.push_back(i);
+      }
+    }
+    return indices;
+  }
+
+  RankedTensorType getNHWFlattenedType(RankedTensorType unflattenedType) const {
+    llvm::ArrayRef<int64_t> shape = unflattenedType.getShape();
+    assert(shape.size() == 4 && "Expected 4D NHWC tensor");
+    llvm::SmallVector<int64_t, 4> flattenedShape = {
+        shape[0], shape[1] * shape[2], 1, shape[3]};
+    return RankedTensorType::get(flattenedShape,
+                                 unflattenedType.getElementType());
+  }
+
+  ttir::ReshapeOp
+  generateReshape(mlir::TypedValue<mlir::RankedTensorType> input,
+                  RankedTensorType outputType, PatternRewriter &rewriter,
+                  StringRef suffix) const {
+    return ttir::utils::createDPSOp<ttir::ReshapeOp>(
+        rewriter, ttmlir::utils::appendLocationSuffix(input.getLoc(), suffix),
+        outputType, input,
+        rewriter.getI32ArrayAttr(SmallVector<int32_t>(
+            outputType.getShape().begin(), outputType.getShape().end())));
+  }
+
+  mlir::TypedValue<mlir::RankedTensorType> applyPermutationToValue(
+      OpBuilder &rewriter, Location loc, mlir::Value input,
+      ArrayRef<int64_t> permutedShape, RankedTensorType inputType,
+      ArrayRef<int64_t> permutation, StringRef suffix) const {
+    return ttir::utils::createDPSOp<ttir::PermuteOp>(
+        rewriter, ttmlir::utils::appendLocationSuffix(loc, suffix),
+        permutedShape, inputType.getElementType(), inputType.getEncoding(),
+        input, permutation);
+  }
+
+  LogicalResult verifySelectBlock(mlir::stablehlo::SelectAndScatterOp srcOp,
+                                  PatternRewriter &rewriter) const {
+    auto &selectBlock = srcOp.getSelect().front();
+    for (Operation &op : selectBlock) {
+      // Skip the return operation
+      if (mlir::isa<mlir::stablehlo::ReturnOp>(op)) {
+        continue;
+      }
+      if (!mlir::isa<mlir::stablehlo::CompareOp>(op)) {
+        return rewriter.notifyMatchFailure(
+            srcOp,
+            "SelectAndScatter select block must contain only a compare op.");
+      }
+    }
+    return success();
+  }
+};
+} // namespace
+
 namespace {
 class StableHLOToTTIRDotGeneralOpConversionPattern
     : public OpConversionPattern<mlir::stablehlo::DotGeneralOp> {
@@ -772,11 +1101,13 @@ public:
         mlir::IntegerAttr::get(integerType, srcOp.getFeatureIndex());
 
     // Default momentum for batch norm training
-    FloatAttr momentumAttr = rewriter.getF32FloatAttr(0.1f);
+    FloatAttr momentumAttr = rewriter.getF32FloatAttr(1.0f);
 
-    // Create empty tensors for running mean and variance
-    auto runningMean = rewriter.create<ttir::EmptyOp>(loc, meanType);
-    auto runningVariance = rewriter.create<ttir::EmptyOp>(loc, varianceType);
+    auto runningMean = rewriter.create<ttir::ZerosOp>(
+        loc, meanType, llvm::to_vector_of<int32_t>(meanType.getShape()));
+    auto runningVariance = rewriter.create<ttir::OnesOp>(
+        loc, varianceType,
+        llvm::to_vector_of<int32_t>(varianceType.getShape()));
 
     // Create empty output tensors
     auto outputEmpty = rewriter.create<ttir::EmptyOp>(loc, outputType);
@@ -793,6 +1124,269 @@ public:
     return success();
   }
 };
+} // namespace
+
+namespace {
+
+class StableHLOToBatchNormGradOpConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::BatchNormGradOp> {
+
+  using OpConversionPattern<
+      mlir::stablehlo::BatchNormGradOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::BatchNormGradOp srcOp,
+                  mlir::stablehlo::BatchNormGradOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    // Check legality of the general batch norm conversion.
+    LogicalResult legalityResult =
+        checkBatchNormConversionLegality(srcOp, adaptor, rewriter);
+    if (!legalityResult.succeeded()) {
+      return legalityResult;
+    }
+
+    // Check that parameters have the expected shape.
+    legalityResult =
+        checkBatchNormGradParametersLegality(srcOp, adaptor, rewriter);
+    if (!legalityResult.succeeded()) {
+      return legalityResult;
+    }
+
+    auto loc = srcOp.getLoc();
+
+    // Get the input types and shapes.
+    auto operandType =
+        mlir::cast<RankedTensorType>(adaptor.getOperand().getType());
+    auto scaleType = mlir::cast<RankedTensorType>(adaptor.getScale().getType());
+    auto gradOutputType =
+        mlir::cast<RankedTensorType>(adaptor.getGradOutput().getType());
+
+    // Get output types.
+    auto gradOperandType = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(srcOp.getGradOperand().getType()));
+    auto gradScaleType = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(srcOp.getGradScale().getType()));
+    auto gradOffsetType = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(srcOp.getGradOffset().getType()));
+
+    // Get feature index and epsilon.
+    int64_t featureIndex = srcOp.getFeatureIndex();
+    FloatAttr epsilonAttr = srcOp.getEpsilonAttr();
+    float epsilon = epsilonAttr.getValueAsDouble();
+
+    // Create reduction dimensions (all dims except feature_index).
+    int64_t rank = operandType.getRank();
+    auto reductionDims = llvm::to_vector(llvm::seq<int32_t>(rank));
+    reductionDims.erase(reductionDims.begin() + featureIndex);
+    ArrayAttr reductionDimsAttr = rewriter.getI32ArrayAttr(reductionDims);
+
+    // Broadcast inputs to operand shape.
+    Value scaleBcast = broadcastFeatureToShape(
+        rewriter, loc, adaptor.getScale(), operandType, featureIndex);
+    Value meanBcast = broadcastFeatureToShape(rewriter, loc, adaptor.getMean(),
+                                              operandType, featureIndex);
+    Value varianceBcast = broadcastFeatureToShape(
+        rewriter, loc, adaptor.getVariance(), operandType, featureIndex);
+
+    // Create epsilon broadcast.
+    auto scalarType = RankedTensorType::get({}, operandType.getElementType());
+    auto epsilonDenseAttr = DenseElementsAttr::get(
+        scalarType,
+        rewriter.getFloatAttr(operandType.getElementType(), epsilon));
+    auto epsilonConstant =
+        rewriter.create<ttir::ConstantOp>(loc, scalarType, epsilonDenseAttr);
+    Value epsilonBcast = broadcastFeatureToShape(rewriter, loc, epsilonConstant,
+                                                 operandType, featureIndex);
+
+    // centered_operand = operand - mean
+    auto centeredOperand = ttir::utils::createDPSOp<ttir::SubtractOp>(
+        rewriter, loc, operandType, adaptor.getOperand(), meanBcast);
+
+    // stddev = sqrt(variance + epsilon)
+    auto variancePlusEpsilon = ttir::utils::createDPSOp<ttir::AddOp>(
+        rewriter, loc, operandType, varianceBcast, epsilonBcast);
+
+    auto stddev = ttir::utils::createDPSOp<ttir::SqrtOp>(
+        rewriter, loc, operandType, variancePlusEpsilon);
+
+    // normalized_operand = centered_operand / stddev
+    auto normalizedOperand = ttir::utils::createDPSOp<ttir::DivOp>(
+        rewriter, loc, operandType, centeredOperand, stddev);
+
+    // elements_per_feature = total_elements / feature_dim_size
+    int64_t totalElements = operandType.getNumElements();
+    float elementsPerFeature =
+        static_cast<float>(totalElements) /
+        static_cast<float>(operandType.getShape()[featureIndex]);
+    auto elementsPerFeatureAttr = DenseElementsAttr::get(
+        scalarType, rewriter.getFloatAttr(operandType.getElementType(),
+                                          elementsPerFeature));
+    auto elementsPerFeatureConst = rewriter.create<ttir::ConstantOp>(
+        loc, scalarType, elementsPerFeatureAttr);
+    auto elementsPerFeatureBcast = broadcastFeatureToShape(
+        rewriter, loc, elementsPerFeatureConst, operandType, featureIndex);
+
+    // i1 = grad_output * elements_per_feature
+    auto i1 = ttir::utils::createDPSOp<ttir::MultiplyOp>(
+        rewriter, loc, gradOutputType, adaptor.getGradOutput(),
+        elementsPerFeatureBcast);
+
+    // i2 = broadcast(sum(grad_output, reduction_dims))
+    auto sumGradOutput = ttir::utils::createDPSOp<ttir::SumOp>(
+        rewriter, loc, scaleType, adaptor.getGradOutput(),
+        rewriter.getBoolAttr(false), reductionDimsAttr);
+    auto i2 = broadcastFeatureToShape(rewriter, loc, sumGradOutput, operandType,
+                                      featureIndex);
+
+    // grad_output * centered_operand
+    auto gradTimesCentered = ttir::utils::createDPSOp<ttir::MultiplyOp>(
+        rewriter, loc, operandType, adaptor.getGradOutput(), centeredOperand);
+
+    // i3 = broadcast(sum(grad_output * centered_operand))
+    auto sumGradTimesCentered = ttir::utils::createDPSOp<ttir::SumOp>(
+        rewriter, loc, scaleType, gradTimesCentered,
+        rewriter.getBoolAttr(false), reductionDimsAttr);
+    auto i3 = broadcastFeatureToShape(rewriter, loc, sumGradTimesCentered,
+                                      operandType, featureIndex);
+
+    // i4 = i3 * centered_operand
+    auto i4 = ttir::utils::createDPSOp<ttir::MultiplyOp>(
+        rewriter, loc, operandType, i3, centeredOperand);
+
+    // i5 = i4 / (variance + epsilon)
+    auto i5 = ttir::utils::createDPSOp<ttir::DivOp>(rewriter, loc, operandType,
+                                                    i4, variancePlusEpsilon);
+
+    // i6 = i1 - i2 - i5
+    auto i1MinusI2 = ttir::utils::createDPSOp<ttir::SubtractOp>(
+        rewriter, loc, operandType, i1, i2);
+
+    auto i6 = ttir::utils::createDPSOp<ttir::SubtractOp>(
+        rewriter, loc, operandType, i1MinusI2, i5);
+
+    // grad_operand = (scale / stddev / elements_per_feature) * i6
+    auto scaleOverStddev = ttir::utils::createDPSOp<ttir::DivOp>(
+        rewriter, loc, operandType, scaleBcast, stddev);
+
+    auto scaleOverStddevOverElem = ttir::utils::createDPSOp<ttir::DivOp>(
+        rewriter, loc, operandType, scaleOverStddev, elementsPerFeatureBcast);
+
+    auto gradOperand = ttir::utils::createDPSOp<ttir::MultiplyOp>(
+        rewriter, loc, gradOperandType, scaleOverStddevOverElem, i6);
+
+    // grad_scale = sum(grad_output * normalized_operand)
+    auto gradTimesNorm = ttir::utils::createDPSOp<ttir::MultiplyOp>(
+        rewriter, loc, operandType, adaptor.getGradOutput(), normalizedOperand);
+
+    auto gradScale = ttir::utils::createDPSOp<ttir::SumOp>(
+        rewriter, loc, gradScaleType, gradTimesNorm,
+        rewriter.getBoolAttr(false), reductionDimsAttr);
+
+    // grad_offset = sum(grad_output)
+    auto gradOffset = ttir::utils::createDPSOp<ttir::SumOp>(
+        rewriter, loc, gradOffsetType, adaptor.getGradOutput(),
+        rewriter.getBoolAttr(false), reductionDimsAttr);
+
+    // Replace the operation with the three results.
+    rewriter.replaceOp(srcOp, {gradOperand, gradScale, gradOffset});
+
+    return success();
+  }
+
+private:
+  // Verify that scale, mean, variance parameters are 1D tensors with correct
+  // size.
+  LogicalResult checkBatchNormGradParametersLegality(
+      mlir::stablehlo::BatchNormGradOp srcOp,
+      mlir::stablehlo::BatchNormGradOp::Adaptor adaptor,
+      ConversionPatternRewriter &rewriter) const {
+    auto operandType =
+        mlir::cast<RankedTensorType>(adaptor.getOperand().getType());
+    auto scaleType = mlir::cast<RankedTensorType>(adaptor.getScale().getType());
+    auto meanType = mlir::cast<RankedTensorType>(adaptor.getMean().getType());
+    auto varianceType =
+        mlir::cast<RankedTensorType>(adaptor.getVariance().getType());
+
+    int64_t featureIndex = srcOp.getFeatureIndex();
+    int64_t expectedSize = operandType.getShape()[featureIndex];
+
+    // Check that parameters are 1D tensors.
+    if (scaleType.getRank() != 1) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "batch_norm_grad scale must be a 1D tensor");
+    }
+    if (meanType.getRank() != 1) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "batch_norm_grad mean must be a 1D tensor");
+    }
+    if (varianceType.getRank() != 1) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "batch_norm_grad variance must be a 1D tensor");
+    }
+
+    // Check that sizes match feature dimension.
+    if (scaleType.getDimSize(0) != expectedSize) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "batch_norm_grad scale size must match feature dimension");
+    }
+    if (meanType.getDimSize(0) != expectedSize) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "batch_norm_grad mean size must match feature dimension");
+    }
+    if (varianceType.getDimSize(0) != expectedSize) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "batch_norm_grad variance size must match feature dimension");
+    }
+
+    return success();
+  }
+
+  // Helper to create broadcast shape from feature dimension to full shape.
+  Value broadcastFeatureToShape(ConversionPatternRewriter &rewriter,
+                                Location loc, Value input,
+                                RankedTensorType targetType,
+                                int64_t featureIndex) const {
+    auto inputType = mlir::cast<RankedTensorType>(input.getType());
+    const int64_t rank = targetType.getRank();
+
+    // First reshape to match target rank if needed.
+    if (inputType.getRank() < rank) {
+      input =
+          reshapeFeatureToShape(rewriter, loc, input, targetType, featureIndex);
+    }
+
+    // Broadcast the input to the target type.
+    Value output;
+    LogicalResult result =
+        ttir::utils::broadcastValue(rewriter, input, targetType, output, loc,
+                                    /*frontUnsqueeze=*/false);
+    assert(result.succeeded() &&
+           "Broadcast should succeed after legality checks");
+    return output;
+  }
+
+  Value reshapeFeatureToShape(ConversionPatternRewriter &rewriter, Location loc,
+                              Value input, RankedTensorType targetType,
+                              int64_t featureIndex) const {
+    auto inputType = mlir::cast<RankedTensorType>(input.getType());
+    const int64_t rank = targetType.getRank();
+
+    SmallVector<int64_t> unsqueezeShape(rank, 1);
+
+    if (inputType.getRank() > 0) {
+      unsqueezeShape[featureIndex] = inputType.getDimSize(0);
+    }
+
+    auto unsqueezeType =
+        RankedTensorType::get(unsqueezeShape, targetType.getElementType());
+
+    return ttir::utils::createDPSOp<ttir::ReshapeOp>(
+        rewriter, loc, unsqueezeType, input,
+        rewriter.getI32ArrayAttr(llvm::to_vector_of<int32_t>(unsqueezeShape)));
+  }
+};
+
 } // namespace
 
 namespace {
@@ -1083,10 +1677,51 @@ public:
             : rewriter.getDenseBoolArrayAttr(
                   SmallVector<bool>(numSpatialDims, false));
 
-    ttir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::ConvolutionOp>(
-        rewriter, srcOp, outputType, adaptor.getLhs(), adaptor.getRhs(),
-        Value(), windowStridesAttr, paddingAttr, inputDilationAttr,
-        kernelDilationAttr, windowReversalAttr,
+    // Negative padding handling strategy:
+    // 1. Convolution ops don't support negative padding directly, so we split
+    // the operation into two steps when negative padding is detected
+    // 2. First, run convolution with padding clamped to zero (resulting in a
+    // larger intermediate output than the final desired shape)
+    // 3. Then, slice the intermediate output to achieve the effect of negative
+    // padding (cropping edges based on the magnitude of negative padding
+    // values)
+    //
+    // Example: padding=[-1, -1] means "crop 1 pixel from each edge of the
+    // output"
+    //   - Run conv with padding=[0, 0] to get larger intermediate result
+    //   - Slice [1:-1, 1:-1] to remove the edges and get final output
+    ArrayRef<int64_t> paddingArray = paddingAttr.asArrayRef();
+    bool hasNegativePadding =
+        llvm::any_of(paddingArray, [](int64_t p) { return p < 0; });
+    SmallVector<int64_t> adjustedPadding = llvm::to_vector(llvm::map_range(
+        paddingArray, [](int64_t p) { return std::max<int64_t>(p, 0); }));
+
+    paddingAttr = rewriter.getDenseI64ArrayAttr(adjustedPadding);
+
+    // Calculate intermediate output shape for convolution when negative padding
+    // exists.
+    SmallVector<int64_t> intermediateOutputShape(outputType.getShape().begin(),
+                                                 outputType.getShape().end());
+    auto spatialDims = dimNums.getOutputSpatialDimensions();
+    for (size_t i = 0; i < numSpatialDims; i++) {
+      int64_t padLow = paddingArray[2 * i];
+      int64_t padHigh = paddingArray[2 * i + 1];
+
+      if (padLow < 0) {
+        intermediateOutputShape[spatialDims[i]] -= padLow;
+      }
+      if (padHigh < 0) {
+        intermediateOutputShape[spatialDims[i]] -= padHigh;
+      }
+    }
+
+    RankedTensorType intermediateOutputType = RankedTensorType::get(
+        intermediateOutputShape, outputType.getElementType());
+
+    ttir::ConvolutionOp convOp = ttir::utils::createDPSOp<ttir::ConvolutionOp>(
+        rewriter, srcOp.getLoc(), intermediateOutputType, adaptor.getLhs(),
+        adaptor.getRhs(), Value(), windowStridesAttr, paddingAttr,
+        inputDilationAttr, kernelDilationAttr, windowReversalAttr,
         mlir::tt::ttir::ConvolutionLayoutAttr::get(
             getContext(), dimNums.getInputBatchDimension(),
             dimNums.getInputFeatureDimension(),
@@ -1099,6 +1734,39 @@ public:
             dimNums.getOutputSpatialDimensions()),
         adaptor.getFeatureGroupCountAttr(), adaptor.getBatchGroupCountAttr());
 
+    if (!hasNegativePadding) {
+      rewriter.replaceOp(srcOp, convOp->getResult(0));
+      return success();
+    }
+    auto convOutputType = cast<RankedTensorType>(convOp.getResult().getType());
+    auto convOutputShape = convOutputType.getShape();
+
+    SmallVector<int32_t> sliceBegins(convOutputShape.size(), 0);
+    SmallVector<int32_t> sliceEnds(convOutputShape.begin(),
+                                   convOutputShape.end());
+    SmallVector<int32_t> sliceSteps(convOutputShape.size(), 1);
+
+    // Adjust slice parameters for spatial dimensions with negative padding.
+    for (size_t i = 0; i < numSpatialDims; i++) {
+      int64_t padLow = paddingArray[2 * i];
+      int64_t padHigh = paddingArray[2 * i + 1];
+
+      if (padLow < 0 || padHigh < 0) {
+        int64_t spatialDim = spatialDims[i];
+        sliceBegins[spatialDim] = std::abs(std::min(0L, padLow));
+        sliceEnds[spatialDim] =
+            convOutputShape[spatialDim] - std::abs(std::min(0L, padHigh));
+      }
+    }
+
+    // Create slice operation to crop the output.
+    auto sliceOp = ttir::utils::createDPSOp<ttir::SliceStaticOp>(
+        rewriter, srcOp.getLoc(), outputType, convOp.getResult(),
+        rewriter.getI32ArrayAttr(sliceBegins),
+        rewriter.getI32ArrayAttr(sliceEnds),
+        rewriter.getI32ArrayAttr(sliceSteps));
+
+    rewriter.replaceOp(srcOp, sliceOp.getResult());
     return success();
   }
 };
@@ -2766,31 +3434,112 @@ public:
   matchAndRewrite(mlir::stablehlo::PadOp srcOp,
                   mlir::stablehlo::PadOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+
     LogicalResult legalityResult =
         checkConversionLegality(srcOp, adaptor, rewriter);
     if (!legalityResult.succeeded()) {
       return legalityResult;
     }
 
-    auto outputType = mlir::cast<RankedTensorType>(
-        getTypeConverter()->convertType(srcOp.getResult().getType()));
-
-    SmallVector<int32_t> padDim;
-    for (uint32_t i = 0; i < adaptor.getEdgePaddingLow().size(); i++) {
-      padDim.push_back(adaptor.getEdgePaddingLow()[i]);
-      padDim.push_back(adaptor.getEdgePaddingHigh()[i]);
-    }
-
     ttir::ConstantOp valueDef =
         getConstantValueDefiningOp(adaptor.getPaddingValue());
 
     mlir::ElementsAttr paddingValueAttr = valueDef.getValueAttr();
+    SmallVector<int64_t> steps;
+    auto outputType = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(srcOp.getResult().getType()));
 
     float value;
     if (paddingValueAttr.getElementType().isInteger()) {
       value = paddingValueAttr.getSplatValue<APInt>().signedRoundToDouble();
     } else {
       value = paddingValueAttr.getSplatValue<APFloat>().convertToDouble();
+    }
+
+    int64_t sum = 0;
+    for (int64_t eachVal : srcOp.getInteriorPadding()) {
+      steps.push_back(eachVal + 1);
+      sum += eachVal;
+    }
+    if (sum != 0) {
+      auto fullOp = rewriter.create<ttir::FullOp>(
+          srcOp.getLoc(), outputType, rewriter.getF32FloatAttr(value));
+      llvm::SmallVector<int64_t> upperbounds;
+      llvm::copy(outputType.getShape(), std::back_inserter(upperbounds));
+      int64_t index = 0;
+      for (int64_t pad : srcOp.getEdgePaddingHigh()) {
+        upperbounds[index] -= pad;
+        index++;
+      }
+
+      llvm::SmallVector<int64_t> counters;
+      llvm::SmallVector<int64_t> lowerbounds;
+      for (int64_t counter : srcOp.getEdgePaddingLow()) {
+        counters.push_back(counter);
+        lowerbounds.push_back(counter);
+      }
+      llvm::SmallVector<int64_t> flatIndices;
+      flatIndices.append(counters.begin(), counters.end());
+      int64_t numIndices = 1;
+
+      size_t current_index = 0;
+      while (current_index < counters.size() &&
+             counters[counters.size() - 1] <
+                 upperbounds[upperbounds.size() - 1]) {
+        counters[current_index] += steps[current_index];
+        bool reset = false;
+        while (current_index < counters.size() &&
+               counters[current_index] >= upperbounds[current_index]) {
+          counters[current_index] = lowerbounds[current_index];
+          current_index++;
+          if (current_index < counters.size()) {
+            counters[current_index] += steps[current_index];
+          }
+          reset = true;
+        }
+        if (current_index >= counters.size()) {
+          break;
+        }
+        if (reset) {
+          current_index = 0;
+        }
+        flatIndices.append(counters.begin(), counters.end());
+        numIndices++;
+      }
+      auto inputType =
+          mlir::cast<RankedTensorType>(adaptor.getOperand().getType());
+
+      int64_t rank = counters.size();
+      auto indicesType = RankedTensorType::get(
+          {numIndices, rank}, rewriter.getI64Type(), inputType.getEncoding());
+
+      auto indicesAttr = DenseIntElementsAttr::get(indicesType, flatIndices);
+      Value indicesTensor = rewriter.create<ttir::ConstantOp>(
+          srcOp.getLoc(), indicesType, indicesAttr);
+      SmallVector<int32_t> insertedWindowDims =
+          llvm::to_vector(llvm::seq<int32_t>(0, rank));
+
+      ttir::utils::replaceOpWithNewDPSOp<ttir::ScatterOp>(
+          rewriter, srcOp, outputType,
+          /*input=*/fullOp.getResult(),
+          /*scatter_indices=*/indicesTensor,
+          /*update=*/adaptor.getOperand(),
+          /*update_window_dims=*/SmallVector<int32_t>{},
+          /*inserted_window_dims=*/insertedWindowDims,
+          /*input_batching_dims=*/SmallVector<int32_t>{},
+          /*scatter_indices_batching_dims=*/SmallVector<int32_t>{},
+          /*scatter_dims_to_operand_dims=*/insertedWindowDims,
+          /*index_vector_dim=*/1,
+          /*indices_are_sorted=*/false,
+          /*unique_indices=*/true);
+
+      return success();
+    }
+
+    SmallVector<int32_t> padDim;
+    for (uint32_t i = 0; i < adaptor.getEdgePaddingLow().size(); i++) {
+      padDim.push_back(adaptor.getEdgePaddingLow()[i]);
+      padDim.push_back(adaptor.getEdgePaddingHigh()[i]);
     }
 
     ttir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::PadOp>(
@@ -2805,16 +3554,6 @@ private:
   checkConversionLegality(mlir::stablehlo::PadOp &srcOp,
                           mlir::stablehlo::PadOp::Adaptor adaptor,
                           ConversionPatternRewriter &rewriter) const {
-
-    // Due to lack of support by device, we do not support interior padding,
-    // so verify if interior padding is requested and exit early with error.
-    for (int64_t eachVal : srcOp.getInteriorPadding()) {
-      if (eachVal != 0) {
-        return rewriter.notifyMatchFailure(srcOp,
-                                           "Unsupported Interior Padding, only "
-                                           "0 interior padding is supported.");
-      }
-    }
 
     if (srcOp.getEdgePaddingLow().size() != srcOp.getEdgePaddingHigh().size()) {
       return rewriter.notifyMatchFailure(
@@ -3150,6 +3889,66 @@ public:
 
     rewriter.replaceOpWithNewOp<ttir::UpdateCacheOp>(
         srcOp, cache.getType(), cache, input, updateIndex, batchOffsetInt);
+
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+class StableHLOPagedUpdateCacheConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::CustomCallOp> {
+  using OpConversionPattern<mlir::stablehlo::CustomCallOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::CustomCallOp srcOp,
+                  mlir::stablehlo::CustomCallOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    StringAttr funcName = adaptor.getCallTargetNameAttr();
+    if (funcName != "tt.paged_update_cache") {
+      return failure();
+    }
+
+    if (adaptor.getOperands().size() != 4 || srcOp.getResults().size() != 1) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "PagedUpdateCache op must have exactly four operands and one "
+                 "result. Got " +
+                     std::to_string(adaptor.getOperands().size()) +
+                     " operands "
+                     "and " +
+                     std::to_string(srcOp.getResults().size()) + " results.");
+    }
+
+    Value cache = adaptor.getOperands()[0];
+    Value input = adaptor.getOperands()[1];
+    Value updateIndex = adaptor.getOperands()[2];
+    Value pageTable = adaptor.getOperands()[3];
+
+    bool shareCache = false;
+    mlir::DictionaryAttr frontendAttributes =
+        mlir::dyn_cast_or_null<mlir::DictionaryAttr>(
+            srcOp->getDiscardableAttr("mhlo.frontend_attributes"));
+    if (frontendAttributes) {
+      auto shareCacheStringAttr =
+          frontendAttributes.getAs<mlir::StringAttr>("share_cache");
+      if (shareCacheStringAttr) {
+        if (shareCacheStringAttr.getValue().lower() == "true") {
+          shareCache = true;
+        } else if (shareCacheStringAttr.getValue().lower() == "false") {
+          shareCache = false;
+        } else {
+          return rewriter.notifyMatchFailure(
+              srcOp,
+              "share_cache attribute must be true or false. Received \"" +
+                  shareCacheStringAttr.getValue() + "\".");
+        }
+      }
+    }
+
+    rewriter.replaceOpWithNewOp<ttir::PagedUpdateCacheOp>(
+        srcOp, cache.getType(), cache, input, updateIndex, shareCache,
+        pageTable);
 
     return success();
   }
@@ -3535,6 +4334,14 @@ static void addReduceOpsConversionPatterns(MLIRContext *ctx,
   patterns.add<StableHLOToTTIRReduceOpConversionPattern>(typeConverter, ctx);
 }
 
+static void
+addSelectAndScatterOpConversionPatterns(MLIRContext *ctx,
+                                        RewritePatternSet &patterns,
+                                        TypeConverter &typeConverter) {
+  patterns.add<StableHLOToTTIRSelectAndScatterOpConversionPattern>(
+      typeConverter, ctx);
+}
+
 static void addDotGeneralOpConversionPatterns(MLIRContext *ctx,
                                               RewritePatternSet &patterns,
                                               TypeConverter &typeConverter) {
@@ -3708,6 +4515,7 @@ static void addBatchNormOpConversionPattern(MLIRContext *ctx,
                                                                  ctx);
   patterns.add<StableHLOToBatchNormTrainingOpConversionPattern>(typeConverter,
                                                                 ctx);
+  patterns.add<StableHLOToBatchNormGradOpConversionPattern>(typeConverter, ctx);
 }
 
 static void addRngOpConversionPattern(MLIRContext *ctx,
@@ -3741,6 +4549,7 @@ static void addCacheOpsConversionPattern(MLIRContext *ctx,
                                          TypeConverter &typeConverter) {
   patterns.add<StableHLOFillCacheConversionPattern>(typeConverter, ctx);
   patterns.add<StableHLOUpdateCacheConversionPattern>(typeConverter, ctx);
+  patterns.add<StableHLOPagedUpdateCacheConversionPattern>(typeConverter, ctx);
 }
 
 static void
@@ -3789,6 +4598,7 @@ void populateStableHLOToTTIRPatterns(MLIRContext *ctx,
   addScatterOpConversionPatterns(ctx, patterns, typeConverter);
   addReverseOpConversionPattern(ctx, patterns, typeConverter);
   addPadOpConversionPattern(ctx, patterns, typeConverter);
+  addSelectAndScatterOpConversionPatterns(ctx, patterns, typeConverter);
   addBatchNormOpConversionPattern(ctx, patterns, typeConverter);
   addRngOpConversionPattern(ctx, patterns, typeConverter);
   addRngBitGeneratorOpConversionPattern(ctx, patterns, typeConverter);

@@ -20,6 +20,7 @@ try:
         create_runtime_tensor_from_ttnn,
         get_ttnn_tensor_from_runtime_tensor,
     )
+    from ttnn_jit.runtime._ttnn_jit import JitCache
 except ModuleNotFoundError:
     # Fallback to local development imports
     from _ttmlir_runtime.runtime import (
@@ -36,3 +37,4 @@ except ModuleNotFoundError:
         create_runtime_tensor_from_ttnn,
         get_ttnn_tensor_from_runtime_tensor,
     )
+    from ttnn_jit._ttnn_jit import JitCache

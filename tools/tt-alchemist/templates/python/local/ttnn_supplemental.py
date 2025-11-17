@@ -91,7 +91,7 @@ def mesh_shard(
             )
         elif shard_type == MeshShardType.Devices:
             # For devices, setup dimensions and mesh shape for concatenation
-            input_rank = len(input.logical_shape())
+            input_rank = len(input.shape)
 
             # Helper to find non-overlapping dimension
             dims = []
@@ -317,66 +317,3 @@ def collective_permute(
     output = ttnn.to_device(output, mesh_device, input.memory_config())
 
     return output
-
-
-def point_to_point(
-    input: ttnn.Tensor,
-    send_coord: List[int],
-    receive_coord: List[int],
-    accum_tensor: Optional[ttnn.Tensor] = None,
-) -> ttnn.Tensor:
-    """
-    Perform point-to-point communication between devices in a mesh.
-
-    Sends data from one device coordinate to another device coordinate.
-    If accum_tensor is provided, the received data is added to it; otherwise,
-    the output is based on the input tensor structure.
-
-    Args:
-        input: The input device tensor
-        send_coord: Mesh coordinates of the sending device [coord0, coord1, ...]
-        receive_coord: Mesh coordinates of the receiving device [coord0, coord1, ...]
-        accum_tensor: Optional tensor to accumulate into
-
-    Returns:
-        The output tensor with data transferred from sender to receiver
-    """
-    assert (
-        input.storage_type() == ttnn.StorageType.DEVICE
-    ), "Input tensor of point to point must be on device."
-
-    # Helper to extract device tensors to host
-    def extract_shards_to_host(device_tensor):
-        return ttnn.get_device_tensors(ttnn.from_device(device_tensor))
-
-    # Get input tensor shards
-    input_tensors_host = extract_shards_to_host(input)
-
-    # Get or create output tensor shards
-    if accum_tensor is not None:
-        output_tensors_host = extract_shards_to_host(accum_tensor)
-    else:
-        output_tensors_host = input_tensors_host.copy()
-
-    # Calculate device IDs from mesh coordinates
-    mesh_shape = input.device().shape
-
-    def calc_id_from_coords(coords: List[int]) -> int:
-        """Convert mesh coordinates to linear device ID."""
-        assert len(coords) == len(mesh_shape), "MeshShape and coords size mismatch"
-        device_id = 0
-        for i in range(len(mesh_shape)):
-            device_id = device_id * mesh_shape[i] + coords[i]
-        return device_id
-
-    send_id = calc_id_from_coords(send_coord)
-    recv_id = calc_id_from_coords(receive_coord)
-
-    # Perform the transfer
-    output_tensors_host[recv_id] = input_tensors_host[send_id]
-
-    # Reconstruct distributed tensor and send to device
-    output_tensor = ttnn.from_host_shards(output_tensors_host, input.device().shape)
-    output_tensor = ttnn.to_device(output_tensor, input.device(), input.memory_config())
-
-    return output_tensor

@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt -ttir-fusing -o %t %s
+// RUN: ttmlir-opt --ttir-implicit-broadcast-fold --ttir-fusing -o %t %s
 // RUN: FileCheck %s --input-file=%t
 
 module {
@@ -59,7 +59,7 @@ module {
   func.func @no_fusion_different_inputs(%arg0: tensor<32x32xf32>, %arg1: tensor<32x32xf32>) -> tensor<32x32xf32> {
     // CHECK: ttir.exp
     // CHECK: ttir.sum
-    // CHECK: ttir.broadcast
+    // CHECK-NOT: ttir.broadcast
     // CHECK: ttir.div
     // CHECK-NOT: ttir.softmax
 
@@ -116,7 +116,7 @@ module {
   func.func @no_fusion_exp_multiple_users(%arg0: tensor<32x32xf32>) -> tensor<32x32xf32> {
     // CHECK: ttir.exp
     // CHECK: ttir.sum
-    // CHECK: ttir.broadcast
+    // CHECK-NOT: ttir.broadcast
     // CHECK: ttir.div
     // CHECK: ttir.add
     // CHECK-NOT: ttir.softmax
@@ -147,7 +147,7 @@ module {
   func.func @no_fusion_sum_multiple_users(%arg0: tensor<32x32xf32>) -> tensor<32x32xf32> {
     // CHECK: ttir.exp
     // CHECK: ttir.sum
-    // CHECK: ttir.broadcast
+    // CHECK-NOT: ttir.broadcast
     // CHECK: ttir.div
     // CHECK: ttir.add
     // CHECK-NOT: ttir.softmax
@@ -178,7 +178,7 @@ module {
   func.func @no_fusion_broadcast_multiple_users(%arg0: tensor<32x32xf32>) -> tensor<32x32xf32> {
     // CHECK: ttir.exp
     // CHECK: ttir.sum
-    // CHECK: ttir.broadcast
+    // CHECK-NOT: ttir.broadcast
     // CHECK: ttir.div
     // CHECK: ttir.add
     // CHECK-NOT: ttir.softmax

@@ -110,7 +110,7 @@ private:
   LogicalResult
   checkConversionLegality(tosa::MulOp srcOp, Adaptor adaptor,
                           ConversionPatternRewriter &rewriter) const override {
-    TypedValue<RankedTensorType> shift = srcOp.getShift();
+    TypedValue<Type> shift = srcOp.getShift();
     if (!shift) {
       return success();
     }

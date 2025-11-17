@@ -203,9 +203,17 @@ def golden(callback_runtime_config, binary, program_context, op_context):
             atol=callback_runtime_config.atol,
             rtol=callback_runtime_config.rtol,
         )
-        results["max"] = torch.max(
-            torch.abs(golden_tensor_torch - output_tensor_torch)
-        ).item()
+        if (
+            golden_tensor_torch.dtype == torch.uint16
+            or golden_tensor_torch.dtype == torch.uint32
+        ):
+            logging.debug(
+                "Skipping max metric for uint16 or uint32 tensors, not supported in pytorch"
+            )
+        else:
+            results["max"] = torch.max(
+                torch.abs(golden_tensor_torch - output_tensor_torch)
+            ).item()
         results["mean_absolute_error"] = torch.mean(
             torch.abs(golden_tensor_torch.float() - output_tensor_torch.float())
         ).item()

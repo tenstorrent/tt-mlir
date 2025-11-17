@@ -4,6 +4,12 @@
 
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
 
+#include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/Dialect/ControlFlow/IR/ControlFlow.h"
+#include "mlir/Dialect/Linalg/IR/Linalg.h"
+#include "mlir/Dialect/MLProgram/IR/MLProgram.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
+#include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/IR/DialectImplementation.h"
 #include "mlir/InitAllDialects.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"

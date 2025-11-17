@@ -179,13 +179,15 @@ def get_metal_tensor_layout(
 
 def _compile_and_execute(
     compile_fn: Callable,
-    target: Literal["ttnn", "ttmetal", "ttnn-standalone", "emitpy"],
+    target: Literal["ttnn", "ttmetal", "emitc", "emitpy"],
     pcc: float,
     atol: float,
     rtol: float,
     disable_golden: bool,
     device,
     skip_exec: bool = False,
+    check_atol: bool = False,
+    check_rtol: bool = False,
     **compile_kwargs,
 ) -> str:
     """
@@ -198,7 +200,7 @@ def _compile_and_execute(
     ----------
     compile_fn : Callable
         The compilation function to use (e.g., compile_ttir_to_flatbuffer)
-    target : Literal["ttnn", "ttmetal", "ttnn-standalone", "emitpy"]
+    target : Literal["ttnn", "ttmetal", "emitc", "emitpy"]
         Target backend to use
     pcc : float
         PCC threshold for golden comparison
@@ -212,6 +214,10 @@ def _compile_and_execute(
         Device to execute on (if None, opens a new device)
     skip_exec: bool
         Whether or not to skip execution in cases of hangs, throwing a `TTBuilderRuntimeException`
+    check_atol : bool
+        Whether to check absolute tolerance during golden comparison
+    check_rtol : bool
+        Whether to check relative tolerance during golden comparison
     **compile_kwargs
         All other arguments to pass through to the compile function
     """
@@ -234,6 +240,8 @@ def _compile_and_execute(
             rtol=rtol,
             disable_golden=disable_golden,
             device=device,
+            check_atol=check_atol,
+            check_rtol=check_rtol,
         )
 
     return mlir_path
@@ -256,6 +264,33 @@ def _emitpy_to_executable(module, filepath: str, golden_map, module_cache):
     cpp = translate_to_python(module)
     with open(filepath, "w") as f:
         f.write(cpp)
+
+
+def _convert_to_mlir_value(obj):
+    if hasattr(obj, "operation") and hasattr(obj.operation, "results"):
+        results = obj.operation.results
+        if len(results) == 1:
+            return results[0]
+        else:
+            return results
+    elif hasattr(obj, "type"):
+        return obj
+    else:
+        return obj
+
+
+def _process_multi_return_result(result):
+    if hasattr(result, "__iter__") and not isinstance(result, str):
+        converted_results = []
+        for item in result:
+            converted = _convert_to_mlir_value(item)
+            if hasattr(converted, "__iter__") and not hasattr(converted, "type"):
+                converted_results.extend(converted)
+            else:
+                converted_results.append(converted)
+        return tuple(converted_results)
+    else:
+        return _convert_to_mlir_value(result)
 
 
 def _create_custom_ttir_pipeline_fn(
@@ -453,7 +488,7 @@ def build_module(
 
             @func.func(*fn_input_types, name=fn.__name__)
             def decorated_func(*inputs):
-                input_goldens: Dict[Operand, BuilderGoldenTensor] = {}
+                input_goldens: Dict[Operand, GoldenMapTensor] = {}
                 for index, (operand, dtype) in enumerate(zip(inputs, inputs_types)):
                     input_goldens[operand] = builder._generate_golden_tensor(
                         operand, dtype
@@ -464,13 +499,13 @@ def build_module(
                 result = fn(*inputs, builder)
 
                 outputs = result if hasattr(result, "__iter__") else (result,)
-                output_goldens: Dict[Operand, BuilderGoldenTensor] = {}
+                output_goldens: Dict[Operand, GoldenMapTensor] = {}
                 for op in outputs:
                     output_goldens[op] = builder._get_golden_tensor(op)
                 builder._set_goldens(output_goldens)
                 builder._set_output_ordering(outputs)
 
-                return result
+                return _process_multi_return_result(result)
 
         print(f"`{fn.__name__}` successfully transformed into a MLIR module.")
         base = fn.__name__ if base is None else base
@@ -493,7 +528,7 @@ def compile_and_execute_d2m(
     system_desc_path: str = "ttrt-artifacts/system_desc.ttsys",
     test_base: str = "test",
     output_root: str = ".",
-    target: Literal["ttnn", "ttmetal", "ttnn-standalone", "emitpy"] = "ttnn",
+    target: Literal["ttnn", "ttmetal", "emitc", "emitpy"] = "ttnn",
     mesh_name: str = "mesh",
     mesh_dict: OrderedDict[str, int] = OrderedDict([("x", 1), ("y", 1)]),
     module_dump: bool = True,
@@ -507,6 +542,8 @@ def compile_and_execute_d2m(
     rtol: float = 1e-05,
     disable_golden: bool = False,
     skip_exec: bool = False,
+    check_atol: bool = False,
+    check_rtol: bool = False,
 ) -> str:
     """
     Compiles and executes a D2MBuilder function through the complete pipeline.
@@ -530,7 +567,7 @@ def compile_and_execute_d2m(
         Base name for dumped files
     output_root : str
         Path to dump all generated files
-    target : Literal["ttnn", "ttmetal", "ttnn-standalone", "emitpy"]
+    target : Literal["ttnn", "ttmetal", "emitc", "emitpy"]
         Target backend to use
     mesh_name : str
         Name of the mesh to be used
@@ -556,6 +593,10 @@ def compile_and_execute_d2m(
         Relative tolerance for golden comparison
     disable_golden : bool
         Whether to disable golden comparison
+    check_atol : bool
+        Whether to check absolute tolerance during golden comparison
+    check_rtol : bool
+        Whether to check relative tolerance during golden comparison
     """
     return _compile_and_execute(
         compile_fn=compile_d2m_to_flatbuffer,
@@ -579,6 +620,8 @@ def compile_and_execute_d2m(
         rtol=rtol,
         disable_golden=disable_golden,
         skip_exec=skip_exec,
+        check_atol=check_atol,
+        check_rtol=check_rtol,
     )
 
 
@@ -589,7 +632,7 @@ def compile_and_execute_shlo(
     system_desc_path: str = "ttrt-artifacts/system_desc.ttsys",
     test_base: str = "test",
     output_root: str = ".",
-    target: Literal["ttnn", "ttmetal", "ttnn-standalone", "emitpy"] = "ttnn",
+    target: Literal["ttnn", "ttmetal", "emitc", "emitpy"] = "ttnn",
     mesh_name: str = "mesh",
     mesh_dict: OrderedDict[str, int] = OrderedDict([("x", 1), ("y", 1)]),
     module_dump: bool = True,
@@ -605,6 +648,8 @@ def compile_and_execute_shlo(
     rtol: float = 1e-05,
     disable_golden: bool = False,
     skip_exec: bool = False,
+    check_atol: bool = False,
+    check_rtol: bool = False,
 ) -> str:
     """
     Compiles and executes a StableHLO function through the complete pipeline.
@@ -628,7 +673,7 @@ def compile_and_execute_shlo(
         Base name for dumped files
     output_root : str
         Path to dump all generated files
-    target : Literal["ttnn", "ttmetal", "ttnn-standalone", "emitpy"]
+    target : Literal["ttnn", "ttmetal", "emitc", "emitpy"]
         Target backend to use
     mesh_name : str
         Name of the mesh to be used
@@ -658,6 +703,10 @@ def compile_and_execute_shlo(
         Relative tolerance for golden comparison
     disable_golden : bool
         Whether to disable golden comparison
+    check_atol : bool
+        Whether to check absolute tolerance during golden comparison
+    check_rtol : bool
+        Whether to check relative tolerance during golden comparison
     """
     return _compile_and_execute(
         compile_fn=compile_stablehlo_to_flatbuffer,
@@ -683,17 +732,19 @@ def compile_and_execute_shlo(
         rtol=rtol,
         disable_golden=disable_golden,
         skip_exec=skip_exec,
+        check_atol=check_atol,
+        check_rtol=check_rtol,
     )
 
 
 def compile_and_execute_ttnn(
     fn: Callable,
-    input_shapes: List[Shape],
-    input_types: Optional[List[Union[torch.dtype, TypeInfo]]] = None,
+    inputs_shapes: List[Shape],
+    inputs_types: Optional[List[Union[torch.dtype, TypeInfo]]] = None,
     system_desc_path: str = "ttrt-artifacts/system_desc.ttsys",
     test_base: str = "test",
     output_root: str = ".",
-    target: Literal["ttnn", "ttnn-standalone", "emitpy"] = "ttnn",
+    target: Literal["ttnn", "emitc", "emitpy"] = "ttnn",
     mesh_name: str = "mesh",
     mesh_dict: OrderedDict[str, int] = OrderedDict([("x", 1), ("y", 1)]),
     module_dump: bool = True,
@@ -707,6 +758,8 @@ def compile_and_execute_ttnn(
     rtol: float = 1e-05,
     disable_golden: bool = False,
     skip_exec: bool = False,
+    check_atol: bool = False,
+    check_rtol: bool = False,
 ) -> str:
     """
     Compiles and executes a TTNNBuilder function through the complete pipeline.
@@ -719,9 +772,9 @@ def compile_and_execute_ttnn(
     ----------
     fn : Callable
         The TTNNBuilder function to compile and execute
-    input_shapes : List[Shape]
+    inputs_shapes : List[Shape]
         Shapes of the respective ranked tensor inputs
-    input_types : Optional[List[Union[torch.dtype, TypeInfo]]]
+    inputs_types : Optional[List[Union[torch.dtype, TypeInfo]]]
         The dtypes to use for the inputs
     system_desc_path : str
         Path to the system descriptor file
@@ -729,7 +782,7 @@ def compile_and_execute_ttnn(
         Base name for dumped files
     output_root : str
         Path to dump all generated files
-    target : Literal["ttnn", "ttnn-standalone", "emitpy"]
+    target : Literal["ttnn", "emitc", "emitpy"]
         Target backend to use
     mesh_name : str
         Name of the mesh to be used
@@ -759,12 +812,16 @@ def compile_and_execute_ttnn(
         Relative tolerance for golden comparison
     disable_golden : bool
         Whether to disable golden comparison
+    check_atol : bool
+        Whether to check absolute tolerance during golden comparison
+    check_rtol : bool
+        Whether to check relative tolerance during golden comparison
     """
     return _compile_and_execute(
         compile_fn=compile_ttnn_to_flatbuffer,
         fn=fn,
-        inputs_shapes=input_shapes,
-        inputs_types=input_types,
+        inputs_shapes=inputs_shapes,
+        inputs_types=inputs_types,
         system_desc_path=system_desc_path,
         test_base=test_base,
         output_root=output_root,
@@ -782,6 +839,8 @@ def compile_and_execute_ttnn(
         rtol=rtol,
         disable_golden=disable_golden,
         skip_exec=skip_exec,
+        check_atol=check_atol,
+        check_rtol=check_rtol,
     )
 
 
@@ -792,7 +851,7 @@ def compile_and_execute_ttir(
     system_desc_path: str = "ttrt-artifacts/system_desc.ttsys",
     test_base: str = "test",
     output_root: str = ".",
-    target: Literal["ttnn", "ttmetal", "ttnn-standalone", "emitpy"] = "ttnn",
+    target: Literal["ttnn", "ttmetal", "emitc", "emitpy"] = "ttnn",
     mesh_name: str = "mesh",
     mesh_dict: OrderedDict[str, int] = OrderedDict([("x", 1), ("y", 1)]),
     module_dump: bool = True,
@@ -806,6 +865,8 @@ def compile_and_execute_ttir(
     rtol: float = 1e-05,
     disable_golden: bool = False,
     skip_exec: bool = False,
+    check_atol: bool = False,
+    check_rtol: bool = False,
 ) -> str:
     """
     Compiles and executes a TTIR function through the complete pipeline.
@@ -829,7 +890,7 @@ def compile_and_execute_ttir(
         Base name for dumped files
     output_root : str
         Path to dump all generated files
-    target : Literal["ttnn", "ttmetal", "ttnn-standalone", "emitpy"]
+    target : Literal["ttnn", "ttmetal", "emitc", "emitpy"]
         Target backend to use
     mesh_name : str
         Name of the mesh to be used
@@ -855,6 +916,10 @@ def compile_and_execute_ttir(
         Relative tolerance for golden comparison
     disable_golden : bool
         Whether to disable golden comparison
+    check_atol : bool
+        Whether to check absolute tolerance during golden comparison
+    check_rtol : bool
+        Whether to check relative tolerance during golden comparison
     """
     return _compile_and_execute(
         compile_fn=compile_ttir_to_flatbuffer,
@@ -878,6 +943,8 @@ def compile_and_execute_ttir(
         rtol=rtol,
         disable_golden=disable_golden,
         skip_exec=skip_exec,
+        check_atol=check_atol,
+        check_rtol=check_rtol,
     )
 
 
@@ -888,7 +955,7 @@ def compile_ttir_to_flatbuffer(
     system_desc_path: str = "ttrt-artifacts/system_desc.ttsys",
     test_base: str = "test",
     output_root: str = ".",
-    target: Literal["ttnn", "ttmetal", "ttnn-standalone", "emitpy"] = "ttnn",
+    target: Literal["ttnn", "ttmetal", "emitc", "emitpy"] = "ttnn",
     mesh_name: str = "mesh",
     mesh_dict: OrderedDict[str, int] = OrderedDict([("x", 1), ("y", 1)]),
     module_dump: bool = True,
@@ -930,8 +997,8 @@ def compile_ttir_to_flatbuffer(
         The path to dump all generated arguments under. If this path doesn't
         exist, it will be created.
 
-    target : *Literal["ttnn", "ttmetal", "ttnn-standalone"]*
-        Either "ttnn", "ttmetal", or "ttnn-standalone". This controls which backend to use.
+    target : *Literal["ttnn", "ttmetal", "emitc", "emitpy"]*
+        Either "ttnn", "ttmetal", or "emitc". This controls which backend to use.
 
     mesh_name : *str*, optional
         Name of the mesh to be used in the module. Default is "mesh".
@@ -1037,7 +1104,7 @@ def compile_ttnn_to_flatbuffer(
     system_desc_path: str = "ttrt-artifacts/system_desc.ttsys",
     test_base: str = "test",
     output_root: str = ".",
-    target: Literal["ttnn", "ttmetal", "ttnn-standalone", "emitpy"] = "ttnn",
+    target: Literal["ttnn", "ttmetal", "emitc", "emitpy"] = "ttnn",
     mesh_name: str = "mesh",
     mesh_dict: OrderedDict[str, int] = OrderedDict([("x", 1), ("y", 1)]),
     module_dump: bool = True,
@@ -1072,7 +1139,7 @@ def compile_ttnn_to_flatbuffer(
     output_root : str, optional
         The path to dump all generated files under
 
-    target : *Literal["ttnn", "ttmetal", "ttnn-standalone"]*, optional
+    target : *Literal["ttnn", "ttmetal", "emitc"]*, optional
         The target backend to use. Default is "ttnn"
 
     mesh_name : str, optional
@@ -1136,7 +1203,7 @@ def compile_d2m_to_flatbuffer(
     system_desc_path: str = "ttrt-artifacts/system_desc.ttsys",
     test_base: str = "test",
     output_root: str = ".",
-    target: Literal["ttnn", "ttmetal", "ttnn-standalone", "emitpy"] = "ttnn",
+    target: Literal["ttnn", "ttmetal", "emitc", "emitpy"] = "ttnn",
     mesh_name: str = "mesh",
     mesh_dict: OrderedDict[str, int] = OrderedDict([("x", 1), ("y", 1)]),
     module_dump: bool = True,
@@ -1178,8 +1245,8 @@ def compile_d2m_to_flatbuffer(
         The path to dump all generated arguments under. If this path doesn't
         exist, it will be created.
 
-    target : *Literal["ttnn", "ttmetal", "ttnn-standalone"]*
-        Either "ttnn", "ttmetal", or "ttnn-standalone". This controls which backend to use.
+    target : *Literal["ttnn", "ttmetal", "emitc", "emitpy"]*
+        Either "ttnn", "ttmetal", or "emitc". This controls which backend to use.
 
     mesh_name : *str*, optional
         Name of the mesh to be used in the module. Default is "mesh".
@@ -1261,7 +1328,7 @@ def compile_stablehlo_to_flatbuffer(
     system_desc_path: str = "ttrt-artifacts/system_desc.ttsys",
     test_base: str = "test",
     output_root: str = ".",
-    target: Literal["ttnn", "ttmetal", "ttnn-standalone", "emitpy"] = "ttnn",
+    target: Literal["ttnn", "ttmetal", "emitc", "emitpy"] = "ttnn",
     mesh_name: str = "mesh",
     mesh_dict: OrderedDict[str, int] = OrderedDict([("x", 1), ("y", 1)]),
     module_dump: bool = True,
@@ -1300,7 +1367,7 @@ def compile_stablehlo_to_flatbuffer(
     output_root : str, optional
         The path to dump all generated files under
 
-    target : *Literal["ttnn", "ttmetal", "ttnn-standalone"]*, optional
+    target : *Literal["ttnn", "ttmetal", "emitpy", "emitc"]*, optional
         The target backend to use. Default is "ttnn"
 
     mesh_name : str, optional
@@ -1382,6 +1449,8 @@ def compile_stablehlo_to_flatbuffer(
     except Exception as e:
         raise TTBuilderCompileException(e)
 
+    goldens = dict(builder.golden_map)
+
     stablehlo_pipeline(module, " ".join(shlo_pipeline_options))
     print(f"`{fn.__name__}` successfully ran stablehlo-pipeline.")
     print(module)
@@ -1421,6 +1490,7 @@ def compile_stablehlo_to_flatbuffer(
         custom_pipeline=custom_pipeline,
         pipeline_options=ttir_pipeline_options,
         print_ir=print_ir,
+        goldens=goldens,
     )
 
 
@@ -1431,20 +1501,21 @@ def compile_ttir_module_to_flatbuffer(
     test_base: str = "test",
     output_root: str = ".",
     builder_dir: str = "ttir-builder-artifacts",
-    target: Literal["ttnn", "ttmetal", "ttnn-standalone", "emitpy"] = "ttnn",
+    target: Literal["ttnn", "ttmetal", "emitc", "emitpy"] = "ttnn",
     mesh_dict: OrderedDict[str, int] = OrderedDict([("x", 1), ("y", 1)]),
     module_dump: bool = True,
     argument_types_string: Optional[str] = None,
     custom_pipeline: Optional[Union[Callable, str]] = None,
     pipeline_options: List[str] = [],
     print_ir: Union[bool, str] = False,
+    goldens: Dict[Operand, GoldenMapTensor] = None,
 ):
     """
     Compiles a TTIR MLIR module to flatbuffer format.
 
     This decorator takes an existing TTIR MLIR module and compiles it through
     the backend pipeline to generate a flatbuffer file. It supports multiple
-    targets including TTNN, TTMetal, and TTNN-standalone. It is mainly a wrapper around the following functions, with
+    targets including TTNN, TTMetal, emitc, and emitpy. It is mainly a wrapper around the following functions, with
     each next function called on the output of the last:
 
     1. `_run_ttir_pipeline`
@@ -1467,7 +1538,7 @@ def compile_ttir_module_to_flatbuffer(
     output_root : str, optional
         The path to dump all generated files under
 
-    target : *Literal["ttnn", "ttmetal", "ttnn-standalone"]*, optional
+    target : *Literal["ttnn", "ttmetal", "emitpy", "emitc"]*, optional
         The target backend to use. Default is "ttnn"
 
     mesh_dict : *OrderedDict[str, int]*, optional
@@ -1506,6 +1577,11 @@ def compile_ttir_module_to_flatbuffer(
             dumps before a crash.
         Default is False (no IR printed).
 
+    goldens : *Optional[Dict[Operand, GoldenMapTensor]]*, optional
+        Dictionary of golden tensors to use for comparison. If None, the golden
+        tensors will be generated from the builder.
+        Default is None.
+
     Returns
     -------
     str
@@ -1523,7 +1599,7 @@ def compile_ttir_module_to_flatbuffer(
 
     pipeline_fn: Callable
     to_target: Callable
-    filename: str
+    mlir_suffix: str
     target_extension: str
 
     if target == "ttnn":
@@ -1540,7 +1616,7 @@ def compile_ttir_module_to_flatbuffer(
         to_target = ttmetal_to_flatbuffer_file
         mlir_suffix = "_ttm.mlir"
         target_extension = "ttm"
-    elif target == "ttnn-standalone":
+    elif target == "emitc":
         ttir_to_ttnn_emitc_pipeline = _create_custom_ttir_pipeline_fn(
             "ttir-to-emitc-pipeline", print_ir=print_ir
         )
@@ -1562,7 +1638,8 @@ def compile_ttir_module_to_flatbuffer(
         output_root, builder_dir, test_base + mlir_suffix, target
     )
     output_file_fbb = ".".join([output_file_mlir, target_extension])
-    print(output_file_mlir, output_file_fbb)
+
+    goldens = dict(builder.golden_map) if goldens is None else goldens
 
     # Compile TTIR MLIR -> TT{Metal,NN} MLIR
     try:
@@ -1589,7 +1666,7 @@ def compile_ttir_module_to_flatbuffer(
         to_target(
             module,
             output_file_fbb,
-            builder.golden_map,
+            goldens,
             module_logger.module_log if module_logger.module_log else [],
         )
     except Exception as e:
@@ -1607,6 +1684,8 @@ def execute_fb(
     rtol: float = 1e-05,
     disable_golden: bool = False,
     device=None,  # Optional device parameter for fixture reuse
+    check_atol: bool = False,
+    check_rtol: bool = False,
 ) -> None:
     """
     Takes a flatbuffer path `fb`, and executes it with random inputs supplied by `input_shapes` and `input_dtypes`
@@ -1781,13 +1860,15 @@ def execute_fb(
                     )
 
             # PCC check.
-            _, _, cal_pcc, _ = get_atol_rtol_pcc(
+            cal_atol, cal_rtol, cal_pcc, _ = get_atol_rtol_pcc(
                 golden_tensor_torch,
                 output_tensor_torch,
                 atol,
                 rtol,
                 logging,
             )
+
+            # Check PCC
             pcc_fail = cal_pcc < pcc
             if pcc_fail:
                 raise TTBuilderGoldenException(
@@ -1795,6 +1876,26 @@ def execute_fb(
                 )
             else:
                 print(f"Program level golden for output_{i} matched. pcc={cal_pcc}")
+
+            # Check atol if requested
+            if check_atol and cal_atol > atol:
+                raise TTBuilderGoldenException(
+                    f"Failed: program-level output atol check failed, actual_atol={cal_atol} > expected_atol={atol}"
+                )
+            elif check_atol:
+                print(
+                    f"Program level atol check for output_{i} passed. atol={cal_atol}"
+                )
+
+            # Check rtol if requested
+            if check_rtol and cal_rtol > rtol:
+                raise TTBuilderGoldenException(
+                    f"Failed: program-level output rtol check failed, actual_rtol={cal_rtol} > expected_rtol={rtol}"
+                )
+            elif check_rtol:
+                print(
+                    f"Program level rtol check for output_{i} passed. rtol={cal_rtol}"
+                )
 
         print("Adding program results...")
         bin.add_program_results(
@@ -1868,7 +1969,7 @@ def experimental_build_stablehlo_module(
             # Wrap everything in a mlir function.
             @func.func(*fn_input_types, name=fn.__name__)
             def decorated_func(*inputs):
-                input_goldens: Dict[Operand, BuilderGoldenTensor] = {}
+                input_goldens: Dict[Operand, GoldenMapTensor] = {}
                 for index, (operand, dtype) in enumerate(zip(inputs, inputs_types)):
                     input_goldens[operand] = stablehlo_builder._generate_golden_tensor(
                         operand, dtype
@@ -1879,13 +1980,14 @@ def experimental_build_stablehlo_module(
                 result = fn(*inputs, stablehlo_builder)
 
                 outputs = result if hasattr(result, "__iter__") else (result,)
-                output_goldens: Dict[Operand, BuilderGoldenTensor] = {}
+                output_goldens: Dict[Operand, GoldenMapTensor] = {}
                 for op in outputs:
                     output_goldens[op] = stablehlo_builder._get_golden_tensor(op)
                 stablehlo_builder._set_goldens(output_goldens)
                 stablehlo_builder._set_output_ordering(outputs)
 
-                return result
+                # Convert OpView objects to MLIR Values for multi-return support
+                return _process_multi_return_result(result)
 
             # Create named meshes and add them to the module
             named_mesh_list = []

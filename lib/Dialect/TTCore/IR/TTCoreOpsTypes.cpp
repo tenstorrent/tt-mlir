@@ -467,19 +467,21 @@ mlir::FailureOr<SystemDescAttr> SystemDescAttr::getFromBuffer(
   }
 
   std::vector<ChipChannelAttr> chipChannelList;
-  for (const auto *element : *chipChannelConnections) {
-    std::vector<int64_t> ethernetCoreCoord0Vec = {
-        element->ethernet_core_coord0().y(),
-        element->ethernet_core_coord0().x()};
+  if (chipChannelConnections) {
+    for (const auto *element : *chipChannelConnections) {
+      std::vector<int64_t> ethernetCoreCoord0Vec = {
+          element->ethernet_core_coord0().y(),
+          element->ethernet_core_coord0().x()};
 
-    std::vector<int64_t> ethernetCoreCoord1Vec = {
-        element->ethernet_core_coord1().y(),
-        element->ethernet_core_coord1().x()};
+      std::vector<int64_t> ethernetCoreCoord1Vec = {
+          element->ethernet_core_coord1().y(),
+          element->ethernet_core_coord1().x()};
 
-    auto chipChannelAttr = ChipChannelAttr::get(
-        context, element->device_id0(), ethernetCoreCoord0Vec,
-        element->device_id1(), ethernetCoreCoord1Vec);
-    chipChannelList.push_back(chipChannelAttr);
+      auto chipChannelAttr = ChipChannelAttr::get(
+          context, element->device_id0(), ethernetCoreCoord0Vec,
+          element->device_id1(), ethernetCoreCoord1Vec);
+      chipChannelList.push_back(chipChannelAttr);
+    }
   }
 
   // Generate system desc attribute
@@ -1536,22 +1538,23 @@ uint64_t TileType::getSizeBytes() const {
     return getHeight() * getWidth() * 2;
   case DataType::BFP_Float8:
     assert(getHeight() == 32 && getWidth() == 32);
-    return 1024;
+    // 1024 + 64 (1 byte of shared exponent for every 16 elements)
+    return 1088;
   case DataType::BFP_BFloat8:
     assert(getHeight() == 32 && getWidth() == 32);
-    return 1024;
+    return 1088;
   case DataType::BFP_Float4:
     assert(getHeight() == 32 && getWidth() == 32);
-    return 512;
+    return 576;
   case DataType::BFP_BFloat4:
     assert(getHeight() == 32 && getWidth() == 32);
-    return 512;
+    return 576;
   case DataType::BFP_Float2:
     assert(getHeight() == 32 && getWidth() == 32);
-    return 256;
+    return 320;
   case DataType::BFP_BFloat2:
     assert(getHeight() == 32 && getWidth() == 32);
-    return 256;
+    return 320;
   case DataType::UInt32:
   case DataType::Int32:
     return getHeight() * getWidth() * 4;

@@ -5,9 +5,15 @@
 #include <atomic>
 #include <fstream>
 
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wcovered-switch-default"
+
 #include "flatbuffers/idl.h"
 
+#pragma clang diagnostic pop
+
 #include "tt/runtime/detail/common/logger.h"
+#include "tt/runtime/detail/ttnn/types/program_desc_cache.h"
 #include "tt/runtime/tensor_cache.h"
 #include "tt/runtime/types.h"
 #include "tt/runtime/utils.h"
@@ -20,13 +26,17 @@
 
 namespace tt::runtime {
 
+SystemDesc::SystemDesc(Flatbuffer fb) : Flatbuffer(fb) {}
+
 Binary::Binary(Flatbuffer fb)
     : Flatbuffer(fb), binaryId(nextBinaryId()),
-      tensorCache(std::make_shared<TensorCache>()) {}
+      tensorCache(std::make_shared<TensorCache>()),
+      programDescCache(std::make_shared<tt::runtime::ProgramDescCache>()) {}
 
 Binary::Binary(std::shared_ptr<void> handle)
     : Flatbuffer(handle), binaryId(nextBinaryId()),
-      tensorCache(std::make_shared<TensorCache>()) {}
+      tensorCache(std::make_shared<TensorCache>()),
+      programDescCache(std::make_shared<tt::runtime::ProgramDescCache>()) {}
 
 Binary &Binary::operator=(Flatbuffer fb) {
   this->handle = fb.handle;
@@ -36,6 +46,7 @@ Binary &Binary::operator=(Flatbuffer fb) {
   // Reinitialize tensor cache since binary handle contents
   // are now different
   tensorCache = std::make_shared<TensorCache>();
+  programDescCache = std::make_shared<tt::runtime::ProgramDescCache>();
 
   return *this;
 }
@@ -48,6 +59,7 @@ Binary &Binary::operator=(std::shared_ptr<void> handle) {
   // Reinitialize tensor cache since binary handle contents
   // are now different
   tensorCache = std::make_shared<TensorCache>();
+  programDescCache = std::make_shared<tt::runtime::ProgramDescCache>();
 
   return *this;
 }

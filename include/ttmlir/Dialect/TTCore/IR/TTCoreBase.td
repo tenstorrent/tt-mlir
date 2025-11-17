@@ -47,5 +47,7 @@ class TTCore_Trait<string name> : NativeOpTrait<name> {
 def TTCore_DuplicateConstEvalTrait : TTCore_Trait<"TTCoreDuplicateConstEvalTrait">;
 // Trait for ops which create tensors -- these ops will be const-eval hoisted if any of uses are const-eval ops.
 def TTCore_CreationOpTrait : TTCore_Trait<"TTCoreCreationOpTrait">;
+// Trait for ops which should not be cached/hoisted for const-eval (e.g., rand, empty).
+def TTCore_NonCacheableTrait : TTCore_Trait<"TTCoreNonCacheableTrait">;
 
 #endif // TTMLIR_DIALECT_TTCORE_IR_TTCOREBASE_TD

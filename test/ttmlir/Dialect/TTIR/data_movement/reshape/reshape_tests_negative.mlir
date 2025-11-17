@@ -39,7 +39,7 @@ module {
   func.func @reshape_infer_dim_negative(%arg0: tensor<2x32x32xbf16>) -> tensor<32x2x32xbf16> {
     %0 = ttir.empty() : tensor<32x2x32xbf16>
     %1 = "ttir.reshape"(%arg0, %0) <{shape = [32: i32, -1: i32, -32: i32]}> : (tensor<2x32x32xbf16>, tensor<32x2x32xbf16>) -> tensor<32x2x32xbf16>
-    // CHECK: error: 'ttir.reshape' op All dimensions must be positive except the one with -1
+    // CHECK: error: 'ttir.reshape' op All dimensions must be >= 0 except the one with -1
     return %1 : tensor<32x2x32xbf16>
   }
 }

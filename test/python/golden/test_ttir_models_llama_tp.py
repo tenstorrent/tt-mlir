@@ -10,7 +10,6 @@ from collections import OrderedDict
 
 from builder.base.builder import Operand, Shape
 from builder.ttir.ttir_builder import TTIRBuilder
-from builder.base.builder_golden import BuilderGoldenTensor
 from builder.base.builder_utils import compile_and_execute_ttir
 
 pytestmark = pytest.mark.frontend("ttir")

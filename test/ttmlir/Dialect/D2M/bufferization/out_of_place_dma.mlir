@@ -19,7 +19,7 @@ func.func @matmul(%arg0: tensor<2x2x2x2x!ttcore.tile<32x32, f32>, #layout>, %arg
   %view = d2m.view_layout %arg0 : tensor<2x2x2x2x!ttcore.tile<32x32, f32>, #layout> -> tensor<2x2x2x2x!ttcore.tile<32x32, f32>, #layout1>
   %view_0 = d2m.view_layout %arg1 : tensor<2x2x2x2x!ttcore.tile<32x32, f32>, #layout> -> tensor<2x2x2x2x!ttcore.tile<32x32, f32>, #layout1>
   %view_1 = d2m.view_layout %arg2 : tensor<2x2x2x2x!ttcore.tile<32x32, f32>, #layout> -> tensor<2x2x2x2x!ttcore.tile<32x32, f32>, #layout1>
-  %0 = d2m.generic {block_factors = [1, 1, 1, 1, 1, 1], grid = #ttcore.grid<2x2>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<datamovement>]}
+  %0 = d2m.generic {block_factors = [], grid = #ttcore.grid<2x2>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<datamovement>]}
       ins(%view, %view_0 : tensor<2x2x2x2x!ttcore.tile<32x32, f32>, #layout1>, tensor<2x2x2x2x!ttcore.tile<32x32, f32>, #layout1>)
       outs(%view_1 : tensor<2x2x2x2x!ttcore.tile<32x32, f32>, #layout1>)  {
   ^datamovement0(%cb0: !d2m.cb<tensor<2x2x!ttcore.tile<32x32, f32>>>, %cb1: !d2m.cb<tensor<2x2x!ttcore.tile<32x32, f32>>>, %cb2: !d2m.cb<tensor<2x2x!ttcore.tile<32x32, f32>>>, %sem0: !d2m.semaphore, %sem1: !d2m.semaphore, %sem2: !d2m.semaphore, %sem3: !d2m.semaphore):

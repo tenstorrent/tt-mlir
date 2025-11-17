@@ -13,7 +13,7 @@ import subprocess
 from typing import Any, Dict, List, Tuple, Optional
 import math
 
-ALL_BACKENDS = set(["ttnn", "ttmetal", "ttnn-standalone", "emitpy"])
+ALL_BACKENDS = set(["ttnn", "ttmetal", "emitc", "emitpy"])
 ALL_SYSTEMS = set(["n150", "n300", "llmbox", "tg", "p150", "p300"])
 
 
@@ -387,7 +387,7 @@ def pytest_runtest_setup(item: pytest.Item):
        - input_dtypes: List of abbreviated data type strings (e.g., "f32", "i32")
        - op_name: Name of the operation being tested
        - framework_op_name: Framework-specific operation name (currently same as op_name)
-       - backend: Target backend ("ttnn", "ttmetal", or "ttnn-standalone")
+       - backend: Target backend ("ttnn", "ttmetal", or "emitc")
 
     2. Prefixed properties: Operation-specific parameters with "param_" prefix. For `conv2d`, e.g.:
        - param_stride: Convolution stride parameters
@@ -521,6 +521,34 @@ def pytest_collection_modifyitems(config, items):
                         pytest.mark.skip(
                             reason=f"Operation not supported on following platform/target combination: {platform_config}. {reason}"
                         )
+                    )
+
+        # Mark tests with skip_exec to skip execution but allow compilation
+        for marker in item.iter_markers(name="skip_exec"):
+            for platform_config in marker.args:
+
+                # All of the operations we need to do on these are set membership based
+                platform_config = set(platform_config)
+
+                reason = marker.kwargs.get("reason", "")
+
+                # Verify this is a valid configuration
+                if not platform_config <= ALL_BACKENDS.union(ALL_SYSTEMS):
+                    outliers = platform_config - ALL_BACKENDS.union(ALL_SYSTEMS)
+                    raise ValueError(
+                        f"Invalid skip_exec config: {platform_config}, invalid entries: {outliers}. Please ensure that all entries in the config are members of {ALL_SYSTEMS} or {ALL_BACKENDS}"
+                    )
+
+                board_id = get_board_id(system_desc)
+
+                if platform_config <= set([current_target, board_id]):
+                    # Set skip_exec attribute on the item instead of marking as skipped
+                    item.skip_exec = True
+                    xfail_reason = f"Execution skipped for platform/target combination: {platform_config}. {reason}"
+                    item.skip_exec_reason = xfail_reason
+                    # Mark test as xfail so it's expected to fail
+                    item.add_marker(
+                        pytest.mark.xfail(reason=xfail_reason, strict=False)
                     )
 
     # Update the items list (collected tests)

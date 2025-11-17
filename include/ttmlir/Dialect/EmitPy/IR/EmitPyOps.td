@@ -16,6 +16,8 @@ include "mlir/IR/CommonTypeConstraints.td"
 include "mlir/IR/CommonAttrConstraints.td"
 include "mlir/IR/OpBase.td"
 include "mlir/IR/RegionKindInterface.td"
+include "mlir/IR/SymbolInterfaces.td"
+
 
 //===----------------------------------------------------------------------===//
 // EmitPy ops definitions.
@@ -195,6 +197,93 @@ def EmitPy_ConstantOp : EmitPy_Op<"constant", [ConstantLike]> {
   let results = (outs AnyType:$result);
 
   let hasVerifier = 1;
+}
+
+
+def EmitPy_GlobalOp : EmitPy_Op<"global", [Symbol]> {
+  let summary = "A global variable";
+  let description = [{
+    The `emitpy.global` operation defines a named global variable.
+
+    Example:
+
+    ```mlir
+    emitpy.global @x : #emitpy.opaque<"[]">
+    ```
+  }];
+
+  let arguments = (ins SymbolNameAttr:$sym_name,
+                       EmitPy_OpaqueOrTypedAttr:$initial_value);
+
+  let hasVerifier = 1;
+  let assemblyFormat = [{
+       $sym_name custom<EmitPyGlobalOpInitialValue>($initial_value) attr-dict
+  }];
+}
+
+def EmitPy_GlobalStatementOp : EmitPy_Op<"global_statement",
+    [Pure, DeclareOpInterfaceMethods<SymbolUserOpInterface>]> {
+  let summary = "Marks a variable as global for the current function scope";
+  let description = [{
+    The `emitpy.global_statement` operation represents a Python `global`
+    statement.
+
+    It marks an identifier, specified by its symbol `@name`, as
+    referring to a variable in the global (module) scope, rather
+    than a new local variable.
+
+    Example:
+
+    ```mlir
+    %0 = emitpy.global_statement @x : !emitpy.opaque<"[ttnn.Tensor]">
+    ```
+  }];
+
+  let arguments = (ins FlatSymbolRefAttr:$name);
+  let results = (outs AnyType:$result);
+
+  let hasVerifier = 1;
+  let assemblyFormat = "$name `:` type($result) attr-dict";
+}
+
+def EmitPy_GetGlobalOp : EmitPy_Op<"get_global",
+    [Pure, DeclareOpInterfaceMethods<SymbolUserOpInterface>]> {
+  let summary = "Obtain access to a global variable";
+  let description = [{
+    The `emitpy.get_global` operation retrieves the value of a named global variable.
+
+    Example:
+
+    ```mlir
+    %1 = emitpy.get_global @x : !emitpy.opaque<"[ttnn.Tensor]">
+    ```
+  }];
+
+  let arguments = (ins FlatSymbolRefAttr:$name);
+  let results = (outs AnyType:$result);
+
+  let hasVerifier = 1;
+  let assemblyFormat = "$name `:` type($result) attr-dict";
+}
+
+def EmitPy_AssignGlobalOp : EmitPy_Op<"assign_global",
+    [DeclareOpInterfaceMethods<SymbolUserOpInterface>]> {
+  let summary = "Assign a value to a global variable";
+  let description = [{
+    The `emitpy.assign_global` assignes the value to an existing named global variable.
+
+    Example:
+
+    ```mlir
+    emitpy.assign_global @value = %arg0 : !emitpy.opaque<"[ttnn.Tensor]">
+    ```
+  }];
+
+  let arguments = (ins FlatSymbolRefAttr:$name,
+                       AnyType:$value);
+
+  let hasVerifier = 1;
+  let hasCustomAssemblyFormat = 1;
 }
 
 #endif // TTMLIR_TTMLIR_DIALECT_EMITPY_EMITPYOPS_TD

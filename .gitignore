@@ -24,6 +24,7 @@ read_results.json
 run_results.json
 perf_results.json
 check_results.json
+emitc_results.json
 emitpy_results.json
 ttrt_report.xml
 tracy_*.csv
@@ -33,9 +34,7 @@ tracy_*.tracy
 test/lit.site.cfg.py
 
 # Builder Test Default Artifact Paths
-/ttir-builder-artifacts/
-/ttnn-builder-artifacts/
-/stablehlo-builder-artifacts/
+/*-builder-artifacts/
 
 # TTNN and TTMetal flatbuffers
 *.ttnn

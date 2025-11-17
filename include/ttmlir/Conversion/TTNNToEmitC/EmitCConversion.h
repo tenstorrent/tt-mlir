@@ -1836,15 +1836,16 @@ public:
 
       emitc::ExpressionOp conv2dExpr = rewriter.create<emitc::ExpressionOp>(
           op.getLoc(),
-          rewriter.getType<emitc::OpaqueType>(TypeNameV<::ttnn::Tensor>));
+          rewriter.getType<emitc::OpaqueType>(TypeNameV<::ttnn::Tensor>),
+          adaptor.getOperands());
 
-      mlir::Block &bodyBlock = conv2dExpr.getBodyRegion().emplaceBlock();
+      mlir::Block &bodyBlock = conv2dExpr.createBody();
       rewriter.setInsertionPointToStart(&bodyBlock);
 
       auto conv2dOp = rewriter.create<emitc::CallOpaqueOp>(
           op.getLoc(), rewriter.getType<emitc::OpaqueType>(TypeNameV<ReturnTy>),
           opConversionPattern.convertOpName(op), rewriter.getArrayAttr(args),
-          /*template_args=*/nullptr, adaptor.getOperands());
+          /*template_args=*/nullptr, bodyBlock.getArguments());
       auto getTensorOp = rewriter.create<emitc::CallOpaqueOp>(
           op.getLoc(),
           rewriter.getType<emitc::OpaqueType>(TypeNameV<::ttnn::Tensor>),
@@ -1863,7 +1864,7 @@ public:
 
     // MaxPool2dOp return a std::vector<ttnn::Tensor> containing a single
     // element. We can guarantee this because MaxPool2dOp always has
-    // `return_indices=false`.
+    // `return_indices=false` - otherwise it would be MaxPool2dWithIndicesOp.
     // Extract first/single element to replace the original MaxPool2dOp.
     if constexpr (std::is_same_v<TTNNOp, tt::ttnn::MaxPool2dOp>) {
       assert(op->getNumResults() == 1 &&

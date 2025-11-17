@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "ttmlir/Conversion/TTKernelToEmitC/TTKernelToEmitC.h"
 
+#include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernel.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOps.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOpsTypes.h"
@@ -16,8 +17,6 @@
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinOps.h"
-#include "mlir/IR/IRMapping.h"
-#include "mlir/IR/Location.h"
 #include "mlir/IR/Operation.h"
 #include "mlir/IR/Value.h"
 #include "mlir/Pass/PassManager.h"
@@ -26,7 +25,6 @@
 #include "mlir/Transforms/DialectConversion.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringRef.h"
-#include "llvm/Support/LogicalResult.h"
 #include "llvm/Support/raw_ostream.h"
 
 #include <string>
@@ -42,77 +40,6 @@ namespace mlir::tt::ttkernel {
 } // namespace mlir::tt::ttkernel
 
 // ............................................................................
-
-emitc::OpaqueAttr convertCBPort(Builder &builder, ttkernel::CBPort port) {
-  switch (port) {
-  case ttkernel::CBPort::In0:
-    return builder.getType<emitc::OpaqueAttr>("::tt::CB::c_in0");
-  case ttkernel::CBPort::In1:
-    return builder.getType<emitc::OpaqueAttr>("::tt::CB::c_in1");
-  case ttkernel::CBPort::In2:
-    return builder.getType<emitc::OpaqueAttr>("::tt::CB::c_in2");
-  case ttkernel::CBPort::In3:
-    return builder.getType<emitc::OpaqueAttr>("::tt::CB::c_in3");
-  case ttkernel::CBPort::In4:
-    return builder.getType<emitc::OpaqueAttr>("::tt::CB::c_in4");
-  case ttkernel::CBPort::In5:
-    return builder.getType<emitc::OpaqueAttr>("::tt::CB::c_in5");
-  case ttkernel::CBPort::In6:
-    return builder.getType<emitc::OpaqueAttr>("::tt::CB::c_in6");
-  case ttkernel::CBPort::In7:
-    return builder.getType<emitc::OpaqueAttr>("::tt::CB::c_in7");
-  case ttkernel::CBPort::DataFlow0:
-    return builder.getType<emitc::OpaqueAttr>("::tt::CB::dataflow0");
-  case ttkernel::CBPort::DataFlow1:
-    return builder.getType<emitc::OpaqueAttr>("::tt::CB::dataflow1");
-  case ttkernel::CBPort::DataFlow2:
-    return builder.getType<emitc::OpaqueAttr>("::tt::CB::dataflow2");
-  case ttkernel::CBPort::DataFlow3:
-    return builder.getType<emitc::OpaqueAttr>("::tt::CB::dataflow3");
-  case ttkernel::CBPort::DataFlow4:
-    return builder.getType<emitc::OpaqueAttr>("::tt::CB::dataflow4");
-  case ttkernel::CBPort::DataFlow5:
-    return builder.getType<emitc::OpaqueAttr>("::tt::CB::dataflow5");
-  case ttkernel::CBPort::DataFlow6:
-    return builder.getType<emitc::OpaqueAttr>("::tt::CB::dataflow6");
-  case ttkernel::CBPort::DataFlow7:
-    return builder.getType<emitc::OpaqueAttr>("::tt::CB::dataflow7");
-  case ttkernel::CBPort::Out0:
-    return builder.getType<emitc::OpaqueAttr>("::tt::CB::c_out0");
-  case ttkernel::CBPort::Out1:
-    return builder.getType<emitc::OpaqueAttr>("::tt::CB::c_out1");
-  case ttkernel::CBPort::Out2:
-    return builder.getType<emitc::OpaqueAttr>("::tt::CB::c_out2");
-  case ttkernel::CBPort::Out3:
-    return builder.getType<emitc::OpaqueAttr>("::tt::CB::c_out3");
-  case ttkernel::CBPort::Out4:
-    return builder.getType<emitc::OpaqueAttr>("::tt::CB::c_out4");
-  case ttkernel::CBPort::Out5:
-    return builder.getType<emitc::OpaqueAttr>("::tt::CB::c_out5");
-  case ttkernel::CBPort::Out6:
-    return builder.getType<emitc::OpaqueAttr>("::tt::CB::c_out6");
-  case ttkernel::CBPort::Out7:
-    return builder.getType<emitc::OpaqueAttr>("::tt::CB::c_out7");
-  case ttkernel::CBPort::Intermed0:
-    return builder.getType<emitc::OpaqueAttr>("::tt::CB::c_intermed0");
-  case ttkernel::CBPort::Intermed1:
-    return builder.getType<emitc::OpaqueAttr>("::tt::CB::c_intermed1");
-  case ttkernel::CBPort::Intermed2:
-    return builder.getType<emitc::OpaqueAttr>("::tt::CB::c_intermed2");
-  case ttkernel::CBPort::Intermed3:
-    return builder.getType<emitc::OpaqueAttr>("::tt::CB::c_intermed3");
-  case ttkernel::CBPort::Intermed4:
-    return builder.getType<emitc::OpaqueAttr>("::tt::CB::c_intermed4");
-  case ttkernel::CBPort::Intermed5:
-    return builder.getType<emitc::OpaqueAttr>("::tt::CB::c_intermed5");
-  case ttkernel::CBPort::Intermed6:
-    return builder.getType<emitc::OpaqueAttr>("::tt::CB::c_intermed6");
-  case ttkernel::CBPort::Intermed7:
-    return builder.getType<emitc::OpaqueAttr>("::tt::CB::c_intermed7");
-  }
-  llvm_unreachable("Unknown CBPort");
-  return nullptr;
-}
 
 emitc::OpaqueAttr
 datatypeToDataformatEnumValue(Builder &builder,
@@ -636,21 +563,51 @@ public:
 
 namespace {
 template <typename SourceOp, typename Adaptor = typename SourceOp::Adaptor>
-class TTKernelTensorAccessorOpsRewriter : public OpConversionPattern<SourceOp> {
+class TTKernelClassMethodRewriter : public OpConversionPattern<SourceOp> {
 public:
-  TTKernelTensorAccessorOpsRewriter(TTKernelToEmitCTypeConverter &typeConverter,
-                                    MLIRContext *ctx)
+  TTKernelClassMethodRewriter(TTKernelToEmitCTypeConverter &typeConverter,
+                              MLIRContext *ctx)
       : OpConversionPattern<SourceOp>(typeConverter, ctx) {}
+
+  static std::string typeAsString(Type ty) {
+    if (auto i = mlir::dyn_cast<IntegerType>(ty)) {
+      if (i.getWidth() == 1) {
+        return "bool";
+      }
+
+      if (i.getWidth() == 32) {
+        return "uint32_t";
+      }
+
+      if (i.getWidth() == 64) {
+        return "uint64_t";
+      }
+
+      llvm_unreachable(
+          "unsupported integer type in TTKernelClassMethodRewriter");
+    }
+
+    if (auto opaque = mlir::dyn_cast<emitc::OpaqueType>(ty)) {
+      return opaque.getValue().str();
+    }
+
+    llvm_unreachable("unsupported emitc type in TTKernelClassMethodRewriter");
+  }
+
   LogicalResult
   matchAndRewrite(SourceOp op, Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
-    // Drop "ttkernel.tensor_accessor_" prefix
-    auto name = op.getOperation()->getName().getStringRef().drop_front(25);
+    // Drop "ttkernel.class_name." prefix
+    auto [className, methodName] =
+        op.getOperation()->getName().getStringRef().rsplit('.');
+    if (methodName.empty()) {
+      return failure();
+    }
 
     auto operands = adaptor.getOperands();
     if (operands.empty()) {
       return rewriter.notifyMatchFailure(
-          op, "Expected TensorAccessor as first operand");
+          op, "Expected class self as first operand");
     }
 
     SmallVector<Type, 2> resultTypes;
@@ -672,9 +629,11 @@ public:
     std::string varName = "temp_" + ssaName.substr(1);
 
     // Call the member function using verbatim with placeholders {} for args.
-    std::string callStr = "uint32_t " + varName + " = {}." + name.str() + "(";
-    for (size_t i = 0; i < operands.size() - 1; i++) {
-      if (i > 0) {
+    TT_assert(resultTypes.size() == 1u);
+    std::string callStr = typeAsString(resultTypes[0]) + " " + varName +
+                          " = {}." + methodName.str() + "(";
+    for (size_t i = 1; i < operands.size(); i++) {
+      if (i > 1) {
         callStr += ", ";
       }
       callStr += "{}";
@@ -834,6 +793,8 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::AbsTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::AbsTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::AbsTileI32Op>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::BitwiseNotTileInitOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::BitwiseNotTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::CeilTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::CeilTileF32Op>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::CopyDestValuesInitOp>,
@@ -890,6 +851,9 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::ReduceInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::ReduceTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::ReduceUninitOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::ReluTileInitOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::ReluTileOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::ReluTileI32Op>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::RoundingTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::RsqrtTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::RsqrtTileOp>,
@@ -897,6 +861,8 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::SqrtTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::SigmoidTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::SigmoidTileOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::SiluTileInitOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::SiluTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::SinTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::SinTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::TanTileInitOp>,
@@ -954,20 +920,16 @@ public:
                                                        funcOp.getContext());
 
     patterns.add<
-        TTKernelTensorAccessorOpsRewriter<ttkernel::TensorAccessorGetNocAddrOp>,
-        TTKernelTensorAccessorOpsRewriter<
-            ttkernel::TensorAccessorGetShardNocAddrOp>,
-        TTKernelTensorAccessorOpsRewriter<
-            ttkernel::TensorAccessorGetBankAndOffsetOp>,
-        TTKernelTensorAccessorOpsRewriter<
-            ttkernel::TensorAccessorIsLocalBankOp>,
-        TTKernelTensorAccessorOpsRewriter<
-            ttkernel::TensorAccessorIsLocalAddrOp>,
-        TTKernelTensorAccessorOpsRewriter<
-            ttkernel::TensorAccessorIsLocalPageOp>,
-        TTKernelTensorAccessorOpsRewriter<
-            ttkernel::TensorAccessorIsLocalShardOp>>(typeConverter,
-                                                     funcOp.getContext());
+        TTKernelClassMethodRewriter<ttkernel::TensorAccessorGetNocAddrOp>,
+        TTKernelClassMethodRewriter<ttkernel::TensorAccessorGetShardNocAddrOp>,
+        TTKernelClassMethodRewriter<ttkernel::TensorAccessorGetBankAndOffsetOp>,
+        TTKernelClassMethodRewriter<ttkernel::TensorAccessorIsLocalBankOp>,
+        TTKernelClassMethodRewriter<ttkernel::TensorAccessorIsLocalAddrOp>,
+        TTKernelClassMethodRewriter<ttkernel::TensorAccessorIsLocalPageOp>,
+        TTKernelClassMethodRewriter<ttkernel::TensorAccessorIsLocalShardOp>,
+        TTKernelClassMethodRewriter<
+            ttkernel::InterleavedAddrGenFastGetNocAddrOp>>(typeConverter,
+                                                           funcOp.getContext());
 
     patterns.add<ArithFloorDivRewriter>(typeConverter, funcOp.getContext());
 

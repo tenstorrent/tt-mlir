@@ -1099,6 +1099,36 @@ def TTKernel_AbsTileI32Op : TTKernel_SFPUOp<"abs_tile_int32", [TTKernel_UnaryOpT
     }];
 }
 
+def TTKernel_BitwiseNotTileInitOp : TTKernel_InitOp<"bitwise_not_tile_init"> {
+    let summary = "Init function for bitwise_not_tile operation. Refer to documentation for any init function.";
+    let description = [{
+      Must be run before bitwise_not_tile.
+    }];
+
+    let arguments = (ins);
+
+    let assemblyFormat = [{
+      `(` `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_BitwiseNotTileOp : TTKernel_SFPUOp<"bitwise_not_tile", [TTKernel_UnaryOpTrait]> {
+    let summary = "Bitwise Not operation on tile in the DST at specified index.";
+    let description = [{
+      Performs element-wise computation of sign operation
+      DST[tile_index] <- bitwise_not(DST[tile_index])
+      on DST register operands.
+      The DST register buffer must be in acquired state via *tile_regs_acquire* call.
+      This call is blocking and is only available on the compute engine.
+    }];
+
+    let arguments = (ins IndexLike:$tile_index);
+
+    let assemblyFormat = [{
+      `(` $tile_index `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
 def TTKernel_LogicalNotUnaryTileInitOp : TTKernel_InitOp<"logical_not_unary_tile_init"> {
     let summary = "Init function for logical_not_unary_tile(_int32) operation. Refer to documentation for any init function.";
     let description = [{
@@ -1464,6 +1494,80 @@ def TTKernel_SigmoidTileOp : TTKernel_SFPUOp<"sigmoid_tile", [TTKernel_UnaryOpTr
     let summary = "Sigmoid operation";
     let description = [{
       Performs element-wise computation of sigmoid on each element of a tile
+      in DST register at index tile_index. The DST register buffer must be in
+      acquired state via *tile_regs_acquire* call. This call is blocking and is only
+      available on the compute engine.
+    }];
+
+    let arguments = (ins IndexLike:$tile_index);
+
+    let assemblyFormat = [{
+      `(` $tile_index `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_SiluTileInitOp : TTKernel_InitOp<"silu_tile_init"> {
+    let summary = "Short init function which configures compute unit for execution of silu_tile.";
+    let description = [{
+      Must be run before silu_tile.
+    }];
+
+    let arguments = (ins);
+
+    let assemblyFormat = [{
+      `(` `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_SiluTileOp : TTKernel_SFPUOp<"silu_tile", [TTKernel_UnaryOpTrait]> {
+    let summary = "Silu operation";
+    let description = [{
+      Performs element-wise computation of silu on each element of a tile
+      in DST register at index tile_index. The DST register buffer must be in
+      acquired state via *tile_regs_acquire* call. This call is blocking and is only
+      available on the compute engine.
+    }];
+
+    let arguments = (ins IndexLike:$tile_index);
+
+    let assemblyFormat = [{
+      `(` $tile_index `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_ReluTileInitOp : TTKernel_InitOp<"relu_tile_init"> {
+    let summary = "Short init function which configures compute unit for execution of relu_tile(_int32).";
+    let description = [{
+      Must be run before relu_tile(_int32).
+    }];
+
+    let arguments = (ins);
+
+    let assemblyFormat = [{
+      `(` `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_ReluTileOp : TTKernel_SFPUOp<"relu_tile", [TTKernel_UnaryOpTrait]> {
+    let summary = "Relu operation";
+    let description = [{
+      Performs element-wise computation of relu on each element of a tile
+      in DST register at index tile_index. The DST register buffer must be in
+      acquired state via *tile_regs_acquire* call. This call is blocking and is only
+      available on the compute engine.
+    }];
+
+    let arguments = (ins IndexLike:$tile_index);
+
+    let assemblyFormat = [{
+      `(` $tile_index `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_ReluTileI32Op : TTKernel_SFPUOp<"relu_tile_int32", [TTKernel_UnaryOpTrait]> {
+    let summary = "Relu operation (for int32 type)";
+    let description = [{
+      Performs element-wise computation of relu on each element of a tile
       in DST register at index tile_index. The DST register buffer must be in
       acquired state via *tile_regs_acquire* call. This call is blocking and is only
       available on the compute engine.
@@ -2120,6 +2224,20 @@ def TTKernel_GetInterleavedAddrGenFastOp : TTKernel_Op<"get_interleaved_addr_gen
     }];
 }
 
+def TTKernel_InterleavedAddrGenFastGetNocAddrOp : TTKernel_Op<"interleaved_addr_gen_fast.get_noc_addr"> {
+    let summary = "InterleavedAddrGenFastGetNocAddr";
+    let description = [{
+      Returns an raw noc address from an interleaved addr gen struct.
+    }];
+
+    let arguments = (ins TTKernel_InterleavedAddrGenFast:$self, I32:$id, I32:$offset, Optional<I8>:$noc);
+    let results = (outs TTKernel_NocAddr:$result);
+
+    let assemblyFormat = [{
+      `(` $self `,` $id `,` $offset `,` $noc `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
 def TTKernel_MyXOp : TTKernel_Op<"my_x", [Pure]> {
     let summary = "MyX";
     let description = [{
@@ -2272,7 +2390,7 @@ def TTKernel_TensorAccessorOp : TTKernel_Op<"TensorAccessor"> {
   }];
 }
 
-def TTKernel_TensorAccessorGetNocAddrOp : TTKernel_Op<"tensor_accessor_get_noc_addr"> {
+def TTKernel_TensorAccessorGetNocAddrOp : TTKernel_Op<"tensor_accessor.get_noc_addr"> {
   let summary = "TensorAccessor's get_noc_addr";
   let description = [{
     get_noc_addr using information stored in the TensorAccessor.
@@ -2285,7 +2403,7 @@ def TTKernel_TensorAccessorGetNocAddrOp : TTKernel_Op<"tensor_accessor_get_noc_a
   }];
 }
 
-def TTKernel_TensorAccessorGetShardNocAddrOp : TTKernel_Op<"tensor_accessor_get_shard_noc_addr"> {
+def TTKernel_TensorAccessorGetShardNocAddrOp : TTKernel_Op<"tensor_accessor.get_shard_noc_addr"> {
   let summary = "TensorAccessor's get_shard_noc_addr";
   let description = [{
     Returns noc addr of a shard.
@@ -2298,7 +2416,7 @@ def TTKernel_TensorAccessorGetShardNocAddrOp : TTKernel_Op<"tensor_accessor_get_
   }];
 }
 
-def TTKernel_TensorAccessorGetBankAndOffsetOp : TTKernel_Op<"tensor_accessor_get_bank_and_offset"> {
+def TTKernel_TensorAccessorGetBankAndOffsetOp : TTKernel_Op<"tensor_accessor.get_bank_and_offset"> {
   let summary = "TensorAccessor's get_bank_and_offset";
   let description = [{
     Returns bank id and page offset.
@@ -2311,7 +2429,7 @@ def TTKernel_TensorAccessorGetBankAndOffsetOp : TTKernel_Op<"tensor_accessor_get
   }];
 }
 
-def TTKernel_TensorAccessorIsLocalBankOp : TTKernel_Op<"tensor_accessor_is_local_bank"> {
+def TTKernel_TensorAccessorIsLocalBankOp : TTKernel_Op<"tensor_accessor.is_local_bank"> {
   let summary = "TensorAccessor's is_local_bank";
   let description = [{
     Returns bool indicating bank locality.
@@ -2324,7 +2442,7 @@ def TTKernel_TensorAccessorIsLocalBankOp : TTKernel_Op<"tensor_accessor_is_local
   }];
 }
 
-def TTKernel_TensorAccessorIsLocalAddrOp : TTKernel_Op<"tensor_accessor_is_local_addr"> {
+def TTKernel_TensorAccessorIsLocalAddrOp : TTKernel_Op<"tensor_accessor.is_local_addr"> {
   let summary = "TensorAccessor's is_local_addr";
   let description = [{
     Returns bool indicating addr locality.
@@ -2337,7 +2455,7 @@ def TTKernel_TensorAccessorIsLocalAddrOp : TTKernel_Op<"tensor_accessor_is_local
   }];
 }
 
-def TTKernel_TensorAccessorIsLocalPageOp : TTKernel_Op<"tensor_accessor_is_local_page"> {
+def TTKernel_TensorAccessorIsLocalPageOp : TTKernel_Op<"tensor_accessor.is_local_page"> {
   let summary = "TensorAccessor's is_local_page";
   let description = [{
     Returns bool indicating page locality.
@@ -2350,7 +2468,7 @@ def TTKernel_TensorAccessorIsLocalPageOp : TTKernel_Op<"tensor_accessor_is_local
   }];
 }
 
-def TTKernel_TensorAccessorIsLocalShardOp : TTKernel_Op<"tensor_accessor_is_local_shard"> {
+def TTKernel_TensorAccessorIsLocalShardOp : TTKernel_Op<"tensor_accessor.is_local_shard"> {
   let summary = "TensorAccessor's is_local_shard";
   let description = [{
     Returns bool indicating shard locality.

@@ -12,16 +12,14 @@
 #define BUILD_COMMAND_IMPL(CommandName, fbb, builderFunc, ...)                 \
   [&]() -> uint64_t {                                                          \
     uint64_t commandId = nextCommandId();                                      \
-    auto commandType = ::tt::runtime::distributed::flatbuffer::CommandType::   \
-        CommandName##Command;                                                  \
+    auto commandType = fb::CommandType::CommandName##Command;                  \
                                                                                \
     auto commandOffset = (builderFunc)((fbb)__VA_OPT__(, ) __VA_ARGS__);       \
                                                                                \
-    auto command = ::tt::runtime::distributed::flatbuffer::CreateCommand(      \
-        (fbb), commandId, commandType, commandOffset.Union());                 \
+    auto command = fb::CreateCommand((fbb), commandId, commandType,            \
+                                     commandOffset.Union());                   \
                                                                                \
-    ::tt::runtime::distributed::flatbuffer::FinishCommandBuffer((fbb),         \
-                                                                command);      \
+    fb::FinishCommandBuffer((fbb), command);                                   \
                                                                                \
     debug::verifyFlatbuffer((fbb), verifyFn);                                  \
                                                                                \
@@ -29,23 +27,19 @@
   }()
 
 #define BUILD_COMMAND(CommandName, fbb, ...)                                   \
-  BUILD_COMMAND_IMPL(                                                          \
-      CommandName, fbb,                                                        \
-      ::tt::runtime::distributed::flatbuffer::Create##CommandName##Command,    \
-      __VA_ARGS__)
+  BUILD_COMMAND_IMPL(CommandName, fbb, fb::Create##CommandName##Command,       \
+                     __VA_ARGS__)
 
 #define BUILD_COMMAND_DIRECT(CommandName, fbb, ...)                            \
-  BUILD_COMMAND_IMPL(CommandName, fbb,                                         \
-                     ::tt::runtime::distributed::flatbuffer::                  \
-                         Create##CommandName##CommandDirect,                   \
+  BUILD_COMMAND_IMPL(CommandName, fbb, fb::Create##CommandName##CommandDirect, \
                      __VA_ARGS__)
 
 namespace tt::runtime::distributed::controller {
 
 using ::tt::runtime::DeviceRuntime;
+namespace fb = ::tt::runtime::distributed::flatbuffer;
 
-static constexpr auto verifyFn =
-    &::tt::runtime::distributed::flatbuffer::VerifyCommandBuffer;
+static constexpr auto verifyFn = &fb::VerifyCommandBuffer;
 
 static uint64_t nextCommandId() {
   static std::atomic<uint64_t> commandIdCounter = 0;
@@ -223,6 +217,34 @@ uint64_t CommandFactory::buildCreateHostTensorCommand(
   uint64_t commandId =
       BUILD_COMMAND(CreateHostTensor, fbb, outputTensor.getGlobalId(), dataVec,
                     shapeVec, strideVec, itemSize, dataType);
+
+  return commandId;
+}
+
+uint64_t CommandFactory::buildCreateMultiDeviceHostTensorFromShardsCommand(
+    ::flatbuffers::FlatBufferBuilder &fbb,
+    const std::vector<::tt::runtime::Tensor> &inputTensors,
+    const ::tt::runtime::Tensor &outputTensor,
+    const std::unordered_map<std::string, std::string> &strategy,
+    const std::vector<uint32_t> &meshShape) {
+
+  LOG_ASSERT(fbb.GetSize() == 0, "Flatbuffer builder must be empty");
+
+  std::vector<uint64_t> inputGlobalIds;
+  inputGlobalIds.reserve(inputTensors.size());
+  std::transform(inputTensors.begin(), inputTensors.end(),
+                 std::back_inserter(inputGlobalIds),
+                 [](const auto &tensor) { return tensor.getGlobalId(); });
+
+  std::vector<::flatbuffers::Offset<fb::StrategyEntry>> strategyEntries;
+  for (const auto &[key, value] : strategy) {
+    auto entry = fb::CreateStrategyEntryDirect(fbb, key.c_str(), value.c_str());
+    strategyEntries.push_back(entry);
+  }
+
+  uint64_t commandId = BUILD_COMMAND_DIRECT(
+      CreateMultiDeviceHostTensorFromShards, fbb, &inputGlobalIds,
+      outputTensor.getGlobalId(), &strategyEntries, &meshShape);
 
   return commandId;
 }

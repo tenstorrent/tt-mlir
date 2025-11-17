@@ -143,7 +143,7 @@ Type getOperandInnerElementType(const mlir::Value operand);
 
 // Convert a TensorType with MetalLayoutAttr encoding into a MemRefType with
 // appropriate layout attributes (Shard/View/Host/Interleaved).
-MemRefType
+bufferization::BufferLikeType
 getBufferType(Type type, bool isView,
               std::optional<MetalLayoutAttr> hostInfo = std::nullopt);
 

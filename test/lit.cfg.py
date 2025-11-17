@@ -45,10 +45,13 @@ config.test_exec_root = os.path.join(config.ttmlir_obj_root, "test")
 
 # When op models (constraints) are enabled all optimizer enabled tests open the physical device so they are not parallelizable.
 # TODO(odjuricic): This can be removed once https://github.com/tenstorrent/tt-metal/issues/14000 is implemented.
-# Also this is only required when optimizer is enabled, tho i didn't find a way to set this for specific tests with lit config.
+
+# When op models (constraints) are enabled, set up parallelism groups.
+# Opmodel tests will be configured to use single-threaded execution via lit.local.cfg files
+# in directories containing opmodel tests.
 if config.enable_opmodel:
+    # Set up single-threaded parallelism group for opmodel tests
     lit_config.parallelism_groups["opmodel"] = 1
-    config.parallelism_group = "opmodel"
     config.available_features.add("opmodel")
 
 # Optimizer models performance tests are optionally enabled for specific CI jobs via lit parameter.

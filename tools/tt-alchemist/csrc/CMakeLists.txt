@@ -76,13 +76,9 @@ set_target_properties(${ALCHEMIST_LIBRARY_NAME} PROPERTIES
   INSTALL_RPATH "$ORIGIN"
 )
 
-# Install the library
-install(TARGETS ${ALCHEMIST_LIBRARY_NAME}
-  EXPORT ${ALCHEMIST_LIBRARY_NAME}Targets
-  LIBRARY DESTINATION lib
-  ARCHIVE DESTINATION lib
-  RUNTIME DESTINATION bin
-  INCLUDES DESTINATION include
+install(FILES $<TARGET_FILE:${ALCHEMIST_LIBRARY_NAME}>
+  DESTINATION lib
+  OPTIONAL
 )
 
 # Include component installation utilities
@@ -171,7 +167,7 @@ add_custom_target(build-wheel-tt-alchemist
     ${PYTHON_BUILD_DIR}/tt_alchemist/lib/libdevice.so
     ${PYTHON_BUILD_DIR}/tt_alchemist/lib/libtracy.so.0.10.0
     tt_alchemist_copy_templates
-  COMMAND ${Python3_EXECUTABLE} -m pip wheel -w ${CMAKE_CURRENT_BINARY_DIR}/dist ${PYTHON_BUILD_DIR} --quiet
+  COMMAND ${Python3_EXECUTABLE} -m pip wheel --no-deps -w ${CMAKE_CURRENT_BINARY_DIR}/dist ${PYTHON_BUILD_DIR} --quiet
   WORKING_DIRECTORY ${PYTHON_BUILD_DIR}
   COMMENT "Building tt-alchemist wheel"
 )

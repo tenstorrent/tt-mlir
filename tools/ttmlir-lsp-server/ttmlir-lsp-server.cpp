@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "mlir/IR/DialectRegistry.h"
 #include "mlir/InitAllDialects.h"
 #include "ttmlir/RegisterAll.h"
 

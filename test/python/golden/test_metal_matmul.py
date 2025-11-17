@@ -104,6 +104,29 @@ def test_matmul_multi_core_8otpc(m: int, k: int, n: int, target: str, request, d
     )
 
 
+# Temporary testcase to verify larger testcases compile on p150 (execution hangs, but we want to cover non-square grid cases)
+@pytest.mark.only_config(["ttmetal", "p150"])
+@pytest.mark.parametrize("target", ["ttmetal"])
+def test_matmul_p150_grid_selection_compile_only(target: str, request, device):
+    from builder.base.builder_utils import compile_ttir_to_flatbuffer
+
+    lhs = (1024, 1024)
+    rhs = (1024, 1024)
+
+    options = [
+        f"num-stream-buffers=1",
+    ]
+
+    # Compile only - verify IR is well-formed with correct dim_alignments, etc.
+    mlir_path = compile_ttir_to_flatbuffer(
+        create_matmul_constrained_inputs(lhs, rhs),
+        [lhs, rhs],
+        target=target,
+        custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
+        system_desc_path=request.config.getoption("--sys-desc"),
+    )
+
+
 @pytest.mark.skip_config(["ttmetal", "p150"], reason="See issue #5341")
 @pytest.mark.parametrize(
     "shape",

@@ -171,8 +171,8 @@ llvm::SmallVector<int64_t, 2> collapseGridTo2D(ArrayRef<int64_t> gridShape) {
   return {collapsedHeight, width};
 }
 
-MemRefType getBufferType(Type type, bool isView,
-                         std::optional<MetalLayoutAttr> hostInfo) {
+static MemRefType getMemRefType(Type type, bool isView,
+                                std::optional<MetalLayoutAttr> hostInfo) {
   auto tensorType = mlir::cast<mlir::RankedTensorType>(type);
   MLIRContext *ctx = tensorType.getContext();
   auto tensorMeshAttr =
@@ -211,7 +211,7 @@ MemRefType getBufferType(Type type, bool isView,
   MemRefLayoutAttrInterface layoutAttr;
   if (isView) {
     const unsigned rank = static_cast<unsigned>(fullMemrefShape.size());
-    mlir::AffineMap map = layout.getIndexAffineMap();
+    mlir::AffineMap map = layout.getIndexAffineMapOrIdentity(rank);
     assert(map && map.getNumResults() == rank && map.getNumDims() == rank &&
            "expected tensor encoding to provide a concrete index_map for view");
     layoutAttr = ViewLayoutAttr::get(ctx, map);
@@ -229,6 +229,12 @@ MemRefType getBufferType(Type type, bool isView,
   return MemRefType::get(fullMemrefShape, tensorType.getElementType(),
                          layoutAttr,
                          MemorySpaceAttr::get(ctx, layout.getMemorySpace()));
+}
+
+bufferization::BufferLikeType
+getBufferType(Type type, bool isView, std::optional<MetalLayoutAttr> hostInfo) {
+  return mlir::cast<bufferization::BufferLikeType>(
+      getMemRefType(type, isView, hostInfo));
 }
 
 } // namespace mlir::tt::ttcore

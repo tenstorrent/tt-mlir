@@ -7,7 +7,6 @@ from __future__ import annotations
 import atexit
 import multiprocessing as mp
 import queue
-import re
 from dataclasses import dataclass
 from enum import Enum
 from multiprocessing import queues
@@ -55,11 +54,6 @@ def create_mlir_module_from_string(module_str: str) -> Module:
     returning Module instance.
     """
 
-    def preprocess_module_str(module_str: str) -> str:
-        """Preprocesses module string by removing `loc(...)` from it."""
-        loc_pattern = re.compile(r"\s*loc\([^)]*\)")
-        return re.sub(loc_pattern, "", module_str)
-
     def register_dialect(dialect: ModuleDialect, ctx: Context) -> None:
         """
         Detects dialect used in `module_str` and registers it with context `ctx`.
@@ -73,11 +67,10 @@ def create_mlir_module_from_string(module_str: str) -> Module:
             raise ValueError(f"Unknown dialect: {dialect.name}")
 
     with Context() as ctx:
-        cleaned_module_str = preprocess_module_str(module_str)
-        dialect = ModuleDialect.detect(cleaned_module_str)
+        dialect = ModuleDialect.detect(module_str)
         # Must register dialect in order for parsing to work.
         register_dialect(dialect, ctx)
-        return Module.parse(cleaned_module_str)
+        return Module.parse(module_str)
 
 
 class Status(Enum):

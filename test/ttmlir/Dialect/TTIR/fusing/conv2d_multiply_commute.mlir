@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttir-fusing="ttnn-enable-conv2d-with-multiply-pattern=true" -o %t %s
+// RUN: ttmlir-opt --ttir-implicit-broadcast-fold --ttir-fusing="ttnn-enable-conv2d-with-multiply-pattern=true" -o %t %s
 // RUN: FileCheck %s --input-file=%t
 
 // Commute multiply before conv2d.
@@ -19,6 +19,31 @@ module {
               dilation = 1: i32,
               groups = 1: i32
             }> : (tensor<1x32x32x64xbf16>, tensor<64x64x3x3xbf16>, tensor<1x30x30x64xbf16>) -> tensor<1x30x30x64xbf16>
+    %2 = ttir.empty() : tensor<1x30x30x64xbf16>
+    %4 = "ttir.multiply"(%1, %arg2, %2) : (tensor<1x30x30x64xbf16>, tensor<1x1x1x64xbf16>, tensor<1x30x30x64xbf16>) -> tensor<1x30x30x64xbf16>
+
+    // CHECK: return %[[CONV]]
+    return %4: tensor<1x30x30x64xbf16>
+  }
+  // Check that we can commute multiply before conv2d with bias.
+  // CHECK-LABEL: func.func @commute_multiply_with_bias
+  func.func @commute_multiply_with_bias(%arg0: tensor<1x32x32x64xbf16>, %arg1: tensor<64x64x3x3xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>}, %arg2: tensor<1x1x1x64xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>}, %arg3: tensor<1x1x1x64xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>}) -> tensor<1x30x30x64xbf16> {
+    // CHECK: %[[SCALE:.*]] = "ttir.reshape"
+    // CHECK-SAME: (%arg2
+    // CHECK: %[[WEIGHT_SCALED:.*]] = "ttir.multiply"
+    // CHECK-SAME: (%arg1, %[[SCALE]]
+    // CHECK: %[[BIAS_SCALED:.*]] = "ttir.multiply"
+    // CHECK-SAME: (%arg3, %arg2
+    // CHECK: %[[CONV:.*]] = "ttir.conv2d"
+    // CHECK-SAME: (%arg0, %[[WEIGHT_SCALED]], %[[BIAS_SCALED]]
+    %0 = ttir.empty() : tensor<1x30x30x64xbf16>
+    %1 = "ttir.conv2d"(%arg0, %arg1, %arg3, %0)
+        <{
+          stride = 1: i32,
+          padding = 0: i32,
+          dilation = 1: i32,
+          groups = 1: i32
+        }> : (tensor<1x32x32x64xbf16>, tensor<64x64x3x3xbf16>, tensor<1x1x1x64xbf16>, tensor<1x30x30x64xbf16>) -> tensor<1x30x30x64xbf16>
     %2 = ttir.empty() : tensor<1x30x30x64xbf16>
     %4 = "ttir.multiply"(%1, %arg2, %2) : (tensor<1x30x30x64xbf16>, tensor<1x1x1x64xbf16>, tensor<1x30x30x64xbf16>) -> tensor<1x30x30x64xbf16>
 
@@ -160,13 +185,14 @@ module {
   func.func @conv2d_subgraph_commute(%arg0: tensor<1x3x224x224xbf16> {ttcore.argument_type = #ttcore.argument_type<input>}, %arg1: tensor<1x32x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>}, %arg2: tensor<1x32x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>}, %arg3: tensor<32x3x3x3xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.conv2d_weight}, %arg4: tensor<32x1x3x3xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.conv2d_weight}) -> tensor<1x112x112x32xbf16> {
     // Ignore first reshape which is for conv input.
     // CHECK: "ttir.reshape"
+    // CHECK: "ttir.transpose"
+    // CHECK: "ttir.transpose"
     // CHECK: %[[RESHAPE:.*]] = "ttir.reshape"
-    // CHECK: %[[BCAST:.*]] = "ttir.broadcast"
-    // CHECK-SAME: (%[[RESHAPE]]
+    // CHECK-SAME: {shape = [32 : i32, 1 : i32, 1 : i32, 1 : i32]}
     // CHECK: %[[MUL:.*]] = "ttir.multiply"
-    // CHECK-SAME: (%arg3, %[[BCAST]]
+    // CHECK-SAME: (%arg3, %[[RESHAPE]]
     // CHECK: "ttir.conv2d"
-    // CHECK-SAME: ([[X:.*]], %[[MUL]]
+    // CHECK-SAME: %[[MUL]]
     %0 = ttir.empty() : tensor<1x224x3x224xbf16>
     %1 = "ttir.transpose"(%arg0, %0) <{dim0 = 1 : si32, dim1 = 2 : si32}> : (tensor<1x3x224x224xbf16>, tensor<1x224x3x224xbf16>) -> tensor<1x224x3x224xbf16>
     %2 = ttir.empty() : tensor<1x224x224x3xbf16>
@@ -194,7 +220,8 @@ module {
     // Ignore first reshape which is for conv input.
     // CHECK: "ttir.reshape"
     // CHECK: "ttir.conv2d"
-    // CHECK: "ttir.broadcast"
+    // CHECK: "ttir.transpose"
+    // CHECK: "ttir.transpose"
     // CHECK: "ttir.multiply"
     %0 = ttir.empty() : tensor<1x224x3x224xbf16>
     %1 = "ttir.transpose"(%arg0, %0) <{dim0 = 1 : si32, dim1 = 2 : si32}> : (tensor<1x3x224x224xbf16>, tensor<1x224x3x224xbf16>) -> tensor<1x224x3x224xbf16>

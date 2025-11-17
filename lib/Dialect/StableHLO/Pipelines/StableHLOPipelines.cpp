@@ -34,9 +34,13 @@ void createStableHLOPipeline(OpPassManager &pm,
   analyzeMeshOptions.automaticArgAnalysis = options.automaticArgAnalysis;
   pm.addPass(createAnalyzeMeshPass(analyzeMeshOptions));
 
+  pm.addPass(createDecoupleConstFanoutPass());
+
+  // Flatten all composite ops to make sharding propagation easier.
+  pm.addPass(createFlattenCompositePass());
+
   // Apply sharding constraints.
-  pm.nest<mlir::func::FuncOp>().addPass(
-      mlir::sdy::createApplyShardingConstraintsPass());
+  pm.addPass(mlir::sdy::createApplyShardingConstraintsPass());
 
   // Propagate tensor shardings through the entire graph.
   // This propagation is taken from
@@ -73,6 +77,9 @@ void createStableHLOPipeline(OpPassManager &pm,
 
   // Split tensor dimensions according to tensor sharding annotations.
   pm.addPass(createUpdateGlobalToLocalShapesPass());
+
+  // Re-outline composite ops from flattened groups.
+  pm.addPass(createReoutlineCompositePass());
 
   // Close tensor shardings as analysis is complete.
   pm.addPass(mlir::sdy::createCloseShardingsPass());

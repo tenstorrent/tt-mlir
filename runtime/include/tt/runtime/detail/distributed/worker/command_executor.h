@@ -102,6 +102,10 @@ private:
           const ::tt::runtime::distributed::flatbuffer::CreateHostTensorCommand
               *command);
 
+  void execute(uint64_t commandId,
+               const ::tt::runtime::distributed::flatbuffer::
+                   CreateMultiDeviceHostTensorFromShardsCommand *command);
+
   void
   execute(uint64_t commandId,
           const ::tt::runtime::distributed::flatbuffer::IsTensorAllocatedCommand

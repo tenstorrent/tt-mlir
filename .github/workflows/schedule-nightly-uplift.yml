@@ -7,6 +7,12 @@ on:
   schedule:
     - cron: '0 6 * * *'  # Runs at 06:00 UTC every day
   workflow_dispatch:  # Manual trigger
+    inputs:
+      branch_name:
+        description: 'Branch name for the uplift PR'
+        required: false
+        type: string
+        default: 'uplift'
 
 jobs:
   uplift-pr:
@@ -25,6 +31,25 @@ jobs:
       - name: Set env variable for today's date
         run: |
           echo "TODAY=$(date +'%Y-%m-%d')" >> $GITHUB_ENV
+
+      - name: Check if branch already exists
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH_NAME: ${{ inputs.branch_name || 'uplift' }}
+        run: |
+          # Allow overwrites for the default "uplift" branch
+          if [ "$BRANCH_NAME" = "uplift" ]; then
+            echo "Using default 'uplift' branch. Overwrites are allowed."
+            exit 0
+          fi
+
+          # For custom branch names, exit if the branch already exists
+          if git ls-remote --exit-code --heads origin "$BRANCH_NAME" >/dev/null 2>&1; then
+            echo "::error::Branch '$BRANCH_NAME' already exists. Exiting to avoid overwriting."
+            echo "::error::Please delete the existing branch first or choose a different branch name."
+            exit 1
+          fi
+          echo "Branch '$BRANCH_NAME' does not exist. Proceeding with uplift."
 
       - name: Fetch latest SHA of tt-metal submodule
         env:
@@ -67,7 +92,7 @@ jobs:
         uses: peter-evans/create-pull-request@v7
         id: create-pr
         with:
-          branch: uplift
+          branch: ${{ inputs.branch_name || 'uplift' }}
           committer: github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>
           author: ${{ github.actor }} <${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com>
           base: main

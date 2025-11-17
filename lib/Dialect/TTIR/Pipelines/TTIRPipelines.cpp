@@ -8,11 +8,16 @@
 #include "mlir/Conversion/ControlFlowToLLVM/ControlFlowToLLVM.h"
 #include "mlir/Conversion/FuncToLLVM/ConvertFuncToLLVMPass.h"
 #include "mlir/Conversion/MathToLLVM/MathToLLVM.h"
+#include "mlir/Conversion/Passes.h"
 #include "mlir/Conversion/SCFToControlFlow/SCFToControlFlow.h"
 #include "mlir/Conversion/TensorToLinalg/TensorToLinalgPass.h"
+#include "mlir/Conversion/TosaToArith/TosaToArith.h"
+#include "mlir/Conversion/TosaToLinalg/TosaToLinalg.h"
+#include "mlir/Conversion/TosaToTensor/TosaToTensor.h"
 #include "mlir/Dialect/Bufferization/Pipelines/Passes.h"
 #include "mlir/Dialect/Bufferization/Transforms/Passes.h"
 #include "mlir/Dialect/Linalg/Passes.h"
+#include "mlir/Dialect/SCF/Transforms/Passes.h"
 #include "mlir/InitAllDialects.h"
 #include "mlir/InitAllPasses.h"
 #include "mlir/Pass/PassManager.h"
@@ -49,6 +54,16 @@ namespace mlir::tt::ttir {
 //===----------------------------------------------------------------------===//
 
 #ifdef TTMLIR_ENABLE_STABLEHLO
+// We should explicitly allow-list any StableHLO ops that we want to hoist to
+// CPU here. Before adding an op here, make sure that the op is supported in
+// StableHLO to TOSA/Linalg conversion.
+// Note: when allow-listing an op, explicit template instantiation should be
+// added to HoistCPUOps.cpp.
+auto createHoistAllowlistedStablehloOpsPass() {
+  return ttir::createTTIRHoistTransformForOps<stablehlo::DynamicUpdateSliceOp,
+                                              stablehlo::EinsumOp>();
+}
+
 void createStableHLOToTTIRPipeline(
     OpPassManager &pm, const StableHLOToTTIRPipelineOptions &options) {
   if (options.arithDialectConversionsEnabled) {
@@ -67,10 +82,17 @@ void createStableHLOToTTIRPipeline(
   pm.addPass(createConvertStableHLOToTTIRPass(passOptions));
 
   if (options.enableCPUFallback) {
-    // Fallback any remaining SHLO ops to CPU.
+    // Wrap all ops in DeviceModule.
     pm.addPass(ttcore::createTTCoreWrapDeviceModulePass());
-    pm.addPass(ttir::createTTIRHoistTransformForDialects<
-               stablehlo::StablehloDialect>());
+
+    // Fallback allow-listed SHLO ops to the CPU module.
+    pm.addPass(createHoistAllowlistedStablehloOpsPass());
+
+    // Run StableHLOToTTIR pass again on the DeviceModule to produce a failure
+    // if any unsupported ops have not been hoisted.
+    auto &devicePm = pm.nest<ttcore::DeviceModuleOp>().nest<mlir::ModuleOp>();
+    passOptions.enablePartialConversion = false;
+    devicePm.addPass(createConvertStableHLOToTTIRPass(passOptions));
   }
 }
 #endif
@@ -202,6 +224,12 @@ void createLinalgToLLVMPipeline(OpPassManager &manager,
   // An explicit bufferization to memref conversion is sometimes needed to
   // eliminate some nasty bufferization::clone() calls.
   manager.addPass(mlir::createConvertBufferizationToMemRefPass());
+
+  // Lowers memref.copy on non-contiguous (strided, non-identity) memrefs to
+  // linalg dialect. memref.copy on contiguous memrefs gets lowered
+  // to llvm.memcpy during FinalizeMemRefToLLVMConversionPass.
+  manager.addPass(
+      mlir::tt::llvm_util::createNonContiguousMemrefCopyToLinalgPass());
 
   // This lowers linalg to scf-based loops.
   manager.addPass(mlir::createConvertLinalgToLoopsPass());

@@ -75,7 +75,7 @@ def test_sum(
 @pytest.mark.skip_config(["p150"], ["p300"])
 @pytest.mark.parametrize("m", [4, 8, 16])
 @pytest.mark.parametrize("n", [2, 4, 8])
-@pytest.mark.parametrize("dim_arg", [0, 1])
+@pytest.mark.parametrize("dim_arg", [[0], [1]])
 @pytest.mark.parametrize("keep_dim", [True])
 @pytest.mark.parametrize("target", ["ttmetal"])
 def test_max(

@@ -116,6 +116,15 @@ createOwnedHostTensor(const void *data, const std::vector<std::uint32_t> &shape,
                                                           itemsize, dataType);
 }
 
+::tt::runtime::Tensor createMultiDeviceHostTensor(
+    const std::vector<::tt::runtime::Tensor> &tensorShards,
+    const std::unordered_map<std::string, std::string> &strategy,
+    const std::vector<uint32_t> &meshShape) {
+  assertControllerLaunched();
+  return ControllerSingleton::get().createMultiDeviceHostTensor(
+      tensorShards, strategy, meshShape);
+}
+
 bool isTensorAllocated(const ::tt::runtime::Tensor &tensorHandle) {
   assertControllerLaunched();
   return ControllerSingleton::get().isTensorAllocated(tensorHandle);

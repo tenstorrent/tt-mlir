@@ -283,7 +283,7 @@ DMAOp::getAliasingValues(mlir::OpOperand &,
   return result;
 }
 
-mlir::FailureOr<mlir::BaseMemRefType>
+mlir::FailureOr<mlir::bufferization::BufferLikeType>
 DMAOp::getBufferType(mlir::Value value,
                      const mlir::bufferization::BufferizationOptions &,
                      const mlir::bufferization::BufferizationState &,
@@ -428,7 +428,8 @@ mlir::bufferization::AliasingValueList TileTilizeBlockOp::getAliasingValues(
   return result;
 }
 
-mlir::FailureOr<mlir::BaseMemRefType> TileTilizeBlockOp::getBufferType(
+mlir::FailureOr<mlir::bufferization::BufferLikeType>
+TileTilizeBlockOp::getBufferType(
     mlir::Value, const mlir::bufferization::BufferizationOptions &,
     const mlir::bufferization::BufferizationState &,
     ::llvm::SmallVector<mlir::Value> &) {
@@ -510,7 +511,8 @@ mlir::bufferization::AliasingValueList TileUntilizeBlockOp::getAliasingValues(
   return result;
 }
 
-mlir::FailureOr<mlir::BaseMemRefType> TileUntilizeBlockOp::getBufferType(
+mlir::FailureOr<mlir::bufferization::BufferLikeType>
+TileUntilizeBlockOp::getBufferType(
     mlir::Value, const mlir::bufferization::BufferizationOptions &,
     const mlir::bufferization::BufferizationState &,
     ::llvm::SmallVector<mlir::Value> &) {

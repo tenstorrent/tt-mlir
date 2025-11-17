@@ -1168,8 +1168,9 @@ public:
         reshapedBias, expandedPaddingAttr, expandedStridesAttr,
         expandedDilationsAttr, TypeAttr::get(accType));
 
-    // Slice the result back to the original expected shape if needed.
     Value result = conv2dOp.getResult();
+
+    // Slice the result back to the original expected shape if needed.
     ArrayRef<int64_t> originalShape = resultType.getShape();
     if (!std::equal(resultShape.begin(), resultShape.end(),
                     originalShape.begin(), originalShape.end())) {
@@ -1181,6 +1182,15 @@ public:
       }
       result = rewriter.create<tensor::ExtractSliceOp>(
           op.getLoc(), resultType, result, offsets, sizes, strides);
+
+      // Since tensor::ExtractSliceOp doesn't support DPS, we need to copy
+      // the result into the output buffer
+      Value output = adaptor.getOutput();
+      auto copyResult =
+          rewriter.create<linalg::CopyOp>(op.getLoc(), result, output);
+      rewriter.replaceOp(op, copyResult);
+
+      return success();
     }
 
     rewriter.replaceOp(op, result);
@@ -1293,8 +1303,9 @@ public:
         op.getLoc(), actualResultType, input, expandedKernelAttr,
         expandedStridesAttr, expandedPaddingAttr);
 
-    // Slice the result back to the original expected shape if needed.
     Value result = maxPoolOp.getResult();
+
+    // Slice the result back to the original expected shape if needed.
     if (!llvm::equal(resultShape, resultType.getShape())) {
       SmallVector<OpFoldResult> offsets, sizes, strides;
       for (int64_t i = 0; i < resultType.getRank(); ++i) {
@@ -1304,6 +1315,15 @@ public:
       }
       result = rewriter.create<tensor::ExtractSliceOp>(
           op.getLoc(), resultType, result, offsets, sizes, strides);
+
+      // Since tensor::ExtractSliceOp doesn't support DPS, we need to copy
+      // the result into the output buffer
+      Value output = adaptor.getOutput();
+      auto copyResult =
+          rewriter.create<linalg::CopyOp>(op.getLoc(), result, output);
+      rewriter.replaceOp(op, copyResult);
+
+      return success();
     }
 
     rewriter.replaceOp(op, result);
