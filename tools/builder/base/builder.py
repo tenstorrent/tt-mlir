@@ -346,6 +346,8 @@ class Builder:
                     torch.iinfo(torch.quint8).min,
                     torch.iinfo(torch.quint8).max,
                 )
+            case torch.bool:
+                return IntegerType.get_signless(1, self._ctx)
             case _:
                 raise TypeError(f"Invalid Type {dtype}")
 
@@ -398,6 +400,8 @@ class Builder:
             )
         if dtype.is_floating_point:
             return torch.randn(shape, dtype=dtype)
+        elif dtype == torch.bool:
+            return torch.randint(0, 2, shape, dtype=torch.bool)
         else:
             min_int = torch.iinfo(dtype).min
             max_int = torch.iinfo(dtype).max

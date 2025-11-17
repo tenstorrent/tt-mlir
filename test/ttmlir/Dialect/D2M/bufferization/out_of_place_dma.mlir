@@ -12,7 +12,7 @@
 
 // CHECK-NOT: error: 'd2m.dma' op cannot have both src and dst remote
 
-#layout = #ttcore.metal_layout<logical_shape = 128x128, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1>
+#layout = #ttcore.metal_layout<logical_shape = 128x128, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded, index_map = map(0)>
 #layout1 = #ttcore.metal_layout<logical_shape = 128x128, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded, index_map = (d0, d1, d2, d3) -> (d0 + d2 floordiv 2, d1 + d3 floordiv 2, d2 mod 2, d3 mod 2)>
 
 func.func @matmul(%arg0: tensor<2x2x2x2x!ttcore.tile<32x32, f32>, #layout>, %arg1: tensor<2x2x2x2x!ttcore.tile<32x32, f32>, #layout>, %arg2: tensor<2x2x2x2x!ttcore.tile<32x32, f32>, #layout>) -> tensor<2x2x2x2x!ttcore.tile<32x32, f32>, #layout1> {
