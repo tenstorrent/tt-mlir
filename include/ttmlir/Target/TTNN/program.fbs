@@ -80,6 +80,7 @@ union OpType {
   NLPConcatHeadsDecodeOp,
   PadOp,
   PagedFillCacheOp,
+  PagedScaledDotProductAttentionDecodeOp,
   PagedUpdateCacheOp,
   PermuteOp,
   PointToPointOp,
