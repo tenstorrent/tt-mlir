@@ -56,6 +56,53 @@ def D2MGenericTileComputeLoops : Pass<"d2m-generic-tile-compute-loops", "::mlir:
   let dependentDialects = ["mlir::tt::d2m::D2MDialect"];
 }
 
+def D2MLinalgToAffine : Pass<"d2m-linalg-to-affine", "::mlir::ModuleOp"> {
+  let summary = "Convert linalg.generic operations to affine loops";
+  let description = [{
+    This pass converts all linalg.generic operations within d2m.generic
+    compute regions to affine loop nests. This is a prerequisite for
+    the DST register allocation passes which operates on affine IR.
+
+    The pass handles:
+    - Regular linalg.generic ops -> affine for loops
+    - Special tile matmul cases (when useTileMatmul=true)
+
+    Example transformation:
+    ```mlir
+    // Before:
+    linalg.generic {indexing_maps = [#map, #map],
+                    iterator_types = ["parallel", "parallel"]}
+        ins(%cb0 : memref<2x4x!ttcore.tile<32x32, f32>, #l1>)
+        outs(%cb0 : memref<2x4x!ttcore.tile<32x32, f32>, #l1>) {
+      ^bb0(%in: !ttcore.tile<32x32, f32>, %out: !ttcore.tile<32x32, f32>):
+        %0 = "d2m.tile_exp"(%in) : (!ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
+        linalg.yield %0 : !ttcore.tile<32x32, f32>
+    }
+
+    // After:
+    affine.for %i = 0 to 2 {
+      affine.for %j = 0 to 4 {
+        %val = affine.load %cb0[%i, %j] : memref<2x4x!ttcore.tile<32x32, f32>, #l1>
+        %result = "d2m.tile_exp"(%val) : (!ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
+        affine.store %result, %cb0[%i, %j] : memref<2x4x!ttcore.tile<32x32, f32>, #l1>
+      }
+    }
+    ```
+
+    This pass was extracted from D2MInsertDstRegisterAccess to achieve
+    better separation of concerns - one pass for conversion, one pass
+    for DST register management.
+  }];
+  let dependentDialects = [
+    "::mlir::affine::AffineDialect",
+    "::mlir::linalg::LinalgDialect"
+  ];
+  let options = [
+    Option<"useTileMatmul", "use-tile-matmul", "bool", "false",
+           "Use tile_matmul instead of tile_matmul_block for matmul ops">
+  ];
+}
+
 def D2MInsertDstRegisterAccess : Pass<"d2m-insert-dst-register-access", "::mlir::ModuleOp"> {
   let summary = "Insert dst register access.";
   let description = [{
