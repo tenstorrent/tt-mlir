@@ -36,10 +36,12 @@ TTPrintIRInstrumentation::TTPrintIRInstrumentation(
 }
 
 TTPrintIRInstrumentation::~TTPrintIRInstrumentation() {
-  // For Pipeline level, dump any remaining IR at top-level (depth 0)
-  if (level_ == DumpLevel::Pipeline && currentDepth_ == 0 &&
-      !pipelineIRStack_.empty() && !pipelineIRStack_[0].empty()) {
-    std::string filename = "depth0_pipeline";
+  // For Once or Pipeline level, dump any remaining IR at top-level (depth 0)
+  if ((level_ == DumpLevel::Once || level_ == DumpLevel::Pipeline) &&
+      currentDepth_ == 0 && !pipelineIRStack_.empty() &&
+      !pipelineIRStack_[0].empty()) {
+    std::string filename =
+        level_ == DumpLevel::Once ? "final" : "depth0_pipeline";
     writeIRStringToFile(pipelineIRStack_[0], filename);
   }
 }
@@ -126,8 +128,13 @@ void TTPrintIRInstrumentation::runBeforePass(Pass *pass, Operation *op) {
 }
 
 void TTPrintIRInstrumentation::runAfterPass(Pass *pass, Operation *op) {
-  // For Pipeline level, capture IR as string
-  if (level_ == DumpLevel::Pipeline) {
+  // For Once or Pipeline level, capture IR as string
+  if (level_ == DumpLevel::Once || level_ == DumpLevel::Pipeline) {
+    // For Once level, only capture at depth 0 (top-level)
+    if (level_ == DumpLevel::Once && currentDepth_ != 0) {
+      return;
+    }
+
     if (op) {
       std::string irString;
       llvm::raw_string_ostream os(irString);

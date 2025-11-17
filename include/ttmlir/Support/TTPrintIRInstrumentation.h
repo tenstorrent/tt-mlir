@@ -20,7 +20,8 @@ namespace mlir::tt {
 class TTPrintIRInstrumentation : public PassInstrumentation {
 public:
   enum class DumpLevel {
-    Pipeline,      // Dump only at pipeline boundaries
+    Once,          // Dump only once at the very end (top-level only)
+    Pipeline,      // Dump at pipeline boundaries (all nesting levels)
     Pass,          // Dump at pipeline + pass boundaries
     Transformation // Dump at pipeline + pass + transformation actions
   };

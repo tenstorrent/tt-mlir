@@ -207,6 +207,40 @@ void runWith(InstrumentationTest &fixture, Options options,
 } // namespace test
 } // namespace
 
+// Once level tests - should dump only once at the very end (top-level only)
+TEST_F(InstrumentationTest, Once_SinglePass) {
+  auto options = test::createOptions(*this);
+  options.level = DumpLevel::Once;
+  test::runWith(*this, options, test::Pipelines::singlePassPipeline());
+
+  finalize(); // Trigger instrumentation destructor
+
+  // Should dump once at the very end
+  EXPECT_EQ(countOutputFiles(), 1);
+}
+
+TEST_F(InstrumentationTest, Once_FlatMultiplePasses) {
+  auto options = test::createOptions(*this);
+  options.level = DumpLevel::Once;
+  test::runWith(*this, options, test::Pipelines::flatPipeline());
+
+  finalize(); // Trigger instrumentation destructor
+
+  // Should dump once at the very end (final state after all passes)
+  EXPECT_EQ(countOutputFiles(), 1);
+}
+
+TEST_F(InstrumentationTest, Once_Nested) {
+  auto options = test::createOptions(*this);
+  options.level = DumpLevel::Once;
+  test::runWith(*this, options, test::Pipelines::nestedFuncOpPipeline());
+
+  finalize(); // Trigger instrumentation destructor
+
+  // Should dump only top-level, not nested pipelines
+  EXPECT_EQ(countOutputFiles(), 1);
+}
+
 // Pipeline level tests - these should dump at pipeline boundaries only
 TEST_F(InstrumentationTest, Pipeline_SinglePass) {
   auto options = test::createOptions(*this);
