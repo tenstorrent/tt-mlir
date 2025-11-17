@@ -130,7 +130,8 @@ public:
         //
         // Not currently supported.
         //
-        if (gridIndexingMap.getNumResults() == dmaIndexingMap.getNumResults()) {
+        if (outputOperandIndexingMap.getNumResults() ==
+            dmaIndexingMap.getNumResults()) {
           // Only enforce a 1-1 relationship between the participating dma and
           // grid dimensions when the maps have the same dimensionality.
           assert(!gridResult || *gridResult == result);
