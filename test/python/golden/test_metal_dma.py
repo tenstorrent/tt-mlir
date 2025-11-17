@@ -40,6 +40,7 @@ def compile_dma_test(test_func, shape, request, device):
     )
 
 
+@pytest.mark.skip_config(["p150"], ["n150"], reason="segfaults on single chip devices")
 @pytest.mark.parametrize("target", ["ttmetal"])
 @pytest.mark.parametrize("shape", [(256, 256)])
 @pytest.mark.parametrize("memory_space", [ttcore.MemorySpace.DeviceDRAM])
