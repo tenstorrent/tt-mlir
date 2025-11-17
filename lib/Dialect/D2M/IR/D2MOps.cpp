@@ -1596,39 +1596,9 @@ mlir::LogicalResult d2m::GenericOp::bufferize(
           cbType.getBufferType(options, [&]() { return this->emitError(); });
       mlir::BlockArgument newArg =
           block.insertArgument(argNumber, *newArgType, oldArg.getLoc());
-
-      // Separate uses into tensor-semantic and memref-semantic operations
-      llvm::SmallVector<OpOperand *> tensorSemanticUses;
-      llvm::SmallVector<OpOperand *> memrefSemanticUses;
-
-      for (OpOperand &use : oldArg.getUses()) {
-        Operation *user = use.getOwner();
-        // d2m.push/pop operate on memref CBs
-        if (mlir::isa<d2m::PushOp, d2m::PopOp>(user)) {
-          memrefSemanticUses.push_back(&use);
-        } else {
-          tensorSemanticUses.push_back(&use);
-        }
-      }
-
-      // Only create to_tensor if there are tensor-semantic uses
-      if (!tensorSemanticUses.empty()) {
-        auto toTensor = rewriter.create<bufferization::ToTensorOp>(
-            bufferGeneric.getLoc(), oldArg.getType(), newArg);
-        for (OpOperand *use : tensorSemanticUses) {
-          rewriter.modifyOpInPlace(use->getOwner(), [&]() {
-            use->set(toTensor.getResult());
-          });
-        }
-      }
-
-      // Memref-semantic ops use the memref arg directly
-      for (OpOperand *use : memrefSemanticUses) {
-        rewriter.modifyOpInPlace(use->getOwner(), [&]() {
-          use->set(newArg);
-        });
-      }
-
+      auto toTensor = rewriter.create<bufferization::ToTensorOp>(
+          bufferGeneric.getLoc(), oldArg.getType(), newArg);
+      rewriter.replaceAllUsesWith(oldArg, toTensor.getResult());
       block.eraseArgument(argNumber + 1);
     }
   }

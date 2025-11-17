@@ -1206,7 +1206,13 @@ def D2M_ReserveOp : D2M_CBOp<"reserve"> {
 
 def D2M_PushOp : D2M_GenericRegionOp<"push",
   [ MemoryEffects<[MemRead, MemWrite]>
-  , DeclareOpInterfaceMethods<BufferizableOpInterface>
+  , DeclareOpInterfaceMethods<BufferizableOpInterface, [
+      "bufferizesToMemoryRead",
+      "bufferizesToMemoryWrite",
+      "bufferize",
+      "getAliasingValues",
+      "getBufferType"
+    ]>
   ]> {
   let summary = "Push to circular buffer (signal producer done).";
   let description = [{
@@ -1230,13 +1236,23 @@ def D2M_PushOp : D2M_GenericRegionOp<"push",
   let assemblyFormat = [{ $cb attr-dict `:` type($cb) }];
 
   let extraClassDeclaration = [{
+    CBType getCbType() {
+      return mlir::cast<CBType>(getCb().getType());
+    }
+
     bool hasTensorSemantics() { return false; }
   }];
 }
 
 def D2M_PopOp : D2M_GenericRegionOp<"pop",
   [ MemoryEffects<[MemRead, MemWrite]>
-  , DeclareOpInterfaceMethods<BufferizableOpInterface>
+  , DeclareOpInterfaceMethods<BufferizableOpInterface, [
+      "bufferizesToMemoryRead",
+      "bufferizesToMemoryWrite",
+      "bufferize",
+      "getAliasingValues",
+      "getBufferType"
+    ]>
   ]> {
   let summary = "Pop from circular buffer (signal consumer done).";
   let description = [{
@@ -1260,6 +1276,10 @@ def D2M_PopOp : D2M_GenericRegionOp<"pop",
   let assemblyFormat = [{ $cb attr-dict `:` type($cb) }];
 
   let extraClassDeclaration = [{
+    CBType getCbType() {
+      return mlir::cast<CBType>(getCb().getType());
+    }
+
     bool hasTensorSemantics() { return false; }
   }];
 }
