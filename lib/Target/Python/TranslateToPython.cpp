@@ -447,7 +447,8 @@ static LogicalResult printOperation(PythonEmitter &emitter,
                                     AssignGlobalOp assignGlobalOp) {
   raw_indented_ostream &os = emitter.ostream();
   os << assignGlobalOp.getName() << " = ";
-  if (failed(emitter.emitOperand(assignGlobalOp.getValue()))) {
+  if (failed(emitter.emitOperand(assignGlobalOp.getValue(),
+                                 assignGlobalOp.getName().str()))) {
     return failure();
   }
 
