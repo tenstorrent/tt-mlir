@@ -5,6 +5,8 @@ add_mlir_dialect_library(MLIRD2MAnalysis
   GenericOpBufferAnalysis.cpp
   CBProducerConsumer.cpp
   DstCapacityAnalysis.cpp
+  DstAnalysisBasic.cpp
+  DstAnalysisGraphColoring.cpp
   GenericInterchangeAnalysis.cpp
 
   ADDITIONAL_HEADER_DIRS
