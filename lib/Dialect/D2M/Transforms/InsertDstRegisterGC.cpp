@@ -2,9 +2,9 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/Dialect/D2M/Analysis/DstCapacityAnalysis.h"
 #include "ttmlir/Dialect/D2M/Analysis/DstAnalysis.h"
 #include "ttmlir/Dialect/D2M/Analysis/DstAnalysisGraphColoring.h"
+#include "ttmlir/Dialect/D2M/Analysis/DstCapacityAnalysis.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
 #include "ttmlir/Dialect/D2M/Transforms/GraphColoringStrategy.h"
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"

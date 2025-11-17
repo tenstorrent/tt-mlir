@@ -33,8 +33,8 @@ identifyDstAccesses(Operation *op, Region &region) {
 /// Graph coloring strategy: uses interference analysis to minimize slices.
 class DstAnalysisGraphColoring : public DstAnalysis {
 public:
-  explicit DstAnalysisGraphColoring(
-      std::unique_ptr<ColoringStrategy> strategy, llvm::StringRef name)
+  explicit DstAnalysisGraphColoring(std::unique_ptr<ColoringStrategy> strategy,
+                                    llvm::StringRef name)
       : coloringStrategy(std::move(strategy)), strategyName(name) {}
 
   DstAnalysisResult analyze(Operation *op) override {
@@ -71,7 +71,7 @@ public:
         bool coloringSucceeded = false;
         for (; numColors <= maxAttempts; ++numColors) {
           if (succeeded(coloringStrategy->colorGraph(interferenceGraph,
-                                                      numColors, coloring))) {
+                                                     numColors, coloring))) {
             coloringSucceeded = true;
             break;
           }
@@ -80,7 +80,8 @@ public:
         if (!coloringSucceeded) {
           result.isValid = false;
           result.failureReason = "Graph coloring failed for operation";
-          result.numSlicesRequired = dstAccesses.size(); // Conservative fallback
+          result.numSlicesRequired =
+              dstAccesses.size(); // Conservative fallback
           return;
         }
 
@@ -115,20 +116,17 @@ private:
 } // namespace
 
 std::unique_ptr<DstAnalysis>
-createGraphColoringDstAnalysis(
-    std::unique_ptr<ColoringStrategy> strategy) {
-  return std::make_unique<DstAnalysisGraphColoring>(
-      std::move(strategy), "graph-coloring");
+createGraphColoringDstAnalysis(std::unique_ptr<ColoringStrategy> strategy) {
+  return std::make_unique<DstAnalysisGraphColoring>(std::move(strategy),
+                                                    "graph-coloring");
 }
 
-std::unique_ptr<DstAnalysis>
-createChaitinBriggsDstAnalysis() {
+std::unique_ptr<DstAnalysis> createChaitinBriggsDstAnalysis() {
   return std::make_unique<DstAnalysisGraphColoring>(
       std::make_unique<ChaitinBriggsColoring>(), "graph-coloring");
 }
 
-std::unique_ptr<DstAnalysis>
-createGreedyDstAnalysis() {
+std::unique_ptr<DstAnalysis> createGreedyDstAnalysis() {
   return std::make_unique<DstAnalysisGraphColoring>(
       std::make_unique<GreedyColoring>(), "greedy");
 }
