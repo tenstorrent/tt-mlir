@@ -129,11 +129,25 @@ def test_muladd_l1_trace(h, w):
     ttnn.close_device(device)
 
 
+# @pytest.mark.parametrize("seq_len", [3410, 4095, 6820, 8190, 9450, 13640, 16380, 18900, 27280, 32760, 37800, 75600])
+# @pytest.mark.parametrize("hidden_dim", [640, 1280, 2560, 5120])
+
+
 @pytest.mark.parametrize(
-    "h, w",
-    [(32, 32)],
+    "seq_len, hidden_dim",
+    [
+        (32, 32),
+        (1705, 320),
+        (4095, 640),
+        (8190, 1280),
+        (16380, 2560),
+        (18900, 320),
+        (37800, 640),
+    ],
 )
-def test_muladd_dram_trace(h, w):
+def test_muladd_dram_trace(seq_len, hidden_dim):
+    h = seq_len
+    w = hidden_dim
     device = ttnn.open_device(device_id=0, trace_region_size=10240)
 
     # setup inputs
@@ -181,7 +195,6 @@ def test_muladd_dram_trace(h, w):
     ttnn.copy_host_to_device_tensor(input_c, input_c_tensor)
 
     tid = ttnn.begin_trace_capture(device)
-    # should work?
     output_tensor = muladd(input_a_tensor, input_b_tensor, input_c_tensor)
     ttnn.end_trace_capture(device, tid)
     ttnn.synchronize_device(device)
@@ -263,7 +276,7 @@ def comp_pcc(golden, calculated, pcc=0.99):
 
 @pytest.mark.parametrize(
     "h, w",
-    [(32, 32)],
+    [(32, 32), (256, 256)],
 )
 def test_muladd_dram_compare(h, w):
     device = ttnn.open_device(device_id=0)
