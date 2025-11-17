@@ -648,32 +648,6 @@ public:
 } // namespace
 
 namespace {
-class PagedFillCacheOpConversionPattern
-    : public OpConversionPattern<ttir::PagedFillCacheOp> {
-public:
-  using OpConversionPattern<ttir::PagedFillCacheOp>::OpConversionPattern;
-
-  LogicalResult
-  matchAndRewrite(ttir::PagedFillCacheOp op, OpAdaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override {
-    std::vector<mlir::Operation *> users(op.getCache().getUsers().begin(),
-                                         op.getCache().getUsers().end());
-    if (users.size() != 1) {
-      return rewriter.notifyMatchFailure(
-          op, "PagedFillCacheOp cache argument must have exactly one user");
-    }
-
-    rewriter.create<ttnn::PagedFillCacheOp>(
-        op.getLoc(), adaptor.getCache(), adaptor.getInput(),
-        adaptor.getPageTable(), adaptor.getBatchIdxTensor());
-
-    rewriter.replaceOp(op, adaptor.getCache());
-    return success();
-  }
-};
-} // namespace
-
-namespace {
 class FillCacheOpConversionPattern
     : public OpConversionPattern<ttir::FillCacheOp> {
 public:
@@ -2259,7 +2233,6 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            ArangeOpConversionPattern,
            RandOpConversionPattern,
            UpdateCacheOpConversionPattern,
-           PagedFillCacheOpConversionPattern,
            PagedUpdateCacheOpConversionPattern,
            FillCacheOpConversionPattern,
            ScatterInDimOpConversionPattern,

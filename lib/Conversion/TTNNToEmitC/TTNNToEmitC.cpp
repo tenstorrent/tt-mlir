@@ -3811,45 +3811,6 @@ public:
 };
 } // namespace
 
-namespace {
-class PagedFillCacheOpConversionPattern
-    : public TTNNToEmitCBaseOpConversionPattern<
-          mlir::tt::ttnn::PagedFillCacheOp> {
-private:
-  std::string getPrefixSearchPattern() const override {
-    return "ttnn.paged_fill_cache";
-  }
-  std::string getPrefixSwapPattern() const override {
-    return "ttnn::experimental::paged_fill_cache";
-  }
-
-public:
-  using TTNNToEmitCBaseOpConversionPattern<
-      mlir::tt::ttnn::PagedFillCacheOp>::TTNNToEmitCBaseOpConversionPattern;
-
-  LogicalResult
-  matchAndRewrite(mlir::tt::ttnn::PagedFillCacheOp srcOp, OpAdaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override {
-
-    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::PagedFillCacheOp> emitter(
-        srcOp, adaptor, rewriter);
-
-    llvm::SmallVector<mlir::Attribute> args{
-        emitter.emit(srcOp.getCache()),
-        emitter.emit(srcOp.getInput()),
-        emitter.emit(srcOp.getPageTable()),
-        emitter.emit(srcOp.getBatchIdxTensor()),
-        emitter.emit(0),
-        /*compute_kernel_config*/ emitter.emit(std::nullopt),
-        /*mesh_coords*/ emitter.emit(std::nullopt),
-    };
-
-    emitter.replaceOp(*this, args);
-    return success();
-  }
-};
-} // namespace
-
 namespace mlir::tt {
 
 // ANCHOR: op_rewriter_pattern_set_emitc
@@ -4035,7 +3996,6 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   //
   patterns.add<UpdateCacheOpConversionPattern>(typeConverter, ctx);
   patterns.add<PagedUpdateCacheOpConversionPattern>(typeConverter, ctx);
-  patterns.add<PagedFillCacheOpConversionPattern>(typeConverter, ctx);
   patterns.add<DefaultOpConversionPattern<mlir::tt::ttnn::FillCacheOp>>(
       typeConverter, ctx);
 
