@@ -199,6 +199,44 @@ std::vector<std::vector<size_t>> buildIndexGraphFromDstOperations(
     opToLoops[op] = loops;
   }
 
+  // Helper to check if two operations interfere based on shared loops
+  auto shareCommonLoop =
+      [&](const llvm::SmallVector<mlir::Operation *> &loops1,
+          const llvm::SmallVector<mlir::Operation *> &loops2) {
+        for (mlir::Operation *loop1 : loops1) {
+          if (llvm::is_contained(loops2, loop1)) {
+            return true;
+          }
+        }
+        return false;
+      };
+
+  // Helper to check if a value is live at an operation
+  auto isLiveAt = [](mlir::Value value, mlir::Operation *op) {
+    // A value is live at op if any of its uses come at or after op
+    for (mlir::OpOperand &use : value.getUses()) {
+      mlir::Operation *user = use.getOwner();
+      // Check if user is op itself or comes after op in the same block
+      if (user == op ||
+          (user->getBlock() == op->getBlock() && !user->isBeforeInBlock(op))) {
+        return true;
+      }
+    }
+    return false;
+  };
+
+  // Helper to check if two DST access operations interfere via liveness
+  auto opsInterfereViaLiveness = [&](mlir::Operation *op1,
+                                     mlir::Operation *op2) {
+    // Loads produce values - check if the result is live at op2
+    if (auto load = mlir::dyn_cast<affine::AffineLoadOp>(op1)) {
+      if (isLiveAt(load.getResult(), op2)) {
+        return true;
+      }
+    }
+    return false;
+  };
+
   // Build interference: operations interfere if they share a common loop
   // or if their SSA value live ranges overlap
   for (size_t i = 0; i < dstAccessOps.size(); ++i) {
@@ -211,38 +249,14 @@ std::vector<std::vector<size_t>> buildIndexGraphFromDstOperations(
 
       bool interferes = false;
 
-      // Check if they share a common loop - if so, they interfere
-      for (mlir::Operation *loop1 : loops1) {
-        if (std::find(loops2.begin(), loops2.end(), loop1) != loops2.end()) {
-          interferes = true;
-          break;
-        }
+      // Conservative: operations in the same loop always interfere
+      if (shareCommonLoop(loops1, loops2)) {
+        interferes = true;
       }
-
-      // Also check SSA value liveness for operations not in loops
-      if (!interferes && loops1.empty() && loops2.empty()) {
-        // Both operations are at the same nesting level (not in loops)
-        // Check if their live ranges overlap using SSA dominance
-        if (auto load1 = mlir::dyn_cast<affine::AffineLoadOp>(op1)) {
-          // Check if load1's result is live at op2's location
-          for (mlir::OpOperand &use : load1.getResult().getUses()) {
-            mlir::Operation *user = use.getOwner();
-            if (user == op2 || op2->isBeforeInBlock(user)) {
-              interferes = true;
-              break;
-            }
-          }
-        }
-        if (auto load2 = mlir::dyn_cast<affine::AffineLoadOp>(op2)) {
-          // Check if load2's result is live at op1's location
-          for (mlir::OpOperand &use : load2.getResult().getUses()) {
-            mlir::Operation *user = use.getOwner();
-            if (user == op1 || op1->isBeforeInBlock(user)) {
-              interferes = true;
-              break;
-            }
-          }
-        }
+      // For operations not in loops, check SSA value liveness
+      else if (loops1.empty() && loops2.empty()) {
+        interferes = opsInterfereViaLiveness(op1, op2) ||
+                     opsInterfereViaLiveness(op2, op1);
       }
 
       if (interferes) {
