@@ -50,8 +50,7 @@ struct D2MDstRequirementAnalysisPass
       // Default to Chaitin-Briggs graph coloring
       analysis = createChaitinBriggsDstAnalysis();
     } else {
-      func.emitError() << "Unknown DST analysis strategy: "
-                       << strategyName
+      func.emitError() << "Unknown DST analysis strategy: " << strategyName
                        << ". Valid options: basic, graph-coloring, greedy";
       return signalPassFailure();
     }
@@ -62,14 +61,12 @@ struct D2MDstRequirementAnalysisPass
     // Emit diagnostics if requested
     if (emitDiagnostics) {
       if (result.isValid) {
-        func.emitRemark() << "DST analysis ("
-                          << analysis->getStrategyName()
+        func.emitRemark() << "DST analysis (" << analysis->getStrategyName()
                           << "): " << result.numSlicesRequired
                           << " slices required";
       } else {
-        func.emitWarning()
-            << "DST analysis failed: "
-            << result.failureReason.value_or("unknown reason");
+        func.emitWarning() << "DST analysis failed: "
+                           << result.failureReason.value_or("unknown reason");
       }
     }
 

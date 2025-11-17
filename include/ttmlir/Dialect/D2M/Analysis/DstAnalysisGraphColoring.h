@@ -16,12 +16,10 @@ class ColoringStrategy;
 ///
 /// \param strategy The graph coloring strategy to use for allocation.
 std::unique_ptr<DstAnalysis>
-createGraphColoringDstAnalysis(
-    std::unique_ptr<ColoringStrategy> strategy);
+createGraphColoringDstAnalysis(std::unique_ptr<ColoringStrategy> strategy);
 
 /// Create Chaitin-Briggs graph coloring DST analysis.
-std::unique_ptr<DstAnalysis>
-createChaitinBriggsDstAnalysis();
+std::unique_ptr<DstAnalysis> createChaitinBriggsDstAnalysis();
 
 /// Create greedy graph coloring DST analysis.
 std::unique_ptr<DstAnalysis> createGreedyDstAnalysis();

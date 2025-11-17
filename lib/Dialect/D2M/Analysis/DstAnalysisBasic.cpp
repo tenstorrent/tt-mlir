@@ -68,15 +68,12 @@ public:
     return result;
   }
 
-  llvm::StringRef getStrategyName() const override {
-    return "basic";
-  }
+  llvm::StringRef getStrategyName() const override { return "basic"; }
 };
 
 } // namespace
 
-std::unique_ptr<DstAnalysis>
-createBasicDstAnalysis() {
+std::unique_ptr<DstAnalysis> createBasicDstAnalysis() {
   return std::make_unique<DstAnalysisBasic>();
 }
 
