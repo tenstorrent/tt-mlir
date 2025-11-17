@@ -2921,58 +2921,6 @@ private:
   }
 };
 
-// Permute-reshape-permute fusion pattern that transforms:
-//   permute<perm>(reshape<shape>(permute<inv_perm>(input)))
-// into:
-//   reshape<perm(shape)>(input)
-class PermuteReshapePermuteFusionPattern
-    : public mlir::OpRewritePattern<PermuteOp> {
-  using mlir::OpRewritePattern<PermuteOp>::OpRewritePattern;
-
-public:
-  mlir::LogicalResult
-  matchAndRewrite(PermuteOp permute,
-                  mlir::PatternRewriter &rewriter) const final {
-    ReshapeOp reshape = permute.getInput().getDefiningOp<ReshapeOp>();
-    if (!reshape || !reshape.getResult().hasOneUse()) {
-      return mlir::failure();
-    }
-
-    PermuteOp invPermute = reshape.getInput().getDefiningOp<PermuteOp>();
-    if (!isValidInversePermute(invPermute, permute)) {
-      return mlir::failure();
-    }
-
-    auto originalInput = invPermute.getInput();
-    auto loc = reshape.getLoc();
-
-    auto outputType =
-        mlir::cast<RankedTensorType>(permute.getResult().getType());
-    auto outputShape = outputType.getShape();
-    SmallVector<int32_t> outputShapeI32(outputShape.begin(), outputShape.end());
-
-    auto newReshape = ttir::utils::createDPSOp<ReshapeOp>(
-        rewriter, loc, outputType, originalInput,
-        rewriter.getI32ArrayAttr(outputShapeI32));
-
-    rewriter.replaceOp(permute, newReshape);
-    return mlir::success();
-  }
-
-private:
-  static bool isValidInversePermute(PermuteOp invPermute, PermuteOp permute) {
-    if (!invPermute || !invPermute.getResult().hasOneUse()) {
-      return false;
-    }
-
-    auto permPerm = permute.getPermutation();
-    auto invPermPerm = invPermute.getPermutation();
-    auto expectedInvPerm = ttmlir::utils::inversePermutation(permPerm);
-
-    return llvm::equal(invPermPerm, expectedInvPerm);
-  }
-};
-
 } // namespace
 
 class TTIRFusingPass : public impl::TTIRFusingBase<TTIRFusingPass> {
@@ -3030,8 +2978,6 @@ public:
       patterns.add<Relu6FusionPattern>(&getContext());
       patterns.add<SiluFusionPattern>(&getContext());
       patterns.add<HardsigmoidFusionPattern>(&getContext());
-
-      patterns.add<PermuteReshapePermuteFusionPattern>(&getContext());
 
       GreedyRewriteConfig config;
       config.setUseTopDownTraversal(true);
