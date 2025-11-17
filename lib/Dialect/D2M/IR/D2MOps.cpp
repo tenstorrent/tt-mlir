@@ -52,7 +52,6 @@ LogicalResult ReleaseDstOp::verify() {
   Operation *definingOp = getDst().getDefiningOp();
 
   // Check if operand is directly from acquire_dst.
-  // Block arguments are NOT allowed - we want direct acquire/release pairing.
   if (!definingOp || !mlir::isa<mlir::tt::d2m::AcquireDstOp>(definingOp)) {
     return emitOpError(
         "operand must be the result of a d2m.acquire_dst operation");
