@@ -308,4 +308,12 @@ def TTNNSimplifyLocsForCodegen: Pass<"ttnn-simplify-locs-for-codegen", "::mlir::
   }];
 }
 
+def TTNNRemoveDeallocs: Pass<"ttnn-remove-deallocs", "::mlir::ModuleOp"> {
+  let summary = "Remove all ttnn.deallocate operations for debugging.";
+  let description = [{
+    This pass removes all ttnn.deallocate operations from the IR.
+    Useful for debugging purposes to isolate issues related to deallocation.
+  }];
+}
+
 #endif

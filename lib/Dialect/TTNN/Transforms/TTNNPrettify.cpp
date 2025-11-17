@@ -18,6 +18,7 @@
 namespace mlir::tt::ttnn {
 #define GEN_PASS_DEF_TTNNPRETTIFYFORCODEGEN
 #define GEN_PASS_DEF_TTNNSIMPLIFYLOCSFORCODEGEN
+#define GEN_PASS_DEF_TTNNREMOVEDEALLOCS
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h.inc"
 
 namespace {
@@ -1177,6 +1178,28 @@ public:
 
       return WalkResult::advance();
     });
+  }
+};
+
+class TTNNRemoveDeallocs
+    : public impl::TTNNRemoveDeallocsBase<TTNNRemoveDeallocs> {
+
+public:
+  TTNNRemoveDeallocs() = default;
+
+  void runOnOperation() override {
+    ModuleOp moduleOp = getOperation();
+
+    // Collect all deallocate operations
+    SmallVector<Operation *> deallocOps;
+    moduleOp.walk([&](ttnn::DeallocateOp deallocOp) {
+      deallocOps.push_back(deallocOp.getOperation());
+    });
+
+    // Erase all deallocate operations
+    for (Operation *op : deallocOps) {
+      op->erase();
+    }
   }
 };
 
