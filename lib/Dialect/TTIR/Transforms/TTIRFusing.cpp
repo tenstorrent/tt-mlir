@@ -1755,9 +1755,10 @@ private:
 //   mean<dim=3>(reshape(act, [N,C,1,H*W]))
 //
 // The pattern reshapes input from [N, C, H, W] to [N, C, 1, H*W], then applies
-// mean on dimension 3 with keepdim=true.
-// If the original sum had keepdim=false, then the result is reshaped to remove
-// the spatial dimensions too.
+// mean on dimension 3 with keepdim=true, as it is more efficient than reducing
+// by two dimensions.
+// If the original sum had keepdim=false, then the result is
+// reshaped to remove the spatial dimensions too.
 //
 // Matches decomposed global average pooling from torch-xla.
 
@@ -1779,9 +1780,9 @@ public:
       return mlir::failure();
     }
 
-    FullOp scaleOp = multiplyOp.getRhs().getDefiningOp<FullOp>();
+    FullOp fullOp = multiplyOp.getRhs().getDefiningOp<FullOp>();
     auto inputShape = sumOp.getInput().getType().getShape();
-    if (!isValidScale(scaleOp, inputShape)) {
+    if (!isValidScale(fullOp, inputShape)) {
       return mlir::failure();
     }
 
@@ -1852,7 +1853,7 @@ private:
 
     SmallVector<int32_t> newShapeI32(newShape.begin(), newShape.end());
     return ttir::utils::createDPSOp<ReshapeOp>(
-        rewriter, ttmlir::utils::appendLocationSuffix(loc, "_reshape"),
+        rewriter, ttmlir::utils::appendLocationSuffix(loc, "_input_reshape"),
         newShape, inputType.getElementType(), inputType.getEncoding(), input,
         rewriter.getI32ArrayAttr(newShapeI32));
   }
@@ -1890,7 +1891,7 @@ private:
 
     SmallVector<int32_t> newShapeI32(newShape.begin(), newShape.end());
     return ttir::utils::createDPSOp<ReshapeOp>(
-        rewriter, ttmlir::utils::appendLocationSuffix(loc, "_reshape_output"),
+        rewriter, ttmlir::utils::appendLocationSuffix(loc, "_output_reshape"),
         newShape, meanType.getElementType(), meanType.getEncoding(), meanResult,
         rewriter.getI32ArrayAttr(newShapeI32));
   }
@@ -2920,7 +2921,6 @@ private:
     return mlir::dyn_cast_if_present<ttir::FullOp>(currentOp);
   }
 };
-
 } // namespace
 
 class TTIRFusingPass : public impl::TTIRFusingBase<TTIRFusingPass> {

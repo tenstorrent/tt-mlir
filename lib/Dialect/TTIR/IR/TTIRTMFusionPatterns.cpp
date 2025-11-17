@@ -28,11 +28,10 @@ namespace mlir::tt::ttir {
 // Original shape: [N, H, W, C]
 // permute(0, 3, 1, 2): [N, C, H, W]
 // reshape (N, C, H, W) -> (N, C, 1, H*W)
-// permute(0, 2, 3, 1): [N, C, H*W, 1]
+// permute(0, 2, 3, 1): [N, 1, H*W, C]
 //
 // The result of this sequence is identical to the following reshape:
-// Case 1: reshape (N, H, W, C) -> (N, 1, H*W, C)
-// Case 2: reshape (N, H, W, C) -> (N, C, H*W, 1)
+// reshape (N, H, W, C) -> (N, 1, H*W, C)
 
 namespace {
 
@@ -89,8 +88,8 @@ public:
     }
 
     // Verify the first permutation matches the expected pattern.
-    if (firstPermuteOp.getPermutation() !=
-        ArrayRef<int64_t>(matchedPattern->firstPermutation)) {
+    if (!llvm::equal(firstPermuteOp.getPermutation(),
+                     matchedPattern->firstPermutation)) {
       return failure();
     }
 
@@ -100,7 +99,7 @@ public:
     SmallVector<int64_t> expectedReshapeShape =
         matchedPattern->computeReshapeShape(inputShape);
 
-    if (reshapeOutputShape != ArrayRef<int64_t>(expectedReshapeShape)) {
+    if (!llvm::equal(reshapeOutputShape, expectedReshapeShape)) {
       return failure();
     }
 
@@ -111,10 +110,9 @@ public:
 
     // Verify the calculated shape matches the final output shape.
     ArrayRef<int64_t> finalOutputShape = op.getType().getShape();
-    if (ArrayRef<int64_t>(finalReshapeShape) != finalOutputShape) {
+    if (!llvm::equal(finalReshapeShape, finalOutputShape)) {
       llvm_unreachable(
-          "The computed reshape shape must match the final output shape. "
-          "This indicates a logic error in the fusion pattern.");
+          "The computed reshape shape must match the final output shape.");
     }
 
     // Replace the entire sequence with a single reshape operation.
@@ -132,7 +130,7 @@ private:
   static const PermuteReshapePermutePatternSpec *
   findMatchingPattern(ArrayRef<int64_t> permutation) {
     for (const auto &pattern : supportedPatterns) {
-      if (permutation == ArrayRef<int64_t>(pattern.secondPermutation)) {
+      if (llvm::equal(permutation, pattern.secondPermutation)) {
         return &pattern;
       }
     }
