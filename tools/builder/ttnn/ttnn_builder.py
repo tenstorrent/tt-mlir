@@ -2637,19 +2637,21 @@ class TTNNBuilder(Builder):
             unit_attrs=unit_attrs,
         )
 
-    def _create_l1_sharded_executed_op_with_dram_final_output(
+    def _op_proxy_l1_sharded_executed_op_with_dram_final_output(
         self,
         op_function: Callable,
         inputs: List[Operand],
         ttnn_kwargs: dict,
         unit_attrs: Optional[List[str]] = None,
+        golden_kwargs: Optional[dict] = None,
+        skip_golden: bool = False,
     ) -> OpView:
         """
         Helper method to create L1 width-sharded operations with DRAM output conversion.
         """
         with self._ctx, self._loc:
             # Create L1 width-sharded output tensor
-            output_type = self.create_l1_width_sharded_tiled_ttnn_tensor(
+            sharded_output_type = self.create_l1_width_sharded_tiled_ttnn_tensor(
                 shape=inputs[0].type.shape,
                 element_type=inputs[0].type.element_type,
             )
@@ -2660,7 +2662,7 @@ class TTNNBuilder(Builder):
 
             # Create the operation with L1 sharded output
             op = op_function(
-                output_type,
+                sharded_output_type,
                 *inputs,
                 loc=loc,
                 **ttnn_kwargs,
@@ -2671,8 +2673,8 @@ class TTNNBuilder(Builder):
                 for attr_name in unit_attrs:
                     op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
-            # Convert L1 sharded output to DRAM
-            original_output_type = self.create_ttnn_tensor(
+            # Convert L1 sharded output to DRAM, to match expected final output layout
+            final_output_type = self.create_ttnn_tensor(
                 shape=op.result.type.shape,
                 element_type=op.result.type.element_type,
             )
@@ -2688,13 +2690,21 @@ class TTNNBuilder(Builder):
             )
             data_type = self._get_data_type_attribute(op.result)
             output_to_dram = ttnn.ToLayoutOp(
-                original_output_type,
+                final_output_type,
                 op.result,
                 layout=ttnn.ir.LayoutAttr.get(self._ctx, ttnn.Layout.Tile),
                 memory_config=memoryConfigAttr,
                 loc=loc,
                 dtype=data_type,
             )
+
+            if not skip_golden and not self._disable_golden_check:
+                golden_func = get_golden_function(op_function)
+                if golden_func:
+                    golden_args = self._organize_eltwise_golden(inputs)
+                    golden = golden_func(*golden_args, **golden_kwargs or {})
+                    self._set_golden_tensor(output_to_dram, golden)
+
             return output_to_dram
 
     def rms_norm(
@@ -2736,11 +2746,16 @@ class TTNNBuilder(Builder):
         ttnn_kwargs = {"weight": weight, "epsilon": epsilon}
 
         if l1_width_sharded:
-            return self._create_l1_sharded_executed_op_with_dram_final_output(
+            return self._op_proxy_l1_sharded_executed_op_with_dram_final_output(
                 ttnn.RMSNormOp,
                 [input_tensor],
                 ttnn_kwargs,
                 unit_attrs,
+                golden_kwargs={
+                    "weight": self._get_golden_tensor(weight),
+                    "epsilon": epsilon,
+                    "normalized_shape": weight.type.shape,
+                },
             )
         else:
             return self._op_proxy(
@@ -2750,5 +2765,4 @@ class TTNNBuilder(Builder):
                 output_type=input_tensor.type.element_type,
                 ttnn_kwargs=ttnn_kwargs,
                 unit_attrs=unit_attrs,
-                skip_golden=True,  # Skip golden for now since we're handling it manually
             )
