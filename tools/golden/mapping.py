@@ -2363,22 +2363,69 @@ def repeat_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
 
 def reshape_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
     """
-    Golden function for reshape operation with TTIR parameter names.
+    Golden function for reshape operation (TTIR/StableHLO).
+
+    Supports static reshapes only. The target shape is resolved from the provided
+    ``shape`` keyword argument (preferred). If unavailable, the function attempts
+    to infer it from ``result_type`` or from an ``op`` handle present in ``kwargs``.
 
     Parameters
     ----------
     input_tensor : GoldenMapTensor
         Input tensor
     **kwargs : dict
-        Keyword arguments including 'shape'
+        Keyword arguments including ``shape`` (preferred), or ``result_type`` / ``op`` for fallback
 
     Returns
     -------
     GoldenMapTensor
         Reshaped tensor
     """
-    shape = kwargs.get("shape", input_tensor.shape)
-    return torch.reshape(input_tensor, shape)
+
+    def _dim_to_int(dimension: Any) -> int:
+        if isinstance(dimension, int):
+            return dimension
+        if hasattr(dimension, "value"):
+            return int(dimension.value)
+        return int(dimension)
+
+    def _maybe_extract_shape_from_type(result_type: Any) -> Optional[Tuple[int, ...]]:
+        if result_type is None or not hasattr(result_type, "shape"):
+            return None
+        return tuple(_dim_to_int(dim) for dim in result_type.shape)
+
+    shape = kwargs.get("shape")
+    if shape is None:
+        shape = _maybe_extract_shape_from_type(kwargs.get("result_type"))
+
+    if shape is None:
+        op = kwargs.get("op")
+        if op is not None:
+            # Try OpView interface first.
+            result = getattr(op, "result", None)
+            if result is not None and hasattr(result, "type"):
+                shape = _maybe_extract_shape_from_type(result.type)
+            # Fall back to Operation-style results.
+            if shape is None:
+                results = getattr(op, "results", None)
+                if results:
+                    first_result = results[0]
+                    result_type = getattr(first_result, "type", None)
+                    shape = _maybe_extract_shape_from_type(result_type)
+
+    if shape is None:
+        # Backward-compatibility: if no shape/context is provided (as in Chisel CLI path),
+        # treat it as identity reshape (use the input tensor's current shape).
+        shape = input_tensor.shape
+
+    shape_tuple = tuple(_dim_to_int(dim) for dim in shape)
+
+    if any(dim == -1 for dim in shape_tuple):
+        raise ValueError(
+            "reshape_golden only supports static reshape (no -1 dimensions)."
+        )
+
+    return torch.reshape(input_tensor, shape_tuple)
 
 
 def squeeze_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
@@ -3446,6 +3493,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     stablehlo.LogOp: torch.log,
     stablehlo.LogisticOp: torch.sigmoid,
     stablehlo.NegOp: torch.neg,
+    stablehlo.ReshapeOp: reshape_golden,
     stablehlo.RsqrtOp: torch.rsqrt,
     stablehlo.SineOp: torch.sin,
     stablehlo.SqrtOp: torch.sqrt,
