@@ -3898,7 +3898,9 @@ public:
         emitter.emit(srcOp.getInput()),
         emitter.emit(srcOp.getPageTable()),
         emitter.emit(srcOp.getBatchIdxTensor()),
-        emitter.emit(0),
+        /*batch_offset*/ emitter.emit(0), // We use the tensor representation of
+                                          // this argument already, pass default
+                                          // value
         /*compute_kernel_config*/ emitter.emit(std::nullopt),
         /*mesh_coords*/ emitter.emit(std::nullopt),
     };
