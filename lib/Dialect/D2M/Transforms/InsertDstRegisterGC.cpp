@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/D2M/Analysis/DstCapacityAnalysis.h"
+#include "ttmlir/Dialect/D2M/Analysis/DstAnalysis.h"
+#include "ttmlir/Dialect/D2M/Analysis/DstAnalysisGraphColoring.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
 #include "ttmlir/Dialect/D2M/Transforms/GraphColoringStrategy.h"
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
@@ -47,12 +49,6 @@ struct D2MInsertDstRegisterGCPass
     if (strategy == "greedy") {
       return std::make_unique<GreedyColoring>();
     }
-    if (strategy == "pbqp") {
-      // TODO(bnorris): Implement PBQP-based coloring strategy.
-      llvm::errs() << "Warning: PBQP strategy not yet implemented, falling "
-                      "back to Chaitin-Briggs\n";
-      return std::make_unique<ChaitinBriggsColoring>();
-    }
     return std::make_unique<ChaitinBriggsColoring>();
   }
 
@@ -69,6 +65,37 @@ struct D2MInsertDstRegisterGCPass
             ? static_cast<uint32_t>(maxDstPhysicalSizeTiles.getValue())
             : 0);
     uint32_t totalDstTiles = dstCapacityAnalysis.getMinDstCapacity();
+
+    // Pre-check: Use DstAnalysis to estimate if operations will fit.
+    // This provides early feedback before expensive graph construction.
+    // Use the same strategy as the actual allocation for consistency.
+    std::unique_ptr<DstAnalysis> reqAnalysis;
+    std::string strategy = this->coloringStrategy.getValue();
+    if (strategy == "greedy") {
+      reqAnalysis = createGreedyDstAnalysis();
+    } else {
+      reqAnalysis = createChaitinBriggsDstAnalysis();
+    }
+
+    DstAnalysisResult requirement = reqAnalysis->analyze(func);
+    if (!requirement.isValid) {
+      func.emitError() << "DST analysis failed: "
+                       << requirement.failureReason.value_or("unknown reason");
+      return signalPassFailure();
+    }
+
+    // Check if estimated requirements exceed available capacity.
+    // This is a pre-check; actual allocation may still fail due to
+    // interference patterns, but this catches obvious capacity issues early.
+    if (requirement.numSlicesRequired > totalDstTiles) {
+      func.emitError() << "Estimated DST requirement ("
+                       << requirement.numSlicesRequired
+                       << " slices) exceeds available capacity ("
+                       << totalDstTiles
+                       << " tiles). Consider enabling spilling or reducing "
+                          "operation complexity.";
+      return signalPassFailure();
+    }
 
     // First pass: Add release_dst to function body if it has acquire_dst but no
     // release_dst.

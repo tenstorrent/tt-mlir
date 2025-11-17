@@ -1,5 +1,6 @@
 add_mlir_dialect_library(MLIRD2MTransforms
         Allocate.cpp
+        DstAnalysisPass.cpp
         GenericApplyInterchange.cpp
         GenericGenerateDatamovement.cpp
         GenericGenerateLoops.cpp
