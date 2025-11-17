@@ -295,10 +295,8 @@ inline bool isTransposedConv(ttir::ConvolutionOp convolutionOp) {
 
   // Transposed convolution must have output spatial dimensions larger than
   // input spatial dimensions.
-  auto inputType =
-      mlir::cast<RankedTensorType>(convolutionOp.getInput().getType());
-  auto outputType =
-      mlir::cast<RankedTensorType>(convolutionOp.getResult().getType());
+  auto inputType = convolutionOp.getInput().getType();
+  auto outputType = convolutionOp.getResult().getType();
   if (inputType && outputType) {
     auto inputSpatialDims = convLayoutAttr.getInputSpatialDimensions();
     auto outputSpatialDims = convLayoutAttr.getOutputSpatialDimensions();
