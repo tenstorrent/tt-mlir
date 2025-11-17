@@ -11,8 +11,7 @@ module {
     // CHECK: "ttnn.multiply"
     // CHECK: "ttnn.conv2d"
     // CHECK-SAME: activation = <op_type = relu>
-    %0 = ttir.empty() : tensor<1x56x56x64xf32>
-    %1 = "ttir.conv2d"(%input, %weight, %0) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x56x56x64xf32>, tensor<64x64x3x3xf32>, tensor<1x56x56x64xf32>) -> tensor<1x56x56x64xf32>
+    %1 = "ttir.conv2d"(%input, %weight) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x56x56x64xf32>, tensor<64x64x3x3xf32>) -> tensor<1x56x56x64xf32>
     // CHECK-NOT: "ttnn.multiply"
     // CHECK-NOT: "ttnn.add"
     // CHECK-NOT: "ttnn.relu"

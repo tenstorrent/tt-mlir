@@ -10,10 +10,10 @@
 
 #include "mlir/Analysis/TopologicalSortUtils.h"
 #include "mlir/IR/BuiltinAttributes.h"
+#include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/Operation.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "llvm/ADT/SmallSet.h"
-#include <mlir/IR/BuiltinTypes.h>
 
 namespace mlir::tt::ttir {
 #define GEN_PASS_DEF_TTIRFUSING
@@ -100,8 +100,7 @@ private:
     }
     auto biasShape = bias.getType().getShape();
     auto outputShape =
-        mlir::cast<mlir::RankedTensorType>(convOp.getType())
-            .getShape();
+        mlir::cast<mlir::RankedTensorType>(convOp.getType()).getShape();
 
     if (biasShape.size() != outputShape.size()) {
       return std::nullopt;
@@ -293,7 +292,8 @@ public:
 
     // Replace div op with new softmax op.
     rewriter.replaceOpWithNewOp<SoftmaxOp>(divOp, divOp.getType(),
-                                           expOp.getInput(), reduceDim, /*numericStable=*/false);
+                                           expOp.getInput(), reduceDim,
+                                           /*numericStable=*/false);
 
     return mlir::success();
   }
@@ -374,8 +374,8 @@ public:
     }
 
     // Replace with numerically stable softmax.
-    rewriter.create<SoftmaxOp>(
-        softmaxOp.getLoc(), softmaxOp.getResult().getType(), originalInput,
+    rewriter.replaceOpWithNewOp<SoftmaxOp>(
+        softmaxOp, softmaxOp.getResult().getType(), originalInput,
         softmaxOp.getDimension(),
         /*numericStable=*/true);
 
@@ -485,9 +485,8 @@ public:
     }
 
     // Replace with ReLU6
-    rewriter.create<Relu6Op>(minimumOp.getLoc(),
-                                          minimumOp.getResult().getType(),
-                                          reluOp.getInput());
+    rewriter.create<Relu6Op>(
+        minimumOp.getLoc(), minimumOp.getResult().getType(), reluOp.getInput());
     return mlir::success();
   }
 };
@@ -528,8 +527,8 @@ public:
       return mlir::failure();
     }
 
-    auto hardsigmoidOp = rewriter.create<HardsigmoidOp>(
-        divOp.getLoc(), input.getType(), input);
+    auto hardsigmoidOp =
+        rewriter.create<HardsigmoidOp>(divOp.getLoc(), input.getType(), input);
 
     rewriter.replaceAllOpUsesWith(divOp, hardsigmoidOp);
 
@@ -591,7 +590,8 @@ public:
 
     auto inputType = sigmoidOp.getInput().getType();
     auto outputType = multiplyOp.getResult().getType();
-    auto siluOp = rewriter.create<SiluOp>(multiplyOp->getLoc(), inputType, otherOperand);
+    auto siluOp =
+        rewriter.create<SiluOp>(multiplyOp->getLoc(), inputType, otherOperand);
 
     // If multiply inputs and output are typecasted, we need to add a typecast
     // after silu to convert back to the multiply output type.
@@ -790,8 +790,7 @@ private:
     }
 
     auto outputShape =
-        mlir::cast<mlir::RankedTensorType>(convOp.getType())
-            .getShape();
+        mlir::cast<mlir::RankedTensorType>(convOp.getType()).getShape();
 
     for (auto [dim, dimSize] : llvm::enumerate(scaleType.getShape())) {
       if (dim == outputFeatureDim && dimSize != outputShape[outputFeatureDim]) {
@@ -1045,8 +1044,9 @@ public:
       SmallVector<int32_t> reshapeShapeI32(reshapeShape.begin(),
                                            reshapeShape.end());
       alphaReshaped = rewriter.create<ReshapeOp>(
-          loc, RankedTensorType::get(reshapeShape, alpha.getType().getElementType(),
-                                    alpha.getType().getEncoding()),
+          loc,
+          RankedTensorType::get(reshapeShape, alpha.getType().getElementType(),
+                                alpha.getType().getEncoding()),
           alpha, rewriter.getI32ArrayAttr(reshapeShapeI32));
     }
 
@@ -1056,8 +1056,9 @@ public:
       SmallVector<int32_t> reshapeShapeI32(reshapeShape.begin(),
                                            reshapeShape.end());
       betaReshaped = rewriter.create<ReshapeOp>(
-          loc, RankedTensorType::get(reshapeShape, beta.getType().getElementType(),
-                                    beta.getType().getEncoding()),
+          loc,
+          RankedTensorType::get(reshapeShape, beta.getType().getElementType(),
+                                beta.getType().getEncoding()),
           beta, rewriter.getI32ArrayAttr(reshapeShapeI32));
     }
 
@@ -1352,8 +1353,8 @@ public:
       Value matmulOpA = matmulOp.getA();
       Value matmulOpB = matmulOp.getB();
       LinearOp linearOp = rewriter.create<ttir::LinearOp>(
-          addOp.getLoc(), addOp.getResult().getType(), matmulOpA,
-          matmulOpB, bias, matmulOp.getTransposeA(), matmulOp.getTransposeB());
+          addOp.getLoc(), addOp.getResult().getType(), matmulOpA, matmulOpB,
+          bias, matmulOp.getTransposeA(), matmulOp.getTransposeB());
 
       rewriter.replaceOp(addOp, linearOp);
 
@@ -1389,9 +1390,9 @@ public:
       RankedTensorType addOpType = addOp.getType();
 
       Value finalReshape = rewriter.create<ttir::ReshapeOp>(
-          addOp.getLoc(), RankedTensorType::get(addOpShape,
-                                               addOpType.getElementType(),
-                                               addOpType.getEncoding()),
+          addOp.getLoc(),
+          RankedTensorType::get(addOpShape, addOpType.getElementType(),
+                                addOpType.getEncoding()),
           linearOp.getResult(), rewriter.getI32ArrayAttr(addShapeI32));
       rewriter.replaceOp(addOp, finalReshape);
 

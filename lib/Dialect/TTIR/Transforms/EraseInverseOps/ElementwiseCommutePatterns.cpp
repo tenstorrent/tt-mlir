@@ -35,7 +35,7 @@ public:
 
     SmallVector<Value> newEltwiseOperands;
     SmallVector<RankedTensorType> newTMResultTypes;
-    for (uint32_t operandIdx = 0; operandIdx < op->getNumOperands() - 1;
+    for (uint32_t operandIdx = 0; operandIdx < op->getNumOperands();
          operandIdx++) {
 
       // The new TM will have the same shape as before, but if the eltwise op
@@ -56,10 +56,6 @@ public:
 
       newEltwiseOperands.push_back(newTM);
     }
-
-    newEltwiseOperands.push_back(rewriter.create<ttir::EmptyOp>(
-        op->getLoc(), newEltwiseType.getShape(),
-        newEltwiseType.getElementType(), newEltwiseType.getEncoding()));
 
     Operation *newEltwise = rewriter.create(
         op->getLoc(), rewriter.getStringAttr(op->getName().getStringRef()),
@@ -99,10 +95,6 @@ public:
       }
       newEltwiseOperands.push_back(getInverseTM(tmOperand, operand, rewriter));
     }
-
-    newEltwiseOperands.push_back(rewriter.create<ttir::EmptyOp>(
-        op->getLoc(), newEltwiseType.getShape(),
-        newEltwiseType.getElementType(), newEltwiseType.getEncoding()));
 
     Operation *newEltwise = rewriter.create(
         op->getLoc(), rewriter.getStringAttr(op->getName().getStringRef()),

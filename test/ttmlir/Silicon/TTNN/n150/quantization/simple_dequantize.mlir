@@ -7,11 +7,11 @@ module {
     // CHECK-LABEL: func.func @dequantize_per_tensor_scale_per_tensor_zp(
     // CHECK: "ttnn.get_device"
     // CHECK: "ttnn.full"
-    // CHECK-SAME: fill_value = 0
-    // CHECK-SAME: -> tensor<1xsi32,
-    // CHECK: "ttnn.full"
     // CHECK-SAME: fill_value = 2.000000e-02
     // CHECK-SAME: -> tensor<1xf32,
+    // CHECK: "ttnn.full"
+    // CHECK-SAME: fill_value = 0
+    // CHECK-SAME: -> tensor<1xsi32,
     // CHECK: "ttnn.dequantize"
     // CHECK-SAME: output_dtype = #ttcore.supportedDataTypes<f32>
     // CHECK-SAME: tensor<1x3x224x224x!quant.uniform<i32:f32, 2.000000e-02>,
@@ -44,11 +44,11 @@ module {
     // CHECK-LABEL: func.func @dequantize_per_axis_scale_per_axis_zp(
     // CHECK: "ttnn.get_device"
     // CHECK: "ttnn.constant"
-    // CHECK-SAME: value = dense<[10, 20, 30]> : tensor<3xsi32>
-    // CHECK-SAME: -> tensor<3xsi32,
-    // CHECK: "ttnn.constant"
     // CHECK-SAME: value = dense<[2.000000e-02, 0.00999999977, 5.000000e-03]> : tensor<3xf32>
     // CHECK-SAME: -> tensor<3xf32,
+    // CHECK: "ttnn.constant"
+    // CHECK-SAME: value = dense<[10, 20, 30]> : tensor<3xsi32>
+    // CHECK-SAME: -> tensor<3xsi32,
     // CHECK: "ttnn.dequantize"
     // CHECK-SAME: axis = 0 : i32
     // CHECK-SAME: output_dtype = #ttcore.supportedDataTypes<f32>

@@ -7,11 +7,11 @@ module {
     // CHECK-LABEL: func.func @dequantize_per_tensor_scale_per_tensor_zp(
     // CHECK: "ttnn.get_device"
     // CHECK: "ttnn.full"
-    // CHECK-SAME: fill_value = 0
-    // CHECK-SAME: -> tensor<1xsi32,
-    // CHECK: "ttnn.full"
     // CHECK-SAME: fill_value = 2.000000e-02
     // CHECK-SAME: -> tensor<1xf32,
+    // CHECK: "ttnn.full"
+    // CHECK-SAME: fill_value = 0
+    // CHECK-SAME: -> tensor<1xsi32,
     // CHECK: "ttnn.dequantize"
     // CHECK-SAME: output_dtype = #ttcore.supportedDataTypes<f32>
     // CHECK-SAME: tensor<1x3x224x224x!quant.uniform<i32:f32, 2.000000e-02>,

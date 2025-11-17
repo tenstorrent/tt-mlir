@@ -19,7 +19,7 @@ module {
 
     %5 = "ttir.broadcast"(%3) {broadcast_dimensions = array<i64: 1, 32>} : (tensor<32x1xf32>) -> tensor<32x32xf32>
 
-    %7 = "ttir.div"(%1) : (tensor<32x32xf32>) -> tensor<32x32xf32>
+    %7 = "ttir.div"(%1, %5) : (tensor<32x32xf32>, tensor<32x32xf32>) -> tensor<32x32xf32>
 
     return %7 : tensor<32x32xf32>
   }
@@ -38,7 +38,7 @@ module {
 
     %5 = "ttir.broadcast"(%3) {broadcast_dimensions = array<i64: 32, 1>} : (tensor<1x32xbf16>) -> tensor<32x32xbf16>
 
-    %7 = "ttir.div"(%1) : (tensor<32x32xbf16>) -> tensor<32x32xbf16>
+    %7 = "ttir.div"(%1, %5) : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
 
     return %7 : tensor<32x32xbf16>
   }
@@ -60,7 +60,7 @@ module {
 
     %7 = "ttir.broadcast"(%5) {broadcast_dimensions = array<i64: 1, 32>} : (tensor<32x1xf32>) -> tensor<32x32xf32>
 
-    %9 = "ttir.div"(%1) : (tensor<32x32xf32>) -> tensor<32x32xf32>
+    %9 = "ttir.div"(%1, %7) : (tensor<32x32xf32>, tensor<32x32xf32>) -> tensor<32x32xf32>
 
     return %9 : tensor<32x32xf32>
   }
@@ -80,7 +80,7 @@ module {
 
     %3 = "ttir.broadcast"(%1) {broadcast_dimensions = array<i64: 1, 32>} : (tensor<32x1xf32>) -> tensor<32x32xf32>
 
-    %5 = "ttir.subtract"(%arg0) : (tensor<32x32xf32>) -> tensor<32x32xf32>
+    %5 = "ttir.subtract"(%arg0, %3) : (tensor<32x32xf32>, tensor<32x32xf32>) -> tensor<32x32xf32>
 
     %7 = "ttir.exp"(%5) : (tensor<32x32xf32>) -> tensor<32x32xf32>
 
@@ -88,7 +88,7 @@ module {
 
     %11 = "ttir.broadcast"(%9) {broadcast_dimensions = array<i64: 1, 32>} : (tensor<32x1xf32>) -> tensor<32x32xf32>
 
-    %13 = "ttir.div"(%7) : (tensor<32x32xf32>) -> tensor<32x32xf32>
+    %13 = "ttir.div"(%7, %11) : (tensor<32x32xf32>, tensor<32x32xf32>) -> tensor<32x32xf32>
 
     return %13 : tensor<32x32xf32>
   }
