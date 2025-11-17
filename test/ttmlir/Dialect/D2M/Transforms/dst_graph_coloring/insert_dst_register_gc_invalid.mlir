@@ -105,7 +105,7 @@ func.func @complex_liveness(%cond: i1) {
 module {
   func.func @cb_exceeds_dst_capacity(%in0: memref<1x1x5x5x!ttcore.tile<32x32, f16>, #ttcore.shard<20480x4096>, #l1_>,
                                       %out: memref<1x1x5x5x!ttcore.tile<32x32, f16>, #ttcore.shard<20480x4096>, #l1_>) {
-    // expected-error @bellow {{CB volume exceeds available DST tiles}}
+    // expected-error @below {{CB volume exceeds available DST tiles}}
     d2m.generic {
       block_factors = [1, 1],
       grid = #ttcore.grid<1x1>,
