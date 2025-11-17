@@ -129,6 +129,26 @@ static ttir::ConstantOp getConstantValueDefiningOp(Value value) {
   return mlir::dyn_cast_if_present<ttir::ConstantOp>(valueDef);
 }
 
+static LogicalResult parseBoolFromStringAttr(const mlir::StringAttr &stringAttr,
+                                             bool &result) {
+  if (stringAttr.getValue().lower() == "true") {
+    result = true;
+  } else if (stringAttr.getValue().lower() == "false") {
+    result = false;
+  } else {
+    return failure();
+  }
+  return success();
+}
+
+static LogicalResult
+parseFloatFromStringAttr(const mlir::StringAttr &stringAttr, float &result) {
+  if (!llvm::to_float(stringAttr.getValue(), result)) {
+    return failure();
+  }
+  return success();
+}
+
 namespace {
 template <typename SrcOp, typename DestOp,
           typename Adaptor = typename SrcOp::Adaptor>
@@ -3933,15 +3953,9 @@ public:
       auto shareCacheStringAttr =
           frontendAttributes.getAs<mlir::StringAttr>("share_cache");
       if (shareCacheStringAttr) {
-        if (shareCacheStringAttr.getValue().lower() == "true") {
-          shareCache = true;
-        } else if (shareCacheStringAttr.getValue().lower() == "false") {
-          shareCache = false;
-        } else {
+        if (failed(parseBoolFromStringAttr(shareCacheStringAttr, shareCache))) {
           return rewriter.notifyMatchFailure(
-              srcOp,
-              "share_cache attribute must be true or false. Received \"" +
-                  shareCacheStringAttr.getValue() + "\".");
+              srcOp, "Failed to parse share_cache attribute.");
         }
       }
     }
@@ -4059,35 +4073,24 @@ public:
         frontendAttributes.getAs<mlir::StringAttr>("is_causal");
     bool isCausal = true;
     if (isCausalStringAttr) {
-
-      if (isCausalStringAttr.getValue().lower() == "true") {
-        isCausal = true;
-      } else if (isCausalStringAttr.getValue().lower() == "false") {
-        isCausal = false;
-      } else {
+      if (failed(parseBoolFromStringAttr(isCausalStringAttr, isCausal))) {
         return rewriter.notifyMatchFailure(
-            srcOp, "is_causal attribute must be true or false. Received \"" +
-                       isCausalStringAttr.getValue() + "\".");
+            srcOp, "Failed to parse is_causal attribute.");
       }
     }
 
     BoolAttr isCausalAttr = rewriter.getBoolAttr(isCausal);
 
     auto scaleStringAttr = frontendAttributes.getAs<mlir::StringAttr>("scale");
-    std::optional<float> scale = std::nullopt;
+    FloatAttr scaleAttr = nullptr;
     if (scaleStringAttr) {
-      float _scale;
-      if (!llvm::to_float(scaleStringAttr.getValue(), _scale)) {
-        return rewriter.notifyMatchFailure(
-            srcOp,
-            "scale attribute string must be convertible to float. Received \"" +
-                scaleStringAttr.getValue() + "\".");
+      float scale;
+      if (failed(parseFloatFromStringAttr(scaleStringAttr, scale))) {
+        return rewriter.notifyMatchFailure(srcOp,
+                                           "Failed to parse scale attribute.");
       }
-      scale = _scale;
+      scaleAttr = rewriter.getF32FloatAttr(scale);
     }
-
-    FloatAttr scaleAttr =
-        scale ? rewriter.getF32FloatAttr(scale.value()) : nullptr;
 
     auto hasAttentionMaskStringAttr =
         frontendAttributes.getAs<mlir::StringAttr>("has_attention_mask");
@@ -4096,16 +4099,10 @@ public:
       return rewriter.notifyMatchFailure(
           srcOp, "has_attention_mask attribute must be present.");
     }
-
-    if (hasAttentionMaskStringAttr.getValue().lower() == "true") {
-      hasAttentionMask = true;
-    } else if (hasAttentionMaskStringAttr.getValue().lower() == "false") {
-      hasAttentionMask = false;
-    } else {
+    if (failed(parseBoolFromStringAttr(hasAttentionMaskStringAttr,
+                                       hasAttentionMask))) {
       return rewriter.notifyMatchFailure(
-          srcOp,
-          "has_attention_mask attribute must be true or false. Received \"" +
-              hasAttentionMaskStringAttr.getValue() + "\".");
+          srcOp, "Failed to parse has_attention_mask attribute.");
     }
 
     auto hasAttentionSinkStringAttr =
@@ -4116,15 +4113,10 @@ public:
           srcOp, "has_attention_sink attribute must be present.");
     }
 
-    if (hasAttentionSinkStringAttr.getValue().lower() == "true") {
-      hasAttentionSink = true;
-    } else if (hasAttentionSinkStringAttr.getValue().lower() == "false") {
-      hasAttentionSink = false;
-    } else {
+    if (failed(parseBoolFromStringAttr(hasAttentionSinkStringAttr,
+                                       hasAttentionSink))) {
       return rewriter.notifyMatchFailure(
-          srcOp,
-          "has_attention_sink attribute must be true or false. Received \"" +
-              hasAttentionSinkStringAttr.getValue() + "\".");
+          srcOp, "Failed to parse has_attention_sink attribute.");
     }
 
     Value query = adaptor.getOperands()[0];
@@ -4224,20 +4216,15 @@ public:
     BoolAttr isCausalAttr = rewriter.getBoolAttr(isCausal);
 
     auto scaleStringAttr = frontendAttributes.getAs<mlir::StringAttr>("scale");
-    std::optional<float> scale = std::nullopt;
+    FloatAttr scaleAttr = nullptr;
     if (scaleStringAttr) {
-      float _scale;
-      if (!llvm::to_float(scaleStringAttr.getValue(), _scale)) {
-        return rewriter.notifyMatchFailure(
-            srcOp,
-            "scale attribute string must be convertible to float. Received \"" +
-                scaleStringAttr.getValue() + "\".");
+      float scale;
+      if (failed(parseFloatFromStringAttr(scaleStringAttr, scale))) {
+        return rewriter.notifyMatchFailure(srcOp,
+                                           "Failed to parse scale attribute.");
       }
-      scale = _scale;
+      scaleAttr = rewriter.getF32FloatAttr(scale);
     }
-
-    FloatAttr scaleAttr =
-        scale ? rewriter.getF32FloatAttr(scale.value()) : nullptr;
 
     auto hasAttentionMaskStringAttr =
         frontendAttributes.getAs<mlir::StringAttr>("has_attention_mask");
@@ -4247,15 +4234,10 @@ public:
           srcOp, "has_attention_mask attribute must be present.");
     }
 
-    if (hasAttentionMaskStringAttr.getValue().lower() == "true") {
-      hasAttentionMask = true;
-    } else if (hasAttentionMaskStringAttr.getValue().lower() == "false") {
-      hasAttentionMask = false;
-    } else {
+    if (failed(parseBoolFromStringAttr(hasAttentionMaskStringAttr,
+                                       hasAttentionMask))) {
       return rewriter.notifyMatchFailure(
-          srcOp,
-          "has_attention_mask attribute must be true or false. Received \"" +
-              hasAttentionMaskStringAttr.getValue() + "\".");
+          srcOp, "Failed to parse has_attention_mask attribute.");
     }
 
     auto hasCurPosTensorStringAttr =
@@ -4266,15 +4248,10 @@ public:
           srcOp, "has_cur_pos_tensor attribute must be present.");
     }
 
-    if (hasCurPosTensorStringAttr.getValue().lower() == "true") {
-      hasCurPosTensor = true;
-    } else if (hasCurPosTensorStringAttr.getValue().lower() == "false") {
-      hasCurPosTensor = false;
-    } else {
+    if (failed(parseBoolFromStringAttr(hasCurPosTensorStringAttr,
+                                       hasCurPosTensor))) {
       return rewriter.notifyMatchFailure(
-          srcOp,
-          "has_cur_pos_tensor attribute must be true or false. Received \"" +
-              hasCurPosTensorStringAttr.getValue() + "\".");
+          srcOp, "Failed to parse has_cur_pos_tensor attribute.");
     }
 
     auto hasAttentionSinkStringAttr =
@@ -4285,15 +4262,10 @@ public:
           srcOp, "has_attention_sink attribute must be present.");
     }
 
-    if (hasAttentionSinkStringAttr.getValue().lower() == "true") {
-      hasAttentionSink = true;
-    } else if (hasAttentionSinkStringAttr.getValue().lower() == "false") {
-      hasAttentionSink = false;
-    } else {
+    if (failed(parseBoolFromStringAttr(hasAttentionSinkStringAttr,
+                                       hasAttentionSink))) {
       return rewriter.notifyMatchFailure(
-          srcOp,
-          "has_attention_sink attribute must be true or false. Received \"" +
-              hasAttentionSinkStringAttr.getValue() + "\".");
+          srcOp, "Failed to parse has_attention_sink attribute.");
     }
 
     Value query = adaptor.getOperands()[0];
