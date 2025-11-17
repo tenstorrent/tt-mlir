@@ -2885,7 +2885,7 @@ class TTIRBuilder(Builder):
         return self._op_proxy(
             ttir.BroadcastOp,
             [in0],
-            golden_kwargs={"size": output_shape},
+            golden_kwargs={"shape": output_shape},
             ttir_kwargs={"broadcast_dimensions": broadcast_dimensions},
             output_shape=output_shape,
             unit_attrs=unit_attrs,
