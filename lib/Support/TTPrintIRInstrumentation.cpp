@@ -17,7 +17,7 @@ namespace mlir::tt {
 TTPrintIRInstrumentation::TTPrintIRInstrumentation(
     TTPrintIRInstrumentationOptions options)
     : dumpCounter_(0), pipelineName_(options.pipelineName),
-      level_(options.level) {
+      level_(options.level), currentDepth_(0) {
   // Set model name - use provided name or default to "unknown"
   modelName_ = options.modelName.empty() ? "unknown" : options.modelName;
 
@@ -35,7 +35,14 @@ TTPrintIRInstrumentation::TTPrintIRInstrumentation(
   }
 }
 
-TTPrintIRInstrumentation::~TTPrintIRInstrumentation() {}
+TTPrintIRInstrumentation::~TTPrintIRInstrumentation() {
+  // For Pipeline level, dump any remaining IR at top-level (depth 0)
+  if (level_ == DumpLevel::Pipeline && currentDepth_ == 0 &&
+      !pipelineIRStack_.empty() && !pipelineIRStack_[0].empty()) {
+    std::string filename = "depth0_pipeline";
+    writeIRStringToFile(pipelineIRStack_[0], filename);
+  }
+}
 
 void TTPrintIRInstrumentation::attachActionHandler(mlir::MLIRContext *ctx) {
   if (!ctx) {
@@ -82,12 +89,36 @@ void TTPrintIRInstrumentation::setModelName(const std::string &name) {
 
 void TTPrintIRInstrumentation::runBeforePipeline(
     std::optional<OperationName> name, const PipelineParentInfo &parentInfo) {
-  // Pipeline boundary dumps handled in runAfterPipeline
+  if (level_ != DumpLevel::Pipeline) {
+    return;
+  }
+
+  currentDepth_++;
 }
 
 void TTPrintIRInstrumentation::runAfterPipeline(
     std::optional<OperationName> name, const PipelineParentInfo &parentInfo) {
-  // Pipeline boundary dumps handled through pass hooks for Pipeline level
+  if (level_ != DumpLevel::Pipeline) {
+    return;
+  }
+
+  // Dump the accumulated IR if we have any
+  if (!pipelineIRStack_.empty() && !pipelineIRStack_.back().empty()) {
+    // Generate filename with depth and operation name
+    std::string opName =
+        name.has_value() ? name->getStringRef().str() : "pipeline";
+    std::string filename =
+        "depth" + std::to_string(currentDepth_) + "_" + opName;
+
+    // Write stored IR string to file
+    writeIRStringToFile(pipelineIRStack_.back(), filename);
+  }
+
+  // Pop this pipeline level
+  if (!pipelineIRStack_.empty()) {
+    pipelineIRStack_.pop_back();
+  }
+  currentDepth_--;
 }
 
 void TTPrintIRInstrumentation::runBeforePass(Pass *pass, Operation *op) {
@@ -95,9 +126,25 @@ void TTPrintIRInstrumentation::runBeforePass(Pass *pass, Operation *op) {
 }
 
 void TTPrintIRInstrumentation::runAfterPass(Pass *pass, Operation *op) {
-  // For Pipeline level, dump at the end of pass execution
+  // For Pipeline level, capture IR as string
   if (level_ == DumpLevel::Pipeline) {
-    dumpIR(op, "pipeline_end", "pass_instrumentation");
+    if (op) {
+      std::string irString;
+      llvm::raw_string_ostream os(irString);
+      mlir::OpPrintingFlags flags;
+      flags.enableDebugInfo();
+      op->print(os, flags);
+      os.flush();
+
+      // Store at current depth - for top-level (depth 0), push to create stack
+      // entry
+      if (currentDepth_ < static_cast<int>(pipelineIRStack_.size())) {
+        // Overwrite existing entry at this depth
+        pipelineIRStack_[currentDepth_] = std::move(irString);
+      } else {
+        pipelineIRStack_.push_back(std::move(irString));
+      }
+    }
     return;
   }
 
@@ -132,6 +179,29 @@ void TTPrintIRInstrumentation::runBeforeAnalysis(StringRef name, TypeID id,
 void TTPrintIRInstrumentation::runAfterAnalysis(StringRef name, TypeID id,
                                                 Operation *op) {
   // Analysis tracking not needed for IR dumps
+}
+
+void TTPrintIRInstrumentation::writeIRStringToFile(const std::string &irString,
+                                                   const std::string &name) {
+  // Get output filename
+  std::string filename = getOutputFilename(name);
+
+  // Create directory if needed
+  std::filesystem::path filePath(filename);
+  std::filesystem::create_directories(filePath.parent_path());
+
+  // Write IR string to file
+  std::error_code ec;
+  llvm::raw_fd_ostream file(filename, ec);
+  if (!ec) {
+    file << irString;
+    file.close();
+  } else {
+    llvm::errs() << "TTPrintIRInstrumentation: Failed to open file " << filename
+                 << ": " << ec.message() << "\n";
+  }
+
+  dumpCounter_++;
 }
 
 void TTPrintIRInstrumentation::dumpIR(mlir::Operation *op,

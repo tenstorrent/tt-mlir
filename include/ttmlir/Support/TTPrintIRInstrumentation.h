@@ -91,6 +91,10 @@ private:
   void dumpIR(mlir::Operation *op, const std::string &name,
               const std::string &source = "unknown");
 
+  // Write IR string to file (for pipeline-level dumping)
+  void writeIRStringToFile(const std::string &irString,
+                           const std::string &name);
+
   // Extract model name from operation location metadata
   std::string extractModelNameFromLocation(mlir::Operation *op) const;
 
@@ -122,6 +126,11 @@ private:
   std::string modelName_;        ///< Name of the model being processed
   std::string pipelineName_;     ///< Optional pipeline identifier
   DumpLevel level_;              ///< Level of instrumentation detail
+
+  // Pipeline-level dumping state
+  std::vector<std::string>
+      pipelineIRStack_; ///< Stack of IR strings for nested pipelines
+  int currentDepth_;    ///< Current pipeline nesting depth (0 = top-level)
 };
 
 //===--------------------------------------------------------------------===//

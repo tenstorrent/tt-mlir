@@ -163,6 +163,12 @@ protected:
 
   void TearDown() override { std::filesystem::remove_all(tempDir); }
 
+  // Force cleanup of PassManager to trigger instrumentation destructor
+  void finalize() {
+    pm.reset();
+    module.release();
+  }
+
   // Helper methods for cleaner test code
   int countOutputFiles() const {
     return test::FileSystem::countMlirFiles(expectedOutputDir);
@@ -201,12 +207,49 @@ void runWith(InstrumentationTest &fixture, Options options,
 } // namespace test
 } // namespace
 
-TEST_F(InstrumentationTest, Pipeline) {
+// Pipeline level tests - these should dump at pipeline boundaries only
+TEST_F(InstrumentationTest, Pipeline_SinglePass) {
   auto options = test::createOptions(*this);
   options.level = DumpLevel::Pipeline;
   test::runWith(*this, options, test::Pipelines::singlePassPipeline());
 
+  finalize(); // Trigger instrumentation destructor
+
+  // Should dump once at end of top-level pipeline (depth 0)
   EXPECT_EQ(countOutputFiles(), 1);
+}
+
+TEST_F(InstrumentationTest, Pipeline_FlatMultiplePasses) {
+  auto options = test::createOptions(*this);
+  options.level = DumpLevel::Pipeline;
+  test::runWith(*this, options, test::Pipelines::flatPipeline());
+
+  finalize(); // Trigger instrumentation destructor
+
+  // Should dump once at end of top-level pipeline (depth 0), not per pass
+  EXPECT_EQ(countOutputFiles(), 1);
+}
+
+TEST_F(InstrumentationTest, Pipeline_Nested) {
+  auto options = test::createOptions(*this);
+  options.level = DumpLevel::Pipeline;
+  test::runWith(*this, options, test::Pipelines::nestedFuncOpPipeline());
+
+  finalize(); // Trigger instrumentation destructor
+
+  // Should dump twice: depth 0 (module) + depth 1 (nested func pipeline)
+  EXPECT_EQ(countOutputFiles(), 2);
+}
+
+TEST_F(InstrumentationTest, Pipeline_MixedFlatAndNested) {
+  auto options = test::createOptions(*this);
+  options.level = DumpLevel::Pipeline;
+  test::runWith(*this, options, test::Pipelines::FlatAndNested());
+
+  finalize(); // Trigger instrumentation destructor
+
+  // Should dump twice: depth 0 (module) + depth 1 (nested func pipeline)
+  EXPECT_EQ(countOutputFiles(), 2);
 }
 
 TEST_F(InstrumentationTest, Pass) {
