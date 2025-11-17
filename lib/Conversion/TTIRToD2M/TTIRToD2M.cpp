@@ -913,17 +913,9 @@ public:
         permuted.physicalShape, inputTensorType.getElementType(), resultLayout);
 
     // For inner permute, we need as streamLayout to do reblocking.
-
-    // Stream storage layout should NOT have an index map, otherwise it
-    // gets inferred later as having a virtual grid.
-    auto resultLayoutWithoutReblockMap = ttcore::MetalLayoutAttr::get(
-        ctx, permuted.logicalShape, permuted.dimAlignments,
-        inputLayout.getCollapsedIntervals(), inputLayout.getOobVal(),
-        inputLayout.getMemorySpace(), inputLayout.getMemoryLayout(),
-        AffineMap::get(ctx));
     auto storage = rewriter.create<d2m::EmptyOp>(
         loc, permuted.physicalShape, inputTensorType.getElementType(),
-        resultLayoutWithoutReblockMap);
+        resultLayout);
     auto stream =
         rewriter.create<d2m::StreamLayoutOp>(loc, viewType, inputs[0], storage);
     inputs[0] = stream.getResult();

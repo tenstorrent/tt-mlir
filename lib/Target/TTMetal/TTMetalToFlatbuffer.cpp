@@ -253,22 +253,16 @@ createShardedBufferConfigForDRAMMemref(FlatbufferObjectCache &cache,
       *cache.fbb, dummyTensorSize, dummyShardSize, shardSpecBuffer);
 }
 
-// Returns a physical grid corresponding to the physicalextent of the virtual
+// Returns a physical grid corresponding to the physical extent of the virtual
 // grid. Used to create fake grid shapes that will allow allocation of virtual
-// grid memrefs. Checks that the virtual grid volume aligns with the target
-// grid volume.
+// grid memrefs. For now, this always allocates the full squared-off worker
+// grid.
 static SmallVector<int64_t>
 getPhysicalGridShapeForVirtualGrid(ttcore::ShardLayoutAttr shardLayout,
                                    ttcore::DeviceAttr device,
                                    ArrayRef<int64_t> memrefGridShape) {
   auto squareTargetGrid =
       d2m::utils::getSquareTargetGrid(device.getWorkerGrid().getShape());
-  auto squareTargetGridVolume =
-      ttmlir::utils::volume(ArrayRef<int64_t>(squareTargetGrid));
-  auto memrefGridVolume =
-      ttmlir::utils::volume(ArrayRef<int64_t>(memrefGridShape));
-  TT_assertv(memrefGridVolume == squareTargetGridVolume,
-             "Virtual grid volume must match squared target grid volume");
   return squareTargetGrid;
 }
 
