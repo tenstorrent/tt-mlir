@@ -163,12 +163,6 @@ protected:
 
   void TearDown() override { std::filesystem::remove_all(tempDir); }
 
-  // Force cleanup of PassManager to trigger instrumentation destructor
-  void finalize() {
-    pm.reset();
-    module.release();
-  }
-
   // Helper methods for cleaner test code
   int countOutputFiles() const {
     return test::FileSystem::countMlirFiles(expectedOutputDir);
@@ -177,6 +171,12 @@ protected:
   bool hasOutput() const { return std::filesystem::exists(expectedOutputDir); }
 
 public:
+  // Force cleanup of PassManager to trigger instrumentation destructor
+  void finalize() {
+    pm.reset();
+    module.release();
+  }
+
   std::filesystem::path tempDir;
   std::filesystem::path expectedOutputDir;
   std::unique_ptr<mlir::MLIRContext> context;
@@ -196,12 +196,13 @@ Options createOptions(InstrumentationTest &fixture) {
   return options;
 }
 
-// Simple helper that just runs the instrumentation
+// Simple helper that runs instrumentation and finalizes
 void runWith(InstrumentationTest &fixture, Options options,
              PipelineFunction pipelineFn) {
   addTTPrintIRInstrumentation(*fixture.pm, options);
   pipelineFn(*fixture.pm);
   ASSERT_TRUE(succeeded(fixture.pm->run(*fixture.module)));
+  fixture.finalize(); // Always finalize to trigger instrumentation destructor
 }
 
 } // namespace test
@@ -213,8 +214,6 @@ TEST_F(InstrumentationTest, Once_SinglePass) {
   options.level = DumpLevel::Once;
   test::runWith(*this, options, test::Pipelines::singlePassPipeline());
 
-  finalize(); // Trigger instrumentation destructor
-
   // Should dump once at the very end
   EXPECT_EQ(countOutputFiles(), 1);
 }
@@ -224,8 +223,6 @@ TEST_F(InstrumentationTest, Once_FlatMultiplePasses) {
   options.level = DumpLevel::Once;
   test::runWith(*this, options, test::Pipelines::flatPipeline());
 
-  finalize(); // Trigger instrumentation destructor
-
   // Should dump once at the very end (final state after all passes)
   EXPECT_EQ(countOutputFiles(), 1);
 }
@@ -234,8 +231,6 @@ TEST_F(InstrumentationTest, Once_Nested) {
   auto options = test::createOptions(*this);
   options.level = DumpLevel::Once;
   test::runWith(*this, options, test::Pipelines::nestedFuncOpPipeline());
-
-  finalize(); // Trigger instrumentation destructor
 
   // Should dump only top-level, not nested pipelines
   EXPECT_EQ(countOutputFiles(), 1);
@@ -247,8 +242,6 @@ TEST_F(InstrumentationTest, Pipeline_SinglePass) {
   options.level = DumpLevel::Pipeline;
   test::runWith(*this, options, test::Pipelines::singlePassPipeline());
 
-  finalize(); // Trigger instrumentation destructor
-
   // Should dump once at end of top-level pipeline (depth 0)
   EXPECT_EQ(countOutputFiles(), 1);
 }
@@ -257,8 +250,6 @@ TEST_F(InstrumentationTest, Pipeline_FlatMultiplePasses) {
   auto options = test::createOptions(*this);
   options.level = DumpLevel::Pipeline;
   test::runWith(*this, options, test::Pipelines::flatPipeline());
-
-  finalize(); // Trigger instrumentation destructor
 
   // Should dump once at end of top-level pipeline (depth 0), not per pass
   EXPECT_EQ(countOutputFiles(), 1);
@@ -269,8 +260,6 @@ TEST_F(InstrumentationTest, Pipeline_Nested) {
   options.level = DumpLevel::Pipeline;
   test::runWith(*this, options, test::Pipelines::nestedFuncOpPipeline());
 
-  finalize(); // Trigger instrumentation destructor
-
   // Should dump twice: depth 0 (module) + depth 1 (nested func pipeline)
   EXPECT_EQ(countOutputFiles(), 2);
 }
@@ -279,8 +268,6 @@ TEST_F(InstrumentationTest, Pipeline_MixedFlatAndNested) {
   auto options = test::createOptions(*this);
   options.level = DumpLevel::Pipeline;
   test::runWith(*this, options, test::Pipelines::FlatAndNested());
-
-  finalize(); // Trigger instrumentation destructor
 
   // Should dump twice: depth 0 (module) + depth 1 (nested func pipeline)
   EXPECT_EQ(countOutputFiles(), 2);
@@ -292,10 +279,35 @@ TEST_F(InstrumentationTest, Initial_WithOnce) {
   options.dumpInitial = true;
   test::runWith(*this, options, test::Pipelines::singlePassPipeline());
 
-  finalize(); // Trigger instrumentation destructor
-
   // Should dump initial + final (2 files total)
   EXPECT_EQ(countOutputFiles(), 2);
+}
+
+// Test subclass to access protected extractModelNameFromLocation method
+class TestableTTPrintIRInstrumentation : public TTPrintIRInstrumentation {
+public:
+  using TTPrintIRInstrumentation::extractModelNameFromLocation;
+  using TTPrintIRInstrumentation::TTPrintIRInstrumentation;
+};
+
+// Tests for extractModelNameFromLocation function
+TEST_F(InstrumentationTest, ExtractModelNameFromLocation) {
+  auto module = test::Utils::createTestModule(*context);
+
+  // Test with null operation
+  TestableTTPrintIRInstrumentation instr(
+      TTPrintIRInstrumentation::TTPrintIRInstrumentationOptions{});
+  EXPECT_EQ(instr.extractModelNameFromLocation(nullptr), "unknown");
+
+  // Test with operation that has our test location
+  // (The test module creates operations with FileLineColLoc pointing to this
+  // file)
+  mlir::Operation *firstOp = &module->getBody()->front();
+  std::string extracted = instr.extractModelNameFromLocation(firstOp);
+
+  // Should extract "TTPrintIRInstrumentationTest" (filename without extension)
+  // from the __FILE__ macro used in createTestLoc
+  EXPECT_EQ(extracted, "TTPrintIRInstrumentationTest");
 }
 
 TEST_F(InstrumentationTest, Pass) {

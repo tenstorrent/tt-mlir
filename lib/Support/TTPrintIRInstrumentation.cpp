@@ -14,25 +14,32 @@
 
 namespace mlir::tt {
 
+namespace {
+// Helper function to expand and create output directory
+std::string expandAndCreateOutputDir(const std::string &outputDir) {
+  llvm::SmallVector<char, 256> expandedPath;
+  llvm::sys::fs::expand_tilde(outputDir, expandedPath);
+  std::string result(expandedPath.begin(), expandedPath.end());
+  std::filesystem::create_directories(result);
+  return result;
+}
+} // namespace
+
 TTPrintIRInstrumentation::TTPrintIRInstrumentation(
     TTPrintIRInstrumentationOptions options)
-    : dumpCounter_(0), pipelineName_(options.pipelineName),
-      level_(options.level), dumpInitial_(options.dumpInitial),
-      dumpedInitial_(false), currentDepth_(0) {
-  // Set model name - use provided name or default to "unknown"
-  modelName_ = options.modelName.empty() ? "unknown" : options.modelName;
-
-  // Expand ~ to home directory using LLVM utility
-  llvm::SmallVector<char, 256> expandedPath;
-  llvm::sys::fs::expand_tilde(options.outputDir, expandedPath);
-  outputDir_ = std::string(expandedPath.begin(), expandedPath.end());
-
-  // Create output directory
-  std::filesystem::create_directories(outputDir_);
-
+    : dumpCounter_(0), outputDir_(expandAndCreateOutputDir(options.outputDir)),
+      modelName_(options.modelName.empty() ? "unknown" : options.modelName),
+      pipelineName_(options.pipelineName), level_(options.level),
+      dumpInitial_(options.dumpInitial), dumpedInitial_(false),
+      currentDepth_(0) {
   // Initialize counter if model name was provided explicitly
   if (!options.modelName.empty()) {
     initializeDumpCounter();
+  }
+
+  // Initialize pipeline IR stack for relevant levels
+  if (level_ == DumpLevel::Once || level_ == DumpLevel::Pipeline) {
+    pipelineIRStack_.resize(1);
   }
 }
 
@@ -43,7 +50,7 @@ TTPrintIRInstrumentation::~TTPrintIRInstrumentation() {
       !pipelineIRStack_[0].empty()) {
     std::string filename =
         level_ == DumpLevel::Once ? "final" : "depth0_pipeline";
-    writeIRStringToFile(pipelineIRStack_[0], filename);
+    dumpIR(pipelineIRStack_[0], filename);
   }
 }
 
@@ -114,7 +121,7 @@ void TTPrintIRInstrumentation::runAfterPipeline(
         "depth" + std::to_string(currentDepth_) + "_" + opName;
 
     // Write stored IR string to file
-    writeIRStringToFile(pipelineIRStack_.back(), filename);
+    dumpIR(pipelineIRStack_.back(), filename);
   }
 
   // Pop this pipeline level
@@ -125,6 +132,10 @@ void TTPrintIRInstrumentation::runAfterPipeline(
 }
 
 void TTPrintIRInstrumentation::runBeforePass(Pass *pass, Operation *op) {
+  if (!pass) {
+    return;
+  }
+
   // Dump initial IR if requested and not already dumped
   if (dumpInitial_ && !dumpedInitial_ && op) {
     dumpedInitial_ = true;
@@ -135,6 +146,10 @@ void TTPrintIRInstrumentation::runBeforePass(Pass *pass, Operation *op) {
 }
 
 void TTPrintIRInstrumentation::runAfterPass(Pass *pass, Operation *op) {
+  if (!pass || !op) {
+    return;
+  }
+
   // For Once or Pipeline level, capture IR as string
   if (level_ == DumpLevel::Once || level_ == DumpLevel::Pipeline) {
     // For Once level, only capture at depth 0 (top-level)
@@ -182,21 +197,32 @@ void TTPrintIRInstrumentation::runAfterPass(Pass *pass, Operation *op) {
 }
 
 void TTPrintIRInstrumentation::runAfterPassFailed(Pass *pass, Operation *op) {
+  if (!pass) {
+    return;
+  }
   // Don't dump on failed passes
 }
 
-void TTPrintIRInstrumentation::runBeforeAnalysis(StringRef name, TypeID id,
-                                                 Operation *op) {
-  // Analysis tracking not needed for IR dumps
+void TTPrintIRInstrumentation::dumpIR(mlir::Operation *op,
+                                      const std::string &name,
+                                      const std::string &source) {
+  if (!op) {
+    return;
+  }
+
+  // Convert operation to string and call string overload
+  std::string irString;
+  llvm::raw_string_ostream os(irString);
+  mlir::OpPrintingFlags flags;
+  flags.enableDebugInfo();
+  op->print(os, flags);
+  os.flush();
+
+  dumpIR(irString, name);
 }
 
-void TTPrintIRInstrumentation::runAfterAnalysis(StringRef name, TypeID id,
-                                                Operation *op) {
-  // Analysis tracking not needed for IR dumps
-}
-
-void TTPrintIRInstrumentation::writeIRStringToFile(const std::string &irString,
-                                                   const std::string &name) {
+void TTPrintIRInstrumentation::dumpIR(const std::string &irString,
+                                      const std::string &name) {
   // Get output filename
   std::string filename = getOutputFilename(name);
 
@@ -218,35 +244,26 @@ void TTPrintIRInstrumentation::writeIRStringToFile(const std::string &irString,
   dumpCounter_++;
 }
 
-void TTPrintIRInstrumentation::dumpIR(mlir::Operation *op,
-                                      const std::string &name,
-                                      const std::string &source) {
-  if (!op) {
-    return;
+// Helper function to extract clean filename from a path string
+std::string extractFilename(llvm::StringRef filename) {
+  if (filename.empty()) {
+    return "unknown";
   }
 
-  // Get output filename
-  std::string filename = getOutputFilename(name);
+  std::string filenameStr = filename.str();
 
-  // Create directory if needed
-  std::filesystem::path filePath(filename);
-  std::filesystem::create_directories(filePath.parent_path());
-
-  // Dump IR to file
-  std::error_code ec;
-  llvm::raw_fd_ostream file(filename, ec);
-  if (!ec) {
-    mlir::OpPrintingFlags flags;
-    flags.enableDebugInfo();
-    op->print(file, flags);
-    file.close();
-
-  } else {
-    llvm::errs() << "TTPrintIRInstrumentation: Failed to open file " << filename
-                 << ": " << ec.message() << "\n";
+  // Extract just the filename without path and extension
+  size_t lastSlash = filenameStr.find_last_of("/\\");
+  if (lastSlash != std::string::npos) {
+    filenameStr = filenameStr.substr(lastSlash + 1);
   }
 
-  dumpCounter_++;
+  size_t lastDot = filenameStr.find_last_of(".");
+  if (lastDot != std::string::npos) {
+    filenameStr = filenameStr.substr(0, lastDot);
+  }
+
+  return filenameStr;
 }
 
 std::string TTPrintIRInstrumentation::extractModelNameFromLocation(
@@ -258,63 +275,20 @@ std::string TTPrintIRInstrumentation::extractModelNameFromLocation(
   mlir::Location loc = op->getLoc();
 
   // Try to extract filename from FileLineColLoc
-  // Examples from real test files:
-  //   #loc8 =
-  //   loc("/proj_sw/user_dev/sdjukic/tt-xla-repo/tt-xla/third_party/tt_forge_models/mnist/image_classification/jax/mlp/model_implementation.py":16:12
-  //   to :39)
-  //   -> "model_implementation" (extracts filename without path/extension)
-  //
-  //   %arg0: tensor<128xf32> ... loc("variables['params']['Dense_0']['bias']")
-  //   -> "variables['params']['Dense_0']['bias']" (no path separators,
-  //   unchanged)
-  //
-  //   #loc = loc("ResNetForImageClassification")
-  //   -> "ResNetForImageClassification" (module name, unchanged)
   if (mlir::isa<mlir::FileLineColLoc>(loc)) {
     mlir::FileLineColLoc fileLoc = mlir::cast<mlir::FileLineColLoc>(loc);
-    llvm::StringRef filename = fileLoc.getFilename();
-    if (!filename.empty()) {
-      // Extract just the filename without path and extension
-      std::string filenameStr = filename.str();
-      size_t lastSlash = filenameStr.find_last_of("/\\");
-      if (lastSlash != std::string::npos) {
-        filenameStr = filenameStr.substr(lastSlash + 1);
-      }
-      size_t lastDot = filenameStr.find_last_of(".");
-      if (lastDot != std::string::npos) {
-        filenameStr = filenameStr.substr(0, lastDot);
-      }
-      return filenameStr;
-    }
+    return extractFilename(fileLoc.getFilename());
   }
 
   // Try to extract from FusedLoc (multiple locations fused together)
-  // Example from real test files:
-  //   #loc42 = loc(callsite(#loc33 at #loc34))
-  //   where #loc33 and #loc34 reference different source locations
-  //   -> returns filename from first FileLineColLoc found in the fused location
-  //   list
-  //
-  //   loc(callsite(#loc74 at #loc75)) creates a fused location from two
-  //   sub-locations
   if (mlir::isa<mlir::FusedLoc>(loc)) {
     mlir::FusedLoc fusedLoc = mlir::cast<mlir::FusedLoc>(loc);
     for (mlir::Location subLoc : fusedLoc.getLocations()) {
       if (mlir::isa<mlir::FileLineColLoc>(subLoc)) {
         mlir::FileLineColLoc fileLoc = mlir::cast<mlir::FileLineColLoc>(subLoc);
-        llvm::StringRef filename = fileLoc.getFilename();
-        if (!filename.empty()) {
-          // Extract just the filename without path and extension
-          std::string filenameStr = filename.str();
-          size_t lastSlash = filenameStr.find_last_of("/\\");
-          if (lastSlash != std::string::npos) {
-            filenameStr = filenameStr.substr(lastSlash + 1);
-          }
-          size_t lastDot = filenameStr.find_last_of(".");
-          if (lastDot != std::string::npos) {
-            filenameStr = filenameStr.substr(0, lastDot);
-          }
-          return filenameStr;
+        std::string result = extractFilename(fileLoc.getFilename());
+        if (result != "unknown") {
+          return result;
         }
       }
     }
@@ -345,20 +319,6 @@ TTPrintIRInstrumentation::getOutputFilename(const std::string &name) const {
       outputDir_ + "/" + safeModelName + "/" + safePipelineName;
 
   return subdirPath + "/" + filename;
-}
-
-std::string TTPrintIRInstrumentation::getTargetDirectory() const {
-  std::string safeModelName = sanitizeFilename(modelName_);
-  std::string safePipelineName = sanitizeFilename(pipelineName_);
-  return outputDir_ + "/" + safeModelName + "/" + safePipelineName;
-}
-
-void TTPrintIRInstrumentation::clearDirectory(
-    const std::string &targetDir) const {
-  if (std::filesystem::exists(targetDir)) {
-    std::filesystem::remove_all(targetDir);
-  }
-  std::filesystem::create_directories(targetDir);
 }
 
 //===--------------------------------------------------------------------===//

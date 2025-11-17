@@ -43,21 +43,15 @@ public:
   // Configuration and Setup
   //===--------------------------------------------------------------------===//
 
-  // Set up action handler with the MLIR context from PassManager
   void attachActionHandler(mlir::MLIRContext *ctx);
-
-  // Set model name (extracted from operation location)
   void setModelName(const std::string &name);
 
   //===--------------------------------------------------------------------===//
   // Pipeline Instrumentation Hooks
   //===--------------------------------------------------------------------===//
 
-  // Called before a pass pipeline begins execution
   void runBeforePipeline(std::optional<OperationName> name,
                          const PipelineParentInfo &parentInfo) override;
-
-  // Called after a pass pipeline completes execution
   void runAfterPipeline(std::optional<OperationName> name,
                         const PipelineParentInfo &parentInfo) override;
 
@@ -65,37 +59,18 @@ public:
   // Pass Instrumentation Hooks
   //===--------------------------------------------------------------------===//
 
-  // Called before a pass begins execution
   void runBeforePass(Pass *pass, Operation *op) override;
-
-  // Called after a pass completes successfully
   void runAfterPass(Pass *pass, Operation *op) override;
-
-  // Called when a pass execution fails
   void runAfterPassFailed(Pass *pass, Operation *op) override;
 
-  //===--------------------------------------------------------------------===//
-  // Analysis Instrumentation Hooks
-  //===--------------------------------------------------------------------===//
-
-  // Called before an analysis is computed
-  void runBeforeAnalysis(StringRef name, TypeID id, Operation *op) override;
-
-  // Called after an analysis is computed
-  void runAfterAnalysis(StringRef name, TypeID id, Operation *op) override;
-
-private:
   //===--------------------------------------------------------------------===//
   // Core IR Dumping Logic
   //===--------------------------------------------------------------------===//
 
-  // Dump the current IR to a file
+  // Dump IR to a file (overloaded for Operation* or string)
   void dumpIR(mlir::Operation *op, const std::string &name,
               const std::string &source = "unknown");
-
-  // Write IR string to file (for pipeline-level dumping)
-  void writeIRStringToFile(const std::string &irString,
-                           const std::string &name);
+  void dumpIR(const std::string &irString, const std::string &name);
 
   // Extract model name from operation location metadata
   std::string extractModelNameFromLocation(mlir::Operation *op) const;
@@ -110,14 +85,8 @@ private:
   // Generate the full output filename for a dump
   std::string getOutputFilename(const std::string &name) const;
 
-  // Get the target directory path for the current model
-  std::string getTargetDirectory() const;
-
   // Initialize the dump counter (resets to 0)
   void initializeDumpCounter();
-
-  // Clear (remove) a directory and recreate it
-  void clearDirectory(const std::string &targetDir) const;
 
   //===--------------------------------------------------------------------===//
   // Member Variables
