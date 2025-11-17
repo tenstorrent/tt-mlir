@@ -24,17 +24,22 @@ struct TTIRToTTNNBackendPipelineOptions
   // Optimization level controls multiple optimization passes.
   // Level 0 (default): All optimizer passes disabled.
   // Level 1: All optimizer passes enabled. Memory layout analysis is disabled.
-  // Level 2: All optimizer passes enabled with memory layout analysis
-  // (sharding). Individual options can override the optimization level
-  // settings.
+  // Moderate compile time. Level 2: All optimizer passes enabled with memory
+  // layout analysis (sharding). Longest compile time. Individual options can
+  // override the optimization level settings.
   Option<int> optimizationLevel{
       *this, OptionNames::optimizationLevel,
-      llvm::cl::desc("Optimization level (0=none, 1=basic, 2=advanced)."),
+      llvm::cl::desc(
+          "Optimization level: 0=all optimizer passes disabled (fastest "
+          "compile), "
+          "1=optimizer passes enabled except sharding (moderate compile), "
+          "2=all optimizer passes including sharding enabled (longest "
+          "compile)."),
       llvm::cl::init(0)};
 
   // Enable all optimizer passes.
   // If not explicitly set, determined by optimization_level.
-  Option<bool> optimizerPassEnabled{
+  mutable Option<bool> optimizerPassEnabled{
       *this, OptionNames::optimizerPassEnabled,
       llvm::cl::desc("Determine and set max valid grid for Op execution."),
       llvm::cl::init(false)};
@@ -142,7 +147,7 @@ struct TTIRToTTNNBackendPipelineOptions
 
   // Enable memory layout analysis for performant tensor layouts (sharding).
   // If not explicitly set, determined by optimization_level.
-  Option<bool> memoryLayoutAnalysisEnabled{
+  mutable Option<bool> memoryLayoutAnalysisEnabled{
       *this, OptionNames::memoryLayoutAnalysisEnabled,
       llvm::cl::desc("Enable memory layout optimization."),
       llvm::cl::init(false)};
@@ -262,7 +267,7 @@ struct TTIRToTTNNBackendPipelineOptions
 
   // Enable fusing of conv2d + multiply pattern.
   // If not explicitly set, determined by optimization_level.
-  Option<bool> enableFusingConv2dWithMultiplyPattern{
+  mutable Option<bool> enableFusingConv2dWithMultiplyPattern{
       *this, "enable-fusing-conv2d-with-multiply-pattern",
       llvm::cl::desc("Enable Conv2dWithMultiply pattern in the fusing pass."),
       llvm::cl::init(false)};
@@ -322,10 +327,10 @@ struct TTIRToTTNNBackendPipelineOptions
   std::shared_ptr<::tt::tt_metal::distributed::MeshDevice> devicePtr = nullptr;
 
   // Resolve options controlled by optimization_level.
-  void resolveOptimizationLevelOptions() {
+  void resolveOptimizationLevelOptions() const {
     // Validate optimization_level is in valid range.
     if (optimizationLevel < 0 || optimizationLevel > 2) {
-      llvm::report_fatal_error(
+      llvm::reportFatalUsageError(
           "Invalid optimization_level: " + llvm::Twine(optimizationLevel) +
           ". Must be 0, 1, or 2.");
     }
