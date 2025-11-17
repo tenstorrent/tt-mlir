@@ -38,7 +38,7 @@ module attributes {ttcore.system_desc = #system_desc} {
 #mem_space = #ttcore.memory_space<l1>
 
 // CHECK-LABEL: ttcore.global @already_memref
-// CHECK-SAME: = memref<2x2x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096>, #[[MEM_SPACE:.*]]> [0]
+// CHECK-SAME: = memref<2x2x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #[[MEM_SPACE:.*]]> [0]
 // CHECK-NOT: tensor<
 
 module attributes {ttcore.system_desc = #system_desc} {
@@ -46,7 +46,7 @@ module attributes {ttcore.system_desc = #system_desc} {
     builtin.module attributes {ttcore.system_desc = #system_desc} {
       ttcore.device @default_device = <workerGrid = #ttcore.grid<8x8, (d0, d1) -> (0, d0, d1)>, l1Map = (d0, d1, d2)[s0] -> (0, d0, d1, d2 + s0), dramMap = (d0, d1, d2)[s0, s1, s2, s3, s4, s5, s6] -> (0, 0, (((d0 * s1) * (s2 * (s3 * s6)) + d1 * (s2 * (s3 * s6)) + d2) floordiv s4) mod 12, ((((d0 * s1) * (s2 * (s3 * s6)) + d1 * (s2 * (s3 * s6)) + d2) floordiv s4) floordiv 12) * s4 + ((d0 * s1) * (s2 * (s3 * s6)) + d1 * (s2 * (s3 * s6)) + d2) mod s4 + s5), meshShape = , chipIds = [0]>
 
-      ttcore.global @already_memref = memref<2x2x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096>, #mem_space> [0]
+      ttcore.global @already_memref = memref<2x2x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #mem_space> [0]
     }
   }
 }

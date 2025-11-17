@@ -11,12 +11,12 @@
 // CHECK: #[[MEM_SPACE:.*]] = #ttcore.memory_space<l1>
 // CHECK: module attributes {ttcore.system_desc = #system_desc} {
 // CHECK:   ttcore.device @default_device
-// CHECK:   func.func @stream_layout_empty_index_map_test(%[[ARG0:.*]]: memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096>, #[[MEM_SPACE]]>) -> memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096>, #[[MEM_SPACE]]> {
-// CHECK-NEXT:    %[[ALLOC:.*]] = memref.alloc() : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096>, #[[MEM_SPACE]]>
-// CHECK-NEXT:    %[[STREAM:.*]] = "d2m.stream_layout"(%[[ARG0]], %[[ALLOC]]) : (memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096>, #[[MEM_SPACE]]>, memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096>, #[[MEM_SPACE]]>) -> memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #[[MEM_SPACE]]>
-// CHECK-NEXT:    %[[ALLOC_OUT:.*]] = memref.alloc() {alignment = 64 : i64} : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096>, #[[MEM_SPACE]]>
-// CHECK-NEXT:    memref.copy %[[STREAM]], %[[ALLOC_OUT]] : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #[[MEM_SPACE]]> to memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096>, #[[MEM_SPACE]]>
-// CHECK-NEXT:    return %[[ALLOC_OUT]] : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096>, #[[MEM_SPACE]]>
+// CHECK:   func.func @stream_layout_empty_index_map_test(%[[ARG0:.*]]: memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #[[MEM_SPACE]]>) -> memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #[[MEM_SPACE]]> {
+// CHECK-NEXT:    %[[ALLOC:.*]] = memref.alloc() : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #[[MEM_SPACE]]>
+// CHECK-NEXT:    %[[STREAM:.*]] = "d2m.stream_layout"(%[[ARG0]], %[[ALLOC]]) : (memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #[[MEM_SPACE]]>, memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #[[MEM_SPACE]]>) -> memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #[[MEM_SPACE]]>
+// CHECK-NEXT:    %[[ALLOC_OUT:.*]] = memref.alloc() {alignment = 64 : i64} : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #[[MEM_SPACE]]>
+// CHECK-NEXT:    memref.copy %[[STREAM]], %[[ALLOC_OUT]] : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #[[MEM_SPACE]]> to memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #[[MEM_SPACE]]>
+// CHECK-NEXT:    return %[[ALLOC_OUT]] : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #[[MEM_SPACE]]>
 module {
   func.func @stream_layout_empty_index_map_test(
     %arg0: tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout>

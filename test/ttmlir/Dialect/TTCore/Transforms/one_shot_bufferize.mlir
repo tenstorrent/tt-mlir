@@ -15,8 +15,8 @@
 // CHECK:   ttcore.device_module {
 // CHECK:     builtin.module attributes {ttcore.system_desc = #system_desc} {
 // CHECK:       ttcore.device @default_device
-// CHECK:       func.func @nested_device_module(%[[ARG0:.*]]: memref<2x2x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096>, #[[MEM_SPACE]]>, %[[ARG1:.*]]: memref<2x2x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096>, #[[MEM_SPACE]]>) -> memref<2x2x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096>, #[[MEM_SPACE]]> {
-// CHECK-NEXT:    return %[[ARG0]] : memref<2x2x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096>, #[[MEM_SPACE]]>
+// CHECK:       func.func @nested_device_module(%[[ARG0:.*]]: memref<2x2x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #[[MEM_SPACE]]>, %[[ARG1:.*]]: memref<2x2x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #[[MEM_SPACE]]>) -> memref<2x2x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #[[MEM_SPACE]]> {
+// CHECK-NEXT:    return %[[ARG0]] : memref<2x2x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #[[MEM_SPACE]]>
 // CHECK-NEXT:  }
 // CHECK-NEXT: }
 // CHECK-NEXT: }
@@ -45,8 +45,8 @@ module attributes {ttcore.system_desc = #system_desc} {
 
 // CHECK: module attributes {ttcore.system_desc = #system_desc} {
 // CHECK:   ttcore.device @default_device
-// CHECK:   func.func @simple_module(%[[ARG0:.*]]: memref<2x2x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096>, #[[MEM_SPACE]]>) -> memref<2x2x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096>, #[[MEM_SPACE]]> {
-// CHECK-NEXT:    return %[[ARG0]] : memref<2x2x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096>, #[[MEM_SPACE]]>
+// CHECK:   func.func @simple_module(%[[ARG0:.*]]: memref<2x2x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #[[MEM_SPACE]]>) -> memref<2x2x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #[[MEM_SPACE]]> {
+// CHECK-NEXT:    return %[[ARG0]] : memref<2x2x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #[[MEM_SPACE]]>
 // CHECK-NEXT:  }
 // CHECK-NEXT: }
 
