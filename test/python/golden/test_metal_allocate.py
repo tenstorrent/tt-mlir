@@ -8,6 +8,7 @@ from builder.base.builder_utils import compile_and_execute_ttir
 
 # borrow currently constrained way to build matmul inputs:
 from test_metal_matmul import create_matmul_constrained_inputs as create_matmul_inputs
+
 # borrow currently constrained way to build reduction inputs:
 from test_metal_reductions import (
     create_reductions_constrained_inputs as create_reduction_inputs,

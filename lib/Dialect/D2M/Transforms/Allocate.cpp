@@ -829,93 +829,93 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
                              [](auto size) { return size >= 0; })));
 
       TT_debug(memrefCtx.varIndex < 0);
-      memrefCtx.varIndex =
-          problem.def([&, &memref = memref,
-                       &memrefCtx = memrefCtx](Planner::VariableBuilder &b) {
-            // If `memref` is being defined inside `funcOp` and is initially
-            // placed in L1, it will require scratch memory to hold its tensor
-            // data.
-            if (memref.getDefiningOp<memref::AllocOp>() &&
-                memspace == MemorySpace::DeviceL1) {
-              memrefCtx.reqIndex = b.request(
-                  PlannerSpace::Scratch,
-                  memrefCtx.allocSize[ordinal(asPlannerSpace(memspace))],
-                  memrefCtx.live.first, memrefCtx.live.last);
-            }
+      memrefCtx.varIndex = problem.def([&, &memref = memref,
+                                        &memrefCtx = memrefCtx](
+                                           Planner::VariableBuilder &b) {
+        // If `memref` is being defined inside `funcOp` and is initially
+        // placed in L1, it will require scratch memory to hold its tensor
+        // data.
+        if (memref.getDefiningOp<memref::AllocOp>() &&
+            memspace == MemorySpace::DeviceL1) {
+          memrefCtx.reqIndex =
+              b.request(PlannerSpace::Scratch,
+                        memrefCtx.allocSize[ordinal(asPlannerSpace(memspace))],
+                        memrefCtx.live.first, memrefCtx.live.last);
+        }
 
-            // This decision variable must be bound to its incoming memspace
-            // in any of these cases:
-            //  - if it is placed in DRAM *explicitly*;
-            //  - if the incoming IR indicates that this alloc should be pinned
-            //    to its current memspace in any other explicit way (aggregated
-            //    into `isMemspaceBound`);
-            //  - if it is the output of a generic op and the enabled pass
-            //    options do not allow output spilling;
-            //  - (edge case) if it has zero generic op users;
-            const bool bound =
-                (memspace == MemorySpace::DeviceDRAM) ||
-                memrefCtx.isMemspaceBound ||
-                (memrefCtx.usedForOutput && !allowL1OutputSpilling) ||
-                memrefCtx.genericUsers.empty();
-            if (bound) {
-              b.bind(asPlannerSpace(memspace));
-            }
+        // This decision variable must be bound to its incoming memspace
+        // in any of these cases:
+        //  - if it is placed in DRAM *explicitly*;
+        //  - if the incoming IR indicates that this alloc should be pinned
+        //    to its current memspace in any other explicit way (aggregated
+        //    into `isMemspaceBound`);
+        //  - if it is the output of a generic op and the enabled pass
+        //    options do not allow output spilling;
+        //  - (edge case) if it has zero generic op users;
+        const bool bound =
+            (memspace == MemorySpace::DeviceDRAM) ||
+            memrefCtx.isMemspaceBound ||
+            (memrefCtx.usedForOutput && !allowL1OutputSpilling) ||
+            memrefCtx.genericUsers.empty();
+        if (bound) {
+          b.bind(asPlannerSpace(memspace));
+        }
 
-            // For each possible variable placement, add mem requests for L1
-            // stream buffers if the variable must be streamed when it backs a
-            // generic op operand.
-            for (PlannerSpace placement = PlannerSpace::begin;
-                 placement < PlannerSpace::end; ++placement) {
+        // For each possible variable placement, add mem requests for L1
+        // stream buffers if the variable must be streamed when it backs a
+        // generic op operand.
+        for (PlannerSpace placement = PlannerSpace::begin;
+             placement < PlannerSpace::end; ++placement) {
 
-              const MemorySpace placementMemspace = asMemorySpace(placement);
-              if (bound && placementMemspace != memspace) {
-                // A bound variable only needs its domain populated for its
-                // fixed (incoming) memspace.
+          const MemorySpace placementMemspace = asMemorySpace(placement);
+          if (bound && placementMemspace != memspace) {
+            // A bound variable only needs its domain populated for its
+            // fixed (incoming) memspace.
+            continue;
+          }
+
+          const auto &memInfo = memSpaces[ordinal(placementMemspace)];
+
+          for (d2m::GenericOp user : memrefCtx.genericUsers) {
+            GenericOpContext &genericCtx = analysis.generics[user];
+            // A given user can have multiple uses of `memref` at
+            // different operand positions; each position will have its own
+            // stream.
+            for (OperandContext &operandCtx : genericCtx.operands) {
+              if (operandCtx.root != memref) {
                 continue;
               }
 
-              const auto &memInfo = memSpaces[ordinal(placementMemspace)];
+              // The goal is to have streams for all operands (other than
+              // exempt outputs) that don't have them already.
 
-              for (d2m::GenericOp user : memrefCtx.genericUsers) {
-                GenericOpContext &genericCtx = analysis.generics[user];
-                // A given user can have multiple uses of `memref` at
-                // different operand positions; each position will have its own
-                // stream.
-                for (OperandContext &operandCtx : genericCtx.operands) {
-                  if (operandCtx.root != memref) {
-                    continue;
-                  }
-
-                  // The goal is to have streams for all operands (other than
-                  // exempt outputs) that don't have them already.
-
-                  if (operandCtx.isOutput && !allowL1OutputSpilling) {
-                    continue;
-                  }
-
-                  if (operandCtx.hasStream) {
-                    continue;
-                  }
-
-                  TT_debug(operandCtx.bufferType != nullptr);
-                  const AllocSizeT bufferSize = ttmlir::utils::alignUp(
-                      getStreamBufferSizeBytes(operandCtx.bufferType, device),
-                      memInfo.alignment);
-
-                  // Because we will insert stream buffer allocs just before
-                  // the generic ops themselves, without any other
-                  // interposing allocs, it is mathematically correct to see
-                  // all such buffers' live ranges as a single position
-                  // coinciding with the generic op's logical time.
-                  const SequenceT firstAndLast = analysis.sequencing[user];
-
-                  TT_debug(operandCtx.reqIndex[ordinal(placement)] < 0);
-                  operandCtx.reqIndex[ordinal(placement)] = b.request(
-                      placement, bufferSize, firstAndLast, firstAndLast);
-                }
+              if (operandCtx.isOutput && !allowL1OutputSpilling) {
+                continue;
               }
+
+              if (operandCtx.hasStream) {
+                continue;
+              }
+
+              TT_debug(operandCtx.bufferType != nullptr);
+              const AllocSizeT bufferSize = ttmlir::utils::alignUp(
+                  getStreamBufferSizeBytes(operandCtx.bufferType, device),
+                  memInfo.alignment);
+
+              // Because we will insert stream buffer allocs just before
+              // the generic ops themselves, without any other
+              // interposing allocs, it is mathematically correct to see
+              // all such buffers' live ranges as a single position
+              // coinciding with the generic op's logical time.
+              const SequenceT firstAndLast = analysis.sequencing[user];
+
+              TT_debug(operandCtx.reqIndex[ordinal(placement)] < 0);
+              operandCtx.reqIndex[ordinal(placement)] =
+                  b.request(placement, bufferSize, firstAndLast, firstAndLast);
             }
-          });
+          }
+        }
+      });
     }
 
     TT_ALLOC_TRACE("L1 planner problem:\n{}", problem);
@@ -1391,9 +1391,9 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
 
   /// Walk the chain of ops starting with the one defining `operand` and
   /// terminating in either a `memref::AllocOp` (that backs the operand's
-  /// tensor) or a block argument (if the tensor comes from an outside scope).
-  /// The walk may involve going through a chain of `view/stream_layout`s or a
-  /// ttnn "bridge" arg cast.
+  /// tensor), a block argument (if the tensor comes from an outside scope),
+  /// or a ttnn bridge cast. The walk may involve going through a chain of
+  /// `view/stream_layout`s.
   ///
   /// Besides the above, determine a few more things:
   ///  1. the "root" `Value` that terminates the chain (used as a unique key for
@@ -1406,6 +1406,8 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
   static std::tuple<Value, MemRefType, bool>
   analyzeOperandDefChain(d2m::GenericOp genericOp, Value operand,
                          SmallVector<Operation *, 4> &chain) {
+    [[maybe_unused]] AsOperandPrinter asOperand{genericOp->getParentOp()};
+
     MemRefType type = nullptr;
     bool containsStream = false;
 
@@ -1415,29 +1417,39 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     while (definingOp != nullptr) {
       chain.emplace_back(definingOp);
 
-      if (auto op = llvm::dyn_cast<ttir::TTNNMetalLayoutCastOp>(definingOp)) {
-        value = op.getInput();
+      if (auto op = llvm::dyn_cast<memref::AllocOp>(definingOp)) {
         if (type == nullptr) {
           type = mlir::cast<MemRefType>(op->getResultTypes().front());
         }
-      } else if (auto op = llvm::dyn_cast<d2m::ViewLayoutOp>(definingOp)) {
+        break;
+      }
+      if (auto op = llvm::dyn_cast<ttir::TTNNMetalLayoutCastOp>(definingOp)) {
         value = op.getInput();
-      } else if (auto op = llvm::dyn_cast<d2m::StreamLayoutOp>(definingOp)) {
-        value = op.getInput();
-        containsStream = true;
-      } else if (auto op = llvm::dyn_cast<memref::AllocOp>(definingOp)) {
         if (type == nullptr) {
           type = mlir::cast<MemRefType>(op->getResultTypes().front());
         }
         break;
       }
 
+      if (auto op = llvm::dyn_cast<d2m::ViewLayoutOp>(definingOp)) {
+        value = op.getInput();
+      } else if (auto op = llvm::dyn_cast<d2m::StreamLayoutOp>(definingOp)) {
+        value = op.getInput();
+        containsStream = true;
+      } else {
+        TT_assertv(false,
+                   "unexpected op '{}' in the def chain for operand '{}'",
+                   op.getOperationName(), asOperand(operand));
+      }
+
       definingOp = value.getDefiningOp();
     }
 
-    // If `type` is not set it means the above walk ended in a block arg.
+    // If `type` was not discovered above it means the walk ended in a block
+    // arg.
     if (type == nullptr) {
-      const auto arg = mlir::cast<BlockArgument>(value);
+      const auto arg = mlir::dyn_cast<BlockArgument>(value);
+      TT_assertv(arg != nullptr, "expected to reach a known cast or block arg");
       type = mlir::cast<MemRefType>(arg.getType());
     }
 
