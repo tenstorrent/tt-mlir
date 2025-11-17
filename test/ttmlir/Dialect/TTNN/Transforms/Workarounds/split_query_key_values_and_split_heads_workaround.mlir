@@ -21,5 +21,3 @@ module  {
     return %query, %key, %value : tensor<1x4x174x54xf32>, tensor<1x4x54x174xf32>, tensor<1x4x174x54xf32>
   }
 }
-
-        // %query_15, %key_16, %value_17 = "ttnn.split_query_key_value_and_split_heads"(%1882) <{num_heads = 4 : ui32, transpose_key = true}> : (tensor<1x174x648xf32, #ttnn_layout47>) -> (tensor<1x4x174x54xf32, #ttnn_layout270>, tensor<1x4x54x174xf32, #ttnn_layout271>, tensor<1x4x174x54xf32, #ttnn_layout270>) loc(#loc2142)
