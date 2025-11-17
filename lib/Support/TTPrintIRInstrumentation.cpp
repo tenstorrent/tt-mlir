@@ -17,7 +17,8 @@ namespace mlir::tt {
 TTPrintIRInstrumentation::TTPrintIRInstrumentation(
     TTPrintIRInstrumentationOptions options)
     : dumpCounter_(0), pipelineName_(options.pipelineName),
-      level_(options.level), currentDepth_(0) {
+      level_(options.level), dumpInitial_(options.dumpInitial),
+      dumpedInitial_(false), currentDepth_(0) {
   // Set model name - use provided name or default to "unknown"
   modelName_ = options.modelName.empty() ? "unknown" : options.modelName;
 
@@ -124,6 +125,12 @@ void TTPrintIRInstrumentation::runAfterPipeline(
 }
 
 void TTPrintIRInstrumentation::runBeforePass(Pass *pass, Operation *op) {
+  // Dump initial IR if requested and not already dumped
+  if (dumpInitial_ && !dumpedInitial_ && op) {
+    dumpedInitial_ = true;
+    dumpIR(op, "initial", "initial_dump");
+  }
+
   // Pass dumps handled in runAfterPass
 }
 

@@ -31,6 +31,7 @@ public:
         "~/explorer"; // Default path for tt-explorer integration
     DumpLevel level = DumpLevel::Transformation;
     bool debug = true;
+    bool dumpInitial = false;   // Dump initial IR before any passes run
     std::string modelName = ""; // Empty means extract from operation location
     std::string pipelineName = ""; // Optional pipeline name for organization
   };
@@ -127,6 +128,8 @@ private:
   std::string modelName_;        ///< Name of the model being processed
   std::string pipelineName_;     ///< Optional pipeline identifier
   DumpLevel level_;              ///< Level of instrumentation detail
+  bool dumpInitial_;   ///< Whether to dump initial IR before any passes
+  bool dumpedInitial_; ///< Flag to ensure we only dump initial IR once
 
   // Pipeline-level dumping state
   std::vector<std::string>

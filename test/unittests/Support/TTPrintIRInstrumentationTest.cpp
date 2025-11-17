@@ -286,6 +286,18 @@ TEST_F(InstrumentationTest, Pipeline_MixedFlatAndNested) {
   EXPECT_EQ(countOutputFiles(), 2);
 }
 
+TEST_F(InstrumentationTest, Initial_WithOnce) {
+  auto options = test::createOptions(*this);
+  options.level = DumpLevel::Once;
+  options.dumpInitial = true;
+  test::runWith(*this, options, test::Pipelines::singlePassPipeline());
+
+  finalize(); // Trigger instrumentation destructor
+
+  // Should dump initial + final (2 files total)
+  EXPECT_EQ(countOutputFiles(), 2);
+}
+
 TEST_F(InstrumentationTest, Pass) {
   auto options = test::createOptions(*this);
   options.level = DumpLevel::Pass;
