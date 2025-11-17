@@ -45,6 +45,9 @@ build_and_push() {
         echo "Docker build neccessary, ensure dependencies for toolchain build..."
         sudo apt-get update && sudo apt-get install -y cmake build-essential
 
+        # Toolchain build causes the OOM error if parallel level is not limited
+        export CMAKE_BUILD_PARALLEL_LEVEL=16
+
         echo "Building image $image_name:$DOCKER_TAG"
         docker build \
             --progress=plain \
