@@ -63,19 +63,6 @@ public:
     }
     return count;
   }
-
-  static bool hasMlirFiles(const std::filesystem::path &dir) {
-    if (!std::filesystem::exists(dir) || !std::filesystem::is_directory(dir)) {
-      return false;
-    }
-
-    for (const auto &entry : std::filesystem::directory_iterator(dir)) {
-      if (entry.is_regular_file() && entry.path().extension() == ".mlir") {
-        return true;
-      }
-    }
-    return false;
-  }
 };
 
 // MLIR utilities for creating test constructs
@@ -115,18 +102,42 @@ public:
 
 // Pipeline factory for creating different types of pass pipelines
 namespace Pipelines {
-inline PipelineFunction simpleCanonicalizer() {
+inline PipelineFunction singlePassPipeline() {
   return [](mlir::PassManager &pm) {
     pm.addPass(mlir::createCanonicalizerPass());
   };
 }
 
-inline PipelineFunction complexOptimization() {
+inline PipelineFunction flatPipeline() {
   return [](mlir::PassManager &pm) {
     pm.addPass(mlir::createCanonicalizerPass());
     pm.addPass(mlir::createCSEPass());
     pm.addPass(mlir::createCanonicalizerPass());
     pm.addPass(mlir::createCSEPass());
+    pm.addPass(mlir::createCanonicalizerPass());
+  };
+}
+
+// Nested pass manager - triggers pipeline hooks
+inline PipelineFunction nestedFuncOpPipeline() {
+  return [](mlir::PassManager &pm) {
+    mlir::OpPassManager &funcPm = pm.nest<mlir::func::FuncOp>();
+    funcPm.addPass(mlir::createCanonicalizerPass());
+    funcPm.addPass(mlir::createCSEPass());
+  };
+}
+
+// Mixed flat and nested passes
+inline PipelineFunction FlatAndNested() {
+  return [](mlir::PassManager &pm) {
+    // Flat pass at top level
+    pm.addPass(mlir::createCanonicalizerPass());
+
+    // Nested pass manager for func::FuncOp
+    mlir::OpPassManager &funcPm = pm.nest<mlir::func::FuncOp>();
+    funcPm.addPass(mlir::createCSEPass());
+
+    // Another flat pass at top level
     pm.addPass(mlir::createCanonicalizerPass());
   };
 }
@@ -193,7 +204,7 @@ void runWith(InstrumentationTest &fixture, Options options,
 TEST_F(InstrumentationTest, Pipeline) {
   auto options = test::createOptions(*this);
   options.level = DumpLevel::Pipeline;
-  test::runWith(*this, options, test::Pipelines::simpleCanonicalizer());
+  test::runWith(*this, options, test::Pipelines::singlePassPipeline());
 
   EXPECT_EQ(countOutputFiles(), 1);
 }
@@ -201,7 +212,7 @@ TEST_F(InstrumentationTest, Pipeline) {
 TEST_F(InstrumentationTest, Pass) {
   auto options = test::createOptions(*this);
   options.level = DumpLevel::Pass;
-  test::runWith(*this, options, test::Pipelines::simpleCanonicalizer());
+  test::runWith(*this, options, test::Pipelines::singlePassPipeline());
 
   EXPECT_EQ(countOutputFiles(), 1);
 }
@@ -209,7 +220,7 @@ TEST_F(InstrumentationTest, Pass) {
 TEST_F(InstrumentationTest, Pass_Complex) {
   auto options = test::createOptions(*this);
   options.level = DumpLevel::Pass;
-  test::runWith(*this, options, test::Pipelines::complexOptimization());
+  test::runWith(*this, options, test::Pipelines::flatPipeline());
 
   EXPECT_GT(countOutputFiles(), 1);
 }
@@ -217,7 +228,7 @@ TEST_F(InstrumentationTest, Pass_Complex) {
 TEST_F(InstrumentationTest, Transformation) {
   auto options = test::createOptions(*this);
   options.level = DumpLevel::Transformation;
-  test::runWith(*this, options, test::Pipelines::simpleCanonicalizer());
+  test::runWith(*this, options, test::Pipelines::singlePassPipeline());
 
   EXPECT_EQ(countOutputFiles(), 1);
 }
@@ -225,7 +236,25 @@ TEST_F(InstrumentationTest, Transformation) {
 TEST_F(InstrumentationTest, Transformation_Complex) {
   auto options = test::createOptions(*this);
   options.level = DumpLevel::Transformation;
-  test::runWith(*this, options, test::Pipelines::complexOptimization());
+  test::runWith(*this, options, test::Pipelines::flatPipeline());
 
   EXPECT_GT(countOutputFiles(), 1);
+}
+
+// Test nested pass managers to trigger pipeline hooks
+TEST_F(InstrumentationTest, NestedPipeline_FuncOp) {
+  auto options = test::createOptions(*this);
+  options.level = DumpLevel::Pass;
+  test::runWith(*this, options, test::Pipelines::nestedFuncOpPipeline());
+
+  EXPECT_GT(countOutputFiles(), 0);
+}
+
+// Test mixed flat + nested passes
+TEST_F(InstrumentationTest, MixedFlatAndNested) {
+  auto options = test::createOptions(*this);
+  options.level = DumpLevel::Pass;
+  test::runWith(*this, options, test::Pipelines::FlatAndNested());
+
+  EXPECT_GT(countOutputFiles(), 0);
 }

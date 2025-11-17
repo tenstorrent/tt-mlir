@@ -122,7 +122,6 @@ private:
   std::string modelName_;        ///< Name of the model being processed
   std::string pipelineName_;     ///< Optional pipeline identifier
   DumpLevel level_;              ///< Level of instrumentation detail
-  bool debug_;                   ///< Enable debug output
 };
 
 //===--------------------------------------------------------------------===//

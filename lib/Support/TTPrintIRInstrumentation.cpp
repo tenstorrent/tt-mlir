@@ -17,7 +17,7 @@ namespace mlir::tt {
 TTPrintIRInstrumentation::TTPrintIRInstrumentation(
     TTPrintIRInstrumentationOptions options)
     : dumpCounter_(0), pipelineName_(options.pipelineName),
-      level_(options.level), debug_(options.debug) {
+      level_(options.level) {
   // Set model name - use provided name or default to "unknown"
   modelName_ = options.modelName.empty() ? "unknown" : options.modelName;
 
@@ -33,33 +33,15 @@ TTPrintIRInstrumentation::TTPrintIRInstrumentation(
   if (!options.modelName.empty()) {
     initializeDumpCounter();
   }
-
-  if (debug_) {
-    llvm::outs() << "TTPrintIRInstrumentation: Constructor called, output dir: "
-                 << outputDir_ << ", model: " << modelName_
-                 << (pipelineName_.empty() ? ""
-                                           : ", pipeline: " + pipelineName_)
-                 << "\n";
-  }
 }
 
-TTPrintIRInstrumentation::~TTPrintIRInstrumentation() {
-  if (debug_) {
-    llvm::outs() << "TTPrintIRInstrumentation: Destructor called, total dumps: "
-                 << dumpCounter_.load() << "\n";
-  }
-}
+TTPrintIRInstrumentation::~TTPrintIRInstrumentation() {}
 
 void TTPrintIRInstrumentation::attachActionHandler(mlir::MLIRContext *ctx) {
   if (!ctx) {
     llvm::errs() << "TTPrintIRInstrumentation: Cannot attach action handler - "
                     "null context\n";
     return;
-  }
-
-  if (debug_) {
-    llvm::outs() << "TTPrintIRInstrumentation: Registering action handler with "
-                    "context\n";
   }
 
   // Register an action handler to dump IR on PassExecutionAction
@@ -100,12 +82,12 @@ void TTPrintIRInstrumentation::setModelName(const std::string &name) {
 
 void TTPrintIRInstrumentation::runBeforePipeline(
     std::optional<OperationName> name, const PipelineParentInfo &parentInfo) {
-  // Pipeline dumps happen at boundaries for all levels
+  // Pipeline boundary dumps handled in runAfterPipeline
 }
 
 void TTPrintIRInstrumentation::runAfterPipeline(
     std::optional<OperationName> name, const PipelineParentInfo &parentInfo) {
-  // Pipeline dumps happen at boundaries for all levels
+  // Pipeline boundary dumps handled through pass hooks for Pipeline level
 }
 
 void TTPrintIRInstrumentation::runBeforePass(Pass *pass, Operation *op) {
@@ -113,25 +95,29 @@ void TTPrintIRInstrumentation::runBeforePass(Pass *pass, Operation *op) {
 }
 
 void TTPrintIRInstrumentation::runAfterPass(Pass *pass, Operation *op) {
-  // Only dump if level is Pass or higher (not Pipeline-only)
+  // For Pipeline level, dump at the end of pass execution
   if (level_ == DumpLevel::Pipeline) {
+    dumpIR(op, "pipeline_end", "pass_instrumentation");
     return;
   }
 
-  if (!op) {
-    return;
-  }
+  if (level_ == DumpLevel::Pass) {
 
-  // Extract model name on first pass
-  if (modelName_ == "unknown") {
-    std::string extractedName = extractModelNameFromLocation(op);
-    if (extractedName != "unknown") {
-      setModelName(extractedName);
+    if (!op) {
+      return;
     }
-  }
 
-  std::string passName = pass->getName().str();
-  dumpIR(op, passName, "pass_instrumentation");
+    // Extract model name on first pass
+    if (modelName_ == "unknown") {
+      std::string extractedName = extractModelNameFromLocation(op);
+      if (extractedName != "unknown") {
+        setModelName(extractedName);
+      }
+    }
+
+    std::string passName = pass->getName().str();
+    dumpIR(op, passName, "pass_instrumentation");
+  }
 }
 
 void TTPrintIRInstrumentation::runAfterPassFailed(Pass *pass, Operation *op) {
@@ -171,10 +157,6 @@ void TTPrintIRInstrumentation::dumpIR(mlir::Operation *op,
     op->print(file, flags);
     file.close();
 
-    if (debug_) {
-      llvm::outs() << "TTPrintIRInstrumentation: [" << source
-                   << "] Dumped IR to " << filename << "\n";
-    }
   } else {
     llvm::errs() << "TTPrintIRInstrumentation: Failed to open file " << filename
                  << ": " << ec.message() << "\n";
@@ -302,7 +284,10 @@ void TTPrintIRInstrumentation::clearDirectory(
 void addTTPrintIRInstrumentation(
     PassManager &pm,
     TTPrintIRInstrumentation::TTPrintIRInstrumentationOptions options) {
-  pm.addInstrumentation(std::make_unique<TTPrintIRInstrumentation>(options));
+  auto instrumentation = std::make_unique<TTPrintIRInstrumentation>(options);
+  // Attach action handler to enable transformation-level tracing
+  instrumentation->attachActionHandler(pm.getContext());
+  pm.addInstrumentation(std::move(instrumentation));
 }
 
 } // namespace mlir::tt
