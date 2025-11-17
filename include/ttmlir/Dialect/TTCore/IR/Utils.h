@@ -142,7 +142,7 @@ inline bool hasDeviceLayout(Value value) {
 
 // Helper function to derive grid shape from tensor OR memref using underlying
 // layout attr.
-ArrayRef<int64_t> getGridShape(Value tensorOrMemref) {
+inline ArrayRef<int64_t> getGridShape(Value tensorOrMemref) {
   TT_assertv((mlir::isa<RankedTensorType>(tensorOrMemref.getType()) ||
               mlir::isa<MemRefType>(tensorOrMemref.getType())),
              "Expected a tensor or memref type");
