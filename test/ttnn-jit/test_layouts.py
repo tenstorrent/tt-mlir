@@ -117,6 +117,73 @@ def test_l1_block_sharded_shapes(device, shape, max_grid, op):
         num_inputs=1,
         buffer_type=ttnn.BufferType.L1,
         enable_cache=True,
+        memory_layout=ttnn.TensorMemoryLayout.BLOCK_SHARDED,
+    )
+
+
+HEIGHT_SHARDED_SHAPE_GRIDS = []
+HEIGHT_SHARDED_SHAPE_GRIDS.extend(
+    [
+        # ((32, 32), (0,0)),
+        ((384, 32), (1, 5))
+    ]
+)
+
+
+@pytest.mark.parametrize(
+    "shape, max_grid",
+    HEIGHT_SHARDED_SHAPE_GRIDS,
+    ids=[f"{shape}-{grid}" for shape, grid in HEIGHT_SHARDED_SHAPE_GRIDS],
+)
+@pytest.mark.parametrize("op", [abs])
+def test_l1_height_sharded_shapes(device, shape, max_grid, op):
+
+    if max_grid in GRIDS_FAILING_ALL_SHAPES:
+        pytest.xfail("Grid fails for all shapes. Issue: #5415")
+
+    run_op_test(
+        device,
+        shape,
+        max_grid,
+        torch.float16,
+        op,
+        num_inputs=1,
+        buffer_type=ttnn.BufferType.L1,
+        enable_cache=True,
+        memory_layout=ttnn.TensorMemoryLayout.HEIGHT_SHARDED,
+    )
+
+
+WIDTH_SHARDED_SHAPE_GRIDS = []
+WIDTH_SHARDED_SHAPE_GRIDS.extend(
+    [
+        # ((32, 32), (0,0)),
+        ((32, 384), (5, 1))
+    ]
+)
+
+
+@pytest.mark.parametrize(
+    "shape, max_grid",
+    WIDTH_SHARDED_SHAPE_GRIDS,
+    ids=[f"{shape}-{grid}" for shape, grid in WIDTH_SHARDED_SHAPE_GRIDS],
+)
+@pytest.mark.parametrize("op", [abs])
+def test_l1_width_sharded_shapes(device, shape, max_grid, op):
+
+    if max_grid in GRIDS_FAILING_ALL_SHAPES:
+        pytest.xfail("Grid fails for all shapes. Issue: #5415")
+
+    run_op_test(
+        device,
+        shape,
+        max_grid,
+        torch.float16,
+        op,
+        num_inputs=1,
+        buffer_type=ttnn.BufferType.L1,
+        enable_cache=True,
+        memory_layout=ttnn.TensorMemoryLayout.WIDTH_SHARDED,
     )
 
 
