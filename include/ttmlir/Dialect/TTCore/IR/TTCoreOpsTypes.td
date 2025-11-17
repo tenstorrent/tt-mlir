@@ -699,4 +699,9 @@ def TTCore_ArgumentTypeAttr : EnumAttr<TTCore_Dialect, TTCore_ArgumentType, "arg
   let assemblyFormat = "`<` $value `>`";
 }
 
+
+
+def TTCore_TopologyAttr : EnumAttr<TTCore_Dialect, TTCore_Topology, "topology"> {
+  let assemblyFormat = "`<` $value `>`";
+}
 #endif // TTMLIR_DIALECT_TTCore_IR_TTCOREOPSTYPES_TD
