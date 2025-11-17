@@ -3165,6 +3165,7 @@ def TTIR_PagedFillCacheOp : TTIR_NamedOp<"paged_fill_cache"> {
 
   let results = (outs AnyRankedTensor:$result);
 
+  // The cache tensor is modified in place by this operation, thus it acts as the DPS output of this operation.
   let extraClassDeclaration = [{
       MutableOperandRange getDpsInitsMutable() { return getCacheMutable(); }
   }];
