@@ -16,6 +16,23 @@ from utils import (
     run_op_test,
 )
 
+TEST_PARAMS = [
+    # simple params
+    (256, 256),
+    (256, 512),
+    (512, 512),
+    (512, 1024),
+    (512, 2048),
+    (1024, 1024),
+    # other params
+    (1705, 320),
+    (1705, 640),
+    (4095, 640),
+    (4095, 1280),
+    (8190, 640),
+    (8190, 1280),
+]
+
 
 @ttnn_jit.jit(max_grid=(0, 0), debug=False, enable_cache=True)
 def muladd(input_tensor_a, input_tensor_b, input_tensor_c):
@@ -25,13 +42,10 @@ def muladd(input_tensor_a, input_tensor_b, input_tensor_c):
 
 def muladd_no_jit(input_tensor_a, input_tensor_b, input_tensor_c):
 
-    return ttnn.add(ttnn.multiply(input_tensor_b, input_tensor_c), input_tensor_a)
+    return input_tensor_a + (input_tensor_b * input_tensor_c)
 
 
-@pytest.mark.parametrize(
-    "h, w",
-    [(32, 32)],
-)
+@pytest.mark.parametrize("h, w", TEST_PARAMS)
 def test_muladd_l1_trace(h, w):
     device = ttnn.open_device(device_id=0, trace_region_size=10240)
 
@@ -133,22 +147,11 @@ def test_muladd_l1_trace(h, w):
 # @pytest.mark.parametrize("hidden_dim", [640, 1280, 2560, 5120])
 
 
-@pytest.mark.parametrize(
-    "seq_len, hidden_dim",
-    [
-        (32, 32),
-        (1705, 320),
-        (4095, 640),
-        (8190, 1280),
-        (16380, 2560),
-        (18900, 320),
-        (37800, 640),
-    ],
-)
+@pytest.mark.parametrize("seq_len, hidden_dim", TEST_PARAMS)
 def test_muladd_dram_trace(seq_len, hidden_dim):
     h = seq_len
     w = hidden_dim
-    device = ttnn.open_device(device_id=0, trace_region_size=10240)
+    device = ttnn.open_device(device_id=0, trace_region_size=200000)
 
     # setup inputs
     dtype = torch.bfloat16
@@ -274,15 +277,15 @@ def comp_pcc(golden, calculated, pcc=0.99):
     return cal_pcc >= pcc, cal_pcc
 
 
-@pytest.mark.parametrize(
-    "h, w",
-    [(32, 32), (256, 256)],
-)
-def test_muladd_dram_compare(h, w):
-    device = ttnn.open_device(device_id=0)
+@pytest.mark.parametrize("seq_len, hidden_dim", TEST_PARAMS)
+def test_muladd_ttnn_dram_trace(seq_len, hidden_dim):
 
+    h = seq_len
+    w = hidden_dim
+    device = ttnn.open_device(device_id=0, trace_region_size=200000)
+
+    # setup inputs
     dtype = torch.bfloat16
-    max_grid = (0, 0)
 
     torch_input_a = torch.randn((h, w), dtype=dtype)
     torch_input_b = torch.randn((h, w), dtype=dtype)
@@ -296,13 +299,92 @@ def test_muladd_dram_compare(h, w):
         buffer_type=ttnn.BufferType.DRAM,
     )
 
+    # warmup program cache
+    print("Warming up JIT program cache...")
+    # host tensors
+    input_a = ttnn.from_torch(torch_input_a, spec=tensor_spec)
+    input_b = ttnn.from_torch(torch_input_b, spec=tensor_spec)
+    input_c = ttnn.from_torch(torch_input_c, spec=tensor_spec)
+
+    # allocate device tensors
+    input_a_tensor = ttnn.allocate_tensor_on_device(tensor_spec, device)
+    input_b_tensor = ttnn.allocate_tensor_on_device(tensor_spec, device)
+    input_c_tensor = ttnn.allocate_tensor_on_device(tensor_spec, device)
+
+    # copy data to device
+    ttnn.copy_host_to_device_tensor(input_a, input_a_tensor)
+    ttnn.copy_host_to_device_tensor(input_b, input_b_tensor)
+    ttnn.copy_host_to_device_tensor(input_c, input_c_tensor)
+
+    # should cache the program
+    output_tensor = muladd_no_jit(input_a_tensor, input_b_tensor, input_c_tensor)
+    ttnn.synchronize_device(device)
+
+    # Capture trace
+    print("Capturing trace...")
+
+    # copy to device
+    ttnn.copy_host_to_device_tensor(input_a, input_a_tensor)
+    ttnn.copy_host_to_device_tensor(input_b, input_b_tensor)
+    ttnn.copy_host_to_device_tensor(input_c, input_c_tensor)
+
+    tid = ttnn.begin_trace_capture(device)
+    output_tensor = muladd_no_jit(input_a_tensor, input_b_tensor, input_c_tensor)
+    ttnn.end_trace_capture(device, tid)
+    ttnn.synchronize_device(device)
+
+    # Execute trace
+    print("Executing trace...")
+
+    # copy again
+    ttnn.copy_host_to_device_tensor(input_a, input_a_tensor)
+    ttnn.copy_host_to_device_tensor(input_b, input_b_tensor)
+    ttnn.copy_host_to_device_tensor(input_c, input_c_tensor)
+
+    # execute trace multiple times
+    for _ in range(5):
+        ttnn.execute_trace(device, tid, blocking=True)
+
+    ttnn.synchronize_device(device)
+
+    for _ in range(25):
+        ttnn.execute_trace(device, tid, blocking=True)
+
+    ttnn.release_trace(device, tid)
+    ttnn.close_device(device)
+
+
+@pytest.mark.parametrize("h, w", TEST_PARAMS)
+def test_muladd_dram_compare(h, w):
+    device = ttnn.open_device(device_id=0)
+
+    dtype = torch.bfloat16
+
+    torch_input_a = torch.randn((h, w), dtype=dtype)
+    torch_input_b = torch.randn((h, w), dtype=dtype)
+    torch_input_c = torch.randn((h, w), dtype=dtype)
+
+    print("input tensor a:", torch_input_a)
+    print("input tensor b:", torch_input_b)
+    print("input tensor c:", torch_input_c)
+
+    tensor_spec = ttnn.TensorSpec(
+        shape=(h, w),
+        dtype=ttnn.DataType.BFLOAT16,
+        layout=ttnn.TILE_LAYOUT,
+        memory_layout=ttnn.TensorMemoryLayout.INTERLEAVED,
+        buffer_type=ttnn.BufferType.DRAM,
+    )
+
     input_a_tensor = ttnn.from_torch(torch_input_a, spec=tensor_spec, device=device)
     input_b_tensor = ttnn.from_torch(torch_input_b, spec=tensor_spec, device=device)
     input_c_tensor = ttnn.from_torch(torch_input_c, spec=tensor_spec, device=device)
 
-    op_jit = muladd
-    output_tensor = op_jit(input_a_tensor, input_b_tensor, input_c_tensor)
+    output_tensor = muladd(input_a_tensor, input_b_tensor, input_c_tensor)
     golden = muladd_no_jit(input_a_tensor, input_b_tensor, input_c_tensor)
+
+    print("output tensor:", output_tensor)
+    print("golden tensor:", golden)
 
     matching = torch.allclose(
         output_tensor.cpu().to_torch(), golden.cpu().to_torch(), atol=1, rtol=1
