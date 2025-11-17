@@ -134,6 +134,45 @@ def log(
     return builder.log(in0, unit_attrs=unit_attrs)
 
 
+def and_(
+    in0: Operand,
+    in1: Operand,
+    builder: StableHLOBuilder,
+    unit_attrs: Optional[List[str]] = None,
+):
+    builder.set_graph_level_check(True)
+    return builder.and_(in0, in1, unit_attrs=unit_attrs)
+
+
+def or_(
+    in0: Operand,
+    in1: Operand,
+    builder: StableHLOBuilder,
+    unit_attrs: Optional[List[str]] = None,
+):
+    builder.set_graph_level_check(True)
+    return builder.or_(in0, in1, unit_attrs=unit_attrs)
+
+
+def xor(
+    in0: Operand,
+    in1: Operand,
+    builder: StableHLOBuilder,
+    unit_attrs: Optional[List[str]] = None,
+):
+    builder.set_graph_level_check(True)
+    return builder.xor(in0, in1, unit_attrs=unit_attrs)
+
+
+def not_(
+    in0: Operand,
+    builder: StableHLOBuilder,
+    unit_attrs: Optional[List[str]] = None,
+):
+    builder.set_graph_level_check(True)
+    return builder.not_(in0, unit_attrs=unit_attrs)
+
+
 def slice(
     in0: Operand,
     start_indices: List[int],
@@ -436,6 +475,59 @@ def test_stablehlo_multi_return_support(
     )
 
 
+# Logical operations tests (boolean tensors)
+@pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
+@pytest.mark.parametrize("dtype", [torch.bool], ids=["bool"])
+@pytest.mark.parametrize("target", ["ttnn"])
+@pytest.mark.parametrize(
+    "test_fn",
+    [
+        and_,
+        or_,
+        xor,
+    ],
+)
+def test_logical_binary_ops(
+    test_fn: Callable, shape: Shape, dtype: torch.dtype, target: str, request, device
+):
+    compile_and_execute_shlo(
+        test_fn,
+        [shape, shape],
+        [dtype, dtype],
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
+        device=device,
+        pcc=-1.0,
+    )
+
+
+@pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
+@pytest.mark.parametrize("dtype", [torch.bool], ids=["bool"])
+@pytest.mark.parametrize("target", ["ttnn"])
+@pytest.mark.parametrize(
+    "test_fn",
+    [
+        not_,
+    ],
+)
+def test_logical_unary_ops(
+    test_fn: Callable, shape: Shape, dtype: torch.dtype, target: str, request, device
+):
+    compile_and_execute_shlo(
+        test_fn,
+        [shape],
+        [dtype],
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
+        device=device,
+        pcc=-1.0,
+    )
+
+
 @pytest.mark.parametrize(
     "shape,start_indices,limit_indices,strides",
     [
@@ -463,6 +555,57 @@ def test_slice(
 
     compile_and_execute_shlo(
         slice_fn,
+        [shape],
+        [dtype],
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
+        device=device,
+    )
+
+
+# Bitwise operations tests (integer tensors)
+@pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
+@pytest.mark.parametrize("dtype", [torch.int32], ids=["i32"])
+@pytest.mark.parametrize("target", ["ttnn"])
+@pytest.mark.parametrize(
+    "test_fn",
+    [
+        and_,
+        or_,
+        xor,
+    ],
+)
+def test_bitwise_binary_ops(
+    test_fn: Callable, shape: Shape, dtype: torch.dtype, target: str, request, device
+):
+    compile_and_execute_shlo(
+        test_fn,
+        [shape, shape],
+        [dtype, dtype],
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
+        device=device,
+    )
+
+
+@pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
+@pytest.mark.parametrize("dtype", [torch.int32], ids=["i32"])
+@pytest.mark.parametrize("target", ["ttnn"])
+@pytest.mark.parametrize(
+    "test_fn",
+    [
+        not_,
+    ],
+)
+def test_bitwise_unary_ops(
+    test_fn: Callable, shape: Shape, dtype: torch.dtype, target: str, request, device
+):
+    compile_and_execute_shlo(
+        test_fn,
         [shape],
         [dtype],
         test_base=request.node.name,
