@@ -67,14 +67,7 @@ void TTPrintIRInstrumentation::attachActionHandler(mlir::MLIRContext *ctx) {
     if (mlir::isa<mlir::PassExecutionAction>(action)) {
       auto passAction = mlir::cast<mlir::PassExecutionAction>(action);
       mlir::Operation *op = passAction.getOp();
-
       if (op) {
-        if (modelName_ == "unknown") {
-          std::string extractedName = extractModelNameFromLocation(op);
-          if (extractedName != "unknown") {
-            setModelName(extractedName);
-          }
-        }
         std::string passName = passAction.getPass().getName().str();
         dumpIR(op, passName + "_after");
       }
@@ -93,12 +86,6 @@ void TTPrintIRInstrumentation::attachActionHandler(mlir::MLIRContext *ctx) {
           op = block->getParentOp();
         }
         if (op) {
-          if (modelName_ == "unknown") {
-            std::string extractedName = extractModelNameFromLocation(op);
-            if (extractedName != "unknown") {
-              setModelName(extractedName);
-            }
-          }
           std::string actionStr;
           llvm::raw_string_ostream os(actionStr);
           action.print(os);
@@ -111,7 +98,6 @@ void TTPrintIRInstrumentation::attachActionHandler(mlir::MLIRContext *ctx) {
             iterNum =
                 actionStr.substr(openParen + 1, closeParen - openParen - 1);
           }
-
           std::string opName =
               sanitizeFilename(op->getName().getStringRef().str());
           std::string filename = actionTag + "_iter" + iterNum + "_" + opName;
@@ -133,13 +119,6 @@ void TTPrintIRInstrumentation::attachActionHandler(mlir::MLIRContext *ctx) {
           op = block->getParentOp();
         }
         if (op) {
-          if (modelName_ == "unknown") {
-            std::string extractedName = extractModelNameFromLocation(op);
-            if (extractedName != "unknown") {
-              setModelName(extractedName);
-            }
-          }
-
           std::string opName =
               sanitizeFilename(op->getName().getStringRef().str());
           std::string filename = actionTag + "_" + opName;
@@ -193,6 +172,12 @@ void TTPrintIRInstrumentation::runBeforePass(Pass *pass, Operation *op) {
   if (!pass) {
     return;
   }
+  if (modelName_ == "unknown" && op) {
+    std::string extractedName = extractModelNameFromLocation(op);
+    if (extractedName != "unknown") {
+      setModelName(extractedName);
+    }
+  }
   if (dumpInitial_ && !dumpedInitial_ && op) {
     dumpedInitial_ = true;
     dumpIR(op, "initial");
@@ -228,12 +213,6 @@ void TTPrintIRInstrumentation::runAfterPass(Pass *pass, Operation *op) {
   if (level_ == DumpLevel::Pass || level_ == DumpLevel::Transformation) {
     if (!op) {
       return;
-    }
-    if (modelName_ == "unknown") {
-      std::string extractedName = extractModelNameFromLocation(op);
-      if (extractedName != "unknown") {
-        setModelName(extractedName);
-      }
     }
     std::string passName = pass->getName().str();
     dumpIR(op, passName);

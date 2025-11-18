@@ -306,6 +306,32 @@ TEST_F(InstrumentationTest, ExtractModelNameFromLocation) {
   EXPECT_EQ(extracted, "TTPrintIRInstrumentationTest");
 }
 
+TEST_F(InstrumentationTest, ModelName_ExplicitlyProvided) {
+  auto options = test::createOptions(*this);
+  options.level = DumpLevel::Pass;
+  options.modelName = "custom_model";
+  test::runWith(*this, options, test::Pipelines::singlePassPipeline());
+
+  auto filepaths = getOutputFilePaths();
+  EXPECT_TRUE(std::find(filepaths.begin(), filepaths.end(),
+                        "custom_model/test_pipeline/1_Canonicalizer.mlir") !=
+              filepaths.end());
+}
+
+TEST_F(InstrumentationTest, ModelName_ExtractedFromIR) {
+  auto options = test::createOptions(*this);
+  options.level = DumpLevel::Pass;
+  options.modelName = "";
+  test::runWith(*this, options, test::Pipelines::singlePassPipeline());
+
+  auto filepaths = getOutputFilePaths();
+  EXPECT_TRUE(
+      std::find(
+          filepaths.begin(), filepaths.end(),
+          "TTPrintIRInstrumentationTest/test_pipeline/1_Canonicalizer.mlir") !=
+      filepaths.end());
+}
+
 TEST_F(InstrumentationTest, Pass) {
   auto options = test::createOptions(*this);
   options.level = DumpLevel::Pass;
