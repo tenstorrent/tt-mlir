@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttcore-register-device --d2m-linalg-to-affine -o %t %s
+// RUN: ttmlir-opt --ttcore-register-device --d2m-linalg-to-affine="use-tile-matmul=true" -o %t %s
 // RUN: FileCheck %s --input-file=%t
 
 #l1_ = #ttcore.memory_space<l1>

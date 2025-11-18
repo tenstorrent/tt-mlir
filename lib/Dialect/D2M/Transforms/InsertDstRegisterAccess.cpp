@@ -85,6 +85,28 @@ public:
           ttcore::getOpChipDescAttr(op).getDstLogicalSizeTiles(
               largestDstType, false, maxDstPhysicalSizeTiles);
 
+      // Process linalg.generic ops that were not converted by LinalgToAffine
+      // (these are tile_matmul ops when useTileMatmul=false)
+      bool linalgToAffineFailed = false;
+      block.walk([&](linalg::GenericOp linalgGenericOp) {
+        if (!useTileMatmul && hasTileMatmul(linalgGenericOp)) {
+          if (!op.isExplicitDatamovementForm()) {
+            linalgToAffineFailed |= rewriteTileMatmulAsTileMatmulBlock(
+                rewriter, op, *genericRegion, linalgGenericOp, dstCapacity,
+                modified);
+            return;
+          }
+        }
+
+        // This should not happen - all other linalg ops should have been
+        // converted by LinalgToAffine pass
+        linalgToAffineFailed = true;
+      });
+
+      if (linalgToAffineFailed) {
+        return failure();
+      }
+
       // Process affine loops marked by LinalgToAffine pass
       block.walk([&](affine::AffineForOp forOp) {
         // Only process root loops marked by LinalgToAffine
@@ -356,6 +378,7 @@ public:
     });
     return hasTileMatmul;
   }
+
   /*
     Expand a linalg.generic op that contains a tile_matmul into a
     tile_matmul_block.

@@ -62,29 +62,14 @@ public:
       // Convert all linalg.generic ops to affine loops
       bool conversionFailed = false;
       block.walk([&](linalg::GenericOp linalgGenericOp) {
-        // Special handling for tile matmul when not in explicit datamovement
-        // form
-        if (!useTileMatmul && hasTileMatmul(linalgGenericOp)) {
-          // Only use tile matmul block rewrite when not in explicit
-          // datamovement form. Explicit datamovement form should fall through
-          // to regular linalg-to-affine conversion.
-          if (!op.isExplicitDatamovementForm()) {
-            // For tile matmul, just convert to affine without special handling
-            // The actual tile_matmul_block generation happens in
-            // InsertDstRegisterAccess
-            rewriter.setInsertionPoint(linalgGenericOp);
-            auto linalgLoops =
-                linalg::linalgOpToAffineLoops(rewriter, linalgGenericOp);
-            if (failed(linalgLoops)) {
-              conversionFailed = true;
-              return;
-            }
-            assert(!linalgLoops.value().empty());
-            markAndReplaceLinalgOp(rewriter, linalgGenericOp,
-                                   linalgLoops.value().front());
-            modified = true;
-            return;
-          }
+        // Skip linalg.generic ops containing tile_matmul when
+        // useTileMatmul=false These will be handled directly by
+        // InsertDstRegisterAccess pass which converts them to tile_matmul_block
+        // operations.
+        if (!useTileMatmul && hasTileMatmul(linalgGenericOp) &&
+            !op.isExplicitDatamovementForm()) {
+          // Skip this linalg op - leave it for InsertDstRegisterAccess
+          return;
         }
 
         // Regular linalg to affine conversion
