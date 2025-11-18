@@ -132,7 +132,7 @@ struct TTIRToTTMetalPipelineOptions
       *this, "stream-insert-policy",
       llvm::cl::desc("Policy for deciding when to insert operand streams "
                      "('always', 'infer')."),
-      llvm::cl::init("always")};
+      llvm::cl::init("infer")};
 
   // If a positive value given, the allocator will use it for L1 capacity
   // instead of reading from `ChipDescAttr`. Used for testing.

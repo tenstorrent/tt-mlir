@@ -261,8 +261,6 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
   using Base = impl::D2MAllocateBase<D2MAllocate>;
   using Base::Base;
 
-  bool useAlwaysStreamPolicy = true;   ///< Set by a pass option.
-  bool useMinBufferSizePolicy = false; ///< Set by a pass option.
   MemorySpaces memSpaces;
   ttcore::MemorySpaceAttr L1Attr = nullptr;
   ttcore::MemorySpaceAttr DRAMAttr = nullptr;
@@ -277,6 +275,14 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     s << "\ttest-buffer-size-policy: " << obj.testBufferSizePolicy << "\n";
     s << "}";
     return s.str();
+  }
+
+  bool useAlwaysStreamPolicy() const {
+    return (streamInsertPolicy == "always");
+  }
+
+  bool useMinBufferSizePolicy() const {
+    return (testBufferSizePolicy == "min");
   }
 
   void runOnOperation() override {
@@ -295,9 +301,6 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     TT_ALLOC_DEBUG("using memspaces:\n\tDRAM\t{}\n\tL1\t{}",
                    to_string(memSpaces[ordinal(MemorySpace::DeviceDRAM)]),
                    to_string(memSpaces[ordinal(MemorySpace::DeviceL1)]));
-
-    useAlwaysStreamPolicy = (streamInsertPolicy == "always");
-    useMinBufferSizePolicy = (testBufferSizePolicy == "min");
 
     using namespace ttcore;
 
@@ -584,7 +587,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
       // grid/shard dim extents in `grid/shardExtents`.
       {
         SmallVector<int64_t> rescaling(rank, 1);
-        if (useMinBufferSizePolicy) {
+        if (useMinBufferSizePolicy()) {
           const llvm::BitVector participationMask =
               getParticipatingDimMask(genericOp);
           const SmallVector<int64_t> shardFactors =
@@ -902,7 +905,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
                     continue;
                   }
 
-                  if (useAlwaysStreamPolicy ||
+                  if (useAlwaysStreamPolicy() ||
                       inferStreamRequirement(user, operandCtx.operandIndex())) {
                     TT_debug(operandCtx.bufferType != nullptr);
                     const AllocSizeT bufferSize = ttmlir::utils::alignUp(
@@ -1102,8 +1105,9 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
         // we're left with the default goal of always having operand streams.
 
         if (!operandCtx.hasStream &&
-            (useAlwaysStreamPolicy ||
+            (useAlwaysStreamPolicy() ||
              inferStreamRequirement(genericOp, operandCtx.operandIndex()))) {
+
           // The above IR modifications may have changed memspace attributes
           // of ops in the operand's def chain; inserting a matching
           // `stream_layout` next will restore IR to a valid form.
