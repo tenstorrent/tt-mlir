@@ -3,8 +3,8 @@
 module {
   func.func @test_rank_mismatch(%arg0: tensor<3x320x320xf32>) -> tensor<1x3x320x320x!quant.uniform<i32:f32, 1.000000e-01>> {
     // CHECK: error: 'ttir.quantize' op Input tensor rank of 3 does not match the output tensor rank of 4
-    %1 = "ttir.quantize"(%arg0) : (tensor<3x320x320xf32>, tensor<1x3x320x320x!quant.uniform<i32:f32) -> tensor<1x3x320x320x!quant.uniform<i32:f32, 1.000000e-01>>
-    return %1 : tensor<1x3x320x320x!quant.uniform<i32:f32, 1.000000e-01>>
+    %0 = "ttir.quantize"(%arg0) : (tensor<3x320x320xf32>) -> tensor<1x3x320x320x!quant.uniform<i32:f32, 1.000000e-01>>
+    return %0 : tensor<1x3x320x320x!quant.uniform<i32:f32, 1.000000e-01>>
   }
 }
 
@@ -12,8 +12,8 @@ module {
 module {
   func.func @test_shape_mismatch(%arg0: tensor<1x4x320x320xf32>) -> tensor<1x3x320x320x!quant.uniform<i32:f32, 1.000000e-01>> {
     // CHECK: error: 'ttir.quantize' op Output tensor shape (1,3,320,320) must match the inferred shape: (1,4,320,320)
-    %1 = "ttir.quantize"(%arg0) : (tensor<1x4x320x320xf32>, tensor<1x3x320x320x!quant.uniform<i32:f32) -> tensor<1x3x320x320x!quant.uniform<i32:f32, 1.000000e-01>>
-    return %1 : tensor<1x3x320x320x!quant.uniform<i32:f32, 1.000000e-01>>
+    %0 = "ttir.quantize"(%arg0) : (tensor<1x4x320x320xf32>) -> tensor<1x3x320x320x!quant.uniform<i32:f32, 1.000000e-01>>
+    return %0 : tensor<1x3x320x320x!quant.uniform<i32:f32, 1.000000e-01>>
   }
 }
 
@@ -21,8 +21,8 @@ module {
 module {
   func.func @test_invalid_input_data_type(%arg0: tensor<1x3x320x320xi32>) -> tensor<1x3x320x320x!quant.uniform<i32:f32, 1.000000e-01>> {
     // CHECK: error: 'ttir.quantize' op Input element type must be float, but got 'i32'
-    %1 = "ttir.quantize"(%arg0) : (tensor<1x3x320x320xi32>, tensor<1x3x320x320x!quant.uniform<i32:f32) -> tensor<1x3x320x320x!quant.uniform<i32:f32, 1.000000e-01>>
-    return %1 : tensor<1x3x320x320x!quant.uniform<i32:f32, 1.000000e-01>>
+    %0 = "ttir.quantize"(%arg0) : (tensor<1x3x320x320xi32>) -> tensor<1x3x320x320x!quant.uniform<i32:f32, 1.000000e-01>>
+    return %0 : tensor<1x3x320x320x!quant.uniform<i32:f32, 1.000000e-01>>
   }
 }
 
