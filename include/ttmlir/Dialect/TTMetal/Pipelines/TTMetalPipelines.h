@@ -117,13 +117,23 @@ struct TTIRToTTMetalPipelineOptions
                      "(>=1). Default is 2."),
       llvm::cl::init(2)};
 
-  // The allocator will not consider generic outputs in L1 eligible for spilling
-  // unless this option is turned on. DRAM outputs are always spilled.
+  // The allocator will not consider generic outputs eligible for spilling
+  // unless this option is turned on.
   Option<bool> allowL1OutputSpilling{
       *this, "allow-l1-output-spilling",
       llvm::cl::desc(
           "Make generic outputs in L1 eligible for spilling to DRAM."),
       llvm::cl::init(false)};
+  // The allocator will attempt to have all generic operands use streams by
+  // default. Using 'infer' will restore the old behavior of trying to infer
+  // stream requirements from static generic structure (broadcast, reduction
+  // dims, etc).
+  Option<std::string> streamInsertPolicy{
+      *this, "stream-insert-policy",
+      llvm::cl::desc("Policy for deciding when to insert operand streams "
+                     "('always', 'infer')."),
+      llvm::cl::init("always")};
+
   // If a positive value given, the allocator will use it for L1 capacity
   // instead of reading from `ChipDescAttr`. Used for testing.
   Option<std::int64_t> testAssumel1Capacity{

@@ -491,6 +491,10 @@ def D2MAllocate: Pass<"d2m-allocate", "::mlir::ModuleOp"> {
   }];
   let dependentDialects = ["::mlir::tt::ttcore::TTCoreDialect", "::mlir::memref::MemRefDialect"];
   let options = D2MStreamingOptions # [
+    Option<"streamInsertPolicy",
+          "stream-insert-policy",
+          "std::string", /*default=*/"\"always\"",
+          "Policy for deciding when to insert operand streams ('always', 'infer').">,
     Option<"testAssumeL1Capacity",
           "test-assume-l1-capacity",
           "std::int64_t", /*default=*/"0",
