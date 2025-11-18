@@ -11,14 +11,29 @@ from enum import Enum, auto
 import re
 
 from ttmlir.ir import *
-from ttmlir.dialects import ttir, ttcore, tensor, quant
+from ttmlir.dialects import ttir, ttcore, tensor, quant, func
 from ttmlir.passes import GoldenTensor, DataType
 
 from builder.base.builder import *
 from golden import *
 
 
-class TTIRBuilder(Builder):
+class TTIRBuilderMeta(type):
+    def __new__(mcls, name, bases, namespace):
+        cls = super().__new__(mcls, name, bases, namespace)
+        cls.build_opname_to_opview_map()
+        cls.build_opview_to_builder_map()
+        cls.build_opview_to_parser_map()
+        cls.build_opview_to_split(map)
+        return cls
+
+
+class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
+    opname_to_opview_map: Dict[str, OpView] = {}
+    opview_to_builder_map: Dict[OpView, Callable] = {}
+    opview_to_parser_map: Dict[OpView, Callable] = {}
+    opview_to_split_map: Dict[OpView, Callable] = {}
+
     # ----- Methods -----
 
     def __init__(
@@ -33,7 +48,83 @@ class TTIRBuilder(Builder):
     ):
         super().__init__(ctx, location, mesh_name, mesh_dict, disable_golden_check)
 
-    # ----- Public methods -----
+    # ----- Class helper methods -----
+
+    def tag(name):
+        def decorator(func):
+            func._tag = name
+            return func
+
+        return decorator
+
+    def parse(name):
+        def decorator(func):
+            func._parse = name
+            return func
+
+        return decorator
+
+    def split(name):
+        def decorator(func):
+            func._split = name
+            return func
+
+        return decorator
+
+    @classmethod
+    def build_opname_to_opview_map(cls):
+        for name, obj in inspect.getmembers(ttir, inspect.isclass):
+            if issubclass(obj, OpView) and obj is not OpView:
+                op_name = getattr(obj, "OPERATION_NAME", None)
+
+                if op_name is not None:
+                    cls.opname_to_opview_map[op_name] = obj
+
+    @classmethod
+    def build_opview_to_builder_map(cls):
+        for attr_name in dir(cls):
+            attr = getattr(cls, attr_name)
+            func = attr
+
+            if callable(attr) and hasattr(func, "_tag"):
+                cls.opview_to_builder_map[func._tag] = attr
+
+    @classmethod
+    def build_opview_to_parser_map(cls):
+        for attr_name in dir(cls):
+            attr = getattr(cls, attr_name)
+            func = attr
+
+            if callable(attr) and hasattr(func, "_parse"):
+                cls.opview_to_parser_map[func._parse] = attr
+
+    @classmethod
+    def build_opview_to_split(cls, map):
+        for attr_name in dir(cls):
+            attr = getattr(cls, attr_name)
+            func = attr
+
+            if callable(attr) and hasattr(func, "_split"):
+                cls.opview_to_split_map[func._split] = attr
+
+    def get_opview_from_method(self, method: func) -> OpView:
+        return getattr(method, "_tag", None)
+
+    def get_opview_from_parser(self, parser: func) -> OpView:
+        return getattr(parser, "_parse", None)
+
+    def get_opview_from_split(self, split: func) -> OpView:
+        return getattr(split, "_split", None)
+
+    def get_parser_from_opview(self, opview: OpView) -> Callable:
+        if opview not in self.opview_to_parser_map:
+            assert False, f"No parser found for opview {opview}"
+        return self.opview_to_parser_map.get(opview)
+
+    def get_split_from_opview(self, opview: OpView) -> Callable:
+        if opview not in self.opview_to_split_map:
+            assert False, f"No split function found for opview {opview}"
+        return self.opview_to_split_map.get(opview)
 
     # ----- Private methods ----
 
@@ -144,7 +235,2303 @@ class TTIRBuilder(Builder):
 
             return op
 
+    def _get_location(self) -> Location:
+        stack = inspect.stack()
+        caller_frame = stack[2]
+        filename = caller_frame.filename
+        lineno = caller_frame.lineno
+        loc = Location.name(f"{filename}:{lineno}")
+
     # ----- Public Op Generators ----
+
+    ############### ttir.PoolingOp ###############
+
+    @tag(ttir.PoolingOp)
+    def pooling(
+        self,
+        in0: Operand,
+        pooling_method: str,
+        window_dimensions: List[int],
+        window_strides: List[int],
+        padding: List[int],
+        window_dilations: List[int],
+        base_dilations: Optional[List[int]] = None,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpView:
+        ttir_op = self.get_opview_from_method(TTIRBuilder.pooling)
+
+        if base_dilations is None:
+            base_dilations = [1] * len(window_dimensions)
+
+        pooling_method_attr = Attribute.parse(f"#ttir<pooling_method {pooling_method}>")
+        window_dimensions_attr = DenseI64ArrayAttr.get(window_dimensions)
+        window_strides_attr = DenseI64ArrayAttr.get(window_strides)
+        padding_attr = DenseI64ArrayAttr.get(padding)
+        window_dilations_attr = DenseI64ArrayAttr.get(window_dilations)
+        base_dilations_attr = DenseI64ArrayAttr.get(base_dilations)
+
+        if output_type is None:
+            output_type = self.get_type(in0)
+
+        input0 = self._get_golden_tensor(in0)
+        op_golden_function = get_golden_function(ttir_op)
+        golden_output = op_golden_function(
+            input0,
+            pooling_method_attr,
+            window_dimensions_attr,
+            window_strides_attr,
+            base_dilations_attr,
+            window_dilations_attr,
+            padding_attr,
+        )
+        result = self._create_ranked_tensor_type(golden_output.shape, output_type)
+        output = self._get_empty_op(result)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = ttir_op(
+            [result],
+            [in0],
+            [output],
+            pooling_method_attr,
+            window_dimensions_attr,
+            window_strides_attr,
+            base_dilations_attr,
+            window_dilations_attr,
+            padding_attr,
+            loc=loc,
+        )
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        if not self._disable_golden_check:
+            self._set_golden_tensor(op, golden_output)
+
+        return op
+
+    @parse(ttir.PoolingOp)
+    def pooling_parser(
+        self,
+        old_op: ttir.PoolingOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> global_dict:
+        ttir_op = self.get_opview_from_parser(TTIRBuilder.pooling_parser)
+
+        new_inputs = []
+        for old_input in old_op.inputs:
+            new_inputs.append(global_dict[old_input])
+
+        new_outputs = []
+        for old_output in old_op.outputs:
+            new_outputs.append(global_dict[old_output])
+
+        pooling_method_attr = old_op.pooling_method
+        window_dimensions_attr = old_op.window_dimensions
+        window_strides_attr = old_op.window_strides
+        padding_attr = old_op.padding
+        window_dilations_attr = old_op.window_dilations
+        base_dilations_attr = old_op.base_dilations
+        result = old_op.result.type
+
+        new_op = ttir_op(
+            [result],
+            new_inputs,
+            new_outputs,
+            pooling_method_attr,
+            window_dimensions_attr,
+            window_strides_attr,
+            base_dilations_attr,
+            window_dilations_attr,
+            padding_attr,
+            loc=old_op.location,
+        )
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensors(new_inputs)[0]
+            op_golden_function = get_golden_function(ttir_op)
+            golden_output = op_golden_function(
+                input0,
+                pooling_method_attr,
+                window_dimensions_attr,
+                window_strides_attr,
+                base_dilations_attr,
+                window_dilations_attr,
+                padding_attr,
+            )
+            self._set_golden_tensor(new_op, golden_output)
+
+        return new_op
+
+    @split(ttir.PoolingOp)
+    def pooling_split(
+        self,
+        old_op: ttir.PoolingOp,
+    ) -> Tuple[Module, TTIRBuilder]:
+        ttir_op = self.get_opview_from_split(TTIRBuilder.pooling_split)
+
+        pool_module = Module.create()
+        pool_builder = TTIRBuilder(self._ctx, self._loc)
+        op_input_types = [old_op.inputs[0].type]
+
+        with InsertionPoint(pool_module.body):
+
+            @func.func(*op_input_types, name="pool_module")
+            def decorated_func(*inputs):
+                in0 = inputs[0]
+                result = old_op.result.type
+                output = self._get_empty_op(result)
+
+                new_op = ttir.PoolingOp(
+                    [result],
+                    [in0],
+                    [output],
+                    old_op.pooling_method,
+                    old_op.window_dimensions,
+                    old_op.window_strides,
+                    old_op.base_dilations,
+                    old_op.window_dilations,
+                    old_op.padding,
+                    # loc=old_op.location, -> this segfault, not sure why
+                )
+
+                if not self._disable_golden_check:
+                    op_golden_function = get_golden_function(ttir_op)
+
+                    input_owner0 = old_op.inputs[0].owner
+                    if isinstance(input_owner0, Block):
+                        queried_input0 = old_op.inputs[0]
+                    else:
+                        queried_input0 = input_owner0
+
+                    input0 = self._get_golden_tensor(queried_input0)
+                    golden_output = op_golden_function(
+                        input0,
+                        old_op.pooling_method,
+                        old_op.window_dimensions,
+                        old_op.window_strides,
+                        old_op.base_dilations,
+                        old_op.window_dilations,
+                        old_op.padding,
+                    )
+                    pool_builder._set_golden_tensor(new_op, golden_output)
+
+                return new_op
+
+        return pool_module, pool_builder
+
+    ############### ttir.BatchNormInferenceOp ###############
+
+    @tag(ttir.BatchNormInferenceOp)
+    def batch_norm_inference(
+        self,
+        in0: Operand,
+        scale: Operand,
+        offset: Operand,
+        mean: Operand,
+        variance: Operand,
+        epsilon: float = 1e-5,
+        dimension: int = 1,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpView:
+        ttir_op = self.get_opview_from_method(TTIRBuilder.batch_norm_inference)
+        epsilon_attr = FloatAttr.get_f32(epsilon)
+        dimension_attr = IntegerAttr.get(IntegerType.get_signless(32), dimension)
+
+        if output_type is None:
+            output_type = self.get_type(in0)
+
+        input0 = self._get_golden_tensor(in0)
+        scale0 = self._get_golden_tensor(scale)
+        offset0 = self._get_golden_tensor(offset)
+        mean0 = self._get_golden_tensor(mean)
+        variance0 = self._get_golden_tensor(variance)
+        op_golden_function = get_golden_function(ttir_op)
+        golden_output = op_golden_function(
+            input0,
+            scale0,
+            offset0,
+            mean0,
+            variance0,
+            epsilon_attr,
+            dimension_attr,
+        )
+        result = self._create_ranked_tensor_type(golden_output.shape, output_type)
+        output = self._get_empty_op(result)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = ttir_op(
+            result,
+            in0,
+            scale,
+            offset,
+            mean,
+            variance,
+            output,
+            epsilon_attr,
+            dimension_attr,
+            loc=loc,
+        )
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        if not self._disable_golden_check:
+            self._set_golden_tensor(op, golden_output)
+
+        return op
+
+    @parse(ttir.BatchNormInferenceOp)
+    def batch_norm_inference_parser(
+        self,
+        old_op: ttir.BatchNormInferenceOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> global_dict:
+        ttir_op = self.get_opview_from_parser(TTIRBuilder.batch_norm_inference_parser)
+        in0 = global_dict[old_op.operand]
+        scale = global_dict[old_op.scale]
+        offset = global_dict[old_op.offset]
+        mean = global_dict[old_op.mean]
+        variance = global_dict[old_op.variance]
+        output = global_dict[old_op.output]
+        epsilon_attr = old_op.epsilon
+        dimension_attr = old_op.dimension
+        result = old_op.result.type
+
+        new_op = ttir_op(
+            result,
+            in0,
+            scale,
+            offset,
+            mean,
+            variance,
+            output,
+            epsilon_attr,
+            dimension_attr,
+            loc=old_op.location,
+        )
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(in0)
+            scale0 = self._get_golden_tensor(scale)
+            offset0 = self._get_golden_tensor(offset)
+            mean0 = self._get_golden_tensor(mean)
+            variance0 = self._get_golden_tensor(variance)
+            op_golden_function = get_golden_function(ttir_op)
+            golden_output = op_golden_function(
+                input0,
+                scale0,
+                offset0,
+                mean0,
+                variance0,
+                epsilon_attr,
+                dimension_attr,
+            )
+            self._set_golden_tensor(new_op, golden_output)
+
+        return new_op
+
+    @split(ttir.BatchNormInferenceOp)
+    def batch_norm_inference_split(
+        self,
+        old_op: ttir.BatchNormInferenceOp,
+    ) -> Tuple[Module, TTIRBuilder]:
+        ttir_op = self.get_opview_from_split(TTIRBuilder.batch_norm_inference_split)
+
+        batch_norm_inference_module = Module.create()
+        batch_norm_inference_builder = TTIRBuilder(self._ctx, self._loc)
+        op_input_types = [
+            old_op.operand.type,
+            old_op.scale.type,
+            old_op.offset.type,
+            old_op.mean.type,
+            old_op.variance.type,
+        ]
+
+        with InsertionPoint(batch_norm_inference_module.body):
+
+            @func.func(*op_input_types, name="batch_norm_inference_module")
+            def decorated_func(*inputs):
+                in0 = inputs[0]
+                scale = inputs[1]
+                offset = inputs[2]
+                mean = inputs[3]
+                variance = inputs[4]
+                result = old_op.result.type
+                output = self._get_empty_op(result)
+
+                new_op = ttir.BatchNormInferenceOp(
+                    result,
+                    in0,
+                    scale,
+                    offset,
+                    mean,
+                    variance,
+                    output,
+                    old_op.epsilon,
+                    old_op.dimension,
+                    # loc=old_op.location, -> this segfault, not sure why
+                )
+
+                if not self._disable_golden_check:
+                    input_owner0 = old_op.operand.owner
+                    if isinstance(input_owner0, Block):
+                        queried_input0 = old_op.operand
+                    else:
+                        queried_input0 = input_owner0
+
+                    scale_owner = old_op.scale.owner
+                    if isinstance(scale_owner, Block):
+                        queried_scale = old_op.scale
+                    else:
+                        queried_scale = scale_owner
+
+                    offset_owner = old_op.offset.owner
+                    if isinstance(offset_owner, Block):
+                        queried_offset = old_op.offset
+                    else:
+                        queried_offset = offset_owner
+
+                    mean_owner = old_op.mean.owner
+                    if isinstance(mean_owner, Block):
+                        queried_mean = old_op.mean
+                    else:
+                        queried_mean = mean_owner
+
+                    variance_owner = old_op.variance.owner
+                    if isinstance(variance_owner, Block):
+                        queried_variance = old_op.variance
+                    else:
+                        queried_variance = variance_owner
+
+                    input0 = self._get_golden_tensor(queried_input0)
+                    scale0 = self._get_golden_tensor(queried_scale)
+                    offset0 = self._get_golden_tensor(queried_offset)
+                    mean0 = self._get_golden_tensor(queried_mean)
+                    variance0 = self._get_golden_tensor(queried_variance)
+
+                    op_golden_function = get_golden_function(ttir_op)
+                    golden_output = op_golden_function(
+                        input0,
+                        scale0,
+                        offset0,
+                        mean0,
+                        variance0,
+                        old_op.epsilon,
+                        old_op.dimension,
+                    )
+                    batch_norm_inference_builder._set_golden_tensor(
+                        new_op, golden_output
+                    )
+
+                return new_op
+
+        return batch_norm_inference_module, batch_norm_inference_builder
+
+    ############### ttir.ConvolutionOp ###############
+
+    @tag(ttir.ConvolutionOp)
+    def convolution(
+        self,
+        in0: Operand,
+        weight: Operand,
+        bias: Optional[Operand],
+        window_strides: Union[int, List[int]],
+        padding: Union[int, List[int]],
+        input_dilation: Union[int, List[int]] = [1, 1],
+        weight_dilation: Union[int, List[int]] = [1, 1],
+        feature_group_count: int = 1,
+        batch_group_count: int = 1,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpView:
+        ttir_op = self.get_opview_from_method(TTIRBuilder.convolution)
+
+        if isinstance(window_strides, int):
+            window_strides = [window_strides, window_strides]
+        if isinstance(padding, int):
+            padding = [padding, padding, padding, padding]
+        elif len(padding) == 2:
+            padding = [padding[0], padding[1], padding[0], padding[1]]
+        if isinstance(input_dilation, int):
+            input_dilation = [input_dilation, input_dilation]
+        if isinstance(weight_dilation, int):
+            weight_dilation = [weight_dilation, weight_dilation]
+
+        window_strides_attr = DenseI64ArrayAttr.get(window_strides)
+        padding_attr = DenseI64ArrayAttr.get(padding)
+        input_dilation_attr = DenseI64ArrayAttr.get(input_dilation)
+        weight_dilation_attr = DenseI64ArrayAttr.get(weight_dilation)
+        window_reversal_attr = DenseBoolArrayAttr.get([False, False])
+        feature_group_count_attr = IntegerAttr.get(
+            IntegerType.get_signless(64), feature_group_count
+        )
+        batch_group_count_attr = IntegerAttr.get(
+            IntegerType.get_signless(64), batch_group_count
+        )
+        layout_str = "#ttir<convolution_layout input_batch = 0, input_feature = 1, input_spatial_dimensions = 2x3, kernel_output_feature = 0, kernel_input_feature = 1, kernel_spatial_dimensions = 2x3, output_batch = 0, output_feature = 1, output_spatial_dimensions = 2x3>"
+        convolution_layout_attr = Attribute.parse(layout_str)
+
+        input0 = self._get_golden_tensor(in0)
+        weight0 = self._get_golden_tensor(weight)
+        bias0 = None
+        if bias is not None:
+            bias0 = self._get_golden_tensor(bias)
+
+        if output_type is None:
+            output_type = self.get_type(in0)
+
+        op_golden_function = get_golden_function(ttir_op)
+        golden_output = op_golden_function(
+            input0,
+            weight0,
+            bias0,
+            window_strides_attr,
+            padding_attr,
+            input_dilation_attr,
+            weight_dilation_attr,
+            window_reversal_attr,
+            convolution_layout_attr,
+            feature_group_count_attr,
+            batch_group_count_attr,
+        )
+        result = self._create_ranked_tensor_type(golden_output.shape, output_type)
+        output = self._get_empty_op(result)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = ttir_op(
+            result,
+            in0,
+            weight,
+            output,
+            window_strides_attr,
+            padding_attr,
+            input_dilation_attr,
+            weight_dilation_attr,
+            window_reversal_attr,
+            convolution_layout_attr,
+            feature_group_count_attr,
+            batch_group_count_attr,
+            # bias=bias,
+            loc=loc,
+        )
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        if not self._disable_golden_check:
+            self._set_golden_tensor(op, golden_output)
+
+        return op
+
+    @parse(ttir.ConvolutionOp)
+    def convolution_parser(
+        self,
+        old_op: ttir.ConvolutionOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> global_dict:
+        ttir_op = self.get_opview_from_parser(TTIRBuilder.convolution_parser)
+        in0 = global_dict[old_op.input]
+        weight = global_dict[old_op.weight]
+        output = global_dict[old_op.output]
+        window_strides_attr = old_op.window_strides
+        padding_attr = old_op.padding
+        input_dilation_attr = old_op.input_dilation
+        weight_dilation_attr = old_op.weight_dilation
+        window_reversal_attr = old_op.window_reversal
+        convolution_layout_attr = old_op.convolution_layout
+        feature_group_count_attr = old_op.feature_group_count
+        batch_group_count_attr = old_op.batch_group_count
+        result = old_op.result.type
+
+        new_op = ttir_op(
+            result,
+            in0,
+            weight,
+            output,
+            window_strides_attr,
+            padding_attr,
+            input_dilation_attr,
+            weight_dilation_attr,
+            window_reversal_attr,
+            convolution_layout_attr,
+            feature_group_count_attr,
+            batch_group_count_attr,
+            loc=old_op.location,
+        )
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(in0)
+            weight0 = self._get_golden_tensor(weight)
+            op_golden_function = get_golden_function(ttir_op)
+            golden_output = op_golden_function(
+                input0,
+                weight0,
+                None,
+                window_strides_attr,
+                padding_attr,
+                input_dilation_attr,
+                weight_dilation_attr,
+                window_reversal_attr,
+                convolution_layout_attr,
+                feature_group_count_attr,
+                batch_group_count_attr,
+            )
+            self._set_golden_tensor(new_op, golden_output)
+
+        return new_op
+
+    @split(ttir.ConvolutionOp)
+    def convolution_split(
+        self,
+        old_op: ttir.ConvolutionOp,
+    ) -> Tuple[Module, TTIRBuilder]:
+        ttir_op = self.get_opview_from_split(TTIRBuilder.convolution_split)
+
+        convolution_module = Module.create()
+        convolution_builder = TTIRBuilder(self._ctx, self._loc)
+        op_input_types = []
+
+        conv_input = old_op.input
+        conv_weight = old_op.weight
+        op_input_types.append(self._get_type(conv_input))
+        op_input_types.append(self._get_type(conv_weight))
+
+        with InsertionPoint(convolution_module.body):
+
+            @func.func(*op_input_types, name="convolution_module")
+            def decorated_func(*inputs):
+                in0 = inputs[0]
+                weight = inputs[1]
+                result = old_op.result.type
+                output = self._get_empty_op(result)
+                window_strides_attr = old_op.window_strides
+                padding_attr = old_op.padding
+                input_dilation_attr = old_op.input_dilation
+                weight_dilation_attr = old_op.weight_dilation
+                window_reversal_attr = old_op.window_reversal
+                convolution_layout_attr = old_op.convolution_layout
+                feature_group_count_attr = old_op.feature_group_count
+                batch_group_count_attr = old_op.batch_group_count
+
+                new_op = ttir.ConvolutionOp(
+                    result,
+                    in0,
+                    weight,
+                    output,
+                    window_strides_attr,
+                    padding_attr,
+                    input_dilation_attr,
+                    weight_dilation_attr,
+                    window_reversal_attr,
+                    convolution_layout_attr,
+                    feature_group_count_attr,
+                    batch_group_count_attr,
+                    # loc=old_op.location, -> this segfault, not sure why
+                )
+
+                if not convolution_builder._disable_golden_check:
+                    input_owner = old_op.input.owner
+                    if isinstance(input_owner, Block):
+                        queried_input = old_op.input
+                    else:
+                        queried_input = input_owner
+
+                    weight_owner = old_op.weight.owner
+                    if isinstance(weight_owner, Block):
+                        queried_weight = old_op.weight
+                    else:
+                        queried_weight = weight_owner
+
+                    input0 = self._get_golden_tensor(queried_input)
+                    weight0 = self._get_golden_tensor(queried_weight)
+
+                    op_golden_function = get_golden_function(ttir_op)
+                    golden_output = op_golden_function(
+                        input0,
+                        weight0,
+                        None,
+                        window_strides_attr,
+                        padding_attr,
+                        input_dilation_attr,
+                        weight_dilation_attr,
+                        window_reversal_attr,
+                        convolution_layout_attr,
+                        feature_group_count_attr,
+                        batch_group_count_attr,
+                    )
+                    convolution_builder._set_golden_tensor(new_op, golden_output)
+
+                return new_op
+
+        return convolution_module, convolution_builder
+
+    ############### ttir.ConstantOp ###############
+
+    @tag(ttir.ConstantOp)
+    def constant(
+        self,
+        tensor: torch.Tensor,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpView:
+        ttir_op = self.get_opview_from_method(TTIRBuilder.constant)
+        value_attr = DenseElementsAttr.get(tensor.numpy())
+        result = self._create_ranked_tensor_type(
+            tensor.shape, self._get_type_from_torch_dtype(tensor.dtype)
+        )
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = ttir_op(
+            result,
+            value_attr,
+            loc=loc,
+        )
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        if not self._disable_golden_check:
+            op_golden_function = get_golden_function(ttir_op)
+            golden_output = op_golden_function(value_attr)
+            self._set_golden_tensor(op, golden_output)
+
+        return op
+
+    @parse(ttir.ConstantOp)
+    def constant_parser(
+        self,
+        old_op: ttir.ConstantOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> global_dict:
+        ttir_op = self.get_opview_from_parser(TTIRBuilder.constant_parser)
+        value_attr = old_op.value
+        result = old_op.result.type
+
+        new_op = ttir_op(
+            result,
+            value_attr,
+            loc=old_op.location,
+        )
+
+        if not self._disable_golden_check:
+            op_golden_function = get_golden_function(ttir_op)
+            golden_output = op_golden_function(value_attr)
+            self._set_golden_tensor(new_op, golden_output)
+
+        return new_op
+
+    @split(ttir.ConstantOp)
+    def constant_split(
+        self,
+        old_op: ttir.ConstantOp,
+    ) -> Tuple[Module, TTIRBuilder]:
+        ttir_op = self.get_opview_from_split(TTIRBuilder.constant_split)
+
+        constant_module = Module.create()
+        constant_builder = TTIRBuilder(self._ctx, self._loc)
+        op_input_types = []
+
+        with InsertionPoint(constant_module.body):
+
+            @func.func(*op_input_types, name="constant_module")
+            def decorated_func(*inputs):
+                value_attr = old_op.value
+                result = old_op.result.type
+
+                new_op = ttir.ConstantOp(
+                    result,
+                    value_attr,
+                    # loc=old_op.location, -> this segfault, not sure why
+                )
+
+                if not self._disable_golden_check:
+                    op_golden_function = get_golden_function(ttir_op)
+                    golden_output = op_golden_function(value_attr)
+                    constant_builder._set_golden_tensor(new_op, golden_output)
+
+                return new_op
+
+        return constant_module, constant_builder
+
+    ############### ttir.PadOp ###############
+
+    @tag(ttir.PadOp)
+    def pad(
+        self,
+        in0: Operand,
+        padding: List[int],
+        value: float = 0.0,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpView:
+        ttir_op = self.get_opview_from_method(TTIRBuilder.pad)
+        padding_attr = DenseI32ArrayAttr.get(padding)
+        value_attr = FloatAttr.get(F32Type.get(), value)
+
+        output_shape = []
+        for i in range(len(padding_attr) // 2):
+            output_shape.append(
+                self.get_shape(in0)[i] + padding_attr[2 * i] + padding_attr[2 * i + 1]
+            )
+
+        if output_type is None:
+            output_type = self.get_type(in0)
+
+        result = self._create_ranked_tensor_type(output_shape, output_type)
+        output = self._get_empty_op(result)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = ttir_op(
+            result,
+            in0,
+            output,
+            padding_attr,
+            value_attr,
+            loc=loc,
+        )
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        if not self._disable_golden_check:
+            input = self._get_golden_tensor(in0)
+            op_golden_function = get_golden_function(ttir_op)
+            golden_output = op_golden_function(input, padding_attr, value_attr)
+            self._set_golden_tensor(op, golden_output)
+
+        return op
+
+    @parse(ttir.PadOp)
+    def pad_parser(
+        self,
+        old_op: ttir.PadOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> global_dict:
+        ttir_op = self.get_opview_from_parser(TTIRBuilder.pad_parser)
+        in0 = global_dict[old_op.input]
+        output = global_dict[old_op.output]
+        padding_attr = old_op.padding
+        value_attr = old_op.value
+        result = old_op.result.type
+
+        new_op = ttir_op(
+            result,
+            in0,
+            output,
+            padding_attr,
+            value_attr,
+            loc=old_op.location,
+        )
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(in0)
+            op_golden_function = get_golden_function(ttir_op)
+            golden_output = op_golden_function(input0, padding_attr, value_attr)
+            self._set_golden_tensor(new_op, golden_output)
+
+        return new_op
+
+    @split(ttir.PadOp)
+    def pad_split(
+        self,
+        old_op: ttir.PadOp,
+    ) -> Tuple[Module, TTIRBuilder]:
+        ttir_op = self.get_opview_from_split(TTIRBuilder.pad_split)
+
+        pad_module = Module.create()
+        pad_builder = TTIRBuilder(self._ctx, self._loc)
+        op_input_types = [old_op.input.type]
+
+        with InsertionPoint(pad_module.body):
+
+            @func.func(*op_input_types, name="pad_module")
+            def decorated_func(*inputs):
+                in0 = inputs[0]
+                padding_attr = old_op.padding
+                value_attr = old_op.value
+                result = old_op.result.type
+                output = self._get_empty_op(result)
+
+                new_op = ttir.PadOp(
+                    result,
+                    in0,
+                    output,
+                    padding_attr,
+                    value_attr,
+                    # loc=old_op.location, -> this segfault, not sure why
+                )
+
+                if not self._disable_golden_check:
+                    input_owner = old_op.input.owner
+                    if isinstance(input_owner, Block):
+                        queried_input = old_op.input
+                    else:
+                        queried_input = input_owner
+
+                    input0 = self._get_golden_tensor(queried_input)
+                    op_golden_function = get_golden_function(ttir_op)
+                    golden_output = op_golden_function(input0, padding_attr, value_attr)
+                    pad_builder._set_golden_tensor(new_op, golden_output)
+
+                return new_op
+
+        return pad_module, pad_builder
+
+    ############### ttir.DotGeneralOp ###############
+
+    @tag(ttir.DotGeneralOp)
+    def dot_general(
+        self,
+        in0: Operand,
+        in1: Operand,
+        batch_dims_lhs: List[int],
+        contract_dims_lhs: List[int],
+        batch_dims_rhs: List[int],
+        contract_dims_rhs: List[int],
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpView:
+        ttir_op = self.get_opview_from_method(TTIRBuilder.dot_general)
+        batch_dims_lhs_attr = DenseI64ArrayAttr.get(batch_dims_lhs)
+        contract_dims_lhs_attr = DenseI64ArrayAttr.get(contract_dims_lhs)
+        batch_dims_rhs_attr = DenseI64ArrayAttr.get(batch_dims_rhs)
+        contract_dims_rhs_attr = DenseI64ArrayAttr.get(contract_dims_rhs)
+
+        lhs = self._get_golden_tensor(in0)
+        rhs = self._get_golden_tensor(in1)
+        op_golden_function = get_golden_function(ttir_op)
+        golden_output = op_golden_function(
+            lhs,
+            rhs,
+            batch_dims_lhs_attr,
+            contract_dims_lhs_attr,
+            batch_dims_rhs_attr,
+            contract_dims_rhs_attr,
+        )
+
+        if output_type is None:
+            output_type = self._get_type_from_torch_dtype(golden_output.dtype)
+
+        result = self._create_ranked_tensor_type(golden_output.shape, output_type)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = ttir_op(
+            result,
+            in0,
+            in1,
+            batch_dims_lhs_attr,
+            contract_dims_lhs_attr,
+            batch_dims_rhs_attr,
+            contract_dims_rhs_attr,
+            loc=loc,
+        )
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        if not self._disable_golden_check:
+            self._set_golden_tensor(op, golden_output)
+
+        return op
+
+    @parse(ttir.DotGeneralOp)
+    def dot_general_parser(
+        self,
+        old_op: ttir.DotGeneralOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> global_dict:
+        ttir_op = self.get_opview_from_parser(TTIRBuilder.dot_general_parser)
+        in0 = global_dict[old_op.lhs]
+        in1 = global_dict[old_op.rhs]
+        batch_dims_lhs_attr = old_op.batch_dims_lhs
+        contract_dims_lhs_attr = old_op.contract_dims_lhs
+        batch_dims_rhs_attr = old_op.batch_dims_rhs
+        contract_dims_rhs_attr = old_op.contract_dims_rhs
+        result = old_op.result.type
+
+        new_op = ttir_op(
+            result,
+            in0,
+            in1,
+            batch_dims_lhs_attr,
+            contract_dims_lhs_attr,
+            batch_dims_rhs_attr,
+            contract_dims_rhs_attr,
+            loc=old_op.location,
+        )
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(in0)
+            input1 = self._get_golden_tensor(in1)
+            op_golden_function = get_golden_function(ttir_op)
+            golden_output = op_golden_function(
+                input0,
+                input1,
+                batch_dims_lhs_attr,
+                contract_dims_lhs_attr,
+                batch_dims_rhs_attr,
+                contract_dims_rhs_attr,
+            )
+            self._set_golden_tensor(new_op, golden_output)
+
+        return new_op
+
+    @split(ttir.DotGeneralOp)
+    def dot_general_split(
+        self,
+        old_op: ttir.DotGeneralOp,
+    ) -> Tuple[Module, TTIRBuilder]:
+        ttir_op = self.get_opview_from_split(TTIRBuilder.dot_general_split)
+
+        dot_general_module = Module.create()
+        dot_general_builder = TTIRBuilder(self._ctx, self._loc)
+        op_input_types = [old_op.lhs.type, old_op.rhs.type]
+
+        with InsertionPoint(dot_general_module.body):
+
+            @func.func(*op_input_types, name="dot_general_module")
+            def decorated_func(*inputs):
+                in0 = inputs[0]
+                in1 = inputs[1]
+                batch_dims_lhs_attr = old_op.batch_dims_lhs
+                contract_dims_lhs_attr = old_op.contract_dims_lhs
+                batch_dims_rhs_attr = old_op.batch_dims_rhs
+                contract_dims_rhs_attr = old_op.contract_dims_rhs
+                result = old_op.result.type
+
+                new_op = ttir.DotGeneralOp(
+                    result,
+                    in0,
+                    in1,
+                    batch_dims_lhs_attr,
+                    contract_dims_lhs_attr,
+                    batch_dims_rhs_attr,
+                    contract_dims_rhs_attr,
+                    # loc=old_op.location, -> this segfault, not sure why
+                )
+
+                if not self._disable_golden_check:
+                    lhs_owner = old_op.lhs.owner
+                    if isinstance(lhs_owner, Block):
+                        queried_lhs = old_op.lhs
+                    else:
+                        queried_lhs = lhs_owner
+
+                    rhs_owner = old_op.rhs.owner
+                    if isinstance(rhs_owner, Block):
+                        queried_rhs = old_op.rhs
+                    else:
+                        queried_rhs = rhs_owner
+
+                    input0 = self._get_golden_tensor(queried_lhs)
+                    input1 = self._get_golden_tensor(queried_rhs)
+                    op_golden_function = get_golden_function(ttir_op)
+                    golden_output = op_golden_function(
+                        input0,
+                        input1,
+                        batch_dims_lhs_attr,
+                        contract_dims_lhs_attr,
+                        batch_dims_rhs_attr,
+                        contract_dims_rhs_attr,
+                    )
+                    dot_general_builder._set_golden_tensor(new_op, golden_output)
+
+                return new_op
+
+        return dot_general_module, dot_general_builder
+
+    ############### ttir.PermuteOp ###############
+
+    @tag(ttir.PermuteOp)
+    def permute(
+        self,
+        in0: Operand,
+        permutation: List[int],
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpView:
+        ttir_op = self.get_opview_from_method(TTIRBuilder.permute)
+        permutation_attr = DenseI64ArrayAttr.get(permutation)
+
+        output_shape = []
+        in0_shape = self.get_shape(in0)
+        for i in permutation:
+            output_shape.append(in0_shape[i])
+
+        if output_type is None:
+            output_type = self.get_type(in0)
+
+        result = self._create_ranked_tensor_type(output_shape, output_type)
+        output = self._get_empty_op(result)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = ttir_op(
+            result,
+            in0,
+            output,
+            permutation_attr,
+            loc=loc,
+        )
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        if not self._disable_golden_check:
+            input = self._get_golden_tensor(in0)
+            op_golden_function = get_golden_function(ttir_op)
+            golden_output = op_golden_function(input, permutation_attr)
+            self._set_golden_tensor(op, golden_output)
+
+        return op
+
+    @parse(ttir.PermuteOp)
+    def permute_parser(
+        self,
+        old_op: ttir.PermuteOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> global_dict:
+        ttir_op = self.get_opview_from_parser(TTIRBuilder.permute_parser)
+        in0 = global_dict[old_op.input]
+        output = global_dict[old_op.output]
+        permutation_attr = old_op.permutation
+        result = old_op.result.type
+
+        new_op = ttir_op(
+            result,
+            in0,
+            output,
+            permutation_attr,
+            loc=old_op.location,
+        )
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(in0)
+            op_golden_function = get_golden_function(ttir_op)
+            golden_output = op_golden_function(input0, permutation_attr)
+            self._set_golden_tensor(new_op, golden_output)
+
+        return new_op
+
+    @split(ttir.PermuteOp)
+    def permute_split(
+        self,
+        old_op: ttir.PermuteOp,
+    ) -> Tuple[Module, TTIRBuilder]:
+        ttir_op = self.get_opview_from_split(TTIRBuilder.permute_split)
+
+        permute_module = Module.create()
+        permute_builder = TTIRBuilder(self._ctx, self._loc)
+        op_input_types = [old_op.input.type]
+
+        with InsertionPoint(permute_module.body):
+
+            @func.func(*op_input_types, name="permute_module")
+            def decorated_func(*inputs):
+                in0 = inputs[0]
+                permutation_attr = old_op.permutation
+                result = old_op.result.type
+                output = self._get_empty_op(result)
+
+                new_op = ttir.PermuteOp(
+                    result,
+                    in0,
+                    output,
+                    permutation_attr,
+                    # loc=old_op.location, -> this segfault, not sure why
+                )
+
+                if not self._disable_golden_check:
+                    input_owner = old_op.input.owner
+                    if isinstance(input_owner, Block):
+                        queried_input = old_op.input
+                    else:
+                        queried_input = input_owner
+
+                    input0 = self._get_golden_tensor(queried_input)
+                    op_golden_function = get_golden_function(ttir_op)
+                    golden_output = op_golden_function(input0, permutation_attr)
+                    permute_builder._set_golden_tensor(new_op, golden_output)
+
+                return new_op
+
+        return permute_module, permute_builder
+
+    ############### ttir.BroadcastOp ###############
+
+    @tag(ttir.BroadcastOp)
+    def broadcast(
+        self,
+        in0: Operand,
+        broadcast_dimensions: List[int],
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpView:
+        ttir_op = self.get_opview_from_method(TTIRBuilder.broadcast)
+        broadcast_dimensions_attr = DenseI64ArrayAttr.get(broadcast_dimensions)
+
+        output_shape = []
+        in0_shape = self.get_shape(in0)
+        for i in range(len(broadcast_dimensions)):
+            if broadcast_dimensions[i] != 1:
+                output_shape.append(broadcast_dimensions[i])
+            else:
+                output_shape.append(in0_shape[i])
+
+        if output_type is None:
+            output_type = self.get_type(in0)
+
+        result = self._create_ranked_tensor_type(output_shape, output_type)
+        output = self._get_empty_op(result)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = ttir_op(
+            result,
+            in0,
+            output,
+            broadcast_dimensions_attr,
+            loc=loc,
+        )
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        if not self._disable_golden_check:
+            input = self._get_golden_tensor(in0)
+            op_golden_function = get_golden_function(ttir_op)
+            golden_output = op_golden_function(input, broadcast_dimensions_attr)
+            self._set_golden_tensor(op, golden_output)
+
+        return op
+
+    @parse(ttir.BroadcastOp)
+    def broadcast_parser(
+        self,
+        old_op: ttir.BroadcastOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> global_dict:
+        ttir_op = self.get_opview_from_parser(TTIRBuilder.broadcast_parser)
+        in0 = global_dict[old_op.input]
+        output = global_dict[old_op.output]
+        broadcast_dimensions_attr = old_op.broadcast_dimensions
+        result = old_op.result.type
+
+        new_op = ttir_op(
+            result,
+            in0,
+            output,
+            broadcast_dimensions_attr,
+            loc=old_op.location,
+        )
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(in0)
+            op_golden_function = get_golden_function(ttir_op)
+            golden_output = op_golden_function(input0, broadcast_dimensions_attr)
+            self._set_golden_tensor(new_op, golden_output)
+
+        return new_op
+
+    @split(ttir.BroadcastOp)
+    def broadcast_split(
+        self,
+        old_op: ttir.BroadcastOp,
+    ) -> Tuple[Module, TTIRBuilder]:
+        ttir_op = self.get_opview_from_split(TTIRBuilder.broadcast_split)
+
+        broadcast_module = Module.create()
+        broadcast_builder = TTIRBuilder(self._ctx, self._loc)
+        op_input_types = [old_op.input.type]
+
+        with InsertionPoint(broadcast_module.body):
+
+            @func.func(*op_input_types, name="broadcast_module")
+            def decorated_func(*inputs):
+                in0 = inputs[0]
+                broadcast_dimensions_attr = old_op.broadcast_dimensions
+                result = old_op.result.type
+                output = self._get_empty_op(result)
+
+                new_op = ttir.BroadcastOp(
+                    result,
+                    in0,
+                    output,
+                    broadcast_dimensions_attr,
+                    # loc=old_op.location, -> this segfault, not sure why
+                )
+
+                if not self._disable_golden_check:
+                    input_owner = old_op.input.owner
+                    if isinstance(input_owner, Block):
+                        queried_input = old_op.input
+                    else:
+                        queried_input = input_owner
+
+                    input0 = self._get_golden_tensor(queried_input)
+                    op_golden_function = get_golden_function(ttir_op)
+                    golden_output = op_golden_function(
+                        input0, broadcast_dimensions_attr
+                    )
+                    broadcast_builder._set_golden_tensor(new_op, golden_output)
+
+                return new_op
+
+        return broadcast_module, broadcast_builder
+
+    ############### ttir.ReshapeOp ###############
+
+    @tag(ttir.ReshapeOp)
+    def reshape(
+        self,
+        in0: Operand,
+        shape: List[int],
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpView:
+        ttir_op = self.get_opview_from_method(TTIRBuilder.reshape)
+        shape_attr = ArrayAttr.get(
+            [IntegerAttr.get(IntegerType.get_signless(32), s) for s in shape]
+        )
+
+        if output_type is None:
+            output_type = self.get_type(in0)
+
+        result = self._create_ranked_tensor_type(shape, output_type)
+        output = self._get_empty_op(result)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = ttir_op(
+            result,
+            in0,
+            output,
+            shape_attr,
+            loc=loc,
+        )
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        if not self._disable_golden_check:
+            input = self._get_golden_tensor(in0)
+            op_golden_function = get_golden_function(ttir_op)
+            golden_output = op_golden_function(input, shape_attr)
+            self._set_golden_tensor(op, golden_output)
+
+        return op
+
+    @parse(ttir.ReshapeOp)
+    def reshape_parser(
+        self,
+        old_op: ttir.ReshapeOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> global_dict:
+        ttir_op = self.get_opview_from_parser(TTIRBuilder.reshape_parser)
+        in0 = global_dict[old_op.input]
+        output = global_dict[old_op.output]
+        shape_attr = old_op.shape
+        result = old_op.result.type
+
+        new_op = ttir_op(
+            result,
+            in0,
+            output,
+            shape_attr,
+            loc=old_op.location,
+        )
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(in0)
+            op_golden_function = get_golden_function(ttir_op)
+            golden_output = op_golden_function(input0, shape_attr)
+            self._set_golden_tensor(new_op, golden_output)
+
+        return new_op
+
+    @split(ttir.ReshapeOp)
+    def reshape_split(
+        self,
+        old_op: ttir.ReshapeOp,
+    ) -> Tuple[Module, TTIRBuilder]:
+        ttir_op = self.get_opview_from_split(TTIRBuilder.reshape_split)
+
+        reshape_module = Module.create()
+        reshape_builder = TTIRBuilder(self._ctx, self._loc)
+        op_input_types = [old_op.input.type]
+
+        with InsertionPoint(reshape_module.body):
+
+            @func.func(*op_input_types, name="reshape_module")
+            def decorated_func(*inputs):
+                in0 = inputs[0]
+                shape_attr = old_op.shape
+                result = old_op.result.type
+                output = self._get_empty_op(result)
+
+                new_op = ttir.ReshapeOp(
+                    result,
+                    in0,
+                    output,
+                    shape_attr,
+                    # loc=old_op.location, -> this segfault, not sure why
+                )
+
+                if not self._disable_golden_check:
+                    op_golden_function = get_golden_function(ttir_op)
+                    input_owner_in0 = old_op.input.owner
+                    if isinstance(input_owner_in0, Block):
+                        queried_input_in0 = old_op.input
+                    else:
+                        queried_input_in0 = input_owner_in0
+
+                    input0 = self._get_golden_tensor(queried_input_in0)
+                    golden_output = op_golden_function(input0, shape_attr)
+                    reshape_builder._set_golden_tensor(new_op, golden_output)
+
+                return new_op
+
+        return reshape_module, reshape_builder
+
+    ############### ttir.MaximumOp ###############
+
+    @tag(ttir.MaximumOp)
+    def maximum(
+        self,
+        in0: Operand,
+        in1: Operand,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpView:
+        ttir_op = self.get_opview_from_method(TTIRBuilder.maximum)
+
+        if output_type is None:
+            output_type = self.get_type(in0)
+
+        input0 = self._get_golden_tensor(in0)
+        input1 = self._get_golden_tensor(in1)
+        op_golden_function = get_golden_function(ttir_op)
+        golden_output = op_golden_function(input0, input1)
+        result = self._create_ranked_tensor_type(golden_output.shape, output_type)
+        output = self._get_empty_op(result)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = ttir_op(
+            result,
+            in0,
+            in1,
+            output,
+            loc=loc,
+        )
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        if not self._disable_golden_check:
+            self._set_golden_tensor(op, golden_output)
+
+        return op
+
+    @parse(ttir.MaximumOp)
+    def maximum_parser(
+        self,
+        old_op: ttir.MaximumOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> global_dict:
+        ttir_op = self.get_opview_from_parser(TTIRBuilder.maximum_parser)
+        lhs = global_dict[old_op.lhs]
+        rhs = global_dict[old_op.rhs]
+        output = global_dict[old_op.output]
+        result = old_op.result.type
+
+        new_op = ttir_op(
+            result,
+            lhs,
+            rhs,
+            output,
+            loc=old_op.location,
+        )
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(lhs)
+            input1 = self._get_golden_tensor(rhs)
+            op_golden_function = get_golden_function(ttir_op)
+            golden_output = op_golden_function(input0, input1)
+            self._set_golden_tensor(new_op, golden_output)
+
+        return new_op
+
+    @split(ttir.MaximumOp)
+    def maximum_split(
+        self,
+        old_op: ttir.MaximumOp,
+    ) -> Tuple[Module, TTIRBuilder]:
+        ttir_op = self.get_opview_from_split(TTIRBuilder.maximum_split)
+
+        maximum_module = Module.create()
+        maximum_builder = TTIRBuilder(self._ctx, self._loc)
+        op_input_types = [old_op.lhs.type, old_op.rhs.type]
+
+        with InsertionPoint(maximum_module.body):
+
+            @func.func(*op_input_types, name="maximum_module")
+            def decorated_func(*inputs):
+                lhs = inputs[0]
+                rhs = inputs[1]
+                result = old_op.result.type
+                output = self._get_empty_op(result)
+
+                new_op = ttir.MaximumOp(
+                    result,
+                    lhs,
+                    rhs,
+                    output,
+                    # loc=old_op.location, -> this segfault, not sure why
+                )
+
+                if not self._disable_golden_check:
+                    op_golden_function = get_golden_function(ttir_op)
+
+                    input_owner_lhs = old_op.lhs.owner
+                    if isinstance(input_owner_lhs, Block):
+                        queried_input_lhs = old_op.lhs
+                    else:
+                        queried_input_lhs = input_owner_lhs
+
+                    input_owner_rhs = old_op.rhs.owner
+                    if isinstance(input_owner_rhs, Block):
+                        queried_input_rhs = old_op.rhs
+                    else:
+                        queried_input_rhs = input_owner_rhs
+
+                    input0 = self._get_golden_tensor(queried_input_lhs)
+                    input1 = self._get_golden_tensor(queried_input_rhs)
+                    golden_output = op_golden_function(input0, input1)
+                    maximum_builder._set_golden_tensor(new_op, golden_output)
+
+                return new_op
+
+        return maximum_module, maximum_builder
+
+    ############### ttir.MultiplyOp ###############
+
+    @tag(ttir.MultiplyOp)
+    def multiply(
+        self,
+        in0: Operand,
+        in1: Operand,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpView:
+        ttir_op = self.get_opview_from_method(TTIRBuilder.multiply)
+
+        if output_type is None:
+            output_type = self.get_type(in0)
+
+        input0 = self._get_golden_tensor(in0)
+        input1 = self._get_golden_tensor(in1)
+        op_golden_function = get_golden_function(ttir_op)
+        golden_output = op_golden_function(input0, input1)
+        result = self._create_ranked_tensor_type(golden_output.shape, output_type)
+        output = self._get_empty_op(result)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = ttir_op(
+            result,
+            in0,
+            in1,
+            output,
+            loc=loc,
+        )
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        if not self._disable_golden_check:
+            self._set_golden_tensor(op, golden_output)
+
+        return op
+
+    @parse(ttir.MultiplyOp)
+    def multiply_parser(
+        self,
+        old_op: ttir.MultiplyOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> global_dict:
+        ttir_op = self.get_opview_from_parser(TTIRBuilder.multiply_parser)
+        lhs = global_dict[old_op.lhs]
+        rhs = global_dict[old_op.rhs]
+        output = global_dict[old_op.output]
+        result = old_op.result.type
+
+        new_op = ttir_op(
+            result,
+            lhs,
+            rhs,
+            output,
+            loc=old_op.location,
+        )
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(lhs)
+            input1 = self._get_golden_tensor(rhs)
+            op_golden_function = get_golden_function(ttir_op)
+            golden_output = op_golden_function(input0, input1)
+            self._set_golden_tensor(new_op, golden_output)
+
+        return new_op
+
+    @split(ttir.MultiplyOp)
+    def multiply_split(
+        self,
+        old_op: ttir.MultiplyOp,
+    ) -> Tuple[Module, TTIRBuilder]:
+        ttir_op = self.get_opview_from_split(TTIRBuilder.multiply_split)
+
+        multiply_module = Module.create()
+        multiply_builder = TTIRBuilder(self._ctx, self._loc)
+        op_input_types = [old_op.lhs.type, old_op.rhs.type]
+
+        with InsertionPoint(multiply_module.body):
+
+            @func.func(*op_input_types, name="multiply_module")
+            def decorated_func(*inputs):
+                lhs = inputs[0]
+                rhs = inputs[1]
+                result = old_op.result.type
+                output = self._get_empty_op(result)
+
+                new_op = ttir.MultiplyOp(
+                    result,
+                    lhs,
+                    rhs,
+                    output,
+                    # loc=old_op.location, -> this segfault, not sure why
+                )
+
+                if not self._disable_golden_check:
+                    op_golden_function = get_golden_function(ttir_op)
+
+                    input_owner_lhs = old_op.lhs.owner
+                    if isinstance(input_owner_lhs, Block):
+                        queried_input_lhs = old_op.lhs
+                    else:
+                        queried_input_lhs = input_owner_lhs
+
+                    input_owner_rhs = old_op.rhs.owner
+                    if isinstance(input_owner_rhs, Block):
+                        queried_input_rhs = old_op.rhs
+                    else:
+                        queried_input_rhs = input_owner_rhs
+
+                    input0 = self._get_golden_tensor(queried_input_lhs)
+                    input1 = self._get_golden_tensor(queried_input_rhs)
+                    golden_output = op_golden_function(input0, input1)
+                    multiply_builder._set_golden_tensor(new_op, golden_output)
+
+                return new_op
+
+        return multiply_module, multiply_builder
+
+    ############### ttir.SumOp ###############
+
+    @tag(ttir.SumOp)
+    def sum(
+        self,
+        in0: Operand,
+        dim_arg: List[int] = None,
+        keep_dim: bool = True,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpView:
+        ttir_op = self.get_opview_from_method(TTIRBuilder.sum)
+
+        if dim_arg is None:
+            dim_arg = list(range(len(self.get_shape(in0))))
+        dim_arg_attr = ArrayAttr.get(
+            [IntegerAttr.get(IntegerType.get_signless(32), d) for d in dim_arg]
+        )
+        keep_dim_attr = BoolAttr.get(keep_dim)
+
+        if output_type is None:
+            output_type = self.get_type(in0)
+
+        input0 = self._get_golden_tensor(in0)
+        op_golden_function = get_golden_function(ttir_op)
+        golden_output = op_golden_function(input0, dim_arg_attr, keep_dim_attr)
+        result = self._create_ranked_tensor_type(golden_output.shape, output_type)
+        output = self._get_empty_op(result)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = ttir_op(
+            result,
+            in0,
+            output,
+            keep_dim_attr,
+            dim_arg=dim_arg_attr,
+            loc=loc,
+        )
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        if not self._disable_golden_check:
+            self._set_golden_tensor(op, golden_output)
+
+        return op
+
+    @parse(ttir.SumOp)
+    def sum_parser(
+        self,
+        old_op: ttir.SumOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> global_dict:
+        ttir_op = self.get_opview_from_parser(TTIRBuilder.sum_parser)
+        in0 = global_dict[old_op.input]
+        output = global_dict[old_op.output]
+        dim_arg_attr = old_op.dim_arg
+        keep_dim_attr = old_op.keep_dim
+        result = old_op.result.type
+
+        new_op = ttir_op(
+            result,
+            in0,
+            output,
+            keep_dim_attr,
+            dim_arg=dim_arg_attr,
+            loc=old_op.location,
+        )
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(in0)
+            op_golden_function = get_golden_function(ttir_op)
+            golden_output = op_golden_function(
+                input0,
+                dim_arg_attr,
+                keep_dim_attr,
+            )
+            self._set_golden_tensor(new_op, golden_output)
+
+        return new_op
+
+    @split(ttir.SumOp)
+    def sum_split(
+        self,
+        old_op: ttir.SumOp,
+    ) -> Tuple[Module, TTIRBuilder]:
+        ttir_op = self.get_opview_from_split(TTIRBuilder.sum_split)
+
+        sum_module = Module.create()
+        sum_builder = TTIRBuilder(self._ctx, self._loc)
+        op_input_types = [old_op.input.type]
+
+        with InsertionPoint(sum_module.body):
+
+            @func.func(*op_input_types, name="sum_module")
+            def decorated_func(*inputs):
+                in0 = inputs[0]
+                result = old_op.result.type
+                output = self._get_empty_op(result)
+                keep_dim_attr = old_op.keep_dim
+                dim_arg_attr = old_op.dim_arg
+
+                new_op = ttir.SumOp(
+                    result,
+                    in0,
+                    output,
+                    keep_dim_attr,
+                    dim_arg=dim_arg_attr,
+                    # loc=old_op.location, -> this segfault, not sure why
+                )
+
+                if not self._disable_golden_check:
+                    op_golden_function = get_golden_function(ttir_op)
+
+                    input_owner = old_op.input.owner
+                    if isinstance(input_owner, Block):
+                        queried_input = old_op.input
+                    else:
+                        queried_input = input_owner
+
+                    input0 = self._get_golden_tensor(queried_input)
+                    golden_output = op_golden_function(
+                        input0,
+                        dim_arg_attr,
+                        keep_dim_attr,
+                    )
+                    sum_builder._set_golden_tensor(new_op, golden_output)
+
+                return new_op
+
+        return sum_module, sum_builder
+
+    ############### ttir.AddOp ###############
+
+    @tag(ttir.AddOp)
+    def add(
+        self,
+        in0: Operand,
+        in1: Operand,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpView:
+        ttir_op = self.get_opview_from_method(TTIRBuilder.add)
+
+        if output_type is None:
+            output_type = self.get_type(in0)
+
+        input0 = self._get_golden_tensor(in0)
+        input1 = self._get_golden_tensor(in1)
+        op_golden_function = get_golden_function(ttir_op)
+        golden_output = op_golden_function(input0, input1)
+        result = self._create_ranked_tensor_type(golden_output.shape, output_type)
+        output = self._get_empty_op(result)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = ttir_op(
+            result,
+            in0,
+            in1,
+            output,
+            loc=loc,
+        )
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        if not self._disable_golden_check:
+            self._set_golden_tensor(op, golden_output)
+
+        return op
+
+    @parse(ttir.AddOp)
+    def add_parser(
+        self,
+        old_op: ttir.AddOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> global_dict:
+        ttir_op = self.get_opview_from_parser(TTIRBuilder.add_parser)
+        lhs = global_dict[old_op.lhs]
+        rhs = global_dict[old_op.rhs]
+        output = global_dict[old_op.output]
+        result = old_op.result.type
+
+        new_op = ttir_op(
+            result,
+            lhs,
+            rhs,
+            output,
+            loc=old_op.location,
+        )
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(lhs)
+            input1 = self._get_golden_tensor(rhs)
+            op_golden_function = get_golden_function(ttir_op)
+            golden_output = op_golden_function(input0, input1)
+            self._set_golden_tensor(new_op, golden_output)
+
+        return new_op
+
+    @split(ttir.AddOp)
+    def add_split(
+        self,
+        old_op: ttir.AddOp,
+    ) -> Tuple[Module, TTIRBuilder]:
+        ttir_op = self.get_opview_from_split(TTIRBuilder.add_split)
+
+        add_module = Module.create()
+        add_builder = TTIRBuilder(self._ctx, self._loc)
+        op_input_types = [
+            old_op.lhs.type,
+            old_op.rhs.type,
+        ]
+
+        with InsertionPoint(add_module.body):
+
+            @func.func(*op_input_types, name="add_module")
+            def decorated_func(*inputs):
+                lhs = inputs[0]
+                rhs = inputs[1]
+                result = old_op.result.type
+                output = self._get_empty_op(result)
+
+                new_op = ttir.AddOp(
+                    result,
+                    lhs,
+                    rhs,
+                    output,
+                    # loc=old_op.location, -> this segfault, not sure why
+                )
+
+                if not self._disable_golden_check:
+                    op_golden_function = get_golden_function(ttir_op)
+
+                    input_owner0 = old_op.lhs.owner
+                    if isinstance(input_owner0, Block):
+                        queried_input0 = old_op.lhs
+                    else:
+                        queried_input0 = input_owner0
+
+                    input_owner1 = old_op.rhs.owner
+                    if isinstance(input_owner1, Block):
+                        queried_input1 = old_op.rhs
+                    else:
+                        queried_input1 = input_owner1
+
+                    input0 = self._get_golden_tensor(queried_input0)
+                    input1 = self._get_golden_tensor(queried_input1)
+                    golden_output = op_golden_function(input0, input1)
+                    add_builder._set_golden_tensor(new_op, golden_output)
+
+                return new_op
+
+        return add_module, add_builder
+
+    ############### ttir.EmptyOp ###############
+
+    @parse(ttir.EmptyOp)
+    def empty_parser(
+        self,
+        old_op: ttir.EmptyOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> global_dict:
+        ttir_op = self.get_opview_from_parser(TTIRBuilder.empty_parser)
+        result = old_op.result.type
+
+        new_op = ttir_op(
+            result,
+            loc=old_op.location,
+        )
+
+        return new_op
+
+    ############### ttir.SigmoidOp ###############
+
+    @tag(ttir.SigmoidOp)
+    def sigmoid(
+        self,
+        in0: Operand,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpView:
+        ttir_op = self.get_opview_from_method(TTIRBuilder.sigmoid)
+
+        if output_type is None:
+            output_type = self.get_type(in0)
+
+        input0 = self._get_golden_tensor(in0)
+        op_golden_function = get_golden_function(ttir_op)
+        golden_output = op_golden_function(input0)
+        result = self._create_ranked_tensor_type(golden_output.shape, output_type)
+        output = self._get_empty_op(result)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = ttir_op(
+            result,
+            in0,
+            output,
+            loc=loc,
+        )
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        if not self._disable_golden_check:
+            self._set_golden_tensor(op, golden_output)
+
+        return op
+
+    @parse(ttir.SigmoidOp)
+    def sigmoid_parser(
+        self,
+        old_op: ttir.SigmoidOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> global_dict:
+        ttir_op = self.get_opview_from_parser(TTIRBuilder.sigmoid_parser)
+        in0 = global_dict[old_op.input]
+        output = global_dict[old_op.output]
+        result = old_op.result.type
+
+        new_op = ttir_op(
+            result,
+            in0,
+            output,
+            loc=old_op.location,
+        )
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(in0)
+            op_golden_function = get_golden_function(ttir_op)
+            golden_output = op_golden_function(input0)
+            self._set_golden_tensor(new_op, golden_output)
+
+        return new_op
+
+    @split(ttir.SigmoidOp)
+    def sigmoid_split(
+        self,
+        old_op: ttir.SigmoidOp,
+    ) -> Tuple[Module, TTIRBuilder]:
+        ttir_op = self.get_opview_from_split(TTIRBuilder.sigmoid_split)
+
+        sigmoid_module = Module.create()
+        sigmoid_builder = TTIRBuilder(self._ctx, self._loc)
+        op_input_types = [old_op.input.type]
+
+        with InsertionPoint(sigmoid_module.body):
+
+            @func.func(*op_input_types, name="sigmoid_module")
+            def decorated_func(*inputs):
+                in0 = inputs[0]
+                result = old_op.result.type
+                output = self._get_empty_op(result)
+
+                new_op = ttir.SigmoidOp(
+                    result,
+                    in0,
+                    output,
+                    # loc=old_op.location, -> this segfault, not sure why
+                )
+
+                if not self._disable_golden_check:
+                    op_golden_function = get_golden_function(ttir_op)
+
+                    input_owner = old_op.input.owner
+                    if isinstance(input_owner, Block):
+                        queried_input = old_op.input
+                    else:
+                        queried_input = input_owner
+
+                    input0 = self._get_golden_tensor(queried_input)
+                    golden_output = op_golden_function(input0)
+                    sigmoid_builder._set_golden_tensor(new_op, golden_output)
+
+                return new_op
+
+        return sigmoid_module, sigmoid_builder
+
+    ################ ttir.SubtractOp ###############
+
+    @tag(ttir.SubtractOp)
+    def subtract(
+        self,
+        in0: Operand,
+        in1: Operand,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpView:
+        ttir_op = self.get_opview_from_method(TTIRBuilder.subtract)
+
+        if output_type is None:
+            output_type = self.get_type(in0)
+
+        input0 = self._get_golden_tensor(in0)
+        input1 = self._get_golden_tensor(in1)
+        op_golden_function = get_golden_function(ttir_op)
+        golden_output = op_golden_function(input0, input1)
+        result = self._create_ranked_tensor_type(golden_output.shape, output_type)
+        output = self._get_empty_op(result)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = ttir_op(
+            result,
+            in0,
+            in1,
+            output,
+            loc=loc,
+        )
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        if not self._disable_golden_check:
+            self._set_golden_tensor(op, golden_output)
+
+        return op
+
+    @parse(ttir.SubtractOp)
+    def subtract_parser(
+        self,
+        old_op: ttir.SubtractOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> global_dict:
+        ttir_op = self.get_opview_from_parser(TTIRBuilder.subtract_parser)
+        lhs = global_dict[old_op.lhs]
+        rhs = global_dict[old_op.rhs]
+        output = global_dict[old_op.output]
+        result = old_op.result.type
+
+        new_op = ttir_op(
+            result,
+            lhs,
+            rhs,
+            output,
+            loc=old_op.location,
+        )
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(lhs)
+            input1 = self._get_golden_tensor(rhs)
+            op_golden_function = get_golden_function(ttir_op)
+            golden_output = op_golden_function(input0, input1)
+            self._set_golden_tensor(new_op, golden_output)
+
+        return new_op
+
+    @split(ttir.SubtractOp)
+    def subtract_split(
+        self,
+        old_op: ttir.SubtractOp,
+    ) -> Tuple[Module, TTIRBuilder]:
+        ttir_op = self.get_opview_from_split(TTIRBuilder.subtract_split)
+
+        subtract_module = Module.create()
+        subtract_builder = TTIRBuilder(self._ctx, self._loc)
+        op_input_types = [
+            old_op.lhs.type,
+            old_op.rhs.type,
+        ]
+
+        with InsertionPoint(subtract_module.body):
+
+            @func.func(*op_input_types, name="subtract_module")
+            def decorated_func(*inputs):
+                lhs = inputs[0]
+                rhs = inputs[1]
+                result = old_op.result.type
+                output = self._get_empty_op(result)
+
+                new_op = ttir.SubtractOp(
+                    result,
+                    lhs,
+                    rhs,
+                    output,
+                    # loc=old_op.location, -> this segfault, not sure why
+                )
+
+                if not self._disable_golden_check:
+                    op_golden_function = get_golden_function(ttir_op)
+
+                    input_owner_lhs = old_op.lhs.owner
+                    if isinstance(input_owner_lhs, Block):
+                        queried_input_lhs = old_op.lhs
+                    else:
+                        queried_input_lhs = input_owner_lhs
+
+                    input_owner_rhs = old_op.rhs.owner
+                    if isinstance(input_owner_rhs, Block):
+                        queried_input_rhs = old_op.rhs
+                    else:
+                        queried_input_rhs = input_owner_rhs
+
+                    input0 = self._get_golden_tensor(queried_input_lhs)
+                    input1 = self._get_golden_tensor(queried_input_rhs)
+                    golden_output = op_golden_function(input0, input1)
+                    subtract_builder._set_golden_tensor(new_op, golden_output)
+
+                return new_op
+
+        return subtract_module, subtract_builder
+
+    ################ ttir.TanhOp ###############
+
+    @tag(ttir.TanhOp)
+    def tanh(
+        self,
+        in0: Operand,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpView:
+        ttir_op = self.get_opview_from_method(TTIRBuilder.tanh)
+
+        if output_type is None:
+            output_type = self.get_type(in0)
+
+        input0 = self._get_golden_tensor(in0)
+        op_golden_function = get_golden_function(ttir_op)
+        golden_output = op_golden_function(input0)
+        result = self._create_ranked_tensor_type(golden_output.shape, output_type)
+        output = self._get_empty_op(result)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = ttir_op(
+            result,
+            in0,
+            output,
+            loc=loc,
+        )
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        if not self._disable_golden_check:
+            self._set_golden_tensor(op, golden_output)
+
+        return op
+
+    @parse(ttir.TanhOp)
+    def tanh_parser(
+        self,
+        old_op: ttir.TanhOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> global_dict:
+        ttir_op = self.get_opview_from_parser(TTIRBuilder.tanh_parser)
+        in0 = global_dict[old_op.input]
+        output = global_dict[old_op.output]
+        result = old_op.result.type
+
+        new_op = ttir_op(
+            result,
+            in0,
+            output,
+            loc=old_op.location,
+        )
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(in0)
+            op_golden_function = get_golden_function(ttir_op)
+            golden_output = op_golden_function(input0)
+            self._set_golden_tensor(new_op, golden_output)
+
+        return new_op
+
+    @split(ttir.TanhOp)
+    def tanh_split(
+        self,
+        old_op: ttir.TanhOp,
+    ) -> Tuple[Module, TTIRBuilder]:
+        ttir_op = self.get_opview_from_split(TTIRBuilder.tanh_split)
+
+        tanh_module = Module.create()
+        tanh_builder = TTIRBuilder(self._ctx, self._loc)
+        op_input_types = [old_op.input.type]
+
+        with InsertionPoint(tanh_module.body):
+
+            @func.func(*op_input_types, name="tanh_module")
+            def decorated_func(*inputs):
+                in0 = inputs[0]
+                result = old_op.result.type
+                output = self._get_empty_op(result)
+
+                new_op = ttir.TanhOp(
+                    result,
+                    in0,
+                    output,
+                    # loc=old_op.location, -> this segfault, not sure why
+                )
+
+                if not self._disable_golden_check:
+                    op_golden_function = get_golden_function(ttir_op)
+
+                    input_owner = old_op.input.owner
+                    if isinstance(input_owner, Block):
+                        queried_input = old_op.input
+                    else:
+                        queried_input = input_owner
+
+                    input0 = self._get_golden_tensor(queried_input)
+                    golden_output = op_golden_function(input0)
+                    tanh_builder._set_golden_tensor(new_op, golden_output)
+
+                return new_op
+
+        return tanh_module, tanh_builder
 
     def get_dimension_size(
         self, in0: Operand, dimension: int = 0, unit_attrs: Optional[List[str]] = None
@@ -180,63 +2567,6 @@ class TTIRBuilder(Builder):
             ttir_kwargs={"dimension": dimension},
             organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0]),
             output_type=self._get_type_from_torch_dtype(torch.int32),
-            unit_attrs=unit_attrs,
-        )
-
-    def dot_general(
-        self,
-        in0: Operand,
-        in1: Operand,
-        batch_dims_lhs: List[int],
-        contract_dims_lhs: List[int],
-        batch_dims_rhs: List[int],
-        contract_dims_rhs: List[int],
-        unit_attrs: Optional[List[str]] = None,
-    ) -> OpView:
-        """
-        Creates ``ttir.dot_general``.
-
-        *Generalized dot product operation.*
-
-        Flexible tensor operation that generalizes matrix multiplication by allowing user to specify which
-        dimensions of two tensors to contract. Matrix multiplication is a special case of this operation,
-        where the contraction happens along the last axis of the first tensor and the second-to-last axis of the second tensor.
-        From StableHLO DotGeneral Op https://openxla.org/stablehlo/spec#dot_general
-
-        Parameters
-        ----------
-        in0 : Operand
-            Left-hand side input tensor
-        in1 : Operand
-            Right-hand side input tensor
-        batch_dims_lhs : *List[int]*
-            Batch dimensions for the left-hand side tensor
-        contract_dims_lhs : *List[int]*
-            Contracting dimensions for the left-hand side tensor
-        batch_dims_rhs : *List[int]*
-            Batch dimensions for the right-hand side tensor
-        contract_dims_rhs : *List[int]*
-            Contracting dimensions for the right-hand side tensor
-        unit_attrs : *Optional[List[str]]*, optional
-            Optional list of unit attributes
-
-        Returns
-        -------
-        (*OpView*)
-        """
-        return self._op_proxy(
-            ttir.DotGeneralOp,
-            [in0, in1],
-            ttir_kwargs={
-                "batch_dims_lhs": batch_dims_lhs,
-                "contract_dims_lhs": contract_dims_lhs,
-                "batch_dims_rhs": batch_dims_rhs,
-                "contract_dims_rhs": contract_dims_rhs,
-            },
-            organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], i[1]),
-            output_type=self._get_type_from_torch_dtype(
-                self._get_golden_tensor(in0).dtype
-            ),
             unit_attrs=unit_attrs,
         )
 
@@ -746,28 +3076,6 @@ class TTIRBuilder(Builder):
         """
         return self._op_proxy(ttir.AtanOp, [in0], unit_attrs)
 
-    def tanh(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
-        """
-        Creates ``ttir.tanh``.
-
-        *Elementwise hyperbolic tangent operation.*
-
-        Computes the hyperbolic tangent of each element in the input tensor.
-
-        Parameters
-        ----------
-        in0 : Operand
-            Input tensor
-        unit_attrs : *Optional[List[str]]*, optional
-            Optional list of unit attributes
-
-        Returns
-        -------
-        (*OpView*)
-            Tensor with hyperbolic tangent values
-        """
-        return self._op_proxy(ttir.TanhOp, [in0], unit_attrs)
-
     def reciprocal(
         self, in0: Operand, unit_attrs: Optional[List[str]] = None
     ) -> OpView:
@@ -945,32 +3253,6 @@ class TTIRBuilder(Builder):
         """
         return self._op_proxy(
             ttir.RsqrtOp,
-            [in0],
-            unit_attrs,
-        )
-
-    def sigmoid(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
-        """
-        Creates ``ttir.sigmoid``.
-
-        *Elementwise sigmoid activation operation.*
-
-        Computes the sigmoid function (1/(1 + e^-x)) for each element in the input tensor.
-
-        Parameters
-        ----------
-        in0 : Operand
-            Input tensor
-        unit_attrs : *Optional[List[str]]*, optional
-            Optional list of unit attributes
-
-        Returns
-        -------
-        (*OpView*)
-            Tensor with sigmoid activation values
-        """
-        return self._op_proxy(
-            ttir.SigmoidOp,
             [in0],
             unit_attrs,
         )
@@ -1934,50 +4216,6 @@ class TTIRBuilder(Builder):
             unit_attrs=unit_attrs,
         )
 
-    def subtract(
-        self, in0: Operand, in1: Operand, unit_attrs: Optional[List[str]] = None
-    ) -> OpView:
-        """
-        Creates ``ttir.subtract``.
-
-        *Elementwise subtraction operation.*
-
-        Performs elementwise subtraction between two tensors.
-        For each pair of corresponding elements, subtracts the element in the second
-        tensor from the element in the first tensor.
-
-        Mathematical definition: subtract(x, y) = x - y
-
-        .. code-block:: mlir
-
-            // Subtract corresponding elements
-            %result = ttir.subtract(%lhs, %rhs, %output) : tensor<3xf32>, tensor<3xf32>, tensor<3xf32> -> tensor<3xf32>
-            // Input tensors:
-            // lhs: [3.5, 0.0, -1.2]
-            // rhs: [1.5, 2.0, -3.2]
-            // Output tensor:
-            // [2.0, -2.0, 2.0]
-
-        Parameters
-        ----------
-        in0 : Operand
-            First input tensor (minuend)
-        in1 : Operand
-            Second input tensor (subtrahend)
-        unit_attrs : *Optional[List[str]]*, optional
-            Optional list of unit attributes
-
-        Returns
-        -------
-        (*OpView*)
-            A tensor containing the elementwise difference of the inputs
-        """
-        return self._op_proxy(
-            ttir.SubtractOp,
-            [in0, in1],
-            unit_attrs=unit_attrs,
-        )
-
     def remainder(
         self, in0: Operand, in1: Operand, unit_attrs: Optional[List[str]] = None
     ) -> OpView:
@@ -2076,55 +4314,6 @@ class TTIRBuilder(Builder):
             [in0],
             ttir_kwargs=kwargs,
             output_type=IntegerType.get_signless(32, self._ctx),
-            unit_attrs=unit_attrs,
-        )
-
-    def sum(
-        self,
-        in0: Operand,
-        dim_arg: List[int] = None,
-        keep_dim: bool = True,
-        unit_attrs: Optional[List[str]] = None,
-    ) -> OpView:
-        """
-        Creates ``ttir.sum``.
-
-        *Sum reduction operation.*
-
-        The `sum` operation computes the sum of elements along specified dimensions of the input tensor.
-        If `dim_arg` is not provided, the sum is computed over all dimensions. If `keep_dim` is True,
-        the reduced dimensions are retained with a size of 1.
-
-        .. code-block:: mlir
-
-            // Sum along dimension 1
-            %input = ... : tensor<2x3xf32>
-            %output = ttir.empty() : tensor<2xf32>
-            %result = ttir.sum(%input, %output) {keep_dim = false, dim_arg = [1: i32]} : tensor<2x3xf32>, tensor<2xf32> -> tensor<2xf32>
-            // Input: [[1.0, 2.0, 3.0],
-            //         [4.0, 5.0, 6.0]]
-            // Output: [6.0, 15.0]  // Sum of each row
-
-        Parameters
-        ----------
-        in0 : Operand
-            Input tensor
-        dim_arg : List[int], optional
-            Dimensions to reduce over (default: [0])
-        keep_dim : bool, optional
-            If True, retains reduced dimensions with length 1 (default: True)
-        unit_attrs : *Optional[List[str]]*, optional
-            Optional list of unit attributes
-
-        Returns
-        -------
-        (*OpView*)
-            Tensor with summed values
-        """
-        return self._op_proxy(
-            ttir.SumOp,
-            [in0],
-            ttir_kwargs={"dim_arg": dim_arg, "keep_dim": keep_dim},
             unit_attrs=unit_attrs,
         )
 
@@ -2837,60 +5026,6 @@ class TTIRBuilder(Builder):
             unit_attrs=unit_attrs,
         )
 
-    def broadcast(
-        self,
-        in0: Operand,
-        broadcast_dimensions: List[int],
-        unit_attrs: Optional[List[str]] = None,
-    ) -> OpView:
-        """
-        Creates ``ttir.broadcast``.
-
-        *Tensor broadcast operation.*
-
-        Broadcasts a tensor to a new shape by replicating its values along specified dimensions.
-        The broadcast_dimensions parameter specifies how dimensions of the input map to
-        dimensions of the output.
-
-        .. code-block:: mlir
-
-            // Broadcast a 1D tensor to 2D
-            %result = ttir.broadcast(%input, %output, broadcast_dimensions = [1]) : tensor<3xf32>, tensor<2x3xf32> -> tensor<2x3xf32>
-            // Input tensor:
-            // [1.0, 2.0, 3.0]
-            // Output tensor:
-            // [[1.0, 2.0, 3.0],
-            //  [1.0, 2.0, 3.0]]
-
-        Parameters
-        ----------
-        in0 : Operand
-            Input tensor to broadcast
-        broadcast_dimensions : *List[int]*
-            List of dimension mappings from input to output
-        unit_attrs : *Optional[List[str]]*, optional
-            Optional list of unit attributes
-
-        Returns
-        -------
-        (*OpView*)
-            The broadcasted tensor
-        """
-        output_shape = []
-        for i in range(len(broadcast_dimensions)):
-            if broadcast_dimensions[i] != 1:
-                output_shape.append(broadcast_dimensions[i])
-            else:
-                output_shape.append(self.get_shape(in0)[i])
-        return self._op_proxy(
-            ttir.BroadcastOp,
-            [in0],
-            golden_kwargs={"size": output_shape},
-            ttir_kwargs={"broadcast_dimensions": broadcast_dimensions},
-            output_shape=output_shape,
-            unit_attrs=unit_attrs,
-        )
-
     def conv2d(
         self,
         in0: Operand,
@@ -3071,130 +5206,6 @@ class TTIRBuilder(Builder):
             unit_attrs=unit_attrs,
         )
 
-    def convolution(
-        self,
-        in0: Operand,
-        weight: Operand,
-        bias: Optional[Operand],
-        window_strides: Union[int, List[int]],
-        padding: Union[int, List[int]],
-        input_dilation: Union[int, List[int]] = None,
-        weight_dilation: Union[int, List[int]] = None,
-        feature_group_count: int = 1,
-        batch_group_count: int = 1,
-        unit_attrs: Optional[List[str]] = None,
-    ) -> OpView:
-        """
-        Creates ``ttir.convolution``.
-        *General convolution operation.*
-        Performs a generalized N-dimensional convolution operation with full control over layout,
-        dilation, grouping, and other parameters. This is the low-level convolution operation
-        that provides maximum flexibility.
-        .. code-block:: mlir
-            // Example: 2D convolution with padding and stride
-            %input = ... : tensor<1x3x224x224xbf16>
-            %weight = ... : tensor<64x3x7x7xbf16>
-            %output = ttir.empty() : tensor<1x64x112x112xbf16>
-            %result = "ttir.convolution"(%input, %weight, %output) <{
-                batch_group_count = 1 : i64,
-                convolution_layout = #ttir<convolution_layout ...>,
-                feature_group_count = 1 : i64,
-                input_dilation = array<i64: 1, 1>,
-                padding = array<i64: 3, 3, 3, 3>,
-                weight_dilation = array<i64: 1, 1>,
-                window_reversal = array<i1: false, false>,
-                window_strides = array<i64: 2, 2>
-            }> : (tensor<1x3x224x224xbf16>, tensor<64x3x7x7xbf16>, tensor<1x64x112x112xbf16>) -> tensor<1x64x112x112xbf16>
-        Parameters
-        ----------
-        in0 : Operand
-            Input tensor
-        weight : Operand
-            Weight tensor
-        bias : *Optional[Operand]*
-            Optional bias tensor (currently ignored in raw convolution, use conv2d for bias support)
-        window_strides : *Union[int, List[int]]*
-            Stride for convolution windows (default: 1)
-        padding : *Union[int, List[int]]*
-            Padding in [top, left, bottom, right] format (default: 0)
-        input_dilation : *Union[int, List[int]]*, optional
-            Dilation for input tensor (default: 1)
-        weight_dilation : *Union[int, List[int]]*, optional
-            Dilation for weight tensor (default: 1)
-        feature_group_count : int, optional
-            Number of feature groups (default: 1)
-        batch_group_count : int, optional
-            Number of batch groups (default: 1)
-        unit_attrs : *Optional[List[str]]*, optional
-            Optional list of unit attributes
-        Returns
-        -------
-        (*OpView*)
-            Output tensor after convolution
-        """
-        # Set default values
-        if input_dilation is None:
-            input_dilation = [1, 1]
-        if weight_dilation is None:
-            weight_dilation = [1, 1]
-
-        # Normalize parameters to lists
-        if isinstance(window_strides, int):
-            window_strides = [window_strides, window_strides]
-        if isinstance(padding, int):
-            padding = [padding, padding, padding, padding]
-        elif len(padding) == 2:
-            # Convert [h, w] to [top, left, bottom, right]
-            padding = [padding[0], padding[1], padding[0], padding[1]]
-        if isinstance(input_dilation, int):
-            input_dilation = [input_dilation, input_dilation]
-        if isinstance(weight_dilation, int):
-            weight_dilation = [weight_dilation, weight_dilation]
-
-        from ttmlir.ir import Attribute
-
-        # Create the convolution layout attribute (NCHW format)
-        # input_batch=0, input_feature=1, input_spatial=2x3
-        # kernel_output_feature=0, kernel_input_feature=1, kernel_spatial=2x3
-        # output_batch=0, output_feature=1, output_spatial=2x3
-        layout_str = "#ttir<convolution_layout input_batch = 0, input_feature = 1, input_spatial_dimensions = 2x3, kernel_output_feature = 0, kernel_input_feature = 1, kernel_spatial_dimensions = 2x3, output_batch = 0, output_feature = 1, output_spatial_dimensions = 2x3>"
-        convolution_layout = Attribute.parse(layout_str)
-
-        # Set up golden kwargs to match the convolution_golden function signature
-        # Note: We pass None for convolution_layout since we're using NCHW format
-        # which is already PyTorch's expected format, so no layout transformation is needed
-        golden_kwargs = {
-            "window_strides": window_strides,
-            "padding": padding,
-            "input_dilation": input_dilation,
-            "weight_dilation": weight_dilation,
-            "feature_group_count": feature_group_count,
-            "batch_group_count": batch_group_count,
-            "convolution_layout": None,
-        }
-
-        return self._op_proxy(
-            ttir.ConvolutionOp,
-            [in0, weight],
-            ttir_kwargs={
-                "window_strides": DenseI64ArrayAttr.get(window_strides),
-                "padding": DenseI64ArrayAttr.get(padding),
-                "input_dilation": DenseI64ArrayAttr.get(input_dilation),
-                "weight_dilation": DenseI64ArrayAttr.get(weight_dilation),
-                "window_reversal": DenseBoolArrayAttr.get([False, False]),
-                "feature_group_count": IntegerAttr.get(
-                    IntegerType.get_signless(64), feature_group_count
-                ),
-                "batch_group_count": IntegerAttr.get(
-                    IntegerType.get_signless(64), batch_group_count
-                ),
-                "convolution_layout": convolution_layout,
-            },
-            golden_kwargs=golden_kwargs,
-            organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], i[1], o),
-            unit_attrs=unit_attrs,
-        )
-
     def max_pool2d(
         self,
         in0: Operand,
@@ -3334,224 +5345,6 @@ class TTIRBuilder(Builder):
                 "ceil_mode": ceil_mode,
                 "count_include_pad": count_include_pad,
             },
-            unit_attrs=unit_attrs,
-        )
-
-    def pooling(
-        self,
-        in0: Operand,
-        pooling_method: str,
-        window_dimensions: List[int],
-        window_strides: List[int],
-        padding: List[int],
-        window_dilations: List[int],
-        base_dilations: Optional[List[int]] = None,
-        unit_attrs: Optional[List[str]] = None,
-    ) -> OpView:
-        """
-        Creates ``ttir.pooling``.
-        *Generalized pooling operation.*
-        Applies pooling operation over input tensor with flexible window dimensions and strides.
-        Supports Max, Average, and Sum pooling methods.
-        Parameters
-        ----------
-        in0 : Operand
-            Input tensor
-        pooling_method : str
-            Pooling method: "Max", "Average", or "Sum"
-        window_dimensions : List[int]
-            Dimensions of the pooling window for each dimension [batch, channel, height, width]
-        window_strides : List[int]
-            Stride of the pooling window for each dimension [batch, channel, height, width]
-        padding : List[int]
-            Padding for each dimension in format [dim0_low, dim0_high, dim1_low, dim1_high, ...]
-        window_dilations : List[int]
-            Dilation of the pooling window for each dimension
-        base_dilations : Optional[List[int]]
-            Base dilation for input tensor (default: [1, 1, 1, 1])
-        unit_attrs : Optional[List[str]]
-            Optional list of unit attributes
-        Returns
-        -------
-        OpView
-            Output tensor after pooling operation
-        """
-        if base_dilations is None:
-            base_dilations = [1] * len(window_dimensions)
-
-        # Create pooling method attribute
-        pooling_method_attr = Attribute.parse(f"#ttir<pooling_method {pooling_method}>")
-
-        # Set up golden kwargs with plain Python values that will be passed to pooling_golden
-        golden_kwargs = {
-            "pooling_method": pooling_method_attr,
-            "window_dimensions": window_dimensions,
-            "window_strides": window_strides,
-            "padding": padding,
-            "window_dilations": window_dilations,
-        }
-
-        return self._op_proxy(
-            ttir.PoolingOp,
-            [in0],
-            ttir_kwargs={
-                "pooling_method": pooling_method_attr,
-                "window_dimensions": DenseI64ArrayAttr.get(window_dimensions),
-                "window_strides": DenseI64ArrayAttr.get(window_strides),
-                "padding": DenseI64ArrayAttr.get(padding),
-                "window_dilations": DenseI64ArrayAttr.get(window_dilations),
-                "base_dilations": DenseI64ArrayAttr.get(base_dilations),
-            },
-            golden_kwargs=golden_kwargs,
-            organize_ttir_args=lambda i, o, _: ([self._get_type(o)], i, [o]),
-            unit_attrs=unit_attrs,
-        )
-
-    def batch_norm(
-        self,
-        in0: Operand,
-        scale: Operand,
-        offset: Operand,
-        mean: Operand,
-        variance: Operand,
-        epsilon: float = 1e-5,
-        dimension: int = 1,
-        unit_attrs: Optional[List[str]] = None,
-    ) -> OpView:
-        """
-        Creates ``ttir.batch_norm``.
-
-        *Batch normalization operation.*
-
-        Applies batch normalization to the input tensor using the provided scale, offset,
-        mean, and variance. This operation normalizes the input tensor across the specified dimension:
-        batch_norm(x, scale, offset, mean, variance, epsilon, dimension) =
-         (x - mean) / sqrt(variance + epsilon) * scale + offset
-
-        Parameters
-        ----------
-        in0 : Operand
-            Input tensor to normalize
-        scale : Operand
-            Scale tensor for normalization
-        offset : Operand
-            Offset tensor for normalization
-        mean : Operand
-            Mean tensor for normalization
-        variance : Operand
-            Variance tensor for normalization
-        epsilon : float, optional
-            Small value added to variance for numerical stability (default: 1e-5)
-        dimension : int, optional
-            Dimension along which to normalize (default: 1)
-        unit_attrs : *Optional[List[str]]*, optional
-            Optional list of unit attributes
-
-        Returns
-        -------
-        (*OpView*)
-            Output tensor after batch normalization
-        """
-        return self._op_proxy(
-            ttir.BatchNormInferenceOp,
-            [in0, scale, offset, mean, variance],
-            golden_kwargs={
-                "epsilon": epsilon,
-                "dim": dimension,
-            },
-            ttir_kwargs={
-                "epsilon": FloatAttr.get_f32(epsilon),
-                "dimension": IntegerAttr.get(IntegerType.get_signless(32), dimension),
-            },
-            # organize_ttir_args=lambda i, o, _: (self._get_type(o), *i, o),
-            unit_attrs=unit_attrs,
-        )
-
-    def reshape(
-        self, in0: Operand, shape: Shape, unit_attrs: Optional[List[str]] = None
-    ) -> OpView:
-        """
-        Creates ``ttir.reshape``.
-
-        *Tensor reshape operation.*
-
-        The `reshape` operation changes the shape of a tensor without changing the data or number of elements.
-        The total number of elements in the tensor must remain the same after reshaping. This operation is
-        commonly used in neural networks to change the dimensionality of tensors between layers.
-
-        .. code-block:: mlir
-
-            // Reshape a 2x3 tensor to a 1x6 tensor
-            %input = ... : tensor<2x3xf32>  // Input tensor with shape [2,3]
-            %output = ttir.empty() : tensor<1x6xf32>  // Output tensor with shape [1,6]
-            %result = ttir.reshape(%input, %output) {shape = [1, 6]} :
-                tensor<2x3xf32>, tensor<1x6xf32> -> tensor<1x6xf32>
-
-        Parameters
-        ----------
-        in0 : Operand
-            Input tensor to reshape
-        shape : Shape
-            The new shape for the tensor
-        unit_attrs : *Optional[List[str]]*, optional
-            Optional list of unit attributes
-
-        Returns
-        -------
-        (*OpView*)
-            The reshaped tensor
-        """
-        kwargs = {"shape": shape}
-        return self._op_proxy(
-            ttir.ReshapeOp,
-            [in0],
-            ttir_kwargs=kwargs,
-            unit_attrs=unit_attrs,
-        )
-
-    def pad(
-        self,
-        in0: Operand,
-        padding: List[int],
-        value: int,
-        unit_attrs: Optional[List[str]] = None,
-    ) -> OpView:
-        """
-        Creates ``ttir.pad``.
-
-        *Tensor padding operation.*
-
-        Pads a tensor with a constant value. The padding amount is specified for each dimension
-        and can be asymmetric (different padding at the start and end of each dimension).
-
-        Parameters
-        ----------
-        in0 : Operand
-            Input tensor to pad
-        in1 : Operand
-            Output tensor
-        padding : *List[int]*
-            Amount of padding for each dimension
-        value : int
-            Value to use for padding
-        unit_attrs : *Optional[List[str]]*, optional
-            Optional list of unit attributes
-
-        Returns
-        -------
-        (*OpView*)
-            The padded tensor
-        """
-        output_shape = []
-        for i in range(len(padding) // 2):
-            output_shape.append(
-                self.get_shape(in0)[i] + padding[2 * i] + padding[2 * i + 1]
-            )
-        return self._op_proxy(
-            ttir.PadOp,
-            [in0],
-            ttir_kwargs={"padding": padding, "value": value},
-            output_shape=output_shape,
             unit_attrs=unit_attrs,
         )
 
@@ -3817,75 +5610,6 @@ class TTIRBuilder(Builder):
             unit_attrs=unit_attrs,
         )
 
-    # Note: TTRT runtime supports float32, bfloat16, uint8, uint16, uint32, int32
-    # For bfloat16, use precision-friendly values [-1.0 to 1.0] for best results
-    def constant(
-        self,
-        tensor: torch.Tensor,
-        unit_attrs: Optional[List[str]] = None,
-    ) -> OpView:
-        """
-        Creates ``ttir.constant``.
-
-        *Creates a tensor with the specified values.*
-
-        Returns a tensor of given shape with the specified values.
-
-        Parameters
-        ----------
-        tensor : torch.Tensor
-            Tensor containing the constant values
-        unit_attrs : *Optional[List[str]]*, optional
-            Optional list of unit attributes
-
-        Returns
-        -------
-        (*OpView*)
-            Tensor with the specified values
-        """
-        if not isinstance(tensor, torch.Tensor):
-            raise TypeError("constant expects a torch.Tensor input")
-
-        if tensor.numel() == 0:
-            raise ValueError("Cannot create constant with empty tensor")
-
-        mlir_dtype = self._get_type_from_torch_dtype(tensor.dtype)
-
-        shape = list(tensor.shape)
-        tensor_type = RankedTensorType.get(shape, mlir_dtype)
-
-        flat_values = tensor.flatten().tolist()
-
-        if tensor.numel() == 1 or len(set(flat_values)) == 1:
-            # Splat case
-            if isinstance(mlir_dtype, IntegerType):
-                attr = IntegerAttr.get(mlir_dtype, int(flat_values[0]))
-            elif isinstance(mlir_dtype, FloatType):
-                attr = FloatAttr.get(mlir_dtype, float(flat_values[0]))
-            else:
-                raise NotImplementedError(f"Unsupported MLIR type: {mlir_dtype}")
-
-            value_attr = DenseElementsAttr.get_splat(tensor_type, attr)
-        else:
-            # Non-splat case
-            if isinstance(mlir_dtype, IntegerType):
-                elems = [IntegerAttr.get(mlir_dtype, int(v)) for v in flat_values]
-            elif isinstance(mlir_dtype, FloatType):
-                elems = [FloatAttr.get(mlir_dtype, float(v)) for v in flat_values]
-            else:
-                raise NotImplementedError(f"Unsupported MLIR type: {mlir_dtype}")
-
-            value_attr = DenseElementsAttr.get(elems, tensor_type)
-
-        return self._op_proxy(
-            ttir.ConstantOp,
-            [],
-            golden_kwargs={"value": tensor},
-            ttir_kwargs={"result": tensor_type, "value": value_attr},
-            organize_ttir_args=lambda i, o, _: 0,
-            unit_attrs=unit_attrs,
-        )
-
     def reverse(
         self, in0: Operand, dims: List[int], unit_attrs: Optional[List[str]] = None
     ) -> OpView:
@@ -3986,41 +5710,6 @@ class TTIRBuilder(Builder):
         return self._op_proxy(
             ttir.MatmulOp,
             inputs,
-            unit_attrs=unit_attrs,
-        )
-
-    def permute(
-        self,
-        in0: Operand,
-        permutation: List[int],
-        unit_attrs: Optional[List[str]] = None,
-    ) -> OpView:
-        """
-        Creates ``ttir.permute``.
-
-        *Tensor permutation operation.*
-
-        Permutes the dimensions of the input tensor according to the given permutation.
-
-        Parameters
-        ----------
-        in0 : Operand
-            Input tensor
-        permutation : *List[int]*
-            The desired ordering of dimensions
-        unit_attrs : *Optional[List[str]]*
-            Optional list of unit attributes
-
-        Returns
-        -------
-        (*OpView*)
-            Tensor with permuted dimensions
-        """
-        return self._op_proxy(
-            ttir.PermuteOp,
-            [in0],
-            ttir_kwargs={"permutation": DenseI64ArrayAttr.get(permutation)},
-            organize_golden_args=lambda i: [self._get_golden_tensor(i[0])],
             unit_attrs=unit_attrs,
         )
 
@@ -4169,50 +5858,6 @@ class TTIRBuilder(Builder):
 
     # class TTIR_GenericElementwiseBinaryOp
 
-    def add(
-        self, in0: Operand, in1: Operand, unit_attrs: Optional[List[str]] = None
-    ) -> OpView:
-        """
-        Creates ``ttir.add``.
-
-        *Elementwise addition operation.*
-
-        Performs elementwise addition between two tensors.
-        For each pair of corresponding elements, adds the element in the second
-        tensor to the element in the first tensor.
-
-        Mathematical definition: add(x, y) = x + y
-
-        .. code-block:: mlir
-
-            // Add corresponding elements
-            %result = ttir.add(%lhs, %rhs, %output) : tensor<3xf32>, tensor<3xf32>, tensor<3xf32> -> tensor<3xf32>
-            // Input tensors:
-            // lhs: [3.5, 0.0, -1.2]
-            // rhs: [1.5, 2.0, -3.2]
-            // Output tensor:
-            // [5.0, 2.0, -4.4]
-
-        Parameters
-        ----------
-        in0 : Operand
-            First input tensor
-        in1 : Operand
-            Second input tensor
-        unit_attrs : *Optional[List[str]]*
-            Optional list of unit attributes
-
-        Returns
-        -------
-        (*OpView*)
-            A tensor containing the elementwise sum of the inputs
-        """
-        return self._op_proxy(
-            ttir.AddOp,
-            [in0, in1],
-            unit_attrs=unit_attrs,
-        )
-
     def atan2(
         self, in0: Operand, in1: Operand, unit_attrs: Optional[List[str]] = None
     ) -> OpView:
@@ -4250,50 +5895,6 @@ class TTIRBuilder(Builder):
         """
         return self._op_proxy(
             ttir.Atan2Op,
-            [in0, in1],
-            unit_attrs=unit_attrs,
-        )
-
-    def multiply(
-        self, in0: Operand, in1: Operand, unit_attrs: Optional[List[str]] = None
-    ) -> OpView:
-        """
-        Creates ``ttir.multiply``.
-
-        *Elementwise multiplication operation.*
-
-        Performs elementwise multiplication between two tensors.
-        For each pair of corresponding elements, multiplies the element in the first
-        tensor by the element in the second tensor.
-
-        Mathematical definition: multiply(x, y) = x * y
-
-        .. code-block:: mlir
-
-            // Multiply corresponding elements
-            %result = ttir.multiply(%lhs, %rhs, %output) : tensor<3xf32>, tensor<3xf32>, tensor<3xf32> -> tensor<3xf32>
-            // Input tensors:
-            // lhs: [3.5, 0.0, -1.2]
-            // rhs: [1.5, 2.0, -3.2]
-            // Output tensor:
-            // [5.25, 0.0, 3.84]
-
-        Parameters
-        ----------
-        in0 : Operand
-            First input tensor
-        in1 : Operand
-            Second input tensor
-        unit_attrs : *Optional[List[str]]*
-            Optional list of unit attributes
-
-        Returns
-        -------
-        (*OpView*)
-            A tensor containing the elementwise product of the inputs
-        """
-        return self._op_proxy(
-            ttir.MultiplyOp,
             [in0, in1],
             unit_attrs=unit_attrs,
         )
@@ -4340,36 +5941,6 @@ class TTIRBuilder(Builder):
         """
         return self._op_proxy(
             ttir.DivOp,
-            [in0, in1],
-            unit_attrs=unit_attrs,
-        )
-
-    def maximum(
-        self, in0: Operand, in1: Operand, unit_attrs: Optional[List[str]] = None
-    ) -> OpView:
-        """
-        Creates ``ttir.maximum``.
-
-        *Elementwise maximum operation.*
-
-        Returns the element-wise maximum of two tensors.
-
-        Parameters
-        ----------
-        in0 : Operand
-            First input tensor
-        in1 : Operand
-            Second input tensor
-        unit_attrs : *Optional[List[str]]*
-            Optional list of unit attributes
-
-        Returns
-        -------
-        (*OpView*)
-            Tensor with maximum values
-        """
-        return self._op_proxy(
-            ttir.MaximumOp,
             [in0, in1],
             unit_attrs=unit_attrs,
         )
@@ -5335,3 +6906,160 @@ class TTIRBuilder(Builder):
             organize_golden_args=lambda i: [self._get_golden_tensor(i[0])],
             unit_attrs=unit_attrs,
         )
+
+    def _build_op_from_parsed_op(
+        self,
+        parsed_op: Operation,
+        global_dict: Dict[Operand, Operand],
+    ) -> global_dict:
+        parsed_function = self.get_parser_from_opview(type(parsed_op))
+        global_dict = parsed_function(self, parsed_op, global_dict)
+        return global_dict
+
+    @staticmethod
+    def get_input_types(ttir_builder: TTIRBuilder, parsed_module: Module):
+        inputs_types = []
+        inputs_shapes = []
+        for entry in parsed_module.body.operations:
+            if isinstance(entry, func.FuncOp):
+                for arg in entry.type.inputs:
+                    if isinstance(arg, RankedTensorType):
+                        inputs_types.append(arg.element_type)
+                        inputs_shapes.append(arg.shape)
+                    else:
+                        raise ValueError("Only ranked tensor types are supported")
+
+        return [
+            ttir_builder._create_ranked_tensor_type(
+                shape,
+                dtype,
+            )
+            for (shape, dtype) in zip(inputs_shapes, inputs_types)
+        ]
+
+    @staticmethod
+    def from_module(
+        ctx: Context, parsed_module: Module, golden_inputs: List[torch.tensor] = []
+    ) -> Tuple(Module, TTIRBuilder):
+        def _convert_to_mlir_value(obj):
+            if hasattr(obj, "operation") and hasattr(obj.operation, "results"):
+                results = obj.operation.results
+                if len(results) == 1:
+                    return results[0]
+                else:
+                    return results
+            elif hasattr(obj, "type"):
+                return obj
+            else:
+                return obj
+
+        def _process_multi_return_result(result):
+            if hasattr(result, "__iter__") and not isinstance(result, str):
+                converted_results = []
+                for item in result:
+                    converted = _convert_to_mlir_value(item)
+                    if hasattr(converted, "__iter__") and not hasattr(
+                        converted, "type"
+                    ):
+                        converted_results.extend(converted)
+                    else:
+                        converted_results.append(converted)
+                return tuple(converted_results)
+            else:
+                return _convert_to_mlir_value(result)
+
+        loc = Location.unknown(ctx)
+        with ctx, loc:
+            ttir_builder = TTIRBuilder(ctx, loc, (1, 1))
+            new_module = Module.create()
+            fn_input_types = TTIRBuilder.get_input_types(ttir_builder, parsed_module)
+
+            if len(golden_inputs) == 0:
+                for ttype in fn_input_types:
+                    shape = ttype.shape
+                    dtype = ttir_builder._get_datatype_from_torch_dtype(
+                        ttype.element_type
+                    )
+                    golden_input = torch.randn(*shape, dtype=dtype)
+                    golden_inputs.append(golden_input)
+
+            with InsertionPoint(new_module.body):
+
+                @func.func(*fn_input_types, name="parsed_module")
+                def decorated_func(*inputs):
+                    golden_dict = {}
+                    for operand, torch_golden in zip(inputs, golden_inputs):
+                        golden_dict[operand] = torch_golden
+
+                    input_goldens: Dict[
+                        Operand, GoldenMapTensor
+                    ] = ttir_builder._create_builder_golden_from_torch_tensor(
+                        golden_dict
+                    )
+                    ttir_builder._set_goldens(input_goldens)
+                    ttir_builder._set_input_ordering(inputs)
+
+                    global_dict = {}
+                    for entry in parsed_module.body.operations:
+                        if isinstance(entry, func.FuncOp):
+                            for i, arg in enumerate(entry.arguments):
+                                global_dict[arg] = inputs[i]
+
+                    global_result = None
+                    for entry in parsed_module.body.operations:
+                        for block in entry.body:
+                            for op in block.operations:
+                                if isinstance(op, func.ReturnOp):
+                                    global_result = tuple(
+                                        global_dict[operand] for operand in op.operands
+                                    )
+                                else:
+                                    parsed_op = ttir_builder._build_op_from_parsed_op(
+                                        op, global_dict
+                                    )
+                                    global_dict[op.result] = parsed_op
+
+                    outputs = (
+                        global_result
+                        if hasattr(global_result, "__iter__")
+                        else (global_result,)
+                    )
+                    output_goldens: Dict[Operand, GoldenMapTensor] = {}
+                    for op in outputs:
+                        output_goldens[op] = ttir_builder._get_golden_tensor(op)
+                    ttir_builder._set_goldens(output_goldens)
+                    ttir_builder._set_output_ordering(outputs)
+
+                    return _process_multi_return_result(global_result)
+
+        return new_module, ttir_builder
+
+    def split_op(
+        self,
+        parsed_op: Operation,
+    ) -> Tuple[Module, TTIRBuilder]:
+        split_function = self.get_split_from_opview(type(parsed_op))
+        return split_function(self, parsed_op)
+
+    @staticmethod
+    def split_module(
+        ctx: Context,
+        module: Module,
+        builder: TTIRBuilder,
+    ) -> List[Tuple[Module, TTIRBuilder]]:
+        sub_modules_and_builders = []
+        loc = Location.unknown(ctx)
+
+        with ctx, loc:
+            for entry in module.body.operations:
+                for block in entry.body:
+                    for op in block.operations:
+                        if isinstance(op, func.ReturnOp) or isinstance(
+                            op, ttir.EmptyOp
+                        ):
+                            continue
+                        else:
+                            sub_op_module_builder = builder.split_op(op)
+                            sub_modules_and_builders.append(sub_op_module_builder)
+
+        return sub_modules_and_builders

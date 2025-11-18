@@ -29,7 +29,7 @@ def add(
     builder: TTNNBuilder,
     unit_attrs: Optional[List[str]] = None,
 ):
-    return builder.add(in0, in1, unit_attrs=unit_attrs)
+    return builder.add(in0, in1)
 
 
 def atan2(
@@ -83,7 +83,7 @@ def maximum(
     builder: TTNNBuilder,
     unit_attrs: Optional[List[str]] = None,
 ):
-    return builder.maximum(in0, in1, unit_attrs=unit_attrs)
+    return builder.maximum(in0, in1)
 
 
 def minimum(
@@ -101,7 +101,7 @@ def multiply(
     builder: TTNNBuilder,
     unit_attrs: Optional[List[str]] = None,
 ):
-    return builder.multiply(in0, in1, unit_attrs=unit_attrs)
+    return builder.multiply(in0, in1)
 
 
 def remainder(

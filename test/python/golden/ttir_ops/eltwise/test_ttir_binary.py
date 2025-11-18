@@ -84,7 +84,7 @@ def maximum(
     builder: TTIRBuilder,
     unit_attrs: Optional[List[str]] = None,
 ):
-    return builder.maximum(in0, in1, unit_attrs=unit_attrs)
+    return builder.maximum(in0, in1)
 
 
 def minimum(
@@ -508,7 +508,7 @@ def test_unaligned_shapes_add(
         tensor_lhs *= signs_lhs
         tensor_rhs *= signs_rhs
         builder.set_goldens(inputs={in0: tensor_lhs, in1: tensor_rhs})
-        return builder.add(in0, in1, unit_attrs=unit_attrs)
+        return builder.add(in0, in1)
 
     compile_and_execute_ttir(
         add,
