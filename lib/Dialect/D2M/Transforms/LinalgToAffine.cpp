@@ -79,8 +79,7 @@ public:
       // register allocation pass(es).
       auto linalgOpsToConvert = llvm::make_filter_range(
           allLinalgOps, [&](linalg::GenericOp linalgGenericOp) {
-            return useTileMatmul || !hasTileMatmul(linalgGenericOp) ||
-                   op.isExplicitDatamovementForm();
+            return useTileMatmul || !hasTileMatmul(linalgGenericOp);
           });
 
       // Convert all collected linalg.generic ops to affine loops.

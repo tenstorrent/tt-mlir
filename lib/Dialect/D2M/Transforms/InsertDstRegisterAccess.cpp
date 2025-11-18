@@ -99,6 +99,9 @@ public:
       bool linalgToAffineFailed = false;
       block.walk([&](linalg::GenericOp linalgGenericOp) {
         if (!useTileMatmul && hasTileMatmul(linalgGenericOp)) {
+          // Only use tile matmul block rewrite when not in explicit
+          // datamovement form. Explicit datamovement form should fall through
+          // to regular linalg-to-affine conversion.
           if (!op.isExplicitDatamovementForm()) {
             linalgToAffineFailed |= rewriteTileMatmulAsTileMatmulBlock(
                 rewriter, op, *genericRegion, linalgGenericOp, dstCapacity,
