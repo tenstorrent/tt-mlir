@@ -23,7 +23,7 @@ module @jit_loss {
     %32 = "ttir.typecast"(%30) : (tensor<f32>) -> tensor<f32>
     %33 = "ttir.dot_general"(%28, %arg2) <{batch_dims_lhs = array<i64>, batch_dims_rhs = array<i64>, contract_dims_lhs = array<i64: 0>, contract_dims_rhs = array<i64: 0>}> : (tensor<127x1xf32>, tensor<127x2xf32>) -> tensor<1x2xf32>
     // CHECK: "ttir.permute"
-    // CHECK: {permutation = array<i64: 1, 0>}> : (tensor<127x1xf32>, tensor<1x127xf32>) -> tensor<1x127xf32>
+    // CHECK: {permutation = array<i64: 1, 0>}> : (tensor<127x1xf32>) -> tensor<1x127xf32>
     // CHECK: "ttir.matmul"
     // CHECK: (tensor<1x127xf32>, tensor<127x2xf32>) -> tensor<1x2xf32>
     %35 = "ttir.permute"(%33) <{permutation = array<i64: 1, 0>}> : (tensor<1x2xf32>) -> tensor<2x1xf32>

@@ -17,7 +17,7 @@ module @jit_requantize {
     // CHECK-SAME: 0
     // CHECK-SAME: -> tensor<1xsi32>
     // CHECK: "ttir.requantize_unrolled"
-    %1 = "ttir.requantize"(%arg0) : (tensor<1x3x224x224x!quant.uniform<i32:f32, 2.000000e-02>>, tensor<1x3x224x224x!quant.uniform<i32:f32) -> tensor<1x3x224x224x!quant.uniform<i32:f32, 1.000000e-02>>
+    %1 = "ttir.requantize"(%arg0) : (tensor<1x3x224x224x!quant.uniform<i32:f32, 2.000000e-02>>) -> tensor<1x3x224x224x!quant.uniform<i32:f32, 1.000000e-02>>
     return %1 : tensor<1x3x224x224x!quant.uniform<i32:f32, 1.000000e-02>>
   }
   func.func @test_per_axis_requantize(%arg0: tensor<3x3x7x7x!quant.uniform<i32:f32:0, {2.000000e-02:10,1.000000e-02:20,5.000000e-03:30}>>) -> tensor<3x3x7x7x!quant.uniform<i32:f32:0, {1.000000e-02:10,5.000000e-03:20,2.500000e-03:30}>> {
@@ -30,7 +30,7 @@ module @jit_requantize {
     // CHECK-SAME: -> tensor<3xsi32>
     // CHECK: "ttir.requantize_unrolled"
     // CHECK-SAME: axis = 0 : i32
-    %1 = "ttir.requantize"(%arg0) : (tensor<3x3x7x7x!quant.uniform<i32:f32:0, {2.000000e-02:10, 1.000000e-02:20, 5.000000e-03:30}>>, tensor<3x3x7x7x!quant.uniform<i32:f32:0, {1.000000e-02:10, 5.000000e-03:20) -> tensor<3x3x7x7x!quant.uniform<i32:f32:0, {1.000000e-02:10,5.000000e-03:20,2.500000e-03:30}>>
+    %1 = "ttir.requantize"(%arg0) : (tensor<3x3x7x7x!quant.uniform<i32:f32:0, {2.000000e-02:10, 1.000000e-02:20, 5.000000e-03:30}>>) -> tensor<3x3x7x7x!quant.uniform<i32:f32:0, {1.000000e-02:10,5.000000e-03:20,2.500000e-03:30}>>
     return %1 : tensor<3x3x7x7x!quant.uniform<i32:f32:0, {1.000000e-02:10,5.000000e-03:20,2.500000e-03:30}>>
   }
 }

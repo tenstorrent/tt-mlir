@@ -9,7 +9,7 @@ func.func public @test_avgpool2d_workaround(%arg0: tensor<8x256x6x6xf32>) -> ten
   // CHECK-SAME: permutation = array<i64: 0, 2, 3, 1>
   // CHECK-SAME: (tensor<8x256x6x6xf32>
   // CHECK-SAME: -> tensor<8x6x6x256xf32>
-  // CHECK: %[[AVGPOOL:[0-9]+]] = "ttir.avg_pool2d"(%[[PERMUTE]],
+  // CHECK: %[[AVGPOOL:[0-9]+]] = "ttir.avg_pool2d"(%[[PERMUTE]]
   // CHECK-SAME: ceil_mode = false,
   // CHECK-SAME: dilation = array<i32: 1, 1>,
   // CHECK-SAME: kernel = array<i32: 1, 1>,
@@ -17,13 +17,13 @@ func.func public @test_avgpool2d_workaround(%arg0: tensor<8x256x6x6xf32>) -> ten
   // CHECK-SAME: stride = array<i32: 1, 1>
   // CHECK-SAME: (tensor<8x6x6x256xf32>
   // CHECK-SAME: -> tensor<8x8x8x256xf32>
-  %3 = "ttir.pooling"(%arg0) <{base_dilations = array<i64: 1, 1, 1, 1>, operandSegmentSizes = array<i32: 1, 1>, padding = array<i64: 0, 0, 0, 0, 1, 1, 1, 1>, pooling_method = #ttir<pooling_method Sum>, window_dilations = array<i64: 1, 1, 1, 1>, window_dimensions = array<i64: 1, 1, 1, 1>, window_strides = array<i64: 1, 1, 1, 1>}> : (tensor<8x256x6x6xf32>, tensor<8x256x8x8xf32>) -> tensor<8x256x8x8xf32>
-  // CHECK: %[[PERMUTE_1:[0-9]+]] = "ttir.permute"(%[[AVGPOOL]],
+  %3 = "ttir.pooling"(%arg0) <{base_dilations = array<i64: 1, 1, 1, 1>, operandSegmentSizes = array<i32: 1, 1>, padding = array<i64: 0, 0, 0, 0, 1, 1, 1, 1>, pooling_method = #ttir<pooling_method Sum>, window_dilations = array<i64: 1, 1, 1, 1>, window_dimensions = array<i64: 1, 1, 1, 1>, window_strides = array<i64: 1, 1, 1, 1>}> : (tensor<8x256x6x6xf32>) -> tensor<8x256x8x8xf32>
+  // CHECK: %[[PERMUTE_1:[0-9]+]] = "ttir.permute"(%[[AVGPOOL]]
   // CHECK-SAME: permutation = array<i64: 0, 3, 1, 2>
   // CHECK-SAME: (tensor<8x8x8x256xf32>
   // CHECK-SAME: -> tensor<8x256x8x8xf32>
   // CHECK: %[[KERNEL:[0-9]+]] = "ttir.constant"() <{value = dense<1.000000e+00> : tensor<8x256x8x8xf32>}> : () -> tensor<8x256x8x8xf32>
-  // CHECK: %{{[0-9]+}} = "ttir.multiply"(%[[PERMUTE_1]], %[[KERNEL]]
+  // CHECK: %{{[0-9]+}} = "ttir.multiply"(%[[PERMUTE_1]], %[[KERNEL]])
   // CHECK-SAME: (tensor<8x256x8x8xf32>, tensor<8x256x8x8xf32>)
   // CHECK-SAME: -> tensor<8x256x8x8xf32>
   %5 = "ttir.reshape"(%1) <{shape = [1 : i32, 1 : i32, 1 : i32, 1 : i32]}> : (tensor<1xf32>) -> tensor<1x1x1x1xf32>

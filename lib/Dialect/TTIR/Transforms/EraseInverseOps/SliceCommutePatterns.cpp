@@ -44,8 +44,8 @@ public:
         sliceOperandType.getElementType(), sliceOperandType.getEncoding());
 
     PermuteOp newPerm =
-        rewriter.create<PermuteOp>(permuteUser->getLoc(), newPermuteType, op.getInput(),
-                                   permuteUser.getPermutation());
+        rewriter.create<PermuteOp>(permuteUser->getLoc(), newPermuteType,
+                                   op.getInput(), permuteUser.getPermutation());
 
     SmallVector<Attribute> newSliceStarts = ttmlir::utils::applyPermutation(
         op.getBegins().getValue(), permuteUser.getPermutation());
@@ -61,9 +61,9 @@ public:
 
     SliceStaticOp newSlice =
         rewriter.create<SliceStaticOp>(op->getLoc(), newSliceType, newPerm,
-                                 rewriter.getArrayAttr(newSliceStarts),
-                                 rewriter.getArrayAttr(newSliceEnds),
-                                 rewriter.getArrayAttr(newSliceSteps));
+                                       rewriter.getArrayAttr(newSliceStarts),
+                                       rewriter.getArrayAttr(newSliceEnds),
+                                       rewriter.getArrayAttr(newSliceSteps));
 
     // All users must be identical TMs.
     // We must not reference `permuteUser` during/after replacements, as it will
@@ -121,8 +121,8 @@ public:
         op.getType().getShape(), newSlice.getType().getElementType(),
         newSlice.getType().getEncoding());
     PermuteOp newPerm =
-        rewriter.create<PermuteOp>(permuteOperand->getLoc(), newPermuteType, newSlice,
-                                   permuteOperand.getPermutation());
+        rewriter.create<PermuteOp>(permuteOperand->getLoc(), newPermuteType,
+                                   newSlice, permuteOperand.getPermutation());
 
     rewriter.replaceOp(op, newPerm);
   }
@@ -221,9 +221,8 @@ public:
     // The reshape should produce the same output type as the original slice
     SmallVector<int32_t> reshapeTargetShape(op.getType().getShape());
     ReshapeOp newReshape = rewriter.create<ReshapeOp>(
-      reshapeOperand->getLoc(), op.getType(), newSlice,
-      rewriter.getI32ArrayAttr(reshapeTargetShape)
-    );
+        reshapeOperand->getLoc(), op.getType(), newSlice,
+        rewriter.getI32ArrayAttr(reshapeTargetShape));
     rewriter.replaceOp(op, newReshape);
   }
 
@@ -338,9 +337,8 @@ private:
                               op.getType().getEncoding());
 
     SliceStaticOp newSlice = rewriter.create<SliceStaticOp>(
-        op->getLoc(), newSliceType, input,
-        rewriter.getArrayAttr(newBegins), rewriter.getArrayAttr(newEnds),
-        rewriter.getArrayAttr(newSteps));
+        op->getLoc(), newSliceType, input, rewriter.getArrayAttr(newBegins),
+        rewriter.getArrayAttr(newEnds), rewriter.getArrayAttr(newSteps));
 
     return newSlice;
   }

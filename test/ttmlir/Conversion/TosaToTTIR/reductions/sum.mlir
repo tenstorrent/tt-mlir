@@ -4,7 +4,7 @@ module attributes {} {
   func.func @test_sum(%arg0: tensor<13x21x3xf32>) -> tensor<13x1x3xf32> {
     // CHECK: func.func {{.+}} [[IN_SIZE:tensor<[0-9]+x[0-9]+x[0-9]+xf32>]]{{.*}} ->
     %0 = tosa.reduce_sum %arg0 {axis = 1 : i32} : (tensor<13x21x3xf32>) -> tensor<13x1x3xf32>
-    // CHECK: %[[VAL:[0-9]+]] = "ttir.sum"(%arg{{[0-9]+}}) 
+    // CHECK: %[[VAL:[0-9]+]] = "ttir.sum"(%arg{{[0-9]+}})
     // CHECK-SAME: ([[IN_SIZE]]) -> [[OUT_SIZE:tensor<13x1x3xf32>]]
     // CHECK: return %[[VAL]] : [[OUT_SIZE]]
     return %0 : tensor<13x1x3xf32>

@@ -71,16 +71,16 @@ public:
     Conv2dOpType newConv;
     if constexpr (std::is_same_v<Conv2dOpType, ttir::ConvTranspose2dOp>) {
       newConv = rewriter.create<ttir::ConvTranspose2dOp>(
-          op.getLoc(), getNHWFlattenedType(outputType),
-          flattenedInput, adaptor.getWeight(), adaptor.getBias(),
-          adaptor.getStride(), adaptor.getPadding(), adaptor.getOutputPadding(),
+          op.getLoc(), getNHWFlattenedType(outputType), flattenedInput,
+          adaptor.getWeight(), adaptor.getBias(), adaptor.getStride(),
+          adaptor.getPadding(), adaptor.getOutputPadding(),
           adaptor.getDilation(), adaptor.getGroups(), flattenedCompatInfoAttr);
     } else if constexpr (std::is_same_v<Conv2dOpType, ttir::Conv2dOp>) {
       newConv = rewriter.create<ttir::Conv2dOp>(
-          op.getLoc(), getNHWFlattenedType(outputType),
-          flattenedInput, adaptor.getWeight(), adaptor.getBias(),
-          adaptor.getStride(), adaptor.getPadding(), adaptor.getDilation(),
-          adaptor.getGroups(), flattenedCompatInfoAttr);
+          op.getLoc(), getNHWFlattenedType(outputType), flattenedInput,
+          adaptor.getWeight(), adaptor.getBias(), adaptor.getStride(),
+          adaptor.getPadding(), adaptor.getDilation(), adaptor.getGroups(),
+          flattenedCompatInfoAttr);
     } else {
       static_assert(ttmlir::utils::always_false<Conv2dOpType>(),
                     "Unsupported Conv2dOpType");

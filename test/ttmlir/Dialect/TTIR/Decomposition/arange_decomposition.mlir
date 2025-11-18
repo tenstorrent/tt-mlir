@@ -12,9 +12,9 @@ module attributes {} {
     // CHECK: %[[ARANGE:[0-9]+]] = "ttir.arange"
     // CHECK-SAME: {arange_dimension = 0 : i64, end = 32 : si64, start = 0 : si64, step = 1 : si64}
     // CHECK-SAME: -> tensor<32xf32>
-    // CHECK: %[[RESHAPE:[0-9]+]] = "ttir.reshape"(%[[ARANGE]],
+    // CHECK: %[[RESHAPE:[0-9]+]] = "ttir.reshape"(%[[ARANGE]]
     // CHECK-SAME: (tensor<32xf32>) -> tensor<1x32x1x1xf32>
-    // CHECK: %[[BROADCAST:[0-9]+]] = "ttir.broadcast"(%[[RESHAPE]],
+    // CHECK: %[[BROADCAST:[0-9]+]] = "ttir.broadcast"(%[[RESHAPE]]
     // CHECK-SAME: broadcast_dimensions = array<i64: 1, 1, 128, 128>
     // CHECK-SAME: (tensor<1x32x1x1xf32>) -> tensor<1x32x128x128xf32>
     %1 = "ttir.arange"() <{start = 0: si64, end = 32: si64, step = 1: si64, arange_dimension = 1: i64}> : () -> tensor<1x32x128x128xf32>

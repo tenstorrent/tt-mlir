@@ -59,7 +59,7 @@ module attributes {} {
         window_strides = array<i64: 1, 1, 2, 2>,
         base_dilations = array<i64: 1, 1, 1, 1>,
         window_dilations = array<i64: 1, 1, 1, 1>,
-        padding = array<i64: 0, 0, 0, 0, 0, 0, 0, 0>}> : (tensor<1x32x128x128xbf16>, tensor<1x32x20x20xbf16>,) -> (tensor<1x32x64x64xbf16>, tensor<1x32x10x10x10xbf16>)
+        padding = array<i64: 0, 0, 0, 0, 0, 0, 0, 0>}> : (tensor<1x32x128x128xbf16>, tensor<1x32x20x20xbf16>) -> (tensor<1x32x64x64xbf16>, tensor<1x32x10x10x10xbf16>)
     return %2#0, %2#1 : tensor<1x32x64x64xbf16>, tensor<1x32x10x10x10xbf16>
   }
 }

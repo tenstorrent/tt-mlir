@@ -6,7 +6,7 @@ module attributes {} {
     %0 = "tosa.const"() { values = dense<0.0> : tensor<1xf32> } : () -> tensor<1xf32>
     %1 = tosa.matmul %arg0, %arg1, %0, %0 : (tensor<13x21x16xf32>, tensor<13x16x31xf32>, tensor<1xf32>, tensor<1xf32>) -> tensor<13x21x31xf32>
     // CHECK: %[[CST:[0-9]+]] = "ttir.constant"() <{value = dense<0.000000e+00> : tensor<1xf32>}> : () -> tensor<1xf32>
-    // CHECK: %[[VAL:[0-9]+]] = "ttir.matmul"(%arg{{[0-9]+}}, %arg{{[0-9]+}}) 
+    // CHECK: %[[VAL:[0-9]+]] = "ttir.matmul"(%arg{{[0-9]+}}, %arg{{[0-9]+}})
     // CHECK-SAME: (tensor<[[B]]x[[I]]x[[J]]xf32>, tensor<[[B]]x[[J]]x[[K]]xf32>) -> tensor<[[B]]x[[I]]x[[K]]xf32>
     // CHECK: return %[[VAL]] : tensor<[[B]]x[[I]]x[[K]]xf32>
     return %1 : tensor<13x21x31xf32>
