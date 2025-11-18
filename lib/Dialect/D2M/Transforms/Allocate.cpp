@@ -639,12 +639,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
 
       if (isIgnoredOutput) {
         // For now, disabled `allow-l1-output-spilling` also means
-        // no output streams allowed, period.
-        TT_assertv(
-            !operandCtx.hasStream,
-            "[allow-l1-output-spilling: {}] {} operand '{}' of a generic "
-            "op must not have a stream",
-            allowL1OutputSpilling, "output", asOperand(operandValue));
+        // "don't insert streams but allow them in the incoming IR".
       } else {
         if (operandCtx.hasStream) {
           // Generics in "DMA only" form do not use streams and it is
