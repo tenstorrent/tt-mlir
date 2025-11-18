@@ -15,7 +15,7 @@
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
 #include "llvm/ADT/DenseMap.h"
-#include <llvm/Support/Casting.h>
+#include "llvm/Support/Casting.h"
 #include <tuple>
 
 namespace mlir::tt::d2m {
@@ -271,7 +271,8 @@ static GenericOp createFusedGeneric(OpOperand *fusedOperand, GenericOp producer,
 
   (void)fusedBlock.addArguments(fusedBlockArgTypes, fusedBlockArgLocs);
 
-  // Map original region block arguments to their indices in the fused region block arguments.
+  // Map original region block arguments to their indices in the fused region
+  // block arguments.
   DenseMap<std::pair<Operation *, unsigned>, unsigned> sourceToFusedIdx;
   for (auto it : llvm::enumerate(argSources)) {
     sourceToFusedIdx[it.value()] = static_cast<unsigned>(it.index());
@@ -289,7 +290,8 @@ static GenericOp createFusedGeneric(OpOperand *fusedOperand, GenericOp producer,
   auto mapProdRegionArgs = [&](Operation *op, Block &orig) {
     // Map all input args and skip mapping the output arg for now
     GenericOp prodGeneric = llvm::dyn_cast<GenericOp>(op);
-    unsigned prodInitArgNum = prodGeneric.getDpsInitOperand(0)->getOperandNumber();
+    unsigned prodInitArgNum =
+        prodGeneric.getDpsInitOperand(0)->getOperandNumber();
     for (unsigned i = 0; i < op->getNumOperands(); ++i) {
       if (i != prodInitArgNum) {
         unsigned fusedIndex = sourceToFusedIdx[{op, i}];
@@ -299,12 +301,15 @@ static GenericOp createFusedGeneric(OpOperand *fusedOperand, GenericOp producer,
 
     // The producer's init block argument (output) is not part of the fused
     // operands, but we need to ensure it's mapped so that any operations in the
-    // producer that reference it can be cloned properly. Map it to the consumer's
-    // first output block argument, since that's where the fused result/intermediate will go.
-    unsigned consumerFirstOutputArgNum = 
+    // producer that reference it can be cloned properly. Map it to the
+    // consumer's first output block argument, since that's where the fused
+    // result/intermediate will go.
+    unsigned consumerFirstOutputArgNum =
         consumer.getDpsInitOperand(0)->getOperandNumber();
-    unsigned consumerOutputFusedIdx = sourceToFusedIdx[{consumer.getOperation(), consumerFirstOutputArgNum}];
-    irMap.map(orig.getArgument(prodInitArgNum), fusedBlock.getArgument(consumerOutputFusedIdx));
+    unsigned consumerOutputFusedIdx =
+        sourceToFusedIdx[{consumer.getOperation(), consumerFirstOutputArgNum}];
+    irMap.map(orig.getArgument(prodInitArgNum),
+              fusedBlock.getArgument(consumerOutputFusedIdx));
   };
 
   mapProdRegionArgs(producer.getOperation(), pb);
@@ -338,7 +343,7 @@ static GenericOp createFusedGeneric(OpOperand *fusedOperand, GenericOp producer,
 
   int prodResultNumber = cast<OpResult>(fusedOperand->get()).getResultNumber();
   Value prodYieldOperand = prodYield.getOperand(prodResultNumber);
-  
+
   // Now that all producer block arguments (including init) are properly mapped,
   // we can safely look up the yielded value. It should either be a mapped
   // operation result or a mapped block argument.
@@ -358,9 +363,10 @@ static GenericOp createFusedGeneric(OpOperand *fusedOperand, GenericOp producer,
   // on the same output buffer. We track by the mapped block argument (in the
   // fused block) since that's what both producer and consumer reserves map to.
   DenseMap<Value, Value> reservedOutputs;
-  
+
   // First, populate reservedOutputs with any reserves from the producer.
-  // This prevents duplicate reserves when the consumer also reserves the same output.
+  // This prevents duplicate reserves when the consumer also reserves the same
+  // output.
   for (Operation &op : pb) {
     if (auto reserveOp = dyn_cast<d2m::ReserveOp>(&op)) {
       Value originalCB = reserveOp.getCb();
@@ -379,14 +385,16 @@ static GenericOp createFusedGeneric(OpOperand *fusedOperand, GenericOp producer,
     }
   }
   for (Operation &op : cb.without_terminator()) {
-    // Handle reserve operations specially to deduplicate reserves on the same output buffer
+    // Handle reserve operations specially to deduplicate reserves on the same
+    // output buffer
     if (auto reserveOp = dyn_cast<d2m::ReserveOp>(&op)) {
       Value originalCB = reserveOp.getCb();
       // Check if this is a reserve on an output buffer (block argument)
       if (auto blockArg = dyn_cast<BlockArgument>(originalCB)) {
         // Look up what this CB is mapped to in the fused block
         Value mappedCB = irMap.lookupOrDefault(originalCB);
-        // Check if we've already reserved this output buffer (from producer or earlier in consumer)
+        // Check if we've already reserved this output buffer (from producer or
+        // earlier in consumer)
         if (reservedOutputs.count(mappedCB)) {
           // Reuse the previously reserved buffer
           irMap.map(reserveOp.getResult(), reservedOutputs[mappedCB]);
@@ -401,18 +409,19 @@ static GenericOp createFusedGeneric(OpOperand *fusedOperand, GenericOp producer,
         continue;
       }
 
-      // If reserve is on a non-block-argument CB (intermediate), check if it's mapped
+      // If reserve is on a non-block-argument CB (intermediate), check if it's
+      // mapped
       Value cbOperand = irMap.lookupOrDefault(originalCB);
       if (cbOperand && !mlir::isa<BlockArgument>(cbOperand)) {
         irMap.map(reserveOp.getResult(), cbOperand);
         continue;
       }
-      
+
       // Otherwise clone it normally
       rewriter.clone(op, irMap);
       continue;
     }
-    
+
     // Handle wait operations - skip if waiting on intermediate values
     if (auto waitOp = dyn_cast<d2m::WaitOp>(&op)) {
       Value cbOperand = irMap.lookupOrDefault(waitOp.getCb());
@@ -421,7 +430,7 @@ static GenericOp createFusedGeneric(OpOperand *fusedOperand, GenericOp producer,
         continue;
       }
     }
-    
+
     // Clone all other operations
     rewriter.clone(op, irMap);
   }
