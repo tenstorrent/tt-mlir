@@ -185,24 +185,12 @@ public:
     auto normalizedShapeDenseAttr =
         rewriter.getDenseI64ArrayAttr(normalizedShapeVec);
 
-    // Extract epsilon
     auto epsilonAttr = compositeAttrs.get("epsilon");
-    FloatAttr epsilonFloatAttr;
-    if (auto floatAttr = mlir::dyn_cast<FloatAttr>(epsilonAttr)) {
-      epsilonFloatAttr =
-          rewriter.getF32FloatAttr(floatAttr.getValueAsDouble());
-    } else {
-      epsilonFloatAttr = rewriter.getF32FloatAttr(1e-05);
-    }
 
-    // Prepare attributes for ttir.rms_norm
     SmallVector<NamedAttribute> namedAttrs;
     namedAttrs.push_back(
         rewriter.getNamedAttr("normalized_shape", normalizedShapeDenseAttr));
-    namedAttrs.push_back(rewriter.getNamedAttr("epsilon", epsilonFloatAttr));
-
-    // Get operands - for now only support input (no weight/bias)
-    auto operands = adaptor.getOperands();
+    namedAttrs.push_back(rewriter.getNamedAttr("epsilon", epsilonAttr));
 
     // ttir.rms_norm has AttrSizedOperandSegments: [input, weight?, bias?, output]
     // Set operandSegmentSizes: [1, 0, 0, 1] for input + output only
@@ -211,15 +199,8 @@ public:
         "operandSegmentSizes",
         rewriter.getDenseI32ArrayAttr(segmentSizes)));
 
-    // Only pass the input operand (first operand)
-    SmallVector<Value> inputOperands;
-    if (operands.size() > 0) {
-      inputOperands.push_back(operands[0]);  // input
-    }
-
-    // Replace with ttir.rms_norm using DPS helper
     ttir::utils::replaceOpWithNewDPSOp<ttir::RMSNormOp>(
-        rewriter, srcOp, outputType, inputOperands, namedAttrs);
+        rewriter, srcOp, outputType, adaptor.getOperands(), namedAttrs);
     return success();
   }
 };
@@ -258,9 +239,7 @@ void populateStableHLOCompositeLegalizationPatterns(
       context, "tenstorrent.gelu");
   patterns.add<StableHLOToTTIRCompositeOpConversionPattern<ttir::GeluOp>>(
       context, "tenstorrent.gelu_tanh");
-  patterns.add<StableHLOToTTIRCompositeOpConversionPattern<ttir::RMSNormOp>>(
-      context, "tenstorrent.rms_norm");
-  // patterns.add<TenstorrentRMSNormConversionPattern>(context);
+  patterns.add<TenstorrentRMSNormConversionPattern>(context);
   patterns.add<TenstorrentUniformToRandConversionPattern>(context);
 }
 } // namespace mlir::tt
