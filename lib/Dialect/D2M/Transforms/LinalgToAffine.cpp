@@ -18,8 +18,10 @@ namespace mlir::tt::d2m {
 namespace {
 struct D2MLinalgToAffineRewriter final : public OpRewritePattern<GenericOp> {
 public:
-  D2MLinalgToAffineRewriter(mlir::MLIRContext *ctx, bool useTileMatmul)
-      : OpRewritePattern<GenericOp>(ctx), useTileMatmul(useTileMatmul) {}
+  D2MLinalgToAffineRewriter(mlir::MLIRContext *ctx, bool useTileMatmul,
+                            bool markRootLoops)
+      : OpRewritePattern<GenericOp>(ctx), useTileMatmul(useTileMatmul),
+        markRootLoops(markRootLoops) {}
 
   static bool hasTileMatmul(linalg::GenericOp linalgGenericOp) {
     bool hasTileMatmul = false;
@@ -36,8 +38,11 @@ public:
   // processing.
   static void markAndReplaceLinalgOp(PatternRewriter &rewriter,
                                      linalg::GenericOp linalgGenericOp,
-                                     Operation *rootLoopNest) {
-    rootLoopNest->setAttr("d2m.linalg_root", rewriter.getUnitAttr());
+                                     Operation *rootLoopNest,
+                                     bool markRootLoops) {
+    if (markRootLoops) {
+      rootLoopNest->setAttr("d2m.linalg_root", rewriter.getUnitAttr());
+    }
     rewriter.replaceOp(linalgGenericOp, rootLoopNest);
   }
 
@@ -83,7 +88,7 @@ public:
         assert(!linalgLoops.value().empty());
 
         markAndReplaceLinalgOp(rewriter, linalgGenericOp,
-                               linalgLoops.value().front());
+                               linalgLoops.value().front(), markRootLoops);
         modified = true;
       });
 
@@ -97,6 +102,7 @@ public:
 
 private:
   bool useTileMatmul = false;
+  bool markRootLoops = true;
 };
 } // namespace
 
@@ -110,7 +116,7 @@ public:
     MLIRContext *ctx = &getContext();
     RewritePatternSet patterns(ctx);
 
-    patterns.add<D2MLinalgToAffineRewriter>(ctx, useTileMatmul);
+    patterns.add<D2MLinalgToAffineRewriter>(ctx, useTileMatmul, markRootLoops);
 
     if (failed(applyPatternsGreedily(getOperation(), std::move(patterns)))) {
       signalPassFailure();

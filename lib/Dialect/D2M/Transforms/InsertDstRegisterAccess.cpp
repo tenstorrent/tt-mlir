@@ -49,6 +49,12 @@ public:
     SmallVector<OpAndIndexOffset<affine::AffineLoadOp>> loads;
     SmallVector<OpAndIndexOffset<affine::AffineStoreOp>> stores;
   };
+
+  struct OperationTypes {
+    bool hasComputeOps = false;
+    bool hasLinalgGeneric = false;
+    bool hasMarkedAffineLoops = false;
+  };
   using CopyInfoMap = DenseMap<Operation *, CopyInfo>;
 
   class DstSliceAllocationState {
@@ -76,7 +82,13 @@ public:
       Region *genericRegion = &op.getRegion(regionIndex);
       Block &block = genericRegion->getBlocks().front();
 
-      if (!op.hasComputeOpsInRegion(regionIndex)) {
+      // Check if this region has any operations that this pass knows how to
+      // handle
+      OperationTypes opTypes = getOperationTypes(op, regionIndex);
+
+      // Fail early if there are no operations this pass can handle
+      if (!opTypes.hasComputeOps && !opTypes.hasLinalgGeneric &&
+          !opTypes.hasMarkedAffineLoops) {
         return failure();
       }
 
@@ -104,7 +116,10 @@ public:
       });
 
       if (linalgToAffineFailed) {
-        return failure();
+        return op.emitOpError()
+               << "found linalg.generic operations that were not converted to "
+                  "affine loops. Please run --d2m-linalg-to-affine before this "
+                  "pass.";
       }
 
       // Process affine loops marked by LinalgToAffine pass
@@ -161,6 +176,26 @@ public:
 
   static bool hasAcquireDstOp(Region &region) {
     return !region.getOps<AcquireDstOp>().empty();
+  }
+
+  static OperationTypes getOperationTypes(GenericOp op, unsigned regionIndex) {
+    OperationTypes types;
+    types.hasComputeOps = op.hasComputeOpsInRegion(regionIndex);
+
+    Region *genericRegion = &op.getRegion(regionIndex);
+    Block &block = genericRegion->getBlocks().front();
+
+    block.walk([&](Operation *op) {
+      if (isa<linalg::GenericOp>(op)) {
+        types.hasLinalgGeneric = true;
+      } else if (auto forOp = dyn_cast<affine::AffineForOp>(op)) {
+        if (forOp->hasAttr("d2m.linalg_root")) {
+          types.hasMarkedAffineLoops = true;
+        }
+      }
+    });
+
+    return types;
   }
 
   static std::pair<MemRefType, int64_t>

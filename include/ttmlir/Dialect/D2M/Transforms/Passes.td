@@ -99,7 +99,9 @@ def D2MLinalgToAffine : Pass<"d2m-linalg-to-affine", "::mlir::ModuleOp"> {
   ];
   let options = [
     Option<"useTileMatmul", "use-tile-matmul", "bool", "false",
-           "Use tile_matmul instead of tile_matmul_block for matmul ops">
+           "Use tile_matmul instead of tile_matmul_block for matmul ops">,
+    Option<"markRootLoops", "mark-root-loops", "bool", "true",
+           "Mark root loops with d2m.linalg_root attribute for subsequent passes">
   ];
 }
 
