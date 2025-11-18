@@ -18,12 +18,14 @@ namespace mlir::tt::scheduler {
 // TTNN op is scheduleable if it is not an EmptyOp and has at least one result.
 static bool isTTNNScheduleableOp(mlir::Operation *op) {
   return isa<ttnn::TTNNDialect>(op->getDialect()) && op->getNumResults() > 0 &&
-         !llvm::isa<ttnn::EmptyOp>(op) && !llvm::isa<ttnn::GetDeviceOp>(op);
+         !llvm::isa<ttnn::EmptyOp>(op) && !llvm::isa<ttnn::GetDeviceOp>(op) &&
+         dyn_cast_or_null<MemoryEffectOpInterface>(op) == nullptr;
 }
 
 static bool isTTIRSchedulableOp(mlir::Operation *op) {
   return isa<ttir::TTIRDialect>(op->getDialect()) &&
-         !llvm::isa<ttir::EmptyOp>(op);
+         !llvm::isa<ttir::EmptyOp>(op) &&
+         dyn_cast_or_null<MemoryEffectOpInterface>(op) == nullptr;
 }
 
 bool Scheduler::isTTSchedulableOp(mlir::Operation *op) {
