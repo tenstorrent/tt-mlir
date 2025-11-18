@@ -2157,8 +2157,9 @@ public:
 
     // Currently, only supporting Multi-Head Attention.
     // TODO(@ddilbazTT): Extend to support Grouped Query Attention.
-    if (findAttentionType(reshapeOp, matmulOps, permuteOps) !=
-        AttentionType::MHA) {
+    AttentionType attentionType =
+        findAttentionType(reshapeOp, matmulOps, permuteOps);
+    if (attentionType == AttentionType::NONE) {
       return failure();
     }
 
@@ -2170,6 +2171,18 @@ public:
     hoistPreprocessingOps(permuteOps);
     rewriter.setInsertionPointAfter(permuteOps.front());
 
+    if (attentionType == AttentionType::MHA) {
+      return fuseMHA(rewriter, reshapeOp, matmulOps, permuteOps);
+    }
+    llvm::outs() << "Not yet implemented attention type for fusion.\n";
+    return mlir::failure();
+  }
+
+private:
+  mlir::LogicalResult fuseMHA(mlir::PatternRewriter &rewriter,
+                              ReshapeOp reshapeOp,
+                              llvm::SmallVector<MatMulOpType> &matmulOps,
+                              llvm::SmallVector<PermuteOp> &permuteOps) const {
     // Extract dimensions from reshape op and permute ops.
     Value reshapeOutput = reshapeOp.getResult();
     ArrayRef<int64_t> inputShape = reshapeOp.getInput().getType().getShape();
@@ -2273,7 +2286,6 @@ public:
     return mlir::success();
   }
 
-private:
   AttentionType
   findAttentionType(ReshapeOp reshapeOp,
                     llvm::SmallVector<MatMulOpType> &matmulOps,
@@ -2285,9 +2297,10 @@ private:
         if (isMHA(matmulOps, permuteOps)) {
           return AttentionType::MHA;
         }
-        // if (isGQA(matmulOps, permuteOps)) {
-        //   return AttentionType::GQA;
-        // }
+        if (isGQA(matmulOps, permuteOps)) {
+          llvm::outs() << "Detected GQA pattern\n";
+          return AttentionType::GQA;
+        }
       }
     }
 
@@ -2296,9 +2309,10 @@ private:
 
   bool isMHA(llvm::SmallVector<MatMulOpType> matmulOps,
              llvm::SmallVector<PermuteOp> permuteOps) const {
-    // Matmul/ Linear B shape must be equal.
-    // Linear op bias must be equal.
-    // Permute op number of kv_heads must be equal.
+    // This function checks if the pattern is Multi-Head Attention (MHA):
+    // - Matmul/ Linear B shape must be equal.
+    // - Linear op bias must be equal.
+    // - Permute op number of kv_heads must be equal.
     auto queryBShape = matmulOps[0].getB().getType().getShape();
     auto keyBShape = matmulOps[1].getB().getType().getShape();
     auto valueBShape = matmulOps[2].getB().getType().getShape();
@@ -2318,6 +2332,37 @@ private:
     int32_t keyNumHeads = permuteOps[1].getType().getShape()[O_NUM_KV_HEADS];
     int32_t valueNumHeads = permuteOps[2].getType().getShape()[O_NUM_KV_HEADS];
     if (queryNumHeads != keyNumHeads || queryNumHeads != valueNumHeads) {
+      return false;
+    }
+    return true;
+  }
+  bool isGQA(llvm::SmallVector<MatMulOpType> matmulOps,
+             llvm::SmallVector<PermuteOp> permuteOps) const {
+    // This function checks if the pattern is Grouped Query Attention (GQA):
+    // - Matmul / linear b shape for query should be divisible by
+    //   key / value b shape and have the same multiplier.
+    // - Permute op number of heads should reflect the multiplier.
+    //  i.e. query_num_heads = key_num_heads * multiplier
+    //      query_num_heads = value_num_heads * multiplier
+    // TODO(@ddilbazTT): Extend to support bias checks for linear op.
+
+    auto queryBShape = matmulOps[0].getB().getType().getShape();
+    auto keyBShape = matmulOps[1].getB().getType().getShape();
+    auto valueBShape = matmulOps[2].getB().getType().getShape();
+    if (queryBShape[1] % keyBShape[1] != 0 ||
+        queryBShape[1] % valueBShape[1] != 0) {
+      return false;
+    }
+    auto multiplier = queryBShape[1] / keyBShape[1];
+    if (multiplier != queryBShape[1] / valueBShape[1]) {
+      return false;
+    }
+
+    int32_t queryNumHeads = permuteOps[0].getType().getShape()[O_NUM_KV_HEADS];
+    int32_t keyNumHeads = permuteOps[1].getType().getShape()[O_NUM_KV_HEADS];
+    int32_t valueNumHeads = permuteOps[2].getType().getShape()[O_NUM_KV_HEADS];
+    if (queryNumHeads != keyNumHeads * multiplier ||
+        queryNumHeads != valueNumHeads * multiplier) {
       return false;
     }
     return true;
