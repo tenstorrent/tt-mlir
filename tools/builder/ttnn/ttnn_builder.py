@@ -2689,6 +2689,11 @@ class TTNNBuilder(Builder):
                 self._ctx, tensor_memory_layout_attr, buffer_type_attr
             )
             data_type = self._get_data_type_attribute(op.result)
+
+            # Prepare location for the helper ToLayout operation
+            id = self._get_next_global_id()
+            loc = self._get_loc_of_extra_file_callee(id=id)
+
             output_to_dram = ttnn.ToLayoutOp(
                 final_output_type,
                 op.result,
