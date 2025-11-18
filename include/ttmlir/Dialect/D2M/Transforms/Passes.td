@@ -88,10 +88,6 @@ def D2MLinalgToAffine : Pass<"d2m-linalg-to-affine", "::mlir::ModuleOp"> {
       }
     }
     ```
-
-    This pass was extracted from D2MInsertDstRegisterAccess to achieve
-    better separation of concerns - one pass for conversion, one pass
-    for DST register management.
   }];
   let dependentDialects = [
     "::mlir::affine::AffineDialect",

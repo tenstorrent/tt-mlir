@@ -82,11 +82,8 @@ public:
       Region *genericRegion = &op.getRegion(regionIndex);
       Block &block = genericRegion->getBlocks().front();
 
-      // Check if this region has any operations that this pass knows how to
-      // handle
+      // Check if this region has any operations that this pass can handle.
       OperationTypes opTypes = getOperationTypes(op, regionIndex);
-
-      // Fail early if there are no operations this pass can handle
       if (!opTypes.hasComputeOps && !opTypes.hasLinalgGeneric &&
           !opTypes.hasMarkedAffineLoops) {
         return failure();
@@ -98,7 +95,7 @@ public:
               largestDstType, false, maxDstPhysicalSizeTiles);
 
       // Process linalg.generic ops that were not converted by LinalgToAffine
-      // (these are tile_matmul ops when useTileMatmul=false)
+      // (these are tile_matmul ops when useTileMatmul=false).
       bool linalgToAffineFailed = false;
       block.walk([&](linalg::GenericOp linalgGenericOp) {
         if (!useTileMatmul && hasTileMatmul(linalgGenericOp)) {
@@ -111,28 +108,28 @@ public:
         }
 
         // This should not happen - all other linalg ops should have been
-        // converted by LinalgToAffine pass
+        // converted by LinalgToAffine pass.
         linalgToAffineFailed = true;
       });
 
       if (linalgToAffineFailed) {
         return op.emitOpError()
                << "found linalg.generic operations that were not converted to "
-                  "affine loops. Please run --d2m-linalg-to-affine before this "
-                  "pass.";
+                  "affine loops. Please run --d2m-linalg-to-affine before "
+                  "the --d2m-insert-dst-register-access pass.";
       }
 
-      // Process affine loops marked by LinalgToAffine pass
+      // Process affine loops marked by LinalgToAffine pass.
       block.walk([&](affine::AffineForOp forOp) {
         // Only process root loops marked by LinalgToAffine
         if (!forOp->hasAttr("d2m.linalg_root")) {
           return;
         }
 
-        // Remove the marker attribute after identifying the loop
+        // Remove the marker attribute after identifying the loop.
         forOp->removeAttr("d2m.linalg_root");
 
-        // Insert DST register access for this loop nest
+        // Insert DST register access for this loop nest.
         Region &dstRegisterAccessRegion = forOp.getRegion();
         modified |= insertDstRegisterAccess(
             rewriter, op, dstRegisterAccessRegion, dstCapacity, forOp);

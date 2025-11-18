@@ -24,12 +24,19 @@ public:
         markRootLoops(markRootLoops) {}
 
   static bool hasTileMatmul(linalg::GenericOp linalgGenericOp) {
-    bool hasTileMatmul = false;
-    linalgGenericOp->walk([&](d2m::TileMatmulOp) {
-      hasTileMatmul = true;
-      return WalkResult::interrupt();
-    });
-    return hasTileMatmul;
+    // Walk was interrupted if we found a d2m::TileMatmulOp.
+    return linalgGenericOp
+        ->walk([](d2m::TileMatmulOp) { return WalkResult::interrupt(); })
+        .wasInterrupted();
+  }
+
+  static bool hasLinalgGenericOps(GenericOp op, unsigned regionIndex) {
+    Region *genericRegion = &op.getRegion(regionIndex);
+    Block &block = genericRegion->getBlocks().front();
+
+    // Walk was interrupted if we found a linalg::GenericOp.
+    return block.walk([](linalg::GenericOp) { return WalkResult::interrupt(); })
+        .wasInterrupted();
   }
 
   // Mark the root loop operation with an attribute to indicate it was produced
@@ -50,50 +57,43 @@ public:
                                 PatternRewriter &rewriter) const final {
     bool modified = false;
 
-    // Process each compute region
-    for (unsigned regionIndex = 0; regionIndex < op.getNumRegions();
-         regionIndex++) {
-      if (op.getRegionThreadType(regionIndex) != ThreadType::Compute) {
-        continue;
-      }
+    // Filter to compute regions that have linalg.generic ops.
+    auto computeRegions = llvm::make_filter_range(
+        llvm::enumerate(op.getRegions()), [&](auto indexedRegion) {
+          return op.getRegionThreadType(indexedRegion.index()) ==
+                     ThreadType::Compute &&
+                 hasLinalgGenericOps(op, indexedRegion.index());
+        });
 
-      Region *genericRegion = &op.getRegion(regionIndex);
-      Block &block = genericRegion->getBlocks().front();
+    for (auto [regionIndex, region] : computeRegions) {
+      Block &block = region.getBlocks().front();
 
-      if (!op.hasComputeOpsInRegion(regionIndex)) {
-        continue;
-      }
-
-      // Convert all linalg.generic ops to affine loops
-      bool conversionFailed = false;
+      // Collect linalg.generic ops to convert.
+      SmallVector<linalg::GenericOp> allLinalgOps;
       block.walk([&](linalg::GenericOp linalgGenericOp) {
-        // Skip linalg.generic ops containing tile_matmul when
-        // useTileMatmul=false These will be handled directly by
-        // InsertDstRegisterAccess pass which converts them to tile_matmul_block
-        // operations.
-        if (!useTileMatmul && hasTileMatmul(linalgGenericOp) &&
-            !op.isExplicitDatamovementForm()) {
-          // Skip this linalg op - leave it for InsertDstRegisterAccess
-          return;
-        }
+        allLinalgOps.push_back(linalgGenericOp);
+      });
 
-        // Regular linalg to affine conversion
+      // Filter out linalg.generic ops containing tile_matmul when
+      // useTileMatmul=false. These will be handled directly by subsequent DST
+      // register allocation pass(es).
+      auto linalgOpsToConvert = llvm::make_filter_range(
+          allLinalgOps, [&](linalg::GenericOp linalgGenericOp) {
+            return useTileMatmul || !hasTileMatmul(linalgGenericOp) ||
+                   op.isExplicitDatamovementForm();
+          });
+
+      // Convert all collected linalg.generic ops to affine loops.
+      for (auto linalgGenericOp : linalgOpsToConvert) {
         rewriter.setInsertionPoint(linalgGenericOp);
         auto linalgLoops =
             linalg::linalgOpToAffineLoops(rewriter, linalgGenericOp);
-        if (failed(linalgLoops)) {
-          conversionFailed = true;
-          return;
-        }
-        assert(!linalgLoops.value().empty());
+        TT_debugv(!failed(linalgLoops),
+                  "failed to convert linalg.generic to affine loops");
 
         markAndReplaceLinalgOp(rewriter, linalgGenericOp,
                                linalgLoops.value().front(), markRootLoops);
         modified = true;
-      });
-
-      if (conversionFailed) {
-        return failure();
       }
     }
 
