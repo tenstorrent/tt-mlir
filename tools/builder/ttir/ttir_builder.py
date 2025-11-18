@@ -37,27 +37,6 @@ class TTIRBuilder(Builder):
 
     # ----- Private methods ----
 
-    def _get_output_shape_and_type(
-        self,
-        organize_golden_args: Callable,
-        inputs: List[Operand],
-        op_ttir_function: Callable,
-        golden_kwargs: dict = {},
-    ):
-        op_golden_function = get_golden_function(op_ttir_function, **golden_kwargs)
-        if op_golden_function is None:
-            return
-
-        # If the op has no input, just call golden function with kwargs (eg ttir.zeros).
-        if len(inputs) == 0:
-            golden_output = op_golden_function(**golden_kwargs)
-        else:
-            golden_output = op_golden_function(
-                *(organize_golden_args(inputs)), **golden_kwargs
-            )
-
-        return golden_output.shape, golden_output.dtype
-
     def _get_empty_op(self, tensor_type: RankedTensorType) -> OpView:
         """Get TTIR-specific empty operation."""
         return ttir.EmptyOp(tensor_type)
@@ -2064,7 +2043,7 @@ class TTIRBuilder(Builder):
     def argmax(
         self,
         in0: Operand,
-        dim_arg: List[int],
+        dim_arg: List[int] = None,
         keep_dim: bool = False,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpView:
@@ -2103,7 +2082,7 @@ class TTIRBuilder(Builder):
     def sum(
         self,
         in0: Operand,
-        dim_arg: List[int] = [0],
+        dim_arg: List[int] = None,
         keep_dim: bool = True,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpView:
@@ -2152,7 +2131,7 @@ class TTIRBuilder(Builder):
     def mean(
         self,
         in0: Operand,
-        dim_arg: List[int] = [0],
+        dim_arg: List[int] = None,
         keep_dim: bool = True,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpView:
@@ -2190,7 +2169,7 @@ class TTIRBuilder(Builder):
     def max(
         self,
         in0: Operand,
-        dim_arg: int = None,
+        dim_arg: List[int] = None,
         keep_dim: bool = True,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpView:
@@ -2217,32 +2196,18 @@ class TTIRBuilder(Builder):
         (*OpView*)
             Tensor with maximum values
         """
-        # Handle ttir and golden function arguments for edge cases
-        ttir_kwargs = {"keep_dim": keep_dim}
-        input_shape = list(self.get_shape(in0))
-        ndim = len(input_shape)
-        if dim_arg is not None:
-            golden_kwargs = {"dim_arg": dim_arg, "keep_dim": keep_dim}
-            ttir_kwargs["dim_arg"] = [dim_arg]
-            output_shape = input_shape.copy()
-            output_shape[dim_arg] = 1
-        else:
-            golden_kwargs = {"dim_arg": None, "keep_dim": keep_dim}
-            output_shape = [1] * ndim
-
+        kwargs = {"dim_arg": dim_arg, "keep_dim": keep_dim}
         return self._op_proxy(
             ttir.MaxOp,
             [in0],
-            golden_kwargs=golden_kwargs,
-            ttir_kwargs=ttir_kwargs,
-            output_shape=output_shape,
+            ttir_kwargs=kwargs,
             unit_attrs=unit_attrs,
         )
 
     def min(
         self,
         in0: Operand,
-        dim_arg: int = None,
+        dim_arg: List[int] = None,
         keep_dim: bool = True,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpView:
@@ -2269,19 +2234,11 @@ class TTIRBuilder(Builder):
         (*OpView*)
             Tensor with minimum values
         """
-        # Handle ttir and golden function arguments for edge cases
-        ttir_kwargs = {"keep_dim": keep_dim}
-        output_shape = [1] * len(self.get_shape(in0))
-        if dim_arg:
-            ttir_kwargs["dim_arg"] = [dim_arg]
-        if not keep_dim:
-            output_shape = torch.Size([1])
-
+        kwargs = {"dim_arg": dim_arg, "keep_dim": keep_dim}
         return self._op_proxy(
             ttir.MinOp,
             [in0],
-            ttir_kwargs=ttir_kwargs,
-            output_shape=output_shape,
+            ttir_kwargs=kwargs,
             unit_attrs=unit_attrs,
         )
 
@@ -2289,8 +2246,8 @@ class TTIRBuilder(Builder):
     def reduce_and(
         self,
         in0: Operand,
+        dim_arg: List[int] = None,
         keep_dim: bool = True,
-        dim_args: Optional[List] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpView:
         """
@@ -2319,7 +2276,7 @@ class TTIRBuilder(Builder):
         return self._op_proxy(
             ttir.ReduceAndOp,
             [in0],
-            ttir_kwargs={"dim_arg": dim_args, "keep_dim": keep_dim},
+            ttir_kwargs={"dim_arg": dim_arg, "keep_dim": keep_dim},
             unit_attrs=unit_attrs,
         )
 
@@ -2327,8 +2284,8 @@ class TTIRBuilder(Builder):
     def reduce_or(
         self,
         in0: Operand,
+        dim_arg: List[int] = None,
         keep_dim: bool = True,
-        dim_args: Optional[List] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpView:
         """
@@ -2357,7 +2314,7 @@ class TTIRBuilder(Builder):
         return self._op_proxy(
             ttir.ReduceOrOp,
             [in0],
-            ttir_kwargs={"dim_arg": dim_args, "keep_dim": keep_dim},
+            ttir_kwargs={"dim_arg": dim_arg, "keep_dim": keep_dim},
             unit_attrs=unit_attrs,
             output_type=F32Type.get(self._ctx),
         )
@@ -2365,7 +2322,7 @@ class TTIRBuilder(Builder):
     def prod(
         self,
         in0: Operand,
-        dim_arg: List[int],
+        dim_arg: List[int] = None,
         keep_dim: bool = False,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpView:
@@ -2541,6 +2498,61 @@ class TTIRBuilder(Builder):
                 i[0],
                 o,
             ),
+            unit_attrs=unit_attrs,
+        )
+
+    def sort(
+        self,
+        in0: Operand,
+        dim: int = -1,
+        descending: bool = False,
+        stable: bool = False,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpView:
+        """
+        Creates ``ttir.sort``.
+
+        *Tensor sort operation.*
+
+        Sorts the elements of a tensor along a specified dimension.
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor
+        dim : int, optional
+            Dimension along which to sort (default: -1, the last dimension)
+        descending : bool, optional
+            If True, sorts in descending order (default: False)
+        stable : bool, optional
+            If True, uses a stable sorting algorithm (default: False)
+        unit_attrs : *Optional[List[str]]*, optional
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpView*)
+            Sorted tensor
+        """
+        ttir_kwargs = {"dim": dim, "descending": descending, "stable": stable}
+        golden_kwargs = {"dim": dim, "descending": descending, "stable": stable}
+
+        return self._op_proxy(
+            ttir.SortOp,
+            [in0],
+            ttir_kwargs=ttir_kwargs,
+            output_create_fn=lambda shape, type: (
+                self._empty(shape, type),
+                self._empty(shape, self._get_type_from_torch_dtype(torch.int32)),
+            ),
+            organize_ttir_args=lambda i, o, _: (
+                self._get_type(o[0]),
+                self._get_type(o[1]),
+                i[0],
+                [o[0], o[1]],
+            ),
+            golden_kwargs=golden_kwargs,
+            organize_golden_args=lambda i: [self._get_golden_tensor(i[0])],
             unit_attrs=unit_attrs,
         )
 
@@ -3059,6 +3071,130 @@ class TTIRBuilder(Builder):
             unit_attrs=unit_attrs,
         )
 
+    def convolution(
+        self,
+        in0: Operand,
+        weight: Operand,
+        bias: Optional[Operand],
+        window_strides: Union[int, List[int]],
+        padding: Union[int, List[int]],
+        input_dilation: Union[int, List[int]] = None,
+        weight_dilation: Union[int, List[int]] = None,
+        feature_group_count: int = 1,
+        batch_group_count: int = 1,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpView:
+        """
+        Creates ``ttir.convolution``.
+        *General convolution operation.*
+        Performs a generalized N-dimensional convolution operation with full control over layout,
+        dilation, grouping, and other parameters. This is the low-level convolution operation
+        that provides maximum flexibility.
+        .. code-block:: mlir
+            // Example: 2D convolution with padding and stride
+            %input = ... : tensor<1x3x224x224xbf16>
+            %weight = ... : tensor<64x3x7x7xbf16>
+            %output = ttir.empty() : tensor<1x64x112x112xbf16>
+            %result = "ttir.convolution"(%input, %weight, %output) <{
+                batch_group_count = 1 : i64,
+                convolution_layout = #ttir<convolution_layout ...>,
+                feature_group_count = 1 : i64,
+                input_dilation = array<i64: 1, 1>,
+                padding = array<i64: 3, 3, 3, 3>,
+                weight_dilation = array<i64: 1, 1>,
+                window_reversal = array<i1: false, false>,
+                window_strides = array<i64: 2, 2>
+            }> : (tensor<1x3x224x224xbf16>, tensor<64x3x7x7xbf16>, tensor<1x64x112x112xbf16>) -> tensor<1x64x112x112xbf16>
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor
+        weight : Operand
+            Weight tensor
+        bias : *Optional[Operand]*
+            Optional bias tensor (currently ignored in raw convolution, use conv2d for bias support)
+        window_strides : *Union[int, List[int]]*
+            Stride for convolution windows (default: 1)
+        padding : *Union[int, List[int]]*
+            Padding in [top, left, bottom, right] format (default: 0)
+        input_dilation : *Union[int, List[int]]*, optional
+            Dilation for input tensor (default: 1)
+        weight_dilation : *Union[int, List[int]]*, optional
+            Dilation for weight tensor (default: 1)
+        feature_group_count : int, optional
+            Number of feature groups (default: 1)
+        batch_group_count : int, optional
+            Number of batch groups (default: 1)
+        unit_attrs : *Optional[List[str]]*, optional
+            Optional list of unit attributes
+        Returns
+        -------
+        (*OpView*)
+            Output tensor after convolution
+        """
+        # Set default values
+        if input_dilation is None:
+            input_dilation = [1, 1]
+        if weight_dilation is None:
+            weight_dilation = [1, 1]
+
+        # Normalize parameters to lists
+        if isinstance(window_strides, int):
+            window_strides = [window_strides, window_strides]
+        if isinstance(padding, int):
+            padding = [padding, padding, padding, padding]
+        elif len(padding) == 2:
+            # Convert [h, w] to [top, left, bottom, right]
+            padding = [padding[0], padding[1], padding[0], padding[1]]
+        if isinstance(input_dilation, int):
+            input_dilation = [input_dilation, input_dilation]
+        if isinstance(weight_dilation, int):
+            weight_dilation = [weight_dilation, weight_dilation]
+
+        from ttmlir.ir import Attribute
+
+        # Create the convolution layout attribute (NCHW format)
+        # input_batch=0, input_feature=1, input_spatial=2x3
+        # kernel_output_feature=0, kernel_input_feature=1, kernel_spatial=2x3
+        # output_batch=0, output_feature=1, output_spatial=2x3
+        layout_str = "#ttir<convolution_layout input_batch = 0, input_feature = 1, input_spatial_dimensions = 2x3, kernel_output_feature = 0, kernel_input_feature = 1, kernel_spatial_dimensions = 2x3, output_batch = 0, output_feature = 1, output_spatial_dimensions = 2x3>"
+        convolution_layout = Attribute.parse(layout_str)
+
+        # Set up golden kwargs to match the convolution_golden function signature
+        # Note: We pass None for convolution_layout since we're using NCHW format
+        # which is already PyTorch's expected format, so no layout transformation is needed
+        golden_kwargs = {
+            "window_strides": window_strides,
+            "padding": padding,
+            "input_dilation": input_dilation,
+            "weight_dilation": weight_dilation,
+            "feature_group_count": feature_group_count,
+            "batch_group_count": batch_group_count,
+            "convolution_layout": None,
+        }
+
+        return self._op_proxy(
+            ttir.ConvolutionOp,
+            [in0, weight],
+            ttir_kwargs={
+                "window_strides": DenseI64ArrayAttr.get(window_strides),
+                "padding": DenseI64ArrayAttr.get(padding),
+                "input_dilation": DenseI64ArrayAttr.get(input_dilation),
+                "weight_dilation": DenseI64ArrayAttr.get(weight_dilation),
+                "window_reversal": DenseBoolArrayAttr.get([False, False]),
+                "feature_group_count": IntegerAttr.get(
+                    IntegerType.get_signless(64), feature_group_count
+                ),
+                "batch_group_count": IntegerAttr.get(
+                    IntegerType.get_signless(64), batch_group_count
+                ),
+                "convolution_layout": convolution_layout,
+            },
+            golden_kwargs=golden_kwargs,
+            organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], i[1], o),
+            unit_attrs=unit_attrs,
+        )
+
     def max_pool2d(
         self,
         in0: Operand,
@@ -3198,6 +3334,76 @@ class TTIRBuilder(Builder):
                 "ceil_mode": ceil_mode,
                 "count_include_pad": count_include_pad,
             },
+            unit_attrs=unit_attrs,
+        )
+
+    def pooling(
+        self,
+        in0: Operand,
+        pooling_method: str,
+        window_dimensions: List[int],
+        window_strides: List[int],
+        padding: List[int],
+        window_dilations: List[int],
+        base_dilations: Optional[List[int]] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpView:
+        """
+        Creates ``ttir.pooling``.
+        *Generalized pooling operation.*
+        Applies pooling operation over input tensor with flexible window dimensions and strides.
+        Supports Max, Average, and Sum pooling methods.
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor
+        pooling_method : str
+            Pooling method: "Max", "Average", or "Sum"
+        window_dimensions : List[int]
+            Dimensions of the pooling window for each dimension [batch, channel, height, width]
+        window_strides : List[int]
+            Stride of the pooling window for each dimension [batch, channel, height, width]
+        padding : List[int]
+            Padding for each dimension in format [dim0_low, dim0_high, dim1_low, dim1_high, ...]
+        window_dilations : List[int]
+            Dilation of the pooling window for each dimension
+        base_dilations : Optional[List[int]]
+            Base dilation for input tensor (default: [1, 1, 1, 1])
+        unit_attrs : Optional[List[str]]
+            Optional list of unit attributes
+        Returns
+        -------
+        OpView
+            Output tensor after pooling operation
+        """
+        if base_dilations is None:
+            base_dilations = [1] * len(window_dimensions)
+
+        # Create pooling method attribute
+        pooling_method_attr = Attribute.parse(f"#ttir<pooling_method {pooling_method}>")
+
+        # Set up golden kwargs with plain Python values that will be passed to pooling_golden
+        golden_kwargs = {
+            "pooling_method": pooling_method_attr,
+            "window_dimensions": window_dimensions,
+            "window_strides": window_strides,
+            "padding": padding,
+            "window_dilations": window_dilations,
+        }
+
+        return self._op_proxy(
+            ttir.PoolingOp,
+            [in0],
+            ttir_kwargs={
+                "pooling_method": pooling_method_attr,
+                "window_dimensions": DenseI64ArrayAttr.get(window_dimensions),
+                "window_strides": DenseI64ArrayAttr.get(window_strides),
+                "padding": DenseI64ArrayAttr.get(padding),
+                "window_dilations": DenseI64ArrayAttr.get(window_dilations),
+                "base_dilations": DenseI64ArrayAttr.get(base_dilations),
+            },
+            golden_kwargs=golden_kwargs,
+            organize_ttir_args=lambda i, o, _: ([self._get_type(o)], i, [o]),
             unit_attrs=unit_attrs,
         )
 

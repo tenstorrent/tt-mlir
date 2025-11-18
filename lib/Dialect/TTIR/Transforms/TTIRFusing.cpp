@@ -221,18 +221,19 @@ private:
 // This pattern detects and fuses a sequence of operations that implement
 // softmax:
 // 1. exp(x)
-// 2. sum(exp(x)) along a dimension with keep_dim=true
-// 3. broadcast the sum
-// 4. divide exp(x) by the broadcasted sum
+// 2. sum reduce(exp(x)) along a dimension with keep_dim=true
+// 3. (optional) broadcast the sum reduce
+// 4. divide exp(x) by the (broadcasted) sum reduce
 class SoftmaxFusionPattern : public mlir::OpRewritePattern<DivOp> {
   using mlir::OpRewritePattern<DivOp>::OpRewritePattern;
 
 public:
-  // Pattern: div(exp(x), broadcast(sum(exp(x), keep_dim=true))).
+  // Pattern: div(exp(x), sum reduce(exp(x), keep_dim=true)) or
+  //          div(exp(x), broadcast(sum reduce(exp(x), keep_dim=true))).
   mlir::LogicalResult
   matchAndRewrite(DivOp divOp, mlir::PatternRewriter &rewriter) const final {
 
-    // Get the numerator (exp) and denominator (broadcast).
+    // Get the numerator (exp) and denominator.
     mlir::Value numerator = divOp.getLhs();
     mlir::Value denominator = divOp.getRhs();
 
@@ -242,35 +243,41 @@ public:
       return mlir::failure();
     }
 
-    // Check that the denominator is a broadcast operation.
-    auto broadcastOp = denominator.getDefiningOp<BroadcastOp>();
-    if (!broadcastOp) {
-      return mlir::failure();
+    // Check if the denominator is a broadcast operation or directly a sum
+    // reduce. If broadcast folding has occurred, the broadcast may be
+    // eliminated.
+    mlir::Value sumValue = denominator;
+    BroadcastOp broadcastOp = denominator.getDefiningOp<BroadcastOp>();
+    if (broadcastOp) {
+      sumValue = broadcastOp.getInput();
     }
 
-    // Check that the broadcast input is a sum operation with keep_dim=true.
-    auto sumOp = broadcastOp.getInput().getDefiningOp<SumOp>();
+    // Check that we have a sum reduce operation with keep_dim=true.
+    auto sumOp = sumValue.getDefiningOp<SumOp>();
     if (!sumOp || !sumOp.getKeepDim()) {
       return mlir::failure();
     }
 
-    // Check that the sum input is the same exp operation as the numerator.
+    // Check that the sum reduce input is the same exp operation as the
+    // numerator.
     if (sumOp.getInput() != expOp.getResult()) {
       return mlir::failure();
     }
 
     // Check correct user counts for each operation in the pattern:
-    // - exp should have exactly 2 users (sum and div)
-    // - sum should have exactly 1 user (broadcast)
-    // - broadcast should have exactly 1 user (div)
+    // - exp should have exactly 2 users (sum reduce and div)
+    // - sum reduce should have exactly 1 user (div or broadcast)
+    // - broadcast (if present) should have exactly 1 user (div)
     // TODO(milant): Relax requirements for fusing #3183.
     if (ttmlir::utils::countUsers(expOp.getResult()) != 2 ||
-        !sumOp.getResult().hasOneUse() ||
-        !broadcastOp.getResult().hasOneUse()) {
+        !sumOp.getResult().hasOneUse()) {
+      return mlir::failure();
+    }
+    if (broadcastOp && !broadcastOp.getResult().hasOneUse()) {
       return mlir::failure();
     }
 
-    // Get the reduction dimension from the sum operation.
+    // Get the reduction dimension from the sum reduce operation.
     if (!sumOp.getDimArg()) {
       // If no dimensions are specified, all dimensions are reduced, which is
       // not what we want for softmax.
@@ -299,9 +306,9 @@ public:
 //
 // The pattern matches the following sequence:
 // 1. max(x) along a dimension with keep_dim=true
-// 2. broadcast the max value
-// 3. subtract: x - broadcasted_max
-// 4. softmax(x - broadcasted_max)
+// 2. (optional) broadcast the max value
+// 3. subtract: x - (broadcasted) max
+// 4. softmax(x - (broadcasted) max)
 class NumericStableSoftmaxFusionPattern
     : public mlir::OpRewritePattern<SoftmaxOp> {
   using mlir::OpRewritePattern<SoftmaxOp>::OpRewritePattern;
@@ -324,14 +331,15 @@ public:
     mlir::Value originalInput = subOp.getLhs();
     mlir::Value subtractedValue = subOp.getRhs();
 
-    auto broadcastOp = subtractedValue.getDefiningOp<BroadcastOp>();
-    if (!broadcastOp) {
-      return mlir::failure();
+    // Check if the subtracted value is a broadcast operation or directly a max.
+    // If broadcast folding has occurred, the broadcast may be eliminated.
+    mlir::Value maxValue = subtractedValue;
+    BroadcastOp broadcastOp = subtractedValue.getDefiningOp<BroadcastOp>();
+    if (broadcastOp) {
+      maxValue = broadcastOp.getInput();
     }
 
-    mlir::Value maxValue = broadcastOp.getInput();
-
-    // Check if the broadcasted value is a max operation.
+    // Check if we have a max operation.
     auto maxOp = maxValue.getDefiningOp<MaxOp>();
     if (!maxOp) {
       return mlir::failure();
@@ -360,9 +368,10 @@ public:
     }
 
     // Check usage patterns to ensure we can safely fuse.
-    if (!subOp.getResult().hasOneUse() ||
-        !broadcastOp.getResult().hasOneUse() ||
-        !maxOp.getResult().hasOneUse()) {
+    if (!subOp.getResult().hasOneUse() || !maxOp.getResult().hasOneUse()) {
+      return mlir::failure();
+    }
+    if (broadcastOp && !broadcastOp.getResult().hasOneUse()) {
       return mlir::failure();
     }
 
@@ -1107,30 +1116,101 @@ public:
       return mlir::failure();
     }
 
-    Value cache = scatterOp.getInput();
-    Value updates = scatterOp.getUpdate();
-    auto batchOffsetAttr = rewriter.getI32IntegerAttr(0);
+    auto cache = scatterOp.getInput();
+    auto updates = scatterOp.getUpdate();
+
+    int32_t batchSize = cache.getType().getShape()[0];
 
     // If the cachePositions tensor has more than one element we assume it
     // represents a set of aranged indices (0, cachePositions.size), so we
     // replace it with FillCacheOp. If the tensor has only one element, we
     // assume it represents the update index for UpateCacheOp.
+    RankedTensorType updatesType = updates.getType();
     if (cacheUpdateInputShape[0] != 1) {
-      rewriter.replaceOpWithNewOp<FillCacheOp>(
-          scatterOp, scatterOp.getResult().getType(), // Result type
-          cache,                                      // Cache tensor
-          updates,                                    // Updates tensor
-          batchOffsetAttr                             // Batch offset
-      );
+      // Fill cache requires that each batch is filled separately. So, we will
+      // insert a FillCacheOp for each batch. This requires slicing out each
+      // batch.
+
+      if (batchSize > 1) {
+
+        for (int32_t batchOffset = 0; batchOffset < batchSize; batchOffset++) {
+          auto batchOffsetAttr = rewriter.getI32IntegerAttr(batchOffset);
+
+          // Slice starts at the batch offset for the batch dim, and starts at 0
+          // for all other dims.
+          SmallVector<int32_t> sliceStarts = {batchOffset, 0, 0, 0};
+
+          // Slice ends at the dim size for every dim, except the batch dim
+          // where the slice ends at batch offset + 1.
+          SmallVector<int32_t> sliceEnds = SmallVector<int32_t>(
+              updatesType.getShape().begin(), updatesType.getShape().end());
+          sliceEnds[0] = batchOffset + 1;
+
+          // Slice steps is 1 for every dim as we do not wish to skip any
+          SmallVector<int32_t> sliceSteps = {1, 1, 1, 1};
+
+          // Slice output shape is the same as the fill value shape, except the
+          // batch dim is 1 since we sliced out a single batch.
+          SmallVector<int64_t> sliceOutputShape(updatesType.getShape());
+          sliceOutputShape[0] = 1;
+
+          // Encoding should not be set when this pass is run. Guard against it.
+          assert(!updatesType.getEncoding());
+
+          RankedTensorType slicedUpdatesType = RankedTensorType::get(
+              sliceOutputShape, updatesType.getElementType(), nullptr);
+
+          // Create slice op.
+          auto slicedUpdates = ttir::utils::createDPSOp<SliceStaticOp>(
+              rewriter, scatterOp.getLoc(), slicedUpdatesType, updates,
+              rewriter.getI32ArrayAttr(sliceStarts),
+              rewriter.getI32ArrayAttr(sliceEnds),
+              rewriter.getI32ArrayAttr(sliceSteps));
+          // create fill cache op for this batch.
+          cache = rewriter.create<FillCacheOp>(
+              scatterOp.getLoc(),
+              scatterOp.getResult().getType(), // Result type
+              cache,                           // Cache tensor
+              slicedUpdates,                   // Updates tensor
+              batchOffsetAttr                  // Batch offset
+          );
+        }
+      } else {
+        cache = rewriter.create<FillCacheOp>(
+            scatterOp.getLoc(), scatterOp.getResult().getType(), // Result type
+            cache,                                               // Cache tensor
+            updates, // Updates tensor
+            0        // Batch offset
+        );
+      }
     } else {
-      rewriter.replaceOpWithNewOp<UpdateCacheOp>(
-          scatterOp, scatterOp.getResult().getType(), // Result type
-          cache,                                      // Cache tensor
-          updates,                                    // Updates tensor
-          *CachePositions,                            // Cache Idx
-          batchOffsetAttr                             // Batch offset
+      // Unlike ttnn.fill_cache, we can perform ttnn.update_cache on the entire
+      // batch at once. However this requires that the fill value is in the form
+      // [1, num_heads, B, head_size]. So, we must permute the updates tensor to
+      // this shape.
+      if (batchSize > 1) {
+        SmallVector<int64_t> permutedShape = ttmlir::utils::applyPermutation(
+            updatesType.getShape(), {2, 1, 0, 3});
+
+        // Encoding should not be set when this pass is run. Guard against it.
+        assert(!updatesType.getEncoding());
+        RankedTensorType permutedUpdatesType = RankedTensorType::get(
+            permutedShape, updatesType.getElementType(), nullptr);
+        updates = ttir::utils::createDPSOp<PermuteOp>(
+            rewriter, scatterOp.getLoc(), permutedUpdatesType, updates,
+            rewriter.getDenseI64ArrayAttr({2, 1, 0, 3}));
+      }
+      cache = rewriter.create<UpdateCacheOp>(
+          scatterOp.getLoc(),
+          scatterOp.getResult().getType(), // Result type
+          cache,                           // Cache tensor
+          updates,                         // Updates tensor
+          *CachePositions,                 // Cache Idx
+          0                                // Batch offset
       );
     }
+
+    rewriter.replaceOp(scatterOp, cache);
 
     return mlir::success();
   }
@@ -1264,17 +1344,18 @@ public:
 // a MatmulOp and the other operand is a bias term. It then replaces the
 // AddOp with a LinearOp that combines the functionality of both operations.
 // The pattern also handles the case where the MatmulOp is followed by a
-// ReshapeOp before the AddOp. In this case, it reshapes the bias term
-// accordingly and creates a LinearOp followed by a ReshapeOp to maintain the
-// original output shape.
+// ReshapeOp before the AddOp. In this case, it creates a LinearOp followed by
+// a ReshapeOp to maintain the original output shape.
 class MatmulWithBiasFusionPattern : public mlir::OpRewritePattern<AddOp> {
 public:
   using mlir::OpRewritePattern<AddOp>::OpRewritePattern;
   mlir::LogicalResult
   matchAndRewrite(AddOp addOp, mlir::PatternRewriter &rewriter) const final {
+    // Matmul -> Add pattern.
     if (MatmulOp matmulOp = getFusableMatmulOp(addOp); matmulOp) {
-      Value bias = addOp.getLhs() == matmulOp.getResult() ? addOp.getRhs()
-                                                          : addOp.getLhs();
+      TypedValue<RankedTensorType> bias = addOp.getLhs() == matmulOp.getResult()
+                                              ? addOp.getRhs()
+                                              : addOp.getLhs();
       Value matmulOpA = matmulOp.getA();
       Value matmulOpB = matmulOp.getB();
       LinearOp linearOp = ttir::utils::createDPSOp<ttir::LinearOp>(
@@ -1285,37 +1366,32 @@ public:
 
       return mlir::success();
     }
+    // Matmul -> Reshape -> Add pattern.
     if (MatmulOp matmulOp = getFusableReshapedMatmulOp(addOp); matmulOp) {
-
       ReshapeOp reshapeOp =
           mlir::dyn_cast<ReshapeOp>(*matmulOp.getResult().getUsers().begin());
-      TT_assertv(reshapeOp,
-                 "MatmulWithBiasFusionPattern getFusable logic is broken.");
-
       TypedValue<RankedTensorType> bias =
           (addOp.getLhs() == reshapeOp.getResult()) ? addOp.getRhs()
                                                     : addOp.getLhs();
-      RankedTensorType biasType = bias.getType();
-
-      Value matmulOpA = matmulOp.getA();
-      Value matmulOpB = matmulOp.getB();
-      llvm::ArrayRef<int64_t> matmulOpShape =
-          matmulOp.getResult().getType().getShape();
+      auto biasType = bias.getType();
       llvm::ArrayRef<int64_t> addOpShape =
           addOp.getResult().getType().getShape();
-      SmallVector<int32_t> matmulShapeI32(matmulOpShape.begin(),
-                                          matmulOpShape.end());
       SmallVector<int32_t> addShapeI32(addOpShape.begin(), addOpShape.end());
 
-      Value reshapedBias = ttir::utils::createDPSOp<ttir::ReshapeOp>(
-          rewriter, addOp.getLoc(), matmulOpShape, biasType.getElementType(),
-          biasType.getEncoding(), bias,
-          rewriter.getI32ArrayAttr(matmulShapeI32));
+      llvm::SmallVector<int64_t> newLinearOutputShape;
+      OpTrait::util::getBroadcastedShape(matmulOp.getType().getShape(),
+                                         biasType.getShape(),
+                                         newLinearOutputShape);
+
+      auto matmulOutputType = matmulOp.getResult().getType();
+      auto newOutputType = RankedTensorType::get(
+          newLinearOutputShape, matmulOutputType.getElementType());
+      Value matmulOpA = matmulOp.getA();
+      Value matmulOpB = matmulOp.getB();
 
       LinearOp linearOp = ttir::utils::createDPSOp<ttir::LinearOp>(
-          rewriter, addOp.getLoc(), matmulOp.getResult().getType(), matmulOpA,
-          matmulOpB, reshapedBias, matmulOp.getTransposeA(),
-          matmulOp.getTransposeB());
+          rewriter, addOp.getLoc(), newOutputType, matmulOpA, matmulOpB, bias,
+          matmulOp.getTransposeA(), matmulOp.getTransposeB());
 
       RankedTensorType addOpType = addOp.getType();
 
@@ -1331,7 +1407,8 @@ public:
   }
 
 private:
-  // Shared helper function to validate the matmul ops from an add op.
+  // Shared helper function to validate the matmul ops from an add op or reshape
+  // op.
   MatmulOp getValidMatmulOp(MatmulOp matmulOpLHS, MatmulOp matmulOpRHS) const {
     if (matmulOpLHS && matmulOpRHS) {
       // Both operands are MatmulOps, cannot fuse.
@@ -1342,6 +1419,7 @@ private:
     if (!matmulOp) {
       return nullptr;
     }
+
     // Check that the MatmulOp has only one user.
     if (!matmulOp.getResult().hasOneUse()) {
       return nullptr;
@@ -1353,34 +1431,72 @@ private:
   MatmulOp getFusableReshapedMatmulOp(AddOp addOp) const {
     // Check MatmulOp -> ReshapeOp -> AddOp pattern.
     // This pattern should be either the LHS or RHS of the AddOp.
+    // Find the valid matmul op and the reshape op it is coming from.
+    ReshapeOp reshapeOnAddLHS = addOp.getLhs().getDefiningOp<ReshapeOp>();
+    ReshapeOp reshapeOnAddRHS = addOp.getRhs().getDefiningOp<ReshapeOp>();
 
-    ReshapeOp reshapeLHS = addOp.getLhs().getDefiningOp<ReshapeOp>();
-    ReshapeOp reshapeRHS = addOp.getRhs().getDefiningOp<ReshapeOp>();
+    MatmulOp matmulOnReshapeLHS =
+        reshapeOnAddLHS ? reshapeOnAddLHS.getInput().getDefiningOp<MatmulOp>()
+                        : nullptr;
+    MatmulOp matmulOnReshapeRHS =
+        reshapeOnAddRHS ? reshapeOnAddRHS.getInput().getDefiningOp<MatmulOp>()
+                        : nullptr;
 
-    MatmulOp matmulOpLHS =
-        reshapeLHS ? reshapeLHS.getInput().getDefiningOp<MatmulOp>() : nullptr;
-
-    MatmulOp matmulOpRHS =
-        reshapeRHS ? reshapeRHS.getInput().getDefiningOp<MatmulOp>() : nullptr;
-
-    MatmulOp validMatmulOp = getValidMatmulOp(matmulOpLHS, matmulOpRHS);
-    if (validMatmulOp) {
-      // Check that the reshape op has only one user (the AddOp).
-      ReshapeOp reshapeOp =
-          (validMatmulOp == matmulOpLHS) ? reshapeLHS : reshapeRHS;
-      if (!reshapeOp.getResult().hasOneUse()) {
-        return MatmulOp(nullptr);
-      }
+    MatmulOp validMatmulOp =
+        getValidMatmulOp(matmulOnReshapeLHS, matmulOnReshapeRHS);
+    if (!validMatmulOp) {
+      return nullptr;
     }
+    ReshapeOp validReshapeOp = (validMatmulOp == matmulOnReshapeLHS)
+                                   ? reshapeOnAddLHS
+                                   : reshapeOnAddRHS;
+    if (!validReshapeOp.getResult().hasOneUse()) {
+      return nullptr;
+    }
+
+    // Bias will come from the other operand of the AddOp. Check that its shape
+    // is broadcastable with the matmul output shape. Check that expected new
+    // linear shape volume matches the add output shape volume.
+    TypedValue<RankedTensorType> bias =
+        (validMatmulOp == matmulOnReshapeLHS) ? addOp.getRhs() : addOp.getLhs();
+    if (!bias.hasOneUse()) {
+      return nullptr;
+    }
+
+    RankedTensorType biasType = bias.getType();
+    SmallVector<int64_t> linearWithBiasExpectedShape;
+    if (!OpTrait::util::getBroadcastedShape(validMatmulOp.getType().getShape(),
+                                            biasType.getShape(),
+                                            linearWithBiasExpectedShape)) {
+      return nullptr;
+    }
+
+    RankedTensorType addOpType = addOp.getType();
+    ArrayRef<int64_t> addOpShape = addOpType.getShape();
+    if (ttmlir::utils::volume(
+            llvm::ArrayRef<int64_t>(linearWithBiasExpectedShape)) !=
+        ttmlir::utils::volume(addOpShape)) {
+      return nullptr;
+    }
+
     return validMatmulOp;
   }
 
   MatmulOp getFusableMatmulOp(AddOp addOp) const {
     // Check if one operand is a MatmulOp with only this AddOp as its user.
+    // Check bias operand has only one use.
     MatmulOp matmulOpLHS = addOp.getLhs().getDefiningOp<MatmulOp>();
     MatmulOp matmulOpRHS = addOp.getRhs().getDefiningOp<MatmulOp>();
-
-    return getValidMatmulOp(matmulOpLHS, matmulOpRHS);
+    MatmulOp validMatmulOp = getValidMatmulOp(matmulOpLHS, matmulOpRHS);
+    if (!validMatmulOp) {
+      return nullptr;
+    }
+    TypedValue<RankedTensorType> bias =
+        (validMatmulOp == matmulOpLHS) ? addOp.getRhs() : addOp.getLhs();
+    if (!bias.hasOneUse()) {
+      return nullptr;
+    }
+    return validMatmulOp;
   }
 };
 
@@ -1633,20 +1749,14 @@ private:
   }
 };
 
-// Global average pooling pattern matcher that transforms:
+// Scaled sum to mean pattern matcher that transforms:
 //   multiply(sum<dim=[2,3]>(act), 1/(h*w))
 // into:
-//   avg_pool(act, window=[h,w], stride=1, padding=0)
+//   mean<dim=[2,3]>(act)
 //
-// Supports 4D input tensors with reduction over spatial dimensions (height and
-// width).
-//
-// Input tensor layout is NCHW, while AvgPool2dOp expects NHWC layout, so
-// PermuteOps are added before and after the AvgPool2dOp to convert between the
-// two layouts, and a ReshapeOp is added after the permutes if the
-// keepDim attribute of the original SumOp is false.
+// Matches decomposed global average pooling from torch-xla.
 
-class GlobalAveragePoolingPattern : public mlir::OpRewritePattern<MultiplyOp> {
+class ScaledSumToMeanPattern : public mlir::OpRewritePattern<MultiplyOp> {
   using mlir::OpRewritePattern<MultiplyOp>::OpRewritePattern;
 
 private:
@@ -1654,7 +1764,6 @@ private:
   static constexpr int64_t EXPECTED_INPUT_RANK = 4;
   static constexpr int64_t SPATIAL_HEIGHT_DIM = 2;
   static constexpr int64_t SPATIAL_WIDTH_DIM = 3;
-  static constexpr int64_t CHANNEL_DIM = 1;
 
 public:
   mlir::LogicalResult
@@ -1671,20 +1780,10 @@ public:
     if (!validateFullOp(fullOp, inputShape)) {
       return mlir::failure();
     }
-    // Create AvgPoolOp wrapped with two PermuteOps needed for NCHW<->NHWC
-    // layout changes.
-    auto insertedOp = createWrappedGlobalAvgPool(rewriter, sumOp);
 
-    // If keepDim is false, we need to reshape the output of the pooling op
-    // to keep output dimension same as input.
-    if (!sumOp.getKeepDim()) {
-      auto outputType = multiplyOp.getOutput().getType();
-      auto reshapePoolOp =
-          createReshapePoolOutOp(rewriter, insertedOp, outputType);
-      rewriter.replaceOp(multiplyOp, reshapePoolOp.getResult());
-    } else {
-      rewriter.replaceOp(multiplyOp, insertedOp.getResult());
-    }
+    auto meanOp = createMeanOp(rewriter, sumOp);
+
+    rewriter.replaceOp(multiplyOp, meanOp.getResult());
 
     return mlir::success();
   };
@@ -1730,74 +1829,42 @@ private:
            dimSet.contains(SPATIAL_WIDTH_DIM);
   }
 
-  PermuteOp createPermuteOp(mlir::PatternRewriter &rewriter,
-                            std::vector<int64_t> currentLayout,
-                            std::vector<int64_t> desiredLayout,
-                            Value input) const {
-
-    auto permutation = ttmlir::utils::generatePermutation(
-        llvm::ArrayRef(currentLayout), llvm::ArrayRef(desiredLayout));
-    auto inputType = mlir::cast<RankedTensorType>(input.getType());
-    auto outputShape =
-        ::ttmlir::utils::applyPermutation(inputType.getShape(), permutation);
-    auto outputType = RankedTensorType::get(
-        outputShape, inputType.getElementType(), inputType.getEncoding());
-
-    auto permuteOp = ttir::utils::createDPSOp<ttir::PermuteOp>(
-        rewriter,
-        ttmlir::utils::appendLocationSuffix(input.getLoc(), "_permute"),
-        outputType, input, permutation);
-
-    return permuteOp;
-  }
-
-  PermuteOp createWrappedGlobalAvgPool(mlir::PatternRewriter &rewriter,
-                                       SumOp sumOp) const {
-
-    // Input must be permuted from NCHW to NHWC for GlobalAvgPool2dOp, and then
-    // back to NCHW after pooling.
-    std::vector<int64_t> currentLayout{0, CHANNEL_DIM, SPATIAL_HEIGHT_DIM,
-                                       SPATIAL_WIDTH_DIM};
-    std::vector<int64_t> desiredLayout{0, SPATIAL_HEIGHT_DIM, SPATIAL_WIDTH_DIM,
-                                       CHANNEL_DIM};
-
-    // Permute input from NCHW to NHWC
-    auto permuteOp = createPermuteOp(rewriter, currentLayout, desiredLayout,
-                                     sumOp.getInput());
-
-    auto outputType = createPoolingOutputType(permuteOp.getOutput().getType());
+  MeanOp createMeanOp(mlir::PatternRewriter &rewriter, SumOp sumOp) const {
+    auto outputType =
+        createPoolingOutputType(sumOp.getInput().getType(), sumOp.getKeepDim());
 
     auto loc = sumOp.getLoc();
-    auto poolingOp = ttir::utils::createDPSOp<ttir::GlobalAvgPool2dOp>(
-        rewriter, ttmlir::utils::appendLocationSuffix(loc, "_global_avg_pool"),
-        outputType, permuteOp.getResult());
 
-    // Permute output from NHWC back to NCHW
-    auto inversePermuteOp = createPermuteOp(
-        rewriter, desiredLayout, currentLayout, poolingOp.getResult());
+    auto meanOp = ttir::utils::createDPSOp<MeanOp>(
+        rewriter, ttmlir::utils::appendLocationSuffix(loc, "_mean"), outputType,
+        sumOp.getInput(),
+        /*keep_dim=*/rewriter.getBoolAttr(sumOp.getKeepDim()),
+        /*dim_arg=*/
+        rewriter.getArrayAttr({rewriter.getI32IntegerAttr(SPATIAL_HEIGHT_DIM),
+                               rewriter.getI32IntegerAttr(SPATIAL_WIDTH_DIM)}));
 
-    return inversePermuteOp;
+    return meanOp;
   }
 
-  RankedTensorType createPoolingOutputType(RankedTensorType inputType) const {
-    SmallVector<int64_t> poolOutputShape(inputType.getShape());
-    poolOutputShape[SPATIAL_HEIGHT_DIM - 1] = 1;
-    poolOutputShape[SPATIAL_WIDTH_DIM - 1] = 1;
+  RankedTensorType createPoolingOutputType(RankedTensorType inputType,
+                                           bool keepDim) const {
+    SmallVector<int64_t> poolOutputShape;
+    ArrayRef<int64_t> inputShape = inputType.getShape();
 
+    if (keepDim) {
+      poolOutputShape.assign(inputShape.begin(), inputShape.end());
+      poolOutputShape[SPATIAL_HEIGHT_DIM] = 1;
+      poolOutputShape[SPATIAL_WIDTH_DIM] = 1;
+    } else {
+      poolOutputShape.reserve(inputShape.size() - 2);
+      for (size_t i = 0; i < inputShape.size(); ++i) {
+        if (i != SPATIAL_HEIGHT_DIM && i != SPATIAL_WIDTH_DIM) {
+          poolOutputShape.push_back(inputShape[i]);
+        }
+      }
+    }
     return RankedTensorType::get(poolOutputShape, inputType.getElementType(),
                                  inputType.getEncoding());
-  }
-
-  ReshapeOp createReshapePoolOutOp(mlir::PatternRewriter &rewriter,
-                                   Operation *op,
-                                   RankedTensorType outputType) const {
-    auto loc = op->getLoc();
-    llvm::SmallVector<int64_t> outputShape(outputType.getShape());
-    SmallVector<int32_t> outputShapeI32(outputShape.begin(), outputShape.end());
-
-    return ttir::utils::createDPSOp<ttir::ReshapeOp>(
-        rewriter, ttmlir::utils::appendLocationSuffix(loc, "_reshape"),
-        outputType, op->getResult(0), rewriter.getI32ArrayAttr(outputShapeI32));
   }
 };
 
@@ -1925,6 +1992,508 @@ private:
       // If the reshape output shape is not 2D or 3D, we cannot fuse.
       return false;
     }
+    return true;
+  }
+};
+
+template <typename MatMulOpType>
+class SplitQueryKeyValueAndSplitHeadsUpdatePattern
+    : public mlir::OpRewritePattern<ReshapeOp> {
+  using mlir::OpRewritePattern<ReshapeOp>::OpRewritePattern;
+
+  // A multi-head attention pattern looks like the following
+  // (for each of Query, Key, and Value):
+  //
+  // Attention --> Reshape ----\
+  //                           \
+  // Q/K/V Weight ------------+--> Matmul/Linear --> Reshape --> Permute (...)
+  //                           /
+  // (opt) Q/K/V Bias --------/
+  //
+  // The fused pattern concatenates weights, (if any) biases, and replaces the
+  // permute ops with outputs from splitquerykeyvalueandsplitheads op.
+  // The fused pattern looks like the following:
+  //
+  // Q/K/V Weights -----> Concat Weights \
+  //                                      \
+  // (opt)Q/K/V Biases -> Concat Biases --+--> Matmul/Linear --> Split QKV
+  //                                      /
+  // Attention ---------> Reshape -------/
+
+  // Reshape input is [batch_size, sequence_length, hidden_dimensions].
+  // For Multi-Head Attention:
+  // Query is [batch_size, number of kv heads, sequence_length, head_size].
+  // Key is [batch_size, number of kv heads, sequence_length, head_size].
+  // Value is [batch_size, number of kv heads, sequence_length, head_size].
+  // If key is transposed:
+  // Key is [batch_size, number of kv heads, head_size, sequence_length].
+
+  enum InputDimensions {
+    I_BATCH_SIZE = 0,
+    I_SEQUENCE_LENGTH = 1,
+    I_HIDDEN_DIMENSION = 2,
+  };
+  enum MHAExpectedOutputDimensions {
+    O_BATCH_SIZE = 0,
+    O_NUM_KV_HEADS = 1,
+    O_SEQUENCE_LENGTH = 2,
+    O_HEAD_SIZE = 3,
+  };
+  enum MHATransposedKeyDimensions {
+    K_BATCH_SIZE = 0,
+    K_NUM_KV_HEADS = 1,
+    K_HEAD_SIZE = 2,
+    K_SEQUENCE_LENGTH = 3,
+  };
+
+  llvm::SmallVector<int64_t> expectedPermute = {0, 2, 1, 3};
+  llvm::SmallVector<int64_t> expectedTransposedPermute = {0, 2, 3, 1};
+
+public:
+  mlir::LogicalResult
+  matchAndRewrite(ReshapeOp reshapeOp,
+                  mlir::PatternRewriter &rewriter) const final {
+    // Check for Multi-Head Attention linear or matmul ops
+    // that use reshape output.
+    llvm::SmallVector<MatMulOpType> matmulOps = {};
+    llvm::SmallVector<PermuteOp> permuteOps = {};
+
+    // Currently, only supporting Multi-Head Attention.
+    // TODO(@ddilbazTT): Extend to support Grouped Query Attention.
+    if (!isMHA(reshapeOp, matmulOps, permuteOps)) {
+      return failure();
+    }
+
+    // Hoist preprocessing ops for key and value operands to appear before the
+    // query head. Insert the fused op immediately after the query head. This
+    // ensures all preprocessing for query, key, and value happens before the
+    // fused op, and any uses of their results remain correctly ordered after
+    // the fused op.
+    hoistPreprocessingOps(permuteOps);
+    rewriter.setInsertionPointAfter(permuteOps.front());
+
+    // Extract dimensions from reshape op and permute ops.
+    Value reshapeOutput = reshapeOp.getResult();
+    ArrayRef<int64_t> inputShape = reshapeOp.getInput().getType().getShape();
+    int32_t batchSize = inputShape[I_BATCH_SIZE];
+    int32_t sequenceLength = inputShape[I_SEQUENCE_LENGTH];
+
+    // Concatenate weights along dimension determined by transposeB attribute.
+
+    TypedValue<RankedTensorType> queryWeightMatrix = matmulOps[0].getB();
+    TypedValue<RankedTensorType> keyWeightMatrix = matmulOps[1].getB();
+    TypedValue<RankedTensorType> valueWeightMatrix = matmulOps[2].getB();
+
+    MatMulOpType queryMatmulOp = matmulOps[0];
+    std::size_t dimToConcatWeights = queryMatmulOp.getTransposeB() ? 0 : 1;
+
+    // Assert that queryMatmulOp A and B have rank 2.
+    TT_assertv((queryMatmulOp.getA().getType().getRank() == 2 &&
+                queryMatmulOp.getB().getType().getRank() == 2),
+               "Expected rank 2 for MatMulOp operands A and B");
+
+    ttir::ConcatOp concatenatedWeightMatrix = concatenateAlongDim(
+        rewriter, valueWeightMatrix.getLoc(),
+        ValueRange{queryWeightMatrix, keyWeightMatrix, valueWeightMatrix},
+        dimToConcatWeights);
+
+    Value concatenatedBias = nullptr;
+    if constexpr (std::is_same_v<LinearOp, MatMulOpType>) {
+      Value queryBias = matmulOps[0].getBias();
+      Value keyBias = matmulOps[1].getBias();
+      Value valueBias = matmulOps[2].getBias();
+      std::size_t concatDim = matmulOps[0].getBias().getType().getRank() - 1;
+      concatenatedBias = concatenateAlongDim(
+          rewriter, valueBias.getLoc(),
+          ValueRange{queryBias, keyBias, valueBias}, concatDim);
+    }
+
+    // Get the output shape from one of the original linear ops.
+    ArrayRef<int64_t> originalLinearOutputShape =
+        queryMatmulOp.getType().getShape();
+
+    llvm::SmallVector<int64_t> linearOutputShape(
+        originalLinearOutputShape.begin(), originalLinearOutputShape.end());
+
+    // Multiply the last dimension by 3 (since we're concatenating Q, K, V).
+    linearOutputShape.back() = originalLinearOutputShape.back() * 3;
+
+    // Create linear operation with concatenated weights and bias.
+    RankedTensorType linearOutputType = RankedTensorType::get(
+        linearOutputShape, queryMatmulOp.getType().getElementType());
+
+    Value matmulDpsOutput = rewriter.create<EmptyOp>(
+        queryMatmulOp.getLoc(), linearOutputType.getShape(),
+        linearOutputType.getElementType(), linearOutputType.getEncoding());
+
+    SmallVector<Value> inputs;
+    if (concatenatedBias) {
+      inputs = {reshapeOutput, concatenatedWeightMatrix, concatenatedBias,
+                matmulDpsOutput};
+    } else {
+      inputs = {reshapeOutput, concatenatedWeightMatrix, matmulDpsOutput};
+    }
+
+    MatMulOpType matrixMultOp = rewriter.create<MatMulOpType>(
+        queryMatmulOp.getLoc(), TypeRange{linearOutputType}, inputs,
+        queryMatmulOp->getAttrs());
+
+    TT_assertv(matrixMultOp, "Expected valid matrix multiplication operation");
+
+    // Create reshape operation to convert from [batch*seq, hidden*3] to [batch,
+    // seq, hidden*3]. If it is the same output shape, reshape folder will fold
+    // this operation.
+    auto queryType = permuteOps[0].getType();
+    auto keyType = permuteOps[1].getType();
+    auto valueType = permuteOps[2].getType();
+
+    auto queryShape = queryType.getShape();
+    auto keyShape = keyType.getShape();
+    auto valueShape = valueType.getShape();
+    int32_t numHeads = queryType.getShape()[O_NUM_KV_HEADS];
+    int32_t hiddenSize = queryType.getShape()[O_HEAD_SIZE] * numHeads;
+
+    SmallVector<int64_t> reshapeToSplitShape = {batchSize, sequenceLength,
+                                                hiddenSize * 3};
+    auto reshapeElementType = queryMatmulOp.getType().getElementType();
+    auto reshapeEncoding = queryMatmulOp.getType().getEncoding();
+
+    SmallVector<int32_t> reshapeToSplitShapeI32(reshapeToSplitShape.begin(),
+                                                reshapeToSplitShape.end());
+
+    ReshapeOp reshapeToSplit = ttir::utils::createDPSOp<ttir::ReshapeOp>(
+        rewriter, matrixMultOp.getLoc(), reshapeToSplitShape,
+        reshapeElementType, reshapeEncoding, matrixMultOp,
+        rewriter.getI32ArrayAttr(reshapeToSplitShapeI32));
+
+    // Create split qkv op.
+    Value queryOutput = rewriter.create<EmptyOp>(
+        matrixMultOp.getLoc(), queryShape, queryType.getElementType(),
+        queryType.getEncoding());
+    Value keyOutput = rewriter.create<EmptyOp>(matrixMultOp.getLoc(), keyShape,
+                                               keyType.getElementType(),
+                                               keyType.getEncoding());
+    Value valueOutput = rewriter.create<EmptyOp>(
+        matrixMultOp.getLoc(), valueShape, valueType.getElementType(),
+        valueType.getEncoding());
+
+    // Determine if need to transpose key based on key and value.
+    bool transposeKey = isKeyTransposed(keyShape, valueShape);
+
+    auto splitOp = rewriter.create<SplitQueryKeyValueAndSplitHeadsOp>(
+        matrixMultOp.getLoc(), ArrayRef<Type>{queryType, keyType, valueType},
+        reshapeToSplit, Value(), queryOutput, keyOutput, valueOutput,
+        rewriter.getUI32IntegerAttr(numHeads), IntegerAttr(),
+        rewriter.getBoolAttr(transposeKey) /*transpose_key*/);
+
+    rewriter.replaceOp(permuteOps[0], splitOp.getQuery());
+    rewriter.replaceOp(permuteOps[1], splitOp.getKey());
+    rewriter.replaceOp(permuteOps[2], splitOp.getValue());
+    return mlir::success();
+  }
+
+private:
+  bool isMHA(ReshapeOp reshapeOp, llvm::SmallVector<MatMulOpType> &matmulOps,
+             llvm::SmallVector<PermuteOp> &permuteOps) const {
+    populateMatmulOps(reshapeOp, matmulOps);
+    if (!matmulOps.empty() && validateMatmulOrLinearOps(reshapeOp, matmulOps)) {
+      populatePermuteOps(matmulOps, permuteOps);
+      if (validatePermuteOps(reshapeOp, permuteOps)) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  // Helper function to concatenate tensors along given dimension.
+  ttir::ConcatOp concatenateAlongDim(OpBuilder &rewriter, Location loc,
+                                     ValueRange tensors,
+                                     std::size_t dim) const {
+    TT_assertv(!tensors.empty(), "Cannot concatenate empty tensor list.");
+
+    auto firstType = mlir::cast<RankedTensorType>(tensors[0].getType());
+    ArrayRef<int64_t> firstShape = firstType.getShape();
+
+    // Calculate the concatenated size along the given dimension.
+    int64_t concatDimSize = 0;
+    for (Value tensor : tensors) {
+      auto tensorType = mlir::cast<RankedTensorType>(tensor.getType());
+      ArrayRef<int64_t> shape = tensorType.getShape();
+      concatDimSize += shape[dim];
+    }
+
+    // Build the concatenated shape.
+    SmallVector<int64_t> concatenatedShape(firstShape.begin(),
+                                           firstShape.end());
+    concatenatedShape[dim] = concatDimSize;
+
+    RankedTensorType concatenatedType =
+        RankedTensorType::get(concatenatedShape, firstType.getElementType());
+
+    // Create concat op along given dimension.
+    return ttir::utils::createDPSOp<ttir::ConcatOp>(
+        rewriter, loc, concatenatedType, tensors,
+        rewriter.getSI32IntegerAttr(dim) /* axis */);
+  }
+
+  void hoistPreprocessingOps(llvm::SmallVector<PermuteOp> permuteOps) const {
+    PermuteOp queryPermuteOp = permuteOps[0];
+
+    // Collect all values that need to be hoisted (from Key and Value operands).
+    llvm::SetVector<mlir::Value> allValues;
+
+    // Collect use-def chains for Key PermuteOp operands.
+    for (Value operand : permuteOps[1]->getOperands()) {
+      llvm::SetVector<mlir::Value> udChain =
+          ttmlir::utils::getUseDefChain(operand);
+      allValues.insert(udChain.begin(), udChain.end());
+    }
+
+    // Collect use-def chains for Value PermuteOp operands.
+    for (Value operand : permuteOps[2]->getOperands()) {
+      llvm::SetVector<mlir::Value> udChain =
+          ttmlir::utils::getUseDefChain(operand);
+      allValues.insert(udChain.begin(), udChain.end());
+    }
+
+    // Filter to get operations.
+    llvm::SetVector<mlir::Operation *> opsToMove =
+        ttmlir::utils::filterOperations(allValues.getArrayRef());
+
+    // Topologically sort to maintain dependencies.
+    llvm::SetVector<mlir::Operation *> sortedOps = topologicalSort(opsToMove);
+
+    // Move only operations that appear after queryPermuteOp.
+
+    for (mlir::Operation *op : sortedOps) {
+      TT_assertv(op->getBlock() == queryPermuteOp->getBlock(),
+                 "Expected all ops to be in the same block.");
+      if (!op->isBeforeInBlock(queryPermuteOp)) {
+        op->moveBefore(queryPermuteOp);
+      }
+    }
+  }
+
+  PermuteOp getPermuteOp(MatMulOpType op) const {
+    // Permute op comes from: linear/ matmul op -> reshape op -> permute op.
+    auto users = op->getResult(0).getUsers();
+    if (llvm::range_size(users) != 1) {
+      return nullptr;
+    }
+    ReshapeOp reshapeOp = mlir::dyn_cast<ReshapeOp>(*users.begin());
+    if (!reshapeOp) {
+      return nullptr;
+    }
+    auto reshapeUsers = reshapeOp.getResult().getUsers();
+    if (llvm::range_size(reshapeUsers) != 1) {
+      return nullptr;
+    }
+    PermuteOp permuteOp = mlir::dyn_cast<PermuteOp>(*reshapeUsers.begin());
+    if (!permuteOp) {
+      return nullptr;
+    }
+    return permuteOp;
+  }
+
+  void populatePermuteOps(llvm::SmallVector<MatMulOpType> matrixOps,
+                          llvm::SmallVector<PermuteOp> &permuteOps) const {
+    for (MatMulOpType matrixOp : matrixOps) {
+      if (PermuteOp permuteOp = getPermuteOp(matrixOp); permuteOp) {
+        permuteOps.push_back(permuteOp);
+      }
+    }
+    // Sort to ensure Q, K, V order.
+    std::sort(permuteOps.begin(), permuteOps.end(),
+              [](mlir::Operation *a, mlir::Operation *b) {
+                return a->isBeforeInBlock(b);
+              });
+  }
+
+  void populateMatmulOps(ReshapeOp reshapeOp,
+                         llvm::SmallVector<MatMulOpType> &matmulOps) const {
+    for (auto *user : reshapeOp.getResult().getUsers()) {
+      if (MatMulOpType matmulOp = mlir::dyn_cast<MatMulOpType>(user)) {
+        matmulOps.push_back(matmulOp);
+      }
+    }
+    // Sort to ensure Q, K, V order.
+    std::sort(matmulOps.begin(), matmulOps.end(),
+              [](mlir::Operation *a, mlir::Operation *b) {
+                return a->isBeforeInBlock(b);
+              });
+  }
+
+  bool isKeyTransposed(ArrayRef<int64_t> keyShape,
+                       ArrayRef<int64_t> queryShape) const {
+    return (keyShape[K_HEAD_SIZE] == queryShape[O_HEAD_SIZE] &&
+            keyShape[K_SEQUENCE_LENGTH] == queryShape[O_SEQUENCE_LENGTH]);
+  }
+
+  bool validatePermuteOps(ReshapeOp reshapeOp,
+                          llvm::SmallVector<PermuteOp> &permuteOps) const {
+
+    // Output of permute ops are the query, key, value heads respectively.
+    // There should be exactly 3 permute ops.
+    // Permute op output shapes must match expected MHA head shapes:
+    // [batch_size, number of kv heads, sequence_length, head_size].
+    // If key is transposed, its shape must match expected transposed shape:
+    // [batch_size, number of kv heads, head_size, sequence_length].
+    // Expected permutation for query and value is [0, 2, 1, 3].
+    // Expected permutation for key is either [0, 2, 1, 3] or [0, 2, 3, 1]
+    // (transposed).
+
+    // Size must be 3 for Q, K, V.
+    if (permuteOps.size() != 3) {
+      return false;
+    }
+
+    TypedValue<RankedTensorType> queryTensor = permuteOps[0].getResult();
+    TypedValue<RankedTensorType> keyTensor = permuteOps[1].getResult();
+    TypedValue<RankedTensorType> valueTensor = permuteOps[2].getResult();
+    ArrayRef<int64_t> queryShape = queryTensor.getType().getShape();
+    ArrayRef<int64_t> keyShape = keyTensor.getType().getShape();
+    ArrayRef<int64_t> valueShape = valueTensor.getType().getShape();
+
+    // Each of Q, K, V heads must be 4D.
+    if (queryShape.size() != 4 || keyShape.size() != 4 ||
+        valueShape.size() != 4) {
+      return false;
+    }
+
+    if (queryShape[O_BATCH_SIZE] != keyShape[O_BATCH_SIZE] ||
+        queryShape[O_BATCH_SIZE] != valueShape[O_BATCH_SIZE]) {
+      // Batch size must match.
+      return false;
+    }
+
+    if (queryShape[O_NUM_KV_HEADS] != keyShape[O_NUM_KV_HEADS] ||
+        queryShape[O_NUM_KV_HEADS] != valueShape[O_NUM_KV_HEADS]) {
+      // Number of kv heads must match.
+      return false;
+    }
+
+    if (queryShape[O_SEQUENCE_LENGTH] != valueShape[O_SEQUENCE_LENGTH]) {
+      // Query and value sequence length must match.
+      return false;
+    }
+    if (queryShape[O_HEAD_SIZE] != valueShape[O_HEAD_SIZE]) {
+      // Query and value head size must match.
+      return false;
+    }
+
+    // Query and value must have the same expected permutation.
+    llvm::ArrayRef<int64_t> queryPermutation = permuteOps[0].getPermutation();
+    llvm::ArrayRef<int64_t> valuePermutation = permuteOps[2].getPermutation();
+    if (!llvm::equal(queryPermutation, expectedPermute) ||
+        !llvm::equal(valuePermutation, expectedPermute)) {
+      return false;
+    }
+
+    // Key can be transposed or not.
+    bool transposeKey = isKeyTransposed(keyShape, queryShape);
+    llvm::ArrayRef<int64_t> keyPermutation = permuteOps[1].getPermutation();
+
+    if (!transposeKey) {
+      // If key is not transposed, it should have the expected output shape.
+      if (keyShape[O_SEQUENCE_LENGTH] != queryShape[O_SEQUENCE_LENGTH] ||
+          keyShape[O_HEAD_SIZE] != queryShape[O_HEAD_SIZE]) {
+        return false;
+      }
+      if (!llvm::equal(keyPermutation, expectedPermute)) {
+        return false;
+      }
+    }
+
+    if (transposeKey) {
+      // If key is transposed, it should have the expected transposed shape.
+      if (keyShape[K_HEAD_SIZE] != queryShape[O_HEAD_SIZE] ||
+          keyShape[K_SEQUENCE_LENGTH] != queryShape[O_SEQUENCE_LENGTH]) {
+        return false;
+      }
+      if (!llvm::equal(keyPermutation, expectedTransposedPermute)) {
+        return false;
+      }
+    }
+
+    return true;
+  }
+
+  bool
+  validateMatmulOrLinearOps(ReshapeOp reshapeOp,
+                            llvm::SmallVector<MatMulOpType> matrixOps) const {
+    // There must be exactly 3 matmul/linear ops (for Q, K, V).
+    if (matrixOps.size() != 3) {
+      return false;
+    }
+
+    ArrayRef<int64_t> reshapeInputShape =
+        reshapeOp.getInput().getType().getShape();
+    // If the input shape is not 3D, we cannot fuse. [BATCH_SIZE,
+    // SEQUENCE_LENGTH, INPUT_HIDDEN_DIMENSION].
+    if (reshapeInputShape.size() != 3) {
+      return false;
+    }
+
+    // Reshape transforms [BATCH_SIZE, SEQUENCE_LENGTH, INPUT_HIDDEN_DIMENSION]
+    // to [BATCH_SIZE * SEQUENCE_LENGTH, INPUT_HIDDEN_DIMENSION].
+    ArrayRef<int64_t> reshapeOutputShape =
+        reshapeOp.getResult().getType().getShape();
+    if (reshapeOutputShape.size() != 2) {
+      return false;
+    }
+    if (reshapeOutputShape[0] != reshapeInputShape[I_BATCH_SIZE] *
+                                     reshapeInputShape[I_SEQUENCE_LENGTH] ||
+        reshapeOutputShape[1] != reshapeInputShape[I_HIDDEN_DIMENSION]) {
+      return false;
+    }
+
+    ArrayRef<int64_t> firstBShape = matrixOps[0].getB().getType().getShape();
+    for (MatMulOpType matrixOp : matrixOps) {
+      // Each op must have the same input as the reshape op output.
+      if (matrixOp.getA() != reshapeOp.getResult()) {
+        return false;
+      }
+      auto bShape = matrixOp.getB().getType().getShape();
+      // Each op must have a 2D weight matrix.
+      if (bShape.size() != 2) {
+        return false;
+      }
+      // Check that B shape is the same for all ops.
+      if (bShape != firstBShape) {
+        return false;
+      }
+    }
+
+    // Check transpose A is false for all ops.
+    if (matrixOps[0].getTransposeA() || matrixOps[1].getTransposeA() ||
+        matrixOps[2].getTransposeA()) {
+      return false;
+    }
+
+    // Check transpose B is the same for all ops.
+    if ((matrixOps[0].getTransposeB() != matrixOps[1].getTransposeB()) ||
+        (matrixOps[0].getTransposeB() != matrixOps[2].getTransposeB())) {
+      return false;
+    }
+
+    // If matrix op is Linear Op, check that bias is present and has the same
+    // shape.
+    if constexpr (std::is_same_v<LinearOp, MatMulOpType>) {
+      TypedValue<RankedTensorType> queryBias = matrixOps[0].getBias();
+      TypedValue<RankedTensorType> keyBias = matrixOps[1].getBias();
+      TypedValue<RankedTensorType> valueBias = matrixOps[2].getBias();
+      if (!queryBias || !keyBias || !valueBias) {
+        return false;
+      }
+      auto queryBiasShape = queryBias.getType().getShape();
+      auto keyBiasShape = keyBias.getType().getShape();
+      auto valueBiasShape = valueBias.getType().getShape();
+      if (queryBiasShape != keyBiasShape || queryBiasShape != valueBiasShape) {
+        return false;
+      }
+    }
+
     return true;
   }
 };
@@ -2365,14 +2934,15 @@ public:
       }
       patterns.add<CacheFillUpdatePattern>(&getContext());
       patterns.add<ConcatenateHeadsUpdatePattern>(&getContext());
+      patterns.add<SplitQueryKeyValueAndSplitHeadsUpdatePattern<MatmulOp>>(
+          &getContext());
+      patterns.add<SplitQueryKeyValueAndSplitHeadsUpdatePattern<LinearOp>>(
+          &getContext());
 
       patterns.add<PadPoolingFusionPattern>(&getContext());
       patterns.add<AveragePoolingWithPoolingDenominatorFusionPattern>(
           &getContext());
-      if (globalPoolFusingEnabled) {
-        patterns.add<GlobalAveragePoolingPattern>(&getContext());
-      }
-
+      patterns.add<ScaledSumToMeanPattern>(&getContext());
       patterns.add<MatmulWithBiasFusionPattern>(&getContext());
 
       patterns.add<GeluFusionPattern>(&getContext());

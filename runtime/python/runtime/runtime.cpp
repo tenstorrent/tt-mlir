@@ -148,6 +148,18 @@ void registerRuntimeBindings(nb::module_ &m) {
               &tt::runtime::DistributedOptions::controllerPort)
       .def_rw("mode", &tt::runtime::DistributedOptions::mode)
       .def_prop_rw(
+          "worker_path",
+          [](const tt::runtime::DistributedOptions &o) {
+            return o.workerPath.has_value() ? nb::cast(o.workerPath.value())
+                                            : nb::none();
+          },
+          [](tt::runtime::DistributedOptions &o, nb::handle value) {
+            o.workerPath =
+                value.is_none()
+                    ? std::nullopt
+                    : std::make_optional(nb::cast<std::string>(value));
+          })
+      .def_prop_rw(
           "multi_process_args",
           [](const tt::runtime::DistributedOptions &o) {
             return o.multiProcessArgs.has_value()

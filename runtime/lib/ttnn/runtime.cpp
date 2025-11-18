@@ -1117,6 +1117,10 @@ getOpOutputRef(OpContext opContextHandle,
     tensorRef = opContext.type_as_PadOp()->out();
     break;
   }
+  case ::tt::target::ttnn::OpType::AssignOp: {
+    tensorRef = opContext.type_as_AssignOp()->output();
+    break;
+  }
   case ::tt::target::ttnn::OpType::ConcatOp: {
     tensorRef = opContext.type_as_ConcatOp()->out();
     break;
@@ -1213,8 +1217,16 @@ getOpOutputRef(OpContext opContextHandle,
     tensorRef = opContext.type_as_FillCacheOp()->cache();
     break;
   }
+  case ::tt::target::ttnn::OpType::PagedFillCacheOp: {
+    tensorRef = opContext.type_as_PagedFillCacheOp()->cache();
+    break;
+  }
   case ::tt::target::ttnn::OpType::UpdateCacheOp: {
     tensorRef = opContext.type_as_UpdateCacheOp()->cache();
+    break;
+  }
+  case ::tt::target::ttnn::OpType::PagedUpdateCacheOp: {
+    tensorRef = opContext.type_as_PagedUpdateCacheOp()->cache();
     break;
   }
   case ::tt::target::ttnn::OpType::PointToPointOp: {
@@ -1233,6 +1245,10 @@ getOpOutputRef(OpContext opContextHandle,
     tensorRef = opContext.type_as_RotaryEmbeddingLlamaOp()->out();
     break;
   }
+  case ::tt::target::ttnn::OpType::RotaryEmbeddingOp: {
+    tensorRef = opContext.type_as_RotaryEmbeddingOp()->out();
+    break;
+  }
   case ::tt::target::ttnn::OpType::NLPConcatHeadsOp: {
     tensorRef = opContext.type_as_NLPConcatHeadsOp()->out();
     break;
@@ -1245,6 +1261,11 @@ getOpOutputRef(OpContext opContextHandle,
     tensorRef = opContext.type_as_ScaledDotProductAttentionDecodeOp()->out();
     break;
   }
+  case ::tt::target::ttnn::OpType::PagedScaledDotProductAttentionDecodeOp: {
+    tensorRef =
+        opContext.type_as_PagedScaledDotProductAttentionDecodeOp()->out();
+    break;
+  }
   case ::tt::target::ttnn::OpType::ScaledDotProductAttentionOp: {
     tensorRef = opContext.type_as_ScaledDotProductAttentionOp()->out();
     break;
@@ -1254,6 +1275,7 @@ getOpOutputRef(OpContext opContextHandle,
     break;
   }
   case ::tt::target::ttnn::OpType::BatchNormTrainingOp:
+  case ::tt::target::ttnn::OpType::MaxPool2dWithIndicesOp:
   case ::tt::target::ttnn::OpType::SortOp:
   case ::tt::target::ttnn::OpType::LoadCachedOp:
   case ::tt::target::ttnn::OpType::GetDeviceOp:
@@ -1421,6 +1443,10 @@ getOpInputRefs(OpContext opContextHandle,
     tensorRefs = {opContext.type_as_PadOp()->in()};
     break;
   }
+  case ::tt::target::ttnn::OpType::AssignOp: {
+    tensorRefs = {opContext.type_as_AssignOp()->input()};
+    break;
+  }
   case ::tt::target::ttnn::OpType::ConcatOp: {
     tensorRefs = utils::convertFbTensorRefsToVector(
         opContext.type_as_ConcatOp()->inputs());
@@ -1466,6 +1492,10 @@ getOpInputRefs(OpContext opContextHandle,
   }
   case ::tt::target::ttnn::OpType::GlobalAvgPool2dOp: {
     tensorRefs = {opContext.type_as_GlobalAvgPool2dOp()->in()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::MaxPool2dWithIndicesOp: {
+    tensorRefs = {opContext.type_as_MaxPool2dWithIndicesOp()->in()};
     break;
   }
   case ::tt::target::ttnn::OpType::PrepareConv2dWeightsOp: {
@@ -1537,9 +1567,23 @@ getOpInputRefs(OpContext opContextHandle,
                   opContext.type_as_UpdateCacheOp()->update_index()};
     break;
   }
+  case ::tt::target::ttnn::OpType::PagedUpdateCacheOp: {
+    tensorRefs = {opContext.type_as_PagedUpdateCacheOp()->cache(),
+                  opContext.type_as_PagedUpdateCacheOp()->input(),
+                  opContext.type_as_PagedUpdateCacheOp()->update_index(),
+                  opContext.type_as_PagedUpdateCacheOp()->page_table()};
+    break;
+  }
   case ::tt::target::ttnn::OpType::FillCacheOp: {
     tensorRefs = {opContext.type_as_FillCacheOp()->cache(),
                   opContext.type_as_FillCacheOp()->input()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::PagedFillCacheOp: {
+    tensorRefs = {opContext.type_as_PagedFillCacheOp()->cache(),
+                  opContext.type_as_PagedFillCacheOp()->input(),
+                  opContext.type_as_PagedFillCacheOp()->page_table(),
+                  opContext.type_as_PagedFillCacheOp()->batch_idx_tensor()};
     break;
   }
   case ::tt::target::ttnn::OpType::LoadCachedOp: {
@@ -1630,11 +1674,32 @@ getOpInputRefs(OpContext opContextHandle,
         opContext.type_as_ScaledDotProductAttentionOp()->attention_mask()};
     break;
   }
+  case ::tt::target::ttnn::OpType::PagedScaledDotProductAttentionDecodeOp: {
+    tensorRefs = {
+        opContext.type_as_PagedScaledDotProductAttentionDecodeOp()->query(),
+        opContext.type_as_PagedScaledDotProductAttentionDecodeOp()->key(),
+        opContext.type_as_PagedScaledDotProductAttentionDecodeOp()->value(),
+        opContext.type_as_PagedScaledDotProductAttentionDecodeOp()
+            ->page_table(),
+        opContext.type_as_PagedScaledDotProductAttentionDecodeOp()
+            ->attention_mask(),
+        opContext.type_as_PagedScaledDotProductAttentionDecodeOp()
+            ->cur_pos_tensor(),
+        opContext.type_as_PagedScaledDotProductAttentionDecodeOp()
+            ->attention_sink()};
+    break;
+  }
   case ::tt::target::ttnn::OpType::RotaryEmbeddingLlamaOp: {
     tensorRefs = {opContext.type_as_RotaryEmbeddingLlamaOp()->input(),
                   opContext.type_as_RotaryEmbeddingLlamaOp()->cos_cache(),
                   opContext.type_as_RotaryEmbeddingLlamaOp()->sin_cache(),
                   opContext.type_as_RotaryEmbeddingLlamaOp()->trans_mat()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::RotaryEmbeddingOp: {
+    tensorRefs = {opContext.type_as_RotaryEmbeddingOp()->input(),
+                  opContext.type_as_RotaryEmbeddingOp()->cos_cache(),
+                  opContext.type_as_RotaryEmbeddingOp()->sin_cache()};
     break;
   }
   case ::tt::target::ttnn::OpType::NLPCreateQKVHeadsDecodeOp: {

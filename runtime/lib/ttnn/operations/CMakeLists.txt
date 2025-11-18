@@ -21,6 +21,7 @@ set(TTNN_OPS_SRCS
   ${CMAKE_CURRENT_SOURCE_DIR}/creation/empty.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/creation/full.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/creation/full_with.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/data_movement/assign.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/data_movement/concat.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/data_movement/pad.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/data_movement/permute.cpp
@@ -44,6 +45,8 @@ set(TTNN_OPS_SRCS
   ${CMAKE_CURRENT_SOURCE_DIR}/generic/generic_op.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/kv_cache/fill_cache.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/kv_cache/update_cache.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/kv_cache/paged_fill_cache.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/kv_cache/paged_update_cache.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/layout/from_device.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/layout/to_device.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/layout/to_dtype.cpp
@@ -72,12 +75,14 @@ set(TTNN_OPS_SRCS
   ${CMAKE_CURRENT_SOURCE_DIR}/trace/execute_trace.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/transformer/concatenate_heads.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/transformer/rotary_embedding_llama.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/transformer/rotary_embedding.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/transformer/nlp_create_qkv_heads_decode.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/transformer/nlp_concat_heads.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/transformer/nlp_concat_heads_decode.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/transformer/scaled_dot_product_attention.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/transformer/scaled_dot_product_attention_decode.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/transformer/split_query_key_value_and_split_heads.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/transformer/paged_scaled_dot_product_attention_decode.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/utils/utils.cpp
 )
 
