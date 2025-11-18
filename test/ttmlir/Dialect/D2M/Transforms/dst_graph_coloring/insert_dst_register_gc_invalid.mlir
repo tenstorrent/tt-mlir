@@ -103,8 +103,8 @@ func.func @complex_liveness(%cond: i1) {
 // Default capacity for f16 with fullSyncEn=true is 16 tiles.
 // This test uses a 5x5 tile CB (25 tiles), which exceeds the 16-tile limit.
 module {
-  func.func @cb_exceeds_dst_capacity(%in0: memref<1x1x5x5x!ttcore.tile<32x32, f16>, #ttcore.shard<20480x4096>, #l1_>,
-                                      %out: memref<1x1x5x5x!ttcore.tile<32x32, f16>, #ttcore.shard<20480x4096>, #l1_>) {
+  func.func @cb_exceeds_dst_capacity(%in0: memref<1x1x5x5x!ttcore.tile<32x32, f16>, #ttcore.shard<20480x4096, 1>, #l1_>,
+                                      %out: memref<1x1x5x5x!ttcore.tile<32x32, f16>, #ttcore.shard<20480x4096, 1>, #l1_>) {
     // expected-error @below {{CB volume exceeds available DST tiles}}
     d2m.generic {
       block_factors = [1, 1],
@@ -112,8 +112,8 @@ module {
       indexing_maps = [#map, #map],
       iterator_types = [#ttcore.iterator_type<parallel>, #ttcore.iterator_type<parallel>],
       threads = [#d2m.thread<compute>]
-    } ins(%in0 : memref<1x1x5x5x!ttcore.tile<32x32, f16>, #ttcore.shard<20480x4096>, #l1_>)
-      outs(%out : memref<1x1x5x5x!ttcore.tile<32x32, f16>, #ttcore.shard<20480x4096>, #l1_>) {
+    } ins(%in0 : memref<1x1x5x5x!ttcore.tile<32x32, f16>, #ttcore.shard<20480x4096, 1>, #l1_>)
+      outs(%out : memref<1x1x5x5x!ttcore.tile<32x32, f16>, #ttcore.shard<20480x4096, 1>, #l1_>) {
     ^compute0(%cb0: !d2m.cb<memref<5x5x!ttcore.tile<32x32, f16>, #l1_>>,
               %cb_out: !d2m.cb<memref<5x5x!ttcore.tile<32x32, f16>, #l1_>>):
       %mem0 = d2m.wait %cb0 : !d2m.cb<memref<5x5x!ttcore.tile<32x32, f16>, #l1_>> -> memref<5x5x!ttcore.tile<32x32, f16>, #l1_>

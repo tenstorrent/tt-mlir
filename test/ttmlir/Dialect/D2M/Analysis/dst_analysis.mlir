@@ -11,9 +11,9 @@ module {
   // GC: remark: DST analysis (graph-coloring): {{[0-9]+}} slices required
   // GREEDY: remark: DST analysis (greedy): {{[0-9]+}} slices required
 
-  func.func @simple_matmul(%in0: memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x8192>, #l1_>,
-                            %in1: memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x8192>, #l1_>,
-                            %out0: memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x8192>, #l1_>) {
+  func.func @simple_matmul(%in0: memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x8192, 1>, #l1_>,
+                            %in1: memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x8192, 1>, #l1_>,
+                            %out0: memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x8192, 1>, #l1_>) {
     d2m.generic {
       block_factors = [1, 1, 1],
       grid = #ttcore.grid<1x1>,
@@ -24,9 +24,9 @@ module {
       ],
       iterator_types = [#ttcore.iterator_type<parallel>, #ttcore.iterator_type<parallel>, #ttcore.iterator_type<reduction>],
       threads = [#d2m.thread<compute>]
-    } ins(%in0, %in1 : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x8192>, #l1_>,
-                       memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x8192>, #l1_>)
-      outs(%out0 : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x8192>, #l1_>) {
+    } ins(%in0, %in1 : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x8192, 1>, #l1_>,
+                       memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x8192, 1>, #l1_>)
+      outs(%out0 : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x8192, 1>, #l1_>) {
     ^compute0(%cb0: !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1_>>,
               %cb1: !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1_>>,
               %cb2: !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1_>>):

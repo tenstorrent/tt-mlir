@@ -2,10 +2,10 @@
 //
 // Verifies that the d2m-insert-dst-register-gc pass does the following:
 //   1. acquire_dst is created
-//   2. L1→DST copy loops are generated before operations
+//   2. L1->DST copy loops are generated before operations
 //   3. Original loads are replaced with DST loads
-//   4. DST→L1 copy loops are generated for results
-//   5. Graph coloring assigns optimal slice indices avoiding overwrites (v0→slice 1, v1→slice 0, result→slice 0)
+//   4. DST->L1 copy loops are generated for results
+//   5. Graph coloring assigns optimal slice indices avoiding overwrites (v0->slice 1, v1->slice 0, result->slice 0)
 
 #l1_ = #ttcore.memory_space<l1>
 
@@ -46,9 +46,9 @@ module {
 
   // CHECK: d2m.release_dst %[[DST]]
 
-  func.func @test_linalg_input(%in0: memref<1x1x1x1x!ttcore.tile<32x32, f16>, #ttcore.shard<4096x4096>, #l1_>,
-                                %in1: memref<1x1x1x1x!ttcore.tile<32x32, f16>, #ttcore.shard<4096x4096>, #l1_>,
-                                %out: memref<1x1x1x1x!ttcore.tile<32x32, f16>, #ttcore.shard<4096x4096>, #l1_>) {
+  func.func @test_linalg_input(%in0: memref<1x1x1x1x!ttcore.tile<32x32, f16>, #ttcore.shard<4096x4096, 1>, #l1_>,
+                                %in1: memref<1x1x1x1x!ttcore.tile<32x32, f16>, #ttcore.shard<4096x4096, 1>, #l1_>,
+                                %out: memref<1x1x1x1x!ttcore.tile<32x32, f16>, #ttcore.shard<4096x4096, 1>, #l1_>) {
     d2m.generic {
       block_factors = [1, 1],
       grid = #ttcore.grid<1x1>,
@@ -60,9 +60,9 @@ module {
       iterator_types = [#ttcore.iterator_type<parallel>, #ttcore.iterator_type<parallel>],
       threads = [#d2m.thread<compute>]
     } ins(%in0, %in1 :
-          memref<1x1x1x1x!ttcore.tile<32x32, f16>, #ttcore.shard<4096x4096>, #l1_>,
-          memref<1x1x1x1x!ttcore.tile<32x32, f16>, #ttcore.shard<4096x4096>, #l1_>)
-      outs(%out : memref<1x1x1x1x!ttcore.tile<32x32, f16>, #ttcore.shard<4096x4096>, #l1_>) {
+          memref<1x1x1x1x!ttcore.tile<32x32, f16>, #ttcore.shard<4096x4096, 1>, #l1_>,
+          memref<1x1x1x1x!ttcore.tile<32x32, f16>, #ttcore.shard<4096x4096, 1>, #l1_>)
+      outs(%out : memref<1x1x1x1x!ttcore.tile<32x32, f16>, #ttcore.shard<4096x4096, 1>, #l1_>) {
     ^compute0(%cb0: !d2m.cb<memref<1x1x!ttcore.tile<32x32, f16>, #l1_>>,
               %cb1: !d2m.cb<memref<1x1x!ttcore.tile<32x32, f16>, #l1_>>,
               %cb_out: !d2m.cb<memref<1x1x!ttcore.tile<32x32, f16>, #l1_>>):
@@ -96,9 +96,9 @@ module {
   // CHECK-NOT: d2m.acquire_dst
   // CHECK-NOT: affine.store
 
-  func.func @test_with_linalg(%in0: memref<1x1x1x1x!ttcore.tile<32x32, f16>, #ttcore.shard<4096x4096>, #l1_>,
-                               %in1: memref<1x1x1x1x!ttcore.tile<32x32, f16>, #ttcore.shard<4096x4096>, #l1_>,
-                               %out: memref<1x1x1x1x!ttcore.tile<32x32, f16>, #ttcore.shard<4096x4096>, #l1_>) {
+  func.func @test_with_linalg(%in0: memref<1x1x1x1x!ttcore.tile<32x32, f16>, #ttcore.shard<4096x4096, 1>, #l1_>,
+                               %in1: memref<1x1x1x1x!ttcore.tile<32x32, f16>, #ttcore.shard<4096x4096, 1>, #l1_>,
+                               %out: memref<1x1x1x1x!ttcore.tile<32x32, f16>, #ttcore.shard<4096x4096, 1>, #l1_>) {
     d2m.generic {
       block_factors = [1, 1],
       grid = #ttcore.grid<1x1>,
@@ -110,9 +110,9 @@ module {
       iterator_types = [#ttcore.iterator_type<parallel>, #ttcore.iterator_type<parallel>],
       threads = [#d2m.thread<compute>]
     } ins(%in0, %in1 :
-          memref<1x1x1x1x!ttcore.tile<32x32, f16>, #ttcore.shard<4096x4096>, #l1_>,
-          memref<1x1x1x1x!ttcore.tile<32x32, f16>, #ttcore.shard<4096x4096>, #l1_>)
-      outs(%out : memref<1x1x1x1x!ttcore.tile<32x32, f16>, #ttcore.shard<4096x4096>, #l1_>) {
+          memref<1x1x1x1x!ttcore.tile<32x32, f16>, #ttcore.shard<4096x4096, 1>, #l1_>,
+          memref<1x1x1x1x!ttcore.tile<32x32, f16>, #ttcore.shard<4096x4096, 1>, #l1_>)
+      outs(%out : memref<1x1x1x1x!ttcore.tile<32x32, f16>, #ttcore.shard<4096x4096, 1>, #l1_>) {
     ^compute0(%cb0: !d2m.cb<memref<1x1x!ttcore.tile<32x32, f16>, #l1_>>,
               %cb1: !d2m.cb<memref<1x1x!ttcore.tile<32x32, f16>, #l1_>>,
               %cb_out: !d2m.cb<memref<1x1x!ttcore.tile<32x32, f16>, #l1_>>):
@@ -153,17 +153,43 @@ module {
 module {
   // CHECK-LABEL: func.func @test_with_affine_loops
   // CHECK: d2m.generic
+  // CHECK: ^compute0(%[[CB0:.*]]: !d2m.cb<memref<1x1x!ttcore.tile<32x32, f16>, #l1>>, %[[CB1:.*]]: !d2m.cb<memref<1x1x!ttcore.tile<32x32, f16>, #l1>>, %[[CB_OUT:.*]]: !d2m.cb<memref<1x1x!ttcore.tile<32x32, f16>, #l1>>):
   // CHECK: %[[DST:.*]] = d2m.acquire_dst() : memref<2x1x1x!ttcore.tile<32x32, f16>, #dst>
-  // CHECK: affine.for
-  // CHECK: affine.for
-  // CHECK: affine.store {{.*}}, %[[DST]][1,
-  // CHECK: affine.store {{.*}}, %[[DST]][0,
-  // CHECK: affine.store {{.*}}, %[[DST]][0,
-  // CHECK: d2m.release_dst
+  // CHECK: %[[MEM0:.*]] = d2m.wait %[[CB0]]
+  // CHECK: %[[MEM1:.*]] = d2m.wait %[[CB1]]
+  // CHECK: %[[MEM_OUT:.*]] = d2m.reserve %[[CB_OUT]]
 
-  func.func @test_with_affine_loops(%in0: memref<1x1x1x1x!ttcore.tile<32x32, f16>, #ttcore.shard<4096x4096>, #l1_>,
-                                     %in1: memref<1x1x1x1x!ttcore.tile<32x32, f16>, #ttcore.shard<4096x4096>, #l1_>,
-                                     %out: memref<1x1x1x1x!ttcore.tile<32x32, f16>, #ttcore.shard<4096x4096>, #l1_>) {
+  // Verify outer loop with three inner loops inside
+  // CHECK: affine.for %[[I:.*]] = 0 to 1 {
+
+  // PROLOGUE: L1->DST copies
+  // CHECK: affine.for %[[J_PROLOGUE:.*]] = 0 to 1 {
+  // CHECK: %[[L1_VAL0:.*]] = affine.load %[[MEM0]][%[[I]], %[[J_PROLOGUE]]]
+  // CHECK: affine.store %[[L1_VAL0]], %[[DST]][1, %[[I]], %[[J_PROLOGUE]]]
+  // CHECK: %[[L1_VAL1:.*]] = affine.load %[[MEM1]][%[[I]], %[[J_PROLOGUE]]]
+  // CHECK: affine.store %[[L1_VAL1]], %[[DST]][0, %[[I]], %[[J_PROLOGUE]]]
+  // CHECK: }
+
+  // COMPUTE: DST operations
+  // CHECK: affine.for %[[J_COMPUTE:.*]] = 0 to 1 {
+  // CHECK: %[[DST_VAL0:.*]] = affine.load %[[DST]][1, %[[I]], %[[J_COMPUTE]]]
+  // CHECK: %[[DST_VAL1:.*]] = affine.load %[[DST]][0, %[[I]], %[[J_COMPUTE]]]
+  // CHECK: %[[RESULT:.*]] = "d2m.tile_add"(%[[DST_VAL0]], %[[DST_VAL1]])
+  // CHECK: affine.store %[[RESULT]], %[[DST]][0, %[[I]], %[[J_COMPUTE]]]
+  // CHECK: }
+
+  // EPILOGUE: DST->L1 copies
+  // CHECK: affine.for %[[J_EPILOGUE:.*]] = 0 to 1 {
+  // CHECK: %[[DST_RESULT:.*]] = affine.load %[[DST]][0, %[[I]], %[[J_EPILOGUE]]]
+  // CHECK: affine.store %[[DST_RESULT]], %[[MEM_OUT]][%[[I]], %[[J_EPILOGUE]]]
+  // CHECK: }
+
+  // CHECK: }
+  // CHECK: d2m.release_dst %[[DST]]
+
+  func.func @test_with_affine_loops(%in0: memref<1x1x1x1x!ttcore.tile<32x32, f16>, #ttcore.shard<4096x4096, 1>, #l1_>,
+                                     %in1: memref<1x1x1x1x!ttcore.tile<32x32, f16>, #ttcore.shard<4096x4096, 1>, #l1_>,
+                                     %out: memref<1x1x1x1x!ttcore.tile<32x32, f16>, #ttcore.shard<4096x4096, 1>, #l1_>) {
     d2m.generic {
       block_factors = [1, 1],
       grid = #ttcore.grid<1x1>,
@@ -175,9 +201,9 @@ module {
       iterator_types = [#ttcore.iterator_type<parallel>, #ttcore.iterator_type<parallel>],
       threads = [#d2m.thread<compute>]
     } ins(%in0, %in1 :
-          memref<1x1x1x1x!ttcore.tile<32x32, f16>, #ttcore.shard<4096x4096>, #l1_>,
-          memref<1x1x1x1x!ttcore.tile<32x32, f16>, #ttcore.shard<4096x4096>, #l1_>)
-      outs(%out : memref<1x1x1x1x!ttcore.tile<32x32, f16>, #ttcore.shard<4096x4096>, #l1_>) {
+          memref<1x1x1x1x!ttcore.tile<32x32, f16>, #ttcore.shard<4096x4096, 1>, #l1_>,
+          memref<1x1x1x1x!ttcore.tile<32x32, f16>, #ttcore.shard<4096x4096, 1>, #l1_>)
+      outs(%out : memref<1x1x1x1x!ttcore.tile<32x32, f16>, #ttcore.shard<4096x4096, 1>, #l1_>) {
     ^compute0(%cb0: !d2m.cb<memref<1x1x!ttcore.tile<32x32, f16>, #l1_>>,
               %cb1: !d2m.cb<memref<1x1x!ttcore.tile<32x32, f16>, #l1_>>,
               %cb_out: !d2m.cb<memref<1x1x!ttcore.tile<32x32, f16>, #l1_>>):
@@ -215,9 +241,9 @@ module {
   // CHECK: "d2m.tile_maximum"
   // CHECK: d2m.release_dst %[[DST]] : memref<2x1x1x!ttcore.tile<32x32, f32>, #dst>
 
-  func.func @test_f32_binary(%in0: memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #l1_>,
-                              %in1: memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #l1_>,
-                              %out: memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #l1_>) {
+  func.func @test_f32_binary(%in0: memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_>,
+                              %in1: memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_>,
+                              %out: memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_>) {
     d2m.generic {
       block_factors = [1, 1],
       grid = #ttcore.grid<1x1>,
@@ -229,9 +255,9 @@ module {
       iterator_types = [#ttcore.iterator_type<parallel>, #ttcore.iterator_type<parallel>],
       threads = [#d2m.thread<compute>]
     } ins(%in0, %in1 :
-          memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #l1_>,
-          memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #l1_>)
-      outs(%out : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #l1_>) {
+          memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_>,
+          memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_>)
+      outs(%out : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_>) {
     ^compute0(%cb0: !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #l1_>>,
               %cb1: !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #l1_>>,
               %cb_out: !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #l1_>>):
@@ -268,9 +294,9 @@ module {
   // CHECK: affine.store {{.*}}, %[[DST]]
   // CHECK: d2m.release_dst %[[DST]] : memref<2x1x1x!ttcore.tile<32x32, f32>, #dst>
 
-  func.func @test_operation_chain(%in0: memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #l1_>,
-                                   %in1: memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #l1_>,
-                                   %out: memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #l1_>) {
+  func.func @test_operation_chain(%in0: memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_>,
+                                   %in1: memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_>,
+                                   %out: memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_>) {
     d2m.generic {
       block_factors = [1, 1],
       grid = #ttcore.grid<1x1>,
@@ -282,9 +308,9 @@ module {
       iterator_types = [#ttcore.iterator_type<parallel>, #ttcore.iterator_type<parallel>],
       threads = [#d2m.thread<compute>]
     } ins(%in0, %in1 :
-          memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #l1_>,
-          memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #l1_>)
-      outs(%out : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #l1_>) {
+          memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_>,
+          memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_>)
+      outs(%out : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_>) {
     ^compute0(%cb0: !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #l1_>>,
               %cb1: !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #l1_>>,
               %cb_out: !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #l1_>>):
@@ -321,9 +347,9 @@ module {
   // CHECK: "d2m.tile_eqz"
   // CHECK: d2m.release_dst %[[DST]] : memref<2x1x1x!ttcore.tile<32x32, f32>, #dst>
 
-  func.func @test_long_operation_chain(%in0: memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #l1_>,
-                                        %in1: memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #l1_>,
-                                        %out: memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #l1_>) {
+  func.func @test_long_operation_chain(%in0: memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_>,
+                                        %in1: memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_>,
+                                        %out: memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_>) {
     d2m.generic {
       block_factors = [1, 1],
       grid = #ttcore.grid<1x1>,
@@ -335,9 +361,9 @@ module {
       iterator_types = [#ttcore.iterator_type<parallel>, #ttcore.iterator_type<parallel>],
       threads = [#d2m.thread<compute>]
     } ins(%in0, %in1 :
-          memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #l1_>,
-          memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #l1_>)
-      outs(%out : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #l1_>) {
+          memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_>,
+          memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_>)
+      outs(%out : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_>) {
     ^compute0(%cb0: !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #l1_>>,
               %cb1: !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #l1_>>,
               %cb_out: !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #l1_>>):
@@ -370,17 +396,40 @@ module {
   // CHECK: d2m.generic
   // Graph coloring with conservative loop interference: all operations in same loop interfere
   // Allocates 1 slice of 2x2 tiles (load and store reuse the same slice)
+  // CHECK: ^compute0(%[[CB0:.*]]: !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1>>, %[[CB_OUT:.*]]: !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1>>):
   // CHECK: %[[DST:.*]] = d2m.acquire_dst() : memref<1x2x2x!ttcore.tile<32x32, f32>, #dst>
-  // CHECK: affine.for
-  // CHECK: affine.for
-  // CHECK: "d2m.tile_abs"
-  // CHECK: "d2m.tile_sin"
-  // CHECK: "d2m.tile_negative"
-  // CHECK: "d2m.tile_exp"
+  // CHECK: %[[MEM0:.*]] = d2m.wait %[[CB0]]
+  // CHECK: %[[MEM_OUT:.*]] = d2m.reserve %[[CB_OUT]]
+
+  // CHECK: affine.for %[[I:.*]] = 0 to 2 {
+
+  // PROLOGUE: L1->DST copy
+  // CHECK: affine.for %[[J_PROLOGUE:.*]] = 0 to 2 {
+  // CHECK: %[[L1_VAL:.*]] = affine.load %[[MEM0]][%[[I]], %[[J_PROLOGUE]]]
+  // CHECK: affine.store %[[L1_VAL]], %[[DST]][0, %[[I]], %[[J_PROLOGUE]]]
+  // CHECK: }
+
+  // COMPUTE: Chained unary operations on DST
+  // CHECK: affine.for %[[J_COMPUTE:.*]] = 0 to 2 {
+  // CHECK: %[[DST_VAL:.*]] = affine.load %[[DST]][0, %[[I]], %[[J_COMPUTE]]]
+  // CHECK: %[[ABS:.*]] = "d2m.tile_abs"(%[[DST_VAL]])
+  // CHECK: %[[SIN:.*]] = "d2m.tile_sin"(%[[ABS]])
+  // CHECK: %[[NEG:.*]] = "d2m.tile_negative"(%[[SIN]])
+  // CHECK: %[[EXP:.*]] = "d2m.tile_exp"(%[[NEG]])
+  // CHECK: affine.store %[[EXP]], %[[DST]][0, %[[I]], %[[J_COMPUTE]]]
+  // CHECK: }
+
+  // EPILOGUE: DST->L1 copy
+  // CHECK: affine.for %[[J_EPILOGUE:.*]] = 0 to 2 {
+  // CHECK: %[[DST_RESULT:.*]] = affine.load %[[DST]][0, %[[I]], %[[J_EPILOGUE]]]
+  // CHECK: affine.store %[[DST_RESULT]], %[[MEM_OUT]][%[[I]], %[[J_EPILOGUE]]]
+  // CHECK: }
+
+  // CHECK: }
   // CHECK: d2m.release_dst %[[DST]] : memref<1x2x2x!ttcore.tile<32x32, f32>, #dst>
 
-  func.func @test_unary_chain_multi_tile(%in0: memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096>, #l1_>,
-                                          %out: memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096>, #l1_>) {
+  func.func @test_unary_chain_multi_tile(%in0: memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1_>,
+                                          %out: memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1_>) {
     d2m.generic {
       block_factors = [1, 1],
       grid = #ttcore.grid<1x1>,
@@ -390,8 +439,8 @@ module {
       ],
       iterator_types = [#ttcore.iterator_type<parallel>, #ttcore.iterator_type<parallel>],
       threads = [#d2m.thread<compute>]
-    } ins(%in0 : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096>, #l1_>)
-      outs(%out : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096>, #l1_>) {
+    } ins(%in0 : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1_>)
+      outs(%out : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1_>) {
     ^compute0(%cb0: !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1_>>,
               %cb_out: !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1_>>):
       %mem0 = d2m.wait %cb0 : !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1_>> -> memref<2x2x!ttcore.tile<32x32, f32>, #l1_>
