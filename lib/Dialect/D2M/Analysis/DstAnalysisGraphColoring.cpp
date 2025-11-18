@@ -42,7 +42,7 @@ public:
     unsigned maxSlicesNeeded = 0;
 
     // Walk all regions looking for d2m.generic operations
-    op->walk([&](GenericOp genericOp) {
+    WalkResult walkResult = op->walk([&](GenericOp genericOp) -> WalkResult {
       for (auto &region : genericOp->getRegions()) {
         // Skip if already has DST allocation
         if (!region.getOps<AcquireDstOp>().empty()) {
@@ -82,7 +82,7 @@ public:
           result.failureReason = "Graph coloring failed for operation";
           result.numSlicesRequired =
               dstAccesses.size(); // Conservative fallback
-          return;
+          return WalkResult::interrupt();
         }
 
         // Find actual number of colors used
@@ -99,7 +99,12 @@ public:
           result.operationSlices[accessOp] = coloring[i];
         }
       }
+      return WalkResult::advance();
     });
+
+    if (walkResult.wasInterrupted()) {
+      return result;
+    }
 
     result.numSlicesRequired = maxSlicesNeeded;
     result.isValid = true;

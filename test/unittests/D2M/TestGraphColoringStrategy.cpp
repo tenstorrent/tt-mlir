@@ -2,11 +2,17 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "ttmlir/Dialect/D2M/Analysis/DstAnalysisGraphColoring.h"
+#include "ttmlir/Dialect/D2M/IR/D2M.h"
 #include "ttmlir/Dialect/D2M/Transforms/GraphColoringStrategy.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 
+#include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
-#include "mlir/IR/Builders.h"
+#include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/MLIRContext.h"
+#include "mlir/Parser/Parser.h"
 
 #include <gtest/gtest.h>
 
@@ -311,6 +317,93 @@ TEST_F(GraphColoringStrategyTest, ChaitinBriggsColoringStar) {
   EXPECT_EQ(result[1], result[2]);
   EXPECT_EQ(result[2], result[3]);
   EXPECT_EQ(result[3], result[4]);
+}
+
+//===----------------------------------------------------------------------===//
+// Tests for DstAnalysisGraphColoring failure propagation
+//===----------------------------------------------------------------------===//
+
+class AlwaysFailColoring final : public ColoringStrategy {
+public:
+  LogicalResult colorGraph(const std::vector<std::vector<size_t>> &, unsigned,
+                           std::vector<unsigned> &) override {
+    return failure();
+  }
+
+  llvm::StringRef getName() const { return "always-fail"; }
+};
+
+struct DstAnalysisGraphColoringTest : public gtest::Test {
+  void SetUp() override {
+    ctx = std::make_unique<MLIRContext>();
+    ctx->loadDialect<func::FuncDialect, d2m::D2MDialect, ttcore::TTCoreDialect,
+                     affine::AffineDialect, arith::ArithDialect>();
+  }
+
+  std::unique_ptr<MLIRContext> ctx;
+};
+
+TEST_F(DstAnalysisGraphColoringTest, ReportsFailureWhenColoringFails) {
+  const char *moduleStr = R"(
+    #l1_ = #ttcore.memory_space<l1>
+    #device = #ttcore.device<workerGrid = #ttcore.grid<1x1, (d0, d1) -> (0, d0, d1)>,
+      l1Map = (d0, d1, d2)[s0] -> (0, d0, d1, d2 + s0),
+      dramMap = (d0, d1, d2)[s0, s1] -> (0, 0, 0, d0 * s1 + d1 * s1 + d2 + s0),
+      meshShape = , chipIds = [0]>
+    module attributes {ttcore.device = #device} {
+      func.func @has_generic(%in0: memref<1x1x1x1x!ttcore.tile<32x32, f16>, #ttcore.shard<4096x4096>, #l1_>,
+                             %in1: memref<1x1x1x1x!ttcore.tile<32x32, f16>, #ttcore.shard<4096x4096>, #l1_>,
+                             %out: memref<1x1x1x1x!ttcore.tile<32x32, f16>, #ttcore.shard<4096x4096>, #l1_>) {
+        d2m.generic {
+          block_factors = [1, 1],
+          grid = #ttcore.grid<1x1>,
+          indexing_maps = [
+            affine_map<(d0, d1) -> (d0, d1)>,
+            affine_map<(d0, d1) -> (d0, d1)>,
+            affine_map<(d0, d1) -> (d0, d1)>
+          ],
+          iterator_types = [#ttcore.iterator_type<parallel>, #ttcore.iterator_type<parallel>],
+          threads = [#d2m.thread<compute>]
+        } ins(%in0, %in1 :
+              memref<1x1x1x1x!ttcore.tile<32x32, f16>, #ttcore.shard<4096x4096>, #l1_>,
+              memref<1x1x1x1x!ttcore.tile<32x32, f16>, #ttcore.shard<4096x4096>, #l1_>)
+          outs(%out : memref<1x1x1x1x!ttcore.tile<32x32, f16>, #ttcore.shard<4096x4096>, #l1_>) {
+        ^compute0(%cb0: !d2m.cb<memref<1x1x!ttcore.tile<32x32, f16>, #l1_>>,
+                  %cb1: !d2m.cb<memref<1x1x!ttcore.tile<32x32, f16>, #l1_>>,
+                  %cb_out: !d2m.cb<memref<1x1x!ttcore.tile<32x32, f16>, #l1_>>):
+          %c0 = arith.constant 0 : index
+          %mem0 = d2m.wait %cb0 : !d2m.cb<memref<1x1x!ttcore.tile<32x32, f16>, #l1_>>
+                                   -> memref<1x1x!ttcore.tile<32x32, f16>, #l1_>
+          %mem1 = d2m.wait %cb1 : !d2m.cb<memref<1x1x!ttcore.tile<32x32, f16>, #l1_>>
+                                   -> memref<1x1x!ttcore.tile<32x32, f16>, #l1_>
+          %mem_out = d2m.reserve %cb_out : !d2m.cb<memref<1x1x!ttcore.tile<32x32, f16>, #l1_>>
+                                           -> memref<1x1x!ttcore.tile<32x32, f16>, #l1_>
+          %val0 = affine.load %mem0[%c0, %c0] : memref<1x1x!ttcore.tile<32x32, f16>, #l1_>
+          %val1 = affine.load %mem1[%c0, %c0] : memref<1x1x!ttcore.tile<32x32, f16>, #l1_>
+          %result = "d2m.tile_add"(%val0, %val1)
+              : (!ttcore.tile<32x32, f16>, !ttcore.tile<32x32, f16>) -> !ttcore.tile<32x32, f16>
+          affine.store %result, %mem_out[%c0, %c0]
+              : memref<1x1x!ttcore.tile<32x32, f16>, #l1_>
+        }
+        return
+      }
+    }
+  )";
+
+  ParserConfig config(ctx.get(), /*verifyAfterParse=*/false);
+  OwningOpRef<ModuleOp> module = parseSourceString<ModuleOp>(moduleStr, config);
+  ASSERT_TRUE(module);
+
+  auto funcOp = module->lookupSymbol<func::FuncOp>("has_generic");
+  ASSERT_TRUE(funcOp);
+
+  auto analysis =
+      createGraphColoringDstAnalysis(std::make_unique<AlwaysFailColoring>());
+  auto result = analysis->analyze(funcOp);
+  EXPECT_FALSE(result.isValid);
+  ASSERT_TRUE(result.failureReason.has_value());
+  EXPECT_EQ(*result.failureReason, "Graph coloring failed for operation");
+  EXPECT_EQ(result.numSlicesRequired, 2u);
 }
 
 TEST_F(GraphColoringStrategyTest, GreedyColoringStar) {
