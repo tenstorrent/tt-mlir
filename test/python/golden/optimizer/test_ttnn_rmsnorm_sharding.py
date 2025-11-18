@@ -18,6 +18,7 @@ pytestmark = pytest.mark.frontend("ttnn")
     "shapes",
     [
         [(1, 1, 32, 2048), (2048,), (2048,)],
+        [(1, 5, 32, 2048), (2048,), (2048,)],
     ],
 )
 @pytest.mark.parametrize("dtypes", [[torch.bfloat16]])
