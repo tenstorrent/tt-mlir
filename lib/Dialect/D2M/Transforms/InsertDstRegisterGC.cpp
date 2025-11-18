@@ -160,22 +160,72 @@ struct D2MInsertDstRegisterGCPass
       return signalPassFailure();
     }
 
-    // First pass: Add release_dst to function body if it has acquire_dst but no
-    // release_dst.
+    // First pass: Add release_dst after the last use of each acquire_dst.
     if (hasAcquireDstWithoutRelease(func.getBody())) {
       IRRewriter rewriter(&getContext());
-      Block &block = func.getBody().front();
+      Liveness liveness(func);
 
-      // Insert before the terminator if it exists
-      if (!block.empty() && block.back().hasTrait<OpTrait::IsTerminator>()) {
-        rewriter.setInsertionPoint(&block.back());
-      } else {
-        rewriter.setInsertionPointToEnd(&block);
-      }
-
-      // Find all acquire_dst operations and add release_dst for each
+      // Find all acquire_dst operations and add release_dst after last use
       for (auto acquireDst : func.getOps<AcquireDstOp>()) {
-        rewriter.create<ReleaseDstOp>(func.getLoc(), acquireDst.getResult());
+        Value dstValue = acquireDst.getResult();
+        Operation *lastUser = nullptr;
+
+        // Find the last operation that uses this acquired DST value.
+        // We iterate through all uses and find the one that appears latest
+        // in the program order within its block.
+        for (OpOperand &use : dstValue.getUses()) {
+          Operation *user = use.getOwner();
+          if (!lastUser) {
+            lastUser = user;
+          } else {
+            // Check if user comes after lastUser in the same block
+            Block *userBlock = user->getBlock();
+            Block *lastUserBlock = lastUser->getBlock();
+
+            if (userBlock == lastUserBlock) {
+              // Same block: use positional comparison
+              if (user->isBeforeInBlock(lastUser)) {
+                // user comes before lastUser, so lastUser is still the last
+              } else {
+                lastUser = user;
+              }
+            } else {
+              // Different blocks: use liveness to determine dominance
+              const LivenessBlockInfo *userLiveness =
+                  liveness.getLiveness(userBlock);
+              if (userLiveness && userLiveness->isLiveOut(dstValue)) {
+                // If the value is live-out of the user's block, then there
+                // might be later uses. Keep the later block.
+                lastUser = user;
+              }
+            }
+          }
+        }
+
+        // Insert release_dst after the last user.
+        if (lastUser) {
+          // Find the top-level operation in the function body that contains
+          // the last user. This ensures we place the release after
+          // loops/regions rather than inside them.
+          Operation *topLevelOp = lastUser;
+          Block &funcBody = func.getBody().front();
+          while (topLevelOp->getBlock() != &funcBody) {
+            topLevelOp = topLevelOp->getParentOp();
+            if (!topLevelOp) {
+              // Shouldn't happen, but handle defensively
+              topLevelOp = lastUser;
+              break;
+            }
+          }
+
+          rewriter.setInsertionPointAfter(topLevelOp);
+          rewriter.create<ReleaseDstOp>(topLevelOp->getLoc(), dstValue);
+        } else {
+          // No users found - release immediately after acquire.
+          // This shouldn't normally happen but handle it defensively.
+          rewriter.setInsertionPointAfter(acquireDst);
+          rewriter.create<ReleaseDstOp>(acquireDst.getLoc(), dstValue);
+        }
       }
     }
 
