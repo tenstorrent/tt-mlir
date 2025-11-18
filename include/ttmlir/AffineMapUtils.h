@@ -5,15 +5,14 @@
 #ifndef TTMLIR_AFFINEMAPUTILS_H
 #define TTMLIR_AFFINEMAPUTILS_H
 
+#include "ttmlir/Asserts.h"
+#include "ttmlir/Utils.h"
+
 #include "mlir/Conversion/AffineToStandard/AffineToStandard.h"
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/IR/AffineMap.h"
 #include "mlir/IR/BuiltinAttributes.h"
-#include "ttmlir/Asserts.h"
-#include "ttmlir/Utils.h"
 #include "llvm/ADT/SmallVector.h"
-
-#include <cstdint>
 
 namespace ttmlir::utils {
 
