@@ -2127,7 +2127,7 @@ class SplitQueryKeyValueAndSplitHeadsUpdatePattern
   };
   enum MHAExpectedOutputDimensions {
     O_BATCH_SIZE = 0,
-    O_NUM_KV_HEADS = 1,
+    O_NUM_HEADS = 1,
     O_SEQUENCE_LENGTH = 2,
     O_HEAD_SIZE = 3,
   };
@@ -2266,8 +2266,8 @@ private:
     auto valueShape = valueType.getShape();
 
     int32_t headSize = keyShape[O_HEAD_SIZE];           // 128
-    int32_t numQueryHeads = queryShape[O_NUM_KV_HEADS]; // 24
-    int numKVHeads = keyShape[O_NUM_KV_HEADS];          // 8
+    int32_t numQueryHeads = queryShape[O_NUM_HEADS];    // 24
+    int numKVHeads = keyShape[O_NUM_HEADS];             // 8
     int32_t KVHiddenSize = headSize * numKVHeads;       // 1024
     int32_t queryHiddenSize = headSize * numQueryHeads; // 3072
 
@@ -2396,7 +2396,7 @@ private:
 
     auto keyShape = keyType.getShape();
     auto valueShape = valueType.getShape();
-    int32_t numHeads = queryType.getShape()[O_NUM_KV_HEADS];
+    int32_t numHeads = queryType.getShape()[O_NUM_HEADS];
     int32_t hiddenSize = queryType.getShape()[O_HEAD_SIZE] * numHeads;
 
     SmallVector<int64_t> reshapeToSplitShape = {batchSize, sequenceLength,
@@ -2453,6 +2453,7 @@ private:
     // - Matmul/ Linear B shape must be equal.
     // - Linear op bias must be equal.
     // - Permute op number of kv_heads must be equal.
+
     auto queryBShape = matmulOps[0].getB().getType().getShape();
     auto keyBShape = matmulOps[1].getB().getType().getShape();
     auto valueBShape = matmulOps[2].getB().getType().getShape();
@@ -2468,9 +2469,9 @@ private:
         return false;
       }
     }
-    int32_t queryNumHeads = permuteOps[0].getType().getShape()[O_NUM_KV_HEADS];
-    int32_t keyNumHeads = permuteOps[1].getType().getShape()[O_NUM_KV_HEADS];
-    int32_t valueNumHeads = permuteOps[2].getType().getShape()[O_NUM_KV_HEADS];
+    int32_t queryNumHeads = permuteOps[0].getType().getShape()[O_NUM_HEADS];
+    int32_t keyNumHeads = permuteOps[1].getType().getShape()[O_NUM_HEADS];
+    int32_t valueNumHeads = permuteOps[2].getType().getShape()[O_NUM_HEADS];
     if (queryNumHeads != keyNumHeads || queryNumHeads != valueNumHeads) {
       return false;
     }
@@ -2480,28 +2481,33 @@ private:
   bool isGQA(llvm::SmallVector<MatMulOpType> matmulOps,
              llvm::SmallVector<PermuteOp> permuteOps) const {
     // This function checks if the pattern is Grouped Query Attention (GQA):
-    // - Matmul / linear b shape for query should be divisible by
-    //   key / value b shape and have the same multiplier.
+    // - Matmul / linear b shape outer dim for query should be divisible by
+    //   key / value b shape outer dim and have the same multiplier.
     // - Permute op number of heads should reflect the multiplier.
     //  i.e. query_num_heads = key_num_heads * multiplier
     //      query_num_heads = value_num_heads * multiplier
     // TODO(@ddilbazTT): Extend to support bias checks for linear op.
 
+    // If there is transpose B, check index 0, else check index 1.
+    int32_t indexToCheck = matmulOps[0].getTransposeB() ? 0 : 1;
+
     auto queryBShape = matmulOps[0].getB().getType().getShape();
     auto keyBShape = matmulOps[1].getB().getType().getShape();
     auto valueBShape = matmulOps[2].getB().getType().getShape();
-    if (queryBShape[1] % keyBShape[1] != 0 ||
-        queryBShape[1] % valueBShape[1] != 0) {
-      return false;
-    }
-    auto multiplier = queryBShape[1] / keyBShape[1];
-    if (multiplier != queryBShape[1] / valueBShape[1]) {
+    if (queryBShape[indexToCheck] % keyBShape[indexToCheck] != 0 ||
+        queryBShape[indexToCheck] % valueBShape[indexToCheck] != 0) {
       return false;
     }
 
-    int32_t queryNumHeads = permuteOps[0].getType().getShape()[O_NUM_KV_HEADS];
-    int32_t keyNumHeads = permuteOps[1].getType().getShape()[O_NUM_KV_HEADS];
-    int32_t valueNumHeads = permuteOps[2].getType().getShape()[O_NUM_KV_HEADS];
+    auto multiplier = queryBShape[indexToCheck] / keyBShape[indexToCheck];
+    if (multiplier != queryBShape[indexToCheck] / valueBShape[indexToCheck]) {
+      return false;
+    }
+
+    int32_t queryNumHeads = permuteOps[0].getType().getShape()[O_NUM_HEADS];
+    int32_t keyNumHeads = permuteOps[1].getType().getShape()[O_NUM_HEADS];
+    int32_t valueNumHeads = permuteOps[2].getType().getShape()[O_NUM_HEADS];
+
     if (queryNumHeads != keyNumHeads * multiplier ||
         queryNumHeads != valueNumHeads * multiplier) {
       return false;
@@ -2672,7 +2678,7 @@ private:
 
     // Key and Value must have the same number of kv heads.
     // Query can have a different number of heads in GQA.
-    if (keyShape[O_NUM_KV_HEADS] != valueShape[O_NUM_KV_HEADS]) {
+    if (keyShape[O_NUM_HEADS] != valueShape[O_NUM_HEADS]) {
       return false;
     }
 
