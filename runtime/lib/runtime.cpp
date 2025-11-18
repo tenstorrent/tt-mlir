@@ -976,6 +976,21 @@ std::string getOpLocInfo(OpContext opContextHandle) {
       });
 }
 
+std::string getOpName(OpContext opContextHandle) {
+  using RetType = std::string;
+  return DISPATCH_TO_CURRENT_RUNTIME(
+      RetType,
+      [&]() -> RetType {
+        return ::tt::runtime::ttnn::getOpName(opContextHandle);
+      },
+      [&]() -> RetType {
+        return ::tt::runtime::ttmetal::getOpName(opContextHandle);
+      },
+      [&]() -> RetType {
+        detail::fatalNotImplemented("getOpName", HostRuntime::Distributed);
+      });
+}
+
 std::unordered_map<std::uint32_t, Tensor>
 getOpOutputTensor(OpContext opContextHandle,
                   CallbackContext programContextHandle) {

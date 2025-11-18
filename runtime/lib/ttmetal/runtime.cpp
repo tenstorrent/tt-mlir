@@ -697,6 +697,12 @@ std::string getOpLocInfo(OpContext opContextHandle) {
   return "";
 }
 
+std::string getOpName(OpContext opContextHandle) {
+  // Not implemented
+  LOG_WARNING("obtaining op name for metal runtime not implemented");
+  return "";
+}
+
 std::unordered_map<std::uint32_t, Tensor>
 getOpOutputTensor(OpContext opContextHandle,
                   CallbackContext programContextHandle) {

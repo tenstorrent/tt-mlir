@@ -149,6 +149,7 @@ class Builder:
             golden_info[loc] = self._generate_golden_device_tensor(
                 loc, builder_golden_tensor
             )
+        print(golden_info)
 
         return golden_info
 

@@ -6,7 +6,7 @@ import os
 import inspect
 import time
 import torch
-from functools import reduce
+from functools import reduce, partial
 import operator
 from typing import Callable, List, Optional, Tuple, Union, Literal, Dict
 from collections import OrderedDict
@@ -1691,6 +1691,13 @@ def execute_fb(
     Takes a flatbuffer path `fb`, and executes it with random inputs supplied by `input_shapes` and `input_dtypes`
     """
 
+    # Register TTRT debug hooks using the same utilities as tools/ttrt/common/run.py
+    from ttrt.common.callback import (
+        pre_op_get_callback_fn,
+        post_op_get_callback_fn,
+        CallbackRuntimeConfig,
+    )
+
     assert device is not None
 
     # Create 'owned tensor' in case of empty tensor;
@@ -1727,9 +1734,41 @@ def execute_fb(
             )
         return inputs_converted
 
-    logger = Logger()
+    logger = Logger("builder.log")
     logging = logger.get_logger()
     file_manager = FileManager(logger)
+
+    # Ensure a FileHandler is attached even if logging was configured earlier (e.g., by pytest)
+    try:
+        import logging as _pylogging
+
+        _root_logger = _pylogging.getLogger()
+        _have_builder_log = False
+        for _h in list(_root_logger.handlers):
+            try:
+                if (
+                    isinstance(_h, _pylogging.FileHandler)
+                    and os.path.basename(getattr(_h, "baseFilename", ""))
+                    == "builder.log"
+                ):
+                    _have_builder_log = True
+                    break
+            except Exception:
+                pass
+        if not _have_builder_log:
+            _fh = _pylogging.FileHandler("builder.log", mode="w")
+            _fh.setFormatter(
+                _pylogging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
+            )
+            _lvl_name = os.environ.get("TTRT_LOGGER_LEVEL", "INFO").upper()
+            _lvl = getattr(_pylogging, _lvl_name, _pylogging.INFO)
+            _fh.setLevel(_lvl)
+            _root_logger.addHandler(_fh)
+            # Ensure root logger level allows records through to the file handler
+            _root_logger.setLevel(_lvl)
+    except Exception:
+        # Do not fail execution due to logging configuration issues
+        pass
 
     print(f"Begining flatbuffer execution on {fb_path}")
 
@@ -1740,6 +1779,29 @@ def execute_fb(
     program_indices = []
     program_indices.extend(range(bin.get_num_programs()))
 
+    # Set up callback runtime config and register DebugHooks once per execution
+    callback_runtime_config = CallbackRuntimeConfig(
+        device=device,
+        artifact_dir="",
+        pcc=pcc,
+        atol=atol,
+        rtol=rtol,
+        save_golden_tensors=False,
+        logging=_root_logger,
+        enable_golden=not disable_golden,
+        enable_memory=False,
+        enable_debugger=False,
+    )
+    ttrt.runtime.DebugHooks.get(
+        pre_op_get_callback_fn(
+            callback_runtime_config
+        ),  # ****************** this has to be fixed
+        post_op_get_callback_fn(callback_runtime_config),
+    )
+
+    print("QQQQQ")
+    print(callback_runtime_config.golden_report)
+
     for program_index in program_indices:
         print(f"evaluating program={program_index} for binary={bin.file_path}")
 
@@ -1748,6 +1810,8 @@ def execute_fb(
         # Skip private programs (e.g. subgraphs created by const-eval)
         if program.is_private():
             continue
+        # Reset per-program callback state
+        callback_runtime_config.start_new_callback("")
 
         # Fetch the golden inputs embedded in the flatbuffer
         golden_inputs = []
@@ -1807,12 +1871,17 @@ def execute_fb(
             ttrt.runtime.wait(runtime_outputs)
         except Exception as e:
             raise TTBuilderRuntimeException(e)
+        finally:
+            # Ensure hooks are not left around after program execution
+            ttrt.runtime.unregister_hooks()
 
         end_submit = time.perf_counter_ns()
         e2e_duration_nanoseconds_submit = end_submit - start_submit
 
         e2e_duration_nanoseconds_output = 0
-
+        print("QQQQQ222___________________________-")
+        print(callback_runtime_config.golden_report)
+        callback_runtime_config.save_golden_report("goldentemp.json")
         pcc_fail = False
         # Copy output tensors from device & check goldens
         for i, runtime_output_tensor in enumerate(runtime_outputs):

@@ -55,6 +55,7 @@ try:
         retrieve_tensor_from_pool,
         update_tensor_in_pool,
         get_op_debug_str,
+        get_op_name,
         memcpy,
         deallocate_tensor,
         WorkaroundEnv,
