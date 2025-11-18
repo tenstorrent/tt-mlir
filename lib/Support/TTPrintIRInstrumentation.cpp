@@ -286,18 +286,6 @@ std::string TTPrintIRInstrumentation::extractModelNameFromLocation(
     mlir::FileLineColLoc fileLoc = mlir::cast<mlir::FileLineColLoc>(loc);
     return extractFilename(fileLoc.getFilename());
   }
-  if (mlir::isa<mlir::FusedLoc>(loc)) {
-    mlir::FusedLoc fusedLoc = mlir::cast<mlir::FusedLoc>(loc);
-    for (mlir::Location subLoc : fusedLoc.getLocations()) {
-      if (mlir::isa<mlir::FileLineColLoc>(subLoc)) {
-        mlir::FileLineColLoc fileLoc = mlir::cast<mlir::FileLineColLoc>(subLoc);
-        std::string result = extractFilename(fileLoc.getFilename());
-        if (result != "unknown") {
-          return result;
-        }
-      }
-    }
-  }
   return "unknown";
 }
 
