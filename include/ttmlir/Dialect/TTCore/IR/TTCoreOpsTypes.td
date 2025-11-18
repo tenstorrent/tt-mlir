@@ -65,7 +65,6 @@ def TTCore_GridAttr : TTCore_Attr<"Grid", "grid"> {
         }
         return cGridVolume;
       }
-      SmallVector<int64_t> getPhysicalGridShape(ArrayRef<int64_t> deviceGridShape);
 
       uint64_t getRank() const { return getShape().size(); }
   }];
@@ -446,6 +445,12 @@ def TTCore_MetalLayoutAttr : TTCore_Attr<"MetalLayout", "metal_layout", [TTCore_
                                      OOBVal oobVal, MemorySpace memorySpace,
                                      TensorMemoryLayout memoryLayout,
                                      DenseIntElementsAttr collapseIntervals);
+    static MetalLayoutAttr get(::mlir::MLIRContext *context,
+                                     ArrayRef<int64_t> logicalShape,
+                                     OOBVal oobVal, MemorySpace memorySpace,
+                                     TensorMemoryLayout memoryLayout,
+                                     DenseIntElementsAttr collapseIntervals,
+                                     mlir::AffineMap indexAffineMap);
     static MetalLayoutAttr get(::mlir::MLIRContext *context,
                                      ArrayRef<int64_t> logicalShape,
                                      OOBVal oobVal, MemorySpace memorySpace,
