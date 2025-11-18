@@ -2174,11 +2174,87 @@ public:
     if (attentionType == AttentionType::MHA) {
       return fuseMHA(rewriter, reshapeOp, matmulOps, permuteOps);
     }
-    llvm::outs() << "Not yet implemented attention type for fusion.\n";
+    if (attentionType == AttentionType::GQA) {
+      return fuseGQA(rewriter, reshapeOp, matmulOps, permuteOps);
+    }
     return mlir::failure();
   }
 
 private:
+  mlir::LogicalResult fuseGQA(mlir::PatternRewriter &rewriter,
+                              ReshapeOp reshapeOp,
+                              llvm::SmallVector<MatMulOpType> &matmulOps,
+                              llvm::SmallVector<PermuteOp> &permuteOps) const {
+
+    // Extract dimensions from reshape op and permute ops.
+    Value reshapeOutput = reshapeOp.getResult();
+    // ArrayRef<int64_t> inputShape = reshapeOp.getInput().getType().getShape();
+    // int32_t batchSize = inputShape[I_BATCH_SIZE];
+    // int32_t sequenceLength = inputShape[I_SEQUENCE_LENGTH];
+
+    // Concatenate key and value weights along dimension determined by
+    // transposeB attribute.
+    TypedValue<RankedTensorType> keyWeightMatrix = matmulOps[1].getB();
+    TypedValue<RankedTensorType> valueWeightMatrix = matmulOps[2].getB();
+
+    MatMulOpType keyMatmulOp = matmulOps[1];
+    std::size_t dimToConcatWeights = keyMatmulOp.getTransposeB() ? 0 : 1;
+
+    // Assert that keyMatmulOp A and B have rank 2.
+    TT_assertv((keyMatmulOp.getA().getType().getRank() == 2 &&
+                keyMatmulOp.getB().getType().getRank() == 2),
+               "Expected rank 2 for MatMulOp operands A and B");
+
+    ttir::ConcatOp concatenatedWeightMatrix = concatenateAlongDim(
+        rewriter, valueWeightMatrix.getLoc(),
+        ValueRange{keyWeightMatrix, valueWeightMatrix}, dimToConcatWeights);
+    llvm::outs() << concatenatedWeightMatrix << "\n";
+
+    Value concatenatedBias = nullptr;
+    if constexpr (std::is_same_v<LinearOp, MatMulOpType>) {
+      Value keyBias = matmulOps[1].getBias();
+      Value valueBias = matmulOps[2].getBias();
+      std::size_t concatDim = matmulOps[1].getBias().getType().getRank() - 1;
+      concatenatedBias =
+          concatenateAlongDim(rewriter, valueBias.getLoc(),
+                              ValueRange{keyBias, valueBias}, concatDim);
+    }
+
+    // Get the original output shape from one of the original linear ops.
+    ArrayRef<int64_t> originalLinearOutputShape =
+        keyMatmulOp.getType().getShape();
+    llvm::SmallVector<int64_t> linearOutputShape(
+        originalLinearOutputShape.begin(), originalLinearOutputShape.end());
+
+    // Multiply the last dimension by 2 (since we're concatenating K, V).
+    linearOutputShape.back() = originalLinearOutputShape.back() * 2;
+
+    // Create linear operation with concatenated weights and bias.
+    RankedTensorType linearOutputType = RankedTensorType::get(
+        linearOutputShape, keyMatmulOp.getType().getElementType());
+
+    Value matmulDpsOutput = rewriter.create<EmptyOp>(
+        keyMatmulOp.getLoc(), linearOutputType.getShape(),
+        linearOutputType.getElementType(), linearOutputType.getEncoding());
+
+    SmallVector<Value> inputs;
+    if (concatenatedBias) {
+      inputs = {reshapeOutput, concatenatedWeightMatrix, concatenatedBias,
+                matmulDpsOutput};
+    } else {
+      inputs = {reshapeOutput, concatenatedWeightMatrix, matmulDpsOutput};
+    }
+
+    MatMulOpType matrixMultOp = rewriter.create<MatMulOpType>(
+        keyMatmulOp.getLoc(), TypeRange{linearOutputType}, inputs,
+        keyMatmulOp->getAttrs());
+
+    TT_assertv(matrixMultOp, "Expected valid matrix multiplication operation");
+    llvm::outs() << matrixMultOp << "\n";
+
+    return mlir::failure();
+  }
+
   mlir::LogicalResult fuseMHA(mlir::PatternRewriter &rewriter,
                               ReshapeOp reshapeOp,
                               llvm::SmallVector<MatMulOpType> &matmulOps,
