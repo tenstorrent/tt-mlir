@@ -1217,14 +1217,8 @@ static mlir::LogicalResult verifyAffineBlocking(
       }
       AffineMap fwdMap = *maybeFwdMap;
 
-      // Drop the shard dim results from the virtual grid mapping.
-      if (fwdMap.getNumResults() % 2 != 0) {
-        return emitOpError("GenericOp output operand's virtual grid mapping "
-                           "must have an even number of results.");
-      }
-
       fwdMap = ttmlir::utils::affineMapDropBackResults(
-          fwdMap, fwdMap.getNumResults() / 2);
+          fwdMap, fwdMap.getNumResults() - 2);
       // first result is deviceID, so drop it
       auto invMap = getGrid().getMapping().dropResult(0);
 
