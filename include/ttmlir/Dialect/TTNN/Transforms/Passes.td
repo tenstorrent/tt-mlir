@@ -292,4 +292,35 @@ def TTNNAdjustDeallocs: Pass<"ttnn-adjust-deallocs", "::mlir::ModuleOp"> {
   }];
 }
 
+def TTNNWeightBFP8Conversion: Pass<"ttnn-weight-bfp8-conversion", "::mlir::ModuleOp"> {
+  let summary = "Convert weight tensors to BFP8 format in convolution and matmul operations.";
+  let description = [{
+    This pass converts weight tensors in convolution and matrix multiplication
+    operations to BFP8 format while keeping activations, bias and outputs in
+    high precision (bf16/f32).
+
+    For convolution operations:
+      If ttnn.prepare_conv2d_weights is present, sets its output_dtype to bfp_bf8
+      - Sets weights_dtype in conv2d_config to bfp_bf8
+      - This approach avoids layout conflicts (BFP8 requires tiled layout, but
+        prepare_conv2d_weights requires row major input)
+      If ttnn.prepare_conv2d_weights is not present:
+      - Does nothing, since weights that are not prepared have to be in
+        row major layout, which is incompatible with BFP8 (since it requires tiled layout)
+
+
+    For matmul/linear operations:
+      - Inserts ttnn.typecast operations to convert weights to BFP8
+
+    The flag experimental-bfp8-weights controls this pass.
+  }];
+
+  let options = [
+    Option<"experimentalBfp8Weights",
+           "experimental-bfp8-weights",
+           "bool", /*default=*/"false",
+           "Enable BFP8 weight conversion">
+  ];
+}
+
 #endif

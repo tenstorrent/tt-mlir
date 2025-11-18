@@ -200,6 +200,13 @@ void createTTIRToTTNNBackendPipeline(
     devicePm.addPass(transforms::createConstEvalHoistTransform());
   }
   createTTNNPipelineAnalysisPasses(devicePm, options);
+  // Add BFP8 weight conversion pass after prepare_conv2d_weights is added
+  // but before const-eval which wraps subgraphs.
+  {
+    TTNNWeightBFP8ConversionOptions weightBFP8Options;
+    weightBFP8Options.experimentalBfp8Weights = options.experimentalBfp8Weights;
+    devicePm.addPass(createTTNNWeightBFP8Conversion(weightBFP8Options));
+  }
   // We need to re-run const-eval to pick up const prepare conv2d weight ops
   // split during the analysis passes.
   if (options.enableConstEval) {
