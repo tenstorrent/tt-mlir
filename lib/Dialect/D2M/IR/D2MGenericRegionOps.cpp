@@ -29,13 +29,12 @@ bufferizeCBOp(OpTy op, mlir::RewriterBase &rewriter,
               const mlir::bufferization::BufferizationOptions &options) {
   auto cbBufferType =
       mlir::cast<bufferization::TensorLikeType>(op.getCbType())
-          .getBufferType(options,
-                         [&]() { return op.emitOpError(); });
+          .getBufferType(options, [&]() { return op.emitOpError(); });
   assert(succeeded(cbBufferType));
   auto toBuffer = rewriter.create<bufferization::ToBufferOp>(
       op.getLoc(), *cbBufferType, op.getCb());
-  mlir::bufferization::replaceOpWithNewBufferizedOp<OpTy>(
-      rewriter, op, toBuffer.getResult());
+  mlir::bufferization::replaceOpWithNewBufferizedOp<OpTy>(rewriter, op,
+                                                          toBuffer.getResult());
   return mlir::success();
 }
 
