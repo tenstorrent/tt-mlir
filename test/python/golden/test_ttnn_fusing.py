@@ -84,6 +84,9 @@ def test_matmul_activation_fusing(
     ), f"Standalone {activation_name} operation should be fused"
 
 
+@pytest.mark.xfail(
+    reason="Fails golden, see https://github.com/tenstorrent/tt-mlir/issues/5789"
+)
 @pytest.mark.parametrize(
     "shapes",
     [

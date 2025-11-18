@@ -336,8 +336,8 @@ createOp(FlatbufferObjectCache &cache, EmptyOp op) {
 ::flatbuffers::Offset<::tt::target::ttnn::FullOp>
 createOp(FlatbufferObjectCache &cache, FullOp op) {
   auto shape = op.getShape().getShape().vec();
-  auto device = cache.at<::tt::target::DeviceRef>(
-      getOperandThroughDPSOps(op.getDevice()));
+  auto device =
+      op.getDevice() ? cache.at<::tt::target::DeviceRef>(op.getDevice()) : 0;
   ::tt::target::ttnn::FillValueType fillValueType;
   ::flatbuffers::Offset<void> fillValue;
   if (auto fillValueAttr = mlir::dyn_cast<mlir::FloatAttr>(op.getFillValue())) {
@@ -984,6 +984,23 @@ createOp(FlatbufferObjectCache &cache, PagedUpdateCacheOp op) {
       pageTable);
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::PagedFillCacheOp>
+createOp(FlatbufferObjectCache &cache, PagedFillCacheOp op) {
+  auto cacheOperand = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getCache()));
+  auto input = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getInput()));
+  auto pageTable = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getPageTable()));
+  auto batchIdxTensor =
+      op.getBatchIdxTensor()
+          ? cache.at<::tt::target::ttnn::TensorRef>(
+                getOperandThroughDPSOps(op.getBatchIdxTensor()))
+          : 0;
+  return ::tt::target::ttnn::CreatePagedFillCacheOp(
+      *cache.fbb, cacheOperand, input, pageTable, batchIdxTensor);
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::FillCacheOp>
 createOp(FlatbufferObjectCache &cache, FillCacheOp op) {
   auto cacheOperand = cache.at<::tt::target::ttnn::TensorRef>(
@@ -1030,23 +1047,23 @@ createOp(FlatbufferObjectCache &cache, PointToPointOp op) {
       getOperandThroughDPSOps(op.getInput()));
   auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer);
 
-  llvm::ArrayRef<int64_t> sendCoord = op.getSendCoordAttr();
-  std::vector<uint32_t> sendCoordVec(sendCoord.begin(), sendCoord.end());
-  auto sendVec = cache.fbb->CreateVector<uint32_t>(sendCoordVec);
+  llvm::ArrayRef<int64_t> senderCoord = op.getSenderCoordAttr();
+  std::vector<uint32_t> senderCoordVec(senderCoord.begin(), senderCoord.end());
+  auto senderVec = cache.fbb->CreateVector<uint32_t>(senderCoordVec);
 
-  llvm::ArrayRef<int64_t> receiveCoord = op.getReceiveCoordAttr();
-  std::vector<uint32_t> receiveCoordVec(receiveCoord.begin(),
-                                        receiveCoord.end());
-  auto receiveVec = cache.fbb->CreateVector<uint32_t>(receiveCoordVec);
+  llvm::ArrayRef<int64_t> receiverCoord = op.getReceiverCoordAttr();
+  std::vector<uint32_t> receiverCoordVec(receiverCoord.begin(),
+                                         receiverCoord.end());
+  auto receiverVec = cache.fbb->CreateVector<uint32_t>(receiverCoordVec);
 
-  ::flatbuffers::Offset<::tt::target::ttnn::TensorRef> accumTensor = 0;
-  if (op.getAccumTensor()) {
-    accumTensor = cache.at<::tt::target::ttnn::TensorRef>(
-        getOperandThroughDPSOps(op.getAccumTensor()));
+  ::flatbuffers::Offset<::tt::target::ttnn::TensorRef> optionalOutputTensor = 0;
+  if (op.getOptionalOutputTensor()) {
+    optionalOutputTensor = cache.at<::tt::target::ttnn::TensorRef>(
+        getOperandThroughDPSOps(op.getOptionalOutputTensor()));
   }
 
   return ::tt::target::ttnn::CreatePointToPointOp(
-      *cache.fbb, input, output, sendVec, receiveVec, accumTensor);
+      *cache.fbb, input, output, senderVec, receiverVec, optionalOutputTensor);
 }
 
 template <typename EltwiseBinaryOp>
@@ -2122,6 +2139,45 @@ createOp(FlatbufferObjectCache &cache, ScaledDotProductAttentionDecodeOp op) {
       attentionSink, scale, out, memoryConfig);
 }
 
+::flatbuffers::Offset<
+    ::tt::target::ttnn::PagedScaledDotProductAttentionDecodeOp>
+createOp(FlatbufferObjectCache &cache,
+         PagedScaledDotProductAttentionDecodeOp op) {
+  auto query = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getQuery()));
+  auto key = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getKey()));
+  auto value = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getValue()));
+  auto pageTable = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getPageTable()));
+  auto attentionMask = op.getAttentionMask()
+                           ? cache.at<::tt::target::ttnn::TensorRef>(
+                                 getOperandThroughDPSOps(op.getAttentionMask()))
+                           : 0;
+  auto curPosTensor = op.getCurPosTensor()
+                          ? cache.at<::tt::target::ttnn::TensorRef>(
+                                getOperandThroughDPSOps(op.getCurPosTensor()))
+                          : 0;
+  auto attentionSink = op.getAttentionSink()
+                           ? cache.at<::tt::target::ttnn::TensorRef>(
+                                 getOperandThroughDPSOps(op.getAttentionSink()))
+                           : 0;
+
+  auto isCausal = op.getIsCausal();
+  auto scale = toFlatbuffer(
+      cache, op.getScale()
+                 ? std::make_optional(op.getScale().value().convertToFloat())
+                 : std::nullopt);
+  auto memoryConfig = getMemoryConfigIfNeeded(cache, op);
+
+  auto out = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer);
+
+  return ::tt::target::ttnn::CreatePagedScaledDotProductAttentionDecodeOp(
+      *cache.fbb, query, key, value, pageTable, isCausal, attentionMask,
+      curPosTensor, attentionSink, scale, out, memoryConfig);
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::ScaledDotProductAttentionOp>
 createOp(FlatbufferObjectCache &cache, ScaledDotProductAttentionOp op) {
   // NOLINTBEGIN(clang-analyzer-cplusplus.NewDelete)
@@ -2912,6 +2968,11 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
     return createOperation(cache, createOp(cache, fillCacheOp), debugString,
                            locInfo);
   }
+  if (auto pagedFillCacheOp = dyn_cast<PagedFillCacheOp>(op);
+      pagedFillCacheOp) {
+    return createOperation(cache, createOp(cache, pagedFillCacheOp),
+                           debugString, locInfo);
+  }
   if (auto permuteOp = dyn_cast<PermuteOp>(op); permuteOp) {
     return createOperation(cache, createOp(cache, permuteOp), debugString,
                            locInfo);
@@ -3037,6 +3098,13 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
     return createOperation(cache,
                            createOp(cache, scaledDotProductAttentionDecodeOp),
                            debugString, locInfo);
+  }
+  if (auto pagedScaledDotProductAttentionDecodeOp =
+          dyn_cast<PagedScaledDotProductAttentionDecodeOp>(op);
+      pagedScaledDotProductAttentionDecodeOp) {
+    return createOperation(
+        cache, createOp(cache, pagedScaledDotProductAttentionDecodeOp),
+        debugString, locInfo);
   }
   if (auto scaledDotProductAttentionOp =
           dyn_cast<ScaledDotProductAttentionOp>(op);

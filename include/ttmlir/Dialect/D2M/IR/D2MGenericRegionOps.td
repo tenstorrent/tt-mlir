@@ -758,6 +758,7 @@ def D2M_DMAOp : D2M_GenericRegionDatamovementOp<"dma",
       bool isDstRemote() { return ttcore::hasDeviceLayout(getDst()); }
       bool isMcast() { return !getMcastShape().empty(); }
       bool isAffine() { return (getSrcAffineMap() || getDstAffineMap()) && getSrcIndices().empty() && getDstIndices().empty(); }
+      bool hasExplicitSize() { return getOptNumElems().has_value(); }
       ::mlir::tt::ttcore::MemorySpace getSrcMemorySpace() {
         return mlir::cast<::mlir::tt::ttcore::MemorySpaceAttr>(getSrcMemRefType().getMemorySpace()).getValue();
       }

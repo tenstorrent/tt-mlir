@@ -5,15 +5,22 @@
 #include "tt/runtime/detail/distributed/utils/utils.h"
 #include "tt/runtime/detail/common/logger.h"
 #include "tt/runtime/detail/common/runtime_context.h"
-#include "tt/runtime/utils.h"
 
 namespace tt::runtime::distributed::utils {
 
-std::string getWorkerExecutableCommand(std::uint16_t port) {
-  std::string mlirHome = RuntimeContext::instance().getMlirHome();
+std::string
+getWorkerExecutableCommand(std::uint16_t port,
+                           const std::optional<std::string> &workerPathOpt) {
+  std::string workerPath = workerPathOpt.value_or(
+      std::filesystem::path(RuntimeContext::instance().getMlirHome()) /
+      "build/runtime/bin/distributed/worker");
+
+  LOG_ASSERT(std::filesystem::exists(workerPath),
+             "Distributed worker path does not exist: ", workerPath);
+
   std::string portString = std::to_string(port);
-  return mlirHome + "/build/runtime/bin/distributed/worker --port " +
-         portString;
+
+  return workerPath + " --port " + portString;
 }
 
 uint32_t getNumProcesses(const std::string &rankBindingPath) {
@@ -34,7 +41,8 @@ uint32_t getNumProcesses(const std::string &rankBindingPath) {
 
 std::string
 getTTRunCommand(uint16_t port,
-                const ::tt::runtime::MultiProcessArgs &multiProcessArgs) {
+                const ::tt::runtime::MultiProcessArgs &multiProcessArgs,
+                const std::optional<std::string> &workerPathOpt) {
   std::ostringstream oss;
 
   oss << "cd " << RuntimeContext::instance().getMetalHome() << " && ";
@@ -42,7 +50,7 @@ getTTRunCommand(uint16_t port,
   oss << "./ttnn/ttnn/distributed/ttrun.py " << multiProcessArgs.toArgString()
       << " "
       << "bash -c "
-      << "\"" << getWorkerExecutableCommand(port) << "\"";
+      << "\"" << getWorkerExecutableCommand(port, workerPathOpt) << "\"";
 
   return oss.str();
 }

@@ -104,21 +104,22 @@ public:
     AffineMapAttr indexingMapAttr =
         (operandIndexingMap) ? AffineMapAttr::get(*operandIndexingMap)
                              : nullptr;
+    AffineMapAttr srcIndexingMapAttr = isOutput ? nullptr : indexingMapAttr;
+    AffineMapAttr dstIndexingMapAttr = isOutput ? indexingMapAttr : nullptr;
 
-    // affine map is associated with dst when isOutput is true, src otherwise
-    Value result;
-    if (isOutput) {
-      result = builder
-                   .create<d2m::DMAOp>(loc, src, dst, indexingMapAttr,
-                                       coreIndex, mcastShape)
-                   .getResult();
-    } else {
-      result = builder
-                   .create<d2m::DMAOp>(loc, src, indexingMapAttr, dst,
-                                       coreIndex, mcastShape)
-                   .getResult();
+    IntegerAttr numElemsAttr = nullptr;
+    // If mcast is programmed, we will implicitly set the numElems because we
+    // know we already gathered the data into a contiguous buffer.
+    if (!mcastShape.empty()) {
+      numElemsAttr = builder.getI64IntegerAttr(
+          mlir::cast<ShapedType>(dst.getType()).getNumElements());
     }
-    return result;
+
+    return builder
+        .create<d2m::DMAOp>(loc, src, srcIndexingMapAttr, ValueRange(), dst,
+                            dstIndexingMapAttr, ValueRange(), numElemsAttr,
+                            coreIndex, mcastShape)
+        .getResult();
   }
 
   struct McastArguments {

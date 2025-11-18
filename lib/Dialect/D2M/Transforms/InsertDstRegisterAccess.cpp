@@ -508,9 +508,9 @@ public:
                    .getResult();
     for (int64_t index : guardIndices) {
       auto iterIndex = rewriter.create<d2m::IterIndexOp>(loc, index);
-      auto eq = rewriter.create<arith::CmpIOp>(loc, arith::CmpIPredicate::ne,
+      auto ne = rewriter.create<arith::CmpIOp>(loc, arith::CmpIPredicate::ne,
                                                iterIndex, zero);
-      cmp = rewriter.create<arith::OrIOp>(loc, cmp, eq).getResult();
+      cmp = rewriter.create<arith::OrIOp>(loc, cmp, ne).getResult();
     }
     return rewriter.create<scf::IfOp>(loc, cmp);
   }

@@ -7,10 +7,12 @@
 #include "ttmlir/Dialect/EmitPy/IR/EmitPyInterfaces.h"
 
 #include "mlir/IR/BuiltinAttributes.h"
+#include "mlir/IR/OpImplementation.h"
+
+#include "llvm/Support/LogicalResult.h"
 #include "llvm/Support/raw_ostream.h"
 
-#define GET_OP_CLASSES
-#include "ttmlir/Dialect/EmitPy/IR/EmitPyOps.cpp.inc"
+#include <string_view>
 
 using namespace mlir;
 using namespace mlir::tt::emitpy;
@@ -94,6 +96,67 @@ static LogicalResult verifyInitializationAttribute(Operation *op,
               "it's type ("
            << attrType << ") to match the op's result type (" << resultType
            << ")";
+  }
+
+  return success();
+}
+
+template <typename SourceOp>
+LogicalResult verifyNearestGlobalSymbol(SourceOp op,
+                                        SymbolTableCollection &symbolTable) {
+  auto global =
+      symbolTable.lookupNearestSymbolFrom<GlobalOp>(op, op.getNameAttr());
+  if (!global) {
+    return op.emitOpError("'")
+           << op.getName() << "' does not reference a valid emitpy.global";
+  }
+
+  Type resultType = op.getResult().getType();
+  Attribute initialValue = global.getInitialValue();
+
+  // If the global has a typed attribute, verify the types match
+  if (auto typedAttr = llvm::dyn_cast<TypedAttr>(initialValue)) {
+    Type globalType = typedAttr.getType();
+    if (resultType != globalType) {
+      return op.emitOpError()
+             << "result type (" << resultType
+             << ") does not match global's type (" << globalType << ")";
+    }
+  }
+  // For opaque attributes, we allow any type since the type is not specified
+  // in the attribute itself
+
+  return success();
+}
+
+LogicalResult isValidPythonIdentifier(Operation *op, StringRef name) {
+  if (name.empty()) {
+    return op->emitOpError() << "variable name must not be empty";
+  }
+
+  static constexpr std::array<std::string_view, 35> pythonKeywords = {
+      "False",  "None",   "True",    "and",      "as",       "assert", "async",
+      "await",  "break",  "class",   "continue", "def",      "del",    "elif",
+      "else",   "except", "finally", "for",      "from",     "global", "if",
+      "import", "in",     "is",      "lambda",   "nonlocal", "not",    "or",
+      "pass",   "raise",  "return",  "try",      "while",    "with",   "yield"};
+
+  for (const auto keyword : pythonKeywords) {
+    if (static_cast<std::string_view>(name) == keyword) {
+      return op->emitOpError() << "variable name must not be a keyword";
+    }
+  }
+
+  unsigned char first = static_cast<unsigned char>(name[0]);
+  if (!(std::isalpha(first) || first == '_')) {
+    return op->emitOpError() << "variable name must start with a letter or '_'";
+  }
+
+  for (const auto c : name.drop_front()) {
+    if (!(std::isalnum(static_cast<unsigned char>(c)) || c == '_')) {
+      return op->emitOpError() << "variable name may only contain alphanumeric "
+                                  "characters and '_'";
+    }
   }
 
   return success();
@@ -378,3 +441,137 @@ LogicalResult ConstantOp::verify() {
   }
   return success();
 }
+
+//===----------------------------------------------------------------------===//
+// GlobalOp
+//===----------------------------------------------------------------------===//
+
+static void printEmitPyGlobalOpInitialValue(OpAsmPrinter &p, GlobalOp op,
+                                            Attribute initialValue) {
+  p << "= ";
+  p.printAttribute(initialValue);
+}
+
+static ParseResult parseEmitPyGlobalOpInitialValue(OpAsmParser &parser,
+                                                   Attribute &initialValue) {
+  if (parser.parseEqual()) {
+    return parser.emitError(parser.getNameLoc(),
+                            "expected '=' after symbol name");
+  }
+
+  if (parser.parseAttribute(initialValue)) {
+    return parser.emitError(parser.getNameLoc(),
+                            "expected initial value for global variable");
+  }
+
+  return success();
+}
+
+LogicalResult GlobalOp::verify() {
+  Attribute value = getInitialValue();
+  if (!value) {
+    return emitOpError() << "requires initial value for global variable";
+  }
+
+  StringRef name = getSymName();
+  return isValidPythonIdentifier(getOperation(), name);
+}
+
+//===----------------------------------------------------------------------===//
+// AssignGlobalOp
+//===----------------------------------------------------------------------===//
+
+void AssignGlobalOp::print(OpAsmPrinter &p) {
+  p << " ";
+  p.printAttributeWithoutType(getNameAttr());
+  p << " = " << getValue() << " : " << getValue().getType();
+}
+
+ParseResult AssignGlobalOp::parse(::mlir::OpAsmParser &parser,
+                                  ::mlir::OperationState &result) {
+
+  StringAttr symName;
+  if (parser.parseSymbolName(symName)) {
+    return parser.emitError(parser.getNameLoc(), "expected symbol name");
+  }
+  FlatSymbolRefAttr nameAttr =
+      FlatSymbolRefAttr::get(parser.getContext(), symName);
+  result.addAttribute("name", nameAttr);
+
+  if (parser.parseEqual()) {
+    return parser.emitError(parser.getNameLoc(),
+                            "expected '=' after symbol name");
+  }
+
+  OpAsmParser::UnresolvedOperand initialValue;
+  Type valueType;
+  if (parser.parseOperand(initialValue) || parser.parseColonType(valueType) ||
+      parser.resolveOperand(initialValue, valueType, result.operands)) {
+    return parser.emitError(parser.getNameLoc(),
+                            "expected initial value for global variable");
+  }
+  return success();
+}
+
+LogicalResult AssignGlobalOp::verify() {
+  StringRef name = getName();
+  return isValidPythonIdentifier(getOperation(), name);
+}
+
+LogicalResult
+AssignGlobalOp::verifySymbolUses(SymbolTableCollection &symbolTable) {
+  auto global =
+      symbolTable.lookupNearestSymbolFrom<GlobalOp>(*this, getNameAttr());
+  if (!global) {
+    return emitOpError("'")
+           << getName() << "' does not reference a valid emitpy.global";
+  }
+
+  Type valueType = getValue().getType();
+  Attribute initialValue = global.getInitialValue();
+
+  // If the global has a typed attribute, verify the types match
+  if (auto typedAttr = llvm::dyn_cast<TypedAttr>(initialValue)) {
+    Type globalType = typedAttr.getType();
+    if (valueType != globalType) {
+      return emitOpError() << "value type (" << valueType
+                           << ") does not match global's type (" << globalType
+                           << ")";
+    }
+  }
+  // For opaque attributes, we allow any type since the type is not specified
+  // in the attribute itself
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// GlobalStatementOp
+//===----------------------------------------------------------------------===//
+
+LogicalResult GlobalStatementOp::verify() {
+  StringRef name = getName();
+  return isValidPythonIdentifier(getOperation(), name);
+}
+
+LogicalResult
+GlobalStatementOp::verifySymbolUses(SymbolTableCollection &symbolTable) {
+  return verifyNearestGlobalSymbol<GlobalStatementOp>(*this, symbolTable);
+}
+
+//===----------------------------------------------------------------------===//
+// GetGlobalOp
+//===----------------------------------------------------------------------===//
+
+LogicalResult GetGlobalOp::verify() {
+  StringRef name = getName();
+  return isValidPythonIdentifier(getOperation(), name);
+}
+
+LogicalResult
+GetGlobalOp::verifySymbolUses(SymbolTableCollection &symbolTable) {
+  return verifyNearestGlobalSymbol<GetGlobalOp>(*this, symbolTable);
+}
+
+#define GET_OP_CLASSES
+#include "ttmlir/Dialect/EmitPy/IR/EmitPyOps.cpp.inc"

@@ -1834,6 +1834,28 @@ mlir::OpFoldResult foldConsecutiveToLayoutOp(ttnn::ToLayoutOp op) {
     return nullptr;
   }
 
+  // Don't fold if there are operations between producer and consumer when:
+  // - Producer moves to DRAM buffer type, AND
+  // - Consumer moves to L1 buffer type
+  //
+  // This preserves intentional DRAM staging for memory allocation safety.
+  // The ops in between may have been analyzed/scheduled assuming the tensor
+  // goes through DRAM. Folding would bypass DRAM and keep the tensor in L1,
+  // potentially causing memory pressure that wasn't accounted for.
+  Operation *nextOp = producerOp->getNextNode();
+  bool hasOpsBetween = (nextOp != op.getOperation());
+
+  if (hasOpsBetween) {
+    MemoryConfigAttr producerMemConfig = producerOp.getMemoryConfigAttr();
+    MemoryConfigAttr consumerMemConfig = op.getMemoryConfigAttr();
+
+    if (producerMemConfig && consumerMemConfig &&
+        producerMemConfig.getBufferType().getValue() == BufferType::DRAM &&
+        consumerMemConfig.getBufferType().getValue() == BufferType::L1) {
+      return nullptr;
+    }
+  }
+
   if (!op.getDtype()) {
     op.setDtypeAttr(producerOp.getDtypeAttr());
   }
@@ -2780,11 +2802,6 @@ mlir::tt::ttnn::CollectivePermuteOp::fold(FoldAdaptor adaptor) {
 //===----------------------------------------------------------------------===//
 
 ::mlir::LogicalResult UpdateCacheOp::verify() {
-  if (getBatchOffset() != 0) {
-    return emitOpError(
-        "Only single-batch is supported. Batch offset must be 0");
-  }
-
   const ::mlir::RankedTensorType cacheType = getCache().getType();
   const ::mlir::RankedTensorType inputType = getInput().getType();
 
@@ -2809,17 +2826,16 @@ mlir::tt::ttnn::CollectivePermuteOp::fold(FoldAdaptor adaptor) {
     return emitOpError("Input tensor must be a 4D tensor");
   }
 
-  if (inputType.getShape()[2] != 1) {
-    return emitOpError("Input tensor requires that dim 2 have size 1, got "
-                       "input dim 2 size = " +
-                       std::to_string(inputType.getShape()[2]));
+  if (inputType.getShape()[0] != 1) {
+    return emitOpError("Input tensor requires that dim 0 have size 1, got "
+                       "input dim 0 size = " +
+                       std::to_string(inputType.getShape()[0]));
   }
 
-  if (cacheType.getShape()[0] != inputType.getShape()[0] ||
-      cacheType.getShape()[1] != inputType.getShape()[1] ||
+  if (cacheType.getShape()[1] != inputType.getShape()[1] ||
       cacheType.getShape()[3] != inputType.getShape()[3]) {
     return emitOpError("Cache tensor shape must match input tensor shape on "
-                       "all dimensions except dim 2. Got cache shape (" +
+                       "dims 1 and 3. Got cache shape (" +
                        std::to_string(cacheType.getShape()[0]) + ", " +
                        std::to_string(cacheType.getShape()[1]) + ", " +
                        std::to_string(cacheType.getShape()[2]) + ", " +
@@ -2865,7 +2881,6 @@ mlir::tt::ttnn::CollectivePermuteOp::fold(FoldAdaptor adaptor) {
     return emitOpError("Page table tensor must be a 2D tensor");
   }
 
-  int64_t numHeads = cacheShape[1];
   int64_t blockSize = cacheShape[2];
   int64_t headDim = cacheShape[3];
   int64_t numUsers = updateIndexShape[0];
@@ -2885,14 +2900,6 @@ mlir::tt::ttnn::CollectivePermuteOp::fold(FoldAdaptor adaptor) {
                        "users (determined by update index shape): " +
                        std::to_string(numUsers) + ", got " +
                        std::to_string(inputShape[1]));
-  }
-
-  if (inputShape[2] != 32) {
-    return emitOpError("Input tensor must have dim 2 be equal to 32: " +
-                       std::to_string(numHeads) + ", got " +
-                       std::to_string(inputShape[2]) +
-                       ". If the number of heads is less than 32, it must be "
-                       "explicitly padded to 32.");
   }
 
   if (inputShape[3] != headDim) {
@@ -2929,11 +2936,6 @@ mlir::tt::ttnn::CollectivePermuteOp::fold(FoldAdaptor adaptor) {
 //===----------------------------------------------------------------------===//
 
 ::mlir::LogicalResult FillCacheOp::verify() {
-  if (getBatchOffset() != 0) {
-    return emitOpError(
-        "Only single-batch is supported. Batch offset must be 0");
-  }
-
   const ::mlir::RankedTensorType cacheType = getCache().getType();
   const ::mlir::RankedTensorType inputType = getInput().getType();
 
@@ -2967,11 +2969,10 @@ mlir::tt::ttnn::CollectivePermuteOp::fold(FoldAdaptor adaptor) {
         ", input dim 2 size = " + std::to_string(inputType.getShape()[2]));
   }
 
-  if (cacheType.getShape()[0] != inputType.getShape()[0] ||
-      cacheType.getShape()[1] != inputType.getShape()[1] ||
+  if (cacheType.getShape()[1] != inputType.getShape()[1] ||
       cacheType.getShape()[3] != inputType.getShape()[3]) {
     return emitOpError("Cache tensor shape must match input tensor shape on "
-                       "all dimensions except dim 2. Got cache shape (" +
+                       "dims 1 and 3. Got cache shape (" +
                        std::to_string(cacheType.getShape()[0]) + ", " +
                        std::to_string(cacheType.getShape()[1]) + ", " +
                        std::to_string(cacheType.getShape()[2]) + ", " +
@@ -2981,6 +2982,84 @@ mlir::tt::ttnn::CollectivePermuteOp::fold(FoldAdaptor adaptor) {
                        std::to_string(inputType.getShape()[1]) + ", " +
                        std::to_string(inputType.getShape()[2]) + ", " +
                        std::to_string(inputType.getShape()[3]) + ")");
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// PagedFillCacheOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult PagedFillCacheOp::verify() {
+  auto cacheType = getCache().getType();
+  auto inputType = getInput().getType();
+  auto pageTableType = getPageTable().getType();
+
+  auto cacheShape = cacheType.getShape();
+  auto inputShape = inputType.getShape();
+  auto pageTableShape = pageTableType.getShape();
+
+  if (cacheShape.size() != 4) {
+    return emitOpError("Cache tensor must be a 4D tensor");
+  }
+
+  if (inputShape.size() != 4) {
+    return emitOpError("Input tensor must be a 4D tensor");
+  }
+
+  if (pageTableShape.size() != 2) {
+    return emitOpError("Page table tensor must be a 2D tensor");
+  }
+
+  if (cacheType.getElementType() != inputType.getElementType()) {
+    return emitOpError("Cache and input tensors must have the same dtype");
+  }
+
+  if (!cacheType.getElementType().isFloat()) {
+    return emitOpError("Cache tensor must be a floating point type");
+  }
+
+  if (!inputType.getElementType().isFloat()) {
+    return emitOpError("Input tensor must be a floating point type");
+  }
+
+  if (!pageTableType.getElementType().isInteger()) {
+    return emitOpError("Page table tensor must be an integer type");
+  }
+
+  if (getBatchIdxTensor()) {
+    auto batchIdxTensorType = getBatchIdxTensor().getType();
+    if (batchIdxTensorType.getShape().size() != 1) {
+      return emitOpError("Batch index tensor must be a 1D tensor");
+    }
+    if (batchIdxTensorType.getShape()[0] != 1) {
+      return emitOpError(
+          "Batch index tensor must have dim 0 be equal to 1, got " +
+          std::to_string(batchIdxTensorType.getShape()[0]));
+    }
+    if (!batchIdxTensorType.getElementType().isInteger()) {
+      return emitOpError("Batch index tensor must be an integer type");
+    }
+  }
+
+  int64_t numCacheHeads = cacheShape[1];
+  int64_t numInputHeads = inputShape[1];
+  int64_t blockSize = cacheShape[2];
+  int64_t headDim = cacheShape[3];
+
+  if (blockSize % 32 != 0) {
+    return emitOpError("Block size must be divisible by 32, got " +
+                       std::to_string(blockSize));
+  }
+
+  if (numInputHeads % numCacheHeads != 0) {
+    return emitOpError("Input must have a number of heads that is a multiple "
+                       "of the number of heads in the cache.");
+  }
+
+  if (inputShape[3] != headDim) {
+    return emitOpError("Input must have same head dimension as cache.");
   }
 
   return success();
@@ -3474,15 +3553,18 @@ void CaptureOrExecuteTraceOp::getEffects(
 
 // PointToPointOp verification
 ::mlir::LogicalResult mlir::tt::ttnn::PointToPointOp::verify() {
-  if (getAccumTensor()) { // accum_tensor is optional
+  if (getOptionalOutputTensor()) { // optional_output_tensor is optional
     auto inputType = llvm::dyn_cast<RankedTensorType>(getInput().getType());
     auto outputType =
-        llvm::dyn_cast<RankedTensorType>(getAccumTensor().getType());
+        llvm::dyn_cast<RankedTensorType>(getOptionalOutputTensor().getType());
 
     if (inputType.getElementType() != outputType.getElementType() ||
         inputType.getShape() != outputType.getShape()) {
-      return emitOpError(
-          "Accum tensor must match input tensor in shape and element type.");
+      return emitOpError("Optional output tensor must match input tensor in "
+                         "shape and element type.");
+    }
+    if (getReceiverCoord() == getSenderCoord()) {
+      return emitOpError() << "Can't send/receive to the same device";
     }
   }
   return success();
@@ -3895,10 +3977,6 @@ mlir::LogicalResult RotaryEmbeddingLlamaOp::verify() {
   mlir::RankedTensorType sinType = getSinCache().getType();
   mlir::RankedTensorType outputType = getResult().getType();
 
-  if (inputType != outputType) {
-    return emitOpError("input and output tensor types must match.");
-  }
-
   if (cosType != sinType) {
     return emitOpError("cos and sin tensor types must match.");
   }
@@ -4146,6 +4224,104 @@ mlir::tt::ttnn::ScaledDotProductAttentionDecodeOp::verify() {
   } else {
     if (!getIsCausal()) {
       return emitOpError("Attention mask is required when is_causal is false");
+    }
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// PagedScaledDotProductAttentionDecodeOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult
+mlir::tt::ttnn::PagedScaledDotProductAttentionDecodeOp::verify() {
+
+  RankedTensorType queryType = getQuery().getType();
+  RankedTensorType keyType = getKey().getType();
+  RankedTensorType valueType = getValue().getType();
+  RankedTensorType pageTableType = getPageTable().getType();
+
+  auto queryShape = queryType.getShape();
+  auto keyShape = keyType.getShape();
+  auto pageTableShape = pageTableType.getShape();
+
+  auto numUsers = queryShape[1];
+  auto numQueryHeads = queryShape[2];
+  auto headSize = queryShape[3];
+  auto numKVHeads = keyShape[1];
+  auto blockSize = keyShape[2];
+
+  // Verify element types.
+  if (queryType.getElementType() != keyType.getElementType() ||
+      queryType.getElementType() != valueType.getElementType()) {
+    return emitOpError(
+        "Query, key, and value must have the same element type.");
+  }
+
+  if (!queryType.getElementType().isFloat()) {
+    return emitOpError("Query, key, and value must be float tensors.");
+  }
+
+  if (!pageTableType.getElementType().isInteger()) {
+    return emitOpError("Page table must be an integer tensor.");
+  }
+
+  // Verify key and value are identical shapes/dtypes
+  if (keyType != valueType) {
+    return emitOpError("Key and value must have the same shape and data type.");
+  }
+
+  // Verify ranks.
+  if (queryType.getShape().size() != 4) {
+    return emitOpError("Query must be a 4D tensor.");
+  }
+  if (keyType.getShape().size() != 4) {
+    return emitOpError("Key/Value tensor must be a 4D tensor.");
+  }
+  if (pageTableType.getShape().size() != 2) {
+    return emitOpError("Page table tensor must be a 2D tensor.");
+  }
+
+  // Verify shapes.
+  if (headSize != keyShape[3]) {
+    return emitOpError("Query head size must match key/value head size.");
+  }
+  if (numQueryHeads % numKVHeads != 0) {
+    return emitOpError(
+        "Query num heads must be divisible by key/value num heads.");
+  }
+  if (blockSize % 32 != 0) {
+    return emitOpError("Block size must be divisible by 32.");
+  }
+
+  if (pageTableShape[0] != numUsers) {
+    return emitOpError(
+        "Page table number of users must match query number of users.");
+  }
+
+  bool isCausal = getIsCausal();
+  if (isCausal) {
+    if (getAttentionMask()) {
+      return emitOpError(
+          "Attention mask is not allowed when is_causal is true.");
+    }
+  } else {
+    if (!getAttentionMask()) {
+      return emitOpError("Attention mask is required when is_causal is false.");
+    }
+  }
+
+  if (getCurPosTensor()) {
+    if (!getCurPosTensor().getType().getElementType().isInteger()) {
+      return emitOpError("Cur pos tensor must be an integer tensor.");
+    }
+    if (getCurPosTensor().getType().getShape().size() != 1) {
+      return emitOpError("Cur pos tensor must be a 1D tensor.");
+    }
+    if (getCurPosTensor().getType().getShape()[0] != numUsers) {
+      return emitOpError(
+          "Cur pos tensor number of users must match query number of users.");
     }
   }
 
