@@ -58,7 +58,6 @@ public:
 
   void runBeforePass(Pass *pass, Operation *op) override;
   void runAfterPass(Pass *pass, Operation *op) override;
-  void runAfterPassFailed(Pass *pass, Operation *op) override;
 
   //===--------------------------------------------------------------------===//
   // Core IR Dumping Logic

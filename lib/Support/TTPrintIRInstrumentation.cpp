@@ -29,6 +29,19 @@ mlir::OpPrintingFlags getStandardPrintingFlags() {
   flags.elideLargeResourceString(64);
   return flags;
 }
+
+mlir::Operation *extractOperationFromIRUnit(const mlir::IRUnit &unit) {
+  if (auto *opPtr = llvm::dyn_cast_if_present<mlir::Operation *>(unit)) {
+    return opPtr;
+  }
+  if (auto *region = llvm::dyn_cast_if_present<mlir::Region *>(unit)) {
+    return region->getParentOp();
+  }
+  if (auto *block = llvm::dyn_cast_if_present<mlir::Block *>(unit)) {
+    return block->getParentOp();
+  }
+  return nullptr;
+}
 } // namespace
 
 TTPrintIRInstrumentation::TTPrintIRInstrumentation(
@@ -82,17 +95,7 @@ void TTPrintIRInstrumentation::attachActionHandler(mlir::MLIRContext *ctx) {
     } else if (actionTag == "GreedyPatternRewriteIteration") {
       auto irUnits = action.getContextIRUnits();
       if (!irUnits.empty()) {
-        mlir::Operation *op = nullptr;
-        if (auto *opPtr =
-                llvm::dyn_cast_if_present<mlir::Operation *>(irUnits[0])) {
-          op = opPtr;
-        } else if (auto *region =
-                       llvm::dyn_cast_if_present<mlir::Region *>(irUnits[0])) {
-          op = region->getParentOp();
-        } else if (auto *block =
-                       llvm::dyn_cast_if_present<mlir::Block *>(irUnits[0])) {
-          op = block->getParentOp();
-        }
+        mlir::Operation *op = extractOperationFromIRUnit(irUnits[0]);
         if (op) {
           std::string actionStr;
           llvm::raw_string_ostream os(actionStr);
@@ -115,17 +118,7 @@ void TTPrintIRInstrumentation::attachActionHandler(mlir::MLIRContext *ctx) {
     } else if (actionTag == "apply-pattern") {
       auto irUnits = action.getContextIRUnits();
       if (!irUnits.empty()) {
-        mlir::Operation *op = nullptr;
-        if (auto *opPtr =
-                llvm::dyn_cast_if_present<mlir::Operation *>(irUnits[0])) {
-          op = opPtr;
-        } else if (auto *region =
-                       llvm::dyn_cast_if_present<mlir::Region *>(irUnits[0])) {
-          op = region->getParentOp();
-        } else if (auto *block =
-                       llvm::dyn_cast_if_present<mlir::Block *>(irUnits[0])) {
-          op = block->getParentOp();
-        }
+        mlir::Operation *op = extractOperationFromIRUnit(irUnits[0]);
         if (op) {
           std::string opName =
               sanitizeFilename(op->getName().getStringRef().str());
@@ -203,31 +196,20 @@ void TTPrintIRInstrumentation::runAfterPass(Pass *pass, Operation *op) {
     if (level_ == DumpLevel::Once && currentDepth_ != 0) {
       return;
     }
-    if (op) {
-      std::string irString;
-      llvm::raw_string_ostream os(irString);
-      op->print(os, getStandardPrintingFlags());
-      os.flush();
-      if (currentDepth_ < static_cast<int>(pipelineIRStack_.size())) {
-        pipelineIRStack_[currentDepth_] = std::move(irString);
-      } else {
-        pipelineIRStack_.push_back(std::move(irString));
-      }
+    std::string irString;
+    llvm::raw_string_ostream os(irString);
+    op->print(os, getStandardPrintingFlags());
+    os.flush();
+    if (currentDepth_ < static_cast<int>(pipelineIRStack_.size())) {
+      pipelineIRStack_[currentDepth_] = std::move(irString);
+    } else {
+      pipelineIRStack_.push_back(std::move(irString));
     }
     return;
   }
   if (level_ == DumpLevel::Pass || level_ == DumpLevel::Transformation) {
-    if (!op) {
-      return;
-    }
     std::string passName = pass->getName().str();
     dumpIR(op, passName);
-  }
-}
-
-void TTPrintIRInstrumentation::runAfterPassFailed(Pass *pass, Operation *op) {
-  if (!pass) {
-    return;
   }
 }
 
