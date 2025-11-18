@@ -36,22 +36,7 @@ RUN rm -f "${NINJA_ZIP}"
 
 # Create a directory for the build and toolchain
 ENV PROJECT_NAME=tt-mlir
-ENV BUILD_DIR=/home/build
 ENV TTMLIR_TOOLCHAIN_DIR=/opt/ttmlir-toolchain
 
-RUN echo "Building $PROJECT_NAME"
-
-RUN mkdir -p $BUILD_DIR && \
-    mkdir -p $TTMLIR_TOOLCHAIN_DIR
-
-# Copy the project to the container
-ADD . $BUILD_DIR/$PROJECT_NAME
-
-# Build the toolchain
-WORKDIR $BUILD_DIR/$PROJECT_NAME
-
-# Show last 2 commits
-RUN git log -2
-
-RUN cmake -B env/build env && \
-    cmake --build env/build
+# Copy toolchain from CI image
+COPY --from=ghcr.io/tenstorrent/tt-mlir/tt-mlir-base-ubuntu-22-04:${FROM_TAG} $TTMLIR_TOOLCHAIN_DIR $TTMLIR_TOOLCHAIN_DIR
