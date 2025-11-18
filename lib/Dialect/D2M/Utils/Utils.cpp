@@ -15,6 +15,7 @@
 
 namespace mlir::tt::d2m::utils {
 
+<<<<<<< HEAD
 // Calculate a reblocking affine map from inputShape to outputShape.
 mlir::AffineMap calculateReblockMap(mlir::ArrayRef<int64_t> inputShape,
                                     mlir::ArrayRef<int64_t> outputShape,
@@ -57,6 +58,8 @@ mlir::AffineMap calculateReblockMap(mlir::ArrayRef<int64_t> inputShape,
   return canonicalToInput.compose(outputToCanonical);
 }
 
+=======
+>>>>>>> b813beab0 (big cleanup, commit to always materializing view via GenericOp w/ DMA, tests are passing locally)
 llvm::SmallVector<int64_t>
 getSquareTargetGrid(mlir::ArrayRef<int64_t> targetGridShape) {
   const int64_t minGridValue = *llvm::min_element(targetGridShape);
@@ -103,65 +106,6 @@ Type getRegionLargestDstElemType(Region &region) {
   assert(largestType);
   TT_assert(getTypeNumberOfBits(largestType) <= 32u);
   return largestType;
-}
-
-AffineMap concatInversePermutationMap(mlir::ArrayRef<AffineMap> affineMaps,
-                                      bool reverse) {
-  assert(!affineMaps.empty());
-  auto *ctx = affineMaps.front().getContext();
-
-  // Concat all of the indexing maps together, matmul example:
-  // (d0, d1, d2) -> (d0, d2)
-  // (d0, d1, d2) -> (d2, d1)
-  // (d0, d1, d2) -> (d0, d1)
-  // Becomes:
-  // (d0, d1, d2) -> (d0, d2, d2, d1, d0, d1)
-  AffineMap concat;
-
-  // We typically want to reverse it so that output dimensions get priority for
-  // the inverse permutation.
-  if (reverse) {
-    const auto reversedMaps = llvm::to_vector(llvm::reverse(affineMaps));
-    concat = mlir::concatAffineMaps(reversedMaps, ctx);
-  } else {
-    concat = mlir::concatAffineMaps(affineMaps, ctx);
-  }
-
-  // Invert the permutation to get a map that we can use to get the loop
-  // bounds. Above example becomes: (d0, d1, d2, d3, d4, d5) -> (d0, d3, d1)
-  return mlir::inversePermutation(concat);
-}
-
-Value getPhysicalTensorOrMemref(mlir::Value tensorOrMemref) {
-
-  TT_assertv((mlir::isa<mlir::RankedTensorType>(tensorOrMemref.getType()) ||
-              mlir::isa<mlir::MemRefType>(tensorOrMemref.getType())),
-             "Expected a tensor or memref type");
-  auto physTensor = tensorOrMemref;
-
-  if (auto viewOp = mlir::dyn_cast<mlir::tt::d2m::ViewOpInterface>(
-          tensorOrMemref.getDefiningOp())) {
-    physTensor = viewOp.getInput();
-  } else if (auto toLayoutOp = mlir::dyn_cast<mlir::tt::d2m::ToLayoutOp>(
-                 tensorOrMemref.getDefiningOp())) {
-    return getPhysicalTensorOrMemref(toLayoutOp.getInitOperand());
-
-  } else if (auto genericOp = mlir::dyn_cast<mlir::tt::d2m::GenericOp>(
-                 tensorOrMemref.getDefiningOp())) {
-    // Assume that if the defining op is a generic op, the output is the first
-    // of the outputs.
-    physTensor = getPhysicalTensorOrMemref(genericOp.getOutputs()[0]);
-  }
-
-  return physTensor;
-}
-
-ArrayRef<int64_t> getGridShape(Value tensorOrMemref) {
-  TT_assertv((mlir::isa<RankedTensorType>(tensorOrMemref.getType()) ||
-              mlir::isa<MemRefType>(tensorOrMemref.getType())),
-             "Expected a tensor or memref type");
-  return ttcore::getDeviceLayout(tensorOrMemref)
-      .getGridShape(mlir::cast<ShapedType>(tensorOrMemref.getType()));
 }
 
 } // namespace mlir::tt::d2m::utils

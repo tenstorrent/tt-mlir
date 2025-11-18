@@ -104,24 +104,41 @@ public:
     llvm::SmallVector<Value> cbs;
     llvm::SmallVector<int64_t> cbPorts;
     int64_t cbPort = 0;
-    for (auto operand : adaptor.getOperands()) {
-      if (auto stream = mlir::dyn_cast_if_present<d2m::StreamLayoutOp>(
-              operand.getDefiningOp());
-          stream) {
-        buffers.push_back(stream.getInput());
-        remappedBuffers.push_back(rewriter.getRemappedValue(stream.getInput()));
-        cbs.push_back(stream.getStorage());
-      } else if (auto view = mlir::dyn_cast_if_present<d2m::ViewLayoutOp>(
-                     operand.getDefiningOp());
-                 view) {
-        buffers.push_back(view.getInput());
-        remappedBuffers.push_back(rewriter.getRemappedValue(view.getInput()));
-        cbs.push_back(view.getInput());
-      } else {
-        buffers.push_back(operand);
-        remappedBuffers.push_back(rewriter.getRemappedValue(operand));
-        cbs.push_back(operand);
+
+    // Recursively unwrap nested stream and view layouts to extract the base
+    // buffer and the outermost circular buffer (CB) for generic op operands.
+    auto unwrapStreams = [](Value val) -> std::pair<Value, Value> {
+      Value current = val;
+      Value cb = val;
+      bool foundStream = false;
+
+      // Unwrap all chained StreamLayoutOps, keeping the first (outermost) CB.
+      while (auto stream = mlir::dyn_cast_if_present<d2m::StreamLayoutOp>(
+                 current.getDefiningOp())) {
+        if (!foundStream) {
+          cb = stream.getStorage();
+          foundStream = true;
+        }
+        current = stream.getInput();
       }
+
+      // If no stream was found, check for a single ViewLayoutOp.
+      if (!foundStream) {
+        if (auto view = mlir::dyn_cast_if_present<d2m::ViewLayoutOp>(
+                current.getDefiningOp())) {
+          cb = view.getInput();
+          current = view.getInput();
+        }
+      }
+
+      return {current, cb};
+    };
+
+    for (auto operand : adaptor.getOperands()) {
+      auto [buffer, cb] = unwrapStreams(operand);
+      buffers.push_back(buffer);
+      remappedBuffers.push_back(rewriter.getRemappedValue(buffer));
+      cbs.push_back(cb);
       cbPorts.push_back(cbPort++);
     }
 
