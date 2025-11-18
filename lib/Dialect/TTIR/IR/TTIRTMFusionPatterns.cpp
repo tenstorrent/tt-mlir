@@ -30,19 +30,22 @@ namespace mlir::tt::ttir {
 // reshape (N, C, H, W) -> (N, C, 1, H*W)
 // permute(0, 2, 3, 1): [N, 1, H*W, C]
 //
-// The result of this sequence is identical to the following reshape:
+// Both cases result in the same final shape. The result of either sequence is
+// identical to the following reshape:
 // reshape (N, H, W, C) -> (N, 1, H*W, C)
 
-namespace {
-
 // Reshape: n c h w -> n 1 c h*w
-SmallVector<int64_t> computeCase1Reshape(ArrayRef<int64_t> inputShape) {
+static SmallVector<int64_t> computeCase1Reshape(ArrayRef<int64_t> inputShape) {
+  assert(inputShape.size() == 4 &&
+         "Expected 4D input tensor as output of 4D permutation");
   return SmallVector<int64_t>{inputShape[0], 1, inputShape[1],
                               inputShape[2] * inputShape[3]};
 }
 
 // Reshape: n c h w -> n c 1 h*w
-SmallVector<int64_t> computeCase2Reshape(ArrayRef<int64_t> inputShape) {
+static SmallVector<int64_t> computeCase2Reshape(ArrayRef<int64_t> inputShape) {
+  assert(inputShape.size() == 4 &&
+         "Expected 4D input tensor as output of 4D permutation");
   return SmallVector<int64_t>{inputShape[0], inputShape[1], 1,
                               inputShape[2] * inputShape[3]};
 }
@@ -57,8 +60,6 @@ static const PermuteReshapePermutePatternSpec supportedPatterns[] = {
     {{0, 3, 1, 2}, {0, 1, 3, 2}, computeCase1Reshape},
     {{0, 3, 1, 2}, {0, 2, 3, 1}, computeCase2Reshape},
 };
-
-} // namespace
 
 class PermuteReshapePermuteFusionPattern
     : public mlir::OpRewritePattern<PermuteOp> {
@@ -78,12 +79,12 @@ public:
 
     // Verify the pattern structure: Permute -> Reshape -> Permute.
     ReshapeOp reshapeOp = op.getInput().getDefiningOp<ReshapeOp>();
-    if (!reshapeOp) {
+    if (!reshapeOp || !reshapeOp->hasOneUse()) {
       return failure();
     }
 
     PermuteOp firstPermuteOp = reshapeOp.getInput().getDefiningOp<PermuteOp>();
-    if (!firstPermuteOp) {
+    if (!firstPermuteOp || !firstPermuteOp->hasOneUse()) {
       return failure();
     }
 
