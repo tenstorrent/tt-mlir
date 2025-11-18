@@ -1045,7 +1045,7 @@ def test_zeros(shape: Shape, dtype: torch.dtype, request, device):
 @pytest.mark.parametrize("shape", [(128, 128)], ids=["128x128"])
 def test_ones(shape: Shape, request, device):
     def ones(builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None):
-        return builder.ones(shape, unit_attrs=unit_attrs)
+        return builder.ones(shape, dtype=torch.float32, unit_attrs=unit_attrs)
 
     compile_and_execute_ttir(
         ones,
@@ -1446,7 +1446,9 @@ def test_arange(
     def arange(
         in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
     ):
-        return builder.arange(in0, start, end, step, dim, unit_attrs=unit_attrs)
+        return builder.arange(
+            in0, start, end, step, dim, dtype=torch.float32, unit_attrs=unit_attrs
+        )
 
     compile_and_execute_ttir(
         arange,
