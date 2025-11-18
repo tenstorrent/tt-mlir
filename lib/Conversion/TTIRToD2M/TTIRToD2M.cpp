@@ -65,6 +65,13 @@ protected:
         mlir::cast<ttcore::TileType>(ttnnLayout.getElementType()).getHeight() ==
             ttcore::TileType::getDefaultShape()[0] &&
         "Only default tile shape is supported");
+    // bool isBlockSharded = ttnnLayout.hasL1BufferType() &&
+    //                       ttnnLayout.getMemLayout().getValue() ==
+    //                           ttnn::TensorMemoryLayout::BlockSharded;
+    // bool isInterleaved = ttnnLayout.hasInterleavedDRAMTensorMemoryLayout();
+    // assert((isBlockSharded || isInterleaved) &&
+    //        "Only block sharded L1 or interleaved DRAM tensor memory layouts "
+    //        "are supported");
   }
 
   RankedTensorType
@@ -95,27 +102,21 @@ protected:
     llvm::SmallVector<int64_t> dimAlignments(tensorType.getShape().size(), 1);
     dimAlignments[dimAlignments.size() - 1] = 32;
     dimAlignments[dimAlignments.size() - 2] = 32;
-
-    bool needVirtualGrid = ttnnLayout.getMemLayout().getValue() ==
-                               ttnn::TensorMemoryLayout::HeightSharded ||
-                           ttnnLayout.getMemLayout().getValue() ==
-                               ttnn::TensorMemoryLayout::WidthSharded;
+    
+    bool needVirtualGrid = ttnnLayout.getMemLayout().getValue() == ttnn::TensorMemoryLayout::HeightSharded || ttnnLayout.getMemLayout().getValue() == ttnn::TensorMemoryLayout::WidthSharded;
     AffineMap indexAffineMap = AffineMap::get(rewriter.getContext());
     llvm::SmallVector<int64_t> ttnnGridShape(ttnnLayout.getGrid().getShape());
     llvm::SmallVector<int64_t> optimalGrid = ttnnGridShape;
     if (needVirtualGrid) {
-      if (ttnnLayout.getMemLayout().getValue() ==
-          ttnn::TensorMemoryLayout::HeightSharded) {
+      if (ttnnLayout.getMemLayout().getValue() == ttnn::TensorMemoryLayout::HeightSharded) {
         optimalGrid = {ttnnGridShape[0] * ttnnGridShape[1], 1};
-      } else if (ttnnLayout.getMemLayout().getValue() ==
-                 ttnn::TensorMemoryLayout::WidthSharded) {
+      } else if (ttnnLayout.getMemLayout().getValue() == ttnn::TensorMemoryLayout::WidthSharded) {
         optimalGrid = {1, ttnnGridShape[0] * ttnnGridShape[1]};
       }
       auto [fwdMap, _] = ttmlir::d2m::utils::grids::createCoreVirtMaps(
-          rewriter.getContext(), optimalGrid, ttnnGridShape);
-      indexAffineMap = fwdMap;
+            rewriter.getContext(), optimalGrid, ttnnGridShape);
+        indexAffineMap = fwdMap;
     }
-
     auto metalLayout = ttcore::MetalLayoutAttr::get(
         rewriter.getContext(), tensorType.getShape(), ttcore::OOBVal::Undef,
         memSpace, memLayout, collapsedIntervals, dimAlignments, indexAffineMap);
