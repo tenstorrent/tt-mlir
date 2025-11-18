@@ -2137,6 +2137,11 @@ class SplitQueryKeyValueAndSplitHeadsUpdatePattern
     K_HEAD_SIZE = 2,
     K_SEQUENCE_LENGTH = 3,
   };
+  enum AttentionType {
+    MHA = 0,  // Multi-Head Attention
+    GQA = 1,  // Grouped Query Attention
+    NONE = 2, // Not an attention pattern
+  };
 
   llvm::SmallVector<int64_t> expectedPermute = {0, 2, 1, 3};
   llvm::SmallVector<int64_t> expectedTransposedPermute = {0, 2, 3, 1};
@@ -2152,7 +2157,8 @@ public:
 
     // Currently, only supporting Multi-Head Attention.
     // TODO(@ddilbazTT): Extend to support Grouped Query Attention.
-    if (!isMHA(reshapeOp, matmulOps, permuteOps)) {
+    if (findAttentionType(reshapeOp, matmulOps, permuteOps) !=
+        AttentionType::MHA) {
       return failure();
     }
 
@@ -2268,17 +2274,53 @@ public:
   }
 
 private:
-  bool isMHA(ReshapeOp reshapeOp, llvm::SmallVector<MatMulOpType> &matmulOps,
-             llvm::SmallVector<PermuteOp> &permuteOps) const {
+  AttentionType
+  findAttentionType(ReshapeOp reshapeOp,
+                    llvm::SmallVector<MatMulOpType> &matmulOps,
+                    llvm::SmallVector<PermuteOp> &permuteOps) const {
     populateMatmulOps(reshapeOp, matmulOps);
     if (!matmulOps.empty() && validateMatmulOrLinearOps(reshapeOp, matmulOps)) {
       populatePermuteOps(matmulOps, permuteOps);
       if (validatePermuteOps(reshapeOp, permuteOps)) {
-        return true;
+        if (isMHA(matmulOps, permuteOps)) {
+          return AttentionType::MHA;
+        }
+        // if (isGQA(matmulOps, permuteOps)) {
+        //   return AttentionType::GQA;
+        // }
       }
     }
 
-    return false;
+    return AttentionType::NONE;
+  }
+
+  bool isMHA(llvm::SmallVector<MatMulOpType> matmulOps,
+             llvm::SmallVector<PermuteOp> permuteOps) const {
+    // Matmul/ Linear B shape must be equal.
+    // Linear op bias must be equal.
+    // Permute op number of kv_heads must be equal.
+    auto queryBShape = matmulOps[0].getB().getType().getShape();
+    auto keyBShape = matmulOps[1].getB().getType().getShape();
+    auto valueBShape = matmulOps[2].getB().getType().getShape();
+    if (queryBShape != keyBShape || queryBShape != valueBShape) {
+      return false;
+    }
+    if constexpr (std::is_same_v<LinearOp, MatMulOpType>) {
+      auto queryBias = matmulOps[0].getBias();
+      auto keyBias = matmulOps[1].getBias();
+      auto valueBias = matmulOps[2].getBias();
+      if (queryBias.getType() != keyBias.getType() ||
+          queryBias.getType() != valueBias.getType()) {
+        return false;
+      }
+    }
+    int32_t queryNumHeads = permuteOps[0].getType().getShape()[O_NUM_KV_HEADS];
+    int32_t keyNumHeads = permuteOps[1].getType().getShape()[O_NUM_KV_HEADS];
+    int32_t valueNumHeads = permuteOps[2].getType().getShape()[O_NUM_KV_HEADS];
+    if (queryNumHeads != keyNumHeads || queryNumHeads != valueNumHeads) {
+      return false;
+    }
+    return true;
   }
 
   // Helper function to concatenate tensors along given dimension.
@@ -2442,9 +2484,9 @@ private:
       return false;
     }
 
-    if (queryShape[O_NUM_KV_HEADS] != keyShape[O_NUM_KV_HEADS] ||
-        queryShape[O_NUM_KV_HEADS] != valueShape[O_NUM_KV_HEADS]) {
-      // Number of kv heads must match.
+    // Key and Value must have the same number of kv heads.
+    // Query can have a different number of heads in GQA.
+    if (keyShape[O_NUM_KV_HEADS] != valueShape[O_NUM_KV_HEADS]) {
       return false;
     }
 
@@ -2523,7 +2565,6 @@ private:
       return false;
     }
 
-    ArrayRef<int64_t> firstBShape = matrixOps[0].getB().getType().getShape();
     for (MatMulOpType matrixOp : matrixOps) {
       // Each op must have the same input as the reshape op output.
       if (matrixOp.getA() != reshapeOp.getResult()) {
@@ -2534,10 +2575,14 @@ private:
       if (bShape.size() != 2) {
         return false;
       }
-      // Check that B shape is the same for all ops.
-      if (bShape != firstBShape) {
-        return false;
-      }
+    }
+
+    // Check that B shape is the same for Key and Value ops.
+    // Query can be a different shape in GQA.
+    auto keyBShape = matrixOps[1].getB().getType().getShape();
+    auto valueBShape = matrixOps[2].getB().getType().getShape();
+    if (keyBShape != valueBShape) {
+      return false;
     }
 
     // Check transpose A is false for all ops.
@@ -2552,8 +2597,8 @@ private:
       return false;
     }
 
-    // If matrix op is Linear Op, check that bias is present and has the same
-    // shape.
+    // If matrix op is Linear Op, check that bias is present.
+    // Key and Value bias must have the same shape.
     if constexpr (std::is_same_v<LinearOp, MatMulOpType>) {
       TypedValue<RankedTensorType> queryBias = matrixOps[0].getBias();
       TypedValue<RankedTensorType> keyBias = matrixOps[1].getBias();
@@ -2561,10 +2606,9 @@ private:
       if (!queryBias || !keyBias || !valueBias) {
         return false;
       }
-      auto queryBiasShape = queryBias.getType().getShape();
       auto keyBiasShape = keyBias.getType().getShape();
       auto valueBiasShape = valueBias.getType().getShape();
-      if (queryBiasShape != keyBiasShape || queryBiasShape != valueBiasShape) {
+      if (keyBiasShape != valueBiasShape) {
         return false;
       }
     }
