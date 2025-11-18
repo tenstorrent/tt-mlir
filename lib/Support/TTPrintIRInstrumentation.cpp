@@ -21,6 +21,14 @@ std::string expandAndCreateOutputDir(const std::string &outputDir) {
   std::filesystem::create_directories(result);
   return result;
 }
+
+mlir::OpPrintingFlags getStandardPrintingFlags() {
+  mlir::OpPrintingFlags flags;
+  flags.enableDebugInfo(true);
+  flags.elideLargeElementsAttrs(16);
+  flags.elideLargeResourceString(64);
+  return flags;
+}
 } // namespace
 
 TTPrintIRInstrumentation::TTPrintIRInstrumentation(
@@ -198,9 +206,7 @@ void TTPrintIRInstrumentation::runAfterPass(Pass *pass, Operation *op) {
     if (op) {
       std::string irString;
       llvm::raw_string_ostream os(irString);
-      mlir::OpPrintingFlags flags;
-      flags.enableDebugInfo();
-      op->print(os, flags);
+      op->print(os, getStandardPrintingFlags());
       os.flush();
       if (currentDepth_ < static_cast<int>(pipelineIRStack_.size())) {
         pipelineIRStack_[currentDepth_] = std::move(irString);
@@ -232,9 +238,7 @@ void TTPrintIRInstrumentation::dumpIR(mlir::Operation *op,
   }
   std::string irString;
   llvm::raw_string_ostream os(irString);
-  mlir::OpPrintingFlags flags;
-  flags.enableDebugInfo();
-  op->print(os, flags);
+  op->print(os, getStandardPrintingFlags());
   os.flush();
   dumpIR(irString, name);
 }
