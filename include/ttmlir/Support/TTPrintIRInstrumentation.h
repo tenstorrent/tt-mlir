@@ -8,10 +8,8 @@
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/Pass/PassInstrumentation.h"
 #include "mlir/Pass/PassManager.h"
-#include "mlir/Transforms/DialectConversion.h"
-#include <atomic>
-#include <fstream>
 #include <string>
+#include <vector>
 
 namespace mlir::tt {
 
@@ -27,14 +25,12 @@ public:
   };
 
   struct TTPrintIRInstrumentationOptions {
-    std::string outputDir =
-        "~/explorer"; // Default path for tt-explorer integration
+    std::string outputDir = "~/explorer";
     DumpLevel level = DumpLevel::Transformation;
-    bool debug = true;
-    bool dumpInitial = false;      // Dump initial IR before any passes run
-    bool onlyDumpOnChanges = true; // Only dump when IR actually changes
-    std::string modelName = ""; // Empty means extract from operation location
-    std::string pipelineName = ""; // Optional pipeline name for organization
+    bool dumpInitial = false;
+    bool onlyDumpOnChanges = true;
+    std::string modelName = "";
+    std::string pipelineName = "";
   };
 
   TTPrintIRInstrumentation(TTPrintIRInstrumentationOptions options);
@@ -51,8 +47,8 @@ public:
   // Pipeline Instrumentation Hooks
   //===--------------------------------------------------------------------===//
 
-  void runBeforePipeline(std::optional<OperationName> name,
-                         const PipelineParentInfo &parentInfo) override;
+  void runBeforePipeline(std::optional<OperationName>,
+                         const PipelineParentInfo &) override;
   void runAfterPipeline(std::optional<OperationName> name,
                         const PipelineParentInfo &parentInfo) override;
 
@@ -68,47 +64,33 @@ public:
   // Core IR Dumping Logic
   //===--------------------------------------------------------------------===//
 
-  // Dump IR to a file (overloaded for Operation* or string)
-  void dumpIR(mlir::Operation *op, const std::string &name,
-              const std::string &source = "unknown");
+  void dumpIR(mlir::Operation *op, const std::string &name);
   void dumpIR(const std::string &irString, const std::string &name);
-
-  // Extract model name from operation location metadata
   std::string extractModelNameFromLocation(mlir::Operation *op) const;
 
   //===--------------------------------------------------------------------===//
   // File and Path Management
   //===--------------------------------------------------------------------===//
 
-  // Sanitize a string for use as a filename
   std::string sanitizeFilename(const std::string &name) const;
-
-  // Generate the full output filename for a dump
   std::string getOutputFilename(const std::string &name) const;
-
-  // Initialize the dump counter (resets to 0)
   void initializeDumpCounter();
 
   //===--------------------------------------------------------------------===//
   // Member Variables
   //===--------------------------------------------------------------------===//
 
-  std::atomic<int> dumpCounter_; ///< Counter for naming dump files
-  std::string outputDir_;        ///< Base output directory path
-  std::string modelName_;        ///< Name of the model being processed
-  std::string pipelineName_;     ///< Optional pipeline identifier
-  DumpLevel level_;              ///< Level of instrumentation detail
-  bool dumpInitial_;       ///< Whether to dump initial IR before any passes
-  bool dumpedInitial_;     ///< Flag to ensure we only dump initial IR once
-  bool onlyDumpOnChanges_; ///< Whether to only dump when IR changes
-
-  // Change detection state
-  std::string lastDumpedIR_; ///< Last IR string that was actually dumped
-
-  // Pipeline-level dumping state
-  std::vector<std::string>
-      pipelineIRStack_; ///< Stack of IR strings for nested pipelines
-  int currentDepth_;    ///< Current pipeline nesting depth (0 = top-level)
+  int dumpCounter_;
+  std::string outputDir_;
+  std::string modelName_;
+  std::string pipelineName_;
+  DumpLevel level_;
+  bool dumpInitial_;
+  bool dumpedInitial_;
+  bool onlyDumpOnChanges_;
+  std::string lastDumpedIR_;
+  std::vector<std::string> pipelineIRStack_;
+  int currentDepth_;
 };
 
 //===--------------------------------------------------------------------===//
