@@ -39,19 +39,19 @@ void run(const ::tt::target::ttnn::ReduceScatterOp *op,
       ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
           op->memory_config());
   std::optional<::ttnn::Tensor> optionalOutputTensor = std::nullopt;
+  // Do not pass optionalOutputTensor to reduce_scatter for now.
+  // Enable it when needed.
 
-  std::optional<uint32_t> numLinks =
-      op->num_links() ? std::make_optional<uint32_t>(op->num_links().value())
-                      : std::nullopt;
-  std::optional<::tt::tt_fabric::Topology> topology =
-      op->topology()
-          ? std::make_optional<::tt::tt_fabric::Topology>(
-                ::tt::runtime::common::toMetalTopology(op->topology().value()))
-          : std::nullopt;
+  std::optional<uint32_t> numLinks = op->num_links();
+  std::optional<::tt::tt_fabric::Topology> topology = std::nullopt;
+  if (op->topology()) {
+    topology = std::make_optional<::tt::tt_fabric::Topology>(
+        ::tt::runtime::common::toMetalTopology(op->topology().value()));
+  }
 
   ::ttnn::Tensor out = ::ttnn::reduce_scatter(
       input, scatterDimension, clusterAxis, subDeviceId, outputMemoryConfig,
-      /*optionalOutputTensor=*/std::nullopt, numLinks, topology);
+      optionalOutputTensor, numLinks, topology);
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
