@@ -88,8 +88,7 @@ private:
     // to inserting:
     //   Dequantize(Quantize(op(Dequantize(...))))
     llvm::SmallVector<Value> sourceOperands = getSourceOperands(op);
-    Operation *newOp =
-        op.rewriteWithQuantizedInputs(rewriter, sourceOperands, {});
+    Operation *newOp = op.rewriteWithQuantizedInputs(rewriter, sourceOperands);
     llvm::SmallVector<mlir::Value> newResults;
     if (newOp) {
       // Op successfully rewritten in quantized form. For every output of the

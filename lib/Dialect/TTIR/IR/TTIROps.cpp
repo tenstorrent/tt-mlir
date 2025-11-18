@@ -57,8 +57,8 @@ bool mlir::tt::ttir::AddOp::isQuantizedRewriteFavorable(
 }
 
 mlir::Operation *mlir::tt::ttir::AddOp::rewriteWithQuantizedInputs(
-    mlir::PatternRewriter &rewriter, mlir::ArrayRef<mlir::Value> sourceOperands,
-    mlir::ValueRange outputOperands) {
+    mlir::PatternRewriter &rewriter,
+    mlir::ArrayRef<mlir::Value> sourceOperands) {
   // Two cases:
   // 1. One operand is quantized and the other is not: apply quantization and
   //    proceed to case two.
@@ -112,8 +112,7 @@ mlir::Operation *mlir::tt::ttir::AddOp::rewriteWithQuantizedInputs(
     }
   }
   // Now both values are quantized (and are equivalent).
-  Value output = outputOperands.front();
-  RankedTensorType oldType = mlir::cast<RankedTensorType>(output.getType());
+  RankedTensorType oldType = mlir::cast<RankedTensorType>(getType());
   RankedTensorType newResultType = RankedTensorType::get(
       oldType.getShape(), lhsElemQ, oldType.getEncoding());
 
@@ -1100,8 +1099,7 @@ bool mlir::tt::ttir::ConvolutionOp::isQuantizedRewriteFavorable(
 }
 
 mlir::Operation *mlir::tt::ttir::ConvolutionOp::rewriteWithQuantizedInputs(
-    mlir::PatternRewriter &rewriter, mlir::ArrayRef<Value> sourceOperands,
-    mlir::ValueRange outputOperands) {
+    mlir::PatternRewriter &rewriter, mlir::ArrayRef<Value> sourceOperands) {
   // rewrite the convolution op to be quantized.
   // create the output quantized type, whose scale is input * weight and
   // storage type is i32.
@@ -1312,22 +1310,22 @@ static bool isIdentityPooling(mlir::tt::ttir::PoolingOp op) {
 // Returns:
 // - A pointer to the newly created quantized PoolingOp.
 mlir::Operation *mlir::tt::ttir::PoolingOp::rewriteWithQuantizedInputs(
-    mlir::PatternRewriter &rewriter, mlir::ArrayRef<mlir::Value> sourceOperands,
-    mlir::ValueRange outputOperands) {
+    mlir::PatternRewriter &rewriter,
+    mlir::ArrayRef<mlir::Value> sourceOperands) {
   // NOLINTBEGIN(clang-analyzer-core.StackAddressEscape)
   // Can only commute if the pooling method is Max.
   if (this->getPoolingMethod() != PoolingMethod::Max) {
     return nullptr;
   }
   SmallVector<Type> resultTypes;
-  for (auto [in, out] : llvm::zip(sourceOperands, outputOperands)) {
+  for (auto [idx, in] : llvm::enumerate(sourceOperands)) {
     // Can only commute in the per tensor quantized case.
     if (auto perAxis = mlir::dyn_cast<mlir::quant::UniformQuantizedPerAxisType>(
             in.getType())) {
       return nullptr;
     }
     auto inType = mlir::cast<RankedTensorType>(in.getType());
-    auto outType = mlir::cast<RankedTensorType>(out.getType());
+    auto outType = mlir::cast<RankedTensorType>(getResult(idx).getType());
     auto newResultType = RankedTensorType::get(
         outType.getShape(), inType.getElementType(), outType.getEncoding());
     resultTypes.push_back(newResultType);

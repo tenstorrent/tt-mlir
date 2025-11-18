@@ -16,7 +16,7 @@ func.func @quantize_datatype_transform_test(%arg0: tensor<1x3x320x320xf32>) -> t
     // CHECK-INT16: %[[RET:[0-9]+]] = "ttir.quantize"(%arg0) : (tensor<1x3x320x320xf32>) -> tensor<1x3x320x320x!quant.uniform<i16:f32, 1.000000e-01>>
     // CHECK-INT16: return %[[RET]] : tensor<1x3x320x320x!quant.uniform<i16:f32, 1.000000e-01>>
 
-    %1 = "ttir.quantize"(%arg0) : (tensor<1x3x320x320xf32>, tensor<1x3x320x320x!quant.uniform<i8:f32) -> tensor<1x3x320x320x!quant.uniform<i8:f32, 1.000000e-01>>
+    %1 = "ttir.quantize"(%arg0) : (tensor<1x3x320x320xf32>) -> tensor<1x3x320x320x!quant.uniform<i8:f32, 1.000000e-01>>
     return %1 : tensor<1x3x320x320x!quant.uniform<i8:f32, 1.000000e-01>>
   }
 
@@ -43,6 +43,6 @@ func.func @requantize_datatype_transform_test(%arg0: tensor<1x3x320x320x!quant.u
   // CHECK-INT16: %[[RET:[0-9]+]] = "ttir.requantize"(%arg0) : (tensor<1x3x320x320x!quant.uniform<i16:f32, 1.000000e-01>>) -> tensor<1x3x320x320x!quant.uniform<i16:f32, 2.000000e-01>>
   // CHECK-INT16: return %[[RET]] : tensor<1x3x320x320x!quant.uniform<i16:f32, 2.000000e-01>>
 
-  %1 = "ttir.requantize"(%arg0) : (tensor<1x3x320x320x!quant.uniform<i8:f32, 1.000000e-01>>, tensor<1x3x320x320x!quant.uniform<i8:f32) -> tensor<1x3x320x320x!quant.uniform<i8:f32, 2.000000e-01>>
+  %1 = "ttir.requantize"(%arg0) : (tensor<1x3x320x320x!quant.uniform<i8:f32, 1.000000e-01>>) -> tensor<1x3x320x320x!quant.uniform<i8:f32, 2.000000e-01>>
   return %1 : tensor<1x3x320x320x!quant.uniform<i8:f32, 2.000000e-01>>
 }
