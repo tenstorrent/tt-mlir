@@ -16,6 +16,7 @@
 #include "ttmlir/Dialect/TTNN/Transforms/OptimizerPassesWrapper.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
 #include "ttmlir/Support/Logger.h"
+#include "ttmlir/Support/TTPrintIRInstrumentation.h"
 #include "ttmlir/Transforms/Passes.h"
 
 #include "mlir/Pass/PassManager.h"
