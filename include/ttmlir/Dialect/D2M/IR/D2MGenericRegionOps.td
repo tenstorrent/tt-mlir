@@ -1241,7 +1241,7 @@ def D2M_PushOp : D2M_GenericRegionOp<"push",
       return mlir::cast<CBType>(getCb().getType());
     }
 
-    bool hasTensorSemantics() { return false; }
+    bool hasTensorSemantics() { return getCbType().hasTensorType(); }
   }];
 }
 
@@ -1281,7 +1281,7 @@ def D2M_PopOp : D2M_GenericRegionOp<"pop",
       return mlir::cast<CBType>(getCb().getType());
     }
 
-    bool hasTensorSemantics() { return false; }
+    bool hasTensorSemantics() { return getCbType().hasTensorType(); }
   }];
 }
 

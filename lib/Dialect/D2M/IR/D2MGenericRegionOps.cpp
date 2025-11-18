@@ -590,6 +590,15 @@ mlir::LogicalResult
 PushOp::bufferize(mlir::RewriterBase &rewriter,
                   const mlir::bufferization::BufferizationOptions &options,
                   mlir::bufferization::BufferizationState &) {
+  // Unwrap to_tensor by creating to_buffer (same pattern as WaitOp/ReserveOp)
+  auto cbBufferType =
+      mlir::cast<bufferization::TensorLikeType>(getCbType()).getBufferType(
+          options, [&]() { return this->emitOpError(); });
+  assert(succeeded(cbBufferType));
+  auto toBuffer = rewriter.create<bufferization::ToBufferOp>(this->getLoc(),
+                                                              *cbBufferType, getCb());
+  mlir::bufferization::replaceOpWithNewBufferizedOp<PushOp>(rewriter, *this,
+                                                             toBuffer.getResult());
   return mlir::success();
 }
 
@@ -624,5 +633,14 @@ mlir::LogicalResult
 PopOp::bufferize(mlir::RewriterBase &rewriter,
                  const mlir::bufferization::BufferizationOptions &options,
                  mlir::bufferization::BufferizationState &) {
+  // Unwrap to_tensor by creating to_buffer (same pattern as WaitOp/ReserveOp)
+  auto cbBufferType =
+      mlir::cast<bufferization::TensorLikeType>(getCbType()).getBufferType(
+          options, [&]() { return this->emitOpError(); });
+  assert(succeeded(cbBufferType));
+  auto toBuffer = rewriter.create<bufferization::ToBufferOp>(this->getLoc(),
+                                                              *cbBufferType, getCb());
+  mlir::bufferization::replaceOpWithNewBufferizedOp<PopOp>(rewriter, *this,
+                                                            toBuffer.getResult());
   return mlir::success();
 }
