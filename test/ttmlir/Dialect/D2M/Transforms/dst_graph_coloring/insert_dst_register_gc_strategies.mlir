@@ -9,8 +9,8 @@
 //   (independent set - no interferences)
 //
 // Both linear and graph coloring can use 1 color:
-//   dst0 → color 0
-//   dst1 → color 0 (reuse)
+//   dst0 -> color 0
+//   dst1 -> color 0 (reuse)
 //   Total: 1 color (1 DST slice)
 #dst_ = #ttcore.memory_space<dst>
 
@@ -50,8 +50,8 @@ func.func @test_non_interfering() {
 //   (single edge)
 //
 // Both linear and graph coloring need 2 colors:
-//   dst0 → color 0
-//   dst1 → color 1
+//   dst0 -> color 0
+//   dst1 -> color 1
 //   Total: 2 colors (2 DST slices)
 #l1_ = #ttcore.memory_space<l1>
 #dst_ = #ttcore.memory_space<dst>
@@ -115,9 +115,9 @@ func.func @test_interfering_dst(%cb0: memref<1x1x!ttcore.tile<32x32, f32>, #l1_>
 //  (triangle - all nodes interfere)
 //
 // Both linear and graph coloring need 3 colors:
-//   dst0 → color 0
-//   dst1 → color 1
-//   dst2 → color 2
+//   dst0 -> color 0
+//   dst1 -> color 1
+//   dst2 -> color 2
 //   Total: 3 colors (3 DST slices)
 #l1_ = #ttcore.memory_space<l1>
 #dst_ = #ttcore.memory_space<dst>
@@ -194,9 +194,9 @@ func.func @test_loop_interference(%cb0: memref<2x2x!ttcore.tile<32x32, f32>, #l1
 //   (independent set - no interferences)
 //
 // Both linear and graph coloring can use 1 color:
-//   dst0 → color 0
-//   dst1 → color 0 (reuse)
-//   dst2 → color 0 (reuse)
+//   dst0 -> color 0
+//   dst1 -> color 0 (reuse)
+//   dst2 -> color 0 (reuse)
 //   Total: 1 color (1 DST slice)
 #l1_ = #ttcore.memory_space<l1>
 #dst_ = #ttcore.memory_space<dst>
@@ -272,20 +272,20 @@ func.func @test_sequential_reuse(%cb0: memref<1x1x!ttcore.tile<32x32, f32>, #l1_
 //      dst3
 //
 // Linear allocation would assign:
-//   dst0 → color 0
-//   dst1 → color 1
-//   dst2 → color 2
-//   dst3 → color 3
+//   dst0 -> color 0
+//   dst1 -> color 1
+//   dst2 -> color 2
+//   dst3 -> color 3
 //   Total: 4 colors (4 DST slices)
 //
 // Graph coloring recognizes:
-//   - dst0 and dst2 don't interfere → can share color
-//   - dst1 and dst3 don't interfere → can share color
+//   - dst0 and dst2 don't interfere -> can share color
+//   - dst1 and dst3 don't interfere -> can share color
 //   Optimal assignment:
-//   dst0 → color 0
-//   dst1 → color 1
-//   dst2 → color 0 (reuse!)
-//   dst3 → color 1 (reuse!)
+//   dst0 -> color 0
+//   dst1 -> color 1
+//   dst2 -> color 0 (reuse!)
+//   dst3 -> color 1 (reuse!)
 //   Total: 2 colors (2 DST slices)
 //
 // This demonstrates 50% reduction in DST usage compared to the incremental allocator

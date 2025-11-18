@@ -7,9 +7,9 @@
 
 module {
   // CHECK-LABEL: func.func @no_loops
-  func.func @no_loops(%in0: memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #l1_>,
-                      %in1: memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #l1_>,
-                      %out0: memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #l1_>) {
+  func.func @no_loops(%in0: memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_>,
+                      %in1: memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_>,
+                      %out0: memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_>) {
     d2m.generic {
       block_factors = [1, 1, 1],
       grid = #ttcore.grid<1x1>,
@@ -20,39 +20,39 @@ module {
       ],
       iterator_types = [#ttcore.iterator_type<parallel>, #ttcore.iterator_type<parallel>, #ttcore.iterator_type<reduction>],
       threads = [#d2m.thread<compute>]
-    } ins(%in0, %in1 : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #l1_>,
-                       memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #l1_>)
-      outs(%out0 : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #l1_>) {
+    } ins(%in0, %in1 : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_>,
+                       memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_>)
+      outs(%out0 : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_>) {
     ^compute0(%cb0: !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #l1_>>,
               %cb1: !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #l1_>>,
               %cb2: !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #l1_>>):
       // CHECK: %[[DST:.*]] = d2m.acquire_dst() : memref<1x1x1x!ttcore.tile<32x32, f32>, #dst>
-      // CHECK: %[[MEM0:.*]] = d2m.wait
-      // CHECK: %[[MEM1:.*]] = d2m.wait
-      // CHECK: %[[MEM2:.*]] = d2m.reserve
+      // CHECK-DAG: %[[MEM0:.*]] = d2m.wait
+      // CHECK-DAG: %[[MEM1:.*]] = d2m.wait
+      // CHECK-DAG: %[[MEM2:.*]] = d2m.reserve
       %mem0 = d2m.wait %cb0 : !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #l1_>> -> memref<1x1x!ttcore.tile<32x32, f32>, #l1_>
       %mem1 = d2m.wait %cb1 : !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #l1_>> -> memref<1x1x!ttcore.tile<32x32, f32>, #l1_>
       %mem2 = d2m.reserve %cb2 : !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #l1_>> -> memref<1x1x!ttcore.tile<32x32, f32>, #l1_>
 
       %c0 = arith.constant 0 : index
 
-      // Load inputs from L1
-      // CHECK: %[[A:.*]] = affine.load %[[MEM0]][0, 0]
-      // CHECK: %[[B:.*]] = affine.load %[[MEM1]][0, 0]
-      // CHECK: %[[C:.*]] = affine.load %[[MEM2]][0, 0]
+      // Load inputs from L1 (may be reordered, canonicalize folds constants)
+      // CHECK-DAG: %[[A:.*]] = affine.load %[[MEM0]][0, 0]
+      // CHECK-DAG: %[[B:.*]] = affine.load %[[MEM1]][0, 0]
+      // CHECK-DAG: %[[C:.*]] = affine.load %[[MEM2]][0, 0]
       %a = affine.load %mem0[%c0, %c0] : memref<1x1x!ttcore.tile<32x32, f32>, #l1_>
       %b = affine.load %mem1[%c0, %c0] : memref<1x1x!ttcore.tile<32x32, f32>, #l1_>
       %c = affine.load %mem2[%c0, %c0] : memref<1x1x!ttcore.tile<32x32, f32>, #l1_>
 
-      // Accumulator is stored to DST before matmul
+      // Accumulator stored to DST
       // CHECK: affine.store %[[C]], %[[DST]][0, 0, 0]
-
       // Accumulator loaded from DST for matmul
       // CHECK: %[[C_DST:.*]] = affine.load %[[DST]][0, 0, 0]
+      // Matmul with A, B from L1 and C from DST
       // CHECK: %[[RESULT:.*]] = "d2m.tile_matmul"(%[[A]], %[[B]], %[[C_DST]])
       %result = "d2m.tile_matmul"(%a, %b, %c) : (!ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
 
-      // Result stored back to DST, then loaded and written to L1
+      // Result stored to DST, then loaded and written to L1
       // CHECK: affine.store %[[RESULT]], %[[DST]][0, 0, 0]
       // CHECK: %[[FINAL:.*]] = affine.load %[[DST]][0, 0, 0]
       // CHECK: affine.store %[[FINAL]], %[[MEM2]][0, 0]
@@ -64,9 +64,9 @@ module {
   }
 
   // CHECK-LABEL: func.func @generic_matmul
-  func.func @generic_matmul(%in0: memref<1x1x3x3x!ttcore.tile<32x32, f32>, #ttcore.shard<12288x4096>, #l1_>,
-                            %in1: memref<1x1x3x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096>, #l1_>,
-                            %out0: memref<1x1x3x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096>, #l1_>) {
+  func.func @generic_matmul(%in0: memref<1x1x3x3x!ttcore.tile<32x32, f32>, #ttcore.shard<12288x4096, 1>, #l1_>,
+                            %in1: memref<1x1x3x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1_>,
+                            %out0: memref<1x1x3x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1_>) {
     d2m.generic {
       block_factors = [1, 1, 1],
       grid = #ttcore.grid<1x1>,
@@ -77,9 +77,9 @@ module {
       ],
       iterator_types = [#ttcore.iterator_type<parallel>, #ttcore.iterator_type<parallel>, #ttcore.iterator_type<reduction>],
       threads = [#d2m.thread<compute>]
-    } ins(%in0, %in1 : memref<1x1x3x3x!ttcore.tile<32x32, f32>, #ttcore.shard<12288x4096>, #l1_>,
-                       memref<1x1x3x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096>, #l1_>)
-      outs(%out0 : memref<1x1x3x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096>, #l1_>) {
+    } ins(%in0, %in1 : memref<1x1x3x3x!ttcore.tile<32x32, f32>, #ttcore.shard<12288x4096, 1>, #l1_>,
+                       memref<1x1x3x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1_>)
+      outs(%out0 : memref<1x1x3x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1_>) {
     ^compute0(%cb0: !d2m.cb<memref<3x3x!ttcore.tile<32x32, f32>, #l1_>>,
               %cb1: !d2m.cb<memref<3x2x!ttcore.tile<32x32, f32>, #l1_>>,
               %cb2: !d2m.cb<memref<3x2x!ttcore.tile<32x32, f32>, #l1_>>):
