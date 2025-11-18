@@ -1029,7 +1029,6 @@ inline ::tt::target::Topology toFlatbuffer(FlatbufferObjectCache &cache,
     fbTopology = ::tt::target::Topology::Torus;
     break;
   }
-  llvm_unreachable("Unsupported Topology");
   return fbTopology;
 }
 
