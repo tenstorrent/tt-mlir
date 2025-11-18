@@ -2186,18 +2186,16 @@ private:
                               llvm::SmallVector<MatMulOpType> &matmulOps,
                               llvm::SmallVector<PermuteOp> &permuteOps) const {
 
-    // Extract dimensions from reshape op and permute ops.
+    // Extract dimensions from reshape op and matmul ops.
     Value reshapeOutput = reshapeOp.getResult();
-    // ArrayRef<int64_t> inputShape = reshapeOp.getInput().getType().getShape();
-    // int32_t batchSize = inputShape[I_BATCH_SIZE];
-    // int32_t sequenceLength = inputShape[I_SEQUENCE_LENGTH];
+    MatMulOpType queryMatmulOp = matmulOps[0];
+    MatMulOpType keyMatmulOp = matmulOps[1];
 
     // Concatenate key and value weights along dimension determined by
     // transposeB attribute.
     TypedValue<RankedTensorType> keyWeightMatrix = matmulOps[1].getB();
     TypedValue<RankedTensorType> valueWeightMatrix = matmulOps[2].getB();
 
-    MatMulOpType keyMatmulOp = matmulOps[1];
     std::size_t dimToConcatWeights = keyMatmulOp.getTransposeB() ? 0 : 1;
 
     // Assert that keyMatmulOp A and B have rank 2.
@@ -2208,7 +2206,6 @@ private:
     ttir::ConcatOp concatenatedWeightMatrix = concatenateAlongDim(
         rewriter, valueWeightMatrix.getLoc(),
         ValueRange{keyWeightMatrix, valueWeightMatrix}, dimToConcatWeights);
-    llvm::outs() << concatenatedWeightMatrix << "\n";
 
     Value concatenatedBias = nullptr;
     if constexpr (std::is_same_v<LinearOp, MatMulOpType>) {
@@ -2250,9 +2247,77 @@ private:
         keyMatmulOp->getAttrs());
 
     TT_assertv(matrixMultOp, "Expected valid matrix multiplication operation");
-    llvm::outs() << matrixMultOp << "\n";
 
-    return mlir::failure();
+    // Reshape query matmul / linear op from [batch_size * sequence_size,
+    // query_hidden_size] to [batch_size, sequence_size, query_hidden_size].
+    // Reshape kv matmul / linear op from [batch_size * sequence_size,
+    // 2 * kv_hidden_size] to [batch_size, sequence_size, 2 * kv_hidden_size].
+
+    ArrayRef<int64_t> inputShape = reshapeOp.getInput().getType().getShape();
+    int32_t batchSize = inputShape[I_BATCH_SIZE];
+    int32_t sequenceLength = inputShape[I_SEQUENCE_LENGTH];
+
+    auto queryType = permuteOps[0].getOutput().getType();
+    auto keyType = permuteOps[1].getOutput().getType();
+    auto valueType = permuteOps[2].getOutput().getType();
+
+    auto queryShape = queryType.getShape();
+    auto keyShape = keyType.getShape();
+    auto valueShape = valueType.getShape();
+
+    int32_t headSize = keyShape[O_HEAD_SIZE];           // 128
+    int32_t numQueryHeads = queryShape[O_NUM_KV_HEADS]; // 24
+    int numKVHeads = keyShape[O_NUM_KV_HEADS];          // 8
+    int32_t KVHiddenSize = headSize * numKVHeads;       // 1024
+    int32_t queryHiddenSize = headSize * numQueryHeads; // 3072
+
+    SmallVector<int64_t> queryReshapeShape = {batchSize, sequenceLength,
+                                              queryHiddenSize};
+    auto queryReshapeElementType = queryMatmulOp.getType().getElementType();
+    auto queryReshapeEncoding = queryMatmulOp.getType().getEncoding();
+    SmallVector<int32_t> queryReshapeShapeI32(queryReshapeShape.begin(),
+                                              queryReshapeShape.end());
+    ReshapeOp queryReshape = ttir::utils::createDPSOp<ttir::ReshapeOp>(
+        rewriter, matrixMultOp.getLoc(), queryReshapeShape,
+        queryReshapeElementType, queryReshapeEncoding, queryMatmulOp,
+        rewriter.getI32ArrayAttr(queryReshapeShapeI32));
+
+    SmallVector<int64_t> kvReshapeShape = {batchSize, sequenceLength,
+                                           KVHiddenSize * 2};
+    auto kvReshapeElementType = keyMatmulOp.getType().getElementType();
+    auto kvReshapeEncoding = keyMatmulOp.getType().getEncoding();
+    SmallVector<int32_t> kvReshapeShapeI32(kvReshapeShape.begin(),
+                                           kvReshapeShape.end());
+    ReshapeOp kvReshape = ttir::utils::createDPSOp<ttir::ReshapeOp>(
+        rewriter, matrixMultOp.getLoc(), kvReshapeShape, kvReshapeElementType,
+        kvReshapeEncoding, matrixMultOp,
+        rewriter.getI32ArrayAttr(kvReshapeShapeI32));
+
+    // Create split qkv op.
+    Value queryOutput = rewriter.create<EmptyOp>(
+        matrixMultOp.getLoc(), queryShape, queryType.getElementType(),
+        queryType.getEncoding());
+    Value keyOutput = rewriter.create<EmptyOp>(matrixMultOp.getLoc(), keyShape,
+                                               keyType.getElementType(),
+                                               keyType.getEncoding());
+    Value valueOutput = rewriter.create<EmptyOp>(
+        matrixMultOp.getLoc(), valueShape, valueType.getElementType(),
+        valueType.getEncoding());
+
+    // Determine if need to transpose key based on key and value.
+    bool transposeKey = isKeyTransposed(keyShape, valueShape);
+    auto splitOp = rewriter.create<SplitQueryKeyValueAndSplitHeadsOp>(
+        matrixMultOp->getLoc(), ArrayRef<Type>{queryType, keyType, valueType},
+        queryReshape.getResult(), kvReshape.getResult(), queryOutput, keyOutput,
+        valueOutput, rewriter.getUI32IntegerAttr(numQueryHeads),
+        rewriter.getUI32IntegerAttr(numKVHeads),
+        rewriter.getBoolAttr(transposeKey) /*transpose_key*/);
+
+    rewriter.replaceOp(permuteOps[0], splitOp.getQuery());
+    rewriter.replaceOp(permuteOps[1], splitOp.getKey());
+    rewriter.replaceOp(permuteOps[2], splitOp.getValue());
+
+    return mlir::success();
   }
 
   mlir::LogicalResult fuseMHA(mlir::PatternRewriter &rewriter,
@@ -2374,7 +2439,6 @@ private:
           return AttentionType::MHA;
         }
         if (isGQA(matmulOps, permuteOps)) {
-          llvm::outs() << "Detected GQA pattern\n";
           return AttentionType::GQA;
         }
       }
@@ -2412,6 +2476,7 @@ private:
     }
     return true;
   }
+
   bool isGQA(llvm::SmallVector<MatMulOpType> matmulOps,
              llvm::SmallVector<PermuteOp> permuteOps) const {
     // This function checks if the pattern is Grouped Query Attention (GQA):
