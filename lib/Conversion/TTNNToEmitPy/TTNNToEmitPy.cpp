@@ -2719,14 +2719,6 @@ public:
 namespace {
 class AllReduceOpConversionPattern
     : public TTNNToEmitPyBaseOpConversionPattern<mlir::tt::ttnn::AllReduceOp> {
-private:
-  std::string getPrefixSearchPattern() const override {
-    return "ttnn.all_reduce";
-  }
-  std::string getPrefixSwapPattern() const override {
-    return "ttnn.experimental.all_reduce_async";
-  }
-
 public:
   using TTNNToEmitPyBaseOpConversionPattern<
       mlir::tt::ttnn::AllReduceOp>::TTNNToEmitPyBaseOpConversionPattern;
@@ -2741,11 +2733,10 @@ public:
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput(), "input_tensor"),
         emitter.emit(srcOp.getClusterAxis(), "cluster_axis"),
-        emitter.emit(srcOp.getDevice(), "mesh_device"),
-        emitter.emit(srcOp.getReduceType(), "math_op"),
-        emitter.emit(emitter.getMemoryConfig(srcOp.getResult()),
-                     "memory_config"),
-        emitter.emit(mlir::tt::ttcore::Topology::Linear, "topology"),
+        emitter.emitSubDeviceId(srcOp.getSubDeviceId(), "subdevice_id"),
+        emitter.emit(srcOp.getMemoryConfig(), "memory_config"),
+        emitter.emit(srcOp.getNumLinks(), "num_links"),
+        emitter.emit(srcOp.getTopology(), "topology"),
     };
 
     emitter.replaceOp(*this, args);
