@@ -12,6 +12,7 @@
 #include "mlir/Analysis/Liveness.h"
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/IR/PatternMatch.h"
 #include "ttmlir/Utils.h"
 
@@ -209,6 +210,14 @@ struct D2MInsertDstRegisterGCPass
         rewriter.create<ReleaseDstOp>(genericOp.getLoc(),
                                       acquireDst.getResult());
 
+        // Try linalg.generic splitting approach first for better fusion.
+        // If successful, the region is fully transformed and we're done.
+        // Otherwise, fall back to inline copy generation with affine loops.
+        if (trySplitLinalgGeneric(genericOp, region, acquireDst, coloring,
+                                  dstAccesses)) {
+          continue;
+        }
+
         // Generate data copy loops and rewrite loads/stores.
         // Process loads: generate L1→DST copy, then replace with DST load
         for (size_t accessIndex = 0; accessIndex < dstAccesses.size();
@@ -278,6 +287,40 @@ struct D2MInsertDstRegisterGCPass
   }
 
 private:
+  // Try to split a linalg.generic operation into three separate linalg.generic
+  // operations: copy-in (L1→DST), compute, copy-out (DST→L1).
+  // This enables better data movement fusion compared to inline copies.
+  //
+  // Returns true if the region was successfully transformed, false otherwise
+  // (e.g., no linalg.generic found, or region already has affine loops).
+  bool trySplitLinalgGeneric(GenericOp genericOp, Region &region,
+                             AcquireDstOp acquireDst,
+                             const std::vector<unsigned> &coloring,
+                             const SmallVector<std::pair<Operation *, int64_t>> &dstAccesses) {
+    // Find linalg.generic operation in the region
+    linalg::GenericOp linalgOp = nullptr;
+    region.walk([&](linalg::GenericOp op) {
+      if (!linalgOp) {
+        linalgOp = op;
+      }
+    });
+
+    if (!linalgOp) {
+      // No linalg.generic found, fall back to affine loop approach
+      return false;
+    }
+
+    // TODO(bnorris): Implement linalg.generic splitting:
+    // 1. Create copy-in linalg.generic: for each input, create a generic that
+    //    loads from L1 input memref and stores to DST with assigned slice
+    // 2. Clone compute linalg.generic: replace input block args to load from DST,
+    //    replace output block arg to store to DST
+    // 3. Create copy-out linalg.generic: load from DST and store to L1 output
+    //
+    // For now, return false to use the existing affine loop approach
+    return false;
+  }
+
   // Identify DST accesses that need coloring based on compute operations.
   // This uses the OperandLoadStoreRegisterOpInterface to find which operands
   // need to be loaded from DST registers, similar to InsertDstRegisterAccess.
