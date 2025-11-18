@@ -4,7 +4,7 @@
 module {
   func.func @ternary_same_shape_no_transform(%arg0: tensor<64x128xf32>, %arg1: tensor<64x128xf32>, %arg2: tensor<64x128xf32>) -> tensor<64x128xf32> {
     %1 = "ttir.where"(%arg0, %arg1, %arg2) : (tensor<64x128xf32>, tensor<64x128xf32>, tensor<64x128xf32>) -> tensor<64x128xf32>
-    // CHECK: "ttir.where"(%arg0, %arg1, %arg2,
+    // CHECK: "ttir.where"(%arg0, %arg1, %arg2
     // CHECK-NOT: "ttir.reshape"
     // CHECK-NOT: "ttir.broadcast"
     return %1 : tensor<64x128xf32>
@@ -12,7 +12,7 @@ module {
 
   func.func @ternary_reshape_first(%arg0: tensor<64x128xf32>, %arg1: tensor<1x64x128xf32>, %arg2: tensor<1x64x128xf32>) -> tensor<1x64x128xf32> {
     %1 = "ttir.where"(%arg0, %arg1, %arg2) : (tensor<64x128xf32>, tensor<1x64x128xf32>, tensor<1x64x128xf32>) -> tensor<1x64x128xf32>
-    // CHECK: [[RESHAPE0:%[0-9]+]] = "ttir.reshape"(%arg0,
+    // CHECK: [[RESHAPE0:%[0-9]+]] = "ttir.reshape"(%arg0
     // CHECK-SAME: -> tensor<1x64x128xf32>
     // CHECK: "ttir.where"([[RESHAPE0]], %arg1, %arg2
     return %1 : tensor<1x64x128xf32>

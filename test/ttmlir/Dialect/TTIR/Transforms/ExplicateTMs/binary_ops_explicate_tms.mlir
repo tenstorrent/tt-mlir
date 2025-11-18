@@ -4,7 +4,7 @@
 module {
   func.func @binary_same_shape_no_transform(%arg0: tensor<64x128xf32>, %arg1: tensor<64x128xf32>) -> tensor<64x128xf32> {
     %1 = "ttir.add"(%arg0, %arg1) : (tensor<64x128xf32>, tensor<64x128xf32>) -> tensor<64x128xf32>
-    // CHECK: "ttir.add"(%arg0, %arg1, %0)
+    // CHECK: "ttir.add"(%arg0, %arg1
     // CHECK-NOT: "ttir.reshape"
     // CHECK-NOT: "ttir.broadcast"
     return %1 : tensor<64x128xf32>

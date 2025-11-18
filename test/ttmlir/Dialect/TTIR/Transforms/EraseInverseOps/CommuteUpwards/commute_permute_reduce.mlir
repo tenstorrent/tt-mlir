@@ -39,7 +39,7 @@ module {
         %5 = "ttir.permute"(%1) <{permutation = array<i64: 0, 3, 1, 2>}> : (tensor<12x1x1x1152xbf16>) -> tensor<12x1152x1x1xbf16>
         %7 = "ttir.add"(%3, %5) : (tensor<12x1152x1x1xbf16>, tensor<12x1152x1x1xbf16>) -> tensor<12x1152x1x1xbf16>
         %9 = "ttir.permute"(%1) <{permutation = array<i64: 0, 3, 1, 2>}> : (tensor<12x1x1x1152xbf16>) -> tensor<12x1152x1x1xbf16>
-        %11 = "ttir.relu"(%9, %10) : (tensor<12x1152x1x1xbf16>) -> tensor<12x1152x1x1xbf16>
+        %11 = "ttir.relu"(%9) : (tensor<12x1152x1x1xbf16>) -> tensor<12x1152x1x1xbf16>
         return %7, %11 : tensor<12x1152x1x1xbf16>, tensor<12x1152x1x1xbf16>
     }
 
@@ -94,7 +94,7 @@ module {
     func.func @test_permute_argmax_inverse_permute_upwards(%arg0: tensor<12x7x7x1152xbf16>) -> tensor<12x1x7x1152xi32> {
         // CHECK: "ttir.argmax"{{.*}}dim_arg = [1 : i32]{{.*}}
         // CHECK-NOT: "ttir.permute"
-        %1 = "ttir.permute"(%arg0) <{permutation = array<i64: 0, 3, 1, 2>}> : (tensor<12x7x7x1152xbf16>>) -> tensor<12x1152x7x7xbf16>
+        %1 = "ttir.permute"(%arg0) <{permutation = array<i64: 0, 3, 1, 2>}> : (tensor<12x7x7x1152xbf16>) -> tensor<12x1152x7x7xbf16>
         %3 = "ttir.argmax"(%1) <{dim_arg = [2 : i32], keep_dim = true}> : (tensor<12x1152x7x7xbf16>) -> tensor<12x1152x1x7xi32>
         %5 = "ttir.permute"(%3) <{permutation = array<i64: 0, 2, 3, 1>}> : (tensor<12x1152x1x7xi32>) -> tensor<12x1x7x1152xi32>
         return %5 : tensor<12x1x7x1152xi32>

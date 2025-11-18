@@ -162,9 +162,7 @@ private:
     // - Are an identical TM
     // - Are on a consteval-able path
 
-    auto dps = mlir::cast<mlir::DestinationStyleOpInterface>(op.getOperation());
-    for (mlir::OpOperand *operand : dps.getDpsInputOperands()) {
-      auto operandValue = operand->get();
+    for (auto operandValue : op->getOperands()) {
       if (checkIdenticalTms(operandValue.getDefiningOp(), permuteOperand) ||
           ttcore::valueTracesToConstantArgs(operandValue)) {
         continue;

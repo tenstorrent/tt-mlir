@@ -8,10 +8,8 @@ module {
     // CHECK: %[[CONCAT:[0-9]+]] = "ttir.concat"(%[[RESHAPE1]], %[[RESHAPE2]]
     // CHECK: dim = 2
     // CHECK: return %[[CONCAT]]
-    %0 = tensor.empty() : tensor<1x64x64x2xbf16>
-    %1 = "ttir.concat"(%arg0, %arg1, %0) <{dim = 3 : si32}> : (tensor<1x64x64x1xbf16>, tensor<1x64x64x1xbf16>, tensor<1x64x64x2xbf16>) -> tensor<1x64x64x2xbf16>
-    %2 = tensor.empty() : tensor<1x4096x2xbf16>
-    %3 = "ttir.reshape"(%1, %2) <{shape = [1: i32, 4096: i32, 2: i32]}> : (tensor<1x64x64x2xbf16>, tensor<1x4096x2xbf16>) -> tensor<1x4096x2xbf16>
+    %1 = "ttir.concat"(%arg0, %arg1) <{dim = 3 : si32}> : (tensor<1x64x64x1xbf16>, tensor<1x64x64x1xbf16>) -> tensor<1x64x64x2xbf16>
+    %3 = "ttir.reshape"(%1) <{shape = [1: i32, 4096: i32, 2: i32]}> : (tensor<1x64x64x2xbf16>) -> tensor<1x4096x2xbf16>
     return %3 : tensor<1x4096x2xbf16>
   }
 }

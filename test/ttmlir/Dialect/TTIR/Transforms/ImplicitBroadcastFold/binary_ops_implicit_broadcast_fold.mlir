@@ -63,9 +63,9 @@ module {
     %15 = "ttir.add"(%13, %11) : (tensor<32x64x128xf32>, tensor<32x64x128xf32>) -> tensor<32x64x128xf32>
     // CHECK: [[ADD0:%[0-9]+]] = "ttir.add"(%arg0, %arg1)
     // CHECK-SAME: -> tensor<1x1x128xf32>
-    // CHECK: [[MUL0:%[0-9]+]] = "ttir.multiply"(%arg2, %arg3, %2)
+    // CHECK: [[MUL0:%[0-9]+]] = "ttir.multiply"(%arg2, %arg3
     // CHECK-SAME: -> tensor<1x1x128xf32>
-    // CHECK: [[ADD1:%[0-9]+]] = "ttir.add"([[ADD0]], [[MUL0]], %4)
+    // CHECK: [[ADD1:%[0-9]+]] = "ttir.add"([[ADD0]], [[MUL0]]
     // CHECK-SAME: -> tensor<1x1x128xf32>
     // CHECK: [[BCAST0:%[0-9]+]] = "ttir.broadcast"([[ADD1]]
     // CHECK-SAME: -> tensor<1x64x128xf32>

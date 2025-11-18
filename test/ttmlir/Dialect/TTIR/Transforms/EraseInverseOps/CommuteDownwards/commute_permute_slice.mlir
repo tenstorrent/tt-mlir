@@ -3,7 +3,7 @@
 
 module {
   func.func @test_permute_concat_commute_downwards(%arg0: tensor<1x160x160x160xbf16>) -> tensor<1x160x160x80xbf16> {
-    // CHECK: %[[CONCAT:[0-9]+]] = "ttir.slice_static"(%arg0,
+    // CHECK: %[[CONCAT:[0-9]+]] = "ttir.slice_static"(%arg0
     // CHECK: begins = [0 : i32, 80 : i32, 0 : i32, 0 : i32]
     // CHECK: ends = [1 : i32, 160 : i32, 160 : i32, 160 : i32]
     // CHECK: step = [1 : i32, 1 : i32, 1 : i32, 1 : i32]
