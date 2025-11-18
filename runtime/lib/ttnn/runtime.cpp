@@ -952,39 +952,6 @@ std::string getOpLocInfo(OpContext opContextHandle) {
   return std::string(opContext.loc_info()->c_str());
 }
 
-std::string getOpName(OpContext opContextHandle) {
-  // Prefer parsing the debug string to get the specific op function, e.g.
-  // "AddOp"
-  std::string dbg = getOpDebugString(opContextHandle);
-  // Expected format contains a quoted function token; extract text between
-  // first pair of quotes
-  size_t first = dbg.find('\"');
-  if (first != std::string::npos) {
-    size_t second = dbg.find('\"', first + 1);
-    if (second != std::string::npos && second > first + 1) {
-      std::string token = dbg.substr(first + 1, second - first - 1);
-      // Token may be namespaced, e.g. "ttnn.add" or "ttnn.matmul"
-      // Take the last component after '.' or '::'
-      size_t dot = token.find_last_of(".:");
-      std::string base =
-          (dot != std::string::npos) ? token.substr(dot + 1) : token;
-      // Normalize to CamelCase Op suffix, e.g. add -> AddOp
-      if (!base.empty()) {
-        base[0] =
-            static_cast<char>(::toupper(static_cast<unsigned char>(base[0])));
-        return base + "Op";
-      }
-    }
-  }
-  // Fallback to generic OpType name
-  const auto &opContext =
-      opContextHandle.as<::tt::target::ttnn::Operation>(DeviceRuntime::TTNN);
-  const char *fallback =
-      ::tt::target::ttnn::EnumNamesOpType()[static_cast<size_t>(
-          opContext.type_type())];
-  return std::string(fallback ? fallback : "");
-}
-
 std::unordered_map<std::uint32_t, Tensor>
 getOpOutputTensor(OpContext opContextHandle,
                   CallbackContext programContextHandle) {

@@ -10,6 +10,16 @@ import json
 from ttrt.common.util import *
 
 
+def get_original_op_loc(text: str) -> str:
+    try:
+        # Get the original location string before it was modified by passes
+        segments = re.findall(r'"([^"]*)"', text)
+        loc_str = f'"{segments[1]}"' if len(segments) >= 2 else ""
+        return "loc(" + loc_str + ")"
+    except Exception:
+        return ""
+
+
 class CallbackRuntimeConfig:
     def __init__(
         self,
@@ -116,38 +126,29 @@ def golden(callback_runtime_config, binary, program_context, op_context):
     import torch
     import ttrt.runtime
 
-    print("HHHHHHHHHHHH")
-
-    print(
-        ttrt.runtime.get_op_name(op_context), type(ttrt.runtime.get_op_name(op_context))
-    )
     logging = callback_runtime_config.logging
-    logging.debug("executing golden comparison")
-
     loc = ttrt.runtime.get_op_loc_info(op_context)
-    print(loc)
-
-    op_golden_tensor_map = binary.get_debug_info_golden(loc)
-    if len(op_golden_tensor_map) == 0:
-        print("Golden tensor is None - skipping golden comparison")
-        logging.debug("Golden tensor is None - skipping golden comparison")
-        return
 
     op_output_tensor_map = ttrt.runtime.get_op_output_tensor(
         op_context, program_context
     )
     if len(op_output_tensor_map) == 0:
-        print("Output tensor is empty - skipping golden comparison")
         logging.debug("Output tensor is empty - skipping golden comparison")
         return
-    print("1")
+
+    op_golden_tensor_map = binary.get_debug_info_golden(loc)
+    if len(op_golden_tensor_map) == 0:
+        # try getting golden tensor using the loc before it was modified by passes
+        loc = get_original_op_loc(loc)
+        op_golden_tensor_map = binary.get_debug_info_golden(loc)
+        if len(op_golden_tensor_map) == 0:
+            logging.debug("Golden tensor is None - skipping golden comparison")
+            return
+
     # loop through all devices and compare golden tensors
     device_results = {}
     for device_id, op_golden_tensor in op_golden_tensor_map.items():
         if device_id not in op_output_tensor_map.keys():
-            print(
-                f"Device {device_id} does not have an output tensor - skipping golden comparison2"
-            )
             logging.debug(
                 f"Device {device_id} does not have an output tensor - skipping golden comparison"
             )
@@ -176,11 +177,6 @@ def golden(callback_runtime_config, binary, program_context, op_context):
             )
 
         if golden_tensor_torch.shape != output_tensor_torch.shape:
-            print(loc)
-            print(golden_tensor_torch.shape, output_tensor_torch.shape)
-            print(
-                "Golden and output tensor shapes do not match - skipping golden comparison"
-            )
             logging.debug(
                 "Golden and output tensor shapes do not match - skipping golden comparison"
             )
@@ -209,7 +205,7 @@ def golden(callback_runtime_config, binary, program_context, op_context):
         logging.debug(output_str)
 
         results = {}
-        results["op_type"] = ttrt.runtime.get_op_name(op_context)
+        results["result"] = "pass" if cal_pcc >= callback_runtime_config.pcc else "fail"
         results["expected_pcc"] = callback_runtime_config.pcc
         results["actual_pcc"] = cal_pcc
         results["atol"] = callback_runtime_config.atol
@@ -244,10 +240,6 @@ def golden(callback_runtime_config, binary, program_context, op_context):
 
         device_results[device_id] = results
 
-    print("ZZZZZZZZZZ")
-    print(callback_runtime_config.golden_report)
-    print(loc)
-    print(device_results)
     callback_runtime_config.golden_report[loc] = device_results
 
 

@@ -323,7 +323,6 @@ class Logger:
 
         self.logging = logging
         self.file_name = file_name
-        print("GGGGGG", self.file_name)
         LEVEL = self.logging.INFO
 
         if "TTRT_LOGGER_LEVEL" in os.environ:

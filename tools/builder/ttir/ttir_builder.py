@@ -240,7 +240,7 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
         caller_frame = stack[2]
         filename = caller_frame.filename
         lineno = caller_frame.lineno
-        loc = Location.name(f"{filename}:{lineno}")
+        return Location.name(f"{filename}:{lineno}")
 
     # ----- Public Op Generators ----
 
@@ -5317,7 +5317,7 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
         (*OpView*)
             Output tensor after max pooling
         """
-
+        print("OOOOOOOOOOOOOOOOOO", self._get_location())
         return self._op_proxy(
             ttir.AvgPool2dOp,
             [in0],

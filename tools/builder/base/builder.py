@@ -75,6 +75,9 @@ class Builder:
         # Map from operand to its location string.
         self._operand_to_loc: Dict[Operand, str] = {}
 
+        # Map from location string to the operand at that location.
+        self._loc_to_operand: Dict[str, Operand] = {}
+
         # Set torch seed for reproducibility.
         torch.manual_seed(0)
 
@@ -146,10 +149,10 @@ class Builder:
                 continue
 
             loc = self._operand_to_loc.get(operand, None)
+            self._loc_to_operand[loc] = operand
             golden_info[loc] = self._generate_golden_device_tensor(
                 loc, builder_golden_tensor
             )
-        print(golden_info)
 
         return golden_info
 

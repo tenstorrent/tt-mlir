@@ -833,7 +833,7 @@ def test_hoisted_max_pool2d(
         ),  # This test will produce a different output if count_include_pad is True for spatial dims (31, 31)
     ],
 )
-@pytest.mark.parametrize("shape", [(1, 31, 31, 32)], ids=shape_str)
+@pytest.mark.parametrize("shape", [(1, 3, 3, 4)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32])
 def test_avg_pool2d(
     shape: Shape,

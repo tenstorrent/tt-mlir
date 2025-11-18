@@ -10,6 +10,7 @@ from functools import reduce, partial
 import operator
 from typing import Callable, List, Optional, Tuple, Union, Literal, Dict
 from collections import OrderedDict
+import json
 
 from ttmlir.ir import *
 from ttmlir.dialects import func, ttcore, ttnn, ttir
@@ -221,7 +222,7 @@ def _compile_and_execute(
     **compile_kwargs
         All other arguments to pass through to the compile function
     """
-    mlir_path = compile_fn(
+    builder, mlir_path = compile_fn(
         target=target,
         **compile_kwargs,
     )
@@ -233,7 +234,7 @@ def _compile_and_execute(
 
     # Execute the flatbuffer
     if target in ["ttnn", "ttmetal"]:
-        execute_fb(
+        golden_report = execute_fb(
             fb_path=fb_path,
             pcc=pcc,
             atol=atol,
@@ -244,7 +245,34 @@ def _compile_and_execute(
             check_rtol=check_rtol,
         )
 
+    _parse_and_save_golden_report(
+        builder, golden_report, mlir_path + ".golden_report.json"
+    )
+
     return mlir_path
+
+
+def _parse_and_save_golden_report(builder, golden_report, report_path):
+    """
+    Enhance and persist the golden report by attaching the operation name
+    (builder._loc_to_operand[x].OPERATION_NAME) to each location entry x.
+    """
+    parsed_report: Dict[str, Dict] = {}
+
+    for loc, device_results in golden_report.items():
+        operand = builder._loc_to_operand.get(loc)
+        op_name = ""
+        if operand is not None and hasattr(operand, "OPERATION_NAME"):
+            op_name = getattr(operand, "OPERATION_NAME", "") or ""
+
+        parsed_report[loc] = {
+            "op_name": op_name,
+            "devices": device_results,
+        }
+
+    # Write the enhanced report to disk
+    with open(report_path, "w") as f:
+        json.dump(parsed_report, f, indent=2)
 
 
 def _get_target_path(output_path, builder_dir, filename, target):
@@ -1079,7 +1107,7 @@ def compile_ttir_to_flatbuffer(
             base=test_base,
         )
 
-        return compile_ttir_module_to_flatbuffer(
+        return builder, compile_ttir_module_to_flatbuffer(
             module,
             builder,
             system_desc_path=system_desc_path,
@@ -1734,41 +1762,9 @@ def execute_fb(
             )
         return inputs_converted
 
-    logger = Logger("builder.log")
+    logger = Logger()
     logging = logger.get_logger()
     file_manager = FileManager(logger)
-
-    # Ensure a FileHandler is attached even if logging was configured earlier (e.g., by pytest)
-    try:
-        import logging as _pylogging
-
-        _root_logger = _pylogging.getLogger()
-        _have_builder_log = False
-        for _h in list(_root_logger.handlers):
-            try:
-                if (
-                    isinstance(_h, _pylogging.FileHandler)
-                    and os.path.basename(getattr(_h, "baseFilename", ""))
-                    == "builder.log"
-                ):
-                    _have_builder_log = True
-                    break
-            except Exception:
-                pass
-        if not _have_builder_log:
-            _fh = _pylogging.FileHandler("builder.log", mode="w")
-            _fh.setFormatter(
-                _pylogging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
-            )
-            _lvl_name = os.environ.get("TTRT_LOGGER_LEVEL", "INFO").upper()
-            _lvl = getattr(_pylogging, _lvl_name, _pylogging.INFO)
-            _fh.setLevel(_lvl)
-            _root_logger.addHandler(_fh)
-            # Ensure root logger level allows records through to the file handler
-            _root_logger.setLevel(_lvl)
-    except Exception:
-        # Do not fail execution due to logging configuration issues
-        pass
 
     print(f"Begining flatbuffer execution on {fb_path}")
 
@@ -1787,7 +1783,7 @@ def execute_fb(
         atol=atol,
         rtol=rtol,
         save_golden_tensors=False,
-        logging=_root_logger,
+        logging=logging,
         enable_golden=not disable_golden,
         enable_memory=False,
         enable_debugger=False,
@@ -1798,9 +1794,6 @@ def execute_fb(
         ),  # ****************** this has to be fixed
         post_op_get_callback_fn(callback_runtime_config),
     )
-
-    print("QQQQQ")
-    print(callback_runtime_config.golden_report)
 
     for program_index in program_indices:
         print(f"evaluating program={program_index} for binary={bin.file_path}")
@@ -1879,9 +1872,6 @@ def execute_fb(
         e2e_duration_nanoseconds_submit = end_submit - start_submit
 
         e2e_duration_nanoseconds_output = 0
-        print("QQQQQ222___________________________-")
-        print(callback_runtime_config.golden_report)
-        callback_runtime_config.save_golden_report("goldentemp.json")
         pcc_fail = False
         # Copy output tensors from device & check goldens
         for i, runtime_output_tensor in enumerate(runtime_outputs):
@@ -1981,6 +1971,8 @@ def execute_fb(
         print(f"output tensors for program={program_index}")
         for tensor in program.output_tensors:
             logging.debug(f"{tensor}\n")
+
+        return callback_runtime_config.golden_report
 
 
 def load_mlir_file(

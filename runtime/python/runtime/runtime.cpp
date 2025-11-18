@@ -549,7 +549,6 @@ void registerRuntimeBindings(nb::module_ &m) {
         "Get the debug string of the op");
   m.def("get_op_loc_info", &tt::runtime::getOpLocInfo,
         "Get the location info of the op");
-  m.def("get_op_name", &tt::runtime::getOpName, "Get the op name/type");
   m.def(
       "memcpy",
       [](std::uintptr_t dst, ::tt::runtime::Tensor src,
