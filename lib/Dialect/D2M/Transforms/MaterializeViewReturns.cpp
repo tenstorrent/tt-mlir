@@ -46,7 +46,7 @@ Value materializeView(OpBuilder &builder, Location loc, Value viewResult) {
   auto tensorType = mlir::cast<RankedTensorType>(viewResult.getType());
 
   // For StreamLayoutOp results (which have ViewLayoutAttr), get the layout from
-  // storage
+  // storage.
   RankedTensorType storageType = tensorType;
   if (mlir::isa_and_nonnull<ttcore::ViewLayoutAttr>(tensorType.getEncoding())) {
     if (auto streamOp = viewResult.getDefiningOp<d2m::StreamLayoutOp>()) {
@@ -115,7 +115,7 @@ public:
           Operation *definingOp = opOperand.get().getDefiningOp();
 
           // Case 1: Direct view return (should not happen with proper
-          // pipelines)
+          // pipelines).
           if (isViewOp(definingOp)) {
             // Insert a generic op to materialize the view before returning.
             // This ensures the tensor transformation represented by the view
@@ -126,9 +126,9 @@ public:
             continue;
           }
 
-          // Case 2: View consumed by device-to-host ToLayoutOp before return
+          // Case 2: View consumed by device-to-host ToLayoutOp before return.
           // Pattern: %view = view_layout ... -> %host = to_layout %view ->
-          // return %host We need to materialize the view BEFORE the
+          // return %host. We need to materialize the view BEFORE the
           // device-to-host transfer.
           if (auto toLayoutOp =
                   mlir::dyn_cast_if_present<d2m::ToLayoutOp>(definingOp)) {
@@ -137,12 +137,12 @@ public:
               Operation *inputDefiningOp = toLayoutInput.getDefiningOp();
 
               if (isViewOp(inputDefiningOp)) {
-                // Materialize the view before the device-to-host transfer
+                // Materialize the view before the device-to-host transfer.
                 builder.setInsertionPoint(toLayoutOp);
                 Value materialized = materializeView(
                     builder, toLayoutOp.getLoc(), toLayoutInput);
 
-                // Update the ToLayoutOp to use the materialized value
+                // Update the ToLayoutOp to use the materialized value.
                 toLayoutOp.getInputMutable().assign(materialized);
               }
             }
