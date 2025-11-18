@@ -260,8 +260,6 @@ def memory(callback_runtime_config, binary, program_context, op_context):
     loc = ttrt.runtime.get_op_loc_info(op_context)
     debug_str = ttrt.runtime.get_op_debug_str(op_context)
 
-    logging.debug(f"Executing op at loc={loc}: {debug_str}")
-
     memory_views = device.get_memory_view()
     dram_memory_view = memory_views[ttrt.runtime.MemoryBufferType.DRAM]
     l1_memory_view = memory_views[ttrt.runtime.MemoryBufferType.L1]
