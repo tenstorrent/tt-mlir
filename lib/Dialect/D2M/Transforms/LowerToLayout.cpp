@@ -5,7 +5,7 @@
 #include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
-#include "ttmlir/Dialect/D2M/Utils/Utils.h"
+#include "ttmlir/Dialect/D2M/Utils/AffineMapUtils.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Utils.h"
@@ -96,13 +96,12 @@ struct CompoundComponents {
     result.isFormatChange =
         (inputInfo.type.getElementType() != outputInfo.type.getElementType());
 
-    // Check for "mapping" changes (zero-copy transformations):
-    // - Tensor shape changes (collapsed_intervals or dim_alignments changes
-    // causing different padding)
-    // - Index map changes (logical view transformations)
-    // These can be expressed as views with affine transformations.
-    // NOTE: Grid shape changes (redistribution) require DMA and are handled
-    // separately.
+    // Check for mapping changes, which are transformations that can be
+    // expressed as affine maps: tensor shape changes (from collapsed_intervals
+    // or dim_alignments causing different padding) and index map changes
+    // (logical view transformations). Grid reblocking is excluded here as it
+    // was historically classified separately, though it is now also handled as
+    // a mapping change.
     if (inputInfo.hasLayout() && outputInfo.hasLayout() &&
         !result.isMemorySpaceChange && !result.isFormatChange) {
 
@@ -115,7 +114,6 @@ struct CompoundComponents {
       bool indexMapChanged =
           (inputLayout.getIndexAffineMap() != outputLayout.getIndexAffineMap());
 
-      // Grid reblocking requires DMA, not just a view
       bool gridChanged =
           (inputInfo.getGridShape() != outputInfo.getGridShape());
 
@@ -139,14 +137,18 @@ public:
 
   using OpRewritePattern<ToLayoutOp>::OpRewritePattern;
 
-  // All mapping transformations (grid redistribution, alignment changes, etc.)
-  // can be expressed as affine maps and are therefore view_layout ops.
+  // Lower mapping transformations (grid redistribution, padding changes,
+  // collapse changes, index map transformations) to ViewLayoutOp + DMA generic.
+  // The ViewLayoutOp represents the transformation as an affine map, and the
+  // DMA generic materializes the data movement for L1→L1 transformations.
   static LogicalResult lowerMappingChange(PatternRewriter &rewriter,
                                           ToLayoutOp op) {
     auto inputInfo = TensorInfo::from(op.getInput());
     auto outputInfo = TensorInfo::from(op.getOutput());
 
-    // Preconditions - these should be guaranteed by the split/compound logic
+    // Precondition: both operands must have layouts, be in the same memory
+    // space, and have the same element type. These are guaranteed by the
+    // compound splitting logic upstream.
     TT_assertv((inputInfo.hasLayout() && outputInfo.hasLayout()),
                "Mapping change requires both input and output to have layouts");
     TT_assertv(inputInfo.getMemorySpace() == outputInfo.getMemorySpace(),
@@ -158,26 +160,57 @@ public:
     auto inputLayout = *inputInfo.layout;
     auto outputLayout = *outputInfo.layout;
 
-    // Build the affine map that transforms from input device coordinates
-    // to output device coordinates via the shared logical space.
-    // This handles all cases: grid redistribution, collapse changes,
-    // padding changes, and index map transformations.
+    // Build an affine map that transforms input device coordinates to output
+    // device coordinates via the shared logical space. This map handles grid
+    // redistribution, collapse changes, padding changes, and index map
+    // transformations, including rank-changing operations.
     AffineMap viewMap = utils::buildLayoutTransformMap(
         inputLayout, inputInfo.type, outputLayout, outputInfo.type);
 
-    // Create the output layout with the transformation map embedded.
+    // Embed the transformation map in the output layout.
     auto newLayout = ttcore::MetalLayoutAttr::get(
         rewriter.getContext(), outputLayout.getLogicalShape(),
         outputLayout.getDimAlignments(), outputLayout.getCollapsedIntervals(),
         outputLayout.getOobVal(), outputLayout.getMemorySpace(),
         outputLayout.getMemoryLayout(), viewMap);
 
-    auto resultType =
+    auto viewType =
         RankedTensorType::get(outputInfo.type.getShape(),
                               outputInfo.type.getElementType(), newLayout);
 
-    rewriter.replaceOpWithNewOp<ViewLayoutOp>(op, resultType, op.getInput(),
-                                              /*reinterpretLayout=*/false);
+    Value viewOp =
+        rewriter.create<ViewLayoutOp>(op.getLoc(), viewType, op.getInput(),
+                                      /*reinterpretLayout=*/false);
+
+    // Materialize L1→L1 transformations with a DMA generic that performs the
+    // actual data movement according to the view's affine map.
+    if (!inputInfo.isDRAM() && !outputInfo.isDRAM()) {
+      const size_t gridRank = outputInfo.getGridShape().size();
+
+      // Build identity indexing maps for the generic operation. The view's
+      // affine map handles all address transformations.
+      ArrayAttr indexingMaps, iteratorTypes;
+      std::tie(indexingMaps, iteratorTypes) =
+          GenericOp::buildParallelAffineMapsAndIteratorTypes(
+              rewriter, /*arity=*/2, gridRank);
+      auto indexingMap = mlir::cast<AffineMapAttr>(indexingMaps[0]);
+
+      rewriter.replaceOpWithNewOp<GenericOp>(
+          op, viewOp, op.getOutput(),
+          [&](OpBuilder &builder, Location loc, ValueRange blockArgs) {
+            Value outputCB =
+                builder.create<ReserveOp>(loc, blockArgs[1]).getResult();
+            auto dma =
+                builder.create<d2m::DMAOp>(loc, viewOp, indexingMap, outputCB);
+            builder.create<d2m::DMAWaitOp>(loc, dma);
+            builder.create<YieldOp>(loc, outputCB);
+          },
+          ThreadType::Datamovement);
+    } else {
+      // DRAM operations use the view directly without immediate
+      // materialization.
+      rewriter.replaceOp(op, viewOp);
+    }
 
     return success();
   }
@@ -349,36 +382,46 @@ public:
       return failure();
     }
 
-    // By convention, consecutive device->device ToLayout ops must be converted
-    // in **producer to consumer order**, such that the consumer ops DO NOT
-    // apply a view to an output that will itself be wrapped in a view by the
-    // producer op.
-    //
-    // The GreedyPatternRewriteDriver will handle iterating until all ToLayout
-    // ops have been rewritten in producer to consumer order.
+    // Ensure device-to-device ToLayoutOps are lowered in producer-to-consumer
+    // order to avoid applying views to outputs that will themselves be wrapped
+    // in views by upstream producers. The GreedyPatternRewriteDriver handles
+    // iteration until all ops are lowered in the correct order.
     if (producerMustBeLoweredFirst(op)) {
       return failure();
     }
 
-    // Check if this is a grid reblocking operation (requires DMA)
     auto inputInfo = TensorInfo::from(op.getInput());
     auto outputInfo = TensorInfo::from(op.getOutput());
-    bool isGridReblocking = false;
-    if (inputInfo.hasLayout() && outputInfo.hasLayout() &&
-        !components.isMemorySpaceChange && !components.isFormatChange) {
-      isGridReblocking =
-          (inputInfo.getGridShape() != outputInfo.getGridShape());
-    }
 
-    if (components.isMemorySpaceChange || isGridReblocking) {
+    // Route memory space changes (involving DRAM) to lowerDatamovementGeneric.
+    if (components.isMemorySpaceChange) {
       return lowerDatamovementGeneric(rewriter, op);
     }
 
+    // Route format changes (tilize/untilize) to lowerFormatConversionGeneric.
     if (components.isFormatChange) {
       return lowerFormatConversionGeneric(rewriter, op);
     }
 
-    if (components.isMappingChange) {
+    // Route all L1→L1 mapping changes to lowerMappingChange, which uses
+    // buildLayoutTransformMap to support rank-changing transformations.
+    bool isL1toL1MappingChange = false;
+    if (inputInfo.hasLayout() && outputInfo.hasLayout() &&
+        !inputInfo.isDRAM() && !outputInfo.isDRAM()) {
+      auto inputLayout = *inputInfo.layout;
+      auto outputLayout = *outputInfo.layout;
+
+      bool shapeChanged =
+          (inputInfo.type.getShape() != outputInfo.type.getShape());
+      bool indexMapChanged =
+          (inputLayout.getIndexAffineMap() != outputLayout.getIndexAffineMap());
+      bool gridChanged =
+          (inputInfo.getGridShape() != outputInfo.getGridShape());
+
+      isL1toL1MappingChange = (shapeChanged || indexMapChanged || gridChanged);
+    }
+
+    if (isL1toL1MappingChange) {
       return lowerMappingChange(rewriter, op);
     }
 

@@ -62,8 +62,15 @@ Value materializeView(OpBuilder &builder, Location loc, Value viewResult) {
   auto emptyOp = builder.create<d2m::EmptyOp>(
       loc, tensorType.getShape(), tensorType.getElementType(), newLayout);
 
-  // Extract the grid from the tensor's layout to determine core distribution.
-  ttcore::GridAttr grid = getGridFromType(tensorType);
+  // Allocate output storage for the materialized view result.
+  auto layout = mlir::dyn_cast_or_null<ttcore::MetalLayoutAttr>(
+      storageType.getEncoding());
+  auto emptyOp = builder.create<d2m::EmptyOp>(
+      loc, storageType.getShape(), storageType.getElementType(), layout);
+
+  // Extract the grid from the storage tensor's layout to determine core
+  // distribution.
+  ttcore::GridAttr grid = getGridFromType(storageType);
   TT_assert(grid != nullptr);
 
   // Build identity affine maps for parallel iteration over all grid dimensions.

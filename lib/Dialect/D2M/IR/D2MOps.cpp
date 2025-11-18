@@ -7,6 +7,7 @@
 #include "ttmlir/AffineMapUtils.h"
 #include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
+#include "ttmlir/Dialect/D2M/Utils/AffineMapUtils.h"
 #include "ttmlir/Dialect/D2M/Utils/Utils.h"
 #include "ttmlir/Dialect/D2M/Utils/VirtualGrid.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
@@ -544,6 +545,12 @@ d2m::StreamLayoutOp::getBufferType(
     mlir::Value value, const mlir::bufferization::BufferizationOptions &,
     const mlir::bufferization::BufferizationState &,
     ::llvm::SmallVector<mlir::Value> &) {
+  // For StreamLayoutOp result (which has ViewLayoutAttr), return the buffer
+  // type of the storage operand (which has MetalLayoutAttr with the actual
+  // memory space)
+  if (value == getResult()) {
+    return ttcore::getBufferType(getStorage().getType(), /*isView=*/true);
+  }
   return ttcore::getBufferType(value.getType(), /*isView=*/true);
 }
 
@@ -578,7 +585,7 @@ mlir::LogicalResult StreamLayoutOp::verify() {
       *this, "input", "storage", getInput().getType(), getStorage().getType(),
       /*checkSameElementType*/ true,
       /*checkSameMemorySpace*/ false,
-      /*checkSameRank*/ true,
+      /*checkSameRank*/ false, // Allow rank-changing transformations
       /*checkSameGridShape*/ false,
       /*checkSameShardShape*/ false);
   if (failed(inputStorageVerification)) {
@@ -589,7 +596,7 @@ mlir::LogicalResult StreamLayoutOp::verify() {
       *this, "storage", "result", getStorage().getType(), getResult().getType(),
       /*checkSameElementType*/ true,
       /*checkSameMemorySpace*/ false,
-      /*checkSameRank*/ true,
+      /*checkSameRank*/ true, // Storage and result must have same rank
       /*checkSameGridShape*/ false,
       /*checkSameShardShape*/ true);
   if (failed(storageResultVerification)) {
@@ -600,7 +607,7 @@ mlir::LogicalResult StreamLayoutOp::verify() {
       *this, "input", "result", getInput().getType(), getResult().getType(),
       /*checkSameElementType*/ true,
       /*checkSameMemorySpace*/ true,
-      /*checkSameRank*/ true,
+      /*checkSameRank*/ false, // Allow rank-changing transformations
       /*checkSameGridShape*/ false,
       /*checkSameShardShape*/ false);
   if (failed(inputResultVerification)) {
@@ -938,8 +945,33 @@ void d2m::GenericOp::build(
   llvm::SmallVector<Type> blockTypes =
       llvm::map_to_vector(TypeRange(state.operands), [&](Type t) -> Type {
         mlir::RankedTensorType tensorType = mlir::cast<RankedTensorType>(t);
-        auto layout =
-            mlir::cast<ttcore::MetalLayoutAttr>(tensorType.getEncoding());
+        auto layout = mlir::dyn_cast_if_present<ttcore::MetalLayoutAttr>(
+            tensorType.getEncoding());
+
+        // If the operand has ViewLayoutAttr (from StreamLayoutOp), get the
+        // layout from storage
+        if (!layout) {
+          if (auto viewAttr = mlir::dyn_cast_if_present<ttcore::ViewLayoutAttr>(
+                  tensorType.getEncoding())) {
+            // Find the defining StreamLayoutOp to get its storage layout
+            for (auto operand : state.operands) {
+              if (operand.getType() == t) {
+                if (auto streamOp =
+                        operand.getDefiningOp<d2m::StreamLayoutOp>()) {
+                  auto storageType = mlir::cast<RankedTensorType>(
+                      streamOp.getStorage().getType());
+                  layout = mlir::dyn_cast_if_present<ttcore::MetalLayoutAttr>(
+                      storageType.getEncoding());
+                  break;
+                }
+              }
+            }
+          }
+        }
+
+        assert(
+            layout &&
+            "Expected MetalLayoutAttr or ViewLayoutAttr with StreamLayoutOp");
         auto shardShape = layout.getShardShape(tensorType);
         return d2m::CBType::get(mlir::RankedTensorType::get(
             shardShape, tensorType.getElementType()));
@@ -1589,7 +1621,25 @@ d2m::GenericOp::getOperandGridShapes() {
     } else {
       auto tensorType = mlir::cast<RankedTensorType>(operand.getType());
       ttcore::MetalLayoutAttr layout =
-          mlir::cast<ttcore::MetalLayoutAttr>(tensorType.getEncoding());
+          mlir::dyn_cast_if_present<ttcore::MetalLayoutAttr>(
+              tensorType.getEncoding());
+
+      // If operand has ViewLayoutAttr (from StreamLayoutOp), get layout from
+      // storage
+      if (!layout) {
+        if (mlir::isa_and_nonnull<ttcore::ViewLayoutAttr>(
+                tensorType.getEncoding())) {
+          if (auto streamOp = operand.getDefiningOp<d2m::StreamLayoutOp>()) {
+            auto storageType =
+                mlir::cast<RankedTensorType>(streamOp.getStorage().getType());
+            layout = mlir::dyn_cast_if_present<ttcore::MetalLayoutAttr>(
+                storageType.getEncoding());
+          }
+        }
+      }
+
+      assert(layout &&
+             "Expected MetalLayoutAttr or ViewLayoutAttr with StreamLayoutOp");
       gridShapes.emplace_back(layout.getGridShape(tensorType));
     }
   }
@@ -1612,8 +1662,25 @@ d2m::GenericOp::getOperandShardShapes(bool convertTileToScalar) {
       elementType = memrefType.getElementType();
     } else {
       auto tensorType = mlir::cast<RankedTensorType>(shapedType);
-      layout = mlir::cast<mlir::tt::ttcore::DeviceLayoutInterface>(
+      layout = mlir::dyn_cast<mlir::tt::ttcore::DeviceLayoutInterface>(
           tensorType.getEncoding());
+
+      // If operand has ViewLayoutAttr (from StreamLayoutOp), get layout from
+      // storage
+      if (!layout) {
+        if (mlir::isa_and_nonnull<ttcore::ViewLayoutAttr>(
+                tensorType.getEncoding())) {
+          if (auto streamOp = operand.getDefiningOp<d2m::StreamLayoutOp>()) {
+            auto storageType =
+                mlir::cast<RankedTensorType>(streamOp.getStorage().getType());
+            layout = mlir::dyn_cast<mlir::tt::ttcore::DeviceLayoutInterface>(
+                storageType.getEncoding());
+          }
+        }
+      }
+
+      assert(layout && "Expected DeviceLayoutInterface or ViewLayoutAttr with "
+                       "StreamLayoutOp");
       elementType = tensorType.getElementType();
     }
 
