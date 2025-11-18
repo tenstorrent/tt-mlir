@@ -6980,7 +6980,11 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
                     dtype = ttir_builder._get_datatype_from_torch_dtype(
                         ttype.element_type
                     )
-                    golden_input = torch.randn(*shape, dtype=dtype)
+                    # Handle scalar tensors (empty shape)
+                    if len(shape) == 0:
+                        golden_input = torch.randn(1, dtype=dtype).squeeze()
+                    else:
+                        golden_input = torch.randn(*shape, dtype=dtype)
                     golden_inputs.append(golden_input)
 
             with InsertionPoint(new_module.body):
