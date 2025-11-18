@@ -31,19 +31,19 @@ void run(const ::tt::target::ttnn::AllGatherOp *op, ProgramContext &context) {
       ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
           op->memory_config());
   std::optional<::ttnn::Tensor> optionalOutputTensor = std::nullopt;
+  // Do not pass optionalOutputTensor to all_gather for now.
+  // Enable it when needed.
 
-  std::optional<uint32_t> numLinks =
-      op->num_links() ? std::make_optional<uint32_t>(op->num_links().value())
-                      : std::nullopt;
-  std::optional<::tt::tt_fabric::Topology> topology =
-      op->topology()
-          ? std::make_optional<::tt::tt_fabric::Topology>(
-                ::tt::runtime::common::toMetalTopology(op->topology().value()))
-          : std::nullopt;
+  std::optional<uint32_t> numLinks = op->num_links();
+  std::optional<::tt::tt_fabric::Topology> topology = std::nullopt;
+  if (op->topology()) {
+    topology = std::make_optional<::tt::tt_fabric::Topology>(
+        ::tt::runtime::common::toMetalTopology(op->topology().value()));
+  }
 
   ::ttnn::Tensor out = ::ttnn::all_gather(
       input, allGatherDim, clusterAxis, subDeviceId, outputMemoryConfig,
-      /*optionalOutputTensor=*/std::nullopt, numLinks, topology);
+      optionalOutputTensor, numLinks, topology);
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
