@@ -39,6 +39,9 @@ void createStableHLOPipeline(OpPassManager &pm,
   // Flatten all composite ops to make sharding propagation easier.
   pm.addPass(createFlattenCompositePass());
 
+  // Register custom sharding rules for unsupported ops in Shardy.
+  pm.addPass(createRegisterCustomShardingRulePass());
+
   // Apply sharding constraints.
   pm.addPass(mlir::sdy::createApplyShardingConstraintsPass());
 

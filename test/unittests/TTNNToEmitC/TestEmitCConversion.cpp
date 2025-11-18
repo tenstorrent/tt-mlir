@@ -469,6 +469,35 @@ TEST_F(EmitCConversionTest, ConvertStdVariantMultiLevelCompoundTypes) {
   EXPECT_EQ(converted, "42");
 }
 
+TEST(EmitCTypeConverterTest, TopologyEnum) {
+  mlir::MLIRContext context;
+  mlir::Builder builder(&context);
+
+  // Test TypeName specialization
+  EXPECT_EQ(TypeNameV<::tt::tt_fabric::Topology>, "::tt::tt_fabric::Topology");
+
+  // Test enum value conversion
+  std::string linearConverted =
+      EmitCTypeConverter<::mlir::tt::ttcore::Topology>::convert(
+          ::mlir::tt::ttcore::Topology::Linear);
+  EXPECT_EQ(linearConverted, "::tt::tt_fabric::Topology::Linear");
+
+  std::string ringConverted =
+      EmitCTypeConverter<::mlir::tt::ttcore::Topology>::convert(
+          ::mlir::tt::ttcore::Topology::Ring);
+  EXPECT_EQ(ringConverted, "::tt::tt_fabric::Topology::Ring");
+
+  std::string meshConverted =
+      EmitCTypeConverter<::mlir::tt::ttcore::Topology>::convert(
+          ::mlir::tt::ttcore::Topology::Mesh);
+  EXPECT_EQ(meshConverted, "::tt::tt_fabric::Topology::Mesh");
+
+  std::string torusConverted =
+      EmitCTypeConverter<::mlir::tt::ttcore::Topology>::convert(
+          ::mlir::tt::ttcore::Topology::Torus);
+  EXPECT_EQ(torusConverted, "::tt::tt_fabric::Topology::Torus");
+}
+
 } // namespace ttnn_to_emitc
 } // namespace tt
 } // namespace mlir

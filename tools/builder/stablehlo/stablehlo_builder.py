@@ -5,8 +5,9 @@
 from __future__ import annotations
 
 import inspect
+import math
 from dataclasses import dataclass
-from typing import List, Optional, Union, Tuple, Callable, Dict, Any
+from typing import List, Optional, Union, Tuple, Callable, Dict, Any, Sequence
 import torch
 from enum import Enum, auto
 import re
@@ -127,9 +128,7 @@ class StableHLOBuilder(Builder):
         op_stablehlo_function: Callable,
         golden_kwargs: dict = {},
     ):
-        op_golden_function = builder_golden.get_golden_function(
-            op_stablehlo_function, **golden_kwargs
-        )
+        op_golden_function = get_golden_function(op_stablehlo_function, **golden_kwargs)
         if op_golden_function is None:
             return None
 
@@ -359,6 +358,243 @@ class StableHLOBuilder(Builder):
         return self._eltwise_proxy(
             stablehlo.ClampOp,
             [min, operand, max],
+            unit_attrs=unit_attrs,
+            sharding_attr=sharding_attr,
+        )
+
+    # ----- Logical and Bitwise Operations -----
+
+    def and_(
+        self,
+        in0: Operand,
+        in1: Operand,
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+    ) -> OpView:
+        """
+        Creates ``stablehlo.and``.
+
+        *Elementwise AND operation.*
+
+        Performs elementwise AND operation between two tensors.
+        For booleans, performs logical AND.
+        For integers, performs bitwise AND.
+
+        Mathematical definition:
+        - Logical: and(x, y) = x AND y
+        - Bitwise: and(x, y) = x & y
+
+        .. code-block:: mlir
+
+            // Logical AND for booleans
+            %result = stablehlo.and(%lhs, %rhs) : tensor<3xi1>, tensor<3xi1> -> tensor<3xi1>
+            // Input tensors:
+            // lhs: [true, false, true]
+            // rhs: [true, true, false]
+            // Output tensor:
+            // [true, false, false]
+
+            // Bitwise AND for integers
+            %result = stablehlo.and(%lhs, %rhs) : tensor<3xi32>, tensor<3xi32> -> tensor<3xi32>
+            // Input tensors:
+            // lhs: [5, 6, 7]  // Binary: 101, 110, 111
+            // rhs: [3, 3, 3]  // Binary: 011, 011, 011
+            // Output tensor:
+            // [1, 2, 3]       // Binary: 001, 010, 011
+
+        Parameters
+        ----------
+        in0 : Operand
+            First input tensor (boolean or integer type)
+        in1 : Operand
+            Second input tensor (boolean or integer type)
+        unit_attrs : *Optional[List[str]]*
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpView*)
+            A tensor containing the elementwise AND of the inputs
+        """
+
+        return self._eltwise_proxy(
+            stablehlo.AndOp,
+            [in0, in1],
+            unit_attrs=unit_attrs,
+            sharding_attr=sharding_attr,
+        )
+
+    def or_(
+        self,
+        in0: Operand,
+        in1: Operand,
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+    ) -> OpView:
+        """
+        Creates ``stablehlo.or``.
+
+        *Elementwise OR operation.*
+
+        Performs elementwise OR operation between two tensors.
+        For booleans, performs logical OR.
+        For integers, performs bitwise OR.
+
+        Mathematical definition:
+        - Logical: or(x, y) = x OR y
+        - Bitwise: or(x, y) = x | y
+
+        .. code-block:: mlir
+
+            // Logical OR for booleans
+            %result = stablehlo.or(%lhs, %rhs) : tensor<3xi1>, tensor<3xi1> -> tensor<3xi1>
+            // Input tensors:
+            // lhs: [true, false, true]
+            // rhs: [true, true, false]
+            // Output tensor:
+            // [true, true, true]
+
+            // Bitwise OR for integers
+            %result = stablehlo.or(%lhs, %rhs) : tensor<3xi32>, tensor<3xi32> -> tensor<3xi32>
+            // Input tensors:
+            // lhs: [5, 6, 7]  // Binary: 101, 110, 111
+            // rhs: [3, 3, 3]  // Binary: 011, 011, 011
+            // Output tensor:
+            // [7, 7, 7]       // Binary: 111, 111, 111
+
+        Parameters
+        ----------
+        in0 : Operand
+            First input tensor (boolean or integer type)
+        in1 : Operand
+            Second input tensor (boolean or integer type)
+        unit_attrs : *Optional[List[str]]*
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpView*)
+            A tensor containing the elementwise OR of the inputs
+        """
+
+        return self._eltwise_proxy(
+            stablehlo.OrOp,
+            [in0, in1],
+            unit_attrs=unit_attrs,
+            sharding_attr=sharding_attr,
+        )
+
+    def xor(
+        self,
+        in0: Operand,
+        in1: Operand,
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+    ) -> OpView:
+        """
+        Creates ``stablehlo.xor``.
+
+        *Elementwise XOR operation.*
+
+        Performs elementwise XOR operation between two tensors.
+        For booleans, performs logical XOR.
+        For integers, performs bitwise XOR.
+
+        Mathematical definition:
+        - Logical: xor(x, y) = x XOR y
+        - Bitwise: xor(x, y) = x ^ y
+
+        .. code-block:: mlir
+
+            // Logical XOR for booleans
+            %result = stablehlo.xor(%lhs, %rhs) : tensor<3xi1>, tensor<3xi1> -> tensor<3xi1>
+            // Input tensors:
+            // lhs: [true, false, true]
+            // rhs: [true, true, false]
+            // Output tensor:
+            // [false, true, true]
+
+            // Bitwise XOR for integers
+            %result = stablehlo.xor(%lhs, %rhs) : tensor<3xi32>, tensor<3xi32> -> tensor<3xi32>
+            // Input tensors:
+            // lhs: [5, 6, 7]  // Binary: 101, 110, 111
+            // rhs: [3, 3, 3]  // Binary: 011, 011, 011
+            // Output tensor:
+            // [6, 5, 4]       // Binary: 110, 101, 100
+
+        Parameters
+        ----------
+        in0 : Operand
+            First input tensor (boolean or integer type)
+        in1 : Operand
+            Second input tensor (boolean or integer type)
+        unit_attrs : *Optional[List[str]]*
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpView*)
+            A tensor containing the elementwise XOR of the inputs
+        """
+
+        return self._eltwise_proxy(
+            stablehlo.XorOp,
+            [in0, in1],
+            unit_attrs=unit_attrs,
+            sharding_attr=sharding_attr,
+        )
+
+    def not_(
+        self,
+        in0: Operand,
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+    ) -> OpView:
+        """
+        Creates ``stablehlo.not``.
+
+        *Elementwise NOT operation.*
+
+        Performs elementwise NOT operation on a tensor.
+        For booleans, performs logical NOT.
+        For integers, performs bitwise NOT.
+
+        Mathematical definition:
+        - Logical: not(x) = NOT x
+        - Bitwise: not(x) = ~x
+
+        .. code-block:: mlir
+
+            // Logical NOT for booleans
+            %result = stablehlo.not(%input) : tensor<3xi1> -> tensor<3xi1>
+            // Input tensor:
+            // input: [true, false, true]
+            // Output tensor:
+            // [false, true, false]
+
+            // Bitwise NOT for integers
+            %result = stablehlo.not(%input) : tensor<3xi32> -> tensor<3xi32>
+            // Input tensor:
+            // input: [0, 1, 2]  // Binary: 000, 001, 010
+            // Output tensor:
+            // [-1, -2, -3]      // Binary (two's complement): 111...111, 111...110, 111...101
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor (boolean or integer type)
+        unit_attrs : *Optional[List[str]]*
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpView*)
+            A tensor containing the elementwise NOT of the input
+        """
+
+        return self._eltwise_proxy(
+            stablehlo.NotOp,
+            [in0],
             unit_attrs=unit_attrs,
             sharding_attr=sharding_attr,
         )
@@ -1062,6 +1298,75 @@ class StableHLOBuilder(Builder):
             unit_attrs=unit_attrs,
             sharding_attr=sharding_attr,
             stablehlo_kwargs={"permutation": permutation},
+        )
+
+    def reshape(
+        self,
+        in0: Operand,
+        shape: Sequence[int],
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+    ) -> OpView:
+        """
+        Creates ``stablehlo.reshape``.
+
+        *Tensor reshape operation.*
+
+        Reinterprets the dimensions of ``in0`` without changing the data layout.
+        Constraint: product of dimensions must be equal; no -1 or dynamic dims here.
+
+        .. code-block:: mlir
+
+            %input = ... : tensor<2x3xf32>
+            %result = stablehlo.reshape %input : (tensor<2x3xf32>) -> tensor<1x6xf32>
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor to reshape
+        shape : Sequence[int]
+            The desired output shape
+        unit_attrs : *Optional[List[str]]*
+            Optional list of unit attributes
+        sharding_attr : *Optional[sdy.TensorShardingPerValueAttr]*
+            Optional sharding attribute for the output tensor
+
+        Returns
+        -------
+        (*OpView*)
+            The reshaped tensor
+        """
+
+        input_type = self._get_type(in0)
+        shape_tuple = tuple(int(d) for d in shape)
+
+        # static-only: allow zero, forbid negatives / inferred (-1)
+        if any((not isinstance(d, int)) or (d < 0) for d in shape_tuple):
+            raise ValueError(
+                f"stablehlo.reshape expects a static non-negative-int shape, got {shape_tuple}"
+            )
+
+        if math.prod(input_type.shape) != math.prod(shape_tuple):
+            raise ValueError(
+                "number of elements must be the same for reshape: "
+                f"{math.prod(input_type.shape)} != {math.prod(shape_tuple)}"
+            )
+
+        out_elem_type = input_type.element_type
+
+        return self._op_proxy(
+            stablehlo.ReshapeOp,
+            inputs=[in0],
+            unit_attrs=unit_attrs,
+            sharding_attr=sharding_attr,
+            # create result type inside _op_proxy using these hints:
+            output_shape=shape_tuple,
+            output_type=out_elem_type,
+            # tell how to call the op: ReshapeOp(result_type, in0)
+            organize_stablehlo_args=lambda i, o, k: (o, i[0]),
+            # golden wiring: provide input tensor(s) and pass `shape`
+            organize_golden_args=lambda i: (self._get_golden_tensor(i[0]),),
+            golden_kwargs={"shape": shape_tuple},
         )
 
     # ----- Reduce Operations -----

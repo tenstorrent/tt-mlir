@@ -22,13 +22,13 @@ func.func @test_local_to_local_same_core(%arg0: memref<2x2x!ttcore.tile<32x32, f
 // Test 2: Local to local DMA between different cores
 // CHECK-LABEL: func.func @test_local_to_local_remote_core
 func.func @test_local_to_local_remote_core(%arg0: memref<2x2x!ttcore.tile<32x32, f32>, #l1_>, %arg1: memref<2x2x!ttcore.tile<32x32, f32>, #l1_>) attributes {d2m.thread = #d2m.thread<datamovement>} {
-  %dst = d2m.get_global_operand(0) : memref<1x2x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096>, #l1_>
+  %dst = d2m.get_global_operand(0) : memref<1x2x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>
   %c0 = arith.constant 0 : index
   %c1 = arith.constant 1 : index
   // CHECK: ttkernel.get_read_ptr
   // CHECK: ttkernel.get_noc_addr
   // CHECK: ttkernel.noc_async_write
-  %0 = d2m.dma %arg0[%c0, %c0], %dst[%c0, %c1, %c0, %c0] : (memref<2x2x!ttcore.tile<32x32, f32>, #l1_>, memref<1x2x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096>, #l1_>) -> !d2m.mem_tx
+  %0 = d2m.dma %arg0[%c0, %c0], %dst[%c0, %c1, %c0, %c0] : (memref<2x2x!ttcore.tile<32x32, f32>, #l1_>, memref<1x2x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>) -> !d2m.mem_tx
   d2m.dma_wait %0
   return
 }
@@ -72,11 +72,11 @@ func.func @test_local_to_remote_multicast_loopback(%arg0: memref<2x2x!ttcore.til
 func.func @test_remote_l1_to_local(%dst: memref<2x2x!ttcore.tile<32x32, f32>, #l1_>) attributes {d2m.thread = #d2m.thread<datamovement>} {
   %c0 = arith.constant 0 : index
   %c1 = arith.constant 1 : index
-  %src = d2m.get_global_operand(0) : memref<1x2x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096>, #l1_>
+  %src = d2m.get_global_operand(0) : memref<1x2x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>
   // CHECK: ttkernel.get_noc_addr
   // CHECK: ttkernel.get_write_ptr
   // CHECK: ttkernel.noc_async_read
-  %0 = d2m.dma %src[%c0, %c1, %c0, %c0], %dst[%c0, %c0] : (memref<1x2x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096>, #l1_>, memref<2x2x!ttcore.tile<32x32, f32>, #l1_>) -> !d2m.mem_tx
+  %0 = d2m.dma %src[%c0, %c1, %c0, %c0], %dst[%c0, %c0] : (memref<1x2x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>, memref<2x2x!ttcore.tile<32x32, f32>, #l1_>) -> !d2m.mem_tx
   d2m.dma_wait %0
   return
 }
@@ -86,8 +86,8 @@ func.func @test_remote_l1_to_local(%dst: memref<2x2x!ttcore.tile<32x32, f32>, #l
 func.func @test_dma_wait_read(%dst: memref<2x2x!ttcore.tile<32x32, f32>, #l1_>) attributes {d2m.thread = #d2m.thread<datamovement>} {
   %c0 = arith.constant 0 : index
   %c1 = arith.constant 1 : index
-  %src = d2m.get_global_operand(0) : memref<1x2x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096>, #l1_>
-  %0 = d2m.dma %src[%c0, %c1, %c0, %c0], %dst[%c0, %c0] : (memref<1x2x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096>, #l1_>, memref<2x2x!ttcore.tile<32x32, f32>, #l1_>) -> !d2m.mem_tx
+  %src = d2m.get_global_operand(0) : memref<1x2x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>
+  %0 = d2m.dma %src[%c0, %c1, %c0, %c0], %dst[%c0, %c0] : (memref<1x2x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>, memref<2x2x!ttcore.tile<32x32, f32>, #l1_>) -> !d2m.mem_tx
   // CHECK: ttkernel.noc_async_read_barrier
   d2m.dma_wait %0
   return
@@ -99,6 +99,22 @@ func.func @test_dma_wait_write(%arg0: memref<2x2x!ttcore.tile<32x32, f32>, #l1_>
   %c0 = arith.constant 0 : index
   %0 = d2m.dma %arg0[%c0, %c0], %arg1[%c0, %c0] : (memref<2x2x!ttcore.tile<32x32, f32>, #l1_>, memref<2x2x!ttcore.tile<32x32, f32>, #l1_>) -> !d2m.mem_tx
   // CHECK: ttkernel.noc_async_write_barrier
+  d2m.dma_wait %0
+  return
+}
+
+// Remote to local DMA (L1 from another core)
+// CHECK-LABEL: func.func @test_remote_to_local_partial
+func.func @test_remote_to_local_partial(%dst: memref<2x2x!ttcore.tile<32x32, f32>, #l1_>) attributes {d2m.thread = #d2m.thread<datamovement>} {
+  %c0 = arith.constant 0 : index
+  %c1 = arith.constant 1 : index
+  %src = d2m.get_global_operand(0) : memref<1x2x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>
+  // CHECK: scf.for
+  // CHECK: scf.for
+  // CHECK: ttkernel.get_noc_addr
+  // CHECK: ttkernel.get_write_ptr
+  // CHECK: ttkernel.noc_async_read
+  %0 = d2m.dma %src[%c0, %c1], %dst : (memref<1x2x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>, memref<2x2x!ttcore.tile<32x32, f32>, #l1_>) -> !d2m.mem_tx
   d2m.dma_wait %0
   return
 }

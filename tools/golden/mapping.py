@@ -2363,22 +2363,69 @@ def repeat_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
 
 def reshape_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
     """
-    Golden function for reshape operation with TTIR parameter names.
+    Golden function for reshape operation (TTIR/StableHLO).
+
+    Supports static reshapes only. The target shape is resolved from the provided
+    ``shape`` keyword argument (preferred). If unavailable, the function attempts
+    to infer it from ``result_type`` or from an ``op`` handle present in ``kwargs``.
 
     Parameters
     ----------
     input_tensor : GoldenMapTensor
         Input tensor
     **kwargs : dict
-        Keyword arguments including 'shape'
+        Keyword arguments including ``shape`` (preferred), or ``result_type`` / ``op`` for fallback
 
     Returns
     -------
     GoldenMapTensor
         Reshaped tensor
     """
-    shape = kwargs.get("shape", input_tensor.shape)
-    return torch.reshape(input_tensor, shape)
+
+    def _dim_to_int(dimension: Any) -> int:
+        if isinstance(dimension, int):
+            return dimension
+        if hasattr(dimension, "value"):
+            return int(dimension.value)
+        return int(dimension)
+
+    def _maybe_extract_shape_from_type(result_type: Any) -> Optional[Tuple[int, ...]]:
+        if result_type is None or not hasattr(result_type, "shape"):
+            return None
+        return tuple(_dim_to_int(dim) for dim in result_type.shape)
+
+    shape = kwargs.get("shape")
+    if shape is None:
+        shape = _maybe_extract_shape_from_type(kwargs.get("result_type"))
+
+    if shape is None:
+        op = kwargs.get("op")
+        if op is not None:
+            # Try OpView interface first.
+            result = getattr(op, "result", None)
+            if result is not None and hasattr(result, "type"):
+                shape = _maybe_extract_shape_from_type(result.type)
+            # Fall back to Operation-style results.
+            if shape is None:
+                results = getattr(op, "results", None)
+                if results:
+                    first_result = results[0]
+                    result_type = getattr(first_result, "type", None)
+                    shape = _maybe_extract_shape_from_type(result_type)
+
+    if shape is None:
+        # Backward-compatibility: if no shape/context is provided (as in Chisel CLI path),
+        # treat it as identity reshape (use the input tensor's current shape).
+        shape = input_tensor.shape
+
+    shape_tuple = tuple(_dim_to_int(dim) for dim in shape)
+
+    if any(dim == -1 for dim in shape_tuple):
+        raise ValueError(
+            "reshape_golden only supports static reshape (no -1 dimensions)."
+        )
+
+    return torch.reshape(input_tensor, shape_tuple)
 
 
 def squeeze_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
@@ -3164,6 +3211,114 @@ def get_golden_function(ttir_op_class: type, **kwargs) -> Optional[Callable]:
     return None
 
 
+def stablehlo_and_golden(
+    input_tensor: BuilderGoldenTensor, other_tensor: BuilderGoldenTensor, **kwargs
+) -> BuilderGoldenTensor:
+    """
+    Golden function for StableHLO and operation.
+
+    Supports both logical AND (for boolean tensors) and bitwise AND (for integer tensors).
+
+    Parameters
+    ----------
+    input_tensor : BuilderGoldenTensor
+        Left-hand side tensor.
+    other_tensor : BuilderGoldenTensor
+        Right-hand side tensor.
+
+    Returns
+    -------
+    BuilderGoldenTensor
+        Tensor containing the AND results.
+    """
+    if input_tensor.dtype == torch.bool:
+        result_bool = torch.logical_and(input_tensor, other_tensor)
+        return result_bool.to(input_tensor.dtype)
+    else:
+        return torch.bitwise_and(input_tensor, other_tensor)
+
+
+def stablehlo_or_golden(
+    input_tensor: BuilderGoldenTensor, other_tensor: BuilderGoldenTensor, **kwargs
+) -> BuilderGoldenTensor:
+    """
+    Golden function for StableHLO or operation.
+
+    Supports both logical OR (for boolean tensors) and bitwise OR (for integer tensors).
+
+    Parameters
+    ----------
+    input_tensor : BuilderGoldenTensor
+        Left-hand side tensor.
+    other_tensor : BuilderGoldenTensor
+        Right-hand side tensor.
+
+    Returns
+    -------
+    BuilderGoldenTensor
+        Tensor containing the OR results.
+    """
+    if input_tensor.dtype == torch.bool:
+        result_bool = torch.logical_or(input_tensor, other_tensor)
+        return result_bool.to(input_tensor.dtype)
+    else:
+        return torch.bitwise_or(input_tensor, other_tensor)
+
+
+def stablehlo_xor_golden(
+    input_tensor: BuilderGoldenTensor, other_tensor: BuilderGoldenTensor, **kwargs
+) -> BuilderGoldenTensor:
+    """
+    Golden function for StableHLO xor operation.
+
+    Supports both logical XOR (for boolean tensors) and bitwise XOR (for integer tensors).
+
+    Parameters
+    ----------
+    input_tensor : BuilderGoldenTensor
+        Left-hand side tensor.
+    other_tensor : BuilderGoldenTensor
+        Right-hand side tensor.
+
+    Returns
+    -------
+    BuilderGoldenTensor
+        Tensor containing the XOR results.
+    """
+    if input_tensor.dtype == torch.bool:
+        result_bool = torch.logical_xor(input_tensor, other_tensor)
+        return result_bool.to(input_tensor.dtype)
+    else:
+        return torch.bitwise_xor(input_tensor, other_tensor)
+
+
+def stablehlo_not_golden(
+    input_tensor: BuilderGoldenTensor, **kwargs
+) -> BuilderGoldenTensor:
+    """
+    Golden function for StableHLO not operation.
+
+    Supports both logical NOT (for boolean tensors) and bitwise NOT (for integer tensors).
+
+    Parameters
+    ----------
+    input_tensor : BuilderGoldenTensor
+        Input tensor to invert.
+    **kwargs : dict
+        Keyword arguments (unused for this operation).
+
+    Returns
+    -------
+    BuilderGoldenTensor
+        Tensor containing the NOT of input_tensor.
+    """
+    if input_tensor.dtype == torch.bool:
+        result_bool = torch.logical_not(input_tensor)
+        return result_bool.to(input_tensor.dtype)
+    else:
+        return torch.bitwise_not(input_tensor)
+
+
 """
 Dictionary mapping TTIR operation classes to their corresponding golden functions.
 
@@ -3338,10 +3493,15 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     stablehlo.LogOp: torch.log,
     stablehlo.LogisticOp: torch.sigmoid,
     stablehlo.NegOp: torch.neg,
+    stablehlo.ReshapeOp: reshape_golden,
     stablehlo.RsqrtOp: torch.rsqrt,
     stablehlo.SineOp: torch.sin,
     stablehlo.SqrtOp: torch.sqrt,
     stablehlo.TanOp: torch.tan,
+    stablehlo.AndOp: stablehlo_and_golden,
+    stablehlo.OrOp: stablehlo_or_golden,
+    stablehlo.XorOp: stablehlo_xor_golden,
+    stablehlo.NotOp: stablehlo_not_golden,
     stablehlo.SliceOp: slice_golden_stablehlo,
     # stablehlo complex operations
     stablehlo.DotGeneralOp: dot_general_golden,

@@ -5,6 +5,7 @@
 #ifndef TTMLIR_DIALECT_TTCORE_IR_UTILS_H
 #define TTMLIR_DIALECT_TTCORE_IR_UTILS_H
 
+#include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Utils.h"
 
@@ -137,6 +138,16 @@ inline bool hasDeviceLayout(ShapedType shapedType) {
 
 inline bool hasDeviceLayout(Value value) {
   return hasDeviceLayout(mlir::cast<ShapedType>(value.getType()));
+}
+
+// Helper function to derive grid shape from tensor OR memref using underlying
+// layout attr.
+inline ArrayRef<int64_t> getGridShape(Value tensorOrMemref) {
+  TT_assertv((mlir::isa<RankedTensorType>(tensorOrMemref.getType()) ||
+              mlir::isa<MemRefType>(tensorOrMemref.getType())),
+             "Expected a tensor or memref type");
+  return ttcore::getDeviceLayout(tensorOrMemref)
+      .getGridShape(mlir::cast<ShapedType>(tensorOrMemref.getType()));
 }
 
 Type getOperandInnerElementType(const mlir::Value operand);

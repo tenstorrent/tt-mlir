@@ -1,8 +1,8 @@
 // RUN: ttmlir-opt --ttcore-register-device --d2m-allocate 2>&1 -o %t %s
 // RUN: FileCheck %s --input-file=%t
 
-!memreftype_l1   = memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.shard<1024x1024>, #ttcore.memory_space<l1>>
-!memreftype_dram = memref<1x1x8x8x!ttcore.tile<32x32, f32>, #ttcore.shard<1024x1024>, #ttcore.memory_space<dram>>
+!memreftype_l1   = memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.shard<1024x1024, 1>, #ttcore.memory_space<l1>>
+!memreftype_dram = memref<1x1x8x8x!ttcore.tile<32x32, f32>, #ttcore.shard<1024x1024, 1>, #ttcore.memory_space<dram>>
 
 // CHECK-LABEL: func @allocate_l1
 func.func @allocate_l1() -> !memreftype_l1 {

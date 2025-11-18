@@ -129,6 +129,26 @@ static ttir::ConstantOp getConstantValueDefiningOp(Value value) {
   return mlir::dyn_cast_if_present<ttir::ConstantOp>(valueDef);
 }
 
+static LogicalResult parseBoolFromStringAttr(const mlir::StringAttr &stringAttr,
+                                             bool &result) {
+  if (stringAttr.getValue().lower() == "true") {
+    result = true;
+  } else if (stringAttr.getValue().lower() == "false") {
+    result = false;
+  } else {
+    return failure();
+  }
+  return success();
+}
+
+static LogicalResult
+parseFloatFromStringAttr(const mlir::StringAttr &stringAttr, float &result) {
+  if (!llvm::to_float(stringAttr.getValue(), result)) {
+    return failure();
+  }
+  return success();
+}
+
 namespace {
 template <typename SrcOp, typename DestOp,
           typename Adaptor = typename SrcOp::Adaptor>
@@ -3933,15 +3953,9 @@ public:
       auto shareCacheStringAttr =
           frontendAttributes.getAs<mlir::StringAttr>("share_cache");
       if (shareCacheStringAttr) {
-        if (shareCacheStringAttr.getValue().lower() == "true") {
-          shareCache = true;
-        } else if (shareCacheStringAttr.getValue().lower() == "false") {
-          shareCache = false;
-        } else {
+        if (failed(parseBoolFromStringAttr(shareCacheStringAttr, shareCache))) {
           return rewriter.notifyMatchFailure(
-              srcOp,
-              "share_cache attribute must be true or false. Received \"" +
-                  shareCacheStringAttr.getValue() + "\".");
+              srcOp, "Failed to parse share_cache attribute.");
         }
       }
     }
@@ -3949,6 +3963,47 @@ public:
     rewriter.replaceOpWithNewOp<ttir::PagedUpdateCacheOp>(
         srcOp, cache.getType(), cache, input, updateIndex, shareCache,
         pageTable);
+
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+class StableHLOPagedFillCacheConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::CustomCallOp> {
+  using OpConversionPattern<mlir::stablehlo::CustomCallOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::CustomCallOp srcOp,
+                  mlir::stablehlo::CustomCallOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    StringAttr funcName = adaptor.getCallTargetNameAttr();
+    if (funcName != "tt.paged_fill_cache") {
+      return failure();
+    }
+
+    if ((adaptor.getOperands().size() != 4 &&
+         adaptor.getOperands().size() != 3) ||
+        srcOp.getResults().size() != 1) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "PagedFillCache op must have three or four operands and one "
+                 "result. Got " +
+                     std::to_string(adaptor.getOperands().size()) +
+                     " operands "
+                     "and " +
+                     std::to_string(srcOp.getResults().size()) + " results.");
+    }
+
+    Value cache = adaptor.getOperands()[0];
+    Value input = adaptor.getOperands()[1];
+    Value pageTable = adaptor.getOperands()[2];
+    Value batchIdxTensor =
+        adaptor.getOperands().size() == 4 ? adaptor.getOperands()[3] : nullptr;
+
+    rewriter.replaceOpWithNewOp<ttir::PagedFillCacheOp>(
+        srcOp, cache.getType(), cache, input, pageTable, batchIdxTensor);
 
     return success();
   }
@@ -4018,35 +4073,24 @@ public:
         frontendAttributes.getAs<mlir::StringAttr>("is_causal");
     bool isCausal = true;
     if (isCausalStringAttr) {
-
-      if (isCausalStringAttr.getValue().lower() == "true") {
-        isCausal = true;
-      } else if (isCausalStringAttr.getValue().lower() == "false") {
-        isCausal = false;
-      } else {
+      if (failed(parseBoolFromStringAttr(isCausalStringAttr, isCausal))) {
         return rewriter.notifyMatchFailure(
-            srcOp, "is_causal attribute must be true or false. Received \"" +
-                       isCausalStringAttr.getValue() + "\".");
+            srcOp, "Failed to parse is_causal attribute.");
       }
     }
 
     BoolAttr isCausalAttr = rewriter.getBoolAttr(isCausal);
 
     auto scaleStringAttr = frontendAttributes.getAs<mlir::StringAttr>("scale");
-    std::optional<float> scale = std::nullopt;
+    FloatAttr scaleAttr = nullptr;
     if (scaleStringAttr) {
-      float _scale;
-      if (!llvm::to_float(scaleStringAttr.getValue(), _scale)) {
-        return rewriter.notifyMatchFailure(
-            srcOp,
-            "scale attribute string must be convertible to float. Received \"" +
-                scaleStringAttr.getValue() + "\".");
+      float scale;
+      if (failed(parseFloatFromStringAttr(scaleStringAttr, scale))) {
+        return rewriter.notifyMatchFailure(srcOp,
+                                           "Failed to parse scale attribute.");
       }
-      scale = _scale;
+      scaleAttr = rewriter.getF32FloatAttr(scale);
     }
-
-    FloatAttr scaleAttr =
-        scale ? rewriter.getF32FloatAttr(scale.value()) : nullptr;
 
     auto hasAttentionMaskStringAttr =
         frontendAttributes.getAs<mlir::StringAttr>("has_attention_mask");
@@ -4055,16 +4099,10 @@ public:
       return rewriter.notifyMatchFailure(
           srcOp, "has_attention_mask attribute must be present.");
     }
-
-    if (hasAttentionMaskStringAttr.getValue().lower() == "true") {
-      hasAttentionMask = true;
-    } else if (hasAttentionMaskStringAttr.getValue().lower() == "false") {
-      hasAttentionMask = false;
-    } else {
+    if (failed(parseBoolFromStringAttr(hasAttentionMaskStringAttr,
+                                       hasAttentionMask))) {
       return rewriter.notifyMatchFailure(
-          srcOp,
-          "has_attention_mask attribute must be true or false. Received \"" +
-              hasAttentionMaskStringAttr.getValue() + "\".");
+          srcOp, "Failed to parse has_attention_mask attribute.");
     }
 
     auto hasAttentionSinkStringAttr =
@@ -4075,15 +4113,10 @@ public:
           srcOp, "has_attention_sink attribute must be present.");
     }
 
-    if (hasAttentionSinkStringAttr.getValue().lower() == "true") {
-      hasAttentionSink = true;
-    } else if (hasAttentionSinkStringAttr.getValue().lower() == "false") {
-      hasAttentionSink = false;
-    } else {
+    if (failed(parseBoolFromStringAttr(hasAttentionSinkStringAttr,
+                                       hasAttentionSink))) {
       return rewriter.notifyMatchFailure(
-          srcOp,
-          "has_attention_sink attribute must be true or false. Received \"" +
-              hasAttentionSinkStringAttr.getValue() + "\".");
+          srcOp, "Failed to parse has_attention_sink attribute.");
     }
 
     Value query = adaptor.getOperands()[0];
@@ -4134,6 +4167,140 @@ public:
                          "and attention sink should have been handled");
       }
     }
+
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+class StableHLOToTTIRPagedScaledDotProductAttentionDecodeOpConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::CustomCallOp> {
+  using OpConversionPattern<mlir::stablehlo::CustomCallOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::CustomCallOp srcOp,
+                  mlir::stablehlo::CustomCallOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    StringAttr funcName = adaptor.getCallTargetNameAttr();
+    if (funcName != "tt.paged_scaled_dot_product_attention_decode") {
+      return failure();
+    }
+
+    mlir::DictionaryAttr frontendAttributes =
+        mlir::dyn_cast_or_null<mlir::DictionaryAttr>(
+            srcOp->getDiscardableAttr("mhlo.frontend_attributes"));
+    if (!frontendAttributes) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "PagedScaledDotProductAttentionDecode op must have "
+                 "mhlo.frontend_attributes attribute.");
+    }
+
+    auto isCausalStringAttr =
+        frontendAttributes.getAs<mlir::StringAttr>("is_causal");
+    bool isCausal = true;
+    if (isCausalStringAttr) {
+
+      if (isCausalStringAttr.getValue().lower() == "true") {
+        isCausal = true;
+      } else if (isCausalStringAttr.getValue().lower() == "false") {
+        isCausal = false;
+      } else {
+        return rewriter.notifyMatchFailure(
+            srcOp, "is_causal attribute must be true or false. Received \"" +
+                       isCausalStringAttr.getValue() + "\".");
+      }
+    }
+
+    BoolAttr isCausalAttr = rewriter.getBoolAttr(isCausal);
+
+    auto scaleStringAttr = frontendAttributes.getAs<mlir::StringAttr>("scale");
+    FloatAttr scaleAttr = nullptr;
+    if (scaleStringAttr) {
+      float scale;
+      if (failed(parseFloatFromStringAttr(scaleStringAttr, scale))) {
+        return rewriter.notifyMatchFailure(srcOp,
+                                           "Failed to parse scale attribute.");
+      }
+      scaleAttr = rewriter.getF32FloatAttr(scale);
+    }
+
+    auto hasAttentionMaskStringAttr =
+        frontendAttributes.getAs<mlir::StringAttr>("has_attention_mask");
+    bool hasAttentionMask = false;
+    if (!hasAttentionMaskStringAttr) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "has_attention_mask attribute must be present.");
+    }
+
+    if (failed(parseBoolFromStringAttr(hasAttentionMaskStringAttr,
+                                       hasAttentionMask))) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "Failed to parse has_attention_mask attribute.");
+    }
+
+    auto hasCurPosTensorStringAttr =
+        frontendAttributes.getAs<mlir::StringAttr>("has_cur_pos_tensor");
+    bool hasCurPosTensor = false;
+    if (!hasCurPosTensorStringAttr) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "has_cur_pos_tensor attribute must be present.");
+    }
+
+    if (failed(parseBoolFromStringAttr(hasCurPosTensorStringAttr,
+                                       hasCurPosTensor))) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "Failed to parse has_cur_pos_tensor attribute.");
+    }
+
+    auto hasAttentionSinkStringAttr =
+        frontendAttributes.getAs<mlir::StringAttr>("has_attention_sink");
+    bool hasAttentionSink = false;
+    if (!hasAttentionSinkStringAttr) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "has_attention_sink attribute must be present.");
+    }
+
+    if (failed(parseBoolFromStringAttr(hasAttentionSinkStringAttr,
+                                       hasAttentionSink))) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "Failed to parse has_attention_sink attribute.");
+    }
+
+    Value query = adaptor.getOperands()[0];
+    Value key = adaptor.getOperands()[1];
+    Value value = adaptor.getOperands()[2];
+    Value pageTable = adaptor.getOperands()[3];
+    Value attentionMask = nullptr;
+    Value curPosTensor = nullptr;
+    Value attentionSink = nullptr;
+    int64_t operandIndex = 4;
+    if (hasAttentionMask) {
+      attentionMask = adaptor.getOperands()[operandIndex];
+      operandIndex++;
+    }
+    if (hasCurPosTensor) {
+      curPosTensor = adaptor.getOperands()[operandIndex];
+      operandIndex++;
+    }
+    if (hasAttentionSink) {
+      attentionSink = adaptor.getOperands()[operandIndex];
+      operandIndex++;
+    }
+
+    RankedTensorType outputType = cast<RankedTensorType>(
+        getTypeConverter()->convertType(srcOp.getResult(0).getType()));
+    ttir::EmptyOp outputTensor = rewriter.create<ttir::EmptyOp>(
+        srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
+
+    rewriter.replaceOpWithNewOp<
+        mlir::tt::ttir::PagedScaledDotProductAttentionDecodeOp>(
+        srcOp,
+        cast<RankedTensorType>(
+            getTypeConverter()->convertType(srcOp.getResult(0).getType())),
+        query, key, value, pageTable, outputTensor, isCausalAttr, attentionMask,
+        curPosTensor, attentionSink, scaleAttr);
 
     return success();
   }
@@ -4550,6 +4717,7 @@ static void addCacheOpsConversionPattern(MLIRContext *ctx,
   patterns.add<StableHLOFillCacheConversionPattern>(typeConverter, ctx);
   patterns.add<StableHLOUpdateCacheConversionPattern>(typeConverter, ctx);
   patterns.add<StableHLOPagedUpdateCacheConversionPattern>(typeConverter, ctx);
+  patterns.add<StableHLOPagedFillCacheConversionPattern>(typeConverter, ctx);
 }
 
 static void
@@ -4563,10 +4731,11 @@ addOptimizationBarrierOpConversionPattern(MLIRContext *ctx,
 static void addScaledDotProductAttentionDecodeOpConversionPattern(
     MLIRContext *ctx, RewritePatternSet &patterns,
     TypeConverter &typeConverter) {
-  patterns
-      .add<StableHLOToTTIRScaledDotProductAttentionDecodeOpConversionPattern,
-           StableHLOToTTIRScaledDotProductAttentionOpConversionPattern>(
-          typeConverter, ctx);
+  patterns.add<
+      StableHLOToTTIRScaledDotProductAttentionDecodeOpConversionPattern,
+      StableHLOToTTIRScaledDotProductAttentionOpConversionPattern,
+      StableHLOToTTIRPagedScaledDotProductAttentionDecodeOpConversionPattern>(
+      typeConverter, ctx);
 }
 
 namespace mlir::tt {

@@ -4673,6 +4673,47 @@ TEST_F(OpModelTest, PagedUpdateCacheOp) {
   }
 }
 
+TEST_F(OpModelTest, PagedFillCacheOp) {
+  // Test basic PagedUpdateCacheOp with DRAM cache, input, update_index, and
+  // page_table tensors
+  const llvm::SmallVector<int64_t> cacheShape = {128, 4, 32, 256};
+  const llvm::SmallVector<int64_t> inputShape = {1, 12, 65, 256};
+  const llvm::SmallVector<int64_t> batchOffsetShape = {1};
+  const llvm::SmallVector<int64_t> pageTableShape = {8, 16};
+  const auto workerGrid = CreateWorkerGrid(gridShapeHwN300);
+
+  const TTNNLayoutAttr cacheLayout = CreateTiledLayout(
+      cacheShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+  const TTNNLayoutAttr inputLayout = CreateTiledLayout(
+      inputShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+  const TTNNLayoutAttr batchOffsetLayout = CreateRowMajorLayoutInt32(
+      batchOffsetShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+  const TTNNLayoutAttr pageTableLayout = CreateRowMajorLayoutInt32(
+      pageTableShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+
+  auto constraintsExp = OpModel<PagedFillCacheOp>::getOpConstraints(
+      workerGrid, cacheShape, cacheLayout, inputShape, inputLayout,
+      pageTableShape, pageTableLayout, batchOffsetShape, batchOffsetLayout,
+      cacheLayout);
+  EXPECT_TRUE(static_cast<bool>(constraintsExp));
+
+  if (constraintsExp) {
+    OpConstraints &opCstr = constraintsExp.get();
+    EXPECT_EQ(opCstr.cbL1PeakSize, 32836);
+    EXPECT_EQ(opCstr.tensorL1PeakSize, 0);
+    EXPECT_EQ(opCstr.outputL1BufferSize, 0);
+    EXPECT_EQ(opCstr.peakL1MemorySize, 32836);
+  }
+
+  auto runtimeExp = OpModel<PagedFillCacheOp>::getOpRuntime(
+      cacheShape, cacheLayout, inputShape, inputLayout, pageTableShape,
+      pageTableLayout, batchOffsetShape, batchOffsetLayout, cacheLayout);
+  EXPECT_TRUE(static_cast<bool>(runtimeExp));
+  if (runtimeExp) {
+    EXPECT_GT(runtimeExp.get(), 0);
+  }
+}
+
 //===----------------------------------------------------------------------===//
 // QuantizeOp Tests
 //===----------------------------------------------------------------------===//
@@ -5440,6 +5481,172 @@ const auto scaledDotProductAttentionDecodeOpTestValues = testing::Values(
 INSTANTIATE_TEST_SUITE_P(ScaledDotProductAttentionDecodeTests,
                          OpModelScaledDotProductAttentionDecodeParam,
                          scaledDotProductAttentionDecodeOpTestValues);
+
+// === PagedScaledDotProductAttentionDecodeOp Tests ===
+struct PagedScaledDotProductAttentionDecodeOpParam {
+  detail::TestTensor query;
+  detail::TestTensor key;
+  detail::TestTensor value;
+  detail::TestTensor pageTable;
+  std::optional<detail::TestTensor> attentionMask;
+  std::optional<detail::TestTensor> curPosTensor;
+  std::optional<detail::TestTensor> attentionSink;
+  bool isCausal;
+  float scale;
+  detail::TestTensor output;
+  detail::ExpectedResult expectedResult;
+};
+
+class OpModelPagedScaledDotProductAttentionDecodeParam
+    : public OpModelTest,
+      public testing::WithParamInterface<
+          PagedScaledDotProductAttentionDecodeOpParam> {
+protected:
+  void RunTest() {
+    // NOLINTBEGIN(clang-analyzer-cplusplus.NewDelete)
+    const auto [queryShape, queryTensorLayout, queryBufferType,
+                queryVirtualGrid] = GetParam().query;
+    const auto [keyShape, keyTensorLayout, keyBufferType, keyVirtualGrid] =
+        GetParam().key;
+    const auto [valueShape, valueTensorLayout, valueBufferType,
+                valueVirtualGrid] = GetParam().value;
+
+    const auto [pageTableShape, pageTableTensorLayout, pageTableBufferType,
+                pageTableVirtualGrid] = GetParam().pageTable;
+
+    std::optional<SmallVector<int64_t>> attentionMaskShape = std::nullopt;
+    std::optional<TensorMemoryLayout> attentionMaskTensorLayout = std::nullopt;
+    std::optional<BufferType> attentionMaskBufferType = std::nullopt;
+    std::optional<SmallVector<int64_t>> attentionMaskVirtualGrid = std::nullopt;
+
+    std::optional<SmallVector<int64_t>> curPosTensorShape = std::nullopt;
+    std::optional<TensorMemoryLayout> curPosTensorTensorLayout = std::nullopt;
+    std::optional<BufferType> curPosTensorBufferType = std::nullopt;
+    std::optional<SmallVector<int64_t>> curPosTensorVirtualGrid = std::nullopt;
+
+    std::optional<SmallVector<int64_t>> attentionSinkShape = std::nullopt;
+    std::optional<TensorMemoryLayout> attentionSinkTensorLayout = std::nullopt;
+    std::optional<BufferType> attentionSinkBufferType = std::nullopt;
+    std::optional<SmallVector<int64_t>> attentionSinkVirtualGrid = std::nullopt;
+
+    if (auto attentionMaskDetail = GetParam().attentionMask) {
+      attentionMaskShape = attentionMaskDetail->shape;
+      attentionMaskTensorLayout = attentionMaskDetail->layout;
+      attentionMaskBufferType = attentionMaskDetail->bufferType;
+      attentionMaskVirtualGrid = attentionMaskDetail->virtualGrid;
+    }
+
+    if (auto curPosTensorDetail = GetParam().curPosTensor) {
+      curPosTensorShape = curPosTensorDetail->shape;
+      curPosTensorTensorLayout = curPosTensorDetail->layout;
+      curPosTensorBufferType = curPosTensorDetail->bufferType;
+      curPosTensorVirtualGrid = curPosTensorDetail->virtualGrid;
+    }
+
+    if (auto attentionSinkDetail = GetParam().attentionSink) {
+      attentionSinkShape = attentionSinkDetail->shape;
+      attentionSinkTensorLayout = attentionSinkDetail->layout;
+      attentionSinkBufferType = attentionSinkDetail->bufferType;
+      attentionSinkVirtualGrid = attentionSinkDetail->virtualGrid;
+    }
+
+    const auto isCausal = GetParam().isCausal;
+
+    const auto [outputShape, outputTensorLayout, outputBufferType,
+                outputVirtualGrid] = GetParam().output;
+
+    const auto [expectedLegal, expectedCbSize, expectedL1PeakSize,
+                expectedTotalPeakSize, expectedOutputSize] =
+        GetParam().expectedResult;
+
+    const TTNNLayoutAttr queryLayout = CreateTiledLayout(
+        queryShape, queryBufferType, queryTensorLayout, queryVirtualGrid);
+    const TTNNLayoutAttr keyLayout = CreateTiledLayout(
+        keyShape, keyBufferType, keyTensorLayout, keyVirtualGrid);
+    const TTNNLayoutAttr valueLayout = CreateTiledLayout(
+        valueShape, valueBufferType, valueTensorLayout, valueVirtualGrid);
+    const TTNNLayoutAttr pageTableLayout =
+        CreateRowMajorLayoutInt32(pageTableShape, pageTableBufferType,
+                                  pageTableTensorLayout, pageTableVirtualGrid);
+
+    std::optional<TTNNLayoutAttr> attentionMaskLayout = std::nullopt;
+    std::optional<TTNNLayoutAttr> curPosTensorLayout = std::nullopt;
+    std::optional<TTNNLayoutAttr> attentionSinkLayout = std::nullopt;
+
+    if (attentionMaskShape) {
+      attentionMaskLayout = CreateTiledLayout(
+          *attentionMaskShape, *attentionMaskBufferType,
+          *attentionMaskTensorLayout, attentionMaskVirtualGrid);
+    }
+    if (curPosTensorShape) {
+      curPosTensorLayout = CreateRowMajorLayoutInt32(
+          *curPosTensorShape, *curPosTensorBufferType,
+          *curPosTensorTensorLayout, curPosTensorVirtualGrid);
+    }
+    if (attentionSinkShape) {
+      attentionSinkLayout = CreateTiledLayout(
+          *attentionSinkShape, *attentionSinkBufferType,
+          *attentionSinkTensorLayout, attentionSinkVirtualGrid);
+    }
+
+    const TTNNLayoutAttr outputLayout = CreateTiledLayout(
+        outputShape, outputBufferType, outputTensorLayout, outputVirtualGrid);
+
+    const llvm::APFloat scaleAPFloat(GetParam().scale);
+    std::optional<llvm::APFloat> scale = scaleAPFloat;
+
+    auto constraintsExp =
+        OpModel<PagedScaledDotProductAttentionDecodeOp>::getOpConstraints(
+            CreateWorkerGrid(), queryShape, queryLayout, keyShape, keyLayout,
+            valueShape, valueLayout, pageTableShape, pageTableLayout, isCausal,
+            attentionMaskShape, attentionMaskLayout, curPosTensorShape,
+            curPosTensorLayout, attentionSinkShape, attentionSinkLayout, scale,
+            outputLayout);
+
+    EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
+    if (expectedLegal) {
+      const auto [cbSize, l1PeakSize, totalPeakSize, outputSizeResult,
+                  outputLayoutReadBack] = constraintsExp.get();
+      EXPECT_LE(cbSize, expectedCbSize);
+      EXPECT_LE(l1PeakSize, expectedL1PeakSize);
+      EXPECT_LE(totalPeakSize, expectedTotalPeakSize);
+      EXPECT_LE(outputSizeResult, expectedOutputSize);
+    } else {
+      llvm::consumeError(constraintsExp.takeError());
+    }
+  }
+  // NOLINTEND(clang-analyzer-cplusplus.NewDelete)
+};
+
+TEST_P(OpModelPagedScaledDotProductAttentionDecodeParam,
+       PagedScaledDotProductAttentionDecodeOp) {
+
+  RunTest();
+}
+
+const auto pagedScaledDotProductAttentionDecodeOpTestValues =
+    testing::Values(PagedScaledDotProductAttentionDecodeOpParam{
+        detail::TestTensor{
+            {1, 1, 12, 64}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        detail::TestTensor{{128, 12, 32, 64},
+                           TensorMemoryLayout::Interleaved,
+                           BufferType::DRAM},
+        detail::TestTensor{{128, 12, 32, 64},
+                           TensorMemoryLayout::Interleaved,
+                           BufferType::DRAM},
+        detail::TestTensor{
+            {1, 128}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        std::nullopt,
+        detail::TestTensor{
+            {1}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        std::nullopt, true, 0.125f,
+        detail::TestTensor{
+            {1, 1, 12, 32}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        detail::ExpectedResult{true, 196128, 0, 196128, 0}});
+
+INSTANTIATE_TEST_SUITE_P(PagedScaledDotProductAttentionDecodeTests,
+                         OpModelPagedScaledDotProductAttentionDecodeParam,
+                         pagedScaledDotProductAttentionDecodeOpTestValues);
 
 // === ScaledDotProductAttentionOp Tests ===
 

@@ -9,6 +9,35 @@ include "mlir/Pass/PassBase.td"
 include "shardy/dialect/sdy/ir/dialect.td"
 include "shardy/dialect/sdy/ir/op_interface.td"
 
+def RegisterCustomShardingRulePass : Pass<"register-custom-sharding-rule", "::mlir::ModuleOp">
+{
+  let summary = "Register custom sharding rules for operations.";
+
+  let description = [{
+    This pass registers custom sharding rules in the current MLIRContext so that
+    Shardy can correctly propagate shardings through operations that do not
+    have built-in sharding rules in Shardy.
+
+    Currently, this pass attaches the `ShardingRuleOpInterface` external model
+    implementation for `stablehlo.CustomCallOp`, allowing Shardy to query
+    `ShardingRuleOpInterface::getShardingRule` for custom calls that are not
+    covered by Shardy's built-in StableHLO sharding registry.
+
+    Over time, additional custom operations that require project-specific
+    sharding rules can also be registered in this pass by attaching their own
+    `ShardingRuleOpInterface` implementations.
+
+    This pass is intended to run before any Shardy sharding propagation passes.
+
+    For more details on the interface and how sharding rules are expressed,
+    please refer to:
+      https://github.com/openxla/shardy/blob/80ade881ade0c7c0e4d788cca5b7b497f4dc249b/docs/sdy_op_interfaces.md#shardingruleopinterface-sdy_shardingruleopinterface
+  }];
+
+  let dependentDialects = [
+    "::mlir::sdy::SdyDialect"
+  ];
+}
 def ApplyArgumentShardStatusPass : Pass<"apply-argument-shard-status", "::mlir::ModuleOp">
 {
   let summary = "Annotate arguments with their shard status.";
