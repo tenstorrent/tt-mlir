@@ -55,6 +55,50 @@ struct D2MInsertDstRegisterGCPass
     return !region.getOps<AcquireDstOp>().empty();
   }
 
+  /// Extract the CB (Circular Buffer) MemRef type from DST accesses.
+  ///
+  /// This function finds the first DST access operation (AffineLoadOp or
+  /// AffineStoreOp) and returns its MemRef type, which represents the CB type
+  /// used for DST operations.
+  ///
+  /// \param dstAccesses The list of DST access operations to examine.
+  /// \return The MemRefType of the first DST access, or nullptr if none found.
+  static MemRefType extractCbTypeFromDstAccesses(
+      const SmallVectorImpl<std::pair<Operation *, int64_t>> &dstAccesses) {
+    for (auto &[op, idx] : dstAccesses) {
+      if (auto loadOp = mlir::dyn_cast<affine::AffineLoadOp>(op)) {
+        return loadOp.getMemRefType();
+      }
+      if (auto storeOp = mlir::dyn_cast<affine::AffineStoreOp>(op)) {
+        return storeOp.getMemRefType();
+      }
+    }
+    return nullptr;
+  }
+
+  /// Replace an affine load or store op to use the DST buffer instead of L1.
+  template <typename OpT>
+  static void replaceAffineAccessWithDst(IRRewriter &rewriter, OpT op,
+                                         Value dstBuffer,
+                                         uint32_t assignedSlice) {
+    rewriter.setInsertionPoint(op);
+
+    auto dstMap = op.getMap().insertResult(
+        getAffineConstantExpr(assignedSlice, rewriter.getContext()), 0);
+    SmallVector<Value> dstIndices(op.getIndices().begin(),
+                                  op.getIndices().end());
+
+    if constexpr (std::is_same_v<OpT, affine::AffineLoadOp>) {
+      rewriter.replaceOpWithNewOp<affine::AffineLoadOp>(op, dstBuffer, dstMap,
+                                                        dstIndices);
+    } else if constexpr (std::is_same_v<OpT, affine::AffineStoreOp>) {
+      rewriter.replaceOpWithNewOp<affine::AffineStoreOp>(
+          op, op.getValueToStore(), dstBuffer, dstMap, dstIndices);
+    } else {
+      static_assert(!std::is_same_v<OpT, OpT>, "Unsupported operation type");
+    }
+  }
+
   // Check if a generic region has acquire_dst but no release_dst.
   static bool hasAcquireDstWithoutRelease(Region &region) {
     bool hasAcquire = !region.getOps<AcquireDstOp>().empty();
@@ -153,17 +197,7 @@ struct D2MInsertDstRegisterGCPass
         }
 
         // Infer CB type - find the canonical type used in DST accesses.
-        MemRefType cbType = nullptr;
-        for (auto &[op, idx] : dstAccesses) {
-          if (cbType == nullptr) {
-            if (auto loadOp = mlir::dyn_cast<affine::AffineLoadOp>(op)) {
-              cbType = loadOp.getMemRefType();
-            } else if (auto storeOp =
-                           mlir::dyn_cast<affine::AffineStoreOp>(op)) {
-              cbType = storeOp.getMemRefType();
-            }
-          }
-        }
+        MemRefType cbType = extractCbTypeFromDstAccesses(dstAccesses);
 
         if (!cbType) {
           genericOp.emitError("No CB type found for DST allocation");
@@ -224,11 +258,12 @@ struct D2MInsertDstRegisterGCPass
 
         // Generate hoisted prologue copy loops for each loop nest.
         for (auto &[loopOp, copyInfo] : copyInfoMap) {
-          generatePrologue(rewriter, acquireDst, loopOp, copyInfo);
+          generatePrologueLoop(rewriter, acquireDst, loopOp, copyInfo);
         }
 
         for (auto &[loopOp, copyInfo] : copyInfoMap) {
-          generateEpilogue(rewriter, acquireDst.getResult(), loopOp, copyInfo);
+          generateEpilogueLoop(rewriter, acquireDst.getResult(), loopOp,
+                               copyInfo);
         }
 
         // Insert release_dst at the end, after all epilogue loops
@@ -248,29 +283,11 @@ struct D2MInsertDstRegisterGCPass
           uint32_t assignedSlice = coloring[accessIndex];
 
           if (auto loadOp = mlir::dyn_cast<affine::AffineLoadOp>(op)) {
-            // Replace original load with load from DST
-            rewriter.setInsertionPoint(loadOp);
-
-            auto dstMap = loadOp.getMap().insertResult(
-                getAffineConstantExpr(assignedSlice, &getContext()), 0);
-            SmallVector<Value> dstIndices(loadOp.getIndices().begin(),
-                                          loadOp.getIndices().end());
-
-            rewriter.replaceOpWithNewOp<affine::AffineLoadOp>(
-                loadOp, acquireDst.getResult(), dstMap, dstIndices);
-
+            replaceAffineAccessWithDst<affine::AffineLoadOp>(
+                rewriter, loadOp, acquireDst.getResult(), assignedSlice);
           } else if (auto storeOp = mlir::dyn_cast<affine::AffineStoreOp>(op)) {
-            // Replace original store with store to DST
-            rewriter.setInsertionPoint(storeOp);
-
-            auto dstMap = storeOp.getMap().insertResult(
-                getAffineConstantExpr(assignedSlice, &getContext()), 0);
-            SmallVector<Value> dstIndices(storeOp.getIndices().begin(),
-                                          storeOp.getIndices().end());
-
-            rewriter.replaceOpWithNewOp<affine::AffineStoreOp>(
-                storeOp, storeOp.getValueToStore(), acquireDst.getResult(),
-                dstMap, dstIndices);
+            replaceAffineAccessWithDst<affine::AffineStoreOp>(
+                rewriter, storeOp, acquireDst.getResult(), assignedSlice);
           }
         }
       }
@@ -401,145 +418,147 @@ private:
     return {innermostLoop, indices};
   }
 
-  // Generate prologue copy nest (L1 → DST) ahead of the loop/compute region
-  // that uses the original loads.
-  static void generatePrologue(IRRewriter &rewriter, AcquireDstOp acquireDst,
-                               Operation *loopTemplate,
-                               const CopyInfo &copyInfo) {
-    if (copyInfo.loads.empty()) {
+  /// Generate copy loops for data movement between L1 and DST.
+  ///
+  /// This templated function handles both prologue (L1->DST) and epilogue
+  /// (DST->L1) copy loop generation. The direction is controlled by the
+  /// IsPrologue template parameter and the external memory reference.
+  ///
+  /// \tparam IsPrologue True for prologue (L1->DST), false for epilogue
+  /// (DST->L1).
+  /// \tparam OpT The operation type (AffineLoadOp for prologue, AffineStoreOp
+  /// for epilogue).
+  /// \param rewriter The rewriter to use for IR generation.
+  /// \param externalMemref External memory reference (DST for both cases).
+  /// \param loopTemplate The operation around which to generate copies.
+  /// \param copyPairs The pairs of operations and their slice indices to
+  /// process.
+  template <bool IsPrologue, typename OpT, typename PairT>
+  static void generateCopyLoops(IRRewriter &rewriter, Value externalMemref,
+                                Operation *loopTemplate,
+                                ArrayRef<PairT> copyPairs) {
+    if (copyPairs.empty()) {
       return;
     }
 
     auto forLoop = dyn_cast<affine::AffineForOp>(loopTemplate);
     if (!forLoop) {
-      // No loop nest - generate inline copies immediately before the load op.
+      // No loop nest - generate inline copies
       OpBuilder::InsertionGuard guard(rewriter);
-      rewriter.setInsertionPoint(loopTemplate);
-      for (const auto &loadPair : copyInfo.loads) {
-        affine::AffineLoadOp loadOp = loadPair.first;
-        int64_t sliceIdx = loadPair.second;
+      if constexpr (IsPrologue) {
+        rewriter.setInsertionPoint(loopTemplate);
+      } else {
+        rewriter.setInsertionPointAfter(loopTemplate);
+      }
 
-        auto l1Value = rewriter.create<affine::AffineLoadOp>(
-            loadOp.getLoc(), loadOp.getMemRef(), loadOp.getMap(),
-            loadOp.getIndices());
+      for (const auto &pair : copyPairs) {
+        OpT op = pair.first;
+        int64_t sliceIdx = pair.second;
 
-        auto dstMap = loadOp.getMap().insertResult(
-            getAffineConstantExpr(sliceIdx, rewriter.getContext()), 0);
-        SmallVector<Value> dstIndices(loadOp.getIndices().begin(),
-                                      loadOp.getIndices().end());
+        if constexpr (IsPrologue) {
+          // L1 -> DST: load from L1 (op.getMemRef()), store to DST
+          auto l1Value = rewriter.create<affine::AffineLoadOp>(
+              op.getLoc(), op.getMemRef(), op.getMap(), op.getIndices());
 
-        rewriter.create<affine::AffineStoreOp>(
-            loadOp.getLoc(), l1Value.getResult(), acquireDst.getResult(),
-            dstMap, dstIndices);
+          auto dstMap = op.getMap().insertResult(
+              getAffineConstantExpr(sliceIdx, rewriter.getContext()), 0);
+          SmallVector<Value> dstIndices(op.getIndices().begin(),
+                                        op.getIndices().end());
+
+          rewriter.create<affine::AffineStoreOp>(
+              op.getLoc(), l1Value.getResult(), externalMemref, dstMap,
+              dstIndices);
+        } else {
+          // DST -> L1: load from DST, store to L1 (op.getMemRef())
+          auto dstMap = op.getMap().insertResult(
+              getAffineConstantExpr(sliceIdx, rewriter.getContext()), 0);
+          SmallVector<Value> dstIndices(op.getIndices().begin(),
+                                        op.getIndices().end());
+
+          auto dstValue = rewriter.create<affine::AffineLoadOp>(
+              op.getLoc(), externalMemref, dstMap, dstIndices);
+
+          rewriter.create<affine::AffineStoreOp>(
+              op.getLoc(), dstValue.getResult(), op.getMemRef(), op.getMap(),
+              op.getIndices());
+        }
       }
       return;
     }
 
+    // Handle loop case
     OpBuilder::InsertionGuard guard(rewriter);
-    rewriter.setInsertionPoint(forLoop);
+    if constexpr (IsPrologue) {
+      rewriter.setInsertionPoint(forLoop);
+    } else {
+      rewriter.setInsertionPointAfter(forLoop);
+    }
 
     // Clone the loop structure and get the mapping
-    auto [prologueLoop, mapper] = cloneLoopNest(rewriter, forLoop);
+    auto [copyLoop, mapper] = cloneLoopNest(rewriter, forLoop);
 
     // Find the innermost loop and collect all induction variables
-    auto [innermostLoop, newIndices] =
-        findInnermostLoopAndIndices(prologueLoop);
+    auto [innermostLoop, newIndices] = findInnermostLoopAndIndices(copyLoop);
 
-    // Populate with copy-in operations at the innermost loop level
+    // Populate with copy operations at the innermost loop level
     rewriter.setInsertionPointToStart(&innermostLoop.getRegion().front());
 
-    for (const auto &loadPair : copyInfo.loads) {
-      affine::AffineLoadOp loadOp = loadPair.first;
-      int64_t sliceIdx = loadPair.second;
+    for (const auto &pair : copyPairs) {
+      OpT op = pair.first;
+      int64_t sliceIdx = pair.second;
 
       // Map the original indices to the cloned loop's induction variables
       SmallVector<Value> mappedIndices;
-      for (Value idx : loadOp.getIndices()) {
+      for (Value idx : op.getIndices()) {
         Value mappedIdx = mapper.lookupOrDefault(idx);
         mappedIndices.push_back(mappedIdx);
       }
 
-      // Create: %val = affine.load %l1[...]
-      auto l1Load = rewriter.create<affine::AffineLoadOp>(
-          loadOp.getLoc(), loadOp.getMemRef(), loadOp.getMap(), mappedIndices);
+      if constexpr (IsPrologue) {
+        // Create: %val = affine.load %l1[...]
+        auto l1Load = rewriter.create<affine::AffineLoadOp>(
+            op.getLoc(), op.getMemRef(), op.getMap(), mappedIndices);
 
-      // Create: affine.store %val, %dst[slice, ...]
-      auto dstMap = loadOp.getMap().insertResult(
-          getAffineConstantExpr(sliceIdx, rewriter.getContext()), 0);
-      rewriter.create<affine::AffineStoreOp>(
-          loadOp.getLoc(), l1Load.getResult(), acquireDst.getResult(), dstMap,
-          mappedIndices);
+        // Create: affine.store %val, %dst[slice, ...]
+        auto dstMap = op.getMap().insertResult(
+            getAffineConstantExpr(sliceIdx, rewriter.getContext()), 0);
+        rewriter.create<affine::AffineStoreOp>(op.getLoc(), l1Load.getResult(),
+                                               externalMemref, dstMap,
+                                               mappedIndices);
+      } else {
+        // Create: %val = affine.load %dst[slice, ...]
+        auto dstMap = op.getMap().insertResult(
+            getAffineConstantExpr(sliceIdx, rewriter.getContext()), 0);
+        auto dstLoad = rewriter.create<affine::AffineLoadOp>(
+            op.getLoc(), externalMemref, dstMap, mappedIndices);
+
+        // Create: affine.store %val, %l1[...]
+        rewriter.create<affine::AffineStoreOp>(op.getLoc(), dstLoad.getResult(),
+                                               op.getMemRef(), op.getMap(),
+                                               mappedIndices);
+      }
     }
   }
 
-  // Generate epilogue copy nest (DST → L1) after the loop/compute region that
+  // Generate prologue copy nest (L1 -> DST) ahead of the loop/compute region
+  // that uses the original loads.
+  static void generatePrologueLoop(IRRewriter &rewriter,
+                                   AcquireDstOp acquireDst,
+                                   Operation *loopTemplate,
+                                   const CopyInfo &copyInfo) {
+    generateCopyLoops</*IsPrologue=*/true, affine::AffineLoadOp,
+                      OpAndIndexOffset<affine::AffineLoadOp>>(
+        rewriter, acquireDst.getResult(), loopTemplate, copyInfo.loads);
+  }
+
+  // Generate epilogue copy nest (DST -> L1) after the loop/compute region that
   // produced the values.
-  static void generateEpilogue(IRRewriter &rewriter, Value dstMemref,
-                               Operation *loopTemplate,
-                               const CopyInfo &copyInfo) {
-    if (copyInfo.stores.empty()) {
-      return;
-    }
-
-    auto forLoop = dyn_cast<affine::AffineForOp>(loopTemplate);
-    if (!forLoop) {
-      // No loop nest - generate inline copies immediately after the store op.
-      OpBuilder::InsertionGuard guard(rewriter);
-      rewriter.setInsertionPointAfter(loopTemplate);
-      for (const auto &storePair : copyInfo.stores) {
-        affine::AffineStoreOp storeOp = storePair.first;
-        int64_t sliceIdx = storePair.second;
-
-        auto dstMap = storeOp.getMap().insertResult(
-            getAffineConstantExpr(sliceIdx, rewriter.getContext()), 0);
-        SmallVector<Value> dstIndices(storeOp.getIndices().begin(),
-                                      storeOp.getIndices().end());
-
-        auto dstValue = rewriter.create<affine::AffineLoadOp>(
-            storeOp.getLoc(), dstMemref, dstMap, dstIndices);
-
-        rewriter.create<affine::AffineStoreOp>(
-            storeOp.getLoc(), dstValue.getResult(), storeOp.getMemRef(),
-            storeOp.getMap(), storeOp.getIndices());
-      }
-      return;
-    }
-
-    OpBuilder::InsertionGuard guard(rewriter);
-    rewriter.setInsertionPointAfter(forLoop);
-
-    // Clone the loop structure and get the mapping
-    auto [epilogueLoop, mapper] = cloneLoopNest(rewriter, forLoop);
-
-    // Find the innermost loop and collect all induction variables
-    auto [innermostLoop, newIndices] =
-        findInnermostLoopAndIndices(epilogueLoop);
-
-    // Populate with copy-out operations at the innermost loop level
-    rewriter.setInsertionPointToStart(&innermostLoop.getRegion().front());
-
-    for (const auto &storePair : copyInfo.stores) {
-      affine::AffineStoreOp storeOp = storePair.first;
-      int64_t sliceIdx = storePair.second;
-
-      // Map the original indices to the cloned loop's induction variables
-      SmallVector<Value> mappedIndices;
-      for (Value idx : storeOp.getIndices()) {
-        Value mappedIdx = mapper.lookupOrDefault(idx);
-        mappedIndices.push_back(mappedIdx);
-      }
-
-      // Create: %val = affine.load %dst[slice, ...]
-      auto dstMap = storeOp.getMap().insertResult(
-          getAffineConstantExpr(sliceIdx, rewriter.getContext()), 0);
-      auto dstLoad = rewriter.create<affine::AffineLoadOp>(
-          storeOp.getLoc(), dstMemref, dstMap, mappedIndices);
-
-      // Create: affine.store %val, %l1[...]
-      rewriter.create<affine::AffineStoreOp>(
-          storeOp.getLoc(), dstLoad.getResult(), storeOp.getMemRef(),
-          storeOp.getMap(), mappedIndices);
-    }
+  static void generateEpilogueLoop(IRRewriter &rewriter, Value dstMemref,
+                                   Operation *loopTemplate,
+                                   const CopyInfo &copyInfo) {
+    generateCopyLoops</*IsPrologue=*/false, affine::AffineStoreOp,
+                      OpAndIndexOffset<affine::AffineStoreOp>>(
+        rewriter, dstMemref, loopTemplate, copyInfo.stores);
   }
 
   // Identify DST accesses that need coloring based on compute operations.
