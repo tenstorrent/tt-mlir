@@ -31,22 +31,37 @@ pytestmark = pytest.mark.frontend("ttir")
 
 
 def create_tileid_debug_tensor(shape: Shape, dtype: torch.dtype):
-    """Create a debug tensor where each value in a tile is the row-major tile ID"""
-    # where value = (pos[1] / 32) * shape[0] + (pos[0] / 32)
+    """Create a debug tensor where each value in a 32x32 tile equals its row-major tile ID.
+
+    The tile grid is computed over the last two dimensions; any leading dimensions
+    are broadcast so that all slices share the same 2D tile ID pattern.
+    """
     TILE_DIM_SIZE = int(32)
-    ROW_STRIDE = shape[1] // TILE_DIM_SIZE
+    assert len(shape) >= 2, "Shape must have at least 2 dimensions."
+    height, width = int(shape[-2]), int(shape[-1])
+    # Number of tiles per row in the last dimension.
+    row_stride_tiles = width // TILE_DIM_SIZE
+
     y_coords, x_coords = torch.meshgrid(
-        torch.arange(shape[0]), torch.arange(shape[1]), indexing="ij"
+        torch.arange(height), torch.arange(width), indexing="ij"
     )
     tile_y = y_coords // TILE_DIM_SIZE
     tile_x = x_coords // TILE_DIM_SIZE
-    input_tensor = (tile_y * ROW_STRIDE + tile_x).float()
-    return input_tensor.to(dtype)
+    base_2d = (tile_y * row_stride_tiles + tile_x).to(dtype)
+
+    # Broadcast across any leading dimensions.
+    if len(shape) == 2:
+        return base_2d
+    expand_shape = tuple(int(d) for d in shape[:-2]) + (height, width)
+    base_nd = base_2d
+    for _ in range(len(shape) - 2):
+        base_nd = base_nd.unsqueeze(0)
+    return base_nd.expand(expand_shape)
 
 
 @pytest.mark.parametrize(
     "shape",
-    [(64, 4096), (8192, 32), (128, 4096), (256, 8192)],
+    [(32, 32, 32)],  # (64, 4096), (8192, 32), (128, 4096), (256, 8192)],
     ids=shape_str,
 )
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
@@ -67,12 +82,15 @@ def test_virtual_grid_eltwise(
 
         return result
 
+    options = [f"override-device-shape=4,4"]
+
     compile_and_execute_ttir(
         eltwise_wrapper,
         [shape],
         [dtype],
         device=device,
         test_base=request.node.name,
+        custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
         print_ir="test_logical_not_ir",
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),

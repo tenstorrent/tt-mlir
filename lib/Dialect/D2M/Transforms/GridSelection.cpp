@@ -157,10 +157,128 @@ int64_t getTargetGridVolume(ArrayRef<int64_t> targetSquareGridShape) {
                          std::multiplies<uint64_t>());
 }
 
+/// Finds a 2D grid (y, x) such that y * x = volume.
+/// The returned grid aims to be as square as possible.
+inline llvm::SmallVector<int64_t> find2DGridWithVolume(int64_t volume) {
+  TT_assertv(volume > 0, "Volume must be positive");
+  int64_t y = 1;
+  // Find the largest factor of volume that is <= sqrt(volume)
+  for (int64_t i = static_cast<int64_t>(std::sqrt(volume)); i > 0; --i) {
+    if (volume % i == 0) {
+      y = i;
+      break;
+    }
+  }
+  return {y, volume / y};
+}
+
+/// Returns all positive factors of `value`
+inline llvm::SmallVector<int64_t> getFactors(size_t value) {
+  if (value == 1) {
+    return {1};
+  }
+  llvm::SmallVector<int64_t> lowFactors, highFactors;
+  int64_t limit = static_cast<int64_t>(std::floor(std::sqrt(value)));
+  for (int64_t i = limit; i >= 1; --i) {
+    if (value % i == 0) {
+      highFactors.push_back(value / i);
+      lowFactors.push_back(i);
+    }
+  }
+  return llvm::to_vector(
+      llvm::concat<int64_t>(llvm::reverse(lowFactors), highFactors));
+}
+
+static llvm::SmallVector<llvm::SmallVector<int64_t>>
+computeFactorCombinations(ArrayRef<llvm::SmallVector<int64_t>> factors) {
+  TT_assertv(!factors.empty(), "Factors must have at least one dimension");
+
+  uint64_t numCombosEstimate = 1;
+  for (const auto &factorList : factors) {
+    TT_assertv(!factorList.empty(),
+               "Each dimension must have at least one factor");
+    numCombosEstimate *= factorList.size();
+  }
+
+  llvm::SmallVector<llvm::SmallVector<int64_t>> factorCombinations;
+  factorCombinations.reserve(numCombosEstimate);
+
+  llvm::SmallVector<int64_t> currentCombination(factors.size(), 1);
+  auto enumerateCombinations = [&](auto &&self, size_t dimIndex = 0ul) -> void {
+    if (dimIndex == factors.size()) {
+      factorCombinations.push_back(currentCombination);
+      return;
+    }
+    for (int64_t factor : factors[dimIndex]) {
+      currentCombination[dimIndex] = factor;
+      self(self, dimIndex + 1);
+    }
+  };
+  enumerateCombinations(enumerateCombinations);
+
+  return factorCombinations;
+}
+
+inline void
+findCompatiblePhysicalGridShape(llvm::ArrayRef<int64_t> virtualGrid,
+                                llvm::ArrayRef<int64_t> targetGrid) {
+  using namespace mlir;
+
+  int64_t volume = ttmlir::utils::volume(virtualGrid);
+  auto grid = find2DGridWithVolume(volume);
+}
+
+static llvm::SmallVector<int64_t>
+computeOptimalBlockShardedGrid(ArrayRef<int64_t> physicalShape,
+                               ArrayRef<int64_t> targetSquareGridShape);
+
 llvm::SmallVector<int64_t>
 computeOptimalVirtualGrid(ArrayRef<int64_t> physicalShape,
                           ArrayRef<int64_t> targetSquareGridShape) {
 
+  int64_t targetGridVolume = ttmlir::utils::volume(targetSquareGridShape);
+  if (physicalShape.size() != 2) {
+    llvm::dbgs() << "computeOptimalVirtualGrid: physicalShape.size() != 2, "
+                    "using block sharding\n";
+    llvm::dbgs() << "physicalShape: "
+                 << ttmlir::utils::formatIterable(physicalShape, "x") << "\n";
+    llvm::dbgs() << "targetSquareGridShape: "
+                 << ttmlir::utils::formatIterable(targetSquareGridShape, "x")
+                 << "\n";
+
+    // compute factors for all dims
+    SmallVector<SmallVector<int64_t>> factors(physicalShape.size());
+    llvm::dbgs() << "factors:\n";
+    for (auto [i, dim] : llvm::enumerate(physicalShape)) {
+      factors[i] = getFactors(static_cast<size_t>(dim));
+      llvm::dbgs() << "  dim " << i << ": "
+                   << ttmlir::utils::formatIterable(factors[i], ",") << "\n";
+    }
+
+    auto factorCombinations = computeFactorCombinations(factors);
+
+    llvm::dbgs() << "factor combinations (" << factorCombinations.size()
+                 << "):\n";
+    // try to find grid with largest volume that is <= target grid volume
+    SmallVector<int64_t> bestGrid = {0};
+    for (const auto &grid : llvm::reverse(factorCombinations)) {
+      llvm::dbgs() << "  " << ttmlir::utils::formatIterable(grid, "x") << "\n";
+      llvm::dbgs() << " sharding grid: "
+                   << ttmlir::utils::formatIterable(grid, "x") << "\n";
+
+      int64_t gridVolume = ttmlir::utils::volume<int64_t>(grid);
+      llvm::dbgs() << " grid volume: " << gridVolume << "\n";
+      int64_t bestGridVolume = ttmlir::utils::volume<int64_t>(bestGrid);
+      if (gridVolume <= targetGridVolume && gridVolume > bestGridVolume) {
+        bestGrid = grid;
+      }
+    }
+    llvm::dbgs() << " best grid: "
+                 << ttmlir::utils::formatIterable(bestGrid, "x") << "\n";
+    return bestGrid;
+  }
+
+  // 2D HW Sharding
   auto [shardedDimIndex, aspectRatio] = findMaxDimAndAspectRatio(physicalShape);
 
   // for now, can only support if largest dim is divisible by grid volume
@@ -260,9 +378,8 @@ computeOptimalBlockShardedGrid(ArrayRef<int64_t> physicalShape,
 bool shouldImplementAsVirtualGrid(ArrayRef<int64_t> physicalShape,
                                   ArrayRef<int64_t> targetSquareGridShape) {
 
-  // For now, only 2D virtual grids are supported.
   if (physicalShape.size() != 2) {
-    return false;
+    return true;
   }
 
   auto [maxRatioIndex, aspectRatio] = findMaxDimAndAspectRatio(physicalShape);
@@ -342,8 +459,13 @@ static void optimizeToLayoutGrid(d2m::ToLayoutOp toLayoutOp,
   // If using a virtual grid, compute required forward index affine map.
   AffineMap indexAffineMap = AffineMap::get(builder.getContext());
   if (isVirtualGrid) {
+    auto physicalGridShape =
+        find2DGridWithVolume(ttmlir::utils::volume(optimalGrid));
+    llvm::dbgs() << "implied physical grid shape: "
+                 << ttmlir::utils::formatIterable(physicalGridShape, "x")
+                 << "\n";
     auto [fwdMap, _] = ttmlir::d2m::utils::grids::createCoreVirtMaps(
-        builder.getContext(), optimalGrid, targetSquareGridShape);
+        builder.getContext(), optimalGrid, physicalGridShape);
     indexAffineMap = fwdMap;
   }
 
