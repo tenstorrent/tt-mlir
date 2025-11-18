@@ -25,7 +25,6 @@ target_link_libraries(TestConversion
     MLIRTTCoreDialect
     MLIRTTNNDialect
     MLIRTTTransforms
-    TTMLIRCompilerStatic
 )
 
 endif()
