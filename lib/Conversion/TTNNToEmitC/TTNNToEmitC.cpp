@@ -2360,16 +2360,10 @@ public:
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput()),
         emitter.emit(srcOp.getClusterAxis()),
-        emitter.emit(srcOp.getDevice()),
-        /*barrier_semaphores=*/rewriter.getType<emitc::OpaqueAttr>("{}"),
-        /*rs_global_semaphores=*/rewriter.getType<emitc::OpaqueAttr>("{}"),
-        /*ag_global_semaphores=*/rewriter.getType<emitc::OpaqueAttr>("{}"),
-        emitter.emit(srcOp.getReduceType()),
-        emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
-        /*ttnn::ccl::Topology=*/
-        rewriter.getType<emitc::OpaqueAttr>("::ttnn::ccl::Topology::Linear"),
+        emitter.emitSubDeviceId(srcOp.getSubDeviceId()),
+        emitter.emit(srcOp.getMemoryConfig()),
         emitter.emit(srcOp.getNumLinks()),
-        /*worker_subdevice_id_opt=*/emitter.emit(std::nullopt),
+        emitter.emit(srcOp.getTopology()),
     };
 
     emitter.replaceOp(*this, args);
