@@ -134,6 +134,96 @@ public:
   }
 };
 
+// Special handling for tenstorrent.rms_norm -> ttir.rms_norm
+// Converts normalized_shape tensor attribute to DenseI64ArrayAttr
+// and sets operandSegmentSizes for AttrSizedOperandSegments
+class TenstorrentRMSNormConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::CompositeOp> {
+
+public:
+  TenstorrentRMSNormConversionPattern(MLIRContext *context)
+      : OpConversionPattern<mlir::stablehlo::CompositeOp>(context) {}
+
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::CompositeOp srcOp,
+                  mlir::stablehlo::CompositeOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    if (srcOp.getName() != "tenstorrent.rms_norm") {
+      return failure();
+    }
+
+    if (srcOp.getNumResults() != 1) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "CompositeOp must have exactly one result.");
+    }
+
+    auto outputType =
+        mlir::cast<RankedTensorType>(srcOp.getResult(0).getType());
+
+    DictionaryAttr compositeAttrs = srcOp.getCompositeAttributes();
+
+    // Extract normalized_shape - it comes as a DenseIntElementsAttr (tensor)
+    auto normalizedShapeAttr = compositeAttrs.get("normalized_shape");
+    SmallVector<int64_t> normalizedShapeVec;
+
+    if (auto denseAttr = mlir::dyn_cast<DenseIntElementsAttr>(normalizedShapeAttr)) {
+      // Handle DenseIntElementsAttr (tensor<2xi64>)
+      for (auto val : denseAttr.getValues<int64_t>()) {
+        normalizedShapeVec.push_back(val);
+      }
+    } else if (auto arrayAttr = mlir::dyn_cast<ArrayAttr>(normalizedShapeAttr)) {
+      // Handle ArrayAttr as fallback
+      for (auto attr : arrayAttr) {
+        normalizedShapeVec.push_back(
+            mlir::cast<IntegerAttr>(attr).getInt());
+      }
+    } else {
+      return rewriter.notifyMatchFailure(
+          srcOp, "normalized_shape must be a dense tensor or array attribute");
+    }
+
+    auto normalizedShapeDenseAttr =
+        rewriter.getDenseI64ArrayAttr(normalizedShapeVec);
+
+    // Extract epsilon
+    auto epsilonAttr = compositeAttrs.get("epsilon");
+    FloatAttr epsilonFloatAttr;
+    if (auto floatAttr = mlir::dyn_cast<FloatAttr>(epsilonAttr)) {
+      epsilonFloatAttr =
+          rewriter.getF32FloatAttr(floatAttr.getValueAsDouble());
+    } else {
+      epsilonFloatAttr = rewriter.getF32FloatAttr(1e-05);
+    }
+
+    // Prepare attributes for ttir.rms_norm
+    SmallVector<NamedAttribute> namedAttrs;
+    namedAttrs.push_back(
+        rewriter.getNamedAttr("normalized_shape", normalizedShapeDenseAttr));
+    namedAttrs.push_back(rewriter.getNamedAttr("epsilon", epsilonFloatAttr));
+
+    // Get operands - for now only support input (no weight/bias)
+    auto operands = adaptor.getOperands();
+
+    // ttir.rms_norm has AttrSizedOperandSegments: [input, weight?, bias?, output]
+    // Set operandSegmentSizes: [1, 0, 0, 1] for input + output only
+    SmallVector<int32_t> segmentSizes = {1, 0, 0, 1};
+    namedAttrs.push_back(rewriter.getNamedAttr(
+        "operandSegmentSizes",
+        rewriter.getDenseI32ArrayAttr(segmentSizes)));
+
+    // Only pass the input operand (first operand)
+    SmallVector<Value> inputOperands;
+    if (operands.size() > 0) {
+      inputOperands.push_back(operands[0]);  // input
+    }
+
+    // Replace with ttir.rms_norm using DPS helper
+    ttir::utils::replaceOpWithNewDPSOp<ttir::RMSNormOp>(
+        rewriter, srcOp, outputType, inputOperands, namedAttrs);
+    return success();
+  }
+};
+
 struct LegalizeStableHLOCompositeToTTIR
     : public ttir::impl::LegalizeStableHLOCompositeToTTIRBase<
           LegalizeStableHLOCompositeToTTIR> {
@@ -168,6 +258,9 @@ void populateStableHLOCompositeLegalizationPatterns(
       context, "tenstorrent.gelu");
   patterns.add<StableHLOToTTIRCompositeOpConversionPattern<ttir::GeluOp>>(
       context, "tenstorrent.gelu_tanh");
+  patterns.add<StableHLOToTTIRCompositeOpConversionPattern<ttir::RMSNormOp>>(
+      context, "tenstorrent.rms_norm");
+  // patterns.add<TenstorrentRMSNormConversionPattern>(context);
   patterns.add<TenstorrentUniformToRandConversionPattern>(context);
 }
 } // namespace mlir::tt
