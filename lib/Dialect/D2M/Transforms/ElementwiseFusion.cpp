@@ -271,7 +271,7 @@ static GenericOp createFusedGeneric(OpOperand *fusedOperand, GenericOp producer,
 
   (void)fusedBlock.addArguments(fusedBlockArgTypes, fusedBlockArgLocs);
 
-  // Map original region block arguments to fused region block arguments.
+  // Map original region block arguments to their indices in the fused region block arguments.
   DenseMap<std::pair<Operation *, unsigned>, unsigned> sourceToFusedIdx;
   for (auto it : llvm::enumerate(argSources)) {
     sourceToFusedIdx[it.value()] = static_cast<unsigned>(it.index());
@@ -285,9 +285,9 @@ static GenericOp createFusedGeneric(OpOperand *fusedOperand, GenericOp producer,
     }
   };
 
-  // Map all of producer's args to the ones in the fused op
+  // Map all of producer's args to fused args
   auto mapProdRegionArgs = [&](Operation *op, Block &orig) {
-    // Map all input args and skip mapping the output arg
+    // Map all input args and skip mapping the output arg for now
     GenericOp prodGeneric = llvm::dyn_cast<GenericOp>(op);
     unsigned prodInitArgNum = prodGeneric.getDpsInitOperand(0)->getOperandNumber();
     for (unsigned i = 0; i < op->getNumOperands(); ++i) {
