@@ -523,9 +523,9 @@ class GraphToIRTranslator:
         if memory_layout == ttnn.TensorMemoryLayout.BlockSharded:
             return ttcore.ir.GridAttr.get(self.ctx, [grid_size_y, grid_size_x])
         elif memory_layout == ttnn.TensorMemoryLayout.HeightSharded:
-            return ttcore.ir.GridAttr.get(self.ctx, [grid_size_y * grid_size_x, 1])
+            return ttcore.ir.GridAttr.get(self.ctx, [grid_size_y, grid_size_x])
         elif memory_layout == ttnn.TensorMemoryLayout.WidthSharded:
-            return ttcore.ir.GridAttr.get(self.ctx, [1, grid_size_y * grid_size_x])
+            return ttcore.ir.GridAttr.get(self.ctx, [grid_size_y, grid_size_x])
         elif memory_layout == ttnn.TensorMemoryLayout.Interleaved:
             assert (
                 max_grid[0] == 0 and max_grid[1] == 0
@@ -574,7 +574,12 @@ class GraphToIRTranslator:
             return ttnn.ir.TTNNLayoutAttr.get_with_linear(
                 self.ctx,
                 affine_map,
-                self._get_grid(self.max_grid, self._mlir_memory_layout_from_ttnn_memory_layout(tensor_arg.memory_config().memory_layout)),
+                self._get_grid(
+                    self.max_grid,
+                    self._mlir_memory_layout_from_ttnn_memory_layout(
+                        tensor_arg.memory_config().memory_layout
+                    ),
+                ),
                 memref,
                 ttnn.TensorMemoryLayout.Interleaved,
                 None,
