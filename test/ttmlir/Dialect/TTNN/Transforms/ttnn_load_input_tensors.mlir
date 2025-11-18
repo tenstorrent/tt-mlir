@@ -31,10 +31,8 @@ module {
   // CUSTOM-FULL-NEXT: "ttnn.load_tensor"
   // CUSTOM-FULL-SAME: file_path = "tensors/input1.tensorbin"
   func.func @add(%arg0 : tensor<32x32xbf16> { ttcore.argument_type = #ttcore.argument_type<constant>}, %arg1 : tensor<32x32xbf16> { ttcore.argument_type = #ttcore.argument_type<input> }) -> tensor<32x32xbf16> {
-    %0 = ttir.empty() : tensor<32x32xbf16>
-    %1 = "ttir.add"(%arg0, %arg0, %0) : (tensor<32x32xbf16>, tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
-    %2 = ttir.empty() : tensor<32x32xbf16>
-    %3 = "ttir.subtract"(%arg1, %1, %2) : (tensor<32x32xbf16>, tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
-    return %3 : tensor<32x32xbf16>
+    %0 = "ttir.add"(%arg0, %arg0) : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
+    %1 = "ttir.subtract"(%arg1, %0) : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
+    return %1 : tensor<32x32xbf16>
   }
 }

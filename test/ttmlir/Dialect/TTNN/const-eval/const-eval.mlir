@@ -9,11 +9,11 @@ module {
   func.func @forward(%arg0: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<input>}, %arg1: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>}, %arg2: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>}, %arg3: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>}) -> tensor<32x32xbf16> {
     // CHECK: ttcore.load_cached(@forward_const_eval_0, [%arg2, %arg3])
     // CHECK: "ttnn.add"(%arg0, %arg1)
-    %1 = "ttir.add"(%arg0, %arg1) : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
-    %3 = "ttir.subtract"(%arg2, %arg3)  : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
+    %0 = "ttir.add"(%arg0, %arg1) : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
+    %1 = "ttir.subtract"(%arg2, %arg3)  : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
     // CHECK: "ttnn.add"(%{{.*}}, %{{.*}})
-    %5 = "ttir.add"(%1)  : (tensor<32x32xbf16>) -> tensor<32x32xbf16>
-    return %5 : tensor<32x32xbf16>
+    %2 = "ttir.add"(%0, %1)  : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
+    return %2 : tensor<32x32xbf16>
   }
 
   // CHECK-LABEL: func.func @forward_split_const_eval_0
@@ -27,14 +27,14 @@ module {
     // CHECK: ttcore.load_cached(@forward_split_const_eval_0, [%arg1, %arg2])
     // CHECK: ttcore.load_cached(@forward_split_const_eval_1, [%arg2, %arg3])
     // CHECK: "ttnn.add"(%arg0, %arg1)
-    %1 = "ttir.add"(%arg0, %arg1) : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
-    %3 = "ttir.add"(%arg1, %arg2)  : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
-    %5 = "ttir.add"(%arg2, %arg3)  : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
+    %0 = "ttir.add"(%arg0, %arg1) : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
+    %1 = "ttir.add"(%arg1, %arg2)  : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
+    %2 = "ttir.add"(%arg2, %arg3)  : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
     // CHECK: "ttnn.subtract"(%{{.*}}, %{{.*}})
-    %7 = "ttir.subtract"(%1) : (tensor<32x32xbf16>) -> tensor<32x32xbf16>
+    %3 = "ttir.subtract"(%0, %1) : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
     // CHECK: "ttnn.multiply"(%{{.*}}, %{{.*}})
-    %9 = "ttir.multiply"(%5) : (tensor<32x32xbf16>) -> tensor<32x32xbf16>
-    return %9 : tensor<32x32xbf16>
+    %4 = "ttir.multiply"(%2, %3) : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
+    return %4 : tensor<32x32xbf16>
   }
 
   // CHECK-LABEL: func.func @forward_merge_const_eval_0
@@ -46,13 +46,13 @@ module {
   func.func @forward_merge(%arg0: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<input>}, %arg1: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>}, %arg2: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>}, %arg3: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>}) -> tensor<32x32xbf16> {
     // CHECK: = ttcore.load_cached(@forward_merge_const_eval_0, [%arg1, %arg2, %arg3])
     // CHECK: = "ttnn.add"(%arg0, %arg1)
-    %1 = "ttir.add"(%arg0, %arg1) : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
-    %3 = "ttir.add"(%arg1, %arg2)  : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
-    %5 = "ttir.add"(%arg2, %arg3)  : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
-    %7 = "ttir.subtract"(%3) : (tensor<32x32xbf16>) -> tensor<32x32xbf16>
+    %0 = "ttir.add"(%arg0, %arg1) : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
+    %1 = "ttir.add"(%arg1, %arg2)  : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
+    %2 = "ttir.add"(%arg2, %arg3)  : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
+    %3 = "ttir.subtract"(%1, %2) : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
     // CHECK: = "ttnn.multiply"(%{{.*}}, %{{.*}})
-    %9 = "ttir.multiply"(%1) : (tensor<32x32xbf16>) -> tensor<32x32xbf16>
-    return %9 : tensor<32x32xbf16>
+    %4 = "ttir.multiply"(%0, %3) : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
+    return %4 : tensor<32x32xbf16>
   }
 
   // CHECK-LABEL: func.func @forward_merge_return_multiple_values_const_eval_0
@@ -64,15 +64,15 @@ module {
   func.func @forward_merge_return_multiple_values(%arg0: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<input>}, %arg1: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>}, %arg2: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>}, %arg3: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>}) -> tensor<32x32xbf16> {
     // CHECK: = ttcore.load_cached(@forward_merge_return_multiple_values_const_eval_0, [%arg1, %arg2, %arg3])
     // CHECK: = "ttnn.add"(%arg0, %arg1)
-    %1 = "ttir.add"(%arg0, %arg1) : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
-    %3 = "ttir.add"(%arg1, %arg2)  : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
-    %5 = "ttir.add"(%arg2, %arg3)  : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
-    %7 = "ttir.subtract"(%3) : (tensor<32x32xbf16>) -> tensor<32x32xbf16>
+    %0 = "ttir.add"(%arg0, %arg1) : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
+    %1 = "ttir.add"(%arg1, %arg2)  : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
+    %2 = "ttir.add"(%arg2, %arg3)  : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
+    %3 = "ttir.subtract"(%1, %2) : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
     // CHECK: = "ttnn.multiply"(%{{.*}}, %{{.*}})
-    %9 = "ttir.multiply"(%1) : (tensor<32x32xbf16>) -> tensor<32x32xbf16>
+    %4 = "ttir.multiply"(%0, %3) : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
     // CHECK: = "ttnn.multiply"(%{{.*}}, %{{.*}})
-    %11 = "ttir.multiply"(%9) : (tensor<32x32xbf16>) -> tensor<32x32xbf16>
-    return %11 : tensor<32x32xbf16>
+    %5 = "ttir.multiply"(%4, %3) : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
+    return %5 : tensor<32x32xbf16>
   }
 
   // CHECK-LABEL: func.func @forward_reuse_zeros_const_eval_0
@@ -86,14 +86,14 @@ module {
     // CHECK: = ttcore.load_cached(@forward_reuse_zeros_const_eval_0, [%arg1, %arg2])
     %0 = "ttir.zeros"() <{shape = array<i32:32, 32>}> : () -> tensor<32x32xbf16>
     // CHECK: = "ttnn.add"(%arg0, %{{.*}})
-    %2 = "ttir.add"(%arg0)  : (tensor<32x32xbf16>) -> tensor<32x32xbf16>
-    %4 = "ttir.add"(%arg1)  : (tensor<32x32xbf16>) -> tensor<32x32xbf16>
-    %6 = "ttir.add"(%arg2)  : (tensor<32x32xbf16>) -> tensor<32x32xbf16>
+    %1 = "ttir.add"(%arg0, %0)  : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
+    %2 = "ttir.add"(%arg1, %0)  : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
+    %3 = "ttir.add"(%arg2, %0)  : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
     // CHECK: = "ttnn.multiply"(%{{.*}}, %{{.*}})
-    %8 = "ttir.multiply"(%2) : (tensor<32x32xbf16>) -> tensor<32x32xbf16>
+    %4 = "ttir.multiply"(%1, %3) : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
     // CHECK: = "ttnn.multiply"(%{{.*}}, %{{.*}})
-    %10 = "ttir.multiply"(%4) : (tensor<32x32xbf16>) -> tensor<32x32xbf16>
-    return %10 : tensor<32x32xbf16>
+    %5 = "ttir.multiply"(%2, %4) : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
+    return %5 : tensor<32x32xbf16>
   }
 
 
@@ -109,13 +109,13 @@ module {
     // CHECK: = ttcore.load_cached(@forward_reuse_constant_merge_const_eval_0, [%arg1, %arg2])
     %0 = "ttir.constant"() <{value = dense<1.111e+00> : tensor<32x32xbf16>}> : () -> tensor<32x32xbf16>
     // CHECK: = "ttnn.add"(%arg0, %{{.*}})
-    %2 = "ttir.add"(%arg0)  : (tensor<32x32xbf16>) -> tensor<32x32xbf16>
-    %4 = "ttir.add"(%arg1)  : (tensor<32x32xbf16>) -> tensor<32x32xbf16>
-    %6 = "ttir.add"(%arg2)  : (tensor<32x32xbf16>) -> tensor<32x32xbf16>
-    %8 = "ttir.multiply"(%4) : (tensor<32x32xbf16>) -> tensor<32x32xbf16>
+    %1 = "ttir.add"(%arg0, %0)  : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
+    %2 = "ttir.add"(%arg1, %0)  : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
+    %3 = "ttir.add"(%arg2, %0)  : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
+    %4 = "ttir.multiply"(%2, %3) : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
     // CHECK: = "ttnn.multiply"(%{{.*}}, %{{.*}})
-    %10 = "ttir.multiply"(%2) : (tensor<32x32xbf16>) -> tensor<32x32xbf16>
-    return %10 : tensor<32x32xbf16>
+    %5 = "ttir.multiply"(%1, %4) : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
+    return %5 : tensor<32x32xbf16>
   }
 
   // CHECK-LABEL: func.func @non_splat_constant_const_eval_0
@@ -147,12 +147,12 @@ module {
     %0 = "ttir.zeros"() <{shape = array<i32: 4, 4>}> : () -> tensor<4x4xbf16>
     %1 = "ttir.ones"() <{shape = array<i32: 4, 4>}> : () -> tensor<4x4xbf16>
 
-    %3 = "ttir.add"(%0) : (tensor<4x4xbf16>) -> tensor<4x4xbf16>
+    %2 = "ttir.add"(%0, %1) : (tensor<4x4xbf16>, tensor<4x4xbf16>) -> tensor<4x4xbf16>
 
-    %5 = "ttir.arange"() {start = 0 : si64, end = 4 : si64, step = 1 : si64, arange_dimension = 0 : i64} : () -> tensor<4x4xbf16>
-    %6 = "ttir.add"(%3) : (tensor<4x4xbf16>) -> tensor<4x4xbf16>
+    %3 = "ttir.arange"() {start = 0 : si64, end = 4 : si64, step = 1 : si64, arange_dimension = 0 : i64} : () -> tensor<4x4xbf16>
+    %4 = "ttir.add"(%2, %3) : (tensor<4x4xbf16>, tensor<4x4xbf16>) -> tensor<4x4xbf16>
 
-    return %6 : tensor<4x4xbf16>
+    return %4: tensor<4x4xbf16>
   }
 
   // CHECK-LABEL: func.func @forward_all_const_const_eval

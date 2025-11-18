@@ -8,12 +8,11 @@
 module attributes {} {
   // CHECK-LABEL: all_reduce_positive_with_reshapes
   func.func @all_reduce_positive_with_reshapes(%arg0: tensor<4096x16384xf32>) -> tensor<4096x16384xf32> {
-    %0 = ttir.empty() : tensor<4096x16384xf32>
-    %1 = "ttir.all_reduce"(%arg0, %0) <{all_gather_dim = 0 : si32, cluster_axis = 1 : ui32, reduce_type = #ttcore.reduce_type<sum>, scatter_dim = 0 : si32}> : (tensor<4096x16384xf32>, tensor<4096x16384xf32>) -> tensor<4096x16384xf32>
+    %0 = "ttir.all_reduce"(%arg0) <{all_gather_dim = 0 : si32, cluster_axis = 1 : ui32, reduce_type = #ttcore.reduce_type<sum>, scatter_dim = 0 : si32}> : (tensor<4096x16384xf32>) -> tensor<4096x16384xf32>
     // CHECK: = "ttnn.reshape"
     // CHECK: "ttnn.reduce_scatter"
     // CHECK: "ttnn.all_gather"
-    return %1 : tensor<4096x16384xf32>
+    return %0 : tensor<4096x16384xf32>
   }
 }
 
@@ -23,13 +22,12 @@ module attributes {} {
 module attributes {} {
   // CHECK-LABEL: all_reduce_positive_without_reshapes
   func.func @all_reduce_positive_without_reshapes(%arg0: tensor<1x1x4096x16384xf32>) -> tensor<1x1x4096x16384xf32> {
-    %0 = ttir.empty() : tensor<1x1x4096x16384xf32>
-    %1 = "ttir.all_reduce"(%arg0, %0) <{all_gather_dim = 0 : si32, cluster_axis = 1 : ui32, reduce_type = #ttcore.reduce_type<sum>, scatter_dim = 0 : si32}> : (tensor<1x1x4096x16384xf32>, tensor<1x1x4096x16384xf32>) -> tensor<1x1x4096x16384xf32>
+    %0 = "ttir.all_reduce"(%arg0) <{all_gather_dim = 0 : si32, cluster_axis = 1 : ui32, reduce_type = #ttcore.reduce_type<sum>, scatter_dim = 0 : si32}> : (tensor<1x1x4096x16384xf32>) -> tensor<1x1x4096x16384xf32>
     // CHECK-NOT: = "ttnn.reshape"
     // CHECK: "ttnn.reduce_scatter"
     // CHECK-NOT: = "ttnn.reshape"
     // CHECK: "ttnn.all_gather"
-    return %1 : tensor<1x1x4096x16384xf32>
+    return %0 : tensor<1x1x4096x16384xf32>
   }
 }
 
@@ -39,14 +37,13 @@ module attributes {} {
 module attributes {} {
   // CHECK-LABEL: all_reduce_positive_with_reshapes_folding
   func.func @all_reduce_positive_with_reshapes_folding(%arg0: tensor<4096x16384xf32>) -> tensor<4096x16384xf32> {
-    %0 = ttir.empty() : tensor<4096x16384xf32>
-    %1 = "ttir.all_reduce"(%arg0, %0) <{all_gather_dim = 0 : si32, cluster_axis = 0 : ui32, reduce_type = #ttcore.reduce_type<sum>, scatter_dim = 0 : si32}> : (tensor<4096x16384xf32>, tensor<4096x16384xf32>) -> tensor<4096x16384xf32>
+    %0 = "ttir.all_reduce"(%arg0) <{all_gather_dim = 0 : si32, cluster_axis = 0 : ui32, reduce_type = #ttcore.reduce_type<sum>, scatter_dim = 0 : si32}> : (tensor<4096x16384xf32>) -> tensor<4096x16384xf32>
     // CHECK-NOT: = "ttnn.reshape"
     // CHECK-NOT: "ttnn.reduce_scatter"
     // CHECK-NOT: = "ttnn.reshape"
     // CHECK-NOT: "ttnn.all_gather"
     // CHECK-NOT: "ttnn.all_reduce"
-    return %1 : tensor<4096x16384xf32>
+    return %0 : tensor<4096x16384xf32>
   }
 }
 
@@ -56,14 +53,13 @@ module attributes {} {
 module attributes {} {
   // CHECK-LABEL: all_reduce_positive_without_reshapes_folding
   func.func @all_reduce_positive_without_reshapes_folding(%arg0: tensor<1x1x4096x16384xf32>) -> tensor<1x1x4096x16384xf32> {
-    %0 = ttir.empty() : tensor<1x1x4096x16384xf32>
-    %1 = "ttir.all_reduce"(%arg0, %0) <{all_gather_dim = 0 : si32, cluster_axis = 0 : ui32, reduce_type = #ttcore.reduce_type<sum>, scatter_dim = 0 : si32}> : (tensor<1x1x4096x16384xf32>, tensor<1x1x4096x16384xf32>) -> tensor<1x1x4096x16384xf32>
+    %0 = "ttir.all_reduce"(%arg0) <{all_gather_dim = 0 : si32, cluster_axis = 0 : ui32, reduce_type = #ttcore.reduce_type<sum>, scatter_dim = 0 : si32}> : (tensor<1x1x4096x16384xf32>) -> tensor<1x1x4096x16384xf32>
     // CHECK-NOT: = "ttnn.reshape"
     // CHECK-NOT: "ttnn.reduce_scatter"
     // CHECK-NOT: = "ttnn.reshape"
     // CHECK-NOT: "ttnn.all_gather"
     // CHECK-NOT: "ttnn.all_reduce"
-    return %1 : tensor<1x1x4096x16384xf32>
+    return %0 : tensor<1x1x4096x16384xf32>
   }
 }
 
@@ -73,12 +69,11 @@ module attributes {} {
 module attributes {} {
   // CHECK-LABEL: all_reduce_positive_with_non_divisible_dimensions
   func.func @all_reduce_positive_with_non_divisible_dimensions(%arg0: tensor<1x1x31x31xf32>) -> tensor<1x1x31x31xf32> {
-    %0 = ttir.empty() : tensor<1x1x31x31xf32>
-    %1 = "ttir.all_reduce"(%arg0, %0) <{cluster_axis = 1 : ui32, reduce_type = #ttcore.reduce_type<sum>}> : (tensor<1x1x31x31xf32>, tensor<1x1x31x31xf32>) -> tensor<1x1x31x31xf32>
+    %0 = "ttir.all_reduce"(%arg0) <{cluster_axis = 1 : ui32, reduce_type = #ttcore.reduce_type<sum>}> : (tensor<1x1x31x31xf32>) -> tensor<1x1x31x31xf32>
     // CHECK-NOT: "ttnn.reduce_scatter"
     // CHECK: "ttnn.all_gather"
     // CHECK: "ttnn.sum"
-    return %1 : tensor<1x1x31x31xf32>
+    return %0 : tensor<1x1x31x31xf32>
   }
 }
 
@@ -89,12 +84,11 @@ module attributes {} {
 module attributes {} {
   // CHECK-LABEL: all_reduce_positive_with_non_divisible_dimensions_min
   func.func @all_reduce_positive_with_non_divisible_dimensions_min(%arg0: tensor<1x1x31x31xf32>) -> tensor<1x1x31x31xf32> {
-    %0 = ttir.empty() : tensor<1x1x31x31xf32>
-    %1 = "ttir.all_reduce"(%arg0, %0) <{cluster_axis = 1 : ui32, reduce_type = #ttcore.reduce_type<min>}> : (tensor<1x1x31x31xf32>, tensor<1x1x31x31xf32>) -> tensor<1x1x31x31xf32>
+    %0 = "ttir.all_reduce"(%arg0) <{cluster_axis = 1 : ui32, reduce_type = #ttcore.reduce_type<min>}> : (tensor<1x1x31x31xf32>) -> tensor<1x1x31x31xf32>
     // CHECK-NOT: "ttnn.reduce_scatter"
     // CHECK: "ttnn.all_gather"
     // CHECK: "ttnn.min"
-    return %1 : tensor<1x1x31x31xf32>
+    return %0 : tensor<1x1x31x31xf32>
   }
 }
 
@@ -104,12 +98,11 @@ module attributes {} {
 module attributes {} {
   // CHECK-LABEL: all_reduce_positive_with_non_divisible_dimensions_max
   func.func @all_reduce_positive_with_non_divisible_dimensions_max(%arg0: tensor<1x1x31x31xf32>) -> tensor<1x1x31x31xf32> {
-    %0 = ttir.empty() : tensor<1x1x31x31xf32>
-    %1 = "ttir.all_reduce"(%arg0, %0) <{cluster_axis = 1 : ui32, reduce_type = #ttcore.reduce_type<max>}> : (tensor<1x1x31x31xf32>, tensor<1x1x31x31xf32>) -> tensor<1x1x31x31xf32>
+    %0 = "ttir.all_reduce"(%arg0) <{cluster_axis = 1 : ui32, reduce_type = #ttcore.reduce_type<max>}> : (tensor<1x1x31x31xf32>) -> tensor<1x1x31x31xf32>
     // CHECK-NOT: "ttnn.reduce_scatter"
     // CHECK: "ttnn.all_gather"
     // CHECK: "ttnn.max"
-    return %1 : tensor<1x1x31x31xf32>
+    return %0 : tensor<1x1x31x31xf32>
   }
 }
 
@@ -124,11 +117,10 @@ module attributes {} {
 module attributes {} {
   // CHECK-LABEL: all_reduce_positive_with_non_divisible_dimensions_over_memory_limit
   func.func @all_reduce_positive_with_non_divisible_dimensions_over_memory_limit(%arg0: tensor<1x38x128x515xf32>) -> tensor<1x38x128x515xf32> {
-    %0 = ttir.empty() : tensor<1x38x128x515xf32>
-    %1 = "ttir.all_reduce"(%arg0, %0) <{cluster_axis = 1 : ui32, reduce_type = #ttcore.reduce_type<sum>}> : (tensor<1x38x128x515xf32>, tensor<1x38x128x515xf32>) -> tensor<1x38x128x515xf32>
+    %0 = "ttir.all_reduce"(%arg0) <{cluster_axis = 1 : ui32, reduce_type = #ttcore.reduce_type<sum>}> : (tensor<1x38x128x515xf32>) -> tensor<1x38x128x515xf32>
     // CHECK: "ttnn.reduce_scatter"
     // CHECK: "ttnn.all_gather"
     // CHECK-NOT: "ttnn.sum"
-    return %1 : tensor<1x38x128x515xf32>
+    return %0 : tensor<1x38x128x515xf32>
   }
 }
