@@ -21,6 +21,24 @@
 using namespace mlir;
 using namespace mlir::tt::d2m;
 
+// Template helper for bufferizing CB ops that take a CB operand but no result
+// (PushOp, PopOp). These ops unwrap to_tensor by creating to_buffer.
+template <typename OpTy>
+static mlir::LogicalResult
+bufferizeCBOp(OpTy op, mlir::RewriterBase &rewriter,
+              const mlir::bufferization::BufferizationOptions &options) {
+  auto cbBufferType =
+      mlir::cast<bufferization::TensorLikeType>(op.getCbType())
+          .getBufferType(options,
+                         [&]() { return op.emitOpError(); });
+  assert(succeeded(cbBufferType));
+  auto toBuffer = rewriter.create<bufferization::ToBufferOp>(
+      op.getLoc(), *cbBufferType, op.getCb());
+  mlir::bufferization::replaceOpWithNewBufferizedOp<OpTy>(
+      rewriter, op, toBuffer.getResult());
+  return mlir::success();
+}
+
 void AcquireDstOp::getAsmResultNames(
     function_ref<void(Value, StringRef)> setNameFn) {
   setNameFn(getResult(), "dst");
@@ -590,16 +608,7 @@ mlir::LogicalResult
 PushOp::bufferize(mlir::RewriterBase &rewriter,
                   const mlir::bufferization::BufferizationOptions &options,
                   mlir::bufferization::BufferizationState &) {
-  // Unwrap to_tensor by creating to_buffer (same pattern as WaitOp/ReserveOp)
-  auto cbBufferType =
-      mlir::cast<bufferization::TensorLikeType>(getCbType()).getBufferType(
-          options, [&]() { return this->emitOpError(); });
-  assert(succeeded(cbBufferType));
-  auto toBuffer = rewriter.create<bufferization::ToBufferOp>(this->getLoc(),
-                                                              *cbBufferType, getCb());
-  mlir::bufferization::replaceOpWithNewBufferizedOp<PushOp>(rewriter, *this,
-                                                             toBuffer.getResult());
-  return mlir::success();
+  return bufferizeCBOp(*this, rewriter, options);
 }
 
 bool PopOp::bufferizesToMemoryRead(mlir::OpOperand &,
@@ -633,14 +642,5 @@ mlir::LogicalResult
 PopOp::bufferize(mlir::RewriterBase &rewriter,
                  const mlir::bufferization::BufferizationOptions &options,
                  mlir::bufferization::BufferizationState &) {
-  // Unwrap to_tensor by creating to_buffer (same pattern as WaitOp/ReserveOp)
-  auto cbBufferType =
-      mlir::cast<bufferization::TensorLikeType>(getCbType()).getBufferType(
-          options, [&]() { return this->emitOpError(); });
-  assert(succeeded(cbBufferType));
-  auto toBuffer = rewriter.create<bufferization::ToBufferOp>(this->getLoc(),
-                                                              *cbBufferType, getCb());
-  mlir::bufferization::replaceOpWithNewBufferizedOp<PopOp>(rewriter, *this,
-                                                            toBuffer.getResult());
-  return mlir::success();
+  return bufferizeCBOp(*this, rewriter, options);
 }
