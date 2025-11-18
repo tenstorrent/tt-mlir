@@ -85,40 +85,21 @@ public:
           ttcore::getOpChipDescAttr(op).getDstLogicalSizeTiles(
               largestDstType, false, maxDstPhysicalSizeTiles);
 
-      bool linalgToAffineFailed = false;
-      block.walk([&](linalg::GenericOp linalgGenericOp) {
-        if (!useTileMatmul && hasTileMatmul(linalgGenericOp)) {
-          // Only use tile matmul block rewrite when not in explicit
-          // datamovement form. Explicit datamovement form should fall through
-          // to regular linalg-to-affine conversion.
-          if (!op.isExplicitDatamovementForm()) {
-            linalgToAffineFailed |= rewriteTileMatmulAsTileMatmulBlock(
-                rewriter, op, *genericRegion, linalgGenericOp, dstCapacity,
-                modified);
-            return;
-          }
-        }
-
-        rewriter.setInsertionPoint(linalgGenericOp);
-        // Apply linalg to affine loops pass.
-        auto linalgLoops =
-            linalg::linalgOpToAffineLoops(rewriter, linalgGenericOp);
-        if (failed(linalgLoops)) {
-          linalgToAffineFailed = true;
+      // Process affine loops marked by LinalgToAffine pass
+      block.walk([&](affine::AffineForOp forOp) {
+        // Only process root loops marked by LinalgToAffine
+        if (!forOp->hasAttr("d2m.linalg_root")) {
           return;
         }
-        assert(!linalgLoops.value().empty());
 
-        rewriter.replaceOp(linalgGenericOp, linalgLoops.value().front());
+        // Remove the marker attribute after identifying the loop
+        forOp->removeAttr("d2m.linalg_root");
 
-        Operation *rootLoopNest = linalgLoops.value().front();
-        Region &dstRegisterAccessRegion = rootLoopNest->getRegion(0);
+        // Insert DST register access for this loop nest
+        Region &dstRegisterAccessRegion = forOp.getRegion();
         modified |= insertDstRegisterAccess(
-            rewriter, op, dstRegisterAccessRegion, dstCapacity, rootLoopNest);
+            rewriter, op, dstRegisterAccessRegion, dstCapacity, forOp);
       });
-      if (linalgToAffineFailed) {
-        return failure();
-      }
     }
     return success(modified);
   }

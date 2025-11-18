@@ -30,6 +30,17 @@ public:
     return hasTileMatmul;
   }
 
+  // Mark the root loop operation with an attribute to indicate it was produced
+  // by dst-linalg-to-affine conversion. This marker is used by subsequent
+  // passes (e.g., InsertDstRegisterAccess) to identify loop nests that require
+  // processing.
+  static void markAndReplaceLinalgOp(PatternRewriter &rewriter,
+                                     linalg::GenericOp linalgGenericOp,
+                                     Operation *rootLoopNest) {
+    rootLoopNest->setAttr("d2m.linalg_root", rewriter.getUnitAttr());
+    rewriter.replaceOp(linalgGenericOp, rootLoopNest);
+  }
+
   LogicalResult matchAndRewrite(GenericOp op,
                                 PatternRewriter &rewriter) const final {
     bool modified = false;
@@ -69,7 +80,8 @@ public:
               return;
             }
             assert(!linalgLoops.value().empty());
-            rewriter.replaceOp(linalgGenericOp, linalgLoops.value().front());
+            markAndReplaceLinalgOp(rewriter, linalgGenericOp,
+                                   linalgLoops.value().front());
             modified = true;
             return;
           }
@@ -85,7 +97,8 @@ public:
         }
         assert(!linalgLoops.value().empty());
 
-        rewriter.replaceOp(linalgGenericOp, linalgLoops.value().front());
+        markAndReplaceLinalgOp(rewriter, linalgGenericOp,
+                               linalgLoops.value().front());
         modified = true;
       });
 
