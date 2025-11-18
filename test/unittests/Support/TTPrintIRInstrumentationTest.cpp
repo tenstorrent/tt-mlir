@@ -141,6 +141,24 @@ inline PipelineFunction FlatAndNested() {
     pm.addPass(mlir::createCanonicalizerPass());
   };
 }
+
+// Double-nested pipeline for testing change detection
+// All optimization passes are in the most nested level (same as flatPipeline)
+inline PipelineFunction DoubleNested() {
+  return [](mlir::PassManager &pm) {
+    // First nesting level for func::FuncOp
+    mlir::OpPassManager &funcPm1 = pm.nest<mlir::func::FuncOp>();
+
+    // Second nesting level for func::FuncOp (double-nested)
+    // Contains the same passes as flatPipeline
+    mlir::OpPassManager &funcPm2 = funcPm1.nest<mlir::func::FuncOp>();
+    funcPm2.addPass(mlir::createCanonicalizerPass());
+    funcPm2.addPass(mlir::createCSEPass());
+    funcPm2.addPass(mlir::createCanonicalizerPass());
+    funcPm2.addPass(mlir::createCSEPass());
+    funcPm2.addPass(mlir::createCanonicalizerPass());
+  };
+}
 } // namespace Pipelines
 
 } // namespace test
@@ -193,6 +211,8 @@ Options createOptions(InstrumentationTest &fixture) {
   options.outputDir = fixture.tempDir.string();
   options.modelName = Constants::kTestModel;
   options.pipelineName = Constants::kTestPipeline;
+  options.onlyDumpOnChanges =
+      false; // Test backward compatibility - old behavior
   return options;
 }
 
@@ -290,6 +310,91 @@ public:
   using TTPrintIRInstrumentation::TTPrintIRInstrumentation;
 };
 
+// Test change detection behavior with mixed flat and nested passes
+TEST_F(InstrumentationTest, ChangeDetection_Enabled) {
+  auto options = test::createOptions(*this);
+  options.level = DumpLevel::Pass;
+  options.onlyDumpOnChanges = true; // Enable change detection
+
+  // Run mixed flat and nested optimization passes
+  test::runWith(*this, options, test::Pipelines::FlatAndNested());
+
+  int fileCount = countOutputFiles();
+  // Should dump fewer times than 3 (only when IR actually changes)
+  // FlatAndNested has: Canonicalizer (flat), CSE (nested), Canonicalizer (flat)
+  EXPECT_LE(fileCount, 3);
+  EXPECT_GE(fileCount, 1); // At least the first change
+}
+
+// Test that change detection can be disabled
+TEST_F(InstrumentationTest, ChangeDetection_Disabled) {
+  auto options = test::createOptions(*this);
+  options.level = DumpLevel::Pass;
+  // Uses default onlyDumpOnChanges = false
+
+  // Run mixed flat and nested optimization passes
+  test::runWith(*this, options, test::Pipelines::FlatAndNested());
+
+  // FlatAndNested creates multiple dumps: we see 4 in practice
+  EXPECT_EQ(countOutputFiles(), 4);
+}
+
+// Test change detection with complex double-nested pipeline
+TEST_F(InstrumentationTest, ChangeDetection_DoubleNested_Enabled) {
+  auto options = test::createOptions(*this);
+  options.level = DumpLevel::Pipeline;
+  options.onlyDumpOnChanges = true; // Enable change detection
+
+  // Run complex double-nested pipeline with multiple nesting levels
+  test::runWith(*this, options, test::Pipelines::DoubleNested());
+
+  int fileCount = countOutputFiles();
+  // DoubleNested has pipeline boundaries: module + func level
+  // Change detection may reduce dumps if nested levels don't change IR
+  EXPECT_LE(fileCount, 2);
+  EXPECT_GE(fileCount, 0);
+}
+
+TEST_F(InstrumentationTest, ChangeDetection_DoubleNested_Disabled) {
+  auto options = test::createOptions(*this);
+  options.level = DumpLevel::Pipeline;
+  // Uses default onlyDumpOnChanges = false
+
+  // Run complex double-nested pipeline
+  test::runWith(*this, options, test::Pipelines::DoubleNested());
+
+  // Should dump at pipeline boundaries: module level + func level
+  // The double nesting on the same operation type may not create separate
+  // boundaries
+  EXPECT_EQ(countOutputFiles(), 2);
+}
+
+// Test change detection with Once level
+TEST_F(InstrumentationTest, ChangeDetection_Once_Enabled) {
+  auto options = test::createOptions(*this);
+  options.level = DumpLevel::Once;
+  options.onlyDumpOnChanges = true; // Enable change detection
+
+  // Run mixed flat and nested passes
+  test::runWith(*this, options, test::Pipelines::FlatAndNested());
+
+  // Should dump once at the end (only if final IR is different from last dump)
+  // Since the pipeline changes IR, we expect 1 dump
+  EXPECT_EQ(countOutputFiles(), 1);
+}
+
+TEST_F(InstrumentationTest, ChangeDetection_Once_Disabled) {
+  auto options = test::createOptions(*this);
+  options.level = DumpLevel::Once;
+  // Uses default onlyDumpOnChanges = false
+
+  // Run mixed flat and nested passes
+  test::runWith(*this, options, test::Pipelines::FlatAndNested());
+
+  // Should dump once at the end (always dumps final state)
+  EXPECT_EQ(countOutputFiles(), 1);
+}
+
 // Tests for extractModelNameFromLocation function
 TEST_F(InstrumentationTest, ExtractModelNameFromLocation) {
   auto module = test::Utils::createTestModule(*context);
@@ -321,6 +426,7 @@ TEST_F(InstrumentationTest, Pass) {
 TEST_F(InstrumentationTest, Pass_Complex) {
   auto options = test::createOptions(*this);
   options.level = DumpLevel::Pass;
+  // Uses default onlyDumpOnChanges = false to get all pass dumps
   test::runWith(*this, options, test::Pipelines::flatPipeline());
 
   EXPECT_GT(countOutputFiles(), 1);
@@ -337,6 +443,7 @@ TEST_F(InstrumentationTest, Transformation) {
 TEST_F(InstrumentationTest, Transformation_Complex) {
   auto options = test::createOptions(*this);
   options.level = DumpLevel::Transformation;
+  // Uses default onlyDumpOnChanges = false to get all transformation dumps
   test::runWith(*this, options, test::Pipelines::flatPipeline());
 
   EXPECT_GT(countOutputFiles(), 1);

@@ -31,7 +31,7 @@ TTPrintIRInstrumentation::TTPrintIRInstrumentation(
       modelName_(options.modelName.empty() ? "unknown" : options.modelName),
       pipelineName_(options.pipelineName), level_(options.level),
       dumpInitial_(options.dumpInitial), dumpedInitial_(false),
-      currentDepth_(0) {
+      onlyDumpOnChanges_(options.onlyDumpOnChanges), currentDepth_(0) {
   // Initialize counter if model name was provided explicitly
   if (!options.modelName.empty()) {
     initializeDumpCounter();
@@ -223,6 +223,12 @@ void TTPrintIRInstrumentation::dumpIR(mlir::Operation *op,
 
 void TTPrintIRInstrumentation::dumpIR(const std::string &irString,
                                       const std::string &name) {
+  // Check if IR has changed since last dump
+  if (onlyDumpOnChanges_ && irString == lastDumpedIR_) {
+    // IR hasn't changed, skip dumping
+    return;
+  }
+
   // Get output filename
   std::string filename = getOutputFilename(name);
 
@@ -236,6 +242,8 @@ void TTPrintIRInstrumentation::dumpIR(const std::string &irString,
   if (!ec) {
     file << irString;
     file.close();
+    // Update last dumped IR
+    lastDumpedIR_ = irString;
   } else {
     llvm::errs() << "TTPrintIRInstrumentation: Failed to open file " << filename
                  << ": " << ec.message() << "\n";
