@@ -61,15 +61,21 @@ void TTPrintIRInstrumentation::attachActionHandler(mlir::MLIRContext *ctx) {
     return;
   }
 
-  // Register an action handler to dump IR on PassExecutionAction
+  // Register an action handler to dump IR on transformation actions
   ctx->registerActionHandler([this](llvm::function_ref<void()> transform,
                                     const mlir::tracing::Action &action) {
     // Execute the transform first
     transform();
 
-    // Only dump IR for PassExecutionAction and only if level is Transformation
-    if (level_ == DumpLevel::Transformation &&
-        mlir::isa<mlir::PassExecutionAction>(action)) {
+    // Only process if level is Transformation
+    if (level_ != DumpLevel::Transformation) {
+      return;
+    }
+
+    std::string actionTag = action.getTag().str();
+
+    // Handle PassExecutionAction - dumps IR after pass completes
+    if (mlir::isa<mlir::PassExecutionAction>(action)) {
       auto passAction = mlir::cast<mlir::PassExecutionAction>(action);
       mlir::Operation *op = passAction.getOp();
 
@@ -83,7 +89,91 @@ void TTPrintIRInstrumentation::attachActionHandler(mlir::MLIRContext *ctx) {
         }
 
         std::string passName = passAction.getPass().getName().str();
-        dumpIR(op, passName, "transformation_action");
+        dumpIR(op, passName + "_after", "pass_execution");
+      }
+    }
+    // Handle GreedyPatternRewriteIteration - dumps IR after each iteration
+    else if (actionTag == "GreedyPatternRewriteIteration") {
+      auto irUnits = action.getContextIRUnits();
+
+      if (!irUnits.empty()) {
+        mlir::Operation *op = nullptr;
+
+        // Extract operation from IRUnit
+        if (auto *opPtr =
+                llvm::dyn_cast_if_present<mlir::Operation *>(irUnits[0])) {
+          op = opPtr;
+        } else if (auto *region =
+                       llvm::dyn_cast_if_present<mlir::Region *>(irUnits[0])) {
+          op = region->getParentOp();
+        } else if (auto *block =
+                       llvm::dyn_cast_if_present<mlir::Block *>(irUnits[0])) {
+          op = block->getParentOp();
+        }
+
+        if (op) {
+          if (modelName_ == "unknown") {
+            std::string extractedName = extractModelNameFromLocation(op);
+            if (extractedName != "unknown") {
+              setModelName(extractedName);
+            }
+          }
+
+          // Extract iteration number from action.print() output
+          std::string actionStr;
+          llvm::raw_string_ostream os(actionStr);
+          action.print(os);
+          os.flush();
+
+          // actionStr format: "GreedyPatternRewriteIteration(N)"
+          std::string iterNum = "0";
+          size_t openParen = actionStr.find('(');
+          size_t closeParen = actionStr.find(')');
+          if (openParen != std::string::npos &&
+              closeParen != std::string::npos) {
+            iterNum =
+                actionStr.substr(openParen + 1, closeParen - openParen - 1);
+          }
+
+          std::string opName =
+              sanitizeFilename(op->getName().getStringRef().str());
+          std::string filename = actionTag + "_iter" + iterNum + "_" + opName;
+          dumpIR(op, filename, "greedy_iteration");
+        }
+      }
+    }
+    // Handle apply-pattern if it exists
+    else if (actionTag == "apply-pattern") {
+      auto irUnits = action.getContextIRUnits();
+
+      if (!irUnits.empty()) {
+        mlir::Operation *op = nullptr;
+
+        // Extract operation from IRUnit
+        if (auto *opPtr =
+                llvm::dyn_cast_if_present<mlir::Operation *>(irUnits[0])) {
+          op = opPtr;
+        } else if (auto *region =
+                       llvm::dyn_cast_if_present<mlir::Region *>(irUnits[0])) {
+          op = region->getParentOp();
+        } else if (auto *block =
+                       llvm::dyn_cast_if_present<mlir::Block *>(irUnits[0])) {
+          op = block->getParentOp();
+        }
+
+        if (op) {
+          if (modelName_ == "unknown") {
+            std::string extractedName = extractModelNameFromLocation(op);
+            if (extractedName != "unknown") {
+              setModelName(extractedName);
+            }
+          }
+
+          std::string opName =
+              sanitizeFilename(op->getName().getStringRef().str());
+          std::string filename = actionTag + "_" + opName;
+          dumpIR(op, filename, "apply_pattern");
+        }
       }
     }
   });

@@ -188,8 +188,8 @@ namespace test {
 Options createOptions(InstrumentationTest &fixture) {
   Options options;
   options.outputDir = fixture.tempDir.string();
-  options.modelName = "test_model";
-  options.pipelineName = "test_pipeline";
+  options.modelName = Constants::kTestModel;
+  options.pipelineName = Constants::kTestPipeline;
   options.onlyDumpOnChanges = false;
   return options;
 }
@@ -257,11 +257,9 @@ TEST_F(InstrumentationTest, Initial_WithOnce) {
 
   EXPECT_EQ(countOutputFiles(), 2);
   auto filepaths = getOutputFilePaths();
-  // Index 0 should be reserved for initial dump
   EXPECT_TRUE(std::find(filepaths.begin(), filepaths.end(),
                         "test_model/test_pipeline/0_initial.mlir") !=
               filepaths.end());
-  // Subsequent dumps should start from index 1
   EXPECT_TRUE(
       std::find(filepaths.begin(), filepaths.end(),
                 "test_model/test_pipeline/1_after_test_pipeline.mlir") !=
@@ -323,11 +321,19 @@ TEST_F(InstrumentationTest, Pass) {
 TEST_F(InstrumentationTest, Transformation) {
   auto options = test::createOptions(*this);
   options.level = DumpLevel::Transformation;
-  test::runWith(*this, options, test::Pipelines::singlePassPipeline());
+  test::runWith(*this, options, test::Pipelines::flatPipeline());
 
-  EXPECT_EQ(countOutputFiles(), 1);
+  EXPECT_GE(countOutputFiles(), 5);
   auto filepaths = getOutputFilePaths();
-  EXPECT_TRUE(std::find(filepaths.begin(), filepaths.end(),
-                        "test_model/test_pipeline/1_Canonicalizer.mlir") !=
-              filepaths.end());
+  bool hasPassExecution = std::any_of(
+      filepaths.begin(), filepaths.end(), [](const std::string &path) {
+        return path.find("_after") != std::string::npos;
+      });
+  bool hasPatternIteration = std::any_of(
+      filepaths.begin(), filepaths.end(), [](const std::string &path) {
+        return path.find("GreedyPatternRewriteIteration_iter") !=
+               std::string::npos;
+      });
+  EXPECT_TRUE(hasPassExecution);
+  EXPECT_TRUE(hasPatternIteration);
 }
