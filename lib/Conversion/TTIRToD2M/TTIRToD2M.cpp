@@ -154,9 +154,21 @@ protected:
       DenseIntElementsAttr emptyCollapseIntervals =
           DenseIntElementsAttr::get(emptyIntervalType, ArrayRef<int64_t>{});
 
+      // For ND uncollapsed shapes, instantiate a core virtual grid map that
+      // collapses the default ND unit grid to a 2D unit grid. These mappings
+      // will be replaced if the layout is optimized in GridSelection.
+      AffineMap coreVirtMap = AffineMap::get(rewriter.getContext());
+      if (logicalShape.size() > 2) {
+        llvm::SmallVector<int64_t> unitGrid(logicalShape.size(), 1);
+        coreVirtMap = ttmlir::d2m::utils::grids::createCoreVirtMaps(
+                          rewriter.getContext(), unitGrid, {1, 1})
+                          .first;
+      }
+
       layout = ttcore::MetalLayoutAttr::get(
           rewriter.getContext(), logicalShape, ttcore::OOBVal::Undef, memSpace,
-          ttcore::TensorMemoryLayout::Sharded, emptyCollapseIntervals);
+          ttcore::TensorMemoryLayout::Sharded, emptyCollapseIntervals,
+          coreVirtMap);
 
     } else {
       layout = ttcore::MetalLayoutAttr::get(

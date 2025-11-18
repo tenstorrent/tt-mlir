@@ -358,11 +358,12 @@ ToLayoutOp::CompoundComponents ToLayoutOp::compoundComponents() {
   components.isFormatChange =
       inputTensor.getElementType() != outputTensor.getElementType();
 
+  // XXX: address this properly
   // Check layout (collapsed intervals and alignments).
-  components.isLayoutChange =
-      inputLayout.getNormalizedIntervals() !=
-          outputLayout.getNormalizedIntervals() ||
-      inputLayout.getDimAlignments() != outputLayout.getDimAlignments();
+  // components.isLayoutChange =
+  //    inputLayout.getNormalizedIntervals() !=
+  //        outputLayout.getNormalizedIntervals() ||
+  //    inputLayout.getDimAlignments() != outputLayout.getDimAlignments();
 
   return components;
 }
@@ -1218,14 +1219,8 @@ static mlir::LogicalResult verifyAffineBlocking(
       }
       AffineMap fwdMap = *maybeFwdMap;
 
-      // Drop the shard dim results from the virtual grid mapping.
-      if (fwdMap.getNumResults() % 2 != 0) {
-        return emitOpError("GenericOp output operand's virtual grid mapping "
-                           "must have an even number of results.");
-      }
-
       fwdMap = ttmlir::utils::affineMapDropBackResults(
-          fwdMap, fwdMap.getNumResults() / 2);
+          fwdMap, fwdMap.getNumResults() - 2);
       // first result is deviceID, so drop it
       auto invMap = getGrid().getMapping().dropResult(0);
 
