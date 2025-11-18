@@ -14,7 +14,7 @@ module {
     // CHECK: "ttir.add"
     // CHECK: "ttir.subtract"
     %1 = "ttir.dot_general"(%arg0, %arg1) <{batch_dims_lhs = array<i64>, batch_dims_rhs = array<i64>, contract_dims_lhs = array<i64: 1>, contract_dims_rhs = array<i64: 0>}> : (tensor<68x1024xf32>, tensor<1024x1024xf32>) -> (tensor<68x1024xf32>)
-    %3 = "ttir.add"(%1, %arg2, %2) : (tensor<68x1024xf32>, tensor<68x1024xf32>, tensor<68x1024xf32>) -> tensor<68x1024xf32>
+    %3 = "ttir.add"(%1, %arg2) : (tensor<68x1024xf32>, tensor<68x1024xf32>) -> tensor<68x1024xf32>
     %5 = "ttir.reshape"(%3)<{shape = [2 : i32, 34 : i32, 16 : i32, 64 : i32]}> : (tensor<68x1024xf32>) -> tensor<2x34x16x64xf32>
     %7 = "ttir.subtract"(%1, %3) : (tensor<68x1024xf32>, tensor<68x1024xf32>) -> tensor<68x1024xf32>
     return %7 : tensor<68x1024xf32>
@@ -45,7 +45,7 @@ module {
     // CHECK: "ttir.add"
     %1 = "ttir.dot_general"(%arg0, %arg1) <{batch_dims_lhs = array<i64>, batch_dims_rhs = array<i64>, contract_dims_lhs = array<i64: 1>, contract_dims_rhs = array<i64: 0>}> : (tensor<68x1024xf32>, tensor<1024x1024xf32>) -> tensor<68x1024xf32>
     %3 = "ttir.reshape"(%1) <{shape = [2 : i32, 34 : i32, 1024 : i32]}> : (tensor<68x1024xf32>) -> tensor<2x34x1024xf32>
-    %5 = "ttir.add"(%3, %bias4) : (tensor<2x34x1024xf32>, tensor<2x2x34x1024xf32>) -> tensor<2x2x34x1024xf32>
+    %5 = "ttir.add"(%3, %bias) : (tensor<2x34x1024xf32>, tensor<2x2x34x1024xf32>) -> tensor<2x2x34x1024xf32>
     return %5 : tensor<2x2x34x1024xf32>
   }
 }
@@ -68,7 +68,7 @@ module {
 module{
   func.func @dot_general_with_bias_5(%arg0: tensor<68x1024xf32>, %arg1: tensor<1024x1024xf32>, %arg2: tensor<2x34x1024xf32>) -> tensor<2x34x1024xf32> {
     // CHECK: func.func @dot_general_with_bias_5
-    // CHECK: "ttir.matmul"(%arg0, %arg1, %0)
+    // CHECK: "ttir.matmul"(%arg0, %arg1)
     // CHECK-NOT: "ttir.linear"
     %1 = "ttir.matmul"(%arg0, %arg1) <{transpose_a = false, transpose_b = false}> : (tensor<68x1024xf32>, tensor<1024x1024xf32>) -> tensor<68x1024xf32>
     %3 = "ttir.reshape"(%1) <{shape = [2 : i32, 34 : i32, 1024 : i32]}> : (tensor<68x1024xf32>) -> tensor<2x34x1024xf32>

@@ -41,7 +41,6 @@ module {
 module {
   // CHECK-LABEL: func.func @concatenate_heads_fusion_3
   func.func @concatenate_heads_fusion_3(%arg0: tensor<2x24x32x128xbf16>) -> tensor<2x32x3072xbf16> {
-    // CHECK: %[[EMPTY:.*]] = ttir.empty() : tensor<2x32x3072xbf16>
     // CHECK: %[[RESULT:.*]] = "ttir.concatenate_heads"(%arg0) : (tensor<2x24x32x128xbf16>) -> tensor<2x32x3072xbf16>
     // CHECK-NOT: ttir.reshape
     // CHECK-NOT: ttir.permute
@@ -176,9 +175,7 @@ module {
 module {
   // CHECK-LABEL: func.func @neg_concatenate_heads_fusion_4
   func.func @neg_concatenate_heads_fusion_4(%arg0: tensor<1x24x32x128xbf16>) -> tensor<1x98304xbf16>{
-    // CHECK: %[[EMPTY0:.*]] = ttir.empty() : tensor<1x32x24x128xbf16>
     // CHECK: %[[PERMUTE:.*]] = "ttir.permute"(%arg0) <{permutation = array<i64: 0, 2, 1, 3>}> : (tensor<1x24x32x128xbf16>) -> tensor<1x32x24x128xbf16>
-    // CHECK: %[[EMPTY1:.*]] = ttir.empty() : tensor<1x98304xbf16>
     // CHECK: %[[RESHAPE:.*]] = "ttir.reshape"(%[[PERMUTE]]) <{shape = [1 : i32, 98304 : i32]}> : (tensor<1x32x24x128xbf16>) -> tensor<1x98304xbf16>
     // CHECK-NOT: ttir.concatenate_heads
     // CHECK: return %[[RESHAPE]]

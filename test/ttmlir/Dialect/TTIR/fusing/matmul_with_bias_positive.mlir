@@ -41,8 +41,8 @@ module {
     // CHECK-NOT: "ttir.dot_general"
     // CHECK-NOT: "ttir.matmul"
     // CHECK-NOT: "ttir.add"
-    // CHECK: "ttir.reshape"(%1, %2)
-    // CHECK-SAME: (tensor<68x1024xf32>, tensor<2x34x1024xf32>) -> tensor<2x34x1024xf32>
+    // CHECK: "ttir.reshape"(%0)
+    // CHECK-SAME: (tensor<68x1024xf32>) -> tensor<2x34x1024xf32>
     %1 = "ttir.dot_general"(%arg0, %arg1) <{batch_dims_lhs = array<i64>, batch_dims_rhs = array<i64>, contract_dims_lhs = array<i64: 1>, contract_dims_rhs = array<i64: 0>}> : (tensor<68x1024xf32>, tensor<1024x1024xf32>) -> tensor<68x1024xf32>
     %3 = "ttir.reshape"(%1) <{shape = [2 : i32, 34 : i32, 1024 : i32]}> : (tensor<68x1024xf32>) -> tensor<2x34x1024xf32>
     %5 = "ttir.add"(%3, %bias) : (tensor<2x34x1024xf32>, tensor<1024xf32>) -> tensor<2x34x1024xf32>
@@ -55,8 +55,8 @@ module {
     // CHECK: func.func @dot_general_with_bias_4
     // CHECK: "ttir.reshape"(%arg2
     // CHECK-SAME: (tensor<1024xf32>) -> tensor<1x1x1024xf32>
-    // CHECK: "ttir.linear"(%arg0, %arg1, %1)
-    // CHECK: "ttir.reshape"(%3)
+    // CHECK: "ttir.linear"(%arg0, %arg1, %0)
+    // CHECK: "ttir.reshape"(%1)
     // CHECK-SAME: (tensor<1x68x1024xf32>) -> tensor<2x34x1024xf32>
     // CHECK-NOT: "ttir.dot_general"
     // CHECK-NOT: "ttir.matmul"
@@ -90,7 +90,7 @@ module {
     // CHECK-NOT: "ttir.dot_general"
     // CHECK-NOT: "ttir.matmul"
     // CHECK-NOT: "ttir.add"
-    // CHECK: "ttir.reshape"(%1, %2)
+    // CHECK: "ttir.reshape"(%0)
     // CHECK-SAME: (tensor<1576x768xf32>) -> tensor<8x197x768xf32>
     %0 = "ttir.dot_general"(%arg0, %arg1) <{batch_dims_lhs = array<i64>, batch_dims_rhs = array<i64>, contract_dims_lhs = array<i64: 1>, contract_dims_rhs = array<i64: 0>}> : (tensor<1576x2xf32>, tensor<2x768xf32>) -> tensor<1576x768xf32>
     %2 = "ttir.reshape"(%0) <{shape = [8 : i32, 197 : i32, 768 : i32]}> : (tensor<1576x768xf32>) -> tensor<8x197x768xf32>
@@ -102,9 +102,9 @@ module {
 module {
   func.func @dot_general_with_bias_7(%arg0: tensor<256x1024xbf16>, %arg1: tensor<1024x1024xbf16>, %bias: tensor<1024xbf16>) -> tensor<1x256x1024xbf16> {
     // CHECK: func.func @dot_general_with_bias_7
-    // CHECK: "ttir.reshape"(%arg2, %0)
+    // CHECK: "ttir.reshape"(%arg2)
     // CHECK-SAME: (tensor<1024xbf16>) -> tensor<1x1x1024xbf16>
-    // CHECK: "ttir.linear"(%arg0, %arg1, %1)
+    // CHECK: "ttir.linear"(%arg0, %arg1, %0)
     // CHECK-NOT: "ttir.dot_general"
     // CHECK-NOT: "ttir.matmul"
     // CHECK-NOT: "ttir.add"
@@ -124,7 +124,7 @@ module {
     // CHECK: func.func @dot_general_with_bias_8
     // CHECK: "ttir.reshape"(%arg2)
     // CHECK-SAME: (tensor<1x256xbf16>) -> tensor<1x1x1x256xbf16>
-    // CHECK: "ttir.linear"(%arg0, %arg1, %1)
+    // CHECK: "ttir.linear"(%arg0, %arg1, %0)
     // CHECK-NOT: "ttir.dot_general"
     // CHECK-NOT: "ttir.matmul"
     // CHECK-NOT: "ttir.add"
@@ -144,12 +144,12 @@ module {
     // CHECK: func.func @dot_general_with_bias_9
     // CHECK: "ttir.reshape"(%arg2)
     // CHECK-SAME: (tensor<1024xf32>) -> tensor<1x1024xf32>
-    // CHECK: "ttir.linear"(%arg0, %arg1, %1)
+    // CHECK: "ttir.linear"(%arg0, %arg1, %0)
     // CHECK-NOT: "ttir.dot_general"
     // CHECK-NOT: "ttir.matmul"
     // CHECK-NOT: "ttir.add"
     %1 = "ttir.dot_general"(%arg0, %arg1) <{batch_dims_lhs = array<i64>, batch_dims_rhs = array<i64>, contract_dims_lhs = array<i64: 1>, contract_dims_rhs = array<i64: 0>}> : (tensor<68x1024xf32>, tensor<1024x1024xf32>) -> (tensor<68x1024xf32>)
-    %3 = "ttir.reshape" (%bias) <{shape = [1 : i32, 1024 : i32]}> : (tensor<1024xf32>, tensor<1x1024xf32>) -> tensor<1x1024xf32>
+    %3 = "ttir.reshape" (%bias) <{shape = [1 : i32, 1024 : i32]}> : (tensor<1024xf32>) -> tensor<1x1024xf32>
     %5 = "ttir.broadcast"(%3) <{broadcast_dimensions = array<i64: 68, 1>}> : (tensor<1x1024xf32>) -> tensor<68x1024xf32>
     %7 = "ttir.add"(%1, %5) : (tensor<68x1024xf32>, tensor<68x1024xf32>) -> tensor<68x1024xf32>
     return %7 : tensor<68x1024xf32>

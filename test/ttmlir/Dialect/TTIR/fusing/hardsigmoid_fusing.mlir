@@ -11,7 +11,7 @@ module {
         // CHECK-NOT: "ttir.clamp_tensor"
         // CHECK-NOT: "ttir.div"
         // CHECK: "ttir.hardsigmoid"
-        %6 = "ttir.add"(%4, %1, %5) : (tensor<12x256x1x1xbf16>, tensor<12x256x1x1xbf16>, tensor<12x256x1x1xbf16>) -> tensor<12x256x1x1xbf16>
+        %6 = "ttir.add"(%4, %1) : (tensor<12x256x1x1xbf16>, tensor<12x256x1x1xbf16>) -> tensor<12x256x1x1xbf16>
         %8 = "ttir.clamp_tensor"(%6, %0, %2) : (tensor<12x256x1x1xbf16>, tensor<12x256x1x1xbf16>, tensor<12x256x1x1xbf16>) -> tensor<12x256x1x1xbf16>
         %10 = "ttir.clamp_tensor"(%8, %0, %2) : (tensor<12x256x1x1xbf16>, tensor<12x256x1x1xbf16>, tensor<12x256x1x1xbf16>) -> tensor<12x256x1x1xbf16>
         %12 = "ttir.div"(%10, %2) : (tensor<12x256x1x1xbf16>, tensor<12x256x1x1xbf16>) -> tensor<12x256x1x1xbf16>

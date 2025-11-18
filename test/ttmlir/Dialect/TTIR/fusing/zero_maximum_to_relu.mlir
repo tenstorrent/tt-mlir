@@ -6,8 +6,7 @@ module {
     %2 = "ttir.maximum"(%arg0, %0) : (tensor<1x64x112x112xbf16>, tensor<1x64x112x112xbf16>) -> tensor<1x64x112x112xbf16>
     // CHECK-NOT: "ttir.zeros"
     // CHECK-NOT: "ttir.maximum"
-    // CHECK: %[[EMPTY:.*]] = ttir.empty() : tensor<1x64x112x112xbf16>
-    // CHECK: %[[RESULT:.*]] = "ttir.relu"(%arg0, %[[EMPTY]]) : (tensor<1x64x112x112xbf16>, tensor<1x64x112x112xbf16>) -> tensor<1x64x112x112xbf16>
+    // CHECK: %[[RESULT:.*]] = "ttir.relu"(%arg0) : (tensor<1x64x112x112xbf16>) -> tensor<1x64x112x112xbf16>
     // CHECK: return %[[RESULT]] : tensor<1x64x112x112xbf16>
     return %2: tensor<1x64x112x112xbf16>
   }
@@ -18,10 +17,8 @@ module {
     %4 = "ttir.maximum"(%arg1, %0) : (tensor<1x64x112x112xbf16>, tensor<1x64x112x112xbf16>) -> tensor<1x64x112x112xbf16>
     // CHECK-NOT: "ttir.zeros"
     // CHECK-NOT: "ttir.maximum"
-    // CHECK: %[[EMPTY:.*]] = ttir.empty() : tensor<1x64x112x112xbf16>
-    // CHECK: %[[RESULT:.*]] = "ttir.relu"(%arg0, %[[EMPTY]]) : (tensor<1x64x112x112xbf16>, tensor<1x64x112x112xbf16>) -> tensor<1x64x112x112xbf16>
-    // CHECK: %[[EMPTY2:.*]] = ttir.empty() : tensor<1x64x112x112xbf16>
-    // CHECK: %[[RESULT2:.*]] = "ttir.relu"(%arg1, %[[EMPTY2]]) : (tensor<1x64x112x112xbf16>, tensor<1x64x112x112xbf16>) -> tensor<1x64x112x112xbf16>
+    // CHECK: %[[RESULT:.*]] = "ttir.relu"(%arg0) : (tensor<1x64x112x112xbf16>) -> tensor<1x64x112x112xbf16>
+    // CHECK: %[[RESULT2:.*]] = "ttir.relu"(%arg1) : (tensor<1x64x112x112xbf16>) -> tensor<1x64x112x112xbf16>
     // CHECK: return %[[RESULT2]], %[[RESULT]] : tensor<1x64x112x112xbf16>, tensor<1x64x112x112xbf16>
     return %4, %2: tensor<1x64x112x112xbf16>, tensor<1x64x112x112xbf16>
   }
@@ -31,8 +28,7 @@ module {
     %2 = "ttir.maximum"(%arg0, %0) : (tensor<1x64x112x112xbf16>, tensor<1x64x112x112xbf16>) -> tensor<1x64x112x112xbf16>
     // CHECK-NOT: "ttir.full"
     // CHECK-NOT: "ttir.maximum"
-    // CHECK: %[[EMPTY:.*]] = ttir.empty() : tensor<1x64x112x112xbf16>
-    // CHECK: %[[RESULT:.*]] = "ttir.relu"(%arg0, %[[EMPTY]]) : (tensor<1x64x112x112xbf16>, tensor<1x64x112x112xbf16>) -> tensor<1x64x112x112xbf16>
+    // CHECK: %[[RESULT:.*]] = "ttir.relu"(%arg0) : (tensor<1x64x112x112xbf16>) -> tensor<1x64x112x112xbf16>
     // CHECK: return %[[RESULT]] : tensor<1x64x112x112xbf16>
     return %2: tensor<1x64x112x112xbf16>
   }
@@ -43,10 +39,8 @@ module {
     %4 = "ttir.maximum"(%arg1, %0) : (tensor<1x64x112x112xbf16>, tensor<1x64x112x112xbf16>) -> tensor<1x64x112x112xbf16>
     // CHECK-NOT: "ttir.full"
     // CHECK-NOT: "ttir.maximum"
-    // CHECK: %[[EMPTY:.*]] = ttir.empty() : tensor<1x64x112x112xbf16>
-    // CHECK: %[[RESULT:.*]] = "ttir.relu"(%arg0, %[[EMPTY]]) : (tensor<1x64x112x112xbf16>, tensor<1x64x112x112xbf16>) -> tensor<1x64x112x112xbf16>
-    // CHECK: %[[EMPTY2:.*]] = ttir.empty() : tensor<1x64x112x112xbf16>
-    // CHECK: %[[RESULT2:.*]] = "ttir.relu"(%arg1, %[[EMPTY2]]) : (tensor<1x64x112x112xbf16>, tensor<1x64x112x112xbf16>) -> tensor<1x64x112x112xbf16>
+    // CHECK: %[[RESULT:.*]] = "ttir.relu"(%arg0) : (tensor<1x64x112x112xbf16>) -> tensor<1x64x112x112xbf16>
+    // CHECK: %[[RESULT2:.*]] = "ttir.relu"(%arg1) : (tensor<1x64x112x112xbf16>) -> tensor<1x64x112x112xbf16>
     // CHECK: return %[[RESULT2]], %[[RESULT]] : tensor<1x64x112x112xbf16>, tensor<1x64x112x112xbf16>
     return %4, %2: tensor<1x64x112x112xbf16>, tensor<1x64x112x112xbf16>
   }

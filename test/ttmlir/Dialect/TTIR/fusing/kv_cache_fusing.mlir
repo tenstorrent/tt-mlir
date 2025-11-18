@@ -29,7 +29,7 @@ module @scatter_fill_cache{
     %15 = "ttir.add"(%13, %2) : (tensor<8xi64>, tensor<8xi64>) -> tensor<8xi64>
     %16 = "ttir.arange"() <{arange_dimension = 0 : i64, end = 1 : si64, start = 0 : si64, step = 1 : si64}> : () -> tensor<1xi64>
     %18 = "ttir.multiply"(%16, %1) : (tensor<1xi64>, tensor<1xi64>) -> tensor<1xi64>
-    %20 = "ttir.add"(%18) : (tensor<1xi64>) -> tensor<1xi64>
+    %20 = "ttir.add"(%18, %0) : (tensor<1xi64>, tensor<1xi64>) -> tensor<1xi64>
     %22 = "ttir.reshape"(%20) <{shape = [1 : i32, 1 : i32, 1 : i32, 1 : i32]}> : (tensor<1xi64>) -> tensor<1x1x1x1xi64>
     %24 = "ttir.broadcast"(%22) <{broadcast_dimensions = array<i64: 1, 8, 15, 128>}> : (tensor<1x1x1x1xi64>) -> tensor<1x8x15x128xi64>
     %26 = "ttir.reshape"(%24) <{shape = [1 : i32, 8 : i32, 15 : i32, 128 : i32, 1 : i32]}> : (tensor<1x8x15x128xi64>) -> tensor<1x8x15x128x1xi64>
@@ -76,7 +76,7 @@ module @scatter_update_cache{
     %15 = "ttir.add"(%13, %2) : (tensor<8xi64>, tensor<8xi64>) -> tensor<8xi64>
     %16 = "ttir.arange"() <{arange_dimension = 0 : i64, end = 1 : si64, start = 0 : si64, step = 1 : si64}> : () -> tensor<1xi64>
     %18 = "ttir.multiply"(%16, %1) : (tensor<1xi64>, tensor<1xi64>) -> tensor<1xi64>
-    %20 = "ttir.add"(%18) : (tensor<1xi64>) -> tensor<1xi64>
+    %20 = "ttir.add"(%18, %0) : (tensor<1xi64>, tensor<1xi64>) -> tensor<1xi64>
     %22 = "ttir.reshape"(%20) <{shape = [1 : i32, 1 : i32, 1 : i32, 1 : i32]}> : (tensor<1xi64>) -> tensor<1x1x1x1xi64>
     %24 = "ttir.broadcast"(%22) <{broadcast_dimensions = array<i64: 1, 8, 1, 128>}> : (tensor<1x1x1x1xi64>) -> tensor<1x8x1x128xi64>
     %26 = "ttir.reshape"(%24) <{shape = [1 : i32, 8 : i32, 1 : i32, 128 : i32, 1 : i32]}> : (tensor<1x8x1x128xi64>) -> tensor<1x8x1x128x1xi64>
@@ -101,7 +101,7 @@ module @scatter {
     // CHECK-NOT: ttir.fill_cache
     // CHECK-NOT: ttir.update_cache
     // CHECK: ttir.scatter
-    %1 = "ttir.scatter"(%arg0, %arg1, %arg2, %0) <{index_vector_dim = 1 : i32, indices_are_sorted = false, input_batching_dims = array<i32>, inserted_window_dims = array<i32: 0>, scatter_dims_to_operand_dims = array<i32: 0>, scatter_indices_batching_dims = array<i32>, unique_indices = false, update_window_dims = array<i32: 1, 2, 3>}> : (tensor<1x3x320x320xf32>, tensor<1x1xi64>, tensor<1x3x32x32xf32>, tensor<1x3x320x320xf32>) -> tensor<1x3x320x320xf32>
+    %1 = "ttir.scatter"(%arg0, %arg1, %arg2) <{index_vector_dim = 1 : i32, indices_are_sorted = false, input_batching_dims = array<i32>, inserted_window_dims = array<i32: 0>, scatter_dims_to_operand_dims = array<i32: 0>, scatter_indices_batching_dims = array<i32>, unique_indices = false, update_window_dims = array<i32: 1, 2, 3>}> : (tensor<1x3x320x320xf32>, tensor<1x1xi64>, tensor<1x3x32x32xf32>) -> tensor<1x3x320x320xf32>
     return %1 : tensor<1x3x320x320xf32>
   }
 }

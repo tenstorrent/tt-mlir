@@ -13,7 +13,7 @@ module {
       %6 = "ttir.multiply"(%arg0, %1) : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
       %8 = "ttir.erf"(%6) : (tensor<32x32xbf16>) -> tensor<32x32xbf16>
       %10 = "ttir.add"(%8, %0) : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
-      %12 = "ttir.multiply"(%4) : (tensor<32x32xbf16>) -> tensor<32x32xbf16>
+      %12 = "ttir.multiply"(%4, %10) : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
       return %12 : tensor<32x32xbf16>
     }
   }
@@ -31,7 +31,7 @@ module {
       %6 = "ttir.multiply"(%multiplied_args, %1) : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
       %8 = "ttir.erf"(%6) : (tensor<32x32xbf16>) -> tensor<32x32xbf16>
       %10 = "ttir.add"(%8, %0) : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
-      %12 = "ttir.multiply"(%4) : (tensor<32x32xbf16>) -> tensor<32x32xbf16>
+      %12 = "ttir.multiply"(%4, %10) : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
       return %12 : tensor<32x32xbf16>
     }
   }
@@ -48,11 +48,11 @@ module {
       %6 = "ttir.multiply"(%arg0, %4) : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
       %8 = "ttir.pow"(%arg0, %0) : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
       %10 = "ttir.multiply"(%8, %1) : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
-      %12 = "ttir.add"(%arg0) : (tensor<32x32xbf16>) -> tensor<32x32xbf16>
+      %12 = "ttir.add"(%arg0, %10) : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
       %14 = "ttir.multiply"(%12, %2) : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
       %16 = "ttir.tanh"(%14) : (tensor<32x32xbf16>) -> tensor<32x32xbf16>
-      %18 = "ttir.add"(%16) : (tensor<32x32xbf16>) -> tensor<32x32xbf16>
-      %20 = "ttir.multiply"(%6) : (tensor<32x32xbf16>) -> tensor<32x32xbf16>
+      %18 = "ttir.add"(%16, %3) : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
+      %20 = "ttir.multiply"(%6, %18) : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
       return %20 : tensor<32x32xbf16>
     }
   }
@@ -69,11 +69,11 @@ module @gelu_tanh2 attributes {mhlo.num_partitions = 1 : i32, mhlo.num_replicas 
     %5 = "ttir.multiply"(%arg0, %arg0) : (tensor<32x32xf32>, tensor<32x32xf32>) -> tensor<32x32xf32>
     %7 = "ttir.multiply"(%5, %arg0) : (tensor<32x32xf32>, tensor<32x32xf32>) -> tensor<32x32xf32>
     %9 = "ttir.reshape"(%3) <{shape = [1 : i32, 1 : i32]}> : (tensor<f32>) -> tensor<1x1xf32>
-    %11 = "ttir.broadcast"(%9, %10) <{broadcast_dimensions = array<i64: 32, 32>}> : (tensor<1x1xf32>, tensor<32x32xf32>) -> tensor<32x32xf32>
-    %13 = "ttir.multiply"(%11) : (tensor<32x32xf32>) -> tensor<32x32xf32>
+    %11 = "ttir.broadcast"(%9) <{broadcast_dimensions = array<i64: 32, 32>}> : (tensor<1x1xf32>) -> tensor<32x32xf32>
+    %13 = "ttir.multiply"(%11, %7) : (tensor<32x32xf32>, tensor<32x32xf32>) -> tensor<32x32xf32>
     %15 = "ttir.add"(%arg0, %13) : (tensor<32x32xf32>, tensor<32x32xf32>) -> tensor<32x32xf32>
     %17 = "ttir.reshape"(%2) <{shape = [1 : i32, 1 : i32]}> : (tensor<f32>) -> tensor<1x1xf32>
-    %19 = "ttir.broadcast"(%17, %18) <{broadcast_dimensions = array<i64: 32, 32>}> : (tensor<1x1xf32>, tensor<32x32xf32>) -> tensor<32x32xf32>
+    %19 = "ttir.broadcast"(%17) <{broadcast_dimensions = array<i64: 32, 32>}> : (tensor<1x1xf32>) -> tensor<32x32xf32>
     %21 = "ttir.multiply"(%19, %15) : (tensor<32x32xf32>, tensor<32x32xf32>) -> tensor<32x32xf32>
     %23 = "ttir.tanh"(%21) : (tensor<32x32xf32>) -> tensor<32x32xf32>
     %25 = "ttir.reshape"(%1) <{shape = [1 : i32, 1 : i32]}> : (tensor<f32>) -> tensor<1x1xf32>
