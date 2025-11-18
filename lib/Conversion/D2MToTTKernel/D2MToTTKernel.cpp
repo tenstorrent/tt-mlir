@@ -924,7 +924,7 @@ public:
     auto numPages = i32(rewriter, op->getLoc(), cbNumPages);
 
     rewriter.replaceOpWithNewOp<TTKernelReleaseOp>(op, adaptor.getCb(),
-                                                    numPages);
+                                                   numPages);
     return success();
   }
 };

@@ -1379,10 +1379,13 @@ void GenericOp::getCanonicalizationPatterns(mlir::RewritePatternSet &patterns,
           // Use DominanceInfo for cross-block dominance checking.
           DominanceInfo domInfo(parentOp);
           for (Operation *user : blockArg.getUsers()) {
-            assert((mlir::isa<d2m::WaitOp, d2m::ReserveOp, d2m::PushOp, d2m::PopOp>(user)) &&
-                   "block argument users must be wait/reserve/push/pop operations");
+            assert((mlir::isa<d2m::WaitOp, d2m::ReserveOp, d2m::PushOp,
+                              d2m::PopOp>(user)) &&
+                   "block argument users must be wait/reserve/push/pop "
+                   "operations");
             // Check if this wait/reserve dominates the regionOp.
-            // Note: push/pop don't have results, so they won't be selected here.
+            // Note: push/pop don't have results, so they won't be selected
+            // here.
             if (domInfo.dominates(user, regionOp)) {
               waitOrReserve = user;
               break;
@@ -1698,17 +1701,14 @@ mlir::LogicalResult d2m::GenericOp::bufferize(
         auto toTensor = rewriter.create<bufferization::ToTensorOp>(
             bufferGeneric.getLoc(), oldArg.getType(), newArg);
         for (OpOperand *use : tensorSemanticUses) {
-          rewriter.modifyOpInPlace(use->getOwner(), [&]() {
-            use->set(toTensor.getResult());
-          });
+          rewriter.modifyOpInPlace(use->getOwner(),
+                                   [&]() { use->set(toTensor.getResult()); });
         }
       }
 
       // Memref-semantic ops use the memref arg directly
       for (OpOperand *use : memrefSemanticUses) {
-        rewriter.modifyOpInPlace(use->getOwner(), [&]() {
-          use->set(newArg);
-        });
+        rewriter.modifyOpInPlace(use->getOwner(), [&]() { use->set(newArg); });
       }
 
       block.eraseArgument(argNumber + 1);

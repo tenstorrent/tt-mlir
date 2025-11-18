@@ -576,10 +576,11 @@ PushOp::getAliasingValues(mlir::OpOperand &,
   return result;
 }
 
-mlir::FailureOr<mlir::bufferization::BufferLikeType> PushOp::getBufferType(
-    mlir::Value, const mlir::bufferization::BufferizationOptions &,
-    const mlir::bufferization::BufferizationState &,
-    ::llvm::SmallVector<mlir::Value> &) {
+mlir::FailureOr<mlir::bufferization::BufferLikeType>
+PushOp::getBufferType(mlir::Value,
+                      const mlir::bufferization::BufferizationOptions &,
+                      const mlir::bufferization::BufferizationState &,
+                      ::llvm::SmallVector<mlir::Value> &) {
   llvm_unreachable(
       "intentionally unimplemented, this op can only accept block arguments "
       "which should have already been converted");
@@ -592,8 +593,8 @@ PushOp::bufferize(mlir::RewriterBase &rewriter,
   return mlir::success();
 }
 
-bool PopOp::bufferizesToMemoryRead(
-    mlir::OpOperand &, const mlir::bufferization::AnalysisState &) {
+bool PopOp::bufferizesToMemoryRead(mlir::OpOperand &,
+                                   const mlir::bufferization::AnalysisState &) {
   return false;
 }
 
@@ -609,10 +610,11 @@ PopOp::getAliasingValues(mlir::OpOperand &,
   return result;
 }
 
-mlir::FailureOr<mlir::bufferization::BufferLikeType> PopOp::getBufferType(
-    mlir::Value, const mlir::bufferization::BufferizationOptions &,
-    const mlir::bufferization::BufferizationState &,
-    ::llvm::SmallVector<mlir::Value> &) {
+mlir::FailureOr<mlir::bufferization::BufferLikeType>
+PopOp::getBufferType(mlir::Value,
+                     const mlir::bufferization::BufferizationOptions &,
+                     const mlir::bufferization::BufferizationState &,
+                     ::llvm::SmallVector<mlir::Value> &) {
   llvm_unreachable(
       "intentionally unimplemented, this op can only accept block arguments "
       "which should have already been converted");
