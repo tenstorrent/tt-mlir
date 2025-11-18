@@ -63,10 +63,10 @@ createCoreVirtMaps(mlir::MLIRContext *context,
   if (is2DWidthSharded) {
     forwardMapExprs = {d1.floorDiv(gridColStride), d1 % gridColStride, d2, d3};
     // note: inverse map results are (deviceIndex, gridY, gridX)
-    inverseMapExprs = {zero, zero, d0 * gridRowStride + d1};
+    inverseMapExprs = {zero, zero, d0 * gridColStride + d1};
   } else if (is2DHeightSharded) {
     forwardMapExprs = {d0 % gridRowStride, d0.floorDiv(gridRowStride), d2, d3};
-    inverseMapExprs = {zero, d1 * gridColStride + d0, zero};
+    inverseMapExprs = {zero, d1 * gridRowStride + d0, zero};
   }
   auto forward = mlir::AffineMap::get(2 * rank, 0, forwardMapExprs, context);
   auto inverse = mlir::AffineMap::get(rank, 0, inverseMapExprs, context);
