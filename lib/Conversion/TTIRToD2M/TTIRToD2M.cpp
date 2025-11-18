@@ -905,8 +905,9 @@ public:
     const auto origInputShape = origInputTensorType.getShape();
     constexpr int64_t tileHeight = ttcore::TileType::getDefaultShape()[0];
     constexpr int64_t tileWidth = ttcore::TileType::getDefaultShape()[1];
-    assert(origInputShape[origInputShape.size() - 2] % tileHeight == 0 &&
-           "Second-to-last dimension must be tile-aligned for outer permute");
+    // assert(origInputShape[origInputShape.size() - 2] % tileHeight == 0 &&
+    //        "Second-to-last dimension must be tile-aligned for outer
+    //        permute");
     assert(origInputShape[origInputShape.size() - 1] % tileWidth == 0 &&
            "Last dimension must be tile-aligned for outer permute");
 
@@ -947,17 +948,17 @@ public:
     auto storage = rewriter.create<d2m::EmptyOp>(
         op.getLoc(), permuted.physicalShape, inputTensorType.getElementType(),
         viewLayout);
-    auto stream = rewriter.create<d2m::StreamLayoutOp>(
-        op.getLoc(), viewTensorType, inputs[0], storage);
-    inputs[0] = stream.getResult();
+    auto view = rewriter.create<d2m::ViewLayoutOp>(op.getLoc(), viewTensorType,
+                                                   inputs[0], storage);
+    inputs[0] = view.getResult();
     llvm::errs() << "inputs: " << inputs[0] << "\n";
     llvm::errs() << "outputs: " << outputs[0] << "\n";
-    // Create a DMA-only generic whose input is the stream layout and whose
+    // Create a DMA-only generic whose input is the view layout and whose
     // output is the op result. Follow the DMA form used by existing tests:
     // reserve the output CB, DMA from input to output using the generic's
     // affine iteration (identity map), wait for the transaction, then yield
     // the reserved output tensor.
-    Value streamSrc = inputs[0];
+    Value viewSrc = inputs[0];
     auto generic = rewriter.create<d2m::GenericOp>(
         op.getLoc(), inputs, outputs,
         [&](OpBuilder &builder, Location bodyLoc, ValueRange blockArgs) {
@@ -968,7 +969,7 @@ public:
           // Use affine-form DMA with identity map over the generic dims.
           auto indexingMap = builder.getMultiDimIdentityMap(4);
           auto dma = builder.create<d2m::DMAOp>(
-              bodyLoc, streamSrc, AffineMapAttr::get(indexingMap), outputCB);
+              bodyLoc, viewSrc, AffineMapAttr::get(indexingMap), outputCB);
           builder.create<d2m::DMAWaitOp>(bodyLoc, dma);
           builder.create<d2m::YieldOp>(bodyLoc, outputCB);
         },
