@@ -13,6 +13,7 @@
 
 #include "gtest/gtest.h"
 
+#include <algorithm>
 #include <filesystem>
 #include <string>
 
@@ -25,6 +26,7 @@ using DumpLevel = TTPrintIRInstrumentation::DumpLevel;
 using PipelineFunction = std::function<void(mlir::PassManager &)>;
 
 namespace {
+namespace test {
 
 struct Constants {
   // e.g.
@@ -127,6 +129,7 @@ inline PipelineFunction idempotentPipeline() {
 }
 } // namespace Pipelines
 
+} // namespace test
 } // namespace
 
 class InstrumentationTest : public ::testing::Test {
@@ -149,6 +152,23 @@ protected:
     return test::FileSystem::countMlirFiles(expectedOutputDir);
   }
 
+  std::vector<std::string> getOutputFilePaths() const {
+    std::vector<std::string> filepaths;
+    if (!std::filesystem::exists(tempDir)) {
+      return filepaths;
+    }
+    for (const auto &entry :
+         std::filesystem::recursive_directory_iterator(tempDir)) {
+      if (entry.is_regular_file() && entry.path().extension() == ".mlir") {
+        // Get relative path from tempDir
+        std::filesystem::path relativePath =
+            std::filesystem::relative(entry.path(), tempDir);
+        filepaths.push_back(relativePath.string());
+      }
+    }
+    return filepaths;
+  }
+
 public:
   void finalize() {
     pm.reset();
@@ -168,8 +188,8 @@ namespace test {
 Options createOptions(InstrumentationTest &fixture) {
   Options options;
   options.outputDir = fixture.tempDir.string();
-  options.modelName = Constants::kTestModel;
-  options.pipelineName = Constants::kTestPipeline;
+  options.modelName = "test_model";
+  options.pipelineName = "test_pipeline";
   options.onlyDumpOnChanges = false;
   return options;
 }
@@ -191,6 +211,11 @@ TEST_F(InstrumentationTest, Once) {
   test::runWith(*this, options, test::Pipelines::singlePassPipeline());
 
   EXPECT_EQ(countOutputFiles(), 1);
+  auto filepaths = getOutputFilePaths();
+  EXPECT_TRUE(
+      std::find(filepaths.begin(), filepaths.end(),
+                "test_model/test_pipeline/1_after_test_pipeline.mlir") !=
+      filepaths.end());
 }
 
 TEST_F(InstrumentationTest, Pipeline_Flat) {
@@ -199,6 +224,11 @@ TEST_F(InstrumentationTest, Pipeline_Flat) {
   test::runWith(*this, options, test::Pipelines::flatPipeline());
 
   EXPECT_EQ(countOutputFiles(), 1);
+  auto filepaths = getOutputFilePaths();
+  EXPECT_TRUE(
+      std::find(filepaths.begin(), filepaths.end(),
+                "test_model/test_pipeline/1_after_test_pipeline.mlir") !=
+      filepaths.end());
 }
 
 TEST_F(InstrumentationTest, Pipeline_Nested) {
@@ -207,6 +237,16 @@ TEST_F(InstrumentationTest, Pipeline_Nested) {
   test::runWith(*this, options, test::Pipelines::nestedFuncOpPipeline());
 
   EXPECT_EQ(countOutputFiles(), 2);
+  auto filepaths = getOutputFilePaths();
+  EXPECT_TRUE(
+      std::find(filepaths.begin(), filepaths.end(),
+                "test_model/test_pipeline/"
+                "1_mlir__detail__OpToOpPassAdaptor_func_func_pipeline.mlir") !=
+      filepaths.end());
+  EXPECT_TRUE(
+      std::find(filepaths.begin(), filepaths.end(),
+                "test_model/test_pipeline/2_after_test_pipeline.mlir") !=
+      filepaths.end());
 }
 
 TEST_F(InstrumentationTest, Initial_WithOnce) {
@@ -216,6 +256,16 @@ TEST_F(InstrumentationTest, Initial_WithOnce) {
   test::runWith(*this, options, test::Pipelines::singlePassPipeline());
 
   EXPECT_EQ(countOutputFiles(), 2);
+  auto filepaths = getOutputFilePaths();
+  // Index 0 should be reserved for initial dump
+  EXPECT_TRUE(std::find(filepaths.begin(), filepaths.end(),
+                        "test_model/test_pipeline/0_initial.mlir") !=
+              filepaths.end());
+  // Subsequent dumps should start from index 1
+  EXPECT_TRUE(
+      std::find(filepaths.begin(), filepaths.end(),
+                "test_model/test_pipeline/1_after_test_pipeline.mlir") !=
+      filepaths.end());
 }
 
 class TestableTTPrintIRInstrumentation : public TTPrintIRInstrumentation {
@@ -264,6 +314,10 @@ TEST_F(InstrumentationTest, Pass) {
   test::runWith(*this, options, test::Pipelines::singlePassPipeline());
 
   EXPECT_EQ(countOutputFiles(), 1);
+  auto filepaths = getOutputFilePaths();
+  EXPECT_TRUE(std::find(filepaths.begin(), filepaths.end(),
+                        "test_model/test_pipeline/1_Canonicalizer.mlir") !=
+              filepaths.end());
 }
 
 TEST_F(InstrumentationTest, Transformation) {
@@ -272,4 +326,8 @@ TEST_F(InstrumentationTest, Transformation) {
   test::runWith(*this, options, test::Pipelines::singlePassPipeline());
 
   EXPECT_EQ(countOutputFiles(), 1);
+  auto filepaths = getOutputFilePaths();
+  EXPECT_TRUE(std::find(filepaths.begin(), filepaths.end(),
+                        "test_model/test_pipeline/1_Canonicalizer.mlir") !=
+              filepaths.end());
 }

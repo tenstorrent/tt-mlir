@@ -49,7 +49,7 @@ TTPrintIRInstrumentation::~TTPrintIRInstrumentation() {
       currentDepth_ == 0 && !pipelineIRStack_.empty() &&
       !pipelineIRStack_[0].empty()) {
     std::string filename =
-        level_ == DumpLevel::Once ? "final" : "depth0_pipeline";
+        "after_" + (pipelineName_.empty() ? "pipeline" : pipelineName_);
     dumpIR(pipelineIRStack_[0], filename);
   }
 }
@@ -112,13 +112,19 @@ void TTPrintIRInstrumentation::runAfterPipeline(
     return;
   }
 
+  std::string opName =
+      name.has_value() ? name->getStringRef().str() : "pipeline";
+  std::string parentPassName = parentInfo.parentPass
+                                   ? parentInfo.parentPass->getName().str()
+                                   : "unknown";
+
   // Dump the accumulated IR if we have any
   if (!pipelineIRStack_.empty() && !pipelineIRStack_.back().empty()) {
-    // Generate filename with depth and operation name
-    std::string opName =
-        name.has_value() ? name->getStringRef().str() : "pipeline";
+    // Generate filename: {sanitized_parent_pass}_{operation_name}_pipeline
+    std::string sanitizedParentPass = sanitizeFilename(parentPassName);
+    std::string sanitizedOpName = sanitizeFilename(opName);
     std::string filename =
-        "depth" + std::to_string(currentDepth_) + "_" + opName;
+        sanitizedParentPass + "_" + sanitizedOpName + "_pipeline";
 
     // Write stored IR string to file
     dumpIR(pipelineIRStack_.back(), filename);
@@ -140,6 +146,9 @@ void TTPrintIRInstrumentation::runBeforePass(Pass *pass, Operation *op) {
   if (dumpInitial_ && !dumpedInitial_ && op) {
     dumpedInitial_ = true;
     dumpIR(op, "initial", "initial_dump");
+  }
+  if (dumpCounter_ == 0) {
+    dumpCounter_ = 1;
   }
 
   // Pass dumps handled in runAfterPass
@@ -177,7 +186,8 @@ void TTPrintIRInstrumentation::runAfterPass(Pass *pass, Operation *op) {
     return;
   }
 
-  if (level_ == DumpLevel::Pass) {
+  // Pass level includes Pass and Transformation (Transformation includes Pass)
+  if (level_ == DumpLevel::Pass || level_ == DumpLevel::Transformation) {
 
     if (!op) {
       return;

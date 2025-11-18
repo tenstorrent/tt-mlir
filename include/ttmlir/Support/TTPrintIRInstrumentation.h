@@ -21,9 +21,9 @@ class TTPrintIRInstrumentation : public PassInstrumentation {
 public:
   enum class DumpLevel {
     Once,          // Dump only once at the very end (top-level only)
-    Pipeline,      // Dump at pipeline boundaries (all nesting levels)
-    Pass,          // Dump at pipeline + pass boundaries
-    Transformation // Dump at pipeline + pass + transformation actions
+    Pipeline,      // Dump at pipeline boundaries (includes Once level)
+    Pass,          // Dump after each pass
+    Transformation // Dump at transformation actions (includes Pass level)
   };
 
   struct TTPrintIRInstrumentationOptions {
