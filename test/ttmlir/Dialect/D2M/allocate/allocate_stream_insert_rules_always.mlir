@@ -1,7 +1,7 @@
-// RUN: ttmlir-opt --ttcore-register-device --d2m-allocate -o %t %s
+// RUN: ttmlir-opt --ttcore-register-device "--d2m-allocate=stream-insert-policy=always" -o %t %s
 // RUN: FileCheck %s --input-file=%t
 
-// Verify several supported use cases for operand stream insertion by d2m-allocate.
+// Verify several supported use cases for operand stream insertion by d2m-allocate in stream-insert-policy=always mode.
 
 #l1_ttnn = #ttnn.buffer_type<l1>
 #dram_ttnn = #ttnn.buffer_type<dram>

@@ -1269,7 +1269,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     const auto broadcastDims = indexingMap.getBroadcastDims();
     const auto iteratorTypes = genericOp.getIteratorTypesValue();
 
-    for (std::size_t resultIndex = 0; resultIndex < genericOp.getNumResults();
+    for (std::size_t resultIndex = 0; resultIndex < indexingMap.getNumResults();
          ++resultIndex) {
       if (llvm::is_contained(broadcastDims, resultIndex)) {
         return true;

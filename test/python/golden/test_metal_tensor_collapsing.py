@@ -104,7 +104,7 @@ def test_uncollapsed_tensors(
 ):
     """Test tensor operations with and without tensor collapsing to 2D."""
 
-    pipeline_options = f"{{collapse-tensors-2d={str(collapse_tensors).lower()} stream-insert-policy=infer}}"
+    pipeline_options = f"{{collapse-tensors-2d={str(collapse_tensors).lower()}}}"
     pipeline = f"ttir-to-ttmetal-pipeline{pipeline_options}"
 
     compile_and_execute_ttir(

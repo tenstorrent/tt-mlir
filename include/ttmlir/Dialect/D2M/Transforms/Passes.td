@@ -493,7 +493,7 @@ def D2MAllocate: Pass<"d2m-allocate", "::mlir::ModuleOp"> {
   let options = D2MStreamingOptions # [
     Option<"streamInsertPolicy",
           "stream-insert-policy",
-          "std::string", /*default=*/"\"always\"",
+          "std::string", /*default=*/"\"infer\"",
           "Policy for deciding when to insert operand streams ('always', 'infer').">,
     Option<"testAssumeL1Capacity",
           "test-assume-l1-capacity",
