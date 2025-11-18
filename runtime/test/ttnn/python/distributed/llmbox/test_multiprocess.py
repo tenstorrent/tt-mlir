@@ -8,6 +8,7 @@ import pytest
 import torch
 import ttrt
 import ttrt.runtime
+from typing import Dict, Any, Tuple, List
 from ttrt.common.util import *
 from ...utils import (
     TT_MLIR_HOME,
@@ -52,20 +53,98 @@ def shutdown_distributed_runtime():
     ttrt.runtime.set_current_host_runtime(ttrt.runtime.HostRuntime.Local)
 
 
-@pytest.mark.xfail(
-    reason="TODO(#5320): System descriptor returned is local per host process, we need unification logic to merge them"
-)
+def compare_system_descriptors(
+    desc1: Dict[str, Any], desc2: Dict[str, Any]
+) -> Tuple[bool, List[str]]:
+    def _is_empty_container(value: Any) -> bool:
+        return (isinstance(value, list) and len(value) == 0) or (
+            isinstance(value, dict) and len(value) == 0
+        )
+
+    def _deep_compare(obj1: Any, obj2: Any, path: str, differences: List[str]) -> None:
+        if type(obj1) != type(obj2):
+            differences.append(
+                f"{path}: Type mismatch - {type(obj1).__name__} vs {type(obj2).__name__}"
+            )
+            return
+
+        if isinstance(obj1, dict):
+            keys1 = set(obj1.keys())
+            keys2 = set(obj2.keys())
+
+            # Check for missing keys
+            # Sometimes flatbuffers will omit fields/keys when the value is empty
+            # Therefore if a key is missing, we need to check that the value is empty for the object that has the key
+            if keys1 != keys2:
+                missing_in_2 = keys1 - keys2
+                missing_in_1 = keys2 - keys1
+
+                # For keys in first but not second, check they have empty values
+                for key in missing_in_2:
+                    value = obj1[key]
+                    if not _is_empty_container(value):
+                        differences.append(
+                            f"{path}.{key}: Key exists in first but not second, and has non-empty value: {value}"
+                        )
+
+                # For keys in second but not first, check they have empty values
+                for key in missing_in_1:
+                    value = obj2[key]
+                    if not _is_empty_container(value):
+                        differences.append(
+                            f"{path}.{key}: Key exists in second but not first, and has non-empty value: {value}"
+                        )
+
+            # Compare common keys
+            for key in keys1 & keys2:
+                # Skip the erisc_l1_unreserved_base field
+                # This field will be different on multi host because of extra fabric firmware overhead
+                if key == "erisc_l1_unreserved_base":
+                    continue
+
+                new_path = f"{path}.{key}" if path else key
+                _deep_compare(obj1[key], obj2[key], new_path, differences)
+
+        elif isinstance(obj1, list):
+            if len(obj1) != len(obj2):
+                differences.append(
+                    f"{path}: List length mismatch - {len(obj1)} vs {len(obj2)}"
+                )
+                return
+
+            for i, (item1, item2) in enumerate(zip(obj1, obj2)):
+                new_path = f"{path}[{i}]"
+                _deep_compare(item1, item2, new_path, differences)
+
+        else:
+            # Compare primitive values
+            if obj1 != obj2:
+                differences.append(f"{path}: Value mismatch - {obj1} vs {obj2}")
+
+    differences = []
+    _deep_compare(desc1, desc2, "", differences)
+
+    are_equal = len(differences) == 0
+
+    return are_equal, differences
+
+
 def test_system_desc(request):
     system_desc_local = subprocess_get_system_descriptor(request)
 
     launch_distributed_runtime()
 
-    system_desc = ttrt.runtime.get_current_system_desc()
-    assert system_desc is not None
+    system_desc_distributed = ttrt.runtime.get_current_system_desc()
+    assert system_desc_distributed is not None
 
     shutdown_distributed_runtime()
 
-    assert system_desc.as_json() == system_desc_local.as_json()
+    are_equal, differences = compare_system_descriptors(
+        json.loads(system_desc_local.as_json()),
+        json.loads(system_desc_distributed.as_json()),
+    )
+
+    assert are_equal, f"System descriptor mismatch with differences: {differences}"
 
 
 def test_get_num_devices():

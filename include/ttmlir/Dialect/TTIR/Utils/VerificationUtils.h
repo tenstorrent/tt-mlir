@@ -128,7 +128,7 @@ mlir::LogicalResult verifyTensorRanks(Op *op) {
     }
   }
 
-  if (op->getOutput().getType().getRank() != 4) {
+  if (op->getResult().getType().getRank() != 4) {
     return op->emitOpError("output must be a 4D tensor");
   }
 
@@ -437,7 +437,7 @@ OutputTensorDims getPool2dOutputDims(PoolOp *op) {
   mlir::tt::ttir::FlattenedCompatInfoAttr flatInfo =
       op->getFlattenedCompatInfo();
   OutputTensorDims outputDims;
-  auto outputType = op->getOutput().getType();
+  auto outputType = op->getResult().getType();
   if (flatInfo) {
     outputDims.flattenedDim = outputType.getDimSize(FLATTENED_DIM);
     outputDims.outputChannels =

@@ -16,6 +16,7 @@
 #include "mlir/Dialect/Affine/ViewLikeInterfaceUtils.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/Operation.h"
@@ -362,9 +363,11 @@ using ComputeOpMap = OpMap<
   std::pair<d2m::TileLogicalNotOp,  std::pair<ttkernel::LogicalNotUnaryTileInitOp, ttkernel::LogicalNotUnaryTileOp>>,
   std::pair<d2m::TileNegativeOp,    std::pair<ttkernel::NegativeTileInitOp,        ttkernel::NegativeTileOp>>,
   std::pair<d2m::TileRecipOp,       std::pair<ttkernel::RecipTileInitOp,           ttkernel::RecipTileOp>>,
+  std::pair<d2m::TileReluOp,        std::pair<ttkernel::ReluTileInitOp,            ttkernel::ReluTileOp>>,
   std::pair<d2m::TileRsqrtOp,       std::pair<ttkernel::RsqrtTileInitOp,           ttkernel::RsqrtTileOp>>,
   std::pair<d2m::TileSqrtOp,        std::pair<ttkernel::SqrtTileInitOp,            ttkernel::SqrtTileOp>>,
   std::pair<d2m::TileSigmoidOp,     std::pair<ttkernel::SigmoidTileInitOp,         ttkernel::SigmoidTileOp>>,
+  std::pair<d2m::TileSiluOp,        std::pair<ttkernel::SiluTileInitOp,            ttkernel::SiluTileOp>>,
   std::pair<d2m::TileSinOp,         std::pair<ttkernel::SinTileInitOp,             ttkernel::SinTileOp>>,
   std::pair<d2m::TileTanOp,         std::pair<ttkernel::TanTileInitOp,             ttkernel::TanTileOp>>,
   std::pair<d2m::TileEqzOp,         std::pair<ttkernel::EqzTileInitOp,             ttkernel::EqzTileOp>>,
@@ -625,7 +628,8 @@ public:
       }
     } else if constexpr (std::is_same_v<SFPUOp, ttkernel::AbsTileOp> ||
                          std::is_same_v<SFPUOp,
-                                        ttkernel::LogicalNotUnaryTileOp>) {
+                                        ttkernel::LogicalNotUnaryTileOp> ||
+                         std::is_same_v<SFPUOp, ttkernel::ReluTileOp>) {
       const auto elemType =
           mlir::cast<ttcore::TileType>(op.getInput().getType())
               .getElementType();
@@ -638,9 +642,12 @@ public:
         if (std::is_same_v<SFPUOp, ttkernel::AbsTileOp>) {
           rewriter.create<ttkernel::AbsTileI32Op>(op->getLoc(),
                                                   adaptor.getInput());
-        } else {
+        } else if (std::is_same_v<SFPUOp, ttkernel::LogicalNotUnaryTileOp>) {
           rewriter.create<ttkernel::LogicalNotUnaryTileI32Op>(
               op->getLoc(), adaptor.getInput());
+        } else if (std::is_same_v<SFPUOp, ttkernel::ReluTileOp>) {
+          rewriter.create<ttkernel::ReluTileI32Op>(op->getLoc(),
+                                                   adaptor.getInput());
         }
       } else {
         rewriter.create<SFPUOp>(op->getLoc(), adaptor.getInput());
@@ -832,6 +839,20 @@ public:
   LogicalResult
   matchAndRewrite(D2MCBOp op, typename D2MCBOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
+    // For ops in merged DMA regions, each original thread is scoped in a
+    // separate scf.execute_region to ensure CB release ops for
+    // reader-writer kernels do not conflict. Now that the release ops are being
+    // inserted, remove the no_inline attribute so the scf.execute_region ops
+    // can be canonicalized.
+    if (auto executeRegionOp =
+            dyn_cast<scf::ExecuteRegionOp>(op->getParentOp())) {
+      if (executeRegionOp->hasAttr("no_inline")) {
+        rewriter.modifyOpInPlace(executeRegionOp, [&]() {
+          executeRegionOp->removeAttr("no_inline");
+        });
+      }
+    }
+
     auto device = ttcore::lookupDevice(op);
 
     auto cbNumPages = device.getMemrefCBNumPages(
@@ -1449,9 +1470,11 @@ void populateD2MToTTKernelPatterns(
                ttkernel::D2MSFPUOpsRewriter<d2m::TileLogicalNotOp>,
                ttkernel::D2MSFPUOpsRewriter<d2m::TileNegativeOp>,
                ttkernel::D2MSFPUOpsRewriter<d2m::TileRecipOp>,
+               ttkernel::D2MSFPUOpsRewriter<d2m::TileReluOp>,
                ttkernel::D2MSFPUOpsRewriter<d2m::TileRsqrtOp>,
                ttkernel::D2MSFPUOpsRewriter<d2m::TileSqrtOp>,
                ttkernel::D2MSFPUOpsRewriter<d2m::TileSigmoidOp>,
+               ttkernel::D2MSFPUOpsRewriter<d2m::TileSiluOp>,
                ttkernel::D2MSFPUOpsRewriter<d2m::TileSinOp>,
                ttkernel::D2MSFPUOpsRewriter<d2m::TileTanOp>,
                ttkernel::D2MSFPUOpsRewriter<d2m::TileEqzOp>,

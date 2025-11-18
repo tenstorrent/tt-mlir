@@ -75,7 +75,7 @@ template <>
 struct OpModel<HardsigmoidOp> : UnaryEltwiseOpModel<HardsigmoidOp> {};
 
 template <>
-struct OpModel<SqrtOp> : UnaryEltwiseOpModel<SqrtOp> {};
+struct OpModel<SqrtOp> : UnaryEltwiseWithFastApproxModeOpModel<SqrtOp> {};
 
 template <>
 struct OpModel<SinOp> : UnaryEltwiseOpModel<SinOp> {};
@@ -138,7 +138,7 @@ template <>
 struct OpModel<MishOp> : UnaryEltwiseOpModel<MishOp> {};
 
 template <>
-struct OpModel<RsqrtOp> : UnaryEltwiseOpModel<RsqrtOp> {};
+struct OpModel<RsqrtOp> : UnaryEltwiseWithFastApproxModeOpModel<RsqrtOp> {};
 
 template <>
 struct OpModel<GeluOp> : UnaryEltwiseWithFastApproxModeOpModel<GeluOp> {};
@@ -465,14 +465,16 @@ struct OpModel<SoftmaxOp> {
 template <>
 struct OpModel<ScatterOp> {
   static llvm::Expected<OpConstraints> getOpConstraints(
-      ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShapeA,
-      TTNNLayoutAttr inputLayoutA, llvm::ArrayRef<int64_t> inputShapeB,
-      TTNNLayoutAttr inputLayoutB, TTNNLayoutAttr outputLayout);
+      ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
+      TTNNLayoutAttr inputLayout, llvm::ArrayRef<int64_t> indexShape,
+      TTNNLayoutAttr indexLayout, llvm::ArrayRef<int64_t> sourceShape,
+      TTNNLayoutAttr sourceLayout, int32_t dim, TTNNLayoutAttr outputLayout);
 
   static llvm::Expected<size_t>
-  getOpRuntime(llvm::ArrayRef<int64_t> inputShapeA, TTNNLayoutAttr inputLayoutA,
-               llvm::ArrayRef<int64_t> inputShapeB, TTNNLayoutAttr inputLayoutB,
-               TTNNLayoutAttr outputLayout);
+  getOpRuntime(llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+               llvm::ArrayRef<int64_t> indexShape, TTNNLayoutAttr indexLayout,
+               llvm::ArrayRef<int64_t> sourceShape, TTNNLayoutAttr sourceLayout,
+               int32_t dim, TTNNLayoutAttr outputLayout);
 };
 
 //===----------------------------------------------------------------------===//
@@ -688,6 +690,40 @@ struct OpModel<ScaledDotProductAttentionDecodeOp> {
 };
 
 //===----------------------------------------------------------------------===//
+// PagedScaledDotProductAttentionDecodeOp
+//===----------------------------------------------------------------------===//
+template <>
+struct OpModel<PagedScaledDotProductAttentionDecodeOp> {
+  static llvm::Expected<OpConstraints> getOpConstraints(
+      ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> queryShape,
+      TTNNLayoutAttr queryLayout, llvm::ArrayRef<int64_t> keyShape,
+      TTNNLayoutAttr keyLayout, llvm::ArrayRef<int64_t> valueShape,
+      TTNNLayoutAttr valueLayout, llvm::ArrayRef<int64_t> pageTableShape,
+      TTNNLayoutAttr pageTableLayout, bool isCausal,
+      std::optional<llvm::ArrayRef<int64_t>> attentionMaskShape,
+      std::optional<TTNNLayoutAttr> attentionMaskLayout,
+      std::optional<llvm::ArrayRef<int64_t>> curPosTensorShape,
+      std::optional<TTNNLayoutAttr> curPosTensorLayout,
+      std::optional<llvm::ArrayRef<int64_t>> attentionSinkShape,
+      std::optional<TTNNLayoutAttr> attentionSinkLayout,
+      std::optional<llvm::APFloat> scale, TTNNLayoutAttr outputLayout);
+
+  static llvm::Expected<size_t>
+  getOpRuntime(llvm::ArrayRef<int64_t> queryShape, TTNNLayoutAttr queryLayout,
+               llvm::ArrayRef<int64_t> keyShape, TTNNLayoutAttr keyLayout,
+               llvm::ArrayRef<int64_t> valueShape, TTNNLayoutAttr valueLayout,
+               llvm::ArrayRef<int64_t> pageTableShape,
+               TTNNLayoutAttr pageTableLayout, bool isCausal,
+               std::optional<llvm::ArrayRef<int64_t>> attentionMaskShape,
+               std::optional<TTNNLayoutAttr> attentionMaskLayout,
+               std::optional<llvm::ArrayRef<int64_t>> curPosTensorShape,
+               std::optional<TTNNLayoutAttr> curPosTensorLayout,
+               std::optional<llvm::ArrayRef<int64_t>> attentionSinkShape,
+               std::optional<TTNNLayoutAttr> attentionSinkLayout,
+               std::optional<llvm::APFloat> scale, TTNNLayoutAttr outputLayout);
+};
+
+//===----------------------------------------------------------------------===//
 // ScaledDotProductAttentionOp
 //===----------------------------------------------------------------------===//
 template <>
@@ -734,6 +770,27 @@ struct OpModel<RotaryEmbeddingLlamaOp> {
                llvm::ArrayRef<int64_t> transMatShape,
                TTNNLayoutAttr transMatLayout, bool isDecodeMode,
                TTNNLayoutAttr outputLayout);
+};
+
+//===-----------------------------------------------------------------------===//
+// RotaryEmbeddingOp
+// ===----------------------------------------------------------------------===//
+
+template <>
+struct OpModel<RotaryEmbeddingOp> {
+  static llvm::Expected<OpConstraints>
+  getOpConstraints(ttcore::GridAttr deviceGrid,
+                   llvm::ArrayRef<int64_t> inputShape,
+                   TTNNLayoutAttr inputLayout, llvm::ArrayRef<int64_t> cosShape,
+                   TTNNLayoutAttr cosLayout, llvm::ArrayRef<int64_t> sinShape,
+                   TTNNLayoutAttr sinLayout, std::optional<uint32_t> tokenIndex,
+                   TTNNLayoutAttr outputLayout);
+
+  static llvm::Expected<size_t>
+  getOpRuntime(llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+               llvm::ArrayRef<int64_t> cosShape, TTNNLayoutAttr cosLayout,
+               llvm::ArrayRef<int64_t> sinShape, TTNNLayoutAttr sinLayout,
+               std::optional<uint32_t> tokenIndex, TTNNLayoutAttr outputLayout);
 };
 
 //===-----------------------------------------------------------------------===//
@@ -978,6 +1035,55 @@ struct OpModel<UpdateCacheOp> {
 };
 
 //===----------------------------------------------------------------------===//
+// PagedUpdateCacheOp
+//===----------------------------------------------------------------------===//
+
+template <>
+struct OpModel<PagedUpdateCacheOp> {
+  static llvm::Expected<OpConstraints> getOpConstraints(
+      ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> cacheShape,
+      TTNNLayoutAttr cacheLayout, llvm::ArrayRef<int64_t> inputShape,
+      TTNNLayoutAttr inputLayout, llvm::ArrayRef<int64_t> updateIndexShape,
+      TTNNLayoutAttr updateIndexLayout, llvm::ArrayRef<int64_t> pageTableShape,
+      TTNNLayoutAttr pageTableLayout, bool shareCache,
+      TTNNLayoutAttr outputLayout);
+
+  static llvm::Expected<size_t>
+  getOpRuntime(llvm::ArrayRef<int64_t> cacheShape, TTNNLayoutAttr cacheLayout,
+               llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+               llvm::ArrayRef<int64_t> updateIndexShape,
+               TTNNLayoutAttr updateIndexLayout,
+               llvm::ArrayRef<int64_t> pageTableShape,
+               TTNNLayoutAttr pageTableLayout, bool shareCache,
+               TTNNLayoutAttr outputLayout);
+};
+
+//===----------------------------------------------------------------------===//
+// PagedFillCacheOp
+//===----------------------------------------------------------------------===//
+
+template <>
+struct OpModel<PagedFillCacheOp> {
+  static llvm::Expected<OpConstraints> getOpConstraints(
+      ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> cacheShape,
+      TTNNLayoutAttr cacheLayout, llvm::ArrayRef<int64_t> inputShape,
+      TTNNLayoutAttr inputLayout, llvm::ArrayRef<int64_t> pageTableShape,
+      TTNNLayoutAttr pageTableLayout,
+      std::optional<llvm::ArrayRef<int64_t>> batchIdxShape,
+      std::optional<TTNNLayoutAttr> batchIdxLayout,
+      TTNNLayoutAttr outputLayout);
+
+  static llvm::Expected<size_t>
+  getOpRuntime(llvm::ArrayRef<int64_t> cacheShape, TTNNLayoutAttr cacheLayout,
+               llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+               llvm::ArrayRef<int64_t> pageTableShape,
+               TTNNLayoutAttr pageTableLayout,
+               std::optional<llvm::ArrayRef<int64_t>> batchIdxShape,
+               std::optional<TTNNLayoutAttr> batchIdxLayout,
+               TTNNLayoutAttr outputLayout);
+};
+
+//===----------------------------------------------------------------------===//
 // Conv2dOp
 //===----------------------------------------------------------------------===//
 
@@ -1105,6 +1211,33 @@ struct OpModel<MaxPool2dOp> {
                llvm::ArrayRef<int32_t> stride, llvm::ArrayRef<int32_t> padding,
                llvm::ArrayRef<int32_t> dilation, bool ceilMode,
                bool inPlaceHalo, TTNNLayoutAttr outputLayout);
+};
+
+//===----------------------------------------------------------------------===//
+// MaxPool2dWithIndicesOp
+//===----------------------------------------------------------------------===//
+
+template <>
+struct OpModel<MaxPool2dWithIndicesOp> {
+  static llvm::Expected<OpConstraints> getOpConstraints(
+      ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
+      TTNNLayoutAttr inputLayout, int32_t batchSize, int32_t inputHeight,
+      int32_t inputWidth, int32_t inputChannels,
+      llvm::ArrayRef<int32_t> kernelSize, llvm::ArrayRef<int32_t> stride,
+      llvm::ArrayRef<int32_t> padding, llvm::ArrayRef<int32_t> dilation,
+      bool ceilMode, bool inPlaceHalo, bool deallocateInput,
+      bool reallocateHaloOutput, bool returnIndices,
+      TTNNLayoutAttr outputLayout);
+
+  static llvm::Expected<size_t>
+  getOpRuntime(llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+               int32_t batchSize, int32_t inputHeight, int32_t inputWidth,
+               int32_t inputChannels, llvm::ArrayRef<int32_t> kernelSize,
+               llvm::ArrayRef<int32_t> stride, llvm::ArrayRef<int32_t> padding,
+               llvm::ArrayRef<int32_t> dilation, bool ceilMode,
+               bool inPlaceHalo, bool deallocateInput,
+               bool reallocateHaloOutput, bool returnIndices,
+               TTNNLayoutAttr outputLayout);
 };
 
 //===----------------------------------------------------------------------===//
@@ -1430,6 +1563,25 @@ struct OpModel<mlir::tt::ttnn::RandOp> {
       mlir::tt::ttnn::MemoryConfigAttr memoryConfig,
       mlir::tt::ttnn::Layout layout, llvm::APFloat low, llvm::APFloat high,
       uint32_t seed, mlir::tt::ttnn::TTNNLayoutAttr outputLayout);
+};
+
+//===----------------------------------------------------------------------===//
+// AssignOp
+//===----------------------------------------------------------------------===//
+
+template <>
+struct OpModel<mlir::tt::ttnn::AssignOp> {
+  static llvm::Expected<OpConstraints>
+  getOpConstraints(mlir::tt::ttcore::GridAttr deviceGrid,
+                   llvm::ArrayRef<int64_t> inputShape,
+                   TTNNLayoutAttr inputLayout,
+                   mlir::tt::ttnn::MemoryConfigAttr outputMemConfig,
+                   std::optional<mlir::tt::ttcore::DataType> outputDtype);
+
+  static llvm::Expected<size_t>
+  getOpRuntime(llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+               mlir::tt::ttnn::MemoryConfigAttr outputMemConfig,
+               std::optional<mlir::tt::ttcore::DataType> outputDtype);
 };
 
 } // namespace mlir::tt::ttnn::op_model

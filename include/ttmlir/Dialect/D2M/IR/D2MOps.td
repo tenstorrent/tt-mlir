@@ -108,6 +108,7 @@ def D2M_ToLayoutOp : D2M_Op<"to_layout", [
       bool isCompound() { return compoundComponents().isCompound(); }
       ttcore::MetalLayoutAttr getOrCreateInputLayout();
       ttcore::MetalLayoutAttr getOrCreateOutputLayout();
+      Value getInitOperand() { return getOperand(1); }
 
       bool isHostToDevice();
       bool isDeviceToHost();
@@ -260,6 +261,7 @@ def D2M_GenericOp : D2M_Op<"generic",
       bool hasReduction();
       bool hasMultiUseInputOperand();
       bool isAllParallel();
+      bool hasComputeOpsInRegion(unsigned regionIndex = 0);
     }];
 }
 

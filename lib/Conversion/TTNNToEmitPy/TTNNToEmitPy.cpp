@@ -11,6 +11,7 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/IR/Value.h"
 
 #include <optional>
 
@@ -504,6 +505,9 @@ public:
         emitter.emit(std::nullopt |
                          emitter.getMemoryConfig(matmulOp.getResult()),
                      "memory_config"),
+        emitter.emit(std::nullopt, "dtype"),
+        emitter.emit(std::nullopt, "program_config"),
+        emitter.emit(matmulOp.getActivation(), "activation"),
     };
 
     emitter.replaceOp(*this, args);
@@ -539,6 +543,9 @@ public:
         emitter.emit(srcOp.getTransposeB(), "transpose_b"),
         emitter.emit(std::nullopt | emitter.getMemoryConfig(srcOp.getResult()),
                      "memory_config"),
+        emitter.emit(std::nullopt, "dtype"),
+        emitter.emit(std::nullopt, "program_config"),
+        emitter.emit(srcOp.getActivation(), "activation"),
     };
 
     emitter.replaceOp(*this, args);
@@ -2186,10 +2193,6 @@ public:
 
 // LoadCached Op conversion pattern
 //
-// This op is worked around - it only calls the consteval fn, but there is no
-// caching.
-// TODO (4936): https://github.com/tenstorrent/tt-mlir/issues/4936
-//
 namespace {
 class LoadCachedOpConversionPattern
     : public OpConversionPattern<mlir::tt::ttcore::LoadCachedOp> {
@@ -2202,9 +2205,42 @@ public:
   matchAndRewrite(mlir::tt::ttcore::LoadCachedOp loadCachedOp,
                   mlir::tt::ttcore::LoadCachedOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    llvm::StringRef calleeName = loadCachedOp.getCallee();
+
+    auto funcOp = loadCachedOp->getParentOfType<func::FuncOp>();
+    auto currentInsertionPoint = rewriter.saveInsertionPoint();
+    rewriter.setInsertionPoint(funcOp);
+
+    // Create a global variable for caching.
+    //
+    std::string globalVarName = "CACHED_" + calleeName.str();
+    rewriter.create<emitpy::GlobalOp>(
+        loadCachedOp.getLoc(),
+        StringAttr::get(rewriter.getContext(), globalVarName),
+        emitpy::OpaqueAttr::get(rewriter.getContext(), "None"));
+    rewriter.restoreInsertionPoint(currentInsertionPoint);
+
+    // Create a function variable.
+    //
+    const bool isZeroArgWrapper = adaptor.getInputs().size() == 0;
+    emitpy::OpaqueType calleeType =
+        isZeroArgWrapper
+            ? emitpy::OpaqueType::get(rewriter.getContext(),
+                                      "() -> [ttnn.Tensor]")
+            : emitpy::OpaqueType::get(rewriter.getContext(),
+                                      "([ttnn.Tensor]) -> [ttnn.Tensor]");
+    mlir::Value callee =
+        rewriter
+            .create<emitpy::ConstantOp>(
+                loadCachedOp.getLoc(), calleeType,
+                emitpy::OpaqueAttr::get(rewriter.getContext(), calleeName))
+            ->getResult(0);
+
+    llvm::SmallVector<Value> operands;
+    operands.push_back(callee);
+
     // Create list of tensors.
     //
-    llvm::SmallVector<Value> operands;
     if (loadCachedOp.getInputs().size() > 0) {
       mlir::Value tensorsInList =
           rewriter
@@ -2218,12 +2254,42 @@ public:
       operands.push_back(tensorsInList);
     }
 
-    // Call into the callee, no caching mechanism.
-    //
-    emitpy::OpaqueType resultType =
+    auto tensorListType =
         emitpy::OpaqueType::get(rewriter.getContext(), "[ttnn.Tensor]");
-    auto cacheOp = rewriter.create<func::CallOp>(
-        loadCachedOp.getLoc(), resultType, loadCachedOp.getCallee(), operands);
+    FlatSymbolRefAttr globalSymbol =
+        SymbolRefAttr::get(rewriter.getContext(), globalVarName);
+
+    // Create a global statement at the beginning of the function body.
+    //
+    currentInsertionPoint = rewriter.saveInsertionPoint();
+    rewriter.setInsertionPointToStart(&funcOp.getBody().front());
+    rewriter.create<emitpy::GlobalStatementOp>(loadCachedOp.getLoc(),
+                                               tensorListType, globalSymbol);
+    rewriter.restoreInsertionPoint(currentInsertionPoint);
+
+    // Retrieve a global variable.
+    //
+    mlir::Value globalVar =
+        rewriter
+            .create<emitpy::GetGlobalOp>(loadCachedOp.getLoc(), tensorListType,
+                                         globalSymbol)
+            ->getResult(0);
+    operands.push_back(globalVar);
+
+    // Call into the callee.
+    //
+    static constexpr StringRef constEvalFuncWrapperZeroArg =
+        "utils.constEvalFuncWrapperZeroArg";
+    static constexpr StringRef constEvalFuncWrapper =
+        "utils.constEvalFuncWrapper";
+    llvm::StringRef wrapperFuncName =
+        isZeroArgWrapper ? constEvalFuncWrapperZeroArg : constEvalFuncWrapper;
+
+    auto cacheOp = rewriter.create<emitpy::CallOpaqueOp>(
+        loadCachedOp.getLoc(), tensorListType, wrapperFuncName, operands);
+    mlir::Value cacheResult = cacheOp->getResult(0);
+    rewriter.create<emitpy::AssignGlobalOp>(loadCachedOp.getLoc(), globalSymbol,
+                                            cacheResult);
 
     // Unpack list of tensors.
     //
@@ -2241,7 +2307,7 @@ public:
       auto subscriptOp = rewriter.create<emitpy::SubscriptOp>(
           loadCachedOp.getLoc(),
           emitpy::OpaqueType::get(rewriter.getContext(), "ttnn.Tensor"),
-          cacheOp->getResult(0), indexVal);
+          cacheResult, indexVal);
 
       results.push_back(subscriptOp.getResult());
     }
@@ -2273,6 +2339,30 @@ public:
         moduleOp->removeAttr(attr.getName());
       }
     });
+
+    return success();
+  }
+};
+} // namespace
+
+// Func Op conversion pattern
+//
+// This conversion pattern removes attributes from the FuncOp
+//
+namespace {
+class FuncOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<func::FuncOp> {
+
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      func::FuncOp>::TTNNToEmitPyBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(func::FuncOp funcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    rewriter.modifyOpInPlace(funcOp,
+                             [&funcOp]() { funcOp.removeArgAttrsAttr(); });
 
     return success();
   }
@@ -2633,7 +2723,7 @@ public:
                      "memory_config"),
         // Topology was not listed as an argument in the ttnn op. It will be
         // added in the future.
-        emitter.emit(mlir::tt::ttnn::Topology::Linear, "topology"),
+        emitter.emit(mlir::tt::ttcore::Topology::Linear, "topology"),
         emitter.emit(srcOp.getClusterAxis(), "cluster_axis"),
     };
 
@@ -2675,7 +2765,7 @@ public:
         emitter.emit(srcOp.getReduceType(), "math_op"),
         emitter.emit(emitter.getMemoryConfig(srcOp.getResult()),
                      "memory_config"),
-        emitter.emit(mlir::tt::ttnn::Topology::Linear, "topology"),
+        emitter.emit(mlir::tt::ttcore::Topology::Linear, "topology"),
     };
 
     emitter.replaceOp(*this, args);
@@ -2705,10 +2795,10 @@ public:
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput()),
-        emitter.emitMeshCoordinate(srcOp.getSendCoord(), "send_coord"),
-        emitter.emitMeshCoordinate(srcOp.getReceiveCoord(), "receive_coord"),
-        emitter.emit(mlir::tt::ttnn::Topology::Linear, "topology"),
-        emitter.emit(srcOp.getAccumTensor(), "optional_output_tensor"),
+        emitter.emitMeshCoordinate(srcOp.getSenderCoord(), "sender_coord"),
+        emitter.emitMeshCoordinate(srcOp.getReceiverCoord(), "receiver_coord"),
+        emitter.emit(mlir::tt::ttcore::Topology::Linear, "topology"),
+        emitter.emit(srcOp.getOptionalOutputTensor(), "output_tensor"),
     };
 
     emitter.replaceOp(*this, args);
@@ -2871,6 +2961,48 @@ public:
         emitter.emit(srcOp.getSinCache()),
         emitter.emit(srcOp.getTransMat()),
         emitter.emit(srcOp.getIsDecodeMode(), "is_decode_mode"),
+        emitter.emit(srcOp.getMemoryConfig() |
+                         emitter.getMemoryConfig(srcOp.getResult()),
+                     "memory_config"),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
+// RotaryEmbeddingOp conversion pattern
+//
+namespace {
+class RotaryEmbeddingOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<
+          mlir::tt::ttnn::RotaryEmbeddingOp> {
+private:
+  std::string getPrefixSearchPattern() const override {
+    return "ttnn.rotary_embedding";
+  }
+  std::string getPrefixSwapPattern() const override {
+    return "ttnn.experimental.rotary_embedding";
+  }
+
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      mlir::tt::ttnn::RotaryEmbeddingOp>::TTNNToEmitPyBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::RotaryEmbeddingOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::RotaryEmbeddingOp>
+        emitter(srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput()),
+        emitter.emit(srcOp.getCosCache()),
+        emitter.emit(srcOp.getSinCache()),
+        emitter.emit(srcOp.getTokenIndex()),
         emitter.emit(srcOp.getMemoryConfig() |
                          emitter.getMemoryConfig(srcOp.getResult()),
                      "memory_config"),
@@ -3050,6 +3182,35 @@ public:
 };
 } // namespace
 
+// Assign op conversion pattern
+//
+namespace {
+class AssignOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<tt::ttnn::AssignOp> {
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      tt::ttnn::AssignOp>::TTNNToEmitPyBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(tt::ttnn::AssignOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitpy::EmitPyTTNNEmitter<tt::ttnn::AssignOp> emitter(
+        srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput()),
+        emitter.emit(srcOp.getDtype(), "dtype"),
+        emitter.emit(srcOp.getMemoryConfig(), "memory_config"),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
 namespace mlir::tt {
 
 void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
@@ -3115,12 +3276,12 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
                EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::ReciprocalOp>,
                EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::ReluOp>,
                EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::Relu6Op>,
-               EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::RsqrtOp>,
+               EltwiseUnaryWithFastAndApproximateModeOpConversionPattern<mlir::tt::ttnn::RsqrtOp>,
                EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::SignOp>,
                EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::SiluOp>,
                EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::MishOp>,
                EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::SinOp>,
-               EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::SqrtOp>,
+               EltwiseUnaryWithFastAndApproximateModeOpConversionPattern<mlir::tt::ttnn::SqrtOp>,
                EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::TanOp>,
                EltwiseUnaryWithFastAndApproximateModeOpConversionPattern<mlir::tt::ttnn::GeluOp>,
                EltwiseUnaryWithFastAndApproximateModeOpConversionPattern<mlir::tt::ttnn::ExpOp>,
@@ -3177,7 +3338,8 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
                SliceDynamicOpConversionPattern,
                SliceStaticOpConversionPattern,
                SortOpConversionPattern,
-               TransposeOpConversionPattern
+               TransposeOpConversionPattern,
+               AssignOpConversionPattern
               >(typeConverter, ctx);
   // clang-format on
 
@@ -3276,12 +3438,19 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
   patterns.add<ModuleOpConversionPattern>(typeConverter, ctx);
   // clang-format on
 
+  // FuncOp
+  //
+  // clang-format off
+  patterns.add<FuncOpConversionPattern>(typeConverter, ctx);
+  // clang-format on
+
   patterns.add<NLPConcatHeadsOpConversionPattern>(typeConverter, ctx);
   patterns.add<NLPConcatHeadsDecodeOpConversionPattern>(typeConverter, ctx);
   patterns.add<NLPCreateQKVHeadsDecodeOpConversionPattern>(typeConverter, ctx);
   patterns.add<SplitQueryKeyValueAndSplitHeadsOpConversionPattern>(
       typeConverter, ctx);
   patterns.add<RotaryEmbeddingLlamaOpConversionPattern>(typeConverter, ctx);
+  patterns.add<RotaryEmbeddingOpConversionPattern>(typeConverter, ctx);
   patterns.add<ScaledDotProductAttentionOpConversionPattern>(typeConverter,
                                                              ctx);
   patterns.add<ScaledDotProductAttentionDecodeOpConversionPattern>(

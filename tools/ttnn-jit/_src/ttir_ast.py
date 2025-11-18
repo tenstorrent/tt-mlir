@@ -14,7 +14,11 @@ from ttmlir.dialects import (
     ttcore,
 )
 
-from .utils import _discover_dialect_ops, _get_num_pos_args
+from .utils import (
+    _discover_dialect_ops,
+    _get_num_pos_args,
+    _get_collapsed_linear_affine_map,
+)
 
 
 class TTIRCompiler(ast.NodeVisitor):
@@ -93,14 +97,14 @@ class TTIRCompiler(ast.NodeVisitor):
         return ttnn.get_device(mesh_shape=mesh_shape_attr, mesh_offset=mesh_offset_attr)
 
     def _create_tensor_layout(self, tensor_arg):
-        # Only rank 2 tensors supported
-        assert len(tensor_arg.shape) == 2
+
         data_type = self._ttcore_dtype_from_ttnn_dtype(tensor_arg.dtype)
         tile_type = ttcore.ir.TileType.get(self.ctx, 32, 32, data_type)
 
-        # Create identity affine map, should be based of tensor shape
-        # default to rank 2, don't support shape collapse.
-        identity_map = AffineMap.get_identity(2, self.ctx)
+        # Create affine map, should be based of tensor shape
+        affine_map = _get_collapsed_linear_affine_map(
+            self.ctx, tensor_arg.shape, self.max_grid
+        )
 
         if tensor_arg.memory_config().is_sharded():
             shard_spec = tensor_arg.memory_config().shard_spec
@@ -124,7 +128,7 @@ class TTIRCompiler(ast.NodeVisitor):
 
             ttnn_layout = ttnn.ir.TTNNLayoutAttr.get_with_linear(
                 self.ctx,
-                identity_map,
+                affine_map,
                 grid,
                 memref,
                 ttnn.TensorMemoryLayout.BlockSharded,
@@ -141,7 +145,7 @@ class TTIRCompiler(ast.NodeVisitor):
             memref = MemRefType.get(shape, tile_type, None, buffer_type)
             return ttnn.ir.TTNNLayoutAttr.get_with_linear(
                 self.ctx,
-                identity_map,
+                affine_map,
                 grid,
                 memref,
                 ttnn.TensorMemoryLayout.Interleaved,
@@ -222,7 +226,13 @@ class TTIRCompiler(ast.NodeVisitor):
 
     def visit_Attribute(self, node, args=[]):
         assert len(args) >= 1, "Must pass at least one argument (tensor)"
-        assert node.attr in self._fn_map, f"Function {node.attr} not supported"
+
+        # Map function names to their MLIR dialect equivalents
+        attr_name = node.attr
+        if attr_name == "pow":
+            attr_name = "pow_tensor"
+
+        assert attr_name in self._fn_map, f"Function {node.attr} not supported"
         assert not isinstance(
             args[0], ast.Constant
         ), "First argument cannot be a constant"
@@ -235,7 +245,7 @@ class TTIRCompiler(ast.NodeVisitor):
             arg = self.visit(func_arg, tensor=tensor_arg)
             func_args.append(arg)
 
-        func = self._fn_map[node.attr]
+        func = self._fn_map[attr_name]
         op = func(*func_args)
         op.owner.attributes["ttnn.hoist_generic_via_d2m"] = UnitAttr.get(self.ctx)
 

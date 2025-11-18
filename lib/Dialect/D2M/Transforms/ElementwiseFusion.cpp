@@ -364,6 +364,7 @@ struct FuseD2MElementwiseOpsPattern : public OpRewritePattern<GenericOp> {
     }
 
     assert(consumer.getNumRegions() == 1u);
+
     Type largestDstType =
         utils::getRegionLargestDstElemType(consumer.getRegion(0));
     const unsigned dstCapacity =

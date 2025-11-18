@@ -195,13 +195,8 @@ protected:
         forwardAndInputFuncOps;
     for (mlir::func::FuncOp forwardFuncOp : forwardFuncOps) {
       rewriter.setInsertionPointToEnd(block);
-      // Check if the forward function has any arguments. If it doesn't, we
-      // do not create an input function for it.
-      mlir::func::FuncOp inputFuncOp =
-          forwardFuncOp.getNumArguments() == 0
-              ? nullptr
-              : createInputFunctionImpl(rewriter, forwardFuncOp.getLoc(),
-                                        forwardFuncOp, functionPrefix);
+      mlir::func::FuncOp inputFuncOp = createInputFunctionImpl(
+          rewriter, forwardFuncOp.getLoc(), forwardFuncOp, functionPrefix);
       forwardAndInputFuncOps.emplace_back(forwardFuncOp, inputFuncOp);
     }
 
@@ -221,8 +216,11 @@ protected:
 
     // Create the function type.
     //
-    llvm::ArrayRef<mlir::Type> returnTypes =
-        forwardFuncOp.getFunctionType().getInputs();
+    llvm::SmallVector<mlir::Type> returnTypes =
+        llvm::to_vector(forwardFuncOp.getFunctionType().getInputs());
+    if (returnTypes.empty()) {
+      returnTypes = {mlir::TupleType::get(ctx, {})};
+    }
     FunctionType functionType = mlir::FunctionType::get(ctx, {}, returnTypes);
 
     // Create the function.

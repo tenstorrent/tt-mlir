@@ -44,7 +44,7 @@ public:
         sliceOperandType.getElementType(), sliceOperandType.getEncoding());
 
     PermuteOp newPerm = utils::createDPSOp<PermuteOp>(
-        rewriter, op->getLoc(), newPermuteType, op.getInput(),
+        rewriter, permuteUser->getLoc(), newPermuteType, op.getInput(),
         permuteUser.getPermutation());
 
     SmallVector<Attribute> newSliceStarts = ttmlir::utils::applyPermutation(
@@ -65,10 +65,18 @@ public:
         rewriter.getArrayAttr(newSliceEnds),
         rewriter.getArrayAttr(newSliceSteps));
 
+    // All users must be identical TMs.
+    // We must not reference `permuteUser` during/after replacements, as it will
+    // be erased on its turn.
     SmallVector<Operation *> users(op->getUsers());
+    assert(llvm::all_of(users,
+                        [&](Operation *user) {
+                          return checkIdenticalTms(permuteUser, user);
+                        }) &&
+           "isCommuteUpwardsViable/Favorable should have ensured all users "
+           "are identical TMs");
+
     for (auto *user : users) {
-      assert(checkIdenticalTms(permuteUser, user) &&
-             "shouldCommute should have ensured this is true");
       rewriter.replaceOp(user, newSlice);
     }
   }
@@ -113,7 +121,7 @@ public:
         op.getType().getShape(), newSlice.getType().getElementType(),
         newSlice.getType().getEncoding());
     PermuteOp newPerm = utils::createDPSOp<PermuteOp>(
-        rewriter, op->getLoc(), newPermuteType, newSlice,
+        rewriter, permuteOperand->getLoc(), newPermuteType, newSlice,
         permuteOperand.getPermutation());
 
     rewriter.replaceOp(op, newPerm);
@@ -139,22 +147,276 @@ private:
 
   bool isCommuteDownwardsFavorable(SliceStaticOp op,
                                    PermuteOp permuteOperand) const override {
-    // Commuting downwards is favorable if the all other operands a satisfy one
-    // of the following:
-    // - Are an identical TM
-    // - Are on a consteval-able path
+    // Commuting a permute downwards through a slice is always favorable as
+    // slice only has one operand, and here we know it is a permute.
+    return true;
+  }
+};
 
-    for (uint32_t i = 0; i < op->getNumOperands(); i++) {
-      if (op.isDpsInit(&op->getOpOperand(i))) {
-        continue;
+template <CommuteDirection commuteDirection>
+class TTIRCommuteReshapeThroughSlice
+    : public TTIRCommuteOpRewritePattern<ReshapeOp, SliceStaticOp,
+                                         commuteDirection> {
+public:
+  using TTIRCommuteOpRewritePattern<
+      ReshapeOp, SliceStaticOp, commuteDirection>::TTIRCommuteOpRewritePattern;
+
+  // Consider the following IR pseudocode:
+  // %0 = slice(%arg0 : tensor<1x160x160x128xbf16>) <{
+  //      begins = [0 : i32, 0 : i32, 0 : i32, 0 : i32],
+  //      ends = [1 : i32, 160 : i32, 160 : i32, 64 : i32],
+  //      step = [1 : i32, 1 : i32, 1 : i32, 1 : i32]}>
+  // %1 = reshape(%0) <{shape = [1 : i32, 1 : i32, 25600 : i32, 64 : i32]}>
+  //
+  // This method will transform this into:
+  // %0 = reshape(%arg0 : tensor<1x160x160x128xbf16>)
+  //      <{shape = [1 : i32, 1 : i32, 25600 : i32, 128 : i32]}>
+  // %1 = slice(%0) <{
+  //      begins = [0 : i32, 0 : i32, 0 : i32, 0 : i32],
+  //      ends = [1 : i32, 1 : i32, 25600 : i32, 64 : i32],
+  //      step = [1 : i32, 1 : i32, 1 : i32, 1 : i32]}>
+  void performCommuteUpwardsRewrite(SliceStaticOp op, ReshapeOp reshapeUser,
+                                    PatternRewriter &rewriter) const override {
+    ReshapeOp newReshape = createDeslicedReshapeOp(op, reshapeUser, rewriter);
+
+    SliceStaticOp newSlice =
+        createReshapedSliceStaticOp(op, newReshape.getResult(), rewriter);
+
+    // All users must be identical TMs.
+    // We must not reference `reshapeUser` during/after replacements, as it will
+    // be erased on its turn.
+    SmallVector<Operation *> users(op->getUsers());
+    assert(llvm::all_of(users,
+                        [&](Operation *user) {
+                          return checkIdenticalTms(reshapeUser, user);
+                        }) &&
+           "isCommuteUpwardsViable/Favorable should have ensured all users "
+           "are identical TMs");
+
+    for (auto *user : users) {
+      rewriter.replaceOp(user, newSlice);
+    }
+  }
+
+  // Consider the following IR pseudocode:
+  // %0 = reshape(%arg0 : tensor<1x1x25600x128xbf16>)
+  //      <{shape = [1 : i32, 160 : i32, 160 : i32, 128 : i32]}>
+  // %1 = slice(%0) <{
+  //      begins = [0 : i32, 0 : i32, 0 : i32, 0 : i32],
+  //      ends = [1 : i32, 160 : i32, 160 : i32, 64 : i32],
+  //      step = [1 : i32, 1 : i32, 1 : i32, 1 : i32]}>
+  //
+  // This method will transform this into:
+  // %0 = slice(%arg0 : tensor<1x1x25600x128xbf16>) <{
+  //      begins = [0 : i32, 0 : i32, 0 : i32, 0 : i32],
+  //      ends = [1 : i32, 1 : i32, 25600 : i32, 64 : i32],
+  //      step = [1 : i32, 1 : i32, 1 : i32, 1 : i32]}>
+  // %1 = reshape(%0) <{shape = [1 : i32, 160 : i32, 160 : i32, 64 : i32]}>
+  void
+  performCommuteDownwardsRewrite(SliceStaticOp op, ReshapeOp reshapeOperand,
+                                 PatternRewriter &rewriter) const override {
+    SliceStaticOp newSlice =
+        createReshapedSliceStaticOp(op, reshapeOperand.getInput(), rewriter);
+
+    // The reshape should produce the same output type as the original slice
+    SmallVector<int32_t> reshapeTargetShape(op.getType().getShape());
+    ReshapeOp newReshape = utils::createDPSOp<ReshapeOp>(
+        rewriter, reshapeOperand->getLoc(), op.getType(), newSlice,
+        rewriter.getI32ArrayAttr(reshapeTargetShape));
+    rewriter.replaceOp(op, newReshape);
+  }
+
+private:
+  int64_t getRightmostReshapeDimRTL(ReshapeOp reshapeOp) const {
+    auto inputShape = reshapeOp.getInput().getType().getShape();
+    auto outputShape = reshapeOp.getResult().getType().getShape();
+    auto inputRank = inputShape.size();
+    auto outputRank = outputShape.size();
+    int64_t minRank = std::min(inputRank, outputRank);
+
+    // Find the rightmost changed dimension (counting from right to left).
+    // Return the right-to-left position (0 = rightmost, ndims-1 = leftmost).
+    for (int64_t i = 0; i < minRank; i++) {
+      if (inputShape[inputRank - 1 - i] != outputShape[outputRank - 1 - i]) {
+        return i;
       }
-      if (checkIdenticalTms(op->getOperand(i).getDefiningOp(),
-                            permuteOperand) ||
-          ttcore::valueTracesToConstantArgs(op->getOperand(i))) {
-        continue;
+    }
+
+    // If it is an identity reshape, there is no point in commuting.
+    if (inputShape == outputShape) {
+      return -1;
+    }
+    // If all overlapping dimensions are identical, first changed dimension is
+    // the next one.
+    return minRank;
+  }
+
+  int64_t getLeftmostSlicedDimRTL(SliceStaticOp sliceOp) const {
+    auto inputShape = sliceOp.getInput().getType().getShape();
+    auto begins = sliceOp.getBegins().getValue();
+    auto ends = sliceOp.getEnds().getValue();
+    auto steps = sliceOp.getStep().getValue();
+    int64_t ndims = begins.size();
+
+    // Find the leftmost sliced dimension (counting from right to left).
+    // Return the right-to-left position (0 = rightmost, ndims-1 = leftmost).
+    int64_t leftmostSlicedDim = -1;
+    for (int64_t i = ndims - 1; i >= 0; --i) {
+      int32_t begin = cast<IntegerAttr>(begins[i]).getInt();
+      int32_t end = cast<IntegerAttr>(ends[i]).getInt();
+      int32_t step = cast<IntegerAttr>(steps[i]).getInt();
+      int64_t dimSize = inputShape[i];
+      int32_t adjustedEnd = (end < 0) ? (end + dimSize) : end;
+      int32_t adjustedBegin = (begin < 0) ? (begin + dimSize) : begin;
+
+      // Tensor is sliced along a dimension if it doesn't have the full range,
+      // which can be:
+      // - begin != 0
+      // - end != dimSize
+      // - step != 1
+
+      if (adjustedBegin != 0 || adjustedEnd != dimSize || step != 1) {
+        leftmostSlicedDim = ndims - 1 - i;
       }
+    }
+    // If no slicing is applied, return -1
+    return leftmostSlicedDim;
+  }
+
+  SliceStaticOp createReshapedSliceStaticOp(SliceStaticOp op,
+                                            TypedValue<RankedTensorType> input,
+                                            PatternRewriter &rewriter) const {
+    auto shape = input.getType().getShape();
+    int64_t ndims = shape.size();
+
+    int64_t leftmostSlicedDimRTL = getLeftmostSlicedDimRTL(op);
+    assert(leftmostSlicedDimRTL != -1 && "Expected valid slicing dimension");
+
+    // Update begins, ends, steps, and output shape to match new input shape:
+    // - begins = 0
+    // - ends = dim size
+    // - steps = 1
+    // - output shape = new shape
+    // for dims to the left of leftmost sliced dim, otherwise copy original
+    // values
+
+    auto originalBegins = op.getBegins().getValue();
+    auto originalEnds = op.getEnds().getValue();
+    auto originalSteps = op.getStep().getValue();
+    auto originalOutputShape = op.getType().getShape();
+    int64_t originalNdims = originalEnds.size();
+
+    SmallVector<Attribute> newBegins(ndims);
+    SmallVector<Attribute> newEnds(ndims);
+    SmallVector<Attribute> newSteps(ndims);
+    SmallVector<int64_t> newOutputShape(ndims);
+
+    for (int64_t i = 0; i < ndims; ++i) {
+      // Convert RTL position i to LTR dimension indices
+      int64_t dim = ndims - 1 - i;
+      int64_t originalDim = originalNdims - 1 - i;
+      if (i > leftmostSlicedDimRTL) {
+        // For dims to the left of leftmost sliced dim, set begins=0,
+        // ends=dim size, steps=1
+        newBegins[dim] = rewriter.getI32IntegerAttr(0);
+        newEnds[dim] =
+            rewriter.getI32IntegerAttr(static_cast<int32_t>(shape[dim]));
+        newSteps[dim] = rewriter.getI32IntegerAttr(1);
+        newOutputShape[dim] = shape[dim];
+      } else {
+        // For other dims, copy original values
+        newBegins[dim] = originalBegins[originalDim];
+        newEnds[dim] = originalEnds[originalDim];
+        newSteps[dim] = originalSteps[originalDim];
+        newOutputShape[dim] = originalOutputShape[originalDim];
+      }
+    }
+
+    RankedTensorType newSliceType =
+        RankedTensorType::get(newOutputShape, op.getType().getElementType(),
+                              op.getType().getEncoding());
+
+    SliceStaticOp newSlice = utils::createDPSOp<SliceStaticOp>(
+        rewriter, op->getLoc(), newSliceType, input,
+        rewriter.getArrayAttr(newBegins), rewriter.getArrayAttr(newEnds),
+        rewriter.getArrayAttr(newSteps));
+
+    return newSlice;
+  }
+
+  ReshapeOp createDeslicedReshapeOp(SliceStaticOp op, ReshapeOp reshapeUser,
+                                    PatternRewriter &rewriter) const {
+
+    // Construct target shape for reshape:
+    // - For dims not affected by reshape (left to the rightmost reshape dim),
+    // use input shape.
+    // - For other dims, keep original reshape shape.
+
+    int64_t rightmostReshapeDimRTL = getRightmostReshapeDimRTL(reshapeUser);
+    assert(rightmostReshapeDimRTL != -1 && "Expected valid reshape dimension");
+
+    auto originalReshapeShape = reshapeUser.getResult().getType().getShape();
+    int64_t ndims = originalReshapeShape.size();
+    SmallVector<int64_t> targetShape(ndims);
+
+    auto sliceInputShape = op.getInput().getType().getShape();
+    int64_t inputNdims = sliceInputShape.size();
+
+    for (int64_t i = 0; i < ndims; ++i) {
+      if (i < rightmostReshapeDimRTL) {
+        targetShape[ndims - 1 - i] = sliceInputShape[inputNdims - 1 - i];
+      } else {
+        targetShape[ndims - 1 - i] = originalReshapeShape[ndims - 1 - i];
+      }
+    }
+
+    auto targetType = RankedTensorType::get(
+        targetShape, op.getInput().getType().getElementType(),
+        op.getInput().getType().getEncoding());
+    SmallVector<int32_t> targetShapeInt32(targetShape.begin(),
+                                          targetShape.end());
+    return utils::createDPSOp<ReshapeOp>(
+        rewriter, reshapeUser->getLoc(), targetType, op.getInput(),
+        rewriter.getI32ArrayAttr(targetShapeInt32));
+  }
+
+  bool isCommuteUpwardsViable(SliceStaticOp op,
+                              ReshapeOp reshapeUser) const override {
+    // Reshape can commute if its rightmost reshape dim
+    // is to the left of leftmost slicing dim
+    int64_t rightmostReshapeDimRTL = getRightmostReshapeDimRTL(reshapeUser);
+    int64_t leftmostSlicedDimRTL = getLeftmostSlicedDimRTL(op);
+    if (rightmostReshapeDimRTL == -1 || leftmostSlicedDimRTL == -1) {
       return false;
     }
+    // Larger right-to-left position means further left
+    return rightmostReshapeDimRTL > leftmostSlicedDimRTL;
+  }
+
+  bool isCommuteUpwardsFavorable(SliceStaticOp op, ReshapeOp) const override {
+    // We should always commute a reshape above a slice if all users are an
+    // identical reshape. This includes the case where there is one user.
+    SmallVector<Operation *> users(op->getUsers());
+    return !users.empty() && checkAllUsersAreIdenticalTms(users);
+  }
+
+  bool isCommuteDownwardsViable(SliceStaticOp op,
+                                ReshapeOp reshapeOperand) const override {
+    // Reshape can commute if its rightmost reshape dim
+    // is to the left of leftmost slicing dim
+    int64_t rightmostReshapeDimRTL = getRightmostReshapeDimRTL(reshapeOperand);
+    int64_t leftmostSlicedDimRTL = getLeftmostSlicedDimRTL(op);
+    if (rightmostReshapeDimRTL == -1 || leftmostSlicedDimRTL == -1) {
+      return false;
+    }
+    // Larger right-to-left position means further left
+    return rightmostReshapeDimRTL > leftmostSlicedDimRTL;
+  }
+
+  bool isCommuteDownwardsFavorable(SliceStaticOp op,
+                                   ReshapeOp reshapeOperand) const override {
+    // Commuting a reshape downwards through a slice is always favorable as
+    // slice only has one operand, and here we know it is a reshape.
     return true;
   }
 };
@@ -164,6 +426,7 @@ template <CommuteDirection commuteDirection>
 void populateSliceCommutePatterns(MLIRContext *ctx,
                                   RewritePatternSet &patterns) {
   patterns.insert<TTIRCommutePermuteThroughSlice<commuteDirection>>(ctx);
+  patterns.insert<TTIRCommuteReshapeThroughSlice<commuteDirection>>(ctx);
 }
 
 template void populateSliceCommutePatterns<CommuteDirection::UPWARDS>(

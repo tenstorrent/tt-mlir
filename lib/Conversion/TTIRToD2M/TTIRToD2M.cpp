@@ -8,9 +8,11 @@
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 // D2M generic/region ops
+#include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/D2M/IR/D2M.h"
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/D2M/Utils/Utils.h"
+#include "ttmlir/Utils.h"
 
 #include "ttmlir/Dialect/D2M/IR/D2M.h"
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
@@ -1095,8 +1097,10 @@ void populateTTIRToD2MPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
     D2MNamedElementwiseRewriter<ttir::NegOp,        d2m::TileNegativeOp>,
     D2MNamedElementwiseRewriter<ttir::PowOp,        d2m::TilePowOp>,
     D2MNamedElementwiseRewriter<ttir::ReciprocalOp, d2m::TileRecipOp>,
+    D2MNamedElementwiseRewriter<ttir::ReluOp,       d2m::TileReluOp>,
     D2MNamedElementwiseRewriter<ttir::RsqrtOp,      d2m::TileRsqrtOp>,
     D2MNamedElementwiseRewriter<ttir::SigmoidOp,    d2m::TileSigmoidOp>,
+    D2MNamedElementwiseRewriter<ttir::SiluOp,       d2m::TileSiluOp>,
     D2MNamedElementwiseRewriter<ttir::SinOp,        d2m::TileSinOp>,
     D2MNamedElementwiseRewriter<ttir::SqrtOp,       d2m::TileSqrtOp>,
     D2MNamedElementwiseRewriter<ttir::SubtractOp,   d2m::TileSubOp>,

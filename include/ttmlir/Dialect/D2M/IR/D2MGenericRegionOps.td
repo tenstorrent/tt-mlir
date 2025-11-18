@@ -250,6 +250,26 @@ def D2M_TileSigmoidOp : D2M_GenericRegionComputeUnaryDstOp<"tile_sigmoid", D2M_T
     let results = (outs TTCore_Tile:$result);
 }
 
+def D2M_TileSiluOp : D2M_GenericRegionComputeUnaryDstOp<"tile_silu", D2M_TileComputeOpTraitBundle> {
+    let summary = "D2M Tile Sliu Op";
+    let description = [{
+        The `tile_silu` operation computes the silu of each element in the input tile.
+    }];
+
+    let arguments = (ins TTCore_Tile:$input);
+    let results = (outs TTCore_Tile:$result);
+}
+
+def D2M_TileReluOp : D2M_GenericRegionComputeUnaryDstOp<"tile_relu", D2M_TileComputeOpTraitBundle> {
+    let summary = "D2M Tile Relu Op";
+    let description = [{
+        The `tile_relu` operation computes the relu of each element in the input tile.
+    }];
+
+    let arguments = (ins TTCore_Tile:$input);
+    let results = (outs TTCore_Tile:$result);
+}
+
 def D2M_TileGeluOp : D2M_GenericRegionComputeUnaryDstOp<"tile_gelu", D2M_TileComputeOpTraitBundle> {
     let summary = "D2M Tile GELU Op";
     let description = [{
@@ -738,6 +758,7 @@ def D2M_DMAOp : D2M_GenericRegionDatamovementOp<"dma",
       bool isDstRemote() { return ttcore::hasDeviceLayout(getDst()); }
       bool isMcast() { return !getMcastShape().empty(); }
       bool isAffine() { return (getSrcAffineMap() || getDstAffineMap()) && getSrcIndices().empty() && getDstIndices().empty(); }
+      bool hasExplicitSize() { return getOptNumElems().has_value(); }
       ::mlir::tt::ttcore::MemorySpace getSrcMemorySpace() {
         return mlir::cast<::mlir::tt::ttcore::MemorySpaceAttr>(getSrcMemRefType().getMemorySpace()).getValue();
       }
