@@ -466,6 +466,30 @@ TTNNOperandsWorkaroundsFactory::createPagedUpdateCacheOpOperandsWorkarounds(
       .addInputOperandWorkaround(pageTableWorkarounds);
 }
 
+TTNNOperandsWorkarounds
+TTNNOperandsWorkaroundsFactory::createPagedFillCacheOpOperandsWorkarounds(
+    Operation *op) {
+  TTNNOperandWorkarounds nullWorkarounds;
+  TTNNOperandWorkarounds pageTableWorkarounds;
+
+  pageTableWorkarounds.tensorLayoutWorkaround = Layout::RowMajor;
+
+  if (op->getNumOperands() == 4) {
+    TTNNOperandWorkarounds batchIdxTensorWorkarounds;
+    batchIdxTensorWorkarounds.tensorLayoutWorkaround = Layout::RowMajor;
+
+    return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
+        .addInputOperandWorkaround(nullWorkarounds)
+        .addInputOperandWorkaround(nullWorkarounds)
+        .addInputOperandWorkaround(pageTableWorkarounds)
+        .addInputOperandWorkaround(batchIdxTensorWorkarounds);
+  }
+  return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
+      .addInputOperandWorkaround(nullWorkarounds)
+      .addInputOperandWorkaround(nullWorkarounds)
+      .addInputOperandWorkaround(pageTableWorkarounds);
+}
+
 // Helper function to determine if data type workaround is required for a binary
 // op. Set the workaround data type based on the binary op.
 static std::optional<mlir::tt::ttcore::DataType>
@@ -744,13 +768,9 @@ TTNNOperandsWorkaroundsFactory::createReductionOpOperandsWorkarounds(
 // Factory method to create a set of workarounds for reduce product op operands.
 // tt-metal only supports full product reduction for bfloat16 data type.
 TTNNOperandsWorkarounds
-TTNNOperandsWorkaroundsFactory::createReduceProdOpOperandsWorkarounds(
-    mlir::Type elementType, bool allDimensions) {
-  bool isDataTypeWARequired = allDimensions && !elementType.isBF16();
+TTNNOperandsWorkaroundsFactory::createReduceProdOpOperandsWorkarounds() {
   TTNNOperandWorkarounds bf16Workaround;
-  if (isDataTypeWARequired) {
-    bf16Workaround.tensorDataTypeWorkaround = ttcore::DataType::BFloat16;
-  }
+  bf16Workaround.tensorDataTypeWorkaround = ttcore::DataType::BFloat16;
 
   return wa::TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
       .addInputOperandWorkaround(bf16Workaround)
@@ -779,6 +799,48 @@ TTNNOperandsWorkaroundsFactory::createSortOpOperandsWorkarounds(
       .addInputOperandWorkaround(operandWorkaround)
       .addOutputOperandWorkaround(operandWorkaround)
       .addOutputOperandWorkaround(datatypeWorkaround);
+}
+
+TTNNOperandsWorkarounds TTNNOperandsWorkaroundsFactory::
+    createPagedScaledDotProductAttentionDecodeOpOperandsWorkarounds(
+        Operation *op) {
+  TTNNOperandWorkarounds emptyWorkaround;
+  TTNNOperandWorkarounds rowMajorLayoutWorkaround;
+  rowMajorLayoutWorkaround.tensorLayoutWorkaround = Layout::RowMajor;
+
+  auto sdpaOp = cast<PagedScaledDotProductAttentionDecodeOp>(op);
+
+  TTNNOperandsWorkarounds operandsWorkaround =
+      TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds();
+
+  // Query, key, and value need no workarounds.
+  operandsWorkaround =
+      operandsWorkaround.addInputOperandWorkaround(emptyWorkaround);
+  operandsWorkaround =
+      operandsWorkaround.addInputOperandWorkaround(emptyWorkaround);
+  operandsWorkaround =
+      operandsWorkaround.addInputOperandWorkaround(emptyWorkaround);
+
+  if (sdpaOp.getPageTable()) {
+    operandsWorkaround =
+        operandsWorkaround.addInputOperandWorkaround(rowMajorLayoutWorkaround);
+  }
+
+  if (sdpaOp.getCurPosTensor()) {
+    operandsWorkaround =
+        operandsWorkaround.addInputOperandWorkaround(rowMajorLayoutWorkaround);
+  }
+
+  if (sdpaOp.getAttentionSink()) {
+    operandsWorkaround =
+        operandsWorkaround.addInputOperandWorkaround(emptyWorkaround);
+  }
+
+  // Need no workaround for output tensor.
+  operandsWorkaround =
+      operandsWorkaround.addOutputOperandWorkaround(emptyWorkaround);
+
+  return operandsWorkaround;
 }
 
 template TTNNOperandsWorkarounds

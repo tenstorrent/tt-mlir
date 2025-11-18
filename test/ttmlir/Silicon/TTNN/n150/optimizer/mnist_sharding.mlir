@@ -3,6 +3,7 @@
 // RUN: FileCheck %s --input-file=mnist_sharding_ttnn.mlir
 // RUN: ttmlir-translate --ttnn-to-flatbuffer -o %t.ttnn mnist_sharding_ttnn.mlir
 // XFAIL: *
+// UNSUPPORTED: true
 // TODO(rpavlovicTT): #https://github.com/tenstorrent/tt-metal/issues/21846 re-enable
 
 #loc = loc("MNISTLinear":4294967295:0)

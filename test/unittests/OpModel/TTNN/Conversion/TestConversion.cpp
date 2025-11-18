@@ -200,35 +200,45 @@ INSTANTIATE_TEST_SUITE_P(
         std::make_tuple(TensorMemoryLayout::WidthSharded,
                         llvm::SmallVector<int64_t>{32, 56 * 32},
                         llvm::SmallVector<int64_t>{1, 56},
-                        CoreRangeSet{
-                            CoreRange(CoreCoord(0, 0), CoreCoord(7, 6))}),
-        std::make_tuple(TensorMemoryLayout::WidthSharded,
-                        llvm::SmallVector<int64_t>{32, 13 * 32},
-                        llvm::SmallVector<int64_t>{1, 13},
-                        CoreRangeSet{std::set<CoreRange>{
-                            CoreRange(CoreCoord(0, 0), CoreCoord(7, 0)),
-                            CoreRange(CoreCoord(0, 1), CoreCoord(4, 1))}}),
+                        ::tt::tt_metal::CoreRangeSet{::tt::tt_metal::CoreRange(
+                            ::tt::tt_metal::CoreCoord(0, 0),
+                            ::tt::tt_metal::CoreCoord(7, 6))}),
+        std::make_tuple(
+            TensorMemoryLayout::WidthSharded,
+            llvm::SmallVector<int64_t>{32, 13 * 32},
+            llvm::SmallVector<int64_t>{1, 13},
+            ::tt::tt_metal::CoreRangeSet{std::set<::tt::tt_metal::CoreRange>{
+                ::tt::tt_metal::CoreRange(::tt::tt_metal::CoreCoord(0, 0),
+                                          ::tt::tt_metal::CoreCoord(7, 0)),
+                ::tt::tt_metal::CoreRange(::tt::tt_metal::CoreCoord(0, 1),
+                                          ::tt::tt_metal::CoreCoord(4, 1))}}),
         std::make_tuple(TensorMemoryLayout::HeightSharded,
                         llvm::SmallVector<int64_t>{56 * 32, 32},
                         llvm::SmallVector<int64_t>{56, 1},
-                        CoreRangeSet{
-                            CoreRange(CoreCoord(0, 0), CoreCoord(7, 6))}),
-        std::make_tuple(TensorMemoryLayout::HeightSharded,
-                        llvm::SmallVector<int64_t>{13 * 32, 32},
-                        llvm::SmallVector<int64_t>{13, 1},
-                        CoreRangeSet{std::set<CoreRange>{
-                            CoreRange(CoreCoord(0, 0), CoreCoord(7, 0)),
-                            CoreRange(CoreCoord(0, 1), CoreCoord(4, 1))}}),
+                        ::tt::tt_metal::CoreRangeSet{::tt::tt_metal::CoreRange(
+                            ::tt::tt_metal::CoreCoord(0, 0),
+                            ::tt::tt_metal::CoreCoord(7, 6))}),
+        std::make_tuple(
+            TensorMemoryLayout::HeightSharded,
+            llvm::SmallVector<int64_t>{13 * 32, 32},
+            llvm::SmallVector<int64_t>{13, 1},
+            ::tt::tt_metal::CoreRangeSet{std::set<::tt::tt_metal::CoreRange>{
+                ::tt::tt_metal::CoreRange(::tt::tt_metal::CoreCoord(0, 0),
+                                          ::tt::tt_metal::CoreCoord(7, 0)),
+                ::tt::tt_metal::CoreRange(::tt::tt_metal::CoreCoord(0, 1),
+                                          ::tt::tt_metal::CoreCoord(4, 1))}}),
         std::make_tuple(TensorMemoryLayout::BlockSharded,
                         llvm::SmallVector<int64_t>{7 * 32, 8 * 32},
                         llvm::SmallVector<int64_t>{7, 8},
-                        CoreRangeSet{
-                            CoreRange(CoreCoord(0, 0), CoreCoord(7, 6))}),
+                        ::tt::tt_metal::CoreRangeSet{::tt::tt_metal::CoreRange(
+                            ::tt::tt_metal::CoreCoord(0, 0),
+                            ::tt::tt_metal::CoreCoord(7, 6))}),
         std::make_tuple(TensorMemoryLayout::BlockSharded,
                         llvm::SmallVector<int64_t>{4 * 11 * 32, 8 * 13 * 32},
                         llvm::SmallVector<int64_t>{4, 8},
-                        CoreRangeSet{
-                            CoreRange(CoreCoord(0, 0), CoreCoord(7, 3))})));
+                        ::tt::tt_metal::CoreRangeSet{::tt::tt_metal::CoreRange(
+                            ::tt::tt_metal::CoreCoord(0, 0),
+                            ::tt::tt_metal::CoreCoord(7, 3))})));
 
 //================================================================================
 // getShardSpec
@@ -285,9 +295,11 @@ TEST_P(ShardSpecFixture, ShardSpec) {
   EXPECT_EQ(shardSpec->shape[1], expected_shard_shape[1]);
   EXPECT_EQ(shardSpec->grid.size(), 1);
 
-  EXPECT_EQ(shardSpec->grid.ranges()[0].start_coord, CoreCoord(0, 0));
-  EXPECT_EQ(shardSpec->grid.ranges()[0].end_coord,
-            CoreCoord(phyGridShape[1] - 1, phyGridShape[0] - 1));
+  EXPECT_EQ(shardSpec->grid.ranges()[0].start_coord,
+            ::tt::tt_metal::CoreCoord(0, 0));
+  EXPECT_EQ(
+      shardSpec->grid.ranges()[0].end_coord,
+      ::tt::tt_metal::CoreCoord(phyGridShape[1] - 1, phyGridShape[0] - 1));
   // These fields are not utilized on the compiler
   // side, we are setting them to default values.
   // Purpose of testing them is to update the test

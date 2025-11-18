@@ -16,7 +16,7 @@
   logical_shape = 64x128,
   dim_alignments = 32x32,
   collapsed_intervals = dense<[[0, -1]]> : tensor<1x2xi64>,
-  undef, l1
+  undef, l1, sharded, index_map = map(0)
 >
 
 func.func @propagate_view_map() -> tensor<1x1x2x4x!ttcore.tile<32x32, f32>, #layout_with_view> {
