@@ -1710,7 +1710,12 @@ static mlir::OpFoldResult foldConsecutiveReshape(mlir::tt::ttir::ReshapeOp op) {
     return emitOpError() << "pattern must contain exactly one '->' separator.";
   }
 
-  auto map = getPatternAffineMap();
+  mlir::FailureOr<AffineMap> failureOrMap = getInvPatternMap();
+  if (failed(failureOrMap)) {
+    return emitOpError() << "failed to parse pattern " << patternStr << ".";
+  }
+
+  auto map = *failureOrMap;
   if (getInput().getType().getRank() != map.getNumDims()) {
     return emitOpError() << "number of dimensions in the pattern's input ("
                          << map.getNumDims()
@@ -1741,7 +1746,7 @@ static mlir::OpFoldResult foldConsecutiveReshape(mlir::tt::ttir::ReshapeOp op) {
   return success();
 }
 
-::mlir::AffineMap mlir::tt::ttir::RearrangeOp::getPatternAffineMap() {
+mlir::FailureOr<::mlir::AffineMap> mlir::tt::ttir::RearrangeOp::getInvPatternMap(mlir::MLIRContext* context, StringRef pattern, ArrayRef<int64_t> shape) {
   // We need to write a routine to convert the pattern string to an affine map.
   // Example patterns:
   // >>> rearrange(images, 'b h w c -> b h w c').shape
@@ -1771,9 +1776,8 @@ static mlir::OpFoldResult foldConsecutiveReshape(mlir::tt::ttir::ReshapeOp op) {
   // >>> rearrange(images, 'b (h h1) (w w1) c -> b h w (c h1 w1)', h1=2, w1=2).shape
   // (32, 15, 20, 12)
 
-  llvm::StringRef patternStr = getPattern();
   llvm::SmallVector<llvm::StringRef> parts;
-  patternStr.split(parts, "->");
+  pattern.split(parts, "->");
 
   assert(parts.size() == 2 &&
          "RearrangeOp pattern must contain exactly one '->' separator.");
@@ -1844,35 +1848,48 @@ static mlir::OpFoldResult foldConsecutiveReshape(mlir::tt::ttir::ReshapeOp op) {
   llvm::DenseMap<llvm::StringRef, unsigned> dimToInputPos;
   unsigned pos = 0;
   for (const auto &group : inputDims) {
+    if (group.size() > 1) {
+      // Unsupported input groups.
+      return failure();
+    }
+
+    if (pos >= shape.size()) {
+      // OOB dimension position for provided shape.
+      return failure();
+    }
+
     for (llvm::StringRef dim : group) {
       dimToInputPos[dim] = pos;
     }
+
     pos++;
   }
 
   // Build the affine expressions for the output
   llvm::SmallVector<mlir::AffineExpr> exprs;
-  mlir::MLIRContext *context = getContext();
-
-  for (const auto &group : outputDims) {
-    if (group.size() == 1) {
-      // Single dimension - just map to input position
-      unsigned inputPos = dimToInputPos[group[0]];
-      exprs.push_back(mlir::getAffineDimExpr(inputPos, context));
-    } else {
-      // Multiple dimensions - need to multiply and add them
-      // For flattening like (b h), we create: b * h_size + h
-      // But AffineMap doesn't directly support this without knowing sizes
-      // For now, we create a product expression
-      mlir::AffineExpr expr = mlir::getAffineDimExpr(dimToInputPos[group[0]], context);
-      for (size_t i = 1; i < group.size(); i++) {
-        expr = expr * mlir::getAffineDimExpr(dimToInputPos[group[i]], context);
+  exprs.resize(inputDims.size(), nullptr);
+  for (const auto [groupPos, group] : llvm::enumerate(outputDims)) {
+    assert(!group.empty());
+    // For flattening like b h -> (b h)@d, we create inverse map: (d / h_size, d % h_size).
+    bool needsMod = group.size() > 1; // mod only required for collapsed groups, we elide it otherwise to reduce clutter.
+    int64_t stride = 1;
+    mlir::AffineExpr expr = mlir::getAffineConstantExpr(0, context);
+    for (int64_t i = static_cast<int64_t>(group.size()) - 1; i >= 0; --i) {
+      unsigned dimPos = dimToInputPos[group[i]];
+      expr = mlir::getAffineDimExpr(groupPos, context).floorDiv(stride);
+      if (needsMod) {
+        expr = expr % shape[dimPos];
       }
-      exprs.push_back(expr);
+      stride *= shape[dimPos];
+      exprs[dimPos] = expr;
     }
   }
 
-  return mlir::AffineMap::get(inputDims.size(), 0, exprs, context);
+  return mlir::AffineMap::get(outputDims.size(), 0, exprs, context);
+}
+
+mlir::FailureOr<::mlir::AffineMap> mlir::tt::ttir::RearrangeOp::getInvPatternMap() {
+  return getInvPatternMap(getContext(), getPattern(), mlir::cast<ShapedType>(getInput().getType()).getShape());
 }
 
 //===----------------------------------------------------------------------===//

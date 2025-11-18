@@ -4,6 +4,8 @@
 
 import pytest
 import torch
+import einops
+import itertools
 from typing import Callable, List
 
 from ttmlir.dialects import ttir, ttcore
@@ -16,6 +18,17 @@ from builder.base.builder_utils import compile_and_execute_ttir
 pytestmark = pytest.mark.frontend("ttir")
 
 
+def _test_pattern_map(pattern, shape, pattern_map):
+    print(pattern, ":", shape, ":", pattern_map)
+    t = torch.randn(shape)
+    golden = einops.rearrange(t, pattern)
+    output = torch.zeros(golden.shape)
+    for pos in itertools.product(*[range(dim) for dim in output.shape]):
+        p = ttir.ir.affine_map_compose(pattern_map, pos)
+        output[*pos] = t[*p]
+    assert torch.allclose(output, golden)
+
+
 @pytest.mark.parametrize("target", ["ttmetal"])
 def test_rearrange(
     target: str,
@@ -25,17 +38,33 @@ def test_rearrange(
     in_shape = (3, 4, 32)
     pattern = "z y x -> y z x"
 
+    patterns = [
+        ("z y x -> y z x", (3, 4, 32)),
+        ("z y x -> x z y", (3, 4, 32)),
+        ("z y x -> z (y x)", (3, 4, 32)),
+        ("z y x -> (z y) x", (3, 4, 32)),
+        ("z y x -> (z y x)", (3, 4, 32)),
+        ("z y x -> (x z) y", (3, 4, 32)),
+        ("z y x -> x (z y)", (3, 4, 32)),
+        #("(z y) x -> (x z) y", (12, 32)),
+    ]
+    ctx = Context()
+    for p, s in patterns:
+        pattern_map = ttir.ir.rearrange_inv_pattern_map(ctx, p, s)
+        _test_pattern_map(p, s, pattern_map)
+    return
+
     def rearrange(
         in0: Operand, builder: TTIRBuilder, unit_attrs: List[str] = None
     ):
-        return builder.rearrange(in0, unit_attrs=unit_attrs)
+        return builder.rearrange(in0, pattern, unit_attrs=unit_attrs)
 
     compile_and_execute_ttir(
         rearrange,
         [in_shape],
         target=target,
         device=device,
-        custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
+        custom_pipeline=f"ttir-to-ttmetal-pipeline",
         test_base=request.node.name,
         module_dump=True,
         print_ir=True,

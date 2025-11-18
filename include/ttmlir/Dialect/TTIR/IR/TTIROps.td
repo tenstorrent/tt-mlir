@@ -3862,19 +3862,22 @@ def TTIR_ReshapeOp: TTIR_NamedOp<"reshape", [TTIR_TensorManipulation]> {
     let hasFolder = 1;
 }
 
-def TTIR_RearrangeOp : TTIR_Op<"rearrange", [Pure, TTIROpInterface, TTIR_TensorManipulation]> {
+def TTIR_RearrangeOp : TTIR_NamedOp<"rearrange", [TTIR_TensorManipulation]> {
     let summary = "Tensor rearrange operation.";
     let description = [{
     }];
 
-    let arguments = (ins AnyRankedTensor:$input, Builtin_StringAttr:$pattern);
+    let arguments = (ins AnyRankedTensor:$input, AnyRankedTensor:$output, Builtin_StringAttr:$pattern);
 
     let results = (outs AnyRankedTensor:$result);
 
     let hasVerifier = 1;
 
     let extraClassDeclaration = [{
-        AffineMap getPatternAffineMap();
+        static mlir::FailureOr<AffineMap> getInvPatternMap(mlir::MLIRContext* context, StringRef pattern, ArrayRef<int64_t> shape);
+        mlir::FailureOr<AffineMap> getInvPatternMap();
+
+        MutableOperandRange getDpsInitsMutable() { return ttir::getDpsOutputs(this); }
     }];
 }
 
