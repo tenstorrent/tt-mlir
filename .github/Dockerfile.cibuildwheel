@@ -33,12 +33,13 @@ ENV NINJA_VERSION="1.11.1"
 ENV NINJA_URL="https://github.com/ninja-build/ninja/releases/download/v${NINJA_VERSION}/ninja-linux.zip"
 ENV NINJA_ZIP="ninja-linux.zip"
 
-RUN curl -L -o "${NINJA_ZIP}" "${NINJA_URL}"
-RUN unzip "${NINJA_ZIP}" -d /usr/local/bin/
-RUN chmod +x /usr/local/bin/ninja
-RUN rm -f "${NINJA_ZIP}"
+RUN curl -L -o "${NINJA_ZIP}" "${NINJA_URL}" && \
+    unzip "${NINJA_ZIP}" -d /usr/local/bin/ && \
+    chmod +x /usr/local/bin/ninja && \
+    rm -f "${NINJA_ZIP}"
 
 # Create a directory for the build and toolchain
-ENV PROJECT_NAME=tt-mlir
+ENV TTMLIR_TOOLCHAIN_DIR=/opt/ttmlir-toolchain
+
 # Copy toolchain from CI image
 COPY --from=toolchain-source $TTMLIR_TOOLCHAIN_DIR $TTMLIR_TOOLCHAIN_DIR
