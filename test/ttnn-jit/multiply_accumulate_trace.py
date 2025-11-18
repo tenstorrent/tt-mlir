@@ -34,7 +34,7 @@ TEST_PARAMS = [
 ]
 
 
-@ttnn_jit.jit(max_grid=(0, 0), debug=False, enable_cache=True)
+@ttnn_jit.jit(max_grid=(0, 0), debug=False, enable_cache=True, graph_capture=False)
 def muladd(input_tensor_a, input_tensor_b, input_tensor_c):
 
     return ttnn.add(ttnn.multiply(input_tensor_b, input_tensor_c), input_tensor_a)
