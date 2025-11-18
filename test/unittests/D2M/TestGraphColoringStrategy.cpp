@@ -351,9 +351,9 @@ TEST_F(DstAnalysisGraphColoringTest, ReportsFailureWhenColoringFails) {
       dramMap = (d0, d1, d2)[s0, s1] -> (0, 0, 0, d0 * s1 + d1 * s1 + d2 + s0),
       meshShape = , chipIds = [0]>
     module attributes {ttcore.device = #device} {
-      func.func @has_generic(%in0: memref<1x1x1x1x!ttcore.tile<32x32, f16>, #ttcore.shard<4096x4096>, #l1_>,
-                             %in1: memref<1x1x1x1x!ttcore.tile<32x32, f16>, #ttcore.shard<4096x4096>, #l1_>,
-                             %out: memref<1x1x1x1x!ttcore.tile<32x32, f16>, #ttcore.shard<4096x4096>, #l1_>) {
+      func.func @has_generic(%in0: memref<1x1x1x1x!ttcore.tile<32x32, f16>, #ttcore.shard<4096x4096, 1>, #l1_>,
+                             %in1: memref<1x1x1x1x!ttcore.tile<32x32, f16>, #ttcore.shard<4096x4096, 1>, #l1_>,
+                             %out: memref<1x1x1x1x!ttcore.tile<32x32, f16>, #ttcore.shard<4096x4096, 1>, #l1_>) {
         d2m.generic {
           block_factors = [1, 1],
           grid = #ttcore.grid<1x1>,
@@ -365,9 +365,9 @@ TEST_F(DstAnalysisGraphColoringTest, ReportsFailureWhenColoringFails) {
           iterator_types = [#ttcore.iterator_type<parallel>, #ttcore.iterator_type<parallel>],
           threads = [#d2m.thread<compute>]
         } ins(%in0, %in1 :
-              memref<1x1x1x1x!ttcore.tile<32x32, f16>, #ttcore.shard<4096x4096>, #l1_>,
-              memref<1x1x1x1x!ttcore.tile<32x32, f16>, #ttcore.shard<4096x4096>, #l1_>)
-          outs(%out : memref<1x1x1x1x!ttcore.tile<32x32, f16>, #ttcore.shard<4096x4096>, #l1_>) {
+              memref<1x1x1x1x!ttcore.tile<32x32, f16>, #ttcore.shard<4096x4096, 1>, #l1_>,
+              memref<1x1x1x1x!ttcore.tile<32x32, f16>, #ttcore.shard<4096x4096, 1>, #l1_>)
+          outs(%out : memref<1x1x1x1x!ttcore.tile<32x32, f16>, #ttcore.shard<4096x4096, 1>, #l1_>) {
         ^compute0(%cb0: !d2m.cb<memref<1x1x!ttcore.tile<32x32, f16>, #l1_>>,
                   %cb1: !d2m.cb<memref<1x1x!ttcore.tile<32x32, f16>, #l1_>>,
                   %cb_out: !d2m.cb<memref<1x1x!ttcore.tile<32x32, f16>, #l1_>>):
