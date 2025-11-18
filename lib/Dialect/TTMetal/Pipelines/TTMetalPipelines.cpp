@@ -150,6 +150,11 @@ void createTTIRToTTMetalMiddleendPipeline(
         options.maxDstPhysicalSizeTiles;
   }
   pm.addPass(d2m::createD2MGenericTileComputeLoops(tileComputeLoopsOptions));
+  d2m::D2MLinalgToAffineOptions linalgToAffineOptions;
+  {
+    linalgToAffineOptions.useTileMatmul = options.useTileMatmul;
+  }
+  pm.addPass(d2m::createD2MLinalgToAffine(linalgToAffineOptions));
   d2m::D2MInsertDstRegisterAccessOptions insertDstRegisterAccessOptions;
   {
     insertDstRegisterAccessOptions.useTileMatmul = options.useTileMatmul;
