@@ -1,4 +1,5 @@
 add_mlir_library(MLIRD2MUtils
+  AffineMapUtils.cpp
   Utils.cpp
 
   ADDITIONAL_HEADER_DIRS

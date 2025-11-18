@@ -6,6 +6,7 @@
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
 #include "ttmlir/Dialect/D2M/Utils/Utils.h"
 
+#include "ttmlir/Dialect/D2M/Utils/AffineMapUtils.h"
 #include "mlir/Dialect/Linalg/Transforms/Transforms.h"
 #include "mlir/Transforms/WalkPatternRewriteDriver.h"
 

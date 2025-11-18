@@ -30,10 +30,6 @@ public:
     return mlir::isa_and_nonnull<StreamLayoutOp>(operand.getDefiningOp());
   }
 
-  static bool isView(Value operand) {
-    return mlir::isa_and_nonnull<ViewLayoutOp>(operand.getDefiningOp());
-  }
-
   static bool compatibleDeviceGrid(ttcore::DeviceAttr device,
                                    ttcore::GridAttr grid) {
     return device.getWorkerGrid().getShape().size() == grid.getShape().size();
@@ -237,10 +233,9 @@ public:
             ? builder.create<d2m::WaitOp>(loc, blockOperand).getResult()
             : builder.create<d2m::ReserveOp>(loc, blockOperand).getResult();
 
-    if (isStream(genericOperand) || isView(genericOperand)) {
+    if (isStream(genericOperand)) {
       Value src = isOutput ? cb : genericOperand;
       Value dst = isOutput ? genericOperand : cb;
-
       SmallVector<ttcore::IteratorType> mcastIterators =
           calculateMcastIterators(grid, device, operandIndexingMap,
                                   iteratorTypes);

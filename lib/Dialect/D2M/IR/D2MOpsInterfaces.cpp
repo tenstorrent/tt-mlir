@@ -35,11 +35,19 @@ mlir::tt::d2m::applyViews(mlir::Operation *op) {
   Value input = viewOp.getInput();
   auto inputMemref = mlir::cast<mlir::MemRefType>(input.getType());
 
+  // Recursively apply view composition if the input is also a view. This
+  // handles nested view chains by composing affine maps.
+  if (mlir::isa<ttcore::ViewLayoutAttr>(inputMemref.getLayout())) {
+    if (auto inputOp = input.getDefiningOp()) {
+      auto [baseMemref, inputMap] = applyViews(inputOp);
+      return std::make_pair(baseMemref, inputMap.compose(map));
+    }
+  }
+
   auto devLayout = mlir::dyn_cast_or_null<ttcore::DeviceLayoutInterface>(
       inputMemref.getLayout());
   assert(devLayout && devLayout.isPhysical() &&
-         "Expected physical layout attr; only one level of "
-         "view nesting is supported");
+         "Expected physical layout attr");
 
   return std::make_pair(inputMemref, map);
 }
