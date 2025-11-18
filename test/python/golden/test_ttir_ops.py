@@ -2577,21 +2577,16 @@ def test_all_gather(
 @pytest.mark.parametrize(
     "test_shape",
     [
-        pytest.param((1, 1, 1, 256, 256), marks=pytest.mark.xfail(reason="run error")),
         (1, 1, 256, 256),
-        # (1, 1, 256, 257),
-        # (1, 1, 256, 255),
-        # (1, 256, 256, 1),
-        # (256, 256, 1, 1),
-        # (1, 1, 32, 64),
-        # (1, 64, 64),
-        # (64, 64),
-        # (64, 65),
-        # (32, 64),
-        (1, 256, 256),
-        (256, 256),
-        (224, 224),
-        (33, 65),  # This is a case where all_gather + local reduce is not supported.
+        (256, 256, 1, 1),
+        (1, 64, 64),
+        (64, 64),
+        (64, 65),
+        (65, 64),
+        (32, 64),
+        (33, 65),  # This is a case where reduce_scatter + all_gather is not supported.
+        (1, 1, 1, 1, 1, 1, 32, 256, 256),
+        (1, 1, 32, 256, 256),
     ],
     ids=shape_str,
 )
