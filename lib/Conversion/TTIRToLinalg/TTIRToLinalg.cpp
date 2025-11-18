@@ -2067,8 +2067,11 @@ public:
     auto divisor = rewriter.create<tosa::ConstOp>(
         op.getLoc(), resultType, cast<DenseElementsAttr>(divisorAttr));
 
-    auto divOp = rewriter.create<linalg::DivOp>(op.getLoc(), resultType,
-                                                ValueRange{sum, divisor});
+    auto output = rewriter.create<tensor::EmptyOp>(
+        op.getLoc(), resultType.getShape(), resultType.getElementType());
+
+    auto divOp = rewriter.create<linalg::DivOp>(
+        op.getLoc(), resultType, ValueRange{sum, divisor}, output.getResult());
 
     rewriter.replaceOp(op, divOp.getResult(0));
     return success();
