@@ -134,6 +134,7 @@ def get_atol_rtol_pcc(golden, calculated, atol, rtol, logging):
 
             if golden.dtype == torch.bfloat16:
                 golden = golden.type(torch.float32)
+            if calculated.dtype == torch.bfloat16:
                 calculated = calculated.type(torch.float32)
 
             # Single element case

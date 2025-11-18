@@ -1,10 +1,10 @@
-// RUN: ttmlir-opt --d2m-materialize-view-returns %s | FileCheck %s
+// RUN: ttmlir-opt --ttcore-register-device --d2m-materialize-view-returns %s | FileCheck %s
 // SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#layout1x1 = #ttcore.metal_layout<logical_shape = 256x768, dim_alignments = 32x256, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1>
-#layout8x8 = #ttcore.metal_layout<logical_shape = 256x768, dim_alignments = 32x256, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1>
+#layout1x1 = #ttcore.metal_layout<logical_shape = 256x768, dim_alignments = 32x256, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded, index_map = map(0)>
+#layout8x8 = #ttcore.metal_layout<logical_shape = 256x768, dim_alignments = 32x256, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded, index_map = map(0)>
 
 // Test basic case: to_layout then view, returning unmaterialized view
 // This is the core problem - the view has no generic consumer
@@ -111,8 +111,8 @@ func.func @mixed_returns(%arg0: tensor<1x1x8x24x!ttcore.tile<32x32, f32>, #layou
 // Test higher-rank tensors (3D uncollapsed) for permute TM use case
 // Grid has leading 1 (1x4x4 -> 1x8x2), demonstrating higher rank with legal grid
 // CHECK-LABEL: @higher_rank_view_return
-#layout_6d_1x4x4 = #ttcore.metal_layout<logical_shape = 64x96x192, dim_alignments = 32x32x32, collapsed_intervals = dense<[[0, 1], [1, 2], [2, 3]]> : tensor<3x2xi64>, undef, l1>
-#layout_6d_1x8x2 = #ttcore.metal_layout<logical_shape = 64x96x192, dim_alignments = 32x32x32, collapsed_intervals = dense<[[0, 1], [1, 2], [2, 3]]> : tensor<3x2xi64>, undef, l1>
+#layout_6d_1x4x4 = #ttcore.metal_layout<logical_shape = 64x96x192, dim_alignments = 32x32x32, collapsed_intervals = dense<[[0, 1], [1, 2], [2, 3]]> : tensor<3x2xi64>, undef, l1, sharded, index_map = map(0)>
+#layout_6d_1x8x2 = #ttcore.metal_layout<logical_shape = 64x96x192, dim_alignments = 32x32x32, collapsed_intervals = dense<[[0, 1], [1, 2], [2, 3]]> : tensor<3x2xi64>, undef, l1, sharded, index_map = map(0)>
 func.func @higher_rank_view_return(%arg0: tensor<1x4x4x2x3x6x!ttcore.tile<32x32, f32>, #layout_6d_1x4x4>) -> tensor<1x8x2x1x6x6x!ttcore.tile<32x32, f32>, #layout_6d_1x8x2> {
   // CHECK: %[[VIEW:.*]] = d2m.view_layout %arg0
   %view = d2m.view_layout %arg0 : tensor<1x4x4x2x3x6x!ttcore.tile<32x32, f32>, #layout_6d_1x4x4> -> tensor<1x8x2x1x6x6x!ttcore.tile<32x32, f32>, #layout_6d_1x8x2>

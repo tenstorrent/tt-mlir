@@ -1054,6 +1054,26 @@ def TTNN_FillCacheOp : TTNN_InplaceOp<"fill_cache"> {
   let hasVerifier = 1;
 }
 
+def TTNN_PagedFillCacheOp : TTNN_InplaceOp<"paged_fill_cache"> {
+  let summary = "Paged fill cache op.";
+  let description = [{
+    Fills the `cache` tensor in-place with values from `input` at `batch_offset`.
+  }];
+
+  let arguments = (ins Arg<AnyRankedTensor, "cache tensor", [MemWrite]>:$cache,
+                       AnyRankedTensor:$input,
+                       AnyRankedTensor:$page_table,
+                       Optional<AnyRankedTensor>:$batch_idx_tensor);
+
+  let extraClassDeclaration = [{
+    wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+      return wa::TTNNOperandsWorkaroundsFactory::createPagedFillCacheOpOperandsWorkarounds(getOperation());
+    }
+  }];
+
+  let hasVerifier = 1;
+}
+
 def TTNN_EmbeddingBackwardOp : TTNN_Op<"embedding_bw", [TTNN_DtypeOpInterface, TTNN_MemoryConfigOpInterface]> {
     let summary = "Embedding backward op.";
     let description = [{
@@ -2770,6 +2790,34 @@ def TTNN_ScaledDotProductAttentionDecodeOp : TTNN_Op<"scaled_dot_product_attenti
     let results = (outs AnyRankedTensor:$result);
 
     let hasVerifier = 1;
+}
+
+def TTNN_PagedScaledDotProductAttentionDecodeOp : TTNN_Op<"paged_scaled_dot_product_attention_decode", [TTNN_MemoryConfigOpInterface, AttrSizedOperandSegments]> {
+  let summary = "Paged scaled dot product attention decode operation.";
+  let description = [{
+    Paged scaled dot product attention decode operation.
+  }];
+
+  let arguments = (ins AnyRankedTensor:$query,
+                       AnyRankedTensor:$key,
+                       AnyRankedTensor:$value,
+                       AnyRankedTensor:$page_table,
+                       DefaultValuedAttr<BoolAttr, "true">:$is_causal,
+                       Optional<AnyRankedTensor>:$attention_mask,
+                       Optional<AnyRankedTensor>:$cur_pos_tensor,
+                       Optional<AnyRankedTensor>:$attention_sink,
+                       OptionalAttr<F32Attr>:$scale,
+                       OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let extraClassDeclaration = [{
+    wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+      return wa::TTNNOperandsWorkaroundsFactory::createPagedScaledDotProductAttentionDecodeOpOperandsWorkarounds(getOperation());
+    }
+  }];
+
+  let hasVerifier = 1;
 }
 
 def TTNN_ScaledDotProductAttentionOp : TTNN_Op<"scaled_dot_product_attention", [TTNN_MemoryConfigOpInterface]> {

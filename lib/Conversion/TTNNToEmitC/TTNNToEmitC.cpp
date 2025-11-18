@@ -724,7 +724,9 @@ public:
         emitter.getMemoryConfig(srcOp.getResult()),
         emitter.emit(srcOp.getAppliedShardScheme()),
         emitter.emit(/*compute_kernel_config=*/std::nullopt),
-        emitter.emit(srcOp.getInPlaceHalo()),
+        emitter.emit(/*deallocate_input=*/false),
+        emitter.emit(
+            !srcOp.getInPlaceHalo()), // reallocate_halo_output = !in_place_halo
     };
 
     emitter.replaceOp(*this, args);
@@ -778,7 +780,9 @@ public:
         emitter.emit(srcOp.getCeilMode()),
         emitter.getMemoryConfig(srcOp.getResult()),
         emitter.emit(srcOp.getAppliedShardScheme()),
-        emitter.emit(srcOp.getInPlaceHalo()),
+        emitter.emit(/*deallocate_input=*/false),
+        emitter.emit(
+            !srcOp.getInPlaceHalo()), // reallocate_halo_output = !in_place_halo
         /*return_indices=*/emitter.emit(false)};
 
     emitter.replaceOp(*this, args);
@@ -842,10 +846,12 @@ public:
         emitter.emit(srcOp.getCeilMode()),
         emitter.getMemoryConfig(srcOp.getResult()),
         emitter.emit(srcOp.getAppliedShardScheme()),
-        emitter.emit(srcOp.getInPlaceHalo()),
         /*deallocate_input=*/emitter.emit(false),
-        /*reallocate_halo_output=*/emitter.emit(true),
-        /*return_indices=*/emitter.emit(true)};
+        /*reallocate_halo_output=*/emitter.emit(!srcOp.getInPlaceHalo()),
+        /*return_indices=*/emitter.emit(true),
+        emitter.emit(/*dtype=*/ttcore::DataType::BFloat16),
+        emitter.emit(/*output_layout=*/mlir::tt::ttnn::Layout::
+                         RowMajor)}; // ROW_MAJOR required for return_indices
 
     // MaxPool2dWithIndicesOp returns a std::vector<ttnn::Tensor> containing two
     // elements: [0] = pooled tensor, [1] = corresponding indices. Extract both
@@ -1937,17 +1943,17 @@ private:
 //
 namespace {
 class RandOpConversionPattern
-    : public TTNNToEmitCBaseOpConversionPattern<tt::ttnn::RandOp> {
+    : public TTNNToEmitCBaseOpConversionPattern<mlir::tt::ttnn::RandOp> {
 public:
   using TTNNToEmitCBaseOpConversionPattern<
-      tt::ttnn::RandOp>::TTNNToEmitCBaseOpConversionPattern;
+      mlir::tt::ttnn::RandOp>::TTNNToEmitCBaseOpConversionPattern;
 
   LogicalResult
-  matchAndRewrite(tt::ttnn::RandOp srcOp, OpAdaptor adaptor,
+  matchAndRewrite(mlir::tt::ttnn::RandOp srcOp, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
-    ttnn_to_emitc::EmitCTTNNEmitter<tt::ttnn::RandOp> emitter(srcOp, adaptor,
-                                                              rewriter);
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::RandOp> emitter(
+        srcOp, adaptor, rewriter);
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getSize()),
@@ -2584,17 +2590,17 @@ public:
 //
 namespace {
 class SortOpConversionPattern
-    : public TTNNToEmitCBaseOpConversionPattern<tt::ttnn::SortOp> {
+    : public TTNNToEmitCBaseOpConversionPattern<mlir::tt::ttnn::SortOp> {
 public:
   using TTNNToEmitCBaseOpConversionPattern<
-      tt::ttnn::SortOp>::TTNNToEmitCBaseOpConversionPattern;
+      mlir::tt::ttnn::SortOp>::TTNNToEmitCBaseOpConversionPattern;
 
   LogicalResult
-  matchAndRewrite(tt::ttnn::SortOp srcOp, OpAdaptor adaptor,
+  matchAndRewrite(mlir::tt::ttnn::SortOp srcOp, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
-    ttnn_to_emitc::EmitCTTNNEmitter<tt::ttnn::SortOp> emitter(srcOp, adaptor,
-                                                              rewriter);
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::SortOp> emitter(
+        srcOp, adaptor, rewriter);
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput()),
@@ -2765,6 +2771,65 @@ public:
 };
 } // namespace
 
+// PagedScaledDotProductAttentionDecodeOp conversion pattern
+//
+namespace {
+class PagedScaledDotProductAttentionDecodeOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<
+          mlir::tt::ttnn::PagedScaledDotProductAttentionDecodeOp> {
+
+private:
+  std::string getPrefixSearchPattern() const override {
+    return "ttnn.paged_scaled_dot_product_attention_decode";
+  }
+  std::string getPrefixSwapPattern() const override {
+    return "ttnn::transformer::paged_scaled_dot_product_attention_decode";
+  }
+
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::PagedScaledDotProductAttentionDecodeOp>::
+      TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::PagedScaledDotProductAttentionDecodeOp srcOp,
+                  OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitc::EmitCTTNNEmitter<
+        mlir::tt::ttnn::PagedScaledDotProductAttentionDecodeOp>
+        emitter(srcOp, adaptor, rewriter);
+
+    // NOLINTBEGIN(clang-analyzer-cplusplus.NewDelete)
+    // ttnn::transformer::scaled_dot_product_attention_decode requires current
+    // position information per batch. This can either be passed as a tensor or
+    // as a uint vector. We will use the tensor argument as this is a runtime
+    // input. Since the uint vector is not wrapped in a std::optional, we must
+    // pass an empty uint vector for that argument.
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getQuery()),
+        emitter.emit(srcOp.getKey()),
+        emitter.emit(srcOp.getValue()),
+        emitter.emit(srcOp.getPageTable()),
+        emitter.emit(srcOp.getIsCausal()),
+        emitter.emit(srcOp.getAttentionMask()),
+        emitter.emit(srcOp.getCurPosTensor()),
+        emitter.emit(srcOp.getAttentionSink()),
+        emitter.emit(srcOp.getScale()),
+        emitter.emit(/*slidingWindowSize=*/std::nullopt),
+        emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
+        emitter.emit(/*program_config=*/std::nullopt),
+        emitter.emit(/*compute_kernel_config=*/std::nullopt),
+    };
+    // NOLINTEND(clang-analyzer-cplusplus.NewDelete)
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
 // ScaledDotProductAttentionOp conversion pattern
 //
 namespace {
@@ -2880,21 +2945,22 @@ public:
 //
 namespace {
 class PointToPointOpConversionPattern
-    : public TTNNToEmitCBaseOpConversionPattern<tt::ttnn::PointToPointOp> {
+    : public TTNNToEmitCBaseOpConversionPattern<
+          mlir::tt::ttnn::PointToPointOp> {
 public:
   using TTNNToEmitCBaseOpConversionPattern<
-      tt::ttnn::PointToPointOp>::TTNNToEmitCBaseOpConversionPattern;
+      mlir::tt::ttnn::PointToPointOp>::TTNNToEmitCBaseOpConversionPattern;
 
   LogicalResult
-  matchAndRewrite(tt::ttnn::PointToPointOp srcOp,
-                  tt::ttnn::PointToPointOp::Adaptor adaptor,
+  matchAndRewrite(mlir::tt::ttnn::PointToPointOp srcOp,
+                  mlir::tt::ttnn::PointToPointOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
     rewriter.create<emitc::VerbatimOp>(
         srcOp.getLoc(),
         "assert(0 && \"PointToPoint  operation is "
         "not supported in emitc yet.\"); // ::ttnn::PointToPoint");
-    ttnn_to_emitc::EmitCTTNNEmitter<tt::ttnn::PointToPointOp> emitter(
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::PointToPointOp> emitter(
         srcOp, adaptor, rewriter);
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput()),
@@ -3811,6 +3877,47 @@ public:
 };
 } // namespace
 
+namespace {
+class PagedFillCacheOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<
+          mlir::tt::ttnn::PagedFillCacheOp> {
+private:
+  std::string getPrefixSearchPattern() const override {
+    return "ttnn.paged_fill_cache";
+  }
+  std::string getPrefixSwapPattern() const override {
+    return "ttnn::experimental::paged_fill_cache";
+  }
+
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::PagedFillCacheOp>::TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::PagedFillCacheOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::PagedFillCacheOp> emitter(
+        srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getCache()),
+        emitter.emit(srcOp.getInput()),
+        emitter.emit(srcOp.getPageTable()),
+        emitter.emit(srcOp.getBatchIdxTensor()),
+        /*batch_offset*/ emitter.emit(0), // We use the tensor representation of
+                                          // this argument already, pass default
+                                          // value
+        /*compute_kernel_config*/ emitter.emit(std::nullopt),
+        /*mesh_coords*/ emitter.emit(std::nullopt),
+    };
+
+    emitter.replaceOp(*this, args);
+    return success();
+  }
+};
+} // namespace
+
 namespace mlir::tt {
 
 // ANCHOR: op_rewriter_pattern_set_emitc
@@ -3996,6 +4103,7 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   //
   patterns.add<UpdateCacheOpConversionPattern>(typeConverter, ctx);
   patterns.add<PagedUpdateCacheOpConversionPattern>(typeConverter, ctx);
+  patterns.add<PagedFillCacheOpConversionPattern>(typeConverter, ctx);
   patterns.add<DefaultOpConversionPattern<mlir::tt::ttnn::FillCacheOp>>(
       typeConverter, ctx);
 
@@ -4041,6 +4149,8 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   patterns.add<RotaryEmbeddingLlamaOpConversionPattern>(typeConverter, ctx);
   patterns.add<RotaryEmbeddingOpConversionPattern>(typeConverter, ctx);
   patterns.add<NLPConcatHeadsDecodeOpConversionPattern>(typeConverter, ctx);
+  patterns.add<PagedScaledDotProductAttentionDecodeOpConversionPattern>(
+      typeConverter, ctx);
   patterns.add<ScaledDotProductAttentionDecodeOpConversionPattern>(
       typeConverter, ctx);
   patterns.add<ScaledDotProductAttentionOpConversionPattern>(typeConverter,
