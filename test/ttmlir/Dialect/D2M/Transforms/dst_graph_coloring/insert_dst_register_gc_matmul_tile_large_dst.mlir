@@ -94,20 +94,19 @@ module {
       // Main matmul computation loops
       // CHECK: affine.for %[[I:.*]] = 0 to 3
       // CHECK-NEXT: affine.for %[[J:.*]] = 0 to 2
-      // CHECK-NEXT: affine.for %[[K:.*]] = 0 to 3
+      // CHECK-NEXT: affine.for %[[PROK:.*]] = 0 to 3
+      // CHECK: %[[INIT:.*]] = affine.load %[[MEM2]][%[[I]], %[[J]]]
+      // CHECK: affine.store %[[INIT]], %[[DST]][0, %[[I]], %[[J]]]
+      // CHECK: affine.for %[[K:.*]] = 0 to 3
       affine.for %i = 0 to 3 {
         affine.for %j = 0 to 2 {
           affine.for %k = 0 to 3 {
             // Load inputs from L1
             // CHECK: %[[A:.*]] = affine.load %[[MEM0]][%[[I]], %[[K]]]
             // CHECK: %[[B:.*]] = affine.load %[[MEM1]][%[[K]], %[[J]]]
-            // CHECK: %[[C:.*]] = affine.load %[[MEM2]][%[[I]], %[[J]]]
             %a = affine.load %mem0[%i, %k] : memref<3x3x!ttcore.tile<32x32, f32>, #l1_>
             %b = affine.load %mem1[%k, %j] : memref<3x2x!ttcore.tile<32x32, f32>, #l1_>
             %c = affine.load %mem2[%i, %j] : memref<3x2x!ttcore.tile<32x32, f32>, #l1_>
-
-            // Accumulator stored to DST before matmul
-            // CHECK: affine.store %[[C]], %[[DST]][0, %[[I]], %[[J]]]
 
             // Accumulator loaded from DST for matmul
             // CHECK: %[[C_DST:.*]] = affine.load %[[DST]][0, %[[I]], %[[J]]]
@@ -116,10 +115,11 @@ module {
 
             // Result stored back to DST, then loaded and written to L1
             // CHECK: affine.store %[[RESULT]], %[[DST]][0, %[[I]], %[[J]]]
-            // CHECK: %[[FINAL:.*]] = affine.load %[[DST]][0, %[[I]], %[[J]]]
-            // CHECK: affine.store %[[FINAL]], %[[MEM2]][%[[I]], %[[J]]]
             affine.store %result, %mem2[%i, %j] : memref<3x2x!ttcore.tile<32x32, f32>, #l1_>
           }
+          // CHECK: affine.for %[[EPIK:.*]] = 0 to 3
+          // CHECK:   %[[FINAL:.*]] = affine.load %[[DST]][0, %[[I]], %[[J]]]
+          // CHECK:   affine.store %[[FINAL]], %[[MEM2]][%[[I]], %[[J]]]
         }
       }
 
