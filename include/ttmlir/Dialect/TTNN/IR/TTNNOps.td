@@ -579,8 +579,14 @@ def TTNN_AddOp : TTNN_ElementwiseBinaryOp<"add"> {
 
     let summary = "Eltwise add.";
     let description = [{
-      Eltwise add operation.
+      Eltwise add operation. Supports tensor-tensor or tensor-scalar addition.
     }];
+
+    // Override arguments to allow rhs to be either a tensor or a scalar
+    let arguments = (ins AnyRankedTensor:$lhs,
+                         AnyTypeOf<[AnyRankedTensor, AnyFloat]>:$rhs,
+                         OptionalAttr<TTCore_DataTypeAttr>:$dtype,
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
 }
 
 def TTNN_DivideOp : TTNN_ElementwiseBinaryOp<"divide"> {

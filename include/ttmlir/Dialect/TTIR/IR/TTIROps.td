@@ -1784,7 +1784,7 @@ def TTIR_Atan2Op :  TTIR_ElementwiseBinaryOp<"atan2"> {
 def TTIR_AddOp : TTIR_ElementwiseBinaryOp<"add", [DeclareOpInterfaceMethods<TTIR_QuantizableOpInterface, ["isQuantizedRewriteFavorable", "rewriteWithQuantizedInputs"]>]> {
     let summary = "Elementwise addition operation.";
     let description = [{
-      The `add` operation performs an elementwise addition between two tensors.
+      The `add` operation performs an elementwise addition between two tensors or a tensor and a scalar.
 
       For each pair of corresponding elements, it adds the elements and places the result in the output tensor.
 
@@ -1805,12 +1805,20 @@ def TTIR_AddOp : TTIR_ElementwiseBinaryOp<"add", [DeclareOpInterfaceMethods<TTIR
       // %float_rhs: [1.5, 2.0, -3.2]
       // Output tensor:
       // [5.0, 2.0, -2.0]
+
+      // Example with scalar
+      %result = ttir.add(%tensor, %scalar, %output) : tensor<3xf32>, f32, tensor<3xf32> -> tensor<3xf32>
       ```
 
       Note: The data type of the output tensor matches the data type of the input tensors.
 
       Mathematical definition: add(x, y) = x + y
     }];
+
+    // Override arguments to allow rhs to be either a tensor or a scalar
+    let arguments = (ins AnyRankedTensor:$lhs,
+                         AnyTypeOf<[AnyRankedTensor, AnyFloat]>:$rhs,
+                         AnyRankedTensor:$output);
 }
 
 def TTIR_MultiplyOp : TTIR_ElementwiseBinaryOp<"multiply"> {

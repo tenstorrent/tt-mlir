@@ -106,6 +106,16 @@ def D2M_TileAddOp : D2M_GenericRegionComputeBinaryDstOp<"tile_add", D2M_TileComp
     let results = (outs TTCore_Tile:$result);
 }
 
+def D2M_TileAddScalarOp : D2M_GenericRegionComputeUnaryDstOp<"tile_add_scalar", D2M_TileComputeOpTraitBundle> {
+    let summary = "D2M Tile Add Scalar Op";
+    let description = [{
+        The `tile_add_scalar` operation adds a scalar value to each element in the input tile.
+    }];
+
+    let arguments = (ins TTCore_Tile:$input, F32Attr:$scalar);
+    let results = (outs TTCore_Tile:$result);
+}
+
 def D2M_TileSubOp : D2M_GenericRegionComputeBinaryDstOp<"tile_sub", D2M_TileComputeOpTraitBundle> {
     let summary = "D2M Tile Sub Op";
     let description = [{
@@ -114,6 +124,16 @@ def D2M_TileSubOp : D2M_GenericRegionComputeBinaryDstOp<"tile_sub", D2M_TileComp
 
     let arguments = (ins TTCore_Tile:$lhs,
                          TTCore_Tile:$rhs);
+    let results = (outs TTCore_Tile:$result);
+}
+
+def D2M_TileSubScalarOp : D2M_GenericRegionComputeUnaryDstOp<"tile_sub_scalar", D2M_TileComputeOpTraitBundle> {
+    let summary = "D2M Tile Subtract Scalar Op";
+    let description = [{
+        The `tile_sub_scalar` operation subtracts a scalar value from each element in the input tile.
+    }];
+
+    let arguments = (ins TTCore_Tile:$input, F32Attr:$scalar);
     let results = (outs TTCore_Tile:$result);
 }
 
@@ -128,6 +148,16 @@ def D2M_TileMulOp : D2M_GenericRegionComputeBinaryDstOp<"tile_mul", D2M_TileComp
     let results = (outs TTCore_Tile:$result);
 }
 
+def D2M_TileMulScalarOp : D2M_GenericRegionComputeUnaryDstOp<"tile_mul_scalar", D2M_TileComputeOpTraitBundle> {
+    let summary = "D2M Tile Multiply by Scalar Op";
+    let description = [{
+        The `tile_mul_scalar` operation multiplies each element in the input tile by a scalar value.
+    }];
+
+    let arguments = (ins TTCore_Tile:$input, F32Attr:$scalar);
+    let results = (outs TTCore_Tile:$result);
+}
+
 def D2M_TileDivOp : D2M_GenericRegionComputeBinaryDstOp<"tile_div", D2M_TileComputeOpTraitBundle> {
     let summary = "D2M Tile Div Op";
     let description = [{
@@ -136,6 +166,16 @@ def D2M_TileDivOp : D2M_GenericRegionComputeBinaryDstOp<"tile_div", D2M_TileComp
 
     let arguments = (ins TTCore_Tile:$lhs,
                          TTCore_Tile:$rhs);
+    let results = (outs TTCore_Tile:$result);
+}
+
+def D2M_TileDivScalarOp : D2M_GenericRegionComputeUnaryDstOp<"tile_div_scalar", D2M_TileComputeOpTraitBundle> {
+    let summary = "D2M Tile Divide by Scalar Op";
+    let description = [{
+        The `tile_div_scalar` operation divides each element in the input tile by a scalar value.
+    }];
+
+    let arguments = (ins TTCore_Tile:$input, F32Attr:$scalar);
     let results = (outs TTCore_Tile:$result);
 }
 

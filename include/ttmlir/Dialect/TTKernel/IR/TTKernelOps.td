@@ -686,6 +686,83 @@ def TTKernel_DivBinaryTilesOp : TTKernel_SFPUOp<"div_binary_tile", [TTKernel_Bin
     }];
 }
 
+def TTKernel_BinopWithScalarTileInitOp : TTKernel_InitOp<"binop_with_scalar_tile_init"> {
+    let summary = "Init function for binary operations with scalar tile operations.";
+    let description = [{
+      Must be run before binary operations with scalar like mul_unary_tile.
+    }];
+
+    let arguments = (ins);
+
+    let assemblyFormat = [{
+      `(` `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_AddUnaryTileOp : TTKernel_SFPUOp<"add_unary_tile", [TTKernel_UnaryOpTrait]> {
+    let summary = "Add by scalar operation";
+    let description = [{
+      Performs element-wise addition of a tile by a scalar value.
+      DST[dst0_index] <- DST[dst0_index] + scalar
+      The DST register buffer must be in acquired state via *tile_regs_acquire* call.
+      This call is blocking and is only available on the compute engine.
+    }];
+
+    let arguments = (ins IndexLike:$dst0_index, I32:$param);
+
+    let assemblyFormat = [{
+      `(` $dst0_index `,` $param `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_MulUnaryTileOp : TTKernel_SFPUOp<"mul_unary_tile", [TTKernel_UnaryOpTrait]> {
+    let summary = "Multiply by scalar operation";
+    let description = [{
+      Performs element-wise multiplication of a tile by a scalar value.
+      DST[dst0_index] <- DST[dst0_index] * scalar
+      The DST register buffer must be in acquired state via *tile_regs_acquire* call.
+      This call is blocking and is only available on the compute engine.
+    }];
+
+    let arguments = (ins IndexLike:$dst0_index, I32:$param);
+
+    let assemblyFormat = [{
+      `(` $dst0_index `,` $param `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_SubUnaryTileOp : TTKernel_SFPUOp<"sub_unary_tile", [TTKernel_UnaryOpTrait]> {
+    let summary = "Subtract by scalar operation";
+    let description = [{
+      Performs element-wise subtraction of a tile by a scalar value.
+      DST[dst0_index] <- DST[dst0_index] - scalar
+      The DST register buffer must be in acquired state via *tile_regs_acquire* call.
+      This call is blocking and is only available on the compute engine.
+    }];
+
+    let arguments = (ins IndexLike:$dst0_index, I32:$param);
+
+    let assemblyFormat = [{
+      `(` $dst0_index `,` $param `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_DivUnaryTileOp : TTKernel_SFPUOp<"div_unary_tile", [TTKernel_UnaryOpTrait]> {
+    let summary = "Divide by scalar operation";
+    let description = [{
+      Performs element-wise division of a tile by a scalar value.
+      DST[dst0_index] <- DST[dst0_index] / scalar
+      The DST register buffer must be in acquired state via *tile_regs_acquire* call.
+      This call is blocking and is only available on the compute engine.
+    }];
+
+    let arguments = (ins IndexLike:$dst0_index, I32:$param);
+
+    let assemblyFormat = [{
+      `(` $dst0_index `,` $param `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
 def TTKernel_RecipTileInitOp : TTKernel_InitOp<"recip_tile_init"> {
     let summary = "Init function for recip_tile operation. Refer to documentation for any init function.";
     let description = [{
