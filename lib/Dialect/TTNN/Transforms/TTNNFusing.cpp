@@ -416,11 +416,11 @@ public:
 
   void runOnOperation() final {
     RewritePatternSet patterns(&getContext());
-    // TODO(mvasiljevic): Add HardsigmoidOp once tt-metal issue is resolved
-    // https://github.com/tenstorrent/tt-metal/issues/30973
     patterns.add<
         TTNNConv2dWithActivation<ReluOp>, TTNNConv2dWithActivation<Relu6Op>,
         TTNNConv2dWithActivation<SiluOp>, TTNNConv2dWithActivation<SigmoidOp>,
+        TTNNConv2dWithActivation<HardsigmoidOp>,
+        TTNNConv2dWithActivation<MishOp>,
         TTNNMatmulAndLinearWithActivation<MatmulOp, SigmoidOp>,
         TTNNMatmulAndLinearWithActivation<LinearOp, SigmoidOp>, RoPEFusing>(
         &getContext());

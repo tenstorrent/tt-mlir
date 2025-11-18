@@ -72,4 +72,31 @@ module {
     %4 = "ttnn.reshape"(%3) <{shape = [1 : i32, 30 : i32, 30 : i32, 64 : i32]}> : (tensor<1x1x900x64xbf16, #ttnn_layout5>) -> tensor<1x30x30x64xbf16, #ttnn_layout3>
     return %4 : tensor<1x30x30x64xbf16, #ttnn_layout3>
   }
+  // Test that we can fuse conv2d -> mish into conv2d with mish activation.
+
+  // CHECK-LABEL: func.func @conv2d_with_mish
+  func.func @conv2d_with_mish(%arg0: tensor<1x1x1024x64xbf16, #ttnn_layout4>, %arg1: tensor<64x64x3x3xbf16, #ttnn_layout1>, %arg2: tensor<1x1x1x64xbf16, #ttnn_layout2>) -> tensor<1x1x900x64xbf16, #ttnn_layout5> {
+    // CHECK: "ttnn.conv2d"
+    // CHECK-SAME: activation = <op_type = mish>
+
+    %0 = "ttnn.get_device"() <{mesh_offset = #ttnn<mesh_offset 0x0>, mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
+    %1 = "ttnn.conv2d"(%arg0, %arg1, %arg2, %0)
+          <{
+            batch_size = 1 : i32,
+            dilation = array<i32: 1, 1>,
+            groups = 1 : i32,
+            in_channels = 64 : i32,
+            input_height = 32 : i32,
+            input_width = 32 : i32,
+            kernel_size = array<i32: 3, 3>,
+            out_channels = 64 : i32,
+            padding = array<i32: 0, 0>,
+            stride = array<i32: 1, 1>,
+            dtype = #ttcore.supportedDataTypes<bf16>
+          }> : (tensor<1x1x1024x64xbf16, #ttnn_layout4>, tensor<64x64x3x3xbf16, #ttnn_layout1>, tensor<1x1x1x64xbf16, #ttnn_layout2>, !ttnn.device) -> tensor<1x1x900x64xbf16, #ttnn_layout5>
+
+    // CHECK-NOT: "ttnn.mish"
+    %2 = "ttnn.mish"(%1) : (tensor<1x1x900x64xbf16, #ttnn_layout5>) -> tensor<1x1x900x64xbf16, #ttnn_layout5>
+    return %2 : tensor<1x1x900x64xbf16, #ttnn_layout5>
+  }
 }
