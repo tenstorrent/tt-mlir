@@ -276,13 +276,18 @@ static GenericOp createFusedGeneric(OpOperand *fusedOperand, GenericOp producer,
   for (auto it : llvm::enumerate(argSources)) {
     sourceToFusedIdx[it.value()] = static_cast<unsigned>(it.index());
   }
+
+  // Map consumer args to fused args
   auto mapConsRegionArgs = [&](Operation *op, Block &orig) {
     for (unsigned i = 0; i < op->getNumOperands(); ++i) {
       unsigned fusedIndex = sourceToFusedIdx[{op, i}];
       irMap.map(orig.getArgument(i), fusedBlock.getArgument(fusedIndex));
     }
   };
+
+  // Map all of producer's args to the ones in the fused op
   auto mapProdRegionArgs = [&](Operation *op, Block &orig) {
+    // Map all input args and skip mapping the output arg
     GenericOp prodGeneric = llvm::dyn_cast<GenericOp>(op);
     unsigned prodInitArgNum = prodGeneric.getDpsInitOperand(0)->getOperandNumber();
     for (unsigned i = 0; i < op->getNumOperands(); ++i) {
@@ -291,15 +296,17 @@ static GenericOp createFusedGeneric(OpOperand *fusedOperand, GenericOp producer,
         irMap.map(orig.getArgument(i), fusedBlock.getArgument(fusedIndex));
       }
     }
+
     // The producer's init block argument (output) is not part of the fused
     // operands, but we need to ensure it's mapped so that any operations in the
     // producer that reference it can be cloned properly. Map it to the consumer's
-    // first output block argument, since that's where the fused result will go.
+    // first output block argument, since that's where the fused result/intermediate will go.
     unsigned consumerFirstOutputArgNum = 
         consumer.getDpsInitOperand(0)->getOperandNumber();
     unsigned consumerOutputFusedIdx = sourceToFusedIdx[{consumer.getOperation(), consumerFirstOutputArgNum}];
     irMap.map(orig.getArgument(prodInitArgNum), fusedBlock.getArgument(consumerOutputFusedIdx));
   };
+
   mapProdRegionArgs(producer.getOperation(), pb);
   mapConsRegionArgs(consumer.getOperation(), cb);
 
@@ -331,6 +338,7 @@ static GenericOp createFusedGeneric(OpOperand *fusedOperand, GenericOp producer,
 
   int prodResultNumber = cast<OpResult>(fusedOperand->get()).getResultNumber();
   Value prodYieldOperand = prodYield.getOperand(prodResultNumber);
+  
   // Now that all producer block arguments (including init) are properly mapped,
   // we can safely look up the yielded value. It should either be a mapped
   // operation result or a mapped block argument.
@@ -392,12 +400,14 @@ static GenericOp createFusedGeneric(OpOperand *fusedOperand, GenericOp producer,
         irMap.map(reserveOp.getResult(), clonedResult);
         continue;
       }
+
       // If reserve is on a non-block-argument CB (intermediate), check if it's mapped
       Value cbOperand = irMap.lookupOrDefault(originalCB);
       if (cbOperand && !mlir::isa<BlockArgument>(cbOperand)) {
         irMap.map(reserveOp.getResult(), cbOperand);
         continue;
       }
+      
       // Otherwise clone it normally
       rewriter.clone(op, irMap);
       continue;
