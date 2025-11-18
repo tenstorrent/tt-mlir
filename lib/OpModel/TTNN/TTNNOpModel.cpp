@@ -5090,8 +5090,8 @@ llvm::Expected<OpConstraints> OpModel<MaxPool2dOp>::getOpConstraints(
             padding),
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(dilation),
         ceilMode, detail::getNullableMemoryConfig(outputLayout),
-        std::nullopt /* applied_shard_scheme */, inPlaceHalo,
-        false /* return_indices */);
+        std::nullopt /* applied_shard_scheme */, false /* deallocate_input */,
+        !inPlaceHalo /* reallocate_halo_output */, false /* return_indices */);
   };
 
   return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
@@ -5138,7 +5138,8 @@ llvm::Expected<size_t> OpModel<MaxPool2dOp>::getOpRuntime(
             padding),
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(dilation),
         ceilMode, detail::getNullableMemoryConfig(outputLayout),
-        std::nullopt /* applied_shard_scheme */, inPlaceHalo);
+        std::nullopt /* applied_shard_scheme */, false /* deallocate_input */,
+        !inPlaceHalo /* reallocate_halo_output */, false /* return_indices */);
   };
 
   return operation::getOpRuntime(maxPool2DQuery);
@@ -5180,6 +5181,10 @@ llvm::Expected<OpConstraints> OpModel<MaxPool2dWithIndicesOp>::getOpConstraints(
   ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
 
   // Create query closure
+  // Note: inPlaceHalo is deprecated but mapped to reallocateHaloOutput for
+  // backward compatibility: reallocateHaloOutput = !inPlaceHalo
+  bool effectiveReallocateHaloOutput = reallocateHaloOutput && !inPlaceHalo;
+  // When return_indices=true, tt-metal requires ROW_MAJOR layout and BFLOAT16
   auto maxPool2DWithIndicesQuery = [=]() {
     return ::ttnn::graph::query_op_constraints(
         ::ttnn::max_pool2d, device, inputSpec, batchSizeU, inputHeightU,
@@ -5190,8 +5195,9 @@ llvm::Expected<OpConstraints> OpModel<MaxPool2dWithIndicesOp>::getOpConstraints(
             padding),
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(dilation),
         ceilMode, detail::getNullableMemoryConfig(outputLayout),
-        std::nullopt /* applied_shard_scheme */, inPlaceHalo, deallocateInput,
-        reallocateHaloOutput, returnIndices);
+        std::nullopt /* applied_shard_scheme */, deallocateInput,
+        effectiveReallocateHaloOutput, returnIndices,
+        ::ttnn::DataType::BFLOAT16, ::ttnn::Layout::ROW_MAJOR);
   };
 
   return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
@@ -5229,6 +5235,10 @@ llvm::Expected<size_t> OpModel<MaxPool2dWithIndicesOp>::getOpRuntime(
   ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
 
   // Create query closure
+  // Note: inPlaceHalo is deprecated but mapped to reallocateHaloOutput for
+  // backward compatibility: reallocateHaloOutput = !inPlaceHalo
+  bool effectiveReallocateHaloOutput = reallocateHaloOutput && !inPlaceHalo;
+  // When return_indices=true, tt-metal requires ROW_MAJOR layout and BFLOAT16
   auto maxPool2DWithIndicesQuery = [=]() {
     return ::ttnn::graph::query_op_runtime(
         ::ttnn::max_pool2d, device, inputSpec, batchSizeU, inputHeightU,
@@ -5239,8 +5249,9 @@ llvm::Expected<size_t> OpModel<MaxPool2dWithIndicesOp>::getOpRuntime(
             padding),
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(dilation),
         ceilMode, detail::getNullableMemoryConfig(outputLayout),
-        std::nullopt /* applied_shard_scheme */, inPlaceHalo, deallocateInput,
-        reallocateHaloOutput, returnIndices);
+        std::nullopt /* applied_shard_scheme */, deallocateInput,
+        effectiveReallocateHaloOutput, returnIndices,
+        ::ttnn::DataType::BFLOAT16, ::ttnn::Layout::ROW_MAJOR);
   };
 
   return operation::getOpRuntime(maxPool2DWithIndicesQuery);
@@ -5285,6 +5296,7 @@ llvm::Expected<OpConstraints> OpModel<AvgPool2dOp>::getOpConstraints(
   std::optional<int32_t> divisorOverride = std::nullopt;
   std::optional<::ttnn::DeviceComputeKernelConfig> computeKernelConfig =
       std::nullopt;
+
   // Create query closure
   auto avgPool2DQuery = [=]() {
     return ::ttnn::graph::query_op_constraints(
@@ -5297,7 +5309,8 @@ llvm::Expected<OpConstraints> OpModel<AvgPool2dOp>::getOpConstraints(
         ceilMode, countIncludePad, divisorOverride,
         detail::getNullableMemoryConfig(outputLayout),
         std::nullopt /* applied_shard_scheme */, computeKernelConfig,
-        inPlaceHalo);
+        false /* deallocate_input */,
+        !inPlaceHalo /* reallocate_halo_output */);
   };
 
   return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
@@ -5352,7 +5365,8 @@ llvm::Expected<size_t> OpModel<AvgPool2dOp>::getOpRuntime(
         ceilMode, countIncludePad, divisorOverride,
         detail::getNullableMemoryConfig(outputLayout),
         std::nullopt /* applied_shard_scheme */, computeKernelConfig,
-        inPlaceHalo);
+        false /* deallocate_input */,
+        !inPlaceHalo /* reallocate_halo_output */);
   };
 
   return operation::getOpRuntime(avgPool2DQuery);
