@@ -390,52 +390,63 @@ private:
         std::is_same_v<ConcreteOp, ttir::SubtractOp> ||
         std::is_same_v<ConcreteOp, ttir::DivOp>;
 
-    // Check for scalar operands (rank 0 tensors) by checking original operand
+    // Check for scalar operands (rank 0 tensors) by checking converted operand
     // types
     std::optional<FloatAttr> scalarAttr = std::nullopt;
     SmallVector<Value> tensorInputs;
-
-    // Get DPS input operands from the original op to check their types
-    auto dpsInputOperands =
-        op->getOperands().drop_back(op.getDpsInits().size());
-    size_t inputIndex = 0;
+    SmallVector<Operation *> scalarOpsToErase;
 
     for (Value origInput : origInputs) {
-      // Check the original operand's type for rank
-      Value origOpInput = dpsInputOperands[inputIndex++];
-      auto tensorType =
-          mlir::dyn_cast<mlir::RankedTensorType>(origOpInput.getType());
+      // Check the converted operand's type for rank (from adaptor)
+      auto convertedTensorType =
+          mlir::dyn_cast<mlir::RankedTensorType>(origInput.getType());
 
       // Check if this is a scalar tensor (rank 0)
-      if (tensorType && tensorType.getRank() == 0) {
+      if (convertedTensorType && convertedTensorType.getRank() == 0) {
         if constexpr (!supportsScalar) {
           return rewriter.notifyMatchFailure(
               op, "Scalar operands only supported for add, multiply, subtract, "
                   "and div ops");
         }
 
-        // Extract the scalar constant value from the original op input
-        auto definingOp = origOpInput.getDefiningOp();
+        // Extract the scalar constant value from the converted operand
+        auto *convertedDefiningOp = origInput.getDefiningOp();
 
-        // Handle ttir.constant
+        // Handle d2m.full (already converted)
+        if (auto d2mFullOp =
+                mlir::dyn_cast_or_null<d2m::FullOp>(convertedDefiningOp)) {
+          if (auto floatAttr =
+                  mlir::dyn_cast<FloatAttr>(d2mFullOp.getFillValueAttr())) {
+            scalarAttr = floatAttr;
+            // Track the d2m.full op for erasure
+            scalarOpsToErase.push_back(d2mFullOp);
+            continue; // Skip adding this to tensorInputs
+          }
+        }
+
+        // Handle ttir.constant (not yet converted - shouldn't happen in
+        // adaptor)
         if (auto constantOp =
-                mlir::dyn_cast_or_null<ttir::ConstantOp>(definingOp)) {
+                mlir::dyn_cast_or_null<ttir::ConstantOp>(convertedDefiningOp)) {
           auto denseAttr =
               mlir::dyn_cast<mlir::DenseElementsAttr>(constantOp.getValue());
           if (denseAttr && denseAttr.isSplat()) {
             auto splatAttr = denseAttr.getSplatValue<Attribute>();
             if (auto floatAttr = mlir::dyn_cast<FloatAttr>(splatAttr)) {
               scalarAttr = floatAttr;
+              scalarOpsToErase.push_back(constantOp);
               continue; // Skip adding this to tensorInputs
             }
           }
         }
 
-        // Handle ttir.full
-        if (auto fullOp = mlir::dyn_cast_or_null<ttir::FullOp>(definingOp)) {
+        // Handle ttir.full (not yet converted - shouldn't happen in adaptor)
+        if (auto fullOp =
+                mlir::dyn_cast_or_null<ttir::FullOp>(convertedDefiningOp)) {
           if (auto floatAttr =
                   mlir::dyn_cast<FloatAttr>(fullOp.getFillValueAttr())) {
             scalarAttr = floatAttr;
+            scalarOpsToErase.push_back(fullOp);
             continue; // Skip adding this to tensorInputs
           }
         }
@@ -512,6 +523,13 @@ private:
 
     rewriter.replaceOp(op, unLayoutResult(rewriter, generic->getResult(0),
                                           op->getResult(0).getType()));
+
+    // Erase scalar-producing ops that are no longer used
+    // We didn't add them to the generic op inputs, so they should be unused now
+    for (Operation *opToErase : scalarOpsToErase) {
+      rewriter.eraseOp(opToErase);
+    }
+
     return llvm::success();
   }
 
