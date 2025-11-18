@@ -4914,6 +4914,43 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
         """
         return self._op_proxy(ttir.SiluOp, [in0], unit_attrs)
 
+    def mish(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
+        """
+        Creates ``ttir.mish``.
+
+        *Elementwise Mish activation operation.*
+
+        Applies the Mish activation function element-wise to the input tensor.
+        Mish is a smooth, self-regularized, non-monotonic activation function defined as:
+        mish(x) = x * tanh(softplus(x)) = x * tanh(ln(1 + e^x))
+
+        This activation function has been shown to improve performance in deep learning
+        applications, particularly in computer vision tasks, by providing smooth gradients
+        and better information flow.
+
+        .. code-block:: mlir
+
+            // Apply Mish activation to all elements
+            %result = ttir.mish(%input, %output) : tensor<4xf32>, tensor<4xf32> -> tensor<4xf32>
+            // Input tensor:
+            // [-2.0, -1.0, 0.0, 1.0]
+            // Output tensor:
+            // [-0.252, -0.303, 0.0, 0.865]
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor
+        unit_attrs : *Optional[List[str]]*, optional
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpView*)
+            A tensor containing the Mish activation values of each element in the input tensor
+        """
+        return self._op_proxy(ttir.MishOp, [in0], unit_attrs)
+
     def relu6(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
         """
         Creates ``ttir.relu6``.
