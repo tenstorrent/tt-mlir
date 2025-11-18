@@ -37,6 +37,23 @@ namespace mlir::tt::ttnn::op_model {
 #ifdef TTMLIR_ENABLE_OPMODEL
 namespace operation {
 
+/// RAII helper to preserve and restore the program cache state.
+struct ProgramCacheState {
+  ::tt::tt_metal::distributed::MeshDevice *device_ = nullptr;
+  bool was_enabled_ = false;
+
+  ProgramCacheState(::tt::tt_metal::distributed::MeshDevice *device)
+      : device_(device) {
+    was_enabled_ = device_->get_program_cache().is_enabled();
+  }
+
+  ~ProgramCacheState() {
+    if (was_enabled_) {
+      device_->enable_program_cache();
+    }
+  }
+};
+
 /**
  * @brief Executes a constraint query and validates the response.
  *
@@ -52,6 +69,9 @@ llvm::Expected<::ttnn::graph::ConstraintQueryResponse>
 executeConstraintQuery(Callable &callable) {
   ::ttnn::graph::ConstraintQueryResponse query;
   try {
+    auto *device = SingletonDeviceContext::getInstance().getDevice();
+    ProgramCacheState pcState(device);
+    device->disable_and_clear_program_cache();
     query = callable();
   } catch (const std::exception &e) {
     // We expect that query will handle exceptions and set error message. If
