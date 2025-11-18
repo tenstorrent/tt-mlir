@@ -14,6 +14,7 @@
 #include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/Affine/ViewLikeInterfaceUtils.h"
+#include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
@@ -24,6 +25,7 @@
 #include "mlir/IR/Value.h"
 #include "mlir/Transforms/DialectConversion.h"
 
+#include <cstring>
 #include <type_traits>
 #include <utility>
 
@@ -386,6 +388,12 @@ using ComputeOpMap = OpMap<
   std::pair<d2m::TilePowOp,         std::pair<ttkernel::PowBinaryTilesInitOp,      ttkernel::PowBinaryTilesOp>>,
   std::pair<d2m::TileSubOp,         std::pair<ttkernel::SubBinaryTilesInitOp,      ttkernel::SubBinaryTilesOp>>,
 
+  // Elementwise SFPU Unary with Scalar.
+  std::pair<d2m::TileAddScalarOp,   std::pair<ttkernel::BinopWithScalarTileInitOp, ttkernel::AddUnaryTileOp>>,
+  std::pair<d2m::TileSubScalarOp,   std::pair<ttkernel::BinopWithScalarTileInitOp, ttkernel::SubUnaryTileOp>>,
+  std::pair<d2m::TileMulScalarOp,   std::pair<ttkernel::BinopWithScalarTileInitOp, ttkernel::MulUnaryTileOp>>,
+  std::pair<d2m::TileDivScalarOp,   std::pair<ttkernel::BinopWithScalarTileInitOp, ttkernel::DivUnaryTileOp>>,
+
   // Reductions FPU
   std::pair<d2m::TileReduceSumOp,   std::pair<ttkernel::ComputeKernelHWStartupOp, ttkernel::ReduceTileOp>>,
   std::pair<d2m::TileReduceMaxOp,   std::pair<ttkernel::ComputeKernelHWStartupOp, ttkernel::ReduceTileOp>>
@@ -696,11 +704,24 @@ public:
           mlir::cast<ttcore::TileType>(op.getResult().getType()).getDataType();
       rewriter.create<ttkernel::TypecastTileOp>(
           op->getLoc(), adaptor.getInput(), inDtype, outDtype);
+    } else if constexpr (std::is_same_v<ConcreteOp, d2m::TileAddScalarOp> ||
+                         std::is_same_v<ConcreteOp, d2m::TileSubScalarOp> ||
+                         std::is_same_v<ConcreteOp, d2m::TileMulScalarOp> ||
+                         std::is_same_v<ConcreteOp, d2m::TileDivScalarOp>) {
+      // Scalar attribute ops - convert F32Attr to i32 param
+      const auto dstIdx = adaptor.getInput();
+      llvm::APFloat scalarVal = op.getScalar();
+      float floatVal = scalarVal.convertToFloat();
+      uint32_t bits;
+      std::memcpy(&bits, &floatVal, sizeof(float));
+      auto scalarParam = i32(rewriter, op->getLoc(), bits);
+      rewriter.create<SFPUOp>(op->getLoc(), dstIdx, scalarParam);
     } else if constexpr (arity == 1) {
       rewriter.create<SFPUOp>(op->getLoc(), adaptor.getInput());
     } else if constexpr (std::is_same_v<SFPUOp, ttkernel::MaxTilesOp>) {
       rewriter.create<SFPUOp>(op->getLoc(), adaptor.getLhs(), adaptor.getRhs());
-    } else {
+    } else if constexpr (arity == 2) {
+      // Regular tile-tile binary operation
       OpBuilder::InsertionGuard guard(rewriter);
       const auto dstIdx = getDstIdxFromResult(op.getResult());
       setInsertionPointAfterOperands(
@@ -1545,6 +1566,12 @@ void populateD2MToTTKernelPatterns(
                ttkernel::D2MSFPUOpsRewriter<d2m::TileMulOp>,
                ttkernel::D2MSFPUOpsRewriter<d2m::TilePowOp>,
                ttkernel::D2MSFPUOpsRewriter<d2m::TileSubOp>,
+
+               // Elementwise SFPU Unary with Scalar.
+               ttkernel::D2MSFPUOpsRewriter<d2m::TileAddScalarOp>,
+               ttkernel::D2MSFPUOpsRewriter<d2m::TileSubScalarOp>,
+               ttkernel::D2MSFPUOpsRewriter<d2m::TileMulScalarOp>,
+               ttkernel::D2MSFPUOpsRewriter<d2m::TileDivScalarOp>,
 
                ttkernel::D2MTilizeUntilizeRewriter<d2m::TileTilizeBlockOp, ttkernel::ExperimentalTilizeBlockOp>,
                ttkernel::D2MTilizeUntilizeRewriter<d2m::TileUntilizeBlockOp, ttkernel::ExperimentalUntilizeBlockOp>,

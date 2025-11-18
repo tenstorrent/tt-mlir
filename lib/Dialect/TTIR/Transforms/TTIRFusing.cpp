@@ -127,11 +127,16 @@ private:
     auto rhs = srcOp.getRhs();
     auto lhsConvOp = lhs.getDefiningOp<ConvOpType>();
     auto rhsConvOp = rhs.getDefiningOp<ConvOpType>();
-    if (auto fusableBias = isFusable(lhsConvOp, rhs)) {
-      return std::make_pair(lhsConvOp, *fusableBias);
+    // Check if operands are tensors (bias fusion requires tensor operands)
+    if (auto rhsTensor = mlir::dyn_cast<TypedValue<RankedTensorType>>(rhs)) {
+      if (auto fusableBias = isFusable(lhsConvOp, rhsTensor)) {
+        return std::make_pair(lhsConvOp, *fusableBias);
+      }
     }
-    if (auto fusableBias = isFusable(rhsConvOp, lhs)) {
-      return std::make_pair(rhsConvOp, *fusableBias);
+    if (auto lhsTensor = mlir::dyn_cast<TypedValue<RankedTensorType>>(lhs)) {
+      if (auto fusableBias = isFusable(rhsConvOp, lhsTensor)) {
+        return std::make_pair(rhsConvOp, *fusableBias);
+      }
     }
     return std::nullopt;
   }
@@ -524,9 +529,9 @@ public:
     // Check if one operand is constant 3 and the other is the input
     TypedValue<RankedTensorType> input;
     if (isFullOpWithValue(addOp.getRhs(), 3)) {
-      input = addOp.getLhs();
+      input = mlir::cast<TypedValue<RankedTensorType>>(addOp.getLhs());
     } else if (isFullOpWithValue(addOp.getLhs(), 3)) {
-      input = addOp.getRhs();
+      input = mlir::cast<TypedValue<RankedTensorType>>(addOp.getRhs());
     } else {
       return mlir::failure();
     }
@@ -1353,9 +1358,10 @@ public:
   matchAndRewrite(AddOp addOp, mlir::PatternRewriter &rewriter) const final {
     // Matmul -> Add pattern.
     if (MatmulOp matmulOp = getFusableMatmulOp(addOp); matmulOp) {
-      TypedValue<RankedTensorType> bias = addOp.getLhs() == matmulOp.getResult()
-                                              ? addOp.getRhs()
-                                              : addOp.getLhs();
+      TypedValue<RankedTensorType> bias =
+          mlir::cast<TypedValue<RankedTensorType>>(
+              addOp.getLhs() == matmulOp.getResult() ? addOp.getRhs()
+                                                     : addOp.getLhs());
       Value matmulOpA = matmulOp.getA();
       Value matmulOpB = matmulOp.getB();
       LinearOp linearOp = ttir::utils::createDPSOp<ttir::LinearOp>(
@@ -1371,8 +1377,9 @@ public:
       ReshapeOp reshapeOp =
           mlir::dyn_cast<ReshapeOp>(*matmulOp.getResult().getUsers().begin());
       TypedValue<RankedTensorType> bias =
-          (addOp.getLhs() == reshapeOp.getResult()) ? addOp.getRhs()
-                                                    : addOp.getLhs();
+          mlir::cast<TypedValue<RankedTensorType>>(
+              (addOp.getLhs() == reshapeOp.getResult()) ? addOp.getRhs()
+                                                        : addOp.getLhs());
       auto biasType = bias.getType();
       llvm::ArrayRef<int64_t> addOpShape =
           addOp.getResult().getType().getShape();
@@ -1458,7 +1465,9 @@ private:
     // is broadcastable with the matmul output shape. Check that expected new
     // linear shape volume matches the add output shape volume.
     TypedValue<RankedTensorType> bias =
-        (validMatmulOp == matmulOnReshapeLHS) ? addOp.getRhs() : addOp.getLhs();
+        mlir::cast<TypedValue<RankedTensorType>>(
+            (validMatmulOp == matmulOnReshapeLHS) ? addOp.getRhs()
+                                                  : addOp.getLhs());
     if (!bias.hasOneUse()) {
       return nullptr;
     }
@@ -1492,7 +1501,8 @@ private:
       return nullptr;
     }
     TypedValue<RankedTensorType> bias =
-        (validMatmulOp == matmulOpLHS) ? addOp.getRhs() : addOp.getLhs();
+        mlir::cast<TypedValue<RankedTensorType>>(
+            (validMatmulOp == matmulOpLHS) ? addOp.getRhs() : addOp.getLhs());
     if (!bias.hasOneUse()) {
       return nullptr;
     }

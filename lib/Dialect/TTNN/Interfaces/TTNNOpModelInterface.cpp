@@ -133,8 +133,17 @@ getBinaryOpConstraints(OpT op, const std::vector<TTNNLayoutAttr> &inputs,
                        const OpConfig &opConfig) {
   assert(inputs.size() == 2);
 
-  const auto inputShapeA = op.getLhs().getType().getShape();
-  const auto inputShapeB = op.getRhs().getType().getShape();
+  const auto inputShapeA =
+      mlir::cast<RankedTensorType>(op.getLhs().getType()).getShape();
+  // Handle scalar rhs (for operations that support tensor-scalar operations)
+  llvm::ArrayRef<int64_t> inputShapeB;
+  if (auto rhsTensorType =
+          mlir::dyn_cast<RankedTensorType>(op.getRhs().getType())) {
+    inputShapeB = rhsTensorType.getShape();
+  } else {
+    // Scalar operand - use empty shape
+    inputShapeB = llvm::ArrayRef<int64_t>();
+  }
 
   llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(op.getOperation());
   if (!check) {
@@ -154,8 +163,17 @@ getBinaryOpRuntime(OpT op, const std::vector<TTNNLayoutAttr> &inputs,
                    const OpConfig &opConfig) {
   assert(inputs.size() == 2);
 
-  const auto inputShapeA = op.getLhs().getType().getShape();
-  const auto inputShapeB = op.getRhs().getType().getShape();
+  const auto inputShapeA =
+      mlir::cast<RankedTensorType>(op.getLhs().getType()).getShape();
+  // Handle scalar rhs (for operations that support tensor-scalar operations)
+  llvm::ArrayRef<int64_t> inputShapeB;
+  if (auto rhsTensorType =
+          mlir::dyn_cast<RankedTensorType>(op.getRhs().getType())) {
+    inputShapeB = rhsTensorType.getShape();
+  } else {
+    // Scalar operand - use empty shape
+    inputShapeB = llvm::ArrayRef<int64_t>();
+  }
 
   return opRuntimeCache().getOrCompute(op_model::OpModel<OpT>::getOpRuntime, op,
                                        inputShapeA, inputs[0], inputShapeB,

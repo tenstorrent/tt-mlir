@@ -20,6 +20,7 @@
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 
+#include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Utils/StructuredOpsUtils.h"
 #include "mlir/IR/AffineExpr.h"
@@ -333,21 +334,42 @@ private:
       std::is_same_v<TileOp, d2m::TileLtzOp> ||
       std::is_same_v<TileOp, d2m::TileLezOp>;
 
-  void createComputeRegion(mlir::OpBuilder &bbBuilder, mlir::Location bbLoc,
-                           mlir::ValueRange bbArgs,
-                           mlir::ConversionPatternRewriter &rewriter,
-                           mlir::Location loc, const size_t numInputs,
-                           const size_t numOutputs) const {
-    mlir::ValueRange operands = bbArgs.take_front(numInputs);
+  void createComputeRegion(
+      mlir::OpBuilder &bbBuilder, mlir::Location bbLoc, mlir::ValueRange bbArgs,
+      mlir::ConversionPatternRewriter &rewriter, mlir::Location loc,
+      const size_t numTensorInputs, const size_t numOutputs,
+      std::optional<FloatAttr> scalarAttr = std::nullopt) const {
+    mlir::ValueRange operands = bbArgs.take_front(numTensorInputs);
     mlir::TypeRange resultTypes = bbArgs.take_back(numOutputs);
 
     mlir::Value yield;
-    if constexpr (isComparisonOp) {
-      // For comparison ops, first subtract then compare with zero.
-      yield = bbBuilder.create<d2m::TileSubOp>(loc, resultTypes, operands);
-      yield = bbBuilder.create<TileOp>(loc, resultTypes, yield);
+    if (scalarAttr.has_value()) {
+      // Use scalar version of the op
+      if constexpr (std::is_same_v<TileOp, d2m::TileAddOp>) {
+        yield = bbBuilder.create<d2m::TileAddScalarOp>(
+            loc, resultTypes[0], operands[0], scalarAttr.value());
+      } else if constexpr (std::is_same_v<TileOp, d2m::TileSubOp>) {
+        yield = bbBuilder.create<d2m::TileSubScalarOp>(
+            loc, resultTypes[0], operands[0], scalarAttr.value());
+      } else if constexpr (std::is_same_v<TileOp, d2m::TileMulOp>) {
+        yield = bbBuilder.create<d2m::TileMulScalarOp>(
+            loc, resultTypes[0], operands[0], scalarAttr.value());
+      } else if constexpr (std::is_same_v<TileOp, d2m::TileDivOp>) {
+        yield = bbBuilder.create<d2m::TileDivScalarOp>(
+            loc, resultTypes[0], operands[0], scalarAttr.value());
+      } else {
+        llvm_unreachable(
+            "Scalar operations only supported for add, sub, mul, div");
+      }
     } else {
-      yield = bbBuilder.create<TileOp>(loc, resultTypes, operands);
+      // Use regular tensor-tensor op
+      if constexpr (isComparisonOp) {
+        // For comparison ops, first subtract then compare with zero.
+        yield = bbBuilder.create<d2m::TileSubOp>(loc, resultTypes, operands);
+        yield = bbBuilder.create<TileOp>(loc, resultTypes, yield);
+      } else {
+        yield = bbBuilder.create<TileOp>(loc, resultTypes, operands);
+      }
     }
 
     bbBuilder.create<mlir::linalg::YieldOp>(bbLoc, yield);
@@ -360,13 +382,79 @@ private:
 
     auto [origInputs, origOutputs] =
         splitDpsSignature(adaptor, op.getDpsInits().size());
+
+    // Check if this op supports scalar operands (only add, mul, sub, div)
+    constexpr bool supportsScalar =
+        std::is_same_v<ConcreteOp, ttir::AddOp> ||
+        std::is_same_v<ConcreteOp, ttir::MultiplyOp> ||
+        std::is_same_v<ConcreteOp, ttir::SubtractOp> ||
+        std::is_same_v<ConcreteOp, ttir::DivOp>;
+
+    // Check for scalar operands (rank 0 tensors) by checking original operand
+    // types
+    std::optional<FloatAttr> scalarAttr = std::nullopt;
+    SmallVector<Value> tensorInputs;
+
+    // Get DPS input operands from the original op to check their types
+    auto dpsInputOperands =
+        op->getOperands().drop_back(op.getDpsInits().size());
+    size_t inputIndex = 0;
+
+    for (Value origInput : origInputs) {
+      // Check the original operand's type for rank
+      Value origOpInput = dpsInputOperands[inputIndex++];
+      auto tensorType =
+          mlir::dyn_cast<mlir::RankedTensorType>(origOpInput.getType());
+
+      // Check if this is a scalar tensor (rank 0)
+      if (tensorType && tensorType.getRank() == 0) {
+        if constexpr (!supportsScalar) {
+          return rewriter.notifyMatchFailure(
+              op, "Scalar operands only supported for add, multiply, subtract, "
+                  "and div ops");
+        }
+
+        // Extract the scalar constant value from the original op input
+        auto definingOp = origOpInput.getDefiningOp();
+
+        // Handle ttir.constant
+        if (auto constantOp =
+                mlir::dyn_cast_or_null<ttir::ConstantOp>(definingOp)) {
+          auto denseAttr =
+              mlir::dyn_cast<mlir::DenseElementsAttr>(constantOp.getValue());
+          if (denseAttr && denseAttr.isSplat()) {
+            auto splatAttr = denseAttr.getSplatValue<Attribute>();
+            if (auto floatAttr = mlir::dyn_cast<FloatAttr>(splatAttr)) {
+              scalarAttr = floatAttr;
+              continue; // Skip adding this to tensorInputs
+            }
+          }
+        }
+
+        // Handle ttir.full
+        if (auto fullOp = mlir::dyn_cast_or_null<ttir::FullOp>(definingOp)) {
+          if (auto floatAttr =
+                  mlir::dyn_cast<FloatAttr>(fullOp.getFillValueAttr())) {
+            scalarAttr = floatAttr;
+            continue; // Skip adding this to tensorInputs
+          }
+        }
+
+        return rewriter.notifyMatchFailure(
+            op, "Scalar tensor operand must be a float constant or full op");
+      }
+
+      tensorInputs.push_back(origInput);
+    }
+
+    // Apply layout conversion only to tensor operands
     auto [inputs, outputs] =
-        toLayoutOperandsAndResults(rewriter, {origInputs, origOutputs},
+        toLayoutOperandsAndResults(rewriter, {tensorInputs, origOutputs},
                                    /*tiled*/ true);
-    const std::size_t numInputs = inputs.size();
+
+    const std::size_t numTensorInputs = inputs.size();
     const std::size_t numOutputs = outputs.size();
-    const std::size_t numOperands = (numInputs + numOutputs);
-    assert(numOperands == op->getNumOperands());
+    const std::size_t numOperands = (numTensorInputs + numOutputs);
 
     const std::size_t physicalRank =
         ttcore::getDeviceLayout(outputs[0]).getRank() / 2;
@@ -376,7 +464,8 @@ private:
     SmallVector<mlir::Attribute> iteratorTypes =
         getIteratorTypesArray(rewriter, physicalRank);
 
-    // Create 'd2m.generic' accepting 'op's operands.
+    // Create 'd2m.generic' accepting tensor operands only (scalars handled
+    // inside).
     auto generic = rewriter.create<d2m::GenericOp>(
         loc, inputs, outputs, rewriter.getAffineMapArrayAttr(indexingMaps),
         rewriter.getArrayAttr(iteratorTypes));
@@ -406,13 +495,13 @@ private:
             /* result tensor types */
             llvm::to_vector(
                 mlir::ValueRange(blockArgs.take_back(numOutputs)).getTypes()),
-            /* inputs */ blockArgs.take_front(numInputs),
+            /* inputs */ blockArgs.take_front(numTensorInputs),
             /* outputs */ blockArgs.take_back(numOutputs), linalgIndexingMaps,
             linalgIteratorTypes,
             [&](mlir::OpBuilder &bbBuilder, mlir::Location bbLoc,
                 mlir::ValueRange bbArgs) {
               createComputeRegion(bbBuilder, bbLoc, bbArgs, rewriter, loc,
-                                  numInputs, numOutputs);
+                                  numTensorInputs, numOutputs, scalarAttr);
             });
 
         rewriter.create<d2m::YieldOp>(loc, linalgGeneric->getResults());

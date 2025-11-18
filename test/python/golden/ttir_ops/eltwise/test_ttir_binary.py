@@ -522,6 +522,97 @@ def test_unaligned_shapes_add(
     )
 
 
+# Scalar binary ops
+def add_scalar(
+    in0: Operand,
+    scalar_value: float,
+    builder: TTIRBuilder,
+    unit_attrs: Optional[List[str]] = None,
+):
+    """Add a scalar value to a tensor"""
+    scalar = builder.constant(torch.tensor(scalar_value))
+    return builder.add(in0, scalar, unit_attrs=unit_attrs)
+
+
+def multiply_scalar(
+    in0: Operand,
+    scalar_value: float,
+    builder: TTIRBuilder,
+    unit_attrs: Optional[List[str]] = None,
+):
+    """Multiply a tensor by a scalar value"""
+    scalar = builder.constant(torch.tensor(scalar_value))
+    return builder.multiply(in0, scalar, unit_attrs=unit_attrs)
+
+
+def subtract_scalar(
+    in0: Operand,
+    scalar_value: float,
+    builder: TTIRBuilder,
+    unit_attrs: Optional[List[str]] = None,
+):
+    """Subtract a scalar value from a tensor"""
+    scalar = builder.constant(torch.tensor(scalar_value))
+    return builder.subtract(in0, scalar, unit_attrs=unit_attrs)
+
+
+def div_scalar(
+    in0: Operand,
+    scalar_value: float,
+    builder: TTIRBuilder,
+    unit_attrs: Optional[List[str]] = None,
+):
+    """Divide a tensor by a scalar value"""
+    scalar = builder.constant(torch.tensor(scalar_value))
+    return builder.div(in0, scalar, unit_attrs=unit_attrs)
+
+
+scalar_binary_ops = [
+    (add_scalar, 2.5),
+    (multiply_scalar, 3.0),
+    (subtract_scalar, 1.5),
+    (div_scalar, 2.0),
+]
+
+
+@pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("target", ["ttmetal"])
+@pytest.mark.parametrize(
+    "test_fn_and_scalar",
+    scalar_binary_ops,
+    ids=["add_scalar", "multiply_scalar", "subtract_scalar", "div_scalar"],
+)
+def test_scalar_binary_ops(
+    test_fn_and_scalar: Tuple[Callable, float],
+    shape: Shape,
+    dtype: torch.dtype,
+    target: str,
+    request,
+    device,
+):
+    """Test binary operations with scalar operands on ttmetal"""
+    test_fn, scalar_value = test_fn_and_scalar
+
+    def scalar_op_wrapper(
+        in0: Operand,
+        builder: TTIRBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        return test_fn(in0, scalar_value, builder, unit_attrs=unit_attrs)
+
+    compile_and_execute_ttir(
+        scalar_op_wrapper,
+        [shape],
+        [dtype],
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
+        device=device,
+    )
+
+
 # Hoisted binary ops
 def create_hoisted_binary_op(op_func, name):
     """Create a hoisted version of a binary operation by adding the should_hoist unit attribute"""
