@@ -548,24 +548,17 @@ ChipDescAttr::getDstLogicalSizeTiles(Type type, bool fullSyncEn,
 }
 
 static llvm::SmallVector<int64_t>
-getPhysicalGridShapeFromShapeAndMap(ShapedType shapedType, AffineMap map) {
-  auto shape = shapedType.getShape();
-
-  // find bounds of the physical grid by transforming the virtual grid using
-  // index map
-  std::pair<int64_t, int64_t> ybounds = {0, 0};
-  std::pair<int64_t, int64_t> xbounds = {0, 0};
-  ttmlir::utils::sample(shape, [&](SmallVector<int64_t, 8> point) {
-    auto virtualPoint = map.compose(point);
-    ybounds = {std::min(ybounds.first, virtualPoint[0]),
-               std::max(ybounds.second, virtualPoint[0])};
-    xbounds = {std::min(xbounds.first, virtualPoint[1]),
-               std::max(xbounds.second, virtualPoint[1])};
-  });
-
-  TT_assertv((ybounds.first == 0 && xbounds.first == 0),
-             "Physical grid shape must start at y=0,x=0.");
-  return {ybounds.second + 1, xbounds.second + 1};
+getPhysicalGridShapeFromShapeAndMap(ArrayRef<int64_t> overallDeviceShape,
+                                    ArrayRef<int64_t> virtualGridShape,
+                                    AffineMap map) {
+  // If the map is empty, the virtual and physical grid shapes are the same.
+  if (map.isEmpty()) {
+    return llvm::SmallVector<int64_t>(virtualGridShape);
+  }
+  TT_assert(map.getNumResults() >= 2u);
+  auto gridResultMap = ttmlir::utils::affineMapTakeFrontResults(map, 2);
+  TT_assert(overallDeviceShape.size() == gridResultMap.getNumDims());
+  return ttmlir::utils::applyMapToGrid(overallDeviceShape, gridResultMap);
 }
 
 ShardLayoutAttr ShardLayoutAttr::get(mlir::MLIRContext *context,
@@ -606,8 +599,9 @@ mlir::AffineMap ShardLayoutAttr::getAffineMap() const {
 
 llvm::SmallVector<int64_t>
 ShardLayoutAttr::getPhysicalGridShape(ShapedType tensorType) const {
-  return getPhysicalGridShapeFromShapeAndMap(tensorType,
-                                             this->getCoreVirtualizationMap());
+  return getPhysicalGridShapeFromShapeAndMap(tensorType.getShape(),
+                                             getGridShape(tensorType),
+                                             getCoreVirtualizationMap());
 }
 
 InterleavedLayoutAttr InterleavedLayoutAttr::get(mlir::MLIRContext *context,
@@ -828,67 +822,6 @@ static llvm::SmallVector<int64_t> applyCollapsedIntervalsAndAlignments(
   return resultShape;
 }
 
-SmallVector<int64_t>
-GridAttr::getPhysicalGridShape(ArrayRef<int64_t> deviceGridShape) {
-
-  // physShape == virtual shape if mapping function is empty
-  if (getMapping().isEmpty()) {
-    return llvm::to_vector(getShape());
-  }
-
-  TT_assertv(deviceGridShape.size() == 2ul, "Device grid shape must be 2D.");
-  TT_assertv(deviceGridShape[0] == deviceGridShape[1],
-             "Device grid shape must be square.");
-  TT_assertv(getShape().size() == 2ul, "Virtual grid shape is limited to 2D.");
-  TT_assertv(getMapping().getNumInputs() == 2ul,
-             "Grid mapping function must have 2 inputs.");
-
-  // Checks that a physical grid shape injectively maps onto the virtual grid
-  // using the provided mapping function.
-  auto checkInjective = [&](ArrayRef<int64_t> physGridShape) {
-    auto map = getMapping();
-    auto vGrid = getShape();
-    auto virtualVolume = ttmlir::utils::volume(vGrid);
-    SmallVector<bool, 128> bitmap(virtualVolume, false);
-    for (int y = 0; y < physGridShape[0]; y++) {
-      for (int x = 0; x < physGridShape[1]; x++) {
-        auto vCoord = ArrayRef<int64_t>{map.compose({y, x})}.drop_front(1);
-        TT_assertv(vCoord.size() == 2ul, "Virtual grid coordinate must be 2D.");
-
-        auto index = vCoord[0] * vGrid[1] + vCoord[1];
-        // if location is already occupied, the physical grid is invalid
-        if (bitmap[index]) {
-          return false;
-        }
-        // if the location is not within the virtual grid, the physical grid is
-        // invalid
-        if (vCoord[0] >= vGrid[0] || vCoord[1] >= vGrid[1]) {
-          return false;
-        }
-        bitmap[index] = true;
-      }
-    }
-    return true;
-  };
-
-  // Generate all possible grid shapes.
-  // The physical grid volume must equal the virtual grid volume.
-  // The physical grid shape must not exceed the device grid dimensions.
-  // For now, assume that the phys grid shape is a rectangle.
-  auto virtualGridVolume = ttmlir::utils::volume(getShape());
-  for (int x = virtualGridVolume; x > 0; x--) {
-    if (virtualGridVolume % x == 0) {
-      int y = virtualGridVolume / x;
-      if (y <= deviceGridShape[0] && x <= deviceGridShape[1]) {
-        if (checkInjective({y, x})) {
-          return {y, x};
-        }
-      }
-    }
-  }
-  llvm_unreachable("No injective physical grid shape found.");
-}
-
 MetalLayoutAttr MetalLayoutAttr::compose(AffineMap affineMap) const {
   if (getIndexAffineMap().isEmpty()) {
     return withIndexAffineMap(affineMap);
@@ -927,7 +860,8 @@ MetalLayoutAttr::getPhysicalShape(ArrayRef<int64_t> tileShape) const {
 
 llvm::SmallVector<int64_t>
 MetalLayoutAttr::getPhysicalGridShape(ShapedType tensorType) const {
-  return getPhysicalGridShapeFromShapeAndMap(tensorType, getIndexAffineMap());
+  return getPhysicalGridShapeFromShapeAndMap(
+      tensorType.getShape(), getGridShape(tensorType), getIndexAffineMap());
 }
 
 // Takes various shape fields and returns the expected physical shape, which
@@ -939,16 +873,16 @@ MetalLayoutAttr::getDeviceShape(ArrayRef<int64_t> gridShape,
   llvm::SmallVector<int64_t> deviceShape(gridShape);
   deviceShape.reserve(physicalShape.size() * 2);
 
-  assert(physicalShape.size() == gridShape.size() &&
-         "Grid rank must equal collapsed tensor rank");
-  // Without tiling, distribute dimensions across grid.
+  // Divide grid dimensions in physical shape by tile dimensions to obtain the
+  // shard shape and append it to the device shape.
   for (size_t i = 0; i < physicalShape.size(); ++i) {
     const int64_t dim = physicalShape[i];
-    TT_assertv(dim % gridShape[i] == 0,
+    const int64_t gridDim = gridShape[i];
+    TT_assertv(dim % gridDim == 0,
                "Collapsed dimension must be evenly divisible by grid "
                "dimension, got {} % {} != 0.",
-               dim, gridShape[i]);
-    deviceShape.push_back(dim / gridShape[i]);
+               dim, gridDim);
+    deviceShape.push_back(dim / gridDim);
   }
   return deviceShape;
 }
@@ -1054,13 +988,9 @@ MetalLayoutAttr::computeTileAlignments(ArrayRef<int64_t> logicalShape,
   return alignments;
 }
 
-// Getter with no intervals or alignments, we calculate them both.
-MetalLayoutAttr MetalLayoutAttr::get(::mlir::MLIRContext *context,
-                                     ArrayRef<int64_t> logicalShape,
-                                     OOBVal oobVal, MemorySpace memorySpace,
-                                     TensorMemoryLayout memoryLayout,
-                                     mlir::AffineMap indexAffineMap) {
-
+static inline std::pair<DenseIntElementsAttr, llvm::SmallVector<int64_t>>
+createDefaultCollapsedIntervalsAndAlignments(::mlir::MLIRContext *context,
+                                             ArrayRef<int64_t> logicalShape) {
   constexpr size_t kGridRank = 2;
 
   // Create collapse intervals.
@@ -1086,8 +1016,19 @@ MetalLayoutAttr MetalLayoutAttr::get(::mlir::MLIRContext *context,
 
   // Set alignments based on the flattened intervals.
   llvm::SmallVector<int64_t> dimAlignmentsVec =
-      computeTileAlignments(logicalShape, flattenedIntervals);
+      MetalLayoutAttr::computeTileAlignments(logicalShape, flattenedIntervals);
+  return {collapsedIntervals, dimAlignmentsVec};
+}
 
+// Getter with no intervals or alignments, we calculate them both.
+MetalLayoutAttr MetalLayoutAttr::get(::mlir::MLIRContext *context,
+                                     ArrayRef<int64_t> logicalShape,
+                                     OOBVal oobVal, MemorySpace memorySpace,
+                                     TensorMemoryLayout memoryLayout,
+                                     mlir::AffineMap indexAffineMap) {
+
+  auto [collapsedIntervals, dimAlignmentsVec] =
+      createDefaultCollapsedIntervalsAndAlignments(context, logicalShape);
   return get(context, logicalShape, dimAlignmentsVec, collapsedIntervals,
              oobVal, memorySpace, memoryLayout, indexAffineMap);
 }
@@ -1106,13 +1047,24 @@ MetalLayoutAttr MetalLayoutAttr::get(::mlir::MLIRContext *context,
                                      OOBVal oobVal, MemorySpace memorySpace,
                                      TensorMemoryLayout memoryLayout,
                                      DenseIntElementsAttr collapsedIntervals) {
+  return get(context, logicalShape, oobVal, memorySpace, memoryLayout,
+             collapsedIntervals, mlir::AffineMap::get(context));
+}
+
+// Getter with explicit collapsedIntervals, we calculate the alignments.
+MetalLayoutAttr MetalLayoutAttr::get(::mlir::MLIRContext *context,
+                                     ArrayRef<int64_t> logicalShape,
+                                     OOBVal oobVal, MemorySpace memorySpace,
+                                     TensorMemoryLayout memoryLayout,
+                                     DenseIntElementsAttr collapsedIntervals,
+                                     mlir::AffineMap indexAffineMap) {
   llvm::SmallVector<int64_t> normalizedIntervals =
       normalizeAndFlattenIntervals(collapsedIntervals, logicalShape.size());
   llvm::SmallVector<int64_t> dimAlignmentsVec =
       computeTileAlignments(logicalShape, normalizedIntervals);
 
   return get(context, logicalShape, dimAlignmentsVec, collapsedIntervals,
-             oobVal, memorySpace, memoryLayout, mlir::AffineMap::get(context));
+             oobVal, memorySpace, memoryLayout, indexAffineMap);
 }
 
 // Getter with explicit collapsedIntervals and dimAlignments.
@@ -1298,6 +1250,29 @@ llvm::SmallVector<int64_t> MetalLayoutAttr::getHostStride() const {
 
 int64_t MetalLayoutAttr::getHostVolume() const {
   return getHostStrideAndVolume().second;
+}
+
+bool MetalLayoutAttr::hasNonTrivialCollapsedDims(
+    ArrayRef<int64_t> deviceShape) {
+
+  auto numDims = deviceShape.size();
+  auto normalizedIntervals = getNormalizedIntervals();
+  for (size_t i = 0; i < normalizedIntervals.size() / 2; i += 2) {
+    int64_t start = normalizedIntervals[i * 2];
+    int64_t end = normalizedIntervals[i * 2 + 1];
+
+    if (start < 0) {
+      start = numDims + start;
+    }
+    if (end < 0) {
+      end = numDims + end;
+    }
+
+    if (end - start > 1) {
+      return true;
+    }
+  }
+  return false;
 }
 
 //
@@ -1517,6 +1492,14 @@ DeviceAttr DeviceAttr::get(::mlir::MLIRContext *context,
   return get(context, systemDesc, meshShape, chipIds);
 }
 
+inline mlir::AffineMap prependResult(mlir::AffineMap map,
+                                     mlir::AffineExpr result) {
+  if (!map) {
+    return map;
+  }
+  return map.insertResult(result, 0);
+}
+
 mlir::AffineMap DeviceAttr::getMemoryMap(MemRefType memrefType, size_t pageSize,
                                          std::optional<AffineMap> view,
                                          size_t baseOffset) const {
@@ -1530,6 +1513,17 @@ mlir::AffineMap DeviceAttr::getMemoryMap(MemRefType memrefType, size_t pageSize,
     // Core virtualization map must be composed before other maps.
     if (auto coreVirtMap = shardLayout.getCoreVirtualizationMap();
         !coreVirtMap.isEmpty()) {
+
+      if (affineMap.getNumDims() > coreVirtMap.getNumResults()) {
+        auto dimsToRemove =
+            affineMap.getNumDims() - coreVirtMap.getNumResults();
+        llvm::SmallBitVector projectedDims(affineMap.getNumDims());
+        projectedDims.set(0, dimsToRemove);
+
+        affineMap = getProjectedMap(affineMap, projectedDims);
+        affineMap = affineMap.dropResults(projectedDims);
+      }
+
       affineMap = affineMap.compose(coreVirtMap);
     }
     if (view) {
@@ -1539,8 +1533,9 @@ mlir::AffineMap DeviceAttr::getMemoryMap(MemRefType memrefType, size_t pageSize,
     switch (memorySpace) {
     case MemorySpace::DeviceL1: {
       SmallVector<int64_t> symbols = {static_cast<int64_t>(baseOffset)};
-      return ttmlir::utils::replaceAffineMapSymbols(getL1Map(), symbols)
-          .compose(affineMap);
+      auto resolvedL1Map =
+          ttmlir::utils::replaceAffineMapSymbols(getL1Map(), symbols);
+      return resolvedL1Map.compose(affineMap);
     }
     case MemorySpace::DeviceDRAM: {
       // The DRAM page size is 1<->1 mapped to underlying memref shard size;
