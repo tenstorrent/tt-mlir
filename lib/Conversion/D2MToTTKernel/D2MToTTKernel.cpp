@@ -14,7 +14,6 @@
 #include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/Affine/ViewLikeInterfaceUtils.h"
-#include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
@@ -25,7 +24,6 @@
 #include "mlir/IR/Value.h"
 #include "mlir/Transforms/DialectConversion.h"
 
-#include <cstring>
 #include <type_traits>
 #include <utility>
 
@@ -720,8 +718,7 @@ public:
       rewriter.create<SFPUOp>(op->getLoc(), adaptor.getInput());
     } else if constexpr (std::is_same_v<SFPUOp, ttkernel::MaxTilesOp>) {
       rewriter.create<SFPUOp>(op->getLoc(), adaptor.getLhs(), adaptor.getRhs());
-    } else if constexpr (arity == 2) {
-      // Regular tile-tile binary operation
+    } else {
       OpBuilder::InsertionGuard guard(rewriter);
       const auto dstIdx = getDstIdxFromResult(op.getResult());
       setInsertionPointAfterOperands(

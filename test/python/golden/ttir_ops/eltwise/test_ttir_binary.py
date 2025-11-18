@@ -571,7 +571,12 @@ scalar_binary_ops = [
     (add_scalar, 2.5),
     (multiply_scalar, 3.0),
     (subtract_scalar, 1.5),
-    (div_scalar, 2.0),
+    (div_scalar, 3.0)
+    | Marks(
+        pytest.mark.xfail(
+            reason="Fails atol and rtol, issue here: https://github.com/tenstorrent/tt-mlir/issues/5924"
+        )
+    ),
 ]
 
 
@@ -594,7 +599,7 @@ def test_scalar_binary_ops(
     """Test binary operations with scalar operands on ttmetal"""
     test_fn, scalar_value = test_fn_and_scalar
 
-    def scalar_op_wrapper(
+    def scalar_binary_op(
         in0: Operand,
         builder: TTIRBuilder,
         unit_attrs: Optional[List[str]] = None,
@@ -602,7 +607,7 @@ def test_scalar_binary_ops(
         return test_fn(in0, scalar_value, builder, unit_attrs=unit_attrs)
 
     compile_and_execute_ttir(
-        scalar_op_wrapper,
+        scalar_binary_op,
         [shape],
         [dtype],
         test_base=request.node.name,

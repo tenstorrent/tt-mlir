@@ -127,16 +127,13 @@ private:
     auto rhs = srcOp.getRhs();
     auto lhsConvOp = lhs.getDefiningOp<ConvOpType>();
     auto rhsConvOp = rhs.getDefiningOp<ConvOpType>();
-    // Check if operands are tensors (bias fusion requires tensor operands)
-    if (auto rhsTensor = mlir::dyn_cast<TypedValue<RankedTensorType>>(rhs)) {
-      if (auto fusableBias = isFusable(lhsConvOp, rhsTensor)) {
-        return std::make_pair(lhsConvOp, *fusableBias);
-      }
+    if (auto fusableBias = isFusable(
+            lhsConvOp, mlir::cast<TypedValue<RankedTensorType>>(rhs))) {
+      return std::make_pair(lhsConvOp, *fusableBias);
     }
-    if (auto lhsTensor = mlir::dyn_cast<TypedValue<RankedTensorType>>(lhs)) {
-      if (auto fusableBias = isFusable(rhsConvOp, lhsTensor)) {
-        return std::make_pair(rhsConvOp, *fusableBias);
-      }
+    if (auto fusableBias = isFusable(
+            rhsConvOp, mlir::cast<TypedValue<RankedTensorType>>(lhs))) {
+      return std::make_pair(rhsConvOp, *fusableBias);
     }
     return std::nullopt;
   }
@@ -711,11 +708,13 @@ private:
     auto rhs = multiplyOp.getRhs();
     ConvOpType lhsConv = lhs.getDefiningOp<ConvOpType>();
     ConvOpType rhsConv = rhs.getDefiningOp<ConvOpType>();
-    if (isCommutable(lhsConv, rhs)) {
-      return std::make_pair(lhsConv, rhs);
+    if (isCommutable(lhsConv, mlir::cast<TypedValue<RankedTensorType>>(rhs))) {
+      return std::make_pair(lhsConv,
+                            mlir::cast<TypedValue<RankedTensorType>>(rhs));
     }
-    if (isCommutable(rhsConv, lhs)) {
-      return std::make_pair(rhsConv, lhs);
+    if (isCommutable(rhsConv, mlir::cast<TypedValue<RankedTensorType>>(lhs))) {
+      return std::make_pair(rhsConv,
+                            mlir::cast<TypedValue<RankedTensorType>>(lhs));
     }
     return std::nullopt;
   }

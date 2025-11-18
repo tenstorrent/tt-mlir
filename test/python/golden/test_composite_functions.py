@@ -31,14 +31,14 @@ def digamma_composite(
     unit_attrs: Optional[List[str]] = None,
 ):
     constant_tensors = [
-        torch.full(shape, 0.5).to(dtype),
-        torch.full(shape, 0.083333333).to(dtype),
-        torch.full(shape, 0.008333333333333333).to(dtype),
-        torch.full(shape, 0.003968253968253968).to(dtype),
-        torch.full(shape, 0.004166666666666667).to(dtype),
-        torch.full(shape, 0.007575757575757576).to(dtype),
-        torch.full(shape, 0.021092796092796094).to(dtype),
-        torch.full(shape, 0.08333333333333333).to(dtype),
+        torch.tensor(0.5).to(dtype),
+        torch.tensor(0.083333333).to(dtype),
+        torch.tensor(0.008333333333333333).to(dtype),
+        torch.tensor(0.003968253968253968).to(dtype),
+        torch.tensor(0.004166666666666667).to(dtype),
+        torch.tensor(0.007575757575757576).to(dtype),
+        torch.tensor(0.021092796092796094).to(dtype),
+        torch.tensor(0.08333333333333333).to(dtype),
     ]
     constants = [builder.constant(i) for i in constant_tensors]
 
@@ -90,21 +90,21 @@ def lgamma_composite(
     unit_attrs: Optional[List[str]] = None,
 ):
     constant_tensors = [
-        torch.full(shape, 76.18009172947146).to(dtype),
-        torch.full(shape, -86.50532032941677).to(dtype),
-        torch.full(shape, 24.01409824083091).to(dtype),
-        torch.full(shape, -1.231739572450155).to(dtype),
-        torch.full(shape, 0.1208650973866179e-2).to(dtype),
-        torch.full(shape, -0.5395239384953e-5).to(dtype),
-        torch.full(shape, 1.0).to(dtype),
-        torch.full(shape, 2.0).to(dtype),
-        torch.full(shape, 3.0).to(dtype),
-        torch.full(shape, 4.0).to(dtype),
-        torch.full(shape, 5.0).to(dtype),
-        torch.full(shape, 6.0).to(dtype),
-        torch.full(shape, 5.5).to(dtype),
-        torch.full(shape, 0.5).to(dtype),
-        torch.full(shape, 0.918938531357171).to(dtype),
+        torch.tensor(76.18009172947146).to(dtype),
+        torch.tensor(-86.50532032941677).to(dtype),
+        torch.tensor(24.01409824083091).to(dtype),
+        torch.tensor(-1.231739572450155).to(dtype),
+        torch.tensor(0.1208650973866179e-2).to(dtype),
+        torch.tensor(-0.5395239384953e-5).to(dtype),
+        torch.tensor(1.0).to(dtype),
+        torch.tensor(2.0).to(dtype),
+        torch.tensor(3.0).to(dtype),
+        torch.tensor(4.0).to(dtype),
+        torch.tensor(5.0).to(dtype),
+        torch.tensor(6.0).to(dtype),
+        torch.tensor(5.5).to(dtype),
+        torch.tensor(0.5).to(dtype),
+        torch.tensor(0.918938531357171).to(dtype),
         # torch.full(shape, 0.0).to(dtype),
     ]
     constants = [builder.constant(i) for i in constant_tensors]
@@ -195,10 +195,10 @@ def multigammaln_composite(
     unit_attrs: Optional[List[str]] = None,
 ):
     constant_tensors = [
-        torch.full(shape, 0.5).to(dtype),
-        torch.full(shape, 1.0).to(dtype),
-        torch.full(shape, 1.5).to(dtype),
-        torch.full(shape, 3.434189657547).to(dtype),
+        torch.tensor(0.5).to(dtype),
+        torch.tensor(1.0).to(dtype),
+        torch.tensor(1.5).to(dtype),
+        torch.tensor(3.434189657547).to(dtype),
     ]
     constants = [builder.constant(i) for i in constant_tensors]
 
@@ -243,10 +243,12 @@ def polygamma_composite(
     if k == 2 or k == 4 or k == 6 or k == 8 or k == 10:
         fact_val *= -1.0
 
-    k_der_builder = builder.constant(torch.full(shape, k_der).to(dtype))
+    k_der_builder = builder.constant(
+        torch.tensor(k_der).to(dtype), unit_attrs=unit_attrs
+    )
     temp = builder.reciprocal(builder.pow(x, k_der_builder), unit_attrs=unit_attrs)
     for i in range(1, 11):
-        i_builder = builder.constant(torch.full(shape, i).to(dtype))
+        i_builder = builder.constant(torch.tensor(i).to(dtype), unit_attrs=unit_attrs)
         z1 = builder.reciprocal(
             builder.pow(
                 builder.add(x, i_builder),
@@ -257,8 +259,10 @@ def polygamma_composite(
         )
         temp = builder.add(temp, z1)
 
-    fact_val_builder = builder.constant(torch.full(shape, fact_val).to(dtype))
-    result = builder.multiply(temp, fact_val_builder)
+    fact_val_builder = builder.constant(
+        torch.tensor(fact_val).to(dtype), unit_attrs=unit_attrs
+    )
+    result = builder.multiply(temp, fact_val_builder, unit_attrs=unit_attrs)
     return result
 
 
