@@ -1,5 +1,7 @@
 ARG FROM_TAG=latest
 
+FROM ghcr.io/tenstorrent/tt-mlir/tt-mlir-ci-ubuntu-22-04:${FROM_TAG} AS toolchain-source
+
 FROM quay.io/pypa/manylinux_2_34_x86_64
 SHELL ["/bin/bash", "-c"]
 
@@ -38,7 +40,5 @@ RUN rm -f "${NINJA_ZIP}"
 
 # Create a directory for the build and toolchain
 ENV PROJECT_NAME=tt-mlir
-ENV TTMLIR_TOOLCHAIN_DIR=/opt/ttmlir-toolchain
-
 # Copy toolchain from CI image
-COPY --from=ghcr.io/tenstorrent/tt-mlir/tt-mlir-base-ubuntu-22-04:${FROM_TAG} $TTMLIR_TOOLCHAIN_DIR $TTMLIR_TOOLCHAIN_DIR
+COPY --from=toolchain-source $TTMLIR_TOOLCHAIN_DIR $TTMLIR_TOOLCHAIN_DIR
