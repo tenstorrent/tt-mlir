@@ -38,7 +38,7 @@ def sharding_constraint(
     )
 
     builder.sharding_constraint(in0, tensor_sharding_attr=tensor_sharding_attr)
-    return builder.add(in0, in1, unit_attrs=unit_attrs)
+    return builder.add(in0, in1)
 
 
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
