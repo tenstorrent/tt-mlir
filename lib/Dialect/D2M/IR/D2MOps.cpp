@@ -595,16 +595,8 @@ mlir::LogicalResult d2m::StreamLayoutOp::bufferize(
 }
 
 mlir::bufferization::AliasingValueList d2m::StreamLayoutOp::getAliasingValues(
-    mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
+    mlir::OpOperand &, const mlir::bufferization::AnalysisState &) {
   bufferization::AliasingValueList result;
-  // The result aliases the storage operand, which is the buffer that actually
-  // holds the data. This tells BufferDeallocation that the storage buffer must
-  // stay live as long as the stream_layout result is being used.
-  if (&operand == &getStorageMutable()) {
-    result.addAlias({getResult(),
-                     bufferization::BufferRelation::Equivalent,
-                     /*isDefinite=*/true});
-  }
   return result;
 }
 
@@ -922,7 +914,6 @@ void d2m::GenericOp::build(
   OpBuilder::InsertionGuard guard(builder);
   Block *block = builder.createBlock(&region, region.end(), blockTypes, locs);
   singleThreadRegionBuilder(builder, state.location, block->getArguments());
-  d2m::GenericOp::ensureTerminator(region, builder, state.location);
 }
 
 void d2m::GenericOp::build(
@@ -1667,12 +1658,6 @@ mlir::LogicalResult d2m::GenericOp::bufferize(
       getNumRegions());
   for (mlir::Region &region : bufferGeneric.getRegions()) {
     region.takeBody(getRegion(region.getRegionNumber()));
-    // Ensure each region has a terminator after taking the body
-    if (!region.empty() && !region.front().empty() &&
-        !region.front().back().hasTrait<OpTrait::IsTerminator>()) {
-      rewriter.setInsertionPointToEnd(&region.front());
-      rewriter.create<d2m::YieldOp>(getLoc());
-    }
   }
 
   // Bufferize region block arguments.
@@ -1777,15 +1762,6 @@ bool d2m::GenericOp::hasComputeOpsInRegion(unsigned regionIndex) {
   });
 
   return hasCompute;
-}
-
-// =====-----------------------------------------------------------=====//
-// RegionKindInterface Implementation
-// =====----------------------------------------------------------=====//
-
-// GenericOp has graph regions (no control flow, parallel execution).
-mlir::RegionKind GenericOp::getRegionKind(unsigned index) {
-  return mlir::RegionKind::Graph;
 }
 
 } // namespace mlir::tt::d2m

@@ -381,20 +381,6 @@ void TileMatmulBlockOp::getEffects(
                        0, true, mlir::SideEffects::DefaultResource::get());
 }
 
-void TileMatmulOp::getEffects(
-    mlir::SmallVectorImpl<
-        mlir::SideEffects::EffectInstance<mlir::MemoryEffects::Effect>>
-        &effects) {
-  effects.emplace_back(mlir::MemoryEffects::Read::get(), &getAMutable(), 0,
-                       true, mlir::SideEffects::DefaultResource::get());
-  effects.emplace_back(mlir::MemoryEffects::Read::get(), &getBMutable(), 0,
-                       true, mlir::SideEffects::DefaultResource::get());
-  effects.emplace_back(mlir::MemoryEffects::Read::get(), &getCMutable(), 0,
-                       true, mlir::SideEffects::DefaultResource::get());
-  effects.emplace_back(mlir::MemoryEffects::Write::get(), &getCMutable(), 0,
-                       true, mlir::SideEffects::DefaultResource::get());
-}
-
 mlir::LogicalResult TileTilizeBlockOp::bufferize(
     mlir::RewriterBase &rewriter,
     const mlir::bufferization::BufferizationOptions &options,
@@ -565,11 +551,10 @@ void TileUntilizeBlockOp::getEffects(
 
 mlir::LogicalResult YieldOp::verify() {
   auto generic = getOperation()->getParentOfType<GenericOp>();
-  if (!generic) {
-    return emitOpError() << "used outside of generic op";
+  if (!generic || !generic.hasPureTensorSemantics()) {
+    return emitOpError()
+           << "used outside of generic op with pure tensor semantics";
   }
 
-  // YieldOp is used in both tensor and memref contexts (before and after
-  // bufferization), so we allow both pure tensor semantics and memref semantics.
   return ::mlir::success();
 }

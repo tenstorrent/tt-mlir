@@ -452,8 +452,7 @@ def D2M_PackerMaskResetOp : D2M_GenericRegionComputeOp<"packer_mask_reset"> {
     }];
 }
 
-def D2M_TileMatmulOp : D2M_GenericRegionComputeOp<"tile_matmul",
-  [DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]> {
+def D2M_TileMatmulOp : D2M_GenericRegionComputeOp<"tile_matmul"> {
   let summary = "D2M Tile Matmul Op";
   let description = [{
         The `tile_matmul` operation computes the matrix multiplication of A and B input tiles and element-wise adds C tile: result <- a @ b + c.
@@ -999,10 +998,7 @@ def D2M_SemaphoreWaitOp : D2M_GenericRegionOp<"semaphore_wait", [MemoryEffects<[
 //===----------------------------------------------------------------------===//
 
 def D2M_YieldOp : D2M_GenericRegionOp<"yield", [
-    Pure,
-    ReturnLike,
-    Terminator,
-    RegionBranchTerminatorOpInterface,
+    MemoryEffects<[MemRead, MemWrite]>,
     DeclareOpInterfaceMethods<BufferizableOpInterface, [
       "bufferizesToMemoryRead",
       "bufferizesToMemoryWrite",
@@ -1019,12 +1015,6 @@ def D2M_YieldOp : D2M_GenericRegionOp<"yield", [
     let arguments = (ins Variadic<AnyRankedTensor>:$values);
 
     let assemblyFormat = [{ $values attr-dict `:` `(` type($values) `)` }];
-
-    let builders = [
-      OpBuilder<(ins), [{
-        build($_builder, $_state, std::nullopt);
-      }]>
-    ];
 
     let hasVerifier = 1;
 
