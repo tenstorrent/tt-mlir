@@ -248,34 +248,28 @@ def _compile_and_execute(
         )
 
     if export_golden_report and not disable_golden:
-        _parse_and_save_golden_report(
-            builder, golden_report, mlir_path + ".golden_report.json"
-        )
+        _save_golden_report(builder, golden_report, mlir_path + ".golden_report.json")
 
     return mlir_path
 
 
-def _parse_and_save_golden_report(builder, golden_report, report_path):
-    """
-    Enhance and persist the golden report by attaching the operation name
-    (builder._loc_to_operand[x].OPERATION_NAME) to each location entry x.
-    """
-    parsed_report: Dict[str, Dict] = {}
+def _save_golden_report(builder, golden_report, report_path):
+    report: Dict[str, Dict] = {}
 
+    # Use loc data to build final report with operation names
     for loc, device_results in golden_report.items():
         operand = builder._loc_to_operand.get(loc)
         op_name = ""
         if operand is not None and hasattr(operand, "OPERATION_NAME"):
             op_name = getattr(operand, "OPERATION_NAME", "") or ""
 
-        parsed_report[loc] = {
+        report[loc] = {
             "op_name": op_name,
             "devices": device_results,
         }
 
-    # Write the enhanced report to disk
     with open(report_path, "w") as f:
-        json.dump(parsed_report, f, indent=2)
+        json.dump(report, f, indent=2)
 
 
 def _get_target_path(output_path, builder_dir, filename, target):

@@ -150,12 +150,28 @@ def subtract(
 
 binary_ops = [
     add,
+    atan2 | Marks(pytest.mark.skip_config(["ttmetal"])),
+    div,
+    logical_and | Marks(pytest.mark.skip_config(["ttmetal"])),
+    logical_or | Marks(pytest.mark.skip_config(["ttmetal"])),
+    logical_xor | Marks(pytest.mark.skip_config(["ttmetal"])),
+    maximum
+    | Marks(
+        pytest.mark.skip_config(
+            ["ttmetal"], reason="https://github.com/tenstorrent/tt-mlir/issues/5016"
+        )
+    ),
+    minimum | Marks(pytest.mark.skip_config(["ttmetal"])),
+    multiply,
+    pow,
+    remainder | Marks(pytest.mark.skip_config(["ttmetal"])),
+    subtract,
 ]
 
 
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
-@pytest.mark.parametrize("target", ["ttnn"])
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy"])
 @pytest.mark.parametrize("test_fn", binary_ops)
 def test_binary_ops(
     test_fn: Callable, shape: Shape, dtype: torch.dtype, target: str, request, device
@@ -204,16 +220,23 @@ def bitwise_xor(
 
 binary_bitwise_ops = [
     bitwise_and,
+    bitwise_or,
+    bitwise_xor,
 ]
 
 binary_bitwise_dtypes = [
     torch.int32,
+    torch.uint32,
+    torch.uint16,
+    torch.uint8,
 ]
 
 
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
-@pytest.mark.parametrize("dtype", binary_bitwise_dtypes, ids=["i32"])
-@pytest.mark.parametrize("target", ["ttnn"])
+@pytest.mark.parametrize(
+    "dtype", binary_bitwise_dtypes, ids=["i32", "u32", "u16", "u8"]
+)
+@pytest.mark.parametrize("target", ["ttnn", "emitpy"])
 @pytest.mark.parametrize("test_fn", binary_bitwise_ops)
 def test_bitwise_binary_ops(
     test_fn: Callable, shape: Shape, dtype: torch.dtype, target: str, request, device

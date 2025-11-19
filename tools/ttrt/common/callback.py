@@ -209,7 +209,7 @@ def golden(callback_runtime_config, binary, program_context, op_context):
         logging.debug(output_str)
 
         result = "pass"
-        if cal_pcc <= callback_runtime_config.pcc:
+        if cal_pcc < callback_runtime_config.pcc:
             result = "fail"
         if (
             callback_runtime_config.check_atol
