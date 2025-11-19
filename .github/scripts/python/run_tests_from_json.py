@@ -48,7 +48,9 @@ def main(machine, image, jobid):
             print(
                 f"\033[1;96m====================================\n\033[1;96mRunning test {test_no}-{hash}:\n\033[1;96m{hash_string}\n\033[1;96m{cmd}\n\033[1;96m====================================\n\n\n\n\033[0m"
             )
-            result = subprocess.run(cmd, check=True, env=env, capture_output=True, text=True)
+            result = subprocess.run(
+                cmd, check=True, env=env, capture_output=True, text=True
+            )
             print(result.stdout)
             print(result.stderr)
             print(f"\n\033[92m SUCCESS running {test_type} \033[0m")
