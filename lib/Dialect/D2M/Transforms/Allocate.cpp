@@ -476,6 +476,53 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
       }
     }
 
+    // Post-process: Adjust storage buffer lifetimes for stream_layout ops.
+    // For each stream_layout, ensure its STORAGE buffer dies strictly BEFORE
+    // its INPUT buffer. This ensures correct deallocation order.
+    for (auto &[op, closure] : livenessJoinGraph) {
+      if (auto streamOp = llvm::dyn_cast<d2m::StreamLayoutOp>(op)) {
+        Value input = streamOp.getInput();
+        Value storage = streamOp.getStorage();
+
+        Operation *inputDefOp = input.getDefiningOp();
+        Operation *storageDefOp = storage.getDefiningOp();
+
+        if (inputDefOp && storageDefOp) {
+          auto inputIt = livenessJoinGraph.find(inputDefOp);
+          auto storageIt = livenessJoinGraph.find(storageDefOp);
+
+          if (inputIt != livenessJoinGraph.end() &&
+              storageIt != livenessJoinGraph.end()) {
+            // Ensure storage dies strictly before input by setting storage's
+            // last use to be at most one sequence unit before input's last use.
+            SequenceT inputLast = inputIt->second.live.last;
+            SequenceT storageLast = storageIt->second.live.last;
+
+            if (storageLast >= inputLast) {
+              // Storage would be deallocated at or after input - BAD!
+              // Shorten storage's lifetime to die before input.
+              SequenceT storageFirst = storageIt->second.live.first;
+              SequenceT newStorageLast = inputLast - 1;
+
+              // Ensure the range remains valid: first <= last
+              if (newStorageLast >= storageFirst) {
+                storageIt->second.live.last = newStorageLast;
+
+                // If this storage is also an alloc, update the memref context.
+                if (memref::AllocOp storageAllocOp =
+                        llvm::dyn_cast<memref::AllocOp>(storageDefOp)) {
+                  auto memrefIt = analysis.memrefs.find(storageAllocOp.getResult());
+                  if (memrefIt != analysis.memrefs.end()) {
+                    memrefIt->second.live.last = newStorageLast;
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+
     TT_ALLOC_DEBUG("collected {} memref context(s)", analysis.memrefs.size());
     TT_debug(analysis.sequencing.valid());
 
@@ -1602,12 +1649,19 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     rewriter.modifyOpInPlace(op, [&]() { memref.setType(newType); });
   }
 
-  // Internal recursive helper with cycle detection for resolve().
+  // Internal recursive helper with memoization for resolve().
   static SequenceT resolveImpl(Operation *op, const LivenessClosureGraph &graph,
-                               llvm::SmallPtrSet<Operation *, 8> &visited) {
-    // Cycle detection: if we're already visiting this op in the current
-    // traversal path, return its base liveness to break the cycle.
-    if (!visited.insert(op).second) {
+                               llvm::DenseMap<Operation *, SequenceT> &memo,
+                               llvm::SmallPtrSet<Operation *, 8> &visiting) {
+    // Check if we've already computed this op's final liveness.
+    auto memoIt = memo.find(op);
+    if (memoIt != memo.end()) {
+      return memoIt->second;
+    }
+
+    // Cycle detection: if we're currently visiting this op, return its base
+    // liveness to break the cycle. We'll refine it later.
+    if (!visiting.insert(op).second) {
       auto opClosure = graph.find(op);
       TT_assert(opClosure != graph.end());
       return opClosure->second.live.last;
@@ -1621,34 +1675,23 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     for (Operation *user : op->getResult(0).getUsers()) {
       if (graph.contains(user)) {
         if (llvm::isa<d2m::ViewLayoutOp, d2m::StreamLayoutOp>(user)) {
-          last = std::max(last, resolveImpl(user, graph, visited));
+          last = std::max(last, resolveImpl(user, graph, memo, visiting));
         }
       }
     }
 
-    // For stream_layout ops, the input buffer's lifetime must extend to at
-    // least when the storage buffer dies, since the stream references both.
-    // This ensures storage buffers are deallocated before their source data.
-    if (auto streamOp = llvm::dyn_cast<d2m::StreamLayoutOp>(op)) {
-      Value storage = streamOp.getStorage();
-      if (Operation *storageDefOp = storage.getDefiningOp()) {
-        if (graph.contains(storageDefOp)) {
-          last = std::max(last, resolveImpl(storageDefOp, graph, visited));
-        }
-      }
-    }
+    visiting.erase(op);
 
-    visited.erase(op);
+    // Memoize the result before returning.
+    memo[op] = last;
     return last;
   }
 
   // Recursive helper for `analyzeAllocOps(func::FuncOp funcOp...)`.
-  // Note: the overall traversal cost can be reduced by memoizing
-  // final maxLast values and/or visiting Values in a reverse topological
-  // sort order. This is not done at the moment.
   static SequenceT resolve(Operation *op, const LivenessClosureGraph &graph) {
-    llvm::SmallPtrSet<Operation *, 8> visited;
-    return resolveImpl(op, graph, visited);
+    llvm::DenseMap<Operation *, SequenceT> memo;
+    llvm::SmallPtrSet<Operation *, 8> visiting;
+    return resolveImpl(op, graph, memo, visiting);
   }
 
   static MemorySpaces getMemorySpaces(ttcore::ChipDescAttr chipDesc,
