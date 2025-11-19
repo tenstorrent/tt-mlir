@@ -77,7 +77,7 @@ jobs:
           echo "Current tt-metal version: $CURRENT_TT_METAL_VERSION"
           echo "Custom tt-metal version: ${{ env.UPLIFTED_TT_METAL_VERSION }}"
 
-          # Verify custom commit is on main branch
+          # Verify custom commit is on main metal branch
           MAIN_TIP=$(gh api repos/tenstorrent/tt-metal/commits/main --jq '.sha')
           COMPARE_TO_MAIN=$(gh api repos/tenstorrent/tt-metal/compare/${{ env.UPLIFTED_TT_METAL_VERSION }}...${MAIN_TIP} --jq '.status')
 
@@ -92,7 +92,7 @@ jobs:
           # Verify custom commit is not a downgrade from current version
           COMPARE_RESULT=$(gh api repos/tenstorrent/tt-metal/compare/${CURRENT_TT_METAL_VERSION}...${{ env.UPLIFTED_TT_METAL_VERSION }} --jq '.status')
 
-          if [ "$COMPARE_RESULT" = "behind" ] || [ "$COMPARE_RESULT" = "diverged" ]; then
+          if [ "$COMPARE_RESULT" = "behind" ]; then
             echo "::error::Custom commit hash ${{ env.UPLIFTED_TT_METAL_VERSION }} would be a downgrade from current version $CURRENT_TT_METAL_VERSION (status: $COMPARE_RESULT)"
             echo "::error::Please use a commit hash that is ahead of the current version."
             exit 1
