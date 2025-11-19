@@ -1009,6 +1009,7 @@ private:
 } // namespace
 
 // Simple conversion for ttir.to_layout -> d2m.to_layout.
+namespace {
 class D2MToLayoutOpRewriter : public OpConversionPattern<ttir::ToLayoutOp> {
   using OpConversionPattern<ttir::ToLayoutOp>::OpConversionPattern;
   LogicalResult
@@ -1024,8 +1025,10 @@ class D2MToLayoutOpRewriter : public OpConversionPattern<ttir::ToLayoutOp> {
     return success();
   }
 };
+}
 
 // Simple conversion for ttir.empty -> d2m.empty.
+namespace {
 class D2MEmptyOpRewriter : public OpConversionPattern<ttir::EmptyOp> {
   using OpConversionPattern<ttir::EmptyOp>::OpConversionPattern;
 
@@ -1044,7 +1047,9 @@ class D2MEmptyOpRewriter : public OpConversionPattern<ttir::EmptyOp> {
     return success();
   }
 };
+}
 
+namespace {
 class D2MFullOpRewriter : public OpConversionPattern<ttir::FullOp> {
   using OpConversionPattern<ttir::FullOp>::OpConversionPattern;
 
@@ -1056,7 +1061,9 @@ class D2MFullOpRewriter : public OpConversionPattern<ttir::FullOp> {
     return success();
   }
 };
+}
 
+namespace {
 class D2MMeshShardOpRewriter : public OpConversionPattern<ttir::MeshShardOp> {
   using OpConversionPattern<ttir::MeshShardOp>::OpConversionPattern;
 
@@ -1069,6 +1076,51 @@ class D2MMeshShardOpRewriter : public OpConversionPattern<ttir::MeshShardOp> {
     return success();
   }
 };
+}
+
+namespace {
+template<typename TensorManipulationOp, AffineMap(*LogicalAffineMapFn)(TensorManipulationOp)>
+class D2MTensorManipulationOpRewriter : public OpConversionPattern<TensorManipulationOp>, D2MNamedRewriterCommon  {
+public:
+  D2MTensorManipulationOpRewriter (const TypeConverter &typeConverter, mlir::MLIRContext *ctx,
+                     ttcore::MemorySpace defaultInputMemSpace,
+                     ttcore::MemorySpace defaultOutputMemSpace, bool ttnnMode,
+                     bool /*collapseTensors*/)
+      : OpConversionPattern<TensorManipulationOp>(typeConverter, ctx),
+        D2MNamedRewriterCommon(defaultInputMemSpace, defaultOutputMemSpace,
+                               ttnnMode, false) {}
+
+  LogicalResult
+  matchAndRewrite(TensorManipulationOp op, typename TensorManipulationOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    AffineMap logicalMap = LogicalAffineMapFn(op);
+    logicalMap.dump();
+
+    auto [origInputs, origOutputs] =
+        splitDpsSignature(adaptor, op.getDpsInits().size());
+
+    auto [inputs, outputs] =
+        toLayoutOperandsAndResults(rewriter, {origInputs, origOutputs},
+                                   /*tiled*/ false);
+    assert(outputs.size() == 1);
+
+    auto storage = rewriter.create<d2m::EmptyOp>(op.getLoc(), outputs[0].getType());
+    auto view = rewriter.create<d2m::StreamLayoutOp>(
+        op.getLoc(), outputs[0].getType(), inputs[0], storage.getResult());
+
+    rewriter.replaceOp(op, unLayoutResult(rewriter, view->getResult(0),
+                                          op->getResult(0).getType()));
+
+    return success();
+  }
+};
+}
+
+static AffineMap rearrangeLogicalMap(ttir::RearrangeOp op) {
+  mlir::FailureOr<AffineMap> maybeMap = op.getInvPatternMap();
+  assert(succeeded(maybeMap));
+  return *maybeMap ;
+}
 
 } // namespace mlir::tt
 
@@ -1117,6 +1169,8 @@ void populateTTIRToD2MPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
     // Reduction.
     D2MNamedReductionRewriter<ttir::MaxOp,          d2m::TileReduceMaxOp>,
     D2MNamedReductionRewriter<ttir::SumOp,          d2m::TileReduceSumOp>,
+    // View only ops.
+    D2MTensorManipulationOpRewriter<ttir::RearrangeOp, rearrangeLogicalMap>,
     // Data movement.
     D2MNamedElementwiseRewriter<ttir::TypecastOp,     d2m::TileTypecastOp>,
     // Permute (handles tranpose ops, since they're canonicalized into permutes).

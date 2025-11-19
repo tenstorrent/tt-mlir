@@ -35,7 +35,7 @@ def test_rearrange(
     request,
     device,
 ):
-    in_shape = (3, 4, 32)
+    in_shape = (3, 128, 128)
     pattern = "z y x -> y z x"
 
     patterns = [
@@ -52,7 +52,6 @@ def test_rearrange(
     for p, s in patterns:
         pattern_map = ttir.ir.rearrange_inv_pattern_map(ctx, p, s)
         _test_pattern_map(p, s, pattern_map)
-    return
 
     def rearrange(
         in0: Operand, builder: TTIRBuilder, unit_attrs: List[str] = None

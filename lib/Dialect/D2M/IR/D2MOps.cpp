@@ -701,18 +701,6 @@ mlir::LogicalResult d2m::ViewLayoutOp::verify() {
     }
     // Can change shard shape for tiled <-> untiled
   } else {
-    // For regular reblocking, verify it's valid; total elements must match.
-    int64_t inputElements = 1, outputElements = 1;
-    for (auto d : inputType.getShape()) {
-      inputElements *= d;
-    }
-    for (auto d : resultType.getShape()) {
-      outputElements *= d;
-    }
-    if (inputElements != outputElements) {
-      return emitOpError("view must preserve total number of elements");
-    }
-
     // We also should not change element type unless reinterpretting.
     if (inputType.getElementType() != resultType.getElementType()) {
       return emitOpError("view must not change dtype");

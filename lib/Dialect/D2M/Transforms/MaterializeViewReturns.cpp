@@ -113,6 +113,23 @@ public:
           }
         }
       });
+      funcOp.walk([&](d2m::ToLayoutOp returnOp) {
+        builder.setInsertionPoint(returnOp);
+
+        // Inspect each return operand to determine if it needs materialization.
+        for (OpOperand &opOperand : returnOp->getOpOperands()) {
+          Operation *definingOp = opOperand.get().getDefiningOp();
+
+          if (isViewOp(definingOp)) {
+            // Insert a generic op to materialize the view before returning.
+            // This ensures the tensor transformation represented by the view
+            // actually occurs, rather than just being a symbolic operation.
+            Value materialized =
+                materializeView(builder, returnOp.getLoc(), opOperand.get());
+            opOperand.set(materialized);
+          }
+        }
+      });
     });
   }
 };
