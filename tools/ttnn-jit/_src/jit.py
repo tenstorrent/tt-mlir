@@ -19,6 +19,11 @@ from ttnn_jit._src.utils import _cleanup_source_code
 from ttnn_jit._src.dispatch_op import _run_binary, _run_binary_from_capsule
 from ttnn_jit._src import JitCache
 from ttnn_jit._src.ir_generator import generate_ir
+from ttnn_jit._src import (
+    get_current_system_desc,
+    DispatchCoreType,
+    create_runtime_device_from_ttnn,
+)
 
 
 class JitFunction:
@@ -43,7 +48,6 @@ class JitFunction:
         os.makedirs(self.out_dir, exist_ok=True)
 
         self.system_desc_path = os.getenv("SYSTEM_DESC_PATH")
-        assert self.system_desc_path, "SYSTEM_DESC_PATH must be set."
 
         if self.debug:
             os.environ["TTRT_LOGGER_LEVEL"] = "DEBUG"
@@ -53,8 +57,55 @@ class JitFunction:
         # Hashing based off runtime tensor metadata.
         self.cache = JitCache(64) if enable_cache else None
 
+    def _query_and_save_system_desc(self, input_tensors=None):
+        """Query system descriptor from device and save it to a file.
+
+        Uses the MLIR runtime bindings directly, replicating the logic from
+        ttrt query --save-artifacts.
+
+        Args:
+            input_tensors: Optional list of input tensors. If provided, will use the
+                          device from the first tensor to avoid creating a new device.
+        """
+        try:
+            # Query system descriptor with ETH dispatch (default, matching ttrt behavior)
+            dispatch_core_type = DispatchCoreType.ETH
+
+            # Use input tensor device to query if available.
+            if input_tensors and len(input_tensors) > 0:
+                ttnn_device = input_tensors[0].device()
+                runtime_device = create_runtime_device_from_ttnn(ttnn_device)
+                system_desc = get_current_system_desc(
+                    dispatch_core_type, runtime_device
+                )
+                if self.debug:
+                    print(
+                        f"System descriptor queried using existing device from input tensor"
+                    )
+            else:
+                system_desc = get_current_system_desc(dispatch_core_type)
+                if self.debug:
+                    print(f"System descriptor queried by creating new device")
+
+            system_desc_path = os.path.join(self.out_dir, "system_desc.ttsys")
+            system_desc.store(system_desc_path)
+            os.environ["SYSTEM_DESC_PATH"] = system_desc_path
+
+            if self.debug:
+                print(f"System descriptor saved to: {system_desc_path}")
+
+            return system_desc_path
+        except Exception as e:
+            raise RuntimeError(
+                f"Failed to query system descriptor. Ensure device is available.\n"
+                f"Exception: {str(e)}"
+            )
+
     def __call__(self, *args, **kwargs):
         """Execute the JIT-compiled function."""
+        if not self.system_desc_path:
+            self.system_desc_path = self._query_and_save_system_desc(args)
+
         tensor_args = {}
         param_names = list(inspect.signature(self.func).parameters.keys())
         if len(param_names) != len(args):
