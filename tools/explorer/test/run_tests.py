@@ -162,6 +162,15 @@ def convert_command_and_assert(model_path):
     return result.json()
 
 
+def preload_command_and_assert():
+    result = send_command("preload", "")
+    assert result.ok
+    if "error" in result.json():
+        print(result.json())
+        assert False
+    return result.json()
+
+
 @pytest.mark.parametrize("model_path", get_test_files(TEST_LOAD_MODEL_PATHS))
 def test_load_model(model_path):
     convert_command_and_assert(model_path)
