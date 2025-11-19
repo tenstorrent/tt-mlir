@@ -227,10 +227,14 @@ void createTTIRToTTNNBackendPipeline(
   ttir::LinalgToLLVMPipelineOptions linalgToLLVMOptions;
   ttir::createTTIRToCPUPipeline(pm, linalgToLLVMOptions);
 
-  ttnn::TTNNCollectMetricsOptions metricsOptions{
-      options.ttnnMetricsOutputFile, options.ttnnMetricsVerboseOutputEnabled,
-      options.enableTrace};
-  devicePm.addPass(mlir::tt::ttnn::createTTNNCollectMetrics(metricsOptions));
+  ttnn::TTNNCollectPerfMetricsOptions metricsOptions{
+      options.ttnnPerfMetricsOutputFile,
+      options.ttnnPerfMetricsVerboseOutputEnabled, options.enableTrace};
+
+  if (options.ttnnPerfMetricsEnabled) {
+    devicePm.addPass(
+        mlir::tt::ttnn::createTTNNCollectPerfMetrics(metricsOptions));
+  }
 }
 
 void createTTNNBackendToEmitCPipeline(
