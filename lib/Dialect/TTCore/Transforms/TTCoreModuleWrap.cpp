@@ -12,12 +12,146 @@
 #include "mlir/IR/Operation.h"
 #include "mlir/IR/Region.h"
 #include "mlir/Pass/Pass.h"
+#include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "llvm/Support/Casting.h"
 
 namespace mlir::tt::ttcore {
 #define GEN_PASS_DEF_TTCOREUNWRAPDEVICEMODULEPASS
 #define GEN_PASS_DEF_TTCOREWRAPDEVICEMODULEPASS
+#define GEN_PASS_DEF_TTCOREMERGECPUANDDEVICEMODULESPASS
 #include "ttmlir/Dialect/TTCore/Transforms/Passes.h.inc"
+
+namespace {
+
+/// Rewrite pattern to replace hoisted function declarations in DeviceModuleOp
+/// with actual function definitions moved from CPUModuleOp, whilst updating
+/// the call sites accordingly.
+class MoveHoistedFuncsRewriter : public OpRewritePattern<func::CallOp> {
+public:
+  using OpRewritePattern<func::CallOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(func::CallOp callOp,
+                                PatternRewriter &rewriter) const override {
+    // Check if this is a hoisted call inside DeviceModuleOp
+    if (!callOp->hasAttr("ttir.cpu_hoist_call")) {
+      return failure();
+    }
+
+    auto deviceModule = callOp->getParentOfType<ttcore::DeviceModuleOp>();
+    if (!deviceModule) {
+      return failure();
+    }
+
+    // Find the corresponding func.func definition in the same module
+    auto deviceModuleOp = callOp->getParentOfType<mlir::ModuleOp>();
+    if (!deviceModuleOp) {
+      return failure();
+    }
+
+    StringRef stubCaleeName = callOp.getCallee();
+    auto stubFuncOp = deviceModuleOp.lookupSymbol<func::FuncOp>(stubCaleeName);
+    if (!stubFuncOp) {
+      return failure();
+    }
+
+    // Find the top-level module to locate CPUModuleOp
+    auto topLevelModule = deviceModule->getParentOfType<mlir::ModuleOp>();
+    if (!topLevelModule) {
+      return failure();
+    }
+
+    // Find CPUModuleOp
+    ttcore::CPUModuleOp cpuModule = nullptr;
+    topLevelModule.walk([&](ttcore::CPUModuleOp cpu) {
+      cpuModule = cpu;
+      return WalkResult::interrupt();
+    });
+
+    if (!cpuModule) {
+      return failure();
+    }
+
+    // Remove suffix "_decl" from the function name
+    // and find the function in CPUModuleOp
+    auto hoistedFuncName = stubCaleeName.str();
+    if (hoistedFuncName.size() > 5 &&
+        hoistedFuncName.substr(hoistedFuncName.size() - 5) == "_decl") {
+      hoistedFuncName = hoistedFuncName.substr(0, hoistedFuncName.size() - 5);
+    }
+
+    func::FuncOp hoistedFuncOp = nullptr;
+    cpuModule.walk([&](func::FuncOp func) {
+      if (func.getSymName() == hoistedFuncName) {
+        hoistedFuncOp = func;
+        return WalkResult::interrupt();
+      }
+      return WalkResult::advance();
+    });
+
+    if (!hoistedFuncOp) {
+      return failure();
+    }
+
+    // Clone the function from CPU module to device module
+    rewriter.setInsertionPointToStart(&deviceModuleOp.getBodyRegion().front());
+    rewriter.clone(*hoistedFuncOp);
+
+    // Remove the original function definition from device module
+    rewriter.eraseOp(stubFuncOp);
+
+    // Remove the function from CPU module
+    rewriter.eraseOp(hoistedFuncOp);
+
+    // Update the call op to point to the new function
+    callOp.setCallee(hoistedFuncName);
+
+    // Remove the attribute
+    callOp->removeAttr("ttir.cpu_hoist_call");
+    return success();
+  }
+};
+
+/// Helper function to unwrap a DeviceModuleOp into a top-level ModuleOp.
+void unwrapDeviceModule(mlir::ModuleOp rootModule) {
+  DeviceModuleOp deviceOp;
+  if (auto deviceOpsList = rootModule.getOps<DeviceModuleOp>();
+      !deviceOpsList.empty()) {
+    assert(std::distance(deviceOpsList.begin(), deviceOpsList.end()) == 1 &&
+           "Top-level ModuleOp must contain 0 or 1 DeviceModuleOps!");
+    deviceOp = *deviceOpsList.begin();
+  } else {
+    return;
+  }
+
+  if (auto cpuOpsList = rootModule.getOps<CPUModuleOp>(); !cpuOpsList.empty()) {
+    assert(std::distance(cpuOpsList.begin(), cpuOpsList.end()) == 1 &&
+           "Top-level ModuleOp must contain 0 or 1 CPUModuleOps!");
+    (*cpuOpsList.begin())->erase();
+  }
+
+  auto innerModule = dyn_cast_if_present<ModuleOp>(deviceOp.getBody()->front());
+  assert(innerModule &&
+         "ttcore.device_module must always contain single builtin.module!");
+
+  auto &innerBody = innerModule.getBodyRegion().front();
+  auto &topLevelBody = rootModule.getBodyRegion().front();
+
+  // Move operations from inner module's block to the top-level module's
+  // block.
+  topLevelBody.getOperations().splice(topLevelBody.end(),
+                                      innerBody.getOperations());
+
+  // Also transfer any attributes, e.g. system_desc, device
+  for (const auto &attr : innerModule->getAttrs()) {
+    if (!rootModule->hasAttr(attr.getName())) {
+      rootModule->setAttr(attr.getName(), attr.getValue());
+    }
+  }
+
+  deviceOp->erase();
+}
+
+} // namespace
 
 class TTCoreWrapDeviceModulePass
     : public impl::TTCoreWrapDeviceModulePassBase<TTCoreWrapDeviceModulePass> {
@@ -62,44 +196,30 @@ public:
       return;
     }
 
-    DeviceModuleOp deviceOp;
-    if (auto deviceOpsList = rootModule.getOps<DeviceModuleOp>();
-        !deviceOpsList.empty()) {
-      assert(std::distance(deviceOpsList.begin(), deviceOpsList.end()) == 1 &&
-             "Top-level ModuleOp must contain 0 or 1 DeviceModuleOps!");
-      deviceOp = *deviceOpsList.begin();
-    } else {
-      return;
+    unwrapDeviceModule(rootModule);
+  }
+};
+
+class TTCoreMergeCPUAndDeviceModulesPass
+    : public impl::TTCoreMergeCPUAndDeviceModulesPassBase<
+          TTCoreMergeCPUAndDeviceModulesPass> {
+public:
+  using impl::TTCoreMergeCPUAndDeviceModulesPassBase<
+      TTCoreMergeCPUAndDeviceModulesPass>::
+      TTCoreMergeCPUAndDeviceModulesPassBase;
+
+  void runOnOperation() override {
+    mlir::ModuleOp module = this->getOperation();
+
+    // Apply the rewrite pattern to move hoisted functions
+    mlir::RewritePatternSet patterns(&getContext());
+    patterns.add<MoveHoistedFuncsRewriter>(&getContext());
+    if (failed(applyPatternsGreedily(module, std::move(patterns)))) {
+      signalPassFailure();
     }
 
-    if (auto cpuOpsList = rootModule.getOps<CPUModuleOp>();
-        !cpuOpsList.empty()) {
-      assert(std::distance(cpuOpsList.begin(), cpuOpsList.end()) == 1 &&
-             "Top-level ModuleOp must contain 0 or 1 CPUModuleOps!");
-      (*cpuOpsList.begin())->erase();
-    }
-
-    auto innerModule =
-        dyn_cast_if_present<ModuleOp>(deviceOp.getBody()->front());
-    assert(innerModule &&
-           "ttcore.device_module must always contain single builtin.module!");
-
-    auto &innerBody = innerModule.getBodyRegion().front();
-    auto &topLevelBody = rootModule.getBodyRegion().front();
-
-    // Move operations from inner module's block to the top-level module's
-    // block.
-    topLevelBody.getOperations().splice(topLevelBody.end(),
-                                        innerBody.getOperations());
-
-    // Also transfer any attributes, e.g. system_desc, device
-    for (const auto &attr : innerModule->getAttrs()) {
-      if (!rootModule->hasAttr(attr.getName())) {
-        rootModule->setAttr(attr.getName(), attr.getValue());
-      }
-    }
-
-    deviceOp->erase();
+    // After moving hoisted functions, we can unwrap the DeviceModuleOp
+    unwrapDeviceModule(module);
   }
 };
 } // namespace mlir::tt::ttcore

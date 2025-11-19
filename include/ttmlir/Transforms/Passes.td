@@ -122,6 +122,17 @@ def RemoveReturnValues: Pass<"ttir-remove-return-values", "::mlir::ModuleOp"> {
   let dependentDialects = ["mlir::func::FuncDialect"];
 }
 
+def DisableDPSForHoistedFuncs: Pass<"ttir-remove-dps-semantics", "::mlir::ModuleOp"> {
+  let summary = "Remove Destination Passing Style semantics from CPU-hoisted functions.";
+  let description = [{
+    This pass targets the functions with the ttir.return_to_output_mapping attribute
+    and removes the attribute, effectively removing the Destination Passing Style (DPS)
+    semantics from those functions. 
+    
+    This pass should analyse calls to such functions and ensure that the outputs are handled
+    correctly after the DPS semantics are removed.
+  }];
+}
 
 def CollapseParallelLoops: Pass<"collapse-parallel-loops", "::mlir::func::FuncOp"> {
   let summary = "Collapse and reverse dimensions in multidimensional SCF parallel loops";

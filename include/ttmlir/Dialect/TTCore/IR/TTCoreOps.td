@@ -139,7 +139,7 @@ def TTCore_DeviceOp : TTCore_Op<"device", [Symbol]> {
   let assemblyFormat = "$sym_name `=` $device_attr attr-dict";
 }
 
-def TTCore_LoadCachedOp : TTCore_Op<"load_cached", []> {
+def TTCore_LoadCachedOp : TTCore_Op<"load_cached", [Pure]> {
   let summary = "Load cached results from a previously computed function";
   let description = [{
     The load_cached operation calls a precomputed function with given arguments

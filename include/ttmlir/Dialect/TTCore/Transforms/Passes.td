@@ -51,6 +51,15 @@ def TTCoreUnwrapDeviceModulePass : Pass<"ttcore-unwrap-device-module", "::mlir::
   let dependentDialects = ["::mlir::tt::ttcore::TTCoreDialect"];
 }
 
+def TTCoreMergeCPUAndDeviceModulesPass : Pass<"ttcore-merge-cpu-and-device-modules", "::mlir::ModuleOp"> {
+  let summary = "Merge ttcore.device_module and ttcore.cpu_module contents into top-level builtin.module";
+  let description = [{
+    Example: TODO(dmilinkovic)
+  }];
+  
+  let dependentDialects = ["::mlir::tt::ttcore::TTCoreDialect"];
+}
+
 def TTCoreRegisterDevicePass : Pass<"ttcore-register-device", "::mlir::ModuleOp"> {
   let summary = "Move ttcore.device_module contents to top-level builtin.module";
   let description = [{

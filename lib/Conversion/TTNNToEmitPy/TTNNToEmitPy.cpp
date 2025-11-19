@@ -36,20 +36,33 @@ public:
   // Converts op name by removing the prefixSearchPattern with
   // prefixSwapPattern, e.g. "ttnn." with "tt_metal."
   //
-  std::string convertOpName(SourceOp op) const {
+  virtual std::string convertOpName(SourceOp op) const {
     auto name = op.getOperationName();
+    auto funcOp = op->template getParentOfType<mlir::func::FuncOp>();
+
     assert(name.starts_with(getPrefixSearchPattern()) &&
            "TTNNToEmitPyBaseOpConversionPattern only supports ops from the "
            "TTNN dialect");
 
     if (getPrefixSearchPattern() == getPrefixSwapPattern()) {
+      if (funcOp.getSymName().starts_with("hoisted_") &&
+          !name.contains("deallocate")) {
+        return name.str() + ".golden_function";
+      }
       return name.str();
     }
 
     // Exchange search with swap pattern.
     //
-    return name.str().replace(0, getPrefixSearchPattern().size(),
-                              getPrefixSwapPattern());
+    auto newName = name.str().replace(0, getPrefixSearchPattern().size(),
+                                      getPrefixSwapPattern());
+
+    if (funcOp.getSymName().starts_with("hoisted_") &&
+        !name.contains("deallocate")) {
+      return newName + ".golden_function";
+    }
+
+    return newName;
   }
 };
 } // namespace
@@ -1692,13 +1705,20 @@ public:
     ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::ReshapeOp> emitter(
         reshapeOp, adaptor, rewriter);
 
+    bool shouldAddMemoryConfig =
+        this->convertOpName(reshapeOp).find("golden") == std::string::npos;
+
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(reshapeOp.getInput()),
         emitter.emit<std::vector<int32_t>>(reshapeOp.getShape()),
-        emitter.emit(reshapeOp.getMemoryConfig() |
-                         emitter.getMemoryConfig(reshapeOp.getResult()),
-                     "memory_config"),
     };
+
+    if (shouldAddMemoryConfig) {
+      args.push_back(
+          emitter.emit(reshapeOp.getMemoryConfig() |
+                           emitter.getMemoryConfig(reshapeOp.getResult()),
+                       "memory_config"));
+    }
 
     emitter.replaceOp(*this, args);
 

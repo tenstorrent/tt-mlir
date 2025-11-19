@@ -308,6 +308,14 @@ struct TTIRToTTNNBackendPipelineOptions
   // the optimizer will use this device instead of opening a new one.
   // This allows frontends to pass in an active device without closing it.
   std::shared_ptr<::tt::tt_metal::distributed::MeshDevice> devicePtr = nullptr;
+
+  // Option to configure whether the ops in the CPUModule should be lowered
+  // to LLVM dialect, or left as is (TTIR (+ StableHLO)).
+  //
+  Option<bool> enableCPUModuleLowering{
+      *this, "enable-cpu-module-lowering",
+      llvm::cl::desc("Enable lowering of CPUModule ops to the LLVM dialect."),
+      llvm::cl::init(true)};
 };
 
 // TTNN Backend to EmitC PipelineOptions.
@@ -378,6 +386,14 @@ struct TTIRToEmitCPipelineOptions : public TTIRToTTNNBackendPipelineOptions,
 //
 struct TTIRToEmitPyPipelineOptions : public TTIRToTTNNBackendPipelineOptions,
                                      public TTNNBackendToEmitPyPipelineOptions {
+  TTIRToEmitPyPipelineOptions() {
+    // Disable CPUModule lowering by default for EmitPy pipeline.
+    // This allows EmitPy pipeline to lower TTIR (+ StableHLO) ops in the
+    // CPUModule to TTNN with golden_function invocations, thus using
+    // Torch to execute the ops on CPU.
+    //
+    enableCPUModuleLowering = false;
+  }
 };
 
 //===----------------------------------------------------------------------===//
