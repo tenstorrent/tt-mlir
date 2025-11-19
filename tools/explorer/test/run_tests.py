@@ -25,6 +25,7 @@ MNIST_STABLEHLO_PATH = "test/ttmlir/Silicon/StableHLO/n150/mnist_inference.mlir"
 TEST_EXECUTE_MODEL_PATHS = [
     MNIST_SHARDING_PATH,
 ]
+TEST_LOAD_SINGLE_COLLECTION = "test/ttmlir/Explorer/graph_collections/collection1.mlir"
 
 if "TT_EXPLORER_GENERATED_MLIR_TEST_DIRS" in os.environ:
     for path in os.environ["TT_EXPLORER_GENERATED_MLIR_TEST_DIRS"].split(","):
@@ -174,6 +175,12 @@ def preload_command_and_assert():
 @pytest.mark.parametrize("model_path", get_test_files(TEST_LOAD_MODEL_PATHS))
 def test_load_model(model_path):
     convert_command_and_assert(model_path)
+
+
+def test_load_collection():
+    result = convert_command_and_assert(TEST_LOAD_SINGLE_COLLECTION)
+    assert "graphCollections" in result
+
 
 
 @pytest.mark.parametrize("model_path", get_test_files(TEST_EXECUTE_MODEL_PATHS))
