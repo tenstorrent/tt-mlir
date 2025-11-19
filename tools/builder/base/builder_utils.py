@@ -1844,6 +1844,8 @@ def execute_fb(
                         data_buffer,
                         dtype=ttrt_datatype_to_torch_dtype(outputs[i].get_dtype()),
                     ).reshape(outputs[i].get_shape())
+                    print("************** OUTPUT **************")
+                    print(ttrt_datatype_to_torch_dtype(outputs[i].get_dtype()))
                 else:
                     raise Exception(
                         f"Failed: Tensor shape=({outputs[i].get_shape()}) and data buffer size={len(data_buffer)} do not match."
@@ -1858,6 +1860,43 @@ def execute_fb(
                     raise TTBuilderGoldenException(
                         f"Failed: program-level output doesn't match golden shape! golden_shape={golden_tensor_torch.shape}, output_shape={output_tensor_torch.shape}"
                     )
+
+            # Print first 5 values for debugging
+            print("\n" + "=" * 70)
+            print("TENSOR VALUES DEBUG")
+            print("=" * 70)
+
+            # Print golden inputs (first 5 values each)
+            if len(golden_inputs) > 0:
+                print(f"Golden Inputs ({len(golden_inputs)} total):")
+                for idx, inp in enumerate(golden_inputs):
+                    flat_values = inp.flatten()[:5].tolist()
+                    print(f"  Input[{idx}] (shape={inp.shape}, dtype={inp.dtype})")
+                    print(f"    First 5 values: {flat_values}")
+            else:
+                print("Golden Inputs: None")
+
+            # Print golden output (first 5 values)
+            if golden_tensor_torch is not None:
+                flat_golden_out = golden_tensor_torch.flatten()[:5].tolist()
+                print(
+                    f"\nGolden Output[{i}] (shape={golden_tensor_torch.shape}, dtype={golden_tensor_torch.dtype})"
+                )
+                print(f"  First 5 values: {flat_golden_out}")
+            else:
+                print("\nGolden Output: None")
+
+            # Print silicon output (first 5 values)
+            if output_tensor_torch is not None:
+                flat_silicon_out = output_tensor_torch.flatten()[:5].tolist()
+                print(
+                    f"\nSilicon Output[{i}] (shape={output_tensor_torch.shape}, dtype={output_tensor_torch.dtype})"
+                )
+                print(f"  First 5 values: {flat_silicon_out}")
+            else:
+                print("\nSilicon Output: None")
+
+            print("=" * 70 + "\n")
 
             # PCC check.
             cal_atol, cal_rtol, cal_pcc, _ = get_atol_rtol_pcc(

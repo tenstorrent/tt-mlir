@@ -6,6 +6,7 @@
 #include "tt/runtime/detail/ttnn/operations/utils.h"
 #include "tt/runtime/detail/ttnn/ttnn.h"
 #include "tt/runtime/detail/ttnn/utils.h"
+#include <operations/eltwise/binary/binary_composite.hpp>
 
 namespace tt::runtime::ttnn::operations::eltwise::binary {
 
@@ -25,6 +26,9 @@ static void runEltwiseBinaryOp(
   ::ttnn::Tensor *lhs = &(tensorPool.getTTNNTensorAndValidate(op->lhs()));
   ::ttnn::Tensor *rhs = &(tensorPool.getTTNNTensorAndValidate(op->rhs()));
 
+  std::cout << "LHS: " << lhs->write_to_string() << std::endl;
+  std::cout << "RHS: " << rhs->write_to_string() << std::endl;
+
   std::optional<::ttnn::DataType> outputDataType = std::nullopt;
   if (op->output_dtype()) {
     outputDataType =
@@ -40,6 +44,8 @@ static void runEltwiseBinaryOp(
 
   ::ttnn::Tensor out = ttnnOp(*lhs, *rhs, outputDataType, outputMemoryConfig,
                               std::nullopt, {}, {}, {});
+
+  std::cout << "OUT: " << out.write_to_string() << std::endl;
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
