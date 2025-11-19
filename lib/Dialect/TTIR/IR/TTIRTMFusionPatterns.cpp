@@ -67,62 +67,67 @@ public:
   using mlir::OpRewritePattern<PermuteOp>::OpRewritePattern;
 
   LogicalResult
-  matchAndRewrite(PermuteOp op,
+  matchAndRewrite(PermuteOp finalPermuteOp,
                   mlir::PatternRewriter &rewriter) const override {
-    // Find matching case based on the second permutation.
-    ArrayRef<int64_t> secondPermutation = op.getPermutation();
-    const PermuteReshapePermutePatternSpec *matchedPattern =
-        findMatchingPattern(secondPermutation);
-    if (!matchedPattern) {
+
+    auto reshapeOp = finalPermuteOp.getInput().getDefiningOp<ReshapeOp>();
+    if (!reshapeOp) {
       return failure();
     }
 
-    // Verify the pattern structure: Permute -> Reshape -> Permute.
-    ReshapeOp reshapeOp = op.getInput().getDefiningOp<ReshapeOp>();
-    if (!reshapeOp || !reshapeOp->hasOneUse()) {
+    auto originalPermuteOp = reshapeOp.getInput().getDefiningOp<PermuteOp>();
+    if (!originalPermuteOp) {
       return failure();
     }
 
-    PermuteOp firstPermuteOp = reshapeOp.getInput().getDefiningOp<PermuteOp>();
-    if (!firstPermuteOp || !firstPermuteOp->hasOneUse()) {
+    auto reshapeInputShape = reshapeOp.getInput().getType().getShape();
+    auto reshapeOutputShape = reshapeOp.getType().getShape();
+    if (reshapeInputShape.size() != reshapeOutputShape.size()) {
       return failure();
     }
 
-    // Verify the first permutation matches the expected pattern.
-    if (!llvm::equal(firstPermuteOp.getPermutation(),
-                     matchedPattern->firstPermutation)) {
+    auto originalAxes = originalPermuteOp.getPermutation();
+    llvm::SmallVector<llvm::SmallVector<int64_t>> finalAxes;
+    const int n = reshapeInputShape.size();
+    int i = 0;
+    int j = 0;
+    while (i < n && j < n) {
+      if (reshapeInputShape[i] == reshapeOutputShape[j]) {
+        finalAxes.push_back({originalAxes[i]});
+        i++;
+        j++;
+      } else if (reshapeOutputShape[j] == 1) {
+        finalAxes.push_back({});
+        j++;
+      } else {
+        finalAxes.push_back({});
+        int consumed = 1;
+        while (i < n && reshapeOutputShape[j] % reshapeInputShape[i] == 0) {
+          finalAxes.back().push_back(originalAxes[i]);
+          consumed *= reshapeInputShape[i];
+          i++;
+        }
+
+        if (consumed != reshapeOutputShape[j]) {
+          return failure();
+        }
+      }
+    }
+
+    auto realFinalAxes = ttmlir::utils::applyPermutation(
+        llvm::ArrayRef(finalAxes), finalPermuteOp.getPermutation());
+
+    if (!llvm::equal(ttmlir::utils::flatten(realFinalAxes), llvm::seq(n))) {
       return failure();
     }
 
-    // Verify the reshape shape matches the expected pattern for this case.
-    ArrayRef<int64_t> inputShape = firstPermuteOp.getType().getShape();
-    ArrayRef<int64_t> reshapeOutputShape = reshapeOp.getType().getShape();
-    SmallVector<int64_t> expectedReshapeShape =
-        matchedPattern->computeReshapeShape(inputShape);
-
-    if (!llvm::equal(reshapeOutputShape, expectedReshapeShape)) {
-      return failure();
+    llvm::SmallVector<int32_t> newShape;
+    for (const auto axis : finalPermuteOp.getType().getShape()) {
+      newShape.push_back(axis);
     }
-
-    // Calculate the final reshape shape by applying the second permutation
-    // to the intermediate reshape output shape.
-    SmallVector<int64_t> finalReshapeShape =
-        ttmlir::utils::applyPermutation(reshapeOutputShape, secondPermutation);
-
-    // Verify the calculated shape matches the final output shape.
-    ArrayRef<int64_t> finalOutputShape = op.getType().getShape();
-    if (!llvm::equal(finalReshapeShape, finalOutputShape)) {
-      llvm_unreachable(
-          "The computed reshape shape must match the final output shape.");
-    }
-
-    // Replace the entire sequence with a single reshape operation.
-    RankedTensorType newReshapeType = RankedTensorType::get(
-        finalReshapeShape, firstPermuteOp.getType().getElementType());
-    ArrayAttr newShapeAttr = rewriter.getI32ArrayAttr(SmallVector<int32_t>(
-        finalReshapeShape.begin(), finalReshapeShape.end()));
-    utils::replaceOpWithNewDPSOp<ReshapeOp>(
-        rewriter, op, newReshapeType, firstPermuteOp.getInput(), newShapeAttr);
+    ttir::utils::replaceOpWithNewDPSOp<ttir::ReshapeOp>(
+        rewriter, finalPermuteOp, finalPermuteOp.getType(),
+        originalPermuteOp.getInput(), rewriter.getI32ArrayAttr(newShape));
 
     return success();
   }
