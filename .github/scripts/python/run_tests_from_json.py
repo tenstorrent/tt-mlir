@@ -53,7 +53,7 @@ def main(machine, image, jobid):
         sys.stderr.flush()
 
         try:
-            result = os.system(" ".join(cmd))
+            result = os.system(" ".join([f'"{arg}"' for arg in cmd]))
             if result != 0:
                 print(
                     f"\n\033[91m FAILURE running {test_type}: returned {result}\033[0m"
