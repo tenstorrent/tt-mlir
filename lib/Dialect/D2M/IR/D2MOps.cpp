@@ -914,6 +914,10 @@ void d2m::GenericOp::build(
   OpBuilder::InsertionGuard guard(builder);
   Block *block = builder.createBlock(&region, region.end(), blockTypes, locs);
   singleThreadRegionBuilder(builder, state.location, block->getArguments());
+  // Ensure block has a d2m.yield terminator
+  if (block->empty() || !mlir::isa<d2m::YieldOp>(block->back())) {
+    builder.create<d2m::YieldOp>(state.location, ValueRange{});
+  }
 }
 
 void d2m::GenericOp::build(

@@ -1061,8 +1061,6 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
           llvm::TypeSwitch<Operation *, void>(opOnChain)
               .Case([&](memref::AllocOp op) {
                 remap(rewriter, op, remappedMemSpace);
-                insertDealloc(rewriter, op, memrefCtx.live.last,
-                              analysis.sequencing);
               })
               .Case([&](d2m::ViewLayoutOp op) {
                 remap(rewriter, op, remappedMemSpace);
@@ -1150,7 +1148,6 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
         rewriter.create<memref::AllocOp>(op.getLoc(), bufferType);
 
     assignAddressAndAlignment(rewriter, bufferAllocOp, req.offset, info);
-    insertDealloc(rewriter, bufferAllocOp, req.last, sequencing);
 
     const auto oldOperandType = mlir::cast<MemRefType>(operand.get().getType());
     const AffineMap reblockingMap = utils::calculateReblockMap(
@@ -1190,20 +1187,6 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     rewriter.finalizeOpModification(op);
 
     return success();
-  }
-
-  static void insertDealloc(RewriterBase &rewriter, memref::AllocOp allocOp,
-                            Planner::SequenceT position,
-                            const SequenceMapping &sequencing) {
-    Operation *lastOp = sequencing.positionMap[position];
-    if (!llvm::isa<func::ReturnOp>(lastOp)) {
-      OpBuilder::InsertionGuard guard(rewriter);
-      {
-        rewriter.setInsertionPointAfter(lastOp);
-        rewriter.create<memref::DeallocOp>(lastOp->getLoc(),
-                                           allocOp.getResult());
-      }
-    }
   }
 
   /// @return `map` with all broadcast result expressions replaced with const-1

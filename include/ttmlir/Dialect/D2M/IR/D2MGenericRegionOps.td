@@ -998,6 +998,8 @@ def D2M_SemaphoreWaitOp : D2M_GenericRegionOp<"semaphore_wait", [MemoryEffects<[
 //===----------------------------------------------------------------------===//
 
 def D2M_YieldOp : D2M_GenericRegionOp<"yield", [
+    Terminator,
+    DeclareOpInterfaceMethods<RegionBranchTerminatorOpInterface>,
     MemoryEffects<[MemRead, MemWrite]>,
     DeclareOpInterfaceMethods<BufferizableOpInterface, [
       "bufferizesToMemoryRead",
@@ -1014,11 +1016,23 @@ def D2M_YieldOp : D2M_GenericRegionOp<"yield", [
 
     let arguments = (ins Variadic<AnyRankedTensor>:$values);
 
-    let assemblyFormat = [{ $values attr-dict `:` `(` type($values) `)` }];
+    let assemblyFormat = [{ ($values^ `:` `(` type($values) `)`)? attr-dict }];
+
+    let builders = [
+      OpBuilder<(ins),
+      [{
+        build($_builder, $_state, ValueRange{});
+      }]>
+    ];
 
     let hasVerifier = 1;
 
     let extraClassDefinition = [{
+      mlir::MutableOperandRange $cppClass::getMutableSuccessorOperands(mlir::RegionBranchPoint point) {
+        return mlir::MutableOperandRange(*this, 0, 0);
+      }
+
+
       bool $cppClass::bufferizesToMemoryRead(
           mlir::OpOperand &, const mlir::bufferization::AnalysisState &) {
         return false;

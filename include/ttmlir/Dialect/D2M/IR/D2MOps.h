@@ -22,6 +22,9 @@
 
 namespace mlir::tt::d2m {
 
+// Forward declaration for SingleBlockImplicitTerminator trait
+class YieldOp;
+
 inline void getDpsEffects(
     DestinationStyleOpInterface op,
     SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>
