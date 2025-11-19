@@ -21,17 +21,17 @@ module @scatter_fill_cache{
     %3 = "ttir.constant"() <{value = dense<1> : tensor<8xi64>}> : () -> tensor<8xi64>
     %4 = "ttir.constant"() <{value = dense<0> : tensor<128xi64>}> : () -> tensor<128xi64>
     %5 = "ttir.constant"() <{value = dense<1> : tensor<128xi64>}> : () -> tensor<128xi64>
-    %6 = "ttir.arange"() <{arange_dimension = 0 : i64, end = 128 : si64, start = 0 : si64, step = 1 : si64}> : () -> tensor<128xi64>
+    %6 = "ttir.arange"() <{arange_dimension = 0 : i64, dtype = i64, end = 128 : si64, start = 0 : si64, step = 1 : si64}> : () -> tensor<128xi64>
     %7 = ttir.empty() : tensor<128xi64>
     %8 = "ttir.multiply"(%6, %5, %7) : (tensor<128xi64>, tensor<128xi64>, tensor<128xi64>) -> tensor<128xi64>
     %9 = ttir.empty() : tensor<128xi64>
     %10 = "ttir.add"(%8, %4, %9) : (tensor<128xi64>, tensor<128xi64>, tensor<128xi64>) -> tensor<128xi64>
-    %11 = "ttir.arange"() <{arange_dimension = 0 : i64, end = 8 : si64, start = 0 : si64, step = 1 : si64}> : () -> tensor<8xi64>
+    %11 = "ttir.arange"() <{arange_dimension = 0 : i64, dtype = i64, end = 8 : si64, start = 0 : si64, step = 1 : si64}> : () -> tensor<8xi64>
     %12 = ttir.empty() : tensor<8xi64>
     %13 = "ttir.multiply"(%11, %3, %12) : (tensor<8xi64>, tensor<8xi64>, tensor<8xi64>) -> tensor<8xi64>
     %14 = ttir.empty() : tensor<8xi64>
     %15 = "ttir.add"(%13, %2, %14) : (tensor<8xi64>, tensor<8xi64>, tensor<8xi64>) -> tensor<8xi64>
-    %16 = "ttir.arange"() <{arange_dimension = 0 : i64, end = 1 : si64, start = 0 : si64, step = 1 : si64}> : () -> tensor<1xi64>
+    %16 = "ttir.arange"() <{arange_dimension = 0 : i64, dtype = i64, end = 1 : si64, start = 0 : si64, step = 1 : si64}> : () -> tensor<1xi64>
     %17 = ttir.empty() : tensor<1xi64>
     %18 = "ttir.multiply"(%16, %1, %17) : (tensor<1xi64>, tensor<1xi64>, tensor<1xi64>) -> tensor<1xi64>
     %19 = ttir.empty() : tensor<1xi64>
@@ -88,17 +88,17 @@ module @scatter_update_cache{
     %3 = "ttir.constant"() <{value = dense<1> : tensor<8xi64>}> : () -> tensor<8xi64>
     %4 = "ttir.constant"() <{value = dense<0> : tensor<128xi64>}> : () -> tensor<128xi64>
     %5 = "ttir.constant"() <{value = dense<1> : tensor<128xi64>}> : () -> tensor<128xi64>
-    %6 = "ttir.arange"() <{arange_dimension = 0 : i64, end = 128 : si64, start = 0 : si64, step = 1 : si64}> : () -> tensor<128xi64>
+    %6 = "ttir.arange"() <{arange_dimension = 0 : i64, dtype = i64, end = 128 : si64, start = 0 : si64, step = 1 : si64}> : () -> tensor<128xi64>
     %7 = ttir.empty() : tensor<128xi64>
     %8 = "ttir.multiply"(%6, %5, %7) : (tensor<128xi64>, tensor<128xi64>, tensor<128xi64>) -> tensor<128xi64>
     %9 = ttir.empty() : tensor<128xi64>
     %10 = "ttir.add"(%8, %4, %9) : (tensor<128xi64>, tensor<128xi64>, tensor<128xi64>) -> tensor<128xi64>
-    %11 = "ttir.arange"() <{arange_dimension = 0 : i64, end = 8 : si64, start = 0 : si64, step = 1 : si64}> : () -> tensor<8xi64>
+    %11 = "ttir.arange"() <{arange_dimension = 0 : i64, dtype = i64, end = 8 : si64, start = 0 : si64, step = 1 : si64}> : () -> tensor<8xi64>
     %12 = ttir.empty() : tensor<8xi64>
     %13 = "ttir.multiply"(%11, %3, %12) : (tensor<8xi64>, tensor<8xi64>, tensor<8xi64>) -> tensor<8xi64>
     %14 = ttir.empty() : tensor<8xi64>
     %15 = "ttir.add"(%13, %2, %14) : (tensor<8xi64>, tensor<8xi64>, tensor<8xi64>) -> tensor<8xi64>
-    %16 = "ttir.arange"() <{arange_dimension = 0 : i64, end = 1 : si64, start = 0 : si64, step = 1 : si64}> : () -> tensor<1xi64>
+    %16 = "ttir.arange"() <{arange_dimension = 0 : i64, dtype = i64, end = 1 : si64, start = 0 : si64, step = 1 : si64}> : () -> tensor<1xi64>
     %17 = ttir.empty() : tensor<1xi64>
     %18 = "ttir.multiply"(%16, %1, %17) : (tensor<1xi64>, tensor<1xi64>, tensor<1xi64>) -> tensor<1xi64>
     %19 = ttir.empty() : tensor<1xi64>
