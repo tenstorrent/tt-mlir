@@ -873,18 +873,35 @@ void d2m::GenericOp::build(mlir::OpBuilder &builder,
     auto layout = ttcore::getDeviceLayout(
         mlir::dyn_cast<ShapedType>(outputs[0].getType()));
     auto metalLayout = mlir::dyn_cast<ttcore::MetalLayoutAttr>(layout);
-    if (!outputIsView && metalLayout &&
-        !metalLayout.getIndexAffineMap().isEmpty()) {
 
-      // Use the implied physical grid shape of the output tensor to generate
-      // the required inverse mapping from the virtual grid to the physical
-      // grid.
+    // Only consider non-identity index maps for virtualization. Identity maps
+    // and empty maps both represent "no transformation".
+    bool hasNonIdentityIndexMap = false;
+    if (metalLayout) {
+      auto indexMap = metalLayout.getIndexAffineMap();
+      hasNonIdentityIndexMap = !indexMap.isEmpty() && !indexMap.isIdentity();
+    }
+
+    if (!outputIsView && metalLayout && hasNonIdentityIndexMap) {
+
       auto shapedType = mlir::cast<ShapedType>(outputs[0].getType());
       auto physicalGridShape = metalLayout.getPhysicalGridShape(shapedType);
-      auto [_, invMap] = ttmlir::d2m::utils::grids::createCoreVirtMaps(
-          builder.getContext(), gridShape, physicalGridShape);
 
-      grid = builder.getAttr<ttcore::GridAttr>(gridShape, invMap);
+      // Only use virtual grid mapping if the grid actually needs virtualization
+      // (1D grids that exceed the device grid in one dimension). For "healthy"
+      // cases where the grid fits within the device grid, no virtualization is
+      // needed.
+      bool needsVirtualization =
+          (gridShape[0] == 1 && gridShape[1] > physicalGridShape[1]) ||
+          (gridShape[1] == 1 && gridShape[0] > physicalGridShape[0]);
+
+      if (needsVirtualization) {
+        auto [_, invMap] = ttmlir::d2m::utils::grids::createCoreVirtMaps(
+            builder.getContext(), gridShape, physicalGridShape);
+        grid = builder.getAttr<ttcore::GridAttr>(gridShape, invMap);
+      } else {
+        grid = builder.getAttr<ttcore::GridAttr>(gridShape);
+      }
     } else {
       grid = builder.getAttr<ttcore::GridAttr>(gridShape);
     }
