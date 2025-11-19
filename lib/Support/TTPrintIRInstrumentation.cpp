@@ -46,11 +46,11 @@ mlir::Operation *extractOperationFromIRUnit(const mlir::IRUnit &unit) {
 
 TTPrintIRInstrumentation::TTPrintIRInstrumentation(
     TTPrintIRInstrumentationOptions options)
-    : dumpCounter_(0), outputDir_(expandAndCreateOutputDir(options.outputDir)),
+    : outputDir_(expandAndCreateOutputDir(options.outputDir)),
       modelName_(options.modelName.empty() ? "unknown" : options.modelName),
       pipelineName_(options.pipelineName), level_(options.level),
-      dumpInitial_(options.dumpInitial), dumpedInitial_(false),
-      onlyDumpOnChanges_(options.onlyDumpOnChanges), currentDepth_(0) {
+      dumpInitial_(options.dumpInitial),
+      onlyDumpOnChanges_(options.onlyDumpOnChanges) {
   if (!options.modelName.empty()) {
     initializeDumpCounter();
   }

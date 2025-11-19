@@ -218,7 +218,7 @@ TEST_F(InstrumentationTest, Once) {
       filepaths.end());
 }
 
-TEST_F(InstrumentationTest, Pipeline_Flat) {
+TEST_F(InstrumentationTest, PipelineFlat) {
   auto options = test::createOptions(*this);
   options.level = DumpLevel::Pipeline;
   test::runWith(*this, options, test::Pipelines::flatPipeline());
@@ -231,7 +231,7 @@ TEST_F(InstrumentationTest, Pipeline_Flat) {
       filepaths.end());
 }
 
-TEST_F(InstrumentationTest, Pipeline_Nested) {
+TEST_F(InstrumentationTest, PipelineNested) {
   auto options = test::createOptions(*this);
   options.level = DumpLevel::Pipeline;
   test::runWith(*this, options, test::Pipelines::nestedFuncOpPipeline());
@@ -249,7 +249,7 @@ TEST_F(InstrumentationTest, Pipeline_Nested) {
       filepaths.end());
 }
 
-TEST_F(InstrumentationTest, Initial_WithOnce) {
+TEST_F(InstrumentationTest, InitialWithOnce) {
   auto options = test::createOptions(*this);
   options.level = DumpLevel::Once;
   options.dumpInitial = true;
@@ -272,7 +272,7 @@ public:
   using TTPrintIRInstrumentation::TTPrintIRInstrumentation;
 };
 
-TEST_F(InstrumentationTest, ChangeDetection_Enabled) {
+TEST_F(InstrumentationTest, ChangeDetectionEnabled) {
   auto options = test::createOptions(*this);
   options.level = DumpLevel::Pass;
   options.onlyDumpOnChanges = true;
@@ -284,7 +284,7 @@ TEST_F(InstrumentationTest, ChangeDetection_Enabled) {
   EXPECT_GE(fileCount, 1);
 }
 
-TEST_F(InstrumentationTest, ChangeDetection_Disabled) {
+TEST_F(InstrumentationTest, ChangeDetectionDisabled) {
   auto options = test::createOptions(*this);
   options.level = DumpLevel::Pass;
 
@@ -306,7 +306,7 @@ TEST_F(InstrumentationTest, ExtractModelNameFromLocation) {
   EXPECT_EQ(extracted, "TTPrintIRInstrumentationTest");
 }
 
-TEST_F(InstrumentationTest, ModelName_ExplicitlyProvided) {
+TEST_F(InstrumentationTest, ModelNameExplicitlyProvided) {
   auto options = test::createOptions(*this);
   options.level = DumpLevel::Pass;
   options.modelName = "custom_model";
@@ -318,7 +318,7 @@ TEST_F(InstrumentationTest, ModelName_ExplicitlyProvided) {
               filepaths.end());
 }
 
-TEST_F(InstrumentationTest, ModelName_ExtractedFromIR) {
+TEST_F(InstrumentationTest, ModelNameExtractedFromIR) {
   auto options = test::createOptions(*this);
   options.level = DumpLevel::Pass;
   options.modelName = "";

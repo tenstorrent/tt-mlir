@@ -79,17 +79,17 @@ public:
   // Member Variables
   //===--------------------------------------------------------------------===//
 
-  int dumpCounter_;
+  int dumpCounter_ = 0;
   std::string outputDir_;
   std::string modelName_;
   std::string pipelineName_;
   DumpLevel level_;
   bool dumpInitial_;
-  bool dumpedInitial_;
+  bool dumpedInitial_ = false;
   bool onlyDumpOnChanges_;
   std::string lastDumpedIR_;
   std::vector<std::string> pipelineIRStack_;
-  int currentDepth_;
+  int currentDepth_ = 0;
 };
 
 //===--------------------------------------------------------------------===//
