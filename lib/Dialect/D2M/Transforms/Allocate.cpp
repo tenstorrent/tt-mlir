@@ -1194,8 +1194,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
       for (Region &region : op->getRegions()) {
         TT_assert(region.hasOneBlock());
         Block &block = region.getBlocks().front();
-
-        const auto operandIndex = operandCtx.operand->getOperandNumber();
+        const git auto operandIndex = operandCtx.operand->getOperandNumber();
         BlockArgument arg = block.getArgument(operandIndex);
         BlockArgument newArg =
             block.insertArgument(operandIndex, newCBArgType, arg.getLoc());
