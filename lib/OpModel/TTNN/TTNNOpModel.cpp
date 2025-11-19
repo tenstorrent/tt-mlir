@@ -573,6 +573,11 @@ getPrepareConv2dWeightsOpOutputTensorSpec(
   std::optional<::ttnn::operations::conv::conv2d::Conv2dConfig>
       conv2dConfigConverted = conversion::getConv2dConfig(conv2dConfig);
 
+  std::optional<::ttnn::operations::conv::conv2d::Conv2dSliceConfig>
+      sliceConfig = ::ttnn::operations::conv::conv2d::Conv2dSliceConfig{
+          .slice_type = ::ttnn::operations::conv::conv2d::Conv2dSliceConfig::
+              SliceType::L1_FULL};
+
   // Create query closure
   auto prepareConv2dWeightsOpQuery = [=]() {
     return ::ttnn::graph::query_op_constraints(
@@ -586,8 +591,7 @@ getPrepareConv2dWeightsOpOutputTensorSpec(
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(dilation),
         hasBias, groups, device, *inputDtype, outputDtype,
         conv2dConfigConverted,
-        /* compute_config_ */ std::nullopt,
-        /* conv2d_slice_config_=*/std::nullopt);
+        /* compute_config_ */ std::nullopt, sliceConfig);
   };
 
   auto prepareConvTranspose2dWeightsOpQuery = [=]() {
@@ -4963,6 +4967,11 @@ llvm::Expected<OpConstraints> OpModel<PrepareConv2dWeightsOp>::getOpConstraints(
     convertedOutputDtype = conversion::getDataType(outputDtype.value());
   }
 
+  std::optional<::ttnn::operations::conv::conv2d::Conv2dSliceConfig>
+      sliceConfig = ::ttnn::operations::conv::conv2d::Conv2dSliceConfig{
+          .slice_type = ::ttnn::operations::conv::conv2d::Conv2dSliceConfig::
+              SliceType::L1_FULL};
+
   auto prepareConv2dWeightsQuery = [=]() {
     return ::ttnn::graph::query_op_constraints(
         &::ttnn::operations::conv::conv2d::prepare_conv_weights, device,
@@ -4977,7 +4986,7 @@ llvm::Expected<OpConstraints> OpModel<PrepareConv2dWeightsOp>::getOpConstraints(
         hasBias, groups, device, conversion::getDataType(inputDtype),
         convertedOutputDtype, conversion::getConv2dConfig(conv2dConfig),
         conversion::getDeviceComputeKernelConfig(deviceComputeKernelConfig),
-        /* conv2d_slice_config_=*/std::nullopt);
+        sliceConfig);
   };
 
   return operation::getOpConstraints(weightLayout.getContext(), deviceGrid,
