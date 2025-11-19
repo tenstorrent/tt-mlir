@@ -10,6 +10,8 @@ try:
         submit,
         set_compatible_device_runtime,
         get_current_device_runtime,
+        get_current_system_desc,
+        DispatchCoreType,
     )
     from ttnn_jit.runtime._ttmlir_runtime.binary import (
         load_binary_from_path,
@@ -27,6 +29,8 @@ except ModuleNotFoundError:
         submit,
         set_compatible_device_runtime,
         get_current_device_runtime,
+        get_current_system_desc,
+        DispatchCoreType,
     )
     from _ttmlir_runtime.binary import (
         load_binary_from_path,
