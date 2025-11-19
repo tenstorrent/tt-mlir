@@ -270,6 +270,12 @@ def test_get_emitc_cpp_code():
     assert "cppCode" in result["graphs"][0]
 
 
+# TODO(ctr-mcampos): Once the IR dump dir is configurable, add test to load from the path and check the return.
+def test_preload_ir_dump_directory():
+    result = preload_command_and_assert()
+    assert "graphPaths" in result["graphs"][0]
+
+
 # TODO: figure out if this should be deleted, or adapted with new tests
 @pytest.mark.skip(
     "This is now handled by tests under `test/python/golden/test_ttir_models.py`"
