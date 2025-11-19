@@ -522,12 +522,14 @@ ToLayoutOp::bufferize(mlir::RewriterBase &rewriter,
     MemRefType alignedHostMemref = mlir::cast<MemRefType>(
         *getBufferType(getInput(), options, state, invocationStack));
 
-    if (mlir::cast<ttcore::HostLayoutAttr>(alignedHostMemref.getLayout())
-            .isPadded()) {
-      auto alignedHostTensor =
-          rewriter.create<memref::AllocOp>(getLoc(), alignedHostMemref);
-      rewriter.create<memref::CopyOp>(getLoc(), *maybeInput, alignedHostTensor);
-      maybeInput = alignedHostTensor.getResult();
+    // Only handle HostLayoutAttr - skip for device layouts (MetalLayoutAttr, etc.)
+    if (auto hostLayout = mlir::dyn_cast<ttcore::HostLayoutAttr>(alignedHostMemref.getLayout())) {
+      if (hostLayout.isPadded()) {
+        auto alignedHostTensor =
+            rewriter.create<memref::AllocOp>(getLoc(), alignedHostMemref);
+        rewriter.create<memref::CopyOp>(getLoc(), *maybeInput, alignedHostTensor);
+        maybeInput = alignedHostTensor.getResult();
+      }
     }
   }
 
