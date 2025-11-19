@@ -110,11 +110,10 @@ module {
     // CHECK-NOT: ttir.update_cache
     // CHECK: %[[RET:[0-9]+]] = "ttir.fill_cache"(%arg0, %arg2) <{batch_offset = 0 : i32}> : (tensor<1x8x64x128xbf16>, tensor<1x8x14x128xbf16>) -> tensor<1x8x64x128xbf16>
     // CHECK: return %[[RET]] : tensor<1x8x64x128xbf16>
-    %1 = "stablehlo.custom_call"(%arg1) <{api_version = 1 : i32, backend_config = "", call_target_name = "ttir.mesh_shard", called_computations = [], has_side_effect = false, operand_layouts = [dense<0> : tensor<1xindex>], output_operand_aliases = [], result_layouts = [dense<0> : tensor<1xindex>]}> {shard_dims = array<i64: -1>, shard_direction = #ttcore.shard_direction<full_to_shard>, shard_shape = array<i64: 1>, shard_type = #ttcore.shard_type<identity>} : (tensor<14xi64>) -> tensor<14xi64>
-    %3 = "stablehlo.scatter"(%arg0, %1, %arg2) <{indices_are_sorted = false, scatter_dimension_numbers = #stablehlo.scatter<update_window_dims = [0, 1, 3], inserted_window_dims = [2], scatter_dims_to_operand_dims = [2], index_vector_dim = 1>, unique_indices = false}> ({
+    %1 = "stablehlo.scatter"(%arg0, %arg1, %arg2) <{indices_are_sorted = false, scatter_dimension_numbers = #stablehlo.scatter<update_window_dims = [0, 1, 3], inserted_window_dims = [2], scatter_dims_to_operand_dims = [2], index_vector_dim = 1>, unique_indices = false}> ({
     ^bb0(%arg3: tensor<bf16>, %arg4: tensor<bf16>):
       stablehlo.return %arg4 : tensor<bf16>
     }) : (tensor<1x8x64x128xbf16>, tensor<14xi64>, tensor<1x8x14x128xbf16>) -> tensor<1x8x64x128xbf16>
-    return %3 : tensor<1x8x64x128xbf16>
+    return %1 : tensor<1x8x64x128xbf16>
   }
 }
