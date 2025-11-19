@@ -715,11 +715,40 @@ def D2M_AcquireDstOp : D2M_GenericRegionComputeOp<"acquire_dst",
       ```mlir
       %dst = d2m.acquire_dst() : memref<2x4x!tt.tile<32x32, f32>, #tt.memory_space<dst>>
       ```
+
+      For symmetry and liveness tracking, each acquire_dst should have a corresponding
+      release_dst operation that marks the end of the DST value's live range.
     }];
 
     let results = (outs RegisterDstMemRef:$result);
 
     let assemblyFormat = [{ `(` `)` attr-dict `:` type($result) }];
+
+    let hasVerifier = 1;
+}
+
+def D2M_ReleaseDstOp : D2M_GenericRegionComputeOp<"release_dst",
+  [ MemoryEffects<[MemRead, MemWrite]>
+  ]> {
+    let summary = "Release a DST register, signaling the end of its liveness.";
+    let description = [{
+      Marks the end of a DST register's lifetime, allowing the register
+      allocator to immediately reuse it for subsequent operations.
+
+      Example IR:
+
+      ```mlir
+      %dst = d2m.acquire_dst() : memref<...>
+      // ... last use of %dst ...
+      d2m.release_dst %dst
+      ```
+    }];
+
+    let arguments = (ins RegisterDstMemRef:$dst);
+
+    let assemblyFormat = [{ $dst attr-dict `:` type($dst) }];
+
+    let hasVerifier = 1;
 }
 
 def D2M_TileTransposeOp : D2M_GenericRegionComputeOp<"tile_transpose"> {

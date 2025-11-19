@@ -58,7 +58,10 @@ Type getRegionLargestDstElemType(Region &region) {
     return WalkResult::advance();
   });
 
-  assert(largestType);
+  // If no DST element type was found, return a default type (f32).
+  if (!largestType) {
+    return mlir::OpBuilder(region.getContext()).getF32Type();
+  }
   TT_assert(getTypeNumberOfBits(largestType) <= 32u);
   return largestType;
 }

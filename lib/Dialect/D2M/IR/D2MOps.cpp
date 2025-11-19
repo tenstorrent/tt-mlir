@@ -29,6 +29,40 @@
 
 namespace mlir::tt::d2m {
 
+LogicalResult AcquireDstOp::verify() {
+  // Check that the result is used by at least one release_dst operation.
+  if (!llvm::any_of(getResult().getUsers(), [](Operation *user) {
+        return mlir::isa<mlir::tt::d2m::ReleaseDstOp>(user);
+      })) {
+    return emitOpError(
+        "result must be used by a corresponding d2m.release_dst operation");
+  }
+  return mlir::success();
+}
+
+LogicalResult ReleaseDstOp::verify() {
+  Operation *definingOp = getDst().getDefiningOp();
+
+  // Check if operand is directly from acquire_dst.
+  if (!definingOp || !mlir::isa<mlir::tt::d2m::AcquireDstOp>(definingOp)) {
+    return emitOpError(
+        "operand must be the result of a d2m.acquire_dst operation");
+  }
+
+  // Verify that there are no uses of the DST value after this release.
+  Operation *releaseOp = getOperation();
+  Block *releaseBlock = releaseOp->getBlock();
+  if (llvm::any_of(getDst().getUses(), [&](const mlir::OpOperand &use) {
+        Operation *user = use.getOwner();
+        return user != releaseOp && user->getBlock() == releaseBlock &&
+               releaseOp->isBeforeInBlock(user);
+      })) {
+    return emitOpError("DST value used after release_dst operation");
+  }
+
+  return mlir::success();
+}
+
 void d2m::GenericOp::getEffects(
     SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>
         &effects) {
@@ -1623,13 +1657,20 @@ d2m::GenericOp::getOperandGridShapes() {
       mlir::tt::ttcore::DeviceLayoutInterface layout =
           mlir::cast<mlir::tt::ttcore::DeviceLayoutInterface>(
               memrefType.getLayout());
-      gridShapes.emplace_back(layout.getGridShape(memrefType));
+      if (layout) {
+        gridShapes.emplace_back(layout.getGridShape(memrefType));
+      } else {
+        gridShapes.emplace_back(SmallVector<int64_t>{});
+      }
     } else {
       auto tensorType = mlir::cast<RankedTensorType>(operand.getType());
       ttcore::MetalLayoutAttr layout =
-          mlir::cast<ttcore::MetalLayoutAttr>(tensorType.getEncoding());
-
-      gridShapes.emplace_back(layout.getGridShape(tensorType));
+          mlir::dyn_cast<ttcore::MetalLayoutAttr>(tensorType.getEncoding());
+      if (layout) {
+        gridShapes.emplace_back(layout.getGridShape(tensorType));
+      } else {
+        gridShapes.emplace_back(SmallVector<int64_t>{});
+      }
     }
   }
   return gridShapes;
