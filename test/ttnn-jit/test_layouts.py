@@ -77,7 +77,7 @@ DRAM_INTERLEAVED_SHAPE_GRIDS.extend(
     [
         (batch, h, w)
         for batch, h, w in itertools.product(
-            [1, 2, 4, 8], [32, 64, 128, 256, 512], [32, 64, 128, 256, 512]
+            [1, 8], [32, 64, 128, 256, 512], [32, 64, 128, 256, 512]
         )
     ]
 )
@@ -87,7 +87,7 @@ DRAM_INTERLEAVED_SHAPE_GRIDS.extend(
     [
         (batch1, batch2, h, w)
         for batch1, batch2, h, w in itertools.product(
-            [1, 2], [1, 2, 4], [32, 64, 128, 256], [32, 64, 128, 256]
+            [1, 2], [1, 4], [32, 64, 128, 256], [32, 64, 128, 256]
         )
     ]
 )
@@ -122,39 +122,34 @@ def test_l1_block_sharded_shapes(device, shape, max_grid, op):
 
 
 HEIGHT_SHARDED_SHAPE_GRIDS = []
-HEIGHT_SHARDED_SHAPE_GRIDS.extend([
-    # ((384, 32), (1, 5)),
-    ((64, 32), (0, 1))
-]
+HEIGHT_SHARDED_SHAPE_GRIDS.extend(
+    [
+        ((h * 32 * (grid_w + 1) * (grid_h + 1), w * 32), (grid_w, grid_h))
+        for h, w, grid_h, grid_w in itertools.product(
+            range(1, 5), range(1, 5), range(8), range(8)
+        )
+    ]
 )
-# HEIGHT_SHARDED_SHAPE_GRIDS.extend(
-#     [
-#         ((h * 32 * (grid_w + 1) * (grid_h + 1), w * 32), (grid_w, grid_h))
-#         for h, w, grid_h, grid_w in itertools.product(
-#             range(1, 5), range(1, 5), range(8), range(8)
-#         )
-#     ]
-# )
 
-# HEIGHT_SHARDED_SHAPE_GRIDS.extend(
-#     [
-#         ((batch, h * 32 * (grid_w + 1) * (grid_h + 1), w * 32), (grid_w, grid_h))
-#         for batch, h, w, grid_h, grid_w in itertools.product(
-#             [1, 2, 4, 8], range(1, 3), range(1, 3), range(8), range(8)
-#         )
-#     ]
-# )
-# HEIGHT_SHARDED_SHAPE_GRIDS.extend(
-#     [
-#         (
-#             (batch1, batch2, h * 32 * (grid_w + 1) * (grid_h + 1), w * 32),
-#             (grid_w, grid_h),
-#         )
-#         for batch1, batch2, h, w, grid_h, grid_w in itertools.product(
-#             [1, 2], [1, 2, 4], range(1, 3), range(1, 3), range(8), range(8)
-#         )
-#     ]
-# )
+HEIGHT_SHARDED_SHAPE_GRIDS.extend(
+    [
+        ((batch, h * 32 * (grid_w + 1) * (grid_h + 1), w * 32), (grid_w, grid_h))
+        for batch, h, w, grid_h, grid_w in itertools.product(
+            [1, 8], range(1, 3), range(1, 3), range(8), range(8)
+        )
+    ]
+)
+HEIGHT_SHARDED_SHAPE_GRIDS.extend(
+    [
+        (
+            (batch1, batch2, h * 32 * (grid_w + 1) * (grid_h + 1), w * 32),
+            (grid_w, grid_h),
+        )
+        for batch1, batch2, h, w, grid_h, grid_w in itertools.product(
+            [1, 2], [1, 4], range(1, 3), range(1, 3), range(8), range(8)
+        )
+    ]
+)
 
 
 @pytest.mark.parametrize(
@@ -182,12 +177,33 @@ def test_l1_height_sharded_shapes(device, shape, max_grid, op):
 
 
 WIDTH_SHARDED_SHAPE_GRIDS = []
+
 WIDTH_SHARDED_SHAPE_GRIDS.extend(
     [
-        # ((32, 32), (0,0)),
-        ((32, 384), (5, 1)),
-        ((2, 32, 384), (5, 1)),
-        ((2, 1, 32, 384), (5, 1)),
+        ((h * 32, w * 32 * (grid_h + 1) * (grid_w + 1)), (grid_w, grid_h))
+        for h, w, grid_h, grid_w in itertools.product(
+            range(1, 5), range(1, 5), range(8), range(8)
+        )
+    ]
+)
+
+WIDTH_SHARDED_SHAPE_GRIDS.extend(
+    [
+        ((batch, h * 32, w * 32 * (grid_h + 1) * (grid_w + 1)), (grid_w, grid_h))
+        for batch, h, w, grid_h, grid_w in itertools.product(
+            [1, 8], range(1, 3), range(1, 3), range(8), range(8)
+        )
+    ]
+)
+WIDTH_SHARDED_SHAPE_GRIDS.extend(
+    [
+        (
+            (batch1, batch2, h * 32, w * 32 * (grid_h + 1) * (grid_w + 1)),
+            (grid_w, grid_h),
+        )
+        for batch1, batch2, h, w, grid_h, grid_w in itertools.product(
+            [1, 2], [1, 4], range(1, 3), range(1, 3), range(8), range(8)
+        )
     ]
 )
 
