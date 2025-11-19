@@ -2901,7 +2901,7 @@ def ttir_reshape_golden(
     input_tensor: GoldenMapTensor, shape_attr: ArrayAttr
 ) -> GoldenMapTensor:
     new_shape = unpack_mlir_attr(shape_attr)
-    return torch.reshape(input_tensor, new_shape)
+    return torch.reshape(input_tensor, new_shape).clone()
 
 
 def ttir_broadcast_golden(
