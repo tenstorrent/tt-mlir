@@ -584,6 +584,7 @@ class GraphToIRTranslator:
                 memref,
                 ttnn.TensorMemoryLayout.Interleaved,
                 None,
+                True,
             )
 
     def _adjust_op_name(self, op_name):
