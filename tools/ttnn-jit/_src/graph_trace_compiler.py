@@ -565,6 +565,7 @@ class GraphToIRTranslator:
                 memref,
                 tensor_arg.memory_config().memory_layout,
                 None,
+                True,
             )
             return ttnn_layout
         else:
