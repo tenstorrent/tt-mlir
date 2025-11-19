@@ -282,6 +282,14 @@ def test_get_emitc_cpp_code():
     assert "cppCode" in result["graphs"][0]
 
 
+# TODO (ctr-mcampos): Figure out how to disable and then reenable execution.
+@pytest.mark.skip(
+    "There is no easy way to disable execution for testing."
+)
+def test_disable_execution():
+    pass
+
+
 def test_preload_ir_dump_directory():
     result = preload_command_and_assert()
     assert "graphPaths" in result["graphs"][0]
