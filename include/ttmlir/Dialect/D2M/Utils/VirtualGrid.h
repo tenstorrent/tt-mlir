@@ -46,7 +46,7 @@ createCoreVirtMaps(mlir::MLIRContext *context,
 
   TT_assertv((is2DWidthSharded || is2DHeightSharded),
              "Only supporting 2D width or height sharding (actual grid shape = "
-             "{1})",
+             "{})",
              ttmlir::utils::formatIterable(virtualGrid, "x"));
 
   SmallVector<AffineExpr> forwardMapExprs;
