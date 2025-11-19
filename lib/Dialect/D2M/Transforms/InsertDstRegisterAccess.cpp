@@ -143,31 +143,30 @@ public:
 
       // Process linalg.generic ops that were not converted by LinalgToAffine
       // (these are tile_matmul ops when useTileMatmul=false).
-      WalkResult walkResult =
-          block.walk([&](linalg::GenericOp linalgGenericOp) {
-            if (!useTileMatmul && hasTileMatmul(linalgGenericOp)) {
-              // Only use tile matmul block rewrite when not in explicit
-              // datamovement form. Explicit datamovement form should fall
-              // through to regular linalg-to-affine conversion.
-              if (!gOp.isExplicitDatamovementForm()) {
-                if (rewriteTileMatmulAsTileMatmulBlock(
-                        rewriter, gOp, *genericRegion, linalgGenericOp,
-                        dstCapacity, modified)) {
-                  return WalkResult::interrupt();
-                }
-                return WalkResult::advance();
-              }
-            }
+      bool linalgToAffineFailed = false;
+      block.walk([&](linalg::GenericOp linalgGenericOp) {
+        if (!useTileMatmul && hasTileMatmul(linalgGenericOp)) {
+          // Only use tile matmul block rewrite when not in explicit
+          // datamovement form. Explicit datamovement form should fall through
+          // to regular linalg-to-affine conversion.
+          if (!gOp.isExplicitDatamovementForm()) {
+            linalgToAffineFailed |= rewriteTileMatmulAsTileMatmulBlock(
+                rewriter, gOp, *genericRegion, linalgGenericOp, dstCapacity,
+                modified);
+            return;
+          }
+        }
 
-            // This should not happen - all other linalg ops should have been
-            // converted by LinalgToAffine pass.
-            return WalkResult::interrupt();
-          });
+        // This should not happen - all other linalg ops should have been
+        // converted by LinalgToAffine pass.
+        linalgToAffineFailed = true;
+      });
 
-      if (walkResult.wasInterrupted()) {
-        return rewriter.notifyMatchFailure(
-            gOp, "linalg.generic operations were not converted to affine "
-                 "loops");
+      if (linalgToAffineFailed) {
+        return gOp.emitOpError()
+               << "found linalg.generic operations that were not converted to "
+                  "affine loops. Please run --d2m-linalg-to-affine before "
+                  "the --d2m-insert-dst-register-access pass.";
       }
 
       // Process affine loops marked by LinalgToAffine pass.

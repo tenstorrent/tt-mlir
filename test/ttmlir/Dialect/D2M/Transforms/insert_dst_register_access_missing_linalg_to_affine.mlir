@@ -2,10 +2,10 @@
 
 #l1_ = #ttcore.memory_space<l1>
 
-// expected-error@below {{found linalg.generic operations that were not converted to affine loops. Please run --d2m-linalg-to-affine before the --d2m-insert-dst-register-access pass.}}
 module {
   func.func @test_missing_linalg_to_affine(%in0: memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<2048x2048, 1>, #l1_>,
                                            %out0: memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<2048x2048, 1>, #l1_>) {
+    // expected-error@below {{found linalg.generic operations that were not converted to affine loops. Please run --d2m-linalg-to-affine before the --d2m-insert-dst-register-access pass.}}
     d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>,
                  indexing_maps = [affine_map<(d0, d1) -> (d0, d1)>,
                                   affine_map<(d0, d1) -> (d0, d1)>],
