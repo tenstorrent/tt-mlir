@@ -25,6 +25,11 @@ MNIST_STABLEHLO_PATH = "test/ttmlir/Silicon/StableHLO/n150/mnist_inference.mlir"
 TEST_EXECUTE_MODEL_PATHS = [
     MNIST_SHARDING_PATH,
 ]
+IR_DUMP_COLLECTIONS = [
+    "test/ttmlir/Explorer/graph_collections/collection1.mlir",
+    "test/ttmlir/Explorer/graph_collections/collection2.mlir",
+    "test/ttmlir/Explorer/graph_collections/loose_file.mlir",
+]
 TEST_LOAD_SINGLE_COLLECTION = "test/ttmlir/Explorer/graph_collections/collection1.mlir"
 
 if "TT_EXPLORER_GENERATED_MLIR_TEST_DIRS" in os.environ:
@@ -277,10 +282,21 @@ def test_get_emitc_cpp_code():
     assert "cppCode" in result["graphs"][0]
 
 
-# TODO(ctr-mcampos): Once the IR dump dir is configurable, add test to load from the path and check the return.
 def test_preload_ir_dump_directory():
     result = preload_command_and_assert()
     assert "graphPaths" in result["graphs"][0]
+
+
+# TODO(ctr-mcampos): Once the IR dump dir is configurable, enable this test.
+@pytest.mark.skip(
+    "Implementation missing for loading ir dumps from a custom location."
+)
+def test_preload_ir_dump_contents():
+    result = preload_command_and_assert()
+    assert "graphPaths" in result["graphs"][0]
+
+    graph_paths = result["graphs"][0]["graphPaths"]
+    assert all(collection in graph_paths for collection in IR_DUMP_COLLECTIONS)
 
 
 # TODO: figure out if this should be deleted, or adapted with new tests
