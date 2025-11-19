@@ -25,7 +25,7 @@ jobs:
     secrets: inherit
   release-build:
     needs: [ prepare-run, build-image ]
-    if: needs.prepare-run.outputs.skip_build != 'true'
+    if: ${{ needs.prepare-run.outputs.skip_build != 'true' }}
     uses: ./.github/workflows/call-build-release.yml
     secrets: inherit
     with:
