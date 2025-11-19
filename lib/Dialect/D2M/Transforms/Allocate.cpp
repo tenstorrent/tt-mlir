@@ -446,13 +446,12 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
       closure.live.last = i->second;
     }
 
-    // TODO(vroubtsov) this is retained from v2, but now there is an opportunity
-    // to merge live range and def/use chain calculations into a single step.
-    // TODO(vroubtsov) non-recursive impl?
-    for (auto &[op, closure] : livenessJoinGraph) {
-      closure.live.last = resolve(op, livenessJoinGraph);
+    // Resolve liveness using topological sort instead of recursion.
+    // This avoids cycle issues and is more efficient.
+    resolveAll(livenessJoinGraph);
 
-      // Copy liveness results into our alloc set.
+    // Copy liveness results into our alloc set.
+    for (auto &[op, closure] : livenessJoinGraph) {
       if (memref::AllocOp allocOp = llvm::dyn_cast<memref::AllocOp>(op)) {
         TT_assertv(!allocOp->use_empty(),
                    "didn't expect an alloc op without uses: {}",
@@ -1489,25 +1488,134 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     rewriter.modifyOpInPlace(op, [&]() { memref.setType(newType); });
   }
 
-  // Recursive helper for `analyzeAllocOps(func::FuncOp funcOp...)`.
-  // Note: the overall traversal cost can be reduced by memoizing
-  // final maxLast values and/or visiting Values in a reverse topological
-  // sort order. This is not done at the moment.
-  static SequenceT resolve(Operation *op, const LivenessClosureGraph &graph) {
+  // Compute a topological ordering of operations in the liveness graph.
+  // This allows us to process operations in dependency order, avoiding recursion
+  // and cycle issues.
+  static SmallVector<Operation *>
+  computeTopologicalOrder(const LivenessClosureGraph &graph) {
+    // Build adjacency list and in-degree map for topological sort.
+    llvm::DenseMap<Operation *, SmallVector<Operation *>> adjacencyList;
+    llvm::DenseMap<Operation *, unsigned> inDegree;
 
-    auto opClosure = graph.find(op);
-    TT_assert(opClosure != graph.end());
-    SequenceT last = opClosure->second.live.last;
+    // Initialize all nodes with in-degree 0.
+    for (auto &[op, _] : graph) {
+      inDegree[op] = 0;
+      adjacencyList[op]; // Ensure entry exists
+    }
 
-    for (Operation *user : op->getResult(0).getUsers()) {
-      if (graph.contains(user)) {
-        if (llvm::isa<d2m::ViewLayoutOp, d2m::StreamLayoutOp>(user)) {
-          last = std::max(last, resolve(user, graph));
+    // Build edges: for each op, add edges to its dependents.
+    for (auto &[op, _] : graph) {
+      // Edge 1: op -> user (for view/stream users)
+      for (Operation *user : op->getResult(0).getUsers()) {
+        if (graph.contains(user) &&
+            llvm::isa<d2m::ViewLayoutOp, d2m::StreamLayoutOp>(user)) {
+          adjacencyList[op].push_back(user);
+          inDegree[user]++;
+        }
+      }
+
+      // Edge 2: operand -> op (for view/stream ops reading operands)
+      if (llvm::isa<d2m::ViewLayoutOp, d2m::StreamLayoutOp>(op)) {
+        for (Value operand : op->getOperands()) {
+          if (Operation *defOp = operand.getDefiningOp()) {
+            if (graph.contains(defOp)) {
+              adjacencyList[defOp].push_back(op);
+              inDegree[op]++;
+            }
+          }
         }
       }
     }
 
-    return last;
+    // Kahn's algorithm for topological sort.
+    SmallVector<Operation *> result;
+    SmallVector<Operation *> queue;
+
+    // Start with all nodes that have in-degree 0.
+    for (auto &[op, degree] : inDegree) {
+      if (degree == 0) {
+        queue.push_back(op);
+      }
+    }
+
+    while (!queue.empty()) {
+      Operation *current = queue.pop_back_val();
+      result.push_back(current);
+
+      // Decrease in-degree for all neighbors.
+      for (Operation *neighbor : adjacencyList[current]) {
+        inDegree[neighbor]--;
+        if (inDegree[neighbor] == 0) {
+          queue.push_back(neighbor);
+        }
+      }
+    }
+
+    // If we have a cycle, result.size() < graph.size().
+    // In this case, we still return what we have (partial ordering).
+    // The subsequent resolve pass will handle remaining nodes.
+    return result;
+  }
+
+  // Resolve liveness for operations in topological order.
+  // This replaces the recursive approach with an iterative one.
+  static void resolveAll(LivenessClosureGraph &graph) {
+    // Get topological ordering.
+    SmallVector<Operation *> topoOrder = computeTopologicalOrder(graph);
+
+    // Process in topological order: dependencies are processed first.
+    for (Operation *op : topoOrder) {
+      auto &closure = graph[op];
+      SequenceT last = closure.live.last;
+
+      // Extend liveness based on users (for view/stream users).
+      for (Operation *user : op->getResult(0).getUsers()) {
+        if (graph.contains(user)) {
+          if (llvm::isa<d2m::ViewLayoutOp, d2m::StreamLayoutOp>(user)) {
+            last = std::max(last, graph[user].live.last);
+          }
+        }
+      }
+
+      // For view/stream ops, extend liveness based on operands.
+      if (llvm::isa<d2m::ViewLayoutOp, d2m::StreamLayoutOp>(op)) {
+        for (Value operand : op->getOperands()) {
+          if (Operation *defOp = operand.getDefiningOp()) {
+            if (graph.contains(defOp)) {
+              last = std::max(last, graph[defOp].live.last);
+            }
+          }
+        }
+      }
+
+      closure.live.last = last;
+    }
+
+    // Handle any remaining ops not in topological order (shouldn't happen
+    // unless there are cycles, but be defensive).
+    for (auto &[op, closure] : graph) {
+      SequenceT last = closure.live.last;
+
+      for (Operation *user : op->getResult(0).getUsers()) {
+        if (graph.contains(user)) {
+          if (llvm::isa<d2m::ViewLayoutOp, d2m::StreamLayoutOp>(user)) {
+            last = std::max(last, graph[user].live.last);
+          }
+        }
+      }
+
+      if (llvm::isa<d2m::ViewLayoutOp, d2m::StreamLayoutOp>(op)) {
+        for (Value operand : op->getOperands()) {
+          if (Operation *defOp = operand.getDefiningOp()) {
+            if (graph.contains(defOp)) {
+              last = std::max(last, graph[defOp].live.last);
+            }
+          }
+        }
+      }
+
+      closure.live.last = last;
+    }
   }
 
   static MemorySpaces getMemorySpaces(ttcore::ChipDescAttr chipDesc,
