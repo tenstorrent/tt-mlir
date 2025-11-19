@@ -9,10 +9,10 @@ module {
     // They should be reshaped to [1, 3, 1, 1] to match NCHW format
     // Outputs: batch_mean and batch_variance should be reshaped back to 1D
     %3:3 = "ttir.batch_norm_training"(%arg0, %arg1, %arg2, %arg3, %arg4) <{dimension = 1 : i32, epsilon = 1.000000e-05 : f32, momentum = 1.000000e-01 : f32}> : (tensor<2x3x4x5xf32>, tensor<3xf32>, tensor<3xf32>, tensor<3xf32>, tensor<3xf32>) -> (tensor<2x3x4x5xf32>, tensor<3xf32>, tensor<3xf32>)
-    // CHECK-DAG: "ttir.reshape"(%arg1, {{.*}}) <{shape = [1 : i32, 3 : i32, 1 : i32, 1 : i32]}>
-    // CHECK-DAG: "ttir.reshape"(%arg2, {{.*}}) <{shape = [1 : i32, 3 : i32, 1 : i32, 1 : i32]}>
-    // CHECK-DAG: "ttir.reshape"(%arg3, {{.*}}) <{shape = [1 : i32, 3 : i32, 1 : i32, 1 : i32]}>
-    // CHECK-DAG: "ttir.reshape"(%arg4, {{.*}}) <{shape = [1 : i32, 3 : i32, 1 : i32, 1 : i32]}>
+    // CHECK-DAG: "ttir.reshape"(%arg1) <{shape = [1 : i32, 3 : i32, 1 : i32, 1 : i32]}>
+    // CHECK-DAG: "ttir.reshape"(%arg2) <{shape = [1 : i32, 3 : i32, 1 : i32, 1 : i32]}>
+    // CHECK-DAG: "ttir.reshape"(%arg3) <{shape = [1 : i32, 3 : i32, 1 : i32, 1 : i32]}>
+    // CHECK-DAG: "ttir.reshape"(%arg4) <{shape = [1 : i32, 3 : i32, 1 : i32, 1 : i32]}>
     // CHECK: "ttir.batch_norm_training"({{.*}}) <{dimension = 1 : i32, epsilon = {{.*}}, momentum = {{.*}}}>
     // CHECK: "ttir.reshape"({{.*}}) <{shape = [3 : i32]}>
     // CHECK: "ttir.reshape"({{.*}}) <{shape = [3 : i32]}>
@@ -27,11 +27,11 @@ module {
     // Parameters reshaped to [1, 3, 1, 1]
     // Output reshaped back to [2, 3, 4]
     %3:3 = "ttir.batch_norm_training"(%arg0, %arg1, %arg2, %arg3, %arg4) <{dimension = 1 : i32, epsilon = 1.000000e-05 : f32, momentum = 1.000000e-01 : f32}> : (tensor<2x3x4xf32>, tensor<3xf32>, tensor<3xf32>, tensor<3xf32>, tensor<3xf32>) -> (tensor<2x3x4xf32>, tensor<3xf32>, tensor<3xf32>)
-    // CHECK: "ttir.reshape"(%arg0, {{.*}}) <{shape = [2 : i32, 3 : i32, 4 : i32, 1 : i32]}>
-    // CHECK-DAG: "ttir.reshape"(%arg1, {{.*}}) <{shape = [1 : i32, 3 : i32, 1 : i32, 1 : i32]}>
-    // CHECK-DAG: "ttir.reshape"(%arg2, {{.*}}) <{shape = [1 : i32, 3 : i32, 1 : i32, 1 : i32]}>
-    // CHECK-DAG: "ttir.reshape"(%arg3, {{.*}}) <{shape = [1 : i32, 3 : i32, 1 : i32, 1 : i32]}>
-    // CHECK-DAG: "ttir.reshape"(%arg4, {{.*}}) <{shape = [1 : i32, 3 : i32, 1 : i32, 1 : i32]}>
+    // CHECK: "ttir.reshape"(%arg0) <{shape = [2 : i32, 3 : i32, 4 : i32, 1 : i32]}>
+    // CHECK-DAG: "ttir.reshape"(%arg1) <{shape = [1 : i32, 3 : i32, 1 : i32, 1 : i32]}>
+    // CHECK-DAG: "ttir.reshape"(%arg2) <{shape = [1 : i32, 3 : i32, 1 : i32, 1 : i32]}>
+    // CHECK-DAG: "ttir.reshape"(%arg3) <{shape = [1 : i32, 3 : i32, 1 : i32, 1 : i32]}>
+    // CHECK-DAG: "ttir.reshape"(%arg4) <{shape = [1 : i32, 3 : i32, 1 : i32, 1 : i32]}>
     // CHECK: "ttir.batch_norm_training"({{.*}}) <{dimension = 1 : i32, epsilon = {{.*}}, momentum = {{.*}}}>
     // CHECK: "ttir.reshape"({{.*}}) <{shape = [2 : i32, 3 : i32, 4 : i32]}>
     // CHECK: "ttir.reshape"({{.*}}) <{shape = [3 : i32]}>
@@ -47,11 +47,11 @@ module {
     // Parameters reshaped to [1, 8, 1, 1]
     // Output reshaped back to [4, 8]
     %3:3 = "ttir.batch_norm_training"(%arg0, %arg1, %arg2, %arg3, %arg4) <{dimension = 1 : i32, epsilon = 1.000000e-05 : f32, momentum = 1.000000e-01 : f32}> : (tensor<4x8xf32>, tensor<8xf32>, tensor<8xf32>, tensor<8xf32>, tensor<8xf32>) -> (tensor<4x8xf32>, tensor<8xf32>, tensor<8xf32>)
-    // CHECK: "ttir.reshape"(%arg0, {{.*}}) <{shape = [4 : i32, 8 : i32, 1 : i32, 1 : i32]}>
-    // CHECK-DAG: "ttir.reshape"(%arg1, {{.*}}) <{shape = [1 : i32, 8 : i32, 1 : i32, 1 : i32]}>
-    // CHECK-DAG: "ttir.reshape"(%arg2, {{.*}}) <{shape = [1 : i32, 8 : i32, 1 : i32, 1 : i32]}>
-    // CHECK-DAG: "ttir.reshape"(%arg3, {{.*}}) <{shape = [1 : i32, 8 : i32, 1 : i32, 1 : i32]}>
-    // CHECK-DAG: "ttir.reshape"(%arg4, {{.*}}) <{shape = [1 : i32, 8 : i32, 1 : i32, 1 : i32]}>
+    // CHECK: "ttir.reshape"(%arg0) <{shape = [4 : i32, 8 : i32, 1 : i32, 1 : i32]}>
+    // CHECK-DAG: "ttir.reshape"(%arg1) <{shape = [1 : i32, 8 : i32, 1 : i32, 1 : i32]}>
+    // CHECK-DAG: "ttir.reshape"(%arg2) <{shape = [1 : i32, 8 : i32, 1 : i32, 1 : i32]}>
+    // CHECK-DAG: "ttir.reshape"(%arg3) <{shape = [1 : i32, 8 : i32, 1 : i32, 1 : i32]}>
+    // CHECK-DAG: "ttir.reshape"(%arg4) <{shape = [1 : i32, 8 : i32, 1 : i32, 1 : i32]}>
     // CHECK: "ttir.batch_norm_training"({{.*}}) <{dimension = 1 : i32, epsilon = {{.*}}, momentum = {{.*}}}>
     // CHECK: "ttir.reshape"({{.*}}) <{shape = [4 : i32, 8 : i32]}>
     // CHECK: "ttir.reshape"({{.*}}) <{shape = [8 : i32]}>

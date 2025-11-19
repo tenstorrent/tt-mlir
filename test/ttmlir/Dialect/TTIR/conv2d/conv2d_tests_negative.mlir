@@ -142,13 +142,13 @@ module {
 module {
   func.func @conv2d_invalid_dilation_values(%arg0: tensor<1x32x32x64xbf16>, %arg1: tensor<64x64x3x3xbf16>, %arg2: tensor<1x1x1x64xbf16>) -> tensor<1x30x30x64xbf16> {
     // CHECK: error: 'ttir.conv2d' op Dilation attribute values must be > 0.
-    %1 = "ttir.conv2d"(%arg0, %arg1, %arg2, %0)
+    %1 = "ttir.conv2d"(%arg0, %arg1, %arg2)
             <{
               stride = 1: i32,
               padding = 0: i32,
               dilation = array<i32: -2, -2>,
               groups = 1: i32
-            }> : (tensor<1x32x32x64xbf16>, tensor<64x64x3x3xbf16>, tensor<1x1x1x64xbf16>, tensor<1x30x30x64xbf16>) -> tensor<1x30x30x64xbf16>
+            }> : (tensor<1x32x32x64xbf16>, tensor<64x64x3x3xbf16>, tensor<1x1x1x64xbf16>) -> tensor<1x30x30x64xbf16>
     return %1 : tensor<1x30x30x64xbf16>
   }
 }

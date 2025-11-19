@@ -4,7 +4,7 @@
 // Verify that verification fails when shape size doesn't matches the rank of the output tensor
 module {
   func.func @reshape_shape_size_different_from_the_output_rank(%arg0: tensor<2x32x32xbf16>) -> tensor<1x32x2x32xbf16> {
-    %1 = "ttir.reshape"(%arg0) <{shape = [32: i32, 2: i32, 32: i32]}> : (tensor<2x32x32xbf16>>) -> tensor<1x32x2x32xbf16>
+    %1 = "ttir.reshape"(%arg0) <{shape = [32: i32, 2: i32, 32: i32]}> : (tensor<2x32x32xbf16>) -> tensor<1x32x2x32xbf16>
     // CHECK: error: 'ttir.reshape' op Shape attribute size 3 must match output tensor rank 4
     return %1 : tensor<1x32x2x32xbf16>
   }

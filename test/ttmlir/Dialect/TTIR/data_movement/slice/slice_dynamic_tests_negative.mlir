@@ -25,7 +25,7 @@ module attributes {} {
 module attributes {} {
   func.func @slice_negative_invalid_ends(%arg0: tensor<128x64xbf16>, %arg1 : tensor<2xi32>, %arg2 : tensor<2x1xi32>) -> tensor<64x32xbf16> {
     // CHECK: error: 'ttir.slice_dynamic' op Begins and ends must be 1D tensors
-    %1 = "ttir.slice_dynamic"(%arg0, %arg1, %arg2) <{step = [1: i32, 1: i32]}> : (tensor<128x64xbf16>, tensor<2xi32>, tensor<2x1xi32>,) -> tensor<64x32xbf16>
+    %1 = "ttir.slice_dynamic"(%arg0, %arg1, %arg2) <{step = [1: i32, 1: i32]}> : (tensor<128x64xbf16>, tensor<2xi32>, tensor<2x1xi32>) -> tensor<64x32xbf16>
     return %1 : tensor<64x32xbf16>
   }
 }

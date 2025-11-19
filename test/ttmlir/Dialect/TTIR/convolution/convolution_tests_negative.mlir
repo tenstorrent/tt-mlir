@@ -21,7 +21,7 @@ module @jit_convolution_bad_spatial_dimensions {
       weight_dilation = array<i64: 1, 1>,
       window_reversal = array<i1: false, false>,
       window_strides = array<i64: 1, 1>
-    }> : (tensor<1x3x100x100xbf16>, tensor<7x3x3x3xbf16>, tensor<1x7x100x100xbf16>) -> tensor<1x7x100x100xbf16>
+    }> : (tensor<1x3x100x100xbf16>, tensor<7x3x3x3xbf16>) -> tensor<1x7x100x100xbf16>
     return %1 : tensor<1x7x100x100xbf16>
   }
 }
@@ -49,7 +49,7 @@ module @jit_convolution_bad_stride_dimensions {
       weight_dilation = array<i64: 1, 1>,
       window_reversal = array<i1: false, false>,
       window_strides = array<i64: 1, 1, 1>
-    }> : (tensor<1x3x100x100xbf16>, tensor<7x3x3x3xbf16>, tensor<1x7x100x100xbf16>) -> tensor<1x7x100x100xbf16>
+    }> : (tensor<1x3x100x100xbf16>, tensor<7x3x3x3xbf16>) -> tensor<1x7x100x100xbf16>
     return %1 : tensor<1x7x100x100xbf16>
   }
 }
@@ -77,7 +77,7 @@ module @jit_convolution_bad_input_tensor {
       weight_dilation = array<i64: 1, 1>,
       window_reversal = array<i1: false, false>,
       window_strides = array<i64: 1, 1>
-    }> : (tensor<1x3x100x100x100xbf16>, tensor<7x3x3x3xbf16>, tensor<1x7x100x100xbf16>) -> tensor<1x7x100x100xbf16>
+    }> : (tensor<1x3x100x100x100xbf16>, tensor<7x3x3x3xbf16>) -> tensor<1x7x100x100xbf16>
     return %1 : tensor<1x7x100x100xbf16>
   }
 }
@@ -105,7 +105,7 @@ module @jit_convolution_bad_weight_tensor {
       weight_dilation = array<i64: 1, 1>,
       window_reversal = array<i1: false, false>,
       window_strides = array<i64: 1, 1>
-    }> : (tensor<1x3x100x100xbf16>, tensor<20x7x3x3x3xbf16>, tensor<1x7x100x100xbf16>) -> tensor<1x7x100x100xbf16>
+    }> : (tensor<1x3x100x100xbf16>, tensor<20x7x3x3x3xbf16>) -> tensor<1x7x100x100xbf16>
     return %1 : tensor<1x7x100x100xbf16>
   }
 }
@@ -133,7 +133,7 @@ module @jit_convolution_bad_bias_tensor {
       weight_dilation = array<i64: 1, 1>,
       window_reversal = array<i1: false, false>,
       window_strides = array<i64: 1, 1>
-    }> : (tensor<1x3x100x100xbf16>, tensor<7x3x3x3xbf16>, tensor<1x1x7xbf16>) -> tensor<1x7x100x100xbf16>
+      }> : (tensor<1x3x100x100xbf16>, tensor<7x3x3x3xbf16>, tensor<1x1x7xbf16>) -> tensor<1x7x100x100xbf16>
     return %1 : tensor<1x7x100x100xbf16>
   }
 }

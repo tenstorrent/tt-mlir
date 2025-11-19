@@ -25,7 +25,7 @@ module attributes {} {
 
 module attributes {} {
   func.func public @all_to_all_split_count_not_divisible(%arg0: tensor<1x1x32x32xf32>) -> (tensor<1x1x32x32xf32> {jax.result_info = ""}) {
-    %1 = "ttir.all_to_all"(%arg0) <{replica_groups = dense<[[0, 1]]> : tensor<1x2xi64>,  concat_dim = 3 : si32, split_count = 3 : si32, split_dim = 3 : si32}> : (tensor<1x1x32x32xf32>,) -> tensor<1x1x32x32xf32>
+    %1 = "ttir.all_to_all"(%arg0) <{replica_groups = dense<[[0, 1]]> : tensor<1x2xi64>,  concat_dim = 3 : si32, split_count = 3 : si32, split_dim = 3 : si32}> : (tensor<1x1x32x32xf32>) -> tensor<1x1x32x32xf32>
     return %1 : tensor<1x1x32x32xf32>
   }
 }

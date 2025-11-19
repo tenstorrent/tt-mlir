@@ -97,7 +97,7 @@ module {
 module {
   func.func @linear_negative_2d_2d_transpose_inner_dimension_mismatch(%arg0: tensor<64x128xbf16>, %arg1: tensor<128x64xbf16>) -> tensor<64x64xbf16> {
     // CHECK: error: 'ttir.linear' op Input A[-1](128) and B[-2](64) must have matching inner dimensions
-    %1 = "ttir.linear"(%arg0, %arg1) <{transpose_b = true}> : (tensor<64x128xbf16>, tensor<128x64xbf16>,) -> tensor<64x64xbf16>
+    %1 = "ttir.linear"(%arg0, %arg1) <{transpose_b = true}> : (tensor<64x128xbf16>, tensor<128x64xbf16>) -> tensor<64x64xbf16>
     return %1 : tensor<64x64xbf16>
   }
 }

@@ -19,7 +19,7 @@ module attributes {} {
     return %1 : tensor<1x1x4096x512xf32>
   }
 }
-// CHECK: error: 'ttir.collective_broadcast' op output and result must have the same type
+// CHECK: error: 'ttir.collective_broadcast' op input and output must have the same type
 
 // -----
 

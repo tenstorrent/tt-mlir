@@ -27,7 +27,7 @@ module {
 module {
   func.func @repeat_not_valid_input_output(%arg0: tensor<32x32xf32>) -> tensor<32x128xf32> {
     // CHECK: 'ttir.repeat' op Input tensor shape (32,32) at index 1 does not repeat to output (32,128) using repeat value 2.
-    %1 = "ttir.repeat"(%arg0) {repeat_dimensions = array<i64 : 1, 2>} : (tensor<32x32xf32>, tensor<32x128xf32>) -> tensor<32x128xf32>
+    %1 = "ttir.repeat"(%arg0) {repeat_dimensions = array<i64 : 1, 2>} : (tensor<32x32xf32>) -> tensor<32x128xf32>
     return %1 : tensor<32x128xf32>
   }
 }
@@ -38,7 +38,7 @@ module {
 module {
   func.func @repeat_not_valid_input_output(%arg0: tensor<32x32xf32>) -> tensor<32x128xf32> {
     // CHECK: ttir.repeat' op Repeat dimension at index 0 must be greater than 0.
-    %1 = "ttir.repeat"(%arg0) {repeat_dimensions = array<i64 : -1, 2>} : (tensor<32x32xf32>, tensor<32x128xf32>) -> tensor<32x128xf32>
+    %1 = "ttir.repeat"(%arg0) {repeat_dimensions = array<i64 : -1, 2>} : (tensor<32x32xf32>) -> tensor<32x128xf32>
     return %1 : tensor<32x128xf32>
   }
 }
