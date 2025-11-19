@@ -4,7 +4,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import json
-import subprocess
 import sys
 import os
 import time
@@ -38,30 +37,37 @@ def main(machine, image, jobid):
 
         cmd = [test_type] + args
         start_time = time.time()
+
+        ttrt_report_path = (
+            f"{work_dir}/ttrt_results/{machine}_{image}_{test_no}_{hash}_{jobid}.json"
+        )
+        test_report_path = f"{work_dir}/test_reports/report_{machine}_{image}_{test_no}_{hash}_{jobid}.xml"
+        # env = os.environ.copy()
+        os.environ["TTRT_REPORT_PATH"] = ttrt_report_path
+        os.environ["TEST_REPORT_PATH"] = test_report_path
+        os.environ["REQUIREMENTS"] = " ".join(reqs)
+        print(
+            f"\033[1;96m====================================\n\033[1;96mRunning test {test_no}-{hash}:\n\033[1;96m{hash_string}\n\033[1;96m{cmd}\n\033[1;96m====================================\n\n\n\n\033[0m"
+        )
+        sys.stdout.flush()
+        sys.stderr.flush()
+
         try:
-            ttrt_report_path = f"{work_dir}/ttrt_results/{machine}_{image}_{test_no}_{hash}_{jobid}.json"
-            test_report_path = f"{work_dir}/test_reports/report_{machine}_{image}_{test_no}_{hash}_{jobid}.xml"
-            env = os.environ.copy()
-            env["TTRT_REPORT_PATH"] = ttrt_report_path
-            env["TEST_REPORT_PATH"] = test_report_path
-            env["REQUIREMENTS"] = " ".join(reqs)
-            print(
-                f"\033[1;96m====================================\n\033[1;96mRunning test {test_no}-{hash}:\n\033[1;96m{hash_string}\n\033[1;96m{cmd}\n\033[1;96m====================================\n\n\n\n\033[0m"
-            )
-            sys.stdout.flush()
-            sys.stderr.flush()
-            result = subprocess.run(cmd, check=True, env=env)
-            print(f"\n\033[92m SUCCESS running {test_type} \033[0m")
-            test["result"] = "SUCCESS"
-            test["returncode"] = 0
-        except subprocess.CalledProcessError as e:
-            print(f"\n\033[91m FAILURE running {test_type}: {e}\033[0m")
-            test["result"] = "FAILURE"
-            test["returncode"] = e.returncode
-        except FileNotFoundError:
-            print(f"\n\033[91m ERROR: Script {test_type} not found\033[0m")
+            result = os.system(" ".join(cmd))
+            if result != 0:
+                print(
+                    f"\n\033[91m FAILURE running {test_type}: returned {result}\033[0m"
+                )
+                test["result"] = "FAILURE"
+                test["returncode"] = result
+            else:
+                print(f"\n\033[92m SUCCESS running {test_type} \033[0m")
+                test["result"] = "SUCCESS"
+                test["returncode"] = 0
+        except Exception as e:
+            print(f"\n\033[91m ERROR running script {test_type}: {e}\033[0m")
             test["result"] = "ERROR"
-            test["returncode"] = 1
+            test["returncode"] = -1
 
         end_time = time.time()
         duration = end_time - start_time
