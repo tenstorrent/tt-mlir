@@ -168,8 +168,8 @@ computeOptimalVirtualGrid(ArrayRef<int64_t> physicalShape,
   // for now, can only support if largest dim is divisible by grid volume
   int64_t gridVolume = getTargetGridVolume(targetSquareGridShape);
   TT_assertv((physicalShape[shardedDimIndex] % gridVolume == 0),
-             "Sharded dimension in virtual gridPhysical shape dimension is "
-             "not divisible by grid volume {1}",
+             "Sharded dimension {} in virtual gridPhysical shape dimension is "
+             "not divisible by grid volume {}",
              shardedDimIndex, gridVolume);
 
   llvm::SmallVector<int64_t> grid;
