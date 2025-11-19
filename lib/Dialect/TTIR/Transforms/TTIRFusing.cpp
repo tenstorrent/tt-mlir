@@ -2769,11 +2769,14 @@ private:
       }
     }
 
-    // Check that B shape is the same for Key and Value ops.
-    // Query can be a different shape in GQA.
-    auto keyBShape = matrixOps[1].getB().getType().getShape();
-    auto valueBShape = matrixOps[2].getB().getType().getShape();
-    if (keyBShape != valueBShape) {
+    // Check that B shape is the same for at least two of the ops.
+    auto firstBShape = matrixOps[0].getB().getType().getShape();
+    auto secondBShape = matrixOps[1].getB().getType().getShape();
+    auto thirdBShape = matrixOps[2].getB().getType().getShape();
+    bool atLeastTwoBMatch = (firstBShape == secondBShape) ||
+                            (firstBShape == thirdBShape) ||
+                            (secondBShape == thirdBShape);
+    if (!atLeastTwoBMatch) {
       return false;
     }
 
@@ -2790,17 +2793,23 @@ private:
     }
 
     // If matrix op is Linear Op, check that bias is present.
-    // Key and Value bias must have the same shape.
+    // At least two matrix ops must have the same bias shape.
     if constexpr (std::is_same_v<LinearOp, MatMulOpType>) {
-      TypedValue<RankedTensorType> queryBias = matrixOps[0].getBias();
-      TypedValue<RankedTensorType> keyBias = matrixOps[1].getBias();
-      TypedValue<RankedTensorType> valueBias = matrixOps[2].getBias();
-      if (!queryBias || !keyBias || !valueBias) {
+      TypedValue<RankedTensorType> firstBias = matrixOps[0].getBias();
+      TypedValue<RankedTensorType> secondBias = matrixOps[1].getBias();
+      TypedValue<RankedTensorType> thirdBias = matrixOps[2].getBias();
+      if (!firstBias || !secondBias || !thirdBias) {
         return false;
       }
-      auto keyBiasShape = keyBias.getType().getShape();
-      auto valueBiasShape = valueBias.getType().getShape();
-      if (keyBiasShape != valueBiasShape) {
+      auto firstBiasShape = firstBias.getType().getShape();
+      auto secondBiasShape = secondBias.getType().getShape();
+      auto thirdBiasShape = thirdBias.getType().getShape();
+      // Check if at least two bias shapes match.
+      bool atLeastTwoBiasMatch = (firstBiasShape == secondBiasShape) ||
+                                 (firstBiasShape == thirdBiasShape) ||
+                                 (secondBiasShape == thirdBiasShape);
+
+      if (!atLeastTwoBiasMatch) {
         return false;
       }
     }
