@@ -452,7 +452,8 @@ def D2M_PackerMaskResetOp : D2M_GenericRegionComputeOp<"packer_mask_reset"> {
     }];
 }
 
-def D2M_TileMatmulOp : D2M_GenericRegionComputeOp<"tile_matmul"> {
+def D2M_TileMatmulOp : D2M_GenericRegionComputeOp<"tile_matmul",
+  [DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]> {
   let summary = "D2M Tile Matmul Op";
   let description = [{
         The `tile_matmul` operation computes the matrix multiplication of A and B input tiles and element-wise adds C tile: result <- a @ b + c.

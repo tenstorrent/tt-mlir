@@ -1764,4 +1764,31 @@ bool d2m::GenericOp::hasComputeOpsInRegion(unsigned regionIndex) {
   return hasCompute;
 }
 
+// Required for OwnershipBasedBufferDeallocationPass.
+void d2m::GenericOp::getEntrySuccessorRegions(
+    llvm::ArrayRef<mlir::Attribute> operands,
+    llvm::SmallVectorImpl<mlir::RegionSuccessor> &regions) {
+  // The generic op has one or more regions that are executed once.
+  // Entry into the op goes to all regions.
+  for (Region &region : getRegions()) {
+    regions.emplace_back(&region, region.getArguments());
+  }
+}
+
+// Required for OwnershipBasedBufferDeallocationPass.
+void d2m::GenericOp::getSuccessorRegions(
+    mlir::RegionBranchPoint point,
+    llvm::SmallVectorImpl<mlir::RegionSuccessor> &regions) {
+  // All regions exit to the parent operation.
+  regions.emplace_back(getResults());
+}
+
+// Required for OwnershipBasedBufferDeallocationPass.
+void d2m::GenericOp::getRegionInvocationBounds(
+    llvm::ArrayRef<mlir::Attribute> operands,
+    llvm::SmallVectorImpl<mlir::InvocationBounds> &invocationBounds) {
+  // Each region is invoked exactly once.
+  invocationBounds.assign(getNumRegions(), mlir::InvocationBounds(1, 1));
+}
+
 } // namespace mlir::tt::d2m

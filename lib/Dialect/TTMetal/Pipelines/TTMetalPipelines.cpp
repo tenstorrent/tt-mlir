@@ -156,6 +156,7 @@ void createTTIRToTTMetalMiddleendPipeline(
     linalgToAffineOptions.markRootLoops = true;
   }
   pm.addPass(d2m::createD2MLinalgToAffine(linalgToAffineOptions));
+  pm.addPass(bufferization::createOwnershipBasedBufferDeallocationPass());
   d2m::D2MInsertDstRegisterAccessOptions insertDstRegisterAccessOptions;
   {
     insertDstRegisterAccessOptions.useTileMatmul = options.useTileMatmul;
