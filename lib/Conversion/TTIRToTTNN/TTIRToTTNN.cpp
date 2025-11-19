@@ -16,6 +16,7 @@
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Utils.h"
 
+#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Quant/IR/Quant.h"
 #include "mlir/Dialect/Quant/IR/QuantTypes.h"
 #include "mlir/IR/Attributes.h"
@@ -1624,7 +1625,123 @@ public:
   LogicalResult
   matchAndRewrite(ttir::MeshShardOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    if (adaptor.getShardType() == ::mlir::tt::ttcore::MeshShardType::Identity) {
+      // Helper lambda to add mesh_shard_identity attribute
+      auto addMeshShardIdentityAttr = [](func::FuncOp funcOp,
+                                         uint32_t argIndex) {
+        SmallVector<NamedAttribute> newArgAttrs;
+        if (auto currentArgAttrDict = funcOp.getArgAttrDict(argIndex)) {
+          newArgAttrs =
+              SmallVector<NamedAttribute>(currentArgAttrDict.getValue());
+        }
+        newArgAttrs.emplace_back(
+            StringAttr::get(funcOp.getContext(), "ttmlir.mesh_shard_identity"),
+            UnitAttr::get(funcOp.getContext()));
+        funcOp.setArgAttrs(
+            argIndex, DictionaryAttr::get(funcOp.getContext(), newArgAttrs));
+      };
 
+      // FullToShard: input is block argument
+      if (adaptor.getShardDirection() ==
+          ::mlir::tt::ttcore::MeshShardDirection::FullToShard) {
+        Value input = adaptor.getInput();
+        if (auto blockArg = mlir::dyn_cast<BlockArgument>(input)) {
+          // Get the parent function
+          auto *parentOp = blockArg.getOwner()->getParentOp();
+          if (auto funcOp = mlir::dyn_cast<func::FuncOp>(parentOp)) {
+            auto argIndex = blockArg.getArgNumber();
+
+            // Get the output type (converted)
+            Type outputType =
+                this->getTypeConverter()->convertType(op.getType());
+            if (outputType) {
+              // Modify the function argument type to match the output type
+              FunctionType originalFuncType = funcOp.getFunctionType();
+              SmallVector<Type> newInputTypes(originalFuncType.getInputs());
+              newInputTypes[argIndex] = outputType;
+
+              FunctionType modifiedFuncType = originalFuncType.clone(
+                  newInputTypes, originalFuncType.getResults());
+
+              rewriter.modifyOpInPlace(funcOp, [&funcOp, &modifiedFuncType,
+                                                argIndex, &outputType,
+                                                &addMeshShardIdentityAttr]() {
+                funcOp.setType(modifiedFuncType);
+                // Update the block argument type - MLIR should handle this
+                // automatically but we explicitly set it to be safe
+                BlockArgument arg = funcOp.getArgument(argIndex);
+                arg.setType(outputType);
+
+                // Add an attribute to mark this argument as modified by
+                // mesh_shard
+                addMeshShardIdentityAttr(funcOp, argIndex);
+              });
+            }
+          }
+        }
+
+        // Fold the operation: replace it with its input
+        rewriter.replaceOp(op, input);
+        return success();
+      }
+
+      // ShardToFull: output is return value
+      if (adaptor.getShardDirection() ==
+          ::mlir::tt::ttcore::MeshShardDirection::ShardToFull) {
+        Value result = op.getResult();
+        Value input = adaptor.getInput();
+        // Check if result is used as a return value
+        func::ReturnOp returnOp = nullptr;
+        int resultIndex = -1;
+        for (auto &use : result.getUses()) {
+          if (auto retOp = mlir::dyn_cast<func::ReturnOp>(use.getOwner())) {
+            returnOp = retOp;
+            // Find which return operand index this result corresponds to
+            for (unsigned i = 0; i < returnOp.getNumOperands(); ++i) {
+              if (returnOp.getOperand(i) == result) {
+                resultIndex = i;
+                break;
+              }
+            }
+            break;
+          }
+        }
+
+        if (returnOp && resultIndex >= 0) {
+          // Get the parent function
+          auto *parentOp = returnOp->getParentOp();
+          if (auto funcOp = mlir::dyn_cast<func::FuncOp>(parentOp)) {
+            // Get the input type (converted)
+            Type inputType =
+                this->getTypeConverter()->convertType(input.getType());
+            if (inputType) {
+              // First, update the ReturnOp operand to use the input
+              SmallVector<Value> newOperands(returnOp.getOperands());
+              newOperands[resultIndex] = input;
+              rewriter.modifyOpInPlace(returnOp, [&returnOp, &newOperands]() {
+                returnOp.getOperandsMutable().assign(newOperands);
+              });
+
+              // Then, modify the function return type to match the input type
+              FunctionType originalFuncType = funcOp.getFunctionType();
+              SmallVector<Type> newResultTypes(originalFuncType.getResults());
+              newResultTypes[resultIndex] = inputType;
+
+              FunctionType modifiedFuncType = originalFuncType.clone(
+                  originalFuncType.getInputs(), newResultTypes);
+
+              rewriter.modifyOpInPlace(funcOp, [&funcOp, &modifiedFuncType]() {
+                funcOp.setType(modifiedFuncType);
+              });
+            }
+          }
+        }
+
+        // Fold the operation: replace it with its input
+        rewriter.replaceOp(op, input);
+        return success();
+      }
+    }
     auto device = ::ttnn::utils::getOrInsertDevice(rewriter, op);
     rewriter.replaceOpWithNewOp<ttnn::MeshShardOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
