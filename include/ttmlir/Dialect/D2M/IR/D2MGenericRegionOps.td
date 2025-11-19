@@ -999,7 +999,9 @@ def D2M_SemaphoreWaitOp : D2M_GenericRegionOp<"semaphore_wait", [MemoryEffects<[
 //===----------------------------------------------------------------------===//
 
 def D2M_YieldOp : D2M_GenericRegionOp<"yield", [
-    MemoryEffects<[MemRead, MemWrite]>,
+    Pure,
+    ReturnLike,
+    Terminator,
     DeclareOpInterfaceMethods<BufferizableOpInterface, [
       "bufferizesToMemoryRead",
       "bufferizesToMemoryWrite",
@@ -1016,6 +1018,12 @@ def D2M_YieldOp : D2M_GenericRegionOp<"yield", [
     let arguments = (ins Variadic<AnyRankedTensor>:$values);
 
     let assemblyFormat = [{ $values attr-dict `:` `(` type($values) `)` }];
+
+    let builders = [
+      OpBuilder<(ins), [{
+        build($_builder, $_state, std::nullopt);
+      }]>
+    ];
 
     let hasVerifier = 1;
 

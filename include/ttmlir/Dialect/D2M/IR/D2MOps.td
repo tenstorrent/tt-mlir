@@ -12,7 +12,7 @@ include "ttmlir/Dialect/D2M/IR/D2MOpsAttrs.td"
 include "ttmlir/Dialect/D2M/IR/D2MOpsInterfaces.td"
 include "mlir/Dialect/Bufferization/IR/BufferizableOpInterface.td"
 include "mlir/Interfaces/DestinationStyleOpInterface.td"
-include "mlir/Interfaces/ControlFlowInterfaces.td"
+include "mlir/IR/RegionKindInterface.td"
 include "mlir/IR/OpAsmInterface.td"
 
 // Minimal scaffolding op: ViewLayout
@@ -148,12 +148,8 @@ def D2M_StreamLayoutOp : D2M_Op<"stream_layout", [
 
 def D2M_GenericOp : D2M_Op<"generic",
   [ AttrSizedOperandSegments
-  , NoTerminator
-  , DeclareOpInterfaceMethods<RegionBranchOpInterface, [
-      "getRegionInvocationBounds",
-      "getEntrySuccessorRegions",
-      "getSuccessorRegions"
-    ]>
+  , SingleBlockImplicitTerminator<"mlir::tt::d2m::YieldOp">
+  , DeclareOpInterfaceMethods<RegionKindInterface>
   , DestinationStyleOpInterface
   , DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmBlockArgumentNames", "getAsmBlockNames"]>
   , DeclareOpInterfaceMethods<BufferizableOpInterface, [
