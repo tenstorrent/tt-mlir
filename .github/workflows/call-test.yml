@@ -150,7 +150,7 @@ jobs:
         EOF
         cat _test_to_run.json
 
-        python .github/scripts/python/run_tests_from_json.py "${{ matrix.build.runs-on }}" "${{ matrix.build.image }}" "${{ steps.fetch-job-id.outputs.job_id }}"
+        stdbuf -o 0 -e 0 python .github/scripts/python/run_tests_from_json.py "${{ matrix.build.runs-on }}" "${{ matrix.build.image }}" "${{ steps.fetch-job-id.outputs.job_id }}"
 
     - name: Process Test Summary
       if: success() || failure()
