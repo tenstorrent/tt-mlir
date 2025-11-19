@@ -1507,6 +1507,18 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
       }
     }
 
+    // For stream_layout ops, the input buffer's lifetime must extend to at
+    // least when the storage buffer dies, since the stream references both.
+    // This ensures storage buffers are deallocated before their source data.
+    if (auto streamOp = llvm::dyn_cast<d2m::StreamLayoutOp>(op)) {
+      Value storage = streamOp.getStorage();
+      if (Operation *storageDefOp = storage.getDefiningOp()) {
+        if (graph.contains(storageDefOp)) {
+          last = std::max(last, resolve(storageDefOp, graph));
+        }
+      }
+    }
+
     return last;
   }
 
