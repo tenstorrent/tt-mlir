@@ -1724,7 +1724,7 @@ def execute_fb(
     Takes a flatbuffer path `fb`, and executes it with random inputs supplied by `input_shapes` and `input_dtypes`
     """
 
-    # Register TTRT debug hooks using the same utilities as tools/ttrt/common/run.py
+    # Register runtime debug hooks for intermediate golden checks
     from ttrt.common.callback import (
         pre_op_get_callback_fn,
         post_op_get_callback_fn,
@@ -1780,25 +1780,26 @@ def execute_fb(
     program_indices = []
     program_indices.extend(range(bin.get_num_programs()))
 
-    # Set up callback runtime config and register DebugHooks once per execution
-    callback_runtime_config = CallbackRuntimeConfig(
-        device=device,
-        artifact_dir="",
-        pcc=pcc,
-        atol=atol,
-        rtol=rtol,
-        check_atol=check_atol,
-        check_rtol=check_rtol,
-        save_golden_tensors=False,
-        logging=logging,
-        enable_golden=not disable_golden,
-        enable_memory=False,
-        enable_debugger=False,
-    )
-    ttrt.runtime.DebugHooks.get(
-        pre_op_get_callback_fn(callback_runtime_config),
-        post_op_get_callback_fn(callback_runtime_config),
-    )
+    if not disable_golden:
+        # Set up callback runtime config and register DebugHooks once per execution
+        callback_runtime_config = CallbackRuntimeConfig(
+            device=device,
+            artifact_dir="",
+            pcc=pcc,
+            atol=atol,
+            rtol=rtol,
+            check_atol=check_atol,
+            check_rtol=check_rtol,
+            save_golden_tensors=False,
+            logging=logging,
+            enable_golden=not disable_golden,
+            enable_memory=False,
+            enable_debugger=False,
+        )
+        ttrt.runtime.DebugHooks.get(
+            pre_op_get_callback_fn(callback_runtime_config),
+            post_op_get_callback_fn(callback_runtime_config),
+        )
 
     for program_index in program_indices:
         print(f"evaluating program={program_index} for binary={bin.file_path}")
@@ -1808,8 +1809,9 @@ def execute_fb(
         # Skip private programs (e.g. subgraphs created by const-eval)
         if program.is_private():
             continue
-        # Reset per-program callback state
-        callback_runtime_config.start_new_callback("")
+        if not disable_golden:
+            # Reset per-program callback state
+            callback_runtime_config.start_new_callback("")
 
         # Fetch the golden inputs embedded in the flatbuffer
         golden_inputs = []
@@ -1976,7 +1978,8 @@ def execute_fb(
         for tensor in program.output_tensors:
             logging.debug(f"{tensor}\n")
 
-        return callback_runtime_config.golden_report
+        if not disable_golden:
+            return callback_runtime_config.golden_report
 
 
 def load_mlir_file(
