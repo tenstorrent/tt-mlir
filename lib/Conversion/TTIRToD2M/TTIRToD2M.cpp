@@ -501,9 +501,6 @@ private:
     const std::size_t numOutputs = outputs.size();
     const std::size_t numOperands = (numInputs + numOutputs);
 
-    // Minus 1 for the scaler operand.
-    assert((numOperands - 1) == op->getNumOperands());
-
     const std::size_t physicalRank =
         ttcore::getDeviceLayout(outputs[0]).getRank() / 2;
 
@@ -734,8 +731,6 @@ private:
     const std::size_t numInputs = inputs.size();
     const std::size_t numOutputs = outputs.size();
     const std::size_t numOperands = (numInputs + numOutputs);
-
-    assert(numOperands == op->getNumOperands());
 
     const std::size_t physicalRank =
         ttcore::getDeviceLayout(outputs[0]).getRank() / 2;
