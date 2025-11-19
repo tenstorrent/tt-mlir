@@ -5317,7 +5317,6 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
         (*OpView*)
             Output tensor after max pooling
         """
-        print("OOOOOOOOOOOOOOOOOO", self._get_location())
         return self._op_proxy(
             ttir.AvgPool2dOp,
             [in0],

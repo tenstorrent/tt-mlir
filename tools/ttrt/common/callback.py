@@ -28,6 +28,8 @@ class CallbackRuntimeConfig:
         pcc=0.99,
         atol=1e-08,
         rtol=1e-05,
+        check_atol: bool = True,
+        check_rtol: bool = True,
         save_golden_tensors=False,
         logging=None,
         enable_golden=False,
@@ -41,6 +43,8 @@ class CallbackRuntimeConfig:
         self.pcc = pcc
         self.atol = atol
         self.rtol = rtol
+        self.check_atol = check_atol
+        self.check_rtol = check_rtol
         self.save_golden_tensors = save_golden_tensors
         self.logging = logging
         self.enable_golden = enable_golden
@@ -182,7 +186,7 @@ def golden(callback_runtime_config, binary, program_context, op_context):
             )
             return
 
-        _, _, cal_pcc, output_str = get_atol_rtol_pcc(
+        cal_atol, cal_rtol, cal_pcc, output_str = get_atol_rtol_pcc(
             golden_tensor_torch,
             output_tensor_torch,
             callback_runtime_config.atol,
@@ -204,12 +208,30 @@ def golden(callback_runtime_config, binary, program_context, op_context):
         logging.debug(f"For device {device_id} at loc={loc}, PCC={cal_pcc}")
         logging.debug(output_str)
 
+        result = "pass"
+        if cal_pcc <= callback_runtime_config.pcc:
+            result = "fail"
+        if (
+            callback_runtime_config.check_atol
+            and cal_atol > callback_runtime_config.atol
+        ):
+            result = "fail"
+        if (
+            callback_runtime_config.check_rtol
+            and cal_rtol > callback_runtime_config.rtol
+        ):
+            result = "fail"
+
         results = {}
-        results["result"] = "pass" if cal_pcc >= callback_runtime_config.pcc else "fail"
+        results["result"] = result
         results["expected_pcc"] = callback_runtime_config.pcc
         results["actual_pcc"] = cal_pcc
-        results["atol"] = callback_runtime_config.atol
-        results["rtol"] = callback_runtime_config.rtol
+        if callback_runtime_config.check_atol:
+            results["expected_atol"] = callback_runtime_config.atol
+            results["actual_atol"] = cal_atol
+        if callback_runtime_config.check_rtol:
+            results["expected_rtol"] = callback_runtime_config.rtol
+            results["actual_rtol"] = cal_rtol
         results["allclose"] = torch.allclose(
             golden_tensor_torch,
             output_tensor_torch,

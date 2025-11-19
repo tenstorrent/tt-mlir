@@ -31,6 +31,7 @@ def test_arbitrary_model(
         output_root=request.config.getoption("path"),
         device=device,
         system_desc_path=request.config.getoption("--sys-desc"),
+        export_golden_report=True,
     )
 
 

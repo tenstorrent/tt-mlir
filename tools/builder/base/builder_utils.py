@@ -6,7 +6,7 @@ import os
 import inspect
 import time
 import torch
-from functools import reduce, partial
+from functools import reduce
 import operator
 from typing import Callable, List, Optional, Tuple, Union, Literal, Dict
 from collections import OrderedDict
@@ -189,6 +189,7 @@ def _compile_and_execute(
     skip_exec: bool = False,
     check_atol: bool = False,
     check_rtol: bool = False,
+    export_golden_report: bool = False,
     **compile_kwargs,
 ) -> str:
     """
@@ -233,6 +234,7 @@ def _compile_and_execute(
     fb_path = mlir_path + "." + ("ttnn" if target == "ttnn" else "ttm")
 
     # Execute the flatbuffer
+    golden_report = {}
     if target in ["ttnn", "ttmetal"]:
         golden_report = execute_fb(
             fb_path=fb_path,
@@ -245,9 +247,10 @@ def _compile_and_execute(
             check_rtol=check_rtol,
         )
 
-    _parse_and_save_golden_report(
-        builder, golden_report, mlir_path + ".golden_report.json"
-    )
+    if export_golden_report and not disable_golden:
+        _parse_and_save_golden_report(
+            builder, golden_report, mlir_path + ".golden_report.json"
+        )
 
     return mlir_path
 
@@ -572,6 +575,7 @@ def compile_and_execute_d2m(
     skip_exec: bool = False,
     check_atol: bool = False,
     check_rtol: bool = False,
+    export_golden_report: bool = False,
 ) -> str:
     """
     Compiles and executes a D2MBuilder function through the complete pipeline.
@@ -650,6 +654,7 @@ def compile_and_execute_d2m(
         skip_exec=skip_exec,
         check_atol=check_atol,
         check_rtol=check_rtol,
+        export_golden_report=export_golden_report,
     )
 
 
@@ -678,6 +683,7 @@ def compile_and_execute_shlo(
     skip_exec: bool = False,
     check_atol: bool = False,
     check_rtol: bool = False,
+    export_golden_report: bool = False,
 ) -> str:
     """
     Compiles and executes a StableHLO function through the complete pipeline.
@@ -762,6 +768,7 @@ def compile_and_execute_shlo(
         skip_exec=skip_exec,
         check_atol=check_atol,
         check_rtol=check_rtol,
+        export_golden_report=export_golden_report,
     )
 
 
@@ -788,6 +795,7 @@ def compile_and_execute_ttnn(
     skip_exec: bool = False,
     check_atol: bool = False,
     check_rtol: bool = False,
+    export_golden_report: bool = False,
 ) -> str:
     """
     Compiles and executes a TTNNBuilder function through the complete pipeline.
@@ -869,6 +877,7 @@ def compile_and_execute_ttnn(
         skip_exec=skip_exec,
         check_atol=check_atol,
         check_rtol=check_rtol,
+        export_golden_report=export_golden_report,
     )
 
 
@@ -895,6 +904,7 @@ def compile_and_execute_ttir(
     skip_exec: bool = False,
     check_atol: bool = False,
     check_rtol: bool = False,
+    export_golden_report: bool = False,
 ) -> str:
     """
     Compiles and executes a TTIR function through the complete pipeline.
@@ -973,6 +983,7 @@ def compile_and_execute_ttir(
         skip_exec=skip_exec,
         check_atol=check_atol,
         check_rtol=check_rtol,
+        export_golden_report=export_golden_report,
     )
 
 
@@ -1207,7 +1218,7 @@ def compile_ttnn_to_flatbuffer(
     except Exception as e:
         raise TTBuilderCompileException(e)
 
-    return compile_ttir_module_to_flatbuffer(
+    return builder, compile_ttir_module_to_flatbuffer(
         module,
         builder,
         system_desc_path=system_desc_path,
@@ -1333,7 +1344,7 @@ def compile_d2m_to_flatbuffer(
     except Exception as e:
         raise TTBuilderCompileException(e)
 
-    return compile_ttir_module_to_flatbuffer(
+    return builder, compile_ttir_module_to_flatbuffer(
         module,
         builder,
         system_desc_path=system_desc_path,
@@ -1504,7 +1515,7 @@ def compile_stablehlo_to_flatbuffer(
         with open(filename, "w") as f:
             f.write(str(module))
 
-    return compile_ttir_module_to_flatbuffer(
+    return builder, compile_ttir_module_to_flatbuffer(
         module,
         builder,
         system_desc_path=system_desc_path,
@@ -1782,6 +1793,8 @@ def execute_fb(
         pcc=pcc,
         atol=atol,
         rtol=rtol,
+        check_atol=check_atol,
+        check_rtol=check_rtol,
         save_golden_tensors=False,
         logging=logging,
         enable_golden=not disable_golden,
@@ -1789,9 +1802,7 @@ def execute_fb(
         enable_debugger=False,
     )
     ttrt.runtime.DebugHooks.get(
-        pre_op_get_callback_fn(
-            callback_runtime_config
-        ),  # ****************** this has to be fixed
+        pre_op_get_callback_fn(callback_runtime_config),
         post_op_get_callback_fn(callback_runtime_config),
     )
 
@@ -1865,7 +1876,6 @@ def execute_fb(
         except Exception as e:
             raise TTBuilderRuntimeException(e)
         finally:
-            # Ensure hooks are not left around after program execution
             ttrt.runtime.unregister_hooks()
 
         end_submit = time.perf_counter_ns()
