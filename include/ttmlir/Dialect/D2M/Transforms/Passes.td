@@ -171,6 +171,68 @@ def D2MInsertDstRegisterAccess : Pass<"d2m-insert-dst-register-access", "::mlir:
   ];
 }
 
+//
+// Graph coloring dst register allocation pass
+//
+def D2MInsertDstRegisterGC : Pass<"d2m-insert-dst-register-gc", "::mlir::func::FuncOp"> {
+  let summary = "Allocate DST registers using a graph coloring algorithm.";
+  let description = [{
+    This pass implements a Chaitin-Briggs style graph coloring register allocator
+    for DST registers. It can be used as a drop-in replacement for the basic
+    `d2m-insert-dst-register-access` pass.
+  }];
+
+  let dependentDialects = [
+    "::mlir::tt::d2m::D2MDialect",
+    "::mlir::func::FuncDialect"
+  ];
+
+  let options = [
+    Option<"maxDstPhysicalSizeTiles", "max-dst-physical-size-tiles", "unsigned",
+           "0", "Override the max dst physical size tiles or 0 if unset.">,
+    Option<"coloringStrategy", "coloring-strategy", "std::string",
+           "\"chaitin-briggs\"", "Graph coloring strategy to use: chaitin-briggs or greedy.">,
+    Option<"fullSyncEn", "full-sync-en", "bool",
+           "true", "Enable full sync mode for DST (true=16 tiles for f16, false=8 tiles for f16).">,
+  ];
+}
+
+//
+// DST analysis pass
+//
+def D2MDstRequirementAnalysis : Pass<"d2m-dst-analysis", "::mlir::func::FuncOp"> {
+  let summary = "Analyze DST slice requirements without performing allocation.";
+  let description = [{
+    This analysis pass computes the number of DST register slices required by
+    operations in the function without actually transforming the IR. It supports
+    multiple analysis strategies (basic, graph coloring) selectable via
+    command-line options.
+
+    The pass can be run standalone to inspect DST requirements or queried by
+    other transformation passes to make allocation decisions.
+
+    Example usage:
+      ttmlir-opt --d2m-dst-analysis="strategy=graph-coloring" input.mlir
+
+    Available strategies:
+      - basic: Each DST access gets its own slice (upper bound)
+      - graph-coloring: Uses Chaitin-Briggs graph coloring to minimize slices
+      - greedy: Uses greedy graph coloring (faster but less optimal)
+  }];
+
+  let dependentDialects = [
+    "::mlir::tt::d2m::D2MDialect",
+    "::mlir::func::FuncDialect"
+  ];
+
+  let options = [
+    Option<"strategy", "strategy", "std::string",
+           "\"graph-coloring\"", "Analysis strategy: basic, graph-coloring, greedy">,
+    Option<"emitDiagnostics", "emit-diagnostics", "bool",
+           "true", "Emit diagnostic messages with analysis results">,
+  ];
+}
+
 def D2MGenericLinearizeMemref: Pass<"d2m-generic-linearize-memref", "::mlir::ModuleOp"> {
   let summary = "Linearize memref operands for generic ops.";
   let description = [{
