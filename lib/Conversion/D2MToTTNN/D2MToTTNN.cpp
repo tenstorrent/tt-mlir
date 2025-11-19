@@ -126,19 +126,25 @@ public:
       auto output = op.getOutputs()[0];
       mlir::ShapedType outputType =
           mlir::cast<mlir::ShapedType>(output.getType());
-      auto shardLayout = mlir::dyn_cast<ttcore::ShardLayoutAttr>(
-          ttcore::getDeviceLayout(outputType));
-      TT_assertv(shardLayout, "Expected shardLayoutAttr for the output of a "
-                              "generic op with a virtual grid.");
 
-      auto physicalGridShape = shardLayout.getPhysicalGridShape(outputType);
+      AffineMap fwdMap =
+          *ttcore::getDeviceLayout(outputType).getVirtualizationMapIfExists();
+      fwdMap = ttmlir::utils::affineMapDropBackResults(
+          fwdMap, fwdMap.getNumResults() / 2);
+      endCoreRange = fwdMap.compose(
+          {opGrid.getShape()[0] - 1, opGrid.getShape()[1] - 1, 0, 0});
       // TTNN grids are (Width, Height), while D2M grids are (Height, Width).
-      endCoreRange = {physicalGridShape[1] - 1, physicalGridShape[0] - 1};
+      endCoreRange = {endCoreRange[1], endCoreRange[0]};
     } else {
       // TTNN grids are (Width, Height), while D2M grids are (Height, Width).
       endCoreRange = {opGrid.getShape()[1] - 1, opGrid.getShape()[0] - 1};
     }
 
+    std::cout << "Armin: endCoreRange: ";
+    for (auto i : endCoreRange) {
+      std::cout << i << " ";
+    }
+    std::cout << std::endl;
     ttnn::CoreRangeSetAttr coreRangeSet = ttnn::CoreRangeSetAttr::get(
         ctx,
         ttnn::CoreRangeAttr::get(

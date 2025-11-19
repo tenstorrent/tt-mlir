@@ -17,6 +17,7 @@
 #include "flatbuffers/buffer.h"
 #include "llvm/ADT/STLForwardCompat.h"
 
+#include <iostream>
 #include <optional>
 #include <type_traits>
 
@@ -868,8 +869,7 @@ inline flatbuffers::Offset<::tt::target::ttnn::MemoryDesc>
 toFlatbuffer(FlatbufferObjectCache &cache, mlir::MemRefType memref,
              ttcore::TensorMeshAttr tensorMesh, ttnn::BufferType bufferType,
              ttnn::TensorMemoryLayoutAttr memLayoutAttr,
-             ttcore::GridAttr shardGrid, ttcore::GridAttr deviceGrid,
-             bool exactGrid) {
+             ttcore::GridAttr shardGrid, ttcore::GridAttr deviceGrid, bool exactGrid) {
   auto shapeInt64 = memref.getShape();
   std::vector<int32_t> shape(shapeInt64.begin(), shapeInt64.end());
   ttcore::DataType dtype = ttcore::DataType::Float32;
@@ -907,18 +907,20 @@ toFlatbuffer(FlatbufferObjectCache &cache, mlir::MemRefType memref,
       shape[1] *= tileShape.x();
 
       ttnn::CoreRangeSetAttr coreRangeSetAttr;
-      // For TTNN JIT, the sharding core range has already been set by the user.
-      // This means that for height and width sharding, the grid in the
-      // TTNNLayoutAttr is not a virtual Mx1 or 1xN grid that would require
-      // collapsing. This is required to distinguish between 3x4 and 2x6 as
-      // sharding grids for height and width sharding.
-      // Note that the core coord is (X,Y) but the grid shape is (Y,X).
+      // For TTNN JIT, the concrete sharding core range is set by the user in
+      // TTNN. This means that for height and width sharding we cannot record
+      // virtual Mx1 or 1xN grids in the TTNNLayoutAttr as we would then be
+      // unable to distinguish between 3x4 and 2x6 as sharding grids. Since we
+      // record the physical grid, we can create the coreRangeSet directly
+      // without a collapsing map.
       if (exactGrid) {
         coreRangeSetAttr = ttnn::CoreRangeSetAttr::get(
             ctx, ttnn::CoreRangeAttr::get(
                      ctx, ttnn::CoreCoordAttr::get(ctx, 0, 0),
                      ttnn::CoreCoordAttr::get(ctx, shardGrid.getShape()[1] - 1,
                                               shardGrid.getShape()[0] - 1)));
+        std::cout<<"Armin1"<<std::endl;
+        coreRangeSetAttr.dump();
       } else {
         coreRangeSetAttr = ttnn::CoreRangeSetAttr::get(
             ctx, llvm::map_to_vector(
@@ -935,6 +937,8 @@ toFlatbuffer(FlatbufferObjectCache &cache, mlir::MemRefType memref,
                            ttnn::CoreCoordAttr::get(ctx, loc[0] + size[0] - 1,
                                                     loc[1] + size[1] - 1));
                      }));
+      std::cout<<"Armin2"<<std::endl;
+      coreRangeSetAttr.dump();
       }
       shardSpecAttr = ttnn::ShardSpecAttr::get(
           ctx, coreRangeSetAttr, ttnn::ShapeAttr::get(ctx, shape),
@@ -967,8 +971,7 @@ ttnnLayoutAttrToFlatbuffer(FlatbufferObjectCache &cache,
       *cache.fbb, toFlatbuffer(cache, ttcore::OOBVal::Undef),
       toFlatbuffer(cache, layoutAttr.getMemref(), layoutAttr.getTensorMesh(),
                    layoutAttr.getBufferType(), layoutAttr.getMemLayout(),
-                   layoutAttr.getGrid(), deviceAttr.getWorkerGrid(),
-                   layoutAttr.getExactGrid()));
+                   layoutAttr.getGrid(), deviceAttr.getWorkerGrid(), layoutAttr.getExactGrid()));
 }
 
 inline ::tt::target::ttnn::CoreType
