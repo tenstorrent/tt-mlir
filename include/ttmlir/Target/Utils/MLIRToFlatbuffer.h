@@ -967,6 +967,10 @@ ttnnLayoutAttrToFlatbuffer(FlatbufferObjectCache &cache,
   // Ideally, we establish one-to-one mapping between MLIR and FlatBuffer
   // that guarantees identical memrefs will always produce identical
   // flatbuffer LayoutDescs.
+  std::cout<<"Armin: layoutAttr: "<<std::endl;
+  layoutAttr.dump();
+  std::cout<<"Armin: ignorePhysicalLayout: "<<layoutAttr.getIgnorePhysicalLayout()<<std::endl;
+  std::cout<<"exactGrid: "<<layoutAttr.getExactGrid()<<std::endl;
   return ::tt::target::ttnn::CreateLayoutDesc(
       *cache.fbb, toFlatbuffer(cache, ttcore::OOBVal::Undef),
       toFlatbuffer(cache, layoutAttr.getMemref(), layoutAttr.getTensorMesh(),
