@@ -595,8 +595,16 @@ mlir::LogicalResult d2m::StreamLayoutOp::bufferize(
 }
 
 mlir::bufferization::AliasingValueList d2m::StreamLayoutOp::getAliasingValues(
-    mlir::OpOperand &, const mlir::bufferization::AnalysisState &) {
+    mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
   bufferization::AliasingValueList result;
+  // The result aliases the storage operand, which is the buffer that actually
+  // holds the data. This tells BufferDeallocation that the storage buffer must
+  // stay live as long as the stream_layout result is being used.
+  if (&operand == &getStorageMutable()) {
+    result.addAlias({getResult(),
+                     bufferization::BufferRelation::Equivalent,
+                     /*isDefinite=*/true});
+  }
   return result;
 }
 
@@ -1659,6 +1667,12 @@ mlir::LogicalResult d2m::GenericOp::bufferize(
       getNumRegions());
   for (mlir::Region &region : bufferGeneric.getRegions()) {
     region.takeBody(getRegion(region.getRegionNumber()));
+    // Ensure each region has a terminator after taking the body
+    if (!region.empty() && !region.front().empty() &&
+        !region.front().back().hasTrait<OpTrait::IsTerminator>()) {
+      rewriter.setInsertionPointToEnd(&region.front());
+      rewriter.create<d2m::YieldOp>(getLoc());
+    }
   }
 
   // Bufferize region block arguments.

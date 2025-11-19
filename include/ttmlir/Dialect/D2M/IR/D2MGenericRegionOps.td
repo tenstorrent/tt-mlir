@@ -1002,6 +1002,7 @@ def D2M_YieldOp : D2M_GenericRegionOp<"yield", [
     Pure,
     ReturnLike,
     Terminator,
+    RegionBranchTerminatorOpInterface,
     DeclareOpInterfaceMethods<BufferizableOpInterface, [
       "bufferizesToMemoryRead",
       "bufferizesToMemoryWrite",

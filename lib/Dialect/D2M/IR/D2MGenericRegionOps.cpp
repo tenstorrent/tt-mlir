@@ -565,10 +565,11 @@ void TileUntilizeBlockOp::getEffects(
 
 mlir::LogicalResult YieldOp::verify() {
   auto generic = getOperation()->getParentOfType<GenericOp>();
-  if (!generic || !generic.hasPureTensorSemantics()) {
-    return emitOpError()
-           << "used outside of generic op with pure tensor semantics";
+  if (!generic) {
+    return emitOpError() << "used outside of generic op";
   }
 
+  // YieldOp is used in both tensor and memref contexts (before and after
+  // bufferization), so we allow both pure tensor semantics and memref semantics.
   return ::mlir::success();
 }

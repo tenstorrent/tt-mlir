@@ -250,6 +250,12 @@ public:
       }
     }
 
+    // Ensure the datamovement block has a terminator
+    Block *block = builder.getBlock();
+    if (block && (block->empty() || !block->back().hasTrait<OpTrait::IsTerminator>())) {
+      builder.create<d2m::YieldOp>(loc);
+    }
+
     return success();
   }
 
@@ -283,6 +289,10 @@ public:
                                generic.getRegion(0).getArgumentTypes().size(),
                                generic.getLoc()));
       });
+      // Add a temporary terminator to each region to satisfy verification
+      // These will be replaced/updated as we fill in the regions
+      rewriter.setInsertionPointToEnd(&block);
+      rewriter.create<d2m::YieldOp>(generic->getLoc());
     }
 
     // Insert the new data movement regions.
@@ -313,9 +323,23 @@ public:
     unsigned computeRegionIndex = numDataMovementRegions;
     auto &newRegion = newGeneric.getRegion(computeRegionIndex);
     auto &oldRegion = generic.getRegion(0);
-    rewriter.mergeBlocks(&oldRegion.front(), &newRegion.front(),
-                         newRegion.front().getArguments().take_front(
+
+    // Remove the temporary terminator from the new block before merging to avoid
+    // having multiple terminators
+    Block &newBlock = newRegion.front();
+    if (!newBlock.empty() && newBlock.back().hasTrait<OpTrait::IsTerminator>()) {
+      rewriter.eraseOp(&newBlock.back());
+    }
+
+    rewriter.mergeBlocks(&oldRegion.front(), &newBlock,
+                         newBlock.getArguments().take_front(
                              generic.getOperands().size()));
+
+    // Ensure the compute region has a terminator after merging
+    if (newBlock.empty() || !newBlock.back().hasTrait<OpTrait::IsTerminator>()) {
+      rewriter.setInsertionPointToEnd(&newBlock);
+      rewriter.create<d2m::YieldOp>(generic->getLoc());
+    }
 
     rewriter.replaceOp(generic, newGeneric);
     return success();
