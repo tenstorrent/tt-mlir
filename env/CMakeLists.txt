@@ -28,7 +28,7 @@ if (NOT EXISTS "${TTMLIR_TOOLCHAIN_DIR}")
     message( FATAL_ERROR "The directory ${TTMLIR_TOOLCHAIN_DIR} does not exist. Please create it before running this script.\n  sudo mkdir -p ${TTMLIR_TOOLCHAIN_DIR}\n  sudo chown -R $ENV{USER} ${TTMLIR_TOOLCHAIN_DIR}")
 endif()
 
-add_custom_target(python-venv ALL COMMAND TTMLIR_TOOLCHAIN=${TTMLIR_TOOLCHAIN_DIR} ENV_DIR=${CMAKE_CURRENT_SOURCE_DIR} bash ${CMAKE_CURRENT_SOURCE_DIR}/init_venv.sh)
+add_custom_target(python-venv ALL COMMAND TTMLIR_TOOLCHAIN_DIR=${TTMLIR_TOOLCHAIN_DIR} ENV_DIR=${CMAKE_CURRENT_SOURCE_DIR} bash ${CMAKE_CURRENT_SOURCE_DIR}/init_venv.sh)
 
 ExternalProject_Add(
     flatbuffers

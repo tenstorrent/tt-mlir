@@ -9,7 +9,11 @@ set(JIT_SOURCES
 )
 
 add_library(JITCPP SHARED ${JIT_SOURCES})
-set_target_properties(JITCPP PROPERTIES CXX_STANDARD 20)
+set_target_properties(JITCPP PROPERTIES 
+  CXX_STANDARD 20
+  INSTALL_RPATH "$ORIGIN"
+  BUILD_WITH_INSTALL_RPATH TRUE
+)
 
 target_link_libraries(JITCPP
   PRIVATE
