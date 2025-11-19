@@ -9,6 +9,12 @@ set -e
 CHECK_ONLY=false
 if [[ "$1" == "--check-only" ]]; then
     CHECK_ONLY=true
+    dockbuild=$2
+else
+    dockbuild=$1
+fi
+if [ -z "$dockbuild" ]; then
+    dockbuild="all"
 fi
 
 REPO=tenstorrent/tt-mlir
@@ -56,7 +62,6 @@ build_and_push() {
             --progress=plain \
             $target \
             --build-arg FROM_TAG=$DOCKER_TAG \
-            ${from_image:+--build-arg FROM_IMAGE=$from_image} \
             -t $image_name:$DOCKER_TAG \
             -t $image_name:latest \
             -f $dockerfile .
@@ -71,7 +76,12 @@ build_and_push $BASE_IMAGE_NAME .github/Dockerfile.base
 build_and_push $CI_IMAGE_NAME .github/Dockerfile.ci
 build_and_push $BASE_IRD_IMAGE_NAME .github/Dockerfile.ird base-ird
 build_and_push $IRD_IMAGE_NAME .github/Dockerfile.ird ird
-build_and_push $CIBW_IMAGE_NAME .github/Dockerfile.cibuildwheel
+if [ "$dockbuild" == "all" ] || [ "$dockbuild" == "cibuildwheel" ]; then
+  echo "Building cibuildwheel image"
+  build_and_push $CIBW_IMAGE_NAME .github/Dockerfile.cibuildwheel toolchain-source
+else
+  echo "Skipping cibuildwheel image build"
+fi
 
 echo "All images built and pushed successfully"
 echo "CI_IMAGE_NAME:"
