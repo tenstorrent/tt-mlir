@@ -48,14 +48,19 @@ def main(machine, image, jobid):
             print(
                 f"\033[1;96m====================================\n\033[1;96mRunning test {test_no}-{hash}:\n\033[1;96m{hash_string}\n\033[1;96m{cmd}\n\033[1;96m====================================\n\n\n\n\033[0m"
             )
-            result = subprocess.run(cmd, check=True, env=env, capture_output=True)
-            print(result.stdout.decode("utf-8"))
-            print(result.stderr.decode("utf-8"))
+            result = subprocess.run(cmd, check=True, env=env, capture_output=True, text=True)
+            print(result.stdout)
+            print(result.stderr)
             print(f"\n\033[92m SUCCESS running {test_type} \033[0m")
             test["result"] = "SUCCESS"
             test["returncode"] = 0
         except subprocess.CalledProcessError as e:
             print(f"\n\033[91m FAILURE running {test_type}: {e}\033[0m")
+            # Print the captured stdout and stderr from the failed command
+            if e.stdout:
+                print(e.stdout)
+            if e.stderr:
+                print(e.stderr)
             test["result"] = "FAILURE"
             test["returncode"] = e.returncode
         except FileNotFoundError:
