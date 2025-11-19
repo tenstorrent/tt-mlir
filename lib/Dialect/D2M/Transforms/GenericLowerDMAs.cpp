@@ -74,7 +74,7 @@ public:
     for (unsigned gridIndex = 0;
          gridIndex < outputOperandIndexingMap.getNumResults(); gridIndex++) {
       physicalCoreIndices[gridIndex] = builder.create<CoreIndexOp>(
-          loc, builder.getIndexType(), builder.getI64IntegerAttr(gridIndex));
+          loc, builder.getIndexType(), builder.getI64IntegerAttr(gridIndex - (gridShape.size() - 2)));
     }
     SmallVector<Value> virtualGridIndices;
     if (!coreVirtualizationMap.isEmpty()) {
@@ -336,6 +336,30 @@ public:
     ttcore::DeviceAttr device = genericParent.getDevice();
     std::pair<MemRefType, AffineMap> underlyingMemrefAndView =
         viewInterface.applyViews();
+    // HACK
+    if (underlyingMemrefAndView.second.getNumDims() > 4) {
+      MLIRContext* context = device.getContext();
+      assert(underlyingMemrefAndView.second.getNumDims() % 2 == 0);
+      unsigned numDims = underlyingMemrefAndView.second.getNumDims() / 2;
+      SmallVector<AffineExpr> exprs;
+      // Build collapse map
+      // GRID
+      int64_t dI = 0;
+      for (int64_t d = (int64_t)numDims - 3; d >= 0; --d) {
+        exprs.push_back(getAffineConstantExpr(0, context));
+      }
+      exprs.push_back(getAffineDimExpr(dI++, context));
+      exprs.push_back(getAffineDimExpr(dI++, context));
+      // SHARD
+      for (int64_t d = (int64_t)numDims - 3; d >= 0; --d) {
+        exprs.push_back(getAffineConstantExpr(0, context));
+      }
+      exprs.push_back(getAffineDimExpr(dI++, context));
+      exprs.push_back(getAffineDimExpr(dI++, context));
+
+      auto collapse = mlir::AffineMap::get(4, 0, exprs, context);
+      underlyingMemrefAndView.second = underlyingMemrefAndView.second.compose(collapse);
+    }
     AffineMap memoryMap = device.getMemoryMap(underlyingMemrefAndView,
                                               0 /* use default page size*/);
     size_t coalescingFactor = calculateCoalescingFactor(

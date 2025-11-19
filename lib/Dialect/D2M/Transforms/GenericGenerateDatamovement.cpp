@@ -146,7 +146,7 @@ public:
 
     for (auto [dim, iteratorType] : llvm::enumerate(mcastIterators)) {
       Value core = rewriter.create<CoreIndexOp>(
-          loc, rewriter.getIndexType(), rewriter.getI64IntegerAttr(dim));
+          loc, rewriter.getIndexType(), rewriter.getI64IntegerAttr(dim - (grid.getRank() - 2)));
       if (iteratorType == ttcore::IteratorType::Parallel) {
         args.senderCoreIndex.push_back(Value(core));
         args.mcastCoreIndex.push_back(Value(core));

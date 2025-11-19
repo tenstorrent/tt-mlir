@@ -824,7 +824,7 @@ void d2m::GenericOp::build(mlir::OpBuilder &builder,
         mlir::dyn_cast<ShapedType>(outputs[0].getType()));
     auto metalLayout = mlir::dyn_cast<ttcore::MetalLayoutAttr>(layout);
     if (!outputIsView && metalLayout &&
-        !metalLayout.getIndexAffineMap().isEmpty()) {
+        !metalLayout.getIndexAffineMap().isEmpty() && false) {
 
       // Use the implied physical grid shape of the output tensor to generate
       // the required inverse mapping from the virtual grid to the physical
