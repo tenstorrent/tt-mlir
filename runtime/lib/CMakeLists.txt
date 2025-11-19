@@ -52,8 +52,10 @@ target_link_libraries(TTMLIRRuntime
 
 target_link_libraries(TTMLIRRuntime PUBLIC coverage_config)
 
-set_target_properties(TTMLIRRuntime PROPERTIES INSTALL_RPATH "$ORIGIN;${TTMETAL_LIBRARY_DIR}")
-set_target_properties(TTMLIRRuntime PROPERTIES BUILD_WITH_INSTALL_RPATH TRUE)
+set_target_properties(TTMLIRRuntime PROPERTIES 
+  INSTALL_RPATH "$ORIGIN;${TTMETAL_LIBRARY_DIR}"
+  BUILD_WITH_INSTALL_RPATH TRUE
+)
 
 add_dependencies(TTMLIRRuntime FBS_GENERATION RUNTIME_FBS_GENERATION)
 
