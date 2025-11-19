@@ -62,17 +62,17 @@ inline mlir::AffineMap
 generateAffineMapFromShardStrides(mlir::ArrayRef<int64_t> strides,
                                   mlir::MLIRContext *context) {
   int64_t rank = strides.size();
-  mlir::SmallVector<mlir::AffineExpr> mapExprs(rank + 1);
+  mlir::SmallVector<mlir::AffineExpr> mapExprs(2 + 1);
 
-  for (int64_t i = 0; i < rank; i++) {
-    mapExprs[i] = getAffineDimExpr(i, context);
+  for (int64_t i = 0; i < 2; i++) {
+    mapExprs[i] = getAffineDimExpr(i + (rank - 2), context);
   }
 
-  mapExprs[rank] = getAffineConstantExpr(0, context);
+  mapExprs[2] = getAffineConstantExpr(0, context);
   for (int64_t i = rank - 1; i >= 0; i--) {
     mlir::AffineExpr shardDim = getAffineDimExpr(rank + i, context);
     mlir::AffineExpr stride = getAffineConstantExpr(strides[i], context);
-    mapExprs[rank] = shardDim * stride + mapExprs[rank];
+    mapExprs[2] = shardDim * stride + mapExprs[2];
   }
 
   auto map = mlir::AffineMap::get(strides.size() * 2, 0, mapExprs, context);
