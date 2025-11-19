@@ -117,8 +117,7 @@ struct CompoundComponents {
       bool gridChanged =
           (inputInfo.getGridShape() != outputInfo.getGridShape());
 
-      result.isMappingChange =
-          (shapeChanged || indexMapChanged) && !gridChanged;
+      result.isMappingChange = (shapeChanged || indexMapChanged || gridChanged);
     }
 
     return result;
@@ -185,7 +184,9 @@ public:
     // Materialize L1→L1 transformations with a DMA generic that performs the
     // actual data movement according to the view's affine map.
     if (!inputInfo.isDRAM() && !outputInfo.isDRAM()) {
-      const size_t gridRank = outputInfo.getGridShape().size();
+      auto gridShape = outputInfo.getGridShape();
+      auto grid = ttcore::GridAttr::get(rewriter.getContext(), gridShape);
+      const size_t gridRank = gridShape.size();
 
       // Build identity indexing maps for the generic operation. The view's
       // affine map handles all address transformations.
@@ -205,7 +206,7 @@ public:
             builder.create<d2m::DMAWaitOp>(loc, dma);
             builder.create<YieldOp>(loc, outputCB);
           },
-          ThreadType::Datamovement);
+          ThreadType::Datamovement, grid);
     } else {
       // DRAM operations use the view directly without immediate
       // materialization.
@@ -453,6 +454,14 @@ class D2MSplitCompoundLayoutRewriter : public OpRewritePattern<ToLayoutOp> {
 
       // TODO(bgrady-tt): Generalize to N dimensions.
       assert(virtualGridShape.size() == 2);
+
+      // If virtual grid fits within device grid, no bounce needed.
+      if (virtualGridShape[0] <= deviceGridShape[0] &&
+          virtualGridShape[1] <= deviceGridShape[1]) {
+        return llvm::to_vector(virtualGridShape);
+      }
+
+      // Handle case where exactly one dimension exceeds.
       assert(virtualGridShape[0] > deviceGridShape[0] ^
              virtualGridShape[1] > deviceGridShape[1]);
 
@@ -526,7 +535,6 @@ class D2MSplitCompoundLayoutRewriter : public OpRewritePattern<ToLayoutOp> {
         tensorGrid.assign(newTensorGrid->begin(), newTensorGrid->end());
       } else {
         auto currentGrid = llvm::to_vector(baseLayout.getGridShape(baseType));
-        tensorGrid = currentGrid;
         bool hasVirtualGrid = !baseLayout.getIndexAffineMap().isEmpty();
         tensorGrid =
             (hasVirtualGrid && reblockVirtualGridShapes)

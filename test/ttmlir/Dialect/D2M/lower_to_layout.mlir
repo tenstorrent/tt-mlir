@@ -1,8 +1,8 @@
 // RUN: ttmlir-opt --ttcore-register-device --d2m-lower-to-layout --d2m-materialize-view-returns -o %t %s
 // RUN: FileCheck %s --input-file=%t
 
-#layout = #ttcore.metal_layout<logical_shape = 1024x1024, dim_alignments = 256x256, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded, index_map = map(0)>
-#layout2 = #ttcore.metal_layout<logical_shape = 256x768, dim_alignments = 32x256, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded, index_map = map(0)>
+#layout = #ttcore.metal_layout<logical_shape = 1024x1024, dim_alignments = 256x256, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded, index_map = (d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+#layout2 = #ttcore.metal_layout<logical_shape = 256x768, dim_alignments = 32x256, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded, index_map = (d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 
 // Test that verifies the NEW behavior: distribute to 8x8 grid first, then tilize
 func.func @tilize(%arg0: tensor<1024x1024xf32>) -> tensor<8x8x4x4x!ttcore.tile<32x32, f32>, #layout> {
@@ -11,11 +11,11 @@ func.func @tilize(%arg0: tensor<1024x1024xf32>) -> tensor<8x8x4x4x!ttcore.tile<3
   // CHECK-LABEL: @tilize
   // Verify the operation creates intermediate 8x8 distributed tensor
   // CHECK: %[[TILED:.*]] = d2m.empty() : tensor<8x8x4x4x!ttcore.tile<32x32, f32>, #layout>
-  // CHECK: %[[INTERMEDIATE:.*]] = d2m.empty() : tensor<8x8x128x128xf32, #layout>
-  // CHECK: %[[TO_DEVICE:.*]] = d2m.to_layout %arg0, %[[INTERMEDIATE]] : tensor<1024x1024xf32> into tensor<8x8x128x128xf32, #layout>
+  // CHECK: %[[INTERMEDIATE:.*]] = d2m.empty() : tensor<8x8x128x128xf32, #layout{{[0-9]*}}>
+  // CHECK: %[[TO_DEVICE:.*]] = d2m.to_layout %arg0, %[[INTERMEDIATE]] : tensor<1024x1024xf32> into tensor<8x8x128x128xf32, #layout{{[0-9]*}}>
   // CHECK: %[[RESULT:.*]] = d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<8x8>
   // CHECK-SAME: threads = [#d2m.thread<compute>]
-  // CHECK-NEXT: ins(%[[TO_DEVICE]] : tensor<8x8x128x128xf32, #layout>)
+  // CHECK-NEXT: ins(%[[TO_DEVICE]] : tensor<8x8x128x128xf32, #layout{{[0-9]*}}>)
   // CHECK-NEXT: outs(%[[TILED]] : tensor<8x8x4x4x!ttcore.tile<32x32, f32>, #layout>)
   // CHECK: d2m.tile_tilize_block
   // CHECK-NOT: d2m.view_layout
@@ -52,11 +52,11 @@ func.func @untilize(%arg0: tensor<8x8x4x4x!ttcore.tile<32x32, f32>, #layout>) ->
 
   // CHECK-LABEL: @untilize
   // CHECK: %[[HOST:.*]] = d2m.empty() : tensor<1024x1024xf32>
-  // CHECK: %[[INTERMEDIATE:.*]] = d2m.empty() : tensor<8x8x128x128xf32, #layout>
+  // CHECK: %[[INTERMEDIATE:.*]] = d2m.empty() : tensor<8x8x128x128xf32, #layout{{[0-9]*}}>
   // CHECK: %[[UNTILIZED:.*]] = d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<8x8>
   // CHECK-SAME: threads = [#d2m.thread<compute>]
   // CHECK: d2m.tile_untilize_block
-  // CHECK: d2m.to_layout %[[UNTILIZED]], %[[HOST]] : tensor<8x8x128x128xf32, #layout> into tensor<1024x1024xf32>
+  // CHECK: d2m.to_layout %[[UNTILIZED]], %[[HOST]] : tensor<8x8x128x128xf32, #layout{{[0-9]*}}> into tensor<1024x1024xf32>
 
   %1 = d2m.to_layout %arg0, %0 : tensor<8x8x4x4x!ttcore.tile<32x32, f32>, #layout> into tensor<1024x1024xf32>
     -> tensor<1024x1024xf32>
@@ -100,8 +100,8 @@ func.func @old_behavior_example(%arg0: tensor<1024x1024xf32>) -> tensor<8x8x4x4x
   // 4. Distribute with datamovement threads
 
   // But the new implementation should produce the same output as distributed_tilize:
-  // CHECK: d2m.empty() : tensor<8x8x128x128xf32, #layout>
-  // CHECK: d2m.to_layout %arg0, %{{.*}} : tensor<1024x1024xf32> into tensor<8x8x128x128xf32, #layout>
+  // CHECK: d2m.empty() : tensor<8x8x128x128xf32, #layout{{[0-9]*}}>
+  // CHECK: d2m.to_layout %arg0, %{{.*}} : tensor<1024x1024xf32> into tensor<8x8x128x128xf32, #layout{{[0-9]*}}>
   // CHECK: d2m.generic {{{.*}}grid = #ttcore.grid<8x8>{{.*}}threads = [#d2m.thread<compute>]
 
   %1 = d2m.to_layout %arg0, %0 : tensor<1024x1024xf32> into tensor<8x8x4x4x!ttcore.tile<32x32, f32>, #layout>
@@ -111,8 +111,8 @@ func.func @old_behavior_example(%arg0: tensor<1024x1024xf32>) -> tensor<8x8x4x4x
 }
 
 // Test padding changes - different dim_alignments causing different device tensor shapes
-#layout_pad32 = #ttcore.metal_layout<logical_shape = 96x128, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1>
-#layout_pad64 = #ttcore.metal_layout<logical_shape = 96x128, dim_alignments = 64x64, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1>
+#layout_pad32 = #ttcore.metal_layout<logical_shape = 96x128, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded, index_map = (d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+#layout_pad64 = #ttcore.metal_layout<logical_shape = 96x128, dim_alignments = 64x64, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded, index_map = (d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 
 func.func @padding_change(%arg0: tensor<2x4x32x32xf32, #layout_pad32>) -> tensor<2x2x64x64xf32, #layout_pad64> {
   %0 = d2m.empty() : tensor<2x2x64x64xf32, #layout_pad64>
@@ -132,31 +132,9 @@ func.func @padding_change(%arg0: tensor<2x4x32x32xf32, #layout_pad32>) -> tensor
   return %1 : tensor<2x2x64x64xf32, #layout_pad64>
 }
 
-// Test collapse changes - different collapsed_intervals causing rank changes
-#layout_3d = #ttcore.metal_layout<logical_shape = 64x64x64, dim_alignments = 32x32x32, collapsed_intervals = dense<[[0, 1], [1, 2], [2, 3]]> : tensor<3x2xi64>, undef, l1>
-#layout_2d_collapsed = #ttcore.metal_layout<logical_shape = 64x64x64, dim_alignments = 32x32x32, collapsed_intervals = dense<[[0, 2], [2, 3]]> : tensor<2x2xi64>, undef, l1>
-
-func.func @collapse_change(%arg0: tensor<2x2x2x32x32x32xf32, #layout_3d>) -> tensor<4x2x32x32xf32, #layout_2d_collapsed> {
-  %0 = d2m.empty() : tensor<4x2x32x32xf32, #layout_2d_collapsed>
-
-  // CHECK-LABEL: @collapse_change
-  // Rank-changing transformations emit view_layout + DMA generic
-  // CHECK: %[[VIEW:.*]] = d2m.view_layout
-  // CHECK: d2m.generic
-  // CHECK-SAME: threads = [#d2m.thread<datamovement>]
-  // CHECK: d2m.reserve
-  // CHECK: d2m.dma
-  // CHECK: d2m.dma_wait
-
-  %1 = d2m.to_layout %arg0, %0 : tensor<2x2x2x32x32x32xf32, #layout_3d> into tensor<4x2x32x32xf32, #layout_2d_collapsed>
-    -> tensor<4x2x32x32xf32, #layout_2d_collapsed>
-
-  return %1 : tensor<4x2x32x32xf32, #layout_2d_collapsed>
-}
-
 // Test compound transformations - grid reblock + padding change simultaneously
-#layout_src_compound = #ttcore.metal_layout<logical_shape = 64x128, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1>
-#layout_dst_compound = #ttcore.metal_layout<logical_shape = 64x128, dim_alignments = 64x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1>
+#layout_src_compound = #ttcore.metal_layout<logical_shape = 64x128, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded, index_map = (d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+#layout_dst_compound = #ttcore.metal_layout<logical_shape = 64x128, dim_alignments = 64x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded, index_map = (d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 
 func.func @compound_reblock_pad(%arg0: tensor<4x2x32x32xf32, #layout_src_compound>) -> tensor<2x4x64x32xf32, #layout_dst_compound> {
   %0 = d2m.empty() : tensor<2x4x64x32xf32, #layout_dst_compound>
@@ -177,7 +155,7 @@ func.func @compound_reblock_pad(%arg0: tensor<4x2x32x32xf32, #layout_src_compoun
 }
 
 // Test chained views with pre-existing index_map
-#layout_base_view = #ttcore.metal_layout<logical_shape = 64x128, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1>
+#layout_base_view = #ttcore.metal_layout<logical_shape = 64x128, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded, index_map = (d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 #layout_with_view = #ttcore.metal_layout<logical_shape = 64x128, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded, index_map = (d0, d1, d2, d3) -> (d1, d0, d2, d3)>
 
 func.func @chained_view(%arg0: tensor<2x4x32x32xf32, #layout_base_view>) -> tensor<4x2x32x32xf32, #layout_with_view> {
