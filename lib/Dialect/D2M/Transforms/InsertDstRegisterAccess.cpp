@@ -49,6 +49,12 @@ public:
     SmallVector<OpAndIndexOffset<affine::AffineLoadOp>> loads;
     SmallVector<OpAndIndexOffset<affine::AffineStoreOp>> stores;
   };
+
+  struct OperationTypes {
+    bool hasComputeOps = false;
+    bool hasLinalgGeneric = false;
+    bool hasMarkedAffineLoops = false;
+  };
   using CopyInfoMap = DenseMap<Operation *, CopyInfo>;
 
   class DstSliceAllocationState {
@@ -76,7 +82,10 @@ public:
       Region *genericRegion = &op.getRegion(regionIndex);
       Block &block = genericRegion->getBlocks().front();
 
-      if (!op.hasComputeOpsInRegion(regionIndex)) {
+      // Check if this region has any operations that this pass can handle.
+      OperationTypes opTypes = getOperationTypes(op, regionIndex);
+      if (!opTypes.hasComputeOps && !opTypes.hasLinalgGeneric &&
+          !opTypes.hasMarkedAffineLoops) {
         return failure();
       }
 
@@ -85,6 +94,8 @@ public:
           ttcore::getOpChipDescAttr(op).getDstLogicalSizeTiles(
               largestDstType, false, maxDstPhysicalSizeTiles);
 
+      // Process linalg.generic ops that were not converted by LinalgToAffine
+      // (these are tile_matmul ops when useTileMatmul=false).
       bool linalgToAffineFailed = false;
       block.walk([&](linalg::GenericOp linalgGenericOp) {
         if (!useTileMatmul && hasTileMatmul(linalgGenericOp)) {
@@ -99,26 +110,33 @@ public:
           }
         }
 
-        rewriter.setInsertionPoint(linalgGenericOp);
-        // Apply linalg to affine loops pass.
-        auto linalgLoops =
-            linalg::linalgOpToAffineLoops(rewriter, linalgGenericOp);
-        if (failed(linalgLoops)) {
-          linalgToAffineFailed = true;
+        // This should not happen - all other linalg ops should have been
+        // converted by LinalgToAffine pass.
+        linalgToAffineFailed = true;
+      });
+
+      if (linalgToAffineFailed) {
+        return op.emitOpError()
+               << "found linalg.generic operations that were not converted to "
+                  "affine loops. Please run --d2m-linalg-to-affine before "
+                  "the --d2m-insert-dst-register-access pass.";
+      }
+
+      // Process affine loops marked by LinalgToAffine pass.
+      block.walk([&](affine::AffineForOp forOp) {
+        // Only process root loops marked by LinalgToAffine
+        if (!forOp->hasAttr("d2m.linalg_root")) {
           return;
         }
-        assert(!linalgLoops.value().empty());
 
-        rewriter.replaceOp(linalgGenericOp, linalgLoops.value().front());
+        // Remove the marker attribute after identifying the loop.
+        forOp->removeAttr("d2m.linalg_root");
 
-        Operation *rootLoopNest = linalgLoops.value().front();
-        Region &dstRegisterAccessRegion = rootLoopNest->getRegion(0);
+        // Insert DST register access for this loop nest.
+        Region &dstRegisterAccessRegion = forOp.getRegion();
         modified |= insertDstRegisterAccess(
-            rewriter, op, dstRegisterAccessRegion, dstCapacity, rootLoopNest);
+            rewriter, op, dstRegisterAccessRegion, dstCapacity, forOp);
       });
-      if (linalgToAffineFailed) {
-        return failure();
-      }
     }
     return success(modified);
   }
@@ -158,6 +176,26 @@ public:
 
   static bool hasAcquireDstOp(Region &region) {
     return !region.getOps<AcquireDstOp>().empty();
+  }
+
+  static OperationTypes getOperationTypes(GenericOp op, unsigned regionIndex) {
+    OperationTypes types;
+    types.hasComputeOps = op.hasComputeOpsInRegion(regionIndex);
+
+    Region *genericRegion = &op.getRegion(regionIndex);
+    Block &block = genericRegion->getBlocks().front();
+
+    block.walk([&](Operation *op) {
+      if (isa<linalg::GenericOp>(op)) {
+        types.hasLinalgGeneric = true;
+      } else if (auto forOp = dyn_cast<affine::AffineForOp>(op)) {
+        if (forOp->hasAttr("d2m.linalg_root")) {
+          types.hasMarkedAffineLoops = true;
+        }
+      }
+    });
+
+    return types;
   }
 
   static std::pair<MemRefType, int64_t>
@@ -375,6 +413,7 @@ public:
     });
     return hasTileMatmul;
   }
+
   /*
     Expand a linalg.generic op that contains a tile_matmul into a
     tile_matmul_block.
