@@ -65,7 +65,7 @@ jobs:
     with:
       docker-image: ${{ needs.build-image.outputs.docker-image }}
   test:
-    needs: [ pre-commit, prepare-run, build-image, release-build ]
+    needs: [ prepare-run, build-image, release-build ]
     if: needs.prepare-run.outputs.skip_build != 'true'
     uses: ./.github/workflows/call-test.yml
     secrets: inherit
