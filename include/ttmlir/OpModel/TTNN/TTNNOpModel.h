@@ -1101,6 +1101,7 @@ struct OpModel<Conv2dOp> {
       llvm::ArrayRef<int32_t> dilation, uint32_t groups,
       std::optional<Conv2dConfigAttr> conv2dConfig,
       std::optional<DeviceComputeKernelConfigAttr> deviceComputeKernelConfig,
+      std::optional<Conv2dSliceConfigAttr> conv2dSliceConfig,
       TTNNLayoutAttr outputLayout);
 
   static llvm::Expected<size_t> getOpRuntime(
@@ -1114,6 +1115,7 @@ struct OpModel<Conv2dOp> {
       llvm::ArrayRef<int32_t> dilation, uint32_t groups,
       std::optional<Conv2dConfigAttr> conv2dConfig,
       std::optional<DeviceComputeKernelConfigAttr> deviceComputeKernelConfig,
+      std::optional<Conv2dSliceConfigAttr> conv2dSliceConfig,
       TTNNLayoutAttr outputLayout);
 };
 
