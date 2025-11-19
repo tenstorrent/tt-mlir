@@ -41,7 +41,7 @@ module {
           dilation = 1: i32,
           groups = 1: i32
         }> : (tensor<1x32x32x64xbf16>, tensor<64x64x3x3xbf16>, tensor<1x1x1x64xbf16>) -> tensor<1x30x30x64xbf16>
-    %4 = "ttir.multiply"(%1, %arg2, %2) : (tensor<1x30x30x64xbf16>, tensor<1x1x1x64xbf16>, tensor<1x30x30x64xbf16>) -> tensor<1x30x30x64xbf16>
+    %4 = "ttir.multiply"(%1, %arg2) : (tensor<1x30x30x64xbf16>, tensor<1x1x1x64xbf16>) -> tensor<1x30x30x64xbf16>
 
     // CHECK: return %[[CONV]]
     return %4: tensor<1x30x30x64xbf16>
@@ -63,7 +63,7 @@ module {
             }> : (tensor<1x32x32x64xbf16>, tensor<64x64x3x3xbf16>) -> tensor<1x30x30x64xbf16>
     %4 = "ttir.multiply"(%1, %arg2) : (tensor<1x30x30x64xbf16>, tensor<1x1x1x64xbf16>) -> tensor<1x30x30x64xbf16>
     %6 = "ttir.multiply"(%1, %arg2) : (tensor<1x30x30x64xbf16>, tensor<1x1x1x64xbf16>) -> tensor<1x30x30x64xbf16>
-    %8 = "ttir.add"(%6, %arg2) : (tensor<1x30x30x64xbf16>, tensor<1x1x1x64xbf16>) -> tensor<1x30x30x64xbf16>
+    %8 = "ttir.add"(%6, %4) : (tensor<1x30x30x64xbf16>, tensor<1x30x30x64xbf16>) -> tensor<1x30x30x64xbf16>
     return %8: tensor<1x30x30x64xbf16>
   }
 

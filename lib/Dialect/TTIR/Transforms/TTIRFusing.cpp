@@ -485,8 +485,8 @@ public:
     }
 
     // Replace with ReLU6
-    rewriter.create<Relu6Op>(
-        minimumOp.getLoc(), minimumOp.getResult().getType(), reluOp.getInput());
+    rewriter.replaceOpWithNewOp<Relu6Op>(
+        minimumOp, minimumOp.getResult().getType(), reluOp.getInput());
     return mlir::success();
   }
 };
