@@ -2434,7 +2434,7 @@ private:
     populateMatmulOps(reshapeOp, matmulOps);
     if (!matmulOps.empty() && validateMatmulOrLinearOps(reshapeOp, matmulOps)) {
       populatePermuteOps(matmulOps, permuteOps);
-      if (validatePermuteOps(reshapeOp, permuteOps)) {
+      if (validatePermuteOps(reshapeOp, matmulOps, permuteOps)) {
         if (isMHA(matmulOps, permuteOps)) {
           return AttentionType::MHA;
         }
@@ -2639,7 +2639,133 @@ private:
             keyShape[K_SEQUENCE_LENGTH] == queryShape[O_SEQUENCE_LENGTH]);
   }
 
+  std::optional<std::array<size_t, 3>>
+  returnQKVIndices(llvm::SmallVector<MatMulOpType> &matrixOps,
+                   llvm::SmallVector<PermuteOp> &permuteOps) const {
+    // Return indices of Q, K, V in permuteOps.
+    // If not found, return std::nullopt.
+    if (permuteOps.size() != 3) {
+      return std::nullopt;
+    }
+
+    size_t queryIndex = 0;
+    size_t keyIndex = 1;
+    size_t valueIndex = 2;
+
+    bool foundQuery = false;
+    bool foundKey = false;
+
+    // Query has the greatest number of heads in GQA, same for MHA.
+    int32_t maxHeads = -1;
+    for (size_t i = 0; i < 3; ++i) {
+      // Each of Q, K, V heads must be 4D.
+      if (permuteOps[i].getType().getShape().size() != 4) {
+        return std::nullopt;
+      }
+      int32_t numHeads = permuteOps[i].getType().getShape()[O_NUM_HEADS];
+      if (numHeads > maxHeads) {
+        maxHeads = numHeads;
+        queryIndex = i;
+        foundQuery = true;
+      }
+    }
+
+    for (size_t i = 0; i < 3; ++i) {
+      // If permutation attribute is equal to expectedTransposedPermute, that is
+      // Key. Key can still have expectedPermute.
+      llvm::ArrayRef<int64_t> permutation = permuteOps[i].getPermutation();
+      if (llvm::equal(permutation, expectedTransposedPermute)) {
+        keyIndex = i;
+        foundKey = true;
+      }
+    }
+
+    // Query and Key indices could or could not be found. We should still be
+    // able to order.
+    if (foundQuery && foundKey && queryIndex == keyIndex) {
+      return std::nullopt;
+    }
+
+    if (foundQuery && foundKey) {
+      // Both Query and Key indices found.
+      // Assign remaining index to Value.
+      for (size_t i = 0; i < 3; ++i) {
+        if (i != keyIndex && i != queryIndex) {
+          valueIndex = i;
+          break;
+        }
+      }
+    } else if (foundQuery && !foundKey) {
+      // Query Index found, Key index not found.
+      // Assign remaining indices to Key and Value, respectively.
+      bool assignedKey = false;
+      for (size_t i = 0; i < 3; ++i) {
+        if (i != queryIndex) {
+          if (!assignedKey) {
+            keyIndex = i;
+            assignedKey = true;
+          } else {
+            valueIndex = i;
+          }
+        }
+      }
+    } else if (foundKey && !foundQuery) {
+      // Key Index found, Query index not found.
+      // Assign remaining indices to Query and Value, respectively.
+      bool assignedQuery = false;
+      for (size_t i = 0; i < 3; ++i) {
+        if (i != keyIndex) {
+          if (!assignedQuery) {
+            queryIndex = i;
+            assignedQuery = true;
+          } else {
+            valueIndex = i;
+          }
+        }
+      }
+    }
+    // else: neither found, use defaults 0, 1, 2
+
+    // Check that key and value B shape are equal.
+    auto keyBShape = matrixOps[keyIndex].getB().getType().getShape();
+    auto valueBShape = matrixOps[valueIndex].getB().getType().getShape();
+    if (keyBShape != valueBShape) {
+      return std::nullopt;
+    }
+
+    // If matrix op is linear, check that key and value bias are equal shape.
+    if constexpr (std::is_same_v<LinearOp, MatMulOpType>) {
+      auto keyBias = matrixOps[keyIndex].getBias();
+      auto valueBias = matrixOps[valueIndex].getBias();
+      auto keyBiasShape = keyBias.getType().getShape();
+      auto valueBiasShape = valueBias.getType().getShape();
+      if (keyBiasShape != valueBiasShape) {
+        return std::nullopt;
+      }
+    }
+
+    return std::array<size_t, 3>{queryIndex, keyIndex, valueIndex};
+  }
+
+  void reorderToQKV(llvm::SmallVector<MatMulOpType> &matmulOps,
+                    llvm::SmallVector<PermuteOp> &permuteOps,
+                    const std::array<size_t, 3> &indices) const {
+
+    auto [qIdx, kIdx, vIdx] = indices;
+
+    // Create reordered copies
+    llvm::SmallVector<MatMulOpType> orderedMatmuls = {
+        matmulOps[qIdx], matmulOps[kIdx], matmulOps[vIdx]};
+    llvm::SmallVector<PermuteOp> orderedPermutes = {
+        permuteOps[qIdx], permuteOps[kIdx], permuteOps[vIdx]};
+
+    // Replace original vectors
+    matmulOps = std::move(orderedMatmuls);
+    permuteOps = std::move(orderedPermutes);
+  }
+
   bool validatePermuteOps(ReshapeOp reshapeOp,
+                          llvm::SmallVector<MatMulOpType> &matrixOps,
                           llvm::SmallVector<PermuteOp> &permuteOps) const {
 
     // Output of permute ops are the query, key, value heads respectively.
@@ -2652,23 +2778,18 @@ private:
     // Expected permutation for key is either [0, 2, 1, 3] or [0, 2, 3, 1]
     // (transposed).
 
-    // Size must be 3 for Q, K, V.
-    if (permuteOps.size() != 3) {
+    auto indices = returnQKVIndices(matrixOps, permuteOps);
+    if (!indices) {
       return false;
     }
+    auto [qIdx, kIdx, vIdx] = *indices;
 
-    TypedValue<RankedTensorType> queryTensor = permuteOps[0].getResult();
-    TypedValue<RankedTensorType> keyTensor = permuteOps[1].getResult();
-    TypedValue<RankedTensorType> valueTensor = permuteOps[2].getResult();
+    TypedValue<RankedTensorType> queryTensor = permuteOps[qIdx].getResult();
+    TypedValue<RankedTensorType> keyTensor = permuteOps[kIdx].getResult();
+    TypedValue<RankedTensorType> valueTensor = permuteOps[vIdx].getResult();
     ArrayRef<int64_t> queryShape = queryTensor.getType().getShape();
     ArrayRef<int64_t> keyShape = keyTensor.getType().getShape();
     ArrayRef<int64_t> valueShape = valueTensor.getType().getShape();
-
-    // Each of Q, K, V heads must be 4D.
-    if (queryShape.size() != 4 || keyShape.size() != 4 ||
-        valueShape.size() != 4) {
-      return false;
-    }
 
     if (queryShape[O_BATCH_SIZE] != keyShape[O_BATCH_SIZE] ||
         queryShape[O_BATCH_SIZE] != valueShape[O_BATCH_SIZE]) {
@@ -2724,7 +2845,8 @@ private:
         return false;
       }
     }
-
+    // Order matrixOps and permuteOps to Q, K, V.
+    reorderToQKV(matrixOps, permuteOps, *indices);
     return true;
   }
 
