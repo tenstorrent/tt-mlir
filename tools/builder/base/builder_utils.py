@@ -265,7 +265,7 @@ def _save_golden_report(builder, golden_report, report_path):
 
         report[loc] = {
             "op_name": op_name,
-            "devices": device_results,
+            **device_results[0],
         }
 
     with open(report_path, "w") as f:
