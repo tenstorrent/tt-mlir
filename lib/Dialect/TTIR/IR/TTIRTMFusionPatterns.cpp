@@ -89,30 +89,31 @@ public:
     auto originalAxes = originalPermuteOp.getPermutation();
     llvm::SmallVector<llvm::SmallVector<int64_t>> finalAxes;
     const int n = reshapeInputShape.size();
-    int i = 0;
-    int j = 0;
-    while (i < n && j < n) {
-      if (reshapeInputShape[i] == reshapeOutputShape[j]) {
-        finalAxes.push_back({originalAxes[i]});
-        i++;
-        j++;
-      } else if (reshapeOutputShape[j] == 1) {
+    int inputIndex = 0;
+    for (int outputIndex = 0; outputIndex < n; ++outputIndex) {
+      if (reshapeInputShape[inputIndex] == reshapeOutputShape[outputIndex]) {
+        assert(inputIndex < n);
+        finalAxes.push_back({originalAxes[inputIndex]});
+        ++inputIndex;
+      } else if (reshapeOutputShape[outputIndex] == 1) {
         finalAxes.push_back({});
-        j++;
       } else {
         finalAxes.push_back({});
         int consumed = 1;
-        while (i < n && reshapeOutputShape[j] % reshapeInputShape[i] == 0) {
-          finalAxes.back().push_back(originalAxes[i]);
-          consumed *= reshapeInputShape[i];
-          i++;
+        while (inputIndex < n && reshapeOutputShape[outputIndex] %
+                                         reshapeInputShape[inputIndex] ==
+                                     0) {
+          finalAxes.back().push_back(originalAxes[inputIndex]);
+          consumed *= reshapeInputShape[inputIndex];
+          ++inputIndex;
         }
 
-        if (consumed != reshapeOutputShape[j]) {
+        if (consumed != reshapeOutputShape[outputIndex]) {
           return failure();
         }
       }
     }
+    assert(inputIndex == n);
 
     auto realFinalAxes = ttmlir::utils::applyPermutation(
         llvm::ArrayRef(finalAxes), finalPermuteOp.getPermutation());
