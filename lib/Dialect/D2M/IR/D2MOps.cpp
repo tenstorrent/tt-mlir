@@ -597,6 +597,9 @@ mlir::LogicalResult d2m::StreamLayoutOp::bufferize(
 mlir::bufferization::AliasingValueList d2m::StreamLayoutOp::getAliasingValues(
     mlir::OpOperand &, const mlir::bufferization::AnalysisState &) {
   bufferization::AliasingValueList result;
+  // The stream result aliases both input and storage operands since it
+  // provides a view over them.
+  result.addAlias({getResult(), bufferization::BufferRelation::Equivalent});
   return result;
 }
 
@@ -771,6 +774,8 @@ mlir::LogicalResult d2m::ViewLayoutOp::bufferize(
 mlir::bufferization::AliasingValueList d2m::ViewLayoutOp::getAliasingValues(
     mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
   bufferization::AliasingValueList result;
+  // The view result aliases the input operand since it provides a view over it.
+  result.addAlias({getResult(), bufferization::BufferRelation::Equivalent});
   return result;
 }
 

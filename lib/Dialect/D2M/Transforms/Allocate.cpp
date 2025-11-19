@@ -331,6 +331,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
 
     FuncAnalysisData analysis;
 
+    // PHASE 1: Allocation and stream insertion (no deallocs).
     if (failed(analyzeLiveness(funcOp, analysis))) {
       return failure();
     }
@@ -352,6 +353,23 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     }
 
     if (failed(insertOperandStreams(funcOp, analysis))) {
+      return failure();
+    }
+
+    // PHASE 2: Re-analyze liveness with all streams inserted, then add
+    // deallocs. Clear both memref and sequencing data since analyzeLiveness
+    // rebuilds them from scratch. A better long-term solution would be to
+    // use the bufferization aliasing interface to track buffer lifetimes
+    // and rely on the standard buffer deallocation pass.
+    analysis.memrefs.clear();
+    analysis.sequencing.positionMap.clear();
+    analysis.sequencing.operationMap.clear();
+
+    if (failed(analyzeLiveness(funcOp, analysis))) {
+      return failure();
+    }
+
+    if (failed(insertDeallocations(funcOp, analysis))) {
       return failure();
     }
 
@@ -1058,15 +1076,11 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
             // repeatedly.
             continue;
           }
-          llvm::TypeSwitch<Operation *, void>(opOnChain)
-              .Case([&](memref::AllocOp op) {
-                remap(rewriter, op, remappedMemSpace);
-                insertDealloc(rewriter, op, memrefCtx.live.last,
-                              analysis.sequencing);
-              })
-              .Case([&](d2m::ViewLayoutOp op) {
-                remap(rewriter, op, remappedMemSpace);
-              });
+          // Remap the operation to the new memory space.
+          // NOTE: Dealloc insertion is done after liveness re-analysis.
+          llvm::TypeSwitch<Operation *>(opOnChain)
+              .Case<memref::AllocOp, d2m::ViewLayoutOp>(
+                  [&](auto op) { remap(rewriter, op, remappedMemSpace); });
         }
 
         auto &operand = *operandCtx.operand;
@@ -1150,7 +1164,9 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
         rewriter.create<memref::AllocOp>(op.getLoc(), bufferType);
 
     assignAddressAndAlignment(rewriter, bufferAllocOp, req.offset, info);
-    insertDealloc(rewriter, bufferAllocOp, req.last, sequencing);
+    // NOTE: Dealloc insertion deferred to second phase after liveness
+    // re-analysis. insertDealloc(rewriter, bufferAllocOp, req.last,
+    // sequencing);
 
     const auto oldOperandType = mlir::cast<MemRefType>(operand.get().getType());
     const AffineMap reblockingMap = utils::calculateReblockMap(
@@ -1204,6 +1220,36 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
                                            allocOp.getResult());
       }
     }
+  }
+
+  /// Insert dealloc operations for all allocated buffers based on the
+  /// (refreshed) liveness analysis. This runs as a second phase after
+  /// all streams have been inserted.
+  LogicalResult insertDeallocations(func::FuncOp funcOp,
+                                    FuncAnalysisData &analysis) {
+    [[maybe_unused]] AsOperandPrinter asOperand{funcOp};
+    IRRewriter rewriter(funcOp->getContext());
+
+    // Walk through all memref.alloc operations and insert corresponding
+    // deallocs.
+    for (auto &[memref, memrefCtx] : analysis.memrefs) {
+      if (!isDeviceMemorySpace(memrefCtx.type, MemorySpace::System)) {
+        continue;
+      }
+
+      memref::AllocOp allocOp = memref.getDefiningOp<memref::AllocOp>();
+      if (!allocOp) {
+        continue;
+      }
+
+      // Insert dealloc based on the refreshed liveness analysis.
+      TT_ALLOC_TRACE("inserting dealloc for {} at position {}",
+                     asOperand(memref), memrefCtx.live.last);
+      insertDealloc(rewriter, allocOp, memrefCtx.live.last,
+                    analysis.sequencing);
+    }
+
+    return success();
   }
 
   /// @return `map` with all broadcast result expressions replaced with const-1
