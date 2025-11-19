@@ -23,15 +23,6 @@ using IDevice = ::tt::tt_metal::IDevice;
 #include "ttnn/operations/pool/generic/generic_pools.hpp"
 #include "ttnn/operations/pool/global_avg_pool/global_avg_pool.hpp"
 
-// Add missing extract_output_tensor overload for MaxPoolWithIndicesResult
-// This should be in the metal repo but is missing from commit 5965834630
-namespace ttnn::graph::detail {
-inline Tensor
-extract_output_tensor(const std::tuple<Tensor, Tensor, Tensor> &result) {
-  return std::get<0>(result);
-}
-} // namespace ttnn::graph::detail
-
 #include "ttnn/graph/graph_query_op_constraints.hpp"
 #include "ttnn/graph/graph_query_op_runtime.hpp"
 #include "ttnn/graph/graph_trace_utils.hpp"
