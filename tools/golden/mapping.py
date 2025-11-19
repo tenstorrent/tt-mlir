@@ -2952,6 +2952,10 @@ def ttir_add_golden(lhs: GoldenMapTensor, rhs: GoldenMapTensor) -> GoldenMapTens
     return torch.add(lhs, rhs)
 
 
+def ttir_div_golden(lhs: GoldenMapTensor, rhs: GoldenMapTensor) -> GoldenMapTensor:
+    return torch.div(lhs, rhs).to(lhs.dtype)
+
+
 def ttir_sum_golden(
     input_tensor: GoldenMapTensor, dim_arg_attr: ArrayAttr, keep_dim_attr: BoolAttr
 ) -> GoldenMapTensor:
@@ -3457,7 +3461,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.Atan2Op: torch.atan2,
     ttir.MultiplyOp: ttir_multiply_golden,
     ttir.SubtractOp: torch.subtract,
-    ttir.DivOp: torch.div,
+    ttir.DivOp: ttir_div_golden,
     ttir.MaximumOp: ttir_maximum_golden,
     ttir.MinimumOp: torch.minimum,
     ttir.RemainderOp: torch.remainder,
