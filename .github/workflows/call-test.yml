@@ -178,8 +178,17 @@ jobs:
         
         # Check clocksource and TSC for Tracy timestamp accuracy
         echo "Checking clocksource and TSC stability..."
-        cat /sys/devices/system/clocksource/clocksource0/current_clocksource 2>/dev/null || echo "No clocksource info available"
-        dmesg 2>/dev/null | grep -i tsc || echo "No TSC info in dmesg (may need root)"
+        echo "  Current clocksource: $(cat /sys/devices/system/clocksource/clocksource0/current_clocksource 2>/dev/null || echo 'unknown')"
+        echo "  Available clocksources: $(cat /sys/devices/system/clocksource/clocksource0/available_clocksource 2>/dev/null || echo 'unknown')"
+        echo "  Virtualization: $(systemd-detect-virt 2>/dev/null || echo 'unknown')"
+        dmesg 2>/dev/null | grep -i tsc | head -5 || echo "  No TSC info in dmesg (may need root)"
+        echo ""
+        echo "ROOT CAUSE ANALYSIS:"
+        echo "  - TRACY_TIMER_FALLBACK is now enabled for both tt-mlir and tt-metal"
+        echo "  - This ensures consistent timestamp sources across components"
+        echo "  - In virtualized environments (kvm-clock), TSC may not be available/reliable"
+        echo "  - Mismatched timer sources between tt-mlir and tt-metal caused timestamp drift"
+        echo "  - This led to out-of-order messages in tracy_ops_data.csv"
         
         # Check Tracy library locations
         echo "Checking Tracy library locations..."
