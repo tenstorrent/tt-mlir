@@ -1214,8 +1214,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
 
     assignAddressAndAlignment(rewriter, bufferAllocOp, req.offset, info);
     // NOTE: Dealloc insertion deferred to second phase after liveness
-    // re-analysis. insertDealloc(rewriter, bufferAllocOp, req.last,
-    // sequencing);
+    // re-analysis.
 
     const auto oldOperandType = mlir::cast<MemRefType>(operand.get().getType());
     const AffineMap reblockingMap = utils::calculateReblockMap(
@@ -1332,16 +1331,16 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
   static AffineMap canonicalizeBroadcasts(AffineMap map) {
     auto *ctx = map.getContext();
 
-    // This could almost be a simple AffineMap::replace() but need to make
-    // sure only complete `0`-result expressions are replaced, not other
-    // possible zero const terms within result expression trees, however
-    // unlikely that seems.
+    // This could almost be a simple AffineMap::replace() but need to make sure
+    // only complete `0`-result expressions are replaced, not other possible
+    // zero const terms within result expression trees, however unlikely that
+    // seems.
 
     const auto replacement = mlir::getAffineConstantExpr(1, ctx);
     SmallVector<AffineExpr> exprs;
 
     for (auto expr : map.getResults()) {
-      if (auto constExpr = llvm::dyn_cast<AffineConstantExpr>(expr)) {
+      if (auto constExpr = dyn_cast<AffineConstantExpr>(expr)) {
         if (constExpr.getValue() == 0) {
           exprs.push_back(replacement);
           continue;
@@ -1603,20 +1602,26 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     rewriter.modifyOpInPlace(op, [&]() { memref.setType(newType); });
   }
 
-  // Recursive helper for `analyzeAllocOps(func::FuncOp funcOp...)`.
-  // Note: the overall traversal cost can be reduced by memoizing
-  // final maxLast values and/or visiting Values in a reverse topological
-  // sort order. This is not done at the moment.
-  static SequenceT resolve(Operation *op, const LivenessClosureGraph &graph) {
+  // Internal recursive helper with cycle detection for resolve().
+  static SequenceT resolveImpl(Operation *op, const LivenessClosureGraph &graph,
+                               llvm::SmallPtrSet<Operation *, 8> &visited) {
+    // Cycle detection: if we're already visiting this op in the current
+    // traversal path, return its base liveness to break the cycle.
+    if (!visited.insert(op).second) {
+      auto opClosure = graph.find(op);
+      TT_assert(opClosure != graph.end());
+      return opClosure->second.live.last;
+    }
 
     auto opClosure = graph.find(op);
     TT_assert(opClosure != graph.end());
     SequenceT last = opClosure->second.live.last;
 
+    // Follow forward edges: extend liveness through view/stream users.
     for (Operation *user : op->getResult(0).getUsers()) {
       if (graph.contains(user)) {
         if (llvm::isa<d2m::ViewLayoutOp, d2m::StreamLayoutOp>(user)) {
-          last = std::max(last, resolve(user, graph));
+          last = std::max(last, resolveImpl(user, graph, visited));
         }
       }
     }
@@ -1628,12 +1633,22 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
       Value storage = streamOp.getStorage();
       if (Operation *storageDefOp = storage.getDefiningOp()) {
         if (graph.contains(storageDefOp)) {
-          last = std::max(last, resolve(storageDefOp, graph));
+          last = std::max(last, resolveImpl(storageDefOp, graph, visited));
         }
       }
     }
 
+    visited.erase(op);
     return last;
+  }
+
+  // Recursive helper for `analyzeAllocOps(func::FuncOp funcOp...)`.
+  // Note: the overall traversal cost can be reduced by memoizing
+  // final maxLast values and/or visiting Values in a reverse topological
+  // sort order. This is not done at the moment.
+  static SequenceT resolve(Operation *op, const LivenessClosureGraph &graph) {
+    llvm::SmallPtrSet<Operation *, 8> visited;
+    return resolveImpl(op, graph, visited);
   }
 
   static MemorySpaces getMemorySpaces(ttcore::ChipDescAttr chipDesc,
