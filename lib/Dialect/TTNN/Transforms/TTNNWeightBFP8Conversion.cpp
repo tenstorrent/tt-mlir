@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
+#include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
 
@@ -116,6 +117,12 @@ public:
                   mlir::PatternRewriter &rewriter) const override {
     // Get the weight operand (B operand)
     mlir::Value weight = matmulOp.getB();
+
+    // Check if weight traces to constant/parameter arguments
+    if (!ttcore::valueTracesToConstantArgs(weight)) {
+      return failure();
+    }
+
     auto weightType = mlir::dyn_cast<mlir::RankedTensorType>(weight.getType());
     if (!weightType) {
       return failure();
@@ -186,6 +193,12 @@ public:
                   mlir::PatternRewriter &rewriter) const override {
     // Get the weight operand (B operand)
     mlir::Value weight = linearOp.getB();
+
+    // Check if weight traces to constant/parameter arguments
+    if (!ttcore::valueTracesToConstantArgs(weight)) {
+      return failure();
+    }
+
     auto weightType = mlir::dyn_cast<mlir::RankedTensorType>(weight.getType());
     if (!weightType) {
       return failure();
