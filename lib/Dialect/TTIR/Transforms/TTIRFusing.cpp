@@ -2168,8 +2168,15 @@ public:
     // ensures all preprocessing for query, key, and value happens before the
     // fused op, and any uses of their results remain correctly ordered after
     // the fused op.
+
+    PermuteOp firstPermuteOp = permuteOps[0];
+    for (size_t i = 1; i < permuteOps.size(); ++i) {
+      if (permuteOps[i]->isBeforeInBlock(firstPermuteOp)) {
+        firstPermuteOp = permuteOps[i];
+      }
+    }
     hoistPreprocessingOps(permuteOps);
-    rewriter.setInsertionPointAfter(permuteOps.front());
+    rewriter.setInsertionPointAfter(firstPermuteOp);
 
     if (attentionType == AttentionType::MHA) {
       return fuseMHA(rewriter, reshapeOp, matmulOps, permuteOps);
@@ -2547,23 +2554,28 @@ private:
   }
 
   void hoistPreprocessingOps(llvm::SmallVector<PermuteOp> permuteOps) const {
-    PermuteOp queryPermuteOp = permuteOps[0];
-
-    // Collect all values that need to be hoisted (from Key and Value operands).
-    llvm::SetVector<mlir::Value> allValues;
-
-    // Collect use-def chains for Key PermuteOp operands.
-    for (Value operand : permuteOps[1]->getOperands()) {
-      llvm::SetVector<mlir::Value> udChain =
-          ttmlir::utils::getUseDefChain(operand);
-      allValues.insert(udChain.begin(), udChain.end());
+    // Find the topologically first PermuteOp
+    PermuteOp firstPermuteOp = permuteOps[0];
+    for (size_t i = 1; i < permuteOps.size(); ++i) {
+      if (permuteOps[i]->isBeforeInBlock(firstPermuteOp)) {
+        firstPermuteOp = permuteOps[i];
+      }
     }
 
-    // Collect use-def chains for Value PermuteOp operands.
-    for (Value operand : permuteOps[2]->getOperands()) {
-      llvm::SetVector<mlir::Value> udChain =
-          ttmlir::utils::getUseDefChain(operand);
-      allValues.insert(udChain.begin(), udChain.end());
+    // Collect all values that need to be hoisted (from all non-first operands).
+    llvm::SetVector<mlir::Value> allValues;
+
+    // Collect use-def chains for all PermuteOps except the first one
+    for (size_t i = 0; i < permuteOps.size(); ++i) {
+      if (permuteOps[i] == firstPermuteOp) {
+        continue; // Skip the topologically first one
+      }
+
+      for (Value operand : permuteOps[i]->getOperands()) {
+        llvm::SetVector<mlir::Value> udChain =
+            ttmlir::utils::getUseDefChain(operand);
+        allValues.insert(udChain.begin(), udChain.end());
+      }
     }
 
     // Filter to get operations.
@@ -2573,13 +2585,12 @@ private:
     // Topologically sort to maintain dependencies.
     llvm::SetVector<mlir::Operation *> sortedOps = topologicalSort(opsToMove);
 
-    // Move only operations that appear after queryPermuteOp.
-
+    // Move only operations that appear after firstPermuteOp.
     for (mlir::Operation *op : sortedOps) {
-      TT_assertv(op->getBlock() == queryPermuteOp->getBlock(),
+      TT_assertv(op->getBlock() == firstPermuteOp->getBlock(),
                  "Expected all ops to be in the same block.");
-      if (!op->isBeforeInBlock(queryPermuteOp)) {
-        op->moveBefore(queryPermuteOp);
+      if (!op->isBeforeInBlock(firstPermuteOp)) {
+        op->moveBefore(firstPermuteOp);
       }
     }
   }
