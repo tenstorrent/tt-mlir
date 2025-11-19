@@ -187,11 +187,21 @@ public:
     SmallVector<NamedAttribute> namedAttrs;
     namedAttrs.push_back(
         rewriter.getNamedAttr("normalized_shape", normalizedShapeDenseAttr));
-    namedAttrs.push_back(rewriter.getNamedAttr("epsilon", epsilonAttr));
+    if (epsilonAttr) {
+      namedAttrs.push_back(rewriter.getNamedAttr("epsilon", epsilonAttr));
+    }
 
-    // ttir.rms_norm has AttrSizedOperandSegments: [input, weight?, bias?, output]
-    // Set operandSegmentSizes: [1, 0, 0, 1] for input + output only
-    SmallVector<int32_t> segmentSizes = {1, 0, 0, 1};
+    // ttir.rms_norm has AttrSizedOperandSegments: [input, weight, bias, output]
+    size_t numOperands = adaptor.getOperands().size();
+    SmallVector<int32_t> segmentSizes;
+    if (numOperands == 3) { // input, weight, output
+      segmentSizes = {1, 1, 1, 1};
+    } else if (numOperands == 2) { // weight only
+      segmentSizes = {1, 1, 0, 1};
+    } else { // input only
+      segmentSizes = {1, 0, 0, 1};
+    }
+    
     namedAttrs.push_back(rewriter.getNamedAttr(
         "operandSegmentSizes",
         rewriter.getDenseI32ArrayAttr(segmentSizes)));
