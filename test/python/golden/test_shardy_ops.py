@@ -38,7 +38,7 @@ def sharding_constraint(
     )
 
     builder.sharding_constraint(in0, tensor_sharding_attr=tensor_sharding_attr)
-    return builder.add(in0, in1, unit_attrs=unit_attrs)
+    return builder.add(in0, in1)
 
 
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
@@ -93,7 +93,7 @@ def test_op_sharding_annotation(
     ):
         builder.set_graph_level_check(True)
         sharding_attr = builder.create_sharding_attr_from_tuples("mesh", sharding)
-        return builder.add(in0, in1, unit_attrs=unit_attrs, sharding_attr=sharding_attr)
+        return builder.add(in0, in1, sharding_attr=sharding_attr)
 
     compile_and_execute_shlo(
         op_sharding_annotation,
@@ -139,7 +139,7 @@ def test_input_annotation(
             ],
         )
         builder.arg_attrs[in0] = {"sdy.sharding": tensor_sharding_attr}
-        return builder.add(in0, in1, unit_attrs=unit_attrs)
+        return builder.add(in0, in1)
 
     compile_and_execute_shlo(
         input_annotation,

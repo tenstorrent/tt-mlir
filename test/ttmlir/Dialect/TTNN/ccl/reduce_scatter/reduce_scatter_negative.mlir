@@ -5,8 +5,7 @@
 #ttnn_layout1 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<128x512x!ttcore.tile<32x32, f32>, #dram>, <interleaved>>
 module @reduce_scatter_negative_invalid_reduce_type_mean attributes {mhlo.num_partitions = 8 : i32, mhlo.num_replicas = 1 : i32} {
   func.func public @main(%arg0: tensor<4096x16384xf32, #ttnn_layout1>) -> (tensor<4096x16384xf32, #ttnn_layout1> {}) {
-    %0 = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
-    %1 = "ttnn.reduce_scatter"(%arg0, %0) <{cluster_axis = 1 : ui32, reduce_type = #ttcore.reduce_type<mean>, num_links = 1 : ui32, scatter_dim = 1 : si32}> : (tensor<4096x16384xf32, #ttnn_layout1>, !ttnn.device) -> tensor<4096x16384xf32, #ttnn_layout1>
+    %1 = "ttnn.reduce_scatter"(%arg0) <{cluster_axis = 1 : ui32, reduce_type = #ttcore.reduce_type<mean>, num_links = 1 : ui32, scatter_dim = 1 : si32}> : (tensor<4096x16384xf32, #ttnn_layout1>) -> tensor<4096x16384xf32, #ttnn_layout1>
     return %1 : tensor<4096x16384xf32, #ttnn_layout1>
   }
 }
@@ -18,8 +17,7 @@ module @reduce_scatter_negative_invalid_reduce_type_mean attributes {mhlo.num_pa
 #ttnn_layout1 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<128x512x!ttcore.tile<32x32, f32>, #dram>, <interleaved>>
 module @reduce_scatter_negative_invalid_reduce_type_std attributes {mhlo.num_partitions = 8 : i32, mhlo.num_replicas = 1 : i32} {
   func.func public @main(%arg0: tensor<4096x16384xf32, #ttnn_layout1>) -> (tensor<4096x16384xf32, #ttnn_layout1> {}) {
-    %0 = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
-    %1 = "ttnn.reduce_scatter"(%arg0, %0) <{cluster_axis = 1 : ui32, reduce_type = #ttcore.reduce_type<std>, num_links = 1 : ui32, scatter_dim = 1 : si32}> : (tensor<4096x16384xf32, #ttnn_layout1>, !ttnn.device) -> tensor<4096x16384xf32, #ttnn_layout1>
+    %1 = "ttnn.reduce_scatter"(%arg0) <{cluster_axis = 1 : ui32, reduce_type = #ttcore.reduce_type<std>, num_links = 1 : ui32, scatter_dim = 1 : si32}> : (tensor<4096x16384xf32, #ttnn_layout1>) -> tensor<4096x16384xf32, #ttnn_layout1>
     return %1 : tensor<4096x16384xf32, #ttnn_layout1>
   }
 }
@@ -31,8 +29,31 @@ module @reduce_scatter_negative_invalid_reduce_type_std attributes {mhlo.num_par
 #ttnn_layout1 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<128x512x!ttcore.tile<32x32, f32>, #dram>, <interleaved>>
 module @reduce_scatter_negative_invalid_reduce_type_var attributes {mhlo.num_partitions = 8 : i32, mhlo.num_replicas = 1 : i32} {
   func.func public @main(%arg0: tensor<4096x16384xf32, #ttnn_layout1>) -> (tensor<4096x16384xf32, #ttnn_layout1> {}) {
-    %0 = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
-    %1 = "ttnn.reduce_scatter"(%arg0, %0) <{cluster_axis = 1 : ui32, reduce_type = #ttcore.reduce_type<var>, num_links = 1 : ui32, scatter_dim = 1 : si32}> : (tensor<4096x16384xf32, #ttnn_layout1>, !ttnn.device) -> tensor<4096x16384xf32, #ttnn_layout1>
+    %1 = "ttnn.reduce_scatter"(%arg0) <{cluster_axis = 1 : ui32, reduce_type = #ttcore.reduce_type<var>, num_links = 1 : ui32, scatter_dim = 1 : si32}> : (tensor<4096x16384xf32, #ttnn_layout1>) -> tensor<4096x16384xf32, #ttnn_layout1>
+    return %1 : tensor<4096x16384xf32, #ttnn_layout1>
+  }
+}
+// CHECK: error: 'ttnn.reduce_scatter' op Invalid reduction op for reduce scatter op
+
+// -----
+
+#dram = #ttnn.buffer_type<dram>
+#ttnn_layout1 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<128x512x!ttcore.tile<32x32, f32>, #dram>, <interleaved>>
+module @reduce_scatter_negative_invalid_reduce_type_var attributes {mhlo.num_partitions = 8 : i32, mhlo.num_replicas = 1 : i32} {
+  func.func public @main(%arg0: tensor<4096x16384xf32, #ttnn_layout1>) -> (tensor<4096x16384xf32, #ttnn_layout1> {}) {
+    %1 = "ttnn.reduce_scatter"(%arg0) <{cluster_axis = 1 : ui32, reduce_type = #ttcore.reduce_type<max>, num_links = 1 : ui32, scatter_dim = 1 : si32}> : (tensor<4096x16384xf32, #ttnn_layout1>) -> tensor<4096x16384xf32, #ttnn_layout1>
+    return %1 : tensor<4096x16384xf32, #ttnn_layout1>
+  }
+}
+// CHECK: error: 'ttnn.reduce_scatter' op Invalid reduction op for reduce scatter op
+
+// -----
+
+#dram = #ttnn.buffer_type<dram>
+#ttnn_layout1 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<128x512x!ttcore.tile<32x32, f32>, #dram>, <interleaved>>
+module @reduce_scatter_negative_invalid_reduce_type_var attributes {mhlo.num_partitions = 8 : i32, mhlo.num_replicas = 1 : i32} {
+  func.func public @main(%arg0: tensor<4096x16384xf32, #ttnn_layout1>) -> (tensor<4096x16384xf32, #ttnn_layout1> {}) {
+    %1 = "ttnn.reduce_scatter"(%arg0) <{cluster_axis = 1 : ui32, reduce_type = #ttcore.reduce_type<min>, num_links = 1 : ui32, scatter_dim = 1 : si32}> : (tensor<4096x16384xf32, #ttnn_layout1>) -> tensor<4096x16384xf32, #ttnn_layout1>
     return %1 : tensor<4096x16384xf32, #ttnn_layout1>
   }
 }
@@ -44,8 +65,7 @@ module @reduce_scatter_negative_invalid_reduce_type_var attributes {mhlo.num_par
 #ttnn_layout1 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<128x512x!ttcore.tile<32x32, f32>, #dram>, <interleaved>>
 module @reduce_scatter_negative_invalid_dim attributes {mhlo.num_partitions = 8 : i32, mhlo.num_replicas = 1 : i32} {
   func.func public @main(%arg0: tensor<4096x16384xf32, #ttnn_layout1>) -> (tensor<4096x16384xf32, #ttnn_layout1> {}) {
-    %0 = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
-    %1 = "ttnn.reduce_scatter"(%arg0, %0) <{cluster_axis = 1 : ui32, reduce_type = #ttcore.reduce_type<sum>, num_links = 1 : ui32, scatter_dim = 2 : si32}> : (tensor<4096x16384xf32, #ttnn_layout1>, !ttnn.device) -> tensor<4096x16384xf32, #ttnn_layout1>
+    %1 = "ttnn.reduce_scatter"(%arg0) <{cluster_axis = 1 : ui32, reduce_type = #ttcore.reduce_type<sum>, num_links = 1 : ui32, scatter_dim = 2 : si32}> : (tensor<4096x16384xf32, #ttnn_layout1>) -> tensor<4096x16384xf32, #ttnn_layout1>
     return %1 : tensor<4096x16384xf32, #ttnn_layout1>
   }
 }
@@ -57,8 +77,7 @@ module @reduce_scatter_negative_invalid_dim attributes {mhlo.num_partitions = 8 
 #ttnn_layout1 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<128x512x!ttcore.tile<32x32, f32>, #dram>, <interleaved>>
 module @reduce_scatter_negative_invalid_dim attributes {mhlo.num_partitions = 8 : i32, mhlo.num_replicas = 1 : i32} {
   func.func public @main(%arg0: tensor<4096x16384xf32, #ttnn_layout1>) -> (tensor<4096x16384xf32, #ttnn_layout1> {}) {
-    %0 = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
-    %1 = "ttnn.reduce_scatter"(%arg0, %0) <{cluster_axis = 1 : ui32, reduce_type = #ttcore.reduce_type<sum>, num_links = 1 : ui32, scatter_dim = -3 : si32}> : (tensor<4096x16384xf32, #ttnn_layout1>, !ttnn.device) -> tensor<4096x16384xf32, #ttnn_layout1>
+    %1 = "ttnn.reduce_scatter"(%arg0) <{cluster_axis = 1 : ui32, reduce_type = #ttcore.reduce_type<sum>, num_links = 1 : ui32, scatter_dim = -3 : si32}> : (tensor<4096x16384xf32, #ttnn_layout1>) -> tensor<4096x16384xf32, #ttnn_layout1>
     return %1 : tensor<4096x16384xf32, #ttnn_layout1>
   }
 }

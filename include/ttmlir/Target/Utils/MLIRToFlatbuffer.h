@@ -1012,6 +1012,26 @@ toFlatbuffer(FlatbufferObjectCache &cache,
   return fbMathFidelity;
 }
 
+inline ::tt::target::Topology toFlatbuffer(FlatbufferObjectCache &cache,
+                                           ttcore::Topology topology) {
+  ::tt::target::Topology fbTopology;
+  switch (topology) {
+  case ttcore::Topology::Ring:
+    fbTopology = ::tt::target::Topology::Ring;
+    break;
+  case ttcore::Topology::Linear:
+    fbTopology = ::tt::target::Topology::Linear;
+    break;
+  case ttcore::Topology::Mesh:
+    fbTopology = ::tt::target::Topology::Mesh;
+    break;
+  case ttcore::Topology::Torus:
+    fbTopology = ::tt::target::Topology::Torus;
+    break;
+  }
+  return fbTopology;
+}
+
 } // namespace mlir::tt
 
 #endif

@@ -5,8 +5,7 @@
 #ttnn_layout1 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<128x512x!ttcore.tile<32x32, f32>, #dram>, <interleaved>>
 module @all_gather_negative_invalid_dim attributes {mhlo.num_partitions = 8 : i32, mhlo.num_replicas = 1 : i32} {
   func.func public @main(%arg0: tensor<4096x16384xf32, #ttnn_layout1>) -> (tensor<4096x16384xf32, #ttnn_layout1> {}) {
-    %0 = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
-    %1 = "ttnn.all_gather"(%arg0, %0) <{all_gather_dim = 2 : si32, cluster_axis = 1 : ui32, num_links = 1 : ui32}> : (tensor<4096x16384xf32, #ttnn_layout1>, !ttnn.device) -> tensor<4096x16384xf32, #ttnn_layout1>
+    %1 = "ttnn.all_gather"(%arg0) <{all_gather_dim = 2 : si32, cluster_axis = 1 : ui32, num_links = 1 : ui32}> : (tensor<4096x16384xf32, #ttnn_layout1>) -> tensor<4096x16384xf32, #ttnn_layout1>
     return %1 : tensor<4096x16384xf32, #ttnn_layout1>
   }
 }
@@ -18,8 +17,7 @@ module @all_gather_negative_invalid_dim attributes {mhlo.num_partitions = 8 : i3
 #ttnn_layout1 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<128x512x!ttcore.tile<32x32, f32>, #dram>, <interleaved>>
 module @all_gather_negative_invalid_negative_dim attributes {mhlo.num_partitions = 8 : i32, mhlo.num_replicas = 1 : i32} {
   func.func public @main(%arg0: tensor<4096x16384xf32, #ttnn_layout1>) -> (tensor<4096x16384xf32, #ttnn_layout1> {}) {
-    %0 = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
-    %1 = "ttnn.all_gather"(%arg0, %0) <{all_gather_dim = -3 : si32, cluster_axis = 1 : ui32, num_links = 1 : ui32}> : (tensor<4096x16384xf32, #ttnn_layout1>, !ttnn.device) -> tensor<4096x16384xf32, #ttnn_layout1>
+    %1 = "ttnn.all_gather"(%arg0) <{all_gather_dim = -3 : si32, cluster_axis = 1 : ui32, num_links = 1 : ui32}> : (tensor<4096x16384xf32, #ttnn_layout1>) -> tensor<4096x16384xf32, #ttnn_layout1>
     return %1 : tensor<4096x16384xf32, #ttnn_layout1>
   }
 }

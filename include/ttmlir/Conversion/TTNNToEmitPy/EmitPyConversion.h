@@ -1665,6 +1665,20 @@ public:
     return rewriter.getAttr<emitpy::OpaqueAttr>(rso.str());
   }
 
+  mlir::Attribute emitSubDeviceId(std::optional<uint32_t> subDeviceId,
+                                  std::string attrName = "") {
+    if (!subDeviceId) {
+      return emit(std::nullopt, attrName);
+    }
+
+    std::string code = "ttnn.SubDeviceId(";
+    code += std::to_string(*subDeviceId);
+    code += ")";
+
+    addKeywordArgument(attrName);
+    return rewriter.getAttr<emitpy::OpaqueAttr>(code);
+  }
+
   // Handles the case when a source type is convertible to `mlir::Attribute` and
   // there exists a `EmitPyTypeConverter` specialization for the TTNN target
   // type of the attribute.

@@ -27,9 +27,7 @@ def create_reductions_constrained_inputs(input_shape, reduce_type, dim_arg, keep
         in_tensor = (in_tensor * scale).round() / scale
         builder.set_goldens(inputs={in0: in_tensor})
         if reduce_type == "sum":
-            return builder.sum(
-                in0, dim_arg=dim_arg, keep_dim=keep_dim, unit_attrs=unit_attrs
-            )
+            return builder.sum(in0, dim_arg=dim_arg, keep_dim=keep_dim)
         elif reduce_type == "max":
             return builder.max(
                 in0, dim_arg=dim_arg, keep_dim=keep_dim, unit_attrs=unit_attrs

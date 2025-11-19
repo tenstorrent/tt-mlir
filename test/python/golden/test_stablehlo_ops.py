@@ -21,7 +21,7 @@ def add(
     unit_attrs: Optional[List[str]] = None,
 ):
     builder.set_graph_level_check(True)
-    return builder.add(in0, in1, unit_attrs=unit_attrs)
+    return builder.add(in0, in1)
 
 
 def clamp(
@@ -377,7 +377,6 @@ def test_dot_general(
             contract_dims_lhs,
             batch_dims_rhs,
             contract_dims_rhs,
-            unit_attrs=unit_attrs,
         )
 
     compile_and_execute_shlo(

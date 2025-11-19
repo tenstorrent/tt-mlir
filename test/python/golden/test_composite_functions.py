@@ -40,38 +40,38 @@ def digamma_composite(
         torch.full(shape, 0.021092796092796094).to(dtype),
         torch.full(shape, 0.08333333333333333).to(dtype),
     ]
-    constants = [builder.constant(i, unit_attrs=unit_attrs) for i in constant_tensors]
+    constants = [builder.constant(i) for i in constant_tensors]
 
     # create builder output
     recip = builder.reciprocal(x, unit_attrs=unit_attrs)
-    term1 = builder.multiply(recip, constants[0], unit_attrs=unit_attrs)
+    term1 = builder.multiply(recip, constants[0])
 
-    recip_square = builder.multiply(recip, recip, unit_attrs=unit_attrs)
-    term2 = builder.multiply(recip_square, constants[1], unit_attrs=unit_attrs)
+    recip_square = builder.multiply(recip, recip)
+    term2 = builder.multiply(recip_square, constants[1])
     intermediate2 = builder.subtract(term1, term2)
 
-    recip_pow_4 = builder.multiply(recip_square, recip_square, unit_attrs=unit_attrs)
-    term3 = builder.multiply(recip_pow_4, constants[2], unit_attrs=unit_attrs)
+    recip_pow_4 = builder.multiply(recip_square, recip_square)
+    term3 = builder.multiply(recip_pow_4, constants[2])
     intermediate3 = builder.add(intermediate2, term3)
 
-    recip_pow_6 = builder.multiply(recip_pow_4, recip_square, unit_attrs=unit_attrs)
-    term4 = builder.multiply(recip_pow_6, constants[3], unit_attrs=unit_attrs)
+    recip_pow_6 = builder.multiply(recip_pow_4, recip_square)
+    term4 = builder.multiply(recip_pow_6, constants[3])
     intermediate4 = builder.subtract(intermediate3, term4)
 
-    recip_pow_8 = builder.multiply(recip_pow_6, recip_square, unit_attrs=unit_attrs)
-    term5 = builder.multiply(recip_pow_8, constants[4], unit_attrs=unit_attrs)
+    recip_pow_8 = builder.multiply(recip_pow_6, recip_square)
+    term5 = builder.multiply(recip_pow_8, constants[4])
     intermediate5 = builder.add(intermediate4, term5)
 
-    recip_pow_10 = builder.multiply(recip_pow_8, recip_square, unit_attrs=unit_attrs)
-    term6 = builder.multiply(recip_pow_10, constants[5], unit_attrs=unit_attrs)
+    recip_pow_10 = builder.multiply(recip_pow_8, recip_square)
+    term6 = builder.multiply(recip_pow_10, constants[5])
     intermediate6 = builder.subtract(intermediate5, term6)
 
-    recip_pow_12 = builder.multiply(recip_pow_10, recip_square, unit_attrs=unit_attrs)
-    term7 = builder.multiply(recip_pow_12, constants[6], unit_attrs=unit_attrs)
+    recip_pow_12 = builder.multiply(recip_pow_10, recip_square)
+    term7 = builder.multiply(recip_pow_12, constants[6])
     intermediate7 = builder.add(intermediate6, term7)
 
-    recip_pow_14 = builder.multiply(recip_pow_12, recip_square, unit_attrs=unit_attrs)
-    term8 = builder.multiply(recip_pow_14, constants[7], unit_attrs=unit_attrs)
+    recip_pow_14 = builder.multiply(recip_pow_12, recip_square)
+    term8 = builder.multiply(recip_pow_14, constants[7])
     intermediate8 = builder.subtract(intermediate7, term8)
 
     log_x = builder.log(x)
@@ -107,7 +107,7 @@ def lgamma_composite(
         torch.full(shape, 0.918938531357171).to(dtype),
         # torch.full(shape, 0.0).to(dtype),
     ]
-    constants = [builder.constant(i, unit_attrs=unit_attrs) for i in constant_tensors]
+    constants = [builder.constant(i) for i in constant_tensors]
 
     # input = x - 1.0
     input_val = builder.subtract(x, constants[6], unit_attrs=unit_attrs)
@@ -115,72 +115,53 @@ def lgamma_composite(
     # Build temp accumulator
     # z1 = 1/(input + 1.0) * 76.18009172947146
     z1 = builder.multiply(
-        builder.reciprocal(
-            builder.add(input_val, constants[6], unit_attrs=unit_attrs),
-            unit_attrs=unit_attrs,
-        ),
+        builder.reciprocal(builder.add(input_val, constants[6])),
         constants[0],
-        unit_attrs=unit_attrs,
     )
-    temp = builder.add(z1, constants[6], unit_attrs=unit_attrs)
+    temp = builder.add(z1, constants[6])
 
     # z1 = 1/(input + 2.0) * -86.50532032941677
     z1 = builder.multiply(
-        builder.reciprocal(
-            builder.add(input_val, constants[7], unit_attrs=unit_attrs),
-            unit_attrs=unit_attrs,
-        ),
+        builder.reciprocal(builder.add(input_val, constants[7])),
         constants[1],
-        unit_attrs=unit_attrs,
     )
-    temp = builder.add(temp, z1, unit_attrs=unit_attrs)
+    temp = builder.add(temp, z1)
 
     # z1 = 1/(input + 3.0) * 24.01409824083091
     z1 = builder.multiply(
         builder.reciprocal(
-            builder.add(input_val, constants[8], unit_attrs=unit_attrs),
-            unit_attrs=unit_attrs,
+            builder.add(
+                input_val,
+                constants[8],
+            )
         ),
         constants[2],
-        unit_attrs=unit_attrs,
     )
-    temp = builder.add(temp, z1, unit_attrs=unit_attrs)
+    temp = builder.add(temp, z1)
 
     # z1 = 1/(input + 4.0) * -1.231739572450155
     z1 = builder.multiply(
-        builder.reciprocal(
-            builder.add(input_val, constants[9], unit_attrs=unit_attrs),
-            unit_attrs=unit_attrs,
-        ),
+        builder.reciprocal(builder.add(input_val, constants[9])),
         constants[3],
-        unit_attrs=unit_attrs,
     )
-    temp = builder.add(temp, z1, unit_attrs=unit_attrs)
+    temp = builder.add(temp, z1)
 
     # z1 = 1/(input + 5.0) * 0.1208650973866179e-2
     z1 = builder.multiply(
-        builder.reciprocal(
-            builder.add(input_val, constants[10], unit_attrs=unit_attrs),
-            unit_attrs=unit_attrs,
-        ),
+        builder.reciprocal(builder.add(input_val, constants[10])),
         constants[4],
-        unit_attrs=unit_attrs,
     )
-    temp = builder.add(temp, z1, unit_attrs=unit_attrs)
+    temp = builder.add(temp, z1)
 
     # z1 = 1/(input + 6.0) * -0.5395239384953e-5
     z1 = builder.multiply(
-        builder.reciprocal(
-            builder.add(input_val, constants[11], unit_attrs=unit_attrs),
-            unit_attrs=unit_attrs,
-        ),
+        builder.reciprocal(builder.add(input_val, constants[11])),
         constants[5],
-        unit_attrs=unit_attrs,
     )
-    temp = builder.add(temp, z1, unit_attrs=unit_attrs)
+    temp = builder.add(temp, z1)
 
     # t = input + 5.5
-    t = builder.add(input_val, constants[12], unit_attrs=unit_attrs)
+    t = builder.add(input_val, constants[12])
     t_log = builder.log(t, unit_attrs=unit_attrs)
 
     # temp_log = log(temp)
@@ -188,17 +169,12 @@ def lgamma_composite(
 
     # result = (input + 0.5) * t_log + 0.918938531357171
     result = builder.add(
-        builder.multiply(
-            builder.add(input_val, constants[13], unit_attrs=unit_attrs),
-            t_log,
-            unit_attrs=unit_attrs,
-        ),
+        builder.multiply(builder.add(input_val, constants[13]), t_log),
         constants[14],
-        unit_attrs=unit_attrs,
     )
 
     # result = result + temp_log
-    result = builder.add(result, temp_log, unit_attrs=unit_attrs)
+    result = builder.add(result, temp_log)
 
     # result = result - t
     result = builder.subtract(result, t, unit_attrs=unit_attrs)
@@ -224,7 +200,7 @@ def multigammaln_composite(
         torch.full(shape, 1.5).to(dtype),
         torch.full(shape, 3.434189657547).to(dtype),
     ]
-    constants = [builder.constant(i, unit_attrs=unit_attrs) for i in constant_tensors]
+    constants = [builder.constant(i) for i in constant_tensors]
 
     # result = lgamma(x) + lgamma(x - 0.5) + lgamma(x - 1.0) + lgamma(x - 1.5) + 3.434189657547
     # Note: We use lgamma_composite for the intermediate lgamma calculations
@@ -245,10 +221,10 @@ def multigammaln_composite(
         x_minus_1_5, shape, dtype, builder, unit_attrs=unit_attrs
     )
 
-    result = builder.add(lgamma_x, lgamma_x_0_5, unit_attrs=unit_attrs)
-    result = builder.add(result, lgamma_x_1_0, unit_attrs=unit_attrs)
-    result = builder.add(result, lgamma_x_1_5, unit_attrs=unit_attrs)
-    result = builder.add(result, constants[3], unit_attrs=unit_attrs)
+    result = builder.add(lgamma_x, lgamma_x_0_5)
+    result = builder.add(result, lgamma_x_1_0)
+    result = builder.add(result, lgamma_x_1_5)
+    result = builder.add(result, constants[3])
 
     return result
 
@@ -267,28 +243,22 @@ def polygamma_composite(
     if k == 2 or k == 4 or k == 6 or k == 8 or k == 10:
         fact_val *= -1.0
 
-    k_der_builder = builder.constant(
-        torch.full(shape, k_der).to(dtype), unit_attrs=unit_attrs
-    )
+    k_der_builder = builder.constant(torch.full(shape, k_der).to(dtype))
     temp = builder.reciprocal(builder.pow(x, k_der_builder), unit_attrs=unit_attrs)
     for i in range(1, 11):
-        i_builder = builder.constant(
-            torch.full(shape, i).to(dtype), unit_attrs=unit_attrs
-        )
+        i_builder = builder.constant(torch.full(shape, i).to(dtype))
         z1 = builder.reciprocal(
             builder.pow(
-                builder.add(x, i_builder, unit_attrs=unit_attrs),
+                builder.add(x, i_builder),
                 k_der_builder,
                 unit_attrs=unit_attrs,
             ),
             unit_attrs=unit_attrs,
         )
-        temp = builder.add(temp, z1, unit_attrs=unit_attrs)
+        temp = builder.add(temp, z1)
 
-    fact_val_builder = builder.constant(
-        torch.full(shape, fact_val).to(dtype), unit_attrs=unit_attrs
-    )
-    result = builder.multiply(temp, fact_val_builder, unit_attrs=unit_attrs)
+    fact_val_builder = builder.constant(torch.full(shape, fact_val).to(dtype))
+    result = builder.multiply(temp, fact_val_builder)
     return result
 
 
@@ -499,9 +469,7 @@ def test_glu_split(
         builder: TTIRBuilder,
         unit_attrs: List[str] = None,
     ):
-        result = builder.multiply(
-            x1, builder.sigmoid(x2, unit_attrs=unit_attrs), unit_attrs=unit_attrs
-        )
+        result = builder.multiply(x1, builder.sigmoid(x2, unit_attrs=unit_attrs))
 
         return result
 
@@ -537,9 +505,7 @@ def test_reglu_split(
         builder: TTIRBuilder,
         unit_attrs: List[str] = None,
     ):
-        result = builder.multiply(
-            x1, builder.relu(x2, unit_attrs=unit_attrs), unit_attrs=unit_attrs
-        )
+        result = builder.multiply(x1, builder.relu(x2, unit_attrs=unit_attrs))
 
         return result
 
@@ -575,9 +541,7 @@ def test_geglu_split(
         builder: TTIRBuilder,
         unit_attrs: List[str] = None,
     ):
-        result = builder.multiply(
-            x1, builder.gelu(x2, unit_attrs=unit_attrs), unit_attrs=unit_attrs
-        )
+        result = builder.multiply(x1, builder.gelu(x2, unit_attrs=unit_attrs))
 
         return result
 
@@ -613,9 +577,7 @@ def test_swiglu_split(
         builder: TTIRBuilder,
         unit_attrs: List[str] = None,
     ):
-        result = builder.multiply(
-            x1, builder.silu(x2, unit_attrs=unit_attrs), unit_attrs=unit_attrs
-        )
+        result = builder.multiply(x1, builder.silu(x2, unit_attrs=unit_attrs))
 
         return result
 

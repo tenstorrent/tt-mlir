@@ -25,7 +25,7 @@ def multiple_meshes(
     builder: StableHLOBuilder,
     unit_attrs: Optional[List[str]] = None,
 ):
-    return builder.add(in0, in1, unit_attrs=unit_attrs)
+    return builder.add(in0, in1)
 
 
 @pytest.mark.parametrize(
