@@ -162,17 +162,14 @@ public:
 
     DictionaryAttr compositeAttrs = srcOp.getCompositeAttributes();
 
-    // Extract normalized_shape - it comes as a DenseIntElementsAttr (tensor)
     auto normalizedShapeAttr = compositeAttrs.get("normalized_shape");
     SmallVector<int64_t> normalizedShapeVec;
 
     if (auto denseAttr = mlir::dyn_cast<DenseIntElementsAttr>(normalizedShapeAttr)) {
-      // Handle DenseIntElementsAttr (tensor<2xi64>)
       for (auto val : denseAttr.getValues<int64_t>()) {
         normalizedShapeVec.push_back(val);
       }
     } else if (auto arrayAttr = mlir::dyn_cast<ArrayAttr>(normalizedShapeAttr)) {
-      // Handle ArrayAttr as fallback
       for (auto attr : arrayAttr) {
         normalizedShapeVec.push_back(
             mlir::cast<IntegerAttr>(attr).getInt());
