@@ -520,28 +520,6 @@ tt::target::Arch getArch() {
       });
 }
 
-void enablePersistentKernelCache() {
-  using RetType = void;
-  DISPATCH_TO_CURRENT_RUNTIME(
-      RetType, [&]() { ::tt::runtime::ttnn::enablePersistentKernelCache(); },
-      [&]() { ::tt::runtime::ttmetal::enablePersistentKernelCache(); },
-      [&]() {
-        detail::fatalNotImplemented("enablePersistentKernelCache",
-                                    HostRuntime::Distributed);
-      });
-}
-
-void disablePersistentKernelCache() {
-  using RetType = void;
-  DISPATCH_TO_CURRENT_RUNTIME(
-      RetType, [&]() { ::tt::runtime::ttnn::disablePersistentKernelCache(); },
-      [&]() { ::tt::runtime::ttmetal::disablePersistentKernelCache(); },
-      [&]() {
-        detail::fatalNotImplemented("disablePersistentKernelCache",
-                                    HostRuntime::Distributed);
-      });
-}
-
 size_t getNumAvailableDevices() {
   using RetType = size_t;
   return DISPATCH_TO_CURRENT_RUNTIME(
