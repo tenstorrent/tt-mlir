@@ -48,8 +48,13 @@ Value materializeView(OpBuilder &builder, Location loc, Value viewResult) {
   // Allocate output storage for the materialized view result.
   auto layout =
       mlir::dyn_cast_or_null<ttcore::MetalLayoutAttr>(tensorType.getEncoding());
+  auto newLayout = ttcore::MetalLayoutAttr::get(
+      builder.getContext(), layout.getLogicalShape(),
+      layout.getDimAlignments(), layout.getCollapsedIntervals(),
+      layout.getOobVal(), layout.getMemorySpace(),
+      layout.getMemoryLayout(), builder.getEmptyAffineMap());
   auto emptyOp = builder.create<d2m::EmptyOp>(
-      loc, tensorType.getShape(), tensorType.getElementType(), layout);
+      loc, tensorType.getShape(), tensorType.getElementType(), newLayout);
 
   // Extract the grid from the tensor's layout to determine core distribution.
   ttcore::GridAttr grid = getGridFromType(tensorType);
@@ -97,6 +102,23 @@ public:
     // Process each function in the module to find unmaterialized view returns.
     module.walk([&](func::FuncOp funcOp) {
       funcOp.walk([&](func::ReturnOp returnOp) {
+        builder.setInsertionPoint(returnOp);
+
+        // Inspect each return operand to determine if it needs materialization.
+        for (OpOperand &opOperand : returnOp->getOpOperands()) {
+          Operation *definingOp = opOperand.get().getDefiningOp();
+
+          if (isViewOp(definingOp)) {
+            // Insert a generic op to materialize the view before returning.
+            // This ensures the tensor transformation represented by the view
+            // actually occurs, rather than just being a symbolic operation.
+            Value materialized =
+                materializeView(builder, returnOp.getLoc(), opOperand.get());
+            opOperand.set(materialized);
+          }
+        }
+      });
+      funcOp.walk([&](d2m::ToLayoutOp returnOp) {
         builder.setInsertionPoint(returnOp);
 
         // Inspect each return operand to determine if it needs materialization.

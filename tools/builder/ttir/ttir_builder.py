@@ -7893,7 +7893,7 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
     def rearrange(
         self, in0: Operand, pattern: str, unit_attrs: Optional[List[str]] = None
     ) -> OpView:
-        kwargs = {"pattern": pattern}
+        kwargs = {"pattern": StringAttr.get(pattern)}
         return self._op_proxy(
             ttir.RearrangeOp,
             [in0],
