@@ -2155,8 +2155,6 @@ public:
     llvm::SmallVector<MatMulOpType> matmulOps = {};
     llvm::SmallVector<PermuteOp> permuteOps = {};
 
-    // Currently, only supporting Multi-Head Attention.
-    // TODO(@ddilbazTT): Extend to support Grouped Query Attention.
     AttentionType attentionType =
         findAttentionType(reshapeOp, matmulOps, permuteOps);
     if (attentionType == AttentionType::NONE) {
