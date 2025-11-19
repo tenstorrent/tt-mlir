@@ -9,6 +9,7 @@
 
 #if defined(TT_RUNTIME_ENABLE_PERF_TRACE) && TT_RUNTIME_ENABLE_PERF_TRACE == 1
 #include "tracy/Tracy.hpp"
+#include "common/TracyColor.hpp"
 #endif
 
 namespace tt::runtime::perf {
@@ -23,6 +24,8 @@ Env &Env::get(std::uint32_t dumpDeviceRate, bool enablePerfTrace,
 
 void Env::tracyLogOpLocation(const std::string &locInfo) const {
 #if defined(TT_RUNTIME_ENABLE_PERF_TRACE) && TT_RUNTIME_ENABLE_PERF_TRACE == 1
+  ZoneScopedN("MLIR_OP_LOCATION");
+  
   // Log to stderr for CI debugging (will appear in test output)
   static int call_count = 0;
   static bool first_call = true;
@@ -47,32 +50,35 @@ void Env::tracyLogOpLocation(const std::string &locInfo) const {
   
   std::string message =
       perf::toString(perf::TracyLogTag::MLIR_OP_LOCATION) + ";" + locInfo;
-  TracyMessage(message.c_str(), message.size());
+  TracyMessageC(message.c_str(), message.size(), tracy::Color::Cyan);
 #endif
 }
 
 void Env::tracyLogConstEvalProgram(bool constEvalOp) const {
 #if defined(TT_RUNTIME_ENABLE_PERF_TRACE) && TT_RUNTIME_ENABLE_PERF_TRACE == 1
+  ZoneScopedN("MLIR_CONST_EVAL_OP");
   std::string message = perf::toString(perf::TracyLogTag::MLIR_CONST_EVAL_OP) +
                         ";" + std::string(constEvalOp ? "true" : "false");
-  TracyMessage(message.c_str(), message.size());
+  TracyMessageC(message.c_str(), message.size(), tracy::Color::LightGreen);
 #endif
 }
 
 void Env::tracyLogProgramMetadata(const std::string &metaData) const {
 #if defined(TT_RUNTIME_ENABLE_PERF_TRACE) && TT_RUNTIME_ENABLE_PERF_TRACE == 1
+  ZoneScopedN("MLIR_PROGRAM_METADATA");
   std::string message =
       perf::toString(perf::TracyLogTag::MLIR_PROGRAM_METADATA) + ";" + metaData;
-  TracyMessage(message.c_str(), message.size());
+  TracyMessageC(message.c_str(), message.size(), tracy::Color::Yellow);
 #endif
 }
 
 void Env::tracyLogInputLayoutConversion(bool inputLayoutConversionOp) const {
 #if defined(TT_RUNTIME_ENABLE_PERF_TRACE) && TT_RUNTIME_ENABLE_PERF_TRACE == 1
+  ZoneScopedN("MLIR_INPUT_LAYOUT_CONVERSION_OP");
   std::string message =
       perf::toString(perf::TracyLogTag::MLIR_INPUT_LAYOUT_CONVERSION_OP) + ";" +
       std::string(inputLayoutConversionOp ? "true" : "false");
-  TracyMessage(message.c_str(), message.size());
+  TracyMessageC(message.c_str(), message.size(), tracy::Color::Orange);
 #endif
 }
 
