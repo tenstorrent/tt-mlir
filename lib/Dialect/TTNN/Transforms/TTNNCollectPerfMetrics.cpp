@@ -15,7 +15,11 @@
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/StringMap.h"
+#include "llvm/ADT/Twine.h"
+#include "llvm/Support/ErrorHandling.h"
+#include "llvm/Support/FileSystem.h"
 #include "llvm/Support/JSON.h"
+#include "llvm/Support/Path.h"
 #include "llvm/Support/raw_ostream.h"
 
 #include <cassert>
@@ -23,7 +27,7 @@
 
 namespace mlir::tt::ttnn {
 
-#define GEN_PASS_DEF_TTNNCOLLECTMETRICS
+#define GEN_PASS_DEF_TTNNCOLLECTPERFMETRICS
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h.inc"
 
 namespace {
@@ -71,8 +75,8 @@ struct AggregatedMetrics {
   }
 };
 
-class TTNNCollectMetrics
-    : public impl::TTNNCollectMetricsBase<TTNNCollectMetrics> {
+class TTNNCollectPerfMetrics
+    : public impl::TTNNCollectPerfMetricsBase<TTNNCollectPerfMetrics> {
 
 private:
   // Get layout information as string for individual op analysis
@@ -107,28 +111,137 @@ private:
 
   // Find operations that are spilled to DRAM by analyzing toMemoryConfigOps
   void identifyDRAMSpills(func::FuncOp funcOp,
-                          llvm::DenseMap<Value, bool> &spilledValues) {
+                          llvm::DenseSet<Value> &spilledValues) {
     funcOp.walk([&](ttnn::ToMemoryConfigOp toMemoryConfigOp) {
       if (utils::producesDRAMLayout(toMemoryConfigOp)) {
         // Mark the input operand's defining op's result as spilled
         Value input = toMemoryConfigOp.getInput();
         if (input.getDefiningOp() &&
             utils::producesShardedL1Layout(input.getDefiningOp())) {
-          spilledValues[input] = true;
+          spilledValues.insert(input);
         }
       }
     });
   }
 
+  void addSummaryToJson(llvm::json::Object &jsonOutput,
+                        const AggregatedMetrics &aggregatedMetrics) {
+    llvm::json::Object summary;
+    summary["total_ops"] = static_cast<int64_t>(aggregatedMetrics.totalOps);
+    summary["total_ops_with_output_tensor"] =
+        static_cast<int64_t>(aggregatedMetrics.totalOpsWithOutputTensor);
+    summary["total_shardable_ops"] =
+        static_cast<int64_t>(aggregatedMetrics.totalShardableOps);
+    summary["sharded_ops"] = static_cast<int64_t>(aggregatedMetrics.shardedOps);
+    summary["effectively_sharded_ops"] =
+        static_cast<int64_t>(aggregatedMetrics.effectivelyShardedOps);
+    summary["sharded_and_spilled_ops"] =
+        static_cast<int64_t>(aggregatedMetrics.shardedAndSpilledOps);
+    summary["dram_spilled_ops"] =
+        static_cast<int64_t>(aggregatedMetrics.dramSpilledOps);
+    summary["system_memory_ops"] =
+        static_cast<int64_t>(aggregatedMetrics.systemMemoryOps);
+    summary["sharded_percentage"] = aggregatedMetrics.shardedPercentage;
+    summary["effectively_sharded_percentage"] =
+        aggregatedMetrics.effectivelyShardedPercentage;
+    summary["spilled_percentage"] = aggregatedMetrics.spilledPercentage;
+    summary["system_memory_percentage"] =
+        aggregatedMetrics.systemMemoryPercentage;
+    jsonOutput["summary"] = std::move(summary);
+  }
+
+  void
+  addVerboseOutputToJson(llvm::json::Object &jsonOutput,
+                         const std::vector<OperationMetrics> &operationDetails,
+                         const llvm::StringMap<int> &operationTypeCounts) {
+    llvm::json::Array operations;
+    for (const auto &opMetrics : operationDetails) {
+      llvm::json::Object opJson;
+      opJson["operation"] = opMetrics.opName;
+      opJson["location"] = opMetrics.location;
+      opJson["is_sharded"] = opMetrics.isSharded;
+      opJson["is_spilled_to_dram"] = opMetrics.isSpilledToDRAM;
+      opJson["has_system_memory"] = opMetrics.hasSystemMemory;
+      opJson["layout_info"] = opMetrics.layoutInfo;
+      operations.push_back(std::move(opJson));
+    }
+    jsonOutput["shardable_operations"] = std::move(operations);
+
+    // Counts of all operation types
+    llvm::json::Object operationTypeBreakdown;
+    for (const auto &pair : operationTypeCounts) {
+      operationTypeBreakdown[pair.first()] = pair.second;
+    }
+    jsonOutput["operation_type_breakdown"] = std::move(operationTypeBreakdown);
+  }
+
+  std::string generateAutoFilename(ModuleOp module) {
+    std::string baseName = "ttnn_perf_metrics";
+
+    // Try to get module name
+    if (auto moduleSymName = module.getSymName()) {
+      baseName = moduleSymName->str();
+      if (baseName.front() == '@') {
+        baseName = baseName.substr(1);
+      }
+    } else {
+      // Try to get the first function name if module has no name
+      bool foundFunction = false;
+      module->walk([&](func::FuncOp funcOp) {
+        if (!foundFunction && !ttmlir::utils::isConstEvalFunc(funcOp)) {
+          baseName = funcOp.getName().str();
+          foundFunction = true;
+        }
+      });
+    }
+
+    return "perf_metrics/" + baseName + "_perf_metrics.json";
+  }
+
+  void ensureDirectoryExists(StringRef filePath) {
+    llvm::SmallString<256> dirPath(filePath);
+    llvm::sys::path::remove_filename(dirPath);
+
+    std::error_code ec = llvm::sys::fs::create_directories(dirPath);
+    if (ec) {
+      llvm::report_fatal_error(Twine("Failed to create directory: ") + dirPath +
+                               " - " + ec.message());
+    }
+  }
+
+  void writeJsonToFile(llvm::json::Object jsonOutput, ModuleOp module) {
+    std::string outputPath;
+    if (ttnnPerfMetricsOutputFile.getValue() != "ttnn_perf_metrics.json") {
+      // User specified a custom output file
+      outputPath = ttnnPerfMetricsOutputFile.getValue();
+    } else {
+      // Generate automatic filename
+      outputPath = generateAutoFilename(module);
+    }
+
+    ensureDirectoryExists(outputPath);
+
+    std::error_code ec;
+    llvm::raw_fd_ostream os(outputPath, ec);
+    if (ec) {
+      llvm::report_fatal_error(Twine("Failed to open output file: ") +
+                               outputPath + " - " + ec.message());
+    }
+
+    os << llvm::formatv("{0:2}", llvm::json::Value(std::move(jsonOutput)))
+       << "\n";
+    os.close();
+  }
+
 public:
-  using impl::TTNNCollectMetricsBase<
-      TTNNCollectMetrics>::TTNNCollectMetricsBase;
+  using impl::TTNNCollectPerfMetricsBase<
+      TTNNCollectPerfMetrics>::TTNNCollectPerfMetricsBase;
 
   void runOnOperation() override {
     ModuleOp module = getOperation();
     std::vector<OperationMetrics> operationDetails;
     AggregatedMetrics aggregatedMetrics;
-    llvm::DenseMap<Value, bool> spilledValues;
+    llvm::DenseSet<Value> spilledValues;
     llvm::StringMap<int> operationTypeCounts;
 
     module->walk([&](func::FuncOp funcOp) {
@@ -153,9 +266,7 @@ public:
 
         // Skip operations which never change (some appear only for
         // enable-trace=true)
-        if (isa<ttnn::GetDeviceOp, ttnn::CaptureOrExecuteTraceOp,
-                ttnn::BeginTraceCaptureOp, ttnn::EndTraceCaptureOp,
-                ttnn::ExecuteTraceOp>(op)) {
+        if (isa<ttnn::GetDeviceOp>(op)) {
           return;
         }
         aggregatedMetrics.totalOps++;
@@ -164,9 +275,7 @@ public:
         if (op->getNumResults() == 0) {
           return;
         }
-        auto tensorType =
-            dyn_cast<RankedTensorType>(op->getResult(0).getType());
-        if (!tensorType) {
+        if (!mlir::isa<RankedTensorType>(op->getResult(0).getType())) {
           return;
         }
         aggregatedMetrics.totalOpsWithOutputTensor++;
@@ -190,7 +299,7 @@ public:
         // metrics
         if (opMetrics.isSharded) {
           Value result = op->getResult(0);
-          if (spilledValues.count(result) && spilledValues[result]) {
+          if (spilledValues.count(result)) {
             opMetrics.isSpilledToDRAM = true;
             aggregatedMetrics.shardedAndSpilledOps++;
           } else {
@@ -214,67 +323,13 @@ public:
     aggregatedMetrics.calculatePercentages();
 
     llvm::json::Object jsonOutput;
+    addSummaryToJson(jsonOutput, aggregatedMetrics);
 
-    llvm::json::Object summary;
-    summary["total_ops"] = static_cast<int64_t>(aggregatedMetrics.totalOps);
-    summary["total_ops_with_output_tensor"] =
-        static_cast<int64_t>(aggregatedMetrics.totalOpsWithOutputTensor);
-    summary["total_shardable_ops"] =
-        static_cast<int64_t>(aggregatedMetrics.totalShardableOps);
-    summary["sharded_ops"] = static_cast<int64_t>(aggregatedMetrics.shardedOps);
-    summary["effectively_sharded_ops"] =
-        static_cast<int64_t>(aggregatedMetrics.effectivelyShardedOps);
-    summary["sharded_and_spilled_ops"] =
-        static_cast<int64_t>(aggregatedMetrics.shardedAndSpilledOps);
-    summary["dram_spilled_ops"] =
-        static_cast<int64_t>(aggregatedMetrics.dramSpilledOps);
-    summary["system_memory_ops"] =
-        static_cast<int64_t>(aggregatedMetrics.systemMemoryOps);
-    summary["sharded_percentage"] = aggregatedMetrics.shardedPercentage;
-    summary["effectively_sharded_percentage"] =
-        aggregatedMetrics.effectivelyShardedPercentage;
-    summary["spilled_percentage"] = aggregatedMetrics.spilledPercentage;
-    summary["system_memory_percentage"] =
-        aggregatedMetrics.systemMemoryPercentage;
-
-    jsonOutput["summary"] = std::move(summary);
-
-    if (ttnnMetricsVerboseOutputEnabled) {
-      llvm::json::Array operations;
-      for (const auto &opMetrics : operationDetails) {
-        llvm::json::Object opJson;
-        opJson["operation"] = opMetrics.opName;
-        opJson["location"] = opMetrics.location;
-        opJson["is_sharded"] = opMetrics.isSharded;
-        opJson["is_spilled_to_dram"] = opMetrics.isSpilledToDRAM;
-        opJson["has_system_memory"] = opMetrics.hasSystemMemory;
-        opJson["layout_info"] = opMetrics.layoutInfo;
-        operations.push_back(std::move(opJson));
-      }
-      jsonOutput["shardable_operations"] = std::move(operations);
-
-      // Counts of all operation types
-      llvm::json::Object operationTypeBreakdown;
-      for (const auto &pair : operationTypeCounts) {
-        operationTypeBreakdown[pair.first()] = pair.second;
-      }
-      jsonOutput["operation_type_breakdown"] =
-          std::move(operationTypeBreakdown);
+    if (ttnnPerfMetricsVerboseOutputEnabled) {
+      addVerboseOutputToJson(jsonOutput, operationDetails, operationTypeCounts);
     }
 
-    // Write JSON to file
-    std::error_code ec;
-    llvm::raw_fd_ostream os(ttnnMetricsOutputFile, ec);
-    if (ec) {
-      module.emitError("Failed to open output file: " +
-                       ttnnMetricsOutputFile.getValue());
-      // pass failure
-      return;
-    }
-
-    os << llvm::formatv("{0:2}", llvm::json::Value(std::move(jsonOutput)))
-       << "\n";
-    os.close();
+    writeJsonToFile(std::move(jsonOutput), module);
   }
 };
 

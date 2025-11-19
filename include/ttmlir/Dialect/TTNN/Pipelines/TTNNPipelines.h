@@ -315,13 +315,18 @@ struct TTIRToTTNNBackendPipelineOptions
   // This allows frontends to pass in an active device without closing it.
   std::shared_ptr<::tt::tt_metal::distributed::MeshDevice> devicePtr = nullptr;
 
-  Option<std::string> ttnnMetricsOutputFile{
-      *this, "ttnn-metrics-output-file",
-      llvm::cl::desc("Output file path for the metrics JSON."),
-      llvm::cl::init("ttnn_metrics.json")};
+  Option<bool> ttnnPerfMetricsEnabled{
+      *this, "ttnn-perf-metrics-enabled",
+      llvm::cl::desc("Enable performance metrics collection."),
+      llvm::cl::init(false)};
 
-  Option<bool> ttnnMetricsVerboseOutputEnabled{
-      *this, "ttnn-metrics-verbose-output-enabled",
+  Option<std::string> ttnnPerfMetricsOutputFile{
+      *this, "ttnn-perf-metrics-output-file",
+      llvm::cl::desc("Output file path for the performance metrics JSON."),
+      llvm::cl::init("ttnn_perf_metrics.json")};
+
+  Option<bool> ttnnPerfMetricsVerboseOutputEnabled{
+      *this, "ttnn-perf-metrics-verbose-output-enabled",
       llvm::cl::desc(
           "Enable verbose output with per-operation details in metrics."),
       llvm::cl::init(true)};
