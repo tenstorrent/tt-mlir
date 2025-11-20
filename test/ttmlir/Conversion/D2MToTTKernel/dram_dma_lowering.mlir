@@ -29,6 +29,7 @@ func.func @test_dram_read_onebank(%arg0: memref<1x1x32x32xf32, #ttcore.shard<128
     %buf = d2m.reserve %cb1 : !d2m.cb<memref<32x32xf32, #ttcore.memory_space<l1>>> -> memref<32x32xf32, #ttcore.memory_space<l1>>
     %tx = d2m.dma %view<affine_map<(d0, d1) -> (d0, d1)>>, %buf : (memref<1x1x32x32xf32, #ttcore.view<(d0, d1, d2, d3) -> (d0 + d2 floordiv 32, d1 + d3 floordiv 32, d2 mod 32, d3 mod 32)>, #ttcore.memory_space<dram>>, memref<32x32xf32, #ttcore.memory_space<l1>>) -> !d2m.mem_tx
     d2m.dma_wait %tx
+    d2m.yield
   }
   return
 }
@@ -54,6 +55,7 @@ func.func @test_dram_read_multibank(%arg0: memref<1x1x128x128xf32, #ttcore.shard
     %buf = d2m.reserve %cb1 : !d2m.cb<memref<128x128xf32, #ttcore.memory_space<l1>>> -> memref<128x128xf32, #ttcore.memory_space<l1>>
     %tx = d2m.dma %view<affine_map<(d0, d1) -> (d0, d1)>>, %buf : (memref<1x1x128x128xf32, #ttcore.view<(d0, d1, d2, d3) -> (d0 + d2 floordiv 32, d1 + d3 floordiv 32, d2 mod 32, d3 mod 32)>, #ttcore.memory_space<dram>>, memref<128x128xf32, #ttcore.memory_space<l1>>) -> !d2m.mem_tx
     d2m.dma_wait %tx
+    d2m.yield
   }
   return
 }

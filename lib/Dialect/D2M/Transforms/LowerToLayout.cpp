@@ -228,7 +228,8 @@ public:
           } else {
             builder.create<TileTilizeBlockOp>(loc, src, dst);
           }
-          builder.create<YieldOp>(loc, dst);
+          // DPS semantics: yield with no operands, results written to outs
+          builder.create<YieldOp>(loc);
         },
         ThreadType::Compute);
 

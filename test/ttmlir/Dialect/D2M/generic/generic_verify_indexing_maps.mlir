@@ -21,7 +21,7 @@ func.func @test_empty_indexing_maps_with_block_factors(%arg0: tensor<1x1x1x1x!tt
   ^compute0(%cb_in: !d2m.cb<tensor<1x1x!ttcore.tile<32x32, f32>>>, %cb_out: !d2m.cb<tensor<1x1x!ttcore.tile<32x32, f32>>>):
     %in = d2m.wait %cb_in : <tensor<1x1x!ttcore.tile<32x32, f32>>> -> tensor<1x1x!ttcore.tile<32x32, f32>>
     %out = d2m.reserve %cb_out : <tensor<1x1x!ttcore.tile<32x32, f32>>> -> tensor<1x1x!ttcore.tile<32x32, f32>>
-    d2m.yield %out : (tensor<1x1x!ttcore.tile<32x32, f32>>)
+    d2m.yield
   } : tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #layout>
 
   return %1 : tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #layout>
@@ -50,7 +50,7 @@ func.func @test_empty_indexing_maps_with_iterator_types(%arg0: tensor<1x1x1x1x!t
   ^compute0(%cb_in: !d2m.cb<tensor<1x1x!ttcore.tile<32x32, f32>>>, %cb_out: !d2m.cb<tensor<1x1x!ttcore.tile<32x32, f32>>>):
     %in = d2m.wait %cb_in : <tensor<1x1x!ttcore.tile<32x32, f32>>> -> tensor<1x1x!ttcore.tile<32x32, f32>>
     %out = d2m.reserve %cb_out : <tensor<1x1x!ttcore.tile<32x32, f32>>> -> tensor<1x1x!ttcore.tile<32x32, f32>>
-    d2m.yield %out : (tensor<1x1x!ttcore.tile<32x32, f32>>)
+    d2m.yield
   } : tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #layout>
 
   return %1 : tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #layout>
@@ -79,7 +79,7 @@ func.func @test_explicit_datamovement_form(%arg0: tensor<1x1x1x1x!ttcore.tile<32
   ^compute0(%cb_in: !d2m.cb<tensor<1x1x!ttcore.tile<32x32, f32>>>, %cb_out: !d2m.cb<tensor<1x1x!ttcore.tile<32x32, f32>>>):
     %in = d2m.wait %cb_in : <tensor<1x1x!ttcore.tile<32x32, f32>>> -> tensor<1x1x!ttcore.tile<32x32, f32>>
     %out = d2m.reserve %cb_out : <tensor<1x1x!ttcore.tile<32x32, f32>>> -> tensor<1x1x!ttcore.tile<32x32, f32>>
-    d2m.yield %out : (tensor<1x1x!ttcore.tile<32x32, f32>>)
+    d2m.yield
   } : tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #layout>
 
   return %1 : tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #layout>

@@ -49,6 +49,7 @@ func.func @cosh(%alloc_1 : memref<4x4x8x12x!ttcore.tile<32x32, bf16>, #ttcore.sh
       %0 = "d2m.tile_mul"(%in, %in_9) : (!ttcore.tile<32x32, bf16>, !ttcore.tile<32x32, bf16>) -> !ttcore.tile<32x32, bf16>
       linalg.yield %0 : !ttcore.tile<32x32, bf16>
     }
+    d2m.yield
   }
   return
 }

@@ -77,7 +77,8 @@ Value materializeView(OpBuilder &builder, Location loc, Value viewResult) {
         auto dma =
             builder.create<d2m::DMAOp>(loc, viewResult, indexingMap, outputCB);
         builder.create<d2m::DMAWaitOp>(loc, dma);
-        builder.create<d2m::YieldOp>(loc, outputCB);
+        // DPS semantics: yield with no operands, results written to outs
+        builder.create<d2m::YieldOp>(loc);
       },
       ThreadType::Datamovement, grid, SmallVector<int64_t>{1, 1});
 

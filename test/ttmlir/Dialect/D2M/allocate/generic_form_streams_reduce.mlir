@@ -46,6 +46,7 @@ module {
         %1 = "d2m.tile_reduce_sum"(%in, %in_3, %out) <{reduce_dim = #d2m<reduce_dim C>}> : (!ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
         linalg.yield %1 : !ttcore.tile<32x32, f32>
       }
+      d2m.yield
     }
 
     return %alloc_1 : memref<2x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_>

@@ -87,6 +87,14 @@ public:
       rewriter.modifyOpInPlace(loopedGeneric, [&]() {
         replaceIterIndexUses(rewriter, generic.getLoc(), loopNest);
       });
+
+      // Ensure the block has a d2m.yield terminator after merging
+      Block *finalBlock = loopNest.loops.back().getBody();
+      if (finalBlock->empty() ||
+          !finalBlock->back().hasTrait<OpTrait::IsTerminator>()) {
+        rewriter.setInsertionPointToEnd(finalBlock);
+        rewriter.create<YieldOp>(generic.getLoc());
+      }
     }
 
     rewriter.replaceOp(generic, loopedGeneric.getResults());

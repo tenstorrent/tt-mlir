@@ -97,7 +97,15 @@ public:
         func.setPrivate();
         func->setAttr(d2m::ThreadAttr::name, threadAttrWithoutSym);
         func.getBody().takeBody(region);
-        builder.setInsertionPointToEnd(&func.getBody().front());
+
+        // Remove d2m.yield terminator if present, as we need func.return instead
+        Block &funcBlock = func.getBody().front();
+        if (!funcBlock.empty() &&
+            isa<YieldOp>(funcBlock.back())) {
+          funcBlock.back().erase();
+        }
+
+        builder.setInsertionPointToEnd(&funcBlock);
         builder.create<func::ReturnOp>(generic.getLoc());
         threads.push_back(threadAttrWithSym);
       }

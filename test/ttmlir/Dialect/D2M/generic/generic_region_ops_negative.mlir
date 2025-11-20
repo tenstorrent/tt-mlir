@@ -31,7 +31,7 @@ func.func @reduce_dim_arg(%arg0: tensor<64x128xf32>, %arg1: tensor<64x128xf32>) 
                   %4 = "d2m.tile_reduce_max" (%a, %b, %c) : (!ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
                   linalg.yield %4: !ttcore.tile<32x32, f32>
               }
-      d2m.yield %0 : (tensor<64x128xf32>)
+      d2m.yield
       }) : (tensor<64x128xf32>, tensor<64x128xf32>, tensor<64x128xf32>) -> tensor<64x128xf32>
   return %1 : tensor<64x128xf32>
 }

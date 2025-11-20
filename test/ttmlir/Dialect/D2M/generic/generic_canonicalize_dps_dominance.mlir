@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --canonicalize %s --split-input-file | FileCheck %s
+// RUN: ttmlir-opt --ttcore-register-device --canonicalize %s --split-input-file | FileCheck %s
 //
 // This test verifies a canonicalization that eliminates d2m.empty() operations
 // used as outputs in DPS operations (like linalg.generic) by replacing them
@@ -46,7 +46,7 @@ func.func @canonicalize_with_multiple_reserves(%arg0: tensor<1x1x1x1x!ttcore.til
     } -> tensor<1x1x!ttcore.tile<32x32, f32>>
     d2m.store %out1, %result : tensor<1x1x!ttcore.tile<32x32, f32>>
     %out2 = d2m.wait %cb_out : <tensor<1x1x!ttcore.tile<32x32, f32>>> -> tensor<1x1x!ttcore.tile<32x32, f32>>
-    d2m.yield %out2 : (tensor<1x1x!ttcore.tile<32x32, f32>>)
+    d2m.yield
   } : tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #layout>
 
   return %1 : tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #layout>
@@ -88,7 +88,7 @@ func.func @no_canonicalization_without_dominating_op(%arg0: tensor<1x1x1x1x!ttco
     } -> tensor<1x1x!ttcore.tile<32x32, f32>>
     %out = d2m.reserve %cb_out : <tensor<1x1x!ttcore.tile<32x32, f32>>> -> tensor<1x1x!ttcore.tile<32x32, f32>>
     d2m.store %out, %result : tensor<1x1x!ttcore.tile<32x32, f32>>
-    d2m.yield %out : (tensor<1x1x!ttcore.tile<32x32, f32>>)
+    d2m.yield
   } : tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #layout>
 
   return %1 : tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #layout>
@@ -134,7 +134,7 @@ func.func @test_nested_in_loop(%arg0: tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #
         %abs = "d2m.tile_abs"(%in_val) : (!ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
         linalg.yield %abs : !ttcore.tile<32x32, f32>
       } -> tensor<1x1x!ttcore.tile<32x32, f32>>
-      d2m.yield %result : (tensor<1x1x!ttcore.tile<32x32, f32>>)
+      d2m.yield
     } : tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #layout>
     scf.yield %2 : tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #layout>
   }
@@ -186,7 +186,7 @@ func.func @canonicalize_dps_cross_block_dominance(%arg0: tensor<1x1x1x1x!ttcore.
       d2m.store %reserve, %gen : tensor<1x1x!ttcore.tile<32x32, f32>>
     }
 
-    d2m.yield %reserve : (tensor<1x1x!ttcore.tile<32x32, f32>>)
+    d2m.yield
   } : tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #layout>
 
   // CHECK: return

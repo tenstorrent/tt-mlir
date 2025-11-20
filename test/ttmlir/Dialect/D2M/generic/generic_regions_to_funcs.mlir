@@ -26,8 +26,10 @@ func.func @add(%arg0: memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<0x0
       memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>, #ttcore.memory_space<l1>>,
       memref<2x4x!ttcore.tile<32x32, f32>, #l1_>) -> !d2m.mem_tx
     d2m.dma_wait %tx
+    d2m.yield
   }, {
   ^compute0(%cb0: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>, %cb1: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>, %cb2: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>):
+    d2m.yield
   }
   return %alloc : memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<0x0, 1>, #l1_>
 }

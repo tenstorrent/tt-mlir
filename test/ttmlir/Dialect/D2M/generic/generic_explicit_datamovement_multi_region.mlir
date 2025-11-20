@@ -34,10 +34,12 @@ func.func @explicit_datamovement_multi_region(
   ^bb0(%cb0: !d2m.cb<tensor<2x2x!ttcore.tile<32x32, f32>>>, %cb1: !d2m.cb<tensor<2x2x!ttcore.tile<32x32, f32>>>, %cb2: !d2m.cb<tensor<2x2x!ttcore.tile<32x32, f32>>>):
     %2 = "d2m.reserve"(%cb0) : (!d2m.cb<tensor<2x2x!ttcore.tile<32x32, f32>>>) -> tensor<2x2x!ttcore.tile<32x32, f32>>
     %c0 = "arith.constant"() <{value = 0 : index}> : () -> index
+    d2m.yield
   }, {
   ^bb0(%cb0: !d2m.cb<tensor<2x2x!ttcore.tile<32x32, f32>>>, %cb1: !d2m.cb<tensor<2x2x!ttcore.tile<32x32, f32>>>, %cb2: !d2m.cb<tensor<2x2x!ttcore.tile<32x32, f32>>>):
     %2 = "d2m.reserve"(%cb1) : (!d2m.cb<tensor<2x2x!ttcore.tile<32x32, f32>>>) -> tensor<2x2x!ttcore.tile<32x32, f32>>
     %c0 = "arith.constant"() <{value = 0 : index}> : () -> index
+    d2m.yield
   }, {
   ^bb0(%cb0: !d2m.cb<tensor<2x2x!ttcore.tile<32x32, f32>>>, %cb1: !d2m.cb<tensor<2x2x!ttcore.tile<32x32, f32>>>, %cb2: !d2m.cb<tensor<2x2x!ttcore.tile<32x32, f32>>>):
     %3 = "d2m.wait"(%cb0) : (!d2m.cb<tensor<2x2x!ttcore.tile<32x32, f32>>>) -> tensor<2x2x!ttcore.tile<32x32, f32>>
@@ -54,6 +56,7 @@ func.func @explicit_datamovement_multi_region(
       "linalg.yield"(%8) : (!ttcore.tile<32x32, f32>) -> ()
     }) : (tensor<2x2x!ttcore.tile<32x32, f32>>, tensor<2x2x!ttcore.tile<32x32, f32>>, tensor<2x2x!ttcore.tile<32x32, f32>>) -> tensor<2x2x!ttcore.tile<32x32, f32>>
     "d2m.store"(%5, %7) : (tensor<2x2x!ttcore.tile<32x32, f32>>, tensor<2x2x!ttcore.tile<32x32, f32>>) -> ()
+    d2m.yield
   }) : (tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout>, tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout>, tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout>) -> tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout>
 
   return %result : tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout>

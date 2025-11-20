@@ -38,6 +38,7 @@ module {
         // CHECK: ttkernel.pack_tile
         linalg.yield %0 : !ttype_f32
       }
+      d2m.yield
     }
     return
   }
@@ -62,6 +63,7 @@ module {
         // CHECK: ttkernel.pack_tile
         linalg.yield %0 : !ttype_f32
       }
+      d2m.yield
     }
     return
   }
@@ -86,6 +88,7 @@ module {
         // CHECK: ttkernel.pack_tile
         linalg.yield %0 : !ttype_f32
       }
+      d2m.yield
     }
     return
   }
@@ -110,6 +113,7 @@ module {
         // CHECK: ttkernel.pack_tile
         linalg.yield %0 : !ttype_f32
       }
+      d2m.yield
     }
     return
   }
@@ -143,6 +147,7 @@ module {
         // CHECK: ttkernel.pack_tile
         linalg.yield %0 : !ttype_f32
       }
+      d2m.yield
     }
     return
   }
@@ -172,6 +177,7 @@ module {
         // CHECK: ttkernel.pack_tile
         linalg.yield %0 : !ttype_f32
       }
+      d2m.yield
     }
     return
   }
@@ -196,6 +202,7 @@ module {
         // CHECK: ttkernel.pack_tile
         linalg.yield %0 : !ttype_f32
       }
+      d2m.yield
     }
     return
   }
@@ -225,6 +232,7 @@ module {
         // CHECK: ttkernel.pack_tile
         linalg.yield %0 : !ttype_f32
       }
+      d2m.yield
     }
     return
   }
@@ -249,6 +257,7 @@ module {
         // CHECK: ttkernel.pack_tile
         linalg.yield %0 : !ttype_f32
       }
+      d2m.yield
     }
     return
   }
@@ -273,6 +282,7 @@ module {
         // CHECK: ttkernel.pack_tile
         linalg.yield %0 : !ttype_f32
       }
+      d2m.yield
     }
     return
   }
@@ -297,6 +307,7 @@ module {
         // CHECK: ttkernel.pack_tile
         linalg.yield %0 : !ttype_f32
       }
+      d2m.yield
     }
     return
   }
@@ -321,6 +332,7 @@ module {
         // CHECK: ttkernel.pack_tile
         linalg.yield %0 : !ttype_f32
       }
+      d2m.yield
     }
     return
   }
@@ -345,6 +357,7 @@ module {
         // CHECK: ttkernel.pack_tile
         linalg.yield %0 : !ttype_f32
       }
+      d2m.yield
     }
     return
   }
@@ -369,6 +382,7 @@ module {
         // CHECK: ttkernel.pack_tile
         linalg.yield %0 : !ttype_f32
       }
+      d2m.yield
     }
     return
   }
@@ -393,6 +407,7 @@ module {
         // CHECK: ttkernel.pack_tile
         linalg.yield %0 : !ttype_f32
       }
+      d2m.yield
     }
     return
   }
@@ -417,6 +432,7 @@ module {
         // CHECK: ttkernel.pack_tile
         linalg.yield %0 : !ttype_f32
       }
+      d2m.yield
     }
     return
   }
@@ -441,6 +457,7 @@ module {
         // CHECK: ttkernel.pack_tile
         linalg.yield %0 : !ttype_f32
       }
+      d2m.yield
     }
     return
   }
@@ -465,6 +482,7 @@ module {
         // CHECK: ttkernel.pack_tile
         linalg.yield %0 : !ttype_f32
       }
+      d2m.yield
     }
     return
   }
@@ -489,6 +507,7 @@ module {
         // CHECK: ttkernel.pack_tile
         linalg.yield %0 : !ttype_bf16
       }
+      d2m.yield
     }
     return
   }
@@ -513,6 +532,7 @@ module {
         // CHECK: ttkernel.pack_tile
         linalg.yield %0 : !ttype_f32
       }
+      d2m.yield
     }
     return
   }
@@ -537,6 +557,7 @@ module {
         // CHECK: ttkernel.pack_tile
         linalg.yield %0 : !ttype_bf16
       }
+      d2m.yield
     }
     return
   }
@@ -561,6 +582,7 @@ module {
         // CHECK: ttkernel.pack_tile
         linalg.yield %0 : !ttype_f32
       }
+      d2m.yield
     }
     return
   }
@@ -585,6 +607,7 @@ module {
         // CHECK: ttkernel.pack_tile
         linalg.yield %0 : !ttype_bf16
       }
+      d2m.yield
     }
     return
   }
@@ -609,6 +632,7 @@ module {
         // CHECK: ttkernel.pack_tile
         linalg.yield %0 : !ttype_si32
       }
+      d2m.yield
     }
     return
   }
@@ -633,6 +657,7 @@ module {
         // CHECK: ttkernel.pack_tile
         linalg.yield %0 : !ttype_si32
       }
+      d2m.yield
     }
     return
   }
@@ -657,6 +682,7 @@ module {
         // CHECK: ttkernel.pack_tile
         linalg.yield %0 : !ttype_bf16
       }
+      d2m.yield
     }
     return
   }
@@ -681,6 +707,7 @@ module {
         // CHECK: ttkernel.pack_tile
         linalg.yield %0 : !ttype_si32
       }
+      d2m.yield
     }
     return
   }
@@ -713,6 +740,7 @@ module {
         // CHECK: ttkernel.pack_tile
         linalg.yield %1 : !ttype_f32
       }
+      d2m.yield
     }
     return
   }
@@ -741,6 +769,7 @@ module {
         // CHECK: ttkernel.pack_tile
         linalg.yield %1 : !ttype_f32
       }
+      d2m.yield
     }
     return
   }
@@ -769,6 +798,7 @@ module {
         // CHECK: ttkernel.pack_tile
         linalg.yield %1 : !ttype_f32
       }
+      d2m.yield
     }
     return
   }
@@ -797,6 +827,7 @@ module {
         // CHECK: ttkernel.pack_tile
         linalg.yield %1 : !ttype_f32
       }
+      d2m.yield
     }
     return
   }
@@ -825,6 +856,7 @@ module {
         // CHECK: ttkernel.pack_tile
         linalg.yield %1 : !ttype_f32
       }
+      d2m.yield
     }
     return
   }
@@ -853,6 +885,7 @@ module {
         // CHECK: ttkernel.pack_tile
         linalg.yield %1 : !ttype_f32
       }
+      d2m.yield
     }
     return
   }
@@ -885,6 +918,7 @@ module {
         // CHECK: ttkernel.pack_tile
         linalg.yield %1 : !ttype_si32
       }
+      d2m.yield
     }
     return
   }
@@ -913,6 +947,7 @@ module {
         // CHECK: ttkernel.pack_tile
         linalg.yield %1 : !ttype_si32
       }
+      d2m.yield
     }
     return
   }
@@ -941,6 +976,7 @@ module {
         // CHECK: ttkernel.pack_tile
         linalg.yield %1 : !ttype_si32
       }
+      d2m.yield
     }
     return
   }
@@ -969,6 +1005,7 @@ module {
         // CHECK: ttkernel.pack_tile
         linalg.yield %1 : !ttype_si32
       }
+      d2m.yield
     }
     return
   }
@@ -997,6 +1034,7 @@ module {
         // CHECK: ttkernel.pack_tile
         linalg.yield %1 : !ttype_si32
       }
+      d2m.yield
     }
     return
   }
@@ -1025,6 +1063,7 @@ module {
         // CHECK: ttkernel.pack_tile
         linalg.yield %1 : !ttype_si32
       }
+      d2m.yield
     }
     return
   }
@@ -1049,6 +1088,7 @@ module {
         // CHECK: ttkernel.pack_tile
         linalg.yield %0 : !ttype_f32
       }
+      d2m.yield
     }
     return
   }
@@ -1073,6 +1113,7 @@ module {
         // CHECK: ttkernel.pack_tile
         linalg.yield %0 : !ttype_f32
       }
+      d2m.yield
     }
     return
   }
@@ -1097,6 +1138,7 @@ module {
         // CHECK: ttkernel.pack_tile
         linalg.yield %0 : !ttype_si32
       }
+      d2m.yield
     }
     return
   }

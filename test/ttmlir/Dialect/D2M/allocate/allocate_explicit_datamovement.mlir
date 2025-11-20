@@ -37,6 +37,7 @@ module {
     ^compute0(%cb0: !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #dram_>>, %cb1: !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #l1_>>):
       %val = d2m.wait %cb0 : !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #dram_>> -> memref<1x1x!ttcore.tile<32x32, f32>, #dram_>
       %out = d2m.reserve %cb1 : !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #l1_>> -> memref<1x1x!ttcore.tile<32x32, f32>, #l1_>
+      d2m.yield
     }
     return
   }

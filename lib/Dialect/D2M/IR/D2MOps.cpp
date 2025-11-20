@@ -1078,7 +1078,10 @@ static mlir::LogicalResult verifyAffineBlocking(
 
       // For DPS (destination-passing style), yield should have 0 operands
       // because results are written to output operands (outs), not yielded
-      if (block.back().getNumOperands() != 0) {
+      // Only check if block has a terminator (during parsing, blocks may not
+      // have terminators yet for transformation passes)
+      if (!block.empty() && block.back().hasTrait<OpTrait::IsTerminator>() &&
+          block.back().getNumOperands() != 0) {
         return emitOpError("yield terminator must have the same number of "
                            "arguments as generic results");
       }

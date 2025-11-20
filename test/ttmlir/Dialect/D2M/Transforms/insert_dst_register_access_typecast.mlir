@@ -56,6 +56,7 @@ module {
           }
         }
       }
+      d2m.yield
     }
     return
   }

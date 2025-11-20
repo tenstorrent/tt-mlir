@@ -414,8 +414,10 @@ private:
               createComputeRegion(bbBuilder, bbLoc, bbArgs, rewriter, loc,
                                   numInputs, numOutputs);
             });
+        (void)linalgGeneric; // Suppress unused variable warning
 
-        rewriter.create<d2m::YieldOp>(loc, linalgGeneric->getResults());
+        // DPS semantics: yield with no operands, results written to outs
+        rewriter.create<d2m::YieldOp>(loc);
       }
     }
     rewriter.finalizeOpModification(generic);
@@ -551,8 +553,10 @@ private:
                   /* operands */ bbArgs, attributes);
               bbBuilder.create<mlir::linalg::YieldOp>(bbLoc, yield);
             });
+        (void)linalgGeneric; // Suppress unused variable warning
 
-        rewriter.create<d2m::YieldOp>(loc, linalgGeneric->getResults());
+        // DPS semantics: yield with no operands, results written to outs
+        rewriter.create<d2m::YieldOp>(loc);
       }
     }
     rewriter.finalizeOpModification(generic);
@@ -756,8 +760,8 @@ private:
           rewriter.create<TileOp>(loc,
                                   /* resultTypes */ mlir::TypeRange(),
                                   /* operands */ blockArgs);
-          // In pure tensor semantics, explicitly yield the output shard.
-          rewriter.create<d2m::YieldOp>(loc, blockArgs.take_back(numOutputs));
+          // DPS semantics: yield with no operands, results written to outs
+          rewriter.create<d2m::YieldOp>(loc);
 
         } else if constexpr (std::is_same_v<d2m::TileMatmulOp, TileOp>) {
 
@@ -769,7 +773,7 @@ private:
           SmallVector<mlir::utils::IteratorType> linalgIteratorTypes =
               iteratorTypeTTIRToLinalg(rewriter, iteratorTypes);
 
-          auto linalgGeneric = rewriter.create<mlir::linalg::GenericOp>(
+          (void)rewriter.create<mlir::linalg::GenericOp>(
               loc,
               /* result tensor types */
               llvm::to_vector(
@@ -787,7 +791,8 @@ private:
                 bbBuilder.create<mlir::linalg::YieldOp>(bbLoc, yield);
               });
 
-          rewriter.create<d2m::YieldOp>(loc, linalgGeneric->getResults());
+          // DPS semantics: yield with no operands, results written to outs
+        rewriter.create<d2m::YieldOp>(loc);
         }
       }
     }
@@ -935,7 +940,7 @@ public:
           auto output =
               builder.create<d2m::ReserveOp>(bodyLoc, blockArgs[1]).getResult();
 
-          auto linalgGeneric = builder.create<mlir::linalg::GenericOp>(
+          (void)builder.create<mlir::linalg::GenericOp>(
               bodyLoc, output.getType(), input, output,
               SmallVector<mlir::AffineMap>{identityMap, identityMap},
               linalgIteratorTypes,
@@ -947,7 +952,8 @@ public:
                 bbBuilder.create<mlir::linalg::YieldOp>(bbLoc, yield);
               });
 
-          builder.create<d2m::YieldOp>(bodyLoc, linalgGeneric->getResults());
+          // DPS semantics: yield with no operands, results written to outs
+          builder.create<d2m::YieldOp>(bodyLoc);
         });
 
     rewriter.replaceOp(op, unLayoutResult(rewriter, generic->getResult(0),

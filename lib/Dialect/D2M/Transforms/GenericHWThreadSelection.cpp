@@ -160,6 +160,13 @@ public:
       Block *executeRegionBlock = &executeRegionOp.getRegion().emplaceBlock();
       rewriter.mergeBlocks(mergeSrcBlock, executeRegionBlock,
                            mergeDestBlock->getArguments());
+
+      // Remove d2m.yield terminator if present, as we need scf.yield instead
+      if (!executeRegionBlock->empty() &&
+          isa<YieldOp>(executeRegionBlock->back())) {
+        rewriter.eraseOp(&executeRegionBlock->back());
+      }
+
       rewriter.setInsertionPointToEnd(executeRegionBlock);
       rewriter.create<scf::YieldOp>(op.getLoc());
     }
@@ -180,6 +187,12 @@ public:
     // "block".
     executeRegionBlock->getParent()->getBlocks().remove(executeRegionBlock);
     executeRegionOp.getRegion().push_back(executeRegionBlock);
+
+    // Remove d2m.yield terminator if present, as we need scf.yield instead
+    if (!executeRegionBlock->empty() &&
+        isa<YieldOp>(executeRegionBlock->back())) {
+      rewriter.eraseOp(&executeRegionBlock->back());
+    }
 
     rewriter.setInsertionPointToEnd(executeRegionBlock);
     rewriter.create<scf::YieldOp>(loc);

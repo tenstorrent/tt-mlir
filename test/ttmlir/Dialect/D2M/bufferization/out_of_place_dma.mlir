@@ -44,9 +44,8 @@ func.func @matmul(%arg0: tensor<2x2x2x2x!ttcore.tile<32x32, f32>, #layout>, %arg
         d2m.semaphore_inc %sem0, %c1, core[%core0, %c0]
         d2m.semaphore_wait %sem1, %c1 reset %c0
       }
-      d2m.yield %t0 : (tensor<2x2x!ttcore.tile<32x32, f32>>)
     }
-    d2m.yield %view_1 : (tensor<2x2x2x2x!ttcore.tile<32x32, f32>, #layout1>)
+    d2m.yield
   } : tensor<2x2x2x2x!ttcore.tile<32x32, f32>, #layout1>
   return %0 : tensor<2x2x2x2x!ttcore.tile<32x32, f32>, #layout1>
 }

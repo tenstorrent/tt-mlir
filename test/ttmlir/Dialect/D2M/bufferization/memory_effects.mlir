@@ -18,7 +18,7 @@ func.func @matmul_pure_tensors(%arg0: tensor<2x4x!ttcore.tile<32x32, f32>>, %arg
     %arg3 = d2m.wait %cb3 : !d2m.cb<tensor<4x2x!ttcore.tile<32x32, f32>, #l1_>> -> tensor<4x2x!ttcore.tile<32x32, f32>, #l1_>
     %arg4 = d2m.reserve %cb4 : !d2m.cb<tensor<2x2x!ttcore.tile<32x32, f32>, #l1_>> -> tensor<2x2x!ttcore.tile<32x32, f32>, #l1_>
     "d2m.tile_matmul_block"(%arg2, %arg3, %arg4) : (tensor<2x4x!ttcore.tile<32x32, f32>, #l1_>, tensor<4x2x!ttcore.tile<32x32, f32>, #l1_>, tensor<2x2x!ttcore.tile<32x32, f32>, #l1_>) -> ()
-    d2m.yield %0 : (tensor<2x2x!ttcore.tile<32x32, f32>>)
+    d2m.yield
   }) : (tensor<2x4x!ttcore.tile<32x32, f32>>, tensor<4x2x!ttcore.tile<32x32, f32>>, tensor<2x2x!ttcore.tile<32x32, f32>>) -> tensor<2x2x!ttcore.tile<32x32, f32>>
   return %0 : tensor<2x2x!ttcore.tile<32x32, f32>>
 }
@@ -41,6 +41,7 @@ func.func @matmul_memref(%arg0: memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore
     %arg3 = d2m.wait %cb3 : !d2m.cb<memref<4x2x!ttcore.tile<32x32, f32>, #l1_>> -> memref<4x2x!ttcore.tile<32x32, f32>, #l1_>
     %arg4 = d2m.reserve %cb4 : !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1_>> -> memref<2x2x!ttcore.tile<32x32, f32>, #l1_>
     "d2m.tile_matmul_block"(%arg2, %arg3, %arg4) : (memref<2x4x!ttcore.tile<32x32, f32>, #l1_>, memref<4x2x!ttcore.tile<32x32, f32>, #l1_>, memref<2x2x!ttcore.tile<32x32, f32>, #l1_>) -> ()
+    d2m.yield
   }) : (memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>, memref<1x1x4x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1_>, memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1_>) -> ()
   return %alloc : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1_>
 }

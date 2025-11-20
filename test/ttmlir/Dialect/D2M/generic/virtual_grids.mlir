@@ -49,6 +49,7 @@ func.func @virtual_grid_blocked(%arg0 : !virtGridT) -> () {
     outs(%Out     : !virtGridT)
   {
     ^compute0(%cb0 : !cbT, %cb1 : !cbT):
+      d2m.yield
   }
 
   return

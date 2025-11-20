@@ -15,12 +15,15 @@ func.func @add(%arg0: memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<163
   %alloc = memref.alloc() {alignment = 64 : i64} : memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>
   "d2m.generic"(%arg0, %arg1, %alloc) <{block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#map, #map, #map], iterator_types = [#parallel, #parallel], threads = [#d2m.thread<datamovement>, #d2m.thread<datamovement>, #d2m.thread<datamovement>, #d2m.thread<compute>], operandSegmentSizes = array<i32: 2, 1>}> ({
   ^datamovement0(%cb0: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>, %cb1:  !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>, %cb2:  !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>):
+    d2m.yield
   }, {
   ^datamovement1(%cb0: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>, %cb1:  !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>, %cb2:  !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>):
+    d2m.yield
   }, {
   // CHECK-NOT: ^datamovement2
   // CHECK: ^compute
   ^datamovement2(%cb0: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>, %cb1:  !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>, %cb2:  !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>):
+    d2m.yield
   }, {
   ^compute(%cb0: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>, %cb1:  !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>, %cb2:  !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>):
     %mem0 = d2m.wait %cb0 : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
@@ -34,6 +37,7 @@ func.func @add(%arg0: memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<163
         affine.store %2, %mem2[%arg2, %arg3] : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
       }
     }
+    d2m.yield
   }) : (memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>, memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>, memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>) -> ()
   return %alloc : memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>
 }
@@ -43,18 +47,22 @@ func.func @matmul_single_core(%arg0: memref<1x1x2x4x!ttcore.tile<32x32, f32>, #t
   %alloc = memref.alloc() {alignment = 64 : i64} : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1_>
   "d2m.generic"(%arg0, %arg1, %alloc) <{block_factors = [1, 1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#map1, #map2, #map3], iterator_types = [#parallel, #parallel, #reduction], threads = [#d2m.thread<datamovement>, #d2m.thread<datamovement>, #d2m.thread<datamovement>, #d2m.thread<compute>], operandSegmentSizes = array<i32: 2, 1>}> ({
   ^datamovement0(%cb0: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>, %cb1:  !d2m.cb<memref<4x2x!ttcore.tile<32x32, f32>, #l1_>>, %cb2:  !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1_>>):
+    d2m.yield
   }, {
   ^datamovement1(%cb0: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>, %cb1:  !d2m.cb<memref<4x2x!ttcore.tile<32x32, f32>, #l1_>>, %cb2:  !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1_>>):
+    d2m.yield
   }, {
   // CHECK-NOT: ^datamovement2
   // CHECK: ^compute
   ^datamovement2(%cb0: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>, %cb1:  !d2m.cb<memref<4x2x!ttcore.tile<32x32, f32>, #l1_>>, %cb2:  !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1_>>):
+    d2m.yield
   }, {
   ^compute(%cb0: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>, %cb1:  !d2m.cb<memref<4x2x!ttcore.tile<32x32, f32>, #l1_>>, %cb2:  !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1_>>):
     %mem0 = d2m.wait %cb0 : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
     %mem1 = d2m.wait %cb1 : !d2m.cb<memref<4x2x!ttcore.tile<32x32, f32>, #l1_>> -> memref<4x2x!ttcore.tile<32x32, f32>, #l1_>
     %mem2 = d2m.reserve %cb2 : !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1_>> -> memref<2x2x!ttcore.tile<32x32, f32>, #l1_>
     "d2m.tile_matmul_block"(%mem0, %mem1, %mem2) : (memref<2x4x!ttcore.tile<32x32, f32>, #l1_>, memref<4x2x!ttcore.tile<32x32, f32>, #l1_>, memref<2x2x!ttcore.tile<32x32, f32>, #l1_>) -> ()
+    d2m.yield
   }) : (memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>, memref<1x1x4x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1_>, memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1_>) -> ()
   return %alloc : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1_>
 }
@@ -64,14 +72,17 @@ func.func @tilize(%arg0: memref<2x4x128x192xf32, #ttcore.shard<768x4, 1>, #l1_>)
   %alloc = memref.alloc() {alignment = 64 : i64} : memref<2x4x4x6x!ttcore.tile<32x32, f32>, #ttcore.shard<24576x4096, 1>, #l1_>
   "d2m.generic"(%arg0, %alloc) <{block_factors = [1, 1], grid = #ttcore.grid<2x4>, indexing_maps = [#map, #map], iterator_types = [#parallel, #parallel], threads = [#d2m.thread<datamovement>, #d2m.thread<datamovement>, #d2m.thread<compute>], operandSegmentSizes = array<i32: 1, 1>}> ({
   ^datamovement0(%cb0: !d2m.cb<memref<128x192xf32, #l1_>>, %cb1:  !d2m.cb<memref<4x6x!ttcore.tile<32x32, f32>, #l1_>>):
+    d2m.yield
   }, {
   // CHECK-NOT: ^datamovement2
   ^datamovement1(%cb0: !d2m.cb<memref<128x192xf32, #l1_>>, %cb1:  !d2m.cb<memref<4x6x!ttcore.tile<32x32, f32>, #l1_>>):
+    d2m.yield
   }, {
   ^compute(%cb0: !d2m.cb<memref<128x192xf32, #l1_>>, %cb1:  !d2m.cb<memref<4x6x!ttcore.tile<32x32, f32>, #l1_>>):
     %mem0 = d2m.wait %cb0 : !d2m.cb<memref<128x192xf32, #l1_>> -> memref<128x192xf32, #l1_>
     %mem1 = d2m.reserve %cb1 : !d2m.cb<memref<4x6x!ttcore.tile<32x32, f32>, #l1_>> -> memref<4x6x!ttcore.tile<32x32, f32>, #l1_>
     "d2m.tile_tilize_block"(%mem0, %mem1) : (memref<128x192xf32, #l1_>, memref<4x6x!ttcore.tile<32x32, f32>, #l1_>) -> ()
+    d2m.yield
   }) : (memref<2x4x128x192xf32, #ttcore.shard<768x4, 1>, #l1_>, memref<2x4x4x6x!ttcore.tile<32x32, f32>, #ttcore.shard<24576x4096, 1>, #l1_>) -> ()
   return %alloc : memref<2x4x4x6x!ttcore.tile<32x32, f32>, #ttcore.shard<24576x4096, 1>, #l1_>
 }
@@ -95,11 +106,13 @@ func.func @mergeNonTrivialDatamovementThreads(%arg0: memref<1x1x4x4x!ttcore.tile
     %mem0 = d2m.reserve %cb0 : !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1>> -> memref<4x4x!ttcore.tile<32x32, f32>, #l1>
     %tx = d2m.dma %stream<#map>, %mem0 : (memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #l1>, memref<4x4x!ttcore.tile<32x32, f32>, #l1>) -> !d2m.mem_tx
     d2m.dma_wait %tx
+    d2m.yield
   }, {
   ^datamovement1(%cb0: !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1>>, %cb1:  !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1>>, %cb2:  !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1>>):
     %mem1 = d2m.reserve %cb1 : !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1>> -> memref<4x4x!ttcore.tile<32x32, f32>, #l1>
     %tx = d2m.dma %stream_3<#map>, %mem1 : (memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #l1>, memref<4x4x!ttcore.tile<32x32, f32>, #l1>) -> !d2m.mem_tx
     d2m.dma_wait %tx
+    d2m.yield
   }, {
   // CHECK: ^datamovement0
   // CHECK: d2m.dma [[STREAM0:%.*]]<#map>, [[CB0:%.*]]
@@ -111,8 +124,10 @@ func.func @mergeNonTrivialDatamovementThreads(%arg0: memref<1x1x4x4x!ttcore.tile
     %mem2 = d2m.wait %cb2 : !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1>> -> memref<4x4x!ttcore.tile<32x32, f32>, #l1>
     %tx = d2m.dma %mem2, %stream_6<#map> : (memref<4x4x!ttcore.tile<32x32, f32>, #l1>, memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #l1>) -> !d2m.mem_tx
     d2m.dma_wait %tx
+    d2m.yield
   }, {
   ^compute0(%cb0: !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1>>, %cb1:  !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1>>, %cb2:  !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1>>):
+    d2m.yield
   }
   return
 }
@@ -159,6 +174,7 @@ func.func @mergeManyNonTrivialDatamovementThreads(%arg0: memref<1x1x4x4x!ttcore.
     %mem0 = d2m.reserve %cb0 : !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1>> -> memref<4x4x!ttcore.tile<32x32, f32>, #l1>
     %tx = d2m.dma %stream<#map>, %mem0 : (memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #l1>, memref<4x4x!ttcore.tile<32x32, f32>, #l1>) -> !d2m.mem_tx
     d2m.dma_wait %tx
+    d2m.yield
   }, {
   // CHECK: ^datamovement1
   // CHECK: d2m.dma [[STREAM1:%.*]]<#map>, [[CB1:%.*]]
@@ -169,11 +185,13 @@ func.func @mergeManyNonTrivialDatamovementThreads(%arg0: memref<1x1x4x4x!ttcore.
     %mem1 = d2m.reserve %cb1 : !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1>> -> memref<4x4x!ttcore.tile<32x32, f32>, #l1>
     %tx = d2m.dma %stream_3<#map>, %mem1 : (memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #l1>, memref<4x4x!ttcore.tile<32x32, f32>, #l1>) -> !d2m.mem_tx
     d2m.dma_wait %tx
+    d2m.yield
   }, {
   ^datamovement2(%cb0: !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1>>, %cb1:  !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1>>, %cb2:  !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1>>, %cb3:  !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1>>):
     %mem2 = d2m.reserve %cb2 : !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1>> -> memref<4x4x!ttcore.tile<32x32, f32>, #l1>
     %tx = d2m.dma %stream_9<#map>, %mem2 : (memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #l1>, memref<4x4x!ttcore.tile<32x32, f32>, #l1>) -> !d2m.mem_tx
     d2m.dma_wait %tx
+    d2m.yield
   }, {
   // CHECK-NOT: ^datamovement2
   // CHECK: ^compute
@@ -181,8 +199,10 @@ func.func @mergeManyNonTrivialDatamovementThreads(%arg0: memref<1x1x4x4x!ttcore.
     %mem3 = d2m.wait %cb3 : !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1>> -> memref<4x4x!ttcore.tile<32x32, f32>, #l1>
     %tx = d2m.dma %mem3, %stream_6<#map> : (memref<4x4x!ttcore.tile<32x32, f32>, #l1>, memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #l1>) -> !d2m.mem_tx
     d2m.dma_wait %tx
+    d2m.yield
   }, {
   ^compute0(%cb0: !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1>>, %cb1:  !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1>>, %cb2:  !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1>>, %cb3:  !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1>>):
+    d2m.yield
   }
   return
 }
@@ -229,6 +249,7 @@ func.func @mergeManyNonTrivialDatamovementThreadsNoCompute(%arg0: memref<1x1x4x4
     %mem0 = d2m.reserve %cb0 : !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1>> -> memref<4x4x!ttcore.tile<32x32, f32>, #l1>
     %tx = d2m.dma %stream<#map>, %mem0 : (memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #l1>, memref<4x4x!ttcore.tile<32x32, f32>, #l1>) -> !d2m.mem_tx
     d2m.dma_wait %tx
+    d2m.yield
   }, {
   // CHECK: ^datamovement1
   // CHECK: d2m.dma [[STREAM1:%.*]]<#map>, [[CB1:%.*]]
@@ -239,11 +260,13 @@ func.func @mergeManyNonTrivialDatamovementThreadsNoCompute(%arg0: memref<1x1x4x4
     %mem1 = d2m.reserve %cb1 : !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1>> -> memref<4x4x!ttcore.tile<32x32, f32>, #l1>
     %tx = d2m.dma %stream_3<#map>, %mem1 : (memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #l1>, memref<4x4x!ttcore.tile<32x32, f32>, #l1>) -> !d2m.mem_tx
     d2m.dma_wait %tx
+    d2m.yield
   }, {
   ^datamovement2(%cb0: !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1>>, %cb1:  !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1>>, %cb2:  !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1>>, %cb3:  !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1>>):
     %mem2 = d2m.reserve %cb2 : !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1>> -> memref<4x4x!ttcore.tile<32x32, f32>, #l1>
     %tx = d2m.dma %stream_9<#map>, %mem2 : (memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #l1>, memref<4x4x!ttcore.tile<32x32, f32>, #l1>) -> !d2m.mem_tx
     d2m.dma_wait %tx
+    d2m.yield
   }, {
   // CHECK-NOT: ^datamovement2
   // CHECK-NOT: ^compute
@@ -251,6 +274,7 @@ func.func @mergeManyNonTrivialDatamovementThreadsNoCompute(%arg0: memref<1x1x4x4
     %mem3 = d2m.wait %cb3 : !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1>> -> memref<4x4x!ttcore.tile<32x32, f32>, #l1>
     %tx = d2m.dma %mem3, %stream_6<#map> : (memref<4x4x!ttcore.tile<32x32, f32>, #l1>, memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #l1>) -> !d2m.mem_tx
     d2m.dma_wait %tx
+    d2m.yield
   }
   return
 }
@@ -292,6 +316,7 @@ func.func @dontMergePreFusedDMThreads(%arg0: memref<1x1x4x4x!ttcore.tile<32x32, 
     %mem0 = d2m.reserve %cb0 : !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1>> -> memref<4x4x!ttcore.tile<32x32, f32>, #l1>
     %tx = d2m.dma %stream<#map>, %mem0 : (memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #l1>, memref<4x4x!ttcore.tile<32x32, f32>, #l1>) -> !d2m.mem_tx
     d2m.dma_wait %tx
+    d2m.yield
   }, {
   // CHECK: ^datamovement1
   ^datamovement1(%cb0: !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1>>, %cb1:  !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1>>, %cb2:  !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1>>, %cb3:  !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1>>):
@@ -301,9 +326,11 @@ func.func @dontMergePreFusedDMThreads(%arg0: memref<1x1x4x4x!ttcore.tile<32x32, 
     %mem2 = d2m.reserve %cb2 : !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1>> -> memref<4x4x!ttcore.tile<32x32, f32>, #l1>
     %tx2 = d2m.dma %stream_9<#map>, %mem2 : (memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #l1>, memref<4x4x!ttcore.tile<32x32, f32>, #l1>) -> !d2m.mem_tx
     d2m.dma_wait %tx2
+    d2m.yield
   }, {
   // CHECK: ^compute
   ^compute0(%cb0: !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1>>, %cb1:  !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1>>, %cb2:  !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1>>, %cb3:  !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1>>):
+    d2m.yield
   }
   return
 }
