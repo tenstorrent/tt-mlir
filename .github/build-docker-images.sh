@@ -7,14 +7,9 @@ set -e
 
 # Parse command line arguments
 CHECK_ONLY=false
-if [[ "$1" == "--check-only" ]]; then
+dockbuild="$1"
+if [[ "$2" == "--check-only" ]]; then
     CHECK_ONLY=true
-    dockbuild=$2
-else
-    dockbuild=$1
-fi
-if [ -z "$dockbuild" ]; then
-    dockbuild="all"
 fi
 
 REPO=tenstorrent/tt-mlir
