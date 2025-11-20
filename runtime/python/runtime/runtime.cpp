@@ -285,14 +285,6 @@ void registerRuntimeBindings(nb::module_ &m) {
              ::tt::runtime::FabricConfig::FABRIC_2D_TORUS_Y)
       .value("FABRIC_2D_TORUS_XY",
              ::tt::runtime::FabricConfig::FABRIC_2D_TORUS_XY)
-      .value("FABRIC_2D_DYNAMIC",
-             ::tt::runtime::FabricConfig::FABRIC_2D_DYNAMIC)
-      .value("FABRIC_2D_DYNAMIC_TORUS_X",
-             ::tt::runtime::FabricConfig::FABRIC_2D_DYNAMIC_TORUS_X)
-      .value("FABRIC_2D_DYNAMIC_TORUS_Y",
-             ::tt::runtime::FabricConfig::FABRIC_2D_DYNAMIC_TORUS_Y)
-      .value("FABRIC_2D_DYNAMIC_TORUS_XY",
-             ::tt::runtime::FabricConfig::FABRIC_2D_DYNAMIC_TORUS_XY)
       .value("CUSTOM", ::tt::runtime::FabricConfig::CUSTOM);
 
   nb::enum_<::tt::target::Arch>(m, "Arch")
