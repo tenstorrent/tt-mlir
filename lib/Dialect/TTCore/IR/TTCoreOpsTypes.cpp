@@ -745,9 +745,12 @@ static llvm::SmallVector<int64_t> applyCollapsedIntervalsAndAlignments(
   assert(shape.size() == alignments.size() &&
          "Shape and alignments must have same size");
 
-  llvm::dbgs() << "\napplyCollapsedIntervalsAndAlignments: shape: " << ttmlir::utils::formatIterable(shape, "x") << "\n";
-  llvm::dbgs() << "applyCollapsedIntervalsAndAlignments: normalizedIntervals: " << ttmlir::utils::formatIterable(normalizedIntervals) << "\n";
-  llvm::dbgs() << "applyCollapsedIntervalsAndAlignments: alignments: " << ttmlir::utils::formatIterable(alignments, "x") << "\n";
+  llvm::dbgs() << "\napplyCollapsedIntervalsAndAlignments: shape: "
+               << ttmlir::utils::formatIterable(shape, "x") << "\n";
+  llvm::dbgs() << "applyCollapsedIntervalsAndAlignments: normalizedIntervals: "
+               << ttmlir::utils::formatIterable(normalizedIntervals) << "\n";
+  llvm::dbgs() << "applyCollapsedIntervalsAndAlignments: alignments: "
+               << ttmlir::utils::formatIterable(alignments, "x") << "\n";
 
   llvm::SmallVector<int64_t> resultShape;
 
@@ -816,9 +819,6 @@ GridAttr::getPhysicalGridShape(ArrayRef<int64_t> deviceGridShape) {
   TT_assertv(deviceGridShape.size() == 2ul, "Device grid shape must be 2D.");
   TT_assertv(deviceGridShape[0] == deviceGridShape[1],
              "Device grid shape must be square.");
-  TT_assertv(getShape().size() == 2ul, "Virtual grid shape is limited to 2D.");
-  TT_assertv(getMapping().getNumInputs() == 2ul,
-             "Grid mapping function must have 2 inputs.");
 
   // Checks that a physical grid shape injectively maps onto the virtual grid
   // using the provided mapping function.
@@ -826,23 +826,35 @@ GridAttr::getPhysicalGridShape(ArrayRef<int64_t> deviceGridShape) {
     auto map = getMapping();
     auto vGrid = getShape();
     auto virtualVolume = ttmlir::utils::volume(vGrid);
-    SmallVector<bool, 128> bitmap(virtualVolume, false);
+    SmallVector<bool, 256> occupied(virtualVolume, false);
     for (int y = 0; y < physGridShape[0]; y++) {
       for (int x = 0; x < physGridShape[1]; x++) {
-        auto vCoord = ArrayRef<int64_t>{map.compose({y, x})}.drop_front(1);
-        TT_assertv(vCoord.size() == 2ul, "Virtual grid coordinate must be 2D.");
+        auto fullVCoord = map.compose({y, x});
 
-        auto index = vCoord[0] * vGrid[1] + vCoord[1];
-        // if location is already occupied, the physical grid is invalid
-        if (bitmap[index]) {
+        // drop device index result from coord
+        auto vCoord = ArrayRef<int64_t>{fullVCoord}.drop_front(1);
+
+        int64_t index = 0;
+        int64_t stride = 1;
+        for (auto [i, coord] : llvm::enumerate(vCoord)) {
+          index += coord * stride;
+          stride *= vGrid[i];
+        }
+
+        // index must be in bounds and location not occupied
+        if (index >= virtualVolume || occupied[index]) {
           return false;
         }
-        // if the location is not within the virtual grid, the physical grid is
-        // invalid
-        if (vCoord[0] >= vGrid[0] || vCoord[1] >= vGrid[1]) {
-          return false;
+        // If the location is not within the virtual grid, the physical grid is
+        // invalid.
+        for (size_t i = 0; i < vCoord.size(); ++i) {
+          if (vCoord[i] < 0 || vCoord[i] >= vGrid[i]) {
+            return false;
+          }
         }
-        bitmap[index] = true;
+
+        // mark location as occupied
+        occupied[index] = true;
       }
     }
     return true;
@@ -915,10 +927,14 @@ MetalLayoutAttr::getDeviceShape(ArrayRef<int64_t> gridShape,
   deviceShape.reserve(physicalShape.size() * 2);
 
   llvm::dbgs() << "\n";
-  llvm::dbgs() << "getDeviceShape: collapsedIntervals: " << getCollapsedIntervals() << "\n";
-  llvm::dbgs() << "getDeviceShape: logicalShape: " << ttmlir::utils::formatIterable(getLogicalShape(), "x") << "\n";
-  llvm::dbgs() << "getDeviceShape: physicalShape: " << ttmlir::utils::formatIterable(physicalShape, "x") << "\n";
-  llvm::dbgs() << "getDeviceShape: gridShape: " << ttmlir::utils::formatIterable(gridShape, "x") << "\n";
+  llvm::dbgs() << "getDeviceShape: collapsedIntervals: "
+               << getCollapsedIntervals() << "\n";
+  llvm::dbgs() << "getDeviceShape: logicalShape: "
+               << ttmlir::utils::formatIterable(getLogicalShape(), "x") << "\n";
+  llvm::dbgs() << "getDeviceShape: physicalShape: "
+               << ttmlir::utils::formatIterable(physicalShape, "x") << "\n";
+  llvm::dbgs() << "getDeviceShape: gridShape: "
+               << ttmlir::utils::formatIterable(gridShape, "x") << "\n";
 
   // Divide grid dimensions in physical shape by tile dimensions to obtain the
   // shard shape and append it to the device shape.
@@ -931,7 +947,8 @@ MetalLayoutAttr::getDeviceShape(ArrayRef<int64_t> gridShape,
                dim, gridDim);
     deviceShape.push_back(dim / gridDim);
   }
-  llvm::dbgs() << "getDeviceShape: deviceShape: " << ttmlir::utils::formatIterable(deviceShape, "x") << "\n";
+  llvm::dbgs() << "getDeviceShape: deviceShape: "
+               << ttmlir::utils::formatIterable(deviceShape, "x") << "\n";
   return deviceShape;
 }
 
@@ -1450,16 +1467,16 @@ mlir::AffineMap DeviceAttr::getMemoryMap(MemRefType memrefType, size_t pageSize,
 
       // TODO: generalize to drop any results not present in the core
       // virtualization map results
-      if (affineMap.getNumResults() > coreVirtMap.getNumResults()) {
-        affineMap = affineMap.dropResults(llvm::to_vector(llvm::seq<int64_t>(0, affineMap.getNumDims() - coreVirtMap.getNumResults())));
-        llvm::dbgs() << "[getMemoryMap] dropped results:   " << affineMap << "\n";
-      }
-      affineMap = compressUnusedDims(affineMap);
-      llvm::dbgs() << "[getMemoryMap] compressed results:   " << affineMap << "\n";
+      if (affineMap.getNumDims() > coreVirtMap.getNumResults()) {
+        auto dimsToRemove =
+            affineMap.getNumDims() > coreVirtMap.getNumResults();
+        llvm::SmallBitVector projectedDims(affineMap.getNumDims());
+        projectedDims.set(0, dimsToRemove);
 
-      llvm::dbgs() << "\n[getMemoryMap] memrefType: " << memrefType << "\n";
-      llvm::dbgs() << "[getMemoryMap] coreVirtMap: " << coreVirtMap << "\n";
-      llvm::dbgs() << "[getMemoryMap] layoutMap:   " << affineMap << "\n";
+        affineMap = getProjectedMap(affineMap, projectedDims);
+        affineMap = affineMap.dropResult(0);
+      }
+
       affineMap = affineMap.compose(coreVirtMap);
     }
     if (view) {
@@ -1471,10 +1488,13 @@ mlir::AffineMap DeviceAttr::getMemoryMap(MemRefType memrefType, size_t pageSize,
     switch (memorySpace) {
     case MemorySpace::DeviceL1: {
       SmallVector<int64_t> symbols = {static_cast<int64_t>(baseOffset)};
-      auto resolvedL1Map = ttmlir::utils::replaceAffineMapSymbols(getL1Map(), symbols);
-      llvm::dbgs() << "[getMemoryMap] resolvedL1Map:     " << resolvedL1Map << "\n";
-      llvm::dbgs() << "[getMemoryMap] post memory map:   " << resolvedL1Map.compose(affineMap) << "\n";
-      llvm::dbgs() << "[getMemoryMap] DONE"  << "\n";
+      auto resolvedL1Map =
+          ttmlir::utils::replaceAffineMapSymbols(getL1Map(), symbols);
+      llvm::dbgs() << "[getMemoryMap] resolvedL1Map:     " << resolvedL1Map
+                   << "\n";
+      llvm::dbgs() << "[getMemoryMap] post memory map:   "
+                   << resolvedL1Map.compose(affineMap) << "\n";
+      llvm::dbgs() << "[getMemoryMap] DONE" << "\n";
       return resolvedL1Map.compose(affineMap);
     }
     case MemorySpace::DeviceDRAM: {
