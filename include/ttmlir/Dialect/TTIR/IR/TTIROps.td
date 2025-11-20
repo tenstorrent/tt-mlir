@@ -1657,7 +1657,7 @@ def TTIR_LogicalLeftShiftOp : TTIR_ElementwiseBinaryOp<"logical_left_shift"> {
 def TTIR_SubtractOp : TTIR_ElementwiseBinaryOp<"subtract"> {
     let summary = "Elementwise subtract operation.";
     let description = [{
-      The `subtract` operation performs an elementwise subtraction between two tensors or a tensor and a scalar.
+      The `subtract` operation performs an elementwise subtraction between two tensors.
 
       For each pair of corresponding elements, it subtracts the element in the second tensor from
       the element in the first tensor and places the result in the output tensor.
@@ -1679,20 +1679,12 @@ def TTIR_SubtractOp : TTIR_ElementwiseBinaryOp<"subtract"> {
       // %float_rhs: [1.5, 2.0, -3.2]
       // Output tensor:
       // [2.0, -2.0, 2.0]
-
-      // Example with scalar
-      %result = ttir.subtract(%tensor, %scalar, %output) : tensor<3xf32>, f32, tensor<3xf32> -> tensor<3xf32>
       ```
 
       Note: The data type of the output tensor matches the data type of the input tensors.
 
       Mathematical definition: subtract(x, y) = x - y
     }];
-
-    // Override arguments to allow rhs to be either a tensor or a scalar
-    let arguments = (ins AnyRankedTensor:$lhs,
-                         AnyTypeOf<[AnyRankedTensor, AnyFloat]>:$rhs,
-                         AnyRankedTensor:$output);
 }
 
 def TTIR_RemainderOp : TTIR_ElementwiseBinaryOp<"remainder"> {
@@ -1792,7 +1784,7 @@ def TTIR_Atan2Op :  TTIR_ElementwiseBinaryOp<"atan2"> {
 def TTIR_AddOp : TTIR_ElementwiseBinaryOp<"add", [DeclareOpInterfaceMethods<TTIR_QuantizableOpInterface, ["isQuantizedRewriteFavorable", "rewriteWithQuantizedInputs"]>]> {
     let summary = "Elementwise addition operation.";
     let description = [{
-      The `add` operation performs an elementwise addition between two tensors or a tensor and a scalar.
+      The `add` operation performs an elementwise addition between two tensors.
 
       For each pair of corresponding elements, it adds the elements and places the result in the output tensor.
 
@@ -1813,26 +1805,18 @@ def TTIR_AddOp : TTIR_ElementwiseBinaryOp<"add", [DeclareOpInterfaceMethods<TTIR
       // %float_rhs: [1.5, 2.0, -3.2]
       // Output tensor:
       // [5.0, 2.0, -2.0]
-
-      // Example with scalar
-      %result = ttir.add(%tensor, %scalar, %output) : tensor<3xf32>, f32, tensor<3xf32> -> tensor<3xf32>
       ```
 
       Note: The data type of the output tensor matches the data type of the input tensors.
 
       Mathematical definition: add(x, y) = x + y
     }];
-
-    // Override arguments to allow rhs to be either a tensor or a scalar
-    let arguments = (ins AnyRankedTensor:$lhs,
-                         AnyTypeOf<[AnyRankedTensor, AnyFloat]>:$rhs,
-                         AnyRankedTensor:$output);
 }
 
 def TTIR_MultiplyOp : TTIR_ElementwiseBinaryOp<"multiply"> {
     let summary = "Elementwise multiplication operation.";
     let description = [{
-      The `multiply` operation performs an elementwise multiplication between two tensors or a tensor and a scalar.
+      The `multiply` operation performs an elementwise multiplication between two tensors.
 
       For each pair of corresponding elements, it multiplies the elements and places the result in the output tensor.
 
@@ -1853,26 +1837,18 @@ def TTIR_MultiplyOp : TTIR_ElementwiseBinaryOp<"multiply"> {
       // %float_rhs: [1.5, 2.0, -3.2]
       // Output tensor:
       // [5.25, 0.0, -3.84]
-
-      // Example with scalar
-      %result = ttir.multiply(%tensor, %scalar, %output) : tensor<3xf32>, f32, tensor<3xf32> -> tensor<3xf32>
       ```
 
       Note: The data type of the output tensor matches the data type of the input tensors.
 
       Mathematical definition: multiply(x, y) = x * y
     }];
-
-    // Override arguments to allow rhs to be either a tensor or a scalar
-    let arguments = (ins AnyRankedTensor:$lhs,
-                         AnyTypeOf<[AnyRankedTensor, AnyFloat]>:$rhs,
-                         AnyRankedTensor:$output);
 }
 
 def TTIR_DivOp : TTIR_ElementwiseBinaryOp<"div"> {
     let summary = "Elementwise division operation.";
     let description = [{
-      The `div` operation performs an elementwise division between two tensors or a tensor and a scalar.
+      The `div` operation performs an elementwise division between two tensors.
 
       For each pair of corresponding elements, it divides the element in the first tensor (dividend) by
       the element in the second tensor (divisor) and places the result in the output tensor.
@@ -1894,20 +1870,12 @@ def TTIR_DivOp : TTIR_ElementwiseBinaryOp<"div"> {
       // %float_rhs: [1.5, 2.0, -3.2]
       // Output tensor:
       // [2.333333333, 0.0, -0.375]
-
-      // Example with scalar
-      %result = ttir.div(%tensor, %scalar, %output) : tensor<3xf32>, f32, tensor<3xf32> -> tensor<3xf32>
       ```
 
       Note: Division by zero typically results in undefined behavior or NaN for floating-point types.
 
       Mathematical definition: div(x, y) = x / y
     }];
-
-    // Override arguments to allow rhs to be either a tensor or a scalar
-    let arguments = (ins AnyRankedTensor:$lhs,
-                         AnyTypeOf<[AnyRankedTensor, AnyFloat]>:$rhs,
-                         AnyRankedTensor:$output);
 }
 
 def TTIR_MaximumOp : TTIR_ElementwiseBinaryOp<"maximum"> {

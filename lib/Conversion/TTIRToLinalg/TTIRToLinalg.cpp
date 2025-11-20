@@ -1664,19 +1664,10 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
     Location loc = op.getLoc();
 
-    Value lhs = adaptor.getLhs();
-    Value rhs = adaptor.getRhs();
-    RankedTensorType lhsType = cast<RankedTensorType>(lhs.getType());
-
-    // If rhs is a scalar float, convert it to a 0-D tensor and broadcast
-    if (isa<FloatType>(rhs.getType())) {
-      // Create a 0-D tensor from the scalar value
-      auto scalarTensorType = RankedTensorType::get({}, rhs.getType());
-      rhs = rewriter.create<tensor::FromElementsOp>(loc, scalarTensorType,
-                                                    ValueRange{rhs});
-    }
-
-    RankedTensorType rhsType = cast<RankedTensorType>(rhs.getType());
+    RankedTensorType lhsType =
+        cast<RankedTensorType>(adaptor.getLhs().getType());
+    RankedTensorType rhsType =
+        cast<RankedTensorType>(adaptor.getRhs().getType());
 
     // First, compute broadcasted shape from operands.
 
@@ -1691,7 +1682,7 @@ public:
 
     // Rewrite inputs to target dims with broadcast and collapse shape ops, as
     // needed.
-    SmallVector<Value, 2> inputs{lhs, rhs};
+    SmallVector<Value, 2> inputs{adaptor.getLhs(), adaptor.getRhs()};
     SmallVector<Value, 2> broadcastedInputs;
     for (Value input : inputs) {
       auto inputRankedTensorType = dyn_cast<RankedTensorType>(input.getType());

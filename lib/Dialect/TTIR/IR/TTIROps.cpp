@@ -53,11 +53,6 @@ bool mlir::tt::ttir::AddOp::isQuantizedRewriteFavorable(
     mlir::ArrayRef<mlir::Value> sourceOperands) {
   // If the operands are both quantized but the types do not align, return
   // false.
-  // If rhs is a scalar (float type), quantization rewrite is not applicable.
-  if (sourceOperands.size() == 2 &&
-      mlir::isa<FloatType>(sourceOperands[1].getType())) {
-    return false;
-  }
   return mlir::tt::ttir::utils::areQuantizationParamsAligned(sourceOperands);
 }
 
@@ -71,11 +66,6 @@ mlir::Operation *mlir::tt::ttir::AddOp::rewriteWithQuantizedInputs(
   assert(sourceOperands.size() == 2 && "AddOp should have two operands.");
   auto lhs = sourceOperands[0];
   auto rhs = sourceOperands[1];
-
-  // If rhs is a scalar float, quantization rewrite is not applicable.
-  if (mlir::isa<FloatType>(rhs.getType())) {
-    return nullptr;
-  }
 
   RankedTensorType lhsType = mlir::cast<RankedTensorType>(lhs.getType());
   RankedTensorType rhsType = mlir::cast<RankedTensorType>(rhs.getType());
