@@ -52,7 +52,7 @@ target_link_libraries(TTMLIRRuntime
 
 target_link_libraries(TTMLIRRuntime PUBLIC coverage_config)
 
-set_target_properties(TTMLIRRuntime PROPERTIES 
+set_target_properties(TTMLIRRuntime PROPERTIES
   INSTALL_RPATH "$ORIGIN;${TTMETAL_LIBRARY_DIR}"
   BUILD_WITH_INSTALL_RPATH TRUE
 )
