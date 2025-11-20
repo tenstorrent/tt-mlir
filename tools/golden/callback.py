@@ -6,99 +6,49 @@ import re
 from functools import partial
 import csv
 import json
+import torch
 
-from ttrt.common.util import *
+from ttrt.common.util import *  # ttrt_datatype_to_torch_dtype
 
 
-def passes_golden_tensor_to_torch(golden_tensor):
+def golden_tensor_to_torch_tensor(golden_tensor):
     """
     Convert a GoldenTensor originating from ttmlir.passes (python/Passes.cpp) into a torch tensor.
     That binding exposes fields: name, shape, strides, dtype, data (std::vector[uint8_t]).
     """
-    import torch
-
-    print("TTTTTTT", type(golden_tensor))
-    try:
-        from ttmlir.passes import DataType as PassDataType
-
-        dtype_enum = getattr(golden_tensor, "dtype", None)
-        if dtype_enum == PassDataType.Float32:
-            torch_dtype = torch.float32
-        elif dtype_enum == PassDataType.BFloat16:
-            torch_dtype = torch.bfloat16
-        elif dtype_enum == PassDataType.Float16:
-            torch_dtype = torch.float16
-        elif dtype_enum == PassDataType.UInt32:
-            torch_dtype = torch.uint32
-        elif dtype_enum == PassDataType.UInt16:
-            torch_dtype = torch.uint16
-        elif dtype_enum == PassDataType.UInt8:
-            torch_dtype = torch.uint8
-        elif dtype_enum == PassDataType.Int32:
-            torch_dtype = torch.int32
-        else:
-            # Fallback to float32 if enum is unrecognized
-            torch_dtype = torch.float32
-    except Exception:
-        torch_dtype = torch.float32
-
     shape = getattr(golden_tensor, "shape", [])
     if any(dim == 0 for dim in shape):
         return torch.empty(shape, dtype=torch_dtype)
 
+    """
     # Prefer runtime-style buffer if present, otherwise convert vector<uint8_t> to bytes
     if hasattr(golden_tensor, "get_data_buffer"):
+        torch_dtype = ttrt_datatype_to_torch_dtype(golden_tensor.dtype)
         buffer_obj = golden_tensor.get_data_buffer()
     else:
         # 'data' is a std::vector<uint8_t> from nanobind; convert to a bytes-like buffer
-        buffer_obj = bytes(getattr(golden_tensor, "data", []))
+    """
+    torch_dtype = datatype_to_torch_dtype(golden_tensor.dtype)
+    buffer_obj = bytes(getattr(golden_tensor, "data", []))
 
     return torch.frombuffer(buffer_obj, dtype=torch_dtype).reshape(shape)
 
 
-def passes_ttrt_datatype_to_torch_dtype(dtype) -> torch.dtype:
-    """Converts a PyBound `::tt::target::DataType` into a `torch.dtype`.
+def datatype_to_torch_dtype(dtype) -> torch.dtype:
+    """Converts a PyBound `::tt::target::DataType` into a `torch.dtype`."""
+    from ttmlir.passes import DataType
 
-    Currently, only `float32`, `uint32`, `uint16`, & `uint8` are supported for
-    this conversion
-
-    Arguments
-    ---------
-
-    dtype : DataType
-        A datatype from the PyBound `DataType` enum from ttrt
-
-    Returns
-    -------
-
-    A `torch.dtype` corresponding to `dtype`
-
-    Throws
-    ------
-
-    A `ValueError` if `dtype` is not one of `Float32`, `UInt32`, `UInt16`, or `UInt8`
-
-    """
-    from ttmlir.passes import DataType as PassDataType
-
-    print("1.0")
-
-    return torch.float32
-
-    print("1")
-    print(dtype, type(dtype))
-
-    if dtype == PassDataType.Float32:
+    if dtype == DataType.Float32:
         return torch.float32
-    elif dtype == PassDataType.UInt32:
+    elif dtype == DataType.UInt32:
         return torch.uint32
-    elif dtype == PassDataType.UInt16:
+    elif dtype == DataType.UInt16:
         return torch.uint16
-    elif dtype == PassDataType.UInt8:
+    elif dtype == DataType.UInt8:
         return torch.uint8
-    elif dtype == PassDataType.BFloat16:
+    elif dtype == DataType.BFloat16:
         return torch.bfloat16
-    elif dtype == PassDataType.Int32:
+    elif dtype == DataType.Int32:
         return torch.int32
     else:
         raise ValueError(
@@ -126,7 +76,6 @@ class CallbackRuntimeConfig:
         rtol=1e-05,
         check_atol: bool = True,
         check_rtol: bool = True,
-        save_golden_tensors=False,
         logging=None,
         golden_report={},
         goldens={},
@@ -138,7 +87,6 @@ class CallbackRuntimeConfig:
         self.rtol = rtol
         self.check_atol = check_atol
         self.check_rtol = check_rtol
-        self.save_golden_tensors = save_golden_tensors
         self.logging = logging
         self.golden_report = golden_report
         self.counter = -1
@@ -198,9 +146,7 @@ def post_op_callback(callback_runtime_config, binary, program_context, op_contex
         print("Output tensor is empty - skipping golden comparison")
         return
 
-    op_golden_tensor_map = callback_runtime_config.goldens[
-        loc
-    ]  # binary.get_debug_info_golden(loc)
+    op_golden_tensor_map = callback_runtime_config.goldens[loc]
     if len(op_golden_tensor_map) == 0:
         # try getting golden tensor using the loc before it was modified by passes
         loc = get_original_op_loc(loc)
@@ -220,27 +166,9 @@ def post_op_callback(callback_runtime_config, binary, program_context, op_contex
 
         op_output_tensor = op_output_tensor_map[device_id]
         rt_buffer = op_output_tensor.get_data_buffer()
-        print("3")
-        dtype = passes_ttrt_datatype_to_torch_dtype(op_golden_tensor.dtype)
-        print("4")
-        golden_tensor_torch = passes_golden_tensor_to_torch(op_golden_tensor).flatten()
-
+        dtype = datatype_to_torch_dtype(op_golden_tensor.dtype)
+        golden_tensor_torch = golden_tensor_to_torch_tensor(op_golden_tensor).flatten()
         output_tensor_torch = torch.frombuffer(rt_buffer, dtype=dtype).flatten()
-        if callback_runtime_config.save_golden_tensors:
-            golden_tensor_torch_name = get_sanitized_filename(
-                f"{loc}_{device_id}_golden.pt"
-            )
-            device_tensor_torch_name = get_sanitized_filename(
-                f"{loc}_{device_id}_device.pt"
-            )
-            torch.save(
-                golden_tensor_torch,
-                f"{callback_runtime_config.artifact_dir}/{golden_tensor_torch_name}",
-            )
-            torch.save(
-                output_tensor_torch,
-                f"{callback_runtime_config.artifact_dir}/{device_tensor_torch_name}",
-            )
 
         if golden_tensor_torch.shape != output_tensor_torch.shape:
             print(

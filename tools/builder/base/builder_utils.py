@@ -41,10 +41,9 @@ from ttrt.common.util import (
     Logger,
     FileManager,
     Binary,
-    golden_tensor_to_torch,
-    ttrt_datatype_to_torch_dtype,
     get_atol_rtol_pcc,
     parse_fabric_config,
+    ttrt_datatype_to_torch_dtype,
 )
 
 
@@ -1729,8 +1728,8 @@ def execute_fb(
         CallbackRuntimeConfig,
         pre_op_get_callback_fn,
         post_op_get_callback_fn,
-        passes_golden_tensor_to_torch,
-        passes_ttrt_datatype_to_torch_dtype,
+        golden_tensor_to_torch_tensor,
+        datatype_to_torch_dtype,
     )
 
     assert device is not None
@@ -1792,7 +1791,6 @@ def execute_fb(
             rtol=rtol,
             check_atol=check_atol,
             check_rtol=check_rtol,
-            save_golden_tensors=False,
             logging=logging,
             goldens=goldens,
         )
@@ -1823,7 +1821,7 @@ def execute_fb(
 
             if len(golden_tensor) != 0:
                 golden_tensor = golden_tensor[0]
-                golden_tensor_torch = passes_golden_tensor_to_torch(golden_tensor)
+                golden_tensor_torch = golden_tensor_to_torch_tensor(golden_tensor)
                 golden_inputs.append(golden_tensor_torch)
 
         program.populate_inputs(
@@ -1851,7 +1849,7 @@ def execute_fb(
 
                 if len(golden_tensor) != 0:
                     golden_tensor = golden_tensor[0]
-                    golden_tensor_torch = passes_golden_tensor_to_torch(golden_tensor)
+                    golden_tensor_torch = golden_tensor_to_torch_tensor(golden_tensor)
                     golden_outputs_torch.append(golden_tensor_torch)
 
         # pre-upload inputs
@@ -1902,17 +1900,13 @@ def execute_fb(
                     # Create empty tensor.
                     output_tensor_torch = torch.empty(
                         outputs[i].get_shape(),
-                        dtype=passes_ttrt_datatype_to_torch_dtype(
-                            outputs[i].get_dtype()
-                        ),
+                        dtype=ttrt_datatype_to_torch_dtype(outputs[i].get_dtype()),
                     )
                 elif not isEmptyTensor and len(data_buffer) > 0:
                     # Create regular tensor.
                     output_tensor_torch = torch.frombuffer(
                         data_buffer,
-                        dtype=passes_ttrt_datatype_to_torch_dtype(
-                            outputs[i].get_dtype()
-                        ),
+                        dtype=ttrt_datatype_to_torch_dtype(outputs[i].get_dtype()),
                     ).reshape(outputs[i].get_shape())
                 else:
                     raise Exception(
