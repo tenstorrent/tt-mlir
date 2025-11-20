@@ -11,36 +11,6 @@ import torch
 from ttrt.common.util import get_atol_rtol_pcc
 
 
-def golden_tensor_to_torch_tensor(golden_tensor):
-    shape = getattr(golden_tensor, "shape", [])
-    if any(dim == 0 for dim in shape):
-        return torch.empty(shape, dtype=torch_dtype)
-    torch_dtype = datatype_to_torch_dtype(golden_tensor.dtype)
-    buffer_obj = bytes(getattr(golden_tensor, "data", []))
-    return torch.frombuffer(buffer_obj, dtype=torch_dtype).reshape(shape)
-
-
-def datatype_to_torch_dtype(dtype) -> torch.dtype:
-    from ttmlir.passes import DataType
-
-    if dtype == DataType.Float32:
-        return torch.float32
-    elif dtype == DataType.UInt32:
-        return torch.uint32
-    elif dtype == DataType.UInt16:
-        return torch.uint16
-    elif dtype == DataType.UInt8:
-        return torch.uint8
-    elif dtype == DataType.BFloat16:
-        return torch.bfloat16
-    elif dtype == DataType.Int32:
-        return torch.int32
-    else:
-        raise ValueError(
-            "Only F32, BF16, and unsigned integers are supported in the runtime"
-        )
-
-
 def get_original_op_loc(text: str) -> str:
     try:
         # Get the original location string before it was modified by passes
@@ -52,6 +22,8 @@ def get_original_op_loc(text: str) -> str:
 
 
 class CallbackRuntimeConfig:
+    """Runtime config for intermediate golden comparison callbacks using a golden_map of torch tensors"""
+
     def __init__(
         self,
         device=None,
@@ -93,7 +65,6 @@ def pre_op_get_callback_fn(callback_runtime_config):
 
 
 def post_op_callback(callback_runtime_config, binary, program_context, op_context):
-    import torch
     import ttrt.runtime
 
     loc = ttrt.runtime.get_op_loc_info(op_context)
@@ -108,14 +79,14 @@ def post_op_callback(callback_runtime_config, binary, program_context, op_contex
     if len(op_golden_tensor_map) == 0:
         # try getting golden tensor using the loc before it was modified by passes
         loc = get_original_op_loc(loc)
-        op_golden_tensor_map = binary.get_debug_info_golden(loc)
+        op_golden_tensor_map = callback_runtime_config.goldens(loc)
         if len(op_golden_tensor_map) == 0:
             print("Golden tensor is None - skipping golden comparison")
             return
 
     # loop through all devices and compare golden tensors
     device_results = {}
-    for device_id, op_golden_tensor in op_golden_tensor_map.items():
+    for device_id, golden_tensor_torch in op_golden_tensor_map.items():
         if device_id not in op_output_tensor_map.keys():
             print(
                 f"Device {device_id} does not have an output tensor - skipping golden comparison"
@@ -124,13 +95,16 @@ def post_op_callback(callback_runtime_config, binary, program_context, op_contex
 
         op_output_tensor = op_output_tensor_map[device_id]
         rt_buffer = op_output_tensor.get_data_buffer()
-        dtype = datatype_to_torch_dtype(op_golden_tensor.dtype)
-        golden_tensor_torch = golden_tensor_to_torch_tensor(op_golden_tensor).flatten()
-        output_tensor_torch = torch.frombuffer(rt_buffer, dtype=dtype).flatten()
+        golden_tensor_torch = golden_tensor_torch.flatten()
+        output_tensor_torch = torch.frombuffer(
+            rt_buffer, dtype=golden_tensor_torch.dtype
+        ).flatten()
 
         if golden_tensor_torch.shape != output_tensor_torch.shape:
             print(
-                "Golden and output tensor shapes do not match - skipping golden comparison"
+                "Golden and output tensor shapes do not match - skipping golden comparison",
+                golden_tensor_torch.shape,
+                output_tensor_torch.shape,
             )
             return
 
@@ -152,8 +126,9 @@ def post_op_callback(callback_runtime_config, binary, program_context, op_contex
                 else 0.0
             )
 
-        print(f"For device {device_id} at loc={loc}, PCC={cal_pcc}")
-        print(output_str)
+        print(
+            f"For device {device_id} at loc={loc}, golden tensor comparrison: {output_str}"
+        )
 
         result = "pass"
         if cal_pcc < callback_runtime_config.pcc:

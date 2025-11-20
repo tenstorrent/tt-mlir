@@ -1484,8 +1484,6 @@ def compile_stablehlo_to_flatbuffer(
     except Exception as e:
         raise TTBuilderCompileException(e)
 
-    goldens = dict(builder.golden_map)
-
     stablehlo_pipeline(module, " ".join(shlo_pipeline_options))
     print(f"`{fn.__name__}` successfully ran stablehlo-pipeline.")
     print(module)
@@ -1525,7 +1523,6 @@ def compile_stablehlo_to_flatbuffer(
         custom_pipeline=custom_pipeline,
         pipeline_options=ttir_pipeline_options,
         print_ir=print_ir,
-        goldens=goldens,
     )
 
 
@@ -1675,6 +1672,10 @@ def compile_ttir_module_to_flatbuffer(
     output_file_fbb = ".".join([output_file_mlir, target_extension])
 
     goldens = dict(builder.golden_map) if goldens is None else goldens
+    golden_tensors: Dict[str, Dict[int, GoldenTensor]] = {}
+
+    for loc, golden in goldens.items():
+        golden_tensors[loc] = builder._generate_golden_device_tensor(loc, golden)
 
     # Compile TTIR MLIR -> TT{Metal,NN} MLIR
     try:
@@ -1701,7 +1702,7 @@ def compile_ttir_module_to_flatbuffer(
         to_target(
             module,
             output_file_fbb,
-            goldens,
+            golden_tensors,
             module_logger.module_log if module_logger.module_log else [],
         )
     except Exception as e:
@@ -1714,6 +1715,7 @@ def compile_ttir_module_to_flatbuffer(
 
 def execute_fb(
     fb_path: str,
+    goldens: Dict[Operand, GoldenMapTensor],
     pcc: float = 0.99,
     atol: float = 1e-08,
     rtol: float = 1e-05,
@@ -1721,7 +1723,6 @@ def execute_fb(
     device=None,  # Optional device parameter for fixture reuse
     check_atol: bool = False,
     check_rtol: bool = False,
-    goldens: Dict[Operand, GoldenMapTensor] = None,
 ) -> None:
     """
     Takes a flatbuffer path `fb`, and executes it with random inputs supplied by `input_shapes` and `input_dtypes`
@@ -1730,8 +1731,6 @@ def execute_fb(
         CallbackRuntimeConfig,
         pre_op_get_callback_fn,
         post_op_get_callback_fn,
-        golden_tensor_to_torch_tensor,
-        datatype_to_torch_dtype,
     )
 
     assert device is not None
@@ -1750,6 +1749,7 @@ def execute_fb(
     program_indices.extend(range(bin.get_num_programs()))
 
     if not disable_golden:
+        goldens = golden_map_as_torch_tensors(goldens)
         # Set up callback runtime config and register DebugHooks once per execution
         callback_runtime_config = CallbackRuntimeConfig(
             device=device,
@@ -1775,21 +1775,19 @@ def execute_fb(
             continue
 
         # Fetch the golden inputs from the builder golden_map
-        golden_inputs = []
+        golden_inputs_torch = []
         for i in range(program.num_inputs()):
             golden_tensor = {}
 
             if not disable_golden:
                 golden_tensor = goldens[f"input_{i}"]
 
-            if len(golden_tensor) != 0:
-                golden_tensor = golden_tensor[0]
-                golden_tensor_torch = golden_tensor_to_torch_tensor(golden_tensor)
-                golden_inputs.append(golden_tensor_torch)
+                if len(golden_tensor) != 0:
+                    golden_inputs_torch.append(golden_tensor[0])
 
         program.populate_inputs(
             torch.randn,
-            golden_inputs,
+            golden_inputs_torch,
         )
         program.populate_outputs(torch.zeros)
 
@@ -1811,9 +1809,7 @@ def execute_fb(
                 golden_tensor = goldens[f"output_{idx}"]
 
                 if len(golden_tensor) != 0:
-                    golden_tensor = golden_tensor[0]
-                    golden_tensor_torch = golden_tensor_to_torch_tensor(golden_tensor)
-                    golden_outputs_torch.append(golden_tensor_torch)
+                    golden_outputs_torch.append(golden_tensor[0])
 
         # pre-upload inputs
         inputs = convert_input_layouts(device, inputs, bin.fbb, program_index)
@@ -1941,6 +1937,18 @@ def execute_fb(
 
         if not disable_golden:
             return callback_runtime_config.golden_report
+
+
+def golden_map_as_torch_tensors(
+    golden_map_tensors: Dict[str, Dict[int, GoldenMapTensor]],
+) -> Dict[str, Dict[int, torch.Tensor]]:
+    golden_torch_tensors: Dict[str, Dict[int, torch.Tensor]] = {}
+
+    for loc, golden_map_tensor in golden_map_tensors.items():
+        contiguous_tensor = golden_map_tensor.contiguous()
+        golden_torch_tensors[loc] = contiguous_tensor.shard_map
+
+    return golden_torch_tensors
 
 
 def load_mlir_file(

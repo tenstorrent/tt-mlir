@@ -110,8 +110,8 @@ class Builder:
         return self._mesh_shape
 
     @property
-    def golden_map(self) -> Dict[str, Dict[int, GoldenTensor]]:
-        golden_info: Dict[str, Dict[int, GoldenTensor]] = {}
+    def golden_map(self) -> Dict[str, Dict[int, GoldenMapTensor]]:
+        golden_info: Dict[str, Dict[int, GoldenMapTensor]] = {}
 
         if self._disable_golden_check:
             return golden_info
@@ -123,9 +123,7 @@ class Builder:
         # Always store inputs into golden map.
         for index, input in enumerate(self._ordered_inputs):
             loc = f"input_{index}"
-            golden_info[loc] = self._generate_golden_device_tensor(
-                loc, self._get_golden_tensor(input)
-            )
+            golden_info[loc] = self._get_golden_tensor(input)
 
         # Store outputs into golden map if they are marked to be stored.
         for index, output in enumerate(self._ordered_outputs):
@@ -133,15 +131,13 @@ class Builder:
                 continue
 
             loc = f"output_{index}"
-            golden_info[loc] = self._generate_golden_device_tensor(
-                loc, self._get_golden_tensor(output)
-            )
+            golden_info[loc] = self._get_golden_tensor(output)
 
         if self._force_graph_level_check:
             return golden_info
 
         # Store other operands into golden map if they are marked to be stored.
-        for operand, builder_golden_tensor in self._goldens.items():
+        for operand, golden_map_tensor in self._goldens.items():
             if operand not in self._goldens_to_store:
                 continue
 
@@ -150,8 +146,18 @@ class Builder:
 
             loc = self._operand_to_loc.get(operand, None)
             self._loc_to_operand[loc] = operand
+            golden_info[loc] = golden_map_tensor
+
+        return golden_info
+
+    @property
+    def golden_map_as_golden_tensors(self) -> Dict[str, Dict[int, GoldenTensor]]:
+        golden_info: Dict[str, Dict[int, GoldenTensor]] = {}
+
+        golden_map_tensors = self.golden_map
+        for loc, golden_map_tensor in golden_map_tensors.items():
             golden_info[loc] = self._generate_golden_device_tensor(
-                loc, builder_golden_tensor
+                loc, golden_map_tensor
             )
 
         return golden_info
@@ -403,10 +409,10 @@ class Builder:
         return GoldenMapTensor({0: random_tensor}, mesh_shape=self._mesh_shape)
 
     def _generate_golden_device_tensor(
-        self, loc: str, builder_golden_tensor: GoldenMapTensor
+        self, loc: str, golden_map_tensor: GoldenMapTensor
     ) -> Dict[int, GoldenTensor]:
         device_golden_info: Dict[int, GoldenTensor] = {}
-        contiguous_tensor = builder_golden_tensor.contiguous()
+        contiguous_tensor = golden_map_tensor.contiguous()
         for device_id, device_golden in contiguous_tensor.shard_map.items():
             data_type = self._get_datatype_from_torch_dtype(device_golden.dtype)
             device_golden_info[device_id] = GoldenTensor(

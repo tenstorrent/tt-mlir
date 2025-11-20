@@ -20,7 +20,7 @@ def test_arbitrary_model(
 ):
     def model(in0: Operand, in1: Operand, in2: Operand, builder: TTIRBuilder):
         add = builder.add(in0, in1)
-        exp = builder.subtract(add, in2)
+        exp = builder.exp(in2)
         return builder.multiply(add, exp)
 
     compile_and_execute_ttir(
