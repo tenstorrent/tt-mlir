@@ -1952,6 +1952,7 @@ def concat_golden(input_tensors: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
         Concatenated tensor
     """
     dim = kwargs.get("dim", 0)
+    dim = unpack_mlir_attr(dim)
     if isinstance(input_tensors, tuple):
         return torch.concat(input_tensors, dim=dim)
     else:
