@@ -148,6 +148,18 @@ d2m::FullOp::getBufferType(mlir::Value value,
   return mlir::success();
 }
 
+void d2m::FullOp::getCanonicalizationPatterns(mlir::RewritePatternSet &patterns,
+                                              mlir::MLIRContext *context) {
+  // Remove unused d2m.full ops (dead code elimination).
+  patterns.add(+[](FullOp op, mlir::PatternRewriter &rewriter) {
+    if (op.getResult().use_empty()) {
+      rewriter.eraseOp(op);
+      return success();
+    }
+    return failure();
+  });
+}
+
 //===----------------------------------------------------------------------===//
 // MeshShardOp
 //===----------------------------------------------------------------------===//

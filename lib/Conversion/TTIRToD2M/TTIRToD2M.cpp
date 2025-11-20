@@ -398,7 +398,6 @@ private:
     // types
     std::optional<FloatAttr> scalarAttr = std::nullopt;
     SmallVector<Value> tensorInputs;
-    SmallVector<Operation *> scalarOpsToErase;
 
     for (Value origInput : origInputs) {
       // Check the converted operand's type for rank (from adaptor)
@@ -422,15 +421,12 @@ private:
           auto fillValueAttr = d2mFullOp.getFillValue();
           if (auto floatAttr = mlir::dyn_cast<FloatAttr>(fillValueAttr)) {
             scalarAttr = floatAttr;
-            // Track the d2m.full op for erasure
-            scalarOpsToErase.push_back(d2mFullOp);
             continue; // Skip adding this to tensorInputs
           }
           if (auto intAttr = mlir::dyn_cast<IntegerAttr>(fillValueAttr)) {
             // Convert integer to float
             float floatValue = static_cast<float>(intAttr.getInt());
             scalarAttr = rewriter.getF32FloatAttr(floatValue);
-            scalarOpsToErase.push_back(d2mFullOp);
             continue; // Skip adding this to tensorInputs
           }
         }
@@ -445,7 +441,6 @@ private:
             auto splatAttr = denseAttr.getSplatValue<Attribute>();
             if (auto floatAttr = mlir::dyn_cast<FloatAttr>(splatAttr)) {
               scalarAttr = floatAttr;
-              scalarOpsToErase.push_back(constantOp);
               continue; // Skip adding this to tensorInputs
             }
           }
@@ -457,14 +452,12 @@ private:
           auto fillValueAttr = fullOp.getFillValue();
           if (auto floatAttr = mlir::dyn_cast<FloatAttr>(fillValueAttr)) {
             scalarAttr = floatAttr;
-            scalarOpsToErase.push_back(fullOp);
             continue; // Skip adding this to tensorInputs
           }
           if (auto intAttr = mlir::dyn_cast<IntegerAttr>(fillValueAttr)) {
             // Convert integer to float
             float floatValue = static_cast<float>(intAttr.getInt());
             scalarAttr = rewriter.getF32FloatAttr(floatValue);
-            scalarOpsToErase.push_back(fullOp);
             continue; // Skip adding this to tensorInputs
           }
         }
