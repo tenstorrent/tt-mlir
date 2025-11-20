@@ -851,6 +851,8 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::NegativeTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::PowBinaryTilesInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::PowBinaryTilesOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::PowerTileInitOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::PowUnaryTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::RecipTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::RecipTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::ReduceInitOp>,

@@ -357,9 +357,12 @@ private:
       } else if constexpr (std::is_same_v<TileOp, d2m::TileDivOp>) {
         yield = bbBuilder.create<d2m::TileDivScalarOp>(
             loc, resultTypes[0], operands[0], scalarAttr.value());
+      } else if constexpr (std::is_same_v<TileOp, d2m::TilePowOp>) {
+        yield = bbBuilder.create<d2m::TilePowerScalarOp>(
+            loc, resultTypes[0], operands[0], scalarAttr.value());
       } else {
         llvm_unreachable(
-            "Scalar operations only supported for add, sub, mul, div");
+            "Scalar operations only supported for add, sub, mul, div, pow");
       }
     } else {
       // Use regular tensor-tensor op
@@ -383,12 +386,13 @@ private:
     auto [origInputs, origOutputs] =
         splitDpsSignature(adaptor, op.getDpsInits().size());
 
-    // Check if this op supports scalar operands (only add, mul, sub, div)
+    // Check if this op supports scalar operands (only add, mul, sub, div, pow)
     constexpr bool supportsScalar =
         std::is_same_v<ConcreteOp, ttir::AddOp> ||
         std::is_same_v<ConcreteOp, ttir::MultiplyOp> ||
         std::is_same_v<ConcreteOp, ttir::SubtractOp> ||
-        std::is_same_v<ConcreteOp, ttir::DivOp>;
+        std::is_same_v<ConcreteOp, ttir::DivOp> ||
+        std::is_same_v<ConcreteOp, ttir::PowOp>;
 
     // Check for scalar operands (rank 0 tensors) by checking converted operand
     // types
@@ -406,7 +410,7 @@ private:
         if constexpr (!supportsScalar) {
           return rewriter.notifyMatchFailure(
               op, "Scalar operands only supported for add, multiply, subtract, "
-                  "and div ops");
+                  "div, and pow ops");
         }
 
         // Extract the scalar constant value from the converted operand
@@ -523,12 +527,6 @@ private:
 
     rewriter.replaceOp(op, unLayoutResult(rewriter, generic->getResult(0),
                                           op->getResult(0).getType()));
-
-    // Erase scalar-producing ops that are no longer used
-    // We didn't add them to the generic op inputs, so they should be unused now
-    for (Operation *opToErase : scalarOpsToErase) {
-      rewriter.eraseOp(opToErase);
-    }
 
     return llvm::success();
   }
