@@ -2339,6 +2339,7 @@ def dynamic_slice_golden(
 
     return GoldenMapTensor(shard_map, input_tensor.mesh_shape)
 
+
 def slice_golden_stablehlo(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
     """
     Golden function for StableHLO slice operation.
