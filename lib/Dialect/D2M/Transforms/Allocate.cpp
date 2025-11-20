@@ -341,7 +341,6 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
 
     FuncAnalysisData analysis;
 
-    // PHASE 1: Allocation and stream insertion (no deallocs).
     if (failed(analyzeLiveness(funcOp, analysis))) {
       return failure();
     }
@@ -366,20 +365,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
       return failure();
     }
 
-    // PHASE 2: Re-analyze liveness with all streams inserted, then add
-    // deallocs. Clear both memref and sequencing data since analyzeLiveness
-    // rebuilds them from scratch. A better long-term solution would be to
-    // use the bufferization aliasing interface to track buffer lifetimes
-    // and rely on the standard buffer deallocation pass.
-    analysis.memrefs.clear();
-    analysis.sequencing.positionMap.clear();
-    analysis.sequencing.operationMap.clear();
-
-    if (failed(analyzeLiveness(funcOp, analysis))) {
-      return failure();
-    }
-
-    if (failed(insertDeallocations(funcOp, analysis))) {
+    if (failed(insertDeallocs(funcOp, analysis))) {
       return failure();
     }
 
@@ -475,11 +461,6 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
         memrefCtx.live = closure.live;
       }
     }
-
-    // NOTE: Previous post-processing code here tried to force storage buffers
-    // to die BEFORE input buffers, but this is incorrect. The storage buffer
-    // must remain live until all uses of the stream result complete. The
-    // resolve() function now handles extending storage buffer lifetimes correctly.
 
     TT_ALLOC_DEBUG("collected {} memref context(s)", analysis.memrefs.size());
     TT_debug(analysis.sequencing.valid());
@@ -1102,11 +1083,13 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
             // repeatedly.
             continue;
           }
-          // Remap the operation to the new memory space.
-          // NOTE: Dealloc insertion is done after liveness re-analysis.
-          llvm::TypeSwitch<Operation *>(opOnChain)
-              .Case<memref::AllocOp, d2m::ViewLayoutOp>(
-                  [&](auto op) { remap(rewriter, op, remappedMemSpace); });
+          llvm::TypeSwitch<Operation *, void>(opOnChain)
+              .Case([&](memref::AllocOp op) {
+                remap(rewriter, op, remappedMemSpace);
+              })
+              .Case([&](d2m::ViewLayoutOp op) {
+                remap(rewriter, op, remappedMemSpace);
+              });
         }
 
         if (operandCtx.isOutput && !allowL1OutputSpilling) {
@@ -1218,8 +1201,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
         rewriter.create<memref::AllocOp>(op.getLoc(), bufferType);
 
     assignAddressAndAlignment(rewriter, bufferAllocOp, req.offset, info);
-    // NOTE: Dealloc insertion deferred to second phase after liveness
-    // re-analysis.
+    insertDealloc(rewriter, bufferAllocOp, req.last, sequencing);
 
     const auto oldOperandType = mlir::cast<MemRefType>(operand.get().getType());
     const AffineMap reblockingMap = utils::calculateReblockMap(
@@ -1247,6 +1229,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
       for (Region &region : op->getRegions()) {
         TT_assert(region.hasOneBlock());
         Block &block = region.getBlocks().front();
+
         const auto operandIndex = operandCtx.operand->getOperandNumber();
         BlockArgument arg = block.getArgument(operandIndex);
         BlockArgument newArg =
@@ -1274,86 +1257,6 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     }
   }
 
-  /// Insert dealloc operations for all allocated buffers based on the
-  /// (refreshed) liveness analysis. This runs as a second phase after
-  /// all streams have been inserted.
-  LogicalResult insertDeallocations(func::FuncOp funcOp,
-                                    FuncAnalysisData &analysis) {
-    [[maybe_unused]] AsOperandPrinter asOperand{funcOp};
-    IRRewriter rewriter(funcOp->getContext());
-
-    // Collect and categorize all deallocs by type (input vs storage).
-    // For stream_layout operations, we want to ensure that input buffers are
-    // deallocated before their corresponding storage buffers to maintain
-    // proper cleanup order.
-    struct DeallocInfo {
-      memref::AllocOp allocOp;
-      SequenceT position;
-      bool isStorageBuffer;
-    };
-    SmallVector<DeallocInfo, 8> allDeallocs;
-
-    // Collect all deallocs with their categorization.
-    for (auto &[memref, memrefCtx] : analysis.memrefs) {
-      if (!isDeviceMemorySpace(memrefCtx.type, MemorySpace::System)) {
-        continue;
-      }
-
-      memref::AllocOp allocOp = memref.getDefiningOp<memref::AllocOp>();
-      if (!allocOp) {
-        continue;
-      }
-
-      // Check if this buffer is used as a storage buffer in a stream_layout.
-      bool isStorageBuffer = false;
-      for (Operation *user : memref.getUsers()) {
-        if (auto streamOp = llvm::dyn_cast<d2m::StreamLayoutOp>(user)) {
-          if (streamOp.getStorage() == memref) {
-            isStorageBuffer = true;
-            break;
-          }
-        }
-      }
-
-      TT_ALLOC_TRACE("categorizing dealloc for {} at position {} as {}",
-                     asOperand(memref), memrefCtx.live.last,
-                     isStorageBuffer ? "storage" : "input");
-
-      allDeallocs.push_back({allocOp, memrefCtx.live.last, isStorageBuffer});
-    }
-
-    // Sort deallocs: first by position, then by type.
-    // IMPORTANT: insertDealloc() uses setInsertionPointAfter(), which means
-    // when multiple deallocs are inserted at the same position, they appear
-    // in REVERSE order in the IR (last inserted appears first).
-    // We want the final IR order to be: inputs first, then storage.
-    // So we must insert in reverse order: storage first, then inputs.
-    llvm::sort(allDeallocs, [](const DeallocInfo &a, const DeallocInfo &b) {
-      if (a.position != b.position) {
-        return a.position < b.position;
-      }
-      // At the same position: storage before inputs (reverse of desired IR order).
-      // Return true if a should come before b in the insertion order.
-      // If a is storage and b is input: return true (insert storage first)
-      // If a is input and b is storage: return false (insert input later)
-      // This is equivalent to: a.isStorageBuffer && !b.isStorageBuffer
-      // Or simpler: storage (true) > input (false), so use > instead of <
-      return a.isStorageBuffer > b.isStorageBuffer;
-    });
-
-    // Insert deallocs in sorted order.
-    for (const auto &info : allDeallocs) {
-      TT_ALLOC_TRACE("inserting {} dealloc at position {}",
-                     info.isStorageBuffer ? "storage" : "input",
-                     info.position);
-      insertDealloc(rewriter, info.allocOp, info.position, analysis.sequencing);
-    }
-
-    return success();
-  }
-
-  /// @return `map` with all broadcast result expressions replaced with const-1
-  /// expression
   /// @return `true` if `genericOp` requires a stream
   /// for operand @`operandIndex` based on the available indexing space
   /// information
@@ -1384,16 +1287,16 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
   static AffineMap canonicalizeBroadcasts(AffineMap map) {
     auto *ctx = map.getContext();
 
-    // This could almost be a simple AffineMap::replace() but need to make sure
-    // only complete `0`-result expressions are replaced, not other possible
-    // zero const terms within result expression trees, however unlikely that
-    // seems.
+    // This could almost be a simple AffineMap::replace() but need to make
+    // sure only complete `0`-result expressions are replaced, not other
+    // possible zero const terms within result expression trees, however
+    // unlikely that seems.
 
     const auto replacement = mlir::getAffineConstantExpr(1, ctx);
     SmallVector<AffineExpr> exprs;
 
     for (auto expr : map.getResults()) {
-      if (auto constExpr = dyn_cast<AffineConstantExpr>(expr)) {
+      if (auto constExpr = llvm::dyn_cast<AffineConstantExpr>(expr)) {
         if (constExpr.getValue() == 0) {
           exprs.push_back(replacement);
           continue;
@@ -1655,68 +1558,25 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     rewriter.modifyOpInPlace(op, [&]() { memref.setType(newType); });
   }
 
-  // Internal recursive helper with memoization for resolve().
-  static SequenceT resolveImpl(Operation *op, const LivenessClosureGraph &graph,
-                               llvm::DenseMap<Operation *, SequenceT> &memo,
-                               llvm::SmallPtrSet<Operation *, 8> &visiting) {
-    // Check if we've already computed this op's final liveness.
-    auto memoIt = memo.find(op);
-    if (memoIt != memo.end()) {
-      return memoIt->second;
-    }
-
-    // Cycle detection: if we're currently visiting this op, return its base
-    // liveness to break the cycle. We'll refine it later.
-    if (!visiting.insert(op).second) {
-      auto opClosure = graph.find(op);
-      TT_assert(opClosure != graph.end());
-      return opClosure->second.live.last;
-    }
+  // Recursive helper for `analyzeAllocOps(func::FuncOp funcOp...)`.
+  // Note: the overall traversal cost can be reduced by memoizing
+  // final maxLast values and/or visiting Values in a reverse topological
+  // sort order. This is not done at the moment.
+  static SequenceT resolve(Operation *op, const LivenessClosureGraph &graph) {
 
     auto opClosure = graph.find(op);
     TT_assert(opClosure != graph.end());
     SequenceT last = opClosure->second.live.last;
 
-    // Follow forward edges: extend liveness through view/stream users.
     for (Operation *user : op->getResult(0).getUsers()) {
       if (graph.contains(user)) {
         if (llvm::isa<d2m::ViewLayoutOp, d2m::StreamLayoutOp>(user)) {
-          last = std::max(last, resolveImpl(user, graph, memo, visiting));
+          last = std::max(last, resolve(user, graph));
         }
       }
     }
 
-    // Special handling for StreamLayoutOp: the storage buffer (2nd operand)
-    // must remain live through all uses of the stream result. This ensures
-    // the storage buffer is deallocated AFTER all operations using the stream
-    // complete, preventing use-after-free errors.
-    if (auto streamOp = llvm::dyn_cast<d2m::StreamLayoutOp>(op)) {
-      Value storage = streamOp.getStorage();
-      if (Operation *storageDefOp = storage.getDefiningOp()) {
-        if (graph.contains(storageDefOp)) {
-          // Extend storage buffer lifetime to at least when this stream dies.
-          // We update the memo directly to ensure the storage buffer's
-          // lifetime covers all uses of the stream result.
-          SequenceT storageLife = resolveImpl(storageDefOp, graph, memo, visiting);
-          if (storageLife < last) {
-            memo[storageDefOp] = last;
-          }
-        }
-      }
-    }
-
-    visiting.erase(op);
-
-    // Memoize the result before returning.
-    memo[op] = last;
     return last;
-  }
-
-  // Recursive helper for `analyzeAllocOps(func::FuncOp funcOp...)`.
-  static SequenceT resolve(Operation *op, const LivenessClosureGraph &graph) {
-    llvm::DenseMap<Operation *, SequenceT> memo;
-    llvm::SmallPtrSet<Operation *, 8> visiting;
-    return resolveImpl(op, graph, memo, visiting);
   }
 
   static MemorySpaces getMemorySpaces(ttcore::ChipDescAttr chipDesc,
