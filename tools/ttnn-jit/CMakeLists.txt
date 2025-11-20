@@ -14,11 +14,11 @@ if (USE_TTNN_JIT_WHEEL)
     COMMAND touch ${CMAKE_CURRENT_BINARY_DIR}/build/.installed
     WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
     DEPENDS _ttnn_jit
-    OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/build/.installed
+    OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/build/.ttnn-jit-installed
   )
   add_custom_target(ttnn-jit ALL
     COMMENT "ttnn-jit package"
-    DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/build/.installed)
+    DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/build/.ttnn-jit-installed _ttnn_jit _ttmlir_runtime TTMLIRPythonModules)
 else ()
   include(AddMLIRPython)
   declare_mlir_python_sources(TTNNJITSources
@@ -44,5 +44,5 @@ else ()
   )
   add_custom_target(ttnn-jit ALL
     COMMENT "ttnn-jit package"
-    DEPENDS TTNNJITModules)
+    DEPENDS TTNNJITModules _ttnn_jit _ttmlir_runtime TTMLIRPythonModules)
 endif()

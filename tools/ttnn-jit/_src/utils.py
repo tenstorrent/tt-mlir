@@ -21,7 +21,7 @@ def discover_dialect_ops(dialect, denylist=None):
 
     denylist = set() if denylist is None else denylist
     op_map = {}
-    ns = dialect.__name__.removeprefix("ttmlir.dialects.")
+    ns = dialect.__name__.split("ttmlir.dialects.")[-1]
     for attr_name in dir(dialect):
         if attr_name.startswith("_"):
             continue
