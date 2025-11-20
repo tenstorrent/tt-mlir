@@ -9,6 +9,7 @@
 #include <sstream>
 
 #include "tt/runtime/debug.h"
+#include "tt/runtime/detail/common/logger.h"
 
 namespace tt::runtime::debug {
 
@@ -74,6 +75,22 @@ std::string Stats::toString() const {
   oss << "\t" << this << "\n";
   oss << "}";
   return oss.str();
+}
+
+void logMemoryState(
+    const std::unordered_map<tt::runtime::MemoryBufferType,
+                             tt::runtime::MemoryView> &memoryState,
+    std::string_view prefix) {
+  constexpr std::array<tt::runtime::MemoryBufferType, 4> MEMORY_TYPES = {
+      tt::runtime::MemoryBufferType::DRAM, tt::runtime::MemoryBufferType::L1,
+      tt::runtime::MemoryBufferType::L1_SMALL,
+      tt::runtime::MemoryBufferType::TRACE};
+
+  LOG_INFO(prefix);
+  for (const auto &memoryType : MEMORY_TYPES) {
+    LOG_INFO("Device ", toString(memoryType),
+              " memory state: ", memoryState.at(memoryType).toString());
+  }
 }
 
 } // namespace tt::runtime::debug

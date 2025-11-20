@@ -658,5 +658,8 @@ void registerRuntimeBindings(nb::module_ &m) {
 
   m.def("unregister_hooks",
         []() { ::tt::runtime::debug::Hooks::get().unregisterHooks(); });
+
+  m.def("log_memory_state", &::tt::runtime::debug::logMemoryState,
+        nb::arg("memory_state"), nb::arg("prefix") = "");
 }
 } // namespace tt::runtime::python
