@@ -869,7 +869,8 @@ inline flatbuffers::Offset<::tt::target::ttnn::MemoryDesc>
 toFlatbuffer(FlatbufferObjectCache &cache, mlir::MemRefType memref,
              ttcore::TensorMeshAttr tensorMesh, ttnn::BufferType bufferType,
              ttnn::TensorMemoryLayoutAttr memLayoutAttr,
-             ttcore::GridAttr shardGrid, ttcore::GridAttr deviceGrid, bool exactGrid) {
+             ttcore::GridAttr shardGrid, ttcore::GridAttr deviceGrid,
+             bool exactGrid) {
   auto shapeInt64 = memref.getShape();
   std::vector<int32_t> shape(shapeInt64.begin(), shapeInt64.end());
   ttcore::DataType dtype = ttcore::DataType::Float32;
@@ -919,7 +920,7 @@ toFlatbuffer(FlatbufferObjectCache &cache, mlir::MemRefType memref,
                      ctx, ttnn::CoreCoordAttr::get(ctx, 0, 0),
                      ttnn::CoreCoordAttr::get(ctx, shardGrid.getShape()[1] - 1,
                                               shardGrid.getShape()[0] - 1)));
-        std::cout<<"Armin1"<<std::endl;
+        std::cout << "Armin1" << std::endl;
         coreRangeSetAttr.dump();
       } else {
         coreRangeSetAttr = ttnn::CoreRangeSetAttr::get(
@@ -937,8 +938,8 @@ toFlatbuffer(FlatbufferObjectCache &cache, mlir::MemRefType memref,
                            ttnn::CoreCoordAttr::get(ctx, loc[0] + size[0] - 1,
                                                     loc[1] + size[1] - 1));
                      }));
-      std::cout<<"Armin2"<<std::endl;
-      coreRangeSetAttr.dump();
+        std::cout << "Armin2" << std::endl;
+        coreRangeSetAttr.dump();
       }
       shardSpecAttr = ttnn::ShardSpecAttr::get(
           ctx, coreRangeSetAttr, ttnn::ShapeAttr::get(ctx, shape),
@@ -967,15 +968,17 @@ ttnnLayoutAttrToFlatbuffer(FlatbufferObjectCache &cache,
   // Ideally, we establish one-to-one mapping between MLIR and FlatBuffer
   // that guarantees identical memrefs will always produce identical
   // flatbuffer LayoutDescs.
-  std::cout<<"Armin: layoutAttr: "<<std::endl;
+  std::cout << "Armin: layoutAttr: " << std::endl;
   layoutAttr.dump();
-  std::cout<<"Armin: ignorePhysicalLayout: "<<layoutAttr.getIgnorePhysicalLayout()<<std::endl;
-  std::cout<<"exactGrid: "<<layoutAttr.getExactGrid()<<std::endl;
+  std::cout << "Armin: ignorePhysicalLayout: "
+            << layoutAttr.getIgnorePhysicalLayout() << std::endl;
+  std::cout << "exactGrid: " << layoutAttr.getExactGrid() << std::endl;
   return ::tt::target::ttnn::CreateLayoutDesc(
       *cache.fbb, toFlatbuffer(cache, ttcore::OOBVal::Undef),
       toFlatbuffer(cache, layoutAttr.getMemref(), layoutAttr.getTensorMesh(),
                    layoutAttr.getBufferType(), layoutAttr.getMemLayout(),
-                   layoutAttr.getGrid(), deviceAttr.getWorkerGrid(), layoutAttr.getExactGrid()));
+                   layoutAttr.getGrid(), deviceAttr.getWorkerGrid(),
+                   layoutAttr.getExactGrid()));
 }
 
 inline ::tt::target::ttnn::CoreType
