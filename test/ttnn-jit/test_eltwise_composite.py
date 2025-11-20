@@ -47,16 +47,20 @@ WIDTH_SHARDED_SHAPE_GRIDS = [
     ((2, 32, 384), (1, 5)),
 ]
 
-SHARDED_SHAPE_GRID_LAYOUTS = [
-    (shape, grid, ttnn.TensorMemoryLayout.BLOCK_SHARDED)
-    for shape, grid in BLOCK_SHARDED_SHAPE_GRIDS
-] + [
-    (shape, grid, ttnn.TensorMemoryLayout.HEIGHT_SHARDED)
-    for shape, grid in HEIGHT_SHARDED_SHAPE_GRIDS
-] + [
-    (shape, grid, ttnn.TensorMemoryLayout.WIDTH_SHARDED)
-    for shape, grid in WIDTH_SHARDED_SHAPE_GRIDS
-]
+SHARDED_SHAPE_GRID_LAYOUTS = (
+    [
+        (shape, grid, ttnn.TensorMemoryLayout.BLOCK_SHARDED)
+        for shape, grid in BLOCK_SHARDED_SHAPE_GRIDS
+    ]
+    + [
+        (shape, grid, ttnn.TensorMemoryLayout.HEIGHT_SHARDED)
+        for shape, grid in HEIGHT_SHARDED_SHAPE_GRIDS
+    ]
+    + [
+        (shape, grid, ttnn.TensorMemoryLayout.WIDTH_SHARDED)
+        for shape, grid in WIDTH_SHARDED_SHAPE_GRIDS
+    ]
+)
 
 DRAM_SHAPES = [(32, 32), (32, 64), (64, 64), (64, 128), (128, 128)]
 
@@ -86,7 +90,14 @@ def mul_add(input_tensor_a, input_tensor_b, input_tensor_c):
     return output
 
 
-@pytest.mark.parametrize("shape, max_grid, memory_layout", SHARDED_SHAPE_GRID_LAYOUTS, ids=[f"shape_{shape}_grid_{grid}_{layout}" for shape, grid, layout in SHARDED_SHAPE_GRID_LAYOUTS])
+@pytest.mark.parametrize(
+    "shape, max_grid, memory_layout",
+    SHARDED_SHAPE_GRID_LAYOUTS,
+    ids=[
+        f"shape_{shape}_grid_{grid}_{layout}"
+        for shape, grid, layout in SHARDED_SHAPE_GRID_LAYOUTS
+    ],
+)
 @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32])
 @pytest.mark.parametrize("op", [cosh, sinh, mul_add])
 def test_composite_ops_l1(device, shape, max_grid, dtype, op, memory_layout):
@@ -99,7 +110,14 @@ def test_composite_ops_l1(device, shape, max_grid, dtype, op, memory_layout):
     if op is mul_add and shape == (256, 512) and dtype is torch.bfloat16:
         pytest.xfail("OOM error.")
     run_op_test(
-        device, shape, max_grid, dtype, op, num_inputs, buffer_type=ttnn.BufferType.L1, memory_layout=memory_layout
+        device,
+        shape,
+        max_grid,
+        dtype,
+        op,
+        num_inputs,
+        buffer_type=ttnn.BufferType.L1,
+        memory_layout=memory_layout,
     )
 
 
