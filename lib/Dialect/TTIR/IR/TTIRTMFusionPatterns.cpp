@@ -125,7 +125,7 @@ private:
         llvm::SmallVector<int64_t> group;
         int64_t consumed = 1;
         while (inputIndex < rank &&
-               outputShape[outputIndex] % consumed * inputShape[inputIndex] ==
+               outputShape[outputIndex] % (consumed * inputShape[inputIndex]) ==
                    0) {
           group.push_back(axesIds[inputIndex]);
           consumed *= inputShape[inputIndex];
