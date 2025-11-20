@@ -2068,7 +2068,7 @@ def TTNN_ScatterOp : TTNN_Op<"scatter", [DeclareOpInterfaceMethods<TTNN_OpModelI
         - `index` (ttnn.Tensor): Indices where values will be written to.
         - `source` (ttnn.Tensor): The values to scatter into the input tensor.
         - `dim` (int32_t): The dimension along which to scatter.
-        - `scatter_reduce_type` (Enum): The scatter reduce type to use (SUM, MUL, MIN, MAX).
+        - `scatter_reduce_type` (Enum): The scatter reduce type to use (SUM, PROD, MIN, MAX, INVALID).
     }];
 
     let arguments = (ins AnyRankedTensor:$input,

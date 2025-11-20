@@ -1828,20 +1828,19 @@ static llvm::ErrorOr<ttcore::ReduceType> getReduceType(SrcOpT srcOp) {
   // Check operations in the first block and determine reduce type for now
   // TODO(wooseoklee): This pattern matching mechanism may need to be updated as
   // we see complicated patterns of reduce block in the future.
-  // Add, Mul, Max, Min are the only supported reduce types for now.
+  // Add, Prod, Max, Min are the only supported reduce types for now.
   auto &block = srcOp.getRegion().front();
   for (Operation &op : block) {
     if (isa<mlir::stablehlo::AddOp>(op)) {
       return ttcore::ReduceType::Sum;
-    }
-    if (isa<mlir::stablehlo::MulOp>(op)) {
-      return ttcore::ReduceType::Mul;
-    }
-    if (isa<mlir::stablehlo::MaxOp>(op)) {
+    } else if (isa<mlir::stablehlo::MulOp>(op)) {
+      return ttcore::ReduceType::Prod;
+    } else if (isa<mlir::stablehlo::MaxOp>(op)) {
       return ttcore::ReduceType::Max;
-    }
-    if (isa<mlir::stablehlo::MinOp>(op)) {
+    } else if (isa<mlir::stablehlo::MinOp>(op)) {
       return ttcore::ReduceType::Min;
+    } else {
+      return ttcore::ReduceType::Invalid;
     }
   }
   // Other reduce types are currently not supported
@@ -2448,9 +2447,8 @@ public:
         this->getTypeConverter()->convertType(srcOp.getResults()[0].getType()));
 
     // Convert reduceType stablehlo attribute into ttir attribute
-    llvm::ErrorOr<ttcore::ReduceType> scatter_reduce_type =
-        getReduceType(srcOp);
-    if (!scatter_reduce_type) {
+    llvm::ErrorOr<ttcore::ReduceType> scatterReduceType = getReduceType(srcOp);
+    if (!scatterReduceType) {
       return rewriter.notifyMatchFailure(
           srcOp, "ScatterOp cannot specify reduce type.");
     }
@@ -2480,7 +2478,7 @@ public:
         llvm::SmallVector<int32_t>(inputBatchingDims),
         llvm::SmallVector<int32_t>(scatterIndicesBatchingDims),
         llvm::SmallVector<int32_t>(scatterDimsToOperandDims), indexVectorDim,
-        indicesAreSorted, uniqueIndices, *scatter_reduce_type);
+        indicesAreSorted, uniqueIndices, *scatterReduceType);
 
     return success();
   }

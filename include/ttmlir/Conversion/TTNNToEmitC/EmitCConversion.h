@@ -779,8 +779,11 @@ struct EmitCTypeConverter<ttcore::ReduceType> {
     case ttcore::ReduceType::Var:
       rso << "VAR";
       return buf;
-    case ttcore::ReduceType::Mul:
-      rso << "MUL";
+    case ttcore::ReduceType::Prod:
+      rso << "PROD";
+      return buf;
+    case ttcore::ReduceType::Invalid:
+      rso << "INVALID";
       return buf;
     }
 

@@ -24,34 +24,39 @@ void run(const ::tt::target::ttnn::ScatterOp *op, ProgramContext &context) {
       ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
           op->memory_config());
   // TT Metal currently only supports the following scatter reduction types:
-  // SUM, MULTIPLY, AMIN, AMAX.
+  // SUM, MULTIPLY, AMIN, AMAX, INVALID.
   ::ttnn::operations::data_movement::scatter::ScatterReductionType
-      scatter_reduce_type;
+      scatterReduceType;
   switch (op->scatter_reduce_type()) {
-  case 0: // Sum -> ADD
-    scatter_reduce_type =
+  case ::tt::target::ttnn::ScatterReduceType::Sum: // Sum -> ADD
+    scatterReduceType =
         ::ttnn::operations::data_movement::scatter::ScatterReductionType::ADD;
     break;
-  case 6: // Mul -> MULTIPLY
-    scatter_reduce_type = ::ttnn::operations::data_movement::scatter::
+  case ::tt::target::ttnn::ScatterReduceType::Prod: // Prod -> MULTIPLY
+    scatterReduceType = ::ttnn::operations::data_movement::scatter::
         ScatterReductionType::MULTIPLY;
     break;
-  case 3: // Min -> AMIN
-    scatter_reduce_type =
+  case ::tt::target::ttnn::ScatterReduceType::Min: // Min -> AMIN
+    scatterReduceType =
         ::ttnn::operations::data_movement::scatter::ScatterReductionType::AMIN;
     break;
-  case 2: // Max -> AMAX
-    scatter_reduce_type =
+  case ::tt::target::ttnn::ScatterReduceType::Max: // Max -> AMAX
+    scatterReduceType =
         ::ttnn::operations::data_movement::scatter::ScatterReductionType::AMAX;
     break;
+  case ::tt::target::ttnn::ScatterReduceType::Invalid: // Invalid -> INVALID
+    scatterReduceType = ::ttnn::operations::data_movement::scatter::
+        ScatterReductionType::INVALID;
+    break;
   default:
-    scatter_reduce_type =
-        ::ttnn::operations::data_movement::scatter::ScatterReductionType::ADD;
+    // Default to INVALID
+    scatterReduceType = ::ttnn::operations::data_movement::scatter::
+        ScatterReductionType::INVALID;
     break;
   }
 
   ::ttnn::Tensor out = ::ttnn::scatter(input, dim, index, source,
-                                       outputMemoryConfig, scatter_reduce_type);
+                                       outputMemoryConfig, scatterReduceType);
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }

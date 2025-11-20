@@ -1714,7 +1714,7 @@ public:
         op, this->getTypeConverter()->convertType(op.getType()),
         adaptor.getInput(), adaptor.getIndex(), adaptor.getSource(),
         rewriter.getI32IntegerAttr(op.getDim()),
-        adaptor.getScatterReduceTypeAttr(), nullptr);
+        adaptor.getScatterReduceTypeAttr(), /*memory_config=*/nullptr);
     return success();
   }
 };

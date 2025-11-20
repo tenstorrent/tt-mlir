@@ -188,10 +188,10 @@ TTNNOperandsWorkaroundsFactory::createScatterOpOperandsWorkarounds(
       mlir::cast<ttnn::TTNNLayoutAttr>(sourceType.getEncoding());
 
   bool isLayoutWorkaroundRequired =
-      (inputLayoutAttr.isTiled() && inputType.getElementType().isF32()) ||
-      (sourceLayoutAttr.isTiled() && sourceType.getElementType().isF32()) ||
-      (inputLayoutAttr.isTiled() && inputType.getElementType().isBF16()) ||
-      (sourceLayoutAttr.isTiled() && sourceType.getElementType().isBF16());
+      (inputLayoutAttr.isTiled() && (inputType.getElementType().isF32() ||
+                                     inputType.getElementType().isBF16())) ||
+      (sourceLayoutAttr.isTiled() && (sourceType.getElementType().isF32() ||
+                                      sourceType.getElementType().isBF16()));
 
   TTNNOperandWorkarounds operandWorkaround;
 
