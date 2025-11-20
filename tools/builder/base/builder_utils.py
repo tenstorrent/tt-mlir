@@ -44,6 +44,8 @@ from ttrt.common.util import (
     get_atol_rtol_pcc,
     parse_fabric_config,
     ttrt_datatype_to_torch_dtype,
+    create_tensor,
+    convert_input_layouts,
 )
 
 
@@ -1734,40 +1736,6 @@ def execute_fb(
 
     assert device is not None
 
-    # Create 'owned tensor' in case of empty tensor;
-    # otherwise create 'borrowed tensor'.
-    def create_tensor(tensor):
-        # Empty tensor if any of the dim is zero.
-        isEmptyTensor = not all(tensor.shape)
-
-        if isEmptyTensor:
-            return ttrt.runtime.create_owned_host_tensor(
-                tensor.data_ptr(),
-                list(tensor.shape),
-                list(tensor.stride()),
-                tensor.element_size(),
-                Binary.Program.to_data_type(tensor.dtype),
-            )
-
-        return ttrt.runtime.create_borrowed_host_tensor(
-            tensor.data_ptr(),
-            list(tensor.shape),
-            list(tensor.stride()),
-            tensor.element_size(),
-            Binary.Program.to_data_type(tensor.dtype),
-        )
-
-    def convert_input_layouts(device, inputs, fbb, program_index):
-        import ttrt.runtime
-
-        inputs_converted = []
-        for input_index in range(len(inputs)):
-            input_layout = ttrt.runtime.get_layout(fbb, program_index, input_index)
-            inputs_converted.append(
-                ttrt.runtime.to_layout(inputs[input_index], device, input_layout, True)
-            )
-        return inputs_converted
-
     logger = Logger()
     logging = logger.get_logger()
     file_manager = FileManager(logger)
@@ -1785,13 +1753,11 @@ def execute_fb(
         # Set up callback runtime config and register DebugHooks once per execution
         callback_runtime_config = CallbackRuntimeConfig(
             device=device,
-            artifact_dir="",
             pcc=pcc,
             atol=atol,
             rtol=rtol,
             check_atol=check_atol,
             check_rtol=check_rtol,
-            logging=logging,
             goldens=goldens,
         )
         ttrt.runtime.DebugHooks.get(
@@ -1807,17 +1773,14 @@ def execute_fb(
         # Skip private programs (e.g. subgraphs created by const-eval)
         if program.is_private():
             continue
-        if not disable_golden:
-            # Reset per-program callback state
-            callback_runtime_config.start_new_callback("")
 
-        # Fetch the golden inputs embedded in the flatbuffer
+        # Fetch the golden inputs from the builder golden_map
         golden_inputs = []
         for i in range(program.num_inputs()):
             golden_tensor = {}
 
             if not disable_golden:
-                golden_tensor = bin.fbb.get_debug_info_golden(f"input_{i}")
+                golden_tensor = goldens[f"input_{i}"]
 
             if len(golden_tensor) != 0:
                 golden_tensor = golden_tensor[0]
@@ -1840,12 +1803,12 @@ def execute_fb(
             new_output = create_tensor(i)
             outputs.append(new_output)
 
-        # load output golden tensors from flatbuffer
+        # load output golden tensors from the builder golden_map
         if not disable_golden:
             golden_outputs_torch = []
             for idx in range(0, len(program.output_tensors)):
                 golden_tensor = {}
-                golden_tensor = bin.fbb.get_debug_info_golden(f"output_{idx}")
+                golden_tensor = goldens[f"output_{idx}"]
 
                 if len(golden_tensor) != 0:
                     golden_tensor = golden_tensor[0]
@@ -1895,7 +1858,6 @@ def execute_fb(
             if not disable_golden:
                 isEmptyTensor = not all(outputs[i].get_shape())
                 data_buffer = bytearray(outputs[i].get_data_buffer())
-                print("HERE2")
                 if isEmptyTensor and len(data_buffer) == 0:
                     # Create empty tensor.
                     output_tensor_torch = torch.empty(

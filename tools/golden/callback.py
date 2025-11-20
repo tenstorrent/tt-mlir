@@ -8,34 +8,19 @@ import csv
 import json
 import torch
 
-from ttrt.common.util import *  # ttrt_datatype_to_torch_dtype
+from ttrt.common.util import get_atol_rtol_pcc
 
 
 def golden_tensor_to_torch_tensor(golden_tensor):
-    """
-    Convert a GoldenTensor originating from ttmlir.passes (python/Passes.cpp) into a torch tensor.
-    That binding exposes fields: name, shape, strides, dtype, data (std::vector[uint8_t]).
-    """
     shape = getattr(golden_tensor, "shape", [])
     if any(dim == 0 for dim in shape):
         return torch.empty(shape, dtype=torch_dtype)
-
-    """
-    # Prefer runtime-style buffer if present, otherwise convert vector<uint8_t> to bytes
-    if hasattr(golden_tensor, "get_data_buffer"):
-        torch_dtype = ttrt_datatype_to_torch_dtype(golden_tensor.dtype)
-        buffer_obj = golden_tensor.get_data_buffer()
-    else:
-        # 'data' is a std::vector<uint8_t> from nanobind; convert to a bytes-like buffer
-    """
     torch_dtype = datatype_to_torch_dtype(golden_tensor.dtype)
     buffer_obj = bytes(getattr(golden_tensor, "data", []))
-
     return torch.frombuffer(buffer_obj, dtype=torch_dtype).reshape(shape)
 
 
 def datatype_to_torch_dtype(dtype) -> torch.dtype:
-    """Converts a PyBound `::tt::target::DataType` into a `torch.dtype`."""
     from ttmlir.passes import DataType
 
     if dtype == DataType.Float32:
@@ -70,33 +55,22 @@ class CallbackRuntimeConfig:
     def __init__(
         self,
         device=None,
-        artifact_dir="",
         pcc=0.99,
         atol=1e-08,
         rtol=1e-05,
         check_atol: bool = True,
         check_rtol: bool = True,
-        logging=None,
-        golden_report={},
         goldens={},
     ):
         self.device = device
-        self.artifact_dir = artifact_dir
         self.pcc = pcc
         self.atol = atol
         self.rtol = rtol
         self.check_atol = check_atol
         self.check_rtol = check_rtol
-        self.logging = logging
-        self.golden_report = golden_report
-        self.counter = -1
         self.goldens = goldens
-
-    def start_new_callback(self, artifact_dir):
-        self.artifact_dir = artifact_dir
-        self.counter = -1
         self.golden_report = {}
-        self.memory_report = {}
+        self.counter = -1
 
     def callback_counter(self):
         self.counter = self.counter + 1
@@ -107,20 +81,6 @@ class CallbackRuntimeConfig:
             json.dump(self.golden_report, json_file, indent=4)
 
         self.print(f"Saved golden report to={golden_report_path}")
-
-    def save_memory_report(self, memory_report_path):
-        with open(memory_report_path, "w") as json_file:
-            json.dump(self.memory_report, json_file, indent=4)
-
-        self.print(f"Saved memory report to={memory_report_path}")
-
-    def check_pcc(self):
-        for loc, device_data in self.golden_report.items():
-            for device_id, golden_data in device_data.items():
-                if golden_data["actual_pcc"] < golden_data["expected_pcc"]:
-                    raise PCCErrorException(
-                        f"Failed: golden comparison failed at loc={loc} for device={device_id}, actual_pcc={golden_data['actual_pcc']} < expected_pcc={golden_data['expected_pcc']}"
-                    )
 
 
 def pre_op_callback(callback_runtime_config, binary, program_context, op_context):
@@ -136,9 +96,7 @@ def post_op_callback(callback_runtime_config, binary, program_context, op_contex
     import torch
     import ttrt.runtime
 
-    logging = callback_runtime_config.logging
     loc = ttrt.runtime.get_op_loc_info(op_context)
-
     op_output_tensor_map = ttrt.runtime.get_op_output_tensor(
         op_context, program_context
     )
@@ -181,7 +139,6 @@ def post_op_callback(callback_runtime_config, binary, program_context, op_contex
             output_tensor_torch,
             callback_runtime_config.atol,
             callback_runtime_config.rtol,
-            logging,
         )
 
         # Handle case where tensor has only one element.
