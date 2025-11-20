@@ -124,12 +124,12 @@ jobs:
         
         # Append localhost AND machine IP to no_proxy for Tracy capture and explorer (CIv2 proxy bypass)
         # See: https://github.com/tenstorrent/github-ci-infra/issues/1187
-        # 127.0.0.1 - for explorer server (Python Flask binds to localhost)
+        # Testing: localhost (hostname) + ::1 (IPv6 loopback), without 127.0.0.1 (IPv4 loopback)
         # ${MACHINE_IP} - for Tracy capture (Tracy C++ uses gethostbyname(gethostname()))
         MACHINE_IP=$(hostname -I | awk '{print $1}')
-        export no_proxy="${no_proxy:+$no_proxy,}127.0.0.1,${MACHINE_IP}"
-        export NO_PROXY="${NO_PROXY:+$NO_PROXY,}127.0.0.1,${MACHINE_IP}"
-        echo "DEBUG: Added to no_proxy: 127.0.0.1 (explorer), ${MACHINE_IP} (tracy)"
+        export no_proxy="${no_proxy:+$no_proxy,}localhost,::1,${MACHINE_IP}"
+        export NO_PROXY="${NO_PROXY:+$NO_PROXY,}localhost,::1,${MACHINE_IP}"
+        echo "DEBUG: Added to no_proxy: localhost,::1 (explorer), ${MACHINE_IP} (tracy)"
         
         export WORK_DIR="$(pwd)"
         export BUILD_DIR="${{ steps.strings.outputs.build-output-dir }}"
