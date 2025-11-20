@@ -8,8 +8,7 @@ module @jit_matmul_shardy1 attributes {mhlo.num_partitions = 8 : i32, mhlo.num_r
     // CHECK: "ttnn.mesh_shard"
     %3 = "ttir.mesh_shard"(%arg1) <{shard_dims = array<i64: 0, 1>, shard_direction = #ttcore.shard_direction<full_to_shard>, shard_shape = array<i64: 2, 4>, shard_type = #ttcore.shard_type<devices>}> : (tensor<1024x2048xf32>) -> tensor<1024x1024xf32>
     // CHECK: "ttnn.mesh_shard"
-    %4 = ttir.empty() : tensor<1024x1024xf32>
-    %5 = "ttir.add"(%1, %3, %4) : (tensor<1024x1024xf32>, tensor<1024x1024xf32>, tensor<1024x1024xf32>) -> tensor<1024x1024xf32>
+    %5 = "ttir.add"(%1, %3) : (tensor<1024x1024xf32>, tensor<1024x1024xf32>) -> tensor<1024x1024xf32>
     %7 = "ttir.mesh_shard"(%5) <{shard_dims = array<i64: 0, 1>, shard_direction = #ttcore.shard_direction<shard_to_full>, shard_shape = array<i64: 2, 4>, shard_type = #ttcore.shard_type<devices>}> : (tensor<1024x1024xf32>) -> tensor<1024x2048xf32>
     // CHECK: "ttnn.mesh_shard"
     return %7 : tensor<1024x2048xf32>
