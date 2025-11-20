@@ -508,6 +508,7 @@ def build_module(
                 return _process_multi_return_result(result)
 
         print(f"`{fn.__name__}` successfully transformed into a MLIR module.")
+        print(module)
         base = fn.__name__ if base is None else base
         filename = _get_target_path(
             output_root, dir_name, base + mlir_suffix, builder_type
@@ -1176,9 +1177,12 @@ def compile_ttnn_to_flatbuffer(
             inputs_shapes,
             inputs_types,
         )
+        print(module)
     except Exception as e:
         raise TTBuilderCompileException(e)
-
+    print("3.1")
+    print(module)
+    print("3.5")
     return compile_ttir_module_to_flatbuffer(
         module,
         builder,
@@ -1633,13 +1637,14 @@ def compile_ttir_module_to_flatbuffer(
         target_extension = "py"
     else:
         raise ValueError("Unsupported target: " + target)
-
+    print("4")
     output_file_mlir = _get_target_path(
         output_root, builder_dir, test_base + mlir_suffix, target
     )
     output_file_fbb = ".".join([output_file_mlir, target_extension])
 
     goldens = dict(builder.golden_map) if goldens is None else goldens
+    print("5")
 
     # Compile TTIR MLIR -> TT{Metal,NN} MLIR
     try:
@@ -1653,6 +1658,7 @@ def compile_ttir_module_to_flatbuffer(
             mesh_dict=mesh_dict,
             argument_types_string=argument_types_string,
         )
+        print("6")
     except Exception as e:
         raise TTBuilderCompileException(e)
 

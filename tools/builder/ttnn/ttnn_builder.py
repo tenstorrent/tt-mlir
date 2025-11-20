@@ -100,8 +100,10 @@ class TTNNBuilder(Builder):
                 else self._get_loc_of_extra_file_callee(id=id)
             )
 
+            print(ttnn_kwargs, inputs, result_tensor)
             # Organize arguments and create the ttnn op.
             if organize_ttnn_args(inputs, result_tensor) == 0:
+                print("TRUE")
                 op = op_ttnn_function(
                     loc=loc,
                     **ttnn_kwargs,
@@ -3151,4 +3153,186 @@ class TTNNBuilder(Builder):
             [input],
             golden_kwargs=kwargs,
             ttnn_kwargs=kwargs,
+        )
+
+    def arange(
+        self,
+        shape: Shape,
+        start: int,
+        end: int,
+        step: int,
+        dtype: torch.dtype = torch.float32,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpView:
+        """
+        Creates ``ttnn.arange``.
+
+        *Creates a (1, 1, 1, N)-shaped tensor of sequential values.*
+
+        Returns a (1, 1, 1, N)-shaped tensor with values from `start` to `end` (exclusive) with a step size of `step`.
+
+        Parameters
+        ----------
+        shape : Shape
+            Shape of the result tensor
+        start : int
+            Starting value
+        end : int
+            Ending value (exclusive)
+        step : int, optional
+            Step size between values (default: 1)
+        unit_attrs : *Optional[List[str]]*
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpView*)
+            Tensor with sequential values
+        """
+        data_type = self._get_type_from_torch_dtype(dtype)
+        result = self._create_ranked_tensor_type(shape, data_type)
+
+        # Build single-dim tensor
+        single_dim_tensor = torch.arange(start=start, end=end, step=step, dtype=dtype)
+
+        print(shape, type(shape))
+        # print(single_dim_tensor_bt)
+
+        return self._op_proxy(
+            ttnn.ArangeOp,
+            [result],
+            golden_kwargs={
+                "start": start,
+                "end": end,
+                "step": step,
+            },
+            ttnn_kwargs={
+                "start": start,
+                "end": end,
+                "step": step,
+            },
+            organize_ttnn_args=lambda i, o: (o,),
+            organize_golden_args=lambda i: [],
+            output_shape=shape,
+            output_type=dtype,
+            unit_attrs=unit_attrs,
+        )
+
+    # Note: TTRT runtime supports float32, bfloat16, uint8, uint16, uint32, int32
+    # For bfloat16, use precision-friendly values [-1.0 to 1.0] for best results
+    def constant(
+        self,
+        tensor: torch.Tensor,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpView:
+        """
+        Creates ``ttnn.constant``.
+
+        *Creates a tensor with the specified values.*
+
+        Returns a tensor of given shape with the specified values.
+
+        Parameters
+        ----------
+        tensor : torch.Tensor
+            Tensor containing the constant values
+        unit_attrs : *Optional[List[str]]*, optional
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpView*)
+            Tensor with the specified values
+        """
+        if not isinstance(tensor, torch.Tensor):
+            raise TypeError("constant expects a torch.Tensor input")
+
+        if tensor.numel() == 0:
+            raise ValueError("Cannot create constant with empty tensor")
+
+        mlir_dtype = self._get_type_from_torch_dtype(tensor.dtype)
+
+        shape = list(tensor.shape)
+        tensor_type = RankedTensorType.get(shape, mlir_dtype)
+
+        flat_values = tensor.flatten().tolist()
+
+        if tensor.numel() == 1 or len(set(flat_values)) == 1:
+            # Splat case
+            if isinstance(mlir_dtype, IntegerType):
+                attr = IntegerAttr.get(mlir_dtype, int(flat_values[0]))
+            elif isinstance(mlir_dtype, FloatType):
+                attr = FloatAttr.get(mlir_dtype, float(flat_values[0]))
+            else:
+                raise NotImplementedError(f"Unsupported MLIR type: {mlir_dtype}")
+
+            value_attr = DenseElementsAttr.get_splat(tensor_type, attr)
+        else:
+            # Non-splat case
+            if isinstance(mlir_dtype, IntegerType):
+                elems = [IntegerAttr.get(mlir_dtype, int(v)) for v in flat_values]
+            elif isinstance(mlir_dtype, FloatType):
+                elems = [FloatAttr.get(mlir_dtype, float(v)) for v in flat_values]
+            else:
+                raise NotImplementedError(f"Unsupported MLIR type: {mlir_dtype}")
+
+            value_attr = DenseElementsAttr.get(elems, tensor_type)
+
+        return self._op_proxy(
+            ttnn.ConstantOp,
+            [],
+            golden_kwargs={"value": tensor},
+            ttnn_kwargs={"result": tensor_type, "value": value_attr},
+            organize_ttnn_args=lambda i, o: 0,
+            unit_attrs=unit_attrs,
+        )
+
+    def embedding(
+        self, in0: Operand, in1: Operand, unit_attrs: Optional[List[str]] = None
+    ) -> OpView:
+        """
+        Creates ``ttir.embedding``.
+
+        *Embedding lookup operation.*
+
+        Performs a lookup in an embedding table (in1) using indices (in0).
+        Returns a tensor containing the embeddings for the given indices.
+
+        .. code-block:: mlir
+
+            // Lookup embeddings for indices
+            %result = ttir.embedding(%indices, %weights, %output) : tensor<2xi32>, tensor<4x3xf32> -> tensor<2x3xf32>
+            // Indices tensor:
+            // [1, 3]  // Looking up embeddings at indices 1 and 3
+            // Weights tensor (embedding table):
+            // [[0.1, 0.2, 0.3],  // embedding 0
+            //  [0.4, 0.5, 0.6],  // embedding 1
+            //  [0.7, 0.8, 0.9],  // embedding 2
+            //  [1.0, 1.1, 1.2]]  // embedding 3
+            // Output tensor:
+            // [[0.4, 0.5, 0.6],  // embedding for index 1
+            //  [1.0, 1.1, 1.2]]  // embedding for index 3
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor containing indices
+        in1 : Operand
+            Weight tensor containing embeddings
+        unit_attrs : *Optional[List[str]]*, optional
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpView*)
+            A tensor containing the embeddings for the input indices
+        """
+        return self._op_proxy(
+            ttnn.EmbeddingOp,
+            [in0, in1],
+            organize_golden_args=lambda i: (
+                self._get_golden_tensor(i[0]),
+                self._get_golden_tensor(i[1]),
+            ),
+            unit_attrs=unit_attrs,
         )

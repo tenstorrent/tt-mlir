@@ -502,3 +502,100 @@ def test_all_gather(
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
     )
+
+
+@pytest.mark.parametrize(
+    "shape,start,end,step,dtype",
+    [((1, 1, 1, 5), 0, 5, 1, torch.int64), ((1, 1, 1, 5), 0, 10, 2, torch.float32)],
+)
+def test_arange(
+    shape: Shape, start: int, end: int, step: int, dtype: torch.dtype, request, device
+):
+    def arange(builder: TTNNBuilder, unit_attrs: Optional[List[str]] = None):
+        return builder.arange(shape, start, end, step, dtype, unit_attrs=unit_attrs)
+
+    compile_and_execute_ttnn(
+        arange,
+        [],
+        [],
+        test_base=request.node.name,
+        device=device,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+    )
+
+
+@pytest.mark.parametrize(
+    "tensor",
+    [
+        torch.tensor(1, dtype=torch.uint8),
+        torch.tensor([1, 2, 3, 4], dtype=torch.uint16),
+        torch.tensor([1, 2, 3, 4], dtype=torch.uint32),
+        torch.tensor([[1, 2], [3, 4]], dtype=torch.int32),
+        torch.tensor([0.0, 0.0, 1.0], dtype=torch.bfloat16),
+        torch.tensor([1.0, 2.0, 3.0], dtype=torch.float32),
+        torch.tensor([1.0, 2.0, 3.0], dtype=torch.float32),
+    ],
+    ids=[
+        "scalar_int-uint8",
+        "1d_int-uint16",
+        "1d_int-uint32",
+        "2d_int-int32",
+        "1d_float-bf16",
+        "1d_float-f32",
+        "torch_float_tensor-float32",
+    ],
+)
+def test_constant(tensor, request, device):
+    def constant(builder: TTNNBuilder, unit_attrs: Optional[List[str]] = None):
+        return builder.constant(tensor, unit_attrs=unit_attrs)
+
+    compile_and_execute_ttnn(
+        constant,
+        [],
+        [],
+        test_base=request.node.name,
+        device=device,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+    )
+
+
+def embedding(
+    in0: Operand,
+    in1: Operand,
+    builder: TTNNBuilder,
+    unit_attrs: Optional[List[str]] = None,
+):
+    return builder.embedding(in0, in1, unit_attrs=unit_attrs)
+
+
+@pytest.mark.parametrize(
+    "test_fn,inputs_shapes,inputs_dtypes",
+    [
+        pytest.param(
+            embedding,
+            [(33, 32), (512, 128)],
+            [torch.float32] * 2,
+        ),
+    ],
+)
+@pytest.mark.parametrize("target", ["ttnn"])
+def test_unique_ops(
+    test_fn: Callable,
+    inputs_shapes: List[Shape],
+    inputs_dtypes: List[torch.dtype],
+    target: str,
+    request,
+    device,
+):
+    compile_and_execute_ttnn(
+        test_fn,
+        inputs_shapes=inputs_shapes,
+        inputs_types=inputs_dtypes,
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
+        device=device,
+    )

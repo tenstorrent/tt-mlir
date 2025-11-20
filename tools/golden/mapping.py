@@ -2412,6 +2412,27 @@ def arange_golden(single_dim_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTens
     return GoldenMapTensor(output_shards, single_dim_tensor.mesh_shape)
 
 
+def ttnn_arange_golden(single_dim_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
+    """
+    Golden function for arange operation using TTIR kwargs.
+
+    Expected kwargs from builder (ttir_kwargs):
+    - start: int
+    - end: int
+    - step: int
+    - arange_dimension: int (ignored here; layout handled by builder output shape)
+    """
+    start = kwargs.get("start", 0)
+    end = kwargs.get("end", 0)
+    step = kwargs.get("step", 1)
+    output_shards = {}
+    for device_id, shard in single_dim_tensor.shard_map.items():
+        output_shards[device_id] = torch.arange(
+            start=start, end=end, step=step, dtype=torch.float32
+        )
+    return GoldenMapTensor(output_shards, single_dim_tensor.mesh_shape)
+
+
 def cumsum_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
     """
     Golden function for cumsum operation with TTIR parameter names.
@@ -3070,7 +3091,11 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttnn.ClampTensorOp: clamp_tensor_golden,
     ttnn.PadOp: pad_golden,
     ttnn.SliceStaticOp: slice_golden,
+    # Tensor creation
+    ttnn.ArangeOp: arange_golden,
+    ttnn.ConstantOp: constant_golden,
     # CCL (Collective Communication Library) operations
     ttnn.MeshShardOp: mesh_shard_golden,
     ttnn.AllGatherOp: all_gather_golden,
+    ttnn.EmbeddingOp: embedding_golden,
 }
