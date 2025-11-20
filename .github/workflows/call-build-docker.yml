@@ -5,6 +5,12 @@ name: Build Docker Image
 
 on:
   workflow_call:
+    inputs:
+      dockbuild:
+        description: "Specify scope of docker image build (all, ci)"
+        type: string
+        required: false
+        default: "ci"
     outputs:
       docker-image:
         description: "Built docker image name"
@@ -32,7 +38,7 @@ jobs:
         run: |
           # Output the image name
           set +e  # Don't exit on command failure
-          .github/build-docker-images.sh --check-only | tee docker.log
+          .github/build-docker-images.sh "${{inputs.dockbuild}}" --check-only | tee docker.log
           EXIT_CODE=$?
           if [ $EXIT_CODE -eq 0 ]; then
             DOCKER_CI_IMAGE=$(tail -n 1 docker.log)
@@ -70,7 +76,7 @@ jobs:
         run: |
           # Output the image name
           set pipefail
-          .github/build-docker-images.sh | tee docker.log
+          .github/build-docker-images.sh "${{inputs.dockbuild}}" | tee docker.log
           DOCKER_CI_IMAGE=$(tail -n 1 docker.log)
           echo "DOCKER_CI_IMAGE $DOCKER_CI_IMAGE"
           echo "docker-image=$DOCKER_CI_IMAGE" >> "$GITHUB_OUTPUT"
