@@ -1149,6 +1149,7 @@ def test_select(target: str, request, device):
         device=device,
     )
 
+
 @pytest.mark.parametrize("shape", [(1, 1, 64, 32), (1, 3, 256, 256)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32, torch.int32], ids=["f32", "i32"])
 @pytest.mark.parametrize("target", ["ttnn"])
@@ -1171,6 +1172,7 @@ def test_constant(shape: Shape, dtype: torch.dtype, target: str, request, device
         target=target,
         device=device,
     )
+
 
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("start_indices_val", [[32, 32]], ids=shape_str)
