@@ -23,22 +23,22 @@ try:
     import ttnn_jit.runtime.ttmlir.dialects.ttir as _ttmlir_dialect_ttir
     import ttnn_jit.runtime.ttmlir.dialects.ttkernel as _ttmlir_dialect_ttkernel
     import ttnn_jit.runtime.ttmlir.dialects.ttnn as _ttmlir_dialect_ttnn
-    
+
     # Register as top-level modules so you can still do something like `import ttmlir.ir`
-    sys.modules['ttmlir'] = _ttmlir_module
-    sys.modules['ttmlir.ir'] = _ttmlir_ir_module
-    sys.modules['ttmlir.passes'] = _ttmlir_passes_module
-    sys.modules['ttmlir.dialects'] = _ttmlir_dialects_module
-    sys.modules['ttmlir._mlir_libs'] = _ttmlir_mlir_libs
-    sys.modules['ttmlir._mlir_libs._mlir'] = _ttmlir_mlir
-    sys.modules['ttmlir._mlir_libs._ttmlir'] = _ttmlir_ttmlir
-    sys.modules['ttmlir.dialects.func'] = _ttmlir_dialect_func
-    sys.modules['ttmlir.dialects.tensor'] = _ttmlir_dialect_tensor
-    sys.modules['ttmlir.dialects.ttcore'] = _ttmlir_dialect_ttcore
-    sys.modules['ttmlir.dialects.ttir'] = _ttmlir_dialect_ttir
-    sys.modules['ttmlir.dialects.ttkernel'] = _ttmlir_dialect_ttkernel
-    sys.modules['ttmlir.dialects.ttnn'] = _ttmlir_dialect_ttnn
-    
+    sys.modules["ttmlir"] = _ttmlir_module
+    sys.modules["ttmlir.ir"] = _ttmlir_ir_module
+    sys.modules["ttmlir.passes"] = _ttmlir_passes_module
+    sys.modules["ttmlir.dialects"] = _ttmlir_dialects_module
+    sys.modules["ttmlir._mlir_libs"] = _ttmlir_mlir_libs
+    sys.modules["ttmlir._mlir_libs._mlir"] = _ttmlir_mlir
+    sys.modules["ttmlir._mlir_libs._ttmlir"] = _ttmlir_ttmlir
+    sys.modules["ttmlir.dialects.func"] = _ttmlir_dialect_func
+    sys.modules["ttmlir.dialects.tensor"] = _ttmlir_dialect_tensor
+    sys.modules["ttmlir.dialects.ttcore"] = _ttmlir_dialect_ttcore
+    sys.modules["ttmlir.dialects.ttir"] = _ttmlir_dialect_ttir
+    sys.modules["ttmlir.dialects.ttkernel"] = _ttmlir_dialect_ttkernel
+    sys.modules["ttmlir.dialects.ttnn"] = _ttmlir_dialect_ttnn
+
     from ttnn_jit.runtime._ttmlir_runtime.runtime import (
         submit,
         set_compatible_device_runtime,

@@ -45,6 +45,7 @@ def get_dynamic_version():
         return "0.1.0"
     return base_version
 
+
 def get_is_srcdir_build():
     """Check if we're in a source directory build"""
     working_dir = Path(__file__).parent.parent.parent
@@ -57,51 +58,53 @@ class CMakeBuild(build_ext):
     Custom build_ext command that runs CMake to build tt-mlir,
     then copies the MLIR libraries and Python bindings into the wheel.
     """
-    
+
     @staticmethod
     def get_working_dir():
         """Get the project root directory"""
         working_dir = Path(__file__).resolve().parent.parent.parent
         assert working_dir.is_dir()
         return working_dir
-    
+
     @staticmethod
     def get_build_env():
         """Get build environment variables"""
         return {
             **os.environ.copy(),
         }
-    
+
     @staticmethod
     def get_arch():
         """Get system architecture"""
         return os.environ.get("CMAKE_SYSTEM_PROCESSOR", DEFAULT_ARCH)
-    
+
     def run(self) -> None:
         """Build tt-mlir with TTNN-JIT enabled and copy MLIR libraries into wheel"""
-        
+
         # Skip for editable installs (dev workflow)
         if self.is_editable_install_():
             raise Exception("Editable install not supported for ttnn-jit")
-        
+
         build_env = CMakeBuild.get_build_env()
         source_dir = CMakeBuild.get_working_dir()
         assert source_dir.is_dir(), f"Source dir {source_dir} seems to not exist"
 
         build_type = "Release"
         build_dir = source_dir / "build"
-        
+
         # Check if we're in a wheel build environment (cibuildwheel)
         # if "CIBUILDWHEEL" in os.environ:
         print("=" * 80)
         print("Running full CMake configure and build")
         print("=" * 80)
-        
+
         # CMake configuration arguments for wheel build
         cmake_args = [
             "cmake",
-            "-B", str(build_dir),
-            "-G", "Ninja",
+            "-B",
+            str(build_dir),
+            "-G",
+            "Ninja",
             f"-DCMAKE_BUILD_TYPE={build_type}",
             "-DTTMLIR_ENABLE_RUNTIME=ON",
             "-DTTMLIR_ENABLE_TTNN_JIT=ON",
@@ -113,7 +116,7 @@ class CMakeBuild(build_ext):
         cmake_args.extend(["-S", str(source_dir)])
         print(f"Running CMake configure: {' '.join(cmake_args)}")
         subprocess.check_call(cmake_args, env=build_env)
-        
+
         build_cmd = ["cmake", "--build", str(build_dir)]
         print(f"Running CMake build: {' '.join(build_cmd)}")
         subprocess.check_call(build_cmd, env=build_env)
@@ -127,29 +130,35 @@ class CMakeBuild(build_ext):
         #             "or set CIBUILDWHEEL=1 to trigger automatic CMake build."
         #         )
         #     print(f"Using existing build directory: {build_dir}")
-        
+
         # Verbose sanity logging
         print("=" * 80)
         print("Build directory contents:")
         subprocess.check_call(["ls", "-lah", str(build_dir)], env=build_env)
-        
+
         if (build_dir / "runtime" / "lib").exists():
             print("\nRuntime libraries:")
-            subprocess.check_call(["ls", "-lah", str(build_dir / "runtime" / "lib")], env=build_env)
-        
+            subprocess.check_call(
+                ["ls", "-lah", str(build_dir / "runtime" / "lib")], env=build_env
+            )
+
         if (build_dir / "python_packages").exists():
             print("\nPython packages:")
-            subprocess.check_call(["ls", "-lah", str(build_dir / "python_packages")], env=build_env)
-            subprocess.check_call(["find", str(build_dir / "python_packages"), "-name", "*.so"], env=build_env)
+            subprocess.check_call(
+                ["ls", "-lah", str(build_dir / "python_packages")], env=build_env
+            )
+            subprocess.check_call(
+                ["find", str(build_dir / "python_packages"), "-name", "*.so"],
+                env=build_env,
+            )
         print("=" * 80)
-        
+
         # Copy MLIR .so libraries into ttnn_jit/lib/
         arch = CMakeBuild.get_arch()
         self._copy_mlir_so(build_dir, arch)
         self._copy_ttmlir_bindings(build_dir)
         self._write_build_metadata()
 
-    
     """
     These .so are installed into site-packages/ttnn_jit/runtime/lib
     ttnn wheel .so will be installed into site-packages/ttnn/build/lib
@@ -193,18 +202,28 @@ class CMakeBuild(build_ext):
             ├── libtt_stl.so
             └── libtracy.so.0.10.0
     """
+
     def _copy_mlir_so(self, build_dir: Path, arch: str):
         """Copy all required MLIR .so libraries to lib/"""
         print("\nCopying MLIR libraries to lib/...")
-        
+
         lib_dest_dir = Path(self.build_lib) / "ttnn_jit" / "runtime"
         os.makedirs(lib_dest_dir, exist_ok=True)
-        
+
         libraries_to_copy = [
-            (build_dir / "python_packages" / "ttnn_jit", f"_ttnn_jit.{PYTHON_VERSION}-{arch}-linux-gnu.so"),
-            (build_dir / "python_packages" / "ttmlir", f"_ttmlir.{PYTHON_VERSION}-{arch}-linux-gnu.so"),
+            (
+                build_dir / "python_packages" / "ttnn_jit",
+                f"_ttnn_jit.{PYTHON_VERSION}-{arch}-linux-gnu.so",
+            ),
+            (
+                build_dir / "python_packages" / "ttmlir",
+                f"_ttmlir.{PYTHON_VERSION}-{arch}-linux-gnu.so",
+            ),
             (build_dir / "runtime" / "lib", "libTTMLIRRuntime.so"),
-            (build_dir / "runtime" / "python", f"_ttmlir_runtime.{PYTHON_VERSION}-{arch}-linux-gnu.so"),
+            (
+                build_dir / "runtime" / "python",
+                f"_ttmlir_runtime.{PYTHON_VERSION}-{arch}-linux-gnu.so",
+            ),
             (build_dir / "tools" / "ttnn-jit" / "csrc", "libJITCPP.so"),
         ]
         for src_dir, lib_name in libraries_to_copy:
@@ -216,25 +235,32 @@ class CMakeBuild(build_ext):
                     "$ORIGIN",
                     "$ORIGIN/../../ttnn/build/lib",
                     "$ORIGIN/../../../../../../build/lib",
-                    "/usr/local/lib"
+                    "/usr/local/lib",
                 ]
                 print(f"  Patching rpath: {rpath_patches}")
-                subprocess.check_call(["patchelf", "--set-rpath", ":".join(rpath_patches), lib_dest_dir / lib_name])
+                subprocess.check_call(
+                    [
+                        "patchelf",
+                        "--set-rpath",
+                        ":".join(rpath_patches),
+                        lib_dest_dir / lib_name,
+                    ]
+                )
             else:
                 print(f"  Warning: {lib_name} not found at {src_file}")
-    
+
     def _copy_ttmlir_bindings(self, build_dir: Path):
         """Copy all required TTMLIR bindings to lib/"""
         print("\nCopying TTMLIR bindings to lib/...")
         lib_dest_dir = Path(self.build_lib) / "ttnn_jit" / "runtime" / "ttmlir"
         os.makedirs(lib_dest_dir, exist_ok=True)
-        
+
         ttmlir_src_dir = build_dir / "python_packages" / "ttmlir"
         if ttmlir_src_dir.exists():
             for item in ttmlir_src_dir.iterdir():
                 src_path = ttmlir_src_dir / item.name
                 dest_path = lib_dest_dir / item.name
-                
+
                 if item.is_file():
                     print(f"    Copying {item.name}")
                     shutil.copy2(src_path, dest_path)
@@ -247,13 +273,13 @@ class CMakeBuild(build_ext):
             raise RuntimeError(f"TTMLIR bindings not found at {ttmlir_src_dir}")
 
     def _write_build_metadata(self):
-        """Write metal git SHA to _build_metadata.py ONLY in the wheel, this info is picked up 
+        """Write metal git SHA to _build_metadata.py ONLY in the wheel, this info is picked up
         by __init__.py at runtime to check against TT_METAL_HOME git SHA to ensure compatibility.
         """
         metal_git_sha = extract_tt_metal_version()
         build_metadata_file = Path(self.build_lib) / "ttnn_jit" / "_build_metadata.py"
         with open(build_metadata_file, "w") as f:
-            f.write(f"METAL_GIT_SHA = \"{metal_git_sha}\"\n")
+            f.write(f'METAL_GIT_SHA = "{metal_git_sha}"\n')
 
     def is_editable_install_(self):
         """Check if this is an editable install"""
@@ -271,7 +297,7 @@ def get_readme():
     return """# ttnn-jit
 TTNN Just-In-Time Compilation Interface for TT-MLIR
 
-This package provides a Python interface for just-in-time compilation 
+This package provides a Python interface for just-in-time compilation
 of TTNN operations using the TT-MLIR compiler infrastructure.
 
 ## Installation
@@ -280,6 +306,7 @@ import ttnn_jit
 # Use ttnn-jit APIs
 # For more information, visit: https://docs.tenstorrent.com/tt-mlir/
 """
+
 
 # Dummy extension to force build_ext to run
 ttnn_jit_ext = Extension("ttnn_jit._build_trigger", sources=[])
@@ -297,6 +324,6 @@ setup(
     package_dir={"ttnn_jit": "."},
     ext_modules=[ttnn_jit_ext],
     cmdclass={"build_ext": CMakeBuild},
-    python_requires=">=3.10",   # tt-metal uses python3.10
+    python_requires=">=3.10",  # tt-metal uses python3.10
     zip_safe=False,
 )
