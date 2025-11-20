@@ -16,7 +16,7 @@ from utils import (
     run_op_test,
 )
 
-COMMON_SHAPE_GRID_PARAMS = [
+BLOCK_SHARDED_SHAPE_GRIDS = [
     ((32, 32), (0, 0)),
     ((32, 64), (0, 0)),
     ((64, 64), (0, 0)),
@@ -26,10 +26,39 @@ COMMON_SHAPE_GRID_PARAMS = [
     ((512, 512), (7, 7)),
     ((512, 1024), (7, 7)),
     ((1024, 1024), (7, 7)),
-    ((1024, 2048), (7, 7)),
+    ((2, 512, 2048), (7, 7)),
 ]
 
-COMMON_SHAPE_PARAMS = [(32, 32), (32, 64), (64, 64), (64, 128), (128, 128)]
+HEIGHT_SHARDED_SHAPE_GRIDS = [
+    ((32, 32), (0, 0)),
+    ((32, 64), (0, 0)),
+    ((256, 64), (7, 0)),
+    ((256, 64), (0, 7)),
+    ((2048, 128), (7, 7)),
+    ((2, 192, 32), (1, 5)),
+]
+
+WIDTH_SHARDED_SHAPE_GRIDS = [
+    ((32, 32), (0, 0)),
+    ((32, 64), (0, 0)),
+    ((64, 256), (7, 0)),
+    ((64, 256), (0, 7)),
+    ((128, 2048), (7, 7)),
+    ((2, 32, 384), (1, 5)),
+]
+
+SHARDED_SHAPE_GRID_LAYOUTS = [
+    (shape, grid, ttnn.TensorMemoryLayout.BLOCK_SHARDED)
+    for shape, grid in BLOCK_SHARDED_SHAPE_GRIDS
+] + [
+    (shape, grid, ttnn.TensorMemoryLayout.HEIGHT_SHARDED)
+    for shape, grid in HEIGHT_SHARDED_SHAPE_GRIDS
+] + [
+    (shape, grid, ttnn.TensorMemoryLayout.WIDTH_SHARDED)
+    for shape, grid in WIDTH_SHARDED_SHAPE_GRIDS
+]
+
+DRAM_SHAPES = [(32, 32), (32, 64), (64, 64), (64, 128), (128, 128)]
 
 
 # ------------------------------------------------------------
@@ -57,10 +86,10 @@ def mul_add(input_tensor_a, input_tensor_b, input_tensor_c):
     return output
 
 
-@pytest.mark.parametrize("shape, max_grid", COMMON_SHAPE_GRID_PARAMS)
+@pytest.mark.parametrize("shape, max_grid, memory_layout", SHARDED_SHAPE_GRID_LAYOUTS, ids=[f"shape_{shape}_grid_{grid}_{layout}" for shape, grid, layout in SHARDED_SHAPE_GRID_LAYOUTS])
 @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32])
 @pytest.mark.parametrize("op", [cosh, sinh, mul_add])
-def test_composite_ops_l1(device, shape, max_grid, dtype, op):
+def test_composite_ops_l1(device, shape, max_grid, dtype, op, memory_layout):
     num_inputs = 1
     if op is mul_add:
         # num_inputs = 3
@@ -70,11 +99,11 @@ def test_composite_ops_l1(device, shape, max_grid, dtype, op):
     if op is mul_add and shape == (256, 512) and dtype is torch.bfloat16:
         pytest.xfail("OOM error.")
     run_op_test(
-        device, shape, max_grid, dtype, op, num_inputs, buffer_type=ttnn.BufferType.L1
+        device, shape, max_grid, dtype, op, num_inputs, buffer_type=ttnn.BufferType.L1, memory_layout=memory_layout
     )
 
 
-@pytest.mark.parametrize("shape", COMMON_SHAPE_PARAMS)
+@pytest.mark.parametrize("shape", DRAM_SHAPES)
 @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32])
 @pytest.mark.parametrize("op", [cosh, sinh, mul_add])
 def test_composite_ops_dram(device, shape, dtype, op):
@@ -160,7 +189,7 @@ def test_large_shapes_muladd_dram(device, shape, dtype):
     )
 
 
-@pytest.mark.parametrize("shape, max_grid", COMMON_SHAPE_GRID_PARAMS)
+@pytest.mark.parametrize("shape, max_grid", BLOCK_SHARDED_SHAPE_GRIDS)
 @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
 @pytest.mark.xfail(
     reason="Broadcasting requires either h or w to be 1, but sharded tensor must be at least 32 x 32. Assert error."
