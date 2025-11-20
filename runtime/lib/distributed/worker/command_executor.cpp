@@ -629,7 +629,9 @@ void CommandExecutor::execute(uint64_t commandId,
 
 void CommandExecutor::execute(uint64_t commandId,
                               const fb::WorkerEchoCommand *command) {
-  std::string cmd_message = command->message()->str();
+  std::string cmd_message = command->message()->str() + " (from worker " +
+                             std::getenv("OMPI_COMM_WORLD_RANK") +
+                            ")";
 
   std::unique_ptr<::flatbuffers::FlatBufferBuilder> responseBuilder =
       buildResponse(ResponseFactory::buildWorkerEchoResponse, commandId,
