@@ -105,7 +105,6 @@ def lgamma_composite(
         torch.tensor(5.5).to(dtype),
         torch.tensor(0.5).to(dtype),
         torch.tensor(0.918938531357171).to(dtype),
-        # torch.full(shape, 0.0).to(dtype),
     ]
     constants = [builder.constant(i) for i in constant_tensors]
 
@@ -250,19 +249,12 @@ def polygamma_composite(
     for i in range(1, 11):
         i_builder = builder.constant(torch.tensor(i).to(dtype), unit_attrs=unit_attrs)
         z1 = builder.reciprocal(
-            builder.pow(
-                builder.add(x, i_builder),
-                k_der_builder,
-                unit_attrs=unit_attrs,
-            ),
-            unit_attrs=unit_attrs,
+            builder.pow(builder.add(x, i_builder), k_der_builder, unit_attrs=unit_attrs)
         )
         temp = builder.add(temp, z1)
 
-    fact_val_builder = builder.constant(
-        torch.tensor(fact_val).to(dtype), unit_attrs=unit_attrs
-    )
-    result = builder.multiply(temp, fact_val_builder, unit_attrs=unit_attrs)
+    fact_val_builder = builder.constant(torch.tensor(fact_val).to(dtype))
+    result = builder.multiply(temp, fact_val_builder)
     return result
 
 

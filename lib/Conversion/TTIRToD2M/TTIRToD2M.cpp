@@ -342,30 +342,30 @@ private:
     mlir::ValueRange operands = bbArgs.take_front(numTensorInputs);
     mlir::TypeRange resultTypes = bbArgs.take_back(numOutputs);
 
+    // Check if this op supports scalar operands at compile time
+    constexpr bool supportsScalar = std::is_same_v<TileOp, d2m::TileAddOp> ||
+                                    std::is_same_v<TileOp, d2m::TileSubOp> ||
+                                    std::is_same_v<TileOp, d2m::TileMulOp> ||
+                                    std::is_same_v<TileOp, d2m::TileDivOp> ||
+                                    std::is_same_v<TileOp, d2m::TilePowOp>;
+
     mlir::Value yield;
-    if (scalarAttr.has_value()) {
-      // Use scalar version of the op
-      if constexpr (std::is_same_v<TileOp, d2m::TileAddOp>) {
-        yield = bbBuilder.create<d2m::TileAddScalarOp>(
-            loc, resultTypes[0], operands[0], scalarAttr.value());
-      } else if constexpr (std::is_same_v<TileOp, d2m::TileSubOp>) {
-        yield = bbBuilder.create<d2m::TileSubScalarOp>(
-            loc, resultTypes[0], operands[0], scalarAttr.value());
-      } else if constexpr (std::is_same_v<TileOp, d2m::TileMulOp>) {
-        yield = bbBuilder.create<d2m::TileMulScalarOp>(
-            loc, resultTypes[0], operands[0], scalarAttr.value());
-      } else if constexpr (std::is_same_v<TileOp, d2m::TileDivOp>) {
-        yield = bbBuilder.create<d2m::TileDivScalarOp>(
-            loc, resultTypes[0], operands[0], scalarAttr.value());
-      } else if constexpr (std::is_same_v<TileOp, d2m::TilePowOp>) {
-        yield = bbBuilder.create<d2m::TilePowerScalarOp>(
-            loc, resultTypes[0], operands[0], scalarAttr.value());
+    if constexpr (supportsScalar) {
+      if (scalarAttr.has_value()) {
+        // Create a scalar constant value from the attribute
+        mlir::Type scalarType = scalarAttr.value().getType();
+        mlir::Value scalarValue = bbBuilder.create<mlir::arith::ConstantOp>(
+            loc, scalarType, scalarAttr.value());
+
+        // Use unified op with scalar operand
+        yield = bbBuilder.create<TileOp>(loc, resultTypes[0], operands[0],
+                                         scalarValue);
       } else {
-        llvm_unreachable(
-            "Scalar operations only supported for add, sub, mul, div, pow");
+        // Use regular tensor-tensor op
+        yield = bbBuilder.create<TileOp>(loc, resultTypes, operands);
       }
     } else {
-      // Use regular tensor-tensor op
+      // For non-scalar-supporting ops
       if constexpr (isComparisonOp) {
         // For comparison ops, first subtract then compare with zero.
         yield = bbBuilder.create<d2m::TileSubOp>(loc, resultTypes, operands);
@@ -419,10 +419,17 @@ private:
         // Handle d2m.full (already converted)
         if (auto d2mFullOp =
                 mlir::dyn_cast_or_null<d2m::FullOp>(convertedDefiningOp)) {
-          if (auto floatAttr =
-                  mlir::dyn_cast<FloatAttr>(d2mFullOp.getFillValueAttr())) {
+          auto fillValueAttr = d2mFullOp.getFillValue();
+          if (auto floatAttr = mlir::dyn_cast<FloatAttr>(fillValueAttr)) {
             scalarAttr = floatAttr;
             // Track the d2m.full op for erasure
+            scalarOpsToErase.push_back(d2mFullOp);
+            continue; // Skip adding this to tensorInputs
+          }
+          if (auto intAttr = mlir::dyn_cast<IntegerAttr>(fillValueAttr)) {
+            // Convert integer to float
+            float floatValue = static_cast<float>(intAttr.getInt());
+            scalarAttr = rewriter.getF32FloatAttr(floatValue);
             scalarOpsToErase.push_back(d2mFullOp);
             continue; // Skip adding this to tensorInputs
           }
@@ -447,9 +454,16 @@ private:
         // Handle ttir.full (not yet converted - shouldn't happen in adaptor)
         if (auto fullOp =
                 mlir::dyn_cast_or_null<ttir::FullOp>(convertedDefiningOp)) {
-          if (auto floatAttr =
-                  mlir::dyn_cast<FloatAttr>(fullOp.getFillValueAttr())) {
+          auto fillValueAttr = fullOp.getFillValue();
+          if (auto floatAttr = mlir::dyn_cast<FloatAttr>(fillValueAttr)) {
             scalarAttr = floatAttr;
+            scalarOpsToErase.push_back(fullOp);
+            continue; // Skip adding this to tensorInputs
+          }
+          if (auto intAttr = mlir::dyn_cast<IntegerAttr>(fillValueAttr)) {
+            // Convert integer to float
+            float floatValue = static_cast<float>(intAttr.getInt());
+            scalarAttr = rewriter.getF32FloatAttr(floatValue);
             scalarOpsToErase.push_back(fullOp);
             continue; // Skip adding this to tensorInputs
           }
@@ -1288,6 +1302,7 @@ public:
     target.addLegalDialect<::mlir::BuiltinDialect>();
     target.addLegalDialect<::mlir::func::FuncDialect>();
     target.addLegalDialect<::mlir::linalg::LinalgDialect>();
+    target.addLegalDialect<::mlir::arith::ArithDialect>();
     target.addLegalDialect<mlir::tt::d2m::D2MDialect>();
     target.addLegalDialect<mlir::tt::ttcore::TTCoreDialect>();
 
