@@ -250,6 +250,9 @@ public:
       }
     }
 
+    // Ensure the block has a d2m.yield terminator
+    builder.create<d2m::YieldOp>(loc);
+
     return success();
   }
 

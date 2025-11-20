@@ -967,7 +967,7 @@ bool d2m::GenericOp::isWritable(mlir::Value value,
 }
 
 bool d2m::GenericOp::hasTensorSemantics() {
-  auto isaTensor = [](Type t) { return isa<bufferization::TensorLikeType>(t); };
+  auto isaTensor = [](Type t) { return isa<RankedTensorType>(t); };
   if (any_of(getResultTypes(), isaTensor)) {
     return true;
   }
@@ -1071,18 +1071,14 @@ static mlir::LogicalResult verifyAffineBlocking(
           "when not in explicit data movement form");
     }
 
-    // Only check yield terminator for non-explicit-datamovement form.
-    // Explicit datamovement form allows users to manage terminators themselves.
+    // Additional validation for tensor-based ops
     if (!isExplicitDatamovementForm()) {
       Region &region = this->getRegion(0);
-
       Block &block = region.front();
-      if (block.getOperations().empty() || !mlir::isa<YieldOp>(&block.back())) {
-        return emitOpError(
-            "generic op with pure tensor semantics must have yield terminator");
-      }
 
-      if (block.back().getNumOperands() != getNumResults()) {
+      // For DPS (destination-passing style), yield should have 0 operands
+      // because results are written to output operands (outs), not yielded
+      if (block.back().getNumOperands() != 0) {
         return emitOpError("yield terminator must have the same number of "
                            "arguments as generic results");
       }
@@ -1341,6 +1337,30 @@ static mlir::LogicalResult verifyAffineBlocking(
 
 void GenericOp::getCanonicalizationPatterns(mlir::RewritePatternSet &patterns,
                                             mlir::MLIRContext *context) {
+  // Ensure all regions have yield terminators for MLIR bufferization
+  // infrastructure
+  patterns.add(+[](GenericOp op, mlir::PatternRewriter &rewriter) {
+    // Skip ops that are external symbol form (no regions at all)
+    if (op.isExternalSymbolForm()) {
+      return mlir::failure();
+    }
+
+    bool modified = false;
+    for (Region &region : op.getRegions()) {
+      if (region.empty()) {
+        continue;
+      }
+      Block &block = region.front();
+      if (block.getOperations().empty() || !mlir::isa<YieldOp>(&block.back())) {
+        OpBuilder::InsertionGuard guard(rewriter);
+        rewriter.setInsertionPointToEnd(&block);
+        rewriter.create<YieldOp>(op.getLoc(), ValueRange{});
+        modified = true;
+      }
+    }
+    return modified ? mlir::success() : mlir::failure();
+  });
+
   patterns.add(
       // Check to see if any linalg generic passes have wired up d2m generic op
       // inputs to the outputs (i.e. inplace) which we currently do not support.

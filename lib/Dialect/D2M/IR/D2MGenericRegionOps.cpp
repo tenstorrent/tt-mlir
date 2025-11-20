@@ -551,9 +551,19 @@ void TileUntilizeBlockOp::getEffects(
 
 mlir::LogicalResult YieldOp::verify() {
   auto generic = getOperation()->getParentOfType<GenericOp>();
-  if (!generic || !generic.hasPureTensorSemantics()) {
-    return emitOpError()
-           << "used outside of generic op with pure tensor semantics";
+  if (!generic) {
+    return emitOpError() << "used outside of generic op";
+  }
+
+  // For tensor-based generic ops (DPS style), yield should have 0 arguments
+  // because results are written to output operands (outs), not yielded.
+  if (generic.hasTensorSemantics()) {
+    // DPS semantics: yield should have 0 arguments
+    if (getValues().size() != 0) {
+      return generic.emitOpError()
+             << "yield terminator must have the same number of arguments as "
+                "generic results";
+    }
   }
 
   return ::mlir::success();
