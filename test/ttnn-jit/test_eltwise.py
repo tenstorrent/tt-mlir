@@ -43,7 +43,7 @@ HEIGHT_SHARDED_SHAPE_GRIDS = [
     ((384, 32), (1, 5)),
     ((2, 192, 32), (1, 5)),
     ((2, 2, 96, 32), (1, 5)),
-    ((2, 2, 512, 32), (7, 7))
+    ((2, 2, 512, 32), (7, 7)),
 ]
 
 WIDTH_SHARDED_SHAPE_GRIDS = [
@@ -55,19 +55,23 @@ WIDTH_SHARDED_SHAPE_GRIDS = [
     ((32, 384), (1, 5)),
     ((2, 32, 384), (1, 5)),
     ((2, 2, 32, 384), (1, 5)),
-    ((2, 1, 32, 2048), (7, 7))
+    ((2, 1, 32, 2048), (7, 7)),
 ]
 
-SHARDED_SHAPE_GRID_LAYOUTS = [
-    (shape, grid, ttnn.TensorMemoryLayout.BLOCK_SHARDED)
-    for shape, grid in BLOCK_SHARDED_SHAPE_GRIDS
-] + [
-    (shape, grid, ttnn.TensorMemoryLayout.HEIGHT_SHARDED)
-    for shape, grid in HEIGHT_SHARDED_SHAPE_GRIDS
-] + [
-    (shape, grid, ttnn.TensorMemoryLayout.WIDTH_SHARDED)
-    for shape, grid in WIDTH_SHARDED_SHAPE_GRIDS
-]
+SHARDED_SHAPE_GRID_LAYOUTS = (
+    [
+        (shape, grid, ttnn.TensorMemoryLayout.BLOCK_SHARDED)
+        for shape, grid in BLOCK_SHARDED_SHAPE_GRIDS
+    ]
+    + [
+        (shape, grid, ttnn.TensorMemoryLayout.HEIGHT_SHARDED)
+        for shape, grid in HEIGHT_SHARDED_SHAPE_GRIDS
+    ]
+    + [
+        (shape, grid, ttnn.TensorMemoryLayout.WIDTH_SHARDED)
+        for shape, grid in WIDTH_SHARDED_SHAPE_GRIDS
+    ]
+)
 
 DRAM_INTERLEAVED_SHAPES = [
     ((32, 32)),
@@ -201,7 +205,10 @@ def test_unary_op_dram(device, shape, dtype, op, graph_capture):
 @pytest.mark.parametrize(
     "shape, max_grid, memory_layout",
     SHARDED_SHAPE_GRID_LAYOUTS,
-    ids=[f"shape_{shape}_grid_{grid}_{layout}" for shape, grid, layout in SHARDED_SHAPE_GRID_LAYOUTS],
+    ids=[
+        f"shape_{shape}_grid_{grid}_{layout}"
+        for shape, grid, layout in SHARDED_SHAPE_GRID_LAYOUTS
+    ],
 )
 @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
 @pytest.mark.parametrize(
@@ -269,7 +276,10 @@ def test_bitwise_unary_op_dram(device, shape, dtype, op, graph_capture):
 @pytest.mark.parametrize(
     "shape, max_grid, memory_layout",
     SHARDED_SHAPE_GRID_LAYOUTS,
-    ids=[f"shape_{shape}_grid_{grid}_{layout}" for shape, grid, layout in SHARDED_SHAPE_GRID_LAYOUTS],
+    ids=[
+        f"shape_{shape}_grid_{grid}_{layout}"
+        for shape, grid, layout in SHARDED_SHAPE_GRID_LAYOUTS
+    ],
 )
 @pytest.mark.parametrize("dtype", [torch.int32], ids=["i32"])
 @pytest.mark.parametrize(
@@ -279,7 +289,9 @@ def test_bitwise_unary_op_dram(device, shape, dtype, op, graph_capture):
     ],
 )
 @pytest.mark.parametrize("graph_capture", [True, False])
-def test_bitwise_unary_op_l1(device, shape, max_grid, memory_layout, dtype, op, graph_capture):
+def test_bitwise_unary_op_l1(
+    device, shape, max_grid, memory_layout, dtype, op, graph_capture
+):
     run_op_test(
         device,
         shape,
@@ -399,7 +411,10 @@ def le(a, b):
 @pytest.mark.parametrize(
     "shape, max_grid, memory_layout",
     SHARDED_SHAPE_GRID_LAYOUTS,
-    ids=[f"shape_{shape}_grid_{grid}_{layout}" for shape, grid, layout in SHARDED_SHAPE_GRID_LAYOUTS],
+    ids=[
+        f"shape_{shape}_grid_{grid}_{layout}"
+        for shape, grid, layout in SHARDED_SHAPE_GRID_LAYOUTS
+    ],
 )
 @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32], ids=["bf16", "f32"])
 @pytest.mark.parametrize(
@@ -436,7 +451,11 @@ def test_binary_ops(device, shape, max_grid, memory_layout, dtype, op, graph_cap
     )
 
 
-@pytest.mark.parametrize("shape", DRAM_INTERLEAVED_SHAPES, ids=[f"{shape}" for shape in DRAM_INTERLEAVED_SHAPES])
+@pytest.mark.parametrize(
+    "shape",
+    DRAM_INTERLEAVED_SHAPES,
+    ids=[f"{shape}" for shape in DRAM_INTERLEAVED_SHAPES],
+)
 @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32], ids=["bf16", "f32"])
 @pytest.mark.parametrize(
     "op",
@@ -479,7 +498,10 @@ def test_binary_ops_dram(device, shape, dtype, op):
 @pytest.mark.parametrize(
     "shape, max_grid, memory_layout",
     SHARDED_SHAPE_GRID_LAYOUTS,
-    ids=[f"shape_{shape}_grid_{grid}_{layout}" for shape, grid, layout in SHARDED_SHAPE_GRID_LAYOUTS],
+    ids=[
+        f"shape_{shape}_grid_{grid}_{layout}"
+        for shape, grid, layout in SHARDED_SHAPE_GRID_LAYOUTS
+    ],
 )
 @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
 @pytest.mark.parametrize(
@@ -494,7 +516,9 @@ def test_binary_ops_dram(device, shape, dtype, op):
 def test_interop_jit_to_ttnn_unary_l1(
     device, shape, max_grid, memory_layout, dtype, jit_op, ttnn_unary_op
 ):
-    input_tensor = create_sharded_tile_tensor(device, shape, max_grid, dtype, memory_layout=memory_layout)
+    input_tensor = create_sharded_tile_tensor(
+        device, shape, max_grid, dtype, memory_layout=memory_layout
+    )
 
     # jit path
     compiled_op = ttnn_jit.jit(debug=True, max_grid=max_grid)(jit_op)
@@ -516,7 +540,10 @@ def test_interop_jit_to_ttnn_unary_l1(
 @pytest.mark.parametrize(
     "shape, max_grid, memory_layout",
     SHARDED_SHAPE_GRID_LAYOUTS,
-    ids=[f"shape_{shape}_grid_{grid}_{layout}" for shape, grid, layout in SHARDED_SHAPE_GRID_LAYOUTS],
+    ids=[
+        f"shape_{shape}_grid_{grid}_{layout}"
+        for shape, grid, layout in SHARDED_SHAPE_GRID_LAYOUTS
+    ],
 )
 @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
 @pytest.mark.parametrize(
@@ -533,8 +560,12 @@ def test_interop_two_jit_to_ttnn_binary_l1(
     if jit_op2 == log and dtype == torch.float32:
         pytest.xfail("Failing all_close, getting nan values mismatching with golden")
 
-    input1 = create_sharded_tile_tensor(device, shape, max_grid, dtype, memory_layout=memory_layout)
-    input2 = create_sharded_tile_tensor(device, shape, max_grid, dtype, memory_layout=memory_layout)
+    input1 = create_sharded_tile_tensor(
+        device, shape, max_grid, dtype, memory_layout=memory_layout
+    )
+    input2 = create_sharded_tile_tensor(
+        device, shape, max_grid, dtype, memory_layout=memory_layout
+    )
 
     # interop path
     compiled_op1 = ttnn_jit.jit(debug=True, max_grid=max_grid)(jit_op1)
@@ -560,7 +591,10 @@ def test_interop_two_jit_to_ttnn_binary_l1(
 @pytest.mark.parametrize(
     "shape, max_grid, memory_layout",
     SHARDED_SHAPE_GRID_LAYOUTS,
-    ids=[f"shape_{shape}_grid_{grid}_{layout}" for shape, grid, layout in SHARDED_SHAPE_GRID_LAYOUTS],
+    ids=[
+        f"shape_{shape}_grid_{grid}_{layout}"
+        for shape, grid, layout in SHARDED_SHAPE_GRID_LAYOUTS
+    ],
 )
 @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
 @pytest.mark.parametrize(
@@ -574,8 +608,12 @@ def test_interop_two_jit_to_ttnn_binary_l1(
 def test_interop_jit_and_ttnn_to_binary_l1(
     device, shape, max_grid, memory_layout, dtype, jit_op, ttnn_binary_op
 ):
-    input_tensor = create_sharded_tile_tensor(device, shape, max_grid, dtype, memory_layout=memory_layout)
-    ttnn_tensor = create_sharded_tile_tensor(device, shape, max_grid, dtype, memory_layout=memory_layout)
+    input_tensor = create_sharded_tile_tensor(
+        device, shape, max_grid, dtype, memory_layout=memory_layout
+    )
+    ttnn_tensor = create_sharded_tile_tensor(
+        device, shape, max_grid, dtype, memory_layout=memory_layout
+    )
 
     # interop path
     compiled_op = ttnn_jit.jit(debug=True, max_grid=max_grid)(jit_op)
