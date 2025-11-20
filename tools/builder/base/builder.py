@@ -160,12 +160,14 @@ class Builder:
         self,
         inputs: Dict[Operand, Union[Callable, torch.tensor, Dict[int : torch.tensor]]],
         outputs: Dict[Operand, Union[torch.tensor, Dict[int : torch.tensor]]] = None,
+        set_all_outputs: bool = True,
     ):
         self._set_goldens(self._create_builder_golden_from_torch_tensor(inputs))
 
         if outputs != None:
-            self.set_goldens_to_check(outputs.keys())
             self._set_goldens(self._create_builder_golden_from_torch_tensor(outputs))
+            if set_all_outputs:
+                self.set_goldens_to_check(self._ordered_outputs)
 
     def set_goldens_from_builder_tensor(
         self,

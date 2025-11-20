@@ -76,14 +76,17 @@ def post_op_callback(callback_runtime_config, binary, program_context, op_contex
         return
 
     if loc not in callback_runtime_config.goldens.keys():
-        print(f"Loc {loc} not found in golden map - skipping golden comparison")
-        return
-
-    op_golden_tensor_map = callback_runtime_config.goldens[loc]
-    if len(op_golden_tensor_map) == 0:
         # try getting golden tensor using the loc before it was modified by passes
-        loc = get_original_op_loc(loc)
-        op_golden_tensor_map = callback_runtime_config.goldens(loc)
+        original_op_loc = get_original_op_loc(loc)
+        if original_op_loc not in callback_runtime_config.goldens.keys():
+            print(f"Loc {loc} not found in golden map - skipping golden comparison")
+            return
+        else:
+            op_golden_tensor_map = callback_runtime_config.goldens[original_op_loc]
+            loc = original_op_loc
+    else:
+        op_golden_tensor_map = callback_runtime_config.goldens[loc]
+    if len(op_golden_tensor_map) == 0:
         if len(op_golden_tensor_map) == 0:
             print("Golden tensor is None - skipping golden comparison")
             return

@@ -777,19 +777,19 @@ def argmax_golden(
 
 
 def matmul_golden(
-    a: BuilderGoldenTensor,
-    b: BuilderGoldenTensor,
+    a: GoldenMapTensor,
+    b: GoldenMapTensor,
     transpose_a=False,
     transpose_b=False,
-) -> BuilderGoldenTensor:
+) -> GoldenMapTensor:
     """
     Custom golden function for matrix multiplication.
 
     Parameters
     ----------
-    a : BuilderGoldenTensor
+    a : GoldenMapTensor
         First input tensor
-    b : BuilderGoldenTensor
+    b : GoldenMapTensor
         Second input tensor
     transpose_a : bool, optional
         Whether to transpose tensor a (default: False)
@@ -798,7 +798,7 @@ def matmul_golden(
 
     Returns
     -------
-    BuilderGoldenTensor
+    GoldenMapTensor
         Result of matrix multiplication
     """
     a = torch.transpose(a, -2, -1) if transpose_a else a
@@ -2778,8 +2778,8 @@ def collective_broadcast_golden(
 
 
 def stablehlo_and_golden(
-    input_tensor: BuilderGoldenTensor, other_tensor: BuilderGoldenTensor, **kwargs
-) -> BuilderGoldenTensor:
+    input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, **kwargs
+) -> GoldenMapTensor:
     """
     Golden function for StableHLO and operation.
 
@@ -2787,14 +2787,14 @@ def stablehlo_and_golden(
 
     Parameters
     ----------
-    input_tensor : BuilderGoldenTensor
+    input_tensor : GoldenMapTensor
         Left-hand side tensor.
-    other_tensor : BuilderGoldenTensor
+    other_tensor : GoldenMapTensor
         Right-hand side tensor.
 
     Returns
     -------
-    BuilderGoldenTensor
+    GoldenMapTensor
         Tensor containing the AND results.
     """
     if input_tensor.dtype == torch.bool:
@@ -2805,8 +2805,8 @@ def stablehlo_and_golden(
 
 
 def stablehlo_or_golden(
-    input_tensor: BuilderGoldenTensor, other_tensor: BuilderGoldenTensor, **kwargs
-) -> BuilderGoldenTensor:
+    input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, **kwargs
+) -> GoldenMapTensor:
     """
     Golden function for StableHLO or operation.
 
@@ -2814,14 +2814,14 @@ def stablehlo_or_golden(
 
     Parameters
     ----------
-    input_tensor : BuilderGoldenTensor
+    input_tensor : GoldenMapTensor
         Left-hand side tensor.
-    other_tensor : BuilderGoldenTensor
+    other_tensor : GoldenMapTensor
         Right-hand side tensor.
 
     Returns
     -------
-    BuilderGoldenTensor
+    GoldenMapTensor
         Tensor containing the OR results.
     """
     if input_tensor.dtype == torch.bool:
@@ -2832,8 +2832,8 @@ def stablehlo_or_golden(
 
 
 def stablehlo_xor_golden(
-    input_tensor: BuilderGoldenTensor, other_tensor: BuilderGoldenTensor, **kwargs
-) -> BuilderGoldenTensor:
+    input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, **kwargs
+) -> GoldenMapTensor:
     """
     Golden function for StableHLO xor operation.
 
@@ -2841,14 +2841,14 @@ def stablehlo_xor_golden(
 
     Parameters
     ----------
-    input_tensor : BuilderGoldenTensor
+    input_tensor : GoldenMapTensor
         Left-hand side tensor.
-    other_tensor : BuilderGoldenTensor
+    other_tensor : GoldenMapTensor
         Right-hand side tensor.
 
     Returns
     -------
-    BuilderGoldenTensor
+    GoldenMapTensor
         Tensor containing the XOR results.
     """
     if input_tensor.dtype == torch.bool:
@@ -2858,9 +2858,7 @@ def stablehlo_xor_golden(
         return torch.bitwise_xor(input_tensor, other_tensor)
 
 
-def stablehlo_not_golden(
-    input_tensor: BuilderGoldenTensor, **kwargs
-) -> BuilderGoldenTensor:
+def stablehlo_not_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
     """
     Golden function for StableHLO not operation.
 
@@ -2868,14 +2866,14 @@ def stablehlo_not_golden(
 
     Parameters
     ----------
-    input_tensor : BuilderGoldenTensor
+    input_tensor : GoldenMapTensor
         Input tensor to invert.
     **kwargs : dict
         Keyword arguments (unused for this operation).
 
     Returns
     -------
-    BuilderGoldenTensor
+    GoldenMapTensor
         Tensor containing the NOT of input_tensor.
     """
     if input_tensor.dtype == torch.bool:
