@@ -1627,20 +1627,29 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
     if (adaptor.getShardType() == ::mlir::tt::ttcore::MeshShardType::Identity) {
       // Helper lambda to add mesh_shard_global_shape attribute
-      auto addMeshShardGlobalShapeAttr =
-          [](func::FuncOp funcOp, uint32_t argIndex, Type globalType) {
-            SmallVector<NamedAttribute> newArgAttrs;
-            if (auto currentArgAttrDict = funcOp.getArgAttrDict(argIndex)) {
-              newArgAttrs =
-                  SmallVector<NamedAttribute>(currentArgAttrDict.getValue());
-            }
-            auto typeAttr = TypeAttr::get(globalType);
-            newArgAttrs.emplace_back(
-                StringAttr::get(funcOp.getContext(), "ttcore.global_shape"),
-                typeAttr);
-            funcOp.setArgAttrs(argIndex, DictionaryAttr::get(
-                                             funcOp.getContext(), newArgAttrs));
-          };
+      // Creates a RankedTensorType with only shape and element type (no
+      // encoding)
+      auto addMeshShardGlobalShapeAttr = [](func::FuncOp funcOp,
+                                            uint32_t argIndex,
+                                            Type globalType) {
+        SmallVector<NamedAttribute> newArgAttrs;
+        if (auto currentArgAttrDict = funcOp.getArgAttrDict(argIndex)) {
+          newArgAttrs =
+              SmallVector<NamedAttribute>(currentArgAttrDict.getValue());
+        }
+        // Extract shape and element type, create a new type without encoding
+        Type simplifiedType = globalType;
+        if (auto tensorType = mlir::dyn_cast<RankedTensorType>(globalType)) {
+          simplifiedType = RankedTensorType::get(
+              tensorType.getShape(), tensorType.getElementType(), nullptr);
+        }
+        auto typeAttr = TypeAttr::get(simplifiedType);
+        newArgAttrs.emplace_back(
+            StringAttr::get(funcOp.getContext(), "ttcore.global_shape"),
+            typeAttr);
+        funcOp.setArgAttrs(
+            argIndex, DictionaryAttr::get(funcOp.getContext(), newArgAttrs));
+      };
 
       // FullToShard: input is block argument
       if (adaptor.getShardDirection() ==
@@ -1739,6 +1748,8 @@ public:
 
               // Add global type attribute to the return value
               // Note: For return values, we store it as a result attribute
+              // Creates a RankedTensorType with only shape and element type (no
+              // encoding)
               rewriter.modifyOpInPlace(funcOp, [&funcOp, &modifiedFuncType,
                                                 resultIndex, &globalType]() {
                 funcOp.setType(modifiedFuncType);
@@ -1749,7 +1760,16 @@ public:
                   newResultAttrs = SmallVector<NamedAttribute>(
                       currentResultAttrDict.getValue());
                 }
-                auto typeAttr = TypeAttr::get(globalType);
+                // Extract shape and element type, create a new type without
+                // encoding
+                Type simplifiedType = globalType;
+                if (auto tensorType =
+                        mlir::dyn_cast<RankedTensorType>(globalType)) {
+                  simplifiedType = RankedTensorType::get(
+                      tensorType.getShape(), tensorType.getElementType(),
+                      nullptr);
+                }
+                auto typeAttr = TypeAttr::get(simplifiedType);
                 newResultAttrs.emplace_back(
                     StringAttr::get(funcOp.getContext(), "ttcore.global_shape"),
                     typeAttr);
