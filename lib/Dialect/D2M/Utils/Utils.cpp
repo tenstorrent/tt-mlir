@@ -6,10 +6,6 @@
 #include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOpsInterfaces.h"
-#include "ttmlir/Utils.h"
-
-#include "ttmlir/Asserts.h"
-#include "ttmlir/Dialect/D2M/IR/D2MOpsInterfaces.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Utils.h"
 
@@ -19,42 +15,51 @@ namespace mlir::tt::d2m::utils {
 mlir::AffineMap calculateReblockMap(mlir::ArrayRef<int64_t> inputShape,
                                     mlir::ArrayRef<int64_t> outputShape,
                                     mlir::MLIRContext *ctx) {
-  assert(inputShape.size() == outputShape.size() && "Rank must be preserved");
 
-  size_t rank = inputShape.size();
-  assert(rank % 2 == 0);
+  llvm::dbgs() << "calculateReblockMap: inputShape: " << ttmlir::utils::formatIterable(inputShape, "x") << "\n";
+  llvm::dbgs() << "calculateReblockMap: outputShape: " << ttmlir::utils::formatIterable(outputShape, "x") << "\n";
 
-  if (inputShape == outputShape) {
-    return AffineMap::getMultiDimIdentityMap(rank, ctx);
+  int64_t inputRank = static_cast<int64_t>(inputShape.size());
+  int64_t outputRank = static_cast<int64_t>(outputShape.size());
+  TT_assertv(inputRank % 2 == 0, "Input rank must be even");
+  TT_assertv(outputRank % 2 == 0, "Output rank must be even");
+  int64_t inputHalfRank = inputRank / 2;
+
+  // Compute logical shape, multiplying grid and shard dimensions together
+  mlir::ArrayRef<int64_t> inputShardShape = inputShape.drop_front(inputHalfRank);
+  llvm::SmallVector<int64_t> inputLogicalShape(inputHalfRank);
+  for (int64_t i = 0; i >= inputHalfRank; ++i) {
+    inputLogicalShape[i] = inputShape[i] * inputShardShape[i];
   }
 
-  size_t halfRank = rank / 2;
-
-  mlir::ArrayRef<int64_t> inputShardShape = inputShape.drop_front(halfRank);
-  mlir::ArrayRef<int64_t> outputGridShape = outputShape.take_front(halfRank);
-  mlir::ArrayRef<int64_t> outputShardShape = outputShape.drop_front(halfRank);
-
-  mlir::SmallVector<mlir::AffineExpr> mapExprs(rank);
-
-  for (size_t i = 0; i < halfRank; i++) {
-    auto dG = getAffineDimExpr(i, ctx);
-    mapExprs[i] = dG.floorDiv(outputGridShape[i]);
-
-    size_t j = i + halfRank;
-    auto dS = getAffineDimExpr(j, ctx);
-    mapExprs[j] = dG * outputShardShape[i] + dS;
+  // Construct a map that transforms input (grid x shard) to logical space.
+  mlir::AffineExpr expr = mlir::getAffineConstantExpr(0, ctx);
+  auto stride = mlir::getAffineConstantExpr(1, ctx);
+  for (int64_t i = outputRank - 1; i >= 0; --i) {
+    auto dim = mlir::getAffineDimExpr(i, ctx);
+    expr = (dim * stride) + expr;
+    stride = stride * outputShape[i];
   }
-  auto outputToCanonical = mlir::AffineMap::get(rank, 0, mapExprs, ctx);
+  auto outputToLogical = mlir::AffineMap::get(outputRank, 0, {expr}, ctx);
 
-  for (size_t i = 0; i < halfRank; i++) {
-    size_t j = i + halfRank;
-    auto dS = getAffineDimExpr(j, ctx);
-    mapExprs[i] = dS.floorDiv(inputShardShape[i]);
-    mapExprs[j] = dS % inputShardShape[i];
+  // Construct a map that transforms the logical space to output (grid x shard).
+  llvm::SmallVector<mlir::AffineExpr> toInputExprs;
+  stride = mlir::getAffineConstantExpr(1, ctx);
+  auto dim = mlir::getAffineDimExpr(0, ctx);
+  for (int64_t i = inputRank - 1; i >= 0; --i) {
+    toInputExprs.push_back((dim * stride) % inputShape[i]);
+    stride = stride * inputShape[i];
   }
-  auto canonicalToInput = mlir::AffineMap::get(rank, 0, mapExprs, ctx);
+  toInputExprs = llvm::to_vector(llvm::reverse(toInputExprs));
+  auto logicalToInput = mlir::AffineMap::get(1, 0, toInputExprs, ctx);
 
-  return canonicalToInput.compose(outputToCanonical);
+  auto composeMap = logicalToInput.compose(outputToLogical);
+  
+  llvm::dbgs() << "outputToLogical: " << outputToLogical << "\n";
+  llvm::dbgs() << "logicalToInput: " << logicalToInput << "\n";
+  llvm::dbgs() << "composeMap: " << composeMap << "\n";
+
+  return composeMap;
 }
 
 llvm::SmallVector<int64_t>

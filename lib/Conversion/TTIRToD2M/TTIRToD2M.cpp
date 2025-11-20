@@ -591,7 +591,6 @@ private:
                                            /* symbolCount */ 0, zeros,
                                            builder.getContext()));
     maps.emplace_back(accumulator.getAffineMap());
-
     return maps;
   }
 

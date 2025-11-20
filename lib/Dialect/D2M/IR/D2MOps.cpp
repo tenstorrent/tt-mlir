@@ -357,10 +357,10 @@ ToLayoutOp::CompoundComponents ToLayoutOp::compoundComponents() {
       inputTensor.getElementType() != outputTensor.getElementType();
 
   // Check layout (collapsed intervals and alignments).
-  components.isLayoutChange =
-      inputLayout.getNormalizedIntervals() !=
-          outputLayout.getNormalizedIntervals() ||
-      inputLayout.getDimAlignments() != outputLayout.getDimAlignments();
+  //components.isLayoutChange =
+  //    inputLayout.getNormalizedIntervals() !=
+  //        outputLayout.getNormalizedIntervals() ||
+  //    inputLayout.getDimAlignments() != outputLayout.getDimAlignments();
 
   return components;
 }
@@ -1165,13 +1165,26 @@ static mlir::LogicalResult verifyAffineBlocking(
 
       bool success = true;
       auto virtGridShape = getGrid().getShape();
+      //llvm::dbgs() << "\nConsistency check for virt grid maps:\n";
+      //llvm::dbgs() << "  virtGridShape: " << ttmlir::utils::formatIterable(virtGridShape, "x") << "\n";
+      //llvm::dbgs() << "  fwdMap: " << fwdMap << "\n";
+      //llvm::dbgs() << "  invMap: " << invMap << "\n";
+      //llvm::dbgs() << "  roundtripMap: " << roundtripMap << "\n";
+      //llvm::dbgs() << "  sampled points: " << "\n";
       ttmlir::utils::sample(virtGridShape, [&](ArrayRef<int64_t> point) {
         // Pad point with dummy shard dims to align with expected fwdMap args.
         SmallVector<int64_t> dummyShardDims(point.size(), 0);
         SmallVector<int64_t> pointWithDummyShardDims = llvm::to_vector(
             llvm::concat<int64_t>(SmallVector<int64_t>(point), dummyShardDims));
 
+        auto intermediatePoint = fwdMap.compose(pointWithDummyShardDims);
         auto roundtripPoint = roundtripMap.compose(pointWithDummyShardDims);
+        //llvm::dbgs() << "    " << ttmlir::utils::formatIterable(point, "x")
+        //             << " -> "
+        //             << ttmlir::utils::formatIterable(intermediatePoint, "x")
+        //             << " -> "
+        //             << ttmlir::utils::formatIterable(roundtripPoint, "x")
+        //             << (roundtripPoint != point ? " (MISMATCH)" : " ") << "\n";
         if (roundtripPoint != point) {
           success = false;
         }

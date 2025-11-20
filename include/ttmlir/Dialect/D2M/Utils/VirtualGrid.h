@@ -46,7 +46,7 @@ inline mlir::AffineMap createCollapseMap(mlir::MLIRContext *context,
 
   int64_t virtualGridRank = virtualGrid.size();
   AffineExpr collapseExpr = getAffineDimExpr(virtualGrid.size() - 1, context);
-  AffineExpr strideExpr = getAffineConstantExpr(1, context);
+  AffineExpr strideExpr = getAffineConstantExpr(virtualGrid.back(), context);
   for (int64_t i = virtualGrid.size() - 2; i >= 0; i--) {
     collapseExpr = collapseExpr + getAffineDimExpr(i, context) * strideExpr;
     strideExpr = strideExpr * getAffineConstantExpr(virtualGrid[i], context);
@@ -54,16 +54,12 @@ inline mlir::AffineMap createCollapseMap(mlir::MLIRContext *context,
   SmallVector<AffineExpr> collapseMapExprs = {collapseExpr};
   auto map =
       mlir::AffineMap::get(virtualGridRank, 0, collapseMapExprs, context);
-  llvm::dbgs() << "createCollapseMap: " << map << "\n";
   return map;
 }
 
 inline mlir::AffineMap create1DtoNDMap(mlir::MLIRContext *context,
                                        llvm::ArrayRef<int64_t> targetGrid) {
   using namespace mlir;
-
-  llvm::dbgs() << "create1DtoNDMap: targetGrid: "
-               << ttmlir::utils::formatIterable(targetGrid, "x") << "\n";
 
   TT_assertv(!targetGrid.empty(), "Target grid must have at least one dim");
   for (int64_t size : targetGrid) {
@@ -81,11 +77,7 @@ inline mlir::AffineMap create1DtoNDMap(mlir::MLIRContext *context,
     strideExpr = strideExpr * sizeExpr;
   }
 
-  llvm::dbgs() << "expandMapExprs: "
-               << ttmlir::utils::formatIterable(expandMapExprs, ",") << "\n";
-
   auto map = mlir::AffineMap::get(1, 0, expandMapExprs, context);
-  llvm::dbgs() << "create1DtoNDMap: " << map << "\n";
   return map;
 }
 
@@ -118,11 +110,11 @@ createCoreVirtMaps(mlir::MLIRContext *context,
         create1DtoNDMap(context, targetGrid)
             .compose(createCollapseMap(context, virtualGrid)),
         virtualGrid.size());
-    auto inverseMap = create1DtoNDMap(context, virtualGrid)
-                          .compose(createCollapseMap(context, targetGrid));
-    inverseMap = prependResult(inverseMap, getAffineConstantExpr(0, context));
-    llvm::dbgs() << "forwardMap: " << forwardMap << "\n";
-    llvm::dbgs() << "inverseMap: " << inverseMap << "\n";
+
+    auto inverseMap =
+        prependResult(create1DtoNDMap(context, virtualGrid)
+                          .compose(createCollapseMap(context, targetGrid)),
+                      getAffineConstantExpr(0, context));
 
     return {forwardMap, inverseMap};
   } else {
