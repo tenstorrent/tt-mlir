@@ -133,6 +133,17 @@ def D2M_OperandLoadStoreRegisterOpInterface : OpInterface<"OperandLoadStoreRegis
       /*methodBody=*/"",
       /*defaultImplementation=*/"return false;"
     >,
+    InterfaceMethod<
+      /*desc=*/[{
+        Returns whether this operation supports both tile+tile and tile+scalar operands.
+        For such operations, the in-place behavior depends on whether rhs is a scalar.
+      }],
+      /*retTy=*/"bool",
+      /*methodName=*/"supportsTileOrScalarRhs",
+      /*args=*/(ins),
+      /*methodBody=*/"",
+      /*defaultImplementation=*/"return false;"
+    >,
   ];
 }
 

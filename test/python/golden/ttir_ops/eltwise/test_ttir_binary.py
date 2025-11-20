@@ -567,6 +567,17 @@ def div_scalar(
     return builder.div(in0, scalar, unit_attrs=unit_attrs)
 
 
+def pow_scalar(
+    in0: Operand,
+    scalar_value: float,
+    builder: TTIRBuilder,
+    unit_attrs: Optional[List[str]] = None,
+):
+    """Raise a tensor to a scalar power"""
+    scalar = builder.constant(torch.tensor(scalar_value))
+    return builder.pow(in0, scalar, unit_attrs=unit_attrs)
+
+
 scalar_binary_ops = [
     (add_scalar, 2.5),
     (multiply_scalar, 3.0),
@@ -577,6 +588,7 @@ scalar_binary_ops = [
             reason="Fails atol and rtol, issue here: https://github.com/tenstorrent/tt-mlir/issues/5924"
         )
     ),
+    (pow_scalar, 2.0),
 ]
 
 
@@ -586,7 +598,13 @@ scalar_binary_ops = [
 @pytest.mark.parametrize(
     "test_fn_and_scalar",
     scalar_binary_ops,
-    ids=["add_scalar", "multiply_scalar", "subtract_scalar", "div_scalar"],
+    ids=[
+        "add_scalar",
+        "multiply_scalar",
+        "subtract_scalar",
+        "div_scalar",
+        "pow_scalar",
+    ],
 )
 def test_scalar_binary_ops(
     test_fn_and_scalar: Tuple[Callable, float],

@@ -6,6 +6,7 @@
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
 #include "ttmlir/Dialect/D2M/Utils/Utils.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
@@ -311,6 +312,19 @@ public:
 
       // Collect loads to this op.
       for (int64_t operandIdx : computeOp.getOperandsLoadFromDstRegister()) {
+        // For tile+scalar ops, skip loading scalar operands (they're not tiles)
+        if (computeOp.supportsTileOrScalarRhs() && operandIdx == 1) {
+          auto rhsOperand = computeOp->getOperand(1);
+          auto rhsType = rhsOperand.getType();
+          // Check if rhs is a scalar: NOT a tile AND is int/float
+          bool isScalar =
+              !llvm::isa<ttcore::TileType>(rhsType) && rhsType.isIntOrFloat();
+          if (isScalar) {
+            // Skip scalar operands - they don't need to be loaded from dst
+            continue;
+          }
+        }
+
         if (auto potentialLoad = computeOp->getOperand(operandIdx)
                                      .getDefiningOp<affine::AffineLoadOp>();
             notDstMemspace(potentialLoad)) {
@@ -329,17 +343,34 @@ public:
                  "Multiple stores from last op to dst not supported");
 
           auto dstRegInPlace = computeOp.getDstRegInPlace();
+
+          // For ops that support tile+scalar, check if rhs is a scalar
+          bool rhsIsScalar = false;
+          if (computeOp.supportsTileOrScalarRhs() &&
+              computeOp->getNumOperands() >= 2) {
+            auto rhsOperand = computeOp->getOperand(1);
+            auto rhsType = rhsOperand.getType();
+            // Check if rhs is a scalar: NOT a tile AND is int/float
+            // (TileType implements FloatTypeInterface, so isIntOrFloat()
+            // returns true for tiles!)
+            rhsIsScalar =
+                !llvm::isa<ttcore::TileType>(rhsType) && rhsType.isIntOrFloat();
+          }
+
           int64_t dstSliceIndex = -1;
-          if (dstRegInPlace) {
+          // If op has scalar rhs, treat it as in-place (unary-like behavior)
+          if (dstRegInPlace || rhsIsScalar) {
             bool isUnaryOp = computeOp->getNumOperands() == 1;
             bool isTileMatmul = mlir::isa<d2m::TileMatmulOp>(computeOp);
             bool isReduction = mlir::isa<d2m::TileReduceMaxOp>(computeOp) ||
                                mlir::isa<d2m::TileReduceSumOp>(computeOp);
-            assert((isUnaryOp || isTileMatmul || isReduction) &&
-                   "Only unary ops, tile matmul, and reductions supported for "
-                   "destination register in "
-                   "place, multi-operand ops would reference wrong tile, but "
-                   "those ops should be setting output tile.");
+            assert(
+                (isUnaryOp || isTileMatmul || isReduction || rhsIsScalar) &&
+                "Only unary ops, tile matmul, reductions, and tile+scalar ops "
+                "supported for destination register in place, multi-operand "
+                "ops "
+                "would reference wrong tile, but those ops should be setting "
+                "output tile.");
             dstSliceIndex = dstSliceAllocationState.getCurrSliceIndex();
           } else {
             dstSliceIndex = dstSliceAllocationState.allocate();
@@ -359,10 +390,22 @@ public:
                  "users in the same compute dst region.");
           assert(computeOp->getNumResults() == 1);
           assert(!dstRegisterAllocation.contains(computeOp));
-          // If op stores to dst in place, we don't need to allocate a new dst
-          // register, just use the current dst index.
+
+          // Check if rhs is scalar for tile+scalar ops
+          bool rhsIsScalar = false;
+          if (computeOp.supportsTileOrScalarRhs() &&
+              computeOp->getNumOperands() >= 2) {
+            auto rhsOperand = computeOp->getOperand(1);
+            auto rhsType = rhsOperand.getType();
+            // Check if rhs is a scalar: NOT a tile AND is int/float
+            rhsIsScalar =
+                !llvm::isa<ttcore::TileType>(rhsType) && rhsType.isIntOrFloat();
+          }
+
+          // If op stores to dst in place or has scalar rhs, we don't need to
+          // allocate a new dst register, just use the current dst index.
           int32_t allocatedIndex =
-              computeOp.getDstRegInPlace()
+              (computeOp.getDstRegInPlace() || rhsIsScalar)
                   ? dstSliceAllocationState.getCurrSliceIndex()
                   : dstSliceAllocationState.allocate();
 
