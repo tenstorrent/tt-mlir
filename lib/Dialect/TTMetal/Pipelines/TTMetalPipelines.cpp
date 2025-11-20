@@ -118,24 +118,15 @@ void createTTIRToTTMetalMiddleendPipeline(
   pm.addPass(createLinalgElementwiseOpFusionPass());
   pm.addPass(mlir::createCanonicalizerPass());
   createTTIRBufferizationPipeline(pm, options);
-  if (options.ttnnMode) {
-    d2m::D2MInsertStreamsOptions insertStreamsOptions;
-    {
-      insertStreamsOptions.numStreamBuffers = options.numStreamBuffers;
-      insertStreamsOptions.allowL1OutputSpilling =
-          options.allowL1OutputSpilling;
-    }
-    pm.addPass(d2m::createD2MInsertStreams(insertStreamsOptions));
-  } else {
-    d2m::D2MAllocateOptions allocateOptions;
-    {
-      allocateOptions.numStreamBuffers = options.numStreamBuffers;
-      allocateOptions.allowL1OutputSpilling = options.allowL1OutputSpilling;
-      allocateOptions.testAssumeL1Capacity = options.testAssumel1Capacity;
-      allocateOptions.testBufferSizePolicy = options.testBufferSizePolicy;
-    }
-    pm.addPass(d2m::createD2MAllocate(allocateOptions));
+  d2m::D2MAllocateOptions allocateOptions;
+  {
+    allocateOptions.numStreamBuffers = options.numStreamBuffers;
+    allocateOptions.allowL1OutputSpilling = options.allowL1OutputSpilling;
+    allocateOptions.streamInsertPolicy = options.streamInsertPolicy;
+    allocateOptions.testAssumeL1Capacity = options.testAssumel1Capacity;
+    allocateOptions.testBufferSizePolicy = options.testBufferSizePolicy;
   }
+  pm.addPass(d2m::createD2MAllocate(allocateOptions));
 
   pm.addPass(createCanonicalizerPassWithOptions(options));
   // TODO(#FIXME): OwnershipBasedBufferDeallocationPass doesn't support custom

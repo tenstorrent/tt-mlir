@@ -21,6 +21,23 @@
 using namespace mlir;
 using namespace mlir::tt::d2m;
 
+// Template helper for bufferizing CB ops that take a CB operand but no result
+// (PushOp, PopOp). These ops unwrap to_tensor by creating to_buffer.
+template <typename OpTy>
+static mlir::LogicalResult
+bufferizeCBOp(OpTy op, mlir::RewriterBase &rewriter,
+              const mlir::bufferization::BufferizationOptions &options) {
+  auto cbBufferType =
+      mlir::cast<bufferization::TensorLikeType>(op.getCbType())
+          .getBufferType(options, [&]() { return op.emitOpError(); });
+  assert(succeeded(cbBufferType));
+  auto toBuffer = rewriter.create<bufferization::ToBufferOp>(
+      op.getLoc(), *cbBufferType, op.getCb());
+  mlir::bufferization::replaceOpWithNewBufferizedOp<OpTy>(rewriter, op,
+                                                          toBuffer.getResult());
+  return mlir::success();
+}
+
 void AcquireDstOp::getAsmResultNames(
     function_ref<void(Value, StringRef)> setNameFn) {
   setNameFn(getResult(), "dst");
@@ -546,7 +563,7 @@ void TileUntilizeBlockOp::getEffects(
 }
 
 //===----------------------------------------------------------------------===//
-// YieldOp / WaitOp / ReserveOp
+// YieldOp / WaitOp / ReserveOp / PushOp / PopOp
 //===----------------------------------------------------------------------===//
 
 mlir::LogicalResult YieldOp::verify() {
@@ -568,4 +585,72 @@ mlir::LogicalResult YieldOp::verify() {
   }
 
   return ::mlir::success();
+}
+
+bool PushOp::bufferizesToMemoryRead(
+    mlir::OpOperand &, const mlir::bufferization::AnalysisState &) {
+  return false;
+}
+
+bool PushOp::bufferizesToMemoryWrite(
+    mlir::OpOperand &, const mlir::bufferization::AnalysisState &) {
+  return false;
+}
+
+mlir::bufferization::AliasingValueList
+PushOp::getAliasingValues(mlir::OpOperand &,
+                          const mlir::bufferization::AnalysisState &) {
+  mlir::bufferization::AliasingValueList result;
+  return result;
+}
+
+mlir::FailureOr<mlir::bufferization::BufferLikeType>
+PushOp::getBufferType(mlir::Value,
+                      const mlir::bufferization::BufferizationOptions &,
+                      const mlir::bufferization::BufferizationState &,
+                      ::llvm::SmallVector<mlir::Value> &) {
+  llvm_unreachable(
+      "intentionally unimplemented, this op can only accept block arguments "
+      "which should have already been converted");
+}
+
+mlir::LogicalResult
+PushOp::bufferize(mlir::RewriterBase &rewriter,
+                  const mlir::bufferization::BufferizationOptions &options,
+                  mlir::bufferization::BufferizationState &) {
+  return bufferizeCBOp(*this, rewriter, options);
+}
+
+bool PopOp::bufferizesToMemoryRead(mlir::OpOperand &,
+                                   const mlir::bufferization::AnalysisState &) {
+  return false;
+}
+
+bool PopOp::bufferizesToMemoryWrite(
+    mlir::OpOperand &, const mlir::bufferization::AnalysisState &) {
+  return false;
+}
+
+mlir::bufferization::AliasingValueList
+PopOp::getAliasingValues(mlir::OpOperand &,
+                         const mlir::bufferization::AnalysisState &) {
+  mlir::bufferization::AliasingValueList result;
+  return result;
+}
+
+mlir::FailureOr<mlir::bufferization::BufferLikeType>
+PopOp::getBufferType(mlir::Value,
+                     const mlir::bufferization::BufferizationOptions &,
+                     const mlir::bufferization::BufferizationState &,
+                     ::llvm::SmallVector<mlir::Value> &) {
+  llvm_unreachable(
+      "intentionally unimplemented, this op can only accept block arguments "
+      "which should have already been converted");
+}
+
+mlir::LogicalResult
+PopOp::bufferize(mlir::RewriterBase &rewriter,
+                 const mlir::bufferization::BufferizationOptions &options,
+                 mlir::bufferization::BufferizationState &) {
+  return bufferizeCBOp(*this, rewriter, options);
 }
