@@ -69,7 +69,8 @@ executeConstraintQuery(Callable &callable) {
             query.error_message.value_or("<error message not set>"));
   }
 
-  if (!query.output_tensor_spec.has_value()) {
+  if (!query.output_tensor_specs.has_value() ||
+      query.output_tensor_specs->empty()) {
     return llvm::createStringError(llvm::inconvertibleErrorCode(),
                                    "Op constraint query missing output tensor");
   }
@@ -107,13 +108,13 @@ llvm::Expected<OpConstraints> getOpConstraints(MLIRContext *context,
 
   ::ttnn::graph::ConstraintQueryResponse response = query.get();
 
-  return OpConstraints(
-      response.resource_usage.cb_peak_size_per_core,
-      response.resource_usage.l1_buffers_peak_per_core,
-      response.resource_usage.peak_memory_usage_per_core,
-      response.resource_usage.l1_output_buffer_per_core,
-      conversion::getLayoutAttrFromTensorSpec(
-          context, response.output_tensor_spec.value(), deviceGrid.getShape()));
+  return OpConstraints(response.resource_usage.cb_peak_size_per_core,
+                       response.resource_usage.l1_buffers_peak_per_core,
+                       response.resource_usage.peak_memory_usage_per_core,
+                       response.resource_usage.l1_output_buffer_per_core,
+                       conversion::getLayoutAttrFromTensorSpec(
+                           context, response.output_tensor_specs.value()[0],
+                           deviceGrid.getShape()));
 }
 
 template <class Callable>
@@ -618,8 +619,9 @@ getPrepareConv2dWeightsOpOutputTensorSpec(
     return output.takeError();
   }
 
-  assert(output.get().output_tensor_spec.has_value());
-  return output.get().output_tensor_spec.value();
+  assert(output.get().output_tensor_specs.has_value() &&
+         !output.get().output_tensor_specs->empty());
+  return output.get().output_tensor_specs.value()[0];
 }
 
 // Returns the output tensor spec of the prepared bias for a conv2d op.
@@ -715,8 +717,9 @@ getPrepareConv2dBiasOpOutputTensorSpec(
     return output.takeError();
   }
 
-  assert(output.get().output_tensor_spec.has_value());
-  return output.get().output_tensor_spec.value();
+  assert(output.get().output_tensor_specs.has_value() &&
+         !output.get().output_tensor_specs->empty());
+  return output.get().output_tensor_specs.value().at(0);
 }
 
 #endif // TTMLIR_ENABLE_OPMODEL
