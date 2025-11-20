@@ -129,6 +129,9 @@ public:
                                const ::tt::runtime::Tensor &tensor, bool force);
 
   static uint64_t buildShutdownCommand(::flatbuffers::FlatBufferBuilder &fbb);
+
+  static uint64_t buildWorkerEchoCommand(::flatbuffers::FlatBufferBuilder &fbb,
+                                         const std::string &message);
 };
 
 } // namespace tt::runtime::distributed::controller

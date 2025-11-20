@@ -665,6 +665,28 @@ void Controller::deallocateTensor(::tt::runtime::Tensor &tensorHandle,
                                  std::move(commandBuilder));
 }
 
+std::string Controller::workerEcho(const std::string& message){
+  auto commandBuilder = std::make_unique<::flatbuffers::FlatBufferBuilder>();
+  uint64_t commandId = CommandFactory::buildWorkerEchoCommand(
+    *commandBuilder, message);
+
+  auto awaitingHandles = std::make_unique<std::vector<std::shared_ptr<void>>>();
+  std::shared_ptr<std::string> echoedMessageHandle = std::make_shared<std::string>();
+  awaitingHandles->push_back(std::static_pointer_cast<void>(echoedMessageHandle));
+
+  auto awaitingPromise = std::make_unique<std::promise<void>>();
+  std::future<void> awaitingFuture = awaitingPromise->get_future();
+
+  pushToCommandAndResponseQueues(commandId, fb::CommandType::WorkerEchoCommand,
+                                 std::move(commandBuilder),
+                                 std::move(awaitingHandles),
+                                 std::move(awaitingPromise));
+
+  awaitingFuture.wait();
+
+  return *echoedMessageHandle;
+}
+
 void Controller::pushToCommandAndResponseQueues(
     uint64_t commandId, const fb::CommandType &commandType,
     std::unique_ptr<::flatbuffers::FlatBufferBuilder> commandBuilder,
@@ -1270,6 +1292,37 @@ void Controller::handleShutdownResponse(
   awaitingPromise->set_value();
 }
 
+void Controller::handleWorkerEchoResponse(
+    const std::vector<SizedBuffer> &responseBuffers,
+    std::unique_ptr<AwaitingResponseQueueEntry> awaitingResponse) {
+
+  debug::checkResponsesIdentical(responseBuffers);
+
+  debug::checkResponseTypes(responseBuffers,
+                            fb::ResponseType::WorkerEchoResponse);
+
+  const fb::WorkerEchoResponse *response =
+      getResponse(responseBuffers[0])->type_as_WorkerEchoResponse();
+
+  LOG_DEBUG("Received Worker Echo Response: ",
+            response->message() ? response->message()->c_str() : "<empty>");
+
+  DEBUG_ASSERT(awaitingResponse->awaitingHandles &&
+                   awaitingResponse->awaitingHandles->size() == 1,
+               "Awaiting handles must be populated with exactly one handle");
+
+  std::shared_ptr<std::string> echoedMessageHandle =
+      std::static_pointer_cast<std::string>(
+          awaitingResponse->awaitingHandles->at(0));
+
+  *echoedMessageHandle = response->message() ? response->message()->str() : "";
+
+  DEBUG_ASSERT(awaitingResponse->awaitingPromise,
+               "Awaiting promise must be populated");
+
+  awaitingResponse->awaitingPromise->set_value();
+}
+
 void Controller::handleResponse(
     const std::vector<SizedBuffer> &responseBuffers,
     std::unique_ptr<AwaitingResponseQueueEntry> awaitingResponse) {
@@ -1360,6 +1413,10 @@ void Controller::handleResponse(
   }
   case fb::CommandType::ShutdownCommand: {
     return handleShutdownResponse(responseBuffers, std::move(awaitingResponse));
+  }
+  case fb::CommandType::WorkerEchoCommand: {
+    return handleWorkerEchoResponse(responseBuffers,
+                                 std::move(awaitingResponse));
   }
   case fb::CommandType::NONE: {
     LOG_FATAL("Unhandled response type for command type: ",

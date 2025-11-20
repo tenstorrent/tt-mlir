@@ -232,6 +232,15 @@ void ResponseFactory::buildShutdownResponse(
   BUILD_RESPONSE(Shutdown, fbb, commandId);
 }
 
+void ResponseFactory::buildWorkerEchoResponse(
+    ::flatbuffers::FlatBufferBuilder &fbb, uint64_t commandId,
+    const std::string &message) {
+
+  LOG_ASSERT(fbb.GetSize() == 0, "Flatbuffer builder must be empty");
+
+  BUILD_RESPONSE_DIRECT(WorkerEcho, fbb, commandId, message.c_str());
+}
+
 #undef BUILD_RESPONSE_IMPL
 #undef BUILD_RESPONSE
 #undef BUILD_RESPONSE_DIRECT

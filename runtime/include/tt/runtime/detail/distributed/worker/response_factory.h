@@ -105,6 +105,10 @@ public:
 
   static void buildShutdownResponse(::flatbuffers::FlatBufferBuilder &fbb,
                                     uint64_t commandId);
+
+static void buildWorkerEchoResponse(::flatbuffers::FlatBufferBuilder &fbb,
+                                    uint64_t commandId,
+                                    const std::string &message);
 };
 
 } // namespace tt::runtime::distributed::worker

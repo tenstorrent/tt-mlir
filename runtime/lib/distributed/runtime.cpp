@@ -194,4 +194,8 @@ void deallocateTensor(::tt::runtime::Tensor &tensorHandle, bool force) {
   ControllerSingleton::get().deallocateTensor(tensorHandle, force);
 }
 
+std::string workerEcho(const std::string& message) {
+  assertControllerLaunched();
+  return ControllerSingleton::get().workerEcho(message);
+}
 } // namespace tt::runtime::distributed

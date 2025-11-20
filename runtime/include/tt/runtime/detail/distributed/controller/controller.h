@@ -159,6 +159,8 @@ public:
 
   ShutdownResult shutdown();
 
+  std::string workerEcho(const std::string& message);
+
 private:
   std::chrono::seconds writeTimeout_{300};
   std::chrono::seconds readTimeout_{300};
@@ -288,10 +290,14 @@ private:
   void handleShutdownResponse(
       const std::vector<SizedBuffer> &responseBuffers,
       std::unique_ptr<AwaitingResponseQueueEntry> awaitingResponse);
+void handleWorkerEchoResponse(
+    const std::vector<SizedBuffer> &responseBuffers,
+    std::unique_ptr<AwaitingResponseQueueEntry> awaitingResponse);
 
   void
   handleResponse(const std::vector<SizedBuffer> &responseBuffers,
                  std::unique_ptr<AwaitingResponseQueueEntry> awaitingResponse);
+
 };
 
 } // namespace tt::runtime::distributed::controller

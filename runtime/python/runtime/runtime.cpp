@@ -459,6 +459,8 @@ void registerRuntimeBindings(nb::module_ &m) {
         A reference that uniquely identifies the output tensor, or ``None`` if the
         operator has no outputs.
     )");
+  m.def("worker_echo", &tt::runtime::workerEcho,
+        nb::arg("message"), "Send an echo message to the worker and get it back");
 
   m.def(
       "get_op_input_refs",

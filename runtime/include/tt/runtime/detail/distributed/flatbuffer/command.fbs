@@ -140,6 +140,10 @@ table DeallocateTensorCommand {
 table ShutdownCommand {
 }
 
+table WorkerEchoCommand{
+  message: string;
+}
+
 union CommandType {
   ConfigureRuntimeContextCommand,
   GetSystemDescCommand,
@@ -164,6 +168,7 @@ union CommandType {
   MemcpyCommand,
   DeallocateTensorCommand,
   ShutdownCommand,
+  WorkerEchoCommand,
 }
 
 table Command {

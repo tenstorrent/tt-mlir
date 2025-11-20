@@ -923,6 +923,23 @@ void deallocateTensor(Tensor &tensor, bool force) {
       });
 }
 
+std::string workerEcho(const std::string &message) {
+  using RetType = std::string;
+  return DISPATCH_TO_CURRENT_RUNTIME(
+      RetType,
+      [&]() -> RetType {
+        detail::fatalNotImplemented("workerEcho",
+                                    DeviceRuntime::TTNN);
+      },
+      [&]() -> RetType {
+        detail::fatalNotImplemented("workerEcho",
+                                    DeviceRuntime::TTMetal);
+      },
+      [&]() -> RetType {
+        return ::tt::runtime::distributed::workerEcho(message);
+      });
+}
+
 std::string getOpDebugString(OpContext opContextHandle) {
   using RetType = std::string;
   return DISPATCH_TO_CURRENT_RUNTIME(

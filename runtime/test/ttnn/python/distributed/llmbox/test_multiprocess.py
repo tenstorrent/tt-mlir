@@ -376,3 +376,11 @@ def test_flatbuffer_execution_dp(request, num_loops):
         ttrt.runtime.release_sub_mesh_device(submesh2)
 
     shutdown_distributed_runtime()
+
+def test_worker_echo():
+    launch_distributed_runtime()
+
+    message = "Hello from controller."
+    echoed_message = ttrt.runtime.worker_echo(message)
+    print("got echoed message", echoed_message)
+    shutdown_distributed_runtime()

@@ -627,6 +627,17 @@ void CommandExecutor::execute(uint64_t commandId,
   LOG_INFO("Command executor shutdown complete");
 }
 
+void CommandExecutor::execute(uint64_t commandId,
+                              const fb::WorkerEchoCommand *command) {
+  std::string cmd_message = command->message()->str();
+
+  std::unique_ptr<::flatbuffers::FlatBufferBuilder> responseBuilder =
+      buildResponse(ResponseFactory::buildWorkerEchoResponse, commandId,
+                    cmd_message);
+
+  responseQueue_.push(std::move(responseBuilder));
+}
+
 void CommandExecutor::executeCommand(const fb::Command *command) {
   switch (command->type_type()) {
   case fb::CommandType::ConfigureRuntimeContextCommand: {
@@ -719,6 +730,9 @@ void CommandExecutor::executeCommand(const fb::Command *command) {
   case fb::CommandType::NONE: {
     LOG_FATAL("Unhandled command type: ",
               fb::EnumNameCommandType(command->type_type()));
+  }
+  case fb::CommandType::WorkerEchoCommand:{
+    return execute(command->command_id(), command->type_as_WorkerEchoCommand());
   }
   }
 

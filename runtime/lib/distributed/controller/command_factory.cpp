@@ -439,6 +439,17 @@ CommandFactory::buildShutdownCommand(::flatbuffers::FlatBufferBuilder &fbb) {
   return commandId;
 }
 
+uint64_t CommandFactory::buildWorkerEchoCommand(
+    ::flatbuffers::FlatBufferBuilder &fbb, const std::string &message) {
+
+  LOG_ASSERT(fbb.GetSize() == 0, "Flatbuffer builder must be empty");
+
+  uint64_t commandId =
+      BUILD_COMMAND_DIRECT(WorkerEcho, fbb, message.c_str());
+
+  return commandId;
+}
+
 #undef BUILD_COMMAND_IMPL
 #undef BUILD_COMMAND
 #undef BUILD_COMMAND_DIRECT

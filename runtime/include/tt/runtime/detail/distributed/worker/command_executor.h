@@ -161,6 +161,9 @@ private:
 
   void executeCommand(
       const ::tt::runtime::distributed::flatbuffer::Command *command);
+
+    void execute(uint64_t commandId,
+        const tt::runtime::distributed::flatbuffer::WorkerEchoCommand *command) ;
 };
 
 } // namespace tt::runtime::distributed::worker

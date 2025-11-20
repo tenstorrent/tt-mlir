@@ -89,6 +89,10 @@ table DeallocateTensorResponse {
 table ShutdownResponse {
 }
 
+table WorkerEchoResponse{
+  message: string;
+}
+
 union ResponseType {
   ErrorResponse,
   ConfigureRuntimeContextResponse,
@@ -114,6 +118,7 @@ union ResponseType {
   MemcpyResponse,
   DeallocateTensorResponse,
   ShutdownResponse,
+  WorkerEchoResponse,
 }
 
 table Response {

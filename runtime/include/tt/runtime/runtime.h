@@ -248,6 +248,8 @@ void dumpTensor(Tensor tensor, const std::string &filePath);
 Tensor loadTensor(const std::string &filePath,
                   std::optional<Device> device = std::nullopt);
 
+std::string workerEcho(const std::string &message);
+
 } // namespace tt::runtime
 
 #endif
