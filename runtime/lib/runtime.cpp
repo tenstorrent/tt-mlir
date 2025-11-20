@@ -923,8 +923,8 @@ void deallocateTensor(Tensor &tensor, bool force) {
       });
 }
 
-std::string workerEcho(const std::string &message) {
-  using RetType = std::string;
+std::vector<std::string> workerEcho(const std::string &message) {
+  using RetType = std::vector<std::string>;
   return DISPATCH_TO_CURRENT_RUNTIME(
       RetType,
       [&]() -> RetType {

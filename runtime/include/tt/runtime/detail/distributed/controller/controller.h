@@ -159,7 +159,7 @@ public:
 
   ShutdownResult shutdown();
 
-  std::string workerEcho(const std::string& message);
+  std::vector<std::string> workerEcho(const std::string& message);
 
 private:
   std::chrono::seconds writeTimeout_{300};

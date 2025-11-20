@@ -79,7 +79,7 @@ void memcpy(const ::tt::runtime::Tensor &dstHandle,
 
 void deallocateTensor(::tt::runtime::Tensor &tensorHandle, bool force = false);
 
-std::string workerEcho(const std::string& message);
+std::vector<std::string> workerEcho(const std::string& message);
 
 } // namespace tt::runtime::distributed
 

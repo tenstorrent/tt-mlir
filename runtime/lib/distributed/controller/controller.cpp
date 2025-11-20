@@ -665,13 +665,13 @@ void Controller::deallocateTensor(::tt::runtime::Tensor &tensorHandle,
                                  std::move(commandBuilder));
 }
 
-std::string Controller::workerEcho(const std::string& message){
+std::vector<std::string> Controller::workerEcho(const std::string& message){
   auto commandBuilder = std::make_unique<::flatbuffers::FlatBufferBuilder>();
   uint64_t commandId = CommandFactory::buildWorkerEchoCommand(
     *commandBuilder, message);
 
   auto awaitingHandles = std::make_unique<std::vector<std::shared_ptr<void>>>();
-  std::shared_ptr<std::string> echoedMessageHandle = std::make_shared<std::string>();
+  std::shared_ptr<std::vector<std::string>> echoedMessageHandle = std::make_shared<std::vector<std::string>>();
   awaitingHandles->push_back(std::static_pointer_cast<void>(echoedMessageHandle));
 
   auto awaitingPromise = std::make_unique<std::promise<void>>();
@@ -1296,26 +1296,40 @@ void Controller::handleWorkerEchoResponse(
     const std::vector<SizedBuffer> &responseBuffers,
     std::unique_ptr<AwaitingResponseQueueEntry> awaitingResponse) {
 
-  debug::checkResponsesIdentical(responseBuffers);
+  // If workers may respond with their own names, the buffers won't be identical
+  // debug::checkResponsesIdentical(responseBuffers);
 
   debug::checkResponseTypes(responseBuffers,
                             fb::ResponseType::WorkerEchoResponse);
 
-  const fb::WorkerEchoResponse *response =
-      getResponse(responseBuffers[0])->type_as_WorkerEchoResponse();
+  // extract response object from all buffers
+  std::vector<std::string> worker_responses;
+  for (const SizedBuffer& raw_resp: responseBuffers){
+    const fb::WorkerEchoResponse *resp =
+        getResponse(raw_resp)->type_as_WorkerEchoResponse();
+    worker_responses.push_back(resp->message() ? resp->message()->str() : "<empty>");
+  }
 
-  LOG_DEBUG("Received Worker Echo Response: ",
-            response->message() ? response->message()->c_str() : "<empty>");
+  // const fb::WorkerEchoResponse *response =
+  //     getResponse(responseBuffers[0])->type_as_WorkerEchoResponse();
+
+  // dump response to stdout
+  for (const auto& msg : worker_responses) {
+    LOG_DEBUG("Received Worker Echo Response: ", msg);
+  }
 
   DEBUG_ASSERT(awaitingResponse->awaitingHandles &&
                    awaitingResponse->awaitingHandles->size() == 1,
                "Awaiting handles must be populated with exactly one handle");
 
-  std::shared_ptr<std::string> echoedMessageHandle =
-      std::static_pointer_cast<std::string>(
+  // there is only one awaiting handle, which is the echoed message string
+  // which the caller expects.
+  std::shared_ptr<std::vector<std::string>> echoedMessageHandle =
+      std::static_pointer_cast<std::vector<std::string>>(
           awaitingResponse->awaitingHandles->at(0));
 
-  *echoedMessageHandle = response->message() ? response->message()->str() : "";
+
+  *echoedMessageHandle = worker_responses;
 
   DEBUG_ASSERT(awaitingResponse->awaitingPromise,
                "Awaiting promise must be populated");
