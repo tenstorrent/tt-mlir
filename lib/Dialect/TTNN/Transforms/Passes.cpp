@@ -6,6 +6,7 @@
 
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
+#include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.h"
@@ -181,7 +182,15 @@ protected:
         rewriter.modifyOpInPlace(funcOp, [&]() { funcOp.setSymName("_main"); });
       }
 
+      // Skip private and const-eval functions.
+      //
       if (funcOp.isPrivate() || ttmlir::utils::isConstEvalFunc(funcOp)) {
+        return mlir::WalkResult::skip();
+      }
+
+      // Skip hoisted functions.
+      //
+      if (funcOp->hasAttr(ttir::HoistedFuncAttr::name)) {
         return mlir::WalkResult::skip();
       }
 
@@ -488,6 +497,12 @@ public:
       // Skip private functions.
       //
       if (funcOp.isPrivate()) {
+        return mlir::WalkResult::skip();
+      }
+
+      // Skip hoisted functions.
+      //
+      if (funcOp->hasAttr(ttir::HoistedFuncAttr::name)) {
         return mlir::WalkResult::skip();
       }
 

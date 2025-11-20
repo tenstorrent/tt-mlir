@@ -647,10 +647,6 @@ private:
     builder.setInsertionPoint(originalFunc);
     auto newFuncOp = builder.create<func::FuncOp>(originalFunc.getLoc(),
                                                   newFuncName, funcType);
-
-    // Visibility of the const-eval functions should be private.
-    newFuncOp.setVisibility(mlir::SymbolTable::Visibility::Private);
-
     // Mark the new function as const-eval.
     newFuncOp->setAttr(ttmlir::utils::g_constEvalAttrName,
                        builder.getUnitAttr());

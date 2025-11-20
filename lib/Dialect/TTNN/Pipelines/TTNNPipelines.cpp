@@ -168,39 +168,40 @@ void createTTIRToTTNNBackendPipeline(
   decompOptions.decompConfig = DecompMode::CPUFallback;
   pm.addPass(mlir::tt::createTTIRToTTIRDecompositionPass(decompOptions));
 
-  // Create DeviceModule to wrap all ops.
-  pm.addPass(ttcore::createTTCoreWrapDeviceModulePass());
-
-  // Perform CPU-hoisting transform.
-  pm.addPass(ttir::createTTIRHoistTransform());
-
-  OpPassManager &devicePm =
-      pm.nest<ttcore::DeviceModuleOp>().nest<mlir::ModuleOp>();
-
   // Element type normalization should be the first pass in the pipeline.
   // This pass should be applied only to the ops in the Device
   // Module, since we aren't restricted with element types on CPU.
   ttir::ElementTypeNormalizationOptions elementTypeNormalizationOptions;
   elementTypeNormalizationOptions.enableBfp8Conversion =
       options.enableBfp8Conversion;
-  devicePm.addPass(
+  pm.addPass(
       ttir::createElementTypeNormalization(elementTypeNormalizationOptions));
 
   // Run regular TTIR to TTNN pipeline on DeviceModule.
-  createTTNNPipelineTTIRPasses(devicePm, options);
-
+  createTTNNPipelineTTIRPasses(pm, options);
   ttir::TTIRQuantDataTypeConversionPassOptions quantOptions;
   quantOptions.targetBitWidth = options.quantBitWidth;
-  devicePm.addPass(ttir::createTTIRQuantDataTypeConversionPass(quantOptions));
+  pm.addPass(ttir::createTTIRQuantDataTypeConversionPass(quantOptions));
+
+  // Const-eval hoisting pass
+  if (options.enableConstEval) {
+    pm.addPass(transforms::createConstEvalHoistTransform());
+  }
+
+  // Create DeviceModule to wrap all ops.
+  pm.addPass(ttcore::createTTCoreWrapDeviceModulePass());
+
+  // Hoist ops to CPU module.
+  pm.addPass(ttir::createTTIRHoistTransform());
+
+  OpPassManager &devicePm =
+      pm.nest<ttcore::DeviceModuleOp>().nest<mlir::ModuleOp>();
 
   createTTNNPipelineLoweringPasses(devicePm, options.removeDeadValuesEnabled);
   if (options.enableFusing) {
     devicePm.addPass(tt::ttnn::createTTNNFusing());
   }
   createTTNNPipelineWorkaroundPass(devicePm, options);
-  if (options.enableConstEval) {
-    devicePm.addPass(transforms::createConstEvalHoistTransform());
-  }
   createTTNNPipelineAnalysisPasses(devicePm, options);
   // We need to re-run const-eval to pick up const prepare conv2d weight ops
   // split during the analysis passes.
@@ -264,18 +265,8 @@ void createTTNNBackendToEmitPyPipeline(
   //
   {
     auto &devicePm = pm.nest<ttcore::DeviceModuleOp>().nest<mlir::ModuleOp>();
-    
-    devicePm.addPass(createTTNNEmitPyWorkarounds());
-    devicePm.addPass(createTTNNTuplifyTensors());
 
-    if (options.loadInputTensorsFromDisk) {
-      TTNNLoadInputTensorsOptions loadOptions;
-      loadOptions.tensorLoadDirectory = options.tensorLoadDirectory;
-      loadOptions.tensorLoadFilePrefix = options.tensorLoadFilePrefix;
-      devicePm.addPass(createTTNNLoadInputTensors(loadOptions));
-    } else {
-      devicePm.addPass(createTTNNCreateInputGenerators());
-    }
+    devicePm.addPass(createTTNNEmitPyWorkarounds());
   }
 
   // CPU module passes
@@ -283,24 +274,31 @@ void createTTNNBackendToEmitPyPipeline(
   {
     auto &cpuPm = pm.nest<ttcore::CPUModuleOp>().nest<mlir::ModuleOp>();
 
+    // Lower CPU module to TTNN
+    //
     cpuPm.addPass(ttir::createTTIRFlattenSlidingWindow());
     createTTNNPipelineLoweringPasses(cpuPm, true);
   }
-
-  // Disable DPS semantics for CPU-hoisted functions
-  //
-  pm.addPass(transforms::createDisableDPSForHoistedFuncs());
-
-  // Clean up the IR
-  //
-  pm.addPass(mlir::createCanonicalizerPass());
-  pm.addPass(mlir::createRemoveDeadValuesPass());
-  pm.addPass(mlir::createSymbolDCEPass());
 
   // Merge CPU and Device modules back into a single ModuleOp by
   // replacing CPU-hosited function stubs with their definitions.
   //
   pm.addPass(ttcore::createTTCoreMergeCPUAndDeviceModulesPass());
+
+  // Tuplify tensors + input generation/loading in the merged module.
+  //
+  {
+    pm.addPass(createTTNNTuplifyTensors());
+
+    if (options.loadInputTensorsFromDisk) {
+      TTNNLoadInputTensorsOptions loadOptions;
+      loadOptions.tensorLoadDirectory = options.tensorLoadDirectory;
+      loadOptions.tensorLoadFilePrefix = options.tensorLoadFilePrefix;
+      pm.addPass(createTTNNLoadInputTensors(loadOptions));
+    } else {
+      pm.addPass(createTTNNCreateInputGenerators());
+    }
+  }
 
   // Finally, perform TTNN to EmitPy conversion.
   //

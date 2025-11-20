@@ -14,6 +14,11 @@
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/SmallVector.h"
+#include <llvm/ADT/STLExtras.h>
+#include <llvm/IR/Value.h>
+#include <llvm/Support/Casting.h>
+#include <mlir/IR/BuiltinOps.h>
+#include <mlir/IR/Location.h>
 
 #ifdef TTMLIR_ENABLE_STABLEHLO
 #include "stablehlo/dialect/StablehloOps.h"
@@ -27,18 +32,21 @@ namespace mlir::tt::ttir {
 // Hoist CPU ops to standalone funcs pass
 //===----------------------------------------------------------------------===//
 
-// Helper function to get ranks of an op's operands
+namespace {
+using HoistedOpsSet = llvm::SmallVector<mlir::Operation *, 4>;
+
+// Helper function to get ranks of a subgraph's operands
 // we use this to populate attrs which we need to tensor unpacking operations
 // later.
-static llvm::SmallVector<int64_t, 3>
-getOperandTensorRanks(mlir::Operation *op) {
+static llvm::SmallVector<int64_t, 3> getSubgraphOperandTensorRanks(
+    const llvm::SmallVector<mlir::Value, 4> &inputValues) {
   llvm::SmallVector<int64_t, 3> ranks;
 
-  // Iterate over operands (inputs).
-  for (auto operand : op->getOperands()) {
-    // Check if the operand is a tensor.
+  // Iterate over input values.
+  for (auto value : inputValues) {
+    // Check if the value is a tensor.
     if (auto tensorType =
-            mlir::dyn_cast<mlir::RankedTensorType>(operand.getType())) {
+            mlir::dyn_cast<mlir::RankedTensorType>(value.getType())) {
       // Add the rank of the tensor (number of dimensions).
       ranks.push_back(tensorType.getRank());
     }
@@ -48,17 +56,14 @@ getOperandTensorRanks(mlir::Operation *op) {
 }
 
 // Generate unique name base on operation type + argument tensors dims & types.
-static llvm::SmallString<16> generateHoistedFuncName(mlir::Operation *op) {
-  llvm::SmallString<16> uniqueName("hoisted_");
-  uniqueName.append(op->getName().getStringRef());
+static llvm::SmallString<16>
+generateHoistedFuncName(const HoistedOpsSet &operations) {
+  llvm::SmallString<16> uniqueName("hoisted_subgraph_");
 
-  for (auto operand : op->getOperands()) {
-    if (auto tensorType =
-            mlir::dyn_cast<mlir::RankedTensorType>(operand.getType())) {
-      uniqueName += "_";
-      llvm::raw_svector_ostream os(uniqueName);
-      llvm::interleave(tensorType.getShape(), os, "x");
-    }
+  for (auto *op : operations) {
+    uniqueName += op->getName().getStringRef().str();
+    // TODO(dmilinkovic): tensor types
+    uniqueName += "_";
   }
 
   uniqueName += "_func";
@@ -66,16 +71,72 @@ static llvm::SmallString<16> generateHoistedFuncName(mlir::Operation *op) {
   return uniqueName;
 }
 
-// Helper function to hoist an arbitrary op into a new function in targetModule,
-// generate a matching extern prototype in the sourceModule, and replace the
-// original op with a callOp to the extern function.
-static void hoistOperationToFunction(mlir::Operation *opToHoist,
-                                     mlir::ModuleOp sourceModule,
-                                     mlir::ModuleOp targetModule) {
+// Helper function to hoist an arbitrary set of ops into a new function in
+// targetModule, generate a matching extern prototype in the sourceModule, and
+// replace the ops in the set with a callOp to the extern function.
+// The last op in the set is considered the result producer.
+static void hoistOperationsToFunction(HoistedOpsSet &operations,
+                                      mlir::ModuleOp sourceModule,
+                                      mlir::ModuleOp targetModule) {
+  // Collect all input arguments to the function.
+  llvm::SmallVector<mlir::Value, 4> inputArguments;
+  llvm::SmallPtrSet<mlir::Value, 8> inputArgumentsSet;
 
-  llvm::SmallVector<int64_t, 3> ranks = getOperandTensorRanks(opToHoist);
+  for (auto *op : operations) {
+    for (auto operand : op->getOperands()) {
+      // If the operand is defined outside the subgraph, it's an input.
+      if (std::find(operations.begin(), operations.end(),
+                    operand.getDefiningOp()) == operations.end()) {
+        // Add to input values if not already present.
+        if (inputArgumentsSet.insert(operand).second) {
+          inputArguments.push_back(operand);
+        }
+      }
+    }
+  }
+
+  // Currently, only single-result ops are supported for hoisting.
+  auto *resultProvider = operations.back();
+  assert(resultProvider->getNumResults() == 1 &&
+         "Only single-result ops are supported for hoisting.");
+
+  mlir::Value result = resultProvider->getResult(0);
+
+  auto resultType =
+      llvm::dyn_cast_or_null<mlir::RankedTensorType>(result.getType());
+  assert(resultType && "Only tensor result types are supported for hoisting.");
+
+  // The hoisted function needs NOT to be in DPS form.
+  // For targets that require hoisted functions to be in DPS form,
+  // a separate pass should be run after hoisting to adjust the functions.
+  //
+  // If the result producer is a DPS op, we need to check if the result
+  // tensor is already part of the input arguments.
+  //
+  // If it is, we need to remove it from the input arguments and add a
+  // placeholder empty tensor for the result instead.
+  const bool isResultProducerDPSOp =
+      mlir::isa<mlir::DestinationStyleOpInterface>(resultProvider);
+
+  if (isResultProducerDPSOp) {
+    auto dpsOp = mlir::cast<mlir::DestinationStyleOpInterface>(resultProvider);
+    assert(dpsOp.getDpsInits().size() == 1 &&
+           "Only single-output DPS ops are supported for hoisting.");
+
+    auto dpsInit = dpsOp.getDpsInits().front();
+
+    // Remove DPS init from input arguments if present.
+    if (inputArgumentsSet.erase(dpsInit)) {
+      inputArguments.erase(
+          std::remove(inputArguments.begin(), inputArguments.end(), dpsInit),
+          inputArguments.end());
+    }
+  }
+
+  auto *firstOp = operations.front();
+
   mlir::MLIRContext *context = sourceModule.getContext();
-  mlir::OpBuilder typeBuilder(opToHoist);
+  mlir::OpBuilder typeBuilder(firstOp);
 
   auto f32Type = mlir::Float32Type::get(context);
   auto i32Type =
@@ -104,72 +165,47 @@ static void hoistOperationToFunction(mlir::Operation *opToHoist,
     return tensorType;
   };
 
-  // Convert operands and gather types for function signature.
-  llvm::SmallVector<mlir::Type> operandTypes;
-  llvm::SmallVector<mlir::Value> convertedOperands;
+  // Convert argument and gather types for function signature.
+  llvm::SmallVector<mlir::Type> argumentTypes;
+  llvm::SmallVector<mlir::Value> convertedArguments;
 
-  for (auto operand : opToHoist->getOperands()) {
+  for (auto argument : inputArguments) {
     if (auto tensorType =
-            mlir::dyn_cast<mlir::RankedTensorType>(operand.getType())) {
+            mlir::dyn_cast<mlir::RankedTensorType>(argument.getType())) {
       auto convertedTensorType = convertTensorType(tensorType);
       if (convertedTensorType != tensorType) {
         // Create converted tensor value.
         auto emptyTensor = typeBuilder.create<mlir::tt::ttir::EmptyOp>(
-            opToHoist->getLoc(), tensorType.getShape(),
+            firstOp->getLoc(), tensorType.getShape(),
             convertedTensorType.getElementType());
         auto converted = typeBuilder.create<mlir::tt::ttir::ToLayoutOp>(
-            opToHoist->getLoc(), operand, emptyTensor);
-        operandTypes.push_back(convertedTensorType);
-        convertedOperands.push_back(converted->getResult(0));
+            firstOp->getLoc(), argument, emptyTensor);
+        argumentTypes.push_back(convertedTensorType);
+        convertedArguments.push_back(converted->getResult(0));
       } else {
-        operandTypes.push_back(tensorType);
-        convertedOperands.push_back(operand);
+        argumentTypes.push_back(tensorType);
+        convertedArguments.push_back(argument);
       }
     } else {
-      operandTypes.push_back(operand.getType());
-      convertedOperands.push_back(operand);
-    }
-  }
-
-  // When hoisting a non-DPS op (e.g. SHLO op), we need to DPS-ify to maintain
-  // calling convention.
-  const bool isDPSOp = mlir::isa<mlir::DestinationStyleOpInterface>(opToHoist);
-  if (!isDPSOp) {
-    // Create empty tensors for each tensor result.
-    for (auto resultType : opToHoist->getResultTypes()) {
-      if (auto tensorType =
-              mlir::dyn_cast<mlir::RankedTensorType>(resultType)) {
-        auto elementType = tensorType.getElementType();
-        auto convertedElementType = convertTensorElementType(elementType);
-        auto empty = typeBuilder.create<mlir::tt::ttir::EmptyOp>(
-            opToHoist->getLoc(), tensorType.getShape(), convertedElementType);
-        convertedOperands.push_back(empty);
-
-        // Add to function signature.
-        operandTypes.push_back(empty.getType());
-        ranks.push_back(tensorType.getRank());
-      }
+      argumentTypes.push_back(argument.getType());
+      convertedArguments.push_back(argument);
     }
   }
 
   // Gather result types for function signature.
-  llvm::SmallVector<mlir::Type> resultTypes;
-  for (auto result : opToHoist->getResultTypes()) {
-    if (auto tensorType = mlir::dyn_cast<mlir::RankedTensorType>(result)) {
-      auto convertedTensorType = convertTensorType(tensorType);
-      resultTypes.push_back(convertedTensorType);
-    } else {
-      resultTypes.push_back(result);
-    }
-  }
+  auto convertedResultType = convertTensorType(resultType);
+
+  // TypeRange containing converted result type.
+  mlir::TypeRange convertedResultTypes(&convertedResultType, 1);
 
   // Create function types.
   mlir::FunctionType localFuncType =
-      mlir::FunctionType::get(context, operandTypes, resultTypes);
+      mlir::FunctionType::get(context, argumentTypes, convertedResultTypes);
   mlir::FunctionType funcType =
-      mlir::FunctionType::get(context, operandTypes, resultTypes);
+      mlir::FunctionType::get(context, argumentTypes, convertedResultTypes);
 
-  const llvm::SmallString<16> functionName = generateHoistedFuncName(opToHoist);
+  const llvm::SmallString<16> functionName =
+      generateHoistedFuncName(operations);
   llvm::SmallString<16> localFunctionName = functionName;
   localFunctionName.append("_decl");
 
@@ -180,136 +216,115 @@ static void hoistOperationToFunction(mlir::Operation *opToHoist,
   if (localFunc == nullptr) {
     // Insert the function and the terminator.
     auto hoistedFunc =
-        func::FuncOp::create(opToHoist->getLoc(), functionName, funcType);
+        func::FuncOp::create(firstOp->getLoc(), functionName, funcType);
     targetModule.push_back(hoistedFunc);
 
     // Add a basic block to the function.
     mlir::Block *block = hoistedFunc.addEntryBlock();
     mlir::OpBuilder builder(block, block->end());
 
-    // Map operands to block arguments and clone the operation.
-    llvm::SmallVector<mlir::Value> newOperands;
-    for (auto operand : llvm::enumerate(opToHoist->getOperands())) {
-      newOperands.push_back(block->getArgument(operand.index()));
+    // Map arguments to block arguments and clone the operation.
+    llvm::SmallVector<mlir::Value> newArguments;
+    for (auto operand : llvm::enumerate(inputArguments)) {
+      newArguments.push_back(block->getArgument(operand.index()));
     }
 
     mlir::IRMapping mapping;
-    for (auto operand : llvm::zip(opToHoist->getOperands(), newOperands)) {
+    for (auto operand : llvm::zip(inputArguments, newArguments)) {
       mapping.map(std::get<0>(operand), std::get<1>(operand));
     }
 
-    // Clone the operation, but modify its type if needed.
-    auto *clonedOp = builder.clone(*opToHoist, mapping);
+    // Clone each operation, but modify its type if needed.
+    for (auto *opToHoist : operations) {
+      auto *clonedOp = builder.clone(*opToHoist, mapping);
 
-    // Update operand types to supported tensor types.
-    for (auto operand : clonedOp->getOperands()) {
-      if (auto tensorType =
-              mlir::dyn_cast<mlir::RankedTensorType>(operand.getType())) {
-        auto convertedTensorType = convertTensorType(tensorType);
-        operand.setType(convertedTensorType);
+      // Update operand types to supported tensor types.
+      for (auto operand : clonedOp->getOperands()) {
+        if (auto tensorType =
+                mlir::dyn_cast<mlir::RankedTensorType>(operand.getType())) {
+          auto convertedTensorType = convertTensorType(tensorType);
+          operand.setType(convertedTensorType);
+        }
       }
-    }
 
-    // Update result types to supported tensor types.
-    for (auto result : clonedOp->getResults()) {
-      if (auto tensorType =
-              mlir::dyn_cast<mlir::RankedTensorType>(result.getType())) {
-        auto convertedTensorType = convertTensorType(tensorType);
-        result.setType(convertedTensorType);
+      // Update result types to supported tensor types.
+      for (auto result : clonedOp->getResults()) {
+        if (auto tensorType =
+                mlir::dyn_cast<mlir::RankedTensorType>(result.getType())) {
+          auto convertedTensorType = convertTensorType(tensorType);
+          result.setType(convertedTensorType);
+        }
       }
-    }
 
-    // Add an attribute to the function that maps return values to output
-    // arguments.
-    unsigned outputOperandIdx = opToHoist->getNumOperands();
-    if (auto dpsOp =
-            mlir::dyn_cast<mlir::DestinationStyleOpInterface>(opToHoist)) {
-      // Ensure there's only a single output.
-      assert(dpsOp.getDpsInits().size() == 1 &&
-             "Only operations with a single output are supported");
-
-      // Get the index of the output operand.
-      outputOperandIdx -= dpsOp.getDpsInits().size();
-
-      // Store this mapping as an attribute on the function
-      hoistedFunc->setAttr(ttir::ReturnToOutputMappingAttr::name,
-                           builder.getI64IntegerAttr(outputOperandIdx));
-    } else {
-      // For a non-DPS op, we should have inserted a placeholder output arg at
-      // the end.
-      // Rely on ReenableLostDPS to use the placeholder output arg.
-      hoistedFunc->setAttr(ttir::ReturnToOutputMappingAttr::name,
-                           builder.getI64IntegerAttr(outputOperandIdx));
+      // Add a return operation to the function with the operation results.
+      if (opToHoist == resultProvider) {
+        builder.create<mlir::func::ReturnOp>(firstOp->getLoc(),
+                                             clonedOp->getResults());
+      }
     }
 
     // Add bufferization access attributes to function arguments.
-    for (auto [index, value] : llvm::enumerate(hoistedFunc.getArguments())) {
+    for (auto [index, argument] : llvm::enumerate(hoistedFunc.getArguments())) {
       if (auto tensorType =
-              mlir::dyn_cast<mlir::RankedTensorType>(value.getType())) {
-        if (index < outputOperandIdx) {
-          hoistedFunc.setArgAttr(index, "bufferization.access",
-                                 builder.getStringAttr("read"));
-        } else {
-          hoistedFunc.setArgAttr(index, "bufferization.access",
-                                 builder.getStringAttr("write"));
-        }
+              mlir::dyn_cast<mlir::RankedTensorType>(argument.getType())) {
+        hoistedFunc.setArgAttr(index, "bufferization.access",
+                               builder.getStringAttr("read"));
       }
     }
 
-    // Add a return operation to the function with the operation results.
-    builder.create<mlir::func::ReturnOp>(opToHoist->getLoc(),
-                                         clonedOp->getResults());
-
     // Declare the function prototype in the source module.
-    localFunc = func::FuncOp::create(opToHoist->getLoc(),
-                                     localFunctionName.str(), localFuncType);
+    localFunc = func::FuncOp::create(firstOp->getLoc(), localFunctionName.str(),
+                                     localFuncType);
     localFunc.setPrivate();
 
     // Add the function to the module first.
     sourceModule.push_back(localFunc);
 
-    hoistedFunc->setAttr("arg_ranks", builder.getI64ArrayAttr(ranks));
+    // Get operand ranks and set them as an attribute on the hoisted function.
+    hoistedFunc->setAttr(
+        "arg_ranks",
+        builder.getI64ArrayAttr(getSubgraphOperandTensorRanks(inputArguments)));
+
+    // Mark the hoisted function with the HoistedFuncAttr.
+    hoistedFunc->setAttr(HoistedFuncAttr::name,
+                         mlir::UnitAttr::get(firstOp->getContext()));
   }
+  // Mark the function prototype with the HoistedFuncAttr.
+  localFunc->setAttr(HoistedFuncAttr::name,
+                     mlir::UnitAttr::get(firstOp->getContext()));
 
   // Create the call using already converted inputs.
-  mlir::OpBuilder opBuilder(opToHoist);
+  mlir::OpBuilder opBuilder(resultProvider);
   auto callOp = opBuilder.create<mlir::func::CallOp>(
-      opToHoist->getLoc(), localFunc, convertedOperands);
+      resultProvider->getLoc(), localFunc, convertedArguments);
 
   // Add the hoisted_call attribute.
-  callOp->setAttr(HoistedCallAttr::name,
-                  UnitAttr::get(opToHoist->getContext()));
+  callOp->setAttr(HoistedCallAttr::name, UnitAttr::get(firstOp->getContext()));
 
   // Convert results back to original types if needed.
-  llvm::SmallVector<mlir::Value> finalResults;
-  for (auto [result, callResult] :
-       llvm::zip(opToHoist->getResults(), callOp.getResults())) {
-    if (auto tensorType =
-            mlir::dyn_cast<mlir::RankedTensorType>(result.getType())) {
-      auto convertedTensorType = convertTensorType(tensorType);
-      if (tensorType != convertedTensorType) {
-        auto converted = opBuilder.create<mlir::tt::ttir::EmptyOp>(
-            opToHoist->getLoc(), tensorType.getShape(),
-            tensorType.getElementType());
-        auto toOriginal = opBuilder.create<mlir::tt::ttir::ToLayoutOp>(
-            opToHoist->getLoc(), callResult, converted);
-        finalResults.push_back(toOriginal->getResult(0));
-      } else {
-        finalResults.push_back(callResult);
-      }
-    } else {
-      finalResults.push_back(callResult);
-    }
+  mlir::Value callResult = callOp.getResult(0);
+  mlir::Value finalResult = callResult;
+
+  if (resultType != convertedResultType) {
+    auto converted = opBuilder.create<mlir::tt::ttir::EmptyOp>(
+        resultProvider->getLoc(), resultType.getShape(),
+        resultType.getElementType());
+    auto toOriginal = opBuilder.create<mlir::tt::ttir::ToLayoutOp>(
+        resultProvider->getLoc(), callOp.getResult(0), converted);
+    finalResult = toOriginal->getResult(0);
   }
 
-  // Replace original op with the converted results.
-  opToHoist->replaceAllUsesWith(finalResults);
+  mlir::ValueRange finalResults(finalResult);
 
-  // Erase the original operation.
-  opToHoist->erase();
+  // Replace output producing op with the converted results.
+  resultProvider->replaceAllUsesWith(finalResults);
+
+  // Erase the original operations in topologically-reversed order.
+  for (auto *opToErase : llvm::reverse(operations)) {
+    opToErase->erase();
+  }
 }
 
-namespace {
 // Predicate type for determining whether an op should be hoisted.
 using ShouldHoistPredicateType = std::function<bool(mlir::Operation *)>;
 
@@ -319,26 +334,47 @@ using ShouldHoistPredicateType = std::function<bool(mlir::Operation *)>;
 // contiguously.
 class TTIRHoistAnalyze {
 public:
-  // Data structure to hold all sets of ops to hoist--each op should be hoisted
-  // continguously.  (Currently, we only support sets of size 1).
-  using HoistOpSet = llvm::SmallVector<llvm::SmallSet<mlir::Operation *, 4>>;
-
   TTIRHoistAnalyze(ShouldHoistPredicateType predicate) : predicate{predicate} {}
 
-  HoistOpSet getHoistedOps(mlir::ModuleOp moduleOp) {
-    HoistOpSet hoistedOps;
+  auto getHoistedOps(mlir::ModuleOp moduleOp) {
+    llvm::SmallVector<HoistedOpsSet, 4> hoistedOpsSets;
 
+    // Hoisting individual ops based on the predicate.
     moduleOp.walk([&](mlir::Operation *nestedOp) {
       if (predicate(nestedOp)) {
-        // TODO (#1646): Add support for hoisting sets of multiple ops instead
-        // of single ops.
-        llvm::SmallSet<mlir::Operation *, 4> opSet;
-        opSet.insert(nestedOp);
-        hoistedOps.push_back(opSet);
+        HoistedOpsSet opSet;
+        opSet.push_back(nestedOp);
+        hoistedOpsSets.push_back(opSet);
       }
     });
 
-    return hoistedOps;
+    // Hoisting const-eval functions as a whole.
+    moduleOp.walk([&](func::FuncOp funcOp) {
+      // Skip non-const-eval functions.
+      if (!funcOp->hasAttr(ttmlir::utils::g_constEvalAttrName)) {
+        return WalkResult::advance();
+      }
+
+      HoistedOpsSet opSet;
+      funcOp.walk([&](mlir::Operation *nestedOp) {
+        // Skip funcop itself
+        if (llvm::isa<func::FuncOp>(nestedOp)) {
+          return WalkResult::advance();
+        }
+        // Skip return op
+        if (llvm::isa<mlir::func::ReturnOp>(nestedOp)) {
+          return WalkResult::advance();
+        }
+        opSet.push_back(nestedOp);
+        return WalkResult::advance();
+      });
+
+      hoistedOpsSets.push_back(opSet);
+
+      return WalkResult::advance();
+    });
+
+    return hoistedOpsSets;
   }
 
 private:
@@ -363,10 +399,9 @@ public:
   void runOnOperation() final {
     mlir::ModuleOp rootModule = getOperation();
 
-    // We must run this transform on the root ModuleOp, since we are creating
-    // new Op's within the root.
     if (rootModule->getParentOp() != nullptr) {
-      return;
+      rootModule = rootModule->getParentOfType<ttcore::DeviceModuleOp>()
+                       ->getParentOfType<mlir::ModuleOp>();
     }
 
     ttcore::DeviceModuleOp deviceModule;
@@ -399,7 +434,6 @@ public:
     TTIRHoistAnalyze analysisPass(combinedPredicate);
     auto hoistOpSets = analysisPass.getHoistedOps(rootModule);
 
-    // We don't want to create a CPUModuleOp etc. if we aren't hoisting any ops.
     if (hoistOpSets.empty()) {
       return;
     }
@@ -425,11 +459,8 @@ public:
       cpuInnerModule = rewriter.create<mlir::ModuleOp>(loc);
     }
 
-    for (const auto &opSet : hoistOpSets) {
-      assert(opSet.size() == 1 &&
-             "currently don't support hoisting multiple instructions at once!");
-      hoistOperationToFunction(*opSet.begin(), deviceInnerModule,
-                               cpuInnerModule);
+    for (auto &opSet : hoistOpSets) {
+      hoistOperationsToFunction(opSet, deviceInnerModule, cpuInnerModule);
     }
   }
 
