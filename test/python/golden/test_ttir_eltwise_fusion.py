@@ -194,7 +194,7 @@ def cosh(in0: Operand, builder: TTIRBuilder):
 # Everything should pass
 @pytest.mark.parametrize("grid", gridParams)
 @pytest.mark.parametrize(
-    "shape", [(128,)]
+    "shape", [(128, 128)]
 )  # , (32, 64), (64, 64), (64, 128), (128, 128)])
 @pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["bf16"])
 @pytest.mark.parametrize("target", ["ttmetal"])

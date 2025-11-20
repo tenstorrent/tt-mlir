@@ -329,6 +329,7 @@ def D2M_FullOp : D2M_Op<"full", [
 
   let assemblyFormat = "attr-dict `:` type($result)";
   let hasVerifier = 1;
+  let hasCanonicalizer = 1;
 }
 
 def D2M_MeshShardOp: D2M_Op<"mesh_shard", [
