@@ -333,63 +333,77 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
     ) -> Tuple[Module, TTIRBuilder]:
         ttir_op = self.get_opview_from_split(TTIRBuilder.clamp_tensor_split)
 
-        clamp_tensor_module = Module.create()
-        clamp_tensor_builder = TTIRBuilder(self._ctx, self._loc)
-        op_input_types = [
-            old_op.input.type,
-            old_op.min.type,
-            old_op.max.type,
-        ]
+        new_ctx = Context()
+        new_loc = Location.unknown(new_ctx)
 
-        with InsertionPoint(clamp_tensor_module.body):
+        with new_ctx, new_loc:
+            clamp_tensor_module = Module.create()
+            clamp_tensor_builder = TTIRBuilder(new_ctx, new_loc)
+            op_input_types = [
+                old_op.input.type,
+                old_op.min.type,
+                old_op.max.type,
+            ]
 
-            @func.func(*op_input_types, name="clamp_tensor_module")
-            def decorated_func(*inputs):
-                in0 = inputs[0]
-                min_tensor = inputs[1]
-                max_tensor = inputs[2]
-                result = old_op.result.type
-                output = self._get_empty_op(result)
+            with InsertionPoint(clamp_tensor_module.body):
 
-                new_op = ttir.ClampTensorOp(
-                    result,
-                    in0,
-                    min_tensor,
-                    max_tensor,
-                    output,
-                    # loc=old_op.location, -> this segfault, not sure why
-                )
+                @func.func(*op_input_types, name="clamp_tensor_module")
+                def decorated_func(*inputs):
+                    in0 = inputs[0]
+                    min_tensor = inputs[1]
+                    max_tensor = inputs[2]
+                    result = old_op.result.type
+                    output = self._get_empty_op(result)
 
-                if not self._disable_golden_check:
-                    input_owner0 = old_op.input.owner
-                    if isinstance(input_owner0, Block):
-                        queried_input0 = old_op.input
-                    else:
-                        queried_input0 = input_owner0
-
-                    min_owner = old_op.min.owner
-                    if isinstance(min_owner, Block):
-                        queried_min = old_op.min
-                    else:
-                        queried_min = min_owner
-
-                    max_owner = old_op.max.owner
-                    if isinstance(max_owner, Block):
-                        queried_max = old_op.max
-                    else:
-                        queried_max = max_owner
-
-                    input0 = self._get_golden_tensor(queried_input0)
-                    min_tensor_golden = self._get_golden_tensor(queried_min)
-                    max_tensor_golden = self._get_golden_tensor(queried_max)
-                    op_golden_function = get_golden_function(ttir_op)
-                    golden_output = op_golden_function(
-                        input0, min_tensor_golden, max_tensor_golden
+                    new_op = ttir.ClampTensorOp(
+                        result,
+                        in0,
+                        min_tensor,
+                        max_tensor,
+                        output,
+                        # loc=old_op.location, -> this segfault, not sure why
                     )
-                    clamp_tensor_builder._set_golden_tensor(new_op, golden_output)
-                    clamp_tensor_builder._set_output_ordering([new_op])
 
-                return new_op
+                    if not self._disable_golden_check:
+                        input_owner0 = old_op.input.owner
+                        if isinstance(input_owner0, Block):
+                            queried_input0 = old_op.input
+                        else:
+                            queried_input0 = input_owner0
+
+                        min_owner = old_op.min.owner
+                        if isinstance(min_owner, Block):
+                            queried_min = old_op.min
+                        else:
+                            queried_min = min_owner
+
+                        max_owner = old_op.max.owner
+                        if isinstance(max_owner, Block):
+                            queried_max = old_op.max
+                        else:
+                            queried_max = max_owner
+
+                        input0 = self._get_golden_tensor(queried_input0)
+                        min_tensor_golden = self._get_golden_tensor(queried_min)
+                        max_tensor_golden = self._get_golden_tensor(queried_max)
+                        op_golden_function = get_golden_function(ttir_op)
+                        golden_output = op_golden_function(
+                            input0, min_tensor_golden, max_tensor_golden
+                        )
+                        clamp_tensor_builder._set_golden_tensor(new_op, golden_output)
+                        clamp_tensor_builder._set_output_ordering([new_op])
+                        clamp_tensor_builder._set_golden_tensor(in0, input0)
+                        clamp_tensor_builder._set_golden_tensor(
+                            min_tensor, min_tensor_golden
+                        )
+                        clamp_tensor_builder._set_golden_tensor(
+                            max_tensor, max_tensor_golden
+                        )
+                        clamp_tensor_builder._set_input_ordering(
+                            [in0, min_tensor, max_tensor]
+                        )
+
+                    return new_op
 
         return clamp_tensor_module, clamp_tensor_builder
 
@@ -483,42 +497,49 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
     ) -> Tuple[Module, TTIRBuilder]:
         ttir_op = self.get_opview_from_split(TTIRBuilder.reduce_or_split)
 
-        reduce_or_module = Module.create()
-        reduce_or_builder = TTIRBuilder(self._ctx, self._loc)
-        op_input_types = [old_op.input.type]
+        new_ctx = Context()
+        new_loc = Location.unknown(new_ctx)
 
-        with InsertionPoint(reduce_or_module.body):
+        with new_ctx, new_loc:
+            reduce_or_module = Module.create()
+            reduce_or_builder = TTIRBuilder(new_ctx, new_loc)
+            op_input_types = [old_op.input.type]
 
-            @func.func(*op_input_types, name="reduce_or_module")
-            def decorated_func(*inputs):
-                in0 = inputs[0]
-                result = old_op.result.type
-                output = self._get_empty_op(result)
+            with InsertionPoint(reduce_or_module.body):
 
-                new_op = ttir.ReduceOrOp(
-                    result,
-                    in0,
-                    output,
-                    old_op.keep_dim,
-                    dim_arg=old_op.dim_arg,
-                    # loc=old_op.location, -> this segfault, not sure why
-                )
+                @func.func(*op_input_types, name="reduce_or_module")
+                def decorated_func(*inputs):
+                    in0 = inputs[0]
+                    result = old_op.result.type
+                    output = self._get_empty_op(result)
 
-                if not self._disable_golden_check:
-                    input_owner0 = old_op.input.owner
-                    if isinstance(input_owner0, Block):
-                        queried_input0 = old_op.input
-                    else:
-                        queried_input0 = input_owner0
-
-                    input0 = self._get_golden_tensor(queried_input0)
-                    op_golden_function = get_golden_function(ttir_op)
-                    golden_output = op_golden_function(
-                        input0, old_op.dim_arg, old_op.keep_dim
+                    new_op = ttir.ReduceOrOp(
+                        result,
+                        in0,
+                        output,
+                        old_op.keep_dim,
+                        dim_arg=old_op.dim_arg,
+                        # loc=old_op.location, -> this segfault, not sure why
                     )
-                    reduce_or_builder._set_golden_tensor(new_op, golden_output)
 
-                return new_op
+                    if not self._disable_golden_check:
+                        input_owner0 = old_op.input.owner
+                        if isinstance(input_owner0, Block):
+                            queried_input0 = old_op.input
+                        else:
+                            queried_input0 = input_owner0
+
+                        input0 = self._get_golden_tensor(queried_input0)
+                        op_golden_function = get_golden_function(ttir_op)
+                        golden_output = op_golden_function(
+                            input0, old_op.dim_arg, old_op.keep_dim
+                        )
+                        reduce_or_builder._set_golden_tensor(new_op, golden_output)
+                        reduce_or_builder._set_output_ordering([new_op])
+                        reduce_or_builder._set_golden_tensor(in0, input0)
+                        reduce_or_builder._set_input_ordering([in0])
+
+                    return new_op
 
         return reduce_or_module, reduce_or_builder
 
@@ -612,42 +633,49 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
     ) -> Tuple[Module, TTIRBuilder]:
         ttir_op = self.get_opview_from_split(TTIRBuilder.max_split)
 
-        max_module = Module.create()
-        max_builder = TTIRBuilder(self._ctx, self._loc)
-        op_input_types = [old_op.input.type]
+        new_ctx = Context()
+        new_loc = Location.unknown(new_ctx)
 
-        with InsertionPoint(max_module.body):
+        with new_ctx, new_loc:
+            max_module = Module.create()
+            max_builder = TTIRBuilder(new_ctx, new_loc)
+            op_input_types = [old_op.input.type]
 
-            @func.func(*op_input_types, name="max_module")
-            def decorated_func(*inputs):
-                in0 = inputs[0]
-                result = old_op.result.type
-                output = self._get_empty_op(result)
+            with InsertionPoint(max_module.body):
 
-                new_op = ttir.MaxOp(
-                    result,
-                    in0,
-                    output,
-                    old_op.keep_dim,
-                    dim_arg=old_op.dim_arg,
-                    # loc=old_op.location, -> this segfault, not sure why
-                )
+                @func.func(*op_input_types, name="max_module")
+                def decorated_func(*inputs):
+                    in0 = inputs[0]
+                    result = old_op.result.type
+                    output = self._get_empty_op(result)
 
-                if not self._disable_golden_check:
-                    input_owner0 = old_op.input.owner
-                    if isinstance(input_owner0, Block):
-                        queried_input0 = old_op.input
-                    else:
-                        queried_input0 = input_owner0
-
-                    input0 = self._get_golden_tensor(queried_input0)
-                    op_golden_function = get_golden_function(ttir_op)
-                    golden_output = op_golden_function(
-                        input0, old_op.dim_arg, old_op.keep_dim
+                    new_op = ttir.MaxOp(
+                        result,
+                        in0,
+                        output,
+                        old_op.keep_dim,
+                        dim_arg=old_op.dim_arg,
+                        # loc=old_op.location, -> this segfault, not sure why
                     )
-                    max_builder._set_golden_tensor(new_op, golden_output)
 
-                return new_op
+                    if not self._disable_golden_check:
+                        input_owner0 = old_op.input.owner
+                        if isinstance(input_owner0, Block):
+                            queried_input0 = old_op.input
+                        else:
+                            queried_input0 = input_owner0
+
+                        input0 = self._get_golden_tensor(queried_input0)
+                        op_golden_function = get_golden_function(ttir_op)
+                        golden_output = op_golden_function(
+                            input0, old_op.dim_arg, old_op.keep_dim
+                        )
+                        max_builder._set_golden_tensor(new_op, golden_output)
+                        max_builder._set_output_ordering([new_op])
+                        max_builder._set_golden_tensor(in0, input0)
+                        max_builder._set_input_ordering([in0])
+
+                    return new_op
 
         return max_module, max_builder
 
@@ -726,38 +754,45 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
     ) -> Tuple[Module, TTIRBuilder]:
         ttir_op = self.get_opview_from_split(TTIRBuilder.logical_not_split)
 
-        logical_not_module = Module.create()
-        logical_not_builder = TTIRBuilder(self._ctx, self._loc)
-        op_input_types = [old_op.input.type]
+        new_ctx = Context()
+        new_loc = Location.unknown(new_ctx)
 
-        with InsertionPoint(logical_not_module.body):
+        with new_ctx, new_loc:
+            logical_not_module = Module.create()
+            logical_not_builder = TTIRBuilder(new_ctx, new_loc)
+            op_input_types = [old_op.input.type]
 
-            @func.func(*op_input_types, name="logical_not_module")
-            def decorated_func(*inputs):
-                in0 = inputs[0]
-                result = old_op.result.type
-                output = self._get_empty_op(result)
+            with InsertionPoint(logical_not_module.body):
 
-                new_op = ttir.LogicalNotOp(
-                    result,
-                    in0,
-                    output,
-                    # loc=old_op.location, -> this segfault, not sure why
-                )
+                @func.func(*op_input_types, name="logical_not_module")
+                def decorated_func(*inputs):
+                    in0 = inputs[0]
+                    result = old_op.result.type
+                    output = self._get_empty_op(result)
 
-                if not self._disable_golden_check:
-                    input_owner0 = old_op.input.owner
-                    if isinstance(input_owner0, Block):
-                        queried_input0 = old_op.input
-                    else:
-                        queried_input0 = input_owner0
+                    new_op = ttir.LogicalNotOp(
+                        result,
+                        in0,
+                        output,
+                        # loc=old_op.location, -> this segfault, not sure why
+                    )
 
-                    input0 = self._get_golden_tensor(queried_input0)
-                    op_golden_function = get_golden_function(ttir_op)
-                    golden_output = op_golden_function(input0)
-                    logical_not_builder._set_golden_tensor(new_op, golden_output)
+                    if not self._disable_golden_check:
+                        input_owner0 = old_op.input.owner
+                        if isinstance(input_owner0, Block):
+                            queried_input0 = old_op.input
+                        else:
+                            queried_input0 = input_owner0
 
-                return new_op
+                        input0 = self._get_golden_tensor(queried_input0)
+                        op_golden_function = get_golden_function(ttir_op)
+                        golden_output = op_golden_function(input0)
+                        logical_not_builder._set_golden_tensor(new_op, golden_output)
+                        logical_not_builder._set_output_ordering([new_op])
+                        logical_not_builder._set_golden_tensor(in0, input0)
+                        logical_not_builder._set_input_ordering([in0])
+
+                    return new_op
 
         return logical_not_module, logical_not_builder
 
@@ -836,38 +871,45 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
     ) -> Tuple[Module, TTIRBuilder]:
         ttir_op = self.get_opview_from_split(TTIRBuilder.log_split)
 
-        log_module = Module.create()
-        log_builder = TTIRBuilder(self._ctx, self._loc)
-        op_input_types = [old_op.input.type]
+        new_ctx = Context()
+        new_loc = Location.unknown(new_ctx)
 
-        with InsertionPoint(log_module.body):
+        with new_ctx, new_loc:
+            log_module = Module.create()
+            log_builder = TTIRBuilder(new_ctx, new_loc)
+            op_input_types = [old_op.input.type]
 
-            @func.func(*op_input_types, name="log_module")
-            def decorated_func(*inputs):
-                in0 = inputs[0]
-                result = old_op.result.type
-                output = self._get_empty_op(result)
+            with InsertionPoint(log_module.body):
 
-                new_op = ttir.LogOp(
-                    result,
-                    in0,
-                    output,
-                    # loc=old_op.location, -> this segfault, not sure why
-                )
+                @func.func(*op_input_types, name="log_module")
+                def decorated_func(*inputs):
+                    in0 = inputs[0]
+                    result = old_op.result.type
+                    output = self._get_empty_op(result)
 
-                if not self._disable_golden_check:
-                    input_owner0 = old_op.input.owner
-                    if isinstance(input_owner0, Block):
-                        queried_input0 = old_op.input
-                    else:
-                        queried_input0 = input_owner0
+                    new_op = ttir.LogOp(
+                        result,
+                        in0,
+                        output,
+                        # loc=old_op.location, -> this segfault, not sure why
+                    )
 
-                    input0 = self._get_golden_tensor(queried_input0)
-                    op_golden_function = get_golden_function(ttir_op)
-                    golden_output = op_golden_function(input0)
-                    log_builder._set_golden_tensor(new_op, golden_output)
+                    if not self._disable_golden_check:
+                        input_owner0 = old_op.input.owner
+                        if isinstance(input_owner0, Block):
+                            queried_input0 = old_op.input
+                        else:
+                            queried_input0 = input_owner0
 
-                return new_op
+                        input0 = self._get_golden_tensor(queried_input0)
+                        op_golden_function = get_golden_function(ttir_op)
+                        golden_output = op_golden_function(input0)
+                        log_builder._set_golden_tensor(new_op, golden_output)
+                        log_builder._set_output_ordering([new_op])
+                        log_builder._set_golden_tensor(in0, input0)
+                        log_builder._set_input_ordering([in0])
+
+                    return new_op
 
         return log_module, log_builder
 
@@ -952,47 +994,55 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
     ) -> Tuple[Module, TTIRBuilder]:
         ttir_op = self.get_opview_from_split(TTIRBuilder.gt_split)
 
-        gt_module = Module.create()
-        gt_builder = TTIRBuilder(self._ctx, self._loc)
-        op_input_types = [old_op.lhs.type, old_op.rhs.type]
+        new_ctx = Context()
+        new_loc = Location.unknown(new_ctx)
 
-        with InsertionPoint(gt_module.body):
+        with new_ctx, new_loc:
+            gt_module = Module.create()
+            gt_builder = TTIRBuilder(new_ctx, new_loc)
+            op_input_types = [old_op.lhs.type, old_op.rhs.type]
 
-            @func.func(*op_input_types, name="gt_module")
-            def decorated_func(*inputs):
-                in0 = inputs[0]
-                in1 = inputs[1]
-                result = old_op.result.type
-                output = self._get_empty_op(result)
+            with InsertionPoint(gt_module.body):
 
-                new_op = ttir.GreaterThanOp(
-                    result,
-                    in0,
-                    in1,
-                    output,
-                    # loc=old_op.location, -> this segfault, not sure why
-                )
+                @func.func(*op_input_types, name="gt_module")
+                def decorated_func(*inputs):
+                    in0 = inputs[0]
+                    in1 = inputs[1]
+                    result = old_op.result.type
+                    output = self._get_empty_op(result)
 
-                if not self._disable_golden_check:
-                    input_owner0 = old_op.lhs.owner
-                    if isinstance(input_owner0, Block):
-                        queried_input0 = old_op.lhs
-                    else:
-                        queried_input0 = input_owner0
+                    new_op = ttir.GreaterThanOp(
+                        result,
+                        in0,
+                        in1,
+                        output,
+                        # loc=old_op.location, -> this segfault, not sure why
+                    )
 
-                    input_owner1 = old_op.rhs.owner
-                    if isinstance(input_owner1, Block):
-                        queried_input1 = old_op.rhs
-                    else:
-                        queried_input1 = input_owner1
+                    if not self._disable_golden_check:
+                        input_owner0 = old_op.lhs.owner
+                        if isinstance(input_owner0, Block):
+                            queried_input0 = old_op.lhs
+                        else:
+                            queried_input0 = input_owner0
 
-                    input0 = self._get_golden_tensor(queried_input0)
-                    input1 = self._get_golden_tensor(queried_input1)
-                    op_golden_function = get_golden_function(ttir_op)
-                    golden_output = op_golden_function(input0, input1)
-                    gt_builder._set_golden_tensor(new_op, golden_output)
+                        input_owner1 = old_op.rhs.owner
+                        if isinstance(input_owner1, Block):
+                            queried_input1 = old_op.rhs
+                        else:
+                            queried_input1 = input_owner1
 
-                return new_op
+                        input0 = self._get_golden_tensor(queried_input0)
+                        input1 = self._get_golden_tensor(queried_input1)
+                        op_golden_function = get_golden_function(ttir_op)
+                        golden_output = op_golden_function(input0, input1)
+                        gt_builder._set_golden_tensor(new_op, golden_output)
+                        gt_builder._set_output_ordering([new_op])
+                        gt_builder._set_golden_tensor(in0, input0)
+                        gt_builder._set_golden_tensor(in1, input1)
+                        gt_builder._set_input_ordering([in0, in1])
+
+                    return new_op
 
         return gt_module, gt_builder
 
@@ -1128,53 +1178,60 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
     ) -> Tuple[Module, TTIRBuilder]:
         ttir_op = self.get_opview_from_split(TTIRBuilder.pooling_split)
 
-        pool_module = Module.create()
-        pool_builder = TTIRBuilder(self._ctx, self._loc)
-        op_input_types = [old_op.inputs[0].type]
+        new_ctx = Context()
+        new_loc = Location.unknown(new_ctx)
 
-        with InsertionPoint(pool_module.body):
+        with new_ctx, new_loc:
+            pool_module = Module.create()
+            pool_builder = TTIRBuilder(new_ctx, new_loc)
+            op_input_types = [old_op.inputs[0].type]
 
-            @func.func(*op_input_types, name="pool_module")
-            def decorated_func(*inputs):
-                in0 = inputs[0]
-                result = old_op.result.type
-                output = self._get_empty_op(result)
+            with InsertionPoint(pool_module.body):
 
-                new_op = ttir.PoolingOp(
-                    [result],
-                    [in0],
-                    [output],
-                    old_op.pooling_method,
-                    old_op.window_dimensions,
-                    old_op.window_strides,
-                    old_op.base_dilations,
-                    old_op.window_dilations,
-                    old_op.padding,
-                    # loc=old_op.location, -> this segfault, not sure why
-                )
+                @func.func(*op_input_types, name="pool_module")
+                def decorated_func(*inputs):
+                    in0 = inputs[0]
+                    result = old_op.result.type
+                    output = self._get_empty_op(result)
 
-                if not self._disable_golden_check:
-                    op_golden_function = get_golden_function(ttir_op)
-
-                    input_owner0 = old_op.inputs[0].owner
-                    if isinstance(input_owner0, Block):
-                        queried_input0 = old_op.inputs[0]
-                    else:
-                        queried_input0 = input_owner0
-
-                    input0 = self._get_golden_tensor(queried_input0)
-                    golden_output = op_golden_function(
-                        input0,
+                    new_op = ttir.PoolingOp(
+                        [result],
+                        [in0],
+                        [output],
                         old_op.pooling_method,
                         old_op.window_dimensions,
                         old_op.window_strides,
                         old_op.base_dilations,
                         old_op.window_dilations,
                         old_op.padding,
+                        # loc=old_op.location, -> this segfault, not sure why
                     )
-                    pool_builder._set_golden_tensor(new_op, golden_output)
 
-                return new_op
+                    if not self._disable_golden_check:
+                        op_golden_function = get_golden_function(ttir_op)
+
+                        input_owner0 = old_op.inputs[0].owner
+                        if isinstance(input_owner0, Block):
+                            queried_input0 = old_op.inputs[0]
+                        else:
+                            queried_input0 = input_owner0
+
+                        input0 = self._get_golden_tensor(queried_input0)
+                        golden_output = op_golden_function(
+                            input0,
+                            old_op.pooling_method,
+                            old_op.window_dimensions,
+                            old_op.window_strides,
+                            old_op.base_dilations,
+                            old_op.window_dilations,
+                            old_op.padding,
+                        )
+                        pool_builder._set_golden_tensor(new_op, golden_output)
+                        pool_builder._set_output_ordering([new_op])
+                        pool_builder._set_golden_tensor(in0, input0)
+                        pool_builder._set_input_ordering([in0])
+
+                    return new_op
 
         return pool_module, pool_builder
 
@@ -1303,93 +1360,108 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
     ) -> Tuple[Module, TTIRBuilder]:
         ttir_op = self.get_opview_from_split(TTIRBuilder.batch_norm_inference_split)
 
-        batch_norm_inference_module = Module.create()
-        batch_norm_inference_builder = TTIRBuilder(self._ctx, self._loc)
-        op_input_types = [
-            old_op.operand.type,
-            old_op.scale.type,
-            old_op.offset.type,
-            old_op.mean.type,
-            old_op.variance.type,
-        ]
+        new_ctx = Context()
+        new_loc = Location.unknown(new_ctx)
 
-        with InsertionPoint(batch_norm_inference_module.body):
+        with new_ctx, new_loc:
+            batch_norm_inference_module = Module.create()
+            batch_norm_inference_builder = TTIRBuilder(new_ctx, new_loc)
+            op_input_types = [
+                old_op.operand.type,
+                old_op.scale.type,
+                old_op.offset.type,
+                old_op.mean.type,
+                old_op.variance.type,
+            ]
 
-            @func.func(*op_input_types, name="batch_norm_inference_module")
-            def decorated_func(*inputs):
-                in0 = inputs[0]
-                scale = inputs[1]
-                offset = inputs[2]
-                mean = inputs[3]
-                variance = inputs[4]
-                result = old_op.result.type
-                output = self._get_empty_op(result)
+            with InsertionPoint(batch_norm_inference_module.body):
 
-                new_op = ttir.BatchNormInferenceOp(
-                    result,
-                    in0,
-                    scale,
-                    offset,
-                    mean,
-                    variance,
-                    output,
-                    old_op.epsilon,
-                    old_op.dimension,
-                    # loc=old_op.location, -> this segfault, not sure why
-                )
+                @func.func(*op_input_types, name="batch_norm_inference_module")
+                def decorated_func(*inputs):
+                    in0 = inputs[0]
+                    scale = inputs[1]
+                    offset = inputs[2]
+                    mean = inputs[3]
+                    variance = inputs[4]
+                    result = old_op.result.type
+                    output = self._get_empty_op(result)
 
-                if not self._disable_golden_check:
-                    input_owner0 = old_op.operand.owner
-                    if isinstance(input_owner0, Block):
-                        queried_input0 = old_op.operand
-                    else:
-                        queried_input0 = input_owner0
-
-                    scale_owner = old_op.scale.owner
-                    if isinstance(scale_owner, Block):
-                        queried_scale = old_op.scale
-                    else:
-                        queried_scale = scale_owner
-
-                    offset_owner = old_op.offset.owner
-                    if isinstance(offset_owner, Block):
-                        queried_offset = old_op.offset
-                    else:
-                        queried_offset = offset_owner
-
-                    mean_owner = old_op.mean.owner
-                    if isinstance(mean_owner, Block):
-                        queried_mean = old_op.mean
-                    else:
-                        queried_mean = mean_owner
-
-                    variance_owner = old_op.variance.owner
-                    if isinstance(variance_owner, Block):
-                        queried_variance = old_op.variance
-                    else:
-                        queried_variance = variance_owner
-
-                    input0 = self._get_golden_tensor(queried_input0)
-                    scale0 = self._get_golden_tensor(queried_scale)
-                    offset0 = self._get_golden_tensor(queried_offset)
-                    mean0 = self._get_golden_tensor(queried_mean)
-                    variance0 = self._get_golden_tensor(queried_variance)
-
-                    op_golden_function = get_golden_function(ttir_op)
-                    golden_output = op_golden_function(
-                        input0,
-                        scale0,
-                        offset0,
-                        mean0,
-                        variance0,
+                    new_op = ttir.BatchNormInferenceOp(
+                        result,
+                        in0,
+                        scale,
+                        offset,
+                        mean,
+                        variance,
+                        output,
                         old_op.epsilon,
                         old_op.dimension,
-                    )
-                    batch_norm_inference_builder._set_golden_tensor(
-                        new_op, golden_output
+                        # loc=old_op.location, -> this segfault, not sure why
                     )
 
-                return new_op
+                    if not self._disable_golden_check:
+                        input_owner0 = old_op.operand.owner
+                        if isinstance(input_owner0, Block):
+                            queried_input0 = old_op.operand
+                        else:
+                            queried_input0 = input_owner0
+
+                        scale_owner = old_op.scale.owner
+                        if isinstance(scale_owner, Block):
+                            queried_scale = old_op.scale
+                        else:
+                            queried_scale = scale_owner
+
+                        offset_owner = old_op.offset.owner
+                        if isinstance(offset_owner, Block):
+                            queried_offset = old_op.offset
+                        else:
+                            queried_offset = offset_owner
+
+                        mean_owner = old_op.mean.owner
+                        if isinstance(mean_owner, Block):
+                            queried_mean = old_op.mean
+                        else:
+                            queried_mean = mean_owner
+
+                        variance_owner = old_op.variance.owner
+                        if isinstance(variance_owner, Block):
+                            queried_variance = old_op.variance
+                        else:
+                            queried_variance = variance_owner
+
+                        input0 = self._get_golden_tensor(queried_input0)
+                        scale0 = self._get_golden_tensor(queried_scale)
+                        offset0 = self._get_golden_tensor(queried_offset)
+                        mean0 = self._get_golden_tensor(queried_mean)
+                        variance0 = self._get_golden_tensor(queried_variance)
+
+                        op_golden_function = get_golden_function(ttir_op)
+                        golden_output = op_golden_function(
+                            input0,
+                            scale0,
+                            offset0,
+                            mean0,
+                            variance0,
+                            old_op.epsilon,
+                            old_op.dimension,
+                        )
+                        batch_norm_inference_builder._set_golden_tensor(
+                            new_op, golden_output
+                        )
+                        batch_norm_inference_builder._set_output_ordering([new_op])
+                        batch_norm_inference_builder._set_golden_tensor(in0, input0)
+                        batch_norm_inference_builder._set_golden_tensor(scale, scale0)
+                        batch_norm_inference_builder._set_golden_tensor(offset, offset0)
+                        batch_norm_inference_builder._set_golden_tensor(mean, mean0)
+                        batch_norm_inference_builder._set_golden_tensor(
+                            variance, variance0
+                        )
+                        batch_norm_inference_builder._set_input_ordering(
+                            [in0, scale, offset, mean, variance]
+                        )
+
+                    return new_op
 
         return batch_norm_inference_module, batch_norm_inference_builder
 
@@ -1559,69 +1631,41 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
     ) -> Tuple[Module, TTIRBuilder]:
         ttir_op = self.get_opview_from_split(TTIRBuilder.convolution_split)
 
-        convolution_module = Module.create()
-        convolution_builder = TTIRBuilder(self._ctx, self._loc)
-        op_input_types = []
+        new_ctx = Context()
+        new_loc = Location.unknown(new_ctx)
 
-        conv_input = old_op.input
-        conv_weight = old_op.weight
-        op_input_types.append(self._get_type(conv_input))
-        op_input_types.append(self._get_type(conv_weight))
+        with new_ctx, new_loc:
+            convolution_module = Module.create()
+            convolution_builder = TTIRBuilder(new_ctx, new_loc)
+            op_input_types = []
 
-        with InsertionPoint(convolution_module.body):
+            conv_input = old_op.input
+            conv_weight = old_op.weight
+            op_input_types.append(self._get_type(conv_input))
+            op_input_types.append(self._get_type(conv_weight))
 
-            @func.func(*op_input_types, name="convolution_module")
-            def decorated_func(*inputs):
-                in0 = inputs[0]
-                weight = inputs[1]
-                result = old_op.result.type
-                output = self._get_empty_op(result)
-                window_strides_attr = old_op.window_strides
-                padding_attr = old_op.padding
-                input_dilation_attr = old_op.input_dilation
-                weight_dilation_attr = old_op.weight_dilation
-                window_reversal_attr = old_op.window_reversal
-                convolution_layout_attr = old_op.convolution_layout
-                feature_group_count_attr = old_op.feature_group_count
-                batch_group_count_attr = old_op.batch_group_count
+            with InsertionPoint(convolution_module.body):
 
-                new_op = ttir.ConvolutionOp(
-                    result,
-                    in0,
-                    weight,
-                    output,
-                    window_strides_attr,
-                    padding_attr,
-                    input_dilation_attr,
-                    weight_dilation_attr,
-                    window_reversal_attr,
-                    convolution_layout_attr,
-                    feature_group_count_attr,
-                    batch_group_count_attr,
-                    # loc=old_op.location, -> this segfault, not sure why
-                )
+                @func.func(*op_input_types, name="convolution_module")
+                def decorated_func(*inputs):
+                    in0 = inputs[0]
+                    weight = inputs[1]
+                    result = old_op.result.type
+                    output = self._get_empty_op(result)
+                    window_strides_attr = old_op.window_strides
+                    padding_attr = old_op.padding
+                    input_dilation_attr = old_op.input_dilation
+                    weight_dilation_attr = old_op.weight_dilation
+                    window_reversal_attr = old_op.window_reversal
+                    convolution_layout_attr = old_op.convolution_layout
+                    feature_group_count_attr = old_op.feature_group_count
+                    batch_group_count_attr = old_op.batch_group_count
 
-                if not convolution_builder._disable_golden_check:
-                    input_owner = old_op.input.owner
-                    if isinstance(input_owner, Block):
-                        queried_input = old_op.input
-                    else:
-                        queried_input = input_owner
-
-                    weight_owner = old_op.weight.owner
-                    if isinstance(weight_owner, Block):
-                        queried_weight = old_op.weight
-                    else:
-                        queried_weight = weight_owner
-
-                    input0 = self._get_golden_tensor(queried_input)
-                    weight0 = self._get_golden_tensor(queried_weight)
-
-                    op_golden_function = get_golden_function(ttir_op)
-                    golden_output = op_golden_function(
-                        input0,
-                        weight0,
-                        None,
+                    new_op = ttir.ConvolutionOp(
+                        result,
+                        in0,
+                        weight,
+                        output,
                         window_strides_attr,
                         padding_attr,
                         input_dilation_attr,
@@ -1630,10 +1674,46 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
                         convolution_layout_attr,
                         feature_group_count_attr,
                         batch_group_count_attr,
+                        # loc=old_op.location, -> this segfault, not sure why
                     )
-                    convolution_builder._set_golden_tensor(new_op, golden_output)
 
-                return new_op
+                    if not convolution_builder._disable_golden_check:
+                        input_owner = old_op.input.owner
+                        if isinstance(input_owner, Block):
+                            queried_input = old_op.input
+                        else:
+                            queried_input = input_owner
+
+                        weight_owner = old_op.weight.owner
+                        if isinstance(weight_owner, Block):
+                            queried_weight = old_op.weight
+                        else:
+                            queried_weight = weight_owner
+
+                        input0 = self._get_golden_tensor(queried_input)
+                        weight0 = self._get_golden_tensor(queried_weight)
+
+                        op_golden_function = get_golden_function(ttir_op)
+                        golden_output = op_golden_function(
+                            input0,
+                            weight0,
+                            None,
+                            window_strides_attr,
+                            padding_attr,
+                            input_dilation_attr,
+                            weight_dilation_attr,
+                            window_reversal_attr,
+                            convolution_layout_attr,
+                            feature_group_count_attr,
+                            batch_group_count_attr,
+                        )
+                        convolution_builder._set_golden_tensor(new_op, golden_output)
+                        convolution_builder._set_output_ordering([new_op])
+                        convolution_builder._set_golden_tensor(in0, input0)
+                        convolution_builder._set_golden_tensor(weight, weight0)
+                        convolution_builder._set_input_ordering([in0, weight])
+
+                    return new_op
 
         return convolution_module, convolution_builder
 
@@ -1704,29 +1784,34 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
     ) -> Tuple[Module, TTIRBuilder]:
         ttir_op = self.get_opview_from_split(TTIRBuilder.constant_split)
 
-        constant_module = Module.create()
-        constant_builder = TTIRBuilder(self._ctx, self._loc)
-        op_input_types = []
+        new_ctx = Context()
+        new_loc = Location.unknown(new_ctx)
 
-        with InsertionPoint(constant_module.body):
+        with new_ctx, new_loc:
+            constant_module = Module.create()
+            constant_builder = TTIRBuilder(new_ctx, new_loc)
+            op_input_types = []
 
-            @func.func(*op_input_types, name="constant_module")
-            def decorated_func(*inputs):
-                value_attr = old_op.value
-                result = old_op.result.type
+            with InsertionPoint(constant_module.body):
 
-                new_op = ttir.ConstantOp(
-                    result,
-                    value_attr,
-                    # loc=old_op.location, -> this segfault, not sure why
-                )
+                @func.func(*op_input_types, name="constant_module")
+                def decorated_func(*inputs):
+                    value_attr = old_op.value
+                    result = old_op.result.type
 
-                if not self._disable_golden_check:
-                    op_golden_function = get_golden_function(ttir_op)
-                    golden_output = op_golden_function(value_attr)
-                    constant_builder._set_golden_tensor(new_op, golden_output)
+                    new_op = ttir.ConstantOp(
+                        result,
+                        value_attr,
+                        # loc=old_op.location, -> this segfault, not sure why
+                    )
 
-                return new_op
+                    if not self._disable_golden_check:
+                        op_golden_function = get_golden_function(ttir_op)
+                        golden_output = op_golden_function(value_attr)
+                        constant_builder._set_golden_tensor(new_op, golden_output)
+                        constant_builder._set_output_ordering([new_op])
+
+                    return new_op
 
         return constant_module, constant_builder
 
@@ -1821,42 +1906,51 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
     ) -> Tuple[Module, TTIRBuilder]:
         ttir_op = self.get_opview_from_split(TTIRBuilder.pad_split)
 
-        pad_module = Module.create()
-        pad_builder = TTIRBuilder(self._ctx, self._loc)
-        op_input_types = [old_op.input.type]
+        new_ctx = Context()
+        new_loc = Location.unknown(new_ctx)
 
-        with InsertionPoint(pad_module.body):
+        with new_ctx, new_loc:
+            pad_module = Module.create()
+            pad_builder = TTIRBuilder(new_ctx, new_loc)
+            op_input_types = [old_op.input.type]
 
-            @func.func(*op_input_types, name="pad_module")
-            def decorated_func(*inputs):
-                in0 = inputs[0]
-                padding_attr = old_op.padding
-                value_attr = old_op.value
-                result = old_op.result.type
-                output = self._get_empty_op(result)
+            with InsertionPoint(pad_module.body):
 
-                new_op = ttir.PadOp(
-                    result,
-                    in0,
-                    output,
-                    padding_attr,
-                    value_attr,
-                    # loc=old_op.location, -> this segfault, not sure why
-                )
+                @func.func(*op_input_types, name="pad_module")
+                def decorated_func(*inputs):
+                    in0 = inputs[0]
+                    padding_attr = old_op.padding
+                    value_attr = old_op.value
+                    result = old_op.result.type
+                    output = self._get_empty_op(result)
 
-                if not self._disable_golden_check:
-                    input_owner = old_op.input.owner
-                    if isinstance(input_owner, Block):
-                        queried_input = old_op.input
-                    else:
-                        queried_input = input_owner
+                    new_op = ttir.PadOp(
+                        result,
+                        in0,
+                        output,
+                        padding_attr,
+                        value_attr,
+                        # loc=old_op.location, -> this segfault, not sure why
+                    )
 
-                    input0 = self._get_golden_tensor(queried_input)
-                    op_golden_function = get_golden_function(ttir_op)
-                    golden_output = op_golden_function(input0, padding_attr, value_attr)
-                    pad_builder._set_golden_tensor(new_op, golden_output)
+                    if not self._disable_golden_check:
+                        input_owner = old_op.input.owner
+                        if isinstance(input_owner, Block):
+                            queried_input = old_op.input
+                        else:
+                            queried_input = input_owner
 
-                return new_op
+                        input0 = self._get_golden_tensor(queried_input)
+                        op_golden_function = get_golden_function(ttir_op)
+                        golden_output = op_golden_function(
+                            input0, padding_attr, value_attr
+                        )
+                        pad_builder._set_golden_tensor(new_op, golden_output)
+                        pad_builder._set_output_ordering([new_op])
+                        pad_builder._set_golden_tensor(in0, input0)
+                        pad_builder._set_input_ordering([in0])
+
+                    return new_op
 
         return pad_module, pad_builder
 
@@ -1972,60 +2066,68 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
     ) -> Tuple[Module, TTIRBuilder]:
         ttir_op = self.get_opview_from_split(TTIRBuilder.dot_general_split)
 
-        dot_general_module = Module.create()
-        dot_general_builder = TTIRBuilder(self._ctx, self._loc)
-        op_input_types = [old_op.lhs.type, old_op.rhs.type]
+        new_ctx = Context()
+        new_loc = Location.unknown(new_ctx)
 
-        with InsertionPoint(dot_general_module.body):
+        with new_ctx, new_loc:
+            dot_general_module = Module.create()
+            dot_general_builder = TTIRBuilder(new_ctx, new_loc)
+            op_input_types = [old_op.lhs.type, old_op.rhs.type]
 
-            @func.func(*op_input_types, name="dot_general_module")
-            def decorated_func(*inputs):
-                in0 = inputs[0]
-                in1 = inputs[1]
-                batch_dims_lhs_attr = old_op.batch_dims_lhs
-                contract_dims_lhs_attr = old_op.contract_dims_lhs
-                batch_dims_rhs_attr = old_op.batch_dims_rhs
-                contract_dims_rhs_attr = old_op.contract_dims_rhs
-                result = old_op.result.type
+            with InsertionPoint(dot_general_module.body):
 
-                new_op = ttir.DotGeneralOp(
-                    result,
-                    in0,
-                    in1,
-                    batch_dims_lhs_attr,
-                    contract_dims_lhs_attr,
-                    batch_dims_rhs_attr,
-                    contract_dims_rhs_attr,
-                    # loc=old_op.location, -> this segfault, not sure why
-                )
+                @func.func(*op_input_types, name="dot_general_module")
+                def decorated_func(*inputs):
+                    in0 = inputs[0]
+                    in1 = inputs[1]
+                    batch_dims_lhs_attr = old_op.batch_dims_lhs
+                    contract_dims_lhs_attr = old_op.contract_dims_lhs
+                    batch_dims_rhs_attr = old_op.batch_dims_rhs
+                    contract_dims_rhs_attr = old_op.contract_dims_rhs
+                    result = old_op.result.type
 
-                if not self._disable_golden_check:
-                    lhs_owner = old_op.lhs.owner
-                    if isinstance(lhs_owner, Block):
-                        queried_lhs = old_op.lhs
-                    else:
-                        queried_lhs = lhs_owner
-
-                    rhs_owner = old_op.rhs.owner
-                    if isinstance(rhs_owner, Block):
-                        queried_rhs = old_op.rhs
-                    else:
-                        queried_rhs = rhs_owner
-
-                    input0 = self._get_golden_tensor(queried_lhs)
-                    input1 = self._get_golden_tensor(queried_rhs)
-                    op_golden_function = get_golden_function(ttir_op)
-                    golden_output = op_golden_function(
-                        input0,
-                        input1,
+                    new_op = ttir.DotGeneralOp(
+                        result,
+                        in0,
+                        in1,
                         batch_dims_lhs_attr,
                         contract_dims_lhs_attr,
                         batch_dims_rhs_attr,
                         contract_dims_rhs_attr,
+                        # loc=old_op.location, -> this segfault, not sure why
                     )
-                    dot_general_builder._set_golden_tensor(new_op, golden_output)
 
-                return new_op
+                    if not self._disable_golden_check:
+                        lhs_owner = old_op.lhs.owner
+                        if isinstance(lhs_owner, Block):
+                            queried_lhs = old_op.lhs
+                        else:
+                            queried_lhs = lhs_owner
+
+                        rhs_owner = old_op.rhs.owner
+                        if isinstance(rhs_owner, Block):
+                            queried_rhs = old_op.rhs
+                        else:
+                            queried_rhs = rhs_owner
+
+                        input0 = self._get_golden_tensor(queried_lhs)
+                        input1 = self._get_golden_tensor(queried_rhs)
+                        op_golden_function = get_golden_function(ttir_op)
+                        golden_output = op_golden_function(
+                            input0,
+                            input1,
+                            batch_dims_lhs_attr,
+                            contract_dims_lhs_attr,
+                            batch_dims_rhs_attr,
+                            contract_dims_rhs_attr,
+                        )
+                        dot_general_builder._set_golden_tensor(new_op, golden_output)
+                        dot_general_builder._set_output_ordering([new_op])
+                        dot_general_builder._set_golden_tensor(in0, input0)
+                        dot_general_builder._set_golden_tensor(in1, input1)
+                        dot_general_builder._set_input_ordering([in0, in1])
+
+                    return new_op
 
         return dot_general_module, dot_general_builder
 
@@ -2114,40 +2216,47 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
     ) -> Tuple[Module, TTIRBuilder]:
         ttir_op = self.get_opview_from_split(TTIRBuilder.permute_split)
 
-        permute_module = Module.create()
-        permute_builder = TTIRBuilder(self._ctx, self._loc)
-        op_input_types = [old_op.input.type]
+        new_ctx = Context()
+        new_loc = Location.unknown(new_ctx)
 
-        with InsertionPoint(permute_module.body):
+        with new_ctx, new_loc:
+            permute_module = Module.create()
+            permute_builder = TTIRBuilder(new_ctx, new_loc)
+            op_input_types = [old_op.input.type]
 
-            @func.func(*op_input_types, name="permute_module")
-            def decorated_func(*inputs):
-                in0 = inputs[0]
-                permutation_attr = old_op.permutation
-                result = old_op.result.type
-                output = self._get_empty_op(result)
+            with InsertionPoint(permute_module.body):
 
-                new_op = ttir.PermuteOp(
-                    result,
-                    in0,
-                    output,
-                    permutation_attr,
-                    # loc=old_op.location, -> this segfault, not sure why
-                )
+                @func.func(*op_input_types, name="permute_module")
+                def decorated_func(*inputs):
+                    in0 = inputs[0]
+                    permutation_attr = old_op.permutation
+                    result = old_op.result.type
+                    output = self._get_empty_op(result)
 
-                if not self._disable_golden_check:
-                    input_owner = old_op.input.owner
-                    if isinstance(input_owner, Block):
-                        queried_input = old_op.input
-                    else:
-                        queried_input = input_owner
+                    new_op = ttir.PermuteOp(
+                        result,
+                        in0,
+                        output,
+                        permutation_attr,
+                        # loc=old_op.location, -> this segfault, not sure why
+                    )
 
-                    input0 = self._get_golden_tensor(queried_input)
-                    op_golden_function = get_golden_function(ttir_op)
-                    golden_output = op_golden_function(input0, permutation_attr)
-                    permute_builder._set_golden_tensor(new_op, golden_output)
+                    if not self._disable_golden_check:
+                        input_owner = old_op.input.owner
+                        if isinstance(input_owner, Block):
+                            queried_input = old_op.input
+                        else:
+                            queried_input = input_owner
 
-                return new_op
+                        input0 = self._get_golden_tensor(queried_input)
+                        op_golden_function = get_golden_function(ttir_op)
+                        golden_output = op_golden_function(input0, permutation_attr)
+                        permute_builder._set_golden_tensor(new_op, golden_output)
+                        permute_builder._set_output_ordering([new_op])
+                        permute_builder._set_golden_tensor(in0, input0)
+                        permute_builder._set_input_ordering([in0])
+
+                    return new_op
 
         return permute_module, permute_builder
 
@@ -2239,42 +2348,49 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
     ) -> Tuple[Module, TTIRBuilder]:
         ttir_op = self.get_opview_from_split(TTIRBuilder.broadcast_split)
 
-        broadcast_module = Module.create()
-        broadcast_builder = TTIRBuilder(self._ctx, self._loc)
-        op_input_types = [old_op.input.type]
+        new_ctx = Context()
+        new_loc = Location.unknown(new_ctx)
 
-        with InsertionPoint(broadcast_module.body):
+        with new_ctx, new_loc:
+            broadcast_module = Module.create()
+            broadcast_builder = TTIRBuilder(new_ctx, new_loc)
+            op_input_types = [old_op.input.type]
 
-            @func.func(*op_input_types, name="broadcast_module")
-            def decorated_func(*inputs):
-                in0 = inputs[0]
-                broadcast_dimensions_attr = old_op.broadcast_dimensions
-                result = old_op.result.type
-                output = self._get_empty_op(result)
+            with InsertionPoint(broadcast_module.body):
 
-                new_op = ttir.BroadcastOp(
-                    result,
-                    in0,
-                    output,
-                    broadcast_dimensions_attr,
-                    # loc=old_op.location, -> this segfault, not sure why
-                )
+                @func.func(*op_input_types, name="broadcast_module")
+                def decorated_func(*inputs):
+                    in0 = inputs[0]
+                    broadcast_dimensions_attr = old_op.broadcast_dimensions
+                    result = old_op.result.type
+                    output = self._get_empty_op(result)
 
-                if not self._disable_golden_check:
-                    input_owner = old_op.input.owner
-                    if isinstance(input_owner, Block):
-                        queried_input = old_op.input
-                    else:
-                        queried_input = input_owner
-
-                    input0 = self._get_golden_tensor(queried_input)
-                    op_golden_function = get_golden_function(ttir_op)
-                    golden_output = op_golden_function(
-                        input0, broadcast_dimensions_attr
+                    new_op = ttir.BroadcastOp(
+                        result,
+                        in0,
+                        output,
+                        broadcast_dimensions_attr,
+                        # loc=old_op.location, -> this segfault, not sure why
                     )
-                    broadcast_builder._set_golden_tensor(new_op, golden_output)
 
-                return new_op
+                    if not self._disable_golden_check:
+                        input_owner = old_op.input.owner
+                        if isinstance(input_owner, Block):
+                            queried_input = old_op.input
+                        else:
+                            queried_input = input_owner
+
+                        input0 = self._get_golden_tensor(queried_input)
+                        op_golden_function = get_golden_function(ttir_op)
+                        golden_output = op_golden_function(
+                            input0, broadcast_dimensions_attr
+                        )
+                        broadcast_builder._set_golden_tensor(new_op, golden_output)
+                        broadcast_builder._set_output_ordering([new_op])
+                        broadcast_builder._set_golden_tensor(in0, input0)
+                        broadcast_builder._set_input_ordering([in0])
+
+                    return new_op
 
         return broadcast_module, broadcast_builder
 
@@ -2360,40 +2476,47 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
     ) -> Tuple[Module, TTIRBuilder]:
         ttir_op = self.get_opview_from_split(TTIRBuilder.reshape_split)
 
-        reshape_module = Module.create()
-        reshape_builder = TTIRBuilder(self._ctx, self._loc)
-        op_input_types = [old_op.input.type]
+        new_ctx = Context()
+        new_loc = Location.unknown(new_ctx)
 
-        with InsertionPoint(reshape_module.body):
+        with new_ctx, new_loc:
+            reshape_module = Module.create()
+            reshape_builder = TTIRBuilder(new_ctx, new_loc)
+            op_input_types = [old_op.input.type]
 
-            @func.func(*op_input_types, name="reshape_module")
-            def decorated_func(*inputs):
-                in0 = inputs[0]
-                shape_attr = old_op.shape
-                result = old_op.result.type
-                output = self._get_empty_op(result)
+            with InsertionPoint(reshape_module.body):
 
-                new_op = ttir.ReshapeOp(
-                    result,
-                    in0,
-                    output,
-                    shape_attr,
-                    # loc=old_op.location, -> this segfault, not sure why
-                )
+                @func.func(*op_input_types, name="reshape_module")
+                def decorated_func(*inputs):
+                    in0 = inputs[0]
+                    shape_attr = old_op.shape
+                    result = old_op.result.type
+                    output = self._get_empty_op(result)
 
-                if not self._disable_golden_check:
-                    op_golden_function = get_golden_function(ttir_op)
-                    input_owner_in0 = old_op.input.owner
-                    if isinstance(input_owner_in0, Block):
-                        queried_input_in0 = old_op.input
-                    else:
-                        queried_input_in0 = input_owner_in0
+                    new_op = ttir.ReshapeOp(
+                        result,
+                        in0,
+                        output,
+                        shape_attr,
+                        # loc=old_op.location, -> this segfault, not sure why
+                    )
 
-                    input0 = self._get_golden_tensor(queried_input_in0)
-                    golden_output = op_golden_function(input0, shape_attr)
-                    reshape_builder._set_golden_tensor(new_op, golden_output)
+                    if not self._disable_golden_check:
+                        op_golden_function = get_golden_function(ttir_op)
+                        input_owner_in0 = old_op.input.owner
+                        if isinstance(input_owner_in0, Block):
+                            queried_input_in0 = old_op.input
+                        else:
+                            queried_input_in0 = input_owner_in0
 
-                return new_op
+                        input0 = self._get_golden_tensor(queried_input_in0)
+                        golden_output = op_golden_function(input0, shape_attr)
+                        reshape_builder._set_golden_tensor(new_op, golden_output)
+                        reshape_builder._set_output_ordering([new_op])
+                        reshape_builder._set_golden_tensor(in0, input0)
+                        reshape_builder._set_input_ordering([in0])
+
+                    return new_op
 
         return reshape_module, reshape_builder
 
@@ -2478,48 +2601,56 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
     ) -> Tuple[Module, TTIRBuilder]:
         ttir_op = self.get_opview_from_split(TTIRBuilder.maximum_split)
 
-        maximum_module = Module.create()
-        maximum_builder = TTIRBuilder(self._ctx, self._loc)
-        op_input_types = [old_op.lhs.type, old_op.rhs.type]
+        new_ctx = Context()
+        new_loc = Location.unknown(new_ctx)
 
-        with InsertionPoint(maximum_module.body):
+        with new_ctx, new_loc:
+            maximum_module = Module.create()
+            maximum_builder = TTIRBuilder(new_ctx, new_loc)
+            op_input_types = [old_op.lhs.type, old_op.rhs.type]
 
-            @func.func(*op_input_types, name="maximum_module")
-            def decorated_func(*inputs):
-                lhs = inputs[0]
-                rhs = inputs[1]
-                result = old_op.result.type
-                output = self._get_empty_op(result)
+            with InsertionPoint(maximum_module.body):
 
-                new_op = ttir.MaximumOp(
-                    result,
-                    lhs,
-                    rhs,
-                    output,
-                    # loc=old_op.location, -> this segfault, not sure why
-                )
+                @func.func(*op_input_types, name="maximum_module")
+                def decorated_func(*inputs):
+                    lhs = inputs[0]
+                    rhs = inputs[1]
+                    result = old_op.result.type
+                    output = self._get_empty_op(result)
 
-                if not self._disable_golden_check:
-                    op_golden_function = get_golden_function(ttir_op)
+                    new_op = ttir.MaximumOp(
+                        result,
+                        lhs,
+                        rhs,
+                        output,
+                        # loc=old_op.location, -> this segfault, not sure why
+                    )
 
-                    input_owner_lhs = old_op.lhs.owner
-                    if isinstance(input_owner_lhs, Block):
-                        queried_input_lhs = old_op.lhs
-                    else:
-                        queried_input_lhs = input_owner_lhs
+                    if not self._disable_golden_check:
+                        op_golden_function = get_golden_function(ttir_op)
 
-                    input_owner_rhs = old_op.rhs.owner
-                    if isinstance(input_owner_rhs, Block):
-                        queried_input_rhs = old_op.rhs
-                    else:
-                        queried_input_rhs = input_owner_rhs
+                        input_owner_lhs = old_op.lhs.owner
+                        if isinstance(input_owner_lhs, Block):
+                            queried_input_lhs = old_op.lhs
+                        else:
+                            queried_input_lhs = input_owner_lhs
 
-                    input0 = self._get_golden_tensor(queried_input_lhs)
-                    input1 = self._get_golden_tensor(queried_input_rhs)
-                    golden_output = op_golden_function(input0, input1)
-                    maximum_builder._set_golden_tensor(new_op, golden_output)
+                        input_owner_rhs = old_op.rhs.owner
+                        if isinstance(input_owner_rhs, Block):
+                            queried_input_rhs = old_op.rhs
+                        else:
+                            queried_input_rhs = input_owner_rhs
 
-                return new_op
+                        input0 = self._get_golden_tensor(queried_input_lhs)
+                        input1 = self._get_golden_tensor(queried_input_rhs)
+                        golden_output = op_golden_function(input0, input1)
+                        maximum_builder._set_golden_tensor(new_op, golden_output)
+                        maximum_builder._set_output_ordering([new_op])
+                        maximum_builder._set_golden_tensor(lhs, input0)
+                        maximum_builder._set_golden_tensor(rhs, input1)
+                        maximum_builder._set_input_ordering([lhs, rhs])
+
+                    return new_op
 
         return maximum_module, maximum_builder
 
@@ -2604,48 +2735,56 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
     ) -> Tuple[Module, TTIRBuilder]:
         ttir_op = self.get_opview_from_split(TTIRBuilder.multiply_split)
 
-        multiply_module = Module.create()
-        multiply_builder = TTIRBuilder(self._ctx, self._loc)
-        op_input_types = [old_op.lhs.type, old_op.rhs.type]
+        new_ctx = Context()
+        new_loc = Location.unknown(new_ctx)
 
-        with InsertionPoint(multiply_module.body):
+        with new_ctx, new_loc:
+            multiply_module = Module.create()
+            multiply_builder = TTIRBuilder(new_ctx, new_loc)
+            op_input_types = [old_op.lhs.type, old_op.rhs.type]
 
-            @func.func(*op_input_types, name="multiply_module")
-            def decorated_func(*inputs):
-                lhs = inputs[0]
-                rhs = inputs[1]
-                result = old_op.result.type
-                output = self._get_empty_op(result)
+            with InsertionPoint(multiply_module.body):
 
-                new_op = ttir.MultiplyOp(
-                    result,
-                    lhs,
-                    rhs,
-                    output,
-                    # loc=old_op.location, -> this segfault, not sure why
-                )
+                @func.func(*op_input_types, name="multiply_module")
+                def decorated_func(*inputs):
+                    lhs = inputs[0]
+                    rhs = inputs[1]
+                    result = old_op.result.type
+                    output = self._get_empty_op(result)
 
-                if not self._disable_golden_check:
-                    op_golden_function = get_golden_function(ttir_op)
+                    new_op = ttir.MultiplyOp(
+                        result,
+                        lhs,
+                        rhs,
+                        output,
+                        # loc=old_op.location, -> this segfault, not sure why
+                    )
 
-                    input_owner_lhs = old_op.lhs.owner
-                    if isinstance(input_owner_lhs, Block):
-                        queried_input_lhs = old_op.lhs
-                    else:
-                        queried_input_lhs = input_owner_lhs
+                    if not self._disable_golden_check:
+                        op_golden_function = get_golden_function(ttir_op)
 
-                    input_owner_rhs = old_op.rhs.owner
-                    if isinstance(input_owner_rhs, Block):
-                        queried_input_rhs = old_op.rhs
-                    else:
-                        queried_input_rhs = input_owner_rhs
+                        input_owner_lhs = old_op.lhs.owner
+                        if isinstance(input_owner_lhs, Block):
+                            queried_input_lhs = old_op.lhs
+                        else:
+                            queried_input_lhs = input_owner_lhs
 
-                    input0 = self._get_golden_tensor(queried_input_lhs)
-                    input1 = self._get_golden_tensor(queried_input_rhs)
-                    golden_output = op_golden_function(input0, input1)
-                    multiply_builder._set_golden_tensor(new_op, golden_output)
+                        input_owner_rhs = old_op.rhs.owner
+                        if isinstance(input_owner_rhs, Block):
+                            queried_input_rhs = old_op.rhs
+                        else:
+                            queried_input_rhs = input_owner_rhs
 
-                return new_op
+                        input0 = self._get_golden_tensor(queried_input_lhs)
+                        input1 = self._get_golden_tensor(queried_input_rhs)
+                        golden_output = op_golden_function(input0, input1)
+                        multiply_builder._set_golden_tensor(new_op, golden_output)
+                        multiply_builder._set_output_ordering([new_op])
+                        multiply_builder._set_golden_tensor(lhs, input0)
+                        multiply_builder._set_golden_tensor(rhs, input1)
+                        multiply_builder._set_input_ordering([lhs, rhs])
+
+                    return new_op
 
         return multiply_module, multiply_builder
 
@@ -2743,47 +2882,54 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
     ) -> Tuple[Module, TTIRBuilder]:
         ttir_op = self.get_opview_from_split(TTIRBuilder.sum_split)
 
-        sum_module = Module.create()
-        sum_builder = TTIRBuilder(self._ctx, self._loc)
-        op_input_types = [old_op.input.type]
+        new_ctx = Context()
+        new_loc = Location.unknown(new_ctx)
 
-        with InsertionPoint(sum_module.body):
+        with new_ctx, new_loc:
+            sum_module = Module.create()
+            sum_builder = TTIRBuilder(new_ctx, new_loc)
+            op_input_types = [old_op.input.type]
 
-            @func.func(*op_input_types, name="sum_module")
-            def decorated_func(*inputs):
-                in0 = inputs[0]
-                result = old_op.result.type
-                output = self._get_empty_op(result)
-                keep_dim_attr = old_op.keep_dim
-                dim_arg_attr = old_op.dim_arg
+            with InsertionPoint(sum_module.body):
 
-                new_op = ttir.SumOp(
-                    result,
-                    in0,
-                    output,
-                    keep_dim_attr,
-                    dim_arg=dim_arg_attr,
-                    # loc=old_op.location, -> this segfault, not sure why
-                )
+                @func.func(*op_input_types, name="sum_module")
+                def decorated_func(*inputs):
+                    in0 = inputs[0]
+                    result = old_op.result.type
+                    output = self._get_empty_op(result)
+                    keep_dim_attr = old_op.keep_dim
+                    dim_arg_attr = old_op.dim_arg
 
-                if not self._disable_golden_check:
-                    op_golden_function = get_golden_function(ttir_op)
-
-                    input_owner = old_op.input.owner
-                    if isinstance(input_owner, Block):
-                        queried_input = old_op.input
-                    else:
-                        queried_input = input_owner
-
-                    input0 = self._get_golden_tensor(queried_input)
-                    golden_output = op_golden_function(
-                        input0,
-                        dim_arg_attr,
+                    new_op = ttir.SumOp(
+                        result,
+                        in0,
+                        output,
                         keep_dim_attr,
+                        dim_arg=dim_arg_attr,
+                        # loc=old_op.location, -> this segfault, not sure why
                     )
-                    sum_builder._set_golden_tensor(new_op, golden_output)
 
-                return new_op
+                    if not self._disable_golden_check:
+                        op_golden_function = get_golden_function(ttir_op)
+
+                        input_owner = old_op.input.owner
+                        if isinstance(input_owner, Block):
+                            queried_input = old_op.input
+                        else:
+                            queried_input = input_owner
+
+                        input0 = self._get_golden_tensor(queried_input)
+                        golden_output = op_golden_function(
+                            input0,
+                            dim_arg_attr,
+                            keep_dim_attr,
+                        )
+                        sum_builder._set_golden_tensor(new_op, golden_output)
+                        sum_builder._set_output_ordering([new_op])
+                        sum_builder._set_golden_tensor(in0, input0)
+                        sum_builder._set_input_ordering([in0])
+
+                    return new_op
 
         return sum_module, sum_builder
 
@@ -2868,51 +3014,59 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
     ) -> Tuple[Module, TTIRBuilder]:
         ttir_op = self.get_opview_from_split(TTIRBuilder.add_split)
 
-        add_module = Module.create()
-        add_builder = TTIRBuilder(self._ctx, self._loc)
-        op_input_types = [
-            old_op.lhs.type,
-            old_op.rhs.type,
-        ]
+        new_ctx = Context()
+        new_loc = Location.unknown(new_ctx)
 
-        with InsertionPoint(add_module.body):
+        with new_ctx, new_loc:
+            add_module = Module.create()
+            add_builder = TTIRBuilder(new_ctx, new_loc)
+            op_input_types = [
+                old_op.lhs.type,
+                old_op.rhs.type,
+            ]
 
-            @func.func(*op_input_types, name="add_module")
-            def decorated_func(*inputs):
-                lhs = inputs[0]
-                rhs = inputs[1]
-                result = old_op.result.type
-                output = self._get_empty_op(result)
+            with InsertionPoint(add_module.body):
 
-                new_op = ttir.AddOp(
-                    result,
-                    lhs,
-                    rhs,
-                    output,
-                    # loc=old_op.location, -> this segfault, not sure why
-                )
+                @func.func(*op_input_types, name="add_module")
+                def decorated_func(*inputs):
+                    lhs = inputs[0]
+                    rhs = inputs[1]
+                    result = old_op.result.type
+                    output = self._get_empty_op(result)
 
-                if not self._disable_golden_check:
-                    op_golden_function = get_golden_function(ttir_op)
+                    new_op = ttir.AddOp(
+                        result,
+                        lhs,
+                        rhs,
+                        output,
+                        # loc=old_op.location, -> this segfault, not sure why
+                    )
 
-                    input_owner0 = old_op.lhs.owner
-                    if isinstance(input_owner0, Block):
-                        queried_input0 = old_op.lhs
-                    else:
-                        queried_input0 = input_owner0
+                    if not self._disable_golden_check:
+                        op_golden_function = get_golden_function(ttir_op)
 
-                    input_owner1 = old_op.rhs.owner
-                    if isinstance(input_owner1, Block):
-                        queried_input1 = old_op.rhs
-                    else:
-                        queried_input1 = input_owner1
+                        input_owner0 = old_op.lhs.owner
+                        if isinstance(input_owner0, Block):
+                            queried_input0 = old_op.lhs
+                        else:
+                            queried_input0 = input_owner0
 
-                    input0 = self._get_golden_tensor(queried_input0)
-                    input1 = self._get_golden_tensor(queried_input1)
-                    golden_output = op_golden_function(input0, input1)
-                    add_builder._set_golden_tensor(new_op, golden_output)
+                        input_owner1 = old_op.rhs.owner
+                        if isinstance(input_owner1, Block):
+                            queried_input1 = old_op.rhs
+                        else:
+                            queried_input1 = input_owner1
 
-                return new_op
+                        input0 = self._get_golden_tensor(queried_input0)
+                        input1 = self._get_golden_tensor(queried_input1)
+                        golden_output = op_golden_function(input0, input1)
+                        add_builder._set_golden_tensor(new_op, golden_output)
+                        add_builder._set_output_ordering([new_op])
+                        add_builder._set_golden_tensor(lhs, input0)
+                        add_builder._set_golden_tensor(rhs, input1)
+                        add_builder._set_input_ordering([lhs, rhs])
+
+                    return new_op
 
         return add_module, add_builder
 
@@ -3009,39 +3163,46 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
     ) -> Tuple[Module, TTIRBuilder]:
         ttir_op = self.get_opview_from_split(TTIRBuilder.sigmoid_split)
 
-        sigmoid_module = Module.create()
-        sigmoid_builder = TTIRBuilder(self._ctx, self._loc)
-        op_input_types = [old_op.input.type]
+        new_ctx = Context()
+        new_loc = Location.unknown(new_ctx)
 
-        with InsertionPoint(sigmoid_module.body):
+        with new_ctx, new_loc:
+            sigmoid_module = Module.create()
+            sigmoid_builder = TTIRBuilder(new_ctx, new_loc)
+            op_input_types = [old_op.input.type]
 
-            @func.func(*op_input_types, name="sigmoid_module")
-            def decorated_func(*inputs):
-                in0 = inputs[0]
-                result = old_op.result.type
-                output = self._get_empty_op(result)
+            with InsertionPoint(sigmoid_module.body):
 
-                new_op = ttir.SigmoidOp(
-                    result,
-                    in0,
-                    output,
-                    # loc=old_op.location, -> this segfault, not sure why
-                )
+                @func.func(*op_input_types, name="sigmoid_module")
+                def decorated_func(*inputs):
+                    in0 = inputs[0]
+                    result = old_op.result.type
+                    output = self._get_empty_op(result)
 
-                if not self._disable_golden_check:
-                    op_golden_function = get_golden_function(ttir_op)
+                    new_op = ttir.SigmoidOp(
+                        result,
+                        in0,
+                        output,
+                        # loc=old_op.location, -> this segfault, not sure why
+                    )
 
-                    input_owner = old_op.input.owner
-                    if isinstance(input_owner, Block):
-                        queried_input = old_op.input
-                    else:
-                        queried_input = input_owner
+                    if not self._disable_golden_check:
+                        op_golden_function = get_golden_function(ttir_op)
 
-                    input0 = self._get_golden_tensor(queried_input)
-                    golden_output = op_golden_function(input0)
-                    sigmoid_builder._set_golden_tensor(new_op, golden_output)
+                        input_owner = old_op.input.owner
+                        if isinstance(input_owner, Block):
+                            queried_input = old_op.input
+                        else:
+                            queried_input = input_owner
 
-                return new_op
+                        input0 = self._get_golden_tensor(queried_input)
+                        golden_output = op_golden_function(input0)
+                        sigmoid_builder._set_golden_tensor(new_op, golden_output)
+                        sigmoid_builder._set_output_ordering([new_op])
+                        sigmoid_builder._set_golden_tensor(in0, input0)
+                        sigmoid_builder._set_input_ordering([in0])
+
+                    return new_op
 
         return sigmoid_module, sigmoid_builder
 
@@ -3126,51 +3287,59 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
     ) -> Tuple[Module, TTIRBuilder]:
         ttir_op = self.get_opview_from_split(TTIRBuilder.subtract_split)
 
-        subtract_module = Module.create()
-        subtract_builder = TTIRBuilder(self._ctx, self._loc)
-        op_input_types = [
-            old_op.lhs.type,
-            old_op.rhs.type,
-        ]
+        new_ctx = Context()
+        new_loc = Location.unknown(new_ctx)
 
-        with InsertionPoint(subtract_module.body):
+        with new_ctx, new_loc:
+            subtract_module = Module.create()
+            subtract_builder = TTIRBuilder(new_ctx, new_loc)
+            op_input_types = [
+                old_op.lhs.type,
+                old_op.rhs.type,
+            ]
 
-            @func.func(*op_input_types, name="subtract_module")
-            def decorated_func(*inputs):
-                lhs = inputs[0]
-                rhs = inputs[1]
-                result = old_op.result.type
-                output = self._get_empty_op(result)
+            with InsertionPoint(subtract_module.body):
 
-                new_op = ttir.SubtractOp(
-                    result,
-                    lhs,
-                    rhs,
-                    output,
-                    # loc=old_op.location, -> this segfault, not sure why
-                )
+                @func.func(*op_input_types, name="subtract_module")
+                def decorated_func(*inputs):
+                    lhs = inputs[0]
+                    rhs = inputs[1]
+                    result = old_op.result.type
+                    output = self._get_empty_op(result)
 
-                if not self._disable_golden_check:
-                    op_golden_function = get_golden_function(ttir_op)
+                    new_op = ttir.SubtractOp(
+                        result,
+                        lhs,
+                        rhs,
+                        output,
+                        # loc=old_op.location, -> this segfault, not sure why
+                    )
 
-                    input_owner_lhs = old_op.lhs.owner
-                    if isinstance(input_owner_lhs, Block):
-                        queried_input_lhs = old_op.lhs
-                    else:
-                        queried_input_lhs = input_owner_lhs
+                    if not self._disable_golden_check:
+                        op_golden_function = get_golden_function(ttir_op)
 
-                    input_owner_rhs = old_op.rhs.owner
-                    if isinstance(input_owner_rhs, Block):
-                        queried_input_rhs = old_op.rhs
-                    else:
-                        queried_input_rhs = input_owner_rhs
+                        input_owner_lhs = old_op.lhs.owner
+                        if isinstance(input_owner_lhs, Block):
+                            queried_input_lhs = old_op.lhs
+                        else:
+                            queried_input_lhs = input_owner_lhs
 
-                    input0 = self._get_golden_tensor(queried_input_lhs)
-                    input1 = self._get_golden_tensor(queried_input_rhs)
-                    golden_output = op_golden_function(input0, input1)
-                    subtract_builder._set_golden_tensor(new_op, golden_output)
+                        input_owner_rhs = old_op.rhs.owner
+                        if isinstance(input_owner_rhs, Block):
+                            queried_input_rhs = old_op.rhs
+                        else:
+                            queried_input_rhs = input_owner_rhs
 
-                return new_op
+                        input0 = self._get_golden_tensor(queried_input_lhs)
+                        input1 = self._get_golden_tensor(queried_input_rhs)
+                        golden_output = op_golden_function(input0, input1)
+                        subtract_builder._set_golden_tensor(new_op, golden_output)
+                        subtract_builder._set_output_ordering([new_op])
+                        subtract_builder._set_golden_tensor(lhs, input0)
+                        subtract_builder._set_golden_tensor(rhs, input1)
+                        subtract_builder._set_input_ordering([lhs, rhs])
+
+                    return new_op
 
         return subtract_module, subtract_builder
 
@@ -3249,39 +3418,47 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
     ) -> Tuple[Module, TTIRBuilder]:
         ttir_op = self.get_opview_from_split(TTIRBuilder.tanh_split)
 
-        tanh_module = Module.create()
-        tanh_builder = TTIRBuilder(self._ctx, self._loc)
-        op_input_types = [old_op.input.type]
+        new_ctx = Context()
+        new_loc = Location.unknown(new_ctx)
 
-        with InsertionPoint(tanh_module.body):
+        with new_ctx, new_loc:
 
-            @func.func(*op_input_types, name="tanh_module")
-            def decorated_func(*inputs):
-                in0 = inputs[0]
-                result = old_op.result.type
-                output = self._get_empty_op(result)
+            tanh_module = Module.create()
+            tanh_builder = TTIRBuilder(new_ctx, new_loc)
+            op_input_types = [old_op.input.type]
 
-                new_op = ttir.TanhOp(
-                    result,
-                    in0,
-                    output,
-                    # loc=old_op.location, -> this segfault, not sure why
-                )
+            with InsertionPoint(tanh_module.body):
 
-                if not self._disable_golden_check:
-                    op_golden_function = get_golden_function(ttir_op)
+                @func.func(*op_input_types, name="tanh_module")
+                def decorated_func(*inputs):
+                    in0 = inputs[0]
+                    result = old_op.result.type
+                    output = self._get_empty_op(result)
 
-                    input_owner = old_op.input.owner
-                    if isinstance(input_owner, Block):
-                        queried_input = old_op.input
-                    else:
-                        queried_input = input_owner
+                    new_op = ttir.TanhOp(
+                        result,
+                        in0,
+                        output,
+                        # loc=old_op.location, -> this segfault, not sure why
+                    )
 
-                    input0 = self._get_golden_tensor(queried_input)
-                    golden_output = op_golden_function(input0)
-                    tanh_builder._set_golden_tensor(new_op, golden_output)
+                    if not self._disable_golden_check:
+                        op_golden_function = get_golden_function(ttir_op)
 
-                return new_op
+                        input_owner = old_op.input.owner
+                        if isinstance(input_owner, Block):
+                            queried_input = old_op.input
+                        else:
+                            queried_input = input_owner
+
+                        input0 = self._get_golden_tensor(queried_input)
+                        golden_output = op_golden_function(input0)
+                        tanh_builder._set_golden_tensor(new_op, golden_output)
+                        tanh_builder._set_output_ordering([new_op])
+                        tanh_builder._set_golden_tensor(in0, input0)
+                        tanh_builder._set_input_ordering([in0])
+
+                    return new_op
 
         return tanh_module, tanh_builder
 
@@ -3360,39 +3537,47 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
     ) -> Tuple[Module, TTIRBuilder]:
         ttir_op = self.get_opview_from_split(TTIRBuilder.rsqrt_split)
 
-        rsqrt_module = Module.create()
-        rsqrt_builder = TTIRBuilder(self._ctx, self._loc)
-        op_input_types = [old_op.input.type]
+        new_ctx = Context()
+        new_loc = Location.unknown(new_ctx)
 
-        with InsertionPoint(rsqrt_module.body):
+        with new_ctx, new_loc:
 
-            @func.func(*op_input_types, name="rsqrt_module")
-            def decorated_func(*inputs):
-                in0 = inputs[0]
-                result = old_op.result.type
-                output = self._get_empty_op(result)
+            rsqrt_module = Module.create()
+            rsqrt_builder = TTIRBuilder(new_ctx, new_loc)
+            op_input_types = [old_op.input.type]
 
-                new_op = ttir.RsqrtOp(
-                    result,
-                    in0,
-                    output,
-                    # loc=old_op.location, -> this segfault, not sure why
-                )
+            with InsertionPoint(rsqrt_module.body):
 
-                if not self._disable_golden_check:
-                    op_golden_function = get_golden_function(ttir_op)
+                @func.func(*op_input_types, name="rsqrt_module")
+                def decorated_func(*inputs):
+                    in0 = inputs[0]
+                    result = old_op.result.type
+                    output = self._get_empty_op(result)
 
-                    input_owner = old_op.input.owner
-                    if isinstance(input_owner, Block):
-                        queried_input = old_op.input
-                    else:
-                        queried_input = input_owner
+                    new_op = ttir.RsqrtOp(
+                        result,
+                        in0,
+                        output,
+                        # loc=old_op.location, -> this segfault, not sure why
+                    )
 
-                    input0 = self._get_golden_tensor(queried_input)
-                    golden_output = op_golden_function(input0)
-                    rsqrt_builder._set_golden_tensor(new_op, golden_output)
+                    if not self._disable_golden_check:
+                        op_golden_function = get_golden_function(ttir_op)
 
-                return new_op
+                        input_owner = old_op.input.owner
+                        if isinstance(input_owner, Block):
+                            queried_input = old_op.input
+                        else:
+                            queried_input = input_owner
+
+                        input0 = self._get_golden_tensor(queried_input)
+                        golden_output = op_golden_function(input0)
+                        rsqrt_builder._set_golden_tensor(new_op, golden_output)
+                        rsqrt_builder._set_output_ordering([new_op])
+                        rsqrt_builder._set_golden_tensor(in0, input0)
+                        rsqrt_builder._set_input_ordering([in0])
+
+                    return new_op
 
         return rsqrt_module, rsqrt_builder
 
@@ -3471,39 +3656,47 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
     ) -> Tuple[Module, TTIRBuilder]:
         ttir_op = self.get_opview_from_split(TTIRBuilder.neg_split)
 
-        neg_module = Module.create()
-        neg_builder = TTIRBuilder(self._ctx, self._loc)
-        op_input_types = [old_op.input.type]
+        new_ctx = Context()
+        new_loc = Location.unknown(new_ctx)
 
-        with InsertionPoint(neg_module.body):
+        with new_ctx, new_loc:
 
-            @func.func(*op_input_types, name="neg_module")
-            def decorated_func(*inputs):
-                in0 = inputs[0]
-                result = old_op.result.type
-                output = self._get_empty_op(result)
+            neg_module = Module.create()
+            neg_builder = TTIRBuilder(new_ctx, new_loc)
+            op_input_types = [old_op.input.type]
 
-                new_op = ttir.NegOp(
-                    result,
-                    in0,
-                    output,
-                    # loc=old_op.location, -> this segfault, not sure why
-                )
+            with InsertionPoint(neg_module.body):
 
-                if not self._disable_golden_check:
-                    op_golden_function = get_golden_function(ttir_op)
+                @func.func(*op_input_types, name="neg_module")
+                def decorated_func(*inputs):
+                    in0 = inputs[0]
+                    result = old_op.result.type
+                    output = self._get_empty_op(result)
 
-                    input_owner = old_op.input.owner
-                    if isinstance(input_owner, Block):
-                        queried_input = old_op.input
-                    else:
-                        queried_input = input_owner
+                    new_op = ttir.NegOp(
+                        result,
+                        in0,
+                        output,
+                        # loc=old_op.location, -> this segfault, not sure why
+                    )
 
-                    input0 = self._get_golden_tensor(queried_input)
-                    golden_output = op_golden_function(input0)
-                    neg_builder._set_golden_tensor(new_op, golden_output)
+                    if not self._disable_golden_check:
+                        op_golden_function = get_golden_function(ttir_op)
 
-                return new_op
+                        input_owner = old_op.input.owner
+                        if isinstance(input_owner, Block):
+                            queried_input = old_op.input
+                        else:
+                            queried_input = input_owner
+
+                        input0 = self._get_golden_tensor(queried_input)
+                        golden_output = op_golden_function(input0)
+                        neg_builder._set_golden_tensor(new_op, golden_output)
+                        neg_builder._set_output_ordering([new_op])
+                        neg_builder._set_golden_tensor(in0, input0)
+                        neg_builder._set_input_ordering([in0])
+
+                    return new_op
 
         return neg_module, neg_builder
 
@@ -3588,51 +3781,60 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
     ) -> Tuple[Module, TTIRBuilder]:
         ttir_op = self.get_opview_from_split(TTIRBuilder.ne_split)
 
-        ne_module = Module.create()
-        ne_builder = TTIRBuilder(self._ctx, self._loc)
-        op_input_types = [
-            old_op.lhs.type,
-            old_op.rhs.type,
-        ]
+        new_ctx = Context()
+        new_loc = Location.unknown(new_ctx)
 
-        with InsertionPoint(ne_module.body):
+        with new_ctx, new_loc:
 
-            @func.func(*op_input_types, name="ne_module")
-            def decorated_func(*inputs):
-                lhs = inputs[0]
-                rhs = inputs[1]
-                result = old_op.result.type
-                output = self._get_empty_op(result)
+            ne_module = Module.create()
+            ne_builder = TTIRBuilder(new_ctx, new_loc)
+            op_input_types = [
+                old_op.lhs.type,
+                old_op.rhs.type,
+            ]
 
-                new_op = ttir.NotEqualOp(
-                    result,
-                    lhs,
-                    rhs,
-                    output,
-                    # loc=old_op.location, -> this segfault, not sure why
-                )
+            with InsertionPoint(ne_module.body):
 
-                if not self._disable_golden_check:
-                    op_golden_function = get_golden_function(ttir_op)
+                @func.func(*op_input_types, name="ne_module")
+                def decorated_func(*inputs):
+                    lhs = inputs[0]
+                    rhs = inputs[1]
+                    result = old_op.result.type
+                    output = self._get_empty_op(result)
 
-                    input_owner_lhs = old_op.lhs.owner
-                    if isinstance(input_owner_lhs, Block):
-                        queried_input_lhs = old_op.lhs
-                    else:
-                        queried_input_lhs = input_owner_lhs
+                    new_op = ttir.NotEqualOp(
+                        result,
+                        lhs,
+                        rhs,
+                        output,
+                        # loc=old_op.location, -> this segfault, not sure why
+                    )
 
-                    input_owner_rhs = old_op.rhs.owner
-                    if isinstance(input_owner_rhs, Block):
-                        queried_input_rhs = old_op.rhs
-                    else:
-                        queried_input_rhs = input_owner_rhs
+                    if not self._disable_golden_check:
+                        op_golden_function = get_golden_function(ttir_op)
 
-                    input0 = self._get_golden_tensor(queried_input_lhs)
-                    input1 = self._get_golden_tensor(queried_input_rhs)
-                    golden_output = op_golden_function(input0, input1)
-                    ne_builder._set_golden_tensor(new_op, golden_output)
+                        input_owner_lhs = old_op.lhs.owner
+                        if isinstance(input_owner_lhs, Block):
+                            queried_input_lhs = old_op.lhs
+                        else:
+                            queried_input_lhs = input_owner_lhs
 
-                return new_op
+                        input_owner_rhs = old_op.rhs.owner
+                        if isinstance(input_owner_rhs, Block):
+                            queried_input_rhs = old_op.rhs
+                        else:
+                            queried_input_rhs = input_owner_rhs
+
+                        input0 = self._get_golden_tensor(queried_input_lhs)
+                        input1 = self._get_golden_tensor(queried_input_rhs)
+                        golden_output = op_golden_function(input0, input1)
+                        ne_builder._set_golden_tensor(new_op, golden_output)
+                        ne_builder._set_output_ordering([new_op])
+                        ne_builder._set_golden_tensor(lhs, input0)
+                        ne_builder._set_golden_tensor(rhs, input1)
+                        ne_builder._set_input_ordering([lhs, rhs])
+
+                    return new_op
 
         return ne_module, ne_builder
 
@@ -3820,69 +4022,78 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
     ) -> Tuple[Module, TTIRBuilder]:
         ttir_op = self.get_opview_from_split(TTIRBuilder.where_split)
 
-        where_module = Module.create()
-        where_builder = TTIRBuilder(self._ctx, self._loc)
-        op_input_types = [
-            old_op.first.type,
-            old_op.second.type,
-            old_op.third.type,
-        ]
+        new_ctx = Context()
+        new_loc = Location.unknown(new_ctx)
 
-        with InsertionPoint(where_module.body):
+        with new_ctx, new_loc:
 
-            @func.func(*op_input_types, name="where_module")
-            def decorated_func(*inputs):
-                first = inputs[0]
-                second = inputs[1]
-                third = inputs[2]
-                result = old_op.result.type
-                output = self._get_empty_op(result)
+            where_module = Module.create()
+            where_builder = TTIRBuilder(new_ctx, new_loc)
+            op_input_types = [
+                old_op.first.type,
+                old_op.second.type,
+                old_op.third.type,
+            ]
 
-                new_op = ttir.WhereOp(
-                    result,
-                    first,
-                    second,
-                    third,
-                    output,
-                    # loc=old_op.location, -> this segfault, not sure why
-                )
+            with InsertionPoint(where_module.body):
 
-                if not self._disable_golden_check:
-                    first_owner = old_op.first.owner
-                    if isinstance(first_owner, Block):
-                        queried_first = old_op.first
-                    else:
-                        queried_first = first_owner
+                @func.func(*op_input_types, name="where_module")
+                def decorated_func(*inputs):
+                    first = inputs[0]
+                    second = inputs[1]
+                    third = inputs[2]
+                    result = old_op.result.type
+                    output = self._get_empty_op(result)
 
-                    second_owner = old_op.second.owner
-                    if isinstance(second_owner, Block):
-                        queried_second = old_op.second
-                    else:
-                        queried_second = second_owner
-
-                    third_owner = old_op.third.owner
-                    if isinstance(third_owner, Block):
-                        queried_third = old_op.third
-                    else:
-                        queried_third = third_owner
-
-                    # Handle golden condition tensor
-                    first_tensor = self._get_golden_tensor(queried_first)
-                    condition = first_tensor.apply_shardwise(
-                        lambda shard: torch.where(
-                            shard > 0,
-                            torch.tensor(True, device=shard.device),
-                            torch.tensor(False, device=shard.device),
-                        )
+                    new_op = ttir.WhereOp(
+                        result,
+                        first,
+                        second,
+                        third,
+                        output,
+                        # loc=old_op.location, -> this segfault, not sure why
                     )
-                    input1 = self._get_golden_tensor(queried_second)
-                    input2 = self._get_golden_tensor(queried_third)
-                    op_golden_function = get_golden_function(ttir_op)
-                    golden_output = op_golden_function(condition, input1, input2)
-                    where_builder._set_golden_tensor(new_op, golden_output)
-                    where_builder._set_output_ordering([new_op])
 
-                return new_op
+                    if not self._disable_golden_check:
+                        first_owner = old_op.first.owner
+                        if isinstance(first_owner, Block):
+                            queried_first = old_op.first
+                        else:
+                            queried_first = first_owner
+
+                        second_owner = old_op.second.owner
+                        if isinstance(second_owner, Block):
+                            queried_second = old_op.second
+                        else:
+                            queried_second = second_owner
+
+                        third_owner = old_op.third.owner
+                        if isinstance(third_owner, Block):
+                            queried_third = old_op.third
+                        else:
+                            queried_third = third_owner
+
+                        # Handle golden condition tensor
+                        first_tensor = self._get_golden_tensor(queried_first)
+                        condition = first_tensor.apply_shardwise(
+                            lambda shard: torch.where(
+                                shard > 0,
+                                torch.tensor(True, device=shard.device),
+                                torch.tensor(False, device=shard.device),
+                            )
+                        )
+                        input1 = self._get_golden_tensor(queried_second)
+                        input2 = self._get_golden_tensor(queried_third)
+                        op_golden_function = get_golden_function(ttir_op)
+                        golden_output = op_golden_function(condition, input1, input2)
+                        where_builder._set_golden_tensor(new_op, golden_output)
+                        where_builder._set_output_ordering([new_op])
+                        where_builder._set_golden_tensor(first, first_tensor)
+                        where_builder._set_golden_tensor(second, input1)
+                        where_builder._set_golden_tensor(third, input2)
+                        where_builder._set_input_ordering([first, second, third])
+
+                    return new_op
 
         return where_module, where_builder
 
@@ -3963,39 +4174,47 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
     ) -> Tuple[Module, TTIRBuilder]:
         ttir_op = self.get_opview_from_split(TTIRBuilder.abs_split)
 
-        abs_module = Module.create()
-        abs_builder = TTIRBuilder(self._ctx, self._loc)
-        op_input_types = [old_op.input.type]
+        new_ctx = Context()
+        new_loc = Location.unknown(new_ctx)
 
-        with InsertionPoint(abs_module.body):
+        with new_ctx, new_loc:
 
-            @func.func(*op_input_types, name="abs_module")
-            def decorated_func(*inputs):
-                in0 = inputs[0]
-                result = old_op.result.type
-                output = self._get_empty_op(result)
+            abs_module = Module.create()
+            abs_builder = TTIRBuilder(new_ctx, new_loc)
+            op_input_types = [old_op.input.type]
 
-                new_op = ttir.AbsOp(
-                    result,
-                    in0,
-                    output,
-                    # loc=old_op.location, -> this segfault, not sure why
-                )
+            with InsertionPoint(abs_module.body):
 
-                if not self._disable_golden_check:
-                    op_golden_function = get_golden_function(ttir_op)
+                @func.func(*op_input_types, name="abs_module")
+                def decorated_func(*inputs):
+                    in0 = inputs[0]
+                    result = old_op.result.type
+                    output = self._get_empty_op(result)
 
-                    input_owner = old_op.input.owner
-                    if isinstance(input_owner, Block):
-                        queried_input = old_op.input
-                    else:
-                        queried_input = input_owner
+                    new_op = ttir.AbsOp(
+                        result,
+                        in0,
+                        output,
+                        # loc=old_op.location, -> this segfault, not sure why
+                    )
 
-                    input0 = self._get_golden_tensor(queried_input)
-                    golden_output = op_golden_function(input0)
-                    abs_builder._set_golden_tensor(new_op, golden_output)
+                    if not self._disable_golden_check:
+                        op_golden_function = get_golden_function(ttir_op)
 
-                return new_op
+                        input_owner = old_op.input.owner
+                        if isinstance(input_owner, Block):
+                            queried_input = old_op.input
+                        else:
+                            queried_input = input_owner
+
+                        input0 = self._get_golden_tensor(queried_input)
+                        golden_output = op_golden_function(input0)
+                        abs_builder._set_golden_tensor(new_op, golden_output)
+                        abs_builder._set_output_ordering([new_op])
+                        abs_builder._set_golden_tensor(in0, input0)
+                        abs_builder._set_input_ordering([in0])
+
+                    return new_op
 
         return abs_module, abs_builder
 
@@ -4162,39 +4381,47 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
     ) -> Tuple[Module, TTIRBuilder]:
         ttir_op = self.get_opview_from_split(TTIRBuilder.erf_split)
 
-        erf_module = Module.create()
-        erf_builder = TTIRBuilder(self._ctx, self._loc)
-        op_input_types = [old_op.input.type]
+        new_ctx = Context()
+        new_loc = Location.unknown(new_ctx)
 
-        with InsertionPoint(erf_module.body):
+        with new_ctx, new_loc:
 
-            @func.func(*op_input_types, name="erf_module")
-            def decorated_func(*inputs):
-                in0 = inputs[0]
-                result = old_op.result.type
-                output = self._get_empty_op(result)
+            erf_module = Module.create()
+            erf_builder = TTIRBuilder(new_ctx, new_loc)
+            op_input_types = [old_op.input.type]
 
-                new_op = ttir.ErfOp(
-                    result,
-                    in0,
-                    output,
-                    # loc=old_op.location, -> this segfault, not sure why
-                )
+            with InsertionPoint(erf_module.body):
 
-                if not self._disable_golden_check:
-                    op_golden_function = get_golden_function(ttir_op)
+                @func.func(*op_input_types, name="erf_module")
+                def decorated_func(*inputs):
+                    in0 = inputs[0]
+                    result = old_op.result.type
+                    output = self._get_empty_op(result)
 
-                    input_owner = old_op.input.owner
-                    if isinstance(input_owner, Block):
-                        queried_input = old_op.input
-                    else:
-                        queried_input = input_owner
+                    new_op = ttir.ErfOp(
+                        result,
+                        in0,
+                        output,
+                        # loc=old_op.location, -> this segfault, not sure why
+                    )
 
-                    input0 = self._get_golden_tensor(queried_input)
-                    golden_output = op_golden_function(input0)
-                    erf_builder._set_golden_tensor(new_op, golden_output)
+                    if not self._disable_golden_check:
+                        op_golden_function = get_golden_function(ttir_op)
 
-                return new_op
+                        input_owner = old_op.input.owner
+                        if isinstance(input_owner, Block):
+                            queried_input = old_op.input
+                        else:
+                            queried_input = input_owner
+
+                        input0 = self._get_golden_tensor(queried_input)
+                        golden_output = op_golden_function(input0)
+                        erf_builder._set_golden_tensor(new_op, golden_output)
+                        erf_builder._set_output_ordering([new_op])
+                        erf_builder._set_golden_tensor(in0, input0)
+                        erf_builder._set_input_ordering([in0])
+
+                    return new_op
 
         return erf_module, erf_builder
 
@@ -4320,39 +4547,47 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
     ) -> Tuple[Module, TTIRBuilder]:
         ttir_op = self.get_opview_from_split(TTIRBuilder.floor_split)
 
-        floor_module = Module.create()
-        floor_builder = TTIRBuilder(self._ctx, self._loc)
-        op_input_types = [old_op.input.type]
+        new_ctx = Context()
+        new_loc = Location.unknown(new_ctx)
 
-        with InsertionPoint(floor_module.body):
+        with new_ctx, new_loc:
 
-            @func.func(*op_input_types, name="floor_module")
-            def decorated_func(*inputs):
-                in0 = inputs[0]
-                result = old_op.result.type
-                output = self._get_empty_op(result)
+            floor_module = Module.create()
+            floor_builder = TTIRBuilder(new_ctx, new_loc)
+            op_input_types = [old_op.input.type]
 
-                new_op = ttir.FloorOp(
-                    result,
-                    in0,
-                    output,
-                    # loc=old_op.location, -> this segfault, not sure why
-                )
+            with InsertionPoint(floor_module.body):
 
-                if not self._disable_golden_check:
-                    op_golden_function = get_golden_function(ttir_op)
+                @func.func(*op_input_types, name="floor_module")
+                def decorated_func(*inputs):
+                    in0 = inputs[0]
+                    result = old_op.result.type
+                    output = self._get_empty_op(result)
 
-                    input_owner = old_op.input.owner
-                    if isinstance(input_owner, Block):
-                        queried_input = old_op.input
-                    else:
-                        queried_input = input_owner
+                    new_op = ttir.FloorOp(
+                        result,
+                        in0,
+                        output,
+                        # loc=old_op.location, -> this segfault, not sure why
+                    )
 
-                    input0 = self._get_golden_tensor(queried_input)
-                    golden_output = op_golden_function(input0)
-                    floor_builder._set_golden_tensor(new_op, golden_output)
+                    if not self._disable_golden_check:
+                        op_golden_function = get_golden_function(ttir_op)
 
-                return new_op
+                        input_owner = old_op.input.owner
+                        if isinstance(input_owner, Block):
+                            queried_input = old_op.input
+                        else:
+                            queried_input = input_owner
+
+                        input0 = self._get_golden_tensor(queried_input)
+                        golden_output = op_golden_function(input0)
+                        floor_builder._set_golden_tensor(new_op, golden_output)
+                        floor_builder._set_output_ordering([new_op])
+                        floor_builder._set_golden_tensor(in0, input0)
+                        floor_builder._set_input_ordering([in0])
+
+                    return new_op
 
         return floor_module, floor_builder
 
@@ -4924,42 +5159,51 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
     ) -> Tuple[Module, TTIRBuilder]:
         ttir_op = self.get_opview_from_split(TTIRBuilder.typecast_split)
 
-        typecast_module = Module.create()
-        typecast_builder = TTIRBuilder(self._ctx, self._loc)
-        op_input_types = [old_op.input.type]
+        new_ctx = Context()
+        new_loc = Location.unknown(new_ctx)
 
-        with InsertionPoint(typecast_module.body):
+        with new_ctx, new_loc:
 
-            @func.func(*op_input_types, name="typecast_module")
-            def decorated_func(*inputs):
-                in0 = inputs[0]
-                result = old_op.result.type
-                output = self._get_empty_op(result)
+            typecast_module = Module.create()
+            typecast_builder = TTIRBuilder(new_ctx, new_loc)
+            op_input_types = [old_op.input.type]
 
-                new_op = ttir.TypecastOp(
-                    result,
-                    in0,
-                    output,
-                    # loc=old_op.location, -> this segfault, not sure why
-                )
+            with InsertionPoint(typecast_module.body):
 
-                if not self._disable_golden_check:
-                    op_golden_function = get_golden_function(ttir_op)
+                @func.func(*op_input_types, name="typecast_module")
+                def decorated_func(*inputs):
+                    in0 = inputs[0]
+                    result = old_op.result.type
+                    output = self._get_empty_op(result)
 
-                    input_owner = old_op.input.owner
-                    if isinstance(input_owner, Block):
-                        queried_input = old_op.input
-                    else:
-                        queried_input = input_owner
+                    new_op = ttir.TypecastOp(
+                        result,
+                        in0,
+                        output,
+                        # loc=old_op.location, -> this segfault, not sure why
+                    )
 
-                    input0 = self._get_golden_tensor(queried_input)
-                    # Extract output dtype from result type
-                    output_dtype = self._get_torch_dtype_from_type(result.element_type)
-                    golden_output = op_golden_function(input0, dtype=output_dtype)
-                    typecast_builder._set_golden_tensor(new_op, golden_output)
-                    typecast_builder._set_output_ordering([new_op])
+                    if not self._disable_golden_check:
+                        op_golden_function = get_golden_function(ttir_op)
 
-                return new_op
+                        input_owner = old_op.input.owner
+                        if isinstance(input_owner, Block):
+                            queried_input = old_op.input
+                        else:
+                            queried_input = input_owner
+
+                        input0 = self._get_golden_tensor(queried_input)
+                        # Extract output dtype from result type
+                        output_dtype = self._get_torch_dtype_from_type(
+                            result.element_type
+                        )
+                        golden_output = op_golden_function(input0, dtype=output_dtype)
+                        typecast_builder._set_golden_tensor(new_op, golden_output)
+                        typecast_builder._set_output_ordering([new_op])
+                        typecast_builder._set_golden_tensor(in0, input0)
+                        typecast_builder._set_input_ordering([in0])
+
+                    return new_op
 
         return typecast_module, typecast_builder
 
@@ -5171,51 +5415,60 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
     ) -> Tuple[Module, TTIRBuilder]:
         ttir_op = self.get_opview_from_split(TTIRBuilder.eq_split)
 
-        eq_module = Module.create()
-        eq_builder = TTIRBuilder(self._ctx, self._loc)
-        op_input_types = [
-            old_op.lhs.type,
-            old_op.rhs.type,
-        ]
+        new_ctx = Context()
+        new_loc = Location.unknown(new_ctx)
 
-        with InsertionPoint(eq_module.body):
+        with new_ctx, new_loc:
 
-            @func.func(*op_input_types, name="eq_module")
-            def decorated_func(*inputs):
-                lhs = inputs[0]
-                rhs = inputs[1]
-                result = old_op.result.type
-                output = self._get_empty_op(result)
+            eq_module = Module.create()
+            eq_builder = TTIRBuilder(new_ctx, new_loc)
+            op_input_types = [
+                old_op.lhs.type,
+                old_op.rhs.type,
+            ]
 
-                new_op = ttir.EqualOp(
-                    result,
-                    lhs,
-                    rhs,
-                    output,
-                    # loc=old_op.location, -> this segfault, not sure why
-                )
+            with InsertionPoint(eq_module.body):
 
-                if not self._disable_golden_check:
-                    op_golden_function = get_golden_function(ttir_op)
+                @func.func(*op_input_types, name="eq_module")
+                def decorated_func(*inputs):
+                    lhs = inputs[0]
+                    rhs = inputs[1]
+                    result = old_op.result.type
+                    output = self._get_empty_op(result)
 
-                    input_owner_lhs = old_op.lhs.owner
-                    if isinstance(input_owner_lhs, Block):
-                        queried_input_lhs = old_op.lhs
-                    else:
-                        queried_input_lhs = input_owner_lhs
+                    new_op = ttir.EqualOp(
+                        result,
+                        lhs,
+                        rhs,
+                        output,
+                        # loc=old_op.location, -> this segfault, not sure why
+                    )
 
-                    input_owner_rhs = old_op.rhs.owner
-                    if isinstance(input_owner_rhs, Block):
-                        queried_input_rhs = old_op.rhs
-                    else:
-                        queried_input_rhs = input_owner_rhs
+                    if not self._disable_golden_check:
+                        op_golden_function = get_golden_function(ttir_op)
 
-                    input0 = self._get_golden_tensor(queried_input_lhs)
-                    input1 = self._get_golden_tensor(queried_input_rhs)
-                    golden_output = op_golden_function(input0, input1)
-                    eq_builder._set_golden_tensor(new_op, golden_output)
+                        input_owner_lhs = old_op.lhs.owner
+                        if isinstance(input_owner_lhs, Block):
+                            queried_input_lhs = old_op.lhs
+                        else:
+                            queried_input_lhs = input_owner_lhs
 
-                return new_op
+                        input_owner_rhs = old_op.rhs.owner
+                        if isinstance(input_owner_rhs, Block):
+                            queried_input_rhs = old_op.rhs
+                        else:
+                            queried_input_rhs = input_owner_rhs
+
+                        input0 = self._get_golden_tensor(queried_input_lhs)
+                        input1 = self._get_golden_tensor(queried_input_rhs)
+                        golden_output = op_golden_function(input0, input1)
+                        eq_builder._set_golden_tensor(new_op, golden_output)
+                        eq_builder._set_output_ordering([new_op])
+                        eq_builder._set_golden_tensor(lhs, input0)
+                        eq_builder._set_golden_tensor(rhs, input1)
+                        eq_builder._set_input_ordering([lhs, rhs])
+
+                    return new_op
 
         return eq_module, eq_builder
 
@@ -6328,46 +6581,57 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
     ) -> Tuple[Module, TTIRBuilder]:
         ttir_op = self.get_opview_from_split(TTIRBuilder.concat_split)
 
-        concat_module = Module.create()
-        concat_builder = TTIRBuilder(self._ctx, self._loc)
-        op_input_types = [inp.type for inp in old_op.inputs]
+        new_ctx = Context()
+        new_loc = Location.unknown(new_ctx)
 
-        with InsertionPoint(concat_module.body):
+        with new_ctx, new_loc:
+            concat_module = Module.create()
+            concat_builder = TTIRBuilder(new_ctx, new_loc)
+            op_input_types = [inp.type for inp in old_op.inputs]
 
-            @func.func(*op_input_types, name="concat_module")
-            def decorated_func(*inputs):
-                result = old_op.result.type
-                output = self._get_empty_op(result)
-                dim_attr = old_op.dim
+            with InsertionPoint(concat_module.body):
 
-                new_op = ttir.ConcatOp(
-                    result,
-                    inputs,
-                    output,
-                    dim=dim_attr,
-                    # loc=old_op.location, -> this segfault, not sure why
-                )
+                @func.func(*op_input_types, name="concat_module")
+                def decorated_func(*inputs):
+                    result = old_op.result.type
+                    output = self._get_empty_op(result)
+                    dim_attr = old_op.dim
 
-                if not self._disable_golden_check:
-                    op_golden_function = get_golden_function(ttir_op)
-
-                    # Query all inputs
-                    queried_inputs = []
-                    for old_input in old_op.inputs:
-                        input_owner = old_input.owner
-                        if isinstance(input_owner, Block):
-                            queried_inputs.append(old_input)
-                        else:
-                            queried_inputs.append(input_owner)
-
-                    input_tensors = tuple(
-                        [self._get_golden_tensor(inp) for inp in queried_inputs]
+                    new_op = ttir.ConcatOp(
+                        result,
+                        inputs,
+                        output,
+                        dim=dim_attr,
+                        # loc=old_op.location, -> this segfault, not sure why
                     )
-                    golden_output = op_golden_function(input_tensors, dim=dim_attr)
-                    concat_builder._set_golden_tensor(new_op, golden_output)
-                    concat_builder._set_output_ordering([new_op])
 
-                return new_op
+                    if not self._disable_golden_check:
+                        op_golden_function = get_golden_function(ttir_op)
+
+                        # Query all inputs
+                        queried_inputs = []
+                        for old_input in old_op.inputs:
+                            input_owner = old_input.owner
+                            if isinstance(input_owner, Block):
+                                queried_inputs.append(old_input)
+                            else:
+                                queried_inputs.append(input_owner)
+
+                        input_tensors = tuple(
+                            [self._get_golden_tensor(inp) for inp in queried_inputs]
+                        )
+                        golden_output = op_golden_function(input_tensors, dim=dim_attr)
+                        concat_builder._set_golden_tensor(new_op, golden_output)
+                        concat_builder._set_output_ordering([new_op])
+                        for input_operand, input_golden_tensor in zip(
+                            input_tensors, queried_inputs
+                        ):
+                            concat_builder._set_golden_tensor(
+                                input_operand, input_golden_tensor
+                            )
+                        concat_builder._set_input_ordering(queried_inputs)
+
+                    return new_op
 
         return concat_module, concat_builder
 
@@ -7460,39 +7724,47 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
     ) -> Tuple[Module, TTIRBuilder]:
         ttir_op = self.get_opview_from_split(TTIRBuilder.exp_split)
 
-        exp_module = Module.create()
-        exp_builder = TTIRBuilder(self._ctx, self._loc)
-        op_input_types = [old_op.input.type]
+        new_ctx = Context()
+        new_loc = Location.unknown(new_ctx)
 
-        with InsertionPoint(exp_module.body):
+        with new_ctx, new_loc:
 
-            @func.func(*op_input_types, name="exp_module")
-            def decorated_func(*inputs):
-                in0 = inputs[0]
-                result = old_op.result.type
-                output = self._get_empty_op(result)
+            exp_module = Module.create()
+            exp_builder = TTIRBuilder(new_ctx, new_loc)
+            op_input_types = [old_op.input.type]
 
-                new_op = ttir.ExpOp(
-                    result,
-                    in0,
-                    output,
-                    # loc=old_op.location, -> this segfault, not sure why
-                )
+            with InsertionPoint(exp_module.body):
 
-                if not self._disable_golden_check:
-                    op_golden_function = get_golden_function(ttir_op)
+                @func.func(*op_input_types, name="exp_module")
+                def decorated_func(*inputs):
+                    in0 = inputs[0]
+                    result = old_op.result.type
+                    output = self._get_empty_op(result)
 
-                    input_owner = old_op.input.owner
-                    if isinstance(input_owner, Block):
-                        queried_input = old_op.input
-                    else:
-                        queried_input = input_owner
+                    new_op = ttir.ExpOp(
+                        result,
+                        in0,
+                        output,
+                        # loc=old_op.location, -> this segfault, not sure why
+                    )
 
-                    input0 = self._get_golden_tensor(queried_input)
-                    golden_output = op_golden_function(input0)
-                    exp_builder._set_golden_tensor(new_op, golden_output)
+                    if not self._disable_golden_check:
+                        op_golden_function = get_golden_function(ttir_op)
 
-                return new_op
+                        input_owner = old_op.input.owner
+                        if isinstance(input_owner, Block):
+                            queried_input = old_op.input
+                        else:
+                            queried_input = input_owner
+
+                        input0 = self._get_golden_tensor(queried_input)
+                        golden_output = op_golden_function(input0)
+                        exp_builder._set_golden_tensor(new_op, golden_output)
+                        exp_builder._set_output_ordering([new_op])
+                        exp_builder._set_golden_tensor(in0, input0)
+                        exp_builder._set_input_ordering([in0])
+
+                    return new_op
 
         return exp_module, exp_builder
 
@@ -7620,51 +7892,60 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
     ) -> Tuple[Module, TTIRBuilder]:
         ttir_op = self.get_opview_from_split(TTIRBuilder.div_split)
 
-        div_module = Module.create()
-        div_builder = TTIRBuilder(self._ctx, self._loc)
-        op_input_types = [
-            old_op.lhs.type,
-            old_op.rhs.type,
-        ]
+        new_ctx = Context()
+        new_loc = Location.unknown(new_ctx)
 
-        with InsertionPoint(div_module.body):
+        with new_ctx, new_loc:
 
-            @func.func(*op_input_types, name="div_module")
-            def decorated_func(*inputs):
-                lhs = inputs[0]
-                rhs = inputs[1]
-                result = old_op.result.type
-                output = self._get_empty_op(result)
+            div_module = Module.create()
+            div_builder = TTIRBuilder(new_ctx, new_loc)
+            op_input_types = [
+                old_op.lhs.type,
+                old_op.rhs.type,
+            ]
 
-                new_op = ttir.DivOp(
-                    result,
-                    lhs,
-                    rhs,
-                    output,
-                    # loc=old_op.location, -> this segfault, not sure why
-                )
+            with InsertionPoint(div_module.body):
 
-                if not self._disable_golden_check:
-                    op_golden_function = get_golden_function(ttir_op)
+                @func.func(*op_input_types, name="div_module")
+                def decorated_func(*inputs):
+                    lhs = inputs[0]
+                    rhs = inputs[1]
+                    result = old_op.result.type
+                    output = self._get_empty_op(result)
 
-                    input_owner_lhs = old_op.lhs.owner
-                    if isinstance(input_owner_lhs, Block):
-                        queried_input_lhs = old_op.lhs
-                    else:
-                        queried_input_lhs = input_owner_lhs
+                    new_op = ttir.DivOp(
+                        result,
+                        lhs,
+                        rhs,
+                        output,
+                        # loc=old_op.location, -> this segfault, not sure why
+                    )
 
-                    input_owner_rhs = old_op.rhs.owner
-                    if isinstance(input_owner_rhs, Block):
-                        queried_input_rhs = old_op.rhs
-                    else:
-                        queried_input_rhs = input_owner_rhs
+                    if not self._disable_golden_check:
+                        op_golden_function = get_golden_function(ttir_op)
 
-                    input0 = self._get_golden_tensor(queried_input_lhs)
-                    input1 = self._get_golden_tensor(queried_input_rhs)
-                    golden_output = op_golden_function(input0, input1)
-                    div_builder._set_golden_tensor(new_op, golden_output)
+                        input_owner_lhs = old_op.lhs.owner
+                        if isinstance(input_owner_lhs, Block):
+                            queried_input_lhs = old_op.lhs
+                        else:
+                            queried_input_lhs = input_owner_lhs
 
-                return new_op
+                        input_owner_rhs = old_op.rhs.owner
+                        if isinstance(input_owner_rhs, Block):
+                            queried_input_rhs = old_op.rhs
+                        else:
+                            queried_input_rhs = input_owner_rhs
+
+                        input0 = self._get_golden_tensor(queried_input_lhs)
+                        input1 = self._get_golden_tensor(queried_input_rhs)
+                        golden_output = op_golden_function(input0, input1)
+                        div_builder._set_golden_tensor(new_op, golden_output)
+                        div_builder._set_output_ordering([new_op])
+                        div_builder._set_golden_tensor(lhs, input0)
+                        div_builder._set_golden_tensor(rhs, input1)
+                        div_builder._set_input_ordering([lhs, rhs])
+
+                    return new_op
 
         return div_module, div_builder
 
@@ -8331,48 +8612,54 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
     ) -> Tuple[Module, TTIRBuilder]:
         ttir_op = self.get_opview_from_split(TTIRBuilder.slice_split)
 
-        slice_module = Module.create()
-        slice_builder = TTIRBuilder(self._ctx, self._loc)
-        op_input_types = [old_op.input.type]
+        new_ctx = Context()
+        new_loc = Location.unknown(new_ctx)
 
-        with InsertionPoint(slice_module.body):
+        with new_ctx, new_loc:
+            slice_module = Module.create()
+            slice_builder = TTIRBuilder(new_ctx, new_loc)
+            op_input_types = [old_op.input.type]
 
-            @func.func(*op_input_types, name="slice_module")
-            def decorated_func(*inputs):
-                in0 = inputs[0]
-                result = old_op.result.type
-                output = self._get_empty_op(result)
-                begins_attr = old_op.begins
-                ends_attr = old_op.ends
-                step_attr = old_op.step
+            with InsertionPoint(slice_module.body):
 
-                new_op = ttir.SliceStaticOp(
-                    result,
-                    in0,
-                    output,
-                    begins_attr,
-                    ends_attr,
-                    step_attr,
-                    # loc=old_op.location, -> this segfault, not sure why
-                )
+                @func.func(*op_input_types, name="slice_module")
+                def decorated_func(*inputs):
+                    in0 = inputs[0]
+                    result = old_op.result.type
+                    output = self._get_empty_op(result)
+                    begins_attr = old_op.begins
+                    ends_attr = old_op.ends
+                    step_attr = old_op.step
 
-                if not self._disable_golden_check:
-                    op_golden_function = get_golden_function(ttir_op)
-
-                    input_owner = old_op.input.owner
-                    if isinstance(input_owner, Block):
-                        queried_input = old_op.input
-                    else:
-                        queried_input = input_owner
-
-                    input0 = self._get_golden_tensor(queried_input)
-                    golden_output = op_golden_function(
-                        input0, begins=begins_attr, ends=ends_attr, step=step_attr
+                    new_op = ttir.SliceStaticOp(
+                        result,
+                        in0,
+                        output,
+                        begins_attr,
+                        ends_attr,
+                        step_attr,
+                        # loc=old_op.location, -> this segfault, not sure why
                     )
-                    slice_builder._set_golden_tensor(new_op, golden_output)
-                    slice_builder._set_output_ordering([new_op])
 
-                return new_op
+                    if not self._disable_golden_check:
+                        op_golden_function = get_golden_function(ttir_op)
+
+                        input_owner = old_op.input.owner
+                        if isinstance(input_owner, Block):
+                            queried_input = old_op.input
+                        else:
+                            queried_input = input_owner
+
+                        input0 = self._get_golden_tensor(queried_input)
+                        golden_output = op_golden_function(
+                            input0, begins=begins_attr, ends=ends_attr, step=step_attr
+                        )
+                        slice_builder._set_golden_tensor(new_op, golden_output)
+                        slice_builder._set_output_ordering([new_op])
+                        slice_builder._set_golden_tensor(in0, input0)
+                        slice_builder._set_input_ordering([in0])
+
+                    return new_op
 
         return slice_module, slice_builder
 
