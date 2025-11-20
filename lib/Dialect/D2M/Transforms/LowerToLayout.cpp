@@ -64,90 +64,13 @@ struct TensorInfo {
 };
 
 // Helper to analyze compound ToLayoutOp transformations.
-struct CompoundComponents {
-  bool isMemorySpaceChange = false;
-  bool isFormatChange = false;
-  bool isMappingChange = false;
-  bool isVirtualGridReblock = false;
-
-  bool isCompound() const {
-    int count = 0;
-    if (isMemorySpaceChange) {
-      ++count;
-    }
-    if (isFormatChange) {
-      ++count;
-    }
-    if (isMappingChange) {
-      ++count;
-    }
-    // Virtual grid reblocks always need special handling via bounce
-    if (isVirtualGridReblock) {
-      ++count;
-    }
-    return count > 1;
+// Helper to extract scalar type from potentially tiled type
+static Type getScalarType(Type type) {
+  if (auto tileType = mlir::dyn_cast<ttcore::TileType>(type)) {
+    return tileType.getElementType();
   }
-
-  static CompoundComponents analyze(Value input, Value output) {
-    auto inputInfo = TensorInfo::from(input);
-    auto outputInfo = TensorInfo::from(output);
-
-    CompoundComponents result;
-
-    // Check for memory space changes (L1 <-> DRAM).
-    result.isMemorySpaceChange =
-        (inputInfo.getMemorySpace() != outputInfo.getMemorySpace());
-
-    // Check for format (element type) changes.
-    result.isFormatChange =
-        (inputInfo.type.getElementType() != outputInfo.type.getElementType());
-
-    // Check for mapping changes, which are transformations that can be
-    // expressed as affine maps: tensor shape changes (from collapsed_intervals
-    // or dim_alignments causing different padding) and index map changes
-    // (logical view transformations). Grid reblocking is excluded here as it
-    // was historically classified separately, though it is now also handled as
-    // a mapping change.
-    if (inputInfo.hasLayout() && outputInfo.hasLayout() &&
-        !result.isMemorySpaceChange) {
-
-      auto inputLayout = *inputInfo.layout;
-      auto outputLayout = *outputInfo.layout;
-
-      // Shape changes due to format conversions (tile<->scalar) don't count as
-      // mapping changes, only shape changes from padding/collapse/alignment.
-      bool shapeChanged =
-          !result.isFormatChange &&
-          (inputInfo.type.getShape() != outputInfo.type.getShape());
-
-      bool indexMapChanged =
-          (inputLayout.getIndexAffineMap() != outputLayout.getIndexAffineMap());
-
-      bool gridChanged =
-          (inputInfo.getGridShape() != outputInfo.getGridShape());
-
-      result.isMappingChange = (shapeChanged || indexMapChanged || gridChanged);
-    }
-
-    // Check for virtual grid reblocking: when input has a virtual grid
-    // (non-empty index_map) and either output doesn't have one or has a
-    // different grid shape. This always requires an explicit bounce operation.
-    if (inputInfo.hasLayout() && outputInfo.hasLayout()) {
-      bool inputHasVirtualGrid =
-          !inputInfo.layout->getIndexAffineMap().isEmpty();
-      bool outputHasVirtualGrid =
-          !outputInfo.layout->getIndexAffineMap().isEmpty();
-      auto inputGridShape = inputInfo.getGridShape();
-      auto outputGridShape = outputInfo.getGridShape();
-
-      result.isVirtualGridReblock =
-          inputHasVirtualGrid &&
-          (!outputHasVirtualGrid || inputGridShape != outputGridShape);
-    }
-
-    return result;
-  }
-};
+  return type;
+}
 
 } // namespace
 
@@ -181,26 +104,34 @@ public:
                outputInfo.type.getElementType() &&
            "Mapping change should not change element type");
 
-    // If this is a virtual grid reblock, fail so D2MSplitCompoundLayoutRewriter
-    // can create an explicit bounce operation.
-    auto components =
-        CompoundComponents::analyze(op.getInput(), op.getOutput());
-    if (components.isVirtualGridReblock) {
-      return failure();
-    }
-
     auto inputLayout = *inputInfo.layout;
     auto outputLayout = *outputInfo.layout;
 
     // Check if output has virtual grid for later use
     bool outputHasVirtualGrid = !outputLayout.getIndexAffineMap().isEmpty();
 
+    // When building the data transformation map, we need to exclude virtual
+    // grid index_maps because those are for grid coordinate translation, not
+    // data layout transformation. Create temporary layouts without index_maps.
+    auto inputLayoutForTransform = ttcore::MetalLayoutAttr::get(
+        rewriter.getContext(), inputLayout.getLogicalShape(),
+        inputLayout.getDimAlignments(), inputLayout.getCollapsedIntervals(),
+        inputLayout.getOobVal(), inputLayout.getMemorySpace(),
+        inputLayout.getMemoryLayout(), AffineMap::get(rewriter.getContext()));
+
+    auto outputLayoutForTransform = ttcore::MetalLayoutAttr::get(
+        rewriter.getContext(), outputLayout.getLogicalShape(),
+        outputLayout.getDimAlignments(), outputLayout.getCollapsedIntervals(),
+        outputLayout.getOobVal(), outputLayout.getMemorySpace(),
+        outputLayout.getMemoryLayout(), AffineMap::get(rewriter.getContext()));
+
     // Build an affine map that transforms input device coordinates to output
     // device coordinates via the shared logical space. This map handles grid
-    // redistribution, collapse changes, padding changes, and index map
-    // transformations, including rank-changing operations.
+    // redistribution, collapse changes, padding changes, but NOT virtual grid
+    // coordinate translation (which goes in the GridAttr instead).
     AffineMap viewMap = utils::buildLayoutTransformMap(
-        inputLayout, inputInfo.type, outputLayout, outputInfo.type);
+        inputLayoutForTransform, inputInfo.type, outputLayoutForTransform,
+        outputInfo.type);
 
     // Embed the transformation map in the output layout.
     auto newLayout = ttcore::MetalLayoutAttr::get(
@@ -678,147 +609,141 @@ public:
 
   LogicalResult matchAndRewrite(ToLayoutOp op,
                                 PatternRewriter &rewriter) const final {
-    auto components =
-        CompoundComponents::analyze(op.getInput(), op.getOutput());
-
     auto inputInfo = TensorInfo::from(op.getInput());
     auto outputInfo = TensorInfo::from(op.getOutput());
-
-    // Virtual grid reblocks are handled as a special type of compound operation
-    // even if they don't involve other changes (format, memory space, etc).
-    if (!components.isCompound() && !components.isVirtualGridReblock) {
-      return failure();
-    }
-
     BounceTypeBuilder typeBuilder(rewriter.getContext());
 
-    // Handle system <-> device transitions specially.
-    if (inputInfo.hasLayout() != outputInfo.hasLayout()) {
+    // Compute transformation characteristics
+    bool memorySpaceChange =
+        inputInfo.getMemorySpace() != outputInfo.getMemorySpace();
+    bool systemDeviceTransition =
+        inputInfo.hasLayout() != outputInfo.hasLayout();
+    bool formatChange =
+        inputInfo.type.getElementType() != outputInfo.type.getElementType();
+    bool gridShapeChange =
+        inputInfo.getGridShape() != outputInfo.getGridShape();
+
+    bool inputHasVirtualGrid = inputInfo.hasLayout() &&
+                               !inputInfo.layout->getIndexAffineMap().isEmpty();
+    bool outputHasVirtualGrid =
+        outputInfo.hasLayout() &&
+        !outputInfo.layout->getIndexAffineMap().isEmpty();
+    bool virtualGridChange = (inputHasVirtualGrid != outputHasVirtualGrid) ||
+                             (inputHasVirtualGrid && gridShapeChange);
+
+    // Decision tree: handle transformations in priority order
+
+    // 1. SYSTEM ↔ DEVICE transitions (highest priority)
+    if (systemDeviceTransition) {
       if (!inputInfo.hasLayout()) {
-        // System -> Device: move to L1 using output's layout characteristics.
-        assert(outputInfo.layout &&
-               "Output must have layout for system->device");
+        // System → Device: move to L1
         auto bounceType = typeBuilder.createDeviceType(
             inputInfo.type, *outputInfo.layout, outputInfo.type,
             ttcore::MemorySpace::DeviceL1, getTargetGridShape());
         bounce(rewriter, op, bounceType);
+        return success();
       } else {
-        // Device -> System: if there's also a format change, do that first.
-        // Otherwise handle memory space transition.
-        if (components.isFormatChange && ttcore::isTiled(inputInfo.type)) {
-          // Bounce through scalar first, preserving L1 and virtual grid.
-          Type scalarType = inputInfo.type.getElementType();
-          if (auto tileType = mlir::dyn_cast<ttcore::TileType>(scalarType)) {
-            scalarType = tileType.getElementType();
-          }
+        // Device → System: need to prepare for transfer
+        if (formatChange && ttcore::isTiled(inputInfo.type)) {
+          // Untilize first
+          Type scalarType = getScalarType(inputInfo.type.getElementType());
           auto bounceType = typeBuilder.modifyDeviceType(
               inputInfo.type, *inputInfo.layout, getTargetGridShape(),
               ttcore::MemorySpace::DeviceL1,
               /*newTensorGrid=*/{}, scalarType,
               /*newTileShape=*/std::nullopt);
           bounce(rewriter, op, bounceType);
-        } else {
-          // No format change (both scalar or both tiled).
-          // Reblock virtual grid to physical before system transfer.
-          assert(inputInfo.layout &&
-                 "Input must have layout for device->system");
-          bool reblockVirtualGridShapes = true;
+          return success();
+        } else if (inputHasVirtualGrid) {
+          // Reblock virtual grid to physical
           auto bounceType = typeBuilder.modifyDeviceType(
               inputInfo.type, *inputInfo.layout, getTargetGridShape(),
               ttcore::MemorySpace::DeviceL1,
               /*newTensorGrid=*/{}, /*newElementType=*/{},
-              /*newTileShape=*/{}, reblockVirtualGridShapes);
+              /*newTileShape=*/{}, /*reblockVirtualGridShapes=*/true);
           bounce(rewriter, op, bounceType);
+          return success();
+        } else {
+          // Ready for system transfer (handled by D2MLowerToLayoutRewriter)
+          return failure();
         }
       }
-      return success();
     }
 
-    // If neither has a layout, both are in system memory.
-    if (!inputInfo.hasLayout() && !outputInfo.hasLayout()) {
-      // Pure host-side operation - should have been handled by
-      // compoundComponents
-      assert(false && "Host-side only operations should not be compound");
-      return failure();
-    }
-
-    // Otherwise, if both have layouts, we need to handle device-side
-    // transformations.
-    assert(inputInfo.layout && outputInfo.layout);
-
-    // Prioritize L1 operations.
-    if (!inputInfo.isL1()) {
-      // Move input to L1, preserving its grid and layout characteristics.
-      auto bounceType = typeBuilder.modifyDeviceType(
-          inputInfo.type, *inputInfo.layout, getTargetGridShape(),
-          ttcore::MemorySpace::DeviceL1);
-      bounce(rewriter, op, bounceType);
-    } else if (!outputInfo.isL1()) {
-      // Move output to L1, preserving its grid and layout characteristics.
-      auto bounceType = typeBuilder.modifyDeviceType(
-          outputInfo.type, *outputInfo.layout, getTargetGridShape(),
-          ttcore::MemorySpace::DeviceL1);
-      bounce(rewriter, op, bounceType);
-    } else if (ttcore::isTiled(inputInfo.type) !=
-               ttcore::isTiled(outputInfo.type)) {
-      // Format conversion
-      if (ttcore::isTiled(inputInfo.type)) {
-        // Tilized -> scalar: use input's layout/grid, change to scalar element
-        // type.
-        Type scalarType = inputInfo.type.getElementType();
-        if (auto tileType = mlir::dyn_cast<ttcore::TileType>(scalarType)) {
-          scalarType = tileType.getElementType();
-        }
+    // 2. MEMORY SPACE changes within device (L1 ↔ DRAM)
+    if (memorySpaceChange) {
+      if (!inputInfo.isL1()) {
+        // DRAM → L1
         auto bounceType = typeBuilder.modifyDeviceType(
             inputInfo.type, *inputInfo.layout, getTargetGridShape(),
-            /*memSpace=*/{},
-            /*newTensorGrid=*/{}, scalarType,
-            /*newTileShape=*/std::nullopt);
+            ttcore::MemorySpace::DeviceL1);
         bounce(rewriter, op, bounceType);
+        return success();
       } else {
-        // Scalar -> tilized: use input's layout/grid, change element type.
-        auto bounceType = typeBuilder.modifyDeviceType(
-            inputInfo.type, *inputInfo.layout, getTargetGridShape(),
-            /*memSpace=*/{},
-            /*newTensorGrid=*/{}, outputInfo.type.getElementType(),
-            ttcore::getTensorTileShape(outputInfo.type));
-        bounce(rewriter, op, bounceType);
+        // L1 → DRAM (handle other transformations first)
+        if (formatChange || virtualGridChange) {
+          // These need to be handled before DRAM transfer
+          // Fall through to handle them
+        } else {
+          // Ready for DRAM transfer
+          return failure();
+        }
       }
-    } else if (components.isMappingChange && ttcore::isTiled(inputInfo.type)) {
-      // Mapping change with tiled data - bounce through scalar.
-      Type scalarType = inputInfo.type.getElementType();
-      if (auto tileType = mlir::dyn_cast<ttcore::TileType>(scalarType)) {
-        scalarType = tileType.getElementType();
-      }
+    }
 
-      auto bounceType = typeBuilder.modifyDeviceType(
-          inputInfo.type, *inputInfo.layout, getTargetGridShape(),
-          /*memSpace=*/{},
-          /*newTensorGrid=*/{}, scalarType,
-          /*tileShape=*/std::nullopt);
-      bounce(rewriter, op, bounceType);
-    } else if (components.isVirtualGridReblock) {
-      // Virtual grid reblock: transform virtual grid to physical grid or
-      // change virtual grid shape. This clears the index_map.
+    // 3. VIRTUAL GRID changes (must be done before format changes)
+    if (virtualGridChange && inputHasVirtualGrid) {
+      // Virtual → physical or grid shape change
       auto bounceType = typeBuilder.modifyDeviceType(
           inputInfo.type, *inputInfo.layout, getTargetGridShape(),
           /*memSpace=*/{},
           /*newTensorGrid=*/{}, /*newElementType=*/{},
           /*newTileShape=*/{}, /*reblockVirtualGridShapes=*/true);
       bounce(rewriter, op, bounceType);
-    } else if (components.isMappingChange) {
-      // Other mapping changes should be handled by lowerMappingChange.
-      assert(false && "Unsupported mapping change - should be handled by "
-                      "lowerMappingChange");
-      return failure();
-    } else {
-      // Note we should eventually support DRAM <-> DRAM, or System <-> System
-      // w/ format conversion via streaming supported.
-      assert(false && "Unsupported compound layout change");
-      return failure();
+      return success();
     }
 
-    return success();
+    // 4. FORMAT changes (tilize/untilize)
+    if (formatChange) {
+      if (ttcore::isTiled(inputInfo.type)) {
+        // Tilize → scalar
+        Type scalarType = getScalarType(inputInfo.type.getElementType());
+        auto bounceType = typeBuilder.modifyDeviceType(
+            inputInfo.type, *inputInfo.layout, getTargetGridShape(),
+            /*memSpace=*/{},
+            /*newTensorGrid=*/{}, scalarType,
+            /*newTileShape=*/std::nullopt);
+        bounce(rewriter, op, bounceType);
+        return success();
+      } else {
+        // Scalar → tilize
+        auto bounceType = typeBuilder.modifyDeviceType(
+            inputInfo.type, *inputInfo.layout, getTargetGridShape(),
+            /*memSpace=*/{},
+            /*newTensorGrid=*/{}, outputInfo.type.getElementType(),
+            ttcore::getTensorTileShape(outputInfo.type));
+        bounce(rewriter, op, bounceType);
+        return success();
+      }
+    }
+
+    // 5. MAPPING changes with tiled data (need scalar intermediate)
+    if (ttcore::isTiled(inputInfo.type) &&
+        (gridShapeChange ||
+         inputInfo.type.getShape() != outputInfo.type.getShape())) {
+      // Untilize for mapping transformations
+      Type scalarType = getScalarType(inputInfo.type.getElementType());
+      auto bounceType = typeBuilder.modifyDeviceType(
+          inputInfo.type, *inputInfo.layout, getTargetGridShape(),
+          /*memSpace=*/{},
+          /*newTensorGrid=*/{}, scalarType,
+          /*tileShape=*/std::nullopt);
+      bounce(rewriter, op, bounceType);
+      return success();
+    }
+
+    // 6. Not compound - let D2MLowerToLayoutRewriter handle it
+    return failure();
   }
 
   ArrayRef<int64_t> getTargetGridShape() const { return targetGridShape; }
