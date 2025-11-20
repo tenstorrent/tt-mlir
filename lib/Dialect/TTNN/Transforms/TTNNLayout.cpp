@@ -209,19 +209,13 @@ static std::optional<Value> createToLayoutOp(PatternRewriter &rewriter,
 // This function rewrites the operands and result to have the correct layout
 // with respect to operand constraints.
 namespace {
-class TTNNLayoutRewriter : public RewritePattern {
+class TTNNLayoutRewriter : public OpInterfaceRewritePattern<ttir::TTIROp> {
 public:
   TTNNLayoutRewriter(MLIRContext *ctx)
-      : RewritePattern(MatchAnyOpTypeTag(), /*benefit=*/1, ctx) {}
+      : OpInterfaceRewritePattern<ttir::TTIROp>(ctx) {}
 
-  LogicalResult matchAndRewrite(Operation *op,
+  LogicalResult matchAndRewrite(ttir::TTIROp op,
                                 PatternRewriter &rewriter) const final {
-    // Only do this for ops from TTIR dialect
-    //
-    if (!mlir::isa<ttir::TTIRDialect>(op->getDialect())) {
-      return failure();
-    }
-
     // Skip toLayout ops
     if (mlir::isa<ttir::ToLayoutOp>(op) ||
         op->hasTrait<mlir::tt::ttcore::Trait::TTCoreCreationOpTrait>() ||
