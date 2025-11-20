@@ -3844,7 +3844,7 @@ TEST_P(OpModelPrepareConv2dWeightsParam, PrepareConv2dWeights) {
       inputTensorLayout, weightsFormat, in_channels, out_channels, batch_size,
       input_height, input_width, kernel_size, stride, padding, dilation,
       has_bias, groups, ttcore::DataType::Float32, std::nullopt, std::nullopt,
-      std::nullopt, outputLayout);
+      std::nullopt, std::nullopt, outputLayout);
 
   EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
   const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,

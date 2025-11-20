@@ -3299,7 +3299,8 @@ PrepareConv2dWeightsOp::getOpConstraints(
       getOutChannels(), getBatchSize(), getInputHeight(), getInputWidth(),
       getKernelSize(), getStride(), getPadding(), getDilation(), getHasBias(),
       getGroups(), getInputDtype(), getOutputDtype(), conv2dAttrs.conv2dConfig,
-      conv2dAttrs.deviceComputeKernelConfig, opConfig.outputLayout);
+      conv2dAttrs.deviceComputeKernelConfig, getConv2dSliceConfigAttr(),
+      opConfig.outputLayout);
 }
 
 llvm::Expected<size_t>

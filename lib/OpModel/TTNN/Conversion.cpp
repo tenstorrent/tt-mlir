@@ -585,7 +585,6 @@ getConv2dSliceConfig(
 
   ::ttnn::operations::conv::conv2d::Conv2dSliceConfig config;
 
-  // Convert slice type enum
   switch (sliceConfig.getSliceType()) {
   case Conv2dSliceType::DramHeight:
     config.slice_type = ::ttnn::operations::conv::conv2d::Conv2dSliceConfig::

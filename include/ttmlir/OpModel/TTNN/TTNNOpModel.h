@@ -1169,6 +1169,7 @@ struct OpModel<PrepareConv2dWeightsOp> {
       std::optional<ttcore::DataType> outputDtype,
       std::optional<Conv2dConfigAttr> conv2dConfig,
       std::optional<DeviceComputeKernelConfigAttr> deviceComputeKernelConfig,
+      std::optional<Conv2dSliceConfigAttr> conv2dSliceConfig,
       TTNNLayoutAttr outputLayout);
 };
 
