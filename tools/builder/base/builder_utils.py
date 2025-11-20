@@ -223,7 +223,7 @@ def _compile_and_execute(
     **compile_kwargs
         All other arguments to pass through to the compile function
     """
-    builder, mlir_path = compile_fn(
+    builder, mlir_path, goldens = compile_fn(
         target=target,
         **compile_kwargs,
     )
@@ -245,6 +245,7 @@ def _compile_and_execute(
             device=device,
             check_atol=check_atol,
             check_rtol=check_rtol,
+            goldens=goldens,
         )
 
     if export_golden_report and not disable_golden:
@@ -1112,7 +1113,7 @@ def compile_ttir_to_flatbuffer(
             base=test_base,
         )
 
-        return builder, compile_ttir_module_to_flatbuffer(
+        return builder, *compile_ttir_module_to_flatbuffer(
             module,
             builder,
             system_desc_path=system_desc_path,
@@ -1707,7 +1708,7 @@ def compile_ttir_module_to_flatbuffer(
 
     print(f"{target} flatbuffer created successfully at: {output_file_fbb}")
 
-    return output_file_mlir
+    return output_file_mlir, goldens
 
 
 def execute_fb(
@@ -1719,16 +1720,17 @@ def execute_fb(
     device=None,  # Optional device parameter for fixture reuse
     check_atol: bool = False,
     check_rtol: bool = False,
+    goldens: Dict[Operand, GoldenMapTensor] = None,
 ) -> None:
     """
     Takes a flatbuffer path `fb`, and executes it with random inputs supplied by `input_shapes` and `input_dtypes`
     """
-
-    # Register runtime debug hooks for intermediate golden checks
-    from ttrt.common.callback import (
+    from golden.callback import (
+        CallbackRuntimeConfig,
         pre_op_get_callback_fn,
         post_op_get_callback_fn,
-        CallbackRuntimeConfig,
+        passes_golden_tensor_to_torch,
+        passes_ttrt_datatype_to_torch_dtype,
     )
 
     assert device is not None
@@ -1792,9 +1794,7 @@ def execute_fb(
             check_rtol=check_rtol,
             save_golden_tensors=False,
             logging=logging,
-            enable_golden=not disable_golden,
-            enable_memory=False,
-            enable_debugger=False,
+            goldens=goldens,
         )
         ttrt.runtime.DebugHooks.get(
             pre_op_get_callback_fn(callback_runtime_config),
@@ -1823,7 +1823,7 @@ def execute_fb(
 
             if len(golden_tensor) != 0:
                 golden_tensor = golden_tensor[0]
-                golden_tensor_torch = golden_tensor_to_torch(golden_tensor)
+                golden_tensor_torch = passes_golden_tensor_to_torch(golden_tensor)
                 golden_inputs.append(golden_tensor_torch)
 
         program.populate_inputs(
@@ -1851,7 +1851,7 @@ def execute_fb(
 
                 if len(golden_tensor) != 0:
                     golden_tensor = golden_tensor[0]
-                    golden_tensor_torch = golden_tensor_to_torch(golden_tensor)
+                    golden_tensor_torch = passes_golden_tensor_to_torch(golden_tensor)
                     golden_outputs_torch.append(golden_tensor_torch)
 
         # pre-upload inputs
@@ -1897,17 +1897,22 @@ def execute_fb(
             if not disable_golden:
                 isEmptyTensor = not all(outputs[i].get_shape())
                 data_buffer = bytearray(outputs[i].get_data_buffer())
+                print("HERE2")
                 if isEmptyTensor and len(data_buffer) == 0:
                     # Create empty tensor.
                     output_tensor_torch = torch.empty(
                         outputs[i].get_shape(),
-                        dtype=ttrt_datatype_to_torch_dtype(outputs[i].get_dtype()),
+                        dtype=passes_ttrt_datatype_to_torch_dtype(
+                            outputs[i].get_dtype()
+                        ),
                     )
                 elif not isEmptyTensor and len(data_buffer) > 0:
                     # Create regular tensor.
                     output_tensor_torch = torch.frombuffer(
                         data_buffer,
-                        dtype=ttrt_datatype_to_torch_dtype(outputs[i].get_dtype()),
+                        dtype=passes_ttrt_datatype_to_torch_dtype(
+                            outputs[i].get_dtype()
+                        ),
                     ).reshape(outputs[i].get_shape())
                 else:
                     raise Exception(
