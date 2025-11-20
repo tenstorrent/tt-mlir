@@ -1,32 +1,6 @@
 ARG FROM_TAG=latest
 
-FROM quay.io/pypa/manylinux_2_34_x86_64 AS toolchain-source
-SHELL ["/bin/bash", "-c"]
-
-# Create a directory for the build and toolchain
-ENV PROJECT_NAME=tt-mlir
-ENV BUILD_DIR=/home/build
-ENV TTMLIR_TOOLCHAIN_DIR=/opt/ttmlir-toolchain
-
-RUN echo "Building $PROJECT_NAME"
-
-RUN mkdir -p $BUILD_DIR && \
-    mkdir -p $TTMLIR_TOOLCHAIN_DIR
-
-# Copy the project to the container
-ADD . $BUILD_DIR/$PROJECT_NAME
-
-# Build the toolchain
-WORKDIR $BUILD_DIR/$PROJECT_NAME
-
-# Show last commit
-RUN git log -1
-
-RUN cmake -B env/build env && \
-    cmake --build env/build
-
-# Final stage
-FROM quay.io/pypa/manylinux_2_34_x86_64
+FROM quay.io/pypa/manylinux_2_34_x86_64 AS ciwheel-base
 SHELL ["/bin/bash", "-c"]
 
 # Force dnf to stop being mean
@@ -61,6 +35,34 @@ RUN curl -L -o "${NINJA_ZIP}" "${NINJA_URL}" && \
     unzip "${NINJA_ZIP}" -d /usr/local/bin/ && \
     chmod +x /usr/local/bin/ninja && \
     rm -f "${NINJA_ZIP}"
+
+FROM ciwheel-base AS toolchain-source
+SHELL ["/bin/bash", "-c"]
+
+# Create a directory for the build and toolchain
+ENV PROJECT_NAME=tt-mlir
+ENV BUILD_DIR=/home/build
+ENV TTMLIR_TOOLCHAIN_DIR=/opt/ttmlir-toolchain
+
+RUN echo "Building $PROJECT_NAME"
+
+RUN mkdir -p $BUILD_DIR && \
+    mkdir -p $TTMLIR_TOOLCHAIN_DIR
+
+# Copy the project to the container
+ADD . $BUILD_DIR/$PROJECT_NAME
+
+# Build the toolchain
+WORKDIR $BUILD_DIR/$PROJECT_NAME
+
+# Show last commit
+RUN git log -1
+
+RUN cmake -B env/build env && \
+    cmake --build env/build
+
+# Final stage
+FROM ciwheel-base
 
 # Create a directory for the build and toolchain
 ENV TTMLIR_TOOLCHAIN_DIR=/opt/ttmlir-toolchain
