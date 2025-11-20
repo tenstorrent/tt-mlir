@@ -22,12 +22,8 @@ WORKDIR $BUILD_DIR/$PROJECT_NAME
 # Show last commit
 RUN git log -1
 
-RUN <<EOT
-# ANCHOR: environment_build
-cmake -B env/build env
-cmake --build env/build
-# ANCHOR_END: environment_build
-EOT
+RUN cmake -B env/build env && \
+    cmake --build env/build
 
 # Final stage
 FROM quay.io/pypa/manylinux_2_34_x86_64
