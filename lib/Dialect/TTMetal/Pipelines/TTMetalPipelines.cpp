@@ -125,12 +125,11 @@ void createTTIRToTTMetalMiddleendPipeline(
     allocateOptions.streamInsertPolicy = options.streamInsertPolicy;
     allocateOptions.testAssumeL1Capacity = options.testAssumel1Capacity;
     allocateOptions.testBufferSizePolicy = options.testBufferSizePolicy;
-    allocateOptions.enableDeallocInsertion = options.insertDeallocs;
+    // Disable dealloc insertion here - will be done after LinalgToAffine and
+    // InsertDstRegisterAccess so that liveness analysis sees the actual usage.
+    allocateOptions.enableDeallocInsertion = false;
   }
   pm.addPass(d2m::createD2MAllocate(allocateOptions));
-  if (!options.insertDeallocs) {
-    pm.addPass(d2m::createD2MInsertDeallocs());
-  }
 
   pm.addPass(createCanonicalizerPassWithOptions(options));
   d2m::D2MGenericApplyInterchangeOptions applyInterchangeOptions;
@@ -159,6 +158,11 @@ void createTTIRToTTMetalMiddleendPipeline(
   }
   pm.addPass(
       d2m::createD2MInsertDstRegisterAccess(insertDstRegisterAccessOptions));
+
+  // Insert deallocs AFTER LinalgToAffine and InsertDstRegisterAccess so that
+  // the liveness analysis sees the actual loop structure and correctly places
+  // deallocs for stream-backed buffers.
+  pm.addPass(d2m::createD2MInsertDeallocs());
 
   pm.addPass(d2m::createD2MSFPUTileLoopFission());
   pm.addPass(mlir::createCanonicalizerPass());

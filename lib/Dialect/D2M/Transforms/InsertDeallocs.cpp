@@ -53,7 +53,6 @@ public:
 
     // Process each function
     module.walk([&](func::FuncOp func) {
-      llvm::errs() << "D2MInsertDeallocs: processing function " << func.getName() << "\n";
       processFunction(func);
     });
   }
@@ -105,20 +104,24 @@ private:
         aliasMap[input].insert(result);
       }
 
-      // Handle stream_layout: result aliases storage.
-      // The operation copies data from input to storage, but they don't alias
-      // each other - only result and storage share the same memory.
+      // Handle stream_layout: result aliases BOTH input and storage.
+      // Stream_layout sets up a streaming relationship where data is read  
+      // from INPUT into STORAGE over time during d2m.generic execution.
+      // The INPUT buffer must remain alive as long as the stream result is used.
       if (auto streamOp = llvm::dyn_cast<d2m::StreamLayoutOp>(op)) {
+        Value input = streamOp.getInput();
         Value storage = streamOp.getStorage();
         Value result = streamOp.getResult();
 
-        // Result aliases storage (they point to the same memory).
+        // Result aliases both input and storage.
+        aliasMap[result].insert(input);
         aliasMap[result].insert(storage);
+        aliasMap[input].insert(result);
         aliasMap[storage].insert(result);
-
-        // Note: input is used by the stream_layout operation itself,
-        // so standard liveness analysis will handle its lifetime correctly.
-        // We don't add it to the alias map because it doesn't alias storage.
+        
+        // Input and storage also transitively alias each other through result.
+        aliasMap[input].insert(storage);
+        aliasMap[storage].insert(input);
       }
     });
 
@@ -139,6 +142,24 @@ private:
       if (llvm::isa<mlir::MemRefType>(operand.getType())) {
         info.use.insert(operand);
       }
+    }
+
+    // Recursively scan all nested regions to find memref uses.
+    // This is critical for seeing uses inside d2m.generic, linalg.generic, 
+    // scf.for, and other operations with nested regions.
+    for (Region &region : op->getRegions()) {
+      region.walk([&](Operation *nestedOp) {
+        for (Value operand : nestedOp->getOperands()) {
+          if (llvm::isa<mlir::MemRefType>(operand.getType())) {
+            // Check if this operand is defined outside the current operation.
+            // If so, it's a USE of the parent operation.
+            Operation *defOp = operand.getDefiningOp();
+            if (!defOp || !op->isAncestor(defOp)) {
+              info.use.insert(operand);
+            }
+          }
+        }
+      });
     }
 
     // Special handling for stores/mutations: they "kill" the target and aliases.
@@ -295,36 +316,26 @@ private:
       }
     }
 
-    llvm::errs() << "D2MInsertDeallocs: found " << allocatedBuffers.size() << " allocated buffers\n";
-
     // For each allocated buffer, find where it dies and insert dealloc.
     for (Value buffer : allocatedBuffers) {
       Operation *defOp = buffer.getDefiningOp();
 
-      llvm::errs() << "D2MInsertDeallocs: processing buffer defined by: ";
-      defOp->print(llvm::errs());
-      llvm::errs() << "\n";
-
       // Skip if a dealloc already exists for this buffer or its aliases.
       if (hasExistingDealloc(buffer, aliasMap, ops)) {
-        llvm::errs() << "  -> already has a dealloc, skipping\n";
         continue;
       }
 
       // Skip if we've already marked this buffer as deallocated.
       if (defOp->hasAttr("d2m.dealloc_inserted")) {
-        llvm::errs() << "  -> already has d2m.dealloc_inserted attribute, skipping\n";
         continue;
       }
 
       // Skip if any alias has already been deallocated.
       bool alreadyProcessed = false;
       if (aliasMap.count(buffer)) {
-        llvm::errs() << "  -> has " << aliasMap.lookup(buffer).size() << " aliases\n";
         for (Value alias : aliasMap.lookup(buffer)) {
           if (Operation *aliasDefOp = alias.getDefiningOp()) {
             if (aliasDefOp->hasAttr("d2m.dealloc_inserted")) {
-              llvm::errs() << "  -> alias already processed, skipping\n";
               alreadyProcessed = true;
               break;
             }
@@ -361,23 +372,13 @@ private:
       }
 
       // Insert the dealloc.
-      llvm::errs() << "  -> inserting dealloc after: ";
-      insertPoint->print(llvm::errs());
-      llvm::errs() << "\n";
-      auto deallocOp = builder.create<memref::DeallocOp>(buffer.getLoc(), buffer);
-      llvm::errs() << "  -> created dealloc operation: ";
-      deallocOp->print(llvm::errs());
-      llvm::errs() << "\n";
+      builder.create<memref::DeallocOp>(buffer.getLoc(), buffer);
 
-      // Mark this buffer and all its aliases as having dealloc inserted.
+      // Mark only THIS specific buffer as having dealloc inserted.
+      // Do NOT mark aliases - they may need their own deallocs.
+      // (e.g., stream_layout has INPUT and STORAGE both as allocated buffers
+      //  that alias through RESULT, but each needs its own dealloc)
       defOp->setAttr("d2m.dealloc_inserted", builder.getUnitAttr());
-      if (aliasMap.count(buffer)) {
-        for (Value alias : aliasMap.lookup(buffer)) {
-          if (Operation *aliasDefOp = alias.getDefiningOp()) {
-            aliasDefOp->setAttr("d2m.dealloc_inserted", builder.getUnitAttr());
-          }
-        }
-      }
     }
 
     // Clean up temporary attributes.
