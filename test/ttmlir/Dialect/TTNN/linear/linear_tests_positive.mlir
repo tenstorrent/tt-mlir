@@ -1,6 +1,5 @@
 // RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline -o %t %s
 // RUN: FileCheck %s --input-file=%t
-// UNSUPPORTED: true
 module {
   func.func @linear_1d_1d_bias(%arg0: tensor<128xbf16>, %arg1: tensor<128xbf16>, %bias: tensor<1xbf16>) -> tensor<1xbf16> {
     %0 = ttir.empty() : tensor<1xbf16>
@@ -25,10 +24,12 @@ module {
   }
 
   func.func @linear_2d_2d_bias(%arg0: tensor<64x128xbf16>, %arg1: tensor<128x64xbf16>, %bias: tensor<64x64xbf16>) -> tensor<64x64xbf16> {
+    // Bias is expected to be a 2d tensor so it is broken into matmul + add.
     %0 = ttir.empty() : tensor<64x64xbf16>
-    // CHECK: "ttnn.linear"
+    // CHECK: "ttnn.matmul"
     // CHECK-SAME: tensor<64x128xbf16
     // CHECK-SAME: tensor<128x64xbf16
+    // CHECK: "ttnn.add"
     // CHECK-SAME: tensor<64x64xbf16
     // CHECK-SAME: tensor<64x64xbf16
     %1 = "ttir.linear"(%arg0, %arg1, %bias, %0) : (tensor<64x128xbf16>, tensor<128x64xbf16>, tensor<64x64xbf16>, tensor<64x64xbf16>) -> tensor<64x64xbf16>
@@ -56,39 +57,41 @@ module {
   }
 
   // Linear with transposed inputs tests.
-  func.func @linear_2d_tranpose_2d_bias(%arg0: tensor<64x128xbf16>, %arg1: tensor<64x128xbf16>, %bias: tensor<128x128xbf16>) -> tensor<128x128xbf16> {
+  func.func @linear_2d_tranpose_1d_bias(%arg0: tensor<64x128xbf16>, %arg1: tensor<64x128xbf16>, %bias: tensor<128xbf16>) -> tensor<128x128xbf16> {
     %0 = ttir.empty() : tensor<128x128xbf16>
     // CHECK: "ttnn.linear"
     // CHECK-SAME: transpose_a = true
     // CHECK-SAME: transpose_b = false
     // CHECK-SAME: tensor<64x128xbf16
     // CHECK-SAME: tensor<64x128xbf16
+    // CHECK-SAME: tensor<128xbf16
     // CHECK-SAME: tensor<128x128xbf16
-    %1 = "ttir.linear"(%arg0, %arg1, %bias, %0) <{transpose_a = true}> : (tensor<64x128xbf16>, tensor<64x128xbf16>, tensor<128x128xbf16>, tensor<128x128xbf16>) -> tensor<128x128xbf16>
+    %1 = "ttir.linear"(%arg0, %arg1, %bias, %0) <{transpose_a = true}> : (tensor<64x128xbf16>, tensor<64x128xbf16>, tensor<128xbf16>, tensor<128x128xbf16>) -> tensor<128x128xbf16>
     return %1 : tensor<128x128xbf16>
   }
 
-  func.func @linear_2d_2d_transpose_bias(%arg0: tensor<64x128xbf16>, %arg1: tensor<64x128xbf16>, %bias: tensor<64x64xbf16>) -> tensor<64x64xbf16> {
+  func.func @linear_2d_1d_transpose_bias(%arg0: tensor<64x128xbf16>, %arg1: tensor<64x128xbf16>, %bias: tensor<64xbf16>) -> tensor<64x64xbf16> {
     %0 = ttir.empty() : tensor<64x64xbf16>
     // CHECK: "ttnn.linear"
     // CHECK-SAME: transpose_a = false
     // CHECK-SAME: transpose_b = true
     // CHECK-SAME: tensor<64x128xbf16
     // CHECK-SAME: tensor<64x128xbf16
-    // CHECK-SAME: tensor<64x64xbf16
-    %1 = "ttir.linear"(%arg0, %arg1, %bias, %0) <{transpose_b = true}> : (tensor<64x128xbf16>, tensor<64x128xbf16>, tensor<64x64xbf16>, tensor<64x64xbf16>) -> tensor<64x64xbf16>
+    // CHECK-SAME: tensor<64xbf16
+    %1 = "ttir.linear"(%arg0, %arg1, %bias, %0) <{transpose_b = true}> : (tensor<64x128xbf16>, tensor<64x128xbf16>, tensor<64xbf16>, tensor<64x64xbf16>) -> tensor<64x64xbf16>
     return %1 : tensor<64x64xbf16>
   }
 
-  func.func @linear_2d_tranpose_2d_transpose(%arg0: tensor<64x128xbf16>, %arg1: tensor<128x64xbf16>, %bias: tensor<128x128xbf16>) -> tensor<128x128xbf16> {
+  func.func @linear_2d_tranpose_2d_transpose(%arg0: tensor<64x128xbf16>, %arg1: tensor<128x64xbf16>, %bias: tensor<128xbf16>) -> tensor<128x128xbf16> {
     %0 = ttir.empty() : tensor<128x128xbf16>
     // CHECK: "ttnn.linear"
     // CHECK-SAME: transpose_a = true
     // CHECK-SAME: transpose_b = true
     // CHECK-SAME: tensor<64x128xbf16
     // CHECK-SAME: tensor<128x64xbf16
+    // CHECK-SAME: tensor<128xbf16
     // CHECK-SAME: tensor<128x128xbf16
-    %1 = "ttir.linear"(%arg0, %arg1, %bias, %0) <{transpose_a = true, transpose_b = true}> : (tensor<64x128xbf16>, tensor<128x64xbf16>, tensor<128x128xbf16>, tensor<128x128xbf16>) -> tensor<128x128xbf16>
+    %1 = "ttir.linear"(%arg0, %arg1, %bias, %0) <{transpose_a = true, transpose_b = true}> : (tensor<64x128xbf16>, tensor<128x64xbf16>, tensor<128xbf16>, tensor<128x128xbf16>) -> tensor<128x128xbf16>
     return %1 : tensor<128x128xbf16>
   }
 
