@@ -52,6 +52,12 @@ public:
       return failure();
     }
 
+    // If all three ops have multiple uses, the pattern is not favorable.
+    if (!originalPermuteOp->hasOneUse() && !reshapeOp->hasOneUse() &&
+        !finalPermuteOp->hasOneUse()) {
+      return failure();
+    }
+
     // PermuteOp can't change the rank of the tensor; check if the ReshapeOp
     // changes the rank.
     auto reshapeInputShape = reshapeOp.getInput().getType().getShape();
