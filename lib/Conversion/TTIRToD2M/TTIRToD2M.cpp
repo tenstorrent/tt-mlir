@@ -65,13 +65,6 @@ protected:
         mlir::cast<ttcore::TileType>(ttnnLayout.getElementType()).getHeight() ==
             ttcore::TileType::getDefaultShape()[0] &&
         "Only default tile shape is supported");
-    // bool isBlockSharded = ttnnLayout.hasL1BufferType() &&
-    //                       ttnnLayout.getMemLayout().getValue() ==
-    //                           ttnn::TensorMemoryLayout::BlockSharded;
-    // bool isInterleaved = ttnnLayout.hasInterleavedDRAMTensorMemoryLayout();
-    // assert((isBlockSharded || isInterleaved) &&
-    //        "Only block sharded L1 or interleaved DRAM tensor memory layouts "
-    //        "are supported");
   }
 
   RankedTensorType
@@ -122,6 +115,7 @@ protected:
           rewriter.getContext(), optimalGrid, ttnnGridShape);
       indexAffineMap = fwdMap;
     }
+
     auto metalLayout = ttcore::MetalLayoutAttr::get(
         rewriter.getContext(), tensorType.getShape(), ttcore::OOBVal::Undef,
         memSpace, memLayout, collapsedIntervals, dimAlignments, indexAffineMap);

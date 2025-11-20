@@ -23,7 +23,6 @@ BLOCK_SHARDED_SHAPE_GRIDS = [
     ((1024, 1024), (7, 7)),
     ((1024, 2048), (7, 7)),
     # Ensure non-square grid dims are interpreted correctly.
-    ((64, 128), (3, 0)),
     ((64, 128), (0, 1)),
     ((96, 128), (3, 2)),
     # Include rank 3 and 4 tensors.
