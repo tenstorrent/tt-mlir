@@ -24,7 +24,7 @@ try:
     import ttnn_jit.runtime.ttmlir.dialects.ttkernel as _ttmlir_dialect_ttkernel
     import ttnn_jit.runtime.ttmlir.dialects.ttnn as _ttmlir_dialect_ttnn
     
-    # Register as top-level modules BEFORE adding runtime to sys.path
+    # Register as top-level modules so you can still do something like `import ttmlir.ir`
     sys.modules['ttmlir'] = _ttmlir_module
     sys.modules['ttmlir.ir'] = _ttmlir_ir_module
     sys.modules['ttmlir.passes'] = _ttmlir_passes_module
