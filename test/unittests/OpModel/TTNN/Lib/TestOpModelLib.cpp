@@ -2759,7 +2759,7 @@ TEST_P(OpModelConv2dParam, Conv2d) {
       CreateWorkerGrid(), inputShape, inputLayout, weightShape, weightLayout,
       std::nullopt, std::nullopt, in_channels, out_channels, batch_size,
       input_height, input_width, kernel_size, stride, padding, dilation, groups,
-      std::nullopt, deviceConfig, outputLayout);
+      std::nullopt, deviceConfig, std::nullopt, outputLayout);
   // Manually cast to bool because EXPECT_TRUE requires a const bool operator
   // which llvm::Expected<T> does not have
   EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
@@ -2778,7 +2778,7 @@ TEST_P(OpModelConv2dParam, Conv2d) {
       inputShape, inputLayout, weightShape, weightLayout, std::nullopt,
       std::nullopt, in_channels, out_channels, batch_size, input_height,
       input_width, kernel_size, stride, padding, dilation, groups, std::nullopt,
-      deviceConfig, outputLayout);
+      deviceConfig, std::nullopt, outputLayout);
   // Manually cast to bool because EXPECT_TRUE requires a const bool operator
   // which llvm::Expected<T> does not have
   EXPECT_EQ(static_cast<bool>(runtimeExp), expectedLegal);
@@ -3844,7 +3844,7 @@ TEST_P(OpModelPrepareConv2dWeightsParam, PrepareConv2dWeights) {
       inputTensorLayout, weightsFormat, in_channels, out_channels, batch_size,
       input_height, input_width, kernel_size, stride, padding, dilation,
       has_bias, groups, ttcore::DataType::Float32, std::nullopt, std::nullopt,
-      std::nullopt, outputLayout);
+      std::nullopt, std::nullopt, outputLayout);
 
   EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
   const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,

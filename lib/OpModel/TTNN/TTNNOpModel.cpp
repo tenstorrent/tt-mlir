@@ -536,7 +536,8 @@ getPrepareConv2dWeightsOpOutputTensorSpec(
     uint32_t input_height, uint32_t input_width,
     llvm::ArrayRef<int32_t> kernel_size, llvm::ArrayRef<int32_t> stride,
     llvm::ArrayRef<int32_t> padding, llvm::ArrayRef<int32_t> dilation,
-    uint32_t groups, std::optional<Conv2dConfigAttr> conv2dConfig, bool hasBias,
+    uint32_t groups, std::optional<Conv2dConfigAttr> conv2dConfig,
+    std::optional<Conv2dSliceConfigAttr> conv2dSliceConfig, bool hasBias,
     bool transpose) {
   if (weightLayout.getBufferType() != BufferType::SystemMemory) {
     return llvm::createStringError(
@@ -573,6 +574,10 @@ getPrepareConv2dWeightsOpOutputTensorSpec(
   std::optional<::ttnn::operations::conv::conv2d::Conv2dConfig>
       conv2dConfigConverted = conversion::getConv2dConfig(conv2dConfig);
 
+  std::optional<::ttnn::operations::conv::conv2d::Conv2dSliceConfig>
+      sliceConfigConverted =
+          conversion::getConv2dSliceConfig(conv2dSliceConfig);
+
   // Create query closure
   auto prepareConv2dWeightsOpQuery = [=]() {
     return ::ttnn::graph::query_op_constraints(
@@ -586,8 +591,7 @@ getPrepareConv2dWeightsOpOutputTensorSpec(
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(dilation),
         hasBias, groups, device, *inputDtype, outputDtype,
         conv2dConfigConverted,
-        /* compute_config_ */ std::nullopt,
-        /* conv2d_slice_config_=*/std::nullopt);
+        /* compute_config_ */ std::nullopt, sliceConfigConverted);
   };
 
   auto prepareConvTranspose2dWeightsOpQuery = [=]() {
@@ -736,7 +740,8 @@ getPreparedConv2dWeightsOutputTensor(Conv2dOp *op,
           op->getInChannels(), op->getOutChannels(), op->getBatchSize(),
           op->getInputHeight(), op->getInputWidth(), op->getKernelSize(),
           op->getStride(), op->getPadding(), op->getDilation(), op->getGroups(),
-          conv2dConfig, op->getBias() != nullptr,
+          conv2dConfig, op->getConv2dSliceConfigAttr(),
+          op->getBias() != nullptr,
           /* transpose */ false);
 
   if (!outputTensorSpec) {
@@ -4602,6 +4607,7 @@ llvm::Expected<OpConstraints> OpModel<Conv2dOp>::getOpConstraints(
     llvm::ArrayRef<int32_t> dilation, uint32_t groups,
     std::optional<Conv2dConfigAttr> conv2dConfig,
     std::optional<DeviceComputeKernelConfigAttr> deviceComputeKernelConfig,
+    std::optional<Conv2dSliceConfigAttr> conv2dSliceConfig,
     TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   // Prepare weight tensor first.
@@ -4609,7 +4615,7 @@ llvm::Expected<OpConstraints> OpModel<Conv2dOp>::getOpConstraints(
       getPrepareConv2dWeightsOpOutputTensorSpec(
           inputShape, inputLayout, weightShape, weightLayout, in_channels,
           out_channels, batch_size, input_height, input_width, kernel_size,
-          stride, padding, dilation, groups, conv2dConfig,
+          stride, padding, dilation, groups, conv2dConfig, conv2dSliceConfig,
           biasLayout.has_value(), /*transpose*/ false);
   if (!preparedWeightExp) {
     return preparedWeightExp.takeError();
@@ -4651,6 +4657,10 @@ llvm::Expected<OpConstraints> OpModel<Conv2dOp>::getOpConstraints(
       deviceComputeKernelConfigConverted =
           conversion::getDeviceComputeKernelConfig(deviceComputeKernelConfig);
 
+  std::optional<::ttnn::operations::conv::conv2d::Conv2dSliceConfig>
+      sliceConfigConverted =
+          conversion::getConv2dSliceConfig(conv2dSliceConfig);
+
   // Create query closure
   auto conv2dOpQuery = [=]() {
     return ::ttnn::graph::query_op_constraints(
@@ -4663,8 +4673,7 @@ llvm::Expected<OpConstraints> OpModel<Conv2dOp>::getOpConstraints(
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(dilation),
         groups, outputDtype, biasSpec, conv2dConfigConverted,
         deviceComputeKernelConfigConverted,
-        detail::getNullableMemoryConfig(outputLayout),
-        /* conv2d_slice_config_=*/std::nullopt);
+        detail::getNullableMemoryConfig(outputLayout), sliceConfigConverted);
   };
 
   return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
@@ -4685,6 +4694,7 @@ llvm::Expected<size_t> OpModel<Conv2dOp>::getOpRuntime(
     llvm::ArrayRef<int32_t> dilation, uint32_t groups,
     std::optional<Conv2dConfigAttr> conv2dConfig,
     std::optional<DeviceComputeKernelConfigAttr> deviceComputeKernelConfig,
+    std::optional<Conv2dSliceConfigAttr> conv2dSliceConfig,
     TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   // Prepare weight tensor first.
@@ -4692,7 +4702,7 @@ llvm::Expected<size_t> OpModel<Conv2dOp>::getOpRuntime(
       getPrepareConv2dWeightsOpOutputTensorSpec(
           inputShape, inputLayout, weightShape, weightLayout, in_channels,
           out_channels, batch_size, input_height, input_width, kernel_size,
-          stride, padding, dilation, groups, conv2dConfig,
+          stride, padding, dilation, groups, conv2dConfig, conv2dSliceConfig,
           biasLayout.has_value(), /*transpose*/ false);
   if (!preparedWeightExp) {
     return preparedWeightExp.takeError();
@@ -4732,6 +4742,9 @@ llvm::Expected<size_t> OpModel<Conv2dOp>::getOpRuntime(
   std::optional<::ttnn::DeviceComputeKernelConfig>
       deviceComputeKernelConfigConverted =
           conversion::getDeviceComputeKernelConfig(deviceComputeKernelConfig);
+  std::optional<::ttnn::operations::conv::conv2d::Conv2dSliceConfig>
+      sliceConfigConverted =
+          conversion::getConv2dSliceConfig(conv2dSliceConfig);
   // Create query closure
   auto conv2dOpQuery = [=]() {
     return ::ttnn::graph::query_op_runtime(
@@ -4744,7 +4757,7 @@ llvm::Expected<size_t> OpModel<Conv2dOp>::getOpRuntime(
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(dilation),
         groups, outputDtype, biasSpec, conv2dConfigConverted,
         deviceComputeKernelConfigConverted,
-        detail::getNullableMemoryConfig(outputLayout));
+        detail::getNullableMemoryConfig(outputLayout), sliceConfigConverted);
   };
 
   return operation::getOpRuntime(conv2dOpQuery);
@@ -4774,7 +4787,7 @@ llvm::Expected<OpConstraints> OpModel<ConvTranspose2dOp>::getOpConstraints(
       getPrepareConv2dWeightsOpOutputTensorSpec(
           inputShape, inputLayout, weightShape, weightLayout, in_channels,
           out_channels, batch_size, input_height, input_width, kernel_size,
-          stride, padding, dilation, groups, conv2dConfig,
+          stride, padding, dilation, groups, conv2dConfig, std::nullopt,
           biasLayout.has_value(), /*transpose*/ true);
   if (!preparedWeightExp) {
     return preparedWeightExp.takeError();
@@ -4851,7 +4864,7 @@ llvm::Expected<size_t> OpModel<ConvTranspose2dOp>::getOpRuntime(
       getPrepareConv2dWeightsOpOutputTensorSpec(
           inputShape, inputLayout, weightShape, weightLayout, in_channels,
           out_channels, batch_size, input_height, input_width, kernel_size,
-          stride, padding, dilation, groups, conv2dConfig,
+          stride, padding, dilation, groups, conv2dConfig, std::nullopt,
           biasLayout.has_value(), /*transpose*/ true);
   if (!preparedWeightExp) {
     return preparedWeightExp.takeError();
@@ -4926,6 +4939,7 @@ llvm::Expected<OpConstraints> OpModel<PrepareConv2dWeightsOp>::getOpConstraints(
     ttcore::DataType inputDtype, std::optional<ttcore::DataType> outputDtype,
     std::optional<Conv2dConfigAttr> conv2dConfig,
     std::optional<DeviceComputeKernelConfigAttr> deviceComputeKernelConfig,
+    std::optional<Conv2dSliceConfigAttr> conv2dSliceConfig,
     TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
@@ -4955,6 +4969,10 @@ llvm::Expected<OpConstraints> OpModel<PrepareConv2dWeightsOp>::getOpConstraints(
     convertedOutputDtype = conversion::getDataType(outputDtype.value());
   }
 
+  std::optional<::ttnn::operations::conv::conv2d::Conv2dSliceConfig>
+      sliceConfigConverted =
+          conversion::getConv2dSliceConfig(conv2dSliceConfig);
+
   auto prepareConv2dWeightsQuery = [=]() {
     return ::ttnn::graph::query_op_constraints(
         &::ttnn::operations::conv::conv2d::prepare_conv_weights, device,
@@ -4969,7 +4987,7 @@ llvm::Expected<OpConstraints> OpModel<PrepareConv2dWeightsOp>::getOpConstraints(
         hasBias, groups, device, conversion::getDataType(inputDtype),
         convertedOutputDtype, conversion::getConv2dConfig(conv2dConfig),
         conversion::getDeviceComputeKernelConfig(deviceComputeKernelConfig),
-        /* conv2d_slice_config_=*/std::nullopt);
+        sliceConfigConverted);
   };
 
   return operation::getOpConstraints(weightLayout.getContext(), deviceGrid,
