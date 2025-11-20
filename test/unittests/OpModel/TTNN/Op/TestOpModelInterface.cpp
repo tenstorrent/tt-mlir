@@ -197,7 +197,7 @@ TEST_P(UnaryOpModelTest, TestOpInterfaceNullOutput) {
 
 const ExpectedResult expected{true, 8192, 2048, 10240, 2048};
 const ExpectedResult cbrtExpected{true, 12288, 2048, 14336, 2048};
-const ExpectedResult tanhExpected{true, 28672, 2048, 28672 + 2048, 2048};
+const ExpectedResult tanhExpected{true, 8192, 2048, 8192 + 2048, 2048};
 
 //===---------------------------------------------------------===
 const auto createRelu = [](OpBuilder &b, Location loc, Type type,
@@ -2734,8 +2734,6 @@ TEST_F(OpModelBase, Conv2dInterfaceConfigs) {
   const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
       constraintsExp.get();
 
-  // TODO(nsmith): consider updating these values when this issue is resolved:
-  // https://github.com/tenstorrent/tt-mlir/issues/5306
   EXPECT_EQ(cbSize, 69696);
   EXPECT_EQ(l1PeakSize, 61836);
   EXPECT_EQ(outputSize, 0);
@@ -2802,8 +2800,6 @@ TEST_F(OpModelBase, conv2dInterfaceComputeKernelConfig) {
   const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
       constraintsExp.get();
 
-  // TODO(nsmith): consider updating these values when this issue is resolved:
-  // https://github.com/tenstorrent/tt-mlir/issues/5306
   EXPECT_EQ(cbSize, 65600);
   EXPECT_EQ(l1PeakSize, 61836);
   EXPECT_EQ(outputSize, 0);

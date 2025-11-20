@@ -335,6 +335,61 @@ class Builder:
             case _:
                 raise TypeError(f"Invalid Type {dtype}")
 
+    def _get_torch_dtype_from_type(self, mlir_type: Type) -> torch.dtype:
+        """Convert MLIR Type to torch.dtype.
+
+        Parameters
+        ----------
+        mlir_type : Type
+            MLIR type to convert
+
+        Returns
+        -------
+        torch.dtype
+            Corresponding torch dtype
+        """
+        type_str = str(mlir_type)
+
+        if isinstance(mlir_type, BF16Type) or type_str == "bf16":
+            return torch.bfloat16
+        elif isinstance(mlir_type, F16Type) or type_str == "f16":
+            return torch.float16
+        elif isinstance(mlir_type, F32Type) or type_str == "f32":
+            return torch.float32
+        elif isinstance(mlir_type, F64Type) or type_str == "f64":
+            return torch.float64
+        elif isinstance(mlir_type, IntegerType):
+            width = mlir_type.width
+            is_signed = mlir_type.is_signed
+            is_unsigned = mlir_type.is_unsigned
+
+            if width == 1:
+                return torch.bool
+            elif width == 8:
+                if is_unsigned:
+                    return torch.uint8
+                else:
+                    return torch.int8
+            elif width == 16:
+                if is_unsigned:
+                    return torch.uint16
+                else:
+                    return torch.int16
+            elif width == 32:
+                if is_unsigned:
+                    return torch.uint32
+                else:
+                    return torch.int32
+            elif width == 64:
+                if is_unsigned:
+                    return torch.uint64
+                else:
+                    return torch.int64
+            else:
+                raise TypeError(f"Unsupported integer width: {width}")
+        else:
+            raise TypeError(f"Unsupported MLIR type: {mlir_type}")
+
     def _get_next_global_id(self) -> int:
         self._global_id += 1
         return self._global_id

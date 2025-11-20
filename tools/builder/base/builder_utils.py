@@ -1539,7 +1539,7 @@ def compile_ttir_module_to_flatbuffer(
     module_dump: bool = True,
     argument_types_string: Optional[str] = None,
     custom_pipeline: Optional[Union[Callable, str]] = None,
-    pipeline_options: List[str] = [],
+    pipeline_options: List[str] = None,
     print_ir: Union[bool, str] = False,
     goldens: Dict[Operand, GoldenMapTensor] = None,
 ):
@@ -1625,6 +1625,10 @@ def compile_ttir_module_to_flatbuffer(
     ValueError
         If an unsupported target is specified
     """
+
+    if pipeline_options is None:
+        pipeline_options = []
+
     if type(custom_pipeline) is str:
         custom_pipeline = _create_custom_ttir_pipeline_fn(
             custom_pipeline, print_ir=print_ir

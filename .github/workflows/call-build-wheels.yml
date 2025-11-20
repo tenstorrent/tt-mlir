@@ -1,18 +1,6 @@
-name: Build Wheels
+name: Build Wheels (call)
 
 on:
-  workflow_dispatch:
-    inputs:
-      docker-tag:
-        description: 'Docker tag for the manylinux image'
-        required: false
-        type: string
-        default: 'latest'
-      docker_image:
-        description: 'Docker image to use for building wheels'
-        required: false
-        type: string
-        default: 'ghcr.io/tenstorrent/tt-mlir/tt-mlir-ci-ubuntu-22-04:latest'
   workflow_call:
     inputs:
       docker-tag:

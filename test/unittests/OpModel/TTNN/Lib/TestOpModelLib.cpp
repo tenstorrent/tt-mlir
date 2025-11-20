@@ -279,16 +279,16 @@ const std::initializer_list<
     tanhParams = {
         std::make_tuple(detail::interleavedN300X1024Dram,
                         detail::interleavedN300X1024Dram,
-                        detail::ExpectedResult{true, 28672, 0, 28672, 0}),
+                        detail::ExpectedResult{true, 8192, 0, 8192, 0}),
         std::make_tuple(
             detail::interleavedN300X1024Dram, detail::interleavedN300X1024L1,
-            detail::ExpectedResult{true, 28672, 2048, 28672 + 2048, 2048}),
+            detail::ExpectedResult{true, 8192, 2048, 8192 + 2048, 2048}),
         std::make_tuple(detail::interleavedN300X1024L1,
                         detail::interleavedN300X1024Dram,
-                        detail::ExpectedResult{true, 28672, 0, 28672, 0}),
+                        detail::ExpectedResult{true, 8192, 0, 8192, 0}),
         std::make_tuple(
             detail::interleavedN300X1024L1, detail::interleavedN300X1024L1,
-            detail::ExpectedResult{true, 28672, 2048, 28672 + 2048, 2048}),
+            detail::ExpectedResult{true, 8192, 2048, 8192 + 2048, 2048}),
         std::make_tuple(
             detail::TestTensor{{14 * OpModelFixture::workerCoresN300 * 32, 32},
                                TensorMemoryLayout::HeightSharded,
@@ -296,8 +296,7 @@ const std::initializer_list<
             detail::TestTensor{{14 * OpModelFixture::workerCoresN300 * 32, 32},
                                TensorMemoryLayout::HeightSharded,
                                BufferType::L1},
-            detail::ExpectedResult{true, 143360, 14 * 32 * 32 * 2,
-                                   143360 + 14 * 32 * 32 * 2,
+            detail::ExpectedResult{true, 0, 14 * 32 * 32 * 2, 28672,
                                    14 * 32 * 32 * 2}),
         std::make_tuple(
             detail::TestTensor{{14 * OpModelFixture::workerCoresN300 * 32, 32},
@@ -2760,7 +2759,7 @@ TEST_P(OpModelConv2dParam, Conv2d) {
       CreateWorkerGrid(), inputShape, inputLayout, weightShape, weightLayout,
       std::nullopt, std::nullopt, in_channels, out_channels, batch_size,
       input_height, input_width, kernel_size, stride, padding, dilation, groups,
-      std::nullopt, deviceConfig, outputLayout);
+      std::nullopt, deviceConfig, std::nullopt, outputLayout);
   // Manually cast to bool because EXPECT_TRUE requires a const bool operator
   // which llvm::Expected<T> does not have
   EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
@@ -2779,7 +2778,7 @@ TEST_P(OpModelConv2dParam, Conv2d) {
       inputShape, inputLayout, weightShape, weightLayout, std::nullopt,
       std::nullopt, in_channels, out_channels, batch_size, input_height,
       input_width, kernel_size, stride, padding, dilation, groups, std::nullopt,
-      deviceConfig, outputLayout);
+      deviceConfig, std::nullopt, outputLayout);
   // Manually cast to bool because EXPECT_TRUE requires a const bool operator
   // which llvm::Expected<T> does not have
   EXPECT_EQ(static_cast<bool>(runtimeExp), expectedLegal);
@@ -3845,7 +3844,7 @@ TEST_P(OpModelPrepareConv2dWeightsParam, PrepareConv2dWeights) {
       inputTensorLayout, weightsFormat, in_channels, out_channels, batch_size,
       input_height, input_width, kernel_size, stride, padding, dilation,
       has_bias, groups, ttcore::DataType::Float32, std::nullopt, std::nullopt,
-      std::nullopt, outputLayout);
+      std::nullopt, std::nullopt, outputLayout);
 
   EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
   const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
