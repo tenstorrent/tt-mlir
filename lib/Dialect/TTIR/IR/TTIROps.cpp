@@ -3053,37 +3053,6 @@ bool mlir::tt::ttir::TTNNMetalLayoutCastOp::bufferizesToMemoryWrite(
   return success();
 }
 
-// If value is defined by PermuteOp with permute dimensions
-// (..., rank - 2, rank - 1), return the input of the PermuteOp, otherwise
-// return std::nullopt. This is used for canonicalization of MatmulOp and
-// LinearOp.
-static std::optional<mlir::TypedValue<mlir::RankedTensorType>>
-getPermuteOpOperand(mlir::TypedValue<mlir::RankedTensorType> value) {
-  auto producerPermuteOp = value.getDefiningOp<mlir::tt::ttir::PermuteOp>();
-  if (!producerPermuteOp) {
-    return std::nullopt;
-  }
-
-  int64_t rank = value.getType().getRank();
-  // If the rank is less than two than it is impossible for this permute to be
-  // a transpose
-  bool rankIsLessThan2 = rank < 2;
-  // Ensure that the rightmost two dims are swapped by the permute
-  bool XYDimsTransposed =
-      producerPermuteOp.getPermutation()[rank - 2] == rank - 1 &&
-      producerPermuteOp.getPermutation()[rank - 1] == rank - 2;
-  // Ensure that the other dims are unchanged by the permute.
-  // Therefore this permute is equivalent to transpose(-1, -2)
-  bool otherDimsUnchanged =
-      std::is_sorted(producerPermuteOp.getPermutation().begin(),
-                     producerPermuteOp.getPermutation().end() - 2);
-  if (rankIsLessThan2 || !XYDimsTransposed || !otherDimsUnchanged) {
-    return std::nullopt;
-  }
-
-  return producerPermuteOp.getInput();
-}
-
 // LinearOp canonicalization
 void mlir::tt::ttir::LinearOp::getCanonicalizationPatterns(
     mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
@@ -3097,36 +3066,6 @@ void mlir::tt::ttir::LinearOp::getCanonicalizationPatterns(
       return mlir::success();
     }
     return mlir::failure();
-  });
-
-  // linear(transpose(a), b, bias transpose_a, transpose_b) ->
-  //   linear(a, b, bias, !transpose_a, transpose_b)
-  patterns.add(+[](ttir::LinearOp op, mlir::PatternRewriter &rewriter) {
-    auto inputACanonical = getPermuteOpOperand(op.getA());
-    if (!inputACanonical) {
-      return mlir::failure();
-    }
-
-    rewriter.replaceOpWithNewOp<ttir::LinearOp>(
-        op, op.getType(), *inputACanonical, op.getB(), op.getBias(),
-        !op.getTransposeA(), op.getTransposeB());
-
-    return mlir::success();
-  });
-
-  // linear(a, transpose(b), bias transpose_a, transpose_b) ->
-  //   linear(a, b, bias, transpose_a, !transpose_b)
-  patterns.add(+[](ttir::LinearOp op, mlir::PatternRewriter &rewriter) {
-    auto inputBCanonical = getPermuteOpOperand(op.getB());
-    if (!inputBCanonical) {
-      return mlir::failure();
-    }
-
-    rewriter.replaceOpWithNewOp<ttir::LinearOp>(
-        op, op.getType(), op.getA(), *inputBCanonical, op.getBias(),
-        op.getTransposeA(), !op.getTransposeB());
-
-    return mlir::success();
   });
   // NOLINTEND(clang-analyzer-core.StackAddressEscape)
 }
@@ -3262,42 +3201,6 @@ void mlir::tt::ttir::LinearOp::getCanonicalizationPatterns(
   return success();
 }
 // ANCHOR_END: adding_an_op_matmul_ttir_verify
-
-// MatmulOp canonicalization
-void mlir::tt::ttir::MatmulOp::getCanonicalizationPatterns(
-    mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
-  // NOLINTBEGIN(clang-analyzer-core.StackAddressEscape)
-  // matmul(transpose(a), b, transpose_a, transpose_b) ->
-  //   matmul(a, b, !transpose_a, transpose_b)
-  patterns.add(+[](ttir::MatmulOp op, mlir::PatternRewriter &rewriter) {
-    auto inputACanonical = getPermuteOpOperand(op.getA());
-    if (!inputACanonical) {
-      return mlir::failure();
-    }
-
-    rewriter.replaceOpWithNewOp<ttir::MatmulOp>(
-        op, op.getType(), *inputACanonical, op.getB(), !op.getTransposeA(),
-        op.getTransposeB());
-
-    return mlir::success();
-  });
-
-  // matmul(a, transpose(b), transpose_a, transpose_b) ->
-  //   matmul(a, b, transpose_a, !transpose_b)
-  patterns.add(+[](ttir::MatmulOp op, mlir::PatternRewriter &rewriter) {
-    auto inputBCanonical = getPermuteOpOperand(op.getB());
-    if (!inputBCanonical) {
-      return mlir::failure();
-    }
-
-    rewriter.replaceOpWithNewOp<ttir::MatmulOp>(
-        op, op.getType(), op.getA(), *inputBCanonical, op.getTransposeA(),
-        !op.getTransposeB());
-
-    return mlir::success();
-  });
-  // NOLINTEND(clang-analyzer-core.StackAddressEscape)
-}
 
 //===----------------------------------------------------------------------===//
 // UpsampleOp
