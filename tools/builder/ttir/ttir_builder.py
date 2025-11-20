@@ -133,9 +133,9 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
         return ttir.EmptyOp(tensor_type)
 
     def _organize_eltwise_ttir(
-        self, inputs: List[Operand], output: OpView, _: Optional[Shape]
+        self, inputs: List[Operand], output_type: RankedTensorType
     ):
-        return (self._get_type(output), *inputs, output)
+        return (output_type, *inputs)
 
     def _op_proxy(
         self,
@@ -182,17 +182,14 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
 
             # Use provided output shape/type if available, otherwise use calculated ones.
             output_shape = calculated_output_shape if not output_shape else output_shape
-            output_type = (
+            output_element_type = (
                 self._get_type_from_torch_dtype(calculated_output_type)
                 if not output_type
                 else output_type
             )
 
             # Create output tensor using provided function or create empty tensor.
-            if output_create_fn:
-                output = output_create_fn(output_shape, output_type)
-            else:
-                output = self._empty(output_shape, output_type)
+            output_type = RankedTensorType.get(output_shape, output_element_type)
 
             # Prepare location for the op.
             id = self._get_next_global_id()
@@ -203,14 +200,14 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
             )
 
             # Organize arguments and create the TTIR op.
-            if organize_ttir_args(inputs, output, output_shape) == 0:
+            if organize_ttir_args(inputs, output_type) == 0:
                 op = op_ttir_function(
                     loc=loc,
                     **ttir_kwargs,
                 )
             else:
                 op = op_ttir_function(
-                    *organize_ttir_args(inputs, output, output_shape),
+                    *organize_ttir_args(inputs, output_type),
                     loc=loc,
                     **ttir_kwargs,
                 )
