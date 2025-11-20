@@ -123,6 +123,9 @@ void createTTIRToTTMetalMiddleendPipeline(
     allocateOptions.numStreamBuffers = options.numStreamBuffers;
     allocateOptions.allowL1OutputSpilling = options.allowL1OutputSpilling;
     allocateOptions.streamInsertPolicy = options.streamInsertPolicy;
+    allocateOptions.availableL1AddrRange.assign(
+        options.availableL1AddrRange.begin(),
+        options.availableL1AddrRange.end());
     allocateOptions.testAssumeL1Capacity = options.testAssumel1Capacity;
     allocateOptions.testBufferSizePolicy = options.testBufferSizePolicy;
   }
