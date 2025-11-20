@@ -634,7 +634,7 @@ def test_slice(
     device,
 ):
     def slice_fn(in0: Operand, builder: StableHLOBuilder):
-            return slice(in0, start_indices, limit_indices, strides, builder)
+        return slice(in0, start_indices, limit_indices, strides, builder)
 
     compile_and_execute_shlo(
         slice_fn,
@@ -809,6 +809,7 @@ def test_reduce_min(
         device=device,
     )
 
+
 @pytest.mark.parametrize("shape", [(1, 1, 64, 32), (1, 3, 256, 256)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32, torch.int32], ids=["f32", "i32"])
 @pytest.mark.parametrize("target", ["ttnn"])
@@ -831,6 +832,7 @@ def test_constant(shape: Shape, dtype: torch.dtype, target: str, request, device
         target=target,
         device=device,
     )
+
 
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("start_indices_val", [[32, 32]], ids=shape_str)
