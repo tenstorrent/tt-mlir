@@ -449,7 +449,8 @@ TTNNLayoutAttr TTNNLayoutAttr::withDataType(ttcore::DataType dataType) {
       getContext(), getLinear(), getGrid(),
       ttcore::buildMemRef<BufferType, BufferTypeAttr>(
           getContext(), getScalarShardShape(), elementType, getBufferType()),
-      getMemLayout(), getTensorMesh(), getIgnorePhysicalLayout(), getExactGrid());
+      getMemLayout(), getTensorMesh(), getIgnorePhysicalLayout(),
+      getExactGrid());
 }
 
 // Construct a new TTNNLayoutAttr
@@ -492,7 +493,8 @@ TTNNLayoutAttr TTNNLayoutAttr::withBufferType(BufferType memorySpace) {
       getContext(), getLinear(), grid,
       mlir::tt::ttcore::buildMemRef<BufferType, BufferTypeAttr>(
           getContext(), getScalarShardShape(), getElementType(), memorySpace),
-      memLayoutAttr, getTensorMesh(), getIgnorePhysicalLayout(), getExactGrid());
+      memLayoutAttr, getTensorMesh(), getIgnorePhysicalLayout(),
+      getExactGrid());
 }
 
 // Construct a new TTNNLayoutAttr
@@ -542,7 +544,8 @@ TTNNLayoutAttr::withShardShape(llvm::SmallVector<int64_t> shardShape) {
       getContext(), getLinear(), getGrid(),
       mlir::tt::ttcore::buildMemRef<BufferType, BufferTypeAttr>(
           getContext(), shardShape, getElementType(), getBufferType()),
-      getMemLayout(), getTensorMesh(), getIgnorePhysicalLayout(), getExactGrid());
+      getMemLayout(), getTensorMesh(), getIgnorePhysicalLayout(),
+      getExactGrid());
 }
 
 // Construct a new TTNNLayoutAttr
@@ -649,7 +652,8 @@ llvm::LogicalResult TTNNLayoutAttr::verify(
     llvm::function_ref<::mlir::InFlightDiagnostic()> emitError, AffineMap,
     mlir::tt::ttcore::GridAttr grid, MemRefType memref,
     TensorMemoryLayoutAttr memLayout,
-    mlir::tt::ttcore::TensorMeshAttr tensorMesh, bool ignorePhysicalLayout, bool exactGrid) {
+    mlir::tt::ttcore::TensorMeshAttr tensorMesh, bool ignorePhysicalLayout,
+    bool exactGrid) {
   BufferType bufferType =
       mlir::cast<BufferTypeAttr>(memref.getMemorySpace()).getValue();
 
