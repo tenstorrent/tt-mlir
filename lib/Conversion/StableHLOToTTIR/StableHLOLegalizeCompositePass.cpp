@@ -165,14 +165,15 @@ public:
     auto normalizedShapeAttr = compositeAttrs.get("normalized_shape");
     SmallVector<int64_t> normalizedShapeVec;
 
-    if (auto denseAttr = mlir::dyn_cast<DenseIntElementsAttr>(normalizedShapeAttr)) {
+    if (auto denseAttr =
+            mlir::dyn_cast<DenseIntElementsAttr>(normalizedShapeAttr)) {
       for (auto val : denseAttr.getValues<int64_t>()) {
         normalizedShapeVec.push_back(val);
       }
-    } else if (auto arrayAttr = mlir::dyn_cast<ArrayAttr>(normalizedShapeAttr)) {
+    } else if (auto arrayAttr =
+                   mlir::dyn_cast<ArrayAttr>(normalizedShapeAttr)) {
       for (auto attr : arrayAttr) {
-        normalizedShapeVec.push_back(
-            mlir::cast<IntegerAttr>(attr).getInt());
+        normalizedShapeVec.push_back(mlir::cast<IntegerAttr>(attr).getInt());
       }
     } else {
       return rewriter.notifyMatchFailure(
@@ -201,10 +202,9 @@ public:
     } else { // input only
       segmentSizes = {1, 0, 0, 1};
     }
-    
+
     namedAttrs.push_back(rewriter.getNamedAttr(
-        "operandSegmentSizes",
-        rewriter.getDenseI32ArrayAttr(segmentSizes)));
+        "operandSegmentSizes", rewriter.getDenseI32ArrayAttr(segmentSizes)));
 
     ttir::utils::replaceOpWithNewDPSOp<ttir::RMSNormOp>(
         rewriter, srcOp, outputType, adaptor.getOperands(), namedAttrs);

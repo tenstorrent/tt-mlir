@@ -31,4 +31,4 @@ module @jit__rms_norm attributes {mhlo.num_partitions = 1 : i32, mhlo.num_replic
     %8 = stablehlo.multiply %arg0, %7 : tensor<4x32xf32>
     return %8 : tensor<4x32xf32>
   }
-} 
+}
