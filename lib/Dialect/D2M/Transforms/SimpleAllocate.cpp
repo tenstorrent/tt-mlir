@@ -156,6 +156,19 @@ private:
             streamOp.getResult(), currentEnd, opToSeq, visited);
         if (opToSeq.lookup(extendedEnd) > maxSeq)
           currentEnd = extendedEnd;
+      } else if (auto genericOp = dyn_cast<d2m::GenericOp>(user)) {
+        // Buffers used in generic ops are live until the generic completes
+        // This is critical: generic ops execute kernels that need all their operands
+        maxSeq = std::max(maxSeq, opToSeq.lookup(user));
+        // Also trace through results in case they're used later
+        for (Value result : genericOp.getResults()) {
+          Operation *extendedEnd = extendLivenessImpl(
+              result, currentEnd, opToSeq, visited);
+          if (opToSeq.lookup(extendedEnd) > maxSeq) {
+            maxSeq = opToSeq.lookup(extendedEnd);
+            currentEnd = extendedEnd;
+          }
+        }
       }
     }
 
@@ -190,7 +203,8 @@ private:
     }
 
     // Solve with simple allocation (no spilling for now)
-    auto stats = Planner::allocate(problem);
+    // Use Simple algorithm to avoid premature reuse of addresses
+    auto stats = Planner::allocate(problem, Planner::Algorithm::Simple);
 
     if (stats.memUsage > l1Capacity) {
       return funcOp.emitError("L1 capacity exceeded: ")
