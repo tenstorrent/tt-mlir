@@ -2,8 +2,7 @@
 // RUN: FileCheck %s --input-file=%t.mlir
 // RUN: ttmlir-translate --ttnn-to-flatbuffer -o %t.ttnn %t.mlir
 func.func @ceil(%arg0: tensor<64x128xf32>) -> tensor<64x128xf32> {
-  %0 = ttir.empty() : tensor<64x128xf32>
-  %1 = "ttir.ceil"(%arg0, %0) : (tensor<64x128xf32>, tensor<64x128xf32>) -> tensor<64x128xf32>
+  %1 = "ttir.ceil"(%arg0) : (tensor<64x128xf32>) -> tensor<64x128xf32>
   // CHECK: "ttnn.ceil"
   // CHECK-SAME: tensor<64x128xf32
   // CHECK-SAME: -> tensor<64x128xf32

@@ -3,23 +3,20 @@
 // RUN: ttmlir-translate --ttnn-to-flatbuffer -o %t.ttnn %t.mlir
 module {
   func.func @forward(%arg0: tensor<64x128xbf16>, %arg1: tensor<128x96xbf16>) -> tensor<64x96xbf16> {
-    %0 = ttir.empty() : tensor<64x96xbf16>
     // CHECK: "ttnn.matmul"
-    %1 = "ttir.matmul"(%arg0, %arg1, %0) : (tensor<64x128xbf16>, tensor<128x96xbf16>, tensor<64x96xbf16>) -> tensor<64x96xbf16>
+    %1 = "ttir.matmul"(%arg0, %arg1) : (tensor<64x128xbf16>, tensor<128x96xbf16>) -> tensor<64x96xbf16>
     return %1 : tensor<64x96xbf16>
   }
 
   func.func @matmul_transpose_lhs(%arg0: tensor<64x128xbf16>, %arg1: tensor<64x128xbf16>) -> tensor<128x128xbf16> {
-    %0 = ttir.empty() : tensor<128x128xbf16>
     // CHECK: "ttnn.matmul"
-    %1 = "ttir.matmul"(%arg0, %arg1, %0) <{transpose_a = true}>: (tensor<64x128xbf16>, tensor<64x128xbf16>, tensor<128x128xbf16>) -> tensor<128x128xbf16>
+    %1 = "ttir.matmul"(%arg0, %arg1) <{transpose_a = true}>: (tensor<64x128xbf16>, tensor<64x128xbf16>) -> tensor<128x128xbf16>
     return %1 : tensor<128x128xbf16>
   }
 
   func.func @matmul_transpose_rhs(%arg0: tensor<64x128xbf16>, %arg1: tensor<64x128xbf16>) -> tensor<64x64xbf16> {
-    %0 = ttir.empty() : tensor<64x64xbf16>
     // CHECK: "ttnn.matmul"
-    %1 = "ttir.matmul"(%arg0, %arg1, %0) <{transpose_b = true}>: (tensor<64x128xbf16>, tensor<64x128xbf16>, tensor<64x64xbf16>) -> tensor<64x64xbf16>
+    %1 = "ttir.matmul"(%arg0, %arg1) <{transpose_b = true}>: (tensor<64x128xbf16>, tensor<64x128xbf16>) -> tensor<64x64xbf16>
     return %1 : tensor<64x64xbf16>
   }
 }

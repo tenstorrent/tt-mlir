@@ -49,12 +49,9 @@ public:
 
     SmallVector<Value> newConcatOperands;
 
-    for (OpOperand &opOperand : op->getOpOperands()) {
-      // Skip DPS operands
-      if (op.isDpsInit(&opOperand)) {
-        continue;
-      }
-      Value operand = opOperand.get();
+    assert(!isa<DestinationStyleOpInterface>(op.getOperation()) &&
+           "DPS ops are not supported");
+    for (auto operand : op->getOperands()) {
       RankedTensorType operandType = cast<RankedTensorType>(operand.getType());
 
       RankedTensorType permuteOperandType = RankedTensorType::get(
@@ -63,9 +60,9 @@ public:
           operandType.getElementType());
 
       newConcatOperands.push_back(
-          utils::createDPSOp<PermuteOp>(rewriter, op->getLoc(),
-                                        permuteOperandType, operand,
-                                        permuteUser.getPermutation())
+          rewriter
+              .create<PermuteOp>(op->getLoc(), permuteOperandType, operand,
+                                 permuteUser.getPermutation())
               ->getResult(0));
     }
 
@@ -73,8 +70,8 @@ public:
         ttmlir::utils::applyPermutation(op.getType().getShape(),
                                         permuteUser.getPermutation()),
         op.getType().getElementType());
-    ConcatOp newConcat = utils::createDPSOp<ConcatOp>(
-        rewriter, op->getLoc(), newConcatType, newConcatOperands, newConcatDim);
+    ConcatOp newConcat = rewriter.create<ConcatOp>(
+        op->getLoc(), newConcatType, newConcatOperands, newConcatDim);
 
     // All users must be identical TMs.
     // We must not reference `permuteUser` during/after replacements, as it will
@@ -105,14 +102,11 @@ public:
                                  PatternRewriter &rewriter) const override {
     // Create inverse permutes for each of the other concat operands
     SmallVector<Value> newConcatOperands;
-    for (OpOperand &opOperand : op->getOpOperands()) {
-      if (op.isDpsInit(&opOperand)) {
-        continue;
-      }
-
-      Value operand = opOperand.get();
+    assert(!isa<DestinationStyleOpInterface>(op.getOperation()) &&
+           "DPS ops are not supported");
+    for (auto operand : op->getOperands()) {
       if (operand.getDefiningOp() == permuteOperand) {
-        newConcatOperands.push_back(permuteOperand.getOperand(0));
+        newConcatOperands.push_back(permuteOperand.getInput());
         continue;
       }
 
@@ -137,16 +131,16 @@ public:
             ttmlir::utils::inversePermutation(permuteOperand.getPermutation())),
         op.getType().getElementType());
     int64_t newConcatDim = permuteOperand.getPermutation()[currentConcatDim];
-    ConcatOp newConcat = utils::createDPSOp<ConcatOp>(
-        rewriter, op->getLoc(), newConcatType, newConcatOperands, newConcatDim);
+    ConcatOp newConcat = rewriter.create<ConcatOp>(
+        op->getLoc(), newConcatType, newConcatOperands, newConcatDim);
 
     RankedTensorType newPermuteType = RankedTensorType::get(
         ttmlir::utils::applyPermutation(newConcatType.getShape(),
                                         permuteOperand.getPermutation()),
         newConcatType.getElementType());
-    PermuteOp newPerm = utils::createDPSOp<PermuteOp>(
-        rewriter, op->getLoc(), newPermuteType, newConcat,
-        permuteOperand.getPermutation());
+    PermuteOp newPerm =
+        rewriter.create<PermuteOp>(op->getLoc(), newPermuteType, newConcat,
+                                   permuteOperand.getPermutation());
 
     rewriter.replaceOp(op, newPerm);
   }
@@ -176,13 +170,11 @@ private:
     // - Are an identical TM
     // - Are on a consteval-able path
 
-    for (uint32_t i = 0; i < op->getNumOperands(); i++) {
-      if (op.isDpsInit(&op->getOpOperand(i))) {
-        continue;
-      }
-      if (checkIdenticalTms(op->getOperand(i).getDefiningOp(),
-                            permuteOperand) ||
-          ttcore::valueTracesToConstantArgs(op->getOperand(i))) {
+    assert(!isa<DestinationStyleOpInterface>(op.getOperation()) &&
+           "DPS ops are not supported");
+    for (auto operand : op->getOperands()) {
+      if (checkIdenticalTms(operand.getDefiningOp(), permuteOperand) ||
+          ttcore::valueTracesToConstantArgs(operand)) {
         continue;
       }
       return false;
@@ -228,26 +220,24 @@ public:
                         : op.getDim();
 
     ArrayRef<int64_t> newConcatShape = reshapeUser.getType().getShape();
-    for (OpOperand &opOperand : op->getOpOperands()) {
-      if (op.isDpsInit(&opOperand)) {
-        continue;
-      }
-      Value operand = opOperand.get();
+    assert(!isa<DestinationStyleOpInterface>(op.getOperation()) &&
+           "DPS ops are not supported");
+    for (auto operand : op->getOperands()) {
       RankedTensorType operandType = cast<RankedTensorType>(operand.getType());
       SmallVector<int32_t> newOperandShape(newConcatShape);
       newOperandShape[newConcatDim] = operandType.getShape()[currentConcatDim];
       RankedTensorType newOperandType = RankedTensorType::get(
           SmallVector<int64_t>(newOperandShape.begin(), newOperandShape.end()),
           operandType.getElementType());
-      newConcatOperands.push_back(utils::createDPSOp<ReshapeOp>(
-          rewriter, op->getLoc(), newOperandType, operand,
+      newConcatOperands.push_back(rewriter.create<ReshapeOp>(
+          op->getLoc(), newOperandType, operand,
           rewriter.getI32ArrayAttr(newOperandShape)));
     }
 
     RankedTensorType newConcatType =
         RankedTensorType::get(newConcatShape, op.getType().getElementType());
-    ConcatOp newConcat = utils::createDPSOp<ConcatOp>(
-        rewriter, op->getLoc(), newConcatType, newConcatOperands, newConcatDim);
+    ConcatOp newConcat = rewriter.create<ConcatOp>(
+        op->getLoc(), newConcatType, newConcatOperands, newConcatDim);
 
     // All users must be identical TMs.
     // We must not reference `reshapeUser` during/after replacements, as it will
@@ -352,13 +342,11 @@ private:
     // - Are an identical TM
     // - Are on a consteval-able path
 
-    for (uint32_t i = 0; i < op->getNumOperands(); i++) {
-      if (op.isDpsInit(&op->getOpOperand(i))) {
-        continue;
-      }
-      if (checkIdenticalTms(op->getOperand(i).getDefiningOp(),
-                            reshapeOperand) ||
-          ttcore::valueTracesToConstantArgs(op->getOperand(i))) {
+    assert(!isa<DestinationStyleOpInterface>(op.getOperation()) &&
+           "DPS ops are not supported");
+    for (auto operand : op->getOperands()) {
+      if (checkIdenticalTms(operand.getDefiningOp(), reshapeOperand) ||
+          ttcore::valueTracesToConstantArgs(operand)) {
         continue;
       }
       return false;

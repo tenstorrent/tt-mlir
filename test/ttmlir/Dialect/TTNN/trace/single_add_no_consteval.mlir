@@ -21,8 +21,7 @@ module {
     // CHECK-NEXT: %[[TRACE_RESULT:.+]] = "ttnn.capture_or_execute_trace"(%[[GET_DEVICE]], %arg0, %arg1) <{capture_callee = @run_and_capture_trace_0_single_add, execute_callee = @execute_trace_0_single_add}>
     // CHECK-NOT: "ttnn.add"
     // CHECK: return %[[TRACE_RESULT]]
-    %0 = ttir.empty() : tensor<32x32xbf16>
-    %1 = "ttir.add"(%arg0, %arg1, %0) : (tensor<32x32xbf16>, tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
+    %1 = "ttir.add"(%arg0, %arg1) : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
     return %1 : tensor<32x32xbf16>
   }
 }

@@ -2,8 +2,7 @@
 // RUN: FileCheck %s --input-file=%t
 module attributes {} {
   func.func @forward(%arg0: tensor<64x128xf32>) -> tensor<64x128xbf16> {
-    %0 = ttir.empty() : tensor<64x128xbf16>
-    %1 = "ttir.typecast"(%arg0, %0) : (tensor<64x128xf32>, tensor<64x128xbf16>) -> tensor<64x128xbf16>
+    %1 = "ttir.typecast"(%arg0) : (tensor<64x128xf32>) -> tensor<64x128xbf16>
     // CHECK: = "ttnn.typecast"
     // CHECK-SAME: tensor<64x128xf32,
     // CHECK-SAME: tensor<64x128xbf16,
@@ -12,8 +11,7 @@ module attributes {} {
 
   func.func @cast_fold(%arg0: tensor<64x128xf32>) -> tensor<64x128xf32> {
     // CEHCK-LABEL: func.func @cast_fold
-    %0 = ttir.empty() : tensor<64x128xf32>
-    %1 = "ttir.typecast"(%arg0, %0) : (tensor<64x128xf32>, tensor<64x128xf32>) -> tensor<64x128xf32>
+    %1 = "ttir.typecast"(%arg0) : (tensor<64x128xf32>) -> tensor<64x128xf32>
     // CHECK-NOT: typecast
     // CHECK: return %arg0 : tensor<64x128xf32
     return %1 : tensor<64x128xf32>
@@ -23,10 +21,8 @@ module attributes {} {
     // CHECK-LABEL: func.func @cast_fold_add
     // CHECK-NOT: typecast
     // CHECK: ttnn.add
-    %0 = ttir.empty() : tensor<64x128xf32>
-    %1 = "ttir.typecast"(%arg0, %0) : (tensor<64x128xf32>, tensor<64x128xf32>) -> tensor<64x128xf32>
-    %2 = ttir.empty() : tensor<64x128xf32>
-    %3 = "ttir.add"(%1, %arg1, %2) : (tensor<64x128xf32>, tensor<64x128xf32>, tensor<64x128xf32>) -> tensor<64x128xf32>
+    %1 = "ttir.typecast"(%arg0) : (tensor<64x128xf32>) -> tensor<64x128xf32>
+    %3 = "ttir.add"(%1, %arg1) : (tensor<64x128xf32>, tensor<64x128xf32>) -> tensor<64x128xf32>
     return %3 : tensor<64x128xf32>
   }
 }

@@ -65,8 +65,8 @@ public:
       }
     }
 
-    ttir::utils::replaceOpWithNewDPSOp<TargetOp>(
-        rewriter, srcOp, outputType, adaptor.getOperands(), namedAttrs);
+    rewriter.replaceOpWithNewOp<TargetOp>(srcOp, outputType,
+                                          adaptor.getOperands(), namedAttrs);
     return success();
   }
 

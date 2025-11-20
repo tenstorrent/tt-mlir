@@ -25,8 +25,7 @@ module {
     // CHECK-SAME: shape = #ttnn.shape<1>
     %0 = "ttir.full"() <{shape = array<i32: 1>, fill_value = 3 : i32}> : () -> tensor<1xi32>
     %1 = "ttir.full"() <{shape = array<i32: 1>, fill_value = 1 : i32}> : () -> tensor<1xi32>
-    %2 = ttir.empty() : tensor<1xi32>
-    %3 = "ttir.add"(%0, %1, %2) : (tensor<1xi32>, tensor<1xi32>, tensor<1xi32>) -> tensor<1xi32>
+    %3 = "ttir.add"(%0, %1) : (tensor<1xi32>, tensor<1xi32>) -> tensor<1xi32>
     return %3 : tensor<1xi32>
   }
 }

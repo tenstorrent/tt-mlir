@@ -5,8 +5,7 @@
 
 module attributes {} {
   func.func @reduce_scatter_invalid_reduce_type_mean(%arg0: tensor<1x1x8192x256xf32>) -> tensor<1x1x8192x256xf32> {
-    %0 = ttir.empty() : tensor<1x1x8192x256xf32>
-    %1 = "ttir.reduce_scatter"(%arg0, %0) <{cluster_axis = 1 : ui32, reduce_type = #ttcore.reduce_type<mean>, scatter_dim = 3 : si32}> : (tensor<1x1x8192x256xf32>, tensor<1x1x8192x256xf32>) -> tensor<1x1x8192x256xf32>
+    %1 = "ttir.reduce_scatter"(%arg0) <{cluster_axis = 1 : ui32, reduce_type = #ttcore.reduce_type<mean>, scatter_dim = 3 : si32}> : (tensor<1x1x8192x256xf32>) -> tensor<1x1x8192x256xf32>
     return %1 : tensor<1x1x8192x256xf32>
   }
 }
@@ -16,8 +15,7 @@ module attributes {} {
 
 module attributes {} {
   func.func @reduce_scatter_invalid_reduce_type_std(%arg0: tensor<1x1x8192x256xf32>) -> tensor<1x1x8192x256xf32> {
-    %0 = ttir.empty() : tensor<1x1x8192x256xf32>
-    %1 = "ttir.reduce_scatter"(%arg0, %0) <{cluster_axis = 1 : ui32, reduce_type = #ttcore.reduce_type<std>, scatter_dim = 3 : si32}> : (tensor<1x1x8192x256xf32>, tensor<1x1x8192x256xf32>) -> tensor<1x1x8192x256xf32>
+    %1 = "ttir.reduce_scatter"(%arg0) <{cluster_axis = 1 : ui32, reduce_type = #ttcore.reduce_type<std>, scatter_dim = 3 : si32}> : (tensor<1x1x8192x256xf32>) -> tensor<1x1x8192x256xf32>
     return %1 : tensor<1x1x8192x256xf32>
   }
 }
@@ -27,8 +25,7 @@ module attributes {} {
 
 module attributes {} {
   func.func @reduce_scatter_invalid_reduce_type_var(%arg0: tensor<1x1x8192x256xf32>) -> tensor<1x1x8192x256xf32> {
-    %0 = ttir.empty() : tensor<1x1x8192x256xf32>
-    %1 = "ttir.reduce_scatter"(%arg0, %0) <{cluster_axis = 1 : ui32, reduce_type = #ttcore.reduce_type<var>, scatter_dim = 3 : si32}> : (tensor<1x1x8192x256xf32>, tensor<1x1x8192x256xf32>) -> tensor<1x1x8192x256xf32>
+    %1 = "ttir.reduce_scatter"(%arg0) <{cluster_axis = 1 : ui32, reduce_type = #ttcore.reduce_type<var>, scatter_dim = 3 : si32}> : (tensor<1x1x8192x256xf32>) -> tensor<1x1x8192x256xf32>
     return %1 : tensor<1x1x8192x256xf32>
   }
 }
@@ -38,8 +35,7 @@ module attributes {} {
 
 module attributes {} {
   func.func @reduce_scatter_invalid_dim(%arg0: tensor<1x1x8192x256xf32>) -> tensor<1x1x8192x256xf32> {
-    %0 = ttir.empty() : tensor<1x1x8192x256xf32>
-    %1 = "ttir.reduce_scatter"(%arg0, %0) <{cluster_axis = 1 : ui32, reduce_type = #ttcore.reduce_type<sum>, scatter_dim = 4 : si32}> : (tensor<1x1x8192x256xf32>, tensor<1x1x8192x256xf32>) -> tensor<1x1x8192x256xf32>
+    %1 = "ttir.reduce_scatter"(%arg0) <{cluster_axis = 1 : ui32, reduce_type = #ttcore.reduce_type<sum>, scatter_dim = 4 : si32}> : (tensor<1x1x8192x256xf32>) -> tensor<1x1x8192x256xf32>
     return %1 : tensor<1x1x8192x256xf32>
   }
 }
@@ -49,8 +45,7 @@ module attributes {} {
 
 module attributes {} {
   func.func @reduce_scatter_invalid_negative_dim(%arg0: tensor<1x1x8192x256xf32>) -> tensor<1x1x8192x256xf32> {
-    %0 = ttir.empty() : tensor<1x1x8192x256xf32>
-    %1 = "ttir.reduce_scatter"(%arg0, %0) <{cluster_axis = 1 : ui32, reduce_type = #ttcore.reduce_type<sum>, scatter_dim = -5 : si32}> : (tensor<1x1x8192x256xf32>, tensor<1x1x8192x256xf32>) -> tensor<1x1x8192x256xf32>
+    %1 = "ttir.reduce_scatter"(%arg0) <{cluster_axis = 1 : ui32, reduce_type = #ttcore.reduce_type<sum>, scatter_dim = -5 : si32}> : (tensor<1x1x8192x256xf32>) -> tensor<1x1x8192x256xf32>
     return %1 : tensor<1x1x8192x256xf32>
   }
 }

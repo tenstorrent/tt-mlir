@@ -4,7 +4,6 @@
 // RUN: ttmlir-translate --mlir-to-cpp -o %basename_t.cpp %t2.mlir
 
 func.func @forward(%arg0: tensor<512x1024xf32>) -> tensor<f32> {
-  %0 = ttir.empty() : tensor<f32>
-  %1 = "ttir.min"(%arg0, %0) <{keep_dim = false}> : (tensor<512x1024xf32>, tensor<f32>) -> tensor<f32>
-  return %1 : tensor<f32>
+  %0 = "ttir.min"(%arg0) <{keep_dim = false}> : (tensor<512x1024xf32>) -> tensor<f32>
+  return %0 : tensor<f32>
 }

@@ -16,8 +16,7 @@ module @ResNetBlock attributes {} {
                      %arg8: tensor<1x1x1x256xbf16> {ttir.name = "conv3.scale"},
                      %arg9: tensor<1x1x1x256xbf16> {ttir.name = "conv3.bias"})
                      -> (tensor<8x56x56x256xbf16> {ttir.name = "output"}) {
-    %0 = ttir.empty() : tensor<8x56x56x256xbf16> loc(#loc1)
-    %1 = "ttir.relu"(%arg0, %0) : (tensor<8x56x56x256xbf16>, tensor<8x56x56x256xbf16>) -> tensor<8x56x56x256xbf16> loc(#loc2)
+    %1 = "ttir.relu"(%arg0) : (tensor<8x56x56x256xbf16>) -> tensor<8x56x56x256xbf16> loc(#loc2)
     %2 = ttir.empty() : tensor<8x56x56x64xbf16> loc(#loc3)
     // CHECK-DAG: #[[SHARDED_LAYOUT:.*]] = #ttnn.ttnn_layout<{{.*}}_sharded
     // CHECK: %{{.*}}conv2d_config = #ttnn.conv2d_config<weights_dtype = bf16, activation = <op_type = relu>, deallocate_activation = false
@@ -26,8 +25,7 @@ module @ResNetBlock attributes {} {
     %11 = "ttir.conv2d"(%3, %arg4, %10) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<8x56x56x64xbf16>, tensor<64x64x3x3xbf16>, tensor<8x56x56x64xbf16>) -> tensor<8x56x56x64xbf16> loc(#loc12)
     %18 = ttir.empty() : tensor<8x56x56x256xbf16> loc(#loc19)
     %19 = "ttir.conv2d"(%11, %arg7, %18) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 0, 0, 0, 0>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<8x56x56x64xbf16>, tensor<256x64x1x1xbf16>, tensor<8x56x56x256xbf16>) -> tensor<8x56x56x256xbf16> loc(#loc20)
-    %24 = ttir.empty() : tensor<8x56x56x256xbf16> loc(#loc25)
-    %25 = "ttir.add"(%19, %1, %24) : (tensor<8x56x56x256xbf16>, tensor<8x56x56x256xbf16>, tensor<8x56x56x256xbf16>) -> tensor<8x56x56x256xbf16> loc(#loc26)
+    %25 = "ttir.add"(%19, %1) : (tensor<8x56x56x256xbf16>, tensor<8x56x56x256xbf16>) -> tensor<8x56x56x256xbf16> loc(#loc26)
     return %25 : tensor<8x56x56x256xbf16> loc(#loc27)
   }
 }

@@ -16,7 +16,7 @@ module attributes {ttcore.device = #any_device} {
     // CHECK-AFTER: d2m.to_layout %arg0, %{{.*}} : tensor<256x256xf32> into tensor<8x8x1x1x!ttcore.tile<32x32, f32>
     // CHECK-AFTER: d2m.generic {{{.*}}grid = #ttcore.grid<8x8>
 
-    %0 = "ttir.exp"(%arg0, %arg0) : (tensor<256x256xf32>, tensor<256x256xf32>) -> tensor<256x256xf32>
+    %0 = "ttir.exp"(%arg0) : (tensor<256x256xf32>) -> tensor<256x256xf32>
     return %0 : tensor<256x256xf32>
   }
 }

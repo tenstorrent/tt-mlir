@@ -4,8 +4,7 @@
 
 func.func @maximum(%arg0: tensor<64x128xf32>, %arg1: tensor<64x128xf32>) -> tensor<64x128xf32> {
   // CHECK: ttmetal.create_buffer
-  %0 = ttir.empty() : tensor<64x128xf32>
   // CHECK: ttmetal.enqueue_program
-  %1 = "ttir.maximum"(%arg0, %arg1, %0) : (tensor<64x128xf32>, tensor<64x128xf32>, tensor<64x128xf32>) -> tensor<64x128xf32>
+  %1 = "ttir.maximum"(%arg0, %arg1) : (tensor<64x128xf32>, tensor<64x128xf32>) -> tensor<64x128xf32>
   return %1 : tensor<64x128xf32>
 }

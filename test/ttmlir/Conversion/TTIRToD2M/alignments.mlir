@@ -30,13 +30,13 @@ module {
     %tensor_3d: tensor<2x128x96xf32>,
     %tensor_4d: tensor<2x2x64x64xf32>
   ) -> tensor<64x64xf32> {
-    %0 = "ttir.add"(%small, %small, %small) : (tensor<64x64xf32>, tensor<64x64xf32>, tensor<64x64xf32>) -> tensor<64x64xf32>
-    %1 = "ttir.add"(%medium, %medium, %medium) : (tensor<128x96xf32>, tensor<128x96xf32>, tensor<128x96xf32>) -> tensor<128x96xf32>
-    %2 = "ttir.add"(%large, %large, %large) : (tensor<512x512xf32>, tensor<512x512xf32>, tensor<512x512xf32>) -> tensor<512x512xf32>
-    %3 = "ttir.add"(%large_h, %large_h, %large_h) : (tensor<512x128xf32>, tensor<512x128xf32>, tensor<512x128xf32>) -> tensor<512x128xf32>
-    %4 = "ttir.add"(%large_w, %large_w, %large_w) : (tensor<128x512xf32>, tensor<128x512xf32>, tensor<128x512xf32>) -> tensor<128x512xf32>
-    %5 = "ttir.add"(%tensor_3d, %tensor_3d, %tensor_3d) : (tensor<2x128x96xf32>, tensor<2x128x96xf32>, tensor<2x128x96xf32>) -> tensor<2x128x96xf32>
-    %6 = "ttir.add"(%tensor_4d, %tensor_4d, %tensor_4d) : (tensor<2x2x64x64xf32>, tensor<2x2x64x64xf32>, tensor<2x2x64x64xf32>) -> tensor<2x2x64x64xf32>
+    %0 = "ttir.add"(%small, %small) : (tensor<64x64xf32>, tensor<64x64xf32>) -> tensor<64x64xf32>
+    %1 = "ttir.add"(%medium, %medium) : (tensor<128x96xf32>, tensor<128x96xf32>) -> tensor<128x96xf32>
+    %2 = "ttir.add"(%large, %large) : (tensor<512x512xf32>, tensor<512x512xf32>) -> tensor<512x512xf32>
+    %3 = "ttir.add"(%large_h, %large_h) : (tensor<512x128xf32>, tensor<512x128xf32>) -> tensor<512x128xf32>
+    %4 = "ttir.add"(%large_w, %large_w) : (tensor<128x512xf32>, tensor<128x512xf32>) -> tensor<128x512xf32>
+    %5 = "ttir.add"(%tensor_3d, %tensor_3d) : (tensor<2x128x96xf32>, tensor<2x128x96xf32>) -> tensor<2x128x96xf32>
+    %6 = "ttir.add"(%tensor_4d, %tensor_4d) : (tensor<2x2x64x64xf32>, tensor<2x2x64x64xf32>) -> tensor<2x2x64x64xf32>
     return %0 : tensor<64x64xf32>
   }
 
@@ -50,13 +50,13 @@ module {
     %non_aligned_3d_large_w : tensor<3x61x419xf32>,
     %non_aligned_4d : tensor<1x19x1x1xf32>
   ) -> tensor<256x32xf32> {
-    %0 = "ttir.exp"(%boundary, %boundary) : (tensor<256x32xf32>, tensor<256x32xf32>) -> tensor<256x32xf32>
-    %1 = "ttir.exp"(%under_boundary, %under_boundary) : (tensor<255x32xf32>, tensor<255x32xf32>) -> tensor<255x32xf32>
-    %2 = "ttir.exp"(%above_boundary, %above_boundary) : (tensor<257x32xf32>, tensor<257x32xf32>) -> tensor<257x32xf32>
-    %3 = "ttir.exp"(%non_aligned_2d, %non_aligned_2d) : (tensor<100x100xf32>, tensor<100x100xf32>) -> tensor<100x100xf32>
-    %4 = "ttir.exp"(%non_aligned_3d_large_h, %non_aligned_3d_large_h) : (tensor<5x37x11xf32>, tensor<5x37x11xf32>) -> tensor<5x37x11xf32>
-    %5 = "ttir.exp"(%non_aligned_3d_large_w, %non_aligned_3d_large_w) : (tensor<3x61x419xf32>, tensor<3x61x419xf32>) -> tensor<3x61x419xf32>
-    %6 = "ttir.exp"(%non_aligned_4d, %non_aligned_4d) : (tensor<1x19x1x1xf32>, tensor<1x19x1x1xf32>) -> tensor<1x19x1x1xf32>
+    %0 = "ttir.exp"(%boundary) : (tensor<256x32xf32>) -> tensor<256x32xf32>
+    %1 = "ttir.exp"(%under_boundary) : (tensor<255x32xf32>) -> tensor<255x32xf32>
+    %2 = "ttir.exp"(%above_boundary) : (tensor<257x32xf32>) -> tensor<257x32xf32>
+    %3 = "ttir.exp"(%non_aligned_2d) : (tensor<100x100xf32>) -> tensor<100x100xf32>
+    %4 = "ttir.exp"(%non_aligned_3d_large_h) : (tensor<5x37x11xf32>) -> tensor<5x37x11xf32>
+    %5 = "ttir.exp"(%non_aligned_3d_large_w) : (tensor<3x61x419xf32>) -> tensor<3x61x419xf32>
+    %6 = "ttir.exp"(%non_aligned_4d) : (tensor<1x19x1x1xf32>) -> tensor<1x19x1x1xf32>
     return %0 : tensor<256x32xf32>
   }
 }
