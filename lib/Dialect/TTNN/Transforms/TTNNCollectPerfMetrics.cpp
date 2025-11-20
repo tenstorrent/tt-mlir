@@ -176,7 +176,7 @@ private:
   }
 
   std::string generateAutoFilename(ModuleOp module) {
-    std::string baseName = "ttnn_perf_metrics";
+    std::string baseName = "UnnamedModule";
 
     // Try to get module name
     if (auto moduleSymName = module.getSymName()) {
@@ -202,6 +202,9 @@ private:
     llvm::SmallString<256> dirPath(filePath);
     llvm::sys::path::remove_filename(dirPath);
 
+    if (dirPath.empty()) {
+      return; // Current directory always exists
+    }
     std::error_code ec = llvm::sys::fs::create_directories(dirPath);
     if (ec) {
       llvm::report_fatal_error(Twine("Failed to create directory: ") + dirPath +
@@ -211,9 +214,12 @@ private:
 
   void writeJsonToFile(llvm::json::Object jsonOutput, ModuleOp module) {
     std::string outputPath;
-    if (ttnnPerfMetricsOutputFile.getValue() != "ttnn_perf_metrics.json") {
+    if (!ttnnPerfMetricsOutputFile.empty()) {
       // User specified a custom output file
       outputPath = ttnnPerfMetricsOutputFile.getValue();
+      if (!llvm::StringRef(outputPath).ends_with(".json")) {
+        outputPath += ".json";
+      }
     } else {
       // Generate automatic filename
       outputPath = generateAutoFilename(module);
