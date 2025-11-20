@@ -71,14 +71,19 @@ LogicalResult PagedUpdateCacheOpRewritePattern::matchAndRewrite(
       ttnn::MemoryConfigAttr::get(desiredInputLayout, grid);
   RankedTensorType memoryConfigedInputType =
       inputType.cloneWithEncoding(desiredInputLayout);
-  auto toMemoryConfigOp = rewriter.create<ttnn::ToMemoryConfigOp>(
-      op.getLoc(), memoryConfigedInputType, op.getInput(), inputMemoryConfig);
+  auto toLayoutOp = rewriter.create<ttnn::ToLayoutOp>(
+      op.getLoc(), memoryConfigedInputType, op.getInput(),
+      tt::ttnn::Layout::Tile,
+      ttcore::DataTypeAttr::get(
+          rewriter.getContext(),
+          ttcore::elementTypeToDataType(inputElementType)),
+      inputMemoryConfig);
 
   // Replace the original PagedUpdateCacheOp with one which takes our properly
   // configured input tensor.
   auto pagedUpdateCacheOp = rewriter.create<ttnn::PagedUpdateCacheOp>(
-      op.getLoc(), op.getCache(), toMemoryConfigOp.getResult(),
-      op.getUpdateIndex(), op.getShareCache(), op.getPageTable());
+      op.getLoc(), op.getCache(), toLayoutOp.getResult(), op.getUpdateIndex(),
+      op.getShareCache(), op.getPageTable());
 
   rewriter.replaceOp(op, pagedUpdateCacheOp);
   return success();

@@ -23,6 +23,8 @@ jobs:
   build-image:
     uses: ./.github/workflows/call-build-docker.yml
     secrets: inherit
+    with:
+      dockbuild: "all"
   release-build:
     needs: [ prepare-run, build-image ]
     if: needs.prepare-run.outputs.skip_build != 'true'

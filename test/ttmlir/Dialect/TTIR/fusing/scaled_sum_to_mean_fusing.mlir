@@ -2,6 +2,7 @@
 // RUN: FileCheck %s --input-file=%t
 
 func.func @scaled_sum_to_mean(%input: tensor<1x32x112x112xbf16>) -> tensor<1x32x1x1xbf16> {
+    // CHECK-LABEL: func.func @scaled_sum_to_mean
     %0 = "ttir.constant"() <{value = dense<7.97193861E-5> : tensor<1x32xbf16>}> : () -> tensor<1x32xbf16>
     %1 = ttir.empty() : tensor<1x32xbf16>
     // CHECK-NOT: "ttir.sum"
@@ -17,6 +18,7 @@ func.func @scaled_sum_to_mean(%input: tensor<1x32x112x112xbf16>) -> tensor<1x32x
 }
 
 func.func @scaled_sum_to_mean_no_reshape(%input: tensor<1x32x112x112xbf16>) -> tensor<1x32xbf16> {
+    // CHECK-LABEL: func.func @scaled_sum_to_mean_no_reshape
     %0 = "ttir.constant"() <{value = dense<7.97193861E-5> : tensor<1x32xbf16>}> : () -> tensor<1x32xbf16>
     %1 = ttir.empty() : tensor<1x32xbf16>
     // CHECK-NOT: "ttir.sum"
@@ -29,6 +31,7 @@ func.func @scaled_sum_to_mean_no_reshape(%input: tensor<1x32x112x112xbf16>) -> t
 }
 
 func.func @scaled_sum_to_mean_keep_dim(%input: tensor<1x32x112x112xbf16>) -> tensor<1x32x1x1xbf16> {
+    // CHECK-LABEL: func.func @scaled_sum_to_mean_keep_dim
     %0 = "ttir.constant"() <{value = dense<7.97193861E-5> : tensor<1x32x1x1xbf16>}> : () -> tensor<1x32x1x1xbf16>
     %1 = ttir.empty() : tensor<1x32x1x1xbf16>
     // CHECK-NOT: "ttir.sum"

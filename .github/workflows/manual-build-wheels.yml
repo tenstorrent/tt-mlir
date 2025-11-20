@@ -1,0 +1,18 @@
+name: Build Wheels
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-image:
+    uses: ./.github/workflows/call-build-docker.yml
+    secrets: inherit
+    with:
+      dockbuild: "all"
+  wheels-build:
+    needs: build-image
+    uses: ./.github/workflows/call-build-wheels.yml
+    secrets: inherit
+    with:
+      docker-tag: ${{ needs.build-image.outputs.docker-tag }}
+      docker_image: ${{ needs.build-image.outputs.docker-image }}

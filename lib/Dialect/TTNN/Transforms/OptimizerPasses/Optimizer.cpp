@@ -337,6 +337,8 @@ public:
     llvm::DenseSet<Edge> overrideReshardEdges;
     extractReshardEdges(moduleOp, overrideReshardEdges);
 
+    applyConv2dSliceConfigWorkaround(moduleOp);
+
     if (memoryLayoutAnalysisEnabled) {
       // Perform memory layout analysis.
       //
@@ -961,6 +963,15 @@ private:
         }
       }
     }
+  }
+
+  void applyConv2dSliceConfigWorkaround(ModuleOp moduleOp) {
+    moduleOp->walk([](ttnn::Conv2dOp conv2dOp) {
+      auto conv2dSliceConfigAttr = Conv2dSliceConfigAttr::get(
+          conv2dOp.getContext(), Conv2dSliceType::L1Full, 0);
+
+      conv2dOp.setConv2dSliceConfigAttr(conv2dSliceConfigAttr);
+    });
   }
 };
 

@@ -7,7 +7,8 @@ set -e
 
 # Parse command line arguments
 CHECK_ONLY=false
-if [[ "$1" == "--check-only" ]]; then
+dockbuild="$1"
+if [[ "$2" == "--check-only" ]]; then
     CHECK_ONLY=true
 fi
 
@@ -25,7 +26,6 @@ echo "Docker tag: $DOCKER_TAG"
 build_and_push() {
     local image_name=$1
     local dockerfile=$2
-    local from_image=$3
 
     IMAGE_EXISTS=false
     if docker manifest inspect $image_name:$DOCKER_TAG > /dev/null; then
@@ -45,14 +45,18 @@ build_and_push() {
         echo "Docker build neccessary, ensure dependencies for toolchain build..."
         sudo apt-get update && sudo apt-get install -y cmake build-essential
 
+        local target=""
+        if [ -n "$3" ]; then
+            target="--target $3"
+        fi
         # Toolchain build causes the OOM error if parallel level is not limited
         export CMAKE_BUILD_PARALLEL_LEVEL=32
 
         echo "Building image $image_name:$DOCKER_TAG"
         docker build \
             --progress=plain \
+            $target \
             --build-arg FROM_TAG=$DOCKER_TAG \
-            ${from_image:+--build-arg FROM_IMAGE=$from_image} \
             -t $image_name:$DOCKER_TAG \
             -t $image_name:latest \
             -f $dockerfile .
@@ -64,10 +68,15 @@ build_and_push() {
 }
 
 build_and_push $BASE_IMAGE_NAME .github/Dockerfile.base
-build_and_push $BASE_IRD_IMAGE_NAME .github/Dockerfile.ird base
 build_and_push $CI_IMAGE_NAME .github/Dockerfile.ci
-build_and_push $IRD_IMAGE_NAME .github/Dockerfile.ird ci
-build_and_push $CIBW_IMAGE_NAME .github/Dockerfile.cibuildwheel
+build_and_push $BASE_IRD_IMAGE_NAME .github/Dockerfile.ird base-ird
+build_and_push $IRD_IMAGE_NAME .github/Dockerfile.ird ird
+if [ "$dockbuild" == "all" ] || [ "$dockbuild" == "cibuildwheel" ]; then
+  echo "Building cibuildwheel image"
+  build_and_push $CIBW_IMAGE_NAME .github/Dockerfile.cibuildwheel toolchain-source
+else
+  echo "Skipping cibuildwheel image build"
+fi
 
 echo "All images built and pushed successfully"
 echo "CI_IMAGE_NAME:"
