@@ -551,6 +551,29 @@ def D2MAllocate: Pass<"d2m-allocate", "::mlir::ModuleOp"> {
   ];
 }
 
+def D2MInsertDeallocs: Pass<"d2m-insert-deallocs", "::mlir::ModuleOp"> {
+  let summary = "Insert dealloc operations for D2M allocated buffers using standard liveness analysis.";
+  let description = [{
+    This pass performs backward dataflow liveness analysis and inserts dealloc
+    operations at appropriate positions for buffers allocated by d2m-allocate.
+
+    The pass handles memory aliasing through view_layout and stream_layout operations:
+    - view_layout: result aliases the base buffer
+    - stream_layout: result aliases storage buffer, storage depends on input buffer
+
+    Uses standard backward liveness analysis:
+    ```
+    live_in[i] = use[i] ∪ (live_out[i] - def[i])
+    live_out[i-1] = live_in[i]
+    ```
+
+    Deallocs are inserted after the last operation where a value is live, with
+    special handling to ensure they're never inserted inside isolated regions
+    (e.g., d2m.generic compute regions).
+  }];
+  let dependentDialects = ["::mlir::tt::d2m::D2MDialect", "::mlir::memref::MemRefDialect"];
+}
+
 def D2MInsertStreams: Pass<"d2m-insert-streams", "::mlir::ModuleOp"> {
   let summary = "Always insert streams for D2M generic ops.";
   let description = [{
