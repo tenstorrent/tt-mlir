@@ -883,17 +883,13 @@ void d2m::GenericOp::build(mlir::OpBuilder &builder,
     }
 
     if (!outputIsView && metalLayout && hasNonIdentityIndexMap) {
-
       auto shapedType = mlir::cast<ShapedType>(outputs[0].getType());
       auto physicalGridShape = metalLayout.getPhysicalGridShape(shapedType);
 
-      // Only use virtual grid mapping if the grid actually needs virtualization
-      // (1D grids that exceed the device grid in one dimension). For "healthy"
-      // cases where the grid fits within the device grid, no virtualization is
-      // needed.
-      bool needsVirtualization =
-          (gridShape[0] == 1 && gridShape[1] > physicalGridShape[1]) ||
-          (gridShape[1] == 1 && gridShape[0] > physicalGridShape[0]);
+      // Only create virtual grid mapping if the grid actually exceeds the
+      // physical grid (needs virtualization). Non-virtual index_maps (like
+      // reblocking) don't need a grid inverse mapping.
+      bool needsVirtualization = !llvm::equal(gridShape, physicalGridShape);
 
       if (needsVirtualization) {
         auto [_, invMap] = ttmlir::d2m::utils::grids::createCoreVirtMaps(
@@ -1642,7 +1638,7 @@ d2m::GenericOp::getOperandGridShapes() {
               tensorType.getEncoding());
 
       // If operand has ViewLayoutAttr (from StreamLayoutOp), get layout from
-      // storage
+      // storage.
       if (!layout) {
         if (mlir::isa_and_nonnull<ttcore::ViewLayoutAttr>(
                 tensorType.getEncoding())) {
