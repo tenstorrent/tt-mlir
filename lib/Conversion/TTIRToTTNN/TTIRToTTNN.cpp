@@ -1627,22 +1627,20 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
     if (adaptor.getShardType() == ::mlir::tt::ttcore::MeshShardType::Identity) {
       // Helper lambda to add mesh_shard_global_shape attribute
-      auto addMeshShardGlobalShapeAttr = [](func::FuncOp funcOp,
-                                            uint32_t argIndex,
-                                            ArrayRef<int64_t> globalShape) {
-        SmallVector<NamedAttribute> newArgAttrs;
-        if (auto currentArgAttrDict = funcOp.getArgAttrDict(argIndex)) {
-          newArgAttrs =
-              SmallVector<NamedAttribute>(currentArgAttrDict.getValue());
-        }
-        auto shapeAttr =
-            DenseI64ArrayAttr::get(funcOp.getContext(), globalShape);
-        newArgAttrs.emplace_back(
-            StringAttr::get(funcOp.getContext(), "ttcore.global_shape"),
-            shapeAttr);
-        funcOp.setArgAttrs(
-            argIndex, DictionaryAttr::get(funcOp.getContext(), newArgAttrs));
-      };
+      auto addMeshShardGlobalShapeAttr =
+          [](func::FuncOp funcOp, uint32_t argIndex, Type globalType) {
+            SmallVector<NamedAttribute> newArgAttrs;
+            if (auto currentArgAttrDict = funcOp.getArgAttrDict(argIndex)) {
+              newArgAttrs =
+                  SmallVector<NamedAttribute>(currentArgAttrDict.getValue());
+            }
+            auto typeAttr = TypeAttr::get(globalType);
+            newArgAttrs.emplace_back(
+                StringAttr::get(funcOp.getContext(), "ttcore.global_shape"),
+                typeAttr);
+            funcOp.setArgAttrs(argIndex, DictionaryAttr::get(
+                                             funcOp.getContext(), newArgAttrs));
+          };
 
       // FullToShard: input is block argument
       if (adaptor.getShardDirection() ==
@@ -1654,17 +1652,13 @@ public:
           if (auto funcOp = mlir::dyn_cast<func::FuncOp>(parentOp)) {
             auto argIndex = blockArg.getArgNumber();
 
-            // Get the global shape from the input type (before conversion)
-            ArrayRef<int64_t> globalShape;
-            if (auto inputTensorType =
-                    mlir::dyn_cast<RankedTensorType>(input.getType())) {
-              globalShape = inputTensorType.getShape();
-            }
+            // Get the global type from the input (before conversion)
+            Type globalType = input.getType();
 
             // Get the output type (converted)
             Type outputType =
                 this->getTypeConverter()->convertType(op.getType());
-            if (outputType && !globalShape.empty()) {
+            if (outputType && globalType) {
               // Modify the function argument type to match the output type
               FunctionType originalFuncType = funcOp.getFunctionType();
               SmallVector<Type> newInputTypes(originalFuncType.getInputs());
@@ -1675,16 +1669,16 @@ public:
 
               rewriter.modifyOpInPlace(
                   funcOp, [&funcOp, &modifiedFuncType, argIndex, &outputType,
-                           &globalShape, &addMeshShardGlobalShapeAttr]() {
+                           &globalType, &addMeshShardGlobalShapeAttr]() {
                     funcOp.setType(modifiedFuncType);
                     // Update the block argument type - MLIR should handle this
                     // automatically but we explicitly set it to be safe
                     BlockArgument arg = funcOp.getArgument(argIndex);
                     arg.setType(outputType);
 
-                    // Add global shape attribute to mark this argument as
+                    // Add global type attribute to mark this argument as
                     // modified by mesh_shard
-                    addMeshShardGlobalShapeAttr(funcOp, argIndex, globalShape);
+                    addMeshShardGlobalShapeAttr(funcOp, argIndex, globalType);
                   });
             }
           }
@@ -1721,17 +1715,13 @@ public:
           // Get the parent function
           auto *parentOp = returnOp->getParentOp();
           if (auto funcOp = mlir::dyn_cast<func::FuncOp>(parentOp)) {
-            // Get the global shape from the output type (before conversion)
-            ArrayRef<int64_t> globalShape;
-            if (auto outputTensorType =
-                    mlir::dyn_cast<RankedTensorType>(op.getType())) {
-              globalShape = outputTensorType.getShape();
-            }
+            // Get the global type from the output (before conversion)
+            Type globalType = op.getType();
 
             // Get the input type (converted)
             Type inputType =
                 this->getTypeConverter()->convertType(input.getType());
-            if (inputType && !globalShape.empty()) {
+            if (inputType && globalType) {
               // First, update the ReturnOp operand to use the input
               SmallVector<Value> newOperands(returnOp.getOperands());
               newOperands[resultIndex] = input;
@@ -1747,24 +1737,22 @@ public:
               FunctionType modifiedFuncType = originalFuncType.clone(
                   originalFuncType.getInputs(), newResultTypes);
 
-              // Add global shape attribute to the return value
+              // Add global type attribute to the return value
               // Note: For return values, we store it as a result attribute
               rewriter.modifyOpInPlace(funcOp, [&funcOp, &modifiedFuncType,
-                                                resultIndex, &globalShape]() {
+                                                resultIndex, &globalType]() {
                 funcOp.setType(modifiedFuncType);
-                // Store global shape as result attribute
+                // Store global type as result attribute
                 SmallVector<NamedAttribute> newResultAttrs;
                 if (auto currentResultAttrDict =
                         funcOp.getResultAttrDict(resultIndex)) {
                   newResultAttrs = SmallVector<NamedAttribute>(
                       currentResultAttrDict.getValue());
                 }
-                auto shapeAttr =
-                    DenseI64ArrayAttr::get(funcOp.getContext(), globalShape);
+                auto typeAttr = TypeAttr::get(globalType);
                 newResultAttrs.emplace_back(
-                    StringAttr::get(funcOp.getContext(),
-                                    "ttmlir.mesh_shard_global_shape"),
-                    shapeAttr);
+                    StringAttr::get(funcOp.getContext(), "ttcore.global_shape"),
+                    typeAttr);
                 funcOp.setResultAttrs(
                     resultIndex,
                     DictionaryAttr::get(funcOp.getContext(), newResultAttrs));
