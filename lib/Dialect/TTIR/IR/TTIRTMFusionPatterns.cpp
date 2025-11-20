@@ -115,8 +115,8 @@ private:
     const int64_t rank = inputShape.size();
     int64_t inputIndex = 0;
     for (int64_t outputIndex = 0; outputIndex < rank; ++outputIndex) {
-      if (inputShape[inputIndex] == outputShape[outputIndex]) {
-        assert(inputIndex < rank && "input index out of bounds");
+      if (inputIndex < rank &&
+          inputShape[inputIndex] == outputShape[outputIndex]) {
         axesGroups.emplace_back(1, axesIds[inputIndex]);
         ++inputIndex;
       } else if (outputShape[outputIndex] == 1) {
