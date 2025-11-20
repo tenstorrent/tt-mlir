@@ -239,6 +239,8 @@ def _compile_and_execute(
     if target in ["ttnn", "ttmetal"]:
         golden_report = execute_fb(
             fb_path=fb_path,
+            mlir_path=mlir_path,
+            builder=builder,
             pcc=pcc,
             atol=atol,
             rtol=rtol,
@@ -1718,6 +1720,8 @@ def compile_ttir_module_to_flatbuffer(
 
 def execute_fb(
     fb_path: str,
+    mlir_path: str,
+    builder: Builder,
     goldens: Dict[Operand, GoldenMapTensor],
     pcc: float = 0.99,
     atol: float = 1e-08,
@@ -1896,6 +1900,11 @@ def execute_fb(
             # Check PCC
             pcc_fail = cal_pcc < pcc
             if pcc_fail:
+                _save_golden_report(
+                    builder,
+                    callback_runtime_config.golden_report,
+                    mlir_path + ".golden_report.json",
+                )
                 raise TTBuilderGoldenException(
                     f"Failed: program-level output golden comparison failed, actual_pcc={cal_pcc} < expected_pcc={pcc}"
                 )
@@ -1904,6 +1913,11 @@ def execute_fb(
 
             # Check atol if requested
             if check_atol and cal_atol > atol:
+                _save_golden_report(
+                    builder,
+                    callback_runtime_config.golden_report,
+                    mlir_path + ".golden_report.json",
+                )
                 raise TTBuilderGoldenException(
                     f"Failed: program-level output atol check failed, actual_atol={cal_atol} > expected_atol={atol}"
                 )
@@ -1914,6 +1928,11 @@ def execute_fb(
 
             # Check rtol if requested
             if check_rtol and cal_rtol > rtol:
+                _save_golden_report(
+                    builder,
+                    callback_runtime_config.golden_report,
+                    mlir_path + ".golden_report.json",
+                )
                 raise TTBuilderGoldenException(
                     f"Failed: program-level output rtol check failed, actual_rtol={cal_rtol} > expected_rtol={rtol}"
                 )
