@@ -48,8 +48,13 @@ Value materializeView(OpBuilder &builder, Location loc, Value viewResult) {
   // Allocate output storage for the materialized view result.
   auto layout =
       mlir::dyn_cast_or_null<ttcore::MetalLayoutAttr>(tensorType.getEncoding());
+  auto newLayout = ttcore::MetalLayoutAttr::get(
+      builder.getContext(), layout.getLogicalShape(),
+      layout.getDimAlignments(), layout.getCollapsedIntervals(),
+      layout.getOobVal(), layout.getMemorySpace(),
+      layout.getMemoryLayout(), builder.getEmptyAffineMap());
   auto emptyOp = builder.create<d2m::EmptyOp>(
-      loc, tensorType.getShape(), tensorType.getElementType(), layout);
+      loc, tensorType.getShape(), tensorType.getElementType(), newLayout);
 
   // Extract the grid from the tensor's layout to determine core distribution.
   ttcore::GridAttr grid = getGridFromType(tensorType);
