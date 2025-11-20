@@ -178,15 +178,14 @@ def binary_op_builder(op_name: str, builder: TTIRBuilder):
 ### ----------------------------------------------------------------------- ###
 
 
-def cosh(in0: Operand, builder: TTIRBuilder):
+def cosh(in0: Operand, in1: Operand, builder: TTIRBuilder):
     neg_x = builder.neg(in0)
 
     e_neg_x = builder.exp(neg_x)
     e_pos_x = builder.exp(in0)
 
     nr_term = builder.add(e_pos_x, e_neg_x)
-    const = builder.constant(torch.tensor(0.5))
-    ret_val = builder.multiply(nr_term, const)
+    ret_val = builder.multiply(nr_term, in1)
 
     return ret_val
 
@@ -205,8 +204,8 @@ def test_eltwise_fuse_cosh(
 
     compile_and_execute_ttir(
         cosh,
-        [shape],
-        [dtype],
+        [shape] * 2,
+        [dtype] * 2,
         target=target,
         custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
         test_base=request.node.name,
