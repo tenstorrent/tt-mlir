@@ -100,17 +100,6 @@ static bool isValidElementwiseFusionTarget(GenericOp gOp) {
     return false;
   }
 
-  // TODO(wenbinlyuTT): fusing ops w/ implicit bcast produces dangling
-  // unary_bcast ops that yields nothing.
-  for (OpOperand *input : gOp.getDpsInputOperands()) {
-    AffineMap indexingMap = gOp.getIndexingMap(input->getOperandNumber());
-    for (AffineExpr expr : indexingMap.getResults()) {
-      if (mlir::isa<AffineConstantExpr>(expr)) {
-        return false;
-      }
-    }
-  }
-
   return true;
 }
 

@@ -86,6 +86,7 @@ struct ConvertD2MToTTKernel
               for (auto operand : searchOp->getOperands()) {
                 consumerOperands.push_back(operand);
                 if (operand == bcastDstIdx) {
+                  assert(consumer == nullptr);
                   consumer = searchOp;
                 }
               }
