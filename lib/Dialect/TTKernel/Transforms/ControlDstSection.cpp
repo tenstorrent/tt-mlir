@@ -24,11 +24,23 @@ public:
   LogicalResult matchAndRewrite(ttkernel::PackTileOp op,
                                 PatternRewriter &rewriter) const final {
     Block *acquireBlock = findBlockContaining<ttkernel::TileRegsAcquireOp>(op);
-    if (!acquireBlock->getOps<ttkernel::TileRegsCommitOp>().empty()) {
+    Operation *parent = parentOpAtBlock(op, acquireBlock);
+
+    // Check if this parent already has been wrapped by looking at its immediate
+    // neighbors. The parent should have commit/wait before it and release after.
+    Operation *immediatePrev = parent->getPrevNode();
+    Operation *immediatePrevPrev = immediatePrev ? immediatePrev->getPrevNode() : nullptr;
+    Operation *immediateNext = parent->getNextNode();
+
+    // Pattern: <...> commit wait <parent> release <...>
+    if (immediatePrevPrev && isa<ttkernel::TileRegsCommitOp>(immediatePrevPrev) &&
+        immediatePrev && isa<ttkernel::TileRegsWaitOp>(immediatePrev) &&
+        immediateNext && isa<ttkernel::TileRegsReleaseOp>(immediateNext)) {
+      // Already wrapped
       return failure();
     }
 
-    Operation *parent = parentOpAtBlock(op, acquireBlock);
+    // Insert tile_regs management around this parent operation
     rewriter.setInsertionPoint(parent);
     rewriter.create<ttkernel::TileRegsCommitOp>(op->getLoc());
     rewriter.create<ttkernel::TileRegsWaitOp>(op->getLoc());
