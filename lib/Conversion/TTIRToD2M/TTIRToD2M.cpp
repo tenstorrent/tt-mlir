@@ -1093,22 +1093,7 @@ public:
   LogicalResult
   matchAndRewrite(TensorManipulationOp op, typename TensorManipulationOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    AffineMap logicalMap = LogicalAffineMapFn(op);
-    logicalMap.dump();
-
-    MLIRContext* context = logicalMap.getContext();
-    SmallVector<AffineExpr> projectExprs;
-    SmallVector<AffineExpr> contractExprs;
-    for (unsigned d = 0; d < logicalMap.getNumDims(); ++d) {
-      projectExprs.push_back(getAffineConstantExpr(0, context));
-    }
-    for (unsigned d = 0; d < logicalMap.getNumDims(); ++d) {
-      projectExprs.push_back(getAffineDimExpr(d, context));
-      contractExprs.push_back(getAffineDimExpr(d + logicalMap.getNumDims(), context));
-    }
-    auto project = mlir::AffineMap::get(logicalMap.getNumDims(), 0, projectExprs, context);
-    auto contract = mlir::AffineMap::get(logicalMap.getNumDims() * 2, 0, contractExprs, context);
-    auto indexingMap = project.compose(logicalMap).compose(contract);
+    AffineMap deviceMap = projectLogicalMapToUnitDeviceSpace(rewriter, LogicalAffineMapFn(op));
 
     auto [origInputs, origOutputs] =
         splitDpsSignature(adaptor, op.getDpsInits().size());
@@ -1123,7 +1108,7 @@ public:
     auto newLayout = ttcore::MetalLayoutAttr::get(
       layout.getContext(), layout.getLogicalShape(), layout.getOobVal(),
       layout.getMemorySpace(), layout.getMemoryLayout(),
-      layout.getCollapsedIntervals(), layout.getDimAlignments(), indexingMap );
+      layout.getCollapsedIntervals(), layout.getDimAlignments(), deviceMap);
     auto newOutTy = RankedTensorType::get(outTy.getShape(), outTy.getElementType(), newLayout);
 
     auto storage = rewriter.create<d2m::EmptyOp>(op.getLoc(), outputs[0].getType());
@@ -1134,6 +1119,34 @@ public:
                                           op->getResult(0).getType()));
 
     return success();
+  }
+
+  static AffineMap projectLogicalMapToUnitDeviceSpace(Builder& builder, AffineMap logicalMap) {
+    unsigned deviceRank = logicalMap.getNumResults() * 2;
+    SmallVector<AffineExpr> exprs(logicalMap.getResults());
+    int insertionOffset = 0;
+    while (exprs.size() < deviceRank) {
+      exprs.insert(exprs.begin() + insertionOffset, builder.getAffineDimExpr(exprs.size()));
+      ++insertionOffset;
+    }
+
+    AffineMap shardGridFlippedMap =
+        AffineMap::get(deviceRank, 0, exprs, builder.getContext());
+
+    SmallVector<unsigned> shardGridPermutation;
+    for (unsigned d = logicalMap.getNumResults(); d < deviceRank; ++d) {
+      shardGridPermutation.push_back(d);
+    }
+    for (unsigned d = 0; d < logicalMap.getNumResults(); ++d) {
+      shardGridPermutation.push_back(d);
+    }
+
+    AffineMap shardGridPermutationMap =
+        AffineMap::getPermutationMap(shardGridPermutation, builder.getContext());
+
+    auto final = shardGridFlippedMap.compose(shardGridPermutationMap);
+
+    return final;
   }
 };
 }
