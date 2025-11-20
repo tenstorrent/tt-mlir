@@ -3,10 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import os
-import ast
 import inspect
-import functools
-from typing import Literal
 
 from ttmlir.ir import *
 from ttmlir.passes import (
@@ -15,13 +12,12 @@ from ttmlir.passes import (
     ttnn_to_ttmetal_pipeline,
 )
 
-from ttnn_jit._src.utils import _cleanup_source_code
+from ttnn_jit._src.utils import _cleanup_source_code, _get_dispatch_core_type
 from ttnn_jit._src.dispatch_op import _run_binary, _run_binary_from_capsule
 from ttnn_jit._src import JitCache
 from ttnn_jit._src.ir_generator import generate_ir
 from ttnn_jit._src import (
     get_current_system_desc,
-    DispatchCoreType,
     create_runtime_device_from_ttnn,
 )
 
@@ -44,7 +40,7 @@ class JitFunction:
         self.compile_only = compile_only
         self.debug = debug
         self.graph_capture = graph_capture
-        self.out_dir = os.path.join("generated", "pykernels")
+        self.out_dir = os.path.join("generated", "ttnn-jit")
         os.makedirs(self.out_dir, exist_ok=True)
 
         self.system_desc_path = os.getenv("SYSTEM_DESC_PATH")
@@ -67,10 +63,8 @@ class JitFunction:
             input_tensors: Optional list of input tensors. If provided, will use the
                           device from the first tensor to avoid creating a new device.
         """
+        dispatch_core_type = _get_dispatch_core_type()
         try:
-            # Query system descriptor with ETH dispatch (default, matching ttrt behavior)
-            dispatch_core_type = DispatchCoreType.ETH
-
             # Use input tensor device to query if available.
             if input_tensors and len(input_tensors) > 0:
                 ttnn_device = input_tensors[0].device()
