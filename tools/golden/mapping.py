@@ -1456,6 +1456,27 @@ def index_golden(
     return torch.index_select(input_tensor, dim=dim, index=index)
 
 
+def shlo_constant_golden(**kwargs) -> GoldenMapTensor:
+    """
+    Golden function for constant operation with TTIR parameter names.
+
+    Parameters
+    ----------
+    **kwargs : dict
+        Keyword arguments including 'value'
+
+    Returns
+    -------
+    GoldenMapTensor
+        Constant tensor
+    """
+    value = kwargs.get("value", [1])
+    # Convert value to torch tensor if it's not already one
+    if not isinstance(value, torch.Tensor):
+        value = torch.tensor(value)
+    return GoldenMapTensor({0: value}, (1, 1))
+
+
 def gather_golden(
     input_tensor: GoldenMapTensor,
     start_indices_tensor: GoldenMapTensor,
@@ -3622,7 +3643,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     # stablehlo complex operations
     stablehlo.DotGeneralOp: dot_general_golden,
     stablehlo.ConcatenateOp: concat_golden,
-    stablehlo.ConstantOp: constant_golden,
+    stablehlo.ConstantOp: shlo_constant_golden,
     stablehlo.DynamicSliceOp: dynamic_slice_golden,
     # ----- TTNN OPS -----
     # Elementwise unary operations
