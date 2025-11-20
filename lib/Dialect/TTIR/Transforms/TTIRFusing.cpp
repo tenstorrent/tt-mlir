@@ -2116,16 +2116,11 @@ public:
     RankedTensorType linearOutputType = RankedTensorType::get(
         linearOutputShape, queryMatmulOp.getType().getElementType());
 
-    Value matmulDpsOutput = rewriter.create<EmptyOp>(
-        queryMatmulOp.getLoc(), linearOutputType.getShape(),
-        linearOutputType.getElementType(), linearOutputType.getEncoding());
-
     SmallVector<Value> inputs;
     if (concatenatedBias) {
-      inputs = {reshapeOutput, concatenatedWeightMatrix, concatenatedBias,
-                matmulDpsOutput};
+      inputs = {reshapeOutput, concatenatedWeightMatrix, concatenatedBias};
     } else {
-      inputs = {reshapeOutput, concatenatedWeightMatrix, matmulDpsOutput};
+      inputs = {reshapeOutput, concatenatedWeightMatrix};
     }
 
     MatMulOpType matrixMultOp = rewriter.create<MatMulOpType>(
@@ -2141,7 +2136,6 @@ public:
     auto keyType = permuteOps[1].getType();
     auto valueType = permuteOps[2].getType();
 
-    auto queryShape = queryType.getShape();
     auto keyShape = keyType.getShape();
     auto valueShape = valueType.getShape();
     int32_t numHeads = queryType.getShape()[O_NUM_KV_HEADS];
@@ -2155,30 +2149,19 @@ public:
     SmallVector<int32_t> reshapeToSplitShapeI32(reshapeToSplitShape.begin(),
                                                 reshapeToSplitShape.end());
 
-    ReshapeOp reshapeToSplit = ttir::utils::createDPSOp<ttir::ReshapeOp>(
-        rewriter, matrixMultOp.getLoc(), reshapeToSplitShape,
-        reshapeElementType, reshapeEncoding, matrixMultOp,
+    RankedTensorType reshapeTy = RankedTensorType::get(
+        reshapeToSplitShape, reshapeElementType, reshapeEncoding);
+    ReshapeOp reshapeToSplit = rewriter.create<ttir::ReshapeOp>(
+        matrixMultOp.getLoc(), reshapeTy, matrixMultOp,
         rewriter.getI32ArrayAttr(reshapeToSplitShapeI32));
-
-    // Create split qkv op.
-    Value queryOutput = rewriter.create<EmptyOp>(
-        matrixMultOp.getLoc(), queryShape, queryType.getElementType(),
-        queryType.getEncoding());
-    Value keyOutput = rewriter.create<EmptyOp>(matrixMultOp.getLoc(), keyShape,
-                                               keyType.getElementType(),
-                                               keyType.getEncoding());
-    Value valueOutput = rewriter.create<EmptyOp>(
-        matrixMultOp.getLoc(), valueShape, valueType.getElementType(),
-        valueType.getEncoding());
 
     // Determine if need to transpose key based on key and value.
     bool transposeKey = isKeyTransposed(keyShape, valueShape);
 
     auto splitOp = rewriter.create<SplitQueryKeyValueAndSplitHeadsOp>(
         matrixMultOp.getLoc(), ArrayRef<Type>{queryType, keyType, valueType},
-        reshapeToSplit, Value(), queryOutput, keyOutput, valueOutput,
-        rewriter.getUI32IntegerAttr(numHeads), IntegerAttr(),
-        rewriter.getBoolAttr(transposeKey) /*transpose_key*/);
+        reshapeToSplit, Value(), rewriter.getUI32IntegerAttr(numHeads),
+        IntegerAttr(), rewriter.getBoolAttr(transposeKey) /*transpose_key*/);
 
     rewriter.replaceOp(permuteOps[0], splitOp.getQuery());
     rewriter.replaceOp(permuteOps[1], splitOp.getKey());
@@ -2226,8 +2209,8 @@ private:
         RankedTensorType::get(concatenatedShape, firstType.getElementType());
 
     // Create concat op along given dimension.
-    return ttir::utils::createDPSOp<ttir::ConcatOp>(
-        rewriter, loc, concatenatedType, tensors,
+    return rewriter.create<ttir::ConcatOp>(
+        loc, concatenatedType, tensors,
         rewriter.getSI32IntegerAttr(dim) /* axis */);
   }
 

@@ -5535,9 +5535,6 @@ def TTIR_SplitQueryKeyValueAndSplitHeadsOp: TTIR_NamedOp<"split_query_key_value_
 
     let arguments = (ins AnyRankedTensor:$input_tensor,
                          Optional<AnyRankedTensor>:$kv_input_tensor,
-                         AnyRankedTensor:$query_output,
-                         AnyRankedTensor:$key_output,
-                         AnyRankedTensor:$value_output,
                          UI32Attr:$num_heads,
                          OptionalAttr<UI32Attr>:$num_kv_heads,
                          BoolAttr:$transpose_key);
