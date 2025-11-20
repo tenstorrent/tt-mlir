@@ -1750,6 +1750,39 @@ public:
     return rewriter.getAttr<emitc::OpaqueAttr>(code);
   }
 
+  mlir::Attribute emitConv3dConfig(uint32_t outChannels,
+                                   llvm::ArrayRef<int32_t> kernelSize,
+                                   llvm::ArrayRef<int32_t> stride,
+                                   llvm::ArrayRef<int32_t> padding,
+                                   llvm::StringRef paddingMode,
+                                   uint32_t groups) {
+    std::string buf;
+    llvm::raw_string_ostream rso(buf);
+
+    rso << "ttnn::operations::experimental::conv3d::Conv3dConfig{";
+    rso << ".output_channels = " << outChannels;
+
+    rso << ", .kernel_size = {";
+    llvm::interleaveComma(kernelSize, rso);
+    rso << "}";
+
+    rso << ", .stride = {";
+    llvm::interleaveComma(stride, rso);
+    rso << "}";
+
+    rso << ", .padding = {";
+    llvm::interleaveComma(padding, rso);
+    rso << "}";
+
+    rso << ", .padding_mode = \"" << paddingMode << "\"";
+    rso << ", .groups = " << groups;
+    rso << ", .compute_with_storage_grid_size = "
+           "device->compute_with_storage_grid_size()";
+    rso << "}";
+
+    return rewriter.getAttr<emitc::OpaqueAttr>(rso.str());
+  }
+
   template <typename TargetTy = void>
   mlir::Attribute emit(std::nullptr_t) {
     if constexpr (std::is_void_v<TargetTy>) {

@@ -1412,24 +1412,12 @@ public:
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput()),
         emitter.emit(srcOp.getWeight()),
-        emitter.emit(srcOp.getDevice()),
-        emitter.emit(srcOp.getInChannels()),
-        emitter.emit(srcOp.getOutChannels()),
-        emitter.emit(srcOp.getBatchSize()),
-        emitter.emit(srcOp.getInputDepth()),
-        emitter.emit(srcOp.getInputHeight()),
-        emitter.emit(srcOp.getInputWidth()),
-        emitter.emit<std::array<uint32_t, 3>>(srcOp.getKernelSizeAttr()),
-        emitter.emit<std::array<uint32_t, 3>>(srcOp.getStrideAttr()),
-        emitter.emit<std::array<uint32_t, 3>>(srcOp.getPaddingAttr()),
-        emitter.emit(srcOp.getPaddingMode()),
-        emitter.emit(srcOp.getGroups()),
-        emitter.emit(srcOp.getDtype()),
         emitter.emit(srcOp.getBias()),
-        /*compute_config=*/
-        emitter.emit(std::nullopt), // TODO(@vkovinicTT): Add EmitC support for
-                                    // DeviceComputeKernelConfigAttr
+        emitter.emitConv3dConfig(srcOp.getOutChannels(), srcOp.getKernelSize(),
+                                 srcOp.getStride(), srcOp.getPadding(),
+                                 srcOp.getPaddingMode(), srcOp.getGroups()),
         emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
+        emitter.emit(std::nullopt), // compute_config - not yet supported
     };
 
     emitter.replaceOp(*this, args);
