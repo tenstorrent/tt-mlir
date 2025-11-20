@@ -1,5 +1,5 @@
 
-option(USE_TTNN_JIT_WHEEL "Develop with ttnn-jit wheel" OFF)
+option(USE_TTNN_JIT_WHEEL "Develop with ttnn-jit wheel" ON)
 
 add_subdirectory(csrc)
 
