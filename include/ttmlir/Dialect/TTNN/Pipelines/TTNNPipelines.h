@@ -333,10 +333,13 @@ struct TTIRToTTNNBackendPipelineOptions
       llvm::cl::desc("Enable performance metrics collection."),
       llvm::cl::init(false)};
 
+  // Optional output file path for performance metrics JSON. If not provided,
+  // defaults to generate filename based on module or function name in
+  // "perf_metrics" directory.
   Option<std::string> ttnnPerfMetricsOutputFile{
       *this, "ttnn-perf-metrics-output-file",
       llvm::cl::desc("Output file path for the performance metrics JSON."),
-      llvm::cl::init("ttnn_perf_metrics.json")};
+      llvm::cl::init("")};
 
   Option<bool> ttnnPerfMetricsVerboseOutputEnabled{
       *this, "ttnn-perf-metrics-verbose-output-enabled",
