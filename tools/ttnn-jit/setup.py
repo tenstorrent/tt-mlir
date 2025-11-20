@@ -11,8 +11,6 @@ from pathlib import Path
 from setuptools import setup, Extension
 from setuptools.command.build_ext import build_ext
 
-# Configuration Constants
-PYTHON_VERSION = "cpython-310"
 DEFAULT_ARCH = "x86_64"
 
 
@@ -46,18 +44,28 @@ def get_dynamic_version():
     return base_version
 
 
-def get_is_srcdir_build():
-    """Check if we're in a source directory build"""
-    working_dir = Path(__file__).parent.parent.parent
-    git_dir = working_dir / ".git"
-    return git_dir.exists()
-
-
 class CMakeBuild(build_ext):
     """
     Custom build_ext command that runs CMake to build tt-mlir,
     then copies the MLIR libraries and Python bindings into the wheel.
     """
+
+    @staticmethod
+    def get_python_version() -> str:
+        """
+        Parse TTMLIR_PYTHON_VERSION environment variable. This is needed bc tt-metal will use Python3.10 while tt-mlir will use Python3.11.
+            eg: TTMLIR_PYTHON_VERSION="python3.10" -> "cpython-310"
+                TTMLIR_PYTHON_VERSION="3.10" -> "cpython-310"
+        """
+        python_version_env = os.getenv("TTMLIR_PYTHON_VERSION", "python3.11")
+        match = re.search(r"(\d+)\.(\d+)", python_version_env)
+
+        if match:
+            major = match.group(1)
+            minor = match.group(2)
+            return f"cpython-{major}{minor}"
+
+        return "cpython-311"
 
     @staticmethod
     def get_working_dir():
@@ -81,6 +89,10 @@ class CMakeBuild(build_ext):
     def run(self) -> None:
         """Build tt-mlir with TTNN-JIT enabled and copy MLIR libraries into wheel"""
 
+        self.tt_metal_home = os.environ.get("TT_METAL_HOME", "")
+        assert self.tt_metal_home, "TT_METAL_HOME is not set"
+        self.dev_build = os.environ.get("TTMLIR_DEV_BUILD", "OFF") == "ON"
+        self.python_version = self.get_python_version()
         # Skip for editable installs (dev workflow)
         if self.is_editable_install_():
             raise Exception("Editable install not supported for ttnn-jit")
@@ -93,43 +105,39 @@ class CMakeBuild(build_ext):
         build_dir = source_dir / "build"
 
         # Check if we're in a wheel build environment (cibuildwheel)
-        # if "CIBUILDWHEEL" in os.environ:
-        print("=" * 80)
-        print("Running full CMake configure and build")
-        print("=" * 80)
+        if not self.dev_build:
+            print("=" * 80)
+            print("Running full CMake configure and build")
+            print("=" * 80)
 
-        # CMake configuration arguments for wheel build
-        cmake_args = [
-            "cmake",
-            "-B",
-            str(build_dir),
-            "-G",
-            "Ninja",
-            f"-DCMAKE_BUILD_TYPE={build_type}",
-            "-DTTMLIR_ENABLE_RUNTIME=ON",
-            "-DTTMLIR_ENABLE_TTNN_JIT=ON",
-            "-DTTMLIR_ENABLE_TTRT=OFF",
-            "-DTTMLIR_ENABLE_BINDINGS_PYTHON=ON",
-            "-DTTMLIR_ENABLE_OPMODEL=OFF",
-            "-DTTMLIR_ENABLE_TESTS=OFF",
-        ]
-        cmake_args.extend(["-S", str(source_dir)])
-        print(f"Running CMake configure: {' '.join(cmake_args)}")
-        subprocess.check_call(cmake_args, env=build_env)
+            # CMake configuration arguments for wheel build
+            cmake_args = [
+                "cmake",
+                "-B",
+                str(build_dir),
+                "-G",
+                "Ninja",
+                f"-DCMAKE_BUILD_TYPE={build_type}",
+                "-DTTMLIR_ENABLE_RUNTIME=ON",
+                "-DTTMLIR_ENABLE_TTNN_JIT=ON",
+                "-DTTMLIR_ENABLE_TTRT=OFF",
+                "-DTTMLIR_ENABLE_BINDINGS_PYTHON=ON",
+                "-DTTMLIR_ENABLE_OPMODEL=OFF",
+                "-DTTMLIR_ENABLE_TESTS=OFF",
+            ]
+            cmake_args.extend(["-S", str(source_dir)])
+            print(f"Running CMake configure: {' '.join(cmake_args)}")
+            subprocess.check_call(cmake_args, env=build_env)
 
-        build_cmd = ["cmake", "--build", str(build_dir)]
-        print(f"Running CMake build: {' '.join(build_cmd)}")
-        subprocess.check_call(build_cmd, env=build_env)
-        print("CMake build completed successfully")
-        # else:
-        #     # Not in cibuildwheel - assume build already exists
-        #     if not build_dir.exists():
-        #         raise RuntimeError(
-        #             f"Build directory not found: {build_dir}\n"
-        #             "Please run 'cmake --build build' before building the wheel,\n"
-        #             "or set CIBUILDWHEEL=1 to trigger automatic CMake build."
-        #         )
-        #     print(f"Using existing build directory: {build_dir}")
+            build_cmd = ["cmake", "--build", str(build_dir)]
+            print(f"Running CMake build: {' '.join(build_cmd)}")
+            subprocess.check_call(build_cmd, env=build_env)
+            print("CMake build completed successfully")
+        else:
+            # In dev env.. assume build already exists through cmake flow
+            if not build_dir.exists():
+                raise RuntimeError(f"Build directory not found: {build_dir}\n")
+            print(f"Using existing build directory: {build_dir}")
 
         # Verbose sanity logging
         print("=" * 80)
@@ -213,30 +221,32 @@ class CMakeBuild(build_ext):
         libraries_to_copy = [
             (
                 build_dir / "python_packages" / "ttnn_jit",
-                f"_ttnn_jit.{PYTHON_VERSION}-{arch}-linux-gnu.so",
+                f"_ttnn_jit.{self.python_version}-{arch}-linux-gnu.so",
             ),
             (
                 build_dir / "python_packages" / "ttmlir",
-                f"_ttmlir.{PYTHON_VERSION}-{arch}-linux-gnu.so",
+                f"_ttmlir.{self.python_version}-{arch}-linux-gnu.so",
             ),
             (build_dir / "runtime" / "lib", "libTTMLIRRuntime.so"),
             (
                 build_dir / "runtime" / "python",
-                f"_ttmlir_runtime.{PYTHON_VERSION}-{arch}-linux-gnu.so",
+                f"_ttmlir_runtime.{self.python_version}-{arch}-linux-gnu.so",
             ),
             (build_dir / "tools" / "ttnn-jit" / "csrc", "libJITCPP.so"),
         ]
+        rpath_patches = [
+            "$ORIGIN",
+            "$ORIGIN/../../ttnn/build/lib",
+            "$ORIGIN/../../../../../../build/lib",
+            "/usr/local/lib",
+        ]
+        if self.dev_build:
+            rpath_patches.append(f"{self.tt_metal_home}/build/lib")
         for src_dir, lib_name in libraries_to_copy:
             src_file = src_dir / lib_name
             if src_file.exists():
                 shutil.copy2(src_file, lib_dest_dir / lib_name)
                 print(f"  Copied: {lib_name}")
-                rpath_patches = [
-                    "$ORIGIN",
-                    "$ORIGIN/../../ttnn/build/lib",
-                    "$ORIGIN/../../../../../../build/lib",
-                    "/usr/local/lib",
-                ]
                 print(f"  Patching rpath: {rpath_patches}")
                 subprocess.check_call(
                     [
