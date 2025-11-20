@@ -125,9 +125,12 @@ void createTTIRToTTMetalMiddleendPipeline(
     allocateOptions.streamInsertPolicy = options.streamInsertPolicy;
     allocateOptions.testAssumeL1Capacity = options.testAssumel1Capacity;
     allocateOptions.testBufferSizePolicy = options.testBufferSizePolicy;
+    allocateOptions.enableDeallocInsertion = options.insertDeallocs;
   }
   pm.addPass(d2m::createD2MAllocate(allocateOptions));
-  pm.addPass(d2m::createD2MInsertDeallocs());
+  if (!options.insertDeallocs) {
+    pm.addPass(d2m::createD2MInsertDeallocs());
+  }
 
   pm.addPass(createCanonicalizerPassWithOptions(options));
   d2m::D2MGenericApplyInterchangeOptions applyInterchangeOptions;

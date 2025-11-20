@@ -548,6 +548,10 @@ def D2MAllocate: Pass<"d2m-allocate", "::mlir::ModuleOp"> {
           "test-buffer-size-policy",
           "std::string", /*default=*/"\"max\"",
           "Set policy for sizing stream buffers ('min', 'max').">,
+    Option<"enableDeallocInsertion",
+          "enable-dealloc-insertion",
+          "bool", /*default=*/"true",
+          "Insert dealloc operations (set to false when using d2m-insert-deallocs pass).">,
   ];
 }
 
