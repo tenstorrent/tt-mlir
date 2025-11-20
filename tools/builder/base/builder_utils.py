@@ -41,10 +41,11 @@ from ttrt.common.util import (
     Logger,
     FileManager,
     Binary,
-    golden_tensor_to_torch,
-    ttrt_datatype_to_torch_dtype,
     get_atol_rtol_pcc,
     parse_fabric_config,
+    ttrt_datatype_to_torch_dtype,
+    create_tensor,
+    convert_input_layouts,
 )
 
 
@@ -223,7 +224,7 @@ def _compile_and_execute(
     **compile_kwargs
         All other arguments to pass through to the compile function
     """
-    builder, mlir_path = compile_fn(
+    builder, mlir_path, goldens = compile_fn(
         target=target,
         **compile_kwargs,
     )
@@ -245,6 +246,7 @@ def _compile_and_execute(
             device=device,
             check_atol=check_atol,
             check_rtol=check_rtol,
+            goldens=goldens,
         )
 
     if export_golden_report and not disable_golden:
@@ -1112,7 +1114,7 @@ def compile_ttir_to_flatbuffer(
             base=test_base,
         )
 
-        return builder, compile_ttir_module_to_flatbuffer(
+        return builder, *compile_ttir_module_to_flatbuffer(
             module,
             builder,
             system_desc_path=system_desc_path,
@@ -1212,7 +1214,7 @@ def compile_ttnn_to_flatbuffer(
     except Exception as e:
         raise TTBuilderCompileException(e)
 
-    return builder, compile_ttir_module_to_flatbuffer(
+    return builder, *compile_ttir_module_to_flatbuffer(
         module,
         builder,
         system_desc_path=system_desc_path,
@@ -1338,7 +1340,7 @@ def compile_d2m_to_flatbuffer(
     except Exception as e:
         raise TTBuilderCompileException(e)
 
-    return builder, compile_ttir_module_to_flatbuffer(
+    return builder, *compile_ttir_module_to_flatbuffer(
         module,
         builder,
         system_desc_path=system_desc_path,
@@ -1509,7 +1511,7 @@ def compile_stablehlo_to_flatbuffer(
         with open(filename, "w") as f:
             f.write(str(module))
 
-    return builder, compile_ttir_module_to_flatbuffer(
+    return builder, *compile_ttir_module_to_flatbuffer(
         module,
         builder,
         system_desc_path=system_desc_path,
@@ -1539,7 +1541,7 @@ def compile_ttir_module_to_flatbuffer(
     module_dump: bool = True,
     argument_types_string: Optional[str] = None,
     custom_pipeline: Optional[Union[Callable, str]] = None,
-    pipeline_options: List[str] = None,
+    pipeline_options: List[str] = [],
     print_ir: Union[bool, str] = False,
     goldens: Dict[Operand, GoldenMapTensor] = None,
 ):
@@ -1625,10 +1627,6 @@ def compile_ttir_module_to_flatbuffer(
     ValueError
         If an unsupported target is specified
     """
-
-    if pipeline_options is None:
-        pipeline_options = []
-
     if type(custom_pipeline) is str:
         custom_pipeline = _create_custom_ttir_pipeline_fn(
             custom_pipeline, print_ir=print_ir
@@ -1677,6 +1675,10 @@ def compile_ttir_module_to_flatbuffer(
     output_file_fbb = ".".join([output_file_mlir, target_extension])
 
     goldens = dict(builder.golden_map) if goldens is None else goldens
+    golden_tensors: Dict[str, Dict[int, GoldenTensor]] = {}
+
+    for loc, golden in goldens.items():
+        golden_tensors[loc] = builder._generate_golden_device_tensor(loc, golden)
 
     # Compile TTIR MLIR -> TT{Metal,NN} MLIR
     try:
@@ -1703,7 +1705,7 @@ def compile_ttir_module_to_flatbuffer(
         to_target(
             module,
             output_file_fbb,
-            goldens,
+            golden_tensors,
             module_logger.module_log if module_logger.module_log else [],
         )
     except Exception as e:
@@ -1711,11 +1713,12 @@ def compile_ttir_module_to_flatbuffer(
 
     print(f"{target} flatbuffer created successfully at: {output_file_fbb}")
 
-    return output_file_mlir
+    return output_file_mlir, goldens
 
 
 def execute_fb(
     fb_path: str,
+    goldens: Dict[Operand, GoldenMapTensor],
     pcc: float = 0.99,
     atol: float = 1e-08,
     rtol: float = 1e-05,
@@ -1727,49 +1730,13 @@ def execute_fb(
     """
     Takes a flatbuffer path `fb`, and executes it with random inputs supplied by `input_shapes` and `input_dtypes`
     """
-
-    # Register runtime debug hooks for intermediate golden checks
-    from ttrt.common.callback import (
+    from golden.callback import (
+        CallbackRuntimeConfig,
         pre_op_get_callback_fn,
         post_op_get_callback_fn,
-        CallbackRuntimeConfig,
     )
 
     assert device is not None
-
-    # Create 'owned tensor' in case of empty tensor;
-    # otherwise create 'borrowed tensor'.
-    def create_tensor(tensor):
-        # Empty tensor if any of the dim is zero.
-        isEmptyTensor = not all(tensor.shape)
-
-        if isEmptyTensor:
-            return ttrt.runtime.create_owned_host_tensor(
-                tensor.data_ptr(),
-                list(tensor.shape),
-                list(tensor.stride()),
-                tensor.element_size(),
-                Binary.Program.to_data_type(tensor.dtype),
-            )
-
-        return ttrt.runtime.create_borrowed_host_tensor(
-            tensor.data_ptr(),
-            list(tensor.shape),
-            list(tensor.stride()),
-            tensor.element_size(),
-            Binary.Program.to_data_type(tensor.dtype),
-        )
-
-    def convert_input_layouts(device, inputs, fbb, program_index):
-        import ttrt.runtime
-
-        inputs_converted = []
-        for input_index in range(len(inputs)):
-            input_layout = ttrt.runtime.get_layout(fbb, program_index, input_index)
-            inputs_converted.append(
-                ttrt.runtime.to_layout(inputs[input_index], device, input_layout, True)
-            )
-        return inputs_converted
 
     logger = Logger()
     logging = logger.get_logger()
@@ -1785,20 +1752,16 @@ def execute_fb(
     program_indices.extend(range(bin.get_num_programs()))
 
     if not disable_golden:
+        goldens = golden_map_as_torch_tensors(goldens)
         # Set up callback runtime config and register DebugHooks once per execution
         callback_runtime_config = CallbackRuntimeConfig(
             device=device,
-            artifact_dir="",
             pcc=pcc,
             atol=atol,
             rtol=rtol,
             check_atol=check_atol,
             check_rtol=check_rtol,
-            save_golden_tensors=False,
-            logging=logging,
-            enable_golden=not disable_golden,
-            enable_memory=False,
-            enable_debugger=False,
+            goldens=goldens,
         )
         ttrt.runtime.DebugHooks.get(
             pre_op_get_callback_fn(callback_runtime_config),
@@ -1813,26 +1776,21 @@ def execute_fb(
         # Skip private programs (e.g. subgraphs created by const-eval)
         if program.is_private():
             continue
-        if not disable_golden:
-            # Reset per-program callback state
-            callback_runtime_config.start_new_callback("")
 
-        # Fetch the golden inputs embedded in the flatbuffer
-        golden_inputs = []
+        # Fetch the golden inputs from the builder golden_map
+        golden_inputs_torch = []
         for i in range(program.num_inputs()):
             golden_tensor = {}
 
             if not disable_golden:
-                golden_tensor = bin.fbb.get_debug_info_golden(f"input_{i}")
+                golden_tensor = goldens[f"input_{i}"]
 
-            if len(golden_tensor) != 0:
-                golden_tensor = golden_tensor[0]
-                golden_tensor_torch = golden_tensor_to_torch(golden_tensor)
-                golden_inputs.append(golden_tensor_torch)
+                if len(golden_tensor) != 0:
+                    golden_inputs_torch.append(golden_tensor[0])
 
         program.populate_inputs(
             torch.randn,
-            golden_inputs,
+            golden_inputs_torch,
         )
         program.populate_outputs(torch.zeros)
 
@@ -1846,17 +1804,15 @@ def execute_fb(
             new_output = create_tensor(i)
             outputs.append(new_output)
 
-        # load output golden tensors from flatbuffer
+        # load output golden tensors from the builder golden_map
         if not disable_golden:
             golden_outputs_torch = []
             for idx in range(0, len(program.output_tensors)):
                 golden_tensor = {}
-                golden_tensor = bin.fbb.get_debug_info_golden(f"output_{idx}")
+                golden_tensor = goldens[f"output_{idx}"]
 
                 if len(golden_tensor) != 0:
-                    golden_tensor = golden_tensor[0]
-                    golden_tensor_torch = golden_tensor_to_torch(golden_tensor)
-                    golden_outputs_torch.append(golden_tensor_torch)
+                    golden_outputs_torch.append(golden_tensor[0])
 
         # pre-upload inputs
         inputs = convert_input_layouts(device, inputs, bin.fbb, program_index)
@@ -1984,6 +1940,18 @@ def execute_fb(
 
         if not disable_golden:
             return callback_runtime_config.golden_report
+
+
+def golden_map_as_torch_tensors(
+    golden_map_tensors: Dict[str, Dict[int, GoldenMapTensor]],
+) -> Dict[str, Dict[int, torch.Tensor]]:
+    golden_torch_tensors: Dict[str, Dict[int, torch.Tensor]] = {}
+
+    for loc, golden_map_tensor in golden_map_tensors.items():
+        contiguous_tensor = golden_map_tensor.contiguous()
+        golden_torch_tensors[loc] = contiguous_tensor.shard_map
+
+    return golden_torch_tensors
 
 
 def load_mlir_file(
