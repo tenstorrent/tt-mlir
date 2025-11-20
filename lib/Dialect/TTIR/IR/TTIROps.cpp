@@ -1716,30 +1716,30 @@ static mlir::OpFoldResult foldConsecutiveReshape(mlir::tt::ttir::ReshapeOp op) {
   }
 
   auto map = *failureOrMap;
-  if (getInput().getType().getRank() != map.getNumDims()) {
+  if (getInput().getType().getRank() != map.getNumResults()) {
     return emitOpError() << "number of dimensions in the pattern's input ("
-                         << map.getNumDims()
+                         << map.getNumResults()
                          << ") must match the rank of the input tensor ("
                          << getInput().getType().getRank() << ").";
   }
 
-  SmallVector<int64_t> lastInputIndex;
-  for (int64_t dim : getInput().getType().getShape()) {
-    lastInputIndex.push_back(dim - 1);
+  SmallVector<int64_t> lastOutputIndex;
+  for (int64_t dim : getOutput().getType().getShape()) {
+    lastOutputIndex.push_back(dim - 1);
   }
-  SmallVector<int64_t> lastOutputIndex = map.compose(lastInputIndex);
-  SmallVector<int64_t> expectedOutputShape;
+  SmallVector<int64_t> lastInputIndex = map.compose(lastOutputIndex);
+  SmallVector<int64_t> expectedInputShape;
   for (int64_t i = 0; i < map.getNumResults(); i++) {
-    expectedOutputShape.push_back(lastOutputIndex[i] + 1);
+    expectedInputShape.push_back(lastInputIndex[i] + 1);
   }
 
-  if (getResult().getType().getShape() !=
-      ArrayRef<int64_t>(expectedOutputShape)) {
-    return emitOpError() << "output tensor shape ("
+  if (getInput().getType().getShape() !=
+      ArrayRef<int64_t>(expectedInputShape)) {
+    return emitOpError() << "input tensor shape ("
                          << ttmlir::utils::join(
                                 getResult().getType().getShape(), ",")
                          << ") does not match the expected shape ("
-                         << ttmlir::utils::join(expectedOutputShape, ",")
+                         << ttmlir::utils::join(expectedInputShape, ",")
                          << ").";
   }
 
