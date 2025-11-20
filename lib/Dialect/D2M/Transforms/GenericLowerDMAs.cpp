@@ -337,7 +337,7 @@ public:
     std::pair<MemRefType, AffineMap> underlyingMemrefAndView =
         viewInterface.applyViews();
     // HACK
-    if (underlyingMemrefAndView.second.getNumResults() > 4) {
+    if (underlyingMemrefAndView.second.getNumDims() > 4) {
       MLIRContext* context = device.getContext();
       assert(underlyingMemrefAndView.second.getNumResults() % 2 == 0);
       unsigned numDims = underlyingMemrefAndView.second.getNumResults() / 2;
