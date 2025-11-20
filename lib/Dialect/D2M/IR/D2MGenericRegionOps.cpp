@@ -124,6 +124,12 @@ mlir::LogicalResult DMAOp::verify() {
     return emitOpError("operands must have the same post-index rank");
   }
 
+  if (!std::equal(srcType.getShape().begin() + srcIndices,
+                  srcType.getShape().end(),
+                  dstType.getShape().begin() + dstIndices)) {
+    return emitOpError("operands must have the same post-index shape");
+  }
+
   if (getSrcAffineMap() && !isSrcRemote()) {
     return emitOpError("if src affine map is provided, src must be remote");
   }
