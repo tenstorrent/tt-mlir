@@ -80,8 +80,13 @@ def test_l1_varying_grids(device, h, w, grid1, grid2, dtype, op):
 
     golden_op = _get_ttnn_op(op)
 
-    op_jit = ttnn_jit.jit(debug=True, max_grid=max(grid1, grid2))(op)
+    grid1_size = (grid1[0] + 1) * (grid1[1] + 1)
+    grid2_size = (grid2[0] + 1) * (grid2[1] + 1)
+    max_grid = grid1 if grid1_size >= grid2_size else grid2
+
+    op_jit = ttnn_jit.jit(debug=True, max_grid=max_grid)(op)
     output_tensor = op_jit(input_sharded_tensor1, input_sharded_tensor2)
+    print("after jit")
     golden_tensor = (golden_op or op)(input_sharded_tensor1, input_sharded_tensor2)
 
     assert all_close_check(output_tensor, golden_tensor)
@@ -138,18 +143,16 @@ def test_ttnn_mixed_memory_layouts(device, h, w, max_grid, dtype, op):
 def test_ttnn_l1_varying_grids(device, h, w, grid1, grid2):
 
     input_sharded_tensor1 = create_sharded_tile_tensor(
-        device, h, w, max_grid=grid1, dtype=torch.float32
+        device, h, w, max_grid=grid1, dtype=torch.bfloat16
     )
     input_sharded_tensor2 = create_sharded_tile_tensor(
-        device, h, w, max_grid=grid2, dtype=torch.float32
+        device, h, w, max_grid=grid2, dtype=torch.bfloat16
     )
 
-    golden_tensor = ttnn.add(input_sharded_tensor1, input_sharded_tensor2)
+    print("input tensor 1:", input_sharded_tensor1)
+    print("input tensor 2:", input_sharded_tensor2)
 
-    # op_jit = ttnn_jit.jit(
-    #     debug=True,
-    #     max_grid=max(grid1, grid2)
-    # )(add)
-    # output_tensor = op_jit(input_sharded_tensor1, input_sharded_tensor2)
+    golden_tensor = input_sharded_tensor1 + input_sharded_tensor2
+    print("golden tensor:", golden_tensor)
 
-    print(golden_tensor)
+    print(golden_tensor.cpu().to_torch())

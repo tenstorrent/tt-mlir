@@ -105,11 +105,13 @@ class TTIRCompiler(ast.NodeVisitor):
         if tensor_arg.memory_config().is_sharded():
             shard_spec = tensor_arg.memory_config().shard_spec
             shard_shape = shard_spec.shape
+            grid_bb = shard_spec.grid.bounding_box()
 
-            # Create ttcore grid atttr based off max_grid passed by user
+            # Create ttcore grid attr based off tensor sharding grid
             # Can't pull grid info from tensor unless it's sharded
-            grid_size_x = self.max_grid[0] + 1
-            grid_size_y = self.max_grid[1] + 1
+            grid_size_x = grid_bb.end.x + 1
+            grid_size_y = grid_bb.end.y + 1
+            print(f"Grid size from tensor: ({grid_size_x}, {grid_size_y})")
 
             # TTNN writes grids as (width, height) but compiler expects (height, width)
             grid = ttcore.ir.GridAttr.get(self.ctx, [grid_size_y, grid_size_x])
