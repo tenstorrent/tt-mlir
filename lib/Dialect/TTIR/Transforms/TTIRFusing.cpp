@@ -2947,13 +2947,6 @@ public:
     // Match the final add: add(unrotated_projection, rotated_projection)
     Value lhs = srcOp.getLhs();
     Value rhs = srcOp.getRhs();
-    std::string abcd;
-    llvm::raw_string_ostream stream(abcd);
-    stream << srcOp.getLoc();
-    std::string locStr = stream.str();
-    if (locStr.find("4412") != std::string::npos) {
-      llvm::outs() << "abcd" << "\n";
-    }
 
     // Try to identify which operand is unrotated and which is rotated
     auto lhsMul = lhs.getDefiningOp<MultiplyOp>();
