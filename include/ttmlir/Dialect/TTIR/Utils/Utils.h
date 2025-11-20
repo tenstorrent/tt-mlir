@@ -273,40 +273,15 @@ inline bool hasShouldHoistAttr(mlir::Operation *op) {
 // Determine if the stablehlo.convolution op represents a regular or
 // transposed convolution, based on Torch-MLIR lowering patterns:
 // https://github.com/llvm/torch-mlir/blob/main/lib/Conversion/TorchToStablehlo/Linear.cpp
-// and XLA patterns: convolution is transposed if the input dilation is
-// greater than 1.
+// Only transposed convolutions can have input dilation greater than 1.
+// Transposed convolutions always have a window stride of 1.
 inline bool isTransposedConv(ttir::ConvolutionOp convolutionOp) {
-  constexpr static uint32_t SPATIAL_DIM_HEIGHT = 0;
-  constexpr static uint32_t SPATIAL_DIM_WIDTH = 1;
-  ttir::ConvolutionLayoutAttr convLayoutAttr =
-      convolutionOp.getConvolutionLayoutAttr();
 
-  bool isTransposed =
-      convLayoutAttr.getKernelInputFeatureDimension() ==
-          convLayoutAttr.getInputSpatialDimensions()[SPATIAL_DIM_WIDTH] &&
-      convLayoutAttr.getKernelOutputFeatureDimension() ==
-          convLayoutAttr.getInputSpatialDimensions()[SPATIAL_DIM_HEIGHT] &&
-      convLayoutAttr.getInputSpatialDimensions() !=
-          convLayoutAttr.getKernelSpatialDimensions() &&
-      convLayoutAttr.getOutputSpatialDimensions() !=
-          convLayoutAttr.getKernelSpatialDimensions();
-  isTransposed |= llvm::any_of(convolutionOp.getInputDilation(),
-                               [](int64_t d) { return d > 1; });
+  bool isTransposed = llvm::any_of(convolutionOp.getInputDilation(),
+                                   [](int64_t d) { return d > 1; });
 
-  // Transposed convolution must have output spatial dimensions larger than
-  // input spatial dimensions.
-  auto inputType = convolutionOp.getInput().getType();
-  auto outputType = convolutionOp.getResult().getType();
-  if (inputType && outputType) {
-    auto inputSpatialDims = convLayoutAttr.getInputSpatialDimensions();
-    auto outputSpatialDims = convLayoutAttr.getOutputSpatialDimensions();
-    bool outputLarger =
-        outputType.getShape()[outputSpatialDims[SPATIAL_DIM_HEIGHT]] >
-            inputType.getShape()[inputSpatialDims[SPATIAL_DIM_HEIGHT]] ||
-        outputType.getShape()[outputSpatialDims[SPATIAL_DIM_WIDTH]] >
-            inputType.getShape()[inputSpatialDims[SPATIAL_DIM_WIDTH]];
-    isTransposed &= outputLarger;
-  }
+  isTransposed &= llvm::all_of(convolutionOp.getWindowStrides(),
+                               [](int64_t s) { return s == 1; });
 
   return isTransposed;
 }
