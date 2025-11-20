@@ -195,11 +195,11 @@ public:
     // ttir.rms_norm has AttrSizedOperandSegments: [input, weight, bias, output]
     size_t numOperands = adaptor.getOperands().size();
     SmallVector<int32_t> segmentSizes;
-    if (numOperands == 3) { // input, weight, output
+    if (numOperands == 3) { // input, weight, bias
       segmentSizes = {1, 1, 1, 1};
-    } else if (numOperands == 2) { // weight only
+    } else if (numOperands == 2) { // input, weight
       segmentSizes = {1, 1, 0, 1};
-    } else { // input only
+    } else { // input
       segmentSizes = {1, 0, 0, 1};
     }
 
