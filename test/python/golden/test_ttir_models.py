@@ -8,7 +8,7 @@ from typing import List
 
 from builder.base.builder import Operand, Shape
 from builder.ttir.ttir_builder import TTIRBuilder
-from builder.base.builder_utils import compile_and_execute_ttir
+from builder.base.builder_utils import BuilderCompileConfig
 
 pytestmark = pytest.mark.frontend("ttir")
 
@@ -23,15 +23,17 @@ def test_arbitrary_model(
         exp = builder.exp(in2)
         return builder.multiply(add, exp)
 
-    compile_and_execute_ttir(
-        model,
-        shapes,
-        dtypes,
-        test_base=request.node.name,
+    print(pytestmark)
+
+    cfg = BuilderCompileConfig(
+        system_desc_path=request.config.getoption("--sys-desc"),
         output_root=request.config.getoption("path"),
         device=device,
-        system_desc_path=request.config.getoption("--sys-desc"),
+        target="ttnn",
+        module_dump=True,
+        default_test_base=request.node.name,
     )
+    cfg.compile_and_execute_ttir(model, shapes, dtypes, test_base=request.node.name)
 
 
 @pytest.mark.xfail(reason="Fails Golden")
@@ -80,16 +82,15 @@ def test_mnist(
         add_6 = builder.add(matmul_5, in4)
         return builder.softmax(add_6, dimension=1)
 
-    compile_and_execute_ttir(
-        model,
-        shapes,
-        dtypes,
-        test_base=request.node.name,
-        target=target,
-        device=device,
-        output_root=request.config.getoption("path"),
+    cfg = BuilderCompileConfig(
         system_desc_path=request.config.getoption("--sys-desc"),
+        output_root=request.config.getoption("path"),
+        device=device,
+        target=target,
+        module_dump=True,
+        default_test_base=request.node.name,
     )
+    cfg.compile_and_execute_ttir(model, shapes, dtypes, test_base=request.node.name)
 
 
 @pytest.mark.xfail(reason="Fails Golden")
@@ -209,13 +210,12 @@ def test_llama_attention(
 
         return output115
 
-    compile_and_execute_ttir(
-        model,
-        shapes,
-        dtypes,
-        target=target,
-        device=device,
-        test_base=request.node.name,
-        output_root=request.config.getoption("path"),
+    cfg = BuilderCompileConfig(
         system_desc_path=request.config.getoption("--sys-desc"),
+        output_root=request.config.getoption("path"),
+        device=device,
+        target=target,
+        module_dump=True,
+        default_test_base=request.node.name,
     )
+    cfg.compile_and_execute_ttir(model, shapes, dtypes, test_base=request.node.name)
