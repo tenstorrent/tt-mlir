@@ -5542,7 +5542,6 @@ class StableHLOBuilder(Builder):
             },
         )
 
-
     # ----- Public Shardy Attribute Generators ----
 
     def mesh_axis_attr(
