@@ -200,6 +200,16 @@ def D2M_TilePowOp : D2M_GenericRegionComputeBinaryDstOp<"tile_pow", D2M_TileComp
     let results = (outs TTCore_Tile:$result);
 }
 
+def D2M_TilePowerScalarOp : D2M_GenericRegionComputeUnaryDstOp<"tile_power_scalar", D2M_TileComputeOpTraitBundle> {
+    let summary = "D2M Tile Power by Scalar Op";
+    let description = [{
+        The `tile_pow_scalar` operation raises each element in the input tile to a scalar power.
+    }];
+
+    let arguments = (ins TTCore_Tile:$input, F32Attr:$scalar);
+    let results = (outs TTCore_Tile:$result);
+}
+
 def D2M_TileExpOp : D2M_GenericRegionComputeUnaryDstOp<"tile_exp", D2M_TileComputeOpTraitBundle> {
     let summary = "D2M Tile Exp Op";
     let description = [{

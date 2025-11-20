@@ -763,6 +763,35 @@ def TTKernel_DivUnaryTileOp : TTKernel_SFPUOp<"div_unary_tile", [TTKernel_UnaryO
     }];
 }
 
+def TTKernel_PowerTileInitOp : TTKernel_InitOp<"power_tile_init"> {
+    let summary = "Init function for power_tile operation.";
+    let description = [{
+      Must be run before power_tile.
+    }];
+
+    let arguments = (ins);
+
+    let assemblyFormat = [{
+      `(` `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_PowUnaryTileOp : TTKernel_SFPUOp<"power_tile", [TTKernel_UnaryOpTrait]> {
+    let summary = "Power by scalar operation";
+    let description = [{
+      Performs element-wise exponentiation of a tile by a scalar value.
+      DST[dst0_index] <- DST[dst0_index] ^ scalar
+      The DST register buffer must be in acquired state via *tile_regs_acquire* call.
+      This call is blocking and is only available on the compute engine.
+    }];
+
+    let arguments = (ins IndexLike:$dst0_index, I32:$param);
+
+    let assemblyFormat = [{
+      `(` $dst0_index `,` $param `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
 def TTKernel_RecipTileInitOp : TTKernel_InitOp<"recip_tile_init"> {
     let summary = "Init function for recip_tile operation. Refer to documentation for any init function.";
     let description = [{

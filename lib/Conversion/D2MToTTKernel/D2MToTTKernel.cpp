@@ -387,10 +387,11 @@ using ComputeOpMap = OpMap<
   std::pair<d2m::TileSubOp,         std::pair<ttkernel::SubBinaryTilesInitOp,      ttkernel::SubBinaryTilesOp>>,
 
   // Elementwise SFPU Unary with Scalar.
-  std::pair<d2m::TileAddScalarOp,   std::pair<ttkernel::BinopWithScalarTileInitOp, ttkernel::AddUnaryTileOp>>,
-  std::pair<d2m::TileSubScalarOp,   std::pair<ttkernel::BinopWithScalarTileInitOp, ttkernel::SubUnaryTileOp>>,
-  std::pair<d2m::TileMulScalarOp,   std::pair<ttkernel::BinopWithScalarTileInitOp, ttkernel::MulUnaryTileOp>>,
-  std::pair<d2m::TileDivScalarOp,   std::pair<ttkernel::BinopWithScalarTileInitOp, ttkernel::DivUnaryTileOp>>,
+  std::pair<d2m::TileAddScalarOp,    std::pair<ttkernel::BinopWithScalarTileInitOp, ttkernel::AddUnaryTileOp>>,
+  std::pair<d2m::TileSubScalarOp,    std::pair<ttkernel::BinopWithScalarTileInitOp, ttkernel::SubUnaryTileOp>>,
+  std::pair<d2m::TileMulScalarOp,    std::pair<ttkernel::BinopWithScalarTileInitOp, ttkernel::MulUnaryTileOp>>,
+  std::pair<d2m::TileDivScalarOp,    std::pair<ttkernel::BinopWithScalarTileInitOp, ttkernel::DivUnaryTileOp>>,
+  std::pair<d2m::TilePowerScalarOp,  std::pair<ttkernel::PowerTileInitOp,           ttkernel::PowUnaryTileOp>>,
 
   // Reductions FPU
   std::pair<d2m::TileReduceSumOp,   std::pair<ttkernel::ComputeKernelHWStartupOp, ttkernel::ReduceTileOp>>,
@@ -706,13 +707,23 @@ public:
                          std::is_same_v<ConcreteOp, d2m::TileSubScalarOp> ||
                          std::is_same_v<ConcreteOp, d2m::TileMulScalarOp> ||
                          std::is_same_v<ConcreteOp, d2m::TileDivScalarOp>) {
-      // Scalar attribute ops - convert F32Attr to i32 param
+      // Scalar attribute ops - convert F32Attr to i32 param by reinterpreting
+      // bits
       const auto dstIdx = adaptor.getInput();
       llvm::APFloat scalarVal = op.getScalar();
       float floatVal = scalarVal.convertToFloat();
       uint32_t bits;
       std::memcpy(&bits, &floatVal, sizeof(float));
       auto scalarParam = i32(rewriter, op->getLoc(), bits);
+      rewriter.create<SFPUOp>(op->getLoc(), dstIdx, scalarParam);
+    } else if constexpr (std::is_same_v<ConcreteOp, d2m::TilePowerScalarOp>) {
+      // Power scalar op - convert F32Attr to integer directly (cast, not
+      // reinterpret)
+      const auto dstIdx = adaptor.getInput();
+      llvm::APFloat scalarVal = op.getScalar();
+      float floatVal = scalarVal.convertToFloat();
+      uint32_t intVal = static_cast<uint32_t>(floatVal);
+      auto scalarParam = i32(rewriter, op->getLoc(), intVal);
       rewriter.create<SFPUOp>(op->getLoc(), dstIdx, scalarParam);
     } else if constexpr (arity == 1) {
       rewriter.create<SFPUOp>(op->getLoc(), adaptor.getInput());
@@ -1569,6 +1580,7 @@ void populateD2MToTTKernelPatterns(
                ttkernel::D2MSFPUOpsRewriter<d2m::TileSubScalarOp>,
                ttkernel::D2MSFPUOpsRewriter<d2m::TileMulScalarOp>,
                ttkernel::D2MSFPUOpsRewriter<d2m::TileDivScalarOp>,
+               ttkernel::D2MSFPUOpsRewriter<d2m::TilePowerScalarOp>,
 
                ttkernel::D2MTilizeUntilizeRewriter<d2m::TileTilizeBlockOp, ttkernel::ExperimentalTilizeBlockOp>,
                ttkernel::D2MTilizeUntilizeRewriter<d2m::TileUntilizeBlockOp, ttkernel::ExperimentalUntilizeBlockOp>,
