@@ -12,55 +12,24 @@
 
 namespace mlir::tt::ttir {
 
-// This pattern fuses the sequence: Permute -> Reshape -> Permute into a single
-// reshape op.
+// This pattern fuses the sequence: PermuteOp -> ReshapeOp -> PermuteOp into a
+// single ReshapeOp when the following conditions are met:
+// Original shape: [A_1, A_2,.., A_k]
+// permute(p_1, p_2,..., p_k)    -> [A_1', A_2',.., A_k']
+// reshape([A_1', A_2',.., A_k']) -> [B_1, B_2,.., B_k]
+// permute(p_1', p_2',..., p_k') -> [B_1', 1, B_2',.., B_k']
 //
-// It is hard to express all pairs of permutations and reshapes that can
-// commute, so for now we only support the cases we need:
+// where:
+// - k is the rank of the input tensor;
+// - (p_1, p_2,..., p_k) and (p_1', p_2',..., p_k') are
+//   permutations of {0, 1, ..., k-1};
+// - B_i = (A_r', A_r+1',..., A_r+l') where 1 <= r <= k, l >= 0 and r + l <= k,
+//   for each 1 <= i <= k;
+// - flatten([B_1', B_2',.., B_k']) = [A_1, A_2,.., A_k].
 //
-// Case 1:
-// Original shape: [N, H, W, C]
-// permute(0, 3, 1, 2): [N, C, H, W]
-// reshape (N, C, H, W) -> (N, 1, C, H*W)
-// permute(0, 1, 3, 2): [N, 1, H*W, C]
+// The result of this sequence is identical to the following reshape:
+// reshape([A_1, A_2,.., A_k]) -> [B_1', 1, B_2',.., B_k']
 //
-// Case 2:
-// Original shape: [N, H, W, C]
-// permute(0, 3, 1, 2): [N, C, H, W]
-// reshape (N, C, H, W) -> (N, C, 1, H*W)
-// permute(0, 2, 3, 1): [N, 1, H*W, C]
-//
-// Both cases result in the same final shape. The result of either sequence is
-// identical to the following reshape:
-// reshape (N, H, W, C) -> (N, 1, H*W, C)
-
-// Reshape: n c h w -> n 1 c h*w
-static SmallVector<int64_t> computeCase1Reshape(ArrayRef<int64_t> inputShape) {
-  assert(inputShape.size() == 4 &&
-         "Expected 4D input tensor as output of 4D permutation");
-  return SmallVector<int64_t>{inputShape[0], 1, inputShape[1],
-                              inputShape[2] * inputShape[3]};
-}
-
-// Reshape: n c h w -> n c 1 h*w
-static SmallVector<int64_t> computeCase2Reshape(ArrayRef<int64_t> inputShape) {
-  assert(inputShape.size() == 4 &&
-         "Expected 4D input tensor as output of 4D permutation");
-  return SmallVector<int64_t>{inputShape[0], inputShape[1], 1,
-                              inputShape[2] * inputShape[3]};
-}
-
-struct PermuteReshapePermutePatternSpec {
-  SmallVector<int64_t> firstPermutation;
-  SmallVector<int64_t> secondPermutation;
-  SmallVector<int64_t> (*computeReshapeShape)(ArrayRef<int64_t>);
-};
-
-static const PermuteReshapePermutePatternSpec supportedPatterns[] = {
-    {{0, 3, 1, 2}, {0, 1, 3, 2}, computeCase1Reshape},
-    {{0, 3, 1, 2}, {0, 2, 3, 1}, computeCase2Reshape},
-};
-
 class PermuteReshapePermuteFusionPattern
     : public mlir::OpRewritePattern<PermuteOp> {
 public:
@@ -131,17 +100,6 @@ public:
         originalPermuteOp.getInput(), rewriter.getI32ArrayAttr(newShape));
 
     return success();
-  }
-
-private:
-  static const PermuteReshapePermutePatternSpec *
-  findMatchingPattern(ArrayRef<int64_t> permutation) {
-    for (const auto &pattern : supportedPatterns) {
-      if (llvm::equal(permutation, pattern.secondPermutation)) {
-        return &pattern;
-      }
-    }
-    return nullptr;
   }
 };
 
