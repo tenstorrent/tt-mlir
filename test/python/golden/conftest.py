@@ -12,6 +12,8 @@ import torch
 import subprocess
 from typing import Any, Dict, List, Tuple, Optional
 import math
+import signal
+import sys
 
 ALL_BACKENDS = set(["ttnn", "ttmetal", "emitc", "emitpy"])
 ALL_SYSTEMS = set(["n150", "n300", "llmbox", "tg", "p150", "p300"])
@@ -448,19 +450,53 @@ def pytest_runtest_call(item: pytest.Item):
     }
 
     failure_stage = "success"  # Default to success.
+    crashed = False
 
-    outcome = yield
+    # Set up signal handlers for common crash signals
+    def crash_handler(signum, frame):
+        nonlocal crashed, failure_stage
+        crashed = True
+        failure_stage = "crash"
+        # Log the crash details
+        pytest.fail(f"Test crashed with signal: {signum}")
+
+    original_handlers = {}
+    crash_signals = [signal.SIGSEGV, signal.SIGABRT, signal.SIGFPE]
+
+    for sig in crash_signals:
+        try:
+            original_handlers[sig] = signal.signal(sig, crash_handler)
+        except (ValueError, OSError):
+            # Some signals can't be caught
+            pass
+
     try:
-        outcome.get_result()
-    except Exception as exc:
-        exc_type = type(exc)
-        exc_name = exc_type.__name__
-        if exc_name not in TTBUILDER_EXCEPTIONS.keys():
-            pytest.fail(
-                f"Unknown failure detected! Please address this or correctly throw a `TTBuilder*` exception instead if this is a compilation issue, runtime error, or golden mismatch. Exception: {exc}:{type(exc)}"
-            )
-        failure_stage = TTBUILDER_EXCEPTIONS[exc_name]
+        outcome = yield
+        if not crashed:
+            try:
+                outcome.get_result()
+            except Exception as exc:
+                exc_type = type(exc)
+                exc_name = exc_type.__name__
+                if exc_name not in TTBUILDER_EXCEPTIONS.keys():
+                    pytest.fail(
+                        f"Unknown failure detected! Please address this or correctly throw a `TTBuilder*` exception instead if this is a compilation issue, runtime error, or golden mismatch. Exception: {exc}:{type(exc)}"
+                    )
+                failure_stage = TTBUILDER_EXCEPTIONS[exc_name]
+    except SystemExit:
+        # Handle process termination
+        failure_stage = "crash"
+        crashed = True
     finally:
+        # Restore original signal handlers
+        for sig, handler in original_handlers.items():
+            try:
+                signal.signal(sig, handler)
+            except (ValueError, OSError):
+                pass
+
+        if crashed:
+            failure_stage = "crash"
         _safe_add_property(item, "failure_stage", failure_stage)
 
 
