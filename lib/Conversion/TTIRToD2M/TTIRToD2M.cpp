@@ -1093,7 +1093,9 @@ public:
   LogicalResult
   matchAndRewrite(TensorManipulationOp op, typename TensorManipulationOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    LogicalAffineMapFn(op).dump();
     AffineMap deviceMap = projectLogicalMapToUnitDeviceSpace(rewriter, LogicalAffineMapFn(op));
+    deviceMap.dump();
 
     auto [origInputs, origOutputs] =
         splitDpsSignature(adaptor, op.getDpsInits().size());
@@ -1122,31 +1124,32 @@ public:
   }
 
   static AffineMap projectLogicalMapToUnitDeviceSpace(Builder& builder, AffineMap logicalMap) {
-    unsigned deviceRank = logicalMap.getNumResults() * 2;
+    int64_t deviceRank = static_cast<int64_t>(logicalMap.getNumDims() * 2);
     SmallVector<AffineExpr> exprs(logicalMap.getResults());
-    int insertionOffset = 0;
-    while (exprs.size() < deviceRank) {
-      exprs.insert(exprs.begin() + insertionOffset, builder.getAffineDimExpr(exprs.size()));
-      ++insertionOffset;
+    int64_t dimResultDiff = static_cast<int64_t>(logicalMap.getNumResults()) - static_cast<int64_t>(logicalMap.getNumDims());
+    while (exprs.size() < (logicalMap.getNumResults() * 2)) {
+      auto expr = exprs.size() <= deviceRank
+            ? builder.getAffineDimExpr(deviceRank - exprs.size() + dimResultDiff)
+            : builder.getAffineConstantExpr(0);
+      expr.dump();
+      exprs.insert(exprs.begin(), expr);
     }
 
     AffineMap shardGridFlippedMap =
         AffineMap::get(deviceRank, 0, exprs, builder.getContext());
 
     SmallVector<unsigned> shardGridPermutation;
-    for (unsigned d = logicalMap.getNumResults(); d < deviceRank; ++d) {
+    for (unsigned d = logicalMap.getNumDims(); d < (logicalMap.getNumDims() * 2); ++d) {
       shardGridPermutation.push_back(d);
     }
-    for (unsigned d = 0; d < logicalMap.getNumResults(); ++d) {
+    for (unsigned d = 0; d < logicalMap.getNumDims(); ++d) {
       shardGridPermutation.push_back(d);
     }
 
     AffineMap shardGridPermutationMap =
         AffineMap::getPermutationMap(shardGridPermutation, builder.getContext());
 
-    auto final = shardGridFlippedMap.compose(shardGridPermutationMap);
-
-    return final;
+    return shardGridFlippedMap.compose(shardGridPermutationMap);
   }
 };
 }

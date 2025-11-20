@@ -35,8 +35,8 @@ def test_rearrange(
     request,
     device,
 ):
-    in_shape = (3, 128, 128)
-    pattern = "z y x -> y z x"
+    in_shape = (3, 32, 32)
+    pattern = "z y x -> (y z) x"
 
     patterns = [
         ("z y x -> y z x", (3, 4, 32)),
@@ -46,7 +46,6 @@ def test_rearrange(
         ("z y x -> (z y x)", (3, 4, 32)),
         ("z y x -> (x z) y", (3, 4, 32)),
         ("z y x -> x (z y)", (3, 4, 32)),
-        #("(z y) x -> (x z) y", (12, 32)),
     ]
     ctx = Context()
     for p, s in patterns:
