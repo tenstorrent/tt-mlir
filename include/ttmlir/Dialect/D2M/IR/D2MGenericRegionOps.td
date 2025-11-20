@@ -81,20 +81,18 @@ class D2M_GenericRegionComputeBinaryDstOp<string mnemonic, list<Trait> traits = 
 }
 
 // Binary ops that support tile-tile OR tile-scalar operations
-class D2M_GenericRegionComputeBinaryOrUnaryDstOp<string mnemonic, list<Trait> traits = []> :
+class D2M_GenericRegionComputeBinaryWithScalarOptionDstOp<string mnemonic, list<Trait> traits = []> :
     D2M_GenericRegionComputeOp<mnemonic, traits> {
 
   let extraClassDeclaration = [{
     bool supportsTileOrScalarRhs() { return true; }
 
     mlir::SmallVector<int64_t> getOperandsLoadFromDstRegister() {
-      // If the RHS is a scalar type, it doesn't come from DST register
-      if (this->getNumOperands() >= 2) {
-        auto rhsType = this->getOperand(1).getType();
-        // If RHS is a scalar (not a tile), only load LHS from DST
-        if (!mlir::isa<::mlir::tt::ttcore::TileType>(rhsType)) {
-          return {0};
-        }
+      assert(this->getNumOperands() == 2 && "Binary operation must have 2 operands");
+      auto rhsType = this->getOperand(1).getType();
+      // If RHS is a scalar (not a tile), only load LHS from DST
+      if (!mlir::isa<::mlir::tt::ttcore::TileType>(rhsType)) {
+        return {0};
       }
       // Both operands are tiles, load both from DST
       return {0, 1};
@@ -121,7 +119,7 @@ defvar D2M_TileComputeOpTraitBundle = [
 // Type constraint that accepts either a Tile or a scalar value (float/int)
 def TileOrScalar : AnyTypeOf<[TTCore_Tile, AnyFloat, AnyInteger]>;
 
-def D2M_TileAddOp : D2M_GenericRegionComputeBinaryOrUnaryDstOp<"tile_add", D2M_TileComputeOpTraitBundle> {
+def D2M_TileAddOp : D2M_GenericRegionComputeBinaryWithScalarOptionDstOp<"tile_add", D2M_TileComputeOpTraitBundle> {
     let summary = "D2M Tile Add Op";
     let description = [{
         The `tile_add` operation adds two tiles element-wise on the SFPU,
@@ -133,7 +131,7 @@ def D2M_TileAddOp : D2M_GenericRegionComputeBinaryOrUnaryDstOp<"tile_add", D2M_T
     let results = (outs TTCore_Tile:$result);
 }
 
-def D2M_TileSubOp : D2M_GenericRegionComputeBinaryOrUnaryDstOp<"tile_sub", D2M_TileComputeOpTraitBundle> {
+def D2M_TileSubOp : D2M_GenericRegionComputeBinaryWithScalarOptionDstOp<"tile_sub", D2M_TileComputeOpTraitBundle> {
     let summary = "D2M Tile Sub Op";
     let description = [{
         The `tile_sub` operation subtracts two tiles element-wise on the SFPU,
@@ -145,7 +143,7 @@ def D2M_TileSubOp : D2M_GenericRegionComputeBinaryOrUnaryDstOp<"tile_sub", D2M_T
     let results = (outs TTCore_Tile:$result);
 }
 
-def D2M_TileMulOp : D2M_GenericRegionComputeBinaryOrUnaryDstOp<"tile_mul", D2M_TileComputeOpTraitBundle> {
+def D2M_TileMulOp : D2M_GenericRegionComputeBinaryWithScalarOptionDstOp<"tile_mul", D2M_TileComputeOpTraitBundle> {
     let summary = "D2M Tile Mul Op";
     let description = [{
         The `tile_mul` operation multiplies two tiles element-wise on the SFPU,
@@ -157,7 +155,7 @@ def D2M_TileMulOp : D2M_GenericRegionComputeBinaryOrUnaryDstOp<"tile_mul", D2M_T
     let results = (outs TTCore_Tile:$result);
 }
 
-def D2M_TileDivOp : D2M_GenericRegionComputeBinaryOrUnaryDstOp<"tile_div", D2M_TileComputeOpTraitBundle> {
+def D2M_TileDivOp : D2M_GenericRegionComputeBinaryWithScalarOptionDstOp<"tile_div", D2M_TileComputeOpTraitBundle> {
     let summary = "D2M Tile Div Op";
     let description = [{
         The `tile_div` operation divides two tiles element-wise,
@@ -179,7 +177,7 @@ def D2M_TileRecipOp : D2M_GenericRegionComputeUnaryDstOp<"tile_recip", D2M_TileC
     let results = (outs TTCore_Tile:$result);
 }
 
-def D2M_TilePowOp : D2M_GenericRegionComputeBinaryOrUnaryDstOp<"tile_pow", D2M_TileComputeOpTraitBundle> {
+def D2M_TilePowOp : D2M_GenericRegionComputeBinaryWithScalarOptionDstOp<"tile_pow", D2M_TileComputeOpTraitBundle> {
     let summary = "D2M Tile Pow Op";
     let description = [{
         The `tile_pow` operation raises two tiles element-wise,
