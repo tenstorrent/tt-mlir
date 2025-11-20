@@ -3,6 +3,8 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
+set -e -o pipefail
+
 echo "Download alchemist wheel"
 gh run download $RUN_ID --repo tenstorrent/tt-mlir --name "tt-alchemist-whl-speedy"
 
