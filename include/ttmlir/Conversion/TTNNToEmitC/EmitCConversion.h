@@ -1738,6 +1738,18 @@ public:
     return rewriter.getAttr<emitc::OpaqueAttr>(rso.str());
   }
 
+  mlir::Attribute emitSubDeviceId(std::optional<uint32_t> subDeviceId) {
+    if (!subDeviceId) {
+      return emit(std::nullopt);
+    }
+
+    std::string code = "std::make_optional<::tt::tt_metal::SubDeviceId>(";
+    code += std::to_string(*subDeviceId);
+    code += ")";
+
+    return rewriter.getAttr<emitc::OpaqueAttr>(code);
+  }
+
   template <typename TargetTy = void>
   mlir::Attribute emit(std::nullptr_t) {
     if constexpr (std::is_void_v<TargetTy>) {

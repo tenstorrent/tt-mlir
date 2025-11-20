@@ -129,9 +129,6 @@ void setTensorRetain(Tensor tensor, bool retain);
 
 tt::target::Arch getArch();
 
-void enablePersistentKernelCache();
-void disablePersistentKernelCache();
-
 size_t getNumAvailableDevices();
 
 Device openMeshDevice(const MeshDeviceOptions &options = {});

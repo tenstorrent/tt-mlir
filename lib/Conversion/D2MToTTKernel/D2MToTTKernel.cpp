@@ -836,6 +836,30 @@ public:
   static_assert(std::is_same_v<D2MCBOp, d2m::WaitOp> ||
                 std::is_same_v<D2MCBOp, d2m::ReserveOp>);
 
+  // Check if there's an explicit push/pop for this CB in the same block
+  static bool hasExplicitRelease(D2MCBOp op) {
+    Block *block = op->getBlock();
+    Value cb = op.getCb();
+
+    // Check for explicit d2m.push (for reserve) or d2m.pop (for wait)
+    for (Operation &blockOp : *block) {
+      if constexpr (std::is_same_v<D2MCBOp, d2m::ReserveOp>) {
+        if (auto pushOp = dyn_cast<d2m::PushOp>(&blockOp)) {
+          if (pushOp.getCb() == cb) {
+            return true;
+          }
+        }
+      } else if constexpr (std::is_same_v<D2MCBOp, d2m::WaitOp>) {
+        if (auto popOp = dyn_cast<d2m::PopOp>(&blockOp)) {
+          if (popOp.getCb() == cb) {
+            return true;
+          }
+        }
+      }
+    }
+    return false;
+  }
+
   LogicalResult
   matchAndRewrite(D2MCBOp op, typename D2MCBOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
@@ -861,19 +885,48 @@ public:
 
     rewriter.create<TTKernelAcquireOp>(op.getLoc(), adaptor.getCb(), numPages);
 
-    Block *block = op->getBlock();
-    auto release = rewriter.create<TTKernelReleaseOp>(
-        op.getLoc(), adaptor.getCb(), numPages);
-    if (block->mightHaveTerminator()) {
-      rewriter.moveOpBefore(release, block->getTerminator());
-    } else {
-      rewriter.moveOpAfter(release, &block->back());
+    // Only insert automatic release if there's no explicit push/pop
+    if (!hasExplicitRelease(op)) {
+      Block *block = op->getBlock();
+      auto release = rewriter.create<TTKernelReleaseOp>(
+          op.getLoc(), adaptor.getCb(), numPages);
+      if (block->mightHaveTerminator()) {
+        rewriter.moveOpBefore(release, block->getTerminator());
+      } else {
+        rewriter.moveOpAfter(release, &block->back());
+      }
     }
 
     rewriter.replaceOp(op, adaptor.getCb());
 
     return success();
   };
+};
+} // namespace
+
+namespace {
+// Template rewriter for d2m.push/pop → ttkernel.cb_push_back/cb_pop_front
+template <typename D2MReleaseOp, typename TTKernelReleaseOp>
+class D2MCBReleaseOpRewriter : public OpConversionPattern<D2MReleaseOp> {
+public:
+  using OpConversionPattern<D2MReleaseOp>::OpConversionPattern;
+
+  static_assert(std::is_same_v<D2MReleaseOp, d2m::PushOp> ||
+                std::is_same_v<D2MReleaseOp, d2m::PopOp>);
+
+  LogicalResult
+  matchAndRewrite(D2MReleaseOp op, typename D2MReleaseOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    auto device = ttcore::lookupDevice(op);
+
+    auto cbNumPages = device.getMemrefCBNumPages(
+        op.getCb().getType().template getUnderlyingAs<MemRefType>());
+    auto numPages = i32(rewriter, op->getLoc(), cbNumPages);
+
+    rewriter.replaceOpWithNewOp<TTKernelReleaseOp>(op, adaptor.getCb(),
+                                                   numPages);
+    return success();
+  }
 };
 } // namespace
 
@@ -1502,6 +1555,8 @@ void populateD2MToTTKernelPatterns(
                ttkernel::MemrefStoreRewriter,
                ttkernel::D2MCBOpRewriter<d2m::WaitOp, ttkernel::CBWaitFrontOp, ttkernel::CBPopFrontOp>,
                ttkernel::D2MCBOpRewriter<d2m::ReserveOp, ttkernel::CBReserveBackOp, ttkernel::CBPushBackOp>,
+               ttkernel::D2MCBReleaseOpRewriter<d2m::PushOp, ttkernel::CBPushBackOp>,
+               ttkernel::D2MCBReleaseOpRewriter<d2m::PopOp, ttkernel::CBPopFrontOp>,
                ttkernel::D2MDMAWaitRewriter,
                ttkernel::D2MCoreIndexRewriter,
                ttkernel::D2MNullTxRewriter,
