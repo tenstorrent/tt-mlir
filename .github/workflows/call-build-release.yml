@@ -156,6 +156,9 @@ jobs:
         export UPLOAD_LIST="$WORK_DIR/_components_upload.json"
         echo "[" >$UPLOAD_LIST
         echo "{\"name\":\"ttrt-whl-$BUILD_NAME\",\"path\":\"$WORK_DIR/build/tools/ttrt/build/ttrt*.whl\"}," >> $UPLOAD_LIST
+        if ls $WORK_DIR/tools/ttnn-jit/build/ttnn_jit*.whl 1> /dev/null 2>&1; then
+          echo "{\"name\":\"ttnn-jit-whl-$BUILD_NAME\",\"path\":\"$WORK_DIR/tools/ttnn-jit/build/ttnn_jit*.whl\"}," >> $UPLOAD_LIST
+        fi
 
         # run all component build scripts
         if [ -f ".github/settings/build.json" ]; then

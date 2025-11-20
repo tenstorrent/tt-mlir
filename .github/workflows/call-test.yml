@@ -91,7 +91,21 @@ jobs:
       run: |
         source env/activate
         pip show ttrt && pip uninstall -y ttrt
-        pip install ttrt-${{ env.version }}*.whl --upgrade
+        pip install ttrt*.whl --upgrade
+
+    - name: Download ttnn-jit whls
+      if: matrix.build.image == 'tracy'
+      uses: actions/download-artifact@v4
+      with:
+        name: ttnn-jit-whl-${{ matrix.build.image }}
+
+    - name: Install ttnn-jit run whls
+      if: matrix.build.image == 'tracy'
+      shell: bash
+      run: |
+        source env/activate
+        pip show ttnn-jit && pip uninstall -y ttnn-jit
+        pip install ttnn_jit*.whl --upgrade
 
     - name: Download Build Artifacts
       uses: tenstorrent/tt-forge/.github/actions/download-artifact@main
@@ -132,6 +146,7 @@ jobs:
         export LD_LIBRARY_PATH="${{ steps.strings.outputs.install-output-dir }}/lib:${TTMLIR_TOOLCHAIN_DIR}/lib:${LD_LIBRARY_PATH}"
         export SYSTEM_DESC_PATH="${GITHUB_WORKSPACE}/ttrt-artifacts/system_desc.ttsys"
         export TT_METAL_RUNTIME_ROOT="${{ steps.strings.outputs.install-output-dir }}/tt-metal"
+        export TT_METAL_HOME="$WORK_DIR/third_party/tt-metal/src/tt-metal"
         export RUNS_ON="${{ matrix.build.runs-on }}"
         export IMAGE_NAME="${{ matrix.build.image }}"
         export RUN_ID="${{ github.run_id }}"

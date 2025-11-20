@@ -165,7 +165,8 @@ class CMakeBuild(build_ext):
         arch = CMakeBuild.get_arch()
         self._copy_mlir_so(build_dir, arch)
         self._copy_ttmlir_bindings(build_dir)
-        self._write_build_metadata()
+        if not self.dev_build:
+            self._write_build_metadata()
 
     """
     These .so are installed into site-packages/ttnn_jit/runtime/lib
