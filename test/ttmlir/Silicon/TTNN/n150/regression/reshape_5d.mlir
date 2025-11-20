@@ -6,8 +6,7 @@
 
 module @ReshapeTest attributes {} {
   func.func @forward(%arg0: tensor<4x49x384xf32> {ttir.name = "inp_1"}, %arg1: tensor<4x49x384xf32> {ttir.name = "inp_2"}) -> (tensor<196x384xf32> {ttir.name = "ReshapeTest_295.output_reshape_743"}) {
-    %0 = ttir.empty() : tensor<4x49x384xf32>
-    %1 = "ttir.add"(%arg0, %arg1, %0) : (tensor<4x49x384xf32>, tensor<4x49x384xf32>, tensor<4x49x384xf32>) -> tensor<4x49x384xf32>
+    %1 = "ttir.add"(%arg0, %arg1) : (tensor<4x49x384xf32>, tensor<4x49x384xf32>) -> tensor<4x49x384xf32>
     %2 = ttir.empty() : tensor<2x2x7x7x384xf32>
     %3 = "ttir.reshape"(%1, %2) <{shape = [2 : i32, 2 : i32, 7 : i32, 7 : i32, 384 : i32]}> : (tensor<4x49x384xf32>, tensor<2x2x7x7x384xf32>) -> tensor<2x2x7x7x384xf32>
     %4 = ttir.empty() : tensor<2x7x2x7x384xf32>

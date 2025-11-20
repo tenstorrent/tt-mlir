@@ -9,7 +9,7 @@ module @CompositeBackSuccess attributes {mhlo.cross_program_prefetches = [], mhl
         %1 = stablehlo.reshape %arg1 : (tensor<32x16xf32>) -> tensor<1x32x16xf32>
         %2 = stablehlo.reshape %1 : (tensor<1x32x16xf32>) -> tensor<32x16xf32>
         // CHECK: ttir.gelu
-        // CHECK-SAME: (tensor<32x16xf32>, tensor<32x16xf32>) -> tensor<32x16xf32>
+        // CHECK-SAME: (tensor<32x16xf32>) -> tensor<32x16xf32>
         %cst_4 = stablehlo.constant {reoutline.comp_attrs = {approximate = "tanh"}, reoutline.group = "composite_tenstorrent.gelu_tanh.impl", reoutline.orig_name = "tenstorrent.gelu_tanh", reoutline.seed} dense<5.000000e-01> : tensor<f32>
         %cst_5 = stablehlo.constant {reoutline.group = "composite_tenstorrent.gelu_tanh.impl"} dense<1.000000e+00> : tensor<f32>
         %cst_6 = stablehlo.constant {reoutline.group = "composite_tenstorrent.gelu_tanh.impl"} dense<0.797884583> : tensor<f32>
@@ -44,7 +44,7 @@ module @CompositeBackFailed attributes {mhlo.cross_program_prefetches = [], mhlo
         %2 = stablehlo.reshape %1 : (tensor<1x32x16xf32>) -> tensor<32x16xf32>
         // CHECK: ttir.tanh
         // CHECK-NOT: ttir.gelu
-        // CHECK-SAME: (tensor<32x16xf32>, tensor<32x16xf32>) -> tensor<32x16xf32>
+        // CHECK-SAME: (tensor<32x16xf32>) -> tensor<32x16xf32>
         %cst_4 = stablehlo.constant {reoutline.comp_attrs = {approximate = "tanh"}, reoutline.group = "composite_tenstorrent.gelu_tanh.impl", reoutline.orig_name = "tenstorrent.gelu_tanh", reoutline.seed} dense<5.000000e-01> : tensor<f32>
         %cst_5 = stablehlo.constant {reoutline.group = "composite_tenstorrent.gelu_tanh.impl"} dense<1.000000e+00> : tensor<f32>
         %cst_6 = stablehlo.constant {reoutline.group = "composite_tenstorrent.gelu_tanh.impl"} dense<0.797884583> : tensor<f32>

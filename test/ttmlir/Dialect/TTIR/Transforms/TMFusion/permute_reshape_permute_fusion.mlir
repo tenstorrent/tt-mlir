@@ -9,15 +9,12 @@ module {
     // [N, 1, C, HW] -> [N, 1, HW, C]
     func.func @test_commute_permute_n_1_c_hw(%arg0: tensor<16x7x7x2048xbf16>) -> tensor<16x1x49x2048xbf16> {
         // CHECK-NOT: ttir.permute
-        // CHECK: %[[RESHAPED:[0-9]+]] = "ttir.reshape"(%arg0, %0)
+        // CHECK: %[[RESHAPED:[0-9]+]] = "ttir.reshape"(%arg0
         // CHECK-NOT: ttir.permute
         // CHECK: return %[[RESHAPED]]
-        %0 = tensor.empty() : tensor<16x2048x7x7xbf16>
-        %1 = "ttir.permute"(%arg0, %0) <{permutation = array<i64: 0, 3, 1, 2>}> : (tensor<16x7x7x2048xbf16>, tensor<16x2048x7x7xbf16>) -> tensor<16x2048x7x7xbf16>
-        %2 = tensor.empty() : tensor<16x1x2048x49xbf16>
-        %3 = "ttir.reshape"(%1, %2) <{shape = [16:i32, 1: i32, 2048: i32, 49: i32]}> : (tensor<16x2048x7x7xbf16>, tensor<16x1x2048x49xbf16>) -> tensor<16x1x2048x49xbf16>
-        %4 = tensor.empty() : tensor<16x1x49x2048xbf16>
-        %5 = "ttir.permute"(%3, %4) <{permutation = array<i64: 0, 1, 3, 2>}> : (tensor<16x1x2048x49xbf16>, tensor<16x1x49x2048xbf16>) -> tensor<16x1x49x2048xbf16>
+        %1 = "ttir.permute"(%arg0) <{permutation = array<i64: 0, 3, 1, 2>}> : (tensor<16x7x7x2048xbf16>) -> tensor<16x2048x7x7xbf16>
+        %3 = "ttir.reshape"(%1) <{shape = [16:i32, 1: i32, 2048: i32, 49: i32]}> : (tensor<16x2048x7x7xbf16>) -> tensor<16x1x2048x49xbf16>
+        %5 = "ttir.permute"(%3) <{permutation = array<i64: 0, 1, 3, 2>}> : (tensor<16x1x2048x49xbf16>) -> tensor<16x1x49x2048xbf16>
         return %5: tensor<16x1x49x2048xbf16>
     }
 
@@ -27,7 +24,7 @@ module {
     func.func @test_commute_permute_reshape_n_c_1_hw(%arg0: tensor<12x7x7x1152xbf16>) -> tensor<12x1x49x1152xbf16> {
         // CHECK-LABEL: func.func @test_commute_permute_reshape_n_c_1_hw
         // CHECK-NOT: ttir.permute
-        // CHECK: %[[RESHAPE:[0-9]+]] = "ttir.reshape"(%arg0, %0)
+        // CHECK: %[[RESHAPE:[0-9]+]] = "ttir.reshape"(%arg0
         // CHECK-NOT: "ttir.permute"
         // CHECK: return %[[RESHAPE]]
         %0 = ttir.empty() : tensor<12x1152x7x7xbf16>
@@ -45,7 +42,7 @@ module {
     func.func @test_commute_permute_reshape_1_1_a_bcd(%arg0: tensor<2x2x2x2xbf16>) -> tensor<1x1x2x8xbf16> {
         // CHECK-LABEL: func.func @test_commute_permute_reshape_1_1_a_bcd
         // CHECK-NOT: ttir.permute
-        // CHECK: %[[RESHAPE:[0-9]+]] = "ttir.reshape"(%arg0, %0)
+        // CHECK: %[[RESHAPE:[0-9]+]] = "ttir.reshape"(%arg0
         // CHECK-NOT: "ttir.permute"
         // CHECK: return %[[RESHAPE]]
         %0 = ttir.empty() : tensor<2x2x2x2xbf16>
@@ -63,7 +60,7 @@ module {
     func.func @test_commute_permute_reshape_a_1_bc_1_de(%arg0: tensor<2x3x5x7x11xbf16>) -> tensor<2x1x15x1x77xbf16> {
         // CHECK-LABEL: func.func @test_commute_permute_reshape_a_1_bc_1_de
         // CHECK-NOT: ttir.permute
-        // CHECK: %[[RESHAPE:[0-9]+]] = "ttir.reshape"(%arg0, %0)
+        // CHECK: %[[RESHAPE:[0-9]+]] = "ttir.reshape"(%arg0
         // CHECK-NOT: "ttir.permute"
         // CHECK: return %[[RESHAPE]]
         %0 = ttir.empty() : tensor<2x7x11x3x5xbf16>
@@ -81,7 +78,7 @@ module {
     func.func @test_commute_permute_reshape_ab_1_1_cd(%arg0: tensor<2x2x2x2xbf16>) -> tensor<4x1x1x4xbf16> {
         // CHECK-LABEL: func.func @test_commute_permute_reshape_ab_1_1_cd
         // CHECK-NOT: ttir.permute
-        // CHECK: %[[RESHAPE:[0-9]+]] = "ttir.reshape"(%arg0, %0)
+        // CHECK: %[[RESHAPE:[0-9]+]] = "ttir.reshape"(%arg0
         // CHECK-NOT: "ttir.permute"
         // CHECK: return %[[RESHAPE]]
         %0 = ttir.empty() : tensor<2x2x2x2xbf16>
