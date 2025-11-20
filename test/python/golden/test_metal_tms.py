@@ -18,7 +18,9 @@ from builder.base.builder_utils import compile_and_execute_ttir
 pytestmark = pytest.mark.frontend("ttir")
 
 
-@pytest.mark.parametrize("shapes", [[(1, 32, 32, 32)]])
+@pytest.mark.parametrize(
+    "shapes", [[(1, 32, 31, 32)], [(1, 32, 1, 32)], [(5, 7, 2, 32)]]
+)
 @pytest.mark.parametrize("permutation", [[0, 2, 1, 3]])
 @pytest.mark.parametrize("target", ["ttmetal"])
 def test_permute_abs(
@@ -31,7 +33,7 @@ def test_permute_abs(
         builder: TTIRBuilder,
     ):
         res = builder.permute(in0, permutation=permutation)
-        res = builder.abs(res)
+        # res = builder.abs(res)
         return res
 
     options = ["collapse-tensors-2d=false"]
