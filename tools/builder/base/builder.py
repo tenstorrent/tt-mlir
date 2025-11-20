@@ -150,18 +150,6 @@ class Builder:
 
         return golden_info
 
-    @property
-    def golden_map_as_golden_tensors(self) -> Dict[str, Dict[int, GoldenTensor]]:
-        golden_info: Dict[str, Dict[int, GoldenTensor]] = {}
-
-        golden_map_tensors = self.golden_map
-        for loc, golden_map_tensor in golden_map_tensors.items():
-            golden_info[loc] = self._generate_golden_device_tensor(
-                loc, golden_map_tensor
-            )
-
-        return golden_info
-
     def get_shape(self, input: Operand) -> Shape:
         return self._get_type(input).shape
 

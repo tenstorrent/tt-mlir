@@ -1214,7 +1214,7 @@ def compile_ttnn_to_flatbuffer(
     except Exception as e:
         raise TTBuilderCompileException(e)
 
-    return builder, compile_ttir_module_to_flatbuffer(
+    return builder, *compile_ttir_module_to_flatbuffer(
         module,
         builder,
         system_desc_path=system_desc_path,
@@ -1340,7 +1340,7 @@ def compile_d2m_to_flatbuffer(
     except Exception as e:
         raise TTBuilderCompileException(e)
 
-    return builder, compile_ttir_module_to_flatbuffer(
+    return builder, *compile_ttir_module_to_flatbuffer(
         module,
         builder,
         system_desc_path=system_desc_path,
@@ -1509,7 +1509,7 @@ def compile_stablehlo_to_flatbuffer(
         with open(filename, "w") as f:
             f.write(str(module))
 
-    return builder, compile_ttir_module_to_flatbuffer(
+    return builder, *compile_ttir_module_to_flatbuffer(
         module,
         builder,
         system_desc_path=system_desc_path,
