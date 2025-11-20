@@ -300,7 +300,7 @@ static ttcore::MetalLayoutAttr layoutWithOptimalGrid(ttcore::MetalLayoutAttr old
       oldLayout.getNormalizedIntervals());
 
   // If using a virtual grid, compute required forward index affine map.
-  AffineMap indexAffineMap = AffineMap::get(builder.getContext());
+  AffineMap indexAffineMap = oldLayout.getIndexAffineMap();
   if (isVirtualGrid) {
     auto [fwdMap, _] = ttmlir::d2m::utils::grids::createCoreVirtMaps(
         builder.getContext(), optimalGrid, targetSquareGridShape);
@@ -562,9 +562,25 @@ updateStreamLayoutOps(ArrayRef<StreamLayoutUpdateInfo> streamLayoutsToUpdate,
     auto newStorageEmpty = builder.create<d2m::EmptyOp>(
         storageEmpty.getLoc(), newStorageShape, elementType, newStorageLayout);
 
+    auto outputStreamType = mlir::cast<RankedTensorType>(streamLayout.getResult().getType());
+    auto outputLayout =
+        mlir::cast<ttcore::MetalLayoutAttr>(outputStreamType.getEncoding());
+    mlir::AffineMap reblockMap = mlir::tt::d2m::utils::calculateReblockMap(
+                                    outputStreamType.getShape(),
+                                    newStorageShape,
+                                    builder.getContext());
+    auto newOutputIndexMap = outputLayout.getIndexAffineMap().compose(reblockMap);
+    auto newOutputLayout = ttcore::MetalLayoutAttr::get(
+        builder.getContext(), outputLayout.getLogicalShape(),
+        storageDimAlignments, outputLayout.getCollapsedIntervals(),
+        outputLayout.getOobVal(), outputLayout.getMemorySpace(),
+        outputLayout.getMemoryLayout(), newOutputIndexMap);
+
+    auto newStreamOutputType = RankedTensorType::get(newStorageShape, outputStreamType.getElementType(), newOutputLayout );
+
     builder.setInsertionPoint(streamLayout);
     auto newStreamLayout = builder.create<d2m::StreamLayoutOp>(
-        streamLayout.getLoc(), newStorageEmpty.getType(),
+        streamLayout.getLoc(), newStreamOutputType,
         streamLayout.getInput(), newStorageEmpty);
 
     // We expect the StreamLayout to be used only by the GenericOp we're
