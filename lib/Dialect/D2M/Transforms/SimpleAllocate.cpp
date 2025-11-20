@@ -184,6 +184,7 @@ private:
         info.varIndex = problem.def([&](Planner::VariableBuilder &b) {
           b.request(PlannerSpace::Scratch, info.size, info.range.first,
                     info.range.last);
+          b.place(PlannerSpace::Scratch);
         });
       }
     }
