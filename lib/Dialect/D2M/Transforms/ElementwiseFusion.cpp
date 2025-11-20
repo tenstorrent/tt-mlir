@@ -77,6 +77,18 @@ static bool fitsInDstPostFusion(GenericOp producer, GenericOp consumer,
   return true;
 }
 
+static bool hasComputeOperations(GenericOp gOp) {
+  bool found = false;
+  gOp.getRegion(0).walk([&](Operation *op) {
+    if (op->hasTrait<D2MGenericRegionComputeOpTrait>()) {
+      found = true;
+      return WalkResult::interrupt();
+    }
+    return WalkResult::advance();
+  });
+  return found;
+}
+
 static bool isValidElementwiseFusionTarget(GenericOp gOp) {
   if (!gOp.isComputeOnlyForm()) {
     return false;
@@ -95,6 +107,12 @@ static bool isValidElementwiseFusionTarget(GenericOp gOp) {
   }
 
   if (gOp.hasMultiUseInputOperand()) {
+    return false;
+  }
+
+  // Skip generics with no compute operations (e.g., only wait/reserve)
+  // These are likely dead code that will be eliminated by canonicalization
+  if (!hasComputeOperations(gOp)) {
     return false;
   }
 

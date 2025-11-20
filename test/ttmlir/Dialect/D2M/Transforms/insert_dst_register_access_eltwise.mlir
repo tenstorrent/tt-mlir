@@ -40,7 +40,6 @@ module {
         // CHECK: affine.store %[[FINAL_VAL]], %[[ARG2:.*]]
         linalg.yield %0 : !ttcore.tile<32x32, f32>
       }
-      d2m.yield
     }
     return
   }
@@ -78,7 +77,6 @@ module {
           }
         }
       }
-      d2m.yield
     }
     return
   }
@@ -120,7 +118,6 @@ module {
           }
         }
       }
-      d2m.yield
     }
     return
   }
@@ -185,7 +182,6 @@ module {
           }
         }
       }
-      d2m.yield
     }
     return
   }

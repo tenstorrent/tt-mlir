@@ -58,7 +58,6 @@ module {
         // CHECK: affine.store %[[FINAL_VAL]], %{{.*}}
         linalg.yield %0 : !ttcore.tile<32x32, f32>
       }
-      d2m.yield
     }
     return
   }
@@ -115,7 +114,6 @@ module {
         %0 = "d2m.tile_matmul"(%arg0, %arg1, %arg2) : (!ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
         linalg.yield %0 : !ttcore.tile<32x32, f32>
       }
-      d2m.yield
     }
     return
   }

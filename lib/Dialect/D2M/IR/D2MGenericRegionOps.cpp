@@ -555,9 +555,10 @@ mlir::LogicalResult YieldOp::verify() {
     return emitOpError() << "used outside of generic op";
   }
 
-  // For tensor-based generic ops (DPS style), yield should have 0 arguments
-  // because results are written to output operands (outs), not yielded.
-  if (generic.hasTensorSemantics()) {
+  // For tensor-based compute-only generic ops (DPS style), yield should have
+  // 0 arguments because results are written to output operands (outs), not
+  // yielded. Datamovement generics DO yield values.
+  if (generic.hasTensorSemantics() && generic.isComputeOnlyForm()) {
     // DPS semantics: yield should have 0 arguments
     if (getValues().size() != 0) {
       return generic.emitOpError()

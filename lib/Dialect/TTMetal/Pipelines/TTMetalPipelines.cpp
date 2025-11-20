@@ -138,7 +138,10 @@ void createTTIRToTTMetalMiddleendPipeline(
   }
 
   pm.addPass(createCanonicalizerPassWithOptions(options));
-  pm.addPass(bufferization::createOwnershipBasedBufferDeallocationPass());
+  // TODO(#FIXME): OwnershipBasedBufferDeallocationPass doesn't support custom
+  // memref layouts like #ttcore.shard. The extract_strided_metadata operation
+  // fails on these types. Need to implement custom d2m-insert-deallocs pass.
+  // pm.addPass(bufferization::createOwnershipBasedBufferDeallocationPass());
   d2m::D2MGenericApplyInterchangeOptions applyInterchangeOptions;
   {
     applyInterchangeOptions.matmulInterchange =

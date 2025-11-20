@@ -148,7 +148,6 @@ def D2M_StreamLayoutOp : D2M_Op<"stream_layout", [
 def D2M_GenericOp : D2M_Op<"generic",
   [ AttrSizedOperandSegments
   , DestinationStyleOpInterface
-  , NoTerminator
   , DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmBlockArgumentNames", "getAsmBlockNames"]>
   , DeclareOpInterfaceMethods<BufferizableOpInterface, [
       "bufferizesToMemoryRead",

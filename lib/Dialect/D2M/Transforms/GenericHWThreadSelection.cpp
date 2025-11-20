@@ -171,6 +171,15 @@ public:
       rewriter.create<scf::YieldOp>(op.getLoc());
     }
 
+    // Ensure all regions in newGeneric have d2m.yield terminators
+    for (Region &region : newGeneric.getRegions()) {
+      Block &block = region.front();
+      if (!block.empty() && !block.back().hasTrait<OpTrait::IsTerminator>()) {
+        rewriter.setInsertionPointToEnd(&block);
+        rewriter.create<YieldOp>(op.getLoc());
+      }
+    }
+
     rewriter.replaceOp(op, newGeneric.getResults());
 
     return success();
@@ -196,6 +205,10 @@ public:
 
     rewriter.setInsertionPointToEnd(executeRegionBlock);
     rewriter.create<scf::YieldOp>(loc);
+
+    // Note: Do NOT add d2m.yield here, as this block may have more
+    // execute_region ops merged into it later. The caller is responsible
+    // for adding the final d2m.yield terminator.
   }
 };
 } // namespace

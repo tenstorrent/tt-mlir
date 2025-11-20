@@ -1071,8 +1071,10 @@ static mlir::LogicalResult verifyAffineBlocking(
           "when not in explicit data movement form");
     }
 
-    // Additional validation for tensor-based ops
-    if (!isExplicitDatamovementForm()) {
+    // Additional validation for tensor-based compute-only ops
+    // DPS semantics apply only to compute-only forms; datamovement generics
+    // DO yield values
+    if (!isExplicitDatamovementForm() && isComputeOnlyForm()) {
       Region &region = this->getRegion(0);
       Block &block = region.front();
 
