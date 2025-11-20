@@ -23,11 +23,11 @@
 
 // Verify the sequence of operations that should be fused together
 // This represents: cosh(x) = 0.5 * (exp(x) + exp(-x)) * y
-// First exp(x)
-// CHECK: emitc.call_opaque "exp_tile"(%{{[0-9]+}}) : (!emitc.size_t) -> ()
-// Then neg(x)
+// First neg(x)
 // CHECK: emitc.call_opaque "negative_tile"(%{{[0-9]+}}) : (!emitc.size_t) -> ()
 // Then exp(-x)
+// CHECK: emitc.call_opaque "exp_tile"(%{{[0-9]+}}) : (!emitc.size_t) -> ()
+// Then exp(x)
 // CHECK: emitc.call_opaque "exp_tile"(%{{[0-9]+}}) : (!emitc.size_t) -> ()
 // Then add exp(x) + exp(-x)
 // CHECK: emitc.call_opaque "add_binary_tile"(%{{[0-9]+}}, %{{[0-9]+}}, %{{[0-9]+}}) : (!emitc.size_t, !emitc.size_t, !emitc.size_t) -> ()

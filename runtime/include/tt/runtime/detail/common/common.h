@@ -13,6 +13,7 @@
 #include "tt-metalium/host_api.hpp"
 #include "tt-metalium/mesh_device.hpp"
 
+#include "tt-metalium/fabric_edm_types.hpp"
 #include "tt-metalium/fabric_types.hpp"
 #include "tt/runtime/detail/common/flatbuffer_operator_ostream.h"
 #include "tt/runtime/detail/common/logger.h"
@@ -73,17 +74,18 @@ toMetalFabricConfig(tt::runtime::FabricConfig cfg) {
   LOG_FATAL("Unknown tt::runtime::FabricConfig value");
 }
 
-inline CoreRangeSet toCoreRangeSet(
+inline tt::tt_metal::CoreRangeSet toCoreRangeSet(
     const ::flatbuffers::Vector<const tt::target::Dim2dRange *> *coreRangeSet) {
-  std::set<CoreRange> coreRanges;
+  std::set<tt::tt_metal::CoreRange> coreRanges;
   for (const ::tt::target::Dim2dRange *coreRange : *coreRangeSet) {
-    CoreCoord start(coreRange->loc().x(), coreRange->loc().y());
+    tt::tt_metal::CoreCoord start(coreRange->loc().x(), coreRange->loc().y());
     // End is inclusive
-    CoreCoord end(coreRange->loc().x() + coreRange->size().x() - 1,
-                  coreRange->loc().y() + coreRange->size().y() - 1);
+    tt::tt_metal::CoreCoord end(
+        coreRange->loc().x() + coreRange->size().x() - 1,
+        coreRange->loc().y() + coreRange->size().y() - 1);
     coreRanges.emplace(start, end);
   }
-  return CoreRangeSet(coreRanges);
+  return tt::tt_metal::CoreRangeSet(coreRanges);
 }
 
 inline ::tt::DataFormat toDataFormat(::tt::target::DataType dataType) {
@@ -164,6 +166,21 @@ createFullMeshDevice(
           /*mesh_shape=*/std::nullopt),
       DEFAULT_L1_SMALL_SIZE, DEFAULT_TRACE_REGION_SIZE,
       /*num_command_queues=*/1, type);
+}
+
+inline ::tt::tt_fabric::Topology
+toMetalTopology(::tt::target::Topology topology) {
+  switch (topology) {
+  case ::tt::target::Topology::Ring:
+    return ::tt::tt_fabric::Topology::Ring;
+  case ::tt::target::Topology::Linear:
+    return ::tt::tt_fabric::Topology::Linear;
+  case ::tt::target::Topology::Mesh:
+    return ::tt::tt_fabric::Topology::Mesh;
+  case ::tt::target::Topology::Torus:
+    return ::tt::tt_fabric::Topology::Torus;
+  }
+  LOG_FATAL("Unknown tt::target::Topology value");
 }
 
 } // namespace tt::runtime::common

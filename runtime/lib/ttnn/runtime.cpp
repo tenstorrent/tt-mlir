@@ -461,14 +461,6 @@ tt::target::Arch getArch() {
   return ::tt::runtime::common::toTargetArch(::tt::tt_metal::hal::get_arch());
 }
 
-void enablePersistentKernelCache() {
-  ::tt::tt_metal::detail::EnablePersistentKernelCache();
-}
-
-void disablePersistentKernelCache() {
-  ::tt::tt_metal::detail::DisablePersistentKernelCache();
-}
-
 size_t getNumAvailableDevices() {
   return ::tt::tt_metal::GetNumAvailableDevices();
 }
@@ -1217,6 +1209,10 @@ getOpOutputRef(OpContext opContextHandle,
     tensorRef = opContext.type_as_FillCacheOp()->cache();
     break;
   }
+  case ::tt::target::ttnn::OpType::PagedFillCacheOp: {
+    tensorRef = opContext.type_as_PagedFillCacheOp()->cache();
+    break;
+  }
   case ::tt::target::ttnn::OpType::UpdateCacheOp: {
     tensorRef = opContext.type_as_UpdateCacheOp()->cache();
     break;
@@ -1255,6 +1251,11 @@ getOpOutputRef(OpContext opContextHandle,
   }
   case ::tt::target::ttnn::OpType::ScaledDotProductAttentionDecodeOp: {
     tensorRef = opContext.type_as_ScaledDotProductAttentionDecodeOp()->out();
+    break;
+  }
+  case ::tt::target::ttnn::OpType::PagedScaledDotProductAttentionDecodeOp: {
+    tensorRef =
+        opContext.type_as_PagedScaledDotProductAttentionDecodeOp()->out();
     break;
   }
   case ::tt::target::ttnn::OpType::ScaledDotProductAttentionOp: {
@@ -1570,6 +1571,13 @@ getOpInputRefs(OpContext opContextHandle,
                   opContext.type_as_FillCacheOp()->input()};
     break;
   }
+  case ::tt::target::ttnn::OpType::PagedFillCacheOp: {
+    tensorRefs = {opContext.type_as_PagedFillCacheOp()->cache(),
+                  opContext.type_as_PagedFillCacheOp()->input(),
+                  opContext.type_as_PagedFillCacheOp()->page_table(),
+                  opContext.type_as_PagedFillCacheOp()->batch_idx_tensor()};
+    break;
+  }
   case ::tt::target::ttnn::OpType::LoadCachedOp: {
     tensorRefs = utils::convertFbTensorRefsToVector(
         opContext.type_as_LoadCachedOp()->inputs());
@@ -1656,6 +1664,21 @@ getOpInputRefs(OpContext opContextHandle,
         opContext.type_as_ScaledDotProductAttentionOp()->key(),
         opContext.type_as_ScaledDotProductAttentionOp()->value(),
         opContext.type_as_ScaledDotProductAttentionOp()->attention_mask()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::PagedScaledDotProductAttentionDecodeOp: {
+    tensorRefs = {
+        opContext.type_as_PagedScaledDotProductAttentionDecodeOp()->query(),
+        opContext.type_as_PagedScaledDotProductAttentionDecodeOp()->key(),
+        opContext.type_as_PagedScaledDotProductAttentionDecodeOp()->value(),
+        opContext.type_as_PagedScaledDotProductAttentionDecodeOp()
+            ->page_table(),
+        opContext.type_as_PagedScaledDotProductAttentionDecodeOp()
+            ->attention_mask(),
+        opContext.type_as_PagedScaledDotProductAttentionDecodeOp()
+            ->cur_pos_tensor(),
+        opContext.type_as_PagedScaledDotProductAttentionDecodeOp()
+            ->attention_sink()};
     break;
   }
   case ::tt::target::ttnn::OpType::RotaryEmbeddingLlamaOp: {

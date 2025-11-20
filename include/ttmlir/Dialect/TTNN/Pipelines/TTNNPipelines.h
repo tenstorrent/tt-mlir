@@ -21,10 +21,25 @@ namespace mlir::tt::ttnn {
 //
 struct TTIRToTTNNBackendPipelineOptions
     : public PassPipelineOptions<TTIRToTTNNBackendPipelineOptions> {
-  // If this option is true, run Optimizer trying to set optimal Op
-  // configuration for max performance. If this option is false, skip running
-  // Optimizer pass, thus leaving all ops on default configuration.
-  Option<bool> optimizerPassEnabled{
+  // Optimization level controls multiple optimization passes.
+  // Level 0 (default): All optimizer passes disabled.
+  // Level 1: All optimizer passes enabled. Memory layout analysis is disabled.
+  // Moderate compile time. Level 2: All optimizer passes enabled with memory
+  // layout analysis (sharding). Longest compile time. Individual options can
+  // override the optimization level settings.
+  Option<int> optimizationLevel{
+      *this, OptionNames::optimizationLevel,
+      llvm::cl::desc(
+          "Optimization level: 0=all optimizer passes disabled (fastest "
+          "compile), "
+          "1=optimizer passes enabled except sharding (moderate compile), "
+          "2=all optimizer passes including sharding enabled (longest "
+          "compile)."),
+      llvm::cl::init(0)};
+
+  // Enable all optimizer passes.
+  // If not explicitly set, determined by optimization_level.
+  mutable Option<bool> optimizerPassEnabled{
       *this, OptionNames::optimizerPassEnabled,
       llvm::cl::desc("Determine and set max valid grid for Op execution."),
       llvm::cl::init(false)};
@@ -130,9 +145,9 @@ struct TTIRToTTNNBackendPipelineOptions
           llvm::cl::desc("Override Conv2d configuration for specific ops."),
           llvm::cl::init(llvm::StringMap<Conv2dConfigOverrideParams>())};
 
-  // If this option is true, run memory layout analysis.
-  //
-  Option<bool> memoryLayoutAnalysisEnabled{
+  // Enable memory layout analysis for performant tensor layouts (sharding).
+  // If not explicitly set, determined by optimization_level.
+  mutable Option<bool> memoryLayoutAnalysisEnabled{
       *this, OptionNames::memoryLayoutAnalysisEnabled,
       llvm::cl::desc("Enable memory layout optimization."),
       llvm::cl::init(false)};
@@ -250,7 +265,9 @@ struct TTIRToTTNNBackendPipelineOptions
                             llvm::cl::desc("Enable fusing pass."),
                             llvm::cl::init(true)};
 
-  Option<bool> enableFusingConv2dWithMultiplyPattern{
+  // Enable fusing of conv2d + multiply pattern.
+  // If not explicitly set, determined by optimization_level.
+  mutable Option<bool> enableFusingConv2dWithMultiplyPattern{
       *this, "enable-fusing-conv2d-with-multiply-pattern",
       llvm::cl::desc("Enable Conv2dWithMultiply pattern in the fusing pass."),
       llvm::cl::init(false)};
@@ -316,6 +333,28 @@ struct TTIRToTTNNBackendPipelineOptions
       *this, "enable-cpu-module-lowering",
       llvm::cl::desc("Enable lowering of CPUModule ops to the LLVM dialect."),
       llvm::cl::init(true)};
+
+  // Resolve options controlled by optimization_level.
+  void resolveOptimizationLevelOptions() const {
+    // Validate optimization_level is in valid range.
+    if (optimizationLevel < 0 || optimizationLevel > 2) {
+      llvm::reportFatalUsageError(
+          "Invalid optimization_level: " + llvm::Twine(optimizationLevel) +
+          ". Must be 0, 1, or 2.");
+    }
+
+    // Only apply optimization_level if user didn't explicitly set the option.
+    // Use getNumOccurrences() to detect explicit user settings.
+    if (optimizerPassEnabled.getNumOccurrences() == 0) {
+      optimizerPassEnabled = (optimizationLevel >= 1);
+    }
+    if (enableFusingConv2dWithMultiplyPattern.getNumOccurrences() == 0) {
+      enableFusingConv2dWithMultiplyPattern = (optimizationLevel >= 1);
+    }
+    if (memoryLayoutAnalysisEnabled.getNumOccurrences() == 0) {
+      memoryLayoutAnalysisEnabled = (optimizationLevel >= 2);
+    }
+  }
 };
 
 // TTNN Backend to EmitC PipelineOptions.

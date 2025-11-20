@@ -226,11 +226,11 @@ getShardShape(const llvm::ArrayRef<int64_t> &shapeAttr) {
 getCoreRangeSet(const CoreRangeSetAttr &coreRangeSetAttr) {
   std::set<::tt::tt_metal::CoreRange> coreRangeSet;
   for (const CoreRangeAttr &coreRange : coreRangeSetAttr.getCoreRanges()) {
-    coreRangeSet.insert(
-        ::tt::tt_metal::CoreRange(CoreCoord(coreRange.getStartCoord().getX(),
-                                            coreRange.getStartCoord().getY()),
-                                  CoreCoord(coreRange.getEndCoord().getX(),
-                                            coreRange.getEndCoord().getY())));
+    coreRangeSet.insert(::tt::tt_metal::CoreRange(
+        ::tt::tt_metal::CoreCoord(coreRange.getStartCoord().getX(),
+                                  coreRange.getStartCoord().getY()),
+        ::tt::tt_metal::CoreCoord(coreRange.getEndCoord().getX(),
+                                  coreRange.getEndCoord().getY())));
   }
   return ::tt::tt_metal::CoreRangeSet(coreRangeSet);
 }
@@ -241,8 +241,8 @@ getCoreRangeSet(const CoreRangeSetAttr &coreRangeSetAttr) {
   for (const auto &[loc, size] : ttcore::utils::toCoreRangeSet(
            layout.getGrid().getShape(), layout.getGrid().getMapping())) {
     coreRangeSet.insert(::tt::tt_metal::CoreRange(
-        CoreCoord(loc[0], loc[1]),
-        CoreCoord(loc[0] + size[0] - 1, loc[1] + size[1] - 1)));
+        ::tt::tt_metal::CoreCoord(loc[0], loc[1]),
+        ::tt::tt_metal::CoreCoord(loc[0] + size[0] - 1, loc[1] + size[1] - 1)));
   }
   return ::tt::tt_metal::CoreRangeSet(coreRangeSet);
 }
@@ -573,6 +573,38 @@ getDeviceComputeKernelConfig(const std::optional<DeviceComputeKernelConfigAttr>
   return config;
 }
 
+std::optional<::ttnn::operations::conv::conv2d::Conv2dSliceConfig>
+getConv2dSliceConfig(
+    const std::optional<Conv2dSliceConfigAttr> &conv2dSliceConfig) {
+  if (!conv2dSliceConfig || !conv2dSliceConfig.has_value() ||
+      !conv2dSliceConfig.value()) {
+    return std::nullopt;
+  }
+
+  const Conv2dSliceConfigAttr &sliceConfig = conv2dSliceConfig.value();
+
+  ::ttnn::operations::conv::conv2d::Conv2dSliceConfig config;
+
+  switch (sliceConfig.getSliceType()) {
+  case Conv2dSliceType::DramHeight:
+    config.slice_type = ::ttnn::operations::conv::conv2d::Conv2dSliceConfig::
+        SliceType::DRAM_HEIGHT;
+    break;
+  case Conv2dSliceType::DramWidth:
+    config.slice_type = ::ttnn::operations::conv::conv2d::Conv2dSliceConfig::
+        SliceType::DRAM_WIDTH;
+    break;
+  case Conv2dSliceType::L1Full:
+    config.slice_type =
+        ::ttnn::operations::conv::conv2d::Conv2dSliceConfig::SliceType::L1_FULL;
+    break;
+  }
+
+  config.num_slices = sliceConfig.getNumSlices();
+
+  return config;
+}
+
 llvm::SmallVector<int64_t>
 getLogicalGridShape(const ::tt::tt_metal::MemoryConfig &memoryConfig,
                     const llvm::ArrayRef<int64_t> &gridPhyCores) {
@@ -592,7 +624,8 @@ getLogicalGridShape(const ::tt::tt_metal::MemoryConfig &memoryConfig,
   if (memoryConfig.memory_layout() ==
       ::tt::tt_metal::TensorMemoryLayout::BLOCK_SHARDED) {
     assert(memoryConfig.shard_spec().has_value());
-    CoreRange boundingGrid = memoryConfig.shard_spec()->grid.bounding_box();
+    ::tt::tt_metal::CoreRange boundingGrid =
+        memoryConfig.shard_spec()->grid.bounding_box();
     assert(memoryConfig.shard_spec()->num_cores() == boundingGrid.size());
     return {static_cast<int64_t>(boundingGrid.grid_size().y),
             static_cast<int64_t>(boundingGrid.grid_size().x)};

@@ -34,16 +34,15 @@ def memory_configs_equal(memory_config1, memory_config2):
     )
 
 
-def create_dram_tensor(device, h, w, dtype, int_max=0):
-    torch.manual_seed(0)
+def create_dram_tensor(device, shape, dtype, int_max=0, mesh_mapper=None):
     if not (dtype.is_floating_point or dtype.is_complex):
         # recreate spatial coverage of fp [0,1] in randn and give some overflow headroom
         high_val = int_max if int_max else torch.iinfo(dtype).max // 2
-        torch_tensor = torch.randint(high_val, (h, w), dtype=dtype)
+        torch_tensor = torch.randint(high_val, shape, dtype=dtype)
     else:
         if int_max:
             print("Warning: int_max provided for floating point tensor, ignoring.")
-        torch_tensor = torch.randn((h, w), dtype=dtype)
+        torch_tensor = torch.randn(shape, dtype=dtype)
 
     memory_config = ttnn.MemoryConfig(
         memory_layout=ttnn.TensorMemoryLayout.INTERLEAVED,
@@ -54,24 +53,29 @@ def create_dram_tensor(device, h, w, dtype, int_max=0):
         layout=ttnn.TILE_LAYOUT,
         device=device,
         memory_config=memory_config,
+        mesh_mapper=mesh_mapper,
     )
 
 
-def create_sharded_tile_tensor(device, h, w, max_grid, dtype, int_max=0):
-    torch.manual_seed(0)
+def create_sharded_tile_tensor(device, shape, max_grid, dtype, int_max=0):
     if not (dtype.is_floating_point or dtype.is_complex):
         # recreate spatial coverage of fp [0,1] in randn and give some overflow headroom
         high_val = int_max if int_max else torch.iinfo(dtype).max // 2
-        torch_tensor = torch.randint(high_val, (h, w), dtype=dtype)
+        torch_tensor = torch.randint(high_val, shape, dtype=dtype)
     else:
         if int_max:
             print("Warning: int_max provided for floating point tensor, ignoring.")
-        torch_tensor = torch.randn((h, w), dtype=dtype)
+        torch_tensor = torch.randn(shape, dtype=dtype)
 
     start_coord = ttnn.CoreCoord(0, 0)
     end_coord = ttnn.CoreCoord(max_grid[0], max_grid[1])
     core_range = ttnn.CoreRange(start_coord, end_coord)
     core_range_set = ttnn.CoreRangeSet([core_range])
+
+    w = shape[-1]
+    h = 1
+    for dim in shape[:-1]:
+        h *= dim
 
     # TTNN grids are (Width, Height), while tensor shapes are (Height, Width).
     shard_shape_x = h if max_grid[1] == 0 else h // (max_grid[1] + 1)
@@ -122,8 +126,7 @@ def all_close_check(result, golden_result, atol=1e-1, rtol=1e-1, debug=True):
 
 def run_op_test(
     device,
-    h,
-    w,
+    shape,
     max_grid,
     dtype,
     op,
@@ -137,8 +140,7 @@ def run_op_test(
 
     Args:
         device: Device to run the operation on
-        h: Height of the input tensor
-        w: Width of the input tensor
+        shape: Shape of the input tensor
         max_grid: Maximum grid size for sharded tensors
         dtype: Data type of the input tensor
         op: Operation to test
@@ -149,11 +151,11 @@ def run_op_test(
     """
     if buffer_type == ttnn.BufferType.L1:
         inputs = [
-            create_sharded_tile_tensor(device, h, w, max_grid, dtype)
+            create_sharded_tile_tensor(device, shape, max_grid, dtype)
             for _ in range(num_inputs)
         ]
     else:
-        inputs = [create_dram_tensor(device, h, w, dtype) for _ in range(num_inputs)]
+        inputs = [create_dram_tensor(device, shape, dtype) for _ in range(num_inputs)]
     print("inputs", inputs)
     golden_op = _get_ttnn_op(op)
 

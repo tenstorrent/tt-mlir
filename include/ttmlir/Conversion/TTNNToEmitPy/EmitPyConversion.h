@@ -308,36 +308,40 @@ struct EmitPyTypeConverter<mlir::tt::ttcore::MeshShardType> {
 };
 
 template <>
-struct EmitPyTypeConverter<mlir::tt::ttnn::Topology> {
+struct EmitPyTypeConverter<mlir::tt::ttcore::Topology> {
   static std::optional<std::string> convert(mlir::Attribute attr) {
     if (auto topologyAttr =
-            mlir::dyn_cast_if_present<mlir::tt::ttnn::TopologyAttr>(attr)) {
+            mlir::dyn_cast_if_present<mlir::tt::ttcore::TopologyAttr>(attr)) {
       return convert(topologyAttr);
     }
     return {};
   }
 
-  static std::string convert(mlir::tt::ttnn::TopologyAttr attr) {
+  static std::string convert(mlir::tt::ttcore::TopologyAttr attr) {
     return convert(attr.getValue());
   }
 
-  static std::string convert(::mlir::tt::ttnn::Topology topology) {
+  static std::string convert(::mlir::tt::ttcore::Topology topology) {
     switch (topology) {
-    case ::mlir::tt::ttnn::Topology::Linear:
-      return "ttnn.Topology.Linear";
-    case ::mlir::tt::ttnn::Topology::Ring:
+    case ::mlir::tt::ttcore::Topology::Ring:
       return "ttnn.Topology.Ring";
+    case ::mlir::tt::ttcore::Topology::Linear:
+      return "ttnn.Topology.Linear";
+    default:
+      // Mesh and Torus are not defined in ttnn.Topology yet, so we don't need
+      // to handle them here. See ccl_pybind.cpp for the definition of
+      // ttnn.Topology.
+      llvm_unreachable("Unknown ttnn.Topology");
     }
-    llvm_unreachable("Unknown ttnn.Topology");
   }
 };
 
 template <>
 struct EmitPyTypeConverter<mlir::tt::ttcore::ReduceType> {
   static std::optional<std::string> convert(mlir::Attribute attr) {
-    if (auto topologyAttr =
+    if (auto reduceTypeAttr =
             mlir::dyn_cast_if_present<mlir::tt::ttcore::ReduceTypeAttr>(attr)) {
-      return convert(topologyAttr);
+      return convert(reduceTypeAttr);
     }
     return {};
   }
@@ -346,9 +350,9 @@ struct EmitPyTypeConverter<mlir::tt::ttcore::ReduceType> {
     return convert(attr.getValue());
   }
 
-  static std::string convert(::mlir::tt::ttcore::ReduceType topology) {
+  static std::string convert(::mlir::tt::ttcore::ReduceType type) {
     std::string base = "ttnn.ReduceType";
-    switch (topology) {
+    switch (type) {
     case ::mlir::tt::ttcore::ReduceType::Sum:
       return base + ".Sum";
     case ::mlir::tt::ttcore::ReduceType::Mean:
@@ -1659,6 +1663,20 @@ public:
 
     addKeywordArgument(attrName);
     return rewriter.getAttr<emitpy::OpaqueAttr>(rso.str());
+  }
+
+  mlir::Attribute emitSubDeviceId(std::optional<uint32_t> subDeviceId,
+                                  std::string attrName = "") {
+    if (!subDeviceId) {
+      return emit(std::nullopt, attrName);
+    }
+
+    std::string code = "ttnn.SubDeviceId(";
+    code += std::to_string(*subDeviceId);
+    code += ")";
+
+    addKeywordArgument(attrName);
+    return rewriter.getAttr<emitpy::OpaqueAttr>(code);
   }
 
   // Handles the case when a source type is convertible to `mlir::Attribute` and

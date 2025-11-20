@@ -11,6 +11,7 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/IR/Value.h"
 
 #include <optional>
 
@@ -2212,10 +2213,6 @@ public:
 
 // LoadCached Op conversion pattern
 //
-// This op is worked around - it only calls the consteval fn, but there is no
-// caching.
-// TODO (4936): https://github.com/tenstorrent/tt-mlir/issues/4936
-//
 namespace {
 class LoadCachedOpConversionPattern
     : public OpConversionPattern<mlir::tt::ttcore::LoadCachedOp> {
@@ -2228,9 +2225,42 @@ public:
   matchAndRewrite(mlir::tt::ttcore::LoadCachedOp loadCachedOp,
                   mlir::tt::ttcore::LoadCachedOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    llvm::StringRef calleeName = loadCachedOp.getCallee();
+
+    auto funcOp = loadCachedOp->getParentOfType<func::FuncOp>();
+    auto currentInsertionPoint = rewriter.saveInsertionPoint();
+    rewriter.setInsertionPoint(funcOp);
+
+    // Create a global variable for caching.
+    //
+    std::string globalVarName = "CACHED_" + calleeName.str();
+    rewriter.create<emitpy::GlobalOp>(
+        loadCachedOp.getLoc(),
+        StringAttr::get(rewriter.getContext(), globalVarName),
+        emitpy::OpaqueAttr::get(rewriter.getContext(), "None"));
+    rewriter.restoreInsertionPoint(currentInsertionPoint);
+
+    // Create a function variable.
+    //
+    const bool isZeroArgWrapper = adaptor.getInputs().size() == 0;
+    emitpy::OpaqueType calleeType =
+        isZeroArgWrapper
+            ? emitpy::OpaqueType::get(rewriter.getContext(),
+                                      "() -> [ttnn.Tensor]")
+            : emitpy::OpaqueType::get(rewriter.getContext(),
+                                      "([ttnn.Tensor]) -> [ttnn.Tensor]");
+    mlir::Value callee =
+        rewriter
+            .create<emitpy::ConstantOp>(
+                loadCachedOp.getLoc(), calleeType,
+                emitpy::OpaqueAttr::get(rewriter.getContext(), calleeName))
+            ->getResult(0);
+
+    llvm::SmallVector<Value> operands;
+    operands.push_back(callee);
+
     // Create list of tensors.
     //
-    llvm::SmallVector<Value> operands;
     if (loadCachedOp.getInputs().size() > 0) {
       mlir::Value tensorsInList =
           rewriter
@@ -2244,12 +2274,42 @@ public:
       operands.push_back(tensorsInList);
     }
 
-    // Call into the callee, no caching mechanism.
-    //
-    emitpy::OpaqueType resultType =
+    auto tensorListType =
         emitpy::OpaqueType::get(rewriter.getContext(), "[ttnn.Tensor]");
-    auto cacheOp = rewriter.create<func::CallOp>(
-        loadCachedOp.getLoc(), resultType, loadCachedOp.getCallee(), operands);
+    FlatSymbolRefAttr globalSymbol =
+        SymbolRefAttr::get(rewriter.getContext(), globalVarName);
+
+    // Create a global statement at the beginning of the function body.
+    //
+    currentInsertionPoint = rewriter.saveInsertionPoint();
+    rewriter.setInsertionPointToStart(&funcOp.getBody().front());
+    rewriter.create<emitpy::GlobalStatementOp>(loadCachedOp.getLoc(),
+                                               tensorListType, globalSymbol);
+    rewriter.restoreInsertionPoint(currentInsertionPoint);
+
+    // Retrieve a global variable.
+    //
+    mlir::Value globalVar =
+        rewriter
+            .create<emitpy::GetGlobalOp>(loadCachedOp.getLoc(), tensorListType,
+                                         globalSymbol)
+            ->getResult(0);
+    operands.push_back(globalVar);
+
+    // Call into the callee.
+    //
+    static constexpr StringRef constEvalFuncWrapperZeroArg =
+        "utils.constEvalFuncWrapperZeroArg";
+    static constexpr StringRef constEvalFuncWrapper =
+        "utils.constEvalFuncWrapper";
+    llvm::StringRef wrapperFuncName =
+        isZeroArgWrapper ? constEvalFuncWrapperZeroArg : constEvalFuncWrapper;
+
+    auto cacheOp = rewriter.create<emitpy::CallOpaqueOp>(
+        loadCachedOp.getLoc(), tensorListType, wrapperFuncName, operands);
+    mlir::Value cacheResult = cacheOp->getResult(0);
+    rewriter.create<emitpy::AssignGlobalOp>(loadCachedOp.getLoc(), globalSymbol,
+                                            cacheResult);
 
     // Unpack list of tensors.
     //
@@ -2267,7 +2327,7 @@ public:
       auto subscriptOp = rewriter.create<emitpy::SubscriptOp>(
           loadCachedOp.getLoc(),
           emitpy::OpaqueType::get(rewriter.getContext(), "ttnn.Tensor"),
-          cacheOp->getResult(0), indexVal);
+          cacheResult, indexVal);
 
       results.push_back(subscriptOp.getResult());
     }
@@ -2299,6 +2359,30 @@ public:
         moduleOp->removeAttr(attr.getName());
       }
     });
+
+    return success();
+  }
+};
+} // namespace
+
+// Func Op conversion pattern
+//
+// This conversion pattern removes attributes from the FuncOp
+//
+namespace {
+class FuncOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<func::FuncOp> {
+
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      func::FuncOp>::TTNNToEmitPyBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(func::FuncOp funcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    rewriter.modifyOpInPlace(funcOp,
+                             [&funcOp]() { funcOp.removeArgAttrsAttr(); });
 
     return success();
   }
@@ -2588,14 +2672,6 @@ public:
 namespace {
 class AllGatherOpConversionPattern
     : public TTNNToEmitPyBaseOpConversionPattern<mlir::tt::ttnn::AllGatherOp> {
-  // private:
-  //   std::string getPrefixSearchPattern() const override {
-  //     return "ttnn.all_gather";
-  //   }
-  //   std::string getPrefixSwapPattern() const override {
-  //     return "ttnn.experimental.all_gather_async";
-  //   }
-
 public:
   using TTNNToEmitPyBaseOpConversionPattern<
       mlir::tt::ttnn::AllGatherOp>::TTNNToEmitPyBaseOpConversionPattern;
@@ -2608,13 +2684,13 @@ public:
         srcOp, adaptor, rewriter);
 
     llvm::SmallVector<mlir::Attribute> args{
-        emitter.emit(srcOp.getInput(), "input"),
-        emitter.emit(srcOp.getDevice(), "mesh_device"),
+        emitter.emit(srcOp.getInput(), "input_tensor"),
         emitter.emit(srcOp.getAllGatherDim(), "dim"),
         emitter.emit(srcOp.getClusterAxis(), "cluster_axis"),
+        emitter.emitSubDeviceId(srcOp.getSubDeviceId(), "subdevice_id"),
+        emitter.emit(srcOp.getMemoryConfig(), "memory_config"),
         emitter.emit(srcOp.getNumLinks(), "num_links"),
-        emitter.emit(emitter.getMemoryConfig(srcOp.getResult()),
-                     "memory_config"),
+        emitter.emit(srcOp.getTopology(), "topology"),
     };
 
     emitter.replaceOp(*this, args);
@@ -2630,14 +2706,6 @@ namespace {
 class ReduceScatterOpConversionPattern
     : public TTNNToEmitPyBaseOpConversionPattern<
           mlir::tt::ttnn::ReduceScatterOp> {
-private:
-  std::string getPrefixSearchPattern() const override {
-    return "ttnn.reduce_scatter";
-  }
-  std::string getPrefixSwapPattern() const override {
-    return "ttnn.experimental.reduce_scatter_minimal_async";
-  }
-
 public:
   using TTNNToEmitPyBaseOpConversionPattern<
       mlir::tt::ttnn::ReduceScatterOp>::TTNNToEmitPyBaseOpConversionPattern;
@@ -2652,15 +2720,11 @@ public:
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput(), "input_tensor"),
         emitter.emit(srcOp.getScatterDim(), "dim"),
-        /*multi_device_global_semaphore*/
-        /*barrier_semaphore*/
-        emitter.emit(srcOp.getNumLinks(), "num_links"),
-        emitter.emit(emitter.getMemoryConfig(srcOp.getResult()),
-                     "memory_config"),
-        // Topology was not listed as an argument in the ttnn op. It will be
-        // added in the future.
-        emitter.emit(mlir::tt::ttnn::Topology::Linear, "topology"),
         emitter.emit(srcOp.getClusterAxis(), "cluster_axis"),
+        emitter.emitSubDeviceId(srcOp.getSubDeviceId(), "subdevice_id"),
+        emitter.emit(srcOp.getMemoryConfig(), "memory_config"),
+        emitter.emit(srcOp.getNumLinks(), "num_links"),
+        emitter.emit(srcOp.getTopology(), "topology"),
     };
 
     emitter.replaceOp(*this, args);
@@ -2701,7 +2765,7 @@ public:
         emitter.emit(srcOp.getReduceType(), "math_op"),
         emitter.emit(emitter.getMemoryConfig(srcOp.getResult()),
                      "memory_config"),
-        emitter.emit(mlir::tt::ttnn::Topology::Linear, "topology"),
+        emitter.emit(mlir::tt::ttcore::Topology::Linear, "topology"),
     };
 
     emitter.replaceOp(*this, args);
@@ -2731,10 +2795,10 @@ public:
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput()),
-        emitter.emitMeshCoordinate(srcOp.getSendCoord(), "send_coord"),
-        emitter.emitMeshCoordinate(srcOp.getReceiveCoord(), "receive_coord"),
-        emitter.emit(mlir::tt::ttnn::Topology::Linear, "topology"),
-        emitter.emit(srcOp.getAccumTensor(), "optional_output_tensor"),
+        emitter.emitMeshCoordinate(srcOp.getSenderCoord(), "sender_coord"),
+        emitter.emitMeshCoordinate(srcOp.getReceiverCoord(), "receiver_coord"),
+        emitter.emit(mlir::tt::ttcore::Topology::Linear, "topology"),
+        emitter.emit(srcOp.getOptionalOutputTensor(), "output_tensor"),
     };
 
     emitter.replaceOp(*this, args);
@@ -3372,6 +3436,12 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
   //
   // clang-format off
   patterns.add<ModuleOpConversionPattern>(typeConverter, ctx);
+  // clang-format on
+
+  // FuncOp
+  //
+  // clang-format off
+  patterns.add<FuncOpConversionPattern>(typeConverter, ctx);
   // clang-format on
 
   patterns.add<NLPConcatHeadsOpConversionPattern>(typeConverter, ctx);

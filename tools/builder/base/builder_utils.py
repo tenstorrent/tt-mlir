@@ -12,7 +12,7 @@ from typing import Callable, List, Optional, Tuple, Union, Literal, Dict
 from collections import OrderedDict
 
 from ttmlir.ir import *
-from ttmlir.dialects import func, ttcore, ttnn
+from ttmlir.dialects import func, ttcore, ttnn, ttir
 from ttmlir.passmanager import PassManager
 from ttmlir.passes import (
     tt_populate_argument_types,
@@ -1506,7 +1506,7 @@ def compile_ttir_module_to_flatbuffer(
     module_dump: bool = True,
     argument_types_string: Optional[str] = None,
     custom_pipeline: Optional[Union[Callable, str]] = None,
-    pipeline_options: List[str] = [],
+    pipeline_options: List[str] = None,
     print_ir: Union[bool, str] = False,
     goldens: Dict[Operand, GoldenMapTensor] = None,
 ):
@@ -1592,6 +1592,10 @@ def compile_ttir_module_to_flatbuffer(
     ValueError
         If an unsupported target is specified
     """
+
+    if pipeline_options is None:
+        pipeline_options = []
+
     if type(custom_pipeline) is str:
         custom_pipeline = _create_custom_ttir_pipeline_fn(
             custom_pipeline, print_ir=print_ir
@@ -1912,6 +1916,42 @@ def execute_fb(
         print(f"output tensors for program={program_index}")
         for tensor in program.output_tensors:
             logging.debug(f"{tensor}\n")
+
+
+def load_mlir_file(
+    mlir_text: str,
+    target: Literal["ttir", "ttnn", "d2m", "stablehlo"] = "ttir",
+) -> (Module, Builder):
+    ctx = Context()
+    module = Module.parse(mlir_text, ctx)
+
+    with ctx:
+        if target == "ttir":
+            builder, module = TTIRBuilder.from_module(ctx, module)
+        else:
+            raise NotImplementedError(
+                "Loading MLIR files is only supported for ttir currently."
+            )
+
+    return builder, module
+
+
+def split_mlir_file(
+    module: Module,
+    builder: Builder,
+    target: Literal["ttir", "ttnn", "d2m", "stablehlo"] = "ttir",
+) -> List[Tuple[Module, Builder]]:
+    ctx = Context()
+
+    with ctx:
+        if target == "ttir":
+            modules_and_builders = TTIRBuilder.split_module(ctx, module, builder)
+        else:
+            raise NotImplementedError(
+                "Splitting MLIR files is only supported for ttir currently."
+            )
+
+    return modules_and_builders
 
 
 # ----- Experimental Public APIs -----

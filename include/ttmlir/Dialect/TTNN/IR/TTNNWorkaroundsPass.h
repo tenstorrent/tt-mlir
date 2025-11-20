@@ -282,6 +282,9 @@ public:
   static TTNNOperandsWorkarounds
   createPagedUpdateCacheOpOperandsWorkarounds(MLIRContext *context);
 
+  static TTNNOperandsWorkarounds
+  createPagedFillCacheOpOperandsWorkarounds(Operation *op);
+
   // Create workarounds for binary op operands.
   static TTNNOperandsWorkarounds
   createBinaryOpOperandsWorkarounds(mlir::Operation *op);
@@ -313,13 +316,15 @@ public:
   createReductionOpOperandsWorkarounds(mlir::Operation *op);
 
   // Create workaround for reduce (full) product op operands.
-  static TTNNOperandsWorkarounds
-  createReduceProdOpOperandsWorkarounds(mlir::Type elementType,
-                                        bool allDimensions);
+  static TTNNOperandsWorkarounds createReduceProdOpOperandsWorkarounds();
 
   // Create workarounds for sort op operands.
   static TTNNOperandsWorkarounds
   createSortOpOperandsWorkarounds(ttnn::SortOp op);
+
+  static TTNNOperandsWorkarounds
+  createPagedScaledDotProductAttentionDecodeOpOperandsWorkarounds(
+      Operation *op);
 };
 
 } // namespace mlir::tt::ttnn::wa
