@@ -23,6 +23,7 @@ func.func private @compute_kernel8(%arg0: memref<6x1x1x!ttcore.tile<32x32, f32>,
     memref.store %4, %collapse_shape_2[%c2] : memref<8x!ttcore.tile<32x32, f32>, #ttcore.memory_space<dst>>
     %5 = memref.load %collapse_shape_2[%c2] : memref<8x!ttcore.tile<32x32, f32>, #ttcore.memory_space<dst>>
     memref.store %5, %collapse_shape_1[%arg3] : memref<6x!ttcore.tile<32x32, f32>, #ttcore.memory_space<l1>>
+    d2m.release_dst %dst : memref<8x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.memory_space<dst>>
   }
   return
 }
