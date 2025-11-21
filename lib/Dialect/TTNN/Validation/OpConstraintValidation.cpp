@@ -8,6 +8,7 @@
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/Interfaces/OpModelError.h"
+#include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Support/Logger.h"
 
 #include "mlir/IR/BuiltinOps.h"
@@ -22,27 +23,27 @@ namespace op_constraint_validation {
 
 static ValidationResult
 validateConstraints(Operation *op, llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
-                    const OpConfig &config, float tensorL1UsageCap);
+                    const OpConfig &config);
 
 //----------- Public API implementations ----------
 
 ValidationResult validateOperation(Operation *op,
                                    llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
-                                   const OpConfig &config,
-                                   float tensorL1UsageCap) {
-  return validateConstraints(op, inputLayouts, config, tensorL1UsageCap);
+                                   const OpConfig &config) {
+  return validateConstraints(op, inputLayouts, config);
 }
 
-std::vector<ValidationResult> validateWithMultipleAttributes(
-    Operation *op, llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
-    llvm::ArrayRef<OpConfig> opConfigs,
-    llvm::ArrayRef<OpConfig> referenceConfigs, float tensorL1UsageCap) {
+std::vector<ValidationResult>
+validateWithMultipleAttributes(Operation *op,
+                               llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
+                               llvm::ArrayRef<OpConfig> opConfigs,
+                               llvm::ArrayRef<OpConfig> referenceConfigs) {
 
   std::vector<ValidationResult> results;
   for (const auto &testConfig : opConfigs) {
     // 1. Call core constraint checking.
     ValidationResult constraintResult =
-        validateConstraints(op, inputLayouts, testConfig, tensorL1UsageCap);
+        validateConstraints(op, inputLayouts, testConfig);
 
     // If not supported, backend error, or validation error - add to results
     // and continue (don't fail early, collect all results)
@@ -82,7 +83,10 @@ std::vector<ValidationResult> validateWithMultipleAttributes(
 
 static ValidationResult
 validateConstraints(Operation *op, llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
-                    const OpConfig &config, float tensorL1UsageCap) {
+                    const OpConfig &config) {
+
+  // Get tensorL1UsageCap from module attribute
+  const float tensorL1UsageCap = utils::getTensorL1UsageCap(op);
 
   // Check that operation supports OpModel interface.
   auto backend = mlir::dyn_cast<OpModel>(op);
@@ -130,7 +134,8 @@ validateConstraints(Operation *op, llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
                        op->getName(), op->getLoc(),
                        ttmlir::utils::firstNLines(errorMsg, 8),
                        config.outputLayout);
-          result = ValidationResult::metalBackendError(std::move(errorMsg));
+          result = ValidationResult::metalBackendError(
+              ttmlir::utils::firstNLines(errorMsg, 8));
         });
 
     return result;
