@@ -1,0 +1,115 @@
+services:
+  # Redis for OAuth2 Proxy session storage (avoids 4KB cookie limit)
+  redis:
+    image: redis:7-alpine
+    container_name: tt-explorer-redis
+    restart: unless-stopped
+    command: redis-server --maxmemory 64mb --maxmemory-policy allkeys-lru
+    networks:
+      - explorer-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+
+  explorer:
+    build:
+      context: ..
+      dockerfile: Dockerfile.explorer
+    container_name: tt-explorer-app
+    restart: unless-stopped
+    command: ["-u", "0.0.0.0", "-x"]
+    networks:
+      - explorer-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  oauth2-proxy:
+    image: quay.io/oauth2-proxy/oauth2-proxy:v7.12.0-alpine
+    container_name: tt-explorer-oauth2-proxy
+    restart: unless-stopped
+    command:
+      - --http-address=0.0.0.0:4180
+      - --reverse-proxy=true
+      - --upstream=static://202
+      - --set-xauthrequest=true
+      - --pass-access-token=true
+      - --pass-user-headers=true
+      - --cookie-refresh=1h
+      - --cookie-expire=24h
+      - --session-store-type=redis
+      - --redis-connection-url=redis://redis:6379
+    environment:
+      OAUTH2_PROXY_PROVIDER: ${OAUTH2_PROXY_PROVIDER:-entra-id}
+      OAUTH2_PROXY_OIDC_ISSUER_URL: ${OAUTH2_PROXY_OIDC_ISSUER_URL:-https://login.microsoftonline.com/${OAUTH2_PROXY_AZURE_TENANT}/v2.0}
+      OAUTH2_PROXY_CLIENT_ID: ${OAUTH2_PROXY_CLIENT_ID}
+      OAUTH2_PROXY_CLIENT_SECRET: ${OAUTH2_PROXY_CLIENT_SECRET}
+      OAUTH2_PROXY_COOKIE_SECRET: ${OAUTH2_PROXY_COOKIE_SECRET}
+      OAUTH2_PROXY_REDIRECT_URL: ${OAUTH2_PROXY_REDIRECT_URL:-https://explorer.yourcompany.com/oauth2/callback}
+      OAUTH2_PROXY_EMAIL_DOMAINS: ${OAUTH2_PROXY_EMAIL_DOMAINS:-*}
+      OAUTH2_PROXY_COOKIE_SECURE: ${OAUTH2_PROXY_COOKIE_SECURE:-true}
+      OAUTH2_PROXY_COOKIE_SAMESITE: ${OAUTH2_PROXY_COOKIE_SAMESITE:-lax}
+      OAUTH2_PROXY_WHITELIST_DOMAINS: ${OAUTH2_PROXY_WHITELIST_DOMAINS:-.yourcompany.com}
+      OAUTH2_PROXY_COOKIE_DOMAINS: ${OAUTH2_PROXY_COOKIE_DOMAINS:-.yourcompany.com}
+      OAUTH2_PROXY_SKIP_PROVIDER_BUTTON: ${OAUTH2_PROXY_SKIP_PROVIDER_BUTTON:-true}
+      OAUTH2_PROXY_INSECURE_OIDC_SKIP_ISSUER_VERIFICATION: ${OAUTH2_PROXY_INSECURE_OIDC_SKIP_ISSUER_VERIFICATION:-true}
+    networks:
+      - explorer-network
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:4180/ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    depends_on:
+      explorer:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  nginx:
+    build:
+      context: ./nginx
+      dockerfile: Dockerfile
+    container_name: tt-explorer-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      - ACME_DIRECTORY_URL=${ACME_DIRECTORY_URL:-https://acme-v02.api.letsencrypt.org/directory}
+      - ACME_CONTACT=${ACME_CONTACT:-it@yourcompany.com}
+      - FQDN=${FQDN:-explorer.yourcompany.com}
+    volumes:
+      - nginx-logs:/var/log/nginx
+      - /etc/ssl/certs/ca-certificates.crt:/etc/ssl/certs/ca-certificates.crt:ro
+    networks:
+      - explorer-network
+    depends_on:
+      explorer:
+        condition: service_healthy
+      oauth2-proxy:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+networks:
+  explorer-network:
+    driver: bridge
+    name: explorer-network
+
+volumes:
+  nginx-logs:
+    name: tt-explorer-nginx-logs
