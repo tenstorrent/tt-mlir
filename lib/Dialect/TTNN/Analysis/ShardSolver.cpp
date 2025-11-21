@@ -11,12 +11,17 @@
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfigAttrs.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
+#include "ttmlir/Dialect/TTNN/Utils/OptimizerUtils.h"
 #include "ttmlir/Dialect/TTNN/Utils/PassOverrides.h"
+#include "ttmlir/Dialect/TTNN/Utils/Utils.h"
+#include "ttmlir/Dialect/TTNN/Validation/OpConstraintValidation.h"
 #include "ttmlir/Support/Logger.h"
 #include "ttmlir/Utils.h"
 
+#include "mlir/IR/Attributes.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/Location.h"
+#include "mlir/IR/Visitors.h"
 #include "mlir/Interfaces/DestinationStyleOpInterface.h"
 #include "mlir/Support/LLVM.h"
 #include "llvm/ADT/DenseSet.h"
@@ -27,8 +32,7 @@
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/raw_ostream.h"
 
-#include "mlir/IR/Attributes.h"
-#include "mlir/IR/Visitors.h"
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -36,25 +40,11 @@ namespace mlir::tt::ttnn {
 
 ShardSolver::Bitset ShardSolver::kBitsetAll = ~kBitsetNone;
 
-static std::vector<OpConfig::OpSpecificAttrs>
-getUniqueOpSpecificAttrs(const std::vector<OpConfig> &configs) {
-  llvm::DenseSet<OpConfig::OpSpecificAttrs> uniqueAttrs;
-  std::vector<OpConfig::OpSpecificAttrs> attrVec;
-
-  for (const OpConfig &config : configs) {
-    if (uniqueAttrs.insert(config.opSpecificAttrs).second) {
-      attrVec.push_back(config.opSpecificAttrs);
-    }
-  }
-  return attrVec;
-}
-
 ShardSolver::ShardSolver(
     const TensorTypeLayoutsMap *tensorTypePossibleLayouts,
     const llvm::DenseMap<Operation *, std::vector<OpConfig>> &legalConfigs,
     const std::vector<OpL1MemSpec> &shardSpecs,
     const llvm::DenseSet<Operation *> &shardedOps,
-    const unsigned usableL1CacheSize,
     const llvm::DenseSet<Edge> &overrideReshardEdges,
     const llvm::StringMap<OutputLayoutOverrideParams> &overrideOutputLayout,
     std::function<llvm::Expected<TTNNLayoutAttr>(Value, TTNNLayoutAttr,
@@ -62,8 +52,7 @@ ShardSolver::ShardSolver(
         customCheckShardCompatible)
     : tensorTypePossibleLayouts(tensorTypePossibleLayouts),
       legalConfigs(&legalConfigs), shardSpecs(&shardSpecs),
-      shardedOps(&shardedOps), usableL1CacheSize(usableL1CacheSize),
-      memReconfigEdges(overrideReshardEdges),
+      shardedOps(&shardedOps), memReconfigEdges(overrideReshardEdges),
       overrideOutputLayout(overrideOutputLayout),
       customCheckShardCompatible(customCheckShardCompatible) {
   pathSets.reserve(shardSpecs.size());
@@ -170,6 +159,15 @@ bool ShardSolver::resolveStep() {
           edgeConsumerBitset.set(configBitIndex);
         }
       } else {
+        llvm::SmallVector<OpConfig> testConfigs =
+            optimizer_utils::getUniqueTestConfigs(
+                consumerConfigs,
+                mlir::isa<ttnn::MatmulOp, ttnn::LinearOp>(consumerOp));
+
+        // Extract input layouts template once
+        std::vector<TTNNLayoutAttr> inputLayouts =
+            utils::extractInputLayouts(consumerOp);
+
         for (std::uint64_t producerId = 0; producerId < producerCount;
              ++producerId) {
           // TODO(rpavlovicTT) After we inserted reshard in
@@ -181,36 +179,45 @@ bool ShardSolver::resolveStep() {
             continue;
           }
 
-          std::vector<OpConfig::OpSpecificAttrs> consumerOpSpecificAttrs =
-              getUniqueOpSpecificAttrs(consumerConfigs);
-
           TTNNLayoutAttr inputLayout = producerConfigs[producerId].outputLayout;
 
-          auto checkShardCompatCallback = [&](llvm::Expected<std::size_t> res) {
-            if (res) {
-              std::size_t consumerId = res.get();
+          // Try custom checker first.
+          if (tryCustomShardCompatible(
+                  edge, consumerOp, inputLayout, consumerConfigs, producerId,
+                  edgeProducerBitset, edgeConsumerBitset, paths)) {
+            continue;
+          }
+
+          inputLayouts[edge.operandIndex] = inputLayout;
+          std::vector<op_constraint_validation::ValidationResult> results =
+              op_constraint_validation::validateWithMultipleAttributes(
+                  consumerOp, inputLayouts, testConfigs,
+                  /*referenceConfigs*/ consumerConfigs);
+
+          for (std::size_t i = 0; i < results.size(); ++i) {
+            const auto &result = results[i];
+            if (result.isSuccess()) {
               TTMLIR_TRACE(
                   ttmlir::LogComponent::Optimizer,
                   "Backend chose valid consumer layout {}, consumerId {}",
-                  consumerConfigs[consumerId].outputLayout, consumerId);
-              assert(consumerId <=
-                     std::numeric_limits<decltype(Path::consumerId)>::max());
-              paths.push_back(Path(producerId, consumerId));
+                  result.actualOutputLayout, result.configIndex);
               edgeProducerBitset.set(producerId);
-              edgeConsumerBitset.set(consumerId);
+              edgeConsumerBitset.set(result.configIndex);
+              paths.push_back(Path(
+                  producerId, static_cast<std::uint64_t>(result.configIndex)));
             } else {
-              std::string error = llvm::toString(res.takeError());
-              TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
-                           "Shard not compatible, error: {}", error);
-              errorCount[error]++;
+              TTMLIR_TRACE(
+                  ttmlir::LogComponent::Optimizer,
+                  "Producer -> consumer sharding not compatible, error: {}\n\t "
+                  "producer layout: {} \n\t consumer layout: {}",
+                  result.errorMessage, inputLayout,
+                  testConfigs[i].outputLayout);
+              errorCount[result.errorMessage]++;
             }
-          };
-
-          checkShardCompatibleForInputLayout(
-              edge, consumerOp, inputLayout, consumerOpSpecificAttrs,
-              consumerConfigs, checkShardCompatCallback);
+          }
         }
       }
+
       if (paths.empty() || ((*producerBitset & edgeProducerBitset) == 0) ||
           ((*consumerBitset & edgeConsumerBitset) == 0)) {
 
@@ -287,8 +294,44 @@ bool ShardSolver::resolveStep() {
   return true;
 }
 
-bool ShardSolver::supportsInterleavedInputShardedOutput(
-    Operation *op, OpConfig outputConfig, bool rowMajorInputOverride) {
+bool ShardSolver::tryCustomShardCompatible(
+    const Edge &edge, Operation *consumerOp, TTNNLayoutAttr inputLayout,
+    const std::vector<OpConfig> &consumerConfigs, std::uint64_t producerId,
+    Bitset &edgeProducerBitset, Bitset &edgeConsumerBitset,
+    PathSet::Paths &paths) {
+
+  if (!customCheckShardCompatible) {
+    return false;
+  }
+
+  // Use custom checker - just call it once with empty config
+  llvm::Expected<TTNNLayoutAttr> customResult =
+      customCheckShardCompatible(consumerOp->getOperand(edge.operandIndex),
+                                 inputLayout, consumerOp, OpConfig());
+
+  if (customResult) {
+    // Find matching config in consumerConfigs
+    for (size_t j = 0; j < consumerConfigs.size(); ++j) {
+      if (consumerConfigs[j].outputLayout == customResult.get()) {
+        edgeProducerBitset.set(producerId);
+        edgeConsumerBitset.set(j);
+        paths.push_back(Path(producerId, j));
+        break;
+      }
+    }
+  } else {
+    TTMLIR_TRACE(ttmlir::LogComponent::Optimizer, "Custom checker failed: {}",
+                 llvm::toString(customResult.takeError()));
+  }
+
+  return true; // Custom checker was used
+}
+
+llvm::Expected<TTNNLayoutAttr>
+ShardSolver::supportsInterleavedInputShardedOutput(Operation *op,
+                                                   OpConfig outputConfig,
+                                                   bool rowMajorInputOverride) {
+
   RankedTensorType tensorType =
       mlir::cast<RankedTensorType>(op->getOperand(0).getType());
   TTNNLayoutAttr inputLayout =
@@ -302,21 +345,29 @@ bool ShardSolver::supportsInterleavedInputShardedOutput(
     inputLayout = inputLayout.withLayout(Layout::RowMajor, tensorShape);
   }
 
-  TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
-               "Checking interleaved to sharded for op {} \n\tinputTensor {} "
-               "\n\tinputLayout: {} "
-               "\n\toutputLayout: {}",
-               op->getName(), tensorType, inputLayout,
-               outputConfig.outputLayout);
-  llvm::Expected<TTNNLayoutAttr> shardCompatible =
-      checkShardCompatible(op->getOperand(0), inputLayout, op, outputConfig);
-
-  if (!shardCompatible) {
-    llvm::consumeError(shardCompatible.takeError());
-    return false;
+  if (customCheckShardCompatible) {
+    return customCheckShardCompatible(op->getOperand(0), inputLayout, op,
+                                      outputConfig);
   }
 
-  return true;
+  std::vector<TTNNLayoutAttr> inputLayouts = utils::extractInputLayouts(op);
+  inputLayouts[0] = inputLayout;
+
+  op_constraint_validation::ValidationResult validationResult =
+      op_constraint_validation::validateOperation(op, inputLayouts,
+                                                  outputConfig);
+
+  if (validationResult.isError()) {
+    return llvm::createStringError(validationResult.errorMessage);
+  }
+
+  if (!validationResult.actualOutputLayout.hasShardedL1TensorMemoryLayout()) {
+    return llvm::createStringError(
+        "Interleaved to sharded not supported - backend did not return sharded "
+        "layout");
+  }
+
+  return validationResult.actualOutputLayout;
 }
 
 // We need to check if first op requires sharded inputs and if so, insert
@@ -343,7 +394,8 @@ bool ShardSolver::preprocessFirstOp() {
         opOutputOverride->getValue().memoryLayout.value() == Layout::RowMajor) {
       rowMajorInputOverride = true;
       TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
-                   "Row-major input override found for first op in chain {}",
+                   "[preprocessing first op {}] Row-major input override found "
+                   "for first op in chain",
                    firstOp->getName());
     }
   }
@@ -351,92 +403,81 @@ bool ShardSolver::preprocessFirstOp() {
   Bitset *firstOpBitset = getOrInsertBitset(firstOp, kBitsetAll);
   const std::vector<OpConfig> &firstOpConfigs = getLegalConfigs(firstOp);
 
-  bool hasValidConfig = false;
-  for (size_t i = 0; i < firstOpConfigs.size(); ++i) {
-    if (!firstOpBitset->test(i)) {
-      continue;
-    }
-
-    TTNNLayoutAttr firstOpLayout = firstOpConfigs[i].outputLayout;
-    assert(firstOpLayout.hasShardedL1TensorMemoryLayout());
-
-    if (!supportsInterleavedInputShardedOutput(firstOp, firstOpConfigs[i],
-                                               rowMajorInputOverride)) {
-      TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
-                   "Interleaved to sharded not possible for config idx {} "
-                   "\n\tlayout: {}",
-                   i, firstOpLayout);
-      // Invalidate this config.
-      firstOpBitset->reset(i);
-      continue;
-    }
-
-    hasValidConfig = true;
-  }
-
-  if (hasValidConfig) {
-    TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
-                 "First op {} has valid interleaved to sharded config, no need "
-                 "to insert reshard",
-                 firstOp->getName());
-    return true;
-  }
+  firstOpBitset->reset();
 
   // None of the configs are valid, so we need to insert a reshard op.
   Edge shardChainInputEdge =
       Edge(firstOp->getOperand(0).getDefiningOp(), firstOp, 0 /*operandIndex*/);
 
+  if (mlir::isa<ttnn::Conv2dOp, ttnn::ConvTranspose2dOp>(firstOp)) {
+    TTMLIR_TRACE(
+        ttmlir::LogComponent::Optimizer,
+        "[preprocessing first op {}] First op is Conv2d/ConvTranspose2d, "
+        "inserting reshard unconditionally",
+        firstOp->getName());
+    return insertReshard(shardChainInputEdge);
+  }
+
+  for (size_t i = 0; i < firstOpConfigs.size(); ++i) {
+    TTNNLayoutAttr firstOpLayout = firstOpConfigs[i].outputLayout;
+    assert(firstOpLayout.hasShardedL1TensorMemoryLayout());
+
+    if (mlir::isa<ttnn::MatmulOp, ttnn::LinearOp>(firstOp)) {
+      firstOpLayout = firstOpLayout.withIgnorePhysicalLayout(true);
+    }
+
+    TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
+                 "[preprocessing first op {}] Checking interleaved to sharded "
+                 "for config idx {} "
+                 "\n\tlayout: {} ",
+                 firstOp->getName(), i, firstOpLayout);
+
+    llvm::Expected<TTNNLayoutAttr> result =
+        supportsInterleavedInputShardedOutput(
+            firstOp, OpConfig(firstOpLayout, firstOpConfigs[i].opSpecificAttrs),
+            rowMajorInputOverride);
+
+    if (!result) {
+      std::string errorStr = llvm::toString(result.takeError());
+      TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
+                   "[preprocessing first op {}] Interleaved to sharded not "
+                   "possible for config idx {} "
+                   "\n\tlayout: {} \n\terror: {}",
+                   firstOp->getName(), i, firstOpLayout, errorStr);
+      continue;
+    }
+
+    TTNNLayoutAttr actualLayout = result.get();
+    if (actualLayout == firstOpLayout) {
+      TTMLIR_TRACE(
+          ttmlir::LogComponent::Optimizer,
+          "[preprocessing first op {}] Backend actual layout matches "
+          "config layout, marking config idx {} as valid \n\t layout {}",
+          firstOp->getName(), i, firstOpLayout);
+      firstOpBitset->set(i);
+    } else {
+      TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
+                   "[preprocessing first op {}] Backend actual layout does not "
+                   "match given output config layout {}",
+                   firstOp->getName(), firstOpLayout);
+    }
+  }
+
+  if (firstOpBitset->any()) {
+    TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
+                 "[preprocessing first op {}] Has valid interleaved to sharded "
+                 "config, no need "
+                 "to insert reshard, bitset: {}",
+                 firstOp->getName(), firstOpBitset->to_string());
+    return true;
+  }
+
   TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
-               "Interleaved to sharded is not possible, trying reshard for "
-               "first op {}",
+               "[preprocessing first op {}] Interleaved to sharded is not "
+               "possible, trying reshard",
                firstOp->getName());
 
   return insertReshard(shardChainInputEdge);
-}
-
-void ShardSolver::checkShardCompatibleForInputLayout(
-    const Edge &edge, Operation *op, TTNNLayoutAttr inputLayout,
-    std::vector<OpConfig::OpSpecificAttrs> &consumerConfigSet,
-    const std::vector<OpConfig> &consumerConfigs,
-    std::function<void(llvm::Expected<std::size_t>)> callback) {
-
-  for (const OpConfig::OpSpecificAttrs &opSpecificAttr : consumerConfigSet) {
-    OpConfig consumerConfigNoLayout(nullptr, opSpecificAttr);
-    llvm::Expected<TTNNLayoutAttr> shardCompatible =
-        checkShardCompatible(op->getOperand(edge.operandIndex), inputLayout, op,
-                             consumerConfigNoLayout);
-
-    if (shardCompatible) {
-      TTNNLayoutAttr outputLayout = shardCompatible.get();
-      size_t consumerConfigIdx;
-      for (consumerConfigIdx = 0; consumerConfigIdx < consumerConfigs.size();
-           ++consumerConfigIdx) {
-
-        if (consumerConfigs[consumerConfigIdx].outputLayout == outputLayout &&
-            consumerConfigs[consumerConfigIdx].opSpecificAttrs ==
-                opSpecificAttr) {
-          break;
-        }
-      }
-
-      if (consumerConfigIdx == consumerConfigs.size()) {
-        // Once we enable row-major, this case should not occur, at that point
-        // we can add a fatal error.
-
-        std::string errorMsg = llvm::formatv(
-            "Did not find consumer config (layout {0}, op-specific attr {1}) "
-            "among generated configs",
-            outputLayout, opSpecificAttr);
-        TTMLIR_TRACE(ttmlir::LogComponent::Optimizer, "{}", errorMsg);
-        callback(llvm::createStringError(errorMsg));
-        continue;
-      }
-
-      callback(consumerConfigIdx);
-      continue;
-    }
-    callback(shardCompatible.takeError());
-  }
 }
 
 bool ShardSolver::insertReshard(const Edge &edge) {
@@ -466,54 +507,46 @@ bool ShardSolver::insertReshard(const Edge &edge) {
   //
   MemReconfigEntry memReconfigEntry;
 
-  // Copy consumer configs without layout, but keep only unique op-specific
-  // attrs.
-  std::vector<OpConfig::OpSpecificAttrs> consumerConfigSet =
-      getUniqueOpSpecificAttrs(consumerConfigs);
+  llvm::SmallVector<OpConfig> testConfigs =
+      optimizer_utils::getUniqueTestConfigs(
+          consumerConfigs,
+          mlir::isa<ttnn::MatmulOp, ttnn::LinearOp>(consumerOp));
 
-  bool foundSolution = false;
-  auto processShardCompatCallback =
-      [&](llvm::Expected<std::size_t> consumerConfigIdxExp,
-          const TTNNLayoutAttr &inputLayout) {
-        if (consumerConfigIdxExp) {
-          std::size_t consumerConfigIdx = consumerConfigIdxExp.get();
-          consumerBitset->set(consumerConfigIdx);
+  // Extract and set input layouts for validation
+  std::vector<TTNNLayoutAttr> consumerInputOperandLayouts =
+      utils::extractInputLayouts(consumerOp);
 
-          if (memReconfigEntry.reshardOutputConfigMap.find(consumerConfigIdx) ==
-              memReconfigEntry.reshardOutputConfigMap.end()) {
-            memReconfigEntry.reshardOutputConfigMap[consumerConfigIdx] =
-                llvm::SmallVector<OpConfig>();
-          }
-
-          TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
-                       "Resharding found valid config for edge: {}, producer "
-                       "layout: {}, consumer idx: {}",
-                       edge, inputLayout, consumerConfigIdx);
-
-          memReconfigEntry.reshardOutputConfigMap[consumerConfigIdx].push_back(
-              inputLayout);
-          foundSolution = true;
-        } else if (llvm::DebugFlag) {
-          std::string errorMsg = ttmlir::utils::firstNLines(
-              llvm::toString(consumerConfigIdxExp.takeError()), 4);
-          errorCount[errorMsg].push_back(inputLayout);
-        } else {
-          llvm::consumeError(consumerConfigIdxExp.takeError());
-        }
-      };
-
+  // Try each input layout to find compatible consumer configs
   for (const TTNNLayoutAttr &inputLayout : inputLayouts) {
-    auto inputLayoutBoundCB = std::bind(processShardCompatCallback,
-                                        std::placeholders::_1, inputLayout);
+    consumerInputOperandLayouts[edge.operandIndex] = inputLayout;
+    std::vector<op_constraint_validation::ValidationResult> results =
+        op_constraint_validation::validateWithMultipleAttributes(
+            consumerOp, consumerInputOperandLayouts, testConfigs,
+            /*referenceConfigs*/ consumerConfigs);
 
-    checkShardCompatibleForInputLayout(edge, consumerOp, inputLayout,
-                                       consumerConfigSet, consumerConfigs,
-                                       inputLayoutBoundCB);
+    for (const auto &result : results) {
+      if (result.isSuccess()) {
+        std::size_t consumerConfigIdx = result.configIndex;
+        consumerBitset->set(consumerConfigIdx);
 
-    if (foundSolution) {
-      // Breaking as soon as we find one valid layout. In future, we might
-      // want to keep all valid configs for optimal resharding.
-      break;
+        if (memReconfigEntry.reshardOutputConfigMap.find(consumerConfigIdx) ==
+            memReconfigEntry.reshardOutputConfigMap.end()) {
+          memReconfigEntry.reshardOutputConfigMap[consumerConfigIdx] =
+              llvm::SmallVector<OpConfig>();
+        }
+
+        TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
+                     "Resharding found valid config for edge: {}, producer "
+                     "layout: {}, consumer idx: {}",
+                     edge, inputLayout, consumerConfigIdx);
+
+        memReconfigEntry.reshardOutputConfigMap[consumerConfigIdx].push_back(
+            inputLayout);
+      } else if (llvm::DebugFlag) {
+        std::string errorMsg =
+            ttmlir::utils::firstNLines(result.errorMessage, 4);
+        errorCount[errorMsg].push_back(inputLayout);
+      }
     }
   }
 
@@ -816,132 +849,6 @@ void ShardSolver::set(Operation *op, const OpConfig &config) {
   bool updateSuccessful =
       updateSolver(op, true /*expand_root*/, true /*invokedBySet*/);
   assert(updateSuccessful && "Failed to update solver after setting config");
-}
-
-llvm::Expected<TTNNLayoutAttr> ShardSolver::checkShardCompatible(
-    Value producerOperand, const TTNNLayoutAttr &producerLayout,
-    Operation *consumerOp, const OpConfig &consumerConfig) const {
-
-  // Custom(test) hook for shard compatibility check.
-  //
-  if (customCheckShardCompatible) {
-    return customCheckShardCompatible(producerOperand, producerLayout,
-                                      consumerOp, consumerConfig);
-  }
-
-  OpModel backend = mlir::dyn_cast<OpModel>(consumerOp);
-  if (!backend) {
-    // This function should not be called for ops without backend constraints.
-    llvm::report_fatal_error(
-        ("Backend constraints are not implemented for op " +
-         consumerOp->getName().getStringRef()));
-  }
-
-  // Constraints are implemented for this op.
-  //
-  auto deviceAttr = mlir::tt::ttcore::lookupDevice(consumerOp);
-  assert(deviceAttr);
-
-  // Map consumer operands to DRAM interleave or provided producerLayout
-  // only one operand can be mapped to producerLayout, it's picked as first
-  // operand matching producerOp output shape.
-
-  uint32_t numOperands = consumerOp->getNumOperands();
-  // Discard DPS operand since it's not used in runtime.
-  // TODO(odjuricic,#2088): Remove once fix this on MLIR / runtime side.
-  if (llvm::isa<DestinationStyleOpInterface>(consumerOp)) {
-    numOperands = numOperands - 1;
-  }
-
-  std::vector<TTNNLayoutAttr> inputLayouts;
-
-  bool inputUnderCheckFound = false;
-  for (uint32_t i = 0; i < numOperands; i++) {
-    auto operand = consumerOp->getOperand(i);
-
-    if (mlir::isa<TypedValue<mlir::tt::ttnn::DeviceType>>(operand)) {
-      // Skip device type operand.
-      continue;
-    }
-
-    if (operand == producerOperand) {
-      // This is the input we are checking compatibility for.
-
-      inputLayouts.push_back(producerLayout);
-      inputUnderCheckFound = true;
-      continue;
-    }
-
-    RankedTensorType input = mlir::cast<RankedTensorType>(operand.getType());
-
-    auto layout = mlir::cast<TTNNLayoutAttr>(input.getEncoding());
-
-    assert(layout && "Input operand must have a layout");
-    inputLayouts.push_back(layout);
-  }
-
-  assert(inputUnderCheckFound && "Input under check not found");
-
-  llvm::Expected<op_model::OpConstraints> l1UsageExp =
-      backend.getOpConstraints(inputLayouts, consumerConfig);
-
-  if (!l1UsageExp) {
-    llvm::Error error = l1UsageExp.takeError();
-
-    // early exit
-    TTMLIR_DEBUG(
-        ttmlir::LogComponent::Optimizer,
-        "OpModel constraints failed: {0}->{1} :: {2}, \nproducerLayout: {3}, "
-        "\nconsumerLayout: {4}",
-        producerOperand.getLoc(), consumerOp->getName(),
-        ttmlir::utils::firstNLines(llvm::toStringWithoutConsuming(error), 4),
-        producerLayout, consumerConfig.outputLayout);
-
-    return error;
-  }
-
-  auto [cBUsagePeak, tensorUsage, peakMemoryUsage, outputTensorUsage,
-        outputLayout] = l1UsageExp.get();
-
-  if (consumerConfig.outputLayout &&
-      outputLayout != consumerConfig.outputLayout) {
-    std::string message = "Output layout mismatch: backend returned layout "
-                          "doesn't match requested consumer layout";
-    TTMLIR_TRACE(ttmlir::LogComponent::Optimizer, "{}", message);
-    return llvm::createStringError("[Optimizer] " + message);
-  }
-
-  uint64_t producerL1OutputUsage = producerLayout.getShardSizeInBytes();
-
-  bool l1UsageValid =
-      (producerL1OutputUsage + tensorUsage + cBUsagePeak) < usableL1CacheSize;
-
-  if (!l1UsageValid) {
-    TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
-                 "Not enough L1 memory. OpModel constraints failed: {0}->{1} "
-                 "\n producerLayout: {2}, \noutputLayout: {3}, \nl1Usage: {4}, "
-                 "producerL1OutputUsage: {5}, "
-                 "outputTensorUsage: {6}, cBUsagePeak: {7}",
-                 producerOperand.getLoc(), consumerOp->getName(),
-                 producerLayout, outputLayout,
-                 cBUsagePeak + outputTensorUsage + producerL1OutputUsage,
-                 producerL1OutputUsage, outputTensorUsage, cBUsagePeak);
-    return llvm::createStringError("Not enough L1 memory");
-  }
-
-  TTMLIR_DEBUG(
-      ttmlir::LogComponent::Optimizer,
-      "OpModel constraints valid. Producer: {0} -> Consumer: {1}\n"
-      "ProducerLayout: {2}\nOutputLayout: {3}\n"
-      "L1 usage: cBUsagePeak: {4}, tensorUsage: {5}, outputTensorUsage: {6}, "
-      "producerL1OutputUsage: {7}, totalL1Usage: {8}\n"
-      "=== End of debug dump ===",
-      producerOperand.getLoc(), consumerOp->getName(), producerLayout,
-      outputLayout, cBUsagePeak, tensorUsage, outputTensorUsage,
-      producerL1OutputUsage,
-      cBUsagePeak + outputTensorUsage + producerL1OutputUsage);
-
-  return outputLayout;
 }
 
 // Preprocess ShardSolver search space to make a helper structure which links
