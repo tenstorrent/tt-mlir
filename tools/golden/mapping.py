@@ -1284,49 +1284,6 @@ def logical_right_shift_golden(
     return result.to(input_tensor.dtype)
 
 
-def max_golden(
-    input_tensor: GoldenMapTensor, dim_arg=None, keep_dim=True
-) -> GoldenMapTensor:
-    """
-    Custom golden function for max operation with conditional logic.
-
-    Parameters
-    ----------
-    input_tensor : GoldenMapTensor
-        Input tensor to find maximum of
-    dim_arg : List[int], optional
-        List of dimensions to reduce over. If None, reduces over all dimensions (default: None)
-    keep_dim : bool, optional
-        Whether to keep the reduced dimension (default: True)
-
-    Returns
-    -------
-    GoldenMapTensor
-        Maximum values along specified dimension(s) or global maximum
-    """
-    if dim_arg is None:
-        # For all dimensions reduction
-        result = torch.max(input_tensor)
-        if keep_dim:
-            # Reshape to match expected output with all dims = 1
-            output_shape = [1] * input_tensor.dim()
-            return result.reshape(*output_shape)
-        else:
-            return result
-    elif len(dim_arg) == 1:
-        # Single dimension reduction
-        values, indices = torch.max(input_tensor, dim=dim_arg[0], keepdim=keep_dim)
-        return values
-    else:
-        # Multiple dimensions - reduce sequentially from highest to lowest
-        # Sort in descending order to maintain correct dimension indices
-        sorted_dims = sorted(dim_arg, reverse=True)
-        result = input_tensor
-        for dim in sorted_dims:
-            result, _ = torch.max(result, dim=dim, keepdim=keep_dim)
-        return result
-
-
 def min_golden(
     input_tensor: GoldenMapTensor, dim_arg=None, keep_dim=True
 ) -> GoldenMapTensor:
@@ -1932,27 +1889,6 @@ def reduce_and_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTenso
     return torch.all(input_tensor, dim=tuple(dim_arg), keepdim=keep_dim)
 
 
-def reduce_or_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
-    """
-    Golden function for reduce_or operation with TTIR parameter names.
-
-    Parameters
-    ----------
-    input_tensor : GoldenMapTensor
-        Input tensor to reduce
-    **kwargs : dict
-        Keyword arguments including 'dim_arg' and 'keep_dim'
-
-    Returns
-    -------
-    GoldenMapTensor
-        Reduced tensor
-    """
-    dim_arg = kwargs.get("dim_arg", [0])
-    keep_dim = kwargs.get("keep_dim", True)
-    return torch.any(input_tensor, dim=tuple(dim_arg), keepdim=keep_dim)
-
-
 def transpose_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
     """
     Golden function for transpose operation with TTIR parameter names.
@@ -2016,6 +1952,7 @@ def concat_golden(input_tensors: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
         Concatenated tensor
     """
     dim = kwargs.get("dim", 0)
+    dim = unpack_mlir_attr(dim)
     if isinstance(input_tensors, tuple):
         return torch.concat(input_tensors, dim=dim)
     else:
@@ -2948,10 +2885,6 @@ def stablehlo_not_golden(
         return torch.bitwise_not(input_tensor)
 
 
-def ttir_add_golden(lhs: GoldenMapTensor, rhs: GoldenMapTensor) -> GoldenMapTensor:
-    return torch.add(lhs, rhs)
-
-
 def ttir_div_golden(lhs: GoldenMapTensor, rhs: GoldenMapTensor) -> GoldenMapTensor:
     return torch.div(lhs, rhs).to(lhs.dtype)
 
@@ -2964,19 +2897,11 @@ def ttir_sum_golden(
     return torch.sum(input_tensor, dim=dim_arg, keepdim=keep_dim)
 
 
-def ttir_multiply_golden(lhs: GoldenMapTensor, rhs: GoldenMapTensor) -> GoldenMapTensor:
-    return torch.multiply(lhs, rhs)
-
-
-def ttir_maximum_golden(lhs: GoldenMapTensor, rhs: GoldenMapTensor) -> GoldenMapTensor:
-    return torch.maximum(lhs, rhs)
-
-
 def ttir_reshape_golden(
     input_tensor: GoldenMapTensor, shape_attr: ArrayAttr
 ) -> GoldenMapTensor:
     new_shape = unpack_mlir_attr(shape_attr)
-    return torch.reshape(input_tensor, new_shape)
+    return torch.reshape(input_tensor, new_shape).clone()
 
 
 def ttir_broadcast_golden(
@@ -3427,6 +3352,63 @@ def ttir_batch_norm_inference_golden(
     return result
 
 
+def ttir_ne_golden(
+    input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor
+) -> GoldenMapTensor:
+    result_bool = torch.ne(input_tensor, other_tensor)
+    return result_bool.to(input_tensor.dtype)
+
+
+def ttir_logical_not_golden(input_tensor: GoldenMapTensor) -> GoldenMapTensor:
+    result_bool = torch.logical_not(input_tensor)
+    return result_bool.to(input_tensor.dtype)
+
+
+def ttir_max_golden(
+    input_tensor: GoldenMapTensor, dim_arg_attr: ArrayAttr, keep_dim_attr: BoolAttr
+) -> GoldenMapTensor:
+    dim_arg = unpack_mlir_attr(dim_arg_attr)
+    keep_dim = unpack_mlir_attr(keep_dim_attr)
+
+    if dim_arg is None:
+        # For all dimensions reduction
+        result = torch.max(input_tensor)
+        if keep_dim:
+            # Reshape to match expected output with all dims = 1
+            output_shape = [1] * input_tensor.dim()
+            return result.reshape(*output_shape)
+        else:
+            return result
+    elif len(dim_arg) == 1:
+        # Single dimension reduction
+        values, indices = torch.max(input_tensor, dim=dim_arg[0], keepdim=keep_dim)
+        return values
+    else:
+        # Multiple dimensions - reduce sequentially from highest to lowest
+        # Sort in descending order to maintain correct dimension indices
+        sorted_dims = sorted(dim_arg, reverse=True)
+        result = input_tensor
+        for dim in sorted_dims:
+            result, _ = torch.max(result, dim=dim, keepdim=keep_dim)
+        return result
+
+
+def ttir_reduce_or_golden(
+    input_tensor: GoldenMapTensor, dim_arg_attr: ArrayAttr, keep_dim_attr: BoolAttr
+) -> GoldenMapTensor:
+    dim_arg = unpack_mlir_attr(dim_arg_attr)
+    keep_dim = unpack_mlir_attr(keep_dim_attr)
+    return torch.any(input_tensor, dim=tuple(dim_arg), keepdim=keep_dim)
+
+
+def ttir_clamp_tensor_golden(
+    input_tensor: GoldenMapTensor,
+    min_tensor: GoldenMapTensor,
+    max_tensor: GoldenMapTensor,
+) -> GoldenMapTensor:
+    return torch.min(torch.max(input_tensor, min_tensor), max_tensor)
+
+
 GOLDEN_MAPPINGS: Dict[type, Callable] = {
     # ----- TTIR OPS -----
     # Elementwise unary operations
@@ -3457,18 +3439,18 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.Expm1Op: torch.expm1,
     ttir.ExpOp: torch.exp,
     # Elementwise binary operations
-    ttir.AddOp: ttir_add_golden,
+    ttir.AddOp: torch.add,
     ttir.Atan2Op: torch.atan2,
-    ttir.MultiplyOp: ttir_multiply_golden,
+    ttir.MultiplyOp: torch.multiply,
     ttir.SubtractOp: torch.subtract,
     ttir.DivOp: ttir_div_golden,
-    ttir.MaximumOp: ttir_maximum_golden,
+    ttir.MaximumOp: torch.maximum,
     ttir.MinimumOp: torch.minimum,
     ttir.RemainderOp: torch.remainder,
     ttir.PowOp: torch.pow,
     # Comparison operations
     ttir.EqualOp: equal_golden,
-    ttir.NotEqualOp: not_equal_golden,
+    ttir.NotEqualOp: ttir_ne_golden,
     ttir.GreaterEqualOp: greater_equal_golden,
     ttir.GreaterThanOp: greater_than_golden,
     ttir.LessEqualOp: less_equal_golden,
@@ -3479,7 +3461,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.LogicalOrOp: logical_or_golden,
     ttir.LogicalRightShiftOp: logical_right_shift_golden,
     ttir.LogicalXorOp: logical_xor_golden,
-    ttir.LogicalNotOp: logical_not_golden,
+    ttir.LogicalNotOp: ttir_logical_not_golden,
     # Selection operations
     ttir.WhereOp: torch.where,
     # Bitwise operations
@@ -3490,11 +3472,11 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     # Reduction operations
     ttir.SumOp: ttir_sum_golden,
     ttir.MeanOp: mean_golden,
-    ttir.MaxOp: max_golden,
+    ttir.MaxOp: ttir_max_golden,
     ttir.MinOp: min_golden,
     ttir.ProdOp: prod_golden,
     ttir.ReduceAndOp: reduce_and_golden,
-    ttir.ReduceOrOp: reduce_or_golden,
+    ttir.ReduceOrOp: ttir_reduce_or_golden,
     # Tensor manipulation
     ttir.SortOp: sort_golden,
     ttir.TransposeOp: transpose_golden,
@@ -3507,7 +3489,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.ReverseOp: reverse_golden,
     ttir.PermuteOp: ttir_permute_golden,
     ttir.ClampScalarOp: clamp_scalar_golden,
-    ttir.ClampTensorOp: clamp_tensor_golden,
+    ttir.ClampTensorOp: ttir_clamp_tensor_golden,
     ttir.CumSumOp: cumsum_golden,
     ttir.BroadcastOp: ttir_broadcast_golden,
     ttir.PadOp: ttir_pad_golden,

@@ -160,6 +160,9 @@ void createTTNNPipelineDeallocPass(
 
 void createTTIRToTTNNBackendPipeline(
     OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
+  // Resolve options controlled by optimization_level.
+  options.resolveOptimizationLevelOptions();
+
   pm.addPass(mlir::createCanonicalizerPass());
 
   // Add Decomposition pass here to ensure it runs before hoisting.

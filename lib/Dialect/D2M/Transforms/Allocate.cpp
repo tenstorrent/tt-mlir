@@ -55,12 +55,7 @@ using SequenceT = Planner::SequenceT;
 using IndexT = Planner::IndexT;
 using LiveRange = Planner::LiveRange;
 
-using allocation::AsOperandPrinter;
-using allocation::asSeq;
-using allocation::asShape;
-using allocation::concatToVector;
-using allocation::is_operation_v;
-using allocation::ordinal;
+using namespace d2m::allocation;
 
 struct MemorySpaceInfo {
 
@@ -266,11 +261,15 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
   ttcore::MemorySpaceAttr DRAMAttr = nullptr;
 
   [[maybe_unused]] friend std::string to_string(const D2MAllocate &obj) {
-    std::stringstream s;
+    // std::stringstream s;
+    std::string str;
+    llvm::raw_string_ostream s{str};
     s << "{\n";
     s << "\tnum-stream-buffers: " << obj.numStreamBuffers << "\n";
     s << "\tallow-l1-output-spilling: " << obj.allowL1OutputSpilling << "\n";
     s << "\tstream-insert-policy: " << obj.streamInsertPolicy << "\n";
+    s << "\tavailable-l1-addr-range: "
+      << asSeq(llvm::to_vector(obj.availableL1AddrRange)) << "\n";
     s << "\ttest-assume-l1-capacity: " << obj.testAssumeL1Capacity << "\n";
     s << "\ttest-buffer-size-policy: " << obj.testBufferSizePolicy << "\n";
     s << "}";
@@ -296,7 +295,8 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
       ttcore::SystemDescAttr systemDesc =
           ttcore::getCurrentScopeSystemDesc(moduleOp);
       ttcore::ChipDescAttr chipDesc = systemDesc.getChipDescs().front();
-      return getMemorySpaces(chipDesc, testAssumeL1Capacity);
+      return getMemorySpaces(chipDesc, llvm::to_vector(availableL1AddrRange),
+                             testAssumeL1Capacity);
     }();
     TT_ALLOC_DEBUG("using memspaces:\n\tDRAM\t{}\n\tL1\t{}",
                    to_string(memSpaces[ordinal(MemorySpace::DeviceDRAM)]),
@@ -1581,20 +1581,38 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     return last;
   }
 
-  static MemorySpaces getMemorySpaces(ttcore::ChipDescAttr chipDesc,
-                                      AllocSizeT l1CapacityOverride) {
+  static MemorySpaces
+  getMemorySpaces(ttcore::ChipDescAttr chipDesc,
+                  SmallVector<AllocSizeT> l1AddrRangeOverride,
+                  AllocSizeT l1CapacityOverride) {
     MemorySpaces info;
     {
-      // Currently, we only need some slots in 'info'.
+      // Currently, we only need L1 and DRAM slots in 'info'.
 
-      const AllocSizeT l1Size =
-          l1CapacityOverride > 0
-              ? (chipDesc.getL1UnreservedBase() + l1CapacityOverride)
-              : chipDesc.getL1Size();
+      const bool L1AddrRangeOverrideSet = l1AddrRangeOverride.size() == 2;
+      const bool l1CapacityOverrideSet = l1CapacityOverride > 0;
 
-      info[ordinal(MemorySpace::DeviceL1)] =
-          MemorySpaceInfo(chipDesc.getL1UnreservedBase(), l1Size,
-                          chipDesc.getNocL1AddressAlignBytes());
+      TT_assertv(
+          !(L1AddrRangeOverrideSet && l1CapacityOverrideSet),
+          "overriding both L1 addr range and L1 capacity is not allowed");
+
+      if (L1AddrRangeOverrideSet) {
+        TT_assert(l1AddrRangeOverride[0] >= chipDesc.getL1UnreservedBase());
+        TT_assert(l1AddrRangeOverride[1] <= chipDesc.getL1Size());
+
+        info[ordinal(MemorySpace::DeviceL1)] =
+            MemorySpaceInfo(l1AddrRangeOverride[0], l1AddrRangeOverride[1],
+                            chipDesc.getNocL1AddressAlignBytes());
+      } else {
+        const AllocSizeT l1AddrLimit =
+            l1CapacityOverrideSet
+                ? (chipDesc.getL1UnreservedBase() + l1CapacityOverride)
+                : chipDesc.getL1Size();
+
+        info[ordinal(MemorySpace::DeviceL1)] =
+            MemorySpaceInfo(chipDesc.getL1UnreservedBase(), l1AddrLimit,
+                            chipDesc.getNocL1AddressAlignBytes());
+      }
 
       info[ordinal(MemorySpace::DeviceDRAM)] = MemorySpaceInfo(
           chipDesc.getDramUnreservedBase(), chipDesc.getDramChannelSize(),

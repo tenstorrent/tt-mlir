@@ -133,7 +133,11 @@ struct TTIRToTTMetalPipelineOptions
       llvm::cl::desc("Policy for deciding when to insert operand streams "
                      "('always', 'infer')."),
       llvm::cl::init("infer")};
-
+  // If a size-2 list given, the allocator will use it as the
+  // available L1 [base, max) address range.
+  ListOption<std::int64_t> availableL1AddrRange{
+      *this, "available-l1-addr-range",
+      llvm::cl::desc("Assume given L1 addressable range [base, max).")};
   // If a positive value given, the allocator will use it for L1 capacity
   // instead of reading from `ChipDescAttr`. Used for testing.
   Option<std::int64_t> testAssumel1Capacity{

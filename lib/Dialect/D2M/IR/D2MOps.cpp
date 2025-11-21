@@ -1384,9 +1384,13 @@ void GenericOp::getCanonicalizationPatterns(mlir::RewritePatternSet &patterns,
           // Use DominanceInfo for cross-block dominance checking.
           DominanceInfo domInfo(parentOp);
           for (Operation *user : blockArg.getUsers()) {
-            assert((mlir::isa<d2m::WaitOp, d2m::ReserveOp>(user)) &&
-                   "block argument users must be wait/reserve operations");
+            assert((mlir::isa<d2m::WaitOp, d2m::ReserveOp, d2m::PushOp,
+                              d2m::PopOp>(user)) &&
+                   "block argument users must be wait/reserve/push/pop "
+                   "operations");
             // Check if this wait/reserve dominates the regionOp.
+            // Note: push/pop don't have results, so they won't be selected
+            // here.
             if (domInfo.dominates(user, regionOp)) {
               waitOrReserve = user;
               break;
