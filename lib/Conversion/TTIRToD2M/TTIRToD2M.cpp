@@ -1093,9 +1093,7 @@ public:
   LogicalResult
   matchAndRewrite(TensorManipulationOp op, typename TensorManipulationOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    LogicalAffineMapFn(op).dump();
     AffineMap deviceMap = projectLogicalMapToUnitDeviceSpace(rewriter, LogicalAffineMapFn(op));
-    deviceMap.dump();
 
     auto [origInputs, origOutputs] =
         splitDpsSignature(adaptor, op.getDpsInits().size());
