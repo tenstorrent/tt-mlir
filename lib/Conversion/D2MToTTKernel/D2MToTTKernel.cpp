@@ -378,7 +378,7 @@ using ComputeOpMap = OpMap<
   std::pair<d2m::TileLezOp,         std::pair<ttkernel::LezTileInitOp,             ttkernel::LezTileOp>>,
   std::pair<d2m::TileTypecastOp,    std::pair<ttkernel::TypecastTileInitOp,        ttkernel::TypecastTileOp>>,
 
-  // Elementwise SFPU Binary.
+  // Elementwise SFPU Binary (can also handle scalar operands).
   std::pair<d2m::TileAddOp,         std::pair<ttkernel::AddBinaryTilesInitOp,      ttkernel::AddBinaryTilesOp>>,
   std::pair<d2m::TileDivOp,         std::pair<ttkernel::DivBinaryTilesInitOp,      ttkernel::DivBinaryTilesOp>>,
   std::pair<d2m::TileMaximumOp,     std::pair<ttkernel::MaxTilesInitOp,            ttkernel::MaxTilesOp>>,
@@ -608,7 +608,25 @@ public:
     rewriter.create<ttkernel::InitSFPUOp>(op->getLoc(), inCB, outCB);
     rewriter.setInsertionPoint(insertionPoint->getBlock(), insertionPoint);
 
-    rewriter.create<InitOp>(op->getLoc());
+    // For binary ops (arity == 2), check if rhs is a scalar to create the right
+    // init op
+    if constexpr (arity == 2 && !std::is_same_v<SFPUOp, ttkernel::MaxTilesOp>) {
+      auto rhsType = adaptor.getRhs().getType();
+      bool isScalarRhs = rhsType.isIntOrFloat();
+
+      if (isScalarRhs) {
+        // Use scalar-specific init ops
+        if constexpr (std::is_same_v<ConcreteOp, d2m::TilePowOp>) {
+          rewriter.create<ttkernel::PowerTileInitOp>(op->getLoc());
+        } else {
+          rewriter.create<ttkernel::BinopWithScalarTileInitOp>(op->getLoc());
+        }
+      } else {
+        rewriter.create<InitOp>(op->getLoc());
+      }
+    } else {
+      rewriter.create<InitOp>(op->getLoc());
+    }
     if constexpr (std::is_same_v<SFPUOp, ttkernel::CeilTileOp> ||
                   std::is_same_v<SFPUOp, ttkernel::FloorTileOp>) {
       const auto elemType =
@@ -701,13 +719,70 @@ public:
     } else if constexpr (std::is_same_v<SFPUOp, ttkernel::MaxTilesOp>) {
       rewriter.create<SFPUOp>(op->getLoc(), adaptor.getLhs(), adaptor.getRhs());
     } else {
-      OpBuilder::InsertionGuard guard(rewriter);
-      const auto dstIdx = getDstIdxFromResult(op.getResult());
-      setInsertionPointAfterOperands(
-          rewriter, {adaptor.getLhs(), adaptor.getRhs(), dstIdx},
-          /*allowHoisting*/ false);
-      rewriter.create<SFPUOp>(op->getLoc(), adaptor.getLhs(), adaptor.getRhs(),
-                              dstIdx);
+      // Check if rhs is a scalar (float or integer) at runtime
+      auto rhsType = adaptor.getRhs().getType();
+      bool isScalarRhs = rhsType.isIntOrFloat();
+
+      if (isScalarRhs) {
+        // Handle scalar operand - need to use unary scalar ops
+        const auto dstIdx = adaptor.getLhs();
+
+        // Get the scalar value from the constant
+        if (auto constOp =
+                adaptor.getRhs()
+                    .template getDefiningOp<mlir::arith::ConstantOp>()) {
+          float floatVal = 0.0f;
+          if (auto floatAttr =
+                  mlir::dyn_cast<mlir::FloatAttr>(constOp.getValue())) {
+            floatVal = floatAttr.getValueAsDouble();
+          } else if (auto intAttr = mlir::dyn_cast<mlir::IntegerAttr>(
+                         constOp.getValue())) {
+            floatVal = static_cast<float>(intAttr.getInt());
+          }
+
+          // Create the appropriate unary scalar op based on the D2M op type
+          if constexpr (std::is_same_v<ConcreteOp, d2m::TileAddOp>) {
+            uint32_t bits;
+            std::memcpy(&bits, &floatVal, sizeof(float));
+            auto scalarParam = i32(rewriter, op->getLoc(), bits);
+            rewriter.create<ttkernel::AddUnaryTileOp>(op->getLoc(), dstIdx,
+                                                      scalarParam);
+          } else if constexpr (std::is_same_v<ConcreteOp, d2m::TileSubOp>) {
+            uint32_t bits;
+            std::memcpy(&bits, &floatVal, sizeof(float));
+            auto scalarParam = i32(rewriter, op->getLoc(), bits);
+            rewriter.create<ttkernel::SubUnaryTileOp>(op->getLoc(), dstIdx,
+                                                      scalarParam);
+          } else if constexpr (std::is_same_v<ConcreteOp, d2m::TileMulOp>) {
+            uint32_t bits;
+            std::memcpy(&bits, &floatVal, sizeof(float));
+            auto scalarParam = i32(rewriter, op->getLoc(), bits);
+            rewriter.create<ttkernel::MulUnaryTileOp>(op->getLoc(), dstIdx,
+                                                      scalarParam);
+          } else if constexpr (std::is_same_v<ConcreteOp, d2m::TileDivOp>) {
+            uint32_t bits;
+            std::memcpy(&bits, &floatVal, sizeof(float));
+            auto scalarParam = i32(rewriter, op->getLoc(), bits);
+            rewriter.create<ttkernel::DivUnaryTileOp>(op->getLoc(), dstIdx,
+                                                      scalarParam);
+          } else if constexpr (std::is_same_v<ConcreteOp, d2m::TilePowOp>) {
+            // For power, cast to integer directly (not reinterpret bits)
+            uint32_t intVal = static_cast<uint32_t>(floatVal);
+            auto scalarParam = i32(rewriter, op->getLoc(), intVal);
+            rewriter.create<ttkernel::PowUnaryTileOp>(op->getLoc(), dstIdx,
+                                                      scalarParam);
+          }
+        }
+      } else {
+        // Binary tile operation
+        OpBuilder::InsertionGuard guard(rewriter);
+        const auto dstIdx = getDstIdxFromResult(op.getResult());
+        setInsertionPointAfterOperands(
+            rewriter, {adaptor.getLhs(), adaptor.getRhs(), dstIdx},
+            /*allowHoisting*/ false);
+        rewriter.create<SFPUOp>(op->getLoc(), adaptor.getLhs(),
+                                adaptor.getRhs(), dstIdx);
+      }
     }
 
     rewriter.eraseOp(op);
@@ -1538,7 +1613,7 @@ void populateD2MToTTKernelPatterns(
                ttkernel::D2MSFPUOpsRewriter<d2m::TileLezOp>,
                ttkernel::D2MSFPUOpsRewriter<d2m::TileTypecastOp>,
 
-               // Elementwise SFPU Binary.
+               // Elementwise SFPU Binary (also handles scalar operands).
                ttkernel::D2MSFPUOpsRewriter<d2m::TileAddOp>,
                ttkernel::D2MSFPUOpsRewriter<d2m::TileDivOp>,
                ttkernel::D2MSFPUOpsRewriter<d2m::TileMaximumOp>,
