@@ -1469,14 +1469,22 @@ mlir::AffineMap DeviceAttr::getMemoryMap(MemRefType memrefType, size_t pageSize,
       // virtualization map results
       if (affineMap.getNumDims() > coreVirtMap.getNumResults()) {
         auto dimsToRemove =
-            affineMap.getNumDims() > coreVirtMap.getNumResults();
+            affineMap.getNumDims() - coreVirtMap.getNumResults();
         llvm::SmallBitVector projectedDims(affineMap.getNumDims());
         projectedDims.set(0, dimsToRemove);
+        llvm::dbgs() << "[getMemoryMap] (opt) projectedDims: [\n";
+        for (size_t i = 0; i < projectedDims.size(); i++) {
+          llvm::dbgs() << projectedDims[i] << ", ";
+        }
+        llvm::dbgs() << "]\n";
 
         affineMap = getProjectedMap(affineMap, projectedDims);
-        affineMap = affineMap.dropResult(0);
+        affineMap = affineMap.dropResults(projectedDims);
       }
 
+      llvm::dbgs() << "[getMemoryMap] (opt) affineMap:   " << affineMap << "\n";
+      llvm::dbgs() << "[getMemoryMap] (opt) coreVirtMap:   " << coreVirtMap
+                   << "\n";
       affineMap = affineMap.compose(coreVirtMap);
     }
     if (view) {

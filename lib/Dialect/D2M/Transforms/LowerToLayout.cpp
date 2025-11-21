@@ -299,20 +299,26 @@ class D2MSplitCompoundLayoutRewriter : public OpRewritePattern<ToLayoutOp> {
       llvm::SmallVector<int64_t> collapsedVirtualGridShape(2);
       collapsedVirtualGridShape[0] = 1;
       for (int64_t i = 0; i < int64_t(virtualGridShape.size()) - 2; ++i) {
-         collapsedVirtualGridShape[0] *= virtualGridShape[i];
+        collapsedVirtualGridShape[0] *= virtualGridShape[i];
       }
       collapsedVirtualGridShape[1] = virtualGridShape.back();
+      llvm::dbgs()
+          << "computeVirtualGridBounceShape: collapsedVirtualGridShape: "
+          << ttmlir::utils::formatIterable(collapsedVirtualGridShape, "x")
+          << "\n";
 
       llvm::SmallVector<int64_t> bounceShape;
       for (size_t i = 0; i < collapsedVirtualGridShape.size(); i++) {
-        auto dim = (collapsedVirtualGridShape[i] > deviceGridShape[i])
-                       ? std::gcd(virtualGridShape[i], deviceGridShape[i])
-                       : virtualGridShape[i];
+        auto dim =
+            (collapsedVirtualGridShape[i] > deviceGridShape[i])
+                ? std::gcd(collapsedVirtualGridShape[i], deviceGridShape[i])
+                : collapsedVirtualGridShape[i];
         bounceShape.push_back(dim);
       }
       TT_assert(bounceShape.size() == 2u);
 
-      llvm::dbgs() << "computeVirtualGridBounceShape: bounceShape: " << ttmlir::utils::formatIterable(bounceShape, "x") << "\n";
+      llvm::dbgs() << "computeVirtualGridBounceShape: bounceShape: "
+                   << ttmlir::utils::formatIterable(bounceShape, "x") << "\n";
       return bounceShape;
     }
 
@@ -346,8 +352,8 @@ class D2MSplitCompoundLayoutRewriter : public OpRewritePattern<ToLayoutOp> {
       }
       auto deviceShape = layout.getDeviceShape(tensorGridShape, tileShape);
 
-      auto type = RankedTensorType::get(deviceShape, systemType.getElementType(),
-                                   layout);
+      auto type = RankedTensorType::get(deviceShape,
+                                        systemType.getElementType(), layout);
       llvm::dbgs() << "\ncreateDeviceType: return type: " << type << "\n";
       return type;
     }
@@ -375,11 +381,13 @@ class D2MSplitCompoundLayoutRewriter : public OpRewritePattern<ToLayoutOp> {
         tensorGrid.assign(newTensorGrid->begin(), newTensorGrid->end());
       } else {
         auto currentGrid = llvm::to_vector(baseLayout.getGridShape(baseType));
-        llvm::dbgs() << "modifyDeviceType: current grid: " << ttmlir::utils::formatIterable(currentGrid, "x") << "\n";
+        llvm::dbgs() << "modifyDeviceType: current grid: "
+                     << ttmlir::utils::formatIterable(currentGrid, "x") << "\n";
         tensorGrid = currentGrid;
 
         if (hasVirtualGrid && reblockVirtualGridShapes) {
-          llvm::dbgs() << "modifyDeviceType: reblock virtual grid shapes" << "\n";
+          llvm::dbgs() << "modifyDeviceType: reblock virtual grid shapes"
+                       << "\n";
           tensorGrid =
               computeVirtualGridBounceShape(currentGrid, targetGridShape);
         }

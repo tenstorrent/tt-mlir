@@ -41,10 +41,16 @@ CoreRangeAttr CoreRangeAttr::get(::mlir::tt::ttcore::GridAttr grid) {
 CoreRangeAttr
 CoreRangeAttr::getPhysicalCoreRange(::mlir::tt::ttcore::GridAttr grid,
                                     ArrayRef<int64_t> deviceGridShape) {
+  llvm::dbgs() << "\n";
+  llvm::dbgs() << "getPhysicalCoreRange: grid: " << grid << "\n";
+  llvm::dbgs() << "getPhysicalCoreRange: deviceGridShape: "
+               << ttmlir::utils::formatIterable(deviceGridShape, "x") << "\n";
   // Default offset is (0, 0) -- in the future, we can make it a parameter when
   // we need to offset differently.
   SmallVector<int64_t> offset = {0, 0};
   auto gridShape = grid.getPhysicalGridShape(deviceGridShape);
+  llvm::dbgs() << "getPhysicalCoreRange: derived physicalGridShape: "
+               << ttmlir::utils::formatIterable(gridShape, "x") << "\n";
   // Collapse N-D grid to 2D core range.
   auto collapsed2DGrid = ttcore::collapseGridTo2D(gridShape);
 

@@ -61,7 +61,13 @@ def create_tileid_debug_tensor(shape: Shape, dtype: torch.dtype):
 
 @pytest.mark.parametrize(
     "shape",
-    [(32, 32, 32)],  # (64, 4096), (8192, 32), (128, 4096), (256, 8192)],
+    [
+        (32, 64, 32),
+        (32, 32, 32),
+        (64, 32, 64),
+        (64, 32, 128),
+        # (4,4,32,64), (4,2,32,128), (1,4,64,32), (2,8,128,64),
+    ],  # (64, 4096), (8192, 32), (128, 4096), (256, 8192)],
     ids=shape_str,
 )
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
@@ -82,7 +88,7 @@ def test_virtual_grid_eltwise(
 
         return result
 
-    options = [f"override-device-shape=4,4"]
+    options = [f"collapse-tensors-2d=0"]
 
     compile_and_execute_ttir(
         eltwise_wrapper,
@@ -90,7 +96,7 @@ def test_virtual_grid_eltwise(
         [dtype],
         device=device,
         test_base=request.node.name,
-        custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
+        custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}} ",
         print_ir="test_logical_not_ir",
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
