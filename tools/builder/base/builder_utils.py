@@ -1763,7 +1763,7 @@ def execute_fb(
         golden_torch_tensors = {}
 
         for loc, golden in goldens.items():
-            golden_torch_tensors[loc] = golden.golden_map_tensor_as_torch_tensor()
+            golden_torch_tensors[loc] = golden.golden_map_tensor_as_torch_tensors()
 
         goldens = golden_torch_tensors
         # Set up callback runtime config and register DebugHooks once per execution

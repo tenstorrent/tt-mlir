@@ -99,10 +99,16 @@ class GoldenMapTensor:
         self._shard_map = shard_map
         self._mesh_shape = mesh_shape
 
-    def golden_map_tensor_as_torch_tensor(
+    def golden_map_tensor_as_torch_tensors(
         self,
     ) -> torch.Tensor:
-        return self.contiguous().shard_map
+
+        torch_goldens = self.contiguous().shard_map
+        for device_id, torch_golden in torch_goldens.items():
+            if torch_golden.dtype == torch.qint32 or torch_golden.dtype == torch.int64:
+                # Adjust dtype for golden generation compatibility for borrowed tensor creation.
+                torch_goldens[device_id] = torch_golden.to(torch.int32)
+        return torch_goldens
 
     # ----- Private static methods -----
     def __getitem__(self, key: int) -> GoldenMapTensor:
