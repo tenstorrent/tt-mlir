@@ -2155,7 +2155,7 @@ PagedScaledDotProductAttentionDecodeOp::getOpConstraints(
       pagedSdpaArgs.attentionMaskShape, pagedSdpaArgs.attentionMaskLayout,
       pagedSdpaArgs.curPosTensorShape, pagedSdpaArgs.curPosTensorLayout,
       pagedSdpaArgs.attentionSinkShape, pagedSdpaArgs.attentionSinkLayout,
-      pagedSdpaArgs.scale, opConfig.outputLayout);
+      pagedSdpaArgs.scale, opConfig.getOutputLayout(0));
   // NOLINTEND(clang-analyzer-cplusplus.NewDelete)
 }
 
@@ -2185,7 +2185,7 @@ llvm::Expected<size_t> PagedScaledDotProductAttentionDecodeOp::getOpRuntime(
       pagedSdpaArgs.attentionMaskShape, pagedSdpaArgs.attentionMaskLayout,
       pagedSdpaArgs.curPosTensorShape, pagedSdpaArgs.curPosTensorLayout,
       pagedSdpaArgs.attentionSinkShape, pagedSdpaArgs.attentionSinkLayout,
-      pagedSdpaArgs.scale, opConfig.outputLayout);
+      pagedSdpaArgs.scale, opConfig.getOutputLayout(0));
   // NOLINTEND(clang-analyzer-cplusplus.NewDelete)
 }
 //===----------------------------------------------------------------------===//
@@ -3074,7 +3074,7 @@ PagedFillCacheOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
   return opConstraintsCache().getOrCompute(
       op_model::OpModel<PagedFillCacheOp>::getOpConstraints, *this, deviceGrid,
       cacheShape, inputs[0], inputShape, inputs[1], pageTableShape, inputs[2],
-      batchIdxShape, batchIdxLayout, opConfig.outputLayout);
+      batchIdxShape, batchIdxLayout, opConfig.getOutputLayout(0));
 }
 
 llvm::Expected<size_t>
@@ -3096,7 +3096,7 @@ PagedFillCacheOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
   return opRuntimeCache().getOrCompute(
       op_model::OpModel<PagedFillCacheOp>::getOpRuntime, *this, cacheShape,
       inputs[0], inputShape, inputs[1], pageTableShape, inputs[2],
-      batchIdxShape, batchIdxLayout, opConfig.outputLayout);
+      batchIdxShape, batchIdxLayout, opConfig.getOutputLayout(0));
 }
 //===----------------------------------------------------------------------===//
 // WriteTensorOp - TTNN Op Model Interface
@@ -3170,7 +3170,7 @@ Conv2dOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
       getInputWidth(), getKernelSize(), getStride(), getPadding(),
       getDilation(), getGroups(), attr.conv2dConfig,
       attr.deviceComputeKernelConfig, getConv2dSliceConfigAttr(),
-      opConfig.getOutputLayouts(0));
+      opConfig.getOutputLayout(0));
 }
 
 llvm::Expected<size_t>
@@ -3195,7 +3195,7 @@ Conv2dOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
       getOutChannels(), getBatchSize(), getInputHeight(), getInputWidth(),
       getKernelSize(), getStride(), getPadding(), getDilation(), getGroups(),
       attr.conv2dConfig, attr.deviceComputeKernelConfig,
-      getConv2dSliceConfigAttr(), opConfig.getOutputLayouts(0));
+      getConv2dSliceConfigAttr(), opConfig.getOutputLayout(0));
 }
 
 //===----------------------------------------------------------------------===//
@@ -3311,7 +3311,7 @@ PrepareConv2dWeightsOp::getOpConstraints(
       getKernelSize(), getStride(), getPadding(), getDilation(), getHasBias(),
       getGroups(), getInputDtype(), getOutputDtype(), conv2dAttrs.conv2dConfig,
       conv2dAttrs.deviceComputeKernelConfig, getConv2dSliceConfigAttr(),
-      opConfig.getOutputLayouts(0));
+      opConfig.getOutputLayout(0));
 }
 
 llvm::Expected<size_t>

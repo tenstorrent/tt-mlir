@@ -104,13 +104,13 @@ llvm::SmallVector<OpConfig> getUniqueTestConfigsForMatmulLinear(
 
   // Collect unique (bufferType, memLayout) pairs and build the map in one pass.
   for (const OpConfig &config : consumerConfigs) {
-    assert(config.outputLayout &&
+    assert(!config.outputLayouts.empty() &&
            "Matmul/Linear configs must have valid output layout");
 
-    BufferMemLayoutKey key{config.outputLayout.getBufferType(),
-                           config.outputLayout.getMemLayout().getValue()};
+    BufferMemLayoutKey key{config.outputLayouts[0].getBufferType(),
+                           config.outputLayouts[0].getMemLayout().getValue()};
     if (layoutKeyToAttr.find(key) == layoutKeyToAttr.end()) {
-      TTNNLayoutAttr layout = config.outputLayout;
+      TTNNLayoutAttr layout = config.outputLayouts[0];
       layoutKeyToAttr[key] = layout.withIgnorePhysicalLayout(true);
     }
   }

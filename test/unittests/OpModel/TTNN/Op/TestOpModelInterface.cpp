@@ -2060,9 +2060,9 @@ TEST_F(OpModelBase, PagedScaledDotProductAttentionDecodeOpInterface) {
     EXPECT_LE(l1PeakSize, 2048);
     EXPECT_EQ(outputSize, 0);
 
-    ASSERT_TRUE(outputLayout);
-    EXPECT_EQ(outputLayout.getLayout(), Layout::Tile);
-    EXPECT_TRUE(outputLayout.hasInterleavedDRAMTensorMemoryLayout());
+    ASSERT_FALSE(outputLayout.empty());
+    EXPECT_EQ(outputLayout[0].getLayout(), Layout::Tile);
+    EXPECT_TRUE(outputLayout[0].hasInterleavedDRAMTensorMemoryLayout());
   } else {
     FAIL()
         << "Missing L1 constraints for PagedScaledDotProductAttentionDecodeOp; "
