@@ -214,12 +214,12 @@ module attributes {} {
     func.func @from_host_to_device_data_type_from_f32_to_bf16_from_rm_to_tile(%arg0: tensor<64x128xf32, #ttnn_layout_host_rm>) -> tensor<64x128xbf16, #ttnn_layout_device_tile_bf16> {
         // This test verifies that the `to_dtype`, `to_device` and `to_layout` operations are correctly inserted to cast the data type from f32 to bf16 on host and then move tensor to device and change the layout from row-major to tile.
         // CHECK: %[[GET_DEVICE_OP:.*]] = "ttnn.get_device"()
-        // CHECK-NEXT: %[[CASTING_OP:.*]] = "ttnn.to_dtype"(%arg0)
-        // CHECK-SAME: dtype = #ttcore.supportedDataTypes<bf16>
-        // CHECK-NEXT: %[[TO_DEVICE_OP:.*]] = "ttnn.to_device"(%[[CASTING_OP]], %[[GET_DEVICE_OP]])
+        // CHECK-NEXT: %[[TO_DEVICE_OP:.*]] = "ttnn.to_device"(%arg0, %[[GET_DEVICE_OP]])
         // CHECK-NEXT: %[[TO_LAYOUT_OP:.*]] = "ttnn.to_layout"(%[[TO_DEVICE_OP]])
         // CHECK-SAME: layout = #ttnn.layout<tile>
-        // CHECK-NEXT: return %[[TO_LAYOUT_OP]]
+        // CHECK-NEXT: %[[CASTING_OP:.*]] = "ttnn.typecast"(%[[TO_LAYOUT_OP]])
+        // CHECK-SAME: dtype = #ttcore.supportedDataTypes<bf16>
+        // CHECK-NEXT: return %[[CASTING_OP]]
         %0 = "ttnn.to_layout"(%arg0) <{dtype = #ttcore.supportedDataTypes<bf16>, layout = #ttnn.layout<tile>, memory_config = #ttnn.memory_config<#dram, <interleaved>>}> : (tensor<64x128xf32, #ttnn_layout_host_rm>) -> tensor<64x128xbf16, #ttnn_layout_device_tile_bf16>
         return %0 : tensor<64x128xbf16, #ttnn_layout_device_tile_bf16>
     }
@@ -228,12 +228,12 @@ module attributes {} {
     func.func @from_host_to_device_data_type_from_f32_to_u32_from_rm_to_tile(%arg0: tensor<64x128xf32, #ttnn_layout_host_rm>) -> tensor<64x128xui32, #ttnn_layout_device_tile_u32> {
         // This test verifies that the `to_dtype`, `to_layout` and `to_device` operations are correctly inserted to cast the data type from f32 to f16 and tilize on host and then move tensor to device.
         // CHECK: %[[GET_DEVICE_OP:.*]] = "ttnn.get_device"()
-        // CHECK-NEXT: %[[CASTING_OP:.*]] = "ttnn.to_dtype"(%arg0)
-        // CHECK-SAME: dtype = #ttcore.supportedDataTypes<u32>
-        // CHECK-NEXT: %[[TO_LAYOUT_OP:.*]] = "ttnn.to_layout"(%[[CASTING_OP]])
+        // CHECK-NEXT: %[[TO_DEVICE_OP:.*]] = "ttnn.to_device"(%arg0, %[[GET_DEVICE_OP]])
+        // CHECK-NEXT: %[[TO_LAYOUT_OP:.*]] = "ttnn.to_layout"(%[[TO_DEVICE_OP]])
         // CHECK-SAME: layout = #ttnn.layout<tile>
-        // CHECK-NEXT: %[[TO_DEVICE_OP:.*]] = "ttnn.to_device"(%[[TO_LAYOUT_OP]], %[[GET_DEVICE_OP]])
-        // CHECK-NEXT: return %[[TO_DEVICE_OP]]
+        // CHECK-NEXT: %[[CASTING_OP:.*]] = "ttnn.typecast"(%[[TO_LAYOUT_OP]])
+        // CHECK-SAME: dtype = #ttcore.supportedDataTypes<u32>
+        // CHECK-NEXT: return %[[CASTING_OP]]
         %0 = "ttnn.to_layout"(%arg0) <{dtype = #ttcore.supportedDataTypes<u32>, layout = #ttnn.layout<tile>, memory_config = #ttnn.memory_config<#dram, <interleaved>>}> : (tensor<64x128xf32, #ttnn_layout_host_rm>) -> tensor<64x128xui32, #ttnn_layout_device_tile_u32>
         return %0 : tensor<64x128xui32, #ttnn_layout_device_tile_u32>
     }
