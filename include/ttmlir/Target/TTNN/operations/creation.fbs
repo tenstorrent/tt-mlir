@@ -16,8 +16,8 @@ table ArangeOp {
 
 table ConstantOp {
   device: tt.target.DeviceRef;
-  value: [ubyte];
-  value_dtype: tt.target.DataType;
+  input: [ubyte];
+  input_dtype: tt.target.DataType;
   dtype: tt.target.DataType = null;
   layout: tt.target.TensorLayout = null;
   memcfg: tt.target.ttnn.MemoryConfig;
