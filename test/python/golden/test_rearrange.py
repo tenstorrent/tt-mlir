@@ -45,6 +45,14 @@ def _test_pattern_map(pattern, shape, pattern_map):
         ((2, 4, 250), "z y x -> y z x"),
         ((2, 7, 180), "z y x -> (y z) x"),
         ((50, 7, 8), "z y x -> y (z x)"),
+        ((250, 15, 8), "z y x -> z (y x)"),
+
+        # 4d
+        ((2, 3, 4, 32), "w z y x -> y w z x"),
+        ((2, 3, 4, 32), "w z y x -> y (w z) x"),
+        ((2, 3, 4, 32), "w z y x -> (y w z) x"),
+        ((2, 3, 4, 32), "w z y x -> (y w) z x"),
+        ((2, 3, 4, 32), "w z y x -> (y w) (z x)"),
     ],
 )
 @pytest.mark.parametrize("target", ["ttmetal"])
