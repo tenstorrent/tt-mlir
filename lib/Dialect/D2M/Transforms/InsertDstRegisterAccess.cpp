@@ -45,7 +45,8 @@ public:
       stores.emplace_back(store, indexOffset);
     }
 
-    SmallVector<int64_t> guardIndices;
+    std::set<int64_t> accumGuardIndices;
+    std::set<int64_t> bcastGuardIndices;
     SmallVector<OpAndIndexOffset<affine::AffineLoadOp>> loads;
     SmallVector<OpAndIndexOffset<affine::AffineStoreOp>> stores;
   };
@@ -315,9 +316,9 @@ public:
 
       // Collect loads to this op.
       for (int64_t operandIdx : computeOp.getOperandsLoadFromDstRegister()) {
-        if (auto potentialLoad = computeOp->getOperand(operandIdx)
-                                     .getDefiningOp<affine::AffineLoadOp>();
-            notDstMemspace(potentialLoad)) {
+        auto potentialLoad = computeOp->getOperand(operandIdx)
+                                 .getDefiningOp<affine::AffineLoadOp>();
+        if (potentialLoad && notDstMemspace(potentialLoad)) {
           collectDstAccess<affine::AffineLoadOp>(
               op, potentialLoad, copyInfos, dstSliceAllocationState.allocate(),
               outermostInnerComputeLoop);
@@ -406,18 +407,45 @@ public:
     CopyInfo &copyInfo = iter->second;
     copyInfo.push_back(loadOrStore, nextDstSliceIndex);
     BlockArgument blockArg = lookThroughSubView(loadOrStore.getMemRef());
-    SmallVector<int64_t> guardIndices =
-        (blockArg && !op.isExplicitDatamovementForm())
-            ? op.getNonParticipatingLoopDims(blockArg.getArgNumber())
-            : SmallVector<int64_t>{};
-    if (inserted) {
-      // First access in this loop nest - set the guard indices.
-      copyInfo.guardIndices = guardIndices;
-    } else {
-      // Subsequent access - verify guard indices are the same.
-      assert(
-          guardIndices == copyInfo.guardIndices &&
-          "Expected same guard indices across all accesses in this loop nest.");
+
+    if (blockArg && !op.isExplicitDatamovementForm()) {
+      auto nonParticipatingLoopDims =
+          op.getNonParticipatingLoopDims(blockArg.getArgNumber());
+      auto iteratorTypes = op.getIteratorTypesValue();
+
+      std::set<int64_t> accumGuards;
+      std::set<int64_t> bcastGuards;
+
+      for (int64_t dim : nonParticipatingLoopDims) {
+        switch (iteratorTypes[dim]) {
+        case ttcore::IteratorType::Parallel:
+          bcastGuards.insert(dim);
+          break;
+        case ttcore::IteratorType::Reduction:
+          accumGuards.insert(dim);
+          break;
+        }
+      }
+
+      if constexpr (std::is_same_v<LoadOrStoreOp, affine::AffineLoadOp>) {
+        if (inserted) {
+          copyInfo.accumGuardIndices = accumGuards;
+          copyInfo.bcastGuardIndices = bcastGuards;
+        } else {
+          TT_assert(copyInfo.accumGuardIndices == accumGuards);
+
+          for (int64_t dim : bcastGuards) {
+            copyInfo.bcastGuardIndices.insert(dim);
+          }
+        }
+      } else {
+        TT_assert(bcastGuards.empty());
+        if (inserted) {
+          copyInfo.accumGuardIndices = accumGuards;
+        } else {
+          TT_assert(copyInfo.accumGuardIndices == accumGuards);
+        }
+      }
     }
   }
 
@@ -482,7 +510,7 @@ public:
       auto insertionPointAfterLoopNest = rewriter.saveInsertionPoint();
 
       rewriter.setInsertionPoint(loopNestOrOp);
-      auto guard = insertGuardForLoopNest(rewriter, loc, copyInfo.guardIndices);
+      auto guard = insertGuardForLoopNest(rewriter, loc, copyInfo);
       if (guard) {
         rewriter.setInsertionPointToStart(&guard.getThenRegion().front());
       }
@@ -550,24 +578,44 @@ public:
 
   static scf::IfOp insertGuardForLoopNest(PatternRewriter &rewriter,
                                           Location loc,
-                                          ArrayRef<int64_t> guardIndices) {
-    if (guardIndices.empty()) {
+                                          const CopyInfo &copyInfo) {
+    if (copyInfo.accumGuardIndices.empty() &&
+        copyInfo.bcastGuardIndices.empty()) {
       return nullptr;
     }
+    TT_assertv((copyInfo.accumGuardIndices.empty() ||
+                copyInfo.bcastGuardIndices.empty()),
+               "Simultaneous reduction & broadcast is unsupported.");
     auto zero = rewriter.create<arith::ConstantOp>(
         loc, rewriter.getIndexType(),
         rewriter.getIntegerAttr(rewriter.getIndexType(), 0));
-    auto cmp = rewriter
-                   .create<arith::ConstantOp>(loc, rewriter.getI1Type(),
-                                              rewriter.getBoolAttr(false))
-                   .getResult();
-    for (int64_t index : guardIndices) {
-      auto iterIndex = rewriter.create<d2m::IterIndexOp>(loc, index);
-      auto ne = rewriter.create<arith::CmpIOp>(loc, arith::CmpIPredicate::ne,
-                                               iterIndex, zero);
-      cmp = rewriter.create<arith::OrIOp>(loc, cmp, ne).getResult();
+
+    Value cond = nullptr;
+    if (!copyInfo.accumGuardIndices.empty()) {
+      cond = rewriter
+                 .create<arith::ConstantOp>(loc, rewriter.getI1Type(),
+                                            rewriter.getBoolAttr(false))
+                 .getResult();
+
+      for (int64_t index : copyInfo.accumGuardIndices) {
+        auto iterIndex = rewriter.create<d2m::IterIndexOp>(loc, index);
+        auto ne = rewriter.create<arith::CmpIOp>(loc, arith::CmpIPredicate::ne,
+                                                 iterIndex, zero);
+        cond = rewriter.create<arith::OrIOp>(loc, cond, ne).getResult();
+      }
+    } else if (!copyInfo.bcastGuardIndices.empty()) {
+      cond = rewriter
+                 .create<arith::ConstantOp>(loc, rewriter.getI1Type(),
+                                            rewriter.getBoolAttr(true))
+                 .getResult();
+      for (int64_t index : copyInfo.bcastGuardIndices) {
+        auto iterIndex = rewriter.create<d2m::IterIndexOp>(loc, index);
+        auto eq = rewriter.create<arith::CmpIOp>(loc, arith::CmpIPredicate::eq,
+                                                 iterIndex, zero);
+        cond = rewriter.create<arith::AndIOp>(loc, cond, eq).getResult();
+      }
     }
-    return rewriter.create<scf::IfOp>(loc, cmp);
+    return rewriter.create<scf::IfOp>(loc, cond);
   }
 
   template <typename LoadStoreOpTy>

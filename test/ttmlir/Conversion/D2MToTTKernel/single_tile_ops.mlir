@@ -114,6 +114,46 @@ module {
     return
   }
 
+  func.func @test_bcast_lowering(%in0: memref<1x1x1x1x!ttype_bf16, #ttcore.shard<2048x2048, 1>, #l1_>,
+                                 %out: memref<1x1x1x1x!ttype_bf16, #ttcore.shard<2048x2048, 1>, #l1_>) {
+    d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#map_, #map_], iterator_types = [#parallel_, #parallel_], threads = [#d2m.thread<compute>]}
+        ins(%in0 : memref<1x1x1x1x!ttype_bf16, #ttcore.shard<2048x2048, 1>, #l1_>)
+        outs(%out : memref<1x1x1x1x!ttype_bf16, #ttcore.shard<2048x2048, 1>, #l1_>)  {
+    ^compute0(%arg0_cb: !d2m.cb<memref<1x1x!ttype_bf16, #l1_>>, %arg1_cb: !d2m.cb<memref<1x1x!ttype_bf16, #l1_>>):
+      %cb0 = d2m.wait %arg0_cb : !d2m.cb<memref<1x1x!ttype_bf16, #l1_>> -> memref<1x1x!ttype_bf16, #l1_>
+      %cb1 = d2m.reserve %arg1_cb : !d2m.cb<memref<1x1x!ttype_bf16, #l1_>> -> memref<1x1x!ttype_bf16, #l1_>
+      linalg.generic {indexing_maps = [#map_, #map_], iterator_types = ["parallel", "parallel"]} ins(%cb0 : memref<1x1x!ttype_bf16, #l1_>) outs(%cb1 : memref<1x1x!ttype_bf16, #l1_>) {
+      ^bb0(%arg0: !ttype_bf16, %arg1: !ttype_bf16):
+        // CHECK-NOT: d2m.tile_bcast
+        // CHECK: ttkernel.init_sfpu
+        // CHECK: ttkernel.unary_bcast_init(%{{.*}}, %{{.*}}, <col>)
+        // CHECK: ttkernel.unary_bcast(%{{.*}}, %{{.*}}, %{{.*}}, <col>)
+        %0 = "d2m.tile_bcast"(%arg0) <{bcast_type = #d2m<tile_bcast_type col>}> : (!ttype_bf16) -> !ttype_bf16
+        // CHECK: ttkernel.unary_bcast_init(%{{.*}}, %{{.*}}, <row>)
+        // CHECK: ttkernel.unary_bcast(%{{.*}}, %{{.*}}, %{{.*}}, <row>)
+        %1 = "d2m.tile_bcast"(%arg0) <{bcast_type = #d2m<tile_bcast_type row>}> : (!ttype_bf16) -> !ttype_bf16
+        // CHECK: ttkernel.unary_bcast_init(%{{.*}}, %{{.*}}, <scalar>)
+        // CHECK: ttkernel.unary_bcast(%{{.*}}, %{{.*}}, %{{.*}}, <scalar>)
+        %2 = "d2m.tile_bcast"(%arg0) <{bcast_type = #d2m<tile_bcast_type scalar>}> : (!ttype_bf16) -> !ttype_bf16
+        // CHECK: ttkernel.unary_bcast_init(%{{.*}}, %{{.*}}, <none>)
+        // CHECK: ttkernel.unary_bcast(%{{.*}}, %{{.*}}, %{{.*}}, <none>)
+        %3 = "d2m.tile_bcast"(%arg0) <{bcast_type = #d2m<tile_bcast_type none>}> : (!ttype_bf16) -> !ttype_bf16
+        // CHECK: ttkernel.add_binary_tile_init
+        // CHECK: ttkernel.add_binary_tile
+        %4 = "d2m.tile_add"(%0, %1) : (!ttype_bf16, !ttype_bf16) -> !ttype_bf16
+        // CHECK: ttkernel.sub_binary_tile_init
+        // CHECK: ttkernel.sub_binary_tile
+        %5 = "d2m.tile_sub"(%2, %3) : (!ttype_bf16, !ttype_bf16) -> !ttype_bf16
+        // CHECK: ttkernel.mul_binary_tile_init
+        // CHECK: ttkernel.mul_binary_tile
+        %6 = "d2m.tile_mul"(%4, %5) : (!ttype_bf16, !ttype_bf16) -> !ttype_bf16
+        // CHECK: ttkernel.pack_tile
+        linalg.yield %6 : !ttype_bf16
+      }
+    }
+    return
+  }
+
   //===----------------------------------------------------------------------===//
   // TTIR SFPU operations
   //===----------------------------------------------------------------------===//
