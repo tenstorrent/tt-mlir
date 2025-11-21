@@ -15,9 +15,9 @@ module {
   emitpy.global @global_var_1 = #emitpy.opaque<"None">
 
   func.func @set_global_1(%arg0 : !emitpy.opaque<"[ttnn.Tensor]">) -> () {
-    // CHECK: def set_global_1(v1):
+    // CHECK: def set_global_1(inputs):
     // CHECK: global global_var_1
-    // CHECK: global_var_1 = v1
+    // CHECK: global_var_1 = inputs
     %0 = emitpy.global_statement @global_var_1 : !emitpy.opaque<"[ttnn.Tensor]">
     emitpy.assign_global @global_var_1 = %arg0 : !emitpy.opaque<"[ttnn.Tensor]">
     return
@@ -33,7 +33,7 @@ module {
   func.func @set_global_2() -> () {
     // CHECK: def set_global_2():
     // CHECK: global global_var_2
-    // CHECK: global_var_2 = v1
+    // CHECK: global_var_2 = var_0
     %0 = emitpy.global_statement @global_var_2 : i64
     %1 = "emitpy.constant"() <{value = 110 : i64}> : () -> i64
     emitpy.assign_global @global_var_2 = %1 : i64
