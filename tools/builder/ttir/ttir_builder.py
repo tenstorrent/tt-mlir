@@ -9072,10 +9072,10 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
         self,
         parsed_op: Operation,
         global_dict: Dict[Operand, Operand],
-    ) -> global_dict:
+    ) -> Operation:
         parsed_function = self.get_parser_from_opview(type(parsed_op))
-        global_dict = parsed_function(self, parsed_op, global_dict)
-        return global_dict
+        new_op = parsed_function(self, parsed_op, global_dict)
+        return new_op
 
     @staticmethod
     def get_input_types(ttir_builder: TTIRBuilder, parsed_module: Module):
