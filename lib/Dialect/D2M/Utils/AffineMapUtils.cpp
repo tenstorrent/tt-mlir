@@ -388,33 +388,24 @@ buildLayoutTransformMap(mlir::tt::ttcore::MetalLayoutAttr fromLayout,
   assert((fromTileShape.empty() || fromTileShape == toTileShape) &&
          "Mapping change with tiled tensors requires same tile shape");
 
-  // Use a consistent tile shape for converting logical coordinates.
-  // Since both sides must match, either one works.
-  ArrayRef<int64_t> tileShape = fromTileShape;
-
-  // Extract shapes for both input and output layouts.
-  auto fromPhysicalShapeVec = fromLayout.getPhysicalShape(tileShape);
+  // For collapse/expand maps, always work in SCALAR units.
+  // The collapse describes the relationship between logical shape (scalars,
+  // unpadded) and physical shape (scalars, padded). This works for both tiled
+  // and scalar tensors.
+  auto fromPhysicalShapeVec = fromLayout.getPhysicalShape({}); // Scalars
   ArrayRef<int64_t> fromPhysicalShape = fromPhysicalShapeVec;
-  ArrayRef<int64_t> fromGridShape = fromLayout.getGridShape(fromType);
 
-  auto toPhysicalShapeVec = toLayout.getPhysicalShape(tileShape);
+  auto toPhysicalShapeVec = toLayout.getPhysicalShape({}); // Scalars
   ArrayRef<int64_t> toPhysicalShape = toPhysicalShapeVec;
-  ArrayRef<int64_t> toGridShape = toLayout.getGridShape(toType);
 
-  // Convert logical shape to the same units as physical shape (tiles for
-  // tiled tensors, scalars for non-tiled).
-  SmallVector<int64_t> logicalShapeInUnits;
-  if (!tileShape.empty()) {
-    logicalShapeInUnits.reserve(logicalShape.size());
-    for (size_t i = 0; i < logicalShape.size(); ++i) {
-      int64_t tileDim = tileShape[i];
-      assert(logicalShape[i] % tileDim == 0 &&
-             "Logical shape must be divisible by tile size");
-      logicalShapeInUnits.push_back(logicalShape[i] / tileDim);
-    }
-  } else {
-    logicalShapeInUnits.assign(logicalShape.begin(), logicalShape.end());
-  }
+  // Logical shape is always in scalars
+  ArrayRef<int64_t> logicalShapeInUnits = logicalShape;
+
+  // Grid shape is the number of shards, independent of units.
+  // The shard size will be computed as physical_shape / grid_shape in the
+  // correct units (scalars).
+  ArrayRef<int64_t> fromGridShape = fromLayout.getGridShape(fromType);
+  ArrayRef<int64_t> toGridShape = toLayout.getGridShape(toType);
 
   // Build OUTPUT device → logical map.
   // OUTPUT device → OUTPUT physical.

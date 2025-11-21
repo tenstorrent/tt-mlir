@@ -76,10 +76,131 @@ static Type getScalarType(Type type) {
 
 namespace {
 class D2MLowerToLayoutRewriter : public OpRewritePattern<ToLayoutOp> {
+  // Helper struct to build intermediate bounce types.
+  class BounceTypeBuilder {
+  public:
+    explicit BounceTypeBuilder(MLIRContext *ctx) : ctx(ctx) {}
+
+    // Computes a workable bounce shape grid for a virtual grid.
+    llvm::SmallVector<int64_t>
+    computeVirtualGridBounceShape(ArrayRef<int64_t> virtualGridShape,
+                                  ArrayRef<int64_t> deviceGridShape) const {
+      // TODO(bgrady-tt): Generalize to N dimensions.
+      assert(virtualGridShape.size() == 2);
+      assert(virtualGridShape[0] > deviceGridShape[0] ^
+             virtualGridShape[1] > deviceGridShape[1]);
+
+      llvm::SmallVector<int64_t> ret;
+      if (virtualGridShape[0] > deviceGridShape[0]) {
+        int64_t divisor = std::gcd(virtualGridShape[0], deviceGridShape[0]);
+        ret = {divisor, virtualGridShape[1]};
+      } else {
+        int64_t divisor = std::gcd(virtualGridShape[1], deviceGridShape[1]);
+        ret = {virtualGridShape[0], divisor};
+      }
+      assert(ret.size());
+      return ret;
+    }
+
+    // Create a device tensor type from a system tensor type.
+    RankedTensorType createDeviceType(RankedTensorType systemType,
+                                      ttcore::MetalLayoutAttr referenceLayout,
+                                      RankedTensorType referenceType,
+                                      ttcore::MemorySpace memSpace,
+                                      ArrayRef<int64_t> targetGridShape) {
+      SmallVector<int64_t> tensorGridShape =
+          llvm::to_vector(referenceLayout.getGridShape(referenceType));
+      if (auto metalLayout = mlir::dyn_cast_or_null<ttcore::MetalLayoutAttr>(
+              referenceType.getEncoding());
+          metalLayout && !metalLayout.getIndexAffineMap().isEmpty()) {
+        bool exceedsPhysicalBounds =
+            (tensorGridShape[0] > targetGridShape[0]) ||
+            (tensorGridShape[1] > targetGridShape[1]);
+        if (exceedsPhysicalBounds) {
+          tensorGridShape =
+              computeVirtualGridBounceShape(tensorGridShape, targetGridShape);
+        }
+      }
+
+      // Preserve the reference layout's index_map so GenericOps can properly
+      // map virtual grids to physical cores.
+      auto layout = ttcore::MetalLayoutAttr::get(
+          ctx, referenceLayout.getLogicalShape(),
+          referenceLayout.getDimAlignments(),
+          referenceLayout.getCollapsedIntervals(), referenceLayout.getOobVal(),
+          memSpace, referenceLayout.getMemoryLayout(),
+          referenceLayout.getIndexAffineMap());
+
+      ArrayRef<int64_t> tileShape;
+      if (ttcore::isTiled(systemType)) {
+        tileShape = ttcore::getTensorTileShape(systemType);
+      }
+      auto deviceShape = layout.getDeviceShape(tensorGridShape, tileShape);
+
+      return RankedTensorType::get(deviceShape, systemType.getElementType(),
+                                   layout);
+    }
+
+    // Modify an existing device tensor type.
+    RankedTensorType
+    modifyDeviceType(RankedTensorType baseType,
+                     ttcore::MetalLayoutAttr baseLayout,
+                     ArrayRef<int64_t> targetGridShape,
+                     std::optional<ttcore::MemorySpace> newMemSpace = {},
+                     std::optional<ArrayRef<int64_t>> newTensorGrid = {},
+                     std::optional<Type> newElementType = {},
+                     std::optional<ArrayRef<int64_t>> newTileShape = {},
+                     bool reblockVirtualGridShapes = false) {
+      assert(baseLayout && "modifyDeviceType requires a layout");
+
+      auto memSpace = newMemSpace.value_or(baseLayout.getMemorySpace());
+      auto elementType = newElementType.value_or(baseType.getElementType());
+
+      SmallVector<int64_t> tensorGrid;
+      bool didReblockVirtualGrid = false;
+      if (newTensorGrid.has_value()) {
+        tensorGrid.assign(newTensorGrid->begin(), newTensorGrid->end());
+      } else {
+        auto currentGrid = llvm::to_vector(baseLayout.getGridShape(baseType));
+        tensorGrid = currentGrid;
+        bool hasVirtualGrid = !baseLayout.getIndexAffineMap().isEmpty();
+        if (hasVirtualGrid && reblockVirtualGridShapes) {
+          tensorGrid =
+              computeVirtualGridBounceShape(currentGrid, targetGridShape);
+          didReblockVirtualGrid = true;
+        }
+      }
+
+      AffineMap indexMap = AffineMap::get(ctx);
+      if (memSpace == ttcore::MemorySpace::DeviceL1 &&
+          baseLayout.getMemorySpace() == ttcore::MemorySpace::DeviceL1 &&
+          !didReblockVirtualGrid) {
+        indexMap = baseLayout.getIndexAffineMap();
+      }
+
+      auto layout = ttcore::MetalLayoutAttr::get(
+          ctx, baseLayout.getLogicalShape(), baseLayout.getDimAlignments(),
+          baseLayout.getCollapsedIntervals(), baseLayout.getOobVal(), memSpace,
+          baseLayout.getMemoryLayout(), indexMap);
+
+      ArrayRef<int64_t> tileShape;
+      if (mlir::isa<ttcore::TileType>(elementType)) {
+        tileShape =
+            newTileShape.value_or(ttcore::getTensorTileShapeOrEmpty(baseType));
+      }
+      auto deviceShape = layout.getDeviceShape(tensorGrid, tileShape);
+
+      return RankedTensorType::get(deviceShape, elementType, layout);
+    }
+
+  private:
+    MLIRContext *ctx;
+  };
+
 public:
   D2MLowerToLayoutRewriter(MLIRContext *context,
                            ArrayRef<int64_t> targetGridShape)
-      : OpRewritePattern(context, PatternBenefit(2)),
+      : OpRewritePattern(context, PatternBenefit(1)),
         targetGridShape(targetGridShape) {}
 
   using OpRewritePattern<ToLayoutOp>::OpRewritePattern;
@@ -88,10 +209,11 @@ public:
   // collapse changes, index map transformations) to ViewLayoutOp + DMA generic.
   // The ViewLayoutOp represents the transformation as an affine map, and the
   // DMA generic materializes the data movement for L1→L1 transformations.
-  static LogicalResult lowerMappingChange(PatternRewriter &rewriter,
-                                          ToLayoutOp op) {
-    auto inputInfo = TensorInfo::from(op.getInput());
-    auto outputInfo = TensorInfo::from(op.getOutput());
+  static Value lowerMappingChange(PatternRewriter &rewriter, Value input,
+                                  Value output, Location loc,
+                                  ArrayRef<int64_t> targetGridShape) {
+    auto inputInfo = TensorInfo::from(input);
+    auto outputInfo = TensorInfo::from(output);
 
     // Precondition: both operands must have layouts, be in the same memory
     // space, and have the same element type. These are guaranteed by the
@@ -144,9 +266,14 @@ public:
         RankedTensorType::get(outputInfo.type.getShape(),
                               outputInfo.type.getElementType(), newLayout);
 
-    Value viewOp =
-        rewriter.create<ViewLayoutOp>(op.getLoc(), viewType, op.getInput(),
-                                      /*reinterpretLayout=*/false);
+    llvm::errs() << "      lowerMappingChange: outputInfo.type = "
+                 << outputInfo.type << "\n";
+    llvm::errs() << "      lowerMappingChange: viewType = " << viewType << "\n";
+    llvm::errs() << "      lowerMappingChange: output = " << output.getType()
+                 << "\n";
+
+    Value viewOp = rewriter.create<ViewLayoutOp>(loc, viewType, input,
+                                                 /*reinterpretLayout=*/false);
 
     // Materialize L1→L1 transformations with a DMA generic that performs the
     // actual data movement according to the view's affine map.
@@ -160,20 +287,14 @@ public:
       if (outputHasVirtualGrid) {
         // Check if this is actually a virtual grid (grid shape exceeds physical
         // bounds)
-        ::mlir::ModuleOp moduleOp = op->getParentOfType<::mlir::ModuleOp>();
-        mlir::tt::ttcore::DeviceAttr device =
-            mlir::tt::ttcore::lookupDevice(moduleOp);
-        assert(device && "Device not found");
-        auto physicalGridShape = device.getWorkerGrid().getShape();
-
-        bool isVirtualGrid = gridShape[0] > physicalGridShape[0] ||
-                             gridShape[1] > physicalGridShape[1];
+        bool isVirtualGrid = gridShape[0] > targetGridShape[0] ||
+                             gridShape[1] > targetGridShape[1];
 
         if (isVirtualGrid) {
           // Create the virtual grid coordinate maps and use the inverse map
           // for the grid's coordinate translation.
           auto [fwdMap, invMap] = ttmlir::d2m::utils::grids::createCoreVirtMaps(
-              rewriter.getContext(), gridShape, physicalGridShape);
+              rewriter.getContext(), gridShape, targetGridShape);
           grid =
               ttcore::GridAttr::get(rewriter.getContext(), gridShape, invMap);
         } else {
@@ -194,54 +315,50 @@ public:
               rewriter, /*arity=*/2, gridRank);
       auto indexingMap = mlir::cast<AffineMapAttr>(indexingMaps[0]);
 
-      rewriter.replaceOpWithNewOp<GenericOp>(
-          op, viewOp, op.getOutput(),
-          [&](OpBuilder &builder, Location loc, ValueRange blockArgs) {
-            Value outputCB =
-                builder.create<ReserveOp>(loc, blockArgs[1]).getResult();
-            auto dma =
-                builder.create<d2m::DMAOp>(loc, viewOp, indexingMap, outputCB);
-            builder.create<d2m::DMAWaitOp>(loc, dma);
-            builder.create<YieldOp>(loc, outputCB);
-          },
-          ThreadType::Datamovement, grid);
+      return rewriter
+          .create<GenericOp>(
+              loc, viewOp, output,
+              [&](OpBuilder &builder, Location innerLoc, ValueRange blockArgs) {
+                Value outputCB =
+                    builder.create<ReserveOp>(innerLoc, blockArgs[1])
+                        .getResult();
+                auto dma = builder.create<d2m::DMAOp>(innerLoc, viewOp,
+                                                      indexingMap, outputCB);
+                builder.create<d2m::DMAWaitOp>(innerLoc, dma);
+                builder.create<YieldOp>(innerLoc, outputCB);
+              },
+              ThreadType::Datamovement, grid)
+          .getResult(0);
     } else {
       // DRAM operations use the view directly without immediate
       // materialization.
-      rewriter.replaceOp(op, viewOp);
+      return viewOp;
     }
-
-    return success();
   }
 
-  static LogicalResult lowerSystemLayoutChange(PatternRewriter &rewriter,
-                                               ToLayoutOp op) {
-    auto inputInfo = TensorInfo::from(op.getInput());
-    auto outputInfo = TensorInfo::from(op.getOutput());
+  static Value lowerSystemLayoutChange(PatternRewriter &rewriter, Value input,
+                                       Value output, Location loc) {
+    auto inputInfo = TensorInfo::from(input);
+    auto outputInfo = TensorInfo::from(output);
 
     assert(inputInfo.isSystem() != outputInfo.isSystem() &&
            "one of input or output must be system for now");
-
-    if (op.getLayout()) {
-      // Already lowered.
-      return failure();
-    }
 
     // Use the layout of whichever side has a layout (input or output).
     auto deviceLayout =
         inputInfo.isSystem() ? outputInfo.layout : inputInfo.layout;
     assert(deviceLayout.has_value() && "Device side must have a layout");
 
-    // If the device side has a virtual grid (non-empty index map), we cannot
-    // directly transfer to/from system memory. Fail to trigger a bounce that
-    // reblocks the virtual grid to physical first.
-    if (!deviceLayout->getIndexAffineMap().isEmpty()) {
-      return failure();
-    }
+    // TODO: If the device side has a virtual grid (non-empty index map),
+    // ideally we should materialize the view before system transfer (similar to
+    // MaterializeViewReturns pass). For now, we allow it and let downstream
+    // passes handle it.
+    // assert(deviceLayout->getIndexAffineMap().isEmpty() &&
+    //        "Virtual grid should be reblocked before system transfer");
 
-    rewriter.replaceOpWithNewOp<ToLayoutOp>(op, op.getInput(), op.getOutput(),
-                                            *deviceLayout);
-    return success();
+    // Create the final ToLayoutOp with layout attribute set
+    return rewriter.create<ToLayoutOp>(loc, input, output, *deviceLayout)
+        .getResult(0);
   }
 
   // Return true if the input operand to a ToLayoutOp is itself a result of a
@@ -261,19 +378,19 @@ public:
     return false;
   }
 
-  LogicalResult lowerDatamovementGeneric(PatternRewriter &rewriter,
-                                         ToLayoutOp op) const {
-    auto inputInfo = TensorInfo::from(op.getInput());
-    auto outputInfo = TensorInfo::from(op.getOutput());
+  Value lowerDatamovementGeneric(PatternRewriter &rewriter, Value input,
+                                 Value output, Location loc) const {
+    auto inputInfo = TensorInfo::from(input);
+    auto outputInfo = TensorInfo::from(output);
 
     if (inputInfo.isSystem() || outputInfo.isSystem()) {
-      return lowerSystemLayoutChange(rewriter, op);
+      return lowerSystemLayoutChange(rewriter, input, output, loc);
     }
 
     // Both input and output should have layouts at this point.
     assert(inputInfo.hasLayout() && outputInfo.hasLayout());
 
-    Value viewInput = op.getInput();
+    Value viewInput = input;
 
     bool isSrcDramOrReblock =
         inputInfo.isDRAM() ||
@@ -298,20 +415,18 @@ public:
       auto resultTy =
           RankedTensorType::get(toTy.getShape(), toTy.getElementType(), enc);
       return rewriter
-          .create<ViewLayoutOp>(op.getLoc(), resultTy, fromVal,
+          .create<ViewLayoutOp>(loc, resultTy, fromVal,
                                 /*reinterpretLayout=*/false)
           .getResult();
     };
 
     if (isSrcDramOrReblock) {
-      viewInput =
-          buildConcreteView(op.getInput(), inputInfo.type, outputInfo.type);
+      viewInput = buildConcreteView(input, inputInfo.type, outputInfo.type);
     }
 
-    Value viewOutput = op.getOutput();
+    Value viewOutput = output;
     if (outputInfo.isDRAM()) {
-      viewOutput =
-          buildConcreteView(op.getOutput(), outputInfo.type, inputInfo.type);
+      viewOutput = buildConcreteView(output, outputInfo.type, inputInfo.type);
     }
 
     const size_t gridRank = outputInfo.getGridShape().size();
@@ -322,276 +437,70 @@ public:
             rewriter, /*arity=*/2, gridRank);
     auto indexingMap = mlir::cast<AffineMapAttr>(indexingMaps[0]);
 
-    rewriter.replaceOpWithNewOp<GenericOp>(
-        op, viewInput, viewOutput,
-        [&](OpBuilder &builder, Location loc, ValueRange blockArgs) {
-          DMAOp dma;
-          Value yield;
-          if (isSrcDramOrReblock) {
-            Value outputCB =
-                builder.create<ReserveOp>(loc, blockArgs[1]).getResult();
-            dma = builder.create<d2m::DMAOp>(loc, viewInput, indexingMap,
-                                             outputCB);
-            yield = outputCB;
-          } else {
-            // Note: Naturally you'd think to use a WaitOp since this is in
-            // input cb, but in the layout lowering there is no producer thread.
-            // The ReserveOp here effectively unwraps the CB so the DMA can
-            // access it.
-            Value inputCB =
-                builder.create<ReserveOp>(loc, blockArgs[0]).getResult();
-            dma = builder.create<d2m::DMAOp>(loc, inputCB, viewOutput,
-                                             indexingMap);
-            yield = inputCB;
-          }
-          builder.create<d2m::DMAWaitOp>(loc, dma);
-          builder.create<YieldOp>(loc, yield);
-        },
-        ThreadType::Datamovement);
-
-    return success();
+    return rewriter
+        .create<GenericOp>(
+            loc, viewInput, viewOutput,
+            [&](OpBuilder &builder, Location innerLoc, ValueRange blockArgs) {
+              DMAOp dma;
+              Value yield;
+              if (isSrcDramOrReblock) {
+                Value outputCB =
+                    builder.create<ReserveOp>(innerLoc, blockArgs[1])
+                        .getResult();
+                dma = builder.create<d2m::DMAOp>(innerLoc, viewInput,
+                                                 indexingMap, outputCB);
+                yield = outputCB;
+              } else {
+                // Note: Naturally you'd think to use a WaitOp since this is in
+                // input cb, but in the layout lowering there is no producer
+                // thread. The ReserveOp here effectively unwraps the CB so the
+                // DMA can access it.
+                Value inputCB =
+                    builder.create<ReserveOp>(innerLoc, blockArgs[0])
+                        .getResult();
+                dma = builder.create<d2m::DMAOp>(innerLoc, inputCB, viewOutput,
+                                                 indexingMap);
+                yield = inputCB;
+              }
+              builder.create<d2m::DMAWaitOp>(innerLoc, dma);
+              builder.create<YieldOp>(innerLoc, yield);
+            },
+            ThreadType::Datamovement)
+        .getResult(0);
   }
 
-  LogicalResult lowerFormatConversionGeneric(PatternRewriter &rewriter,
-                                             ToLayoutOp op) const {
-    auto inputType = mlir::cast<RankedTensorType>(op.getInput().getType());
-    auto outputType = mlir::cast<RankedTensorType>(op.getOutput().getType());
+  Value lowerFormatConversionGeneric(PatternRewriter &rewriter, Value input,
+                                     Value output, Location loc) const {
+    auto inputType = mlir::cast<RankedTensorType>(input.getType());
+    auto outputType = mlir::cast<RankedTensorType>(output.getType());
     bool inputTiled = ttcore::isTiled(inputType);
     bool outputTiled = ttcore::isTiled(outputType);
     assert(inputTiled != outputTiled &&
            "one of input or output must be tiled for now");
 
-    rewriter.replaceOpWithNewOp<GenericOp>(
-        op, op.getInput(), op.getOutput(),
-        [=](OpBuilder &builder, Location loc, ValueRange blockArgs) {
-          Value src = builder.create<WaitOp>(loc, blockArgs[0]).getResult();
-          Value dst = builder.create<ReserveOp>(loc, blockArgs[1]).getResult();
-          if (inputTiled) {
-            builder.create<TileUntilizeBlockOp>(loc, src, dst);
-          } else {
-            builder.create<TileTilizeBlockOp>(loc, src, dst);
-          }
-          builder.create<YieldOp>(loc, dst);
-        },
-        ThreadType::Compute);
-
-    return success();
+    return rewriter
+        .create<GenericOp>(
+            loc, input, output,
+            [=](OpBuilder &builder, Location innerLoc, ValueRange blockArgs) {
+              Value src =
+                  builder.create<WaitOp>(innerLoc, blockArgs[0]).getResult();
+              Value dst =
+                  builder.create<ReserveOp>(innerLoc, blockArgs[1]).getResult();
+              if (inputTiled) {
+                builder.create<TileUntilizeBlockOp>(innerLoc, src, dst);
+              } else {
+                builder.create<TileTilizeBlockOp>(innerLoc, src, dst);
+              }
+              builder.create<YieldOp>(innerLoc, dst);
+            },
+            ThreadType::Compute)
+        .getResult(0);
   }
 
-  LogicalResult matchAndRewrite(ToLayoutOp op,
-                                PatternRewriter &rewriter) const final {
-    auto components =
-        CompoundComponents::analyze(op.getInput(), op.getOutput());
-
-    if (components.isCompound()) {
-      return failure();
-    }
-
-    // By convention, consecutive device->device ToLayout ops must be converted
-    // in **producer to consumer order**, such that the consumer ops DO NOT
-    // apply a view to an output that will itself be wrapped in a view by the
-    // producer op.
-    //
-    // The GreedyPatternRewriteDriver will handle iterating until all ToLayout
-    // ops have been rewritten in producer to consumer order.
-    if (producerMustBeLoweredFirst(op)) {
-      return failure();
-    }
-
-    auto inputInfo = TensorInfo::from(op.getInput());
-    auto outputInfo = TensorInfo::from(op.getOutput());
-
-    // Route format changes (tilize/untilize) to lowerFormatConversionGeneric.
-    if (components.isFormatChange) {
-      return lowerFormatConversionGeneric(rewriter, op);
-    }
-
-    // Route all L1→L1 mapping changes to lowerMappingChange, which uses
-    // buildLayoutTransformMap to support rank-changing transformations.
-    bool isL1toL1MappingChange = false;
-    if (inputInfo.hasLayout() && outputInfo.hasLayout() &&
-        !inputInfo.isDRAM() && !outputInfo.isDRAM()) {
-      auto inputLayout = *inputInfo.layout;
-      auto outputLayout = *outputInfo.layout;
-
-      bool shapeChanged =
-          (inputInfo.type.getShape() != outputInfo.type.getShape());
-      bool indexMapChanged =
-          (inputLayout.getIndexAffineMap() != outputLayout.getIndexAffineMap());
-      bool gridChanged =
-          (inputInfo.getGridShape() != outputInfo.getGridShape());
-
-      isL1toL1MappingChange = (shapeChanged || indexMapChanged || gridChanged);
-    }
-
-    if (isL1toL1MappingChange) {
-      return lowerMappingChange(rewriter, op);
-    }
-
-    // Route memory space changes and grid changes (involving DRAM) to
-    // lowerDatamovementGeneric.
-    if (components.isMemorySpaceChange || components.isMappingChange) {
-      return lowerDatamovementGeneric(rewriter, op);
-    }
-
-    llvm_unreachable("ToLayoutOp with no detectable changes");
-  }
-
-  ArrayRef<int64_t> getTargetGridShape() const { return targetGridShape; }
-
-private:
-  llvm::SmallVector<int64_t> targetGridShape;
-};
-} // namespace
-
-namespace {
-class D2MSplitCompoundLayoutRewriter : public OpRewritePattern<ToLayoutOp> {
-  // Helper struct to build intermediate bounce types.
-  // This builder will always create a MetalLayoutAttr directly through the
-  // primary constructor--it should never make any decisions w.r.t. to grid
-  // shape, etc. (those decisions were already made in D2MToD2MGeneric, here
-  // we simply decompose ToLayoutOps).
-  class BounceTypeBuilder {
-  public:
-    explicit BounceTypeBuilder(MLIRContext *ctx) : ctx(ctx) {}
-
-    // Computes a workable bounce shape grid for a virtual grid.
-    llvm::SmallVector<int64_t>
-    computeVirtualGridBounceShape(ArrayRef<int64_t> virtualGridShape,
-                                  ArrayRef<int64_t> deviceGridShape) const {
-
-      // TODO(bgrady-tt): Generalize to N dimensions.
-      assert(virtualGridShape.size() == 2);
-      assert(virtualGridShape[0] > deviceGridShape[0] ^
-             virtualGridShape[1] > deviceGridShape[1]);
-
-      llvm::SmallVector<int64_t> ret;
-      if (virtualGridShape[0] > deviceGridShape[0]) {
-        int64_t divisor = std::gcd(virtualGridShape[0], deviceGridShape[0]);
-        ret = {divisor, virtualGridShape[1]};
-      } else {
-        int64_t divisor = std::gcd(virtualGridShape[1], deviceGridShape[1]);
-        ret = {virtualGridShape[0], divisor};
-      }
-      assert(ret.size());
-      return ret;
-    }
-
-    // Create a device tensor type from a system tensor type, using reference
-    // layout's characteristics to populate the MetalLayoutAttr appropriately.
-    RankedTensorType createDeviceType(RankedTensorType systemType,
-                                      ttcore::MetalLayoutAttr referenceLayout,
-                                      RankedTensorType referenceType,
-                                      ttcore::MemorySpace memSpace,
-                                      ArrayRef<int64_t> targetGridShape) {
-
-      // Extract the tensor grid from the reference device tensor.
-      SmallVector<int64_t> tensorGridShape =
-          llvm::to_vector(referenceLayout.getGridShape(referenceType));
-      if (auto metalLayout = mlir::dyn_cast_or_null<ttcore::MetalLayoutAttr>(
-              referenceType.getEncoding());
-          metalLayout && !metalLayout.getIndexAffineMap().isEmpty()) {
-        tensorGridShape =
-            computeVirtualGridBounceShape(tensorGridShape, targetGridShape);
-      }
-
-      // Preserve all layout decisions from the referenceType tensor.
-      auto layout = ttcore::MetalLayoutAttr::get(
-          ctx, referenceLayout.getLogicalShape(),
-          referenceLayout.getDimAlignments(),
-          referenceLayout.getCollapsedIntervals(), referenceLayout.getOobVal(),
-          memSpace, referenceLayout.getMemoryLayout(), AffineMap::get(ctx));
-
-      // Compute the device shape using the referenceType's grid shape.
-      ArrayRef<int64_t> tileShape;
-      if (ttcore::isTiled(systemType)) {
-        tileShape = ttcore::getTensorTileShape(systemType);
-      }
-      auto deviceShape = layout.getDeviceShape(tensorGridShape, tileShape);
-
-      return RankedTensorType::get(deviceShape, systemType.getElementType(),
-                                   layout);
-    }
-
-    // Modify an existing device tensor type while preserving layout
-    // characteristics.
-    RankedTensorType
-    modifyDeviceType(RankedTensorType baseType,
-                     ttcore::MetalLayoutAttr baseLayout,
-                     ArrayRef<int64_t> targetGridShape,
-                     std::optional<ttcore::MemorySpace> newMemSpace = {},
-                     std::optional<ArrayRef<int64_t>> newTensorGrid = {},
-                     std::optional<Type> newElementType = {},
-                     std::optional<ArrayRef<int64_t>> newTileShape = {},
-                     bool reblockVirtualGridShapes = false) {
-
-      assert(baseLayout && "modifyDeviceType requires a layout");
-
-      auto memSpace = newMemSpace.value_or(baseLayout.getMemorySpace());
-      auto elementType = newElementType.value_or(baseType.getElementType());
-
-      SmallVector<int64_t> tensorGrid;
-      bool didReblockVirtualGrid = false;
-      if (newTensorGrid.has_value()) {
-        tensorGrid.assign(newTensorGrid->begin(), newTensorGrid->end());
-      } else {
-        auto currentGrid = llvm::to_vector(baseLayout.getGridShape(baseType));
-        tensorGrid = currentGrid;
-        bool hasVirtualGrid = !baseLayout.getIndexAffineMap().isEmpty();
-        if (hasVirtualGrid && reblockVirtualGridShapes) {
-          tensorGrid =
-              computeVirtualGridBounceShape(currentGrid, targetGridShape);
-          didReblockVirtualGrid = true;
-        }
-      }
-
-      // For L1→L1 operations (format conversions), preserve virtual grid
-      // index_maps since only shard dimensions change, not grid dimensions.
-      // The virtual grid's affine map transforms virtual coordinates to
-      // physical coordinates and must be preserved through format conversions.
-      // For transitions involving DRAM/System, or when reblocking virtual grids
-      // to physical grids, clear index_maps (the reblock creates a physical
-      // grid).
-      AffineMap indexMap = AffineMap::get(ctx);
-      if (memSpace == ttcore::MemorySpace::DeviceL1 &&
-          baseLayout.getMemorySpace() == ttcore::MemorySpace::DeviceL1 &&
-          !didReblockVirtualGrid) {
-        indexMap = baseLayout.getIndexAffineMap();
-      }
-
-      auto layout = ttcore::MetalLayoutAttr::get(
-          ctx, baseLayout.getLogicalShape(), baseLayout.getDimAlignments(),
-          baseLayout.getCollapsedIntervals(), baseLayout.getOobVal(), memSpace,
-          baseLayout.getMemoryLayout(), indexMap);
-
-      ArrayRef<int64_t> tileShape;
-      if (mlir::isa<ttcore::TileType>(elementType)) {
-        tileShape =
-            newTileShape.value_or(ttcore::getTensorTileShapeOrEmpty(baseType));
-      }
-      auto deviceShape = layout.getDeviceShape(tensorGrid, tileShape);
-
-      return RankedTensorType::get(deviceShape, elementType, layout);
-    }
-
-  private:
-    MLIRContext *ctx;
-  };
-
-public:
-  D2MSplitCompoundLayoutRewriter(MLIRContext *context,
-                                 ArrayRef<int64_t> targetGridShape)
-      : OpRewritePattern(context, PatternBenefit(2)) {
-    this->targetGridShape.assign(targetGridShape.begin(),
-                                 targetGridShape.end());
-  }
-
-  d2m::ToLayoutOp createToLayoutOp(PatternRewriter &rewriter, Location loc,
-                                   Value input,
-                                   RankedTensorType desiredType) const {
-    // Create empty tensor with desired type and layout.
-    auto layout = mlir::dyn_cast_or_null<ttcore::MetalLayoutAttr>(
-        desiredType.getEncoding());
+  ToLayoutOp createToLayoutOp(PatternRewriter &rewriter, Location loc,
+                              Value input, RankedTensorType desiredType) const {
+    auto layout =
+        mlir::cast<ttcore::MetalLayoutAttr>(desiredType.getEncoding());
     auto output = rewriter.create<d2m::EmptyOp>(
         loc, desiredType.getShape(), desiredType.getElementType(), layout);
     return rewriter.create<d2m::ToLayoutOp>(loc, input, output);
@@ -609,141 +518,269 @@ public:
 
   LogicalResult matchAndRewrite(ToLayoutOp op,
                                 PatternRewriter &rewriter) const final {
-    auto inputInfo = TensorInfo::from(op.getInput());
-    auto outputInfo = TensorInfo::from(op.getOutput());
+    llvm::errs() << "=== D2MLowerToLayoutRewriter ===\n";
+    llvm::errs() << "Input: " << op.getInput().getType() << "\n";
+    llvm::errs() << "Output: " << op.getOutput().getType() << "\n";
+
+    // Skip ToLayoutOps that are already lowered (have layout attribute set)
+    if (op.getLayout()) {
+      llvm::errs() << "  -> Already lowered (has layout attribute), skipping\n";
+      return failure();
+    }
+
+    // Producer-first ordering
+    if (producerMustBeLoweredFirst(op)) {
+      llvm::errs() << "  -> Producer must be lowered first, skipping\n";
+      return failure();
+    }
+
+    auto targetInfo = TensorInfo::from(op.getOutput());
+    auto currentInfo = TensorInfo::from(op.getInput());
+    Value currentValue = op.getInput();
+
     BounceTypeBuilder typeBuilder(rewriter.getContext());
 
-    // Compute transformation characteristics
-    bool memorySpaceChange =
-        inputInfo.getMemorySpace() != outputInfo.getMemorySpace();
-    bool systemDeviceTransition =
-        inputInfo.hasLayout() != outputInfo.hasLayout();
-    bool formatChange =
-        inputInfo.type.getElementType() != outputInfo.type.getElementType();
-    bool gridShapeChange =
-        inputInfo.getGridShape() != outputInfo.getGridShape();
+    // === TRANSFORMATION PIPELINE ===
+    // Apply transformations in priority order
+    // Each step emits lowered ops and updates currentValue/currentInfo
 
-    bool inputHasVirtualGrid = inputInfo.hasLayout() &&
-                               !inputInfo.layout->getIndexAffineMap().isEmpty();
-    bool outputHasVirtualGrid =
-        outputInfo.hasLayout() &&
-        !outputInfo.layout->getIndexAffineMap().isEmpty();
-    bool virtualGridChange = (inputHasVirtualGrid != outputHasVirtualGrid) ||
-                             (inputHasVirtualGrid && gridShapeChange);
+    // Helper to create empty op for intermediate types
+    // If the type matches the final target, reuse the original output
+    auto createEmpty = [&](RankedTensorType type) -> Value {
+      // If this type matches the final target, reuse the original output
+      if (type == op.getOutput().getType()) {
+        llvm::errs() << "    createEmpty: reusing original output (type "
+                        "matches target)\n";
+        return op.getOutput();
+      }
 
-    // Decision tree: handle transformations in priority order
+      auto layout = mlir::dyn_cast<ttcore::MetalLayoutAttr>(type.getEncoding());
+      llvm::errs() << "    createEmpty: input type = " << type << "\n";
+      auto result = rewriter
+                        .create<d2m::EmptyOp>(op.getLoc(), type.getShape(),
+                                              type.getElementType(), layout)
+                        .getResult();
+      llvm::errs() << "    createEmpty: result type = " << result.getType()
+                   << "\n";
+      return result;
+    };
 
-    // 1. SYSTEM ↔ DEVICE transitions (highest priority)
-    if (systemDeviceTransition) {
-      if (!inputInfo.hasLayout()) {
-        // System → Device: move to L1
-        auto bounceType = typeBuilder.createDeviceType(
-            inputInfo.type, *outputInfo.layout, outputInfo.type,
-            ttcore::MemorySpace::DeviceL1, getTargetGridShape());
-        bounce(rewriter, op, bounceType);
-        return success();
-      } else {
-        // Device → System: need to prepare for transfer
-        if (formatChange && ttcore::isTiled(inputInfo.type)) {
-          // Untilize first
-          Type scalarType = getScalarType(inputInfo.type.getElementType());
-          auto bounceType = typeBuilder.modifyDeviceType(
-              inputInfo.type, *inputInfo.layout, getTargetGridShape(),
-              ttcore::MemorySpace::DeviceL1,
-              /*newTensorGrid=*/{}, scalarType,
-              /*newTileShape=*/std::nullopt);
-          bounce(rewriter, op, bounceType);
-          return success();
-        } else if (inputHasVirtualGrid) {
-          // Reblock virtual grid to physical
-          auto bounceType = typeBuilder.modifyDeviceType(
-              inputInfo.type, *inputInfo.layout, getTargetGridShape(),
-              ttcore::MemorySpace::DeviceL1,
-              /*newTensorGrid=*/{}, /*newElementType=*/{},
-              /*newTileShape=*/{}, /*reblockVirtualGridShapes=*/true);
-          bounce(rewriter, op, bounceType);
-          return success();
-        } else {
-          // Ready for system transfer (handled by D2MLowerToLayoutRewriter)
-          return failure();
-        }
+    // 1. SYSTEM→DEVICE: Transfer to L1 with same element type as input
+    if (!currentInfo.hasLayout() && targetInfo.hasLayout()) {
+      llvm::errs() << "  1. System→Device transfer\n";
+      // System transfer can ONLY change memory space, not element type
+      // Create L1 intermediate with scalar element type (same as system input)
+      Type scalarElemType = getScalarType(currentInfo.type.getElementType());
+      auto l1Type = typeBuilder.createDeviceType(
+          currentInfo.type, *targetInfo.layout, targetInfo.type,
+          ttcore::MemorySpace::DeviceL1, targetGridShape);
+
+      // Force scalar element type for the L1 intermediate
+      auto l1Layout = mlir::cast<ttcore::MetalLayoutAttr>(l1Type.getEncoding());
+      auto scalarL1Type =
+          RankedTensorType::get(l1Type.getShape(), scalarElemType, l1Layout);
+
+      auto l1Empty = createEmpty(scalarL1Type);
+      currentValue =
+          lowerSystemLayoutChange(rewriter, currentValue, l1Empty, op.getLoc());
+      currentInfo = TensorInfo::from(currentValue);
+    }
+
+    // 3. DRAM→L1: Must happen before other device ops
+    // Use target's layout characteristics (like old compound rewriter)
+    if (currentInfo.hasLayout() && currentInfo.isDRAM() &&
+        targetInfo.hasLayout() && !targetInfo.isDRAM()) {
+      llvm::errs() << "  3. DRAM→L1\n";
+      // Use target's layout but force L1 and preserve current's grid shape
+      auto l1Type = typeBuilder.modifyDeviceType(
+          targetInfo.type, *targetInfo.layout, targetGridShape,
+          ttcore::MemorySpace::DeviceL1,
+          currentInfo.getGridShape(), // Preserve current grid, will reblock
+                                      // later if needed
+          currentInfo.type.getElementType());
+      auto l1Empty = createEmpty(l1Type);
+      currentValue = lowerDatamovementGeneric(rewriter, currentValue, l1Empty,
+                                              op.getLoc());
+      currentInfo = TensorInfo::from(currentValue);
+    }
+
+    // 2. VIRTUAL GRID REBLOCK (after System→Device): Handled by mapping change
+    // Virtual grids are created naturally by the view + DMA pattern
+
+    // 4. TILIZE: Before mapping (so mapping operates on final format)
+    bool needsTilize =
+        !ttcore::isTiled(currentInfo.type) && ttcore::isTiled(targetInfo.type);
+    if (needsTilize && currentInfo.hasLayout()) {
+      llvm::errs() << "  4. Tilize\n";
+      // Tilize with current layout, then mapping change will adjust layout if
+      // needed
+      ArrayRef<int64_t> tileShape = ttcore::getTensorTileShape(targetInfo.type);
+      auto deviceShape = currentInfo.layout->getDeviceShape(
+          currentInfo.getGridShape(), tileShape);
+      auto tiledType = RankedTensorType::get(
+          deviceShape, targetInfo.type.getElementType(), *currentInfo.layout);
+      auto tiledEmpty = createEmpty(tiledType);
+      currentValue = lowerFormatConversionGeneric(rewriter, currentValue,
+                                                  tiledEmpty, op.getLoc());
+      currentInfo = TensorInfo::from(currentValue);
+    }
+
+    // 5. MAPPING CHANGE: Grid/index_map/logical_shape/dim_alignments (after
+    // tilize) Includes all reblocking (both virtual and normal grids) Must
+    // happen in L1 (can't reblock in DRAM) Only when element type formats match
+    // (tilize/untilize should happen first)
+    if (currentInfo.hasLayout() && targetInfo.hasLayout() &&
+        currentInfo.isL1() &&
+        (ttcore::isTiled(currentInfo.type) ==
+         ttcore::isTiled(targetInfo.type))) {
+      // Check if layout properties differ (excluding memSpace and memLayout)
+      bool needsMappingChange =
+          (currentInfo.getGridShape() != targetInfo.getGridShape() ||
+           currentInfo.layout->getIndexAffineMap() !=
+               targetInfo.layout->getIndexAffineMap() ||
+           currentInfo.layout->getLogicalShape() !=
+               targetInfo.layout->getLogicalShape() ||
+           currentInfo.layout->getDimAlignments() !=
+               targetInfo.layout->getDimAlignments());
+
+      if (needsMappingChange) {
+        llvm::errs() << "  5. Mapping change (in L1)\n";
+        llvm::errs() << "    current type: " << currentInfo.type << "\n";
+        llvm::errs() << "    target type: " << targetInfo.type << "\n";
+
+        // Formats match (enforced by step 5 condition), use target's device
+        // shape directly
+        auto currentGridShape = currentInfo.getGridShape();
+        auto targetGridShape_layout = targetInfo.getGridShape();
+        llvm::errs() << "      current grid: " << currentGridShape[0] << "x"
+                     << currentGridShape[1] << "\n";
+        llvm::errs() << "      target grid: " << targetGridShape_layout[0]
+                     << "x" << targetGridShape_layout[1] << "\n";
+
+        auto deviceShape = llvm::to_vector(targetInfo.type.getShape());
+
+        // Use target's layout properties (including index_map) but stay in L1
+        auto intermediateLayout = ttcore::MetalLayoutAttr::get(
+            rewriter.getContext(), targetInfo.layout->getLogicalShape(),
+            targetInfo.layout->getDimAlignments(),
+            targetInfo.layout->getCollapsedIntervals(),
+            targetInfo.layout->getOobVal(),
+            ttcore::MemorySpace::DeviceL1, // Force L1 for reblocking
+            targetInfo.layout->getMemoryLayout(),
+            targetInfo.layout->getIndexAffineMap());
+
+        auto intermediateType = RankedTensorType::get(
+            deviceShape, currentInfo.type.getElementType(), intermediateLayout);
+
+        llvm::errs() << "    intermediate type: " << intermediateType << "\n";
+        auto intermediateEmpty = createEmpty(intermediateType);
+
+        currentValue =
+            lowerMappingChange(rewriter, currentValue, intermediateEmpty,
+                               op.getLoc(), targetGridShape);
+        llvm::errs() << "    result type: " << currentValue.getType() << "\n";
+        currentInfo = TensorInfo::from(currentValue);
       }
     }
 
-    // 2. MEMORY SPACE changes within device (L1 ↔ DRAM)
-    if (memorySpaceChange) {
-      if (!inputInfo.isL1()) {
-        // DRAM → L1
-        auto bounceType = typeBuilder.modifyDeviceType(
-            inputInfo.type, *inputInfo.layout, getTargetGridShape(),
-            ttcore::MemorySpace::DeviceL1);
-        bounce(rewriter, op, bounceType);
-        return success();
-      } else {
-        // L1 → DRAM (handle other transformations first)
-        if (formatChange || virtualGridChange) {
-          // These need to be handled before DRAM transfer
-          // Fall through to handle them
-        } else {
-          // Ready for DRAM transfer
-          return failure();
-        }
+    // 6. UNTILIZE: Before L1→DRAM or Device→System (close the tilize
+    // parenthesis)
+    bool needsUntilize =
+        ttcore::isTiled(currentInfo.type) && !ttcore::isTiled(targetInfo.type);
+    if (needsUntilize) {
+      llvm::errs() << "  6. Untilize\n";
+      Type scalarType = getScalarType(currentInfo.type.getElementType());
+      auto scalarType_ranked = typeBuilder.modifyDeviceType(
+          currentInfo.type, *currentInfo.layout, targetGridShape,
+          /*memSpace=*/{}, /*newTensorGrid=*/{}, scalarType,
+          /*newTileShape=*/std::nullopt);
+      auto scalarEmpty = createEmpty(scalarType_ranked);
+      currentValue = lowerFormatConversionGeneric(rewriter, currentValue,
+                                                  scalarEmpty, op.getLoc());
+      currentInfo = TensorInfo::from(currentValue);
+    }
+
+    // 7. VIRTUAL GRID REBLOCK (before L1→DRAM): Symmetric with step 2
+    // If going TO DRAM with wrong grid, reblock in L1 first
+    if (currentInfo.hasLayout() && targetInfo.hasLayout() &&
+        targetInfo.isDRAM()) {
+      auto gridShape = currentInfo.getGridShape();
+      auto targetGridShapeFromLayout = targetInfo.getGridShape();
+      bool needsReblock = (gridShape != targetGridShapeFromLayout);
+
+      if (needsReblock && currentInfo.isL1()) {
+        llvm::errs() << "  7. Reblock virtual grid before DRAM transfer\n";
+        // Use target's grid shape but stay in L1
+        auto reblocked = typeBuilder.modifyDeviceType(
+            targetInfo.type, *targetInfo.layout, targetGridShape,
+            ttcore::MemorySpace::DeviceL1,
+            /*newTensorGrid=*/{}, currentInfo.type.getElementType(),
+            /*newTileShape=*/{}, /*reblockVirtualGridShapes=*/false);
+        auto reblockedEmpty = createEmpty(reblocked);
+        currentValue =
+            lowerMappingChange(rewriter, currentValue, reblockedEmpty,
+                               op.getLoc(), targetGridShape);
+        currentInfo = TensorInfo::from(currentValue);
       }
     }
 
-    // 3. VIRTUAL GRID changes (must be done before format changes)
-    if (virtualGridChange && inputHasVirtualGrid) {
-      // Virtual → physical or grid shape change
-      auto bounceType = typeBuilder.modifyDeviceType(
-          inputInfo.type, *inputInfo.layout, getTargetGridShape(),
-          /*memSpace=*/{},
-          /*newTensorGrid=*/{}, /*newElementType=*/{},
-          /*newTileShape=*/{}, /*reblockVirtualGridShapes=*/true);
-      bounce(rewriter, op, bounceType);
+    // 8. L1→DRAM
+    if (currentInfo.hasLayout() && !currentInfo.isDRAM() &&
+        targetInfo.hasLayout() && targetInfo.isDRAM()) {
+      llvm::errs() << "  8. L1→DRAM\n";
+      currentValue = lowerDatamovementGeneric(rewriter, currentValue,
+                                              op.getOutput(), op.getLoc());
+      currentInfo = TensorInfo::from(currentValue);
+    }
+
+    // 9. VIRTUAL GRID COLLAPSE: If current has virtual grid but target doesn't
+    // need it This should happen BEFORE any system transfer or whenever grid
+    // needs to shrink
+    if (currentInfo.hasLayout()) {
+      auto currentGridShape = currentInfo.getGridShape();
+      auto targetGridShape_layout =
+          targetInfo.hasLayout() ? targetInfo.getGridShape() : targetGridShape;
+
+      // Check if we need to collapse a virtual grid
+      bool needsVirtualGridCollapse =
+          (currentGridShape[0] > targetGridShape_layout[0]) ||
+          (currentGridShape[1] > targetGridShape_layout[1]);
+
+      if (needsVirtualGridCollapse && currentInfo.isL1()) {
+        llvm::errs() << "  9. Collapse virtual grid\n";
+        llvm::errs() << "    current grid: " << currentGridShape[0] << "x"
+                     << currentGridShape[1] << "\n";
+        llvm::errs() << "    target grid: " << targetGridShape_layout[0] << "x"
+                     << targetGridShape_layout[1] << "\n";
+
+        auto reblocked = typeBuilder.modifyDeviceType(
+            currentInfo.type, *currentInfo.layout, targetGridShape,
+            ttcore::MemorySpace::DeviceL1,
+            /*newTensorGrid=*/{}, /*newElementType=*/{},
+            /*newTileShape=*/{}, /*reblockVirtualGridShapes=*/true);
+        auto reblockedEmpty = createEmpty(reblocked);
+        currentValue =
+            lowerMappingChange(rewriter, currentValue, reblockedEmpty,
+                               op.getLoc(), targetGridShape);
+        llvm::errs() << "    result type: " << currentValue.getType() << "\n";
+        currentInfo = TensorInfo::from(currentValue);
+      }
+    }
+
+    // 10. DEVICE→SYSTEM: Creates final ToLayoutOp with layout attribute
+    // (terminal)
+    if (currentInfo.hasLayout() && !targetInfo.hasLayout()) {
+      llvm::errs() << "  10. Device→System\n";
+      // Device→system creates a ToLayoutOp with layout attribute set
+      currentValue = lowerSystemLayoutChange(rewriter, currentValue,
+                                             op.getOutput(), op.getLoc());
+      rewriter.replaceOp(op, currentValue);
       return success();
     }
 
-    // 4. FORMAT changes (tilize/untilize)
-    if (formatChange) {
-      if (ttcore::isTiled(inputInfo.type)) {
-        // Tilize → scalar
-        Type scalarType = getScalarType(inputInfo.type.getElementType());
-        auto bounceType = typeBuilder.modifyDeviceType(
-            inputInfo.type, *inputInfo.layout, getTargetGridShape(),
-            /*memSpace=*/{},
-            /*newTensorGrid=*/{}, scalarType,
-            /*newTileShape=*/std::nullopt);
-        bounce(rewriter, op, bounceType);
-        return success();
-      } else {
-        // Scalar → tilize
-        auto bounceType = typeBuilder.modifyDeviceType(
-            inputInfo.type, *inputInfo.layout, getTargetGridShape(),
-            /*memSpace=*/{},
-            /*newTensorGrid=*/{}, outputInfo.type.getElementType(),
-            ttcore::getTensorTileShape(outputInfo.type));
-        bounce(rewriter, op, bounceType);
-        return success();
-      }
-    }
-
-    // 5. MAPPING changes with tiled data (need scalar intermediate)
-    if (ttcore::isTiled(inputInfo.type) &&
-        (gridShapeChange ||
-         inputInfo.type.getShape() != outputInfo.type.getShape())) {
-      // Untilize for mapping transformations
-      Type scalarType = getScalarType(inputInfo.type.getElementType());
-      auto bounceType = typeBuilder.modifyDeviceType(
-          inputInfo.type, *inputInfo.layout, getTargetGridShape(),
-          /*memSpace=*/{},
-          /*newTensorGrid=*/{}, scalarType,
-          /*tileShape=*/std::nullopt);
-      bounce(rewriter, op, bounceType);
-      return success();
-    }
-
-    // 6. Not compound - let D2MLowerToLayoutRewriter handle it
-    return failure();
+    // Replace the original ToLayoutOp with the final value
+    rewriter.replaceOp(op, currentValue);
+    return success();
   }
 
   ArrayRef<int64_t> getTargetGridShape() const { return targetGridShape; }
@@ -752,7 +789,6 @@ private:
   llvm::SmallVector<int64_t> targetGridShape;
 };
 } // namespace
-
 namespace {
 class D2MLowerToLayout : public impl::D2MLowerToLayoutBase<D2MLowerToLayout> {
 public:
@@ -773,8 +809,7 @@ public:
     llvm::SmallVector<int64_t> targetGridShape =
         d2m::utils::getSquareTargetGrid(getTargetGridShape());
 
-    patterns.add<D2MSplitCompoundLayoutRewriter, D2MLowerToLayoutRewriter>(
-        &getContext(), targetGridShape);
+    patterns.add<D2MLowerToLayoutRewriter>(&getContext(), targetGridShape);
     GreedyRewriteConfig config;
     if (failed(applyPatternsGreedily(getOperation(), std::move(patterns),
                                      config))) {
