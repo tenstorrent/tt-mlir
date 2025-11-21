@@ -330,22 +330,6 @@ private:
         continue;
       }
 
-      // Skip if any alias has already been deallocated.
-      bool alreadyProcessed = false;
-      if (aliasMap.count(buffer)) {
-        for (Value alias : aliasMap.lookup(buffer)) {
-          if (Operation *aliasDefOp = alias.getDefiningOp()) {
-            if (aliasDefOp->hasAttr("d2m.dealloc_inserted")) {
-              alreadyProcessed = true;
-              break;
-            }
-          }
-        }
-      }
-      if (alreadyProcessed) {
-        continue;
-      }
-
       Operation *lastLive = findLastLive(buffer, ops, livenessInfo, aliasMap);
       Operation *insertPoint = nullptr;
 
