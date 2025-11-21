@@ -44,6 +44,7 @@ class JitFunction:
         os.makedirs(self.out_dir, exist_ok=True)
 
         self.system_desc_path = os.getenv("SYSTEM_DESC_PATH")
+        assert self.system_desc_path, "SYSTEM_DESC_PATH must be set."
 
         if self.debug:
             os.environ["TTRT_LOGGER_LEVEL"] = "DEBUG"
