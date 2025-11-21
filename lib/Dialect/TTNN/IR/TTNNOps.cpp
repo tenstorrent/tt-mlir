@@ -395,8 +395,7 @@ static bool isDefinedByOp(mlir::Value value) {
 
 // Conv2dOp verification
 ::mlir::LogicalResult mlir::tt::ttnn::Conv2dOp::verify() {
-  using namespace mlir::tt::ttnn::utils::verification_utils::
-      conv2d_verification;
+  using namespace mlir::tt::ttnn::utils::verification_utils::conv2d;
 
   if (verifyTensorRanks(this).failed()) {
     return mlir::failure();
@@ -509,7 +508,7 @@ bool mlir::tt::ttnn::Conv2dOp::isBiasCompatible(llvm::ArrayRef<int64_t> bias) {
 //===----------------------------------------------------------------------===//
 
 ::mlir::LogicalResult mlir::tt::ttnn::Conv3dOp::verify() {
-  using namespace utils::verification_utils::conv3d_verification;
+  using namespace utils::verification_utils::conv3d;
 
   if (verifyTensorRanks(this).failed()) {
     return mlir::failure();
