@@ -36,7 +36,7 @@ def test_rearrange(
     device,
 ):
     in_shape = (3, 32, 32)
-    pattern = "z y x -> (y z) x"
+    pattern = "z y x -> y z x"
 
     patterns = [
         ("z y x -> y z x", (3, 4, 32)),

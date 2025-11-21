@@ -1124,14 +1124,12 @@ public:
   }
 
   static AffineMap projectLogicalMapToUnitDeviceSpace(Builder& builder, AffineMap logicalMap) {
-    int64_t deviceRank = static_cast<int64_t>(logicalMap.getNumDims() * 2);
+    unsigned deviceRank = static_cast<int64_t>(logicalMap.getNumDims() * 2);
     SmallVector<AffineExpr> exprs(logicalMap.getResults());
-    int64_t dimResultDiff = static_cast<int64_t>(logicalMap.getNumResults()) - static_cast<int64_t>(logicalMap.getNumDims());
     while (exprs.size() < (logicalMap.getNumResults() * 2)) {
       auto expr = exprs.size() <= deviceRank
-            ? builder.getAffineDimExpr(deviceRank - exprs.size() + dimResultDiff)
+            ? builder.getAffineDimExpr((deviceRank - 1) - (exprs.size() - logicalMap.getNumResults()))
             : builder.getAffineConstantExpr(0);
-      expr.dump();
       exprs.insert(exprs.begin(), expr);
     }
 
