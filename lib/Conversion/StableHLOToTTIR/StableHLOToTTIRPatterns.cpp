@@ -1904,12 +1904,72 @@ public:
         return success();
       }
     }
+    // Check if the input is 2D and needs to be reshaped to 4D.
+    // TTIR pooling ops require 4D inputs.
+    bool needsReshape = false;
+    if (!srcOp.getInputs().empty()) {
+      auto firstInputType =
+          mlir::cast<RankedTensorType>(adaptor.getInputs()[0].getType());
+      needsReshape = (firstInputType.getRank() == 2);
+    }
+
+    DenseI64ArrayAttr adjustedWindowDimensions = windowDimensions;
+    DenseI64ArrayAttr adjustedWindowStrides = windowStrides;
+    DenseI64ArrayAttr adjustedBaseDilations = baseDilations;
+    DenseI64ArrayAttr adjustedWindowDilations = window_dilations;
+    DenseI64ArrayAttr adjustedPadding = padding;
+
+    if (needsReshape) {
+      SmallVector<int64_t> winDims4D = {1, 1};
+      llvm::append_range(winDims4D, windowDimensions.asArrayRef());
+      adjustedWindowDimensions = rewriter.getDenseI64ArrayAttr(winDims4D);
+
+      SmallVector<int64_t> strides4D = {1, 1};
+      llvm::append_range(strides4D, windowStrides.asArrayRef());
+      adjustedWindowStrides = rewriter.getDenseI64ArrayAttr(strides4D);
+
+      SmallVector<int64_t> baseDil4D = {1, 1};
+      llvm::append_range(baseDil4D, baseDilations.asArrayRef());
+      adjustedBaseDilations = rewriter.getDenseI64ArrayAttr(baseDil4D);
+
+      SmallVector<int64_t> winDil4D = {1, 1};
+      llvm::append_range(winDil4D, window_dilations.asArrayRef());
+      adjustedWindowDilations = rewriter.getDenseI64ArrayAttr(winDil4D);
+
+      SmallVector<int64_t> padding4D = {0, 0, 0, 0};
+      llvm::append_range(padding4D, padding.asArrayRef());
+      adjustedPadding = rewriter.getDenseI64ArrayAttr(padding4D);
+    }
+
     // Build per-input pooling ops.
     SmallVector<Value> resultVals;
     for (size_t i = 0; i < srcOp.getInputs().size(); ++i) {
       Value input = adaptor.getInputs()[i];
+      mlir::RankedTensorType inputType =
+          mlir::cast<RankedTensorType>(input.getType());
       mlir::RankedTensorType resultType = cast<RankedTensorType>(
           getTypeConverter()->convertType(srcOp.getResult(i).getType()));
+
+      // Reshape 2D input to 4D if needed: [H, W] -> [1, 1, H, W].
+      if (needsReshape && inputType.getRank() == 2) {
+        SmallVector<int64_t> shape4D = {1, 1};
+        llvm::append_range(shape4D, inputType.getShape());
+        SmallVector<int32_t> shape4DI32(shape4D.begin(), shape4D.end());
+
+        auto inputType4D = RankedTensorType::get(
+            shape4D, inputType.getElementType(), inputType.getEncoding());
+
+        input = ttir::utils::createDPSOp<ttir::ReshapeOp>(
+            rewriter, srcOp.getLoc(), inputType4D, input,
+            rewriter.getI32ArrayAttr(shape4DI32));
+
+        SmallVector<int64_t> resultShape4D = {1, 1};
+        llvm::append_range(resultShape4D, resultType.getShape());
+        resultType =
+            RankedTensorType::get(resultShape4D, resultType.getElementType(),
+                                  resultType.getEncoding());
+      }
+
       TypicalInitReductionValue initVal = (*initValues)[i];
       mlir::Operation *frontOp = reductionOps[i];
       ttir::PoolingMethod method;
@@ -1921,10 +1981,23 @@ public:
           method = ttir::PoolingMethod::Average;
           ttir::PoolingOp poolingOp = ttir::utils::createDPSOp<ttir::PoolingOp>(
               rewriter, srcOp.getLoc(), resultType, ValueRange{input}, method,
-              windowDimensions, windowStrides, baseDilations, window_dilations,
-              padding);
-          resultVals.push_back(poolingOp->getResult(0));
-          (*divOp)->getResult(0).replaceAllUsesWith(poolingOp->getResult(0));
+              adjustedWindowDimensions, adjustedWindowStrides,
+              adjustedBaseDilations, adjustedWindowDilations, adjustedPadding);
+          Value result = poolingOp->getResult(0);
+
+          // Reshape 4D output back to 2D if needed: [1, 1, H, W] -> [H, W].
+          if (needsReshape) {
+            auto originalResultType = cast<RankedTensorType>(
+                getTypeConverter()->convertType(srcOp.getResult(i).getType()));
+            result = ttir::utils::createDPSOp<ttir::ReshapeOp>(
+                rewriter, srcOp.getLoc(), originalResultType, result,
+                rewriter.getI32ArrayAttr(
+                    SmallVector<int32_t>(originalResultType.getShape().begin(),
+                                         originalResultType.getShape().end())));
+          }
+
+          resultVals.push_back(result);
+          (*divOp)->getResult(0).replaceAllUsesWith(result);
           rewriter.eraseOp(*divOp);
           continue;
         }
@@ -1934,9 +2007,22 @@ public:
       }
       ttir::PoolingOp poolingOp = ttir::utils::createDPSOp<ttir::PoolingOp>(
           rewriter, srcOp.getLoc(), resultType, ValueRange{input}, method,
-          windowDimensions, windowStrides, baseDilations, window_dilations,
-          padding);
-      llvm::append_range(resultVals, poolingOp->getResults());
+          adjustedWindowDimensions, adjustedWindowStrides,
+          adjustedBaseDilations, adjustedWindowDilations, adjustedPadding);
+      Value result = poolingOp->getResult(0);
+
+      // Reshape 4D output back to 2D if needed: [1, 1, H, W] -> [H, W].
+      if (needsReshape) {
+        auto originalResultType = cast<RankedTensorType>(
+            getTypeConverter()->convertType(srcOp.getResult(i).getType()));
+        result = ttir::utils::createDPSOp<ttir::ReshapeOp>(
+            rewriter, srcOp.getLoc(), originalResultType, result,
+            rewriter.getI32ArrayAttr(
+                SmallVector<int32_t>(originalResultType.getShape().begin(),
+                                     originalResultType.getShape().end())));
+      }
+
+      resultVals.push_back(result);
     }
     rewriter.replaceOp(srcOp, resultVals);
     return success();
