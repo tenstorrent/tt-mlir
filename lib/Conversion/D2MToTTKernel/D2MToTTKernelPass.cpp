@@ -98,7 +98,12 @@ struct ConvertD2MToTTKernel
               break;
             }
           }
-          assert(consumer);
+
+          // If there's no consumer (e.g., bcast result goes directly to linalg.yield
+          // and then d2m.store), skip reordering for this bcast op.
+          if (!consumer) {
+            continue;
+          }
 
           // Find all copy_tile ops that provides inputs for the consumer.
           SmallVector<std::pair<ttkernel::CopyTileInitOp, ttkernel::CopyTileOp>>
@@ -243,12 +248,13 @@ struct ConvertD2MToTTKernel
       return;
     }
 
-    getOperation().walk([this](func::FuncOp func) {
+    getOperation().walk([](func::FuncOp func) {
       auto threadType = func->getAttrOfType<ttkernel::ThreadTypeAttr>(
           ttkernel::ThreadTypeAttr::name);
       if (threadType &&
           threadType.getValue() == ttkernel::ThreadType::Compute) {
-        reorderUnaryBcastOps(func);
+        // Disabled: reorderUnaryBcastOps causes issues with bcast-to-CB pattern
+        // reorderUnaryBcastOps(func);
       }
     });
   };
