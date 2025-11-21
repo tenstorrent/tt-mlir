@@ -166,9 +166,10 @@ public:
             utils::extractInputLayouts(operation);
 
         TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,
-                     "Validating operation {} at {} with {} input layouts",
+                     "Validating operation {} at {} with {} input layouts, {} "
+                     "output layout",
                      operation->getName(), operation->getLoc(),
-                     inputLayouts.size());
+                     inputLayouts.size(), config.outputLayout);
 
         // Test original configuration
         op_constraint_validation::ValidationResult originalResult =
