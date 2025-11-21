@@ -1104,10 +1104,6 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
         for old_input in old_op.inputs:
             new_inputs.append(global_dict[old_input])
 
-        new_outputs = []
-        for old_output in old_op.outputs:
-            new_outputs.append(global_dict[old_output])
-
         pooling_method_attr = old_op.pooling_method
         window_dimensions_attr = old_op.window_dimensions
         window_strides_attr = old_op.window_strides
@@ -1119,7 +1115,6 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
         new_op = ttir_op(
             [result],
             new_inputs,
-            new_outputs,
             pooling_method_attr,
             window_dimensions_attr,
             window_strides_attr,
@@ -1285,7 +1280,6 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
         offset = global_dict[old_op.offset]
         mean = global_dict[old_op.mean]
         variance = global_dict[old_op.variance]
-        output = global_dict[old_op.output]
         epsilon_attr = old_op.epsilon
         dimension_attr = old_op.dimension
         result = old_op.result.type
@@ -1297,7 +1291,6 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
             offset,
             mean,
             variance,
-            output,
             epsilon_attr,
             dimension_attr,
             loc=old_op.location,
@@ -1542,7 +1535,6 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
         ttir_op = self.get_opview_from_parser(TTIRBuilder.convolution_parser)
         in0 = global_dict[old_op.input]
         weight = global_dict[old_op.weight]
-        output = global_dict[old_op.output]
         window_strides_attr = old_op.window_strides
         padding_attr = old_op.padding
         input_dilation_attr = old_op.input_dilation
@@ -1557,7 +1549,6 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
             result,
             in0,
             weight,
-            output,
             window_strides_attr,
             padding_attr,
             input_dilation_attr,
@@ -1839,7 +1830,6 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
     ) -> global_dict:
         ttir_op = self.get_opview_from_parser(TTIRBuilder.pad_parser)
         in0 = global_dict[old_op.input]
-        output = global_dict[old_op.output]
         padding_attr = old_op.padding
         value_attr = old_op.value
         result = old_op.result.type
@@ -1847,7 +1837,6 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
         new_op = ttir_op(
             result,
             in0,
-            output,
             padding_attr,
             value_attr,
             loc=old_op.location,
@@ -2147,14 +2136,12 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
     ) -> global_dict:
         ttir_op = self.get_opview_from_parser(TTIRBuilder.permute_parser)
         in0 = global_dict[old_op.input]
-        output = global_dict[old_op.output]
         permutation_attr = old_op.permutation
         result = old_op.result.type
 
         new_op = ttir_op(
             result,
             in0,
-            output,
             permutation_attr,
             loc=old_op.location,
         )
@@ -2275,14 +2262,12 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
     ) -> global_dict:
         ttir_op = self.get_opview_from_parser(TTIRBuilder.broadcast_parser)
         in0 = global_dict[old_op.input]
-        output = global_dict[old_op.output]
         broadcast_dimensions_attr = old_op.broadcast_dimensions
         result = old_op.result.type
 
         new_op = ttir_op(
             result,
             in0,
-            output,
             broadcast_dimensions_attr,
             loc=old_op.location,
         )
@@ -2399,14 +2384,12 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
     ) -> global_dict:
         ttir_op = self.get_opview_from_parser(TTIRBuilder.reshape_parser)
         in0 = global_dict[old_op.input]
-        output = global_dict[old_op.output]
         shape_attr = old_op.shape
         result = old_op.result.type
 
         new_op = ttir_op(
             result,
             in0,
-            output,
             shape_attr,
             loc=old_op.location,
         )
@@ -2520,14 +2503,12 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
         ttir_op = self.get_opview_from_parser(TTIRBuilder.maximum_parser)
         lhs = global_dict[old_op.lhs]
         rhs = global_dict[old_op.rhs]
-        output = global_dict[old_op.output]
         result = old_op.result.type
 
         new_op = ttir_op(
             result,
             lhs,
             rhs,
-            output,
             loc=old_op.location,
         )
 
@@ -2650,14 +2631,12 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
         ttir_op = self.get_opview_from_parser(TTIRBuilder.multiply_parser)
         lhs = global_dict[old_op.lhs]
         rhs = global_dict[old_op.rhs]
-        output = global_dict[old_op.output]
         result = old_op.result.type
 
         new_op = ttir_op(
             result,
             lhs,
             rhs,
-            output,
             loc=old_op.location,
         )
 
@@ -2787,7 +2766,6 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
     ) -> global_dict:
         ttir_op = self.get_opview_from_parser(TTIRBuilder.sum_parser)
         in0 = global_dict[old_op.input]
-        output = global_dict[old_op.output]
         dim_arg_attr = old_op.dim_arg
         keep_dim_attr = old_op.keep_dim
         result = old_op.result.type
@@ -2795,7 +2773,6 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
         new_op = ttir_op(
             result,
             in0,
-            output,
             keep_dim_attr,
             dim_arg=dim_arg_attr,
             loc=old_op.location,
@@ -2921,14 +2898,12 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
         ttir_op = self.get_opview_from_parser(TTIRBuilder.add_parser)
         lhs = global_dict[old_op.lhs]
         rhs = global_dict[old_op.rhs]
-        output = global_dict[old_op.output]
         result = old_op.result.type
 
         new_op = ttir_op(
             result,
             lhs,
             rhs,
-            output,
             loc=old_op.location,
         )
 
