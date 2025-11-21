@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttnn-weight-bfp8-conversion="experimental-bfp8-weights=true" %s | FileCheck %s
+// RUN: ttmlir-opt --ttnn-weight-bfp8-conversion %s | FileCheck %s
 
 // Test that the BFP8 weight conversion pass correctly:
 // 1. Inserts a ttnn.typecast operation before the linear

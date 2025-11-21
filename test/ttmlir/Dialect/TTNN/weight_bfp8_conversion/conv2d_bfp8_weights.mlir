@@ -1,11 +1,10 @@
-// RUN: ttmlir-opt --ttnn-weight-bfp8-conversion="experimental-bfp8-weights=true" %s | FileCheck %s
+// RUN: ttmlir-opt --ttnn-weight-bfp8-conversion %s | FileCheck %s
 
 // Test that the BFP8 weight conversion pass correctly:
-// 1. Sets output_dtype attribute of prepare_conv2d_weights to bfp_bf8
-// 2. Updates the result type of prepare_conv2d_weights to have bfp_bf8 element type
-// 3. Sets weights_dtype in conv2d_config to bfp_bf8
-// 4. Keeps the output of conv2d as bf16 (unchanged)
-// 5. Keeps the activation input dtype of conv2d as bf16 (unchanged)
+// 1. Sets weights_dtype in PrepareConv2dWeightsOp's conv2d_config to bfp_bf8
+// 2. Sets weights_dtype in Conv2dOp's conv2d_config to bfp_bf8
+// 3. Keeps the output of conv2d as bf16 (unchanged)
+// 4. Keeps the activation input dtype of conv2d as bf16 (unchanged)
 
 #dram = #ttnn.buffer_type<dram>
 #system_memory = #ttnn.buffer_type<system_memory>
@@ -16,8 +15,8 @@ module attributes {} {
     // CHECK-LABEL: func.func @test_conv2d_bfp8_weights
 
     // CHECK: "ttnn.prepare_conv2d_weights"
-    // CHECK-SAME: output_dtype = #ttcore.supportedDataTypes<bfp_bf8>
-    // CHECK-SAME: -> tensor<1x1x576x64x!ttcore.tile<32x32, bfp_bf8>,
+    // CHECK-SAME: conv2d_config = #ttnn.conv2d_config<weights_dtype = bfp_bf8
+    // CHECK-SAME: -> tensor<1x1x576x64xbf16,
     %0 = "ttnn.prepare_conv2d_weights"(%arg0, %arg2) <{
       batch_size = 1 : i32,
       conv2d_config = #ttnn.conv2d_config<
