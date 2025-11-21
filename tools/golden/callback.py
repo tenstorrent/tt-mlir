@@ -82,9 +82,8 @@ def post_op_callback(callback_runtime_config, binary, program_context, op_contex
     else:
         op_golden_tensor_map = callback_runtime_config.goldens[loc]
     if len(op_golden_tensor_map) == 0:
-        if len(op_golden_tensor_map) == 0:
-            print("Golden tensor is None - skipping golden comparison")
-            return
+        print("Golden tensor is None - skipping golden comparison")
+        return
 
     # loop through all devices and compare golden tensors
     device_results = {}
@@ -98,8 +97,9 @@ def post_op_callback(callback_runtime_config, binary, program_context, op_contex
             op_output_tensor = op_output_tensor_map[device_id]
             rt_buffer = op_output_tensor.get_data_buffer()
             golden_tensor_torch = golden_tensor_torch.flatten()
-            dtype = ttrt_datatype_to_torch_dtype(golden_tensor_torch.dtype)
-            output_tensor_torch = torch.frombuffer(rt_buffer, dtype=dtype).flatten()
+            output_tensor_torch = torch.frombuffer(
+                rt_buffer, dtype=golden_tensor_torch.dtype
+            ).flatten()
         except Exception as e:
             print(
                 f"Exception occurred while getting output tensor for device {device_id} at loc={loc} - skipping golden comparison: {e}"
@@ -198,6 +198,7 @@ def post_op_callback(callback_runtime_config, binary, program_context, op_contex
             return
 
     callback_runtime_config.golden_report[loc] = device_results
+    print(device_results)
 
 
 def post_op_get_callback_fn(callback_runtime_config):
