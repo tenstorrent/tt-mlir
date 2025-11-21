@@ -118,7 +118,7 @@ struct D2MGlobalDataFormatConversion
       }
 
       // Skip ops with the exclusion attribute
-      if (op->hasAttr("excludeOverride")) {
+      if (op->hasAttr("preserveDataFormat")) {
         return true;
       }
 
