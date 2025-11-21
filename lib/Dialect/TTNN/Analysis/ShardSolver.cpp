@@ -179,7 +179,8 @@ bool ShardSolver::resolveStep() {
             continue;
           }
 
-          TTNNLayoutAttr inputLayout = producerConfigs[producerId].outputLayout;
+          TTNNLayoutAttr inputLayout =
+              producerConfigs[producerId].getOutputLayout(0);
 
           // Try custom checker first.
           if (tryCustomShardCompatible(
@@ -200,7 +201,7 @@ bool ShardSolver::resolveStep() {
               TTMLIR_TRACE(
                   ttmlir::LogComponent::Optimizer,
                   "Backend chose valid consumer layout {}, consumerId {}",
-                  result.actualOutputLayout, result.configIndex);
+                  result.actualOutputLayouts[0], result.configIndex);
               edgeProducerBitset.set(producerId);
               edgeConsumerBitset.set(result.configIndex);
               paths.push_back(Path(
@@ -209,9 +210,9 @@ bool ShardSolver::resolveStep() {
               TTMLIR_TRACE(
                   ttmlir::LogComponent::Optimizer,
                   "Producer -> consumer sharding not compatible, error: {}\n\t "
-                  "producer layout: {} \n\t consumer layout: {}",
+                  "producer layout: {} \n\t consumer layout[0]: {}",
                   result.errorMessage, inputLayout,
-                  testConfigs[i].outputLayout);
+                  testConfigs[i].getOutputLayout(0));
               errorCount[result.errorMessage]++;
             }
           }
@@ -312,7 +313,7 @@ bool ShardSolver::tryCustomShardCompatible(
   if (customResult) {
     // Find matching config in consumerConfigs
     for (size_t j = 0; j < consumerConfigs.size(); ++j) {
-      if (consumerConfigs[j].outputLayout == customResult.get()) {
+      if (consumerConfigs[j].getOutputLayout(0) == customResult.get()) {
         edgeProducerBitset.set(producerId);
         edgeConsumerBitset.set(j);
         paths.push_back(Path(producerId, j));
@@ -361,13 +362,14 @@ ShardSolver::supportsInterleavedInputShardedOutput(Operation *op,
     return llvm::createStringError(validationResult.errorMessage);
   }
 
-  if (!validationResult.actualOutputLayout.hasShardedL1TensorMemoryLayout()) {
+  if (!validationResult.actualOutputLayouts[0]
+           .hasShardedL1TensorMemoryLayout()) {
     return llvm::createStringError(
         "Interleaved to sharded not supported - backend did not return sharded "
         "layout");
   }
 
-  return validationResult.actualOutputLayout;
+  return validationResult.actualOutputLayouts[0];
 }
 
 // We need to check if first op requires sharded inputs and if so, insert
@@ -419,7 +421,7 @@ bool ShardSolver::preprocessFirstOp() {
   }
 
   for (size_t i = 0; i < firstOpConfigs.size(); ++i) {
-    TTNNLayoutAttr firstOpLayout = firstOpConfigs[i].outputLayout;
+    TTNNLayoutAttr firstOpLayout = firstOpConfigs[i].getOutputLayout(0);
     assert(firstOpLayout.hasShardedL1TensorMemoryLayout());
 
     if (mlir::isa<ttnn::MatmulOp, ttnn::LinearOp>(firstOp)) {
@@ -563,7 +565,7 @@ bool ShardSolver::insertReshard(const Edge &edge) {
                  consumerConfigs.size());
     for ([[maybe_unused]] auto config : consumerConfigs) {
       TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer, "\t{}",
-                   config.outputLayout);
+                   config.outputLayouts.front());
     }
 
     TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
@@ -906,7 +908,8 @@ ShardSolver::produceMaxCoreUsage() {
     //
     for (size_t i = 0; i < configs.size(); ++i) {
       const OpConfig &config = configs[i];
-      uint64_t coreUsage = config.outputLayout.getGrid().getGridVolume();
+      uint64_t coreUsage =
+          config.outputLayouts.front().getGrid().getGridVolume();
       accCoreUsage[op].push_back(coreUsage);
     }
 

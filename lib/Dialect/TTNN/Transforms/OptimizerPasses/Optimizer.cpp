@@ -314,7 +314,7 @@ public:
         if (l1InterleavedFallbackAnalysisEnabled) {
           std::vector<OpConfig> l1InterleavedConfigs;
           for (const auto &config : legalConfigs[op]) {
-            auto layoutAttr = config.outputLayout;
+            auto layoutAttr = config.outputLayouts[0];
             if (layoutAttr.getBufferType() == BufferType::L1 &&
                 layoutAttr.getMemLayout().getValue() ==
                     TensorMemoryLayout::Interleaved) {
@@ -424,7 +424,7 @@ public:
           // non-quantized tensors, use the scalar element type implied by the
           // chosen layout.
           TTNNLayoutAttr chosenLayout =
-              opConfigAnalysis.getResult().at(op).outputLayout;
+              opConfigAnalysis.getResult().at(op).outputLayouts[0];
 
           Type originalElementType = tensorType.getElementType();
           Type newElementType = originalElementType;
@@ -711,7 +711,7 @@ private:
                     .at(memReconfigEntry
                             .getSelectedReshardOutputConfigBitIndex())
                     .front()
-                    .outputLayout;
+                    .outputLayouts[0];
 
       // TODO(nobradovic): Match memory space and layout of consumer op.
       // This actually needs to be properly resolved based on op type, output
@@ -906,7 +906,7 @@ private:
              "Operation should have DRAM layout before upgrade to L1 "
              "interleaved");
 
-      TTNNLayoutAttr newLayout = config.outputLayout;
+      TTNNLayoutAttr newLayout = config.outputLayouts[0];
       assert(newLayout.getBufferType() == BufferType::L1 &&
              newLayout.getMemLayout().getValue() ==
                  TensorMemoryLayout::Interleaved &&

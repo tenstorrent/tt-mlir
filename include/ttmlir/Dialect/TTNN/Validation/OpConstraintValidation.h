@@ -33,20 +33,22 @@ struct ValidationResult {
   size_t configIndex = 0;
 
   // What the backend actually returned (only valid if status == Success).
-  TTNNLayoutAttr actualOutputLayout;
+  llvm::SmallVector<TTNNLayoutAttr> actualOutputLayouts;
 
   // Error message if status != Success.
   std::string errorMessage;
 
   ValidationResult() = default;
 
-  explicit ValidationResult(size_t configIndex,
-                            TTNNLayoutAttr actualOutputLayout)
-      : configIndex(configIndex), actualOutputLayout(actualOutputLayout) {}
+  explicit ValidationResult(
+      size_t configIndex,
+      const llvm::SmallVector<TTNNLayoutAttr> &actualOutputLayouts)
+      : configIndex(configIndex), actualOutputLayouts(actualOutputLayouts) {}
 
-  static ValidationResult success(size_t configIndex,
-                                  TTNNLayoutAttr actualOutputLayout) {
-    return ValidationResult(configIndex, actualOutputLayout);
+  static ValidationResult
+  success(size_t configIndex,
+          const llvm::SmallVector<TTNNLayoutAttr> &actualOutputLayouts) {
+    return ValidationResult(configIndex, actualOutputLayouts);
   }
 
   static ValidationResult error(ValidationStatus status, std::string message) {

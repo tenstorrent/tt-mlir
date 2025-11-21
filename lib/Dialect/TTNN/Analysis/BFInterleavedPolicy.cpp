@@ -85,8 +85,8 @@ void BFInterleavedPolicy::run() {
         //
         OpL1MemSpec opL1MemSpec;
         opL1MemSpec.op = nextOpForScheduling;
-        opL1MemSpec.config.outputLayout =
-            getL1InterleavedLayout(nextOpForScheduling);
+        opL1MemSpec.config.outputLayouts = {
+            getL1InterleavedLayout(nextOpForScheduling)};
         l1ChainConfigs->back().addOpL1MemSpec(opL1MemSpec);
 
         // Update the state of L1 memory by allocating the nextOpForScheduling's
@@ -95,7 +95,7 @@ void BFInterleavedPolicy::run() {
         uint64_t numOfUsers = std::distance(nextOpForScheduling->user_begin(),
                                             nextOpForScheduling->user_end());
         currentL1UsagePerOp[nextOpForScheduling].l1MemUsagePerUser =
-            utils::getOpOutputL1Usage(opL1MemSpec.config.outputLayout);
+            utils::getOpOutputL1Usage(opL1MemSpec.config.outputLayouts[0]);
         currentL1UsagePerOp[nextOpForScheduling].numOfUnscheduledUsers =
             numOfUsers;
         currentL1Usage +=
@@ -190,7 +190,7 @@ bool BFInterleavedPolicy::hasDRAMBufferType(Operation *op) {
   if (legalConfigs.count(op)) {
     return std::find_if(legalConfigs[op].begin(), legalConfigs[op].end(),
                         [](OpConfig config) {
-                          return config.outputLayout.hasDRAMBufferType();
+                          return config.outputLayouts[0].hasDRAMBufferType();
                         }) != legalConfigs[op].end();
   }
   return false;
@@ -199,16 +199,17 @@ bool BFInterleavedPolicy::hasDRAMBufferType(Operation *op) {
 TTNNLayoutAttr BFInterleavedPolicy::getDRAMLayout(Operation *op) {
   assert(hasDRAMBufferType(op));
   auto configIter = std::find_if(
-      legalConfigs[op].begin(), legalConfigs[op].end(),
-      [](OpConfig config) { return config.outputLayout.hasDRAMBufferType(); });
-  return configIter->outputLayout;
+      legalConfigs[op].begin(), legalConfigs[op].end(), [](OpConfig config) {
+        return config.outputLayouts[0].hasDRAMBufferType();
+      });
+  return configIter->outputLayouts[0];
 }
 
 bool BFInterleavedPolicy::hasL1BufferType(Operation *op) {
   if (legalConfigs.count(op)) {
     return std::find_if(legalConfigs[op].begin(), legalConfigs[op].end(),
                         [](OpConfig config) {
-                          return config.outputLayout
+                          return config.outputLayouts[0]
                               .hasInterleavedL1TensorMemoryLayout();
                         }) != legalConfigs[op].end();
   }
@@ -219,9 +220,9 @@ TTNNLayoutAttr BFInterleavedPolicy::getL1InterleavedLayout(Operation *op) {
   assert(hasL1BufferType(op));
   auto configIter = std::find_if(
       legalConfigs[op].begin(), legalConfigs[op].end(), [](OpConfig config) {
-        return config.outputLayout.hasInterleavedL1TensorMemoryLayout();
+        return config.outputLayouts[0].hasInterleavedL1TensorMemoryLayout();
       });
-  return configIter->outputLayout;
+  return configIter->outputLayouts[0];
 }
 
 } // namespace mlir::tt::ttnn

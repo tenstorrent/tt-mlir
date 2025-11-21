@@ -198,11 +198,11 @@ void GreedyL1InterleavedPolicy::run() {
             // Take into consideration only the operands with L1 interleaved
             // memory space.
             //
-            if (operandOpConfig.outputLayout
+            if (operandOpConfig.outputLayouts[0]
                     .hasInterleavedL1TensorMemoryLayout()) {
               L1Usage l1Usage;
               l1Usage.outputL1Usage =
-                  utils::getOpOutputL1Usage(operandOpConfig.outputLayout);
+                  utils::getOpOutputL1Usage(operandOpConfig.outputLayouts[0]);
               l1Usage.requiredL1Usage = OpMemSpecMap[operandOp].requiredL1Usage;
               opsL1Usage[operandOp] = l1Usage;
             }
@@ -262,13 +262,14 @@ void GreedyL1InterleavedPolicy::run() {
                            intermediateL1Usage +
                                OpMemSpecMap[operandOp].requiredL1Usage);
               intermediateL1Usage += utils::getOpOutputL1Usage(
-                  OpMemSpecMap[operandOp].config.outputLayout);
+                  OpMemSpecMap[operandOp].config.outputLayouts[0]);
             }
           }
-          OpMemSpecMap[op].requiredL1Usage = std::max(
-              intermediateRequiredL1Usage,
-              intermediateL1Usage + utils::getOpOutputL1Usage(
-                                        OpMemSpecMap[op].config.outputLayout));
+          OpMemSpecMap[op].requiredL1Usage =
+              std::max(intermediateRequiredL1Usage,
+                       intermediateL1Usage +
+                           utils::getOpOutputL1Usage(
+                               OpMemSpecMap[op].config.outputLayouts[0]));
         }
       }
     }
@@ -288,7 +289,8 @@ void GreedyL1InterleavedPolicy::run() {
       OpL1MemSpec opL1MemSpec;
       opL1MemSpec.op = OpMemSpec.first;
       opL1MemSpec.tensorSplitFactor = 1;
-      selectedOpConfig[OpMemSpec.first] = OpMemSpec.second.config.outputLayout;
+      selectedOpConfig[OpMemSpec.first] =
+          OpMemSpec.second.config.outputLayouts[0];
       l1ChainConfigs->back().addOpL1MemSpec(opL1MemSpec);
     }
     l1ChainConfigs->back().build();
@@ -312,24 +314,25 @@ bool GreedyL1InterleavedPolicy::isAnalyzable(Operation *op) {
 bool GreedyL1InterleavedPolicy::hasDRAMBufferType(Operation *op) {
   return std::find_if(legalConfigs[op].begin(), legalConfigs[op].end(),
                       [](OpConfig config) {
-                        return config.outputLayout.hasDRAMBufferType();
+                        return config.outputLayouts[0].hasDRAMBufferType();
                       }) != legalConfigs[op].end();
 }
 
 TTNNLayoutAttr GreedyL1InterleavedPolicy::getDRAMLayout(Operation *op) {
   assert(hasDRAMBufferType(op));
   auto configIter = std::find_if(
-      legalConfigs[op].begin(), legalConfigs[op].end(),
-      [](OpConfig config) { return config.outputLayout.hasDRAMBufferType(); });
-  return configIter->outputLayout;
+      legalConfigs[op].begin(), legalConfigs[op].end(), [](OpConfig config) {
+        return config.outputLayouts[0].hasDRAMBufferType();
+      });
+  return configIter->outputLayouts[0];
 }
 
 bool GreedyL1InterleavedPolicy::hasL1BufferType(Operation *op) {
-  return std::find_if(
-             legalConfigs[op].begin(), legalConfigs[op].end(),
-             [](OpConfig config) {
-               return config.outputLayout.hasInterleavedL1TensorMemoryLayout();
-             }) != legalConfigs[op].end();
+  return std::find_if(legalConfigs[op].begin(), legalConfigs[op].end(),
+                      [](OpConfig config) {
+                        return config.outputLayouts[0]
+                            .hasInterleavedL1TensorMemoryLayout();
+                      }) != legalConfigs[op].end();
 }
 
 TTNNLayoutAttr
@@ -337,9 +340,9 @@ GreedyL1InterleavedPolicy::getL1InterleavedLayout(Operation *op) {
   assert(hasL1BufferType(op));
   auto l1InterleaveLayoutIter = std::find_if(
       legalConfigs[op].begin(), legalConfigs[op].end(), [](OpConfig config) {
-        return config.outputLayout.hasInterleavedL1TensorMemoryLayout();
+        return config.outputLayouts[0].hasInterleavedL1TensorMemoryLayout();
       });
-  return l1InterleaveLayoutIter->outputLayout;
+  return l1InterleaveLayoutIter->outputLayouts[0];
 }
 
 } // namespace mlir::tt::ttnn

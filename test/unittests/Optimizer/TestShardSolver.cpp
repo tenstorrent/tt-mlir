@@ -232,10 +232,11 @@ TEST_F(ShardSolverBase, VerifyProduceMaxCoreUsage) {
     // Interleaved to sharded is always supported.
     //
     if (producerLayout.hasInterleavedDRAMTensorMemoryLayout()) {
-      return consumerConfig.outputLayout;
+      return consumerConfig.outputLayouts.front();
     }
 
-    if (!consumerConfig.outputLayout) {
+    if (consumerConfig.outputLayouts.empty() ||
+        !consumerConfig.outputLayouts.front()) {
       // ShardSolver invokes this function with consumerConfig.outputLayout
       // being null, so we need to find the correct config among the
       // consumer legal configs. To do this, we will match the producer
@@ -252,17 +253,17 @@ TEST_F(ShardSolverBase, VerifyProduceMaxCoreUsage) {
 
       return legalConfigs[consumerOp]
                          [producerLayoutIndex - producerConfigs.begin()]
-                             .outputLayout;
+                             .outputLayouts.front();
     }
 
     // Simple shard compat assumption. Try to keep same shard layout.
     //
     if (producerLayout.getMemLayout() !=
-        consumerConfig.outputLayout.getMemLayout()) {
+        consumerConfig.outputLayouts.front().getMemLayout()) {
       return llvm::createStringError("Output layout does not match");
     }
 
-    return consumerConfig.outputLayout;
+    return consumerConfig.outputLayouts.front();
   };
 
   // tensorPossibleLayouts can be null since we expect ShardSolver won't need
@@ -296,7 +297,8 @@ TEST_F(ShardSolverBase, VerifyProduceMaxCoreUsage) {
       shardSolver.finish().selectedOpConfig;
   float totalCoreUsage = 0;
   for (const auto &opLayout : selectedOpConfig) {
-    totalCoreUsage += opLayout.second.outputLayout.getGrid().getGridVolume();
+    totalCoreUsage +=
+        opLayout.second.outputLayouts.front().getGrid().getGridVolume();
   }
 
   ASSERT_EQ(totalCoreUsage, accMaxCoreUsage[firstOp][0]);
