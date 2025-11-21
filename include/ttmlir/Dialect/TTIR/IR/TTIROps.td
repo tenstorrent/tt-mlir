@@ -5564,6 +5564,24 @@ def TTIR_ConcatenateHeadsOp: TTIR_NamedOp<"concatenate_heads"> {
   let hasVerifier = 1;
 }
 
+def TTIR_RotaryEmbeddingOp : TTIR_NamedOp<"rotary_embedding"> {
+  let summary = "Applies rotary positional embeddings to the input tensor.";
+  let description = [{
+    Rotary embedding operation that applies rotary positional embeddings to the input tensor using this formula:
+    rotary_embedding(x, cos, sin) = (x * cos) + (rotate_half(x) * sin)
+    where rotate_half(x) rotates the last dimension of x by half.
+  }];
+
+  let arguments = (ins AnyRankedTensor:$input,
+                       AnyRankedTensor:$cosCache,
+                       AnyRankedTensor:$sinCache,
+                       AnyRankedTensor:$output);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let hasVerifier = 1;
+}
+
 def TTIR_ScaledDotProductAttentionDecodeOp : TTIR_NamedOp<"scaled_dot_product_attention_decode", [AttrSizedOperandSegments]> {
     let summary = "A version of scaled dot product attention specifically for decode.";
     let description = [{
