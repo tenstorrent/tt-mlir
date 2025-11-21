@@ -52,9 +52,7 @@ public:
     ModuleOp module = getOperation();
 
     // Process each function
-    module.walk([&](func::FuncOp func) {
-      processFunction(func);
-    });
+    module.walk([&](func::FuncOp func) { processFunction(func); });
   }
 
 private:
@@ -105,9 +103,6 @@ private:
       }
 
       // Handle stream_layout: result aliases BOTH input and storage.
-      // Stream_layout sets up a streaming relationship where data is read  
-      // from INPUT into STORAGE over time during d2m.generic execution.
-      // The INPUT buffer must remain alive as long as the stream result is used.
       if (auto streamOp = llvm::dyn_cast<d2m::StreamLayoutOp>(op)) {
         Value input = streamOp.getInput();
         Value storage = streamOp.getStorage();
@@ -118,7 +113,7 @@ private:
         aliasMap[result].insert(storage);
         aliasMap[input].insert(result);
         aliasMap[storage].insert(result);
-        
+
         // Input and storage also transitively alias each other through result.
         aliasMap[input].insert(storage);
         aliasMap[storage].insert(input);
@@ -129,7 +124,8 @@ private:
   }
 
   // Compute DEF and USE sets for an operation.
-  void computeDefUse(Operation *op, LivenessInfo &info, const AliasMap &aliasMap) {
+  void computeDefUse(Operation *op, LivenessInfo &info,
+                     const AliasMap &aliasMap) {
     // DEF: values defined by this operation.
     for (Value result : op->getResults()) {
       if (llvm::isa<mlir::MemRefType>(result.getType())) {
@@ -137,22 +133,21 @@ private:
       }
     }
 
-    // USE: operands used by this operation.
+    // USE: Direct operands of this operation.
     for (Value operand : op->getOperands()) {
       if (llvm::isa<mlir::MemRefType>(operand.getType())) {
         info.use.insert(operand);
       }
     }
 
-    // Recursively scan all nested regions to find memref uses.
-    // This is critical for seeing uses inside d2m.generic, linalg.generic, 
-    // scf.for, and other operations with nested regions.
+    // Also scan nested regions to find memrefs defined outside that are used
+    // inside.
     for (Region &region : op->getRegions()) {
       region.walk([&](Operation *nestedOp) {
         for (Value operand : nestedOp->getOperands()) {
           if (llvm::isa<mlir::MemRefType>(operand.getType())) {
-            // Check if this operand is defined outside the current operation.
-            // If so, it's a USE of the parent operation.
+            // Check if this operand is defined outside the current operation's
+            // regions.
             Operation *defOp = operand.getDefiningOp();
             if (!defOp || !op->isAncestor(defOp)) {
               info.use.insert(operand);
@@ -162,8 +157,9 @@ private:
       });
     }
 
-    // Special handling for stores/mutations: they "kill" the target and aliases.
-    // For now, we don't have explicit store ops, but stream_layout modifies storage.
+    // Special handling for stores/mutations: they "kill" the target and
+    // aliases. For now, we don't have explicit store ops, but stream_layout
+    // modifies storage.
     if (auto streamOp = llvm::dyn_cast<d2m::StreamLayoutOp>(op)) {
       Value storage = streamOp.getStorage();
       // Storage is both used and defined (modified).
@@ -217,10 +213,10 @@ private:
   }
 
   // Find the last operation where a value is live.
-  Operation *findLastLive(Value val,
-                          llvm::ArrayRef<Operation *> ops,
-                          const llvm::DenseMap<Operation *, LivenessInfo> &livenessInfo,
-                          const AliasMap &aliasMap) {
+  Operation *
+  findLastLive(Value val, llvm::ArrayRef<Operation *> ops,
+               const llvm::DenseMap<Operation *, LivenessInfo> &livenessInfo,
+               const AliasMap &aliasMap) {
     Operation *lastLive = nullptr;
 
     // Collect all aliases of this value.
@@ -302,10 +298,10 @@ private:
   }
 
   // Insert deallocs for allocated buffers.
-  void insertDeallocs(llvm::ArrayRef<Operation *> ops,
-                      const llvm::DenseMap<Operation *, LivenessInfo> &livenessInfo,
-                      const AliasMap &aliasMap,
-                      func::FuncOp func) {
+  void
+  insertDeallocs(llvm::ArrayRef<Operation *> ops,
+                 const llvm::DenseMap<Operation *, LivenessInfo> &livenessInfo,
+                 const AliasMap &aliasMap, func::FuncOp func) {
     OpBuilder builder(func.getContext());
 
     // Collect all allocated buffers.
@@ -319,6 +315,16 @@ private:
     // For each allocated buffer, find where it dies and insert dealloc.
     for (Value buffer : allocatedBuffers) {
       Operation *defOp = buffer.getDefiningOp();
+
+      // Skip buffers without a memory space attribute - these are host-side
+      // allocations (e.g., for enqueue_read_buffer targets) and should not
+      // have TTMetal deallocations inserted. They'll remain as standard
+      // memref.alloc/dealloc and be handled separately.
+      auto bufferType = llvm::cast<MemRefType>(buffer.getType());
+      if (!mlir::dyn_cast_if_present<ttcore::MemorySpaceAttr>(
+              bufferType.getMemorySpace())) {
+        continue;
+      }
 
       // Skip if a dealloc already exists for this buffer or its aliases.
       if (hasExistingDealloc(buffer, aliasMap, ops)) {
