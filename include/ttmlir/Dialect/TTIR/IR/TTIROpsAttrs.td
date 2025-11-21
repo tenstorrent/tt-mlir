@@ -99,27 +99,6 @@ def TTIR_ShouldHoistAttr : AttrDef<TTIR_Dialect, "ShouldHoist", [], "::mlir::Att
   }];
 }
 
-// Integer attribute for return mapping
-def TTIR_ReturnToOutputMappingAttr : AttrDef<TTIR_Dialect, "ReturnToOutputMapping", [], "::mlir::Attribute"> {
-  let mnemonic = "return_to_output_mapping";
-  let summary = "Maps return values to output indices";
-  let description = [{
-    This attribute stores an integer mapping value that indicates how
-    return values correspond to output indices.
-  }];
-
-  let parameters = (ins
-    "int64_t":$value
-  );
-
-  let assemblyFormat = [{ `<` $value `>` }];
-
-  let extraClassDeclaration = [{
-    // Convenience getter that matches IntegerAttr interface
-    int64_t getInt() const { return getValue(); }
-  }];
-}
-
 def TTIR_ThreadAttr : AttrDef<TTIR_Dialect, "Thread", [], "::mlir::Attribute"> {
   let mnemonic = "thread";
   let summary = "Thread information for a generic op.";

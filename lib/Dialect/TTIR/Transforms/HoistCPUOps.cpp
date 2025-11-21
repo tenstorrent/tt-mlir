@@ -78,61 +78,6 @@ generateHoistedFuncName(const HoistedOpsSet &operations) {
 static void hoistOperationsToFunction(HoistedOpsSet &operations,
                                       mlir::ModuleOp sourceModule,
                                       mlir::ModuleOp targetModule) {
-  // Collect all input arguments to the function.
-  llvm::SmallVector<mlir::Value, 4> inputArguments;
-  llvm::SmallPtrSet<mlir::Value, 8> inputArgumentsSet;
-
-  for (auto *op : operations) {
-    for (auto operand : op->getOperands()) {
-      // If the operand is defined outside the subgraph, it's an input.
-      if (std::find(operations.begin(), operations.end(),
-                    operand.getDefiningOp()) == operations.end()) {
-        // Add to input values if not already present.
-        if (inputArgumentsSet.insert(operand).second) {
-          inputArguments.push_back(operand);
-        }
-      }
-    }
-  }
-
-  // Currently, only single-result ops are supported for hoisting.
-  auto *resultProvider = operations.back();
-  assert(resultProvider->getNumResults() == 1 &&
-         "Only single-result ops are supported for hoisting.");
-
-  mlir::Value result = resultProvider->getResult(0);
-
-  auto resultType =
-      llvm::dyn_cast_or_null<mlir::RankedTensorType>(result.getType());
-  assert(resultType && "Only tensor result types are supported for hoisting.");
-
-  // The hoisted function needs NOT to be in DPS form.
-  // For targets that require hoisted functions to be in DPS form,
-  // a separate pass should be run after hoisting to adjust the functions.
-  //
-  // If the result producer is a DPS op, we need to check if the result
-  // tensor is already part of the input arguments.
-  //
-  // If it is, we need to remove it from the input arguments and add a
-  // placeholder empty tensor for the result instead.
-  const bool isResultProducerDPSOp =
-      mlir::isa<mlir::DestinationStyleOpInterface>(resultProvider);
-
-  if (isResultProducerDPSOp) {
-    auto dpsOp = mlir::cast<mlir::DestinationStyleOpInterface>(resultProvider);
-    assert(dpsOp.getDpsInits().size() == 1 &&
-           "Only single-output DPS ops are supported for hoisting.");
-
-    auto dpsInit = dpsOp.getDpsInits().front();
-
-    // Remove DPS init from input arguments if present.
-    if (inputArgumentsSet.erase(dpsInit)) {
-      inputArguments.erase(
-          std::remove(inputArguments.begin(), inputArguments.end(), dpsInit),
-          inputArguments.end());
-    }
-  }
-
   auto *firstOp = operations.front();
 
   mlir::MLIRContext *context = sourceModule.getContext();
@@ -165,6 +110,68 @@ static void hoistOperationsToFunction(HoistedOpsSet &operations,
     return tensorType;
   };
 
+  // Collect all input arguments to the function.
+  llvm::SmallVector<mlir::Value, 4> inputArguments;
+  llvm::SmallPtrSet<mlir::Value, 8> inputArgumentsSet;
+
+  for (auto *op : operations) {
+    for (auto operand : op->getOperands()) {
+      // If the operand is defined outside the subgraph, it's an input.
+      if (std::find(operations.begin(), operations.end(),
+                    operand.getDefiningOp()) == operations.end()) {
+        // Add to input values if not already present.
+        if (inputArgumentsSet.insert(operand).second) {
+          inputArguments.push_back(operand);
+        }
+      }
+    }
+  }
+
+  // Currently, only single-result ops are supported for hoisting.
+  auto *resultProvider = operations.back();
+  assert(resultProvider->getNumResults() == 1 &&
+         "Only single-result ops are supported for hoisting.");
+
+  mlir::Value result = resultProvider->getResult(0);
+
+  auto resultType =
+      llvm::dyn_cast_or_null<mlir::RankedTensorType>(result.getType());
+
+  assert(resultType && "Only tensor result types are supported for hoisting.");
+
+  auto convertedResultType = convertTensorType(resultType);
+
+  // The hoisted function needs NOT to be in DPS form.
+  // For targets that require hoisted functions to be in DPS form,
+  // a separate pass should be run after hoisting to adjust the functions.
+  //
+  // If the result producer is a DPS op, we need to check if the result
+  // tensor is already part of the input arguments.
+  //
+  // If it is, we need to remove it from the input arguments and add a
+  // placeholder empty tensor for the result instead.
+  const bool isResultProducerDPSOp =
+      mlir::isa<mlir::DestinationStyleOpInterface>(resultProvider);
+
+  bool shouldAddEmptyTensorForDps = false;
+
+  if (isResultProducerDPSOp) {
+    auto dpsOp = mlir::cast<mlir::DestinationStyleOpInterface>(resultProvider);
+    assert(dpsOp.getDpsInits().size() == 1 &&
+           "Only single-output DPS ops are supported for hoisting.");
+
+    auto dpsInit = dpsOp.getDpsInits().front();
+
+    if (inputArgumentsSet.erase(dpsInit)) {
+      // Remove DPS init from input arguments if present.
+      inputArguments.erase(
+          std::remove(inputArguments.begin(), inputArguments.end(), dpsInit),
+          inputArguments.end());
+
+      shouldAddEmptyTensorForDps = true;
+    }
+  }
+
   // Convert argument and gather types for function signature.
   llvm::SmallVector<mlir::Type> argumentTypes;
   llvm::SmallVector<mlir::Value> convertedArguments;
@@ -191,9 +198,6 @@ static void hoistOperationsToFunction(HoistedOpsSet &operations,
       convertedArguments.push_back(argument);
     }
   }
-
-  // Gather result types for function signature.
-  auto convertedResultType = convertTensorType(resultType);
 
   // TypeRange containing converted result type.
   mlir::TypeRange convertedResultTypes(&convertedResultType, 1);
@@ -256,8 +260,22 @@ static void hoistOperationsToFunction(HoistedOpsSet &operations,
         }
       }
 
-      // Add a return operation to the function with the operation results.
+      // Check if this is the result producing op.
       if (opToHoist == resultProvider) {
+        if (shouldAddEmptyTensorForDps) {
+          // Prepend an empty tensor for DPS init.
+          builder.setInsertionPoint(clonedOp);
+
+          auto emptyTensor = builder.create<mlir::tt::ttir::EmptyOp>(
+              firstOp->getLoc(), convertedResultType);
+
+          auto dpsOp = mlir::cast<mlir::DestinationStyleOpInterface>(clonedOp);
+          dpsOp.setDpsInitOperand(0, emptyTensor);
+
+          builder.setInsertionPointAfter(clonedOp);
+        }
+
+        // Add a return operation to the function with the operation results.
         builder.create<mlir::func::ReturnOp>(firstOp->getLoc(),
                                              clonedOp->getResults());
       }

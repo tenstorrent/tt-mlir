@@ -58,38 +58,6 @@ def UndoConstEvalTransform : Pass<"undo-const-eval", "mlir::ModuleOp"> {
   let dependentDialects = ["::mlir::tt::ttcore::TTCoreDialect"];
 }
 
-def ReenableLostDPS: Pass<"ttir-reenable-dps", "::mlir::ModuleOp"> {
-  let summary = "Transform functions with return values to use output parameters.";
-  let description = [{
-    This pass finds functions with the ttir.return_to_output_mapping attribute and
-    transforms them to use output parameters instead of return values. This is useful
-    for operations that implement the DestinationStyleOpInterface, where we want to
-    write directly to the output buffer instead of creating a new tensor and returning it.
-
-    Example:
-    ```mlir
-    // Before
-    func.func @hoisted_op(%arg0: tensor<4x4xf32>, %arg1: tensor<4x4xf32>) -> tensor<4x4xf32> {
-      %0 = linalg.generic ... {
-        ...
-      } : tensor<4x4xf32>, tensor<4x4xf32> -> tensor<4x4xf32>
-      return %0 : tensor<4x4xf32>
-    }
-
-    // After
-    func.func @hoisted_op(%arg0: tensor<4x4xf32>, %arg1: tensor<4x4xf32>, %arg2: tensor<4x4xf32>) {
-      // The linalg.generic now writes directly to %arg2 instead of creating a new tensor
-      linalg.generic ... {
-        ...
-      } : tensor<4x4xf32>, tensor<4x4xf32>, tensor<4x4xf32>
-      return
-    }
-    ```
-  }];
-
-  let dependentDialects = ["mlir::linalg::LinalgDialect", "mlir::tensor::TensorDialect", "mlir::func::FuncDialect"];
-}
-
 def RemoveReturnValues: Pass<"ttir-remove-return-values", "::mlir::ModuleOp"> {
   let summary = "Remove return values from functions.";
   let description = [{
@@ -122,15 +90,10 @@ def RemoveReturnValues: Pass<"ttir-remove-return-values", "::mlir::ModuleOp"> {
   let dependentDialects = ["mlir::func::FuncDialect"];
 }
 
-def DisableDPSForHoistedFuncs: Pass<"ttir-remove-dps-semantics", "::mlir::ModuleOp"> {
-  let summary = "Remove Destination Passing Style semantics from CPU-hoisted functions.";
+def EnableDPSForHoistedFuncs: Pass<"ttir-enable-dps-semantics-hoisted-funcs", "::mlir::ModuleOp"> {
+  let summary = "Add Destination Passing Style semantics to CPU-hoisted functions.";
   let description = [{
-    This pass targets the functions with the ttir.return_to_output_mapping attribute
-    and removes the attribute, effectively removing the Destination Passing Style (DPS)
-    semantics from those functions. 
-    
-    This pass should analyse calls to such functions and ensure that the outputs are handled
-    correctly after the DPS semantics are removed.
+    TODO(dmilinkovic): Add description.
   }];
 }
 

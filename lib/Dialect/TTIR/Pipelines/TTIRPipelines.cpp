@@ -292,12 +292,8 @@ void createTTIRToCPUPipeline(OpPassManager &manager,
   cpuPm.addPass(createTosaToTensorPass());
   cpuPm.addPass(createTosaToArithPass());
 
-  // Workaround for any DPS assumptions broken by either TTIRToTTIRDecomp or
-  // TTIRToTosa + TosaToLinalg decomp.
-  cpuPm.addPass(transforms::createReenableLostDPS());
-
-  // Cleanup the funcs s.t. they don't return values.
-  cpuPm.addPass(transforms::createRemoveReturnValues());
+  // Enable DPS semantics for hoisted functions in CPU module.
+  cpuPm.addPass(transforms::createEnableDPSForHoistedFuncs());
 
   ttir::createLinalgToLLVMPipeline(cpuPm, options);
   cpuPm.addPass(llvm_util::createLLVMEmitCallingConventionWrapperFuncs());
