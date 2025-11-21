@@ -293,19 +293,16 @@ def TTNNAdjustDeallocs: Pass<"ttnn-adjust-deallocs", "::mlir::ModuleOp"> {
 }
 
 def TTNNWeightBFP8Conversion: Pass<"ttnn-weight-bfp8-conversion", "::mlir::ModuleOp"> {
-  let summary = "Convert weight tensors to BFP8 format in convolution and matmul operations.";
+  let summary = "Convert weight tensors to BFP8 format in matmul and linear operations.";
   let description = [{
-    This pass converts weight tensors in convolution and matrix multiplication
-    operations to BFP8 format while keeping activations, bias and outputs in
+    This pass converts weight tensors in matrix multiplication and linear
+    operations to BFP8 format while keeping activations and outputs in
     high precision (bf16/f32).
-
-    For convolution operations:
-      - Sets weights_dtype in conv2d_config to bfp_bf8 for PrepareConv2dWeightsOp
-      - Sets weights_dtype in conv2d_config to bfp_bf8 for PrepareConv2dBiasOp (if present)
-      - Sets weights_dtype in conv2d_config to bfp_bf8 for Conv2dOp
 
     For matmul/linear operations:
       - Inserts ttnn.typecast operations to convert weights to BFP8
+      - Only converts weights that trace back to constant/parameter arguments
+      - Keeps activation inputs and outputs in their original precision
   }];
 }
 
