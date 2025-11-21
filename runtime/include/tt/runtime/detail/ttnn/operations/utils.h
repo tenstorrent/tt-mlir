@@ -40,7 +40,8 @@ createConv2dSliceConfig(const ::tt::target::ttnn::Conv2dSliceConfig *config);
 ::ttnn::DeviceComputeKernelConfig createDeviceComputeKernelConfig(
     const ::tt::target::ttnn::DeviceComputeKernelConfig *config);
 
-::ttnn::Tensor toTTNNTensor(const ::flatbuffers::Vector<uint8_t> *data,
+::ttnn::Tensor toTTNNTensor(const ::flatbuffers::Vector<uint8_t> *value,
+                            const ::ttnn::DataType &valueDataType,
                             const ::ttnn::Shape &shape,
                             const ::ttnn::DataType &dataType,
                             ::ttnn::MeshDevice *meshDevice,
