@@ -21,7 +21,6 @@ jobs:
         build: [
           { name: "ttmlir", path: "python" },
           { name: "pykernel", path: "tools/pykernel" }
-          # { name: "ttnn-jit", path: "tools/ttnn-jit" } # doesn't support manylinux yet
         ]
     name: Build ${{ matrix.build.name }} Wheel
     timeout-minutes: 60
@@ -84,7 +83,6 @@ jobs:
         build: [
           { name: "ttmlir", test: 'python -c "from ttmlir import ir; print(\"Imported ttmlir & Created CTX: \", ir.Context())"' },
           { name: "pykernel", test: 'python -c "import pykernel; print(\"Imported pykernel:\", pykernel)"' },
-          # { name: "ttnn-jit", test: 'python -c "import ttnn_jit; print(\"Successfully imported ttnn_jit:\", ttnn_jit.__file__)" && python -c "import ttnn; print(\"Successfully imported ttnn:\", ttnn.__file__)"' } # doesn't support manylinux yet
         ]
 
     needs: build-wheels
@@ -118,46 +116,3 @@ jobs:
 
           # Test the installation
           ${{ matrix.build.test }}
-
-
-  # test-ttnn-jit:
-  #   timeout-minutes: 45
-  #   runs-on: ubuntu-latest
-  #   container: # this should work on base image https://github.com/tenstorrent/tt-mlir/issues/5232
-  #     image: ${{ inputs.docker_image }}
-  #   steps:
-  #     - uses: actions/checkout@v4
-  #     - uses: actions/setup-python@v5
-  #       with:
-  #         python-version: '3.11'
-
-  #     - name: Download ttnn-jit whl
-  #       env:
-  #         GH_TOKEN: ${{ secrets.GH_TOKEN }}
-  #       shell: bash
-  #       run: |
-  #         echo "Downloading ttnn-jit whl"
-  #         if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-  #           echo "Getting latest run id"
-  #           runid="$(gh run list --workflow 'schedule-nightly.yml' --repo tenstorrent/tt-mlir --limit 1 --json databaseId --jq '.[0].databaseId')"
-  #           echo "Latest run id: $runid"
-  #         else
-  #           runid="${{ github.run_id }}"
-  #         fi
-  #         gh run download $runid -R tenstorrent/tt-mlir --repo tenstorrent/tt-mlir --name "ttnn-jit-whl-tracy" --dir ./dist
-
-  #     - name: Install ttnn-jit whl
-  #       shell: bash
-  #       run: |
-  #         # ----- remove comments after solving issue: https://github.com/tenstorrent/tt-mlir/issues/5232
-  #         # python3 -m venv testenv
-  #         # source testenv/bin/activate
-  #         # pip install --index-url https://download.pytorch.org/whl/cpu torch==2.7.0
-  #         # pip install numpy
-  #         # -----
-  #         source env/activate
-  #         WHEEL_FILE=$(ls ./dist/ttnn_jit-*.whl)
-  #         echo "Installing wheel: $WHEEL_FILE"
-  #         pip install $WHEEL_FILE --upgrade
-  #         python -c "import ttnn_jit; print('Successfully imported ttnn_jit:', ttnn_jit.__file__)"
-  #         python -c "import ttnn; print('Successfully imported ttnn:', ttnn.__file__)"
