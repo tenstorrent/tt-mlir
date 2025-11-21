@@ -7,6 +7,16 @@ key components, features, and usage of tt-mlir.
 
 ## Architecture & Dialect Overview
 
+tt-mlir is structured around several core dialects and components that
+facilitate the compilation process from high-level representations to low-level
+code generation. While the architecture diagram below illustrates Tenstorrent’s
+compiler flow, it also reflects the various dialect abstractions defined within
+tt-mlir.
+
+tt-mlir is a library of reusable components that can be used to build compilers
+targeting Tenstorrent hardware. Other compiler technologies may choose to
+leverage whichever abstractions best suit their needs.
+
 <style>
 .container {
     max-width: 1200px;
