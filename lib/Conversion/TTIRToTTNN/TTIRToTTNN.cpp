@@ -1969,6 +1969,23 @@ public:
   }
 };
 
+class RotaryEmbeddingOpConversionPattern
+    : public OpConversionPattern<ttir::RotaryEmbeddingOp> {
+public:
+  using OpConversionPattern<ttir::RotaryEmbeddingOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::RotaryEmbeddingOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    rewriter.replaceOpWithNewOp<ttnn::RotaryEmbeddingOp>(
+        op, this->getTypeConverter()->convertType(op.getType()),
+        adaptor.getInput(), adaptor.getCosCache(), adaptor.getSinCache(),
+        /*token_idx=*/nullptr, /*memory_config=*/nullptr,
+        /*compute_confi=*/nullptr);
+    return success();
+  }
+};
+
 class SplitQueryKeyValueAndSplitHeadsOpConversionPattern
     : public OpConversionPattern<ttir::SplitQueryKeyValueAndSplitHeadsOp> {
 public:
@@ -2297,6 +2314,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            AllToAllOpConversionPattern,
            CollectiveBroadcastOpConversionPattern,
            ConcatenateHeadsOpConversionPattern,
+           RotaryEmbeddingOpConversionPattern,
            ScaledDotProductAttentionOpConversionPattern,
            ScaledDotProductAttentionDecodeOpConversionPattern,
            PagedScaledDotProductAttentionDecodeOpConversionPattern,

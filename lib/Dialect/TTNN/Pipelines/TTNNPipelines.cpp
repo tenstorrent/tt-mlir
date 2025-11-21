@@ -91,6 +91,7 @@ void createTTNNPipelineAnalysisPasses(
     // Wrap all Optimizer passes with device lifecycle management.
     OptimizerPassesWrapperOptions wrapperOptions;
     wrapperOptions.devicePtr = options.devicePtr;
+    wrapperOptions.tensorL1UsageCap = options.tensorL1UsageCap;
 
     ttnn::TTNNOperationValidationAndFallbackOptions validationOptions{
         options.tensorL1UsageCap};
@@ -160,6 +161,9 @@ void createTTNNPipelineDeallocPass(
 
 void createTTIRToTTNNBackendPipeline(
     OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
+  // Resolve options controlled by optimization_level.
+  options.resolveOptimizationLevelOptions();
+
   pm.addPass(mlir::createCanonicalizerPass());
 
   // Add Decomposition pass here to ensure it runs before hoisting.

@@ -4493,6 +4493,37 @@ mlir::tt::ttir::CollectiveBroadcastOp::fold(FoldAdaptor adaptor) {
 }
 
 //===----------------------------------------------------------------------===//
+// RotaryEmbeddingOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult mlir::tt::ttir::RotaryEmbeddingOp::verify() {
+  RankedTensorType inputType = getInput().getType();
+  RankedTensorType cosType = getCosCache().getType();
+  RankedTensorType sinType = getSinCache().getType();
+  RankedTensorType resultType = getResult().getType();
+
+  auto rankPredicate = [](mlir::RankedTensorType type) {
+    return type.getRank() == 4;
+  };
+
+  SmallVector<RankedTensorType, 4> types = {inputType, cosType, sinType,
+                                            resultType};
+  if (!llvm::all_of(types, rankPredicate)) {
+    return emitOpError("all tensors must be 4D");
+  }
+
+  if (cosType != sinType) {
+    return emitOpError("cosine and sine cache tensors must have the same type");
+  }
+
+  if (inputType != resultType) {
+    return emitOpError("input and result tensors must have the same type");
+  }
+
+  return mlir::success();
+}
+
+//===----------------------------------------------------------------------===//
 // SplitQueryKeyValueAndSplitHeadsOp
 //===----------------------------------------------------------------------===//
 
