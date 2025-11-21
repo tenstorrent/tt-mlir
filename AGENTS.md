@@ -20,6 +20,15 @@
 - **Namespaces**: Lowercase, avoid `using namespace`, no aliases in headers
 - **Error Handling**: Early returns to reduce nesting, no alternative tokens (&& not and)
 
+## Pass Development Guidelines
+- **Precondition validation**: Check preconditions in `runOnOperation()` before pattern application
+  - Scan the IR for invalid state (e.g., unconverted linalg ops before DST allocation)
+  - Emit diagnostic with `emitOpError()` on the specific problematic operation
+  - Call `signalPassFailure()` immediately and return
+  - Do NOT defer errors through pattern state or atomic flags (thread-safety)
+- **Pattern rewrites**: Keep simple, use `notifyMatchFailure()` for non-matches
+- **Error messages**: Make them actionable (e.g., "run --d2m-linalg-to-affine before this pass")
+
 ## Additional Notes
 - Use `pre-commit run --all-files` before commits
 - Create GitHub issues for TODOs with format: `TODO (alias): description. Issue: #123`
