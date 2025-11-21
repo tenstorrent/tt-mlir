@@ -2,10 +2,9 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/Dialect/D2M/Transforms/Passes.h"
-
 #include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
+#include "ttmlir/Dialect/D2M/Transforms/Passes.h"
 #include "ttmlir/Dialect/D2M/Utils/Utils.h"
 #include "ttmlir/Utils.h"
 
@@ -26,79 +25,19 @@ namespace mlir::tt::d2m {
 
 namespace {
 
-static bool hasTileMatmul(linalg::GenericOp linalgGenericOp) {
-  return linalgGenericOp
-      ->walk([](d2m::TileMatmulOp) { return WalkResult::interrupt(); })
-      .wasInterrupted();
-}
-
 struct OperationTypes {
   bool hasComputeOps = false;
   bool hasLinalgGeneric = false;
   bool hasMarkedAffineLoops = false;
 };
 
-static OperationTypes getOperationTypes(GenericOp op, unsigned regionIndex) {
-  OperationTypes types;
-  types.hasComputeOps = op.hasComputeOpsInRegion(regionIndex);
-
-  Region *genericRegion = &op.getRegion(regionIndex);
-  Block &block = genericRegion->getBlocks().front();
-
-  block.walk([&](Operation *nestedOp) {
-    if (isa<linalg::GenericOp>(nestedOp)) {
-      types.hasLinalgGeneric = true;
-    } else if (auto forOp = dyn_cast<affine::AffineForOp>(nestedOp)) {
-      if (forOp->hasAttr("d2m.linalg_root")) {
-        types.hasMarkedAffineLoops = true;
-      }
-    }
+static bool hasTileMatmul(linalg::GenericOp linalgGenericOp) {
+  bool hasTileMatmul = false;
+  linalgGenericOp->walk([&](d2m::TileMatmulOp) {
+    hasTileMatmul = true;
+    return WalkResult::interrupt();
   });
-
-  return types;
-}
-
-static LogicalResult verifyLinalgToAffinePreconditions(ModuleOp module,
-                                                       bool useTileMatmul) {
-  bool sawFailure = false;
-  module.walk(
-      [&](GenericOp op) {
-        for (unsigned regionIndex = 0; regionIndex < op.getNumRegions();
-             ++regionIndex) {
-          if (op.getRegionThreadType(regionIndex) != ThreadType::Compute) {
-            continue;
-          }
-
-          OperationTypes opTypes = getOperationTypes(op, regionIndex);
-          if (!opTypes.hasComputeOps && !opTypes.hasLinalgGeneric &&
-              !opTypes.hasMarkedAffineLoops) {
-            continue;
-          }
-
-          Region &region = op.getRegion(regionIndex);
-          Block &block = region.getBlocks().front();
-
-          bool hasUnconvertedLinalg = false;
-          block.walk([&](linalg::GenericOp linalgGenericOp) {
-            // Skip tile matmul ops when not in explicit datamovement form.
-            if (!useTileMatmul && hasTileMatmul(linalgGenericOp) &&
-                !op.isExplicitDatamovementForm()) {
-              return;
-            }
-            hasUnconvertedLinalg = true;
-          });
-
-          if (hasUnconvertedLinalg) {
-            sawFailure = true;
-            op.emitOpError()
-                << "found linalg.generic operations that were not converted to "
-                   "affine loops. Please run --d2m-linalg-to-affine before "
-                   "the --d2m-insert-dst-register-access pass.";
-          }
-        }
-      });
-
-  return sawFailure ? failure() : success();
+  return hasTileMatmul;
 }
 
 struct D2MInsertDstRegisterAccessRewriter final
@@ -107,7 +46,7 @@ public:
   D2MInsertDstRegisterAccessRewriter(mlir::MLIRContext *ctx, bool useTileMatmul,
                                      unsigned maxDstPhysicalSizeTiles)
       : OpRewritePattern<GenericOp>(ctx), useTileMatmul(useTileMatmul),
-        maxDstPhysicalSizeTiles(maxDstPhysicalSizeTiles) {}
+        maxDstPhysicalSizeTiles(maxDstPhysicalSizeTiles) {};
 
   template <typename OpT>
   using OpAndIndexOffset = std::pair<OpT, int64_t>;
@@ -474,15 +413,6 @@ public:
           guardIndices == copyInfo.guardIndices &&
           "Expected same guard indices across all accesses in this loop nest.");
     }
-  }
-
-  static bool hasTileMatmul(linalg::GenericOp linalgGenericOp) {
-    bool hasTileMatmul = false;
-    linalgGenericOp->walk([&](d2m::TileMatmulOp) {
-      hasTileMatmul = true;
-      return WalkResult::interrupt();
-    });
-    return hasTileMatmul;
   }
 
   /*
@@ -898,12 +828,27 @@ public:
   using impl::D2MInsertDstRegisterAccessBase<
       D2MInsertDstRegisterAccess>::D2MInsertDstRegisterAccessBase;
 
-  void runOnOperation() override {
+  void runOnOperation() final {
     ModuleOp module = getOperation();
 
-    if (failed(verifyLinalgToAffinePreconditions(module, useTileMatmul))) {
-      signalPassFailure();
-      return;
+    // Check precondition: linalg.generic ops should be converted to affine,
+    // EXCEPT those with tile_matmul when useTileMatmul=false (they'll be
+    // handled by the tile_matmul_block rewrite in the pattern).
+    WalkResult walkResult = module->walk([&](linalg::GenericOp op) {
+      // Allow linalg ops with tile_matmul when useTileMatmul=false
+      if (!useTileMatmul && hasTileMatmul(op)) {
+        return WalkResult::advance();
+      }
+      // All other linalg ops should have been converted
+      return WalkResult::interrupt();
+    });
+
+    if (walkResult.wasInterrupted()) {
+      module.emitOpError()
+          << "found linalg.generic operations that were not converted to "
+             "affine loops. Please run --d2m-linalg-to-affine before the "
+             "--d2m-insert-dst-register-access pass.";
+      return signalPassFailure();
     }
 
     MLIRContext *ctx = module.getContext();
