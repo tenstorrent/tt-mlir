@@ -28,8 +28,48 @@ pytestmark = pytest.mark.frontend("ttir")
 @pytest.mark.parametrize("grid", ["global-data-format-target=bfp_bf8"])
 @pytest.mark.parametrize("shape", [(512, 512)])
 @pytest.mark.parametrize("target", ["ttmetal"])
+def test_triple_exp_f32(grid: str, shape: Shape, target: str, request, device):
+    options = [grid]
+
+    def triple_exp_f32(
+        in0: Operand,
+        builder: TTIRBuilder,
+    ):
+        shape = (512, 512)
+        input_0 = torch.rand(shape, dtype=torch.float32)
+        exp0 = builder.exp(in0)
+        tcast0 = builder.typecast(
+            exp0, torch.bfloat16, unit_attrs=["preserveDataFormat"]
+        )
+        exp1 = builder.exp(tcast0)
+        tcast1 = builder.typecast(
+            exp1, torch.float32, unit_attrs=["preserveDataFormat"]
+        )
+        exp2 = builder.exp(tcast1)
+        output_0 = torch.exp(torch.exp(torch.exp(input_0)))
+        builder.set_goldens({in0: input_0}, {exp2: output_0})
+        return exp2
+
+    compile_and_execute_ttir(
+        triple_exp_f32,
+        [shape],
+        [torch.float32],
+        target=target,
+        device=device,
+        custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
+        test_base=request.node.name,
+        module_dump=True,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        print_ir=True,
+        pcc=0.988,  # Adjusted for bfp8
+    )
+
+
+@pytest.mark.parametrize("grid", ["global-data-format-target=bfp_bf8"])
+@pytest.mark.parametrize("shape", [(512, 512)])
+@pytest.mark.parametrize("target", ["ttmetal"])
 def test_exp_f32(grid: str, shape: Shape, target: str, request, device):
-    """Test unary exp operation on f32 tensor"""
     options = [grid]
 
     def exp_f32(
@@ -54,7 +94,7 @@ def test_exp_f32(grid: str, shape: Shape, target: str, request, device):
         module_dump=True,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
-        print_ir=False,
+        print_ir=True,
     )
 
 
@@ -62,7 +102,6 @@ def test_exp_f32(grid: str, shape: Shape, target: str, request, device):
 @pytest.mark.parametrize("shape", [(512, 512)])
 @pytest.mark.parametrize("target", ["ttmetal"])
 def test_cos_bf16(grid: str, shape: Shape, target: str, request, device):
-    """Test unary cos operation on bf16 tensor"""
     options = [grid]
 
     def cos_bf16(
@@ -87,7 +126,7 @@ def test_cos_bf16(grid: str, shape: Shape, target: str, request, device):
         module_dump=True,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
-        print_ir=False,
+        print_ir=True,
     )
 
 
@@ -105,8 +144,7 @@ def test_cos_bf16(grid: str, shape: Shape, target: str, request, device):
 )
 @pytest.mark.parametrize("use_tile_matmul", [True, False])
 @pytest.mark.parametrize("target", ["ttmetal"])
-# Large matmuls, based on ttnn's matmul benchmarks
-def test_matmul_ttnn_shapes_double_buffered(
+def test_matmul_f32(
     shape: tuple[int, ...],
     use_tile_matmul: bool,
     target: str,
