@@ -3638,6 +3638,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     # Complex operations
     ttnn.MatmulOp: matmul_golden,
     ttnn.LinearOp: linear_golden,
+    ttnn.RMSNormOp: rms_norm_golden,
     # Tensor manipulation
     ttnn.ConcatOp: concat_golden,
     ttnn.RepeatOp: repeat_golden,
