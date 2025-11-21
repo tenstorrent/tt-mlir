@@ -128,11 +128,9 @@ private:
     }
   };
 
-  // TODO (jnie): Add support for fp32, currently there's some precision loss
-  // which causes some FE tests to fail.
-  // Tracking here: https://github.com/tenstorrent/tt-metal/issues/21023
   bool canTilizeDataTypeOnDevice(const ttcore::DataType &dataType) const {
-    return dataType == ttcore::DataType::BFloat16;
+    return dataType == ttcore::DataType::BFloat16 ||
+           dataType == ttcore::DataType::Float32;
   }
 
   bool canUntilizeDataTypeOnDevice(const ttcore::DataType &dataType) const {

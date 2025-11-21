@@ -59,11 +59,9 @@ bool isSharded(
              ::tt::target::ttnn::TensorMemoryLayout::BlockSharded;
 }
 
-// TODO (jnie): Add support for fp32, currently there's some precision loss
-// which causes some FE tests to fail.
-// Tracking here: https://github.com/tenstorrent/tt-metal/issues/21023
 bool canTilizeDataTypeOnDevice(const ::ttnn::DataType &dataType) {
-  return dataType == ::ttnn::DataType::BFLOAT16;
+  return dataType == ::ttnn::DataType::BFLOAT16 ||
+         dataType == ::ttnn::DataType::FLOAT32;
 }
 
 bool canUntilizeDataTypeOnDevice(const ::ttnn::DataType &dataType) {
