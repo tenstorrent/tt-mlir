@@ -1756,7 +1756,12 @@ def execute_fb(
     program_indices.extend(range(bin.get_num_programs()))
 
     if not disable_golden:
-        goldens = golden_map_as_torch_tensors(goldens)
+        golden_torch_tensors = {}
+
+        for loc, golden in goldens.items():
+            golden_torch_tensors[loc] = golden.golden_map_tensor_as_torch_tensor()
+
+        goldens = golden_torch_tensors
         # Set up callback runtime config and register DebugHooks once per execution
         callback_runtime_config = CallbackRuntimeConfig(
             device=device,
@@ -1959,18 +1964,6 @@ def execute_fb(
 
         if not disable_golden:
             return callback_runtime_config.golden_report
-
-
-def golden_map_as_torch_tensors(
-    golden_map_tensors: Dict[str, Dict[int, GoldenMapTensor]],
-) -> Dict[str, Dict[int, torch.Tensor]]:
-    golden_torch_tensors: Dict[str, Dict[int, torch.Tensor]] = {}
-
-    for loc, golden_map_tensor in golden_map_tensors.items():
-        contiguous_tensor = golden_map_tensor.contiguous()
-        golden_torch_tensors[loc] = contiguous_tensor.shard_map
-
-    return golden_torch_tensors
 
 
 def load_mlir_file(

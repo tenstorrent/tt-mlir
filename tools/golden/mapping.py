@@ -99,6 +99,11 @@ class GoldenMapTensor:
         self._shard_map = shard_map
         self._mesh_shape = mesh_shape
 
+    def golden_map_tensor_as_torch_tensor(
+        self,
+    ) -> torch.Tensor:
+        return self.contiguous().shard_map
+
     # ----- Private static methods -----
     def __getitem__(self, key: int) -> GoldenMapTensor:
         out_shards = {k: v.__getitem__(key) for k, v in self._shard_map.items()}
