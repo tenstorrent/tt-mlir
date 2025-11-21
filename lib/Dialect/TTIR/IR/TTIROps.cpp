@@ -594,26 +594,27 @@ mlir::tt::ttir::GetDimensionSizeOp::fold(FoldAdaptor adaptor) {
   }
 
   auto [inputDims, weightDims, biasDims] =
-      verification_utils::getConv2dInputDims(this);
+      verification_utils::conv2d::getConv2dInputDims(this);
   verification_utils::OutputTensorDims outputDims =
-      verification_utils::getConv2dOutputDims(this);
-  auto expectedParams = verification_utils::getConv2dParams(this);
+      verification_utils::conv2d::getConv2dOutputDims(this);
+  auto expectedParams = verification_utils::conv2d::getConv2dParams(this);
   if (auto error = expectedParams.takeError()) {
     return emitOpError() << llvm::toString(std::move(error));
   }
-  verification_utils::Conv2dParams params = *expectedParams;
+  verification_utils::conv2d::Conv2dParams params = *expectedParams;
 
-  if (verifyConv2dParams(this, params).failed()) {
+  if (verification_utils::conv2d::verifyConv2dParams(this, params).failed()) {
     return mlir::failure();
   }
 
-  if (verifyConv2dInputDims(this, inputDims, weightDims, biasDims, params)
+  if (verification_utils::conv2d::verifyConv2dInputDims(
+          this, inputDims, weightDims, biasDims, params)
           .failed()) {
     return mlir::failure();
   }
 
-  if (verifyOutputDimensions(this, inputDims, weightDims, biasDims, outputDims,
-                             params)
+  if (verification_utils::conv2d::verifyOutputDimensions(
+          this, inputDims, weightDims, biasDims, outputDims, params)
           .failed()) {
     return mlir::failure();
   }
@@ -659,29 +660,30 @@ bool mlir::tt::ttir::Conv2dOp::isBiasCompatible(llvm::ArrayRef<int64_t> bias) {
   }
 
   auto [inputDims, weightDims, biasDims] =
-      verification_utils::getConv3dInputDims(this);
+      verification_utils::conv3d::getConv3dInputDims(this);
 
-  verification_utils::OutputTensorDims3d outputDims =
-      verification_utils::getConv3dOutputDims(this);
+  verification_utils::conv3d::OutputTensorDims3d outputDims =
+      verification_utils::conv3d::getConv3dOutputDims(this);
 
-  auto expectedParams = verification_utils::getConv3dParams(this);
+  auto expectedParams = verification_utils::conv3d::getConv3dParams(this);
 
   if (auto error = expectedParams.takeError()) {
     return emitOpError() << llvm::toString(std::move(error));
   }
 
-  verification_utils::Conv3dParams params = *expectedParams;
-  if (verifyConv3dParams(this, params).failed()) {
+  verification_utils::conv3d::Conv3dParams params = *expectedParams;
+  if (verification_utils::conv3d::verifyConv3dParams(this, params).failed()) {
     return mlir::failure();
   }
 
-  if (verifyConv3dInputDims(this, inputDims, weightDims, biasDims, params)
+  if (verification_utils::conv3d::verifyConv3dInputDims(
+          this, inputDims, weightDims, biasDims, params)
           .failed()) {
     return mlir::failure();
   }
 
-  if (verifyOutputDimensions(this, inputDims, weightDims, biasDims, outputDims,
-                             params)
+  if (verification_utils::conv3d::verifyOutputDimensions(
+          this, inputDims, weightDims, biasDims, outputDims, params)
           .failed()) {
     return mlir::failure();
   }
@@ -1418,34 +1420,35 @@ static mlir::LogicalResult verifyPooling2dOp(PoolingOp *op) {
   }
 
   // Verify flattened compatibility info if present.
-  if (mlir::failed(verification_utils::verifyFlattenedCompatInfo(op))) {
+  if (mlir::failed(verification_utils::pool2d::verifyFlattenedCompatInfo(op))) {
     return mlir::failure();
   }
 
   // Get input and output dimensions with flattened support.
   verification_utils::InputTensorDims inputDims =
-      verification_utils::getPool2dInputDims(op);
+      verification_utils::pool2d::getPool2dInputDims(op);
   verification_utils::OutputTensorDims outputDims =
-      verification_utils::getPool2dOutputDims(op);
-  auto expectedParams = verification_utils::getPool2dParams(op);
+      verification_utils::pool2d::getPool2dOutputDims(op);
+  auto expectedParams = verification_utils::pool2d::getPool2dParams(op);
   if (auto error = expectedParams.takeError()) {
     return op->emitOpError() << llvm::toString(std::move(error));
   }
-  verification_utils::Pool2dParams params = *expectedParams;
+  verification_utils::pool2d::Pool2dParams params = *expectedParams;
 
   // Verify pooling parameters.
-  if (mlir::failed(verification_utils::verifyPool2dParams(op, params))) {
+  if (mlir::failed(
+          verification_utils::pool2d::verifyPool2dParams(op, params))) {
     return mlir::failure();
   }
 
   // Verify input dimensions constraints.
-  if (mlir::failed(
-          verification_utils::verifyPool2dInputDims(op, inputDims, params))) {
+  if (mlir::failed(verification_utils::pool2d::verifyPool2dInputDims(
+          op, inputDims, params))) {
     return mlir::failure();
   }
 
   // Verify output dimensions match expected calculations.
-  if (mlir::failed(verification_utils::verifyPool2dOutputDims(
+  if (mlir::failed(verification_utils::pool2d::verifyPool2dOutputDims(
           op, inputDims, outputDims, params))) {
     return mlir::failure();
   }
