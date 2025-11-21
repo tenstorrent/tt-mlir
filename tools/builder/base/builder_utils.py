@@ -1775,6 +1775,7 @@ def execute_fb(
             check_atol=check_atol,
             check_rtol=check_rtol,
             goldens=goldens,
+            bypass_ops=builder._bypass_ops,
         )
         ttrt.runtime.DebugHooks.get(
             pre_op_get_callback_fn(callback_runtime_config),

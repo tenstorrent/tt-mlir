@@ -21,6 +21,18 @@ def get_original_op_loc(text: str) -> str:
         return ""
 
 
+def update_device_tensor(program_context, tensor_ref, dst_tensor, src_tensor):
+    import ttrt.runtime
+
+    data_ptr = src_tensor.data_ptr()
+    shape = dst_tensor.get_shape()
+    stride = dst_tensor.get_stride()
+    dtype = dst_tensor.get_dtype()
+    size = torch.numel(src_tensor)
+    tensor = ttrt.runtime.create_owned_host_tensor(data_ptr, shape, stride, size, dtype)
+    ttrt.runtime.update_tensor_in_pool(program_context, tensor_ref, tensor)
+
+
 class CallbackRuntimeConfig:
     """Runtime config for intermediate golden comparison callbacks using a golden_map of torch tensors"""
 
@@ -33,6 +45,7 @@ class CallbackRuntimeConfig:
         check_atol: bool = True,
         check_rtol: bool = True,
         goldens={},
+        bypass_ops=[],
     ):
         self.device = device
         self.pcc = pcc
@@ -41,6 +54,7 @@ class CallbackRuntimeConfig:
         self.check_atol = check_atol
         self.check_rtol = check_rtol
         self.goldens = goldens
+        self.bypass_ops = bypass_ops
         self.golden_report = {}
 
     def save_golden_report(self, golden_report_path):
@@ -69,7 +83,7 @@ def post_op_callback(callback_runtime_config, binary, program_context, op_contex
     if len(op_output_tensor_map) == 0:
         print("Output tensor is empty - skipping golden comparison")
         return
-
+    print(ttrt.runtime.get_op_debug_str(op_context))
     if loc not in callback_runtime_config.goldens.keys():
         # try getting golden tensor using the loc before it was modified by passes
         original_op_loc = get_original_op_loc(loc)
@@ -189,6 +203,20 @@ def post_op_callback(callback_runtime_config, binary, program_context, op_contex
                 golden_tensor_torch.float().unsqueeze(0),
                 output_tensor_torch.float().unsqueeze(0),
             ).item()
+
+            # Need to somehow add a test for this
+            if loc in callback_runtime_config.bypass_ops:
+                output_tensor_ref = ttrt.runtime.get_op_output_ref(
+                    op_context, program_context
+                )
+                tensor = ttrt.runtime.retrieve_tensor_from_pool(
+                    program_context, output_tensor_ref
+                )
+                update_device_tensor(
+                    program_context, output_tensor_ref, tensor, golden_tensor_torch
+                )
+
+                results["bypassed"] = "True"
 
             device_results[device_id] = results
         except Exception as e:
