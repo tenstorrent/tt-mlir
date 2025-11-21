@@ -758,6 +758,7 @@ def D2M_DMAOp : D2M_GenericRegionDatamovementOp<"dma",
       bool isDstRemote() { return ttcore::hasDeviceLayout(getDst()); }
       bool isMcast() { return !getMcastShape().empty(); }
       bool isAffine() { return (getSrcAffineMap() || getDstAffineMap()) && getSrcIndices().empty() && getDstIndices().empty(); }
+      bool hasExplicitSize() { return getOptNumElems().has_value(); }
       ::mlir::tt::ttcore::MemorySpace getSrcMemorySpace() {
         return mlir::cast<::mlir::tt::ttcore::MemorySpaceAttr>(getSrcMemRefType().getMemorySpace()).getValue();
       }
@@ -1170,7 +1171,8 @@ def D2M_WaitOp : D2M_CBOp<"wait"> {
     better to DPS style is that both reserve and wait guarantee acquisition of the
     underlying memory after the op has executed.
 
-    The resource is implicitly released at the end of block scope.
+    The resource is implicitly released at the end of block scope, OR explicitly
+    released via d2m.pop.
 
     Example:
     ```mlir
@@ -1193,12 +1195,93 @@ def D2M_ReserveOp : D2M_CBOp<"reserve"> {
     better to DPS style is that both reserve and wait guarantee acquisition of the
     underlying memory after the op has executed.
 
-    The resource is implicitly released at the end of block scope.
+    The resource is implicitly released at the end of block scope, OR explicitly
+    released via d2m.push.
 
     Example:
     ```mlir
     %memref = d2m.reserve %cb : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
     ```
+  }];
+}
+
+def D2M_PushOp : D2M_GenericRegionOp<"push",
+  [ MemoryEffects<[MemRead, MemWrite]>
+  , DeclareOpInterfaceMethods<BufferizableOpInterface, [
+      "bufferizesToMemoryRead",
+      "bufferizesToMemoryWrite",
+      "bufferize",
+      "getAliasingValues",
+      "getBufferType"
+    ]>
+  ]> {
+  let summary = "Push to circular buffer (signal producer done).";
+  let description = [{
+    Push operation, releases the memref acquired via d2m.reserve.
+    Signals to consumer threads that data is ready.
+    Must be preceded by d2m.reserve in the same block.
+
+    This operation explicitly releases the circular buffer slot acquired by
+    d2m.reserve, making the data available to consumer threads. If d2m.push
+    is present, the automatic release at block end is skipped for the
+    corresponding d2m.reserve operation.
+
+    Example:
+    ```mlir
+    %memref = d2m.reserve %cb : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
+    // ... write data to %memref ...
+    d2m.push %cb : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>
+    ```
+  }];
+  let arguments = (ins D2M_CB:$cb);
+  let assemblyFormat = [{ $cb attr-dict `:` type($cb) }];
+
+  let extraClassDeclaration = [{
+    CBType getCbType() {
+      return mlir::cast<CBType>(getCb().getType());
+    }
+
+    bool hasTensorSemantics() { return getCbType().hasTensorType(); }
+  }];
+}
+
+def D2M_PopOp : D2M_GenericRegionOp<"pop",
+  [ MemoryEffects<[MemRead, MemWrite]>
+  , DeclareOpInterfaceMethods<BufferizableOpInterface, [
+      "bufferizesToMemoryRead",
+      "bufferizesToMemoryWrite",
+      "bufferize",
+      "getAliasingValues",
+      "getBufferType"
+    ]>
+  ]> {
+  let summary = "Pop from circular buffer (signal consumer done).";
+  let description = [{
+    Pop operation, releases the memref acquired via d2m.wait.
+    Signals to producer threads that space is available.
+    Must be preceded by d2m.wait in the same block.
+
+    This operation explicitly releases the circular buffer slot acquired by
+    d2m.wait, making space available for producer threads. If d2m.pop is
+    present, the automatic release at block end is skipped for the
+    corresponding d2m.wait operation.
+
+    Example:
+    ```mlir
+    %memref = d2m.wait %cb : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
+    // ... read data from %memref ...
+    d2m.pop %cb : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>
+    ```
+  }];
+  let arguments = (ins D2M_CB:$cb);
+  let assemblyFormat = [{ $cb attr-dict `:` type($cb) }];
+
+  let extraClassDeclaration = [{
+    CBType getCbType() {
+      return mlir::cast<CBType>(getCb().getType());
+    }
+
+    bool hasTensorSemantics() { return getCbType().hasTensorType(); }
   }];
 }
 

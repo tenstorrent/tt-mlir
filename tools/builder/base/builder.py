@@ -155,6 +155,9 @@ class Builder:
     def get_shape(self, input: Operand) -> Shape:
         return self._get_type(input).shape
 
+    def get_type(self, input: Operand) -> Type:
+        return self._get_type(input).element_type
+
     def set_goldens(
         self,
         inputs: Dict[Operand, Union[Callable, torch.tensor, Dict[int : torch.tensor]]],
@@ -182,29 +185,6 @@ class Builder:
     ):
         self._set_goldens(self._create_builder_golden_from_torch_tensor(operands))
         self.set_goldens_to_check(operands.keys())
-
-        print("*************** Goldens to store ***************")
-        print(f"  Count: {len(self._goldens_to_store)}")
-        for operand in self._goldens_to_store:
-            print(
-                f"  - {operand.name if hasattr(operand, 'name') else type(operand).__name__}"
-            )
-
-        print("\n*************** Operand to loc ***************")
-        for operand, loc in self._operand_to_loc.items():
-            op_str = (
-                operand.name if hasattr(operand, "name") else type(operand).__name__
-            )
-            print(f"  {op_str}: {loc}")
-
-        print("\n*************** Goldens ***************")
-        print(f"  Total goldens: {len(self._goldens)}")
-        for operand, golden in self._goldens.items():
-            op_str = (
-                operand.name if hasattr(operand, "name") else type(operand).__name__
-            )
-            shape_str = str(golden.shape) if hasattr(golden, "shape") else "?"
-            print(f"  {op_str} -> shape={shape_str}")
 
     def set_goldens_to_check(self, operands: List[Operand], override: bool = False):
         if override:
@@ -346,8 +326,65 @@ class Builder:
                     torch.iinfo(torch.quint8).min,
                     torch.iinfo(torch.quint8).max,
                 )
+            case torch.bool:
+                return IntegerType.get_signless(1, self._ctx)
             case _:
                 raise TypeError(f"Invalid Type {dtype}")
+
+    def _get_torch_dtype_from_type(self, mlir_type: Type) -> torch.dtype:
+        """Convert MLIR Type to torch.dtype.
+
+        Parameters
+        ----------
+        mlir_type : Type
+            MLIR type to convert
+
+        Returns
+        -------
+        torch.dtype
+            Corresponding torch dtype
+        """
+        type_str = str(mlir_type)
+
+        if isinstance(mlir_type, BF16Type) or type_str == "bf16":
+            return torch.bfloat16
+        elif isinstance(mlir_type, F16Type) or type_str == "f16":
+            return torch.float16
+        elif isinstance(mlir_type, F32Type) or type_str == "f32":
+            return torch.float32
+        elif isinstance(mlir_type, F64Type) or type_str == "f64":
+            return torch.float64
+        elif isinstance(mlir_type, IntegerType):
+            width = mlir_type.width
+            is_signed = mlir_type.is_signed
+            is_unsigned = mlir_type.is_unsigned
+
+            if width == 1:
+                return torch.bool
+            elif width == 8:
+                if is_unsigned:
+                    return torch.uint8
+                else:
+                    return torch.int8
+            elif width == 16:
+                if is_unsigned:
+                    return torch.uint16
+                else:
+                    return torch.int16
+            elif width == 32:
+                if is_unsigned:
+                    return torch.uint32
+                else:
+                    return torch.int32
+            elif width == 64:
+                if is_unsigned:
+                    return torch.uint64
+                else:
+                    return torch.int64
+            else:
+                raise TypeError(f"Unsupported integer width: {width}")
+        else:
+            raise TypeError(f"Unsupported MLIR type: {mlir_type}")
 
     def _get_next_global_id(self) -> int:
         self._global_id += 1
@@ -398,6 +435,8 @@ class Builder:
             )
         if dtype.is_floating_point:
             return torch.randn(shape, dtype=dtype)
+        elif dtype == torch.bool:
+            return torch.randint(0, 2, shape, dtype=torch.bool)
         else:
             min_int = torch.iinfo(dtype).min
             max_int = torch.iinfo(dtype).max
@@ -491,6 +530,12 @@ class Builder:
         operand: Operand,
     ) -> GoldenMapTensor:
         return self._goldens[operand]
+
+    def _get_golden_tensors(
+        self,
+        operands: List[Operand],
+    ) -> List[GoldenMapTensor]:
+        return [self._goldens[operand] for operand in operands]
 
     def _set_input_ordering(self, inputs: List[Operand]):
         self._ordered_inputs = inputs

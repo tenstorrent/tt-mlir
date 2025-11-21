@@ -4,7 +4,7 @@ SHELL ["/bin/bash", "-c"]
 # Set environment variables
 ENV DEBIAN_FRONTEND=noninteractive
 
-ARG TT_METAL_DEPENDENCIES_COMMIT=c4d49e9d2b9117bcef4f5cf732fad41ca0bf7054
+ARG TT_METAL_DEPENDENCIES_COMMIT=ff303df96bc9bd1c6fff7a4004cd561b9b19f603
 
 # Install dependencies
 RUN <<EOT
@@ -60,7 +60,7 @@ RUN wget https://apt.llvm.org/llvm.sh && \
     ln -s /usr/bin/clangd-17 /usr/bin/clangd
 
 # Install python packages
-RUN pip install cmake \
+RUN pip install --no-cache-dir cmake \
     sphinx \
     sphinx-markdown-builder
 

@@ -111,7 +111,7 @@ def test_pad(
         builder: TTIRBuilder,
         unit_attrs: Optional[List[str]] = None,
     ):
-        return builder.pad(in0, padding=padding, value=value, unit_attrs=unit_attrs)
+        return builder.pad(in0, padding=padding, value=value)
 
     pad_wrapper.__name__ = "pad"
 
@@ -141,7 +141,6 @@ def test_permute(
         return builder.permute(
             in0,
             permutation=permutation,
-            unit_attrs=unit_attrs,
         )
 
     permute_wrapper.__name__ = "permute"
