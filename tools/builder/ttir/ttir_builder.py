@@ -9416,7 +9416,7 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
         return self._op_proxy(
             ttir.MeshShardOp,
             [input],
-            organize_ttir_args=lambda i, o, _: (o, i[0]),
+            organize_ttir_args=lambda i, o: (o, i[0]),
             ttir_kwargs=ttir_kwargs,
             golden_kwargs=golden_kwargs,
         )
