@@ -395,8 +395,7 @@ static bool isDefinedByOp(mlir::Value value) {
 
 // Conv2dOp verification
 ::mlir::LogicalResult mlir::tt::ttnn::Conv2dOp::verify() {
-  using namespace mlir::tt::ttnn::utils::verification_utils::
-      conv2d_verification;
+  using namespace mlir::tt::ttnn::utils::verification_utils::conv2d;
 
   if (verifyTensorRanks(this).failed()) {
     return mlir::failure();
@@ -502,6 +501,39 @@ int64_t mlir::tt::ttnn::Conv2dOp::getOutputChannelSize() {
 bool mlir::tt::ttnn::Conv2dOp::isBiasCompatible(llvm::ArrayRef<int64_t> bias) {
   return bias[0] == 1 && bias[1] == 1 && bias[2] == 1 &&
          bias[3] == getOutputChannelSize();
+}
+
+//===----------------------------------------------------------------------===//
+// Conv3dOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult mlir::tt::ttnn::Conv3dOp::verify() {
+  using namespace utils::verification_utils::conv3d;
+
+  if (verifyTensorRanks(this).failed()) {
+    return mlir::failure();
+  }
+
+  auto expectedParams = getAndVerifyConv3dParams(this);
+  if (auto error = expectedParams.takeError()) {
+    return emitOpError() << llvm::toString(std::move(error));
+  }
+  auto params = *expectedParams;
+
+  auto [inputDims, weightDims, biasDims] = getConv3dInputDims(this);
+  auto outputDims = getConv3dOutputDims(this);
+
+  if (verifyConv3dInputDims(this, inputDims, weightDims, biasDims, params)
+          .failed()) {
+    return mlir::failure();
+  }
+
+  if (verifyConv3dOutputDims(this, inputDims, weightDims, outputDims, params)
+          .failed()) {
+    return mlir::failure();
+  }
+
+  return mlir::success();
 }
 
 //===----------------------------------------------------------------------===//
