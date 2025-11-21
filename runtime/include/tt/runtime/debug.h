@@ -13,6 +13,12 @@
 
 #include "tt/runtime/types.h"
 
+#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
+#define RUNTIME_DEBUG_MAYBE_INLINE
+#else
+#define RUNTIME_DEBUG_MAYBE_INLINE inline __attribute__((always_inline))
+#endif
+
 namespace tt::runtime::debug {
 
 struct Env {
@@ -175,6 +181,19 @@ void verifyFlatbuffer(const ::flatbuffers::FlatBufferBuilder &fbb,
   assert(valid && "Failed to verify flatbuffer");
 #endif
 }
+
+RUNTIME_DEBUG_MAYBE_INLINE void
+logMemoryState(const std::unordered_map<tt::runtime::MemoryBufferType,
+                                        tt::runtime::MemoryView> &memoryState,
+               std::string_view prefix = "")
+#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
+    ;
+#else
+{
+}
+#endif
+
+#undef RUNTIME_DEBUG_MAYBE_INLINE
 
 } // namespace tt::runtime::debug
 

@@ -762,15 +762,11 @@ TEST_F(OpModelTest, Reshape) {
   EXPECT_EQ(opCstr.cbL1PeakSize, 5120);
   EXPECT_EQ(opCstr.tensorL1PeakSize, 0);
   EXPECT_EQ(opCstr.outputL1BufferSize, 0);
-  // Need to reset device other wise hangs. See tt-metal issue #25772
-  SingletonDeviceContext::resetInstance();
 
   auto runtimeExp = OpModel<ReshapeOp>::getOpRuntime(
       tensorShape, layoutDRAM, {workerCoresN300 * 4, 256}, layoutDRAM);
   EXPECT_TRUE(static_cast<bool>(runtimeExp));
   EXPECT_TRUE(runtimeExp.get() > 0);
-  // Need to reset device other wise hangs. See tt-metal issue #25772
-  SingletonDeviceContext::resetInstance();
 
   constraintsExp = OpModel<ReshapeOp>::getOpConstraints(
       CreateWorkerGrid(), tensorShape, layoutDRAM, {workerCoresN300 * 4, 256},
@@ -780,15 +776,11 @@ TEST_F(OpModelTest, Reshape) {
   EXPECT_EQ(opCstr.cbL1PeakSize, 5120);
   EXPECT_EQ(opCstr.tensorL1PeakSize, 2048);
   EXPECT_EQ(opCstr.outputL1BufferSize, 2048);
-  // Need to reset device other wise hangs. See tt-metal issue #25772
-  SingletonDeviceContext::resetInstance();
 
   runtimeExp = OpModel<ReshapeOp>::getOpRuntime(
       tensorShape, layoutDRAM, {workerCoresN300 * 4, 256}, layoutL1);
   EXPECT_TRUE(static_cast<bool>(runtimeExp));
   EXPECT_TRUE(runtimeExp.get() > 0);
-  // Need to reset device other wise hangs. See tt-metal issue #25772
-  SingletonDeviceContext::resetInstance();
 }
 
 TEST_F(OpModelTest, Slice) {

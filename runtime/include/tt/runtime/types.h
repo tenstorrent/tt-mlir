@@ -45,14 +45,6 @@ enum class MemoryBufferType {
   TRACE,
 };
 
-inline std::string toString(DeviceRuntime runtime) {
-  return ::tt::runtime::flatbuffer::EnumNameDeviceRuntime(runtime);
-}
-
-inline std::string toString(HostRuntime runtime) {
-  return ::tt::runtime::flatbuffer::EnumNameHostRuntime(runtime);
-}
-
 enum class DistributedMode {
   // Single process on the local host,
   // mainly for testing and debugging
@@ -62,6 +54,27 @@ enum class DistributedMode {
   // across multiple hosts
   MultiProcess,
 };
+
+inline std::string toString(DeviceRuntime runtime) {
+  return ::tt::runtime::flatbuffer::EnumNameDeviceRuntime(runtime);
+}
+
+inline std::string toString(HostRuntime runtime) {
+  return ::tt::runtime::flatbuffer::EnumNameHostRuntime(runtime);
+}
+
+inline std::string toString(MemoryBufferType bufferType) {
+  switch (bufferType) {
+  case MemoryBufferType::DRAM:
+    return "DRAM";
+  case MemoryBufferType::L1:
+    return "L1";
+  case MemoryBufferType::L1_SMALL:
+    return "L1_SMALL";
+  case MemoryBufferType::TRACE:
+    return "TRACE";
+  }
+}
 
 namespace detail {
 
@@ -188,6 +201,8 @@ struct MemoryView {
   size_t totalBytesFreePerBank = 0;
   size_t largestContiguousBytesFreePerBank = 0;
   MemoryBlockTable blockTable;
+
+  std::string toString() const;
 };
 
 struct MeshDeviceOptions {

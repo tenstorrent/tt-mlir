@@ -60,6 +60,7 @@ try:
         WorkaroundEnv,
         get_op_loc_info,
         unregister_hooks,
+        log_memory_state,
         FabricConfig,
     )
 except ModuleNotFoundError:

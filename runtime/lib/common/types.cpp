@@ -7,8 +7,31 @@
 #include "tt/runtime/detail/common/runtime_context.h"
 
 #include <atomic>
+#include <iomanip>
+#include <sstream>
 
 namespace tt::runtime {
+
+std::string MemoryView::toString() const {
+  constexpr size_t MB = 1024 * 1024;
+  std::ostringstream oss;
+  // KB precision for MB values
+  oss << std::fixed << std::setprecision(3);
+
+  oss << "MemoryView{";
+  oss << "numBanks: " << numBanks << ", ";
+  oss << "totalBytesPerBank: " << (static_cast<double>(totalBytesPerBank) / MB)
+      << " MB, ";
+  oss << "totalBytesAllocatedPerBank: "
+      << (static_cast<double>(totalBytesAllocatedPerBank) / MB) << " MB, ";
+  oss << "totalBytesFreePerBank: "
+      << (static_cast<double>(totalBytesFreePerBank) / MB) << " MB, ";
+  oss << "largestContiguousBytesFreePerBank: "
+      << (static_cast<double>(largestContiguousBytesFreePerBank) / MB) << " MB";
+  oss << "}";
+
+  return oss.str();
+}
 
 MultiProcessArgs &
 MultiProcessArgs::withHosts(const std::vector<std::string> &hosts) {
