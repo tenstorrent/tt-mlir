@@ -339,8 +339,8 @@ public:
     // HACK
     if (underlyingMemrefAndView.second.getNumDims() > 4) {
       MLIRContext* context = device.getContext();
-      assert(underlyingMemrefAndView.second.getNumResults() % 2 == 0);
-      unsigned numDims = underlyingMemrefAndView.second.getNumResults() / 2;
+      assert(underlyingMemrefAndView.second.getNumDims() % 2 == 0);
+      unsigned numDims = underlyingMemrefAndView.second.getNumDims() / 2;
       SmallVector<AffineExpr> exprs;
       // Build collapse map
       // GRID
