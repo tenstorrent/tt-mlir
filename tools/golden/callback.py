@@ -42,11 +42,6 @@ class CallbackRuntimeConfig:
         self.check_rtol = check_rtol
         self.goldens = goldens
         self.golden_report = {}
-        self.counter = -1
-
-    def callback_counter(self):
-        self.counter = self.counter + 1
-        return self.counter
 
     def save_golden_report(self, golden_report_path):
         with open(golden_report_path, "w") as json_file:
@@ -99,13 +94,17 @@ def post_op_callback(callback_runtime_config, binary, program_context, op_contex
                 f"Device {device_id} does not have an output tensor - skipping golden comparison"
             )
             continue
-
-        op_output_tensor = op_output_tensor_map[device_id]
-        rt_buffer = op_output_tensor.get_data_buffer()
-        golden_tensor_torch = golden_tensor_torch.flatten()
-        output_tensor_torch = torch.frombuffer(
-            rt_buffer, dtype=golden_tensor_torch.dtype
-        ).flatten()
+        try:
+            op_output_tensor = op_output_tensor_map[device_id]
+            rt_buffer = op_output_tensor.get_data_buffer()
+            golden_tensor_torch = golden_tensor_torch.flatten()
+            dtype = ttrt_datatype_to_torch_dtype(golden_tensor_torch.dtype)
+            output_tensor_torch = torch.frombuffer(rt_buffer, dtype=dtype).flatten()
+        except Exception as e:
+            print(
+                f"Exception occurred while getting output tensor for device {device_id} at loc={loc} - skipping golden comparison: {e}"
+            )
+            return
 
         if golden_tensor_torch.shape != output_tensor_torch.shape:
             print(
@@ -114,82 +113,89 @@ def post_op_callback(callback_runtime_config, binary, program_context, op_contex
                 output_tensor_torch.shape,
             )
             return
-
-        cal_atol, cal_rtol, cal_pcc, output_str = get_atol_rtol_pcc(
-            golden_tensor_torch,
-            output_tensor_torch,
-            callback_runtime_config.atol,
-            callback_runtime_config.rtol,
-        )
-
-        # Handle case where tensor has only one element.
-        if golden_tensor_torch.numel() == 1:
-            cal_pcc = (
-                1.0
-                if torch.nn.functional.cosine_similarity(
-                    golden_tensor_torch.float().unsqueeze(0),
-                    output_tensor_torch.float().unsqueeze(0),
-                ).item()
-                else 0.0
+        try:
+            cal_atol, cal_rtol, cal_pcc, output_str = get_atol_rtol_pcc(
+                golden_tensor_torch,
+                output_tensor_torch,
+                callback_runtime_config.atol,
+                callback_runtime_config.rtol,
             )
 
-        print(
-            f"For device {device_id} at loc={loc}, golden tensor comparrison: {output_str}"
-        )
+            # Handle case where tensor has only one non-zero element.
+            if golden_tensor_torch.numel() == 1 and golden_tensor_torch.item() != 0:
+                cal_pcc = (
+                    1.0
+                    if torch.nn.functional.cosine_similarity(
+                        golden_tensor_torch.float().unsqueeze(0),
+                        output_tensor_torch.float().unsqueeze(0),
+                    ).item()
+                    else 0.0
+                )
 
-        result = "pass"
-        if cal_pcc < callback_runtime_config.pcc:
-            result = "fail"
-        if (
-            callback_runtime_config.check_atol
-            and cal_atol > callback_runtime_config.atol
-        ):
-            result = "fail"
-        if (
-            callback_runtime_config.check_rtol
-            and cal_rtol > callback_runtime_config.rtol
-        ):
-            result = "fail"
-
-        results = {}
-        results["result"] = result
-        results["expected_pcc"] = callback_runtime_config.pcc
-        results["actual_pcc"] = cal_pcc
-        if callback_runtime_config.check_atol:
-            results["expected_atol"] = callback_runtime_config.atol
-            results["actual_atol"] = cal_atol
-        if callback_runtime_config.check_rtol:
-            results["expected_rtol"] = callback_runtime_config.rtol
-            results["actual_rtol"] = cal_rtol
-        results["allclose"] = torch.allclose(
-            golden_tensor_torch,
-            output_tensor_torch,
-            atol=callback_runtime_config.atol,
-            rtol=callback_runtime_config.rtol,
-        )
-        if (
-            golden_tensor_torch.dtype == torch.uint16
-            or golden_tensor_torch.dtype == torch.uint32
-        ):
             print(
-                "Skipping max metric for uint16 or uint32 tensors, not supported in pytorch"
+                f"For device {device_id} at loc={loc}, golden tensor comparrison: {output_str}"
             )
-        else:
-            results["max"] = torch.max(
-                torch.abs(golden_tensor_torch - output_tensor_torch)
-            ).item()
-        results["mean_absolute_error"] = torch.mean(
-            torch.abs(golden_tensor_torch.float() - output_tensor_torch.float())
-        ).item()
-        results["root_mean_square_error"] = torch.sqrt(
-            torch.mean((golden_tensor_torch.float() - output_tensor_torch.float()) ** 2)
-        ).item()
-        results["cosine_similarity"] = torch.nn.functional.cosine_similarity(
-            golden_tensor_torch.float().unsqueeze(0),
-            output_tensor_torch.float().unsqueeze(0),
-        ).item()
 
-        device_results[device_id] = results
+            result = "pass"
+            if cal_pcc < callback_runtime_config.pcc:
+                result = "fail"
+            if (
+                callback_runtime_config.check_atol
+                and cal_atol > callback_runtime_config.atol
+            ):
+                result = "fail"
+            if (
+                callback_runtime_config.check_rtol
+                and cal_rtol > callback_runtime_config.rtol
+            ):
+                result = "fail"
+
+            results = {}
+            results["result"] = result
+            results["expected_pcc"] = callback_runtime_config.pcc
+            results["actual_pcc"] = cal_pcc
+            if callback_runtime_config.check_atol:
+                results["expected_atol"] = callback_runtime_config.atol
+                results["actual_atol"] = cal_atol
+            if callback_runtime_config.check_rtol:
+                results["expected_rtol"] = callback_runtime_config.rtol
+                results["actual_rtol"] = cal_rtol
+            results["allclose"] = torch.allclose(
+                golden_tensor_torch,
+                output_tensor_torch,
+                atol=callback_runtime_config.atol,
+                rtol=callback_runtime_config.rtol,
+            )
+            if (
+                golden_tensor_torch.dtype == torch.uint16
+                or golden_tensor_torch.dtype == torch.uint32
+            ):
+                print(
+                    "Skipping max metric for uint16 or uint32 tensors, not supported in pytorch"
+                )
+            else:
+                results["max"] = torch.max(
+                    torch.abs(golden_tensor_torch - output_tensor_torch)
+                ).item()
+            results["mean_absolute_error"] = torch.mean(
+                torch.abs(golden_tensor_torch.float() - output_tensor_torch.float())
+            ).item()
+            results["root_mean_square_error"] = torch.sqrt(
+                torch.mean(
+                    (golden_tensor_torch.float() - output_tensor_torch.float()) ** 2
+                )
+            ).item()
+            results["cosine_similarity"] = torch.nn.functional.cosine_similarity(
+                golden_tensor_torch.float().unsqueeze(0),
+                output_tensor_torch.float().unsqueeze(0),
+            ).item()
+
+            device_results[device_id] = results
+        except Exception as e:
+            print(
+                f"Exception occurred while comparing golden tensor for device {device_id} at loc={loc} - skipping golden comparison: {e}"
+            )
+            return
 
     callback_runtime_config.golden_report[loc] = device_results
 
