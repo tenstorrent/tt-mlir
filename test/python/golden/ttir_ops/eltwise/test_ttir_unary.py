@@ -111,6 +111,10 @@ def logical_not(
     return builder.logical_not(in0, unit_attrs=unit_attrs)
 
 
+def mish(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None):
+    return builder.mish(in0, unit_attrs=unit_attrs)
+
+
 def neg(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None):
     return builder.neg(in0, unit_attrs=unit_attrs)
 
@@ -220,6 +224,7 @@ unary_ops = [
     log,
     log1p | Marks(pytest.mark.skip_config(["ttmetal"])),
     logical_not,  # TODO (wenbinlyuTT): test int32 once untilize issue is fixed
+    mish | Marks(pytest.mark.skip_config(["ttmetal"])),
     neg,
     reciprocal,
     relu,
