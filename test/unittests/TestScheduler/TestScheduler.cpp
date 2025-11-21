@@ -225,3 +225,121 @@ TEST_F(SchedulerBase, VerifyFork) {
   scheduler.scheduleOp(scheduleableOps[0]);
   ASSERT_FALSE(scheduler.hasUnscheduledOps());
 }
+
+// Test the scheduler with SplitQueryKeyValueAndSplitHeadsOp
+// This op has 3 outputs (query, key, value), and each output has an operation
+// after it. The scheduler should correctly initialize dependencies so that
+// SplitQueryKeyValueAndSplitHeadsOp is scheduled first, then the 3 ops that
+// use its outputs can be scheduled.
+TEST_F(SchedulerBase, SplitQueryKeyValueAndSplitHeadsOp) {
+  // Set up tensor shapes for SplitQueryKeyValueAndSplitHeadsOp
+  // Input: [batch_size, sequence_size, 3 * hidden_size]
+  // Outputs: [batch_size, num_heads, sequence_size, head_dim]
+  constexpr int batchSize = 1;
+  constexpr int sequenceSize = 4;
+  constexpr int numHeads = 2;
+  constexpr int headDim = 8;
+  constexpr int hiddenSize = numHeads * headDim;  // 16
+  constexpr int inputHiddenSize = 3 * hiddenSize; // 48
+
+  llvm::SmallVector<int64_t> inputShape{batchSize, sequenceSize,
+                                        inputHiddenSize};
+  llvm::SmallVector<int64_t> outputShape{batchSize, numHeads, sequenceSize,
+                                         headDim};
+
+  // Create input tensor
+  mlir::Value inputTensor = builder.create<ttir::EmptyOp>(
+      builder.getUnknownLoc(), inputShape, builder.getF32Type());
+
+  // Create output tensors for DPS operands
+  mlir::Value queryOutput = builder.create<ttir::EmptyOp>(
+      builder.getUnknownLoc(), outputShape, builder.getF32Type());
+  mlir::Value keyOutput = builder.create<ttir::EmptyOp>(
+      builder.getUnknownLoc(), outputShape, builder.getF32Type());
+  mlir::Value valueOutput = builder.create<ttir::EmptyOp>(
+      builder.getUnknownLoc(), outputShape, builder.getF32Type());
+
+  // Create attributes
+  mlir::IntegerAttr numHeadsAttr = builder.getUI32IntegerAttr(numHeads);
+  mlir::BoolAttr transposeKeyAttr = builder.getBoolAttr(false);
+
+  // Create result types for the 3 outputs
+  mlir::Type queryType =
+      mlir::RankedTensorType::get(outputShape, builder.getF32Type());
+  mlir::Type keyType =
+      mlir::RankedTensorType::get(outputShape, builder.getF32Type());
+  mlir::Type valueType =
+      mlir::RankedTensorType::get(outputShape, builder.getF32Type());
+
+  // Create SplitQueryKeyValueAndSplitHeadsOp
+  auto splitOp = builder.create<ttir::SplitQueryKeyValueAndSplitHeadsOp>(
+      builder.getUnknownLoc(), queryType, keyType, valueType, inputTensor,
+      /*kv_input_tensor=*/nullptr, queryOutput, keyOutput, valueOutput,
+      numHeadsAttr, /*num_kv_heads=*/nullptr, transposeKeyAttr);
+
+  // Get the 3 outputs
+  mlir::Value query = splitOp.getQuery();
+  mlir::Value key = splitOp.getKey();
+  mlir::Value value = splitOp.getValue();
+
+  // Create operations that use each of the 3 outputs
+  mlir::Value arg0 = func.getBody().getBlocks().front().getArgument(0);
+  mlir::Value destQuery = createEmptyTensor();
+  ttir::TTIROp queryOp = builder.create<ttir::AddOp>(builder.getUnknownLoc(),
+                                                     query, arg0, destQuery);
+
+  mlir::Value destKey = createEmptyTensor();
+  ttir::TTIROp keyOp =
+      builder.create<ttir::AddOp>(builder.getUnknownLoc(), key, arg0, destKey);
+
+  mlir::Value destValue = createEmptyTensor();
+  ttir::TTIROp valueOp = builder.create<ttir::AddOp>(builder.getUnknownLoc(),
+                                                     value, arg0, destValue);
+
+  // Initialize scheduler
+  mlir::tt::scheduler::Scheduler scheduler(&func);
+
+  // Verify scheduler is initialized correctly
+  // SplitQueryKeyValueAndSplitHeadsOp should be schedulable first (no
+  // dependencies)
+  ASSERT_TRUE(scheduler.hasUnscheduledOps());
+  llvm::SmallVector<mlir::Operation *> scheduleableOps =
+      scheduler.getSchedulableOps();
+  ASSERT_EQ(scheduleableOps.size(), 1);
+  ASSERT_EQ(scheduleableOps[0], splitOp.getOperation());
+
+  // Schedule SplitQueryKeyValueAndSplitHeadsOp
+  scheduler.scheduleOp(scheduleableOps[0]);
+
+  // Now all 3 ops that use the outputs should be schedulable
+  scheduleableOps = scheduler.getSchedulableOps();
+  ASSERT_EQ(scheduleableOps.size(), 3);
+  ASSERT_TRUE(scheduler.hasUnscheduledOps());
+
+  // Verify all 3 ops are in the schedulable list
+  bool foundQueryOp = false;
+  bool foundKeyOp = false;
+  bool foundValueOp = false;
+  for (mlir::Operation *op : scheduleableOps) {
+    if (op == queryOp.getOperation()) {
+      foundQueryOp = true;
+    } else if (op == keyOp.getOperation()) {
+      foundKeyOp = true;
+    } else if (op == valueOp.getOperation()) {
+      foundValueOp = true;
+    }
+  }
+  ASSERT_TRUE(foundQueryOp);
+  ASSERT_TRUE(foundKeyOp);
+  ASSERT_TRUE(foundValueOp);
+
+  // Schedule all 3 ops
+  for (mlir::Operation *op : scheduleableOps) {
+    scheduler.scheduleOp(op);
+  }
+
+  // Verify all ops are scheduled
+  ASSERT_FALSE(scheduler.hasUnscheduledOps());
+  llvm::SmallVector<mlir::Operation *> schedule = scheduler.getSchedule();
+  ASSERT_EQ(schedule.size(), 4); // 1 split op + 3 add ops
+}
