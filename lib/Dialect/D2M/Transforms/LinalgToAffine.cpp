@@ -87,8 +87,6 @@ public:
         rewriter.setInsertionPoint(linalgGenericOp);
         auto linalgLoops =
             linalg::linalgOpToAffineLoops(rewriter, linalgGenericOp);
-        TT_debugv(!failed(linalgLoops),
-                  "failed to convert linalg.generic to affine loops");
 
         markAndReplaceLinalgOp(rewriter, linalgGenericOp,
                                linalgLoops.value().front(), markRootLoops);

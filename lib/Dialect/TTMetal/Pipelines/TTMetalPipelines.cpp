@@ -85,7 +85,9 @@ void createTTIRToTTMetalFrontendPipeline(
   pm.addPass(createCanonicalizerPassWithOptions(options));
   if (!options.globalDataFormatTarget.empty()) {
     d2m::D2MGlobalDataFormatConversionOptions globalFormatOptions;
-    { globalFormatOptions.targetFormat = options.globalDataFormatTarget; }
+    {
+      globalFormatOptions.targetFormat = options.globalDataFormatTarget;
+    }
     pm.addPass(d2m::createD2MGlobalDataFormatConversion(globalFormatOptions));
   }
   tt::TTIRToD2MOptions toD2MOptions;
@@ -128,9 +130,6 @@ void createTTIRToTTMetalMiddleendPipeline(
         options.availableL1AddrRange.end());
     allocateOptions.testAssumeL1Capacity = options.testAssumel1Capacity;
     allocateOptions.testBufferSizePolicy = options.testBufferSizePolicy;
-    // Disable dealloc insertion here - will be done after LinalgToAffine and
-    // InsertDstRegisterAccess so that liveness analysis sees the actual usage.
-    allocateOptions.enableDeallocInsertion = false;
   }
   pm.addPass(d2m::createD2MAllocate(allocateOptions));
 
@@ -162,11 +161,6 @@ void createTTIRToTTMetalMiddleendPipeline(
   pm.addPass(
       d2m::createD2MInsertDstRegisterAccess(insertDstRegisterAccessOptions));
 
-  // Insert deallocs AFTER LinalgToAffine and InsertDstRegisterAccess so that
-  // the liveness analysis sees the actual loop structure and correctly places
-  // deallocs for stream-backed buffers.
-  pm.addPass(d2m::createD2MInsertDeallocs());
-
   pm.addPass(d2m::createD2MSFPUTileLoopFission());
   pm.addPass(mlir::createCanonicalizerPass());
 
@@ -188,7 +182,9 @@ void createTTIRToTTMetalMiddleendPipeline(
 void createTTIRToTTMetalBackendPipeline(
     OpPassManager &pm, const TTIRToTTMetalPipelineOptions &options) {
   d2m::ConvertD2MToTTKernelOptions D2MToTTKernelOptions;
-  { D2MToTTKernelOptions.ttnnMode = options.ttnnMode; }
+  {
+    D2MToTTKernelOptions.ttnnMode = options.ttnnMode;
+  }
   pm.addPass(tt::createConvertD2MToTTKernelPass(D2MToTTKernelOptions));
   pm.addPass(createCanonicalizerPassWithOptions(options));
   pm.addPass(ttkernel::createTTKernelControlDstSection());
@@ -198,7 +194,9 @@ void createTTIRToTTMetalBackendPipeline(
     pm.addPass(tt::createConvertD2MToTTNNPass());
   } else {
     d2m::ConvertD2MToTTMetalOptions d2mToTTMetalOptions;
-    { d2mToTTMetalOptions.mathFidelity = options.mathFidelity; }
+    {
+      d2mToTTMetalOptions.mathFidelity = options.mathFidelity;
+    }
     pm.addPass(tt::createConvertD2MToTTMetalPass(d2mToTTMetalOptions));
   }
   pm.addPass(ttkernel::createTTKernelHoistInits());

@@ -365,10 +365,8 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
       return failure();
     }
 
-    if (enableDeallocInsertion) {
-      if (failed(insertDeallocs(funcOp, analysis))) {
-        return failure();
-      }
+    if (failed(insertDeallocs(funcOp, analysis))) {
+      return failure();
     }
 
     return success();
