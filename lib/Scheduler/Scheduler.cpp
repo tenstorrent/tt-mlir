@@ -46,13 +46,14 @@ Scheduler::Scheduler(func::FuncOp *func) {
       continue;
     }
 
-    OpResult result = op.getResult(0);
-
-    for (mlir::Operation *use : result.getUsers()) {
-      // Skip non TTIR operations
-      // Skip operations which set the result
-      if (isTTSchedulableOp(use) && use->getResult(0) != result) {
-        dependencies[use].push_back(&op);
+    for (OpResult result : op.getResults()) {
+      for (mlir::Operation *use : result.getUsers()) {
+        // Skip non TTIR operations
+        // Skip operations which set the result
+        if (isTTSchedulableOp(use) &&
+            !llvm::is_contained(use->getResults(), result)) {
+          dependencies[use].push_back(&op);
+        }
       }
     }
   }
