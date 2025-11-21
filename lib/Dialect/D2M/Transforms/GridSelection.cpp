@@ -344,6 +344,21 @@ static RankedTensorType tensorWithOptimalGrid(RankedTensorType oldTensor,
   return RankedTensorType::get(deviceShape, newElementType, newLayout);
 }
 
+static RankedTensorType composeTensorWithIndexMap(RankedTensorType oldTensor, AffineMap indexMap) {
+  auto oldLayout =
+      mlir::cast<ttcore::MetalLayoutAttr>(oldTensor.getEncoding());
+
+  ttcore::MetalLayoutAttr newLayout = ttcore::MetalLayoutAttr::get(
+      oldLayout.getContext(), oldLayout.getLogicalShape(), oldLayout.getOobVal(),
+      oldLayout.getMemorySpace(), oldLayout.getMemoryLayout(),
+      oldLayout.getCollapsedIntervals(), oldLayout.getDimAlignments(),
+      oldLayout.getIndexAffineMap().isEmpty()
+        ? indexMap
+        : oldLayout.getIndexAffineMap().compose(indexMap));
+
+  return RankedTensorType::get(oldTensor.getShape(), oldTensor.getElementType(), newLayout);
+}
+
 // Update a ToLayoutOp and its associated EmptyOp to use a specified grid by
 // recreating the MetalLayoutAttr with the given grid and proper dimension
 // alignments.
@@ -394,11 +409,20 @@ static void optimizeToLayoutGrid(d2m::ToLayoutOp toLayoutOp,
   auto newToLayoutOp = builder.create<d2m::ToLayoutOp>(
       toLayoutOp.getLoc(), toLayoutOp.getInput(), newEmptyOp);
 
+  // Reblock it back to original shape to preserve IR correctness.
+  mlir::AffineMap reblockMap = mlir::tt::d2m::utils::calculateReblockMap(
+                                  newTensorType.getShape(),
+                                  outputType.getShape(),
+                                  newTensorType.getContext());
+  auto viewOutputType = composeTensorWithIndexMap(outputType, reblockMap);
+  auto newView = builder.create<d2m::ViewLayoutOp>(
+      toLayoutOp.getLoc(), viewOutputType, newToLayoutOp.getResult(0));
+
   // We expect the ToLayout to be used only by the GenericOp we're optimizing.
   // Assert this assumption to catch unexpected sharing.
   assert(toLayoutOp.getResult(0).hasOneUse() &&
          "ToLayout should only be used by the GenericOp being optimized");
-  toLayoutOp.getResult(0).replaceAllUsesWith(newToLayoutOp.getResult(0));
+  toLayoutOp.getResult(0).replaceAllUsesWith(newView.getResult());
 
   toLayoutOp.erase();
   if (emptyOp.getResult().use_empty()) {
