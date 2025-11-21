@@ -136,8 +136,8 @@ validateConstraints(Operation *op, llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
     return result;
   }
 
-  auto [cBUsagePeak, tensorUsage, peakMemoryUsage, outputTensorUsage,
-        outputLayout] = l1UsageExp.get();
+  auto [cbPeakUsage, l1BuffersPeakUsage, overallPeakL1Usage,
+        outputTensorUsagePerCore, outputLayout] = l1UsageExp.get();
 
   TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,
                "Backend returned output layout: {}, layout={}, dtype={}",
@@ -150,37 +150,24 @@ validateConstraints(Operation *op, llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
   ttcore::ChipDescAttr chipDesc = systemDesc.getChipDescs()[0];
   uint64_t usableL1CacheSize = chipDesc.getUsableL1Size();
 
-  // Calculate total L1 usage from all input layouts.
-  uint64_t totalInputL1Usage = 0;
-  for (const TTNNLayoutAttr &inputLayout : inputLayouts) {
-    if (inputLayout.getBufferType() == BufferType::L1) {
-      totalInputL1Usage += inputLayout.getShardSizeInBytes();
-    }
-  }
-
-  // TODO(rpavlovicTT): switch to new constraints usage API once it is ready.
-  // https://github.com/tenstorrent/tt-mlir/issues/4143
-  bool l1UsageValid = (totalInputL1Usage + tensorUsage + cBUsagePeak) <
-                      tensorL1UsageCap * usableL1CacheSize;
-
-  if (!l1UsageValid) {
-    TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,
-                 "Not enough L1 memory. OpModel constraints failed: {} "
-                 "totalInputL1Usage: {}, tensorUsage: {}, cBUsagePeak: {}, "
-                 "total: {}, limit: {}",
-                 op->getName(), totalInputL1Usage, tensorUsage, cBUsagePeak,
-                 totalInputL1Usage + tensorUsage + cBUsagePeak,
-                 static_cast<uint64_t>(tensorL1UsageCap * usableL1CacheSize));
+  if (overallPeakL1Usage > tensorL1UsageCap * usableL1CacheSize) {
+    TTMLIR_DEBUG(
+        ttmlir::LogComponent::OpValidation,
+        "Not enough L1 memory. OpModel constraints failed for op {} \n"
+        "overallPeakL1Usage: {} [cbPeakUsage={}, l1BuffersPeakUsage={}] "
+        "limit: {}",
+        ttmlir::opToString(op), overallPeakL1Usage, cbPeakUsage,
+        l1BuffersPeakUsage,
+        static_cast<uint64_t>(tensorL1UsageCap * usableL1CacheSize));
     return ValidationResult::outOfMemoryError("Not enough L1 memory");
   }
 
-  TTMLIR_DEBUG(
-      ttmlir::LogComponent::OpValidation,
-      "OpModel constraints valid. Op: {}\nOutputLayout: {}\n"
-      "L1 usage: cBUsagePeak: {}, tensorUsage: {}, outputTensorUsage: {}, "
-      "totalInputL1Usage: {}, totalL1Usage: {}",
-      op->getName(), outputLayout, cBUsagePeak, tensorUsage, outputTensorUsage,
-      totalInputL1Usage, cBUsagePeak + tensorUsage + totalInputL1Usage);
+  TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,
+               "OpModel constraints valid. Op: {}\nOutputLayout: {}\n"
+               "L1 usage: overallPeakL1Usage={}, cbPeakUsage={}, "
+               "l1BuffersPeakUsage={}, outputTensorUsagePerCore={}",
+               ttmlir::opToString(op), outputLayout, overallPeakL1Usage,
+               cbPeakUsage, l1BuffersPeakUsage, outputTensorUsagePerCore);
 
   return ValidationResult::success(0, outputLayout);
 }
