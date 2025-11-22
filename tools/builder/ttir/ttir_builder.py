@@ -1742,6 +1742,7 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
             new_op = ttir_op(
                 result,
                 value_attr,
+                loc=old_op.location,
             )
 
             if not self._disable_golden_check:
