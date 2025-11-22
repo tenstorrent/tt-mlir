@@ -13,9 +13,9 @@
 #include "mlir/IR/AsmState.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
-
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/Support/Casting.h"
+
 #include <tuple>
 
 namespace mlir::tt::d2m {

@@ -2,6 +2,9 @@
 // RUN: FileCheck %s --input-file=%t
 
 !ttype = tensor<128x96xf32>
+!ttype_col = tensor<128x1xf32>
+!ttype_row = tensor<1x96xf32>
+!ttype_scalar = tensor<1x1xf32>
 
 !lhs = tensor<128x96xf32>
 !rhs = tensor<96x64xf32>
@@ -205,5 +208,26 @@ module {
     // CHECK: d2m.tile_matmul
     %r = "ttir.matmul"(%lhs, %rhs, %out) : (!lhs, !rhs, !matmul_result) -> (!matmul_result)
     return %r : !matmul_result
+  }
+
+  // CHECK-LABEL: func @implicit_bcast_2d_dual
+  func.func @implicit_bcast_2d_dual(%in0: !ttype_col, %in1: !ttype_row, %out: !ttype) -> (!ttype) {
+    // CHECK: d2m.generic{{.+}}iterator_types = [#parallel, #parallel]
+    // CHECK: linalg.generic
+    // CHECK: "d2m.tile_bcast"(%{{.*}}) <{bcast_type = #d2m<tile_bcast_type col>}>
+    // CHECK: "d2m.tile_bcast"(%{{.*}}) <{bcast_type = #d2m<tile_bcast_type row>}>
+    // CHECK: d2m.tile_add
+    %0 = "ttir.add"(%in0, %in1, %out) : (!ttype_col, !ttype_row, !ttype) -> (!ttype)
+    return %0 : !ttype
+  }
+
+  // CHECK-LABEL: func @implicit_bcast_2d_scalar
+  func.func @implicit_bcast_2d_scalar(%in0: !ttype, %in1: !ttype_scalar, %out: !ttype) -> (!ttype) {
+    // CHECK: d2m.generic{{.+}}iterator_types = [#parallel, #parallel]
+    // CHECK: linalg.generic
+    // CHECK: "d2m.tile_bcast"(%{{.*}}) <{bcast_type = #d2m<tile_bcast_type scalar>}>
+    // CHECK: d2m.tile_add
+    %0 = "ttir.add"(%in0, %in1, %out) : (!ttype, !ttype_scalar, !ttype) -> (!ttype)
+    return %0 : !ttype
   }
 }
