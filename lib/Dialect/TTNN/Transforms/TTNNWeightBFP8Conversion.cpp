@@ -34,14 +34,7 @@ public:
       return mlir::failure();
     }
 
-    auto weightType = mlir::cast<mlir::RankedTensorType>(weight.getType());
-
-    // Check if the tensor has a TTNN layout encoding.
-    auto currentLayout =
-        mlir::dyn_cast_or_null<TTNNLayoutAttr>(weightType.getEncoding());
-    if (!currentLayout) {
-      return mlir::failure(); // Not a TTNN tensor.
-    }
+    auto weightType = weight.getType();
 
     // Check if weight is already BFP8 or is convertible (bf16/f32).
     mlir::Type elType = weightType.getElementType();
