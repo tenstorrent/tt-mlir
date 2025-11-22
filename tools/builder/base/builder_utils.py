@@ -1703,17 +1703,9 @@ def compile_ttir_module_to_flatbuffer(
 
     print(f"{target} pipeline ran successfully.")
 
-    module_logger = MLIRModuleLogger()
-    module_logger.attach_context(module.context)
-
     # Compile TT{Metal,NN} MLIR -> flatbuffer
     try:
-        to_target(
-            module,
-            output_file_fbb,
-            golden_tensors,
-            module_logger.module_log if module_logger.module_log else [],
-        )
+        to_target(module, output_file_fbb, golden_tensors, [])
     except Exception as e:
         raise TTBuilderCompileException(e)
 
@@ -1782,6 +1774,7 @@ def execute_fb(
         )
 
     for program_index in program_indices:
+
         print(f"evaluating program={program_index} for binary={bin.file_path}")
 
         program = bin.get_program(program_index)
@@ -1972,18 +1965,17 @@ def execute_fb(
 
 def load_mlir_file(
     mlir_text: str,
+    golden_inputs: List[torch.tensor] = [],
     target: Literal["ttir", "ttnn", "d2m", "stablehlo"] = "ttir",
 ) -> (Module, Builder):
     ctx = Context()
-    module = Module.parse(mlir_text, ctx)
 
-    with ctx:
-        if target == "ttir":
-            builder, module = TTIRBuilder.from_module(ctx, module)
-        else:
-            raise NotImplementedError(
-                "Loading MLIR files is only supported for ttir currently."
-            )
+    if target == "ttir":
+        builder, module = TTIRBuilder.from_module(ctx, mlir_text, golden_inputs)
+    else:
+        raise NotImplementedError(
+            "Loading MLIR files is only supported for ttir currently."
+        )
 
     return builder, module
 
@@ -1993,15 +1985,12 @@ def split_mlir_file(
     builder: Builder,
     target: Literal["ttir", "ttnn", "d2m", "stablehlo"] = "ttir",
 ) -> List[Tuple[Module, Builder]]:
-    ctx = Context()
-
-    with ctx:
-        if target == "ttir":
-            modules_and_builders = TTIRBuilder.split_module(ctx, module, builder)
-        else:
-            raise NotImplementedError(
-                "Splitting MLIR files is only supported for ttir currently."
-            )
+    if target == "ttir":
+        modules_and_builders = TTIRBuilder.split_module(module, builder)
+    else:
+        raise NotImplementedError(
+            "Splitting MLIR files is only supported for ttir currently."
+        )
 
     return modules_and_builders
 

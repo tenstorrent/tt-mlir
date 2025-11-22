@@ -2342,6 +2342,36 @@ public:
 };
 } // namespace
 
+// AllReduceOp conversion pattern
+//
+namespace {
+class AllReduceOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<mlir::tt::ttnn::AllReduceOp> {
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::AllReduceOp>::TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::AllReduceOp srcOp,
+                  mlir::tt::ttnn::AllReduceOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::AllReduceOp> emitter(
+        srcOp, adaptor, rewriter);
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput()),
+        emitter.emit(srcOp.getClusterAxis()),
+        emitter.emitSubDeviceId(srcOp.getSubDeviceId()),
+        emitter.emit(srcOp.getMemoryConfig()),
+        emitter.emit(srcOp.getNumLinks()),
+        emitter.emit(srcOp.getTopology()),
+    };
+
+    emitter.replaceOp(*this, args);
+    return success();
+  }
+};
+} // namespace
+
 // ReduceScatterOp conversion pattern
 //
 namespace {
@@ -4086,6 +4116,7 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   // CCL ops
   //
   patterns.add<AllGatherOpConversionPattern>(typeConverter, ctx);
+  patterns.add<AllReduceOpConversionPattern>(typeConverter, ctx);
   patterns.add<ReduceScatterOpConversionPattern>(typeConverter, ctx);
   patterns.add<ScatterOpConversionPattern>(typeConverter, ctx);
   patterns.add<CollectivePermuteOpConversionPattern>(typeConverter, ctx);

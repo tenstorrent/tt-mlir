@@ -333,12 +333,11 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
     ) -> Tuple[Module, TTIRBuilder]:
         ttir_op = self.get_opview_from_split(TTIRBuilder.clamp_tensor_split)
 
-        new_ctx = Context()
-        new_loc = Location.unknown(new_ctx)
-
-        with new_ctx, new_loc:
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+        with old_ctx, old_loc:
             clamp_tensor_module = Module.create()
-            clamp_tensor_builder = TTIRBuilder(new_ctx, new_loc)
+            clamp_tensor_builder = TTIRBuilder(old_ctx, old_loc)
             op_input_types = [
                 old_op.input.type,
                 old_op.min.type,
@@ -356,12 +355,7 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
                     output = self._get_empty_op(result)
 
                     new_op = ttir.ClampTensorOp(
-                        result,
-                        in0,
-                        min_tensor,
-                        max_tensor,
-                        output,
-                        # loc=old_op.location, -> this segfault, not sure why
+                        result, in0, min_tensor, max_tensor, output, loc=old_op.location
                     )
 
                     if not self._disable_golden_check:
@@ -497,12 +491,11 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
     ) -> Tuple[Module, TTIRBuilder]:
         ttir_op = self.get_opview_from_split(TTIRBuilder.reduce_or_split)
 
-        new_ctx = Context()
-        new_loc = Location.unknown(new_ctx)
-
-        with new_ctx, new_loc:
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+        with old_ctx, old_loc:
             reduce_or_module = Module.create()
-            reduce_or_builder = TTIRBuilder(new_ctx, new_loc)
+            reduce_or_builder = TTIRBuilder(old_ctx, old_loc)
             op_input_types = [old_op.input.type]
 
             with InsertionPoint(reduce_or_module.body):
@@ -519,7 +512,7 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
                         output,
                         old_op.keep_dim,
                         dim_arg=old_op.dim_arg,
-                        # loc=old_op.location, -> this segfault, not sure why
+                        loc=old_op.location,
                     )
 
                     if not self._disable_golden_check:
@@ -633,12 +626,11 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
     ) -> Tuple[Module, TTIRBuilder]:
         ttir_op = self.get_opview_from_split(TTIRBuilder.max_split)
 
-        new_ctx = Context()
-        new_loc = Location.unknown(new_ctx)
-
-        with new_ctx, new_loc:
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+        with old_ctx, old_loc:
             max_module = Module.create()
-            max_builder = TTIRBuilder(new_ctx, new_loc)
+            max_builder = TTIRBuilder(old_ctx, old_loc)
             op_input_types = [old_op.input.type]
 
             with InsertionPoint(max_module.body):
@@ -655,7 +647,7 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
                         output,
                         old_op.keep_dim,
                         dim_arg=old_op.dim_arg,
-                        # loc=old_op.location, -> this segfault, not sure why
+                        loc=old_op.location,
                     )
 
                     if not self._disable_golden_check:
@@ -754,12 +746,11 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
     ) -> Tuple[Module, TTIRBuilder]:
         ttir_op = self.get_opview_from_split(TTIRBuilder.logical_not_split)
 
-        new_ctx = Context()
-        new_loc = Location.unknown(new_ctx)
-
-        with new_ctx, new_loc:
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+        with old_ctx, old_loc:
             logical_not_module = Module.create()
-            logical_not_builder = TTIRBuilder(new_ctx, new_loc)
+            logical_not_builder = TTIRBuilder(old_ctx, old_loc)
             op_input_types = [old_op.input.type]
 
             with InsertionPoint(logical_not_module.body):
@@ -770,12 +761,7 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
                     result = old_op.result.type
                     output = self._get_empty_op(result)
 
-                    new_op = ttir.LogicalNotOp(
-                        result,
-                        in0,
-                        output,
-                        # loc=old_op.location, -> this segfault, not sure why
-                    )
+                    new_op = ttir.LogicalNotOp(result, in0, output, loc=old_op.location)
 
                     if not self._disable_golden_check:
                         input_owner0 = old_op.input.owner
@@ -871,12 +857,11 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
     ) -> Tuple[Module, TTIRBuilder]:
         ttir_op = self.get_opview_from_split(TTIRBuilder.log_split)
 
-        new_ctx = Context()
-        new_loc = Location.unknown(new_ctx)
-
-        with new_ctx, new_loc:
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+        with old_ctx, old_loc:
             log_module = Module.create()
-            log_builder = TTIRBuilder(new_ctx, new_loc)
+            log_builder = TTIRBuilder(old_ctx, old_loc)
             op_input_types = [old_op.input.type]
 
             with InsertionPoint(log_module.body):
@@ -887,12 +872,7 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
                     result = old_op.result.type
                     output = self._get_empty_op(result)
 
-                    new_op = ttir.LogOp(
-                        result,
-                        in0,
-                        output,
-                        # loc=old_op.location, -> this segfault, not sure why
-                    )
+                    new_op = ttir.LogOp(result, in0, output, loc=old_op.location)
 
                     if not self._disable_golden_check:
                         input_owner0 = old_op.input.owner
@@ -994,12 +974,11 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
     ) -> Tuple[Module, TTIRBuilder]:
         ttir_op = self.get_opview_from_split(TTIRBuilder.gt_split)
 
-        new_ctx = Context()
-        new_loc = Location.unknown(new_ctx)
-
-        with new_ctx, new_loc:
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+        with old_ctx, old_loc:
             gt_module = Module.create()
-            gt_builder = TTIRBuilder(new_ctx, new_loc)
+            gt_builder = TTIRBuilder(old_ctx, old_loc)
             op_input_types = [old_op.lhs.type, old_op.rhs.type]
 
             with InsertionPoint(gt_module.body):
@@ -1012,11 +991,7 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
                     output = self._get_empty_op(result)
 
                     new_op = ttir.GreaterThanOp(
-                        result,
-                        in0,
-                        in1,
-                        output,
-                        # loc=old_op.location, -> this segfault, not sure why
+                        result, in0, in1, output, loc=old_op.location
                     )
 
                     if not self._disable_golden_check:
@@ -1178,12 +1153,11 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
     ) -> Tuple[Module, TTIRBuilder]:
         ttir_op = self.get_opview_from_split(TTIRBuilder.pooling_split)
 
-        new_ctx = Context()
-        new_loc = Location.unknown(new_ctx)
-
-        with new_ctx, new_loc:
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+        with old_ctx, old_loc:
             pool_module = Module.create()
-            pool_builder = TTIRBuilder(new_ctx, new_loc)
+            pool_builder = TTIRBuilder(old_ctx, old_loc)
             op_input_types = [old_op.inputs[0].type]
 
             with InsertionPoint(pool_module.body):
@@ -1204,7 +1178,7 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
                         old_op.base_dilations,
                         old_op.window_dilations,
                         old_op.padding,
-                        # loc=old_op.location, -> this segfault, not sure why
+                        loc=old_op.location,
                     )
 
                     if not self._disable_golden_check:
@@ -1360,12 +1334,11 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
     ) -> Tuple[Module, TTIRBuilder]:
         ttir_op = self.get_opview_from_split(TTIRBuilder.batch_norm_inference_split)
 
-        new_ctx = Context()
-        new_loc = Location.unknown(new_ctx)
-
-        with new_ctx, new_loc:
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+        with old_ctx, old_loc:
             batch_norm_inference_module = Module.create()
-            batch_norm_inference_builder = TTIRBuilder(new_ctx, new_loc)
+            batch_norm_inference_builder = TTIRBuilder(old_ctx, old_loc)
             op_input_types = [
                 old_op.operand.type,
                 old_op.scale.type,
@@ -1396,7 +1369,7 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
                         output,
                         old_op.epsilon,
                         old_op.dimension,
-                        # loc=old_op.location, -> this segfault, not sure why
+                        loc=old_op.location,
                     )
 
                     if not self._disable_golden_check:
@@ -1631,12 +1604,12 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
     ) -> Tuple[Module, TTIRBuilder]:
         ttir_op = self.get_opview_from_split(TTIRBuilder.convolution_split)
 
-        new_ctx = Context()
-        new_loc = Location.unknown(new_ctx)
+        old_context = old_op.context
+        old_location = Location.unknown(old_context)
+        with old_context, old_location:
 
-        with new_ctx, new_loc:
             convolution_module = Module.create()
-            convolution_builder = TTIRBuilder(new_ctx, new_loc)
+            convolution_builder = TTIRBuilder(old_context, old_location)
             op_input_types = []
 
             conv_input = old_op.input
@@ -1661,7 +1634,7 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
                     feature_group_count_attr = old_op.feature_group_count
                     batch_group_count_attr = old_op.batch_group_count
 
-                    new_op = ttir.ConvolutionOp(
+                    new_op = ttir_op(
                         result,
                         in0,
                         weight,
@@ -1674,10 +1647,10 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
                         convolution_layout_attr,
                         feature_group_count_attr,
                         batch_group_count_attr,
-                        # loc=old_op.location, -> this segfault, not sure why
+                        loc=old_op.location,
                     )
 
-                    if not convolution_builder._disable_golden_check:
+                    if not self._disable_golden_check:
                         input_owner = old_op.input.owner
                         if isinstance(input_owner, Block):
                             queried_input = old_op.input
@@ -1761,35 +1734,36 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
         global_dict: Dict[Operand, Operand],
     ) -> global_dict:
         ttir_op = self.get_opview_from_parser(TTIRBuilder.constant_parser)
-        value_attr = old_op.value
-        result = old_op.result.type
 
-        new_op = ttir_op(
-            result,
-            value_attr,
-            loc=old_op.location,
-        )
+        with old_op.context, old_op.location:
+            value_attr = old_op.value
+            result = old_op.result.type
 
-        if not self._disable_golden_check:
-            op_golden_function = get_golden_function(ttir_op)
-            golden_output = op_golden_function(value_attr)
-            self._set_golden_tensor(new_op, golden_output)
+            new_op = ttir_op(
+                result,
+                value_attr,
+            )
+
+            if not self._disable_golden_check:
+                op_golden_function = get_golden_function(ttir_op)
+                golden_output = op_golden_function(value_attr)
+                self._set_golden_tensor(new_op, golden_output)
 
         return new_op
 
     @split(ttir.ConstantOp)
     def constant_split(
         self,
-        old_op: ttir.ConstantOp,
+        old_op: Operation,
     ) -> Tuple[Module, TTIRBuilder]:
         ttir_op = self.get_opview_from_split(TTIRBuilder.constant_split)
 
-        new_ctx = Context()
-        new_loc = Location.unknown(new_ctx)
+        old_context = old_op.context
+        old_location = Location.unknown(old_context)
 
-        with new_ctx, new_loc:
+        with old_context, old_location:
             constant_module = Module.create()
-            constant_builder = TTIRBuilder(new_ctx, new_loc)
+            constant_builder = TTIRBuilder(old_context, old_location)
             op_input_types = []
 
             with InsertionPoint(constant_module.body):
@@ -1799,11 +1773,7 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
                     value_attr = old_op.value
                     result = old_op.result.type
 
-                    new_op = ttir.ConstantOp(
-                        result,
-                        value_attr,
-                        # loc=old_op.location, -> this segfault, not sure why
-                    )
+                    new_op = ttir.constant(result, value_attr, loc=old_op.location)
 
                     if not self._disable_golden_check:
                         op_golden_function = get_golden_function(ttir_op)
@@ -1906,12 +1876,11 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
     ) -> Tuple[Module, TTIRBuilder]:
         ttir_op = self.get_opview_from_split(TTIRBuilder.pad_split)
 
-        new_ctx = Context()
-        new_loc = Location.unknown(new_ctx)
-
-        with new_ctx, new_loc:
+        old_context = old_op.context
+        old_loc = Location.unknown(old_context)
+        with old_context, old_loc:
             pad_module = Module.create()
-            pad_builder = TTIRBuilder(new_ctx, new_loc)
+            pad_builder = TTIRBuilder(old_context, old_loc)
             op_input_types = [old_op.input.type]
 
             with InsertionPoint(pad_module.body):
@@ -1930,7 +1899,7 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
                         output,
                         padding_attr,
                         value_attr,
-                        # loc=old_op.location, -> this segfault, not sure why
+                        loc=old_op.location,
                     )
 
                     if not self._disable_golden_check:
@@ -2066,12 +2035,11 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
     ) -> Tuple[Module, TTIRBuilder]:
         ttir_op = self.get_opview_from_split(TTIRBuilder.dot_general_split)
 
-        new_ctx = Context()
-        new_loc = Location.unknown(new_ctx)
-
-        with new_ctx, new_loc:
+        old_context = old_op.context
+        old_loc = Location.unknown(old_context)
+        with old_context, old_loc:
             dot_general_module = Module.create()
-            dot_general_builder = TTIRBuilder(new_ctx, new_loc)
+            dot_general_builder = TTIRBuilder(old_context, old_loc)
             op_input_types = [old_op.lhs.type, old_op.rhs.type]
 
             with InsertionPoint(dot_general_module.body):
@@ -2094,7 +2062,7 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
                         contract_dims_lhs_attr,
                         batch_dims_rhs_attr,
                         contract_dims_rhs_attr,
-                        # loc=old_op.location, -> this segfault, not sure why
+                        loc=old_op.location,
                     )
 
                     if not self._disable_golden_check:
@@ -2216,12 +2184,11 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
     ) -> Tuple[Module, TTIRBuilder]:
         ttir_op = self.get_opview_from_split(TTIRBuilder.permute_split)
 
-        new_ctx = Context()
-        new_loc = Location.unknown(new_ctx)
-
-        with new_ctx, new_loc:
+        old_context = old_op.context
+        old_loc = Location.unknown(old_context)
+        with old_context, old_loc:
             permute_module = Module.create()
-            permute_builder = TTIRBuilder(new_ctx, new_loc)
+            permute_builder = TTIRBuilder(old_context, old_loc)
             op_input_types = [old_op.input.type]
 
             with InsertionPoint(permute_module.body):
@@ -2234,11 +2201,7 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
                     output = self._get_empty_op(result)
 
                     new_op = ttir.PermuteOp(
-                        result,
-                        in0,
-                        output,
-                        permutation_attr,
-                        # loc=old_op.location, -> this segfault, not sure why
+                        result, in0, output, permutation_attr, loc=old_op.location
                     )
 
                     if not self._disable_golden_check:
@@ -2348,12 +2311,11 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
     ) -> Tuple[Module, TTIRBuilder]:
         ttir_op = self.get_opview_from_split(TTIRBuilder.broadcast_split)
 
-        new_ctx = Context()
-        new_loc = Location.unknown(new_ctx)
-
-        with new_ctx, new_loc:
+        old_context = old_op.context
+        old_loc = Location.unknown(old_context)
+        with old_context, old_loc:
             broadcast_module = Module.create()
-            broadcast_builder = TTIRBuilder(new_ctx, new_loc)
+            broadcast_builder = TTIRBuilder(old_context, old_loc)
             op_input_types = [old_op.input.type]
 
             with InsertionPoint(broadcast_module.body):
@@ -2370,7 +2332,7 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
                         in0,
                         output,
                         broadcast_dimensions_attr,
-                        # loc=old_op.location, -> this segfault, not sure why
+                        loc=old_op.location,
                     )
 
                     if not self._disable_golden_check:
@@ -2476,12 +2438,11 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
     ) -> Tuple[Module, TTIRBuilder]:
         ttir_op = self.get_opview_from_split(TTIRBuilder.reshape_split)
 
-        new_ctx = Context()
-        new_loc = Location.unknown(new_ctx)
-
-        with new_ctx, new_loc:
+        old_context = old_op.context
+        old_loc = Location.unknown(old_context)
+        with old_context, old_loc:
             reshape_module = Module.create()
-            reshape_builder = TTIRBuilder(new_ctx, new_loc)
+            reshape_builder = TTIRBuilder(old_context, old_loc)
             op_input_types = [old_op.input.type]
 
             with InsertionPoint(reshape_module.body):
@@ -2494,11 +2455,7 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
                     output = self._get_empty_op(result)
 
                     new_op = ttir.ReshapeOp(
-                        result,
-                        in0,
-                        output,
-                        shape_attr,
-                        # loc=old_op.location, -> this segfault, not sure why
+                        result, in0, output, shape_attr, loc=old_op.location
                     )
 
                     if not self._disable_golden_check:
@@ -2601,12 +2558,11 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
     ) -> Tuple[Module, TTIRBuilder]:
         ttir_op = self.get_opview_from_split(TTIRBuilder.maximum_split)
 
-        new_ctx = Context()
-        new_loc = Location.unknown(new_ctx)
-
-        with new_ctx, new_loc:
+        old_context = old_op.context
+        old_loc = Location.unknown(old_context)
+        with old_context, old_loc:
             maximum_module = Module.create()
-            maximum_builder = TTIRBuilder(new_ctx, new_loc)
+            maximum_builder = TTIRBuilder(old_context, old_loc)
             op_input_types = [old_op.lhs.type, old_op.rhs.type]
 
             with InsertionPoint(maximum_module.body):
@@ -2619,11 +2575,7 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
                     output = self._get_empty_op(result)
 
                     new_op = ttir.MaximumOp(
-                        result,
-                        lhs,
-                        rhs,
-                        output,
-                        # loc=old_op.location, -> this segfault, not sure why
+                        result, lhs, rhs, output, loc=old_op.location
                     )
 
                     if not self._disable_golden_check:
@@ -2735,12 +2687,11 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
     ) -> Tuple[Module, TTIRBuilder]:
         ttir_op = self.get_opview_from_split(TTIRBuilder.multiply_split)
 
-        new_ctx = Context()
-        new_loc = Location.unknown(new_ctx)
-
-        with new_ctx, new_loc:
+        old_context = old_op.context
+        old_loc = Location.unknown(old_context)
+        with old_context, old_loc:
             multiply_module = Module.create()
-            multiply_builder = TTIRBuilder(new_ctx, new_loc)
+            multiply_builder = TTIRBuilder(old_context, old_loc)
             op_input_types = [old_op.lhs.type, old_op.rhs.type]
 
             with InsertionPoint(multiply_module.body):
@@ -2753,11 +2704,7 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
                     output = self._get_empty_op(result)
 
                     new_op = ttir.MultiplyOp(
-                        result,
-                        lhs,
-                        rhs,
-                        output,
-                        # loc=old_op.location, -> this segfault, not sure why
+                        result, lhs, rhs, output, loc=old_op.location
                     )
 
                     if not self._disable_golden_check:
@@ -2882,12 +2829,11 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
     ) -> Tuple[Module, TTIRBuilder]:
         ttir_op = self.get_opview_from_split(TTIRBuilder.sum_split)
 
-        new_ctx = Context()
-        new_loc = Location.unknown(new_ctx)
-
-        with new_ctx, new_loc:
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+        with old_ctx, old_loc:
             sum_module = Module.create()
-            sum_builder = TTIRBuilder(new_ctx, new_loc)
+            sum_builder = TTIRBuilder(old_ctx, old_loc)
             op_input_types = [old_op.input.type]
 
             with InsertionPoint(sum_module.body):
@@ -2906,7 +2852,7 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
                         output,
                         keep_dim_attr,
                         dim_arg=dim_arg_attr,
-                        # loc=old_op.location, -> this segfault, not sure why
+                        loc=old_op.location,
                     )
 
                     if not self._disable_golden_check:
@@ -3014,12 +2960,11 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
     ) -> Tuple[Module, TTIRBuilder]:
         ttir_op = self.get_opview_from_split(TTIRBuilder.add_split)
 
-        new_ctx = Context()
-        new_loc = Location.unknown(new_ctx)
-
-        with new_ctx, new_loc:
+        old_context = old_op.context
+        old_loc = Location.unknown(old_context)
+        with old_context, old_loc:
             add_module = Module.create()
-            add_builder = TTIRBuilder(new_ctx, new_loc)
+            add_builder = TTIRBuilder(old_context, old_loc)
             op_input_types = [
                 old_op.lhs.type,
                 old_op.rhs.type,
@@ -3034,13 +2979,7 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
                     result = old_op.result.type
                     output = self._get_empty_op(result)
 
-                    new_op = ttir.AddOp(
-                        result,
-                        lhs,
-                        rhs,
-                        output,
-                        # loc=old_op.location, -> this segfault, not sure why
-                    )
+                    new_op = ttir.AddOp(result, lhs, rhs, output, loc=old_op.location)
 
                     if not self._disable_golden_check:
                         op_golden_function = get_golden_function(ttir_op)
@@ -3163,12 +3102,11 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
     ) -> Tuple[Module, TTIRBuilder]:
         ttir_op = self.get_opview_from_split(TTIRBuilder.sigmoid_split)
 
-        new_ctx = Context()
-        new_loc = Location.unknown(new_ctx)
-
-        with new_ctx, new_loc:
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+        with old_ctx, old_loc:
             sigmoid_module = Module.create()
-            sigmoid_builder = TTIRBuilder(new_ctx, new_loc)
+            sigmoid_builder = TTIRBuilder(old_ctx, old_loc)
             op_input_types = [old_op.input.type]
 
             with InsertionPoint(sigmoid_module.body):
@@ -3179,12 +3117,7 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
                     result = old_op.result.type
                     output = self._get_empty_op(result)
 
-                    new_op = ttir.SigmoidOp(
-                        result,
-                        in0,
-                        output,
-                        # loc=old_op.location, -> this segfault, not sure why
-                    )
+                    new_op = ttir.SigmoidOp(result, in0, output, loc=old_op.location)
 
                     if not self._disable_golden_check:
                         op_golden_function = get_golden_function(ttir_op)
@@ -3287,12 +3220,11 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
     ) -> Tuple[Module, TTIRBuilder]:
         ttir_op = self.get_opview_from_split(TTIRBuilder.subtract_split)
 
-        new_ctx = Context()
-        new_loc = Location.unknown(new_ctx)
-
-        with new_ctx, new_loc:
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+        with old_ctx, old_loc:
             subtract_module = Module.create()
-            subtract_builder = TTIRBuilder(new_ctx, new_loc)
+            subtract_builder = TTIRBuilder(old_ctx, old_loc)
             op_input_types = [
                 old_op.lhs.type,
                 old_op.rhs.type,
@@ -3308,11 +3240,7 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
                     output = self._get_empty_op(result)
 
                     new_op = ttir.SubtractOp(
-                        result,
-                        lhs,
-                        rhs,
-                        output,
-                        # loc=old_op.location, -> this segfault, not sure why
+                        result, lhs, rhs, output, loc=old_op.location
                     )
 
                     if not self._disable_golden_check:
@@ -3418,13 +3346,12 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
     ) -> Tuple[Module, TTIRBuilder]:
         ttir_op = self.get_opview_from_split(TTIRBuilder.tanh_split)
 
-        new_ctx = Context()
-        new_loc = Location.unknown(new_ctx)
-
-        with new_ctx, new_loc:
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+        with old_ctx, old_loc:
 
             tanh_module = Module.create()
-            tanh_builder = TTIRBuilder(new_ctx, new_loc)
+            tanh_builder = TTIRBuilder(old_ctx, old_loc)
             op_input_types = [old_op.input.type]
 
             with InsertionPoint(tanh_module.body):
@@ -3435,12 +3362,7 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
                     result = old_op.result.type
                     output = self._get_empty_op(result)
 
-                    new_op = ttir.TanhOp(
-                        result,
-                        in0,
-                        output,
-                        # loc=old_op.location, -> this segfault, not sure why
-                    )
+                    new_op = ttir.TanhOp(result, in0, output, loc=old_op.location)
 
                     if not self._disable_golden_check:
                         op_golden_function = get_golden_function(ttir_op)
@@ -3537,13 +3459,12 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
     ) -> Tuple[Module, TTIRBuilder]:
         ttir_op = self.get_opview_from_split(TTIRBuilder.rsqrt_split)
 
-        new_ctx = Context()
-        new_loc = Location.unknown(new_ctx)
-
-        with new_ctx, new_loc:
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+        with old_ctx, old_loc:
 
             rsqrt_module = Module.create()
-            rsqrt_builder = TTIRBuilder(new_ctx, new_loc)
+            rsqrt_builder = TTIRBuilder(old_ctx, old_loc)
             op_input_types = [old_op.input.type]
 
             with InsertionPoint(rsqrt_module.body):
@@ -3554,12 +3475,7 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
                     result = old_op.result.type
                     output = self._get_empty_op(result)
 
-                    new_op = ttir.RsqrtOp(
-                        result,
-                        in0,
-                        output,
-                        # loc=old_op.location, -> this segfault, not sure why
-                    )
+                    new_op = ttir.RsqrtOp(result, in0, output, loc=old_op.location)
 
                     if not self._disable_golden_check:
                         op_golden_function = get_golden_function(ttir_op)
@@ -3656,13 +3572,12 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
     ) -> Tuple[Module, TTIRBuilder]:
         ttir_op = self.get_opview_from_split(TTIRBuilder.neg_split)
 
-        new_ctx = Context()
-        new_loc = Location.unknown(new_ctx)
-
-        with new_ctx, new_loc:
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+        with old_ctx, old_loc:
 
             neg_module = Module.create()
-            neg_builder = TTIRBuilder(new_ctx, new_loc)
+            neg_builder = TTIRBuilder(old_ctx, old_loc)
             op_input_types = [old_op.input.type]
 
             with InsertionPoint(neg_module.body):
@@ -3673,12 +3588,7 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
                     result = old_op.result.type
                     output = self._get_empty_op(result)
 
-                    new_op = ttir.NegOp(
-                        result,
-                        in0,
-                        output,
-                        # loc=old_op.location, -> this segfault, not sure why
-                    )
+                    new_op = ttir.NegOp(result, in0, output, loc=old_op.location)
 
                     if not self._disable_golden_check:
                         op_golden_function = get_golden_function(ttir_op)
@@ -3781,13 +3691,12 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
     ) -> Tuple[Module, TTIRBuilder]:
         ttir_op = self.get_opview_from_split(TTIRBuilder.ne_split)
 
-        new_ctx = Context()
-        new_loc = Location.unknown(new_ctx)
-
-        with new_ctx, new_loc:
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+        with old_ctx, old_loc:
 
             ne_module = Module.create()
-            ne_builder = TTIRBuilder(new_ctx, new_loc)
+            ne_builder = TTIRBuilder(old_ctx, old_loc)
             op_input_types = [
                 old_op.lhs.type,
                 old_op.rhs.type,
@@ -3803,11 +3712,7 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
                     output = self._get_empty_op(result)
 
                     new_op = ttir.NotEqualOp(
-                        result,
-                        lhs,
-                        rhs,
-                        output,
-                        # loc=old_op.location, -> this segfault, not sure why
+                        result, lhs, rhs, output, loc=old_op.location
                     )
 
                     if not self._disable_golden_check:
@@ -4022,13 +3927,12 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
     ) -> Tuple[Module, TTIRBuilder]:
         ttir_op = self.get_opview_from_split(TTIRBuilder.where_split)
 
-        new_ctx = Context()
-        new_loc = Location.unknown(new_ctx)
-
-        with new_ctx, new_loc:
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+        with old_ctx, old_loc:
 
             where_module = Module.create()
-            where_builder = TTIRBuilder(new_ctx, new_loc)
+            where_builder = TTIRBuilder(old_ctx, old_loc)
             op_input_types = [
                 old_op.first.type,
                 old_op.second.type,
@@ -4046,12 +3950,7 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
                     output = self._get_empty_op(result)
 
                     new_op = ttir.WhereOp(
-                        result,
-                        first,
-                        second,
-                        third,
-                        output,
-                        # loc=old_op.location, -> this segfault, not sure why
+                        result, first, second, third, output, loc=old_op.location
                     )
 
                     if not self._disable_golden_check:
@@ -4174,13 +4073,12 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
     ) -> Tuple[Module, TTIRBuilder]:
         ttir_op = self.get_opview_from_split(TTIRBuilder.abs_split)
 
-        new_ctx = Context()
-        new_loc = Location.unknown(new_ctx)
-
-        with new_ctx, new_loc:
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+        with old_ctx, old_loc:
 
             abs_module = Module.create()
-            abs_builder = TTIRBuilder(new_ctx, new_loc)
+            abs_builder = TTIRBuilder(old_ctx, old_loc)
             op_input_types = [old_op.input.type]
 
             with InsertionPoint(abs_module.body):
@@ -4191,12 +4089,7 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
                     result = old_op.result.type
                     output = self._get_empty_op(result)
 
-                    new_op = ttir.AbsOp(
-                        result,
-                        in0,
-                        output,
-                        # loc=old_op.location, -> this segfault, not sure why
-                    )
+                    new_op = ttir.AbsOp(result, in0, output, loc=old_op.location)
 
                     if not self._disable_golden_check:
                         op_golden_function = get_golden_function(ttir_op)
@@ -4381,13 +4274,12 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
     ) -> Tuple[Module, TTIRBuilder]:
         ttir_op = self.get_opview_from_split(TTIRBuilder.erf_split)
 
-        new_ctx = Context()
-        new_loc = Location.unknown(new_ctx)
-
-        with new_ctx, new_loc:
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+        with old_ctx, old_loc:
 
             erf_module = Module.create()
-            erf_builder = TTIRBuilder(new_ctx, new_loc)
+            erf_builder = TTIRBuilder(old_ctx, old_loc)
             op_input_types = [old_op.input.type]
 
             with InsertionPoint(erf_module.body):
@@ -4398,12 +4290,7 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
                     result = old_op.result.type
                     output = self._get_empty_op(result)
 
-                    new_op = ttir.ErfOp(
-                        result,
-                        in0,
-                        output,
-                        # loc=old_op.location, -> this segfault, not sure why
-                    )
+                    new_op = ttir.ErfOp(result, in0, output, loc=old_op.location)
 
                     if not self._disable_golden_check:
                         op_golden_function = get_golden_function(ttir_op)
@@ -4547,13 +4434,12 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
     ) -> Tuple[Module, TTIRBuilder]:
         ttir_op = self.get_opview_from_split(TTIRBuilder.floor_split)
 
-        new_ctx = Context()
-        new_loc = Location.unknown(new_ctx)
-
-        with new_ctx, new_loc:
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+        with old_ctx, old_loc:
 
             floor_module = Module.create()
-            floor_builder = TTIRBuilder(new_ctx, new_loc)
+            floor_builder = TTIRBuilder(old_ctx, old_loc)
             op_input_types = [old_op.input.type]
 
             with InsertionPoint(floor_module.body):
@@ -4564,12 +4450,7 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
                     result = old_op.result.type
                     output = self._get_empty_op(result)
 
-                    new_op = ttir.FloorOp(
-                        result,
-                        in0,
-                        output,
-                        # loc=old_op.location, -> this segfault, not sure why
-                    )
+                    new_op = ttir.FloorOp(result, in0, output, loc=old_op.location)
 
                     if not self._disable_golden_check:
                         op_golden_function = get_golden_function(ttir_op)
@@ -5159,13 +5040,12 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
     ) -> Tuple[Module, TTIRBuilder]:
         ttir_op = self.get_opview_from_split(TTIRBuilder.typecast_split)
 
-        new_ctx = Context()
-        new_loc = Location.unknown(new_ctx)
-
-        with new_ctx, new_loc:
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+        with old_ctx, old_loc:
 
             typecast_module = Module.create()
-            typecast_builder = TTIRBuilder(new_ctx, new_loc)
+            typecast_builder = TTIRBuilder(old_ctx, old_loc)
             op_input_types = [old_op.input.type]
 
             with InsertionPoint(typecast_module.body):
@@ -5176,12 +5056,7 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
                     result = old_op.result.type
                     output = self._get_empty_op(result)
 
-                    new_op = ttir.TypecastOp(
-                        result,
-                        in0,
-                        output,
-                        # loc=old_op.location, -> this segfault, not sure why
-                    )
+                    new_op = ttir.TypecastOp(result, in0, output, loc=old_op.location)
 
                     if not self._disable_golden_check:
                         op_golden_function = get_golden_function(ttir_op)
@@ -5415,13 +5290,12 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
     ) -> Tuple[Module, TTIRBuilder]:
         ttir_op = self.get_opview_from_split(TTIRBuilder.eq_split)
 
-        new_ctx = Context()
-        new_loc = Location.unknown(new_ctx)
-
-        with new_ctx, new_loc:
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+        with old_ctx, old_loc:
 
             eq_module = Module.create()
-            eq_builder = TTIRBuilder(new_ctx, new_loc)
+            eq_builder = TTIRBuilder(old_ctx, old_loc)
             op_input_types = [
                 old_op.lhs.type,
                 old_op.rhs.type,
@@ -5436,13 +5310,7 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
                     result = old_op.result.type
                     output = self._get_empty_op(result)
 
-                    new_op = ttir.EqualOp(
-                        result,
-                        lhs,
-                        rhs,
-                        output,
-                        # loc=old_op.location, -> this segfault, not sure why
-                    )
+                    new_op = ttir.EqualOp(result, lhs, rhs, output, loc=old_op.location)
 
                     if not self._disable_golden_check:
                         op_golden_function = get_golden_function(ttir_op)
@@ -6581,12 +6449,11 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
     ) -> Tuple[Module, TTIRBuilder]:
         ttir_op = self.get_opview_from_split(TTIRBuilder.concat_split)
 
-        new_ctx = Context()
-        new_loc = Location.unknown(new_ctx)
-
-        with new_ctx, new_loc:
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+        with old_ctx, old_loc:
             concat_module = Module.create()
-            concat_builder = TTIRBuilder(new_ctx, new_loc)
+            concat_builder = TTIRBuilder(old_ctx, old_loc)
             op_input_types = [inp.type for inp in old_op.inputs]
 
             with InsertionPoint(concat_module.body):
@@ -6598,11 +6465,7 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
                     dim_attr = old_op.dim
 
                     new_op = ttir.ConcatOp(
-                        result,
-                        inputs,
-                        output,
-                        dim=dim_attr,
-                        # loc=old_op.location, -> this segfault, not sure why
+                        result, inputs, output, dim=dim_attr, loc=old_op.location
                     )
 
                     if not self._disable_golden_check:
@@ -7723,13 +7586,12 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
     ) -> Tuple[Module, TTIRBuilder]:
         ttir_op = self.get_opview_from_split(TTIRBuilder.exp_split)
 
-        new_ctx = Context()
-        new_loc = Location.unknown(new_ctx)
-
-        with new_ctx, new_loc:
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+        with old_ctx, old_loc:
 
             exp_module = Module.create()
-            exp_builder = TTIRBuilder(new_ctx, new_loc)
+            exp_builder = TTIRBuilder(old_ctx, old_loc)
             op_input_types = [old_op.input.type]
 
             with InsertionPoint(exp_module.body):
@@ -7740,12 +7602,7 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
                     result = old_op.result.type
                     output = self._get_empty_op(result)
 
-                    new_op = ttir.ExpOp(
-                        result,
-                        in0,
-                        output,
-                        # loc=old_op.location, -> this segfault, not sure why
-                    )
+                    new_op = ttir.ExpOp(result, in0, output, loc=old_op.location)
 
                     if not self._disable_golden_check:
                         op_golden_function = get_golden_function(ttir_op)
@@ -7891,13 +7748,12 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
     ) -> Tuple[Module, TTIRBuilder]:
         ttir_op = self.get_opview_from_split(TTIRBuilder.div_split)
 
-        new_ctx = Context()
-        new_loc = Location.unknown(new_ctx)
-
-        with new_ctx, new_loc:
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+        with old_ctx, old_loc:
 
             div_module = Module.create()
-            div_builder = TTIRBuilder(new_ctx, new_loc)
+            div_builder = TTIRBuilder(old_ctx, old_loc)
             op_input_types = [
                 old_op.lhs.type,
                 old_op.rhs.type,
@@ -7912,13 +7768,7 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
                     result = old_op.result.type
                     output = self._get_empty_op(result)
 
-                    new_op = ttir.DivOp(
-                        result,
-                        lhs,
-                        rhs,
-                        output,
-                        # loc=old_op.location, -> this segfault, not sure why
-                    )
+                    new_op = ttir.DivOp(result, lhs, rhs, output, loc=old_op.location)
 
                     if not self._disable_golden_check:
                         op_golden_function = get_golden_function(ttir_op)
@@ -8611,12 +8461,11 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
     ) -> Tuple[Module, TTIRBuilder]:
         ttir_op = self.get_opview_from_split(TTIRBuilder.slice_split)
 
-        new_ctx = Context()
-        new_loc = Location.unknown(new_ctx)
-
-        with new_ctx, new_loc:
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+        with old_ctx, old_loc:
             slice_module = Module.create()
-            slice_builder = TTIRBuilder(new_ctx, new_loc)
+            slice_builder = TTIRBuilder(old_ctx, old_loc)
             op_input_types = [old_op.input.type]
 
             with InsertionPoint(slice_module.body):
@@ -8637,7 +8486,7 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
                         begins_attr,
                         ends_attr,
                         step_attr,
-                        # loc=old_op.location, -> this segfault, not sure why
+                        loc=old_op.location,
                     )
 
                     if not self._disable_golden_check:
@@ -9071,10 +8920,10 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
         self,
         parsed_op: Operation,
         global_dict: Dict[Operand, Operand],
-    ) -> global_dict:
+    ) -> Operation:
         parsed_function = self.get_parser_from_opview(type(parsed_op))
-        global_dict = parsed_function(self, parsed_op, global_dict)
-        return global_dict
+        new_op = parsed_function(self, parsed_op, global_dict)
+        return new_op
 
     @staticmethod
     def get_input_types(ttir_builder: TTIRBuilder, parsed_module: Module):
@@ -9099,7 +8948,7 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
 
     @staticmethod
     def from_module(
-        ctx: Context, parsed_module: Module, golden_inputs: List[torch.tensor] = []
+        ctx: Context, mlir_text: str, golden_inputs: List[torch.tensor] = []
     ) -> Tuple(Module, TTIRBuilder):
         def _convert_to_mlir_value(obj):
             if hasattr(obj, "operation") and hasattr(obj.operation, "results"):
@@ -9128,6 +8977,7 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
             else:
                 return _convert_to_mlir_value(result)
 
+        parsed_module = Module.parse(mlir_text, ctx)
         loc = Location.unknown(ctx)
         with ctx, loc:
             ttir_builder = TTIRBuilder(ctx, loc, (1, 1))
@@ -9207,14 +9057,14 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
 
     @staticmethod
     def split_module(
-        ctx: Context,
         module: Module,
         builder: TTIRBuilder,
     ) -> List[Tuple[Module, TTIRBuilder]]:
         sub_modules_and_builders = []
-        loc = Location.unknown(ctx)
+        old_ctx = module.context
+        old_loc = Location.unknown(old_ctx)
 
-        with ctx, loc:
+        with old_ctx, old_loc:
             for entry in module.body.operations:
                 for block in entry.body:
                     for op in block.operations:

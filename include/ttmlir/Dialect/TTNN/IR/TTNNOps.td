@@ -2222,17 +2222,19 @@ def TTNN_ReduceScatterOp: TTNN_Op<"reduce_scatter", [TTNN_MemoryConfigOpInterfac
     let hasFolder = 1;
 }
 
-def TTNN_AllReduceOp: TTNN_Op<"all_reduce"> {
+def TTNN_AllReduceOp: TTNN_Op<"all_reduce", [TTNN_MemoryConfigOpInterface]> {
     let summary = "All reduce op.";
     let description = [{
         Tensor All Reduce operation
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
-                         TTNN_Device:$device,
                          TTCore_ReduceTypeAttr:$reduce_type,
                          UI32Attr:$cluster_axis,
-                         DefaultValuedAttr<UI32Attr, "1">:$num_links);
+                         OptionalAttr<UI32Attr>:$sub_device_id,
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config,
+                         OptionalAttr<UI32Attr>:$num_links,
+                         OptionalAttr<TTCore_TopologyAttr>:$topology);
 
     let results = (outs AnyRankedTensor:$result);
 

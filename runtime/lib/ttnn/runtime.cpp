@@ -38,6 +38,15 @@ namespace tt::runtime::ttnn {
 
 using ::tt::runtime::DeviceRuntime;
 
+namespace debug {
+static void logDeviceMemoryState(const Device &device,
+                                 std::string_view prefix) {
+#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
+  ::tt::runtime::debug::logMemoryState(getMemoryView(device), prefix);
+#endif
+}
+} // namespace debug
+
 static tt::runtime::MemoryView
 createMemoryView(const tt::tt_metal::detail::MemoryView &memoryView) {
   return tt::runtime::MemoryView{
@@ -1177,6 +1186,10 @@ getOpOutputRef(OpContext opContextHandle,
     tensorRef = opContext.type_as_AllGatherOp()->out();
     break;
   }
+  case ::tt::target::ttnn::OpType::AllReduceOp: {
+    tensorRef = opContext.type_as_AllReduceOp()->out();
+    break;
+  }
   case ::tt::target::ttnn::OpType::ReduceScatterOp: {
     tensorRef = opContext.type_as_ReduceScatterOp()->out();
     break;
@@ -1528,6 +1541,10 @@ getOpInputRefs(OpContext opContextHandle,
     tensorRefs = {opContext.type_as_AllGatherOp()->in()};
     break;
   }
+  case ::tt::target::ttnn::OpType::AllReduceOp: {
+    tensorRefs = {opContext.type_as_AllReduceOp()->in()};
+    break;
+  }
   case ::tt::target::ttnn::OpType::ReduceScatterOp: {
     tensorRefs = {opContext.type_as_ReduceScatterOp()->in()};
     break;
@@ -1726,11 +1743,19 @@ std::vector<::tt::runtime::Tensor>
 submit(Device deviceHandle, Binary executableHandle, std::uint32_t programIndex,
        std::vector<::tt::runtime::Tensor> &inputs) {
 
-  ProgramExecutor executor(deviceHandle, executableHandle, programIndex,
-                           inputs);
-  executor.execute();
+  debug::logDeviceMemoryState(deviceHandle,
+                              "Device memory state before submit");
+
+  std::unique_ptr<ProgramExecutor> executor = std::make_unique<ProgramExecutor>(
+      deviceHandle, executableHandle, programIndex, inputs);
+
+  executor->execute();
   std::vector<::tt::runtime::Tensor> outputTensors =
-      executor.gatherOutputTensors();
+      executor->gatherOutputTensors();
+
+  executor.reset();
+
+  debug::logDeviceMemoryState(deviceHandle, "Device memory state after submit");
 
   return outputTensors;
 }

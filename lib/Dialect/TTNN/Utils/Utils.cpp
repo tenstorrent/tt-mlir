@@ -8,7 +8,9 @@
 #include "ttmlir/Dialect/TTNN/Types/Types.h"
 #include "ttmlir/Utils.h"
 
+#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Quant/IR/QuantTypes.h"
+#include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/Location.h"
 #include "mlir/IR/Operation.h"
 #include "mlir/IR/Value.h"
@@ -18,6 +20,20 @@
 #include <optional>
 
 namespace mlir::tt::ttnn::utils {
+
+float getTensorL1UsageCap(Operation *op, float defaultValue) {
+  // Walk up to find the module operation that has the attribute
+  ModuleOp moduleOp = op->getParentOfType<ModuleOp>();
+
+  if (moduleOp) {
+    if (auto attr =
+            moduleOp->getAttrOfType<FloatAttr>(g_TensorL1UsageCapAttrName)) {
+      return attr.getValueAsDouble();
+    }
+  }
+
+  return defaultValue;
+}
 
 bool isTensorOnDevice(::mlir::RankedTensorType tensorType) {
   auto ttnnLayoutAttr =

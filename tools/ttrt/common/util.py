@@ -249,10 +249,12 @@ def parse_fabric_config(fabric_config_str: str):
         return ttrt.runtime.FabricConfig.FABRIC_1D_RING
     elif key == "fabric_2d":
         return ttrt.runtime.FabricConfig.FABRIC_2D
-    elif key == "fabric_2d_torus":
-        return ttrt.runtime.FabricConfig.FABRIC_2D_TORUS
-    elif key == "fabric_2d_dynamic":
-        return ttrt.runtime.FabricConfig.FABRIC_2D_DYNAMIC
+    elif key == "fabric_2d_torus_x":
+        return ttrt.runtime.FabricConfig.FABRIC_2D_TORUS_X
+    elif key == "fabric_2d_torus_y":
+        return ttrt.runtime.FabricConfig.FABRIC_2D_TORUS_Y
+    elif key == "fabric_2d_torus_xy":
+        return ttrt.runtime.FabricConfig.FABRIC_2D_TORUS_XY
     elif key == "custom":
         return ttrt.runtime.FabricConfig.CUSTOM
     else:

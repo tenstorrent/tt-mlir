@@ -13,6 +13,99 @@ from builder.base.builder_utils import build_module, load_mlir_file, split_mlir_
 
 pytestmark = pytest.mark.frontend("ttir")
 
+constant_ir = """module {
+  func.func @model() -> tensor<32x32xf32> {
+    %0 = "ttir.constant"() <{value = dense<-0.190434918> : tensor<32x32xf32>}> : () -> tensor<32x32xf32>
+    return %0 : tensor<32x32xf32>
+  }
+}"""
+
+pad_ir = """module {
+  func.func @model(%arg0: tensor<32x32xf32>) -> tensor<32x34xf32> {
+    %0 = ttir.empty() : tensor<32x34xf32>
+    %1 = "ttir.pad"(%arg0, %0) <{padding = array<i32: 0, 0, 1, 1>, value = 0.000000e+00 : f32}> : (tensor<32x32xf32>, tensor<32x34xf32>) -> tensor<32x34xf32>
+    return %1 : tensor<32x34xf32>
+  }
+}"""
+
+dot_general_ir = """module {
+  func.func @model(%arg0: tensor<32x32xf32>, %arg1: tensor<32x32xf32>) -> tensor<32x32xf32> {
+    %0 = "ttir.dot_general"(%arg0, %arg1) <{batch_dims_lhs = array<i64>, batch_dims_rhs = array<i64>, contract_dims_lhs = array<i64: 1>, contract_dims_rhs = array<i64: 0>}> : (tensor<32x32xf32>, tensor<32x32xf32>) -> tensor<32x32xf32>
+    return %0 : tensor<32x32xf32>
+  }
+}"""
+
+permute_ir = """module {
+  func.func @model(%arg0: tensor<32x32xf32>) -> tensor<32x32xf32> {
+    %0 = ttir.empty() : tensor<32x32xf32>
+    %1 = "ttir.permute"(%arg0, %0) <{permutation = array<i64: 1, 0>}> : (tensor<32x32xf32>, tensor<32x32xf32>) -> tensor<32x32xf32>
+    return %1 : tensor<32x32xf32>
+  }
+}"""
+
+broadcast_ir = """module {
+  func.func @model(%arg0: tensor<32x32xf32>) -> tensor<32x32xf32> {
+    %0 = ttir.empty() : tensor<32x32xf32>
+    %1 = "ttir.broadcast"(%arg0, %0) <{broadcast_dimensions = array<i64: 1, 1>}> : (tensor<32x32xf32>, tensor<32x32xf32>) -> tensor<32x32xf32>
+    return %1 : tensor<32x32xf32>
+  }
+}"""
+
+add_ir = """module {
+  func.func @model(%arg0: tensor<32x32xf32>, %arg1: tensor<32x32xf32>) -> tensor<32x32xf32> {
+    %0 = ttir.empty() : tensor<32x32xf32>
+    %1 = "ttir.add"(%arg0, %arg1, %0) : (tensor<32x32xf32>, tensor<32x32xf32>, tensor<32x32xf32>) -> tensor<32x32xf32>
+    return %1 : tensor<32x32xf32>
+  }
+}"""
+
+sub_ir = """module {
+  func.func @model(%arg0: tensor<32x32xf32>, %arg1: tensor<32x32xf32>) -> tensor<32xf32> {
+    %0 = ttir.empty() : tensor<32x32xf32>
+    %1 = "ttir.add"(%arg0, %arg1, %0) : (tensor<32x32xf32>, tensor<32x32xf32>, tensor<32x32xf32>) -> tensor<32x32xf32>
+    %2 = ttir.empty() : tensor<32xf32>
+    %3 = "ttir.sum"(%1, %2) <{dim_arg = [1 : i32], keep_dim = false}> : (tensor<32x32xf32>, tensor<32xf32>) -> tensor<32xf32>
+    return %3 : tensor<32xf32>
+  }
+}"""
+
+multiply_ir = """module {
+  func.func @model(%arg0: tensor<32x32xf32>, %arg1: tensor<32x32xf32>) -> tensor<32x32xf32> {
+    %0 = ttir.empty() : tensor<32x32xf32>
+    %1 = "ttir.multiply"(%arg0, %arg1, %0) : (tensor<32x32xf32>, tensor<32x32xf32>, tensor<32x32xf32>) -> tensor<32x32xf32>
+    return %1 : tensor<32x32xf32>
+  }
+}"""
+
+maximum_ir = """module {
+  func.func @model(%arg0: tensor<32x32xf32>, %arg1: tensor<32x32xf32>) -> tensor<32x32xf32> {
+    %0 = ttir.empty() : tensor<32x32xf32>
+    %1 = "ttir.maximum"(%arg0, %arg1, %0) : (tensor<32x32xf32>, tensor<32x32xf32>, tensor<32x32xf32>) -> tensor<32x32xf32>
+    return %1 : tensor<32x32xf32>
+  }
+}"""
+
+reshape_ir = """module {
+  func.func @model(%arg0: tensor<32x32xf32>) -> tensor<1x1024xf32> {
+    %0 = ttir.empty() : tensor<1x1024xf32>
+    %1 = "ttir.reshape"(%arg0, %0) <{shape = [1 : i32, 1024 : i32]}> : (tensor<32x32xf32>, tensor<1x1024xf32>) -> tensor<1x1024xf32>
+    return %1 : tensor<1x1024xf32>
+  }
+}"""
+
+individual_ops = {
+    "constant": constant_ir,
+    "pad": pad_ir,
+    "dot_general": dot_general_ir,
+    "permute": permute_ir,
+    "broadcast": broadcast_ir,
+    "add": add_ir,
+    "sub": sub_ir,
+    "multiply": multiply_ir,
+    "maximum": maximum_ir,
+    "reshape": reshape_ir,
+}
+
 resnet_ops_ir = """module {
   func.func @model(%arg0: tensor<32x32xf32>, %arg1: tensor<32x32xf32>, %arg2: tensor<32x32xf32>, %arg3: tensor<12x3x224x224xf32>, %arg4: tensor<64x3x7x7xf32>, %arg5: tensor<12x64x112x112xf32>, %arg6: tensor<64xf32>, %arg7: tensor<64xf32>, %arg8: tensor<64xf32>, %arg9: tensor<64xf32>, %arg10: tensor<12x64x114x114xf32>) -> tensor<1x1024xf32> {
     %0 = \"ttir.constant\"() <{value = dense<-1.19942093> : tensor<32x32xf32>}> : () -> tensor<32x32xf32>
@@ -43,8 +136,19 @@ resnet_ops_ir = """module {
   }
 }"""
 
+models = {
+    "resnet_ops": resnet_ops_ir,
+}
 
-@pytest.mark.parametrize("mlir_text", [resnet_ops_ir])
-def test_resnet_ops(mlir_text: str, request, device):
-    mlir_module, builder = load_mlir_file(mlir_text)
+
+@pytest.mark.parametrize("mlir_text", individual_ops.keys())
+def test_parsing_ops(mlir_text: str, request, device):
+    individual_ops_ir = individual_ops[mlir_text]
+    mlir_module, builder = load_mlir_file(individual_ops_ir)
+
+
+@pytest.mark.parametrize("mlir_text", models.keys())
+def test_resnet_ops_split(mlir_text: str, request, device):
+    resnet_ops_ir = models[mlir_text]
+    mlir_module, builder = load_mlir_file(resnet_ops_ir)
     builder_module_list = split_mlir_file(mlir_module, builder)
