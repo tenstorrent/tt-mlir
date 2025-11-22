@@ -669,7 +669,13 @@ recreateGenericOp(d2m::GenericOp genericOp,
   assert(optimalOperandGrids.size() == genericOp.getNumOperands());
   for (const auto &[optimalGrid, operand] :
        llvm::zip(optimalOperandGrids, genericOp->getOpOperands())) {
+
     auto definingView = operand.get().getDefiningOp<d2m::ViewLayoutOp>();
+    if (!definingView) {
+      newOperands.push_back(operand.get());
+      continue;
+    }
+
     if (genericOp.isDpsInit(&operand) && definingView) {
       // This is a workaround to avoid type checking errors during/after
       // canonicalization.  There is an offline proposal being discussed to
@@ -682,6 +688,7 @@ recreateGenericOp(d2m::GenericOp genericOp,
       newOperands.push_back(definingView.getInput());
       continue;
     }
+
     auto tensorType =
         mlir::cast<mlir::RankedTensorType>(operand.get().getType());
     auto viewTensorType = reblockTensor(tensorType, optimalGrid);
