@@ -13,6 +13,9 @@
 namespace tt::runtime::ttnn::operations::creation {
 
 void run(const ::tt::target::ttnn::ConstantOp *op, ProgramContext &context) {
+  ::ttnn::DataType valueDtype =
+      ::tt::runtime::ttnn::utils::toTTNNDataType(op->value_dtype());
+
   ::ttnn::Shape shape =
       operations::utils::toTTNNShape(*op->out()->desc()->shape());
 
@@ -40,9 +43,9 @@ void run(const ::tt::target::ttnn::ConstantOp *op, ProgramContext &context) {
         ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(op->memcfg());
   }
 
-  ::ttnn::Tensor out =
-      utils::toTTNNTensor(op->data(), shape, dtype, meshDevice, layout,
-                          memoryConfig.value_or(::ttnn::DRAM_MEMORY_CONFIG));
+  ::ttnn::Tensor out = utils::toTTNNTensor(
+      op->value(), valueDtype, shape, dtype, meshDevice, layout,
+      memoryConfig.value_or(::ttnn::DRAM_MEMORY_CONFIG));
 
   context.getTensorPool().insertTTNNTensorAndValidate(op->out(), out);
 }

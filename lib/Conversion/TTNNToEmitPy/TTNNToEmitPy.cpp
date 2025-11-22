@@ -656,12 +656,12 @@ public:
             rewriter.getI32ArrayAttr(padding)),
         emitter.template emit<std::vector<uint32_t>>(
             maxPool2dOp.getDilationAttr()),
+        emitter.emit(maxPool2dOp.getCeilMode()),
         emitter.emit(emitter.getMemoryConfig(maxPool2dOp.getResult()),
                      "memory_config"),
         emitter.emit(maxPool2dOp.getAppliedShardScheme(),
                      "applied_shard_scheme"),
-        emitter.emit(maxPool2dOp.getCeilMode(), "ceil_mode"),
-        emitter.emit(maxPool2dOp.getInPlaceHalo(), "in_place_halo"),
+        emitter.emit(!maxPool2dOp.getInPlaceHalo(), "reallocate_halo_output"),
     };
 
     emitter.replaceOp(*this, args);

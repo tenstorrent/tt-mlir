@@ -353,56 +353,57 @@ createConv2dSliceConfig(const ::tt::target::ttnn::Conv2dSliceConfig *config) {
 }
 
 template <typename T>
-static ::ttnn::Tensor
-toTTNNTensorImpl(const ::flatbuffers::Vector<uint8_t> *data,
-                 const ::ttnn::Shape &shape, const ::ttnn::DataType &dataType,
-                 ::ttnn::MeshDevice *device, const ::ttnn::Layout &layout,
-                 const ::ttnn::MemoryConfig &memoryConfig) {
+static ::ttnn::Tensor toTTNNTensorImpl(
+    const ::flatbuffers::Vector<uint8_t> *input, const ::ttnn::Shape &shape,
+    const ::ttnn::DataType &outputDataType, ::ttnn::MeshDevice *device,
+    const ::ttnn::Layout &layout, const ::ttnn::MemoryConfig &memoryConfig) {
   std::uint64_t numElements = shape.volume();
   size_t elementSize = sizeof(T);
-  LOG_ASSERT(numElements * elementSize == data->size(), "Invalid data size");
+  LOG_ASSERT(numElements * elementSize == input->size(), "Invalid data size");
   std::vector<T> dataVec(numElements);
   for (size_t i = 0; i < numElements; i++) {
     if constexpr (std::is_same_v<T, bfloat16>) {
       dataVec[i] = bfloat16(
-          ::flatbuffers::IndirectHelper<uint16_t>::Read(data->data(), i));
+          ::flatbuffers::IndirectHelper<uint16_t>::Read(input->data(), i));
     } else {
-      dataVec[i] = ::flatbuffers::IndirectHelper<T>::Read(data->data(), i);
+      dataVec[i] = ::flatbuffers::IndirectHelper<T>::Read(input->data(), i);
     }
   }
   return ::tt::runtime::ttnn::utils::createTTNNTensor<T>(
-      dataVec.data(), shape, dataType, device, layout, memoryConfig);
+      dataVec.data(), shape, outputDataType, device, layout, memoryConfig);
 }
 
 ::ttnn::Tensor toTTNNTensor(
-    const ::flatbuffers::Vector<uint8_t> *data, const ::ttnn::Shape &shape,
-    const ::ttnn::DataType &dataType, ::ttnn::MeshDevice *device = nullptr,
+    const ::flatbuffers::Vector<uint8_t> *input,
+    const ::ttnn::DataType &inputDataType, const ::ttnn::Shape &shape,
+    const ::ttnn::DataType &outputDataType,
+    ::ttnn::MeshDevice *device = nullptr,
     const ::ttnn::Layout &layout = ::ttnn::Layout::ROW_MAJOR,
     const ::ttnn::MemoryConfig &memoryConfig = ::ttnn::DRAM_MEMORY_CONFIG) {
-  switch (dataType) {
+  switch (inputDataType) {
   case ::ttnn::DataType::FLOAT32: {
-    return toTTNNTensorImpl<float>(data, shape, dataType, device, layout,
+    return toTTNNTensorImpl<float>(input, shape, outputDataType, device, layout,
                                    memoryConfig);
   }
   case ::ttnn::DataType::BFLOAT16: {
-    return toTTNNTensorImpl<bfloat16>(data, shape, dataType, device, layout,
-                                      memoryConfig);
+    return toTTNNTensorImpl<bfloat16>(input, shape, outputDataType, device,
+                                      layout, memoryConfig);
   }
   case ::ttnn::DataType::UINT32: {
-    return toTTNNTensorImpl<uint32_t>(data, shape, dataType, device, layout,
-                                      memoryConfig);
+    return toTTNNTensorImpl<uint32_t>(input, shape, outputDataType, device,
+                                      layout, memoryConfig);
   }
   case ::ttnn::DataType::UINT16: {
-    return toTTNNTensorImpl<uint16_t>(data, shape, dataType, device, layout,
-                                      memoryConfig);
+    return toTTNNTensorImpl<uint16_t>(input, shape, outputDataType, device,
+                                      layout, memoryConfig);
   }
   case ::ttnn::DataType::UINT8: {
-    return toTTNNTensorImpl<uint8_t>(data, shape, dataType, device, layout,
-                                     memoryConfig);
+    return toTTNNTensorImpl<uint8_t>(input, shape, outputDataType, device,
+                                     layout, memoryConfig);
   }
   case ::ttnn::DataType::INT32: {
-    return toTTNNTensorImpl<int32_t>(data, shape, dataType, device, layout,
-                                     memoryConfig);
+    return toTTNNTensorImpl<int32_t>(input, shape, outputDataType, device,
+                                     layout, memoryConfig);
   }
   default:
     LOG_FATAL("Unsupported data type");
