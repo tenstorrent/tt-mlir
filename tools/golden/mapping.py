@@ -3567,6 +3567,8 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     stablehlo.XorOp: stablehlo_xor_golden,
     stablehlo.NotOp: stablehlo_not_golden,
     stablehlo.SliceOp: slice_golden_stablehlo,
+    # bitcast conversion operation
+    stablehlo.BroadcastInDimOp: torch.broadcast_to,
     # stablehlo complex operations
     stablehlo.DotGeneralOp: dot_general_golden,
     stablehlo.ConcatenateOp: concat_golden,
