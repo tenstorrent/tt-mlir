@@ -83,9 +83,13 @@ def mask_torch_inf_nan(tensor):
     return tensor
 
 
-def get_atol_rtol_pcc(golden, calculated, atol, rtol, logging):
+def get_atol_rtol_pcc(golden, calculated, atol, rtol, logging=None):
     import numpy as np
     import torch
+
+    if not logging:
+        logger = Logger()
+        logging = logger.get_logger()
 
     # abs() and masked_fill() don't support unsigned integers
     if not torch.is_floating_point(golden):
