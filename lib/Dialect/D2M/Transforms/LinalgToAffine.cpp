@@ -88,8 +88,14 @@ public:
         auto linalgLoops =
             linalg::linalgOpToAffineLoops(rewriter, linalgGenericOp);
 
-        markAndReplaceLinalgOp(rewriter, linalgGenericOp,
-                               linalgLoops.value().front(), markRootLoops);
+        if (failed(linalgLoops) || linalgLoops->empty()) {
+          return rewriter.notifyMatchFailure(
+              linalgGenericOp,
+              "failed to convert linalg.generic to affine loops");
+        }
+
+        markAndReplaceLinalgOp(rewriter, linalgGenericOp, linalgLoops->front(),
+                               markRootLoops);
         modified = true;
       }
     }
