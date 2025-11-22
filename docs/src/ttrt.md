@@ -290,6 +290,8 @@ Compare program outputs against expected (golden) results with configurable tole
 * `ttrt run --disable-golden` - Disable golden comparisons entirely.
 * `ttrt run --save-golden-tensors` - Save golden and output tensors for inspection.
 
+>**NOTE:** Input initialization flags like `--init` automatically disable golden comparison.
+
 #### Kernel and device control
 Configure kernel dumping, loading, device execution behavior, and hardware workarounds. 
 
@@ -341,7 +343,7 @@ This section provides additional details about commands where more information m
 The `run` command produces a `run_results.json` file that contains information about the run including any errors that were thrown and location of other saved run data.
 
 
-```bash
+```json
 {
 [
   {
@@ -369,7 +371,7 @@ Golden checks are used to verify runtime op accuracy. They are run by default du
 
 <details>
 
-```bash
+```json
 {
     "loc(\"/home/$USER/tt-mlir/test/python/golden/test_ttir_ops.py:74:id(0)\")": {
         "expected_pcc": 0.99,
@@ -394,7 +396,7 @@ Example report:
 
 <details>
 
-```bash
+```json
 {
     "0": {
         "loc": "loc(\"/home/$USER/tt-mlir/test/python/golden/test_ttir_ops.py:74:id(0)\")",

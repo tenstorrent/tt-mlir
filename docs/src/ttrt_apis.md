@@ -41,7 +41,7 @@ pip install build/tools/ttrt/build/ttrt-0.0.235-cp311-cp311-linux_x86_64.whl
 
 You can now import `ttrt` as a package for your scripts: 
 
-```bash
+```python
 from ttrt.common.api import API
 ```
 
@@ -107,24 +107,30 @@ This section details what ttrt APIs are available and how to use them. Some APIs
 
 | Category | Python API | Notes |
 |----------|------------|-------|
-| Essential |  |  |
-|  | Query | Mirrors `ttrt query` |
+| Essential | Query | Mirrors `ttrt query` |
 |  | Read | Mirrors `ttrt read` |
 |  | Run | Mirrors `ttrt run`; Python API adds optional logging, artifacts, runtime hooks |
 |  | Perf | Mirrors `ttrt perf` |
 |  | Check | Mirrors `ttrt check` |
 |  | EmitPy | Mirrors `ttrt emitpy`; Python API adds optional logging, artifacts, runtime hooks |
 |  | EmitC | Mirrors `ttrt emitc`; Python API adds optional logging, artifacts, runtime hooks |
-| Multi-Device Deployment |  |  |
-|  | TBD | To be added |
-| Callback Registration |  |  |
-|  | TBD | Runtime hooks, pre/post op callbacks |
-| Tensor Pool Manipulation |  |  |
-|  | TBD | Tensor creation, inspection, etc. |
-| Environment Config |  |  |
-|  | TBD | Environment variables, runtime tweaks |
-| Home Directory Setters |  |  |
-|  | TBD | Configure default artifact/log locations |
+| Multi-Device Deployment | Device Discovery | `getNumAvailableDevices()` – count of devices |
+|  | Mesh Management | `openMeshDevice()`, `closeMeshDevice()`, `reshapeMeshDevice()` – create/close/reshape device meshes |
+|  | Sub-Mesh Operations | `createSubMeshDevice()`, `releaseSubMeshDevice()` – data-parallel sub-mesh handling |
+| Tensor Pool Manipulation | Tensor Creation & Management | Host/multi-device tensor creation, `toHost()`, `toLayout()`, `memcpy()`, `deallocateTensor()` |
+|  | Tensor Inspection | `getTensorShape()`, `getTensorStride()`, `getTensorDataType()`, `getTensorVolume()` |
+| Callback Registration | Operation Hooks | `DebugHooks.get(preOp, postOp)` – register callbacks for runtime inspection; access op metadata and tensor outputs |
+| Environment Config | Runtime & Device Selection | `setMlirHome()`, `setMetalHome()`, `get/setCurrentDeviceRuntime()`, `get/setCurrentHostRuntime()` |
+| Distributed Runtime | Multi-node Execution | `launchDistributedRuntime()`, `shutdownDistributedRuntime()` |
+| Memory Profiling | Memory Inspection | `getMemoryView()`, `dumpMemoryReport()` – check memory usage per buffer type |
+| Performance Tracing | Device Profiling | `readDeviceProfilerResults()` – device profiling with optional perf trace |
+| Synchronization | Event/Tensor Wait | `wait(event)`, `wait(tensor)` – synchronize execution |
+| Home Directory Setters |  | Can configure artifact/log directories via `Artifacts` and `Logger` utilities |
+
+For more details about the programmatic-only APIs in the table, you can review the code here:
+* [runtime.h](https://github.com/tenstorrent/tt-mlir/blob/0abe29ab/runtime/include/tt/runtime/runtime.h)
+* [runtime.cpp](https://github.com/tenstorrent/tt-mlir/blob/0abe29ab/runtime/lib/runtime.cpp)
+
 
 #### CLI-Mirroring APIs 
 This section goes over how to reference details for CLI-mirroring APIs, usage patterns with Python, and explains the additional features available through the Python APIs. 
@@ -133,7 +139,7 @@ For details about what commands are available for the CLI-mirroring APIs, refer 
 
 Here is a sample displaying how to use CLI-mirrored features: 
 
-```bash python
+```python
 from ttrt.common.api import API
 
 # Initialize all available APIs
@@ -157,26 +163,12 @@ print("Query results:", results)
 ```
 
 ##### Python-specific features of CLI-mirroring APIs 
-The run, emitpy, and emitc APIs allow you to 
+In addition to the CLI-mirrored commands, the `run`, `emitpy`, and `emitc` APIs allow you to do custom logging, create custom artifacts directories, and runtime callback hooks. 
 
-
-
-
-
-
-
-
-
-
-Most API arguments for the ttrt APIs mirror the CLI flags (for example: `--clean-artifacts`, `--loops`, `--init`, and `binary`), so you can refer to the [ttrt CLI documentation](ttrt.md#ttrt-command-line-commands) for the full list of options. 
-However, some features are Python-only: 
-
-* **Runtime-only objects** - 
-
-#### Logging
+**Custom Logging**
 You can specify a specific logging module you want to set inside your API instance. The rationale behind this is to support different instances of different APIs, all being able to be logged to a different file. You can also customize the level of detail your log file contains.
 
-```bash
+```python
 from ttrt.common.util import Logger
 import os
 
@@ -186,10 +178,10 @@ custom_logger = Logger(log_file_name)
 read_instance = API.Read(logger=custom_logger)
 ```
 
-#### Artifacts
+**Custom Artifacts**
 You can specify a specific artifacts directory to store all the generate metadata during the execution of any API run. This allows you to specify different artifact directories if you wish for different instances of APIs.
 
-```bash
+```python
 from ttrt.common.util import Artifacts
 
 log_file_name = "some_file_name.log"
@@ -199,19 +191,60 @@ custom_artifacts = Artifacts(logger=custom_logger, artifacts_folder_path=artifac
 run_instance = API.Run(artifacts=custom_artifacts)
 ```
 
-### Execute API
-Once all the arguments are setup, you can run your API instance with all your provided arguments. Note, APIs are stateless. Thus, subsequent calls to the same API instance will not preserve previous call artifacts. You can generate a new artifacts directory for subsequent runs if you wish to call the APIs multiple times, for example.
+**Runtime callback hooks**
+For details about runtime callback hooks, please see the section [Runtime integration](#runtime-integration) below. These hooks may be used with `run`, `emitpy`, and `emitc` APIs as well as any custom Python code that imports `ttrt.runtime`. 
 
-```bash
-result_code, results = query_instance()
-result_code, results = read_instance()
-result_code, results = run_instance()
+## Runtime integration
+The full set of `ttrt.runtime` exposed APIs and types can be found in `runtime/python/runtime/runtime.cpp`, however only the ones intended to be used for runtime customization through callback hooks are outlined here.
+
+### Callback hooks
+MLIR Runtime exposes a feature to register python callback functions. Any two python fuctions can be provided - the first function will be executed before every op in MLIR Runtime, the second after every op. The following steps describe how to extend your application to register python functions. Callback functions are already implemented by default for pbd debugger implementation and gathering memory and golden check data as outlined in the `run` API section.
+
+1. Pybind DebugHooks C++ class, specifically `tt::runtime::debug::Hooks::get`. See `runtime/python/runtime/runtime.cpp` for an example of how `ttrt` pybinds it.
+```cpp
+tt::runtime::debug::Hooks
+tt::runtime::debug::Hooks::get
 ```
 
+2. Register callback functions in your python script. The following is registering the two callback functions written in `tools/ttrt/common/callback.py`. The Debug Hooks get function has been pybinded to `ttrt.runtime.DebugHooks.get`
+```python
+import ttrt.runtime
+
+callback_env = ttrt.runtime.DebugHooks.get(pre_op_callback_runtime_config, post_op_callback_runtime_config)
+```
+
+3. The callback function has a particular function signature, which looks like the following
+```python
+def pre_op_callback_runtime_config(binary, program_context, op_context):
+```
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `binary` | `ttrt.binary.Binary` | Reference to the binary currently running |
+| `program_context` | `ttrt.runtime.ProgramContext` | Reference to the program currently executing |
+| `op_context` | `ttrt.runtime.OpContext` | Reference to the current MLIR operation |
+
+>**Notes:**
+>* The callback function is executed before or after each MLIR op depending on registration.
+>* It does not need to return a value.
+>* Certain runtime APIs (e.g., getting op output tensors) can only be called inside the callback since they rely on `op_context`.
+
+4. Each of these parameters has certain runtime APIs exposed which can only be called within the callback functions since they rely on the `op_context` variable that is only available from runtime during callbacks.
+```python
+import ttrt.runtime
+
+loc = ttrt.runtime.get_op_loc_info(op_context) # get the location of the op as a string which is used as the key when indexing the golden tensors stored in the flatbuffer
+op_debug_str = ttrt.runtime.get_op_debug_str(op_context) # get the op debug str (contains op metadata inculding op type, attributes, input tensor shapes and dtypes, memref with layout and buffer type, and loc)
+op_golden_tensor = ttrt.runtime.get_debug_info_golden(binary, loc) # get the golden tensor from the binary as a ttrt.binary GoldenTensor object
+op_output_tensor = ttrt.runtime.get_op_output_tensor(op_context, program_context) # get the currently running output tensor from device as a ttrt.runtime Tensor object, if this is called in a preOp function or the op doesn't output a tensor, an empty tensor will be returned.
+```
+
+>**NOTE:** `ttrt` is not needed to implement this callback feature. It aims to provide an example of how this callback feature can be implemented for golden application.
+
 ### Putting it all together
+This example combines CLI-mirroring API usage with custom logging, artifacts, and callback hooks.
 You can do interesting stuff when combining all the above features into your python script:
 
-```bash
+```python
 from ttrt.common.api import API
 from ttrt.common.util import Logger
 from ttrt.common.util import Artifacts
@@ -234,42 +267,3 @@ custom_artifacts = Artifacts(logger=custom_logger, artifacts_folder_path=artifac
 run_instance = API.Run(args=custom_args, logger=custom_logger, artifacts=custom_artifacts)
 result_code, results = run_instance()
 ```
-
-## Runtime integration
-The full set of `ttrt.runtime` exposed APIs and types can be found in `runtime/python/runtime/runtime.cpp`, however only the ones intended to be used for runtime customization through callback hooks are outlined here.
-
-### Callback hooks
-MLIR Runtime exposes a feature to register python callback functions. Any two python fuctions can be provided - the first function will be executed before every op in MLIR Runtime, the second after every op. The following steps describe how to extend your application to register python functions. Callback functions are already implemented by default for pbd debugger implementation and gathering memory and golden check data as outlined in the `run` API section.
-
-1. Pybind DebugHooks C++ class, specifically `tt::runtime::debug::Hooks::get`. See `runtime/python/runtime/runtime.cpp` for an example of how `ttrt` pybinds it.
-```bash
-tt::runtime::debug::Hooks
-tt::runtime::debug::Hooks::get
-```
-
-2. Register callback functions in your python script. The following is registering the two callback functions written in `tools/ttrt/common/callback.py`. The Debug Hooks get function has been pybinded to `ttrt.runtime.DebugHooks.get`
-```bash
-import ttrt.runtime
-
-callback_env = ttrt.runtime.DebugHooks.get(pre_op_callback_runtime_config, post_op_callback_runtime_config)
-```
-
-3. The callback function has a particular function signature, which looks like the following
-```bash
-def pre_op_callback_runtime_config(binary, program_context, op_context):
-```
-`binary`: reference to the binary you are currently running, ttrt.binary Binary object
-`program_context`: reference to the program currently running, ttrt.runtime ProgramContext object
-`op_context`: reference to the op that is currently running, ttrt.runtime OpContext object
-
-4. Each of these parameters has certain runtime APIs exposed which can only be called within the callback functions since they rely on the `op_context` variable that is only available from runtime during callbacks.
-```bash
-import ttrt.runtime
-
-loc = ttrt.runtime.get_op_loc_info(op_context) : get the location of the op as a string which is used as the key when indexing the golden tensors stored in the flatbuffer
-op_debug_str = ttrt.runtime.get_op_debug_str(op_context) : get the op debug str (contains op metadata inculding op type, attributes, input tensor shapes and dtypes, memref with layout and buffer type, and loc)
-op_golden_tensor = ttrt.runtime.get_debug_info_golden(binary, loc) : get the golden tensor from the binary as a ttrt.binary GoldenTensor object
-op_output_tensor = ttrt.runtime.get_op_output_tensor(op_context, program_context) : get the currently running output tensor from device as a ttrt.runtime Tensor object, if this is called in a preOp function or the op doesn't output a tensor, an empty tensor will be returned.
-```
-
-Note: `ttrt` is not needed to implement this callback feature. It aims to provide an example of how this callback feature can be implemented for golden application.
