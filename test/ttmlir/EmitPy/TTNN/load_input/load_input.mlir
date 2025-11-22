@@ -11,25 +11,33 @@
 // RUN: FileCheck %s --check-prefix=CUSTOM-FULL --input-file=%t.custom_full.mlir
 
 module {
+  // DEFAULT: func.func @create_inputs_for_add()
+  // DEFAULT: load_tensor
+  // DEFAULT-SAME: args = [#emitpy.opaque<"\22arg1.tensorbin\22"
+  // DEFAULT: func.func @create_params_for_add()
   // DEFAULT: load_tensor
   // DEFAULT-SAME: args = [#emitpy.opaque<"\22arg0.tensorbin\22"
-  // DEFAULT-NEXT: load_tensor
-  // DEFAULT-SAME: args = [#emitpy.opaque<"\22arg1.tensorbin\22"
 
+  // CUSTOM-DIR: func.func @create_inputs_for_add()
+  // CUSTOM-DIR: load_tensor
+  // CUSTOM-DIR-SAME: args = [#emitpy.opaque<"\22tensors/arg1.tensorbin\22"
+  // CUSTOM-DIR: func.func @create_params_for_add()
   // CUSTOM-DIR: load_tensor
   // CUSTOM-DIR-SAME: args = [#emitpy.opaque<"\22tensors/arg0.tensorbin\22"
-  // CUSTOM-DIR-NEXT: load_tensor
-  // CUSTOM-DIR-SAME: args = [#emitpy.opaque<"\22tensors/arg1.tensorbin\22"
 
+  // CUSTOM-PREFIX: func.func @create_inputs_for_add()
+  // CUSTOM-PREFIX: load_tensor
+  // CUSTOM-PREFIX-SAME: args = [#emitpy.opaque<"\22input1.tensorbin\22"
+  // CUSTOM-PREFIX: func.func @create_params_for_add()
   // CUSTOM-PREFIX: load_tensor
   // CUSTOM-PREFIX-SAME: args = [#emitpy.opaque<"\22input0.tensorbin\22"
-  // CUSTOM-PREFIX-NEXT: load_tensor
-  // CUSTOM-PREFIX-SAME: args = [#emitpy.opaque<"\22input1.tensorbin\22"
 
+  // CUSTOM-FULL: func.func @create_inputs_for_add()
+  // CUSTOM-FULL: load_tensor
+  // CUSTOM-FULL-SAME: args = [#emitpy.opaque<"\22tensors/input1.tensorbin\22"
+  // CUSTOM-FULL: func.func @create_params_for_add()
   // CUSTOM-FULL: load_tensor
   // CUSTOM-FULL-SAME: args = [#emitpy.opaque<"\22tensors/input0.tensorbin\22"
-  // CUSTOM-FULL-NEXT: load_tensor
-  // CUSTOM-FULL-SAME: args = [#emitpy.opaque<"\22tensors/input1.tensorbin\22"
   func.func @add(%arg0 : tensor<32x32xbf16> { ttcore.argument_type = #ttcore.argument_type<constant>}, %arg1 : tensor<32x32xbf16> { ttcore.argument_type = #ttcore.argument_type<input> }) -> tensor<32x32xbf16> {
     %0 = ttir.empty() : tensor<32x32xbf16>
     %1 = "ttir.add"(%arg0, %arg0, %0) : (tensor<32x32xbf16>, tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>

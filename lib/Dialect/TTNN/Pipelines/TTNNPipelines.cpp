@@ -230,6 +230,10 @@ void createTTNNBackendToEmitCPipeline(
 
   pm.addPass(ttcore::createTTCoreUnwrapDeviceModulePass());
 
+  // Split function arguments into inputs and parameters
+  pm.addPass(createTTNNCanonicalizeFunctionArguments());
+  pm.addPass(createTTNNReorderFunctionArguments());
+
   if (options.targetDylib) {
     // In dylib path, only run tuplification with forced settings.
     // This ensures tensor inputs are always tuplified even when the input is
@@ -267,6 +271,10 @@ void createTTNNBackendToEmitPyPipeline(
 
   // Apply EmitPy-specific workarounds before conversion
   pm.addPass(createTTNNEmitPyWorkarounds());
+
+  // Split function arguments into inputs and parameters
+  pm.addPass(createTTNNCanonicalizeFunctionArguments());
+  pm.addPass(createTTNNReorderFunctionArguments());
 
   pm.addPass(createTTNNTuplifyTensors());
 
