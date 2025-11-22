@@ -1,6 +1,6 @@
 # Lit testing
 
-`llvm-lit` tool is used for MLIR testing. With it you can:
+The `llvm-lit` tool is used for MLIR testing, particularly for verifying compiler passes and generating expected outputs for regression tests. With it you can:
 
 ```bash
 # Query which tests are available
