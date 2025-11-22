@@ -3337,9 +3337,10 @@ def ttir_batch_norm_inference_golden(
     dim = unpack_mlir_attr(dimension_attr)
     perm = list(range(input_tensor.ndim))
     perm[1], perm[dim] = perm[dim], perm[1]
-    input_tensor = input_tensor.permute(perm)
+    cloned_tensor = input_tensor.clone()
+    permuted_tensor = cloned_tensor.permute(perm)
     result = torch.nn.functional.batch_norm(
-        input_tensor,
+        permuted_tensor,
         running_mean=mean,
         running_var=variance,
         weight=scale,
