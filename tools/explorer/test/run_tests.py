@@ -17,7 +17,7 @@ HOST = "localhost"
 PORT = portpicker.pick_unused_port()
 COMMAND_URL = "http://" + HOST + ":" + str(PORT) + "/apipost/v1/send_command"
 TEST_LOAD_MODEL_PATHS = [
-    "test/ttmlir/Explorer/**/*.mlir",
+    "test/ttmlir/Explorer/load/**/*.mlir",
     "test/ttmlir/Silicon/TTNN/n150/perf/**/*.mlir",
 ]
 MNIST_SHARDING_PATH = "test/ttmlir/Silicon/TTNN/n150/optimizer/mnist_sharding.mlir"
@@ -25,6 +25,12 @@ MNIST_STABLEHLO_PATH = "test/ttmlir/Silicon/StableHLO/n150/mnist_inference.mlir"
 TEST_EXECUTE_MODEL_PATHS = [
     MNIST_SHARDING_PATH,
 ]
+IR_DUMP_COLLECTIONS = [
+    "test/ttmlir/Explorer/graph_collections/collection1.mlir",
+    "test/ttmlir/Explorer/graph_collections/collection2.mlir",
+    "test/ttmlir/Explorer/graph_collections/loose_file.mlir",
+]
+TEST_LOAD_SINGLE_COLLECTION = "test/ttmlir/Explorer/graph_collections/collection1.mlir"
 
 if "TT_EXPLORER_GENERATED_MLIR_TEST_DIRS" in os.environ:
     for path in os.environ["TT_EXPLORER_GENERATED_MLIR_TEST_DIRS"].split(","):
@@ -162,9 +168,24 @@ def convert_command_and_assert(model_path):
     return result.json()
 
 
+def preload_command_and_assert():
+    result = send_command("preload", "")
+    assert result.ok
+    if "error" in result.json():
+        print(result.json())
+        assert False
+    return result.json()
+
+
 @pytest.mark.parametrize("model_path", get_test_files(TEST_LOAD_MODEL_PATHS))
 def test_load_model(model_path):
     convert_command_and_assert(model_path)
+
+
+def test_load_collection():
+    result = convert_command_and_assert(TEST_LOAD_SINGLE_COLLECTION)
+    assert "graphCollections" in result
+
 
 
 @pytest.mark.parametrize("model_path", get_test_files(TEST_EXECUTE_MODEL_PATHS))
@@ -259,6 +280,31 @@ def test_get_emitc_cpp_code():
     )
     result = convert_command_and_assert(MNIST_SHARDING_PATH)
     assert "cppCode" in result["graphs"][0]
+
+
+# TODO (ctr-mcampos): Figure out how to disable and then reenable execution.
+@pytest.mark.skip(
+    "There is no easy way to disable execution for testing."
+)
+def test_disable_execution():
+    pass
+
+
+def test_preload_ir_dump_directory():
+    result = preload_command_and_assert()
+    assert "graphPaths" in result["graphs"][0]
+
+
+# TODO(ctr-mcampos): Once the IR dump dir is configurable, enable this test.
+@pytest.mark.skip(
+    "Implementation missing for loading ir dumps from a custom location."
+)
+def test_preload_ir_dump_contents():
+    result = preload_command_and_assert()
+    assert "graphPaths" in result["graphs"][0]
+
+    graph_paths = result["graphs"][0]["graphPaths"]
+    assert all(collection in graph_paths for collection in IR_DUMP_COLLECTIONS)
 
 
 # TODO: figure out if this should be deleted, or adapted with new tests
