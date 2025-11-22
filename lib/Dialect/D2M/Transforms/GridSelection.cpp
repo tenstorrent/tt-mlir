@@ -682,7 +682,8 @@ recreateGenericOp(d2m::GenericOp genericOp,
       newOperands.push_back(definingView.getInput());
       continue;
     }
-    auto tensorType = mlir::cast<mlir::RankedTensorType>(operand.get().getType());
+    auto tensorType =
+        mlir::cast<mlir::RankedTensorType>(operand.get().getType());
     auto viewTensorType = reblockTensor(tensorType, optimalGrid);
     auto view = builder.create<d2m::ViewLayoutOp>(
         genericOp.getLoc(), viewTensorType, operand.get());
