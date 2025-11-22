@@ -2886,7 +2886,7 @@ def stablehlo_not_golden(
 
 
 def ttir_div_golden(lhs: GoldenMapTensor, rhs: GoldenMapTensor) -> GoldenMapTensor:
-    return torch.div(lhs, rhs).to(lhs.dtype)
+    return torch.div(lhs, rhs).to(torch.float32)
 
 
 def ttir_sum_golden(
@@ -2894,14 +2894,14 @@ def ttir_sum_golden(
 ) -> GoldenMapTensor:
     dim_arg = unpack_mlir_attr(dim_arg_attr)
     keep_dim = unpack_mlir_attr(keep_dim_attr)
-    return torch.sum(input_tensor, dim=dim_arg, keepdim=keep_dim)
+    return torch.sum(input_tensor, dim=dim_arg, keepdim=keep_dim).to(torch.float32)
 
 
 def ttir_reshape_golden(
     input_tensor: GoldenMapTensor, shape_attr: ArrayAttr
 ) -> GoldenMapTensor:
     new_shape = unpack_mlir_attr(shape_attr)
-    return torch.reshape(input_tensor, new_shape).clone()
+    return torch.reshape(input_tensor, new_shape).clone().to(torch.float32)
 
 
 def ttir_broadcast_golden(
@@ -2917,14 +2917,14 @@ def ttir_broadcast_golden(
         else:
             shape.append(input_shape[i])
 
-    return torch.broadcast_to(input_tensor, shape)
+    return torch.broadcast_to(input_tensor, shape).to(torch.float32)
 
 
 def ttir_permute_golden(
     input_tensor: GoldenMapTensor, permutation_attr: DenseI64ArrayAttr
 ) -> GoldenMapTensor:
     permutation = unpack_mlir_attr(permutation_attr)
-    return torch.permute(input_tensor, permutation)
+    return torch.permute(input_tensor, permutation).to(torch.float32)
 
 
 def ttir_dot_general_golden(
@@ -2978,7 +2978,7 @@ def ttir_dot_general_golden(
                 transposed_rhs_slice,
                 dims=(dot_dims_lhs, dot_dims_rhs),
             )
-    return result
+    return result.to(torch.float32)
 
 
 def ttir_pad_golden(
@@ -2994,7 +2994,7 @@ def ttir_pad_golden(
 
     return torch.nn.functional.pad(
         input_tensor, pad=golden_padding, mode="constant", value=value
-    )
+    ).to(torch.float32)
 
 
 def ttir_constant_golden(value: DenseElementsAttr) -> GoldenMapTensor:
@@ -3027,9 +3027,10 @@ def ttir_constant_golden(value: DenseElementsAttr) -> GoldenMapTensor:
         value = value.get_splat_value()
         torch_tensor = torch.full(shape, value.value, dtype=dtype)
     else:
-        assert False, "Non-splat constants are not supported in golden functions."
+        flat_values = [elem for elem in value]
+        torch_tensor = torch.tensor(flat_values, dtype=dtype).reshape(shape)
 
-    return GoldenMapTensor({0: torch_tensor.reshape(shape)}, (1, 1))
+    return GoldenMapTensor({0: torch_tensor.reshape(shape)}, (1, 1)).to(torch.float32)
 
 
 def ttir_convolution_golden(
@@ -3225,7 +3226,7 @@ def ttir_convolution_golden(
             ]
             result = result.permute(inverse_output_perm)
 
-    return result
+    return result.to(torch.float32)
 
 
 def ttir_pooling_golden(
@@ -3321,7 +3322,7 @@ def ttir_pooling_golden(
     # NHWC [batch, height, width, channels] -> NCHW [batch, channels, height, width]
     # Transpose: (0, 1, 2, 3) -> (0, 3, 1, 2)
     result = result.transpose(-2, -1).transpose(-3, -2)
-    return result
+    return result.to(torch.float32)
 
 
 def ttir_batch_norm_inference_golden(
@@ -3350,19 +3351,19 @@ def ttir_batch_norm_inference_golden(
     )
     inv_perm = [perm.index(i) for i in range(len(perm))]
     result = result.permute(inv_perm)
-    return result
+    return result.to(torch.float32)
 
 
 def ttir_ne_golden(
     input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor
 ) -> GoldenMapTensor:
     result_bool = torch.ne(input_tensor, other_tensor)
-    return result_bool.to(input_tensor.dtype)
+    return result_bool.to(torch.float32)
 
 
 def ttir_logical_not_golden(input_tensor: GoldenMapTensor) -> GoldenMapTensor:
     result_bool = torch.logical_not(input_tensor)
-    return result_bool.to(input_tensor.dtype)
+    return result_bool.to(torch.float32)
 
 
 def ttir_max_golden(
@@ -3377,13 +3378,13 @@ def ttir_max_golden(
         if keep_dim:
             # Reshape to match expected output with all dims = 1
             output_shape = [1] * input_tensor.dim()
-            return result.reshape(*output_shape)
+            return result.reshape(*output_shape).to(torch.float32)
         else:
-            return result
+            return result.to(torch.float32)
     elif len(dim_arg) == 1:
         # Single dimension reduction
         values, indices = torch.max(input_tensor, dim=dim_arg[0], keepdim=keep_dim)
-        return values
+        return values.to(torch.float32)
     else:
         # Multiple dimensions - reduce sequentially from highest to lowest
         # Sort in descending order to maintain correct dimension indices
@@ -3391,7 +3392,7 @@ def ttir_max_golden(
         result = input_tensor
         for dim in sorted_dims:
             result, _ = torch.max(result, dim=dim, keepdim=keep_dim)
-        return result
+        return result.to(torch.float32)
 
 
 def ttir_reduce_or_golden(
@@ -3399,7 +3400,9 @@ def ttir_reduce_or_golden(
 ) -> GoldenMapTensor:
     dim_arg = unpack_mlir_attr(dim_arg_attr)
     keep_dim = unpack_mlir_attr(keep_dim_attr)
-    return torch.any(input_tensor, dim=tuple(dim_arg), keepdim=keep_dim)
+    return torch.any(input_tensor, dim=tuple(dim_arg), keepdim=keep_dim).to(
+        torch.float32
+    )
 
 
 def ttir_clamp_tensor_golden(
@@ -3407,7 +3410,27 @@ def ttir_clamp_tensor_golden(
     min_tensor: GoldenMapTensor,
     max_tensor: GoldenMapTensor,
 ) -> GoldenMapTensor:
-    return torch.min(torch.max(input_tensor, min_tensor), max_tensor)
+    return torch.min(torch.max(input_tensor, min_tensor), max_tensor).to(torch.float32)
+
+
+def ttir_full_golden(
+    shape_attr: DenseI32ArrayAttr,
+    fill_value_attr: Union[IntegerAttr, FloatAttr],
+) -> GoldenMapTensor:
+    shape = unpack_mlir_attr(shape_attr)
+    fill_value = unpack_mlir_attr(fill_value_attr)
+    tensor = torch.full(shape, fill_value)
+    return GoldenMapTensor({0: tensor}, (1, 1)).to(torch.float32)
+
+
+def ttir_concat_golden(
+    input_tensors: List[GoldenMapTensor], dim_attr: IntegerAttr
+) -> GoldenMapTensor:
+    dim = unpack_mlir_attr(dim_attr)
+    if isinstance(input_tensors, tuple):
+        return torch.concat(input_tensors, dim=dim).to(torch.float32)
+    else:
+        return torch.concat([input_tensors], dim=dim).to(torch.float32)
 
 
 GOLDEN_MAPPINGS: Dict[type, Callable] = {
@@ -3482,7 +3505,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     # Tensor manipulation
     ttir.SortOp: sort_golden,
     ttir.TransposeOp: transpose_golden,
-    ttir.ConcatOp: concat_golden,
+    ttir.ConcatOp: ttir_concat_golden,
     ttir.RepeatOp: repeat_golden,
     ttir.RepeatInterleaveOp: repeat_interleave_golden,
     ttir.ReshapeOp: ttir_reshape_golden,
@@ -3512,6 +3535,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.ZerosOp: zeros_golden,
     ttir.OnesOp: ones_golden,
     ttir.ConstantOp: ttir_constant_golden,
+    ttir.FullOp: ttir_full_golden,
     ttir.ArangeOp: arange_golden,
     # Quantization operations
     ttir.QuantizeOp: quantize_golden,
