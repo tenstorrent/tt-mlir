@@ -862,6 +862,24 @@ GridAttr::getPhysicalGridShape(ArrayRef<int64_t> deviceGridShape) {
   llvm_unreachable("No injective physical grid shape found.");
 }
 
+MetalLayoutAttr MetalLayoutAttr::compose(AffineMap affineMap) const {
+  if (getIndexAffineMap().isEmpty()) {
+    return withIndexAffineMap(affineMap);
+  }
+
+  return ttcore::MetalLayoutAttr::get(
+      getContext(), getLogicalShape(), getOobVal(), getMemorySpace(),
+      getMemoryLayout(), getCollapsedIntervals(), getDimAlignments(),
+      getIndexAffineMap().compose(affineMap));
+}
+
+MetalLayoutAttr MetalLayoutAttr::withIndexAffineMap(AffineMap affineMap) const {
+  return ttcore::MetalLayoutAttr::get(
+      getContext(), getLogicalShape(), getOobVal(), getMemorySpace(),
+      getMemoryLayout(), getCollapsedIntervals(), getDimAlignments(),
+      affineMap.isIdentity() ? AffineMap::get(getContext()) : affineMap);
+}
+
 llvm::SmallVector<int64_t>
 MetalLayoutAttr::getPhysicalShape(ArrayRef<int64_t> tileShape) const {
   llvm::SmallVector<int64_t> normalizedIntervals = getNormalizedIntervals();
