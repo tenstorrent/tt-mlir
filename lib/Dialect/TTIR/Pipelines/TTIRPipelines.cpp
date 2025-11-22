@@ -60,8 +60,8 @@ namespace mlir::tt::ttir {
 // Note: when allow-listing an op, explicit template instantiation should be
 // added to HoistCPUOps.cpp.
 auto createHoistAllowlistedStablehloOpsPass() {
-  return ttir::createTTIRHoistTransformForOps<stablehlo::DynamicUpdateSliceOp,
-                                              stablehlo::EinsumOp>();
+  return ttir::createCPUHoistForOpsTransform<stablehlo::DynamicUpdateSliceOp,
+                                             stablehlo::EinsumOp>();
 }
 
 void createStableHLOToTTIRPipeline(
@@ -264,11 +264,8 @@ void createLinalgToLLVMPipeline(OpPassManager &manager,
   }
 }
 
-void createTTIRToCPUPipeline(OpPassManager &manager,
+void createTTIRToCPUPipeline(OpPassManager &cpuPm,
                              const LinalgToLLVMPipelineOptions &options) {
-  OpPassManager &cpuPm =
-      manager.nest<ttcore::CPUModuleOp>().nest<mlir::ModuleOp>();
-
 #ifdef TTMLIR_ENABLE_STABLEHLO
   // Directly convert any hoisted SHLO ops into linalg ops.
   cpuPm.addPass(stablehlo::createStablehloLegalizeToLinalgPass());

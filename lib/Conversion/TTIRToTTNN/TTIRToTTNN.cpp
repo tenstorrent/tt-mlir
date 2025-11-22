@@ -172,13 +172,13 @@ public:
         mlir::cast<ttnn::TTNNLayoutAttr>(op.getType().getEncoding());
     bool isOnDevice =
         ttnnLayoutAttr.getBufferType() != ttnn::BufferType::SystemMemory;
-    ttnn::GetDeviceOp deviceOp;
+    mlir::Value device;
     if (isOnDevice) {
-      deviceOp = ::ttnn::utils::getOrInsertDevice(rewriter, op);
+      device = ::ttnn::utils::getOrInsertDevice(rewriter, op);
     }
     rewriter.replaceOpWithNewOp<ttnn::FullOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
-        adaptor.getFillValue(), deviceOp);
+        adaptor.getFillValue(), device);
 
     return success();
   }

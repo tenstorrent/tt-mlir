@@ -5,7 +5,9 @@
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTCore/Transforms/Passes.h"
+#include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 
+#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinOps.h"
@@ -13,6 +15,7 @@
 #include "mlir/IR/Region.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+#include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/Casting.h"
 
 namespace mlir::tt::ttcore {
@@ -26,31 +29,22 @@ namespace {
 /// Rewrite pattern to replace hoisted function declarations in DeviceModuleOp
 /// with actual function definitions moved from CPUModuleOp, whilst updating
 /// the call sites accordingly.
-class MoveHoistedFuncsRewriter : public OpRewritePattern<func::CallOp> {
+class MoveHoistedFuncsRewriter : public OpRewritePattern<func::FuncOp> {
 public:
-  using OpRewritePattern<func::CallOp>::OpRewritePattern;
+  using OpRewritePattern<func::FuncOp>::OpRewritePattern;
 
-  LogicalResult matchAndRewrite(func::CallOp callOp,
+  LogicalResult matchAndRewrite(func::FuncOp stubFuncOp,
                                 PatternRewriter &rewriter) const override {
-    // Check if this is a hoisted call inside DeviceModuleOp
-    if (!callOp->hasAttr("ttir.cpu_hoist_call")) {
+    // Check if this is a hoisted function stub (has HoistedFunc attribute and
+    // is private)
+    if (!stubFuncOp->hasAttr(ttir::HoistedFuncAttr::name) ||
+        !stubFuncOp.isPrivate()) {
       return failure();
     }
 
-    auto deviceModule = callOp->getParentOfType<ttcore::DeviceModuleOp>();
+    // Ensure we're inside a DeviceModuleOp
+    auto deviceModule = stubFuncOp->getParentOfType<ttcore::DeviceModuleOp>();
     if (!deviceModule) {
-      return failure();
-    }
-
-    // Find the corresponding func.func definition in the same module
-    auto deviceModuleOp = callOp->getParentOfType<mlir::ModuleOp>();
-    if (!deviceModuleOp) {
-      return failure();
-    }
-
-    StringRef stubCaleeName = callOp.getCallee();
-    auto stubFuncOp = deviceModuleOp.lookupSymbol<func::FuncOp>(stubCaleeName);
-    if (!stubFuncOp) {
       return failure();
     }
 
@@ -71,9 +65,10 @@ public:
       return failure();
     }
 
-    // Remove suffix "_decl" from the function name
-    // and find the function in CPUModuleOp
-    auto hoistedFuncName = stubCaleeName.str();
+    // Remove suffix "_decl" from the function name and find the function in
+    // CPUModuleOp
+    auto stubFuncName = stubFuncOp.getSymName().str();
+    auto hoistedFuncName = stubFuncName;
     if (hoistedFuncName.size() > 5 &&
         hoistedFuncName.substr(hoistedFuncName.size() - 5) == "_decl") {
       hoistedFuncName = hoistedFuncName.substr(0, hoistedFuncName.size() - 5);
@@ -92,21 +87,41 @@ public:
       return failure();
     }
 
-    // Clone the function from CPU module to device module
-    rewriter.setInsertionPointToStart(&deviceModuleOp.getBodyRegion().front());
-    rewriter.clone(*hoistedFuncOp);
+    // Find all CallOps that call this stub function
+    llvm::SmallVector<func::CallOp, 4> callOps;
+    deviceModule.walk([&](func::CallOp callOp) {
+      if (callOp.getCallee() == stubFuncName) {
+        callOps.push_back(callOp);
+      }
+    });
 
-    // Remove the original function definition from device module
+    // Find the device module's inner ModuleOp to clone the function into
+    auto innerModule = dyn_cast_if_present<mlir::ModuleOp>(
+        deviceModule.getBody()->front());
+    if (!innerModule) {
+      return failure();
+    }
+
+    // Clone the function from CPU module to device module
+    rewriter.setInsertionPointToStart(&innerModule.getBodyRegion().front());
+    auto clonedFuncOp = cast<func::FuncOp>(rewriter.clone(*hoistedFuncOp));
+    clonedFuncOp.setSymName(hoistedFuncName);
+
+    // Update all call sites to use the new function name
+    for (auto callOp : callOps) {
+      rewriter.modifyOpInPlace(callOp, [&]() {
+        callOp.setCallee(hoistedFuncName);
+        // Remove the hoisted_call attribute if present
+        callOp->removeAttr(ttir::HoistedCallAttr::name);
+      });
+    }
+
+    // Remove the stub function from device module
     rewriter.eraseOp(stubFuncOp);
 
-    // Remove the function from CPU module
+    // Remove the original function from CPU module
     rewriter.eraseOp(hoistedFuncOp);
 
-    // Update the call op to point to the new function
-    callOp.setCallee(hoistedFuncName);
-
-    // Remove the attribute
-    callOp->removeAttr("ttir.cpu_hoist_call");
     return success();
   }
 };

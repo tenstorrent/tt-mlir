@@ -25,7 +25,7 @@
 #endif
 
 namespace mlir::tt::ttir {
-#define GEN_PASS_DEF_TTIRHOISTTRANSFORM
+#define GEN_PASS_DEF_CPUHOISTTRANSFORM
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h.inc"
 
 //===----------------------------------------------------------------------===//
@@ -346,17 +346,14 @@ static void hoistOperationsToFunction(HoistedOpsSet &operations,
 // Predicate type for determining whether an op should be hoisted.
 using ShouldHoistPredicateType = std::function<bool(mlir::Operation *)>;
 
-// Analysis pass to find ops to hoist based on the provided predicate.
-// Currently, we only support hoisting single op at a time.
-// In the future, we may want to support hoisting sets of multiple ops
-// contiguously.
-class TTIRHoistAnalyze {
-public:
-  TTIRHoistAnalyze(ShouldHoistPredicateType predicate) : predicate{predicate} {}
+// Predicate type for determining sets of ops to hoist based on given module.
+using HoistAnalyzer =
+    std::function<llvm::SmallVector<HoistedOpsSet, 4>(mlir::ModuleOp)>;
 
-  auto getHoistedOps(mlir::ModuleOp moduleOp) {
+// HoistAnalyzer which hoists single ops based on a predicate.
+HoistAnalyzer singleOpHoistAnalyzer(ShouldHoistPredicateType predicate) {
+  return [predicate](mlir::ModuleOp moduleOp) {
     llvm::SmallVector<HoistedOpsSet, 4> hoistedOpsSets;
-
     // Hoisting individual ops based on the predicate.
     moduleOp.walk([&](mlir::Operation *nestedOp) {
       if (predicate(nestedOp)) {
@@ -365,8 +362,14 @@ public:
         hoistedOpsSets.push_back(opSet);
       }
     });
+    return hoistedOpsSets;
+  };
+}
 
-    // Hoisting const-eval functions as a whole.
+// HoistAnalyzer which hoists const-eval functions as a whole.
+HoistAnalyzer constEvalHoistAnalyzer() {
+  return [](mlir::ModuleOp moduleOp) {
+    llvm::SmallVector<HoistedOpsSet, 4> hoistedOpsSets;
     moduleOp.walk([&](func::FuncOp funcOp) {
       // Skip non-const-eval functions.
       if (!funcOp->hasAttr(ttmlir::utils::g_constEvalAttrName)) {
@@ -374,6 +377,8 @@ public:
       }
 
       HoistedOpsSet opSet;
+      bool interrupted = false;
+
       funcOp.walk([&](mlir::Operation *nestedOp) {
         // Skip funcop itself
         if (llvm::isa<func::FuncOp>(nestedOp)) {
@@ -383,40 +388,39 @@ public:
         if (llvm::isa<mlir::func::ReturnOp>(nestedOp)) {
           return WalkResult::advance();
         }
+        // If there is already a hoisted call inside, skip hoisting
+        // altogether to avoid nested hoisting.
+        if (nestedOp->hasAttr(ttir::HoistedCallAttr::name)) {
+          interrupted = true;
+          return WalkResult::interrupt();
+        }
         opSet.push_back(nestedOp);
         return WalkResult::advance();
       });
 
-      hoistedOpsSets.push_back(opSet);
+      if (!interrupted && !opSet.empty()) {
+        hoistedOpsSets.push_back(opSet);
+      }
 
       return WalkResult::advance();
     });
 
     return hoistedOpsSets;
-  }
+  };
+}
 
-private:
-  ShouldHoistPredicateType predicate;
-};
-} // namespace
-
-namespace {
-// Transform pass to hoist specific ops (based on configured analysis pass) into
-// a cpu submodule for later independent lowering.
-class TTIRHoistTransform
-    : public impl::TTIRHoistTransformBase<TTIRHoistTransform> {
+// Transform pass to hoist specific ops, based on the provided HoistAnalyzer
+// implementation. By default, only ops manually tagged with ttir.should_hoist
+// are hoisted.
+class CPUHoistTransform
+    : public impl::CPUHoistTransformBase<CPUHoistTransform> {
 public:
-  using impl::TTIRHoistTransformBase<
-      TTIRHoistTransform>::TTIRHoistTransformBase;
-
-  // Constructor which allows specifying a custom predicate for determining
-  // whether an op should be hoisted.
-  TTIRHoistTransform(ShouldHoistPredicateType predicate)
-      : customPredicate{predicate} {}
+  CPUHoistTransform(HoistAnalyzer analyzer) : analyzer(analyzer) {}
 
   void runOnOperation() final {
     mlir::ModuleOp rootModule = getOperation();
 
+    // If we're inside a DeviceModuleOp, go up to the root ModuleOp.
     if (rootModule->getParentOp() != nullptr) {
       rootModule = rootModule->getParentOfType<ttcore::DeviceModuleOp>()
                        ->getParentOfType<mlir::ModuleOp>();
@@ -441,16 +445,8 @@ public:
 
     auto loc = rootModule->getLoc();
 
-    const auto isOpManuallyTaggedForHoisting = [](mlir::Operation *op) {
-      return op->hasAttr(ttir::ShouldHoistAttr::name);
-    };
-
-    const auto combinedPredicate = [&](mlir::Operation *op) {
-      return isOpManuallyTaggedForHoisting(op) || this->customPredicate(op);
-    };
-
-    TTIRHoistAnalyze analysisPass(combinedPredicate);
-    auto hoistOpSets = analysisPass.getHoistedOps(rootModule);
+    // Gather hoistable op sets.
+    auto hoistOpSets = analyzer(rootModule);
 
     if (hoistOpSets.empty()) {
       return;
@@ -477,34 +473,49 @@ public:
       cpuInnerModule = rewriter.create<mlir::ModuleOp>(loc);
     }
 
+    // Hoist each set of ops into a new function in the CPU module.
     for (auto &opSet : hoistOpSets) {
       hoistOperationsToFunction(opSet, deviceInnerModule, cpuInnerModule);
     }
   }
 
 private:
-  // By default, no custom ops are hoisted unless specified via constructor.
-  ShouldHoistPredicateType customPredicate = [](mlir::Operation *op) {
-    return false;
-  };
+  HoistAnalyzer analyzer;
 };
 } // namespace
 
 template <typename... Dialects>
-std::unique_ptr<mlir::Pass> createTTIRHoistTransformForDialects() {
+std::unique_ptr<mlir::Pass> createCPUHoistForDialectsTransform() {
   const auto customPredicate = [](mlir::Operation *op) {
     return ((op->getDialect()->getTypeID() == TypeID::get<Dialects>()) || ...);
   };
-  auto pass = std::make_unique<TTIRHoistTransform>(customPredicate);
+  HoistAnalyzer analyzer = singleOpHoistAnalyzer(customPredicate);
+  auto pass = std::make_unique<CPUHoistTransform>(analyzer);
   return pass;
 }
 
 template <typename... Ops>
-std::unique_ptr<mlir::Pass> createTTIRHoistTransformForOps() {
+std::unique_ptr<mlir::Pass> createCPUHoistForOpsTransform() {
   const auto customPredicate = [](mlir::Operation *op) {
     return llvm::isa<Ops...>(op);
   };
-  auto pass = std::make_unique<TTIRHoistTransform>(customPredicate);
+  HoistAnalyzer analyzer = singleOpHoistAnalyzer(customPredicate);
+  auto pass = std::make_unique<CPUHoistTransform>(analyzer);
+  return pass;
+}
+
+std::unique_ptr<mlir::Pass> createCPUHoistConstEvalTransform() {
+  HoistAnalyzer analyzer = constEvalHoistAnalyzer();
+  auto pass = std::make_unique<CPUHoistTransform>(analyzer);
+  return pass;
+}
+
+std::unique_ptr<mlir::Pass> createCPUHoistManuallyTagedOpsTransform() {
+  const auto customPredicate = [](mlir::Operation *op) {
+    return op->hasAttr(ttir::ShouldHoistAttr::name);
+  };
+  HoistAnalyzer analyzer = singleOpHoistAnalyzer(customPredicate);
+  auto pass = std::make_unique<CPUHoistTransform>(analyzer);
   return pass;
 }
 
@@ -512,14 +523,14 @@ std::unique_ptr<mlir::Pass> createTTIRHoistTransformForOps() {
 // potentially fallback elsewhere due to template in .cpp file constraints.
 #ifdef TTMLIR_ENABLE_STABLEHLO
 template std::unique_ptr<mlir::Pass>
-createTTIRHoistTransformForDialects<mlir::stablehlo::StablehloDialect>();
+createCPUHoistForDialectsTransform<mlir::stablehlo::StablehloDialect>();
 
 template std::unique_ptr<mlir::Pass>
-createTTIRHoistTransformForOps<stablehlo::DynamicUpdateSliceOp,
-                               stablehlo::EinsumOp>();
+createCPUHoistForOpsTransform<stablehlo::DynamicUpdateSliceOp,
+                              stablehlo::EinsumOp>();
 
 #endif
 template std::unique_ptr<mlir::Pass>
-createTTIRHoistTransformForDialects<TTIRDialect>();
+createCPUHoistForDialectsTransform<TTIRDialect>();
 
 } // namespace mlir::tt::ttir
