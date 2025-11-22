@@ -2365,26 +2365,6 @@ def ones_golden(**kwargs) -> GoldenMapTensor:
     return GoldenMapTensor({0: torch.ones(size)}, (1, 1))
 
 
-def reverse_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
-    """
-    Golden function for reverse operation with TTIR parameter names.
-
-    Parameters
-    ----------
-    input_tensor : GoldenMapTensor
-        Input tensor
-    **kwargs : dict
-        Keyword arguments including 'dims'
-
-    Returns
-    -------
-    GoldenMapTensor
-        Reversed tensor
-    """
-    dims = kwargs.get("dimensions", [0])
-    return torch.flip(input_tensor, dims)
-
-
 def arange_golden(single_dim_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
     """
     Golden function for arange operation using TTIR kwargs.
@@ -3431,6 +3411,68 @@ def ttir_concat_golden(
         return torch.concat([input_tensors], dim=dim)
 
 
+def ttir_max_pool2d_with_indices(
+    input_tensor: GoldenMapTensor,
+    kernel_attr: DenseI32ArrayAttr,
+    stride_attr: DenseI32ArrayAttr,
+    padding_attr: DenseI32ArrayAttr,
+    dilation_attr: DenseI32ArrayAttr,
+    ceil_mode_attr: BoolAttr,
+) -> Tuple[GoldenMapTensor, GoldenMapTensor]:
+    kernel = unpack_mlir_attr(kernel_attr)
+    stride = unpack_mlir_attr(stride_attr)
+    padding = unpack_mlir_attr(padding_attr)
+    dilation = unpack_mlir_attr(dilation_attr)
+    ceil_mode = unpack_mlir_attr(ceil_mode_attr)
+
+    # Assert that padding padding top+bottom and left+right are equal for both dimensions
+    assert (
+        padding[0] == padding[2]
+    ), "Asymmetric padding not supported in height dimension"
+    assert (
+        padding[1] == padding[3]
+    ), "Asymmetric padding not supported in width dimension"
+
+    # TTMLIR uses NHWC format, but PyTorch expects NCHW format
+    # Transpose input from NHWC to NCHW
+    input_tensor_clone = input_tensor.clone()
+    input_tensor_nchw = input_tensor_clone.transpose(-1, -2).transpose(-2, -3)
+
+    output, indices = torch.nn.functional.max_pool2d(
+        input_tensor_nchw,
+        kernel_size=kernel,
+        stride=stride,
+        padding=((padding[0], padding[1])),
+        dilation=dilation,
+        ceil_mode=ceil_mode,
+        return_indices=True,
+    )
+
+    # Transpose output back from NCHW to NHWC
+    output_nhwc = output.transpose(-2, -3).transpose(-1, -2)
+    indices_nhwc = indices.transpose(-2, -3).transpose(-1, -2)
+    return output_nhwc, indices_nhwc.to(torch.int64)
+
+
+def ttir_scatter_in_dim_golden(
+    input_tensor: GoldenMapTensor,
+    index: GoldenMapTensor,
+    source: GoldenMapTensor,
+    dim: IntegerAttr,
+) -> GoldenMapTensor:
+    dim_value = unpack_mlir_attr(dim)
+    index_copy = index.clone()
+    index_copy = index_copy.to(torch.int64)
+    return torch.scatter(input_tensor, dim_value, index_copy, source)
+
+
+def ttir_reverse_golden(
+    input_tensor: GoldenMapTensor, dimensions_attr: DenseI64ArrayAttr
+) -> GoldenMapTensor:
+    dimensions = unpack_mlir_attr(dimensions_attr)
+    return torch.flip(input_tensor, dimensions)
+
+
 GOLDEN_MAPPINGS: Dict[type, Callable] = {
     # ----- TTIR OPS -----
     # Elementwise unary operations
@@ -3509,7 +3551,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.ReshapeOp: ttir_reshape_golden,
     ttir.SqueezeOp: squeeze_golden,
     ttir.UnsqueezeOp: unsqueeze_golden,
-    ttir.ReverseOp: reverse_golden,
+    ttir.ReverseOp: ttir_reverse_golden,
     ttir.PermuteOp: ttir_permute_golden,
     ttir.ClampScalarOp: clamp_scalar_golden,
     ttir.ClampTensorOp: ttir_clamp_tensor_golden,
@@ -3547,9 +3589,11 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.MaxPool2dOp: max_pool2d_golden,
     ttir.AvgPool2dOp: avg_pool2d_golden,
     ttir.PoolingOp: ttir_pooling_golden,
+    ttir.MaxPool2dWithIndicesOp: ttir_max_pool2d_with_indices,
     ttir.ArgMaxOp: argmax_golden,
     ttir.LinearOp: linear_golden,
     ttir.DotGeneralOp: ttir_dot_general_golden,
+    ttir.ScatterInDimOp: ttir_scatter_in_dim_golden,
     # Layout operations (identity functions) — accept and ignore extra kwargs like reinterpretLayout
     ttir.ToLayoutOp: (lambda x, **kwargs: x),
     # Cache operations

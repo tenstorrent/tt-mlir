@@ -244,6 +244,509 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
 
     # ----- Public Op Generators ----
 
+    ################ ttir.ReverseOp ###############
+
+    @tag(ttir.ReverseOp)
+    def reverse(
+        self,
+        in0: Operand,
+        dimensions: List[int],
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpView:
+        ttir_op = self.get_opview_from_method(TTIRBuilder.reverse)
+
+        if output_type is None:
+            output_type = self.get_type(in0)
+
+        dimensions_attr = DenseI64ArrayAttr.get(dimensions)
+        input0 = self._get_golden_tensor(in0)
+        op_golden_function = get_golden_function(ttir_op)
+        golden_output = op_golden_function(input0, dimensions_attr)
+        result = self._create_ranked_tensor_type(golden_output.shape, output_type)
+        output = self._get_empty_op(result)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = ttir_op(
+            result,
+            in0,
+            output,
+            dimensions_attr,
+            loc=loc,
+        )
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        if not self._disable_golden_check:
+            self._set_golden_tensor(op, golden_output)
+
+        return op
+
+    @parse(ttir.ReverseOp)
+    def reverse_parser(
+        self,
+        old_op: ttir.ReverseOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Operation:
+        ttir_op = self.get_opview_from_parser(TTIRBuilder.reverse_parser)
+
+        in0 = global_dict[old_op.input]
+        output = global_dict[old_op.output]
+        result = old_op.result.type
+        dimensions_attr = old_op.dimensions
+
+        new_op = ttir_op(
+            result,
+            in0,
+            output,
+            dimensions_attr,
+            loc=old_op.location,
+        )
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(in0)
+            op_golden_function = get_golden_function(ttir_op)
+            golden_output = op_golden_function(input0, dimensions_attr)
+            self._set_golden_tensor(new_op, golden_output)
+
+        return new_op
+
+    @split(ttir.ReverseOp)
+    def reverse_split(
+        self,
+        old_op: ttir.ReverseOp,
+    ) -> Tuple[Module, TTIRBuilder]:
+        ttir_op = self.get_opview_from_split(TTIRBuilder.reverse_split)
+
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+        with old_ctx, old_loc:
+            reverse_module = Module.create()
+            reverse_builder = TTIRBuilder(old_ctx, old_loc)
+            op_input_types = [old_op.input.type]
+
+            with InsertionPoint(reverse_module.body):
+
+                @func.func(*op_input_types, name="reverse_module")
+                def decorated_func(*inputs):
+                    in0 = inputs[0]
+                    result = old_op.result.type
+                    output = reverse_builder._get_empty_op(result)
+                    dimensions_attr = old_op.dimensions
+
+                    new_op = ttir_op(
+                        result,
+                        in0,
+                        output,
+                        dimensions_attr,
+                        loc=old_op.location,
+                    )
+
+                    if not self._disable_golden_check:
+                        input_owner0 = old_op.input.owner
+                        if isinstance(input_owner0, Block):
+                            queried_input0 = old_op.input
+                        else:
+                            queried_input0 = input_owner0
+
+                        input0 = self._get_golden_tensor(queried_input0)
+                        op_golden_function = get_golden_function(ttir_op)
+                        golden_output = op_golden_function(input0, dimensions_attr)
+                        reverse_builder._set_golden_tensor(new_op, golden_output)
+                        reverse_builder._set_output_ordering([new_op])
+                        reverse_builder._set_golden_tensor(queried_input0, input0)
+                        reverse_builder._set_input_ordering([queried_input0])
+                    return new_op
+
+        return reverse_module, reverse_builder
+
+    ################ ttir.ScatterInDimOp ###############
+
+    @tag(ttir.ScatterInDimOp)
+    def scatter_in_dim(
+        self,
+        in0: Operand,
+        index: Operand,
+        source: Operand,
+        dim: int,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpView:
+        ttir_op = self.get_opview_from_method(TTIRBuilder.scatter_in_dim)
+
+        if output_type is None:
+            output_type = self.get_type(in0)
+
+        dim_attr = IntegerAttr.get(IntegerType.get_signless(32), dim)
+        input0 = self._get_golden_tensor(in0)
+        input_index = self._get_golden_tensor(index)
+        input_source = self._get_golden_tensor(source)
+        op_golden_function = get_golden_function(ttir_op)
+        golden_output = op_golden_function(input0, input_index, input_source, dim_attr)
+        result = self._create_ranked_tensor_type(golden_output.shape, output_type)
+        output = self._get_empty_op(result)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = ttir_op(
+            result,
+            in0,
+            index,
+            source,
+            output,
+            dim_attr,
+            loc=loc,
+        )
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        if not self._disable_golden_check:
+            self._set_golden_tensor(op, golden_output)
+
+        return op
+
+    @parse(ttir.ScatterInDimOp)
+    def scatter_in_dim_parser(
+        self,
+        old_op: ttir.ScatterInDimOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Operation:
+        ttir_op = self.get_opview_from_parser(TTIRBuilder.scatter_in_dim_parser)
+
+        in0 = global_dict[old_op.input]
+        index = global_dict[old_op.index]
+        source = global_dict[old_op.source]
+        output = global_dict[old_op.output]
+        result = old_op.result.type
+        dim_attr = old_op.dim
+
+        new_op = ttir_op(
+            result,
+            in0,
+            index,
+            source,
+            output,
+            dim_attr,
+            loc=old_op.location,
+        )
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(in0)
+            input_index = self._get_golden_tensor(index)
+            input_source = self._get_golden_tensor(source)
+            op_golden_function = get_golden_function(ttir_op)
+            golden_output = op_golden_function(
+                input0, input_index, input_source, dim_attr
+            )
+            self._set_golden_tensor(new_op, golden_output)
+
+        return new_op
+
+    @split(ttir.ScatterInDimOp)
+    def scatter_in_dim_split(
+        self,
+        old_op: ttir.ScatterInDimOp,
+    ) -> Tuple[Module, TTIRBuilder]:
+        ttir_op = self.get_opview_from_split(TTIRBuilder.scatter_in_dim_split)
+
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+        with old_ctx, old_loc:
+            scatter_in_dim_module = Module.create()
+            scatter_in_dim_builder = TTIRBuilder(old_ctx, old_loc)
+            op_input_types = [old_op.input.type, old_op.index.type, old_op.source.type]
+
+            with InsertionPoint(scatter_in_dim_module.body):
+
+                @func.func(*op_input_types, name="scatter_in_dim_module")
+                def decorated_func(*inputs):
+                    in0 = inputs[0]
+                    index = inputs[1]
+                    source = inputs[2]
+                    result = old_op.result.type
+                    output = scatter_in_dim_builder._get_empty_op(result)
+                    dim_attr = old_op.dim
+
+                    new_op = ttir_op(
+                        result,
+                        in0,
+                        index,
+                        source,
+                        output,
+                        dim_attr,
+                        loc=old_op.location,
+                    )
+
+                    if not self._disable_golden_check:
+                        input_owner0 = old_op.input.owner
+                        if isinstance(input_owner0, Block):
+                            queried_input0 = old_op.input
+                        else:
+                            queried_input0 = input_owner0
+
+                        index_owner0 = old_op.index.owner
+                        if isinstance(index_owner0, Block):
+                            queried_index0 = old_op.index
+                        else:
+                            queried_index0 = index_owner0
+
+                        source_owner0 = old_op.source.owner
+                        if isinstance(source_owner0, Block):
+                            queried_source0 = old_op.source
+                        else:
+                            queried_source0 = source_owner0
+
+                        input0 = self._get_golden_tensor(queried_input0)
+                        input_index = self._get_golden_tensor(queried_index0)
+                        input_source = self._get_golden_tensor(queried_source0)
+                        op_golden_function = get_golden_function(ttir_op)
+                        golden_output = op_golden_function(
+                            input0, input_index, input_source, dim_attr
+                        )
+                        scatter_in_dim_builder._set_golden_tensor(new_op, golden_output)
+                        scatter_in_dim_builder._set_output_ordering([new_op])
+                        scatter_in_dim_builder._set_golden_tensor(
+                            queried_input0, input0
+                        )
+                        scatter_in_dim_builder._set_golden_tensor(
+                            queried_index0, input_index
+                        )
+                        scatter_in_dim_builder._set_golden_tensor(
+                            queried_source0, input_source
+                        )
+                        scatter_in_dim_builder._set_input_ordering(
+                            [queried_input0, queried_index0, queried_source0]
+                        )
+
+                    return new_op
+
+        return scatter_in_dim_module, scatter_in_dim_builder
+
+    ################ ttir.MaxPool2dWithIndicesOp ###############
+
+    @tag(ttir.MaxPool2dWithIndicesOp)
+    def max_pool2d_with_indices(
+        self,
+        in0: Operand,
+        kernel: Union[int, List[int]],
+        stride: Union[int, List[int]],
+        dilation: Union[int, List[int]],
+        padding: Union[int, List[int]],
+        ceil_mode: bool,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpView:
+        ttir_op = self.get_opview_from_method(TTIRBuilder.max_pool2d_with_indices)
+
+        if output_type is None:
+            output_type = self.get_type(in0)
+
+        if isinstance(kernel, int):
+            kernel_attr = IntegerAttr.get(IntegerType.get_signless(32), kernel)
+        else:
+            kernel_attr = DenseI32ArrayAttr.get(kernel)
+
+        if isinstance(stride, int):
+            stride_attr = IntegerAttr.get(IntegerType.get_signless(32), stride)
+        else:
+            stride_attr = DenseI32ArrayAttr.get(stride)
+
+        if isinstance(padding, int):
+            padding_attr = IntegerAttr.get(IntegerType.get_signless(32), padding)
+        else:
+            padding_attr = DenseI32ArrayAttr.get(padding)
+
+        if isinstance(dilation, int):
+            dilation_attr = IntegerAttr.get(IntegerType.get_signless(32), dilation)
+        else:
+            dilation_attr = DenseI32ArrayAttr.get(dilation)
+
+        ceil_mode_attr = BoolAttr.get(ceil_mode)
+        input0 = self._get_golden_tensor(in0)
+        op_golden_function = get_golden_function(ttir_op)
+        golden_outputs = op_golden_function(
+            input0,
+            kernel_attr,
+            stride_attr,
+            padding_attr,
+            dilation_attr,
+            ceil_mode_attr,
+        )
+        result = self._create_ranked_tensor_type(golden_outputs[0].shape, output_type)
+        result_indices = self._create_ranked_tensor_type(
+            golden_outputs[1].shape, self._get_type_from_torch_dtype(torch.int64)
+        )
+        output = self._get_empty_op(result)
+        output_indices = self._get_empty_op(result_indices)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = ttir_op(
+            result,
+            result_indices,
+            in0,
+            [output, output_indices],
+            kernel_attr,
+            stride_attr,
+            dilation_attr,
+            padding_attr,
+            ceil_mode_attr,
+            loc=loc,
+        )
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        if not self._disable_golden_check:
+            self._set_golden_tensor(op.result, golden_outputs[0])
+            self._set_golden_tensor(op.result_indices, golden_outputs[1])
+
+        return op
+
+    @parse(ttir.MaxPool2dWithIndicesOp)
+    def max_pool2d_with_indices_parser(
+        self,
+        old_op: ttir.MaxPool2dWithIndicesOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Operation:
+        ttir_op = self.get_opview_from_parser(
+            TTIRBuilder.max_pool2d_with_indices_parser
+        )
+
+        in0 = global_dict[old_op.input]
+        output = global_dict[old_op.output[0]]
+        output_indices = global_dict[old_op.output[1]]
+        result = old_op.result.type
+        result_indices = old_op.result_indices.type
+        kernel_attr = old_op.kernel
+        stride_attr = old_op.stride
+        dilation_attr = old_op.dilation
+        padding_attr = old_op.padding
+        ceil_mode_attr = old_op.ceil_mode
+
+        new_op = ttir_op(
+            result,
+            result_indices,
+            in0,
+            [output, output_indices],
+            kernel_attr,
+            stride_attr,
+            dilation_attr,
+            padding_attr,
+            ceil_mode_attr,
+            loc=old_op.location,
+        )
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(in0)
+            op_golden_function = get_golden_function(ttir_op)
+            golden_outputs = op_golden_function(
+                input0,
+                kernel_attr,
+                stride_attr,
+                padding_attr,
+                dilation_attr,
+                ceil_mode_attr,
+            )
+            self._set_golden_tensor(new_op.result, golden_outputs[0])
+            self._set_golden_tensor(new_op.result_indices, golden_outputs[1])
+
+        return new_op
+
+    @split(ttir.MaxPool2dWithIndicesOp)
+    def max_pool2d_with_indices_split(
+        self,
+        old_op: ttir.MaxPool2dWithIndicesOp,
+    ) -> Tuple[Module, TTIRBuilder]:
+        ttir_op = self.get_opview_from_split(TTIRBuilder.max_pool2d_with_indices_split)
+
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+        with old_ctx, old_loc:
+            max_pool2d_with_indices_module = Module.create()
+            max_pool2d_with_indices_builder = TTIRBuilder(old_ctx, old_loc)
+            op_input_types = [old_op.input.type]
+
+            with InsertionPoint(max_pool2d_with_indices_module.body):
+
+                @func.func(*op_input_types, name="max_pool2d_with_indices_module")
+                def decorated_func(*inputs):
+                    in0 = inputs[0]
+                    result = old_op.result.type
+                    result_indices = old_op.result_indices.type
+                    output = max_pool2d_with_indices_builder._get_empty_op(result)
+                    output_indices = max_pool2d_with_indices_builder._get_empty_op(
+                        result_indices
+                    )
+                    kernel_attr = old_op.kernel
+                    stride_attr = old_op.stride
+                    dilation_attr = old_op.dilation
+                    padding_attr = old_op.padding
+                    ceil_mode_attr = old_op.ceil_mode
+
+                    new_op = ttir_op(
+                        result,
+                        result_indices,
+                        in0,
+                        [output, output_indices],
+                        kernel_attr,
+                        stride_attr,
+                        dilation_attr,
+                        padding_attr,
+                        ceil_mode_attr,
+                        loc=old_op.location,
+                    )
+
+                    if not self._disable_golden_check:
+                        input_owner0 = old_op.input.owner
+                        if isinstance(input_owner0, Block):
+                            queried_input0 = old_op.input
+                        else:
+                            queried_input0 = input_owner0
+
+                        input0 = self._get_golden_tensor(queried_input0)
+                        op_golden_function = get_golden_function(ttir_op)
+                        golden_outputs = op_golden_function(
+                            input0,
+                            kernel_attr,
+                            stride_attr,
+                            padding_attr,
+                            dilation_attr,
+                            ceil_mode_attr,
+                        )
+                        max_pool2d_with_indices_builder._set_golden_tensor(
+                            new_op, golden_outputs
+                        )
+                        max_pool2d_with_indices_builder._set_output_ordering([new_op])
+                        max_pool2d_with_indices_builder._set_golden_tensor(
+                            queried_input0, input0
+                        )
+                        max_pool2d_with_indices_builder._set_input_ordering(
+                            [queried_input0]
+                        )
+
+                    return new_op
+
+        return max_pool2d_with_indices_module, max_pool2d_with_indices_builder
+
     ################ ttir.Log1pOp ###############
 
     @tag(ttir.Log1pOp)
@@ -7475,38 +7978,6 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
             unit_attrs=unit_attrs,
         )
 
-    def reverse(
-        self, in0: Operand, dims: List[int], unit_attrs: Optional[List[str]] = None
-    ) -> OpView:
-        """
-        Creates ``ttir.reverse``.
-
-        *Tensor reverse operation.*
-
-        Reverses the order of elements along specified dimensions.
-        The input and output shapes must match.
-
-        Parameters
-        ----------
-        in0 : Operand
-            Input tensor
-        dims : *List[int]*
-            Dimensions to reverse
-        unit_attrs : *Optional[List[str]]*, optional
-            Optional list of unit attributes
-
-        Returns
-        -------
-        (*OpView*)
-            Tensor with reversed elements
-        """
-        return self._op_proxy(
-            ttir.ReverseOp,
-            [in0],
-            ttir_kwargs={"dimensions": dims},
-            unit_attrs=unit_attrs,
-        )
-
     def linear(
         self,
         in0: Operand,
@@ -9197,6 +9668,7 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
                     for entry in parsed_module.body.operations:
                         for block in entry.body:
                             for op in block.operations:
+                                print(op)
                                 if isinstance(op, func.ReturnOp):
                                     global_result = tuple(
                                         global_dict[operand] for operand in op.operands
@@ -9205,7 +9677,17 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
                                     parsed_op = ttir_builder._build_op_from_parsed_op(
                                         op, global_dict
                                     )
-                                    global_dict[op.result] = parsed_op
+
+                                    # note: tapspatel - we should migrate this into the op impl so each op defines how it will store its goldens
+                                    if isinstance(
+                                        parsed_op, ttir.MaxPool2dWithIndicesOp
+                                    ):
+                                        global_dict[op.result] = parsed_op.result
+                                        global_dict[
+                                            op.result_indices
+                                        ] = parsed_op.result_indices
+                                    else:
+                                        global_dict[op.result] = parsed_op
 
                     outputs = (
                         global_result
