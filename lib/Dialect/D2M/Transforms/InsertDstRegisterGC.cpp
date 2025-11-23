@@ -107,7 +107,7 @@ struct D2MInsertDstRegisterGCPass
   // Create the coloring strategy based on pass options.
   std::unique_ptr<ColoringStrategy> createColoringStrategy() {
     std::string strategy = this->coloringStrategy.getValue();
-    if (strategy == "greedy") {
+    if (strategy == "greedy" || strategy == "graph-coloring-greedy") {
       return std::make_unique<GreedyColoring>();
     }
     return std::make_unique<ChaitinBriggsColoring>();
@@ -132,7 +132,7 @@ struct D2MInsertDstRegisterGCPass
     // Use the same strategy as the actual allocation for consistency.
     std::unique_ptr<DstAnalysis> reqAnalysis;
     std::string strategy = this->coloringStrategy.getValue();
-    if (strategy == "greedy") {
+    if (strategy == "greedy" || strategy == "graph-coloring-greedy") {
       reqAnalysis = createGreedyDstAnalysis();
     } else {
       reqAnalysis = createChaitinBriggsDstAnalysis();

@@ -24,8 +24,8 @@ namespace utils {
 
 /// Check if a linalg.generic operation contains tile_matmul operations.
 ///
-/// \param linalgOp The linalg.generic operation to check
-/// \return true if the operation contains any tile_matmul ops
+/// \param linalgOp The linalg.generic operation to check.
+/// \return true if the operation contains any tile_matmul ops.
 bool hasTileMatmulOp(linalg::GenericOp linalgOp);
 
 /// Convert linalg.generic with tile_matmul to tile_matmul_block with DST
@@ -35,11 +35,11 @@ bool hasTileMatmulOp(linalg::GenericOp linalgOp);
 /// represented as linalg.generic ops (when useTileMatmul=false). The
 /// transformation proceeds as follows:
 ///
-/// 1. Convert linalg.generic to temporary affine loops
+/// 1. Convert linalg.generic to temporary affine loops.
 /// 2. Invoke the provided callback to insert DST acquire/release/copy
-///    operations in the affine loop region
-/// 3. Delete the temporary affine loops
-/// 4. Emit a tile_matmul_block operation with the original operands
+///    operations in the affine loop region.
+/// 3. Delete the temporary affine loops.
+/// 4. Emit a tile_matmul_block operation with the original operands.
 ///
 /// This design allows different passes (e.g., InsertDstRegisterAccess,
 /// InsertDstRegisterGC) to share the same linalg→affine→tile_matmul_block
@@ -51,10 +51,11 @@ bool hasTileMatmulOp(linalg::GenericOp linalgOp);
 ///   *outermostLoop)
 ///
 /// Where:
-/// - rewriter: The pattern rewriter for IR modifications
+/// - rewriter: The pattern rewriter for IR modifications.
 /// - region: The region containing the affine loops (where DST ops should be
-/// inserted)
-/// - outermostLoop: The outermost affine loop (or nullptr if conversion failed)
+/// inserted).
+/// - outermostLoop: The outermost affine loop (or nullptr if conversion
+/// failed).
 ///
 /// Example usage:
 /// \code
@@ -68,13 +69,15 @@ bool hasTileMatmulOp(linalg::GenericOp linalgOp);
 ///   }
 /// \endcode
 ///
-/// \param rewriter The pattern rewriter for IR modifications
-/// \param genericOp The parent d2m.generic operation
-/// \param linalgOp The linalg.generic operation containing tile_matmul
-/// \param region The region containing the linalg operation
+/// \param rewriter The pattern rewriter for IR modifications.
+/// \param genericOp The parent d2m.generic operation.
+/// \param linalgOp The linalg.generic operation containing tile_matmul.
+/// \param region The region containing the linalg operation.
 /// \param dstInsertionCallback Callback to insert DST operations in the affine
-/// region \return success() and the created tile_matmul_block on success,
-/// failure() otherwise
+/// region.
+///
+/// \return success() and the created tile_matmul_block on success,
+/// failure() otherwise.
 FailureOr<TileMatmulBlockOp> convertTileMatmulLinalgToBlock(
     RewriterBase &rewriter, GenericOp genericOp, linalg::GenericOp linalgOp,
     Region &region,

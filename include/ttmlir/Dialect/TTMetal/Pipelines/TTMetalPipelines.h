@@ -170,6 +170,17 @@ struct TTIRToTTMetalPipelineOptions
       llvm::cl::desc("Target data format for global conversion: "
                      "f32, bf16, or bfp_bf8. Disabled by default."),
       llvm::cl::init("")};
+
+  // Option to select the DST allocation strategy for the pipeline.
+  // 'legacy' or 'bump': Uses the old incremental D2MInsertDstRegisterAccess
+  // allocator. The 'graph-coloring-greedy' and 'graph-coloring-cb'
+  // are passed through the D2MInsertDstRegisterGC pass.
+  Option<std::string> dstAllocationStrategy{
+      *this, "dst-allocation-strategy",
+      llvm::cl::desc(
+          "DST allocation strategy ('legacy', 'graph-coloring-greedy', or "
+          "'graph-coloring-cb')."),
+      llvm::cl::init("graph-coloring-cb")};
 };
 
 void createTTIRBufferizationPipeline(

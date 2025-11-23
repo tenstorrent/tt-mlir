@@ -14,9 +14,9 @@
 namespace mlir::tt::d2m::utils {
 
 bool hasTileMatmulOp(linalg::GenericOp linalgOp) {
-  return linalgOp->walk([](d2m::TileMatmulOp) {
-    return WalkResult::interrupt();
-  }).wasInterrupted();
+  return linalgOp
+      ->walk([](d2m::TileMatmulOp) { return WalkResult::interrupt(); })
+      .wasInterrupted();
 }
 
 FailureOr<TileMatmulBlockOp> convertTileMatmulLinalgToBlock(

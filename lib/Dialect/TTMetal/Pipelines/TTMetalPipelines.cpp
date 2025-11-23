@@ -150,14 +150,30 @@ void createTTIRToTTMetalMiddleendPipeline(
     linalgToAffineOptions.markRootLoops = true;
   }
   pm.addPass(d2m::createD2MLinalgToAffine(linalgToAffineOptions));
-  d2m::D2MInsertDstRegisterAccessOptions insertDstRegisterAccessOptions;
-  {
-    insertDstRegisterAccessOptions.useTileMatmul = options.useTileMatmul;
-    insertDstRegisterAccessOptions.maxDstPhysicalSizeTiles =
-        options.maxDstPhysicalSizeTiles;
+
+  // Dispatch to appropriate DST allocation strategy.
+  std::string dstStrategy = options.dstAllocationStrategy;
+  if (dstStrategy == "legacy" || dstStrategy == "bump") {
+    // Use legacy incremental allocator
+    d2m::D2MInsertDstRegisterAccessOptions insertDstRegisterAccessOptions;
+    {
+      insertDstRegisterAccessOptions.useTileMatmul = options.useTileMatmul;
+      insertDstRegisterAccessOptions.maxDstPhysicalSizeTiles =
+          options.maxDstPhysicalSizeTiles;
+    }
+    pm.addPass(
+        d2m::createD2MInsertDstRegisterAccess(insertDstRegisterAccessOptions));
+  } else if (dstStrategy == "graph-coloring-greedy" ||
+             dstStrategy == "graph-coloring-cb") {
+    // Use a graph coloring allocator with the specified strategy
+    OpPassManager &funcPm = pm.nest<func::FuncOp>();
+    d2m::D2MInsertDstRegisterGCOptions gcOptions;
+    {
+      gcOptions.maxDstPhysicalSizeTiles = options.maxDstPhysicalSizeTiles;
+      gcOptions.coloringStrategy = dstStrategy;
+    }
+    funcPm.addPass(d2m::createD2MInsertDstRegisterGC(gcOptions));
   }
-  pm.addPass(
-      d2m::createD2MInsertDstRegisterAccess(insertDstRegisterAccessOptions));
 
   pm.addPass(d2m::createD2MSFPUTileLoopFission());
   pm.addPass(mlir::createCanonicalizerPass());

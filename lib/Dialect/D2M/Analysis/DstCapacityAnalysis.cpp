@@ -48,7 +48,7 @@ mlir::tt::d2m::DstCapacityAnalysis::DstCapacityAnalysis(
           mlir::tt::ttcore::getOpChipDescAttr(genericOp).getDstLogicalSizeTiles(
               largestDstType, fullSyncEn, overridePhysicalSize);
 
-      minCapacity = std::min(minCapacity, currntCapacity);
+      minCapacity = std::min(minCapacity, currentCapacity);
     }
 
     // Note: Do not remove this debug statement, it is used for testing. It is
