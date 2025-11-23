@@ -585,14 +585,21 @@ def D2M_AcquireDstOp : D2M_GenericRegionComputeOp<"acquire_dst",
     let summary = "Acquire Destination Register op.";
     let description = [{
       This op returns a memref with memory space dest that models the destination register
-      resource on tensorrent hardware. Example IR:
+      resource on Tenstorrent hardware. Example IR:
 
       ```mlir
       %dst = d2m.acquire_dst() : memref<2x4x!tt.tile<32x32, f32>, #tt.memory_space<dst>>
       ```
 
-      For symmetry and liveness tracking, each acquire_dst should have a corresponding
-      release_dst operation that marks the end of the DST value's live range.
+      **Constraints:**
+      - Each acquire_dst must have a corresponding release_dst operation.
+      - The acquire_dst and release_dst must be in the same block.
+      - All uses of the DST value must occur before the release_dst operation
+        (including uses in nested regions, which must be within operations that
+        come before the release_dst).
+
+      These constraints ensure proper liveness tracking and enable efficient DST
+      register allocation.
     }];
 
     let results = (outs RegisterDstMemRef:$result);
@@ -610,16 +617,25 @@ def D2M_ReleaseDstOp : D2M_GenericRegionComputeOp<"release_dst",
       This op explicitly marks the end of a DST register's life range,
       freeing it for immediate reuse by the register allocator. It provides a
       clear signal for liveness analysis, enabling more efficient register
-      allocation by allowing the graph coloring pass to reuse DST slices
-      sooner.
+      allocation by allowing DST passes to reuse DST slices ooner.
 
       Example IR:
 
       ```mlir
-      %dst = d2m.acquire_dst() : memref<...>
-      // ... last use of %dst ...
-      d2m.release_dst %dst
+      %dst = d2m.acquire_dst() : memref<2x4x!tt.tile<32x32, f32>, #dst_>
+      // ... uses of %dst (including in nested operations like d2m.generic) ...
+      d2m.release_dst %dst : memref<2x4x!tt.tile<32x32, f32>, #dst_>
       ```
+
+      **Constraints:**
+      - The operand must be the result of a d2m.acquire_dst operation.
+      - The release_dst must be in the same block as the acquire_dst.
+      - No uses of the DST value may occur after this release_dst operation,
+        including uses within nested regions (e.g., scf.if, scf.for) that come
+        after the release.
+
+      These constraints guarantee that the DST resource is properly freed and
+      prevent use-after-free errors at runtime.
     }];
 
     let arguments = (ins RegisterDstMemRef:$dst);

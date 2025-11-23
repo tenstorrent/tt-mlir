@@ -57,15 +57,44 @@ LogicalResult ReleaseDstOp::verify() {
         "operand must be the result of a d2m.acquire_dst operation");
   }
 
-  // Verify that there are no uses of the DST value after this release.
+  // Acquire and release must be in the same block to guarantee the release
+  // always executes (not conditionally inside if/loop/etc).
   Operation *releaseOp = getOperation();
   Block *releaseBlock = releaseOp->getBlock();
-  if (llvm::any_of(getDst().getUses(), [&](const mlir::OpOperand &use) {
-        Operation *user = use.getOwner();
-        return user != releaseOp && user->getBlock() == releaseBlock &&
-               releaseOp->isBeforeInBlock(user);
-      })) {
-    return emitOpError("DST value used after release_dst operation");
+  if (definingOp->getBlock() != releaseBlock) {
+    return emitOpError(
+        "release_dst must be in the same block as the corresponding "
+        "acquire_dst operation");
+  }
+
+  // Verify that there are no uses of the DST value after this release.
+  // Since acquire and release are in the same block, we just need to check
+  // that all uses either:
+  // 1. Are in the same block and come before the release, OR
+  // 2. Are in a nested region of an operation that comes before the release
+  for (const mlir::OpOperand &use : getDst().getUses()) {
+    Operation *user = use.getOwner();
+
+    if (user == releaseOp) {
+      continue;
+    }
+
+    // Find the top-level operation in the release block that contains this use
+    Operation *topLevelOp = user;
+    while (topLevelOp->getBlock() != releaseBlock) {
+      topLevelOp = topLevelOp->getBlock()->getParentOp();
+      if (!topLevelOp) {
+        // Use is in a completely different region/function - should not happen
+        // given that acquire and release are in the same block
+        return emitOpError(
+            "DST value used in a different region than release_dst operation");
+      }
+    }
+
+    // Check if the top-level operation comes after the release
+    if (releaseOp->isBeforeInBlock(topLevelOp)) {
+      return emitOpError("DST value used after release_dst operation");
+    }
   }
 
   return mlir::success();
