@@ -149,14 +149,6 @@ struct TTIRToTTMetalPipelineOptions
       llvm::cl::desc("Set policy for sizing stream buffers ('min', 'max')."),
       llvm::cl::init("max")};
 
-  // Option to control whether d2m-allocate inserts deallocs or delegates to
-  // d2m-insert-deallocs pass.
-  Option<bool> insertDeallocs{
-      *this, "insert-deallocs",
-      llvm::cl::desc("Insert deallocs in d2m-allocate pass (true) or use "
-                     "separate d2m-insert-deallocs pass (false)."),
-      llvm::cl::init(false)};
-
   // Option to ingest a mix of ttnn and ttir ops and lower through D2m to TTNN
   // GenericOp.
   Option<bool> ttnnMode{*this, "ttnn-mode",
