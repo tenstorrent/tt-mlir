@@ -5,15 +5,14 @@
 #include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
+#include "ttmlir/Dialect/D2M/Utils/TileMatmulUtils.h"
 #include "ttmlir/Dialect/D2M/Utils/Utils.h"
 #include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
-#include "mlir/Dialect/Affine/LoopUtils.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
-#include "mlir/Dialect/Linalg/Transforms/Transforms.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/BuiltinAttributes.h"
@@ -30,15 +29,6 @@ struct OperationTypes {
   bool hasLinalgGeneric = false;
   bool hasMarkedAffineLoops = false;
 };
-
-static bool hasTileMatmul(linalg::GenericOp linalgGenericOp) {
-  bool hasTileMatmul = false;
-  linalgGenericOp->walk([&](d2m::TileMatmulOp) {
-    hasTileMatmul = true;
-    return WalkResult::interrupt();
-  });
-  return hasTileMatmul;
-}
 
 struct D2MInsertDstRegisterAccessRewriter final
     : public OpRewritePattern<GenericOp> {
@@ -109,14 +99,24 @@ public:
       // (these are tile_matmul ops when useTileMatmul=false).
       bool linalgToAffineFailed = false;
       block.walk([&](linalg::GenericOp linalgGenericOp) {
-        if (!useTileMatmul && hasTileMatmul(linalgGenericOp)) {
+        if (!useTileMatmul && utils::hasTileMatmulOp(linalgGenericOp)) {
           // Only use tile matmul block rewrite when not in explicit
           // datamovement form. Explicit datamovement form should fall through
           // to regular linalg-to-affine conversion.
           if (!op.isExplicitDatamovementForm()) {
-            linalgToAffineFailed |= rewriteTileMatmulAsTileMatmulBlock(
-                rewriter, op, *genericRegion, linalgGenericOp, dstCapacity,
-                modified);
+            // Use shared utility to convert linalg -> tile_matmul_block
+            auto result = utils::convertTileMatmulLinalgToBlock(
+                rewriter, op, linalgGenericOp, *genericRegion,
+                [&](RewriterBase &rwBase, Region &region,
+                    Operation *outerLoop) {
+                  // Cast RewriterBase to PatternRewriter for
+                  // insertDstRegisterAccess
+                  auto &rw = static_cast<PatternRewriter &>(rwBase);
+                  modified |= insertDstRegisterAccess(rw, op, region,
+                                                      dstCapacity, outerLoop);
+                  return success();
+                });
+            linalgToAffineFailed = failed(result);
             return;
           }
         }
@@ -429,50 +429,6 @@ public:
           guardIndices == copyInfo.guardIndices &&
           "Expected same guard indices across all accesses in this loop nest.");
     }
-  }
-
-  /*
-    Expand a linalg.generic op that contains a tile_matmul into a
-    tile_matmul_block.
-
-    - Uses the linalg.generic and affine semantics to generate copy/pack loops.
-    - Deletes the compute loop nest since tile_matmul_block includes the loops
-    inside it.
-  */
-  static bool rewriteTileMatmulAsTileMatmulBlock(
-      PatternRewriter &rewriter, GenericOp op, Region &region,
-      linalg::GenericOp linalgGenericOp, unsigned dstCapacity, bool &modified) {
-    assert(linalgGenericOp.getInputs().size() == 2 &&
-           "Expected exactly 2 input for tile matmul");
-    assert(linalgGenericOp.getOutputs().size() == 1 &&
-           "Expected exactly 1 output for tile matmul");
-
-    Value inputAMemref = linalgGenericOp.getInputs()[0];
-    Value inputBMemref = linalgGenericOp.getInputs()[1];
-    Value outputCMemref = linalgGenericOp.getOutputs()[0];
-
-    rewriter.setInsertionPoint(linalgGenericOp);
-
-    auto linalgLoops = linalg::linalgOpToAffineLoops(rewriter, linalgGenericOp);
-    if (failed(linalgLoops)) {
-      return false;
-    }
-    rewriter.eraseOp(linalgGenericOp);
-    modified |= insertDstRegisterAccess(
-        rewriter, op, region, dstCapacity,
-        !linalgLoops.value().empty() ? linalgLoops.value().front() : nullptr);
-
-    Operation *outerLoop = linalgLoops.value()[0];
-    Block *parentBlk = outerLoop->getBlock();
-    auto insertPos = std::next(Block::iterator(outerLoop));
-
-    rewriter.setInsertionPoint(parentBlk, insertPos);
-    for (Operation *loopOp : llvm::reverse(linalgLoops.value())) {
-      rewriter.eraseOp(loopOp);
-    }
-    rewriter.create<d2m::TileMatmulBlockOp>(op.getLoc(), inputAMemref,
-                                            inputBMemref, outputCMemref);
-    return true;
   }
 
   static void dataCopyGenerate(PatternRewriter &rewriter, Location loc,
@@ -852,7 +808,7 @@ public:
     // handled by the tile_matmul_block rewrite in the pattern).
     WalkResult walkResult = module->walk([&](linalg::GenericOp op) {
       // Allow linalg ops with tile_matmul when useTileMatmul=false
-      if (!useTileMatmul && hasTileMatmul(op)) {
+      if (!useTileMatmul && utils::hasTileMatmulOp(op)) {
         return WalkResult::advance();
       }
       // All other linalg ops should have been converted

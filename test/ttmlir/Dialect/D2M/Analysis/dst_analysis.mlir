@@ -7,7 +7,7 @@
 #l1_ = #ttcore.memory_space<l1>
 
 module {
-  // BASIC: remark: DST analysis (basic): 3 slices required
+  // BASIC: remark: DST analysis (basic): 2 slices required
   // GC: remark: DST analysis (graph-coloring): {{[0-9]+}} slices required
   // GREEDY: remark: DST analysis (greedy): {{[0-9]+}} slices required
 
@@ -34,6 +34,10 @@ module {
       %mem1 = d2m.wait %cb1 : !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1_>> -> memref<2x2x!ttcore.tile<32x32, f32>, #l1_>
       %mem2 = d2m.reserve %cb2 : !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1_>> -> memref<2x2x!ttcore.tile<32x32, f32>, #l1_>
 
+      // Load %a - operand 0 of tile_matmul, not in getOperandsLoadFromDstRegister() - NOT COUNTED
+      // Load %b - operand 1 of tile_matmul, not in getOperandsLoadFromDstRegister() - NOT COUNTED
+      // Load %c - operand 2 of tile_matmul, IS in getOperandsLoadFromDstRegister() - COUNTED
+      // Store %result - user of tile_matmul - COUNTED
       affine.for %i = 0 to 2 {
         affine.for %j = 0 to 2 {
           affine.for %k = 0 to 2 {

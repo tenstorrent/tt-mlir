@@ -52,6 +52,7 @@ struct DstAnalysisResult {
 /// results in a uniform format.
 class DstAnalysis {
 public:
+  DstAnalysis() = default;
   virtual ~DstAnalysis() = default;
 
   /// Analyze DST requirements for the given operation.

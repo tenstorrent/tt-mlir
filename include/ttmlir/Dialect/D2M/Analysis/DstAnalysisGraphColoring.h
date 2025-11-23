@@ -13,7 +13,6 @@ namespace mlir::tt::d2m {
 class ColoringStrategy;
 
 /// Create a graph coloring DST analysis with a custom strategy.
-///
 /// \param strategy The graph coloring strategy to use for allocation.
 std::unique_ptr<DstAnalysis>
 createGraphColoringDstAnalysis(std::unique_ptr<ColoringStrategy> strategy);

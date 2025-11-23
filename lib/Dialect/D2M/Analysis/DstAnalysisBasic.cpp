@@ -7,25 +7,11 @@
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
 
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 
 namespace mlir::tt::d2m {
 
 namespace {
-
-/// Identify affine load operations that require DST allocation.
-static llvm::SmallVector<std::pair<mlir::Operation *, int64_t>>
-identifyDstAccesses(mlir::Operation *op, mlir::Region &region) {
-  llvm::SmallVector<std::pair<mlir::Operation *, int64_t>> dstAccesses;
-  int64_t index = 0;
-
-  region.walk([&](mlir::affine::AffineLoadOp loadOp) {
-    // Check if this load produces a value used by DST-eligible operations.
-    // For now, all loads in compute regions are considered DST candidates.
-    dstAccesses.push_back({loadOp.getOperation(), index++});
-  });
-
-  return dstAccesses;
-}
 
 /// Basic strategy: each DST access gets its own slice (no reuse).
 /// This provides an upper bound on DST requirements.
@@ -42,7 +28,35 @@ public:
           continue;
         }
 
-        auto dstAccesses = identifyDstAccesses(genericOp, region);
+        // Identify DST accesses using OperandLoadStoreRegisterOpInterface
+        SmallVector<std::pair<Operation *, int64_t>> dstAccesses;
+        int nextIndex = 0;
+
+        auto notDstMemspace = [](auto op) {
+          return op && ttcore::getMemorySpace(op.getMemRef()) !=
+                           ttcore::MemorySpace::RegisterDst;
+        };
+
+        region.walk([&](OperandLoadStoreRegisterOpInterface computeOp) {
+          // Collect loads for DST operands
+          for (int64_t operandIdx :
+               computeOp.getOperandsLoadFromDstRegister()) {
+            if (auto loadOp = computeOp->getOperand(operandIdx)
+                                  .getDefiningOp<affine::AffineLoadOp>();
+                notDstMemspace(loadOp)) {
+              dstAccesses.emplace_back(loadOp, nextIndex++);
+            }
+          }
+
+          // Collect stores from compute op results
+          for (auto *user : computeOp->getUsers()) {
+            if (auto storeOp = mlir::dyn_cast<affine::AffineStoreOp>(user);
+                notDstMemspace(storeOp)) {
+              dstAccesses.emplace_back(storeOp, nextIndex++);
+            }
+          }
+        });
+
         if (dstAccesses.empty()) {
           continue;
         }
