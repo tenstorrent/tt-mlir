@@ -3,14 +3,14 @@
 // RUN: ttmlir-translate --ttnn-to-flatbuffer -o %t.ttnn %t.mlir
 
 module {
-  func.func @linear(%arg0: tensor<64x128xbf16>, %arg1: tensor<128x64xbf16>, %bias: tensor<64x64xbf16>) -> tensor<64x64xbf16> {
+  func.func @linear(%arg0: tensor<64x128xbf16>, %arg1: tensor<128x64xbf16>, %bias: tensor<1x64xbf16>) -> tensor<64x64xbf16> {
     %0 = ttir.empty() : tensor<64x64xbf16>
     // CHECK: "ttnn.linear"
     // CHECK-SAME: tensor<64x128xbf16
     // CHECK-SAME: tensor<128x64xbf16
+    // CHECK-SAME: tensor<1x64xbf16
     // CHECK-SAME: tensor<64x64xbf16
-    // CHECK-SAME: tensor<64x64xbf16
-    %1 = "ttir.linear"(%arg0, %arg1, %bias, %0) : (tensor<64x128xbf16>, tensor<128x64xbf16>, tensor<64x64xbf16>, tensor<64x64xbf16>) -> tensor<64x64xbf16>
+    %1 = "ttir.linear"(%arg0, %arg1, %bias, %0) : (tensor<64x128xbf16>, tensor<128x64xbf16>, tensor<1x64xbf16>, tensor<64x64xbf16>) -> tensor<64x64xbf16>
     return %1 : tensor<64x64xbf16>
   }
 }
