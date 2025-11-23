@@ -1480,6 +1480,7 @@ static mlir::LogicalResult verifyPooling2dOp(PoolingOp *op) {
   // Get the rank of the first input tensor
   // and check that all input tensors have the same rank
   // and that all dimensions except `dim` are the same.
+  int64_t dimSizeSum = firstTensor.getDimSize(dim);
   for (auto input : inputs.drop_front()) {
     auto inputType = mlir::cast<mlir::RankedTensorType>(input.getType());
 
@@ -1490,12 +1491,24 @@ static mlir::LogicalResult verifyPooling2dOp(PoolingOp *op) {
 
     // Check that dimensions (except `dim`) are the same.
     for (int64_t i = 0; i < firstTensorRank; ++i) {
-      if (i != dim && inputType.getDimSize(i) != firstTensor.getDimSize(i)) {
+      if (i == dim) {
+        dimSizeSum += inputType.getDimSize(i);
+        continue;
+      }
+      if (inputType.getDimSize(i) != firstTensor.getDimSize(i)) {
         return emitOpError() << "All input tensors must have the same "
                                 "dimensions, except for dimension "
                              << dim << ".";
       }
     }
+  }
+
+  auto outputType = getType();
+  if (outputType.getDimSize(dim) != dimSizeSum) {
+    return emitOpError()
+           << "Output tensor dimension " << dim
+           << " does not match the sum of input tensor dimensions: "
+           << outputType.getDimSize(dim) << " vs. " << dimSizeSum << ".";
   }
 
   return success();
