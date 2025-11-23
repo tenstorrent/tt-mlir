@@ -34,9 +34,9 @@ struct DstAnalysisResult {
   llvm::DenseMap<Operation *, unsigned> operationSlices;
 
   /// Identified DST accesses that need allocation.
-  /// Each pair contains the operation and its index within the access sequence.
-  /// This allows transformation passes to reuse the analysis results without
-  /// re-identifying accesses.
+  /// Each pair contains the operation and its index within the access
+  /// sequence. This allows transformation passes to reuse the analysis
+  /// results without re-identifying accesses.
   llvm::SmallVector<std::pair<Operation *, int64_t>> dstAccesses;
 
   /// Human-readable explanation if analysis failed or requirements exceed
@@ -57,7 +57,8 @@ public:
   /// Analyze DST requirements for the given operation.
   ///
   /// \param op The operation to analyze (typically a d2m::GenericOp).
-  /// \return DstAnalysisResult containing slice count and validity information.
+  /// \return DstAnalysisResult containing slice count and validity
+  /// information.
   virtual DstAnalysisResult analyze(Operation *op) = 0;
 
   /// Get human-readable name of this analysis strategy.

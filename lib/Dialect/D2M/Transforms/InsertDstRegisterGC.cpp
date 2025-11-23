@@ -15,8 +15,6 @@
 #include "mlir/IR/PatternMatch.h"
 #include "ttmlir/Utils.h"
 
-using namespace mlir;
-
 namespace mlir::tt::d2m {
 #define GEN_PASS_DEF_D2MINSERTDSTREGISTERGC
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h.inc"
@@ -29,15 +27,15 @@ using OpAndIndexOffset = std::pair<OpT, int64_t>;
 
 // Stores dst loads/stores, organized by common loop nests.
 struct CopyInfo {
-  void push_back(affine::AffineLoadOp load, int64_t indexOffset) {
+  void push_back(mlir::affine::AffineLoadOp load, int64_t indexOffset) {
     loads.emplace_back(load, indexOffset);
   }
 
-  void push_back(affine::AffineStoreOp store, int64_t indexOffset) {
+  void push_back(mlir::affine::AffineStoreOp store, int64_t indexOffset) {
     stores.emplace_back(store, indexOffset);
   }
 
-  SmallVector<OpAndIndexOffset<affine::AffineLoadOp>> loads;
+  llvm::SmallVector<OpAndIndexOffset<mlir::affine::AffineLoadOp>> loads;
   SmallVector<OpAndIndexOffset<affine::AffineStoreOp>> stores;
 };
 using CopyInfoMap = DenseMap<Operation *, CopyInfo>;

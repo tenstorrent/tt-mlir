@@ -16,9 +16,6 @@
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/Pass/Pass.h"
 
-using namespace mlir;
-using namespace mlir::tt::d2m;
-
 namespace mlir::tt::d2m {
 #define GEN_PASS_DEF_D2MDSTREQUIREMENTANALYSIS
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h.inc"
@@ -72,7 +69,7 @@ struct D2MDstRequirementAnalysisPass
 
     // Store result as pass attribute for other passes to query
     func->setAttr("dst_slices_required",
-                  IntegerAttr::get(IntegerType::get(&getContext(), 32),
+                  mlir::IntegerAttr::get(mlir::IntegerType::get(&getContext(), 32),
                                    result.numSlicesRequired));
   }
 };

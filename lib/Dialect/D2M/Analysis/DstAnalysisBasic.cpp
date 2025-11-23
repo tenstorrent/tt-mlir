@@ -8,19 +8,17 @@
 
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 
-using namespace mlir;
-
 namespace mlir::tt::d2m {
 
 namespace {
 
 /// Identify affine load operations that require DST allocation.
-static SmallVector<std::pair<Operation *, int64_t>>
-identifyDstAccesses(Operation *op, Region &region) {
-  SmallVector<std::pair<Operation *, int64_t>> dstAccesses;
+static llvm::SmallVector<std::pair<mlir::Operation *, int64_t>>
+identifyDstAccesses(mlir::Operation *op, mlir::Region &region) {
+  llvm::SmallVector<std::pair<mlir::Operation *, int64_t>> dstAccesses;
   int64_t index = 0;
 
-  region.walk([&](affine::AffineLoadOp loadOp) {
+  region.walk([&](mlir::affine::AffineLoadOp loadOp) {
     // Check if this load produces a value used by DST-eligible operations.
     // For now, all loads in compute regions are considered DST candidates.
     dstAccesses.push_back({loadOp.getOperation(), index++});
@@ -33,12 +31,12 @@ identifyDstAccesses(Operation *op, Region &region) {
 /// This provides an upper bound on DST requirements.
 class DstAnalysisBasic : public DstAnalysis {
 public:
-  DstAnalysisResult analyze(Operation *op) override {
+  DstAnalysisResult analyze(mlir::Operation *op) override {
     DstAnalysisResult result;
 
     // Walk all regions looking for d2m.generic operations
     op->walk([&](GenericOp genericOp) {
-      for (auto &region : genericOp->getRegions()) {
+      for (auto &region : genericOp.getRegions()) {
         // Skip if already has DST allocation
         if (!region.getOps<AcquireDstOp>().empty()) {
           continue;

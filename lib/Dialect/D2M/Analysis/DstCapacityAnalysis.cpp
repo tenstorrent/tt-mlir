@@ -11,9 +11,6 @@
 
 #define DEBUG_TYPE "dst-capacity-analysis"
 
-using namespace mlir;
-using namespace mlir::tt;
-
 /// Constructs a DstCapacityAnalysis by examining all GenericOp operations
 /// within the given operation and computing the minimum DST capacity based
 /// on the largest element size used in DST accesses.
@@ -25,29 +22,30 @@ using namespace mlir::tt;
 ///   false: f16/bf16=8 tiles, f32=4 tiles
 /// \p overridePhysicalSize Override physical DST size, or 0 to use chip
 ///   default.
-d2m::DstCapacityAnalysis::DstCapacityAnalysis(Operation *op, bool fullSyncEn,
-                                              unsigned overridePhysicalSize) {
+mlir::tt::d2m::DstCapacityAnalysis::DstCapacityAnalysis(
+    mlir::Operation *op, bool fullSyncEn, unsigned overridePhysicalSize) {
   uint32_t minCapacity = std::numeric_limits<uint32_t>::max();
   bool foundGenericOp = false;
-  Type largestDstType = nullptr;
+  mlir::Type largestDstType = nullptr;
 
-  op->walk([&](d2m::GenericOp genericOp) {
+  op->walk([&](mlir::tt::d2m::GenericOp genericOp) {
     foundGenericOp = true;
     for (uint32_t regionIndex = 0; regionIndex < genericOp.getNumRegions();
          regionIndex++) {
       // Only consider compute regions (skip data movement regions).
       if (genericOp.getRegionThreadType(regionIndex) !=
-          d2m::ThreadType::Compute) {
+          mlir::tt::d2m::ThreadType::Compute) {
         continue;
       }
-      Region *region = &genericOp.getRegion(regionIndex);
+      mlir::Region *region = &genericOp.getRegion(regionIndex);
 
-      largestDstType = d2m::utils::getRegionLargestDstElemType(*region);
+      largestDstType =
+          mlir::tt::d2m::utils::getRegionLargestDstElemType(*region);
 
       // Query the hardware configuration to get DST capacity for largest
       // element size.
       uint32_t currentCapacity =
-          ttcore::getOpChipDescAttr(genericOp).getDstLogicalSizeTiles(
+          mlir::tt::ttcore::getOpChipDescAttr(genericOp).getDstLogicalSizeTiles(
               largestDstType, fullSyncEn, overridePhysicalSize);
 
       minCapacity = std::min(minCapacity, currentCapacity);

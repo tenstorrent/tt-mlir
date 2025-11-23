@@ -7,15 +7,13 @@
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include <algorithm>
 
-using namespace mlir;
-
 namespace mlir::tt::d2m {
 
 //===----------------------------------------------------------------------===//
 //                    ChaitinBriggsColoring Implementation
 //===----------------------------------------------------------------------===//
 
-LogicalResult ChaitinBriggsColoring::colorGraph(
+mlir::LogicalResult ChaitinBriggsColoring::colorGraph(
     const std::vector<std::vector<size_t>> &adjacencyList, unsigned numColors,
     std::vector<unsigned> &coloring) {
   coloring.assign(adjacencyList.size(), UINT_MAX);
@@ -71,7 +69,7 @@ LogicalResult ChaitinBriggsColoring::colorGraph(
     }
 
     if (color >= numColors) {
-      return failure(); // Spill - not enough colors.
+      return mlir::failure(); // Spill - not enough colors.
     }
 
     coloring[node] = color;
