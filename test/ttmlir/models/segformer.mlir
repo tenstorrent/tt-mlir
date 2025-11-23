@@ -1,1705 +1,856 @@
 #loc = loc("Segformer":0:0)
 module @Segformer {
   func.func @forward(%arg0: tensor<1x3x512x512xbf16> {ttcore.argument_type = #ttcore.argument_type<input>, ttir.name = "pixel_values"} loc("Segformer":0:0), %arg1: tensor<1x16384x32xf32> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "dc.input_tensor.layernorm_7.1"} loc("Segformer":0:0), %arg2: tensor<1x16384x1xf32> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "dc.input_tensor.layernorm_7.6"} loc("Segformer":0:0), %arg3: tensor<1x16384x1xf32> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "dc.input_tensor.layernorm_7.8"} loc("Segformer":0:0), %arg4: tensor<1x16384x32xf32> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "dc.input_tensor.layernorm_8.1"} loc("Segformer":0:0), %arg5: tensor<1x16384x1xf32> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "dc.input_tensor.layernorm_8.6"} loc("Segformer":0:0), %arg6: tensor<1x16384x1xf32> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "dc.input_tensor.layernorm_8.8"} loc("Segformer":0:0), %arg7: tensor<1x256x32xf32> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "dc.input_tensor.layernorm_22.1"} loc("Segformer":0:0), %arg8: tensor<1x256x1xf32> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "dc.input_tensor.layernorm_22.6"} loc("Segformer":0:0), %arg9: tensor<1x256x1xf32> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "dc.input_tensor.layernorm_22.8"} loc("Segformer":0:0), %arg10: tensor<1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_1_divide_33"} loc("Segformer":0:0), %arg11: tensor<1x16384x32xf32> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "dc.input_tensor.layernorm_52.1"} loc("Segformer":0:0), %arg12: tensor<1x16384x1xf32> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "dc.input_tensor.layernorm_52.6"} loc("Segformer":0:0), %arg13: tensor<1x16384x1xf32> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "dc.input_tensor.layernorm_52.8"} loc("Segformer":0:0), %arg14: tensor<1x16384x32xf32> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "dc.input_tensor.layernorm_73.1"} loc("Segformer":0:0), %arg15: tensor<1x16384x1xf32> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "dc.input_tensor.layernorm_73.6"} loc("Segformer":0:0), %arg16: tensor<1x16384x1xf32> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "dc.input_tensor.layernorm_73.8"} loc("Segformer":0:0), %arg17: tensor<1x256x32xf32> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "dc.input_tensor.layernorm_87.1"} loc("Segformer":0:0), %arg18: tensor<1x256x1xf32> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "dc.input_tensor.layernorm_87.6"} loc("Segformer":0:0), %arg19: tensor<1x256x1xf32> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "dc.input_tensor.layernorm_87.8"} loc("Segformer":0:0), %arg20: tensor<1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_1_divide_98"} loc("Segformer":0:0), %arg21: tensor<1x16384x32xf32> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "dc.input_tensor.layernorm_117.1"} loc("Segformer":0:0), %arg22: tensor<1x16384x1xf32> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "dc.input_tensor.layernorm_117.6"} loc("Segformer":0:0), %arg23: tensor<1x16384x1xf32> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "dc.input_tensor.layernorm_117.8"} loc("Segformer":0:0), %arg24: tensor<1x16384x32xf32> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "dc.input_tensor.layernorm_138.1"} loc("Segformer":0:0), %arg25: tensor<1x16384x1xf32> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "dc.input_tensor.layernorm_138.6"} loc("Segformer":0:0), %arg26: tensor<1x16384x1xf32> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "dc.input_tensor.layernorm_138.8"} loc("Segformer":0:0), %arg27: tensor<1x4096x64xf32> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "dc.input_tensor.layernorm_149.1"} loc("Segformer":0:0), %arg28: tensor<1x4096x1xf32> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "dc.input_tensor.layernorm_149.6"} loc("Segformer":0:0), %arg29: tensor<1x4096x1xf32> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "dc.input_tensor.layernorm_149.8"} loc("Segformer":0:0), %arg30: tensor<1x4096x64xf32> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "dc.input_tensor.layernorm_150.1"} loc("Segformer":0:0), %arg31: tensor<1x4096x1xf32> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "dc.input_tensor.layernorm_150.6"} loc("Segformer":0:0), %arg32: tensor<1x4096x1xf32> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "dc.input_tensor.layernorm_150.8"} loc("Segformer":0:0), %arg33: tensor<1x256x64xf32> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "dc.input_tensor.layernorm_165.1"} loc("Segformer":0:0), %arg34: tensor<1x256x1xf32> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "dc.input_tensor.layernorm_165.6"} loc("Segformer":0:0), %arg35: tensor<1x256x1xf32> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "dc.input_tensor.layernorm_165.8"} loc("Segformer":0:0), %arg36: tensor<1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_1_divide_177"} loc("Segformer":0:0), %arg37: tensor<1x4096x64xf32> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "dc.input_tensor.layernorm_200.1"} loc("Segformer":0:0), %arg38: tensor<1x4096x1xf32> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "dc.input_tensor.layernorm_200.6"} loc("Segformer":0:0), %arg39: tensor<1x4096x1xf32> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "dc.input_tensor.layernorm_200.8"} loc("Segformer":0:0), %arg40: tensor<1x4096x64xf32> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "dc.input_tensor.layernorm_221.1"} loc("Segformer":0:0), %arg41: tensor<1x4096x1xf32> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "dc.input_tensor.layernorm_221.6"} loc("Segformer":0:0), %arg42: tensor<1x4096x1xf32> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "dc.input_tensor.layernorm_221.8"} loc("Segformer":0:0), %arg43: tensor<1x256x64xf32> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "dc.input_tensor.layernorm_236.1"} loc("Segformer":0:0), %arg44: tensor<1x256x1xf32> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "dc.input_tensor.layernorm_236.6"} loc("Segformer":0:0), %arg45: tensor<1x256x1xf32> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "dc.input_tensor.layernorm_236.8"} loc("Segformer":0:0), %arg46: tensor<1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_1_divide_248"} loc("Segformer":0:0), %arg47: tensor<1x4096x64xf32> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "dc.input_tensor.layernorm_271.1"} loc("Segformer":0:0), %arg48: tensor<1x4096x1xf32> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "dc.input_tensor.layernorm_271.6"} loc("Segformer":0:0), %arg49: tensor<1x4096x1xf32> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "dc.input_tensor.layernorm_271.8"} loc("Segformer":0:0), %arg50: tensor<1x4096x64xf32> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "dc.input_tensor.layernorm_292.1"} loc("Segformer":0:0), %arg51: tensor<1x4096x1xf32> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "dc.input_tensor.layernorm_292.6"} loc("Segformer":0:0), %arg52: tensor<1x4096x1xf32> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "dc.input_tensor.layernorm_292.8"} loc("Segformer":0:0), %arg53: tensor<1x1024x160xf32> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "dc.input_tensor.layernorm_303.1"} loc("Segformer":0:0), %arg54: tensor<1x1024x1xf32> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "dc.input_tensor.layernorm_303.6"} loc("Segformer":0:0), %arg55: tensor<1x1024x1xf32> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "dc.input_tensor.layernorm_303.8"} loc("Segformer":0:0), %arg56: tensor<1x1024x160xf32> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "dc.input_tensor.layernorm_304.1"} loc("Segformer":0:0), %arg57: tensor<1x1024x1xf32> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "dc.input_tensor.layernorm_304.6"} loc("Segformer":0:0), %arg58: tensor<1x1024x1xf32> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "dc.input_tensor.layernorm_304.8"} loc("Segformer":0:0), %arg59: tensor<1x256x160xf32> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "dc.input_tensor.layernorm_319.1"} loc("Segformer":0:0), %arg60: tensor<1x256x1xf32> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "dc.input_tensor.layernorm_319.6"} loc("Segformer":0:0), %arg61: tensor<1x256x1xf32> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "dc.input_tensor.layernorm_319.8"} loc("Segformer":0:0), %arg62: tensor<1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_1_divide_331"} loc("Segformer":0:0), %arg63: tensor<1x1024x160xf32> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "dc.input_tensor.layernorm_354.1"} loc("Segformer":0:0), %arg64: tensor<1x1024x1xf32> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "dc.input_tensor.layernorm_354.6"} loc("Segformer":0:0), %arg65: tensor<1x1024x1xf32> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "dc.input_tensor.layernorm_354.8"} loc("Segformer":0:0), %arg66: tensor<1x1024x160xf32> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "dc.input_tensor.layernorm_375.1"} loc("Segformer":0:0), %arg67: tensor<1x1024x1xf32> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "dc.input_tensor.layernorm_375.6"} loc("Segformer":0:0), %arg68: tensor<1x1024x1xf32> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "dc.input_tensor.layernorm_375.8"} loc("Segformer":0:0), %arg69: tensor<1x256x160xf32> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "dc.input_tensor.layernorm_390.1"} loc("Segformer":0:0), %arg70: tensor<1x256x1xf32> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "dc.input_tensor.layernorm_390.6"} loc("Segformer":0:0), %arg71: tensor<1x256x1xf32> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "dc.input_tensor.layernorm_390.8"} loc("Segformer":0:0), %arg72: tensor<1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_1_divide_402"} loc("Segformer":0:0), %arg73: tensor<1x1024x160xf32> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "dc.input_tensor.layernorm_425.1"} loc("Segformer":0:0), %arg74: tensor<1x1024x1xf32> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "dc.input_tensor.layernorm_425.6"} loc("Segformer":0:0), %arg75: tensor<1x1024x1xf32> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "dc.input_tensor.layernorm_425.8"} loc("Segformer":0:0), %arg76: tensor<1x1024x160xf32> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "dc.input_tensor.layernorm_446.1"} loc("Segformer":0:0), %arg77: tensor<1x1024x1xf32> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "dc.input_tensor.layernorm_446.6"} loc("Segformer":0:0), %arg78: tensor<1x1024x1xf32> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "dc.input_tensor.layernorm_446.8"} loc("Segformer":0:0), %arg79: tensor<1x256x256xf32> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "dc.input_tensor.layernorm_457.1"} loc("Segformer":0:0), %arg80: tensor<1x256x1xf32> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "dc.input_tensor.layernorm_457.6"} loc("Segformer":0:0), %arg81: tensor<1x256x1xf32> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "dc.input_tensor.layernorm_457.8"} loc("Segformer":0:0), %arg82: tensor<1x256x256xf32> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "dc.input_tensor.layernorm_458.1"} loc("Segformer":0:0), %arg83: tensor<1x256x1xf32> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "dc.input_tensor.layernorm_458.6"} loc("Segformer":0:0), %arg84: tensor<1x256x1xf32> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "dc.input_tensor.layernorm_458.8"} loc("Segformer":0:0), %arg85: tensor<1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_1_divide_477"} loc("Segformer":0:0), %arg86: tensor<1x256x256xf32> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "dc.input_tensor.layernorm_500.1"} loc("Segformer":0:0), %arg87: tensor<1x256x1xf32> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "dc.input_tensor.layernorm_500.6"} loc("Segformer":0:0), %arg88: tensor<1x256x1xf32> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "dc.input_tensor.layernorm_500.8"} loc("Segformer":0:0), %arg89: tensor<1x256x256xf32> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "dc.input_tensor.layernorm_521.1"} loc("Segformer":0:0), %arg90: tensor<1x256x1xf32> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "dc.input_tensor.layernorm_521.6"} loc("Segformer":0:0), %arg91: tensor<1x256x1xf32> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "dc.input_tensor.layernorm_521.8"} loc("Segformer":0:0), %arg92: tensor<1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_1_divide_540"} loc("Segformer":0:0), %arg93: tensor<1x256x256xf32> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "dc.input_tensor.layernorm_563.1"} loc("Segformer":0:0), %arg94: tensor<1x256x1xf32> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "dc.input_tensor.layernorm_563.6"} loc("Segformer":0:0), %arg95: tensor<1x256x1xf32> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "dc.input_tensor.layernorm_563.8"} loc("Segformer":0:0), %arg96: tensor<1x256x256xf32> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "dc.input_tensor.layernorm_584.1"} loc("Segformer":0:0), %arg97: tensor<1x256x1xf32> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "dc.input_tensor.layernorm_584.6"} loc("Segformer":0:0), %arg98: tensor<1x256x1xf32> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "dc.input_tensor.layernorm_584.8"} loc("Segformer":0:0), %arg99: tensor<32x3x7x7xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.patch_embeddings.0.proj.weight"} loc("Segformer":0:0), %arg100: tensor<1x1x1x32xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.patch_embeddings.0.proj.bias"} loc("Segformer":0:0), %arg101: tensor<32xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.patch_embeddings.0.layer_norm.weight"} loc("Segformer":0:0), %arg102: tensor<32xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.patch_embeddings.0.layer_norm.bias"} loc("Segformer":0:0), %arg103: tensor<32xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.0.0.layer_norm_1.weight"} loc("Segformer":0:0), %arg104: tensor<32xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.0.0.layer_norm_1.bias"} loc("Segformer":0:0), %arg105: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.0.0.attention.self.query.weight"} loc("Segformer":0:0), %arg106: tensor<32xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.0.0.attention.self.query.bias"} loc("Segformer":0:0), %arg107: tensor<32x32x8x8xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.0.0.attention.self.sr.weight"} loc("Segformer":0:0), %arg108: tensor<1x1x1x32xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.0.0.attention.self.sr.bias"} loc("Segformer":0:0), %arg109: tensor<32xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.0.0.attention.self.layer_norm.weight"} loc("Segformer":0:0), %arg110: tensor<32xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.0.0.attention.self.layer_norm.bias"} loc("Segformer":0:0), %arg111: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.0.0.attention.self.key.weight"} loc("Segformer":0:0), %arg112: tensor<32xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.0.0.attention.self.key.bias"} loc("Segformer":0:0), %arg113: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.0.0.attention.self.value.weight"} loc("Segformer":0:0), %arg114: tensor<32xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.0.0.attention.self.value.bias"} loc("Segformer":0:0), %arg115: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.0.0.attention.output.dense.weight"} loc("Segformer":0:0), %arg116: tensor<32xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.0.0.attention.output.dense.bias"} loc("Segformer":0:0), %arg117: tensor<32xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.0.0.layer_norm_2.weight"} loc("Segformer":0:0), %arg118: tensor<32xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.0.0.layer_norm_2.bias"} loc("Segformer":0:0), %arg119: tensor<32x128xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.0.0.mlp.dense1.weight"} loc("Segformer":0:0), %arg120: tensor<128xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.0.0.mlp.dense1.bias"} loc("Segformer":0:0), %arg121: tensor<128x1x3x3xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.0.0.mlp.dwconv.dwconv.weight"} loc("Segformer":0:0), %arg122: tensor<1x1x1x128xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.0.0.mlp.dwconv.dwconv.bias"} loc("Segformer":0:0), %arg123: tensor<128x32xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.0.0.mlp.dense2.weight"} loc("Segformer":0:0), %arg124: tensor<32xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.0.0.mlp.dense2.bias"} loc("Segformer":0:0), %arg125: tensor<32xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.0.1.layer_norm_1.weight"} loc("Segformer":0:0), %arg126: tensor<32xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.0.1.layer_norm_1.bias"} loc("Segformer":0:0), %arg127: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.0.1.attention.self.query.weight"} loc("Segformer":0:0), %arg128: tensor<32xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.0.1.attention.self.query.bias"} loc("Segformer":0:0), %arg129: tensor<32x32x8x8xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.0.1.attention.self.sr.weight"} loc("Segformer":0:0), %arg130: tensor<1x1x1x32xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.0.1.attention.self.sr.bias"} loc("Segformer":0:0), %arg131: tensor<32xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.0.1.attention.self.layer_norm.weight"} loc("Segformer":0:0), %arg132: tensor<32xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.0.1.attention.self.layer_norm.bias"} loc("Segformer":0:0), %arg133: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.0.1.attention.self.key.weight"} loc("Segformer":0:0), %arg134: tensor<32xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.0.1.attention.self.key.bias"} loc("Segformer":0:0), %arg135: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.0.1.attention.self.value.weight"} loc("Segformer":0:0), %arg136: tensor<32xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.0.1.attention.self.value.bias"} loc("Segformer":0:0), %arg137: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.0.1.attention.output.dense.weight"} loc("Segformer":0:0), %arg138: tensor<32xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.0.1.attention.output.dense.bias"} loc("Segformer":0:0), %arg139: tensor<32xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.0.1.layer_norm_2.weight"} loc("Segformer":0:0), %arg140: tensor<32xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.0.1.layer_norm_2.bias"} loc("Segformer":0:0), %arg141: tensor<32x128xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.0.1.mlp.dense1.weight"} loc("Segformer":0:0), %arg142: tensor<128xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.0.1.mlp.dense1.bias"} loc("Segformer":0:0), %arg143: tensor<128x1x3x3xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.0.1.mlp.dwconv.dwconv.weight"} loc("Segformer":0:0), %arg144: tensor<1x1x1x128xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.0.1.mlp.dwconv.dwconv.bias"} loc("Segformer":0:0), %arg145: tensor<128x32xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.0.1.mlp.dense2.weight"} loc("Segformer":0:0), %arg146: tensor<32xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.0.1.mlp.dense2.bias"} loc("Segformer":0:0), %arg147: tensor<32xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.layer_norm.0.weight"} loc("Segformer":0:0), %arg148: tensor<32xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.layer_norm.0.bias"} loc("Segformer":0:0), %arg149: tensor<64x32x3x3xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.patch_embeddings.1.proj.weight"} loc("Segformer":0:0), %arg150: tensor<1x1x1x64xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.patch_embeddings.1.proj.bias"} loc("Segformer":0:0), %arg151: tensor<64xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.patch_embeddings.1.layer_norm.weight"} loc("Segformer":0:0), %arg152: tensor<64xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.patch_embeddings.1.layer_norm.bias"} loc("Segformer":0:0), %arg153: tensor<64xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.1.0.layer_norm_1.weight"} loc("Segformer":0:0), %arg154: tensor<64xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.1.0.layer_norm_1.bias"} loc("Segformer":0:0), %arg155: tensor<64x64xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.1.0.attention.self.query.weight"} loc("Segformer":0:0), %arg156: tensor<64xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.1.0.attention.self.query.bias"} loc("Segformer":0:0), %arg157: tensor<64x64x4x4xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.1.0.attention.self.sr.weight"} loc("Segformer":0:0), %arg158: tensor<1x1x1x64xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.1.0.attention.self.sr.bias"} loc("Segformer":0:0), %arg159: tensor<64xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.1.0.attention.self.layer_norm.weight"} loc("Segformer":0:0), %arg160: tensor<64xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.1.0.attention.self.layer_norm.bias"} loc("Segformer":0:0), %arg161: tensor<64x64xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.1.0.attention.self.key.weight"} loc("Segformer":0:0), %arg162: tensor<64xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.1.0.attention.self.key.bias"} loc("Segformer":0:0), %arg163: tensor<64x64xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.1.0.attention.self.value.weight"} loc("Segformer":0:0), %arg164: tensor<64xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.1.0.attention.self.value.bias"} loc("Segformer":0:0), %arg165: tensor<64x64xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.1.0.attention.output.dense.weight"} loc("Segformer":0:0), %arg166: tensor<64xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.1.0.attention.output.dense.bias"} loc("Segformer":0:0), %arg167: tensor<64xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.1.0.layer_norm_2.weight"} loc("Segformer":0:0), %arg168: tensor<64xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.1.0.layer_norm_2.bias"} loc("Segformer":0:0), %arg169: tensor<64x256xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.1.0.mlp.dense1.weight"} loc("Segformer":0:0), %arg170: tensor<256xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.1.0.mlp.dense1.bias"} loc("Segformer":0:0), %arg171: tensor<256x1x3x3xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.1.0.mlp.dwconv.dwconv.weight"} loc("Segformer":0:0), %arg172: tensor<1x1x1x256xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.1.0.mlp.dwconv.dwconv.bias"} loc("Segformer":0:0), %arg173: tensor<256x64xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.1.0.mlp.dense2.weight"} loc("Segformer":0:0), %arg174: tensor<64xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.1.0.mlp.dense2.bias"} loc("Segformer":0:0), %arg175: tensor<64xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.1.1.layer_norm_1.weight"} loc("Segformer":0:0), %arg176: tensor<64xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.1.1.layer_norm_1.bias"} loc("Segformer":0:0), %arg177: tensor<64x64xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.1.1.attention.self.query.weight"} loc("Segformer":0:0), %arg178: tensor<64xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.1.1.attention.self.query.bias"} loc("Segformer":0:0), %arg179: tensor<64x64x4x4xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.1.1.attention.self.sr.weight"} loc("Segformer":0:0), %arg180: tensor<1x1x1x64xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.1.1.attention.self.sr.bias"} loc("Segformer":0:0), %arg181: tensor<64xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.1.1.attention.self.layer_norm.weight"} loc("Segformer":0:0), %arg182: tensor<64xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.1.1.attention.self.layer_norm.bias"} loc("Segformer":0:0), %arg183: tensor<64x64xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.1.1.attention.self.key.weight"} loc("Segformer":0:0), %arg184: tensor<64xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.1.1.attention.self.key.bias"} loc("Segformer":0:0), %arg185: tensor<64x64xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.1.1.attention.self.value.weight"} loc("Segformer":0:0), %arg186: tensor<64xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.1.1.attention.self.value.bias"} loc("Segformer":0:0), %arg187: tensor<64x64xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.1.1.attention.output.dense.weight"} loc("Segformer":0:0), %arg188: tensor<64xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.1.1.attention.output.dense.bias"} loc("Segformer":0:0), %arg189: tensor<64xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.1.1.layer_norm_2.weight"} loc("Segformer":0:0), %arg190: tensor<64xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.1.1.layer_norm_2.bias"} loc("Segformer":0:0), %arg191: tensor<64x256xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.1.1.mlp.dense1.weight"} loc("Segformer":0:0), %arg192: tensor<256xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.1.1.mlp.dense1.bias"} loc("Segformer":0:0), %arg193: tensor<256x1x3x3xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.1.1.mlp.dwconv.dwconv.weight"} loc("Segformer":0:0), %arg194: tensor<1x1x1x256xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.1.1.mlp.dwconv.dwconv.bias"} loc("Segformer":0:0), %arg195: tensor<256x64xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.1.1.mlp.dense2.weight"} loc("Segformer":0:0), %arg196: tensor<64xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.1.1.mlp.dense2.bias"} loc("Segformer":0:0), %arg197: tensor<64xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.layer_norm.1.weight"} loc("Segformer":0:0), %arg198: tensor<64xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.layer_norm.1.bias"} loc("Segformer":0:0), %arg199: tensor<160x64x3x3xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.patch_embeddings.2.proj.weight"} loc("Segformer":0:0), %arg200: tensor<1x1x1x160xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.patch_embeddings.2.proj.bias"} loc("Segformer":0:0), %arg201: tensor<160xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.patch_embeddings.2.layer_norm.weight"} loc("Segformer":0:0), %arg202: tensor<160xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.patch_embeddings.2.layer_norm.bias"} loc("Segformer":0:0), %arg203: tensor<160xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.2.0.layer_norm_1.weight"} loc("Segformer":0:0), %arg204: tensor<160xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.2.0.layer_norm_1.bias"} loc("Segformer":0:0), %arg205: tensor<160x160xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.2.0.attention.self.query.weight"} loc("Segformer":0:0), %arg206: tensor<160xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.2.0.attention.self.query.bias"} loc("Segformer":0:0), %arg207: tensor<160x160x2x2xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.2.0.attention.self.sr.weight"} loc("Segformer":0:0), %arg208: tensor<1x1x1x160xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.2.0.attention.self.sr.bias"} loc("Segformer":0:0), %arg209: tensor<160xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.2.0.attention.self.layer_norm.weight"} loc("Segformer":0:0), %arg210: tensor<160xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.2.0.attention.self.layer_norm.bias"} loc("Segformer":0:0), %arg211: tensor<160x160xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.2.0.attention.self.key.weight"} loc("Segformer":0:0), %arg212: tensor<160xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.2.0.attention.self.key.bias"} loc("Segformer":0:0), %arg213: tensor<160x160xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.2.0.attention.self.value.weight"} loc("Segformer":0:0), %arg214: tensor<160xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.2.0.attention.self.value.bias"} loc("Segformer":0:0), %arg215: tensor<160x160xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.2.0.attention.output.dense.weight"} loc("Segformer":0:0), %arg216: tensor<160xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.2.0.attention.output.dense.bias"} loc("Segformer":0:0), %arg217: tensor<160xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.2.0.layer_norm_2.weight"} loc("Segformer":0:0), %arg218: tensor<160xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.2.0.layer_norm_2.bias"} loc("Segformer":0:0), %arg219: tensor<160x640xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.2.0.mlp.dense1.weight"} loc("Segformer":0:0), %arg220: tensor<640xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.2.0.mlp.dense1.bias"} loc("Segformer":0:0), %arg221: tensor<640x1x3x3xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.2.0.mlp.dwconv.dwconv.weight"} loc("Segformer":0:0), %arg222: tensor<1x1x1x640xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.2.0.mlp.dwconv.dwconv.bias"} loc("Segformer":0:0), %arg223: tensor<640x160xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.2.0.mlp.dense2.weight"} loc("Segformer":0:0), %arg224: tensor<160xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.2.0.mlp.dense2.bias"} loc("Segformer":0:0), %arg225: tensor<160xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.2.1.layer_norm_1.weight"} loc("Segformer":0:0), %arg226: tensor<160xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.2.1.layer_norm_1.bias"} loc("Segformer":0:0), %arg227: tensor<160x160xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.2.1.attention.self.query.weight"} loc("Segformer":0:0), %arg228: tensor<160xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.2.1.attention.self.query.bias"} loc("Segformer":0:0), %arg229: tensor<160x160x2x2xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.2.1.attention.self.sr.weight"} loc("Segformer":0:0), %arg230: tensor<1x1x1x160xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.2.1.attention.self.sr.bias"} loc("Segformer":0:0), %arg231: tensor<160xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.2.1.attention.self.layer_norm.weight"} loc("Segformer":0:0), %arg232: tensor<160xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.2.1.attention.self.layer_norm.bias"} loc("Segformer":0:0), %arg233: tensor<160x160xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.2.1.attention.self.key.weight"} loc("Segformer":0:0), %arg234: tensor<160xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.2.1.attention.self.key.bias"} loc("Segformer":0:0), %arg235: tensor<160x160xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.2.1.attention.self.value.weight"} loc("Segformer":0:0), %arg236: tensor<160xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.2.1.attention.self.value.bias"} loc("Segformer":0:0), %arg237: tensor<160x160xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.2.1.attention.output.dense.weight"} loc("Segformer":0:0), %arg238: tensor<160xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.2.1.attention.output.dense.bias"} loc("Segformer":0:0), %arg239: tensor<160xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.2.1.layer_norm_2.weight"} loc("Segformer":0:0), %arg240: tensor<160xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.2.1.layer_norm_2.bias"} loc("Segformer":0:0), %arg241: tensor<160x640xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.2.1.mlp.dense1.weight"} loc("Segformer":0:0), %arg242: tensor<640xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.2.1.mlp.dense1.bias"} loc("Segformer":0:0), %arg243: tensor<640x1x3x3xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.2.1.mlp.dwconv.dwconv.weight"} loc("Segformer":0:0), %arg244: tensor<1x1x1x640xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.2.1.mlp.dwconv.dwconv.bias"} loc("Segformer":0:0), %arg245: tensor<640x160xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.2.1.mlp.dense2.weight"} loc("Segformer":0:0), %arg246: tensor<160xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.2.1.mlp.dense2.bias"} loc("Segformer":0:0), %arg247: tensor<160xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.layer_norm.2.weight"} loc("Segformer":0:0), %arg248: tensor<160xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.layer_norm.2.bias"} loc("Segformer":0:0), %arg249: tensor<256x160x3x3xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.patch_embeddings.3.proj.weight"} loc("Segformer":0:0), %arg250: tensor<1x1x1x256xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.patch_embeddings.3.proj.bias"} loc("Segformer":0:0), %arg251: tensor<256xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.patch_embeddings.3.layer_norm.weight"} loc("Segformer":0:0), %arg252: tensor<256xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.patch_embeddings.3.layer_norm.bias"} loc("Segformer":0:0), %arg253: tensor<256xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.3.0.layer_norm_1.weight"} loc("Segformer":0:0), %arg254: tensor<256xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.3.0.layer_norm_1.bias"} loc("Segformer":0:0), %arg255: tensor<256x256xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.3.0.attention.self.query.weight"} loc("Segformer":0:0), %arg256: tensor<256xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.3.0.attention.self.query.bias"} loc("Segformer":0:0), %arg257: tensor<256x256xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.3.0.attention.self.key.weight"} loc("Segformer":0:0), %arg258: tensor<256xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.3.0.attention.self.key.bias"} loc("Segformer":0:0), %arg259: tensor<256x256xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.3.0.attention.self.value.weight"} loc("Segformer":0:0), %arg260: tensor<256xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.3.0.attention.self.value.bias"} loc("Segformer":0:0), %arg261: tensor<256x256xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.3.0.attention.output.dense.weight"} loc("Segformer":0:0), %arg262: tensor<256xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.3.0.attention.output.dense.bias"} loc("Segformer":0:0), %arg263: tensor<256xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.3.0.layer_norm_2.weight"} loc("Segformer":0:0), %arg264: tensor<256xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.3.0.layer_norm_2.bias"} loc("Segformer":0:0), %arg265: tensor<256x1024xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.3.0.mlp.dense1.weight"} loc("Segformer":0:0), %arg266: tensor<1024xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.3.0.mlp.dense1.bias"} loc("Segformer":0:0), %arg267: tensor<1024x1x3x3xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.3.0.mlp.dwconv.dwconv.weight"} loc("Segformer":0:0), %arg268: tensor<1x1x1x1024xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.3.0.mlp.dwconv.dwconv.bias"} loc("Segformer":0:0), %arg269: tensor<1024x256xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.3.0.mlp.dense2.weight"} loc("Segformer":0:0), %arg270: tensor<256xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.3.0.mlp.dense2.bias"} loc("Segformer":0:0), %arg271: tensor<256xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.3.1.layer_norm_1.weight"} loc("Segformer":0:0), %arg272: tensor<256xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.3.1.layer_norm_1.bias"} loc("Segformer":0:0), %arg273: tensor<256x256xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.3.1.attention.self.query.weight"} loc("Segformer":0:0), %arg274: tensor<256xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.3.1.attention.self.query.bias"} loc("Segformer":0:0), %arg275: tensor<256x256xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.3.1.attention.self.key.weight"} loc("Segformer":0:0), %arg276: tensor<256xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.3.1.attention.self.key.bias"} loc("Segformer":0:0), %arg277: tensor<256x256xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.3.1.attention.self.value.weight"} loc("Segformer":0:0), %arg278: tensor<256xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.3.1.attention.self.value.bias"} loc("Segformer":0:0), %arg279: tensor<256x256xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.3.1.attention.output.dense.weight"} loc("Segformer":0:0), %arg280: tensor<256xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.3.1.attention.output.dense.bias"} loc("Segformer":0:0), %arg281: tensor<256xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.3.1.layer_norm_2.weight"} loc("Segformer":0:0), %arg282: tensor<256xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.3.1.layer_norm_2.bias"} loc("Segformer":0:0), %arg283: tensor<256x1024xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.3.1.mlp.dense1.weight"} loc("Segformer":0:0), %arg284: tensor<1024xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.3.1.mlp.dense1.bias"} loc("Segformer":0:0), %arg285: tensor<1024x1x3x3xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.3.1.mlp.dwconv.dwconv.weight"} loc("Segformer":0:0), %arg286: tensor<1x1x1x1024xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.3.1.mlp.dwconv.dwconv.bias"} loc("Segformer":0:0), %arg287: tensor<1024x256xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.3.1.mlp.dense2.weight"} loc("Segformer":0:0), %arg288: tensor<256xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.block.3.1.mlp.dense2.bias"} loc("Segformer":0:0), %arg289: tensor<256xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.layer_norm.3.weight"} loc("Segformer":0:0), %arg290: tensor<256xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "segformer.encoder.layer_norm.3.bias"} loc("Segformer":0:0), %arg291: tensor<256x1000xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "classifier.weight"} loc("Segformer":0:0), %arg292: tensor<1000xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "classifier.bias"} loc("Segformer":0:0)) -> (tensor<1x1000xbf16> {ttir.name = "Segformer.output_add_590"}) {
-    %0 = ttir.empty() : tensor<1x512x3x512xbf16> loc(#loc185)
-    %1 = "ttir.transpose"(%arg0, %0) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x3x512x512xbf16>, tensor<1x512x3x512xbf16>) -> tensor<1x512x3x512xbf16> loc(#loc185)
-    %2 = ttir.empty() : tensor<1x512x512x3xbf16> loc(#loc186)
-    %3 = "ttir.transpose"(%1, %2) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x512x3x512xbf16>, tensor<1x512x512x3xbf16>) -> tensor<1x512x512x3xbf16> loc(#loc186)
-    %4 = ttir.empty() : tensor<1x128x128x32xbf16> loc(#loc187)
-    %5 = "ttir.conv2d"(%3, %arg99, %arg100, %4) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 3, 3, 3, 3>, stride = array<i32: 4, 4>}> {channel_last = 1 : si32} : (tensor<1x512x512x3xbf16>, tensor<32x3x7x7xbf16>, tensor<1x1x1x32xbf16>, tensor<1x128x128x32xbf16>) -> tensor<1x128x128x32xbf16> loc(#loc187)
-    %6 = ttir.empty() : tensor<1x128x32x128xbf16> loc(#loc188)
-    %7 = "ttir.transpose"(%5, %6) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x128x128x32xbf16>, tensor<1x128x32x128xbf16>) -> tensor<1x128x32x128xbf16> loc(#loc188)
-    %8 = ttir.empty() : tensor<1x32x128x128xbf16> loc(#loc189)
-    %9 = "ttir.transpose"(%7, %8) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x128x32x128xbf16>, tensor<1x32x128x128xbf16>) -> tensor<1x32x128x128xbf16> loc(#loc189)
-    %10 = ttir.empty() : tensor<1x32x16384x1xbf16> loc(#loc94)
-    %11 = "ttir.reshape"(%9, %10) <{shape = [1 : i32, 32 : i32, 16384 : i32, 1 : i32]}> : (tensor<1x32x128x128xbf16>, tensor<1x32x16384x1xbf16>) -> tensor<1x32x16384x1xbf16> loc(#loc94)
-    %12 = ttir.empty() : tensor<1x32x16384xbf16> loc(#loc95)
-    %13 = "ttir.squeeze"(%11, %12) <{dim = -1 : si32}> : (tensor<1x32x16384x1xbf16>, tensor<1x32x16384xbf16>) -> tensor<1x32x16384xbf16> loc(#loc95)
-    %14 = ttir.empty() : tensor<1x16384x32xbf16> loc(#loc96)
-    %15 = "ttir.transpose"(%13, %14) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x32x16384xbf16>, tensor<1x16384x32xbf16>) -> tensor<1x16384x32xbf16> loc(#loc96)
-    %16 = ttir.empty() : tensor<1x16384x1xbf16> loc(#loc190)
-    %17 = "ttir.sum"(%15, %16) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x16384x32xbf16>, tensor<1x16384x1xbf16>) -> tensor<1x16384x1xbf16> loc(#loc190)
-    %18 = ttir.empty() : tensor<1x16384x32xbf16> loc(#loc191)
-    %19 = "ttir.multiply"(%arg1, %17, %18) : (tensor<1x16384x32xf32>, tensor<1x16384x1xbf16>, tensor<1x16384x32xbf16>) -> tensor<1x16384x32xbf16> loc(#loc191)
-    %20 = ttir.empty() : tensor<1x16384x32xbf16> loc(#loc192)
-    %21 = "ttir.subtract"(%15, %19, %20) : (tensor<1x16384x32xbf16>, tensor<1x16384x32xbf16>, tensor<1x16384x32xbf16>) -> tensor<1x16384x32xbf16> loc(#loc192)
-    %22 = ttir.empty() : tensor<1x16384x32xbf16> loc(#loc193)
-    %23 = "ttir.multiply"(%21, %21, %22) : (tensor<1x16384x32xbf16>, tensor<1x16384x32xbf16>, tensor<1x16384x32xbf16>) -> tensor<1x16384x32xbf16> loc(#loc193)
-    %24 = ttir.empty() : tensor<1x16384x1xbf16> loc(#loc194)
-    %25 = "ttir.sum"(%23, %24) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x16384x32xbf16>, tensor<1x16384x1xbf16>) -> tensor<1x16384x1xbf16> loc(#loc194)
-    %26 = ttir.empty() : tensor<1x16384x1xbf16> loc(#loc195)
-    %27 = "ttir.multiply"(%arg2, %25, %26) : (tensor<1x16384x1xf32>, tensor<1x16384x1xbf16>, tensor<1x16384x1xbf16>) -> tensor<1x16384x1xbf16> loc(#loc195)
-    %28 = ttir.empty() : tensor<1x16384x1xbf16> loc(#loc196)
-    %29 = "ttir.add"(%27, %arg3, %28) : (tensor<1x16384x1xbf16>, tensor<1x16384x1xf32>, tensor<1x16384x1xbf16>) -> tensor<1x16384x1xbf16> loc(#loc196)
-    %30 = ttir.empty() : tensor<1x16384x1xbf16> loc(#loc197)
-    %31 = "ttir.sqrt"(%29, %30) : (tensor<1x16384x1xbf16>, tensor<1x16384x1xbf16>) -> tensor<1x16384x1xbf16> loc(#loc197)
-    %32 = ttir.empty() : tensor<1x16384x1xbf16> loc(#loc198)
-    %33 = "ttir.reciprocal"(%31, %32) : (tensor<1x16384x1xbf16>, tensor<1x16384x1xbf16>) -> tensor<1x16384x1xbf16> loc(#loc198)
-    %34 = ttir.empty() : tensor<1x16384x32xbf16> loc(#loc199)
-    %35 = "ttir.multiply"(%21, %33, %34) : (tensor<1x16384x32xbf16>, tensor<1x16384x1xbf16>, tensor<1x16384x32xbf16>) -> tensor<1x16384x32xbf16> loc(#loc199)
-    %36 = ttir.empty() : tensor<1x16384x32xbf16> loc(#loc200)
-    %37 = "ttir.multiply"(%35, %arg101, %36) : (tensor<1x16384x32xbf16>, tensor<32xbf16>, tensor<1x16384x32xbf16>) -> tensor<1x16384x32xbf16> loc(#loc200)
-    %38 = ttir.empty() : tensor<1x16384x32xbf16> loc(#loc201)
-    %39 = "ttir.add"(%37, %arg102, %38) : (tensor<1x16384x32xbf16>, tensor<32xbf16>, tensor<1x16384x32xbf16>) -> tensor<1x16384x32xbf16> loc(#loc201)
-    %40 = ttir.empty() : tensor<1x16384x1xbf16> loc(#loc202)
-    %41 = "ttir.sum"(%39, %40) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x16384x32xbf16>, tensor<1x16384x1xbf16>) -> tensor<1x16384x1xbf16> loc(#loc202)
-    %42 = ttir.empty() : tensor<1x16384x32xbf16> loc(#loc203)
-    %43 = "ttir.multiply"(%arg4, %41, %42) : (tensor<1x16384x32xf32>, tensor<1x16384x1xbf16>, tensor<1x16384x32xbf16>) -> tensor<1x16384x32xbf16> loc(#loc203)
-    %44 = ttir.empty() : tensor<1x16384x32xbf16> loc(#loc204)
-    %45 = "ttir.subtract"(%39, %43, %44) : (tensor<1x16384x32xbf16>, tensor<1x16384x32xbf16>, tensor<1x16384x32xbf16>) -> tensor<1x16384x32xbf16> loc(#loc204)
-    %46 = ttir.empty() : tensor<1x16384x32xbf16> loc(#loc205)
-    %47 = "ttir.multiply"(%45, %45, %46) : (tensor<1x16384x32xbf16>, tensor<1x16384x32xbf16>, tensor<1x16384x32xbf16>) -> tensor<1x16384x32xbf16> loc(#loc205)
-    %48 = ttir.empty() : tensor<1x16384x1xbf16> loc(#loc206)
-    %49 = "ttir.sum"(%47, %48) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x16384x32xbf16>, tensor<1x16384x1xbf16>) -> tensor<1x16384x1xbf16> loc(#loc206)
-    %50 = ttir.empty() : tensor<1x16384x1xbf16> loc(#loc207)
-    %51 = "ttir.multiply"(%arg5, %49, %50) : (tensor<1x16384x1xf32>, tensor<1x16384x1xbf16>, tensor<1x16384x1xbf16>) -> tensor<1x16384x1xbf16> loc(#loc207)
-    %52 = ttir.empty() : tensor<1x16384x1xbf16> loc(#loc208)
-    %53 = "ttir.add"(%51, %arg6, %52) : (tensor<1x16384x1xbf16>, tensor<1x16384x1xf32>, tensor<1x16384x1xbf16>) -> tensor<1x16384x1xbf16> loc(#loc208)
-    %54 = ttir.empty() : tensor<1x16384x1xbf16> loc(#loc209)
-    %55 = "ttir.sqrt"(%53, %54) : (tensor<1x16384x1xbf16>, tensor<1x16384x1xbf16>) -> tensor<1x16384x1xbf16> loc(#loc209)
-    %56 = ttir.empty() : tensor<1x16384x1xbf16> loc(#loc210)
-    %57 = "ttir.reciprocal"(%55, %56) : (tensor<1x16384x1xbf16>, tensor<1x16384x1xbf16>) -> tensor<1x16384x1xbf16> loc(#loc210)
-    %58 = ttir.empty() : tensor<1x16384x32xbf16> loc(#loc211)
-    %59 = "ttir.multiply"(%45, %57, %58) : (tensor<1x16384x32xbf16>, tensor<1x16384x1xbf16>, tensor<1x16384x32xbf16>) -> tensor<1x16384x32xbf16> loc(#loc211)
-    %60 = ttir.empty() : tensor<1x16384x32xbf16> loc(#loc212)
-    %61 = "ttir.multiply"(%59, %arg103, %60) : (tensor<1x16384x32xbf16>, tensor<32xbf16>, tensor<1x16384x32xbf16>) -> tensor<1x16384x32xbf16> loc(#loc212)
-    %62 = ttir.empty() : tensor<1x16384x32xbf16> loc(#loc213)
-    %63 = "ttir.add"(%61, %arg104, %62) : (tensor<1x16384x32xbf16>, tensor<32xbf16>, tensor<1x16384x32xbf16>) -> tensor<1x16384x32xbf16> loc(#loc213)
-    %64 = ttir.empty() : tensor<1x16384x32xbf16> loc(#loc695)
-    %65 = "ttir.matmul"(%63, %arg105, %64) <{transpose_a = false, transpose_b = false}> : (tensor<1x16384x32xbf16>, tensor<32x32xbf16>, tensor<1x16384x32xbf16>) -> tensor<1x16384x32xbf16> loc(#loc695)
-    %66 = ttir.empty() : tensor<1x16384x32xbf16> loc(#loc2)
-    %67 = "ttir.add"(%65, %arg106, %66) : (tensor<1x16384x32xbf16>, tensor<32xbf16>, tensor<1x16384x32xbf16>) -> tensor<1x16384x32xbf16> loc(#loc2)
-    %68 = ttir.empty() : tensor<1x16384x1x32xbf16> loc(#loc458)
-    %69 = "ttir.reshape"(%67, %68) <{shape = [1 : i32, 16384 : i32, 1 : i32, 32 : i32]}> : (tensor<1x16384x32xbf16>, tensor<1x16384x1x32xbf16>) -> tensor<1x16384x1x32xbf16> loc(#loc458)
-    %70 = ttir.empty() : tensor<1x16384x32xbf16> loc(#loc459)
-    %71 = "ttir.squeeze"(%69, %70) <{dim = -2 : si32}> : (tensor<1x16384x1x32xbf16>, tensor<1x16384x32xbf16>) -> tensor<1x16384x32xbf16> loc(#loc459)
-    %72 = ttir.empty() : tensor<1x32x16384xbf16> loc(#loc460)
-    %73 = "ttir.transpose"(%63, %72) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x16384x32xbf16>, tensor<1x32x16384xbf16>) -> tensor<1x32x16384xbf16> loc(#loc460)
-    %74 = ttir.empty() : tensor<1x32x128x128xbf16> loc(#loc461)
-    %75 = "ttir.reshape"(%73, %74) <{shape = [1 : i32, 32 : i32, 128 : i32, 128 : i32]}> : (tensor<1x32x16384xbf16>, tensor<1x32x128x128xbf16>) -> tensor<1x32x128x128xbf16> loc(#loc461)
-    %76 = ttir.empty() : tensor<1x128x32x128xbf16> loc(#loc696)
-    %77 = "ttir.transpose"(%75, %76) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x32x128x128xbf16>, tensor<1x128x32x128xbf16>) -> tensor<1x128x32x128xbf16> loc(#loc696)
-    %78 = ttir.empty() : tensor<1x128x128x32xbf16> loc(#loc697)
-    %79 = "ttir.transpose"(%77, %78) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x128x32x128xbf16>, tensor<1x128x128x32xbf16>) -> tensor<1x128x128x32xbf16> loc(#loc697)
-    %80 = ttir.empty() : tensor<1x16x16x32xbf16> loc(#loc698)
-    %81 = "ttir.conv2d"(%79, %arg107, %arg108, %80) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 0, 0, 0, 0>, stride = array<i32: 8, 8>}> {channel_last = 1 : si32} : (tensor<1x128x128x32xbf16>, tensor<32x32x8x8xbf16>, tensor<1x1x1x32xbf16>, tensor<1x16x16x32xbf16>) -> tensor<1x16x16x32xbf16> loc(#loc698)
-    %82 = ttir.empty() : tensor<1x16x32x16xbf16> loc(#loc699)
-    %83 = "ttir.transpose"(%81, %82) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x16x16x32xbf16>, tensor<1x16x32x16xbf16>) -> tensor<1x16x32x16xbf16> loc(#loc699)
-    %84 = ttir.empty() : tensor<1x32x16x16xbf16> loc(#loc700)
-    %85 = "ttir.transpose"(%83, %84) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x16x32x16xbf16>, tensor<1x32x16x16xbf16>) -> tensor<1x32x16x16xbf16> loc(#loc700)
-    %86 = ttir.empty() : tensor<1x32x256xbf16> loc(#loc463)
-    %87 = "ttir.reshape"(%85, %86) <{shape = [1 : i32, 32 : i32, 256 : i32]}> : (tensor<1x32x16x16xbf16>, tensor<1x32x256xbf16>) -> tensor<1x32x256xbf16> loc(#loc463)
-    %88 = ttir.empty() : tensor<1x256x32xbf16> loc(#loc464)
-    %89 = "ttir.transpose"(%87, %88) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x32x256xbf16>, tensor<1x256x32xbf16>) -> tensor<1x256x32xbf16> loc(#loc464)
-    %90 = ttir.empty() : tensor<1x256x1xbf16> loc(#loc701)
-    %91 = "ttir.sum"(%89, %90) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x256x32xbf16>, tensor<1x256x1xbf16>) -> tensor<1x256x1xbf16> loc(#loc701)
-    %92 = ttir.empty() : tensor<1x256x32xbf16> loc(#loc702)
-    %93 = "ttir.multiply"(%arg7, %91, %92) : (tensor<1x256x32xf32>, tensor<1x256x1xbf16>, tensor<1x256x32xbf16>) -> tensor<1x256x32xbf16> loc(#loc702)
-    %94 = ttir.empty() : tensor<1x256x32xbf16> loc(#loc703)
-    %95 = "ttir.subtract"(%89, %93, %94) : (tensor<1x256x32xbf16>, tensor<1x256x32xbf16>, tensor<1x256x32xbf16>) -> tensor<1x256x32xbf16> loc(#loc703)
-    %96 = ttir.empty() : tensor<1x256x32xbf16> loc(#loc704)
-    %97 = "ttir.multiply"(%95, %95, %96) : (tensor<1x256x32xbf16>, tensor<1x256x32xbf16>, tensor<1x256x32xbf16>) -> tensor<1x256x32xbf16> loc(#loc704)
-    %98 = ttir.empty() : tensor<1x256x1xbf16> loc(#loc705)
-    %99 = "ttir.sum"(%97, %98) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x256x32xbf16>, tensor<1x256x1xbf16>) -> tensor<1x256x1xbf16> loc(#loc705)
-    %100 = ttir.empty() : tensor<1x256x1xbf16> loc(#loc706)
-    %101 = "ttir.multiply"(%arg8, %99, %100) : (tensor<1x256x1xf32>, tensor<1x256x1xbf16>, tensor<1x256x1xbf16>) -> tensor<1x256x1xbf16> loc(#loc706)
-    %102 = ttir.empty() : tensor<1x256x1xbf16> loc(#loc707)
-    %103 = "ttir.add"(%101, %arg9, %102) : (tensor<1x256x1xbf16>, tensor<1x256x1xf32>, tensor<1x256x1xbf16>) -> tensor<1x256x1xbf16> loc(#loc707)
-    %104 = ttir.empty() : tensor<1x256x1xbf16> loc(#loc708)
-    %105 = "ttir.sqrt"(%103, %104) : (tensor<1x256x1xbf16>, tensor<1x256x1xbf16>) -> tensor<1x256x1xbf16> loc(#loc708)
-    %106 = ttir.empty() : tensor<1x256x1xbf16> loc(#loc709)
-    %107 = "ttir.reciprocal"(%105, %106) : (tensor<1x256x1xbf16>, tensor<1x256x1xbf16>) -> tensor<1x256x1xbf16> loc(#loc709)
-    %108 = ttir.empty() : tensor<1x256x32xbf16> loc(#loc710)
-    %109 = "ttir.multiply"(%95, %107, %108) : (tensor<1x256x32xbf16>, tensor<1x256x1xbf16>, tensor<1x256x32xbf16>) -> tensor<1x256x32xbf16> loc(#loc710)
-    %110 = ttir.empty() : tensor<1x256x32xbf16> loc(#loc711)
-    %111 = "ttir.multiply"(%109, %arg109, %110) : (tensor<1x256x32xbf16>, tensor<32xbf16>, tensor<1x256x32xbf16>) -> tensor<1x256x32xbf16> loc(#loc711)
-    %112 = ttir.empty() : tensor<1x256x32xbf16> loc(#loc712)
-    %113 = "ttir.add"(%111, %arg110, %112) : (tensor<1x256x32xbf16>, tensor<32xbf16>, tensor<1x256x32xbf16>) -> tensor<1x256x32xbf16> loc(#loc712)
-    %114 = ttir.empty() : tensor<256x32xbf16> loc(#loc713)
-    %115 = "ttir.squeeze"(%113, %114) <{dim = 0 : si32}> : (tensor<1x256x32xbf16>, tensor<256x32xbf16>) -> tensor<256x32xbf16> loc(#loc713)
-    %116 = ttir.empty() : tensor<256x32xbf16> loc(#loc714)
-    %117 = "ttir.matmul"(%115, %arg111, %116) <{transpose_a = false, transpose_b = false}> : (tensor<256x32xbf16>, tensor<32x32xbf16>, tensor<256x32xbf16>) -> tensor<256x32xbf16> loc(#loc714)
-    %118 = ttir.empty() : tensor<1x256x32xbf16> loc(#loc715)
-    %119 = "ttir.unsqueeze"(%117, %118) <{dim = 0 : si32}> : (tensor<256x32xbf16>, tensor<1x256x32xbf16>) -> tensor<1x256x32xbf16> loc(#loc715)
-    %120 = ttir.empty() : tensor<1x256x32xbf16> loc(#loc3)
-    %121 = "ttir.add"(%119, %arg112, %120) : (tensor<1x256x32xbf16>, tensor<32xbf16>, tensor<1x256x32xbf16>) -> tensor<1x256x32xbf16> loc(#loc3)
-    %122 = ttir.empty() : tensor<1x256x1x32xbf16> loc(#loc467)
-    %123 = "ttir.reshape"(%121, %122) <{shape = [1 : i32, 256 : i32, 1 : i32, 32 : i32]}> : (tensor<1x256x32xbf16>, tensor<1x256x1x32xbf16>) -> tensor<1x256x1x32xbf16> loc(#loc467)
-    %124 = ttir.empty() : tensor<1x256x32xbf16> loc(#loc468)
-    %125 = "ttir.squeeze"(%123, %124) <{dim = -2 : si32}> : (tensor<1x256x1x32xbf16>, tensor<1x256x32xbf16>) -> tensor<1x256x32xbf16> loc(#loc468)
-    %126 = ttir.empty() : tensor<1x32x256xbf16> loc(#loc4)
-    %127 = "ttir.transpose"(%125, %126) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x256x32xbf16>, tensor<1x32x256xbf16>) -> tensor<1x32x256xbf16> loc(#loc4)
-    %128 = ttir.empty() : tensor<1x16384x256xbf16> loc(#loc469)
-    %129 = "ttir.matmul"(%71, %127, %128) <{transpose_a = false, transpose_b = false}> : (tensor<1x16384x32xbf16>, tensor<1x32x256xbf16>, tensor<1x16384x256xbf16>) -> tensor<1x16384x256xbf16> loc(#loc469)
-    %130 = ttir.empty() : tensor<1x1x16384x256xbf16> loc(#loc470)
-    %131 = "ttir.unsqueeze"(%129, %130) <{dim = 0 : si32}> : (tensor<1x16384x256xbf16>, tensor<1x1x16384x256xbf16>) -> tensor<1x1x16384x256xbf16> loc(#loc470)
-    %132 = ttir.empty() : tensor<1x1x16384x256xbf16> loc(#loc471)
-    %133 = "ttir.div"(%131, %arg10, %132) : (tensor<1x1x16384x256xbf16>, tensor<1xbf16>, tensor<1x1x16384x256xbf16>) -> tensor<1x1x16384x256xbf16> loc(#loc471)
-    %134 = ttir.empty() : tensor<1x1x16384x256xbf16> loc(#loc472)
-    %135 = "ttir.softmax"(%133, %134) <{dimension = -1 : si32}> : (tensor<1x1x16384x256xbf16>, tensor<1x1x16384x256xbf16>) -> tensor<1x1x16384x256xbf16> loc(#loc472)
-    %136 = ttir.empty() : tensor<1x16384x256xbf16> loc(#loc473)
-    %137 = "ttir.squeeze"(%135, %136) <{dim = 0 : si32}> : (tensor<1x1x16384x256xbf16>, tensor<1x16384x256xbf16>) -> tensor<1x16384x256xbf16> loc(#loc473)
-    %138 = ttir.empty() : tensor<256x32xbf16> loc(#loc716)
-    %139 = "ttir.matmul"(%115, %arg113, %138) <{transpose_a = false, transpose_b = false}> : (tensor<256x32xbf16>, tensor<32x32xbf16>, tensor<256x32xbf16>) -> tensor<256x32xbf16> loc(#loc716)
-    %140 = ttir.empty() : tensor<1x256x32xbf16> loc(#loc717)
-    %141 = "ttir.unsqueeze"(%139, %140) <{dim = 0 : si32}> : (tensor<256x32xbf16>, tensor<1x256x32xbf16>) -> tensor<1x256x32xbf16> loc(#loc717)
-    %142 = ttir.empty() : tensor<1x256x32xbf16> loc(#loc5)
-    %143 = "ttir.add"(%141, %arg114, %142) : (tensor<1x256x32xbf16>, tensor<32xbf16>, tensor<1x256x32xbf16>) -> tensor<1x256x32xbf16> loc(#loc5)
-    %144 = ttir.empty() : tensor<1x256x1x32xbf16> loc(#loc475)
-    %145 = "ttir.reshape"(%143, %144) <{shape = [1 : i32, 256 : i32, 1 : i32, 32 : i32]}> : (tensor<1x256x32xbf16>, tensor<1x256x1x32xbf16>) -> tensor<1x256x1x32xbf16> loc(#loc475)
-    %146 = ttir.empty() : tensor<1x1x256x32xbf16> loc(#loc476)
-    %147 = "ttir.transpose"(%145, %146) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x256x1x32xbf16>, tensor<1x1x256x32xbf16>) -> tensor<1x1x256x32xbf16> loc(#loc476)
-    %148 = ttir.empty() : tensor<1x1x32x256xbf16> loc(#loc477)
-    %149 = "ttir.transpose"(%147, %148) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x1x256x32xbf16>, tensor<1x1x32x256xbf16>) -> tensor<1x1x32x256xbf16> loc(#loc477)
-    %150 = ttir.empty() : tensor<1x32x256xbf16> loc(#loc478)
-    %151 = "ttir.squeeze"(%149, %150) <{dim = 0 : si32}> : (tensor<1x1x32x256xbf16>, tensor<1x32x256xbf16>) -> tensor<1x32x256xbf16> loc(#loc478)
-    %152 = ttir.empty() : tensor<1x256x32xbf16> loc(#loc6)
-    %153 = "ttir.transpose"(%151, %152) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x32x256xbf16>, tensor<1x256x32xbf16>) -> tensor<1x256x32xbf16> loc(#loc6)
-    %154 = ttir.empty() : tensor<1x16384x32xbf16> loc(#loc479)
-    %155 = "ttir.matmul"(%137, %153, %154) <{transpose_a = false, transpose_b = false}> : (tensor<1x16384x256xbf16>, tensor<1x256x32xbf16>, tensor<1x16384x32xbf16>) -> tensor<1x16384x32xbf16> loc(#loc479)
-    %156 = ttir.empty() : tensor<1x16384x32xbf16> loc(#loc718)
-    %157 = "ttir.matmul"(%155, %arg115, %156) <{transpose_a = false, transpose_b = false}> : (tensor<1x16384x32xbf16>, tensor<32x32xbf16>, tensor<1x16384x32xbf16>) -> tensor<1x16384x32xbf16> loc(#loc718)
-    %158 = ttir.empty() : tensor<1x16384x32xbf16> loc(#loc7)
-    %159 = "ttir.add"(%157, %arg116, %158) : (tensor<1x16384x32xbf16>, tensor<32xbf16>, tensor<1x16384x32xbf16>) -> tensor<1x16384x32xbf16> loc(#loc7)
-    %160 = ttir.empty() : tensor<1x16384x32xbf16> loc(#loc100)
-    %161 = "ttir.add"(%159, %39, %160) : (tensor<1x16384x32xbf16>, tensor<1x16384x32xbf16>, tensor<1x16384x32xbf16>) -> tensor<1x16384x32xbf16> loc(#loc100)
-    %162 = ttir.empty() : tensor<1x16384x1xbf16> loc(#loc216)
-    %163 = "ttir.sum"(%161, %162) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x16384x32xbf16>, tensor<1x16384x1xbf16>) -> tensor<1x16384x1xbf16> loc(#loc216)
-    %164 = ttir.empty() : tensor<1x16384x32xbf16> loc(#loc217)
-    %165 = "ttir.multiply"(%arg11, %163, %164) : (tensor<1x16384x32xf32>, tensor<1x16384x1xbf16>, tensor<1x16384x32xbf16>) -> tensor<1x16384x32xbf16> loc(#loc217)
-    %166 = ttir.empty() : tensor<1x16384x32xbf16> loc(#loc218)
-    %167 = "ttir.subtract"(%161, %165, %166) : (tensor<1x16384x32xbf16>, tensor<1x16384x32xbf16>, tensor<1x16384x32xbf16>) -> tensor<1x16384x32xbf16> loc(#loc218)
-    %168 = ttir.empty() : tensor<1x16384x32xbf16> loc(#loc219)
-    %169 = "ttir.multiply"(%167, %167, %168) : (tensor<1x16384x32xbf16>, tensor<1x16384x32xbf16>, tensor<1x16384x32xbf16>) -> tensor<1x16384x32xbf16> loc(#loc219)
-    %170 = ttir.empty() : tensor<1x16384x1xbf16> loc(#loc220)
-    %171 = "ttir.sum"(%169, %170) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x16384x32xbf16>, tensor<1x16384x1xbf16>) -> tensor<1x16384x1xbf16> loc(#loc220)
-    %172 = ttir.empty() : tensor<1x16384x1xbf16> loc(#loc221)
-    %173 = "ttir.multiply"(%arg12, %171, %172) : (tensor<1x16384x1xf32>, tensor<1x16384x1xbf16>, tensor<1x16384x1xbf16>) -> tensor<1x16384x1xbf16> loc(#loc221)
-    %174 = ttir.empty() : tensor<1x16384x1xbf16> loc(#loc222)
-    %175 = "ttir.add"(%173, %arg13, %174) : (tensor<1x16384x1xbf16>, tensor<1x16384x1xf32>, tensor<1x16384x1xbf16>) -> tensor<1x16384x1xbf16> loc(#loc222)
-    %176 = ttir.empty() : tensor<1x16384x1xbf16> loc(#loc223)
-    %177 = "ttir.sqrt"(%175, %176) : (tensor<1x16384x1xbf16>, tensor<1x16384x1xbf16>) -> tensor<1x16384x1xbf16> loc(#loc223)
-    %178 = ttir.empty() : tensor<1x16384x1xbf16> loc(#loc224)
-    %179 = "ttir.reciprocal"(%177, %178) : (tensor<1x16384x1xbf16>, tensor<1x16384x1xbf16>) -> tensor<1x16384x1xbf16> loc(#loc224)
-    %180 = ttir.empty() : tensor<1x16384x32xbf16> loc(#loc225)
-    %181 = "ttir.multiply"(%167, %179, %180) : (tensor<1x16384x32xbf16>, tensor<1x16384x1xbf16>, tensor<1x16384x32xbf16>) -> tensor<1x16384x32xbf16> loc(#loc225)
-    %182 = ttir.empty() : tensor<1x16384x32xbf16> loc(#loc226)
-    %183 = "ttir.multiply"(%181, %arg117, %182) : (tensor<1x16384x32xbf16>, tensor<32xbf16>, tensor<1x16384x32xbf16>) -> tensor<1x16384x32xbf16> loc(#loc226)
-    %184 = ttir.empty() : tensor<1x16384x32xbf16> loc(#loc227)
-    %185 = "ttir.add"(%183, %arg118, %184) : (tensor<1x16384x32xbf16>, tensor<32xbf16>, tensor<1x16384x32xbf16>) -> tensor<1x16384x32xbf16> loc(#loc227)
-    %186 = ttir.empty() : tensor<1x16384x128xbf16> loc(#loc481)
-    %187 = "ttir.matmul"(%185, %arg119, %186) <{transpose_a = false, transpose_b = false}> : (tensor<1x16384x32xbf16>, tensor<32x128xbf16>, tensor<1x16384x128xbf16>) -> tensor<1x16384x128xbf16> loc(#loc481)
-    %188 = ttir.empty() : tensor<1x16384x128xbf16> loc(#loc8)
-    %189 = "ttir.add"(%187, %arg120, %188) : (tensor<1x16384x128xbf16>, tensor<128xbf16>, tensor<1x16384x128xbf16>) -> tensor<1x16384x128xbf16> loc(#loc8)
-    %190 = ttir.empty() : tensor<1x128x16384xbf16> loc(#loc482)
-    %191 = "ttir.transpose"(%189, %190) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x16384x128xbf16>, tensor<1x128x16384xbf16>) -> tensor<1x128x16384xbf16> loc(#loc482)
-    %192 = ttir.empty() : tensor<1x128x128x128xbf16> loc(#loc483)
-    %193 = "ttir.reshape"(%191, %192) <{shape = [1 : i32, 128 : i32, 128 : i32, 128 : i32]}> : (tensor<1x128x16384xbf16>, tensor<1x128x128x128xbf16>) -> tensor<1x128x128x128xbf16> loc(#loc483)
-    %194 = ttir.empty() : tensor<1x128x128x128xbf16> loc(#loc719)
-    %195 = "ttir.transpose"(%193, %194) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x128x128x128xbf16>, tensor<1x128x128x128xbf16>) -> tensor<1x128x128x128xbf16> loc(#loc719)
-    %196 = ttir.empty() : tensor<1x128x128x128xbf16> loc(#loc720)
-    %197 = "ttir.transpose"(%195, %196) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x128x128x128xbf16>, tensor<1x128x128x128xbf16>) -> tensor<1x128x128x128xbf16> loc(#loc720)
-    %198 = ttir.empty() : tensor<1x128x128x128xbf16> loc(#loc721)
-    %199 = "ttir.conv2d"(%197, %arg121, %arg122, %198) <{dilation = array<i32: 1, 1>, groups = 128 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x128x128x128xbf16>, tensor<128x1x3x3xbf16>, tensor<1x1x1x128xbf16>, tensor<1x128x128x128xbf16>) -> tensor<1x128x128x128xbf16> loc(#loc721)
-    %200 = ttir.empty() : tensor<1x128x128x128xbf16> loc(#loc722)
-    %201 = "ttir.transpose"(%199, %200) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x128x128x128xbf16>, tensor<1x128x128x128xbf16>) -> tensor<1x128x128x128xbf16> loc(#loc722)
-    %202 = ttir.empty() : tensor<1x128x128x128xbf16> loc(#loc723)
-    %203 = "ttir.transpose"(%201, %202) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x128x128x128xbf16>, tensor<1x128x128x128xbf16>) -> tensor<1x128x128x128xbf16> loc(#loc723)
-    %204 = ttir.empty() : tensor<1x128x16384x1xbf16> loc(#loc485)
-    %205 = "ttir.reshape"(%203, %204) <{shape = [1 : i32, 128 : i32, 16384 : i32, 1 : i32]}> : (tensor<1x128x128x128xbf16>, tensor<1x128x16384x1xbf16>) -> tensor<1x128x16384x1xbf16> loc(#loc485)
-    %206 = ttir.empty() : tensor<1x128x16384xbf16> loc(#loc486)
-    %207 = "ttir.squeeze"(%205, %206) <{dim = -1 : si32}> : (tensor<1x128x16384x1xbf16>, tensor<1x128x16384xbf16>) -> tensor<1x128x16384xbf16> loc(#loc486)
-    %208 = ttir.empty() : tensor<1x16384x128xbf16> loc(#loc487)
-    %209 = "ttir.transpose"(%207, %208) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x128x16384xbf16>, tensor<1x16384x128xbf16>) -> tensor<1x16384x128xbf16> loc(#loc487)
-    %210 = ttir.empty() : tensor<1x16384x128xbf16> loc(#loc488)
-    %211 = "ttir.gelu"(%209, %210) : (tensor<1x16384x128xbf16>, tensor<1x16384x128xbf16>) -> tensor<1x16384x128xbf16> loc(#loc488)
-    %212 = ttir.empty() : tensor<1x16384x32xbf16> loc(#loc489)
-    %213 = "ttir.matmul"(%211, %arg123, %212) <{transpose_a = false, transpose_b = false}> : (tensor<1x16384x128xbf16>, tensor<128x32xbf16>, tensor<1x16384x32xbf16>) -> tensor<1x16384x32xbf16> loc(#loc489)
-    %214 = ttir.empty() : tensor<1x16384x32xbf16> loc(#loc9)
-    %215 = "ttir.add"(%213, %arg124, %214) : (tensor<1x16384x32xbf16>, tensor<32xbf16>, tensor<1x16384x32xbf16>) -> tensor<1x16384x32xbf16> loc(#loc9)
-    %216 = ttir.empty() : tensor<1x16384x32xbf16> loc(#loc103)
-    %217 = "ttir.add"(%215, %161, %216) : (tensor<1x16384x32xbf16>, tensor<1x16384x32xbf16>, tensor<1x16384x32xbf16>) -> tensor<1x16384x32xbf16> loc(#loc103)
-    %218 = ttir.empty() : tensor<1x16384x1xbf16> loc(#loc232)
-    %219 = "ttir.sum"(%217, %218) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x16384x32xbf16>, tensor<1x16384x1xbf16>) -> tensor<1x16384x1xbf16> loc(#loc232)
-    %220 = ttir.empty() : tensor<1x16384x32xbf16> loc(#loc233)
-    %221 = "ttir.multiply"(%arg14, %219, %220) : (tensor<1x16384x32xf32>, tensor<1x16384x1xbf16>, tensor<1x16384x32xbf16>) -> tensor<1x16384x32xbf16> loc(#loc233)
-    %222 = ttir.empty() : tensor<1x16384x32xbf16> loc(#loc234)
-    %223 = "ttir.subtract"(%217, %221, %222) : (tensor<1x16384x32xbf16>, tensor<1x16384x32xbf16>, tensor<1x16384x32xbf16>) -> tensor<1x16384x32xbf16> loc(#loc234)
-    %224 = ttir.empty() : tensor<1x16384x32xbf16> loc(#loc235)
-    %225 = "ttir.multiply"(%223, %223, %224) : (tensor<1x16384x32xbf16>, tensor<1x16384x32xbf16>, tensor<1x16384x32xbf16>) -> tensor<1x16384x32xbf16> loc(#loc235)
-    %226 = ttir.empty() : tensor<1x16384x1xbf16> loc(#loc236)
-    %227 = "ttir.sum"(%225, %226) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x16384x32xbf16>, tensor<1x16384x1xbf16>) -> tensor<1x16384x1xbf16> loc(#loc236)
-    %228 = ttir.empty() : tensor<1x16384x1xbf16> loc(#loc237)
-    %229 = "ttir.multiply"(%arg15, %227, %228) : (tensor<1x16384x1xf32>, tensor<1x16384x1xbf16>, tensor<1x16384x1xbf16>) -> tensor<1x16384x1xbf16> loc(#loc237)
-    %230 = ttir.empty() : tensor<1x16384x1xbf16> loc(#loc238)
-    %231 = "ttir.add"(%229, %arg16, %230) : (tensor<1x16384x1xbf16>, tensor<1x16384x1xf32>, tensor<1x16384x1xbf16>) -> tensor<1x16384x1xbf16> loc(#loc238)
-    %232 = ttir.empty() : tensor<1x16384x1xbf16> loc(#loc239)
-    %233 = "ttir.sqrt"(%231, %232) : (tensor<1x16384x1xbf16>, tensor<1x16384x1xbf16>) -> tensor<1x16384x1xbf16> loc(#loc239)
-    %234 = ttir.empty() : tensor<1x16384x1xbf16> loc(#loc240)
-    %235 = "ttir.reciprocal"(%233, %234) : (tensor<1x16384x1xbf16>, tensor<1x16384x1xbf16>) -> tensor<1x16384x1xbf16> loc(#loc240)
-    %236 = ttir.empty() : tensor<1x16384x32xbf16> loc(#loc241)
-    %237 = "ttir.multiply"(%223, %235, %236) : (tensor<1x16384x32xbf16>, tensor<1x16384x1xbf16>, tensor<1x16384x32xbf16>) -> tensor<1x16384x32xbf16> loc(#loc241)
-    %238 = ttir.empty() : tensor<1x16384x32xbf16> loc(#loc242)
-    %239 = "ttir.multiply"(%237, %arg125, %238) : (tensor<1x16384x32xbf16>, tensor<32xbf16>, tensor<1x16384x32xbf16>) -> tensor<1x16384x32xbf16> loc(#loc242)
-    %240 = ttir.empty() : tensor<1x16384x32xbf16> loc(#loc243)
-    %241 = "ttir.add"(%239, %arg126, %240) : (tensor<1x16384x32xbf16>, tensor<32xbf16>, tensor<1x16384x32xbf16>) -> tensor<1x16384x32xbf16> loc(#loc243)
-    %242 = ttir.empty() : tensor<1x16384x32xbf16> loc(#loc724)
-    %243 = "ttir.matmul"(%241, %arg127, %242) <{transpose_a = false, transpose_b = false}> : (tensor<1x16384x32xbf16>, tensor<32x32xbf16>, tensor<1x16384x32xbf16>) -> tensor<1x16384x32xbf16> loc(#loc724)
-    %244 = ttir.empty() : tensor<1x16384x32xbf16> loc(#loc10)
-    %245 = "ttir.add"(%243, %arg128, %244) : (tensor<1x16384x32xbf16>, tensor<32xbf16>, tensor<1x16384x32xbf16>) -> tensor<1x16384x32xbf16> loc(#loc10)
-    %246 = ttir.empty() : tensor<1x16384x1x32xbf16> loc(#loc491)
-    %247 = "ttir.reshape"(%245, %246) <{shape = [1 : i32, 16384 : i32, 1 : i32, 32 : i32]}> : (tensor<1x16384x32xbf16>, tensor<1x16384x1x32xbf16>) -> tensor<1x16384x1x32xbf16> loc(#loc491)
-    %248 = ttir.empty() : tensor<1x16384x32xbf16> loc(#loc492)
-    %249 = "ttir.squeeze"(%247, %248) <{dim = -2 : si32}> : (tensor<1x16384x1x32xbf16>, tensor<1x16384x32xbf16>) -> tensor<1x16384x32xbf16> loc(#loc492)
-    %250 = ttir.empty() : tensor<1x32x16384xbf16> loc(#loc493)
-    %251 = "ttir.transpose"(%241, %250) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x16384x32xbf16>, tensor<1x32x16384xbf16>) -> tensor<1x32x16384xbf16> loc(#loc493)
-    %252 = ttir.empty() : tensor<1x32x128x128xbf16> loc(#loc494)
-    %253 = "ttir.reshape"(%251, %252) <{shape = [1 : i32, 32 : i32, 128 : i32, 128 : i32]}> : (tensor<1x32x16384xbf16>, tensor<1x32x128x128xbf16>) -> tensor<1x32x128x128xbf16> loc(#loc494)
-    %254 = ttir.empty() : tensor<1x128x32x128xbf16> loc(#loc725)
-    %255 = "ttir.transpose"(%253, %254) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x32x128x128xbf16>, tensor<1x128x32x128xbf16>) -> tensor<1x128x32x128xbf16> loc(#loc725)
-    %256 = ttir.empty() : tensor<1x128x128x32xbf16> loc(#loc726)
-    %257 = "ttir.transpose"(%255, %256) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x128x32x128xbf16>, tensor<1x128x128x32xbf16>) -> tensor<1x128x128x32xbf16> loc(#loc726)
-    %258 = ttir.empty() : tensor<1x16x16x32xbf16> loc(#loc727)
-    %259 = "ttir.conv2d"(%257, %arg129, %arg130, %258) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 0, 0, 0, 0>, stride = array<i32: 8, 8>}> {channel_last = 1 : si32} : (tensor<1x128x128x32xbf16>, tensor<32x32x8x8xbf16>, tensor<1x1x1x32xbf16>, tensor<1x16x16x32xbf16>) -> tensor<1x16x16x32xbf16> loc(#loc727)
-    %260 = ttir.empty() : tensor<1x16x32x16xbf16> loc(#loc728)
-    %261 = "ttir.transpose"(%259, %260) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x16x16x32xbf16>, tensor<1x16x32x16xbf16>) -> tensor<1x16x32x16xbf16> loc(#loc728)
-    %262 = ttir.empty() : tensor<1x32x16x16xbf16> loc(#loc729)
-    %263 = "ttir.transpose"(%261, %262) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x16x32x16xbf16>, tensor<1x32x16x16xbf16>) -> tensor<1x32x16x16xbf16> loc(#loc729)
-    %264 = ttir.empty() : tensor<1x32x256xbf16> loc(#loc496)
-    %265 = "ttir.reshape"(%263, %264) <{shape = [1 : i32, 32 : i32, 256 : i32]}> : (tensor<1x32x16x16xbf16>, tensor<1x32x256xbf16>) -> tensor<1x32x256xbf16> loc(#loc496)
-    %266 = ttir.empty() : tensor<1x256x32xbf16> loc(#loc497)
-    %267 = "ttir.transpose"(%265, %266) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x32x256xbf16>, tensor<1x256x32xbf16>) -> tensor<1x256x32xbf16> loc(#loc497)
-    %268 = ttir.empty() : tensor<1x256x1xbf16> loc(#loc730)
-    %269 = "ttir.sum"(%267, %268) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x256x32xbf16>, tensor<1x256x1xbf16>) -> tensor<1x256x1xbf16> loc(#loc730)
-    %270 = ttir.empty() : tensor<1x256x32xbf16> loc(#loc731)
-    %271 = "ttir.multiply"(%arg17, %269, %270) : (tensor<1x256x32xf32>, tensor<1x256x1xbf16>, tensor<1x256x32xbf16>) -> tensor<1x256x32xbf16> loc(#loc731)
-    %272 = ttir.empty() : tensor<1x256x32xbf16> loc(#loc732)
-    %273 = "ttir.subtract"(%267, %271, %272) : (tensor<1x256x32xbf16>, tensor<1x256x32xbf16>, tensor<1x256x32xbf16>) -> tensor<1x256x32xbf16> loc(#loc732)
-    %274 = ttir.empty() : tensor<1x256x32xbf16> loc(#loc733)
-    %275 = "ttir.multiply"(%273, %273, %274) : (tensor<1x256x32xbf16>, tensor<1x256x32xbf16>, tensor<1x256x32xbf16>) -> tensor<1x256x32xbf16> loc(#loc733)
-    %276 = ttir.empty() : tensor<1x256x1xbf16> loc(#loc734)
-    %277 = "ttir.sum"(%275, %276) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x256x32xbf16>, tensor<1x256x1xbf16>) -> tensor<1x256x1xbf16> loc(#loc734)
-    %278 = ttir.empty() : tensor<1x256x1xbf16> loc(#loc735)
-    %279 = "ttir.multiply"(%arg18, %277, %278) : (tensor<1x256x1xf32>, tensor<1x256x1xbf16>, tensor<1x256x1xbf16>) -> tensor<1x256x1xbf16> loc(#loc735)
-    %280 = ttir.empty() : tensor<1x256x1xbf16> loc(#loc736)
-    %281 = "ttir.add"(%279, %arg19, %280) : (tensor<1x256x1xbf16>, tensor<1x256x1xf32>, tensor<1x256x1xbf16>) -> tensor<1x256x1xbf16> loc(#loc736)
-    %282 = ttir.empty() : tensor<1x256x1xbf16> loc(#loc737)
-    %283 = "ttir.sqrt"(%281, %282) : (tensor<1x256x1xbf16>, tensor<1x256x1xbf16>) -> tensor<1x256x1xbf16> loc(#loc737)
-    %284 = ttir.empty() : tensor<1x256x1xbf16> loc(#loc738)
-    %285 = "ttir.reciprocal"(%283, %284) : (tensor<1x256x1xbf16>, tensor<1x256x1xbf16>) -> tensor<1x256x1xbf16> loc(#loc738)
-    %286 = ttir.empty() : tensor<1x256x32xbf16> loc(#loc739)
-    %287 = "ttir.multiply"(%273, %285, %286) : (tensor<1x256x32xbf16>, tensor<1x256x1xbf16>, tensor<1x256x32xbf16>) -> tensor<1x256x32xbf16> loc(#loc739)
-    %288 = ttir.empty() : tensor<1x256x32xbf16> loc(#loc740)
-    %289 = "ttir.multiply"(%287, %arg131, %288) : (tensor<1x256x32xbf16>, tensor<32xbf16>, tensor<1x256x32xbf16>) -> tensor<1x256x32xbf16> loc(#loc740)
-    %290 = ttir.empty() : tensor<1x256x32xbf16> loc(#loc741)
-    %291 = "ttir.add"(%289, %arg132, %290) : (tensor<1x256x32xbf16>, tensor<32xbf16>, tensor<1x256x32xbf16>) -> tensor<1x256x32xbf16> loc(#loc741)
-    %292 = ttir.empty() : tensor<256x32xbf16> loc(#loc742)
-    %293 = "ttir.squeeze"(%291, %292) <{dim = 0 : si32}> : (tensor<1x256x32xbf16>, tensor<256x32xbf16>) -> tensor<256x32xbf16> loc(#loc742)
-    %294 = ttir.empty() : tensor<256x32xbf16> loc(#loc743)
-    %295 = "ttir.matmul"(%293, %arg133, %294) <{transpose_a = false, transpose_b = false}> : (tensor<256x32xbf16>, tensor<32x32xbf16>, tensor<256x32xbf16>) -> tensor<256x32xbf16> loc(#loc743)
-    %296 = ttir.empty() : tensor<1x256x32xbf16> loc(#loc744)
-    %297 = "ttir.unsqueeze"(%295, %296) <{dim = 0 : si32}> : (tensor<256x32xbf16>, tensor<1x256x32xbf16>) -> tensor<1x256x32xbf16> loc(#loc744)
-    %298 = ttir.empty() : tensor<1x256x32xbf16> loc(#loc11)
-    %299 = "ttir.add"(%297, %arg134, %298) : (tensor<1x256x32xbf16>, tensor<32xbf16>, tensor<1x256x32xbf16>) -> tensor<1x256x32xbf16> loc(#loc11)
-    %300 = ttir.empty() : tensor<1x256x1x32xbf16> loc(#loc500)
-    %301 = "ttir.reshape"(%299, %300) <{shape = [1 : i32, 256 : i32, 1 : i32, 32 : i32]}> : (tensor<1x256x32xbf16>, tensor<1x256x1x32xbf16>) -> tensor<1x256x1x32xbf16> loc(#loc500)
-    %302 = ttir.empty() : tensor<1x256x32xbf16> loc(#loc501)
-    %303 = "ttir.squeeze"(%301, %302) <{dim = -2 : si32}> : (tensor<1x256x1x32xbf16>, tensor<1x256x32xbf16>) -> tensor<1x256x32xbf16> loc(#loc501)
-    %304 = ttir.empty() : tensor<1x32x256xbf16> loc(#loc12)
-    %305 = "ttir.transpose"(%303, %304) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x256x32xbf16>, tensor<1x32x256xbf16>) -> tensor<1x32x256xbf16> loc(#loc12)
-    %306 = ttir.empty() : tensor<1x16384x256xbf16> loc(#loc502)
-    %307 = "ttir.matmul"(%249, %305, %306) <{transpose_a = false, transpose_b = false}> : (tensor<1x16384x32xbf16>, tensor<1x32x256xbf16>, tensor<1x16384x256xbf16>) -> tensor<1x16384x256xbf16> loc(#loc502)
-    %308 = ttir.empty() : tensor<1x1x16384x256xbf16> loc(#loc503)
-    %309 = "ttir.unsqueeze"(%307, %308) <{dim = 0 : si32}> : (tensor<1x16384x256xbf16>, tensor<1x1x16384x256xbf16>) -> tensor<1x1x16384x256xbf16> loc(#loc503)
-    %310 = ttir.empty() : tensor<1x1x16384x256xbf16> loc(#loc504)
-    %311 = "ttir.div"(%309, %arg20, %310) : (tensor<1x1x16384x256xbf16>, tensor<1xbf16>, tensor<1x1x16384x256xbf16>) -> tensor<1x1x16384x256xbf16> loc(#loc504)
-    %312 = ttir.empty() : tensor<1x1x16384x256xbf16> loc(#loc505)
-    %313 = "ttir.softmax"(%311, %312) <{dimension = -1 : si32}> : (tensor<1x1x16384x256xbf16>, tensor<1x1x16384x256xbf16>) -> tensor<1x1x16384x256xbf16> loc(#loc505)
-    %314 = ttir.empty() : tensor<1x16384x256xbf16> loc(#loc506)
-    %315 = "ttir.squeeze"(%313, %314) <{dim = 0 : si32}> : (tensor<1x1x16384x256xbf16>, tensor<1x16384x256xbf16>) -> tensor<1x16384x256xbf16> loc(#loc506)
-    %316 = ttir.empty() : tensor<256x32xbf16> loc(#loc745)
-    %317 = "ttir.matmul"(%293, %arg135, %316) <{transpose_a = false, transpose_b = false}> : (tensor<256x32xbf16>, tensor<32x32xbf16>, tensor<256x32xbf16>) -> tensor<256x32xbf16> loc(#loc745)
-    %318 = ttir.empty() : tensor<1x256x32xbf16> loc(#loc746)
-    %319 = "ttir.unsqueeze"(%317, %318) <{dim = 0 : si32}> : (tensor<256x32xbf16>, tensor<1x256x32xbf16>) -> tensor<1x256x32xbf16> loc(#loc746)
-    %320 = ttir.empty() : tensor<1x256x32xbf16> loc(#loc13)
-    %321 = "ttir.add"(%319, %arg136, %320) : (tensor<1x256x32xbf16>, tensor<32xbf16>, tensor<1x256x32xbf16>) -> tensor<1x256x32xbf16> loc(#loc13)
-    %322 = ttir.empty() : tensor<1x256x1x32xbf16> loc(#loc508)
-    %323 = "ttir.reshape"(%321, %322) <{shape = [1 : i32, 256 : i32, 1 : i32, 32 : i32]}> : (tensor<1x256x32xbf16>, tensor<1x256x1x32xbf16>) -> tensor<1x256x1x32xbf16> loc(#loc508)
-    %324 = ttir.empty() : tensor<1x1x256x32xbf16> loc(#loc509)
-    %325 = "ttir.transpose"(%323, %324) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x256x1x32xbf16>, tensor<1x1x256x32xbf16>) -> tensor<1x1x256x32xbf16> loc(#loc509)
-    %326 = ttir.empty() : tensor<1x1x32x256xbf16> loc(#loc510)
-    %327 = "ttir.transpose"(%325, %326) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x1x256x32xbf16>, tensor<1x1x32x256xbf16>) -> tensor<1x1x32x256xbf16> loc(#loc510)
-    %328 = ttir.empty() : tensor<1x32x256xbf16> loc(#loc511)
-    %329 = "ttir.squeeze"(%327, %328) <{dim = 0 : si32}> : (tensor<1x1x32x256xbf16>, tensor<1x32x256xbf16>) -> tensor<1x32x256xbf16> loc(#loc511)
-    %330 = ttir.empty() : tensor<1x256x32xbf16> loc(#loc14)
-    %331 = "ttir.transpose"(%329, %330) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x32x256xbf16>, tensor<1x256x32xbf16>) -> tensor<1x256x32xbf16> loc(#loc14)
-    %332 = ttir.empty() : tensor<1x16384x32xbf16> loc(#loc512)
-    %333 = "ttir.matmul"(%315, %331, %332) <{transpose_a = false, transpose_b = false}> : (tensor<1x16384x256xbf16>, tensor<1x256x32xbf16>, tensor<1x16384x32xbf16>) -> tensor<1x16384x32xbf16> loc(#loc512)
-    %334 = ttir.empty() : tensor<1x16384x32xbf16> loc(#loc747)
-    %335 = "ttir.matmul"(%333, %arg137, %334) <{transpose_a = false, transpose_b = false}> : (tensor<1x16384x32xbf16>, tensor<32x32xbf16>, tensor<1x16384x32xbf16>) -> tensor<1x16384x32xbf16> loc(#loc747)
-    %336 = ttir.empty() : tensor<1x16384x32xbf16> loc(#loc15)
-    %337 = "ttir.add"(%335, %arg138, %336) : (tensor<1x16384x32xbf16>, tensor<32xbf16>, tensor<1x16384x32xbf16>) -> tensor<1x16384x32xbf16> loc(#loc15)
-    %338 = ttir.empty() : tensor<1x16384x32xbf16> loc(#loc106)
-    %339 = "ttir.add"(%337, %217, %338) : (tensor<1x16384x32xbf16>, tensor<1x16384x32xbf16>, tensor<1x16384x32xbf16>) -> tensor<1x16384x32xbf16> loc(#loc106)
-    %340 = ttir.empty() : tensor<1x16384x1xbf16> loc(#loc246)
-    %341 = "ttir.sum"(%339, %340) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x16384x32xbf16>, tensor<1x16384x1xbf16>) -> tensor<1x16384x1xbf16> loc(#loc246)
-    %342 = ttir.empty() : tensor<1x16384x32xbf16> loc(#loc247)
-    %343 = "ttir.multiply"(%arg21, %341, %342) : (tensor<1x16384x32xf32>, tensor<1x16384x1xbf16>, tensor<1x16384x32xbf16>) -> tensor<1x16384x32xbf16> loc(#loc247)
-    %344 = ttir.empty() : tensor<1x16384x32xbf16> loc(#loc248)
-    %345 = "ttir.subtract"(%339, %343, %344) : (tensor<1x16384x32xbf16>, tensor<1x16384x32xbf16>, tensor<1x16384x32xbf16>) -> tensor<1x16384x32xbf16> loc(#loc248)
-    %346 = ttir.empty() : tensor<1x16384x32xbf16> loc(#loc249)
-    %347 = "ttir.multiply"(%345, %345, %346) : (tensor<1x16384x32xbf16>, tensor<1x16384x32xbf16>, tensor<1x16384x32xbf16>) -> tensor<1x16384x32xbf16> loc(#loc249)
-    %348 = ttir.empty() : tensor<1x16384x1xbf16> loc(#loc250)
-    %349 = "ttir.sum"(%347, %348) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x16384x32xbf16>, tensor<1x16384x1xbf16>) -> tensor<1x16384x1xbf16> loc(#loc250)
-    %350 = ttir.empty() : tensor<1x16384x1xbf16> loc(#loc251)
-    %351 = "ttir.multiply"(%arg22, %349, %350) : (tensor<1x16384x1xf32>, tensor<1x16384x1xbf16>, tensor<1x16384x1xbf16>) -> tensor<1x16384x1xbf16> loc(#loc251)
-    %352 = ttir.empty() : tensor<1x16384x1xbf16> loc(#loc252)
-    %353 = "ttir.add"(%351, %arg23, %352) : (tensor<1x16384x1xbf16>, tensor<1x16384x1xf32>, tensor<1x16384x1xbf16>) -> tensor<1x16384x1xbf16> loc(#loc252)
-    %354 = ttir.empty() : tensor<1x16384x1xbf16> loc(#loc253)
-    %355 = "ttir.sqrt"(%353, %354) : (tensor<1x16384x1xbf16>, tensor<1x16384x1xbf16>) -> tensor<1x16384x1xbf16> loc(#loc253)
-    %356 = ttir.empty() : tensor<1x16384x1xbf16> loc(#loc254)
-    %357 = "ttir.reciprocal"(%355, %356) : (tensor<1x16384x1xbf16>, tensor<1x16384x1xbf16>) -> tensor<1x16384x1xbf16> loc(#loc254)
-    %358 = ttir.empty() : tensor<1x16384x32xbf16> loc(#loc255)
-    %359 = "ttir.multiply"(%345, %357, %358) : (tensor<1x16384x32xbf16>, tensor<1x16384x1xbf16>, tensor<1x16384x32xbf16>) -> tensor<1x16384x32xbf16> loc(#loc255)
-    %360 = ttir.empty() : tensor<1x16384x32xbf16> loc(#loc256)
-    %361 = "ttir.multiply"(%359, %arg139, %360) : (tensor<1x16384x32xbf16>, tensor<32xbf16>, tensor<1x16384x32xbf16>) -> tensor<1x16384x32xbf16> loc(#loc256)
-    %362 = ttir.empty() : tensor<1x16384x32xbf16> loc(#loc257)
-    %363 = "ttir.add"(%361, %arg140, %362) : (tensor<1x16384x32xbf16>, tensor<32xbf16>, tensor<1x16384x32xbf16>) -> tensor<1x16384x32xbf16> loc(#loc257)
-    %364 = ttir.empty() : tensor<1x16384x128xbf16> loc(#loc514)
-    %365 = "ttir.matmul"(%363, %arg141, %364) <{transpose_a = false, transpose_b = false}> : (tensor<1x16384x32xbf16>, tensor<32x128xbf16>, tensor<1x16384x128xbf16>) -> tensor<1x16384x128xbf16> loc(#loc514)
-    %366 = ttir.empty() : tensor<1x16384x128xbf16> loc(#loc16)
-    %367 = "ttir.add"(%365, %arg142, %366) : (tensor<1x16384x128xbf16>, tensor<128xbf16>, tensor<1x16384x128xbf16>) -> tensor<1x16384x128xbf16> loc(#loc16)
-    %368 = ttir.empty() : tensor<1x128x16384xbf16> loc(#loc515)
-    %369 = "ttir.transpose"(%367, %368) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x16384x128xbf16>, tensor<1x128x16384xbf16>) -> tensor<1x128x16384xbf16> loc(#loc515)
-    %370 = ttir.empty() : tensor<1x128x128x128xbf16> loc(#loc516)
-    %371 = "ttir.reshape"(%369, %370) <{shape = [1 : i32, 128 : i32, 128 : i32, 128 : i32]}> : (tensor<1x128x16384xbf16>, tensor<1x128x128x128xbf16>) -> tensor<1x128x128x128xbf16> loc(#loc516)
-    %372 = ttir.empty() : tensor<1x128x128x128xbf16> loc(#loc748)
-    %373 = "ttir.transpose"(%371, %372) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x128x128x128xbf16>, tensor<1x128x128x128xbf16>) -> tensor<1x128x128x128xbf16> loc(#loc748)
-    %374 = ttir.empty() : tensor<1x128x128x128xbf16> loc(#loc749)
-    %375 = "ttir.transpose"(%373, %374) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x128x128x128xbf16>, tensor<1x128x128x128xbf16>) -> tensor<1x128x128x128xbf16> loc(#loc749)
-    %376 = ttir.empty() : tensor<1x128x128x128xbf16> loc(#loc750)
-    %377 = "ttir.conv2d"(%375, %arg143, %arg144, %376) <{dilation = array<i32: 1, 1>, groups = 128 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x128x128x128xbf16>, tensor<128x1x3x3xbf16>, tensor<1x1x1x128xbf16>, tensor<1x128x128x128xbf16>) -> tensor<1x128x128x128xbf16> loc(#loc750)
-    %378 = ttir.empty() : tensor<1x128x128x128xbf16> loc(#loc751)
-    %379 = "ttir.transpose"(%377, %378) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x128x128x128xbf16>, tensor<1x128x128x128xbf16>) -> tensor<1x128x128x128xbf16> loc(#loc751)
-    %380 = ttir.empty() : tensor<1x128x128x128xbf16> loc(#loc752)
-    %381 = "ttir.transpose"(%379, %380) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x128x128x128xbf16>, tensor<1x128x128x128xbf16>) -> tensor<1x128x128x128xbf16> loc(#loc752)
-    %382 = ttir.empty() : tensor<1x128x16384x1xbf16> loc(#loc518)
-    %383 = "ttir.reshape"(%381, %382) <{shape = [1 : i32, 128 : i32, 16384 : i32, 1 : i32]}> : (tensor<1x128x128x128xbf16>, tensor<1x128x16384x1xbf16>) -> tensor<1x128x16384x1xbf16> loc(#loc518)
-    %384 = ttir.empty() : tensor<1x128x16384xbf16> loc(#loc519)
-    %385 = "ttir.squeeze"(%383, %384) <{dim = -1 : si32}> : (tensor<1x128x16384x1xbf16>, tensor<1x128x16384xbf16>) -> tensor<1x128x16384xbf16> loc(#loc519)
-    %386 = ttir.empty() : tensor<1x16384x128xbf16> loc(#loc520)
-    %387 = "ttir.transpose"(%385, %386) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x128x16384xbf16>, tensor<1x16384x128xbf16>) -> tensor<1x16384x128xbf16> loc(#loc520)
-    %388 = ttir.empty() : tensor<1x16384x128xbf16> loc(#loc521)
-    %389 = "ttir.gelu"(%387, %388) : (tensor<1x16384x128xbf16>, tensor<1x16384x128xbf16>) -> tensor<1x16384x128xbf16> loc(#loc521)
-    %390 = ttir.empty() : tensor<1x16384x32xbf16> loc(#loc522)
-    %391 = "ttir.matmul"(%389, %arg145, %390) <{transpose_a = false, transpose_b = false}> : (tensor<1x16384x128xbf16>, tensor<128x32xbf16>, tensor<1x16384x32xbf16>) -> tensor<1x16384x32xbf16> loc(#loc522)
-    %392 = ttir.empty() : tensor<1x16384x32xbf16> loc(#loc17)
-    %393 = "ttir.add"(%391, %arg146, %392) : (tensor<1x16384x32xbf16>, tensor<32xbf16>, tensor<1x16384x32xbf16>) -> tensor<1x16384x32xbf16> loc(#loc17)
-    %394 = ttir.empty() : tensor<1x16384x32xbf16> loc(#loc109)
-    %395 = "ttir.add"(%393, %339, %394) : (tensor<1x16384x32xbf16>, tensor<1x16384x32xbf16>, tensor<1x16384x32xbf16>) -> tensor<1x16384x32xbf16> loc(#loc109)
-    %396 = ttir.empty() : tensor<1x16384x1xbf16> loc(#loc110)
-    %397 = "ttir.sum"(%395, %396) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x16384x32xbf16>, tensor<1x16384x1xbf16>) -> tensor<1x16384x1xbf16> loc(#loc110)
-    %398 = ttir.empty() : tensor<1x16384x32xbf16> loc(#loc111)
-    %399 = "ttir.multiply"(%arg24, %397, %398) : (tensor<1x16384x32xf32>, tensor<1x16384x1xbf16>, tensor<1x16384x32xbf16>) -> tensor<1x16384x32xbf16> loc(#loc111)
-    %400 = ttir.empty() : tensor<1x16384x32xbf16> loc(#loc112)
-    %401 = "ttir.subtract"(%395, %399, %400) : (tensor<1x16384x32xbf16>, tensor<1x16384x32xbf16>, tensor<1x16384x32xbf16>) -> tensor<1x16384x32xbf16> loc(#loc112)
-    %402 = ttir.empty() : tensor<1x16384x32xbf16> loc(#loc113)
-    %403 = "ttir.multiply"(%401, %401, %402) : (tensor<1x16384x32xbf16>, tensor<1x16384x32xbf16>, tensor<1x16384x32xbf16>) -> tensor<1x16384x32xbf16> loc(#loc113)
-    %404 = ttir.empty() : tensor<1x16384x1xbf16> loc(#loc114)
-    %405 = "ttir.sum"(%403, %404) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x16384x32xbf16>, tensor<1x16384x1xbf16>) -> tensor<1x16384x1xbf16> loc(#loc114)
-    %406 = ttir.empty() : tensor<1x16384x1xbf16> loc(#loc115)
-    %407 = "ttir.multiply"(%arg25, %405, %406) : (tensor<1x16384x1xf32>, tensor<1x16384x1xbf16>, tensor<1x16384x1xbf16>) -> tensor<1x16384x1xbf16> loc(#loc115)
-    %408 = ttir.empty() : tensor<1x16384x1xbf16> loc(#loc116)
-    %409 = "ttir.add"(%407, %arg26, %408) : (tensor<1x16384x1xbf16>, tensor<1x16384x1xf32>, tensor<1x16384x1xbf16>) -> tensor<1x16384x1xbf16> loc(#loc116)
-    %410 = ttir.empty() : tensor<1x16384x1xbf16> loc(#loc117)
-    %411 = "ttir.sqrt"(%409, %410) : (tensor<1x16384x1xbf16>, tensor<1x16384x1xbf16>) -> tensor<1x16384x1xbf16> loc(#loc117)
-    %412 = ttir.empty() : tensor<1x16384x1xbf16> loc(#loc118)
-    %413 = "ttir.reciprocal"(%411, %412) : (tensor<1x16384x1xbf16>, tensor<1x16384x1xbf16>) -> tensor<1x16384x1xbf16> loc(#loc118)
-    %414 = ttir.empty() : tensor<1x16384x32xbf16> loc(#loc119)
-    %415 = "ttir.multiply"(%401, %413, %414) : (tensor<1x16384x32xbf16>, tensor<1x16384x1xbf16>, tensor<1x16384x32xbf16>) -> tensor<1x16384x32xbf16> loc(#loc119)
-    %416 = ttir.empty() : tensor<1x16384x32xbf16> loc(#loc120)
-    %417 = "ttir.multiply"(%415, %arg147, %416) : (tensor<1x16384x32xbf16>, tensor<32xbf16>, tensor<1x16384x32xbf16>) -> tensor<1x16384x32xbf16> loc(#loc120)
-    %418 = ttir.empty() : tensor<1x16384x32xbf16> loc(#loc121)
-    %419 = "ttir.add"(%417, %arg148, %418) : (tensor<1x16384x32xbf16>, tensor<32xbf16>, tensor<1x16384x32xbf16>) -> tensor<1x16384x32xbf16> loc(#loc121)
-    %420 = ttir.empty() : tensor<1x128x128x32xbf16> loc(#loc81)
-    %421 = "ttir.reshape"(%419, %420) <{shape = [1 : i32, 128 : i32, 128 : i32, 32 : i32]}> : (tensor<1x16384x32xbf16>, tensor<1x128x128x32xbf16>) -> tensor<1x128x128x32xbf16> loc(#loc81)
-    %422 = ttir.empty() : tensor<1x32x128x128xbf16> loc(#loc18)
-    %423 = "ttir.transpose"(%421, %422) <{dim0 = -3 : si32, dim1 = -1 : si32}> : (tensor<1x128x128x32xbf16>, tensor<1x32x128x128xbf16>) -> tensor<1x32x128x128xbf16> loc(#loc18)
-    %424 = ttir.empty() : tensor<1x32x128x128xbf16> loc(#loc82)
-    %425 = "ttir.transpose"(%423, %424) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x32x128x128xbf16>, tensor<1x32x128x128xbf16>) -> tensor<1x32x128x128xbf16> loc(#loc82)
-    %426 = ttir.empty() : tensor<1x128x32x128xbf16> loc(#loc262)
-    %427 = "ttir.transpose"(%425, %426) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x32x128x128xbf16>, tensor<1x128x32x128xbf16>) -> tensor<1x128x32x128xbf16> loc(#loc262)
-    %428 = ttir.empty() : tensor<1x128x128x32xbf16> loc(#loc263)
-    %429 = "ttir.transpose"(%427, %428) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x128x32x128xbf16>, tensor<1x128x128x32xbf16>) -> tensor<1x128x128x32xbf16> loc(#loc263)
-    %430 = ttir.empty() : tensor<1x64x64x64xbf16> loc(#loc264)
-    %431 = "ttir.conv2d"(%429, %arg149, %arg150, %430) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 2, 2>}> {channel_last = 1 : si32} : (tensor<1x128x128x32xbf16>, tensor<64x32x3x3xbf16>, tensor<1x1x1x64xbf16>, tensor<1x64x64x64xbf16>) -> tensor<1x64x64x64xbf16> loc(#loc264)
-    %432 = ttir.empty() : tensor<1x64x64x64xbf16> loc(#loc265)
-    %433 = "ttir.transpose"(%431, %432) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x64x64x64xbf16>, tensor<1x64x64x64xbf16>) -> tensor<1x64x64x64xbf16> loc(#loc265)
-    %434 = ttir.empty() : tensor<1x64x64x64xbf16> loc(#loc266)
-    %435 = "ttir.transpose"(%433, %434) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x64x64x64xbf16>, tensor<1x64x64x64xbf16>) -> tensor<1x64x64x64xbf16> loc(#loc266)
-    %436 = ttir.empty() : tensor<1x64x4096x1xbf16> loc(#loc123)
-    %437 = "ttir.reshape"(%435, %436) <{shape = [1 : i32, 64 : i32, 4096 : i32, 1 : i32]}> : (tensor<1x64x64x64xbf16>, tensor<1x64x4096x1xbf16>) -> tensor<1x64x4096x1xbf16> loc(#loc123)
-    %438 = ttir.empty() : tensor<1x64x4096xbf16> loc(#loc124)
-    %439 = "ttir.squeeze"(%437, %438) <{dim = -1 : si32}> : (tensor<1x64x4096x1xbf16>, tensor<1x64x4096xbf16>) -> tensor<1x64x4096xbf16> loc(#loc124)
-    %440 = ttir.empty() : tensor<1x4096x64xbf16> loc(#loc125)
-    %441 = "ttir.transpose"(%439, %440) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x64x4096xbf16>, tensor<1x4096x64xbf16>) -> tensor<1x4096x64xbf16> loc(#loc125)
-    %442 = ttir.empty() : tensor<1x4096x1xbf16> loc(#loc267)
-    %443 = "ttir.sum"(%441, %442) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x4096x64xbf16>, tensor<1x4096x1xbf16>) -> tensor<1x4096x1xbf16> loc(#loc267)
-    %444 = ttir.empty() : tensor<1x4096x64xbf16> loc(#loc268)
-    %445 = "ttir.multiply"(%arg27, %443, %444) : (tensor<1x4096x64xf32>, tensor<1x4096x1xbf16>, tensor<1x4096x64xbf16>) -> tensor<1x4096x64xbf16> loc(#loc268)
-    %446 = ttir.empty() : tensor<1x4096x64xbf16> loc(#loc269)
-    %447 = "ttir.subtract"(%441, %445, %446) : (tensor<1x4096x64xbf16>, tensor<1x4096x64xbf16>, tensor<1x4096x64xbf16>) -> tensor<1x4096x64xbf16> loc(#loc269)
-    %448 = ttir.empty() : tensor<1x4096x64xbf16> loc(#loc270)
-    %449 = "ttir.multiply"(%447, %447, %448) : (tensor<1x4096x64xbf16>, tensor<1x4096x64xbf16>, tensor<1x4096x64xbf16>) -> tensor<1x4096x64xbf16> loc(#loc270)
-    %450 = ttir.empty() : tensor<1x4096x1xbf16> loc(#loc271)
-    %451 = "ttir.sum"(%449, %450) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x4096x64xbf16>, tensor<1x4096x1xbf16>) -> tensor<1x4096x1xbf16> loc(#loc271)
-    %452 = ttir.empty() : tensor<1x4096x1xbf16> loc(#loc272)
-    %453 = "ttir.multiply"(%arg28, %451, %452) : (tensor<1x4096x1xf32>, tensor<1x4096x1xbf16>, tensor<1x4096x1xbf16>) -> tensor<1x4096x1xbf16> loc(#loc272)
-    %454 = ttir.empty() : tensor<1x4096x1xbf16> loc(#loc273)
-    %455 = "ttir.add"(%453, %arg29, %454) : (tensor<1x4096x1xbf16>, tensor<1x4096x1xf32>, tensor<1x4096x1xbf16>) -> tensor<1x4096x1xbf16> loc(#loc273)
-    %456 = ttir.empty() : tensor<1x4096x1xbf16> loc(#loc274)
-    %457 = "ttir.sqrt"(%455, %456) : (tensor<1x4096x1xbf16>, tensor<1x4096x1xbf16>) -> tensor<1x4096x1xbf16> loc(#loc274)
-    %458 = ttir.empty() : tensor<1x4096x1xbf16> loc(#loc275)
-    %459 = "ttir.reciprocal"(%457, %458) : (tensor<1x4096x1xbf16>, tensor<1x4096x1xbf16>) -> tensor<1x4096x1xbf16> loc(#loc275)
-    %460 = ttir.empty() : tensor<1x4096x64xbf16> loc(#loc276)
-    %461 = "ttir.multiply"(%447, %459, %460) : (tensor<1x4096x64xbf16>, tensor<1x4096x1xbf16>, tensor<1x4096x64xbf16>) -> tensor<1x4096x64xbf16> loc(#loc276)
-    %462 = ttir.empty() : tensor<1x4096x64xbf16> loc(#loc277)
-    %463 = "ttir.multiply"(%461, %arg151, %462) : (tensor<1x4096x64xbf16>, tensor<64xbf16>, tensor<1x4096x64xbf16>) -> tensor<1x4096x64xbf16> loc(#loc277)
-    %464 = ttir.empty() : tensor<1x4096x64xbf16> loc(#loc278)
-    %465 = "ttir.add"(%463, %arg152, %464) : (tensor<1x4096x64xbf16>, tensor<64xbf16>, tensor<1x4096x64xbf16>) -> tensor<1x4096x64xbf16> loc(#loc278)
-    %466 = ttir.empty() : tensor<1x4096x1xbf16> loc(#loc279)
-    %467 = "ttir.sum"(%465, %466) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x4096x64xbf16>, tensor<1x4096x1xbf16>) -> tensor<1x4096x1xbf16> loc(#loc279)
-    %468 = ttir.empty() : tensor<1x4096x64xbf16> loc(#loc280)
-    %469 = "ttir.multiply"(%arg30, %467, %468) : (tensor<1x4096x64xf32>, tensor<1x4096x1xbf16>, tensor<1x4096x64xbf16>) -> tensor<1x4096x64xbf16> loc(#loc280)
-    %470 = ttir.empty() : tensor<1x4096x64xbf16> loc(#loc281)
-    %471 = "ttir.subtract"(%465, %469, %470) : (tensor<1x4096x64xbf16>, tensor<1x4096x64xbf16>, tensor<1x4096x64xbf16>) -> tensor<1x4096x64xbf16> loc(#loc281)
-    %472 = ttir.empty() : tensor<1x4096x64xbf16> loc(#loc282)
-    %473 = "ttir.multiply"(%471, %471, %472) : (tensor<1x4096x64xbf16>, tensor<1x4096x64xbf16>, tensor<1x4096x64xbf16>) -> tensor<1x4096x64xbf16> loc(#loc282)
-    %474 = ttir.empty() : tensor<1x4096x1xbf16> loc(#loc283)
-    %475 = "ttir.sum"(%473, %474) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x4096x64xbf16>, tensor<1x4096x1xbf16>) -> tensor<1x4096x1xbf16> loc(#loc283)
-    %476 = ttir.empty() : tensor<1x4096x1xbf16> loc(#loc284)
-    %477 = "ttir.multiply"(%arg31, %475, %476) : (tensor<1x4096x1xf32>, tensor<1x4096x1xbf16>, tensor<1x4096x1xbf16>) -> tensor<1x4096x1xbf16> loc(#loc284)
-    %478 = ttir.empty() : tensor<1x4096x1xbf16> loc(#loc285)
-    %479 = "ttir.add"(%477, %arg32, %478) : (tensor<1x4096x1xbf16>, tensor<1x4096x1xf32>, tensor<1x4096x1xbf16>) -> tensor<1x4096x1xbf16> loc(#loc285)
-    %480 = ttir.empty() : tensor<1x4096x1xbf16> loc(#loc286)
-    %481 = "ttir.sqrt"(%479, %480) : (tensor<1x4096x1xbf16>, tensor<1x4096x1xbf16>) -> tensor<1x4096x1xbf16> loc(#loc286)
-    %482 = ttir.empty() : tensor<1x4096x1xbf16> loc(#loc287)
-    %483 = "ttir.reciprocal"(%481, %482) : (tensor<1x4096x1xbf16>, tensor<1x4096x1xbf16>) -> tensor<1x4096x1xbf16> loc(#loc287)
-    %484 = ttir.empty() : tensor<1x4096x64xbf16> loc(#loc288)
-    %485 = "ttir.multiply"(%471, %483, %484) : (tensor<1x4096x64xbf16>, tensor<1x4096x1xbf16>, tensor<1x4096x64xbf16>) -> tensor<1x4096x64xbf16> loc(#loc288)
-    %486 = ttir.empty() : tensor<1x4096x64xbf16> loc(#loc289)
-    %487 = "ttir.multiply"(%485, %arg153, %486) : (tensor<1x4096x64xbf16>, tensor<64xbf16>, tensor<1x4096x64xbf16>) -> tensor<1x4096x64xbf16> loc(#loc289)
-    %488 = ttir.empty() : tensor<1x4096x64xbf16> loc(#loc290)
-    %489 = "ttir.add"(%487, %arg154, %488) : (tensor<1x4096x64xbf16>, tensor<64xbf16>, tensor<1x4096x64xbf16>) -> tensor<1x4096x64xbf16> loc(#loc290)
-    %490 = ttir.empty() : tensor<1x4096x64xbf16> loc(#loc753)
-    %491 = "ttir.matmul"(%489, %arg155, %490) <{transpose_a = false, transpose_b = false}> : (tensor<1x4096x64xbf16>, tensor<64x64xbf16>, tensor<1x4096x64xbf16>) -> tensor<1x4096x64xbf16> loc(#loc753)
-    %492 = ttir.empty() : tensor<1x4096x64xbf16> loc(#loc19)
-    %493 = "ttir.add"(%491, %arg156, %492) : (tensor<1x4096x64xbf16>, tensor<64xbf16>, tensor<1x4096x64xbf16>) -> tensor<1x4096x64xbf16> loc(#loc19)
-    %494 = ttir.empty() : tensor<1x4096x2x32xbf16> loc(#loc523)
-    %495 = "ttir.reshape"(%493, %494) <{shape = [1 : i32, 4096 : i32, 2 : i32, 32 : i32]}> : (tensor<1x4096x64xbf16>, tensor<1x4096x2x32xbf16>) -> tensor<1x4096x2x32xbf16> loc(#loc523)
-    %496 = ttir.empty() : tensor<1x2x4096x32xbf16> loc(#loc524)
-    %497 = "ttir.transpose"(%495, %496) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x4096x2x32xbf16>, tensor<1x2x4096x32xbf16>) -> tensor<1x2x4096x32xbf16> loc(#loc524)
-    %498 = ttir.empty() : tensor<2x4096x32xbf16> loc(#loc525)
-    %499 = "ttir.squeeze"(%497, %498) <{dim = 0 : si32}> : (tensor<1x2x4096x32xbf16>, tensor<2x4096x32xbf16>) -> tensor<2x4096x32xbf16> loc(#loc525)
-    %500 = ttir.empty() : tensor<1x64x4096xbf16> loc(#loc526)
-    %501 = "ttir.transpose"(%489, %500) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x4096x64xbf16>, tensor<1x64x4096xbf16>) -> tensor<1x64x4096xbf16> loc(#loc526)
-    %502 = ttir.empty() : tensor<1x64x64x64xbf16> loc(#loc527)
-    %503 = "ttir.reshape"(%501, %502) <{shape = [1 : i32, 64 : i32, 64 : i32, 64 : i32]}> : (tensor<1x64x4096xbf16>, tensor<1x64x64x64xbf16>) -> tensor<1x64x64x64xbf16> loc(#loc527)
-    %504 = ttir.empty() : tensor<1x64x64x64xbf16> loc(#loc754)
-    %505 = "ttir.transpose"(%503, %504) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x64x64x64xbf16>, tensor<1x64x64x64xbf16>) -> tensor<1x64x64x64xbf16> loc(#loc754)
-    %506 = ttir.empty() : tensor<1x64x64x64xbf16> loc(#loc755)
-    %507 = "ttir.transpose"(%505, %506) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x64x64x64xbf16>, tensor<1x64x64x64xbf16>) -> tensor<1x64x64x64xbf16> loc(#loc755)
-    %508 = ttir.empty() : tensor<1x16x16x64xbf16> loc(#loc756)
-    %509 = "ttir.conv2d"(%507, %arg157, %arg158, %508) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 0, 0, 0, 0>, stride = array<i32: 4, 4>}> {channel_last = 1 : si32} : (tensor<1x64x64x64xbf16>, tensor<64x64x4x4xbf16>, tensor<1x1x1x64xbf16>, tensor<1x16x16x64xbf16>) -> tensor<1x16x16x64xbf16> loc(#loc756)
-    %510 = ttir.empty() : tensor<1x16x64x16xbf16> loc(#loc757)
-    %511 = "ttir.transpose"(%509, %510) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x16x16x64xbf16>, tensor<1x16x64x16xbf16>) -> tensor<1x16x64x16xbf16> loc(#loc757)
-    %512 = ttir.empty() : tensor<1x64x16x16xbf16> loc(#loc758)
-    %513 = "ttir.transpose"(%511, %512) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x16x64x16xbf16>, tensor<1x64x16x16xbf16>) -> tensor<1x64x16x16xbf16> loc(#loc758)
-    %514 = ttir.empty() : tensor<1x64x256xbf16> loc(#loc528)
-    %515 = "ttir.reshape"(%513, %514) <{shape = [1 : i32, 64 : i32, 256 : i32]}> : (tensor<1x64x16x16xbf16>, tensor<1x64x256xbf16>) -> tensor<1x64x256xbf16> loc(#loc528)
-    %516 = ttir.empty() : tensor<1x256x64xbf16> loc(#loc529)
-    %517 = "ttir.transpose"(%515, %516) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x64x256xbf16>, tensor<1x256x64xbf16>) -> tensor<1x256x64xbf16> loc(#loc529)
-    %518 = ttir.empty() : tensor<1x256x1xbf16> loc(#loc759)
-    %519 = "ttir.sum"(%517, %518) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x256x64xbf16>, tensor<1x256x1xbf16>) -> tensor<1x256x1xbf16> loc(#loc759)
-    %520 = ttir.empty() : tensor<1x256x64xbf16> loc(#loc760)
-    %521 = "ttir.multiply"(%arg33, %519, %520) : (tensor<1x256x64xf32>, tensor<1x256x1xbf16>, tensor<1x256x64xbf16>) -> tensor<1x256x64xbf16> loc(#loc760)
-    %522 = ttir.empty() : tensor<1x256x64xbf16> loc(#loc761)
-    %523 = "ttir.subtract"(%517, %521, %522) : (tensor<1x256x64xbf16>, tensor<1x256x64xbf16>, tensor<1x256x64xbf16>) -> tensor<1x256x64xbf16> loc(#loc761)
-    %524 = ttir.empty() : tensor<1x256x64xbf16> loc(#loc762)
-    %525 = "ttir.multiply"(%523, %523, %524) : (tensor<1x256x64xbf16>, tensor<1x256x64xbf16>, tensor<1x256x64xbf16>) -> tensor<1x256x64xbf16> loc(#loc762)
-    %526 = ttir.empty() : tensor<1x256x1xbf16> loc(#loc763)
-    %527 = "ttir.sum"(%525, %526) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x256x64xbf16>, tensor<1x256x1xbf16>) -> tensor<1x256x1xbf16> loc(#loc763)
-    %528 = ttir.empty() : tensor<1x256x1xbf16> loc(#loc764)
-    %529 = "ttir.multiply"(%arg34, %527, %528) : (tensor<1x256x1xf32>, tensor<1x256x1xbf16>, tensor<1x256x1xbf16>) -> tensor<1x256x1xbf16> loc(#loc764)
-    %530 = ttir.empty() : tensor<1x256x1xbf16> loc(#loc765)
-    %531 = "ttir.add"(%529, %arg35, %530) : (tensor<1x256x1xbf16>, tensor<1x256x1xf32>, tensor<1x256x1xbf16>) -> tensor<1x256x1xbf16> loc(#loc765)
-    %532 = ttir.empty() : tensor<1x256x1xbf16> loc(#loc766)
-    %533 = "ttir.sqrt"(%531, %532) : (tensor<1x256x1xbf16>, tensor<1x256x1xbf16>) -> tensor<1x256x1xbf16> loc(#loc766)
-    %534 = ttir.empty() : tensor<1x256x1xbf16> loc(#loc767)
-    %535 = "ttir.reciprocal"(%533, %534) : (tensor<1x256x1xbf16>, tensor<1x256x1xbf16>) -> tensor<1x256x1xbf16> loc(#loc767)
-    %536 = ttir.empty() : tensor<1x256x64xbf16> loc(#loc768)
-    %537 = "ttir.multiply"(%523, %535, %536) : (tensor<1x256x64xbf16>, tensor<1x256x1xbf16>, tensor<1x256x64xbf16>) -> tensor<1x256x64xbf16> loc(#loc768)
-    %538 = ttir.empty() : tensor<1x256x64xbf16> loc(#loc769)
-    %539 = "ttir.multiply"(%537, %arg159, %538) : (tensor<1x256x64xbf16>, tensor<64xbf16>, tensor<1x256x64xbf16>) -> tensor<1x256x64xbf16> loc(#loc769)
-    %540 = ttir.empty() : tensor<1x256x64xbf16> loc(#loc770)
-    %541 = "ttir.add"(%539, %arg160, %540) : (tensor<1x256x64xbf16>, tensor<64xbf16>, tensor<1x256x64xbf16>) -> tensor<1x256x64xbf16> loc(#loc770)
-    %542 = ttir.empty() : tensor<256x64xbf16> loc(#loc771)
-    %543 = "ttir.squeeze"(%541, %542) <{dim = 0 : si32}> : (tensor<1x256x64xbf16>, tensor<256x64xbf16>) -> tensor<256x64xbf16> loc(#loc771)
-    %544 = ttir.empty() : tensor<256x64xbf16> loc(#loc772)
-    %545 = "ttir.matmul"(%543, %arg161, %544) <{transpose_a = false, transpose_b = false}> : (tensor<256x64xbf16>, tensor<64x64xbf16>, tensor<256x64xbf16>) -> tensor<256x64xbf16> loc(#loc772)
-    %546 = ttir.empty() : tensor<1x256x64xbf16> loc(#loc773)
-    %547 = "ttir.unsqueeze"(%545, %546) <{dim = 0 : si32}> : (tensor<256x64xbf16>, tensor<1x256x64xbf16>) -> tensor<1x256x64xbf16> loc(#loc773)
-    %548 = ttir.empty() : tensor<1x256x64xbf16> loc(#loc20)
-    %549 = "ttir.add"(%547, %arg162, %548) : (tensor<1x256x64xbf16>, tensor<64xbf16>, tensor<1x256x64xbf16>) -> tensor<1x256x64xbf16> loc(#loc20)
-    %550 = ttir.empty() : tensor<1x256x2x32xbf16> loc(#loc530)
-    %551 = "ttir.reshape"(%549, %550) <{shape = [1 : i32, 256 : i32, 2 : i32, 32 : i32]}> : (tensor<1x256x64xbf16>, tensor<1x256x2x32xbf16>) -> tensor<1x256x2x32xbf16> loc(#loc530)
-    %552 = ttir.empty() : tensor<1x2x256x32xbf16> loc(#loc531)
-    %553 = "ttir.transpose"(%551, %552) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x256x2x32xbf16>, tensor<1x2x256x32xbf16>) -> tensor<1x2x256x32xbf16> loc(#loc531)
-    %554 = ttir.empty() : tensor<2x256x32xbf16> loc(#loc532)
-    %555 = "ttir.squeeze"(%553, %554) <{dim = 0 : si32}> : (tensor<1x2x256x32xbf16>, tensor<2x256x32xbf16>) -> tensor<2x256x32xbf16> loc(#loc532)
-    %556 = ttir.empty() : tensor<2x32x256xbf16> loc(#loc21)
-    %557 = "ttir.transpose"(%555, %556) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<2x256x32xbf16>, tensor<2x32x256xbf16>) -> tensor<2x32x256xbf16> loc(#loc21)
-    %558 = ttir.empty() : tensor<2x4096x256xbf16> loc(#loc533)
-    %559 = "ttir.matmul"(%499, %557, %558) <{transpose_a = false, transpose_b = false}> : (tensor<2x4096x32xbf16>, tensor<2x32x256xbf16>, tensor<2x4096x256xbf16>) -> tensor<2x4096x256xbf16> loc(#loc533)
-    %560 = ttir.empty() : tensor<1x2x4096x256xbf16> loc(#loc534)
-    %561 = "ttir.unsqueeze"(%559, %560) <{dim = 0 : si32}> : (tensor<2x4096x256xbf16>, tensor<1x2x4096x256xbf16>) -> tensor<1x2x4096x256xbf16> loc(#loc534)
-    %562 = ttir.empty() : tensor<1x2x4096x256xbf16> loc(#loc535)
-    %563 = "ttir.div"(%561, %arg36, %562) : (tensor<1x2x4096x256xbf16>, tensor<1xbf16>, tensor<1x2x4096x256xbf16>) -> tensor<1x2x4096x256xbf16> loc(#loc535)
-    %564 = ttir.empty() : tensor<1x2x4096x256xbf16> loc(#loc536)
-    %565 = "ttir.softmax"(%563, %564) <{dimension = -1 : si32}> : (tensor<1x2x4096x256xbf16>, tensor<1x2x4096x256xbf16>) -> tensor<1x2x4096x256xbf16> loc(#loc536)
-    %566 = ttir.empty() : tensor<2x4096x256xbf16> loc(#loc537)
-    %567 = "ttir.squeeze"(%565, %566) <{dim = 0 : si32}> : (tensor<1x2x4096x256xbf16>, tensor<2x4096x256xbf16>) -> tensor<2x4096x256xbf16> loc(#loc537)
-    %568 = ttir.empty() : tensor<256x64xbf16> loc(#loc774)
-    %569 = "ttir.matmul"(%543, %arg163, %568) <{transpose_a = false, transpose_b = false}> : (tensor<256x64xbf16>, tensor<64x64xbf16>, tensor<256x64xbf16>) -> tensor<256x64xbf16> loc(#loc774)
-    %570 = ttir.empty() : tensor<1x256x64xbf16> loc(#loc775)
-    %571 = "ttir.unsqueeze"(%569, %570) <{dim = 0 : si32}> : (tensor<256x64xbf16>, tensor<1x256x64xbf16>) -> tensor<1x256x64xbf16> loc(#loc775)
-    %572 = ttir.empty() : tensor<1x256x64xbf16> loc(#loc22)
-    %573 = "ttir.add"(%571, %arg164, %572) : (tensor<1x256x64xbf16>, tensor<64xbf16>, tensor<1x256x64xbf16>) -> tensor<1x256x64xbf16> loc(#loc22)
-    %574 = ttir.empty() : tensor<1x256x2x32xbf16> loc(#loc538)
-    %575 = "ttir.reshape"(%573, %574) <{shape = [1 : i32, 256 : i32, 2 : i32, 32 : i32]}> : (tensor<1x256x64xbf16>, tensor<1x256x2x32xbf16>) -> tensor<1x256x2x32xbf16> loc(#loc538)
-    %576 = ttir.empty() : tensor<1x2x256x32xbf16> loc(#loc539)
-    %577 = "ttir.transpose"(%575, %576) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x256x2x32xbf16>, tensor<1x2x256x32xbf16>) -> tensor<1x2x256x32xbf16> loc(#loc539)
-    %578 = ttir.empty() : tensor<1x2x32x256xbf16> loc(#loc540)
-    %579 = "ttir.transpose"(%577, %578) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x2x256x32xbf16>, tensor<1x2x32x256xbf16>) -> tensor<1x2x32x256xbf16> loc(#loc540)
-    %580 = ttir.empty() : tensor<2x32x256xbf16> loc(#loc541)
-    %581 = "ttir.squeeze"(%579, %580) <{dim = 0 : si32}> : (tensor<1x2x32x256xbf16>, tensor<2x32x256xbf16>) -> tensor<2x32x256xbf16> loc(#loc541)
-    %582 = ttir.empty() : tensor<2x256x32xbf16> loc(#loc23)
-    %583 = "ttir.transpose"(%581, %582) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<2x32x256xbf16>, tensor<2x256x32xbf16>) -> tensor<2x256x32xbf16> loc(#loc23)
-    %584 = ttir.empty() : tensor<2x4096x32xbf16> loc(#loc542)
-    %585 = "ttir.matmul"(%567, %583, %584) <{transpose_a = false, transpose_b = false}> : (tensor<2x4096x256xbf16>, tensor<2x256x32xbf16>, tensor<2x4096x32xbf16>) -> tensor<2x4096x32xbf16> loc(#loc542)
-    %586 = ttir.empty() : tensor<1x2x4096x32xbf16> loc(#loc543)
-    %587 = "ttir.unsqueeze"(%585, %586) <{dim = 0 : si32}> : (tensor<2x4096x32xbf16>, tensor<1x2x4096x32xbf16>) -> tensor<1x2x4096x32xbf16> loc(#loc543)
-    %588 = ttir.empty() : tensor<1x4096x2x32xbf16> loc(#loc544)
-    %589 = "ttir.transpose"(%587, %588) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x2x4096x32xbf16>, tensor<1x4096x2x32xbf16>) -> tensor<1x4096x2x32xbf16> loc(#loc544)
-    %590 = ttir.empty() : tensor<4096x64xbf16> loc(#loc776)
-    %591 = "ttir.reshape"(%589, %590) <{shape = [4096 : i32, 64 : i32]}> : (tensor<1x4096x2x32xbf16>, tensor<4096x64xbf16>) -> tensor<4096x64xbf16> loc(#loc776)
-    %592 = ttir.empty() : tensor<4096x64xbf16> loc(#loc777)
-    %593 = "ttir.matmul"(%591, %arg165, %592) <{transpose_a = false, transpose_b = false}> : (tensor<4096x64xbf16>, tensor<64x64xbf16>, tensor<4096x64xbf16>) -> tensor<4096x64xbf16> loc(#loc777)
-    %594 = ttir.empty() : tensor<1x4096x64xbf16> loc(#loc778)
-    %595 = "ttir.unsqueeze"(%593, %594) <{dim = 0 : si32}> : (tensor<4096x64xbf16>, tensor<1x4096x64xbf16>) -> tensor<1x4096x64xbf16> loc(#loc778)
-    %596 = ttir.empty() : tensor<1x4096x64xbf16> loc(#loc24)
-    %597 = "ttir.add"(%595, %arg166, %596) : (tensor<1x4096x64xbf16>, tensor<64xbf16>, tensor<1x4096x64xbf16>) -> tensor<1x4096x64xbf16> loc(#loc24)
-    %598 = ttir.empty() : tensor<1x4096x64xbf16> loc(#loc127)
-    %599 = "ttir.add"(%597, %465, %598) : (tensor<1x4096x64xbf16>, tensor<1x4096x64xbf16>, tensor<1x4096x64xbf16>) -> tensor<1x4096x64xbf16> loc(#loc127)
-    %600 = ttir.empty() : tensor<1x4096x1xbf16> loc(#loc291)
-    %601 = "ttir.sum"(%599, %600) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x4096x64xbf16>, tensor<1x4096x1xbf16>) -> tensor<1x4096x1xbf16> loc(#loc291)
-    %602 = ttir.empty() : tensor<1x4096x64xbf16> loc(#loc292)
-    %603 = "ttir.multiply"(%arg37, %601, %602) : (tensor<1x4096x64xf32>, tensor<1x4096x1xbf16>, tensor<1x4096x64xbf16>) -> tensor<1x4096x64xbf16> loc(#loc292)
-    %604 = ttir.empty() : tensor<1x4096x64xbf16> loc(#loc293)
-    %605 = "ttir.subtract"(%599, %603, %604) : (tensor<1x4096x64xbf16>, tensor<1x4096x64xbf16>, tensor<1x4096x64xbf16>) -> tensor<1x4096x64xbf16> loc(#loc293)
-    %606 = ttir.empty() : tensor<1x4096x64xbf16> loc(#loc294)
-    %607 = "ttir.multiply"(%605, %605, %606) : (tensor<1x4096x64xbf16>, tensor<1x4096x64xbf16>, tensor<1x4096x64xbf16>) -> tensor<1x4096x64xbf16> loc(#loc294)
-    %608 = ttir.empty() : tensor<1x4096x1xbf16> loc(#loc295)
-    %609 = "ttir.sum"(%607, %608) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x4096x64xbf16>, tensor<1x4096x1xbf16>) -> tensor<1x4096x1xbf16> loc(#loc295)
-    %610 = ttir.empty() : tensor<1x4096x1xbf16> loc(#loc296)
-    %611 = "ttir.multiply"(%arg38, %609, %610) : (tensor<1x4096x1xf32>, tensor<1x4096x1xbf16>, tensor<1x4096x1xbf16>) -> tensor<1x4096x1xbf16> loc(#loc296)
-    %612 = ttir.empty() : tensor<1x4096x1xbf16> loc(#loc297)
-    %613 = "ttir.add"(%611, %arg39, %612) : (tensor<1x4096x1xbf16>, tensor<1x4096x1xf32>, tensor<1x4096x1xbf16>) -> tensor<1x4096x1xbf16> loc(#loc297)
-    %614 = ttir.empty() : tensor<1x4096x1xbf16> loc(#loc298)
-    %615 = "ttir.sqrt"(%613, %614) : (tensor<1x4096x1xbf16>, tensor<1x4096x1xbf16>) -> tensor<1x4096x1xbf16> loc(#loc298)
-    %616 = ttir.empty() : tensor<1x4096x1xbf16> loc(#loc299)
-    %617 = "ttir.reciprocal"(%615, %616) : (tensor<1x4096x1xbf16>, tensor<1x4096x1xbf16>) -> tensor<1x4096x1xbf16> loc(#loc299)
-    %618 = ttir.empty() : tensor<1x4096x64xbf16> loc(#loc300)
-    %619 = "ttir.multiply"(%605, %617, %618) : (tensor<1x4096x64xbf16>, tensor<1x4096x1xbf16>, tensor<1x4096x64xbf16>) -> tensor<1x4096x64xbf16> loc(#loc300)
-    %620 = ttir.empty() : tensor<1x4096x64xbf16> loc(#loc301)
-    %621 = "ttir.multiply"(%619, %arg167, %620) : (tensor<1x4096x64xbf16>, tensor<64xbf16>, tensor<1x4096x64xbf16>) -> tensor<1x4096x64xbf16> loc(#loc301)
-    %622 = ttir.empty() : tensor<1x4096x64xbf16> loc(#loc302)
-    %623 = "ttir.add"(%621, %arg168, %622) : (tensor<1x4096x64xbf16>, tensor<64xbf16>, tensor<1x4096x64xbf16>) -> tensor<1x4096x64xbf16> loc(#loc302)
-    %624 = ttir.empty() : tensor<1x4096x256xbf16> loc(#loc545)
-    %625 = "ttir.matmul"(%623, %arg169, %624) <{transpose_a = false, transpose_b = false}> : (tensor<1x4096x64xbf16>, tensor<64x256xbf16>, tensor<1x4096x256xbf16>) -> tensor<1x4096x256xbf16> loc(#loc545)
-    %626 = ttir.empty() : tensor<1x4096x256xbf16> loc(#loc25)
-    %627 = "ttir.add"(%625, %arg170, %626) : (tensor<1x4096x256xbf16>, tensor<256xbf16>, tensor<1x4096x256xbf16>) -> tensor<1x4096x256xbf16> loc(#loc25)
-    %628 = ttir.empty() : tensor<1x256x4096xbf16> loc(#loc546)
-    %629 = "ttir.transpose"(%627, %628) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x4096x256xbf16>, tensor<1x256x4096xbf16>) -> tensor<1x256x4096xbf16> loc(#loc546)
-    %630 = ttir.empty() : tensor<1x256x64x64xbf16> loc(#loc547)
-    %631 = "ttir.reshape"(%629, %630) <{shape = [1 : i32, 256 : i32, 64 : i32, 64 : i32]}> : (tensor<1x256x4096xbf16>, tensor<1x256x64x64xbf16>) -> tensor<1x256x64x64xbf16> loc(#loc547)
-    %632 = ttir.empty() : tensor<1x64x256x64xbf16> loc(#loc779)
-    %633 = "ttir.transpose"(%631, %632) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x256x64x64xbf16>, tensor<1x64x256x64xbf16>) -> tensor<1x64x256x64xbf16> loc(#loc779)
-    %634 = ttir.empty() : tensor<1x64x64x256xbf16> loc(#loc780)
-    %635 = "ttir.transpose"(%633, %634) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x64x256x64xbf16>, tensor<1x64x64x256xbf16>) -> tensor<1x64x64x256xbf16> loc(#loc780)
-    %636 = ttir.empty() : tensor<1x64x64x256xbf16> loc(#loc781)
-    %637 = "ttir.conv2d"(%635, %arg171, %arg172, %636) <{dilation = array<i32: 1, 1>, groups = 256 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x64x64x256xbf16>, tensor<256x1x3x3xbf16>, tensor<1x1x1x256xbf16>, tensor<1x64x64x256xbf16>) -> tensor<1x64x64x256xbf16> loc(#loc781)
-    %638 = ttir.empty() : tensor<1x64x256x64xbf16> loc(#loc782)
-    %639 = "ttir.transpose"(%637, %638) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x64x64x256xbf16>, tensor<1x64x256x64xbf16>) -> tensor<1x64x256x64xbf16> loc(#loc782)
-    %640 = ttir.empty() : tensor<1x256x64x64xbf16> loc(#loc783)
-    %641 = "ttir.transpose"(%639, %640) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x64x256x64xbf16>, tensor<1x256x64x64xbf16>) -> tensor<1x256x64x64xbf16> loc(#loc783)
-    %642 = ttir.empty() : tensor<1x256x4096x1xbf16> loc(#loc548)
-    %643 = "ttir.reshape"(%641, %642) <{shape = [1 : i32, 256 : i32, 4096 : i32, 1 : i32]}> : (tensor<1x256x64x64xbf16>, tensor<1x256x4096x1xbf16>) -> tensor<1x256x4096x1xbf16> loc(#loc548)
-    %644 = ttir.empty() : tensor<1x256x4096xbf16> loc(#loc549)
-    %645 = "ttir.squeeze"(%643, %644) <{dim = -1 : si32}> : (tensor<1x256x4096x1xbf16>, tensor<1x256x4096xbf16>) -> tensor<1x256x4096xbf16> loc(#loc549)
-    %646 = ttir.empty() : tensor<1x4096x256xbf16> loc(#loc550)
-    %647 = "ttir.transpose"(%645, %646) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x256x4096xbf16>, tensor<1x4096x256xbf16>) -> tensor<1x4096x256xbf16> loc(#loc550)
-    %648 = ttir.empty() : tensor<1x4096x256xbf16> loc(#loc551)
-    %649 = "ttir.gelu"(%647, %648) : (tensor<1x4096x256xbf16>, tensor<1x4096x256xbf16>) -> tensor<1x4096x256xbf16> loc(#loc551)
-    %650 = ttir.empty() : tensor<1x4096x64xbf16> loc(#loc552)
-    %651 = "ttir.matmul"(%649, %arg173, %650) <{transpose_a = false, transpose_b = false}> : (tensor<1x4096x256xbf16>, tensor<256x64xbf16>, tensor<1x4096x64xbf16>) -> tensor<1x4096x64xbf16> loc(#loc552)
-    %652 = ttir.empty() : tensor<1x4096x64xbf16> loc(#loc26)
-    %653 = "ttir.add"(%651, %arg174, %652) : (tensor<1x4096x64xbf16>, tensor<64xbf16>, tensor<1x4096x64xbf16>) -> tensor<1x4096x64xbf16> loc(#loc26)
-    %654 = ttir.empty() : tensor<1x4096x64xbf16> loc(#loc128)
-    %655 = "ttir.add"(%653, %599, %654) : (tensor<1x4096x64xbf16>, tensor<1x4096x64xbf16>, tensor<1x4096x64xbf16>) -> tensor<1x4096x64xbf16> loc(#loc128)
-    %656 = ttir.empty() : tensor<1x4096x1xbf16> loc(#loc303)
-    %657 = "ttir.sum"(%655, %656) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x4096x64xbf16>, tensor<1x4096x1xbf16>) -> tensor<1x4096x1xbf16> loc(#loc303)
-    %658 = ttir.empty() : tensor<1x4096x64xbf16> loc(#loc304)
-    %659 = "ttir.multiply"(%arg40, %657, %658) : (tensor<1x4096x64xf32>, tensor<1x4096x1xbf16>, tensor<1x4096x64xbf16>) -> tensor<1x4096x64xbf16> loc(#loc304)
-    %660 = ttir.empty() : tensor<1x4096x64xbf16> loc(#loc305)
-    %661 = "ttir.subtract"(%655, %659, %660) : (tensor<1x4096x64xbf16>, tensor<1x4096x64xbf16>, tensor<1x4096x64xbf16>) -> tensor<1x4096x64xbf16> loc(#loc305)
-    %662 = ttir.empty() : tensor<1x4096x64xbf16> loc(#loc306)
-    %663 = "ttir.multiply"(%661, %661, %662) : (tensor<1x4096x64xbf16>, tensor<1x4096x64xbf16>, tensor<1x4096x64xbf16>) -> tensor<1x4096x64xbf16> loc(#loc306)
-    %664 = ttir.empty() : tensor<1x4096x1xbf16> loc(#loc307)
-    %665 = "ttir.sum"(%663, %664) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x4096x64xbf16>, tensor<1x4096x1xbf16>) -> tensor<1x4096x1xbf16> loc(#loc307)
-    %666 = ttir.empty() : tensor<1x4096x1xbf16> loc(#loc308)
-    %667 = "ttir.multiply"(%arg41, %665, %666) : (tensor<1x4096x1xf32>, tensor<1x4096x1xbf16>, tensor<1x4096x1xbf16>) -> tensor<1x4096x1xbf16> loc(#loc308)
-    %668 = ttir.empty() : tensor<1x4096x1xbf16> loc(#loc309)
-    %669 = "ttir.add"(%667, %arg42, %668) : (tensor<1x4096x1xbf16>, tensor<1x4096x1xf32>, tensor<1x4096x1xbf16>) -> tensor<1x4096x1xbf16> loc(#loc309)
-    %670 = ttir.empty() : tensor<1x4096x1xbf16> loc(#loc310)
-    %671 = "ttir.sqrt"(%669, %670) : (tensor<1x4096x1xbf16>, tensor<1x4096x1xbf16>) -> tensor<1x4096x1xbf16> loc(#loc310)
-    %672 = ttir.empty() : tensor<1x4096x1xbf16> loc(#loc311)
-    %673 = "ttir.reciprocal"(%671, %672) : (tensor<1x4096x1xbf16>, tensor<1x4096x1xbf16>) -> tensor<1x4096x1xbf16> loc(#loc311)
-    %674 = ttir.empty() : tensor<1x4096x64xbf16> loc(#loc312)
-    %675 = "ttir.multiply"(%661, %673, %674) : (tensor<1x4096x64xbf16>, tensor<1x4096x1xbf16>, tensor<1x4096x64xbf16>) -> tensor<1x4096x64xbf16> loc(#loc312)
-    %676 = ttir.empty() : tensor<1x4096x64xbf16> loc(#loc313)
-    %677 = "ttir.multiply"(%675, %arg175, %676) : (tensor<1x4096x64xbf16>, tensor<64xbf16>, tensor<1x4096x64xbf16>) -> tensor<1x4096x64xbf16> loc(#loc313)
-    %678 = ttir.empty() : tensor<1x4096x64xbf16> loc(#loc314)
-    %679 = "ttir.add"(%677, %arg176, %678) : (tensor<1x4096x64xbf16>, tensor<64xbf16>, tensor<1x4096x64xbf16>) -> tensor<1x4096x64xbf16> loc(#loc314)
-    %680 = ttir.empty() : tensor<1x4096x64xbf16> loc(#loc784)
-    %681 = "ttir.matmul"(%679, %arg177, %680) <{transpose_a = false, transpose_b = false}> : (tensor<1x4096x64xbf16>, tensor<64x64xbf16>, tensor<1x4096x64xbf16>) -> tensor<1x4096x64xbf16> loc(#loc784)
-    %682 = ttir.empty() : tensor<1x4096x64xbf16> loc(#loc27)
-    %683 = "ttir.add"(%681, %arg178, %682) : (tensor<1x4096x64xbf16>, tensor<64xbf16>, tensor<1x4096x64xbf16>) -> tensor<1x4096x64xbf16> loc(#loc27)
-    %684 = ttir.empty() : tensor<1x4096x2x32xbf16> loc(#loc553)
-    %685 = "ttir.reshape"(%683, %684) <{shape = [1 : i32, 4096 : i32, 2 : i32, 32 : i32]}> : (tensor<1x4096x64xbf16>, tensor<1x4096x2x32xbf16>) -> tensor<1x4096x2x32xbf16> loc(#loc553)
-    %686 = ttir.empty() : tensor<1x2x4096x32xbf16> loc(#loc554)
-    %687 = "ttir.transpose"(%685, %686) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x4096x2x32xbf16>, tensor<1x2x4096x32xbf16>) -> tensor<1x2x4096x32xbf16> loc(#loc554)
-    %688 = ttir.empty() : tensor<2x4096x32xbf16> loc(#loc555)
-    %689 = "ttir.squeeze"(%687, %688) <{dim = 0 : si32}> : (tensor<1x2x4096x32xbf16>, tensor<2x4096x32xbf16>) -> tensor<2x4096x32xbf16> loc(#loc555)
-    %690 = ttir.empty() : tensor<1x64x4096xbf16> loc(#loc556)
-    %691 = "ttir.transpose"(%679, %690) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x4096x64xbf16>, tensor<1x64x4096xbf16>) -> tensor<1x64x4096xbf16> loc(#loc556)
-    %692 = ttir.empty() : tensor<1x64x64x64xbf16> loc(#loc557)
-    %693 = "ttir.reshape"(%691, %692) <{shape = [1 : i32, 64 : i32, 64 : i32, 64 : i32]}> : (tensor<1x64x4096xbf16>, tensor<1x64x64x64xbf16>) -> tensor<1x64x64x64xbf16> loc(#loc557)
-    %694 = ttir.empty() : tensor<1x64x64x64xbf16> loc(#loc785)
-    %695 = "ttir.transpose"(%693, %694) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x64x64x64xbf16>, tensor<1x64x64x64xbf16>) -> tensor<1x64x64x64xbf16> loc(#loc785)
-    %696 = ttir.empty() : tensor<1x64x64x64xbf16> loc(#loc786)
-    %697 = "ttir.transpose"(%695, %696) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x64x64x64xbf16>, tensor<1x64x64x64xbf16>) -> tensor<1x64x64x64xbf16> loc(#loc786)
-    %698 = ttir.empty() : tensor<1x16x16x64xbf16> loc(#loc787)
-    %699 = "ttir.conv2d"(%697, %arg179, %arg180, %698) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 0, 0, 0, 0>, stride = array<i32: 4, 4>}> {channel_last = 1 : si32} : (tensor<1x64x64x64xbf16>, tensor<64x64x4x4xbf16>, tensor<1x1x1x64xbf16>, tensor<1x16x16x64xbf16>) -> tensor<1x16x16x64xbf16> loc(#loc787)
-    %700 = ttir.empty() : tensor<1x16x64x16xbf16> loc(#loc788)
-    %701 = "ttir.transpose"(%699, %700) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x16x16x64xbf16>, tensor<1x16x64x16xbf16>) -> tensor<1x16x64x16xbf16> loc(#loc788)
-    %702 = ttir.empty() : tensor<1x64x16x16xbf16> loc(#loc789)
-    %703 = "ttir.transpose"(%701, %702) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x16x64x16xbf16>, tensor<1x64x16x16xbf16>) -> tensor<1x64x16x16xbf16> loc(#loc789)
-    %704 = ttir.empty() : tensor<1x64x256xbf16> loc(#loc558)
-    %705 = "ttir.reshape"(%703, %704) <{shape = [1 : i32, 64 : i32, 256 : i32]}> : (tensor<1x64x16x16xbf16>, tensor<1x64x256xbf16>) -> tensor<1x64x256xbf16> loc(#loc558)
-    %706 = ttir.empty() : tensor<1x256x64xbf16> loc(#loc559)
-    %707 = "ttir.transpose"(%705, %706) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x64x256xbf16>, tensor<1x256x64xbf16>) -> tensor<1x256x64xbf16> loc(#loc559)
-    %708 = ttir.empty() : tensor<1x256x1xbf16> loc(#loc790)
-    %709 = "ttir.sum"(%707, %708) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x256x64xbf16>, tensor<1x256x1xbf16>) -> tensor<1x256x1xbf16> loc(#loc790)
-    %710 = ttir.empty() : tensor<1x256x64xbf16> loc(#loc791)
-    %711 = "ttir.multiply"(%arg43, %709, %710) : (tensor<1x256x64xf32>, tensor<1x256x1xbf16>, tensor<1x256x64xbf16>) -> tensor<1x256x64xbf16> loc(#loc791)
-    %712 = ttir.empty() : tensor<1x256x64xbf16> loc(#loc792)
-    %713 = "ttir.subtract"(%707, %711, %712) : (tensor<1x256x64xbf16>, tensor<1x256x64xbf16>, tensor<1x256x64xbf16>) -> tensor<1x256x64xbf16> loc(#loc792)
-    %714 = ttir.empty() : tensor<1x256x64xbf16> loc(#loc793)
-    %715 = "ttir.multiply"(%713, %713, %714) : (tensor<1x256x64xbf16>, tensor<1x256x64xbf16>, tensor<1x256x64xbf16>) -> tensor<1x256x64xbf16> loc(#loc793)
-    %716 = ttir.empty() : tensor<1x256x1xbf16> loc(#loc794)
-    %717 = "ttir.sum"(%715, %716) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x256x64xbf16>, tensor<1x256x1xbf16>) -> tensor<1x256x1xbf16> loc(#loc794)
-    %718 = ttir.empty() : tensor<1x256x1xbf16> loc(#loc795)
-    %719 = "ttir.multiply"(%arg44, %717, %718) : (tensor<1x256x1xf32>, tensor<1x256x1xbf16>, tensor<1x256x1xbf16>) -> tensor<1x256x1xbf16> loc(#loc795)
-    %720 = ttir.empty() : tensor<1x256x1xbf16> loc(#loc796)
-    %721 = "ttir.add"(%719, %arg45, %720) : (tensor<1x256x1xbf16>, tensor<1x256x1xf32>, tensor<1x256x1xbf16>) -> tensor<1x256x1xbf16> loc(#loc796)
-    %722 = ttir.empty() : tensor<1x256x1xbf16> loc(#loc797)
-    %723 = "ttir.sqrt"(%721, %722) : (tensor<1x256x1xbf16>, tensor<1x256x1xbf16>) -> tensor<1x256x1xbf16> loc(#loc797)
-    %724 = ttir.empty() : tensor<1x256x1xbf16> loc(#loc798)
-    %725 = "ttir.reciprocal"(%723, %724) : (tensor<1x256x1xbf16>, tensor<1x256x1xbf16>) -> tensor<1x256x1xbf16> loc(#loc798)
-    %726 = ttir.empty() : tensor<1x256x64xbf16> loc(#loc799)
-    %727 = "ttir.multiply"(%713, %725, %726) : (tensor<1x256x64xbf16>, tensor<1x256x1xbf16>, tensor<1x256x64xbf16>) -> tensor<1x256x64xbf16> loc(#loc799)
-    %728 = ttir.empty() : tensor<1x256x64xbf16> loc(#loc800)
-    %729 = "ttir.multiply"(%727, %arg181, %728) : (tensor<1x256x64xbf16>, tensor<64xbf16>, tensor<1x256x64xbf16>) -> tensor<1x256x64xbf16> loc(#loc800)
-    %730 = ttir.empty() : tensor<1x256x64xbf16> loc(#loc801)
-    %731 = "ttir.add"(%729, %arg182, %730) : (tensor<1x256x64xbf16>, tensor<64xbf16>, tensor<1x256x64xbf16>) -> tensor<1x256x64xbf16> loc(#loc801)
-    %732 = ttir.empty() : tensor<256x64xbf16> loc(#loc802)
-    %733 = "ttir.squeeze"(%731, %732) <{dim = 0 : si32}> : (tensor<1x256x64xbf16>, tensor<256x64xbf16>) -> tensor<256x64xbf16> loc(#loc802)
-    %734 = ttir.empty() : tensor<256x64xbf16> loc(#loc803)
-    %735 = "ttir.matmul"(%733, %arg183, %734) <{transpose_a = false, transpose_b = false}> : (tensor<256x64xbf16>, tensor<64x64xbf16>, tensor<256x64xbf16>) -> tensor<256x64xbf16> loc(#loc803)
-    %736 = ttir.empty() : tensor<1x256x64xbf16> loc(#loc804)
-    %737 = "ttir.unsqueeze"(%735, %736) <{dim = 0 : si32}> : (tensor<256x64xbf16>, tensor<1x256x64xbf16>) -> tensor<1x256x64xbf16> loc(#loc804)
-    %738 = ttir.empty() : tensor<1x256x64xbf16> loc(#loc28)
-    %739 = "ttir.add"(%737, %arg184, %738) : (tensor<1x256x64xbf16>, tensor<64xbf16>, tensor<1x256x64xbf16>) -> tensor<1x256x64xbf16> loc(#loc28)
-    %740 = ttir.empty() : tensor<1x256x2x32xbf16> loc(#loc560)
-    %741 = "ttir.reshape"(%739, %740) <{shape = [1 : i32, 256 : i32, 2 : i32, 32 : i32]}> : (tensor<1x256x64xbf16>, tensor<1x256x2x32xbf16>) -> tensor<1x256x2x32xbf16> loc(#loc560)
-    %742 = ttir.empty() : tensor<1x2x256x32xbf16> loc(#loc561)
-    %743 = "ttir.transpose"(%741, %742) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x256x2x32xbf16>, tensor<1x2x256x32xbf16>) -> tensor<1x2x256x32xbf16> loc(#loc561)
-    %744 = ttir.empty() : tensor<2x256x32xbf16> loc(#loc562)
-    %745 = "ttir.squeeze"(%743, %744) <{dim = 0 : si32}> : (tensor<1x2x256x32xbf16>, tensor<2x256x32xbf16>) -> tensor<2x256x32xbf16> loc(#loc562)
-    %746 = ttir.empty() : tensor<2x32x256xbf16> loc(#loc29)
-    %747 = "ttir.transpose"(%745, %746) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<2x256x32xbf16>, tensor<2x32x256xbf16>) -> tensor<2x32x256xbf16> loc(#loc29)
-    %748 = ttir.empty() : tensor<2x4096x256xbf16> loc(#loc563)
-    %749 = "ttir.matmul"(%689, %747, %748) <{transpose_a = false, transpose_b = false}> : (tensor<2x4096x32xbf16>, tensor<2x32x256xbf16>, tensor<2x4096x256xbf16>) -> tensor<2x4096x256xbf16> loc(#loc563)
-    %750 = ttir.empty() : tensor<1x2x4096x256xbf16> loc(#loc564)
-    %751 = "ttir.unsqueeze"(%749, %750) <{dim = 0 : si32}> : (tensor<2x4096x256xbf16>, tensor<1x2x4096x256xbf16>) -> tensor<1x2x4096x256xbf16> loc(#loc564)
-    %752 = ttir.empty() : tensor<1x2x4096x256xbf16> loc(#loc565)
-    %753 = "ttir.div"(%751, %arg46, %752) : (tensor<1x2x4096x256xbf16>, tensor<1xbf16>, tensor<1x2x4096x256xbf16>) -> tensor<1x2x4096x256xbf16> loc(#loc565)
-    %754 = ttir.empty() : tensor<1x2x4096x256xbf16> loc(#loc566)
-    %755 = "ttir.softmax"(%753, %754) <{dimension = -1 : si32}> : (tensor<1x2x4096x256xbf16>, tensor<1x2x4096x256xbf16>) -> tensor<1x2x4096x256xbf16> loc(#loc566)
-    %756 = ttir.empty() : tensor<2x4096x256xbf16> loc(#loc567)
-    %757 = "ttir.squeeze"(%755, %756) <{dim = 0 : si32}> : (tensor<1x2x4096x256xbf16>, tensor<2x4096x256xbf16>) -> tensor<2x4096x256xbf16> loc(#loc567)
-    %758 = ttir.empty() : tensor<256x64xbf16> loc(#loc805)
-    %759 = "ttir.matmul"(%733, %arg185, %758) <{transpose_a = false, transpose_b = false}> : (tensor<256x64xbf16>, tensor<64x64xbf16>, tensor<256x64xbf16>) -> tensor<256x64xbf16> loc(#loc805)
-    %760 = ttir.empty() : tensor<1x256x64xbf16> loc(#loc806)
-    %761 = "ttir.unsqueeze"(%759, %760) <{dim = 0 : si32}> : (tensor<256x64xbf16>, tensor<1x256x64xbf16>) -> tensor<1x256x64xbf16> loc(#loc806)
-    %762 = ttir.empty() : tensor<1x256x64xbf16> loc(#loc30)
-    %763 = "ttir.add"(%761, %arg186, %762) : (tensor<1x256x64xbf16>, tensor<64xbf16>, tensor<1x256x64xbf16>) -> tensor<1x256x64xbf16> loc(#loc30)
-    %764 = ttir.empty() : tensor<1x256x2x32xbf16> loc(#loc568)
-    %765 = "ttir.reshape"(%763, %764) <{shape = [1 : i32, 256 : i32, 2 : i32, 32 : i32]}> : (tensor<1x256x64xbf16>, tensor<1x256x2x32xbf16>) -> tensor<1x256x2x32xbf16> loc(#loc568)
-    %766 = ttir.empty() : tensor<1x2x256x32xbf16> loc(#loc569)
-    %767 = "ttir.transpose"(%765, %766) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x256x2x32xbf16>, tensor<1x2x256x32xbf16>) -> tensor<1x2x256x32xbf16> loc(#loc569)
-    %768 = ttir.empty() : tensor<1x2x32x256xbf16> loc(#loc570)
-    %769 = "ttir.transpose"(%767, %768) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x2x256x32xbf16>, tensor<1x2x32x256xbf16>) -> tensor<1x2x32x256xbf16> loc(#loc570)
-    %770 = ttir.empty() : tensor<2x32x256xbf16> loc(#loc571)
-    %771 = "ttir.squeeze"(%769, %770) <{dim = 0 : si32}> : (tensor<1x2x32x256xbf16>, tensor<2x32x256xbf16>) -> tensor<2x32x256xbf16> loc(#loc571)
-    %772 = ttir.empty() : tensor<2x256x32xbf16> loc(#loc31)
-    %773 = "ttir.transpose"(%771, %772) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<2x32x256xbf16>, tensor<2x256x32xbf16>) -> tensor<2x256x32xbf16> loc(#loc31)
-    %774 = ttir.empty() : tensor<2x4096x32xbf16> loc(#loc572)
-    %775 = "ttir.matmul"(%757, %773, %774) <{transpose_a = false, transpose_b = false}> : (tensor<2x4096x256xbf16>, tensor<2x256x32xbf16>, tensor<2x4096x32xbf16>) -> tensor<2x4096x32xbf16> loc(#loc572)
-    %776 = ttir.empty() : tensor<1x2x4096x32xbf16> loc(#loc573)
-    %777 = "ttir.unsqueeze"(%775, %776) <{dim = 0 : si32}> : (tensor<2x4096x32xbf16>, tensor<1x2x4096x32xbf16>) -> tensor<1x2x4096x32xbf16> loc(#loc573)
-    %778 = ttir.empty() : tensor<1x4096x2x32xbf16> loc(#loc574)
-    %779 = "ttir.transpose"(%777, %778) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x2x4096x32xbf16>, tensor<1x4096x2x32xbf16>) -> tensor<1x4096x2x32xbf16> loc(#loc574)
-    %780 = ttir.empty() : tensor<4096x64xbf16> loc(#loc807)
-    %781 = "ttir.reshape"(%779, %780) <{shape = [4096 : i32, 64 : i32]}> : (tensor<1x4096x2x32xbf16>, tensor<4096x64xbf16>) -> tensor<4096x64xbf16> loc(#loc807)
-    %782 = ttir.empty() : tensor<4096x64xbf16> loc(#loc808)
-    %783 = "ttir.matmul"(%781, %arg187, %782) <{transpose_a = false, transpose_b = false}> : (tensor<4096x64xbf16>, tensor<64x64xbf16>, tensor<4096x64xbf16>) -> tensor<4096x64xbf16> loc(#loc808)
-    %784 = ttir.empty() : tensor<1x4096x64xbf16> loc(#loc809)
-    %785 = "ttir.unsqueeze"(%783, %784) <{dim = 0 : si32}> : (tensor<4096x64xbf16>, tensor<1x4096x64xbf16>) -> tensor<1x4096x64xbf16> loc(#loc809)
-    %786 = ttir.empty() : tensor<1x4096x64xbf16> loc(#loc32)
-    %787 = "ttir.add"(%785, %arg188, %786) : (tensor<1x4096x64xbf16>, tensor<64xbf16>, tensor<1x4096x64xbf16>) -> tensor<1x4096x64xbf16> loc(#loc32)
-    %788 = ttir.empty() : tensor<1x4096x64xbf16> loc(#loc129)
-    %789 = "ttir.add"(%787, %655, %788) : (tensor<1x4096x64xbf16>, tensor<1x4096x64xbf16>, tensor<1x4096x64xbf16>) -> tensor<1x4096x64xbf16> loc(#loc129)
-    %790 = ttir.empty() : tensor<1x4096x1xbf16> loc(#loc315)
-    %791 = "ttir.sum"(%789, %790) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x4096x64xbf16>, tensor<1x4096x1xbf16>) -> tensor<1x4096x1xbf16> loc(#loc315)
-    %792 = ttir.empty() : tensor<1x4096x64xbf16> loc(#loc316)
-    %793 = "ttir.multiply"(%arg47, %791, %792) : (tensor<1x4096x64xf32>, tensor<1x4096x1xbf16>, tensor<1x4096x64xbf16>) -> tensor<1x4096x64xbf16> loc(#loc316)
-    %794 = ttir.empty() : tensor<1x4096x64xbf16> loc(#loc317)
-    %795 = "ttir.subtract"(%789, %793, %794) : (tensor<1x4096x64xbf16>, tensor<1x4096x64xbf16>, tensor<1x4096x64xbf16>) -> tensor<1x4096x64xbf16> loc(#loc317)
-    %796 = ttir.empty() : tensor<1x4096x64xbf16> loc(#loc318)
-    %797 = "ttir.multiply"(%795, %795, %796) : (tensor<1x4096x64xbf16>, tensor<1x4096x64xbf16>, tensor<1x4096x64xbf16>) -> tensor<1x4096x64xbf16> loc(#loc318)
-    %798 = ttir.empty() : tensor<1x4096x1xbf16> loc(#loc319)
-    %799 = "ttir.sum"(%797, %798) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x4096x64xbf16>, tensor<1x4096x1xbf16>) -> tensor<1x4096x1xbf16> loc(#loc319)
-    %800 = ttir.empty() : tensor<1x4096x1xbf16> loc(#loc320)
-    %801 = "ttir.multiply"(%arg48, %799, %800) : (tensor<1x4096x1xf32>, tensor<1x4096x1xbf16>, tensor<1x4096x1xbf16>) -> tensor<1x4096x1xbf16> loc(#loc320)
-    %802 = ttir.empty() : tensor<1x4096x1xbf16> loc(#loc321)
-    %803 = "ttir.add"(%801, %arg49, %802) : (tensor<1x4096x1xbf16>, tensor<1x4096x1xf32>, tensor<1x4096x1xbf16>) -> tensor<1x4096x1xbf16> loc(#loc321)
-    %804 = ttir.empty() : tensor<1x4096x1xbf16> loc(#loc322)
-    %805 = "ttir.sqrt"(%803, %804) : (tensor<1x4096x1xbf16>, tensor<1x4096x1xbf16>) -> tensor<1x4096x1xbf16> loc(#loc322)
-    %806 = ttir.empty() : tensor<1x4096x1xbf16> loc(#loc323)
-    %807 = "ttir.reciprocal"(%805, %806) : (tensor<1x4096x1xbf16>, tensor<1x4096x1xbf16>) -> tensor<1x4096x1xbf16> loc(#loc323)
-    %808 = ttir.empty() : tensor<1x4096x64xbf16> loc(#loc324)
-    %809 = "ttir.multiply"(%795, %807, %808) : (tensor<1x4096x64xbf16>, tensor<1x4096x1xbf16>, tensor<1x4096x64xbf16>) -> tensor<1x4096x64xbf16> loc(#loc324)
-    %810 = ttir.empty() : tensor<1x4096x64xbf16> loc(#loc325)
-    %811 = "ttir.multiply"(%809, %arg189, %810) : (tensor<1x4096x64xbf16>, tensor<64xbf16>, tensor<1x4096x64xbf16>) -> tensor<1x4096x64xbf16> loc(#loc325)
-    %812 = ttir.empty() : tensor<1x4096x64xbf16> loc(#loc326)
-    %813 = "ttir.add"(%811, %arg190, %812) : (tensor<1x4096x64xbf16>, tensor<64xbf16>, tensor<1x4096x64xbf16>) -> tensor<1x4096x64xbf16> loc(#loc326)
-    %814 = ttir.empty() : tensor<1x4096x256xbf16> loc(#loc575)
-    %815 = "ttir.matmul"(%813, %arg191, %814) <{transpose_a = false, transpose_b = false}> : (tensor<1x4096x64xbf16>, tensor<64x256xbf16>, tensor<1x4096x256xbf16>) -> tensor<1x4096x256xbf16> loc(#loc575)
-    %816 = ttir.empty() : tensor<1x4096x256xbf16> loc(#loc33)
-    %817 = "ttir.add"(%815, %arg192, %816) : (tensor<1x4096x256xbf16>, tensor<256xbf16>, tensor<1x4096x256xbf16>) -> tensor<1x4096x256xbf16> loc(#loc33)
-    %818 = ttir.empty() : tensor<1x256x4096xbf16> loc(#loc576)
-    %819 = "ttir.transpose"(%817, %818) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x4096x256xbf16>, tensor<1x256x4096xbf16>) -> tensor<1x256x4096xbf16> loc(#loc576)
-    %820 = ttir.empty() : tensor<1x256x64x64xbf16> loc(#loc577)
-    %821 = "ttir.reshape"(%819, %820) <{shape = [1 : i32, 256 : i32, 64 : i32, 64 : i32]}> : (tensor<1x256x4096xbf16>, tensor<1x256x64x64xbf16>) -> tensor<1x256x64x64xbf16> loc(#loc577)
-    %822 = ttir.empty() : tensor<1x64x256x64xbf16> loc(#loc810)
-    %823 = "ttir.transpose"(%821, %822) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x256x64x64xbf16>, tensor<1x64x256x64xbf16>) -> tensor<1x64x256x64xbf16> loc(#loc810)
-    %824 = ttir.empty() : tensor<1x64x64x256xbf16> loc(#loc811)
-    %825 = "ttir.transpose"(%823, %824) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x64x256x64xbf16>, tensor<1x64x64x256xbf16>) -> tensor<1x64x64x256xbf16> loc(#loc811)
-    %826 = ttir.empty() : tensor<1x64x64x256xbf16> loc(#loc812)
-    %827 = "ttir.conv2d"(%825, %arg193, %arg194, %826) <{dilation = array<i32: 1, 1>, groups = 256 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x64x64x256xbf16>, tensor<256x1x3x3xbf16>, tensor<1x1x1x256xbf16>, tensor<1x64x64x256xbf16>) -> tensor<1x64x64x256xbf16> loc(#loc812)
-    %828 = ttir.empty() : tensor<1x64x256x64xbf16> loc(#loc813)
-    %829 = "ttir.transpose"(%827, %828) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x64x64x256xbf16>, tensor<1x64x256x64xbf16>) -> tensor<1x64x256x64xbf16> loc(#loc813)
-    %830 = ttir.empty() : tensor<1x256x64x64xbf16> loc(#loc814)
-    %831 = "ttir.transpose"(%829, %830) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x64x256x64xbf16>, tensor<1x256x64x64xbf16>) -> tensor<1x256x64x64xbf16> loc(#loc814)
-    %832 = ttir.empty() : tensor<1x256x4096x1xbf16> loc(#loc578)
-    %833 = "ttir.reshape"(%831, %832) <{shape = [1 : i32, 256 : i32, 4096 : i32, 1 : i32]}> : (tensor<1x256x64x64xbf16>, tensor<1x256x4096x1xbf16>) -> tensor<1x256x4096x1xbf16> loc(#loc578)
-    %834 = ttir.empty() : tensor<1x256x4096xbf16> loc(#loc579)
-    %835 = "ttir.squeeze"(%833, %834) <{dim = -1 : si32}> : (tensor<1x256x4096x1xbf16>, tensor<1x256x4096xbf16>) -> tensor<1x256x4096xbf16> loc(#loc579)
-    %836 = ttir.empty() : tensor<1x4096x256xbf16> loc(#loc580)
-    %837 = "ttir.transpose"(%835, %836) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x256x4096xbf16>, tensor<1x4096x256xbf16>) -> tensor<1x4096x256xbf16> loc(#loc580)
-    %838 = ttir.empty() : tensor<1x4096x256xbf16> loc(#loc581)
-    %839 = "ttir.gelu"(%837, %838) : (tensor<1x4096x256xbf16>, tensor<1x4096x256xbf16>) -> tensor<1x4096x256xbf16> loc(#loc581)
-    %840 = ttir.empty() : tensor<1x4096x64xbf16> loc(#loc582)
-    %841 = "ttir.matmul"(%839, %arg195, %840) <{transpose_a = false, transpose_b = false}> : (tensor<1x4096x256xbf16>, tensor<256x64xbf16>, tensor<1x4096x64xbf16>) -> tensor<1x4096x64xbf16> loc(#loc582)
-    %842 = ttir.empty() : tensor<1x4096x64xbf16> loc(#loc34)
-    %843 = "ttir.add"(%841, %arg196, %842) : (tensor<1x4096x64xbf16>, tensor<64xbf16>, tensor<1x4096x64xbf16>) -> tensor<1x4096x64xbf16> loc(#loc34)
-    %844 = ttir.empty() : tensor<1x4096x64xbf16> loc(#loc130)
-    %845 = "ttir.add"(%843, %789, %844) : (tensor<1x4096x64xbf16>, tensor<1x4096x64xbf16>, tensor<1x4096x64xbf16>) -> tensor<1x4096x64xbf16> loc(#loc130)
-    %846 = ttir.empty() : tensor<1x4096x1xbf16> loc(#loc131)
-    %847 = "ttir.sum"(%845, %846) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x4096x64xbf16>, tensor<1x4096x1xbf16>) -> tensor<1x4096x1xbf16> loc(#loc131)
-    %848 = ttir.empty() : tensor<1x4096x64xbf16> loc(#loc132)
-    %849 = "ttir.multiply"(%arg50, %847, %848) : (tensor<1x4096x64xf32>, tensor<1x4096x1xbf16>, tensor<1x4096x64xbf16>) -> tensor<1x4096x64xbf16> loc(#loc132)
-    %850 = ttir.empty() : tensor<1x4096x64xbf16> loc(#loc133)
-    %851 = "ttir.subtract"(%845, %849, %850) : (tensor<1x4096x64xbf16>, tensor<1x4096x64xbf16>, tensor<1x4096x64xbf16>) -> tensor<1x4096x64xbf16> loc(#loc133)
-    %852 = ttir.empty() : tensor<1x4096x64xbf16> loc(#loc134)
-    %853 = "ttir.multiply"(%851, %851, %852) : (tensor<1x4096x64xbf16>, tensor<1x4096x64xbf16>, tensor<1x4096x64xbf16>) -> tensor<1x4096x64xbf16> loc(#loc134)
-    %854 = ttir.empty() : tensor<1x4096x1xbf16> loc(#loc135)
-    %855 = "ttir.sum"(%853, %854) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x4096x64xbf16>, tensor<1x4096x1xbf16>) -> tensor<1x4096x1xbf16> loc(#loc135)
-    %856 = ttir.empty() : tensor<1x4096x1xbf16> loc(#loc136)
-    %857 = "ttir.multiply"(%arg51, %855, %856) : (tensor<1x4096x1xf32>, tensor<1x4096x1xbf16>, tensor<1x4096x1xbf16>) -> tensor<1x4096x1xbf16> loc(#loc136)
-    %858 = ttir.empty() : tensor<1x4096x1xbf16> loc(#loc137)
-    %859 = "ttir.add"(%857, %arg52, %858) : (tensor<1x4096x1xbf16>, tensor<1x4096x1xf32>, tensor<1x4096x1xbf16>) -> tensor<1x4096x1xbf16> loc(#loc137)
-    %860 = ttir.empty() : tensor<1x4096x1xbf16> loc(#loc138)
-    %861 = "ttir.sqrt"(%859, %860) : (tensor<1x4096x1xbf16>, tensor<1x4096x1xbf16>) -> tensor<1x4096x1xbf16> loc(#loc138)
-    %862 = ttir.empty() : tensor<1x4096x1xbf16> loc(#loc139)
-    %863 = "ttir.reciprocal"(%861, %862) : (tensor<1x4096x1xbf16>, tensor<1x4096x1xbf16>) -> tensor<1x4096x1xbf16> loc(#loc139)
-    %864 = ttir.empty() : tensor<1x4096x64xbf16> loc(#loc140)
-    %865 = "ttir.multiply"(%851, %863, %864) : (tensor<1x4096x64xbf16>, tensor<1x4096x1xbf16>, tensor<1x4096x64xbf16>) -> tensor<1x4096x64xbf16> loc(#loc140)
-    %866 = ttir.empty() : tensor<1x4096x64xbf16> loc(#loc141)
-    %867 = "ttir.multiply"(%865, %arg197, %866) : (tensor<1x4096x64xbf16>, tensor<64xbf16>, tensor<1x4096x64xbf16>) -> tensor<1x4096x64xbf16> loc(#loc141)
-    %868 = ttir.empty() : tensor<1x4096x64xbf16> loc(#loc142)
-    %869 = "ttir.add"(%867, %arg198, %868) : (tensor<1x4096x64xbf16>, tensor<64xbf16>, tensor<1x4096x64xbf16>) -> tensor<1x4096x64xbf16> loc(#loc142)
-    %870 = ttir.empty() : tensor<1x64x64x64xbf16> loc(#loc85)
-    %871 = "ttir.reshape"(%869, %870) <{shape = [1 : i32, 64 : i32, 64 : i32, 64 : i32]}> : (tensor<1x4096x64xbf16>, tensor<1x64x64x64xbf16>) -> tensor<1x64x64x64xbf16> loc(#loc85)
-    %872 = ttir.empty() : tensor<1x64x64x64xbf16> loc(#loc35)
-    %873 = "ttir.transpose"(%871, %872) <{dim0 = -3 : si32, dim1 = -1 : si32}> : (tensor<1x64x64x64xbf16>, tensor<1x64x64x64xbf16>) -> tensor<1x64x64x64xbf16> loc(#loc35)
-    %874 = ttir.empty() : tensor<1x64x64x64xbf16> loc(#loc86)
-    %875 = "ttir.transpose"(%873, %874) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x64x64x64xbf16>, tensor<1x64x64x64xbf16>) -> tensor<1x64x64x64xbf16> loc(#loc86)
-    %876 = ttir.empty() : tensor<1x64x64x64xbf16> loc(#loc327)
-    %877 = "ttir.transpose"(%875, %876) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x64x64x64xbf16>, tensor<1x64x64x64xbf16>) -> tensor<1x64x64x64xbf16> loc(#loc327)
-    %878 = ttir.empty() : tensor<1x64x64x64xbf16> loc(#loc328)
-    %879 = "ttir.transpose"(%877, %878) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x64x64x64xbf16>, tensor<1x64x64x64xbf16>) -> tensor<1x64x64x64xbf16> loc(#loc328)
-    %880 = ttir.empty() : tensor<1x32x32x160xbf16> loc(#loc329)
-    %881 = "ttir.conv2d"(%879, %arg199, %arg200, %880) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 2, 2>}> {channel_last = 1 : si32} : (tensor<1x64x64x64xbf16>, tensor<160x64x3x3xbf16>, tensor<1x1x1x160xbf16>, tensor<1x32x32x160xbf16>) -> tensor<1x32x32x160xbf16> loc(#loc329)
-    %882 = ttir.empty() : tensor<1x32x160x32xbf16> loc(#loc330)
-    %883 = "ttir.transpose"(%881, %882) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x32x32x160xbf16>, tensor<1x32x160x32xbf16>) -> tensor<1x32x160x32xbf16> loc(#loc330)
-    %884 = ttir.empty() : tensor<1x160x32x32xbf16> loc(#loc331)
-    %885 = "ttir.transpose"(%883, %884) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x32x160x32xbf16>, tensor<1x160x32x32xbf16>) -> tensor<1x160x32x32xbf16> loc(#loc331)
-    %886 = ttir.empty() : tensor<1x160x1024x1xbf16> loc(#loc144)
-    %887 = "ttir.reshape"(%885, %886) <{shape = [1 : i32, 160 : i32, 1024 : i32, 1 : i32]}> : (tensor<1x160x32x32xbf16>, tensor<1x160x1024x1xbf16>) -> tensor<1x160x1024x1xbf16> loc(#loc144)
-    %888 = ttir.empty() : tensor<1x160x1024xbf16> loc(#loc145)
-    %889 = "ttir.squeeze"(%887, %888) <{dim = -1 : si32}> : (tensor<1x160x1024x1xbf16>, tensor<1x160x1024xbf16>) -> tensor<1x160x1024xbf16> loc(#loc145)
-    %890 = ttir.empty() : tensor<1x1024x160xbf16> loc(#loc146)
-    %891 = "ttir.transpose"(%889, %890) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x160x1024xbf16>, tensor<1x1024x160xbf16>) -> tensor<1x1024x160xbf16> loc(#loc146)
-    %892 = ttir.empty() : tensor<1x1024x1xbf16> loc(#loc332)
-    %893 = "ttir.sum"(%891, %892) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x1024x160xbf16>, tensor<1x1024x1xbf16>) -> tensor<1x1024x1xbf16> loc(#loc332)
-    %894 = ttir.empty() : tensor<1x1024x160xbf16> loc(#loc333)
-    %895 = "ttir.multiply"(%arg53, %893, %894) : (tensor<1x1024x160xf32>, tensor<1x1024x1xbf16>, tensor<1x1024x160xbf16>) -> tensor<1x1024x160xbf16> loc(#loc333)
-    %896 = ttir.empty() : tensor<1x1024x160xbf16> loc(#loc334)
-    %897 = "ttir.subtract"(%891, %895, %896) : (tensor<1x1024x160xbf16>, tensor<1x1024x160xbf16>, tensor<1x1024x160xbf16>) -> tensor<1x1024x160xbf16> loc(#loc334)
-    %898 = ttir.empty() : tensor<1x1024x160xbf16> loc(#loc335)
-    %899 = "ttir.multiply"(%897, %897, %898) : (tensor<1x1024x160xbf16>, tensor<1x1024x160xbf16>, tensor<1x1024x160xbf16>) -> tensor<1x1024x160xbf16> loc(#loc335)
-    %900 = ttir.empty() : tensor<1x1024x1xbf16> loc(#loc336)
-    %901 = "ttir.sum"(%899, %900) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x1024x160xbf16>, tensor<1x1024x1xbf16>) -> tensor<1x1024x1xbf16> loc(#loc336)
-    %902 = ttir.empty() : tensor<1x1024x1xbf16> loc(#loc337)
-    %903 = "ttir.multiply"(%arg54, %901, %902) : (tensor<1x1024x1xf32>, tensor<1x1024x1xbf16>, tensor<1x1024x1xbf16>) -> tensor<1x1024x1xbf16> loc(#loc337)
-    %904 = ttir.empty() : tensor<1x1024x1xbf16> loc(#loc338)
-    %905 = "ttir.add"(%903, %arg55, %904) : (tensor<1x1024x1xbf16>, tensor<1x1024x1xf32>, tensor<1x1024x1xbf16>) -> tensor<1x1024x1xbf16> loc(#loc338)
-    %906 = ttir.empty() : tensor<1x1024x1xbf16> loc(#loc339)
-    %907 = "ttir.sqrt"(%905, %906) : (tensor<1x1024x1xbf16>, tensor<1x1024x1xbf16>) -> tensor<1x1024x1xbf16> loc(#loc339)
-    %908 = ttir.empty() : tensor<1x1024x1xbf16> loc(#loc340)
-    %909 = "ttir.reciprocal"(%907, %908) : (tensor<1x1024x1xbf16>, tensor<1x1024x1xbf16>) -> tensor<1x1024x1xbf16> loc(#loc340)
-    %910 = ttir.empty() : tensor<1x1024x160xbf16> loc(#loc341)
-    %911 = "ttir.multiply"(%897, %909, %910) : (tensor<1x1024x160xbf16>, tensor<1x1024x1xbf16>, tensor<1x1024x160xbf16>) -> tensor<1x1024x160xbf16> loc(#loc341)
-    %912 = ttir.empty() : tensor<1x1024x160xbf16> loc(#loc342)
-    %913 = "ttir.multiply"(%911, %arg201, %912) : (tensor<1x1024x160xbf16>, tensor<160xbf16>, tensor<1x1024x160xbf16>) -> tensor<1x1024x160xbf16> loc(#loc342)
-    %914 = ttir.empty() : tensor<1x1024x160xbf16> loc(#loc343)
-    %915 = "ttir.add"(%913, %arg202, %914) : (tensor<1x1024x160xbf16>, tensor<160xbf16>, tensor<1x1024x160xbf16>) -> tensor<1x1024x160xbf16> loc(#loc343)
-    %916 = ttir.empty() : tensor<1x1024x1xbf16> loc(#loc344)
-    %917 = "ttir.sum"(%915, %916) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x1024x160xbf16>, tensor<1x1024x1xbf16>) -> tensor<1x1024x1xbf16> loc(#loc344)
-    %918 = ttir.empty() : tensor<1x1024x160xbf16> loc(#loc345)
-    %919 = "ttir.multiply"(%arg56, %917, %918) : (tensor<1x1024x160xf32>, tensor<1x1024x1xbf16>, tensor<1x1024x160xbf16>) -> tensor<1x1024x160xbf16> loc(#loc345)
-    %920 = ttir.empty() : tensor<1x1024x160xbf16> loc(#loc346)
-    %921 = "ttir.subtract"(%915, %919, %920) : (tensor<1x1024x160xbf16>, tensor<1x1024x160xbf16>, tensor<1x1024x160xbf16>) -> tensor<1x1024x160xbf16> loc(#loc346)
-    %922 = ttir.empty() : tensor<1x1024x160xbf16> loc(#loc347)
-    %923 = "ttir.multiply"(%921, %921, %922) : (tensor<1x1024x160xbf16>, tensor<1x1024x160xbf16>, tensor<1x1024x160xbf16>) -> tensor<1x1024x160xbf16> loc(#loc347)
-    %924 = ttir.empty() : tensor<1x1024x1xbf16> loc(#loc348)
-    %925 = "ttir.sum"(%923, %924) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x1024x160xbf16>, tensor<1x1024x1xbf16>) -> tensor<1x1024x1xbf16> loc(#loc348)
-    %926 = ttir.empty() : tensor<1x1024x1xbf16> loc(#loc349)
-    %927 = "ttir.multiply"(%arg57, %925, %926) : (tensor<1x1024x1xf32>, tensor<1x1024x1xbf16>, tensor<1x1024x1xbf16>) -> tensor<1x1024x1xbf16> loc(#loc349)
-    %928 = ttir.empty() : tensor<1x1024x1xbf16> loc(#loc350)
-    %929 = "ttir.add"(%927, %arg58, %928) : (tensor<1x1024x1xbf16>, tensor<1x1024x1xf32>, tensor<1x1024x1xbf16>) -> tensor<1x1024x1xbf16> loc(#loc350)
-    %930 = ttir.empty() : tensor<1x1024x1xbf16> loc(#loc351)
-    %931 = "ttir.sqrt"(%929, %930) : (tensor<1x1024x1xbf16>, tensor<1x1024x1xbf16>) -> tensor<1x1024x1xbf16> loc(#loc351)
-    %932 = ttir.empty() : tensor<1x1024x1xbf16> loc(#loc352)
-    %933 = "ttir.reciprocal"(%931, %932) : (tensor<1x1024x1xbf16>, tensor<1x1024x1xbf16>) -> tensor<1x1024x1xbf16> loc(#loc352)
-    %934 = ttir.empty() : tensor<1x1024x160xbf16> loc(#loc353)
-    %935 = "ttir.multiply"(%921, %933, %934) : (tensor<1x1024x160xbf16>, tensor<1x1024x1xbf16>, tensor<1x1024x160xbf16>) -> tensor<1x1024x160xbf16> loc(#loc353)
-    %936 = ttir.empty() : tensor<1x1024x160xbf16> loc(#loc354)
-    %937 = "ttir.multiply"(%935, %arg203, %936) : (tensor<1x1024x160xbf16>, tensor<160xbf16>, tensor<1x1024x160xbf16>) -> tensor<1x1024x160xbf16> loc(#loc354)
-    %938 = ttir.empty() : tensor<1x1024x160xbf16> loc(#loc355)
-    %939 = "ttir.add"(%937, %arg204, %938) : (tensor<1x1024x160xbf16>, tensor<160xbf16>, tensor<1x1024x160xbf16>) -> tensor<1x1024x160xbf16> loc(#loc355)
-    %940 = ttir.empty() : tensor<1x1024x160xbf16> loc(#loc815)
-    %941 = "ttir.matmul"(%939, %arg205, %940) <{transpose_a = false, transpose_b = false}> : (tensor<1x1024x160xbf16>, tensor<160x160xbf16>, tensor<1x1024x160xbf16>) -> tensor<1x1024x160xbf16> loc(#loc815)
-    %942 = ttir.empty() : tensor<1x1024x160xbf16> loc(#loc36)
-    %943 = "ttir.add"(%941, %arg206, %942) : (tensor<1x1024x160xbf16>, tensor<160xbf16>, tensor<1x1024x160xbf16>) -> tensor<1x1024x160xbf16> loc(#loc36)
-    %944 = ttir.empty() : tensor<1x1024x5x32xbf16> loc(#loc583)
-    %945 = "ttir.reshape"(%943, %944) <{shape = [1 : i32, 1024 : i32, 5 : i32, 32 : i32]}> : (tensor<1x1024x160xbf16>, tensor<1x1024x5x32xbf16>) -> tensor<1x1024x5x32xbf16> loc(#loc583)
-    %946 = ttir.empty() : tensor<1x5x1024x32xbf16> loc(#loc584)
-    %947 = "ttir.transpose"(%945, %946) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x1024x5x32xbf16>, tensor<1x5x1024x32xbf16>) -> tensor<1x5x1024x32xbf16> loc(#loc584)
-    %948 = ttir.empty() : tensor<5x1024x32xbf16> loc(#loc585)
-    %949 = "ttir.squeeze"(%947, %948) <{dim = 0 : si32}> : (tensor<1x5x1024x32xbf16>, tensor<5x1024x32xbf16>) -> tensor<5x1024x32xbf16> loc(#loc585)
-    %950 = ttir.empty() : tensor<1x160x1024xbf16> loc(#loc586)
-    %951 = "ttir.transpose"(%939, %950) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x1024x160xbf16>, tensor<1x160x1024xbf16>) -> tensor<1x160x1024xbf16> loc(#loc586)
-    %952 = ttir.empty() : tensor<1x160x32x32xbf16> loc(#loc587)
-    %953 = "ttir.reshape"(%951, %952) <{shape = [1 : i32, 160 : i32, 32 : i32, 32 : i32]}> : (tensor<1x160x1024xbf16>, tensor<1x160x32x32xbf16>) -> tensor<1x160x32x32xbf16> loc(#loc587)
-    %954 = ttir.empty() : tensor<1x32x160x32xbf16> loc(#loc816)
-    %955 = "ttir.transpose"(%953, %954) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x160x32x32xbf16>, tensor<1x32x160x32xbf16>) -> tensor<1x32x160x32xbf16> loc(#loc816)
-    %956 = ttir.empty() : tensor<1x32x32x160xbf16> loc(#loc817)
-    %957 = "ttir.transpose"(%955, %956) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x32x160x32xbf16>, tensor<1x32x32x160xbf16>) -> tensor<1x32x32x160xbf16> loc(#loc817)
-    %958 = ttir.empty() : tensor<1x16x16x160xbf16> loc(#loc818)
-    %959 = "ttir.conv2d"(%957, %arg207, %arg208, %958) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 0, 0, 0, 0>, stride = array<i32: 2, 2>}> {channel_last = 1 : si32} : (tensor<1x32x32x160xbf16>, tensor<160x160x2x2xbf16>, tensor<1x1x1x160xbf16>, tensor<1x16x16x160xbf16>) -> tensor<1x16x16x160xbf16> loc(#loc818)
-    %960 = ttir.empty() : tensor<1x16x160x16xbf16> loc(#loc819)
-    %961 = "ttir.transpose"(%959, %960) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x16x16x160xbf16>, tensor<1x16x160x16xbf16>) -> tensor<1x16x160x16xbf16> loc(#loc819)
-    %962 = ttir.empty() : tensor<1x160x16x16xbf16> loc(#loc820)
-    %963 = "ttir.transpose"(%961, %962) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x16x160x16xbf16>, tensor<1x160x16x16xbf16>) -> tensor<1x160x16x16xbf16> loc(#loc820)
-    %964 = ttir.empty() : tensor<1x160x256xbf16> loc(#loc588)
-    %965 = "ttir.reshape"(%963, %964) <{shape = [1 : i32, 160 : i32, 256 : i32]}> : (tensor<1x160x16x16xbf16>, tensor<1x160x256xbf16>) -> tensor<1x160x256xbf16> loc(#loc588)
-    %966 = ttir.empty() : tensor<1x256x160xbf16> loc(#loc589)
-    %967 = "ttir.transpose"(%965, %966) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x160x256xbf16>, tensor<1x256x160xbf16>) -> tensor<1x256x160xbf16> loc(#loc589)
-    %968 = ttir.empty() : tensor<1x256x1xbf16> loc(#loc821)
-    %969 = "ttir.sum"(%967, %968) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x256x160xbf16>, tensor<1x256x1xbf16>) -> tensor<1x256x1xbf16> loc(#loc821)
-    %970 = ttir.empty() : tensor<1x256x160xbf16> loc(#loc822)
-    %971 = "ttir.multiply"(%arg59, %969, %970) : (tensor<1x256x160xf32>, tensor<1x256x1xbf16>, tensor<1x256x160xbf16>) -> tensor<1x256x160xbf16> loc(#loc822)
-    %972 = ttir.empty() : tensor<1x256x160xbf16> loc(#loc823)
-    %973 = "ttir.subtract"(%967, %971, %972) : (tensor<1x256x160xbf16>, tensor<1x256x160xbf16>, tensor<1x256x160xbf16>) -> tensor<1x256x160xbf16> loc(#loc823)
-    %974 = ttir.empty() : tensor<1x256x160xbf16> loc(#loc824)
-    %975 = "ttir.multiply"(%973, %973, %974) : (tensor<1x256x160xbf16>, tensor<1x256x160xbf16>, tensor<1x256x160xbf16>) -> tensor<1x256x160xbf16> loc(#loc824)
-    %976 = ttir.empty() : tensor<1x256x1xbf16> loc(#loc825)
-    %977 = "ttir.sum"(%975, %976) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x256x160xbf16>, tensor<1x256x1xbf16>) -> tensor<1x256x1xbf16> loc(#loc825)
-    %978 = ttir.empty() : tensor<1x256x1xbf16> loc(#loc826)
-    %979 = "ttir.multiply"(%arg60, %977, %978) : (tensor<1x256x1xf32>, tensor<1x256x1xbf16>, tensor<1x256x1xbf16>) -> tensor<1x256x1xbf16> loc(#loc826)
-    %980 = ttir.empty() : tensor<1x256x1xbf16> loc(#loc827)
-    %981 = "ttir.add"(%979, %arg61, %980) : (tensor<1x256x1xbf16>, tensor<1x256x1xf32>, tensor<1x256x1xbf16>) -> tensor<1x256x1xbf16> loc(#loc827)
-    %982 = ttir.empty() : tensor<1x256x1xbf16> loc(#loc828)
-    %983 = "ttir.sqrt"(%981, %982) : (tensor<1x256x1xbf16>, tensor<1x256x1xbf16>) -> tensor<1x256x1xbf16> loc(#loc828)
-    %984 = ttir.empty() : tensor<1x256x1xbf16> loc(#loc829)
-    %985 = "ttir.reciprocal"(%983, %984) : (tensor<1x256x1xbf16>, tensor<1x256x1xbf16>) -> tensor<1x256x1xbf16> loc(#loc829)
-    %986 = ttir.empty() : tensor<1x256x160xbf16> loc(#loc830)
-    %987 = "ttir.multiply"(%973, %985, %986) : (tensor<1x256x160xbf16>, tensor<1x256x1xbf16>, tensor<1x256x160xbf16>) -> tensor<1x256x160xbf16> loc(#loc830)
-    %988 = ttir.empty() : tensor<1x256x160xbf16> loc(#loc831)
-    %989 = "ttir.multiply"(%987, %arg209, %988) : (tensor<1x256x160xbf16>, tensor<160xbf16>, tensor<1x256x160xbf16>) -> tensor<1x256x160xbf16> loc(#loc831)
-    %990 = ttir.empty() : tensor<1x256x160xbf16> loc(#loc832)
-    %991 = "ttir.add"(%989, %arg210, %990) : (tensor<1x256x160xbf16>, tensor<160xbf16>, tensor<1x256x160xbf16>) -> tensor<1x256x160xbf16> loc(#loc832)
-    %992 = ttir.empty() : tensor<256x160xbf16> loc(#loc833)
-    %993 = "ttir.squeeze"(%991, %992) <{dim = 0 : si32}> : (tensor<1x256x160xbf16>, tensor<256x160xbf16>) -> tensor<256x160xbf16> loc(#loc833)
-    %994 = ttir.empty() : tensor<256x160xbf16> loc(#loc834)
-    %995 = "ttir.matmul"(%993, %arg211, %994) <{transpose_a = false, transpose_b = false}> : (tensor<256x160xbf16>, tensor<160x160xbf16>, tensor<256x160xbf16>) -> tensor<256x160xbf16> loc(#loc834)
-    %996 = ttir.empty() : tensor<1x256x160xbf16> loc(#loc835)
-    %997 = "ttir.unsqueeze"(%995, %996) <{dim = 0 : si32}> : (tensor<256x160xbf16>, tensor<1x256x160xbf16>) -> tensor<1x256x160xbf16> loc(#loc835)
-    %998 = ttir.empty() : tensor<1x256x160xbf16> loc(#loc37)
-    %999 = "ttir.add"(%997, %arg212, %998) : (tensor<1x256x160xbf16>, tensor<160xbf16>, tensor<1x256x160xbf16>) -> tensor<1x256x160xbf16> loc(#loc37)
-    %1000 = ttir.empty() : tensor<1x256x5x32xbf16> loc(#loc590)
-    %1001 = "ttir.reshape"(%999, %1000) <{shape = [1 : i32, 256 : i32, 5 : i32, 32 : i32]}> : (tensor<1x256x160xbf16>, tensor<1x256x5x32xbf16>) -> tensor<1x256x5x32xbf16> loc(#loc590)
-    %1002 = ttir.empty() : tensor<1x5x256x32xbf16> loc(#loc591)
-    %1003 = "ttir.transpose"(%1001, %1002) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x256x5x32xbf16>, tensor<1x5x256x32xbf16>) -> tensor<1x5x256x32xbf16> loc(#loc591)
-    %1004 = ttir.empty() : tensor<5x256x32xbf16> loc(#loc592)
-    %1005 = "ttir.squeeze"(%1003, %1004) <{dim = 0 : si32}> : (tensor<1x5x256x32xbf16>, tensor<5x256x32xbf16>) -> tensor<5x256x32xbf16> loc(#loc592)
-    %1006 = ttir.empty() : tensor<5x32x256xbf16> loc(#loc38)
-    %1007 = "ttir.transpose"(%1005, %1006) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<5x256x32xbf16>, tensor<5x32x256xbf16>) -> tensor<5x32x256xbf16> loc(#loc38)
-    %1008 = ttir.empty() : tensor<5x1024x256xbf16> loc(#loc593)
-    %1009 = "ttir.matmul"(%949, %1007, %1008) <{transpose_a = false, transpose_b = false}> : (tensor<5x1024x32xbf16>, tensor<5x32x256xbf16>, tensor<5x1024x256xbf16>) -> tensor<5x1024x256xbf16> loc(#loc593)
-    %1010 = ttir.empty() : tensor<1x5x1024x256xbf16> loc(#loc594)
-    %1011 = "ttir.unsqueeze"(%1009, %1010) <{dim = 0 : si32}> : (tensor<5x1024x256xbf16>, tensor<1x5x1024x256xbf16>) -> tensor<1x5x1024x256xbf16> loc(#loc594)
-    %1012 = ttir.empty() : tensor<1x5x1024x256xbf16> loc(#loc595)
-    %1013 = "ttir.div"(%1011, %arg62, %1012) : (tensor<1x5x1024x256xbf16>, tensor<1xbf16>, tensor<1x5x1024x256xbf16>) -> tensor<1x5x1024x256xbf16> loc(#loc595)
-    %1014 = ttir.empty() : tensor<1x5x1024x256xbf16> loc(#loc596)
-    %1015 = "ttir.softmax"(%1013, %1014) <{dimension = -1 : si32}> : (tensor<1x5x1024x256xbf16>, tensor<1x5x1024x256xbf16>) -> tensor<1x5x1024x256xbf16> loc(#loc596)
-    %1016 = ttir.empty() : tensor<5x1024x256xbf16> loc(#loc597)
-    %1017 = "ttir.squeeze"(%1015, %1016) <{dim = 0 : si32}> : (tensor<1x5x1024x256xbf16>, tensor<5x1024x256xbf16>) -> tensor<5x1024x256xbf16> loc(#loc597)
-    %1018 = ttir.empty() : tensor<256x160xbf16> loc(#loc836)
-    %1019 = "ttir.matmul"(%993, %arg213, %1018) <{transpose_a = false, transpose_b = false}> : (tensor<256x160xbf16>, tensor<160x160xbf16>, tensor<256x160xbf16>) -> tensor<256x160xbf16> loc(#loc836)
-    %1020 = ttir.empty() : tensor<1x256x160xbf16> loc(#loc837)
-    %1021 = "ttir.unsqueeze"(%1019, %1020) <{dim = 0 : si32}> : (tensor<256x160xbf16>, tensor<1x256x160xbf16>) -> tensor<1x256x160xbf16> loc(#loc837)
-    %1022 = ttir.empty() : tensor<1x256x160xbf16> loc(#loc39)
-    %1023 = "ttir.add"(%1021, %arg214, %1022) : (tensor<1x256x160xbf16>, tensor<160xbf16>, tensor<1x256x160xbf16>) -> tensor<1x256x160xbf16> loc(#loc39)
-    %1024 = ttir.empty() : tensor<1x256x5x32xbf16> loc(#loc598)
-    %1025 = "ttir.reshape"(%1023, %1024) <{shape = [1 : i32, 256 : i32, 5 : i32, 32 : i32]}> : (tensor<1x256x160xbf16>, tensor<1x256x5x32xbf16>) -> tensor<1x256x5x32xbf16> loc(#loc598)
-    %1026 = ttir.empty() : tensor<1x5x256x32xbf16> loc(#loc599)
-    %1027 = "ttir.transpose"(%1025, %1026) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x256x5x32xbf16>, tensor<1x5x256x32xbf16>) -> tensor<1x5x256x32xbf16> loc(#loc599)
-    %1028 = ttir.empty() : tensor<1x5x32x256xbf16> loc(#loc600)
-    %1029 = "ttir.transpose"(%1027, %1028) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x5x256x32xbf16>, tensor<1x5x32x256xbf16>) -> tensor<1x5x32x256xbf16> loc(#loc600)
-    %1030 = ttir.empty() : tensor<5x32x256xbf16> loc(#loc601)
-    %1031 = "ttir.squeeze"(%1029, %1030) <{dim = 0 : si32}> : (tensor<1x5x32x256xbf16>, tensor<5x32x256xbf16>) -> tensor<5x32x256xbf16> loc(#loc601)
-    %1032 = ttir.empty() : tensor<5x256x32xbf16> loc(#loc40)
-    %1033 = "ttir.transpose"(%1031, %1032) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<5x32x256xbf16>, tensor<5x256x32xbf16>) -> tensor<5x256x32xbf16> loc(#loc40)
-    %1034 = ttir.empty() : tensor<5x1024x32xbf16> loc(#loc602)
-    %1035 = "ttir.matmul"(%1017, %1033, %1034) <{transpose_a = false, transpose_b = false}> : (tensor<5x1024x256xbf16>, tensor<5x256x32xbf16>, tensor<5x1024x32xbf16>) -> tensor<5x1024x32xbf16> loc(#loc602)
-    %1036 = ttir.empty() : tensor<1x5x1024x32xbf16> loc(#loc603)
-    %1037 = "ttir.unsqueeze"(%1035, %1036) <{dim = 0 : si32}> : (tensor<5x1024x32xbf16>, tensor<1x5x1024x32xbf16>) -> tensor<1x5x1024x32xbf16> loc(#loc603)
-    %1038 = ttir.empty() : tensor<1x1024x5x32xbf16> loc(#loc604)
-    %1039 = "ttir.transpose"(%1037, %1038) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x5x1024x32xbf16>, tensor<1x1024x5x32xbf16>) -> tensor<1x1024x5x32xbf16> loc(#loc604)
-    %1040 = ttir.empty() : tensor<1024x160xbf16> loc(#loc838)
-    %1041 = "ttir.reshape"(%1039, %1040) <{shape = [1024 : i32, 160 : i32]}> : (tensor<1x1024x5x32xbf16>, tensor<1024x160xbf16>) -> tensor<1024x160xbf16> loc(#loc838)
-    %1042 = ttir.empty() : tensor<1024x160xbf16> loc(#loc839)
-    %1043 = "ttir.matmul"(%1041, %arg215, %1042) <{transpose_a = false, transpose_b = false}> : (tensor<1024x160xbf16>, tensor<160x160xbf16>, tensor<1024x160xbf16>) -> tensor<1024x160xbf16> loc(#loc839)
-    %1044 = ttir.empty() : tensor<1x1024x160xbf16> loc(#loc840)
-    %1045 = "ttir.unsqueeze"(%1043, %1044) <{dim = 0 : si32}> : (tensor<1024x160xbf16>, tensor<1x1024x160xbf16>) -> tensor<1x1024x160xbf16> loc(#loc840)
-    %1046 = ttir.empty() : tensor<1x1024x160xbf16> loc(#loc41)
-    %1047 = "ttir.add"(%1045, %arg216, %1046) : (tensor<1x1024x160xbf16>, tensor<160xbf16>, tensor<1x1024x160xbf16>) -> tensor<1x1024x160xbf16> loc(#loc41)
-    %1048 = ttir.empty() : tensor<1x1024x160xbf16> loc(#loc148)
-    %1049 = "ttir.add"(%1047, %915, %1048) : (tensor<1x1024x160xbf16>, tensor<1x1024x160xbf16>, tensor<1x1024x160xbf16>) -> tensor<1x1024x160xbf16> loc(#loc148)
-    %1050 = ttir.empty() : tensor<1x1024x1xbf16> loc(#loc356)
-    %1051 = "ttir.sum"(%1049, %1050) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x1024x160xbf16>, tensor<1x1024x1xbf16>) -> tensor<1x1024x1xbf16> loc(#loc356)
-    %1052 = ttir.empty() : tensor<1x1024x160xbf16> loc(#loc357)
-    %1053 = "ttir.multiply"(%arg63, %1051, %1052) : (tensor<1x1024x160xf32>, tensor<1x1024x1xbf16>, tensor<1x1024x160xbf16>) -> tensor<1x1024x160xbf16> loc(#loc357)
-    %1054 = ttir.empty() : tensor<1x1024x160xbf16> loc(#loc358)
-    %1055 = "ttir.subtract"(%1049, %1053, %1054) : (tensor<1x1024x160xbf16>, tensor<1x1024x160xbf16>, tensor<1x1024x160xbf16>) -> tensor<1x1024x160xbf16> loc(#loc358)
-    %1056 = ttir.empty() : tensor<1x1024x160xbf16> loc(#loc359)
-    %1057 = "ttir.multiply"(%1055, %1055, %1056) : (tensor<1x1024x160xbf16>, tensor<1x1024x160xbf16>, tensor<1x1024x160xbf16>) -> tensor<1x1024x160xbf16> loc(#loc359)
-    %1058 = ttir.empty() : tensor<1x1024x1xbf16> loc(#loc360)
-    %1059 = "ttir.sum"(%1057, %1058) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x1024x160xbf16>, tensor<1x1024x1xbf16>) -> tensor<1x1024x1xbf16> loc(#loc360)
-    %1060 = ttir.empty() : tensor<1x1024x1xbf16> loc(#loc361)
-    %1061 = "ttir.multiply"(%arg64, %1059, %1060) : (tensor<1x1024x1xf32>, tensor<1x1024x1xbf16>, tensor<1x1024x1xbf16>) -> tensor<1x1024x1xbf16> loc(#loc361)
-    %1062 = ttir.empty() : tensor<1x1024x1xbf16> loc(#loc362)
-    %1063 = "ttir.add"(%1061, %arg65, %1062) : (tensor<1x1024x1xbf16>, tensor<1x1024x1xf32>, tensor<1x1024x1xbf16>) -> tensor<1x1024x1xbf16> loc(#loc362)
-    %1064 = ttir.empty() : tensor<1x1024x1xbf16> loc(#loc363)
-    %1065 = "ttir.sqrt"(%1063, %1064) : (tensor<1x1024x1xbf16>, tensor<1x1024x1xbf16>) -> tensor<1x1024x1xbf16> loc(#loc363)
-    %1066 = ttir.empty() : tensor<1x1024x1xbf16> loc(#loc364)
-    %1067 = "ttir.reciprocal"(%1065, %1066) : (tensor<1x1024x1xbf16>, tensor<1x1024x1xbf16>) -> tensor<1x1024x1xbf16> loc(#loc364)
-    %1068 = ttir.empty() : tensor<1x1024x160xbf16> loc(#loc365)
-    %1069 = "ttir.multiply"(%1055, %1067, %1068) : (tensor<1x1024x160xbf16>, tensor<1x1024x1xbf16>, tensor<1x1024x160xbf16>) -> tensor<1x1024x160xbf16> loc(#loc365)
-    %1070 = ttir.empty() : tensor<1x1024x160xbf16> loc(#loc366)
-    %1071 = "ttir.multiply"(%1069, %arg217, %1070) : (tensor<1x1024x160xbf16>, tensor<160xbf16>, tensor<1x1024x160xbf16>) -> tensor<1x1024x160xbf16> loc(#loc366)
-    %1072 = ttir.empty() : tensor<1x1024x160xbf16> loc(#loc367)
-    %1073 = "ttir.add"(%1071, %arg218, %1072) : (tensor<1x1024x160xbf16>, tensor<160xbf16>, tensor<1x1024x160xbf16>) -> tensor<1x1024x160xbf16> loc(#loc367)
-    %1074 = ttir.empty() : tensor<1x1024x640xbf16> loc(#loc605)
-    %1075 = "ttir.matmul"(%1073, %arg219, %1074) <{transpose_a = false, transpose_b = false}> : (tensor<1x1024x160xbf16>, tensor<160x640xbf16>, tensor<1x1024x640xbf16>) -> tensor<1x1024x640xbf16> loc(#loc605)
-    %1076 = ttir.empty() : tensor<1x1024x640xbf16> loc(#loc42)
-    %1077 = "ttir.add"(%1075, %arg220, %1076) : (tensor<1x1024x640xbf16>, tensor<640xbf16>, tensor<1x1024x640xbf16>) -> tensor<1x1024x640xbf16> loc(#loc42)
-    %1078 = ttir.empty() : tensor<1x640x1024xbf16> loc(#loc606)
-    %1079 = "ttir.transpose"(%1077, %1078) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x1024x640xbf16>, tensor<1x640x1024xbf16>) -> tensor<1x640x1024xbf16> loc(#loc606)
-    %1080 = ttir.empty() : tensor<1x640x32x32xbf16> loc(#loc607)
-    %1081 = "ttir.reshape"(%1079, %1080) <{shape = [1 : i32, 640 : i32, 32 : i32, 32 : i32]}> : (tensor<1x640x1024xbf16>, tensor<1x640x32x32xbf16>) -> tensor<1x640x32x32xbf16> loc(#loc607)
-    %1082 = ttir.empty() : tensor<1x32x640x32xbf16> loc(#loc841)
-    %1083 = "ttir.transpose"(%1081, %1082) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x640x32x32xbf16>, tensor<1x32x640x32xbf16>) -> tensor<1x32x640x32xbf16> loc(#loc841)
-    %1084 = ttir.empty() : tensor<1x32x32x640xbf16> loc(#loc842)
-    %1085 = "ttir.transpose"(%1083, %1084) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x32x640x32xbf16>, tensor<1x32x32x640xbf16>) -> tensor<1x32x32x640xbf16> loc(#loc842)
-    %1086 = ttir.empty() : tensor<1x32x32x640xbf16> loc(#loc843)
-    %1087 = "ttir.conv2d"(%1085, %arg221, %arg222, %1086) <{dilation = array<i32: 1, 1>, groups = 640 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x32x32x640xbf16>, tensor<640x1x3x3xbf16>, tensor<1x1x1x640xbf16>, tensor<1x32x32x640xbf16>) -> tensor<1x32x32x640xbf16> loc(#loc843)
-    %1088 = ttir.empty() : tensor<1x32x640x32xbf16> loc(#loc844)
-    %1089 = "ttir.transpose"(%1087, %1088) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x32x32x640xbf16>, tensor<1x32x640x32xbf16>) -> tensor<1x32x640x32xbf16> loc(#loc844)
-    %1090 = ttir.empty() : tensor<1x640x32x32xbf16> loc(#loc845)
-    %1091 = "ttir.transpose"(%1089, %1090) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x32x640x32xbf16>, tensor<1x640x32x32xbf16>) -> tensor<1x640x32x32xbf16> loc(#loc845)
-    %1092 = ttir.empty() : tensor<1x640x1024x1xbf16> loc(#loc608)
-    %1093 = "ttir.reshape"(%1091, %1092) <{shape = [1 : i32, 640 : i32, 1024 : i32, 1 : i32]}> : (tensor<1x640x32x32xbf16>, tensor<1x640x1024x1xbf16>) -> tensor<1x640x1024x1xbf16> loc(#loc608)
-    %1094 = ttir.empty() : tensor<1x640x1024xbf16> loc(#loc609)
-    %1095 = "ttir.squeeze"(%1093, %1094) <{dim = -1 : si32}> : (tensor<1x640x1024x1xbf16>, tensor<1x640x1024xbf16>) -> tensor<1x640x1024xbf16> loc(#loc609)
-    %1096 = ttir.empty() : tensor<1x1024x640xbf16> loc(#loc610)
-    %1097 = "ttir.transpose"(%1095, %1096) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x640x1024xbf16>, tensor<1x1024x640xbf16>) -> tensor<1x1024x640xbf16> loc(#loc610)
-    %1098 = ttir.empty() : tensor<1x1024x640xbf16> loc(#loc611)
-    %1099 = "ttir.gelu"(%1097, %1098) : (tensor<1x1024x640xbf16>, tensor<1x1024x640xbf16>) -> tensor<1x1024x640xbf16> loc(#loc611)
-    %1100 = ttir.empty() : tensor<1x1024x160xbf16> loc(#loc612)
-    %1101 = "ttir.matmul"(%1099, %arg223, %1100) <{transpose_a = false, transpose_b = false}> : (tensor<1x1024x640xbf16>, tensor<640x160xbf16>, tensor<1x1024x160xbf16>) -> tensor<1x1024x160xbf16> loc(#loc612)
-    %1102 = ttir.empty() : tensor<1x1024x160xbf16> loc(#loc43)
-    %1103 = "ttir.add"(%1101, %arg224, %1102) : (tensor<1x1024x160xbf16>, tensor<160xbf16>, tensor<1x1024x160xbf16>) -> tensor<1x1024x160xbf16> loc(#loc43)
-    %1104 = ttir.empty() : tensor<1x1024x160xbf16> loc(#loc149)
-    %1105 = "ttir.add"(%1103, %1049, %1104) : (tensor<1x1024x160xbf16>, tensor<1x1024x160xbf16>, tensor<1x1024x160xbf16>) -> tensor<1x1024x160xbf16> loc(#loc149)
-    %1106 = ttir.empty() : tensor<1x1024x1xbf16> loc(#loc368)
-    %1107 = "ttir.sum"(%1105, %1106) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x1024x160xbf16>, tensor<1x1024x1xbf16>) -> tensor<1x1024x1xbf16> loc(#loc368)
-    %1108 = ttir.empty() : tensor<1x1024x160xbf16> loc(#loc369)
-    %1109 = "ttir.multiply"(%arg66, %1107, %1108) : (tensor<1x1024x160xf32>, tensor<1x1024x1xbf16>, tensor<1x1024x160xbf16>) -> tensor<1x1024x160xbf16> loc(#loc369)
-    %1110 = ttir.empty() : tensor<1x1024x160xbf16> loc(#loc370)
-    %1111 = "ttir.subtract"(%1105, %1109, %1110) : (tensor<1x1024x160xbf16>, tensor<1x1024x160xbf16>, tensor<1x1024x160xbf16>) -> tensor<1x1024x160xbf16> loc(#loc370)
-    %1112 = ttir.empty() : tensor<1x1024x160xbf16> loc(#loc371)
-    %1113 = "ttir.multiply"(%1111, %1111, %1112) : (tensor<1x1024x160xbf16>, tensor<1x1024x160xbf16>, tensor<1x1024x160xbf16>) -> tensor<1x1024x160xbf16> loc(#loc371)
-    %1114 = ttir.empty() : tensor<1x1024x1xbf16> loc(#loc372)
-    %1115 = "ttir.sum"(%1113, %1114) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x1024x160xbf16>, tensor<1x1024x1xbf16>) -> tensor<1x1024x1xbf16> loc(#loc372)
-    %1116 = ttir.empty() : tensor<1x1024x1xbf16> loc(#loc373)
-    %1117 = "ttir.multiply"(%arg67, %1115, %1116) : (tensor<1x1024x1xf32>, tensor<1x1024x1xbf16>, tensor<1x1024x1xbf16>) -> tensor<1x1024x1xbf16> loc(#loc373)
-    %1118 = ttir.empty() : tensor<1x1024x1xbf16> loc(#loc374)
-    %1119 = "ttir.add"(%1117, %arg68, %1118) : (tensor<1x1024x1xbf16>, tensor<1x1024x1xf32>, tensor<1x1024x1xbf16>) -> tensor<1x1024x1xbf16> loc(#loc374)
-    %1120 = ttir.empty() : tensor<1x1024x1xbf16> loc(#loc375)
-    %1121 = "ttir.sqrt"(%1119, %1120) : (tensor<1x1024x1xbf16>, tensor<1x1024x1xbf16>) -> tensor<1x1024x1xbf16> loc(#loc375)
-    %1122 = ttir.empty() : tensor<1x1024x1xbf16> loc(#loc376)
-    %1123 = "ttir.reciprocal"(%1121, %1122) : (tensor<1x1024x1xbf16>, tensor<1x1024x1xbf16>) -> tensor<1x1024x1xbf16> loc(#loc376)
-    %1124 = ttir.empty() : tensor<1x1024x160xbf16> loc(#loc377)
-    %1125 = "ttir.multiply"(%1111, %1123, %1124) : (tensor<1x1024x160xbf16>, tensor<1x1024x1xbf16>, tensor<1x1024x160xbf16>) -> tensor<1x1024x160xbf16> loc(#loc377)
-    %1126 = ttir.empty() : tensor<1x1024x160xbf16> loc(#loc378)
-    %1127 = "ttir.multiply"(%1125, %arg225, %1126) : (tensor<1x1024x160xbf16>, tensor<160xbf16>, tensor<1x1024x160xbf16>) -> tensor<1x1024x160xbf16> loc(#loc378)
-    %1128 = ttir.empty() : tensor<1x1024x160xbf16> loc(#loc379)
-    %1129 = "ttir.add"(%1127, %arg226, %1128) : (tensor<1x1024x160xbf16>, tensor<160xbf16>, tensor<1x1024x160xbf16>) -> tensor<1x1024x160xbf16> loc(#loc379)
-    %1130 = ttir.empty() : tensor<1x1024x160xbf16> loc(#loc846)
-    %1131 = "ttir.matmul"(%1129, %arg227, %1130) <{transpose_a = false, transpose_b = false}> : (tensor<1x1024x160xbf16>, tensor<160x160xbf16>, tensor<1x1024x160xbf16>) -> tensor<1x1024x160xbf16> loc(#loc846)
-    %1132 = ttir.empty() : tensor<1x1024x160xbf16> loc(#loc44)
-    %1133 = "ttir.add"(%1131, %arg228, %1132) : (tensor<1x1024x160xbf16>, tensor<160xbf16>, tensor<1x1024x160xbf16>) -> tensor<1x1024x160xbf16> loc(#loc44)
-    %1134 = ttir.empty() : tensor<1x1024x5x32xbf16> loc(#loc613)
-    %1135 = "ttir.reshape"(%1133, %1134) <{shape = [1 : i32, 1024 : i32, 5 : i32, 32 : i32]}> : (tensor<1x1024x160xbf16>, tensor<1x1024x5x32xbf16>) -> tensor<1x1024x5x32xbf16> loc(#loc613)
-    %1136 = ttir.empty() : tensor<1x5x1024x32xbf16> loc(#loc614)
-    %1137 = "ttir.transpose"(%1135, %1136) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x1024x5x32xbf16>, tensor<1x5x1024x32xbf16>) -> tensor<1x5x1024x32xbf16> loc(#loc614)
-    %1138 = ttir.empty() : tensor<5x1024x32xbf16> loc(#loc615)
-    %1139 = "ttir.squeeze"(%1137, %1138) <{dim = 0 : si32}> : (tensor<1x5x1024x32xbf16>, tensor<5x1024x32xbf16>) -> tensor<5x1024x32xbf16> loc(#loc615)
-    %1140 = ttir.empty() : tensor<1x160x1024xbf16> loc(#loc616)
-    %1141 = "ttir.transpose"(%1129, %1140) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x1024x160xbf16>, tensor<1x160x1024xbf16>) -> tensor<1x160x1024xbf16> loc(#loc616)
-    %1142 = ttir.empty() : tensor<1x160x32x32xbf16> loc(#loc617)
-    %1143 = "ttir.reshape"(%1141, %1142) <{shape = [1 : i32, 160 : i32, 32 : i32, 32 : i32]}> : (tensor<1x160x1024xbf16>, tensor<1x160x32x32xbf16>) -> tensor<1x160x32x32xbf16> loc(#loc617)
-    %1144 = ttir.empty() : tensor<1x32x160x32xbf16> loc(#loc847)
-    %1145 = "ttir.transpose"(%1143, %1144) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x160x32x32xbf16>, tensor<1x32x160x32xbf16>) -> tensor<1x32x160x32xbf16> loc(#loc847)
-    %1146 = ttir.empty() : tensor<1x32x32x160xbf16> loc(#loc848)
-    %1147 = "ttir.transpose"(%1145, %1146) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x32x160x32xbf16>, tensor<1x32x32x160xbf16>) -> tensor<1x32x32x160xbf16> loc(#loc848)
-    %1148 = ttir.empty() : tensor<1x16x16x160xbf16> loc(#loc849)
-    %1149 = "ttir.conv2d"(%1147, %arg229, %arg230, %1148) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 0, 0, 0, 0>, stride = array<i32: 2, 2>}> {channel_last = 1 : si32} : (tensor<1x32x32x160xbf16>, tensor<160x160x2x2xbf16>, tensor<1x1x1x160xbf16>, tensor<1x16x16x160xbf16>) -> tensor<1x16x16x160xbf16> loc(#loc849)
-    %1150 = ttir.empty() : tensor<1x16x160x16xbf16> loc(#loc850)
-    %1151 = "ttir.transpose"(%1149, %1150) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x16x16x160xbf16>, tensor<1x16x160x16xbf16>) -> tensor<1x16x160x16xbf16> loc(#loc850)
-    %1152 = ttir.empty() : tensor<1x160x16x16xbf16> loc(#loc851)
-    %1153 = "ttir.transpose"(%1151, %1152) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x16x160x16xbf16>, tensor<1x160x16x16xbf16>) -> tensor<1x160x16x16xbf16> loc(#loc851)
-    %1154 = ttir.empty() : tensor<1x160x256xbf16> loc(#loc618)
-    %1155 = "ttir.reshape"(%1153, %1154) <{shape = [1 : i32, 160 : i32, 256 : i32]}> : (tensor<1x160x16x16xbf16>, tensor<1x160x256xbf16>) -> tensor<1x160x256xbf16> loc(#loc618)
-    %1156 = ttir.empty() : tensor<1x256x160xbf16> loc(#loc619)
-    %1157 = "ttir.transpose"(%1155, %1156) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x160x256xbf16>, tensor<1x256x160xbf16>) -> tensor<1x256x160xbf16> loc(#loc619)
-    %1158 = ttir.empty() : tensor<1x256x1xbf16> loc(#loc852)
-    %1159 = "ttir.sum"(%1157, %1158) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x256x160xbf16>, tensor<1x256x1xbf16>) -> tensor<1x256x1xbf16> loc(#loc852)
-    %1160 = ttir.empty() : tensor<1x256x160xbf16> loc(#loc853)
-    %1161 = "ttir.multiply"(%arg69, %1159, %1160) : (tensor<1x256x160xf32>, tensor<1x256x1xbf16>, tensor<1x256x160xbf16>) -> tensor<1x256x160xbf16> loc(#loc853)
-    %1162 = ttir.empty() : tensor<1x256x160xbf16> loc(#loc854)
-    %1163 = "ttir.subtract"(%1157, %1161, %1162) : (tensor<1x256x160xbf16>, tensor<1x256x160xbf16>, tensor<1x256x160xbf16>) -> tensor<1x256x160xbf16> loc(#loc854)
-    %1164 = ttir.empty() : tensor<1x256x160xbf16> loc(#loc855)
-    %1165 = "ttir.multiply"(%1163, %1163, %1164) : (tensor<1x256x160xbf16>, tensor<1x256x160xbf16>, tensor<1x256x160xbf16>) -> tensor<1x256x160xbf16> loc(#loc855)
-    %1166 = ttir.empty() : tensor<1x256x1xbf16> loc(#loc856)
-    %1167 = "ttir.sum"(%1165, %1166) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x256x160xbf16>, tensor<1x256x1xbf16>) -> tensor<1x256x1xbf16> loc(#loc856)
-    %1168 = ttir.empty() : tensor<1x256x1xbf16> loc(#loc857)
-    %1169 = "ttir.multiply"(%arg70, %1167, %1168) : (tensor<1x256x1xf32>, tensor<1x256x1xbf16>, tensor<1x256x1xbf16>) -> tensor<1x256x1xbf16> loc(#loc857)
-    %1170 = ttir.empty() : tensor<1x256x1xbf16> loc(#loc858)
-    %1171 = "ttir.add"(%1169, %arg71, %1170) : (tensor<1x256x1xbf16>, tensor<1x256x1xf32>, tensor<1x256x1xbf16>) -> tensor<1x256x1xbf16> loc(#loc858)
-    %1172 = ttir.empty() : tensor<1x256x1xbf16> loc(#loc859)
-    %1173 = "ttir.sqrt"(%1171, %1172) : (tensor<1x256x1xbf16>, tensor<1x256x1xbf16>) -> tensor<1x256x1xbf16> loc(#loc859)
-    %1174 = ttir.empty() : tensor<1x256x1xbf16> loc(#loc860)
-    %1175 = "ttir.reciprocal"(%1173, %1174) : (tensor<1x256x1xbf16>, tensor<1x256x1xbf16>) -> tensor<1x256x1xbf16> loc(#loc860)
-    %1176 = ttir.empty() : tensor<1x256x160xbf16> loc(#loc861)
-    %1177 = "ttir.multiply"(%1163, %1175, %1176) : (tensor<1x256x160xbf16>, tensor<1x256x1xbf16>, tensor<1x256x160xbf16>) -> tensor<1x256x160xbf16> loc(#loc861)
-    %1178 = ttir.empty() : tensor<1x256x160xbf16> loc(#loc862)
-    %1179 = "ttir.multiply"(%1177, %arg231, %1178) : (tensor<1x256x160xbf16>, tensor<160xbf16>, tensor<1x256x160xbf16>) -> tensor<1x256x160xbf16> loc(#loc862)
-    %1180 = ttir.empty() : tensor<1x256x160xbf16> loc(#loc863)
-    %1181 = "ttir.add"(%1179, %arg232, %1180) : (tensor<1x256x160xbf16>, tensor<160xbf16>, tensor<1x256x160xbf16>) -> tensor<1x256x160xbf16> loc(#loc863)
-    %1182 = ttir.empty() : tensor<256x160xbf16> loc(#loc864)
-    %1183 = "ttir.squeeze"(%1181, %1182) <{dim = 0 : si32}> : (tensor<1x256x160xbf16>, tensor<256x160xbf16>) -> tensor<256x160xbf16> loc(#loc864)
-    %1184 = ttir.empty() : tensor<256x160xbf16> loc(#loc865)
-    %1185 = "ttir.matmul"(%1183, %arg233, %1184) <{transpose_a = false, transpose_b = false}> : (tensor<256x160xbf16>, tensor<160x160xbf16>, tensor<256x160xbf16>) -> tensor<256x160xbf16> loc(#loc865)
-    %1186 = ttir.empty() : tensor<1x256x160xbf16> loc(#loc866)
-    %1187 = "ttir.unsqueeze"(%1185, %1186) <{dim = 0 : si32}> : (tensor<256x160xbf16>, tensor<1x256x160xbf16>) -> tensor<1x256x160xbf16> loc(#loc866)
-    %1188 = ttir.empty() : tensor<1x256x160xbf16> loc(#loc45)
-    %1189 = "ttir.add"(%1187, %arg234, %1188) : (tensor<1x256x160xbf16>, tensor<160xbf16>, tensor<1x256x160xbf16>) -> tensor<1x256x160xbf16> loc(#loc45)
-    %1190 = ttir.empty() : tensor<1x256x5x32xbf16> loc(#loc620)
-    %1191 = "ttir.reshape"(%1189, %1190) <{shape = [1 : i32, 256 : i32, 5 : i32, 32 : i32]}> : (tensor<1x256x160xbf16>, tensor<1x256x5x32xbf16>) -> tensor<1x256x5x32xbf16> loc(#loc620)
-    %1192 = ttir.empty() : tensor<1x5x256x32xbf16> loc(#loc621)
-    %1193 = "ttir.transpose"(%1191, %1192) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x256x5x32xbf16>, tensor<1x5x256x32xbf16>) -> tensor<1x5x256x32xbf16> loc(#loc621)
-    %1194 = ttir.empty() : tensor<5x256x32xbf16> loc(#loc622)
-    %1195 = "ttir.squeeze"(%1193, %1194) <{dim = 0 : si32}> : (tensor<1x5x256x32xbf16>, tensor<5x256x32xbf16>) -> tensor<5x256x32xbf16> loc(#loc622)
-    %1196 = ttir.empty() : tensor<5x32x256xbf16> loc(#loc46)
-    %1197 = "ttir.transpose"(%1195, %1196) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<5x256x32xbf16>, tensor<5x32x256xbf16>) -> tensor<5x32x256xbf16> loc(#loc46)
-    %1198 = ttir.empty() : tensor<5x1024x256xbf16> loc(#loc623)
-    %1199 = "ttir.matmul"(%1139, %1197, %1198) <{transpose_a = false, transpose_b = false}> : (tensor<5x1024x32xbf16>, tensor<5x32x256xbf16>, tensor<5x1024x256xbf16>) -> tensor<5x1024x256xbf16> loc(#loc623)
-    %1200 = ttir.empty() : tensor<1x5x1024x256xbf16> loc(#loc624)
-    %1201 = "ttir.unsqueeze"(%1199, %1200) <{dim = 0 : si32}> : (tensor<5x1024x256xbf16>, tensor<1x5x1024x256xbf16>) -> tensor<1x5x1024x256xbf16> loc(#loc624)
-    %1202 = ttir.empty() : tensor<1x5x1024x256xbf16> loc(#loc625)
-    %1203 = "ttir.div"(%1201, %arg72, %1202) : (tensor<1x5x1024x256xbf16>, tensor<1xbf16>, tensor<1x5x1024x256xbf16>) -> tensor<1x5x1024x256xbf16> loc(#loc625)
-    %1204 = ttir.empty() : tensor<1x5x1024x256xbf16> loc(#loc626)
-    %1205 = "ttir.softmax"(%1203, %1204) <{dimension = -1 : si32}> : (tensor<1x5x1024x256xbf16>, tensor<1x5x1024x256xbf16>) -> tensor<1x5x1024x256xbf16> loc(#loc626)
-    %1206 = ttir.empty() : tensor<5x1024x256xbf16> loc(#loc627)
-    %1207 = "ttir.squeeze"(%1205, %1206) <{dim = 0 : si32}> : (tensor<1x5x1024x256xbf16>, tensor<5x1024x256xbf16>) -> tensor<5x1024x256xbf16> loc(#loc627)
-    %1208 = ttir.empty() : tensor<256x160xbf16> loc(#loc867)
-    %1209 = "ttir.matmul"(%1183, %arg235, %1208) <{transpose_a = false, transpose_b = false}> : (tensor<256x160xbf16>, tensor<160x160xbf16>, tensor<256x160xbf16>) -> tensor<256x160xbf16> loc(#loc867)
-    %1210 = ttir.empty() : tensor<1x256x160xbf16> loc(#loc868)
-    %1211 = "ttir.unsqueeze"(%1209, %1210) <{dim = 0 : si32}> : (tensor<256x160xbf16>, tensor<1x256x160xbf16>) -> tensor<1x256x160xbf16> loc(#loc868)
-    %1212 = ttir.empty() : tensor<1x256x160xbf16> loc(#loc47)
-    %1213 = "ttir.add"(%1211, %arg236, %1212) : (tensor<1x256x160xbf16>, tensor<160xbf16>, tensor<1x256x160xbf16>) -> tensor<1x256x160xbf16> loc(#loc47)
-    %1214 = ttir.empty() : tensor<1x256x5x32xbf16> loc(#loc628)
-    %1215 = "ttir.reshape"(%1213, %1214) <{shape = [1 : i32, 256 : i32, 5 : i32, 32 : i32]}> : (tensor<1x256x160xbf16>, tensor<1x256x5x32xbf16>) -> tensor<1x256x5x32xbf16> loc(#loc628)
-    %1216 = ttir.empty() : tensor<1x5x256x32xbf16> loc(#loc629)
-    %1217 = "ttir.transpose"(%1215, %1216) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x256x5x32xbf16>, tensor<1x5x256x32xbf16>) -> tensor<1x5x256x32xbf16> loc(#loc629)
-    %1218 = ttir.empty() : tensor<1x5x32x256xbf16> loc(#loc630)
-    %1219 = "ttir.transpose"(%1217, %1218) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x5x256x32xbf16>, tensor<1x5x32x256xbf16>) -> tensor<1x5x32x256xbf16> loc(#loc630)
-    %1220 = ttir.empty() : tensor<5x32x256xbf16> loc(#loc631)
-    %1221 = "ttir.squeeze"(%1219, %1220) <{dim = 0 : si32}> : (tensor<1x5x32x256xbf16>, tensor<5x32x256xbf16>) -> tensor<5x32x256xbf16> loc(#loc631)
-    %1222 = ttir.empty() : tensor<5x256x32xbf16> loc(#loc48)
-    %1223 = "ttir.transpose"(%1221, %1222) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<5x32x256xbf16>, tensor<5x256x32xbf16>) -> tensor<5x256x32xbf16> loc(#loc48)
-    %1224 = ttir.empty() : tensor<5x1024x32xbf16> loc(#loc632)
-    %1225 = "ttir.matmul"(%1207, %1223, %1224) <{transpose_a = false, transpose_b = false}> : (tensor<5x1024x256xbf16>, tensor<5x256x32xbf16>, tensor<5x1024x32xbf16>) -> tensor<5x1024x32xbf16> loc(#loc632)
-    %1226 = ttir.empty() : tensor<1x5x1024x32xbf16> loc(#loc633)
-    %1227 = "ttir.unsqueeze"(%1225, %1226) <{dim = 0 : si32}> : (tensor<5x1024x32xbf16>, tensor<1x5x1024x32xbf16>) -> tensor<1x5x1024x32xbf16> loc(#loc633)
-    %1228 = ttir.empty() : tensor<1x1024x5x32xbf16> loc(#loc634)
-    %1229 = "ttir.transpose"(%1227, %1228) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x5x1024x32xbf16>, tensor<1x1024x5x32xbf16>) -> tensor<1x1024x5x32xbf16> loc(#loc634)
-    %1230 = ttir.empty() : tensor<1024x160xbf16> loc(#loc869)
-    %1231 = "ttir.reshape"(%1229, %1230) <{shape = [1024 : i32, 160 : i32]}> : (tensor<1x1024x5x32xbf16>, tensor<1024x160xbf16>) -> tensor<1024x160xbf16> loc(#loc869)
-    %1232 = ttir.empty() : tensor<1024x160xbf16> loc(#loc870)
-    %1233 = "ttir.matmul"(%1231, %arg237, %1232) <{transpose_a = false, transpose_b = false}> : (tensor<1024x160xbf16>, tensor<160x160xbf16>, tensor<1024x160xbf16>) -> tensor<1024x160xbf16> loc(#loc870)
-    %1234 = ttir.empty() : tensor<1x1024x160xbf16> loc(#loc871)
-    %1235 = "ttir.unsqueeze"(%1233, %1234) <{dim = 0 : si32}> : (tensor<1024x160xbf16>, tensor<1x1024x160xbf16>) -> tensor<1x1024x160xbf16> loc(#loc871)
-    %1236 = ttir.empty() : tensor<1x1024x160xbf16> loc(#loc49)
-    %1237 = "ttir.add"(%1235, %arg238, %1236) : (tensor<1x1024x160xbf16>, tensor<160xbf16>, tensor<1x1024x160xbf16>) -> tensor<1x1024x160xbf16> loc(#loc49)
-    %1238 = ttir.empty() : tensor<1x1024x160xbf16> loc(#loc150)
-    %1239 = "ttir.add"(%1237, %1105, %1238) : (tensor<1x1024x160xbf16>, tensor<1x1024x160xbf16>, tensor<1x1024x160xbf16>) -> tensor<1x1024x160xbf16> loc(#loc150)
-    %1240 = ttir.empty() : tensor<1x1024x1xbf16> loc(#loc380)
-    %1241 = "ttir.sum"(%1239, %1240) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x1024x160xbf16>, tensor<1x1024x1xbf16>) -> tensor<1x1024x1xbf16> loc(#loc380)
-    %1242 = ttir.empty() : tensor<1x1024x160xbf16> loc(#loc381)
-    %1243 = "ttir.multiply"(%arg73, %1241, %1242) : (tensor<1x1024x160xf32>, tensor<1x1024x1xbf16>, tensor<1x1024x160xbf16>) -> tensor<1x1024x160xbf16> loc(#loc381)
-    %1244 = ttir.empty() : tensor<1x1024x160xbf16> loc(#loc382)
-    %1245 = "ttir.subtract"(%1239, %1243, %1244) : (tensor<1x1024x160xbf16>, tensor<1x1024x160xbf16>, tensor<1x1024x160xbf16>) -> tensor<1x1024x160xbf16> loc(#loc382)
-    %1246 = ttir.empty() : tensor<1x1024x160xbf16> loc(#loc383)
-    %1247 = "ttir.multiply"(%1245, %1245, %1246) : (tensor<1x1024x160xbf16>, tensor<1x1024x160xbf16>, tensor<1x1024x160xbf16>) -> tensor<1x1024x160xbf16> loc(#loc383)
-    %1248 = ttir.empty() : tensor<1x1024x1xbf16> loc(#loc384)
-    %1249 = "ttir.sum"(%1247, %1248) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x1024x160xbf16>, tensor<1x1024x1xbf16>) -> tensor<1x1024x1xbf16> loc(#loc384)
-    %1250 = ttir.empty() : tensor<1x1024x1xbf16> loc(#loc385)
-    %1251 = "ttir.multiply"(%arg74, %1249, %1250) : (tensor<1x1024x1xf32>, tensor<1x1024x1xbf16>, tensor<1x1024x1xbf16>) -> tensor<1x1024x1xbf16> loc(#loc385)
-    %1252 = ttir.empty() : tensor<1x1024x1xbf16> loc(#loc386)
-    %1253 = "ttir.add"(%1251, %arg75, %1252) : (tensor<1x1024x1xbf16>, tensor<1x1024x1xf32>, tensor<1x1024x1xbf16>) -> tensor<1x1024x1xbf16> loc(#loc386)
-    %1254 = ttir.empty() : tensor<1x1024x1xbf16> loc(#loc387)
-    %1255 = "ttir.sqrt"(%1253, %1254) : (tensor<1x1024x1xbf16>, tensor<1x1024x1xbf16>) -> tensor<1x1024x1xbf16> loc(#loc387)
-    %1256 = ttir.empty() : tensor<1x1024x1xbf16> loc(#loc388)
-    %1257 = "ttir.reciprocal"(%1255, %1256) : (tensor<1x1024x1xbf16>, tensor<1x1024x1xbf16>) -> tensor<1x1024x1xbf16> loc(#loc388)
-    %1258 = ttir.empty() : tensor<1x1024x160xbf16> loc(#loc389)
-    %1259 = "ttir.multiply"(%1245, %1257, %1258) : (tensor<1x1024x160xbf16>, tensor<1x1024x1xbf16>, tensor<1x1024x160xbf16>) -> tensor<1x1024x160xbf16> loc(#loc389)
-    %1260 = ttir.empty() : tensor<1x1024x160xbf16> loc(#loc390)
-    %1261 = "ttir.multiply"(%1259, %arg239, %1260) : (tensor<1x1024x160xbf16>, tensor<160xbf16>, tensor<1x1024x160xbf16>) -> tensor<1x1024x160xbf16> loc(#loc390)
-    %1262 = ttir.empty() : tensor<1x1024x160xbf16> loc(#loc391)
-    %1263 = "ttir.add"(%1261, %arg240, %1262) : (tensor<1x1024x160xbf16>, tensor<160xbf16>, tensor<1x1024x160xbf16>) -> tensor<1x1024x160xbf16> loc(#loc391)
-    %1264 = ttir.empty() : tensor<1x1024x640xbf16> loc(#loc635)
-    %1265 = "ttir.matmul"(%1263, %arg241, %1264) <{transpose_a = false, transpose_b = false}> : (tensor<1x1024x160xbf16>, tensor<160x640xbf16>, tensor<1x1024x640xbf16>) -> tensor<1x1024x640xbf16> loc(#loc635)
-    %1266 = ttir.empty() : tensor<1x1024x640xbf16> loc(#loc50)
-    %1267 = "ttir.add"(%1265, %arg242, %1266) : (tensor<1x1024x640xbf16>, tensor<640xbf16>, tensor<1x1024x640xbf16>) -> tensor<1x1024x640xbf16> loc(#loc50)
-    %1268 = ttir.empty() : tensor<1x640x1024xbf16> loc(#loc636)
-    %1269 = "ttir.transpose"(%1267, %1268) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x1024x640xbf16>, tensor<1x640x1024xbf16>) -> tensor<1x640x1024xbf16> loc(#loc636)
-    %1270 = ttir.empty() : tensor<1x640x32x32xbf16> loc(#loc637)
-    %1271 = "ttir.reshape"(%1269, %1270) <{shape = [1 : i32, 640 : i32, 32 : i32, 32 : i32]}> : (tensor<1x640x1024xbf16>, tensor<1x640x32x32xbf16>) -> tensor<1x640x32x32xbf16> loc(#loc637)
-    %1272 = ttir.empty() : tensor<1x32x640x32xbf16> loc(#loc872)
-    %1273 = "ttir.transpose"(%1271, %1272) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x640x32x32xbf16>, tensor<1x32x640x32xbf16>) -> tensor<1x32x640x32xbf16> loc(#loc872)
-    %1274 = ttir.empty() : tensor<1x32x32x640xbf16> loc(#loc873)
-    %1275 = "ttir.transpose"(%1273, %1274) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x32x640x32xbf16>, tensor<1x32x32x640xbf16>) -> tensor<1x32x32x640xbf16> loc(#loc873)
-    %1276 = ttir.empty() : tensor<1x32x32x640xbf16> loc(#loc874)
-    %1277 = "ttir.conv2d"(%1275, %arg243, %arg244, %1276) <{dilation = array<i32: 1, 1>, groups = 640 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x32x32x640xbf16>, tensor<640x1x3x3xbf16>, tensor<1x1x1x640xbf16>, tensor<1x32x32x640xbf16>) -> tensor<1x32x32x640xbf16> loc(#loc874)
-    %1278 = ttir.empty() : tensor<1x32x640x32xbf16> loc(#loc875)
-    %1279 = "ttir.transpose"(%1277, %1278) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x32x32x640xbf16>, tensor<1x32x640x32xbf16>) -> tensor<1x32x640x32xbf16> loc(#loc875)
-    %1280 = ttir.empty() : tensor<1x640x32x32xbf16> loc(#loc876)
-    %1281 = "ttir.transpose"(%1279, %1280) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x32x640x32xbf16>, tensor<1x640x32x32xbf16>) -> tensor<1x640x32x32xbf16> loc(#loc876)
-    %1282 = ttir.empty() : tensor<1x640x1024x1xbf16> loc(#loc638)
-    %1283 = "ttir.reshape"(%1281, %1282) <{shape = [1 : i32, 640 : i32, 1024 : i32, 1 : i32]}> : (tensor<1x640x32x32xbf16>, tensor<1x640x1024x1xbf16>) -> tensor<1x640x1024x1xbf16> loc(#loc638)
-    %1284 = ttir.empty() : tensor<1x640x1024xbf16> loc(#loc639)
-    %1285 = "ttir.squeeze"(%1283, %1284) <{dim = -1 : si32}> : (tensor<1x640x1024x1xbf16>, tensor<1x640x1024xbf16>) -> tensor<1x640x1024xbf16> loc(#loc639)
-    %1286 = ttir.empty() : tensor<1x1024x640xbf16> loc(#loc640)
-    %1287 = "ttir.transpose"(%1285, %1286) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x640x1024xbf16>, tensor<1x1024x640xbf16>) -> tensor<1x1024x640xbf16> loc(#loc640)
-    %1288 = ttir.empty() : tensor<1x1024x640xbf16> loc(#loc641)
-    %1289 = "ttir.gelu"(%1287, %1288) : (tensor<1x1024x640xbf16>, tensor<1x1024x640xbf16>) -> tensor<1x1024x640xbf16> loc(#loc641)
-    %1290 = ttir.empty() : tensor<1x1024x160xbf16> loc(#loc642)
-    %1291 = "ttir.matmul"(%1289, %arg245, %1290) <{transpose_a = false, transpose_b = false}> : (tensor<1x1024x640xbf16>, tensor<640x160xbf16>, tensor<1x1024x160xbf16>) -> tensor<1x1024x160xbf16> loc(#loc642)
-    %1292 = ttir.empty() : tensor<1x1024x160xbf16> loc(#loc51)
-    %1293 = "ttir.add"(%1291, %arg246, %1292) : (tensor<1x1024x160xbf16>, tensor<160xbf16>, tensor<1x1024x160xbf16>) -> tensor<1x1024x160xbf16> loc(#loc51)
-    %1294 = ttir.empty() : tensor<1x1024x160xbf16> loc(#loc151)
-    %1295 = "ttir.add"(%1293, %1239, %1294) : (tensor<1x1024x160xbf16>, tensor<1x1024x160xbf16>, tensor<1x1024x160xbf16>) -> tensor<1x1024x160xbf16> loc(#loc151)
-    %1296 = ttir.empty() : tensor<1x1024x1xbf16> loc(#loc152)
-    %1297 = "ttir.sum"(%1295, %1296) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x1024x160xbf16>, tensor<1x1024x1xbf16>) -> tensor<1x1024x1xbf16> loc(#loc152)
-    %1298 = ttir.empty() : tensor<1x1024x160xbf16> loc(#loc153)
-    %1299 = "ttir.multiply"(%arg76, %1297, %1298) : (tensor<1x1024x160xf32>, tensor<1x1024x1xbf16>, tensor<1x1024x160xbf16>) -> tensor<1x1024x160xbf16> loc(#loc153)
-    %1300 = ttir.empty() : tensor<1x1024x160xbf16> loc(#loc154)
-    %1301 = "ttir.subtract"(%1295, %1299, %1300) : (tensor<1x1024x160xbf16>, tensor<1x1024x160xbf16>, tensor<1x1024x160xbf16>) -> tensor<1x1024x160xbf16> loc(#loc154)
-    %1302 = ttir.empty() : tensor<1x1024x160xbf16> loc(#loc155)
-    %1303 = "ttir.multiply"(%1301, %1301, %1302) : (tensor<1x1024x160xbf16>, tensor<1x1024x160xbf16>, tensor<1x1024x160xbf16>) -> tensor<1x1024x160xbf16> loc(#loc155)
-    %1304 = ttir.empty() : tensor<1x1024x1xbf16> loc(#loc156)
-    %1305 = "ttir.sum"(%1303, %1304) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x1024x160xbf16>, tensor<1x1024x1xbf16>) -> tensor<1x1024x1xbf16> loc(#loc156)
-    %1306 = ttir.empty() : tensor<1x1024x1xbf16> loc(#loc157)
-    %1307 = "ttir.multiply"(%arg77, %1305, %1306) : (tensor<1x1024x1xf32>, tensor<1x1024x1xbf16>, tensor<1x1024x1xbf16>) -> tensor<1x1024x1xbf16> loc(#loc157)
-    %1308 = ttir.empty() : tensor<1x1024x1xbf16> loc(#loc158)
-    %1309 = "ttir.add"(%1307, %arg78, %1308) : (tensor<1x1024x1xbf16>, tensor<1x1024x1xf32>, tensor<1x1024x1xbf16>) -> tensor<1x1024x1xbf16> loc(#loc158)
-    %1310 = ttir.empty() : tensor<1x1024x1xbf16> loc(#loc159)
-    %1311 = "ttir.sqrt"(%1309, %1310) : (tensor<1x1024x1xbf16>, tensor<1x1024x1xbf16>) -> tensor<1x1024x1xbf16> loc(#loc159)
-    %1312 = ttir.empty() : tensor<1x1024x1xbf16> loc(#loc160)
-    %1313 = "ttir.reciprocal"(%1311, %1312) : (tensor<1x1024x1xbf16>, tensor<1x1024x1xbf16>) -> tensor<1x1024x1xbf16> loc(#loc160)
-    %1314 = ttir.empty() : tensor<1x1024x160xbf16> loc(#loc161)
-    %1315 = "ttir.multiply"(%1301, %1313, %1314) : (tensor<1x1024x160xbf16>, tensor<1x1024x1xbf16>, tensor<1x1024x160xbf16>) -> tensor<1x1024x160xbf16> loc(#loc161)
-    %1316 = ttir.empty() : tensor<1x1024x160xbf16> loc(#loc162)
-    %1317 = "ttir.multiply"(%1315, %arg247, %1316) : (tensor<1x1024x160xbf16>, tensor<160xbf16>, tensor<1x1024x160xbf16>) -> tensor<1x1024x160xbf16> loc(#loc162)
-    %1318 = ttir.empty() : tensor<1x1024x160xbf16> loc(#loc163)
-    %1319 = "ttir.add"(%1317, %arg248, %1318) : (tensor<1x1024x160xbf16>, tensor<160xbf16>, tensor<1x1024x160xbf16>) -> tensor<1x1024x160xbf16> loc(#loc163)
-    %1320 = ttir.empty() : tensor<1x32x32x160xbf16> loc(#loc89)
-    %1321 = "ttir.reshape"(%1319, %1320) <{shape = [1 : i32, 32 : i32, 32 : i32, 160 : i32]}> : (tensor<1x1024x160xbf16>, tensor<1x32x32x160xbf16>) -> tensor<1x32x32x160xbf16> loc(#loc89)
-    %1322 = ttir.empty() : tensor<1x160x32x32xbf16> loc(#loc52)
-    %1323 = "ttir.transpose"(%1321, %1322) <{dim0 = -3 : si32, dim1 = -1 : si32}> : (tensor<1x32x32x160xbf16>, tensor<1x160x32x32xbf16>) -> tensor<1x160x32x32xbf16> loc(#loc52)
-    %1324 = ttir.empty() : tensor<1x160x32x32xbf16> loc(#loc90)
-    %1325 = "ttir.transpose"(%1323, %1324) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x160x32x32xbf16>, tensor<1x160x32x32xbf16>) -> tensor<1x160x32x32xbf16> loc(#loc90)
-    %1326 = ttir.empty() : tensor<1x32x160x32xbf16> loc(#loc392)
-    %1327 = "ttir.transpose"(%1325, %1326) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x160x32x32xbf16>, tensor<1x32x160x32xbf16>) -> tensor<1x32x160x32xbf16> loc(#loc392)
-    %1328 = ttir.empty() : tensor<1x32x32x160xbf16> loc(#loc393)
-    %1329 = "ttir.transpose"(%1327, %1328) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x32x160x32xbf16>, tensor<1x32x32x160xbf16>) -> tensor<1x32x32x160xbf16> loc(#loc393)
-    %1330 = ttir.empty() : tensor<1x16x16x256xbf16> loc(#loc394)
-    %1331 = "ttir.conv2d"(%1329, %arg249, %arg250, %1330) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 2, 2>}> {channel_last = 1 : si32} : (tensor<1x32x32x160xbf16>, tensor<256x160x3x3xbf16>, tensor<1x1x1x256xbf16>, tensor<1x16x16x256xbf16>) -> tensor<1x16x16x256xbf16> loc(#loc394)
-    %1332 = ttir.empty() : tensor<1x16x256x16xbf16> loc(#loc395)
-    %1333 = "ttir.transpose"(%1331, %1332) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x16x16x256xbf16>, tensor<1x16x256x16xbf16>) -> tensor<1x16x256x16xbf16> loc(#loc395)
-    %1334 = ttir.empty() : tensor<1x256x16x16xbf16> loc(#loc396)
-    %1335 = "ttir.transpose"(%1333, %1334) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x16x256x16xbf16>, tensor<1x256x16x16xbf16>) -> tensor<1x256x16x16xbf16> loc(#loc396)
-    %1336 = ttir.empty() : tensor<1x256x256x1xbf16> loc(#loc165)
-    %1337 = "ttir.reshape"(%1335, %1336) <{shape = [1 : i32, 256 : i32, 256 : i32, 1 : i32]}> : (tensor<1x256x16x16xbf16>, tensor<1x256x256x1xbf16>) -> tensor<1x256x256x1xbf16> loc(#loc165)
-    %1338 = ttir.empty() : tensor<1x256x256xbf16> loc(#loc166)
-    %1339 = "ttir.squeeze"(%1337, %1338) <{dim = -1 : si32}> : (tensor<1x256x256x1xbf16>, tensor<1x256x256xbf16>) -> tensor<1x256x256xbf16> loc(#loc166)
-    %1340 = ttir.empty() : tensor<1x256x256xbf16> loc(#loc167)
-    %1341 = "ttir.transpose"(%1339, %1340) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x256x256xbf16>, tensor<1x256x256xbf16>) -> tensor<1x256x256xbf16> loc(#loc167)
-    %1342 = ttir.empty() : tensor<1x256x1xbf16> loc(#loc397)
-    %1343 = "ttir.sum"(%1341, %1342) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x256x256xbf16>, tensor<1x256x1xbf16>) -> tensor<1x256x1xbf16> loc(#loc397)
-    %1344 = ttir.empty() : tensor<1x256x256xbf16> loc(#loc398)
-    %1345 = "ttir.multiply"(%arg79, %1343, %1344) : (tensor<1x256x256xf32>, tensor<1x256x1xbf16>, tensor<1x256x256xbf16>) -> tensor<1x256x256xbf16> loc(#loc398)
-    %1346 = ttir.empty() : tensor<1x256x256xbf16> loc(#loc399)
-    %1347 = "ttir.subtract"(%1341, %1345, %1346) : (tensor<1x256x256xbf16>, tensor<1x256x256xbf16>, tensor<1x256x256xbf16>) -> tensor<1x256x256xbf16> loc(#loc399)
-    %1348 = ttir.empty() : tensor<1x256x256xbf16> loc(#loc400)
-    %1349 = "ttir.multiply"(%1347, %1347, %1348) : (tensor<1x256x256xbf16>, tensor<1x256x256xbf16>, tensor<1x256x256xbf16>) -> tensor<1x256x256xbf16> loc(#loc400)
-    %1350 = ttir.empty() : tensor<1x256x1xbf16> loc(#loc401)
-    %1351 = "ttir.sum"(%1349, %1350) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x256x256xbf16>, tensor<1x256x1xbf16>) -> tensor<1x256x1xbf16> loc(#loc401)
-    %1352 = ttir.empty() : tensor<1x256x1xbf16> loc(#loc402)
-    %1353 = "ttir.multiply"(%arg80, %1351, %1352) : (tensor<1x256x1xf32>, tensor<1x256x1xbf16>, tensor<1x256x1xbf16>) -> tensor<1x256x1xbf16> loc(#loc402)
-    %1354 = ttir.empty() : tensor<1x256x1xbf16> loc(#loc403)
-    %1355 = "ttir.add"(%1353, %arg81, %1354) : (tensor<1x256x1xbf16>, tensor<1x256x1xf32>, tensor<1x256x1xbf16>) -> tensor<1x256x1xbf16> loc(#loc403)
-    %1356 = ttir.empty() : tensor<1x256x1xbf16> loc(#loc404)
-    %1357 = "ttir.sqrt"(%1355, %1356) : (tensor<1x256x1xbf16>, tensor<1x256x1xbf16>) -> tensor<1x256x1xbf16> loc(#loc404)
-    %1358 = ttir.empty() : tensor<1x256x1xbf16> loc(#loc405)
-    %1359 = "ttir.reciprocal"(%1357, %1358) : (tensor<1x256x1xbf16>, tensor<1x256x1xbf16>) -> tensor<1x256x1xbf16> loc(#loc405)
-    %1360 = ttir.empty() : tensor<1x256x256xbf16> loc(#loc406)
-    %1361 = "ttir.multiply"(%1347, %1359, %1360) : (tensor<1x256x256xbf16>, tensor<1x256x1xbf16>, tensor<1x256x256xbf16>) -> tensor<1x256x256xbf16> loc(#loc406)
-    %1362 = ttir.empty() : tensor<1x256x256xbf16> loc(#loc407)
-    %1363 = "ttir.multiply"(%1361, %arg251, %1362) : (tensor<1x256x256xbf16>, tensor<256xbf16>, tensor<1x256x256xbf16>) -> tensor<1x256x256xbf16> loc(#loc407)
-    %1364 = ttir.empty() : tensor<1x256x256xbf16> loc(#loc408)
-    %1365 = "ttir.add"(%1363, %arg252, %1364) : (tensor<1x256x256xbf16>, tensor<256xbf16>, tensor<1x256x256xbf16>) -> tensor<1x256x256xbf16> loc(#loc408)
-    %1366 = ttir.empty() : tensor<1x256x1xbf16> loc(#loc409)
-    %1367 = "ttir.sum"(%1365, %1366) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x256x256xbf16>, tensor<1x256x1xbf16>) -> tensor<1x256x1xbf16> loc(#loc409)
-    %1368 = ttir.empty() : tensor<1x256x256xbf16> loc(#loc410)
-    %1369 = "ttir.multiply"(%arg82, %1367, %1368) : (tensor<1x256x256xf32>, tensor<1x256x1xbf16>, tensor<1x256x256xbf16>) -> tensor<1x256x256xbf16> loc(#loc410)
-    %1370 = ttir.empty() : tensor<1x256x256xbf16> loc(#loc411)
-    %1371 = "ttir.subtract"(%1365, %1369, %1370) : (tensor<1x256x256xbf16>, tensor<1x256x256xbf16>, tensor<1x256x256xbf16>) -> tensor<1x256x256xbf16> loc(#loc411)
-    %1372 = ttir.empty() : tensor<1x256x256xbf16> loc(#loc412)
-    %1373 = "ttir.multiply"(%1371, %1371, %1372) : (tensor<1x256x256xbf16>, tensor<1x256x256xbf16>, tensor<1x256x256xbf16>) -> tensor<1x256x256xbf16> loc(#loc412)
-    %1374 = ttir.empty() : tensor<1x256x1xbf16> loc(#loc413)
-    %1375 = "ttir.sum"(%1373, %1374) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x256x256xbf16>, tensor<1x256x1xbf16>) -> tensor<1x256x1xbf16> loc(#loc413)
-    %1376 = ttir.empty() : tensor<1x256x1xbf16> loc(#loc414)
-    %1377 = "ttir.multiply"(%arg83, %1375, %1376) : (tensor<1x256x1xf32>, tensor<1x256x1xbf16>, tensor<1x256x1xbf16>) -> tensor<1x256x1xbf16> loc(#loc414)
-    %1378 = ttir.empty() : tensor<1x256x1xbf16> loc(#loc415)
-    %1379 = "ttir.add"(%1377, %arg84, %1378) : (tensor<1x256x1xbf16>, tensor<1x256x1xf32>, tensor<1x256x1xbf16>) -> tensor<1x256x1xbf16> loc(#loc415)
-    %1380 = ttir.empty() : tensor<1x256x1xbf16> loc(#loc416)
-    %1381 = "ttir.sqrt"(%1379, %1380) : (tensor<1x256x1xbf16>, tensor<1x256x1xbf16>) -> tensor<1x256x1xbf16> loc(#loc416)
-    %1382 = ttir.empty() : tensor<1x256x1xbf16> loc(#loc417)
-    %1383 = "ttir.reciprocal"(%1381, %1382) : (tensor<1x256x1xbf16>, tensor<1x256x1xbf16>) -> tensor<1x256x1xbf16> loc(#loc417)
-    %1384 = ttir.empty() : tensor<1x256x256xbf16> loc(#loc418)
-    %1385 = "ttir.multiply"(%1371, %1383, %1384) : (tensor<1x256x256xbf16>, tensor<1x256x1xbf16>, tensor<1x256x256xbf16>) -> tensor<1x256x256xbf16> loc(#loc418)
-    %1386 = ttir.empty() : tensor<1x256x256xbf16> loc(#loc419)
-    %1387 = "ttir.multiply"(%1385, %arg253, %1386) : (tensor<1x256x256xbf16>, tensor<256xbf16>, tensor<1x256x256xbf16>) -> tensor<1x256x256xbf16> loc(#loc419)
-    %1388 = ttir.empty() : tensor<1x256x256xbf16> loc(#loc420)
-    %1389 = "ttir.add"(%1387, %arg254, %1388) : (tensor<1x256x256xbf16>, tensor<256xbf16>, tensor<1x256x256xbf16>) -> tensor<1x256x256xbf16> loc(#loc420)
-    %1390 = ttir.empty() : tensor<256x256xbf16> loc(#loc877)
-    %1391 = "ttir.squeeze"(%1389, %1390) <{dim = 0 : si32}> : (tensor<1x256x256xbf16>, tensor<256x256xbf16>) -> tensor<256x256xbf16> loc(#loc877)
-    %1392 = ttir.empty() : tensor<256x256xbf16> loc(#loc878)
-    %1393 = "ttir.matmul"(%1391, %arg255, %1392) <{transpose_a = false, transpose_b = false}> : (tensor<256x256xbf16>, tensor<256x256xbf16>, tensor<256x256xbf16>) -> tensor<256x256xbf16> loc(#loc878)
-    %1394 = ttir.empty() : tensor<1x256x256xbf16> loc(#loc879)
-    %1395 = "ttir.unsqueeze"(%1393, %1394) <{dim = 0 : si32}> : (tensor<256x256xbf16>, tensor<1x256x256xbf16>) -> tensor<1x256x256xbf16> loc(#loc879)
-    %1396 = ttir.empty() : tensor<1x256x256xbf16> loc(#loc53)
-    %1397 = "ttir.add"(%1395, %arg256, %1396) : (tensor<1x256x256xbf16>, tensor<256xbf16>, tensor<1x256x256xbf16>) -> tensor<1x256x256xbf16> loc(#loc53)
-    %1398 = ttir.empty() : tensor<1x256x8x32xbf16> loc(#loc643)
-    %1399 = "ttir.reshape"(%1397, %1398) <{shape = [1 : i32, 256 : i32, 8 : i32, 32 : i32]}> : (tensor<1x256x256xbf16>, tensor<1x256x8x32xbf16>) -> tensor<1x256x8x32xbf16> loc(#loc643)
-    %1400 = ttir.empty() : tensor<1x8x256x32xbf16> loc(#loc644)
-    %1401 = "ttir.transpose"(%1399, %1400) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x256x8x32xbf16>, tensor<1x8x256x32xbf16>) -> tensor<1x8x256x32xbf16> loc(#loc644)
-    %1402 = ttir.empty() : tensor<8x256x32xbf16> loc(#loc645)
-    %1403 = "ttir.squeeze"(%1401, %1402) <{dim = 0 : si32}> : (tensor<1x8x256x32xbf16>, tensor<8x256x32xbf16>) -> tensor<8x256x32xbf16> loc(#loc645)
-    %1404 = ttir.empty() : tensor<256x256xbf16> loc(#loc880)
-    %1405 = "ttir.matmul"(%1391, %arg257, %1404) <{transpose_a = false, transpose_b = false}> : (tensor<256x256xbf16>, tensor<256x256xbf16>, tensor<256x256xbf16>) -> tensor<256x256xbf16> loc(#loc880)
-    %1406 = ttir.empty() : tensor<1x256x256xbf16> loc(#loc881)
-    %1407 = "ttir.unsqueeze"(%1405, %1406) <{dim = 0 : si32}> : (tensor<256x256xbf16>, tensor<1x256x256xbf16>) -> tensor<1x256x256xbf16> loc(#loc881)
-    %1408 = ttir.empty() : tensor<1x256x256xbf16> loc(#loc54)
-    %1409 = "ttir.add"(%1407, %arg258, %1408) : (tensor<1x256x256xbf16>, tensor<256xbf16>, tensor<1x256x256xbf16>) -> tensor<1x256x256xbf16> loc(#loc54)
-    %1410 = ttir.empty() : tensor<1x256x8x32xbf16> loc(#loc646)
-    %1411 = "ttir.reshape"(%1409, %1410) <{shape = [1 : i32, 256 : i32, 8 : i32, 32 : i32]}> : (tensor<1x256x256xbf16>, tensor<1x256x8x32xbf16>) -> tensor<1x256x8x32xbf16> loc(#loc646)
-    %1412 = ttir.empty() : tensor<1x8x256x32xbf16> loc(#loc647)
-    %1413 = "ttir.transpose"(%1411, %1412) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x256x8x32xbf16>, tensor<1x8x256x32xbf16>) -> tensor<1x8x256x32xbf16> loc(#loc647)
-    %1414 = ttir.empty() : tensor<8x256x32xbf16> loc(#loc648)
-    %1415 = "ttir.squeeze"(%1413, %1414) <{dim = 0 : si32}> : (tensor<1x8x256x32xbf16>, tensor<8x256x32xbf16>) -> tensor<8x256x32xbf16> loc(#loc648)
-    %1416 = ttir.empty() : tensor<8x32x256xbf16> loc(#loc55)
-    %1417 = "ttir.transpose"(%1415, %1416) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<8x256x32xbf16>, tensor<8x32x256xbf16>) -> tensor<8x32x256xbf16> loc(#loc55)
-    %1418 = ttir.empty() : tensor<8x256x256xbf16> loc(#loc649)
-    %1419 = "ttir.matmul"(%1403, %1417, %1418) <{transpose_a = false, transpose_b = false}> : (tensor<8x256x32xbf16>, tensor<8x32x256xbf16>, tensor<8x256x256xbf16>) -> tensor<8x256x256xbf16> loc(#loc649)
-    %1420 = ttir.empty() : tensor<1x8x256x256xbf16> loc(#loc650)
-    %1421 = "ttir.unsqueeze"(%1419, %1420) <{dim = 0 : si32}> : (tensor<8x256x256xbf16>, tensor<1x8x256x256xbf16>) -> tensor<1x8x256x256xbf16> loc(#loc650)
-    %1422 = ttir.empty() : tensor<1x8x256x256xbf16> loc(#loc651)
-    %1423 = "ttir.div"(%1421, %arg85, %1422) : (tensor<1x8x256x256xbf16>, tensor<1xbf16>, tensor<1x8x256x256xbf16>) -> tensor<1x8x256x256xbf16> loc(#loc651)
-    %1424 = ttir.empty() : tensor<1x8x256x256xbf16> loc(#loc652)
-    %1425 = "ttir.softmax"(%1423, %1424) <{dimension = -1 : si32}> : (tensor<1x8x256x256xbf16>, tensor<1x8x256x256xbf16>) -> tensor<1x8x256x256xbf16> loc(#loc652)
-    %1426 = ttir.empty() : tensor<8x256x256xbf16> loc(#loc653)
-    %1427 = "ttir.squeeze"(%1425, %1426) <{dim = 0 : si32}> : (tensor<1x8x256x256xbf16>, tensor<8x256x256xbf16>) -> tensor<8x256x256xbf16> loc(#loc653)
-    %1428 = ttir.empty() : tensor<256x256xbf16> loc(#loc882)
-    %1429 = "ttir.matmul"(%1391, %arg259, %1428) <{transpose_a = false, transpose_b = false}> : (tensor<256x256xbf16>, tensor<256x256xbf16>, tensor<256x256xbf16>) -> tensor<256x256xbf16> loc(#loc882)
-    %1430 = ttir.empty() : tensor<1x256x256xbf16> loc(#loc883)
-    %1431 = "ttir.unsqueeze"(%1429, %1430) <{dim = 0 : si32}> : (tensor<256x256xbf16>, tensor<1x256x256xbf16>) -> tensor<1x256x256xbf16> loc(#loc883)
-    %1432 = ttir.empty() : tensor<1x256x256xbf16> loc(#loc56)
-    %1433 = "ttir.add"(%1431, %arg260, %1432) : (tensor<1x256x256xbf16>, tensor<256xbf16>, tensor<1x256x256xbf16>) -> tensor<1x256x256xbf16> loc(#loc56)
-    %1434 = ttir.empty() : tensor<1x256x8x32xbf16> loc(#loc654)
-    %1435 = "ttir.reshape"(%1433, %1434) <{shape = [1 : i32, 256 : i32, 8 : i32, 32 : i32]}> : (tensor<1x256x256xbf16>, tensor<1x256x8x32xbf16>) -> tensor<1x256x8x32xbf16> loc(#loc654)
-    %1436 = ttir.empty() : tensor<1x8x256x32xbf16> loc(#loc655)
-    %1437 = "ttir.transpose"(%1435, %1436) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x256x8x32xbf16>, tensor<1x8x256x32xbf16>) -> tensor<1x8x256x32xbf16> loc(#loc655)
-    %1438 = ttir.empty() : tensor<1x8x32x256xbf16> loc(#loc656)
-    %1439 = "ttir.transpose"(%1437, %1438) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x8x256x32xbf16>, tensor<1x8x32x256xbf16>) -> tensor<1x8x32x256xbf16> loc(#loc656)
-    %1440 = ttir.empty() : tensor<8x32x256xbf16> loc(#loc657)
-    %1441 = "ttir.squeeze"(%1439, %1440) <{dim = 0 : si32}> : (tensor<1x8x32x256xbf16>, tensor<8x32x256xbf16>) -> tensor<8x32x256xbf16> loc(#loc657)
-    %1442 = ttir.empty() : tensor<8x256x32xbf16> loc(#loc57)
-    %1443 = "ttir.transpose"(%1441, %1442) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<8x32x256xbf16>, tensor<8x256x32xbf16>) -> tensor<8x256x32xbf16> loc(#loc57)
-    %1444 = ttir.empty() : tensor<8x256x32xbf16> loc(#loc658)
-    %1445 = "ttir.matmul"(%1427, %1443, %1444) <{transpose_a = false, transpose_b = false}> : (tensor<8x256x256xbf16>, tensor<8x256x32xbf16>, tensor<8x256x32xbf16>) -> tensor<8x256x32xbf16> loc(#loc658)
-    %1446 = ttir.empty() : tensor<1x8x256x32xbf16> loc(#loc659)
-    %1447 = "ttir.unsqueeze"(%1445, %1446) <{dim = 0 : si32}> : (tensor<8x256x32xbf16>, tensor<1x8x256x32xbf16>) -> tensor<1x8x256x32xbf16> loc(#loc659)
-    %1448 = ttir.empty() : tensor<1x256x8x32xbf16> loc(#loc660)
-    %1449 = "ttir.transpose"(%1447, %1448) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x8x256x32xbf16>, tensor<1x256x8x32xbf16>) -> tensor<1x256x8x32xbf16> loc(#loc660)
-    %1450 = ttir.empty() : tensor<256x256xbf16> loc(#loc884)
-    %1451 = "ttir.reshape"(%1449, %1450) <{shape = [256 : i32, 256 : i32]}> : (tensor<1x256x8x32xbf16>, tensor<256x256xbf16>) -> tensor<256x256xbf16> loc(#loc884)
-    %1452 = ttir.empty() : tensor<256x256xbf16> loc(#loc885)
-    %1453 = "ttir.matmul"(%1451, %arg261, %1452) <{transpose_a = false, transpose_b = false}> : (tensor<256x256xbf16>, tensor<256x256xbf16>, tensor<256x256xbf16>) -> tensor<256x256xbf16> loc(#loc885)
-    %1454 = ttir.empty() : tensor<1x256x256xbf16> loc(#loc886)
-    %1455 = "ttir.unsqueeze"(%1453, %1454) <{dim = 0 : si32}> : (tensor<256x256xbf16>, tensor<1x256x256xbf16>) -> tensor<1x256x256xbf16> loc(#loc886)
-    %1456 = ttir.empty() : tensor<1x256x256xbf16> loc(#loc58)
-    %1457 = "ttir.add"(%1455, %arg262, %1456) : (tensor<1x256x256xbf16>, tensor<256xbf16>, tensor<1x256x256xbf16>) -> tensor<1x256x256xbf16> loc(#loc58)
-    %1458 = ttir.empty() : tensor<1x256x256xbf16> loc(#loc169)
-    %1459 = "ttir.add"(%1457, %1365, %1458) : (tensor<1x256x256xbf16>, tensor<1x256x256xbf16>, tensor<1x256x256xbf16>) -> tensor<1x256x256xbf16> loc(#loc169)
-    %1460 = ttir.empty() : tensor<1x256x1xbf16> loc(#loc421)
-    %1461 = "ttir.sum"(%1459, %1460) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x256x256xbf16>, tensor<1x256x1xbf16>) -> tensor<1x256x1xbf16> loc(#loc421)
-    %1462 = ttir.empty() : tensor<1x256x256xbf16> loc(#loc422)
-    %1463 = "ttir.multiply"(%arg86, %1461, %1462) : (tensor<1x256x256xf32>, tensor<1x256x1xbf16>, tensor<1x256x256xbf16>) -> tensor<1x256x256xbf16> loc(#loc422)
-    %1464 = ttir.empty() : tensor<1x256x256xbf16> loc(#loc423)
-    %1465 = "ttir.subtract"(%1459, %1463, %1464) : (tensor<1x256x256xbf16>, tensor<1x256x256xbf16>, tensor<1x256x256xbf16>) -> tensor<1x256x256xbf16> loc(#loc423)
-    %1466 = ttir.empty() : tensor<1x256x256xbf16> loc(#loc424)
-    %1467 = "ttir.multiply"(%1465, %1465, %1466) : (tensor<1x256x256xbf16>, tensor<1x256x256xbf16>, tensor<1x256x256xbf16>) -> tensor<1x256x256xbf16> loc(#loc424)
-    %1468 = ttir.empty() : tensor<1x256x1xbf16> loc(#loc425)
-    %1469 = "ttir.sum"(%1467, %1468) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x256x256xbf16>, tensor<1x256x1xbf16>) -> tensor<1x256x1xbf16> loc(#loc425)
-    %1470 = ttir.empty() : tensor<1x256x1xbf16> loc(#loc426)
-    %1471 = "ttir.multiply"(%arg87, %1469, %1470) : (tensor<1x256x1xf32>, tensor<1x256x1xbf16>, tensor<1x256x1xbf16>) -> tensor<1x256x1xbf16> loc(#loc426)
-    %1472 = ttir.empty() : tensor<1x256x1xbf16> loc(#loc427)
-    %1473 = "ttir.add"(%1471, %arg88, %1472) : (tensor<1x256x1xbf16>, tensor<1x256x1xf32>, tensor<1x256x1xbf16>) -> tensor<1x256x1xbf16> loc(#loc427)
-    %1474 = ttir.empty() : tensor<1x256x1xbf16> loc(#loc428)
-    %1475 = "ttir.sqrt"(%1473, %1474) : (tensor<1x256x1xbf16>, tensor<1x256x1xbf16>) -> tensor<1x256x1xbf16> loc(#loc428)
-    %1476 = ttir.empty() : tensor<1x256x1xbf16> loc(#loc429)
-    %1477 = "ttir.reciprocal"(%1475, %1476) : (tensor<1x256x1xbf16>, tensor<1x256x1xbf16>) -> tensor<1x256x1xbf16> loc(#loc429)
-    %1478 = ttir.empty() : tensor<1x256x256xbf16> loc(#loc430)
-    %1479 = "ttir.multiply"(%1465, %1477, %1478) : (tensor<1x256x256xbf16>, tensor<1x256x1xbf16>, tensor<1x256x256xbf16>) -> tensor<1x256x256xbf16> loc(#loc430)
-    %1480 = ttir.empty() : tensor<1x256x256xbf16> loc(#loc431)
-    %1481 = "ttir.multiply"(%1479, %arg263, %1480) : (tensor<1x256x256xbf16>, tensor<256xbf16>, tensor<1x256x256xbf16>) -> tensor<1x256x256xbf16> loc(#loc431)
-    %1482 = ttir.empty() : tensor<1x256x256xbf16> loc(#loc432)
-    %1483 = "ttir.add"(%1481, %arg264, %1482) : (tensor<1x256x256xbf16>, tensor<256xbf16>, tensor<1x256x256xbf16>) -> tensor<1x256x256xbf16> loc(#loc432)
-    %1484 = ttir.empty() : tensor<1x256x1024xbf16> loc(#loc661)
-    %1485 = "ttir.matmul"(%1483, %arg265, %1484) <{transpose_a = false, transpose_b = false}> : (tensor<1x256x256xbf16>, tensor<256x1024xbf16>, tensor<1x256x1024xbf16>) -> tensor<1x256x1024xbf16> loc(#loc661)
-    %1486 = ttir.empty() : tensor<1x256x1024xbf16> loc(#loc59)
-    %1487 = "ttir.add"(%1485, %arg266, %1486) : (tensor<1x256x1024xbf16>, tensor<1024xbf16>, tensor<1x256x1024xbf16>) -> tensor<1x256x1024xbf16> loc(#loc59)
-    %1488 = ttir.empty() : tensor<1x1024x256xbf16> loc(#loc662)
-    %1489 = "ttir.transpose"(%1487, %1488) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x256x1024xbf16>, tensor<1x1024x256xbf16>) -> tensor<1x1024x256xbf16> loc(#loc662)
-    %1490 = ttir.empty() : tensor<1x1024x16x16xbf16> loc(#loc663)
-    %1491 = "ttir.reshape"(%1489, %1490) <{shape = [1 : i32, 1024 : i32, 16 : i32, 16 : i32]}> : (tensor<1x1024x256xbf16>, tensor<1x1024x16x16xbf16>) -> tensor<1x1024x16x16xbf16> loc(#loc663)
-    %1492 = ttir.empty() : tensor<1x16x1024x16xbf16> loc(#loc887)
-    %1493 = "ttir.transpose"(%1491, %1492) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x1024x16x16xbf16>, tensor<1x16x1024x16xbf16>) -> tensor<1x16x1024x16xbf16> loc(#loc887)
-    %1494 = ttir.empty() : tensor<1x16x16x1024xbf16> loc(#loc888)
-    %1495 = "ttir.transpose"(%1493, %1494) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x16x1024x16xbf16>, tensor<1x16x16x1024xbf16>) -> tensor<1x16x16x1024xbf16> loc(#loc888)
-    %1496 = ttir.empty() : tensor<1x16x16x1024xbf16> loc(#loc889)
-    %1497 = "ttir.conv2d"(%1495, %arg267, %arg268, %1496) <{dilation = array<i32: 1, 1>, groups = 1024 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x16x16x1024xbf16>, tensor<1024x1x3x3xbf16>, tensor<1x1x1x1024xbf16>, tensor<1x16x16x1024xbf16>) -> tensor<1x16x16x1024xbf16> loc(#loc889)
-    %1498 = ttir.empty() : tensor<1x16x1024x16xbf16> loc(#loc890)
-    %1499 = "ttir.transpose"(%1497, %1498) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x16x16x1024xbf16>, tensor<1x16x1024x16xbf16>) -> tensor<1x16x1024x16xbf16> loc(#loc890)
-    %1500 = ttir.empty() : tensor<1x1024x16x16xbf16> loc(#loc891)
-    %1501 = "ttir.transpose"(%1499, %1500) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x16x1024x16xbf16>, tensor<1x1024x16x16xbf16>) -> tensor<1x1024x16x16xbf16> loc(#loc891)
-    %1502 = ttir.empty() : tensor<1x1024x256x1xbf16> loc(#loc664)
-    %1503 = "ttir.reshape"(%1501, %1502) <{shape = [1 : i32, 1024 : i32, 256 : i32, 1 : i32]}> : (tensor<1x1024x16x16xbf16>, tensor<1x1024x256x1xbf16>) -> tensor<1x1024x256x1xbf16> loc(#loc664)
-    %1504 = ttir.empty() : tensor<1x1024x256xbf16> loc(#loc665)
-    %1505 = "ttir.squeeze"(%1503, %1504) <{dim = -1 : si32}> : (tensor<1x1024x256x1xbf16>, tensor<1x1024x256xbf16>) -> tensor<1x1024x256xbf16> loc(#loc665)
-    %1506 = ttir.empty() : tensor<1x256x1024xbf16> loc(#loc666)
-    %1507 = "ttir.transpose"(%1505, %1506) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x1024x256xbf16>, tensor<1x256x1024xbf16>) -> tensor<1x256x1024xbf16> loc(#loc666)
-    %1508 = ttir.empty() : tensor<1x256x1024xbf16> loc(#loc667)
-    %1509 = "ttir.gelu"(%1507, %1508) : (tensor<1x256x1024xbf16>, tensor<1x256x1024xbf16>) -> tensor<1x256x1024xbf16> loc(#loc667)
-    %1510 = ttir.empty() : tensor<1x256x256xbf16> loc(#loc668)
-    %1511 = "ttir.matmul"(%1509, %arg269, %1510) <{transpose_a = false, transpose_b = false}> : (tensor<1x256x1024xbf16>, tensor<1024x256xbf16>, tensor<1x256x256xbf16>) -> tensor<1x256x256xbf16> loc(#loc668)
-    %1512 = ttir.empty() : tensor<1x256x256xbf16> loc(#loc60)
-    %1513 = "ttir.add"(%1511, %arg270, %1512) : (tensor<1x256x256xbf16>, tensor<256xbf16>, tensor<1x256x256xbf16>) -> tensor<1x256x256xbf16> loc(#loc60)
-    %1514 = ttir.empty() : tensor<1x256x256xbf16> loc(#loc170)
-    %1515 = "ttir.add"(%1513, %1459, %1514) : (tensor<1x256x256xbf16>, tensor<1x256x256xbf16>, tensor<1x256x256xbf16>) -> tensor<1x256x256xbf16> loc(#loc170)
-    %1516 = ttir.empty() : tensor<1x256x1xbf16> loc(#loc433)
-    %1517 = "ttir.sum"(%1515, %1516) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x256x256xbf16>, tensor<1x256x1xbf16>) -> tensor<1x256x1xbf16> loc(#loc433)
-    %1518 = ttir.empty() : tensor<1x256x256xbf16> loc(#loc434)
-    %1519 = "ttir.multiply"(%arg89, %1517, %1518) : (tensor<1x256x256xf32>, tensor<1x256x1xbf16>, tensor<1x256x256xbf16>) -> tensor<1x256x256xbf16> loc(#loc434)
-    %1520 = ttir.empty() : tensor<1x256x256xbf16> loc(#loc435)
-    %1521 = "ttir.subtract"(%1515, %1519, %1520) : (tensor<1x256x256xbf16>, tensor<1x256x256xbf16>, tensor<1x256x256xbf16>) -> tensor<1x256x256xbf16> loc(#loc435)
-    %1522 = ttir.empty() : tensor<1x256x256xbf16> loc(#loc436)
-    %1523 = "ttir.multiply"(%1521, %1521, %1522) : (tensor<1x256x256xbf16>, tensor<1x256x256xbf16>, tensor<1x256x256xbf16>) -> tensor<1x256x256xbf16> loc(#loc436)
-    %1524 = ttir.empty() : tensor<1x256x1xbf16> loc(#loc437)
-    %1525 = "ttir.sum"(%1523, %1524) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x256x256xbf16>, tensor<1x256x1xbf16>) -> tensor<1x256x1xbf16> loc(#loc437)
-    %1526 = ttir.empty() : tensor<1x256x1xbf16> loc(#loc438)
-    %1527 = "ttir.multiply"(%arg90, %1525, %1526) : (tensor<1x256x1xf32>, tensor<1x256x1xbf16>, tensor<1x256x1xbf16>) -> tensor<1x256x1xbf16> loc(#loc438)
-    %1528 = ttir.empty() : tensor<1x256x1xbf16> loc(#loc439)
-    %1529 = "ttir.add"(%1527, %arg91, %1528) : (tensor<1x256x1xbf16>, tensor<1x256x1xf32>, tensor<1x256x1xbf16>) -> tensor<1x256x1xbf16> loc(#loc439)
-    %1530 = ttir.empty() : tensor<1x256x1xbf16> loc(#loc440)
-    %1531 = "ttir.sqrt"(%1529, %1530) : (tensor<1x256x1xbf16>, tensor<1x256x1xbf16>) -> tensor<1x256x1xbf16> loc(#loc440)
-    %1532 = ttir.empty() : tensor<1x256x1xbf16> loc(#loc441)
-    %1533 = "ttir.reciprocal"(%1531, %1532) : (tensor<1x256x1xbf16>, tensor<1x256x1xbf16>) -> tensor<1x256x1xbf16> loc(#loc441)
-    %1534 = ttir.empty() : tensor<1x256x256xbf16> loc(#loc442)
-    %1535 = "ttir.multiply"(%1521, %1533, %1534) : (tensor<1x256x256xbf16>, tensor<1x256x1xbf16>, tensor<1x256x256xbf16>) -> tensor<1x256x256xbf16> loc(#loc442)
-    %1536 = ttir.empty() : tensor<1x256x256xbf16> loc(#loc443)
-    %1537 = "ttir.multiply"(%1535, %arg271, %1536) : (tensor<1x256x256xbf16>, tensor<256xbf16>, tensor<1x256x256xbf16>) -> tensor<1x256x256xbf16> loc(#loc443)
-    %1538 = ttir.empty() : tensor<1x256x256xbf16> loc(#loc444)
-    %1539 = "ttir.add"(%1537, %arg272, %1538) : (tensor<1x256x256xbf16>, tensor<256xbf16>, tensor<1x256x256xbf16>) -> tensor<1x256x256xbf16> loc(#loc444)
-    %1540 = ttir.empty() : tensor<256x256xbf16> loc(#loc892)
-    %1541 = "ttir.squeeze"(%1539, %1540) <{dim = 0 : si32}> : (tensor<1x256x256xbf16>, tensor<256x256xbf16>) -> tensor<256x256xbf16> loc(#loc892)
-    %1542 = ttir.empty() : tensor<256x256xbf16> loc(#loc893)
-    %1543 = "ttir.matmul"(%1541, %arg273, %1542) <{transpose_a = false, transpose_b = false}> : (tensor<256x256xbf16>, tensor<256x256xbf16>, tensor<256x256xbf16>) -> tensor<256x256xbf16> loc(#loc893)
-    %1544 = ttir.empty() : tensor<1x256x256xbf16> loc(#loc894)
-    %1545 = "ttir.unsqueeze"(%1543, %1544) <{dim = 0 : si32}> : (tensor<256x256xbf16>, tensor<1x256x256xbf16>) -> tensor<1x256x256xbf16> loc(#loc894)
-    %1546 = ttir.empty() : tensor<1x256x256xbf16> loc(#loc61)
-    %1547 = "ttir.add"(%1545, %arg274, %1546) : (tensor<1x256x256xbf16>, tensor<256xbf16>, tensor<1x256x256xbf16>) -> tensor<1x256x256xbf16> loc(#loc61)
-    %1548 = ttir.empty() : tensor<1x256x8x32xbf16> loc(#loc669)
-    %1549 = "ttir.reshape"(%1547, %1548) <{shape = [1 : i32, 256 : i32, 8 : i32, 32 : i32]}> : (tensor<1x256x256xbf16>, tensor<1x256x8x32xbf16>) -> tensor<1x256x8x32xbf16> loc(#loc669)
-    %1550 = ttir.empty() : tensor<1x8x256x32xbf16> loc(#loc670)
-    %1551 = "ttir.transpose"(%1549, %1550) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x256x8x32xbf16>, tensor<1x8x256x32xbf16>) -> tensor<1x8x256x32xbf16> loc(#loc670)
-    %1552 = ttir.empty() : tensor<8x256x32xbf16> loc(#loc671)
-    %1553 = "ttir.squeeze"(%1551, %1552) <{dim = 0 : si32}> : (tensor<1x8x256x32xbf16>, tensor<8x256x32xbf16>) -> tensor<8x256x32xbf16> loc(#loc671)
-    %1554 = ttir.empty() : tensor<256x256xbf16> loc(#loc895)
-    %1555 = "ttir.matmul"(%1541, %arg275, %1554) <{transpose_a = false, transpose_b = false}> : (tensor<256x256xbf16>, tensor<256x256xbf16>, tensor<256x256xbf16>) -> tensor<256x256xbf16> loc(#loc895)
-    %1556 = ttir.empty() : tensor<1x256x256xbf16> loc(#loc896)
-    %1557 = "ttir.unsqueeze"(%1555, %1556) <{dim = 0 : si32}> : (tensor<256x256xbf16>, tensor<1x256x256xbf16>) -> tensor<1x256x256xbf16> loc(#loc896)
-    %1558 = ttir.empty() : tensor<1x256x256xbf16> loc(#loc62)
-    %1559 = "ttir.add"(%1557, %arg276, %1558) : (tensor<1x256x256xbf16>, tensor<256xbf16>, tensor<1x256x256xbf16>) -> tensor<1x256x256xbf16> loc(#loc62)
-    %1560 = ttir.empty() : tensor<1x256x8x32xbf16> loc(#loc672)
-    %1561 = "ttir.reshape"(%1559, %1560) <{shape = [1 : i32, 256 : i32, 8 : i32, 32 : i32]}> : (tensor<1x256x256xbf16>, tensor<1x256x8x32xbf16>) -> tensor<1x256x8x32xbf16> loc(#loc672)
-    %1562 = ttir.empty() : tensor<1x8x256x32xbf16> loc(#loc673)
-    %1563 = "ttir.transpose"(%1561, %1562) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x256x8x32xbf16>, tensor<1x8x256x32xbf16>) -> tensor<1x8x256x32xbf16> loc(#loc673)
-    %1564 = ttir.empty() : tensor<8x256x32xbf16> loc(#loc674)
-    %1565 = "ttir.squeeze"(%1563, %1564) <{dim = 0 : si32}> : (tensor<1x8x256x32xbf16>, tensor<8x256x32xbf16>) -> tensor<8x256x32xbf16> loc(#loc674)
-    %1566 = ttir.empty() : tensor<8x32x256xbf16> loc(#loc63)
-    %1567 = "ttir.transpose"(%1565, %1566) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<8x256x32xbf16>, tensor<8x32x256xbf16>) -> tensor<8x32x256xbf16> loc(#loc63)
-    %1568 = ttir.empty() : tensor<8x256x256xbf16> loc(#loc675)
-    %1569 = "ttir.matmul"(%1553, %1567, %1568) <{transpose_a = false, transpose_b = false}> : (tensor<8x256x32xbf16>, tensor<8x32x256xbf16>, tensor<8x256x256xbf16>) -> tensor<8x256x256xbf16> loc(#loc675)
-    %1570 = ttir.empty() : tensor<1x8x256x256xbf16> loc(#loc676)
-    %1571 = "ttir.unsqueeze"(%1569, %1570) <{dim = 0 : si32}> : (tensor<8x256x256xbf16>, tensor<1x8x256x256xbf16>) -> tensor<1x8x256x256xbf16> loc(#loc676)
-    %1572 = ttir.empty() : tensor<1x8x256x256xbf16> loc(#loc677)
-    %1573 = "ttir.div"(%1571, %arg92, %1572) : (tensor<1x8x256x256xbf16>, tensor<1xbf16>, tensor<1x8x256x256xbf16>) -> tensor<1x8x256x256xbf16> loc(#loc677)
-    %1574 = ttir.empty() : tensor<1x8x256x256xbf16> loc(#loc678)
-    %1575 = "ttir.softmax"(%1573, %1574) <{dimension = -1 : si32}> : (tensor<1x8x256x256xbf16>, tensor<1x8x256x256xbf16>) -> tensor<1x8x256x256xbf16> loc(#loc678)
-    %1576 = ttir.empty() : tensor<8x256x256xbf16> loc(#loc679)
-    %1577 = "ttir.squeeze"(%1575, %1576) <{dim = 0 : si32}> : (tensor<1x8x256x256xbf16>, tensor<8x256x256xbf16>) -> tensor<8x256x256xbf16> loc(#loc679)
-    %1578 = ttir.empty() : tensor<256x256xbf16> loc(#loc897)
-    %1579 = "ttir.matmul"(%1541, %arg277, %1578) <{transpose_a = false, transpose_b = false}> : (tensor<256x256xbf16>, tensor<256x256xbf16>, tensor<256x256xbf16>) -> tensor<256x256xbf16> loc(#loc897)
-    %1580 = ttir.empty() : tensor<1x256x256xbf16> loc(#loc898)
-    %1581 = "ttir.unsqueeze"(%1579, %1580) <{dim = 0 : si32}> : (tensor<256x256xbf16>, tensor<1x256x256xbf16>) -> tensor<1x256x256xbf16> loc(#loc898)
-    %1582 = ttir.empty() : tensor<1x256x256xbf16> loc(#loc64)
-    %1583 = "ttir.add"(%1581, %arg278, %1582) : (tensor<1x256x256xbf16>, tensor<256xbf16>, tensor<1x256x256xbf16>) -> tensor<1x256x256xbf16> loc(#loc64)
-    %1584 = ttir.empty() : tensor<1x256x8x32xbf16> loc(#loc680)
-    %1585 = "ttir.reshape"(%1583, %1584) <{shape = [1 : i32, 256 : i32, 8 : i32, 32 : i32]}> : (tensor<1x256x256xbf16>, tensor<1x256x8x32xbf16>) -> tensor<1x256x8x32xbf16> loc(#loc680)
-    %1586 = ttir.empty() : tensor<1x8x256x32xbf16> loc(#loc681)
-    %1587 = "ttir.transpose"(%1585, %1586) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x256x8x32xbf16>, tensor<1x8x256x32xbf16>) -> tensor<1x8x256x32xbf16> loc(#loc681)
-    %1588 = ttir.empty() : tensor<1x8x32x256xbf16> loc(#loc682)
-    %1589 = "ttir.transpose"(%1587, %1588) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x8x256x32xbf16>, tensor<1x8x32x256xbf16>) -> tensor<1x8x32x256xbf16> loc(#loc682)
-    %1590 = ttir.empty() : tensor<8x32x256xbf16> loc(#loc683)
-    %1591 = "ttir.squeeze"(%1589, %1590) <{dim = 0 : si32}> : (tensor<1x8x32x256xbf16>, tensor<8x32x256xbf16>) -> tensor<8x32x256xbf16> loc(#loc683)
-    %1592 = ttir.empty() : tensor<8x256x32xbf16> loc(#loc65)
-    %1593 = "ttir.transpose"(%1591, %1592) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<8x32x256xbf16>, tensor<8x256x32xbf16>) -> tensor<8x256x32xbf16> loc(#loc65)
-    %1594 = ttir.empty() : tensor<8x256x32xbf16> loc(#loc684)
-    %1595 = "ttir.matmul"(%1577, %1593, %1594) <{transpose_a = false, transpose_b = false}> : (tensor<8x256x256xbf16>, tensor<8x256x32xbf16>, tensor<8x256x32xbf16>) -> tensor<8x256x32xbf16> loc(#loc684)
-    %1596 = ttir.empty() : tensor<1x8x256x32xbf16> loc(#loc685)
-    %1597 = "ttir.unsqueeze"(%1595, %1596) <{dim = 0 : si32}> : (tensor<8x256x32xbf16>, tensor<1x8x256x32xbf16>) -> tensor<1x8x256x32xbf16> loc(#loc685)
-    %1598 = ttir.empty() : tensor<1x256x8x32xbf16> loc(#loc686)
-    %1599 = "ttir.transpose"(%1597, %1598) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x8x256x32xbf16>, tensor<1x256x8x32xbf16>) -> tensor<1x256x8x32xbf16> loc(#loc686)
-    %1600 = ttir.empty() : tensor<256x256xbf16> loc(#loc899)
-    %1601 = "ttir.reshape"(%1599, %1600) <{shape = [256 : i32, 256 : i32]}> : (tensor<1x256x8x32xbf16>, tensor<256x256xbf16>) -> tensor<256x256xbf16> loc(#loc899)
-    %1602 = ttir.empty() : tensor<256x256xbf16> loc(#loc900)
-    %1603 = "ttir.matmul"(%1601, %arg279, %1602) <{transpose_a = false, transpose_b = false}> : (tensor<256x256xbf16>, tensor<256x256xbf16>, tensor<256x256xbf16>) -> tensor<256x256xbf16> loc(#loc900)
-    %1604 = ttir.empty() : tensor<1x256x256xbf16> loc(#loc901)
-    %1605 = "ttir.unsqueeze"(%1603, %1604) <{dim = 0 : si32}> : (tensor<256x256xbf16>, tensor<1x256x256xbf16>) -> tensor<1x256x256xbf16> loc(#loc901)
-    %1606 = ttir.empty() : tensor<1x256x256xbf16> loc(#loc66)
-    %1607 = "ttir.add"(%1605, %arg280, %1606) : (tensor<1x256x256xbf16>, tensor<256xbf16>, tensor<1x256x256xbf16>) -> tensor<1x256x256xbf16> loc(#loc66)
-    %1608 = ttir.empty() : tensor<1x256x256xbf16> loc(#loc171)
-    %1609 = "ttir.add"(%1607, %1515, %1608) : (tensor<1x256x256xbf16>, tensor<1x256x256xbf16>, tensor<1x256x256xbf16>) -> tensor<1x256x256xbf16> loc(#loc171)
-    %1610 = ttir.empty() : tensor<1x256x1xbf16> loc(#loc445)
-    %1611 = "ttir.sum"(%1609, %1610) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x256x256xbf16>, tensor<1x256x1xbf16>) -> tensor<1x256x1xbf16> loc(#loc445)
-    %1612 = ttir.empty() : tensor<1x256x256xbf16> loc(#loc446)
-    %1613 = "ttir.multiply"(%arg93, %1611, %1612) : (tensor<1x256x256xf32>, tensor<1x256x1xbf16>, tensor<1x256x256xbf16>) -> tensor<1x256x256xbf16> loc(#loc446)
-    %1614 = ttir.empty() : tensor<1x256x256xbf16> loc(#loc447)
-    %1615 = "ttir.subtract"(%1609, %1613, %1614) : (tensor<1x256x256xbf16>, tensor<1x256x256xbf16>, tensor<1x256x256xbf16>) -> tensor<1x256x256xbf16> loc(#loc447)
-    %1616 = ttir.empty() : tensor<1x256x256xbf16> loc(#loc448)
-    %1617 = "ttir.multiply"(%1615, %1615, %1616) : (tensor<1x256x256xbf16>, tensor<1x256x256xbf16>, tensor<1x256x256xbf16>) -> tensor<1x256x256xbf16> loc(#loc448)
-    %1618 = ttir.empty() : tensor<1x256x1xbf16> loc(#loc449)
-    %1619 = "ttir.sum"(%1617, %1618) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x256x256xbf16>, tensor<1x256x1xbf16>) -> tensor<1x256x1xbf16> loc(#loc449)
-    %1620 = ttir.empty() : tensor<1x256x1xbf16> loc(#loc450)
-    %1621 = "ttir.multiply"(%arg94, %1619, %1620) : (tensor<1x256x1xf32>, tensor<1x256x1xbf16>, tensor<1x256x1xbf16>) -> tensor<1x256x1xbf16> loc(#loc450)
-    %1622 = ttir.empty() : tensor<1x256x1xbf16> loc(#loc451)
-    %1623 = "ttir.add"(%1621, %arg95, %1622) : (tensor<1x256x1xbf16>, tensor<1x256x1xf32>, tensor<1x256x1xbf16>) -> tensor<1x256x1xbf16> loc(#loc451)
-    %1624 = ttir.empty() : tensor<1x256x1xbf16> loc(#loc452)
-    %1625 = "ttir.sqrt"(%1623, %1624) : (tensor<1x256x1xbf16>, tensor<1x256x1xbf16>) -> tensor<1x256x1xbf16> loc(#loc452)
-    %1626 = ttir.empty() : tensor<1x256x1xbf16> loc(#loc453)
-    %1627 = "ttir.reciprocal"(%1625, %1626) : (tensor<1x256x1xbf16>, tensor<1x256x1xbf16>) -> tensor<1x256x1xbf16> loc(#loc453)
-    %1628 = ttir.empty() : tensor<1x256x256xbf16> loc(#loc454)
-    %1629 = "ttir.multiply"(%1615, %1627, %1628) : (tensor<1x256x256xbf16>, tensor<1x256x1xbf16>, tensor<1x256x256xbf16>) -> tensor<1x256x256xbf16> loc(#loc454)
-    %1630 = ttir.empty() : tensor<1x256x256xbf16> loc(#loc455)
-    %1631 = "ttir.multiply"(%1629, %arg281, %1630) : (tensor<1x256x256xbf16>, tensor<256xbf16>, tensor<1x256x256xbf16>) -> tensor<1x256x256xbf16> loc(#loc455)
-    %1632 = ttir.empty() : tensor<1x256x256xbf16> loc(#loc456)
-    %1633 = "ttir.add"(%1631, %arg282, %1632) : (tensor<1x256x256xbf16>, tensor<256xbf16>, tensor<1x256x256xbf16>) -> tensor<1x256x256xbf16> loc(#loc456)
-    %1634 = ttir.empty() : tensor<1x256x1024xbf16> loc(#loc687)
-    %1635 = "ttir.matmul"(%1633, %arg283, %1634) <{transpose_a = false, transpose_b = false}> : (tensor<1x256x256xbf16>, tensor<256x1024xbf16>, tensor<1x256x1024xbf16>) -> tensor<1x256x1024xbf16> loc(#loc687)
-    %1636 = ttir.empty() : tensor<1x256x1024xbf16> loc(#loc67)
-    %1637 = "ttir.add"(%1635, %arg284, %1636) : (tensor<1x256x1024xbf16>, tensor<1024xbf16>, tensor<1x256x1024xbf16>) -> tensor<1x256x1024xbf16> loc(#loc67)
-    %1638 = ttir.empty() : tensor<1x1024x256xbf16> loc(#loc688)
-    %1639 = "ttir.transpose"(%1637, %1638) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x256x1024xbf16>, tensor<1x1024x256xbf16>) -> tensor<1x1024x256xbf16> loc(#loc688)
-    %1640 = ttir.empty() : tensor<1x1024x16x16xbf16> loc(#loc689)
-    %1641 = "ttir.reshape"(%1639, %1640) <{shape = [1 : i32, 1024 : i32, 16 : i32, 16 : i32]}> : (tensor<1x1024x256xbf16>, tensor<1x1024x16x16xbf16>) -> tensor<1x1024x16x16xbf16> loc(#loc689)
-    %1642 = ttir.empty() : tensor<1x16x1024x16xbf16> loc(#loc902)
-    %1643 = "ttir.transpose"(%1641, %1642) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x1024x16x16xbf16>, tensor<1x16x1024x16xbf16>) -> tensor<1x16x1024x16xbf16> loc(#loc902)
-    %1644 = ttir.empty() : tensor<1x16x16x1024xbf16> loc(#loc903)
-    %1645 = "ttir.transpose"(%1643, %1644) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x16x1024x16xbf16>, tensor<1x16x16x1024xbf16>) -> tensor<1x16x16x1024xbf16> loc(#loc903)
-    %1646 = ttir.empty() : tensor<1x16x16x1024xbf16> loc(#loc904)
-    %1647 = "ttir.conv2d"(%1645, %arg285, %arg286, %1646) <{dilation = array<i32: 1, 1>, groups = 1024 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x16x16x1024xbf16>, tensor<1024x1x3x3xbf16>, tensor<1x1x1x1024xbf16>, tensor<1x16x16x1024xbf16>) -> tensor<1x16x16x1024xbf16> loc(#loc904)
-    %1648 = ttir.empty() : tensor<1x16x1024x16xbf16> loc(#loc905)
-    %1649 = "ttir.transpose"(%1647, %1648) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x16x16x1024xbf16>, tensor<1x16x1024x16xbf16>) -> tensor<1x16x1024x16xbf16> loc(#loc905)
-    %1650 = ttir.empty() : tensor<1x1024x16x16xbf16> loc(#loc906)
-    %1651 = "ttir.transpose"(%1649, %1650) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x16x1024x16xbf16>, tensor<1x1024x16x16xbf16>) -> tensor<1x1024x16x16xbf16> loc(#loc906)
-    %1652 = ttir.empty() : tensor<1x1024x256x1xbf16> loc(#loc690)
-    %1653 = "ttir.reshape"(%1651, %1652) <{shape = [1 : i32, 1024 : i32, 256 : i32, 1 : i32]}> : (tensor<1x1024x16x16xbf16>, tensor<1x1024x256x1xbf16>) -> tensor<1x1024x256x1xbf16> loc(#loc690)
-    %1654 = ttir.empty() : tensor<1x1024x256xbf16> loc(#loc691)
-    %1655 = "ttir.squeeze"(%1653, %1654) <{dim = -1 : si32}> : (tensor<1x1024x256x1xbf16>, tensor<1x1024x256xbf16>) -> tensor<1x1024x256xbf16> loc(#loc691)
-    %1656 = ttir.empty() : tensor<1x256x1024xbf16> loc(#loc692)
-    %1657 = "ttir.transpose"(%1655, %1656) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x1024x256xbf16>, tensor<1x256x1024xbf16>) -> tensor<1x256x1024xbf16> loc(#loc692)
-    %1658 = ttir.empty() : tensor<1x256x1024xbf16> loc(#loc693)
-    %1659 = "ttir.gelu"(%1657, %1658) : (tensor<1x256x1024xbf16>, tensor<1x256x1024xbf16>) -> tensor<1x256x1024xbf16> loc(#loc693)
-    %1660 = ttir.empty() : tensor<1x256x256xbf16> loc(#loc694)
-    %1661 = "ttir.matmul"(%1659, %arg287, %1660) <{transpose_a = false, transpose_b = false}> : (tensor<1x256x1024xbf16>, tensor<1024x256xbf16>, tensor<1x256x256xbf16>) -> tensor<1x256x256xbf16> loc(#loc694)
-    %1662 = ttir.empty() : tensor<1x256x256xbf16> loc(#loc68)
-    %1663 = "ttir.add"(%1661, %arg288, %1662) : (tensor<1x256x256xbf16>, tensor<256xbf16>, tensor<1x256x256xbf16>) -> tensor<1x256x256xbf16> loc(#loc68)
-    %1664 = ttir.empty() : tensor<1x256x256xbf16> loc(#loc172)
-    %1665 = "ttir.add"(%1663, %1609, %1664) : (tensor<1x256x256xbf16>, tensor<1x256x256xbf16>, tensor<1x256x256xbf16>) -> tensor<1x256x256xbf16> loc(#loc172)
-    %1666 = ttir.empty() : tensor<1x256x1xbf16> loc(#loc173)
-    %1667 = "ttir.sum"(%1665, %1666) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x256x256xbf16>, tensor<1x256x1xbf16>) -> tensor<1x256x1xbf16> loc(#loc173)
-    %1668 = ttir.empty() : tensor<1x256x256xbf16> loc(#loc174)
-    %1669 = "ttir.multiply"(%arg96, %1667, %1668) : (tensor<1x256x256xf32>, tensor<1x256x1xbf16>, tensor<1x256x256xbf16>) -> tensor<1x256x256xbf16> loc(#loc174)
-    %1670 = ttir.empty() : tensor<1x256x256xbf16> loc(#loc175)
-    %1671 = "ttir.subtract"(%1665, %1669, %1670) : (tensor<1x256x256xbf16>, tensor<1x256x256xbf16>, tensor<1x256x256xbf16>) -> tensor<1x256x256xbf16> loc(#loc175)
-    %1672 = ttir.empty() : tensor<1x256x256xbf16> loc(#loc176)
-    %1673 = "ttir.multiply"(%1671, %1671, %1672) : (tensor<1x256x256xbf16>, tensor<1x256x256xbf16>, tensor<1x256x256xbf16>) -> tensor<1x256x256xbf16> loc(#loc176)
-    %1674 = ttir.empty() : tensor<1x256x1xbf16> loc(#loc177)
-    %1675 = "ttir.sum"(%1673, %1674) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x256x256xbf16>, tensor<1x256x1xbf16>) -> tensor<1x256x1xbf16> loc(#loc177)
-    %1676 = ttir.empty() : tensor<1x256x1xbf16> loc(#loc178)
-    %1677 = "ttir.multiply"(%arg97, %1675, %1676) : (tensor<1x256x1xf32>, tensor<1x256x1xbf16>, tensor<1x256x1xbf16>) -> tensor<1x256x1xbf16> loc(#loc178)
-    %1678 = ttir.empty() : tensor<1x256x1xbf16> loc(#loc179)
-    %1679 = "ttir.add"(%1677, %arg98, %1678) : (tensor<1x256x1xbf16>, tensor<1x256x1xf32>, tensor<1x256x1xbf16>) -> tensor<1x256x1xbf16> loc(#loc179)
-    %1680 = ttir.empty() : tensor<1x256x1xbf16> loc(#loc180)
-    %1681 = "ttir.sqrt"(%1679, %1680) : (tensor<1x256x1xbf16>, tensor<1x256x1xbf16>) -> tensor<1x256x1xbf16> loc(#loc180)
-    %1682 = ttir.empty() : tensor<1x256x1xbf16> loc(#loc181)
-    %1683 = "ttir.reciprocal"(%1681, %1682) : (tensor<1x256x1xbf16>, tensor<1x256x1xbf16>) -> tensor<1x256x1xbf16> loc(#loc181)
-    %1684 = ttir.empty() : tensor<1x256x256xbf16> loc(#loc182)
-    %1685 = "ttir.multiply"(%1671, %1683, %1684) : (tensor<1x256x256xbf16>, tensor<1x256x1xbf16>, tensor<1x256x256xbf16>) -> tensor<1x256x256xbf16> loc(#loc182)
-    %1686 = ttir.empty() : tensor<1x256x256xbf16> loc(#loc183)
-    %1687 = "ttir.multiply"(%1685, %arg289, %1686) : (tensor<1x256x256xbf16>, tensor<256xbf16>, tensor<1x256x256xbf16>) -> tensor<1x256x256xbf16> loc(#loc183)
-    %1688 = ttir.empty() : tensor<1x256x256xbf16> loc(#loc184)
-    %1689 = "ttir.add"(%1687, %arg290, %1688) : (tensor<1x256x256xbf16>, tensor<256xbf16>, tensor<1x256x256xbf16>) -> tensor<1x256x256xbf16> loc(#loc184)
-    %1690 = ttir.empty() : tensor<1x1x256xbf16> loc(#loc69)
-    %1691 = "ttir.mean"(%1689, %1690) <{dim_arg = [-2 : i32], keep_dim = true}> : (tensor<1x256x256xbf16>, tensor<1x1x256xbf16>) -> tensor<1x1x256xbf16> loc(#loc69)
-    %1692 = ttir.empty() : tensor<1x256xbf16> loc(#loc73)
-    %1693 = "ttir.squeeze"(%1691, %1692) <{dim = 1 : si32}> : (tensor<1x1x256xbf16>, tensor<1x256xbf16>) -> tensor<1x256xbf16> loc(#loc73)
-    %1694 = ttir.empty() : tensor<1x1000xbf16> loc(#loc76)
-    %1695 = "ttir.matmul"(%1693, %arg291, %1694) <{transpose_a = false, transpose_b = false}> : (tensor<1x256xbf16>, tensor<256x1000xbf16>, tensor<1x1000xbf16>) -> tensor<1x1000xbf16> loc(#loc76)
-    %1696 = ttir.empty() : tensor<1x1000xbf16> loc(#loc70)
-    %1697 = "ttir.add"(%1695, %arg292, %1696) : (tensor<1x1000xbf16>, tensor<1000xbf16>, tensor<1x1000xbf16>) -> tensor<1x1000xbf16> loc(#loc70)
-    return %1697 : tensor<1x1000xbf16> loc(#loc71)
+    %0 = "ttir.transpose"(%arg0) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x3x512x512xbf16>) -> tensor<1x512x3x512xbf16>
+    %1 = "ttir.transpose"(%0) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x512x3x512xbf16>) -> tensor<1x512x512x3xbf16>
+    %2 = "ttir.conv2d"(%1, %arg99, %arg100) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 3, 3, 3, 3>, stride = array<i32: 4, 4>}> {channel_last = 1 : si32} : (tensor<1x512x512x3xbf16>, tensor<32x3x7x7xbf16>, tensor<1x1x1x32xbf16>) -> tensor<1x128x128x32xbf16>
+    %3 = "ttir.transpose"(%2) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x128x128x32xbf16>) -> tensor<1x128x32x128xbf16>
+    %4 = "ttir.transpose"(%3) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x128x32x128xbf16>) -> tensor<1x32x128x128xbf16>
+    %5 = "ttir.reshape"(%4) <{shape = [1 : i32, 32 : i32, 16384 : i32, 1 : i32]}> : (tensor<1x32x128x128xbf16>) -> tensor<1x32x16384x1xbf16>
+    %6 = "ttir.squeeze"(%5) <{dim = -1 : si32}> : (tensor<1x32x16384x1xbf16>) -> tensor<1x32x16384xbf16>
+    %7 = "ttir.transpose"(%6) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x32x16384xbf16>) -> tensor<1x16384x32xbf16>
+    %8 = "ttir.sum"(%7) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x16384x32xbf16>) -> tensor<1x16384x1xbf16>
+    %9 = "ttir.multiply"(%arg1, %8) : (tensor<1x16384x32xf32>, tensor<1x16384x1xbf16>) -> tensor<1x16384x32xbf16>
+    %10 = "ttir.subtract"(%7, %9) : (tensor<1x16384x32xbf16>, tensor<1x16384x32xbf16>) -> tensor<1x16384x32xbf16>
+    %11 = "ttir.multiply"(%10, %10) : (tensor<1x16384x32xbf16>, tensor<1x16384x32xbf16>) -> tensor<1x16384x32xbf16>
+    %12 = "ttir.sum"(%11) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x16384x32xbf16>) -> tensor<1x16384x1xbf16>
+    %13 = "ttir.multiply"(%arg2, %12) : (tensor<1x16384x1xf32>, tensor<1x16384x1xbf16>) -> tensor<1x16384x1xbf16>
+    %14 = "ttir.add"(%13, %arg3) : (tensor<1x16384x1xbf16>, tensor<1x16384x1xf32>) -> tensor<1x16384x1xbf16>
+    %15 = "ttir.sqrt"(%14) : (tensor<1x16384x1xbf16>) -> tensor<1x16384x1xbf16>
+    %16 = "ttir.reciprocal"(%15) : (tensor<1x16384x1xbf16>) -> tensor<1x16384x1xbf16>
+    %17 = "ttir.multiply"(%10, %16) : (tensor<1x16384x32xbf16>, tensor<1x16384x1xbf16>) -> tensor<1x16384x32xbf16>
+    %18 = "ttir.multiply"(%17, %arg101) : (tensor<1x16384x32xbf16>, tensor<32xbf16>) -> tensor<1x16384x32xbf16>
+    %19 = "ttir.add"(%18, %arg102) : (tensor<1x16384x32xbf16>, tensor<32xbf16>) -> tensor<1x16384x32xbf16>
+    %20 = "ttir.sum"(%19) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x16384x32xbf16>) -> tensor<1x16384x1xbf16>
+    %21 = "ttir.multiply"(%arg4, %20) : (tensor<1x16384x32xf32>, tensor<1x16384x1xbf16>) -> tensor<1x16384x32xbf16>
+    %22 = "ttir.subtract"(%19, %21) : (tensor<1x16384x32xbf16>, tensor<1x16384x32xbf16>) -> tensor<1x16384x32xbf16>
+    %23 = "ttir.multiply"(%22, %22) : (tensor<1x16384x32xbf16>, tensor<1x16384x32xbf16>) -> tensor<1x16384x32xbf16>
+    %24 = "ttir.sum"(%23) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x16384x32xbf16>) -> tensor<1x16384x1xbf16>
+    %25 = "ttir.multiply"(%arg5, %24) : (tensor<1x16384x1xf32>, tensor<1x16384x1xbf16>) -> tensor<1x16384x1xbf16>
+    %26 = "ttir.add"(%25, %arg6) : (tensor<1x16384x1xbf16>, tensor<1x16384x1xf32>) -> tensor<1x16384x1xbf16>
+    %27 = "ttir.sqrt"(%26) : (tensor<1x16384x1xbf16>) -> tensor<1x16384x1xbf16>
+    %28 = "ttir.reciprocal"(%27) : (tensor<1x16384x1xbf16>) -> tensor<1x16384x1xbf16>
+    %29 = "ttir.multiply"(%22, %28) : (tensor<1x16384x32xbf16>, tensor<1x16384x1xbf16>) -> tensor<1x16384x32xbf16>
+    %30 = "ttir.multiply"(%29, %arg103) : (tensor<1x16384x32xbf16>, tensor<32xbf16>) -> tensor<1x16384x32xbf16>
+    %31 = "ttir.add"(%30, %arg104) : (tensor<1x16384x32xbf16>, tensor<32xbf16>) -> tensor<1x16384x32xbf16>
+    %32 = "ttir.matmul"(%31, %arg105) <{transpose_a = false, transpose_b = false}> : (tensor<1x16384x32xbf16>, tensor<32x32xbf16>) -> tensor<1x16384x32xbf16>
+    %33 = "ttir.add"(%32, %arg106) : (tensor<1x16384x32xbf16>, tensor<32xbf16>) -> tensor<1x16384x32xbf16>
+    %34 = "ttir.reshape"(%33) <{shape = [1 : i32, 16384 : i32, 1 : i32, 32 : i32]}> : (tensor<1x16384x32xbf16>) -> tensor<1x16384x1x32xbf16>
+    %35 = "ttir.squeeze"(%34) <{dim = -2 : si32}> : (tensor<1x16384x1x32xbf16>) -> tensor<1x16384x32xbf16>
+    %36 = "ttir.transpose"(%31) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x16384x32xbf16>) -> tensor<1x32x16384xbf16>
+    %37 = "ttir.reshape"(%36) <{shape = [1 : i32, 32 : i32, 128 : i32, 128 : i32]}> : (tensor<1x32x16384xbf16>) -> tensor<1x32x128x128xbf16>
+    %38 = "ttir.transpose"(%37) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x32x128x128xbf16>) -> tensor<1x128x32x128xbf16>
+    %39 = "ttir.transpose"(%38) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x128x32x128xbf16>) -> tensor<1x128x128x32xbf16>
+    %40 = "ttir.conv2d"(%39, %arg107, %arg108) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 0, 0, 0, 0>, stride = array<i32: 8, 8>}> {channel_last = 1 : si32} : (tensor<1x128x128x32xbf16>, tensor<32x32x8x8xbf16>, tensor<1x1x1x32xbf16>) -> tensor<1x16x16x32xbf16>
+    %41 = "ttir.transpose"(%40) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x16x16x32xbf16>) -> tensor<1x16x32x16xbf16>
+    %42 = "ttir.transpose"(%41) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x16x32x16xbf16>) -> tensor<1x32x16x16xbf16>
+    %43 = "ttir.reshape"(%42) <{shape = [1 : i32, 32 : i32, 256 : i32]}> : (tensor<1x32x16x16xbf16>) -> tensor<1x32x256xbf16>
+    %44 = "ttir.transpose"(%43) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x32x256xbf16>) -> tensor<1x256x32xbf16>
+    %45 = "ttir.sum"(%44) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x256x32xbf16>) -> tensor<1x256x1xbf16>
+    %46 = "ttir.multiply"(%arg7, %45) : (tensor<1x256x32xf32>, tensor<1x256x1xbf16>) -> tensor<1x256x32xbf16>
+    %47 = "ttir.subtract"(%44, %46) : (tensor<1x256x32xbf16>, tensor<1x256x32xbf16>) -> tensor<1x256x32xbf16>
+    %48 = "ttir.multiply"(%47, %47) : (tensor<1x256x32xbf16>, tensor<1x256x32xbf16>) -> tensor<1x256x32xbf16>
+    %49 = "ttir.sum"(%48) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x256x32xbf16>) -> tensor<1x256x1xbf16>
+    %50 = "ttir.multiply"(%arg8, %49) : (tensor<1x256x1xf32>, tensor<1x256x1xbf16>) -> tensor<1x256x1xbf16>
+    %51 = "ttir.add"(%50, %arg9) : (tensor<1x256x1xbf16>, tensor<1x256x1xf32>) -> tensor<1x256x1xbf16>
+    %52 = "ttir.sqrt"(%51) : (tensor<1x256x1xbf16>) -> tensor<1x256x1xbf16>
+    %53 = "ttir.reciprocal"(%52) : (tensor<1x256x1xbf16>) -> tensor<1x256x1xbf16>
+    %54 = "ttir.multiply"(%47, %53) : (tensor<1x256x32xbf16>, tensor<1x256x1xbf16>) -> tensor<1x256x32xbf16>
+    %55 = "ttir.multiply"(%54, %arg109) : (tensor<1x256x32xbf16>, tensor<32xbf16>) -> tensor<1x256x32xbf16>
+    %56 = "ttir.add"(%55, %arg110) : (tensor<1x256x32xbf16>, tensor<32xbf16>) -> tensor<1x256x32xbf16>
+    %57 = "ttir.squeeze"(%56) <{dim = 0 : si32}> : (tensor<1x256x32xbf16>) -> tensor<256x32xbf16>
+    %58 = "ttir.matmul"(%57, %arg111) <{transpose_a = false, transpose_b = false}> : (tensor<256x32xbf16>, tensor<32x32xbf16>) -> tensor<256x32xbf16>
+    %59 = "ttir.unsqueeze"(%58) <{dim = 0 : si32}> : (tensor<256x32xbf16>) -> tensor<1x256x32xbf16>
+    %60 = "ttir.add"(%59, %arg112) : (tensor<1x256x32xbf16>, tensor<32xbf16>) -> tensor<1x256x32xbf16>
+    %61 = "ttir.reshape"(%60) <{shape = [1 : i32, 256 : i32, 1 : i32, 32 : i32]}> : (tensor<1x256x32xbf16>) -> tensor<1x256x1x32xbf16>
+    %62 = "ttir.squeeze"(%61) <{dim = -2 : si32}> : (tensor<1x256x1x32xbf16>) -> tensor<1x256x32xbf16>
+    %63 = "ttir.transpose"(%62) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x256x32xbf16>) -> tensor<1x32x256xbf16>
+    %64 = "ttir.matmul"(%35, %63) <{transpose_a = false, transpose_b = false}> : (tensor<1x16384x32xbf16>, tensor<1x32x256xbf16>) -> tensor<1x16384x256xbf16>
+    %65 = "ttir.unsqueeze"(%64) <{dim = 0 : si32}> : (tensor<1x16384x256xbf16>) -> tensor<1x1x16384x256xbf16>
+    %66 = "ttir.div"(%65, %arg10) : (tensor<1x1x16384x256xbf16>, tensor<1xbf16>) -> tensor<1x1x16384x256xbf16>
+    %67 = "ttir.softmax"(%66) <{dimension = -1 : si32}> : (tensor<1x1x16384x256xbf16>) -> tensor<1x1x16384x256xbf16>
+    %68 = "ttir.squeeze"(%67) <{dim = 0 : si32}> : (tensor<1x1x16384x256xbf16>) -> tensor<1x16384x256xbf16>
+    %69 = "ttir.matmul"(%57, %arg113) <{transpose_a = false, transpose_b = false}> : (tensor<256x32xbf16>, tensor<32x32xbf16>) -> tensor<256x32xbf16>
+    %70 = "ttir.unsqueeze"(%69) <{dim = 0 : si32}> : (tensor<256x32xbf16>) -> tensor<1x256x32xbf16>
+    %71 = "ttir.add"(%70, %arg114) : (tensor<1x256x32xbf16>, tensor<32xbf16>) -> tensor<1x256x32xbf16>
+    %72 = "ttir.reshape"(%71) <{shape = [1 : i32, 256 : i32, 1 : i32, 32 : i32]}> : (tensor<1x256x32xbf16>) -> tensor<1x256x1x32xbf16>
+    %73 = "ttir.transpose"(%72) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x256x1x32xbf16>) -> tensor<1x1x256x32xbf16>
+    %74 = "ttir.transpose"(%73) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x1x256x32xbf16>) -> tensor<1x1x32x256xbf16>
+    %75 = "ttir.squeeze"(%74) <{dim = 0 : si32}> : (tensor<1x1x32x256xbf16>) -> tensor<1x32x256xbf16>
+    %76 = "ttir.transpose"(%75) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x32x256xbf16>) -> tensor<1x256x32xbf16>
+    %77 = "ttir.matmul"(%68, %76) <{transpose_a = false, transpose_b = false}> : (tensor<1x16384x256xbf16>, tensor<1x256x32xbf16>) -> tensor<1x16384x32xbf16>
+    %78 = "ttir.matmul"(%77, %arg115) <{transpose_a = false, transpose_b = false}> : (tensor<1x16384x32xbf16>, tensor<32x32xbf16>) -> tensor<1x16384x32xbf16>
+    %79 = "ttir.add"(%78, %arg116) : (tensor<1x16384x32xbf16>, tensor<32xbf16>) -> tensor<1x16384x32xbf16>
+    %80 = "ttir.add"(%79, %19) : (tensor<1x16384x32xbf16>, tensor<1x16384x32xbf16>) -> tensor<1x16384x32xbf16>
+    %81 = "ttir.sum"(%80) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x16384x32xbf16>) -> tensor<1x16384x1xbf16>
+    %82 = "ttir.multiply"(%arg11, %81) : (tensor<1x16384x32xf32>, tensor<1x16384x1xbf16>) -> tensor<1x16384x32xbf16>
+    %83 = "ttir.subtract"(%80, %82) : (tensor<1x16384x32xbf16>, tensor<1x16384x32xbf16>) -> tensor<1x16384x32xbf16>
+    %84 = "ttir.multiply"(%83, %83) : (tensor<1x16384x32xbf16>, tensor<1x16384x32xbf16>) -> tensor<1x16384x32xbf16>
+    %85 = "ttir.sum"(%84) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x16384x32xbf16>) -> tensor<1x16384x1xbf16>
+    %86 = "ttir.multiply"(%arg12, %85) : (tensor<1x16384x1xf32>, tensor<1x16384x1xbf16>) -> tensor<1x16384x1xbf16>
+    %87 = "ttir.add"(%86, %arg13) : (tensor<1x16384x1xbf16>, tensor<1x16384x1xf32>) -> tensor<1x16384x1xbf16>
+    %88 = "ttir.sqrt"(%87) : (tensor<1x16384x1xbf16>) -> tensor<1x16384x1xbf16>
+    %89 = "ttir.reciprocal"(%88) : (tensor<1x16384x1xbf16>) -> tensor<1x16384x1xbf16>
+    %90 = "ttir.multiply"(%83, %89) : (tensor<1x16384x32xbf16>, tensor<1x16384x1xbf16>) -> tensor<1x16384x32xbf16>
+    %91 = "ttir.multiply"(%90, %arg117) : (tensor<1x16384x32xbf16>, tensor<32xbf16>) -> tensor<1x16384x32xbf16>
+    %92 = "ttir.add"(%91, %arg118) : (tensor<1x16384x32xbf16>, tensor<32xbf16>) -> tensor<1x16384x32xbf16>
+    %93 = "ttir.matmul"(%92, %arg119) <{transpose_a = false, transpose_b = false}> : (tensor<1x16384x32xbf16>, tensor<32x128xbf16>) -> tensor<1x16384x128xbf16>
+    %94 = "ttir.add"(%93, %arg120) : (tensor<1x16384x128xbf16>, tensor<128xbf16>) -> tensor<1x16384x128xbf16>
+    %95 = "ttir.transpose"(%94) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x16384x128xbf16>) -> tensor<1x128x16384xbf16>
+    %96 = "ttir.reshape"(%95) <{shape = [1 : i32, 128 : i32, 128 : i32, 128 : i32]}> : (tensor<1x128x16384xbf16>) -> tensor<1x128x128x128xbf16>
+    %97 = "ttir.transpose"(%96) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x128x128x128xbf16>) -> tensor<1x128x128x128xbf16>
+    %98 = "ttir.transpose"(%97) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x128x128x128xbf16>) -> tensor<1x128x128x128xbf16>
+    %99 = "ttir.conv2d"(%98, %arg121, %arg122) <{dilation = array<i32: 1, 1>, groups = 128 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x128x128x128xbf16>, tensor<128x1x3x3xbf16>, tensor<1x1x1x128xbf16>) -> tensor<1x128x128x128xbf16>
+    %100 = "ttir.transpose"(%99) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x128x128x128xbf16>) -> tensor<1x128x128x128xbf16>
+    %101 = "ttir.transpose"(%100) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x128x128x128xbf16>) -> tensor<1x128x128x128xbf16>
+    %102 = "ttir.reshape"(%101) <{shape = [1 : i32, 128 : i32, 16384 : i32, 1 : i32]}> : (tensor<1x128x128x128xbf16>) -> tensor<1x128x16384x1xbf16>
+    %103 = "ttir.squeeze"(%102) <{dim = -1 : si32}> : (tensor<1x128x16384x1xbf16>) -> tensor<1x128x16384xbf16>
+    %104 = "ttir.transpose"(%103) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x128x16384xbf16>) -> tensor<1x16384x128xbf16>
+    %105 = "ttir.gelu"(%104) : (tensor<1x16384x128xbf16>) -> tensor<1x16384x128xbf16>
+    %106 = "ttir.matmul"(%105, %arg123) <{transpose_a = false, transpose_b = false}> : (tensor<1x16384x128xbf16>, tensor<128x32xbf16>) -> tensor<1x16384x32xbf16>
+    %107 = "ttir.add"(%106, %arg124) : (tensor<1x16384x32xbf16>, tensor<32xbf16>) -> tensor<1x16384x32xbf16>
+    %108 = "ttir.add"(%107, %80) : (tensor<1x16384x32xbf16>, tensor<1x16384x32xbf16>) -> tensor<1x16384x32xbf16>
+    %109 = "ttir.sum"(%108) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x16384x32xbf16>) -> tensor<1x16384x1xbf16>
+    %110 = "ttir.multiply"(%arg14, %109) : (tensor<1x16384x32xf32>, tensor<1x16384x1xbf16>) -> tensor<1x16384x32xbf16>
+    %111 = "ttir.subtract"(%108, %110) : (tensor<1x16384x32xbf16>, tensor<1x16384x32xbf16>) -> tensor<1x16384x32xbf16>
+    %112 = "ttir.multiply"(%111, %111) : (tensor<1x16384x32xbf16>, tensor<1x16384x32xbf16>) -> tensor<1x16384x32xbf16>
+    %113 = "ttir.sum"(%112) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x16384x32xbf16>) -> tensor<1x16384x1xbf16>
+    %114 = "ttir.multiply"(%arg15, %113) : (tensor<1x16384x1xf32>, tensor<1x16384x1xbf16>) -> tensor<1x16384x1xbf16>
+    %115 = "ttir.add"(%114, %arg16) : (tensor<1x16384x1xbf16>, tensor<1x16384x1xf32>) -> tensor<1x16384x1xbf16>
+    %116 = "ttir.sqrt"(%115) : (tensor<1x16384x1xbf16>) -> tensor<1x16384x1xbf16>
+    %117 = "ttir.reciprocal"(%116) : (tensor<1x16384x1xbf16>) -> tensor<1x16384x1xbf16>
+    %118 = "ttir.multiply"(%111, %117) : (tensor<1x16384x32xbf16>, tensor<1x16384x1xbf16>) -> tensor<1x16384x32xbf16>
+    %119 = "ttir.multiply"(%118, %arg125) : (tensor<1x16384x32xbf16>, tensor<32xbf16>) -> tensor<1x16384x32xbf16>
+    %120 = "ttir.add"(%119, %arg126) : (tensor<1x16384x32xbf16>, tensor<32xbf16>) -> tensor<1x16384x32xbf16>
+    %121 = "ttir.matmul"(%120, %arg127) <{transpose_a = false, transpose_b = false}> : (tensor<1x16384x32xbf16>, tensor<32x32xbf16>) -> tensor<1x16384x32xbf16>
+    %122 = "ttir.add"(%121, %arg128) : (tensor<1x16384x32xbf16>, tensor<32xbf16>) -> tensor<1x16384x32xbf16>
+    %123 = "ttir.reshape"(%122) <{shape = [1 : i32, 16384 : i32, 1 : i32, 32 : i32]}> : (tensor<1x16384x32xbf16>) -> tensor<1x16384x1x32xbf16>
+    %124 = "ttir.squeeze"(%123) <{dim = -2 : si32}> : (tensor<1x16384x1x32xbf16>) -> tensor<1x16384x32xbf16>
+    %125 = "ttir.transpose"(%120) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x16384x32xbf16>) -> tensor<1x32x16384xbf16>
+    %126 = "ttir.reshape"(%125) <{shape = [1 : i32, 32 : i32, 128 : i32, 128 : i32]}> : (tensor<1x32x16384xbf16>) -> tensor<1x32x128x128xbf16>
+    %127 = "ttir.transpose"(%126) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x32x128x128xbf16>) -> tensor<1x128x32x128xbf16>
+    %128 = "ttir.transpose"(%127) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x128x32x128xbf16>) -> tensor<1x128x128x32xbf16>
+    %129 = "ttir.conv2d"(%128, %arg129, %arg130) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 0, 0, 0, 0>, stride = array<i32: 8, 8>}> {channel_last = 1 : si32} : (tensor<1x128x128x32xbf16>, tensor<32x32x8x8xbf16>, tensor<1x1x1x32xbf16>) -> tensor<1x16x16x32xbf16>
+    %130 = "ttir.transpose"(%129) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x16x16x32xbf16>) -> tensor<1x16x32x16xbf16>
+    %131 = "ttir.transpose"(%130) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x16x32x16xbf16>) -> tensor<1x32x16x16xbf16>
+    %132 = "ttir.reshape"(%131) <{shape = [1 : i32, 32 : i32, 256 : i32]}> : (tensor<1x32x16x16xbf16>) -> tensor<1x32x256xbf16>
+    %133 = "ttir.transpose"(%132) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x32x256xbf16>) -> tensor<1x256x32xbf16>
+    %134 = "ttir.sum"(%133) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x256x32xbf16>) -> tensor<1x256x1xbf16>
+    %135 = "ttir.multiply"(%arg17, %134) : (tensor<1x256x32xf32>, tensor<1x256x1xbf16>) -> tensor<1x256x32xbf16>
+    %136 = "ttir.subtract"(%133, %135) : (tensor<1x256x32xbf16>, tensor<1x256x32xbf16>) -> tensor<1x256x32xbf16>
+    %137 = "ttir.multiply"(%136, %136) : (tensor<1x256x32xbf16>, tensor<1x256x32xbf16>) -> tensor<1x256x32xbf16>
+    %138 = "ttir.sum"(%137) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x256x32xbf16>) -> tensor<1x256x1xbf16>
+    %139 = "ttir.multiply"(%arg18, %138) : (tensor<1x256x1xf32>, tensor<1x256x1xbf16>) -> tensor<1x256x1xbf16>
+    %140 = "ttir.add"(%139, %arg19) : (tensor<1x256x1xbf16>, tensor<1x256x1xf32>) -> tensor<1x256x1xbf16>
+    %141 = "ttir.sqrt"(%140) : (tensor<1x256x1xbf16>) -> tensor<1x256x1xbf16>
+    %142 = "ttir.reciprocal"(%141) : (tensor<1x256x1xbf16>) -> tensor<1x256x1xbf16>
+    %143 = "ttir.multiply"(%136, %142) : (tensor<1x256x32xbf16>, tensor<1x256x1xbf16>) -> tensor<1x256x32xbf16>
+    %144 = "ttir.multiply"(%143, %arg131) : (tensor<1x256x32xbf16>, tensor<32xbf16>) -> tensor<1x256x32xbf16>
+    %145 = "ttir.add"(%144, %arg132) : (tensor<1x256x32xbf16>, tensor<32xbf16>) -> tensor<1x256x32xbf16>
+    %146 = "ttir.squeeze"(%145) <{dim = 0 : si32}> : (tensor<1x256x32xbf16>) -> tensor<256x32xbf16>
+    %147 = "ttir.matmul"(%146, %arg133) <{transpose_a = false, transpose_b = false}> : (tensor<256x32xbf16>, tensor<32x32xbf16>) -> tensor<256x32xbf16>
+    %148 = "ttir.unsqueeze"(%147) <{dim = 0 : si32}> : (tensor<256x32xbf16>) -> tensor<1x256x32xbf16>
+    %149 = "ttir.add"(%148, %arg134) : (tensor<1x256x32xbf16>, tensor<32xbf16>) -> tensor<1x256x32xbf16>
+    %150 = "ttir.reshape"(%149) <{shape = [1 : i32, 256 : i32, 1 : i32, 32 : i32]}> : (tensor<1x256x32xbf16>) -> tensor<1x256x1x32xbf16>
+    %151 = "ttir.squeeze"(%150) <{dim = -2 : si32}> : (tensor<1x256x1x32xbf16>) -> tensor<1x256x32xbf16>
+    %152 = "ttir.transpose"(%151) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x256x32xbf16>) -> tensor<1x32x256xbf16>
+    %153 = "ttir.matmul"(%124, %152) <{transpose_a = false, transpose_b = false}> : (tensor<1x16384x32xbf16>, tensor<1x32x256xbf16>) -> tensor<1x16384x256xbf16>
+    %154 = "ttir.unsqueeze"(%153) <{dim = 0 : si32}> : (tensor<1x16384x256xbf16>) -> tensor<1x1x16384x256xbf16>
+    %155 = "ttir.div"(%154, %arg20) : (tensor<1x1x16384x256xbf16>, tensor<1xbf16>) -> tensor<1x1x16384x256xbf16>
+    %156 = "ttir.softmax"(%155) <{dimension = -1 : si32}> : (tensor<1x1x16384x256xbf16>) -> tensor<1x1x16384x256xbf16>
+    %157 = "ttir.squeeze"(%156) <{dim = 0 : si32}> : (tensor<1x1x16384x256xbf16>) -> tensor<1x16384x256xbf16>
+    %158 = "ttir.matmul"(%146, %arg135) <{transpose_a = false, transpose_b = false}> : (tensor<256x32xbf16>, tensor<32x32xbf16>) -> tensor<256x32xbf16>
+    %159 = "ttir.unsqueeze"(%158) <{dim = 0 : si32}> : (tensor<256x32xbf16>) -> tensor<1x256x32xbf16>
+    %160 = "ttir.add"(%159, %arg136) : (tensor<1x256x32xbf16>, tensor<32xbf16>) -> tensor<1x256x32xbf16>
+    %161 = "ttir.reshape"(%160) <{shape = [1 : i32, 256 : i32, 1 : i32, 32 : i32]}> : (tensor<1x256x32xbf16>) -> tensor<1x256x1x32xbf16>
+    %162 = "ttir.transpose"(%161) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x256x1x32xbf16>) -> tensor<1x1x256x32xbf16>
+    %163 = "ttir.transpose"(%162) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x1x256x32xbf16>) -> tensor<1x1x32x256xbf16>
+    %164 = "ttir.squeeze"(%163) <{dim = 0 : si32}> : (tensor<1x1x32x256xbf16>) -> tensor<1x32x256xbf16>
+    %165 = "ttir.transpose"(%164) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x32x256xbf16>) -> tensor<1x256x32xbf16>
+    %166 = "ttir.matmul"(%157, %165) <{transpose_a = false, transpose_b = false}> : (tensor<1x16384x256xbf16>, tensor<1x256x32xbf16>) -> tensor<1x16384x32xbf16>
+    %167 = "ttir.matmul"(%166, %arg137) <{transpose_a = false, transpose_b = false}> : (tensor<1x16384x32xbf16>, tensor<32x32xbf16>) -> tensor<1x16384x32xbf16>
+    %168 = "ttir.add"(%167, %arg138) : (tensor<1x16384x32xbf16>, tensor<32xbf16>) -> tensor<1x16384x32xbf16>
+    %169 = "ttir.add"(%168, %108) : (tensor<1x16384x32xbf16>, tensor<1x16384x32xbf16>) -> tensor<1x16384x32xbf16>
+    %170 = "ttir.sum"(%169) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x16384x32xbf16>) -> tensor<1x16384x1xbf16>
+    %171 = "ttir.multiply"(%arg21, %170) : (tensor<1x16384x32xf32>, tensor<1x16384x1xbf16>) -> tensor<1x16384x32xbf16>
+    %172 = "ttir.subtract"(%169, %171) : (tensor<1x16384x32xbf16>, tensor<1x16384x32xbf16>) -> tensor<1x16384x32xbf16>
+    %173 = "ttir.multiply"(%172, %172) : (tensor<1x16384x32xbf16>, tensor<1x16384x32xbf16>) -> tensor<1x16384x32xbf16>
+    %174 = "ttir.sum"(%173) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x16384x32xbf16>) -> tensor<1x16384x1xbf16>
+    %175 = "ttir.multiply"(%arg22, %174) : (tensor<1x16384x1xf32>, tensor<1x16384x1xbf16>) -> tensor<1x16384x1xbf16>
+    %176 = "ttir.add"(%175, %arg23) : (tensor<1x16384x1xbf16>, tensor<1x16384x1xf32>) -> tensor<1x16384x1xbf16>
+    %177 = "ttir.sqrt"(%176) : (tensor<1x16384x1xbf16>) -> tensor<1x16384x1xbf16>
+    %178 = "ttir.reciprocal"(%177) : (tensor<1x16384x1xbf16>) -> tensor<1x16384x1xbf16>
+    %179 = "ttir.multiply"(%172, %178) : (tensor<1x16384x32xbf16>, tensor<1x16384x1xbf16>) -> tensor<1x16384x32xbf16>
+    %180 = "ttir.multiply"(%179, %arg139) : (tensor<1x16384x32xbf16>, tensor<32xbf16>) -> tensor<1x16384x32xbf16>
+    %181 = "ttir.add"(%180, %arg140) : (tensor<1x16384x32xbf16>, tensor<32xbf16>) -> tensor<1x16384x32xbf16>
+    %182 = "ttir.matmul"(%181, %arg141) <{transpose_a = false, transpose_b = false}> : (tensor<1x16384x32xbf16>, tensor<32x128xbf16>) -> tensor<1x16384x128xbf16>
+    %183 = "ttir.add"(%182, %arg142) : (tensor<1x16384x128xbf16>, tensor<128xbf16>) -> tensor<1x16384x128xbf16>
+    %184 = "ttir.transpose"(%183) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x16384x128xbf16>) -> tensor<1x128x16384xbf16>
+    %185 = "ttir.reshape"(%184) <{shape = [1 : i32, 128 : i32, 128 : i32, 128 : i32]}> : (tensor<1x128x16384xbf16>) -> tensor<1x128x128x128xbf16>
+    %186 = "ttir.transpose"(%185) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x128x128x128xbf16>) -> tensor<1x128x128x128xbf16>
+    %187 = "ttir.transpose"(%186) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x128x128x128xbf16>) -> tensor<1x128x128x128xbf16>
+    %188 = "ttir.conv2d"(%187, %arg143, %arg144) <{dilation = array<i32: 1, 1>, groups = 128 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x128x128x128xbf16>, tensor<128x1x3x3xbf16>, tensor<1x1x1x128xbf16>) -> tensor<1x128x128x128xbf16>
+    %189 = "ttir.transpose"(%188) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x128x128x128xbf16>) -> tensor<1x128x128x128xbf16>
+    %190 = "ttir.transpose"(%189) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x128x128x128xbf16>) -> tensor<1x128x128x128xbf16>
+    %191 = "ttir.reshape"(%190) <{shape = [1 : i32, 128 : i32, 16384 : i32, 1 : i32]}> : (tensor<1x128x128x128xbf16>) -> tensor<1x128x16384x1xbf16>
+    %192 = "ttir.squeeze"(%191) <{dim = -1 : si32}> : (tensor<1x128x16384x1xbf16>) -> tensor<1x128x16384xbf16>
+    %193 = "ttir.transpose"(%192) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x128x16384xbf16>) -> tensor<1x16384x128xbf16>
+    %194 = "ttir.gelu"(%193) : (tensor<1x16384x128xbf16>) -> tensor<1x16384x128xbf16>
+    %195 = "ttir.matmul"(%194, %arg145) <{transpose_a = false, transpose_b = false}> : (tensor<1x16384x128xbf16>, tensor<128x32xbf16>) -> tensor<1x16384x32xbf16>
+    %196 = "ttir.add"(%195, %arg146) : (tensor<1x16384x32xbf16>, tensor<32xbf16>) -> tensor<1x16384x32xbf16>
+    %197 = "ttir.add"(%196, %169) : (tensor<1x16384x32xbf16>, tensor<1x16384x32xbf16>) -> tensor<1x16384x32xbf16>
+    %198 = "ttir.sum"(%197) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x16384x32xbf16>) -> tensor<1x16384x1xbf16>
+    %199 = "ttir.multiply"(%arg24, %198) : (tensor<1x16384x32xf32>, tensor<1x16384x1xbf16>) -> tensor<1x16384x32xbf16>
+    %200 = "ttir.subtract"(%197, %199) : (tensor<1x16384x32xbf16>, tensor<1x16384x32xbf16>) -> tensor<1x16384x32xbf16>
+    %201 = "ttir.multiply"(%200, %200) : (tensor<1x16384x32xbf16>, tensor<1x16384x32xbf16>) -> tensor<1x16384x32xbf16>
+    %202 = "ttir.sum"(%201) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x16384x32xbf16>) -> tensor<1x16384x1xbf16>
+    %203 = "ttir.multiply"(%arg25, %202) : (tensor<1x16384x1xf32>, tensor<1x16384x1xbf16>) -> tensor<1x16384x1xbf16>
+    %204 = "ttir.add"(%203, %arg26) : (tensor<1x16384x1xbf16>, tensor<1x16384x1xf32>) -> tensor<1x16384x1xbf16>
+    %205 = "ttir.sqrt"(%204) : (tensor<1x16384x1xbf16>) -> tensor<1x16384x1xbf16>
+    %206 = "ttir.reciprocal"(%205) : (tensor<1x16384x1xbf16>) -> tensor<1x16384x1xbf16>
+    %207 = "ttir.multiply"(%200, %206) : (tensor<1x16384x32xbf16>, tensor<1x16384x1xbf16>) -> tensor<1x16384x32xbf16>
+    %208 = "ttir.multiply"(%207, %arg147) : (tensor<1x16384x32xbf16>, tensor<32xbf16>) -> tensor<1x16384x32xbf16>
+    %209 = "ttir.add"(%208, %arg148) : (tensor<1x16384x32xbf16>, tensor<32xbf16>) -> tensor<1x16384x32xbf16>
+    %210 = "ttir.reshape"(%209) <{shape = [1 : i32, 128 : i32, 128 : i32, 32 : i32]}> : (tensor<1x16384x32xbf16>) -> tensor<1x128x128x32xbf16>
+    %211 = "ttir.transpose"(%210) <{dim0 = -3 : si32, dim1 = -1 : si32}> : (tensor<1x128x128x32xbf16>) -> tensor<1x32x128x128xbf16>
+    %212 = "ttir.transpose"(%211) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x32x128x128xbf16>) -> tensor<1x32x128x128xbf16>
+    %213 = "ttir.transpose"(%212) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x32x128x128xbf16>) -> tensor<1x128x32x128xbf16>
+    %214 = "ttir.transpose"(%213) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x128x32x128xbf16>) -> tensor<1x128x128x32xbf16>
+    %215 = "ttir.conv2d"(%214, %arg149, %arg150) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 2, 2>}> {channel_last = 1 : si32} : (tensor<1x128x128x32xbf16>, tensor<64x32x3x3xbf16>, tensor<1x1x1x64xbf16>) -> tensor<1x64x64x64xbf16>
+    %216 = "ttir.transpose"(%215) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x64x64x64xbf16>) -> tensor<1x64x64x64xbf16>
+    %217 = "ttir.transpose"(%216) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x64x64x64xbf16>) -> tensor<1x64x64x64xbf16>
+    %218 = "ttir.reshape"(%217) <{shape = [1 : i32, 64 : i32, 4096 : i32, 1 : i32]}> : (tensor<1x64x64x64xbf16>) -> tensor<1x64x4096x1xbf16>
+    %219 = "ttir.squeeze"(%218) <{dim = -1 : si32}> : (tensor<1x64x4096x1xbf16>) -> tensor<1x64x4096xbf16>
+    %220 = "ttir.transpose"(%219) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x64x4096xbf16>) -> tensor<1x4096x64xbf16>
+    %221 = "ttir.sum"(%220) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x4096x64xbf16>) -> tensor<1x4096x1xbf16>
+    %222 = "ttir.multiply"(%arg27, %221) : (tensor<1x4096x64xf32>, tensor<1x4096x1xbf16>) -> tensor<1x4096x64xbf16>
+    %223 = "ttir.subtract"(%220, %222) : (tensor<1x4096x64xbf16>, tensor<1x4096x64xbf16>) -> tensor<1x4096x64xbf16>
+    %224 = "ttir.multiply"(%223, %223) : (tensor<1x4096x64xbf16>, tensor<1x4096x64xbf16>) -> tensor<1x4096x64xbf16>
+    %225 = "ttir.sum"(%224) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x4096x64xbf16>) -> tensor<1x4096x1xbf16>
+    %226 = "ttir.multiply"(%arg28, %225) : (tensor<1x4096x1xf32>, tensor<1x4096x1xbf16>) -> tensor<1x4096x1xbf16>
+    %227 = "ttir.add"(%226, %arg29) : (tensor<1x4096x1xbf16>, tensor<1x4096x1xf32>) -> tensor<1x4096x1xbf16>
+    %228 = "ttir.sqrt"(%227) : (tensor<1x4096x1xbf16>) -> tensor<1x4096x1xbf16>
+    %229 = "ttir.reciprocal"(%228) : (tensor<1x4096x1xbf16>) -> tensor<1x4096x1xbf16>
+    %230 = "ttir.multiply"(%223, %229) : (tensor<1x4096x64xbf16>, tensor<1x4096x1xbf16>) -> tensor<1x4096x64xbf16>
+    %231 = "ttir.multiply"(%230, %arg151) : (tensor<1x4096x64xbf16>, tensor<64xbf16>) -> tensor<1x4096x64xbf16>
+    %232 = "ttir.add"(%231, %arg152) : (tensor<1x4096x64xbf16>, tensor<64xbf16>) -> tensor<1x4096x64xbf16>
+    %233 = "ttir.sum"(%232) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x4096x64xbf16>) -> tensor<1x4096x1xbf16>
+    %234 = "ttir.multiply"(%arg30, %233) : (tensor<1x4096x64xf32>, tensor<1x4096x1xbf16>) -> tensor<1x4096x64xbf16>
+    %235 = "ttir.subtract"(%232, %234) : (tensor<1x4096x64xbf16>, tensor<1x4096x64xbf16>) -> tensor<1x4096x64xbf16>
+    %236 = "ttir.multiply"(%235, %235) : (tensor<1x4096x64xbf16>, tensor<1x4096x64xbf16>) -> tensor<1x4096x64xbf16>
+    %237 = "ttir.sum"(%236) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x4096x64xbf16>) -> tensor<1x4096x1xbf16>
+    %238 = "ttir.multiply"(%arg31, %237) : (tensor<1x4096x1xf32>, tensor<1x4096x1xbf16>) -> tensor<1x4096x1xbf16>
+    %239 = "ttir.add"(%238, %arg32) : (tensor<1x4096x1xbf16>, tensor<1x4096x1xf32>) -> tensor<1x4096x1xbf16>
+    %240 = "ttir.sqrt"(%239) : (tensor<1x4096x1xbf16>) -> tensor<1x4096x1xbf16>
+    %241 = "ttir.reciprocal"(%240) : (tensor<1x4096x1xbf16>) -> tensor<1x4096x1xbf16>
+    %242 = "ttir.multiply"(%235, %241) : (tensor<1x4096x64xbf16>, tensor<1x4096x1xbf16>) -> tensor<1x4096x64xbf16>
+    %243 = "ttir.multiply"(%242, %arg153) : (tensor<1x4096x64xbf16>, tensor<64xbf16>) -> tensor<1x4096x64xbf16>
+    %244 = "ttir.add"(%243, %arg154) : (tensor<1x4096x64xbf16>, tensor<64xbf16>) -> tensor<1x4096x64xbf16>
+    %245 = "ttir.matmul"(%244, %arg155) <{transpose_a = false, transpose_b = false}> : (tensor<1x4096x64xbf16>, tensor<64x64xbf16>) -> tensor<1x4096x64xbf16>
+    %246 = "ttir.add"(%245, %arg156) : (tensor<1x4096x64xbf16>, tensor<64xbf16>) -> tensor<1x4096x64xbf16>
+    %247 = "ttir.reshape"(%246) <{shape = [1 : i32, 4096 : i32, 2 : i32, 32 : i32]}> : (tensor<1x4096x64xbf16>) -> tensor<1x4096x2x32xbf16>
+    %248 = "ttir.transpose"(%247) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x4096x2x32xbf16>) -> tensor<1x2x4096x32xbf16>
+    %249 = "ttir.squeeze"(%248) <{dim = 0 : si32}> : (tensor<1x2x4096x32xbf16>) -> tensor<2x4096x32xbf16>
+    %250 = "ttir.transpose"(%244) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x4096x64xbf16>) -> tensor<1x64x4096xbf16>
+    %251 = "ttir.reshape"(%250) <{shape = [1 : i32, 64 : i32, 64 : i32, 64 : i32]}> : (tensor<1x64x4096xbf16>) -> tensor<1x64x64x64xbf16>
+    %252 = "ttir.transpose"(%251) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x64x64x64xbf16>) -> tensor<1x64x64x64xbf16>
+    %253 = "ttir.transpose"(%252) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x64x64x64xbf16>) -> tensor<1x64x64x64xbf16>
+    %254 = "ttir.conv2d"(%253, %arg157, %arg158) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 0, 0, 0, 0>, stride = array<i32: 4, 4>}> {channel_last = 1 : si32} : (tensor<1x64x64x64xbf16>, tensor<64x64x4x4xbf16>, tensor<1x1x1x64xbf16>) -> tensor<1x16x16x64xbf16>
+    %255 = "ttir.transpose"(%254) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x16x16x64xbf16>) -> tensor<1x16x64x16xbf16>
+    %256 = "ttir.transpose"(%255) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x16x64x16xbf16>) -> tensor<1x64x16x16xbf16>
+    %257 = "ttir.reshape"(%256) <{shape = [1 : i32, 64 : i32, 256 : i32]}> : (tensor<1x64x16x16xbf16>) -> tensor<1x64x256xbf16>
+    %258 = "ttir.transpose"(%257) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x64x256xbf16>) -> tensor<1x256x64xbf16>
+    %259 = "ttir.sum"(%258) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x256x64xbf16>) -> tensor<1x256x1xbf16>
+    %260 = "ttir.multiply"(%arg33, %259) : (tensor<1x256x64xf32>, tensor<1x256x1xbf16>) -> tensor<1x256x64xbf16>
+    %261 = "ttir.subtract"(%258, %260) : (tensor<1x256x64xbf16>, tensor<1x256x64xbf16>) -> tensor<1x256x64xbf16>
+    %262 = "ttir.multiply"(%261, %261) : (tensor<1x256x64xbf16>, tensor<1x256x64xbf16>) -> tensor<1x256x64xbf16>
+    %263 = "ttir.sum"(%262) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x256x64xbf16>) -> tensor<1x256x1xbf16>
+    %264 = "ttir.multiply"(%arg34, %263) : (tensor<1x256x1xf32>, tensor<1x256x1xbf16>) -> tensor<1x256x1xbf16>
+    %265 = "ttir.add"(%264, %arg35) : (tensor<1x256x1xbf16>, tensor<1x256x1xf32>) -> tensor<1x256x1xbf16>
+    %266 = "ttir.sqrt"(%265) : (tensor<1x256x1xbf16>) -> tensor<1x256x1xbf16>
+    %267 = "ttir.reciprocal"(%266) : (tensor<1x256x1xbf16>) -> tensor<1x256x1xbf16>
+    %268 = "ttir.multiply"(%261, %267) : (tensor<1x256x64xbf16>, tensor<1x256x1xbf16>) -> tensor<1x256x64xbf16>
+    %269 = "ttir.multiply"(%268, %arg159) : (tensor<1x256x64xbf16>, tensor<64xbf16>) -> tensor<1x256x64xbf16>
+    %270 = "ttir.add"(%269, %arg160) : (tensor<1x256x64xbf16>, tensor<64xbf16>) -> tensor<1x256x64xbf16>
+    %271 = "ttir.squeeze"(%270) <{dim = 0 : si32}> : (tensor<1x256x64xbf16>) -> tensor<256x64xbf16>
+    %272 = "ttir.matmul"(%271, %arg161) <{transpose_a = false, transpose_b = false}> : (tensor<256x64xbf16>, tensor<64x64xbf16>) -> tensor<256x64xbf16>
+    %273 = "ttir.unsqueeze"(%272) <{dim = 0 : si32}> : (tensor<256x64xbf16>) -> tensor<1x256x64xbf16>
+    %274 = "ttir.add"(%273, %arg162) : (tensor<1x256x64xbf16>, tensor<64xbf16>) -> tensor<1x256x64xbf16>
+    %275 = "ttir.reshape"(%274) <{shape = [1 : i32, 256 : i32, 2 : i32, 32 : i32]}> : (tensor<1x256x64xbf16>) -> tensor<1x256x2x32xbf16>
+    %276 = "ttir.transpose"(%275) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x256x2x32xbf16>) -> tensor<1x2x256x32xbf16>
+    %277 = "ttir.squeeze"(%276) <{dim = 0 : si32}> : (tensor<1x2x256x32xbf16>) -> tensor<2x256x32xbf16>
+    %278 = "ttir.transpose"(%277) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<2x256x32xbf16>) -> tensor<2x32x256xbf16>
+    %279 = "ttir.matmul"(%249, %278) <{transpose_a = false, transpose_b = false}> : (tensor<2x4096x32xbf16>, tensor<2x32x256xbf16>) -> tensor<2x4096x256xbf16>
+    %280 = "ttir.unsqueeze"(%279) <{dim = 0 : si32}> : (tensor<2x4096x256xbf16>) -> tensor<1x2x4096x256xbf16>
+    %281 = "ttir.div"(%280, %arg36) : (tensor<1x2x4096x256xbf16>, tensor<1xbf16>) -> tensor<1x2x4096x256xbf16>
+    %282 = "ttir.softmax"(%281) <{dimension = -1 : si32}> : (tensor<1x2x4096x256xbf16>) -> tensor<1x2x4096x256xbf16>
+    %283 = "ttir.squeeze"(%282) <{dim = 0 : si32}> : (tensor<1x2x4096x256xbf16>) -> tensor<2x4096x256xbf16>
+    %284 = "ttir.matmul"(%271, %arg163) <{transpose_a = false, transpose_b = false}> : (tensor<256x64xbf16>, tensor<64x64xbf16>) -> tensor<256x64xbf16>
+    %285 = "ttir.unsqueeze"(%284) <{dim = 0 : si32}> : (tensor<256x64xbf16>) -> tensor<1x256x64xbf16>
+    %286 = "ttir.add"(%285, %arg164) : (tensor<1x256x64xbf16>, tensor<64xbf16>) -> tensor<1x256x64xbf16>
+    %287 = "ttir.reshape"(%286) <{shape = [1 : i32, 256 : i32, 2 : i32, 32 : i32]}> : (tensor<1x256x64xbf16>) -> tensor<1x256x2x32xbf16>
+    %288 = "ttir.transpose"(%287) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x256x2x32xbf16>) -> tensor<1x2x256x32xbf16>
+    %289 = "ttir.transpose"(%288) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x2x256x32xbf16>) -> tensor<1x2x32x256xbf16>
+    %290 = "ttir.squeeze"(%289) <{dim = 0 : si32}> : (tensor<1x2x32x256xbf16>) -> tensor<2x32x256xbf16>
+    %291 = "ttir.transpose"(%290) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<2x32x256xbf16>) -> tensor<2x256x32xbf16>
+    %292 = "ttir.matmul"(%283, %291) <{transpose_a = false, transpose_b = false}> : (tensor<2x4096x256xbf16>, tensor<2x256x32xbf16>) -> tensor<2x4096x32xbf16>
+    %293 = "ttir.unsqueeze"(%292) <{dim = 0 : si32}> : (tensor<2x4096x32xbf16>) -> tensor<1x2x4096x32xbf16>
+    %294 = "ttir.transpose"(%293) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x2x4096x32xbf16>) -> tensor<1x4096x2x32xbf16>
+    %295 = "ttir.reshape"(%294) <{shape = [4096 : i32, 64 : i32]}> : (tensor<1x4096x2x32xbf16>) -> tensor<4096x64xbf16>
+    %296 = "ttir.matmul"(%295, %arg165) <{transpose_a = false, transpose_b = false}> : (tensor<4096x64xbf16>, tensor<64x64xbf16>) -> tensor<4096x64xbf16>
+    %297 = "ttir.unsqueeze"(%296) <{dim = 0 : si32}> : (tensor<4096x64xbf16>) -> tensor<1x4096x64xbf16>
+    %298 = "ttir.add"(%297, %arg166) : (tensor<1x4096x64xbf16>, tensor<64xbf16>) -> tensor<1x4096x64xbf16>
+    %299 = "ttir.add"(%298, %232) : (tensor<1x4096x64xbf16>, tensor<1x4096x64xbf16>) -> tensor<1x4096x64xbf16>
+    %300 = "ttir.sum"(%299) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x4096x64xbf16>) -> tensor<1x4096x1xbf16>
+    %301 = "ttir.multiply"(%arg37, %300) : (tensor<1x4096x64xf32>, tensor<1x4096x1xbf16>) -> tensor<1x4096x64xbf16>
+    %302 = "ttir.subtract"(%299, %301) : (tensor<1x4096x64xbf16>, tensor<1x4096x64xbf16>) -> tensor<1x4096x64xbf16>
+    %303 = "ttir.multiply"(%302, %302) : (tensor<1x4096x64xbf16>, tensor<1x4096x64xbf16>) -> tensor<1x4096x64xbf16>
+    %304 = "ttir.sum"(%303) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x4096x64xbf16>) -> tensor<1x4096x1xbf16>
+    %305 = "ttir.multiply"(%arg38, %304) : (tensor<1x4096x1xf32>, tensor<1x4096x1xbf16>) -> tensor<1x4096x1xbf16>
+    %306 = "ttir.add"(%305, %arg39) : (tensor<1x4096x1xbf16>, tensor<1x4096x1xf32>) -> tensor<1x4096x1xbf16>
+    %307 = "ttir.sqrt"(%306) : (tensor<1x4096x1xbf16>) -> tensor<1x4096x1xbf16>
+    %308 = "ttir.reciprocal"(%307) : (tensor<1x4096x1xbf16>) -> tensor<1x4096x1xbf16>
+    %309 = "ttir.multiply"(%302, %308) : (tensor<1x4096x64xbf16>, tensor<1x4096x1xbf16>) -> tensor<1x4096x64xbf16>
+    %310 = "ttir.multiply"(%309, %arg167) : (tensor<1x4096x64xbf16>, tensor<64xbf16>) -> tensor<1x4096x64xbf16>
+    %311 = "ttir.add"(%310, %arg168) : (tensor<1x4096x64xbf16>, tensor<64xbf16>) -> tensor<1x4096x64xbf16>
+    %312 = "ttir.matmul"(%311, %arg169) <{transpose_a = false, transpose_b = false}> : (tensor<1x4096x64xbf16>, tensor<64x256xbf16>) -> tensor<1x4096x256xbf16>
+    %313 = "ttir.add"(%312, %arg170) : (tensor<1x4096x256xbf16>, tensor<256xbf16>) -> tensor<1x4096x256xbf16>
+    %314 = "ttir.transpose"(%313) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x4096x256xbf16>) -> tensor<1x256x4096xbf16>
+    %315 = "ttir.reshape"(%314) <{shape = [1 : i32, 256 : i32, 64 : i32, 64 : i32]}> : (tensor<1x256x4096xbf16>) -> tensor<1x256x64x64xbf16>
+    %316 = "ttir.transpose"(%315) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x256x64x64xbf16>) -> tensor<1x64x256x64xbf16>
+    %317 = "ttir.transpose"(%316) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x64x256x64xbf16>) -> tensor<1x64x64x256xbf16>
+    %318 = "ttir.conv2d"(%317, %arg171, %arg172) <{dilation = array<i32: 1, 1>, groups = 256 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x64x64x256xbf16>, tensor<256x1x3x3xbf16>, tensor<1x1x1x256xbf16>) -> tensor<1x64x64x256xbf16>
+    %319 = "ttir.transpose"(%318) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x64x64x256xbf16>) -> tensor<1x64x256x64xbf16>
+    %320 = "ttir.transpose"(%319) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x64x256x64xbf16>) -> tensor<1x256x64x64xbf16>
+    %321 = "ttir.reshape"(%320) <{shape = [1 : i32, 256 : i32, 4096 : i32, 1 : i32]}> : (tensor<1x256x64x64xbf16>) -> tensor<1x256x4096x1xbf16>
+    %322 = "ttir.squeeze"(%321) <{dim = -1 : si32}> : (tensor<1x256x4096x1xbf16>) -> tensor<1x256x4096xbf16>
+    %323 = "ttir.transpose"(%322) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x256x4096xbf16>) -> tensor<1x4096x256xbf16>
+    %324 = "ttir.gelu"(%323) : (tensor<1x4096x256xbf16>) -> tensor<1x4096x256xbf16>
+    %325 = "ttir.matmul"(%324, %arg173) <{transpose_a = false, transpose_b = false}> : (tensor<1x4096x256xbf16>, tensor<256x64xbf16>) -> tensor<1x4096x64xbf16>
+    %326 = "ttir.add"(%325, %arg174) : (tensor<1x4096x64xbf16>, tensor<64xbf16>) -> tensor<1x4096x64xbf16>
+    %327 = "ttir.add"(%326, %299) : (tensor<1x4096x64xbf16>, tensor<1x4096x64xbf16>) -> tensor<1x4096x64xbf16>
+    %328 = "ttir.sum"(%327) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x4096x64xbf16>) -> tensor<1x4096x1xbf16>
+    %329 = "ttir.multiply"(%arg40, %328) : (tensor<1x4096x64xf32>, tensor<1x4096x1xbf16>) -> tensor<1x4096x64xbf16>
+    %330 = "ttir.subtract"(%327, %329) : (tensor<1x4096x64xbf16>, tensor<1x4096x64xbf16>) -> tensor<1x4096x64xbf16>
+    %331 = "ttir.multiply"(%330, %330) : (tensor<1x4096x64xbf16>, tensor<1x4096x64xbf16>) -> tensor<1x4096x64xbf16>
+    %332 = "ttir.sum"(%331) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x4096x64xbf16>) -> tensor<1x4096x1xbf16>
+    %333 = "ttir.multiply"(%arg41, %332) : (tensor<1x4096x1xf32>, tensor<1x4096x1xbf16>) -> tensor<1x4096x1xbf16>
+    %334 = "ttir.add"(%333, %arg42) : (tensor<1x4096x1xbf16>, tensor<1x4096x1xf32>) -> tensor<1x4096x1xbf16>
+    %335 = "ttir.sqrt"(%334) : (tensor<1x4096x1xbf16>) -> tensor<1x4096x1xbf16>
+    %336 = "ttir.reciprocal"(%335) : (tensor<1x4096x1xbf16>) -> tensor<1x4096x1xbf16>
+    %337 = "ttir.multiply"(%330, %336) : (tensor<1x4096x64xbf16>, tensor<1x4096x1xbf16>) -> tensor<1x4096x64xbf16>
+    %338 = "ttir.multiply"(%337, %arg175) : (tensor<1x4096x64xbf16>, tensor<64xbf16>) -> tensor<1x4096x64xbf16>
+    %339 = "ttir.add"(%338, %arg176) : (tensor<1x4096x64xbf16>, tensor<64xbf16>) -> tensor<1x4096x64xbf16>
+    %340 = "ttir.matmul"(%339, %arg177) <{transpose_a = false, transpose_b = false}> : (tensor<1x4096x64xbf16>, tensor<64x64xbf16>) -> tensor<1x4096x64xbf16>
+    %341 = "ttir.add"(%340, %arg178) : (tensor<1x4096x64xbf16>, tensor<64xbf16>) -> tensor<1x4096x64xbf16>
+    %342 = "ttir.reshape"(%341) <{shape = [1 : i32, 4096 : i32, 2 : i32, 32 : i32]}> : (tensor<1x4096x64xbf16>) -> tensor<1x4096x2x32xbf16>
+    %343 = "ttir.transpose"(%342) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x4096x2x32xbf16>) -> tensor<1x2x4096x32xbf16>
+    %344 = "ttir.squeeze"(%343) <{dim = 0 : si32}> : (tensor<1x2x4096x32xbf16>) -> tensor<2x4096x32xbf16>
+    %345 = "ttir.transpose"(%339) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x4096x64xbf16>) -> tensor<1x64x4096xbf16>
+    %346 = "ttir.reshape"(%345) <{shape = [1 : i32, 64 : i32, 64 : i32, 64 : i32]}> : (tensor<1x64x4096xbf16>) -> tensor<1x64x64x64xbf16>
+    %347 = "ttir.transpose"(%346) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x64x64x64xbf16>) -> tensor<1x64x64x64xbf16>
+    %348 = "ttir.transpose"(%347) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x64x64x64xbf16>) -> tensor<1x64x64x64xbf16>
+    %349 = "ttir.conv2d"(%348, %arg179, %arg180) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 0, 0, 0, 0>, stride = array<i32: 4, 4>}> {channel_last = 1 : si32} : (tensor<1x64x64x64xbf16>, tensor<64x64x4x4xbf16>, tensor<1x1x1x64xbf16>) -> tensor<1x16x16x64xbf16>
+    %350 = "ttir.transpose"(%349) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x16x16x64xbf16>) -> tensor<1x16x64x16xbf16>
+    %351 = "ttir.transpose"(%350) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x16x64x16xbf16>) -> tensor<1x64x16x16xbf16>
+    %352 = "ttir.reshape"(%351) <{shape = [1 : i32, 64 : i32, 256 : i32]}> : (tensor<1x64x16x16xbf16>) -> tensor<1x64x256xbf16>
+    %353 = "ttir.transpose"(%352) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x64x256xbf16>) -> tensor<1x256x64xbf16>
+    %354 = "ttir.sum"(%353) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x256x64xbf16>) -> tensor<1x256x1xbf16>
+    %355 = "ttir.multiply"(%arg43, %354) : (tensor<1x256x64xf32>, tensor<1x256x1xbf16>) -> tensor<1x256x64xbf16>
+    %356 = "ttir.subtract"(%353, %355) : (tensor<1x256x64xbf16>, tensor<1x256x64xbf16>) -> tensor<1x256x64xbf16>
+    %357 = "ttir.multiply"(%356, %356) : (tensor<1x256x64xbf16>, tensor<1x256x64xbf16>) -> tensor<1x256x64xbf16>
+    %358 = "ttir.sum"(%357) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x256x64xbf16>) -> tensor<1x256x1xbf16>
+    %359 = "ttir.multiply"(%arg44, %358) : (tensor<1x256x1xf32>, tensor<1x256x1xbf16>) -> tensor<1x256x1xbf16>
+    %360 = "ttir.add"(%359, %arg45) : (tensor<1x256x1xbf16>, tensor<1x256x1xf32>) -> tensor<1x256x1xbf16>
+    %361 = "ttir.sqrt"(%360) : (tensor<1x256x1xbf16>) -> tensor<1x256x1xbf16>
+    %362 = "ttir.reciprocal"(%361) : (tensor<1x256x1xbf16>) -> tensor<1x256x1xbf16>
+    %363 = "ttir.multiply"(%356, %362) : (tensor<1x256x64xbf16>, tensor<1x256x1xbf16>) -> tensor<1x256x64xbf16>
+    %364 = "ttir.multiply"(%363, %arg181) : (tensor<1x256x64xbf16>, tensor<64xbf16>) -> tensor<1x256x64xbf16>
+    %365 = "ttir.add"(%364, %arg182) : (tensor<1x256x64xbf16>, tensor<64xbf16>) -> tensor<1x256x64xbf16>
+    %366 = "ttir.squeeze"(%365) <{dim = 0 : si32}> : (tensor<1x256x64xbf16>) -> tensor<256x64xbf16>
+    %367 = "ttir.matmul"(%366, %arg183) <{transpose_a = false, transpose_b = false}> : (tensor<256x64xbf16>, tensor<64x64xbf16>) -> tensor<256x64xbf16>
+    %368 = "ttir.unsqueeze"(%367) <{dim = 0 : si32}> : (tensor<256x64xbf16>) -> tensor<1x256x64xbf16>
+    %369 = "ttir.add"(%368, %arg184) : (tensor<1x256x64xbf16>, tensor<64xbf16>) -> tensor<1x256x64xbf16>
+    %370 = "ttir.reshape"(%369) <{shape = [1 : i32, 256 : i32, 2 : i32, 32 : i32]}> : (tensor<1x256x64xbf16>) -> tensor<1x256x2x32xbf16>
+    %371 = "ttir.transpose"(%370) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x256x2x32xbf16>) -> tensor<1x2x256x32xbf16>
+    %372 = "ttir.squeeze"(%371) <{dim = 0 : si32}> : (tensor<1x2x256x32xbf16>) -> tensor<2x256x32xbf16>
+    %373 = "ttir.transpose"(%372) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<2x256x32xbf16>) -> tensor<2x32x256xbf16>
+    %374 = "ttir.matmul"(%344, %373) <{transpose_a = false, transpose_b = false}> : (tensor<2x4096x32xbf16>, tensor<2x32x256xbf16>) -> tensor<2x4096x256xbf16>
+    %375 = "ttir.unsqueeze"(%374) <{dim = 0 : si32}> : (tensor<2x4096x256xbf16>) -> tensor<1x2x4096x256xbf16>
+    %376 = "ttir.div"(%375, %arg46) : (tensor<1x2x4096x256xbf16>, tensor<1xbf16>) -> tensor<1x2x4096x256xbf16>
+    %377 = "ttir.softmax"(%376) <{dimension = -1 : si32}> : (tensor<1x2x4096x256xbf16>) -> tensor<1x2x4096x256xbf16>
+    %378 = "ttir.squeeze"(%377) <{dim = 0 : si32}> : (tensor<1x2x4096x256xbf16>) -> tensor<2x4096x256xbf16>
+    %379 = "ttir.matmul"(%366, %arg185) <{transpose_a = false, transpose_b = false}> : (tensor<256x64xbf16>, tensor<64x64xbf16>) -> tensor<256x64xbf16>
+    %380 = "ttir.unsqueeze"(%379) <{dim = 0 : si32}> : (tensor<256x64xbf16>) -> tensor<1x256x64xbf16>
+    %381 = "ttir.add"(%380, %arg186) : (tensor<1x256x64xbf16>, tensor<64xbf16>) -> tensor<1x256x64xbf16>
+    %382 = "ttir.reshape"(%381) <{shape = [1 : i32, 256 : i32, 2 : i32, 32 : i32]}> : (tensor<1x256x64xbf16>) -> tensor<1x256x2x32xbf16>
+    %383 = "ttir.transpose"(%382) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x256x2x32xbf16>) -> tensor<1x2x256x32xbf16>
+    %384 = "ttir.transpose"(%383) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x2x256x32xbf16>) -> tensor<1x2x32x256xbf16>
+    %385 = "ttir.squeeze"(%384) <{dim = 0 : si32}> : (tensor<1x2x32x256xbf16>) -> tensor<2x32x256xbf16>
+    %386 = "ttir.transpose"(%385) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<2x32x256xbf16>) -> tensor<2x256x32xbf16>
+    %387 = "ttir.matmul"(%378, %386) <{transpose_a = false, transpose_b = false}> : (tensor<2x4096x256xbf16>, tensor<2x256x32xbf16>) -> tensor<2x4096x32xbf16>
+    %388 = "ttir.unsqueeze"(%387) <{dim = 0 : si32}> : (tensor<2x4096x32xbf16>) -> tensor<1x2x4096x32xbf16>
+    %389 = "ttir.transpose"(%388) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x2x4096x32xbf16>) -> tensor<1x4096x2x32xbf16>
+    %390 = "ttir.reshape"(%389) <{shape = [4096 : i32, 64 : i32]}> : (tensor<1x4096x2x32xbf16>) -> tensor<4096x64xbf16>
+    %391 = "ttir.matmul"(%390, %arg187) <{transpose_a = false, transpose_b = false}> : (tensor<4096x64xbf16>, tensor<64x64xbf16>) -> tensor<4096x64xbf16>
+    %392 = "ttir.unsqueeze"(%391) <{dim = 0 : si32}> : (tensor<4096x64xbf16>) -> tensor<1x4096x64xbf16>
+    %393 = "ttir.add"(%392, %arg188) : (tensor<1x4096x64xbf16>, tensor<64xbf16>) -> tensor<1x4096x64xbf16>
+    %394 = "ttir.add"(%393, %327) : (tensor<1x4096x64xbf16>, tensor<1x4096x64xbf16>) -> tensor<1x4096x64xbf16>
+    %395 = "ttir.sum"(%394) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x4096x64xbf16>) -> tensor<1x4096x1xbf16>
+    %396 = "ttir.multiply"(%arg47, %395) : (tensor<1x4096x64xf32>, tensor<1x4096x1xbf16>) -> tensor<1x4096x64xbf16>
+    %397 = "ttir.subtract"(%394, %396) : (tensor<1x4096x64xbf16>, tensor<1x4096x64xbf16>) -> tensor<1x4096x64xbf16>
+    %398 = "ttir.multiply"(%397, %397) : (tensor<1x4096x64xbf16>, tensor<1x4096x64xbf16>) -> tensor<1x4096x64xbf16>
+    %399 = "ttir.sum"(%398) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x4096x64xbf16>) -> tensor<1x4096x1xbf16>
+    %400 = "ttir.multiply"(%arg48, %399) : (tensor<1x4096x1xf32>, tensor<1x4096x1xbf16>) -> tensor<1x4096x1xbf16>
+    %401 = "ttir.add"(%400, %arg49) : (tensor<1x4096x1xbf16>, tensor<1x4096x1xf32>) -> tensor<1x4096x1xbf16>
+    %402 = "ttir.sqrt"(%401) : (tensor<1x4096x1xbf16>) -> tensor<1x4096x1xbf16>
+    %403 = "ttir.reciprocal"(%402) : (tensor<1x4096x1xbf16>) -> tensor<1x4096x1xbf16>
+    %404 = "ttir.multiply"(%397, %403) : (tensor<1x4096x64xbf16>, tensor<1x4096x1xbf16>) -> tensor<1x4096x64xbf16>
+    %405 = "ttir.multiply"(%404, %arg189) : (tensor<1x4096x64xbf16>, tensor<64xbf16>) -> tensor<1x4096x64xbf16>
+    %406 = "ttir.add"(%405, %arg190) : (tensor<1x4096x64xbf16>, tensor<64xbf16>) -> tensor<1x4096x64xbf16>
+    %407 = "ttir.matmul"(%406, %arg191) <{transpose_a = false, transpose_b = false}> : (tensor<1x4096x64xbf16>, tensor<64x256xbf16>) -> tensor<1x4096x256xbf16>
+    %408 = "ttir.add"(%407, %arg192) : (tensor<1x4096x256xbf16>, tensor<256xbf16>) -> tensor<1x4096x256xbf16>
+    %409 = "ttir.transpose"(%408) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x4096x256xbf16>) -> tensor<1x256x4096xbf16>
+    %410 = "ttir.reshape"(%409) <{shape = [1 : i32, 256 : i32, 64 : i32, 64 : i32]}> : (tensor<1x256x4096xbf16>) -> tensor<1x256x64x64xbf16>
+    %411 = "ttir.transpose"(%410) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x256x64x64xbf16>) -> tensor<1x64x256x64xbf16>
+    %412 = "ttir.transpose"(%411) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x64x256x64xbf16>) -> tensor<1x64x64x256xbf16>
+    %413 = "ttir.conv2d"(%412, %arg193, %arg194) <{dilation = array<i32: 1, 1>, groups = 256 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x64x64x256xbf16>, tensor<256x1x3x3xbf16>, tensor<1x1x1x256xbf16>) -> tensor<1x64x64x256xbf16>
+    %414 = "ttir.transpose"(%413) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x64x64x256xbf16>) -> tensor<1x64x256x64xbf16>
+    %415 = "ttir.transpose"(%414) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x64x256x64xbf16>) -> tensor<1x256x64x64xbf16>
+    %416 = "ttir.reshape"(%415) <{shape = [1 : i32, 256 : i32, 4096 : i32, 1 : i32]}> : (tensor<1x256x64x64xbf16>) -> tensor<1x256x4096x1xbf16>
+    %417 = "ttir.squeeze"(%416) <{dim = -1 : si32}> : (tensor<1x256x4096x1xbf16>) -> tensor<1x256x4096xbf16>
+    %418 = "ttir.transpose"(%417) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x256x4096xbf16>) -> tensor<1x4096x256xbf16>
+    %419 = "ttir.gelu"(%418) : (tensor<1x4096x256xbf16>) -> tensor<1x4096x256xbf16>
+    %420 = "ttir.matmul"(%419, %arg195) <{transpose_a = false, transpose_b = false}> : (tensor<1x4096x256xbf16>, tensor<256x64xbf16>) -> tensor<1x4096x64xbf16>
+    %421 = "ttir.add"(%420, %arg196) : (tensor<1x4096x64xbf16>, tensor<64xbf16>) -> tensor<1x4096x64xbf16>
+    %422 = "ttir.add"(%421, %394) : (tensor<1x4096x64xbf16>, tensor<1x4096x64xbf16>) -> tensor<1x4096x64xbf16>
+    %423 = "ttir.sum"(%422) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x4096x64xbf16>) -> tensor<1x4096x1xbf16>
+    %424 = "ttir.multiply"(%arg50, %423) : (tensor<1x4096x64xf32>, tensor<1x4096x1xbf16>) -> tensor<1x4096x64xbf16>
+    %425 = "ttir.subtract"(%422, %424) : (tensor<1x4096x64xbf16>, tensor<1x4096x64xbf16>) -> tensor<1x4096x64xbf16>
+    %426 = "ttir.multiply"(%425, %425) : (tensor<1x4096x64xbf16>, tensor<1x4096x64xbf16>) -> tensor<1x4096x64xbf16>
+    %427 = "ttir.sum"(%426) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x4096x64xbf16>) -> tensor<1x4096x1xbf16>
+    %428 = "ttir.multiply"(%arg51, %427) : (tensor<1x4096x1xf32>, tensor<1x4096x1xbf16>) -> tensor<1x4096x1xbf16>
+    %429 = "ttir.add"(%428, %arg52) : (tensor<1x4096x1xbf16>, tensor<1x4096x1xf32>) -> tensor<1x4096x1xbf16>
+    %430 = "ttir.sqrt"(%429) : (tensor<1x4096x1xbf16>) -> tensor<1x4096x1xbf16>
+    %431 = "ttir.reciprocal"(%430) : (tensor<1x4096x1xbf16>) -> tensor<1x4096x1xbf16>
+    %432 = "ttir.multiply"(%425, %431) : (tensor<1x4096x64xbf16>, tensor<1x4096x1xbf16>) -> tensor<1x4096x64xbf16>
+    %433 = "ttir.multiply"(%432, %arg197) : (tensor<1x4096x64xbf16>, tensor<64xbf16>) -> tensor<1x4096x64xbf16>
+    %434 = "ttir.add"(%433, %arg198) : (tensor<1x4096x64xbf16>, tensor<64xbf16>) -> tensor<1x4096x64xbf16>
+    %435 = "ttir.reshape"(%434) <{shape = [1 : i32, 64 : i32, 64 : i32, 64 : i32]}> : (tensor<1x4096x64xbf16>) -> tensor<1x64x64x64xbf16>
+    %436 = "ttir.transpose"(%435) <{dim0 = -3 : si32, dim1 = -1 : si32}> : (tensor<1x64x64x64xbf16>) -> tensor<1x64x64x64xbf16>
+    %437 = "ttir.transpose"(%436) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x64x64x64xbf16>) -> tensor<1x64x64x64xbf16>
+    %438 = "ttir.transpose"(%437) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x64x64x64xbf16>) -> tensor<1x64x64x64xbf16>
+    %439 = "ttir.transpose"(%438) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x64x64x64xbf16>) -> tensor<1x64x64x64xbf16>
+    %440 = "ttir.conv2d"(%439, %arg199, %arg200) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 2, 2>}> {channel_last = 1 : si32} : (tensor<1x64x64x64xbf16>, tensor<160x64x3x3xbf16>, tensor<1x1x1x160xbf16>) -> tensor<1x32x32x160xbf16>
+    %441 = "ttir.transpose"(%440) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x32x32x160xbf16>) -> tensor<1x32x160x32xbf16>
+    %442 = "ttir.transpose"(%441) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x32x160x32xbf16>) -> tensor<1x160x32x32xbf16>
+    %443 = "ttir.reshape"(%442) <{shape = [1 : i32, 160 : i32, 1024 : i32, 1 : i32]}> : (tensor<1x160x32x32xbf16>) -> tensor<1x160x1024x1xbf16>
+    %444 = "ttir.squeeze"(%443) <{dim = -1 : si32}> : (tensor<1x160x1024x1xbf16>) -> tensor<1x160x1024xbf16>
+    %445 = "ttir.transpose"(%444) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x160x1024xbf16>) -> tensor<1x1024x160xbf16>
+    %446 = "ttir.sum"(%445) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x1024x160xbf16>) -> tensor<1x1024x1xbf16>
+    %447 = "ttir.multiply"(%arg53, %446) : (tensor<1x1024x160xf32>, tensor<1x1024x1xbf16>) -> tensor<1x1024x160xbf16>
+    %448 = "ttir.subtract"(%445, %447) : (tensor<1x1024x160xbf16>, tensor<1x1024x160xbf16>) -> tensor<1x1024x160xbf16>
+    %449 = "ttir.multiply"(%448, %448) : (tensor<1x1024x160xbf16>, tensor<1x1024x160xbf16>) -> tensor<1x1024x160xbf16>
+    %450 = "ttir.sum"(%449) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x1024x160xbf16>) -> tensor<1x1024x1xbf16>
+    %451 = "ttir.multiply"(%arg54, %450) : (tensor<1x1024x1xf32>, tensor<1x1024x1xbf16>) -> tensor<1x1024x1xbf16>
+    %452 = "ttir.add"(%451, %arg55) : (tensor<1x1024x1xbf16>, tensor<1x1024x1xf32>) -> tensor<1x1024x1xbf16>
+    %453 = "ttir.sqrt"(%452) : (tensor<1x1024x1xbf16>) -> tensor<1x1024x1xbf16>
+    %454 = "ttir.reciprocal"(%453) : (tensor<1x1024x1xbf16>) -> tensor<1x1024x1xbf16>
+    %455 = "ttir.multiply"(%448, %454) : (tensor<1x1024x160xbf16>, tensor<1x1024x1xbf16>) -> tensor<1x1024x160xbf16>
+    %456 = "ttir.multiply"(%455, %arg201) : (tensor<1x1024x160xbf16>, tensor<160xbf16>) -> tensor<1x1024x160xbf16>
+    %457 = "ttir.add"(%456, %arg202) : (tensor<1x1024x160xbf16>, tensor<160xbf16>) -> tensor<1x1024x160xbf16>
+    %458 = "ttir.sum"(%457) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x1024x160xbf16>) -> tensor<1x1024x1xbf16>
+    %459 = "ttir.multiply"(%arg56, %458) : (tensor<1x1024x160xf32>, tensor<1x1024x1xbf16>) -> tensor<1x1024x160xbf16>
+    %460 = "ttir.subtract"(%457, %459) : (tensor<1x1024x160xbf16>, tensor<1x1024x160xbf16>) -> tensor<1x1024x160xbf16>
+    %461 = "ttir.multiply"(%460, %460) : (tensor<1x1024x160xbf16>, tensor<1x1024x160xbf16>) -> tensor<1x1024x160xbf16>
+    %462 = "ttir.sum"(%461) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x1024x160xbf16>) -> tensor<1x1024x1xbf16>
+    %463 = "ttir.multiply"(%arg57, %462) : (tensor<1x1024x1xf32>, tensor<1x1024x1xbf16>) -> tensor<1x1024x1xbf16>
+    %464 = "ttir.add"(%463, %arg58) : (tensor<1x1024x1xbf16>, tensor<1x1024x1xf32>) -> tensor<1x1024x1xbf16>
+    %465 = "ttir.sqrt"(%464) : (tensor<1x1024x1xbf16>) -> tensor<1x1024x1xbf16>
+    %466 = "ttir.reciprocal"(%465) : (tensor<1x1024x1xbf16>) -> tensor<1x1024x1xbf16>
+    %467 = "ttir.multiply"(%460, %466) : (tensor<1x1024x160xbf16>, tensor<1x1024x1xbf16>) -> tensor<1x1024x160xbf16>
+    %468 = "ttir.multiply"(%467, %arg203) : (tensor<1x1024x160xbf16>, tensor<160xbf16>) -> tensor<1x1024x160xbf16>
+    %469 = "ttir.add"(%468, %arg204) : (tensor<1x1024x160xbf16>, tensor<160xbf16>) -> tensor<1x1024x160xbf16>
+    %470 = "ttir.matmul"(%469, %arg205) <{transpose_a = false, transpose_b = false}> : (tensor<1x1024x160xbf16>, tensor<160x160xbf16>) -> tensor<1x1024x160xbf16>
+    %471 = "ttir.add"(%470, %arg206) : (tensor<1x1024x160xbf16>, tensor<160xbf16>) -> tensor<1x1024x160xbf16>
+    %472 = "ttir.reshape"(%471) <{shape = [1 : i32, 1024 : i32, 5 : i32, 32 : i32]}> : (tensor<1x1024x160xbf16>) -> tensor<1x1024x5x32xbf16>
+    %473 = "ttir.transpose"(%472) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x1024x5x32xbf16>) -> tensor<1x5x1024x32xbf16>
+    %474 = "ttir.squeeze"(%473) <{dim = 0 : si32}> : (tensor<1x5x1024x32xbf16>) -> tensor<5x1024x32xbf16>
+    %475 = "ttir.transpose"(%469) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x1024x160xbf16>) -> tensor<1x160x1024xbf16>
+    %476 = "ttir.reshape"(%475) <{shape = [1 : i32, 160 : i32, 32 : i32, 32 : i32]}> : (tensor<1x160x1024xbf16>) -> tensor<1x160x32x32xbf16>
+    %477 = "ttir.transpose"(%476) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x160x32x32xbf16>) -> tensor<1x32x160x32xbf16>
+    %478 = "ttir.transpose"(%477) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x32x160x32xbf16>) -> tensor<1x32x32x160xbf16>
+    %479 = "ttir.conv2d"(%478, %arg207, %arg208) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 0, 0, 0, 0>, stride = array<i32: 2, 2>}> {channel_last = 1 : si32} : (tensor<1x32x32x160xbf16>, tensor<160x160x2x2xbf16>, tensor<1x1x1x160xbf16>) -> tensor<1x16x16x160xbf16>
+    %480 = "ttir.transpose"(%479) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x16x16x160xbf16>) -> tensor<1x16x160x16xbf16>
+    %481 = "ttir.transpose"(%480) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x16x160x16xbf16>) -> tensor<1x160x16x16xbf16>
+    %482 = "ttir.reshape"(%481) <{shape = [1 : i32, 160 : i32, 256 : i32]}> : (tensor<1x160x16x16xbf16>) -> tensor<1x160x256xbf16>
+    %483 = "ttir.transpose"(%482) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x160x256xbf16>) -> tensor<1x256x160xbf16>
+    %484 = "ttir.sum"(%483) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x256x160xbf16>) -> tensor<1x256x1xbf16>
+    %485 = "ttir.multiply"(%arg59, %484) : (tensor<1x256x160xf32>, tensor<1x256x1xbf16>) -> tensor<1x256x160xbf16>
+    %486 = "ttir.subtract"(%483, %485) : (tensor<1x256x160xbf16>, tensor<1x256x160xbf16>) -> tensor<1x256x160xbf16>
+    %487 = "ttir.multiply"(%486, %486) : (tensor<1x256x160xbf16>, tensor<1x256x160xbf16>) -> tensor<1x256x160xbf16>
+    %488 = "ttir.sum"(%487) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x256x160xbf16>) -> tensor<1x256x1xbf16>
+    %489 = "ttir.multiply"(%arg60, %488) : (tensor<1x256x1xf32>, tensor<1x256x1xbf16>) -> tensor<1x256x1xbf16>
+    %490 = "ttir.add"(%489, %arg61) : (tensor<1x256x1xbf16>, tensor<1x256x1xf32>) -> tensor<1x256x1xbf16>
+    %491 = "ttir.sqrt"(%490) : (tensor<1x256x1xbf16>) -> tensor<1x256x1xbf16>
+    %492 = "ttir.reciprocal"(%491) : (tensor<1x256x1xbf16>) -> tensor<1x256x1xbf16>
+    %493 = "ttir.multiply"(%486, %492) : (tensor<1x256x160xbf16>, tensor<1x256x1xbf16>) -> tensor<1x256x160xbf16>
+    %494 = "ttir.multiply"(%493, %arg209) : (tensor<1x256x160xbf16>, tensor<160xbf16>) -> tensor<1x256x160xbf16>
+    %495 = "ttir.add"(%494, %arg210) : (tensor<1x256x160xbf16>, tensor<160xbf16>) -> tensor<1x256x160xbf16>
+    %496 = "ttir.squeeze"(%495) <{dim = 0 : si32}> : (tensor<1x256x160xbf16>) -> tensor<256x160xbf16>
+    %497 = "ttir.matmul"(%496, %arg211) <{transpose_a = false, transpose_b = false}> : (tensor<256x160xbf16>, tensor<160x160xbf16>) -> tensor<256x160xbf16>
+    %498 = "ttir.unsqueeze"(%497) <{dim = 0 : si32}> : (tensor<256x160xbf16>) -> tensor<1x256x160xbf16>
+    %499 = "ttir.add"(%498, %arg212) : (tensor<1x256x160xbf16>, tensor<160xbf16>) -> tensor<1x256x160xbf16>
+    %500 = "ttir.reshape"(%499) <{shape = [1 : i32, 256 : i32, 5 : i32, 32 : i32]}> : (tensor<1x256x160xbf16>) -> tensor<1x256x5x32xbf16>
+    %501 = "ttir.transpose"(%500) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x256x5x32xbf16>) -> tensor<1x5x256x32xbf16>
+    %502 = "ttir.squeeze"(%501) <{dim = 0 : si32}> : (tensor<1x5x256x32xbf16>) -> tensor<5x256x32xbf16>
+    %503 = "ttir.transpose"(%502) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<5x256x32xbf16>) -> tensor<5x32x256xbf16>
+    %504 = "ttir.matmul"(%474, %503) <{transpose_a = false, transpose_b = false}> : (tensor<5x1024x32xbf16>, tensor<5x32x256xbf16>) -> tensor<5x1024x256xbf16>
+    %505 = "ttir.unsqueeze"(%504) <{dim = 0 : si32}> : (tensor<5x1024x256xbf16>) -> tensor<1x5x1024x256xbf16>
+    %506 = "ttir.div"(%505, %arg62) : (tensor<1x5x1024x256xbf16>, tensor<1xbf16>) -> tensor<1x5x1024x256xbf16>
+    %507 = "ttir.softmax"(%506) <{dimension = -1 : si32}> : (tensor<1x5x1024x256xbf16>) -> tensor<1x5x1024x256xbf16>
+    %508 = "ttir.squeeze"(%507) <{dim = 0 : si32}> : (tensor<1x5x1024x256xbf16>) -> tensor<5x1024x256xbf16>
+    %509 = "ttir.matmul"(%496, %arg213) <{transpose_a = false, transpose_b = false}> : (tensor<256x160xbf16>, tensor<160x160xbf16>) -> tensor<256x160xbf16>
+    %510 = "ttir.unsqueeze"(%509) <{dim = 0 : si32}> : (tensor<256x160xbf16>) -> tensor<1x256x160xbf16>
+    %511 = "ttir.add"(%510, %arg214) : (tensor<1x256x160xbf16>, tensor<160xbf16>) -> tensor<1x256x160xbf16>
+    %512 = "ttir.reshape"(%511) <{shape = [1 : i32, 256 : i32, 5 : i32, 32 : i32]}> : (tensor<1x256x160xbf16>) -> tensor<1x256x5x32xbf16>
+    %513 = "ttir.transpose"(%512) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x256x5x32xbf16>) -> tensor<1x5x256x32xbf16>
+    %514 = "ttir.transpose"(%513) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x5x256x32xbf16>) -> tensor<1x5x32x256xbf16>
+    %515 = "ttir.squeeze"(%514) <{dim = 0 : si32}> : (tensor<1x5x32x256xbf16>) -> tensor<5x32x256xbf16>
+    %516 = "ttir.transpose"(%515) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<5x32x256xbf16>) -> tensor<5x256x32xbf16>
+    %517 = "ttir.matmul"(%508, %516) <{transpose_a = false, transpose_b = false}> : (tensor<5x1024x256xbf16>, tensor<5x256x32xbf16>) -> tensor<5x1024x32xbf16>
+    %518 = "ttir.unsqueeze"(%517) <{dim = 0 : si32}> : (tensor<5x1024x32xbf16>) -> tensor<1x5x1024x32xbf16>
+    %519 = "ttir.transpose"(%518) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x5x1024x32xbf16>) -> tensor<1x1024x5x32xbf16>
+    %520 = "ttir.reshape"(%519) <{shape = [1024 : i32, 160 : i32]}> : (tensor<1x1024x5x32xbf16>) -> tensor<1024x160xbf16>
+    %521 = "ttir.matmul"(%520, %arg215) <{transpose_a = false, transpose_b = false}> : (tensor<1024x160xbf16>, tensor<160x160xbf16>) -> tensor<1024x160xbf16>
+    %522 = "ttir.unsqueeze"(%521) <{dim = 0 : si32}> : (tensor<1024x160xbf16>) -> tensor<1x1024x160xbf16>
+    %523 = "ttir.add"(%522, %arg216) : (tensor<1x1024x160xbf16>, tensor<160xbf16>) -> tensor<1x1024x160xbf16>
+    %524 = "ttir.add"(%523, %457) : (tensor<1x1024x160xbf16>, tensor<1x1024x160xbf16>) -> tensor<1x1024x160xbf16>
+    %525 = "ttir.sum"(%524) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x1024x160xbf16>) -> tensor<1x1024x1xbf16>
+    %526 = "ttir.multiply"(%arg63, %525) : (tensor<1x1024x160xf32>, tensor<1x1024x1xbf16>) -> tensor<1x1024x160xbf16>
+    %527 = "ttir.subtract"(%524, %526) : (tensor<1x1024x160xbf16>, tensor<1x1024x160xbf16>) -> tensor<1x1024x160xbf16>
+    %528 = "ttir.multiply"(%527, %527) : (tensor<1x1024x160xbf16>, tensor<1x1024x160xbf16>) -> tensor<1x1024x160xbf16>
+    %529 = "ttir.sum"(%528) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x1024x160xbf16>) -> tensor<1x1024x1xbf16>
+    %530 = "ttir.multiply"(%arg64, %529) : (tensor<1x1024x1xf32>, tensor<1x1024x1xbf16>) -> tensor<1x1024x1xbf16>
+    %531 = "ttir.add"(%530, %arg65) : (tensor<1x1024x1xbf16>, tensor<1x1024x1xf32>) -> tensor<1x1024x1xbf16>
+    %532 = "ttir.sqrt"(%531) : (tensor<1x1024x1xbf16>) -> tensor<1x1024x1xbf16>
+    %533 = "ttir.reciprocal"(%532) : (tensor<1x1024x1xbf16>) -> tensor<1x1024x1xbf16>
+    %534 = "ttir.multiply"(%527, %533) : (tensor<1x1024x160xbf16>, tensor<1x1024x1xbf16>) -> tensor<1x1024x160xbf16>
+    %535 = "ttir.multiply"(%534, %arg217) : (tensor<1x1024x160xbf16>, tensor<160xbf16>) -> tensor<1x1024x160xbf16>
+    %536 = "ttir.add"(%535, %arg218) : (tensor<1x1024x160xbf16>, tensor<160xbf16>) -> tensor<1x1024x160xbf16>
+    %537 = "ttir.matmul"(%536, %arg219) <{transpose_a = false, transpose_b = false}> : (tensor<1x1024x160xbf16>, tensor<160x640xbf16>) -> tensor<1x1024x640xbf16>
+    %538 = "ttir.add"(%537, %arg220) : (tensor<1x1024x640xbf16>, tensor<640xbf16>) -> tensor<1x1024x640xbf16>
+    %539 = "ttir.transpose"(%538) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x1024x640xbf16>) -> tensor<1x640x1024xbf16>
+    %540 = "ttir.reshape"(%539) <{shape = [1 : i32, 640 : i32, 32 : i32, 32 : i32]}> : (tensor<1x640x1024xbf16>) -> tensor<1x640x32x32xbf16>
+    %541 = "ttir.transpose"(%540) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x640x32x32xbf16>) -> tensor<1x32x640x32xbf16>
+    %542 = "ttir.transpose"(%541) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x32x640x32xbf16>) -> tensor<1x32x32x640xbf16>
+    %543 = "ttir.conv2d"(%542, %arg221, %arg222) <{dilation = array<i32: 1, 1>, groups = 640 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x32x32x640xbf16>, tensor<640x1x3x3xbf16>, tensor<1x1x1x640xbf16>) -> tensor<1x32x32x640xbf16>
+    %544 = "ttir.transpose"(%543) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x32x32x640xbf16>) -> tensor<1x32x640x32xbf16>
+    %545 = "ttir.transpose"(%544) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x32x640x32xbf16>) -> tensor<1x640x32x32xbf16>
+    %546 = "ttir.reshape"(%545) <{shape = [1 : i32, 640 : i32, 1024 : i32, 1 : i32]}> : (tensor<1x640x32x32xbf16>) -> tensor<1x640x1024x1xbf16>
+    %547 = "ttir.squeeze"(%546) <{dim = -1 : si32}> : (tensor<1x640x1024x1xbf16>) -> tensor<1x640x1024xbf16>
+    %548 = "ttir.transpose"(%547) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x640x1024xbf16>) -> tensor<1x1024x640xbf16>
+    %549 = "ttir.gelu"(%548) : (tensor<1x1024x640xbf16>) -> tensor<1x1024x640xbf16>
+    %550 = "ttir.matmul"(%549, %arg223) <{transpose_a = false, transpose_b = false}> : (tensor<1x1024x640xbf16>, tensor<640x160xbf16>) -> tensor<1x1024x160xbf16>
+    %551 = "ttir.add"(%550, %arg224) : (tensor<1x1024x160xbf16>, tensor<160xbf16>) -> tensor<1x1024x160xbf16>
+    %552 = "ttir.add"(%551, %524) : (tensor<1x1024x160xbf16>, tensor<1x1024x160xbf16>) -> tensor<1x1024x160xbf16>
+    %553 = "ttir.sum"(%552) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x1024x160xbf16>) -> tensor<1x1024x1xbf16>
+    %554 = "ttir.multiply"(%arg66, %553) : (tensor<1x1024x160xf32>, tensor<1x1024x1xbf16>) -> tensor<1x1024x160xbf16>
+    %555 = "ttir.subtract"(%552, %554) : (tensor<1x1024x160xbf16>, tensor<1x1024x160xbf16>) -> tensor<1x1024x160xbf16>
+    %556 = "ttir.multiply"(%555, %555) : (tensor<1x1024x160xbf16>, tensor<1x1024x160xbf16>) -> tensor<1x1024x160xbf16>
+    %557 = "ttir.sum"(%556) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x1024x160xbf16>) -> tensor<1x1024x1xbf16>
+    %558 = "ttir.multiply"(%arg67, %557) : (tensor<1x1024x1xf32>, tensor<1x1024x1xbf16>) -> tensor<1x1024x1xbf16>
+    %559 = "ttir.add"(%558, %arg68) : (tensor<1x1024x1xbf16>, tensor<1x1024x1xf32>) -> tensor<1x1024x1xbf16>
+    %560 = "ttir.sqrt"(%559) : (tensor<1x1024x1xbf16>) -> tensor<1x1024x1xbf16>
+    %561 = "ttir.reciprocal"(%560) : (tensor<1x1024x1xbf16>) -> tensor<1x1024x1xbf16>
+    %562 = "ttir.multiply"(%555, %561) : (tensor<1x1024x160xbf16>, tensor<1x1024x1xbf16>) -> tensor<1x1024x160xbf16>
+    %563 = "ttir.multiply"(%562, %arg225) : (tensor<1x1024x160xbf16>, tensor<160xbf16>) -> tensor<1x1024x160xbf16>
+    %564 = "ttir.add"(%563, %arg226) : (tensor<1x1024x160xbf16>, tensor<160xbf16>) -> tensor<1x1024x160xbf16>
+    %565 = "ttir.matmul"(%564, %arg227) <{transpose_a = false, transpose_b = false}> : (tensor<1x1024x160xbf16>, tensor<160x160xbf16>) -> tensor<1x1024x160xbf16>
+    %566 = "ttir.add"(%565, %arg228) : (tensor<1x1024x160xbf16>, tensor<160xbf16>) -> tensor<1x1024x160xbf16>
+    %567 = "ttir.reshape"(%566) <{shape = [1 : i32, 1024 : i32, 5 : i32, 32 : i32]}> : (tensor<1x1024x160xbf16>) -> tensor<1x1024x5x32xbf16>
+    %568 = "ttir.transpose"(%567) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x1024x5x32xbf16>) -> tensor<1x5x1024x32xbf16>
+    %569 = "ttir.squeeze"(%568) <{dim = 0 : si32}> : (tensor<1x5x1024x32xbf16>) -> tensor<5x1024x32xbf16>
+    %570 = "ttir.transpose"(%564) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x1024x160xbf16>) -> tensor<1x160x1024xbf16>
+    %571 = "ttir.reshape"(%570) <{shape = [1 : i32, 160 : i32, 32 : i32, 32 : i32]}> : (tensor<1x160x1024xbf16>) -> tensor<1x160x32x32xbf16>
+    %572 = "ttir.transpose"(%571) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x160x32x32xbf16>) -> tensor<1x32x160x32xbf16>
+    %573 = "ttir.transpose"(%572) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x32x160x32xbf16>) -> tensor<1x32x32x160xbf16>
+    %574 = "ttir.conv2d"(%573, %arg229, %arg230) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 0, 0, 0, 0>, stride = array<i32: 2, 2>}> {channel_last = 1 : si32} : (tensor<1x32x32x160xbf16>, tensor<160x160x2x2xbf16>, tensor<1x1x1x160xbf16>) -> tensor<1x16x16x160xbf16>
+    %575 = "ttir.transpose"(%574) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x16x16x160xbf16>) -> tensor<1x16x160x16xbf16>
+    %576 = "ttir.transpose"(%575) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x16x160x16xbf16>) -> tensor<1x160x16x16xbf16>
+    %577 = "ttir.reshape"(%576) <{shape = [1 : i32, 160 : i32, 256 : i32]}> : (tensor<1x160x16x16xbf16>) -> tensor<1x160x256xbf16>
+    %578 = "ttir.transpose"(%577) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x160x256xbf16>) -> tensor<1x256x160xbf16>
+    %579 = "ttir.sum"(%578) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x256x160xbf16>) -> tensor<1x256x1xbf16>
+    %580 = "ttir.multiply"(%arg69, %579) : (tensor<1x256x160xf32>, tensor<1x256x1xbf16>) -> tensor<1x256x160xbf16>
+    %581 = "ttir.subtract"(%578, %580) : (tensor<1x256x160xbf16>, tensor<1x256x160xbf16>) -> tensor<1x256x160xbf16>
+    %582 = "ttir.multiply"(%581, %581) : (tensor<1x256x160xbf16>, tensor<1x256x160xbf16>) -> tensor<1x256x160xbf16>
+    %583 = "ttir.sum"(%582) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x256x160xbf16>) -> tensor<1x256x1xbf16>
+    %584 = "ttir.multiply"(%arg70, %583) : (tensor<1x256x1xf32>, tensor<1x256x1xbf16>) -> tensor<1x256x1xbf16>
+    %585 = "ttir.add"(%584, %arg71) : (tensor<1x256x1xbf16>, tensor<1x256x1xf32>) -> tensor<1x256x1xbf16>
+    %586 = "ttir.sqrt"(%585) : (tensor<1x256x1xbf16>) -> tensor<1x256x1xbf16>
+    %587 = "ttir.reciprocal"(%586) : (tensor<1x256x1xbf16>) -> tensor<1x256x1xbf16>
+    %588 = "ttir.multiply"(%581, %587) : (tensor<1x256x160xbf16>, tensor<1x256x1xbf16>) -> tensor<1x256x160xbf16>
+    %589 = "ttir.multiply"(%588, %arg231) : (tensor<1x256x160xbf16>, tensor<160xbf16>) -> tensor<1x256x160xbf16>
+    %590 = "ttir.add"(%589, %arg232) : (tensor<1x256x160xbf16>, tensor<160xbf16>) -> tensor<1x256x160xbf16>
+    %591 = "ttir.squeeze"(%590) <{dim = 0 : si32}> : (tensor<1x256x160xbf16>) -> tensor<256x160xbf16>
+    %592 = "ttir.matmul"(%591, %arg233) <{transpose_a = false, transpose_b = false}> : (tensor<256x160xbf16>, tensor<160x160xbf16>) -> tensor<256x160xbf16>
+    %593 = "ttir.unsqueeze"(%592) <{dim = 0 : si32}> : (tensor<256x160xbf16>) -> tensor<1x256x160xbf16>
+    %594 = "ttir.add"(%593, %arg234) : (tensor<1x256x160xbf16>, tensor<160xbf16>) -> tensor<1x256x160xbf16>
+    %595 = "ttir.reshape"(%594) <{shape = [1 : i32, 256 : i32, 5 : i32, 32 : i32]}> : (tensor<1x256x160xbf16>) -> tensor<1x256x5x32xbf16>
+    %596 = "ttir.transpose"(%595) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x256x5x32xbf16>) -> tensor<1x5x256x32xbf16>
+    %597 = "ttir.squeeze"(%596) <{dim = 0 : si32}> : (tensor<1x5x256x32xbf16>) -> tensor<5x256x32xbf16>
+    %598 = "ttir.transpose"(%597) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<5x256x32xbf16>) -> tensor<5x32x256xbf16>
+    %599 = "ttir.matmul"(%569, %598) <{transpose_a = false, transpose_b = false}> : (tensor<5x1024x32xbf16>, tensor<5x32x256xbf16>) -> tensor<5x1024x256xbf16>
+    %600 = "ttir.unsqueeze"(%599) <{dim = 0 : si32}> : (tensor<5x1024x256xbf16>) -> tensor<1x5x1024x256xbf16>
+    %601 = "ttir.div"(%600, %arg72) : (tensor<1x5x1024x256xbf16>, tensor<1xbf16>) -> tensor<1x5x1024x256xbf16>
+    %602 = "ttir.softmax"(%601) <{dimension = -1 : si32}> : (tensor<1x5x1024x256xbf16>) -> tensor<1x5x1024x256xbf16>
+    %603 = "ttir.squeeze"(%602) <{dim = 0 : si32}> : (tensor<1x5x1024x256xbf16>) -> tensor<5x1024x256xbf16>
+    %604 = "ttir.matmul"(%591, %arg235) <{transpose_a = false, transpose_b = false}> : (tensor<256x160xbf16>, tensor<160x160xbf16>) -> tensor<256x160xbf16>
+    %605 = "ttir.unsqueeze"(%604) <{dim = 0 : si32}> : (tensor<256x160xbf16>) -> tensor<1x256x160xbf16>
+    %606 = "ttir.add"(%605, %arg236) : (tensor<1x256x160xbf16>, tensor<160xbf16>) -> tensor<1x256x160xbf16>
+    %607 = "ttir.reshape"(%606) <{shape = [1 : i32, 256 : i32, 5 : i32, 32 : i32]}> : (tensor<1x256x160xbf16>) -> tensor<1x256x5x32xbf16>
+    %608 = "ttir.transpose"(%607) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x256x5x32xbf16>) -> tensor<1x5x256x32xbf16>
+    %609 = "ttir.transpose"(%608) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x5x256x32xbf16>) -> tensor<1x5x32x256xbf16>
+    %610 = "ttir.squeeze"(%609) <{dim = 0 : si32}> : (tensor<1x5x32x256xbf16>) -> tensor<5x32x256xbf16>
+    %611 = "ttir.transpose"(%610) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<5x32x256xbf16>) -> tensor<5x256x32xbf16>
+    %612 = "ttir.matmul"(%603, %611) <{transpose_a = false, transpose_b = false}> : (tensor<5x1024x256xbf16>, tensor<5x256x32xbf16>) -> tensor<5x1024x32xbf16>
+    %613 = "ttir.unsqueeze"(%612) <{dim = 0 : si32}> : (tensor<5x1024x32xbf16>) -> tensor<1x5x1024x32xbf16>
+    %614 = "ttir.transpose"(%613) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x5x1024x32xbf16>) -> tensor<1x1024x5x32xbf16>
+    %615 = "ttir.reshape"(%614) <{shape = [1024 : i32, 160 : i32]}> : (tensor<1x1024x5x32xbf16>) -> tensor<1024x160xbf16>
+    %616 = "ttir.matmul"(%615, %arg237) <{transpose_a = false, transpose_b = false}> : (tensor<1024x160xbf16>, tensor<160x160xbf16>) -> tensor<1024x160xbf16>
+    %617 = "ttir.unsqueeze"(%616) <{dim = 0 : si32}> : (tensor<1024x160xbf16>) -> tensor<1x1024x160xbf16>
+    %618 = "ttir.add"(%617, %arg238) : (tensor<1x1024x160xbf16>, tensor<160xbf16>) -> tensor<1x1024x160xbf16>
+    %619 = "ttir.add"(%618, %552) : (tensor<1x1024x160xbf16>, tensor<1x1024x160xbf16>) -> tensor<1x1024x160xbf16>
+    %620 = "ttir.sum"(%619) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x1024x160xbf16>) -> tensor<1x1024x1xbf16>
+    %621 = "ttir.multiply"(%arg73, %620) : (tensor<1x1024x160xf32>, tensor<1x1024x1xbf16>) -> tensor<1x1024x160xbf16>
+    %622 = "ttir.subtract"(%619, %621) : (tensor<1x1024x160xbf16>, tensor<1x1024x160xbf16>) -> tensor<1x1024x160xbf16>
+    %623 = "ttir.multiply"(%622, %622) : (tensor<1x1024x160xbf16>, tensor<1x1024x160xbf16>) -> tensor<1x1024x160xbf16>
+    %624 = "ttir.sum"(%623) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x1024x160xbf16>) -> tensor<1x1024x1xbf16>
+    %625 = "ttir.multiply"(%arg74, %624) : (tensor<1x1024x1xf32>, tensor<1x1024x1xbf16>) -> tensor<1x1024x1xbf16>
+    %626 = "ttir.add"(%625, %arg75) : (tensor<1x1024x1xbf16>, tensor<1x1024x1xf32>) -> tensor<1x1024x1xbf16>
+    %627 = "ttir.sqrt"(%626) : (tensor<1x1024x1xbf16>) -> tensor<1x1024x1xbf16>
+    %628 = "ttir.reciprocal"(%627) : (tensor<1x1024x1xbf16>) -> tensor<1x1024x1xbf16>
+    %629 = "ttir.multiply"(%622, %628) : (tensor<1x1024x160xbf16>, tensor<1x1024x1xbf16>) -> tensor<1x1024x160xbf16>
+    %630 = "ttir.multiply"(%629, %arg239) : (tensor<1x1024x160xbf16>, tensor<160xbf16>) -> tensor<1x1024x160xbf16>
+    %631 = "ttir.add"(%630, %arg240) : (tensor<1x1024x160xbf16>, tensor<160xbf16>) -> tensor<1x1024x160xbf16>
+    %632 = "ttir.matmul"(%631, %arg241) <{transpose_a = false, transpose_b = false}> : (tensor<1x1024x160xbf16>, tensor<160x640xbf16>) -> tensor<1x1024x640xbf16>
+    %633 = "ttir.add"(%632, %arg242) : (tensor<1x1024x640xbf16>, tensor<640xbf16>) -> tensor<1x1024x640xbf16>
+    %634 = "ttir.transpose"(%633) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x1024x640xbf16>) -> tensor<1x640x1024xbf16>
+    %635 = "ttir.reshape"(%634) <{shape = [1 : i32, 640 : i32, 32 : i32, 32 : i32]}> : (tensor<1x640x1024xbf16>) -> tensor<1x640x32x32xbf16>
+    %636 = "ttir.transpose"(%635) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x640x32x32xbf16>) -> tensor<1x32x640x32xbf16>
+    %637 = "ttir.transpose"(%636) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x32x640x32xbf16>) -> tensor<1x32x32x640xbf16>
+    %638 = "ttir.conv2d"(%637, %arg243, %arg244) <{dilation = array<i32: 1, 1>, groups = 640 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x32x32x640xbf16>, tensor<640x1x3x3xbf16>, tensor<1x1x1x640xbf16>) -> tensor<1x32x32x640xbf16>
+    %639 = "ttir.transpose"(%638) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x32x32x640xbf16>) -> tensor<1x32x640x32xbf16>
+    %640 = "ttir.transpose"(%639) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x32x640x32xbf16>) -> tensor<1x640x32x32xbf16>
+    %641 = "ttir.reshape"(%640) <{shape = [1 : i32, 640 : i32, 1024 : i32, 1 : i32]}> : (tensor<1x640x32x32xbf16>) -> tensor<1x640x1024x1xbf16>
+    %642 = "ttir.squeeze"(%641) <{dim = -1 : si32}> : (tensor<1x640x1024x1xbf16>) -> tensor<1x640x1024xbf16>
+    %643 = "ttir.transpose"(%642) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x640x1024xbf16>) -> tensor<1x1024x640xbf16>
+    %644 = "ttir.gelu"(%643) : (tensor<1x1024x640xbf16>) -> tensor<1x1024x640xbf16>
+    %645 = "ttir.matmul"(%644, %arg245) <{transpose_a = false, transpose_b = false}> : (tensor<1x1024x640xbf16>, tensor<640x160xbf16>) -> tensor<1x1024x160xbf16>
+    %646 = "ttir.add"(%645, %arg246) : (tensor<1x1024x160xbf16>, tensor<160xbf16>) -> tensor<1x1024x160xbf16>
+    %647 = "ttir.add"(%646, %619) : (tensor<1x1024x160xbf16>, tensor<1x1024x160xbf16>) -> tensor<1x1024x160xbf16>
+    %648 = "ttir.sum"(%647) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x1024x160xbf16>) -> tensor<1x1024x1xbf16>
+    %649 = "ttir.multiply"(%arg76, %648) : (tensor<1x1024x160xf32>, tensor<1x1024x1xbf16>) -> tensor<1x1024x160xbf16>
+    %650 = "ttir.subtract"(%647, %649) : (tensor<1x1024x160xbf16>, tensor<1x1024x160xbf16>) -> tensor<1x1024x160xbf16>
+    %651 = "ttir.multiply"(%650, %650) : (tensor<1x1024x160xbf16>, tensor<1x1024x160xbf16>) -> tensor<1x1024x160xbf16>
+    %652 = "ttir.sum"(%651) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x1024x160xbf16>) -> tensor<1x1024x1xbf16>
+    %653 = "ttir.multiply"(%arg77, %652) : (tensor<1x1024x1xf32>, tensor<1x1024x1xbf16>) -> tensor<1x1024x1xbf16>
+    %654 = "ttir.add"(%653, %arg78) : (tensor<1x1024x1xbf16>, tensor<1x1024x1xf32>) -> tensor<1x1024x1xbf16>
+    %655 = "ttir.sqrt"(%654) : (tensor<1x1024x1xbf16>) -> tensor<1x1024x1xbf16>
+    %656 = "ttir.reciprocal"(%655) : (tensor<1x1024x1xbf16>) -> tensor<1x1024x1xbf16>
+    %657 = "ttir.multiply"(%650, %656) : (tensor<1x1024x160xbf16>, tensor<1x1024x1xbf16>) -> tensor<1x1024x160xbf16>
+    %658 = "ttir.multiply"(%657, %arg247) : (tensor<1x1024x160xbf16>, tensor<160xbf16>) -> tensor<1x1024x160xbf16>
+    %659 = "ttir.add"(%658, %arg248) : (tensor<1x1024x160xbf16>, tensor<160xbf16>) -> tensor<1x1024x160xbf16>
+    %660 = "ttir.reshape"(%659) <{shape = [1 : i32, 32 : i32, 32 : i32, 160 : i32]}> : (tensor<1x1024x160xbf16>) -> tensor<1x32x32x160xbf16>
+    %661 = "ttir.transpose"(%660) <{dim0 = -3 : si32, dim1 = -1 : si32}> : (tensor<1x32x32x160xbf16>) -> tensor<1x160x32x32xbf16>
+    %662 = "ttir.transpose"(%661) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x160x32x32xbf16>) -> tensor<1x160x32x32xbf16>
+    %663 = "ttir.transpose"(%662) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x160x32x32xbf16>) -> tensor<1x32x160x32xbf16>
+    %664 = "ttir.transpose"(%663) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x32x160x32xbf16>) -> tensor<1x32x32x160xbf16>
+    %665 = "ttir.conv2d"(%664, %arg249, %arg250) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 2, 2>}> {channel_last = 1 : si32} : (tensor<1x32x32x160xbf16>, tensor<256x160x3x3xbf16>, tensor<1x1x1x256xbf16>) -> tensor<1x16x16x256xbf16>
+    %666 = "ttir.transpose"(%665) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x16x16x256xbf16>) -> tensor<1x16x256x16xbf16>
+    %667 = "ttir.transpose"(%666) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x16x256x16xbf16>) -> tensor<1x256x16x16xbf16>
+    %668 = "ttir.reshape"(%667) <{shape = [1 : i32, 256 : i32, 256 : i32, 1 : i32]}> : (tensor<1x256x16x16xbf16>) -> tensor<1x256x256x1xbf16>
+    %669 = "ttir.squeeze"(%668) <{dim = -1 : si32}> : (tensor<1x256x256x1xbf16>) -> tensor<1x256x256xbf16>
+    %670 = "ttir.transpose"(%669) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x256x256xbf16>) -> tensor<1x256x256xbf16>
+    %671 = "ttir.sum"(%670) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x256x256xbf16>) -> tensor<1x256x1xbf16>
+    %672 = "ttir.multiply"(%arg79, %671) : (tensor<1x256x256xf32>, tensor<1x256x1xbf16>) -> tensor<1x256x256xbf16>
+    %673 = "ttir.subtract"(%670, %672) : (tensor<1x256x256xbf16>, tensor<1x256x256xbf16>) -> tensor<1x256x256xbf16>
+    %674 = "ttir.multiply"(%673, %673) : (tensor<1x256x256xbf16>, tensor<1x256x256xbf16>) -> tensor<1x256x256xbf16>
+    %675 = "ttir.sum"(%674) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x256x256xbf16>) -> tensor<1x256x1xbf16>
+    %676 = "ttir.multiply"(%arg80, %675) : (tensor<1x256x1xf32>, tensor<1x256x1xbf16>) -> tensor<1x256x1xbf16>
+    %677 = "ttir.add"(%676, %arg81) : (tensor<1x256x1xbf16>, tensor<1x256x1xf32>) -> tensor<1x256x1xbf16>
+    %678 = "ttir.sqrt"(%677) : (tensor<1x256x1xbf16>) -> tensor<1x256x1xbf16>
+    %679 = "ttir.reciprocal"(%678) : (tensor<1x256x1xbf16>) -> tensor<1x256x1xbf16>
+    %680 = "ttir.multiply"(%673, %679) : (tensor<1x256x256xbf16>, tensor<1x256x1xbf16>) -> tensor<1x256x256xbf16>
+    %681 = "ttir.multiply"(%680, %arg251) : (tensor<1x256x256xbf16>, tensor<256xbf16>) -> tensor<1x256x256xbf16>
+    %682 = "ttir.add"(%681, %arg252) : (tensor<1x256x256xbf16>, tensor<256xbf16>) -> tensor<1x256x256xbf16>
+    %683 = "ttir.sum"(%682) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x256x256xbf16>) -> tensor<1x256x1xbf16>
+    %684 = "ttir.multiply"(%arg82, %683) : (tensor<1x256x256xf32>, tensor<1x256x1xbf16>) -> tensor<1x256x256xbf16>
+    %685 = "ttir.subtract"(%682, %684) : (tensor<1x256x256xbf16>, tensor<1x256x256xbf16>) -> tensor<1x256x256xbf16>
+    %686 = "ttir.multiply"(%685, %685) : (tensor<1x256x256xbf16>, tensor<1x256x256xbf16>) -> tensor<1x256x256xbf16>
+    %687 = "ttir.sum"(%686) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x256x256xbf16>) -> tensor<1x256x1xbf16>
+    %688 = "ttir.multiply"(%arg83, %687) : (tensor<1x256x1xf32>, tensor<1x256x1xbf16>) -> tensor<1x256x1xbf16>
+    %689 = "ttir.add"(%688, %arg84) : (tensor<1x256x1xbf16>, tensor<1x256x1xf32>) -> tensor<1x256x1xbf16>
+    %690 = "ttir.sqrt"(%689) : (tensor<1x256x1xbf16>) -> tensor<1x256x1xbf16>
+    %691 = "ttir.reciprocal"(%690) : (tensor<1x256x1xbf16>) -> tensor<1x256x1xbf16>
+    %692 = "ttir.multiply"(%685, %691) : (tensor<1x256x256xbf16>, tensor<1x256x1xbf16>) -> tensor<1x256x256xbf16>
+    %693 = "ttir.multiply"(%692, %arg253) : (tensor<1x256x256xbf16>, tensor<256xbf16>) -> tensor<1x256x256xbf16>
+    %694 = "ttir.add"(%693, %arg254) : (tensor<1x256x256xbf16>, tensor<256xbf16>) -> tensor<1x256x256xbf16>
+    %695 = "ttir.squeeze"(%694) <{dim = 0 : si32}> : (tensor<1x256x256xbf16>) -> tensor<256x256xbf16>
+    %696 = "ttir.matmul"(%695, %arg255) <{transpose_a = false, transpose_b = false}> : (tensor<256x256xbf16>, tensor<256x256xbf16>) -> tensor<256x256xbf16>
+    %697 = "ttir.unsqueeze"(%696) <{dim = 0 : si32}> : (tensor<256x256xbf16>) -> tensor<1x256x256xbf16>
+    %698 = "ttir.add"(%697, %arg256) : (tensor<1x256x256xbf16>, tensor<256xbf16>) -> tensor<1x256x256xbf16>
+    %699 = "ttir.reshape"(%698) <{shape = [1 : i32, 256 : i32, 8 : i32, 32 : i32]}> : (tensor<1x256x256xbf16>) -> tensor<1x256x8x32xbf16>
+    %700 = "ttir.transpose"(%699) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x256x8x32xbf16>) -> tensor<1x8x256x32xbf16>
+    %701 = "ttir.squeeze"(%700) <{dim = 0 : si32}> : (tensor<1x8x256x32xbf16>) -> tensor<8x256x32xbf16>
+    %702 = "ttir.matmul"(%695, %arg257) <{transpose_a = false, transpose_b = false}> : (tensor<256x256xbf16>, tensor<256x256xbf16>) -> tensor<256x256xbf16>
+    %703 = "ttir.unsqueeze"(%702) <{dim = 0 : si32}> : (tensor<256x256xbf16>) -> tensor<1x256x256xbf16>
+    %704 = "ttir.add"(%703, %arg258) : (tensor<1x256x256xbf16>, tensor<256xbf16>) -> tensor<1x256x256xbf16>
+    %705 = "ttir.reshape"(%704) <{shape = [1 : i32, 256 : i32, 8 : i32, 32 : i32]}> : (tensor<1x256x256xbf16>) -> tensor<1x256x8x32xbf16>
+    %706 = "ttir.transpose"(%705) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x256x8x32xbf16>) -> tensor<1x8x256x32xbf16>
+    %707 = "ttir.squeeze"(%706) <{dim = 0 : si32}> : (tensor<1x8x256x32xbf16>) -> tensor<8x256x32xbf16>
+    %708 = "ttir.transpose"(%707) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<8x256x32xbf16>) -> tensor<8x32x256xbf16>
+    %709 = "ttir.matmul"(%701, %708) <{transpose_a = false, transpose_b = false}> : (tensor<8x256x32xbf16>, tensor<8x32x256xbf16>) -> tensor<8x256x256xbf16>
+    %710 = "ttir.unsqueeze"(%709) <{dim = 0 : si32}> : (tensor<8x256x256xbf16>) -> tensor<1x8x256x256xbf16>
+    %711 = "ttir.div"(%710, %arg85) : (tensor<1x8x256x256xbf16>, tensor<1xbf16>) -> tensor<1x8x256x256xbf16>
+    %712 = "ttir.softmax"(%711) <{dimension = -1 : si32}> : (tensor<1x8x256x256xbf16>) -> tensor<1x8x256x256xbf16>
+    %713 = "ttir.squeeze"(%712) <{dim = 0 : si32}> : (tensor<1x8x256x256xbf16>) -> tensor<8x256x256xbf16>
+    %714 = "ttir.matmul"(%695, %arg259) <{transpose_a = false, transpose_b = false}> : (tensor<256x256xbf16>, tensor<256x256xbf16>) -> tensor<256x256xbf16>
+    %715 = "ttir.unsqueeze"(%714) <{dim = 0 : si32}> : (tensor<256x256xbf16>) -> tensor<1x256x256xbf16>
+    %716 = "ttir.add"(%715, %arg260) : (tensor<1x256x256xbf16>, tensor<256xbf16>) -> tensor<1x256x256xbf16>
+    %717 = "ttir.reshape"(%716) <{shape = [1 : i32, 256 : i32, 8 : i32, 32 : i32]}> : (tensor<1x256x256xbf16>) -> tensor<1x256x8x32xbf16>
+    %718 = "ttir.transpose"(%717) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x256x8x32xbf16>) -> tensor<1x8x256x32xbf16>
+    %719 = "ttir.transpose"(%718) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x8x256x32xbf16>) -> tensor<1x8x32x256xbf16>
+    %720 = "ttir.squeeze"(%719) <{dim = 0 : si32}> : (tensor<1x8x32x256xbf16>) -> tensor<8x32x256xbf16>
+    %721 = "ttir.transpose"(%720) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<8x32x256xbf16>) -> tensor<8x256x32xbf16>
+    %722 = "ttir.matmul"(%713, %721) <{transpose_a = false, transpose_b = false}> : (tensor<8x256x256xbf16>, tensor<8x256x32xbf16>) -> tensor<8x256x32xbf16>
+    %723 = "ttir.unsqueeze"(%722) <{dim = 0 : si32}> : (tensor<8x256x32xbf16>) -> tensor<1x8x256x32xbf16>
+    %724 = "ttir.transpose"(%723) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x8x256x32xbf16>) -> tensor<1x256x8x32xbf16>
+    %725 = "ttir.reshape"(%724) <{shape = [256 : i32, 256 : i32]}> : (tensor<1x256x8x32xbf16>) -> tensor<256x256xbf16>
+    %726 = "ttir.matmul"(%725, %arg261) <{transpose_a = false, transpose_b = false}> : (tensor<256x256xbf16>, tensor<256x256xbf16>) -> tensor<256x256xbf16>
+    %727 = "ttir.unsqueeze"(%726) <{dim = 0 : si32}> : (tensor<256x256xbf16>) -> tensor<1x256x256xbf16>
+    %728 = "ttir.add"(%727, %arg262) : (tensor<1x256x256xbf16>, tensor<256xbf16>) -> tensor<1x256x256xbf16>
+    %729 = "ttir.add"(%728, %682) : (tensor<1x256x256xbf16>, tensor<1x256x256xbf16>) -> tensor<1x256x256xbf16>
+    %730 = "ttir.sum"(%729) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x256x256xbf16>) -> tensor<1x256x1xbf16>
+    %731 = "ttir.multiply"(%arg86, %730) : (tensor<1x256x256xf32>, tensor<1x256x1xbf16>) -> tensor<1x256x256xbf16>
+    %732 = "ttir.subtract"(%729, %731) : (tensor<1x256x256xbf16>, tensor<1x256x256xbf16>) -> tensor<1x256x256xbf16>
+    %733 = "ttir.multiply"(%732, %732) : (tensor<1x256x256xbf16>, tensor<1x256x256xbf16>) -> tensor<1x256x256xbf16>
+    %734 = "ttir.sum"(%733) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x256x256xbf16>) -> tensor<1x256x1xbf16>
+    %735 = "ttir.multiply"(%arg87, %734) : (tensor<1x256x1xf32>, tensor<1x256x1xbf16>) -> tensor<1x256x1xbf16>
+    %736 = "ttir.add"(%735, %arg88) : (tensor<1x256x1xbf16>, tensor<1x256x1xf32>) -> tensor<1x256x1xbf16>
+    %737 = "ttir.sqrt"(%736) : (tensor<1x256x1xbf16>) -> tensor<1x256x1xbf16>
+    %738 = "ttir.reciprocal"(%737) : (tensor<1x256x1xbf16>) -> tensor<1x256x1xbf16>
+    %739 = "ttir.multiply"(%732, %738) : (tensor<1x256x256xbf16>, tensor<1x256x1xbf16>) -> tensor<1x256x256xbf16>
+    %740 = "ttir.multiply"(%739, %arg263) : (tensor<1x256x256xbf16>, tensor<256xbf16>) -> tensor<1x256x256xbf16>
+    %741 = "ttir.add"(%740, %arg264) : (tensor<1x256x256xbf16>, tensor<256xbf16>) -> tensor<1x256x256xbf16>
+    %742 = "ttir.matmul"(%741, %arg265) <{transpose_a = false, transpose_b = false}> : (tensor<1x256x256xbf16>, tensor<256x1024xbf16>) -> tensor<1x256x1024xbf16>
+    %743 = "ttir.add"(%742, %arg266) : (tensor<1x256x1024xbf16>, tensor<1024xbf16>) -> tensor<1x256x1024xbf16>
+    %744 = "ttir.transpose"(%743) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x256x1024xbf16>) -> tensor<1x1024x256xbf16>
+    %745 = "ttir.reshape"(%744) <{shape = [1 : i32, 1024 : i32, 16 : i32, 16 : i32]}> : (tensor<1x1024x256xbf16>) -> tensor<1x1024x16x16xbf16>
+    %746 = "ttir.transpose"(%745) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x1024x16x16xbf16>) -> tensor<1x16x1024x16xbf16>
+    %747 = "ttir.transpose"(%746) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x16x1024x16xbf16>) -> tensor<1x16x16x1024xbf16>
+    %748 = "ttir.conv2d"(%747, %arg267, %arg268) <{dilation = array<i32: 1, 1>, groups = 1024 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x16x16x1024xbf16>, tensor<1024x1x3x3xbf16>, tensor<1x1x1x1024xbf16>) -> tensor<1x16x16x1024xbf16>
+    %749 = "ttir.transpose"(%748) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x16x16x1024xbf16>) -> tensor<1x16x1024x16xbf16>
+    %750 = "ttir.transpose"(%749) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x16x1024x16xbf16>) -> tensor<1x1024x16x16xbf16>
+    %751 = "ttir.reshape"(%750) <{shape = [1 : i32, 1024 : i32, 256 : i32, 1 : i32]}> : (tensor<1x1024x16x16xbf16>) -> tensor<1x1024x256x1xbf16>
+    %752 = "ttir.squeeze"(%751) <{dim = -1 : si32}> : (tensor<1x1024x256x1xbf16>) -> tensor<1x1024x256xbf16>
+    %753 = "ttir.transpose"(%752) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x1024x256xbf16>) -> tensor<1x256x1024xbf16>
+    %754 = "ttir.gelu"(%753) : (tensor<1x256x1024xbf16>) -> tensor<1x256x1024xbf16>
+    %755 = "ttir.matmul"(%754, %arg269) <{transpose_a = false, transpose_b = false}> : (tensor<1x256x1024xbf16>, tensor<1024x256xbf16>) -> tensor<1x256x256xbf16>
+    %756 = "ttir.add"(%755, %arg270) : (tensor<1x256x256xbf16>, tensor<256xbf16>) -> tensor<1x256x256xbf16>
+    %757 = "ttir.add"(%756, %729) : (tensor<1x256x256xbf16>, tensor<1x256x256xbf16>) -> tensor<1x256x256xbf16>
+    %758 = "ttir.sum"(%757) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x256x256xbf16>) -> tensor<1x256x1xbf16>
+    %759 = "ttir.multiply"(%arg89, %758) : (tensor<1x256x256xf32>, tensor<1x256x1xbf16>) -> tensor<1x256x256xbf16>
+    %760 = "ttir.subtract"(%757, %759) : (tensor<1x256x256xbf16>, tensor<1x256x256xbf16>) -> tensor<1x256x256xbf16>
+    %761 = "ttir.multiply"(%760, %760) : (tensor<1x256x256xbf16>, tensor<1x256x256xbf16>) -> tensor<1x256x256xbf16>
+    %762 = "ttir.sum"(%761) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x256x256xbf16>) -> tensor<1x256x1xbf16>
+    %763 = "ttir.multiply"(%arg90, %762) : (tensor<1x256x1xf32>, tensor<1x256x1xbf16>) -> tensor<1x256x1xbf16>
+    %764 = "ttir.add"(%763, %arg91) : (tensor<1x256x1xbf16>, tensor<1x256x1xf32>) -> tensor<1x256x1xbf16>
+    %765 = "ttir.sqrt"(%764) : (tensor<1x256x1xbf16>) -> tensor<1x256x1xbf16>
+    %766 = "ttir.reciprocal"(%765) : (tensor<1x256x1xbf16>) -> tensor<1x256x1xbf16>
+    %767 = "ttir.multiply"(%760, %766) : (tensor<1x256x256xbf16>, tensor<1x256x1xbf16>) -> tensor<1x256x256xbf16>
+    %768 = "ttir.multiply"(%767, %arg271) : (tensor<1x256x256xbf16>, tensor<256xbf16>) -> tensor<1x256x256xbf16>
+    %769 = "ttir.add"(%768, %arg272) : (tensor<1x256x256xbf16>, tensor<256xbf16>) -> tensor<1x256x256xbf16>
+    %770 = "ttir.squeeze"(%769) <{dim = 0 : si32}> : (tensor<1x256x256xbf16>) -> tensor<256x256xbf16>
+    %771 = "ttir.matmul"(%770, %arg273) <{transpose_a = false, transpose_b = false}> : (tensor<256x256xbf16>, tensor<256x256xbf16>) -> tensor<256x256xbf16>
+    %772 = "ttir.unsqueeze"(%771) <{dim = 0 : si32}> : (tensor<256x256xbf16>) -> tensor<1x256x256xbf16>
+    %773 = "ttir.add"(%772, %arg274) : (tensor<1x256x256xbf16>, tensor<256xbf16>) -> tensor<1x256x256xbf16>
+    %774 = "ttir.reshape"(%773) <{shape = [1 : i32, 256 : i32, 8 : i32, 32 : i32]}> : (tensor<1x256x256xbf16>) -> tensor<1x256x8x32xbf16>
+    %775 = "ttir.transpose"(%774) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x256x8x32xbf16>) -> tensor<1x8x256x32xbf16>
+    %776 = "ttir.squeeze"(%775) <{dim = 0 : si32}> : (tensor<1x8x256x32xbf16>) -> tensor<8x256x32xbf16>
+    %777 = "ttir.matmul"(%770, %arg275) <{transpose_a = false, transpose_b = false}> : (tensor<256x256xbf16>, tensor<256x256xbf16>) -> tensor<256x256xbf16>
+    %778 = "ttir.unsqueeze"(%777) <{dim = 0 : si32}> : (tensor<256x256xbf16>) -> tensor<1x256x256xbf16>
+    %779 = "ttir.add"(%778, %arg276) : (tensor<1x256x256xbf16>, tensor<256xbf16>) -> tensor<1x256x256xbf16>
+    %780 = "ttir.reshape"(%779) <{shape = [1 : i32, 256 : i32, 8 : i32, 32 : i32]}> : (tensor<1x256x256xbf16>) -> tensor<1x256x8x32xbf16>
+    %781 = "ttir.transpose"(%780) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x256x8x32xbf16>) -> tensor<1x8x256x32xbf16>
+    %782 = "ttir.squeeze"(%781) <{dim = 0 : si32}> : (tensor<1x8x256x32xbf16>) -> tensor<8x256x32xbf16>
+    %783 = "ttir.transpose"(%782) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<8x256x32xbf16>) -> tensor<8x32x256xbf16>
+    %784 = "ttir.matmul"(%776, %783) <{transpose_a = false, transpose_b = false}> : (tensor<8x256x32xbf16>, tensor<8x32x256xbf16>) -> tensor<8x256x256xbf16>
+    %785 = "ttir.unsqueeze"(%784) <{dim = 0 : si32}> : (tensor<8x256x256xbf16>) -> tensor<1x8x256x256xbf16>
+    %786 = "ttir.div"(%785, %arg92) : (tensor<1x8x256x256xbf16>, tensor<1xbf16>) -> tensor<1x8x256x256xbf16>
+    %787 = "ttir.softmax"(%786) <{dimension = -1 : si32}> : (tensor<1x8x256x256xbf16>) -> tensor<1x8x256x256xbf16>
+    %788 = "ttir.squeeze"(%787) <{dim = 0 : si32}> : (tensor<1x8x256x256xbf16>) -> tensor<8x256x256xbf16>
+    %789 = "ttir.matmul"(%770, %arg277) <{transpose_a = false, transpose_b = false}> : (tensor<256x256xbf16>, tensor<256x256xbf16>) -> tensor<256x256xbf16>
+    %790 = "ttir.unsqueeze"(%789) <{dim = 0 : si32}> : (tensor<256x256xbf16>) -> tensor<1x256x256xbf16>
+    %791 = "ttir.add"(%790, %arg278) : (tensor<1x256x256xbf16>, tensor<256xbf16>) -> tensor<1x256x256xbf16>
+    %792 = "ttir.reshape"(%791) <{shape = [1 : i32, 256 : i32, 8 : i32, 32 : i32]}> : (tensor<1x256x256xbf16>) -> tensor<1x256x8x32xbf16>
+    %793 = "ttir.transpose"(%792) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x256x8x32xbf16>) -> tensor<1x8x256x32xbf16>
+    %794 = "ttir.transpose"(%793) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x8x256x32xbf16>) -> tensor<1x8x32x256xbf16>
+    %795 = "ttir.squeeze"(%794) <{dim = 0 : si32}> : (tensor<1x8x32x256xbf16>) -> tensor<8x32x256xbf16>
+    %796 = "ttir.transpose"(%795) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<8x32x256xbf16>) -> tensor<8x256x32xbf16>
+    %797 = "ttir.matmul"(%788, %796) <{transpose_a = false, transpose_b = false}> : (tensor<8x256x256xbf16>, tensor<8x256x32xbf16>) -> tensor<8x256x32xbf16>
+    %798 = "ttir.unsqueeze"(%797) <{dim = 0 : si32}> : (tensor<8x256x32xbf16>) -> tensor<1x8x256x32xbf16>
+    %799 = "ttir.transpose"(%798) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x8x256x32xbf16>) -> tensor<1x256x8x32xbf16>
+    %800 = "ttir.reshape"(%799) <{shape = [256 : i32, 256 : i32]}> : (tensor<1x256x8x32xbf16>) -> tensor<256x256xbf16>
+    %801 = "ttir.matmul"(%800, %arg279) <{transpose_a = false, transpose_b = false}> : (tensor<256x256xbf16>, tensor<256x256xbf16>) -> tensor<256x256xbf16>
+    %802 = "ttir.unsqueeze"(%801) <{dim = 0 : si32}> : (tensor<256x256xbf16>) -> tensor<1x256x256xbf16>
+    %803 = "ttir.add"(%802, %arg280) : (tensor<1x256x256xbf16>, tensor<256xbf16>) -> tensor<1x256x256xbf16>
+    %804 = "ttir.add"(%803, %757) : (tensor<1x256x256xbf16>, tensor<1x256x256xbf16>) -> tensor<1x256x256xbf16>
+    %805 = "ttir.sum"(%804) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x256x256xbf16>) -> tensor<1x256x1xbf16>
+    %806 = "ttir.multiply"(%arg93, %805) : (tensor<1x256x256xf32>, tensor<1x256x1xbf16>) -> tensor<1x256x256xbf16>
+    %807 = "ttir.subtract"(%804, %806) : (tensor<1x256x256xbf16>, tensor<1x256x256xbf16>) -> tensor<1x256x256xbf16>
+    %808 = "ttir.multiply"(%807, %807) : (tensor<1x256x256xbf16>, tensor<1x256x256xbf16>) -> tensor<1x256x256xbf16>
+    %809 = "ttir.sum"(%808) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x256x256xbf16>) -> tensor<1x256x1xbf16>
+    %810 = "ttir.multiply"(%arg94, %809) : (tensor<1x256x1xf32>, tensor<1x256x1xbf16>) -> tensor<1x256x1xbf16>
+    %811 = "ttir.add"(%810, %arg95) : (tensor<1x256x1xbf16>, tensor<1x256x1xf32>) -> tensor<1x256x1xbf16>
+    %812 = "ttir.sqrt"(%811) : (tensor<1x256x1xbf16>) -> tensor<1x256x1xbf16>
+    %813 = "ttir.reciprocal"(%812) : (tensor<1x256x1xbf16>) -> tensor<1x256x1xbf16>
+    %814 = "ttir.multiply"(%807, %813) : (tensor<1x256x256xbf16>, tensor<1x256x1xbf16>) -> tensor<1x256x256xbf16>
+    %815 = "ttir.multiply"(%814, %arg281) : (tensor<1x256x256xbf16>, tensor<256xbf16>) -> tensor<1x256x256xbf16>
+    %816 = "ttir.add"(%815, %arg282) : (tensor<1x256x256xbf16>, tensor<256xbf16>) -> tensor<1x256x256xbf16>
+    %817 = "ttir.matmul"(%816, %arg283) <{transpose_a = false, transpose_b = false}> : (tensor<1x256x256xbf16>, tensor<256x1024xbf16>) -> tensor<1x256x1024xbf16>
+    %818 = "ttir.add"(%817, %arg284) : (tensor<1x256x1024xbf16>, tensor<1024xbf16>) -> tensor<1x256x1024xbf16>
+    %819 = "ttir.transpose"(%818) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x256x1024xbf16>) -> tensor<1x1024x256xbf16>
+    %820 = "ttir.reshape"(%819) <{shape = [1 : i32, 1024 : i32, 16 : i32, 16 : i32]}> : (tensor<1x1024x256xbf16>) -> tensor<1x1024x16x16xbf16>
+    %821 = "ttir.transpose"(%820) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x1024x16x16xbf16>) -> tensor<1x16x1024x16xbf16>
+    %822 = "ttir.transpose"(%821) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x16x1024x16xbf16>) -> tensor<1x16x16x1024xbf16>
+    %823 = "ttir.conv2d"(%822, %arg285, %arg286) <{dilation = array<i32: 1, 1>, groups = 1024 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x16x16x1024xbf16>, tensor<1024x1x3x3xbf16>, tensor<1x1x1x1024xbf16>) -> tensor<1x16x16x1024xbf16>
+    %824 = "ttir.transpose"(%823) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x16x16x1024xbf16>) -> tensor<1x16x1024x16xbf16>
+    %825 = "ttir.transpose"(%824) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x16x1024x16xbf16>) -> tensor<1x1024x16x16xbf16>
+    %826 = "ttir.reshape"(%825) <{shape = [1 : i32, 1024 : i32, 256 : i32, 1 : i32]}> : (tensor<1x1024x16x16xbf16>) -> tensor<1x1024x256x1xbf16>
+    %827 = "ttir.squeeze"(%826) <{dim = -1 : si32}> : (tensor<1x1024x256x1xbf16>) -> tensor<1x1024x256xbf16>
+    %828 = "ttir.transpose"(%827) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x1024x256xbf16>) -> tensor<1x256x1024xbf16>
+    %829 = "ttir.gelu"(%828) : (tensor<1x256x1024xbf16>) -> tensor<1x256x1024xbf16>
+    %830 = "ttir.matmul"(%829, %arg287) <{transpose_a = false, transpose_b = false}> : (tensor<1x256x1024xbf16>, tensor<1024x256xbf16>) -> tensor<1x256x256xbf16>
+    %831 = "ttir.add"(%830, %arg288) : (tensor<1x256x256xbf16>, tensor<256xbf16>) -> tensor<1x256x256xbf16>
+    %832 = "ttir.add"(%831, %804) : (tensor<1x256x256xbf16>, tensor<1x256x256xbf16>) -> tensor<1x256x256xbf16>
+    %833 = "ttir.sum"(%832) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x256x256xbf16>) -> tensor<1x256x1xbf16>
+    %834 = "ttir.multiply"(%arg96, %833) : (tensor<1x256x256xf32>, tensor<1x256x1xbf16>) -> tensor<1x256x256xbf16>
+    %835 = "ttir.subtract"(%832, %834) : (tensor<1x256x256xbf16>, tensor<1x256x256xbf16>) -> tensor<1x256x256xbf16>
+    %836 = "ttir.multiply"(%835, %835) : (tensor<1x256x256xbf16>, tensor<1x256x256xbf16>) -> tensor<1x256x256xbf16>
+    %837 = "ttir.sum"(%836) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<1x256x256xbf16>) -> tensor<1x256x1xbf16>
+    %838 = "ttir.multiply"(%arg97, %837) : (tensor<1x256x1xf32>, tensor<1x256x1xbf16>) -> tensor<1x256x1xbf16>
+    %839 = "ttir.add"(%838, %arg98) : (tensor<1x256x1xbf16>, tensor<1x256x1xf32>) -> tensor<1x256x1xbf16>
+    %840 = "ttir.sqrt"(%839) : (tensor<1x256x1xbf16>) -> tensor<1x256x1xbf16>
+    %841 = "ttir.reciprocal"(%840) : (tensor<1x256x1xbf16>) -> tensor<1x256x1xbf16>
+    %842 = "ttir.multiply"(%835, %841) : (tensor<1x256x256xbf16>, tensor<1x256x1xbf16>) -> tensor<1x256x256xbf16>
+    %843 = "ttir.multiply"(%842, %arg289) : (tensor<1x256x256xbf16>, tensor<256xbf16>) -> tensor<1x256x256xbf16>
+    %844 = "ttir.add"(%843, %arg290) : (tensor<1x256x256xbf16>, tensor<256xbf16>) -> tensor<1x256x256xbf16>
+    %845 = "ttir.mean"(%844) <{dim_arg = [-2 : i32], keep_dim = true}> : (tensor<1x256x256xbf16>) -> tensor<1x1x256xbf16>
+    %846 = "ttir.squeeze"(%845) <{dim = 1 : si32}> : (tensor<1x1x256xbf16>) -> tensor<1x256xbf16>
+    %847 = "ttir.matmul"(%846, %arg291) <{transpose_a = false, transpose_b = false}> : (tensor<1x256xbf16>, tensor<256x1000xbf16>) -> tensor<1x1000xbf16>
+    %848 = "ttir.add"(%847, %arg292) : (tensor<1x1000xbf16>, tensor<1000xbf16>) -> tensor<1x1000xbf16>
+    return %848 : tensor<1x1000xbf16> loc(#loc71)
   } loc(#loc)
 } loc(#loc)
 #loc1 = loc("transformers.models.segformer.modeling_segformer.SegformerForImageClassification::")
