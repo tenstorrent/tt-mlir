@@ -14,8 +14,11 @@ class ColoringStrategy;
 
 /// Create a graph coloring DST analysis with a custom strategy.
 /// \param strategy The graph coloring strategy to use for allocation.
+/// \param maxSlices Maximum allowed DST slices. Typically obtained from
+///   DstCapacityAnalysis::getMinDstCapacity(). Defaults to UINT_MAX.
 std::unique_ptr<DstAnalysis>
-createGraphColoringDstAnalysis(std::unique_ptr<ColoringStrategy> strategy);
+createGraphColoringDstAnalysis(std::unique_ptr<ColoringStrategy> strategy,
+                               unsigned maxSlices = UINT_MAX);
 
 /// Create Chaitin-Briggs graph coloring DST analysis.
 std::unique_ptr<DstAnalysis> createChaitinBriggsDstAnalysis();

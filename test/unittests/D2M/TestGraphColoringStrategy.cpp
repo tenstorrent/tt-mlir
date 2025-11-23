@@ -323,16 +323,6 @@ TEST_F(GraphColoringStrategyTest, ChaitinBriggsColoringStar) {
 // Tests for DstAnalysisGraphColoring failure propagation
 //===----------------------------------------------------------------------===//
 
-class AlwaysFailColoring final : public ColoringStrategy {
-public:
-  LogicalResult colorGraph(const std::vector<std::vector<size_t>> &, unsigned,
-                           std::vector<unsigned> &) override {
-    return failure();
-  }
-
-  llvm::StringRef getName() const { return "always-fail"; }
-};
-
 struct DstAnalysisGraphColoringTest : public gtest::Test {
   void SetUp() override {
     ctx = std::make_unique<MLIRContext>();
@@ -344,6 +334,8 @@ struct DstAnalysisGraphColoringTest : public gtest::Test {
 };
 
 TEST_F(DstAnalysisGraphColoringTest, ReportsFailureWhenColoringFails) {
+  // Verify that when maxSlices constraint is exceeded, analysis reports the
+  // failure. Provides a lower bound estimate for DST slices required.
   const char *moduleStr = R"(
     #l1_ = #ttcore.memory_space<l1>
     #device = #ttcore.device<workerGrid = #ttcore.grid<1x1, (d0, d1) -> (0, d0, d1)>,
@@ -397,12 +389,16 @@ TEST_F(DstAnalysisGraphColoringTest, ReportsFailureWhenColoringFails) {
   auto funcOp = module->lookupSymbol<func::FuncOp>("has_generic");
   ASSERT_TRUE(funcOp);
 
-  auto analysis =
-      createGraphColoringDstAnalysis(std::make_unique<AlwaysFailColoring>());
+  // Use GreedyColoring with maxSlices=1 to force analysis to fail.
+  // The interference graph requires 2 colors, so it will exceed the limit.
+  auto analysis = createGraphColoringDstAnalysis(
+      std::make_unique<GreedyColoring>(), /*maxSlices=*/1);
   auto result = analysis->analyze(funcOp);
   EXPECT_FALSE(result.isValid);
   ASSERT_TRUE(result.failureReason.has_value());
-  EXPECT_EQ(*result.failureReason, "Graph coloring failed for operation");
+  // Verify failure message includes both required and available slices.
+  EXPECT_EQ(*result.failureReason,
+            "Graph coloring failed: requires 2 slices but only 1 available");
   EXPECT_EQ(result.numSlicesRequired, 2u);
 }
 

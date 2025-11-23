@@ -19,6 +19,13 @@ namespace InterferenceGraph {
 std::vector<std::vector<size_t>> buildIndexGraphFromDstOperations(
     mlir::Region &region,
     mlir::ArrayRef<std::pair<mlir::Operation *, int64_t>> dstAccesses);
+
+/// Compute a lower bound on the chromatic number of the graph.
+/// Uses max degree + 1 heuristic.
+/// \p adjacencyList is the graph represented as adjacency list.
+/// Returns the estimated lower bound for the number of colors needed.
+unsigned computeChromatic_Lowerbound(
+    const std::vector<std::vector<size_t>> &adjacencyList);
 } // namespace InterferenceGraph
 
 /// Abstract strategy for graph coloring algorithms.

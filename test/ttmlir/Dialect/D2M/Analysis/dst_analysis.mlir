@@ -229,8 +229,8 @@ module {
       //   - Total: 5 slices
       //
       // Graph coloring can reuse slices by recognizing non-overlapping lifetimes:
-      //   - After matmul stores, the %accum slice can be reused for subsequent operations
-      //   - GC finds that 3 colors are sufficient for all interference
+      //   - After matmul stores, the %accum slice can be reused for subsequent operations, so
+      //     3 colors are sufficient for this fused sequence.
       //   - Total: 3 slices
       affine.for %i = 0 to 2 {
         affine.for %j = 0 to 2 {

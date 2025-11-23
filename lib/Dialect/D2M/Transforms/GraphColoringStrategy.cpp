@@ -269,6 +269,21 @@ std::vector<std::vector<size_t>> buildIndexGraphFromDstOperations(
   return interferenceGraph;
 }
 
+unsigned computeChromatic_Lowerbound(
+    const std::vector<std::vector<size_t>> &adjacencyList) {
+  if (adjacencyList.empty()) {
+    return 0;
+  }
+
+  // Lower bound = max degree + 1.
+  // This is a simple but effective lower bound based on the greedy algorithm.
+  unsigned maxDegree = 0;
+  for (const auto &neighbors : adjacencyList) {
+    maxDegree = std::max(maxDegree, static_cast<unsigned>(neighbors.size()));
+  }
+  return maxDegree + 1;
+}
+
 } // namespace InterferenceGraph
 
 } // namespace mlir::tt::d2m

@@ -8,6 +8,7 @@
 #include "ttmlir/Dialect/D2M/Transforms/GraphColoringStrategy.h"
 
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
+#include "llvm/Support/FormatVariadic.h"
 
 namespace mlir::tt::d2m {
 
@@ -39,7 +40,7 @@ identifyDstAccesses(mlir::Operation *op, mlir::Region &region) {
       mlir::Value operand = operation->getOperand(operandIdx);
 
       // Trace back through the SSA chain to find the affine.load
-      if (auto definingOp = operand.getDefiningOp()) {
+      if (auto *definingOp = operand.getDefiningOp()) {
         if (auto loadOp =
                 llvm::dyn_cast<mlir::affine::AffineLoadOp>(definingOp)) {
           dstAccesses.push_back({loadOp.getOperation(), index++});
@@ -66,8 +67,10 @@ identifyDstAccesses(mlir::Operation *op, mlir::Region &region) {
 class DstAnalysisGraphColoring : public DstAnalysis {
 public:
   explicit DstAnalysisGraphColoring(std::unique_ptr<ColoringStrategy> strategy,
-                                    llvm::StringRef name)
-      : coloringStrategy(std::move(strategy)), strategyName(name) {}
+                                    llvm::StringRef name,
+                                    unsigned maxSlices = UINT_MAX)
+      : DstAnalysis(maxSlices), coloringStrategy(std::move(strategy)),
+        strategyName(name) {}
 
   DstAnalysisResult analyze(mlir::Operation *op) override {
     DstAnalysisResult result;
@@ -95,11 +98,13 @@ public:
                 InterferenceGraph::buildIndexGraphFromDstOperations(
                     region, dstAccesses);
 
-            // Try coloring with minimum number of colors
-            // Start from 1 and increase until we find a valid coloring
+            // Try coloring with minimum number of colors.
+            // Start from 1 and increase until we find a valid coloring.
+            // Respect maxSlicesAllowed constraint: fail if exceeded.
             std::vector<unsigned> coloring;
             unsigned numColors = 1;
-            const unsigned maxAttempts = dstAccesses.size();
+            const unsigned maxAttempts = std::min(
+                static_cast<unsigned>(dstAccesses.size()), maxSlicesAllowed);
 
             bool coloringSucceeded = false;
             for (; numColors <= maxAttempts; ++numColors) {
@@ -112,9 +117,14 @@ public:
 
             if (!coloringSucceeded) {
               result.isValid = false;
-              result.failureReason = "Graph coloring failed for operation";
-              result.numSlicesRequired =
-                  dstAccesses.size(); // Conservative fallback
+              unsigned minRequired =
+                  InterferenceGraph::computeChromatic_Lowerbound(
+                      interferenceGraph);
+              result.numSlicesRequired = minRequired;
+              result.failureReason = llvm::formatv(
+                  "Graph coloring failed: requires {0} slices but only {1} "
+                  "available",
+                  minRequired, maxSlicesAllowed);
               return mlir::WalkResult::interrupt();
             }
 
@@ -154,9 +164,10 @@ private:
 } // namespace
 
 std::unique_ptr<DstAnalysis>
-createGraphColoringDstAnalysis(std::unique_ptr<ColoringStrategy> strategy) {
-  return std::make_unique<DstAnalysisGraphColoring>(std::move(strategy),
-                                                    "graph-coloring");
+createGraphColoringDstAnalysis(std::unique_ptr<ColoringStrategy> strategy,
+                               unsigned maxSlices) {
+  return std::make_unique<DstAnalysisGraphColoring>(
+      std::move(strategy), "graph-coloring", maxSlices);
 }
 
 std::unique_ptr<DstAnalysis> createChaitinBriggsDstAnalysis() {

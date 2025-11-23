@@ -52,14 +52,19 @@ struct DstAnalysisResult {
 /// results in a uniform format.
 class DstAnalysis {
 public:
-  DstAnalysis() = default;
+  /// Construct with optional capacity constraint.
+  /// \p maxSlices Maximum allowed DST slices. Use getMinDstCapacity() from
+  ///   DstCapacityAnalysis to determine this value based on hardware.
+  ///   Defaults to UINT_MAX (no constraint).
+  explicit DstAnalysis(unsigned maxSlices = UINT_MAX)
+      : maxSlicesAllowed(maxSlices) {}
   virtual ~DstAnalysis() = default;
 
   /// Analyze DST requirements for the given operation.
   ///
   /// \param op The operation to analyze (typically a d2m::GenericOp).
   /// \return DstAnalysisResult containing slice count and validity
-  /// information.
+  /// information. Fails if requirements exceed maxSlicesAllowed.
   virtual DstAnalysisResult analyze(Operation *op) = 0;
 
   /// Get human-readable name of this analysis strategy.
@@ -67,6 +72,10 @@ public:
   /// Used for diagnostics, debugging, and command-line option descriptions.
   /// \return Strategy name (e.g., "basic", "graph-coloring", "greedy").
   virtual llvm::StringRef getStrategyName() const = 0;
+
+protected:
+  /// Maximum allowed DST slices. Analysis fails if requirements exceed this.
+  unsigned maxSlicesAllowed;
 };
 
 } // namespace mlir::tt::d2m
