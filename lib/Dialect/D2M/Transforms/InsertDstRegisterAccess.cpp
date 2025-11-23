@@ -107,26 +107,27 @@ public:
 
       // Process linalg.generic ops that were not converted by LinalgToAffine
       // (these are tile_matmul ops when useTileMatmul=false).
-      bool linalgToAffineFailed = false;
-      block.walk([&](linalg::GenericOp linalgGenericOp) {
+      WalkResult walkResult = block.walk([&](linalg::GenericOp linalgGenericOp) {
         if (!useTileMatmul && hasTileMatmul(linalgGenericOp)) {
           // Only use tile matmul block rewrite when not in explicit
           // datamovement form. Explicit datamovement form should fall through
           // to regular linalg-to-affine conversion.
           if (!op.isExplicitDatamovementForm()) {
-            linalgToAffineFailed |= rewriteTileMatmulAsTileMatmulBlock(
-                rewriter, op, *genericRegion, linalgGenericOp, dstCapacity,
-                modified);
-            return;
+            if (rewriteTileMatmulAsTileMatmulBlock(
+                    rewriter, op, *genericRegion, linalgGenericOp, dstCapacity,
+                    modified)) {
+              return WalkResult::interrupt();
+            }
+            return WalkResult::advance();
           }
         }
 
         // This should not happen - all other linalg ops should have been
         // converted by LinalgToAffine pass.
-        linalgToAffineFailed = true;
+        return WalkResult::interrupt();
       });
 
-      if (linalgToAffineFailed) {
+      if (walkResult.wasInterrupted()) {
         return rewriter.notifyMatchFailure(
             op, "linalg.generic operations were not converted to affine "
                 "loops");
