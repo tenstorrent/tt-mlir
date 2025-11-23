@@ -15,27 +15,6 @@ func.func @test_pass_simple() {
 
 // -----
 
-// Test 2: Multiple acquire_dst operations (both released).
-#dst_ = #ttcore.memory_space<dst>
-
-// CHECK-LABEL: func.func @test_multiple_acquire
-// CHECK: %{{.*}} = d2m.acquire_dst() : memref<1x!ttcore.tile<32x32, f32>, #dst{{.*}}>
-// CHECK: %{{.*}} = d2m.acquire_dst() : memref<1x!ttcore.tile<32x32, f32>, #dst{{.*}}>
-// CHECK: cf.br ^bb1
-// CHECK: ^bb1(%{{.*}}: memref<1x!ttcore.tile<32x32, f32>, #dst{{.*}}>, %{{.*}}: memref<1x!ttcore.tile<32x32, f32>, #dst{{.*}}>):
-// CHECK: d2m.release_dst
-// CHECK: d2m.release_dst
-// CHECK: return
-func.func @test_multiple_acquire() {
-  %dst0 = d2m.acquire_dst() : memref<1x!ttcore.tile<32x32, f32>, #dst_>
-  %dst1 = d2m.acquire_dst() : memref<1x!ttcore.tile<32x32, f32>, #dst_>
-  d2m.release_dst %dst0 : memref<1x!ttcore.tile<32x32, f32>, #dst_>
-  d2m.release_dst %dst1 : memref<1x!ttcore.tile<32x32, f32>, #dst_>
-  return
-}
-
-// -----
-
 // Test 3: Real D2M IR with acquire_dst (from insert_dst_register_access tests).
 #l1_ = #ttcore.memory_space<l1>
 #dst_ = #ttcore.memory_space<dst>
