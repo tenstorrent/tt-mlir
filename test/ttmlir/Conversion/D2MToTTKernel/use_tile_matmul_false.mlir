@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttir-to-ttmetal-pipeline="use-tile-matmul=false" -o %t.mlir %s
+// RUN: ttmlir-opt --ttir-to-ttmetal-pipeline="use-tile-matmul=false dst-allocation-strategy=legacy" -o %t.mlir %s
 // RUN: FileCheck %s --input-file=%t.mlir
 
 !ttype = tensor<128x96xf32>

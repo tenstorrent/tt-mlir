@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttir-to-ttmetal-pipeline -o %t.mlir %s
+// RUN: ttmlir-opt --ttcore-register-device --ttir-to-ttmetal-pipeline="dst-allocation-strategy=legacy" --convert-d2m-to-ttmetal --canonicalize -o %t.mlir %s
 // RUN: FileCheck %s --input-file=%t.mlir
 // Higher-dimension tests requires:
 //   Permute: https://github.com/tenstorrent/tt-mlir/issues/3025

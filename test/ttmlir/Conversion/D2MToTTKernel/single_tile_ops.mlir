@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttcore-register-device --ttir-to-ttmetal-me-pipeline --convert-d2m-to-ttkernel --canonicalize -o %t.mlir %s
+// RUN: ttmlir-opt --ttcore-register-device --ttir-to-ttmetal-me-pipeline="dst-allocation-strategy=legacy" --convert-d2m-to-ttkernel --canonicalize -o %t.mlir %s
 // RUN: FileCheck %s --input-file=%t.mlir
 
 #l1_ = #ttcore.memory_space<l1>
