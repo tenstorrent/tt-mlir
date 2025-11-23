@@ -13,16 +13,50 @@ namespace mlir::tt::d2m {
 
 namespace {
 
-/// Identify affine load operations that require DST allocation.
+/// Identify affine load and store operations that require DST allocation.
+/// Uses getOperandsLoadFromDstRegister() to identify loads and
+/// getDstRegInPlace() to determine if stores need separate DST slices.
 static llvm::SmallVector<std::pair<mlir::Operation *, int64_t>>
 identifyDstAccesses(mlir::Operation *op, mlir::Region &region) {
   llvm::SmallVector<std::pair<mlir::Operation *, int64_t>> dstAccesses;
   int64_t index = 0;
 
-  region.walk([&](mlir::affine::AffineLoadOp loadOp) {
-    // Check if this load produces a value used by DST-eligible operations.
-    // For now, all loads in compute regions are considered DST candidates.
-    dstAccesses.push_back({loadOp.getOperation(), index++});
+  // Walk the region looking for D2M compute operations
+  region.walk([&](mlir::Operation *operation) {
+    // Check if this is a D2M compute operation with DST interface
+    auto computeOp =
+        llvm::dyn_cast<OperandLoadStoreRegisterOpInterface>(operation);
+    if (!computeOp) {
+      return;
+    }
+
+    // Get operand indices that must be loaded from DST register
+    auto operandsLoadFromDst = computeOp.getOperandsLoadFromDstRegister();
+
+    // For each operand that loads from DST, find the corresponding load
+    // operation
+    for (int64_t operandIdx : operandsLoadFromDst) {
+      mlir::Value operand = operation->getOperand(operandIdx);
+
+      // Trace back through the SSA chain to find the affine.load
+      if (auto definingOp = operand.getDefiningOp()) {
+        if (auto loadOp =
+                llvm::dyn_cast<mlir::affine::AffineLoadOp>(definingOp)) {
+          dstAccesses.push_back({loadOp.getOperation(), index++});
+        }
+      }
+    }
+
+    // Check if the result store needs a separate DST slice
+    // If getDstRegInPlace() == false, the store needs its own slice
+    if (!computeOp.getDstRegInPlace()) {
+      // Find the store operation that stores this operation's result
+      for (mlir::Operation *user : operation->getUsers()) {
+        if (auto storeOp = llvm::dyn_cast<mlir::affine::AffineStoreOp>(user)) {
+          dstAccesses.push_back({storeOp.getOperation(), index++});
+        }
+      }
+    }
   });
 
   return dstAccesses;

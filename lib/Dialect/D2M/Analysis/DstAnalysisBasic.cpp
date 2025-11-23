@@ -49,10 +49,13 @@ public:
           }
 
           // Collect stores from compute op results
-          for (auto *user : computeOp->getUsers()) {
-            if (auto storeOp = mlir::dyn_cast<affine::AffineStoreOp>(user);
-                notDstMemspace(storeOp)) {
-              dstAccesses.emplace_back(storeOp, nextIndex++);
+          // Only count store if NOT in-place (getDstRegInPlace() == false)
+          if (!computeOp.getDstRegInPlace()) {
+            for (auto *user : computeOp->getUsers()) {
+              if (auto storeOp = mlir::dyn_cast<affine::AffineStoreOp>(user);
+                  notDstMemspace(storeOp)) {
+                dstAccesses.emplace_back(storeOp, nextIndex++);
+              }
             }
           }
         });
