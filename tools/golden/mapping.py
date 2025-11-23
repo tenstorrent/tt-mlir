@@ -3422,6 +3422,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.FloorOp: torch.floor,
     ttir.GeluOp: torch.nn.functional.gelu,
     ttir.IsFiniteOp: torch.isfinite,
+    ttir.MishOp: torch.nn.functional.mish,
     ttir.NegOp: torch.neg,
     ttir.TanOp: torch.tan,
     ttir.AtanOp: torch.atan,
