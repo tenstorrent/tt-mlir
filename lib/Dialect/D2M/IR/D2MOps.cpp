@@ -1229,7 +1229,7 @@ static mlir::LogicalResult verifyAffineBlocking(
               })
               .Case<RankedTensorType>(
                   [&](RankedTensorType tensorType) -> LogicalResult {
-                    if (!mlir::dyn_cast_or_null<ttcore::MetalLayoutAttr>(
+                    if (!mlir::dyn_cast<ttcore::MetalLayoutAttr>(
                             tensorType.getEncoding())) {
                       return emitOpError("tensor operand must have a metal "
                                          "layout encoding, "
