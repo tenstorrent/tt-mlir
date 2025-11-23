@@ -830,12 +830,12 @@ public:
       D2MInsertDstRegisterAccess>::D2MInsertDstRegisterAccessBase;
 
   void runOnOperation() final {
-    ModuleOp module = getOperation();
+    ModuleOp moduleOp = getOperation();
 
     // Check precondition: linalg.generic ops should be converted to affine,
     // EXCEPT those with tile_matmul when useTileMatmul=false (they'll be
     // handled by the tile_matmul_block rewrite in the pattern).
-    WalkResult walkResult = module->walk([&](linalg::GenericOp op) {
+    WalkResult walkResult = moduleOp->walk([&](linalg::GenericOp op) {
       // Allow linalg ops with tile_matmul when useTileMatmul=false
       if (!useTileMatmul && hasTileMatmul(op)) {
         return WalkResult::advance();
@@ -845,14 +845,14 @@ public:
     });
 
     if (walkResult.wasInterrupted()) {
-      module.emitOpError()
+      moduleOp.emitOpError()
           << "found linalg.generic operations that were not converted to "
              "affine loops. Please run --d2m-linalg-to-affine before the "
              "--d2m-insert-dst-register-access pass.";
       return signalPassFailure();
     }
 
-    MLIRContext *ctx = module.getContext();
+    MLIRContext *ctx = moduleOp.getContext();
     RewritePatternSet patterns(ctx);
 
     patterns.add<D2MInsertDstRegisterAccessRewriter>(
@@ -861,7 +861,7 @@ public:
     patterns.add<D2MPackerMaskResetRewriter<TileReduceSumOp>,
                  D2MPackerMaskResetRewriter<TileReduceMaxOp>>(ctx);
 
-    if (failed(applyPatternsGreedily(module, std::move(patterns)))) {
+    if (failed(applyPatternsGreedily(moduleOp, std::move(patterns)))) {
       signalPassFailure();
     }
   }
