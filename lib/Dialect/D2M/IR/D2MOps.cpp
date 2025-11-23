@@ -58,14 +58,59 @@ LogicalResult ReleaseDstOp::verify() {
   }
 
   // Verify that there are no uses of the DST value after this release.
+  // We check:
+  // 1. Same-block uses: must come before the release
+  // 2. Nested-block uses: allowed (they execute within the acquire/release
+  // scope)
+  // 3. Uses in other blocks: conservatively rejected (cannot guarantee order)
   Operation *releaseOp = getOperation();
   Block *releaseBlock = releaseOp->getBlock();
-  if (llvm::any_of(getDst().getUses(), [&](const mlir::OpOperand &use) {
-        Operation *user = use.getOwner();
-        return user != releaseOp && user->getBlock() == releaseBlock &&
-               releaseOp->isBeforeInBlock(user);
-      })) {
-    return emitOpError("DST value used after release_dst operation");
+
+  for (const mlir::OpOperand &use : getDst().getUses()) {
+    Operation *user = use.getOwner();
+
+    if (user == releaseOp) {
+      continue;
+    }
+
+    Block *userBlock = user->getBlock();
+
+    // Same block: check if user comes after release
+    if (userBlock == releaseBlock) {
+      if (releaseOp->isBeforeInBlock(user)) {
+        return emitOpError("DST value used after release_dst operation");
+      }
+      continue;
+    }
+
+    // Different block: check if it's a nested block (child of release block's
+    // region) Nested uses are OK - they execute within the acquire/release
+    // scope. Walk up the parent chain to see if we're in a nested region.
+    Region *userRegion = userBlock->getParent();
+    bool isNested = false;
+    while (userRegion) {
+      Operation *parentOp = userRegion->getParentOp();
+      if (!parentOp) {
+        break;
+      }
+      if (parentOp->getBlock() == releaseBlock) {
+        // User is in a nested region of an operation in the same block as
+        // release. Check if the parent operation comes before release.
+        if (releaseOp->isBeforeInBlock(parentOp)) {
+          return emitOpError(
+              "DST value used in nested region after release_dst operation");
+        }
+        isNested = true;
+        break;
+      }
+      userRegion = parentOp->getBlock()->getParent();
+    }
+
+    if (!isNested) {
+      // User is in a completely different block (not nested, not same block)
+      return emitOpError(
+          "DST value used in a different block than release_dst operation");
+    }
   }
 
   return mlir::success();

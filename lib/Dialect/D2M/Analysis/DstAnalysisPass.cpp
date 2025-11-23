@@ -68,9 +68,10 @@ struct D2MDstRequirementAnalysisPass
     }
 
     // Store result as pass attribute for other passes to query
-    func->setAttr("dst_slices_required",
-                  mlir::IntegerAttr::get(mlir::IntegerType::get(&getContext(), 32),
-                                   result.numSlicesRequired));
+    func->setAttr(
+        "dst_slices_required",
+        mlir::IntegerAttr::get(mlir::IntegerType::get(&getContext(), 32),
+                               result.numSlicesRequired));
   }
 };
 
