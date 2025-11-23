@@ -1552,15 +1552,13 @@ d2m::GenericOp::getOperandGridShapes() {
     auto memrefType = mlir::dyn_cast<MemRefType>(operand.getType());
     if (memrefType) {
       mlir::tt::ttcore::DeviceLayoutInterface layout =
-          mlir::dyn_cast<mlir::tt::ttcore::DeviceLayoutInterface>(
+          mlir::cast<mlir::tt::ttcore::DeviceLayoutInterface>(
               memrefType.getLayout());
-      assert(layout && "memref operand must have a device layout attribute");
       gridShapes.emplace_back(layout.getGridShape(memrefType));
     } else {
       auto tensorType = mlir::cast<RankedTensorType>(operand.getType());
       ttcore::MetalLayoutAttr layout =
           mlir::cast<ttcore::MetalLayoutAttr>(tensorType.getEncoding());
-      assert(layout && "tensor operand must have a metal layout encoding");
       gridShapes.emplace_back(layout.getGridShape(tensorType));
     }
   }
