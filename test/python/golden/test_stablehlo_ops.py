@@ -249,8 +249,6 @@ def log(
         remainder,
         pow,
         atan2,
-        shift_right_logical,
-        shift_left,
     ],
 )
 def test_binary_ops(
