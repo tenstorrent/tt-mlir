@@ -523,6 +523,32 @@ def pytest_collection_modifyitems(config, items):
                         )
                     )
 
+        for marker in item.iter_markers(name="only_config"):
+            for platform_config in marker.args:
+
+                # All of the operations we need to do on these are set membership based
+                platform_config = set(platform_config)
+
+                reason = marker.kwargs.get("reason", "")
+
+                # Verify this is a valid configuration
+                if not platform_config <= ALL_BACKENDS.union(ALL_SYSTEMS):
+                    outliers = platform_config - ALL_BACKENDS.union(ALL_SYSTEMS)
+                    raise ValueError(
+                        f"Invalid only_config: {platform_config}, invalid entries: {outliers}. Please ensure that all entries in the config are members of {ALL_SYSTEMS} or {ALL_BACKENDS}"
+                    )
+
+                board_id = get_board_id(system_desc)
+                print(f" @@ board_id: {board_id}")
+
+                # Skip if the current config is NOT in the allowed list
+                if not platform_config <= set([current_target, board_id]):
+                    item.add_marker(
+                        pytest.mark.skip(
+                            reason=f"Test only runs on following platform/target combination: {platform_config}. {reason}"
+                        )
+                    )
+
         # Mark tests with skip_exec to skip execution but allow compilation
         for marker in item.iter_markers(name="skip_exec"):
             for platform_config in marker.args:
