@@ -111,15 +111,10 @@ llvm::SmallVector<mlir::Operation *> Scheduler::getSchedulableOps() {
     return false;
   };
 
-  std::stable_sort(schedulableOps.begin(), schedulableOps.end(),
-                   [&](mlir::Operation *a, mlir::Operation *b) {
-                     bool aBlocked = hasBlockedSuccessor(a);
-                     bool bBlocked = hasBlockedSuccessor(b);
-                     if (aBlocked != bBlocked) {
-                       return aBlocked > bBlocked;
-                     }
-                     return false;
-                   });
+  std::stable_partition(schedulableOps.begin(), schedulableOps.end(),
+                        [&](mlir::Operation *op) {
+                          return hasBlockedSuccessor(op); // true = go to front
+                        });
 
   return schedulableOps;
 }
