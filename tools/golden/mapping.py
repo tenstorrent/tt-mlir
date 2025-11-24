@@ -3027,7 +3027,8 @@ def ttir_constant_golden(value: DenseElementsAttr) -> GoldenMapTensor:
         value = value.get_splat_value()
         torch_tensor = torch.full(shape, value.value, dtype=dtype)
     else:
-        assert False, "Non-splat constants are not supported in golden functions."
+        flat_values = [elem for elem in value]
+        torch_tensor = torch.tensor(flat_values, dtype=dtype).reshape(shape)
 
     return GoldenMapTensor({0: torch_tensor.reshape(shape)}, (1, 1))
 
@@ -3410,6 +3411,26 @@ def ttir_clamp_tensor_golden(
     return torch.min(torch.max(input_tensor, min_tensor), max_tensor)
 
 
+def ttir_full_golden(
+    shape_attr: DenseI32ArrayAttr,
+    fill_value_attr: Union[IntegerAttr, FloatAttr],
+) -> GoldenMapTensor:
+    shape = unpack_mlir_attr(shape_attr)
+    fill_value = unpack_mlir_attr(fill_value_attr)
+    tensor = torch.full(shape, fill_value)
+    return GoldenMapTensor({0: tensor}, (1, 1))
+
+
+def ttir_concat_golden(
+    input_tensors: List[GoldenMapTensor], dim_attr: IntegerAttr
+) -> GoldenMapTensor:
+    dim = unpack_mlir_attr(dim_attr)
+    if isinstance(input_tensors, tuple):
+        return torch.concat(input_tensors, dim=dim)
+    else:
+        return torch.concat([input_tensors], dim=dim)
+
+
 GOLDEN_MAPPINGS: Dict[type, Callable] = {
     # ----- TTIR OPS -----
     # Elementwise unary operations
@@ -3482,7 +3503,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     # Tensor manipulation
     ttir.SortOp: sort_golden,
     ttir.TransposeOp: transpose_golden,
-    ttir.ConcatOp: concat_golden,
+    ttir.ConcatOp: ttir_concat_golden,
     ttir.RepeatOp: repeat_golden,
     ttir.RepeatInterleaveOp: repeat_interleave_golden,
     ttir.ReshapeOp: ttir_reshape_golden,
@@ -3512,6 +3533,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.ZerosOp: zeros_golden,
     ttir.OnesOp: ones_golden,
     ttir.ConstantOp: ttir_constant_golden,
+    ttir.FullOp: ttir_full_golden,
     ttir.ArangeOp: arange_golden,
     # Quantization operations
     ttir.QuantizeOp: quantize_golden,
