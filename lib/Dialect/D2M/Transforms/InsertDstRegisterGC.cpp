@@ -12,9 +12,12 @@
 #include "mlir/Analysis/Liveness.h"
 #include "mlir/Dialect/Affine/Analysis/LoopAnalysis.h"
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
+#include "mlir/Dialect/Affine/LoopUtils.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/PatternMatch.h"
 #include "ttmlir/Utils.h"
+
+#include <numeric>
 
 namespace mlir::tt::d2m {
 #define GEN_PASS_DEF_D2MINSERTDSTREGISTERGC
@@ -96,14 +99,25 @@ struct D2MInsertDstRegisterGCPass
                                          int64_t loopIterationStride) {
     rewriter.setInsertionPoint(op);
 
+    // DST access pattern: %dst[loop_dependent_slice, cb_indices...]
+    // The CB indices come from the original operation's indices.
     SmallVector<Value> dstIndices(op.getIndices().begin(),
                                   op.getIndices().end());
 
-    // Build loop-dependent DST index expression
+    // Collect induction variables from the loop template for linearization.
+    // These are the OUTER loop IVs that determine which DST slice to use.
+    SmallVector<Value> loopTemplateIVs;
+    for (auto loop : loopCtx.loopNest) {
+      loopTemplateIVs.push_back(loop.getInductionVar());
+    }
+
+    // Build loop-dependent DST slice index expression.
+    // This linearizes the loop template's iteration space into a 1D slice index.
     mlir::AffineExpr dstIndexExpr = buildDstIndexExpr(
-        assignedSlice, loopIterationStride, loopCtx, dstIndices,
+        assignedSlice, loopIterationStride, loopCtx, loopTemplateIVs,
         rewriter.getContext());
 
+    // Insert the DST slice index as the first dimension.
     auto dstMap = op.getMap().insertResult(dstIndexExpr, 0);
 
     if constexpr (std::is_same_v<OpT, affine::AffineLoadOp>) {
@@ -357,15 +371,36 @@ struct D2MInsertDstRegisterGCPass
         CopyInfoMap copyInfoMap =
             groupAccessesByLoopNest(dstAccesses, coloring);
 
+        // Analyze each unique loop template once to get trip counts.
+        // This avoids redundant analysis in prologue and epilogue generation.
+        llvm::DenseMap<Operation*, LoopContext> loopTemplateContexts;
+        for (auto &[loopOp, copyInfo] : copyInfoMap) {
+          loopTemplateContexts[loopOp] = analyzeLoopTemplate(loopOp);
+        }
+
+        // Build reverse map from each DST access operation to its loop template.
+        // This allows compute operations to use the same loop context as copy loops.
+        llvm::DenseMap<Operation*, Operation*> opToLoopTemplate;
+        for (auto &[loopOp, copyInfo] : copyInfoMap) {
+          for (const auto &[loadOp, sliceIdx] : copyInfo.loads) {
+            opToLoopTemplate[loadOp] = loopOp;
+          }
+          for (const auto &[storeOp, sliceIdx] : copyInfo.stores) {
+            opToLoopTemplate[storeOp] = loopOp;
+          }
+        }
+
         // Generate hoisted prologue copy loops for each loop nest.
         for (auto &[loopOp, copyInfo] : copyInfoMap) {
+          const LoopContext &loopTemplateCtx = loopTemplateContexts[loopOp];
           generatePrologueLoop(rewriter, acquireDst, loopOp, copyInfo,
-                               loopContexts, maxLoopIterations);
+                               loopTemplateCtx, maxLoopIterations);
         }
 
         for (auto &[loopOp, copyInfo] : copyInfoMap) {
+          const LoopContext &loopTemplateCtx = loopTemplateContexts[loopOp];
           generateEpilogueLoop(rewriter, acquireDst.getResult(), loopOp,
-                               copyInfo, loopContexts, maxLoopIterations);
+                               copyInfo, loopTemplateCtx, maxLoopIterations);
         }
 
         // Insert release_dst at the end, after all epilogue loops
@@ -398,12 +433,18 @@ struct D2MInsertDstRegisterGCPass
         }
 
         // Second pass: rewrite original loads and stores to use DST instead of
-        // L1.
+        // L1. Use the loop template context so compute operations use the same
+        // loop-dependent indexing as the copy loops.
         for (size_t accessIndex = 0; accessIndex < dstAccesses.size();
              ++accessIndex) {
           auto &[op, origIdx] = dstAccesses[accessIndex];
           uint32_t assignedSlice = coloring[accessIndex];
-          const LoopContext &loopCtx = loopContexts[op];
+
+          // Look up the loop template for this operation and use its context.
+          // If no loop template found (scalar case), use the individual op context.
+          const LoopContext &loopCtx = opToLoopTemplate.contains(op)
+              ? loopTemplateContexts[opToLoopTemplate[op]]
+              : loopContexts[op];
 
           if (auto loadOp = mlir::dyn_cast<affine::AffineLoadOp>(op)) {
             replaceAffineAccessWithDst<affine::AffineLoadOp>(
@@ -564,7 +605,7 @@ private:
   static void generateCopyLoops(IRRewriter &rewriter, Value externalMemref,
                                 Operation *loopTemplate,
                                 ArrayRef<PairT> copyPairs,
-                                const llvm::DenseMap<mlir::Operation*, LoopContext> &loopContexts,
+                                const LoopContext &loopTemplateCtx,
                                 int64_t maxLoopIterations) {
     if (copyPairs.empty()) {
       return;
@@ -572,7 +613,8 @@ private:
 
     auto forLoop = dyn_cast<affine::AffineForOp>(loopTemplate);
     if (!forLoop) {
-      // No loop nest - generate inline copies
+      // No loop nest - generate inline copies.
+      // In this case, loopTemplateCtx will be empty (no loops).
       OpBuilder::InsertionGuard guard(rewriter);
       if constexpr (IsPrologue) {
         rewriter.setInsertionPoint(loopTemplate);
@@ -584,15 +626,12 @@ private:
         OpT op = pair.first;
         int64_t sliceIdx = pair.second;
 
-        // Get loop context (will be empty for non-loop case).
-        const LoopContext &loopCtx = loopContexts.at(op);
-
         SmallVector<Value> dstIndices(op.getIndices().begin(),
                                       op.getIndices().end());
 
         // Build DST index expression (will be constant for non-loop case).
         mlir::AffineExpr dstIndexExpr = buildDstIndexExpr(
-            sliceIdx, maxLoopIterations, loopCtx, dstIndices,
+            sliceIdx, maxLoopIterations, loopTemplateCtx, dstIndices,
             rewriter.getContext());
 
         auto dstMap = op.getMap().insertResult(dstIndexExpr, 0);
@@ -626,33 +665,46 @@ private:
       rewriter.setInsertionPointAfter(forLoop);
     }
 
-    // Clone the loop structure and get the mapping
+    // Clone the loop structure and get the mapping.
     auto [copyLoop, mapper] = cloneLoopNest(rewriter, forLoop);
 
-    // Find the innermost loop and collect all induction variables
-    auto [innermostLoop, newIndices] = findInnermostLoopAndIndices(copyLoop);
+    // Find innermost loop and collect induction variables from the cloned copy loop.
+    auto [innermostLoop, copyLoopIndices] = findInnermostLoopAndIndices(copyLoop);
 
-    // Populate with copy operations at the innermost loop level
+    // Build loop nest from cloned copy loop by traversing from innermostLoop back to copyLoop.
+    SmallVector<affine::AffineForOp, 4> copyLoopNest;
+    affine::AffineForOp currentLoop = innermostLoop;
+    while (currentLoop && currentLoop != copyLoop.getOperation()->getParentOfType<affine::AffineForOp>()) {
+      copyLoopNest.push_back(currentLoop);
+      currentLoop = currentLoop->getParentOfType<affine::AffineForOp>();
+    }
+    // Reverse to get outermost-to-innermost order.
+    std::reverse(copyLoopNest.begin(), copyLoopNest.end());
+
+    // Build a LoopContext for the cloned copy loop using the precomputed template context.
+    // The loopTemplateCtx was already analyzed upfront, so just use its trip counts.
+    LoopContext copyLoopCtx;
+    copyLoopCtx.loopNest = copyLoopNest;  // The cloned loops.
+    copyLoopCtx.tripCounts = loopTemplateCtx.tripCounts;  // From precomputed analysis.
+    copyLoopCtx.totalIterations = loopTemplateCtx.totalIterations;
+
+    // Populate with copy operations at the innermost loop level.
     rewriter.setInsertionPointToStart(&innermostLoop.getRegion().front());
 
     for (const auto &pair : copyPairs) {
       OpT op = pair.first;
       int64_t sliceIdx = pair.second;
 
-      // Get loop context for the original operation
-      const LoopContext &loopCtx = loopContexts.at(op);
-
-      // Map the original indices to the cloned loop's induction variables
+      // Map the original indices to the cloned loop's induction variables.
       SmallVector<Value> mappedIndices;
       for (Value idx : op.getIndices()) {
         Value mappedIdx = mapper.lookupOrDefault(idx);
         mappedIndices.push_back(mappedIdx);
       }
 
-      // Build loop-dependent DST index expression using the cloned loop's
-      // induction variables (which are in mappedIndices via the mapper)
+      // Build loop-dependent DST index expression using the copy loop's context and induction variables.
       mlir::AffineExpr dstIndexExpr = buildDstIndexExpr(
-          sliceIdx, maxLoopIterations, loopCtx, mappedIndices,
+          sliceIdx, maxLoopIterations, copyLoopCtx, copyLoopIndices,
           rewriter.getContext());
 
       auto dstMap = op.getMap().insertResult(dstIndexExpr, 0);
@@ -679,18 +731,54 @@ private:
     }
   }
 
+  // Analyze a loop template to extract loop nest structure and trip counts.
+  // Returns a LoopContext describing the template's loop nest.
+  static LoopContext analyzeLoopTemplate(Operation *loopTemplate) {
+    LoopContext ctx;
+
+    // If loopTemplate is not a loop, it's a scalar case (no loops).
+    auto forLoop = dyn_cast<affine::AffineForOp>(loopTemplate);
+    if (!forLoop) {
+      return ctx;  // Empty context for scalar case.
+    }
+
+    // Traverse down from the root loop to collect the full loop nest.
+    affine::AffineForOp currentLoop = forLoop;
+    while (currentLoop) {
+      ctx.loopNest.push_back(currentLoop);
+
+      // Find nested loop in body.
+      currentLoop = nullptr;
+      Block &body = ctx.loopNest.back().getRegion().front();
+      for (Operation &op : body.getOperations()) {
+        if (auto nested = dyn_cast<affine::AffineForOp>(&op)) {
+          currentLoop = nested;
+          break;
+        }
+      }
+    }
+
+    // Compute trip counts from the loop nest.
+    ctx.tripCounts = computeLoopTripCounts(ctx.loopNest);
+    ctx.totalIterations = std::accumulate(
+        ctx.tripCounts.begin(), ctx.tripCounts.end(),
+        1LL, std::multiplies<int64_t>());
+
+    return ctx;
+  }
+
   // Generate prologue copy nest (L1 -> DST) ahead of the loop/compute region
   // that uses the original loads.
   static void generatePrologueLoop(IRRewriter &rewriter,
                                    AcquireDstOp acquireDst,
                                    Operation *loopTemplate,
                                    const CopyInfo &copyInfo,
-                                   const llvm::DenseMap<mlir::Operation*, LoopContext> &loopContexts,
+                                   const LoopContext &loopTemplateCtx,
                                    int64_t maxLoopIterations) {
     generateCopyLoops</*IsPrologue=*/true, affine::AffineLoadOp,
                       OpAndIndexOffset<affine::AffineLoadOp>>(
         rewriter, acquireDst.getResult(), loopTemplate, copyInfo.loads,
-        loopContexts, maxLoopIterations);
+        loopTemplateCtx, maxLoopIterations);
   }
 
   // Generate epilogue copy nest (DST -> L1) after the loop/compute region that
@@ -698,12 +786,12 @@ private:
   static void generateEpilogueLoop(IRRewriter &rewriter, Value dstMemref,
                                    Operation *loopTemplate,
                                    const CopyInfo &copyInfo,
-                                   const llvm::DenseMap<mlir::Operation*, LoopContext> &loopContexts,
+                                   const LoopContext &loopTemplateCtx,
                                    int64_t maxLoopIterations) {
     generateCopyLoops</*IsPrologue=*/false, affine::AffineStoreOp,
                       OpAndIndexOffset<affine::AffineStoreOp>>(
         rewriter, dstMemref, loopTemplate, copyInfo.stores,
-        loopContexts, maxLoopIterations);
+        loopTemplateCtx, maxLoopIterations);
   }
 
   // Identify DST accesses that need coloring based on compute operations.
@@ -777,7 +865,7 @@ private:
       mlir::MLIRContext *ctx) {
 
     if (loopCtx.loopNest.empty()) {
-      // No loops: use constant base slice
+      // No loops: use constant base slice.
       return mlir::getAffineConstantExpr(baseSlice, ctx);
     }
 
