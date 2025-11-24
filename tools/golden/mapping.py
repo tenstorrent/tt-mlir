@@ -1001,6 +1001,7 @@ def equal_golden(
 ) -> GoldenMapTensor:
     """
     Golden function for equal (eq) operation.
+    Used by TTNN dialect.
 
     Elementwise equality comparison.
 
@@ -1073,6 +1074,7 @@ def greater_than_golden(
 ) -> GoldenMapTensor:
     """
     Golden function for greater_than (gt) operation.
+    Used by TTNN dialect.
 
     Elementwise greater-than comparison.
 
@@ -1937,7 +1939,8 @@ def sort_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
 
 def concat_golden(input_tensors: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
     """
-    Golden function for concat operation with TTIR parameter names.
+    Golden function for concat operation.
+    Used by StableHLO and TTNN dialects.
 
     Parameters
     ----------
@@ -2246,46 +2249,6 @@ def index_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
 
     indices = torch.arange(begin, end, step, device=input_tensor.device)
     return torch.index_select(input_tensor, dim, indices)
-
-
-def slice_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
-    """
-    Golden function for slice operation with TTIR parameter names.
-
-    Parameters
-    ----------
-    input_tensor : GoldenMapTensor
-        Input tensor
-    **kwargs : dict
-        Keyword arguments including slice attributes as MLIR attributes
-
-    Returns
-    -------
-    GoldenMapTensor
-        Sliced tensor
-    """
-
-    # Unpack MLIR attributes from kwargs
-    begins = unpack_mlir_attr(kwargs.get("begins", [0]))
-    ends = unpack_mlir_attr(kwargs.get("ends", None))
-    step = unpack_mlir_attr(kwargs.get("step", [1]))
-
-    if ends is None:
-        ends = [input_tensor.size(i) for i in range(len(begins))]
-
-    # Build slice objects for each dimension
-    slices = []
-    for i in range(len(begins)):
-        start = begins[i] if i < len(begins) else 0
-        end = ends[i] if i < len(ends) else input_tensor.size(i)
-        step_val = step[i] if i < len(step) else 1
-        slices.append(slice(start, end, step_val))
-
-    shard_map = {}
-    for device_id, shard in input_tensor.shard_map.items():
-        shard_map[device_id] = shard[slices]
-
-    return GoldenMapTensor(shard_map, input_tensor.mesh_shape)
 
 
 def slice_golden_stablehlo(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
@@ -2865,6 +2828,35 @@ def stablehlo_not_golden(
         return torch.bitwise_not(input_tensor)
 
 
+def ttir_slice_golden(
+    input_tensor: GoldenMapTensor,
+    begins: ArrayAttr,
+    ends: ArrayAttr,
+    step: ArrayAttr,
+) -> GoldenMapTensor:
+    # Unpack MLIR attributes
+    begins = unpack_mlir_attr(begins)
+    ends = unpack_mlir_attr(ends)
+    step = unpack_mlir_attr(step)
+
+    if ends is None:
+        ends = [input_tensor.size(i) for i in range(len(begins))]
+
+    # Build slice objects for each dimension
+    slices = []
+    for i in range(len(begins)):
+        start = begins[i] if i < len(begins) else 0
+        end = ends[i] if i < len(ends) else input_tensor.size(i)
+        step_val = step[i] if i < len(step) else 1
+        slices.append(slice(start, end, step_val))
+
+    shard_map = {}
+    for device_id, shard in input_tensor.shard_map.items():
+        shard_map[device_id] = shard[slices]
+
+    return GoldenMapTensor(shard_map, input_tensor.mesh_shape)
+
+
 def ttir_div_golden(lhs: GoldenMapTensor, rhs: GoldenMapTensor) -> GoldenMapTensor:
     return torch.div(lhs, rhs).to(lhs.dtype)
 
@@ -3402,9 +3394,9 @@ def ttir_full_golden(
 
 
 def ttir_concat_golden(
-    input_tensors: List[GoldenMapTensor], dim_attr: IntegerAttr
+    input_tensors: List[GoldenMapTensor], dim: IntegerAttr
 ) -> GoldenMapTensor:
-    dim = unpack_mlir_attr(dim_attr)
+    dim = unpack_mlir_attr(dim)
     if isinstance(input_tensors, tuple):
         return torch.concat(input_tensors, dim=dim)
     else:
@@ -3473,6 +3465,24 @@ def ttir_reverse_golden(
     return torch.flip(input_tensor, dimensions)
 
 
+def ttir_equal_golden(
+    input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor
+) -> GoldenMapTensor:
+    result_bool = torch.eq(input_tensor, other_tensor)
+    return result_bool.to(input_tensor.dtype)
+
+
+def ttir_greater_than_golden(
+    input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor
+) -> GoldenMapTensor:
+    result_bool = torch.gt(input_tensor, other_tensor)
+    return result_bool.to(input_tensor.dtype)
+
+
+def ttir_typecast_golden(input_tensor: GoldenMapTensor, dtype) -> GoldenMapTensor:
+    return input_tensor.to(dtype)
+
+
 GOLDEN_MAPPINGS: Dict[type, Callable] = {
     # ----- TTIR OPS -----
     # Elementwise unary operations
@@ -3514,10 +3524,10 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.RemainderOp: torch.remainder,
     ttir.PowOp: torch.pow,
     # Comparison operations
-    ttir.EqualOp: equal_golden,
+    ttir.EqualOp: ttir_equal_golden,
     ttir.NotEqualOp: ttir_ne_golden,
     ttir.GreaterEqualOp: greater_equal_golden,
-    ttir.GreaterThanOp: greater_than_golden,
+    ttir.GreaterThanOp: ttir_greater_than_golden,
     ttir.LessEqualOp: less_equal_golden,
     ttir.LessThanOp: less_than_golden,
     # Logical operations
@@ -3560,7 +3570,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.PadOp: ttir_pad_golden,
     ttir.IndexSelectOp: select_golden,
     ttir.IndexOp: index_golden,
-    ttir.SliceStaticOp: slice_golden,
+    ttir.SliceStaticOp: ttir_slice_golden,
     ttir.GatherOp: gather_golden,
     # Neural network operations
     ttir.SoftmaxOp: softmax_golden,
@@ -3570,7 +3580,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.BatchNormInferenceOp: ttir_batch_norm_inference_golden,
     ttir.RMSNormOp: rms_norm_golden,
     # Type operations
-    ttir.TypecastOp: typecast_golden,
+    ttir.TypecastOp: ttir_typecast_golden,
     # Tensor creation
     ttir.ZerosOp: zeros_golden,
     ttir.OnesOp: ones_golden,
