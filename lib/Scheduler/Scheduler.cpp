@@ -111,10 +111,19 @@ llvm::SmallVector<mlir::Operation *> Scheduler::getSchedulableOps() {
     return false;
   };
 
-  std::stable_partition(schedulableOps.begin(), schedulableOps.end(),
-                        [&](mlir::Operation *op) {
-                          return hasBlockedSuccessor(op); // true = go to front
-                        });
+  // NOLINTNEXTLINE(clang-diagnostic-deprecated-declarations)
+  // std::stable_sort internally uses std::get_temporary_buffer which is
+  // deprecated in C++17. The deprecation is in the standard library
+  // implementation, not our usage.
+  std::stable_sort(schedulableOps.begin(), schedulableOps.end(),
+                   [&](mlir::Operation *a, mlir::Operation *b) {
+                     bool aBlocked = hasBlockedSuccessor(a);
+                     bool bBlocked = hasBlockedSuccessor(b);
+                     if (aBlocked != bBlocked) {
+                       return aBlocked > bBlocked;
+                     }
+                     return false;
+                   });
 
   return schedulableOps;
 }
