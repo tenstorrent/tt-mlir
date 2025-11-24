@@ -547,7 +547,8 @@ ChipDescAttr::getDstLogicalSizeTiles(Type type, bool fullSyncEn,
   return nDstTiles;
 }
 
-static llvm::SmallVector<int64_t> getPhysicalGridShapeFromShapeAndMap(ShapedType shapedType, AffineMap map) {
+static llvm::SmallVector<int64_t>
+getPhysicalGridShapeFromShapeAndMap(ShapedType shapedType, AffineMap map) {
   auto shape = shapedType.getShape();
 
   // find bounds of the physical grid by transforming the virtual grid using
@@ -605,7 +606,8 @@ mlir::AffineMap ShardLayoutAttr::getAffineMap() const {
 
 llvm::SmallVector<int64_t>
 ShardLayoutAttr::getPhysicalGridShape(ShapedType tensorType) const {
-  return getPhysicalGridShapeFromShapeAndMap(tensorType, this->getCoreVirtualizationMap());
+  return getPhysicalGridShapeFromShapeAndMap(tensorType,
+                                             this->getCoreVirtualizationMap());
 }
 
 InterleavedLayoutAttr InterleavedLayoutAttr::get(mlir::MLIRContext *context,

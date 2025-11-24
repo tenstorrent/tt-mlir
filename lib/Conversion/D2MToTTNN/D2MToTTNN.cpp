@@ -126,12 +126,14 @@ public:
       auto output = op.getOutputs()[0];
       mlir::ShapedType outputType =
           mlir::cast<mlir::ShapedType>(output.getType());
-      auto shardLayout = mlir::dyn_cast<ttcore::ShardLayoutAttr>(ttcore::getDeviceLayout(outputType));
-      TT_assertv(shardLayout, "Expected shardLayoutAttr for the output of a generic op with a virtual grid.");
+      auto shardLayout = mlir::dyn_cast<ttcore::ShardLayoutAttr>(
+          ttcore::getDeviceLayout(outputType));
+      TT_assertv(shardLayout, "Expected shardLayoutAttr for the output of a "
+                              "generic op with a virtual grid.");
 
       auto physicalGridShape = shardLayout.getPhysicalGridShape(outputType);
       // TTNN grids are (Width, Height), while D2M grids are (Height, Width).
-      endCoreRange = {physicalGridShape[1]-1, physicalGridShape[0]-1};
+      endCoreRange = {physicalGridShape[1] - 1, physicalGridShape[0] - 1};
     } else {
       // TTNN grids are (Width, Height), while D2M grids are (Height, Width).
       endCoreRange = {opGrid.getShape()[1] - 1, opGrid.getShape()[0] - 1};
