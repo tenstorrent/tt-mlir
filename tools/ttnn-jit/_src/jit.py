@@ -53,7 +53,7 @@ class JitFunction:
         # Hashing based off runtime tensor metadata.
         self.cache = JitCache(64) if enable_cache else None
 
-    def _query_and_save_system_desc(self, input_tensors=None):
+    def _query_and_save_system_desc(self, ttnn_device=None):
         """Query system descriptor from device and save it to a file.
         Uses the MLIR runtime bindings directly, replicating the logic from
         ttrt query --save-artifacts.
@@ -61,16 +61,11 @@ class JitFunction:
         dispatch_core_type = _get_dispatch_core_type()
         try:
             # Use input tensor device to query if available.
-            if input_tensors and len(input_tensors) > 0:
-                ttnn_device = input_tensors[0].device()
+            if ttnn_device:
                 runtime_device = create_runtime_device_from_ttnn(ttnn_device)
-                system_desc = get_current_system_desc(
-                    dispatch_core_type, runtime_device
-                )
+                system_desc = get_current_system_desc(dispatch_core_type, runtime_device)
                 if self.debug:
-                    print(
-                        f"System descriptor queried using existing device from input tensor"
-                    )
+                    print(f"System descriptor queried using existing device.")
             else:
                 system_desc = get_current_system_desc(dispatch_core_type)
                 if self.debug:
@@ -93,7 +88,7 @@ class JitFunction:
     def __call__(self, *args, **kwargs):
         """Execute the JIT-compiled function."""
         if not self.system_desc_path:
-            self.system_desc_path = self._query_and_save_system_desc(args)
+            self.system_desc_path = self._query_and_save_system_desc(args[0].device() if args else None)
 
         tensor_args = {}
         param_names = list(inspect.signature(self.func).parameters.keys())
