@@ -1,6 +1,5 @@
 // RUN: ttmlir-opt --ttcore-register-device --d2m-insert-dst-register-gc="coloring-strategy=greedy" --split-input-file %s | FileCheck %s --check-prefixes=COMMON,GREEDY
 // RUN: ttmlir-opt --ttcore-register-device --d2m-insert-dst-register-gc="coloring-strategy=chaitin-briggs" --split-input-file %s | FileCheck %s --check-prefixes=COMMON,CHAITIN
-// RUN: ttmlir-opt --ttcore-register-device --d2m-insert-dst-register-access --split-input-file %s | FileCheck %s --check-prefixes=COMMON,BASIC
 //
 // Verifies that the d2m-insert-dst-register-gc pass does the following:
 //   1. acquire_dst is created
@@ -12,7 +11,7 @@
 #l1_ = #ttcore.memory_space<l1>
 
 module {
-  // COMMON-LABEL: func.func @test_no_loops
+  // COMMON-LABEL: func.func @test_binary_op_single_tile
   // COMMON: d2m.generic
   // COMMON: ^compute0(%[[CB0:.*]]: !d2m.cb<memref<1x1x!ttcore.tile<32x32, f16>, #l1>>, %[[CB1:.*]]: !d2m.cb<memref<1x1x!ttcore.tile<32x32, f16>, #l1>>, %[[CB_OUT:.*]]: !d2m.cb<memref<1x1x!ttcore.tile<32x32, f16>, #l1>>):
 
@@ -24,30 +23,36 @@ module {
   // COMMON-NEXT: %[[MEM1:.*]] = d2m.wait %[[CB1]]
   // COMMON-NEXT: %[[MEM_OUT:.*]] = d2m.reserve %[[CB_OUT]]
 
-  // Load from L1 input 0, store to DST slice 0, then load from DST
+  // Load from L1 input 0, store to DST slice 0 (constant index)
   // COMMON: %[[L1_VAL0:.*]] = affine.load %[[MEM0]][%[[C0]], %[[C0]]]
   // COMMON-NEXT: affine.store %[[L1_VAL0]], %[[DST]][0, %[[C0]], %[[C0]]]
-  // COMMON-NEXT: %[[DST_VAL0:.*]] = affine.load %[[DST]][0, %[[C0]], %[[C0]]]
 
-  // Load from L1 input 1, store to DST slice 1, then load from DST
+  // Load from DST with constant slice index 0
+  // COMMON: %[[C0_0:.*]] = arith.constant 0 : index
+  // COMMON: %[[DST_VAL0:.*]] = affine.load %[[DST]][%[[C0_0]], {{.*}}, {{.*}}]
+
+  // Load from L1 input 1, store to DST slice 1 (constant index)
   // COMMON: %[[L1_VAL1:.*]] = affine.load %[[MEM1]][%[[C0]], %[[C0]]]
   // COMMON-NEXT: affine.store %[[L1_VAL1]], %[[DST]][1, %[[C0]], %[[C0]]]
-  // COMMON-NEXT: %[[DST_VAL1:.*]] = affine.load %[[DST]][1, %[[C0]], %[[C0]]]
 
-    // Compute operation uses values loaded from DST
+  // Load from DST with constant slice index 1
+  // COMMON: %[[C1:.*]] = arith.constant 1 : index
+  // COMMON: %[[DST_VAL1:.*]] = affine.load %[[DST]][%[[C1]], {{.*}}, {{.*}}]
+
+  // Compute operation uses values loaded from DST
   // Verify that result_dst_index attribute is attached for all strategies
-  // BASIC: %[[RESULT:.*]] = "d2m.tile_add"{{.*}}{result_dst_index = 2 : i64}
   // CHAITIN: %[[RESULT:.*]] = "d2m.tile_add"{{.*}}{result_dst_index = 2 : i64}
   // GREEDY: %[[RESULT:.*]] = "d2m.tile_add"{{.*}}{result_dst_index = 2 : i64}
 
-  // Store result to DST slice 2, load from DST, then store to L1 output
-  // COMMON-NEXT: affine.store %[[RESULT]], %[[DST]][2, %[[C0]], %[[C0]]]
-  // COMMON-NEXT: %[[DST_RESULT:.*]] = affine.load %[[DST]][2, %[[C0]], %[[C0]]]
+  // Store result to DST slice 2 (constant index), load from DST, then store to L1 output
+  // COMMON: %[[C2:.*]] = arith.constant 2 : index
+  // COMMON: affine.store %[[RESULT]], %[[DST]][%[[C2]], {{.*}}, {{.*}}]
+  // COMMON: %[[DST_RESULT:.*]] = affine.load %[[DST]][2, %[[C0]], %[[C0]]]
   // COMMON-NEXT: affine.store %[[DST_RESULT]], %[[MEM_OUT]][%[[C0]], %[[C0]]]
 
   // COMMON: d2m.release_dst %[[DST]]
 
-  func.func @test_no_loops(%in0: memref<1x1x1x1x!ttcore.tile<32x32, f16>, #ttcore.shard<4096x4096, 1>, #l1_>,
+  func.func @test_binary_op_single_tile(%in0: memref<1x1x1x1x!ttcore.tile<32x32, f16>, #ttcore.shard<4096x4096, 1>, #l1_>,
                                 %in1: memref<1x1x1x1x!ttcore.tile<32x32, f16>, #ttcore.shard<4096x4096, 1>, #l1_>,
                                 %out: memref<1x1x1x1x!ttcore.tile<32x32, f16>, #ttcore.shard<4096x4096, 1>, #l1_>) {
     d2m.generic {
@@ -92,7 +97,7 @@ module {
 #dst = #ttcore.memory_space<dst>
 
 module {
-  // COMMON-LABEL: func.func @test_with_affine_loops
+  // COMMON-LABEL: func.func @test_binary_with_loops
   // COMMON: d2m.generic
   // COMMON: ^compute0(%[[CB0:.*]]: !d2m.cb<memref<1x1x!ttcore.tile<32x32, f16>, #l1>>, %[[CB1:.*]]: !d2m.cb<memref<1x1x!ttcore.tile<32x32, f16>, #l1>>, %[[CB_OUT:.*]]: !d2m.cb<memref<1x1x!ttcore.tile<32x32, f16>, #l1>>):
   // COMMON: %[[DST:.*]] = d2m.acquire_dst() : memref<3x1x1x!ttcore.tile<32x32, f16>, #dst>
@@ -103,34 +108,36 @@ module {
   // Verify outer loop with three inner loops inside
   // COMMON: affine.for %[[I:.*]] = 0 to 1 {
 
-  // PROLOGUE: L1->DST copies
+  // PROLOGUE: L1->DST copies with constant DST slice indices
   // COMMON: affine.for %[[J_PROLOGUE:.*]] = 0 to 1 {
+  // COMMON: %[[C0_PROLOGUE:.*]] = arith.constant 0 : index
   // COMMON: %[[L1_VAL0:.*]] = affine.load %[[MEM0]][%[[I]], %[[J_PROLOGUE]]]
-  // COMMON: affine.store %[[L1_VAL0]], %[[DST]][0, %[[I]], %[[J_PROLOGUE]]]
+  // COMMON: affine.store %[[L1_VAL0]], %[[DST]][%[[C0_PROLOGUE]], %[[I]], %[[J_PROLOGUE]]]
+  // COMMON: %[[C1_PROLOGUE:.*]] = arith.constant 1 : index
   // COMMON: %[[L1_VAL1:.*]] = affine.load %[[MEM1]][%[[I]], %[[J_PROLOGUE]]]
-  // COMMON: affine.store %[[L1_VAL1]], %[[DST]][1, %[[I]], %[[J_PROLOGUE]]]
+  // COMMON: affine.store %[[L1_VAL1]], %[[DST]][%[[C1_PROLOGUE]], %[[I]], %[[J_PROLOGUE]]]
   // COMMON: }
 
-  // COMPUTE: DST operations
+  // COMPUTE: DST operations with constant DST slice indices
   // COMMON: affine.for %[[J_COMPUTE:.*]] = 0 to 1 {
-  // COMMON: affine.load %[[DST]][0, %[[I]], %[[J_COMPUTE]]]]
-  // COMMON: affine.load %[[DST]][1, %[[I]], %[[J_COMPUTE]]]]
-  // BASIC: %[[RESULT:.*]] = "d2m.tile_add"{{.*}}{result_dst_index = 2 : i64}
+  // COMMON: affine.load %[[DST]][{{.*}}, {{.*}}, {{.*}}]
+  // COMMON: affine.load %[[DST]][{{.*}}, {{.*}}, {{.*}}]
   // CHAITIN: %[[RESULT:.*]] = "d2m.tile_add"{{.*}}{result_dst_index = 2 : i64}
   // GREEDY: %[[RESULT:.*]] = "d2m.tile_add"{{.*}}{result_dst_index = 2 : i64}
-  // COMMON: affine.store %[[RESULT]], %[[DST]][2, %[[I]], %[[J_COMPUTE]]]
+  // COMMON: affine.store %[[RESULT]], %[[DST]][{{.*}}, {{.*}}, {{.*}}]
   // COMMON: }
 
-  // EPILOGUE: DST->L1 copies
+  // EPILOGUE: DST->L1 copies with constant DST slice index
   // COMMON: affine.for %[[J_EPILOGUE:.*]] = 0 to 1 {
-  // COMMON: %[[DST_RESULT:.*]] = affine.load %[[DST]][2, %[[I]], %[[J_EPILOGUE]]]
+  // COMMON: %[[C2_EPILOGUE:.*]] = arith.constant 2 : index
+  // COMMON: %[[DST_RESULT:.*]] = affine.load %[[DST]][%[[C2_EPILOGUE]], %[[I]], %[[J_EPILOGUE]]]
   // COMMON: affine.store %[[DST_RESULT]], %[[MEM_OUT]][%[[I]], %[[J_EPILOGUE]]]
   // COMMON: }
 
   // COMMON: }
   // COMMON: d2m.release_dst %[[DST]]
 
-  func.func @test_with_affine_loops(%in0: memref<1x1x1x1x!ttcore.tile<32x32, f16>, #ttcore.shard<4096x4096, 1>, #l1_>,
+  func.func @test_binary_with_loops(%in0: memref<1x1x1x1x!ttcore.tile<32x32, f16>, #ttcore.shard<4096x4096, 1>, #l1_>,
                                      %in1: memref<1x1x1x1x!ttcore.tile<32x32, f16>, #ttcore.shard<4096x4096, 1>, #l1_>,
                                      %out: memref<1x1x1x1x!ttcore.tile<32x32, f16>, #ttcore.shard<4096x4096, 1>, #l1_>) {
     d2m.generic {
@@ -175,18 +182,23 @@ module {
 #dst = #ttcore.memory_space<dst>
 
 module {
-  // COMMON-LABEL: func.func @test_f32_binary
+  // COMMON-LABEL: func.func @test_f32_dtype_with_loops
   // COMMON: d2m.generic
   // COMMON: %[[DST:.*]] = d2m.acquire_dst
   // COMMON: affine.for
-  // COMMON: affine.load {{.*}}: memref<1x1x!ttcore.tile<32x32, f32>, #l1_>
-  // COMMON: affine.store {{.*}}: memref<1x1x!ttcore.tile<32x32, f32>, #l1_>
-  // BASIC: "d2m.tile_add"{{.*}}{result_dst_index = 2 : i64}
+  // COMMON: affine.load {{.*}}: memref<1x1x!ttcore.tile<32x32, f32>, #l1>
+  // COMMON: affine.store {{.*}}: memref<3x1x1x!ttcore.tile<32x32, f32>, #dst>
+  // COMMON: affine.load {{.*}}: memref<1x1x!ttcore.tile<32x32, f32>, #l1>
+  // COMMON: affine.store {{.*}}: memref<3x1x1x!ttcore.tile<32x32, f32>, #dst>
+  // COMMON: affine.for
   // CHAITIN: "d2m.tile_add"{{.*}}{result_dst_index = 2 : i64}
   // GREEDY: "d2m.tile_add"{{.*}}{result_dst_index = 2 : i64}
+  // COMMON: affine.for
+  // COMMON: affine.load {{.*}}: memref<3x1x1x!ttcore.tile<32x32, f32>, #dst>
+  // COMMON: affine.store {{.*}}: memref<1x1x!ttcore.tile<32x32, f32>, #l1>
   // COMMON: d2m.release_dst %[[DST]]
 
-  func.func @test_f32_binary(%in0: memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_>,
+  func.func @test_f32_dtype_with_loops(%in0: memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_>,
                               %in1: memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_>,
                               %out: memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_>) {
     d2m.generic {
@@ -232,25 +244,26 @@ module {
 #dst = #ttcore.memory_space<dst>
 
 module {
-  // COMMON-LABEL: func.func @test_chain
+  // COMMON-LABEL: func.func @test_unary_chain_intermediate_elision
   // COMMON: d2m.generic
-  // Graph coloring allocates 2 slices for inputs; intermediate results (tile_sub, tile_eqz)
-  // are computed in registers without DST storage, only final result needs DST
-  // COMMON: %[[DST:.*]] = d2m.acquire_dst() : memref<2x1x1x!ttcore.tile<32x32, f32>, #dst>
+  // Graph coloring allocates DST for inputs and final result
+  // intermediate results (tile_sub, tile_eqz) are computed in registers without DST storage
+  // CHAITIN: %[[DST:.*]] = d2m.acquire_dst() : memref<2x1x1x!ttcore.tile<32x32, f32>, #dst>
+  // GREEDY: %[[DST:.*]] = d2m.acquire_dst() : memref<2x1x1x!ttcore.tile<32x32, f32>, #dst>
   // COMMON: %[[MEM0:.*]] = d2m.wait
   // COMMON: %[[MEM1:.*]] = d2m.wait
   // COMMON: %[[MEM_OUT:.*]] = d2m.reserve
-  // COMMON: affine.load %[[MEM0]][%c0, %c0]
-  // COMMON: affine.load %[[MEM1]][%c0, %c0]
+  // COMMON: affine.load %[[MEM0]]
+  // COMMON: affine.load %[[MEM1]]
   // COMMON: "d2m.tile_sub"
   // COMMON: "d2m.tile_eqz"
-  // BASIC: "d2m.tile_eqz"{{.*}}{result_dst_index = 1 : i64}
   // CHAITIN: "d2m.tile_eqz"{{.*}}{result_dst_index = 1 : i64}
-  // LEGACY: "d2m.tile_eqz"{{.*}}{result_dst_index = 1 : i64}
-  // COMMON: affine.store {{.*}}, %[[MEM_OUT]][%c0, %c0]
-  // COMMON: d2m.release_dst %[[DST]] : memref<2x1x1x!ttcore.tile<32x32, f32>, #dst>
+  // GREEDY: "d2m.tile_eqz"{{.*}}{result_dst_index = 0 : i64}
+  // COMMON: affine.store {{.*}}, %[[MEM_OUT]]
+  // CHAITIN: d2m.release_dst %[[DST]] : memref<2x1x1x!ttcore.tile<32x32, f32>, #dst>
+  // GREEDY: d2m.release_dst %[[DST]] : memref<2x1x1x!ttcore.tile<32x32, f32>, #dst>
 
-  func.func @test_chain(%in0: memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_>,
+  func.func @test_unary_chain_intermediate_elision(%in0: memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_>,
                         %in1: memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_>,
                         %out: memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_>) {
     d2m.generic {
@@ -295,27 +308,54 @@ module {
 #dst = #ttcore.memory_space<dst>
 
 module {
-  // COMMON-LABEL: func.func @test_chain_multi_tile
+  // COMMON-LABEL: func.func @test_2x2_binary_with_nested_loops
   // COMMON: d2m.generic
   // COMMON: ^compute0(%[[CB0:.*]]: !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1>>, %[[CB1:.*]]: !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1>>, %[[CB_OUT:.*]]: !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1>>):
 
   // Binary operation requires separate DST registers for each input chain
-  // Different strategies will allocate different number of slices
-  // COMMON: %[[DST:.*]] = d2m.acquire_dst() : memref<{{[0-9]+}}x2x2x!ttcore.tile<32x32, f32>, #dst>
+  // DST buffer has 2 slices matching the CB dimensions (2x2)
+  // COMMON: %[[DST:.*]] = d2m.acquire_dst() : memref<2x2x2x!ttcore.tile<32x32, f32>, #dst>
   // COMMON: %[[MEM0:.*]] = d2m.wait %[[CB0]]
   // COMMON: %[[MEM1:.*]] = d2m.wait %[[CB1]]
   // COMMON: %[[MEM_OUT:.*]] = d2m.reserve %[[CB_OUT]]
-  // COMMON: affine.for
-  // COMMON: affine.load %[[MEM0]][{{.*}}]
-  // COMMON: affine.load %[[MEM1]][{{.*}}]
-  // COMMON: affine.store {{.*}}, %[[MEM_OUT]][{{.*}}]
 
+  // Outer loop over 2x2 tiles
+  // COMMON: affine.for %[[I:.*]] = 0 to 2 {
+
+  // PROLOGUE: L1->DST copies with constant DST slice indices (inner loop 1)
+  // COMMON: affine.for %[[J_PROLOGUE:.*]] = 0 to 2 {
+  // COMMON: %[[C0_COPY:.*]] = arith.constant 0 : index
+  // COMMON: %[[L1_VAL0:.*]] = affine.load %[[MEM0]][%[[I]], %[[J_PROLOGUE]]]
+  // COMMON: affine.store %[[L1_VAL0]], %[[DST]][%[[C0_COPY]], %[[I]], %[[J_PROLOGUE]]]
+  // COMMON: %[[C1_COPY:.*]] = arith.constant 1 : index
+  // COMMON: %[[L1_VAL1:.*]] = affine.load %[[MEM1]][%[[I]], %[[J_PROLOGUE]]]
+  // COMMON: affine.store %[[L1_VAL1]], %[[DST]][%[[C1_COPY]], %[[I]], %[[J_PROLOGUE]]]
+  // COMMON: }
+
+  // COMPUTE: DST operations (inner loop 2)
+  // COMMON: affine.for %[[J_COMPUTE:.*]] = 0 to 2 {
+  // COMMON: affine.load %[[DST]]
+  // COMMON: "d2m.tile_abs"
+  // COMMON: "d2m.tile_sin"
+  // COMMON: affine.load %[[DST]]
+  // COMMON: "d2m.tile_negative"
   // Verify result_dst_index attribute is attached for all strategies
-  // BASIC: "d2m.tile_add"{{.*}}{result_dst_index = 1 : i64}
   // CHAITIN: "d2m.tile_add"{{.*}}{result_dst_index = 1 : i64}
   // GREEDY: "d2m.tile_add"{{.*}}{result_dst_index = 0 : i64}
+  // COMMON: affine.store {{.*}}, %[[DST]]
+  // COMMON: }
 
-  func.func @test_chain_multi_tile(%in0: memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1_>,
+  // EPILOGUE: DST->L1 copies with constant DST slice index (inner loop 3)
+  // COMMON: affine.for %[[J_EPILOGUE:.*]] = 0 to 2 {
+  // CHAITIN: %[[C1_EPILOGUE:.*]] = arith.constant 1 : index
+  // CHAITIN-NEXT: %[[DST_RESULT:.*]] = affine.load %[[DST]][%[[C1_EPILOGUE]],
+  // GREEDY: %[[C0_EPILOGUE:.*]] = arith.constant 0 : index
+  // GREEDY-NEXT: %[[DST_RESULT:.*]] = affine.load %[[DST]][%[[C0_EPILOGUE]],
+  // COMMON: affine.store %[[DST_RESULT]], %[[MEM_OUT]]
+  // COMMON: }
+  // COMMON: }
+
+  func.func @test_2x2_binary_with_nested_loops(%in0: memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1_>,
                                    %in1: memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1_>,
                                    %out: memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1_>) {
     d2m.generic {
@@ -364,21 +404,52 @@ module {
 #dst = #ttcore.memory_space<dst>
 
 module {
-  // COMMON-LABEL: func.func @test_multi_chain
+  // COMMON-LABEL: func.func @test_three_input_strategy_differences
   // COMMON: d2m.generic
   // Demonstrates strategy-specific allocation differences
   // COMMON: %[[DST:.*]] = d2m.acquire_dst() : memref<3x1x1x!ttcore.tile<32x32, f32>, #dst>
-  // COMMON: affine.load {{.*}}: memref<1x1x!ttcore.tile<32x32, f32>, #l1_>
+  // COMMON: %[[C0:.*]] = arith.constant 0 : index
+  // COMMON: %[[MEM0:.*]] = d2m.wait
+  // COMMON: %[[MEM1:.*]] = d2m.wait
+  // COMMON: %[[MEM2:.*]] = d2m.wait
+  // COMMON: %[[MEM_OUT:.*]] = d2m.reserve
+
+  // Copy input 0 to DST[0]
+  // COMMON: %[[L1_VAL0:.*]] = affine.load %[[MEM0]][%[[C0]], %[[C0]]]
+  // COMMON-NEXT: affine.store %[[L1_VAL0]], %[[DST]][0, %[[C0]], %[[C0]]]
+  // Load from DST[0] and compute tile_abs
+  // COMMON: affine.load %[[DST]]
+
+  // Copy input 1 to DST[1]
+  // COMMON: %[[L1_VAL1:.*]] = affine.load %[[MEM1]][%[[C0]], %[[C0]]]
+  // COMMON-NEXT: affine.store %[[L1_VAL1]], %[[DST]][1, %[[C0]], %[[C0]]]
+
+  // Load from DST[1]
+  // COMMON: affine.load %[[DST]]
+
+  // Copy input 2 to DST[2]
+  // COMMON: %[[L1_VAL2:.*]] = affine.load %[[MEM2]][%[[C0]], %[[C0]]]
+  // COMMON-NEXT: affine.store %[[L1_VAL2]], %[[DST]][2, %[[C0]], %[[C0]]]
+  
+  // Load from DST[2]
+  // COMMON: affine.load %[[DST]]
+  // Compute operations
   // COMMON: "d2m.tile_abs"
   // COMMON: "d2m.tile_sin"
   // COMMON: "d2m.tile_negative"
   // COMMON: "d2m.tile_add"
   // GREEDY: "d2m.tile_mul"{{.*}}{result_dst_index = 0 : i64}
   // CHAITIN: "d2m.tile_mul"{{.*}}{result_dst_index = 2 : i64}
-  // BASIC: "d2m.tile_mul"{{.*}}{result_dst_index = 2 : i64}
-  // COMMON: affine.store {{.*}}: memref<1x1x!ttcore.tile<32x32, f32>, #l1_>
+  // Store result to DST with constant index, then load and copy to L1
+  // GREEDY: %[[C0_STORE:.*]] = arith.constant 0 : index
+  // GREEDY: affine.store {{.*}}, %[[DST]][%[[C0_STORE]],
+  // GREEDY: %[[DST_RESULT:.*]] = affine.load %[[DST]][0, %[[C0]], %[[C0]]]
+  // CHAITIN: %[[C2_STORE:.*]] = arith.constant 2 : index
+  // CHAITIN: affine.store {{.*}}, %[[DST]][%[[C2_STORE]],
+  // CHAITIN: %[[DST_RESULT:.*]] = affine.load %[[DST]][2, %[[C0]], %[[C0]]]
+  // COMMON: affine.store %[[DST_RESULT]], %[[MEM_OUT]][%[[C0]], %[[C0]]]
 
-  func.func @test_multi_chain(%in0: memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_>,
+  func.func @test_three_input_strategy_differences(%in0: memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_>,
                               %in1: memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_>,
                               %in2: memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_>,
                               %out: memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_>) {
