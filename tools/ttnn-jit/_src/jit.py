@@ -63,7 +63,9 @@ class JitFunction:
             # Use input tensor device to query if available.
             if ttnn_device:
                 runtime_device = create_runtime_device_from_ttnn(ttnn_device)
-                system_desc = get_current_system_desc(dispatch_core_type, runtime_device)
+                system_desc = get_current_system_desc(
+                    dispatch_core_type, runtime_device
+                )
                 if self.debug:
                     print(f"System descriptor queried using existing device.")
             else:
@@ -88,7 +90,9 @@ class JitFunction:
     def __call__(self, *args, **kwargs):
         """Execute the JIT-compiled function."""
         if not self.system_desc_path:
-            self.system_desc_path = self._query_and_save_system_desc(args[0].device() if args else None)
+            self.system_desc_path = self._query_and_save_system_desc(
+                args[0].device() if args else None
+            )
 
         tensor_args = {}
         param_names = list(inspect.signature(self.func).parameters.keys())
