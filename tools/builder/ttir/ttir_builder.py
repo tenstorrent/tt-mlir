@@ -9637,9 +9637,9 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
                     )
                     # Handle scalar tensors (empty shape)
                     if len(shape) == 0:
-                        golden_input = torch.rand(1, dtype=dtype).squeeze()
+                        golden_input = torch.randn(1, dtype=dtype).squeeze()
                     else:
-                        golden_input = torch.rand(*shape, dtype=dtype)
+                        golden_input = torch.randn(*shape, dtype=dtype)
                     golden_inputs.append(golden_input)
 
             with InsertionPoint(new_module.body):
@@ -9668,7 +9668,6 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
                     for entry in parsed_module.body.operations:
                         for block in entry.body:
                             for op in block.operations:
-                                print(op)
                                 if isinstance(op, func.ReturnOp):
                                     global_result = tuple(
                                         global_dict[operand] for operand in op.operands
