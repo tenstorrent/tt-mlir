@@ -4,6 +4,8 @@
 
 #include "ttmlir/Support/TTPrintIRInstrumentation.h"
 
+#include "llvm/Support/FileSystem.h"
+
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/Builders.h"
@@ -11,13 +13,11 @@
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Transforms/Passes.h"
 
-#include "gtest/gtest.h"
-
 #include <algorithm>
 #include <filesystem>
 #include <string>
 
-#include "llvm/Support/FileSystem.h"
+#include "gtest/gtest.h"
 
 using namespace mlir::tt;
 

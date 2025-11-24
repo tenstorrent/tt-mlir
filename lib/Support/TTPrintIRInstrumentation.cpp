@@ -3,11 +3,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Support/TTPrintIRInstrumentation.h"
+
 #include "mlir/IR/Operation.h"
 #include "mlir/Pass/Pass.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/raw_ostream.h"
+
 #include <algorithm>
 #include <filesystem>
 
