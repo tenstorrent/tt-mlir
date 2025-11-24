@@ -615,9 +615,26 @@ public:
         rewriter.getDenseI64ArrayAttr({0, 2, 1, 3}), nullptr,
         rewriter.getF32FloatAttr(0.0f));
 
+    auto updateIndex = adaptor.getUpdateIndex();
+    auto updateIndexType = cast<RankedTensorType>(updateIndex.getType());
+
+    // If the update index is 1x1 then we must repeat to num users/
+
+    int64_t numUsers = newShape[1];
+
+    if (updateIndexType.getShape()[0] == 1) {
+      llvm::SmallVector<int64_t, 1> repeatShape = {numUsers};
+      auto repeatShapeAttr =
+          ttnn::ShapeAttr::get(rewriter.getContext(), repeatShape);
+      auto repeatType =
+          RankedTensorType::get({numUsers}, updateIndexType.getElementType(),
+                                updateIndexType.getEncoding());
+      updateIndex = rewriter.create<ttnn::RepeatOp>(
+          op.getLoc(), repeatType, updateIndex, repeatShapeAttr);
+    }
+
     rewriter.create<ttnn::PagedUpdateCacheOp>(
-        op.getLoc(), adaptor.getCache(), newInput, adaptor.getUpdateIndex(),
-        false, nullptr);
+        op.getLoc(), adaptor.getCache(), newInput, updateIndex, false, nullptr);
 
     rewriter.replaceOp(op, adaptor.getCache());
     return success();
