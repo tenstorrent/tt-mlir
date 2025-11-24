@@ -212,8 +212,7 @@ static MemRefType getMemRefType(Type type, bool isView,
   if (isView) {
     const unsigned rank = static_cast<unsigned>(fullMemrefShape.size());
     mlir::AffineMap map = layout.getIndexAffineMapOrIdentity(rank);
-    llvm::dbgs() << "\n[getMemRefType] type: " << type << "\n";
-    assert(map && 
+    assert(map &&
            "expected tensor encoding to provide a concrete index_map for view");
     layoutAttr = ViewLayoutAttr::get(ctx, map);
   } else {

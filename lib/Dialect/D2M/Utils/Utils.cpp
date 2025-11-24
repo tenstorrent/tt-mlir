@@ -16,11 +16,6 @@ mlir::AffineMap calculateReblockMap(mlir::ArrayRef<int64_t> inputShape,
                                     mlir::ArrayRef<int64_t> outputShape,
                                     mlir::MLIRContext *ctx) {
 
-  llvm::dbgs() << "calculateReblockMap: inputShape: "
-               << ttmlir::utils::formatIterable(inputShape, "x") << "\n";
-  llvm::dbgs() << "calculateReblockMap: outputShape: "
-               << ttmlir::utils::formatIterable(outputShape, "x") << "\n";
-
   int64_t inputRank = static_cast<int64_t>(inputShape.size());
   int64_t outputRank = static_cast<int64_t>(outputShape.size());
   TT_assertv(inputRank % 2 == 0, "Input rank must be even");
@@ -57,10 +52,6 @@ mlir::AffineMap calculateReblockMap(mlir::ArrayRef<int64_t> inputShape,
   auto logicalToInput = mlir::AffineMap::get(1, 0, toInputExprs, ctx);
 
   auto composeMap = logicalToInput.compose(outputToLogical);
-
-  llvm::dbgs() << "outputToLogical: " << outputToLogical << "\n";
-  llvm::dbgs() << "logicalToInput: " << logicalToInput << "\n";
-  llvm::dbgs() << "composeMap: " << composeMap << "\n";
 
   return composeMap;
 }

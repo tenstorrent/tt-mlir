@@ -302,10 +302,6 @@ class D2MSplitCompoundLayoutRewriter : public OpRewritePattern<ToLayoutOp> {
         collapsedVirtualGridShape[0] *= virtualGridShape[i];
       }
       collapsedVirtualGridShape[1] = virtualGridShape.back();
-      llvm::dbgs()
-          << "computeVirtualGridBounceShape: collapsedVirtualGridShape: "
-          << ttmlir::utils::formatIterable(collapsedVirtualGridShape, "x")
-          << "\n";
 
       llvm::SmallVector<int64_t> bounceShape;
       for (size_t i = 0; i < collapsedVirtualGridShape.size(); i++) {
@@ -317,8 +313,6 @@ class D2MSplitCompoundLayoutRewriter : public OpRewritePattern<ToLayoutOp> {
       }
       TT_assert(bounceShape.size() == 2u);
 
-      llvm::dbgs() << "computeVirtualGridBounceShape: bounceShape: "
-                   << ttmlir::utils::formatIterable(bounceShape, "x") << "\n";
       return bounceShape;
     }
 
@@ -354,7 +348,6 @@ class D2MSplitCompoundLayoutRewriter : public OpRewritePattern<ToLayoutOp> {
 
       auto type = RankedTensorType::get(deviceShape,
                                         systemType.getElementType(), layout);
-      llvm::dbgs() << "\ncreateDeviceType: return type: " << type << "\n";
       return type;
     }
 
@@ -381,13 +374,9 @@ class D2MSplitCompoundLayoutRewriter : public OpRewritePattern<ToLayoutOp> {
         tensorGrid.assign(newTensorGrid->begin(), newTensorGrid->end());
       } else {
         auto currentGrid = llvm::to_vector(baseLayout.getGridShape(baseType));
-        llvm::dbgs() << "modifyDeviceType: current grid: "
-                     << ttmlir::utils::formatIterable(currentGrid, "x") << "\n";
         tensorGrid = currentGrid;
 
         if (hasVirtualGrid && reblockVirtualGridShapes) {
-          llvm::dbgs() << "modifyDeviceType: reblock virtual grid shapes"
-                       << "\n";
           tensorGrid =
               computeVirtualGridBounceShape(currentGrid, targetGridShape);
         }
@@ -400,9 +389,6 @@ class D2MSplitCompoundLayoutRewriter : public OpRewritePattern<ToLayoutOp> {
             RankedTensorType::get({0, 2}, IntegerType::get(ctx, 64));
         collapsedIntervals =
             DenseIntElementsAttr::get(emptyIntervalType, ArrayRef<int64_t>{});
-        llvm::dbgs() << "\nmodifyDeviceType: change collapsed intervals from "
-                     << baseLayout.getCollapsedIntervals() << " to "
-                     << collapsedIntervals << "\n";
         layout = ttcore::MetalLayoutAttr::get(
             ctx, baseLayout.getLogicalShape(), baseLayout.getOobVal(), memSpace,
             baseLayout.getMemoryLayout(), collapsedIntervals);
@@ -420,7 +406,6 @@ class D2MSplitCompoundLayoutRewriter : public OpRewritePattern<ToLayoutOp> {
       auto deviceShape = layout.getDeviceShape(tensorGrid, tileShape);
 
       auto type = RankedTensorType::get(deviceShape, elementType, layout);
-      llvm::dbgs() << "\nmodifyDeviceType: return type: " << type << "\n";
       return type;
     }
 
@@ -470,23 +455,12 @@ public:
 
     BounceTypeBuilder typeBuilder(rewriter.getContext());
 
-    auto printIO = [&]() {
-      if (inputInfo.hasLayout()) {
-        llvm::dbgs() << "input: " << inputInfo.type << "\n";
-      }
-      if (outputInfo.hasLayout()) {
-        llvm::dbgs() << "output: " << outputInfo.type << "\n";
-      }
-    };
-
     // Handle system <-> device transitions specially.
     if (inputInfo.hasLayout() != outputInfo.hasLayout()) {
       if (!inputInfo.hasLayout()) {
         // System -> Device: move to L1 using output's layout characteristics.
         assert(outputInfo.layout &&
                "Output must have layout for system->device");
-        llvm::dbgs() << "\n----- SYSTEM -> DEVICE -----\n";
-        printIO();
         auto bounceType = typeBuilder.createDeviceType(
             inputInfo.type, *outputInfo.layout, outputInfo.type,
             ttcore::MemorySpace::DeviceL1, getTargetGridShape());
@@ -496,8 +470,6 @@ public:
         // characteristics.
         assert(inputInfo.layout && "Input must have layout for device->system");
         bool reblockVirtualGridShapes = true;
-        llvm::dbgs() << "\n----- DEVICE -> SYSTEM -----\n";
-        printIO();
         auto bounceType = typeBuilder.modifyDeviceType(
             inputInfo.type, *inputInfo.layout, getTargetGridShape(),
             ttcore::MemorySpace::DeviceL1,
@@ -537,8 +509,6 @@ public:
                ttcore::isTiled(outputInfo.type)) {
       // Format conversion
       if (ttcore::isTiled(inputInfo.type)) {
-        llvm::dbgs() << "\n----- UNTILIZE CONVERSION -----\n";
-        printIO();
         // Tilized -> scalar: use output's layout/grid, change element type.
         auto bounceType = typeBuilder.modifyDeviceType(
             outputInfo.type, *outputInfo.layout, getTargetGridShape(),
@@ -547,8 +517,6 @@ public:
             ttcore::getTensorTileShape(inputInfo.type), true);
         bounce(rewriter, op, bounceType);
       } else {
-        llvm::dbgs() << "\n----- TILIZE CONVERSION -----\n";
-        printIO();
         // Scalar -> tilized: use input's layout/grid, change element type.
         auto bounceType = typeBuilder.modifyDeviceType(
             inputInfo.type, *inputInfo.layout, getTargetGridShape(),
@@ -564,8 +532,6 @@ public:
         scalarType = tileType.getElementType();
       }
 
-      llvm::dbgs() << "\n----- LAYOUT CHANGE -----\n";
-      printIO();
       auto bounceType = typeBuilder.modifyDeviceType(
           inputInfo.type, *inputInfo.layout, getTargetGridShape(),
           /*memSpace=*/{},
@@ -575,8 +541,6 @@ public:
     } else if (components.isGridChange) {
       // Grid change - create intermediate with input's grid but output's
       // layout.
-      llvm::dbgs() << "\n----- GRID CHANGE -----\n";
-      printIO();
       auto bounceType = typeBuilder.modifyDeviceType(
           outputInfo.type, *outputInfo.layout, getTargetGridShape(),
           /*memSpace=*/{}, inputInfo.getGridShape());

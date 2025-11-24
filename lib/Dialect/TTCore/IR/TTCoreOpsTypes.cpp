@@ -745,13 +745,6 @@ static llvm::SmallVector<int64_t> applyCollapsedIntervalsAndAlignments(
   assert(shape.size() == alignments.size() &&
          "Shape and alignments must have same size");
 
-  llvm::dbgs() << "\napplyCollapsedIntervalsAndAlignments: shape: "
-               << ttmlir::utils::formatIterable(shape, "x") << "\n";
-  llvm::dbgs() << "applyCollapsedIntervalsAndAlignments: normalizedIntervals: "
-               << ttmlir::utils::formatIterable(normalizedIntervals) << "\n";
-  llvm::dbgs() << "applyCollapsedIntervalsAndAlignments: alignments: "
-               << ttmlir::utils::formatIterable(alignments, "x") << "\n";
-
   llvm::SmallVector<int64_t> resultShape;
 
   // Process with collapse intervals.
@@ -925,8 +918,6 @@ MetalLayoutAttr::getPhysicalGridShape(ShapedType tensorType) const {
 
   TT_assertv((ybounds.first == 0 && xbounds.first == 0),
              "Physical grid shape must start at y=0,x=0.");
-  llvm::dbgs() << "getPhysicalGridShape: derived physicalGridShape: "
-               << ybounds.second + 1 << "x" << xbounds.second + 1 << "\n";
   return {ybounds.second + 1, xbounds.second + 1};
 }
 
@@ -939,16 +930,6 @@ MetalLayoutAttr::getDeviceShape(ArrayRef<int64_t> gridShape,
   llvm::SmallVector<int64_t> deviceShape(gridShape);
   deviceShape.reserve(physicalShape.size() * 2);
 
-  llvm::dbgs() << "\n";
-  llvm::dbgs() << "getDeviceShape: collapsedIntervals: "
-               << getCollapsedIntervals() << "\n";
-  llvm::dbgs() << "getDeviceShape: logicalShape: "
-               << ttmlir::utils::formatIterable(getLogicalShape(), "x") << "\n";
-  llvm::dbgs() << "getDeviceShape: physicalShape: "
-               << ttmlir::utils::formatIterable(physicalShape, "x") << "\n";
-  llvm::dbgs() << "getDeviceShape: gridShape: "
-               << ttmlir::utils::formatIterable(gridShape, "x") << "\n";
-
   // Divide grid dimensions in physical shape by tile dimensions to obtain the
   // shard shape and append it to the device shape.
   for (size_t i = 0; i < physicalShape.size(); ++i) {
@@ -960,8 +941,6 @@ MetalLayoutAttr::getDeviceShape(ArrayRef<int64_t> gridShape,
                dim, gridDim);
     deviceShape.push_back(dim / gridDim);
   }
-  llvm::dbgs() << "getDeviceShape: deviceShape: "
-               << ttmlir::utils::formatIterable(deviceShape, "x") << "\n";
   return deviceShape;
 }
 
@@ -1495,39 +1474,22 @@ mlir::AffineMap DeviceAttr::getMemoryMap(MemRefType memrefType, size_t pageSize,
             affineMap.getNumDims() - coreVirtMap.getNumResults();
         llvm::SmallBitVector projectedDims(affineMap.getNumDims());
         projectedDims.set(0, dimsToRemove);
-        llvm::dbgs() << "[getMemoryMap] (opt) projectedDims: [\n";
-        for (size_t i = 0; i < projectedDims.size(); i++) {
-          llvm::dbgs() << projectedDims[i] << ", ";
-        }
-        llvm::dbgs() << "]\n";
 
         affineMap = getProjectedMap(affineMap, projectedDims);
         affineMap = affineMap.dropResults(projectedDims);
       }
 
-      llvm::dbgs() << "[getMemoryMap] (opt) affineMap:   " << affineMap << "\n";
-      llvm::dbgs() << "[getMemoryMap] (opt) coreVirtMap:   " << coreVirtMap
-                   << "\n";
       affineMap = affineMap.compose(coreVirtMap);
     }
-    llvm::dbgs() << "[getMemoryMap] (opt) pre viewaffineMap:   " << affineMap
-                 << "\n";
     if (view) {
-      llvm::dbgs() << "[getMemoryMap] (opt) view:   " << *view << "\n";
       affineMap = affineMap.compose(*view);
     }
-    llvm::dbgs() << "[getMemoryMap] pre memory map:   " << affineMap << "\n";
 
     switch (memorySpace) {
     case MemorySpace::DeviceL1: {
       SmallVector<int64_t> symbols = {static_cast<int64_t>(baseOffset)};
       auto resolvedL1Map =
           ttmlir::utils::replaceAffineMapSymbols(getL1Map(), symbols);
-      llvm::dbgs() << "[getMemoryMap] resolvedL1Map:     " << resolvedL1Map
-                   << "\n";
-      llvm::dbgs() << "[getMemoryMap] post memory map:   "
-                   << resolvedL1Map.compose(affineMap) << "\n";
-      llvm::dbgs() << "[getMemoryMap] DONE" << "\n";
       return resolvedL1Map.compose(affineMap);
     }
     case MemorySpace::DeviceDRAM: {
