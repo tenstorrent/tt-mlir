@@ -334,6 +334,15 @@ struct D2MInsertDstRegisterGCPass
             replaceAffineAccessWithDst<affine::AffineLoadOp>(
                 rewriter, loadOp, acquireDst.getResult(), assignedSlice);
           } else if (auto storeOp = mlir::dyn_cast<affine::AffineStoreOp>(op)) {
+            // Attach result_dst_index attribute to the operation producing the value.
+            // This enables the backend to retrieve the DST index without
+            // searching for store operations (which may not exist with register reuse).
+            if (Operation *defOp = storeOp.getValueToStore().getDefiningOp()) {
+              if (auto computeOp = mlir::dyn_cast<OperandLoadStoreRegisterOpInterface>(defOp)) {
+                defOp->setAttr("result_dst_index", rewriter.getI64IntegerAttr(assignedSlice));
+              }
+            }
+
             replaceAffineAccessWithDst<affine::AffineStoreOp>(
                 rewriter, storeOp, acquireDst.getResult(), assignedSlice);
           }

@@ -363,6 +363,13 @@ public:
                                                   dstSliceIndex,
                                                   outermostInnerComputeLoop);
 
+          // Attach result_dst_index attribute to the compute operation.
+          // This enables the backend to retrieve the DST index without
+          // searching for store operations (which may not exist with register reuse).
+          computeOp->setAttr("result_dst_index",
+                             mlir::IntegerAttr::get(
+                                 mlir::IntegerType::get(computeOp->getContext(), 64),
+                                 dstSliceIndex));
         }
         // If the user isn't a store, it must be another compute consumer and we
         // need to set or allocate a dest register intermediate for it.
@@ -382,6 +389,12 @@ public:
 
           dstRegisterAllocation[computeOp] = {allocatedIndex,
                                               outermostInnerComputeLoop};
+
+          // Attach result_dst_index attribute for intermediate values.
+          computeOp->setAttr("result_dst_index",
+                             mlir::IntegerAttr::get(
+                                 mlir::IntegerType::get(computeOp->getContext(), 64),
+                                 allocatedIndex));
         }
       }
     });

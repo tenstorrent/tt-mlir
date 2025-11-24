@@ -56,7 +56,28 @@ class D2M_GenericRegionOp<string mnemonic, list<Trait> traits = []> :
     D2M_Op<mnemonic, [D2M_GenericParent] # traits> {}
 
 class D2M_GenericRegionComputeOp<string mnemonic, list<Trait> traits = []> :
-    D2M_GenericRegionOp<mnemonic, [D2M_GenericRegionComputeOpTrait, D2M_OperandLoadStoreRegisterOpInterface] # traits> {}
+    D2M_GenericRegionOp<mnemonic, [D2M_GenericRegionComputeOpTrait, D2M_OperandLoadStoreRegisterOpInterface] # traits> {
+
+  // Accessor methods for optional result DST register index attribute.
+  // The result_dst_index attribute is dynamically attached by DST allocation passes
+  // and communicates which DST register slice holds the result of this operation.
+  // This enables the backend to retrieve results without searching for store
+  // operations (which may not exist with register reuse optimization).
+  let extraClassDeclaration = [{
+    // Get the result DST index if it has been assigned, otherwise return std::nullopt.
+    std::optional<uint64_t> getResultDstIndex() {
+      if (auto attr = (*this)->getAttrOfType<::mlir::IntegerAttr>("result_dst_index")) {
+        return attr.getUInt();
+      }
+      return std::nullopt;
+    }
+
+    // Set the result DST index for this operation.
+    void setResultDstIndex(::mlir::OpBuilder &builder, uint64_t index) {
+      (*this)->setAttr("result_dst_index", builder.getI64IntegerAttr(index));
+    }
+  }];
+}
 
 class D2M_GenericRegionComputeUnaryDstOp<string mnemonic, list<Trait> traits = []> :
     D2M_GenericRegionComputeOp<mnemonic, traits> {
