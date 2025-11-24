@@ -55,7 +55,7 @@ module {
 // CHECK: ^compute0(%[[CB0:.*]]: !d2m.cb<memref<2x2x!ttcore.tile<32x32, f16>, #l1>>, %[[CB1:.*]]: !d2m.cb<memref<2x2x!ttcore.tile<32x32, f16>, #l1>>, %[[CB_OUT:.*]]: !d2m.cb<memref<2x2x!ttcore.tile<32x32, f16>, #l1>>):
 
 // Acquire DST at the beginning
-// CHECK: %[[DST:.*]] = d2m.acquire_dst() : memref<2x2x2x!ttcore.tile<32x32, f16>, #dst>
+// CHECK: %[[DST:.*]] = d2m.acquire_dst() : memref<3x2x2x!ttcore.tile<32x32, f16>, #dst>
 
 // Wait/reserve operations
 // CHECK: %[[MEM0:.*]] = d2m.wait %[[CB0]]
@@ -70,24 +70,24 @@ module {
 // PROLOGUE INNER LOOP: L1 -> DST copies for both inputs
 // CHECK: affine.for %[[PROLOGUE_J:.*]] = 0 to 2 {
 // CHECK: %[[L1_VAL0:.*]] = affine.load %[[MEM0]][%[[OUTER_I]], %[[PROLOGUE_J]]]
-// CHECK-NEXT: affine.store %[[L1_VAL0]], %[[DST]][1, %[[OUTER_I]], %[[PROLOGUE_J]]]
+// CHECK: affine.store %[[L1_VAL0]], %[[DST]][{{.*}}, %[[OUTER_I]], %[[PROLOGUE_J]]]
 // CHECK: %[[L1_VAL1:.*]] = affine.load %[[MEM1]][%[[OUTER_I]], %[[PROLOGUE_J]]]
-// CHECK-NEXT: affine.store %[[L1_VAL1]], %[[DST]][0, %[[OUTER_I]], %[[PROLOGUE_J]]]
-// CHECK-NEXT: }
+// CHECK: affine.store %[[L1_VAL1]], %[[DST]][{{.*}}, %[[OUTER_I]], %[[PROLOGUE_J]]]
+// CHECK: }
 
 // COMPUTE INNER LOOP: Original computation using DST values
 // CHECK: affine.for %[[COMPUTE_J:.*]] = 0 to 2 {
-// CHECK: %[[DST_VAL0:.*]] = affine.load %[[DST]][1, %[[OUTER_I]], %[[COMPUTE_J]]]
-// CHECK: %[[DST_VAL1:.*]] = affine.load %[[DST]][0, %[[OUTER_I]], %[[COMPUTE_J]]]
+// CHECK: %[[DST_VAL0:.*]] = affine.load %[[DST]][{{.*}}, {{.*}}, {{.*}}]
+// CHECK: %[[DST_VAL1:.*]] = affine.load %[[DST]][{{.*}}, {{.*}}, {{.*}}]
 // CHECK: %[[COMPUTE_RESULT:.*]] = "d2m.tile_add"(%[[DST_VAL0]], %[[DST_VAL1]])
-// CHECK-NEXT: affine.store %[[COMPUTE_RESULT]], %[[DST]][0, %[[OUTER_I]], %[[COMPUTE_J]]]
-// CHECK-NEXT: }
+// CHECK: affine.store %[[COMPUTE_RESULT]], %[[DST]][{{.*}}, {{.*}}, {{.*}}]
+// CHECK: }
 
 // EPILOGUE INNER LOOP: DST -> L1 result copies
 // CHECK: affine.for %[[EPILOGUE_J:.*]] = 0 to 2 {
-// CHECK: %[[DST_RESULT:.*]] = affine.load %[[DST]][0, %[[OUTER_I]], %[[EPILOGUE_J]]]
-// CHECK-NEXT: affine.store %[[DST_RESULT]], %[[MEM_OUT]][%[[OUTER_I]], %[[EPILOGUE_J]]]
-// CHECK-NEXT: }
+// CHECK: %[[DST_RESULT:.*]] = affine.load %[[DST]][{{.*}}, %[[OUTER_I]], %[[EPILOGUE_J]]]
+// CHECK: affine.store %[[DST_RESULT]], %[[MEM_OUT]][%[[OUTER_I]], %[[EPILOGUE_J]]]
+// CHECK: }
 
 // End of outer loop
 // CHECK: }

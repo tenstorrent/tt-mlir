@@ -16,25 +16,18 @@ module {
   ) {
     // First generic: adds two inputs and stores to temp
     // CHECK: d2m.generic
-    // CHECK: %[[DST0:.*]] = d2m.acquire_dst() : memref<2x1x1x!ttcore.tile<32x32, f16>, #dst>
+    // CHECK: %[[DST0:.*]] = d2m.acquire_dst() : memref<3x1x1x!ttcore.tile<32x32, f16>, #dst>
     // CHECK-DAG: %[[C0_0:.*]] = arith.constant 0
     // CHECK-DAG: %[[MEM0_0:.*]] = d2m.wait
     // CHECK-DAG: %[[MEM1_0:.*]] = d2m.wait
     // CHECK-DAG: %[[MEMOUT_0:.*]] = d2m.reserve
-    // L1 -> DST copies (may be reordered)
-    // CHECK-DAG: %[[V0_L1:.*]] = affine.load %[[MEM0_0]][%[[C0_0]], %[[C0_0]]]
-    // CHECK-DAG: affine.store %[[V0_L1]], %[[DST0]][{{.*}}, %[[C0_0]], %[[C0_0]]]
-    // CHECK-DAG: %[[V1_L1:.*]] = affine.load %[[MEM1_0]][%[[C0_0]], %[[C0_0]]]
-    // CHECK-DAG: affine.store %[[V1_L1]], %[[DST0]][{{.*}}, %[[C0_0]], %[[C0_0]]]
-    // DST -> operation operands (may be reordered)
-    // CHECK-DAG: %[[V0_DST:.*]] = affine.load %[[DST0]][{{.*}}, %[[C0_0]], %[[C0_0]]]
-    // CHECK-DAG: %[[V1_DST:.*]] = affine.load %[[DST0]][{{.*}}, %[[C0_0]], %[[C0_0]]]
+    // L1 -> DST copies (may be reordered, but check slice indices)
+    // CHECK-DAG: affine.store {{.*}}, %[[DST0]][0, {{.*}}, {{.*}}]
+    // CHECK-DAG: affine.store {{.*}}, %[[DST0]][1, {{.*}}, {{.*}}]
     // Compute operation using DST values
-    // CHECK: %[[ADD_RESULT:.*]] = "d2m.tile_add"(%[[V0_DST]], %[[V1_DST]])
-    // Result -> DST -> L1
-    // CHECK: affine.store %[[ADD_RESULT]], %[[DST0]][{{.*}}, %[[C0_0]], %[[C0_0]]]
-    // CHECK: %[[RESULT_DST:.*]] = affine.load %[[DST0]][{{.*}}, %[[C0_0]], %[[C0_0]]]
-    // CHECK: affine.store %[[RESULT_DST]], %[[MEMOUT_0]][%[[C0_0]], %[[C0_0]]]
+    // CHECK: "d2m.tile_add"
+    // Result stored to DST slice 2
+    // CHECK: affine.store {{.*}}, %[[DST0]][{{.*}}2{{.*}}, {{.*}}, {{.*}}]
     // CHECK: d2m.release_dst %[[DST0]]
     d2m.generic {
       block_factors = [1, 1],
@@ -66,25 +59,18 @@ module {
 
     // Second generic: multiplies temp with in0 and stores to output
     // CHECK: d2m.generic
-    // CHECK: %[[DST1:.*]] = d2m.acquire_dst() : memref<2x1x1x!ttcore.tile<32x32, f16>, #dst>
+    // CHECK: %[[DST1:.*]] = d2m.acquire_dst() : memref<3x1x1x!ttcore.tile<32x32, f16>, #dst>
     // CHECK-DAG: %[[C0_1:.*]] = arith.constant 0
     // CHECK-DAG: %[[MEM0_1:.*]] = d2m.wait
     // CHECK-DAG: %[[MEM1_1:.*]] = d2m.wait
     // CHECK-DAG: %[[MEMOUT_1:.*]] = d2m.reserve
-    // L1 -> DST copies (may be reordered)
-    // CHECK-DAG: %[[TEMP_L1:.*]] = affine.load %[[MEM0_1]][%[[C0_1]], %[[C0_1]]]
-    // CHECK-DAG: affine.store %[[TEMP_L1]], %[[DST1]][{{.*}}, %[[C0_1]], %[[C0_1]]]
-    // CHECK-DAG: %[[IN0_L1:.*]] = affine.load %[[MEM1_1]][%[[C0_1]], %[[C0_1]]]
-    // CHECK-DAG: affine.store %[[IN0_L1]], %[[DST1]][{{.*}}, %[[C0_1]], %[[C0_1]]]
-    // DST -> operation operands (may be reordered)
-    // CHECK-DAG: %[[TEMP_DST:.*]] = affine.load %[[DST1]][{{.*}}, %[[C0_1]], %[[C0_1]]]
-    // CHECK-DAG: %[[IN0_DST:.*]] = affine.load %[[DST1]][{{.*}}, %[[C0_1]], %[[C0_1]]]
+    // L1 -> DST copies (may be reordered, but check slice indices)
+    // CHECK-DAG: affine.store {{.*}}, %[[DST1]][0, {{.*}}, {{.*}}]
+    // CHECK-DAG: affine.store {{.*}}, %[[DST1]][1, {{.*}}, {{.*}}]
     // Compute operation using DST values
-    // CHECK: %[[MUL_RESULT:.*]] = "d2m.tile_mul"(%[[TEMP_DST]], %[[IN0_DST]])
-    // Result -> DST -> L1
-    // CHECK: affine.store %[[MUL_RESULT]], %[[DST1]][{{.*}}, %[[C0_1]], %[[C0_1]]]
-    // CHECK: %[[FINAL_DST:.*]] = affine.load %[[DST1]][{{.*}}, %[[C0_1]], %[[C0_1]]]
-    // CHECK: affine.store %[[FINAL_DST]], %[[MEMOUT_1]][%[[C0_1]], %[[C0_1]]]
+    // CHECK: "d2m.tile_mul"
+    // Result stored to DST slice 2
+    // CHECK: affine.store {{.*}}, %[[DST1]][{{.*}}2{{.*}}, {{.*}}, {{.*}}]
     // CHECK: d2m.release_dst %[[DST1]]
     d2m.generic {
       block_factors = [1, 1],

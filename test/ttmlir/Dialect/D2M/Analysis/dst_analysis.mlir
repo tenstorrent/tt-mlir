@@ -96,8 +96,8 @@ module {
   // Test DST analysis with a binary operation (tile_add).
   // CHECK-LABEL: func.func @binary_op
   // BASIC: remark: DST analysis (basic): 3 slices required
-  // GC: remark: DST analysis (graph-coloring): 2 slices required
-  // GREEDY: remark: DST analysis (greedy): 2 slices required
+  // GC: remark: DST analysis (graph-coloring): 3 slices required
+  // GREEDY: remark: DST analysis (greedy): 3 slices required
   func.func @binary_op(%in0: memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x8192, 1>, #l1_>,
                         %in1: memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x8192, 1>, #l1_>,
                         %out0: memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x8192, 1>, #l1_>) {

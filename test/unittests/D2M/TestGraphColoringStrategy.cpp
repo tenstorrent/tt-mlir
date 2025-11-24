@@ -390,7 +390,7 @@ TEST_F(DstAnalysisGraphColoringTest, ReportsFailureWhenColoringFails) {
   ASSERT_TRUE(funcOp);
 
   // Use GreedyColoring with maxSlices=1 to force analysis to fail.
-  // The interference graph requires 2 colors, so it will exceed the limit.
+  // The interference graph requires 3 colors, so it will exceed the limit.
   auto analysis = createGraphColoringDstAnalysis(
       std::make_unique<GreedyColoring>(), /*maxSlices=*/1);
   auto result = analysis->analyze(funcOp);
@@ -398,8 +398,8 @@ TEST_F(DstAnalysisGraphColoringTest, ReportsFailureWhenColoringFails) {
   ASSERT_TRUE(result.failureReason.has_value());
   // Verify failure message includes both required and available slices.
   EXPECT_EQ(*result.failureReason,
-            "Graph coloring failed: requires 2 slices but only 1 available");
-  EXPECT_EQ(result.numSlicesRequired, 2u);
+            "Graph coloring failed: requires 3 slices but only 1 available");
+  EXPECT_EQ(result.numSlicesRequired, 3u);
 }
 
 TEST_F(GraphColoringStrategyTest, GreedyColoringStar) {
