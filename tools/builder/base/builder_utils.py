@@ -235,12 +235,10 @@ def _compile_and_execute(
     fb_path = mlir_path + "." + ("ttnn" if target == "ttnn" else "ttm")
 
     # Execute the flatbuffer
-    golden_report = {}
+    golden_report = None
     if target in ["ttnn", "ttmetal"]:
         golden_report = execute_fb(
             fb_path=fb_path,
-            mlir_path=mlir_path,
-            builder=builder,
             pcc=pcc,
             atol=atol,
             rtol=rtol,
@@ -251,7 +249,7 @@ def _compile_and_execute(
             goldens=goldens,
         )
 
-    if export_golden_report and not disable_golden:
+    if golden_report and export_golden_report:
         _save_golden_report(builder, golden_report, mlir_path + ".golden_report.json")
 
     return mlir_path
@@ -1716,8 +1714,6 @@ def compile_ttir_module_to_flatbuffer(
 
 def execute_fb(
     fb_path: str,
-    mlir_path: str,
-    builder: Builder,
     goldens: Dict[Operand, GoldenMapTensor],
     pcc: float = 0.99,
     atol: float = 1e-08,
@@ -1844,7 +1840,7 @@ def execute_fb(
         e2e_duration_nanoseconds_submit = end_submit - start_submit
 
         e2e_duration_nanoseconds_output = 0
-        pcc_fail = False
+        golden_check_fail = False
         # Copy output tensors from device & check goldens
         for i, runtime_output_tensor in enumerate(runtime_outputs):
             start_get_output = time.perf_counter_ns()
@@ -1900,13 +1896,8 @@ def execute_fb(
             )
 
             # Check PCC
-            pcc_fail = cal_pcc < pcc
-            if pcc_fail:
-                _save_golden_report(
-                    builder,
-                    callback_runtime_config.golden_report,
-                    mlir_path + ".golden_report.json",
-                )
+            if cal_pcc < pcc:
+                golden_check_fail = True
                 raise TTBuilderGoldenException(
                     f"Failed: program-level output golden comparison failed, actual_pcc={cal_pcc} < expected_pcc={pcc}"
                 )
@@ -1915,11 +1906,7 @@ def execute_fb(
 
             # Check atol if requested
             if check_atol and cal_atol > atol:
-                _save_golden_report(
-                    builder,
-                    callback_runtime_config.golden_report,
-                    mlir_path + ".golden_report.json",
-                )
+                golden_check_fail = True
                 raise TTBuilderGoldenException(
                     f"Failed: program-level output atol check failed, actual_atol={cal_atol} > expected_atol={atol}"
                 )
@@ -1930,11 +1917,7 @@ def execute_fb(
 
             # Check rtol if requested
             if check_rtol and cal_rtol > rtol:
-                _save_golden_report(
-                    builder,
-                    callback_runtime_config.golden_report,
-                    mlir_path + ".golden_report.json",
-                )
+                golden_check_fail = True
                 raise TTBuilderGoldenException(
                     f"Failed: program-level output rtol check failed, actual_rtol={cal_rtol} > expected_rtol={rtol}"
                 )
@@ -1959,7 +1942,7 @@ def execute_fb(
         for tensor in program.output_tensors:
             logging.debug(f"{tensor}\n")
 
-        if not disable_golden:
+        if not disable_golden or golden_check_fail:
             return callback_runtime_config.golden_report
 
 
