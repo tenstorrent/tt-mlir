@@ -1759,26 +1759,28 @@ public:
     std::string buf;
     llvm::raw_string_ostream rso(buf);
 
-    rso << "ttnn::operations::experimental::conv3d::Conv3dConfig{";
-    rso << ".output_channels = " << outChannels;
+    // for some fields we need default values, so we create a default config and
+    // override the fields
+    rso << "[&]() { ";
+    rso << "auto config = "
+           "ttnn::operations::experimental::conv3d::Conv3dConfig(); ";
+    rso << "config.output_channels = " << outChannels << "; ";
 
-    rso << ", .kernel_size = {";
+    rso << "config.kernel_size = {";
     llvm::interleaveComma(kernelSize, rso);
-    rso << "}";
+    rso << "}; ";
 
-    rso << ", .stride = {";
+    rso << "config.stride = {";
     llvm::interleaveComma(stride, rso);
-    rso << "}";
+    rso << "}; ";
 
-    rso << ", .padding = {";
+    rso << "config.padding = {";
     llvm::interleaveComma(padding, rso);
-    rso << "}";
+    rso << "}; ";
 
-    rso << ", .padding_mode = \"" << paddingMode << "\"";
-    rso << ", .groups = " << groups;
-    rso << ", .compute_with_storage_grid_size = "
-           "device->compute_with_storage_grid_size()";
-    rso << "}";
+    rso << "config.padding_mode = \"" << paddingMode << "\"; ";
+    rso << "config.groups = " << groups << "; ";
+    rso << "return config; }()";
 
     return rewriter.getAttr<emitc::OpaqueAttr>(rso.str());
   }
