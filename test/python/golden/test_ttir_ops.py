@@ -1293,7 +1293,7 @@ def test_reverse(shape: Shape, dims: List[int], request, device):
     def reverse(
         in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
     ):
-        return builder.reverse(in0, dims=dims, unit_attrs=unit_attrs)
+        return builder.reverse(in0, dimensions=dims, unit_attrs=unit_attrs)
 
     compile_and_execute_ttir(
         reverse,
