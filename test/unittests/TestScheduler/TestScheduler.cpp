@@ -267,12 +267,12 @@ TEST_F(SchedulerBase, SplitQueryKeyValueAndSplitHeadsOp) {
       builder.getBoolAttr(false));
 
   mlir::Value arg0 = func.getBody().getBlocks().front().getArgument(0);
-  builder.create<ttir::AddOp>(builder.getUnknownLoc(), splitOp.getQuery(), arg0,
-                              createEmptyTensor());
-  builder.create<ttir::AddOp>(builder.getUnknownLoc(), splitOp.getKey(), arg0,
-                              createEmptyTensor());
-  builder.create<ttir::AddOp>(builder.getUnknownLoc(), splitOp.getValue(), arg0,
-                              createEmptyTensor());
+  auto queryConsumerOp = builder.create<ttir::AddOp>(
+      builder.getUnknownLoc(), splitOp.getQuery(), arg0, createEmptyTensor());
+  auto keyConsumerOp = builder.create<ttir::AddOp>(
+      builder.getUnknownLoc(), splitOp.getKey(), arg0, createEmptyTensor());
+  auto valueConsumerOp = builder.create<ttir::AddOp>(
+      builder.getUnknownLoc(), splitOp.getValue(), arg0, createEmptyTensor());
 
   mlir::tt::scheduler::Scheduler scheduler(&func);
   llvm::SmallVector<mlir::Operation *> scheduleableOps =
@@ -283,4 +283,8 @@ TEST_F(SchedulerBase, SplitQueryKeyValueAndSplitHeadsOp) {
   scheduler.scheduleOp(scheduleableOps[0]);
   scheduleableOps = scheduler.getSchedulableOps();
   ASSERT_EQ(scheduleableOps.size(), 3);
+
+  ASSERT_EQ(scheduleableOps[0], queryConsumerOp.getOperation());
+  ASSERT_EQ(scheduleableOps[1], keyConsumerOp.getOperation());
+  ASSERT_EQ(scheduleableOps[2], valueConsumerOp.getOperation());
 }

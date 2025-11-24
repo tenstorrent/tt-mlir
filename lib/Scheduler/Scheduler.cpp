@@ -111,10 +111,10 @@ llvm::SmallVector<mlir::Operation *> Scheduler::getSchedulableOps() {
     return false;
   };
 
-  // NOLINTNEXTLINE(clang-diagnostic-deprecated-declarations)
   // std::stable_sort internally uses std::get_temporary_buffer which is
   // deprecated in C++17. The deprecation is in the standard library
   // implementation, not our usage.
+  // NOLINTNEXTLINE(clang-diagnostic-deprecated-declarations)
   std::stable_sort(schedulableOps.begin(), schedulableOps.end(),
                    [&](mlir::Operation *a, mlir::Operation *b) {
                      bool aBlocked = hasBlockedSuccessor(a);
