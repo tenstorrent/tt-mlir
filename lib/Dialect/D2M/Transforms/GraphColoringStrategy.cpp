@@ -5,6 +5,7 @@
 #include "ttmlir/Dialect/D2M/Transforms/GraphColoringStrategy.h"
 
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
+#include "ttmlir/Dialect/D2M/IR/D2MOpsInterfaces.h"
 #include <algorithm>
 
 namespace mlir::tt::d2m {
@@ -161,6 +162,43 @@ std::vector<std::vector<size_t>> buildIndexGraphFromDstOperations(
     opToIndex[dstAccesses[i].first] = i;
   }
 
+  // Create reverse mapping: for each compute op, track its input loads and
+  // result store. This enables adding semantic-aware interference edges for
+  // non-in-place operations.
+  llvm::DenseMap<mlir::Operation *, llvm::SmallVector<size_t>>
+      computeOpInputLoads;
+  llvm::DenseMap<mlir::Operation *, size_t> computeOpResultStore;
+
+  // Helper to link compute operations to their DST accesses
+  auto processLoad = [&](affine::AffineLoadOp loadOp, size_t loadIdx) {
+    for (auto &use : loadOp.getResult().getUses()) {
+      mlir::Operation *user = use.getOwner();
+      if (auto computeOp =
+              mlir::dyn_cast<OperandLoadStoreRegisterOpInterface>(user)) {
+        computeOpInputLoads[computeOp.getOperation()].push_back(loadIdx);
+      }
+    }
+  };
+
+  auto processStore = [&](affine::AffineStoreOp storeOp, size_t storeIdx) {
+    if (mlir::Operation *defOp = storeOp.getValueToStore().getDefiningOp()) {
+      if (auto computeOp =
+              mlir::dyn_cast<OperandLoadStoreRegisterOpInterface>(defOp)) {
+        computeOpResultStore[defOp] = storeIdx;
+      }
+    }
+  };
+
+  // Process all DST accesses to link compute ops to their loads/stores
+  for (size_t i = 0; i < totalAccesses; ++i) {
+    mlir::Operation *accessOp = dstAccesses[i].first;
+    if (auto loadOp = mlir::dyn_cast<affine::AffineLoadOp>(accessOp)) {
+      processLoad(loadOp, i);
+    } else if (auto storeOp = mlir::dyn_cast<affine::AffineStoreOp>(accessOp)) {
+      processStore(storeOp, i);
+    }
+  }
+
   // Build interference graph using SSA value liveness analysis.
   // Two DST accesses interfere if their live ranges overlap - this means
   // they both need DST space at the same time.
@@ -262,6 +300,27 @@ std::vector<std::vector<size_t>> buildIndexGraphFromDstOperations(
         size_t idx2 = opToIndex[op2];
         interferenceGraph[idx1].push_back(idx2);
         interferenceGraph[idx2].push_back(idx1);
+      }
+    }
+  }
+
+  // Add semantic-aware interference edges for non-in-place operations.
+  // For operations with getDstRegInPlace() = false, the result store must not
+  // reuse DST slices allocated to input loads. Add explicit interference edges
+  // between the result store and all input loads to enforce this constraint.
+  for (auto &[computeOp, resultStoreIdx] : computeOpResultStore) {
+    // Check if this compute op requires a separate DST slice for its result
+    auto iface = mlir::dyn_cast<OperandLoadStoreRegisterOpInterface>(computeOp);
+    if (iface && !iface.getDstRegInPlace()) {
+      // Add interference edges from result store to all input loads
+      for (size_t inputLoadIdx : computeOpInputLoads[computeOp]) {
+        // Avoid duplicate edges
+        if (std::find(interferenceGraph[resultStoreIdx].begin(),
+                      interferenceGraph[resultStoreIdx].end(), inputLoadIdx) ==
+            interferenceGraph[resultStoreIdx].end()) {
+          interferenceGraph[resultStoreIdx].push_back(inputLoadIdx);
+          interferenceGraph[inputLoadIdx].push_back(resultStoreIdx);
+        }
       }
     }
   }

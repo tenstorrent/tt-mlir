@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttcore-register-device --d2m-insert-dst-register-gc --canonicalize %s | FileCheck %s --check-prefix=DEFAULT
+// RUN: ttmlir-opt --ttcore-register-device --d2m-insert-dst-register-gc --canonicalize %s | FileCheck %s --check-prefix=LEGACY
 // RUN: ttmlir-opt --ttcore-register-device --d2m-insert-dst-register-gc="coloring-strategy=chaitin-briggs" --canonicalize %s | FileCheck %s --check-prefix=CHAITIN
 // RUN: ttmlir-opt --ttcore-register-device --d2m-insert-dst-register-gc="coloring-strategy=greedy" --canonicalize %s | FileCheck %s --check-prefix=GREEDY
 //
@@ -10,13 +10,13 @@
 #dst_ = #ttcore.memory_space<dst>
 
 module {
-  // DEFAULT-LABEL: func.func @binary
-  // DEFAULT: %[[DST0:.*]] = d2m.acquire_dst
-  // DEFAULT-NEXT: affine.for %
-  // DEFAULT: affine.store
-  // DEFAULT: d2m.tile_maximum
-  // DEFAULT: d2m.release_dst %[[DST0]]
-  // DEFAULT-NEXT: return
+  // LEGACY-LABEL: func.func @binary
+  // LEGACY: %[[DST0:.*]] = d2m.acquire_dst
+  // LEGACY-NEXT: affine.for %
+  // LEGACY: affine.store
+  // LEGACY: d2m.tile_maximum
+  // LEGACY: d2m.release_dst %[[DST0]]
+  // LEGACY-NEXT: return
 
   // CHAITIN-LABEL: func.func @binary
   // CHAITIN: %[[DST0:.*]] = d2m.acquire_dst
@@ -64,15 +64,15 @@ module {
     return
   }
 
-  // DEFAULT-LABEL: func.func @ternary_with_interference_and_reuse
-  // DEFAULT: %[[DST0:.*]] = d2m.acquire_dst
-  // DEFAULT-NEXT: affine.for %
-  // DEFAULT: d2m.tile_maximum
-  // DEFAULT: d2m.release_dst %[[DST0]]
-  // DEFAULT-NEXT: %[[DST1:.*]] = d2m.acquire_dst
-  // DEFAULT: d2m.tile_add
-  // DEFAULT: d2m.release_dst %[[DST1]]
-  // DEFAULT-NEXT: return
+  // LEGACY-LABEL: func.func @ternary_with_interference_and_reuse
+  // LEGACY: %[[DST0:.*]] = d2m.acquire_dst
+  // LEGACY-NEXT: affine.for %
+  // LEGACY: d2m.tile_maximum
+  // LEGACY: d2m.release_dst %[[DST0]]
+  // LEGACY-NEXT: %[[DST1:.*]] = d2m.acquire_dst
+  // LEGACY: d2m.tile_add
+  // LEGACY: d2m.release_dst %[[DST1]]
+  // LEGACY-NEXT: return
 
   // CHAITIN-LABEL: func.func @ternary_with_interference_and_reuse
   // CHAITIN: %[[DST0:.*]] = d2m.acquire_dst

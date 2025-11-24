@@ -14,6 +14,7 @@
 #include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
+#include "mlir/Dialect/Affine/Utils.h"
 #include "mlir/Dialect/Affine/ViewLikeInterfaceUtils.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
@@ -100,20 +101,40 @@ static Value getCB(ConversionPatternRewriter &rewriter, Value cb) {
   llvm_unreachable("Expected load or subview op");
 }
 
-static Value getDstIdxFromResult(Value d2mOpResult) {
-  memref::StoreOp storeOp;
-  for (Operation *op : d2mOpResult.getUsers()) {
-    auto maybeStore = mlir::dyn_cast<memref::StoreOp>(op);
-    if (maybeStore && ttcore::getMemorySpace(maybeStore.getMemRef()) ==
-                          ttcore::MemorySpace::RegisterDst) {
-      storeOp = mlir::cast<memref::StoreOp>(op);
-      break;
+static Value getDstIdxFromResult(ConversionPatternRewriter &rewriter, Value d2mOpResult) {
+  // Extract DST index from the affine.store that writes the result to DST.
+  // For loop-dependent indices, the affine map contains the full expression.
+  // Fall back to the result_dst_index attribute for non-loop cases.
+  Operation *defOp = d2mOpResult.getDefiningOp();
+  assert(defOp && "Expected d2mOpResult to have a defining operation");
+
+  // Find the affine.store that writes this result to DST.
+  for (auto *user : defOp->getUsers()) {
+    if (auto storeOp = mlir::dyn_cast<affine::AffineStoreOp>(user)) {
+      if (ttcore::getMemorySpace(storeOp.getMemRef()) == ttcore::MemorySpace::RegisterDst) {
+        // Extract DST index from the affine map.
+        // The map is: (d0, d1, ...) -> (dstIndex, cbDim0, cbDim1, ...)
+        // We need to materialize the affine expression for the first result.
+        mlir::AffineMap map = storeOp.getAffineMap();
+        mlir::AffineExpr dstIndexExpr = map.getResult(0);
+
+        // Materialize the affine expression as arith ops.
+        mlir::OpBuilder::InsertionGuard guard(rewriter);
+        rewriter.setInsertionPoint(storeOp);
+        Value dstIdx = mlir::affine::expandAffineExpr(
+            rewriter, storeOp.getLoc(), dstIndexExpr,
+            storeOp.getIndices(), /*symbolVals=*/{});
+
+        return dstIdx;
+      }
     }
   }
-  assert(storeOp && "Expected store op.");
-  assert(storeOp.getIndices().size() == 1 &&
-         "Expected single index in store op");
-  return storeOp.getIndices().front();
+
+  // Fallback: read from attribute (for ops without DST store or non-loop cases).
+  auto dstIndexAttr = defOp->getAttrOfType<mlir::IntegerAttr>("result_dst_index");
+  assert(dstIndexAttr && "Expected result_dst_index attribute on D2M compute operation");
+
+  return rewriter.create<arith::ConstantIndexOp>(defOp->getLoc(), dstIndexAttr.getInt());
 }
 
 // This is a workaround special case for getting an in/out CB. This whole
@@ -578,7 +599,7 @@ public:
           op->getLoc(), cbA, cbB, adaptor.getA(), adaptor.getB(),
           adaptor.getC(), reduce_type, kernel_reduce_dim);
     } else if constexpr (arity == 2) {
-      auto dstIdx = getDstIdxFromResult(op.getResult());
+      auto dstIdx = getDstIdxFromResult(rewriter, op.getResult());
       rewriter.create<InitOp>(op->getLoc(), getCB(rewriter, op.getLhs()),
                               getCB(rewriter, op.getRhs()));
       rewriter.create<FPUOp>(op->getLoc(), getCB(rewriter, op.getLhs()),
@@ -719,10 +740,10 @@ public:
       rewriter.create<SFPUOp>(op->getLoc(), adaptor.getLhs(), adaptor.getRhs());
     } else {
       OpBuilder::InsertionGuard guard(rewriter);
-      const auto dstIdx = getDstIdxFromResult(op.getResult());
       setInsertionPointAfterOperands(
-          rewriter, {adaptor.getLhs(), adaptor.getRhs(), dstIdx},
+          rewriter, {adaptor.getLhs(), adaptor.getRhs()},
           /*allowHoisting*/ false);
+      auto dstIdx = getDstIdxFromResult(rewriter, op.getResult());
       rewriter.create<SFPUOp>(op->getLoc(), adaptor.getLhs(), adaptor.getRhs(),
                               dstIdx);
     }
@@ -815,7 +836,7 @@ public:
     Value tileIndex = adaptor.getInput();
 
     // Get the destination index where the result will be stored.
-    Value dstIdx = getDstIdxFromResult(op.getResult());
+    Value dstIdx = getDstIdxFromResult(rewriter, op.getResult());
 
     rewriter.create<ttkernel::TransposeTileOp>(op->getLoc(), inCB, tileIndex,
                                                dstIdx);
