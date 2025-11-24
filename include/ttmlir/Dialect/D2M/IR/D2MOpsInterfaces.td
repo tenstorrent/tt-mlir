@@ -144,6 +144,27 @@ def D2M_OperandLoadStoreRegisterOpInterface : OpInterface<"OperandLoadStoreRegis
       /*methodBody=*/"",
       /*defaultImplementation=*/"return false;"
     >,
+    InterfaceMethod<
+      /*desc=*/[{
+        Returns whether the operand at the given index is a scalar.
+        A scalar is defined as NOT a tile AND is int/float.
+        This is used to skip loading scalar operands from the destination register.
+      }],
+      /*retTy=*/"bool",
+      /*methodName=*/"isScalarOperand",
+      /*args=*/(ins "int64_t":$operandIdx),
+      /*methodBody=*/"",
+      /*defaultImplementation=*/[{
+        if ($_op.supportsTileOrScalarRhs() && operandIdx == 1) {
+          auto rhsOperand = $_op->getOperand(1);
+          auto rhsType = rhsOperand.getType();
+          // Check if rhs is a scalar: NOT a tile AND is int/float
+          return !llvm::isa<::mlir::tt::ttcore::TileType>(rhsType) &&
+                 rhsType.isIntOrFloat();
+        }
+        return false;
+      }]
+    >,
   ];
 }
 

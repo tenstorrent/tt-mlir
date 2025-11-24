@@ -726,52 +726,31 @@ public:
       if (isScalarRhs) {
         // Handle scalar operand - need to use unary scalar ops
         const auto dstIdx = adaptor.getLhs();
+        auto loc = op->getLoc();
 
-        // Get the scalar value from the constant
-        if (auto constOp =
-                adaptor.getRhs()
-                    .template getDefiningOp<mlir::arith::ConstantOp>()) {
-          float floatVal = 0.0f;
-          if (auto floatAttr =
-                  mlir::dyn_cast<mlir::FloatAttr>(constOp.getValue())) {
-            floatVal = floatAttr.getValueAsDouble();
-          } else if (auto intAttr = mlir::dyn_cast<mlir::IntegerAttr>(
-                         constOp.getValue())) {
-            floatVal = static_cast<float>(intAttr.getInt());
-          }
-
-          // Create the appropriate unary scalar op based on the D2M op type
-          if constexpr (std::is_same_v<ConcreteOp, d2m::TileAddOp>) {
-            uint32_t bits;
-            std::memcpy(&bits, &floatVal, sizeof(float));
-            auto scalarParam = i32(rewriter, op->getLoc(), bits);
-            rewriter.create<ttkernel::AddUnaryTileOp>(op->getLoc(), dstIdx,
-                                                      scalarParam);
-          } else if constexpr (std::is_same_v<ConcreteOp, d2m::TileSubOp>) {
-            uint32_t bits;
-            std::memcpy(&bits, &floatVal, sizeof(float));
-            auto scalarParam = i32(rewriter, op->getLoc(), bits);
-            rewriter.create<ttkernel::SubUnaryTileOp>(op->getLoc(), dstIdx,
-                                                      scalarParam);
-          } else if constexpr (std::is_same_v<ConcreteOp, d2m::TileMulOp>) {
-            uint32_t bits;
-            std::memcpy(&bits, &floatVal, sizeof(float));
-            auto scalarParam = i32(rewriter, op->getLoc(), bits);
-            rewriter.create<ttkernel::MulUnaryTileOp>(op->getLoc(), dstIdx,
-                                                      scalarParam);
-          } else if constexpr (std::is_same_v<ConcreteOp, d2m::TileDivOp>) {
-            uint32_t bits;
-            std::memcpy(&bits, &floatVal, sizeof(float));
-            auto scalarParam = i32(rewriter, op->getLoc(), bits);
-            rewriter.create<ttkernel::DivUnaryTileOp>(op->getLoc(), dstIdx,
-                                                      scalarParam);
-          } else if constexpr (std::is_same_v<ConcreteOp, d2m::TilePowOp>) {
-            // For power, cast to integer directly (not reinterpret bits)
-            uint32_t intVal = static_cast<uint32_t>(floatVal);
-            auto scalarParam = i32(rewriter, op->getLoc(), intVal);
-            rewriter.create<ttkernel::PowUnaryTileOp>(op->getLoc(), dstIdx,
-                                                      scalarParam);
-          }
+        // Create the appropriate unary scalar op based on the D2M op type
+        if constexpr (std::is_same_v<ConcreteOp, d2m::TileAddOp>) {
+          // Bitcast the scalar value to i32 to pass as parameter
+          auto scalarParam = rewriter.create<arith::BitcastOp>(
+              loc, rewriter.getI32Type(), adaptor.getRhs());
+          rewriter.create<ttkernel::AddUnaryTileOp>(loc, dstIdx, scalarParam);
+        } else if constexpr (std::is_same_v<ConcreteOp, d2m::TileSubOp>) {
+          auto scalarParam = rewriter.create<arith::BitcastOp>(
+              loc, rewriter.getI32Type(), adaptor.getRhs());
+          rewriter.create<ttkernel::SubUnaryTileOp>(loc, dstIdx, scalarParam);
+        } else if constexpr (std::is_same_v<ConcreteOp, d2m::TileMulOp>) {
+          auto scalarParam = rewriter.create<arith::BitcastOp>(
+              loc, rewriter.getI32Type(), adaptor.getRhs());
+          rewriter.create<ttkernel::MulUnaryTileOp>(loc, dstIdx, scalarParam);
+        } else if constexpr (std::is_same_v<ConcreteOp, d2m::TileDivOp>) {
+          auto scalarParam = rewriter.create<arith::BitcastOp>(
+              loc, rewriter.getI32Type(), adaptor.getRhs());
+          rewriter.create<ttkernel::DivUnaryTileOp>(loc, dstIdx, scalarParam);
+        } else if constexpr (std::is_same_v<ConcreteOp, d2m::TilePowOp>) {
+          // For power, convert float value to integer (not bitcast)
+          auto scalarParam = rewriter.create<arith::FPToSIOp>(
+              loc, rewriter.getI32Type(), adaptor.getRhs());
+          rewriter.create<ttkernel::PowUnaryTileOp>(loc, dstIdx, scalarParam);
         }
       } else {
         // Binary tile operation

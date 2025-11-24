@@ -312,17 +312,9 @@ public:
 
       // Collect loads to this op.
       for (int64_t operandIdx : computeOp.getOperandsLoadFromDstRegister()) {
-        // For tile+scalar ops, skip loading scalar operands (they're not tiles)
-        if (computeOp.supportsTileOrScalarRhs() && operandIdx == 1) {
-          auto rhsOperand = computeOp->getOperand(1);
-          auto rhsType = rhsOperand.getType();
-          // Check if rhs is a scalar: NOT a tile AND is int/float
-          bool isScalar =
-              !llvm::isa<ttcore::TileType>(rhsType) && rhsType.isIntOrFloat();
-          if (isScalar) {
-            // Skip scalar operands - they don't need to be loaded from dst
-            continue;
-          }
+        // Skip scalar operands - they don't need to be loaded from dst
+        if (computeOp.isScalarOperand(operandIdx)) {
+          continue;
         }
 
         if (auto potentialLoad = computeOp->getOperand(operandIdx)
@@ -345,17 +337,7 @@ public:
           auto dstRegInPlace = computeOp.getDstRegInPlace();
 
           // For ops that support tile+scalar, check if rhs is a scalar
-          bool rhsIsScalar = false;
-          if (computeOp.supportsTileOrScalarRhs() &&
-              computeOp->getNumOperands() >= 2) {
-            auto rhsOperand = computeOp->getOperand(1);
-            auto rhsType = rhsOperand.getType();
-            // Check if rhs is a scalar: NOT a tile AND is int/float
-            // (TileType implements FloatTypeInterface, so isIntOrFloat()
-            // returns true for tiles!)
-            rhsIsScalar =
-                !llvm::isa<ttcore::TileType>(rhsType) && rhsType.isIntOrFloat();
-          }
+          bool rhsIsScalar = computeOp.isScalarOperand(1);
 
           int64_t dstSliceIndex = -1;
           // If op has scalar rhs, treat it as in-place (unary-like behavior)
@@ -391,21 +373,10 @@ public:
           assert(computeOp->getNumResults() == 1);
           assert(!dstRegisterAllocation.contains(computeOp));
 
-          // Check if rhs is scalar for tile+scalar ops
-          bool rhsIsScalar = false;
-          if (computeOp.supportsTileOrScalarRhs() &&
-              computeOp->getNumOperands() >= 2) {
-            auto rhsOperand = computeOp->getOperand(1);
-            auto rhsType = rhsOperand.getType();
-            // Check if rhs is a scalar: NOT a tile AND is int/float
-            rhsIsScalar =
-                !llvm::isa<ttcore::TileType>(rhsType) && rhsType.isIntOrFloat();
-          }
-
           // If op stores to dst in place or has scalar rhs, we don't need to
           // allocate a new dst register, just use the current dst index.
           int32_t allocatedIndex =
-              (computeOp.getDstRegInPlace() || rhsIsScalar)
+              (computeOp.getDstRegInPlace() || computeOp.isScalarOperand(1))
                   ? dstSliceAllocationState.getCurrSliceIndex()
                   : dstSliceAllocationState.allocate();
 
