@@ -55,13 +55,8 @@ class JitFunction:
 
     def _query_and_save_system_desc(self, input_tensors=None):
         """Query system descriptor from device and save it to a file.
-
         Uses the MLIR runtime bindings directly, replicating the logic from
         ttrt query --save-artifacts.
-
-        Args:
-            input_tensors: Optional list of input tensors. If provided, will use the
-                          device from the first tensor to avoid creating a new device.
         """
         dispatch_core_type = _get_dispatch_core_type()
         try:

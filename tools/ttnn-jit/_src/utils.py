@@ -171,7 +171,7 @@ def _get_dispatch_core_type():
         case ttnn.cluster.ClusterType.P150:
             dispatch_core_type = DispatchCoreType.WORKER
         case ttnn.cluster.ClusterType.T3K:
-            dispatch_core_type = DispatchCoreType.WORKER
+            dispatch_core_type = DispatchCoreType.ETH
         case _:
             raise ValueError(f"Unsupported cluster type: {cluster_type}")
     return dispatch_core_type
