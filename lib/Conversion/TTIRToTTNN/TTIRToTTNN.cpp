@@ -602,9 +602,22 @@ public:
           op, "UpdateCacheOp cache argument must have exactly one user");
     }
 
+    // Permute input from [1, num_heads, num_users, head_dim] to [1, num_users,
+    // num_heads, head_dim]
+    auto inputType = cast<RankedTensorType>(adaptor.getInput().getType());
+    auto inputShape = inputType.getShape();
+    llvm::SmallVector<int64_t, 4> newShape = {1, inputShape[2], inputShape[1],
+                                              inputShape[3]};
+    auto newInputType = RankedTensorType::get(
+        newShape, inputType.getElementType(), inputType.getEncoding());
+    auto newInput = rewriter.create<ttnn::PermuteOp>(
+        op.getLoc(), newInputType, adaptor.getInput(),
+        rewriter.getDenseI64ArrayAttr({0, 2, 1, 3}), nullptr,
+        rewriter.getF32FloatAttr(0.0f));
+
     rewriter.create<ttnn::PagedUpdateCacheOp>(
-        op.getLoc(), adaptor.getCache(), adaptor.getInput(),
-        adaptor.getUpdateIndex(), false, nullptr);
+        op.getLoc(), adaptor.getCache(), newInput, adaptor.getUpdateIndex(),
+        false, nullptr);
 
     rewriter.replaceOp(op, adaptor.getCache());
     return success();
