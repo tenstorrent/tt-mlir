@@ -73,6 +73,7 @@ list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_LIST_DIR}/cmake/modules)
 
 if (TT_RUNTIME_ENABLE_PERF_TRACE)
   add_compile_options(-DTRACY_ENABLE=ON)
+  add_compile_options(-DTRACY_TIMER_FALLBACK=ON)
 endif()
 
 if (NOT DEFINED ENV{TTMLIR_TOOLCHAIN_DIR})
