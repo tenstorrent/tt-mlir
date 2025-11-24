@@ -127,7 +127,6 @@ def test_virtual_grid_eltwise(
         device=device,
         test_base=request.node.name,
         custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}} ",
-        print_ir="test_logical_not_ir",
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
         target=target,
