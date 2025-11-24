@@ -221,11 +221,11 @@ void createTTIRToTTNNBackendPipeline(
     }
     createTTNNPipelineWorkaroundPass(devicePm, options);
     // Add BFP8 weight conversion pass before analysis passes.
-  // Analysis passes need to know data formats to decide on shardings.
-  if (options.experimentalBfp8Weights) {
-    devicePm.addPass(createTTNNWeightBFP8Conversion());
-  }
-  createTTNNPipelineAnalysisPasses(devicePm, options);
+    // Analysis passes need to know data formats to decide on shardings.
+    if (options.experimentalBfp8Weights) {
+      devicePm.addPass(createTTNNWeightBFP8Conversion());
+    }
+    createTTNNPipelineAnalysisPasses(devicePm, options);
     // We need to re-run const-eval to pick up const prepare conv2d weight ops
     // split during the analysis passes.
     if (options.enableConstEval) {
