@@ -6,6 +6,33 @@ add_subdirectory(csrc)
 set(TTNNJIT_ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
 
 if (USE_TTNN_JIT_WHEEL)
+  install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/
+    DESTINATION ttnn_jit
+    COMPONENT TTNNJITWheel
+    EXCLUDE_FROM_ALL
+    FILES_MATCHING
+    PATTERN "*.py"
+    PATTERN "build" EXCLUDE
+    PATTERN "dist" EXCLUDE
+    PATTERN "__pycache__" EXCLUDE
+    PATTERN "*.egg-info" EXCLUDE
+    PATTERN "setup.py" EXCLUDE
+  )
+  install(FILES
+      $<TARGET_FILE:JITCPP>
+      $<TARGET_FILE:_ttnn_jit>
+      $<TARGET_FILE:TTMLIRRuntime>
+      $<TARGET_FILE:_ttmlir_runtime>
+    DESTINATION ttnn_jit/runtime
+    COMPONENT TTNNJITWheel
+    EXCLUDE_FROM_ALL
+  )
+  install(DIRECTORY ${CMAKE_BINARY_DIR}/python_packages/ttmlir/
+    DESTINATION ttnn_jit/runtime/ttmlir
+    COMPONENT TTNNJITWheel
+    EXCLUDE_FROM_ALL
+  )
+
   add_custom_command(
     COMMAND rm -rf build ttnn_jit.egg-info
     COMMAND python -m pip install build patchelf
@@ -16,6 +43,7 @@ if (USE_TTNN_JIT_WHEEL)
     DEPENDS _ttnn_jit
     OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/build/.ttnn-jit-installed
   )
+
   add_custom_target(ttnn-jit ALL
     COMMENT "ttnn-jit package"
     DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/build/.ttnn-jit-installed _ttnn_jit _ttmlir_runtime TTMLIRPythonModules)

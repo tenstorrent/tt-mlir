@@ -103,6 +103,7 @@ class CMakeBuild(build_ext):
 
         build_type = "Release"
         build_dir = source_dir / "build"
+        install_dir = pathlib.Path(self.build_lib)
 
         # Check if we're in a wheel build environment (cibuildwheel)
         if not self.dev_build:
@@ -118,53 +119,42 @@ class CMakeBuild(build_ext):
                 "-G",
                 "Ninja",
                 f"-DCMAKE_BUILD_TYPE={build_type}",
+                "-DCMAKE_C_COMPILER=clang",
+                "-DCMAKE_CXX_COMPILER=clang++",
                 "-DTTMLIR_ENABLE_RUNTIME=ON",
                 "-DTTMLIR_ENABLE_TTNN_JIT=ON",
-                "-DTTMLIR_ENABLE_TTRT=OFF",
                 "-DTTMLIR_ENABLE_BINDINGS_PYTHON=ON",
+                "-DTTMLIR_ENABLE_TTRT=OFF",
                 "-DTTMLIR_ENABLE_OPMODEL=OFF",
                 "-DTTMLIR_ENABLE_TESTS=OFF",
             ]
             cmake_args.extend(["-S", str(source_dir)])
             print(f"Running CMake configure: {' '.join(cmake_args)}")
-            subprocess.check_call(cmake_args, env=build_env)
+            self.spawn(cmake_args, env=build_env)
 
-            build_cmd = ["cmake", "--build", str(build_dir)]
+            build_cmd = ["cmake", "--build", str(build_dir), "--", "ttnn-jit"]
             print(f"Running CMake build: {' '.join(build_cmd)}")
-            subprocess.check_call(build_cmd, env=build_env)
+            self.spawn(build_cmd, env=build_env)
             print("CMake build completed successfully")
+
         else:
             # In dev env.. assume build already exists through cmake flow
             if not build_dir.exists():
                 raise RuntimeError(f"Build directory not found: {build_dir}\n")
             print(f"Using existing build directory: {build_dir}")
 
-        # Verbose sanity logging
-        print("=" * 80)
-        print("Build directory contents:")
-        subprocess.check_call(["ls", "-lah", str(build_dir)], env=build_env)
+        self.spawn(
+            [
+                "cmake",
+                "--install",
+                str(build_dir),
+                "--component",
+                "TTNNJITWheel",
+                "--prefix",
+                str(install_dir),
+            ]
+        )
 
-        if (build_dir / "runtime" / "lib").exists():
-            print("\nRuntime libraries:")
-            subprocess.check_call(
-                ["ls", "-lah", str(build_dir / "runtime" / "lib")], env=build_env
-            )
-
-        if (build_dir / "python_packages").exists():
-            print("\nPython packages:")
-            subprocess.check_call(
-                ["ls", "-lah", str(build_dir / "python_packages")], env=build_env
-            )
-            subprocess.check_call(
-                ["find", str(build_dir / "python_packages"), "-name", "*.so"],
-                env=build_env,
-            )
-        print("=" * 80)
-
-        # Copy MLIR .so libraries into ttnn_jit/lib/
-        arch = CMakeBuild.get_arch()
-        self._copy_mlir_so(build_dir, arch)
-        self._copy_ttmlir_bindings(build_dir)
         if not self.dev_build:
             self._write_build_metadata()
 
