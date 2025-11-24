@@ -176,8 +176,8 @@ class TTNNBuilder(Builder):
             ttnn_layout_attr = self.create_tensor_encoding(shape, element_type)
             return RankedTensorType.get(shape, element_type, ttnn_layout_attr)
 
-    def create_l1_width_sharded_tiled_encoding(
-        self, shape: Shape, element_type: Type
+    def create_l1_tiled_encoding(
+        self, shape: Shape, element_type: Type, tensor_layout: ttnn.TensorMemoryLayout
     ) -> ttnn.ir.TTNNLayoutAttr:
         with self._ctx, self._loc:
             data_type = util.element_type_to_data_type(element_type)
@@ -190,15 +190,15 @@ class TTNNBuilder(Builder):
                 tile_element_type,
                 buffer_type,
                 grid_attr,
-                ttnn.TensorMemoryLayout.WidthSharded,
+                tensor_layout,
             )
 
-    def create_l1_width_sharded_tiled_ttnn_tensor(
-        self, shape: Shape, element_type: Type
+    def create_l1_tiled_ttnn_tensor(
+        self, shape: Shape, element_type: Type, tensor_layout: ttnn.TensorMemoryLayout
     ) -> RankedTensorType:
         with self._ctx, self._loc:
-            ttnn_layout_attr = self.create_l1_width_sharded_tiled_encoding(
-                shape, element_type
+            ttnn_layout_attr = self.create_l1_tiled_encoding(
+                shape, element_type, tensor_layout
             )
             return RankedTensorType.get(shape, element_type, ttnn_layout_attr)
 
@@ -2637,7 +2637,7 @@ class TTNNBuilder(Builder):
             unit_attrs=unit_attrs,
         )
 
-    def _op_proxy_l1_sharded_executed_op_with_dram_final_output(
+    def _op_proxy_l1_executed_op_with_dram_final_output(
         self,
         op_function: Callable,
         inputs: List[Operand],
@@ -2645,24 +2645,26 @@ class TTNNBuilder(Builder):
         unit_attrs: Optional[List[str]] = None,
         golden_kwargs: Optional[dict] = None,
         skip_golden: bool = False,
+        tensor_layout: ttnn.TensorMemoryLayout = ttnn.TensorMemoryLayout.WidthSharded,
     ) -> OpView:
         """
-        Helper method to create L1 width-sharded operations with DRAM output conversion.
+        Helper method to create L1 tiled operations with desired layout with DRAM output conversion.
         """
         with self._ctx, self._loc:
-            # Create L1 width-sharded output tensor
-            sharded_output_type = self.create_l1_width_sharded_tiled_ttnn_tensor(
+            # Create L1 tiled output tensor with desired layout
+            l1_output_type = self.create_l1_tiled_ttnn_tensor(
                 shape=inputs[0].type.shape,
                 element_type=inputs[0].type.element_type,
+                tensor_layout=tensor_layout,
             )
 
             # Prepare location for the operation
             id = self._get_next_global_id()
             loc = self._get_loc_of_extra_file_callee(id=id)
 
-            # Create the operation with L1 sharded output
+            # Create the operation with L1 tiled output
             op = op_function(
-                sharded_output_type,
+                l1_output_type,
                 *inputs,
                 loc=loc,
                 **ttnn_kwargs,
@@ -2673,7 +2675,7 @@ class TTNNBuilder(Builder):
                 for attr_name in unit_attrs:
                     op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
-            # Convert L1 sharded output to DRAM, to match expected final output layout
+            # Convert L1 output to DRAM, to match expected final output layout
             final_output_type = self.create_ttnn_tensor(
                 shape=op.result.type.shape,
                 element_type=op.result.type.element_type,
@@ -2776,12 +2778,13 @@ class TTNNBuilder(Builder):
             golden_kwargs["bias"] = self._get_golden_tensor(bias)
 
         if l1_width_sharded:
-            return self._op_proxy_l1_sharded_executed_op_with_dram_final_output(
+            return self._op_proxy_l1_executed_op_with_dram_final_output(
                 ttnn.RMSNormOp,
                 [input_tensor],
                 ttnn_kwargs=ttnn_kwargs,
                 unit_attrs=unit_attrs,
                 golden_kwargs=golden_kwargs,
+                tensor_layout=ttnn.TensorMemoryLayout.WidthSharded,
             )
         else:
             return self._op_proxy(
@@ -2792,4 +2795,61 @@ class TTNNBuilder(Builder):
                 ttnn_kwargs=ttnn_kwargs,
                 unit_attrs=unit_attrs,
                 golden_kwargs=golden_kwargs,
+            )
+
+    def rotary_embedding_decode(
+        self,
+        x: Operand,
+        cos: Operand,
+        sin: Operand,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpView:
+        """
+        Creates ``ttnn.rotary_embedding_decode``.
+
+        *Rotary Embedding Decode operation.*
+
+        Applies rotary embedding to the input tensor using provided cosine and sine tensors.
+
+        Formula:
+            output = (x * cos) + (rotate_half(x) * sin)
+
+        Parameters
+        ----------
+        x : Operand
+            Input tensor to apply rotary embedding (e.g., query/key)
+        cos : Operand
+            Cosine positional encoding tensor
+        sin : Operand
+            Sine positional encoding tensor
+        unit_attrs : Optional[List[str]], optional
+            Optional list of unit attributes (e.g., sharding)
+
+        Returns
+        -------
+        OpView
+            Tensor with rotary embedding applied
+        """
+        # Check if L1 height sharding is requested
+        l1_height_sharded = unit_attrs is not None and "l1_height_sharded" in unit_attrs
+        if l1_height_sharded:
+            # Remove the l1_height_sharded attribute for internal processing
+            unit_attrs = [attr for attr in unit_attrs if attr != "l1_height_sharded"]
+
+        ttnn_kwargs = {}
+        golden_kwargs = {}
+        if l1_height_sharded:
+            return self._op_proxy_l1_executed_op_with_dram_final_output(
+                ttnn.RotaryEmbeddingOp,
+                [x, cos, sin],
+                ttnn_kwargs=ttnn_kwargs,
+                unit_attrs=unit_attrs,
+                golden_kwargs=golden_kwargs,
+                tensor_layout=ttnn.TensorMemoryLayout.HeightSharded,
+            )
+        else:
+            return self._op_proxy(
+                ttnn.RotaryEmbeddingOp,
+                [x, cos, sin],
+                unit_attrs=unit_attrs,
             )

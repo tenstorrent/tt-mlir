@@ -3401,6 +3401,45 @@ def ttir_reduce_or_golden(
     return torch.any(input_tensor, dim=tuple(dim_arg), keepdim=keep_dim)
 
 
+def rotate_half(x):
+    """
+    Helper function for rotary embedding: rotates last dimension by half.
+    """
+    d = x.shape[-1]
+    assert d % 2 == 0, "Last dimension must be even for rotate_half."
+    x1, x2 = torch.split(x, d // 2, dim=-1)
+    return torch.cat([-x2, x1], dim=-1)
+
+
+def rotary_embedding_decode_golden(
+    x: GoldenMapTensor, cos: GoldenMapTensor, sin: GoldenMapTensor, **kwargs
+) -> GoldenMapTensor:
+    """
+    Golden reference for TTNN_RotaryEmbeddingOp: (x * cos) + (rotate_half(x) * sin)
+    """
+    shard_map = {}
+    for device_id in x.shard_map:
+        x_shard = x.shard_at(device_id)
+        cos_shard = cos.shard_at(device_id)
+        sin_shard = sin.shard_at(device_id)
+        # Ensure all tensors are 4D
+        if x_shard.dim() != 4:
+            raise ValueError("Input tensor x must be 4D")
+        # Unsqueeze cos/sin until they are 4D
+        while cos_shard.dim() < 4:
+            cos_shard = cos_shard.unsqueeze(0)
+        while sin_shard.dim() < 4:
+            sin_shard = sin_shard.unsqueeze(0)
+        # Broadcast cos/sin to x shape if needed
+        if cos_shard.shape != x_shard.shape:
+            cos_shard = cos_shard.expand(x_shard.shape)
+        if sin_shard.shape != x_shard.shape:
+            sin_shard = sin_shard.expand(x_shard.shape)
+        result = (x_shard * cos_shard) + (rotate_half(x_shard) * sin_shard)
+        shard_map[device_id] = result
+    return GoldenMapTensor(shard_map, x.mesh_shape)
+
+
 def ttir_clamp_tensor_golden(
     input_tensor: GoldenMapTensor,
     min_tensor: GoldenMapTensor,
@@ -3639,6 +3678,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttnn.MatmulOp: matmul_golden,
     ttnn.LinearOp: linear_golden,
     ttnn.RMSNormOp: rms_norm_golden,
+    ttnn.RotaryEmbeddingOp: rotary_embedding_decode_golden,
     # Tensor manipulation
     ttnn.ConcatOp: concat_golden,
     ttnn.RepeatOp: repeat_golden,
