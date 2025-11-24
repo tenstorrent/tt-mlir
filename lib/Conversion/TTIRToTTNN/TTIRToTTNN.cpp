@@ -610,9 +610,9 @@ public:
           op, "UpdateCacheOp cache argument must have exactly one user");
     }
 
-    rewriter.create<ttnn::UpdateCacheOp>(
+    rewriter.create<ttnn::PagedUpdateCacheOp>(
         op.getLoc(), adaptor.getCache(), adaptor.getInput(),
-        adaptor.getUpdateIndex(), adaptor.getBatchOffset());
+        adaptor.getUpdateIndex(), false, nullptr);
 
     rewriter.replaceOp(op, adaptor.getCache());
     return success();
