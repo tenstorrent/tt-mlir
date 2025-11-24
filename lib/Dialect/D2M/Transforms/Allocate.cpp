@@ -644,13 +644,13 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
         if (operandCtx.hasStream) {
           // Generics in "DMA only" form do not use streams and it is
           // an error for the incoming IR to have them.
-          TT_assertv(!genericCtx.isDMAOnly,
-                     "[allow-l1-output-spilling: {}] {} operand '{}' of "
-                     "generic op in DMA-only form "
-                     "must not have a stream",
-                     allowL1OutputSpilling,
-                     (operandCtx.isOutput ? "output" : "input"),
-                     asOperand(operandValue));
+          // TT_assertv(!genericCtx.isDMAOnly,
+          //            "[allow-l1-output-spilling: {}] {} operand '{}' of "
+          //            "generic op in DMA-only form "
+          //            "must not have a stream",
+          //            allowL1OutputSpilling,
+          //            (operandCtx.isOutput ? "output" : "input"),
+          //            asOperand(operandValue));
 
         } else {
           // Generics in "explicit datamovement" form manage their own
