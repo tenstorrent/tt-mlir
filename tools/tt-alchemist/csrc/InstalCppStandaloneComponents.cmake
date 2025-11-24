@@ -16,7 +16,7 @@ add_custom_command(
 # Install metalium-runtime component
 add_custom_command(
   OUTPUT ${TTNN_INSTALL_DIR}/.metalium-runtime-installed
-  DEPENDS ${TTNN_INSTALL_DIR}
+  DEPENDS ${TTNN_INSTALL_DIR} tt-metal
   COMMAND cmake --install ${TTMETAL_BUILD_DIR} --prefix ${TTNN_INSTALL_DIR} --component metalium-runtime
   COMMAND ${CMAKE_COMMAND} -E touch ${TTNN_INSTALL_DIR}/.metalium-runtime-installed
   COMMENT "Installing metalium-runtime component"
