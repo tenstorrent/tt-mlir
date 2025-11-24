@@ -7,6 +7,11 @@
 #include "ttmlir/Dialect/TTNN/Utils/TransformUtils.h"
 #include "ttmlir/Utils.h"
 
+#ifdef TTMLIR_ENABLE_OPMODEL
+#include "ttmlir/Dialect/TTNN/Validation/OpConstraintValidation.h"
+#include "ttmlir/OpModel/TTNN/SingletonDeviceContext.h"
+#endif
+
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
 namespace mlir::tt::ttnn {
@@ -212,8 +217,8 @@ public:
   mlir::LogicalResult
   matchAndRewrite(AddOp srcOp, mlir::PatternRewriter &rewriter) const override {
     // Match the final add: add(unrotated_projection, rotated_projection)
-    Value lhs = srcOp.getOperand(0);
-    Value rhs = srcOp.getOperand(1);
+    Value lhs = srcOp.getLhs();
+    Value rhs = srcOp.getRhs();
 
     // Try to identify which operand is unrotated and which is rotated
     auto lhsMul = lhs.getDefiningOp<MultiplyOp>();
@@ -272,6 +277,9 @@ private:
       return failure();
     }
 
+#ifdef TTMLIR_ENABLE_OPMODEL
+    op_model::ScopedSingletonDeviceGuard deviceGuard;
+
     // Create rotary_embedding op
     auto resultType = srcOp.getType();
     auto ropeOp = rewriter.create<RotaryEmbeddingOp>(
@@ -279,8 +287,26 @@ private:
         /*token_index=*/nullptr,
         /*memory_config=*/nullptr, /*compute_config=*/nullptr);
 
+    // Extract input layouts from the operation
+    std::vector<TTNNLayoutAttr> inputLayouts =
+        utils::extractInputLayouts(ropeOp.getOperation());
+
+    OpConfig config(mlir::cast<TTNNLayoutAttr>(resultType.getEncoding()));
+
+    auto backend = mlir::cast<OpModel>(ropeOp.getOperation());
+
+    llvm::Expected<ttnn::op_model::OpConstraints> constraintsExp =
+        backend.getOpConstraints(inputLayouts, config);
+    if (!constraintsExp) {
+      rewriter.eraseOp(ropeOp);
+      return failure();
+    }
+
     rewriter.replaceOp(srcOp, ropeOp.getResult());
     return mlir::success();
+#else
+    return failure();
+#endif // TTMLIR_ENABLE_OPMODEL
   }
 
   bool matchUnrotatedProjection(MultiplyOp mulOp, Value &x,
@@ -422,8 +448,11 @@ public:
         TTNNConv2dWithActivation<ReluOp>, TTNNConv2dWithActivation<Relu6Op>,
         TTNNConv2dWithActivation<SiluOp>, TTNNConv2dWithActivation<SigmoidOp>,
         TTNNMatmulAndLinearWithActivation<MatmulOp, SigmoidOp>,
-        TTNNMatmulAndLinearWithActivation<LinearOp, SigmoidOp>, RoPEFusing>(
-        &getContext());
+        TTNNMatmulAndLinearWithActivation<LinearOp, SigmoidOp>>(&getContext());
+
+#ifdef TTMLIR_ENABLE_OPMODEL
+    patterns.add<RoPEFusing>(&getContext());
+#endif // TTMLIR_ENABLE_OPMODEL
 
     GreedyRewriteConfig config;
     config.setUseTopDownTraversal(true);

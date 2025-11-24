@@ -1,8 +1,5 @@
-// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path%" %s > %t.mlir
-// RUN: ttmlir-translate --ttnn-to-flatbuffer %t.mlir > %basename_t.ttnn
-// RUN: ttmlir-opt --ttnn-backend-to-emitc-pipeline %t.mlir > %t2.mlir
-// RUN: ttmlir-translate --mlir-to-cpp %t2.mlir > %basename_t.cpp
-// RUN: FileCheck %s --input-file %t.mlir
+// REQUIRES: opmodel
+// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline %s | FileCheck %s
 
 module {
   func.func @main(%arg0: tensor<1x1024x64xbf16>, %arg1: tensor<1x32x1024x64xbf16>, %arg2: tensor<1x1024x64xbf16>) -> tensor<1x32x1024x64xbf16> {
