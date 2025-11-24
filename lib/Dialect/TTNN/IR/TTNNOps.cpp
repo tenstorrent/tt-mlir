@@ -2760,34 +2760,16 @@ mlir::tt::ttnn::CollectivePermuteOp::fold(FoldAdaptor adaptor) {
 //===----------------------------------------------------------------------===//
 
 ::mlir::LogicalResult MeshShardOp::verify() {
-  llvm::ArrayRef<int64_t> inputShape = getInput().getType().getShape();
-  llvm::ArrayRef<int64_t> shardShape = getShardShape();
   ::mlir::tt::ttcore::MeshShardType shardType = getShardType();
 
-  // Check shard_type is not maximal.
-  if (shardType == ::mlir::tt::ttcore::MeshShardType::Maximal) {
-    return emitOpError("Invalid shard_type (maximal) for mesh_shard op.");
-  }
+  // Check shard_type is Identity.
+  // Temporarily retain identity type mesh_shard until modifications are made in
+  // an earlier pass to handle the identity type mesh_shard. Other types of
+  // ttir.mesh_shard should be converted to different ttnn ops.
 
-  if (shardType == ::mlir::tt::ttcore::MeshShardType::Devices) {
-    // Check if rank(shardShape) is eqaul to rank(input).
-    if (shardShape.size() != inputShape.size()) {
-      return emitOpError("Invalid rank(shard_shape) != rank(input) for "
-                         "mesh_shard op with devices partition.");
-    }
-
-    // Check if overall partition is eqaul to or greater than two.
-    int64_t overallPartition = 1;
-    for (auto partition : shardShape) {
-      // Each partition value is limited to one of the dimensions of hardware
-      // mesh. Thus, overallPartition remains lower than or equal to the number
-      // of multi-chips.
-      overallPartition *= partition;
-    }
-    if (overallPartition < 2) {
-      return emitOpError("Invalid overall partition (<2) for mesh_shard op "
-                         "with devices partition.");
-    }
+  if (shardType != ::mlir::tt::ttcore::MeshShardType::Identity) {
+    return emitOpError(
+        "We only support identity shard_type for mesh_shard op.");
   }
 
   return success();
