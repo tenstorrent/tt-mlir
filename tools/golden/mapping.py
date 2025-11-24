@@ -99,6 +99,24 @@ class GoldenMapTensor:
         self._shard_map = shard_map
         self._mesh_shape = mesh_shape
 
+    def _get_runtime_compatible_torch_dtype(self, dtype: torch.dtype) -> torch.dtype:
+        compatible_dtypes = [
+            torch.float16,
+            torch.bfloat16,
+            torch.uint8,
+            torch.uint16,
+            torch.uint32,
+            torch.int32,
+            torch.float32,
+        ]
+
+        if dtype in compatible_dtypes:
+            return dtype
+        elif dtype in [torch.qint32, torch.int64]:
+            return torch.int32
+        else:
+            return torch.float32
+
     def golden_map_tensor_as_torch_tensors(self) -> Dict[int, torch.Tensor]:
         """
         Return shard tensors as plain torch.Tensor per device, ensuring:
@@ -108,12 +126,12 @@ class GoldenMapTensor:
         """
         torch_goldens: Dict[int, torch.Tensor] = dict(self.contiguous().shard_map)
         for device_id, torch_golden in torch_goldens.items():
+            dtype = self._get_runtime_compatible_torch_dtype(torch_golden.dtype)
             if getattr(torch_golden, "is_quantized", False):
                 # For quantized tensors, use the underlying integer representation
                 torch_goldens[device_id] = torch_golden.int_repr()
-            elif torch_golden.dtype == torch.int64:
-                # Adjust dtype for golden generation compatibility for borrowed tensor creation.
-                torch_goldens[device_id] = torch_golden.to(torch.int32)
+            else:
+                torch_goldens[device_id] = torch_golden.to(dtype)
         return torch_goldens
 
     # ----- Private static methods -----

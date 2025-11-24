@@ -167,7 +167,7 @@ class Builder:
         if outputs != None:
             self._set_goldens(self._create_builder_golden_from_torch_tensor(outputs))
             if set_all_outputs:
-                self.set_goldens_to_check(self._ordered_outputs)
+                self.set_goldens_to_check(outputs.keys())
 
     def set_goldens_from_builder_tensor(
         self,
