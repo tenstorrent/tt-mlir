@@ -62,6 +62,9 @@ def create_tileid_debug_tensor(shape: Shape, dtype: torch.dtype):
 @pytest.mark.parametrize(
     "shape",
     [
+        (32, 4096),
+        (4096, 32),
+        (2048, 32),
         (1, 1, 1, 1, 128, 128),
         (1, 1, 1, 1, 2, 32, 512),
         (1, 1, 1, 1, 32, 32),
