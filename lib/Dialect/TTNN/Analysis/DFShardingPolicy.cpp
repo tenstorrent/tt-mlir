@@ -95,8 +95,8 @@ void DFShardingPolicy::run() {
         bool validForSharding =
             llvm::isa<ttnn::Conv2dOp, ttnn::AddOp, ttnn::MultiplyOp,
                       ttnn::ReluOp, ttnn::Relu6Op, ttnn::TypecastOp,
-                      ttnn::MatmulOp, ttnn::LinearOp, ttnn::MinimumOp>(
-                currentOp) &&
+                      ttnn::SiluOp, ttnn::MatmulOp, ttnn::LinearOp,
+                      ttnn::MinimumOp>(currentOp) &&
             legalConfigs.lookup(currentOp).size() > 0;
 
         if (validForSharding) {
