@@ -1281,41 +1281,6 @@ static mlir::LogicalResult verifyAffineBlocking(
                  (rankedTensorType && rankedTensorType.getEncoding());
   SmallVector<AffineMap> indexingMaps = getIndexingMapsValue();
   if (hasGrid && !indexingMaps.empty()) {
-    // Validate that all operands have device layouts before calling
-    // getOperandGridShapes(), which assumes layouts are present
-    for (Value operand : getOperands()) {
-      auto result =
-          llvm::TypeSwitch<Type, LogicalResult>(operand.getType())
-              .Case<MemRefType>([&](MemRefType memrefType) -> LogicalResult {
-                if (!mlir::dyn_cast<ttcore::DeviceLayoutInterface>(
-                        memrefType.getLayout())) {
-                  return emitOpError("memref operand must have a device layout "
-                                     "attribute "
-                                     "(e.g., #ttcore.shard, #ttcore.view, or "
-                                     "#ttcore.interleaved), "
-                                     "but got: ")
-                         << memrefType;
-                }
-                return success();
-              })
-              .Case<RankedTensorType>(
-                  [&](RankedTensorType tensorType) -> LogicalResult {
-                    if (!mlir::dyn_cast_or_null<ttcore::MetalLayoutAttr>(
-                            tensorType.getEncoding())) {
-                      return emitOpError("tensor operand must have a metal "
-                                         "layout encoding, "
-                                         "but got: ")
-                             << tensorType;
-                    }
-                    return success();
-                  })
-              .Default([](Type) { return success(); });
-
-      if (failed(result)) {
-        return failure();
-      }
-    }
-
     auto emitDiag = [&]() -> InFlightDiagnostic { return this->emitOpError(); };
     SmallVector<SmallVector<int64_t>> gridShapes = getOperandGridShapes();
     LogicalResult gridResult = verifyAffineShapesPermutation(
@@ -1623,7 +1588,7 @@ d2m::GenericOp::getOperandGridShapes() {
     auto memrefType = mlir::dyn_cast<MemRefType>(operand.getType());
     if (memrefType) {
       mlir::tt::ttcore::DeviceLayoutInterface layout =
-          mlir::dyn_cast<mlir::tt::ttcore::DeviceLayoutInterface>(
+          mlir::cast<mlir::tt::ttcore::DeviceLayoutInterface>(
               memrefType.getLayout());
       if (layout) {
         gridShapes.emplace_back(layout.getGridShape(memrefType));

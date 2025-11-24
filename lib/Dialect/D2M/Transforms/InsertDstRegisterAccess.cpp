@@ -7,12 +7,14 @@
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
 #include "ttmlir/Dialect/D2M/Utils/TileMatmulUtils.h"
 #include "ttmlir/Dialect/D2M/Utils/Utils.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
+#include "mlir/Dialect/Linalg/Transforms/Transforms.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/BuiltinAttributes.h"
@@ -29,6 +31,15 @@ struct OperationTypes {
   bool hasLinalgGeneric = false;
   bool hasMarkedAffineLoops = false;
 };
+
+static bool hasTileMatmul(linalg::GenericOp linalgGenericOp) {
+  bool hasTileMatmul = false;
+  linalgGenericOp->walk([&](d2m::TileMatmulOp) {
+    hasTileMatmul = true;
+    return WalkResult::interrupt();
+  });
+  return hasTileMatmul;
+}
 
 struct D2MInsertDstRegisterAccessRewriter final
     : public OpRewritePattern<GenericOp> {
@@ -97,36 +108,28 @@ public:
 
       // Process linalg.generic ops that were not converted by LinalgToAffine
       // (these are tile_matmul ops when useTileMatmul=false).
-      bool linalgToAffineFailed = false;
-      block.walk([&](linalg::GenericOp linalgGenericOp) {
-        if (!useTileMatmul && utils::hasTileMatmulOp(linalgGenericOp)) {
-          // Only use tile matmul block rewrite when not in explicit
-          // datamovement form. Explicit datamovement form should fall through
-          // to regular linalg-to-affine conversion.
-          if (!op.isExplicitDatamovementForm()) {
-            // Use shared utility to convert linalg -> tile_matmul_block
-            auto result = utils::convertTileMatmulLinalgToBlock(
-                rewriter, op, linalgGenericOp, *genericRegion,
-                [&](RewriterBase &rwBase, Region &region,
-                    Operation *outerLoop) {
-                  // Cast RewriterBase to PatternRewriter for
-                  // insertDstRegisterAccess
-                  auto &rw = static_cast<PatternRewriter &>(rwBase);
-                  modified |= insertDstRegisterAccess(rw, op, region,
-                                                      dstCapacity, outerLoop);
-                  return success();
-                });
-            linalgToAffineFailed = failed(result);
-            return;
-          }
-        }
+      WalkResult walkResult =
+          block.walk([&](linalg::GenericOp linalgGenericOp) {
+            if (!useTileMatmul && hasTileMatmul(linalgGenericOp)) {
+              // Only use tile matmul block rewrite when not in explicit
+              // datamovement form. Explicit datamovement form should fall
+              // through to regular linalg-to-affine conversion.
+              if (!op.isExplicitDatamovementForm()) {
+                if (rewriteTileMatmulAsTileMatmulBlock(
+                        rewriter, op, *genericRegion, linalgGenericOp,
+                        dstCapacity, modified)) {
+                  return WalkResult::interrupt();
+                }
+                return WalkResult::advance();
+              }
+            }
 
-        // This should not happen - all other linalg ops should have been
-        // converted by LinalgToAffine pass.
-        linalgToAffineFailed = true;
-      });
+            // This should not happen - all other linalg ops should have been
+            // converted by LinalgToAffine pass.
+            return WalkResult::interrupt();
+          });
 
-      if (linalgToAffineFailed) {
+      if (walkResult.wasInterrupted()) {
         return rewriter.notifyMatchFailure(
             op, "linalg.generic operations were not converted to affine "
                 "loops");
@@ -325,6 +328,11 @@ public:
 
       // Collect loads to this op.
       for (int64_t operandIdx : computeOp.getOperandsLoadFromDstRegister()) {
+        // Skip scalar operands - they don't need to be loaded from dst
+        if (computeOp.isScalarOperand(operandIdx)) {
+          continue;
+        }
+
         if (auto potentialLoad = computeOp->getOperand(operandIdx)
                                      .getDefiningOp<affine::AffineLoadOp>();
             notDstMemspace(potentialLoad)) {
@@ -343,17 +351,24 @@ public:
                  "Multiple stores from last op to dst not supported");
 
           auto dstRegInPlace = computeOp.getDstRegInPlace();
+
+          // For ops that support tile+scalar, check if rhs is a scalar
+          bool rhsIsScalar = computeOp.isScalarOperand(1);
+
           int64_t dstSliceIndex = -1;
-          if (dstRegInPlace) {
+          // If op has scalar rhs, treat it as in-place (unary-like behavior)
+          if (dstRegInPlace || rhsIsScalar) {
             bool isUnaryOp = computeOp->getNumOperands() == 1;
             bool isTileMatmul = mlir::isa<d2m::TileMatmulOp>(computeOp);
             bool isReduction = mlir::isa<d2m::TileReduceMaxOp>(computeOp) ||
                                mlir::isa<d2m::TileReduceSumOp>(computeOp);
-            assert((isUnaryOp || isTileMatmul || isReduction) &&
-                   "Only unary ops, tile matmul, and reductions supported for "
-                   "destination register in "
-                   "place, multi-operand ops would reference wrong tile, but "
-                   "those ops should be setting output tile.");
+            assert(
+                (isUnaryOp || isTileMatmul || isReduction || rhsIsScalar) &&
+                "Only unary ops, tile matmul, reductions, and tile+scalar ops "
+                "supported for destination register in place, multi-operand "
+                "ops "
+                "would reference wrong tile, but those ops should be setting "
+                "output tile.");
             dstSliceIndex = dstSliceAllocationState.getCurrSliceIndex();
           } else {
             dstSliceIndex = dstSliceAllocationState.allocate();
@@ -365,11 +380,13 @@ public:
 
           // Attach result_dst_index attribute to the compute operation.
           // This enables the backend to retrieve the DST index without
-          // searching for store operations (which may not exist with register reuse).
-          computeOp->setAttr("result_dst_index",
-                             mlir::IntegerAttr::get(
-                                 mlir::IntegerType::get(computeOp->getContext(), 64),
-                                 dstSliceIndex));
+          // searching for store operations (which may not exist with register
+          // reuse).
+          computeOp->setAttr(
+              "result_dst_index",
+              mlir::IntegerAttr::get(
+                  mlir::IntegerType::get(computeOp->getContext(), 64),
+                  dstSliceIndex));
         }
         // If the user isn't a store, it must be another compute consumer and we
         // need to set or allocate a dest register intermediate for it.
@@ -380,10 +397,11 @@ public:
                  "users in the same compute dst region.");
           assert(computeOp->getNumResults() == 1);
           assert(!dstRegisterAllocation.contains(computeOp));
-          // If op stores to dst in place, we don't need to allocate a new dst
-          // register, just use the current dst index.
+
+          // If op stores to dst in place or has scalar rhs, we don't need to
+          // allocate a new dst register, just use the current dst index.
           int32_t allocatedIndex =
-              computeOp.getDstRegInPlace()
+              (computeOp.getDstRegInPlace() || computeOp.isScalarOperand(1))
                   ? dstSliceAllocationState.getCurrSliceIndex()
                   : dstSliceAllocationState.allocate();
 
@@ -391,10 +409,11 @@ public:
                                               outermostInnerComputeLoop};
 
           // Attach result_dst_index attribute for intermediate values.
-          computeOp->setAttr("result_dst_index",
-                             mlir::IntegerAttr::get(
-                                 mlir::IntegerType::get(computeOp->getContext(), 64),
-                                 allocatedIndex));
+          computeOp->setAttr(
+              "result_dst_index",
+              mlir::IntegerAttr::get(
+                  mlir::IntegerType::get(computeOp->getContext(), 64),
+                  allocatedIndex));
         }
       }
     });
@@ -442,6 +461,50 @@ public:
           guardIndices == copyInfo.guardIndices &&
           "Expected same guard indices across all accesses in this loop nest.");
     }
+  }
+
+  /*
+    Expand a linalg.generic op that contains a tile_matmul into a
+    tile_matmul_block.
+
+    - Uses the linalg.generic and affine semantics to generate copy/pack loops.
+    - Deletes the compute loop nest since tile_matmul_block includes the loops
+    inside it.
+  */
+  static bool rewriteTileMatmulAsTileMatmulBlock(
+      PatternRewriter &rewriter, GenericOp op, Region &region,
+      linalg::GenericOp linalgGenericOp, unsigned dstCapacity, bool &modified) {
+    assert(linalgGenericOp.getInputs().size() == 2 &&
+           "Expected exactly 2 input for tile matmul");
+    assert(linalgGenericOp.getOutputs().size() == 1 &&
+           "Expected exactly 1 output for tile matmul");
+
+    Value inputAMemref = linalgGenericOp.getInputs()[0];
+    Value inputBMemref = linalgGenericOp.getInputs()[1];
+    Value outputCMemref = linalgGenericOp.getOutputs()[0];
+
+    rewriter.setInsertionPoint(linalgGenericOp);
+
+    auto linalgLoops = linalg::linalgOpToAffineLoops(rewriter, linalgGenericOp);
+    if (failed(linalgLoops)) {
+      return false;
+    }
+    rewriter.eraseOp(linalgGenericOp);
+    modified |= insertDstRegisterAccess(
+        rewriter, op, region, dstCapacity,
+        !linalgLoops.value().empty() ? linalgLoops.value().front() : nullptr);
+
+    Operation *outerLoop = linalgLoops.value()[0];
+    Block *parentBlk = outerLoop->getBlock();
+    auto insertPos = std::next(Block::iterator(outerLoop));
+
+    rewriter.setInsertionPoint(parentBlk, insertPos);
+    for (Operation *loopOp : llvm::reverse(linalgLoops.value())) {
+      rewriter.eraseOp(loopOp);
+    }
+    rewriter.create<d2m::TileMatmulBlockOp>(op.getLoc(), inputAMemref,
+                                            inputBMemref, outputCMemref);
+    return true;
   }
 
   static void dataCopyGenerate(PatternRewriter &rewriter, Location loc,
@@ -814,14 +877,14 @@ public:
       D2MInsertDstRegisterAccess>::D2MInsertDstRegisterAccessBase;
 
   void runOnOperation() final {
-    ModuleOp module = getOperation();
+    ModuleOp moduleOp = getOperation();
 
     // Check precondition: linalg.generic ops should be converted to affine,
     // EXCEPT those with tile_matmul when useTileMatmul=false (they'll be
     // handled by the tile_matmul_block rewrite in the pattern).
-    WalkResult walkResult = module->walk([&](linalg::GenericOp op) {
+    WalkResult walkResult = moduleOp->walk([&](linalg::GenericOp op) {
       // Allow linalg ops with tile_matmul when useTileMatmul=false
-      if (!useTileMatmul && utils::hasTileMatmulOp(op)) {
+      if (!useTileMatmul && hasTileMatmul(op)) {
         return WalkResult::advance();
       }
       // All other linalg ops should have been converted
@@ -829,14 +892,14 @@ public:
     });
 
     if (walkResult.wasInterrupted()) {
-      module.emitOpError()
+      moduleOp.emitOpError()
           << "found linalg.generic operations that were not converted to "
              "affine loops. Please run --d2m-linalg-to-affine before the "
              "--d2m-insert-dst-register-access pass.";
       return signalPassFailure();
     }
 
-    MLIRContext *ctx = module.getContext();
+    MLIRContext *ctx = moduleOp.getContext();
     RewritePatternSet patterns(ctx);
 
     patterns.add<D2MInsertDstRegisterAccessRewriter>(
@@ -845,7 +908,7 @@ public:
     patterns.add<D2MPackerMaskResetRewriter<TileReduceSumOp>,
                  D2MPackerMaskResetRewriter<TileReduceMaxOp>>(ctx);
 
-    if (failed(applyPatternsGreedily(module, std::move(patterns)))) {
+    if (failed(applyPatternsGreedily(moduleOp, std::move(patterns)))) {
       signalPassFailure();
     }
   }

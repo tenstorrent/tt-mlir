@@ -85,7 +85,9 @@ void createTTIRToTTMetalFrontendPipeline(
   pm.addPass(createCanonicalizerPassWithOptions(options));
   if (!options.globalDataFormatTarget.empty()) {
     d2m::D2MGlobalDataFormatConversionOptions globalFormatOptions;
-    { globalFormatOptions.targetFormat = options.globalDataFormatTarget; }
+    {
+      globalFormatOptions.targetFormat = options.globalDataFormatTarget;
+    }
     pm.addPass(d2m::createD2MGlobalDataFormatConversion(globalFormatOptions));
   }
   tt::TTIRToD2MOptions toD2MOptions;
@@ -144,6 +146,7 @@ void createTTIRToTTMetalMiddleendPipeline(
         options.maxDstPhysicalSizeTiles;
   }
   pm.addPass(d2m::createD2MGenericTileComputeLoops(tileComputeLoopsOptions));
+
   d2m::D2MLinalgToAffineOptions linalgToAffineOptions;
   {
     linalgToAffineOptions.useTileMatmul = options.useTileMatmul;
@@ -196,7 +199,9 @@ void createTTIRToTTMetalMiddleendPipeline(
 void createTTIRToTTMetalBackendPipeline(
     OpPassManager &pm, const TTIRToTTMetalPipelineOptions &options) {
   d2m::ConvertD2MToTTKernelOptions D2MToTTKernelOptions;
-  { D2MToTTKernelOptions.ttnnMode = options.ttnnMode; }
+  {
+    D2MToTTKernelOptions.ttnnMode = options.ttnnMode;
+  }
   pm.addPass(tt::createConvertD2MToTTKernelPass(D2MToTTKernelOptions));
   pm.addPass(createCanonicalizerPassWithOptions(options));
   pm.addPass(ttkernel::createTTKernelControlDstSection());
@@ -206,7 +211,9 @@ void createTTIRToTTMetalBackendPipeline(
     pm.addPass(tt::createConvertD2MToTTNNPass());
   } else {
     d2m::ConvertD2MToTTMetalOptions d2mToTTMetalOptions;
-    { d2mToTTMetalOptions.mathFidelity = options.mathFidelity; }
+    {
+      d2mToTTMetalOptions.mathFidelity = options.mathFidelity;
+    }
     pm.addPass(tt::createConvertD2MToTTMetalPass(d2mToTTMetalOptions));
   }
   pm.addPass(ttkernel::createTTKernelHoistInits());
