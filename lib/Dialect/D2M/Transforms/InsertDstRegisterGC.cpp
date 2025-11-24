@@ -89,36 +89,61 @@ struct D2MInsertDstRegisterGCPass
   }
 
   /// Replace an affine load or store op to use the DST buffer instead of L1.
-  /// Generates loop-dependent affine expressions for DST indexing when operations
-  /// are contained in loops.
+  /// Computes DST index using affine.apply and uses it in affine load/store.
   template <typename OpT>
   static void replaceAffineAccessWithDst(IRRewriter &rewriter, OpT op,
                                          Value dstBuffer,
+                                         LoopContext &loopCtx,
                                          uint32_t assignedSlice,
-                                         const LoopContext &loopCtx,
-                                         int64_t loopIterationStride) {
+                                         int64_t numBaseSlices) {
     rewriter.setInsertionPoint(op);
 
-    // DST access pattern: %dst[loop_dependent_slice, cb_indices...]
-    // The CB indices come from the original operation's indices.
-    SmallVector<Value> dstIndices(op.getIndices().begin(),
-                                  op.getIndices().end());
+    // Compute DST index using affine.apply
+    // Formula: assignedSlice + outerLoopIV * numBaseSlices
+    Value dstSliceIndex;
 
-    // Collect induction variables from the loop template for linearization.
-    // These are the OUTER loop IVs that determine which DST slice to use.
-    SmallVector<Value> loopTemplateIVs;
-    for (auto loop : loopCtx.loopNest) {
-      loopTemplateIVs.push_back(loop.getInductionVar());
+    if (!loopCtx.loopNest.empty()) {
+      // Loop case: use affine.apply to compute: assignedSlice + outerIV * numBaseSlices
+      Value outerIV = loopCtx.loopNest[0].getInductionVar();
+
+      auto map = AffineMap::get(
+          1, 0,  // 1 dim, 0 symbols
+          getAffineDimExpr(0, rewriter.getContext()) * numBaseSlices + assignedSlice,
+          rewriter.getContext());
+
+      dstSliceIndex = rewriter.create<affine::AffineApplyOp>(
+          op.getLoc(), map, ValueRange{outerIV});
+    } else {
+      // Scalar case: constant index
+      dstSliceIndex = rewriter.create<arith::ConstantIndexOp>(
+          op.getLoc(), assignedSlice);
     }
 
-    // Build loop-dependent DST slice index expression.
-    // This linearizes the loop template's iteration space into a 1D slice index.
-    mlir::AffineExpr dstIndexExpr = buildDstIndexExpr(
-        assignedSlice, loopIterationStride, loopCtx, loopTemplateIVs,
-        rewriter.getContext());
+    // DST access pattern: %dst[dstSliceIndex, cb_indices...]
+    // We need to compute the CB indices by applying the original affine map.
+    SmallVector<Value> dstIndices;
+    dstIndices.push_back(dstSliceIndex);
 
-    // Insert the DST slice index as the first dimension.
-    auto dstMap = op.getMap().insertResult(dstIndexExpr, 0);
+    // Apply the original operation's affine map to get the actual CB indices
+    AffineMap origMap = op.getAffineMap();
+    if (origMap.getNumResults() > 0) {
+      // For each result dimension of the original map, create an affine.apply
+      for (unsigned i = 0; i < origMap.getNumResults(); ++i) {
+        AffineMap projMap = AffineMap::get(
+            origMap.getNumDims(), origMap.getNumSymbols(),
+            origMap.getResult(i), rewriter.getContext());
+        Value idx = rewriter.create<affine::AffineApplyOp>(
+            op.getLoc(), projMap, op.getMapOperands());
+        dstIndices.push_back(idx);
+      }
+    } else {
+      // No affine map results (shouldn't happen for loads/stores)
+      dstIndices.append(op.getIndices().begin(), op.getIndices().end());
+    }
+
+    // Use identity map since we're passing computed index values
+    auto dstMap = AffineMap::getMultiDimIdentityMap(dstIndices.size(),
+                                                     rewriter.getContext());
 
     if constexpr (std::is_same_v<OpT, affine::AffineLoadOp>) {
       rewriter.replaceOpWithNewOp<affine::AffineLoadOp>(op, dstBuffer, dstMap,
@@ -432,28 +457,28 @@ struct D2MInsertDstRegisterGCPass
           }
         }
 
-        // Second pass: rewrite original loads and stores to use DST instead of
-        // L1. Use the loop template context so compute operations use the same
-        // loop-dependent indexing as the copy loops.
+        // Second pass: rewrite original loads/stores with DST accesses.
         for (size_t accessIndex = 0; accessIndex < dstAccesses.size();
              ++accessIndex) {
           auto &[op, origIdx] = dstAccesses[accessIndex];
           uint32_t assignedSlice = coloring[accessIndex];
 
-          // Look up the loop template for this operation and use its context.
-          // If no loop template found (scalar case), use the individual op context.
-          const LoopContext &loopCtx = opToLoopTemplate.contains(op)
-              ? loopTemplateContexts[opToLoopTemplate[op]]
-              : loopContexts[op];
+          // Get the loop context for this operation.
+          LoopContext loopCtx;
+          if (opToLoopTemplate.contains(op)) {
+            Operation *loopTemplate = opToLoopTemplate[op];
+            loopCtx = loopTemplateContexts[loopTemplate];
+          }
+          // else: empty loopCtx for scalar case
 
           if (auto loadOp = mlir::dyn_cast<affine::AffineLoadOp>(op)) {
             replaceAffineAccessWithDst<affine::AffineLoadOp>(
-                rewriter, loadOp, acquireDst.getResult(), assignedSlice,
-                loopCtx, maxLoopIterations);
+                rewriter, loadOp, acquireDst.getResult(), loopCtx,
+                assignedSlice, numDstBaseSlices);
           } else if (auto storeOp = mlir::dyn_cast<affine::AffineStoreOp>(op)) {
             replaceAffineAccessWithDst<affine::AffineStoreOp>(
-                rewriter, storeOp, acquireDst.getResult(), assignedSlice,
-                loopCtx, maxLoopIterations);
+                rewriter, storeOp, acquireDst.getResult(), loopCtx,
+                assignedSlice, numDstBaseSlices);
           }
         }
       }
@@ -671,22 +696,14 @@ private:
     // Find innermost loop and collect induction variables from the cloned copy loop.
     auto [innermostLoop, copyLoopIndices] = findInnermostLoopAndIndices(copyLoop);
 
-    // Build loop nest from cloned copy loop by traversing from innermostLoop back to copyLoop.
-    SmallVector<affine::AffineForOp, 4> copyLoopNest;
-    affine::AffineForOp currentLoop = innermostLoop;
-    while (currentLoop && currentLoop != copyLoop.getOperation()->getParentOfType<affine::AffineForOp>()) {
-      copyLoopNest.push_back(currentLoop);
-      currentLoop = currentLoop->getParentOfType<affine::AffineForOp>();
+    // Find the number of base slices for DST index computation.
+    int64_t numBaseSlices = 0;
+    for (const auto &pair : copyPairs) {
+      numBaseSlices = std::max(numBaseSlices, pair.second + 1);
     }
-    // Reverse to get outermost-to-innermost order.
-    std::reverse(copyLoopNest.begin(), copyLoopNest.end());
 
-    // Build a LoopContext for the cloned copy loop using the precomputed template context.
-    // The loopTemplateCtx was already analyzed upfront, so just use its trip counts.
-    LoopContext copyLoopCtx;
-    copyLoopCtx.loopNest = copyLoopNest;  // The cloned loops.
-    copyLoopCtx.tripCounts = loopTemplateCtx.tripCounts;  // From precomputed analysis.
-    copyLoopCtx.totalIterations = loopTemplateCtx.totalIterations;
+    // Determine if we have an outer loop for index computation.
+    Value outerIV = !copyLoopIndices.empty() ? copyLoopIndices[0] : Value();
 
     // Populate with copy operations at the innermost loop level.
     rewriter.setInsertionPointToStart(&innermostLoop.getRegion().front());
@@ -702,26 +719,45 @@ private:
         mappedIndices.push_back(mappedIdx);
       }
 
-      // Build loop-dependent DST index expression using the copy loop's context and induction variables.
-      mlir::AffineExpr dstIndexExpr = buildDstIndexExpr(
-          sliceIdx, maxLoopIterations, copyLoopCtx, copyLoopIndices,
-          rewriter.getContext());
+      // Compute DST slice index using affine.apply.
+      // Formula: sliceIdx + outerIV * numBaseSlices
+      Value dstSliceIndex;
+      if (outerIV) {
+        // Loop case: use affine.apply
+        auto map = AffineMap::get(
+            1, 0,  // 1 dim, 0 symbols
+            getAffineDimExpr(0, rewriter.getContext()) * numBaseSlices + sliceIdx,
+            rewriter.getContext());
 
-      auto dstMap = op.getMap().insertResult(dstIndexExpr, 0);
+        dstSliceIndex = rewriter.create<affine::AffineApplyOp>(
+            op.getLoc(), map, ValueRange{outerIV});
+      } else {
+        // Scalar case: constant index
+        dstSliceIndex = rewriter.create<arith::ConstantIndexOp>(
+            op.getLoc(), sliceIdx);
+      }
+
+      // Build DST indices: [dstSliceIndex, mapped_cb_indices...]
+      SmallVector<Value> dstIndices;
+      dstIndices.push_back(dstSliceIndex);
+      dstIndices.append(mappedIndices.begin(), mappedIndices.end());
+
+      // Create identity affine map for DST access
+      auto dstMap = AffineMap::getMultiDimIdentityMap(dstIndices.size(),
+                                                       rewriter.getContext());
 
       if constexpr (IsPrologue) {
         // Create: %val = affine.load %l1[...]
         auto l1Load = rewriter.create<affine::AffineLoadOp>(
             op.getLoc(), op.getMemRef(), op.getMap(), mappedIndices);
 
-        // Create: affine.store %val, %dst[loop-dependent-index, ...]
-        rewriter.create<affine::AffineStoreOp>(op.getLoc(), l1Load.getResult(),
-                                               externalMemref, dstMap,
-                                               mappedIndices);
+        // Create: affine.store %val, %dst[dstSliceIndex, ...]
+        rewriter.create<affine::AffineStoreOp>(
+            op.getLoc(), l1Load.getResult(), externalMemref, dstMap, dstIndices);
       } else {
-        // Create: %val = affine.load %dst[loop-dependent-index, ...]
+        // Create: %val = affine.load %dst[dstSliceIndex, ...]
         auto dstLoad = rewriter.create<affine::AffineLoadOp>(
-            op.getLoc(), externalMemref, dstMap, mappedIndices);
+            op.getLoc(), externalMemref, dstMap, dstIndices);
 
         // Create: affine.store %val, %l1[...]
         rewriter.create<affine::AffineStoreOp>(op.getLoc(), dstLoad.getResult(),
