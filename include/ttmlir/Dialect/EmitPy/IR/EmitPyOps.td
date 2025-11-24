@@ -11,6 +11,7 @@ include "EmitPyInterfaces.td"
 include "EmitPyTypes.td"
 
 include "mlir/Interfaces/SideEffectInterfaces.td"
+include "mlir/Interfaces/ControlFlowInterfaces.td"
 include "mlir/IR/BuiltinAttributes.td"
 include "mlir/IR/CommonTypeConstraints.td"
 include "mlir/IR/CommonAttrConstraints.td"
@@ -199,7 +200,6 @@ def EmitPy_ConstantOp : EmitPy_Op<"constant", [ConstantLike]> {
   let hasVerifier = 1;
 }
 
-
 def EmitPy_GlobalOp : EmitPy_Op<"global", [Symbol]> {
   let summary = "A global variable";
   let description = [{
@@ -284,6 +284,67 @@ def EmitPy_AssignGlobalOp : EmitPy_Op<"assign_global",
 
   let hasVerifier = 1;
   let hasCustomAssemblyFormat = 1;
+}
+
+def EmitPy_IfOp : EmitPy_Op<"if",
+    [DeclareOpInterfaceMethods<RegionBranchOpInterface,
+    ["getRegionInvocationBounds","getEntrySuccessorRegions"]>,
+    OpAsmOpInterface, SingleBlock,
+    SingleBlockImplicitTerminator<"emitpy::YieldOp">,
+    RecursiveMemoryEffects, NoRegionArguments]> {
+  let summary = "If-then-else operation";
+  let description = [{ }];
+  let arguments = (ins I1:$condition);
+
+  let regions = (region SizedRegion<1>:$thenRegion,
+                        MaxSizedRegion<1>:$elseRegion);
+
+  let skipDefaultBuilders = 1;
+  let builders = [
+    OpBuilder<(ins "Value":$cond)>,
+    OpBuilder<(ins "Value":$cond, "bool":$addThenBlock, "bool":$addElseBlock)>,
+    OpBuilder<(ins "Value":$cond, "bool":$withElseRegion)>,
+    OpBuilder<(ins "Value":$cond,
+      CArg<"function_ref<void(OpBuilder &, Location)>",
+           "buildTerminatedBody">:$thenBuilder,
+      CArg<"function_ref<void(OpBuilder &, Location)>",
+           "nullptr">:$elseBuilder)>,
+  ];
+
+  let extraClassDeclaration = [{
+    OpBuilder getThenBodyBuilder(OpBuilder::Listener *listener = nullptr) {
+      Block* body = getBody(0);
+      return OpBuilder::atBlockEnd(body, listener);
+    }
+    OpBuilder getElseBodyBuilder(OpBuilder::Listener *listener = nullptr) {
+      Block* body = getBody(1);
+      return OpBuilder::atBlockEnd(body, listener);
+    }
+
+    //===------------------------------------------------------------------===//
+    // OpAsmOpInterface Methods
+    //===------------------------------------------------------------------===//
+
+    /// EmitPy ops in the body can omit their 'emitpy.' prefix in the assembly.
+    static ::llvm::StringRef getDefaultDialect() {
+      return "emitpy";
+    }
+  }];
+  let hasCustomAssemblyFormat = 1;
+}
+
+def EmitPy_YieldOp : EmitPy_Op<"yield",
+      [Pure, Terminator, HasParent<"IfOp">]> {
+  let summary = "Block termination operation";
+  let description = [{
+
+  }];
+
+  let arguments = (ins Optional<EmitPy_OpaqueType>:$result);
+  let builders = [OpBuilder<(ins), [{ /* nothing to do */ }]>];
+
+  let hasVerifier = 1;
+  let assemblyFormat = [{ attr-dict ($result^ `:` type($result))? }];
 }
 
 #endif // TTMLIR_TTMLIR_DIALECT_EMITPY_EMITPYOPS_TD

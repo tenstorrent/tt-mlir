@@ -10,7 +10,9 @@
 #include "ttmlir/Dialect/EmitPy/IR/EmitPyInterfaces.h"
 #include "ttmlir/Dialect/EmitPy/IR/EmitPyTypes.h"
 
+#include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinOps.h"
+#include "mlir/Interfaces/ControlFlowInterfaces.h"
 
 #define GET_OP_CLASSES
 #include "ttmlir/Dialect/EmitPy/IR/EmitPyOps.h.inc"

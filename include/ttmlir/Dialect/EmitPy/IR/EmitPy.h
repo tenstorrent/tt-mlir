@@ -9,6 +9,8 @@
 
 #include "ttmlir/Dialect/EmitPy/IR/EmitPyOpsDialect.h.inc"
 
+#include "mlir/IR/Builders.h"
+#include "mlir/IR/Location.h"
 #include <variant>
 
 namespace mlir {
@@ -18,6 +20,8 @@ namespace emitpy {
 // Either a literal string, or an placeholder for the fmtArgs.
 struct Placeholder {};
 using ReplacementItem = std::variant<StringRef, Placeholder>;
+
+void buildTerminatedBody(OpBuilder &builder, Location loc);
 
 } // namespace emitpy
 } // namespace tt

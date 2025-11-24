@@ -12,6 +12,10 @@
 #include "llvm/Support/LogicalResult.h"
 #include "llvm/Support/raw_ostream.h"
 
+#include "mlir/IR/Builders.h"
+#include "mlir/IR/OperationSupport.h"
+#include "mlir/IR/Region.h"
+#include "mlir/IR/Value.h"
 #include <string_view>
 
 using namespace mlir;
@@ -571,6 +575,195 @@ LogicalResult GetGlobalOp::verify() {
 LogicalResult
 GetGlobalOp::verifySymbolUses(SymbolTableCollection &symbolTable) {
   return verifyNearestGlobalSymbol<GetGlobalOp>(*this, symbolTable);
+}
+
+//===----------------------------------------------------------------------===//
+// IfOp
+//===----------------------------------------------------------------------===//
+
+void IfOp::build(OpBuilder &builder, OperationState &result, Value cond,
+                 bool addThenBlock, bool addElseBlock) {
+  assert((addThenBlock || !(addElseBlock)) &&
+         "must not create else block without then block");
+  result.addOperands(cond);
+
+  // Add regions and blocks.
+  //
+  OpBuilder::InsertionGuard guard(builder);
+  Region *thenRegion = result.addRegion();
+  if (addThenBlock) {
+    builder.createBlock(thenRegion);
+  }
+  Region *elseRegion = result.addRegion();
+  if (addElseBlock) {
+    builder.createBlock(elseRegion);
+  }
+}
+
+void IfOp::build(OpBuilder &builder, OperationState &result, Value cond,
+                 bool withElseBlock) {
+  result.addOperands(cond);
+
+  // Build then region.
+  //
+  OpBuilder::InsertionGuard guard(builder);
+  Region *thenRegion = result.addRegion();
+  builder.createBlock(thenRegion);
+
+  // Build else region.
+  //
+  Region *elseRegion = result.addRegion();
+  if (withElseBlock) {
+    builder.createBlock(elseRegion);
+  }
+}
+
+void IfOp::build(OpBuilder &builder, OperationState &result, Value cond,
+                 function_ref<void(OpBuilder &, Location)> thenBuilder,
+                 function_ref<void(OpBuilder &, Location)> elseBuilder) {
+  assert(thenBuilder && "the builder callback for 'then' must be present");
+  result.addOperands(cond);
+
+  // Build then region.
+  //
+  OpBuilder::InsertionGuard guard(builder);
+  Region *thenRegion = result.addRegion();
+  builder.createBlock(thenRegion);
+  thenBuilder(builder, result.location);
+
+  // Build else region.
+  //
+  Region *elseRegion = result.addRegion();
+  if (elseBuilder) {
+    builder.createBlock(elseRegion);
+    elseBuilder(builder, result.location);
+  }
+}
+
+ParseResult IfOp::parse(OpAsmParser &parser, OperationState &result) {
+  // Create the regions for 'then'.
+  result.regions.reserve(2);
+  Region *thenRegion = result.addRegion();
+  Region *elseRegion = result.addRegion();
+
+  Builder &builder = parser.getBuilder();
+  OpAsmParser::UnresolvedOperand cond;
+  Type i1Type = builder.getIntegerType(1);
+  if (parser.parseOperand(cond) ||
+      parser.resolveOperand(cond, i1Type, result.operands)) {
+    return failure();
+  }
+
+  // Parse 'then' region.
+  if (parser.parseRegion(*thenRegion, /*arguments=*/{}, /*argTypes=*/{})) {
+    return failure();
+  }
+  IfOp::ensureTerminator(*thenRegion, parser.getBuilder(), result.location);
+
+  // If we find an 'else' keyword then parse the 'else' region.
+  if (!parser.parseOptionalKeyword("else")) {
+    if (parser.parseRegion(*elseRegion, /*arguments=*/{}, /*argTypes=*/{})) {
+      return failure();
+    }
+    IfOp::ensureTerminator(*elseRegion, parser.getBuilder(), result.location);
+  }
+
+  // Parse the optional attribute list.
+  if (parser.parseOptionalAttrDict(result.attributes)) {
+    return failure();
+  }
+
+  return success();
+}
+
+void IfOp::print(OpAsmPrinter &p) {
+  bool printBlockTerminators = false;
+
+  p << " " << getCondition() << " ";
+  p.printRegion(getThenRegion(),
+                /*printEntryBlockArgs=*/false,
+                /*printBlockTerminators=*/printBlockTerminators);
+
+  // Print the 'else' regions if it exists and has a block.
+  Region &elseRegion = getElseRegion();
+  if (!elseRegion.empty()) {
+    p << " else ";
+    p.printRegion(elseRegion,
+                  /*printEntryBlockArgs=*/false,
+                  /*printBlockTerminators=*/printBlockTerminators);
+  }
+
+  p.printOptionalAttrDict((*this)->getAttrs());
+}
+
+void IfOp::getRegionInvocationBounds(
+    ArrayRef<Attribute> operands,
+    SmallVectorImpl<InvocationBounds> &invocationBounds) {
+  if (auto cond = llvm::dyn_cast_or_null<BoolAttr>(operands[0])) {
+    // If the condition is known, then one region is known to be executed once
+    // and the other zero times.
+    invocationBounds.emplace_back(0, cond.getValue() ? 1 : 0);
+    invocationBounds.emplace_back(0, cond.getValue() ? 0 : 1);
+  } else {
+    // Non-constant condition. Each region may be executed 0 or 1 times.
+    invocationBounds.assign(2, {0, 1});
+  }
+}
+
+void IfOp::getSuccessorRegions(RegionBranchPoint point,
+                               SmallVectorImpl<RegionSuccessor> &regions) {
+  // The `then` and the `else` region branch back to the parent operation.
+  if (!point.isParent()) {
+    regions.push_back(RegionSuccessor());
+    return;
+  }
+
+  regions.push_back(RegionSuccessor(&getThenRegion()));
+
+  // Don't consider the else region if it is empty.
+  Region *elseRegion = &this->getElseRegion();
+  if (elseRegion->empty()) {
+    regions.push_back(RegionSuccessor());
+  } else {
+    regions.push_back(RegionSuccessor(elseRegion));
+  }
+}
+
+void IfOp::getEntrySuccessorRegions(ArrayRef<Attribute> operands,
+                                    SmallVectorImpl<RegionSuccessor> &regions) {
+  FoldAdaptor adaptor(operands, *this);
+  auto boolAttr = dyn_cast_if_present<BoolAttr>(adaptor.getCondition());
+  if (!boolAttr || boolAttr.getValue()) {
+    regions.emplace_back(&getThenRegion());
+  }
+
+  // If the else region is empty, execution continues after the parent op.
+  if (!boolAttr || !boolAttr.getValue()) {
+    if (!getElseRegion().empty()) {
+      regions.emplace_back(&getElseRegion());
+    } else {
+      regions.emplace_back();
+    }
+  }
+}
+
+//===----------------------------------------------------------------------===//
+// YieldOp
+//===----------------------------------------------------------------------===//
+
+LogicalResult YieldOp::verify() {
+  Value result = getResult();
+  Operation *containingOp = getOperation()->getParentOp();
+
+  if (result && containingOp->getNumResults() != 1) {
+    return emitOpError() << "yields a value not returned by parent";
+  }
+
+  if (!result && containingOp->getNumResults() != 0) {
+    return emitOpError() << "does not yield a value to be returned by parent";
+  }
+
+  return success();
 }
 
 #define GET_OP_CLASSES

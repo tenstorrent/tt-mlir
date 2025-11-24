@@ -16,6 +16,7 @@
 
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/BuiltinAttributes.h"
+#include "mlir/IR/Region.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/raw_ostream.h"
 #include <stack>
@@ -427,116 +428,155 @@ static LogicalResult printOperation(PythonEmitter &emitter,
 static LogicalResult printOperation(PythonEmitter &emitter,
                                     GlobalStatementOp globalStatementOp) {
   return emitter.emitGlobalStatement(globalStatementOp);
-}
+  static LogicalResult printOperation(PythonEmitter & emitter, IfOp ifOp) {
+    raw_indented_ostream &os = emitter.ostream();
 
-LogicalResult PythonEmitter::emitOperation(Operation &op) {
-  LogicalResult status =
-      llvm::TypeSwitch<Operation *, LogicalResult>(&op)
-          // Builtin ops.
-          .Case<ModuleOp>([&](auto op) { return printOperation(*this, op); })
-          // EmitPy ops.
-          .Case<CallOpaqueOp, ImportOp, AssignOp, ConstantOp, SubscriptOp,
-                GlobalOp, AssignGlobalOp, GlobalStatementOp>(
-              [&](auto op) { return printOperation(*this, op); })
-          .Case<GetGlobalOp>([&](auto op) {
-            cacheDeferredOpResult(op.getResult(), op.getName());
-            return success();
-          })
-          .Case<LiteralOp>([&](auto op) {
-            cacheDeferredOpResult(op.getResult(), op.getValue());
-            return success();
-          })
-          // Func ops.
-          .Case<func::CallOp, func::FuncOp, func::ReturnOp>(
-              [&](auto op) { return printOperation(*this, op); })
-          .Default([&](Operation *) {
-            return op.emitOpError("unable to find printer for op");
-          });
+    auto emitAllExceptTerminator = [&emitter](Region &region) {
+      Region::OpIterator it = region.op_begin(), end = region.op_end();
+      for (; std::next(it) != end; ++it) {
+        if (failed(emitter.emitOperation(*it))) {
+          return failure();
+        }
+      }
 
-  if (failed(status)) {
-    return failure();
-  }
+      assert(isa<YieldOp>(*it) &&
+             "Expected the last operation of a region to be emitpy::YieldOp!");
+      return success();
+    };
 
-  if (hasDeferredEmission(&op)) {
-    return success();
-  }
-
-  os << "\n";
-
-  return success();
-}
-
-LogicalResult PythonEmitter::emitOperand(Value value) {
-  os << getOrCreateName(value);
-
-  return success();
-}
-
-LogicalResult PythonEmitter::emitOperands(Operation &op) {
-  return interleaveCommaWithError(op.getOperands(), os, [&](Value value) {
-    if (failed(emitOperand(value))) {
+    os << "if ";
+    if (failed(emitter.emitOperand(ifOp.getCondition()))) {
       return failure();
     }
 
-    return success();
-  });
-}
-
-LogicalResult PythonEmitter::emitAttribute(Location loc, Attribute attr) {
-  auto printInt = [&](APInt attr) {
-    SmallString<128> strValue;
-    attr.toString(strValue, 10, true);
-    return strValue;
-  };
-  // Print integer attributes.
-  if (auto iAttr = dyn_cast<IntegerAttr>(attr)) {
-    os << printInt(iAttr.getValue());
-    return success();
-  }
-
-  // Print opaque attributes.
-  if (auto oAttr = dyn_cast<mlir::tt::emitpy::OpaqueAttr>(attr)) {
-    os << oAttr.getValue();
-    return success();
-  }
-
-  return emitError(loc, "cannot emit attribute: ") << attr;
-}
-
-LogicalResult PythonEmitter::emitAssignPrefix(Operation &op) {
-  switch (op.getNumResults()) {
-  case 0:
-    break;
-  case 1: {
-    OpResult result = op.getResult(0);
-    if (failed(emitVariableAssignment(result))) {
+    os << ":\n";
+    os.indent();
+    if (failed(emitAllExceptTerminator(ifOp.getThenRegion()))) {
       return failure();
     }
-    break;
+    os.unindent();
+
+    Region &elseRegion = ifOp.getElseRegion();
+    if (!elseRegion.empty()) {
+      os << "else:\n";
+      os.indent();
+      if (failed(emitAllExceptTerminator(elseRegion))) {
+        return failure();
+      }
+      os.unindent();
+    }
+
+    return success();
   }
-  default: {
-    interleaveComma(op.getResults(), os,
-                    [&](Value result) { os << getOrCreateName(result); });
-    os << " = ";
+
+  LogicalResult PythonEmitter::emitOperation(Operation & op) {
+    LogicalResult status =
+        llvm::TypeSwitch<Operation *, LogicalResult>(&op)
+            // Builtin ops.
+            .Case<ModuleOp>([&](auto op) { return printOperation(*this, op); })
+            // EmitPy ops.
+            .Case<CallOpaqueOp, ImportOp, AssignOp, ConstantOp, SubscriptOp,
+                  GlobalOp, AssignGlobalOp, GlobalStatementOp, IfOp>(
+                [&](auto op) { return printOperation(*this, op); })
+            .Case<GetGlobalOp>([&](auto op) {
+              cacheDeferredOpResult(op.getResult(), op.getName());
+              return success();
+            })
+            .Case<LiteralOp>([&](auto op) {
+              cacheDeferredOpResult(op.getResult(), op.getValue());
+              return success();
+            })
+            // Func ops.
+            .Case<func::CallOp, func::FuncOp, func::ReturnOp>(
+                [&](auto op) { return printOperation(*this, op); })
+            .Default([&](Operation *) {
+              return op.emitOpError("unable to find printer for op");
+            });
+
+    if (failed(status)) {
+      return failure();
+    }
+
+    if (hasDeferredEmission(&op)) {
+      return success();
+    }
+
+    os << "\n";
+
+    return success();
   }
+
+  LogicalResult PythonEmitter::emitOperand(Value value) {
+    os << getOrCreateName(value);
+
+    return success();
   }
-  return success();
-}
 
-LogicalResult
-PythonEmitter::emitGlobalStatement(GlobalStatementOp globalStatementOp) {
-  os << "global " << globalStatementOp.getName();
+  LogicalResult PythonEmitter::emitOperands(Operation & op) {
+    return interleaveCommaWithError(op.getOperands(), os, [&](Value value) {
+      if (failed(emitOperand(value))) {
+        return failure();
+      }
 
-  return success();
-}
+      return success();
+    });
+  }
 
-LogicalResult PythonEmitter::emitVariableAssignment(OpResult result) {
-  os << getOrCreateName(result) << " = ";
-  return success();
-}
+  LogicalResult PythonEmitter::emitAttribute(Location loc, Attribute attr) {
+    auto printInt = [&](APInt attr) {
+      SmallString<128> strValue;
+      attr.toString(strValue, 10, true);
+      return strValue;
+    };
+    // Print integer attributes.
+    if (auto iAttr = dyn_cast<IntegerAttr>(attr)) {
+      os << printInt(iAttr.getValue());
+      return success();
+    }
 
-LogicalResult mlir::tt::emitpy::translateToPython(Operation *op,
-                                                  raw_ostream &os) {
-  PythonEmitter emitter(os);
-  return emitter.emitOperation(*op);
-}
+    // Print opaque attributes.
+    if (auto oAttr = dyn_cast<mlir::tt::emitpy::OpaqueAttr>(attr)) {
+      os << oAttr.getValue();
+      return success();
+    }
+
+    return emitError(loc, "cannot emit attribute: ") << attr;
+  }
+
+  LogicalResult PythonEmitter::emitAssignPrefix(Operation & op) {
+    switch (op.getNumResults()) {
+    case 0:
+      break;
+    case 1: {
+      OpResult result = op.getResult(0);
+      if (failed(emitVariableAssignment(result))) {
+        return failure();
+      }
+      break;
+    }
+    default: {
+      interleaveComma(op.getResults(), os,
+                      [&](Value result) { os << getOrCreateName(result); });
+      os << " = ";
+    }
+    }
+    return success();
+  }
+
+  LogicalResult PythonEmitter::emitGlobalStatement(
+      GlobalStatementOp globalStatementOp) {
+    os << "global " << globalStatementOp.getName();
+
+    return success();
+  }
+
+  LogicalResult PythonEmitter::emitVariableAssignment(OpResult result) {
+    os << getOrCreateName(result) << " = ";
+    return success();
+  }
+
+  LogicalResult mlir::tt::emitpy::translateToPython(Operation * op,
+                                                    raw_ostream & os) {
+    PythonEmitter emitter(os);
+    return emitter.emitOperation(*op);
+  }
