@@ -92,6 +92,7 @@ void createTTNNPipelineAnalysisPasses(
     // Wrap all Optimizer passes with device lifecycle management.
     OptimizerPassesWrapperOptions wrapperOptions;
     wrapperOptions.devicePtr = options.devicePtr;
+    wrapperOptions.tensorL1UsageCap = options.tensorL1UsageCap;
 
     ttnn::TTNNOperationValidationAndFallbackOptions validationOptions{
         options.tensorL1UsageCap};
@@ -219,7 +220,12 @@ void createTTIRToTTNNBackendPipeline(
       devicePm.addPass(tt::ttnn::createTTNNFusing());
     }
     createTTNNPipelineWorkaroundPass(devicePm, options);
-    createTTNNPipelineAnalysisPasses(devicePm, options);
+    // Add BFP8 weight conversion pass before analysis passes.
+  // Analysis passes need to know data formats to decide on shardings.
+  if (options.experimentalBfp8Weights) {
+    devicePm.addPass(createTTNNWeightBFP8Conversion());
+  }
+  createTTNNPipelineAnalysisPasses(devicePm, options);
     // We need to re-run const-eval to pick up const prepare conv2d weight ops
     // split during the analysis passes.
     if (options.enableConstEval) {

@@ -1579,12 +1579,14 @@ public:
   LogicalResult
   matchAndRewrite(ttir::AllReduceOp srcOp, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    auto device = ::ttnn::utils::getOrInsertDevice(rewriter, srcOp);
-
     rewriter.replaceOpWithNewOp<ttnn::AllReduceOp>(
         srcOp, this->getTypeConverter()->convertType(srcOp.getType()),
-        adaptor.getInput(), device, adaptor.getReduceType(),
-        adaptor.getClusterAxis());
+        adaptor.getInput(), adaptor.getReduceType(),
+        static_cast<uint32_t>(adaptor.getClusterAxis()),
+        /*sub_device_id=*/nullptr,
+        /*memory_config=*/nullptr,
+        /*num_links=*/nullptr,
+        /*topology=*/nullptr);
 
     return success();
   }
@@ -1967,6 +1969,23 @@ public:
   }
 };
 
+class RotaryEmbeddingOpConversionPattern
+    : public OpConversionPattern<ttir::RotaryEmbeddingOp> {
+public:
+  using OpConversionPattern<ttir::RotaryEmbeddingOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::RotaryEmbeddingOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    rewriter.replaceOpWithNewOp<ttnn::RotaryEmbeddingOp>(
+        op, this->getTypeConverter()->convertType(op.getType()),
+        adaptor.getInput(), adaptor.getCosCache(), adaptor.getSinCache(),
+        /*token_idx=*/nullptr, /*memory_config=*/nullptr,
+        /*compute_confi=*/nullptr);
+    return success();
+  }
+};
+
 class SplitQueryKeyValueAndSplitHeadsOpConversionPattern
     : public OpConversionPattern<ttir::SplitQueryKeyValueAndSplitHeadsOp> {
 public:
@@ -2216,6 +2235,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            ElementwiseOpConversionPattern<ttir::IsFiniteOp, ttnn::IsFiniteOp>,
            ElementwiseOpConversionPattern<ttir::LogicalNotOp, ttnn::LogicalNotOp>,
            ElementwiseOpConversionPattern<ttir::BitwiseNotOp, ttnn::BitwiseNotOp>,
+           ElementwiseOpConversionPattern<ttir::MishOp, ttnn::MishOp>,
            ElementwiseOpConversionPattern<ttir::NegOp, ttnn::NegOp>,
            ElementwiseOpConversionPattern<ttir::ReluOp, ttnn::ReluOp>,
            ElementwiseOpConversionPattern<ttir::Relu6Op, ttnn::Relu6Op>,
@@ -2295,6 +2315,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            AllToAllOpConversionPattern,
            CollectiveBroadcastOpConversionPattern,
            ConcatenateHeadsOpConversionPattern,
+           RotaryEmbeddingOpConversionPattern,
            ScaledDotProductAttentionOpConversionPattern,
            ScaledDotProductAttentionDecodeOpConversionPattern,
            PagedScaledDotProductAttentionDecodeOpConversionPattern,

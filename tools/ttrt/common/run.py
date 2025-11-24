@@ -328,7 +328,7 @@ class Run:
             type=str,
             default="fabric_1d",
             choices=None,
-            help="Select fabric topology: disabled, fabric_1d, fabric_1d_ring, fabric_2d, fabric_2d_torus, fabric_2d_dynamic or custom (case-insensitive, default: disabled)",
+            help="Select fabric topology: disabled, fabric_1d, fabric_1d_ring, fabric_2d, fabric_2d_torus_x, fabric_2d_torus_y, fabric_2d_torus_xy or custom (case-insensitive, default: fabric_1d)",
         )
         Run.register_arg(
             name="--disable-ttrt-callbacks",

@@ -124,6 +124,9 @@ void createTTIRToTTMetalMiddleendPipeline(
     allocateOptions.numStreamBuffers = options.numStreamBuffers;
     allocateOptions.allowL1OutputSpilling = options.allowL1OutputSpilling;
     allocateOptions.streamInsertPolicy = options.streamInsertPolicy;
+    allocateOptions.availableL1AddrRange.assign(
+        options.availableL1AddrRange.begin(),
+        options.availableL1AddrRange.end());
     allocateOptions.testAssumeL1Capacity = options.testAssumel1Capacity;
     allocateOptions.testBufferSizePolicy = options.testBufferSizePolicy;
   }
@@ -142,6 +145,12 @@ void createTTIRToTTMetalMiddleendPipeline(
         options.maxDstPhysicalSizeTiles;
   }
   pm.addPass(d2m::createD2MGenericTileComputeLoops(tileComputeLoopsOptions));
+  d2m::D2MLinalgToAffineOptions linalgToAffineOptions;
+  {
+    linalgToAffineOptions.useTileMatmul = options.useTileMatmul;
+    linalgToAffineOptions.markRootLoops = true;
+  }
+  pm.addPass(d2m::createD2MLinalgToAffine(linalgToAffineOptions));
   d2m::D2MInsertDstRegisterAccessOptions insertDstRegisterAccessOptions;
   {
     insertDstRegisterAccessOptions.useTileMatmul = options.useTileMatmul;

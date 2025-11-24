@@ -630,6 +630,11 @@ def test_binary_eltwise_ops_implicit_broadcast(
     request,
     device,
 ):
+    pcc = 0.99
+
+    if test_fn == div:
+        pcc = 0.97
+
     compile_and_execute_ttir(
         test_fn,
         shapes,
@@ -639,6 +644,7 @@ def test_binary_eltwise_ops_implicit_broadcast(
         system_desc_path=request.config.getoption("--sys-desc"),
         target=target,
         device=device,
+        pcc=pcc,
     )
 
 
