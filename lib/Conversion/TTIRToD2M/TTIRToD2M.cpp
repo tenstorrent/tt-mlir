@@ -917,7 +917,7 @@ public:
     dimAlignments[origInputShape.size() - 1] = tileWidth;
 
     // Do not tilize.
-    auto [inputs, _] =
+    auto [inputs, outputs] =
         toLayoutOperandsAndResults(rewriter, {origInputs, origOutputs},
                                    /*tiled*/ false, dimAlignments);
 
@@ -938,7 +938,7 @@ public:
         inputLayout.getIndexAffineMapOrIdentity(deviceRank));
 
     const auto viewLayout = ttcore::MetalLayoutAttr::get(
-        ctx, permuted.logicalShape, permuted.dimAlignments,
+        ctx, permuted.logicalShape, inputLayout.getDimAlignments(),
         inputLayout.getCollapsedIntervals(), inputLayout.getOobVal(),
         inputLayout.getMemorySpace(), inputLayout.getMemoryLayout(),
         composedMap);
@@ -948,15 +948,11 @@ public:
     auto storage = rewriter.create<d2m::EmptyOp>(
         op.getLoc(), permuted.physicalShape, inputTensorType.getElementType(),
         viewLayout);
-    auto view = rewriter.create<d2m::ViewLayoutOp>(op.getLoc(), viewTensorType,
+    auto view = rewriter.create<d2m::StreamLayoutOp>(op.getLoc(), viewTensorType,
                                                    inputs[0], storage);
     inputs[0] = view.getResult();
     llvm::errs() << "inputs: " << inputs[0] << "\n";
-    auto output = rewriter.create<d2m::EmptyOp>(
-        op.getLoc(), permuted.physicalShape, inputTensorType.getElementType(),
-        viewLayout);
-    llvm::errs() << "output: " << output << "\n";
-    SmallVector<Value> outputs(1, output);
+    llvm::errs() << "outputs: " << outputs[0] << "\n";
     // Create a DMA-only generic whose input is the view layout and whose
     // output is the op result. Follow the DMA form used by existing tests:
     // reserve the output CB, DMA from input to output using the generic's
