@@ -31,9 +31,8 @@ inline mlir::AffineMap extendWithIdentityDimsAndResults(mlir::AffineMap map,
   }
   llvm::SmallVector<mlir::AffineExpr> extendedResults =
       llvm::to_vector(map.getResults());
-  for (unsigned i = map.getNumResults(); i < map.getNumResults() + extraDims;
-       i++) {
-    extendedResults.push_back(getAffineDimExpr(i + 1, map.getContext()));
+  for (unsigned i = map.getNumDims(); i < map.getNumDims() + extraDims; i++) {
+    extendedResults.push_back(getAffineDimExpr(i, map.getContext()));
   }
 
   return mlir::AffineMap::get(map.getNumDims() + extraDims, map.getNumSymbols(),

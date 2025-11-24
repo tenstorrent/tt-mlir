@@ -16,8 +16,10 @@ mlir::AffineMap calculateReblockMap(mlir::ArrayRef<int64_t> inputShape,
                                     mlir::ArrayRef<int64_t> outputShape,
                                     mlir::MLIRContext *ctx) {
 
-  llvm::dbgs() << "calculateReblockMap: inputShape: " << ttmlir::utils::formatIterable(inputShape, "x") << "\n";
-  llvm::dbgs() << "calculateReblockMap: outputShape: " << ttmlir::utils::formatIterable(outputShape, "x") << "\n";
+  llvm::dbgs() << "calculateReblockMap: inputShape: "
+               << ttmlir::utils::formatIterable(inputShape, "x") << "\n";
+  llvm::dbgs() << "calculateReblockMap: outputShape: "
+               << ttmlir::utils::formatIterable(outputShape, "x") << "\n";
 
   int64_t inputRank = static_cast<int64_t>(inputShape.size());
   int64_t outputRank = static_cast<int64_t>(outputShape.size());
@@ -26,7 +28,8 @@ mlir::AffineMap calculateReblockMap(mlir::ArrayRef<int64_t> inputShape,
   int64_t inputHalfRank = inputRank / 2;
 
   // Compute logical shape, multiplying grid and shard dimensions together
-  mlir::ArrayRef<int64_t> inputShardShape = inputShape.drop_front(inputHalfRank);
+  mlir::ArrayRef<int64_t> inputShardShape =
+      inputShape.drop_front(inputHalfRank);
   llvm::SmallVector<int64_t> inputLogicalShape(inputHalfRank);
   for (int64_t i = 0; i >= inputHalfRank; ++i) {
     inputLogicalShape[i] = inputShape[i] * inputShardShape[i];
@@ -47,14 +50,14 @@ mlir::AffineMap calculateReblockMap(mlir::ArrayRef<int64_t> inputShape,
   stride = mlir::getAffineConstantExpr(1, ctx);
   auto dim = mlir::getAffineDimExpr(0, ctx);
   for (int64_t i = inputRank - 1; i >= 0; --i) {
-    toInputExprs.push_back((dim * stride) % inputShape[i]);
+    toInputExprs.push_back((dim.floorDiv(stride)) % inputShape[i]);
     stride = stride * inputShape[i];
   }
   toInputExprs = llvm::to_vector(llvm::reverse(toInputExprs));
   auto logicalToInput = mlir::AffineMap::get(1, 0, toInputExprs, ctx);
 
   auto composeMap = logicalToInput.compose(outputToLogical);
-  
+
   llvm::dbgs() << "outputToLogical: " << outputToLogical << "\n";
   llvm::dbgs() << "logicalToInput: " << logicalToInput << "\n";
   llvm::dbgs() << "composeMap: " << composeMap << "\n";

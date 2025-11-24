@@ -865,13 +865,23 @@ GridAttr::getPhysicalGridShape(ArrayRef<int64_t> deviceGridShape) {
   // The physical grid shape must not exceed the device grid dimensions.
   // For now, assume that the phys grid shape is a rectangle.
   auto virtualGridVolume = ttmlir::utils::volume(getShape());
-  for (int x = virtualGridVolume; x > 0; x--) {
+  for (int x = std::floor(std::sqrt(virtualGridVolume)); x > 0; x--) {
     if (virtualGridVolume % x == 0) {
       int y = virtualGridVolume / x;
-      if (y <= deviceGridShape[0] && x <= deviceGridShape[1]) {
-        if (checkInjective({y, x})) {
-          return {y, x};
+      auto checkValid = [&](int y,
+                            int x) -> std::optional<SmallVector<int64_t>> {
+        if (y <= deviceGridShape[0] && x <= deviceGridShape[1]) {
+          if (checkInjective({y, x})) {
+            return SmallVector<int64_t>{y, x};
+          }
         }
+        return std::nullopt;
+      };
+      if (auto result = checkValid(y, x)) {
+        return result.value();
+      } else if (auto result = checkValid(x, y)) {
+        // check swapped dims
+        return result.value();
       }
     }
   }
@@ -904,8 +914,9 @@ MetalLayoutAttr::getPhysicalGridShape(ShapedType tensorType) const {
   // index map
   std::pair<int64_t, int64_t> ybounds = {0, 0};
   std::pair<int64_t, int64_t> xbounds = {0, 0};
+  auto map = getIndexAffineMapOrIdentity(shape.size());
   ttmlir::utils::sample(shape, [&](SmallVector<int64_t, 8> point) {
-    auto virtualPoint = getIndexAffineMap().compose(point);
+    auto virtualPoint = map.compose(point);
     ybounds = {std::min(ybounds.first, virtualPoint[0]),
                std::max(ybounds.second, virtualPoint[0])};
     xbounds = {std::min(xbounds.first, virtualPoint[1]),
@@ -914,6 +925,8 @@ MetalLayoutAttr::getPhysicalGridShape(ShapedType tensorType) const {
 
   TT_assertv((ybounds.first == 0 && xbounds.first == 0),
              "Physical grid shape must start at y=0,x=0.");
+  llvm::dbgs() << "getPhysicalGridShape: derived physicalGridShape: "
+               << ybounds.second + 1 << "x" << xbounds.second + 1 << "\n";
   return {ybounds.second + 1, xbounds.second + 1};
 }
 
@@ -1112,13 +1125,23 @@ MetalLayoutAttr MetalLayoutAttr::get(::mlir::MLIRContext *context,
                                      OOBVal oobVal, MemorySpace memorySpace,
                                      TensorMemoryLayout memoryLayout,
                                      DenseIntElementsAttr collapsedIntervals) {
+  return get(context, logicalShape, oobVal, memorySpace, memoryLayout,
+             collapsedIntervals, mlir::AffineMap::get(context));
+}
+// Getter with explicit collapsedIntervals, we calculate the alignments.
+MetalLayoutAttr MetalLayoutAttr::get(::mlir::MLIRContext *context,
+                                     ArrayRef<int64_t> logicalShape,
+                                     OOBVal oobVal, MemorySpace memorySpace,
+                                     TensorMemoryLayout memoryLayout,
+                                     DenseIntElementsAttr collapsedIntervals,
+                                     mlir::AffineMap indexAffineMap) {
   llvm::SmallVector<int64_t> normalizedIntervals =
       normalizeAndFlattenIntervals(collapsedIntervals, logicalShape.size());
   llvm::SmallVector<int64_t> dimAlignmentsVec =
       computeTileAlignments(logicalShape, normalizedIntervals);
 
   return get(context, logicalShape, dimAlignmentsVec, collapsedIntervals,
-             oobVal, memorySpace, memoryLayout, mlir::AffineMap::get(context));
+             oobVal, memorySpace, memoryLayout, indexAffineMap);
 }
 
 // Getter with explicit collapsedIntervals and dimAlignments.
@@ -1487,6 +1510,8 @@ mlir::AffineMap DeviceAttr::getMemoryMap(MemRefType memrefType, size_t pageSize,
                    << "\n";
       affineMap = affineMap.compose(coreVirtMap);
     }
+    llvm::dbgs() << "[getMemoryMap] (opt) pre viewaffineMap:   " << affineMap
+                 << "\n";
     if (view) {
       llvm::dbgs() << "[getMemoryMap] (opt) view:   " << *view << "\n";
       affineMap = affineMap.compose(*view);
