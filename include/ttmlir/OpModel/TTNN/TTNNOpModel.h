@@ -1120,6 +1120,40 @@ struct OpModel<Conv2dOp> {
 };
 
 //===----------------------------------------------------------------------===//
+// Conv3dOp
+//===----------------------------------------------------------------------===//
+
+template <>
+struct OpModel<Conv3dOp> {
+  static llvm::Expected<OpConstraints> getOpConstraints(
+      ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
+      TTNNLayoutAttr inputLayout, llvm::ArrayRef<int64_t> weightShape,
+      TTNNLayoutAttr weightLayout,
+      std::optional<llvm::ArrayRef<int64_t>> biasShape,
+      std::optional<TTNNLayoutAttr> biasLayout, uint32_t in_channels,
+      uint32_t out_channels, uint32_t batch_size, uint32_t input_depth,
+      uint32_t input_height, uint32_t input_width,
+      llvm::ArrayRef<int32_t> kernel_size, llvm::ArrayRef<int32_t> stride,
+      llvm::ArrayRef<int32_t> padding, uint32_t groups,
+      llvm::StringRef padding_mode,
+      std::optional<DeviceComputeKernelConfigAttr> deviceComputeKernelConfig,
+      TTNNLayoutAttr outputLayout);
+
+  static llvm::Expected<size_t> getOpRuntime(
+      llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+      llvm::ArrayRef<int64_t> weightShape, TTNNLayoutAttr weightLayout,
+      std::optional<llvm::ArrayRef<int64_t>> biasShape,
+      std::optional<TTNNLayoutAttr> biasLayout, uint32_t in_channels,
+      uint32_t out_channels, uint32_t batch_size, uint32_t input_depth,
+      uint32_t input_height, uint32_t input_width,
+      llvm::ArrayRef<int32_t> kernel_size, llvm::ArrayRef<int32_t> stride,
+      llvm::ArrayRef<int32_t> padding, uint32_t groups,
+      llvm::StringRef padding_mode,
+      std::optional<DeviceComputeKernelConfigAttr> deviceComputeKernelConfig,
+      TTNNLayoutAttr outputLayout);
+};
+
+//===----------------------------------------------------------------------===//
 // ConvTranspose2dOp
 //===----------------------------------------------------------------------===//
 
