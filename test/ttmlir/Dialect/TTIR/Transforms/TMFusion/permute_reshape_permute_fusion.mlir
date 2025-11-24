@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttir-erase-inverse-ops -o %t %s
+// RUN: ttmlir-opt --ttir-erase-inverse-ops="force=true" -o %t %s
 // RUN: FileCheck %s --input-file=%t
 
 module {

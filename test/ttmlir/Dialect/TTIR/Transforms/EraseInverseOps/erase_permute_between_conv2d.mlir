@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttir-erase-inverse-ops -o %t %s
+// RUN: ttmlir-opt --ttir-erase-inverse-ops="force=true" -o %t %s
 // RUN: FileCheck %s --input-file=%t
 module {
   func.func @main(%arg0: tensor<64x3x7x7xf32>, %arg1: tensor<1x3x256x256xf32>, %arg2: tensor<1x64x128x128xf32>, %arg3: tensor<512x64x7x7xf32>) -> tensor<1x512x64x64xf32> {
