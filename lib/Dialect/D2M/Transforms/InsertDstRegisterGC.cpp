@@ -13,6 +13,7 @@
 #include "mlir/Dialect/Affine/Analysis/LoopAnalysis.h"
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Affine/LoopUtils.h"
+#include "mlir/Dialect/Affine/Utils.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/PatternMatch.h"
 #include "ttmlir/Utils.h"
@@ -88,6 +89,47 @@ struct D2MInsertDstRegisterGCPass
     return nullptr;
   }
 
+  /// Compute the linearized loop iteration index for DST slice computation.
+  ///
+  /// Uses MLIR's linearizeIndex utility to linearize the multi-dimensional loop
+  /// iteration space. For example, for a 2D loop nest with trip counts [M, N],
+  /// the linearized index is: linearized = innerIV + outerIV * N
+  ///
+  /// \param rewriter The IR rewriter for creating new operations.
+  /// \param loc Location information for the new operation.
+  /// \param loopCtx The loop context containing loop nest and trip counts.
+  /// \return The linearized loop index as an SSA value, or nullptr if no loops.
+  static Value computeLinearizedLoopIndex(IRRewriter &rewriter, Location loc,
+                                          LoopContext &loopCtx) {
+    if (loopCtx.loopNest.empty()) {
+      return nullptr;
+    }
+
+    // Collect loop IVs and trip counts as OpFoldResults
+    SmallVector<OpFoldResult> multiIndex;
+    SmallVector<OpFoldResult> basis;
+
+    for (size_t i = 0; i < loopCtx.loopNest.size(); ++i) {
+      multiIndex.push_back(loopCtx.loopNest[i].getInductionVar());
+      basis.push_back(rewriter.getIndexAttr(loopCtx.tripCounts[i]));
+    }
+
+    // Use MLIR's upstream linearizeIndex utility
+    OpFoldResult linearized = mlir::affine::linearizeIndex(
+        rewriter, loc, multiIndex, basis);
+
+    // Convert OpFoldResult to Value
+    if (auto val = dyn_cast<Value>(linearized)) {
+      return val;
+    }
+    // If it's a constant attribute, materialize it as a constant op
+    if (auto attr = dyn_cast<Attribute>(linearized)) {
+      return rewriter.create<arith::ConstantIndexOp>(
+          loc, cast<IntegerAttr>(attr).getInt());
+    }
+    return nullptr;
+  }
+
   /// Replace an affine load or store op to use the DST buffer instead of L1.
   /// Computes DST index using affine.apply and uses it in affine load/store.
   template <typename OpT>
@@ -98,21 +140,20 @@ struct D2MInsertDstRegisterGCPass
                                          int64_t numBaseSlices) {
     rewriter.setInsertionPoint(op);
 
-    // Compute DST index using affine.apply
-    // Formula: assignedSlice + outerLoopIV * numBaseSlices
+    // Compute DST slice index.
+    // Formula: assignedSlice + linearizedLoopIndex * numBaseSlices
     Value dstSliceIndex;
 
-    if (!loopCtx.loopNest.empty()) {
-      // Loop case: use affine.apply to compute: assignedSlice + outerIV * numBaseSlices
-      Value outerIV = loopCtx.loopNest[0].getInductionVar();
-
+    Value linearizedLoopIndex = computeLinearizedLoopIndex(rewriter, op.getLoc(), loopCtx);
+    if (linearizedLoopIndex) {
+      // Loop case: compute assignedSlice + linearizedIndex * numBaseSlices
       auto map = AffineMap::get(
           1, 0,  // 1 dim, 0 symbols
           getAffineDimExpr(0, rewriter.getContext()) * numBaseSlices + assignedSlice,
           rewriter.getContext());
 
       dstSliceIndex = rewriter.create<affine::AffineApplyOp>(
-          op.getLoc(), map, ValueRange{outerIV});
+          op.getLoc(), map, ValueRange{linearizedLoopIndex});
     } else {
       // Scalar case: constant index
       dstSliceIndex = rewriter.create<arith::ConstantIndexOp>(
@@ -702,8 +743,11 @@ private:
       numBaseSlices = std::max(numBaseSlices, pair.second + 1);
     }
 
-    // Determine if we have an outer loop for index computation.
-    Value outerIV = !copyLoopIndices.empty() ? copyLoopIndices[0] : Value();
+    // For copy loops (prologue/epilogue), always use constant DST indexing.
+    // Copy loops move data to/from DST, but the DST slice is determined by
+    // the graph coloring assignment, not by which iteration of the copy loop we're in.
+    // Loop-dependent indexing is only used for compute operations accessing DST.
+    bool useLoopDependentIndexing = false;
 
     // Populate with copy operations at the innermost loop level.
     rewriter.setInsertionPointToStart(&innermostLoop.getRegion().front());
@@ -719,20 +763,47 @@ private:
         mappedIndices.push_back(mappedIdx);
       }
 
-      // Compute DST slice index using affine.apply.
-      // Formula: sliceIdx + outerIV * numBaseSlices
+      // Compute DST slice index.
       Value dstSliceIndex;
-      if (outerIV) {
-        // Loop case: use affine.apply
-        auto map = AffineMap::get(
-            1, 0,  // 1 dim, 0 symbols
-            getAffineDimExpr(0, rewriter.getContext()) * numBaseSlices + sliceIdx,
-            rewriter.getContext());
+      if (useLoopDependentIndexing) {
+        // Build a LoopContext from the cloned copy loop for linearization
+        LoopContext copyLoopCtx;
+        affine::AffineForOp currentLoop = copyLoop;
+        while (currentLoop) {
+          copyLoopCtx.loopNest.push_back(currentLoop);
+          copyLoopCtx.tripCounts.push_back(
+              currentLoop.getConstantUpperBound() - currentLoop.getConstantLowerBound());
 
-        dstSliceIndex = rewriter.create<affine::AffineApplyOp>(
-            op.getLoc(), map, ValueRange{outerIV});
+          // Find nested loop
+          affine::AffineForOp nestedLoop = nullptr;
+          currentLoop.walk([&](affine::AffineForOp loop) {
+            if (loop != currentLoop && !nestedLoop) {
+              nestedLoop = loop;
+              return WalkResult::interrupt();
+            }
+            return WalkResult::advance();
+          });
+          currentLoop = nestedLoop;
+        }
+        copyLoopCtx.totalIterations = loopTemplateCtx.totalIterations;
+
+        // Compute linearized index and apply the formula: sliceIdx + linearizedIndex * numBaseSlices
+        Value linearizedLoopIndex = computeLinearizedLoopIndex(rewriter, op.getLoc(), copyLoopCtx);
+        if (linearizedLoopIndex) {
+          auto map = AffineMap::get(
+              1, 0,  // 1 dim, 0 symbols
+              getAffineDimExpr(0, rewriter.getContext()) * numBaseSlices + sliceIdx,
+              rewriter.getContext());
+
+          dstSliceIndex = rewriter.create<affine::AffineApplyOp>(
+              op.getLoc(), map, ValueRange{linearizedLoopIndex});
+        } else {
+          // Empty loop context - use constant
+          dstSliceIndex = rewriter.create<arith::ConstantIndexOp>(
+              op.getLoc(), sliceIdx);
+        }
       } else {
-        // Scalar case: constant index
+        // Copy loop structure doesn't match template - use constant indexing
         dstSliceIndex = rewriter.create<arith::ConstantIndexOp>(
             op.getLoc(), sliceIdx);
       }
