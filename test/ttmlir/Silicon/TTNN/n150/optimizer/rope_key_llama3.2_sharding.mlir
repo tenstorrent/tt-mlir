@@ -11,7 +11,7 @@ func.func @rope_key_llama3_2_sharding(
     %sin_cache: tensor<1x1x1x64xbf16>,
     %output: tensor<1x1x8x64xbf16>) -> tensor<1x1x8x64xbf16> {
     %0 = ttir.empty() : tensor<1x1x8x64xbf16>
-    // First rotary embedding operation with height sharding: input [1,1,32,64xbf16]
+    // First rotary embedding operation with height sharding: input [1,1,8,64xbf16]
     // CHECK: = "ttnn.rotary_embedding"{{.*}} -> {{.*}}#ttnn.ttnn_layout{{.*}}height_sharded{{.*}}
     %1 = "ttir.rotary_embedding"(%input, %cos_cache, %sin_cache, %0) : (tensor<1x1x8x64xbf16>, tensor<1x1x1x64xbf16>, tensor<1x1x1x64xbf16>, tensor<1x1x8x64xbf16>) -> tensor<1x1x8x64xbf16>
 
