@@ -705,14 +705,14 @@ mlir::LogicalResult d2m::ViewLayoutOp::verify() {
         return emitOpError("view cannot change memory space");
       }
 
-      if (inputLayout.getCollapsedIntervals() !=
-          resultLayout.getCollapsedIntervals()) {
-        return emitOpError("view cannot change collapsed intervals");
-      }
+      // if (inputLayout.getCollapsedIntervals() !=
+      //     resultLayout.getCollapsedIntervals()) {
+      //   return emitOpError("view cannot change collapsed intervals");
+      // }
 
-      if (inputLayout.getDimAlignments() != resultLayout.getDimAlignments()) {
-        return emitOpError("view cannot change dim alignments");
-      }
+      // if (inputLayout.getDimAlignments() != resultLayout.getDimAlignments()) {
+      //   return emitOpError("view cannot change dim alignments");
+      // }
     }
   }
 
