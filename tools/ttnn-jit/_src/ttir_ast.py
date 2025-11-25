@@ -17,8 +17,8 @@ from ttmlir.dialects import (
 from .tensor_translator import create_tensor_layout
 
 from .utils import (
-    _discover_dialect_ops,
-    _get_num_pos_args,
+    discover_dialect_ops,
+    get_num_pos_args,
 )
 
 
@@ -46,7 +46,7 @@ class TTIRCompiler(ast.NodeVisitor):
         self.symbol_tables = []
         self.tensor_args = kwargs.get("_tensor_args", {})
         self.max_grid = kwargs.get("_max_grid")
-        self._fn_map = _discover_dialect_ops("ttnn")
+        self._fn_map = discover_dialect_ops("ttnn")
         self.supported_nodes = self.common_nodes
 
     def _mlir_dtype_from_ttnn_dtype(self, dtype):
@@ -184,7 +184,7 @@ class TTIRCompiler(ast.NodeVisitor):
         op.owner.attributes["ttnn.hoist_generic_via_d2m"] = UnitAttr.get(self.ctx)
 
         # Binary ops have 3 pos args: [result_type, lhs, rhs].
-        if _get_num_pos_args(func) == 3:
+        if get_num_pos_args(func) == 3:
             dtype = ttcore.ir.DataTypeAttr.get(
                 self.ctx, self._ttcore_dtype_from_mlir_dtype(result_type.element_type)
             )
