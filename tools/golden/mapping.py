@@ -2428,21 +2428,6 @@ def arange_golden(single_dim_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTens
     return GoldenMapTensor(output_shards, single_dim_tensor.mesh_shape)
 
 
-def full_golden(**kwargs) -> GoldenMapTensor:
-    """
-    Golden function for full operation with TTIR parameter names.
-    """
-    shape = kwargs.get("shape", [1])
-    fill_value = unpack_mlir_attr(kwargs.get("fill_value", 0))
-
-    dtype = kwargs.get("dtype", None)
-    if dtype is not None:
-        return GoldenMapTensor({0: torch.full(shape, fill_value, dtype=dtype)}, (1, 1))
-
-    tensor = torch.full(shape, fill_value)
-    return GoldenMapTensor({0: tensor}, (1, 1))
-
-
 def cumsum_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
     """
     Golden function for cumsum operation with TTIR parameter names.
@@ -3959,7 +3944,6 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.ConstantOp: ttir_constant_golden,
     ttir.FullOp: ttir_full_golden,
     ttir.ArangeOp: arange_golden,
-    ttir.FullOp: full_golden,
     # Quantization operations
     ttir.QuantizeOp: quantize_golden,
     ttir.DequantizeOp: torch.dequantize,
