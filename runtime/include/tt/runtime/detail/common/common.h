@@ -13,6 +13,7 @@
 #include "tt-metalium/host_api.hpp"
 #include "tt-metalium/mesh_device.hpp"
 
+#include "tt-metalium/fabric_edm_types.hpp"
 #include "tt-metalium/fabric_types.hpp"
 #include "tt/runtime/detail/common/flatbuffer_operator_ostream.h"
 #include "tt/runtime/detail/common/logger.h"
@@ -59,14 +60,6 @@ toMetalFabricConfig(tt::runtime::FabricConfig cfg) {
     return ::tt::tt_fabric::FabricConfig::FABRIC_2D_TORUS_Y;
   case tt::runtime::FabricConfig::FABRIC_2D_TORUS_XY:
     return ::tt::tt_fabric::FabricConfig::FABRIC_2D_TORUS_XY;
-  case tt::runtime::FabricConfig::FABRIC_2D_DYNAMIC:
-    return ::tt::tt_fabric::FabricConfig::FABRIC_2D_DYNAMIC;
-  case tt::runtime::FabricConfig::FABRIC_2D_DYNAMIC_TORUS_X:
-    return ::tt::tt_fabric::FabricConfig::FABRIC_2D_DYNAMIC_TORUS_X;
-  case tt::runtime::FabricConfig::FABRIC_2D_DYNAMIC_TORUS_Y:
-    return ::tt::tt_fabric::FabricConfig::FABRIC_2D_DYNAMIC_TORUS_Y;
-  case tt::runtime::FabricConfig::FABRIC_2D_DYNAMIC_TORUS_XY:
-    return ::tt::tt_fabric::FabricConfig::FABRIC_2D_DYNAMIC_TORUS_XY;
   case tt::runtime::FabricConfig::CUSTOM:
     return ::tt::tt_fabric::FabricConfig::CUSTOM;
   }
@@ -165,6 +158,21 @@ createFullMeshDevice(
           /*mesh_shape=*/std::nullopt),
       DEFAULT_L1_SMALL_SIZE, DEFAULT_TRACE_REGION_SIZE,
       /*num_command_queues=*/1, type);
+}
+
+inline ::tt::tt_fabric::Topology
+toMetalTopology(::tt::target::Topology topology) {
+  switch (topology) {
+  case ::tt::target::Topology::Ring:
+    return ::tt::tt_fabric::Topology::Ring;
+  case ::tt::target::Topology::Linear:
+    return ::tt::tt_fabric::Topology::Linear;
+  case ::tt::target::Topology::Mesh:
+    return ::tt::tt_fabric::Topology::Mesh;
+  case ::tt::target::Topology::Torus:
+    return ::tt::tt_fabric::Topology::Torus;
+  }
+  LOG_FATAL("Unknown tt::target::Topology value");
 }
 
 } // namespace tt::runtime::common

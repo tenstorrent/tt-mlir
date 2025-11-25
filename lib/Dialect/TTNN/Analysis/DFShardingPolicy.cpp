@@ -94,8 +94,9 @@ void DFShardingPolicy::run() {
         // the current op.
         bool validForSharding =
             llvm::isa<ttnn::Conv2dOp, ttnn::AddOp, ttnn::MultiplyOp,
-                      ttnn::ReluOp, ttnn::Relu6Op, ttnn::SiluOp,
-                      ttnn::TypecastOp, ttnn::MinimumOp>(currentOp) &&
+                      ttnn::ReluOp, ttnn::Relu6Op, ttnn::TypecastOp,
+                      ttnn::SiluOp, ttnn::MatmulOp, ttnn::LinearOp,
+                      ttnn::MinimumOp>(currentOp) &&
             legalConfigs.lookup(currentOp).size() > 0;
 
         if (validForSharding) {
@@ -114,7 +115,7 @@ void DFShardingPolicy::run() {
             if (nextOp->getOperand(0).getDefiningOp() != currentOp) {
               // Only continue chain if nextOp uses currentOp as first operand.
               // Here we break the chain if not.
-              TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
+              TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
                            "Breaking L1 chain at op {} as it is not first "
                            "operand of next op {}",
                            currentOp->getName(), nextOp->getName());
@@ -143,7 +144,7 @@ void DFShardingPolicy::run() {
   }
 
   for ([[maybe_unused]] L1ChainConfig &l1ChainConfig : *l1ChainConfigs) {
-    TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer, "L1 chain config {}",
+    TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy, "L1 chain config {}",
                  l1ChainConfig);
   }
 
@@ -166,7 +167,7 @@ void DFShardingPolicy::run() {
         overrideReshardEdges, overrideOutputLayout);
 
     if (l1ChainConfig.getState() == L1ChainState::Failed) {
-      TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
+      TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
                    "Failed to resolve L1 chain config {}", l1ChainConfig);
       progressTracker.finishL1Chain(firstOp, chainIndex, false);
       continue;
@@ -184,8 +185,8 @@ void DFShardingPolicy::run() {
       l1ChainConfig.spillEndToDRAM = true;
     }
 
-    TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer, "Resolved L1 chain config {}",
-                 l1ChainConfig);
+    TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
+                 "Resolved L1 chain config {}", l1ChainConfig);
 
     progressTracker.finishL1Chain(firstOp, chainIndex, true);
   }

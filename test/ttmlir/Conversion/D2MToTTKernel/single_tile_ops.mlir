@@ -18,12 +18,12 @@ module {
   // TTIR FPU operations
   //===----------------------------------------------------------------------===//
 
-  func.func @test_matmul_lowering(%in0: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>,
-                                  %in1: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>,
-                                  %out: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>) {
+  func.func @test_matmul_lowering(%in0: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>,
+                                  %in1: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>,
+                                  %out: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>) {
     d2m.generic {block_factors = [1, 1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#map1_, #map2_, #map3_], iterator_types = [#parallel_, #parallel_, #reduction_], threads = [#d2m.thread<compute>]}
-        ins(%in0, %in1 : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>, memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>)
-        outs(%out : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>)  {
+        ins(%in0, %in1 : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>, memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>)
+        outs(%out : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>)  {
     ^compute0(%arg0_cb: !d2m.cb<memref<1x1x!ttype_f32, #l1_>>, %arg1_cb: !d2m.cb<memref<1x1x!ttype_f32, #l1_>>, %arg2_cb: !d2m.cb<memref<1x1x!ttype_f32, #l1_>>):
       %cb0 = d2m.wait %arg0_cb : !d2m.cb<memref<1x1x!ttype_f32, #l1_>> -> memref<1x1x!ttype_f32, #l1_>
       %cb1 = d2m.wait %arg1_cb : !d2m.cb<memref<1x1x!ttype_f32, #l1_>> -> memref<1x1x!ttype_f32, #l1_>
@@ -42,12 +42,12 @@ module {
     return
   }
 
-  func.func @test_add_lowering(%in0: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>,
-                               %in1: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>,
-                               %out: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>) {
+  func.func @test_add_lowering(%in0: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>,
+                               %in1: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>,
+                               %out: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>) {
     d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#map_, #map_, #map_], iterator_types = [#parallel_, #parallel_], threads = [#d2m.thread<compute>]}
-        ins(%in0, %in1 : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>, memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>)
-        outs(%out : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>)  {
+        ins(%in0, %in1 : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>, memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>)
+        outs(%out : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>)  {
     ^compute0(%arg0_cb: !d2m.cb<memref<1x1x!ttype_f32, #l1_>>, %arg1_cb: !d2m.cb<memref<1x1x!ttype_f32, #l1_>>, %arg2_cb: !d2m.cb<memref<1x1x!ttype_f32, #l1_>>):
       %cb0 = d2m.wait %arg0_cb : !d2m.cb<memref<1x1x!ttype_f32, #l1_>> -> memref<1x1x!ttype_f32, #l1_>
       %cb1 = d2m.wait %arg1_cb : !d2m.cb<memref<1x1x!ttype_f32, #l1_>> -> memref<1x1x!ttype_f32, #l1_>
@@ -66,12 +66,12 @@ module {
     return
   }
 
-  func.func @test_sub_lowering(%in0: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>,
-                               %in1: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>,
-                               %out: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>) {
+  func.func @test_sub_lowering(%in0: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>,
+                               %in1: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>,
+                               %out: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>) {
     d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#map_, #map_, #map_], iterator_types = [#parallel_, #parallel_], threads = [#d2m.thread<compute>]}
-        ins(%in0, %in1 : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>, memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>)
-        outs(%out : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>)  {
+        ins(%in0, %in1 : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>, memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>)
+        outs(%out : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>)  {
     ^compute0(%arg0_cb: !d2m.cb<memref<1x1x!ttype_f32, #l1_>>, %arg1_cb: !d2m.cb<memref<1x1x!ttype_f32, #l1_>>, %arg2_cb: !d2m.cb<memref<1x1x!ttype_f32, #l1_>>):
       %cb0 = d2m.wait %arg0_cb : !d2m.cb<memref<1x1x!ttype_f32, #l1_>> -> memref<1x1x!ttype_f32, #l1_>
       %cb1 = d2m.wait %arg1_cb : !d2m.cb<memref<1x1x!ttype_f32, #l1_>> -> memref<1x1x!ttype_f32, #l1_>
@@ -90,12 +90,12 @@ module {
     return
   }
 
-  func.func @test_mul_lowering(%in0: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>,
-                               %in1: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>,
-                               %out: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>) {
+  func.func @test_mul_lowering(%in0: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>,
+                               %in1: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>,
+                               %out: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>) {
     d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#map_, #map_, #map_], iterator_types = [#parallel_, #parallel_], threads = [#d2m.thread<compute>]}
-        ins(%in0, %in1 : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>, memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>)
-        outs(%out : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>)  {
+        ins(%in0, %in1 : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>, memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>)
+        outs(%out : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>)  {
     ^compute0(%arg0_cb: !d2m.cb<memref<1x1x!ttype_f32, #l1_>>, %arg1_cb: !d2m.cb<memref<1x1x!ttype_f32, #l1_>>, %arg2_cb: !d2m.cb<memref<1x1x!ttype_f32, #l1_>>):
       %cb0 = d2m.wait %arg0_cb : !d2m.cb<memref<1x1x!ttype_f32, #l1_>> -> memref<1x1x!ttype_f32, #l1_>
       %cb1 = d2m.wait %arg1_cb : !d2m.cb<memref<1x1x!ttype_f32, #l1_>> -> memref<1x1x!ttype_f32, #l1_>
@@ -118,12 +118,12 @@ module {
   // TTIR SFPU operations
   //===----------------------------------------------------------------------===//
 
-  func.func @test_max_lowering(%in0: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>,
-                               %in1: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>,
-                               %out: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>) {
+  func.func @test_max_lowering(%in0: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>,
+                               %in1: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>,
+                               %out: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>) {
     d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#map_, #map_, #map_], iterator_types = [#parallel_, #parallel_], threads = [#d2m.thread<compute>]}
-        ins(%in0, %in1 : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>, memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>)
-        outs(%out : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>)  {
+        ins(%in0, %in1 : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>, memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>)
+        outs(%out : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>)  {
     ^compute0(%arg0_cb: !d2m.cb<memref<1x1x!ttype_f32, #l1_>>, %arg1_cb: !d2m.cb<memref<1x1x!ttype_f32, #l1_>>, %arg2_cb: !d2m.cb<memref<1x1x!ttype_f32, #l1_>>):
       %cb0 = d2m.wait %arg0_cb : !d2m.cb<memref<1x1x!ttype_f32, #l1_>> -> memref<1x1x!ttype_f32, #l1_>
       %cb1 = d2m.wait %arg1_cb : !d2m.cb<memref<1x1x!ttype_f32, #l1_>> -> memref<1x1x!ttype_f32, #l1_>
@@ -147,12 +147,12 @@ module {
     return
   }
 
-  func.func @test_div_lowering(%in0: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>,
-                               %in1: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>,
-                               %out: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>) {
+  func.func @test_div_lowering(%in0: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>,
+                               %in1: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>,
+                               %out: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>) {
     d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#map_, #map_, #map_], iterator_types = [#parallel_, #parallel_], threads = [#d2m.thread<compute>]}
-        ins(%in0, %in1 : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>, memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>)
-        outs(%out : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>)  {
+        ins(%in0, %in1 : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>, memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>)
+        outs(%out : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>)  {
     ^compute0(%arg0_cb: !d2m.cb<memref<1x1x!ttype_f32, #l1_>>, %arg1_cb: !d2m.cb<memref<1x1x!ttype_f32, #l1_>>, %arg2_cb: !d2m.cb<memref<1x1x!ttype_f32, #l1_>>):
       %cb0 = d2m.wait %arg0_cb : !d2m.cb<memref<1x1x!ttype_f32, #l1_>> -> memref<1x1x!ttype_f32, #l1_>
       %cb1 = d2m.wait %arg1_cb : !d2m.cb<memref<1x1x!ttype_f32, #l1_>> -> memref<1x1x!ttype_f32, #l1_>
@@ -176,11 +176,11 @@ module {
     return
   }
 
-  func.func @test_recip_lowering(%in0: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>,
-                                 %out: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>) {
+  func.func @test_recip_lowering(%in0: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>,
+                                 %out: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>) {
     d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#map_, #map_], iterator_types = [#parallel_, #parallel_], threads = [#d2m.thread<compute>]}
-        ins(%in0 : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>)
-        outs(%out : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>)  {
+        ins(%in0 : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>)
+        outs(%out : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>)  {
     ^compute0(%arg0_cb: !d2m.cb<memref<1x1x!ttype_f32, #l1_>>, %arg1_cb: !d2m.cb<memref<1x1x!ttype_f32, #l1_>>):
       %cb0 = d2m.wait %arg0_cb : !d2m.cb<memref<1x1x!ttype_f32, #l1_>> -> memref<1x1x!ttype_f32, #l1_>
       %cb1 = d2m.reserve %arg1_cb : !d2m.cb<memref<1x1x!ttype_f32, #l1_>> -> memref<1x1x!ttype_f32, #l1_>
@@ -200,12 +200,12 @@ module {
     return
   }
 
-  func.func @test_pow_lowering(%in0: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>,
-                               %in1: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>,
-                               %out: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>) {
+  func.func @test_pow_lowering(%in0: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>,
+                               %in1: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>,
+                               %out: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>) {
     d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#map_, #map_, #map_], iterator_types = [#parallel_, #parallel_], threads = [#d2m.thread<compute>]}
-        ins(%in0, %in1 : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>, memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>)
-        outs(%out : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>)  {
+        ins(%in0, %in1 : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>, memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>)
+        outs(%out : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>)  {
     ^compute0(%arg0_cb: !d2m.cb<memref<1x1x!ttype_f32, #l1_>>, %arg1_cb: !d2m.cb<memref<1x1x!ttype_f32, #l1_>>, %arg2_cb: !d2m.cb<memref<1x1x!ttype_f32, #l1_>>):
       %cb0 = d2m.wait %arg0_cb : !d2m.cb<memref<1x1x!ttype_f32, #l1_>> -> memref<1x1x!ttype_f32, #l1_>
       %cb1 = d2m.wait %arg1_cb : !d2m.cb<memref<1x1x!ttype_f32, #l1_>> -> memref<1x1x!ttype_f32, #l1_>
@@ -229,11 +229,11 @@ module {
     return
   }
 
-  func.func @test_exp_lowering(%in0: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>,
-                               %out: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>) {
+  func.func @test_exp_lowering(%in0: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>,
+                               %out: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>) {
     d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#map_, #map_], iterator_types = [#parallel_, #parallel_], threads = [#d2m.thread<compute>]}
-        ins(%in0 : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>)
-        outs(%out : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>)  {
+        ins(%in0 : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>)
+        outs(%out : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>)  {
     ^compute0(%arg0_cb: !d2m.cb<memref<1x1x!ttype_f32, #l1_>>, %arg1_cb: !d2m.cb<memref<1x1x!ttype_f32, #l1_>>):
       %cb0 = d2m.wait %arg0_cb : !d2m.cb<memref<1x1x!ttype_f32, #l1_>> -> memref<1x1x!ttype_f32, #l1_>
       %cb1 = d2m.reserve %arg1_cb : !d2m.cb<memref<1x1x!ttype_f32, #l1_>> -> memref<1x1x!ttype_f32, #l1_>
@@ -253,11 +253,11 @@ module {
     return
   }
 
-  func.func @test_log_lowering(%in0: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>,
-                               %out: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>) {
+  func.func @test_log_lowering(%in0: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>,
+                               %out: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>) {
     d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#map_, #map_], iterator_types = [#parallel_, #parallel_], threads = [#d2m.thread<compute>]}
-        ins(%in0 : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>)
-        outs(%out : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>)  {
+        ins(%in0 : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>)
+        outs(%out : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>)  {
     ^compute0(%arg0_cb: !d2m.cb<memref<1x1x!ttype_f32, #l1_>>, %arg1_cb: !d2m.cb<memref<1x1x!ttype_f32, #l1_>>):
       %cb0 = d2m.wait %arg0_cb : !d2m.cb<memref<1x1x!ttype_f32, #l1_>> -> memref<1x1x!ttype_f32, #l1_>
       %cb1 = d2m.reserve %arg1_cb : !d2m.cb<memref<1x1x!ttype_f32, #l1_>> -> memref<1x1x!ttype_f32, #l1_>
@@ -277,11 +277,11 @@ module {
     return
   }
 
-  func.func @test_cos_lowering(%in0: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>,
-                               %out: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>) {
+  func.func @test_cos_lowering(%in0: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>,
+                               %out: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>) {
     d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#map_, #map_], iterator_types = [#parallel_, #parallel_], threads = [#d2m.thread<compute>]}
-        ins(%in0 : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>)
-        outs(%out : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>)  {
+        ins(%in0 : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>)
+        outs(%out : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>)  {
     ^compute0(%arg0_cb: !d2m.cb<memref<1x1x!ttype_f32, #l1_>>, %arg1_cb: !d2m.cb<memref<1x1x!ttype_f32, #l1_>>):
       %cb0 = d2m.wait %arg0_cb : !d2m.cb<memref<1x1x!ttype_f32, #l1_>> -> memref<1x1x!ttype_f32, #l1_>
       %cb1 = d2m.reserve %arg1_cb : !d2m.cb<memref<1x1x!ttype_f32, #l1_>> -> memref<1x1x!ttype_f32, #l1_>
@@ -301,11 +301,11 @@ module {
     return
   }
 
-  func.func @test_tan_lowering(%in0: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>,
-                               %out: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>) {
+  func.func @test_tan_lowering(%in0: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>,
+                               %out: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>) {
     d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#map_, #map_], iterator_types = [#parallel_, #parallel_], threads = [#d2m.thread<compute>]}
-        ins(%in0 : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>)
-        outs(%out : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>)  {
+        ins(%in0 : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>)
+        outs(%out : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>)  {
     ^compute0(%arg0_cb: !d2m.cb<memref<1x1x!ttype_f32, #l1_>>, %arg1_cb: !d2m.cb<memref<1x1x!ttype_f32, #l1_>>):
       %cb0 = d2m.wait %arg0_cb : !d2m.cb<memref<1x1x!ttype_f32, #l1_>> -> memref<1x1x!ttype_f32, #l1_>
       %cb1 = d2m.reserve %arg1_cb : !d2m.cb<memref<1x1x!ttype_f32, #l1_>> -> memref<1x1x!ttype_f32, #l1_>
@@ -325,11 +325,11 @@ module {
     return
   }
 
-  func.func @test_negative_lowering(%in0: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>,
-                                    %out: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>) {
+  func.func @test_negative_lowering(%in0: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>,
+                                    %out: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>) {
     d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#map_, #map_], iterator_types = [#parallel_, #parallel_], threads = [#d2m.thread<compute>]}
-        ins(%in0 : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>)
-        outs(%out : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>)  {
+        ins(%in0 : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>)
+        outs(%out : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>)  {
     ^compute0(%arg0_cb: !d2m.cb<memref<1x1x!ttype_f32, #l1_>>, %arg1_cb: !d2m.cb<memref<1x1x!ttype_f32, #l1_>>):
       %cb0 = d2m.wait %arg0_cb : !d2m.cb<memref<1x1x!ttype_f32, #l1_>> -> memref<1x1x!ttype_f32, #l1_>
       %cb1 = d2m.reserve %arg1_cb : !d2m.cb<memref<1x1x!ttype_f32, #l1_>> -> memref<1x1x!ttype_f32, #l1_>
@@ -349,11 +349,11 @@ module {
     return
   }
 
-  func.func @test_sqrt_lowering(%in0: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>,
-                                %out: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>) {
+  func.func @test_sqrt_lowering(%in0: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>,
+                                %out: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>) {
     d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#map_, #map_], iterator_types = [#parallel_, #parallel_], threads = [#d2m.thread<compute>]}
-        ins(%in0 : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>)
-        outs(%out : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>)  {
+        ins(%in0 : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>)
+        outs(%out : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>)  {
     ^compute0(%arg0_cb: !d2m.cb<memref<1x1x!ttype_f32, #l1_>>, %arg1_cb: !d2m.cb<memref<1x1x!ttype_f32, #l1_>>):
       %cb0 = d2m.wait %arg0_cb : !d2m.cb<memref<1x1x!ttype_f32, #l1_>> -> memref<1x1x!ttype_f32, #l1_>
       %cb1 = d2m.reserve %arg1_cb : !d2m.cb<memref<1x1x!ttype_f32, #l1_>> -> memref<1x1x!ttype_f32, #l1_>
@@ -373,11 +373,11 @@ module {
     return
   }
 
-  func.func @test_rsqrt_lowering(%in0: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>,
-                                 %out: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>) {
+  func.func @test_rsqrt_lowering(%in0: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>,
+                                 %out: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>) {
     d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#map_, #map_], iterator_types = [#parallel_, #parallel_], threads = [#d2m.thread<compute>]}
-        ins(%in0 : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>)
-        outs(%out : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>)  {
+        ins(%in0 : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>)
+        outs(%out : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>)  {
     ^compute0(%arg0_cb: !d2m.cb<memref<1x1x!ttype_f32, #l1_>>, %arg1_cb: !d2m.cb<memref<1x1x!ttype_f32, #l1_>>):
       %cb0 = d2m.wait %arg0_cb : !d2m.cb<memref<1x1x!ttype_f32, #l1_>> -> memref<1x1x!ttype_f32, #l1_>
       %cb1 = d2m.reserve %arg1_cb : !d2m.cb<memref<1x1x!ttype_f32, #l1_>> -> memref<1x1x!ttype_f32, #l1_>
@@ -397,11 +397,11 @@ module {
     return
   }
 
-  func.func @test_sin_lowering(%in0: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>,
-                               %out: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>) {
+  func.func @test_sin_lowering(%in0: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>,
+                               %out: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>) {
     d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#map_, #map_], iterator_types = [#parallel_, #parallel_], threads = [#d2m.thread<compute>]}
-        ins(%in0 : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>)
-        outs(%out : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>)  {
+        ins(%in0 : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>)
+        outs(%out : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>)  {
     ^compute0(%arg0_cb: !d2m.cb<memref<1x1x!ttype_f32, #l1_>>, %arg1_cb: !d2m.cb<memref<1x1x!ttype_f32, #l1_>>):
       %cb0 = d2m.wait %arg0_cb : !d2m.cb<memref<1x1x!ttype_f32, #l1_>> -> memref<1x1x!ttype_f32, #l1_>
       %cb1 = d2m.reserve %arg1_cb : !d2m.cb<memref<1x1x!ttype_f32, #l1_>> -> memref<1x1x!ttype_f32, #l1_>
@@ -421,11 +421,11 @@ module {
     return
   }
 
-  func.func @test_sigmoid_lowering(%in0: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>,
-                                   %out: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>) {
+  func.func @test_sigmoid_lowering(%in0: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>,
+                                   %out: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>) {
     d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#map_, #map_], iterator_types = [#parallel_, #parallel_], threads = [#d2m.thread<compute>]}
-        ins(%in0 : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>)
-        outs(%out : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>)  {
+        ins(%in0 : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>)
+        outs(%out : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>)  {
     ^compute0(%arg0_cb: !d2m.cb<memref<1x1x!ttype_f32, #l1_>>, %arg1_cb: !d2m.cb<memref<1x1x!ttype_f32, #l1_>>):
       %cb0 = d2m.wait %arg0_cb : !d2m.cb<memref<1x1x!ttype_f32, #l1_>> -> memref<1x1x!ttype_f32, #l1_>
       %cb1 = d2m.reserve %arg1_cb : !d2m.cb<memref<1x1x!ttype_f32, #l1_>> -> memref<1x1x!ttype_f32, #l1_>
@@ -445,11 +445,11 @@ module {
     return
   }
 
-  func.func @test_gelu_lowering(%in0: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>,
-                                %out: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>) {
+  func.func @test_gelu_lowering(%in0: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>,
+                                %out: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>) {
     d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#map_, #map_], iterator_types = [#parallel_, #parallel_], threads = [#d2m.thread<compute>]}
-        ins(%in0 : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>)
-        outs(%out : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>)  {
+        ins(%in0 : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>)
+        outs(%out : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>)  {
     ^compute0(%arg0_cb: !d2m.cb<memref<1x1x!ttype_f32, #l1_>>, %arg1_cb: !d2m.cb<memref<1x1x!ttype_f32, #l1_>>):
       %cb0 = d2m.wait %arg0_cb : !d2m.cb<memref<1x1x!ttype_f32, #l1_>> -> memref<1x1x!ttype_f32, #l1_>
       %cb1 = d2m.reserve %arg1_cb : !d2m.cb<memref<1x1x!ttype_f32, #l1_>> -> memref<1x1x!ttype_f32, #l1_>
@@ -469,11 +469,11 @@ module {
     return
   }
 
-  func.func @test_ceil_lowering(%in0: memref<1x1x1x1x!ttype_bf16, #ttcore.shard<2048x2048>, #l1_>,
-                                %out: memref<1x1x1x1x!ttype_bf16, #ttcore.shard<2048x2048>, #l1_>) {
+  func.func @test_ceil_lowering(%in0: memref<1x1x1x1x!ttype_bf16, #ttcore.shard<2048x2048, 1>, #l1_>,
+                                %out: memref<1x1x1x1x!ttype_bf16, #ttcore.shard<2048x2048, 1>, #l1_>) {
     d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#map_, #map_], iterator_types = [#parallel_, #parallel_], threads = [#d2m.thread<compute>]}
-        ins(%in0 : memref<1x1x1x1x!ttype_bf16, #ttcore.shard<2048x2048>, #l1_>)
-        outs(%out : memref<1x1x1x1x!ttype_bf16, #ttcore.shard<2048x2048>, #l1_>)  {
+        ins(%in0 : memref<1x1x1x1x!ttype_bf16, #ttcore.shard<2048x2048, 1>, #l1_>)
+        outs(%out : memref<1x1x1x1x!ttype_bf16, #ttcore.shard<2048x2048, 1>, #l1_>)  {
     ^compute0(%arg0_cb: !d2m.cb<memref<1x1x!ttype_bf16, #l1_>>, %arg1_cb: !d2m.cb<memref<1x1x!ttype_bf16, #l1_>>):
       %cb0 = d2m.wait %arg0_cb : !d2m.cb<memref<1x1x!ttype_bf16, #l1_>> -> memref<1x1x!ttype_bf16, #l1_>
       %cb1 = d2m.reserve %arg1_cb : !d2m.cb<memref<1x1x!ttype_bf16, #l1_>> -> memref<1x1x!ttype_bf16, #l1_>
@@ -493,11 +493,11 @@ module {
     return
   }
 
-  func.func @test_ceil_lowering_f32(%in0: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>,
-                                    %out: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>) {
+  func.func @test_ceil_lowering_f32(%in0: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>,
+                                    %out: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>) {
     d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#map_, #map_], iterator_types = [#parallel_, #parallel_], threads = [#d2m.thread<compute>]}
-        ins(%in0 : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>)
-        outs(%out : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>)  {
+        ins(%in0 : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>)
+        outs(%out : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>)  {
     ^compute0(%arg0_cb: !d2m.cb<memref<1x1x!ttype_f32, #l1_>>, %arg1_cb: !d2m.cb<memref<1x1x!ttype_f32, #l1_>>):
       %cb0 = d2m.wait %arg0_cb : !d2m.cb<memref<1x1x!ttype_f32, #l1_>> -> memref<1x1x!ttype_f32, #l1_>
       %cb1 = d2m.reserve %arg1_cb : !d2m.cb<memref<1x1x!ttype_f32, #l1_>> -> memref<1x1x!ttype_f32, #l1_>
@@ -517,11 +517,11 @@ module {
     return
   }
 
-  func.func @test_floor_lowering(%in0: memref<1x1x1x1x!ttype_bf16, #ttcore.shard<2048x2048>, #l1_>,
-                                 %out: memref<1x1x1x1x!ttype_bf16, #ttcore.shard<2048x2048>, #l1_>) {
+  func.func @test_floor_lowering(%in0: memref<1x1x1x1x!ttype_bf16, #ttcore.shard<2048x2048, 1>, #l1_>,
+                                 %out: memref<1x1x1x1x!ttype_bf16, #ttcore.shard<2048x2048, 1>, #l1_>) {
     d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#map_, #map_], iterator_types = [#parallel_, #parallel_], threads = [#d2m.thread<compute>]}
-        ins(%in0 : memref<1x1x1x1x!ttype_bf16, #ttcore.shard<2048x2048>, #l1_>)
-        outs(%out : memref<1x1x1x1x!ttype_bf16, #ttcore.shard<2048x2048>, #l1_>)  {
+        ins(%in0 : memref<1x1x1x1x!ttype_bf16, #ttcore.shard<2048x2048, 1>, #l1_>)
+        outs(%out : memref<1x1x1x1x!ttype_bf16, #ttcore.shard<2048x2048, 1>, #l1_>)  {
     ^compute0(%arg0_cb: !d2m.cb<memref<1x1x!ttype_bf16, #l1_>>, %arg1_cb: !d2m.cb<memref<1x1x!ttype_bf16, #l1_>>):
       %cb0 = d2m.wait %arg0_cb : !d2m.cb<memref<1x1x!ttype_bf16, #l1_>> -> memref<1x1x!ttype_bf16, #l1_>
       %cb1 = d2m.reserve %arg1_cb : !d2m.cb<memref<1x1x!ttype_bf16, #l1_>> -> memref<1x1x!ttype_bf16, #l1_>
@@ -541,11 +541,11 @@ module {
     return
   }
 
-  func.func @test_floor_lowering_f32(%in0: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>,
-                                     %out: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>) {
+  func.func @test_floor_lowering_f32(%in0: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>,
+                                     %out: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>) {
     d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#map_, #map_], iterator_types = [#parallel_, #parallel_], threads = [#d2m.thread<compute>]}
-        ins(%in0 : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>)
-        outs(%out : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>)  {
+        ins(%in0 : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>)
+        outs(%out : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>)  {
     ^compute0(%arg0_cb: !d2m.cb<memref<1x1x!ttype_f32, #l1_>>, %arg1_cb: !d2m.cb<memref<1x1x!ttype_f32, #l1_>>):
       %cb0 = d2m.wait %arg0_cb : !d2m.cb<memref<1x1x!ttype_f32, #l1_>> -> memref<1x1x!ttype_f32, #l1_>
       %cb1 = d2m.reserve %arg1_cb : !d2m.cb<memref<1x1x!ttype_f32, #l1_>> -> memref<1x1x!ttype_f32, #l1_>
@@ -565,11 +565,11 @@ module {
     return
   }
 
-  func.func @test_abs_lowering(%in0: memref<1x1x1x1x!ttype_bf16, #ttcore.shard<2048x2048>, #l1_>,
-                               %out: memref<1x1x1x1x!ttype_bf16, #ttcore.shard<2048x2048>, #l1_>) {
+  func.func @test_abs_lowering(%in0: memref<1x1x1x1x!ttype_bf16, #ttcore.shard<2048x2048, 1>, #l1_>,
+                               %out: memref<1x1x1x1x!ttype_bf16, #ttcore.shard<2048x2048, 1>, #l1_>) {
     d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#map_, #map_], iterator_types = [#parallel_, #parallel_], threads = [#d2m.thread<compute>]}
-        ins(%in0 : memref<1x1x1x1x!ttype_bf16, #ttcore.shard<2048x2048>, #l1_>)
-        outs(%out : memref<1x1x1x1x!ttype_bf16, #ttcore.shard<2048x2048>, #l1_>)  {
+        ins(%in0 : memref<1x1x1x1x!ttype_bf16, #ttcore.shard<2048x2048, 1>, #l1_>)
+        outs(%out : memref<1x1x1x1x!ttype_bf16, #ttcore.shard<2048x2048, 1>, #l1_>)  {
     ^compute0(%arg0_cb: !d2m.cb<memref<1x1x!ttype_bf16, #l1_>>, %arg1_cb: !d2m.cb<memref<1x1x!ttype_bf16, #l1_>>):
       %cb0 = d2m.wait %arg0_cb : !d2m.cb<memref<1x1x!ttype_bf16, #l1_>> -> memref<1x1x!ttype_bf16, #l1_>
       %cb1 = d2m.reserve %arg1_cb : !d2m.cb<memref<1x1x!ttype_bf16, #l1_>> -> memref<1x1x!ttype_bf16, #l1_>
@@ -589,11 +589,11 @@ module {
     return
   }
 
-  func.func @test_abs_i32_lowering(%in0: memref<1x1x1x1x!ttype_si32, #ttcore.shard<4096x4096>, #l1_>,
-                                   %out: memref<1x1x1x1x!ttype_si32, #ttcore.shard<4096x4096>, #l1_>) {
+  func.func @test_abs_i32_lowering(%in0: memref<1x1x1x1x!ttype_si32, #ttcore.shard<4096x4096, 1>, #l1_>,
+                                   %out: memref<1x1x1x1x!ttype_si32, #ttcore.shard<4096x4096, 1>, #l1_>) {
     d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#map_, #map_], iterator_types = [#parallel_, #parallel_], threads = [#d2m.thread<compute>]}
-        ins(%in0 : memref<1x1x1x1x!ttype_si32, #ttcore.shard<4096x4096>, #l1_>)
-        outs(%out : memref<1x1x1x1x!ttype_si32, #ttcore.shard<4096x4096>, #l1_>)  {
+        ins(%in0 : memref<1x1x1x1x!ttype_si32, #ttcore.shard<4096x4096, 1>, #l1_>)
+        outs(%out : memref<1x1x1x1x!ttype_si32, #ttcore.shard<4096x4096, 1>, #l1_>)  {
     ^compute0(%arg0_cb: !d2m.cb<memref<1x1x!ttype_si32, #l1_>>, %arg1_cb: !d2m.cb<memref<1x1x!ttype_si32, #l1_>>):
       %cb0 = d2m.wait %arg0_cb : !d2m.cb<memref<1x1x!ttype_si32, #l1_>> -> memref<1x1x!ttype_si32, #l1_>
       %cb1 = d2m.reserve %arg1_cb : !d2m.cb<memref<1x1x!ttype_si32, #l1_>> -> memref<1x1x!ttype_si32, #l1_>
@@ -613,11 +613,11 @@ module {
     return
   }
 
-  func.func @test_bitwise_not_lowering(%in0: memref<1x1x1x1x!ttype_si32, #ttcore.shard<2048x2048>, #l1_>,
-                                       %out: memref<1x1x1x1x!ttype_si32, #ttcore.shard<2048x2048>, #l1_>) {
+  func.func @test_bitwise_not_lowering(%in0: memref<1x1x1x1x!ttype_si32, #ttcore.shard<2048x2048, 1>, #l1_>,
+                                       %out: memref<1x1x1x1x!ttype_si32, #ttcore.shard<2048x2048, 1>, #l1_>) {
     d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#map_, #map_], iterator_types = [#parallel_, #parallel_], threads = [#d2m.thread<compute>]}
-        ins(%in0 : memref<1x1x1x1x!ttype_si32, #ttcore.shard<2048x2048>, #l1_>)
-        outs(%out : memref<1x1x1x1x!ttype_si32, #ttcore.shard<2048x2048>, #l1_>)  {
+        ins(%in0 : memref<1x1x1x1x!ttype_si32, #ttcore.shard<2048x2048, 1>, #l1_>)
+        outs(%out : memref<1x1x1x1x!ttype_si32, #ttcore.shard<2048x2048, 1>, #l1_>)  {
     ^compute0(%arg0_cb: !d2m.cb<memref<1x1x!ttype_si32, #l1_>>, %arg1_cb: !d2m.cb<memref<1x1x!ttype_si32, #l1_>>):
       %cb0 = d2m.wait %arg0_cb : !d2m.cb<memref<1x1x!ttype_si32, #l1_>> -> memref<1x1x!ttype_si32, #l1_>
       %cb1 = d2m.reserve %arg1_cb : !d2m.cb<memref<1x1x!ttype_si32, #l1_>> -> memref<1x1x!ttype_si32, #l1_>
@@ -637,11 +637,11 @@ module {
     return
   }
 
-  func.func @test_logical_not_lowering(%in0: memref<1x1x1x1x!ttype_bf16, #ttcore.shard<2048x2048>, #l1_>,
-                                       %out: memref<1x1x1x1x!ttype_bf16, #ttcore.shard<2048x2048>, #l1_>) {
+  func.func @test_logical_not_lowering(%in0: memref<1x1x1x1x!ttype_bf16, #ttcore.shard<2048x2048, 1>, #l1_>,
+                                       %out: memref<1x1x1x1x!ttype_bf16, #ttcore.shard<2048x2048, 1>, #l1_>) {
     d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#map_, #map_], iterator_types = [#parallel_, #parallel_], threads = [#d2m.thread<compute>]}
-        ins(%in0 : memref<1x1x1x1x!ttype_bf16, #ttcore.shard<2048x2048>, #l1_>)
-        outs(%out : memref<1x1x1x1x!ttype_bf16, #ttcore.shard<2048x2048>, #l1_>)  {
+        ins(%in0 : memref<1x1x1x1x!ttype_bf16, #ttcore.shard<2048x2048, 1>, #l1_>)
+        outs(%out : memref<1x1x1x1x!ttype_bf16, #ttcore.shard<2048x2048, 1>, #l1_>)  {
     ^compute0(%arg0_cb: !d2m.cb<memref<1x1x!ttype_bf16, #l1_>>, %arg1_cb: !d2m.cb<memref<1x1x!ttype_bf16, #l1_>>):
       %cb0 = d2m.wait %arg0_cb : !d2m.cb<memref<1x1x!ttype_bf16, #l1_>> -> memref<1x1x!ttype_bf16, #l1_>
       %cb1 = d2m.reserve %arg1_cb : !d2m.cb<memref<1x1x!ttype_bf16, #l1_>> -> memref<1x1x!ttype_bf16, #l1_>
@@ -661,11 +661,11 @@ module {
     return
   }
 
-  func.func @test_logical_not_i32_lowering(%in0: memref<1x1x1x1x!ttype_si32, #ttcore.shard<4096x4096>, #l1_>,
-                                           %out: memref<1x1x1x1x!ttype_si32, #ttcore.shard<4096x4096>, #l1_>) {
+  func.func @test_logical_not_i32_lowering(%in0: memref<1x1x1x1x!ttype_si32, #ttcore.shard<4096x4096, 1>, #l1_>,
+                                           %out: memref<1x1x1x1x!ttype_si32, #ttcore.shard<4096x4096, 1>, #l1_>) {
     d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#map_, #map_], iterator_types = [#parallel_, #parallel_], threads = [#d2m.thread<compute>]}
-        ins(%in0 : memref<1x1x1x1x!ttype_si32, #ttcore.shard<4096x4096>, #l1_>)
-        outs(%out : memref<1x1x1x1x!ttype_si32, #ttcore.shard<4096x4096>, #l1_>)  {
+        ins(%in0 : memref<1x1x1x1x!ttype_si32, #ttcore.shard<4096x4096, 1>, #l1_>)
+        outs(%out : memref<1x1x1x1x!ttype_si32, #ttcore.shard<4096x4096, 1>, #l1_>)  {
     ^compute0(%arg0_cb: !d2m.cb<memref<1x1x!ttype_si32, #l1_>>, %arg1_cb: !d2m.cb<memref<1x1x!ttype_si32, #l1_>>):
       %cb0 = d2m.wait %arg0_cb : !d2m.cb<memref<1x1x!ttype_si32, #l1_>> -> memref<1x1x!ttype_si32, #l1_>
       %cb1 = d2m.reserve %arg1_cb : !d2m.cb<memref<1x1x!ttype_si32, #l1_>> -> memref<1x1x!ttype_si32, #l1_>
@@ -689,12 +689,12 @@ module {
   // TTIR Comparison operations
   //===----------------------------------------------------------------------===//
 
-  func.func @test_equal_lowering(%in0: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>,
-                                 %in1: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>,
-                                 %out: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>) {
+  func.func @test_equal_lowering(%in0: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>,
+                                 %in1: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>,
+                                 %out: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>) {
     d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#map_, #map_, #map_], iterator_types = [#parallel_, #parallel_], threads = [#d2m.thread<compute>]}
-        ins(%in0, %in1 : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>, memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>)
-        outs(%out : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>)  {
+        ins(%in0, %in1 : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>, memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>)
+        outs(%out : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>)  {
     ^compute0(%arg0_cb: !d2m.cb<memref<1x1x!ttype_f32, #l1_>>, %arg1_cb: !d2m.cb<memref<1x1x!ttype_f32, #l1_>>, %arg2_cb: !d2m.cb<memref<1x1x!ttype_f32, #l1_>>):
       %cb0 = d2m.wait %arg0_cb : !d2m.cb<memref<1x1x!ttype_f32, #l1_>> -> memref<1x1x!ttype_f32, #l1_>
       %cb1 = d2m.wait %arg1_cb : !d2m.cb<memref<1x1x!ttype_f32, #l1_>> -> memref<1x1x!ttype_f32, #l1_>
@@ -717,12 +717,12 @@ module {
     return
   }
 
-  func.func @test_not_equal_lowering(%in0: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>,
-                                     %in1: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>,
-                                     %out: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>) {
+  func.func @test_not_equal_lowering(%in0: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>,
+                                     %in1: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>,
+                                     %out: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>) {
     d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#map_, #map_, #map_], iterator_types = [#parallel_, #parallel_], threads = [#d2m.thread<compute>]}
-        ins(%in0, %in1 : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>, memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>)
-        outs(%out : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>)  {
+        ins(%in0, %in1 : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>, memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>)
+        outs(%out : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>)  {
     ^compute0(%arg0_cb: !d2m.cb<memref<1x1x!ttype_f32, #l1_>>, %arg1_cb: !d2m.cb<memref<1x1x!ttype_f32, #l1_>>, %arg2_cb: !d2m.cb<memref<1x1x!ttype_f32, #l1_>>):
       %cb0 = d2m.wait %arg0_cb : !d2m.cb<memref<1x1x!ttype_f32, #l1_>> -> memref<1x1x!ttype_f32, #l1_>
       %cb1 = d2m.wait %arg1_cb : !d2m.cb<memref<1x1x!ttype_f32, #l1_>> -> memref<1x1x!ttype_f32, #l1_>
@@ -745,12 +745,12 @@ module {
     return
   }
 
-  func.func @test_greater_than_lowering(%in0: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>,
-                                        %in1: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>,
-                                        %out: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>) {
+  func.func @test_greater_than_lowering(%in0: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>,
+                                        %in1: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>,
+                                        %out: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>) {
     d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#map_, #map_, #map_], iterator_types = [#parallel_, #parallel_], threads = [#d2m.thread<compute>]}
-        ins(%in0, %in1 : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>, memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>)
-        outs(%out : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>)  {
+        ins(%in0, %in1 : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>, memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>)
+        outs(%out : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>)  {
     ^compute0(%arg0_cb: !d2m.cb<memref<1x1x!ttype_f32, #l1_>>, %arg1_cb: !d2m.cb<memref<1x1x!ttype_f32, #l1_>>, %arg2_cb: !d2m.cb<memref<1x1x!ttype_f32, #l1_>>):
       %cb0 = d2m.wait %arg0_cb : !d2m.cb<memref<1x1x!ttype_f32, #l1_>> -> memref<1x1x!ttype_f32, #l1_>
       %cb1 = d2m.wait %arg1_cb : !d2m.cb<memref<1x1x!ttype_f32, #l1_>> -> memref<1x1x!ttype_f32, #l1_>
@@ -773,12 +773,12 @@ module {
     return
   }
 
-  func.func @test_greater_equal_lowering(%in0: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>,
-                                         %in1: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>,
-                                         %out: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>) {
+  func.func @test_greater_equal_lowering(%in0: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>,
+                                         %in1: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>,
+                                         %out: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>) {
     d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#map_, #map_, #map_], iterator_types = [#parallel_, #parallel_], threads = [#d2m.thread<compute>]}
-        ins(%in0, %in1 : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>, memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>)
-        outs(%out : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>)  {
+        ins(%in0, %in1 : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>, memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>)
+        outs(%out : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>)  {
     ^compute0(%arg0_cb: !d2m.cb<memref<1x1x!ttype_f32, #l1_>>, %arg1_cb: !d2m.cb<memref<1x1x!ttype_f32, #l1_>>, %arg2_cb: !d2m.cb<memref<1x1x!ttype_f32, #l1_>>):
       %cb0 = d2m.wait %arg0_cb : !d2m.cb<memref<1x1x!ttype_f32, #l1_>> -> memref<1x1x!ttype_f32, #l1_>
       %cb1 = d2m.wait %arg1_cb : !d2m.cb<memref<1x1x!ttype_f32, #l1_>> -> memref<1x1x!ttype_f32, #l1_>
@@ -801,12 +801,12 @@ module {
     return
   }
 
-  func.func @test_less_than_lowering(%in0: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>,
-                                     %in1: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>,
-                                     %out: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>) {
+  func.func @test_less_than_lowering(%in0: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>,
+                                     %in1: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>,
+                                     %out: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>) {
     d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#map_, #map_, #map_], iterator_types = [#parallel_, #parallel_], threads = [#d2m.thread<compute>]}
-        ins(%in0, %in1 : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>, memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>)
-        outs(%out : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>)  {
+        ins(%in0, %in1 : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>, memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>)
+        outs(%out : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>)  {
     ^compute0(%arg0_cb: !d2m.cb<memref<1x1x!ttype_f32, #l1_>>, %arg1_cb: !d2m.cb<memref<1x1x!ttype_f32, #l1_>>, %arg2_cb: !d2m.cb<memref<1x1x!ttype_f32, #l1_>>):
       %cb0 = d2m.wait %arg0_cb : !d2m.cb<memref<1x1x!ttype_f32, #l1_>> -> memref<1x1x!ttype_f32, #l1_>
       %cb1 = d2m.wait %arg1_cb : !d2m.cb<memref<1x1x!ttype_f32, #l1_>> -> memref<1x1x!ttype_f32, #l1_>
@@ -829,12 +829,12 @@ module {
     return
   }
 
-  func.func @test_less_equal_lowering(%in0: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>,
-                                      %in1: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>,
-                                      %out: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>) {
+  func.func @test_less_equal_lowering(%in0: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>,
+                                      %in1: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>,
+                                      %out: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>) {
     d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#map_, #map_, #map_], iterator_types = [#parallel_, #parallel_], threads = [#d2m.thread<compute>]}
-        ins(%in0, %in1 : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>, memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>)
-        outs(%out : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>)  {
+        ins(%in0, %in1 : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>, memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>)
+        outs(%out : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>)  {
     ^compute0(%arg0_cb: !d2m.cb<memref<1x1x!ttype_f32, #l1_>>, %arg1_cb: !d2m.cb<memref<1x1x!ttype_f32, #l1_>>, %arg2_cb: !d2m.cb<memref<1x1x!ttype_f32, #l1_>>):
       %cb0 = d2m.wait %arg0_cb : !d2m.cb<memref<1x1x!ttype_f32, #l1_>> -> memref<1x1x!ttype_f32, #l1_>
       %cb1 = d2m.wait %arg1_cb : !d2m.cb<memref<1x1x!ttype_f32, #l1_>> -> memref<1x1x!ttype_f32, #l1_>
@@ -861,12 +861,12 @@ module {
   // TTIR Comparison operations (i32)
   //===----------------------------------------------------------------------===//
 
-  func.func @test_equal_i32_lowering(%in0: memref<1x1x1x1x!ttype_si32, #ttcore.shard<4096x4096>, #l1_>,
-                                     %in1: memref<1x1x1x1x!ttype_si32, #ttcore.shard<4096x4096>, #l1_>,
-                                     %out: memref<1x1x1x1x!ttype_si32, #ttcore.shard<4096x4096>, #l1_>) {
+  func.func @test_equal_i32_lowering(%in0: memref<1x1x1x1x!ttype_si32, #ttcore.shard<4096x4096, 1>, #l1_>,
+                                     %in1: memref<1x1x1x1x!ttype_si32, #ttcore.shard<4096x4096, 1>, #l1_>,
+                                     %out: memref<1x1x1x1x!ttype_si32, #ttcore.shard<4096x4096, 1>, #l1_>) {
     d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#map_, #map_, #map_], iterator_types = [#parallel_, #parallel_], threads = [#d2m.thread<compute>]}
-        ins(%in0, %in1 : memref<1x1x1x1x!ttype_si32, #ttcore.shard<4096x4096>, #l1_>, memref<1x1x1x1x!ttype_si32, #ttcore.shard<4096x4096>, #l1_>)
-        outs(%out : memref<1x1x1x1x!ttype_si32, #ttcore.shard<4096x4096>, #l1_>)  {
+        ins(%in0, %in1 : memref<1x1x1x1x!ttype_si32, #ttcore.shard<4096x4096, 1>, #l1_>, memref<1x1x1x1x!ttype_si32, #ttcore.shard<4096x4096, 1>, #l1_>)
+        outs(%out : memref<1x1x1x1x!ttype_si32, #ttcore.shard<4096x4096, 1>, #l1_>)  {
     ^compute0(%arg0_cb: !d2m.cb<memref<1x1x!ttype_si32, #l1_>>, %arg1_cb: !d2m.cb<memref<1x1x!ttype_si32, #l1_>>, %arg2_cb: !d2m.cb<memref<1x1x!ttype_si32, #l1_>>):
       %cb0 = d2m.wait %arg0_cb : !d2m.cb<memref<1x1x!ttype_si32, #l1_>> -> memref<1x1x!ttype_si32, #l1_>
       %cb1 = d2m.wait %arg1_cb : !d2m.cb<memref<1x1x!ttype_si32, #l1_>> -> memref<1x1x!ttype_si32, #l1_>
@@ -889,12 +889,12 @@ module {
     return
   }
 
-  func.func @test_not_equal_i32_lowering(%in0: memref<1x1x1x1x!ttype_si32, #ttcore.shard<4096x4096>, #l1_>,
-                                         %in1: memref<1x1x1x1x!ttype_si32, #ttcore.shard<4096x4096>, #l1_>,
-                                         %out: memref<1x1x1x1x!ttype_si32, #ttcore.shard<4096x4096>, #l1_>) {
+  func.func @test_not_equal_i32_lowering(%in0: memref<1x1x1x1x!ttype_si32, #ttcore.shard<4096x4096, 1>, #l1_>,
+                                         %in1: memref<1x1x1x1x!ttype_si32, #ttcore.shard<4096x4096, 1>, #l1_>,
+                                         %out: memref<1x1x1x1x!ttype_si32, #ttcore.shard<4096x4096, 1>, #l1_>) {
     d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#map_, #map_, #map_], iterator_types = [#parallel_, #parallel_], threads = [#d2m.thread<compute>]}
-        ins(%in0, %in1 : memref<1x1x1x1x!ttype_si32, #ttcore.shard<4096x4096>, #l1_>, memref<1x1x1x1x!ttype_si32, #ttcore.shard<4096x4096>, #l1_>)
-        outs(%out : memref<1x1x1x1x!ttype_si32, #ttcore.shard<4096x4096>, #l1_>)  {
+        ins(%in0, %in1 : memref<1x1x1x1x!ttype_si32, #ttcore.shard<4096x4096, 1>, #l1_>, memref<1x1x1x1x!ttype_si32, #ttcore.shard<4096x4096, 1>, #l1_>)
+        outs(%out : memref<1x1x1x1x!ttype_si32, #ttcore.shard<4096x4096, 1>, #l1_>)  {
     ^compute0(%arg0_cb: !d2m.cb<memref<1x1x!ttype_si32, #l1_>>, %arg1_cb: !d2m.cb<memref<1x1x!ttype_si32, #l1_>>, %arg2_cb: !d2m.cb<memref<1x1x!ttype_si32, #l1_>>):
       %cb0 = d2m.wait %arg0_cb : !d2m.cb<memref<1x1x!ttype_si32, #l1_>> -> memref<1x1x!ttype_si32, #l1_>
       %cb1 = d2m.wait %arg1_cb : !d2m.cb<memref<1x1x!ttype_si32, #l1_>> -> memref<1x1x!ttype_si32, #l1_>
@@ -917,12 +917,12 @@ module {
     return
   }
 
-  func.func @test_greater_than_i32_lowering(%in0: memref<1x1x1x1x!ttype_si32, #ttcore.shard<4096x4096>, #l1_>,
-                                            %in1: memref<1x1x1x1x!ttype_si32, #ttcore.shard<4096x4096>, #l1_>,
-                                            %out: memref<1x1x1x1x!ttype_si32, #ttcore.shard<4096x4096>, #l1_>) {
+  func.func @test_greater_than_i32_lowering(%in0: memref<1x1x1x1x!ttype_si32, #ttcore.shard<4096x4096, 1>, #l1_>,
+                                            %in1: memref<1x1x1x1x!ttype_si32, #ttcore.shard<4096x4096, 1>, #l1_>,
+                                            %out: memref<1x1x1x1x!ttype_si32, #ttcore.shard<4096x4096, 1>, #l1_>) {
     d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#map_, #map_, #map_], iterator_types = [#parallel_, #parallel_], threads = [#d2m.thread<compute>]}
-        ins(%in0, %in1 : memref<1x1x1x1x!ttype_si32, #ttcore.shard<4096x4096>, #l1_>, memref<1x1x1x1x!ttype_si32, #ttcore.shard<4096x4096>, #l1_>)
-        outs(%out : memref<1x1x1x1x!ttype_si32, #ttcore.shard<4096x4096>, #l1_>)  {
+        ins(%in0, %in1 : memref<1x1x1x1x!ttype_si32, #ttcore.shard<4096x4096, 1>, #l1_>, memref<1x1x1x1x!ttype_si32, #ttcore.shard<4096x4096, 1>, #l1_>)
+        outs(%out : memref<1x1x1x1x!ttype_si32, #ttcore.shard<4096x4096, 1>, #l1_>)  {
     ^compute0(%arg0_cb: !d2m.cb<memref<1x1x!ttype_si32, #l1_>>, %arg1_cb: !d2m.cb<memref<1x1x!ttype_si32, #l1_>>, %arg2_cb: !d2m.cb<memref<1x1x!ttype_si32, #l1_>>):
       %cb0 = d2m.wait %arg0_cb : !d2m.cb<memref<1x1x!ttype_si32, #l1_>> -> memref<1x1x!ttype_si32, #l1_>
       %cb1 = d2m.wait %arg1_cb : !d2m.cb<memref<1x1x!ttype_si32, #l1_>> -> memref<1x1x!ttype_si32, #l1_>
@@ -945,12 +945,12 @@ module {
     return
   }
 
-  func.func @test_greater_equal_i32_lowering(%in0: memref<1x1x1x1x!ttype_si32, #ttcore.shard<4096x4096>, #l1_>,
-                                             %in1: memref<1x1x1x1x!ttype_si32, #ttcore.shard<4096x4096>, #l1_>,
-                                             %out: memref<1x1x1x1x!ttype_si32, #ttcore.shard<4096x4096>, #l1_>) {
+  func.func @test_greater_equal_i32_lowering(%in0: memref<1x1x1x1x!ttype_si32, #ttcore.shard<4096x4096, 1>, #l1_>,
+                                             %in1: memref<1x1x1x1x!ttype_si32, #ttcore.shard<4096x4096, 1>, #l1_>,
+                                             %out: memref<1x1x1x1x!ttype_si32, #ttcore.shard<4096x4096, 1>, #l1_>) {
     d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#map_, #map_, #map_], iterator_types = [#parallel_, #parallel_], threads = [#d2m.thread<compute>]}
-        ins(%in0, %in1 : memref<1x1x1x1x!ttype_si32, #ttcore.shard<4096x4096>, #l1_>, memref<1x1x1x1x!ttype_si32, #ttcore.shard<4096x4096>, #l1_>)
-        outs(%out : memref<1x1x1x1x!ttype_si32, #ttcore.shard<4096x4096>, #l1_>)  {
+        ins(%in0, %in1 : memref<1x1x1x1x!ttype_si32, #ttcore.shard<4096x4096, 1>, #l1_>, memref<1x1x1x1x!ttype_si32, #ttcore.shard<4096x4096, 1>, #l1_>)
+        outs(%out : memref<1x1x1x1x!ttype_si32, #ttcore.shard<4096x4096, 1>, #l1_>)  {
     ^compute0(%arg0_cb: !d2m.cb<memref<1x1x!ttype_si32, #l1_>>, %arg1_cb: !d2m.cb<memref<1x1x!ttype_si32, #l1_>>, %arg2_cb: !d2m.cb<memref<1x1x!ttype_si32, #l1_>>):
       %cb0 = d2m.wait %arg0_cb : !d2m.cb<memref<1x1x!ttype_si32, #l1_>> -> memref<1x1x!ttype_si32, #l1_>
       %cb1 = d2m.wait %arg1_cb : !d2m.cb<memref<1x1x!ttype_si32, #l1_>> -> memref<1x1x!ttype_si32, #l1_>
@@ -973,12 +973,12 @@ module {
     return
   }
 
-  func.func @test_less_than_i32_lowering(%in0: memref<1x1x1x1x!ttype_si32, #ttcore.shard<4096x4096>, #l1_>,
-                                         %in1: memref<1x1x1x1x!ttype_si32, #ttcore.shard<4096x4096>, #l1_>,
-                                         %out: memref<1x1x1x1x!ttype_si32, #ttcore.shard<4096x4096>, #l1_>) {
+  func.func @test_less_than_i32_lowering(%in0: memref<1x1x1x1x!ttype_si32, #ttcore.shard<4096x4096, 1>, #l1_>,
+                                         %in1: memref<1x1x1x1x!ttype_si32, #ttcore.shard<4096x4096, 1>, #l1_>,
+                                         %out: memref<1x1x1x1x!ttype_si32, #ttcore.shard<4096x4096, 1>, #l1_>) {
     d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#map_, #map_, #map_], iterator_types = [#parallel_, #parallel_], threads = [#d2m.thread<compute>]}
-        ins(%in0, %in1 : memref<1x1x1x1x!ttype_si32, #ttcore.shard<4096x4096>, #l1_>, memref<1x1x1x1x!ttype_si32, #ttcore.shard<4096x4096>, #l1_>)
-        outs(%out : memref<1x1x1x1x!ttype_si32, #ttcore.shard<4096x4096>, #l1_>)  {
+        ins(%in0, %in1 : memref<1x1x1x1x!ttype_si32, #ttcore.shard<4096x4096, 1>, #l1_>, memref<1x1x1x1x!ttype_si32, #ttcore.shard<4096x4096, 1>, #l1_>)
+        outs(%out : memref<1x1x1x1x!ttype_si32, #ttcore.shard<4096x4096, 1>, #l1_>)  {
     ^compute0(%arg0_cb: !d2m.cb<memref<1x1x!ttype_si32, #l1_>>, %arg1_cb: !d2m.cb<memref<1x1x!ttype_si32, #l1_>>, %arg2_cb: !d2m.cb<memref<1x1x!ttype_si32, #l1_>>):
       %cb0 = d2m.wait %arg0_cb : !d2m.cb<memref<1x1x!ttype_si32, #l1_>> -> memref<1x1x!ttype_si32, #l1_>
       %cb1 = d2m.wait %arg1_cb : !d2m.cb<memref<1x1x!ttype_si32, #l1_>> -> memref<1x1x!ttype_si32, #l1_>
@@ -1001,12 +1001,12 @@ module {
     return
   }
 
-  func.func @test_less_equal_i32_lowering(%in0: memref<1x1x1x1x!ttype_si32, #ttcore.shard<4096x4096>, #l1_>,
-                                          %in1: memref<1x1x1x1x!ttype_si32, #ttcore.shard<4096x4096>, #l1_>,
-                                          %out: memref<1x1x1x1x!ttype_si32, #ttcore.shard<4096x4096>, #l1_>) {
+  func.func @test_less_equal_i32_lowering(%in0: memref<1x1x1x1x!ttype_si32, #ttcore.shard<4096x4096, 1>, #l1_>,
+                                          %in1: memref<1x1x1x1x!ttype_si32, #ttcore.shard<4096x4096, 1>, #l1_>,
+                                          %out: memref<1x1x1x1x!ttype_si32, #ttcore.shard<4096x4096, 1>, #l1_>) {
     d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#map_, #map_, #map_], iterator_types = [#parallel_, #parallel_], threads = [#d2m.thread<compute>]}
-        ins(%in0, %in1 : memref<1x1x1x1x!ttype_si32, #ttcore.shard<4096x4096>, #l1_>, memref<1x1x1x1x!ttype_si32, #ttcore.shard<4096x4096>, #l1_>)
-        outs(%out : memref<1x1x1x1x!ttype_si32, #ttcore.shard<4096x4096>, #l1_>)  {
+        ins(%in0, %in1 : memref<1x1x1x1x!ttype_si32, #ttcore.shard<4096x4096, 1>, #l1_>, memref<1x1x1x1x!ttype_si32, #ttcore.shard<4096x4096, 1>, #l1_>)
+        outs(%out : memref<1x1x1x1x!ttype_si32, #ttcore.shard<4096x4096, 1>, #l1_>)  {
     ^compute0(%arg0_cb: !d2m.cb<memref<1x1x!ttype_si32, #l1_>>, %arg1_cb: !d2m.cb<memref<1x1x!ttype_si32, #l1_>>, %arg2_cb: !d2m.cb<memref<1x1x!ttype_si32, #l1_>>):
       %cb0 = d2m.wait %arg0_cb : !d2m.cb<memref<1x1x!ttype_si32, #l1_>> -> memref<1x1x!ttype_si32, #l1_>
       %cb1 = d2m.wait %arg1_cb : !d2m.cb<memref<1x1x!ttype_si32, #l1_>> -> memref<1x1x!ttype_si32, #l1_>
@@ -1029,11 +1029,11 @@ module {
     return
   }
 
-  func.func @test_silu_lowering(%in0: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>,
-                                %out: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>) {
+  func.func @test_silu_lowering(%in0: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>,
+                                %out: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>) {
     d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#map_, #map_], iterator_types = [#parallel_, #parallel_], threads = [#d2m.thread<compute>]}
-        ins(%in0 : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>)
-        outs(%out : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>)  {
+        ins(%in0 : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>)
+        outs(%out : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>)  {
     ^compute0(%arg0_cb: !d2m.cb<memref<1x1x!ttype_f32, #l1_>>, %arg1_cb: !d2m.cb<memref<1x1x!ttype_f32, #l1_>>):
       %cb0 = d2m.wait %arg0_cb : !d2m.cb<memref<1x1x!ttype_f32, #l1_>> -> memref<1x1x!ttype_f32, #l1_>
       %cb1 = d2m.reserve %arg1_cb : !d2m.cb<memref<1x1x!ttype_f32, #l1_>> -> memref<1x1x!ttype_f32, #l1_>
@@ -1053,11 +1053,11 @@ module {
     return
   }
 
-  func.func @test_relu_lowering(%in0: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>,
-                                %out: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>) {
+  func.func @test_relu_lowering(%in0: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>,
+                                %out: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>) {
     d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#map_, #map_], iterator_types = [#parallel_, #parallel_], threads = [#d2m.thread<compute>]}
-        ins(%in0 : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>)
-        outs(%out : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096>, #l1_>)  {
+        ins(%in0 : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>)
+        outs(%out : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>)  {
     ^compute0(%arg0_cb: !d2m.cb<memref<1x1x!ttype_f32, #l1_>>, %arg1_cb: !d2m.cb<memref<1x1x!ttype_f32, #l1_>>):
       %cb0 = d2m.wait %arg0_cb : !d2m.cb<memref<1x1x!ttype_f32, #l1_>> -> memref<1x1x!ttype_f32, #l1_>
       %cb1 = d2m.reserve %arg1_cb : !d2m.cb<memref<1x1x!ttype_f32, #l1_>> -> memref<1x1x!ttype_f32, #l1_>
@@ -1077,11 +1077,11 @@ module {
     return
   }
 
-  func.func @test_relu_i32_lowering(%in0: memref<1x1x1x1x!ttype_si32, #ttcore.shard<4096x4096>, #l1_>,
-                                   %out: memref<1x1x1x1x!ttype_si32, #ttcore.shard<4096x4096>, #l1_>) {
+  func.func @test_relu_i32_lowering(%in0: memref<1x1x1x1x!ttype_si32, #ttcore.shard<4096x4096, 1>, #l1_>,
+                                   %out: memref<1x1x1x1x!ttype_si32, #ttcore.shard<4096x4096, 1>, #l1_>) {
     d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#map_, #map_], iterator_types = [#parallel_, #parallel_], threads = [#d2m.thread<compute>]}
-        ins(%in0 : memref<1x1x1x1x!ttype_si32, #ttcore.shard<4096x4096>, #l1_>)
-        outs(%out : memref<1x1x1x1x!ttype_si32, #ttcore.shard<4096x4096>, #l1_>)  {
+        ins(%in0 : memref<1x1x1x1x!ttype_si32, #ttcore.shard<4096x4096, 1>, #l1_>)
+        outs(%out : memref<1x1x1x1x!ttype_si32, #ttcore.shard<4096x4096, 1>, #l1_>)  {
     ^compute0(%arg0_cb: !d2m.cb<memref<1x1x!ttype_si32, #l1_>>, %arg1_cb: !d2m.cb<memref<1x1x!ttype_si32, #l1_>>):
       %cb0 = d2m.wait %arg0_cb : !d2m.cb<memref<1x1x!ttype_si32, #l1_>> -> memref<1x1x!ttype_si32, #l1_>
       %cb1 = d2m.reserve %arg1_cb : !d2m.cb<memref<1x1x!ttype_si32, #l1_>> -> memref<1x1x!ttype_si32, #l1_>

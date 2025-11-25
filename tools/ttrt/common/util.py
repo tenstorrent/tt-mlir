@@ -83,9 +83,13 @@ def mask_torch_inf_nan(tensor):
     return tensor
 
 
-def get_atol_rtol_pcc(golden, calculated, atol, rtol, logging):
+def get_atol_rtol_pcc(golden, calculated, atol, rtol, logging=None):
     import numpy as np
     import torch
+
+    if not logging:
+        logger = Logger()
+        logging = logger.get_logger()
 
     # abs() and masked_fill() don't support unsigned integers
     if not torch.is_floating_point(golden):
@@ -134,6 +138,7 @@ def get_atol_rtol_pcc(golden, calculated, atol, rtol, logging):
 
             if golden.dtype == torch.bfloat16:
                 golden = golden.type(torch.float32)
+            if calculated.dtype == torch.bfloat16:
                 calculated = calculated.type(torch.float32)
 
             # Single element case
@@ -244,10 +249,12 @@ def parse_fabric_config(fabric_config_str: str):
         return ttrt.runtime.FabricConfig.FABRIC_1D_RING
     elif key == "fabric_2d":
         return ttrt.runtime.FabricConfig.FABRIC_2D
-    elif key == "fabric_2d_torus":
-        return ttrt.runtime.FabricConfig.FABRIC_2D_TORUS
-    elif key == "fabric_2d_dynamic":
-        return ttrt.runtime.FabricConfig.FABRIC_2D_DYNAMIC
+    elif key == "fabric_2d_torus_x":
+        return ttrt.runtime.FabricConfig.FABRIC_2D_TORUS_X
+    elif key == "fabric_2d_torus_y":
+        return ttrt.runtime.FabricConfig.FABRIC_2D_TORUS_Y
+    elif key == "fabric_2d_torus_xy":
+        return ttrt.runtime.FabricConfig.FABRIC_2D_TORUS_XY
     elif key == "custom":
         return ttrt.runtime.FabricConfig.CUSTOM
     else:

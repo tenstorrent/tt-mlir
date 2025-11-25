@@ -3,6 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import os
+import platform
 from setuptools import setup
 import shutil
 import subprocess
@@ -34,8 +35,9 @@ enable_runtime_tests = os.environ.get("TTMLIR_ENABLE_RUNTIME_TESTS", "OFF") == "
 enable_perf = os.environ.get("TT_RUNTIME_ENABLE_PERF_TRACE", "OFF") == "ON"
 debug_runtime = os.environ.get("TT_RUNTIME_DEBUG", "OFF") == "ON"
 arch = os.environ.get("CMAKE_SYSTEM_PROCESSOR", "x86_64")
+py_maj_ver, py_min_ver, py_patch_ver = platform.python_version_tuple()
 
-runtime_module = f"_ttmlir_runtime.cpython-311-{arch}-linux-gnu.so"
+runtime_module = f"_ttmlir_runtime.cpython-{py_maj_ver}{py_min_ver}-{arch}-linux-gnu.so"
 dylibs = []
 runlibs = []
 perflibs = []

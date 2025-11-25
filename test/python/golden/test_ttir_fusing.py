@@ -110,7 +110,7 @@ def test_batch_norm_decomposition(
             unit_attrs=unit_attrs,
         )
 
-        batch_norm_0 = builder.batch_norm(
+        batch_norm_0 = builder.batch_norm_inference(
             conv2d_0,
             bn_scale,
             bn_offset,
@@ -118,7 +118,6 @@ def test_batch_norm_decomposition(
             bn_variance,
             epsilon=epsilon,
             dimension=dimension,
-            unit_attrs=unit_attrs,
         )
 
         builder.set_goldens(
@@ -330,7 +329,7 @@ def test_conv_silu_decomposed_fusing(
 
         # Add builder ops for x * sigmoid(x)
         sigmoid_op = builder.sigmoid(conv, unit_attrs=unit_attrs)
-        silu_decomposed = builder.multiply(conv, sigmoid_op, unit_attrs=unit_attrs)
+        silu_decomposed = builder.multiply(conv, sigmoid_op)
 
         builder.set_goldens(
             {
