@@ -428,18 +428,65 @@ buildLayoutTransformMap(mlir::tt::ttcore::MetalLayoutAttr fromLayout,
   ArrayRef<int64_t> fromGridShape = fromLayout.getGridShape(fromType);
   ArrayRef<int64_t> toGridShape = toLayout.getGridShape(toType);
 
+  // DEBUG: Print shapes for tracing
+  llvm::errs() << "DEBUG buildLayoutTransformMap:\n";
+  llvm::errs() << "  Logical shape: [";
+  for (size_t i = 0; i < logicalShape.size(); i++) {
+    llvm::errs() << logicalShape[i];
+    if (i + 1 < logicalShape.size()) {
+      llvm::errs() << ", ";
+    }
+  }
+  llvm::errs() << "]\n";
+
+  llvm::errs() << "  FROM (input) physical: [";
+  for (size_t i = 0; i < fromPhysicalShape.size(); i++) {
+    llvm::errs() << fromPhysicalShape[i];
+    if (i + 1 < fromPhysicalShape.size()) {
+      llvm::errs() << ", ";
+    }
+  }
+  llvm::errs() << "], grid: [";
+  for (size_t i = 0; i < fromGridShape.size(); i++) {
+    llvm::errs() << fromGridShape[i];
+    if (i + 1 < fromGridShape.size()) {
+      llvm::errs() << ", ";
+    }
+  }
+  llvm::errs() << "]\n";
+
+  llvm::errs() << "  TO (output) physical: [";
+  for (size_t i = 0; i < toPhysicalShape.size(); i++) {
+    llvm::errs() << toPhysicalShape[i];
+    if (i + 1 < toPhysicalShape.size()) {
+      llvm::errs() << ", ";
+    }
+  }
+  llvm::errs() << "], grid: [";
+  for (size_t i = 0; i < toGridShape.size(); i++) {
+    llvm::errs() << toGridShape[i];
+    if (i + 1 < toGridShape.size()) {
+      llvm::errs() << ", ";
+    }
+  }
+  llvm::errs() << "]\n";
+
   // Build OUTPUT device → logical map.
   // OUTPUT device → OUTPUT physical.
   auto toDeviceToToPhysical =
       buildDeviceToPhysicalMap(toPhysicalShape, toGridShape, context);
+  llvm::errs() << "  TO device→physical: " << toDeviceToToPhysical << "\n";
 
   // OUTPUT physical → logical (inverse of collapse).
   auto toPhysicalToLogical =
       buildPhysicalToLogicalMap(logicalShapeInUnits, toPhysicalShape,
                                 toLayout.getCollapsedIntervals(), context);
+  llvm::errs() << "  TO physical→logical: " << toPhysicalToLogical << "\n";
 
   // Compose: OUTPUT device → OUTPUT physical → logical.
   auto toDeviceToLogical = toPhysicalToLogical.compose(toDeviceToToPhysical);
+  llvm::errs() << "  TO device→logical (composed): " << toDeviceToLogical
+               << "\n";
 
   // Account for existing index map on OUTPUT.
   auto toExistingIndexMap = toLayout.getIndexAffineMap();
@@ -452,18 +499,25 @@ buildLayoutTransformMap(mlir::tt::ttcore::MetalLayoutAttr fromLayout,
   auto logicalToFromPhysical =
       buildLogicalToPhysicalMap(logicalShapeInUnits, fromPhysicalShape,
                                 fromLayout.getCollapsedIntervals(), context);
+  llvm::errs() << "  FROM logical→physical: " << logicalToFromPhysical << "\n";
 
   // INPUT physical → INPUT device.
   auto fromPhysicalToFromDevice =
       buildPhysicalToDeviceMap(fromPhysicalShape, fromGridShape, context);
+  llvm::errs() << "  FROM physical→device: " << fromPhysicalToFromDevice
+               << "\n";
 
   // Compose: logical → INPUT physical → INPUT device.
   auto logicalToFromDevice =
       fromPhysicalToFromDevice.compose(logicalToFromPhysical);
+  llvm::errs() << "  FROM logical→device (composed): " << logicalToFromDevice
+               << "\n";
 
   // Simplify before composing with existing index maps to avoid exponential
   // complexity growth.
   logicalToFromDevice = mlir::simplifyAffineMap(logicalToFromDevice);
+  llvm::errs() << "  FROM logical→device (simplified): " << logicalToFromDevice
+               << "\n";
 
   // If the INPUT has an existing index_map, compose it to handle chained views.
   auto fromExistingIndexMap = fromLayout.getIndexAffineMap();
@@ -474,9 +528,12 @@ buildLayoutTransformMap(mlir::tt::ttcore::MetalLayoutAttr fromLayout,
 
   // Compose: OUTPUT device → logical → INPUT device.
   auto result = logicalToFromDevice.compose(toDeviceToLogical);
+  llvm::errs() << "  FINAL (before simplify): " << result << "\n";
 
   // Simplify and return.
-  return mlir::simplifyAffineMap(result);
+  result = mlir::simplifyAffineMap(result);
+  llvm::errs() << "  FINAL (simplified): " << result << "\n";
+  return result;
 }
 
 } // namespace mlir::tt::d2m::utils
