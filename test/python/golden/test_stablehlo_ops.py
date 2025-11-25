@@ -137,11 +137,13 @@ def log(
 def get_dimension_size(
     in0: Operand,
     builder: StableHLOBuilder,
-    unit_attrs: Optional[List[str]] = None,
     dimension: int = 0,
+    unit_attrs: Optional[List[str]] = None,
 ):
     builder.set_graph_level_check(True)
     return builder.get_dimension_size(in0, dimension=dimension, unit_attrs=unit_attrs)
+
+
 def and_(
     in0: Operand,
     in1: Operand,
@@ -268,18 +270,22 @@ def test_unary_ops(
 
 
 @pytest.mark.parametrize(
-    "shape,dimension,expected",
+    "shape,dimension",
     [
-        ((2, 3, 4), 0, 2),
-        ((2, 3, 4), 1, 3),
-        ((2, 3, 4), 2, 4),
+        ((2, 3, 4), 0),
+        ((2, 3, 4), 1),
+        ((2, 3, 4), 2),
     ],
     ids=["dim0", "dim1", "dim2"],
 )
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttnn"])
-def test_get_dimension_size(shape, dimension, expected, dtype, target, request, device):
+def test_get_dimension_size(shape, dimension, dtype, target, request, device):
     def test_fn(in0: Operand, builder: StableHLOBuilder):
+        # ensure golden check is enabled and provide a concrete input golden
+        input_golden = torch.ones(shape, dtype=dtype)
+        builder.set_goldens({in0: input_golden}, {})
+        builder.set_graph_level_check(True)
         return builder.get_dimension_size(in0, dimension=dimension)
 
     compile_and_execute_shlo(
@@ -290,6 +296,10 @@ def test_get_dimension_size(shape, dimension, expected, dtype, target, request, 
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
         target=target,
+        device=device,
+    )
+
+
 _RESHAPE_CASES = [
     # shapes, semantic id, xfail_ttmetal?
     ([(2, 3), (3, 2)], "swap", True),
