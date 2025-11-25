@@ -2,6 +2,151 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
+"""
+TTIR Operations Golden Testing Suite
+=====================================
+
+This module provides comprehensive test coverage for TTIR (Tenstorrent Intermediate
+Representation) dialect operations. It validates the correctness of operations through
+golden tensor comparison, ensuring that compiled operations produce expected outputs
+
+Overview
+--------
+The test suite covers all TTIR operations including:
+
+- Elementwise operations (add, multiply, exp, etc.)
+- Reduction operations (sum, max, min, mean, etc.)
+- Data movement operations (reshape, transpose, slice, etc.)
+- Convolution operations (conv2d, conv_transpose2d, etc.)
+- Pooling operations (max_pool2d, avg_pool2d, etc.)
+- Mathematical operations (matmul, dot_general, linear, etc.)
+- Comparison operations (gt, lt, eq, etc.)
+- Logical operations (logical_not, etc.)
+- Quantization operations (quantize, dequantize, requantize)
+- Collective communication operations (all_gather, all_reduce, etc.)
+- Special operations (embedding, softmax, batch_norm, etc.)
+
+Testing Methodology
+-------------------
+Tests utilize the golden tensor system to verify correctness:
+
+1. Input tensors are generated using PyTorch
+2. Expected outputs are computed using PyTorch operations
+3. TTIR operations are compiled and executed
+4. Outputs are compared against golden tensors with tolerance checks
+
+Each test function follows the pattern:
+
+    def test_operation(shape, dtype, target, request, device):
+        def operation(in0, builder, unit_attrs=None):
+            return builder.operation(in0, unit_attrs=unit_attrs)
+
+        compile_and_execute_ttir(
+            operation,
+            [shape],
+            [dtype],
+            test_base=request.node.name,
+            target=target,
+            device=device,
+        )
+
+Hoisting Tests
+--------------
+Operations marked with ``ttir.should_hoist`` unit attribute are executed on the
+host CPU rather than on device. These tests validate that operations can be
+computed at compile-time when possible. Hoisted tests are marked with ``@x86_only``
+decorator to restrict execution to x86 platforms.
+
+Parametrization
+---------------
+Tests are heavily parametrized to cover various configurations:
+
+- ``shape``: Tensor shapes (1D, 2D, 3D, 4D, etc.)
+- ``dtype``: Data types (float32, bfloat16, int32, quantized types)
+- ``target``: Compilation targets (ttnn, ttmetal, emitpy)
+- Operation-specific parameters (stride, padding, dilation, etc.)
+
+Mesh and Distributed Testing
+-----------------------------
+The suite includes tests for distributed operations using mesh configurations:
+
+- ``test_mesh_shard_devices``: Tests device sharding across mesh
+- ``test_all_gather``: Tests collective gather operations
+- ``test_all_reduce``: Tests collective reduction operations
+- ``test_reduce_scatter``: Tests reduce-scatter patterns
+- ``test_collective_permute``: Tests permutation across devices
+- ``test_all_to_all``: Tests all-to-all communication
+- ``test_collective_broadcast``: Tests broadcast across replica groups
+
+Multi-Return Support
+--------------------
+Tests validate that TTIR functions can return multiple tensors:
+
+- ``test_multi_return_support``: Returns two tensors
+- ``test_triple_return_support``: Returns three tensors
+
+Usage
+-----
+Run all tests:
+
+    pytest test/python/golden/test_ttir_ops.py
+
+Run specific test:
+
+    pytest test/python/golden/test_ttir_ops.py::test_clamp_scalar
+
+Run with specific target:
+
+    pytest test/python/golden/test_ttir_ops.py --target ttnn
+
+Run with system descriptor:
+
+    pytest test/python/golden/test_ttir_ops.py --sys-desc path/to/system.json
+
+Notes
+-----
+- Tests marked with ``@x86_only`` require x86 platform
+- Tests marked with ``@pytest.mark.xfail`` are expected to fail due to known issues
+- Tests marked with ``@pytest.mark.skip`` are disabled pending fixes
+- Some tests are parametrized with ``pytest.param(..., marks=...)`` to conditionally
+  skip or mark as expected failures based on known limitations
+
+Examples
+--------
+Basic operation test structure:
+
+    @pytest.mark.parametrize("shape", [(128, 128)])
+    @pytest.mark.parametrize("dtype", [torch.float32])
+    def test_exp(shape, dtype, request, device):
+        def exp(in0, builder, unit_attrs=None):
+            return builder.exp(in0, unit_attrs=unit_attrs)
+
+        compile_and_execute_ttir(
+            exp,
+            [shape],
+            [dtype],
+            test_base=request.node.name,
+            device=device,
+        )
+
+Hoisted operation test:
+
+    @x86_only
+    @pytest.mark.parametrize("shape", [(128, 128)])
+    def test_hoisted_div(shape, dtype, target, request, device):
+        def hoisted_div(in0, in1, builder, unit_attrs=None):
+            return div(in0, in1, builder, unit_attrs=["ttir.should_hoist"])
+
+        compile_and_execute_ttir(
+            hoisted_div,
+            [shape, shape],
+            [dtype, dtype],
+            test_base=request.node.name,
+            target=target,
+            device=device,
+        )
+"""
+
 import pytest
 import torch
 from typing import Callable, List, Optional, Tuple, Union
@@ -32,6 +177,36 @@ def logical_not(
     dtype: torch.dtype,
     unit_attrs: Optional[List[str]] = None,
 ):
+    """
+    Test helper for logical NOT operation
+
+    Creates a logical NOT operation with appropriate input tensor generation
+    and golden tensor computation for validation
+
+    Parameters
+    ----------
+    in0 : Operand
+        Input operand to apply logical NOT operation
+    builder : TTIRBuilder
+        TTIR builder instance for creating operations
+    shape : Shape
+        Shape of the input tensor
+    dtype : torch.dtype
+        Data type of the input tensor
+    unit_attrs : Optional[List[str]], optional
+        Unit attributes to attach to the operation (e.g., ["ttir.should_hoist"])
+
+    Returns
+    -------
+    Operand
+        Result of the logical NOT operation
+
+    Notes
+    -----
+    - Generates random input values in range [-10.0, 10.0]
+    - Sets values with absolute value < 4.0 to zero
+    - Torch returns bool tensor but TTNN doesn't support bool, so converts to input dtype
+    """
     randn_tensor = torch.randn(shape, dtype=torch.float32)
     input_tensor = randn_tensor.uniform_(-10.0, 10.0)
     input_tensor[torch.abs(input_tensor) < 4.0] = 0.0
@@ -163,6 +338,25 @@ def gt(
     builder: TTIRBuilder,
     unit_attrs: Optional[List[str]] = None,
 ):
+    """
+    Test helper for greater-than comparison operation
+
+    Parameters
+    ----------
+    in0 : Operand
+        Left-hand side operand
+    in1 : Operand
+        Right-hand side operand
+    builder : TTIRBuilder
+        TTIR builder instance
+    unit_attrs : Optional[List[str]], optional
+        Unit attributes to attach to the operation
+
+    Returns
+    -------
+    Operand
+        Result of comparison (in0 > in1)
+    """
     return builder.gt(in0, in1, unit_attrs=unit_attrs)
 
 
@@ -172,6 +366,35 @@ def div(
     builder: TTIRBuilder,
     unit_attrs: Optional[List[str]] = None,
 ):
+    """
+    Test helper for division operation with safe divisor handling
+
+    This function ensures safe division by modifying input tensors to avoid
+    division by very small values that could cause numerical instability
+
+    Parameters
+    ----------
+    in0 : Operand
+        Dividend operand
+    in1 : Operand
+        Divisor operand
+    builder : TTIRBuilder
+        TTIR builder instance
+    unit_attrs : Optional[List[str]], optional
+        Unit attributes to attach to the operation
+
+    Returns
+    -------
+    Operand
+        Result of division (in0 / in1)
+
+    Notes
+    -----
+    - Values with absolute value < 0.01 in dividend are set to 0.03
+    - Values with absolute value < 0.01 in divisor are set to -0.03
+    - This prevents division by zero or near-zero values
+    - Only applies to floating-point tensors
+    """
     dividend_tensor = builder._get_golden_tensor(in0)
     divisor_tensor = builder._get_golden_tensor(in1)
 
@@ -275,6 +498,29 @@ def matmul(
     builder: TTIRBuilder,
     unit_attrs: Optional[List[str]] = None,
 ):
+    """
+    Test helper for matrix multiplication operation
+
+    Parameters
+    ----------
+    in0 : Operand
+        Left-hand side matrix operand
+    in1 : Operand
+        Right-hand side matrix operand
+    builder : TTIRBuilder
+        TTIR builder instance.
+    unit_attrs : Optional[List[str]], optional
+        Unit attributes to attach to the operation
+
+    Returns
+    -------
+    Operand
+        Result of matrix multiplication (in0 @ in1)
+
+    Notes
+    -----
+    Supports both 2D and batched matrix multiplication
+    """
     return builder.matmul(in0, in1, unit_attrs=unit_attrs)
 
 
@@ -284,6 +530,33 @@ def broadcast(
     broadcast_dimensions: Optional[List[int]] = None,
     unit_attrs: Optional[List[str]] = None,
 ):
+    """
+    Test helper for broadcast operation
+
+    Broadcasts the input tensor to the specified dimensions
+
+    Parameters
+    ----------
+    in0 : Operand
+        Input operand to broadcast
+    builder : TTIRBuilder
+        TTIR builder instance.
+    broadcast_dimensions : Optional[List[int]], optional
+        Target dimensions for broadcasting.
+    unit_attrs : Optional[List[str]], optional
+        Unit attributes to attach to the operation
+
+    Returns
+    -------
+    Operand
+        Broadcasted tensor
+
+    Examples
+    --------
+    Broadcast shape (1, 1, 32) to (1, 16, 32):
+
+        broadcast(in0, builder, broadcast_dimensions=[1, 16, 1])
+    """
     return builder.broadcast(
         in0, broadcast_dimensions=broadcast_dimensions, unit_attrs=unit_attrs
     )
@@ -1411,6 +1684,25 @@ def test_cumsum(shapes: List[Shape], dim: int, request, device):
 
 
 def prod(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None):
+    """
+    Test helper for product reduction operation
+
+    Computes the product of tensor elements along dimension 1
+
+    Parameters
+    ----------
+    in0 : Operand
+        Input operand for reduction
+    builder : TTIRBuilder
+        TTIR builder instance
+    unit_attrs : Optional[List[str]], optional
+        Unit attributes to attach to the operation
+
+    Returns
+    -------
+    Operand
+        Product of elements along dimension 1 with keep_dim=False
+    """
     return builder.prod(in0, [1], False, unit_attrs=unit_attrs)
 
 
@@ -1444,6 +1736,34 @@ def softmax(
     numeric_stable: bool = False,
     unit_attrs: Optional[List[str]] = None,
 ):
+    """
+    Test helper for softmax operation
+
+    Applies softmax activation along the specified dimension
+
+    Parameters
+    ----------
+    in0 : Operand
+        Input operand
+    builder : TTIRBuilder
+        TTIR builder instance
+    dimension : int, optional
+        Dimension along which to compute softmax. Default is -1 (last dimension)
+    numeric_stable : bool, optional
+        Whether to use numerically stable softmax computation. Default is False
+    unit_attrs : Optional[List[str]], optional
+        Unit attributes to attach to the operation
+
+    Returns
+    -------
+    Operand
+        Softmax result where output[i] = exp(input[i]) / sum(exp(input))
+
+    Notes
+    -----
+    Numerically stable softmax subtracts the maximum value before exponentiation
+    to prevent overflow: softmax(x) = softmax(x - max(x))
+    """
     return builder.softmax(
         in0, dimension=dimension, numeric_stable=numeric_stable, unit_attrs=unit_attrs
     )
@@ -1504,6 +1824,32 @@ def embedding(
     builder: TTIRBuilder,
     unit_attrs: Optional[List[str]] = None,
 ):
+    """
+    Test helper for embedding lookup operation
+
+    Performs embedding table lookup using provided indices
+
+    Parameters
+    ----------
+    in0 : Operand
+        Indices tensor specifying which embeddings to retrieve
+    in1 : Operand
+        Embedding table tensor containing embedding vectors
+    builder : TTIRBuilder
+        TTIR builder instance
+    unit_attrs : Optional[List[str]], optional
+        Unit attributes to attach to the operation
+
+    Returns
+    -------
+    Operand
+        Embedded vectors corresponding to the input indices
+
+    Notes
+    -----
+    The embedding operation is essentially a gather operation where indices
+    select rows from the embedding table
+    """
     return builder.embedding(in0, in1, unit_attrs=unit_attrs)
 
 
@@ -1640,6 +1986,36 @@ def test_requantize(
 
 # Create hoisted versions of operations by currying the unit_attrs parameter
 def create_hoisted_single_operand_op(op_func, name):
+    """
+    Create a hoisted version of a unary operation
+
+    Hoisted operations are executed on the host CPU at compile time rather than
+    on the device at runtime. This is useful for operations that can be computed
+    statically
+
+    Parameters
+    ----------
+    op_func : Callable
+        Original operation function to wrap
+    name : str
+        Name of the operation for identification
+
+    Returns
+    -------
+    Callable
+        Hoisted version of the operation with "ttir.should_hoist" unit attribute
+
+    Notes
+    -----
+    The returned function automatically adds the "ttir.should_hoist" unit attribute
+    to the operation, which signals the compiler to execute it on the host CPU
+
+    Examples
+    --------
+    Create hoisted version of abs operation:
+
+        hoisted_abs = create_hoisted_single_operand_op(abs, "abs")
+    """
     """Create a hoisted version of a unary operation by adding the should_hoist unit attribute"""
 
     def hoisted_op(in0, builder, **kwargs):
@@ -1652,6 +2028,31 @@ def create_hoisted_single_operand_op(op_func, name):
 
 
 def create_hoisted_permute_op(op_func, name):
+    """
+    Create a hoisted version of the permute operation
+
+    This factory calculates appropriate permutation dimensions based on the
+    input tensor and wraps the operation with the hoisting attribute
+
+    Parameters
+    ----------
+    op_func : Callable
+        Original permute operation function
+    name : str
+        Name of the operation for identification
+
+    Returns
+    -------
+    Callable
+        Hoisted permute operation that reverses dimensions
+
+    Notes
+    -----
+    The generated hoisted operation:
+    - Automatically determines input dimensions
+    - Creates a permutation that reverses all dimensions
+    - Adds "ttir.should_hoist" unit attribute for CPU execution
+    """
     """Create a hoisted version of the permute operation that calculates appropriate permutation dimensions"""
 
     def hoisted_op(in0, in1, builder, **kwargs):
@@ -1673,6 +2074,25 @@ def create_hoisted_permute_op(op_func, name):
 
 
 def create_hoisted_softmax_op(op_func, name):
+    """
+    Create a hoisted version of the softmax operation
+
+    Parameters
+    ----------
+    op_func : Callable
+        Original softmax operation function
+    name : str
+        Name of the operation for identification
+
+    Returns
+    -------
+    Callable
+        Hoisted softmax operation with default dimension=-1 (last dimension)
+
+    Notes
+    -----
+    Uses the last dimension as the default softmax dimension for hoisted execution
+    """
     """Create a hoisted version of the softmax operation"""
 
     def hoisted_op(in0, builder, **kwargs):
@@ -1691,6 +2111,25 @@ def create_hoisted_softmax_op(op_func, name):
 
 
 def create_hoisted_concat_op(op_func, name):
+    """
+    Create a hoisted version of the concat operation
+
+    Parameters
+    ----------
+    op_func : Callable
+        Original concat operation function
+    name : str
+        Name of the operation for identification
+
+    Returns
+    -------
+    Callable
+        Hoisted concat operation with default dimension=0
+
+    Notes
+    -----
+    Concatenates tensors along dimension 0 by default for hoisted execution
+    """
     """Create a hoisted version of the concat operation"""
 
     def hoisted_op(in0, in1, in2, builder, **kwargs):
@@ -1712,6 +2151,26 @@ def create_hoisted_concat_op(op_func, name):
 
 # Create a function for hoisted where operation
 def create_hoisted_where_op(op_func, name):
+    """
+    Create a hoisted version of the where (select) operation
+
+    Parameters
+    ----------
+    op_func : Callable
+        Original where operation function
+    name : str
+        Name of the operation for identification
+
+    Returns
+    -------
+    Callable
+        Hoisted where operation that selects elements based on condition
+
+    Notes
+    -----
+    The where operation returns elements from x where condition is True,
+    otherwise returns elements from y
+    """
     """Create a hoisted version of the where operation"""
 
     def hoisted_op(condition, x, y, builder, **kwargs):
@@ -1725,6 +2184,28 @@ def create_hoisted_where_op(op_func, name):
 
 # Create a function for hoisted slice operation
 def create_hoisted_slice_op(op_func, name):
+    """
+    Create a hoisted version of the slice operation
+
+    Parameters
+    ----------
+    op_func : Callable
+        Original slice operation function
+    name : str
+        Name of the operation for identification
+
+    Returns
+    -------
+    Callable
+        Hoisted slice operation with default parameters
+
+    Notes
+    -----
+    Default slice parameters:
+    - begins: [0, 0]
+    - ends: [10, 10]
+    - steps: [1, 1]
+    """
     """Create a hoisted version of the slice operation"""
 
     def hoisted_op(in0, builder, **kwargs):
@@ -1748,6 +2229,25 @@ def create_hoisted_slice_op(op_func, name):
 
 # Create a function for hoisted reduce operations
 def create_hoisted_reduce_op(op_func, name):
+    """
+    Create a hoisted version of a reduce operation
+
+    Parameters
+    ----------
+    op_func : Callable
+        Original reduce operation function (sum, max, min, mean, etc.)
+    name : str
+        Name of the operation for identification
+
+    Returns
+    -------
+    Callable
+        Hoisted reduce operation with default dimension=[0]
+
+    Notes
+    -----
+    Default behavior reduces along the first dimension (dimension 0)
+    """
     """Create a hoisted version of a reduce operation that requires dimension arguments"""
 
     def hoisted_op(in0, builder, **kwargs):
@@ -2177,6 +2677,55 @@ def gather(
     indices_dtype: torch.dtype,
     unit_attrs: Optional[List[str]] = None,
 ):
+    """
+    Test helper for gather operation
+
+    Implements gather operation that extracts slices from the input tensor
+    based on index tensors
+
+    Parameters
+    ----------
+    in0 : Operand
+        Input operand to gather from
+    builder : TTIRBuilder
+        TTIR builder instance
+    indices_shape : Shape
+        Shape of the indices tensor
+    start_index_map : List[int]
+        Mapping from index dimensions to input dimensions
+    offset_dims : List[int]
+        Dimensions in the output that are offset dimensions
+    slice_sizes : List[int]
+        Size of slices to extract for each dimension
+    indices_dtype : torch.dtype
+        Data type for the indices tensor
+    unit_attrs : Optional[List[str]], optional
+        Unit attributes to attach to the operation
+
+    Returns
+    -------
+    Operand
+        Gathered tensor result
+
+    Notes
+    -----
+    This implementation:
+    - Creates zero indices for basic functionality testing
+    - Sets collapsed_slice_dims equal to start_index_map
+    - Automatically determines index_vector_dim based on indices_shape
+    - For 1D indices: index_vector_dim = len(indices_shape)
+    - For multi-dimensional indices: index_vector_dim = len(indices_shape) - 1
+
+    Examples
+    --------
+    Simple 1D indices gather:
+
+        gather(in0, builder, (10,), [0], [1], [1, 50], torch.float32)
+
+    Complex multi-dimensional gather:
+
+        gather(in0, builder, (4, 2, 2), [0, 2], [1], [1, 16, 1], torch.float32)
+    """
     # For now, just create zero indices - this tests the basic gather functionality.
     # In a real test, you'd want to create varied indices to test different gather patterns.
     indices = builder.zeros(indices_shape, indices_dtype)

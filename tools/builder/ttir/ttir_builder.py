@@ -19,7 +19,48 @@ from golden import *
 
 
 class TTIRBuilder(Builder):
-    # ----- Methods -----
+    """TTIR (Tenstorrent Intermediate Representation) dialect builder
+
+    TTIRBuilder extends the base Builder class to provide a Python API for constructing
+    MLIR modules using the TTIR dialect. TTIR is Tenstorrent's high-level intermediate
+    representation that sits between frontend dialects (e.g., StableHLO) and backend
+    dialects (e.g., TTNN, TTMetal)
+
+    This builder provides methods for creating TTIR operations including:
+    - Elementwise operations (abs, add, multiply, etc.)
+    - Reduction operations (sum, max, mean, etc.)
+    - Data movement operations (reshape, transpose, slice, etc.)
+    - Matrix operations (matmul, dot_general, etc.)
+    - Activation functions (relu, gelu, sigmoid, etc.)
+    - Convolution and pooling operations
+    - Type conversion and quantization operations
+
+    The builder automatically manages golden tensor generation for verification,
+    handles type inference by executing golden functions, and tracks source
+    locations for debugging
+
+    Attributes
+    ----------
+    Inherits all attributes from Builder class:
+        _ctx, _loc, _global_id, _disable_golden_check, _force_graph_level_check,
+        _ordered_inputs, _ordered_outputs, _goldens_to_store, _goldens,
+        _operand_to_loc, _meshes, _mesh_shape
+
+    Examples
+    --------
+    >>> def test_add(in0: Operand, in1: Operand, builder: TTIRBuilder):
+    ...     return builder.add(in0, in1)
+    ...
+    >>> module, builder = build_module(
+    ...     test_add, "ttir", [(32, 32), (32, 32)]
+    ... )
+
+    See Also
+    --------
+    Builder : Base class providing core builder functionality
+    StableHLOBuilder : Builder for StableHLO dialect
+    TTNNBuilder : Builder for TTNN dialect
+    """
 
     def __init__(
         self,
@@ -35,15 +76,50 @@ class TTIRBuilder(Builder):
 
     # ----- Public methods -----
 
-    # ----- Private methods ----
+    # ----- Private methods -----
 
     def _get_empty_op(self, tensor_type: RankedTensorType) -> OpView:
-        """Get TTIR-specific empty operation."""
+        """Get TTIR-specific empty operation.
+
+        Creates a TTIR EmptyOp for the given tensor type. This overrides the
+        base Builder's abstract method to provide dialect-specific empty tensor
+        creation
+
+        Parameters
+        ----------
+        tensor_type : RankedTensorType
+            The desired tensor type for the empty operation
+
+        Returns
+        -------
+        OpView
+            TTIR EmptyOp with the specified type
+        """
         return ttir.EmptyOp(tensor_type)
 
     def _organize_eltwise_ttir(
         self, inputs: List[Operand], output: OpView, _: Optional[Shape]
     ):
+        """Organize arguments for TTIR elementwise operations.
+
+        Prepares arguments in the order required by TTIR elementwise operations:
+        output type, input operands, and output operand. The shape parameter is
+        not used in TTIR.
+
+        Parameters
+        ----------
+        inputs : List[Operand]
+            Input operands for the operation
+        output : OpView
+            Output operand (destination tensor)
+        _ : Optional[Shape]
+            Unused shape parameter (for interface compatibility)
+
+        Returns
+        -------
+        tuple
+            Tuple of (output_type, *inputs, output) for TTIR operation
+        """
         return (self._get_type(output), *inputs, output)
 
     def _op_proxy(
@@ -61,6 +137,55 @@ class TTIRBuilder(Builder):
         loc: Optional[Union[str, Location]] = None,
         skip_golden: bool = False,
     ) -> Any:
+        """Generic proxy for creating TTIR operations with golden tensor support.
+
+        This method provides a unified interface for creating TTIR operations. It handles:
+        - Output shape and type inference via golden function execution
+        - Empty output tensor creation
+        - Location tracking for debugging
+        - Golden tensor generation and storage
+        - Unit attribute application
+
+        The golden function is executed to infer output properties because TTIR
+        operations don't have MLIR shape inference traits.
+
+        Parameters
+        ----------
+        op_ttir_function : Callable
+            The TTIR operation constructor function
+        inputs : List[Operand]
+            Input operands for the operation
+        unit_attrs : Optional[List[str]], optional
+            Names of unit attributes to add to the operation
+        organize_ttir_args : Optional[Callable], optional
+            Function to organize arguments for TTIR op (default: _organize_eltwise_ttir)
+        organize_golden_args : Optional[Callable], optional
+            Function to organize arguments for golden function (default: _organize_eltwise_golden)
+        output_shape : Optional[Shape], optional
+            Explicit output shape (if not inferred from golden)
+        output_type : Optional[Type], optional
+            Explicit output type (if not inferred from golden)
+        output_create_fn : Optional[Callable], optional
+            Custom function to create output tensor (default: _empty)
+        golden_kwargs : dict, optional
+            Keyword arguments for golden function execution
+        ttir_kwargs : dict, optional
+            Keyword arguments for TTIR operation creation
+        loc : Optional[Union[str, Location]], optional
+            Source location (auto-generated if not provided)
+        skip_golden : bool, optional
+            If True, skips golden tensor generation
+
+        Returns
+        -------
+        Any
+            The created TTIR operation (typically OpView)
+
+        Raises
+        ------
+        AssertionError
+            If output_shape or output_type is not provided and no golden function exists
+        """
         if not golden_kwargs:
             golden_kwargs = ttir_kwargs
 
@@ -3724,6 +3849,47 @@ class TTIRBuilder(Builder):
         max_arg: Optional[float] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpView:
+        """
+        Creates ``ttir.clamp_scalar``.
+
+        *Elementwise clamp operation with scalar bounds.*
+
+        Clamps all elements in the input tensor to be within [min_arg, max_arg].
+        For each element x:
+        - If x < min_arg: returns min_arg
+        - If x > max_arg: returns max_arg
+        - Otherwise: returns x
+
+        .. code-block:: mlir
+
+            // Clamp values between 0.0 and 1.0
+            %result = ttir.clamp_scalar(%input, %output, min = 0.0, max = 1.0) :
+                tensor<3x3xf32>, tensor<3x3xf32> -> tensor<3x3xf32>
+            // Input tensor:
+            // [[-0.5, 0.5, 1.5],
+            //  [0.2, -1.0, 2.0],
+            //  [0.8, 0.9, -0.1]]
+            // Output tensor:
+            // [[0.0, 0.5, 1.0],
+            //  [0.2, 0.0, 1.0],
+            //  [0.8, 0.9, 0.0]]
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor to clamp
+        min_arg : Optional[float], optional
+            Minimum value for clamping (default: None, no lower bound)
+        max_arg : Optional[float], optional
+            Maximum value for clamping (default: None, no upper bound)
+        unit_attrs : *Optional[List[str]]*, optional
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpView*)
+            Tensor with values clamped to [min_arg, max_arg]
+        """
         kwargs = {"min": min_arg, "max": max_arg}
         return self._op_proxy(
             ttir.ClampScalarOp,
@@ -3739,6 +3905,49 @@ class TTIRBuilder(Builder):
         in2: Operand,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpView:
+        """
+        Creates ``ttir.clamp_tensor``.
+
+        *Elementwise clamp operation with tensor bounds.*
+
+        Clamps elements in the input tensor using per-element minimum and maximum bounds
+        provided as tensors. For each element at position i:
+        - If in0[i] < in1[i]: returns in1[i]
+        - If in0[i] > in2[i]: returns in2[i]
+        - Otherwise: returns in0[i]
+
+        This operation supports broadcasting if the bound tensors have different shapes.
+
+        .. code-block:: mlir
+
+            // Clamp with element-wise bounds
+            %result = ttir.clamp_tensor(%input, %min, %max, %output) :
+                tensor<3xf32>, tensor<3xf32>, tensor<3xf32>, tensor<3xf32> -> tensor<3xf32>
+            // Input tensor:
+            // [0.5, 1.5, -0.5]
+            // Min bounds:
+            // [0.0, 1.0, 0.0]
+            // Max bounds:
+            // [1.0, 2.0, 1.0]
+            // Output tensor:
+            // [0.5, 1.5, 0.0]
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor to clamp
+        in1 : Operand
+            Minimum bounds tensor
+        in2 : Operand
+            Maximum bounds tensor
+        unit_attrs : *Optional[List[str]]*, optional
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpView*)
+            Tensor with values clamped element-wise
+        """
         return self._op_proxy(
             ttir.ClampTensorOp,
             [in0, in1, in2],
