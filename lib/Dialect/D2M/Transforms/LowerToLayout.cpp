@@ -279,7 +279,8 @@ public:
           rewriter.getContext(), outputLayout.getLogicalShape(),
           outputLayout.getDimAlignments(), outputLayout.getCollapsedIntervals(),
           outputLayout.getOobVal(), outputLayout.getMemorySpace(),
-          outputLayout.getMemoryLayout(), AffineMap::get(rewriter.getContext()));
+          outputLayout.getMemoryLayout(),
+          AffineMap::get(rewriter.getContext()));
 
       // Build an affine map that transforms input device coordinates to output
       // device coordinates via the shared logical space. This map handles grid
@@ -737,9 +738,8 @@ public:
           auto scalarTargetDeviceShape =
               scalarTargetLayout.getDeviceShape(scalarTargetGridShape, {});
 
-          auto scalarTargetType =
-              RankedTensorType::get(scalarTargetDeviceShape, scalarType,
-                                    scalarTargetLayout);
+          auto scalarTargetType = RankedTensorType::get(
+              scalarTargetDeviceShape, scalarType, scalarTargetLayout);
           auto scalarTargetEmpty = createEmpty(scalarTargetType);
           currentValue =
               lowerMappingChange(rewriter, currentValue, scalarTargetEmpty,
@@ -751,13 +751,12 @@ public:
               ttcore::getTensorTileShape(targetInfo.type);
           auto tiledDeviceShape = targetInfo.layout->getDeviceShape(
               targetInfo.getGridShape(), tileShape);
-          auto tiledType =
-              RankedTensorType::get(tiledDeviceShape,
-                                    targetInfo.type.getElementType(),
-                                    *targetInfo.layout);
+          auto tiledType = RankedTensorType::get(
+              tiledDeviceShape, targetInfo.type.getElementType(),
+              *targetInfo.layout);
           auto tiledEmpty = createEmpty(tiledType);
-          currentValue = lowerFormatConversionGeneric(
-              rewriter, currentValue, tiledEmpty, op.getLoc());
+          currentValue = lowerFormatConversionGeneric(rewriter, currentValue,
+                                                      tiledEmpty, op.getLoc());
           currentInfo = TensorInfo::from(currentValue);
 
         } else {
@@ -784,8 +783,7 @@ public:
           currentValue =
               lowerMappingChange(rewriter, currentValue, intermediateEmpty,
                                  op.getLoc(), targetGridShape);
-          llvm::errs() << "    result type: " << currentValue.getType()
-                       << "\n";
+          llvm::errs() << "    result type: " << currentValue.getType() << "\n";
           currentInfo = TensorInfo::from(currentValue);
         }
       }

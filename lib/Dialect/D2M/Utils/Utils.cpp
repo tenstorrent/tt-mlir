@@ -15,7 +15,6 @@
 
 namespace mlir::tt::d2m::utils {
 
-
 llvm::SmallVector<int64_t>
 getSquareTargetGrid(mlir::ArrayRef<int64_t> targetGridShape) {
   const int64_t minGridValue = *llvm::min_element(targetGridShape);
