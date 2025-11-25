@@ -296,124 +296,63 @@ struct D2MInsertDstRegisterGCPass
             ttcore::MemorySpaceAttr::get(&getContext(),
                                          ttcore::MemorySpace::RegisterDst));
 
-        // Create rewriter for DST operations.
+        // Insert the DST lifecycle at the REGION level (not per-loop iteration):
+        // acquire → prologue loops → compute loops → commit → wait → epilogue loops → release
+        //
+        // The key insight: pack_tile reads from DST, so commit/wait MUST happen
+        // AFTER all compute is done but BEFORE any pack operations.
         IRRewriter rewriter(&getContext());
+        rewriter.setInsertionPointToStart(&region.front());
+        AcquireDstOp acquireDst =
+            rewriter.create<AcquireDstOp>(genericOp.getLoc(), dstType);
 
         // Group DST accesses by their enclosing loop nest.
         CopyInfoMap copyInfoMap =
             groupAccessesByLoopNest(dstAccesses, coloring);
 
-        // For each loop nest, insert the complete DST lifecycle at the
-        // INNERMOST loop level. This ensures each tile operation has:
-        // acquire → copy → compute → commit → wait → pack → release
-        //
-        // The pack_tile reads from DST, so commit/wait MUST happen before pack.
-        // By putting everything at the innermost level, we ensure correct
-        // ordering within each tile iteration.
-        AcquireDstOp acquireDst = nullptr;
+        // Generate hoisted prologue copy loops for each loop nest.
         for (auto &[loopOp, copyInfo] : copyInfoMap) {
-          auto forLoop = dyn_cast<affine::AffineForOp>(loopOp);
-          affine::AffineForOp targetLoop = forLoop;
-
-          // Find the innermost loop - that's where we put the DST lifecycle
-          if (forLoop) {
-            auto [innermostLoop, indices] = findInnermostLoopAndIndices(forLoop);
-            targetLoop = innermostLoop;
-          }
-
-          if (targetLoop) {
-            // Insert acquire_dst at the START of innermost loop body
-            rewriter.setInsertionPointToStart(&targetLoop.getRegion().front());
-          } else {
-            // No loop - insert at region start
-            rewriter.setInsertionPointToStart(&region.front());
-          }
-          acquireDst =
-              rewriter.create<AcquireDstOp>(genericOp.getLoc(), dstType);
-
-          // Generate prologue copies (CB → DST) right after acquire
-          // Note: We pass the innermost loop as context, but copies are inline
-          for (const auto &pair : copyInfo.loads) {
-            auto loadOp = pair.first;
-            int64_t sliceIdx = pair.second;
-
-            // Create: %val = affine.load %cb[indices]
-            auto l1Value = rewriter.create<affine::AffineLoadOp>(
-                loadOp.getLoc(), loadOp.getMemRef(), loadOp.getMap(),
-                loadOp.getIndices());
-
-            // Create: affine.store %val, %dst[slice, indices]
-            auto dstMap = loadOp.getMap().insertResult(
-                getAffineConstantExpr(sliceIdx, rewriter.getContext()), 0);
-            SmallVector<Value> dstIndices(loadOp.getIndices().begin(),
-                                          loadOp.getIndices().end());
-            rewriter.create<affine::AffineStoreOp>(
-                loadOp.getLoc(), l1Value.getResult(), acquireDst.getResult(),
-                dstMap, dstIndices);
-          }
+          generatePrologueLoop(rewriter, acquireDst, loopOp, copyInfo);
         }
 
-        // Insert commit_dst/wait_dst AFTER the last original store (compute result
-        // goes to DST), then generate epilogue copies (DST → CB) after commit/wait.
-        // Sequence: compute → store to DST → commit → wait → copy DST to CB
+        // Insert commit_dst/wait_dst AFTER compute but BEFORE pack.
+        // The pack_tile reads from DST, so commit/wait MUST precede it.
+        // We need to find the last store operation (which becomes pack) and
+        // insert commit/wait right BEFORE it.
         for (auto &[loopOp, copyInfo] : copyInfoMap) {
           if (!copyInfo.stores.empty()) {
-            // Insert after the last original store (which gets rewritten to DST)
-            auto lastStore = copyInfo.stores.back().first;
-            rewriter.setInsertionPointAfter(lastStore);
-
-            // commit/wait: signal compute is done, DST values are ready
+            // Insert right before the first store (which becomes pack_tile)
+            auto firstStore = copyInfo.stores.front().first;
+            rewriter.setInsertionPoint(firstStore);
             rewriter.create<CommitDstOp>(genericOp.getLoc(),
                                          acquireDst.getResult());
             rewriter.create<WaitDstOp>(genericOp.getLoc(),
                                        acquireDst.getResult());
-
-            // Epilogue: copy from DST to CB (this becomes pack_tile)
-            for (const auto &pair : copyInfo.stores) {
-              auto storeOp = pair.first;
-              int64_t sliceIdx = pair.second;
-
-              // Create: %val = affine.load %dst[slice, indices]
-              auto dstMap = storeOp.getMap().insertResult(
-                  getAffineConstantExpr(sliceIdx, rewriter.getContext()), 0);
-              SmallVector<Value> dstIndices(storeOp.getIndices().begin(),
-                                            storeOp.getIndices().end());
-              auto dstValue = rewriter.create<affine::AffineLoadOp>(
-                  storeOp.getLoc(), acquireDst.getResult(), dstMap, dstIndices);
-
-              // Create: affine.store %val, %cb[indices]
-              rewriter.create<affine::AffineStoreOp>(
-                  storeOp.getLoc(), dstValue.getResult(), storeOp.getMemRef(),
-                  storeOp.getMap(), storeOp.getIndices());
-            }
-          }
-        }
-
-        // Insert release_dst at the END of innermost loop body
-        for (auto &[loopOp, copyInfo] : copyInfoMap) {
-          auto forLoop = dyn_cast<affine::AffineForOp>(loopOp);
-          if (forLoop) {
-            auto [innermostLoop, indices] = findInnermostLoopAndIndices(forLoop);
-            Block &loopBody = innermostLoop.getRegion().front();
-            if (!loopBody.empty() &&
-                loopBody.back().hasTrait<OpTrait::IsTerminator>()) {
-              rewriter.setInsertionPoint(&loopBody.back());
-            } else {
-              rewriter.setInsertionPointToEnd(&loopBody);
-            }
           } else {
-            // No loop - insert at region end
-            Block &block = region.front();
-            if (!block.empty() &&
-                block.back().hasTrait<OpTrait::IsTerminator>()) {
-              rewriter.setInsertionPoint(&block.back());
-            } else {
-              rewriter.setInsertionPointToEnd(&block);
-            }
+            // No stores - insert after the loop
+            rewriter.setInsertionPointAfter(loopOp);
+            rewriter.create<CommitDstOp>(genericOp.getLoc(),
+                                         acquireDst.getResult());
+            rewriter.create<WaitDstOp>(genericOp.getLoc(),
+                                       acquireDst.getResult());
           }
-          rewriter.create<ReleaseDstOp>(genericOp.getLoc(),
-                                        acquireDst.getResult());
         }
+
+        // Generate epilogue copy loops (after commit/wait).
+        for (auto &[loopOp, copyInfo] : copyInfoMap) {
+          generateEpilogueLoop(rewriter, acquireDst.getResult(), loopOp,
+                               copyInfo);
+        }
+
+        // Insert release_dst at the end, after all epilogue loops.
+        Block &block = region.front();
+        if (!block.empty() && block.back().hasTrait<OpTrait::IsTerminator>()) {
+          rewriter.setInsertionPoint(&block.back());
+        } else {
+          rewriter.setInsertionPointToEnd(&block);
+        }
+        rewriter.create<ReleaseDstOp>(genericOp.getLoc(),
+                                      acquireDst.getResult());
 
         // Rewrite original loads and stores to use DST instead of L1.
         for (size_t accessIndex = 0; accessIndex < dstAccesses.size();
