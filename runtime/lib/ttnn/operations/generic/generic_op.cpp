@@ -57,8 +57,6 @@ static ::tt::tt_metal::CBDescriptor createCBDescriptor(
         tensorBuffer) {
       uint32_t tensorIdx = tensorBuffer->tensor_operand_index();
       buffer = ioTensors[tensorIdx].buffer();
-    } else {
-      LOG_FATAL("Invalid buffer type");
     }
   } else if (cbDesc.buffer_type() ==
              ::tt::target::ttnn::KernelGlobalCBOrAddress::KernelCBAddress) {
@@ -70,9 +68,9 @@ static ::tt::tt_metal::CBDescriptor createCBDescriptor(
               formatDescriptor.page_size, ::tt::tt_metal::BufferType::L1);
       ownedBuffers.push_back(deviceBuffer);
       buffer = deviceBuffer.get();
-    } else {
-      LOG_FATAL("Invalid buffer type");
     }
+  } else {
+    LOG_FATAL("Invalid buffer type");
   }
   tt::tt_metal::CBDescriptor cbDescriptor = {
       .total_size = cbDesc.total_size(),

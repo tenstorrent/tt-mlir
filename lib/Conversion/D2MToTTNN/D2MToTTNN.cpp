@@ -215,12 +215,10 @@ public:
             ctx, numPages * pageSize, coreRangeSet, {cbFormat}, cbAddress);
       } else {
         // If not a memref or not streamed
-        ttnn::KernelCBGlobalBufferAddressOfTensorAttr globalCBIndexOfTensor;
-
         TT_assertv(ttcore::getMemorySpace(cb_memref) ==
                        ttcore::MemorySpace::DeviceL1,
                    "Can only alias L1 buffers.");
-        globalCBIndexOfTensor =
+        auto globalCBIndexOfTensor =
             ttnn::KernelCBGlobalBufferAddressOfTensorAttr::get(ctx, i);
         cbDescriptor =
             ttnn::KernelCBAttr::get(ctx, numPages * pageSize, coreRangeSet,

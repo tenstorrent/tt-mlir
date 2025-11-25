@@ -748,7 +748,7 @@ def TTNN_KernelCBAddressAttr : TTNN_Attr<"KernelCBAddress", "kernel_cb_address">
   let description = [{
     TTNN Generic CB Descriptor argument for statically allocated CB address.
   }];
-  let parameters = (ins "uint32_t":$cb_address);
+  let parameters = (ins "int64_t":$cb_address);
   let assemblyFormat = "`<` $cb_address `>`";
 }
 

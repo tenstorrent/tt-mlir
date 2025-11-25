@@ -2400,7 +2400,7 @@ createOp(FlatbufferObjectCache &cache, GenericOp op) {
     ::tt::target::ttnn::KernelGlobalCBOrAddress bufferType =
         ::tt::target::ttnn::KernelGlobalCBOrAddress::NONE;
     ::flatbuffers::Offset<void> buffer;
-    if (auto bufferAttrBase = kernelCbAttr.getBuffer(); bufferAttrBase) {
+    if (auto bufferAttrBase = kernelCbAttr.getBuffer()) {
       if (auto bufferAttr =
               llvm::dyn_cast<KernelCBGlobalBufferAddressOfTensorAttr>(
                   bufferAttrBase)) {
