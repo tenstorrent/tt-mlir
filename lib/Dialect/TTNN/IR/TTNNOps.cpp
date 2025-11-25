@@ -2905,6 +2905,8 @@ mlir::tt::ttnn::CollectivePermuteOp::fold(FoldAdaptor adaptor) {
   auto inputShape = inputType.getShape();
   auto updateIndexShape = updateIndexType.getShape();
 
+  bool usingStaticCache = getPageTable() != nullptr;
+
   if (cacheShape.size() != 4) {
     return emitOpError("Cache tensor must be a 4D tensor");
   }
@@ -2921,7 +2923,7 @@ mlir::tt::ttnn::CollectivePermuteOp::fold(FoldAdaptor adaptor) {
   int64_t headDim = cacheShape[3];
   int64_t numUsers = updateIndexShape[0];
 
-  if (blockSize % 32 != 0) {
+  if (!usingStaticCache && blockSize % 32 != 0) {
     return emitOpError("Block size must be divisible by 32, got " +
                        std::to_string(blockSize));
   }
@@ -2954,7 +2956,7 @@ mlir::tt::ttnn::CollectivePermuteOp::fold(FoldAdaptor adaptor) {
   }
 
   // Verify page table
-  if (getPageTable()) {
+  if (!usingStaticCache) {
     auto pageTableType = getPageTable().getType();
     if (!pageTableType.getElementType().isInteger()) {
       return emitOpError("Page table tensor must be an integer type");
