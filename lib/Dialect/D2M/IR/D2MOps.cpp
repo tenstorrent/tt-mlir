@@ -22,6 +22,8 @@
 #include "mlir/IR/Dominance.h"
 #include "mlir/IR/PatternMatch.h"
 
+#include "llvm/ADT/TypeSwitch.h"
+
 #define GET_OP_CLASSES
 #include "ttmlir/Dialect/D2M/IR/D2MOps.cpp.inc"
 
@@ -597,6 +599,7 @@ mlir::LogicalResult d2m::StreamLayoutOp::bufferize(
 mlir::bufferization::AliasingValueList d2m::StreamLayoutOp::getAliasingValues(
     mlir::OpOperand &, const mlir::bufferization::AnalysisState &) {
   bufferization::AliasingValueList result;
+  result.addAlias({getResult(), bufferization::BufferRelation::Equivalent});
   return result;
 }
 
@@ -771,6 +774,7 @@ mlir::LogicalResult d2m::ViewLayoutOp::bufferize(
 mlir::bufferization::AliasingValueList d2m::ViewLayoutOp::getAliasingValues(
     mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
   bufferization::AliasingValueList result;
+  result.addAlias({getResult(), bufferization::BufferRelation::Equivalent});
   return result;
 }
 
@@ -1206,6 +1210,41 @@ static mlir::LogicalResult verifyAffineBlocking(
                  (rankedTensorType && rankedTensorType.getEncoding());
   SmallVector<AffineMap> indexingMaps = getIndexingMapsValue();
   if (hasGrid && !indexingMaps.empty()) {
+    // Validate that all operands have device layouts before calling
+    // getOperandGridShapes(), which assumes layouts are present
+    for (Value operand : getOperands()) {
+      auto result =
+          llvm::TypeSwitch<Type, LogicalResult>(operand.getType())
+              .Case<MemRefType>([&](MemRefType memrefType) -> LogicalResult {
+                if (!mlir::dyn_cast<ttcore::DeviceLayoutInterface>(
+                        memrefType.getLayout())) {
+                  return emitOpError("memref operand must have a device layout "
+                                     "attribute "
+                                     "(e.g., #ttcore.shard, #ttcore.view, or "
+                                     "#ttcore.interleaved), "
+                                     "but got: ")
+                         << memrefType;
+                }
+                return success();
+              })
+              .Case<RankedTensorType>(
+                  [&](RankedTensorType tensorType) -> LogicalResult {
+                    if (!mlir::dyn_cast<ttcore::MetalLayoutAttr>(
+                            tensorType.getEncoding())) {
+                      return emitOpError("tensor operand must have a metal "
+                                         "layout encoding, "
+                                         "but got: ")
+                             << tensorType;
+                    }
+                    return success();
+                  })
+              .Default([](Type) { return success(); });
+
+      if (failed(result)) {
+        return failure();
+      }
+    }
+
     auto emitDiag = [&]() -> InFlightDiagnostic { return this->emitOpError(); };
     SmallVector<SmallVector<int64_t>> gridShapes = getOperandGridShapes();
     LogicalResult gridResult = verifyAffineShapesPermutation(
@@ -1513,7 +1552,7 @@ d2m::GenericOp::getOperandGridShapes() {
     auto memrefType = mlir::dyn_cast<MemRefType>(operand.getType());
     if (memrefType) {
       mlir::tt::ttcore::DeviceLayoutInterface layout =
-          mlir::dyn_cast<mlir::tt::ttcore::DeviceLayoutInterface>(
+          mlir::cast<mlir::tt::ttcore::DeviceLayoutInterface>(
               memrefType.getLayout());
       gridShapes.emplace_back(layout.getGridShape(memrefType));
     } else {

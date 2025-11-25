@@ -4,6 +4,7 @@
 
 #include "ttmlir/Conversion/D2MToTTNN/D2MToTTNN.h"
 
+#include "ttmlir/AffineMapUtils.h"
 #include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
@@ -117,13 +118,32 @@ public:
     auto device = ttcore::lookupDevice(op->getParentOp());
     TT_assert(device);
 
-    // TTNN grids are (Width, Height), while D2M grids are (Height, Width).
-    ttcore::GridAttr grid = op.getGrid();
+    ttcore::GridAttr opGrid = op.getGrid();
+    llvm::SmallVector<int64_t> endCoreRange;
+    if (!opGrid.getMapping().isEmpty()) {
+      // The genericOp has a virtual grid. We need to recover the original
+      // physical grid.
+      auto output = op.getOutputs()[0];
+      mlir::ShapedType outputType =
+          mlir::cast<mlir::ShapedType>(output.getType());
+      auto shardLayout = mlir::dyn_cast<ttcore::ShardLayoutAttr>(
+          ttcore::getDeviceLayout(outputType));
+      TT_assertv(shardLayout, "Expected shardLayoutAttr for the output of a "
+                              "generic op with a virtual grid.");
+
+      auto physicalGridShape = shardLayout.getPhysicalGridShape(outputType);
+      // TTNN grids are (Width, Height), while D2M grids are (Height, Width).
+      endCoreRange = {physicalGridShape[1] - 1, physicalGridShape[0] - 1};
+    } else {
+      // TTNN grids are (Width, Height), while D2M grids are (Height, Width).
+      endCoreRange = {opGrid.getShape()[1] - 1, opGrid.getShape()[0] - 1};
+    }
+
     ttnn::CoreRangeSetAttr coreRangeSet = ttnn::CoreRangeSetAttr::get(
-        ctx, ttnn::CoreRangeAttr::get(
-                 ctx, ttnn::CoreCoordAttr::get(ctx, 0, 0),
-                 ttnn::CoreCoordAttr::get(ctx, grid.getShape()[1] - 1,
-                                          grid.getShape()[0] - 1)));
+        ctx,
+        ttnn::CoreRangeAttr::get(
+            ctx, ttnn::CoreCoordAttr::get(ctx, 0, 0),
+            ttnn::CoreCoordAttr::get(ctx, endCoreRange[0], endCoreRange[1])));
 
     llvm::SmallVector<Value> ios(size);
     llvm::SmallVector<Value> cbs(size);

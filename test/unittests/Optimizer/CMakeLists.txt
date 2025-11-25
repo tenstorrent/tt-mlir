@@ -13,4 +13,5 @@ target_link_libraries(OptimizerTests
     MLIRTTNNDialect
     MLIRTTTransforms
     MLIRTTNNAnalysis
+    MLIRTTNNValidation
 )

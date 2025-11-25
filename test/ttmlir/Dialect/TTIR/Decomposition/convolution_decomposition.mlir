@@ -94,4 +94,30 @@ func.func @test_conv2d_sliced() -> tensor<1x16x32x32xbf16> {
     return %3 : tensor<1x16x32x32xbf16>
   }
 
+func.func @test_conv_not_transposed() -> tensor<1x2048x16x16xbf16> {
+    %0 = ttir.empty() : tensor<1x2048x16x16xbf16>
+    %1 = ttir.empty() : tensor<3x3x2048x1xbf16>
+    %2 = ttir.empty() : tensor<1x2048x16x16xbf16>
+    //CHECK: "ttir.conv2d"
+    %3 = "ttir.convolution"(%0, %1, %2) <{
+        batch_group_count = 1 : i64,
+        convolution_layout = #ttir<
+            convolution_layout input_batch = 0,
+            input_feature = 1,
+            input_spatial_dimensions = 2x3,
+            kernel_output_feature = 2,
+            kernel_input_feature = 3,
+            kernel_spatial_dimensions = 0x1,
+            output_batch = 0,
+            output_feature = 1,
+            output_spatial_dimensions = 2x3>,
+        feature_group_count = 2048 : i64,
+        input_dilation = array<i64: 1, 1>,
+        padding = array<i64: 1, 1, 1, 1>,
+        weight_dilation = array<i64: 1, 1>,
+        window_reversal = array<i1: false, false>,
+        window_strides = array<i64: 1, 1>
+        }> : (tensor<1x2048x16x16xbf16>, tensor<3x3x2048x1xbf16>, tensor<1x2048x16x16xbf16>) -> tensor<1x2048x16x16xbf16>
+    return %3 : tensor<1x2048x16x16xbf16>
+  }
 }

@@ -378,7 +378,7 @@ using ComputeOpMap = OpMap<
   std::pair<d2m::TileLezOp,         std::pair<ttkernel::LezTileInitOp,             ttkernel::LezTileOp>>,
   std::pair<d2m::TileTypecastOp,    std::pair<ttkernel::TypecastTileInitOp,        ttkernel::TypecastTileOp>>,
 
-  // Elementwise SFPU Binary.
+  // Elementwise SFPU Binary (can also handle scalar operands).
   std::pair<d2m::TileAddOp,         std::pair<ttkernel::AddBinaryTilesInitOp,      ttkernel::AddBinaryTilesOp>>,
   std::pair<d2m::TileDivOp,         std::pair<ttkernel::DivBinaryTilesInitOp,      ttkernel::DivBinaryTilesOp>>,
   std::pair<d2m::TileMaximumOp,     std::pair<ttkernel::MaxTilesInitOp,            ttkernel::MaxTilesOp>>,
@@ -608,7 +608,25 @@ public:
     rewriter.create<ttkernel::InitSFPUOp>(op->getLoc(), inCB, outCB);
     rewriter.setInsertionPoint(insertionPoint->getBlock(), insertionPoint);
 
-    rewriter.create<InitOp>(op->getLoc());
+    // For binary ops (arity == 2), check if rhs is a scalar to create the right
+    // init op
+    if constexpr (arity == 2 && !std::is_same_v<SFPUOp, ttkernel::MaxTilesOp>) {
+      auto rhsType = adaptor.getRhs().getType();
+      bool isScalarRhs = rhsType.isIntOrFloat();
+
+      if (isScalarRhs) {
+        // Use scalar-specific init ops
+        if constexpr (std::is_same_v<ConcreteOp, d2m::TilePowOp>) {
+          rewriter.create<ttkernel::PowerTileInitOp>(op->getLoc());
+        } else {
+          rewriter.create<ttkernel::BinopWithScalarTileInitOp>(op->getLoc());
+        }
+      } else {
+        rewriter.create<InitOp>(op->getLoc());
+      }
+    } else {
+      rewriter.create<InitOp>(op->getLoc());
+    }
     if constexpr (std::is_same_v<SFPUOp, ttkernel::CeilTileOp> ||
                   std::is_same_v<SFPUOp, ttkernel::FloorTileOp>) {
       const auto elemType =
@@ -701,13 +719,49 @@ public:
     } else if constexpr (std::is_same_v<SFPUOp, ttkernel::MaxTilesOp>) {
       rewriter.create<SFPUOp>(op->getLoc(), adaptor.getLhs(), adaptor.getRhs());
     } else {
-      OpBuilder::InsertionGuard guard(rewriter);
-      const auto dstIdx = getDstIdxFromResult(op.getResult());
-      setInsertionPointAfterOperands(
-          rewriter, {adaptor.getLhs(), adaptor.getRhs(), dstIdx},
-          /*allowHoisting*/ false);
-      rewriter.create<SFPUOp>(op->getLoc(), adaptor.getLhs(), adaptor.getRhs(),
-                              dstIdx);
+      // Check if rhs is a scalar (float or integer) at runtime
+      auto rhsType = adaptor.getRhs().getType();
+      bool isScalarRhs = rhsType.isIntOrFloat();
+
+      if (isScalarRhs) {
+        // Handle scalar operand - need to use unary scalar ops
+        const auto dstIdx = adaptor.getLhs();
+        auto loc = op->getLoc();
+
+        // Create the appropriate unary scalar op based on the D2M op type
+        if constexpr (std::is_same_v<ConcreteOp, d2m::TileAddOp>) {
+          // Bitcast the scalar value to i32 to pass as parameter
+          auto scalarParam = rewriter.create<arith::BitcastOp>(
+              loc, rewriter.getI32Type(), adaptor.getRhs());
+          rewriter.create<ttkernel::AddUnaryTileOp>(loc, dstIdx, scalarParam);
+        } else if constexpr (std::is_same_v<ConcreteOp, d2m::TileSubOp>) {
+          auto scalarParam = rewriter.create<arith::BitcastOp>(
+              loc, rewriter.getI32Type(), adaptor.getRhs());
+          rewriter.create<ttkernel::SubUnaryTileOp>(loc, dstIdx, scalarParam);
+        } else if constexpr (std::is_same_v<ConcreteOp, d2m::TileMulOp>) {
+          auto scalarParam = rewriter.create<arith::BitcastOp>(
+              loc, rewriter.getI32Type(), adaptor.getRhs());
+          rewriter.create<ttkernel::MulUnaryTileOp>(loc, dstIdx, scalarParam);
+        } else if constexpr (std::is_same_v<ConcreteOp, d2m::TileDivOp>) {
+          auto scalarParam = rewriter.create<arith::BitcastOp>(
+              loc, rewriter.getI32Type(), adaptor.getRhs());
+          rewriter.create<ttkernel::DivUnaryTileOp>(loc, dstIdx, scalarParam);
+        } else if constexpr (std::is_same_v<ConcreteOp, d2m::TilePowOp>) {
+          // For power, convert float value to integer (not bitcast)
+          auto scalarParam = rewriter.create<arith::FPToSIOp>(
+              loc, rewriter.getI32Type(), adaptor.getRhs());
+          rewriter.create<ttkernel::PowUnaryTileOp>(loc, dstIdx, scalarParam);
+        }
+      } else {
+        // Binary tile operation
+        OpBuilder::InsertionGuard guard(rewriter);
+        const auto dstIdx = getDstIdxFromResult(op.getResult());
+        setInsertionPointAfterOperands(
+            rewriter, {adaptor.getLhs(), adaptor.getRhs(), dstIdx},
+            /*allowHoisting*/ false);
+        rewriter.create<SFPUOp>(op->getLoc(), adaptor.getLhs(),
+                                adaptor.getRhs(), dstIdx);
+      }
     }
 
     rewriter.eraseOp(op);
@@ -1538,7 +1592,7 @@ void populateD2MToTTKernelPatterns(
                ttkernel::D2MSFPUOpsRewriter<d2m::TileLezOp>,
                ttkernel::D2MSFPUOpsRewriter<d2m::TileTypecastOp>,
 
-               // Elementwise SFPU Binary.
+               // Elementwise SFPU Binary (also handles scalar operands).
                ttkernel::D2MSFPUOpsRewriter<d2m::TileAddOp>,
                ttkernel::D2MSFPUOpsRewriter<d2m::TileDivOp>,
                ttkernel::D2MSFPUOpsRewriter<d2m::TileMaximumOp>,

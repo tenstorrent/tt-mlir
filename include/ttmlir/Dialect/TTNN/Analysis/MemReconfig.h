@@ -61,13 +61,13 @@ private:
 
 inline llvm::raw_ostream &operator<<(llvm::raw_ostream &os,
                                      const MemReconfigEntry &memReconfigEntry) {
-  os << "ReshardOutputConfigMap: ";
+  os << "ReshardOutputConfigMap:\n";
   for (const auto &[idx, value] : memReconfigEntry.reshardOutputConfigMap) {
     os << "(" << idx << ": ";
     for (const auto &config : value) {
       os << config.outputLayout << ", ";
     }
-    os << ")";
+    os << ")\n";
   }
   os << " SelectedReshardOutputConfigBitIndex: "
      << memReconfigEntry.selectedReshardOutputConfigBitIndex;

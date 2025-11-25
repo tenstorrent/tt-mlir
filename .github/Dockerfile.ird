@@ -17,7 +17,7 @@ RUN wget https://mirror.csclub.uwaterloo.ca/gnu/gdb/gdb-16.3.tar.gz && \
     # use specific mirror because of CIv2 runner white listing issues
     tar -xzf gdb-16.3.tar.gz && \
     cd gdb-16.3 && \
-    ./configure --prefix=/opt/gdb && \
+    ./configure && \
     make -j$(nproc) && \
     make install && \
     cd .. && \
@@ -53,10 +53,7 @@ RUN mkdir -p $TTMLIR_TOOLCHAIN_DIR && \
     chmod -R 777 $TTMLIR_TOOLCHAIN_DIR
 
 # Copy the pre-built GDB from the builder stage
-COPY --from=gdb-builder /opt/gdb /opt/gdb
-
-# Add GDB to PATH and verify installation
-ENV PATH="/opt/gdb/bin:${PATH}"
+COPY --from=gdb-builder /usr/local /usr/local
 RUN gdb --version
 
 # CI image stage
@@ -66,6 +63,7 @@ SHELL ["/bin/bash", "-c"]
 
 # Set environment variables
 ENV DEBIAN_FRONTEND=noninteractive
+ENV TTMLIR_TOOLCHAIN_DIR=/opt/ttmlir-toolchain
 
 # Copy and run the install script
 COPY --from=gdb-builder /_install.sh /_install.sh
@@ -76,8 +74,5 @@ RUN mkdir -p $TTMLIR_TOOLCHAIN_DIR && \
     chmod -R 777 $TTMLIR_TOOLCHAIN_DIR
 
 # Copy the pre-built GDB from the builder stage
-COPY --from=gdb-builder /opt/gdb /opt/gdb
-
-# Add GDB to PATH and verify installation
-ENV PATH="/opt/gdb/bin:${PATH}"
+COPY --from=gdb-builder /usr/local /usr/local
 RUN gdb --version

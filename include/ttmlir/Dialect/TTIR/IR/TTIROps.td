@@ -561,6 +561,30 @@ def TTIR_BitwiseNotOp : TTIR_ElementwiseUnaryOp<"bitwise_not", [TTIR_Involution]
     }];
 }
 
+def TTIR_MishOp: TTIR_ElementwiseUnaryOp<"mish"> {
+  let summary = "Elementwise Mish activation operation.";
+  let description = [{
+    The `mish` operation computes the Mish activation function of each element in the input tensor.
+
+    Mish is a smooth, self-regularized, non-monotonic activation function that combines
+    properties of both ReLU-like and smooth activation functions. It has been shown to improve
+    performance in deep learning applications, particularly in computer vision tasks.
+
+    Example:
+    ```mlir
+    // Compute Mish of all elements in %input
+    %result = ttir.mish(%input, %output) : tensor<4x4xf32>, tensor<4x4xf32> -> tensor<4x4xf32>
+    // Input tensor:
+    // [[-2.0, -1.0, 0.0, 1.0], ... ]
+    // Output tensor:
+    // [[-0.252, -0.303, 0.0, 0.865], ... ]
+    ```
+
+    Mathematical definition: mish(x) = x * tanh(softplus(x)) = x * tanh(ln(1 + e^x))
+  }];
+}
+
+
 def TTIR_NegOp: TTIR_ElementwiseUnaryOp<"neg", [TTIR_Involution]> {
     let summary = "Elementwise negate operation.";
     let description = [{
@@ -5557,6 +5581,24 @@ def TTIR_ConcatenateHeadsOp: TTIR_NamedOp<"concatenate_heads"> {
   }];
 
   let arguments = (ins AnyRankedTensor:$input,
+                       AnyRankedTensor:$output);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let hasVerifier = 1;
+}
+
+def TTIR_RotaryEmbeddingOp : TTIR_NamedOp<"rotary_embedding"> {
+  let summary = "Applies rotary positional embeddings to the input tensor.";
+  let description = [{
+    Rotary embedding operation that applies rotary positional embeddings to the input tensor using this formula:
+    rotary_embedding(x, cos, sin) = (x * cos) + (rotate_half(x) * sin)
+    where rotate_half(x) rotates the last dimension of x by half.
+  }];
+
+  let arguments = (ins AnyRankedTensor:$input,
+                       AnyRankedTensor:$cosCache,
+                       AnyRankedTensor:$sinCache,
                        AnyRankedTensor:$output);
 
   let results = (outs AnyRankedTensor:$result);

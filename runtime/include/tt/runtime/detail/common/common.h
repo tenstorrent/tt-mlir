@@ -60,14 +60,6 @@ toMetalFabricConfig(tt::runtime::FabricConfig cfg) {
     return ::tt::tt_fabric::FabricConfig::FABRIC_2D_TORUS_Y;
   case tt::runtime::FabricConfig::FABRIC_2D_TORUS_XY:
     return ::tt::tt_fabric::FabricConfig::FABRIC_2D_TORUS_XY;
-  case tt::runtime::FabricConfig::FABRIC_2D_DYNAMIC:
-    return ::tt::tt_fabric::FabricConfig::FABRIC_2D_DYNAMIC;
-  case tt::runtime::FabricConfig::FABRIC_2D_DYNAMIC_TORUS_X:
-    return ::tt::tt_fabric::FabricConfig::FABRIC_2D_DYNAMIC_TORUS_X;
-  case tt::runtime::FabricConfig::FABRIC_2D_DYNAMIC_TORUS_Y:
-    return ::tt::tt_fabric::FabricConfig::FABRIC_2D_DYNAMIC_TORUS_Y;
-  case tt::runtime::FabricConfig::FABRIC_2D_DYNAMIC_TORUS_XY:
-    return ::tt::tt_fabric::FabricConfig::FABRIC_2D_DYNAMIC_TORUS_XY;
   case tt::runtime::FabricConfig::CUSTOM:
     return ::tt::tt_fabric::FabricConfig::CUSTOM;
   }

@@ -4,17 +4,20 @@
 
 #include "ttmlir/Dialect/TTNN/Utils/OptimizerUtils.h"
 
-#include "mlir/IR/MLIRContext.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
+#include "ttmlir/Dialect/TTNN/Analysis/OpConfig.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Support/Logger.h"
 
 #include "mlir/IR/BuiltinTypes.h"
+#include "mlir/IR/MLIRContext.h"
 #include "llvm/ADT/ArrayRef.h"
+#include "llvm/ADT/DenseSet.h"
+#include "llvm/ADT/Hashing.h"
 #include "llvm/ADT/SmallVector.h"
 
 #include <cstdint>
-#include <unordered_set>
+#include <unordered_map>
 
 namespace mlir::tt::ttnn::optimizer_utils {
 
@@ -61,6 +64,88 @@ AffineMap createSingleDeviceVirtualToPhysicalAffineMap(
     return blockMap;
   }
   }
+}
+
+std::vector<OpConfig::OpSpecificAttrs>
+getUniqueOpSpecificAttrs(const std::vector<OpConfig> &configs) {
+  llvm::DenseSet<OpConfig::OpSpecificAttrs> uniqueAttrs;
+  std::vector<OpConfig::OpSpecificAttrs> attrVec;
+
+  for (const OpConfig &config : configs) {
+    if (uniqueAttrs.insert(config.opSpecificAttrs).second) {
+      attrVec.push_back(config.opSpecificAttrs);
+    }
+  }
+  return attrVec;
+}
+
+llvm::SmallVector<OpConfig> getUniqueTestConfigsForMatmulLinear(
+    const std::vector<OpConfig> &consumerConfigs) {
+  // Helper structs for tracking unique (bufferType, memLayout) pairs.
+  struct BufferMemLayoutKey {
+    BufferType bufferType;
+    TensorMemoryLayout memLayout;
+
+    bool operator==(const BufferMemLayoutKey &other) const {
+      return bufferType == other.bufferType && memLayout == other.memLayout;
+    }
+  };
+
+  struct BufferMemLayoutKeyHash {
+    size_t operator()(const BufferMemLayoutKey &key) const {
+      return llvm::hash_combine(key.bufferType, key.memLayout);
+    }
+  };
+
+  // Build map from BufferMemLayoutKey to representative layout with
+  // ignorePhysicalLayout.
+  std::unordered_map<BufferMemLayoutKey, TTNNLayoutAttr, BufferMemLayoutKeyHash>
+      layoutKeyToAttr;
+
+  // Collect unique (bufferType, memLayout) pairs and build the map in one pass.
+  for (const OpConfig &config : consumerConfigs) {
+    assert(config.outputLayout &&
+           "Matmul/Linear configs must have valid output layout");
+
+    BufferMemLayoutKey key{config.outputLayout.getBufferType(),
+                           config.outputLayout.getMemLayout().getValue()};
+    if (layoutKeyToAttr.find(key) == layoutKeyToAttr.end()) {
+      TTNNLayoutAttr layout = config.outputLayout;
+      layoutKeyToAttr[key] = layout.withIgnorePhysicalLayout(true);
+    }
+  }
+
+  // Collect unique op-specific attrs.
+  std::vector<OpConfig::OpSpecificAttrs> opAttrs =
+      getUniqueOpSpecificAttrs(consumerConfigs);
+
+  // Generate Cartesian product.
+  llvm::SmallVector<OpConfig> testConfigs;
+  for (const auto &[layoutKey, partialLayout] : layoutKeyToAttr) {
+    for (const OpConfig::OpSpecificAttrs &attrs : opAttrs) {
+      testConfigs.push_back(OpConfig(partialLayout, attrs));
+    }
+  }
+
+  return testConfigs;
+}
+
+llvm::SmallVector<OpConfig>
+getUniqueTestConfigs(const std::vector<OpConfig> &consumerConfigs,
+                     bool isMatmulOrLinear) {
+  if (isMatmulOrLinear) {
+    return getUniqueTestConfigsForMatmulLinear(consumerConfigs);
+  }
+
+  // For non-Matmul/Linear: only op-specific attrs matter, no output layout
+  // needed.
+  std::vector<OpConfig::OpSpecificAttrs> uniqueAttrs =
+      getUniqueOpSpecificAttrs(consumerConfigs);
+  llvm::SmallVector<OpConfig> testConfigs;
+  for (const OpConfig::OpSpecificAttrs &attrs : uniqueAttrs) {
+    testConfigs.push_back(OpConfig(/*outputLayout=*/nullptr, attrs));
+  }
+  return testConfigs;
 }
 
 } // namespace mlir::tt::ttnn::optimizer_utils

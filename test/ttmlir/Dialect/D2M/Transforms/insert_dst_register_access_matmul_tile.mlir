@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttcore-register-device --d2m-insert-dst-register-access="use-tile-matmul=true" --canonicalize -o %t %s
+// RUN: ttmlir-opt --ttcore-register-device --d2m-linalg-to-affine="use-tile-matmul=true" --d2m-insert-dst-register-access="use-tile-matmul=true" --canonicalize -o %t %s
 // RUN: FileCheck %s --input-file=%t
 
 #l1_ = #ttcore.memory_space<l1>

@@ -15,6 +15,16 @@
 
 namespace mlir::tt::ttnn::utils {
 
+// Attribute name for storing tensor L1 usage cap during optimizer passes.
+// This attribute is set by OptimizerPassesWrapper and read by validation
+// and analysis passes to avoid parameter threading through pass infrastructure.
+inline constexpr llvm::StringLiteral g_TensorL1UsageCapAttrName =
+    "ttnn.tensor_l1_usage_cap";
+
+// Helper function to retrieve tensor L1 usage cap from module attribute.
+// Returns the configured cap if found, otherwise returns the default value.
+float getTensorL1UsageCap(Operation *op, float defaultValue = 0.95f);
+
 bool isTensorOnDevice(::mlir::RankedTensorType tensorType);
 
 // Map ttcore::MemorySpace to ttnn::BufferType

@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttcore-register-device --d2m-insert-dst-register-access --canonicalize -o %t %s --split-input-file
+// RUN: ttmlir-opt --ttcore-register-device --d2m-linalg-to-affine --d2m-insert-dst-register-access --canonicalize -o %t %s --split-input-file
 // RUN: FileCheck %s --input-file=%t
 //
 // Test that InsertDstRegisterAccess correctly handles d2m.generic operations
@@ -71,7 +71,7 @@ module {
 // D2MInsertDstRegisterAccessRewriter::matchAndRewrite that calls
 // rewriteTileMatmulAsTileMatmulBlock when indexing_maps is non-empty.
 
-// RUN: ttmlir-opt --ttcore-register-device --d2m-insert-dst-register-access="use-tile-matmul=false" --canonicalize -o %t %s --split-input-file
+// RUN: ttmlir-opt --ttcore-register-device --d2m-linalg-to-affine --d2m-insert-dst-register-access="use-tile-matmul=false" --canonicalize -o %t %s --split-input-file
 // RUN: FileCheck %s --check-prefix=CHECK-MATMUL --input-file=%t
 
 #l1_ = #ttcore.memory_space<l1>
