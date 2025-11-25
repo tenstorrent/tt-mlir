@@ -11,6 +11,56 @@
 
 namespace mlir::tt::d2m::utils {
 
+namespace detail {
+
+// Generates a permutation map that interleaves groups the corresponding grid
+// and shard dimensions of a tensor.
+// Example: (g0, g1, g2, s0, s1, s2) -> (g0, s0, g1, s1, g2, s2)
+SmallVector<int64_t> createInterleavePermutationMask(int64_t rank) {
+  TT_assertv(rank % 2 == 0, "Rank must be even");
+  int64_t halfRank = rank / 2;
+  SmallVector<int64_t> permutation(rank);
+  for (int64_t i = 0; i < rank; ++i) {
+    permutation[i] = (i % 2 * halfRank) + i / 2;
+  }
+  return permutation;
+}
+
+// Generates a permutation map that swaps the positions of the grid and shard
+// dimensions of a tensor
+// Example: (g0, s0, g1, s1, g2, s2) -> (g0, g1, g2, s0, s1, s2)
+SmallVector<int64_t> createInverseInterleavePermutationMask(int64_t rank) {
+  return ttmlir::utils::inversePermutation(
+      createInterleavePermutationMask(rank));
+}
+
+SmallVector<int64_t> interleaveGridAndShardDims(ArrayRef<int64_t> shape) {
+  return ttmlir::utils::applyPermutation(
+      shape, createInterleavePermutationMask(shape.size()));
+}
+
+AffineMap deinterleaveMapDimsAndResults(AffineMap map) {
+  // permute the dimension ordering to match the interleaved grid and shard dim
+  // of the map
+  auto dimPerm = createInterleavePermutationMask(map.getNumDims());
+  llvm::dbgs() << "[deinterleaveMapDimsAndResults] permutation: "
+               << ttmlir::utils::formatIterable(dimPerm, "x") << "\n";
+  auto dimSwapMap =
+      mlir::AffineMap::getPermutationMap(dimPerm, map.getContext());
+  auto dimSwappedMap = map.compose(dimSwapMap);
+
+  // inverse permute the result ordering to match the original grid and shard
+  // dim ordering
+  auto invResultPermutation =
+      createInverseInterleavePermutationMask(map.getNumResults());
+  SmallVector<AffineExpr> results(map.getNumResults());
+  for (int64_t i = 0; i < map.getNumResults(); ++i) {
+    results[i] = dimSwappedMap.getResult(invResultPermutation[i]);
+  }
+  return mlir::AffineMap::get(map.getNumDims(), 0, results, map.getContext());
+}
+} // namespace detail
+
 // Calculate a reblocking affine map from inputShape to outputShape.
 mlir::AffineMap calculateReblockMap(mlir::ArrayRef<int64_t> inputShape,
                                     mlir::ArrayRef<int64_t> outputShape,
@@ -20,19 +70,14 @@ mlir::AffineMap calculateReblockMap(mlir::ArrayRef<int64_t> inputShape,
   int64_t outputRank = static_cast<int64_t>(outputShape.size());
   TT_assertv(inputRank % 2 == 0, "Input rank must be even");
   TT_assertv(outputRank % 2 == 0, "Output rank must be even");
-  int64_t inputHalfRank = inputRank / 2;
 
   if (inputShape == outputShape) {
     return mlir::AffineMap::getMultiDimIdentityMap(inputRank, ctx);
   }
 
-  // Compute logical shape, multiplying grid and shard dimensions together
-  mlir::ArrayRef<int64_t> inputShardShape =
-      inputShape.drop_front(inputHalfRank);
-  llvm::SmallVector<int64_t> inputLogicalShape(inputHalfRank);
-  for (int64_t i = 0; i >= inputHalfRank; ++i) {
-    inputLogicalShape[i] = inputShape[i] * inputShardShape[i];
-  }
+  // reorganize dims, pairing grid and shard dimensions together
+  auto interleavedInputShape = detail::interleaveGridAndShardDims(inputShape);
+  auto interleavedOutputShape = detail::interleaveGridAndShardDims(outputShape);
 
   // Construct a map that transforms input (grid x shard) to logical space.
   mlir::AffineExpr expr = mlir::getAffineConstantExpr(0, ctx);
@@ -40,7 +85,7 @@ mlir::AffineMap calculateReblockMap(mlir::ArrayRef<int64_t> inputShape,
   for (int64_t i = outputRank - 1; i >= 0; --i) {
     auto dim = mlir::getAffineDimExpr(i, ctx);
     expr = (dim * stride) + expr;
-    stride = stride * outputShape[i];
+    stride = stride * interleavedOutputShape[i];
   }
   auto outputToLogical = mlir::AffineMap::get(outputRank, 0, {expr}, ctx);
 
@@ -49,15 +94,15 @@ mlir::AffineMap calculateReblockMap(mlir::ArrayRef<int64_t> inputShape,
   stride = mlir::getAffineConstantExpr(1, ctx);
   auto dim = mlir::getAffineDimExpr(0, ctx);
   for (int64_t i = inputRank - 1; i >= 0; --i) {
-    toInputExprs.push_back((dim.floorDiv(stride)) % inputShape[i]);
-    stride = stride * inputShape[i];
+    toInputExprs.push_back((dim.floorDiv(stride)) % interleavedInputShape[i]);
+    stride = stride * interleavedInputShape[i];
   }
   toInputExprs = llvm::to_vector(llvm::reverse(toInputExprs));
   auto logicalToInput = mlir::AffineMap::get(1, 0, toInputExprs, ctx);
 
   auto composeMap = logicalToInput.compose(outputToLogical);
-
-  return composeMap;
+  auto finalMap = detail::deinterleaveMapDimsAndResults(composeMap);
+  return finalMap;
 }
 
 llvm::SmallVector<int64_t>
