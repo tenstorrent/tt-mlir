@@ -14,6 +14,7 @@
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/Sequence.h"
 #include "llvm/ADT/SmallVector.h"
+#include <llvm/Support/raw_ostream.h>
 
 namespace mlir::tt::ttir {
 
@@ -26,44 +27,11 @@ public:
   using TTIRCommuteOpRewritePattern<
       PermuteOp, ReshapeOp, commuteDirection>::TTIRCommuteOpRewritePattern;
 
-  // Consider the following IR pseudocode:
-  // %0 = reshape(%arg0) {shape = [a, b, c, d]}
-  // %1 = permute(%0) <{permutation = array<i64: 0, 2, 3, 1>}>
-  //
-  // This method will transform this into:
-  // %0 = permute(%arg0) <{permutation = array<i64: 0, 2, 3, 1>}>
-  // %1 = reshape(%0) {shape = [permuted_shape]}
-  //
-  // Note: Details about how reshape shape is transformed will be filled in
-  // later
-
+  // NOT IMPLEMENTED: Upwards commutation of permute through reshape is not
+  // implemented.
   void performCommuteUpwardsRewrite(ReshapeOp op, PermuteOp permuteUser,
                                     PatternRewriter &rewriter) const override {
-    // auto permutation = permuteUser.getPermutation();
-
-    // Create new permute op on reshape input
-    // PermuteOp newPerm = createNewPermuteOp(op.getInput(), permutation,
-    // rewriter,
-    //                                        permuteUser->getLoc());
-
-    // Create new reshape op with transformed shape
-    // ReshapeOp newReshape = createNewReshapeOpWithPermutedShape(
-    //     op, newPerm.getResult(), permutation, rewriter);
-
-    // All users must be identical TMs. We must not reference `permuteUser`
-    // during/after replacements, as it will be erased on its turn.
-    SmallVector<Operation *> users(op->getUsers());
-    assert(llvm::all_of(users,
-                        [&](Operation *user) {
-                          return checkIdenticalTms(permuteUser, user);
-                        }) &&
-           "isCommuteUpwardsViable/Favorable should have ensured all users "
-           "are identical TMs");
-
-    // Replace users with new reshape
-    // for (auto *user : users) {
-    //   rewriter.replaceOp(user, newReshape);
-    // }
+    llvm_unreachable("Not implemented, this should not be called.");
   }
 
   // Consider the following IR pseudocode:
@@ -74,120 +42,66 @@ public:
   // %0 = reshape(%arg0) {shape = [transformed_shape]}
   // %1 = permute(%0) <{permutation = array<i64: 0, 3, 1, 2>}>
   //
-  // The reshape shape is transformed by grouping axes and applying the inverse
-  // permutation to determine the new shape.
+  // The reshape shape is transformed by applying the inverse permutation to the
+  // current reshape output shape.
   void
   performCommuteDownwardsRewrite(ReshapeOp op, PermuteOp permuteOperand,
                                  PatternRewriter &rewriter) const override {
-    llvm::errs() << "performCommuteDownwardsRewrite\n";
     auto permutation = permuteOperand.getPermutation();
-
-    // Get shapes: permuted input (after permute, which is reshape input), and
-    // reshape output
-    auto reshapeInputShape =
-        mlir::cast<RankedTensorType>(op.getInput().getType()).getShape();
-    auto reshapeOutputShape =
-        mlir::cast<RankedTensorType>(op.getType()).getShape();
-
-    // PermuteOp can't change the rank; check if the ReshapeOp changes the rank.
-    if (reshapeInputShape.size() != reshapeOutputShape.size()) {
-      llvm::errs() << "ReshapeOp input and output shapes have different ranks: "
-                   << reshapeInputShape.size()
-                   << " != " << reshapeOutputShape.size() << "\n";
-      return;
+    llvm::outs() << "permutation: ";
+    for (const auto &p : permutation) {
+      llvm::outs() << p << " ";
     }
-    const int64_t rank = reshapeInputShape.size();
-
-    // Group the axes of the ReshapeOp into groups of consecutive axes
-    auto axesGroups =
-        groupAxes(reshapeInputShape, reshapeOutputShape, permutation);
-    // If the axes cannot be grouped, the pattern is not applicable.
-    if (!axesGroups) {
-      llvm::errs() << "Axes cannot be grouped.\n";
-      return;
+    llvm::outs() << "\n";
+    ReshapeOp newReshape = createNewReshapeOpWithPermutedShape(
+        op, permuteOperand.getInput(), permutation, rewriter);
+    llvm::outs() << "newReshape output shape: ";
+    for (const auto &dim : newReshape.getType().getShape()) {
+      llvm::outs() << dim << " ";
     }
-
-    // Debug: print the axes groups
-    llvm::errs() << "Axes groups: ";
-    for (const auto &group : *axesGroups) {
-      llvm::errs() << "[";
-      for (size_t i = 0; i < group.size(); ++i) {
-        llvm::errs() << group[i];
-        if (i < group.size() - 1) {
-          llvm::errs() << ", ";
-        }
-      }
-      llvm::errs() << "] ";
-    }
-    llvm::errs() << "\n";
-
-    // Apply original permutation to the axes groups
-    auto permutedAxesGroups = ttmlir::utils::applyPermutation(
-        llvm::ArrayRef(*axesGroups), permutation);
-
-    // Check if the flattened axes groups are the same as the original axes
-    if (!llvm::equal(ttmlir::utils::flatten(permutedAxesGroups),
-                     llvm::seq(rank))) {
-      llvm::errs()
-          << "Flattened axes groups are not the same as the original axes.\n";
-      llvm::errs() << "Flattened axes groups: ";
-      for (const auto &group : permutedAxesGroups) {
-        llvm::errs() << "[";
-        for (size_t i = 0; i < group.size(); ++i) {
-          llvm::errs() << group[i];
-          if (i < group.size() - 1) {
-            llvm::errs() << ", ";
-          }
-        }
-        llvm::errs() << "] ";
-      }
-      llvm::errs() << "\n";
-      return;
-    }
-
-    // Pattern is applicable; create new reshape op with transformed shape
-    // The new reshape should produce the same output when followed by the
-    // permute We need to compute the new reshape output shape by applying the
-    // inverse permutation to the current reshape output shape
-    auto inversePermutation = ttmlir::utils::inversePermutation(permutation);
-    auto newReshapeOutputShape =
-        ttmlir::utils::applyPermutation(reshapeOutputShape, inversePermutation);
-
-    // Create the new reshape op
-    auto newReshapeInputType =
-        mlir::cast<RankedTensorType>(permuteOperand.getInput().getType());
-    auto newReshapeOutputType = RankedTensorType::get(
-        newReshapeOutputShape, newReshapeInputType.getElementType(),
-        newReshapeInputType.getEncoding());
-
-    llvm::SmallVector<int32_t> newReshapeShapeAttr(
-        newReshapeOutputShape.begin(), newReshapeOutputShape.end());
-    ReshapeOp newReshape = ttir::utils::createDPSOp<ReshapeOp>(
-        rewriter, op->getLoc(), newReshapeOutputType, permuteOperand.getInput(),
-        rewriter.getI32ArrayAttr(newReshapeShapeAttr));
-
-    // Create new permute op on reshape output
+    llvm::outs() << "\n";
     PermuteOp newPerm = createNewPermuteOp(newReshape.getResult(), permutation,
-                                           rewriter, permuteOperand->getLoc());
-
-    // Replace op with new permute
+                                           rewriter, permuteOperand.getLoc());
+    llvm::outs() << "newPerm output shape: ";
+    for (const auto &dim : newPerm.getType().getShape()) {
+      llvm::outs() << dim << " ";
+    }
+    llvm::outs() << "\n";
     rewriter.replaceOp(op, newPerm);
   }
 
 private:
   PermuteOp createNewPermuteOp(Value input, ArrayRef<int64_t> permutation,
                                PatternRewriter &rewriter, Location loc) const {
-    // Apply permutation on input type to create output type
     auto inputType = cast<RankedTensorType>(input.getType());
     auto inputShape = inputType.getShape();
-    auto outputShape = ttmlir::utils::applyPermutation(inputShape, permutation);
 
+    auto inversePermutation = ttmlir::utils::inversePermutation(permutation);
+    auto outputShape =
+        ttmlir::utils::applyPermutation(inputShape, inversePermutation);
     auto outputType = RankedTensorType::get(
         outputShape, inputType.getElementType(), inputType.getEncoding());
 
-    // Create and return the new PermuteOp
     return ttir::utils::createDPSOp<PermuteOp>(rewriter, loc, outputType, input,
-                                               permutation);
+                                               inversePermutation);
+  }
+
+  ReshapeOp
+  createNewReshapeOpWithPermutedShape(ReshapeOp op, Value newInput,
+                                      ArrayRef<int64_t> permutation,
+                                      PatternRewriter &rewriter) const {
+    auto oldReshapeShape = op.getType().getShape();
+    auto newReshapeOutputShape =
+        ttmlir::utils::applyPermutation(oldReshapeShape, permutation);
+    auto newReshapeType = RankedTensorType::get(newReshapeOutputShape,
+                                                op.getType().getElementType(),
+                                                op.getType().getEncoding());
+
+    llvm::SmallVector<int32_t> newReshapeShapeAttr(
+        newReshapeOutputShape.begin(), newReshapeOutputShape.end());
+    return ttir::utils::createDPSOp<ReshapeOp>(
+        rewriter, op->getLoc(), newReshapeType, newInput,
+        rewriter.getI32ArrayAttr(newReshapeShapeAttr));
   }
 
   // Group the axes of the tensor into groups of consecutive axes that are
@@ -227,8 +141,6 @@ private:
         }
 
         if (consumed != outputShape[outputIndex]) {
-          llvm::errs() << "Consumed is not equal to output shape: " << consumed
-                       << " != " << outputShape[outputIndex] << "\n";
           return {};
         }
 
@@ -242,31 +154,79 @@ private:
     return axesGroups;
   }
 
+  // NOT IMPLEMENTED: Upwards commutation of permute through reshape is not
+  // implemented.
   bool isCommuteUpwardsViable(ReshapeOp op, PermuteOp) const override {
-    // Add viability checks - to be filled in later
-    return true;
+    return false;
   }
 
+  // NOT IMPLEMENTED: Upwards commutation of permute through reshape is not
+  // implemented.
   bool isCommuteUpwardsFavorable(ReshapeOp op, PermuteOp) const override {
-    // We should always commute a permute above a reshape if all users are an
-    // identical permutation. This includes the case where there is one user.
-    SmallVector<Operation *> users(op->getUsers());
-    return !users.empty() && checkAllUsersAreIdenticalTms(users);
+    return false;
   }
 
-  bool isCommuteDownwardsViable(ReshapeOp op, PermuteOp) const override {
-    // Add viability checks - to be filled in later
-    return true;
+  bool isCommuteDownwardsViable(ReshapeOp op,
+                                PermuteOp permuteOperand) const override {
+    auto permutation = permuteOperand.getPermutation();
+    auto reshapeInputShape =
+        mlir::cast<RankedTensorType>(op.getInput().getType()).getShape();
+    auto reshapeOutputShape =
+        mlir::cast<RankedTensorType>(op.getType()).getShape();
+
+    if (reshapeInputShape.size() != reshapeOutputShape.size()) {
+      return false;
+    }
+    const int64_t rank = reshapeInputShape.size();
+
+    auto axesGroups =
+        groupAxes(reshapeInputShape, reshapeOutputShape, permutation);
+    if (!axesGroups) {
+      return false;
+    }
+    llvm::outs() << "axesGroups: ";
+    for (const auto &group : *axesGroups) {
+      llvm::outs() << "[";
+      for (const auto &axis : group) {
+        llvm::outs() << axis << " ";
+      }
+      llvm::outs() << "] ";
+    }
+    llvm::outs() << "\n";
+
+    auto permutedAxesGroups = ttmlir::utils::applyPermutation(
+        llvm::ArrayRef(*axesGroups), permutation);
+    llvm::outs() << "permutedAxesGroups: ";
+    for (const auto &group : permutedAxesGroups) {
+      llvm::outs() << "[";
+      for (const auto &axis : group) {
+        llvm::outs() << axis << " ";
+      }
+      llvm::outs() << "] ";
+    }
+    llvm::outs() << "\n";
+    return llvm::equal(ttmlir::utils::flatten(permutedAxesGroups),
+                       llvm::seq(rank));
   }
 
   bool isCommuteDownwardsFavorable(ReshapeOp op,
                                    PermuteOp permuteOperand) const override {
-    // Add favorability checks - to be filled in later
-    // Commuting downwards is favorable if all other operands satisfy one
-    // of the following:
-    // - Are an identical TM
-    // - Are on a consteval-able path
-    return true;
+    // Favorable if all reshape users are permutes (reshape-permute-reshape) or
+    // input of permute is reshape (permute-reshape-permute). Reduces TMs.
+    auto reshapeUsers = op.getResult().getUsers();
+    bool allReshapeUsersArePermute =
+        !reshapeUsers.empty() &&
+        llvm::all_of(reshapeUsers,
+                     [](Operation *user) { return isa<PermuteOp>(user); });
+    llvm::outs() << "allReshapeUsersArePermute: " << allReshapeUsersArePermute
+                 << "\n";
+    llvm::outs() << permuteOperand.getInput().getDefiningOp() << "\n";
+    bool permuteInputIsReshape =
+        permuteOperand.getInput().getDefiningOp() &&
+        dyn_cast<ReshapeOp>(permuteOperand.getInput().getDefiningOp()) !=
+            nullptr;
+    llvm::outs() << "permuteInputIsReshape: " << permuteInputIsReshape << "\n";
+    return allReshapeUsersArePermute || permuteInputIsReshape;
   }
 };
 } // namespace
@@ -277,6 +237,9 @@ void populatePermuteReshapeCommutePatterns(MLIRContext *ctx,
   patterns.add<TTIRCommutePermuteThroughReshape<commuteDirection>>(ctx);
 }
 
+// NOT IMPLEMENTED: Upwards commutation of permute through reshape is not
+// implemented. The template is instantiated to allow compilation, but the
+// methods return false/do nothing, so the pattern will never match.
 template void populatePermuteReshapeCommutePatterns<CommuteDirection::UPWARDS>(
     MLIRContext *ctx, RewritePatternSet &patterns);
 template void
