@@ -296,46 +296,81 @@ struct D2MInsertDstRegisterGCPass
             ttcore::MemorySpaceAttr::get(&getContext(),
                                          ttcore::MemorySpace::RegisterDst));
 
-        // Create rewriter and insert acquire_dst at the start of the region.
+        // Create rewriter for DST operations.
         IRRewriter rewriter(&getContext());
-        rewriter.setInsertionPointToStart(&region.front());
-        AcquireDstOp acquireDst =
-            rewriter.create<AcquireDstOp>(genericOp.getLoc(), dstType);
 
         // Group DST accesses by their enclosing loop nest.
         CopyInfoMap copyInfoMap =
             groupAccessesByLoopNest(dstAccesses, coloring);
 
-        // Generate hoisted prologue copy loops for each loop nest.
+        // For each loop nest, insert the complete DST lifecycle INSIDE the loop:
+        // acquire → copy → compute → commit → wait → pack → release
+        // This ensures each iteration has a complete, independent DST lifecycle.
+        AcquireDstOp acquireDst = nullptr;
         for (auto &[loopOp, copyInfo] : copyInfoMap) {
-          generatePrologueLoop(rewriter, acquireDst, loopOp, copyInfo);
+          auto forLoop = dyn_cast<affine::AffineForOp>(loopOp);
+          if (forLoop) {
+            // Insert acquire_dst at the START of the loop body
+            rewriter.setInsertionPointToStart(&forLoop.getRegion().front());
+          } else {
+            // No loop - insert at region start
+            rewriter.setInsertionPointToStart(&region.front());
+          }
+          acquireDst =
+              rewriter.create<AcquireDstOp>(genericOp.getLoc(), dstType);
+
+          // Generate prologue (copy from CB to DST) inside the loop
+          generatePrologueLoopInline(rewriter, acquireDst, loopOp, copyInfo);
         }
 
-        // Insert commit_dst/wait_dst after compute loops, before epilogue.
-        // This signals that compute operations are complete and DST values
-        // are ready for packing.
+        // Insert commit_dst/wait_dst after compute, before epilogue.
+        // These are inside the loop body, after the compute operations.
         for (auto &[loopOp, copyInfo] : copyInfoMap) {
-          // Insert after the compute loop (loopOp)
-          rewriter.setInsertionPointAfter(loopOp);
+          auto forLoop = dyn_cast<affine::AffineForOp>(loopOp);
+          if (forLoop) {
+            // Find the innermost nested loop (where compute happens)
+            auto [innermostLoop, indices] = findInnermostLoopAndIndices(forLoop);
+            // Insert after the innermost loop (after compute, before pack)
+            rewriter.setInsertionPointAfter(innermostLoop);
+          } else {
+            rewriter.setInsertionPointAfter(loopOp);
+          }
           rewriter.create<CommitDstOp>(genericOp.getLoc(),
                                        acquireDst.getResult());
           rewriter.create<WaitDstOp>(genericOp.getLoc(), acquireDst.getResult());
         }
 
+        // Generate epilogue (pack from DST to CB) inside the loop
         for (auto &[loopOp, copyInfo] : copyInfoMap) {
-          generateEpilogueLoop(rewriter, acquireDst.getResult(), loopOp,
-                               copyInfo);
+          generateEpilogueLoopInline(rewriter, acquireDst.getResult(), loopOp,
+                                     copyInfo);
         }
 
-        // Insert release_dst at the end, after all epilogue loops
-        Block &block = region.front();
-        if (!block.empty() && block.back().hasTrait<OpTrait::IsTerminator>()) {
-          rewriter.setInsertionPoint(&block.back());
-        } else {
-          rewriter.setInsertionPointToEnd(&block);
+        // Insert release_dst at the END of each loop body
+        for (auto &[loopOp, copyInfo] : copyInfoMap) {
+          auto forLoop = dyn_cast<affine::AffineForOp>(loopOp);
+          if (forLoop) {
+            // Insert before the yield/terminator at end of loop body
+            Block &loopBody = forLoop.getRegion().front();
+            if (!loopBody.empty() &&
+                loopBody.back().hasTrait<OpTrait::IsTerminator>()) {
+              rewriter.setInsertionPoint(&loopBody.back());
+            } else {
+              rewriter.setInsertionPointToEnd(&loopBody);
+            }
+          } else {
+            // No loop - insert at region end
+            Block &block = region.front();
+            if (!block.empty() &&
+                block.back().hasTrait<OpTrait::IsTerminator>()) {
+              rewriter.setInsertionPoint(&block.back());
+            } else {
+              rewriter.setInsertionPointToEnd(&block);
+            }
+          }
+          rewriter.create<ReleaseDstOp>(genericOp.getLoc(),
+                                        acquireDst.getResult());
         }
-        rewriter.create<ReleaseDstOp>(genericOp.getLoc(),
-                                      acquireDst.getResult());
 
         // Rewrite original loads and stores to use DST instead of L1.
         for (size_t accessIndex = 0; accessIndex < dstAccesses.size();
@@ -356,19 +391,19 @@ struct D2MInsertDstRegisterGCPass
   }
 
 private:
-  // Find the outermost affine.for loop that contains the given operation.
+  // Find the outermost affine.for loop that contains the given operation,
+  // staying within the same d2m.generic region.
   static Operation *findOutermostLoop(Operation *op) {
     Operation *outermostLoop = nullptr;
     Operation *current = op->getParentOp();
 
-    // Walk up the parent chain until we reach the region boundary
+    // Walk up the parent chain until we reach the d2m.generic boundary
     while (current) {
       if (auto forOp = mlir::dyn_cast<affine::AffineForOp>(current)) {
         outermostLoop = forOp;
       }
-      // Stop if the parent is not in the same region
-      if (!current->getParentOp() ||
-          current->getParentRegion() != op->getParentRegion()) {
+      // Stop if we've reached a d2m.generic operation (region boundary)
+      if (mlir::isa<GenericOp>(current)) {
         break;
       }
       current = current->getParentOp();
@@ -620,6 +655,133 @@ private:
     generateCopyLoops</*IsPrologue=*/false, affine::AffineStoreOp,
                       OpAndIndexOffset<affine::AffineStoreOp>>(
         rewriter, dstMemref, loopTemplate, copyInfo.stores);
+  }
+
+  // Generate inline prologue copies (L1 -> DST) inside the existing loop.
+  // Instead of creating a separate loop nest, this generates copy ops
+  // that will be hoisted/fused inside the innermost loop.
+  static void generatePrologueLoopInline(IRRewriter &rewriter,
+                                         AcquireDstOp acquireDst,
+                                         Operation *loopTemplate,
+                                         const CopyInfo &copyInfo) {
+    if (copyInfo.loads.empty()) {
+      return;
+    }
+
+    auto forLoop = dyn_cast<affine::AffineForOp>(loopTemplate);
+    if (!forLoop) {
+      // No loop - generate inline copies after acquire
+      OpBuilder::InsertionGuard guard(rewriter);
+      rewriter.setInsertionPointAfter(acquireDst);
+
+      for (const auto &pair : copyInfo.loads) {
+        auto op = pair.first;
+        int64_t sliceIdx = pair.second;
+
+        // L1 -> DST: load from L1, store to DST
+        auto l1Value = rewriter.create<affine::AffineLoadOp>(
+            op.getLoc(), op.getMemRef(), op.getMap(), op.getIndices());
+
+        auto dstMap = op.getMap().insertResult(
+            getAffineConstantExpr(sliceIdx, rewriter.getContext()), 0);
+        SmallVector<Value> dstIndices(op.getIndices().begin(),
+                                      op.getIndices().end());
+
+        rewriter.create<affine::AffineStoreOp>(
+            op.getLoc(), l1Value.getResult(), acquireDst.getResult(), dstMap,
+            dstIndices);
+      }
+      return;
+    }
+
+    // Find innermost loop and generate copies there
+    auto [innermostLoop, indices] = findInnermostLoopAndIndices(forLoop);
+
+    OpBuilder::InsertionGuard guard(rewriter);
+    rewriter.setInsertionPointToStart(&innermostLoop.getRegion().front());
+
+    for (const auto &pair : copyInfo.loads) {
+      auto op = pair.first;
+      int64_t sliceIdx = pair.second;
+
+      // L1 -> DST: load from L1, store to DST
+      auto l1Value = rewriter.create<affine::AffineLoadOp>(
+          op.getLoc(), op.getMemRef(), op.getMap(), op.getIndices());
+
+      auto dstMap = op.getMap().insertResult(
+          getAffineConstantExpr(sliceIdx, rewriter.getContext()), 0);
+      SmallVector<Value> dstIndices(op.getIndices().begin(),
+                                    op.getIndices().end());
+
+      rewriter.create<affine::AffineStoreOp>(
+          op.getLoc(), l1Value.getResult(), acquireDst.getResult(), dstMap,
+          dstIndices);
+    }
+  }
+
+  // Generate inline epilogue copies (DST -> L1) inside the existing loop.
+  static void generateEpilogueLoopInline(IRRewriter &rewriter, Value dstMemref,
+                                         Operation *loopTemplate,
+                                         const CopyInfo &copyInfo) {
+    if (copyInfo.stores.empty()) {
+      return;
+    }
+
+    auto forLoop = dyn_cast<affine::AffineForOp>(loopTemplate);
+    if (!forLoop) {
+      // No loop - generate inline copies
+      OpBuilder::InsertionGuard guard(rewriter);
+      // Insert after wait_dst (which was just inserted)
+
+      for (const auto &pair : copyInfo.stores) {
+        auto op = pair.first;
+        int64_t sliceIdx = pair.second;
+
+        // DST -> L1: load from DST, store to L1
+        auto dstMap = op.getMap().insertResult(
+            getAffineConstantExpr(sliceIdx, rewriter.getContext()), 0);
+        SmallVector<Value> dstIndices(op.getIndices().begin(),
+                                      op.getIndices().end());
+
+        auto dstValue = rewriter.create<affine::AffineLoadOp>(
+            op.getLoc(), dstMemref, dstMap, dstIndices);
+
+        rewriter.create<affine::AffineStoreOp>(
+            op.getLoc(), dstValue.getResult(), op.getMemRef(), op.getMap(),
+            op.getIndices());
+      }
+      return;
+    }
+
+    // Find innermost loop and generate copies there (after wait_dst)
+    auto [innermostLoop, indices] = findInnermostLoopAndIndices(forLoop);
+
+    OpBuilder::InsertionGuard guard(rewriter);
+    // Insert at end of innermost loop body, before terminator
+    Block &loopBody = innermostLoop.getRegion().front();
+    if (!loopBody.empty() && loopBody.back().hasTrait<OpTrait::IsTerminator>()) {
+      rewriter.setInsertionPoint(&loopBody.back());
+    } else {
+      rewriter.setInsertionPointToEnd(&loopBody);
+    }
+
+    for (const auto &pair : copyInfo.stores) {
+      auto op = pair.first;
+      int64_t sliceIdx = pair.second;
+
+      // DST -> L1: load from DST, store to L1
+      auto dstMap = op.getMap().insertResult(
+          getAffineConstantExpr(sliceIdx, rewriter.getContext()), 0);
+      SmallVector<Value> dstIndices(op.getIndices().begin(),
+                                    op.getIndices().end());
+
+      auto dstValue = rewriter.create<affine::AffineLoadOp>(
+          op.getLoc(), dstMemref, dstMap, dstIndices);
+
+      rewriter.create<affine::AffineStoreOp>(
+          op.getLoc(), dstValue.getResult(), op.getMemRef(), op.getMap(),
+          op.getIndices());
+    }
   }
 
   // Identify DST accesses that need coloring based on compute operations.
