@@ -32,19 +32,75 @@ from golden import GoldenMapTensor, get_golden_function
 
 # ----- Public APIs -----
 
+# Type alias for MLIR operands representing values, operations and operation views
 Operand = Union[Value, OpView, Operation]
+
+# Type alias for tensor shapes, supporting both list and tuple representations
 Shape = Union[List[int], Tuple[int, ...]]
 
 
 @dataclass
 class TypeInfo:
+    """Type information for quantized tensors.
+
+    This dataclass encapsulates the data type along with quantization parameters
+    (scale and zero point) required for quantized tensor representations.
+
+    Attributes
+    ----------
+    dtype : torch.dtype
+        The torch data type (e.g., torch.qint8, torch.qint32)
+    scale : Optional[float]
+        Quantization scale factor for converting between quantized and dequantized values
+    zero_point : Optional[int]
+        Zero point offset for quantization
+    """
+
     dtype: torch.dtype
     scale: Optional[float] = None
     zero_point: Optional[int] = None
 
 
 class Builder:
-    # ----- Methods -----
+    """Base class for MLIR builder implementations.
+
+    Builder provides a foundation for constructing MLIR modules across different
+    dialects (TTIR, StableHLO, TTNN, D2M). It manages:
+    - MLIR context and location information
+    - Golden tensor generation and verification for testing
+    - Mesh configuration for distributed execution
+    - Type conversions between PyTorch and MLIR type systems
+
+    The golden tensor system tracks expected outputs for verification during
+    compilation and runtime, enabling automated correctness checking.
+
+    Attributes
+    ----------
+    _ctx : Context
+        MLIR context for creating types and operations
+    _loc : Location
+        Source location for debugging
+    _global_id : int
+        Counter for generating unique operation identifiers
+    _disable_golden_check : bool
+        Flag to disable golden tensor generation and verification
+    _force_graph_level_check : bool
+        Flag to force verification only at graph boundaries (inputs/outputs)
+    _ordered_inputs : List[Operand]
+        Ordered list of function input operands
+    _ordered_outputs : List[Operand]
+        Ordered list of function output operands
+    _goldens_to_store : List[Operand]
+        Operands whose golden tensors should be stored for verification
+    _goldens : Dict[Operand, GoldenMapTensor]
+        Map from operands to their golden reference tensors
+    _operand_to_loc : Dict[Operand, str]
+        Map from operands to their source location strings
+    _meshes : Dict[str, OrderedDict[str, int]]
+        Map from mesh names to their dimension specifications
+    _mesh_shape : Tuple[int, int]
+        Shape of the default mesh for distributed execution
+    """
 
     def __init__(
         self,
@@ -56,28 +112,52 @@ class Builder:
         ] = OrderedDict([("x", 1), ("y", 1)]),
         disable_golden_check: bool = False,
     ):
+        """Initialize the Builder with MLIR context and mesh configuration.
+
+        Parameters
+        ----------
+        ctx : Context
+            MLIR context for creating types, attributes, and operations
+        location : Location
+            Source location for debugging information
+        mesh_name : Union[List[str], str], optional
+            Name(s) of mesh(es) for distributed execution (default: "mesh")
+        mesh_dict : Union[List[OrderedDict[str, int]], OrderedDict[str, int]], optional
+            Mesh dimension specifications, e.g., OrderedDict([("x", 1), ("y", 1)])
+            (default: 1x1 mesh)
+        disable_golden_check : bool, optional
+            If True, disables golden tensor generation and verification
+            (default: False)
+
+        Raises
+        ------
+        ValueError
+            If mesh_name and mesh_dict lengths don't match when both are lists
+        """
         self._ctx = ctx
         self._loc = location
         self._global_id = -1
         self._disable_golden_check = disable_golden_check
         self._force_graph_level_check = False
 
-        # Keep a list of inputs and outputs in order so we know how to store them in golden map.
+        # Store ordered inputs and outputs for deterministic golden map generation.
         self._ordered_inputs: List[Operand] = []
         self._ordered_outputs: List[Operand] = []
 
-        # Explicity set goldens to store. If empty, store all goldens.
+        # Track which operands should have their golden tensors stored.
+        # If empty, all goldens are stored by default.
         self._goldens_to_store: List[Operand] = []
 
-        # Map from operand to its golden tensor.
+        # Golden tensor storage for verification.
         self._goldens: Dict[Operand, GoldenMapTensor] = {}
 
-        # Map from operand to its location string.
+        # Location tracking for error reporting and debugging.
         self._operand_to_loc: Dict[Operand, str] = {}
 
-        # Set torch seed for reproducibility.
+        # Set torch seed for reproducibility across test runs.
         torch.manual_seed(0)
 
+        # Normalize mesh configuration to lists for uniform handling.
         if not isinstance(mesh_name, List):
             mesh_name = [mesh_name]
         if not isinstance(mesh_dict, List):
@@ -86,45 +166,87 @@ class Builder:
             raise ValueError(
                 f"mesh_name length {len(mesh_name)} must match mesh_dict length {len(mesh_dict)}"
             )
+        
+        # Build mesh registry for distributed execution configuration.
         self._meshes = {}
         for name, mesh in zip(mesh_name, mesh_dict):
             self._meshes[name] = mesh
 
+        # Extract default mesh shape from the first mesh configuration.
         self._mesh_shape = tuple(mesh_dict[0].values())
 
     # ----- Public methods -----
 
     @property
     def context(self) -> Context:
+        """Get the MLIR context used by this builder.
+
+        Returns
+        -------
+        Context
+            The MLIR context for creating types and operations
+        """
         return self._ctx
 
     @property
     def location(self) -> Location:
+        """Get the source location used for debugging.
+
+        Returns
+        -------
+        Location
+            The MLIR location for error reporting
+        """
         return self._loc
 
     @property
     def mesh_shape(self) -> Tuple[int, int]:
+        """Get the shape of the default mesh for distributed execution.
+
+        Returns
+        -------
+        Tuple[int, int]
+            The mesh shape as (rows, columns), e.g., (1, 1) for single device
+        """
         return self._mesh_shape
 
     @property
     def golden_map(self) -> Dict[str, Dict[int, GoldenTensor]]:
+        """Generate golden tensor map for verification.
+
+        This property builds a mapping of location strings to device-specific golden
+        tensors. The map includes:
+        - All input tensors (always included)
+        - Output tensors (if marked for checking)
+        - Intermediate operands (if marked for checking and not in graph-level mode)
+
+        The golden tensors are used by the runtime to verify correctness of compiled
+        operations by comparing actual outputs against expected values.
+
+        Returns
+        -------
+        Dict[str, Dict[int, GoldenTensor]]
+            Nested dictionary mapping location strings to device IDs to golden tensors.
+            Format: {location_string: {device_id: GoldenTensor}}
+        """
         golden_info: Dict[str, Dict[int, GoldenTensor]] = {}
 
+        # Early return if golden checking is disabled.
         if self._disable_golden_check:
             return golden_info
 
-        # If no specific golden is marked to be stored, store all goldens.
+        # Default behavior: store all goldens if none explicitly marked.
         if len(self._goldens_to_store) == 0:
             self._goldens_to_store = list(self._goldens.keys())
 
-        # Always store inputs into golden map.
+        # Always include inputs in golden map for verification.
         for index, input in enumerate(self._ordered_inputs):
             loc = f"input_{index}"
             golden_info[loc] = self._generate_golden_device_tensor(
                 loc, self._get_golden_tensor(input)
             )
 
-        # Store outputs into golden map if they are marked to be stored.
+        # Include outputs if they are marked for checking.
         for index, output in enumerate(self._ordered_outputs):
             if output not in self._goldens_to_store:
                 continue
@@ -134,10 +256,11 @@ class Builder:
                 loc, self._get_golden_tensor(output)
             )
 
+        # Skip intermediate operands if graph-level checking is enforced.
         if self._force_graph_level_check:
             return golden_info
 
-        # Store other operands into golden map if they are marked to be stored.
+        # Include intermediate operands marked for checking.
         for operand, builder_golden_tensor in self._goldens.items():
             if operand not in self._goldens_to_store:
                 continue
@@ -153,6 +276,18 @@ class Builder:
         return golden_info
 
     def get_shape(self, input: Operand) -> Shape:
+        """Get the shape of an operand.
+
+        Parameters
+        ----------
+        input : Operand
+            The operand to query
+
+        Returns
+        -------
+        Shape
+            The shape as a tuple or list of dimensions
+        """
         return self._get_type(input).shape
 
     def set_goldens(
@@ -160,6 +295,22 @@ class Builder:
         inputs: Dict[Operand, Union[Callable, torch.tensor, Dict[int : torch.tensor]]],
         outputs: Dict[Operand, Union[torch.tensor, Dict[int : torch.tensor]]] = None,
     ):
+        """Set golden tensors for inputs and optionally outputs.
+
+        This method allows manual specification of golden reference tensors for
+        verification. Inputs can be specified as:
+        - Torch tensors (directly)
+        - Shard maps (Dict[device_id, tensor])
+        - Callables that generate tensors given a shape
+
+        Parameters
+        ----------
+        inputs : Dict[Operand, Union[Callable, torch.tensor, Dict[int, torch.tensor]]]
+            Map from input operands to their golden values
+        outputs : Dict[Operand, Union[torch.tensor, Dict[int, torch.tensor]]], optional
+            Map from output operands to their golden values. If provided, these
+            outputs will be marked for verification
+        """
         self._set_goldens(self._create_builder_golden_from_torch_tensor(inputs))
 
         if outputs != None:
@@ -171,6 +322,20 @@ class Builder:
         inputs: Dict[Operand, GoldenMapTensor],
         outputs: Dict[Operand, GoldenMapTensor] = None,
     ):
+        """Set golden tensors using GoldenMapTensor objects directly.
+
+        This method is similar to set_goldens but accepts GoldenMapTensor objects
+        instead of torch tensors, allowing more control over sharding and device
+        placement.
+
+        Parameters
+        ----------
+        inputs : Dict[Operand, GoldenMapTensor]
+            Map from input operands to their golden map tensors
+        outputs : Dict[Operand, GoldenMapTensor], optional
+            Map from output operands to their golden map tensors. If provided,
+            these outputs will be marked for verification
+        """
         self._set_goldens(inputs)
 
         if outputs != None:
@@ -180,9 +345,21 @@ class Builder:
     def set_operand_goldens(
         self, operands: Dict[Operand, Union[torch.tensor, Dict[int : torch.tensor]]]
     ):
+        """Set golden tensors for intermediate operands and mark them for checking.
+
+        This method is used to specify golden values for intermediate operations
+        (not just inputs/outputs) and automatically marks them for verification.
+        It also prints diagnostic information about the registered goldens.
+
+        Parameters
+        ----------
+        operands : Dict[Operand, Union[torch.tensor, Dict[int, torch.tensor]]]
+            Map from operands to their golden values
+        """
         self._set_goldens(self._create_builder_golden_from_torch_tensor(operands))
         self.set_goldens_to_check(operands.keys())
 
+        # Print diagnostic information for debugging.
         print("*************** Goldens to store ***************")
         print(f"  Count: {len(self._goldens_to_store)}")
         for operand in self._goldens_to_store:
@@ -207,12 +384,32 @@ class Builder:
             print(f"  {op_str} -> shape={shape_str}")
 
     def set_goldens_to_check(self, operands: List[Operand], override: bool = False):
+        """Mark specific operands for golden tensor verification.
+
+        Parameters
+        ----------
+        operands : List[Operand]
+            List of operands to mark for checking
+        override : bool, optional
+            If True, replaces the existing list. If False, extends it (default: False)
+        """
         if override:
             self._goldens_to_store = operands
         else:
             self._goldens_to_store.extend(operands)
 
     def set_graph_level_check(self, check: bool):
+        """Control whether verification is limited to graph boundaries.
+
+        When enabled, only input and output tensors are checked, skipping
+        intermediate operations. This is useful for performance or when
+        intermediate operations don't have stable golden implementations.
+
+        Parameters
+        ----------
+        check : bool
+            If True, enables graph-level checking only
+        """
         self._force_graph_level_check = check
 
     # ----- Private methods -----
@@ -224,12 +421,35 @@ class Builder:
         op_function: Callable,
         golden_kwargs: dict = {},
     ):
+        """Infer output shape and type by executing the golden function.
+
+        This helper method runs the golden reference implementation to determine
+        the output shape and dtype, which is needed because TTIR ops don't have
+        MLIR shape inference traits.
+
+        Parameters
+        ----------
+        organize_golden_args : Callable
+            Function to organize input operands into golden function arguments
+        inputs : List[Operand]
+            Input operands to the operation
+        op_function : Callable
+            The MLIR operation function
+        golden_kwargs : dict, optional
+            Additional keyword arguments for the golden function
+
+        Returns
+        -------
+        Optional[Tuple[Shape, torch.dtype]]
+            The inferred output shape and dtype, or None if no golden function exists
+        """
         op_golden_function = get_golden_function(op_function, **golden_kwargs)
         if op_golden_function is None:
             return
 
-        # If the op has no input, just call golden function with kwargs (eg ttir.zeros).
+        # Execute golden function with appropriate arguments.
         if len(inputs) == 0:
+            # Operations with no inputs (e.g., ttir.zeros) use only kwargs.
             golden_output = op_golden_function(**golden_kwargs)
         else:
             golden_output = op_golden_function(
@@ -239,6 +459,18 @@ class Builder:
         return golden_output.shape, golden_output.dtype
 
     def _get_datatype_from_torch_dtype(self, dtype: torch.dtype) -> DataType:
+        """Convert PyTorch dtype to MLIR DataType enum.
+
+        Parameters
+        ----------
+        dtype : torch.dtype
+            PyTorch data type
+
+        Returns
+        -------
+        DataType
+            Corresponding MLIR DataType enum value
+        """
         match dtype:
             case torch.float16:
                 return DataType.Float16
@@ -258,6 +490,23 @@ class Builder:
                 return DataType.Float32
 
     def _get_type(self, input: Operand) -> RankedTensorType:
+        """Extract the MLIR type from an operand.
+
+        Parameters
+        ----------
+        input : Operand
+            The operand (Value, OpView, or Operation)
+
+        Returns
+        -------
+        RankedTensorType
+            The MLIR ranked tensor type
+
+        Raises
+        ------
+        TypeError
+            If input is not a valid operand type
+        """
         if isinstance(input, Value):
             typ = input.type
         elif isinstance(input, OpView):
@@ -275,6 +524,32 @@ class Builder:
         scale: Optional[float] = None,
         zero_point: Optional[float] = None,
     ) -> Type:
+        """Convert PyTorch dtype to MLIR Type.
+
+        Supports both regular and quantized types. For quantized types, either
+        pass a TypeInfo object or provide scale and zero_point parameters.
+
+        Parameters
+        ----------
+        dtype : Union[torch.dtype, TypeInfo]
+            PyTorch data type or TypeInfo for quantized types
+        scale : Optional[float], optional
+            Quantization scale (only used if dtype is a regular torch.dtype)
+        zero_point : Optional[float], optional
+            Quantization zero point (only used if dtype is a regular torch.dtype)
+
+        Returns
+        -------
+        Type
+            Corresponding MLIR type
+
+        Raises
+        ------
+        ValueError
+            If quantized type requires missing scale or zero_point
+        TypeError
+            If dtype is not a recognized type
+        """
         if scale is not None and zero_point is not None:
             dtype = TypeInfo(dtype=dtype, scale=scale, zero_point=zero_point)
         base_dtype = dtype.dtype if isinstance(dtype, TypeInfo) else dtype
@@ -352,13 +627,42 @@ class Builder:
                 raise TypeError(f"Invalid Type {dtype}")
 
     def _get_next_global_id(self) -> int:
+        """Generate the next unique global ID for operations.
+
+        Returns
+        -------
+        int
+            The next global ID
+        """
         self._global_id += 1
         return self._global_id
 
     def _get_loc_of_extra_file_callee(self, id: int = 0) -> Location:
+        """Generate a Location from the calling stack outside this file.
+
+        This method walks the call stack to find the first frame outside the
+        current builder file and creates an MLIR Location from it. This is used
+        for better error reporting and debugging.
+
+        Parameters
+        ----------
+        id : int, optional
+            Additional ID to include in location string (default: 0)
+
+        Returns
+        -------
+        Location
+            MLIR location object referencing the caller
+
+        Raises
+        ------
+        RuntimeError
+            If cannot find a caller outside the current file
+        """
         stack = inspect.stack()
         caller_filename = stack[1].filename
 
+        # Walk up the stack until we find a frame from a different file.
         while len(stack) > 0 and stack[0].filename == caller_filename:
             stack = stack[1:]
 
@@ -372,6 +676,18 @@ class Builder:
         )
 
     def _get_loc_from_str(self, loc: Union[str, Location]) -> Location:
+        """Convert a string or Location to a Location object.
+
+        Parameters
+        ----------
+        loc : Union[str, Location]
+            String location or Location object
+
+        Returns
+        -------
+        Location
+            MLIR Location object
+        """
         if isinstance(loc, str):
             return Location.name(loc)
         else:
@@ -383,17 +699,69 @@ class Builder:
         data_type: Optional[Type] = None,
         encoding: Optional[Attribute] = None,
     ) -> RankedTensorType:
+        """Create an MLIR RankedTensorType with specified shape and type.
+
+        Parameters
+        ----------
+        shape : Shape
+            The tensor shape
+        data_type : Optional[Type], optional
+            The element type (default: F32Type)
+        encoding : Optional[Attribute], optional
+            Optional encoding attribute for layout information
+
+        Returns
+        -------
+        RankedTensorType
+            The created ranked tensor type
+        """
         with self._ctx, self._loc:
             dtype = data_type if data_type is not None else F32Type.get(self._ctx)
             return RankedTensorType.get(shape, dtype, encoding)
 
     def _organize_eltwise_golden(self, inputs: List[Operand]) -> List[GoldenMapTensor]:
+        """Organize elementwise operation inputs for golden function execution.
+
+        Extracts golden tensors from input operands in the order required by
+        golden functions.
+
+        Parameters
+        ----------
+        inputs : List[Operand]
+            List of input operands
+
+        Returns
+        -------
+        List[GoldenMapTensor]
+            List of golden tensors corresponding to inputs
+        """
         return [self._goldens[inp] for inp in inputs]
 
     def _generate_random_tensor(
         self, shape: Shape, dtype: Union[torch.dtype, TypeInfo]
     ) -> torch.Tensor:
+        """Generate a random tensor for golden input initialization.
+
+        Creates random tensors appropriate for the data type:
+        - Floating point: normal distribution (torch.randn)
+        - Boolean: random 0/1
+        - Integer: uniform distribution across full type range
+        - Quantized: normal distribution, then quantized
+
+        Parameters
+        ----------
+        shape : Shape
+            The desired tensor shape
+        dtype : Union[torch.dtype, TypeInfo]
+            The data type (or TypeInfo for quantized types)
+
+        Returns
+        -------
+        torch.Tensor
+            A randomly initialized tensor
+        """
         if isinstance(dtype, TypeInfo):
+            # For quantized types, generate float tensor then quantize.
             float_tensor = torch.randn(shape, dtype=torch.float32)
             return torch.quantize_per_tensor(
                 float_tensor, dtype.scale, dtype.zero_point, dtype.dtype
@@ -403,6 +771,7 @@ class Builder:
         elif dtype == torch.bool:
             return torch.randint(0, 2, shape, dtype=torch.bool)
         else:
+            # For integer types, generate random values within the type's range.
             min_int = torch.iinfo(dtype).min
             max_int = torch.iinfo(dtype).max
             return torch.randint(
@@ -415,12 +784,44 @@ class Builder:
     def _generate_golden_tensor(
         self, operand: Operand, dtype: Union[torch.dtype, TypeInfo]
     ) -> GoldenMapTensor:
+        """Generate a random golden tensor for an operand.
+
+        Parameters
+        ----------
+        operand : Operand
+            The operand to generate golden for
+        dtype : Union[torch.dtype, TypeInfo]
+            The data type
+
+        Returns
+        -------
+        GoldenMapTensor
+            Golden map tensor with random initialization
+        """
         random_tensor = self._generate_random_tensor(self.get_shape(operand), dtype)
         return GoldenMapTensor({0: random_tensor}, mesh_shape=self._mesh_shape)
 
     def _generate_golden_device_tensor(
         self, loc: str, builder_golden_tensor: GoldenMapTensor
     ) -> Dict[int, GoldenTensor]:
+        """Convert a GoldenMapTensor to device-specific GoldenTensor format.
+
+        This method prepares golden tensors for embedding in the flatbuffer by
+        converting them to the runtime's GoldenTensor format with proper data
+        pointers and size information.
+
+        Parameters
+        ----------
+        loc : str
+            Location string for the tensor (e.g., "input_0", "output_1")
+        builder_golden_tensor : GoldenMapTensor
+            The builder's golden tensor representation
+
+        Returns
+        -------
+        Dict[int, GoldenTensor]
+            Map from device ID to GoldenTensor objects ready for flatbuffer embedding
+        """
         device_golden_info: Dict[int, GoldenTensor] = {}
         contiguous_tensor = builder_golden_tensor.contiguous()
         for device_id, device_golden in contiguous_tensor.shard_map.items():
@@ -440,9 +841,34 @@ class Builder:
         self,
         inputs: Dict[Operand, Union[Callable, torch.Tensor, Dict[int, torch.Tensor]]],
     ) -> Dict[Operand, GoldenMapTensor]:
+        """Convert torch tensors or callables to GoldenMapTensor format.
+
+        This method handles three input formats:
+        1. Callable: A function that generates a tensor given a shape
+        2. torch.Tensor: A single tensor to replicate across devices
+        3. Dict[int, torch.Tensor]: Explicit per-device shard map
+
+        Parameters
+        ----------
+        inputs : Dict[Operand, Union[Callable, torch.Tensor, Dict[int, torch.Tensor]]]
+            Map from operands to tensor specifications
+
+        Returns
+        -------
+        Dict[Operand, GoldenMapTensor]
+            Map from operands to builder golden tensors
+
+        Raises
+        ------
+        TypeError
+            If callable doesn't return a torch.Tensor
+        RuntimeError
+            If callable execution fails
+        """
         input_goldens: Dict[Operand, GoldenMapTensor] = {}
         for operand, tensor_or_shard_map_or_callable in inputs.items():
             if callable(tensor_or_shard_map_or_callable):
+                # Handle callable initialization functions.
                 operand_shape = self.get_shape(operand)
                 try:
                     generated_tensor = tensor_or_shard_map_or_callable(operand_shape)
@@ -458,10 +884,12 @@ class Builder:
                     {0: generated_tensor}, mesh_shape=self._mesh_shape
                 )
             elif isinstance(tensor_or_shard_map_or_callable, torch.Tensor):
+                # Handle direct tensor specification.
                 golden_tensor = GoldenMapTensor(
                     {0: tensor_or_shard_map_or_callable}, mesh_shape=self._mesh_shape
                 )
             else:
+                # Handle explicit shard map.
                 golden_tensor = GoldenMapTensor(
                     tensor_or_shard_map_or_callable, mesh_shape=self._mesh_shape
                 )
@@ -474,8 +902,18 @@ class Builder:
         operand: Operand,
         golden: GoldenMapTensor,
     ):
+        """Store a golden tensor for an operand and record its location.
+
+        Parameters
+        ----------
+        operand : Operand
+            The operand to associate with the golden
+        golden : GoldenMapTensor
+            The golden tensor to store
+        """
         self._goldens[operand] = golden
 
+        # Record location for debugging and verification.
         if isinstance(operand, OpView):
             loc = str(operand.operation.location)
             self._operand_to_loc[operand] = loc
@@ -487,6 +925,13 @@ class Builder:
         self,
         goldens: Dict[Operand, GoldenMapTensor],
     ):
+        """Batch store golden tensors for multiple operands.
+
+        Parameters
+        ----------
+        goldens : Dict[Operand, GoldenMapTensor]
+            Map from operands to their golden tensors
+        """
         for operand, golden in goldens.items():
             self._set_golden_tensor(operand, golden)
 
@@ -494,18 +939,67 @@ class Builder:
         self,
         operand: Operand,
     ) -> GoldenMapTensor:
+        """Retrieve the golden tensor for an operand.
+
+        Parameters
+        ----------
+        operand : Operand
+            The operand to query
+
+        Returns
+        -------
+        GoldenMapTensor
+            The stored golden tensor
+        """
         return self._goldens[operand]
 
     def _set_input_ordering(self, inputs: List[Operand]):
+        """Record the ordered list of function inputs.
+
+        This ordering is used when generating the golden map to ensure
+        deterministic input naming (input_0, input_1, etc.).
+
+        Parameters
+        ----------
+        inputs : List[Operand]
+            Ordered list of input operands
+        """
         self._ordered_inputs = inputs
 
     def _set_output_ordering(self, outputs: List[Operand]):
+        """Record the ordered list of function outputs.
+
+        This ordering is used when generating the golden map to ensure
+        deterministic output naming (output_0, output_1, etc.).
+
+        Parameters
+        ----------
+        outputs : List[Operand]
+            Ordered list of output operands
+        """
         self._ordered_outputs = outputs
 
     # ----- Shared Empty Operations -----
 
     def _empty(self, shape: Shape, data_type: Optional[Type] = None) -> OpView:
-        """Create an empty operation using the dialect-specific EmptyOp."""
+        """Create an empty tensor operation.
+
+        Creates an uninitialized tensor of the specified shape and type using
+        the dialect-specific empty operation. The actual operation is provided
+        by subclasses via _get_empty_op.
+
+        Parameters
+        ----------
+        shape : Shape
+            The desired tensor shape
+        data_type : Optional[Type], optional
+            The element type (default: F32Type)
+
+        Returns
+        -------
+        OpView
+            The empty operation view
+        """
         dtype = data_type if data_type is not None else F32Type.get(self._ctx)
         return self._create_empty_from_tensor_type(
             shape, self._create_ranked_tensor_type(shape, dtype)
@@ -514,13 +1008,48 @@ class Builder:
     def _create_empty_from_tensor_type(
         self, shape: Shape, tensor_type: RankedTensorType
     ) -> OpView:
-        """Create empty operation from tensor type using dialect-specific EmptyOp."""
+        """Create empty operation from a ranked tensor type.
+
+        Helper method that delegates to the dialect-specific empty operation
+        implementation.
+
+        Parameters
+        ----------
+        shape : Shape
+            The tensor shape (used for validation)
+        tensor_type : RankedTensorType
+            The complete tensor type including shape, dtype, and encoding
+
+        Returns
+        -------
+        OpView
+            The empty operation view
+        """
         with self._ctx, self._loc:
             op = self._get_empty_op(tensor_type)
             return op
 
     def _get_empty_op(self, tensor_type: RankedTensorType) -> OpView:
-        """Get dialect-specific empty operation. Must be implemented by subclasses."""
+        """Get dialect-specific empty operation.
+
+        This method must be implemented by subclasses to provide the appropriate
+        empty operation for their dialect (e.g., ttir.EmptyOp, tensor.EmptyOp).
+
+        Parameters
+        ----------
+        tensor_type : RankedTensorType
+            The tensor type for the empty operation
+
+        Returns
+        -------
+        OpView
+            The dialect-specific empty operation
+
+        Raises
+        ------
+        NotImplementedError
+            If subclass doesn't implement this method
+        """
         raise NotImplementedError("Subclasses must implement _get_empty_op")
 
     # ----- Shared Metal Tensor Layout -----
@@ -529,13 +1058,41 @@ class Builder:
         self,
         logical_shape: Shape,
         tiled=False,
-        oobVal=None,  # Will default to ttcore.OOBVal.Undef in the utility
-        memorySpace=None,  # Will default to ttcore.MemorySpace.DeviceL1 in the utility
+        oobVal=None,
+        memorySpace=None,
         grid: Optional[Tuple[int, int]] = None,
         index_map: Optional[AffineMap] = None,
-        memory_layout=None,  # Will default to ttcore.TensorMemoryLayout.Sharded in the utility
+        memory_layout=None,
     ):
-        """Create a metal tensor layout using the shared implementation."""
+        """Create a metal tensor layout using shared implementation.
+
+        This method wraps the shared get_metal_tensor_layout utility function,
+        providing convenient defaults and access to the builder's context.
+
+        For detailed parameter documentation, see builder_utils.get_metal_tensor_layout.
+
+        Parameters
+        ----------
+        logical_shape : Shape
+            Logical shape of the tensor
+        tiled : bool, optional
+            Whether to use 32x32 tiled layout (default: False)
+        oobVal : optional
+            Out-of-bounds value handling (default: ttcore.OOBVal.Undef)
+        memorySpace : optional
+            Memory space (default: ttcore.MemorySpace.DeviceL1)
+        grid : Optional[Tuple[int, int]], optional
+            Grid shape for sharding
+        index_map : Optional[AffineMap], optional
+            Optional affine map for layout transformation
+        memory_layout : optional
+            Memory layout strategy (default: ttcore.TensorMemoryLayout.Sharded)
+
+        Returns
+        -------
+        RankedTensorType
+            Metal tensor type with specified layout
+        """
         from builder.base.builder_utils import get_metal_tensor_layout
         from ttmlir.dialects import ttcore
 
