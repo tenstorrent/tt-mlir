@@ -2905,7 +2905,7 @@ mlir::tt::ttnn::CollectivePermuteOp::fold(FoldAdaptor adaptor) {
   auto inputShape = inputType.getShape();
   auto updateIndexShape = updateIndexType.getShape();
 
-  bool usingStaticCache = getPageTable() != nullptr;
+  bool usingStaticCache = getPageTable() == nullptr;
 
   if (cacheShape.size() != 4) {
     return emitOpError("Cache tensor must be a 4D tensor");
