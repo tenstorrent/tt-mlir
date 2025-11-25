@@ -129,8 +129,10 @@ private:
     populateConcatCommutePatterns<commuteDirection>(&getContext(), patterns);
     populateSliceCommutePatterns<commuteDirection>(&getContext(), patterns);
     populateReduceCommutePatterns<commuteDirection>(&getContext(), patterns);
+    populatePermuteReshapeCommutePatterns<commuteDirection>(&getContext(),
+                                                            patterns);
 
-    populateTTIRTMFusionPatterns(&getContext(), patterns);
+    // populateTTIRTMFusionPatterns(&getContext(), patterns);
     return patterns;
   }
 
