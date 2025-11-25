@@ -15,6 +15,16 @@
 
 namespace mlir::tt::ttnn::utils {
 
+// Attribute name for storing tensor L1 usage cap during optimizer passes.
+// This attribute is set by OptimizerPassesWrapper and read by validation
+// and analysis passes to avoid parameter threading through pass infrastructure.
+inline constexpr llvm::StringLiteral g_TensorL1UsageCapAttrName =
+    "ttnn.tensor_l1_usage_cap";
+
+// Helper function to retrieve tensor L1 usage cap from module attribute.
+// Returns the configured cap if found, otherwise returns the default value.
+float getTensorL1UsageCap(Operation *op, float defaultValue = 0.95f);
+
 bool isTensorOnDevice(::mlir::RankedTensorType tensorType);
 
 // Map ttcore::MemorySpace to ttnn::BufferType
@@ -106,8 +116,14 @@ bool producesDRAMLayout(Operation *op);
 // Check if operation's first result uses L1 buffer layout.
 bool producesL1Layout(Operation *op);
 
+// Check if operation's first result uses system memory layout.
+bool producesSystemMemoryLayout(Operation *op);
+
 // Check if operation's first result uses tiled tensor layout.
 bool producesTiledTensorLayout(Operation *op);
+
+// Check if operation's first result uses sharded L1 layout.
+bool producesShardedL1Layout(Operation *op);
 
 // Check if operation's first operand uses DRAM buffer layout.
 bool hasFirstOperandInDRAM(Operation *op);

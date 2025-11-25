@@ -91,6 +91,7 @@ void createTTNNPipelineAnalysisPasses(
     // Wrap all Optimizer passes with device lifecycle management.
     OptimizerPassesWrapperOptions wrapperOptions;
     wrapperOptions.devicePtr = options.devicePtr;
+    wrapperOptions.tensorL1UsageCap = options.tensorL1UsageCap;
 
     ttnn::TTNNOperationValidationAndFallbackOptions validationOptions{
         options.tensorL1UsageCap};
@@ -160,6 +161,9 @@ void createTTNNPipelineDeallocPass(
 
 void createTTIRToTTNNBackendPipeline(
     OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
+  // Resolve options controlled by optimization_level.
+  options.resolveOptimizationLevelOptions();
+
   pm.addPass(mlir::createCanonicalizerPass());
 
   // Add Decomposition pass here to ensure it runs before hoisting.
@@ -199,6 +203,11 @@ void createTTIRToTTNNBackendPipeline(
   if (options.enableConstEval) {
     devicePm.addPass(transforms::createConstEvalHoistTransform());
   }
+  // Add BFP8 weight conversion pass before analysis passes.
+  // Analysis passes need to know data formats to decide on shardings.
+  if (options.experimentalBfp8Weights) {
+    devicePm.addPass(createTTNNWeightBFP8Conversion());
+  }
   createTTNNPipelineAnalysisPasses(devicePm, options);
   // We need to re-run const-eval to pick up const prepare conv2d weight ops
   // split during the analysis passes.
@@ -217,6 +226,15 @@ void createTTIRToTTNNBackendPipeline(
   // Run lowering to LLVM pass on hoisted funcs in CPUModule.
   ttir::LinalgToLLVMPipelineOptions linalgToLLVMOptions;
   ttir::createTTIRToCPUPipeline(pm, linalgToLLVMOptions);
+
+  ttnn::TTNNCollectPerfMetricsOptions metricsOptions{
+      options.ttnnPerfMetricsOutputFile,
+      options.ttnnPerfMetricsVerboseOutputEnabled, options.enableTrace};
+
+  if (options.ttnnPerfMetricsEnabled) {
+    devicePm.addPass(
+        mlir::tt::ttnn::createTTNNCollectPerfMetrics(metricsOptions));
+  }
 }
 
 void createTTNNBackendToEmitCPipeline(
@@ -276,6 +294,8 @@ void createTTNNBackendToEmitPyPipeline(
   }
 
   pm.addPass(createConvertTTNNToEmitPyPass());
+
+  pm.addPass(createEmitPyNameVarsPass());
 }
 
 void createTTIRToEmitCPipeline(OpPassManager &pm,

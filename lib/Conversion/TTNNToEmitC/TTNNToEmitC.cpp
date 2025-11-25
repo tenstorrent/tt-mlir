@@ -2330,13 +2330,40 @@ public:
         emitter.emit(srcOp.getInput()),
         emitter.emit(srcOp.getAllGatherDim()),
         emitter.emit(srcOp.getClusterAxis()),
-        emitter.emit(srcOp.getDevice()),
-        /*numLinks=*/emitter.emit(1),
-        emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
-        /*numWorkers=*/emitter.emit(std::nullopt),
-        /*numBuffersPerChannel=*/emitter.emit(std::nullopt),
-        /*ttnn::ccl::Topology=*/
-        rewriter.getType<emitc::OpaqueAttr>("::ttnn::ccl::Topology::Linear"),
+        emitter.emitSubDeviceId(srcOp.getSubDeviceId()),
+        emitter.emit(srcOp.getMemoryConfig()),
+        emitter.emit(srcOp.getNumLinks()),
+        emitter.emit(srcOp.getTopology()),
+    };
+
+    emitter.replaceOp(*this, args);
+    return success();
+  }
+};
+} // namespace
+
+// AllReduceOp conversion pattern
+//
+namespace {
+class AllReduceOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<mlir::tt::ttnn::AllReduceOp> {
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::AllReduceOp>::TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::AllReduceOp srcOp,
+                  mlir::tt::ttnn::AllReduceOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::AllReduceOp> emitter(
+        srcOp, adaptor, rewriter);
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput()),
+        emitter.emit(srcOp.getClusterAxis()),
+        emitter.emitSubDeviceId(srcOp.getSubDeviceId()),
+        emitter.emit(srcOp.getMemoryConfig()),
+        emitter.emit(srcOp.getNumLinks()),
+        emitter.emit(srcOp.getTopology()),
     };
 
     emitter.replaceOp(*this, args);
@@ -2365,14 +2392,10 @@ public:
         emitter.emit(srcOp.getInput()),
         emitter.emit(srcOp.getScatterDim()),
         emitter.emit(srcOp.getClusterAxis()),
-        emitter.emit(srcOp.getDevice()),
-        emitter.emit(srcOp.getReduceType()),
-        /*numLinks=*/emitter.emit(1),
-        emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
-        /*ttnn::ccl::Topology=*/
-        rewriter.getType<emitc::OpaqueAttr>("::ttnn::ccl::Topology::Linear"),
-        /*userDefinedNumWorkers=*/emitter.emit(std::nullopt),
-        /*userDefinedNumBuffersPerChannel=*/emitter.emit(std::nullopt),
+        emitter.emitSubDeviceId(srcOp.getSubDeviceId()),
+        emitter.emit(srcOp.getMemoryConfig()),
+        emitter.emit(srcOp.getNumLinks()),
+        emitter.emit(srcOp.getTopology()),
     };
 
     emitter.replaceOp(*this, args);
@@ -4093,6 +4116,7 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   // CCL ops
   //
   patterns.add<AllGatherOpConversionPattern>(typeConverter, ctx);
+  patterns.add<AllReduceOpConversionPattern>(typeConverter, ctx);
   patterns.add<ReduceScatterOpConversionPattern>(typeConverter, ctx);
   patterns.add<ScatterOpConversionPattern>(typeConverter, ctx);
   patterns.add<CollectivePermuteOpConversionPattern>(typeConverter, ctx);

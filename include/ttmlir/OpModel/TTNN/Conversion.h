@@ -132,6 +132,10 @@ std::optional<::ttnn::DeviceComputeKernelConfig>
 getDeviceComputeKernelConfig(const std::optional<DeviceComputeKernelConfigAttr>
                                  &deviceComputeKernelConfig);
 
+std::optional<::ttnn::operations::conv::conv2d::Conv2dSliceConfig>
+getConv2dSliceConfig(
+    const std::optional<Conv2dSliceConfigAttr> &conv2dSliceConfig);
+
 } // namespace conversion
 } // namespace mlir::tt::ttnn::op_model
 

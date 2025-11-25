@@ -294,6 +294,9 @@ def TTCore_ShardLayoutAttr : TTCore_Attr<"ShardLayout", "shard", [TTCore_DeviceL
     }
 
     unsigned getRank() const { return getStride().size(); }
+
+    // Computes the implied physical grid shape using the grid shape and index map (if present)
+    llvm::SmallVector<int64_t> getPhysicalGridShape(ShapedType tensorType) const;
   }];
 }
 

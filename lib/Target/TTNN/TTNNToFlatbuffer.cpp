@@ -721,10 +721,41 @@ createOp(FlatbufferObjectCache &cache, AllGatherOp op) {
   auto input = cache.at<::tt::target::ttnn::TensorRef>(
       getOperandThroughDPSOps(op.getInput()));
   auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer);
-  auto device = getOperandThroughDPSOps(op.getDevice());
+
+  // Convert optional values to flatbuffer format
+  ::flatbuffers::Optional<uint8_t> subDeviceId = std::nullopt;
+  if (op.getSubDeviceId()) {
+    subDeviceId = std::make_optional<uint8_t>(
+        static_cast<uint8_t>(op.getSubDeviceId().value()));
+  }
+  auto memoryConfig = toFlatbuffer(cache, op.getMemoryConfig()).value_or(0);
+  auto numLinks = toFlatbuffer(cache, op.getNumLinks());
+  auto topology = toFlatbuffer(cache, op.getTopology());
+
   return ::tt::target::ttnn::CreateAllGatherOp(
-      *cache.fbb, input, output, cache.at<::tt::target::DeviceRef>(device),
-      op.getAllGatherDim(), op.getClusterAxis(), op.getNumLinks());
+      *cache.fbb, input, output, op.getAllGatherDim(), op.getClusterAxis(),
+      subDeviceId, memoryConfig, numLinks, topology);
+}
+
+::flatbuffers::Offset<::tt::target::ttnn::AllReduceOp>
+createOp(FlatbufferObjectCache &cache, AllReduceOp op) {
+  auto input = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getInput()));
+  auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer);
+
+  // Convert optional values to flatbuffer format
+  ::flatbuffers::Optional<uint8_t> subDeviceId = std::nullopt;
+  if (op.getSubDeviceId()) {
+    subDeviceId = std::make_optional<uint8_t>(
+        static_cast<uint8_t>(op.getSubDeviceId().value()));
+  }
+  auto memoryConfig = toFlatbuffer(cache, op.getMemoryConfig()).value_or(0);
+  auto numLinks = toFlatbuffer(cache, op.getNumLinks());
+  auto topology = toFlatbuffer(cache, op.getTopology());
+
+  return ::tt::target::ttnn::CreateAllReduceOp(
+      *cache.fbb, input, output, static_cast<uint32_t>(op.getReduceType()),
+      op.getClusterAxis(), subDeviceId, memoryConfig, numLinks, topology);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::ReduceScatterOp>
@@ -732,11 +763,21 @@ createOp(FlatbufferObjectCache &cache, ReduceScatterOp op) {
   auto input = cache.at<::tt::target::ttnn::TensorRef>(
       getOperandThroughDPSOps(op.getInput()));
   auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer);
-  auto device = getOperandThroughDPSOps(op.getDevice());
+
+  // Convert optional values to flatbuffer format
+  ::flatbuffers::Optional<uint8_t> subDeviceId = std::nullopt;
+  if (op.getSubDeviceId()) {
+    subDeviceId = std::make_optional<uint8_t>(
+        static_cast<uint8_t>(op.getSubDeviceId().value()));
+  }
+  auto memoryConfig = toFlatbuffer(cache, op.getMemoryConfig()).value_or(0);
+  auto numLinks = toFlatbuffer(cache, op.getNumLinks());
+  auto topology = toFlatbuffer(cache, op.getTopology());
+
   return ::tt::target::ttnn::CreateReduceScatterOp(
-      *cache.fbb, input, output, cache.at<::tt::target::DeviceRef>(device),
-      op.getScatterDim(), static_cast<uint32_t>(op.getReduceType()),
-      op.getClusterAxis(), op.getNumLinks());
+      *cache.fbb, input, output, op.getScatterDim(),
+      static_cast<uint32_t>(op.getReduceType()), op.getClusterAxis(),
+      subDeviceId, memoryConfig, numLinks, topology);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::ScatterOp>
@@ -1015,19 +1056,21 @@ createOp(FlatbufferObjectCache &cache, FillCacheOp op) {
 ::flatbuffers::Offset<::tt::target::ttnn::ConstantOp>
 createOp(FlatbufferObjectCache &cache, ttnn::ConstantOp op) {
   auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer);
-  std::vector<uint8_t> rawVector;
+  std::vector<uint8_t> inputRawVector;
   if (auto data =
           mlir::dyn_cast<mlir::DenseResourceElementsAttr>(op.getValue())) {
     ArrayRef<char> rawData = data.getData();
-    rawVector = std::vector<uint8_t>(rawData.begin(), rawData.end());
+    inputRawVector = std::vector<uint8_t>(rawData.begin(), rawData.end());
   } else if (auto data =
                  mlir::dyn_cast<mlir::DenseElementsAttr>(op.getValue())) {
     ArrayRef<char> rawData = data.getRawData();
-    rawVector = std::vector<uint8_t>(rawData.begin(), rawData.end());
+    inputRawVector = std::vector<uint8_t>(rawData.begin(), rawData.end());
   } else {
     llvm_unreachable("Unknown constant value attribute type");
   }
 
+  ::tt::target::DataType inputDtype = toFlatbuffer(
+      cache, ttcore::elementTypeToDataType(op.getValue().getElementType()));
   flatbuffers::Optional<::tt::target::DataType> dtype =
       toFlatbuffer(cache, op.getDtype());
   flatbuffers::Optional<::tt::target::TensorLayout> layout =
@@ -1038,7 +1081,8 @@ createOp(FlatbufferObjectCache &cache, ttnn::ConstantOp op) {
   auto memoryConfig = getMemoryConfigIfNeeded(cache, op);
 
   return ::tt::target::ttnn::CreateConstantOpDirect(
-      *cache.fbb, device, &rawVector, dtype, layout, memoryConfig, output);
+      *cache.fbb, device, &inputRawVector, inputDtype, dtype, layout,
+      memoryConfig, output);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::PointToPointOp>
@@ -2880,6 +2924,10 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   }
   if (auto allGatherOp = dyn_cast<AllGatherOp>(op); allGatherOp) {
     return createOperation(cache, createOp(cache, allGatherOp), debugString,
+                           locInfo);
+  }
+  if (auto allReduceOp = dyn_cast<AllReduceOp>(op); allReduceOp) {
+    return createOperation(cache, createOp(cache, allReduceOp), debugString,
                            locInfo);
   }
   if (auto reduceScatterOp = dyn_cast<ReduceScatterOp>(op); reduceScatterOp) {

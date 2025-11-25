@@ -14,6 +14,7 @@
 #include "ttmlir/Dialect/TTNN/Utils/PassOverrides.h"
 
 #include "llvm/ADT/DenseSet.h"
+#include "llvm/Support/Error.h"
 
 #include <algorithm>
 #include <bitset>
@@ -280,45 +281,15 @@ private:
 
   bool preprocessFirstOp();
 
-  // Performs backend check to see if producer tensor is compatible with
-  // consumer op using the given consumer config. The backend may use the
-  // provided consumerConfig.outputLayout as a constraint, or determine its
-  // own optimal output layout based on producer layout and op-specific
-  // attributes.
-  //
-  // Returns the backend's actual consumer output layout on success.
-  // Returns error if:
-  // - Producer and consumer are incompatible (L1 memory, constraints, etc.)
-  // - consumerConfig.outputLayout is specified and the backend's actual output
-  //   layout differs from the requested layout
-  //
-  // The function validates that when a specific output layout is requested,
-  // the backend respects that constraint. When consumerConfig.outputLayout
-  // is nullptr, the backend has freedom to choose the optimal layout.
-  llvm::Expected<TTNNLayoutAttr> checkShardCompatible(
-      Value producerOperand, const TTNNLayoutAttr &producerLayout,
-      Operation *consumerOp, const OpConfig &consumerConfig) const;
-
-  // Checks compatibility of inputLayout with consumer op across multiple
-  // op-specific attributes. For each unique op-specific attribute in
-  // consumerOpSpecificAttrs, calls checkShardCompatible() to determine
-  // if the inputLayout is compatible with that attribute combination.
-  //
-  // For each op-specific attribute tested:
-  // - On backend compatibility success: searches consumerConfigs for matching
-  //   output layout and op-specific attribute, calls callback(configIndex)
-  // - On backend compatibility failure: calls callback(error)
-  // - On missing matching config: calls callback(error) for configuration
-  // mismatch
-  //
-  // The callback is invoked exactly once per element in
-  // consumerOpSpecificAttrs, enabling exploration of compatibility across
-  // different attribute combinations for the same input layout.
-  void checkShardCompatibleForInputLayout(
-      const Edge &edge, Operation *op, TTNNLayoutAttr inputLayout,
-      std::vector<OpConfig::OpSpecificAttrs> &consumerOpSpecificAttrs,
-      const std::vector<OpConfig> &consumerConfigs,
-      std::function<void(llvm::Expected<std::size_t>)> callback);
+  // Helper to handle custom shard compatibility checking for tests.
+  // Returns true if custom checker was used and found valid paths.
+  bool tryCustomShardCompatible(const Edge &edge, Operation *consumerOp,
+                                TTNNLayoutAttr inputLayout,
+                                const std::vector<OpConfig> &consumerConfigs,
+                                std::uint64_t producerId,
+                                Bitset &edgeProducerBitset,
+                                Bitset &edgeConsumerBitset,
+                                PathSet::Paths &paths);
 
 public:
   ShardSolver(
@@ -326,7 +297,6 @@ public:
       const llvm::DenseMap<Operation *, std::vector<OpConfig>> &legalConfigs,
       const std::vector<OpL1MemSpec> &shardSpecs,
       const llvm::DenseSet<Operation *> &shardedOps,
-      const unsigned usableL1CacheSize,
       const llvm::DenseSet<Edge> &overrideReshardEdges,
       const llvm::StringMap<OutputLayoutOverrideParams> &overrideOutputLayout =
           {},
@@ -335,7 +305,12 @@ public:
           customCheckShardCompatible = nullptr);
   RemainingConfigAttrs at(Operation *operation) const;
   void set(Operation *operation, const OpConfig &config);
-  bool
+
+  // Returns output layout obtained from backend validation when inputLayout is
+  // dram interleaved. Provided outputConfig presents a guide for the backend to
+  // select the output layout. If rowMajorInputOverride is true, the input
+  // layout is overridden to rowMajor. If not supported, returns an error.
+  llvm::Expected<TTNNLayoutAttr>
   supportsInterleavedInputShardedOutput(Operation *op, OpConfig outputConfig,
                                         bool rowMajorInputOverride = false);
   llvm::DenseMap<Operation *, SmallVector<float, 64>> produceMaxCoreUsage();
@@ -348,7 +323,6 @@ private:
   const llvm::DenseMap<Operation *, std::vector<OpConfig>> *legalConfigs;
   const std::vector<OpL1MemSpec> *shardSpecs;
   const llvm::DenseSet<Operation *> *shardedOps;
-  unsigned usableL1CacheSize;
   ttcore::DeviceAttr deviceAttr;
 
   llvm::DenseMap<Operation *, std::vector<Edge>> operandOpEdges;
