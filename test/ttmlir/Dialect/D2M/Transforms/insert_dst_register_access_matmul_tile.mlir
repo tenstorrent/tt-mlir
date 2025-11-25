@@ -30,7 +30,7 @@ module {
         // CHECK: %[[ARG0_VAL:.*]] = affine.load %[[ARG0:.*]]
         // CHECK: %[[ARG1_VAL:.*]] = affine.load %[[ARG1:.*]]
         // CHECK: %[[DST_VAL:.*]] = affine.load %[[DST]]
-        // CHECK: %[[MATMUL_RESULT:.*]] = "d2m.tile_matmul"(%[[ARG0_VAL]], %[[ARG1_VAL]], %[[DST_VAL]])
+        // CHECK: %[[MATMUL_RESULT:.*]] = "d2m.tile_matmul"(%[[ARG0_VAL]], %[[ARG1_VAL]], %[[DST_VAL]]) {result_dst_index = 0 : i64}
         %0 = "d2m.tile_matmul"(%arg0, %arg1, %arg2) : (!ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
         // Check that result is loaded from dst memory space
         // CHECK: %[[FINAL_VAL:.*]] = affine.load %[[DST]]
@@ -83,7 +83,7 @@ module {
       // CHECK: %[[C_VAL:.*]] = affine.load %[[DST]][0, %[[I]], %[[J]]] : memref<1x3x2x!ttcore.tile<32x32, f16>, #dst>
 
       // Check matmul operation uses values from correct memory spaces
-      // CHECK: %[[MATMUL_RESULT:.*]] = "d2m.tile_matmul"(%[[A_VAL]], %[[B_VAL]], %[[C_VAL]]) : (!ttcore.tile<32x32, f16>, !ttcore.tile<32x32, f16>, !ttcore.tile<32x32, f16>) -> !ttcore.tile<32x32, f16>
+      // CHECK: %[[MATMUL_RESULT:.*]] = "d2m.tile_matmul"(%[[A_VAL]], %[[B_VAL]], %[[C_VAL]]) {result_dst_index = 0 : i64} : (!ttcore.tile<32x32, f16>, !ttcore.tile<32x32, f16>, !ttcore.tile<32x32, f16>) -> !ttcore.tile<32x32, f16>
 
       // Check result is stored back to dst
       // CHECK: affine.store %[[MATMUL_RESULT]], %[[DST]][0, %[[I]], %[[J]]] : memref<1x3x2x!ttcore.tile<32x32, f16>, #dst>

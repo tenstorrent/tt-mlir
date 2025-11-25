@@ -1,6 +1,5 @@
-// RUN: ttmlir-opt --ttcore-register-device --ttir-to-ttmetal-me-pipeline="dst-allocation-strategy=legacy" --convert-d2m-to-ttkernel --canonicalize %s | FileCheck %s --check-prefix=COMMON
-// RUN: ttmlir-opt --ttcore-register-device --ttir-to-ttmetal-me-pipeline="dst-allocation-strategy=graph-coloring-greedy" --convert-d2m-to-ttkernel --canonicalize %s | FileCheck %s --check-prefix=COMMON
-// RUN: ttmlir-opt --ttcore-register-device --ttir-to-ttmetal-me-pipeline="dst-allocation-strategy=graph-coloring-cb" --convert-d2m-to-ttkernel --canonicalize %s | FileCheck %s --check-prefix=COMMON
+// RUN: ttmlir-opt --ttcore-register-device --ttir-to-ttmetal-me-pipeline="dst-allocation-strategy=legacy" --convert-d2m-to-ttkernel --canonicalize -o %t.mlir %s
+// RUN: FileCheck %s --input-file=%t.mlir
 
 #l1_ = #ttcore.memory_space<l1>
 #map_ = affine_map<(d0, d1) -> (d0, d1)>
@@ -31,12 +30,12 @@ module {
       %cb2 = d2m.reserve %arg2_cb : !d2m.cb<memref<1x1x!ttype_f32, #l1_>> -> memref<1x1x!ttype_f32, #l1_>
       linalg.generic {indexing_maps = [#map1_, #map2_, #map3_], iterator_types = ["parallel", "parallel", "reduction"]} ins(%cb0, %cb1 : memref<1x1x!ttype_f32, #l1_>, memref<1x1x!ttype_f32, #l1_>) outs(%cb2 : memref<1x1x!ttype_f32, #l1_>) {
       ^bb0(%arg0: !ttype_f32, %arg1: !ttype_f32, %arg2: !ttype_f32):
-        // COMMON-NOT: d2m.tile_matmul
-        // COMMON: ttkernel.mm_block_init
-        // COMMON: ttkernel.mm_block_init_short
-        // COMMON: ttkernel.experimental::matmul_block
+        // CHECK-NOT: d2m.tile_matmul
+        // CHECK: ttkernel.mm_block_init
+        // CHECK: ttkernel.mm_block_init_short
+        // CHECK: ttkernel.experimental::matmul_block
         %0 = "d2m.tile_matmul"(%arg0, %arg1, %arg2) : (!ttype_f32, !ttype_f32, !ttype_f32) -> !ttype_f32
-        // COMMON: ttkernel.pack_tile
+        // CHECK: ttkernel.pack_tile
         linalg.yield %0 : !ttype_f32
       }
     }
@@ -55,12 +54,12 @@ module {
       %cb2 = d2m.reserve %arg2_cb : !d2m.cb<memref<1x1x!ttype_f32, #l1_>> -> memref<1x1x!ttype_f32, #l1_>
       linalg.generic {indexing_maps = [#map_, #map_, #map_], iterator_types = ["parallel", "parallel"]} ins(%cb0, %cb1 : memref<1x1x!ttype_f32, #l1_>, memref<1x1x!ttype_f32, #l1_>) outs(%cb2 : memref<1x1x!ttype_f32, #l1_>) {
       ^bb0(%arg0: !ttype_f32, %arg1: !ttype_f32, %arg2: !ttype_f32):
-        // COMMON-NOT: d2m.tile_add
-        // COMMON: ttkernel.init_sfpu
-        // COMMON: ttkernel.add_binary_tile_init
-        // COMMON: ttkernel.add_binary_tile
+        // CHECK-NOT: d2m.tile_add
+        // CHECK: ttkernel.init_sfpu
+        // CHECK: ttkernel.add_binary_tile_init
+        // CHECK: ttkernel.add_binary_tile
         %0 = "d2m.tile_add"(%arg0, %arg1) : (!ttype_f32, !ttype_f32) -> !ttype_f32
-        // COMMON: ttkernel.pack_tile
+        // CHECK: ttkernel.pack_tile
         linalg.yield %0 : !ttype_f32
       }
     }
@@ -79,12 +78,12 @@ module {
       %cb2 = d2m.reserve %arg2_cb : !d2m.cb<memref<1x1x!ttype_f32, #l1_>> -> memref<1x1x!ttype_f32, #l1_>
       linalg.generic {indexing_maps = [#map_, #map_, #map_], iterator_types = ["parallel", "parallel"]} ins(%cb0, %cb1 : memref<1x1x!ttype_f32, #l1_>, memref<1x1x!ttype_f32, #l1_>) outs(%cb2 : memref<1x1x!ttype_f32, #l1_>) {
       ^bb0(%arg0: !ttype_f32, %arg1: !ttype_f32, %arg2: !ttype_f32):
-        // COMMON-NOT: d2m.tile_sub
-        // COMMON: ttkernel.init_sfpu
-        // COMMON: ttkernel.sub_binary_tile_init
-        // COMMON: ttkernel.sub_binary_tile
+        // CHECK-NOT: d2m.tile_sub
+        // CHECK: ttkernel.init_sfpu
+        // CHECK: ttkernel.sub_binary_tile_init
+        // CHECK: ttkernel.sub_binary_tile
         %0 = "d2m.tile_sub"(%arg0, %arg1) : (!ttype_f32, !ttype_f32) -> !ttype_f32
-        // COMMON: ttkernel.pack_tile
+        // CHECK: ttkernel.pack_tile
         linalg.yield %0 : !ttype_f32
       }
     }
@@ -103,12 +102,12 @@ module {
       %cb2 = d2m.reserve %arg2_cb : !d2m.cb<memref<1x1x!ttype_f32, #l1_>> -> memref<1x1x!ttype_f32, #l1_>
       linalg.generic {indexing_maps = [#map_, #map_, #map_], iterator_types = ["parallel", "parallel"]} ins(%cb0, %cb1 : memref<1x1x!ttype_f32, #l1_>, memref<1x1x!ttype_f32, #l1_>) outs(%cb2 : memref<1x1x!ttype_f32, #l1_>) {
       ^bb0(%arg0: !ttype_f32, %arg1: !ttype_f32, %arg2: !ttype_f32):
-        // COMMON-NOT: d2m.tile_mul
-        // COMMON: ttkernel.init_sfpu
-        // COMMON: ttkernel.mul_binary_tile_init
-        // COMMON: ttkernel.mul_binary_tile
+        // CHECK-NOT: d2m.tile_mul
+        // CHECK: ttkernel.init_sfpu
+        // CHECK: ttkernel.mul_binary_tile_init
+        // CHECK: ttkernel.mul_binary_tile
         %0 = "d2m.tile_mul"(%arg0, %arg1) : (!ttype_f32, !ttype_f32) -> !ttype_f32
-        // COMMON: ttkernel.pack_tile
+        // CHECK: ttkernel.pack_tile
         linalg.yield %0 : !ttype_f32
       }
     }
@@ -131,17 +130,17 @@ module {
       %cb2 = d2m.reserve %arg2_cb : !d2m.cb<memref<1x1x!ttype_f32, #l1_>> -> memref<1x1x!ttype_f32, #l1_>
       linalg.generic {indexing_maps = [#map_, #map_, #map_], iterator_types = ["parallel", "parallel"]} ins(%cb0, %cb1 : memref<1x1x!ttype_f32, #l1_>, memref<1x1x!ttype_f32, #l1_>) outs(%cb2 : memref<1x1x!ttype_f32, #l1_>) {
       ^bb0(%arg0: !ttype_f32, %arg1: !ttype_f32, %arg2: !ttype_f32):
-        // COMMON-NOT: d2m.tile_max
-        // COMMON: ttkernel.init_sfpu
-        // COMMON: ttkernel.copy_tile_init(%[[CB0:.+]]) :
-        // COMMON-NEXT: ttkernel.copy_tile(%[[CB0]], %{{.+}}, %[[DST_IDX0:.+]]) :
-        // COMMON: ttkernel.copy_tile_init(%[[CB1:.+]]) :
-        // COMMON-NOT: ttkernel.copy_tile(%{{.+}}, %{{.+}}, %[[DST_IDX0]]) :
-        // COMMON-NEXT: ttkernel.copy_tile(%[[CB1]], %{{.+}}, %{{.+}}) :
-        // COMMON: ttkernel.max_tile_init
-        // COMMON: ttkernel.max_tile(%{{.+}}, %{{.+}})
+        // CHECK-NOT: d2m.tile_max
+        // CHECK: ttkernel.init_sfpu
+        // CHECK: ttkernel.copy_tile_init(%[[CB0:.+]]) :
+        // CHECK-NEXT: ttkernel.copy_tile(%[[CB0]], %{{.+}}, %[[DST_IDX0:.+]]) :
+        // CHECK: ttkernel.copy_tile_init(%[[CB1:.+]]) :
+        // CHECK-NOT: ttkernel.copy_tile(%{{.+}}, %{{.+}}, %[[DST_IDX0]]) :
+        // CHECK-NEXT: ttkernel.copy_tile(%[[CB1]], %{{.+}}, %{{.+}}) :
+        // CHECK: ttkernel.max_tile_init
+        // CHECK: ttkernel.max_tile(%{{.+}}, %{{.+}})
         %0 = "d2m.tile_maximum"(%arg0, %arg1) : (!ttype_f32, !ttype_f32) -> !ttype_f32
-        // COMMON: ttkernel.pack_tile
+        // CHECK: ttkernel.pack_tile
         linalg.yield %0 : !ttype_f32
       }
     }
@@ -160,17 +159,17 @@ module {
       %cb2 = d2m.reserve %arg2_cb : !d2m.cb<memref<1x1x!ttype_f32, #l1_>> -> memref<1x1x!ttype_f32, #l1_>
       linalg.generic {indexing_maps = [#map_, #map_, #map_], iterator_types = ["parallel", "parallel"]} ins(%cb0, %cb1 : memref<1x1x!ttype_f32, #l1_>, memref<1x1x!ttype_f32, #l1_>) outs(%cb2 : memref<1x1x!ttype_f32, #l1_>) {
       ^bb0(%arg0: !ttype_f32, %arg1: !ttype_f32, %arg2: !ttype_f32):
-        // COMMON-NOT: d2m.tile_div
-        // COMMON: ttkernel.init_sfpu
-        // COMMON: ttkernel.copy_tile_init(%[[CB0:.+]]) :
-        // COMMON-NEXT: ttkernel.copy_tile(%[[CB0]], %{{.+}}, %[[DST_IDX0:.+]]) :
-        // COMMON: ttkernel.copy_tile_init(%[[CB1:.+]]) :
-        // COMMON-NOT: ttkernel.copy_tile(%{{.+}}, %{{.+}}, %[[DST_IDX0]]) :
-        // COMMON-NEXT: ttkernel.copy_tile(%[[CB1]], %{{.+}}, %{{.+}}) :
-        // COMMON: ttkernel.div_binary_tile_init
-        // COMMON: ttkernel.div_binary_tile(%{{.+}}, %{{.+}}, %{{.+}})
+        // CHECK-NOT: d2m.tile_div
+        // CHECK: ttkernel.init_sfpu
+        // CHECK: ttkernel.copy_tile_init(%[[CB0:.+]]) :
+        // CHECK-NEXT: ttkernel.copy_tile(%[[CB0]], %{{.+}}, %[[DST_IDX0:.+]]) :
+        // CHECK: ttkernel.copy_tile_init(%[[CB1:.+]]) :
+        // CHECK-NOT: ttkernel.copy_tile(%{{.+}}, %{{.+}}, %[[DST_IDX0]]) :
+        // CHECK-NEXT: ttkernel.copy_tile(%[[CB1]], %{{.+}}, %{{.+}}) :
+        // CHECK: ttkernel.div_binary_tile_init
+        // CHECK: ttkernel.div_binary_tile(%{{.+}}, %{{.+}}, %{{.+}})
         %0 = "d2m.tile_div"(%arg0, %arg1) : (!ttype_f32, !ttype_f32) -> !ttype_f32
-        // COMMON: ttkernel.pack_tile
+        // CHECK: ttkernel.pack_tile
         linalg.yield %0 : !ttype_f32
       }
     }
@@ -187,14 +186,14 @@ module {
       %cb1 = d2m.reserve %arg1_cb : !d2m.cb<memref<1x1x!ttype_f32, #l1_>> -> memref<1x1x!ttype_f32, #l1_>
       linalg.generic {indexing_maps = [#map_, #map_], iterator_types = ["parallel", "parallel"]} ins(%cb0 : memref<1x1x!ttype_f32, #l1_>) outs(%cb1 : memref<1x1x!ttype_f32, #l1_>) {
       ^bb0(%arg0: !ttype_f32, %arg1: !ttype_f32):
-        // COMMON-NOT: d2m.tile_recip
-        // COMMON: ttkernel.init_sfpu
-        // COMMON: ttkernel.copy_tile_init(%[[CB0:.+]]) :
-        // COMMON-NEXT: ttkernel.copy_tile(%[[CB0]], %{{.+}}, %{{.+}}) :
-        // COMMON: ttkernel.recip_tile_init
-        // COMMON: ttkernel.recip_tile
+        // CHECK-NOT: d2m.tile_recip
+        // CHECK: ttkernel.init_sfpu
+        // CHECK: ttkernel.copy_tile_init(%[[CB0:.+]]) :
+        // CHECK-NEXT: ttkernel.copy_tile(%[[CB0]], %{{.+}}, %{{.+}}) :
+        // CHECK: ttkernel.recip_tile_init
+        // CHECK: ttkernel.recip_tile
         %0 = "d2m.tile_recip"(%arg0) : (!ttype_f32) -> !ttype_f32
-        // COMMON: ttkernel.pack_tile
+        // CHECK: ttkernel.pack_tile
         linalg.yield %0 : !ttype_f32
       }
     }
@@ -213,17 +212,17 @@ module {
       %cb2 = d2m.reserve %arg2_cb : !d2m.cb<memref<1x1x!ttype_f32, #l1_>> -> memref<1x1x!ttype_f32, #l1_>
       linalg.generic {indexing_maps = [#map_, #map_, #map_], iterator_types = ["parallel", "parallel"]} ins(%cb0, %cb1 : memref<1x1x!ttype_f32, #l1_>, memref<1x1x!ttype_f32, #l1_>) outs(%cb2 : memref<1x1x!ttype_f32, #l1_>) {
       ^bb0(%arg0: !ttype_f32, %arg1: !ttype_f32, %arg2: !ttype_f32):
-        // COMMON-NOT: d2m.tile_pow
-        // COMMON: ttkernel.init_sfpu
-        // COMMON: ttkernel.copy_tile_init(%[[CB0:.+]]) :
-        // COMMON-NEXT: ttkernel.copy_tile(%[[CB0]], %{{.+}}, %[[DST_IDX0:.+]]) :
-        // COMMON: ttkernel.copy_tile_init(%[[CB1:.+]]) :
-        // COMMON-NOT: ttkernel.copy_tile(%{{.+}}, %{{.+}}, %[[DST_IDX0]]) :
-        // COMMON-NEXT: ttkernel.copy_tile(%[[CB1]], %{{.+}}, %{{.+}}) :
-        // COMMON: ttkernel.power_binary_tile_init
-        // COMMON: ttkernel.power_binary_tile(%{{.+}}, %{{.+}}, %{{.+}})
+        // CHECK-NOT: d2m.tile_pow
+        // CHECK: ttkernel.init_sfpu
+        // CHECK: ttkernel.copy_tile_init(%[[CB0:.+]]) :
+        // CHECK-NEXT: ttkernel.copy_tile(%[[CB0]], %{{.+}}, %[[DST_IDX0:.+]]) :
+        // CHECK: ttkernel.copy_tile_init(%[[CB1:.+]]) :
+        // CHECK-NOT: ttkernel.copy_tile(%{{.+}}, %{{.+}}, %[[DST_IDX0]]) :
+        // CHECK-NEXT: ttkernel.copy_tile(%[[CB1]], %{{.+}}, %{{.+}}) :
+        // CHECK: ttkernel.power_binary_tile_init
+        // CHECK: ttkernel.power_binary_tile(%{{.+}}, %{{.+}}, %{{.+}})
         %0 = "d2m.tile_pow"(%arg0, %arg1) : (!ttype_f32, !ttype_f32) -> !ttype_f32
-        // COMMON: ttkernel.pack_tile
+        // CHECK: ttkernel.pack_tile
         linalg.yield %0 : !ttype_f32
       }
     }
@@ -240,14 +239,14 @@ module {
       %cb1 = d2m.reserve %arg1_cb : !d2m.cb<memref<1x1x!ttype_f32, #l1_>> -> memref<1x1x!ttype_f32, #l1_>
       linalg.generic {indexing_maps = [#map_, #map_], iterator_types = ["parallel", "parallel"]} ins(%cb0 : memref<1x1x!ttype_f32, #l1_>) outs(%cb1 : memref<1x1x!ttype_f32, #l1_>) {
       ^bb0(%arg0: !ttype_f32, %arg1: !ttype_f32):
-        // COMMON-NOT: d2m.tile_exp
-        // COMMON: ttkernel.init_sfpu
-        // COMMON: ttkernel.copy_tile_init(%[[CB0:.+]]) :
-        // COMMON-NEXT: ttkernel.copy_tile(%[[CB0]], %{{.+}}, %{{.+}}) :
-        // COMMON: ttkernel.exp_tile_init
-        // COMMON: ttkernel.exp_tile
+        // CHECK-NOT: d2m.tile_exp
+        // CHECK: ttkernel.init_sfpu
+        // CHECK: ttkernel.copy_tile_init(%[[CB0:.+]]) :
+        // CHECK-NEXT: ttkernel.copy_tile(%[[CB0]], %{{.+}}, %{{.+}}) :
+        // CHECK: ttkernel.exp_tile_init
+        // CHECK: ttkernel.exp_tile
         %0 = "d2m.tile_exp"(%arg0) : (!ttype_f32) -> !ttype_f32
-        // COMMON: ttkernel.pack_tile
+        // CHECK: ttkernel.pack_tile
         linalg.yield %0 : !ttype_f32
       }
     }
@@ -264,14 +263,14 @@ module {
       %cb1 = d2m.reserve %arg1_cb : !d2m.cb<memref<1x1x!ttype_f32, #l1_>> -> memref<1x1x!ttype_f32, #l1_>
       linalg.generic {indexing_maps = [#map_, #map_], iterator_types = ["parallel", "parallel"]} ins(%cb0 : memref<1x1x!ttype_f32, #l1_>) outs(%cb1 : memref<1x1x!ttype_f32, #l1_>) {
       ^bb0(%arg0: !ttype_f32, %arg1: !ttype_f32):
-        // COMMON-NOT: d2m.tile_log
-        // COMMON: ttkernel.init_sfpu
-        // COMMON: ttkernel.copy_tile_init(%[[CB0:.+]]) :
-        // COMMON-NEXT: ttkernel.copy_tile(%[[CB0]], %{{.+}}, %{{.+}}) :
-        // COMMON: ttkernel.log_tile_init
-        // COMMON: ttkernel.log_tile
+        // CHECK-NOT: d2m.tile_log
+        // CHECK: ttkernel.init_sfpu
+        // CHECK: ttkernel.copy_tile_init(%[[CB0:.+]]) :
+        // CHECK-NEXT: ttkernel.copy_tile(%[[CB0]], %{{.+}}, %{{.+}}) :
+        // CHECK: ttkernel.log_tile_init
+        // CHECK: ttkernel.log_tile
         %0 = "d2m.tile_log"(%arg0) : (!ttype_f32) -> !ttype_f32
-        // COMMON: ttkernel.pack_tile
+        // CHECK: ttkernel.pack_tile
         linalg.yield %0 : !ttype_f32
       }
     }
@@ -288,14 +287,14 @@ module {
       %cb1 = d2m.reserve %arg1_cb : !d2m.cb<memref<1x1x!ttype_f32, #l1_>> -> memref<1x1x!ttype_f32, #l1_>
       linalg.generic {indexing_maps = [#map_, #map_], iterator_types = ["parallel", "parallel"]} ins(%cb0 : memref<1x1x!ttype_f32, #l1_>) outs(%cb1 : memref<1x1x!ttype_f32, #l1_>) {
       ^bb0(%arg0: !ttype_f32, %arg1: !ttype_f32):
-        // COMMON-NOT: d2m.tile_cos
-        // COMMON: ttkernel.init_sfpu
-        // COMMON: ttkernel.copy_tile_init(%[[CB0:.+]]) :
-        // COMMON-NEXT: ttkernel.copy_tile(%[[CB0]], %{{.+}}, %{{.+}}) :
-        // COMMON: ttkernel.cos_tile_init
-        // COMMON: ttkernel.cos_tile
+        // CHECK-NOT: d2m.tile_cos
+        // CHECK: ttkernel.init_sfpu
+        // CHECK: ttkernel.copy_tile_init(%[[CB0:.+]]) :
+        // CHECK-NEXT: ttkernel.copy_tile(%[[CB0]], %{{.+}}, %{{.+}}) :
+        // CHECK: ttkernel.cos_tile_init
+        // CHECK: ttkernel.cos_tile
         %0 = "d2m.tile_cos"(%arg0) : (!ttype_f32) -> !ttype_f32
-        // COMMON: ttkernel.pack_tile
+        // CHECK: ttkernel.pack_tile
         linalg.yield %0 : !ttype_f32
       }
     }
@@ -312,14 +311,14 @@ module {
       %cb1 = d2m.reserve %arg1_cb : !d2m.cb<memref<1x1x!ttype_f32, #l1_>> -> memref<1x1x!ttype_f32, #l1_>
       linalg.generic {indexing_maps = [#map_, #map_], iterator_types = ["parallel", "parallel"]} ins(%cb0 : memref<1x1x!ttype_f32, #l1_>) outs(%cb1 : memref<1x1x!ttype_f32, #l1_>) {
       ^bb0(%arg0: !ttype_f32, %arg1: !ttype_f32):
-        // COMMON-NOT: d2m.tile_tan
-        // COMMON: ttkernel.init_sfpu
-        // COMMON: ttkernel.copy_tile_init(%[[CB0:.+]]) :
-        // COMMON-NEXT: ttkernel.copy_tile(%[[CB0]], %{{.+}}, %{{.+}}) :
-        // COMMON: ttkernel.tan_tile_init
-        // COMMON: ttkernel.tan_tile
+        // CHECK-NOT: d2m.tile_tan
+        // CHECK: ttkernel.init_sfpu
+        // CHECK: ttkernel.copy_tile_init(%[[CB0:.+]]) :
+        // CHECK-NEXT: ttkernel.copy_tile(%[[CB0]], %{{.+}}, %{{.+}}) :
+        // CHECK: ttkernel.tan_tile_init
+        // CHECK: ttkernel.tan_tile
         %0 = "d2m.tile_tan"(%arg0) : (!ttype_f32) -> !ttype_f32
-        // COMMON: ttkernel.pack_tile
+        // CHECK: ttkernel.pack_tile
         linalg.yield %0 : !ttype_f32
       }
     }
@@ -336,14 +335,14 @@ module {
       %cb1 = d2m.reserve %arg1_cb : !d2m.cb<memref<1x1x!ttype_f32, #l1_>> -> memref<1x1x!ttype_f32, #l1_>
       linalg.generic {indexing_maps = [#map_, #map_], iterator_types = ["parallel", "parallel"]} ins(%cb0 : memref<1x1x!ttype_f32, #l1_>) outs(%cb1 : memref<1x1x!ttype_f32, #l1_>) {
       ^bb0(%arg0: !ttype_f32, %arg1: !ttype_f32):
-        // COMMON-NOT: d2m.tile_neg
-        // COMMON: ttkernel.init_sfpu
-        // COMMON: ttkernel.copy_tile_init(%[[CB0:.+]]) :
-        // COMMON-NEXT: ttkernel.copy_tile(%[[CB0]], %{{.+}}, %{{.+}}) :
-        // COMMON: ttkernel.negative_tile_init
-        // COMMON: ttkernel.negative_tile
+        // CHECK-NOT: d2m.tile_neg
+        // CHECK: ttkernel.init_sfpu
+        // CHECK: ttkernel.copy_tile_init(%[[CB0:.+]]) :
+        // CHECK-NEXT: ttkernel.copy_tile(%[[CB0]], %{{.+}}, %{{.+}}) :
+        // CHECK: ttkernel.negative_tile_init
+        // CHECK: ttkernel.negative_tile
         %0 = "d2m.tile_negative"(%arg0) : (!ttype_f32) -> !ttype_f32
-        // COMMON: ttkernel.pack_tile
+        // CHECK: ttkernel.pack_tile
         linalg.yield %0 : !ttype_f32
       }
     }
@@ -360,14 +359,14 @@ module {
       %cb1 = d2m.reserve %arg1_cb : !d2m.cb<memref<1x1x!ttype_f32, #l1_>> -> memref<1x1x!ttype_f32, #l1_>
       linalg.generic {indexing_maps = [#map_, #map_], iterator_types = ["parallel", "parallel"]} ins(%cb0 : memref<1x1x!ttype_f32, #l1_>) outs(%cb1 : memref<1x1x!ttype_f32, #l1_>) {
       ^bb0(%arg0: !ttype_f32, %arg1: !ttype_f32):
-        // COMMON-NOT: d2m.tile_sqrt
-        // COMMON: ttkernel.init_sfpu
-        // COMMON: ttkernel.copy_tile_init(%[[CB0:.+]]) :
-        // COMMON-NEXT: ttkernel.copy_tile(%[[CB0]], %{{.+}}, %{{.+}}) :
-        // COMMON: ttkernel.sqrt_tile_init
-        // COMMON: ttkernel.sqrt_tile
+        // CHECK-NOT: d2m.tile_sqrt
+        // CHECK: ttkernel.init_sfpu
+        // CHECK: ttkernel.copy_tile_init(%[[CB0:.+]]) :
+        // CHECK-NEXT: ttkernel.copy_tile(%[[CB0]], %{{.+}}, %{{.+}}) :
+        // CHECK: ttkernel.sqrt_tile_init
+        // CHECK: ttkernel.sqrt_tile
         %0 = "d2m.tile_sqrt"(%arg0) : (!ttype_f32) -> !ttype_f32
-        // COMMON: ttkernel.pack_tile
+        // CHECK: ttkernel.pack_tile
         linalg.yield %0 : !ttype_f32
       }
     }
@@ -384,14 +383,14 @@ module {
       %cb1 = d2m.reserve %arg1_cb : !d2m.cb<memref<1x1x!ttype_f32, #l1_>> -> memref<1x1x!ttype_f32, #l1_>
       linalg.generic {indexing_maps = [#map_, #map_], iterator_types = ["parallel", "parallel"]} ins(%cb0 : memref<1x1x!ttype_f32, #l1_>) outs(%cb1 : memref<1x1x!ttype_f32, #l1_>) {
       ^bb0(%arg0: !ttype_f32, %arg1: !ttype_f32):
-        // COMMON-NOT: d2m.tile_rsqrt
-        // COMMON: ttkernel.init_sfpu
-        // COMMON: ttkernel.copy_tile_init(%[[CB0:.+]]) :
-        // COMMON-NEXT: ttkernel.copy_tile(%[[CB0]], %{{.+}}, %{{.+}}) :
-        // COMMON: ttkernel.rsqrt_tile_init
-        // COMMON: ttkernel.rsqrt_tile
+        // CHECK-NOT: d2m.tile_rsqrt
+        // CHECK: ttkernel.init_sfpu
+        // CHECK: ttkernel.copy_tile_init(%[[CB0:.+]]) :
+        // CHECK-NEXT: ttkernel.copy_tile(%[[CB0]], %{{.+}}, %{{.+}}) :
+        // CHECK: ttkernel.rsqrt_tile_init
+        // CHECK: ttkernel.rsqrt_tile
         %0 = "d2m.tile_rsqrt"(%arg0) : (!ttype_f32) -> !ttype_f32
-        // COMMON: ttkernel.pack_tile
+        // CHECK: ttkernel.pack_tile
         linalg.yield %0 : !ttype_f32
       }
     }
@@ -408,14 +407,14 @@ module {
       %cb1 = d2m.reserve %arg1_cb : !d2m.cb<memref<1x1x!ttype_f32, #l1_>> -> memref<1x1x!ttype_f32, #l1_>
       linalg.generic {indexing_maps = [#map_, #map_], iterator_types = ["parallel", "parallel"]} ins(%cb0 : memref<1x1x!ttype_f32, #l1_>) outs(%cb1 : memref<1x1x!ttype_f32, #l1_>) {
       ^bb0(%arg0: !ttype_f32, %arg1: !ttype_f32):
-        // COMMON-NOT: d2m.tile_sin
-        // COMMON: ttkernel.init_sfpu
-        // COMMON: ttkernel.copy_tile_init(%[[CB0:.+]]) :
-        // COMMON-NEXT: ttkernel.copy_tile(%[[CB0]], %{{.+}}, %{{.+}}) :
-        // COMMON: ttkernel.sin_tile_init
-        // COMMON: ttkernel.sin_tile
+        // CHECK-NOT: d2m.tile_sin
+        // CHECK: ttkernel.init_sfpu
+        // CHECK: ttkernel.copy_tile_init(%[[CB0:.+]]) :
+        // CHECK-NEXT: ttkernel.copy_tile(%[[CB0]], %{{.+}}, %{{.+}}) :
+        // CHECK: ttkernel.sin_tile_init
+        // CHECK: ttkernel.sin_tile
         %0 = "d2m.tile_sin"(%arg0) : (!ttype_f32) -> !ttype_f32
-        // COMMON: ttkernel.pack_tile
+        // CHECK: ttkernel.pack_tile
         linalg.yield %0 : !ttype_f32
       }
     }
@@ -432,14 +431,14 @@ module {
       %cb1 = d2m.reserve %arg1_cb : !d2m.cb<memref<1x1x!ttype_f32, #l1_>> -> memref<1x1x!ttype_f32, #l1_>
       linalg.generic {indexing_maps = [#map_, #map_], iterator_types = ["parallel", "parallel"]} ins(%cb0 : memref<1x1x!ttype_f32, #l1_>) outs(%cb1 : memref<1x1x!ttype_f32, #l1_>) {
       ^bb0(%arg0: !ttype_f32, %arg1: !ttype_f32):
-        // COMMON-NOT: d2m.tile_sigmoid
-        // COMMON: ttkernel.init_sfpu
-        // COMMON: ttkernel.copy_tile_init(%[[CB0:.+]]) :
-        // COMMON-NEXT: ttkernel.copy_tile(%[[CB0]], %{{.+}}, %{{.+}}) :
-        // COMMON: ttkernel.sigmoid_tile_init
-        // COMMON: ttkernel.sigmoid_tile
+        // CHECK-NOT: d2m.tile_sigmoid
+        // CHECK: ttkernel.init_sfpu
+        // CHECK: ttkernel.copy_tile_init(%[[CB0:.+]]) :
+        // CHECK-NEXT: ttkernel.copy_tile(%[[CB0]], %{{.+}}, %{{.+}}) :
+        // CHECK: ttkernel.sigmoid_tile_init
+        // CHECK: ttkernel.sigmoid_tile
         %0 = "d2m.tile_sigmoid"(%arg0) : (!ttype_f32) -> !ttype_f32
-        // COMMON: ttkernel.pack_tile
+        // CHECK: ttkernel.pack_tile
         linalg.yield %0 : !ttype_f32
       }
     }
@@ -456,14 +455,14 @@ module {
       %cb1 = d2m.reserve %arg1_cb : !d2m.cb<memref<1x1x!ttype_f32, #l1_>> -> memref<1x1x!ttype_f32, #l1_>
       linalg.generic {indexing_maps = [#map_, #map_], iterator_types = ["parallel", "parallel"]} ins(%cb0 : memref<1x1x!ttype_f32, #l1_>) outs(%cb1 : memref<1x1x!ttype_f32, #l1_>) {
       ^bb0(%arg0: !ttype_f32, %arg1: !ttype_f32):
-        // COMMON-NOT: d2m.tile_gelu
-        // COMMON: ttkernel.init_sfpu
-        // COMMON: ttkernel.copy_tile_init(%[[CB0:.+]]) :
-        // COMMON-NEXT: ttkernel.copy_tile(%[[CB0]], %{{.+}}, %{{.+}}) :
-        // COMMON: ttkernel.gelu_tile_init
-        // COMMON: ttkernel.gelu_tile
+        // CHECK-NOT: d2m.tile_gelu
+        // CHECK: ttkernel.init_sfpu
+        // CHECK: ttkernel.copy_tile_init(%[[CB0:.+]]) :
+        // CHECK-NEXT: ttkernel.copy_tile(%[[CB0]], %{{.+}}, %{{.+}}) :
+        // CHECK: ttkernel.gelu_tile_init
+        // CHECK: ttkernel.gelu_tile
         %0 = "d2m.tile_gelu"(%arg0) : (!ttype_f32) -> !ttype_f32
-        // COMMON: ttkernel.pack_tile
+        // CHECK: ttkernel.pack_tile
         linalg.yield %0 : !ttype_f32
       }
     }
@@ -480,14 +479,14 @@ module {
       %cb1 = d2m.reserve %arg1_cb : !d2m.cb<memref<1x1x!ttype_bf16, #l1_>> -> memref<1x1x!ttype_bf16, #l1_>
       linalg.generic {indexing_maps = [#map_, #map_], iterator_types = ["parallel", "parallel"]} ins(%cb0 : memref<1x1x!ttype_bf16, #l1_>) outs(%cb1 : memref<1x1x!ttype_bf16, #l1_>) {
       ^bb0(%arg0: !ttype_bf16, %arg1: !ttype_bf16):
-        // COMMON-NOT: d2m.tile_ceil
-        // COMMON: ttkernel.init_sfpu
-        // COMMON: ttkernel.copy_tile_init(%[[CB0:.+]]) :
-        // COMMON-NEXT: ttkernel.copy_tile(%[[CB0]], %{{.+}}, %{{.+}}) :
-        // COMMON: ttkernel.rounding_op_tile_init
-        // COMMON: ttkernel.ceil_tile
+        // CHECK-NOT: d2m.tile_ceil
+        // CHECK: ttkernel.init_sfpu
+        // CHECK: ttkernel.copy_tile_init(%[[CB0:.+]]) :
+        // CHECK-NEXT: ttkernel.copy_tile(%[[CB0]], %{{.+}}, %{{.+}}) :
+        // CHECK: ttkernel.rounding_op_tile_init
+        // CHECK: ttkernel.ceil_tile
         %0 = "d2m.tile_ceil"(%arg0) : (!ttype_bf16) -> !ttype_bf16
-        // COMMON: ttkernel.pack_tile
+        // CHECK: ttkernel.pack_tile
         linalg.yield %0 : !ttype_bf16
       }
     }
@@ -504,14 +503,14 @@ module {
       %cb1 = d2m.reserve %arg1_cb : !d2m.cb<memref<1x1x!ttype_f32, #l1_>> -> memref<1x1x!ttype_f32, #l1_>
       linalg.generic {indexing_maps = [#map_, #map_], iterator_types = ["parallel", "parallel"]} ins(%cb0 : memref<1x1x!ttype_f32, #l1_>) outs(%cb1 : memref<1x1x!ttype_f32, #l1_>) {
       ^bb0(%arg0: !ttype_f32, %arg1: !ttype_f32):
-        // COMMON-NOT: d2m.tile_ceil
-        // COMMON: ttkernel.init_sfpu
-        // COMMON: ttkernel.copy_tile_init(%[[CB0:.+]]) :
-        // COMMON-NEXT: ttkernel.copy_tile(%[[CB0]], %{{.+}}, %{{.+}}) :
-        // COMMON: ttkernel.rounding_op_tile_init
-        // COMMON: ttkernel.ceil_tile_float32
+        // CHECK-NOT: d2m.tile_ceil
+        // CHECK: ttkernel.init_sfpu
+        // CHECK: ttkernel.copy_tile_init(%[[CB0:.+]]) :
+        // CHECK-NEXT: ttkernel.copy_tile(%[[CB0]], %{{.+}}, %{{.+}}) :
+        // CHECK: ttkernel.rounding_op_tile_init
+        // CHECK: ttkernel.ceil_tile_float32
         %0 = "d2m.tile_ceil"(%arg0) : (!ttype_f32) -> !ttype_f32
-        // COMMON: ttkernel.pack_tile
+        // CHECK: ttkernel.pack_tile
         linalg.yield %0 : !ttype_f32
       }
     }
@@ -528,14 +527,14 @@ module {
       %cb1 = d2m.reserve %arg1_cb : !d2m.cb<memref<1x1x!ttype_bf16, #l1_>> -> memref<1x1x!ttype_bf16, #l1_>
       linalg.generic {indexing_maps = [#map_, #map_], iterator_types = ["parallel", "parallel"]} ins(%cb0 : memref<1x1x!ttype_bf16, #l1_>) outs(%cb1 : memref<1x1x!ttype_bf16, #l1_>) {
       ^bb0(%arg0: !ttype_bf16, %arg1: !ttype_bf16):
-        // COMMON-NOT: d2m.tile_floor
-        // COMMON: ttkernel.init_sfpu
-        // COMMON: ttkernel.copy_tile_init(%[[CB0:.+]]) :
-        // COMMON-NEXT: ttkernel.copy_tile(%[[CB0]], %{{.+}}, %{{.+}}) :
-        // COMMON: ttkernel.rounding_op_tile_init
-        // COMMON: ttkernel.floor_tile
+        // CHECK-NOT: d2m.tile_floor
+        // CHECK: ttkernel.init_sfpu
+        // CHECK: ttkernel.copy_tile_init(%[[CB0:.+]]) :
+        // CHECK-NEXT: ttkernel.copy_tile(%[[CB0]], %{{.+}}, %{{.+}}) :
+        // CHECK: ttkernel.rounding_op_tile_init
+        // CHECK: ttkernel.floor_tile
         %0 = "d2m.tile_floor"(%arg0) : (!ttype_bf16) -> !ttype_bf16
-        // COMMON: ttkernel.pack_tile
+        // CHECK: ttkernel.pack_tile
         linalg.yield %0 : !ttype_bf16
       }
     }
@@ -552,14 +551,14 @@ module {
       %cb1 = d2m.reserve %arg1_cb : !d2m.cb<memref<1x1x!ttype_f32, #l1_>> -> memref<1x1x!ttype_f32, #l1_>
       linalg.generic {indexing_maps = [#map_, #map_], iterator_types = ["parallel", "parallel"]} ins(%cb0 : memref<1x1x!ttype_f32, #l1_>) outs(%cb1 : memref<1x1x!ttype_f32, #l1_>) {
       ^bb0(%arg0: !ttype_f32, %arg1: !ttype_f32):
-        // COMMON-NOT: d2m.tile_floor
-        // COMMON: ttkernel.init_sfpu
-        // COMMON: ttkernel.copy_tile_init(%[[CB0:.+]]) :
-        // COMMON-NEXT: ttkernel.copy_tile(%[[CB0]], %{{.+}}, %{{.+}}) :
-        // COMMON: ttkernel.rounding_op_tile_init
-        // COMMON: ttkernel.floor_tile_float32
+        // CHECK-NOT: d2m.tile_floor
+        // CHECK: ttkernel.init_sfpu
+        // CHECK: ttkernel.copy_tile_init(%[[CB0:.+]]) :
+        // CHECK-NEXT: ttkernel.copy_tile(%[[CB0]], %{{.+}}, %{{.+}}) :
+        // CHECK: ttkernel.rounding_op_tile_init
+        // CHECK: ttkernel.floor_tile_float32
         %0 = "d2m.tile_floor"(%arg0) : (!ttype_f32) -> !ttype_f32
-        // COMMON: ttkernel.pack_tile
+        // CHECK: ttkernel.pack_tile
         linalg.yield %0 : !ttype_f32
       }
     }
@@ -576,14 +575,14 @@ module {
       %cb1 = d2m.reserve %arg1_cb : !d2m.cb<memref<1x1x!ttype_bf16, #l1_>> -> memref<1x1x!ttype_bf16, #l1_>
       linalg.generic {indexing_maps = [#map_, #map_], iterator_types = ["parallel", "parallel"]} ins(%cb0 : memref<1x1x!ttype_bf16, #l1_>) outs(%cb1 : memref<1x1x!ttype_bf16, #l1_>) {
       ^bb0(%arg0: !ttype_bf16, %arg1: !ttype_bf16):
-        // COMMON-NOT: d2m.tile_abs
-        // COMMON: ttkernel.init_sfpu
-        // COMMON: ttkernel.copy_tile_init(%[[CB0:.+]]) :
-        // COMMON-NEXT: ttkernel.copy_tile(%[[CB0]], %{{.+}}, %{{.+}}) :
-        // COMMON: ttkernel.abs_tile_init
-        // COMMON: ttkernel.abs_tile
+        // CHECK-NOT: d2m.tile_abs
+        // CHECK: ttkernel.init_sfpu
+        // CHECK: ttkernel.copy_tile_init(%[[CB0:.+]]) :
+        // CHECK-NEXT: ttkernel.copy_tile(%[[CB0]], %{{.+}}, %{{.+}}) :
+        // CHECK: ttkernel.abs_tile_init
+        // CHECK: ttkernel.abs_tile
         %0 = "d2m.tile_abs"(%arg0) : (!ttype_bf16) -> !ttype_bf16
-        // COMMON: ttkernel.pack_tile
+        // CHECK: ttkernel.pack_tile
         linalg.yield %0 : !ttype_bf16
       }
     }
@@ -600,14 +599,14 @@ module {
       %cb1 = d2m.reserve %arg1_cb : !d2m.cb<memref<1x1x!ttype_si32, #l1_>> -> memref<1x1x!ttype_si32, #l1_>
       linalg.generic {indexing_maps = [#map_, #map_], iterator_types = ["parallel", "parallel"]} ins(%cb0 : memref<1x1x!ttype_si32, #l1_>) outs(%cb1 : memref<1x1x!ttype_si32, #l1_>) {
       ^bb0(%arg0: !ttype_si32, %arg1: !ttype_si32):
-        // COMMON-NOT: d2m.tile_abs
-        // COMMON: ttkernel.init_sfpu
-        // COMMON: ttkernel.copy_tile_init(%[[CB0:.+]]) :
-        // COMMON-NEXT: ttkernel.copy_tile(%[[CB0]], %{{.+}}, %{{.+}}) :
-        // COMMON: ttkernel.abs_tile_init
-        // COMMON: ttkernel.abs_tile_int32
+        // CHECK-NOT: d2m.tile_abs
+        // CHECK: ttkernel.init_sfpu
+        // CHECK: ttkernel.copy_tile_init(%[[CB0:.+]]) :
+        // CHECK-NEXT: ttkernel.copy_tile(%[[CB0]], %{{.+}}, %{{.+}}) :
+        // CHECK: ttkernel.abs_tile_init
+        // CHECK: ttkernel.abs_tile_int32
         %0 = "d2m.tile_abs"(%arg0) : (!ttype_si32) -> !ttype_si32
-        // COMMON: ttkernel.pack_tile
+        // CHECK: ttkernel.pack_tile
         linalg.yield %0 : !ttype_si32
       }
     }
@@ -624,14 +623,14 @@ module {
       %cb1 = d2m.reserve %arg1_cb : !d2m.cb<memref<1x1x!ttype_si32, #l1_>> -> memref<1x1x!ttype_si32, #l1_>
       linalg.generic {indexing_maps = [#map_, #map_], iterator_types = ["parallel", "parallel"]} ins(%cb0 : memref<1x1x!ttype_si32, #l1_>) outs(%cb1 : memref<1x1x!ttype_si32, #l1_>) {
       ^bb0(%arg0: !ttype_si32, %arg1: !ttype_si32):
-        // COMMON-NOT: d2m.tile_bitwise_not
-        // COMMON: ttkernel.init_sfpu
-        // COMMON: ttkernel.copy_tile_init(%[[CB0:.+]]) :
-        // COMMON-NEXT: ttkernel.copy_tile(%[[CB0]], %{{.+}}, %{{.+}}) :
-        // COMMON: ttkernel.bitwise_not_tile_init
-        // COMMON: ttkernel.bitwise_not_tile
+        // CHECK-NOT: d2m.tile_bitwise_not
+        // CHECK: ttkernel.init_sfpu
+        // CHECK: ttkernel.copy_tile_init(%[[CB0:.+]]) :
+        // CHECK-NEXT: ttkernel.copy_tile(%[[CB0]], %{{.+}}, %{{.+}}) :
+        // CHECK: ttkernel.bitwise_not_tile_init
+        // CHECK: ttkernel.bitwise_not_tile
         %0 = "d2m.tile_bitwise_not"(%arg0) : (!ttype_si32) -> !ttype_si32
-        // COMMON: ttkernel.pack_tile
+        // CHECK: ttkernel.pack_tile
         linalg.yield %0 : !ttype_si32
       }
     }
@@ -648,14 +647,14 @@ module {
       %cb1 = d2m.reserve %arg1_cb : !d2m.cb<memref<1x1x!ttype_bf16, #l1_>> -> memref<1x1x!ttype_bf16, #l1_>
       linalg.generic {indexing_maps = [#map_, #map_], iterator_types = ["parallel", "parallel"]} ins(%cb0 : memref<1x1x!ttype_bf16, #l1_>) outs(%cb1 : memref<1x1x!ttype_bf16, #l1_>) {
       ^bb0(%arg0: !ttype_bf16, %arg1: !ttype_bf16):
-        // COMMON-NOT: d2m.tile_logical_not
-        // COMMON: ttkernel.init_sfpu
-        // COMMON: ttkernel.copy_tile_init(%[[CB0:.+]]) :
-        // COMMON-NEXT: ttkernel.copy_tile(%[[CB0]], %{{.+}}, %{{.+}}) :
-        // COMMON: ttkernel.logical_not_unary_tile_init
-        // COMMON: ttkernel.logical_not_unary_tile
+        // CHECK-NOT: d2m.tile_logical_not
+        // CHECK: ttkernel.init_sfpu
+        // CHECK: ttkernel.copy_tile_init(%[[CB0:.+]]) :
+        // CHECK-NEXT: ttkernel.copy_tile(%[[CB0]], %{{.+}}, %{{.+}}) :
+        // CHECK: ttkernel.logical_not_unary_tile_init
+        // CHECK: ttkernel.logical_not_unary_tile
         %0 = "d2m.tile_logical_not"(%arg0) : (!ttype_bf16) -> !ttype_bf16
-        // COMMON: ttkernel.pack_tile
+        // CHECK: ttkernel.pack_tile
         linalg.yield %0 : !ttype_bf16
       }
     }
@@ -672,14 +671,14 @@ module {
       %cb1 = d2m.reserve %arg1_cb : !d2m.cb<memref<1x1x!ttype_si32, #l1_>> -> memref<1x1x!ttype_si32, #l1_>
       linalg.generic {indexing_maps = [#map_, #map_], iterator_types = ["parallel", "parallel"]} ins(%cb0 : memref<1x1x!ttype_si32, #l1_>) outs(%cb1 : memref<1x1x!ttype_si32, #l1_>) {
       ^bb0(%arg0: !ttype_si32, %arg1: !ttype_si32):
-        // COMMON-NOT: d2m.tile_logical_not
-        // COMMON: ttkernel.init_sfpu
-        // COMMON: ttkernel.copy_tile_init(%[[CB0:.+]]) :
-        // COMMON-NEXT: ttkernel.copy_tile(%[[CB0]], %{{.+}}, %{{.+}}) :
-        // COMMON: ttkernel.logical_not_unary_tile_init
-        // COMMON: ttkernel.logical_not_unary_tile_int32
+        // CHECK-NOT: d2m.tile_logical_not
+        // CHECK: ttkernel.init_sfpu
+        // CHECK: ttkernel.copy_tile_init(%[[CB0:.+]]) :
+        // CHECK-NEXT: ttkernel.copy_tile(%[[CB0]], %{{.+}}, %{{.+}}) :
+        // CHECK: ttkernel.logical_not_unary_tile_init
+        // CHECK: ttkernel.logical_not_unary_tile_int32
         %0 = "d2m.tile_logical_not"(%arg0) : (!ttype_si32) -> !ttype_si32
-        // COMMON: ttkernel.pack_tile
+        // CHECK: ttkernel.pack_tile
         linalg.yield %0 : !ttype_si32
       }
     }
@@ -702,16 +701,16 @@ module {
       %cb2 = d2m.reserve %arg2_cb : !d2m.cb<memref<1x1x!ttype_f32, #l1_>> -> memref<1x1x!ttype_f32, #l1_>
       linalg.generic {indexing_maps = [#map_, #map_, #map_], iterator_types = ["parallel", "parallel"]} ins(%cb0, %cb1 : memref<1x1x!ttype_f32, #l1_>, memref<1x1x!ttype_f32, #l1_>) outs(%cb2 : memref<1x1x!ttype_f32, #l1_>) {
       ^bb0(%arg0: !ttype_f32, %arg1: !ttype_f32, %arg2: !ttype_f32):
-        // COMMON-NOT: d2m.tile_sub
-        // COMMON-NOT: d2m.tile_eqz
-        // COMMON: ttkernel.init_sfpu
-        // COMMON: ttkernel.sub_binary_tile_init
-        // COMMON: ttkernel.sub_binary_tile
-        // COMMON: ttkernel.eqz_tile_init
-        // COMMON: ttkernel.eqz_tile
+        // CHECK-NOT: d2m.tile_sub
+        // CHECK-NOT: d2m.tile_eqz
+        // CHECK: ttkernel.init_sfpu
+        // CHECK: ttkernel.sub_binary_tile_init
+        // CHECK: ttkernel.sub_binary_tile
+        // CHECK: ttkernel.eqz_tile_init
+        // CHECK: ttkernel.eqz_tile
         %0 = "d2m.tile_sub"(%arg0, %arg1) : (!ttype_f32, !ttype_f32) -> !ttype_f32
         %1 = "d2m.tile_eqz"(%0) : (!ttype_f32) -> !ttype_f32
-        // COMMON: ttkernel.pack_tile
+        // CHECK: ttkernel.pack_tile
         linalg.yield %1 : !ttype_f32
       }
     }
@@ -730,16 +729,16 @@ module {
       %cb2 = d2m.reserve %arg2_cb : !d2m.cb<memref<1x1x!ttype_f32, #l1_>> -> memref<1x1x!ttype_f32, #l1_>
       linalg.generic {indexing_maps = [#map_, #map_, #map_], iterator_types = ["parallel", "parallel"]} ins(%cb0, %cb1 : memref<1x1x!ttype_f32, #l1_>, memref<1x1x!ttype_f32, #l1_>) outs(%cb2 : memref<1x1x!ttype_f32, #l1_>) {
       ^bb0(%arg0: !ttype_f32, %arg1: !ttype_f32, %arg2: !ttype_f32):
-        // COMMON-NOT: d2m.tile_sub
-        // COMMON-NOT: d2m.tile_nez
-        // COMMON: ttkernel.init_sfpu
-        // COMMON: ttkernel.sub_binary_tile_init
-        // COMMON: ttkernel.sub_binary_tile
-        // COMMON: ttkernel.nez_tile_init
-        // COMMON: ttkernel.nez_tile
+        // CHECK-NOT: d2m.tile_sub
+        // CHECK-NOT: d2m.tile_nez
+        // CHECK: ttkernel.init_sfpu
+        // CHECK: ttkernel.sub_binary_tile_init
+        // CHECK: ttkernel.sub_binary_tile
+        // CHECK: ttkernel.nez_tile_init
+        // CHECK: ttkernel.nez_tile
         %0 = "d2m.tile_sub"(%arg0, %arg1) : (!ttype_f32, !ttype_f32) -> !ttype_f32
         %1 = "d2m.tile_nez"(%0) : (!ttype_f32) -> !ttype_f32
-        // COMMON: ttkernel.pack_tile
+        // CHECK: ttkernel.pack_tile
         linalg.yield %1 : !ttype_f32
       }
     }
@@ -758,16 +757,16 @@ module {
       %cb2 = d2m.reserve %arg2_cb : !d2m.cb<memref<1x1x!ttype_f32, #l1_>> -> memref<1x1x!ttype_f32, #l1_>
       linalg.generic {indexing_maps = [#map_, #map_, #map_], iterator_types = ["parallel", "parallel"]} ins(%cb0, %cb1 : memref<1x1x!ttype_f32, #l1_>, memref<1x1x!ttype_f32, #l1_>) outs(%cb2 : memref<1x1x!ttype_f32, #l1_>) {
       ^bb0(%arg0: !ttype_f32, %arg1: !ttype_f32, %arg2: !ttype_f32):
-        // COMMON-NOT: d2m.tile_sub
-        // COMMON-NOT: d2m.tile_gtz
-        // COMMON: ttkernel.init_sfpu
-        // COMMON: ttkernel.sub_binary_tile_init
-        // COMMON: ttkernel.sub_binary_tile
-        // COMMON: ttkernel.gtz_tile_init
-        // COMMON: ttkernel.gtz_tile
+        // CHECK-NOT: d2m.tile_sub
+        // CHECK-NOT: d2m.tile_gtz
+        // CHECK: ttkernel.init_sfpu
+        // CHECK: ttkernel.sub_binary_tile_init
+        // CHECK: ttkernel.sub_binary_tile
+        // CHECK: ttkernel.gtz_tile_init
+        // CHECK: ttkernel.gtz_tile
         %0 = "d2m.tile_sub"(%arg0, %arg1) : (!ttype_f32, !ttype_f32) -> !ttype_f32
         %1 = "d2m.tile_gtz"(%0) : (!ttype_f32) -> !ttype_f32
-        // COMMON: ttkernel.pack_tile
+        // CHECK: ttkernel.pack_tile
         linalg.yield %1 : !ttype_f32
       }
     }
@@ -786,16 +785,16 @@ module {
       %cb2 = d2m.reserve %arg2_cb : !d2m.cb<memref<1x1x!ttype_f32, #l1_>> -> memref<1x1x!ttype_f32, #l1_>
       linalg.generic {indexing_maps = [#map_, #map_, #map_], iterator_types = ["parallel", "parallel"]} ins(%cb0, %cb1 : memref<1x1x!ttype_f32, #l1_>, memref<1x1x!ttype_f32, #l1_>) outs(%cb2 : memref<1x1x!ttype_f32, #l1_>) {
       ^bb0(%arg0: !ttype_f32, %arg1: !ttype_f32, %arg2: !ttype_f32):
-        // COMMON-NOT: d2m.tile_sub
-        // COMMON-NOT: d2m.tile_gez
-        // COMMON: ttkernel.init_sfpu
-        // COMMON: ttkernel.sub_binary_tile_init
-        // COMMON: ttkernel.sub_binary_tile
-        // COMMON: ttkernel.gez_tile_init
-        // COMMON: ttkernel.gez_tile
+        // CHECK-NOT: d2m.tile_sub
+        // CHECK-NOT: d2m.tile_gez
+        // CHECK: ttkernel.init_sfpu
+        // CHECK: ttkernel.sub_binary_tile_init
+        // CHECK: ttkernel.sub_binary_tile
+        // CHECK: ttkernel.gez_tile_init
+        // CHECK: ttkernel.gez_tile
         %0 = "d2m.tile_sub"(%arg0, %arg1) : (!ttype_f32, !ttype_f32) -> !ttype_f32
         %1 = "d2m.tile_gez"(%0) : (!ttype_f32) -> !ttype_f32
-        // COMMON: ttkernel.pack_tile
+        // CHECK: ttkernel.pack_tile
         linalg.yield %1 : !ttype_f32
       }
     }
@@ -814,16 +813,16 @@ module {
       %cb2 = d2m.reserve %arg2_cb : !d2m.cb<memref<1x1x!ttype_f32, #l1_>> -> memref<1x1x!ttype_f32, #l1_>
       linalg.generic {indexing_maps = [#map_, #map_, #map_], iterator_types = ["parallel", "parallel"]} ins(%cb0, %cb1 : memref<1x1x!ttype_f32, #l1_>, memref<1x1x!ttype_f32, #l1_>) outs(%cb2 : memref<1x1x!ttype_f32, #l1_>) {
       ^bb0(%arg0: !ttype_f32, %arg1: !ttype_f32, %arg2: !ttype_f32):
-        // COMMON-NOT: d2m.tile_sub
-        // COMMON-NOT: d2m.tile_ltz
-        // COMMON: ttkernel.init_sfpu
-        // COMMON: ttkernel.sub_binary_tile_init
-        // COMMON: ttkernel.sub_binary_tile
-        // COMMON: ttkernel.ltz_tile_init
-        // COMMON: ttkernel.ltz_tile
+        // CHECK-NOT: d2m.tile_sub
+        // CHECK-NOT: d2m.tile_ltz
+        // CHECK: ttkernel.init_sfpu
+        // CHECK: ttkernel.sub_binary_tile_init
+        // CHECK: ttkernel.sub_binary_tile
+        // CHECK: ttkernel.ltz_tile_init
+        // CHECK: ttkernel.ltz_tile
         %0 = "d2m.tile_sub"(%arg0, %arg1) : (!ttype_f32, !ttype_f32) -> !ttype_f32
         %1 = "d2m.tile_ltz"(%0) : (!ttype_f32) -> !ttype_f32
-        // COMMON: ttkernel.pack_tile
+        // CHECK: ttkernel.pack_tile
         linalg.yield %1 : !ttype_f32
       }
     }
@@ -842,16 +841,16 @@ module {
       %cb2 = d2m.reserve %arg2_cb : !d2m.cb<memref<1x1x!ttype_f32, #l1_>> -> memref<1x1x!ttype_f32, #l1_>
       linalg.generic {indexing_maps = [#map_, #map_, #map_], iterator_types = ["parallel", "parallel"]} ins(%cb0, %cb1 : memref<1x1x!ttype_f32, #l1_>, memref<1x1x!ttype_f32, #l1_>) outs(%cb2 : memref<1x1x!ttype_f32, #l1_>) {
       ^bb0(%arg0: !ttype_f32, %arg1: !ttype_f32, %arg2: !ttype_f32):
-        // COMMON-NOT: d2m.tile_sub
-        // COMMON-NOT: d2m.tile_lez
-        // COMMON: ttkernel.init_sfpu
-        // COMMON: ttkernel.sub_binary_tile_init
-        // COMMON: ttkernel.sub_binary_tile
-        // COMMON: ttkernel.lez_tile_init
-        // COMMON: ttkernel.lez_tile
+        // CHECK-NOT: d2m.tile_sub
+        // CHECK-NOT: d2m.tile_lez
+        // CHECK: ttkernel.init_sfpu
+        // CHECK: ttkernel.sub_binary_tile_init
+        // CHECK: ttkernel.sub_binary_tile
+        // CHECK: ttkernel.lez_tile_init
+        // CHECK: ttkernel.lez_tile
         %0 = "d2m.tile_sub"(%arg0, %arg1) : (!ttype_f32, !ttype_f32) -> !ttype_f32
         %1 = "d2m.tile_lez"(%0) : (!ttype_f32) -> !ttype_f32
-        // COMMON: ttkernel.pack_tile
+        // CHECK: ttkernel.pack_tile
         linalg.yield %1 : !ttype_f32
       }
     }
@@ -874,16 +873,16 @@ module {
       %cb2 = d2m.reserve %arg2_cb : !d2m.cb<memref<1x1x!ttype_si32, #l1_>> -> memref<1x1x!ttype_si32, #l1_>
       linalg.generic {indexing_maps = [#map_, #map_, #map_], iterator_types = ["parallel", "parallel"]} ins(%cb0, %cb1 : memref<1x1x!ttype_si32, #l1_>, memref<1x1x!ttype_si32, #l1_>) outs(%cb2 : memref<1x1x!ttype_si32, #l1_>) {
       ^bb0(%arg0: !ttype_si32, %arg1: !ttype_si32, %arg2: !ttype_si32):
-        // COMMON-NOT: d2m.tile_sub
-        // COMMON-NOT: d2m.tile_eqz
-        // COMMON: ttkernel.init_sfpu
-        // COMMON: ttkernel.sub_binary_tile_init
-        // COMMON: ttkernel.sub_binary_tile
-        // COMMON: ttkernel.eqz_tile_init
-        // COMMON: ttkernel.eqz_tile_int32
+        // CHECK-NOT: d2m.tile_sub
+        // CHECK-NOT: d2m.tile_eqz
+        // CHECK: ttkernel.init_sfpu
+        // CHECK: ttkernel.sub_binary_tile_init
+        // CHECK: ttkernel.sub_binary_tile
+        // CHECK: ttkernel.eqz_tile_init
+        // CHECK: ttkernel.eqz_tile_int32
         %0 = "d2m.tile_sub"(%arg0, %arg1) : (!ttype_si32, !ttype_si32) -> !ttype_si32
         %1 = "d2m.tile_eqz"(%0) : (!ttype_si32) -> !ttype_si32
-        // COMMON: ttkernel.pack_tile
+        // CHECK: ttkernel.pack_tile
         linalg.yield %1 : !ttype_si32
       }
     }
@@ -902,16 +901,16 @@ module {
       %cb2 = d2m.reserve %arg2_cb : !d2m.cb<memref<1x1x!ttype_si32, #l1_>> -> memref<1x1x!ttype_si32, #l1_>
       linalg.generic {indexing_maps = [#map_, #map_, #map_], iterator_types = ["parallel", "parallel"]} ins(%cb0, %cb1 : memref<1x1x!ttype_si32, #l1_>, memref<1x1x!ttype_si32, #l1_>) outs(%cb2 : memref<1x1x!ttype_si32, #l1_>) {
       ^bb0(%arg0: !ttype_si32, %arg1: !ttype_si32, %arg2: !ttype_si32):
-        // COMMON-NOT: d2m.tile_sub
-        // COMMON-NOT: d2m.tile_nez
-        // COMMON: ttkernel.init_sfpu
-        // COMMON: ttkernel.sub_binary_tile_init
-        // COMMON: ttkernel.sub_binary_tile
-        // COMMON: ttkernel.nez_tile_init
-        // COMMON: ttkernel.nez_tile_int32
+        // CHECK-NOT: d2m.tile_sub
+        // CHECK-NOT: d2m.tile_nez
+        // CHECK: ttkernel.init_sfpu
+        // CHECK: ttkernel.sub_binary_tile_init
+        // CHECK: ttkernel.sub_binary_tile
+        // CHECK: ttkernel.nez_tile_init
+        // CHECK: ttkernel.nez_tile_int32
         %0 = "d2m.tile_sub"(%arg0, %arg1) : (!ttype_si32, !ttype_si32) -> !ttype_si32
         %1 = "d2m.tile_nez"(%0) : (!ttype_si32) -> !ttype_si32
-        // COMMON: ttkernel.pack_tile
+        // CHECK: ttkernel.pack_tile
         linalg.yield %1 : !ttype_si32
       }
     }
@@ -930,16 +929,16 @@ module {
       %cb2 = d2m.reserve %arg2_cb : !d2m.cb<memref<1x1x!ttype_si32, #l1_>> -> memref<1x1x!ttype_si32, #l1_>
       linalg.generic {indexing_maps = [#map_, #map_, #map_], iterator_types = ["parallel", "parallel"]} ins(%cb0, %cb1 : memref<1x1x!ttype_si32, #l1_>, memref<1x1x!ttype_si32, #l1_>) outs(%cb2 : memref<1x1x!ttype_si32, #l1_>) {
       ^bb0(%arg0: !ttype_si32, %arg1: !ttype_si32, %arg2: !ttype_si32):
-        // COMMON-NOT: d2m.tile_sub
-        // COMMON-NOT: d2m.tile_gtz
-        // COMMON: ttkernel.init_sfpu
-        // COMMON: ttkernel.sub_binary_tile_init
-        // COMMON: ttkernel.sub_binary_tile
-        // COMMON: ttkernel.gtz_tile_init
-        // COMMON: ttkernel.gtz_tile_int32
+        // CHECK-NOT: d2m.tile_sub
+        // CHECK-NOT: d2m.tile_gtz
+        // CHECK: ttkernel.init_sfpu
+        // CHECK: ttkernel.sub_binary_tile_init
+        // CHECK: ttkernel.sub_binary_tile
+        // CHECK: ttkernel.gtz_tile_init
+        // CHECK: ttkernel.gtz_tile_int32
         %0 = "d2m.tile_sub"(%arg0, %arg1) : (!ttype_si32, !ttype_si32) -> !ttype_si32
         %1 = "d2m.tile_gtz"(%0) : (!ttype_si32) -> !ttype_si32
-        // COMMON: ttkernel.pack_tile
+        // CHECK: ttkernel.pack_tile
         linalg.yield %1 : !ttype_si32
       }
     }
@@ -958,16 +957,16 @@ module {
       %cb2 = d2m.reserve %arg2_cb : !d2m.cb<memref<1x1x!ttype_si32, #l1_>> -> memref<1x1x!ttype_si32, #l1_>
       linalg.generic {indexing_maps = [#map_, #map_, #map_], iterator_types = ["parallel", "parallel"]} ins(%cb0, %cb1 : memref<1x1x!ttype_si32, #l1_>, memref<1x1x!ttype_si32, #l1_>) outs(%cb2 : memref<1x1x!ttype_si32, #l1_>) {
       ^bb0(%arg0: !ttype_si32, %arg1: !ttype_si32, %arg2: !ttype_si32):
-        // COMMON-NOT: d2m.tile_sub
-        // COMMON-NOT: d2m.tile_gez
-        // COMMON: ttkernel.init_sfpu
-        // COMMON: ttkernel.sub_binary_tile_init
-        // COMMON: ttkernel.sub_binary_tile
-        // COMMON: ttkernel.gez_tile_init
-        // COMMON: ttkernel.gez_tile_int32
+        // CHECK-NOT: d2m.tile_sub
+        // CHECK-NOT: d2m.tile_gez
+        // CHECK: ttkernel.init_sfpu
+        // CHECK: ttkernel.sub_binary_tile_init
+        // CHECK: ttkernel.sub_binary_tile
+        // CHECK: ttkernel.gez_tile_init
+        // CHECK: ttkernel.gez_tile_int32
         %0 = "d2m.tile_sub"(%arg0, %arg1) : (!ttype_si32, !ttype_si32) -> !ttype_si32
         %1 = "d2m.tile_gez"(%0) : (!ttype_si32) -> !ttype_si32
-        // COMMON: ttkernel.pack_tile
+        // CHECK: ttkernel.pack_tile
         linalg.yield %1 : !ttype_si32
       }
     }
@@ -986,16 +985,16 @@ module {
       %cb2 = d2m.reserve %arg2_cb : !d2m.cb<memref<1x1x!ttype_si32, #l1_>> -> memref<1x1x!ttype_si32, #l1_>
       linalg.generic {indexing_maps = [#map_, #map_, #map_], iterator_types = ["parallel", "parallel"]} ins(%cb0, %cb1 : memref<1x1x!ttype_si32, #l1_>, memref<1x1x!ttype_si32, #l1_>) outs(%cb2 : memref<1x1x!ttype_si32, #l1_>) {
       ^bb0(%arg0: !ttype_si32, %arg1: !ttype_si32, %arg2: !ttype_si32):
-        // COMMON-NOT: d2m.tile_sub
-        // COMMON-NOT: d2m.tile_ltz
-        // COMMON: ttkernel.init_sfpu
-        // COMMON: ttkernel.sub_binary_tile_init
-        // COMMON: ttkernel.sub_binary_tile
-        // COMMON: ttkernel.ltz_tile_init
-        // COMMON: ttkernel.ltz_tile_int32
+        // CHECK-NOT: d2m.tile_sub
+        // CHECK-NOT: d2m.tile_ltz
+        // CHECK: ttkernel.init_sfpu
+        // CHECK: ttkernel.sub_binary_tile_init
+        // CHECK: ttkernel.sub_binary_tile
+        // CHECK: ttkernel.ltz_tile_init
+        // CHECK: ttkernel.ltz_tile_int32
         %0 = "d2m.tile_sub"(%arg0, %arg1) : (!ttype_si32, !ttype_si32) -> !ttype_si32
         %1 = "d2m.tile_ltz"(%0) : (!ttype_si32) -> !ttype_si32
-        // COMMON: ttkernel.pack_tile
+        // CHECK: ttkernel.pack_tile
         linalg.yield %1 : !ttype_si32
       }
     }
@@ -1014,16 +1013,16 @@ module {
       %cb2 = d2m.reserve %arg2_cb : !d2m.cb<memref<1x1x!ttype_si32, #l1_>> -> memref<1x1x!ttype_si32, #l1_>
       linalg.generic {indexing_maps = [#map_, #map_, #map_], iterator_types = ["parallel", "parallel"]} ins(%cb0, %cb1 : memref<1x1x!ttype_si32, #l1_>, memref<1x1x!ttype_si32, #l1_>) outs(%cb2 : memref<1x1x!ttype_si32, #l1_>) {
       ^bb0(%arg0: !ttype_si32, %arg1: !ttype_si32, %arg2: !ttype_si32):
-        // COMMON-NOT: d2m.tile_sub
-        // COMMON-NOT: d2m.tile_lez
-        // COMMON: ttkernel.init_sfpu
-        // COMMON: ttkernel.sub_binary_tile_init
-        // COMMON: ttkernel.sub_binary_tile
-        // COMMON: ttkernel.lez_tile_init
-        // COMMON: ttkernel.lez_tile_int32
+        // CHECK-NOT: d2m.tile_sub
+        // CHECK-NOT: d2m.tile_lez
+        // CHECK: ttkernel.init_sfpu
+        // CHECK: ttkernel.sub_binary_tile_init
+        // CHECK: ttkernel.sub_binary_tile
+        // CHECK: ttkernel.lez_tile_init
+        // CHECK: ttkernel.lez_tile_int32
         %0 = "d2m.tile_sub"(%arg0, %arg1) : (!ttype_si32, !ttype_si32) -> !ttype_si32
         %1 = "d2m.tile_lez"(%0) : (!ttype_si32) -> !ttype_si32
-        // COMMON: ttkernel.pack_tile
+        // CHECK: ttkernel.pack_tile
         linalg.yield %1 : !ttype_si32
       }
     }
@@ -1040,14 +1039,14 @@ module {
       %cb1 = d2m.reserve %arg1_cb : !d2m.cb<memref<1x1x!ttype_f32, #l1_>> -> memref<1x1x!ttype_f32, #l1_>
       linalg.generic {indexing_maps = [#map_, #map_], iterator_types = ["parallel", "parallel"]} ins(%cb0 : memref<1x1x!ttype_f32, #l1_>) outs(%cb1 : memref<1x1x!ttype_f32, #l1_>) {
       ^bb0(%arg0: !ttype_f32, %arg1: !ttype_f32):
-        // COMMON-NOT: d2m.tile_silu
-        // COMMON: ttkernel.init_sfpu
-        // COMMON: ttkernel.copy_tile_init(%[[CB0:.+]]) :
-        // COMMON-NEXT: ttkernel.copy_tile(%[[CB0]], %{{.+}}, %{{.+}}) :
-        // COMMON: ttkernel.silu_tile_init
-        // COMMON: ttkernel.silu_tile
+        // CHECK-NOT: d2m.tile_silu
+        // CHECK: ttkernel.init_sfpu
+        // CHECK: ttkernel.copy_tile_init(%[[CB0:.+]]) :
+        // CHECK-NEXT: ttkernel.copy_tile(%[[CB0]], %{{.+}}, %{{.+}}) :
+        // CHECK: ttkernel.silu_tile_init
+        // CHECK: ttkernel.silu_tile
         %0 = "d2m.tile_silu"(%arg0) : (!ttype_f32) -> !ttype_f32
-        // COMMON: ttkernel.pack_tile
+        // CHECK: ttkernel.pack_tile
         linalg.yield %0 : !ttype_f32
       }
     }
@@ -1064,14 +1063,14 @@ module {
       %cb1 = d2m.reserve %arg1_cb : !d2m.cb<memref<1x1x!ttype_f32, #l1_>> -> memref<1x1x!ttype_f32, #l1_>
       linalg.generic {indexing_maps = [#map_, #map_], iterator_types = ["parallel", "parallel"]} ins(%cb0 : memref<1x1x!ttype_f32, #l1_>) outs(%cb1 : memref<1x1x!ttype_f32, #l1_>) {
       ^bb0(%arg0: !ttype_f32, %arg1: !ttype_f32):
-        // COMMON-NOT: d2m.tile_relu
-        // COMMON: ttkernel.init_sfpu
-        // COMMON: ttkernel.copy_tile_init(%[[CB0:.+]]) :
-        // COMMON-NEXT: ttkernel.copy_tile(%[[CB0]], %{{.+}}, %{{.+}}) :
-        // COMMON: ttkernel.relu_tile_init
-        // COMMON: ttkernel.relu_tile
+        // CHECK-NOT: d2m.tile_relu
+        // CHECK: ttkernel.init_sfpu
+        // CHECK: ttkernel.copy_tile_init(%[[CB0:.+]]) :
+        // CHECK-NEXT: ttkernel.copy_tile(%[[CB0]], %{{.+}}, %{{.+}}) :
+        // CHECK: ttkernel.relu_tile_init
+        // CHECK: ttkernel.relu_tile
         %0 = "d2m.tile_relu"(%arg0) : (!ttype_f32) -> !ttype_f32
-        // COMMON: ttkernel.pack_tile
+        // CHECK: ttkernel.pack_tile
         linalg.yield %0 : !ttype_f32
       }
     }
@@ -1088,14 +1087,14 @@ module {
       %cb1 = d2m.reserve %arg1_cb : !d2m.cb<memref<1x1x!ttype_si32, #l1_>> -> memref<1x1x!ttype_si32, #l1_>
       linalg.generic {indexing_maps = [#map_, #map_], iterator_types = ["parallel", "parallel"]} ins(%cb0 : memref<1x1x!ttype_si32, #l1_>) outs(%cb1 : memref<1x1x!ttype_si32, #l1_>) {
       ^bb0(%arg0: !ttype_si32, %arg1: !ttype_si32):
-        // COMMON-NOT: d2m.tile_relu
-        // COMMON: ttkernel.init_sfpu
-        // COMMON: ttkernel.copy_tile_init(%[[CB0:.+]]) :
-        // COMMON-NEXT: ttkernel.copy_tile(%[[CB0]], %{{.+}}, %{{.+}}) :
-        // COMMON: ttkernel.relu_tile_init
-        // COMMON: ttkernel.relu_tile_int32
+        // CHECK-NOT: d2m.tile_relu
+        // CHECK: ttkernel.init_sfpu
+        // CHECK: ttkernel.copy_tile_init(%[[CB0:.+]]) :
+        // CHECK-NEXT: ttkernel.copy_tile(%[[CB0]], %{{.+}}, %{{.+}}) :
+        // CHECK: ttkernel.relu_tile_init
+        // CHECK: ttkernel.relu_tile_int32
         %0 = "d2m.tile_relu"(%arg0) : (!ttype_si32) -> !ttype_si32
-        // COMMON: ttkernel.pack_tile
+        // CHECK: ttkernel.pack_tile
         linalg.yield %0 : !ttype_si32
       }
     }

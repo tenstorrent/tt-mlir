@@ -31,7 +31,7 @@ module {
       // CHECK-NEXT: affine.for %{{.*}} = 0 to 8 {
       // Typecast with dst_reinterpret_cast to dst type
       // CHECK: %[[DST_LOAD:.*]] = affine.load %[[DST]]
-      // CHECK: %[[TYPECAST:.*]] = "d2m.tile_typecast"(%[[DST_LOAD]]) : (!ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f16>
+      // CHECK: %[[TYPECAST:.*]] = "d2m.tile_typecast"(%[[DST_LOAD]]) {result_dst_index = 0 : i64} : (!ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f16>
       // CHECK: %[[CAST_TO_DST:.*]] = "d2m.dst_reinterpret_cast"(%[[TYPECAST]]) : (!ttcore.tile<32x32, f16>) -> !ttcore.tile<32x32, f32>
       // CHECK: affine.store %[[CAST_TO_DST]], %[[DST]]
 

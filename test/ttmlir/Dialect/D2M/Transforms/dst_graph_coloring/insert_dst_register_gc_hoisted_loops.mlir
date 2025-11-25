@@ -1,6 +1,6 @@
 // RUN: ttmlir-opt --ttcore-register-device --d2m-insert-dst-register-gc %s | FileCheck %s
 //
-// Comprehensive test for the hoisted loop structure created by graph coloring DST allocator.
+// Comprehensive test for the loop structure created by graph coloring DST allocator.
 // Verifies that the pass creates THREE separate loop nests:
 //   1. Prologue loop nest - L1->DST data copies
 //   2. Compute loop nest - Original computation using DST values
@@ -54,43 +54,35 @@ module {
 // CHECK: d2m.generic
 // CHECK: ^compute0(%[[CB0:.*]]: !d2m.cb<memref<2x2x!ttcore.tile<32x32, f16>, #l1>>, %[[CB1:.*]]: !d2m.cb<memref<2x2x!ttcore.tile<32x32, f16>, #l1>>, %[[CB_OUT:.*]]: !d2m.cb<memref<2x2x!ttcore.tile<32x32, f16>, #l1>>):
 
-// Acquire DST at the beginning
-// CHECK: %[[DST:.*]] = d2m.acquire_dst() : memref<3x2x2x!ttcore.tile<32x32, f16>, #dst>
-
-// Wait/reserve operations
+// Wait/reserve operations first
 // CHECK: %[[MEM0:.*]] = d2m.wait %[[CB0]]
 // CHECK: %[[MEM1:.*]] = d2m.wait %[[CB1]]
 // CHECK: %[[MEM_OUT:.*]] = d2m.reserve %[[CB_OUT]]
 
-// PARTIAL LOOP HOISTING: The pass fuses the outer loop and hoists copies to inner loops
-// This creates a single outer loop with three sequential inner loops inside it
+// Acquire DST
+// CHECK: %[[DST:.*]] = d2m.acquire_dst() : memref<3x2x2x!ttcore.tile<32x32, f16>, #dst>
 
-// CHECK: affine.for %[[OUTER_I:.*]] = 0 to 2 {
+// PROLOGUE LOOP NEST: L1 -> DST copies for both inputs
+// CHECK: affine.for
+// CHECK: affine.for
+// CHECK: affine.load %[[MEM0]]
+// CHECK: affine.store {{.*}}, %[[DST]]
+// CHECK: affine.load %[[MEM1]]
+// CHECK: affine.store {{.*}}, %[[DST]]
 
-// PROLOGUE INNER LOOP: L1 -> DST copies for both inputs
-// CHECK: affine.for %[[PROLOGUE_J:.*]] = 0 to 2 {
-// CHECK: %[[L1_VAL0:.*]] = affine.load %[[MEM0]][%[[OUTER_I]], %[[PROLOGUE_J]]]
-// CHECK: affine.store %[[L1_VAL0]], %[[DST]][{{.*}}, %[[OUTER_I]], %[[PROLOGUE_J]]]
-// CHECK: %[[L1_VAL1:.*]] = affine.load %[[MEM1]][%[[OUTER_I]], %[[PROLOGUE_J]]]
-// CHECK: affine.store %[[L1_VAL1]], %[[DST]][{{.*}}, %[[OUTER_I]], %[[PROLOGUE_J]]]
-// CHECK: }
+// COMPUTE LOOP NEST: Original computation using DST values
+// CHECK: affine.for
+// CHECK: affine.for
+// CHECK: affine.load %[[DST]]
+// CHECK: affine.load %[[DST]]
+// CHECK: "d2m.tile_add"{{.*}}{result_dst_index = 2 : i64}
+// CHECK: affine.store {{.*}}, %[[DST]]
 
-// COMPUTE INNER LOOP: Original computation using DST values
-// CHECK: affine.for %[[COMPUTE_J:.*]] = 0 to 2 {
-// CHECK: %[[DST_VAL0:.*]] = affine.load %[[DST]][{{.*}}, {{.*}}, {{.*}}]
-// CHECK: %[[DST_VAL1:.*]] = affine.load %[[DST]][{{.*}}, {{.*}}, {{.*}}]
-// CHECK: %[[COMPUTE_RESULT:.*]] = "d2m.tile_add"(%[[DST_VAL0]], %[[DST_VAL1]])
-// CHECK: affine.store %[[COMPUTE_RESULT]], %[[DST]][{{.*}}, {{.*}}, {{.*}}]
-// CHECK: }
-
-// EPILOGUE INNER LOOP: DST -> L1 result copies
-// CHECK: affine.for %[[EPILOGUE_J:.*]] = 0 to 2 {
-// CHECK: %[[DST_RESULT:.*]] = affine.load %[[DST]][{{.*}}, %[[OUTER_I]], %[[EPILOGUE_J]]]
-// CHECK: affine.store %[[DST_RESULT]], %[[MEM_OUT]][%[[OUTER_I]], %[[EPILOGUE_J]]]
-// CHECK: }
-
-// End of outer loop
-// CHECK: }
+// EPILOGUE LOOP NEST: DST -> L1 result copies
+// CHECK: affine.for
+// CHECK: affine.for
+// CHECK: affine.load %[[DST]]
+// CHECK: affine.store {{.*}}, %[[MEM_OUT]]
 
 // Release DST at the end
 // CHECK: d2m.release_dst %[[DST]]

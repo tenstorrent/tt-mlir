@@ -1590,20 +1590,12 @@ d2m::GenericOp::getOperandGridShapes() {
       mlir::tt::ttcore::DeviceLayoutInterface layout =
           mlir::cast<mlir::tt::ttcore::DeviceLayoutInterface>(
               memrefType.getLayout());
-      if (layout) {
-        gridShapes.emplace_back(layout.getGridShape(memrefType));
-      } else {
-        gridShapes.emplace_back(SmallVector<int64_t>{});
-      }
+      gridShapes.emplace_back(layout.getGridShape(memrefType));
     } else {
       auto tensorType = mlir::cast<RankedTensorType>(operand.getType());
       ttcore::MetalLayoutAttr layout =
-          mlir::dyn_cast<ttcore::MetalLayoutAttr>(tensorType.getEncoding());
-      if (layout) {
-        gridShapes.emplace_back(layout.getGridShape(tensorType));
-      } else {
-        gridShapes.emplace_back(SmallVector<int64_t>{});
-      }
+          mlir::cast<ttcore::MetalLayoutAttr>(tensorType.getEncoding());
+      gridShapes.emplace_back(layout.getGridShape(tensorType));
     }
   }
   return gridShapes;
