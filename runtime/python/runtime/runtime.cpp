@@ -285,14 +285,6 @@ void registerRuntimeBindings(nb::module_ &m) {
              ::tt::runtime::FabricConfig::FABRIC_2D_TORUS_Y)
       .value("FABRIC_2D_TORUS_XY",
              ::tt::runtime::FabricConfig::FABRIC_2D_TORUS_XY)
-      .value("FABRIC_2D_DYNAMIC",
-             ::tt::runtime::FabricConfig::FABRIC_2D_DYNAMIC)
-      .value("FABRIC_2D_DYNAMIC_TORUS_X",
-             ::tt::runtime::FabricConfig::FABRIC_2D_DYNAMIC_TORUS_X)
-      .value("FABRIC_2D_DYNAMIC_TORUS_Y",
-             ::tt::runtime::FabricConfig::FABRIC_2D_DYNAMIC_TORUS_Y)
-      .value("FABRIC_2D_DYNAMIC_TORUS_XY",
-             ::tt::runtime::FabricConfig::FABRIC_2D_DYNAMIC_TORUS_XY)
       .value("CUSTOM", ::tt::runtime::FabricConfig::CUSTOM);
 
   nb::enum_<::tt::target::Arch>(m, "Arch")
@@ -378,14 +370,6 @@ void registerRuntimeBindings(nb::module_ &m) {
       "Create a multi-device host tensor with owned memory");
   m.def("get_arch", &tt::runtime::getArch,
         "Get the architecture of the device");
-  m.def("enable_persistent_kernel_cache",
-        &tt::runtime::enablePersistentKernelCache,
-        "Enable persistent kernel cache, which will cache kernel binaries on "
-        "disk usable across runs.");
-  m.def("disable_persistent_kernel_cache",
-        &tt::runtime::disablePersistentKernelCache,
-        "Disable persistent kernel cache, which will disable caching kernel "
-        "binaries on disk.");
   m.def("get_num_available_devices", &tt::runtime::getNumAvailableDevices,
         "Get the number of available devices");
   m.def("open_mesh_device", &tt::runtime::openMeshDevice,
@@ -658,5 +642,8 @@ void registerRuntimeBindings(nb::module_ &m) {
 
   m.def("unregister_hooks",
         []() { ::tt::runtime::debug::Hooks::get().unregisterHooks(); });
+
+  m.def("log_memory_state", &::tt::runtime::debug::logMemoryState,
+        nb::arg("memory_state"), nb::arg("prefix") = "");
 }
 } // namespace tt::runtime::python

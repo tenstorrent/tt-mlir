@@ -1752,7 +1752,13 @@ private:
 // Scaled sum to mean pattern matcher that transforms:
 //   multiply(sum<dim=[2,3]>(act), 1/(h*w))
 // into:
-//   mean<dim=[2,3]>(act)
+//   mean<dim=3>(reshape(act, [N,C,1,H*W]))
+//
+// The pattern reshapes input from [N, C, H, W] to [N, C, 1, H*W], then applies
+// mean on dimension 3 with keepdim=true, as it is more efficient than reducing
+// by two dimensions.
+// If the original sum had keepdim=false, then the result is
+// reshaped to remove the spatial dimensions too.
 //
 // Matches decomposed global average pooling from torch-xla.
 
@@ -1769,39 +1775,34 @@ public:
   mlir::LogicalResult
   matchAndRewrite(MultiplyOp multiplyOp,
                   mlir::PatternRewriter &rewriter) const final {
-
     SumOp sumOp = multiplyOp.getLhs().getDefiningOp<SumOp>();
-    if (!validateSumOp(sumOp)) {
+    if (!isValidSum(sumOp)) {
       return mlir::failure();
     }
 
     FullOp fullOp = multiplyOp.getRhs().getDefiningOp<FullOp>();
     auto inputShape = sumOp.getInput().getType().getShape();
-    if (!validateFullOp(fullOp, inputShape)) {
+    if (!isValidScale(fullOp, inputShape)) {
       return mlir::failure();
     }
 
-    auto meanOp = createMeanOp(rewriter, sumOp);
+    auto input = sumOp.getInput();
+    auto loc = sumOp.getLoc();
 
-    rewriter.replaceOp(multiplyOp, meanOp.getResult());
+    auto reshapedInput = createInputReshape(rewriter, loc, input);
+    auto meanOp = createMean(rewriter, loc, reshapedInput);
 
-    return mlir::success();
-  };
-
-private:
-  bool validateFullOp(FullOp fullOp, ArrayRef<int64_t> inputShape) const {
-    if (!fullOp) {
-      return false;
+    auto result = meanOp.getResult();
+    if (!sumOp.getKeepDim()) {
+      result = createOutputReshape(rewriter, loc, result);
     }
-    int64_t inputHeight = inputShape[SPATIAL_HEIGHT_DIM];
-    int64_t inputWidth = inputShape[SPATIAL_WIDTH_DIM];
-    float expectedValue = 1.0f / static_cast<float>(inputHeight * inputWidth);
-    float tolerance =
-        std::max(FLOAT_TOLERANCE, std::abs(expectedValue) * FLOAT_TOLERANCE);
-    return isFullOpWithValue(fullOp, expectedValue, tolerance);
+
+    rewriter.replaceOp(multiplyOp, result);
+    return mlir::success();
   }
 
-  bool validateSumOp(SumOp sumOp) const {
+private:
+  static bool isValidSum(SumOp sumOp) {
     if (!sumOp || !sumOp.getDimArg() || !sumOp->hasOneUse()) {
       return false;
     }
@@ -1811,7 +1812,6 @@ private:
       return false;
     }
 
-    // Check that dimensions 2 and 3 are being reduced (height and width)
     auto reduceDims = *sumOp.getDimArg();
     if (reduceDims.size() != 2) {
       return false;
@@ -1829,42 +1829,71 @@ private:
            dimSet.contains(SPATIAL_WIDTH_DIM);
   }
 
-  MeanOp createMeanOp(mlir::PatternRewriter &rewriter, SumOp sumOp) const {
-    auto outputType =
-        createPoolingOutputType(sumOp.getInput().getType(), sumOp.getKeepDim());
-
-    auto loc = sumOp.getLoc();
-
-    auto meanOp = ttir::utils::createDPSOp<MeanOp>(
-        rewriter, ttmlir::utils::appendLocationSuffix(loc, "_mean"), outputType,
-        sumOp.getInput(),
-        /*keep_dim=*/rewriter.getBoolAttr(sumOp.getKeepDim()),
-        /*dim_arg=*/
-        rewriter.getArrayAttr({rewriter.getI32IntegerAttr(SPATIAL_HEIGHT_DIM),
-                               rewriter.getI32IntegerAttr(SPATIAL_WIDTH_DIM)}));
-
-    return meanOp;
+  static bool isValidScale(FullOp fullOp, ArrayRef<int64_t> inputShape) {
+    if (!fullOp) {
+      return false;
+    }
+    int64_t h = inputShape[SPATIAL_HEIGHT_DIM];
+    int64_t w = inputShape[SPATIAL_WIDTH_DIM];
+    float expectedValue = 1.0f / static_cast<float>(h * w);
+    float tolerance =
+        std::max(FLOAT_TOLERANCE, std::abs(expectedValue) * FLOAT_TOLERANCE);
+    return isFullOpWithValue(fullOp, expectedValue, tolerance);
   }
 
-  RankedTensorType createPoolingOutputType(RankedTensorType inputType,
-                                           bool keepDim) const {
-    SmallVector<int64_t> poolOutputShape;
-    ArrayRef<int64_t> inputShape = inputType.getShape();
+  static ReshapeOp createInputReshape(mlir::PatternRewriter &rewriter,
+                                      Location loc, Value input) {
+    auto inputType = mlir::cast<RankedTensorType>(input.getType());
+    auto shape = inputType.getShape();
 
-    if (keepDim) {
-      poolOutputShape.assign(inputShape.begin(), inputShape.end());
-      poolOutputShape[SPATIAL_HEIGHT_DIM] = 1;
-      poolOutputShape[SPATIAL_WIDTH_DIM] = 1;
-    } else {
-      poolOutputShape.reserve(inputShape.size() - 2);
-      for (size_t i = 0; i < inputShape.size(); ++i) {
-        if (i != SPATIAL_HEIGHT_DIM && i != SPATIAL_WIDTH_DIM) {
-          poolOutputShape.push_back(inputShape[i]);
-        }
+    SmallVector<int64_t> newShape(shape.begin(), shape.end());
+    newShape[SPATIAL_HEIGHT_DIM] = 1;
+    newShape[SPATIAL_WIDTH_DIM] =
+        shape[SPATIAL_HEIGHT_DIM] * shape[SPATIAL_WIDTH_DIM];
+
+    SmallVector<int32_t> newShapeI32(newShape.begin(), newShape.end());
+    return ttir::utils::createDPSOp<ReshapeOp>(
+        rewriter, ttmlir::utils::appendLocationSuffix(loc, "_input_reshape"),
+        newShape, inputType.getElementType(), inputType.getEncoding(), input,
+        rewriter.getI32ArrayAttr(newShapeI32));
+  }
+
+  static MeanOp createMean(mlir::PatternRewriter &rewriter, Location loc,
+                           Value reshaped) {
+    auto reshapedType = mlir::cast<RankedTensorType>(reshaped.getType());
+    auto shape = reshapedType.getShape();
+
+    SmallVector<int64_t> outputShape(shape.begin(), shape.end());
+    outputShape[SPATIAL_WIDTH_DIM] = 1;
+
+    auto outputType = RankedTensorType::get(
+        outputShape, reshapedType.getElementType(), reshapedType.getEncoding());
+
+    return ttir::utils::createDPSOp<MeanOp>(
+        rewriter, ttmlir::utils::appendLocationSuffix(loc, "_mean"), outputType,
+        reshaped, /*keep_dim=*/rewriter.getBoolAttr(true),
+        /*dim_arg=*/
+        rewriter.getArrayAttr({rewriter.getI32IntegerAttr(SPATIAL_WIDTH_DIM)}));
+  }
+
+  static ReshapeOp createOutputReshape(mlir::PatternRewriter &rewriter,
+                                       Location loc, Value meanResult) {
+    auto meanType = mlir::cast<RankedTensorType>(meanResult.getType());
+    auto shape = meanType.getShape();
+
+    SmallVector<int64_t> newShape;
+    newShape.reserve(shape.size() - 2);
+    for (size_t i = 0; i < shape.size(); ++i) {
+      if (i != SPATIAL_HEIGHT_DIM && i != SPATIAL_WIDTH_DIM) {
+        newShape.push_back(shape[i]);
       }
     }
-    return RankedTensorType::get(poolOutputShape, inputType.getElementType(),
-                                 inputType.getEncoding());
+
+    SmallVector<int32_t> newShapeI32(newShape.begin(), newShape.end());
+    return ttir::utils::createDPSOp<ReshapeOp>(
+        rewriter, ttmlir::utils::appendLocationSuffix(loc, "_output_reshape"),
+        newShape, meanType.getElementType(), meanType.getEncoding(), meanResult,
+        rewriter.getI32ArrayAttr(newShapeI32));
   }
 };
 
@@ -2894,6 +2923,265 @@ private:
 };
 } // namespace
 
+namespace {
+// This is rope fusing pattern. Given this formula:
+// (x * cos) + (rotate_half(x) * sin)
+// into rotary_embedding op.
+//
+// rotate_half is defined as half rotation of the last dimension:
+// rotate_half([x1, x2, x3, x4]) = [-x3, -x4, x1, x2]
+//
+// This pattern is broken down into two sub-patterns:
+// 1. unrotatedProjection: matches x * cos
+// 2. rotatedProjection: matches rotate_half(x) * sin
+//
+// unrotatedProjection comes as following sequence of operations:
+// cos_unsqueezed = unsqueeze(cos) - where unsqueeze will be reshape which
+// prepends
+//  dimensions to cos to match x's rank.
+// unrotated_projection = multiply(x, cos_unsqueezed)
+//
+// rotatedProjections comes as following sequence of operations:
+// sin_unsqueezed = unsqueeze(sin) - where unsqueeze will be reshape which
+// prepends
+//  dimensions to sin to match x's rank.
+// rotated_second_half = slice(x, ..., start = last_dim/2, end = last_dim)
+// neg_rotated_second_half = negate(rotated_second_half)
+// rotated_first_half = slice(x, ..., start = 0, end = last_dim/2)
+// rotated_x = concatenate(neg_rotated_second_half, rotated_first_half, axis =
+// last_dim) rotated_projection = multiply(rotated_x, sin_unsqueezed)
+//
+// Finally there is an add operation which adds unrotated_projection and
+// rotated_projection. x_embedding = add(unrotated_projection,
+// rotated_projection)
+//
+// This whole pattern is replaced with ttir.rotary_embedding op.
+// This op accepts x, cos, sin and trans_mat. First three are self explanatory.
+// Trans matrix is used to perform the half rotation. If we take that we have
+// x of shape [batch_size, num_heads, seq_len, head_dim] then trans mat
+// will be of shape[head_dim, head_dim] and will look like this (lets take
+// head_dim = 4):
+// [[0, 0, 1, 0],
+//  [0, 0, 0, 1],
+//  [-1,0, 0, 0],
+//  [0,-1, 0, 0]]
+//
+// So when we multiply x with this matrix we get the desired half rotation.
+class RoPEFusing : public mlir::OpRewritePattern<AddOp> {
+  using RoPEFusing::OpRewritePattern<AddOp>::OpRewritePattern;
+
+public:
+  mlir::LogicalResult
+  matchAndRewrite(AddOp srcOp, mlir::PatternRewriter &rewriter) const override {
+    // Match the final add: add(unrotated_projection, rotated_projection)
+    Value lhs = srcOp.getLhs();
+    Value rhs = srcOp.getRhs();
+
+    // Try to identify which operand is unrotated and which is rotated
+    auto lhsMul = lhs.getDefiningOp<MultiplyOp>();
+    auto rhsMul = rhs.getDefiningOp<MultiplyOp>();
+
+    if (!lhsMul || !rhsMul) {
+      return failure();
+    }
+
+    // Try both orderings
+    if (auto result = tryMatch(srcOp, lhsMul, rhsMul, rewriter);
+        result.succeeded()) {
+      return result;
+    }
+    if (auto result = tryMatch(srcOp, rhsMul, lhsMul, rewriter);
+        result.succeeded()) {
+      return result;
+    }
+
+    return failure();
+  }
+
+private:
+  mlir::LogicalResult tryMatch(AddOp srcOp, MultiplyOp unrotatedMul,
+                               MultiplyOp rotatedMul,
+                               mlir::PatternRewriter &rewriter) const {
+    // Match unrotated projection: multiply(x, cos_unsqueezed)
+    Value xUnrotated, cos;
+    if (!matchUnrotatedProjection(unrotatedMul, xUnrotated, cos)) {
+      return failure();
+    }
+
+    // Match rotated projection: multiply(rotated_x, sin_unsqueezed)
+    Value xRotated, sin;
+    if (!matchRotatedProjection(rotatedMul, xRotated, sin)) {
+      return failure();
+    }
+
+    // Verify that both projections use the same input x
+    if (xUnrotated != xRotated) {
+      return failure();
+    }
+
+    if (!cos || !sin) {
+      return failure();
+    }
+
+    // Get input tensor shape to determine head_dim
+    auto inputType = mlir::cast<RankedTensorType>(xUnrotated.getType());
+    if (!inputType || inputType.getRank() < 1) {
+      return failure();
+    }
+
+    int64_t headDim = inputType.getShape()[inputType.getRank() - 1];
+    if (headDim <= 0 || headDim % 2 != 0) {
+      return failure();
+    }
+
+    // Create rotary_embedding op
+    auto resultType = srcOp.getType();
+    auto ropeOp = utils::createDPSOp<RotaryEmbeddingOp>(
+        rewriter, srcOp.getLoc(), resultType, xUnrotated, cos, sin);
+
+    rewriter.replaceOp(srcOp, ropeOp.getResult());
+    return mlir::success();
+  }
+
+  bool matchUnrotatedProjection(MultiplyOp mulOp, Value &x,
+                                Value &cosUnsqueezed) const {
+    Value lhs = mulOp.getLhs();
+    Value rhs = mulOp.getRhs();
+
+    // Check if one operand is the unsqueezed cos
+    if (auto cos = isUnsqueezedTensor(rhs)) {
+      x = lhs;
+      cosUnsqueezed = cos;
+      return true;
+    }
+    if (auto cos = isUnsqueezedTensor(lhs)) {
+      x = rhs;
+      cosUnsqueezed = cos;
+      return true;
+    }
+    return false;
+  }
+
+  bool matchRotatedProjection(MultiplyOp mulOp, Value &x,
+                              Value &sinUnsqueezed) const {
+    Value lhs = mulOp.getLhs();
+    Value rhs = mulOp.getRhs();
+
+    // One operand should be unsqueezed sin, the other should be rotated x
+    Value rotatedX = nullptr;
+    if (auto sin = isUnsqueezedTensor(rhs)) {
+      rotatedX = lhs;
+      sinUnsqueezed = sin;
+    } else if (auto sin = isUnsqueezedTensor(lhs)) {
+      rotatedX = rhs;
+      sinUnsqueezed = sin;
+    } else {
+      return false;
+    }
+
+    // Match the rotation pattern: concat(neg(second_half), first_half)
+    auto concatOp = rotatedX.getDefiningOp<ConcatOp>();
+    if (!concatOp || concatOp.getNumOperands() != 3) {
+      return false;
+    }
+
+    Value negHalf = concatOp.getOperand(0);
+    Value firstHalf = concatOp.getOperand(1);
+
+    // Check that first operand is negated second half
+    auto negOp = negHalf.getDefiningOp<NegOp>();
+    if (!negOp) {
+      return false;
+    }
+
+    Value secondHalf = negOp.getInput();
+
+    // Both halves should be slices of the same input
+    auto firstSlice = firstHalf.getDefiningOp<SliceStaticOp>();
+    auto secondSlice = secondHalf.getDefiningOp<SliceStaticOp>();
+
+    if (!firstSlice || !secondSlice) {
+      return false;
+    }
+
+    Value input1 = firstSlice.getInput();
+    Value input2 = secondSlice.getInput();
+
+    if (input1 != input2) {
+      return false;
+    }
+
+    x = input1;
+
+    // rotary_embedding requires 4D input in form
+    // [batch_size, num_heads, seq_len, head_dim]
+    ArrayRef<int64_t> inputShape =
+        mlir::cast<RankedTensorType>(x.getType()).getShape();
+    if (inputShape.size() != 4) {
+      return false;
+    }
+
+    int64_t lastDim = inputShape.back();
+    if (lastDim <= 0 || lastDim % 2 != 0) {
+      return false;
+    }
+
+    int64_t halfDim = lastDim / 2;
+
+    // Check first_half slice: [0, halfDim)
+    auto firstBegins =
+        ttmlir::utils::getIntegerVector<int64_t>(firstSlice.getBegins());
+    auto firstEnds =
+        ttmlir::utils::getIntegerVector<int64_t>(firstSlice.getEnds());
+    if (!firstBegins || !firstEnds || firstBegins->back() != 0 ||
+        firstEnds->back() != halfDim) {
+      return false;
+    }
+
+    // Check second_half slice: [halfDim, lastDim)
+    auto secondBegins =
+        ttmlir::utils::getIntegerVector<int64_t>(secondSlice.getBegins());
+    auto secondEnds =
+        ttmlir::utils::getIntegerVector<int64_t>(secondSlice.getEnds());
+    if (!secondBegins || !secondEnds || secondBegins->back() != halfDim ||
+        secondEnds->back() != lastDim) {
+      return false;
+    }
+
+    return true;
+  }
+
+  Value isUnsqueezedTensor(Value val) const {
+    // An unsqueezed tensor is typically a reshape that adds dimensions
+    auto input = val.getDefiningOp<BroadcastOp>();
+
+    if (input) {
+      val = input.getInput();
+    }
+
+    auto reshapeOp = val.getDefiningOp<ReshapeOp>();
+    if (!reshapeOp) {
+      return nullptr;
+    }
+
+    auto inputShape =
+        mlir::cast<RankedTensorType>(reshapeOp.getInput().getType()).getShape();
+    SmallVector<int64_t> outputShape(
+        mlir::cast<RankedTensorType>(reshapeOp.getType()).getShape());
+
+    // Check that output shape is input shape with one extra leading dimension
+    SmallVector<int64_t> expectedShape(inputShape);
+    expectedShape.insert(expectedShape.begin(), 1);
+    if (outputShape == expectedShape) {
+      return val;
+    }
+
+    return nullptr;
+  }
+};
+
+} // namespace
+
 class TTIRFusingPass : public impl::TTIRFusingBase<TTIRFusingPass> {
 public:
   using impl::TTIRFusingBase<TTIRFusingPass>::TTIRFusingBase;
@@ -2909,6 +3197,7 @@ public:
     }
     {
       RewritePatternSet patterns(&getContext());
+      patterns.add<RoPEFusing>(&getContext());
       patterns.add<ConvAddBias<Conv2dOp>>(&getContext());
       patterns.add<ConvAddBias<ConvolutionOp>>(&getContext());
 

@@ -690,6 +690,40 @@ struct OpModel<ScaledDotProductAttentionDecodeOp> {
 };
 
 //===----------------------------------------------------------------------===//
+// PagedScaledDotProductAttentionDecodeOp
+//===----------------------------------------------------------------------===//
+template <>
+struct OpModel<PagedScaledDotProductAttentionDecodeOp> {
+  static llvm::Expected<OpConstraints> getOpConstraints(
+      ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> queryShape,
+      TTNNLayoutAttr queryLayout, llvm::ArrayRef<int64_t> keyShape,
+      TTNNLayoutAttr keyLayout, llvm::ArrayRef<int64_t> valueShape,
+      TTNNLayoutAttr valueLayout, llvm::ArrayRef<int64_t> pageTableShape,
+      TTNNLayoutAttr pageTableLayout, bool isCausal,
+      std::optional<llvm::ArrayRef<int64_t>> attentionMaskShape,
+      std::optional<TTNNLayoutAttr> attentionMaskLayout,
+      std::optional<llvm::ArrayRef<int64_t>> curPosTensorShape,
+      std::optional<TTNNLayoutAttr> curPosTensorLayout,
+      std::optional<llvm::ArrayRef<int64_t>> attentionSinkShape,
+      std::optional<TTNNLayoutAttr> attentionSinkLayout,
+      std::optional<llvm::APFloat> scale, TTNNLayoutAttr outputLayout);
+
+  static llvm::Expected<size_t>
+  getOpRuntime(llvm::ArrayRef<int64_t> queryShape, TTNNLayoutAttr queryLayout,
+               llvm::ArrayRef<int64_t> keyShape, TTNNLayoutAttr keyLayout,
+               llvm::ArrayRef<int64_t> valueShape, TTNNLayoutAttr valueLayout,
+               llvm::ArrayRef<int64_t> pageTableShape,
+               TTNNLayoutAttr pageTableLayout, bool isCausal,
+               std::optional<llvm::ArrayRef<int64_t>> attentionMaskShape,
+               std::optional<TTNNLayoutAttr> attentionMaskLayout,
+               std::optional<llvm::ArrayRef<int64_t>> curPosTensorShape,
+               std::optional<TTNNLayoutAttr> curPosTensorLayout,
+               std::optional<llvm::ArrayRef<int64_t>> attentionSinkShape,
+               std::optional<TTNNLayoutAttr> attentionSinkLayout,
+               std::optional<llvm::APFloat> scale, TTNNLayoutAttr outputLayout);
+};
+
+//===----------------------------------------------------------------------===//
 // ScaledDotProductAttentionOp
 //===----------------------------------------------------------------------===//
 template <>
@@ -1025,6 +1059,31 @@ struct OpModel<PagedUpdateCacheOp> {
 };
 
 //===----------------------------------------------------------------------===//
+// PagedFillCacheOp
+//===----------------------------------------------------------------------===//
+
+template <>
+struct OpModel<PagedFillCacheOp> {
+  static llvm::Expected<OpConstraints> getOpConstraints(
+      ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> cacheShape,
+      TTNNLayoutAttr cacheLayout, llvm::ArrayRef<int64_t> inputShape,
+      TTNNLayoutAttr inputLayout, llvm::ArrayRef<int64_t> pageTableShape,
+      TTNNLayoutAttr pageTableLayout,
+      std::optional<llvm::ArrayRef<int64_t>> batchIdxShape,
+      std::optional<TTNNLayoutAttr> batchIdxLayout,
+      TTNNLayoutAttr outputLayout);
+
+  static llvm::Expected<size_t>
+  getOpRuntime(llvm::ArrayRef<int64_t> cacheShape, TTNNLayoutAttr cacheLayout,
+               llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+               llvm::ArrayRef<int64_t> pageTableShape,
+               TTNNLayoutAttr pageTableLayout,
+               std::optional<llvm::ArrayRef<int64_t>> batchIdxShape,
+               std::optional<TTNNLayoutAttr> batchIdxLayout,
+               TTNNLayoutAttr outputLayout);
+};
+
+//===----------------------------------------------------------------------===//
 // Conv2dOp
 //===----------------------------------------------------------------------===//
 
@@ -1042,6 +1101,7 @@ struct OpModel<Conv2dOp> {
       llvm::ArrayRef<int32_t> dilation, uint32_t groups,
       std::optional<Conv2dConfigAttr> conv2dConfig,
       std::optional<DeviceComputeKernelConfigAttr> deviceComputeKernelConfig,
+      std::optional<Conv2dSliceConfigAttr> conv2dSliceConfig,
       TTNNLayoutAttr outputLayout);
 
   static llvm::Expected<size_t> getOpRuntime(
@@ -1055,6 +1115,7 @@ struct OpModel<Conv2dOp> {
       llvm::ArrayRef<int32_t> dilation, uint32_t groups,
       std::optional<Conv2dConfigAttr> conv2dConfig,
       std::optional<DeviceComputeKernelConfigAttr> deviceComputeKernelConfig,
+      std::optional<Conv2dSliceConfigAttr> conv2dSliceConfig,
       TTNNLayoutAttr outputLayout);
 };
 
@@ -1108,6 +1169,7 @@ struct OpModel<PrepareConv2dWeightsOp> {
       std::optional<ttcore::DataType> outputDtype,
       std::optional<Conv2dConfigAttr> conv2dConfig,
       std::optional<DeviceComputeKernelConfigAttr> deviceComputeKernelConfig,
+      std::optional<Conv2dSliceConfigAttr> conv2dSliceConfig,
       TTNNLayoutAttr outputLayout);
 };
 

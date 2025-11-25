@@ -8,18 +8,59 @@
 #include "ttmlir/Dialect/TTIR/IR/TTIR.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTIR/Utils/Utils.h"
+#include "ttmlir/Utils.h"
 
 namespace mlir::tt::ttir {
 
 // This pattern fuses the sequence: Permute -> Reshape -> Permute into a single
-// reshape op when the following conditions are met:
-// Original shape: [A, B, C, D]
-// permute(0, 3, 1, 2): [A, D, B, C]
-// reshape (A, D, B, C) -> (A, 1, D, B*C)
-// permute(0, 1, 3, 2): [A, 1, B*C, D]
+// reshape op.
 //
-// The result of this sequence is identical to the following reshape:
-// reshape (A, B, C, D) -> (A, 1, B*C, D)
+// It is hard to express all pairs of permutations and reshapes that can
+// commute, so for now we only support the cases we need:
+//
+// Case 1:
+// Original shape: [N, H, W, C]
+// permute(0, 3, 1, 2): [N, C, H, W]
+// reshape (N, C, H, W) -> (N, 1, C, H*W)
+// permute(0, 1, 3, 2): [N, 1, H*W, C]
+//
+// Case 2:
+// Original shape: [N, H, W, C]
+// permute(0, 3, 1, 2): [N, C, H, W]
+// reshape (N, C, H, W) -> (N, C, 1, H*W)
+// permute(0, 2, 3, 1): [N, 1, H*W, C]
+//
+// Both cases result in the same final shape. The result of either sequence is
+// identical to the following reshape:
+// reshape (N, H, W, C) -> (N, 1, H*W, C)
+
+// Reshape: n c h w -> n 1 c h*w
+static SmallVector<int64_t> computeCase1Reshape(ArrayRef<int64_t> inputShape) {
+  assert(inputShape.size() == 4 &&
+         "Expected 4D input tensor as output of 4D permutation");
+  return SmallVector<int64_t>{inputShape[0], 1, inputShape[1],
+                              inputShape[2] * inputShape[3]};
+}
+
+// Reshape: n c h w -> n c 1 h*w
+static SmallVector<int64_t> computeCase2Reshape(ArrayRef<int64_t> inputShape) {
+  assert(inputShape.size() == 4 &&
+         "Expected 4D input tensor as output of 4D permutation");
+  return SmallVector<int64_t>{inputShape[0], inputShape[1], 1,
+                              inputShape[2] * inputShape[3]};
+}
+
+struct PermuteReshapePermutePatternSpec {
+  SmallVector<int64_t> firstPermutation;
+  SmallVector<int64_t> secondPermutation;
+  SmallVector<int64_t> (*computeReshapeShape)(ArrayRef<int64_t>);
+};
+
+static const PermuteReshapePermutePatternSpec supportedPatterns[] = {
+    {{0, 3, 1, 2}, {0, 1, 3, 2}, computeCase1Reshape},
+    {{0, 3, 1, 2}, {0, 2, 3, 1}, computeCase2Reshape},
+};
+
 class PermuteReshapePermuteFusionPattern
     : public mlir::OpRewritePattern<PermuteOp> {
 public:
@@ -28,58 +69,73 @@ public:
   LogicalResult
   matchAndRewrite(PermuteOp op,
                   mlir::PatternRewriter &rewriter) const override {
-    if (op.getPermutation() != llvm::ArrayRef<int64_t>{0, 1, 3, 2}) {
+    // Find matching case based on the second permutation.
+    ArrayRef<int64_t> secondPermutation = op.getPermutation();
+    const PermuteReshapePermutePatternSpec *matchedPattern =
+        findMatchingPattern(secondPermutation);
+    if (!matchedPattern) {
       return failure();
     }
 
-    ArrayRef<int64_t> finalShape = op.getType().getShape();
-
-    ReshapeOp reshapeOperand = op.getInput().getDefiningOp<ReshapeOp>();
-    if (!reshapeOperand) {
+    // Verify the pattern structure: Permute -> Reshape -> Permute.
+    ReshapeOp reshapeOp = op.getInput().getDefiningOp<ReshapeOp>();
+    if (!reshapeOp || !reshapeOp->hasOneUse()) {
       return failure();
     }
 
-    PermuteOp permuteOperand =
-        reshapeOperand.getInput().getDefiningOp<PermuteOp>();
-    if (!permuteOperand) {
+    PermuteOp firstPermuteOp = reshapeOp.getInput().getDefiningOp<PermuteOp>();
+    if (!firstPermuteOp || !firstPermuteOp->hasOneUse()) {
       return failure();
     }
 
-    // Check that the reshape fuses the dims which were moved by the
-    // permuteOperand
-    ArrayRef<int64_t> permuteShape = permuteOperand.getType().getShape();
-    ArrayRef<int64_t> reshapeShape = reshapeOperand.getType().getShape();
-
-    bool isCorectReshape = reshapeShape[0] == permuteShape[0] &&
-                           reshapeShape[1] == 1 &&
-                           reshapeShape[2] == permuteShape[1] &&
-                           reshapeShape[3] == permuteShape[2] * permuteShape[3];
-
-    if (!isCorectReshape) {
+    // Verify the first permutation matches the expected pattern.
+    if (!llvm::equal(firstPermuteOp.getPermutation(),
+                     matchedPattern->firstPermutation)) {
       return failure();
     }
 
-    if (permuteOperand.getPermutation() !=
-        llvm::ArrayRef<int64_t>{0, 3, 1, 2}) {
+    // Verify the reshape shape matches the expected pattern for this case.
+    ArrayRef<int64_t> inputShape = firstPermuteOp.getType().getShape();
+    ArrayRef<int64_t> reshapeOutputShape = reshapeOp.getType().getShape();
+    SmallVector<int64_t> expectedReshapeShape =
+        matchedPattern->computeReshapeShape(inputShape);
+
+    if (!llvm::equal(reshapeOutputShape, expectedReshapeShape)) {
       return failure();
     }
 
-    SmallVector<int64_t> newReshapeShape = {
-        permuteShape[0], 1, permuteShape[2] * permuteShape[3], permuteShape[1]};
+    // Calculate the final reshape shape by applying the second permutation
+    // to the intermediate reshape output shape.
+    SmallVector<int64_t> finalReshapeShape =
+        ttmlir::utils::applyPermutation(reshapeOutputShape, secondPermutation);
 
-    if (newReshapeShape != finalShape) {
-      llvm_unreachable("We must calculate the shape of the reshape we wish to "
-                       "replace this TM sequence with to be identical to the "
-                       "output shape of the final TM in the sequence");
+    // Verify the calculated shape matches the final output shape.
+    ArrayRef<int64_t> finalOutputShape = op.getType().getShape();
+    if (!llvm::equal(finalReshapeShape, finalOutputShape)) {
+      llvm_unreachable(
+          "The computed reshape shape must match the final output shape.");
     }
+
+    // Replace the entire sequence with a single reshape operation.
     RankedTensorType newReshapeType = RankedTensorType::get(
-        newReshapeShape, permuteOperand.getType().getElementType());
-    ArrayAttr newShapeAttr = rewriter.getI32ArrayAttr(
-        SmallVector<int32_t>(newReshapeShape.begin(), newReshapeShape.end()));
+        finalReshapeShape, firstPermuteOp.getType().getElementType());
+    ArrayAttr newShapeAttr = rewriter.getI32ArrayAttr(SmallVector<int32_t>(
+        finalReshapeShape.begin(), finalReshapeShape.end()));
     utils::replaceOpWithNewDPSOp<ReshapeOp>(
-        rewriter, op, newReshapeType, permuteOperand.getInput(), newShapeAttr);
+        rewriter, op, newReshapeType, firstPermuteOp.getInput(), newShapeAttr);
 
     return success();
+  }
+
+private:
+  static const PermuteReshapePermutePatternSpec *
+  findMatchingPattern(ArrayRef<int64_t> permutation) {
+    for (const auto &pattern : supportedPatterns) {
+      if (llvm::equal(permutation, pattern.secondPermutation)) {
+        return &pattern;
+      }
+    }
+    return nullptr;
   }
 };
 

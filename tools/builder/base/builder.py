@@ -154,7 +154,10 @@ class Builder:
         # Location tracking for error reporting and debugging.
         self._operand_to_loc: Dict[Operand, str] = {}
 
-        # Set torch seed for reproducibility across test runs.
+        # Map from location string to the operand at that location.
+        self._loc_to_operand: Dict[str, Operand] = {}
+
+        # Set torch seed for reproducibility.
         torch.manual_seed(0)
 
         # Normalize mesh configuration to lists for uniform handling.
@@ -242,9 +245,7 @@ class Builder:
         # Always include inputs in golden map for verification.
         for index, input in enumerate(self._ordered_inputs):
             loc = f"input_{index}"
-            golden_info[loc] = self._generate_golden_device_tensor(
-                loc, self._get_golden_tensor(input)
-            )
+            golden_info[loc] = self._get_golden_tensor(input)
 
         # Include outputs if they are marked for checking.
         for index, output in enumerate(self._ordered_outputs):
@@ -252,16 +253,14 @@ class Builder:
                 continue
 
             loc = f"output_{index}"
-            golden_info[loc] = self._generate_golden_device_tensor(
-                loc, self._get_golden_tensor(output)
-            )
+            golden_info[loc] = self._get_golden_tensor(output)
 
         # Skip intermediate operands if graph-level checking is enforced.
         if self._force_graph_level_check:
             return golden_info
 
-        # Include intermediate operands marked for checking.
-        for operand, builder_golden_tensor in self._goldens.items():
+        # Store other operands into golden map if they are marked to be stored.
+        for operand, golden_map_tensor in self._goldens.items():
             if operand not in self._goldens_to_store:
                 continue
 
@@ -269,9 +268,8 @@ class Builder:
                 continue
 
             loc = self._operand_to_loc.get(operand, None)
-            golden_info[loc] = self._generate_golden_device_tensor(
-                loc, builder_golden_tensor
-            )
+            self._loc_to_operand[loc] = operand
+            golden_info[loc] = golden_map_tensor
 
         return golden_info
 
@@ -290,10 +288,14 @@ class Builder:
         """
         return self._get_type(input).shape
 
+    def get_type(self, input: Operand) -> Type:
+        return self._get_type(input).element_type
+
     def set_goldens(
         self,
         inputs: Dict[Operand, Union[Callable, torch.tensor, Dict[int : torch.tensor]]],
         outputs: Dict[Operand, Union[torch.tensor, Dict[int : torch.tensor]]] = None,
+        set_all_outputs: bool = True,
     ):
         """Set golden tensors for inputs and optionally outputs.
 
@@ -314,8 +316,9 @@ class Builder:
         self._set_goldens(self._create_builder_golden_from_torch_tensor(inputs))
 
         if outputs != None:
-            self.set_goldens_to_check(outputs.keys())
             self._set_goldens(self._create_builder_golden_from_torch_tensor(outputs))
+            if set_all_outputs:
+                self.set_goldens_to_check(outputs.keys())
 
     def set_goldens_from_builder_tensor(
         self,
@@ -349,7 +352,6 @@ class Builder:
 
         This method is used to specify golden values for intermediate operations
         (not just inputs/outputs) and automatically marks them for verification.
-        It also prints diagnostic information about the registered goldens.
 
         Parameters
         ----------
@@ -358,30 +360,6 @@ class Builder:
         """
         self._set_goldens(self._create_builder_golden_from_torch_tensor(operands))
         self.set_goldens_to_check(operands.keys())
-
-        # Print diagnostic information for debugging.
-        print("*************** Goldens to store ***************")
-        print(f"  Count: {len(self._goldens_to_store)}")
-        for operand in self._goldens_to_store:
-            print(
-                f"  - {operand.name if hasattr(operand, 'name') else type(operand).__name__}"
-            )
-
-        print("\n*************** Operand to loc ***************")
-        for operand, loc in self._operand_to_loc.items():
-            op_str = (
-                operand.name if hasattr(operand, "name") else type(operand).__name__
-            )
-            print(f"  {op_str}: {loc}")
-
-        print("\n*************** Goldens ***************")
-        print(f"  Total goldens: {len(self._goldens)}")
-        for operand, golden in self._goldens.items():
-            op_str = (
-                operand.name if hasattr(operand, "name") else type(operand).__name__
-            )
-            shape_str = str(golden.shape) if hasattr(golden, "shape") else "?"
-            print(f"  {op_str} -> shape={shape_str}")
 
     def set_goldens_to_check(self, operands: List[Operand], override: bool = False):
         """Mark specific operands for golden tensor verification.
@@ -626,6 +604,59 @@ class Builder:
             case _:
                 raise TypeError(f"Invalid Type {dtype}")
 
+    def _get_torch_dtype_from_type(self, mlir_type: Type) -> torch.dtype:
+        """Convert MLIR Type to torch.dtype.
+        Parameters
+        ----------
+        mlir_type : Type
+            MLIR type to convert
+        Returns
+        -------
+        torch.dtype
+            Corresponding torch dtype
+        """
+        type_str = str(mlir_type)
+
+        if isinstance(mlir_type, BF16Type) or type_str == "bf16":
+            return torch.bfloat16
+        elif isinstance(mlir_type, F16Type) or type_str == "f16":
+            return torch.float16
+        elif isinstance(mlir_type, F32Type) or type_str == "f32":
+            return torch.float32
+        elif isinstance(mlir_type, F64Type) or type_str == "f64":
+            return torch.float64
+        elif isinstance(mlir_type, IntegerType):
+            width = mlir_type.width
+            is_signed = mlir_type.is_signed
+            is_unsigned = mlir_type.is_unsigned
+
+            if width == 1:
+                return torch.bool
+            elif width == 8:
+                if is_unsigned:
+                    return torch.uint8
+                else:
+                    return torch.int8
+            elif width == 16:
+                if is_unsigned:
+                    return torch.uint16
+                else:
+                    return torch.int16
+            elif width == 32:
+                if is_unsigned:
+                    return torch.uint32
+                else:
+                    return torch.int32
+            elif width == 64:
+                if is_unsigned:
+                    return torch.uint64
+                else:
+                    return torch.int64
+            else:
+                raise TypeError(f"Unsupported integer width: {width}")
+        else:
+            raise TypeError(f"Unsupported MLIR type: {mlir_type}")
+
     def _get_next_global_id(self) -> int:
         """Generate the next unique global ID for operations.
 
@@ -802,7 +833,7 @@ class Builder:
         return GoldenMapTensor({0: random_tensor}, mesh_shape=self._mesh_shape)
 
     def _generate_golden_device_tensor(
-        self, loc: str, builder_golden_tensor: GoldenMapTensor
+        self, loc: str, golden_map_tensor: GoldenMapTensor
     ) -> Dict[int, GoldenTensor]:
         """Convert a GoldenMapTensor to device-specific GoldenTensor format.
 
@@ -823,7 +854,7 @@ class Builder:
             Map from device ID to GoldenTensor objects ready for flatbuffer embedding
         """
         device_golden_info: Dict[int, GoldenTensor] = {}
-        contiguous_tensor = builder_golden_tensor.contiguous()
+        contiguous_tensor = golden_map_tensor.contiguous()
         for device_id, device_golden in contiguous_tensor.shard_map.items():
             data_type = self._get_datatype_from_torch_dtype(device_golden.dtype)
             device_golden_info[device_id] = GoldenTensor(
@@ -952,6 +983,12 @@ class Builder:
             The stored golden tensor
         """
         return self._goldens[operand]
+
+    def _get_golden_tensors(
+        self,
+        operands: List[Operand],
+    ) -> List[GoldenMapTensor]:
+        return [self._goldens[operand] for operand in operands]
 
     def _set_input_ordering(self, inputs: List[Operand]):
         """Record the ordered list of function inputs.
