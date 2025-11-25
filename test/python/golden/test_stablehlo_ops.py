@@ -603,7 +603,7 @@ def test_reduce_min(
 @pytest.mark.parametrize("shape", [(128,)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttnn"])
-@pytest.mark.parametrize("broadcast_dimensions", [[0]])
+@pytest.mark.parametrize("broadcast_dimensions", [[1]])
 @pytest.mark.parametrize("output_shape", [[32, 128]])
 def test_broadcast_ops(
     shape: Shape,
