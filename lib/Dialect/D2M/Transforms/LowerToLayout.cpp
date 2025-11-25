@@ -56,9 +56,6 @@ struct TensorInfo {
   }
 
   ArrayRef<int64_t> getGridShape() const {
-    if (!hasLayout()) {
-      return ArrayRef<int64_t>();
-    }
     assert(hasLayout() && "Cannot get grid shape without layout");
     return layout->getGridShape(type);
   }
@@ -327,17 +324,27 @@ class D2MSplitCompoundLayoutRewriter : public OpRewritePattern<ToLayoutOp> {
       // Extract the tensor grid from the reference device tensor.
       SmallVector<int64_t> tensorGridShape =
           llvm::to_vector(referenceLayout.getGridShape(referenceType));
+      ttcore::MetalLayoutAttr layout;
       if (auto metalLayout = mlir::dyn_cast_or_null<ttcore::MetalLayoutAttr>(
               referenceType.getEncoding());
           metalLayout && !metalLayout.getIndexAffineMap().isEmpty()) {
         tensorGridShape =
             computeVirtualGridBounceShape(tensorGridShape, targetGridShape);
-      }
+        // Recompute default collapsed intervals and dim alignments if target
+        // is a reblocked intermediate bounce for a virtual grid tensor.
+        layout = ttcore::MetalLayoutAttr::get(
+            ctx, referenceLayout.getLogicalShape(), referenceLayout.getOobVal(),
+            memSpace, referenceLayout.getMemoryLayout(), AffineMap::get(ctx));
+      } else {
 
-      // Preserve all layout decisions from the referenceType tensor.
-      auto layout = ttcore::MetalLayoutAttr::get(
-          ctx, referenceLayout.getLogicalShape(), referenceLayout.getOobVal(),
-          memSpace, referenceLayout.getMemoryLayout());
+        // Preserve all layout decisions from the referenceType tensor.
+        layout = ttcore::MetalLayoutAttr::get(
+            ctx, referenceLayout.getLogicalShape(),
+            referenceLayout.getDimAlignments(),
+            referenceLayout.getCollapsedIntervals(),
+            referenceLayout.getOobVal(), memSpace,
+            referenceLayout.getMemoryLayout(), AffineMap::get(ctx));
+      }
 
       // Compute the device shape using the referenceType's grid shape.
       ArrayRef<int64_t> tileShape;
@@ -346,9 +353,8 @@ class D2MSplitCompoundLayoutRewriter : public OpRewritePattern<ToLayoutOp> {
       }
       auto deviceShape = layout.getDeviceShape(tensorGridShape, tileShape);
 
-      auto type = RankedTensorType::get(deviceShape,
-                                        systemType.getElementType(), layout);
-      return type;
+      return RankedTensorType::get(deviceShape, systemType.getElementType(),
+                                   layout);
     }
 
     // Modify an existing device tensor type while preserving layout
@@ -383,19 +389,28 @@ class D2MSplitCompoundLayoutRewriter : public OpRewritePattern<ToLayoutOp> {
       }
 
       ttcore::MetalLayoutAttr layout;
-      auto collapsedIntervals = baseLayout.getCollapsedIntervals();
       if (hasVirtualGrid && !reblockVirtualGridShapes) {
+        // if virtual grid is preserved (not reblocked), use empty collapsed
+        // intervals.
         auto emptyIntervalType =
             RankedTensorType::get({0, 2}, IntegerType::get(ctx, 64));
-        collapsedIntervals =
+        auto collapsedIntervals =
             DenseIntElementsAttr::get(emptyIntervalType, ArrayRef<int64_t>{});
         layout = ttcore::MetalLayoutAttr::get(
             ctx, baseLayout.getLogicalShape(), baseLayout.getOobVal(), memSpace,
             baseLayout.getMemoryLayout(), collapsedIntervals);
-      } else {
+      } else if (hasVirtualGrid && reblockVirtualGridShapes) {
+        // Recompute default collapsed intervals and dim alignments if virtual
+        // grid shape is being reblocked.
         layout = ttcore::MetalLayoutAttr::get(ctx, baseLayout.getLogicalShape(),
                                               baseLayout.getOobVal(), memSpace,
                                               baseLayout.getMemoryLayout());
+      } else {
+        // Otherwise, preserve dim alignments and collapsed intervals.
+        layout = ttcore::MetalLayoutAttr::get(
+            ctx, baseLayout.getLogicalShape(), baseLayout.getDimAlignments(),
+            baseLayout.getCollapsedIntervals(), baseLayout.getOobVal(),
+            memSpace, baseLayout.getMemoryLayout(), AffineMap::get(ctx));
       }
 
       ArrayRef<int64_t> tileShape;
