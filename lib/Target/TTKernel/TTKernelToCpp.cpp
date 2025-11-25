@@ -167,10 +167,6 @@ public:
     builder->create<emitc::IncludeOp>(loc, "debug/dprint.h",
                                       /*isStandard=*/false);
 
-    builder->create<emitc::VerbatimOp>(
-        loc, "template <> uint8_t DebugPrintTypeToId<size_t>() { return "
-             "DPrintUINT32; }");
-
     builder->create<emitc::VerbatimOp>(loc, R""""(
 namespace ttmlir {
 template<typename Arg>
