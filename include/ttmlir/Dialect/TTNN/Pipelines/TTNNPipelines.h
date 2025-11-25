@@ -303,6 +303,12 @@ struct TTIRToTTNNBackendPipelineOptions
       llvm::cl::desc("Enable const-eval optimization pass."),
       llvm::cl::init(true)};
 
+  // Enable CPU-hoisting const-eval ops.
+  Option<bool> enableCPUHoistedConstEval{
+      *this, "enable-cpu-hoisted-const-eval",
+      llvm::cl::desc("Enable hoisting const-eval ops to CPU module."),
+      llvm::cl::init(false)};
+
   Option<bool> enableTrace{*this, "enable-trace",
                            llvm::cl::desc("Enable trace optimization pass."),
                            llvm::cl::init(false)};

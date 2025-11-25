@@ -80,6 +80,15 @@ def TTIR_HoistedCallAttr : AttrDef<TTIR_Dialect, "HoistedCall", [], "::mlir::Att
   }];
 }
 
+def TTIR_HoistedFuncAttr : AttrDef<TTIR_Dialect, "HoistedFunc", [], "::mlir::Attribute"> {
+  let mnemonic = "hoisted_func";
+  let summary = "Indicates that this func operation represents a CPU-hoisted function";
+  let description = [{
+    This attribute marks functions that have been hoisted to the CPU module, as well
+    as their associated prototype declarations in the Device module.
+  }];
+}
+
 // Unit attribute for should_hoist flag
 def TTIR_ShouldHoistAttr : AttrDef<TTIR_Dialect, "ShouldHoist", [], "::mlir::Attribute"> {
   let mnemonic = "should_hoist";
@@ -87,27 +96,6 @@ def TTIR_ShouldHoistAttr : AttrDef<TTIR_Dialect, "ShouldHoist", [], "::mlir::Att
   let description = [{
     This attribute marks functions that should be hoisted during optimization.
     It is used as a marker and doesn't carry any additional data.
-  }];
-}
-
-// Integer attribute for return mapping
-def TTIR_ReturnToOutputMappingAttr : AttrDef<TTIR_Dialect, "ReturnToOutputMapping", [], "::mlir::Attribute"> {
-  let mnemonic = "return_to_output_mapping";
-  let summary = "Maps return values to output indices";
-  let description = [{
-    This attribute stores an integer mapping value that indicates how
-    return values correspond to output indices.
-  }];
-
-  let parameters = (ins
-    "int64_t":$value
-  );
-
-  let assemblyFormat = [{ `<` $value `>` }];
-
-  let extraClassDeclaration = [{
-    // Convenience getter that matches IntegerAttr interface
-    int64_t getInt() const { return getValue(); }
   }];
 }
 

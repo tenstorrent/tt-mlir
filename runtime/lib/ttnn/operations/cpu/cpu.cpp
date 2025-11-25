@@ -33,12 +33,19 @@ void run(const ::tt::target::ttnn::CpuOp *op, ProgramContext &context) {
   };
 
   auto dylibInputs = tt::runtime::common::packTensors(
-      fbInputs, op->out(), getTensorDataPtr, allSizesAndStrides);
+      fbInputs, getTensorDataPtr, allSizesAndStrides);
 
-  ::ttnn::Tensor out = context.getTensorPool().getTTNNTensorAndValidate(
-      fbInputs->Get(fbInputs->size() - 1));
+  // Last inputs are actually output destinations. We need to associate them
+  // with tensors in the pool.
+  for (size_t i = 0; i < op->outs()->size(); ++i) {
+    const auto &fbOutput = op->outs()->Get(i);
 
-  context.getTensorPool().insertTTNNTensorAndValidate(op->out(), out);
+    ::ttnn::Tensor outTensor = context.getTensorPool().getTTNNTensorAndValidate(
+        fbInputs->Get(fbInputs->size() - op->outs()->size() + i));
+
+    context.getTensorPool().insertTTNNTensorAndValidate(fbOutput, outTensor);
+  }
+
   fn(dylibInputs.data());
   // We don't need to unpack any data from output, it should be written directly
   // to correct memory.

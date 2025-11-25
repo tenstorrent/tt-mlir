@@ -20,14 +20,18 @@ namespace mlir::tt::ttir {
 #define GEN_PASS_DECL
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h.inc"
 
-#define GEN_PASS_REGISTRATION
-#include "ttmlir/Dialect/TTIR/Transforms/Passes.h.inc"
+std::unique_ptr<Pass> createCPUHoistManuallyTagedOpsTransform();
 
 template <typename... Dialects>
-std::unique_ptr<Pass> createTTIRHoistTransformForDialects();
+std::unique_ptr<Pass> createCPUHoistForDialectsTransform();
 
 template <typename... Ops>
-std::unique_ptr<Pass> createTTIRHoistTransformForOps();
+std::unique_ptr<Pass> createCPUHoistForOpsTransform();
+
+std::unique_ptr<Pass> createCPUHoistConstEvalTransform();
+
+#define GEN_PASS_REGISTRATION
+#include "ttmlir/Dialect/TTIR/Transforms/Passes.h.inc"
 
 } // namespace mlir::tt::ttir
 

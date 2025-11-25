@@ -1210,10 +1210,6 @@ getOpOutputRef(OpContext opContextHandle,
     tensorRef = opContext.type_as_UpsampleOp()->out();
     break;
   }
-  case ::tt::target::ttnn::OpType::CpuOp: {
-    tensorRef = opContext.type_as_CpuOp()->out();
-    break;
-  }
   case ::tt::target::ttnn::OpType::ConstantOp: {
     tensorRef = opContext.type_as_ConstantOp()->out();
     break;
@@ -1279,6 +1275,7 @@ getOpOutputRef(OpContext opContextHandle,
     tensorRef = opContext.type_as_NLPConcatHeadsDecodeOp()->out();
     break;
   }
+  case ::tt::target::ttnn::OpType::CpuOp:
   case ::tt::target::ttnn::OpType::BatchNormTrainingOp:
   case ::tt::target::ttnn::OpType::MaxPool2dWithIndicesOp:
   case ::tt::target::ttnn::OpType::SortOp:
