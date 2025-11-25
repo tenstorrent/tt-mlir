@@ -266,6 +266,40 @@ public:
 } // namespace
 
 namespace {
+class CommitDstRewriter : public OpConversionPattern<d2m::CommitDstOp> {
+public:
+  using OpConversionPattern<d2m::CommitDstOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(d2m::CommitDstOp op, d2m::CommitDstOpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    // Convert d2m.commit_dst to ttkernel.tile_regs_commit.
+    // The DST memref operand is not needed (DST is implicit in TTKernel).
+    rewriter.create<ttkernel::TileRegsCommitOp>(op.getLoc());
+    rewriter.eraseOp(op);
+    return success();
+  };
+};
+} // namespace
+
+namespace {
+class WaitDstRewriter : public OpConversionPattern<d2m::WaitDstOp> {
+public:
+  using OpConversionPattern<d2m::WaitDstOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(d2m::WaitDstOp op, d2m::WaitDstOpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    // Convert d2m.wait_dst to ttkernel.tile_regs_wait.
+    // The DST memref operand is not needed (DST is implicit in TTKernel).
+    rewriter.create<ttkernel::TileRegsWaitOp>(op.getLoc());
+    rewriter.eraseOp(op);
+    return success();
+  };
+};
+} // namespace
+
+namespace {
 class MemrefLoadRewriter : public OpConversionPattern<memref::LoadOp> {
 public:
   using OpConversionPattern<memref::LoadOp>::OpConversionPattern;
@@ -1592,6 +1626,8 @@ void populateD2MToTTKernelPatterns(
                ttkernel::D2MDstReinterpretCastRewriter,
                ttkernel::AcquireDstRewriter,
                ttkernel::ReleaseDstRewriter,
+               ttkernel::CommitDstRewriter,
+               ttkernel::WaitDstRewriter,
                ttkernel::MemrefLoadRewriter,
                ttkernel::MemrefStoreRewriter,
                ttkernel::D2MCBOpRewriter<d2m::WaitOp, ttkernel::CBWaitFrontOp, ttkernel::CBPopFrontOp>,

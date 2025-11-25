@@ -311,6 +311,17 @@ struct D2MInsertDstRegisterGCPass
           generatePrologueLoop(rewriter, acquireDst, loopOp, copyInfo);
         }
 
+        // Insert commit_dst/wait_dst after compute loops, before epilogue.
+        // This signals that compute operations are complete and DST values
+        // are ready for packing.
+        for (auto &[loopOp, copyInfo] : copyInfoMap) {
+          // Insert after the compute loop (loopOp)
+          rewriter.setInsertionPointAfter(loopOp);
+          rewriter.create<CommitDstOp>(genericOp.getLoc(),
+                                       acquireDst.getResult());
+          rewriter.create<WaitDstOp>(genericOp.getLoc(), acquireDst.getResult());
+        }
+
         for (auto &[loopOp, copyInfo] : copyInfoMap) {
           generateEpilogueLoop(rewriter, acquireDst.getResult(), loopOp,
                                copyInfo);

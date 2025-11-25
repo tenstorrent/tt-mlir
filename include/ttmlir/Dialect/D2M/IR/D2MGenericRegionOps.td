@@ -638,6 +638,58 @@ def D2M_ReleaseDstOp : D2M_GenericRegionComputeOp<"release_dst",
     let hasVerifier = 1;
 }
 
+def D2M_CommitDstOp : D2M_GenericRegionComputeOp<"commit_dst",
+  [ MemoryEffects<[MemRead, MemWrite]>
+  ]> {
+    let summary = "Commit DST register, signaling compute operations are complete.";
+    let description = [{
+      Signals that all compute operations writing to DST registers are complete
+      and results are ready for packing. This must be called after compute
+      operations and before pack operations.
+
+      Example IR:
+
+      ```mlir
+      %dst = d2m.acquire_dst() : memref<...>
+      // ... compute operations using %dst ...
+      d2m.commit_dst %dst
+      d2m.wait_dst %dst
+      // ... pack operations ...
+      d2m.release_dst %dst
+      ```
+    }];
+
+    let arguments = (ins RegisterDstMemRef:$dst);
+
+    let assemblyFormat = [{ $dst attr-dict `:` type($dst) }];
+}
+
+def D2M_WaitDstOp : D2M_GenericRegionComputeOp<"wait_dst",
+  [ MemoryEffects<[MemRead, MemWrite]>
+  ]> {
+    let summary = "Wait for DST register commit to complete.";
+    let description = [{
+      Waits for the DST register commit to complete before proceeding with
+      pack operations. This must be called after commit_dst and before pack
+      operations.
+
+      Example IR:
+
+      ```mlir
+      %dst = d2m.acquire_dst() : memref<...>
+      // ... compute operations using %dst ...
+      d2m.commit_dst %dst
+      d2m.wait_dst %dst
+      // ... pack operations ...
+      d2m.release_dst %dst
+      ```
+    }];
+
+    let arguments = (ins RegisterDstMemRef:$dst);
+
+    let assemblyFormat = [{ $dst attr-dict `:` type($dst) }];
+}
+
 def D2M_TileTransposeOp : D2M_GenericRegionComputeOp<"tile_transpose"> {
     let summary = "D2M Tile Transpose Op";
     let description = [{

@@ -23,31 +23,50 @@ public:
 
   LogicalResult matchAndRewrite(ttkernel::PackTileOp op,
                                 PatternRewriter &rewriter) const final {
-    // Check if this PackTileOp already has commit/wait directly before it.
-    Operation *immediatePrev = op->getPrevNode();
-    Operation *immediatePrevPrev =
-        immediatePrev ? immediatePrev->getPrevNode() : nullptr;
+    Block *acquireBlock = findBlockContaining<ttkernel::TileRegsAcquireOp>(op);
+    Operation *parent = parentOpAtBlock(op, acquireBlock);
 
-    // Pattern: <...> commit wait <pack> <...>
-    if (immediatePrevPrev &&
-        isa<ttkernel::TileRegsCommitOp>(immediatePrevPrev) && immediatePrev &&
-        isa<ttkernel::TileRegsWaitOp>(immediatePrev)) {
+    // Check if this parent already has been wrapped by looking at its immediate
+    // neighbors. The parent should have commit/wait before it and release after.
+    Operation *immediatePrev = parent->getPrevNode();
+    Operation *immediatePrevPrev = immediatePrev ? immediatePrev->getPrevNode() : nullptr;
+    Operation *immediateNext = parent->getNextNode();
+
+    // Pattern: <...> commit wait <parent> release <...>
+    if (immediatePrevPrev && isa<ttkernel::TileRegsCommitOp>(immediatePrevPrev) &&
+        immediatePrev && isa<ttkernel::TileRegsWaitOp>(immediatePrev) &&
+        immediateNext && isa<ttkernel::TileRegsReleaseOp>(immediateNext)) {
       // Already wrapped
       return failure();
     }
 
-    // Insert commit and wait directly before the pack operation.
-    // This ensures they are inside any loops containing the pack,
-    // which is necessary for multiblock processing where we need
-    // commit/wait per tile, not once before all loops.
-    // Note: We don't insert release here because InsertDstRegisterGC
-    // already handles acquire/release placement.
-    rewriter.setInsertionPoint(op);
+    // Insert tile_regs management around this parent operation
+    rewriter.setInsertionPoint(parent);
     rewriter.create<ttkernel::TileRegsCommitOp>(op->getLoc());
     rewriter.create<ttkernel::TileRegsWaitOp>(op->getLoc());
+    rewriter.setInsertionPointAfter(parent);
+    rewriter.create<ttkernel::TileRegsReleaseOp>(op->getLoc());
 
     return success();
   };
+
+  template <typename ConcreteOp>
+  static Block *findBlockContaining(Operation *op) {
+    Block *block = op->getBlock();
+    while (block->getOps<ConcreteOp>().empty()) {
+      block = block->getParentOp()->getBlock();
+    }
+    return block;
+  }
+
+  static Operation *parentOpAtBlock(Operation *child, Block *atBlock) {
+    Operation *parent = child;
+    while (parent->getBlock() != atBlock) {
+      parent = parent->getParentOp();
+      assert(parent);
+    }
+    return parent;
+  }
 };
 
 } // namespace
