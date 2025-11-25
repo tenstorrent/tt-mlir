@@ -3792,6 +3792,8 @@ void mlir::tt::ttir::UpdateCacheOp::getCanonicalizationPatterns(
   auto inputShape = inputType.getShape();
   auto updateIndexShape = updateIndexType.getShape();
 
+  bool usingStaticCache = getPageTable() == nullptr;
+
   if (cacheShape.size() != 4) {
     return emitOpError("Cache tensor must be a 4D tensor");
   }
@@ -3808,7 +3810,7 @@ void mlir::tt::ttir::UpdateCacheOp::getCanonicalizationPatterns(
   int64_t headDim = cacheShape[3];
   int64_t numUsers = updateIndexShape[0];
 
-  if (blockSize % ttnn::TILE_HEIGHT != 0) {
+  if (!usingStaticCache && blockSize % ttnn::TILE_HEIGHT != 0) {
     return emitOpError("Block size must be divisible by 32, got " +
                        std::to_string(blockSize));
   }
@@ -3832,7 +3834,7 @@ void mlir::tt::ttir::UpdateCacheOp::getCanonicalizationPatterns(
                        std::to_string(inputShape[3]));
   }
 
-  if (getPageTable()) {
+  if (!usingStaticCache) {
     auto pageTableType = getPageTable().getType();
     auto pageTableShape = pageTableType.getShape();
     if (pageTableShape.size() != 2) {
