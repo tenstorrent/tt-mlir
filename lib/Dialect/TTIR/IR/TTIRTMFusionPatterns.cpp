@@ -18,7 +18,7 @@ namespace mlir::tt::ttir {
 // Original shape: [A_1, A_2,.., A_k]
 // permute(p_1, p_2,..., p_k)    -> [A_1', A_2',.., A_k']
 // reshape([A_1', A_2',.., A_k']) -> [B_1, B_2,.., B_k]
-// permute(p_1', p_2',..., p_k') -> [B_1', 1, B_2',.., B_k']
+// permute(p_1', p_2',..., p_k') -> [B_1', B_2',.., B_k']
 //
 // where:
 // - k is the rank of the input tensor;
@@ -29,7 +29,7 @@ namespace mlir::tt::ttir {
 // - flatten([B_1', B_2',.., B_k']) = [A_1, A_2,.., A_k].
 //
 // The result of this sequence is identical to the following reshape:
-// reshape([A_1, A_2,.., A_k]) -> [B_1', 1, B_2',.., B_k']
+// reshape([A_1, A_2,.., A_k]) -> [B_1', B_2',.., B_k']
 //
 class PermuteReshapePermuteFusionPattern
     : public mlir::OpRewritePattern<PermuteOp> {
