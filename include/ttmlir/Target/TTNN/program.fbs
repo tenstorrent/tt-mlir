@@ -41,7 +41,6 @@ union OpType {
   ConcatOp,
   ConcatenateHeadsOp,
   RotaryEmbeddingLlamaOp,
-  RotaryEmbeddingOp,
   NLPCreateQKVHeadsDecodeOp,
   NLPConcatHeadsOp,
   ConstantOp,
