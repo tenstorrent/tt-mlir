@@ -228,7 +228,7 @@ createMatmulProgramConfigIfNeeded(const ::tt::target::ttnn::MatmulOp *op) {
 
 ::ttnn::operations::conv::conv2d::Conv2dConfig
 createConv2dConfig(const ::tt::target::ttnn::Conv2dConfig *config) {
-  ::ttnn::operations::conv::Conv2dConfig conv2dConfig;
+  ::ttnn::operations::conv::conv2d::Conv2dConfig conv2dConfig;
 
   if (config->weights_dtype()) {
     conv2dConfig.weights_dtype =
