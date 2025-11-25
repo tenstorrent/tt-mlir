@@ -89,6 +89,13 @@ void run(const ::tt::target::ttnn::Conv2dOp *op, ProgramContext &context) {
 
   LOG_ASSERT(std::holds_alternative<::ttnn::Tensor>(result));
 
+  std::cout << "************* CONV2D *************" << std::endl;
+  if (bias.has_value()) {
+    std::cout << "Bias: " << bias.value().write_to_string() << std::endl;
+  } else {
+    std::cout << "No bias" << std::endl;
+  }
+
   ::ttnn::Tensor out = std::get<::ttnn::Tensor>(result);
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
