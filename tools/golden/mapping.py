@@ -3513,10 +3513,11 @@ def ttir_clamp_tensor_golden(
 def ttir_full_golden(
     shape_attr: DenseI32ArrayAttr,
     fill_value_attr: Union[IntegerAttr, FloatAttr],
+    dtype: torch.dtype = torch.float32,
 ) -> GoldenMapTensor:
     shape = unpack_mlir_attr(shape_attr)
     fill_value = unpack_mlir_attr(fill_value_attr)
-    tensor = torch.full(shape, fill_value)
+    tensor = torch.full(shape, fill_value, dtype=dtype)
     return GoldenMapTensor({0: tensor}, (1, 1))
 
 
@@ -3715,7 +3716,6 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.ConstantOp: ttir_constant_golden,
     ttir.FullOp: ttir_full_golden,
     ttir.ArangeOp: arange_golden,
-    ttir.FullOp: full_golden,
     # Quantization operations
     ttir.QuantizeOp: quantize_golden,
     ttir.DequantizeOp: torch.dequantize,

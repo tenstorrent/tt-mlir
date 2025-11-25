@@ -1008,7 +1008,9 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
 
         if not self._disable_golden_check:
             op_golden_function = get_golden_function(ttir_op)
-            golden_output = op_golden_function(output_shape_attr, fill_value_attr)
+            golden_output = op_golden_function(
+                output_shape_attr, fill_value_attr, dtype=output_type
+            )
             self._set_golden_tensor(op, golden_output)
 
         return op

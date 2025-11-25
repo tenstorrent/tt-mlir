@@ -91,7 +91,7 @@ def build_ttir(
         qk_shape = builder.get_shape(qk)
         scale_shape = [1] * len(qk_shape)
         scale_tensor = builder.full(
-            scale_shape, scale, data_type=torch.bfloat16, unit_attrs=unit_attrs
+            scale_shape, torch.bfloat16, scale, unit_attrs=unit_attrs
         )
         qk = builder.multiply(qk, scale_tensor, unit_attrs=unit_attrs)
 

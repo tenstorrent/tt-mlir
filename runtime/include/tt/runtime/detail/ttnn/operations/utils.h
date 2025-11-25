@@ -50,7 +50,6 @@ createSDPAProgramConfig(const ::tt::target::ttnn::SDPAConfig *config);
                             ::ttnn::MeshDevice *meshDevice,
                             const ::ttnn::Layout &layout,
                             const ::ttnn::MemoryConfig &memoryConfig);
-                            
 
 ::ttnn::Tensor
 allocateTensorOnDevice(const ::tt::target::ttnn::TensorRef *tensorRef,
