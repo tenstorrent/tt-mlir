@@ -12,8 +12,8 @@ from ttmlir.passes import (
     ttnn_to_ttmetal_pipeline,
 )
 
-from ttnn_jit._src.utils import _cleanup_source_code, _get_dispatch_core_type
-from ttnn_jit._src.dispatch_op import _run_binary, _run_binary_from_capsule
+from ttnn_jit._src.utils import cleanup_source_code, get_dispatch_core_type
+from ttnn_jit._src.dispatch_op import run_binary, run_binary_from_capsule
 from ttnn_jit._src import JitCache
 from ttnn_jit._src.ir_generator import generate_ir
 from ttnn_jit._src import (
@@ -35,7 +35,7 @@ class JitFunction:
         graph_capture: bool,
     ):
         self.func = func
-        self.source_code = _cleanup_source_code(func)
+        self.source_code = cleanup_source_code(func)
         self.max_grid = max_grid
         self.compile_only = compile_only
         self.debug = debug
@@ -58,7 +58,7 @@ class JitFunction:
         Uses the MLIR runtime bindings directly, replicating the logic from
         ttrt query --save-artifacts.
         """
-        dispatch_core_type = _get_dispatch_core_type()
+        dispatch_core_type = get_dispatch_core_type()
         try:
             # Use input tensor device to query if available.
             if ttnn_device:
@@ -109,7 +109,7 @@ class JitFunction:
         # Cache hit, no need to compile.
         if self.cache and self.cache.contains(*args):
             fb_binary = self.cache.get(*args)
-            return _run_binary(fb_binary, args)
+            return run_binary(fb_binary, args)
 
         ir = generate_ir(
             self.graph_capture,
@@ -134,14 +134,14 @@ class JitFunction:
             fb_binary = self.cache.compile_and_insert(
                 str(ir), options, self.debug, *args
             )
-            return _run_binary(fb_binary, args)
+            return run_binary(fb_binary, args)
 
         ttnn_to_ttmetal_pipeline(ir, options)
         if self.debug:
             print("---- IR Dump after ttnn_to_ttmetal_pipeline ----")
             print(ir)
         fb_capsule = ttnn_to_flatbuffer_bin(ir)
-        return _run_binary_from_capsule(fb_capsule, args)
+        return run_binary_from_capsule(fb_capsule, args)
 
     @property
     def num_entries(self):
