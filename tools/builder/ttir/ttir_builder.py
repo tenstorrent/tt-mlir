@@ -2568,7 +2568,9 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
                         batch_norm_training_builder._set_golden_tensor(
                             new_op.batch_variance, golden_batch_variance
                         )
-                        batch_norm_training_builder._set_output_ordering([new_op])
+                        batch_norm_training_builder._set_output_ordering(
+                            [new_op.result, new_op.batch_mean, new_op.batch_variance]
+                        )
                         batch_norm_training_builder._set_golden_tensor(in0, input0)
                         batch_norm_training_builder._set_golden_tensor(scale, scale0)
                         batch_norm_training_builder._set_golden_tensor(offset, offset0)
