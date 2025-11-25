@@ -22,6 +22,10 @@ mlir::AffineMap calculateReblockMap(mlir::ArrayRef<int64_t> inputShape,
   TT_assertv(outputRank % 2 == 0, "Output rank must be even");
   int64_t inputHalfRank = inputRank / 2;
 
+  if (inputShape == outputShape) {
+    return mlir::AffineMap::getMultiDimIdentityMap(inputRank, ctx);
+  }
+
   // Compute logical shape, multiplying grid and shard dimensions together
   mlir::ArrayRef<int64_t> inputShardShape =
       inputShape.drop_front(inputHalfRank);
