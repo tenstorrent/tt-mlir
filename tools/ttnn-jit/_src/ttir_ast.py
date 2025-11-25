@@ -20,6 +20,11 @@ from .utils import (
     discover_dialect_ops,
     get_num_pos_args,
 )
+from .conversions import (
+    mlir_dtype_from_ttnn_dtype,
+    ttcore_dtype_from_ttnn_dtype,
+    ttcore_dtype_from_mlir_dtype,
+)
 
 
 class TTIRCompiler(ast.NodeVisitor):
@@ -49,41 +54,10 @@ class TTIRCompiler(ast.NodeVisitor):
         self.supported_nodes = self.common_nodes
         self.return_type = None
 
-    def _mlir_dtype_from_ttnn_dtype(self, dtype):
-        match int(dtype):
-            case 0:
-                return BF16Type.get(self.ctx)
-            case 1:
-                return F32Type.get(self.ctx)
-            case 2:
-                return IntegerType.get_unsigned(32, self.ctx)
-            case 3:
-                return ttcore.ir.TileType.get(
-                    self.ctx, 32, 32, ttcore.DataType.BFP_BFloat8
-                )
-            case 5:
-                return IntegerType.get_unsigned(8, self.ctx)
-            case 6:
-                return IntegerType.get_unsigned(16, self.ctx)
-            case 7:
-                return IntegerType.get_signless(32, self.ctx)
-            case _:
                 raise ValueError(f"Unsupported dtype: {dtype}")
 
-    def _ttcore_dtype_from_mlir_dtype(self, dtype):
-        dtype_str = str(dtype)
-        match dtype_str:
-            case "f32":
-                return ttcore.DataType.Float32
-            case "bf16":
-                return ttcore.DataType.BFloat16
-            case s if "bfp_bf8" in s.lower():
-                return ttcore.DataType.BFP_BFloat8
-            case "i32":
-                return ttcore.DataType.Int32
-            case _:
-                raise ValueError(f"Unsupported dtype: {dtype}")
-
+=======
+>>>>>>> a82b1344a (ttnn-jit support for levelized_graph, reductionOps, compositeOps)
     def _var_exists(self, var_name):
         for sym_table in reversed(self.symbol_tables):
             if var_name in sym_table:
@@ -94,6 +68,62 @@ class TTIRCompiler(ast.NodeVisitor):
         mesh_shape_attr = ttnn.ir.MeshShapeAttr.get(self.ctx, 1, 1)
         mesh_offset_attr = ttnn.ir.MeshOffsetAttr.get(self.ctx, 0, 0)
         return ttnn.get_device(mesh_shape=mesh_shape_attr, mesh_offset=mesh_offset_attr)
+
+    def _create_tensor_layout(self, tensor_arg):
+
+        data_type = ttcore_dtype_from_ttnn_dtype(tensor_arg.dtype)
+        tile_type = ttcore.ir.TileType.get(self.ctx, 32, 32, data_type)
+
+        # Create affine map, should be based of tensor shape
+        affine_map = _get_collapsed_linear_affine_map(
+            self.ctx, tensor_arg.shape, self.max_grid
+        )
+
+        if tensor_arg.memory_config().is_sharded():
+            shard_spec = tensor_arg.memory_config().shard_spec
+            shard_shape = shard_spec.shape
+
+            # Create ttcore grid atttr based off max_grid passed by user
+            # Can't pull grid info from tensor unless it's sharded
+            grid_size_x = self.max_grid[0] + 1
+            grid_size_y = self.max_grid[1] + 1
+
+            # TTNN writes grids as (width, height) but compiler expects (height, width)
+            grid = ttcore.ir.GridAttr.get(self.ctx, [grid_size_y, grid_size_x])
+
+            # Create memref, tile type only.
+            shard_shape_tile_x = shard_shape[0] // 32
+            shard_shape_tile_y = shard_shape[1] // 32
+            buffer_type = ttnn.ir.BufferTypeAttr.get(self.ctx, ttnn.BufferType.L1)
+            memref = MemRefType.get(
+                [shard_shape_tile_x, shard_shape_tile_y], tile_type, None, buffer_type
+            )
+
+            ttnn_layout = ttnn.ir.TTNNLayoutAttr.get_with_linear(
+                self.ctx,
+                affine_map,
+                grid,
+                memref,
+                ttnn.TensorMemoryLayout.BlockSharded,
+                None,
+            )
+            return ttnn_layout
+        else:
+            assert (
+                self.max_grid[0] == 0 and self.max_grid[1] == 0
+            ), "The grid for DRAM interleaved tensors is always 1x1"
+            buffer_type = ttnn.ir.BufferTypeAttr.get(self.ctx, ttnn.BufferType.DRAM)
+            grid = ttcore.ir.GridAttr.get(self.ctx, [1, 1])
+            shape = [tensor_arg.shape[0] // 32, tensor_arg.shape[1] // 32]
+            memref = MemRefType.get(shape, tile_type, None, buffer_type)
+            return ttnn.ir.TTNNLayoutAttr.get_with_linear(
+                self.ctx,
+                affine_map,
+                grid,
+                memref,
+                ttnn.TensorMemoryLayout.Interleaved,
+                None,
+            )
 
     def visit_Module(self, node):
         # Set default basic block
@@ -123,8 +153,8 @@ class TTIRCompiler(ast.NodeVisitor):
             if name in self.tensor_args:
                 tensor_arg = self.tensor_args[name]
                 shape = list(tensor_arg.shape)
-                layout = create_tensor_layout(self.ctx, tensor_arg)
-                dtype = self._mlir_dtype_from_ttnn_dtype(tensor_arg.dtype)
+                layout = self._create_tensor_layout(tensor_arg)
+                dtype = mlir_dtype_from_ttnn_dtype(tensor_arg.dtype, self.ctx)
                 tensor_type = RankedTensorType.get(shape, dtype, layout)
                 input_types.append(tensor_type)
 
@@ -217,7 +247,7 @@ class TTIRCompiler(ast.NodeVisitor):
         # Binary ops have 3 pos args: [result_type, lhs, rhs].
         if get_num_pos_args(func) == 3:
             dtype = ttcore.ir.DataTypeAttr.get(
-                self.ctx, self._ttcore_dtype_from_mlir_dtype(result_type.element_type)
+                self.ctx, ttcore_dtype_from_mlir_dtype(result_type.element_type)
             )
             op.owner.attributes["dtype"] = dtype
         return op
@@ -260,7 +290,7 @@ class TTIRCompiler(ast.NodeVisitor):
             )
 
         dtype = ttcore.ir.DataTypeAttr.get(
-            self.ctx, self._ttcore_dtype_from_mlir_dtype(element_type)
+            self.ctx, ttcore_dtype_from_mlir_dtype(element_type)
         )
         shape = ttnn.ir.ShapeAttr.get(self.ctx, tensor.type.shape)
 

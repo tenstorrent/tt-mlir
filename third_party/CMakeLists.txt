@@ -1,6 +1,10 @@
 include(ExternalProject)
 
-set(TT_METAL_VERSION "a2dc38fab27d3801b18ae72daccaff79e0c69281")
+<<<<<<< HEAD
+set(TT_METAL_VERSION "934f879c0fd794272a2848b79768b15444fb0a62")
+=======
+set(TT_METAL_VERSION "effc1a32d8c436279c67364e5ade457c91cec361")
+>>>>>>> a82b1344a (ttnn-jit support for levelized_graph, reductionOps, compositeOps)
 
 # Suppress install logs to avoid cluttering the build output
 set(CMAKE_INSTALL_MESSAGE NEVER)
