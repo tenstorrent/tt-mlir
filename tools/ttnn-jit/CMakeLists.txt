@@ -6,6 +6,11 @@ add_subdirectory(csrc)
 set(TTNNJIT_ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
 
 if (USE_TTNN_JIT_WHEEL)
+  set(JIT_WHEEL_RPATHS
+    "$ORIGIN;$ORIGIN/../../ttnn/build/lib;$ORIGIN/../../../../../../build/lib;${TTMETAL_LIBRARY_DIR}"
+    CACHE STRING "RPATHs for ttnn-jit wheel"
+  )
+
   install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/
     DESTINATION ttnn_jit
     COMPONENT TTNNJITWheel
@@ -47,7 +52,24 @@ if (USE_TTNN_JIT_WHEEL)
   add_custom_target(ttnn-jit ALL
     COMMENT "ttnn-jit package"
     DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/build/.ttnn-jit-installed _ttnn_jit _ttmlir_runtime TTMLIRPythonModules)
+
+  set_target_properties(JITCPP PROPERTIES
+    INSTALL_RPATH "${JIT_WHEEL_RPATHS}"
+    BUILD_WITH_INSTALL_RPATH TRUE
+  )
+  set_target_properties(_ttnn_jit PROPERTIES
+    INSTALL_RPATH "${JIT_WHEEL_RPATHS}"
+    BUILD_WITH_INSTALL_RPATH TRUE
+  )
 else ()
+  set_target_properties(JITCPP PROPERTIES
+    INSTALL_RPATH "$ORIGIN;${TTMETAL_LIBRARY_DIR}"
+    BUILD_WITH_INSTALL_RPATH TRUE
+  )
+  set_target_properties(_ttnn_jit PROPERTIES
+    INSTALL_RPATH "$ORIGIN;$<TARGET_FILE_DIR:JITCPP>"
+    BUILD_WITH_INSTALL_RPATH TRUE
+  )
   include(AddMLIRPython)
   declare_mlir_python_sources(TTNNJITSources
     ROOT_DIR "${TTNNJIT_ROOT_DIR}"

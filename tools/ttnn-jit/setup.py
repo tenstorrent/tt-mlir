@@ -104,7 +104,6 @@ class CMakeBuild(build_ext):
         build_dir = source_dir / "build"
         self.install_dir = pathlib.Path(self.build_lib)
 
-        # Check if we're in a wheel build environment (cibuildwheel)
         if not self.dev_build:
             print("=" * 80)
             print("Running full CMake configure and build")
@@ -156,29 +155,9 @@ class CMakeBuild(build_ext):
         )
 
         if not self.dev_build:
-            self._patch_rpaths()
-            self._write_build_metadata()
+            self.write_build_metadata()
 
-    def _patch_rpaths(self):
-        """
-        "$ORIGIN/../../ttnn/build/lib" - to point to site-packages/ttnn/build/lib which is where ttnn libs will be installed through the wheel
-        "$ORIGIN/../../../../../../build/lib" - to point to ${TT_METAL_HOME}/build/lib, which assumes you are running the metal dev venv (created using create_venv.sh)
-        """
-        rpath_patches = [
-            "$ORIGIN",
-            "$ORIGIN/../../ttnn/build/lib",
-            "$ORIGIN/../../../../../../build/lib",
-        ]
-        runtime_dir = self.install_dir / "ttnn_jit" / "runtime"
-        for so_file in runtime_dir.glob("*.so*"):
-            if not so_file.is_file() or so_file.is_symlink():
-                continue
-
-            print(f"Adding RPATHs {rpath_patches} to {so_file.name}")
-            for rpath in rpath_patches:
-                subprocess.check_call(["patchelf", "--add-rpath", rpath, str(so_file)])
-
-    def _write_build_metadata(self):
+    def write_build_metadata(self):
         """Write metal git SHA to _build_metadata.py ONLY in the wheel, this info is picked up
         by __init__.py at runtime to check against TT_METAL_HOME git SHA to ensure compatibility.
         """
