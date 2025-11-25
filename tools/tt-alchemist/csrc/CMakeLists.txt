@@ -73,8 +73,9 @@ target_compile_definitions(${TT_ALCHEMIST_LIBRARY_NAME}
 # At runtime, alchemist lib will look in its own directory for
 # dependencies (libTTMLIRCompiler.so, libtt_metal.so, etc.)
 set_target_properties(${TT_ALCHEMIST_LIBRARY_NAME} PROPERTIES
+  BUILD_RPATH "$ORIGIN"
   INSTALL_RPATH "$ORIGIN"
-  BUILD_WITH_INSTALL_RPATH TRUE
+  BUILD_WITH_INSTALL_RPATH FALSE
   # Build library directly into build/lib/ alongside TTMLIRCompiler.so
   LIBRARY_OUTPUT_DIRECTORY ${PROJECT_BINARY_DIR}/lib
 )

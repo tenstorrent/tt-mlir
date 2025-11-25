@@ -26,6 +26,6 @@ endif()
 add_subdirectory(ttmlir-translate)
 add_subdirectory(ttnn-standalone)
 
-if (TTMLIR_ENABLE_ALCHEMIST_LIB)
+if (TTMLIR_ENABLE_ALCHEMIST)
   add_subdirectory(tt-alchemist)
 endif()

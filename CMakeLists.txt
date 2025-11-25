@@ -25,8 +25,8 @@ option(TTMLIR_ENABLE_OPMODEL_TESTS "Enable OpModel tests" ON)
 option(TTMLIR_ENABLE_SHARED_LIB "Enable Shared lib building" ON)
 option(TTMLIR_ENABLE_EXPLORER "Enable cloning and building the explorer tool" ON)
 option(TTMLIR_ENABLE_TESTS "Enable building all tests" ON)
-option(TTMLIR_ENABLE_ALCHEMIST_LIB "Enable tt-alchemist lib" ON)
-option(TTMLIR_ENABLE_ALCHEMIST_WHEEL "Enable tt-alchemist wheel" OFF)
+option(TTMLIR_ENABLE_ALCHEMIST "Enable tt-alchemist lib" ON)
+option(TTMLIR_ENABLE_ALCHEMIST_WHEEL "Enable tt-alchemist wheel" OFF)  # Expensive to build
 option(CODE_COVERAGE "Enable coverage reporting" OFF)
 
 if (TTMLIR_ENABLE_RUNTIME)
