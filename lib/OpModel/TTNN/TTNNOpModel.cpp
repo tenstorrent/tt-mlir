@@ -4792,6 +4792,7 @@ llvm::Expected<size_t> OpModel<Conv2dOp>::getOpRuntime(
 // Conv3dOp
 //===----------------------------------------------------------------------===//
 
+#ifdef TTMLIR_ENABLE_OPMODEL
 namespace {
 namespace ttnn = ::ttnn;
 
@@ -4872,6 +4873,7 @@ llvm::Expected<Conv3dSpecs> prepareConv3dSpecs(
                      deviceComputeKernelConfigConverted};
 }
 } // namespace
+#endif // TTMLIR_ENABLE_OPMODEL
 
 llvm::Expected<OpConstraints> OpModel<Conv3dOp>::getOpConstraints(
     ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
