@@ -710,7 +710,8 @@ mlir::LogicalResult d2m::ViewLayoutOp::verify() {
       //   return emitOpError("view cannot change collapsed intervals");
       // }
 
-      // if (inputLayout.getDimAlignments() != resultLayout.getDimAlignments()) {
+      // if (inputLayout.getDimAlignments() != resultLayout.getDimAlignments())
+      // {
       //   return emitOpError("view cannot change dim alignments");
       // }
     }
