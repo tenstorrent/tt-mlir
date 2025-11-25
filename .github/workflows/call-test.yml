@@ -93,20 +93,6 @@ jobs:
         pip show ttrt && pip uninstall -y ttrt
         pip install ttrt*.whl --upgrade
 
-    - name: Download ttnn-jit whls
-      if: matrix.build.image == 'tracy' && contains(toJson(matrix.build.tests), 'ttnn_jit')
-      uses: actions/download-artifact@v4
-      with:
-        name: ttnn-jit-whl-${{ matrix.build.image }}
-
-    - name: Install ttnn-jit run whls
-      if: matrix.build.image == 'tracy' && contains(toJson(matrix.build.tests), 'ttnn_jit')
-      shell: bash
-      run: |
-        source env/activate
-        pip show ttnn-jit && pip uninstall -y ttnn-jit
-        pip install ttnn_jit*.whl --upgrade
-
     - name: Download Build Artifacts
       uses: tenstorrent/tt-forge/.github/actions/download-artifact@main
       with:
