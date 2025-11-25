@@ -373,8 +373,11 @@ computeOptimalBlockShardedGrid(ArrayRef<int64_t> physicalShape,
 // be implemented as a virtual grid and (B) if it makes sense to do so based
 // on low grid utilization with regular block sharding.
 bool shouldImplementAsVirtualGrid(ArrayRef<int64_t> physicalShape,
-                                  ArrayRef<int64_t> targetSquareGridShape) {
-
+                                  ArrayRef<int64_t> targetSquareGridShape,
+                                  bool isInterleaved, bool isTiled) {
+  if (isInterleaved || !isTiled) {
+    return false;
+  }
   if (physicalShape.size() != 2) {
     return true;
   }
@@ -391,10 +394,10 @@ bool shouldImplementAsVirtualGrid(ArrayRef<int64_t> physicalShape,
 
 static std::pair<llvm::SmallVector<int64_t>, bool>
 computeOptimalGrid(ArrayRef<int64_t> physicalShape,
-                   ArrayRef<int64_t> targetSquareGridShape,
-                   bool isInterleaved) {
-  if (!isInterleaved &&
-      shouldImplementAsVirtualGrid(physicalShape, targetSquareGridShape)) {
+                   ArrayRef<int64_t> targetSquareGridShape, bool isInterleaved,
+                   bool isTiled) {
+  if (shouldImplementAsVirtualGrid(physicalShape, targetSquareGridShape,
+                                   isInterleaved, isTiled)) {
     return {computeOptimalVirtualGrid(physicalShape, targetSquareGridShape),
             true};
   }
@@ -536,7 +539,8 @@ analyzeOperandsAndComputeGrids(d2m::GenericOp genericOp,
     bool isInterleaved = operandLayout.getMemoryLayout() ==
                          ttcore::TensorMemoryLayout::Interleaved;
     auto [optimalGrid, isVirtualGrid] =
-        computeOptimalGrid(physShape, targetSquareGridShape, isInterleaved);
+        computeOptimalGrid(physShape, targetSquareGridShape, isInterleaved,
+                           ttcore::isTiled(operandType));
 
     // Identify which operations need updating based on the operand type.
     if (auto streamLayout = operand.getDefiningOp<d2m::StreamLayoutOp>()) {
@@ -559,8 +563,9 @@ analyzeOperandsAndComputeGrids(d2m::GenericOp genericOp,
               inputLayout, inputType, targetSquareGridShape, builder);
           bool isInterleaved = inputLayout.getMemoryLayout() ==
                                ttcore::TensorMemoryLayout::Interleaved;
-          auto [inputOptimalGrid, isVirtualGrid] = computeOptimalGrid(
-              inputPhysShape, targetSquareGridShape, isInterleaved);
+          auto [inputOptimalGrid, isVirtualGrid] =
+              computeOptimalGrid(inputPhysShape, targetSquareGridShape,
+                                 isInterleaved, ttcore::isTiled(inputType));
 
           toLayoutsToUpdate.push_back(
               {toLayoutOp, inputOptimalGrid, isVirtualGrid});
@@ -808,8 +813,9 @@ static void insertTTNNDRAMStreams(d2m::GenericOp genericOp,
 
     bool isInterleaved = baseMetalLayout.getMemoryLayout() ==
                          ttcore::TensorMemoryLayout::Interleaved;
-    auto [workerGrid, _] = computeOptimalGrid(
-        unshardedShape, targetSquareGridShape, isInterleaved);
+    auto [workerGrid, _] =
+        computeOptimalGrid(unshardedShape, targetSquareGridShape, isInterleaved,
+                           ttcore::isTiled(metalTensor));
     llvm::SmallVector<int64_t> fakeShardedShape =
         baseMetalLayout.getDeviceShape(workerGrid,
                                        ttcore::TileType::getDefaultShape());
