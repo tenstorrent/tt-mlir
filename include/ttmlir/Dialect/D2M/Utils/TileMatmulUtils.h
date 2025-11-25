@@ -109,6 +109,35 @@ LogicalResult processTileMatmulLinalgOps(
     llvm::function_ref<LogicalResult(RewriterBase &, Region &, Operation *)>
         dstInsertionCallback);
 
+/// Insert DST allocation for tile_matmul operations in an affine loop region.
+///
+/// This shared utility implements DST allocation for matmul operations,
+/// usable by both InsertDstRegisterAccess (legacy) and InsertDstRegisterGC
+/// (graph coloring) passes. It handles:
+///
+/// 1. Identifying DST accesses from the affine loads/stores in the region
+/// 2. Creating acquire_dst with appropriate shape
+/// 3. Generating prologue loops to copy input data to DST
+/// 4. Generating epilogue loops to pack output data from DST to CB
+/// 5. Creating release_dst at the end of the region
+///
+/// This function is designed to be called from the dstInsertionCallback of
+/// processTileMatmulLinalgOps, operating on the temporary affine loop region
+/// before the loops are deleted and replaced with TileMatmulBlockOp.
+///
+/// \param rewriter The pattern rewriter for IR modifications.
+/// \param genericOp The parent d2m.generic operation.
+/// \param region The region containing the affine loops.
+/// \param outermostLoop The outermost affine loop (for placement context).
+/// \param totalDstTiles Total number of DST tiles available.
+///
+/// \return success() if DST allocation was inserted successfully,
+/// failure() otherwise.
+LogicalResult insertMatmulDstAllocation(RewriterBase &rewriter,
+                                        GenericOp genericOp, Region &region,
+                                        Operation *outermostLoop,
+                                        unsigned totalDstTiles);
+
 } // namespace utils
 } // namespace mlir::tt::d2m
 

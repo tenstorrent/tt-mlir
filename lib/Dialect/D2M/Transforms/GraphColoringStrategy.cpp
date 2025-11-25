@@ -114,17 +114,17 @@ LogicalResult GreedyColoring::colorGraph(
   std::vector<bool> usedColors(numColors, false);
 
   for (size_t node = 0; node < adjacencyList.size(); ++node) {
-    // Reset used colors
+    // Reset used colors.
     std::fill(usedColors.begin(), usedColors.end(), false);
 
-    // Mark colors used by neighbors
+    // Mark colors used by neighbors.
     for (size_t neighbor : adjacencyList[node]) {
       if (coloring[neighbor] != UINT_MAX) {
         usedColors[coloring[neighbor]] = true;
       }
     }
 
-    // Find first available color
+    // Find first available color.
     unsigned color = 0;
     for (; color < numColors; ++color) {
       if (!usedColors[color]) {
@@ -132,9 +132,9 @@ LogicalResult GreedyColoring::colorGraph(
       }
     }
 
-    // If no color available, this is a spill
+    // If no color available, this is a spill.
     if (color >= numColors) {
-      return failure(); // Spill - not enough colors
+      return failure(); // Spill - not enough colors.
     }
 
     coloring[node] = color;
@@ -169,7 +169,7 @@ std::vector<std::vector<size_t>> buildIndexGraphFromDstOperations(
       computeOpInputLoads;
   llvm::DenseMap<mlir::Operation *, size_t> computeOpResultStore;
 
-  // Helper to link compute operations to their DST accesses
+  // Helper to link compute operations to their DST accesses.
   auto processLoad = [&](affine::AffineLoadOp loadOp, size_t loadIdx) {
     for (auto &use : loadOp.getResult().getUses()) {
       mlir::Operation *user = use.getOwner();
@@ -189,7 +189,7 @@ std::vector<std::vector<size_t>> buildIndexGraphFromDstOperations(
     }
   };
 
-  // Process all DST accesses to link compute ops to their loads/stores
+  // Process all DST accesses to link compute ops to their loads/stores.
   for (size_t i = 0; i < totalAccesses; ++i) {
     mlir::Operation *accessOp = dstAccesses[i].first;
     if (auto loadOp = mlir::dyn_cast<affine::AffineLoadOp>(accessOp)) {
@@ -211,16 +211,16 @@ std::vector<std::vector<size_t>> buildIndexGraphFromDstOperations(
   // For operations inside loops or nested regions, we use a conservative
   // approach: assume all DST accesses within the same loop/region interfere
   // with each other, since loop iterations may overlap in execution.
-  // TODO (bnorris): Implement precise dependence analysis
+  // This can be improved by using a more precise dependence analysis.
 
-  // Collect all DST access operations in program order
+  // Collect all DST access operations in program order.
   llvm::SmallVector<mlir::Operation *> dstAccessOps;
   for (const auto &[op, idx] : dstAccesses) {
     dstAccessOps.push_back(op);
   }
 
-  // For operations in nested regions (loops), assume conservative interference
-  // Build a map from each DST access to its containing loops
+  // For operations in nested regions (loops), assume conservative interference.
+  // Build a map from each DST access to its containing loops.
   llvm::DenseMap<mlir::Operation *, llvm::SmallVector<mlir::Operation *>>
       opToLoops;
   for (mlir::Operation *op : dstAccessOps) {
@@ -235,7 +235,7 @@ std::vector<std::vector<size_t>> buildIndexGraphFromDstOperations(
     opToLoops[op] = loops;
   }
 
-  // Helper to check if two operations interfere based on shared loops
+  // Helper to check if two operations interfere based on shared loops.
   auto shareCommonLoop =
       [&](const llvm::SmallVector<mlir::Operation *> &loops1,
           const llvm::SmallVector<mlir::Operation *> &loops2) {
@@ -247,12 +247,11 @@ std::vector<std::vector<size_t>> buildIndexGraphFromDstOperations(
         return false;
       };
 
-  // Helper to check if a value is live at an operation
+  // Helper to check if a value is live at an operation.
   auto isLiveAt = [](mlir::Value value, mlir::Operation *op) {
-    // A value is live at op if any of its uses come at or after op
+    // A value is live at op if any of its uses come at or after op.
     for (mlir::OpOperand &use : value.getUses()) {
       mlir::Operation *user = use.getOwner();
-      // Check if user is op itself or comes after op in the same block
       if (user == op ||
           (user->getBlock() == op->getBlock() && !user->isBeforeInBlock(op))) {
         return true;
@@ -261,10 +260,10 @@ std::vector<std::vector<size_t>> buildIndexGraphFromDstOperations(
     return false;
   };
 
-  // Helper to check if two DST access operations interfere via liveness
+  // Helper to check if two DST access operations interfere via liveness.
   auto opsInterfereViaLiveness = [&](mlir::Operation *op1,
                                      mlir::Operation *op2) {
-    // Loads produce values - check if the result is live at op2
+    // Loads produce values - check if the result is live at op2.
     if (auto load = mlir::dyn_cast<affine::AffineLoadOp>(op1)) {
       if (isLiveAt(load.getResult(), op2)) {
         return true;
@@ -274,7 +273,7 @@ std::vector<std::vector<size_t>> buildIndexGraphFromDstOperations(
   };
 
   // Build interference: operations interfere if they share a common loop
-  // or if their SSA value live ranges overlap
+  // or if their SSA value live ranges overlap.
   for (size_t i = 0; i < dstAccessOps.size(); ++i) {
     mlir::Operation *op1 = dstAccessOps[i];
     const auto &loops1 = opToLoops[op1];
@@ -285,11 +284,11 @@ std::vector<std::vector<size_t>> buildIndexGraphFromDstOperations(
 
       bool interferes = false;
 
-      // Conservative: operations in the same loop always interfere
+      // Conservative: operations in the same loop always interfere.
       if (shareCommonLoop(loops1, loops2)) {
         interferes = true;
       }
-      // For operations not in loops, check SSA value liveness
+      // For operations not in loops, check SSA value liveness.
       else if (loops1.empty() && loops2.empty()) {
         interferes = opsInterfereViaLiveness(op1, op2) ||
                      opsInterfereViaLiveness(op2, op1);
@@ -309,12 +308,12 @@ std::vector<std::vector<size_t>> buildIndexGraphFromDstOperations(
   // reuse DST slices allocated to input loads. Add explicit interference edges
   // between the result store and all input loads to enforce this constraint.
   for (auto &[computeOp, resultStoreIdx] : computeOpResultStore) {
-    // Check if this compute op requires a separate DST slice for its result
+    // Check if this compute op requires a separate DST slice for its result.
     auto iface = mlir::dyn_cast<OperandLoadStoreRegisterOpInterface>(computeOp);
     if (iface && !iface.getDstRegInPlace()) {
-      // Add interference edges from result store to all input loads
+      // Add interference edges from result store to all input loads.
       for (size_t inputLoadIdx : computeOpInputLoads[computeOp]) {
-        // Avoid duplicate edges
+        // Avoid duplicate edges.
         if (std::find(interferenceGraph[resultStoreIdx].begin(),
                       interferenceGraph[resultStoreIdx].end(), inputLoadIdx) ==
             interferenceGraph[resultStoreIdx].end()) {
