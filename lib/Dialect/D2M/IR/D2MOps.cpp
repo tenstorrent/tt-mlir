@@ -720,6 +720,34 @@ mlir::LogicalResult d2m::ViewLayoutOp::verify() {
     if (inputType.getElementType() != resultType.getElementType()) {
       return emitOpError("view must not change dtype");
     }
+
+    if (auto inputTensor = mlir::dyn_cast<mlir::RankedTensorType>(inputType)) {
+      auto resultTensor = mlir::cast<mlir::RankedTensorType>(resultType);
+      auto inputLayout = mlir::cast<mlir::tt::ttcore::MetalLayoutAttr>(
+          inputTensor.getEncoding());
+      auto resultLayout = mlir::cast<mlir::tt::ttcore::MetalLayoutAttr>(
+          resultTensor.getEncoding());
+      if (inputLayout.getLogicalShape() != resultLayout.getLogicalShape()) {
+        return emitOpError("view cannot change logical shape");
+      }
+
+      if (inputLayout.getOobVal() != resultLayout.getOobVal()) {
+        return emitOpError("view cannot change oob_val");
+      }
+
+      if (inputLayout.getMemorySpace() != resultLayout.getMemorySpace()) {
+        return emitOpError("view cannot change memory space");
+      }
+
+      if (inputLayout.getCollapsedIntervals() !=
+          resultLayout.getCollapsedIntervals()) {
+        return emitOpError("view cannot change collapsed intervals");
+      }
+
+      if (inputLayout.getDimAlignments() != resultLayout.getDimAlignments()) {
+        return emitOpError("view cannot change dim alignments");
+      }
+    }
   }
 
   return mlir::success();
@@ -786,28 +814,72 @@ d2m::ViewLayoutOp::getBufferType(
   return ttcore::getBufferType(value.getType(), /*isView=*/true);
 }
 
+bool d2m::ViewLayoutOp::isReblockOnly() {
+  mlir::AffineMap reblockMap = mlir::tt::d2m::utils::calculateReblockMap(
+      mlir::cast<mlir::ShapedType>(getInput().getType()).getShape(),
+      mlir::cast<mlir::ShapedType>(getResult().getType()).getShape(),
+      getContext());
+
+  if (auto resultType = mlir::dyn_cast<MemRefType>(getType())) {
+    ttcore::ViewLayoutAttr resultView =
+        mlir::cast<ttcore::ViewLayoutAttr>(resultType.getLayout());
+    return resultView.getAffineMap() == reblockMap;
+  }
+
+  auto resultLayout = mlir::cast<ttcore::MetalLayoutAttr>(
+      mlir::cast<RankedTensorType>(getType()).getEncoding());
+
+  return resultLayout.getIndexAffineMap() == reblockMap;
+}
+
 mlir::OpFoldResult d2m::ViewLayoutOp::fold(FoldAdaptor adaptor) {
+  // Check nop.
+  if (getInput().getType() == getType()) {
+    return getInput();
+  }
+
   ViewLayoutOp consecutiveView = getInput().getDefiningOp<d2m::ViewLayoutOp>();
   if (!consecutiveView) {
+    return nullptr;
+  }
+
+  if (auto inputType = mlir::dyn_cast<MemRefType>(consecutiveView.getType())) {
+    // Replace the input through the consecutive view.
+    setOperand(consecutiveView.getInput());
+
+    auto resultType = mlir::cast<MemRefType>(getType());
+    ttcore::ViewLayoutAttr inputView =
+        mlir::cast<ttcore::ViewLayoutAttr>(inputType.getLayout());
+    ttcore::ViewLayoutAttr resultView =
+        mlir::cast<ttcore::ViewLayoutAttr>(resultType.getLayout());
+    ttcore::ViewLayoutAttr newView = inputView.compose(resultView);
+    getResult().setType(MemRefType::Builder(resultType).setLayout(newView));
+
+    return getResult();
+  }
+
+  // For tensor types, only fold if both are reblock-only views.
+  // This avoids complexities around layout composing affine maps
+  // with a bunch of irreducible operations like floorDiv and mod.
+  if (!consecutiveView.isReblockOnly() || !isReblockOnly()) {
     return nullptr;
   }
 
   // Replace the input through the consecutive view.
   setOperand(consecutiveView.getInput());
 
-  MemRefType inputType = mlir::dyn_cast<MemRefType>(consecutiveView.getType());
-  if (!inputType) {
-    return getResult();
-  }
-
-  // If we're dealing with memrefs, we need to compose the layouts.
-  MemRefType resultType = mlir::cast<MemRefType>(getType());
-  ttcore::ViewLayoutAttr inputView =
-      mlir::cast<ttcore::ViewLayoutAttr>(inputType.getLayout());
-  ttcore::ViewLayoutAttr resultView =
-      mlir::cast<ttcore::ViewLayoutAttr>(resultType.getLayout());
-  ttcore::ViewLayoutAttr newView = inputView.compose(resultView);
-  getResult().setType(MemRefType::Builder(resultType).setLayout(newView));
+  // Recompute the reblock map from the original input to the final result.
+  mlir::AffineMap reblockMap = mlir::tt::d2m::utils::calculateReblockMap(
+      mlir::cast<mlir::ShapedType>(consecutiveView.getInput().getType())
+          .getShape(),
+      mlir::cast<mlir::ShapedType>(getType()).getShape(), getContext());
+  auto resultType = mlir::cast<RankedTensorType>(getType());
+  auto resultLayout =
+      mlir::cast<ttcore::MetalLayoutAttr>(resultType.getEncoding());
+  ttcore::MetalLayoutAttr newLayout =
+      resultLayout.withIndexAffineMap(reblockMap);
+  getResult().setType(
+      RankedTensorType::Builder(resultType).setEncoding(newLayout));
 
   return getResult();
 }
