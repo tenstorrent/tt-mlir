@@ -55,7 +55,7 @@ void run(const ::tt::target::ttnn::Conv2dOp *op, ProgramContext &context) {
         ::tt::runtime::ttnn::utils::toTTNNDataType(*(op->output_dtype()));
   }
 
-  ::ttnn::operations::conv::Conv2dConfig conv2dConfig;
+  ::ttnn::operations::conv::conv2d::Conv2dConfig conv2dConfig;
   if (op->conv2d_config()) {
     conv2dConfig = utils::createConv2dConfig(op->conv2d_config());
   }
