@@ -365,11 +365,10 @@ public:
               },
               ThreadType::Datamovement, grid)
           .getResult(0);
-    } else {
-      // DRAM operations use the view directly without immediate
-      // materialization.
-      return viewOp;
     }
+    // DRAM operations use the view directly without immediate
+    // materialization.
+    return viewOp;
   }
 
   static Value lowerSystemLayoutChange(PatternRewriter &rewriter, Value input,
@@ -385,12 +384,10 @@ public:
         inputInfo.isSystem() ? outputInfo.layout : inputInfo.layout;
     assert(deviceLayout.has_value() && "Device side must have a layout");
 
-    // TODO: If the device side has a virtual grid (non-empty index map),
-    // ideally we should materialize the view before system transfer (similar to
-    // MaterializeViewReturns pass). For now, we allow it and let downstream
-    // passes handle it.
-    // assert(deviceLayout->getIndexAffineMap().isEmpty() &&
-    //        "Virtual grid should be reblocked before system transfer");
+    // TODO (vwells): If the device side has a virtual grid (non-empty index
+    // map), ideally we should materialize the view before system transfer
+    // (similar to MaterializeViewReturns pass). For now, we allow it and let
+    // downstream passes handle it.
 
     // Create the final ToLayoutOp with layout attribute set
     return rewriter.create<ToLayoutOp>(loc, input, output, *deviceLayout)
