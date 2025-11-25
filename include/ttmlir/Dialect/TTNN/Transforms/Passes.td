@@ -306,4 +306,47 @@ def TTNNWeightBFP8Conversion: Pass<"ttnn-weight-bfp8-conversion", "::mlir::Modul
   }];
 }
 
+def TTNNCollectPerfMetrics: Pass<"ttnn-collect-perf-metrics", "::mlir::ModuleOp"> {
+  let summary = "Collect and export TTNN operation metrics.";
+  let description = [{
+    This pass collects metrics about TTNN operations and their memory placement,
+    including information about sharded layouts, DRAM spills, and system memory usage.
+    The metrics are serialized to JSON format for debugging, profiling, and external analysis.
+
+    Usage:
+    Enable performance metrics collection in the TTIR to TTNN backend pipeline using:
+    --ttir-to-ttnn-backend-pipeline="ttnn-perf-metrics-enabled=true"
+
+    Output file naming:
+    - If --ttnn-perf-metrics-output-file is not specified or is the default, files are automatically
+      named based on the module/function name and stored in perf_metrics/ directory
+    - Example: module @MyModel produces perf_metrics/MyModel_perf_metrics.json
+    - If custom output file is specified, that path is used directly
+
+    Metrics collected:
+    - total_ops: Total TTNN operations (excluding const-eval ops)
+    - total_ops_with_output_tensor: Total TTNN operations that produce output tensors
+    - total_shardable_ops: Total TTNN operations that can use sharded layouts
+    - sharded_ops: Operations using sharded layouts (height/width/block sharded)
+    - effectively_sharded_ops: Sharded ops that are NOT spilled to DRAM
+    - sharded_and_spilled_ops: Sharded ops whose output is spilled to DRAM
+    - dram_spilled_ops: Total operations spilled to DRAM (interleaved)
+    - system_memory_ops: Operations with system_memory buffer type
+    - Percentages: All counts as percentage of total_shardable_ops
+
+    Verbose output (--ttnn-perf-metrics-verbose-output-enabled) includes:
+    - Detailed per-operation analysis with sharding and memory layout information for shardable ops
+    - Complete operation type breakdown with counts for all operation types (excluding const-eval functions)
+  }];
+
+  let options = [
+    Option<"ttnnPerfMetricsOutputFile", "ttnn-perf-metrics-output-file", "std::string", /*default=*/"\"ttnn_perf_metrics.json\"",
+           "Output file path for the performance metrics JSON">,
+    Option<"ttnnPerfMetricsVerboseOutputEnabled", "ttnn-perf-metrics-verbose-output-enabled", "bool", /*default=*/"false",
+           "Enable verbose output with per-operation details and operation type breakdown">,
+    Option<"ttnnEnableTrace", "ttnn-enable-trace", "bool", /*default=*/"false",
+           "Collect metrics only for the main traced function">
+  ];
+}
+
 #endif
