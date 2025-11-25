@@ -114,8 +114,8 @@ tryGetDstIdxFromResult(ConversionPatternRewriter &rewriter, Operation *op,
   // First, try to use the result_dst_index attribute (preferred).
   if (auto resultDstIndexAttr =
           defOp->getAttrOfType<mlir::IntegerAttr>("result_dst_index")) {
-    return rewriter.create<arith::ConstantIndexOp>(
-        op->getLoc(), resultDstIndexAttr.getInt());
+    return rewriter.create<arith::ConstantIndexOp>(op->getLoc(),
+                                                   resultDstIndexAttr.getInt());
   }
 
   // Fallback: find the store op that stores this result to DST.
@@ -829,9 +829,8 @@ public:
     } else {
       fallbackIdx = adaptor.getLhs();
     }
-    Value resultDstIdx =
-        tryGetDstIdxFromResult(rewriter, op, op.getResult())
-            .value_or(fallbackIdx);
+    Value resultDstIdx = tryGetDstIdxFromResult(rewriter, op, op.getResult())
+                             .value_or(fallbackIdx);
     rewriter.replaceOp(op, resultDstIdx);
     return success();
   }
@@ -921,9 +920,8 @@ public:
 
     // Get the destination index where the result will be stored.
     // Use input index for in-place operations if no explicit store.
-    Value resultDstIdx =
-        tryGetDstIdxFromResult(rewriter, op, op.getResult())
-            .value_or(tileIndex);
+    Value resultDstIdx = tryGetDstIdxFromResult(rewriter, op, op.getResult())
+                             .value_or(tileIndex);
 
     rewriter.create<ttkernel::TransposeTileOp>(op->getLoc(), inCB, tileIndex,
                                                resultDstIdx);

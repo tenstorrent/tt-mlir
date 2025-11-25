@@ -134,8 +134,8 @@ public:
   }
 
   static bool
-  insertDstRegisterAccess(RewriterBase &rewriter, GenericOp op,
-                          Region &region, unsigned dstCapacity,
+  insertDstRegisterAccess(RewriterBase &rewriter, GenericOp op, Region &region,
+                          unsigned dstCapacity,
                           Operation *outermostInnerComputeLoop = nullptr) {
     assert(region.getBlocks().size() == 1);
     if (hasAcquireDstOp(region)) {
@@ -451,8 +451,8 @@ public:
     inside it.
   */
 
-  static void dataCopyGenerate(RewriterBase &rewriter, Location loc,
-                               Value dst, const CopyInfoMap &copyInfos) {
+  static void dataCopyGenerate(RewriterBase &rewriter, Location loc, Value dst,
+                               const CopyInfoMap &copyInfos) {
     for (const auto &[loopNestOrOp, copyInfo] : copyInfos) {
       // Save this insertion point as loopNestOrOp may be replaced.
       rewriter.setInsertionPointAfter(loopNestOrOp);
@@ -525,8 +525,7 @@ public:
     }
   }
 
-  static scf::IfOp insertGuardForLoopNest(RewriterBase &rewriter,
-                                          Location loc,
+  static scf::IfOp insertGuardForLoopNest(RewriterBase &rewriter, Location loc,
                                           ArrayRef<int64_t> guardIndices) {
     if (guardIndices.empty()) {
       return nullptr;

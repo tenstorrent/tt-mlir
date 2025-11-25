@@ -292,8 +292,9 @@ struct D2MInsertDstRegisterGCPass
                 [&](RewriterBase &rewriter, Region &loopRegion,
                     Operation *outermostLoop) -> LogicalResult {
                   // For GC pass, matmul DST allocation follows a simpler path:
-                  // just create acquire/release without prologue/epilogue loops.
-                  // The D2MToTTKernel pass handles the actual DST operations.
+                  // just create acquire/release without prologue/epilogue
+                  // loops. The D2MToTTKernel pass handles the actual DST
+                  // operations.
                   return success();
                 }))) {
           return WalkResult::interrupt();
@@ -336,7 +337,8 @@ struct D2MInsertDstRegisterGCPass
 
         // If no marked loops found and region still needs DST allocation,
         // process the entire region. This handles two cases:
-        // 1. Scalar access (no loops): affine.load/store without enclosing loops
+        // 1. Scalar access (no loops): affine.load/store without enclosing
+        // loops
         // 2. Unmarked loops: affine.for without d2m.linalg_root attribute
         if (!foundMarkedLoop && !hasAcquireDstOp(region)) {
           processUnmarkedRegion(genericOp, region, totalDstTiles);
@@ -403,8 +405,7 @@ private:
     // Use the selected coloring strategy to assign DST slices.
     auto strategy = createColoringStrategy();
     std::vector<unsigned> coloring;
-    if (failed(
-            strategy->colorGraph(interferenceGraph, numColors, coloring))) {
+    if (failed(strategy->colorGraph(interferenceGraph, numColors, coloring))) {
       genericOp.emitError(
           "Graph coloring failed - not enough DST slices available");
       return;
@@ -469,13 +470,14 @@ private:
                            loopTemplateCtx, maxLoopIterations);
     }
 
-    // Track the last operation we generate so we can place release_dst after it.
+    // Track the last operation we generate so we can place release_dst after
+    // it.
     Operation *lastOp = markedLoop.getOperation();
 
     for (auto &[loopOp, copyInfo] : copyInfoMap) {
       const LoopContext &loopTemplateCtx = loopTemplateContexts[loopOp];
-      generateEpilogueLoop(rewriter, acquireDst.getResult(), loopOp,
-                           copyInfo, loopTemplateCtx, maxLoopIterations);
+      generateEpilogueLoop(rewriter, acquireDst.getResult(), loopOp, copyInfo,
+                           loopTemplateCtx, maxLoopIterations);
     }
 
     // Insert release_dst after all epilogue loops.
@@ -587,8 +589,7 @@ private:
     // Use the selected coloring strategy to assign DST slices.
     auto strategy = createColoringStrategy();
     std::vector<unsigned> coloring;
-    if (failed(
-            strategy->colorGraph(interferenceGraph, numColors, coloring))) {
+    if (failed(strategy->colorGraph(interferenceGraph, numColors, coloring))) {
       genericOp.emitError(
           "Graph coloring failed - not enough DST slices available");
       return;
@@ -674,8 +675,8 @@ private:
     // Generate epilogue loops.
     for (auto &[loopOp, copyInfo] : copyInfoMap) {
       const LoopContext &loopTemplateCtx = loopTemplateContexts[loopOp];
-      generateEpilogueLoop(rewriter, acquireDst.getResult(), loopOp,
-                           copyInfo, loopTemplateCtx, maxLoopIterations);
+      generateEpilogueLoop(rewriter, acquireDst.getResult(), loopOp, copyInfo,
+                           loopTemplateCtx, maxLoopIterations);
     }
 
     // Find the last non-terminator operation for release_dst placement.
@@ -783,8 +784,7 @@ private:
   // before compute and all epilogues happen together after.
   static CopyInfoMap groupAccessesByLoopNest(
       const SmallVector<std::pair<Operation *, int64_t>> &dstAccesses,
-      const std::vector<unsigned> &coloring,
-      affine::AffineForOp markedLoop) {
+      const std::vector<unsigned> &coloring, affine::AffineForOp markedLoop) {
     CopyInfoMap copyInfoMap;
 
     for (size_t i = 0; i < dstAccesses.size(); ++i) {
