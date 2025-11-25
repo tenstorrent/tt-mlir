@@ -57,7 +57,33 @@ def create_dram_tensor(device, shape, dtype, int_max=0, mesh_mapper=None):
     )
 
 
-def create_sharded_tile_tensor(device, shape, max_grid, dtype, int_max=0):
+def get_shard_shape(collapsed_shape, max_grid, memory_layout):
+    h, w = collapsed_shape
+    # IMPORTANT: TTNN grids are (Width, Height), while tensor shapes are (Height, Width).
+    if memory_layout == ttnn.TensorMemoryLayout.BLOCK_SHARDED:
+        shard_shape_x = h if max_grid[1] == 0 else h // (max_grid[1] + 1)
+        shard_shape_y = w if max_grid[0] == 0 else w // (max_grid[0] + 1)
+        return shard_shape_x, shard_shape_y
+    elif memory_layout == ttnn.TensorMemoryLayout.HEIGHT_SHARDED:
+        grid_size = (max_grid[0] + 1) * (max_grid[1] + 1)
+        shard_shape_x = h // grid_size
+        return shard_shape_x, w
+    elif memory_layout == ttnn.TensorMemoryLayout.WIDTH_SHARDED:
+        grid_size = (max_grid[0] + 1) * (max_grid[1] + 1)
+        shard_shape_y = w // grid_size
+        return h, shard_shape_y
+    else:
+        raise ValueError(f"Invalid memory layout: {memory_layout}")
+
+
+def create_sharded_tile_tensor(
+    device,
+    shape,
+    max_grid,
+    dtype,
+    int_max=0,
+    memory_layout=ttnn.TensorMemoryLayout.BLOCK_SHARDED,
+):
     if not (dtype.is_floating_point or dtype.is_complex):
         # recreate spatial coverage of fp [0,1] in randn and give some overflow headroom
         high_val = int_max if int_max else torch.iinfo(dtype).max // 2
@@ -77,9 +103,7 @@ def create_sharded_tile_tensor(device, shape, max_grid, dtype, int_max=0):
     for dim in shape[:-1]:
         h *= dim
 
-    # TTNN grids are (Width, Height), while tensor shapes are (Height, Width).
-    shard_shape_x = h if max_grid[1] == 0 else h // (max_grid[1] + 1)
-    shard_shape_y = w if max_grid[0] == 0 else w // (max_grid[0] + 1)
+    shard_shape_x, shard_shape_y = get_shard_shape((h, w), max_grid, memory_layout)
 
     shard_spec = ttnn.ShardSpec(
         grid=core_range_set,
@@ -88,11 +112,12 @@ def create_sharded_tile_tensor(device, shape, max_grid, dtype, int_max=0):
     )
 
     memory_config = ttnn.MemoryConfig(
-        memory_layout=ttnn.TensorMemoryLayout.BLOCK_SHARDED,
+        memory_layout=memory_layout,
         buffer_type=ttnn.BufferType.L1,
         shard_spec=shard_spec,
     )
 
+    print("Armin: creating tensor with memory config", memory_config)
     return ttnn.from_torch(
         torch_tensor,
         layout=ttnn.TILE_LAYOUT,
@@ -134,6 +159,7 @@ def run_op_test(
     buffer_type=ttnn.BufferType.L1,
     graph_capture=True,
     enable_cache=False,
+    memory_layout=ttnn.TensorMemoryLayout.BLOCK_SHARDED,
 ):
     """
     Common test runner for JIT operations.
@@ -151,12 +177,14 @@ def run_op_test(
     """
     if buffer_type == ttnn.BufferType.L1:
         inputs = [
-            create_sharded_tile_tensor(device, shape, max_grid, dtype)
+            create_sharded_tile_tensor(
+                device, shape, max_grid, dtype, memory_layout=memory_layout
+            )
             for _ in range(num_inputs)
         ]
     else:
         inputs = [create_dram_tensor(device, shape, dtype) for _ in range(num_inputs)]
-    print("inputs", inputs)
+    print("created inputs:", inputs)
     golden_op = _get_ttnn_op(op)
 
     op_jit = ttnn_jit.jit(
