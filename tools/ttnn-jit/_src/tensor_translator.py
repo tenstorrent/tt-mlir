@@ -129,8 +129,13 @@ def _get_grid(ctx, max_grid, memory_layout):
         raise ValueError(f"Invalid memory layout: {memory_layout}")
 
 
-def _create_sharded_tensor_layout(ctx, tensor_arg, max_grid):
+def _create_sharded_tensor_layout(ctx, tensor_arg):
+
+    grid_bb = tensor_arg.memory_config().shard_spec.grid.bounding_box()
+    max_grid = (grid_bb.end.x, grid_bb.end.y)
+
     affine_map = _get_collapsed_linear_affine_map(ctx, tensor_arg.shape, max_grid)
+    grid_bb = tensor_arg.memory_config().shard_spec.grid.bounding_box()
     grid = _get_grid(
         ctx,
         max_grid,
@@ -165,7 +170,8 @@ def _create_sharded_tensor_layout(ctx, tensor_arg, max_grid):
     )
 
 
-def _create_dram_tensor_layout(ctx, tensor_arg, max_grid):
+def _create_dram_tensor_layout(ctx, tensor_arg):
+    max_grid = (1, 1)
     affine_map = _get_collapsed_linear_affine_map(ctx, tensor_arg.shape, max_grid)
     buffer_type = ttnn.ir.BufferTypeAttr.get(ctx, ttnn.BufferType.DRAM)
     grid = _get_grid(ctx, max_grid, ttnn.TensorMemoryLayout.Interleaved)
@@ -215,10 +221,10 @@ def _check_layout_supported(tensor_arg, max_grid):
         raise ValueError("DRAM tensors must be interleaved.")
 
 
-def create_tensor_layout(ctx, tensor_arg, max_grid):
+def create_tensor_layout(ctx, tensor_arg):
     """Create TTNN layout attribute from tensor."""
 
     if tensor_arg.memory_config().is_sharded():
-        return _create_sharded_tensor_layout(ctx, tensor_arg, max_grid)
+        return _create_sharded_tensor_layout(ctx, tensor_arg)
     else:
-        return _create_dram_tensor_layout(ctx, tensor_arg, max_grid)
+        return _create_dram_tensor_layout(ctx, tensor_arg)

@@ -543,7 +543,7 @@ class GraphToIRTranslator:
             input_types = []
             for arg_name, tensor_arg in self.tensor_args.items():
                 shape = list(tensor_arg.shape)
-                layout = create_tensor_layout(self.ctx, tensor_arg, self.max_grid)
+                layout = create_tensor_layout(self.ctx, tensor_arg)
                 dtype = self._mlir_dtype_from_ttnn_dtype(tensor_arg.dtype)
                 tensor_type = RankedTensorType.get(shape, dtype, layout)
                 input_types.append(tensor_type)
