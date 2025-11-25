@@ -2975,6 +2975,16 @@ def ttir_dot_general_golden(
         for device_id, shard in result.shard_map.items():
             transposed_lhs_slice = transposed_lhs.shard_at(device_id)[index]
             transposed_rhs_slice = transposed_rhs.shard_at(device_id)[index]
+
+            # Ensure both tensors have the same dtype for tensordot
+            if transposed_lhs_slice.dtype != transposed_rhs_slice.dtype:
+                # Promote to a common dtype (use the higher precision dtype)
+                target_dtype = torch.promote_types(
+                    transposed_lhs_slice.dtype, transposed_rhs_slice.dtype
+                )
+                transposed_lhs_slice = transposed_lhs_slice.to(target_dtype)
+                transposed_rhs_slice = transposed_rhs_slice.to(target_dtype)
+
             dot_dims_lhs = [d - len(index) for d in contract_dims_lhs]
             dot_dims_rhs = [d - len(index) for d in contract_dims_rhs]
             out_index = index
@@ -3359,6 +3369,85 @@ def ttir_batch_norm_inference_golden(
     return result
 
 
+def ttir_batch_norm_training_golden(
+    input_tensor: GoldenMapTensor,
+    scale: GoldenMapTensor,
+    offset: GoldenMapTensor,
+    running_mean: GoldenMapTensor,
+    running_variance: GoldenMapTensor,
+    epsilon_attr: FloatAttr,
+    dimension_attr: IntegerAttr,
+    momentum_attr: FloatAttr,
+) -> Tuple[GoldenMapTensor, GoldenMapTensor, GoldenMapTensor]:
+    epsilon = unpack_mlir_attr(epsilon_attr)
+    dim = unpack_mlir_attr(dimension_attr)
+    momentum = unpack_mlir_attr(momentum_attr)
+    perm = list(range(input_tensor.ndim))
+    perm[1], perm[dim] = perm[dim], perm[1]
+    permuted_tensor = input_tensor.permute(perm)
+
+    # Compute batch statistics
+    # PyTorch batch_norm uses biased variance (unbiased=False) during training
+    # Calculate mean and variance across all dimensions except the channel dimension (dim 1 after permute)
+    # For NCHW format: reduce over dims [0, 2, 3] (batch, height, width), keep dim 1 (channels)
+    if permuted_tensor.ndim == 4:
+        # NCHW format - compute mean step by step to ensure it works with GoldenMapTensor
+        # First reduce over spatial dimensions [2, 3] (H, W)
+        spatial_mean = torch.mean(permuted_tensor, dim=[2, 3])  # [N, C]
+        # Then reduce over batch dimension [0]
+        batch_mean = torch.mean(spatial_mean, dim=0)  # [C]
+
+        # For variance, use the same approach
+        spatial_var_sum = torch.sum(
+            torch.pow(
+                torch.sub(permuted_tensor, torch.reshape(batch_mean, [1, -1, 1, 1])), 2
+            ),
+            dim=[0, 2, 3],
+        )
+        batch_var = torch.div(
+            spatial_var_sum,
+            permuted_tensor.shape[0]
+            * permuted_tensor.shape[2]
+            * permuted_tensor.shape[3],
+        )
+    else:
+        # General case: reduce over all dims except channel dim (1)
+        reduce_dims = [0] + list(range(2, permuted_tensor.ndim))
+        batch_mean = torch.mean(permuted_tensor, dim=reduce_dims)
+        batch_var = torch.var(permuted_tensor, dim=reduce_dims, unbiased=False)
+
+    # Manually compute normalized output: (x - mean) / sqrt(var + eps) * scale + offset
+    # Reshape mean and var for broadcasting using torch.reshape
+    shape = [1, -1] + [1] * (permuted_tensor.ndim - 2)
+    batch_mean_reshaped = torch.reshape(batch_mean, shape)
+    batch_var_reshaped = torch.reshape(batch_var, shape)
+    scale_reshaped = torch.reshape(scale, shape)
+    offset_reshaped = torch.reshape(offset, shape)
+
+    # Normalize using torch functions (GoldenMapTensor requires torch.* functions)
+    centered = torch.sub(permuted_tensor, batch_mean_reshaped)
+    std = torch.sqrt(torch.add(batch_var_reshaped, epsilon))
+    normalized = torch.div(centered, std)
+    scaled = torch.mul(normalized, scale_reshaped)
+    result = torch.add(scaled, offset_reshaped)
+
+    # Permute result back to original dimension order
+    inv_perm = [perm.index(i) for i in range(len(perm))]
+    result = result.permute(inv_perm)
+
+    # Update running statistics using momentum
+    # running_mean = momentum * batch_mean + (1 - momentum) * running_mean
+    # running_variance = momentum * batch_variance + (1 - momentum) * running_variance
+    updated_running_mean = torch.add(
+        torch.mul(batch_mean, momentum), torch.mul(running_mean, 1 - momentum)
+    )
+    updated_running_var = torch.add(
+        torch.mul(batch_var, momentum), torch.mul(running_variance, 1 - momentum)
+    )
+
+    return result, updated_running_mean, updated_running_var
+
+
 def ttir_ne_golden(
     input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor
 ) -> GoldenMapTensor:
@@ -3611,6 +3700,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.EmbeddingOp: embedding_golden,
     ttir.Upsample2dOp: upsample2d_golden,
     ttir.BatchNormInferenceOp: ttir_batch_norm_inference_golden,
+    ttir.BatchNormTrainingOp: ttir_batch_norm_training_golden,
     ttir.RMSNormOp: rms_norm_golden,
     # Type operations
     ttir.TypecastOp: ttir_typecast_golden,
