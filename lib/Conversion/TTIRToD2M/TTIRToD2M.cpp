@@ -54,6 +54,167 @@ protected:
            mlir::isa_and_nonnull<ttnn::TTNNLayoutAttr>(tensor.getEncoding());
   }
 
+  void alignGrids(mlir::ConversionPatternRewriter &rewriter,
+                  mlir::SmallVector<Value> &inputs,
+                  mlir::SmallVector<Value> &outputs) const {
+
+    /*
+    This function aligns the grids of input tensors to match each other / the
+    output tensor's grid if necessary. This is required in order to support
+    operations with mixed memory layouts or differing sharding grids.
+    */
+
+    // Debug: Print entry and basic info
+    llvm::errs() << "[alignGrids] Called with " << inputs.size() << " inputs, "
+                 << outputs.size() << " outputs, ttnnMode=" << this->ttnnMode
+                 << "\n";
+
+    // If ttnnMode is off or no outputs, there is nothing to do
+    if (!this->ttnnMode || outputs.empty()) {
+      llvm::errs()
+          << "[alignGrids] Early exit: ttnnMode off or outputs empty\n";
+      return;
+    }
+
+    // Lambda to get MetalLayoutAttr from operands
+    auto getMetalLayoutAttr = [](Value v) -> ttcore::MetalLayoutAttr {
+      auto tensorType = mlir::dyn_cast<RankedTensorType>(v.getType());
+      if (!tensorType) {
+        llvm::errs()
+            << "[alignGrids] getMetalLayoutAttr: not a RankedTensorType\n";
+        return nullptr;
+      }
+      auto encoding = tensorType.getEncoding();
+      if (!encoding || !mlir::isa<ttcore::MetalLayoutAttr>(encoding)) {
+        llvm::errs() << "[alignGrids] getMetalLayoutAttr: encoding missing or "
+                        "not MetalLayoutAttr\n";
+        return nullptr;
+      }
+      return mlir::cast<ttcore::MetalLayoutAttr>(encoding);
+    };
+
+    // Determine the output layout to align the input grids to if needed
+    ttcore::MetalLayoutAttr targetLayout = nullptr;
+    ttcore::MetalLayoutAttr outputMetalLayoutAttr =
+        getMetalLayoutAttr(outputs[0]);
+    if (outputMetalLayoutAttr) {
+      ttcore::MemorySpace memSpace = outputMetalLayoutAttr.getMemorySpace();
+      llvm::errs() << "[alignGrids] Output layout memSpace: "
+                   << static_cast<int>(memSpace) << "\n";
+      if (memSpace == ttcore::MemorySpace::DeviceL1) {
+        // It's L1
+        targetLayout = outputMetalLayoutAttr;
+        llvm::errs() << "[alignGrids] Target layout set to output (L1)\n";
+      } else if (memSpace == ttcore::MemorySpace::DeviceDRAM) {
+        // It's DRAM
+        for (auto &input : inputs) {
+          ttcore::MetalLayoutAttr inputLayout = getMetalLayoutAttr(input);
+          if (inputLayout &&
+              inputLayout.getMemorySpace() == ttcore::MemorySpace::DeviceL1) {
+            targetLayout = inputLayout;
+            llvm::errs() << "[alignGrids] Target layout set to input (L1)\n";
+            break;
+          }
+        }
+      }
+    }
+
+    // If we never set targetLayout by this point, both inputs and output are
+    // DRAM
+    if (!targetLayout) {
+      llvm::errs()
+          << "[alignGrids] No targetLayout found, all DRAM, nothing to do\n";
+      return;
+    }
+
+    auto targetTensorType = mlir::cast<RankedTensorType>(outputs[0].getType());
+    const unsigned targetRank = targetLayout.getRank();
+    const unsigned targetGridRank = targetRank / 2;
+    llvm::SmallVector<int64_t> targetGridShape =
+        llvm::to_vector(targetTensorType.getShape().take_front(targetGridRank));
+
+    // Debug: Print target grid shape
+    llvm::errs() << "[alignGrids] Target grid shape: [";
+    for (size_t i = 0; i < targetGridShape.size(); ++i) {
+      llvm::errs() << targetGridShape[i];
+      if (i + 1 < targetGridShape.size()) {
+        llvm::errs() << ", ";
+      }
+    }
+    llvm::errs() << "]\n";
+
+    // Align input grids to target layout if needed
+    for (size_t idx = 0; idx < inputs.size(); ++idx) {
+      auto &input = inputs[idx];
+
+      // Check if grid of input needs to be aligned
+      ttcore::MetalLayoutAttr inputLayout = getMetalLayoutAttr(input);
+      auto inputTensorType = mlir::cast<RankedTensorType>(input.getType());
+      const unsigned inputRank = inputLayout.getRank();
+      const unsigned inputGridRank = inputRank / 2;
+      llvm::SmallVector<int64_t> inputGridShape =
+          llvm::to_vector(inputTensorType.getShape().take_front(inputGridRank));
+
+      // Debug: Print input grid shape
+      llvm::errs() << "[alignGrids] Input #" << idx << " grid shape: [";
+      for (size_t i = 0; i < inputGridShape.size(); ++i) {
+        llvm::errs() << inputGridShape[i];
+        if (i + 1 < inputGridShape.size()) {
+          llvm::errs() << ", ";
+        }
+      }
+      llvm::errs() << "]\n";
+
+      if (!inputLayout || inputGridShape == targetGridShape) {
+        llvm::errs() << "[alignGrids] Input #" << idx
+                     << " already matches target grid or has no layout\n";
+        continue;
+      }
+
+      // Insertion logic starts here
+      mlir::MLIRContext *ctx = rewriter.getContext();
+      mlir::Location loc = input.getLoc();
+
+      // New result layout is the same as the input layout but with the target
+      // grid
+      auto resultLayout = ttcore::MetalLayoutAttr::get(
+          ctx, inputLayout.getLogicalShape(), inputLayout.getDimAlignments(),
+          inputLayout.getCollapsedIntervals(), inputLayout.getOobVal(),
+          inputLayout.getMemorySpace(), inputLayout.getMemoryLayout(),
+          inputLayout.getIndexAffineMapOrIdentity(inputTensorType.getRank()));
+
+      // Get the new physical shape based on the target grid
+      llvm::SmallVector<int64_t> newPhysicalShape = resultLayout.getDeviceShape(
+          targetGridShape, ttcore::TileType::getDefaultShape());
+
+      // Debug: Print new physical shape
+      llvm::errs() << "[alignGrids] Input #" << idx << " new physical shape: [";
+      for (size_t i = 0; i < newPhysicalShape.size(); ++i) {
+        llvm::errs() << newPhysicalShape[i];
+        if (i + 1 < newPhysicalShape.size()) {
+          llvm::errs() << ", ";
+        }
+      }
+      llvm::errs() << "]\n";
+
+      // Create the new tensor type for the view that is reblocked
+      auto reblockedViewType = mlir::RankedTensorType::get(
+          newPhysicalShape, inputTensorType.getElementType(), resultLayout);
+
+      // Create the new ViewLayoutOp
+      auto viewOp = rewriter.create<d2m::ViewLayoutOp>(
+          loc, reblockedViewType, input, rewriter.getBoolAttr(false));
+
+      llvm::errs() << "[alignGrids] Inserted ViewLayoutOp for input #" << idx
+                   << "\n";
+
+      // Replace the original input Value with the result of the new
+      // ViewLayoutOp
+      input = viewOp.getResult();
+    }
+    llvm::errs() << "[alignGrids] Done\n";
+  }
+
   void assertTTNNLayoutSupported(ttnn::TTNNLayoutAttr ttnnLayout) const {
     assert(ttnnLayout.isDeviceBufferType() && "Must be a device tensor");
 
@@ -389,6 +550,9 @@ private:
         getAffineMapsArray(rewriter, numOperands, physicalRank);
     SmallVector<mlir::Attribute> iteratorTypes =
         getIteratorTypesArray(rewriter, physicalRank);
+
+    // align grids of inputs to match each other / output if needed
+    alignGrids(rewriter, inputs, outputs);
 
     // Create 'd2m.generic' accepting 'op's operands.
     auto generic = rewriter.create<d2m::GenericOp>(
