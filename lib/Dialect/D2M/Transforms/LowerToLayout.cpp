@@ -232,28 +232,63 @@ public:
     // Check if output has virtual grid for later use
     bool outputHasVirtualGrid = !outputLayout.getIndexAffineMap().isEmpty();
 
-    // When building the data transformation map, we need to exclude virtual
-    // grid index_maps because those are for grid coordinate translation, not
-    // data layout transformation. Create temporary layouts without index_maps.
-    auto inputLayoutForTransform = ttcore::MetalLayoutAttr::get(
-        rewriter.getContext(), inputLayout.getLogicalShape(),
-        inputLayout.getDimAlignments(), inputLayout.getCollapsedIntervals(),
-        inputLayout.getOobVal(), inputLayout.getMemorySpace(),
-        inputLayout.getMemoryLayout(), AffineMap::get(rewriter.getContext()));
+    // Classify the type of mapping change to choose the optimal approach.
+    // Simple reblocking: only grid shape differs, all other layout properties
+    // are identical. For tilized tensors, we can use a direct device-space
+    // reblock map (calculateReblockMap) which is more efficient and avoids
+    // issues with unaligned tensors where logical shapes don't divide evenly
+    // into tiles.
+    bool isSimpleReblocking =
+        (inputLayout.getLogicalShape() == outputLayout.getLogicalShape() &&
+         inputLayout.getDimAlignments() == outputLayout.getDimAlignments() &&
+         inputLayout.getCollapsedIntervals() ==
+             outputLayout.getCollapsedIntervals());
 
-    auto outputLayoutForTransform = ttcore::MetalLayoutAttr::get(
-        rewriter.getContext(), outputLayout.getLogicalShape(),
-        outputLayout.getDimAlignments(), outputLayout.getCollapsedIntervals(),
-        outputLayout.getOobVal(), outputLayout.getMemorySpace(),
-        outputLayout.getMemoryLayout(), AffineMap::get(rewriter.getContext()));
+    bool bothTilized =
+        ttcore::isTiled(inputInfo.type) && ttcore::isTiled(outputInfo.type);
 
-    // Build an affine map that transforms input device coordinates to output
-    // device coordinates via the shared logical space. This map handles grid
-    // redistribution, collapse changes, padding changes, but NOT virtual grid
-    // coordinate translation (which goes in the GridAttr instead).
-    AffineMap viewMap = utils::buildLayoutTransformMap(
-        inputLayoutForTransform, inputInfo.type, outputLayoutForTransform,
-        outputInfo.type);
+    AffineMap viewMap;
+
+    if (isSimpleReblocking && bothTilized) {
+      // Fast path: pure grid reblocking on tilized tensors.
+      // Use calculateReblockMap which works directly on device shapes without
+      // going through logical space (avoids tile alignment issues).
+      llvm::errs() << "      lowerMappingChange: simple reblocking (tilized)\n";
+      viewMap = utils::calculateReblockMap(inputInfo.type.getShape(),
+                                           outputInfo.type.getShape(),
+                                           rewriter.getContext());
+    } else {
+      // Complex mapping: layout properties differ (padding, collapse, etc).
+      // Use buildLayoutTransformMap which goes through logical space.
+      // For tilized tensors, this should only be called from the untilized
+      // decomposition path in step 5.
+      llvm::errs() << "      lowerMappingChange: complex mapping via logical "
+                      "space\n";
+
+      // When building the data transformation map, we need to exclude virtual
+      // grid index_maps because those are for grid coordinate translation, not
+      // data layout transformation. Create temporary layouts without
+      // index_maps.
+      auto inputLayoutForTransform = ttcore::MetalLayoutAttr::get(
+          rewriter.getContext(), inputLayout.getLogicalShape(),
+          inputLayout.getDimAlignments(), inputLayout.getCollapsedIntervals(),
+          inputLayout.getOobVal(), inputLayout.getMemorySpace(),
+          inputLayout.getMemoryLayout(), AffineMap::get(rewriter.getContext()));
+
+      auto outputLayoutForTransform = ttcore::MetalLayoutAttr::get(
+          rewriter.getContext(), outputLayout.getLogicalShape(),
+          outputLayout.getDimAlignments(), outputLayout.getCollapsedIntervals(),
+          outputLayout.getOobVal(), outputLayout.getMemorySpace(),
+          outputLayout.getMemoryLayout(), AffineMap::get(rewriter.getContext()));
+
+      // Build an affine map that transforms input device coordinates to output
+      // device coordinates via the shared logical space. This map handles grid
+      // redistribution, collapse changes, padding changes, but NOT virtual grid
+      // coordinate translation (which goes in the GridAttr instead).
+      viewMap = utils::buildLayoutTransformMap(
+          inputLayoutForTransform, inputInfo.type, outputLayoutForTransform,
+          outputInfo.type);
+    }
 
     // Embed the transformation map in the output layout.
     auto newLayout = ttcore::MetalLayoutAttr::get(
@@ -648,8 +683,6 @@ public:
         llvm::errs() << "    current type: " << currentInfo.type << "\n";
         llvm::errs() << "    target type: " << targetInfo.type << "\n";
 
-        // Formats match (enforced by step 5 condition), use target's device
-        // shape directly
         auto currentGridShape = currentInfo.getGridShape();
         auto targetGridShape_layout = targetInfo.getGridShape();
         llvm::errs() << "      current grid: " << currentGridShape[0] << "x"
@@ -657,29 +690,104 @@ public:
         llvm::errs() << "      target grid: " << targetGridShape_layout[0]
                      << "x" << targetGridShape_layout[1] << "\n";
 
-        auto deviceShape = llvm::to_vector(targetInfo.type.getShape());
+        // Classify the transformation type
+        bool isSimpleReblocking =
+            (currentInfo.layout->getLogicalShape() ==
+                 targetInfo.layout->getLogicalShape() &&
+             currentInfo.layout->getDimAlignments() ==
+                 targetInfo.layout->getDimAlignments() &&
+             currentInfo.layout->getCollapsedIntervals() ==
+                 targetInfo.layout->getCollapsedIntervals());
 
-        // Use target's layout properties (including index_map) but stay in L1
-        auto intermediateLayout = ttcore::MetalLayoutAttr::get(
-            rewriter.getContext(), targetInfo.layout->getLogicalShape(),
-            targetInfo.layout->getDimAlignments(),
-            targetInfo.layout->getCollapsedIntervals(),
-            targetInfo.layout->getOobVal(),
-            ttcore::MemorySpace::DeviceL1, // Force L1 for reblocking
-            targetInfo.layout->getMemoryLayout(),
-            targetInfo.layout->getIndexAffineMap());
+        bool bothTilized = ttcore::isTiled(currentInfo.type) &&
+                           ttcore::isTiled(targetInfo.type);
 
-        auto intermediateType = RankedTensorType::get(
-            deviceShape, currentInfo.type.getElementType(), intermediateLayout);
+        if (bothTilized && !isSimpleReblocking) {
+          // Complex mapping change on tilized tensors: the affine map approach
+          // via logical space doesn't work for unaligned tensors where logical
+          // shapes don't divide evenly into tiles. Decompose via scalar space:
+          // untilize → map in scalar space → tilize back.
+          llvm::errs()
+              << "    (Complex mapping on tilized: decomposing via scalar "
+                 "space)\n";
 
-        llvm::errs() << "    intermediate type: " << intermediateType << "\n";
-        auto intermediateEmpty = createEmpty(intermediateType);
+          // 5a. Untilize to scalar space (preserve current layout properties)
+          Type scalarType = getScalarType(currentInfo.type.getElementType());
+          auto untilizedType = typeBuilder.modifyDeviceType(
+              currentInfo.type, *currentInfo.layout, targetGridShape,
+              ttcore::MemorySpace::DeviceL1,
+              /*newTensorGrid=*/{}, scalarType);
+          auto untilizedEmpty = createEmpty(untilizedType);
+          currentValue = lowerFormatConversionGeneric(
+              rewriter, currentValue, untilizedEmpty, op.getLoc());
+          currentInfo = TensorInfo::from(currentValue);
 
-        currentValue =
-            lowerMappingChange(rewriter, currentValue, intermediateEmpty,
-                               op.getLoc(), targetGridShape);
-        llvm::errs() << "    result type: " << currentValue.getType() << "\n";
-        currentInfo = TensorInfo::from(currentValue);
+          // 5b. Apply complex mapping change in scalar space
+          // Build scalar target with ALL target's layout properties
+          auto scalarTargetLayout = ttcore::MetalLayoutAttr::get(
+              rewriter.getContext(), targetInfo.layout->getLogicalShape(),
+              targetInfo.layout->getDimAlignments(),
+              targetInfo.layout->getCollapsedIntervals(),
+              targetInfo.layout->getOobVal(),
+              ttcore::MemorySpace::DeviceL1, // Stay in L1
+              targetInfo.layout->getMemoryLayout(),
+              targetInfo.layout->getIndexAffineMap());
+
+          auto scalarTargetGridShape = targetInfo.getGridShape();
+          auto scalarTargetDeviceShape =
+              scalarTargetLayout.getDeviceShape(scalarTargetGridShape, {});
+
+          auto scalarTargetType =
+              RankedTensorType::get(scalarTargetDeviceShape, scalarType,
+                                    scalarTargetLayout);
+          auto scalarTargetEmpty = createEmpty(scalarTargetType);
+          currentValue =
+              lowerMappingChange(rewriter, currentValue, scalarTargetEmpty,
+                                 op.getLoc(), targetGridShape);
+          currentInfo = TensorInfo::from(currentValue);
+
+          // 5c. Tilize back to match target format
+          ArrayRef<int64_t> tileShape =
+              ttcore::getTensorTileShape(targetInfo.type);
+          auto tiledDeviceShape = targetInfo.layout->getDeviceShape(
+              targetInfo.getGridShape(), tileShape);
+          auto tiledType =
+              RankedTensorType::get(tiledDeviceShape,
+                                    targetInfo.type.getElementType(),
+                                    *targetInfo.layout);
+          auto tiledEmpty = createEmpty(tiledType);
+          currentValue = lowerFormatConversionGeneric(
+              rewriter, currentValue, tiledEmpty, op.getLoc());
+          currentInfo = TensorInfo::from(currentValue);
+
+        } else {
+          // Simple reblocking or untilized complex: use direct approach
+          auto deviceShape = llvm::to_vector(targetInfo.type.getShape());
+
+          // Use target's layout properties (including index_map) but stay in L1
+          auto intermediateLayout = ttcore::MetalLayoutAttr::get(
+              rewriter.getContext(), targetInfo.layout->getLogicalShape(),
+              targetInfo.layout->getDimAlignments(),
+              targetInfo.layout->getCollapsedIntervals(),
+              targetInfo.layout->getOobVal(),
+              ttcore::MemorySpace::DeviceL1, // Force L1 for reblocking
+              targetInfo.layout->getMemoryLayout(),
+              targetInfo.layout->getIndexAffineMap());
+
+          auto intermediateType = RankedTensorType::get(
+              deviceShape, currentInfo.type.getElementType(),
+              intermediateLayout);
+
+          llvm::errs() << "    intermediate type: " << intermediateType << "\n";
+          auto intermediateEmpty = createEmpty(intermediateType);
+
+          currentValue =
+              lowerMappingChange(rewriter, currentValue, intermediateEmpty,
+                                 op.getLoc(), targetGridShape);
+          llvm::errs() << "    result type: " << currentValue.getType()
+                       << "\n";
+          currentInfo = TensorInfo::from(currentValue);
+        }
       }
     }
 
