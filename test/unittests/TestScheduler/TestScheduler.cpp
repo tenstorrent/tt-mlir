@@ -225,3 +225,66 @@ TEST_F(SchedulerBase, VerifyFork) {
   scheduler.scheduleOp(scheduleableOps[0]);
   ASSERT_FALSE(scheduler.hasUnscheduledOps());
 }
+
+// Test the scheduler with SplitQueryKeyValueAndSplitHeadsOp
+// This op has 3 outputs (query, key, value), and each output has an operation
+// after it. The scheduler should correctly initialize dependencies so that
+// SplitQueryKeyValueAndSplitHeadsOp is scheduled first, then the 3 ops that
+// use its outputs can be scheduled.
+TEST_F(SchedulerBase, SplitQueryKeyValueAndSplitHeadsOp) {
+  constexpr int batchSize = 1;
+  constexpr int sequenceSize = 4;
+  constexpr int numHeads = 2;
+  constexpr int headDim = 8;
+  constexpr int hiddenSize = numHeads * headDim;
+  constexpr int inputHiddenSize = 3 * hiddenSize;
+
+  llvm::SmallVector<int64_t> inputShape{batchSize, sequenceSize,
+                                        inputHiddenSize};
+  llvm::SmallVector<int64_t> outputShape{batchSize, numHeads, sequenceSize,
+                                         headDim};
+
+  mlir::Value inputTensor = builder.create<ttir::EmptyOp>(
+      builder.getUnknownLoc(), inputShape, builder.getF32Type());
+  mlir::Value queryOutput = builder.create<ttir::EmptyOp>(
+      builder.getUnknownLoc(), outputShape, builder.getF32Type());
+  mlir::Value keyOutput = builder.create<ttir::EmptyOp>(
+      builder.getUnknownLoc(), outputShape, builder.getF32Type());
+  mlir::Value valueOutput = builder.create<ttir::EmptyOp>(
+      builder.getUnknownLoc(), outputShape, builder.getF32Type());
+
+  mlir::Type queryType =
+      mlir::RankedTensorType::get(outputShape, builder.getF32Type());
+  mlir::Type keyType =
+      mlir::RankedTensorType::get(outputShape, builder.getF32Type());
+  mlir::Type valueType =
+      mlir::RankedTensorType::get(outputShape, builder.getF32Type());
+
+  auto splitOp = builder.create<ttir::SplitQueryKeyValueAndSplitHeadsOp>(
+      builder.getUnknownLoc(), queryType, keyType, valueType, inputTensor,
+      /*kv_input_tensor=*/nullptr, queryOutput, keyOutput, valueOutput,
+      builder.getUI32IntegerAttr(numHeads), /*num_kv_heads=*/nullptr,
+      builder.getBoolAttr(false));
+
+  mlir::Value arg0 = func.getBody().getBlocks().front().getArgument(0);
+  auto queryConsumerOp = builder.create<ttir::AddOp>(
+      builder.getUnknownLoc(), splitOp.getQuery(), arg0, createEmptyTensor());
+  auto keyConsumerOp = builder.create<ttir::AddOp>(
+      builder.getUnknownLoc(), splitOp.getKey(), arg0, createEmptyTensor());
+  auto valueConsumerOp = builder.create<ttir::AddOp>(
+      builder.getUnknownLoc(), splitOp.getValue(), arg0, createEmptyTensor());
+
+  mlir::tt::scheduler::Scheduler scheduler(&func);
+  llvm::SmallVector<mlir::Operation *> scheduleableOps =
+      scheduler.getSchedulableOps();
+  ASSERT_EQ(scheduleableOps.size(), 1);
+  ASSERT_EQ(scheduleableOps[0], splitOp.getOperation());
+
+  scheduler.scheduleOp(scheduleableOps[0]);
+  scheduleableOps = scheduler.getSchedulableOps();
+  ASSERT_EQ(scheduleableOps.size(), 3);
+
+  ASSERT_EQ(scheduleableOps[0], queryConsumerOp.getOperation());
+  ASSERT_EQ(scheduleableOps[1], keyConsumerOp.getOperation());
+  ASSERT_EQ(scheduleableOps[2], valueConsumerOp.getOperation());
+}

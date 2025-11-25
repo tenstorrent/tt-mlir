@@ -331,9 +331,19 @@ bool producesL1Layout(Operation *op) {
   return ttnnLayout && ttnnLayout->hasL1BufferType();
 }
 
+bool producesSystemMemoryLayout(Operation *op) {
+  auto ttnnLayout = getTTNNLayoutAttrFromOp(op);
+  return ttnnLayout && ttnnLayout->isSystemBufferType();
+}
+
 bool producesTiledTensorLayout(Operation *op) {
   auto ttnnLayout = getTTNNLayoutAttrFromOp(op);
   return ttnnLayout && ttnnLayout->isTiled();
+}
+
+bool producesShardedL1Layout(Operation *op) {
+  auto ttnnLayout = getTTNNLayoutAttrFromOp(op);
+  return ttnnLayout && ttnnLayout->hasShardedL1TensorMemoryLayout();
 }
 
 bool hasFirstOperandInDRAM(Operation *op) {

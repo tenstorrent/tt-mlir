@@ -116,8 +116,14 @@ bool producesDRAMLayout(Operation *op);
 // Check if operation's first result uses L1 buffer layout.
 bool producesL1Layout(Operation *op);
 
+// Check if operation's first result uses system memory layout.
+bool producesSystemMemoryLayout(Operation *op);
+
 // Check if operation's first result uses tiled tensor layout.
 bool producesTiledTensorLayout(Operation *op);
+
+// Check if operation's first result uses sharded L1 layout.
+bool producesShardedL1Layout(Operation *op);
 
 // Check if operation's first operand uses DRAM buffer layout.
 bool hasFirstOperandInDRAM(Operation *op);

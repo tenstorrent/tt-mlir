@@ -35,6 +35,10 @@ struct OptionNames {
   static constexpr StringRef meshShape = "mesh-shape";
   static constexpr StringRef tuplifyInputIfEmpty = "tuplify-input-if-empty";
   static constexpr StringRef tensorL1UsageCap = "tensor-l1-usage-cap";
+  static constexpr StringRef ttnnPerfMetricsOutputFile =
+      "ttnn-perf-metrics-output-file";
+  static constexpr StringRef ttnnPerfMetricsVerboseOutputEnabled =
+      "ttnn-perf-metrics-verbose-output-enabled";
 };
 
 using Conv2dConfigOverrideParams = Conv2dConfigParams;

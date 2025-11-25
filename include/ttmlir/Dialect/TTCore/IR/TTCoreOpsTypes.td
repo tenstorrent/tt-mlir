@@ -294,6 +294,9 @@ def TTCore_ShardLayoutAttr : TTCore_Attr<"ShardLayout", "shard", [TTCore_DeviceL
     }
 
     unsigned getRank() const { return getStride().size(); }
+
+    // Computes the implied physical grid shape using the grid shape and index map (if present)
+    llvm::SmallVector<int64_t> getPhysicalGridShape(ShapedType tensorType) const;
   }];
 }
 
@@ -459,6 +462,9 @@ def TTCore_MetalLayoutAttr : TTCore_Attr<"MetalLayout", "metal_layout", [TTCore_
                                      ArrayRef<int64_t> dimAlignments,
                                      mlir::AffineMap indexAffineMap
                                      );
+
+    MetalLayoutAttr compose(mlir::AffineMap indexAffineMap) const;
+    MetalLayoutAttr withIndexAffineMap(mlir::AffineMap indexAffineMap) const;
 
     // Derive the physical tensor shape from logical shape and grid.
     llvm::SmallVector<int64_t> getPhysicalShape(ArrayRef<int64_t> tileShape) const;

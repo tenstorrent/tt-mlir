@@ -226,6 +226,15 @@ void createTTIRToTTNNBackendPipeline(
   // Run lowering to LLVM pass on hoisted funcs in CPUModule.
   ttir::LinalgToLLVMPipelineOptions linalgToLLVMOptions;
   ttir::createTTIRToCPUPipeline(pm, linalgToLLVMOptions);
+
+  ttnn::TTNNCollectPerfMetricsOptions metricsOptions{
+      options.ttnnPerfMetricsOutputFile,
+      options.ttnnPerfMetricsVerboseOutputEnabled, options.enableTrace};
+
+  if (options.ttnnPerfMetricsEnabled) {
+    devicePm.addPass(
+        mlir::tt::ttnn::createTTNNCollectPerfMetrics(metricsOptions));
+  }
 }
 
 void createTTNNBackendToEmitCPipeline(
@@ -285,6 +294,8 @@ void createTTNNBackendToEmitPyPipeline(
   }
 
   pm.addPass(createConvertTTNNToEmitPyPass());
+
+  pm.addPass(createEmitPyNameVarsPass());
 }
 
 void createTTIRToEmitCPipeline(OpPassManager &pm,

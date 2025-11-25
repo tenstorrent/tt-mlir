@@ -57,6 +57,27 @@ mlir::AffineMap calculateReblockMap(mlir::ArrayRef<int64_t> inputShape,
   return canonicalToInput.compose(outputToCanonical);
 }
 
+// Calculate a reblock affine map given a shape and new grid shape.
+std::pair<mlir::SmallVector<int64_t>, mlir::AffineMap>
+calculateReblockMapForGrid(mlir::ArrayRef<int64_t> tensorShape,
+                           mlir::ArrayRef<int64_t> newGridShape,
+                           mlir::MLIRContext *context) {
+  assert(tensorShape.size() % 2 == 0 &&
+         "Expected even rank for grid + shard dimensions");
+  assert(newGridShape.size() == tensorShape.size() / 2 &&
+         "New grid shape must match grid rank of tensor shape");
+  mlir::SmallVector<int64_t> newTensorShape(tensorShape);
+  for (size_t i = 0; i < newGridShape.size(); i++) {
+    size_t j = i + newGridShape.size();
+    assert((tensorShape[i] * tensorShape[j]) % newGridShape[i] == 0 &&
+           "New grid shape must evenly divide tensor shape");
+    newTensorShape[j] = tensorShape[i] * tensorShape[j] / newGridShape[i];
+    newTensorShape[i] = newGridShape[i];
+  }
+  return {newTensorShape,
+          calculateReblockMap(tensorShape, newTensorShape, context)};
+}
+
 llvm::SmallVector<int64_t>
 getSquareTargetGrid(mlir::ArrayRef<int64_t> targetGridShape) {
   const int64_t minGridValue = *llvm::min_element(targetGridShape);

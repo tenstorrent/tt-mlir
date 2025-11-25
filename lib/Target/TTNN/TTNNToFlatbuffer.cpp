@@ -1056,19 +1056,21 @@ createOp(FlatbufferObjectCache &cache, FillCacheOp op) {
 ::flatbuffers::Offset<::tt::target::ttnn::ConstantOp>
 createOp(FlatbufferObjectCache &cache, ttnn::ConstantOp op) {
   auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer);
-  std::vector<uint8_t> rawVector;
+  std::vector<uint8_t> inputRawVector;
   if (auto data =
           mlir::dyn_cast<mlir::DenseResourceElementsAttr>(op.getValue())) {
     ArrayRef<char> rawData = data.getData();
-    rawVector = std::vector<uint8_t>(rawData.begin(), rawData.end());
+    inputRawVector = std::vector<uint8_t>(rawData.begin(), rawData.end());
   } else if (auto data =
                  mlir::dyn_cast<mlir::DenseElementsAttr>(op.getValue())) {
     ArrayRef<char> rawData = data.getRawData();
-    rawVector = std::vector<uint8_t>(rawData.begin(), rawData.end());
+    inputRawVector = std::vector<uint8_t>(rawData.begin(), rawData.end());
   } else {
     llvm_unreachable("Unknown constant value attribute type");
   }
 
+  ::tt::target::DataType inputDtype = toFlatbuffer(
+      cache, ttcore::elementTypeToDataType(op.getValue().getElementType()));
   flatbuffers::Optional<::tt::target::DataType> dtype =
       toFlatbuffer(cache, op.getDtype());
   flatbuffers::Optional<::tt::target::TensorLayout> layout =
@@ -1079,7 +1081,8 @@ createOp(FlatbufferObjectCache &cache, ttnn::ConstantOp op) {
   auto memoryConfig = getMemoryConfigIfNeeded(cache, op);
 
   return ::tt::target::ttnn::CreateConstantOpDirect(
-      *cache.fbb, device, &rawVector, dtype, layout, memoryConfig, output);
+      *cache.fbb, device, &inputRawVector, inputDtype, dtype, layout,
+      memoryConfig, output);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::PointToPointOp>

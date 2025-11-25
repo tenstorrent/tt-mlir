@@ -547,6 +547,27 @@ ChipDescAttr::getDstLogicalSizeTiles(Type type, bool fullSyncEn,
   return nDstTiles;
 }
 
+static llvm::SmallVector<int64_t>
+getPhysicalGridShapeFromShapeAndMap(ShapedType shapedType, AffineMap map) {
+  auto shape = shapedType.getShape();
+
+  // find bounds of the physical grid by transforming the virtual grid using
+  // index map
+  std::pair<int64_t, int64_t> ybounds = {0, 0};
+  std::pair<int64_t, int64_t> xbounds = {0, 0};
+  ttmlir::utils::sample(shape, [&](SmallVector<int64_t, 8> point) {
+    auto virtualPoint = map.compose(point);
+    ybounds = {std::min(ybounds.first, virtualPoint[0]),
+               std::max(ybounds.second, virtualPoint[0])};
+    xbounds = {std::min(xbounds.first, virtualPoint[1]),
+               std::max(xbounds.second, virtualPoint[1])};
+  });
+
+  TT_assertv((ybounds.first == 0 && xbounds.first == 0),
+             "Physical grid shape must start at y=0,x=0.");
+  return {ybounds.second + 1, xbounds.second + 1};
+}
+
 ShardLayoutAttr ShardLayoutAttr::get(mlir::MLIRContext *context,
                                      ArrayRef<int64_t> shape,
                                      uint64_t elementSize, uint32_t buffers) {
@@ -581,6 +602,12 @@ ShardLayoutAttr ShardLayoutAttr::get(mlir::MLIRContext *context,
 mlir::AffineMap ShardLayoutAttr::getAffineMap() const {
   return ttmlir::utils::generateAffineMapFromShardStrides(getStride(),
                                                           getContext());
+}
+
+llvm::SmallVector<int64_t>
+ShardLayoutAttr::getPhysicalGridShape(ShapedType tensorType) const {
+  return getPhysicalGridShapeFromShapeAndMap(tensorType,
+                                             this->getCoreVirtualizationMap());
 }
 
 InterleavedLayoutAttr InterleavedLayoutAttr::get(mlir::MLIRContext *context,
@@ -862,6 +889,24 @@ GridAttr::getPhysicalGridShape(ArrayRef<int64_t> deviceGridShape) {
   llvm_unreachable("No injective physical grid shape found.");
 }
 
+MetalLayoutAttr MetalLayoutAttr::compose(AffineMap affineMap) const {
+  if (getIndexAffineMap().isEmpty()) {
+    return withIndexAffineMap(affineMap);
+  }
+
+  return ttcore::MetalLayoutAttr::get(
+      getContext(), getLogicalShape(), getOobVal(), getMemorySpace(),
+      getMemoryLayout(), getCollapsedIntervals(), getDimAlignments(),
+      getIndexAffineMap().compose(affineMap));
+}
+
+MetalLayoutAttr MetalLayoutAttr::withIndexAffineMap(AffineMap affineMap) const {
+  return ttcore::MetalLayoutAttr::get(
+      getContext(), getLogicalShape(), getOobVal(), getMemorySpace(),
+      getMemoryLayout(), getCollapsedIntervals(), getDimAlignments(),
+      affineMap.isIdentity() ? AffineMap::get(getContext()) : affineMap);
+}
+
 llvm::SmallVector<int64_t>
 MetalLayoutAttr::getPhysicalShape(ArrayRef<int64_t> tileShape) const {
   llvm::SmallVector<int64_t> normalizedIntervals = getNormalizedIntervals();
@@ -882,23 +927,7 @@ MetalLayoutAttr::getPhysicalShape(ArrayRef<int64_t> tileShape) const {
 
 llvm::SmallVector<int64_t>
 MetalLayoutAttr::getPhysicalGridShape(ShapedType tensorType) const {
-  auto shape = tensorType.getShape();
-
-  // find bounds of the physical grid by transforming the virtual grid using
-  // index map
-  std::pair<int64_t, int64_t> ybounds = {0, 0};
-  std::pair<int64_t, int64_t> xbounds = {0, 0};
-  ttmlir::utils::sample(shape, [&](SmallVector<int64_t, 8> point) {
-    auto virtualPoint = getIndexAffineMap().compose(point);
-    ybounds = {std::min(ybounds.first, virtualPoint[0]),
-               std::max(ybounds.second, virtualPoint[0])};
-    xbounds = {std::min(xbounds.first, virtualPoint[1]),
-               std::max(xbounds.second, virtualPoint[1])};
-  });
-
-  TT_assertv((ybounds.first == 0 && xbounds.first == 0),
-             "Physical grid shape must start at y=0,x=0.");
-  return {ybounds.second + 1, xbounds.second + 1};
+  return getPhysicalGridShapeFromShapeAndMap(tensorType, getIndexAffineMap());
 }
 
 // Takes various shape fields and returns the expected physical shape, which
