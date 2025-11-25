@@ -748,3 +748,61 @@ def test_interop_jit_and_ttnn_to_binary_dram(
         interop_result.memory_config(), golden_result.memory_config()
     )
     assert all_close_check(interop_result, golden_result)
+
+
+# ------------------------------------------------------------
+# BFP8 tests
+# ------------------------------------------------------------
+
+
+def exp_bfp8(input_tensor):
+    return ttnn.exp(input_tensor)
+
+
+@pytest.mark.parametrize("shape", [(64, 64), (128, 128), (256, 256)])
+@pytest.mark.parametrize("graph_capture", [False, True])
+def test_bfp8_exp(device, shape, graph_capture):
+    """Test JIT exp operation on BFP8 tensor.
+
+    Since BFP8 tensors cannot be created on host, this test:
+    1. Creates a bf16 tensor on host
+    2. Typecasts to BFP8 on device (non-JIT TTNN op)
+    3. Runs JIT exp operation on the BFP8 tensor
+    4. Typecasts back to bf16 (non-JIT TTNN op) for comparison
+    """
+    max_grid = (0, 0)  # DRAM interleaved
+
+    # Step 1: Create bf16 tensor on host and move to device
+    torch_input = torch.randn(shape, dtype=torch.bfloat16)
+    bf16_tensor = ttnn.from_torch(
+        torch_input,
+        layout=ttnn.TILE_LAYOUT,
+        device=device,
+        memory_config=ttnn.DRAM_MEMORY_CONFIG,
+    )
+
+    # Step 2: Non-JIT typecast to BFP8
+    bfp8_tensor = ttnn.typecast(bf16_tensor, ttnn.DataType.BFLOAT8_B)
+
+    # Step 3: JIT exp on BFP8 tensor
+    compiled_exp = ttnn_jit.jit(
+        debug=True, max_grid=max_grid, graph_capture=graph_capture
+    )(exp_bfp8)
+    jit_result = compiled_exp(bfp8_tensor)
+
+    # Step 4: Non-JIT typecast back to bf16 for comparison
+    result_bf16 = ttnn.typecast(jit_result, ttnn.DataType.BFLOAT16)
+
+    # Golden path: same flow without JIT
+    golden_exp_result = ttnn.exp(bfp8_tensor)
+    golden_bf16 = ttnn.typecast(golden_exp_result, ttnn.DataType.BFLOAT16)
+
+    # Compare results
+    result_torch = ttnn.to_torch(result_bf16)
+    golden_torch = ttnn.to_torch(golden_bf16)
+
+    # Use conventional tolerances (same as all_close_check defaults)
+    assert torch.allclose(result_torch, golden_torch, atol=1e-1, rtol=1e-1), (
+        f"Value mismatch for BFP8 exp operation. "
+        f"Max diff: {(result_torch - golden_torch).abs().max()}"
+    )
