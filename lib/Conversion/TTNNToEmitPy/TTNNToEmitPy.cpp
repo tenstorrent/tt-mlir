@@ -2657,6 +2657,10 @@ public:
 
 // MeshShardOp conversion pattern
 //
+// NOTE: This legacy mesh_shard path only handles the "identity" type.
+// All non-identity behavior has been split out to distribute_tensor /
+// aggregate_tensor. It remains because current TTIR lowering still generates
+// identity mesh_shard for shape tracking.
 namespace {
 class MeshShardOpConversionPattern
     : public TTNNToEmitPyBaseOpConversionPattern<mlir::tt::ttnn::MeshShardOp> {
@@ -2671,14 +2675,10 @@ public:
 
     ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::MeshShardOp> emitter(
         srcOp, adaptor, rewriter);
-
+    // Identity mesh_shard has no backend behavior, so we just forward the input
+    // tensor to the output.
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput()),
-        emitter.emit(srcOp.getDevice()),
-        emitter.emit(srcOp.getShardDirection()),
-        emitter.emit(srcOp.getShardType()),
-        emitter.emit(srcOp.getShardShape()),
-        emitter.emit(srcOp.getShardDims()),
     };
 
     emitter.replaceOp(*this, args);
