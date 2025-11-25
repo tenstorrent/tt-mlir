@@ -4,6 +4,7 @@
 
 #include "tt/runtime/utils.h"
 #include "tt/runtime/detail/common/logger.h"
+#include "tt/runtime/detail/common/runtime_context.h"
 #include "tt/runtime/types.h"
 
 namespace tt::runtime::utils {
@@ -306,6 +307,32 @@ void handleBufferCast(const void *oldBuffer, void *newBuffer,
         "Unhandled buffer cast case: From " +
         std::string(target::EnumNameDataType(oldDataType)) + " to " +
         std::string(target::EnumNameDataType(newDataType)));
+  }
+}
+
+void logMemoryStateIfNeeded(
+    const std::unordered_map<tt::runtime::MemoryBufferType,
+                             tt::runtime::MemoryView> &memoryState,
+    ::tt::runtime::MemoryLogLevel level, std::string_view prefix) {
+  constexpr std::array<tt::runtime::MemoryBufferType, 4> MEMORY_TYPES = {
+      tt::runtime::MemoryBufferType::DRAM, tt::runtime::MemoryBufferType::L1,
+      tt::runtime::MemoryBufferType::L1_SMALL,
+      tt::runtime::MemoryBufferType::TRACE};
+
+  ::tt::runtime::MemoryLogLevel currentLogLevel =
+      ::tt::runtime::RuntimeContext::instance().getMemoryLogLevel();
+
+  if (!(currentLogLevel & level)) {
+    return;
+  }
+
+  if (!prefix.empty()) {
+    LOG_INFO(prefix);
+  }
+
+  for (const auto &memoryType : MEMORY_TYPES) {
+    LOG_INFO("Device ", toString(memoryType),
+             " memory state: ", memoryState.at(memoryType).toString());
   }
 }
 
