@@ -2975,16 +2975,6 @@ def ttir_dot_general_golden(
         for device_id, shard in result.shard_map.items():
             transposed_lhs_slice = transposed_lhs.shard_at(device_id)[index]
             transposed_rhs_slice = transposed_rhs.shard_at(device_id)[index]
-
-            # Ensure both tensors have the same dtype for tensordot
-            if transposed_lhs_slice.dtype != transposed_rhs_slice.dtype:
-                # Promote to a common dtype (use the higher precision dtype)
-                target_dtype = torch.promote_types(
-                    transposed_lhs_slice.dtype, transposed_rhs_slice.dtype
-                )
-                transposed_lhs_slice = transposed_lhs_slice.to(target_dtype)
-                transposed_rhs_slice = transposed_rhs_slice.to(target_dtype)
-
             dot_dims_lhs = [d - len(index) for d in contract_dims_lhs]
             dot_dims_rhs = [d - len(index) for d in contract_dims_rhs]
             out_index = index

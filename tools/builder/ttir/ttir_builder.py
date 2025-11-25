@@ -4308,18 +4308,6 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
             result,
             loc=old_op.location,
         )
-
-        if not self._disable_golden_check:
-            # Create zero-initialized golden tensor for EmptyOp
-            shape = list(result.shape)
-            element_type = result.element_type
-            torch_dtype = self._get_torch_dtype_from_type(element_type)
-            zero_tensor = torch.zeros(shape, dtype=torch_dtype)
-            golden_tensor = GoldenMapTensor(
-                {0: zero_tensor}, mesh_shape=self._mesh_shape
-            )
-            self._set_golden_tensor(new_op, golden_tensor)
-
         return new_op
 
     ############### ttir.SigmoidOp ###############
