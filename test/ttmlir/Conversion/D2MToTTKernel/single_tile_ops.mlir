@@ -1,6 +1,6 @@
-// RUN: ttmlir-opt --ttcore-register-device --ttir-to-ttmetal-me-pipeline="dst-allocation-strategy=legacy" --convert-d2m-to-ttkernel --canonicalize %s | FileCheck %s --check-prefixes=COMMON,LEGACY
-// RUN: ttmlir-opt --ttcore-register-device --ttir-to-ttmetal-me-pipeline="dst-allocation-strategy=graph-coloring-greedy" --convert-d2m-to-ttkernel --canonicalize %s | FileCheck %s --check-prefixes=COMMON,GREEDY
-// RUN: ttmlir-opt --ttcore-register-device --ttir-to-ttmetal-me-pipeline="dst-allocation-strategy=graph-coloring-cb" --convert-d2m-to-ttkernel --canonicalize %s | FileCheck %s --check-prefixes=COMMON,CB
+// RUN: ttmlir-opt --ttcore-register-device --ttir-to-ttmetal-me-pipeline="dst-allocation-strategy=legacy" --convert-d2m-to-ttkernel --canonicalize %s | FileCheck %s --check-prefix=COMMON
+// RUN: ttmlir-opt --ttcore-register-device --ttir-to-ttmetal-me-pipeline="dst-allocation-strategy=graph-coloring-greedy" --convert-d2m-to-ttkernel --canonicalize %s | FileCheck %s --check-prefix=COMMON
+// RUN: ttmlir-opt --ttcore-register-device --ttir-to-ttmetal-me-pipeline="dst-allocation-strategy=graph-coloring-cb" --convert-d2m-to-ttkernel --canonicalize %s | FileCheck %s --check-prefix=COMMON
 
 #l1_ = #ttcore.memory_space<l1>
 #map_ = affine_map<(d0, d1) -> (d0, d1)>

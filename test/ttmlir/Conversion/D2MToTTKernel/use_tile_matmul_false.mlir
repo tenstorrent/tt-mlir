@@ -1,6 +1,6 @@
-// RUN: ttmlir-opt --ttir-to-ttmetal-pipeline="use-tile-matmul=false dst-allocation-strategy=legacy" %s | FileCheck %s --check-prefixes=COMMON,LEGACY
-// RUN: ttmlir-opt --ttir-to-ttmetal-pipeline="use-tile-matmul=false dst-allocation-strategy=graph-coloring-greedy" %s | FileCheck %s --check-prefixes=COMMON,GREEDY
-// RUN: ttmlir-opt --ttir-to-ttmetal-pipeline="use-tile-matmul=false dst-allocation-strategy=graph-coloring-cb" %s | FileCheck %s --check-prefixes=COMMON,CB
+// RUN: ttmlir-opt --ttir-to-ttmetal-pipeline="use-tile-matmul=false,dst-allocation-strategy=legacy" %s | FileCheck %s --check-prefix=COMMON
+// RUN: ttmlir-opt --ttir-to-ttmetal-pipeline="use-tile-matmul=false,dst-allocation-strategy=graph-coloring-greedy" %s | FileCheck %s --check-prefix=COMMON
+// RUN: ttmlir-opt --ttir-to-ttmetal-pipeline="use-tile-matmul=false,dst-allocation-strategy=graph-coloring-cb" %s | FileCheck %s --check-prefix=COMMON
 
 !ttype = tensor<128x96xf32>
 

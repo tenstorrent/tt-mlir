@@ -32,15 +32,6 @@ struct OperationTypes {
   bool hasMarkedAffineLoops = false;
 };
 
-static bool hasTileMatmul(linalg::GenericOp linalgGenericOp) {
-  bool hasTileMatmul = false;
-  linalgGenericOp->walk([&](d2m::TileMatmulOp) {
-    hasTileMatmul = true;
-    return WalkResult::interrupt();
-  });
-  return hasTileMatmul;
-}
-
 struct D2MInsertDstRegisterAccessRewriter final
     : public OpRewritePattern<GenericOp> {
 public:
@@ -108,31 +99,19 @@ public:
 
       // Process linalg.generic ops that were not converted by LinalgToAffine
       // (these are tile_matmul ops when useTileMatmul=false).
-      WalkResult walkResult =
-          block.walk([&](linalg::GenericOp linalgGenericOp) {
-            if (!useTileMatmul && hasTileMatmul(linalgGenericOp)) {
-              // Only use tile matmul block rewrite when not in explicit
-              // datamovement form. Explicit datamovement form should fall
-              // through to regular linalg-to-affine conversion.
-              if (!op.isExplicitDatamovementForm()) {
-                if (rewriteTileMatmulAsTileMatmulBlock(
-                        rewriter, op, *genericRegion, linalgGenericOp,
-                        dstCapacity, modified)) {
-                  return WalkResult::interrupt();
-                }
-                return WalkResult::advance();
-              }
-            }
-
-            // This should not happen - all other linalg ops should have been
-            // converted by LinalgToAffine pass.
-            return WalkResult::interrupt();
-          });
-
-      if (walkResult.wasInterrupted()) {
-        return rewriter.notifyMatchFailure(
-            op, "linalg.generic operations were not converted to affine "
-                "loops");
+      if (!useTileMatmul) {
+        if (failed(utils::processTileMatmulLinalgOps(
+                rewriter, op, *genericRegion,
+                [&](RewriterBase &rewriter, Region &region,
+                    Operation *outermostLoop) -> LogicalResult {
+                  bool inserted = insertDstRegisterAccess(
+                      rewriter, op, region, dstCapacity, outermostLoop);
+                  modified |= inserted;
+                  return success(inserted);
+                }))) {
+          return rewriter.notifyMatchFailure(
+              op, "failed to process tile_matmul linalg operations");
+        }
       }
 
       // Process affine loops marked by LinalgToAffine pass.
@@ -155,7 +134,7 @@ public:
   }
 
   static bool
-  insertDstRegisterAccess(PatternRewriter &rewriter, GenericOp op,
+  insertDstRegisterAccess(RewriterBase &rewriter, GenericOp op,
                           Region &region, unsigned dstCapacity,
                           Operation *outermostInnerComputeLoop = nullptr) {
     assert(region.getBlocks().size() == 1);
@@ -243,7 +222,7 @@ public:
     return {canonicalType, maxDstSliceIdx};
   }
 
-  static AcquireDstOp insertAcquireDst(PatternRewriter &rewriter, Location loc,
+  static AcquireDstOp insertAcquireDst(RewriterBase &rewriter, Location loc,
                                        Region &region,
                                        const CopyInfoMap &copyInfos,
                                        Operation *outermostInnerComputeLoop,
@@ -471,43 +450,8 @@ public:
     - Deletes the compute loop nest since tile_matmul_block includes the loops
     inside it.
   */
-  static bool rewriteTileMatmulAsTileMatmulBlock(
-      PatternRewriter &rewriter, GenericOp op, Region &region,
-      linalg::GenericOp linalgGenericOp, unsigned dstCapacity, bool &modified) {
-    assert(linalgGenericOp.getInputs().size() == 2 &&
-           "Expected exactly 2 input for tile matmul");
-    assert(linalgGenericOp.getOutputs().size() == 1 &&
-           "Expected exactly 1 output for tile matmul");
 
-    Value inputAMemref = linalgGenericOp.getInputs()[0];
-    Value inputBMemref = linalgGenericOp.getInputs()[1];
-    Value outputCMemref = linalgGenericOp.getOutputs()[0];
-
-    rewriter.setInsertionPoint(linalgGenericOp);
-
-    auto linalgLoops = linalg::linalgOpToAffineLoops(rewriter, linalgGenericOp);
-    if (failed(linalgLoops)) {
-      return false;
-    }
-    rewriter.eraseOp(linalgGenericOp);
-    modified |= insertDstRegisterAccess(
-        rewriter, op, region, dstCapacity,
-        !linalgLoops.value().empty() ? linalgLoops.value().front() : nullptr);
-
-    Operation *outerLoop = linalgLoops.value()[0];
-    Block *parentBlk = outerLoop->getBlock();
-    auto insertPos = std::next(Block::iterator(outerLoop));
-
-    rewriter.setInsertionPoint(parentBlk, insertPos);
-    for (Operation *loopOp : llvm::reverse(linalgLoops.value())) {
-      rewriter.eraseOp(loopOp);
-    }
-    rewriter.create<d2m::TileMatmulBlockOp>(op.getLoc(), inputAMemref,
-                                            inputBMemref, outputCMemref);
-    return true;
-  }
-
-  static void dataCopyGenerate(PatternRewriter &rewriter, Location loc,
+  static void dataCopyGenerate(RewriterBase &rewriter, Location loc,
                                Value dst, const CopyInfoMap &copyInfos) {
     for (const auto &[loopNestOrOp, copyInfo] : copyInfos) {
       // Save this insertion point as loopNestOrOp may be replaced.
@@ -522,7 +466,7 @@ public:
       dataCopyGenerate<affine::AffineLoadOp>(
           rewriter, loopNestOrOp, copyInfo.loads,
           // Load/store dst access generation.
-          [&](PatternRewriter &rewriter, Location loc, Value cb,
+          [&](RewriterBase &rewriter, Location loc, Value cb,
               AffineMap l1AccessMap, ValueRange l1AccessIndices,
               AffineMap dstAccessMap, ValueRange dstAccessIndices) {
             auto l1Load = rewriter.create<affine::AffineLoadOp>(
@@ -531,7 +475,7 @@ public:
                 loc, l1Load.getResult(), dst, dstAccessMap, dstAccessIndices);
           },
           // Replacement of the original load with one from dst.
-          [&](PatternRewriter &rewriter, affine::AffineLoadOp op,
+          [&](RewriterBase &rewriter, affine::AffineLoadOp op,
               AffineMap dstAccessMap, ValueRange dstAccessIndices) {
             rewriter.replaceOpWithNewOp<affine::AffineLoadOp>(
                 op, dst, dstAccessMap, dstAccessIndices);
@@ -541,7 +485,7 @@ public:
       dataCopyGenerate<affine::AffineStoreOp>(
           rewriter, loopNestOrOp, copyInfo.stores,
           // Load/store dst access generation.
-          [&](PatternRewriter &rewriter, Location loc, Value cb,
+          [&](RewriterBase &rewriter, Location loc, Value cb,
               AffineMap l1AccessMap, ValueRange l1AccessIndices,
               AffineMap dstAccessMap, ValueRange dstAccessIndices) {
             auto dstLoad = rewriter.create<affine::AffineLoadOp>(
@@ -562,7 +506,7 @@ public:
                 loc, valueToStore, cb, l1AccessMap, l1AccessIndices);
           },
           // Replacement of the original store with one from dst.
-          [&](PatternRewriter &rewriter, affine::AffineStoreOp op,
+          [&](RewriterBase &rewriter, affine::AffineStoreOp op,
               AffineMap dstAccessMap, ValueRange dstAccessIndices) {
             Value valueToStore = op.getValue();
             // Insert dst reinterpret cast if value type differs from dst
@@ -581,7 +525,7 @@ public:
     }
   }
 
-  static scf::IfOp insertGuardForLoopNest(PatternRewriter &rewriter,
+  static scf::IfOp insertGuardForLoopNest(RewriterBase &rewriter,
                                           Location loc,
                                           ArrayRef<int64_t> guardIndices) {
     if (guardIndices.empty()) {
@@ -605,12 +549,12 @@ public:
 
   template <typename LoadStoreOpTy>
   static void dataCopyGenerate(
-      PatternRewriter &rewriter, Operation *loopNestOrOp,
+      RewriterBase &rewriter, Operation *loopNestOrOp,
       ArrayRef<OpAndIndexOffset<LoadStoreOpTy>> loadStoreOps,
-      llvm::function_ref<void(PatternRewriter &, Location, Value, AffineMap,
+      llvm::function_ref<void(RewriterBase &, Location, Value, AffineMap,
                               ValueRange, AffineMap, ValueRange)>
           loadStoreDstAccessGenerator,
-      llvm::function_ref<void(PatternRewriter &, LoadStoreOpTy, AffineMap,
+      llvm::function_ref<void(RewriterBase &, LoadStoreOpTy, AffineMap,
                               ValueRange)>
           dstAccessReplacement) {
     if (loadStoreOps.empty()) {
@@ -688,7 +632,7 @@ public:
 
   // Rewrite stores to use dst register based on allocation map.
   static void insertDstRegisterAllocation(
-      PatternRewriter &rewriter, Location loc, Value dst,
+      RewriterBase &rewriter, Location loc, Value dst,
       const DstRegisterAllocation &dstRegisterAllocation) {
     auto dstType = dyn_cast<MemRefType>(dst.getType());
     if (!dstType) {
@@ -780,7 +724,7 @@ public:
   //   tuple(l1AccessMap, l1AccessIndices, dstAccessMap, dstAccessIndices).
   static std::tuple<AffineMap, SmallVector<Value>, AffineMap,
                     SmallVector<Value>>
-  buildIndices(PatternRewriter &rewriter, Location loc,
+  buildIndices(RewriterBase &rewriter, Location loc,
                const mlir::IRMapping &irMapper, ValueRange currentIndices,
                int64_t dstSliceIndex, AffineMap map) {
     AffineMap l1AccessMap = map;
@@ -884,7 +828,7 @@ public:
     // handled by the tile_matmul_block rewrite in the pattern).
     WalkResult walkResult = moduleOp->walk([&](linalg::GenericOp op) {
       // Allow linalg ops with tile_matmul when useTileMatmul=false
-      if (!useTileMatmul && hasTileMatmul(op)) {
+      if (!useTileMatmul && utils::hasTileMatmulOp(op)) {
         return WalkResult::advance();
       }
       // All other linalg ops should have been converted

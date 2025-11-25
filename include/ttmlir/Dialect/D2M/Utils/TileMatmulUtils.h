@@ -84,6 +84,31 @@ FailureOr<TileMatmulBlockOp> convertTileMatmulLinalgToBlock(
     llvm::function_ref<LogicalResult(RewriterBase &, Region &, Operation *)>
         dstInsertionCallback);
 
+/// Process all linalg.generic operations containing tile_matmul in a region.
+///
+/// This higher-level utility walks the region and processes all linalg.generic
+/// operations that contain tile_matmul ops. For each such operation, it calls
+/// convertTileMatmulLinalgToBlock with the provided DST insertion callback.
+///
+/// This function handles the common pattern used by DST allocation passes:
+/// - Walk the region to find linalg.generic ops with tile_matmul
+/// - Skip explicit datamovement forms (handled by LinalgToAffine)
+/// - Convert remaining ops using the provided DST allocation callback
+/// - Report errors for unexpected unconverted linalg ops
+///
+/// \param rewriter The pattern rewriter for IR modifications.
+/// \param genericOp The parent d2m.generic operation.
+/// \param region The region to process.
+/// \param dstInsertionCallback Callback to insert DST operations in the affine
+/// region.
+///
+/// \return success() if all operations were processed successfully,
+/// failure() otherwise.
+LogicalResult processTileMatmulLinalgOps(
+    RewriterBase &rewriter, GenericOp genericOp, Region &region,
+    llvm::function_ref<LogicalResult(RewriterBase &, Region &, Operation *)>
+        dstInsertionCallback);
+
 } // namespace utils
 } // namespace mlir::tt::d2m
 

@@ -83,4 +83,41 @@ FailureOr<TileMatmulBlockOp> convertTileMatmulLinalgToBlock(
   return blockOp;
 }
 
+LogicalResult processTileMatmulLinalgOps(
+    RewriterBase &rewriter, GenericOp genericOp, Region &region,
+    llvm::function_ref<LogicalResult(RewriterBase &, Region &, Operation *)>
+        dstInsertionCallback) {
+  // Process linalg.generic ops that contain tile_matmul operations.
+  // These are left unconverted by LinalgToAffine when useTileMatmul=false.
+  Block &block = region.front();
+  WalkResult walkResult = block.walk([&](linalg::GenericOp linalgOp) {
+    if (hasTileMatmulOp(linalgOp)) {
+      // Only handle tile_matmul when not in explicit datamovement form.
+      // Explicit datamovement form should be converted by LinalgToAffine pass.
+      if (!genericOp.isExplicitDatamovementForm()) {
+        // Convert linalg to tile_matmul_block with DST allocation callback.
+        auto result = convertTileMatmulLinalgToBlock(
+            rewriter, genericOp, linalgOp, region, dstInsertionCallback);
+        if (failed(result)) {
+          return WalkResult::interrupt();
+        }
+        return WalkResult::advance();
+      }
+    }
+
+    // All other linalg ops should have been converted by LinalgToAffine pass.
+    // If we encounter one in non-datamovement form, that's an error.
+    if (!genericOp.isExplicitDatamovementForm()) {
+      return WalkResult::interrupt();
+    }
+    return WalkResult::advance();
+  });
+
+  if (walkResult.wasInterrupted()) {
+    return genericOp.emitError(
+        "linalg.generic operations were not converted to affine loops");
+  }
+  return success();
+}
+
 } // namespace mlir::tt::d2m::utils
