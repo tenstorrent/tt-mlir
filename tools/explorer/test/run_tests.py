@@ -187,7 +187,6 @@ def test_load_collection():
     assert "graphCollections" in result
 
 
-
 @pytest.mark.parametrize("model_path", get_test_files(TEST_EXECUTE_MODEL_PATHS))
 def test_execute_model(model_path):
     execute_command_and_wait(
@@ -283,9 +282,7 @@ def test_get_emitc_cpp_code():
 
 
 # TODO (ctr-mcampos): Figure out how to disable and then reenable execution.
-@pytest.mark.skip(
-    "There is no easy way to disable execution for testing."
-)
+@pytest.mark.skip("There is no easy way to disable execution for testing.")
 def test_disable_execution():
     pass
 
@@ -296,9 +293,7 @@ def test_preload_ir_dump_directory():
 
 
 # TODO(ctr-mcampos): Once the IR dump dir is configurable, enable this test.
-@pytest.mark.skip(
-    "Implementation missing for loading ir dumps from a custom location."
-)
+@pytest.mark.skip("Implementation missing for loading ir dumps from a custom location.")
 def test_preload_ir_dump_contents():
     result = preload_command_and_assert()
     assert "graphPaths" in result["graphs"][0]
