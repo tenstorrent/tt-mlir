@@ -136,6 +136,122 @@ public:
         conv2dOp.setConv2dConfigAttr(conv2dConfig);
       });
     });
+
+    moduleOp.walk([&](ttnn::ConvTranspose2dOp convTranspose2dOp) {
+      ttnn::TTNNLayoutAttr weightLayoutAttr = mlir::cast<ttnn::TTNNLayoutAttr>(
+          convTranspose2dOp.getWeight().getType().getEncoding());
+      assert(weightLayoutAttr.getBufferType() ==
+                 ttnn::BufferType::SystemMemory &&
+             weightLayoutAttr.getLayout() == ttnn::Layout::RowMajor &&
+             "Weight must be in system memory and row-major layout when "
+             "calling TTNNPrepareConv2dWeightsAndBias pass.");
+
+      ttnn::TTNNLayoutAttr biasLayoutAttr;
+      if (convTranspose2dOp.getBias()) {
+        biasLayoutAttr = mlir::cast<ttnn::TTNNLayoutAttr>(
+            convTranspose2dOp.getBias().getType().getEncoding());
+        assert(biasLayoutAttr.getBufferType() ==
+                   ttnn::BufferType::SystemMemory &&
+               biasLayoutAttr.getLayout() == ttnn::Layout::RowMajor &&
+               "Bias must be in system memory and row-major layout when "
+               "calling TTNNPrepareConv2dWeightsAndBias pass");
+      }
+
+      ttnn::TTNNLayoutAttr inputLayoutAttr = mlir::cast<ttnn::TTNNLayoutAttr>(
+          convTranspose2dOp.getInput().getType().getEncoding());
+      ttnn::TTNNLayoutAttr outputLayoutAttr = mlir::cast<ttnn::TTNNLayoutAttr>(
+          convTranspose2dOp.getResult().getType().getEncoding());
+
+      ttcore::GridAttr deviceGrid =
+          ttcore::lookupDevice(moduleOp).getWorkerGrid();
+      ttnn::MemoryConfigAttr inputMemConfigAttr =
+          ttnn::MemoryConfigAttr::get(inputLayoutAttr, deviceGrid);
+
+      // Input and output dtype attr on prepare api is used to specify
+      // input/output dtype for the conv2d operation.
+      auto inputDtypeAttr = mlir::tt::ttcore::DataTypeAttr::get(
+          &getContext(), inputLayoutAttr.getDataType());
+      auto outputDtypeAttr = mlir::tt::ttcore::DataTypeAttr::get(
+          &getContext(), outputLayoutAttr.getDataType());
+
+      // When weight dtype is set in conv2d config prepare API will typecast the
+      // output into desired dtype. Until we have some different use case we
+      // will put prepared bias/weight into the same dtype as input.
+      auto conv2dConfig = convTranspose2dOp.getConv2dConfigAttr()
+                              ? convTranspose2dOp.getConv2dConfigAttr()
+                              : Conv2dConfigAttr::get(&getContext());
+
+      Type inputElementType = inputLayoutAttr.getScalarElementType();
+      conv2dConfig = conv2dConfig.withWeightsDtype(inputDtypeAttr.getValue());
+
+      rewriter.setInsertionPoint(convTranspose2dOp);
+      ttnn::PrepareConvTranspose2dWeightsOp prepareConvTranspose2dWeightsOp =
+          rewriter.create<ttnn::PrepareConvTranspose2dWeightsOp>(
+              ttmlir::utils::appendLocationSuffix(
+                  convTranspose2dOp.getLoc(),
+                  "_prepare_conv_transpose2d_weight"),
+              getPreparedWeightsType(convTranspose2dOp, conv2dConfig),
+              convTranspose2dOp.getWeight(), inputMemConfigAttr,
+              rewriter.getAttr<ttnn::LayoutAttr>(inputLayoutAttr.getLayout()),
+              rewriter.getStringAttr("IOHW"),
+              convTranspose2dOp.getInChannelsAttr(),
+              convTranspose2dOp.getOutChannelsAttr(),
+              convTranspose2dOp.getBatchSizeAttr(),
+              convTranspose2dOp.getInputHeightAttr(),
+              convTranspose2dOp.getInputWidthAttr(),
+              convTranspose2dOp.getKernelSizeAttr(),
+              convTranspose2dOp.getStrideAttr(),
+              convTranspose2dOp.getPaddingAttr(),
+              convTranspose2dOp.getDilationAttr(),
+              rewriter.getBoolAttr(convTranspose2dOp.getBias() != nullptr),
+              convTranspose2dOp.getGroupsAttr(), convTranspose2dOp.getDevice(),
+              inputDtypeAttr, outputDtypeAttr, conv2dConfig,
+              /*compute_config=*/nullptr,
+              /*mirror_kernel=*/rewriter.getBoolAttr(true));
+
+      ttnn::PrepareConvTranspose2dBiasOp prepareConvTranspose2dBiasOp;
+      if (convTranspose2dOp.getBias()) {
+        prepareConvTranspose2dBiasOp =
+            rewriter.create<ttnn::PrepareConvTranspose2dBiasOp>(
+                ttmlir::utils::appendLocationSuffix(
+                    convTranspose2dOp.getLoc(),
+                    "_prepare_conv_transpose2d_bias"),
+                getPreparedBiasType(convTranspose2dOp, inputElementType),
+                convTranspose2dOp.getBias(), inputMemConfigAttr,
+                rewriter.getAttr<ttnn::LayoutAttr>(inputLayoutAttr.getLayout()),
+                convTranspose2dOp.getInChannelsAttr(),
+                convTranspose2dOp.getOutChannelsAttr(),
+                convTranspose2dOp.getBatchSizeAttr(),
+                convTranspose2dOp.getInputHeightAttr(),
+                convTranspose2dOp.getInputWidthAttr(),
+                convTranspose2dOp.getKernelSizeAttr(),
+                convTranspose2dOp.getStrideAttr(),
+                convTranspose2dOp.getPaddingAttr(),
+                convTranspose2dOp.getDilationAttr(),
+                convTranspose2dOp.getGroupsAttr(),
+                convTranspose2dOp.getDevice(), inputDtypeAttr, outputDtypeAttr,
+                conv2dConfig,
+                /*compute_config=*/nullptr);
+      }
+
+      // Update only the weight and bias since PrepareConv2dWeightsOp and
+      // PrepareConv2dBiasOp will change the shape and layout of the weight and
+      // bias.
+      rewriter.modifyOpInPlace(convTranspose2dOp, [&]() {
+        convTranspose2dOp.getWeightMutable().assign(
+            prepareConvTranspose2dWeightsOp);
+
+        if (convTranspose2dOp.getBias()) {
+          convTranspose2dOp.getBiasMutable().assign(
+              prepareConvTranspose2dBiasOp);
+        }
+
+        // Since we are updating the weight and bias output dtype we must
+        // update the conv2d config attr as well, since metal uses it to
+        // determine if weight and bias are already prepared.
+        convTranspose2dOp.setConv2dConfigAttr(conv2dConfig);
+      });
+    });
 #endif // TTMLIR_ENABLE_OPMODEL
   }
 
@@ -167,6 +283,35 @@ private:
     return mlir::RankedTensorType::get(oldType.getShape(), newElementType,
                                        newLayout);
     ;
+  }
+
+  ::mlir::RankedTensorType
+  getPreparedWeightsType(ttnn::ConvTranspose2dOp convTranspose2dOp,
+                         ttnn::Conv2dConfigAttr conv2dConfig) {
+    // We use graph capture to retrieve the output type of the PrepareConv2dOp
+    // for now until metal exposes an API.
+    return op_model::getPreparedConvTranspose2dWeightsOutputTensor(
+        &convTranspose2dOp, conv2dConfig);
+  }
+
+  ::mlir::RankedTensorType
+  getPreparedBiasType(ttnn::ConvTranspose2dOp convTranspose2dOp,
+                      Type newElementType) {
+    // Prepared bias will retain the shape of the original bias, and it will
+    // have a <DRAM, interleaved, tile> memory layout.
+    auto oldType = mlir::cast<mlir::RankedTensorType>(
+        convTranspose2dOp.getBias().getType());
+    auto oldLayout = mlir::cast<ttnn::TTNNLayoutAttr>(oldType.getEncoding());
+
+    auto newLayout = ttnn::TTNNLayoutAttr::get(
+        &getContext(), oldType.getShape(),
+        ttcore::TileType::get(newElementType), BufferType::DRAM,
+        oldLayout.getGrid(),
+        ttnn::TensorMemoryLayoutAttr::get(
+            &getContext(), ttnn::TensorMemoryLayout::Interleaved));
+
+    return mlir::RankedTensorType::get(oldType.getShape(), newElementType,
+                                       newLayout);
   }
 };
 } // namespace mlir::tt::ttnn

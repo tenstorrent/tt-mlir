@@ -346,6 +346,121 @@ foldConsecutiveDataCastOps(T op, ::mlir::PatternRewriter &rewriter) {
 }
 
 //===----------------------------------------------------------------------===//
+// PrepareConvTranspose2dWeightsOp
+//===----------------------------------------------------------------------===//
+
+// PrepareConvTranspose2dWeightsOp verification
+::mlir::LogicalResult
+mlir::tt::ttnn::PrepareConvTranspose2dWeightsOp::verify() {
+  mlir::RankedTensorType weightType = getWeightTensor().getType();
+
+  if (weightType.getRank() != 4) {
+    return emitOpError("Weight must be a 4D tensor");
+  }
+
+  if (getWeightsFormat() != "IOHW") {
+    return emitOpError("Only `IOHW` weights format is currently supported");
+  }
+
+  // Transpose Conv2d weight format: (C, O/G, K_H, K_W)
+  constexpr unsigned int WEIGHT_IN_CHANNEL_DIM = 0;
+  constexpr unsigned int WEIGHT_OUT_CHANNEL_DIM = 1;
+  constexpr unsigned int WEIGHT_KERNEL_HEIGHT_DIM = 2;
+  constexpr unsigned int WEIGHT_KERNEL_WIDTH_DIM = 3;
+
+  if (weightType.getShape()[WEIGHT_IN_CHANNEL_DIM] != getInChannels()) {
+    return emitOpError()
+           << "Expected input channels attribute (" << getInChannels()
+           << ") to match the first dimension of the weight tensor ("
+           << weightType.getShape()[WEIGHT_IN_CHANNEL_DIM] << ")";
+  }
+
+  if (weightType.getShape()[WEIGHT_OUT_CHANNEL_DIM] !=
+      getOutChannels() / getGroups()) {
+    return emitOpError()
+           << "Expected output channels attribute (" << getOutChannels()
+           << ") to match the number of output channels per group ("
+           << weightType.getShape()[WEIGHT_OUT_CHANNEL_DIM] / getGroups()
+           << ")";
+  }
+
+  if (getKernelSize().size() != 2) {
+    return emitOpError("Expected kernel size attribute to be a 2D tensor");
+  }
+
+  if (weightType.getShape()[WEIGHT_KERNEL_HEIGHT_DIM] != getKernelSize()[0]) {
+    return emitOpError()
+           << "Expected kernel height attribute (" << getKernelSize()[0]
+           << ") to match the third dimension of the weight tensor ("
+           << weightType.getShape()[WEIGHT_KERNEL_HEIGHT_DIM] << ")";
+  }
+
+  if (weightType.getShape()[WEIGHT_KERNEL_WIDTH_DIM] != getKernelSize()[1]) {
+    return emitOpError()
+           << "Expected kernel width attribute (" << getKernelSize()[1]
+           << ") to match the fourth dimension of the weight tensor ("
+           << weightType.getShape()[WEIGHT_KERNEL_WIDTH_DIM] << ")";
+  }
+
+  if (getStride().size() != 2) {
+    return emitOpError("Expected stride attribute to be a 2D tensor");
+  }
+
+  if (getDilation().size() != 2) {
+    return emitOpError("Expected dilation attribute to be a 2D tensor");
+  }
+
+  if (getPadding().size() != 2 && getPadding().size() != 4) {
+    return emitOpError("Expected padding attribute to be a 2D tensor");
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// PrepareConvTranspose2dBiasOp
+//===----------------------------------------------------------------------===//
+
+// PrepareConvTranspose2dBiasOp verification
+::mlir::LogicalResult mlir::tt::ttnn::PrepareConvTranspose2dBiasOp::verify() {
+  mlir::RankedTensorType biasType = getBiasTensor().getType();
+
+  if (biasType.getRank() != 4) {
+    return emitOpError("Bias must be a 4D tensor");
+  }
+
+  constexpr unsigned int BIAS_OUT_CHANNEL_DIM = 3;
+  if (biasType.getShape()[BIAS_OUT_CHANNEL_DIM] != getOutChannels()) {
+    return emitOpError()
+           << "Expected output channels attribute (" << getOutChannels()
+           << ") to match the number of output channels in the bias tensor ("
+           << biasType.getShape()[BIAS_OUT_CHANNEL_DIM] << ")";
+  }
+
+  if (getKernelSize().size() != 2) {
+    return emitOpError("Kernel size attribute must have two values, got: " +
+                       std::to_string(getKernelSize().size()));
+  }
+
+  if (getStride().size() != 2) {
+    return emitOpError("Stride attribute must have two values, got: " +
+                       std::to_string(getStride().size()));
+  }
+
+  if (getPadding().size() != 2 && getPadding().size() != 4) {
+    return emitOpError("Padding attribute must have two or four values, got: " +
+                       std::to_string(getPadding().size()));
+  }
+
+  if (getDilation().size() != 2) {
+    return emitOpError("Dilation attribute must have two values, got: " +
+                       std::to_string(getDilation().size()));
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // Conv2dOp
 //===----------------------------------------------------------------------===//
 

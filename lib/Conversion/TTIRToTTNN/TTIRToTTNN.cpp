@@ -1235,12 +1235,17 @@ public:
     auto outputDtypeAttr =
         rewriter.getAttr<ttcore::DataTypeAttr>(outputLayoutAttr.getDataType());
 
+    // Create an empty config with only the weights data type set
+    auto weightDtype = ttcore::elementTypeToDataType(kernelTy.getElementType());
+    auto conv2dConfig = ttnn::Conv2dConfigAttr::get(rewriter.getContext())
+                            .withWeightsDtype(weightDtype);
+
     rewriter.replaceOpWithNewOp<ttnn::Conv2dOp>(
         op, getTypeConverter()->convertType(op.getResult().getType()),
         adaptor.getInput(), adaptor.getWeight(), adaptor.getBias(), device,
         inChannelsAttr, outChannelsAttr, batchSizeAttr, inputHeightAttr,
         inputWidthAttr, kernelSizeAttr, *strideAttr, paddingAttr, *dilationAttr,
-        groupsAttr, outputDtypeAttr, /*conv2d_config=*/nullptr,
+        groupsAttr, outputDtypeAttr, conv2dConfig,
         /*compute_config=*/nullptr, /*conv2d_slice_config=*/nullptr);
 
     return success();

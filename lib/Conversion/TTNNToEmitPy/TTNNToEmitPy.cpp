@@ -1669,6 +1669,131 @@ public:
 };
 } // namespace
 
+// PrepareConvTranspose2dWeights op conversion pattern
+//
+namespace {
+class PrepareConvTranspose2dWeightsOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<
+          mlir::tt::ttnn::PrepareConvTranspose2dWeightsOp> {
+
+private:
+  std::string getPrefixSearchPattern() const override {
+    return "ttnn.prepare_conv_transpose2d_weights";
+  }
+  std::string getPrefixSwapPattern() const override {
+    return "ttnn.prepare_conv_transpose2d_weights";
+  }
+
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      mlir::tt::ttnn::PrepareConvTranspose2dWeightsOp>::
+      TTNNToEmitPyBaseOpConversionPattern;
+
+  LogicalResult matchAndRewrite(
+      mlir::tt::ttnn::PrepareConvTranspose2dWeightsOp srcOp,
+      mlir::tt::ttnn::PrepareConvTranspose2dWeightsOp::Adaptor adaptor,
+      ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitpy::EmitPyTTNNEmitter<
+        mlir::tt::ttnn::PrepareConvTranspose2dWeightsOp>
+        emitter(srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getWeightTensor(), "weight_tensor"),
+        emitter.emit(srcOp.getInputMemoryConfig(), "input_memory_config"),
+        emitter.emit(srcOp.getInputTensorLayout(), "input_layout"),
+        emitter.emit(srcOp.getWeightsFormat(), "weights_format"),
+        emitter.emit(srcOp.getInChannels(), "in_channels"),
+        emitter.emit(srcOp.getOutChannels(), "out_channels"),
+        emitter.emit(srcOp.getBatchSize(), "batch_size"),
+        emitter.emit(srcOp.getInputHeight(), "input_height"),
+        emitter.emit(srcOp.getInputWidth(), "input_width"),
+        emitter.emit<std::array<uint32_t, 2>>(srcOp.getKernelSizeAttr(),
+                                              "kernel_size"),
+        emitter.emit<std::array<uint32_t, 2>>(srcOp.getStrideAttr(), "stride"),
+        emitter.emit<
+            std::variant<std::array<uint32_t, 2>, std::array<uint32_t, 4>>>(
+            srcOp.getPaddingAttr(), "padding"),
+        emitter.emit<std::array<uint32_t, 2>>(srcOp.getDilationAttr(),
+                                              "dilation"),
+        emitter.emit(srcOp.getHasBias(), "has_bias"),
+        emitter.emit(srcOp.getGroups(), "groups"),
+        emitter.emit(srcOp.getDevice(), "device"),
+        emitter.emit(srcOp.getInputDtype(), "input_dtype"),
+        emitter.emit(srcOp.getOutputDtype(), "output_dtype"),
+        emitter.emit(srcOp.getConv2dConfig(), "conv_config"),
+        emitter.emit(std::nullopt, "compute_config"),
+        emitter.emit(srcOp.getMirrorKernel(), "mirror_kernel"),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
+// PrepareConvTranspose2dBias op conversion pattern
+//
+namespace {
+class PrepareConvTranspose2dBiasOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<
+          mlir::tt::ttnn::PrepareConvTranspose2dBiasOp> {
+
+private:
+  std::string getPrefixSearchPattern() const override {
+    return "ttnn.prepare_conv_transpose2d_bias";
+  }
+  std::string getPrefixSwapPattern() const override {
+    return "ttnn.prepare_conv_transpose2d_bias";
+  }
+
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      mlir::tt::ttnn::PrepareConvTranspose2dBiasOp>::
+      TTNNToEmitPyBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::PrepareConvTranspose2dBiasOp srcOp,
+                  mlir::tt::ttnn::PrepareConvTranspose2dBiasOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitpy::EmitPyTTNNEmitter<
+        mlir::tt::ttnn::PrepareConvTranspose2dBiasOp>
+        emitter(srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getBiasTensor(), "bias_tensor"),
+        emitter.emit(srcOp.getInputMemoryConfig(), "input_memory_config"),
+        emitter.emit(srcOp.getInputTensorLayout(), "input_layout"),
+        emitter.emit(srcOp.getInChannels(), "in_channels"),
+        emitter.emit(srcOp.getOutChannels(), "out_channels"),
+        emitter.emit(srcOp.getBatchSize(), "batch_size"),
+        emitter.emit(srcOp.getInputHeight(), "input_height"),
+        emitter.emit(srcOp.getInputWidth(), "input_width"),
+        emitter.emit<std::array<uint32_t, 2>>(srcOp.getKernelSizeAttr(),
+                                              "kernel_size"),
+        emitter.emit<std::array<uint32_t, 2>>(srcOp.getStrideAttr(), "stride"),
+        emitter.emit<
+            std::variant<std::array<uint32_t, 2>, std::array<uint32_t, 4>>>(
+            srcOp.getPaddingAttr(), "padding"),
+        emitter.emit<std::array<uint32_t, 2>>(srcOp.getDilationAttr(),
+                                              "dilation"),
+        emitter.emit(srcOp.getGroups(), "groups"),
+        emitter.emit(srcOp.getDevice(), "device"),
+        emitter.emit(srcOp.getInputDtype(), "input_dtype"),
+        emitter.emit(srcOp.getOutputDtype(), "output_dtype"),
+        emitter.emit(srcOp.getConv2dConfig(), "conv_config"),
+        emitter.emit(std::nullopt, "compute_config"),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
 // PadOp conversion pattern
 //
 namespace {
@@ -3382,7 +3507,10 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
   //
   patterns.add<Conv2dOpConversionPattern, ConvTranspose2dOpConversionPattern,
                PrepareConv2dWeightsOpConversionPattern,
-               PrepareConv2dBiasOpConversionPattern>(typeConverter, ctx);
+               PrepareConv2dBiasOpConversionPattern,
+               PrepareConvTranspose2dWeightsOpConversionPattern,
+               PrepareConvTranspose2dBiasOpConversionPattern>(typeConverter,
+                                                              ctx);
 
   // Normalization ops
   //
