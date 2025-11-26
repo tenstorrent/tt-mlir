@@ -25,6 +25,90 @@ static constexpr llvm::StringLiteral pagedFillCacheTargetName =
     "tt.paged_fill_cache";
 
 static mlir::sdy::OpShardingRuleAttr
+getScatterShardingRule(mlir::stablehlo::ScatterOp scatterOp) {
+  mlir::Operation::operand_range inputs = scatterOp.getInputs();
+  mlir::Operation::operand_range updates = scatterOp.getUpdates();
+  mlir::Value indices = scatterOp.getScatterIndices();
+
+  if (!llvm::hasSingleElement(inputs) || !llvm::hasSingleElement(updates)) {
+    scatterOp->emitError(
+        "Scatter operation has multiple input or update tensors. This is not "
+        "supported.");
+    return mlir::sdy::OpShardingRuleAttr();
+  }
+
+  RankedTensorType inputType =
+      llvm::dyn_cast<RankedTensorType>(inputs.front().getType());
+  RankedTensorType updateType =
+      llvm::dyn_cast<RankedTensorType>(updates.front().getType());
+  RankedTensorType indicesType =
+      llvm::dyn_cast<RankedTensorType>(indices.getType());
+
+  if (!inputType || !updateType || !indicesType) {
+    scatterOp->emitError(
+        "Scatter operation has unranked tensor types. This is not supported.");
+    return mlir::sdy::OpShardingRuleAttr();
+  }
+
+  const int64_t inputRank = inputType.getRank();
+  const int64_t indicesRank = indicesType.getRank();
+  const int64_t updateRank = updateType.getRank();
+
+  auto dimNums = scatterOp.getScatterDimensionNumbers();
+  ArrayRef<int64_t> scatterDimsToOperandDims =
+      dimNums.getScatterDimsToOperandDims();
+
+  sdy::OpShardingRuleBuilder builder(scatterOp);
+
+  // Shard input and result if shard dimension is NOT in
+  // scatterDimsToOperandDims. Otherwise, replicate.
+  for (int64_t inputDim = 0; inputDim < inputRank; inputDim++) {
+    bool isScatterTargetDim =
+        llvm::is_contained(scatterDimsToOperandDims, inputDim);
+
+    if (isScatterTargetDim) {
+      // Dimension is a scatter target - MUST REPLICATE.
+      builder.addFactor(
+          {inputDim, sdy::kNullDim,
+           sdy::kNullDim}, // [input_dim, indices_dim, updates_dim]
+          {inputDim},      // result_dim
+          inputType.getDimSize(inputDim),
+          mlir::sdy::FactorType::kNeedReplication);
+    } else {
+      // Dimension is NOT a scatter target - CAN SHARD.
+      // Only exists in input and result, not in indices or updates.
+      builder.addFactor(
+          {inputDim, sdy::kNullDim,
+           sdy::kNullDim}, // [input_dim, indices_dim, updates_dim]
+          {inputDim},      // result_dim
+          inputType.getDimSize(inputDim),
+          sdy::FactorType::kPassThrough // Can be sharded.
+      );
+    }
+  }
+
+  // Replicate all scatter_indices dimensions.
+  for (int64_t indicesDim = 0; indicesDim < indicesRank; indicesDim++) {
+    builder.addFactor({sdy::kNullDim, indicesDim,
+                       sdy::kNullDim}, // [input_dim, indices_dim, updates_dim]
+                      {sdy::kNullDim}, // Doesn't appear in result.
+                      indicesType.getDimSize(indicesDim),
+                      sdy::FactorType::kNeedReplication);
+  }
+
+  // Replicate all updates dimensions.
+  for (int64_t updateDim = 0; updateDim < updateRank; updateDim++) {
+    builder.addFactor({sdy::kNullDim, sdy::kNullDim,
+                       updateDim},     // [input_dim, indices_dim, updates_dim]
+                      {sdy::kNullDim}, // Doesn't appear in result.
+                      updateType.getDimSize(updateDim),
+                      sdy::FactorType::kNeedReplication);
+  }
+
+  return builder.build();
+}
+
+static mlir::sdy::OpShardingRuleAttr
 getSDPAShardingRule(mlir::stablehlo::CustomCallOp op) {
   auto qType = llvm::dyn_cast<RankedTensorType>(op.getOperand(0).getType());
   auto kType = llvm::dyn_cast<RankedTensorType>(op.getOperand(1).getType());
@@ -220,6 +304,24 @@ getPagedAttentionShardingRule(mlir::stablehlo::CustomCallOp op) {
   return mlir::sdy::OpShardingRuleAttr();
 }
 
+template <typename OpTy>
+struct StablehloShardingModel
+    : public mlir::sdy::ShardingRuleOpInterface::ExternalModel<
+          StablehloShardingModel<OpTy>, OpTy> {
+
+  mlir::sdy::OpShardingRuleAttr getShardingRule(mlir::Operation *op) const {
+    auto scatterOp = llvm::cast<mlir::stablehlo::ScatterOp>(op);
+    if (scatterOp) {
+      return getScatterShardingRule(scatterOp);
+    }
+    return mlir::sdy::OpShardingRuleBuilder::buildPointwise(scatterOp);
+  }
+
+  bool shouldKeepOutputShardingsDivisible(mlir::Operation *) const {
+    return true;
+  }
+};
+
 struct StablehloCustomCallShardingModel
     : public mlir::sdy::ShardingRuleOpInterface::ExternalModel<
           StablehloCustomCallShardingModel, ::mlir::stablehlo::CustomCallOp> {
@@ -278,6 +380,8 @@ public:
     // Register for stablehlo.CustomCallOp
     mlir::stablehlo::CustomCallOp::attachInterface<
         StablehloCustomCallShardingModel>(*context);
+    mlir::stablehlo::ScatterOp::attachInterface<
+        StablehloShardingModel<mlir::stablehlo::ScatterOp>>(*context);
   }
 };
 
