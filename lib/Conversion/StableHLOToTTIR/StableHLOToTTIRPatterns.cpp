@@ -1817,6 +1817,17 @@ class StableHLOToTTIRReduceWindowOpConversionPattern
   using OpConversionPattern<
       mlir::stablehlo::ReduceWindowOp>::OpConversionPattern;
 
+private:
+  static DenseI64ArrayAttr prependValues(DenseI64ArrayAttr windowDimensions,
+                                         int64_t value, int64_t count,
+                                         PatternRewriter &rewriter) {
+    assert(windowDimensions.size() == count &&
+           "Window dimensions size must match number of prepending values.");
+    SmallVector<int64_t> winDims4D = SmallVector<int64_t>(count, value);
+    llvm::append_range(winDims4D, windowDimensions.asArrayRef());
+    return rewriter.getDenseI64ArrayAttr(winDims4D);
+  }
+
 public:
   LogicalResult
   matchAndRewrite(mlir::stablehlo::ReduceWindowOp srcOp,
@@ -1916,25 +1927,16 @@ public:
     DenseI64ArrayAttr adjustedPadding = padding;
 
     if (needsReshape) {
-      SmallVector<int64_t> winDims4D = {1, 1};
-      llvm::append_range(winDims4D, windowDimensions.asArrayRef());
-      adjustedWindowDimensions = rewriter.getDenseI64ArrayAttr(winDims4D);
+      adjustedWindowDimensions =
+          prependValues(windowDimensions, 1, 2, rewriter);
 
-      SmallVector<int64_t> strides4D = {1, 1};
-      llvm::append_range(strides4D, windowStrides.asArrayRef());
-      adjustedWindowStrides = rewriter.getDenseI64ArrayAttr(strides4D);
+      adjustedWindowStrides = prependValues(windowStrides, 1, 2, rewriter);
 
-      SmallVector<int64_t> baseDil4D = {1, 1};
-      llvm::append_range(baseDil4D, baseDilations.asArrayRef());
-      adjustedBaseDilations = rewriter.getDenseI64ArrayAttr(baseDil4D);
+      adjustedBaseDilations = prependValues(baseDilations, 1, 2, rewriter);
 
-      SmallVector<int64_t> winDil4D = {1, 1};
-      llvm::append_range(winDil4D, window_dilations.asArrayRef());
-      adjustedWindowDilations = rewriter.getDenseI64ArrayAttr(winDil4D);
+      adjustedWindowDilations = prependValues(window_dilations, 1, 2, rewriter);
 
-      SmallVector<int64_t> padding4D = {0, 0, 0, 0};
-      llvm::append_range(padding4D, padding.asArrayRef());
-      adjustedPadding = rewriter.getDenseI64ArrayAttr(padding4D);
+      adjustedPadding = prependValues(padding, 0, 4, rewriter);
     }
 
     // Build per-input pooling ops.
