@@ -37,9 +37,9 @@ struct LoopContext {
   llvm::SmallVector<mlir::affine::AffineForOp, 4>
       loopNest;                             // Outermost to innermost.
   llvm::SmallVector<int64_t, 4> tripCounts; // Trip count for each loop.
-  int64_t totalIterations;                  // Product of all trip counts.
+  int64_t totalIterations{1};               // Product of all trip counts.
 
-  LoopContext() : totalIterations(1) {}
+  LoopContext() = default;
 };
 
 // Helper structures for organizing DST accesses by loop nest.
