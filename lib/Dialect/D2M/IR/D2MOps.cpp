@@ -545,12 +545,6 @@ d2m::StreamLayoutOp::getBufferType(
     mlir::Value value, const mlir::bufferization::BufferizationOptions &,
     const mlir::bufferization::BufferizationState &,
     ::llvm::SmallVector<mlir::Value> &) {
-  // For StreamLayoutOp result (which has ViewLayoutAttr), return the buffer
-  // type of the storage operand (which has MetalLayoutAttr with the actual
-  // memory space)
-  if (value == getResult()) {
-    return ttcore::getBufferType(getStorage().getType(), /*isView=*/true);
-  }
   return ttcore::getBufferType(value.getType(), /*isView=*/true);
 }
 
@@ -585,7 +579,7 @@ mlir::LogicalResult StreamLayoutOp::verify() {
       *this, "input", "storage", getInput().getType(), getStorage().getType(),
       /*checkSameElementType*/ true,
       /*checkSameMemorySpace*/ false,
-      /*checkSameRank*/ false, // Allow rank-changing transformations
+      /*checkSameRank*/ true,
       /*checkSameGridShape*/ false,
       /*checkSameShardShape*/ false);
   if (failed(inputStorageVerification)) {
@@ -596,7 +590,7 @@ mlir::LogicalResult StreamLayoutOp::verify() {
       *this, "storage", "result", getStorage().getType(), getResult().getType(),
       /*checkSameElementType*/ true,
       /*checkSameMemorySpace*/ false,
-      /*checkSameRank*/ true, // Storage and result must have same rank
+      /*checkSameRank*/ true,
       /*checkSameGridShape*/ false,
       /*checkSameShardShape*/ true);
   if (failed(storageResultVerification)) {
@@ -607,7 +601,7 @@ mlir::LogicalResult StreamLayoutOp::verify() {
       *this, "input", "result", getInput().getType(), getResult().getType(),
       /*checkSameElementType*/ true,
       /*checkSameMemorySpace*/ true,
-      /*checkSameRank*/ false, // Allow rank-changing transformations
+      /*checkSameRank*/ true,
       /*checkSameGridShape*/ false,
       /*checkSameShardShape*/ false);
   if (failed(inputResultVerification)) {
