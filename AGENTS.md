@@ -40,6 +40,24 @@
   `mlir::python::PyMlirContext::ErrorCapture::~ErrorCapture(): Assertion `errors.empty()
   && "unhandled captured errors"' failed.`)
 
+## Pull Request Guidelines
+- Contents: Focus on rationale, design decisions, and reviewer insights; avoid
+  listing obvious file changes or basic functionality additions
+- Format: produce preformatted markdown using this template:
+  ```
+  ### Ticket
+  [Link to Github Issue]
+
+  ### Problem description
+  [Explain the issue and why this change is needed]
+
+  ### What's changed
+  [Describe what was actually modified, focusing on rationale and design decisions]
+
+  ### Checklist
+  - [ ] New/Existing tests provide coverage for changes
+  ```
+
 ## Additional Notes
 - **Agent Design Principle**: Implement only the minimum necessary
   functionality; avoid feature creep and arbitrary expansions.

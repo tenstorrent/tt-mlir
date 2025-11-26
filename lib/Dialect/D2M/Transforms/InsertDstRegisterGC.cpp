@@ -15,8 +15,8 @@
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Affine/LoopUtils.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
-#include "mlir/Dialect/Linalg/IR/Linalg.h"
-#include "mlir/Dialect/Linalg/Transforms/Transforms.h"
+#include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/PatternMatch.h"
 #include "ttmlir/Utils.h"
 
@@ -54,6 +54,9 @@ struct CopyInfo {
     stores.emplace_back(store, indexOffset);
   }
 
+  // Loop dimension indices that should guard prologue data copy.
+  // Non-empty for reductions where we skip the first iteration copy.
+  SmallVector<int64_t> guardIndices;
   llvm::SmallVector<OpAndIndexOffset<mlir::affine::AffineLoadOp>> loads;
   SmallVector<OpAndIndexOffset<affine::AffineStoreOp>> stores;
 };
@@ -292,8 +295,9 @@ struct D2MInsertDstRegisterGCPass
                 [&](RewriterBase &rewriter, Region &loopRegion,
                     Operation *outermostLoop) -> LogicalResult {
                   // For GC pass, matmul DST allocation follows a simpler path:
-                  // just create acquire/release without prologue/epilogue loops.
-                  // The D2MToTTKernel pass handles the actual DST operations.
+                  // just create acquire/release without prologue/epilogue
+                  // loops. The D2MToTTKernel pass handles the actual DST
+                  // operations.
                   return success();
                 }))) {
           return WalkResult::interrupt();
@@ -336,7 +340,8 @@ struct D2MInsertDstRegisterGCPass
 
         // If no marked loops found and region still needs DST allocation,
         // process the entire region. This handles two cases:
-        // 1. Scalar access (no loops): affine.load/store without enclosing loops
+        // 1. Scalar access (no loops): affine.load/store without enclosing
+        // loops
         // 2. Unmarked loops: affine.for without d2m.linalg_root attribute
         if (!foundMarkedLoop && !hasAcquireDstOp(region)) {
           processUnmarkedRegion(genericOp, region, totalDstTiles);
@@ -403,8 +408,7 @@ private:
     // Use the selected coloring strategy to assign DST slices.
     auto strategy = createColoringStrategy();
     std::vector<unsigned> coloring;
-    if (failed(
-            strategy->colorGraph(interferenceGraph, numColors, coloring))) {
+    if (failed(strategy->colorGraph(interferenceGraph, numColors, coloring))) {
       genericOp.emitError(
           "Graph coloring failed - not enough DST slices available");
       return;
@@ -452,7 +456,7 @@ private:
     // Group DST accesses by their enclosing loop nest.
     // Use the marked loop as the common key for all accesses within it.
     CopyInfoMap copyInfoMap =
-        groupAccessesByLoopNest(dstAccesses, coloring, markedLoop);
+        groupAccessesByLoopNest(genericOp, dstAccesses, coloring, markedLoop);
 
     // Analyze each unique loop template once to get trip counts.
     // This avoids redundant analysis in prologue and epilogue loop
@@ -469,13 +473,14 @@ private:
                            loopTemplateCtx, maxLoopIterations);
     }
 
-    // Track the last operation we generate so we can place release_dst after it.
+    // Track the last operation we generate so we can place release_dst after
+    // it.
     Operation *lastOp = markedLoop.getOperation();
 
     for (auto &[loopOp, copyInfo] : copyInfoMap) {
       const LoopContext &loopTemplateCtx = loopTemplateContexts[loopOp];
-      generateEpilogueLoop(rewriter, acquireDst.getResult(), loopOp,
-                           copyInfo, loopTemplateCtx, maxLoopIterations);
+      generateEpilogueLoop(rewriter, acquireDst.getResult(), loopOp, copyInfo,
+                           loopTemplateCtx, maxLoopIterations);
     }
 
     // Insert release_dst after all epilogue loops.
@@ -531,6 +536,11 @@ private:
             rewriter, storeOp, acquireDst.getResult(), assignedSlice);
       }
     }
+
+    // Insert PackerMaskResetOp after reduce operations for correct
+    // accumulation. This resets the packer mask on all but the last iteration.
+    insertPackerMaskResetAfterReduce<TileReduceSumOp>(rewriter, genericOp);
+    insertPackerMaskResetAfterReduce<TileReduceMaxOp>(rewriter, genericOp);
   }
 
   // Process a region without d2m.linalg_root marked loops.
@@ -587,8 +597,7 @@ private:
     // Use the selected coloring strategy to assign DST slices.
     auto strategy = createColoringStrategy();
     std::vector<unsigned> coloring;
-    if (failed(
-            strategy->colorGraph(interferenceGraph, numColors, coloring))) {
+    if (failed(strategy->colorGraph(interferenceGraph, numColors, coloring))) {
       genericOp.emitError(
           "Graph coloring failed - not enough DST slices available");
       return;
@@ -674,8 +683,8 @@ private:
     // Generate epilogue loops.
     for (auto &[loopOp, copyInfo] : copyInfoMap) {
       const LoopContext &loopTemplateCtx = loopTemplateContexts[loopOp];
-      generateEpilogueLoop(rewriter, acquireDst.getResult(), loopOp,
-                           copyInfo, loopTemplateCtx, maxLoopIterations);
+      generateEpilogueLoop(rewriter, acquireDst.getResult(), loopOp, copyInfo,
+                           loopTemplateCtx, maxLoopIterations);
     }
 
     // Find the last non-terminator operation for release_dst placement.
@@ -726,6 +735,11 @@ private:
             rewriter, storeOp, acquireDst.getResult(), assignedSlice);
       }
     }
+
+    // Insert PackerMaskResetOp after reduce operations for correct
+    // accumulation. This resets the packer mask on all but the last iteration.
+    insertPackerMaskResetAfterReduce<TileReduceSumOp>(rewriter, genericOp);
+    insertPackerMaskResetAfterReduce<TileReduceMaxOp>(rewriter, genericOp);
   }
 
   // Group DST accesses by their enclosing loop nest for unmarked regions.
@@ -775,16 +789,31 @@ private:
     return outermostLoop;
   }
 
+  // Look through memref.subview to find the original block argument.
+  static BlockArgument lookThroughSubView(Value memref) {
+    while (auto subView = mlir::dyn_cast_or_null<memref::SubViewOp>(
+               memref.getDefiningOp())) {
+      memref = subView.getSource();
+    }
+    if (auto *definingOp = memref.getDefiningOp();
+        mlir::isa_and_nonnull<d2m::WaitOp, d2m::ReserveOp>(definingOp)) {
+      memref = definingOp->getOperand(0);
+    }
+    return mlir::dyn_cast<BlockArgument>(memref);
+  }
+
   // Group DST accesses by their enclosing loop nest.
   // Returns a map from outermost loop operation to CopyInfo containing
   // the loads and stores with their assigned DST slice indices.
   // The markedLoop parameter provides a common key for all accesses within
   // the same d2m.linalg_root loop, ensuring all prologues happen together
   // before compute and all epilogues happen together after.
+  // Also computes guardIndices for reduction output loads (first-iteration
+  // skip).
   static CopyInfoMap groupAccessesByLoopNest(
+      GenericOp genericOp,
       const SmallVector<std::pair<Operation *, int64_t>> &dstAccesses,
-      const std::vector<unsigned> &coloring,
-      affine::AffineForOp markedLoop) {
+      const std::vector<unsigned> &coloring, affine::AffineForOp markedLoop) {
     CopyInfoMap copyInfoMap;
 
     for (size_t i = 0; i < dstAccesses.size(); ++i) {
@@ -799,6 +828,22 @@ private:
       // Add to the appropriate CopyInfo
       if (auto loadOp = mlir::dyn_cast<affine::AffineLoadOp>(op)) {
         copyInfoMap[key].push_back(loadOp, assignedSlice);
+
+        // Compute guardIndices for reduction output loads.
+        // For reductions, we skip copying from output CB to DST on first
+        // iteration since the output CB contains uninitialized data.
+        BlockArgument blockArg = lookThroughSubView(loadOp.getMemRef());
+        if (blockArg && !genericOp.isExplicitDatamovementForm()) {
+          SmallVector<int64_t> guardIndices =
+              genericOp.getNonParticipatingLoopDims(blockArg.getArgNumber());
+          if (!guardIndices.empty()) {
+            // Merge guardIndices (they should be the same for all loads in
+            // this group, but handle first-seen vs subsequent).
+            if (copyInfoMap[key].guardIndices.empty()) {
+              copyInfoMap[key].guardIndices = guardIndices;
+            }
+          }
+        }
       } else if (auto storeOp = mlir::dyn_cast<affine::AffineStoreOp>(op)) {
         copyInfoMap[key].push_back(storeOp, assignedSlice);
       }
@@ -1054,12 +1099,25 @@ private:
 
   // Generate prologue copy nest (L1 -> DST) ahead of the loop/compute region
   // that uses the original loads.
+  // For reductions, wraps the copy in a guard that skips the first iteration.
   static void generatePrologueLoop(IRRewriter &rewriter,
                                    AcquireDstOp acquireDst,
                                    Operation *loopTemplate,
                                    const CopyInfo &copyInfo,
                                    const LoopContext &loopTemplateCtx,
                                    int64_t maxLoopIterations) {
+    if (copyInfo.loads.empty()) {
+      return;
+    }
+
+    // For reductions, insert a guard to skip copying on the first iteration.
+    // The output CB contains uninitialized data on the first iteration.
+    scf::IfOp guard = insertGuardForLoopNest(rewriter, loopTemplate->getLoc(),
+                                             copyInfo.guardIndices);
+    if (guard) {
+      rewriter.setInsertionPointToStart(&guard.getThenRegion().front());
+    }
+
     generateCopyLoops</*IsPrologue=*/true, affine::AffineLoadOp,
                       OpAndIndexOffset<affine::AffineLoadOp>>(
         rewriter, acquireDst.getResult(), loopTemplate, copyInfo.loads,
@@ -1077,6 +1135,94 @@ private:
                       OpAndIndexOffset<affine::AffineStoreOp>>(
         rewriter, dstMemref, loopTemplate, copyInfo.stores, loopTemplateCtx,
         maxLoopIterations);
+  }
+
+  /// Insert a guard that skips the first iteration of reduction loops.
+  /// For reductions, we don't want to copy accumulated results from L1 to DST
+  /// on the first iteration (when there's nothing to accumulate yet).
+  /// Returns the created scf::IfOp, or nullptr if no guard is needed.
+  static scf::IfOp insertGuardForLoopNest(IRRewriter &rewriter, Location loc,
+                                          ArrayRef<int64_t> guardIndices) {
+    if (guardIndices.empty()) {
+      return nullptr;
+    }
+    auto zero = rewriter.create<arith::ConstantOp>(
+        loc, rewriter.getIndexType(),
+        rewriter.getIntegerAttr(rewriter.getIndexType(), 0));
+    auto cmp = rewriter
+                   .create<arith::ConstantOp>(loc, rewriter.getI1Type(),
+                                              rewriter.getBoolAttr(false))
+                   .getResult();
+    for (int64_t index : guardIndices) {
+      auto iterIndex = rewriter.create<IterIndexOp>(loc, index);
+      auto ne = rewriter.create<arith::CmpIOp>(loc, arith::CmpIPredicate::ne,
+                                               iterIndex, zero);
+      cmp = rewriter.create<arith::OrIOp>(loc, cmp, ne).getResult();
+    }
+    return rewriter.create<scf::IfOp>(loc, cmp);
+  }
+
+  /// Insert PackerMaskResetOp after reduce operations to reset the packer mask.
+  /// This is needed for correct accumulation across reduction iterations.
+  /// The reset is skipped on the last iteration.
+  template <typename TileReduceOp>
+  static void insertPackerMaskResetAfterReduce(IRRewriter &rewriter,
+                                               GenericOp genericOp) {
+    SmallVector<int64_t> loopBounds = genericOp.getLoopBounds();
+
+    genericOp.walk([&](TileReduceOp op) {
+      // Check if PackerMaskResetOp already exists in this block
+      bool packerResetFound = false;
+      op->getBlock()->walk([&](Operation *innerOp) {
+        if (mlir::isa<PackerMaskResetOp>(innerOp)) {
+          packerResetFound = true;
+        }
+      });
+      if (packerResetFound) {
+        return;
+      }
+
+      rewriter.setInsertionPointAfter(op);
+      ReduceDim reduceDim = op.getReduceDim();
+
+      scf::IfOp ifOp;
+      auto index = [&](int64_t val) {
+        return rewriter.create<arith::ConstantOp>(
+            op.getLoc(), rewriter.getIndexType(), rewriter.getIndexAttr(val));
+      };
+
+      if (reduceDim == ReduceDim::R) {
+        auto iterIndex =
+            rewriter.create<IterIndexOp>(op.getLoc(), static_cast<int64_t>(1));
+        auto condOp = rewriter.create<arith::CmpIOp>(
+            op.getLoc(), arith::CmpIPredicate::ne, iterIndex,
+            index(loopBounds[1] - 1));
+        ifOp = rewriter.create<scf::IfOp>(op.getLoc(), condOp);
+      } else if (reduceDim == ReduceDim::C) {
+        auto iterIndex =
+            rewriter.create<IterIndexOp>(op.getLoc(), static_cast<int64_t>(0));
+        auto condOp = rewriter.create<arith::CmpIOp>(
+            op.getLoc(), arith::CmpIPredicate::ne, iterIndex,
+            index(loopBounds[0] - 1));
+        ifOp = rewriter.create<scf::IfOp>(op.getLoc(), condOp);
+      } else if (reduceDim == ReduceDim::RC) {
+        auto iterIndexR =
+            rewriter.create<IterIndexOp>(op.getLoc(), static_cast<int64_t>(1));
+        auto iterIndexC =
+            rewriter.create<IterIndexOp>(op.getLoc(), static_cast<int64_t>(0));
+        auto condOp = rewriter.create<arith::CmpIOp>(
+            op.getLoc(), arith::CmpIPredicate::ne, iterIndexR,
+            index(loopBounds[1] - 1));
+        auto condOp2 = rewriter.create<arith::CmpIOp>(
+            op.getLoc(), arith::CmpIPredicate::ne, iterIndexC,
+            index(loopBounds[0] - 1));
+        auto finalCondOp =
+            rewriter.create<arith::OrIOp>(op.getLoc(), condOp, condOp2);
+        ifOp = rewriter.create<scf::IfOp>(op.getLoc(), finalCondOp);
+      }
+      rewriter.setInsertionPointToStart(&ifOp.getThenRegion().front());
+      rewriter.create<PackerMaskResetOp>(op.getLoc());
+    });
   }
 
   // Identify DST accesses that need coloring based on compute operations.
