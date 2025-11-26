@@ -950,32 +950,32 @@ public:
         viewLayout);
     auto view = rewriter.create<d2m::StreamLayoutOp>(op.getLoc(), viewTensorType,
                                                    inputs[0], storage);
-    inputs[0] = view.getResult();
-    llvm::errs() << "inputs: " << inputs[0] << "\n";
-    llvm::errs() << "outputs: " << outputs[0] << "\n";
-    // Create a DMA-only generic whose input is the view layout and whose
-    // output is the op result. Follow the DMA form used by existing tests:
-    // reserve the output CB, DMA from input to output using the generic's
-    // affine iteration (identity map), wait for the transaction, then yield
-    // the reserved output tensor.
-    Value viewSrc = inputs[0];
-    auto generic = rewriter.create<d2m::GenericOp>(
-        op.getLoc(), inputs, outputs,
-        [&](OpBuilder &builder, Location bodyLoc, ValueRange blockArgs) {
-          assert(blockArgs.size() == 2 && "expected 1 input and 1 output CB");
-          // Acquire output tensor from CB.
-          Value outputCB =
-              builder.create<d2m::ReserveOp>(bodyLoc, blockArgs[1]).getResult();
-          // Use affine-form DMA with identity map over the generic dims.
-          auto indexingMap = builder.getMultiDimIdentityMap(4);
-          auto dma = builder.create<d2m::DMAOp>(
-              bodyLoc, viewSrc, AffineMapAttr::get(indexingMap), outputCB);
-          builder.create<d2m::DMAWaitOp>(bodyLoc, dma);
-          builder.create<d2m::YieldOp>(bodyLoc, outputCB);
-        },
-        d2m::ThreadType::Datamovement);
+    // inputs[0] = view.getResult();
+    // llvm::errs() << "inputs: " << inputs[0] << "\n";
+    // llvm::errs() << "outputs: " << outputs[0] << "\n";
+    // // Create a DMA-only generic whose input is the view layout and whose
+    // // output is the op result. Follow the DMA form used by existing tests:
+    // // reserve the output CB, DMA from input to output using the generic's
+    // // affine iteration (identity map), wait for the transaction, then yield
+    // // the reserved output tensor.
+    // Value viewSrc = inputs[0];
+    // auto generic = rewriter.create<d2m::GenericOp>(
+    //     op.getLoc(), inputs, outputs,
+    //     [&](OpBuilder &builder, Location bodyLoc, ValueRange blockArgs) {
+    //       assert(blockArgs.size() == 2 && "expected 1 input and 1 output CB");
+    //       // Acquire output tensor from CB.
+    //       Value outputCB =
+    //           builder.create<d2m::ReserveOp>(bodyLoc, blockArgs[1]).getResult();
+    //       // Use affine-form DMA with identity map over the generic dims.
+    //       auto indexingMap = builder.getMultiDimIdentityMap(4);
+    //       auto dma = builder.create<d2m::DMAOp>(
+    //           bodyLoc, viewSrc, AffineMapAttr::get(indexingMap), outputCB);
+    //       builder.create<d2m::DMAWaitOp>(bodyLoc, dma);
+    //       builder.create<d2m::YieldOp>(bodyLoc, outputCB);
+    //     },
+    //     d2m::ThreadType::Datamovement);
 
-    rewriter.replaceOp(op, unLayoutResult(rewriter, generic->getResult(0),
+    rewriter.replaceOp(op, unLayoutResult(rewriter, view.getResult(),
                                           op->getResult(0).getType()));
     return success();
   }
