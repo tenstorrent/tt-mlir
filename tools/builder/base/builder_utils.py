@@ -247,6 +247,7 @@ def _compile_and_execute(
             check_atol=check_atol,
             check_rtol=check_rtol,
             goldens=goldens,
+            bypass_ops=builder._bypass_ops,
         )
 
     if golden_report and export_golden_report:
@@ -1722,6 +1723,7 @@ def execute_fb(
     device=None,  # Optional device parameter for fixture reuse
     check_atol: bool = False,
     check_rtol: bool = False,
+    bypass_ops: Optional[List[str]] = None,
 ) -> None:
     """
     Takes a flatbuffer path `fb`, and executes it with random inputs supplied by `input_shapes` and `input_dtypes`
@@ -1763,6 +1765,7 @@ def execute_fb(
             check_atol=check_atol,
             check_rtol=check_rtol,
             goldens=goldens,
+            bypass_ops=bypass_ops,
         )
         ttrt.runtime.DebugHooks.get(
             pre_op_get_callback_fn(callback_runtime_config),
