@@ -1143,7 +1143,6 @@ static mlir::LogicalResult verifyAffineBlocking(
       }
       AffineMap fwdMap = *maybeFwdMap;
 
-      // XXX: not sure if this is robust? check assumptions
       fwdMap = ttmlir::utils::affineMapDropBackResults(
           fwdMap, fwdMap.getNumResults() - 2);
       // first result is deviceID, so drop it
