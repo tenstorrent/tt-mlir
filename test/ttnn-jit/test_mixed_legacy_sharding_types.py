@@ -16,9 +16,6 @@ from utils import (
     run_op_test,
 )
 
-# WIthout support for JIT'ed binary ops with inputs with differing sharding grids,
-# much of the testing here should be expected to fail. The trivial case is when
-# max_grid = (0, 0) for both inputs ->
 HEIGHT_WIDTH_SHARDED_SHAPE_GRIDS = [
     ((32, 32), (0, 0)),
     ((32, 64), (0, 0)),
