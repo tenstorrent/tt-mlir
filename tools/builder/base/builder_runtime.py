@@ -1,0 +1,575 @@
+# SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
+#
+# SPDX-License-Identifier: Apache-2.0
+
+import os
+import inspect
+import time
+import torch
+import numpy as np
+from functools import reduce
+import operator
+from typing import Callable, List, Optional, Tuple, Union, Literal, Dict
+from collections import OrderedDict
+import json
+from functools import partial
+
+from builder.base.builder import *
+
+import _ttmlir_runtime as tt_runtime
+
+
+class TTBuilderCompileException(Exception):
+    pass
+
+
+class TTBuilderRuntimeException(Exception):
+    pass
+
+
+class TTBuilderGoldenException(Exception):
+    pass
+
+
+def runtime_dtype_to_torch_dtype(dtype) -> torch.dtype:
+    if dtype == tt_runtime.runtime.DataType.Float32:
+        return torch.float32
+    elif dtype == tt_runtime.runtime.DataType.UInt32:
+        return torch.uint32
+    elif dtype == tt_runtime.runtime.DataType.UInt16:
+        return torch.uint16
+    elif dtype == tt_runtime.runtime.DataType.UInt8:
+        return torch.uint8
+    elif dtype == tt_runtime.runtime.DataType.BFloat16:
+        return torch.bfloat16
+    elif dtype == tt_runtime.runtime.DataType.Int32:
+        return torch.int32
+
+
+def torch_dtype_to_runtime_dtype(dtype):
+    if dtype == torch.float32:
+        return tt_runtime.runtime.DataType.Float32
+    if dtype == torch.float16:
+        return tt_runtime.runtime.DataType.Float16
+    if dtype == torch.bfloat16:
+        return tt_runtime.runtime.DataType.BFloat16
+    if dtype == torch.uint32:
+        return tt_runtime.runtime.DataType.UInt32
+    if dtype == torch.uint16:
+        return tt_runtime.runtime.DataType.UInt16
+    if dtype == torch.uint8:
+        return tt_runtime.runtime.DataType.UInt8
+    if dtype == torch.int32:
+        return tt_runtime.runtime.DataType.Int32
+    if dtype == torch.float64:
+        return tt_runtime.runtime.DataType.Float64
+    if dtype == torch.int64:
+        return tt_runtime.runtime.DataType.Int64
+    if dtype == torch.uint64:
+        return tt_runtime.runtime.DataType.UInt64
+    if dtype == torch.int16:
+        return tt_runtime.runtime.DataType.Int16
+    if dtype == torch.int8:
+        return tt_runtime.runtime.DataType.Int8
+    if dtype == torch.bool:
+        return tt_runtime.runtime.DataType.Bool
+    raise ValueError(f"Torch dtype: {dtype} has no runtime DataType equivalent")
+
+
+def runtime_str_dtype_to_torch_dtype(dtype):
+    if dtype == "Float32":
+        return torch.float32
+    if dtype == "Float16":
+        return torch.float16
+    if dtype == "BFloat16":
+        return torch.bfloat16
+    if dtype == "UInt32":
+        return torch.uint32
+    if dtype == "UInt16":
+        return torch.uint16
+    if dtype == "UInt8":
+        return torch.uint8
+    if dtype == "Int32":
+        return torch.int32
+    if dtype == "Float64":
+        return torch.float64
+    if dtype == "Int64":
+        return torch.int64
+    if dtype == "UInt64":
+        return torch.uint64
+    if dtype == "Int16":
+        return torch.int16
+    if dtype == "Int8":
+        return torch.int8
+    if dtype == "Bool":
+        return torch.bool
+
+    raise ValueError(f"unsupported dtype: {dtype}")
+
+
+def create_tensor(tensor):
+    isEmptyTensor = not all(tensor.shape)
+    if isEmptyTensor:
+        return tt_runtime.runtime.create_owned_host_tensor(
+            tensor.data_ptr(),
+            list(tensor.shape),
+            list(tensor.stride()),
+            tensor.element_size(),
+            torch_dtype_to_runtime_dtype(tensor.dtype),
+        )
+
+    return tt_runtime.runtime.create_borrowed_host_tensor(
+        tensor.data_ptr(),
+        list(tensor.shape),
+        list(tensor.stride()),
+        tensor.element_size(),
+        torch_dtype_to_runtime_dtype(tensor.dtype),
+    )
+
+
+def convert_input_layouts(device, inputs, fbb, program_index):
+    inputs_converted = []
+    for input_index in range(len(inputs)):
+        input_layout = tt_runtime.runtime.get_layout(fbb, program_index, input_index)
+        inputs_converted.append(
+            tt_runtime.runtime.to_layout(
+                inputs[input_index], device, input_layout, True
+            )
+        )
+    return inputs_converted
+
+
+def json_string_as_dict(json_string):
+    if json_string == "":
+        return {}
+    json_string = re.sub(r"\bnan\b", "NaN", json_string)
+    json_string = re.sub(r"\binf\b", "Infinity", json_string)
+    return json.loads(json_string)
+
+
+def program_inputs_as_dict(bin, index):
+    return json_string_as_dict(bin.get_program_inputs_as_json(index))
+
+
+def program_outputs_as_dict(bin, index):
+    return json_string_as_dict(bin.get_program_outputs_as_json(index))
+
+
+def mask_torch_inf_nan(tensor):
+    tensor[
+        torch.logical_or(
+            torch.isnan(tensor),
+            torch.logical_or(torch.isinf(tensor), torch.isneginf(tensor)),
+        )
+    ] = 0
+    return tensor
+
+
+def get_atol_rtol_pcc(golden, calculated, atol, rtol):
+    if not torch.is_floating_point(golden):
+        golden = golden.to(torch.float64)
+    if not torch.is_floating_point(calculated):
+        calculated = calculated.to(torch.float64)
+
+    if golden.numel() == 0 or calculated.numel() == 0:
+        cal_atol = 0.0
+        cal_rtol = 0.0
+    else:
+        cal_atol = torch.max(torch.abs(golden - calculated)).item()
+        cal_rtol = torch.max(torch.abs((golden - calculated) / calculated)).item()
+
+    def get_pcc(golden, calculated):
+        if golden.numel() == 0 and calculated.numel() == 0:
+            if golden.shape == calculated.shape:
+                return 1.0
+            else:
+                return 0.0
+        elif golden.numel() == 0 or calculated.numel() == 0:
+            return 0.0
+        if torch.all(torch.isnan(golden)) and torch.all(torch.isnan(calculated)):
+            return 1.0
+        elif torch.any(golden.bool()) != torch.any(calculated.bool()):
+            return 0.0
+        elif torch.all(torch.isnan(golden)) or torch.all(torch.isnan(calculated)):
+            return 0.0
+        else:
+            golden = mask_torch_inf_nan(golden)
+            calculated = mask_torch_inf_nan(calculated)
+
+            if torch.equal(golden, calculated):
+                return 1.0
+
+            if golden.dtype == torch.bfloat16:
+                golden = golden.type(torch.float32)
+            if calculated.dtype == torch.bfloat16:
+                calculated = calculated.type(torch.float32)
+
+            if golden.numel() == 1:
+                return float(torch.isclose(golden, calculated, atol=atol, rtol=rtol))
+
+            if torch.max(golden) == torch.min(golden) and torch.max(
+                calculated
+            ) == torch.min(calculated):
+                return float(
+                    torch.isclose(
+                        torch.max(golden), torch.max(calculated), atol=atol, rtol=rtol
+                    ).item()
+                )
+
+            cal_pcc = np.ma.corrcoef(
+                np.ma.masked_invalid(torch.squeeze(golden).detach().numpy()).flatten(),
+                np.ma.masked_invalid(
+                    torch.squeeze(calculated).detach().numpy()
+                ).flatten(),
+            )
+            mask = np.ones(cal_pcc.shape, dtype=bool)
+            np.fill_diagonal(mask, 0)
+            cal_pcc = np.min(cal_pcc[mask])
+
+            if isinstance(cal_pcc, np.ma.core.MaskedConstant):
+                return 1.0
+
+            return cal_pcc
+
+    if golden.numel() == 1 and golden.item() != 0:
+        cal_pcc = (
+            1.0
+            if torch.nn.functional.cosine_similarity(
+                golden.float().unsqueeze(0),
+                calculated.float().unsqueeze(0),
+                dim=0,
+            ).item()
+            else 0.0
+        )
+    else:
+        cal_pcc = get_pcc(golden, calculated)
+
+    return (
+        cal_atol,
+        cal_rtol,
+        cal_pcc,
+    )
+
+
+def get_original_op_loc(text: str) -> str:
+    try:
+        segments = re.findall(r'"([^"]*)"', text)
+        loc_str = f'"{segments[1]}"' if len(segments) >= 2 else ""
+        return "loc(" + loc_str + ")"
+    except Exception:
+        return ""
+
+
+class CallbackRuntimeConfig:
+    def __init__(
+        self,
+        device=None,
+        pcc=0.99,
+        atol=1e-08,
+        rtol=1e-05,
+        check_atol: bool = True,
+        check_rtol: bool = True,
+        goldens={},
+    ):
+        self.device = device
+        self.pcc = pcc
+        self.atol = atol
+        self.rtol = rtol
+        self.check_atol = check_atol
+        self.check_rtol = check_rtol
+        self.goldens = goldens
+        self.golden_report = {}
+
+    def save_golden_report(self, golden_report_path):
+        with open(golden_report_path, "w") as json_file:
+            json.dump(self.golden_report, json_file, indent=4)
+
+
+def pre_op_callback(callback_runtime_config, binary, program_context, op_context):
+    pass
+
+
+def pre_op_get_callback_fn(callback_runtime_config):
+    return partial(pre_op_callback, callback_runtime_config)
+
+
+def post_op_callback(callback_runtime_config, binary, program_context, op_context):
+    loc = tt_runtime.runtime.get_op_loc_info(op_context)
+    op_output_tensor_map = tt_runtime.runtime.get_op_output_tensor(
+        op_context, program_context
+    )
+
+    if len(op_output_tensor_map) == 0:
+        return
+
+    if loc not in callback_runtime_config.goldens.keys():
+        original_op_loc = get_original_op_loc(loc)
+        if original_op_loc not in callback_runtime_config.goldens.keys():
+            return
+        else:
+            op_golden_tensor_map = callback_runtime_config.goldens[original_op_loc]
+            loc = original_op_loc
+    else:
+        op_golden_tensor_map = callback_runtime_config.goldens[loc]
+
+    if len(op_golden_tensor_map) == 0:
+        return
+
+    device_results = {}
+    for device_id, golden_tensor_torch in op_golden_tensor_map.items():
+        if device_id not in op_output_tensor_map.keys():
+            continue
+
+        try:
+            op_output_tensor = op_output_tensor_map[device_id]
+            rt_buffer = op_output_tensor.get_data_buffer()
+            golden_tensor_torch = golden_tensor_torch.flatten()
+            output_tensor_torch = torch.frombuffer(
+                rt_buffer, dtype=golden_tensor_torch.dtype
+            ).flatten()
+        except Exception as e:
+            return
+
+        if golden_tensor_torch.shape != output_tensor_torch.shape:
+            return
+
+        try:
+            cal_atol, cal_rtol, cal_pcc = get_atol_rtol_pcc(
+                golden_tensor_torch,
+                output_tensor_torch,
+                callback_runtime_config.atol,
+                callback_runtime_config.rtol,
+            )
+
+            result = "pass"
+            if cal_pcc < callback_runtime_config.pcc:
+                result = "fail"
+            if (
+                callback_runtime_config.check_atol
+                and cal_atol > callback_runtime_config.atol
+            ):
+                result = "fail"
+            if (
+                callback_runtime_config.check_rtol
+                and cal_rtol > callback_runtime_config.rtol
+            ):
+                result = "fail"
+
+            results = {}
+            results["result"] = result
+            results["expected_pcc"] = callback_runtime_config.pcc
+            results["actual_pcc"] = cal_pcc
+            results["expected_atol"] = callback_runtime_config.atol
+            results["actual_atol"] = cal_atol
+            results["expected_rtol"] = callback_runtime_config.rtol
+            results["actual_rtol"] = cal_rtol
+            results["allclose"] = torch.allclose(
+                golden_tensor_torch,
+                output_tensor_torch,
+                atol=callback_runtime_config.atol,
+                rtol=callback_runtime_config.rtol,
+            )
+            if (
+                golden_tensor_torch.dtype != torch.uint16
+                and golden_tensor_torch.dtype != torch.uint32
+            ):
+                results["max"] = torch.max(
+                    torch.abs(golden_tensor_torch - output_tensor_torch)
+                ).item()
+            results["mean_absolute_error"] = torch.mean(
+                torch.abs(golden_tensor_torch.float() - output_tensor_torch.float())
+            ).item()
+            results["root_mean_square_error"] = torch.sqrt(
+                torch.mean(
+                    (golden_tensor_torch.float() - output_tensor_torch.float()) ** 2
+                )
+            ).item()
+            results["cosine_similarity"] = torch.nn.functional.cosine_similarity(
+                golden_tensor_torch.float().unsqueeze(0),
+                output_tensor_torch.float().unsqueeze(0),
+            ).item()
+
+            device_results[device_id] = results
+        except Exception as e:
+            print(e)
+            return
+
+    callback_runtime_config.golden_report[loc] = device_results
+
+
+def post_op_get_callback_fn(callback_runtime_config):
+    return partial(post_op_callback, callback_runtime_config)
+
+
+def convert_golden_to_torch_tensors(
+    goldens: Dict[Operand, GoldenMapTensor]
+) -> Dict[Operand, Dict[int, torch.Tensor]]:
+    golden_torch_tensors = {}
+
+    for loc, golden in goldens.items():
+        golden_torch_tensors[loc] = golden.golden_map_tensor_as_torch_tensors()
+
+    return golden_torch_tensors
+
+
+def execute_fb(
+    fb_path: str,
+    goldens: Dict[str, Dict[int, GoldenMapTensor]],
+    pcc: float = 0.99,
+    atol: float = 1e-08,
+    rtol: float = 1e-05,
+    disable_golden: bool = False,
+    device=None,
+    check_atol: bool = False,
+    check_rtol: bool = False,
+    enable_intermediate_verification: bool = False,
+):
+    fbb = tt_runtime.binary.load_binary_from_path(fb_path)
+    program_indices = range(fbb.get_num_programs())
+    golden_torch_tensors = convert_golden_to_torch_tensors(goldens)
+
+    callback_runtime_config = CallbackRuntimeConfig(
+        device=device,
+        pcc=pcc,
+        atol=atol,
+        rtol=rtol,
+        check_atol=check_atol,
+        check_rtol=check_rtol,
+        goldens=golden_torch_tensors,
+    )
+
+    if enable_intermediate_verification:
+        tt_runtime.runtime.DebugHooks.get(
+            pre_op_get_callback_fn(callback_runtime_config),
+            post_op_get_callback_fn(callback_runtime_config),
+        )
+
+    for program_index in program_indices:
+        # Skip private programs (e.g. subgraphs created by const-eval)
+        if fbb.is_program_private(program_index):
+            continue
+
+        input_dict = program_inputs_as_dict(fbb, program_index)
+        output_dict = program_outputs_as_dict(fbb, program_index)
+
+        golden_inputs_torch = []
+        for i, i_dict in enumerate(input_dict):
+            if not disable_golden:
+                golden_inputs_torch.append(golden_torch_tensors[f"input_{i}"][0])
+            else:
+                torch_tensor = torch.randn(
+                    i_dict["desc"]["shape"],
+                    dtype=runtime_str_dtype_to_torch_dtype(
+                        i_dict["desc"]["layout"]["memory_desc"]["data_type"]
+                    ),
+                )
+                golden_inputs_torch.append(torch_tensor)
+
+        golden_outputs_torch = []
+        outputs_torch = []
+        for i, o_dict in enumerate(output_dict):
+            if not disable_golden:
+                golden_outputs_torch.append(golden_torch_tensors[f"output_{i}"][0])
+
+            torch_tensor = torch.zeros(
+                o_dict["desc"]["shape"],
+                dtype=runtime_str_dtype_to_torch_dtype(
+                    o_dict["desc"]["layout"]["memory_desc"]["data_type"]
+                ),
+            )
+            outputs_torch.append(torch_tensor)
+
+        inputs = []
+        outputs = []
+        for i in golden_inputs_torch:
+            new_input = create_tensor(i)
+            inputs.append(new_input)
+        converted_inputs = convert_input_layouts(device, inputs, fbb, program_index)
+
+        for i in outputs_torch:
+            new_output = create_tensor(i)
+            outputs.append(new_output)
+
+        start_submit = time.perf_counter_ns()
+        try:
+            runtime_outputs = tt_runtime.runtime.submit(
+                device,
+                fbb,
+                program_index,
+                converted_inputs,
+            )
+            tt_runtime.runtime.wait(runtime_outputs)
+        except Exception as e:
+            raise TTBuilderRuntimeException(e)
+        finally:
+            tt_runtime.runtime.unregister_hooks()
+        end_submit = time.perf_counter_ns()
+        e2e_duration_nanoseconds_submit = end_submit - start_submit
+
+        e2e_duration_nanoseconds_output = 0
+
+        for i, runtime_output_tensor in enumerate(runtime_outputs):
+            start_get_output = time.perf_counter_ns()
+            output_host = tt_runtime.runtime.to_host(
+                runtime_output_tensor, untilize=True
+            )[0]
+            end_get_output = time.perf_counter_ns()
+            e2e_duration_nanoseconds_output += end_get_output - start_get_output
+
+            if disable_golden:
+                continue
+
+            tt_runtime.runtime.memcpy(
+                outputs[i],
+                output_host,
+            )
+            tt_runtime.runtime.deallocate_tensor(runtime_output_tensor, force=True)
+
+            data_buffer = bytearray(outputs[i].get_data_buffer())
+
+            if len(data_buffer) == 0:
+                output_tensor_torch = torch.empty(
+                    outputs[i].get_shape(),
+                    dtype=runtime_dtype_to_torch_dtype(outputs[i].get_dtype()),
+                )
+            else:
+                output_tensor_torch = torch.frombuffer(
+                    data_buffer,
+                    dtype=runtime_dtype_to_torch_dtype(outputs[i].get_dtype()),
+                ).reshape(outputs[i].get_shape())
+
+            cal_atol, cal_rtol, cal_pcc, = get_atol_rtol_pcc(
+                golden_outputs_torch[i],
+                output_tensor_torch,
+                atol,
+                rtol,
+            )
+
+            if cal_pcc < pcc:
+                raise TTBuilderGoldenException(
+                    f"Failed: program-level output golden comparison failed, actual_pcc={cal_pcc} < expected_pcc={pcc}"
+                )
+            else:
+                print(f"Program level golden for output_{i} matched. pcc={cal_pcc}")
+
+            if check_atol:
+                if cal_atol > atol:
+                    raise TTBuilderGoldenException(
+                        f"Failed: program-level output atol check failed, actual_atol={cal_atol} > expected_atol={atol}"
+                    )
+                else:
+                    print(
+                        f"Program level atol check for output_{i} passed. atol={cal_atol}"
+                    )
+
+            if check_rtol:
+                if cal_rtol > rtol:
+                    raise TTBuilderGoldenException(
+                        f"Failed: program-level output rtol check failed, actual_rtol={cal_rtol} > expected_rtol={rtol}"
+                    )
+                else:
+                    print(
+                        f"Program level rtol check for output_{i} passed. rtol={cal_rtol}"
+                    )
+
+    return callback_runtime_config.golden_report
