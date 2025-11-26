@@ -20,6 +20,7 @@
 #include "mlir/IR/OpDefinition.h"
 #include "llvm/ADT/BitVector.h"
 #include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/MapVector.h"
 #include "llvm/ADT/TypeSwitch.h"
 
 #include <algorithm>
@@ -233,8 +234,8 @@ using PlannerProblems =
 
 struct FuncAnalysisData {
   SequenceMapping sequencing;
-  llvm::DenseMap<mlir::Value, MemrefValueContext> memrefs;
-  llvm::DenseMap<d2m::GenericOp, GenericOpContext> generics;
+  llvm::MapVector<mlir::Value, MemrefValueContext> memrefs;
+  llvm::MapVector<d2m::GenericOp, GenericOpContext> generics;
   PlannerProblems problems; // Only using L1 and DRAM slots.
 
   const Planner::Problem &problem(MemorySpace memspace) const {
@@ -1073,7 +1074,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
       for (const OperandContext &operandCtx : genericCtx.operands) {
         TT_debug(analysis.memrefs.contains(operandCtx.root));
         const MemrefValueContext &memrefCtx =
-            analysis.memrefs.at(operandCtx.root);
+            analysis.memrefs.find(operandCtx.root)->second;
 
         const MemorySpace remappedMemSpace = *memrefCtx.remappedMemSpace;
 
