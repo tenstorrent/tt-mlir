@@ -11,9 +11,9 @@ module {
     %0 = ttir.empty() : tensor<64x128xf32>
     // CHECK: %{{.*}} = "ttnn.multiply"(%{{.*}}, %{{.*}})
     %1 = "ttir.multiply"(%arg0, %arg1, %0) : (tensor<64x128xf32>, tensor<64x128xf32>, tensor<64x128xf32>) -> tensor<64x128xf32>
-    // CHECK: %{{.*}} = "ttnn.ones"
     %2 = "ttir.ones"() <{shape = array<i32:64, 128>}> : () -> tensor<64x128xf32>
     // CHECK: %{{.*}} = "ttnn.from_device"(%{{.*}}) : (tensor<[[DIMS:.*]], #{{.*}}>) -> tensor<[[DIMS]], #{{.*}}>
+    // CHECK: %{{.*}} = "ttnn.zeros"
     // CHECK: %{{.*}} = call @hoisted_ttir_add_64x128_64x128_64x128_func_decl(%{{.*}}, %{{.*}}, %{{.*}})
     %3 = "ttir.add"(%arg0, %1, %2) {ttir.should_hoist} : (tensor<64x128xf32>, tensor<64x128xf32>, tensor<64x128xf32>) -> tensor<64x128xf32>
     // CHECK: %{{.*}} = "ttnn.zeros"
