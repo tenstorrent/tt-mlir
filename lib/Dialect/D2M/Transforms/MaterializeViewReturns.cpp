@@ -45,25 +45,25 @@ ttcore::GridAttr getGridFromType(RankedTensorType type) {
 Value materializeView(OpBuilder &builder, Location loc, Value viewResult) {
   auto tensorType = mlir::cast<RankedTensorType>(viewResult.getType());
 
-  // For StreamLayoutOp results (which have ViewLayoutAttr), get the layout from
-  // storage.
-  RankedTensorType storageType = tensorType;
-  if (mlir::isa_and_nonnull<ttcore::ViewLayoutAttr>(tensorType.getEncoding())) {
-    if (auto streamOp = viewResult.getDefiningOp<d2m::StreamLayoutOp>()) {
-      storageType =
-          mlir::cast<RankedTensorType>(streamOp.getStorage().getType());
-    }
-  }
+  // This pass runs pre-bufferization, so view ops have MetalLayoutAttr.
+  auto layout =
+      mlir::dyn_cast<ttcore::MetalLayoutAttr>(tensorType.getEncoding());
+  TT_assertv(layout != nullptr, "Expected MetalLayoutAttr pre-bufferization");
 
   // Allocate output storage for the materialized view result.
-  auto layout = mlir::dyn_cast_or_null<ttcore::MetalLayoutAttr>(
-      storageType.getEncoding());
+  // We create a new layout without the index map - the source layout's index
+  // map describes how to access the underlying storage with a transformed
+  // layout, but the new allocation should be identity-mapped fresh storage.
+  auto newLayout = ttcore::MetalLayoutAttr::get(
+      builder.getContext(), layout.getLogicalShape(), layout.getDimAlignments(),
+      layout.getCollapsedIntervals(), layout.getOobVal(),
+      layout.getMemorySpace(), layout.getMemoryLayout(),
+      builder.getEmptyAffineMap());
   auto emptyOp = builder.create<d2m::EmptyOp>(
-      loc, storageType.getShape(), storageType.getElementType(), layout);
+      loc, tensorType.getShape(), tensorType.getElementType(), newLayout);
 
-  // Extract the grid from the storage tensor's layout to determine core
-  // distribution.
-  ttcore::GridAttr grid = getGridFromType(storageType);
+  // Extract the grid from the tensor's layout to determine core distribution.
+  ttcore::GridAttr grid = getGridFromType(tensorType);
   TT_assert(grid != nullptr);
 
   // Build identity affine maps for parallel iteration over all grid dimensions.
