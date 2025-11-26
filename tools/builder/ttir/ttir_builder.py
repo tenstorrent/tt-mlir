@@ -1830,9 +1830,7 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
                     in1 = inputs[1]
                     result = old_op.result.type
 
-                    new_op = ttir.GreaterThanOp(
-                        result, in0, in1, loc=old_op.location
-                    )
+                    new_op = ttir.GreaterThanOp(result, in0, in1, loc=old_op.location)
 
                     if not self._disable_golden_check:
                         input_owner0 = old_op.lhs.owner
@@ -3542,9 +3540,7 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
                     shape_attr = old_op.shape
                     result = old_op.result.type
 
-                    new_op = ttir_op(
-                        result, in0, shape_attr, loc=old_op.location
-                    )
+                    new_op = ttir_op(result, in0, shape_attr, loc=old_op.location)
 
                     if not self._disable_golden_check:
                         op_golden_function = get_golden_function(ttir_op)
@@ -3657,9 +3653,7 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
                     rhs = inputs[1]
                     result = old_op.result.type
 
-                    new_op = ttir.MaximumOp(
-                        result, lhs, rhs, loc=old_op.location
-                    )
+                    new_op = ttir.MaximumOp(result, lhs, rhs, loc=old_op.location)
 
                     if not self._disable_golden_check:
                         op_golden_function = get_golden_function(ttir_op)
@@ -3781,9 +3775,7 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
                     rhs = inputs[1]
                     result = old_op.result.type
 
-                    new_op = ttir.MultiplyOp(
-                        result, lhs, rhs, loc=old_op.location
-                    )
+                    new_op = ttir.MultiplyOp(result, lhs, rhs, loc=old_op.location)
 
                     if not self._disable_golden_check:
                         op_golden_function = get_golden_function(ttir_op)
@@ -4432,9 +4424,7 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
                     rhs = inputs[1]
                     result = old_op.result.type
 
-                    new_op = ttir.SubtractOp(
-                        result, lhs, rhs, loc=old_op.location
-                    )
+                    new_op = ttir.SubtractOp(result, lhs, rhs, loc=old_op.location)
 
                     if not self._disable_golden_check:
                         op_golden_function = get_golden_function(ttir_op)
@@ -4892,9 +4882,7 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
                     rhs = inputs[1]
                     result = old_op.result.type
 
-                    new_op = ttir.NotEqualOp(
-                        result, lhs, rhs, loc=old_op.location
-                    )
+                    new_op = ttir.NotEqualOp(result, lhs, rhs, loc=old_op.location)
 
                     if not self._disable_golden_check:
                         op_golden_function = get_golden_function(ttir_op)
