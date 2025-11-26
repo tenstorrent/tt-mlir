@@ -10,7 +10,14 @@ from loguru import logger
 
 @pytest.fixture(scope="module")
 def device():
-    d = ttnn.open_device(device_id=0)
+    # Only care about single device, multi-device will use mesh_device fixture
+    if ttnn.cluster.get_cluster_type() == ttnn.cluster.ClusterType.P150:
+        dispatch_core_type = ttnn.DispatchCoreType.WORKER
+    else:
+        dispatch_core_type = ttnn.DispatchCoreType.ETH
+    d = ttnn.open_device(
+        device_id=0, dispatch_core_config=ttnn.DispatchCoreConfig(dispatch_core_type)
+    )
     yield d
     ttnn.close_device(d)
 

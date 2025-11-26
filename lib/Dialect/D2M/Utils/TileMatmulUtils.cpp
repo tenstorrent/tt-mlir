@@ -23,16 +23,16 @@ namespace {
 
 // Helper to check if a memref is in DST memory space.
 bool isDstMemspace(MemRefType memrefType) {
-  auto memSpaceAttr =
-      mlir::dyn_cast_or_null<ttcore::MemorySpaceAttr>(memrefType.getMemorySpace());
+  auto memSpaceAttr = mlir::dyn_cast_or_null<ttcore::MemorySpaceAttr>(
+      memrefType.getMemorySpace());
   return memSpaceAttr &&
          memSpaceAttr.getValue() == ttcore::MemorySpace::RegisterDst;
 }
 
 // Collect DST access information from the region.
 // Returns the CB element type and maximum DST slice index needed.
-std::pair<MemRefType, int64_t>
-collectMatmulDstInfo(Region &region, Operation *outermostLoop) {
+std::pair<MemRefType, int64_t> collectMatmulDstInfo(Region &region,
+                                                    Operation *outermostLoop) {
   MemRefType cbType = nullptr;
   int64_t maxDstSlice = 0; // Matmul uses single DST slice for accumulator
 
@@ -113,9 +113,8 @@ void generatePrologueLoop(RewriterBase &rewriter, Location loc,
   // Find the innermost loop and its induction variable.
   affine::AffineForOp innermostLoop = prologueLoop;
   while (true) {
-    auto nestedFor = innermostLoop.getRegion()
-                         .front()
-                         .getOps<affine::AffineForOp>();
+    auto nestedFor =
+        innermostLoop.getRegion().front().getOps<affine::AffineForOp>();
     auto it = nestedFor.begin();
     if (it == nestedFor.end()) {
       break;
@@ -139,8 +138,7 @@ void generatePrologueLoop(RewriterBase &rewriter, Location loc,
 
   // Store to DST with slice index prepended.
   SmallVector<Value> dstIndices;
-  dstIndices.push_back(
-      rewriter.create<arith::ConstantIndexOp>(loc, dstSlice));
+  dstIndices.push_back(rewriter.create<arith::ConstantIndexOp>(loc, dstSlice));
   dstIndices.append(mappedIndices.begin(), mappedIndices.end());
 
   rewriter.create<affine::AffineStoreOp>(
@@ -153,8 +151,7 @@ void generatePrologueLoop(RewriterBase &rewriter, Location loc,
   // Keep only the yield.
   SmallVector<Operation *> toErase;
   for (Operation &op : innerBody) {
-    if (!isa<affine::AffineYieldOp>(&op) &&
-        &op != l1Value.getOperation() &&
+    if (!isa<affine::AffineYieldOp>(&op) && &op != l1Value.getOperation() &&
         !isa<affine::AffineStoreOp>(&op)) {
       toErase.push_back(&op);
     }
@@ -177,9 +174,8 @@ void generateEpilogueLoop(RewriterBase &rewriter, Location loc,
   // Find the innermost loop.
   affine::AffineForOp innermostLoop = epilogueLoop;
   while (true) {
-    auto nestedFor = innermostLoop.getRegion()
-                         .front()
-                         .getOps<affine::AffineForOp>();
+    auto nestedFor =
+        innermostLoop.getRegion().front().getOps<affine::AffineForOp>();
     auto it = nestedFor.begin();
     if (it == nestedFor.end()) {
       break;
@@ -199,8 +195,7 @@ void generateEpilogueLoop(RewriterBase &rewriter, Location loc,
 
   // Load from DST with slice index prepended.
   SmallVector<Value> dstIndices;
-  dstIndices.push_back(
-      rewriter.create<arith::ConstantIndexOp>(loc, dstSlice));
+  dstIndices.push_back(rewriter.create<arith::ConstantIndexOp>(loc, dstSlice));
   dstIndices.append(mappedIndices.begin(), mappedIndices.end());
 
   auto dstValue = rewriter.create<affine::AffineLoadOp>(
@@ -210,15 +205,14 @@ void generateEpilogueLoop(RewriterBase &rewriter, Location loc,
       dstIndices);
 
   // Store to L1.
-  rewriter.create<affine::AffineStoreOp>(
-      loc, dstValue.getResult(), dstStore.getMemRef(), dstStore.getMap(),
-      mappedIndices);
+  rewriter.create<affine::AffineStoreOp>(loc, dstValue.getResult(),
+                                         dstStore.getMemRef(),
+                                         dstStore.getMap(), mappedIndices);
 
   // Erase operations from original body that were cloned but not needed.
   SmallVector<Operation *> toErase;
   for (Operation &op : innerBody) {
-    if (!isa<affine::AffineYieldOp>(&op) &&
-        &op != dstValue.getOperation() &&
+    if (!isa<affine::AffineYieldOp>(&op) && &op != dstValue.getOperation() &&
         !isa<affine::AffineStoreOp>(&op)) {
       toErase.push_back(&op);
     }
@@ -352,8 +346,8 @@ LogicalResult insertMatmulDstAllocation(RewriterBase &rewriter,
   Location loc = genericOp.getLoc();
 
   // 1. Create acquire_dst before the outermost loop.
-  AcquireDstOp acquireDst =
-      createAcquireDst(rewriter, loc, region, outermostLoop, cbType, totalDstTiles);
+  AcquireDstOp acquireDst = createAcquireDst(
+      rewriter, loc, region, outermostLoop, cbType, totalDstTiles);
   Value dst = acquireDst.getResult();
 
   // 2. Find the affine store to the output CB (the matmul result store).
