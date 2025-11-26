@@ -40,7 +40,7 @@ module {
     // CHECK-NOT: ttcore.load_cached
     // CHECK-NOT: bfp_bf8
     // CHECK: "ttnn.matmul"(%arg0, %arg1)
-    %1 = "ttir.matmul"(%arg0, %arg1) : (tensor<64x128xbf16>, tensor<128x96xbf16>, tensor<64x96xbf16>) -> tensor<64x96xbf16>
+    %1 = "ttir.matmul"(%arg0, %arg1) : (tensor<64x128xbf16>, tensor<128x96xbf16>) -> tensor<64x96xbf16>
     return %1 : tensor<64x96xbf16>
   }
 }
