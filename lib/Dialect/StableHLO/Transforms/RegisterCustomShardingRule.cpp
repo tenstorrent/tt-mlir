@@ -15,6 +15,13 @@ namespace mlir::tt::stablehlo {
 static constexpr llvm::StringLiteral sdpaTargetName =
     "tt.scaled_dot_product_attention";
 
+// static mlir::sdy::OpShardingRuleAttr
+// getScatterShardingRule(mlir::stablehlo::ScatterOp op) {
+//   // Implement actual sharding rule for Scatter CustomCallOp here
+//   // For now, you can use a pointwise rule as placeholder:
+//   return mlir::sdy::OpShardingRuleBuilder::buildPointwise(op);
+// }
+
 static mlir::sdy::OpShardingRuleAttr
 getSDPAShardingRule(mlir::stablehlo::CustomCallOp op) {
   auto qType = llvm::dyn_cast<RankedTensorType>(op.getOperand(0).getType());
@@ -62,6 +69,23 @@ getSDPAShardingRule(mlir::stablehlo::CustomCallOp op) {
       .addPointwise(shape, getFactorType)
       .build();
 }
+
+template <typename OpTy>
+struct StablehloShardingModel
+    : public mlir::sdy::ShardingRuleOpInterface::ExternalModel<
+          StablehloShardingModel<OpTy>, OpTy> {
+
+  mlir::sdy::OpShardingRuleAttr getShardingRule(mlir::Operation *op) const {
+    auto scatterOp = llvm::cast<mlir::stablehlo::ScatterOp>(op);
+    // Implement actual sharding rule for ScatterOp here
+    // For now, you can use a pointwise rule as placeholder:
+    return mlir::sdy::OpShardingRuleBuilder::buildPointwise(scatterOp);
+  }
+
+  bool shouldKeepOutputShardingsDivisible(mlir::Operation *) const {
+    return true;
+  }
+};
 
 struct StablehloCustomCallShardingModel
     : public mlir::sdy::ShardingRuleOpInterface::ExternalModel<
@@ -118,6 +142,8 @@ public:
     // Register for stablehlo.CustomCallOp
     mlir::stablehlo::CustomCallOp::attachInterface<
         StablehloCustomCallShardingModel>(*context);
+    mlir::stablehlo::ScatterOp::attachInterface<
+        StablehloShardingModel<mlir::stablehlo::ScatterOp>>(*context);
   }
 };
 
