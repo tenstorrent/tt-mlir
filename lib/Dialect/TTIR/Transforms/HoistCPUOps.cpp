@@ -38,10 +38,6 @@ namespace mlir::tt::ttir {
 //===----------------------------------------------------------------------===//
 
 namespace {
-using OpsVectorType = llvm::SmallVector<mlir::Operation *, 4>;
-using ValuesVectorType = llvm::SmallVector<mlir::Value, 4>;
-using TypesVectorType = llvm::SmallVector<mlir::Type, 4>;
-
 // Helper function to get ranks of a set of input tensor values.
 // We use this to populate attrs which we need to perform
 // tensor unpacking operations later.
@@ -62,7 +58,8 @@ getSubgraphOperandTensorRanks(const ValuesVectorType &inputValues) {
   return ranks;
 }
 
-// Generate unique name base on operation type + argument tensors dims & types.
+// Helper function which generates a unique name based on operation type +
+// argument tensors dims & types.
 std::string generateHoistedFuncName(const OpsVectorType &ops) {
   llvm::SmallString<16> uniqueName("hoisted_");
 
@@ -86,28 +83,14 @@ std::string generateHoistedFuncName(const OpsVectorType &ops) {
   return result;
 }
 
-// Descriptor for operations to be hoisted.
-struct HoistedOpsDescriptor {
-  // Vector of operations to be hoisted.
-  OpsVectorType operations;
-
-  // Values representing the outputs of the hoisted operations.
-  ValuesVectorType outputValues;
-
-  // Name for the hoisted function. Defaults to generated unique name.
-  std::string funcName;
-
-  HoistedOpsDescriptor(const OpsVectorType &ops,
-                       const ValuesVectorType &outputs, std::string name = "")
-      : operations(ops), outputValues(outputs),
-        funcName(name.empty() ? generateHoistedFuncName(ops) : name) {}
-};
-
 // Helper function to collect input arguments to a set of operations.
 //
 // If an argument represents a DPS output of a result-producing op,
 // it is not considered an input argument and is skipped - instead of these,
 // internally created ttir.empty tensors will be used.
+//
+// This ugly logic related to DPS arguments should be temporary,
+// as the DPS semantics should be removed from the TTIR dialect in the future.
 static ValuesVectorType
 collectInputArguments(const OpsVectorType &operations,
                       const OpsVectorType &resultProviders) {
@@ -267,7 +250,7 @@ convertResultsBackToOriginalTypes(mlir::OpBuilder &opBuilder,
 // Helper function to hoist an arbitrary set of ops into a new function in
 // targetModule, generate a matching extern prototype in the sourceModule, and
 // replace the ops in the set with a callOp to the extern function.
-static void hoistOperationsToFunction(HoistedOpsDescriptor &descriptor,
+static void hoistOperationsToFunction(CPUHoistedOpsDescriptor &descriptor,
                                       mlir::ModuleOp sourceModule,
                                       mlir::ModuleOp targetModule) {
   mlir::MLIRContext *context = sourceModule.getContext();
@@ -449,26 +432,18 @@ static void hoistOperationsToFunction(HoistedOpsDescriptor &descriptor,
   }
 }
 
-// Predicate type for determining sets of ops to hoist in the provided module.
-using HoistAnalyzerType =
-    std::function<llvm::SmallVector<HoistedOpsDescriptor, 4>(mlir::ModuleOp)>;
-
-// Predicate type for determining whether an op should be hoisted.
-using ShouldHoistPredicateType = std::function<bool(mlir::Operation *)>;
-
-// HoistAnalyzer which hoists single ops based on a predicate.
-HoistAnalyzerType singleOpHoistAnalyzer(ShouldHoistPredicateType predicate) {
+// HoistAnalyzer which hoists single ops based on a provided predicate.
+CPUHoistAnalyzerType singleOpHoistAnalyzer(ShouldHoistOpType predicate) {
   return [predicate](mlir::ModuleOp moduleOp) {
-    llvm::SmallVector<HoistedOpsDescriptor, 4> hoistedOpsDescriptors;
+    llvm::SmallVector<CPUHoistedOpsDescriptor, 4> hoistedOpsDescriptors;
     // Hoisting individual ops based on the predicate.
     moduleOp.walk([&](mlir::Operation *nestedOp) {
       if (predicate(nestedOp)) {
-        OpsVectorType opSet;
-        opSet.push_back(nestedOp);
-        auto outputValue = nestedOp->getResult(0);
-        ValuesVectorType outputValues;
-        outputValues.push_back(outputValue);
-        hoistedOpsDescriptors.emplace_back(opSet, outputValues);
+        OpsVectorType operations{nestedOp};
+        ValuesVectorType outputValues{nestedOp->getResult(0)};
+
+        hoistedOpsDescriptors.emplace_back(operations, outputValues,
+                                           generateHoistedFuncName({nestedOp}));
       }
     });
 
@@ -477,54 +452,44 @@ HoistAnalyzerType singleOpHoistAnalyzer(ShouldHoistPredicateType predicate) {
 }
 
 // HoistAnalyzer which hoists const-eval functions as a whole.
-HoistAnalyzerType constEvalHoistAnalyzer() {
+CPUHoistAnalyzerType constEvalHoistAnalyzer() {
   return [](mlir::ModuleOp moduleOp) {
-    llvm::SmallVector<HoistedOpsDescriptor, 4> hoistedOpsDescriptors;
+    llvm::SmallVector<CPUHoistedOpsDescriptor, 4> hoistedOpsDescriptors;
 
     moduleOp.walk([&](func::FuncOp funcOp) {
-      // Skip non-const-eval functions.
-      if (!funcOp->hasAttr(ttmlir::utils::g_constEvalAttrName)) {
+      if (!ttmlir::utils::isConstEvalFunc(funcOp)) {
         return WalkResult::advance();
       }
 
-      OpsVectorType opSet;
-      ValuesVectorType outputs;
+      const auto hoistedFuncName = "hoisted_" + funcOp.getName().str();
+      CPUHoistedOpsDescriptor descriptor({}, {}, hoistedFuncName);
 
-      bool interrupted = false;
-
-      funcOp.walk([&](mlir::Operation *nestedOp) {
-        // Skip funcop itself
+      auto walkResult = funcOp.walk([&](mlir::Operation *nestedOp) {
+        // Skip the FuncOp itself.
         if (llvm::isa<func::FuncOp>(nestedOp)) {
           return WalkResult::advance();
         }
 
-        // Skip return op
+        // Skip the ReturnOp, but collect its operands as outputs.
         if (llvm::isa<mlir::func::ReturnOp>(nestedOp)) {
-          // Collect return operands as outputs
           for (auto retVal : nestedOp->getOperands()) {
-            outputs.push_back(retVal);
+            descriptor.outputValues.push_back(retVal);
           }
           return WalkResult::advance();
         }
 
-        // If there is already a hoisted call inside, skip hoisting
-        // altogether to avoid nested hoisting.
+        // If there is already a CPU-hoisted call inside the const-eval
+        // subgraph, skip CPU hoisting altogether to avoid nested hoisting.
         if (nestedOp->hasAttr(ttir::HoistedCallAttr::name)) {
-          interrupted = true;
           return WalkResult::interrupt();
         }
 
-        opSet.push_back(nestedOp);
+        descriptor.operations.push_back(nestedOp);
         return WalkResult::advance();
       });
 
-      if (interrupted) {
-        return WalkResult::advance();
-      }
-
-      if (!opSet.empty()) {
-        hoistedOpsDescriptors.emplace_back(opSet, outputs,
-                                           "hoisted_" + funcOp.getName().str());
+      if (!walkResult.wasInterrupted() && !descriptor.operations.empty()) {
+        hoistedOpsDescriptors.push_back(descriptor);
       }
 
       return WalkResult::advance();
@@ -540,7 +505,7 @@ HoistAnalyzerType constEvalHoistAnalyzer() {
 class CPUHoistTransform
     : public impl::CPUHoistTransformBase<CPUHoistTransform> {
 public:
-  CPUHoistTransform(HoistAnalyzerType analyzer) : analyzer(analyzer) {}
+  CPUHoistTransform(CPUHoistAnalyzerType analyzer) : analyzer(analyzer) {}
 
   void runOnOperation() final {
     mlir::ModuleOp rootModule = getOperation();
@@ -595,23 +560,10 @@ public:
     for (auto &descriptor : analyzer(rootModule)) {
       hoistOperationsToFunction(descriptor, deviceInnerModule, cpuInnerModule);
     }
-
-    // Collect ops marked for deletion and erase them.
-    llvm::SmallVector<mlir::Operation *, 8> opsToErase;
-    rootModule.walk([&](mlir::Operation *nestedOp) {
-      if (nestedOp->hasAttr("marked_for_deletion")) {
-        opsToErase.push_back(nestedOp);
-      }
-    });
-
-    // Erase marked ops.
-    // for (auto *opToErase : opsToErase) {
-    //   opToErase->erase();
-    // }
   }
 
 private:
-  HoistAnalyzerType analyzer;
+  CPUHoistAnalyzerType analyzer;
 };
 } // namespace
 
@@ -620,7 +572,7 @@ std::unique_ptr<mlir::Pass> createCPUHoistForDialectsTransform() {
   const auto customPredicate = [](mlir::Operation *op) {
     return ((op->getDialect()->getTypeID() == TypeID::get<Dialects>()) || ...);
   };
-  HoistAnalyzerType analyzer = singleOpHoistAnalyzer(customPredicate);
+  CPUHoistAnalyzerType analyzer = singleOpHoistAnalyzer(customPredicate);
   auto pass = std::make_unique<CPUHoistTransform>(analyzer);
   return pass;
 }
@@ -630,13 +582,13 @@ std::unique_ptr<mlir::Pass> createCPUHoistForOpsTransform() {
   const auto customPredicate = [](mlir::Operation *op) {
     return llvm::isa<Ops...>(op);
   };
-  HoistAnalyzerType analyzer = singleOpHoistAnalyzer(customPredicate);
+  CPUHoistAnalyzerType analyzer = singleOpHoistAnalyzer(customPredicate);
   auto pass = std::make_unique<CPUHoistTransform>(analyzer);
   return pass;
 }
 
 std::unique_ptr<mlir::Pass> createCPUHoistConstEvalTransform() {
-  HoistAnalyzerType analyzer = constEvalHoistAnalyzer();
+  CPUHoistAnalyzerType analyzer = constEvalHoistAnalyzer();
   auto pass = std::make_unique<CPUHoistTransform>(analyzer);
   return pass;
 }
@@ -645,7 +597,20 @@ std::unique_ptr<mlir::Pass> createCPUHoistManuallyTagedOpsTransform() {
   const auto customPredicate = [](mlir::Operation *op) {
     return op->hasAttr(ttir::ShouldHoistAttr::name);
   };
-  HoistAnalyzerType analyzer = singleOpHoistAnalyzer(customPredicate);
+  CPUHoistAnalyzerType analyzer = singleOpHoistAnalyzer(customPredicate);
+  auto pass = std::make_unique<CPUHoistTransform>(analyzer);
+  return pass;
+}
+
+std::unique_ptr<mlir::Pass>
+createSingleOpCPUHoistTransform(ShouldHoistOpType predicate) {
+  CPUHoistAnalyzerType analyzer = singleOpHoistAnalyzer(predicate);
+  auto pass = std::make_unique<CPUHoistTransform>(analyzer);
+  return pass;
+}
+
+std::unique_ptr<mlir::Pass>
+createCustomCPUHoistTransform(CPUHoistAnalyzerType analyzer) {
   auto pass = std::make_unique<CPUHoistTransform>(analyzer);
   return pass;
 }
