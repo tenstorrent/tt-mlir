@@ -90,7 +90,7 @@ module {
   // LEGACY-SAME: result_dst_index = 2
   // GC-NOT: result_dst_index
   // CHECK: d2m.tile_eqz
-  // LEGACY-SAME: result_dst_index = 2g
+  // LEGACY-SAME: result_dst_index = 2
   // GC-SAME: result_dst_index = 2
   // CHECK: d2m.release_dst
   func.func @intermediates_thru_dst_chain_3(%in0: memref<1x1x1x1x!ttcore.tile<32x32, f16>, #ttcore.shard<2048x2048, 1>, #l1_>,

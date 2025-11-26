@@ -289,8 +289,9 @@ public:
   LogicalResult
   matchAndRewrite(d2m::ReleaseDstOp op, d2m::ReleaseDstOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
-    rewriter.create<ttkernel::TileRegsReleaseOp>(op.getLoc());
-    // Dst is an implicit resource in TTKernel, so we can just erase it.
+    // Do not emit tile_regs_release here. The TTKernelControlDstSection pass
+    // will insert tile_regs_commit, tile_regs_wait, and tile_regs_release
+    // around pack_tile operations.
     rewriter.eraseOp(op);
     return success();
   };
