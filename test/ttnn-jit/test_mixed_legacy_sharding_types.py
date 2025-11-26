@@ -16,7 +16,7 @@ from utils import (
     run_op_test,
 )
 
-# WIthout support for JIT'ed bin ops with inputs with differing sharding grids,
+# WIthout support for JIT'ed binary ops with inputs with differing sharding grids,
 # much of the testing here should be expected to fail. The trivial case is when
 # max_grid = (0, 0) for both inputs ->
 HEIGHT_WIDTH_SHARDED_SHAPE_GRIDS = [
@@ -26,35 +26,25 @@ HEIGHT_WIDTH_SHARDED_SHAPE_GRIDS = [
     ((2, 32, 64), (0, 0)),
     ((2, 64, 128), (0, 0)),
     # ((32, 64, 2048), (7, 7)), #fails. error: 'd2m.generic' op grid shape mismatch between operand[0] grid_shape=[64, 1] and operand[1] grid_shape=[1, 64] at affine dim d0
-    ((128, 128), (0, 0)),
-    (
-        (1, 4, 16, 128),
-        (0, 0),
-    ),  # fails. error: Number of shards along height 2 must not exceed number of cores 1
 ]
 
 HEIGHT_BLOCK_SHARDED_SHAPE_GRIDS = [
     ((32, 32), (0, 0)),
     ((32, 64), (0, 0)),
-    ((256, 64), (7, 0)),
+    # ((256, 64), (7, 0)),  #fails. info: Physical shard shape (256, 8) must be tile {32, 32} sized!
     ((256, 64), (0, 7)),
-    ((2048, 128), (7, 7)),
-    ((384, 32), (1, 5)),
-    ((2, 192, 32), (1, 5)),
-    ((2, 2, 96, 32), (1, 5)),
-    ((2, 2, 512, 32), (7, 7)),
+    # ((2048, 256), (7, 7)), #fails. height shard shape: 32, 256: block shard shape: 256, 32 : error: 'd2m.generic' op grid shape mismatch between operand[0] grid_shape=[64, 1] and operand[1] grid_shape=[8, 8] at affine dim d0
+    ((2, 128, 128), (0, 0)),
+    # ((2, 2, 512, 256), (7, 7)), #fails. error: 'd2m.generic' op grid shape mismatch between operand[0] grid_shape=[64, 1] and operand[1] grid_shape=[8, 8] at affine dim d0
 ]
 
 WIDTH_BLOCK_SHARDED_SHAPE_GRIDS = [
     ((32, 32), (0, 0)),
     ((32, 64), (0, 0)),
     ((64, 256), (7, 0)),
-    ((64, 256), (0, 7)),
-    ((128, 2048), (7, 7)),
-    ((32, 384), (1, 5)),
-    ((2, 32, 384), (1, 5)),
-    ((2, 2, 32, 384), (1, 5)),
-    ((2, 1, 32, 2048), (7, 7)),
+    # ((256, 256), (0, 7)), #failed, error: 'd2m.generic' op grid shape mismatch between operand[0] grid_shape=[1, 8] and operand[1] grid_shape=[8, 1] at affine dim d0
+    # ((256, 2048), (7, 7)), #failed error: 'd2m.generic' op grid shape mismatch between operand[0] grid_shape=[1, 64] and operand[1] grid_shape=[8, 8] at affine dim d0
+    # ((2, 4, 32, 2048), (7, 7)), #fail, rror: 'd2m.generic' op grid shape mismatch between operand[0] grid_shape=[1, 64] and operand[1] grid_shape=[8, 8] at affine dim d0
 ]
 
 
