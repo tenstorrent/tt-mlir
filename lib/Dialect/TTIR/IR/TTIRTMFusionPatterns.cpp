@@ -70,17 +70,18 @@ public:
     // either:
     // - equal to the original axes;
     // - or a multiple of the original axes.
-    auto axesGroups = ttmlir::utils::getReshapeAxesMapping(
+    auto axesGroupsResult = ttmlir::utils::getReshapeAxesMapping(
         reshapeInputShape, reshapeOutputShape,
         originalPermuteOp.getPermutation());
     // If the axes cannot be grouped, the pattern is not applicable.
-    if (!axesGroups) {
+    if (!axesGroupsResult) {
       return failure();
     }
+    auto axesGroups = axesGroupsResult->first;
 
     // Apply final permutation to the axes groups.
     auto permutedAxesGroups = ttmlir::utils::applyPermutation(
-        llvm::ArrayRef(*axesGroups), finalPermuteOp.getPermutation());
+        llvm::ArrayRef(axesGroups), finalPermuteOp.getPermutation());
 
     // Check if the flattened axes groups are the same as the original axes.
     if (!llvm::equal(ttmlir::utils::flatten(permutedAxesGroups),

@@ -11,6 +11,7 @@
 #include "mlir/Dialect/Traits.h"
 #include "mlir/IR/AffineMap.h"
 #include "mlir/IR/BuiltinAttributes.h"
+#include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/Sequence.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringExtras.h"
@@ -24,6 +25,44 @@
 #include <tuple>
 #include <type_traits>
 #include <utility>
+
+// DenseMapInfo specialization for SmallVector<int64_t> to enable its use as a
+// key in DenseMap (e.g., in generatePermutation).
+namespace llvm {
+template <>
+struct DenseMapInfo<llvm::SmallVector<int64_t>> {
+  static llvm::SmallVector<int64_t> getEmptyKey() {
+    llvm::SmallVector<int64_t> empty;
+    empty.push_back(static_cast<int64_t>(-1));
+    return empty;
+  }
+
+  static llvm::SmallVector<int64_t> getTombstoneKey() {
+    llvm::SmallVector<int64_t> tombstone;
+    tombstone.push_back(static_cast<int64_t>(-2));
+    return tombstone;
+  }
+
+  static unsigned getHashValue(const llvm::SmallVector<int64_t> &val) {
+    // For special keys, return their sentinel values as hash
+    if (val.size() == 1) {
+      if (val[0] == static_cast<int64_t>(-1)) {
+        return static_cast<unsigned>(-1);
+      }
+      if (val[0] == static_cast<int64_t>(-2)) {
+        return static_cast<unsigned>(-2);
+      }
+    }
+    // For valid vectors, hash the contents
+    return llvm::hash_combine_range(val.begin(), val.end());
+  }
+
+  static bool isEqual(const llvm::SmallVector<int64_t> &lhs,
+                      const llvm::SmallVector<int64_t> &rhs) {
+    return lhs == rhs;
+  }
+};
+} // namespace llvm
 
 namespace ttmlir::utils {
 
@@ -185,6 +224,9 @@ inline T identity(T x) {
 // Returns a vector of indices `permutation` such that input[permutation[i]] ==
 // output[i], for all i. Assumes that input and output have the same elements.
 // Example:  input = [1, 2, 3], output = [3, 1, 2] -> [2, 0, 1]
+//
+// This function works with any type T that can be used as a key in DenseMap.
+// For SmallVector<int64_t>, a DenseMapInfo specialization is provided below.
 template <typename T>
 inline llvm::SmallVector<int64_t>
 generatePermutation(llvm::ArrayRef<T> input, llvm::ArrayRef<T> output) {
@@ -198,6 +240,69 @@ generatePermutation(llvm::ArrayRef<T> input, llvm::ArrayRef<T> output) {
   for (const T &dim : output) {
     permutation.push_back(indices[dim]);
   }
+  return permutation;
+}
+
+// Specialized version for vectors of vectors that compares by content.
+// Returns a vector of indices `permutation` such that input[permutation[i]] ==
+// output[i] (element-wise comparison), for all i. Returns std::nullopt if input
+// and output don't have the same elements (as vectors), i.e., if a permutation
+// cannot be generated.
+// Empty vectors are matched in order: first empty in input with first empty in
+// output, second with second, etc.
+// Example:  input = [[0,1], [2]], output = [[2], [0,1]] -> [1, 0]
+// Example:  input = [[0,1], [2]], output = [[2], [3,4]] -> std::nullopt
+// Example:  input = [[], [0], []], output = [[], [], [0]] -> [0, 2, 1]
+inline std::optional<llvm::SmallVector<int64_t>>
+generatePermutationForVectorOfVectors(
+    llvm::ArrayRef<llvm::SmallVector<int64_t>> input,
+    llvm::ArrayRef<llvm::SmallVector<int64_t>> output) {
+  if (input.size() != output.size()) {
+    return std::nullopt;
+  }
+
+  // Collect indices of empty vectors in input (for ordered matching)
+  llvm::SmallVector<int64_t> emptyInputIndices;
+  for (const auto [index, value] : llvm::enumerate(input)) {
+    if (value.empty()) {
+      emptyInputIndices.push_back(index);
+    }
+  }
+
+  // Build a map from non-empty vector content to available input indices
+  // (stored as a list to handle duplicates)
+  llvm::DenseMap<llvm::SmallVector<int64_t>, llvm::SmallVector<int64_t>>
+      availableIndices;
+  for (const auto [index, value] : llvm::enumerate(input)) {
+    if (!value.empty()) {
+      availableIndices[value].push_back(index);
+    }
+  }
+
+  // Build permutation by matching output vectors in order
+  llvm::SmallVector<int64_t> permutation;
+  permutation.reserve(output.size());
+  size_t emptyInputIdx = 0;
+
+  for (const auto &outputVec : output) {
+    if (outputVec.empty()) {
+      // Match empty vectors in order: first empty in output with first empty in
+      // input, second with second, etc.
+      if (emptyInputIdx >= emptyInputIndices.size()) {
+        return std::nullopt;
+      }
+      permutation.push_back(emptyInputIndices[emptyInputIdx++]);
+    } else {
+      // Match non-empty vectors: find first available matching input index
+      auto it = availableIndices.find(outputVec);
+      if (it == availableIndices.end() || it->second.empty()) {
+        return std::nullopt;
+      }
+      permutation.push_back(it->second.front());
+      it->second.erase(it->second.begin());
+    }
+  }
+
   return permutation;
 }
 
@@ -235,21 +340,26 @@ inversePermutation(llvm::ArrayRef<int64_t> permutation) {
 // - or a multiple of the consecutive original axes (possibly none).
 //
 // This function is used to analyze how axes map from inputShape to outputShape
-// in reshape operations. Returns the groups of axes (identified by the axes
-// IDs), or std::nullopt if the axes cannot be grouped.
+// in reshape operations. Returns a pair containing:
+// - The groups of axes (identified by the axes IDs)
+// - The output indices that are missing (size-1 dimensions with empty groups)
+// Returns std::nullopt if the axes cannot be grouped.
 //
 // If axesIds is not provided, it defaults to [0, 1, 2, ..., rank-1].
 //
 // Example: For inputShape=[2,3,4], outputShape=[6,4], axesIds=[0,1,2]:
 //   - output[0]=6 can be formed by multiplying input[0]*input[1] (2*3=6)
 //   - output[1]=4 equals input[2]=4
-//   - Returns: [[0,1], [2]]
-inline std::optional<llvm::SmallVector<llvm::SmallVector<int64_t>>>
+//   - Returns: {[[0,1], [2]], []}
+// Example: For inputShape=[2,3], outputShape=[1,6,1], axesIds=[0,1]:
+//   - Returns: {[[], [0,1], []], [0, 2]}
+inline std::optional<std::pair<llvm::SmallVector<llvm::SmallVector<int64_t>>,
+                               llvm::SmallVector<int64_t>>>
 getReshapeAxesMapping(
     llvm::ArrayRef<int64_t> inputShape, llvm::ArrayRef<int64_t> outputShape,
     std::optional<llvm::ArrayRef<int64_t>> axesIds = std::nullopt) {
-  assert(inputShape.size() == outputShape.size() &&
-         "input and output shapes must have the same rank");
+  // assert(inputShape.size() == outputShape.size() &&
+  //        "input and output shapes must have the same rank");
 
   llvm::SmallVector<int64_t> defaultAxesIds;
   if (!axesIds) {
@@ -260,15 +370,20 @@ getReshapeAxesMapping(
          "input shape and axesIds must have the same size");
 
   llvm::SmallVector<llvm::SmallVector<int64_t>> axesGroups;
+  llvm::SmallVector<int64_t> missingOutputIndices;
   const int64_t rank = inputShape.size();
+  const int64_t outputRank = outputShape.size();
   int64_t inputIndex = 0;
-  for (int64_t outputIndex = 0; outputIndex < rank; ++outputIndex) {
+  for (int64_t outputIndex = 0; outputIndex < outputRank; ++outputIndex) {
     if (inputIndex < rank &&
         inputShape[inputIndex] == outputShape[outputIndex]) {
       axesGroups.emplace_back(1, (*axesIds)[inputIndex]);
       ++inputIndex;
     } else if (outputShape[outputIndex] == 1) {
       axesGroups.emplace_back();
+    } else if (inputShape[inputIndex] == 1) {
+      ++inputIndex;
+      missingOutputIndices.push_back((*axesIds)[inputIndex]);
     } else {
       llvm::SmallVector<int64_t> group;
       int64_t consumed = 1;
@@ -301,7 +416,15 @@ getReshapeAxesMapping(
       axesGroups.push_back(std::move(group));
     }
   }
-  assert(inputIndex == rank && "input is not fully consumed");
+  // Handle remaining input dimensions - they should all be 1
+  while (inputIndex < rank) {
+    if (inputShape[inputIndex] == 1) {
+      missingOutputIndices.push_back((*axesIds)[inputIndex]);
+      ++inputIndex;
+    } else {
+      assert(false && "remaining input dimensions must be 1");
+    }
+  }
   llvm::outs() << "axesGroups: ";
   for (const auto &group : axesGroups) {
     llvm::outs() << "[";
@@ -311,7 +434,7 @@ getReshapeAxesMapping(
     llvm::outs() << "] ";
   }
   llvm::outs() << "\n";
-  return axesGroups;
+  return std::make_pair(axesGroups, missingOutputIndices);
 }
 
 // Returns a vector `broadcastShape`, such that each index i of inputShape

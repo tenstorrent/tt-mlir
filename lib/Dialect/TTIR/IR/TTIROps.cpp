@@ -4098,34 +4098,39 @@ foldPermuteAfterReshape(mlir::tt::ttir::PermuteOp op) {
   auto reshapeOutputShape = reshapeOutputType.getShape();
   auto permuteOutputShape = permuteOutputType.getShape();
 
-  // Both reshape and permute must preserve rank.
-  if (reshapeInputShape.size() != reshapeOutputShape.size() ||
-      reshapeOutputShape.size() != permuteOutputShape.size()) {
-    return nullptr;
-  }
+  // // Both reshape and permute must preserve rank.
+  // if (reshapeInputShape.size() != reshapeOutputShape.size() ||
+  //     reshapeOutputShape.size() != permuteOutputShape.size()) {
+  //   return nullptr;
+  // }
 
   // Get axes mapping for reshape: reshape input -> reshape output (with
   // default range [0, 1, 2, ...])
-  auto reshapeMapping = ttmlir::utils::getReshapeAxesMapping(
+  auto reshapeMappingResult = ttmlir::utils::getReshapeAxesMapping(
       reshapeInputShape, reshapeOutputShape);
-  if (!reshapeMapping) {
+  if (!reshapeMappingResult) {
     return nullptr;
   }
+  auto reshapeMapping = reshapeMappingResult->first;
 
   // Apply permutation to the reshape mapping, flatten it, and compare with
   // the range [0, 1, 2, ..., rank-1].
   auto permutation = op.getPermutation();
-  llvm::ArrayRef<llvm::SmallVector<int64_t>> reshapeMappingRef(*reshapeMapping);
+  llvm::ArrayRef<llvm::SmallVector<int64_t>> reshapeMappingRef(reshapeMapping);
   auto permutedMapping =
       ttmlir::utils::applyPermutation(reshapeMappingRef, permutation);
   auto permutedFlattened = ttmlir::utils::flatten(permutedMapping);
 
-  llvm::SmallVector<int64_t> expectedRange =
-      llvm::to_vector(llvm::seq<int64_t>(0, reshapeInputShape.size()));
-
-  // If applying permutation to the reshape mapping gives us the identity
-  // mapping, we can fold by updating the reshape's shape.
-  if (!llvm::equal(permutedFlattened, expectedRange)) {
+  // If applying permutation to the reshape mapping gives us an increasing
+  // sequence, we can fold by updating the reshape's shape. This means the axes
+  // are in order after the permutation.
+  if (permutedFlattened.empty() || !llvm::is_sorted(permutedFlattened)) {
+    llvm::outs() << "Permuted flattened is not sorted\n";
+    llvm::outs() << "Permuted flattened: ";
+    for (const auto &dim : permutedFlattened) {
+      llvm::outs() << dim << " ";
+    }
+    llvm::outs() << "\n";
     return nullptr;
   }
 
