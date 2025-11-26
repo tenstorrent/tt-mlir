@@ -74,9 +74,9 @@ void run(const ::tt::target::ttnn::Conv3dOp *op, ProgramContext &context) {
                                    targetDevice);
 
   std::optional<::ttnn::DeviceComputeKernelConfig> computeConfig;
-  if (const auto *compute_config_value = op->compute_config()) {
+  if (op->compute_config()) {
     computeConfig =
-        utils::createDeviceComputeKernelConfig(compute_config_value);
+        utils::createDeviceComputeKernelConfig(op->compute_config());
   }
 
   std::optional<::ttnn::MemoryConfig> outputMemoryConfig =

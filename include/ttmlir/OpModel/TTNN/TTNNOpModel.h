@@ -1136,6 +1136,7 @@ struct OpModel<Conv3dOp> {
       llvm::ArrayRef<int32_t> kernel_size, llvm::ArrayRef<int32_t> stride,
       llvm::ArrayRef<int32_t> padding, uint32_t groups,
       llvm::StringRef padding_mode,
+      std::optional<ttcore::DataTypeAttr> outputDtype,
       std::optional<DeviceComputeKernelConfigAttr> deviceComputeKernelConfig,
       TTNNLayoutAttr outputLayout);
 
@@ -1149,6 +1150,7 @@ struct OpModel<Conv3dOp> {
       llvm::ArrayRef<int32_t> kernel_size, llvm::ArrayRef<int32_t> stride,
       llvm::ArrayRef<int32_t> padding, uint32_t groups,
       llvm::StringRef padding_mode,
+      std::optional<ttcore::DataTypeAttr> outputDtype,
       std::optional<DeviceComputeKernelConfigAttr> deviceComputeKernelConfig,
       TTNNLayoutAttr outputLayout);
 };
