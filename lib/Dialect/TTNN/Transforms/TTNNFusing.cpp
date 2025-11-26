@@ -292,12 +292,10 @@ private:
         utils::extractInputLayouts(ropeOp.getOperation());
 
     OpConfig config(mlir::cast<TTNNLayoutAttr>(resultType.getEncoding()));
+    auto result = op_constraint_validation::validateOperation(
+        ropeOp.getOperation(), inputLayouts, config);
 
-    auto backend = mlir::cast<OpModel>(ropeOp.getOperation());
-
-    llvm::Expected<ttnn::op_model::OpConstraints> constraintsExp =
-        backend.getOpConstraints(inputLayouts, config);
-    if (!constraintsExp) {
+    if (!result.isSuccess()) {
       rewriter.eraseOp(ropeOp);
       return failure();
     }
