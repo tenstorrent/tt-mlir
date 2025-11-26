@@ -665,6 +665,14 @@ void Controller::deallocateTensor(::tt::runtime::Tensor &tensorHandle,
                                  std::move(commandBuilder));
 }
 
+// should this be const& ?
+::tt::runtime::TensorDesc Controller::getTensorDesc(::tt::runtime::Tensor t){
+  auto commandBuilder = std::make_unique<::flatbuffers::FlatBufferBuilder>();
+
+  uint64_t commandId = CommandFactory::buildGetTensorDescCommand(*commandBuilder, fb::CommandType::GetTensorDescCommand, std::move(commandBuilder));
+}
+
+
 void Controller::pushToCommandAndResponseQueues(
     uint64_t commandId, const fb::CommandType &commandType,
     std::unique_ptr<::flatbuffers::FlatBufferBuilder> commandBuilder,

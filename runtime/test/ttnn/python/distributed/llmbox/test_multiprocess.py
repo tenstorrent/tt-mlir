@@ -376,3 +376,12 @@ def test_flatbuffer_execution_dp(request, num_loops):
         ttrt.runtime.release_sub_mesh_device(submesh2)
 
     shutdown_distributed_runtime()
+
+
+def test_getTensorDesc():
+    launch_distributed_runtime()
+
+    tensor = get_runtime_tensor_from_torch(torch.randn(177, 211), storage=Storage.Owned)
+    tensor.get_tensor_desc()
+
+    shutdown_distributed_runtime()
