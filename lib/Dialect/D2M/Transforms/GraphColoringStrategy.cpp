@@ -236,18 +236,6 @@ mlir::tt::d2m::InterferenceGraphResult buildIndexGraphFromDstOperations(
     opToLoops[op] = loops;
   }
 
-  // Helper to check if two operations interfere based on shared loops.
-  auto shareCommonLoop =
-      [&](const llvm::SmallVector<mlir::Operation *> &loops1,
-          const llvm::SmallVector<mlir::Operation *> &loops2) {
-        for (mlir::Operation *loop1 : loops1) {
-          if (llvm::is_contained(loops2, loop1)) {
-            return true;
-          }
-        }
-        return false;
-      };
-
   // Helper to check if a value is live at an operation.
   auto isLiveAt = [](mlir::Value value, mlir::Operation *op) {
     // A value is live at op if any of its uses come at or after op.
@@ -273,27 +261,19 @@ mlir::tt::d2m::InterferenceGraphResult buildIndexGraphFromDstOperations(
     return false;
   };
 
-  // Build interference: operations interfere if they share a common loop
-  // or if their SSA value live ranges overlap.
+  // Build interference based on SSA value live ranges.
+  // With loop-indexed DST accesses (dst[slice, %iv1, %iv2, ...]),
+  // operations in different loop iterations access different physical locations
+  // and don't interfere, so we only check SSA liveness.
   for (size_t i = 0; i < dstAccessOps.size(); ++i) {
     mlir::Operation *op1 = dstAccessOps[i];
-    const auto &loops1 = opToLoops[op1];
 
     for (size_t j = i + 1; j < dstAccessOps.size(); ++j) {
       mlir::Operation *op2 = dstAccessOps[j];
-      const auto &loops2 = opToLoops[op2];
 
-      bool interferes = false;
-
-      // Conservative: operations in the same loop always interfere.
-      if (shareCommonLoop(loops1, loops2)) {
-        interferes = true;
-      }
-      // For operations not in loops, check SSA value liveness.
-      else if (loops1.empty() && loops2.empty()) {
-        interferes = opsInterfereViaLiveness(op1, op2) ||
-                     opsInterfereViaLiveness(op2, op1);
-      }
+      // Check if SSA values interfere (one is live at the definition of the other).
+      bool interferes = opsInterfereViaLiveness(op1, op2) ||
+                        opsInterfereViaLiveness(op2, op1);
 
       if (interferes) {
         size_t idx1 = opToIndex[op1];

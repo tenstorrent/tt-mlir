@@ -181,7 +181,8 @@ module {
   // COMMON: affine.load %[[DST]]
   // COMMON: "d2m.tile_negative"
   // Verify result_dst_index attribute is attached for all strategies
-  // COMMON: "d2m.tile_add"{{.*}}{result_dst_index = 2 : i64}
+  // LEGACY: "d2m.tile_add"{{.*}}{result_dst_index = 2 : i64}
+  // GC: "d2m.tile_add"{{.*}}{result_dst_index = {{[0-9]+}} : i64}
   // COMMON: affine.store {{.*}}, %[[DST]]
 
   // Epilogue loop copies result back to L1
