@@ -93,8 +93,8 @@ public:
             // Store identified accesses for reuse by transformation passes
             result.dstAccesses.append(dstAccesses.begin(), dstAccesses.end());
 
-            // Build interference graph
-            auto interferenceGraph =
+            // Build interference graph and coalescing constraints.
+            auto graphResult =
                 InterferenceGraph::buildIndexGraphFromDstOperations(
                     region, dstAccesses);
 
@@ -109,7 +109,7 @@ public:
             bool coloringSucceeded = false;
             for (; numColors <= maxAttempts; ++numColors) {
               if (succeeded(coloringStrategy->colorGraph(
-                      interferenceGraph, numColors, coloring))) {
+                      graphResult.adjacencyList, numColors, coloring))) {
                 coloringSucceeded = true;
                 break;
               }
@@ -119,7 +119,7 @@ public:
               result.isValid = false;
               unsigned minRequired =
                   InterferenceGraph::computeChromatic_Lowerbound(
-                      interferenceGraph);
+                      graphResult.adjacencyList);
               result.numSlicesRequired = minRequired;
               result.failureReason = llvm::formatv(
                   "Graph coloring failed: requires {0} slices but only {1} "

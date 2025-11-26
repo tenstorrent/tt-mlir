@@ -10,13 +10,23 @@
 
 namespace mlir::tt::d2m {
 
+/// Result of building an interference graph with coalescing constraints.
+struct InterferenceGraphResult {
+  /// Adjacency list representation of the interference graph.
+  std::vector<std::vector<size_t>> adjacencyList;
+  /// Coalescing constraints: pairs of (storeIdx, loadIdx) that must use the
+  /// same color. These represent in-place operations where the result store
+  /// must use the same DST index as the input load.
+  std::vector<std::pair<size_t, size_t>> coalescingPairs;
+};
+
 /// Utility functions for building interference graphs.
 namespace InterferenceGraph {
 /// Build interference graph for DST operations within a region.
 /// This analyzes DST memory accesses and determines which operations
 /// interfere. Returns an index-based adjacency list where indices correspond
-/// to dstOperations.
-std::vector<std::vector<size_t>> buildIndexGraphFromDstOperations(
+/// to dstOperations, along with coalescing constraints for in-place operations.
+InterferenceGraphResult buildIndexGraphFromDstOperations(
     mlir::Region &region,
     mlir::ArrayRef<std::pair<mlir::Operation *, int64_t>> dstAccesses);
 
