@@ -329,7 +329,8 @@ mlir::tt::d2m::InterferenceGraphResult buildIndexGraphFromDstOperations(
         // Avoid duplicate edges.
         if (std::find(result.adjacencyList[resultStoreIdx].begin(),
                       result.adjacencyList[resultStoreIdx].end(),
-                      inputLoadIdx) == result.adjacencyList[resultStoreIdx].end()) {
+                      inputLoadIdx) ==
+            result.adjacencyList[resultStoreIdx].end()) {
           result.adjacencyList[resultStoreIdx].push_back(inputLoadIdx);
           result.adjacencyList[inputLoadIdx].push_back(resultStoreIdx);
         }
