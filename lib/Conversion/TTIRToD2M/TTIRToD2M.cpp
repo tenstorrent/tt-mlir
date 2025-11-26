@@ -4,19 +4,11 @@
 
 #include "ttmlir/Conversion/TTIRToD2M/TTIRToD2M.h"
 
-#include "ttmlir/Dialect/TTCore/IR/TTCore.h"
-#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
-#include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
-// D2M generic/region ops
 #include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/D2M/IR/D2M.h"
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
-#include "ttmlir/Dialect/D2M/Utils/Utils.h"
 #include "ttmlir/Dialect/D2M/Utils/VirtualGrid.h"
-#include "ttmlir/Utils.h"
-
-#include "ttmlir/Dialect/D2M/IR/D2M.h"
-#include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
@@ -134,7 +126,7 @@ protected:
   // information with a simple 1x1 grid; actual grid optimization and proper
   // dimension alignments are computed later in the D2MGridSelection pass.
   Value createOptimalLayoutOp(Value value, ttcore::MemorySpace memSpace,
-                              bool tiled,
+                              bool tiled, bool noCollapse,
                               mlir::ConversionPatternRewriter &rewriter) const {
     if (isTTNNTensor(value.getType())) {
       assert(ttnnMode && "Unexpected TTNN tensor as op operand");
@@ -155,7 +147,7 @@ protected:
     }
 
     ttcore::MetalLayoutAttr layout;
-    if (!collapseTensors) {
+    if (!collapseTensors || noCollapse) {
       auto emptyIntervalType = RankedTensorType::get(
           {0, 2}, IntegerType::get(rewriter.getContext(), 64));
 
@@ -193,17 +185,17 @@ protected:
   // happens later in the D2MGridSelection pass.
   std::array<mlir::SmallVector<Value>, 2> toLayoutOperandsAndResults(
       mlir::ConversionPatternRewriter &rewriter,
-      std::array<mlir::SmallVector<Value>, 2> operandsAndResults,
-      bool tiled) const {
+      std::array<mlir::SmallVector<Value>, 2> operandsAndResults, bool tiled,
+      bool noCollapse = false) const {
     std::array<mlir::SmallVector<Value>, 2> result;
 
     for (Value operand : operandsAndResults[0]) {
-      result[0].push_back(
-          createOptimalLayoutOp(operand, memorySpaces[0], tiled, rewriter));
+      result[0].push_back(createOptimalLayoutOp(operand, memorySpaces[0], tiled,
+                                                noCollapse, rewriter));
     }
     for (Value operand : operandsAndResults[1]) {
-      result[1].push_back(
-          createOptimalLayoutOp(operand, memorySpaces[1], tiled, rewriter));
+      result[1].push_back(createOptimalLayoutOp(operand, memorySpaces[1], tiled,
+                                                noCollapse, rewriter));
     }
 
     return result;
@@ -347,13 +339,118 @@ private:
       std::is_same_v<TileOp, d2m::TileLtzOp> ||
       std::is_same_v<TileOp, d2m::TileLezOp>;
 
-  void createComputeRegion(mlir::OpBuilder &bbBuilder, mlir::Location bbLoc,
-                           mlir::ValueRange bbArgs,
-                           mlir::ConversionPatternRewriter &rewriter,
-                           mlir::Location loc, const size_t numInputs,
-                           const size_t numOutputs) const {
-    mlir::ValueRange operands = bbArgs.take_front(numInputs);
+  static std::pair<SmallVector<mlir::AffineMap>,
+                   std::pair<d2m::TileBcastType, d2m::TileBcastType>>
+  getImplicitBcastInfo(mlir::OpBuilder &builder, ArrayRef<Value> inputs,
+                       ArrayRef<Value> outputs) {
+    if (inputs.size() != 2 || outputs.size() != 1) {
+      return {{}, {d2m::TileBcastType::None, d2m::TileBcastType::None}};
+    }
+
+    const auto lhsType =
+        mlir::cast<mlir::RankedTensorType>(inputs[0].getType());
+    const auto rhsType =
+        mlir::cast<mlir::RankedTensorType>(inputs[1].getType());
+    const auto outType =
+        mlir::cast<mlir::RankedTensorType>(outputs[0].getType());
+
+    const int lhsRank = static_cast<int>(lhsType.getRank());
+    const int rhsRank = static_cast<int>(rhsType.getRank());
+    const int outRank = static_cast<int>(outType.getRank());
+    TT_assert(outRank >= 2);
+    TT_assert(outRank == std::max(lhsRank, rhsRank));
+
+    // Collapsing is disabled for implicit bcast, affine maps for both
+    // d2m.generic and linalg.generic are derived from the logical shape.
+    const auto lhsShape = lhsType.getShape();
+    const auto rhsShape = rhsType.getShape();
+    const auto outShape = outType.getShape();
+
+    SmallVector<mlir::AffineExpr> lhsExprs(outRank);
+    SmallVector<mlir::AffineExpr> rhsExprs(outRank);
+
+    SmallVector<int64_t> deducedShape(outRank, -1);
+    for (int i = -1; i >= -outRank; i--) {
+      const int lhsDim = lhsRank + i;
+      const int rhsDim = rhsRank + i;
+      const int outDim = outRank + i;
+
+      // Non-existent dim is represented as -1.
+      const int64_t lhsDimSize = (lhsDim >= 0) ? lhsShape[lhsDim] : -1;
+      const int64_t rhsDimSize = (rhsDim >= 0) ? rhsShape[rhsDim] : -1;
+
+      // Validate broadcasting compatibility: if both dimensions exist, then
+      // they must either be equal, or at least one of them is 1.
+      TT_assertv(!((lhsDimSize != -1) && (rhsDimSize != -1) &&
+                   (lhsDimSize != rhsDimSize) && (lhsDimSize != 1) &&
+                   (rhsDimSize != 1)),
+                 "Incompatible bcast dims {} & {}.", lhsDimSize, rhsDimSize);
+
+      const bool lhsBcast = (lhsDimSize != rhsDimSize) &&
+                            ((lhsDimSize == -1) || (lhsDimSize == 1));
+      const bool rhsBcast = (lhsDimSize != rhsDimSize) &&
+                            ((rhsDimSize == -1) || (rhsDimSize == 1));
+      TT_assertv(!(lhsBcast && rhsBcast),
+                 "Ill-formed broadcast, needs unsqueeze.");
+
+      lhsExprs[outDim] = lhsBcast ? builder.getAffineConstantExpr(0)
+                                  : builder.getAffineDimExpr(lhsDim);
+      rhsExprs[outDim] = rhsBcast ? builder.getAffineConstantExpr(0)
+                                  : builder.getAffineDimExpr(rhsDim);
+
+      deducedShape[outDim] = std::max(lhsDimSize, rhsDimSize);
+    }
+
+    TT_assert(llvm::equal(deducedShape, outShape));
+
+    auto getTileBcastType =
+        [](ArrayRef<mlir::AffineExpr> exprs) -> d2m::TileBcastType {
+      const size_t rank = exprs.size();
+      // Index locked for W -> Col/Scalar tile.
+      const bool isColTile = mlir::isa<AffineConstantExpr>(exprs[rank - 1]);
+      // Index locked for H -> Row/Scalar tile.
+      const bool isRowTile = mlir::isa<AffineConstantExpr>(exprs[rank - 2]);
+
+      if (isColTile && isRowTile) {
+        return d2m::TileBcastType::Scalar;
+      }
+      if (isColTile) {
+        return d2m::TileBcastType::Col;
+      }
+      if (isRowTile) {
+        return d2m::TileBcastType::Row;
+      }
+      return d2m::TileBcastType::None;
+    };
+
+    const std::pair<d2m::TileBcastType, d2m::TileBcastType> tileBcastTypes = {
+        getTileBcastType(lhsExprs), getTileBcastType(rhsExprs)};
+
+    return {{AffineMap::get(outRank, 0, lhsExprs, builder.getContext()),
+             AffineMap::get(outRank, 0, rhsExprs, builder.getContext()),
+             builder.getMultiDimIdentityMap(outRank)},
+            tileBcastTypes};
+  }
+
+  void createComputeRegion(
+      mlir::OpBuilder &bbBuilder, mlir::Location bbLoc, mlir::ValueRange bbArgs,
+      mlir::ConversionPatternRewriter &rewriter, mlir::Location loc,
+      const size_t numInputs, const size_t numOutputs,
+      const std::pair<d2m::TileBcastType, d2m::TileBcastType> &tileBcastTypes)
+      const {
+    auto operands = llvm::to_vector(bbArgs.take_front(numInputs));
     mlir::TypeRange resultTypes = bbArgs.take_back(numOutputs);
+
+    const auto lhsTileBcastType = std::get<0>(tileBcastTypes);
+    if (lhsTileBcastType != d2m::TileBcastType::None) {
+      operands[0] = bbBuilder.create<d2m::TileBcastOp>(
+          loc, resultTypes, operands[0], lhsTileBcastType);
+    }
+    const auto rhsTileBcastType = std::get<1>(tileBcastTypes);
+    if (rhsTileBcastType != d2m::TileBcastType::None) {
+      operands[1] = bbBuilder.create<d2m::TileBcastOp>(
+          loc, resultTypes, operands[1], rhsTileBcastType);
+    }
 
     mlir::Value yield;
     if constexpr (isComparisonOp) {
@@ -374,9 +471,19 @@ private:
 
     auto [origInputs, origOutputs] =
         splitDpsSignature(adaptor, op.getDpsInits().size());
+
+    SmallVector<mlir::AffineMap> bcastIndexingMaps;
+    std::pair<d2m::TileBcastType, d2m::TileBcastType> tileBcastTypes;
+    std::tie(bcastIndexingMaps, tileBcastTypes) =
+        getImplicitBcastInfo(rewriter, origInputs, origOutputs);
+
+    const bool isImplicitBcast =
+        std::get<0>(tileBcastTypes) != d2m::TileBcastType::None ||
+        std::get<1>(tileBcastTypes) != d2m::TileBcastType::None;
+
     auto [inputs, outputs] =
         toLayoutOperandsAndResults(rewriter, {origInputs, origOutputs},
-                                   /*tiled*/ true);
+                                   /*tiled*/ true, isImplicitBcast);
     const std::size_t numInputs = inputs.size();
     const std::size_t numOutputs = outputs.size();
     const std::size_t numOperands = (numInputs + numOutputs);
@@ -385,8 +492,11 @@ private:
     const std::size_t physicalRank =
         ttcore::getDeviceLayout(outputs[0]).getRank() / 2;
 
-    SmallVector<mlir::AffineMap> indexingMaps =
-        getAffineMapsArray(rewriter, numOperands, physicalRank);
+    auto indexingMaps =
+        isImplicitBcast
+            ? bcastIndexingMaps
+            : getAffineMapsArray(rewriter, numOperands, physicalRank);
+
     SmallVector<mlir::Attribute> iteratorTypes =
         getIteratorTypesArray(rewriter, physicalRank);
 
@@ -409,9 +519,11 @@ private:
         ArrayRef<Value> blockArgs(blockArgsVec);
 
         // Create 'linalg.generic' accepting 'blockArgs'.
+        auto linalgIndexingMaps =
+            isImplicitBcast
+                ? bcastIndexingMaps
+                : getAffineMapsArray(rewriter, numOperands, physicalRank);
 
-        SmallVector<mlir::AffineMap> linalgIndexingMaps =
-            getAffineMapsArray(rewriter, numOperands, physicalRank);
         SmallVector<mlir::utils::IteratorType> linalgIteratorTypes =
             iteratorTypeTTIRToLinalg(rewriter, iteratorTypes);
 
@@ -426,7 +538,7 @@ private:
             [&](mlir::OpBuilder &bbBuilder, mlir::Location bbLoc,
                 mlir::ValueRange bbArgs) {
               createComputeRegion(bbBuilder, bbLoc, bbArgs, rewriter, loc,
-                                  numInputs, numOutputs);
+                                  numInputs, numOutputs, tileBcastTypes);
             });
 
         rewriter.create<d2m::YieldOp>(loc, linalgGeneric->getResults());
