@@ -930,6 +930,70 @@ def test_batch_norm(
 
 
 @pytest.mark.parametrize(
+    "shapes",
+    [
+        [
+            (2, 16, 32, 32),  # input (NCHW format)
+            (16,),  # scale
+            (16,),  # offset
+            (16,),  # running_mean
+            (16,),  # running_variance
+        ],
+        [
+            (4, 32, 64, 64),  # input (NCHW format)
+            (32,),  # scale
+            (32,),  # offset
+            (32,),  # running_mean
+            (32,),  # running_variance
+        ],
+    ],
+)
+@pytest.mark.parametrize("dtypes", [[torch.float32] * 5])
+@pytest.mark.parametrize("dimension", [1])  # channel dimension
+@pytest.mark.parametrize("epsilon", [1e-5])
+@pytest.mark.parametrize("momentum", [0.1])
+def test_batch_norm_training(
+    shapes: List[Shape],
+    dtypes: List[torch.dtype],
+    dimension: int,
+    epsilon: float,
+    momentum: float,
+    request,
+    device,
+):
+    def batch_norm_training(
+        in0: Operand,
+        scale: Operand,
+        offset: Operand,
+        running_mean: Operand,
+        running_variance: Operand,
+        builder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+
+        return builder.batch_norm_training(
+            in0,
+            scale,
+            offset,
+            running_mean,
+            running_variance,
+            epsilon=epsilon,
+            dimension=dimension,
+            momentum=momentum,
+        )
+
+    compile_and_execute_ttir(
+        batch_norm_training,
+        shapes,
+        dtypes,
+        test_base=request.node.name,
+        device=device,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+    )
+
+
+@pytest.mark.parametrize(
     "pooling_method,window_dims,window_strides,padding,window_dilations",
     [
         # ResNet-style max pooling: 3x3 window, stride 2 (NCHW format)

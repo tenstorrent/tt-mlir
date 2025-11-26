@@ -2298,6 +2298,296 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
 
         return batch_norm_inference_module, batch_norm_inference_builder
 
+    ############### ttir.BatchNormTrainingOp ###############
+
+    @tag(ttir.BatchNormTrainingOp)
+    def batch_norm_training(
+        self,
+        in0: Operand,
+        scale: Operand,
+        offset: Operand,
+        running_mean: Operand,
+        running_variance: Operand,
+        epsilon: float = 1e-5,
+        dimension: int = 1,
+        momentum: float = 0.1,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> Tuple[OpView, OpView, OpView]:
+        ttir_op = self.get_opview_from_method(TTIRBuilder.batch_norm_training)
+        epsilon_attr = FloatAttr.get_f32(epsilon)
+        dimension_attr = IntegerAttr.get(IntegerType.get_signless(32), dimension)
+        momentum_attr = FloatAttr.get_f32(momentum)
+
+        if output_type is None:
+            output_type = self.get_type(in0)
+
+        input0 = self._get_golden_tensor(in0)
+        scale0 = self._get_golden_tensor(scale)
+        offset0 = self._get_golden_tensor(offset)
+        running_mean0 = self._get_golden_tensor(running_mean)
+        running_variance0 = self._get_golden_tensor(running_variance)
+        op_golden_function = get_golden_function(ttir_op)
+        golden_output, golden_batch_mean, golden_batch_variance = op_golden_function(
+            input0,
+            scale0,
+            offset0,
+            running_mean0,
+            running_variance0,
+            epsilon_attr,
+            dimension_attr,
+            momentum_attr,
+        )
+
+        result_type = self._create_ranked_tensor_type(golden_output.shape, output_type)
+        batch_mean_type = self._create_ranked_tensor_type(
+            golden_batch_mean.shape, output_type
+        )
+        batch_variance_type = self._create_ranked_tensor_type(
+            golden_batch_variance.shape, output_type
+        )
+
+        output = self._get_empty_op(result_type)
+        batch_mean_output = self._get_empty_op(batch_mean_type)
+        batch_variance_output = self._get_empty_op(batch_variance_type)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = ttir_op(
+            result_type,
+            batch_mean_type,
+            batch_variance_type,
+            in0,
+            scale,
+            offset,
+            running_mean,
+            running_variance,
+            [output, batch_mean_output, batch_variance_output],
+            epsilon_attr,
+            dimension_attr,
+            momentum_attr,
+            loc=loc,
+        )
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        if not self._disable_golden_check:
+            self._set_golden_tensor(op.result, golden_output)
+            self._set_golden_tensor(op.batch_mean, golden_batch_mean)
+            self._set_golden_tensor(op.batch_variance, golden_batch_variance)
+
+        return op.result, op.batch_mean, op.batch_variance
+
+    @parse(ttir.BatchNormTrainingOp)
+    def batch_norm_training_parser(
+        self,
+        old_op: ttir.BatchNormTrainingOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Operation:
+        ttir_op = self.get_opview_from_parser(TTIRBuilder.batch_norm_training_parser)
+        in0 = global_dict[old_op.operand]
+        scale = global_dict[old_op.scale]
+        offset = global_dict[old_op.offset]
+        running_mean = global_dict[old_op.running_mean]
+        running_variance = global_dict[old_op.running_variance]
+        output = global_dict[old_op.outputs[0]]
+        batch_mean_output = global_dict[old_op.outputs[1]]
+        batch_variance_output = global_dict[old_op.outputs[2]]
+        epsilon_attr = old_op.epsilon
+        dimension_attr = old_op.dimension
+        momentum_attr = old_op.momentum
+        result_type = old_op.result.type
+        batch_mean_type = old_op.batch_mean.type
+        batch_variance_type = old_op.batch_variance.type
+
+        new_op = ttir_op(
+            result_type,
+            batch_mean_type,
+            batch_variance_type,
+            in0,
+            scale,
+            offset,
+            running_mean,
+            running_variance,
+            [output, batch_mean_output, batch_variance_output],
+            epsilon_attr,
+            dimension_attr,
+            momentum_attr,
+            loc=old_op.location,
+        )
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(in0)
+            scale0 = self._get_golden_tensor(scale)
+            offset0 = self._get_golden_tensor(offset)
+            running_mean0 = self._get_golden_tensor(running_mean)
+            running_variance0 = self._get_golden_tensor(running_variance)
+            op_golden_function = get_golden_function(ttir_op)
+            (
+                golden_output,
+                golden_batch_mean,
+                golden_batch_variance,
+            ) = op_golden_function(
+                input0,
+                scale0,
+                offset0,
+                running_mean0,
+                running_variance0,
+                epsilon_attr,
+                dimension_attr,
+                momentum_attr,
+            )
+            self._set_golden_tensor(new_op.result, golden_output)
+            self._set_golden_tensor(new_op.batch_mean, golden_batch_mean)
+            self._set_golden_tensor(new_op.batch_variance, golden_batch_variance)
+
+        return new_op
+
+    @split(ttir.BatchNormTrainingOp)
+    def batch_norm_training_split(
+        self,
+        old_op: ttir.BatchNormTrainingOp,
+    ) -> Tuple[Module, TTIRBuilder]:
+        ttir_op = self.get_opview_from_split(TTIRBuilder.batch_norm_training_split)
+
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+        with old_ctx, old_loc:
+            batch_norm_training_module = Module.create()
+            batch_norm_training_builder = TTIRBuilder(old_ctx, old_loc)
+            op_input_types = [
+                old_op.operand.type,
+                old_op.scale.type,
+                old_op.offset.type,
+                old_op.running_mean.type,
+                old_op.running_variance.type,
+            ]
+
+            with InsertionPoint(batch_norm_training_module.body):
+
+                @func.func(*op_input_types, name="batch_norm_training_module")
+                def decorated_func(*inputs):
+                    in0 = inputs[0]
+                    scale = inputs[1]
+                    offset = inputs[2]
+                    running_mean = inputs[3]
+                    running_variance = inputs[4]
+                    result_type = old_op.result.type
+                    batch_mean_type = old_op.batch_mean.type
+                    batch_variance_type = old_op.batch_variance.type
+                    output = batch_norm_training_builder._get_empty_op(result_type)
+                    batch_mean_output = batch_norm_training_builder._get_empty_op(
+                        batch_mean_type
+                    )
+                    batch_variance_output = batch_norm_training_builder._get_empty_op(
+                        batch_variance_type
+                    )
+
+                    new_op = ttir_op(
+                        result_type,
+                        batch_mean_type,
+                        batch_variance_type,
+                        in0,
+                        scale,
+                        offset,
+                        running_mean,
+                        running_variance,
+                        [output, batch_mean_output, batch_variance_output],
+                        old_op.epsilon,
+                        old_op.dimension,
+                        old_op.momentum,
+                        loc=old_op.location,
+                    )
+
+                    if not self._disable_golden_check:
+                        input_owner0 = old_op.operand.owner
+                        if isinstance(input_owner0, Block):
+                            queried_input0 = old_op.operand
+                        else:
+                            queried_input0 = input_owner0
+
+                        scale_owner = old_op.scale.owner
+                        if isinstance(scale_owner, Block):
+                            queried_scale = old_op.scale
+                        else:
+                            queried_scale = scale_owner
+
+                        offset_owner = old_op.offset.owner
+                        if isinstance(offset_owner, Block):
+                            queried_offset = old_op.offset
+                        else:
+                            queried_offset = offset_owner
+
+                        running_mean_owner = old_op.running_mean.owner
+                        if isinstance(running_mean_owner, Block):
+                            queried_running_mean = old_op.running_mean
+                        else:
+                            queried_running_mean = running_mean_owner
+
+                        running_variance_owner = old_op.running_variance.owner
+                        if isinstance(running_variance_owner, Block):
+                            queried_running_variance = old_op.running_variance
+                        else:
+                            queried_running_variance = running_variance_owner
+
+                        input0 = self._get_golden_tensor(queried_input0)
+                        scale0 = self._get_golden_tensor(queried_scale)
+                        offset0 = self._get_golden_tensor(queried_offset)
+                        running_mean0 = self._get_golden_tensor(queried_running_mean)
+                        running_variance0 = self._get_golden_tensor(
+                            queried_running_variance
+                        )
+
+                        op_golden_function = get_golden_function(ttir_op)
+                        (
+                            golden_output,
+                            golden_batch_mean,
+                            golden_batch_variance,
+                        ) = op_golden_function(
+                            input0,
+                            scale0,
+                            offset0,
+                            running_mean0,
+                            running_variance0,
+                            old_op.epsilon,
+                            old_op.dimension,
+                            old_op.momentum,
+                        )
+                        batch_norm_training_builder._set_golden_tensor(
+                            new_op.result, golden_output
+                        )
+                        batch_norm_training_builder._set_golden_tensor(
+                            new_op.batch_mean, golden_batch_mean
+                        )
+                        batch_norm_training_builder._set_golden_tensor(
+                            new_op.batch_variance, golden_batch_variance
+                        )
+                        batch_norm_training_builder._set_output_ordering(
+                            [new_op.result, new_op.batch_mean, new_op.batch_variance]
+                        )
+                        batch_norm_training_builder._set_golden_tensor(in0, input0)
+                        batch_norm_training_builder._set_golden_tensor(scale, scale0)
+                        batch_norm_training_builder._set_golden_tensor(offset, offset0)
+                        batch_norm_training_builder._set_golden_tensor(
+                            running_mean, running_mean0
+                        )
+                        batch_norm_training_builder._set_golden_tensor(
+                            running_variance, running_variance0
+                        )
+                        batch_norm_training_builder._set_input_ordering(
+                            [in0, scale, offset, running_mean, running_variance]
+                        )
+
+                    return new_op
+
+        return batch_norm_training_module, batch_norm_training_builder
+
     ############### ttir.ConvolutionOp ###############
 
     @tag(ttir.ConvolutionOp)
@@ -3315,7 +3605,7 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
                     result = old_op.result.type
                     output = self._get_empty_op(result)
 
-                    new_op = ttir.ReshapeOp(
+                    new_op = ttir_op(
                         result, in0, output, shape_attr, loc=old_op.location
                     )
 
@@ -4018,7 +4308,6 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
             result,
             loc=old_op.location,
         )
-
         return new_op
 
     ############### ttir.SigmoidOp ###############
@@ -9677,6 +9966,16 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
                                         global_dict[
                                             op.result_indices
                                         ] = parsed_op.result_indices
+                                    elif isinstance(
+                                        parsed_op, ttir.BatchNormTrainingOp
+                                    ):
+                                        global_dict[op.result] = parsed_op.result
+                                        global_dict[
+                                            op.batch_mean
+                                        ] = parsed_op.batch_mean
+                                        global_dict[
+                                            op.batch_variance
+                                        ] = parsed_op.batch_variance
                                     else:
                                         global_dict[op.result] = parsed_op
 
