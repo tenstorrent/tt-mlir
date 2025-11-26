@@ -363,8 +363,8 @@ static ::ttnn::Tensor toTTNNTensorImpl(
   std::vector<T> dataVec(numElements);
   for (size_t i = 0; i < numElements; i++) {
     if constexpr (std::is_same_v<T, bfloat16>) {
-      dataVec[i] = bfloat16(
-          ::flatbuffers::IndirectHelper<uint16_t>::Read(input->data(), i));
+      uint16_t raw = ::flatbuffers::IndirectHelper<uint16_t>::Read(input->data(), i);
+      dataVec[i] = std::bit_cast<bfloat16>(raw);
     } else {
       dataVec[i] = ::flatbuffers::IndirectHelper<T>::Read(input->data(), i);
     }
