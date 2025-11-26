@@ -22,8 +22,7 @@ constant_ir = """module {
 
 pad_ir = """module {
   func.func @model(%arg0: tensor<32x32xf32>) -> tensor<32x34xf32> {
-    %0 = ttir.empty() : tensor<32x34xf32>
-    %1 = "ttir.pad"(%arg0, %0) <{padding = array<i32: 0, 0, 1, 1>, value = 0.000000e+00 : f32}> : (tensor<32x32xf32>, tensor<32x34xf32>) -> tensor<32x34xf32>
+    %1 = "ttir.pad"(%arg0) <{padding = array<i32: 0, 0, 1, 1>, value = 0.000000e+00 : f32}> : (tensor<32x32xf32>) -> tensor<32x34xf32>
     return %1 : tensor<32x34xf32>
   }
 }"""
@@ -37,58 +36,50 @@ dot_general_ir = """module {
 
 permute_ir = """module {
   func.func @model(%arg0: tensor<32x32xf32>) -> tensor<32x32xf32> {
-    %0 = ttir.empty() : tensor<32x32xf32>
-    %1 = "ttir.permute"(%arg0, %0) <{permutation = array<i64: 1, 0>}> : (tensor<32x32xf32>, tensor<32x32xf32>) -> tensor<32x32xf32>
+    %1 = "ttir.permute"(%arg0) <{permutation = array<i64: 1, 0>}> : (tensor<32x32xf32>) -> tensor<32x32xf32>
     return %1 : tensor<32x32xf32>
   }
 }"""
 
 broadcast_ir = """module {
   func.func @model(%arg0: tensor<32x32xf32>) -> tensor<32x32xf32> {
-    %0 = ttir.empty() : tensor<32x32xf32>
-    %1 = "ttir.broadcast"(%arg0, %0) <{broadcast_dimensions = array<i64: 1, 1>}> : (tensor<32x32xf32>, tensor<32x32xf32>) -> tensor<32x32xf32>
+    %1 = "ttir.broadcast"(%arg0) <{broadcast_dimensions = array<i64: 1, 1>}> : (tensor<32x32xf32>) -> tensor<32x32xf32>
     return %1 : tensor<32x32xf32>
   }
 }"""
 
 add_ir = """module {
   func.func @model(%arg0: tensor<32x32xf32>, %arg1: tensor<32x32xf32>) -> tensor<32x32xf32> {
-    %0 = ttir.empty() : tensor<32x32xf32>
-    %1 = "ttir.add"(%arg0, %arg1, %0) : (tensor<32x32xf32>, tensor<32x32xf32>, tensor<32x32xf32>) -> tensor<32x32xf32>
+    %1 = "ttir.add"(%arg0, %arg1) : (tensor<32x32xf32>, tensor<32x32xf32>) -> tensor<32x32xf32>
     return %1 : tensor<32x32xf32>
   }
 }"""
 
 sub_ir = """module {
   func.func @model(%arg0: tensor<32x32xf32>, %arg1: tensor<32x32xf32>) -> tensor<32xf32> {
-    %0 = ttir.empty() : tensor<32x32xf32>
-    %1 = "ttir.add"(%arg0, %arg1, %0) : (tensor<32x32xf32>, tensor<32x32xf32>, tensor<32x32xf32>) -> tensor<32x32xf32>
-    %2 = ttir.empty() : tensor<32xf32>
-    %3 = "ttir.sum"(%1, %2) <{dim_arg = [1 : i32], keep_dim = false}> : (tensor<32x32xf32>, tensor<32xf32>) -> tensor<32xf32>
+    %1 = "ttir.add"(%arg0, %arg1) : (tensor<32x32xf32>, tensor<32x32xf32>) -> tensor<32x32xf32>
+    %3 = "ttir.sum"(%1) <{dim_arg = [1 : i32], keep_dim = false}> : (tensor<32x32xf32>) -> tensor<32xf32>
     return %3 : tensor<32xf32>
   }
 }"""
 
 multiply_ir = """module {
   func.func @model(%arg0: tensor<32x32xf32>, %arg1: tensor<32x32xf32>) -> tensor<32x32xf32> {
-    %0 = ttir.empty() : tensor<32x32xf32>
-    %1 = "ttir.multiply"(%arg0, %arg1, %0) : (tensor<32x32xf32>, tensor<32x32xf32>, tensor<32x32xf32>) -> tensor<32x32xf32>
+    %1 = "ttir.multiply"(%arg0, %arg1) : (tensor<32x32xf32>, tensor<32x32xf32>) -> tensor<32x32xf32>
     return %1 : tensor<32x32xf32>
   }
 }"""
 
 maximum_ir = """module {
   func.func @model(%arg0: tensor<32x32xf32>, %arg1: tensor<32x32xf32>) -> tensor<32x32xf32> {
-    %0 = ttir.empty() : tensor<32x32xf32>
-    %1 = "ttir.maximum"(%arg0, %arg1, %0) : (tensor<32x32xf32>, tensor<32x32xf32>, tensor<32x32xf32>) -> tensor<32x32xf32>
+    %1 = "ttir.maximum"(%arg0, %arg1) : (tensor<32x32xf32>, tensor<32x32xf32>) -> tensor<32x32xf32>
     return %1 : tensor<32x32xf32>
   }
 }"""
 
 reshape_ir = """module {
   func.func @model(%arg0: tensor<32x32xf32>) -> tensor<1x1024xf32> {
-    %0 = ttir.empty() : tensor<1x1024xf32>
-    %1 = "ttir.reshape"(%arg0, %0) <{shape = [1 : i32, 1024 : i32]}> : (tensor<32x32xf32>, tensor<1x1024xf32>) -> tensor<1x1024xf32>
+    %1 = "ttir.reshape"(%arg0) <{shape = [1 : i32, 1024 : i32]}> : (tensor<32x32xf32>) -> tensor<1x1024xf32>
     return %1 : tensor<1x1024xf32>
   }
 }"""
