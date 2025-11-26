@@ -629,31 +629,6 @@ def D2MInsertStreams: Pass<"d2m-insert-streams", "::mlir::ModuleOp"> {
   let options = D2MStreamingOptions;
 }
 
-def D2MSimpleAllocate : Pass<"d2m-simple-allocate", "::mlir::func::FuncOp"> {
-  let summary = "Simplified L1/DRAM address allocation for tt-lang DSL";
-  let description = [{
-    Assigns L1/DRAM addresses to memref.alloc operations using liveness-based
-    first-fit allocation. Designed for tt-lang DSL where streams are explicit.
-
-    Features:
-    - Uses builtin MLIR liveness analysis
-    - Extends liveness through view/stream chains
-    - Simple first-fit allocation (no spilling)
-    - Conservative dealloc insertion (before returns)
-  }];
-
-  let dependentDialects = [
-    "::mlir::memref::MemRefDialect",
-    "::mlir::tt::ttcore::TTCoreDialect"
-  ];
-
-  let options = [
-    Option<"testAssumeL1Capacity", "test-assume-l1-capacity", "int64_t",
-           /*default=*/"0",
-           "Override L1 capacity for testing (0 = use hardware capacity)">
-  ];
-}
-
 def D2MGlobalDataFormatConversion: Pass<"d2m-global-data-format-conversion", "::mlir::ModuleOp">
 {
   let summary = "Convert all tensor data types to a target format.";
