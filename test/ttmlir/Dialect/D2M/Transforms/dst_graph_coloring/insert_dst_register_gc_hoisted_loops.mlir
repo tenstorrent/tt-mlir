@@ -45,7 +45,7 @@ module {
           %result = "d2m.tile_add"(%v0, %v1) : (!ttcore.tile<32x32, f16>, !ttcore.tile<32x32, f16>) -> !ttcore.tile<32x32, f16>
           affine.store %result, %mem_out[%i, %j] : memref<2x2x!ttcore.tile<32x32, f16>, #l1_>
         }
-      }
+      } {d2m.linalg_root}
     }
     return
   }
