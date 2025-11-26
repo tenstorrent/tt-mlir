@@ -51,7 +51,7 @@ TTPrintIRInstrumentation::TTPrintIRInstrumentation(
     : outputDir_(expandAndCreateOutputDir(options.outputDir)),
       modelName_(options.modelName.empty() ? "unknown" : options.modelName),
       pipelineName_(options.pipelineName), level_(options.level),
-      dumpInitial_(options.dumpInitial),
+      dumpInitial_(options.dumpInitial || options.level == DumpLevel::Initial),
       onlyDumpOnChanges_(options.onlyDumpOnChanges) {
   if (!options.modelName.empty()) {
     initializeDumpCounter();

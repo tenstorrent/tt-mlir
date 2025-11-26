@@ -18,6 +18,7 @@ namespace mlir::tt {
 class TTPrintIRInstrumentation : public PassInstrumentation {
 public:
   enum class DumpLevel {
+    Initial,       // Dump only the pre-pipeline graph (before any passes)
     Once,          // Dump only once at the very end (top-level only)
     Pipeline,      // Dump at pipeline boundaries (includes Once level)
     Pass,          // Dump after each pass

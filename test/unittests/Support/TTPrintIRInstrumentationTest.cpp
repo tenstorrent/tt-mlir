@@ -368,3 +368,15 @@ TEST_F(InstrumentationTest, Transformation) {
   EXPECT_TRUE(hasPassExecution);
   EXPECT_TRUE(hasPatternIteration);
 }
+
+TEST_F(InstrumentationTest, InitialLevel) {
+  auto options = test::createOptions(*this);
+  options.level = DumpLevel::Initial;
+  test::runWith(*this, options, test::Pipelines::flatPipeline());
+
+  EXPECT_EQ(countOutputFiles(), 1);
+  auto filepaths = getOutputFilePaths();
+  EXPECT_TRUE(std::find(filepaths.begin(), filepaths.end(),
+                        "test_model/test_pipeline/0_initial.mlir") !=
+              filepaths.end());
+}
