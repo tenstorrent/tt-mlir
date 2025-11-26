@@ -6,7 +6,6 @@
 
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinTypes.h"
-#include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTIR/Utils/Utils.h"
@@ -104,56 +103,6 @@ private:
         rewriter.getI32ArrayAttr(newReshapeShapeAttr));
   }
 
-  // Group the axes of the tensor into groups of consecutive axes that are
-  // either:
-  // - equal to the original axes;
-  // - or a multiple of the consecutive original axes (possibly none).
-  //
-  // Returns the groups of axes (identified by the axes IDs), or std::nullopt if
-  // the axes cannot be grouped.
-  std::optional<llvm::SmallVector<llvm::SmallVector<int64_t>>>
-  groupAxes(ArrayRef<int64_t> inputShape, ArrayRef<int64_t> outputShape,
-            ArrayRef<int64_t> axesIds) const {
-    TT_assertv(inputShape.size() == outputShape.size(),
-               "input and output shapes must have the same rank; "
-               "inputShape={}, outputShape={}",
-               inputShape.size(), outputShape.size());
-
-    llvm::SmallVector<llvm::SmallVector<int64_t>> axesGroups;
-    const int64_t rank = inputShape.size();
-    int64_t inputIndex = 0;
-    for (int64_t outputIndex = 0; outputIndex < rank; ++outputIndex) {
-      if (inputIndex < rank &&
-          inputShape[inputIndex] == outputShape[outputIndex]) {
-        axesGroups.emplace_back(1, axesIds[inputIndex]);
-        ++inputIndex;
-      } else if (outputShape[outputIndex] == 1) {
-        axesGroups.emplace_back();
-      } else {
-        llvm::SmallVector<int64_t> group;
-        int64_t consumed = 1;
-        while (inputIndex < rank &&
-               outputShape[outputIndex] % (consumed * inputShape[inputIndex]) ==
-                   0) {
-          group.push_back(axesIds[inputIndex]);
-          consumed *= inputShape[inputIndex];
-          ++inputIndex;
-        }
-
-        if (consumed != outputShape[outputIndex]) {
-          return {};
-        }
-
-        axesGroups.push_back(std::move(group));
-      }
-    }
-    TT_assertv(inputIndex == rank,
-               "input is not fully consumed: input_index{}, rank={}",
-               inputIndex, rank);
-
-    return axesGroups;
-  }
-
   // NOT IMPLEMENTED: Upwards commutation of permute through reshape is not
   // implemented.
   bool isCommuteUpwardsViable(ReshapeOp op, PermuteOp) const override {
@@ -179,8 +128,8 @@ private:
     }
     const int64_t rank = reshapeInputShape.size();
 
-    auto axesGroups =
-        groupAxes(reshapeInputShape, reshapeOutputShape, permutation);
+    auto axesGroups = ttmlir::utils::getReshapeAxesMapping(
+        reshapeInputShape, reshapeOutputShape, permutation);
     if (!axesGroups) {
       return false;
     }

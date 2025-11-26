@@ -11,6 +11,7 @@
 #include "mlir/Dialect/Traits.h"
 #include "mlir/IR/AffineMap.h"
 #include "mlir/IR/BuiltinAttributes.h"
+#include "llvm/ADT/Sequence.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/Support/Error.h"
@@ -19,6 +20,7 @@
 
 #include <cstdint>
 #include <numeric>
+#include <optional>
 #include <tuple>
 #include <type_traits>
 #include <utility>
@@ -226,6 +228,90 @@ inversePermutation(llvm::ArrayRef<int64_t> permutation) {
     inversePermutation[permutation[i]] = i;
   }
   return inversePermutation;
+}
+
+// Groups the axes of a tensor into groups of consecutive axes that are either:
+// - equal to the original axes;
+// - or a multiple of the consecutive original axes (possibly none).
+//
+// This function is used to analyze how axes map from inputShape to outputShape
+// in reshape operations. Returns the groups of axes (identified by the axes
+// IDs), or std::nullopt if the axes cannot be grouped.
+//
+// If axesIds is not provided, it defaults to [0, 1, 2, ..., rank-1].
+//
+// Example: For inputShape=[2,3,4], outputShape=[6,4], axesIds=[0,1,2]:
+//   - output[0]=6 can be formed by multiplying input[0]*input[1] (2*3=6)
+//   - output[1]=4 equals input[2]=4
+//   - Returns: [[0,1], [2]]
+inline std::optional<llvm::SmallVector<llvm::SmallVector<int64_t>>>
+getReshapeAxesMapping(
+    llvm::ArrayRef<int64_t> inputShape, llvm::ArrayRef<int64_t> outputShape,
+    std::optional<llvm::ArrayRef<int64_t>> axesIds = std::nullopt) {
+  assert(inputShape.size() == outputShape.size() &&
+         "input and output shapes must have the same rank");
+
+  llvm::SmallVector<int64_t> defaultAxesIds;
+  if (!axesIds) {
+    defaultAxesIds = llvm::to_vector(llvm::seq<int64_t>(0, inputShape.size()));
+    axesIds = defaultAxesIds;
+  }
+  assert(inputShape.size() == axesIds->size() &&
+         "input shape and axesIds must have the same size");
+
+  llvm::SmallVector<llvm::SmallVector<int64_t>> axesGroups;
+  const int64_t rank = inputShape.size();
+  int64_t inputIndex = 0;
+  for (int64_t outputIndex = 0; outputIndex < rank; ++outputIndex) {
+    if (inputIndex < rank &&
+        inputShape[inputIndex] == outputShape[outputIndex]) {
+      axesGroups.emplace_back(1, (*axesIds)[inputIndex]);
+      ++inputIndex;
+    } else if (outputShape[outputIndex] == 1) {
+      axesGroups.emplace_back();
+    } else {
+      llvm::SmallVector<int64_t> group;
+      int64_t consumed = 1;
+      while (inputIndex < rank &&
+             outputShape[outputIndex] % (consumed * inputShape[inputIndex]) ==
+                 0) {
+        group.push_back((*axesIds)[inputIndex]);
+        consumed *= inputShape[inputIndex];
+        ++inputIndex;
+      }
+
+      if (consumed != outputShape[outputIndex]) {
+        llvm::outs() << "Consumed: " << consumed
+                     << " != outputShape[outputIndex]: "
+                     << outputShape[outputIndex] << "\n";
+
+        llvm::outs() << "\n";
+        llvm::outs() << "axesGroups: ";
+        for (const auto &group : axesGroups) {
+          llvm::outs() << "[";
+          for (const auto &dim : group) {
+            llvm::outs() << dim << " ";
+          }
+          llvm::outs() << "] ";
+        }
+        llvm::outs() << "\n";
+        return {};
+      }
+
+      axesGroups.push_back(std::move(group));
+    }
+  }
+  assert(inputIndex == rank && "input is not fully consumed");
+  llvm::outs() << "axesGroups: ";
+  for (const auto &group : axesGroups) {
+    llvm::outs() << "[";
+    for (const auto &dim : group) {
+      llvm::outs() << dim << " ";
+    }
+    llvm::outs() << "] ";
+  }
+  llvm::outs() << "\n";
+  return axesGroups;
 }
 
 // Returns a vector `broadcastShape`, such that each index i of inputShape

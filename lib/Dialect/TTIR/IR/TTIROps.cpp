@@ -30,6 +30,7 @@
 #include "mlir/Support/LogicalResult.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/STLForwardCompat.h"
+#include "llvm/ADT/Sequence.h"
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/FormatVariadic.h"
@@ -4102,6 +4103,97 @@ mlir::LogicalResult mlir::tt::ttir::FullOp::verify() {
   }
 
   return mlir::success();
+}
+
+// PermuteOp canonicalization
+void mlir::tt::ttir::PermuteOp::getCanonicalizationPatterns(
+    mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
+  // NOLINTBEGIN(clang-analyzer-core.StackAddressEscape)
+  // Canonicalize reshape -> permute into a single reshape if the axes mappings
+  // are equivalent.
+  patterns.add(+[](ttir::PermuteOp permuteOp, mlir::PatternRewriter &rewriter) {
+    // Check if the permute input is defined by a reshape.
+    llvm::outs() << "PermuteOp canonicalization\n";
+    auto reshapeOp = permuteOp.getInput().getDefiningOp<ttir::ReshapeOp>();
+    if (!reshapeOp) {
+      llvm::outs() << "No reshape op found\n";
+      return mlir::failure();
+    }
+
+    // Get shapes for reshape and permute operations.
+    auto reshapeInputType =
+        mlir::cast<mlir::RankedTensorType>(reshapeOp.getInput().getType());
+    auto reshapeOutputType =
+        mlir::cast<mlir::RankedTensorType>(reshapeOp.getType());
+    auto permuteOutputType =
+        mlir::cast<mlir::RankedTensorType>(permuteOp.getType());
+
+    auto reshapeInputShape = reshapeInputType.getShape();
+    auto reshapeOutputShape = reshapeOutputType.getShape();
+    auto permuteOutputShape = permuteOutputType.getShape();
+
+    // Both reshape and permute must preserve rank.
+    if (reshapeInputShape.size() != reshapeOutputShape.size() ||
+        reshapeOutputShape.size() != permuteOutputShape.size()) {
+      llvm::outs() << "Rank mismatch\n";
+      return mlir::failure();
+    }
+
+    // Get axes mapping for reshape: reshape input -> reshape output (with
+    // default range [0, 1, 2, ...])
+    auto reshapeMapping = ttmlir::utils::getReshapeAxesMapping(
+        reshapeInputShape, reshapeOutputShape);
+    if (!reshapeMapping) {
+      llvm::outs() << "No reshape mapping\n";
+      return mlir::failure();
+    }
+
+    // Apply permutation to the reshape mapping, flatten it, and compare with
+    // the range [0, 1, 2, ..., rank-1].
+    auto permutation = permuteOp.getPermutation();
+    llvm::ArrayRef<llvm::SmallVector<int64_t>> reshapeMappingRef(
+        *reshapeMapping);
+    auto permutedMapping =
+        ttmlir::utils::applyPermutation(reshapeMappingRef, permutation);
+    auto permutedFlattened = ttmlir::utils::flatten(permutedMapping);
+
+    llvm::SmallVector<int64_t> expectedRange =
+        llvm::to_vector(llvm::seq<int64_t>(0, reshapeInputShape.size()));
+
+    // If applying permutation to the reshape mapping gives us the identity
+    // mapping, we can replace with a single reshape.
+    if (!llvm::equal(permutedFlattened, expectedRange)) {
+      llvm::outs() << "Permuted mapping is not the identity mapping\n";
+      llvm::outs() << "Permuted mapping: ";
+      for (const auto &group : permutedMapping) {
+        llvm::outs() << "[";
+        for (const auto &axis : group) {
+          llvm::outs() << axis << " ";
+        }
+        llvm::outs() << "] ";
+      }
+      llvm::outs() << "\n";
+      llvm::outs() << "Expected range: ";
+      for (const auto &axis : expectedRange) {
+        llvm::outs() << axis << " ";
+      }
+      llvm::outs() << "\n";
+      return mlir::failure();
+    }
+
+    // Create a new reshape from the original reshape input to the permute
+    // output.
+    llvm::SmallVector<int32_t> newShape(permuteOutputShape.begin(),
+                                        permuteOutputShape.end());
+    auto newShapeAttr = rewriter.getI32ArrayAttr(newShape);
+
+    ttir::utils::replaceOpWithNewDPSOp<ttir::ReshapeOp>(
+        rewriter, permuteOp, permuteOutputType, reshapeOp.getInput(),
+        newShapeAttr);
+
+    return mlir::success();
+  });
+  // NOLINTEND(clang-analyzer-core.StackAddressEscape)
 }
 
 static std::optional<std::string>
