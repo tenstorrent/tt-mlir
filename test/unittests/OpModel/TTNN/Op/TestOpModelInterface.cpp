@@ -2738,8 +2738,8 @@ TEST_F(OpModelBase, Conv2dInterfaceConfigs) {
   const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
       constraintsExp.get();
 
-  EXPECT_EQ(cbSize, 69696);
-  EXPECT_EQ(l1PeakSize, 61836);
+  EXPECT_EQ(cbSize, 102464);
+  EXPECT_EQ(l1PeakSize, 61796);
   EXPECT_EQ(outputSize, 0);
 
   runtimeExp =
@@ -2805,7 +2805,7 @@ TEST_F(OpModelBase, conv2dInterfaceComputeKernelConfig) {
       constraintsExp.get();
 
   EXPECT_EQ(cbSize, 65600);
-  EXPECT_EQ(l1PeakSize, 61836);
+  EXPECT_EQ(l1PeakSize, 61796);
   EXPECT_EQ(outputSize, 0);
 
   auto runtimeExp =
@@ -2856,7 +2856,7 @@ TEST_F(OpModelBase, ConvTranspose2dInterfaceConfigs) {
       /*activation=*/nullptr,
       /*deallocate_activation=*/BoolAttr::get(&context, false),
       /*reallocate_halo_output=*/BoolAttr::get(&context, true),
-      /*act_block_h_override=*/0, /*act_block_w_div=*/1,
+      /*act_block_h_override=*/32, /*act_block_w_div=*/1,
       /*reshard_if_not_optimal=*/BoolAttr::get(&context, false),
       /*override_sharding_config=*/BoolAttr::get(&context, false),
       /*shard_layout=*/std::nullopt,

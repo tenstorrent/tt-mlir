@@ -1710,7 +1710,8 @@ llvm::Expected<OpConstraints> OpModel<ScatterOp>::getOpConstraints(
     return ::ttnn::graph::query_op_constraints(
         ::ttnn::scatter, device, inputSpec, dim, indexSpec, sourceSpec,
         detail::getNullableMemoryConfig(outputLayout),
-        /* opt_reduction */ std::nullopt);
+        /* opt_reduction_string */ std::nullopt,
+        /* sub_core_grid */ std::nullopt);
   };
 
   return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
@@ -1755,7 +1756,8 @@ llvm::Expected<size_t> OpModel<ScatterOp>::getOpRuntime(
     return ::ttnn::graph::query_op_runtime(
         ::ttnn::scatter, device, inputSpec, dim, indexSpec, sourceSpec,
         detail::getNullableMemoryConfig(outputLayout),
-        /* opt_reduction */ std::nullopt);
+        /* opt_reduction_string */ std::nullopt,
+        /* sub_core_grid */ std::nullopt);
   };
 
   return operation::getOpRuntime(scatterOpRuntimeQuery);

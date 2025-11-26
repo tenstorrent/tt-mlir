@@ -4,7 +4,7 @@
 
 #include "Constants.h"
 
-#include "tt-metalium/fabric.hpp"
+#include "tt-metalium/experimental/fabric/fabric.hpp"
 #include "tt/runtime/debug.h"
 #include "tt/runtime/detail/common/common.h"
 #include "tt/runtime/detail/common/dylib.h"

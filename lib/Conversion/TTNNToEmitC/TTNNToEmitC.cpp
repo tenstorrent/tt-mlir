@@ -2423,7 +2423,8 @@ public:
         emitter.emit(srcOp.getSource()),
         emitter.emit(std::nullopt) |
             emitter.getMemoryConfig(srcOp.getResult()), // mem config
-        emitter.emit(std::nullopt)                      // opt_reduction
+        emitter.emit(std::nullopt),                     // opt_reduction_string
+        emitter.emit(std::nullopt)                      // sub_core_grid
     };
 
     emitter.replaceOp(*this, args);
