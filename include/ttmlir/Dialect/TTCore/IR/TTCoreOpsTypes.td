@@ -463,6 +463,9 @@ def TTCore_MetalLayoutAttr : TTCore_Attr<"MetalLayout", "metal_layout", [TTCore_
                                      mlir::AffineMap indexAffineMap
                                      );
 
+    MetalLayoutAttr compose(mlir::AffineMap indexAffineMap) const;
+    MetalLayoutAttr withIndexAffineMap(mlir::AffineMap indexAffineMap) const;
+
     // Derive the physical tensor shape from logical shape and grid.
     llvm::SmallVector<int64_t> getPhysicalShape(ArrayRef<int64_t> tileShape) const;
 

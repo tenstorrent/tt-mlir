@@ -34,6 +34,5 @@ def test_matmul_multicore(device):
 
 
 @pytest.mark.usefixtures("device")
-@pytest.mark.xfail(reason="Failing after tt-metal uplift")
 def test_dprint(device):
     dprint_demo(device)

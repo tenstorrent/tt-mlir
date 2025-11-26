@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --split-input-file --ttcore-register-device --d2m-grid-selection %s | FileCheck %s
+// RUN: ttmlir-opt --split-input-file --ttcore-register-device --d2m-grid-selection --canonicalize %s | FileCheck %s
 
 // Verify that d2m-grid-selection pass skips d2m.generic operations in
 // explicit datamovement form. These operations have empty indexing_maps
