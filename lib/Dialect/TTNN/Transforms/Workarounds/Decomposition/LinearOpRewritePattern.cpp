@@ -28,6 +28,19 @@ static bool isBatchedLinearOp(ttnn::LinearOp linearOp) {
                                   [](int64_t dim) { return dim > 1; });
 }
 
+static bool isBatchedBias(RankedTensorType biasType) {
+  auto biasShape = biasType.getShape();
+  int64_t rank = biasShape.size();
+
+  // if rank <= 1, it cannot be batched. Return false.
+  // Check if batched: any dimension before the last 1 has size > 1.
+  // i.e. <1x3x32xbf16> is batched because of 3.
+  // i.e. <1x1x32xbf16> is not batched because all dims before last 1 are 1.
+  // i.e. <32xbf16> is not batched because rank < 2.
+  return rank > 1 && llvm::any_of(biasShape.drop_back(1),
+                                  [](int64_t dim) { return dim > 1; });
+}
+
 // Calculate the output shape of a matmul operation following tt-metal's logic.
 // Reference: ttnn/cpp/ttnn/operations/matmul/matmul.cpp
 static SmallVector<int64_t>
@@ -69,9 +82,11 @@ computeMatmulOutputShape(llvm::ArrayRef<int64_t> shapeA, bool transposeA,
 LogicalResult
 LinearOpRewritePattern::matchAndRewrite(ttnn::LinearOp srcOp,
                                         PatternRewriter &rewriter) const {
-
-  // Only decompose if input B is batched AND bias exists
-  if (!isBatchedLinearOp(srcOp) || !srcOp.getBias()) {
+  // Only decompose if:
+  // * bias is batched or
+  // * input B is batched AND bias exists
+  if (!isBatchedBias(srcOp.getBias().getType()) &&
+      (!isBatchedLinearOp(srcOp) || !srcOp.getBias())) {
     return failure();
   }
 
