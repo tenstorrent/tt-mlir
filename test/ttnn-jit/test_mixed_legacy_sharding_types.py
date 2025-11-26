@@ -22,29 +22,31 @@ from utils import (
 HEIGHT_WIDTH_SHARDED_SHAPE_GRIDS = [
     ((32, 32), (0, 0)),
     ((32, 64), (0, 0)),
-    # ((2048, 2048), (7, 7)),  #fails. error: 'd2m.generic' op grid shape mismatch between operand[0] grid_shape=[64, 1] and operand[1] grid_shape=[1, 64] at affine dim d0
+    ((2048, 2048), (7, 7)),
     ((2, 32, 64), (0, 0)),
     ((2, 64, 128), (0, 0)),
-    # ((32, 64, 2048), (7, 7)), #fails. error: 'd2m.generic' op grid shape mismatch between operand[0] grid_shape=[64, 1] and operand[1] grid_shape=[1, 64] at affine dim d0
+    ((32, 64, 2048), (7, 7)),
+    ((1, 2, 32, 128), (0, 0)),
 ]
 
 HEIGHT_BLOCK_SHARDED_SHAPE_GRIDS = [
     ((32, 32), (0, 0)),
     ((32, 64), (0, 0)),
-    # ((256, 64), (7, 0)),  #fails. info: Physical shard shape (256, 8) must be tile {32, 32} sized!
     ((256, 64), (0, 7)),
-    # ((2048, 256), (7, 7)), #fails. height shard shape: 32, 256: block shard shape: 256, 32 : error: 'd2m.generic' op grid shape mismatch between operand[0] grid_shape=[64, 1] and operand[1] grid_shape=[8, 8] at affine dim d0
+    ((2048, 256), (7, 7)),
     ((2, 128, 128), (0, 0)),
-    # ((2, 2, 512, 256), (7, 7)), #fails. error: 'd2m.generic' op grid shape mismatch between operand[0] grid_shape=[64, 1] and operand[1] grid_shape=[8, 8] at affine dim d0
+    ((2, 2, 512, 256), (7, 7)),
 ]
 
 WIDTH_BLOCK_SHARDED_SHAPE_GRIDS = [
     ((32, 32), (0, 0)),
     ((32, 64), (0, 0)),
     ((64, 256), (7, 0)),
-    # ((256, 256), (0, 7)), #failed, error: 'd2m.generic' op grid shape mismatch between operand[0] grid_shape=[1, 8] and operand[1] grid_shape=[8, 1] at affine dim d0
-    # ((256, 2048), (7, 7)), #failed error: 'd2m.generic' op grid shape mismatch between operand[0] grid_shape=[1, 64] and operand[1] grid_shape=[8, 8] at affine dim d0
-    # ((2, 4, 32, 2048), (7, 7)), #fail, rror: 'd2m.generic' op grid shape mismatch between operand[0] grid_shape=[1, 64] and operand[1] grid_shape=[8, 8] at affine dim d0
+    ((256, 256), (0, 7)),
+    ((256, 2048), (7, 7)),
+    ((1, 32, 32), (0, 0)),
+    ((1, 4, 32, 128), (0, 0)),
+    ((2, 4, 32, 2048), (7, 7)),
 ]
 
 
@@ -66,7 +68,9 @@ def add(input_tensor_a, input_tensor_b):
 def test_height_width_mixed_legacy_sharding_types(
     device, shape, max_grid, dtype, op, graph_capture
 ):
-    # Create input tensors
+    if max_grid == (7, 7):
+        pytest.xfail("fails due to d2m generic operand grid mismatch")
+
     input_tensor_a = create_sharded_tile_tensor(
         device,
         shape,
@@ -108,7 +112,9 @@ def test_height_width_mixed_legacy_sharding_types(
 def test_height_block_mixed_legacy_sharding_types(
     device, shape, max_grid, dtype, op, graph_capture
 ):
-    # Create input tensors
+
+    if max_grid == (7, 7):
+        pytest.xfail("fails due to d2m generic operand grid mismatch")
     input_tensor_a = create_sharded_tile_tensor(
         device,
         shape,
@@ -150,7 +156,9 @@ def test_height_block_mixed_legacy_sharding_types(
 def test_width_block_mixed_legacy_sharding_types(
     device, shape, max_grid, dtype, op, graph_capture
 ):
-    # Create input tensors
+
+    if max_grid == (7, 7) or max_grid == (0, 7):
+        pytest.xfail("fails due to d2m generic operand grid mismatch")
     input_tensor_a = create_sharded_tile_tensor(
         device,
         shape,
