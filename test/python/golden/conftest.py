@@ -2,9 +2,9 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 import pytest
-import ttrt
-import ttrt.runtime
+import _ttmlir_runtime as tt_runtime
 import json
+import re
 import platform
 from functools import reduce
 import operator
@@ -20,6 +20,22 @@ ALL_SYSTEMS = set(["n150", "n300", "llmbox", "tg", "p150", "p300"])
 _current_device = None
 _current_device_target: Optional[str] = None
 _current_device_mesh_shape: Optional[Tuple[int, int]] = None
+
+
+def json_string_as_dict(json_string):
+    if json_string == "":
+        return {}
+
+    # Flatbuffers emits 'nan' and 'inf'
+    # But Python's JSON accepts only 'NaN' and 'Infinity' and nothing else
+    # We include the comma to avoid replacing 'inf' in contexts like 'info'
+    json_string = re.sub(r"\bnan\b", "NaN", json_string)
+    json_string = re.sub(r"\binf\b", "Infinity", json_string)
+    return json.loads(json_string)
+
+
+def fbb_as_dict(bin):
+    return json_string_as_dict(bin.as_json())
 
 
 def _get_device_for_target(target: str, mesh_shape: Tuple[int, int], pytestconfig):
@@ -43,8 +59,10 @@ def _get_device_for_target(target: str, mesh_shape: Tuple[int, int], pytestconfi
             print(
                 f"Found new target {target} with mesh shape {mesh_shape}, closing device for {_current_device_target} with {_current_device_mesh_shape}"
             )
-            ttrt.runtime.close_mesh_device(_current_device)
-            ttrt.runtime.set_fabric_config(ttrt.runtime.FabricConfig.DISABLED)
+            tt_runtime.runtime.close_mesh_device(_current_device)
+            tt_runtime.runtime.set_fabric_config(
+                tt_runtime.runtime.FabricConfig.DISABLED
+            )
             _current_device = None
             _current_device_target = None
             _current_device_mesh_shape = None
@@ -52,12 +70,12 @@ def _get_device_for_target(target: str, mesh_shape: Tuple[int, int], pytestconfi
     # Open new device for target
     print(f"Opening device for {target} with mesh shape {mesh_shape}")
 
-    mesh_options = ttrt.runtime.MeshDeviceOptions()
+    mesh_options = tt_runtime.runtime.MeshDeviceOptions()
 
     if pytestconfig.getoption("--disable-eth-dispatch"):
-        mesh_options.dispatch_core_type = ttrt.runtime.DispatchCoreType.WORKER
+        mesh_options.dispatch_core_type = tt_runtime.runtime.DispatchCoreType.WORKER
     else:
-        mesh_options.dispatch_core_type = ttrt.runtime.DispatchCoreType.ETH
+        mesh_options.dispatch_core_type = tt_runtime.runtime.DispatchCoreType.ETH
 
     # Start with a small mesh shape that should work for most tests
     # Tests requiring larger meshes will be handled appropriately
@@ -66,16 +84,16 @@ def _get_device_for_target(target: str, mesh_shape: Tuple[int, int], pytestconfi
     device_runtime_enum = None
 
     if target == "ttnn":
-        device_runtime_enum = ttrt.runtime.DeviceRuntime.TTNN
+        device_runtime_enum = tt_runtime.runtime.DeviceRuntime.TTNN
     elif target == "ttmetal":
-        device_runtime_enum = ttrt.runtime.DeviceRuntime.TTMetal
+        device_runtime_enum = tt_runtime.runtime.DeviceRuntime.TTMetal
     else:
         raise ValueError(f"Only TTNN and TTMetal devices are supported, got {target}")
 
-    ttrt.runtime.set_current_device_runtime(device_runtime_enum)
+    tt_runtime.runtime.set_current_device_runtime(device_runtime_enum)
     if math.prod(mesh_shape) > 1:
-        ttrt.runtime.set_fabric_config(ttrt.runtime.FabricConfig.FABRIC_1D)
-    device = ttrt.runtime.open_mesh_device(mesh_options)
+        tt_runtime.runtime.set_fabric_config(tt_runtime.runtime.FabricConfig.FABRIC_1D)
+    device = tt_runtime.runtime.open_mesh_device(mesh_options)
     print(
         f"Device opened for test session with target {target} & mesh shape {mesh_options.mesh_shape}."
     )
@@ -104,8 +122,8 @@ def log_global_env_facts(record_testsuite_property, pytestconfig):
         - card: from `get_board_id()`, the type of card these tests are running on
         - git_sha: current git commit SHA of the repository
     """
-    system_desc = ttrt.binary.fbb_as_dict(
-        ttrt.binary.load_system_desc_from_path(pytestconfig.option.sys_desc)
+    system_desc = fbb_as_dict(
+        tt_runtime.binary.load_system_desc_from_path(pytestconfig.option.sys_desc)
     )["system_desc"]
     record_testsuite_property("card", get_board_id(system_desc))
 
@@ -467,8 +485,8 @@ def pytest_runtest_call(item: pytest.Item):
 def pytest_collection_modifyitems(config, items):
     valid_items = []
     deselected = []
-    system_desc = ttrt.binary.fbb_as_dict(
-        ttrt.binary.load_system_desc_from_path(config.option.sys_desc)
+    system_desc = fbb_as_dict(
+        tt_runtime.binary.load_system_desc_from_path(config.option.sys_desc)
     )["system_desc"]
 
     skip_opmodel = pytest.mark.skip(reason="Test requires --require-opmodel flag")
@@ -567,7 +585,7 @@ def pytest_sessionfinish(session):
     global _current_device, _current_device_target, _current_device_mesh_shape
     if _current_device is not None:
         print("Closing device for end of session")
-        ttrt.runtime.close_mesh_device(_current_device)
+        tt_runtime.runtime.close_mesh_device(_current_device)
         _current_device = None
         _current_device_target = None
         _current_device_mesh_shape = None

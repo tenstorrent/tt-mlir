@@ -34,46 +34,7 @@ from builder.ttir.ttir_builder import TTIRBuilder
 from builder.stablehlo.stablehlo_builder import StableHLOBuilder
 from builder.ttnn.ttnn_builder import TTNNBuilder
 from builder.d2m.d2m_builder import D2MBuilder
-
-# Imports for runtime execution
-import ttrt.runtime
-from ttrt.common.util import (
-    Logger,
-    FileManager,
-    Binary,
-    get_atol_rtol_pcc,
-    parse_fabric_config,
-    ttrt_datatype_to_torch_dtype,
-    create_tensor,
-    convert_input_layouts,
-)
-
-
-# ----- Exception Classes -----
-
-
-class TTBuilderCompileException(Exception):
-    """Exception raised when builder compilation fails during compile_ttir_to_flatbuffer."""
-
-    pass
-
-
-class TTBuilderRuntimeException(Exception):
-    """Exception raised when compiled builder code fails during runtime execution.
-
-    This exception is reserved for future use when runtime execution is implemented.
-    """
-
-    pass
-
-
-class TTBuilderGoldenException(Exception):
-    """Exception raised when builder output doesn't match expected golden results.
-
-    This exception is reserved for future use when golden verification is implemented.
-    """
-
-    pass
+from builder.base.builder_runtime import *
 
 
 # ----- Shared Helper Functions -----
@@ -393,7 +354,7 @@ def build_module(
     module_dump: bool = False,
     base: Optional[str] = None,
     output_root: str = ".",
-):
+) -> Tuple[Module, Union[TTIRBuilder, StableHLOBuilder, TTNNBuilder, D2MBuilder]]:
     """
     Define a MLIR module specified as a python function.
 
@@ -432,8 +393,8 @@ def build_module(
 
     Returns
     -------
-    Tuple[Module, TTIRBuilder]
-        A tuple containing the MLIR module and the TTIRBuilder instance
+    Tuple[Module, Union[TTIRBuilder, StableHLOBuilder, TTNNBuilder, D2MBuilder]]
+        A tuple containing the MLIR module and the Builder instance
 
     Example
     -------
@@ -525,7 +486,7 @@ def build_module(
 
                 result = fn(*inputs, builder)
 
-                outputs = result if hasattr(result, "__iter__") else (result,)
+                outputs = result if hasattr(result, "__iter__") else [result]
                 output_goldens: Dict[Operand, GoldenMapTensor] = {}
                 for op in outputs:
                     output_goldens[op] = builder._get_golden_tensor(op)
@@ -1678,6 +1639,7 @@ def compile_ttir_module_to_flatbuffer(
     )
     output_file_fbb = ".".join([output_file_mlir, target_extension])
 
+    # We need to generate golden dictionary before pipeline run because pipeline run modifies the graph in place.
     goldens = dict(builder.golden_map) if goldens is None else goldens
     golden_tensors: Dict[str, Dict[int, GoldenTensor]] = {}
 
@@ -1710,240 +1672,6 @@ def compile_ttir_module_to_flatbuffer(
     print(f"{target} flatbuffer created successfully at: {output_file_fbb}")
 
     return output_file_mlir, goldens
-
-
-def execute_fb(
-    fb_path: str,
-    goldens: Dict[Operand, GoldenMapTensor],
-    pcc: float = 0.99,
-    atol: float = 1e-08,
-    rtol: float = 1e-05,
-    disable_golden: bool = False,
-    device=None,  # Optional device parameter for fixture reuse
-    check_atol: bool = False,
-    check_rtol: bool = False,
-) -> None:
-    """
-    Takes a flatbuffer path `fb`, and executes it with random inputs supplied by `input_shapes` and `input_dtypes`
-    """
-    from golden.callback import (
-        CallbackRuntimeConfig,
-        pre_op_get_callback_fn,
-        post_op_get_callback_fn,
-    )
-
-    assert device is not None
-
-    logger = Logger()
-    logging = logger.get_logger()
-    file_manager = FileManager(logger)
-
-    print(f"Begining flatbuffer execution on {fb_path}")
-
-    bin = Binary(logger, file_manager, fb_path)
-
-    logging.info(f"evaluating binary={bin.file_path}")
-
-    program_indices = []
-    program_indices.extend(range(bin.get_num_programs()))
-
-    if not disable_golden:
-        golden_torch_tensors = {}
-
-        for loc, golden in goldens.items():
-            golden_torch_tensors[loc] = golden.golden_map_tensor_as_torch_tensors()
-
-        goldens = golden_torch_tensors
-        # Set up callback runtime config and register DebugHooks once per execution
-        callback_runtime_config = CallbackRuntimeConfig(
-            device=device,
-            pcc=pcc,
-            atol=atol,
-            rtol=rtol,
-            check_atol=check_atol,
-            check_rtol=check_rtol,
-            goldens=goldens,
-        )
-        ttrt.runtime.DebugHooks.get(
-            pre_op_get_callback_fn(callback_runtime_config),
-            post_op_get_callback_fn(callback_runtime_config),
-        )
-
-    for program_index in program_indices:
-
-        print(f"evaluating program={program_index} for binary={bin.file_path}")
-
-        program = bin.get_program(program_index)
-
-        # Skip private programs (e.g. subgraphs created by const-eval)
-        if program.is_private():
-            continue
-
-        # Fetch the golden inputs from the builder golden_map
-        golden_inputs_torch = []
-        for i in range(program.num_inputs()):
-            golden_tensor = {}
-
-            if not disable_golden:
-                golden_tensor = goldens[f"input_{i}"]
-
-                if len(golden_tensor) != 0:
-                    golden_inputs_torch.append(golden_tensor[0])
-
-        program.populate_inputs(
-            torch.randn,
-            golden_inputs_torch,
-        )
-        program.populate_outputs(torch.zeros)
-
-        inputs = []
-        outputs = []
-        for i in program.input_tensors:
-            new_input = create_tensor(i)
-            inputs.append(new_input)
-
-        for i in program.output_tensors:
-            new_output = create_tensor(i)
-            outputs.append(new_output)
-
-        # load output golden tensors from the builder golden_map
-        if not disable_golden:
-            golden_outputs_torch = []
-            for idx in range(0, len(program.output_tensors)):
-                golden_tensor = {}
-                golden_tensor = goldens[f"output_{idx}"]
-
-                if len(golden_tensor) != 0:
-                    golden_outputs_torch.append(golden_tensor[0])
-
-        # pre-upload inputs
-        inputs = convert_input_layouts(device, inputs, bin.fbb, program_index)
-
-        logging.debug(f"starting exectution of binary={bin.file_path}")
-
-        # Actually execute the flatbuffer
-        start_submit = time.perf_counter_ns()
-        try:
-            runtime_outputs = ttrt.runtime.submit(
-                device,
-                bin.fbb,
-                program_index,
-                inputs,
-            )
-            ttrt.runtime.wait(runtime_outputs)
-        except Exception as e:
-            raise TTBuilderRuntimeException(e)
-        finally:
-            ttrt.runtime.unregister_hooks()
-
-        end_submit = time.perf_counter_ns()
-        e2e_duration_nanoseconds_submit = end_submit - start_submit
-
-        e2e_duration_nanoseconds_output = 0
-        golden_check_fail = False
-        # Copy output tensors from device & check goldens
-        for i, runtime_output_tensor in enumerate(runtime_outputs):
-            start_get_output = time.perf_counter_ns()
-            output_host = ttrt.runtime.to_host(runtime_output_tensor, untilize=True)[0]
-            end_get_output = time.perf_counter_ns()
-            e2e_duration_nanoseconds_output += end_get_output - start_get_output
-
-            ttrt.runtime.memcpy(
-                outputs[i],
-                output_host,
-            )
-            ttrt.runtime.deallocate_tensor(runtime_output_tensor, force=True)
-
-            output_tensor_torch = None
-
-            if not disable_golden:
-                isEmptyTensor = not all(outputs[i].get_shape())
-                data_buffer = bytearray(outputs[i].get_data_buffer())
-                if isEmptyTensor and len(data_buffer) == 0:
-                    # Create empty tensor.
-                    output_tensor_torch = torch.empty(
-                        outputs[i].get_shape(),
-                        dtype=ttrt_datatype_to_torch_dtype(outputs[i].get_dtype()),
-                    )
-                elif not isEmptyTensor and len(data_buffer) > 0:
-                    # Create regular tensor.
-                    output_tensor_torch = torch.frombuffer(
-                        data_buffer,
-                        dtype=ttrt_datatype_to_torch_dtype(outputs[i].get_dtype()),
-                    ).reshape(outputs[i].get_shape())
-                else:
-                    raise Exception(
-                        f"Failed: Tensor shape=({outputs[i].get_shape()}) and data buffer size={len(data_buffer)} do not match."
-                    )
-
-            # Compare program level golden.
-            golden_tensor_torch = None
-            if (not disable_golden) and (i < len(golden_outputs_torch)):
-                print(f"executing program level golden comparison for output_{i}")
-                golden_tensor_torch = golden_outputs_torch[i]
-                if golden_tensor_torch.shape != output_tensor_torch.shape:
-                    raise TTBuilderGoldenException(
-                        f"Failed: program-level output doesn't match golden shape! golden_shape={golden_tensor_torch.shape}, output_shape={output_tensor_torch.shape}"
-                    )
-
-            # PCC check.
-            cal_atol, cal_rtol, cal_pcc, _ = get_atol_rtol_pcc(
-                golden_tensor_torch,
-                output_tensor_torch,
-                atol,
-                rtol,
-                logging,
-            )
-
-            # Check PCC
-            if cal_pcc < pcc:
-                golden_check_fail = True
-                raise TTBuilderGoldenException(
-                    f"Failed: program-level output golden comparison failed, actual_pcc={cal_pcc} < expected_pcc={pcc}"
-                )
-            else:
-                print(f"Program level golden for output_{i} matched. pcc={cal_pcc}")
-
-            # Check atol if requested
-            if check_atol and cal_atol > atol:
-                golden_check_fail = True
-                raise TTBuilderGoldenException(
-                    f"Failed: program-level output atol check failed, actual_atol={cal_atol} > expected_atol={atol}"
-                )
-            elif check_atol:
-                print(
-                    f"Program level atol check for output_{i} passed. atol={cal_atol}"
-                )
-
-            # Check rtol if requested
-            if check_rtol and cal_rtol > rtol:
-                golden_check_fail = True
-                raise TTBuilderGoldenException(
-                    f"Failed: program-level output rtol check failed, actual_rtol={cal_rtol} > expected_rtol={rtol}"
-                )
-            elif check_rtol:
-                print(
-                    f"Program level rtol check for output_{i} passed. rtol={cal_rtol}"
-                )
-
-        print("Adding program results...")
-        bin.add_program_results(
-            program_index,
-            1,
-            e2e_duration_nanoseconds_submit,
-            e2e_duration_nanoseconds_output,
-        )
-
-        print(f"input tensors for program={program_index}")
-        for tensor in program.input_tensors:
-            logging.debug(f"{tensor}\n")
-
-        print(f"output tensors for program={program_index}")
-        for tensor in program.output_tensors:
-            logging.debug(f"{tensor}\n")
-
-        if not disable_golden or golden_check_fail:
-            return callback_runtime_config.golden_report
 
 
 def load_mlir_file(
@@ -2043,7 +1771,7 @@ def experimental_build_stablehlo_module(
 
                 result = fn(*inputs, stablehlo_builder)
 
-                outputs = result if hasattr(result, "__iter__") else (result,)
+                outputs = result if hasattr(result, "__iter__") else [result]
                 output_goldens: Dict[Operand, GoldenMapTensor] = {}
                 for op in outputs:
                     output_goldens[op] = stablehlo_builder._get_golden_tensor(op)
