@@ -20,6 +20,7 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Quant/IR/QuantTypes.h"
+#include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/Dialect/Traits.h"
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/Builders.h"
@@ -4076,6 +4077,104 @@ static mlir::OpFoldResult foldConsecutivePermute(mlir::tt::ttir::PermuteOp op) {
   return nullptr;
 }
 
+// Fold permute that follows reshape into the reshape by updating the reshape's
+// shape to the permute's output shape.
+static mlir::OpFoldResult
+foldPermuteAfterReshape(mlir::tt::ttir::PermuteOp op) {
+  // Check if the permute input is defined by a reshape.
+  auto reshapeOp = op.getInput().getDefiningOp<ttir::ReshapeOp>();
+  if (!reshapeOp) {
+    return nullptr;
+  }
+
+  // Get shapes for reshape and permute operations.
+  auto reshapeInputType =
+      mlir::cast<mlir::RankedTensorType>(reshapeOp.getInput().getType());
+  auto reshapeOutputType =
+      mlir::cast<mlir::RankedTensorType>(reshapeOp.getType());
+  auto permuteOutputType = mlir::cast<mlir::RankedTensorType>(op.getType());
+
+  auto reshapeInputShape = reshapeInputType.getShape();
+  auto reshapeOutputShape = reshapeOutputType.getShape();
+  auto permuteOutputShape = permuteOutputType.getShape();
+
+  // Both reshape and permute must preserve rank.
+  if (reshapeInputShape.size() != reshapeOutputShape.size() ||
+      reshapeOutputShape.size() != permuteOutputShape.size()) {
+    return nullptr;
+  }
+
+  // Get axes mapping for reshape: reshape input -> reshape output (with
+  // default range [0, 1, 2, ...])
+  auto reshapeMapping = ttmlir::utils::getReshapeAxesMapping(
+      reshapeInputShape, reshapeOutputShape);
+  if (!reshapeMapping) {
+    return nullptr;
+  }
+
+  // Apply permutation to the reshape mapping, flatten it, and compare with
+  // the range [0, 1, 2, ..., rank-1].
+  auto permutation = op.getPermutation();
+  llvm::ArrayRef<llvm::SmallVector<int64_t>> reshapeMappingRef(*reshapeMapping);
+  auto permutedMapping =
+      ttmlir::utils::applyPermutation(reshapeMappingRef, permutation);
+  auto permutedFlattened = ttmlir::utils::flatten(permutedMapping);
+
+  llvm::SmallVector<int64_t> expectedRange =
+      llvm::to_vector(llvm::seq<int64_t>(0, reshapeInputShape.size()));
+
+  // If applying permutation to the reshape mapping gives us the identity
+  // mapping, we can fold by updating the reshape's shape.
+  if (!llvm::equal(permutedFlattened, expectedRange)) {
+    return nullptr;
+  }
+
+  // Update the reshape's shape to the permute's output shape and return the
+  // reshape's result.
+  llvm::SmallVector<int32_t> newShape(permuteOutputShape.begin(),
+                                      permuteOutputShape.end());
+  llvm::SmallVector<mlir::Attribute> shapeAttrs;
+  for (int32_t dim : newShape) {
+    shapeAttrs.push_back(mlir::IntegerAttr::get(
+        mlir::IntegerType::get(op.getContext(), 32), dim));
+  }
+  auto newShapeAttr = mlir::ArrayAttr::get(op.getContext(), shapeAttrs);
+
+  // Move the empty op that defines the permute's output operand before the
+  // reshape to ensure dominance when assigning it to the reshape's output
+  // operand. Check for both ttir::EmptyOp and tensor::EmptyOp.
+  Operation *permuteEmptyOp = nullptr;
+  if (auto ttirEmpty = op.getOutput().getDefiningOp<ttir::EmptyOp>()) {
+    permuteEmptyOp = ttirEmpty.getOperation();
+  } else if (auto tensorEmpty =
+                 op.getOutput().getDefiningOp<tensor::EmptyOp>()) {
+    permuteEmptyOp = tensorEmpty.getOperation();
+  }
+
+  if (permuteEmptyOp) {
+    // Ensure both operations are in the same block.
+    if (permuteEmptyOp->getBlock() != reshapeOp->getBlock()) {
+      return nullptr;
+    }
+    // Move the empty op before the reshape if it's not already before it.
+    if (!permuteEmptyOp->isBeforeInBlock(reshapeOp)) {
+      permuteEmptyOp->moveBefore(reshapeOp);
+    }
+  } else {
+    // If the output is not defined by an empty op (e.g., it's a block
+    // argument), we cannot proceed with the fold.
+    return nullptr;
+  }
+
+  reshapeOp.setShapeAttr(newShapeAttr);
+
+  // Update the reshape's output to use the permute's output operand.
+  reshapeOp.getOutputMutable().assign(op.getOutput());
+  reshapeOp.getResult().setType(permuteOutputType);
+
+  return reshapeOp.getResult();
+}
+
 // PermuteOp folder
 mlir::OpFoldResult mlir::tt::ttir::PermuteOp::fold(FoldAdaptor adaptor) {
 
@@ -4084,6 +4183,10 @@ mlir::OpFoldResult mlir::tt::ttir::PermuteOp::fold(FoldAdaptor adaptor) {
   }
 
   if (auto foldResult = foldConsecutivePermute(*this)) {
+    return foldResult;
+  }
+
+  if (auto foldResult = foldPermuteAfterReshape(*this)) {
     return foldResult;
   }
 
@@ -4103,97 +4206,6 @@ mlir::LogicalResult mlir::tt::ttir::FullOp::verify() {
   }
 
   return mlir::success();
-}
-
-// PermuteOp canonicalization
-void mlir::tt::ttir::PermuteOp::getCanonicalizationPatterns(
-    mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
-  // NOLINTBEGIN(clang-analyzer-core.StackAddressEscape)
-  // Canonicalize reshape -> permute into a single reshape if the axes mappings
-  // are equivalent.
-  patterns.add(+[](ttir::PermuteOp permuteOp, mlir::PatternRewriter &rewriter) {
-    // Check if the permute input is defined by a reshape.
-    llvm::outs() << "PermuteOp canonicalization\n";
-    auto reshapeOp = permuteOp.getInput().getDefiningOp<ttir::ReshapeOp>();
-    if (!reshapeOp) {
-      llvm::outs() << "No reshape op found\n";
-      return mlir::failure();
-    }
-
-    // Get shapes for reshape and permute operations.
-    auto reshapeInputType =
-        mlir::cast<mlir::RankedTensorType>(reshapeOp.getInput().getType());
-    auto reshapeOutputType =
-        mlir::cast<mlir::RankedTensorType>(reshapeOp.getType());
-    auto permuteOutputType =
-        mlir::cast<mlir::RankedTensorType>(permuteOp.getType());
-
-    auto reshapeInputShape = reshapeInputType.getShape();
-    auto reshapeOutputShape = reshapeOutputType.getShape();
-    auto permuteOutputShape = permuteOutputType.getShape();
-
-    // Both reshape and permute must preserve rank.
-    if (reshapeInputShape.size() != reshapeOutputShape.size() ||
-        reshapeOutputShape.size() != permuteOutputShape.size()) {
-      llvm::outs() << "Rank mismatch\n";
-      return mlir::failure();
-    }
-
-    // Get axes mapping for reshape: reshape input -> reshape output (with
-    // default range [0, 1, 2, ...])
-    auto reshapeMapping = ttmlir::utils::getReshapeAxesMapping(
-        reshapeInputShape, reshapeOutputShape);
-    if (!reshapeMapping) {
-      llvm::outs() << "No reshape mapping\n";
-      return mlir::failure();
-    }
-
-    // Apply permutation to the reshape mapping, flatten it, and compare with
-    // the range [0, 1, 2, ..., rank-1].
-    auto permutation = permuteOp.getPermutation();
-    llvm::ArrayRef<llvm::SmallVector<int64_t>> reshapeMappingRef(
-        *reshapeMapping);
-    auto permutedMapping =
-        ttmlir::utils::applyPermutation(reshapeMappingRef, permutation);
-    auto permutedFlattened = ttmlir::utils::flatten(permutedMapping);
-
-    llvm::SmallVector<int64_t> expectedRange =
-        llvm::to_vector(llvm::seq<int64_t>(0, reshapeInputShape.size()));
-
-    // If applying permutation to the reshape mapping gives us the identity
-    // mapping, we can replace with a single reshape.
-    if (!llvm::equal(permutedFlattened, expectedRange)) {
-      llvm::outs() << "Permuted mapping is not the identity mapping\n";
-      llvm::outs() << "Permuted mapping: ";
-      for (const auto &group : permutedMapping) {
-        llvm::outs() << "[";
-        for (const auto &axis : group) {
-          llvm::outs() << axis << " ";
-        }
-        llvm::outs() << "] ";
-      }
-      llvm::outs() << "\n";
-      llvm::outs() << "Expected range: ";
-      for (const auto &axis : expectedRange) {
-        llvm::outs() << axis << " ";
-      }
-      llvm::outs() << "\n";
-      return mlir::failure();
-    }
-
-    // Create a new reshape from the original reshape input to the permute
-    // output.
-    llvm::SmallVector<int32_t> newShape(permuteOutputShape.begin(),
-                                        permuteOutputShape.end());
-    auto newShapeAttr = rewriter.getI32ArrayAttr(newShape);
-
-    ttir::utils::replaceOpWithNewDPSOp<ttir::ReshapeOp>(
-        rewriter, permuteOp, permuteOutputType, reshapeOp.getInput(),
-        newShapeAttr);
-
-    return mlir::success();
-  });
-  // NOLINTEND(clang-analyzer-core.StackAddressEscape)
 }
 
 static std::optional<std::string>
