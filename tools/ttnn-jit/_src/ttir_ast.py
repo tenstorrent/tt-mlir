@@ -70,19 +70,6 @@ class TTIRCompiler(ast.NodeVisitor):
             case _:
                 raise ValueError(f"Unsupported dtype: {dtype}")
 
-    def _ttcore_dtype_from_ttnn_dtype(self, dtype):
-        match int(dtype):
-            case 0:
-                return ttcore.DataType.BFloat16
-            case 1:
-                return ttcore.DataType.Float32
-            case 3:
-                return ttcore.DataType.BFP_BFloat8
-            case 7:
-                return ttcore.DataType.Int32
-            case _:
-                raise ValueError(f"Unsupported dtype: {dtype}")
-
     def _ttcore_dtype_from_mlir_dtype(self, dtype):
         dtype_str = str(dtype)
         match dtype_str:

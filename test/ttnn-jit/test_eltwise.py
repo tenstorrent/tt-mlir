@@ -165,7 +165,15 @@ def rsqrt(input_tensor):
     return ttnn.rsqrt(input_tensor)
 
 
-@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize(
+    "dtype, ttnn_dtype",
+    [
+        (torch.float32, None),
+        (torch.bfloat16, None),
+        (torch.bfloat16, ttnn.DataType.BFLOAT8_B),
+    ],
+    ids=["f32", "bf16", "bfp8"],
+)
 @pytest.mark.parametrize(
     "op",
     [
@@ -185,7 +193,7 @@ def rsqrt(input_tensor):
     ids=[f"{shape}" for shape in DRAM_INTERLEAVED_SHAPES],
 )
 @pytest.mark.parametrize("graph_capture", [True, False])
-def test_unary_op_dram(device, shape, dtype, op, graph_capture):
+def test_unary_op_dram(device, shape, dtype, ttnn_dtype, op, graph_capture):
     if op in [log, ceil, floor, logical_not] and dtype == torch.float32:
         pytest.xfail("failing allclose for some shapes for float32")
 
@@ -199,6 +207,7 @@ def test_unary_op_dram(device, shape, dtype, op, graph_capture):
         num_inputs=1,
         buffer_type=ttnn.BufferType.DRAM,
         graph_capture=graph_capture,
+        ttnn_dtype=ttnn_dtype,
     )
 
 
@@ -210,7 +219,15 @@ def test_unary_op_dram(device, shape, dtype, op, graph_capture):
         for shape, grid, layout in SHARDED_SHAPE_GRID_LAYOUTS
     ],
 )
-@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
+@pytest.mark.parametrize(
+    "dtype, ttnn_dtype",
+    [
+        (torch.float32, None),
+        (torch.bfloat16, None),
+        (torch.bfloat16, ttnn.DataType.BFLOAT8_B),
+    ],
+    ids=["f32", "bf16", "bfp8"],
+)
 @pytest.mark.parametrize(
     "op",
     [
@@ -229,7 +246,9 @@ def test_unary_op_dram(device, shape, dtype, op, graph_capture):
     ],
 )
 @pytest.mark.parametrize("graph_capture", [True, False])
-def test_unary_op_l1(device, shape, max_grid, memory_layout, dtype, op, graph_capture):
+def test_unary_op_l1(
+    device, shape, max_grid, memory_layout, dtype, ttnn_dtype, op, graph_capture
+):
     if op in [log, ceil, floor, rsqrt, logical_not] and dtype == torch.float32:
         pytest.xfail("failing allclose for some shapes for float32")
 
@@ -243,6 +262,7 @@ def test_unary_op_l1(device, shape, max_grid, memory_layout, dtype, op, graph_ca
         buffer_type=ttnn.BufferType.L1,
         graph_capture=graph_capture,
         memory_layout=memory_layout,
+        ttnn_dtype=ttnn_dtype,
     )
 
 
@@ -748,47 +768,3 @@ def test_interop_jit_and_ttnn_to_binary_dram(
         interop_result.memory_config(), golden_result.memory_config()
     )
     assert all_close_check(interop_result, golden_result)
-
-
-# ------------------------------------------------------------
-# BFP8 tests
-# ------------------------------------------------------------
-
-
-@pytest.mark.parametrize(
-    "shape, max_grid",
-    [
-        ((64, 64), (0, 0)),
-        ((128, 128), (0, 0)),
-        ((256, 256), (0, 0)),
-        ((256, 256), (7, 7)),
-    ],
-)
-@pytest.mark.parametrize("graph_capture", [False, True])
-def test_bfp8_exp(device, shape, max_grid, graph_capture):
-    "Test JIT exp on BFP8 tensor"
-    torch_input = torch.randn(shape, dtype=torch.bfloat16)
-
-    if max_grid == (0, 0):
-        temp_tensor = create_dram_tensor(device, shape, torch.bfloat16)
-    else:
-        temp_tensor = create_sharded_tile_tensor(
-            device, shape, max_grid, torch.bfloat16
-        )
-    memory_config = temp_tensor.memory_config()
-
-    bfp8_tensor = ttnn.from_torch(
-        torch_input,
-        dtype=ttnn.DataType.BFLOAT8_B,
-        layout=ttnn.TILE_LAYOUT,
-        device=device,
-        memory_config=memory_config,
-    )
-
-    compiled_exp = ttnn_jit.jit(
-        debug=True, max_grid=max_grid, graph_capture=graph_capture
-    )(exp)
-    jit_result = compiled_exp(bfp8_tensor)
-    golden_result = ttnn.exp(bfp8_tensor)
-
-    assert all_close_check(jit_result, golden_result)
