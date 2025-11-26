@@ -577,9 +577,9 @@ private:
       return {op, value};
     }
 
-    int valueIndex = std::distance(
-        loadCachedOp.getResults().begin(),
-        llvm::find(loadCachedOp.getResults(), value));
+    int valueIndex =
+        std::distance(loadCachedOp.getResults().begin(),
+                      llvm::find(loadCachedOp.getResults(), value));
 
     auto callee = loadCachedOp.getCallee();
     auto calleeFunc = mlir::dyn_cast<func::FuncOp>(
