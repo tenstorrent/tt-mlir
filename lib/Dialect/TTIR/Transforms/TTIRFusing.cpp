@@ -1846,10 +1846,11 @@ private:
         shape[SPATIAL_HEIGHT_DIM] * shape[SPATIAL_WIDTH_DIM];
 
     SmallVector<int32_t> newShapeI32(newShape.begin(), newShape.end());
-    return ttir::utils::createDPSOp<ReshapeOp>(
-        rewriter, ttmlir::utils::appendLocationSuffix(loc, "_input_reshape"),
-        newShape, inputType.getElementType(), inputType.getEncoding(), input,
-        rewriter.getI32ArrayAttr(newShapeI32));
+    auto outputType = RankedTensorType::get(
+        newShape, inputType.getElementType(), inputType.getEncoding());
+    return rewriter.create<ReshapeOp>(
+        ttmlir::utils::appendLocationSuffix(loc, "_input_reshape"), outputType,
+        input, rewriter.getI32ArrayAttr(newShapeI32));
   }
 
   static MeanOp createMean(mlir::PatternRewriter &rewriter, Location loc,
@@ -1863,9 +1864,9 @@ private:
     auto outputType = RankedTensorType::get(
         outputShape, reshapedType.getElementType(), reshapedType.getEncoding());
 
-    return ttir::utils::createDPSOp<MeanOp>(
-        rewriter, ttmlir::utils::appendLocationSuffix(loc, "_mean"), outputType,
-        reshaped, /*keep_dim=*/rewriter.getBoolAttr(true),
+    return rewriter.create<MeanOp>(
+        ttmlir::utils::appendLocationSuffix(loc, "_mean"), outputType, reshaped,
+        /*keep_dim=*/rewriter.getBoolAttr(true),
         /*dim_arg=*/
         rewriter.getArrayAttr({rewriter.getI32IntegerAttr(SPATIAL_WIDTH_DIM)}));
   }
@@ -1884,10 +1885,11 @@ private:
     }
 
     SmallVector<int32_t> newShapeI32(newShape.begin(), newShape.end());
-    return ttir::utils::createDPSOp<ReshapeOp>(
-        rewriter, ttmlir::utils::appendLocationSuffix(loc, "_output_reshape"),
-        newShape, meanType.getElementType(), meanType.getEncoding(), meanResult,
-        rewriter.getI32ArrayAttr(newShapeI32));
+    auto outputType = RankedTensorType::get(newShape, meanType.getElementType(),
+                                            meanType.getEncoding());
+    return rewriter.create<ReshapeOp>(
+        ttmlir::utils::appendLocationSuffix(loc, "_output_reshape"), outputType,
+        meanResult, rewriter.getI32ArrayAttr(newShapeI32));
   }
 };
 

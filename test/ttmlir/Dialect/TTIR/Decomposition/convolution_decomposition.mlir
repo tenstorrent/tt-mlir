@@ -88,9 +88,8 @@ func.func @test_conv2d_sliced(%arg0: tensor<2x4x32x32xbf16>, %arg1: tensor<16x4x
 func.func @test_conv_not_transposed() -> tensor<1x2048x16x16xbf16> {
     %0 = ttir.empty() : tensor<1x2048x16x16xbf16>
     %1 = ttir.empty() : tensor<3x3x2048x1xbf16>
-    %2 = ttir.empty() : tensor<1x2048x16x16xbf16>
     //CHECK: "ttir.conv2d"
-    %3 = "ttir.convolution"(%0, %1, %2) <{
+    %2 = "ttir.convolution"(%0, %1) <{
         batch_group_count = 1 : i64,
         convolution_layout = #ttir<
             convolution_layout input_batch = 0,
@@ -108,7 +107,7 @@ func.func @test_conv_not_transposed() -> tensor<1x2048x16x16xbf16> {
         weight_dilation = array<i64: 1, 1>,
         window_reversal = array<i1: false, false>,
         window_strides = array<i64: 1, 1>
-        }> : (tensor<1x2048x16x16xbf16>, tensor<3x3x2048x1xbf16>, tensor<1x2048x16x16xbf16>) -> tensor<1x2048x16x16xbf16>
-    return %3 : tensor<1x2048x16x16xbf16>
+        }> : (tensor<1x2048x16x16xbf16>, tensor<3x3x2048x1xbf16>) -> tensor<1x2048x16x16xbf16>
+    return %2 : tensor<1x2048x16x16xbf16>
   }
 }

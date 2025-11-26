@@ -243,12 +243,6 @@ TEST_F(SchedulerBase, SplitQueryKeyValueAndSplitHeadsOp) {
 
   mlir::Value inputTensor = builder.create<ttir::EmptyOp>(
       builder.getUnknownLoc(), inputShape, builder.getF32Type());
-  mlir::Value queryOutput = builder.create<ttir::EmptyOp>(
-      builder.getUnknownLoc(), outputShape, builder.getF32Type());
-  mlir::Value keyOutput = builder.create<ttir::EmptyOp>(
-      builder.getUnknownLoc(), outputShape, builder.getF32Type());
-  mlir::Value valueOutput = builder.create<ttir::EmptyOp>(
-      builder.getUnknownLoc(), outputShape, builder.getF32Type());
 
   mlir::Type queryType =
       mlir::RankedTensorType::get(outputShape, builder.getF32Type());
@@ -259,17 +253,18 @@ TEST_F(SchedulerBase, SplitQueryKeyValueAndSplitHeadsOp) {
 
   auto splitOp = builder.create<ttir::SplitQueryKeyValueAndSplitHeadsOp>(
       builder.getUnknownLoc(), queryType, keyType, valueType, inputTensor,
-      /*kv_input_tensor=*/nullptr, queryOutput, keyOutput, valueOutput,
-      builder.getUI32IntegerAttr(numHeads), /*num_kv_heads=*/nullptr,
-      builder.getBoolAttr(false));
+      /*kv_input_tensor=*/nullptr, builder.getUI32IntegerAttr(numHeads),
+      /*num_kv_heads=*/nullptr, builder.getBoolAttr(false));
 
+  auto outputType =
+      mlir::RankedTensorType::get(getTensorShape(), builder.getF32Type());
   mlir::Value arg0 = func.getBody().getBlocks().front().getArgument(0);
   auto queryConsumerOp = builder.create<ttir::AddOp>(
-      builder.getUnknownLoc(), splitOp.getQuery(), arg0, createEmptyTensor());
+      builder.getUnknownLoc(), outputType, splitOp.getQuery(), arg0);
   auto keyConsumerOp = builder.create<ttir::AddOp>(
-      builder.getUnknownLoc(), splitOp.getKey(), arg0, createEmptyTensor());
+      builder.getUnknownLoc(), outputType, splitOp.getKey(), arg0);
   auto valueConsumerOp = builder.create<ttir::AddOp>(
-      builder.getUnknownLoc(), splitOp.getValue(), arg0, createEmptyTensor());
+      builder.getUnknownLoc(), outputType, splitOp.getValue(), arg0);
 
   mlir::tt::scheduler::Scheduler scheduler(&func);
   llvm::SmallVector<mlir::Operation *> scheduleableOps =

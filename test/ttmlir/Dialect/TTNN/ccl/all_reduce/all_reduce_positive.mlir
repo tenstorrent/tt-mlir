@@ -36,6 +36,6 @@ module attributes {} {
   func.func @all_reduce_positive_without_reshapes_folding(%arg0: tensor<1x1x4096x16384xf32>) -> tensor<1x1x4096x16384xf32> {
     %1 = "ttir.all_reduce"(%arg0) <{cluster_axis = 0 : ui32, reduce_type = #ttcore.reduce_type<sum>}> : (tensor<1x1x4096x16384xf32>) -> tensor<1x1x4096x16384xf32>
     // CHECK-NOT: "ttnn.all_reduce"
-    return %0 : tensor<1x1x4096x16384xf32>
+    return %1 : tensor<1x1x4096x16384xf32>
   }
 }
