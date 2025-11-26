@@ -15,6 +15,8 @@
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Affine/LoopUtils.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/Linalg/IR/Linalg.h"
+#include "mlir/Dialect/Linalg/Transforms/Transforms.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/PatternMatch.h"
@@ -1097,6 +1099,114 @@ private:
     return ctx;
   }
 
+  /// Generate copy loops with an optional guard wrapper.
+  /// If guard is non-null, the copy loops are inserted inside the guard's then
+  /// region. Otherwise, they are inserted at the normal position relative to
+  /// loopTemplate.
+  template <bool IsPrologue, typename OpT, typename PairT>
+  static void generateCopyLoopsWithOptionalGuard(
+      IRRewriter &rewriter, Value externalMemref, Operation *loopTemplate,
+      ArrayRef<PairT> copyPairs, const LoopContext &loopTemplateCtx,
+      int64_t maxLoopIterations, scf::IfOp guard) {
+    if (copyPairs.empty()) {
+      return;
+    }
+
+    if (guard) {
+      // Insert copy loops inside the guard's then region.
+      rewriter.setInsertionPointToStart(&guard.getThenRegion().front());
+    } else {
+      // No guard: set insertion point relative to loopTemplate.
+      if constexpr (IsPrologue) {
+        rewriter.setInsertionPoint(loopTemplate);
+      } else {
+        rewriter.setInsertionPointAfter(loopTemplate);
+      }
+    }
+
+    auto forLoop = dyn_cast<affine::AffineForOp>(loopTemplate);
+    if (!forLoop) {
+      // No loop nest - generate inline copies.
+      for (const auto &pair : copyPairs) {
+        OpT op = pair.first;
+        int64_t sliceIdx = pair.second;
+
+        SmallVector<Value> dstIndices(op.getIndices().begin(),
+                                      op.getIndices().end());
+
+        mlir::AffineExpr dstIndexExpr =
+            mlir::getAffineConstantExpr(sliceIdx, rewriter.getContext());
+
+        auto dstMap = op.getAffineMap().insertResult(dstIndexExpr, 0);
+
+        if constexpr (IsPrologue) {
+          auto l1Value = rewriter.create<affine::AffineLoadOp>(
+              op.getLoc(), op.getMemRef(), op.getMap(), op.getIndices());
+
+          rewriter.create<affine::AffineStoreOp>(
+              op.getLoc(), l1Value.getResult(), externalMemref, dstMap,
+              dstIndices);
+        } else {
+          auto dstValue = rewriter.create<affine::AffineLoadOp>(
+              op.getLoc(), externalMemref, dstMap, dstIndices);
+
+          rewriter.create<affine::AffineStoreOp>(
+              op.getLoc(), dstValue.getResult(), op.getMemRef(), op.getMap(),
+              op.getIndices());
+        }
+      }
+      return;
+    }
+
+    // Clone the loop structure and get the mapping.
+    auto [copyLoop, mapper] = cloneLoopNest(rewriter, forLoop);
+
+    // Find innermost loop.
+    auto [innermostLoop, copyLoopIndices] =
+        findInnermostLoopAndIndices(copyLoop);
+
+    // Populate with copy operations at the innermost loop level.
+    rewriter.setInsertionPointToStart(&innermostLoop.getRegion().front());
+
+    for (const auto &pair : copyPairs) {
+      OpT op = pair.first;
+      int64_t sliceIdx = pair.second;
+
+      // Map the original indices to the cloned loop's induction variables.
+      SmallVector<Value> mappedIndices;
+      for (Value idx : op.getIndices()) {
+        Value mappedIdx = mapper.lookupOrDefault(idx);
+        mappedIndices.push_back(mappedIdx);
+      }
+
+      Value dstSliceIndex =
+          rewriter.create<arith::ConstantIndexOp>(op.getLoc(), sliceIdx);
+
+      SmallVector<Value> dstIndices;
+      dstIndices.push_back(dstSliceIndex);
+      dstIndices.append(mappedIndices.begin(), mappedIndices.end());
+
+      auto dstMap = AffineMap::getMultiDimIdentityMap(dstIndices.size(),
+                                                      rewriter.getContext());
+
+      if constexpr (IsPrologue) {
+        auto l1Load = rewriter.create<affine::AffineLoadOp>(
+            op.getLoc(), op.getMemRef(), op.getMap(), mappedIndices);
+
+        rewriter.create<affine::AffineStoreOp>(op.getLoc(), l1Load.getResult(),
+                                               externalMemref, dstMap,
+                                               dstIndices);
+      } else {
+        auto dstLoad = rewriter.create<affine::AffineLoadOp>(
+            op.getLoc(), externalMemref, dstMap, dstIndices);
+
+        rewriter.create<affine::AffineStoreOp>(op.getLoc(), dstLoad.getResult(),
+                                               op.getMemRef(), op.getMap(),
+                                               mappedIndices);
+      }
+    }
+  }
+
   // Generate prologue copy nest (L1 -> DST) ahead of the loop/compute region
   // that uses the original loads.
   // For reductions, wraps the copy in a guard that skips the first iteration.
@@ -1112,16 +1222,14 @@ private:
 
     // For reductions, insert a guard to skip copying on the first iteration.
     // The output CB contains uninitialized data on the first iteration.
+    // We need to insert the guard first, then generate the copy loops inside it.
     scf::IfOp guard = insertGuardForLoopNest(rewriter, loopTemplate->getLoc(),
                                              copyInfo.guardIndices);
-    if (guard) {
-      rewriter.setInsertionPointToStart(&guard.getThenRegion().front());
-    }
 
-    generateCopyLoops</*IsPrologue=*/true, affine::AffineLoadOp,
-                      OpAndIndexOffset<affine::AffineLoadOp>>(
+    generateCopyLoopsWithOptionalGuard</*IsPrologue=*/true, affine::AffineLoadOp,
+                                       OpAndIndexOffset<affine::AffineLoadOp>>(
         rewriter, acquireDst.getResult(), loopTemplate, copyInfo.loads,
-        loopTemplateCtx, maxLoopIterations);
+        loopTemplateCtx, maxLoopIterations, guard);
   }
 
   // Generate epilogue copy nest (DST -> L1) after the loop/compute region that
