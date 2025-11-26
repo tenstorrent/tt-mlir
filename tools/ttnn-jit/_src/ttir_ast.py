@@ -47,6 +47,7 @@ class TTIRCompiler(ast.NodeVisitor):
         self.tensor_args = kwargs.get("_tensor_args", {})
         self._fn_map = discover_dialect_ops("ttnn")
         self.supported_nodes = self.common_nodes
+        self.return_type = None
 
     def _mlir_dtype_from_ttnn_dtype(self, dtype):
         match int(dtype):
@@ -99,6 +100,7 @@ class TTIRCompiler(ast.NodeVisitor):
         with InsertionPoint(self.insert_point), Location.unknown():
             for stmt in node.body:
                 self.visit(stmt)
+        print(f"end of module")
 
     def visit_Return(self, node):
         # TODO: handle more than one return, i.e. tuples, expressions etc.
@@ -107,6 +109,7 @@ class TTIRCompiler(ast.NodeVisitor):
             # Visit the return value and return it
             return_value = self.visit(node.value)
             func.ReturnOp([return_value])
+            self.return_type = return_value.type
         else:
             # Empty return
             func.ReturnOp([])
@@ -129,10 +132,10 @@ class TTIRCompiler(ast.NodeVisitor):
                 tensor_type = RankedTensorType.get(shape, dtype, layout)
                 input_types.append(tensor_type)
 
-        output_types = [create_output_tensor(self.ctx, node.name, input_types)]
-        print(f"input_types: {input_types}, output_types: {output_types}")
+        # Dummy output type until we process the function body
+        output_types = [input_types[0]]
+
         self.func_entry = func.FuncOp(name=node.name, type=(input_types, output_types))
-        print("Armin: func_entry: ", self.func_entry)
         func_bb = self.func_entry.add_entry_block()
 
         symbol_table = {}
@@ -146,6 +149,21 @@ class TTIRCompiler(ast.NodeVisitor):
                 self.visit(target)
 
         self.symbol_tables.pop()
+        # Create a new function type with the actual output type. Move the body from the old function to the new one.
+        if self.return_type is not None:
+            # Get the old block before creating new function
+            old_block = self.func_entry.regions[0].blocks[0]
+    
+            # Create new function with correct return type
+            new_func_entry = func.FuncOp(name=node.name, type=(input_types, [self.return_type]))
+    
+            # The new function's region is empty (no blocks), so directly append the old block to it
+            new_region = new_func_entry.regions[0]
+            old_block.append_to(new_region)
+    
+            # Erase the old function
+            self.func_entry.erase()
+            self.func_entry = new_func_entry
 
     def visit_Call(self, node):
         print(f"Called visit_Call with node: {node}")
