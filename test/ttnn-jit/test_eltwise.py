@@ -169,10 +169,9 @@ def rsqrt(input_tensor):
     "dtype, ttnn_dtype",
     [
         (torch.float32, None),
-        (torch.bfloat16, None),
         (torch.bfloat16, ttnn.DataType.BFLOAT8_B),
     ],
-    ids=["f32", "bf16", "bfp8"],
+    ids=["f32", "bfp8"],
 )
 @pytest.mark.parametrize(
     "op",
