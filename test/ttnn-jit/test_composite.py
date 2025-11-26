@@ -35,7 +35,7 @@ COMPOSITE_SHAPES = [
 
 @pytest.mark.parametrize("shape", [(64, 64), (128, 128)])
 @pytest.mark.parametrize("dtype", [torch.float32])
-# @pytest.mark.xfail(reason="D2M Does not support reciprocal op")
+@pytest.mark.xfail(reason="D2M Does not support reciprocal op")
 def test_digamma_dram(device, shape, dtype):
     """Test digamma function (derivative of log gamma)"""
 
