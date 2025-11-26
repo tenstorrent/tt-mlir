@@ -167,6 +167,8 @@ private:
   }
 };
 
+#ifdef TTMLIR_ENABLE_OPMODEL
+
 // This is rope fusing pattern. Given this formula:
 // (x * cos) + (rotate_half(x) * sin)
 // into ttnn rotary_embedding op from ttnn.
@@ -180,14 +182,12 @@ private:
 //
 // unrotatedProjection comes as following sequence of operations:
 // cos_unsqueezed = unsqueeze(cos) - where unsqueeze will be reshape which
-// prepends
-//  dimensions to cos to match x's rank.
+// prepends dimensions to cos to match x's rank.
 // unrotated_projection = multiply(x, cos_unsqueezed)
 //
 // rotatedProjections comes as following sequence of operations:
 // sin_unsqueezed = unsqueeze(sin) - where unsqueeze will be reshape which
-// prepends
-//  dimensions to sin to match x's rank.
+// prepends dimensions to sin to match x's rank.
 // rotated_second_half = slice(x, ..., start = last_dim/2, end = last_dim)
 // neg_rotated_second_half = negate(rotated_second_half)
 // rotated_first_half = slice(x, ..., start = 0, end = last_dim/2)
@@ -277,7 +277,6 @@ private:
       return failure();
     }
 
-#ifdef TTMLIR_ENABLE_OPMODEL
     op_model::ScopedSingletonDeviceGuard deviceGuard;
 
     // Create rotary_embedding op
@@ -302,9 +301,6 @@ private:
 
     rewriter.replaceOp(srcOp, ropeOp.getResult());
     return mlir::success();
-#else
-    return failure();
-#endif // TTMLIR_ENABLE_OPMODEL
   }
 
   bool matchUnrotatedProjection(MultiplyOp mulOp, Value &x,
@@ -433,6 +429,8 @@ private:
     return outputShape == expectedShape;
   }
 };
+
+#endif // TTMLIR_ENABLE_OPMODEL
 
 class TTNNFusingPass : public impl::TTNNFusingBase<TTNNFusingPass> {
 public:
