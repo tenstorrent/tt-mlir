@@ -159,6 +159,8 @@ public:
   void deallocateTensor(::tt::runtime::Tensor &tensorHandle,
                         bool force = false);
 
+  ::tt::runtime::TensorDesc getTensorDesc(::tt::runtime::Tensor t);
+
   ShutdownResult shutdown();
 
 private:
