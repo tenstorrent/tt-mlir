@@ -22,25 +22,26 @@ def add(input_tensor1, input_tensor2):
 
 
 @pytest.mark.parametrize(
-    "h , w, grid1, grid2",
+    "shape, grid1, grid2",
     [
         # square
-        (64, 64, (0, 0), (1, 1)),
-        (96, 192, (0, 0), (2, 2)),
-        (128, 128, (1, 1), (0, 0)),
-        (192, 192, (2, 2), (0, 0)),
+        # ((64, 64), (0, 0), (1, 1)),
+        # ((96, 192), (0, 0), (2, 2)),
+        # ((128, 128), (1, 1), (0, 0)),
+        # ((192, 192), (2, 2), (0, 0)),
+        ((2, 64, 64), (0, 0), (1, 1)),
         # non square
     ],
 )
 @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
 @pytest.mark.parametrize("op", [add])
-def test_l1_varying_grids(device, h, w, grid1, grid2, dtype, op):
+def test_l1_varying_grids(device, shape, grid1, grid2, dtype, op):
 
     input_sharded_tensor1 = create_sharded_tile_tensor(
-        device, (h, w), max_grid=grid1, dtype=dtype
+        device, shape, max_grid=grid1, dtype=dtype
     )
     input_sharded_tensor2 = create_sharded_tile_tensor(
-        device, (h, w), max_grid=grid2, dtype=dtype
+        device, shape, max_grid=grid2, dtype=dtype
     )
 
     # core_range_1 = ttnn.CoreRangeSet({

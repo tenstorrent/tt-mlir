@@ -171,12 +171,44 @@ protected:
         continue;
       }
 
-      // Insertion logic starts here
+      // Insertion logic starts
       mlir::MLIRContext *ctx = rewriter.getContext();
       mlir::Location loc = input.getLoc();
 
       // New result layout is the same as the input layout but with the target
       // grid
+      // Debug: Print info before creating resultLayout
+      llvm::errs() << "[alignGrids] Creating resultLayout for input #" << idx
+                   << "\n";
+      llvm::errs() << "[alignGrids] Logical shape: [";
+      for (size_t i = 0; i < inputLayout.getLogicalShape().size(); ++i) {
+        llvm::errs() << inputLayout.getLogicalShape()[i];
+        if (i + 1 < inputLayout.getLogicalShape().size()) {
+          llvm::errs() << ", ";
+        }
+      }
+      llvm::errs() << "]\n";
+      llvm::errs() << "[alignGrids] Dim alignments: [";
+      for (size_t i = 0; i < inputLayout.getDimAlignments().size(); ++i) {
+        llvm::errs() << inputLayout.getDimAlignments()[i];
+        if (i + 1 < inputLayout.getDimAlignments().size()) {
+          llvm::errs() << ", ";
+        }
+      }
+      llvm::errs() << "]\n";
+      llvm::errs() << "[alignGrids] Collapsed intervals: "
+                   << inputLayout.getCollapsedIntervals() << "\n";
+      llvm::errs() << "[alignGrids] OOBVal: "
+                   << static_cast<int>(inputLayout.getOobVal()) << "\n";
+      llvm::errs() << "[alignGrids] MemorySpace: "
+                   << static_cast<int>(inputLayout.getMemorySpace()) << "\n";
+      llvm::errs() << "[alignGrids] MemoryLayout: "
+                   << static_cast<int>(inputLayout.getMemoryLayout()) << "\n";
+      llvm::errs() << "[alignGrids] IndexAffineMap: "
+                   << inputLayout.getIndexAffineMapOrIdentity(
+                          inputTensorType.getRank())
+                   << "\n";
+
       auto resultLayout = ttcore::MetalLayoutAttr::get(
           ctx, inputLayout.getLogicalShape(), inputLayout.getDimAlignments(),
           inputLayout.getCollapsedIntervals(), inputLayout.getOobVal(),
@@ -186,6 +218,17 @@ protected:
       // Get the new physical shape based on the target grid
       llvm::SmallVector<int64_t> newPhysicalShape = resultLayout.getDeviceShape(
           targetGridShape, ttcore::TileType::getDefaultShape());
+
+      // Debug: Print newPhysicalShape
+      llvm::errs() << "[alignGrids] newPhysicalShape for input #" << idx
+                   << ": [";
+      for (size_t i = 0; i < newPhysicalShape.size(); ++i) {
+        llvm::errs() << newPhysicalShape[i];
+        if (i + 1 < newPhysicalShape.size()) {
+          llvm::errs() << ", ";
+        }
+      }
+      llvm::errs() << "]\n";
 
       // Debug: Print new physical shape
       llvm::errs() << "[alignGrids] Input #" << idx << " new physical shape: [";
