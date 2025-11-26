@@ -8,21 +8,21 @@
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
+#include "mlir/IR/BuiltinOps.h"
+#include "mlir/IR/Location.h"
+#include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/PatternMatch.h"
+#include "mlir/IR/Value.h"
+#include "mlir/IR/ValueRange.h"
+#include "mlir/Interfaces/DestinationStyleOpInterface.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/SmallVector.h"
-#include <llvm/ADT/STLExtras.h>
-#include <llvm/IR/Value.h>
-#include <llvm/Support/Casting.h>
-#include <mlir/IR/BuiltinOps.h>
-#include <mlir/IR/Location.h>
-#include <mlir/IR/MLIRContext.h>
-#include <mlir/IR/Value.h>
-#include <mlir/IR/ValueRange.h>
-#include <mlir/Interfaces/DestinationStyleOpInterface.h>
+#include "llvm/IR/Value.h"
+#include "llvm/Support/Casting.h"
 #include <string>
 
 #ifdef TTMLIR_ENABLE_STABLEHLO
@@ -352,6 +352,9 @@ static void hoistOperationsToFunction(HoistedOpsDescriptor &descriptor,
         // If the result producer is a DPS op, its output argument might have
         // been skipped in collectInputArguments - create an empty tensor to
         // use as the DPS init instead.
+        //
+        // This ugly workaround should be temporary, as in the future, the DPS
+        // semantics should be removed entirely from the TTIR dialect.
         if (auto dpsOp =
                 mlir::dyn_cast<DestinationStyleOpInterface>(opToHoist)) {
           auto originalDpsInit = dpsOp.getDpsInits().front();

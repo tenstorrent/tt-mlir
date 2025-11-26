@@ -35,8 +35,8 @@ void run(const ::tt::target::ttnn::CpuOp *op, ProgramContext &context) {
   auto dylibInputs = tt::runtime::common::packTensors(
       fbInputs, getTensorDataPtr, allSizesAndStrides);
 
-  // Last inputs are actually output destinations. We need to associate them
-  // with tensors in the pool.
+  // Last inputs are actually output destinations. We need to associate outputs
+  // with the output destination tensors already in the pool.
   for (size_t i = 0; i < op->outs()->size(); ++i) {
     const auto &fbOutput = op->outs()->Get(i);
 

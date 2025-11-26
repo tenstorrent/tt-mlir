@@ -90,10 +90,22 @@ def RemoveReturnValues: Pass<"ttir-remove-return-values", "::mlir::ModuleOp"> {
   let dependentDialects = ["mlir::func::FuncDialect"];
 }
 
-def EnableDPSForHoistedFuncs: Pass<"ttir-enable-dps-semantics-hoisted-funcs", "::mlir::ModuleOp"> {
+def ConvertCPUHoistedFunctionsToDPS: Pass<"convert-cpu-hoisted-functions-to-dps", "::mlir::ModuleOp"> {
   let summary = "Enables Destination Passing Style semantics in the CPU-hoisted functions.";
   let description = [{
-    TODO(dmilinkovic): Add description.
+    CPU-hosited functions created through the CPUHoistTransform pass return their results
+    as ordinary return values. This pass modifies those functions so that they become
+    void functions that take an additional argument representing the output destination,
+    thus enabling Destination Passing Style (DPS) semantics.
+
+    This pass can run on both Device and CPU modules:
+    - In Device modules, it updates the function declarations to reflect the DPS semantics.
+    - In CPU modules, it modifies the function definitions accordingly - changing the return type to void,
+      adding the output destination argument, and inserting `linalg.copy` operations to copy the results
+      into the provided output destination.
+
+    This pass is crucial for allowing CPU-hoisted functions to properly be lowered
+    to LLVM dialect, and then to executable code.
   }];
 }
 

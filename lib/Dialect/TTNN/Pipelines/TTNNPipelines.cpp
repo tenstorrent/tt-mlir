@@ -212,7 +212,7 @@ void createTTIRToTTNNBackendPipeline(
     auto &devicePm = pm.nest<ttcore::DeviceModuleOp>().nest<mlir::ModuleOp>();
 
     // Enable DPS semantics for hoisted functions in Device module.
-    devicePm.addPass(transforms::createEnableDPSForHoistedFuncs());
+    devicePm.addPass(transforms::createConvertCPUHoistedFunctionsToDPS());
 
     // Run TTNN lowering passes on Device module.
     createTTNNPipelineLoweringPasses(devicePm, options);

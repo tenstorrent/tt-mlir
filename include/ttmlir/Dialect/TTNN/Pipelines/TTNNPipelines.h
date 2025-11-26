@@ -303,7 +303,7 @@ struct TTIRToTTNNBackendPipelineOptions
       llvm::cl::desc("Enable const-eval optimization pass."),
       llvm::cl::init(true)};
 
-  // Enable CPU-hoisting const-eval ops.
+  // Enable CPU-hoisting for const-eval subgraphs.
   Option<bool> enableCPUHoistedConstEval{
       *this, "enable-cpu-hoisted-const-eval",
       llvm::cl::desc("Enable hoisting const-eval ops to CPU module."),

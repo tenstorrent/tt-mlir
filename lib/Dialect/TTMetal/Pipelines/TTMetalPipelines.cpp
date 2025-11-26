@@ -217,7 +217,7 @@ void createTTIRToTTMetalPipeline(OpPassManager &pm,
       pm.nest<ttcore::DeviceModuleOp>().nest<mlir::ModuleOp>();
 
   // Enable DPS semantics in CPU-hoisted functions in DeviceModule
-  devicePm.addPass(transforms::createEnableDPSForHoistedFuncs());
+  devicePm.addPass(transforms::createConvertCPUHoistedFunctionsToDPS());
 
   // Run regular ttir to ttmetal pipelines on IR in DeviceModule.
   createTTIRToTTMetalFrontendPipeline(devicePm, options);

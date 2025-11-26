@@ -11,13 +11,13 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "llvm/ADT/SmallVector.h"
 
-#include <llvm/ADT/STLExtras.h>
-#include <llvm/Support/Casting.h>
-#include <mlir/Dialect/Linalg/IR/Linalg.h>
-#include <mlir/IR/BuiltinOps.h>
+#include "mlir/Dialect/Linalg/IR/Linalg.h"
+#include "mlir/IR/BuiltinOps.h"
+#include "llvm/ADT/STLExtras.h"
+#include "llvm/Support/Casting.h"
 
 namespace mlir::tt::transforms {
-#define GEN_PASS_DEF_ENABLEDPSFORHOISTEDFUNCS
+#define GEN_PASS_DEF_CONVERTCPUHOISTEDFUNCTIONSTODPS
 #include "ttmlir/Transforms/Passes.h.inc"
 
 /// Pass to add Destination Passing Style semantics to CPU-hoisted functions.
@@ -28,11 +28,12 @@ namespace mlir::tt::transforms {
 /// - If run on CPUModuleOp, it updates the hoisted function definitions to
 ///   add extra output arguments, modifies the function body to write the
 ///   return values to these arguments, and changes the return type to void.
-class EnableDPSForHoistedFuncs
-    : public impl::EnableDPSForHoistedFuncsBase<EnableDPSForHoistedFuncs> {
+class ConvertCPUHoistedFunctionsToDPS
+    : public impl::ConvertCPUHoistedFunctionsToDPSBase<
+          ConvertCPUHoistedFunctionsToDPS> {
 public:
-  using impl::EnableDPSForHoistedFuncsBase<
-      EnableDPSForHoistedFuncs>::EnableDPSForHoistedFuncsBase;
+  using impl::ConvertCPUHoistedFunctionsToDPSBase<
+      ConvertCPUHoistedFunctionsToDPS>::ConvertCPUHoistedFunctionsToDPSBase;
   void runOnOperation() final {
     auto module = getOperation();
 

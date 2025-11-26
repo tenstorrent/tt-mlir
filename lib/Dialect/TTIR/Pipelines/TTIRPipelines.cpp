@@ -290,7 +290,7 @@ void createTTIRToCPUPipeline(OpPassManager &cpuPm,
   cpuPm.addPass(createTosaToArithPass());
 
   // Enable DPS semantics for hoisted functions in CPU module.
-  cpuPm.addPass(transforms::createEnableDPSForHoistedFuncs());
+  cpuPm.addPass(transforms::createConvertCPUHoistedFunctionsToDPS());
 
   ttir::createLinalgToLLVMPipeline(cpuPm, options);
   cpuPm.addPass(llvm_util::createLLVMEmitCallingConventionWrapperFuncs());

@@ -31,6 +31,14 @@ def CPUHoistTransform: Pass<"cpu-hoist-transform", "::mlir::ModuleOp">
     Transform pass which runs an analysis pass to find ops which should be hoisted, and then hoists those ops.
     The analysis behaviour can be customized when instantiating the pass.
 
+    Each of the ops / sets of ops which are hoisted are moved into their own function in a CPU module.
+    A function declaration is created in the device module, and the original ops are replaced with a
+    call to that function declaration.
+
+    The hoisted functions return their results via return values, and do not use destination passing style.
+    For targets which require void functions with output destination arguments, the ConvertCPUHoistedFunctionsToDPS
+    pass can be run after this pass to convert the hoisted functions into DPS style.
+
     Example:
     input:
       ttcore.device_module {
@@ -65,8 +73,6 @@ def CPUHoistTransform: Pass<"cpu-hoist-transform", "::mlir::ModuleOp">
 
   let dependentDialects = ["::mlir::tt::ttcore::TTCoreDialect"];
 
-  // Default constructor creates a transform that
-  // hoists all ops marked with the ttir::ShouldHoist attribute
   let constructor = "createCPUHoistManuallyTagedOpsTransform()";
 }
 

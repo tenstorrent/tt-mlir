@@ -1,8 +1,8 @@
 add_mlir_extension_library(TTMLIRTransforms
         CollapseParallelLoops.cpp
         ConstEvalHoist.cpp
+        ConvertCPUHoistedFunctionsToDPS.cpp
         EmbedCudaTargetAttributes.cpp
-        EnableDPSForHoistedFuncs.cpp
         ExtractGPUModules.cpp
         RemoveReturnValues.cpp
 
