@@ -704,6 +704,7 @@ Controller::getTensorDesc(const ::tt::runtime::Tensor &tensorHandle) {
   return *resultDescHandle;
 }
 
+
 void Controller::pushToCommandAndResponseQueues(
     uint64_t commandId, const fb::CommandType &commandType,
     std::unique_ptr<::flatbuffers::FlatBufferBuilder> commandBuilder,

@@ -162,6 +162,7 @@ public:
   ::tt::runtime::TensorDesc
   getTensorDesc(const ::tt::runtime::Tensor &tensorHandle);
 
+
   ShutdownResult shutdown();
 
 private:
