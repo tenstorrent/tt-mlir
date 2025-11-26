@@ -7,8 +7,7 @@ module {
     // CHECK-LABEL: func.func @forward
     // CHECK: %[[BFP8_WEIGHT:.*]] = ttcore.load_cached({{.*}}, [%arg1]) : {{.*}} -> tensor<{{.*}}bfp_bf8{{.*}}>
     // CHECK: "ttnn.matmul"(%arg0, %[[BFP8_WEIGHT]])
-    %0 = ttir.empty() : tensor<64x96xbf16>
-    %1 = "ttir.matmul"(%arg0, %arg1, %0) : (tensor<64x128xbf16>, tensor<128x96xbf16>, tensor<64x96xbf16>) -> tensor<64x96xbf16>
+    %1 = "ttir.matmul"(%arg0, %arg1) : (tensor<64x128xbf16>, tensor<128x96xbf16>) -> tensor<64x96xbf16>
     return %1 : tensor<64x96xbf16>
   }
 
@@ -16,8 +15,7 @@ module {
     // CHECK-LABEL: func.func @matmul_transpose_lhs
     // CHECK: %[[BFP8_WEIGHT:.*]] = ttcore.load_cached({{.*}}, [%arg1]) : {{.*}} -> tensor<{{.*}}bfp_bf8{{.*}}>
     // CHECK: "ttnn.matmul"(%arg0, %[[BFP8_WEIGHT]])
-    %0 = ttir.empty() : tensor<128x128xbf16>
-    %1 = "ttir.matmul"(%arg0, %arg1, %0) <{transpose_a = true}>: (tensor<64x128xbf16>, tensor<64x128xbf16>, tensor<128x128xbf16>) -> tensor<128x128xbf16>
+    %1 = "ttir.matmul"(%arg0, %arg1) <{transpose_a = true}>: (tensor<64x128xbf16>, tensor<64x128xbf16>) -> tensor<128x128xbf16>
     return %1 : tensor<128x128xbf16>
   }
 
@@ -25,8 +23,7 @@ module {
     // CHECK-LABEL: func.func @matmul_transpose_rhs
     // CHECK: %[[BFP8_WEIGHT:.*]] = ttcore.load_cached({{.*}}, [%arg1]) : {{.*}} -> tensor<{{.*}}bfp_bf8{{.*}}>
     // CHECK: "ttnn.matmul"(%arg0, %[[BFP8_WEIGHT]])
-    %0 = ttir.empty() : tensor<64x64xbf16>
-    %1 = "ttir.matmul"(%arg0, %arg1, %0) <{transpose_b = true}>: (tensor<64x128xbf16>, tensor<64x128xbf16>, tensor<64x64xbf16>) -> tensor<64x64xbf16>
+    %1 = "ttir.matmul"(%arg0, %arg1) <{transpose_b = true}>: (tensor<64x128xbf16>, tensor<64x128xbf16>) -> tensor<64x64xbf16>
     return %1 : tensor<64x64xbf16>
   }
 
@@ -34,8 +31,7 @@ module {
     // CHECK-LABEL: func.func @forward_llama_matmul
     // CHECK: %[[BFP8_WEIGHT:.*]] = ttcore.load_cached({{.*}}, [%arg1]) : {{.*}} -> tensor<{{.*}}bfp_bf8{{.*}}>
     // CHECK: "ttnn.matmul"(%arg0, %[[BFP8_WEIGHT]])
-    %0 = ttir.empty() : tensor<1x11x128256xf32>
-    %1 = "ttir.matmul"(%arg0, %arg1, %0) : (tensor<1x11x2048xf32>, tensor<2048x128256xf32>, tensor<1x11x128256xf32>) -> tensor<1x11x128256xf32>
+    %1 = "ttir.matmul"(%arg0, %arg1) : (tensor<1x11x2048xf32>, tensor<2048x128256xf32>) -> tensor<1x11x128256xf32>
     return %1 : tensor<1x11x128256xf32>
   }
 
@@ -44,8 +40,7 @@ module {
     // CHECK-NOT: ttcore.load_cached
     // CHECK-NOT: bfp_bf8
     // CHECK: "ttnn.matmul"(%arg0, %arg1)
-    %0 = ttir.empty() : tensor<64x96xbf16>
-    %1 = "ttir.matmul"(%arg0, %arg1, %0) : (tensor<64x128xbf16>, tensor<128x96xbf16>, tensor<64x96xbf16>) -> tensor<64x96xbf16>
+    %1 = "ttir.matmul"(%arg0, %arg1) : (tensor<64x128xbf16>, tensor<128x96xbf16>, tensor<64x96xbf16>) -> tensor<64x96xbf16>
     return %1 : tensor<64x96xbf16>
   }
 }
