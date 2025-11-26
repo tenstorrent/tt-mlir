@@ -103,12 +103,7 @@ def mul_add(input_tensor_a, input_tensor_b, input_tensor_c):
 def test_composite_ops_l1(device, shape, max_grid, dtype, op, memory_layout):
     num_inputs = 1
     if op is mul_add:
-        # num_inputs = 3
-        pytest.xfail(
-            "mul_add fails allclose, see https://github.com/tenstorrent/tt-mlir/issues/5873"
-        )
-    if op is mul_add and shape == (256, 512) and dtype is torch.bfloat16:
-        pytest.xfail("OOM error.")
+        num_inputs = 3
     run_op_test(
         device,
         shape,
@@ -127,10 +122,7 @@ def test_composite_ops_l1(device, shape, max_grid, dtype, op, memory_layout):
 def test_composite_ops_dram(device, shape, dtype, op):
     num_inputs = 1
     if op is mul_add:
-        # num_inputs = 3
-        pytest.xfail(
-            "mul_add fails allclose, see https://github.com/tenstorrent/tt-mlir/issues/5873"
-        )
+        num_inputs = 3
     run_op_test(
         device,
         shape,
@@ -151,9 +143,6 @@ PASSING_LARGE_SHAPES_DTYPES_L1 = [
 
 
 @pytest.mark.parametrize("shape, dtype", PASSING_LARGE_SHAPES_DTYPES_L1)
-@pytest.mark.xfail(
-    reason="mul_add fails allclose, see https://github.com/tenstorrent/tt-mlir/issues/5873"
-)
 def test_large_shapes_muladd_l1(device, shape, dtype):
 
     num_inputs = 3
@@ -189,9 +178,6 @@ PASSING_LARGE_SHAPES_DTYPES_DRAM = [
 
 
 @pytest.mark.parametrize("shape, dtype", PASSING_LARGE_SHAPES_DTYPES_DRAM)
-@pytest.mark.xfail(
-    reason="mul_add fails allclose, see https://github.com/tenstorrent/tt-mlir/issues/5873"
-)
 def test_large_shapes_muladd_dram(device, shape, dtype):
 
     num_inputs = 3

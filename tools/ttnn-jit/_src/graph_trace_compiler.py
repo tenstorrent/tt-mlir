@@ -21,7 +21,7 @@ from ttmlir.dialects import ttnn, func, ttcore
 from typing import Dict, List, Any, Optional, Tuple
 import ttnn_jit._src.supported_ops as supported_ops
 from ttnn._ttnn.graph import extract_levelized_graph
-from .tensor_translator import _get_collapsed_linear_affine_map
+from .tensor_translator import _get_collapsed_linear_affine_map, create_tensor_layout
 from .levelized_graph import LevelizedGraph, LevelizedGraphVertex
 from .op_registry import get_registry
 from .conversions import (
@@ -98,56 +98,6 @@ class GraphToIRTranslator:
         raise ValueError(
             f"Cannot visit all level 1 operations even at max_depth={max_depth}"
         )
-
-    def _create_tensor_layout(self, tensor_arg):
-        """Create TTNN layout attribute from tensor."""
-        data_type = ttcore_dtype_from_ttnn_dtype(tensor_arg.dtype)
-        tile_type = ttcore.ir.TileType.get(self.ctx, 32, 32, data_type)
-
-        # Create affine map based on tensor shape
-        affine_map = _get_collapsed_linear_affine_map(
-            self.ctx, tensor_arg.shape, self.max_grid
-        )
-
-        if tensor_arg.memory_config().is_sharded():
-            shard_spec = tensor_arg.memory_config().shard_spec
-            shard_shape = shard_spec.shape
-            grid_size_x = self.max_grid[0] + 1
-            grid_size_y = self.max_grid[1] + 1
-
-            # TTNN writes grids as (width, height) but compiler expects (height, width)
-            grid = ttcore.ir.GridAttr.get(self.ctx, [grid_size_y, grid_size_x])
-            shard_shape_tile_x = shard_shape[0] // 32
-            shard_shape_tile_y = shard_shape[1] // 32
-            buffer_type = ttnn.ir.BufferTypeAttr.get(self.ctx, ttnn.BufferType.L1)
-            memref = MemRefType.get(
-                [shard_shape_tile_x, shard_shape_tile_y], tile_type, None, buffer_type
-            )
-            ttnn_layout = ttnn.ir.TTNNLayoutAttr.get_with_linear(
-                self.ctx,
-                affine_map,
-                grid,
-                memref,
-                ttnn.TensorMemoryLayout.BlockSharded,
-                None,
-            )
-            return ttnn_layout
-        else:
-            assert (
-                self.max_grid[0] == 0 and self.max_grid[1] == 0
-            ), "The grid for DRAM interleaved tensors is always 1x1"
-            buffer_type = ttnn.ir.BufferTypeAttr.get(self.ctx, ttnn.BufferType.DRAM)
-            grid = ttcore.ir.GridAttr.get(self.ctx, [1, 1])
-            shape = [tensor_arg.shape[0] // 32, tensor_arg.shape[1] // 32]
-            memref = MemRefType.get(shape, tile_type, None, buffer_type)
-            return ttnn.ir.TTNNLayoutAttr.get_with_linear(
-                self.ctx,
-                affine_map,
-                grid,
-                memref,
-                ttnn.TensorMemoryLayout.Interleaved,
-                None,
-            )
 
     def _parse_memory_config_from_output_info(
         self, output_info_str: str
@@ -361,13 +311,18 @@ class GraphToIRTranslator:
 
             # Create memref and layout
             memref = MemRefType.get(memref_shape, tile_type, None, buffer_type)
+
+            exact_grid = True
+            tensor_mesh = None
+
             layout = ttnn.ir.TTNNLayoutAttr.get_with_linear(
                 self.ctx,
                 affine_map,
                 grid,
                 memref,
                 memory_layout_enum,
-                None,
+                tensor_mesh,
+                exact_grid,
             )
 
             return RankedTensorType.get(shape, dtype, layout)
@@ -402,7 +357,7 @@ class GraphToIRTranslator:
             if i < len(tensor_args_list):
                 tensor_arg = tensor_args_list[i]
                 shape = list(tensor_arg.shape)
-                layout = self._create_tensor_layout(tensor_arg)
+                layout = create_tensor_layout(self.ctx, tensor_arg, self.max_grid)
                 dtype = mlir_dtype_from_ttnn_dtype(tensor_arg.dtype, self.ctx)
                 tensor_type = RankedTensorType.get(shape, dtype, layout)
                 input_types.append(tensor_type)
