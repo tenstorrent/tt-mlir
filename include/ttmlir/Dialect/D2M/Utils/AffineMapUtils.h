@@ -58,16 +58,19 @@ AffineMap concatInversePermutationMap(SmallVector<AffineMap> affineMaps,
 
 // Build semi-affine map: logical indices -> physical indices
 // Handles collapse of dimensions (based on collapsed_intervals).
-// Note: Does NOT handle padding - padding affects shapes, not index mapping.
+// Uses aligned strides to correctly handle padding regions.
 mlir::AffineMap buildLogicalToPhysicalMap(
     ArrayRef<int64_t> logicalShape, ArrayRef<int64_t> physicalShape,
-    mlir::DenseIntElementsAttr collapsedIntervals, mlir::MLIRContext *context);
+    ArrayRef<int64_t> alignments, mlir::DenseIntElementsAttr collapsedIntervals,
+    mlir::MLIRContext *context);
 
 // Build semi-affine map: physical indices -> logical indices (inverse of
-// collapse) Expands collapsed physical dimensions back to logical dimensions.
+// collapse). Expands collapsed physical dimensions back to logical dimensions.
+// Uses aligned strides to correctly handle padding regions.
 mlir::AffineMap buildPhysicalToLogicalMap(
     ArrayRef<int64_t> logicalShape, ArrayRef<int64_t> physicalShape,
-    mlir::DenseIntElementsAttr collapsedIntervals, mlir::MLIRContext *context);
+    ArrayRef<int64_t> alignments, mlir::DenseIntElementsAttr collapsedIntervals,
+    mlir::MLIRContext *context);
 
 // Build affine map: device indices -> physical indices
 // Reconstructs physical coordinates from grid + shard coordinates.

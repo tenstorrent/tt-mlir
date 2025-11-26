@@ -265,30 +265,12 @@ public:
       llvm::errs() << "      lowerMappingChange: complex mapping via logical "
                       "space\n";
 
-      // When building the data transformation map, we need to exclude virtual
-      // grid index_maps because those are for grid coordinate translation, not
-      // data layout transformation. Create temporary layouts without
-      // index_maps.
-      auto inputLayoutForTransform = ttcore::MetalLayoutAttr::get(
-          rewriter.getContext(), inputLayout.getLogicalShape(),
-          inputLayout.getDimAlignments(), inputLayout.getCollapsedIntervals(),
-          inputLayout.getOobVal(), inputLayout.getMemorySpace(),
-          inputLayout.getMemoryLayout(), AffineMap::get(rewriter.getContext()));
-
-      auto outputLayoutForTransform = ttcore::MetalLayoutAttr::get(
-          rewriter.getContext(), outputLayout.getLogicalShape(),
-          outputLayout.getDimAlignments(), outputLayout.getCollapsedIntervals(),
-          outputLayout.getOobVal(), outputLayout.getMemorySpace(),
-          outputLayout.getMemoryLayout(),
-          AffineMap::get(rewriter.getContext()));
-
       // Build an affine map that transforms input device coordinates to output
       // device coordinates via the shared logical space. This map handles grid
-      // redistribution, collapse changes, padding changes, but NOT virtual grid
-      // coordinate translation (which goes in the GridAttr instead).
-      viewMap = utils::buildLayoutTransformMap(
-          inputLayoutForTransform, inputInfo.type, outputLayoutForTransform,
-          outputInfo.type);
+      // redistribution, collapse changes, padding changes, and virtual grid
+      // index_maps.
+      viewMap = utils::buildLayoutTransformMap(inputLayout, inputInfo.type,
+                                               outputLayout, outputInfo.type);
     }
 
     // Embed the transformation map in the output layout.

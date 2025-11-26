@@ -97,8 +97,34 @@ AffineMap concatInversePermutationMap(SmallVector<AffineMap> affineMaps,
   return mlir::inversePermutation(concat);
 }
 
+// Compute aligned strides for a collapsed interval.
+// Returns strides from innermost to outermost.
+// E.g., for dims [7, 41, 43] with alignments [256, 1, 64]:
+//   aligned innermost = 64
+//   cumulative [0,1] = alignUp(41 * 64, 1) = 2624
+//   cumulative [0,2] = alignUp(7 * 2624, 256) = 18432
+//   strides = [2624, 64, 1] (for dims 0, 1, 2)
+static SmallVector<int64_t>
+computeAlignedStrides(ArrayRef<int64_t> logicalShape,
+                      ArrayRef<int64_t> alignments, int64_t start,
+                      int64_t end) {
+  SmallVector<int64_t> strides(end - start);
+
+  // Compute cumulative aligned products from innermost outward.
+  int64_t cumulative = 1;
+  for (int64_t d = end - 1; d >= start; --d) {
+    strides[d - start] = cumulative;
+    int64_t aligned =
+        ttmlir::utils::alignUp(logicalShape[d] * cumulative, alignments[d]);
+    cumulative = aligned;
+  }
+
+  return strides;
+}
+
 // Build semi-affine map from logical indices to physical indices.
 // This handles dimension collapse specified by collapsed_intervals.
+// Uses aligned strides to correctly handle padding regions.
 //
 // Example:
 //   logical shape: [4, 8, 16]
@@ -108,7 +134,8 @@ AffineMap concatInversePermutationMap(SmallVector<AffineMap> affineMaps,
 //   Result: (d0, d1, d2) -> (d0 * 8 + d1, d2).
 mlir::AffineMap buildLogicalToPhysicalMap(
     ArrayRef<int64_t> logicalShape, ArrayRef<int64_t> physicalShape,
-    mlir::DenseIntElementsAttr collapsedIntervals, mlir::MLIRContext *context) {
+    ArrayRef<int64_t> alignments, mlir::DenseIntElementsAttr collapsedIntervals,
+    mlir::MLIRContext *context) {
 
   // Normalize intervals to handle negative indices, empty intervals, etc.
   auto normalizedIntervals =
@@ -129,15 +156,15 @@ mlir::AffineMap buildLogicalToPhysicalMap(
       // Single dimension maps directly.
       physExprs.push_back(getAffineDimExpr(start, context));
     } else {
-      // Multiple dimensions collapse to a linear index.
-      // Form: d_start * stride_{start+1} + d_{start+1} * stride_{start+2} + ...
-      mlir::AffineExpr collapsed = getAffineConstantExpr(0, context);
-      int64_t multiplier = 1;
+      // Multiple dimensions collapse to a linear index using aligned strides.
+      // Form: d_start * stride_{start} + d_{start+1} * stride_{start+1} + ...
+      auto strides =
+          computeAlignedStrides(logicalShape, alignments, start, end);
 
+      mlir::AffineExpr collapsed = getAffineConstantExpr(0, context);
       for (int64_t d = end - 1; d >= start; --d) {
         mlir::AffineExpr dim = getAffineDimExpr(d, context);
-        collapsed = dim * multiplier + collapsed;
-        multiplier *= logicalShape[d];
+        collapsed = dim * strides[d - start] + collapsed;
       }
 
       physExprs.push_back(collapsed);
@@ -149,7 +176,7 @@ mlir::AffineMap buildLogicalToPhysicalMap(
 
 // Build semi-affine map from physical indices to logical indices (inverse of
 // collapse). This expands collapsed physical dimensions back to logical
-// dimensions.
+// dimensions. Uses aligned strides to correctly handle padding regions.
 //
 // Example:
 //   logical shape: [32, 64]
@@ -159,7 +186,8 @@ mlir::AffineMap buildLogicalToPhysicalMap(
 //   Result: (d0) -> (d0 floordiv 64, d0 mod 64)
 mlir::AffineMap buildPhysicalToLogicalMap(
     ArrayRef<int64_t> logicalShape, ArrayRef<int64_t> physicalShape,
-    mlir::DenseIntElementsAttr collapsedIntervals, mlir::MLIRContext *context) {
+    ArrayRef<int64_t> alignments, mlir::DenseIntElementsAttr collapsedIntervals,
+    mlir::MLIRContext *context) {
   auto normalizedIntervals =
       ttcore::MetalLayoutAttr::normalizeAndFlattenIntervals(
           collapsedIntervals, logicalShape.size());
@@ -179,18 +207,28 @@ mlir::AffineMap buildPhysicalToLogicalMap(
       logicalExprs[start] = getAffineDimExpr(i, context);
     } else {
       // Multiple collapsed dimensions expand using modulo and floor division.
+      // Use aligned strides to handle padding correctly.
       mlir::AffineExpr physDim = getAffineDimExpr(i, context);
+      auto strides =
+          computeAlignedStrides(logicalShape, alignments, start, end);
 
-      int64_t multiplier = 1;
       for (int64_t d = end - 1; d >= start; --d) {
+        int64_t stride = strides[d - start];
         if (d == end - 1) {
-          // Innermost dimension uses modulo.
-          logicalExprs[d] = physDim % logicalShape[d];
+          // Innermost dimension: use aligned stride for modulo.
+          int64_t alignedDim =
+              ttmlir::utils::alignUp(logicalShape[d], alignments[d]);
+          logicalExprs[d] = physDim % alignedDim;
+        } else if (d == start) {
+          // Outermost dimension: just divide by stride, no modulo needed.
+          logicalExprs[d] = physDim.floorDiv(stride);
         } else {
-          // Outer dimensions use floor division then modulo.
-          logicalExprs[d] = (physDim.floorDiv(multiplier)) % logicalShape[d];
+          // Middle dimensions: divide by stride, then modulo by range.
+          // Range = stride[d-1] / stride[d] = how many values this dim spans.
+          int64_t outerStride = strides[d - start - 1];
+          int64_t range = outerStride / stride;
+          logicalExprs[d] = (physDim.floorDiv(stride)) % range;
         }
-        multiplier *= logicalShape[d];
       }
     }
   }
@@ -344,21 +382,28 @@ buildDeviceToLogicalMap(mlir::tt::ttcore::MetalLayoutAttr layout,
       logicalExprs[start] = getAffineDimExpr(i, context);
     } else {
       // Multiple dimensions collapsed; expand using mod/floordiv.
+      // Use aligned strides to correctly handle padding.
       mlir::AffineExpr physDim = getAffineDimExpr(i, context);
+      auto alignments = layout.getDimAlignments();
+      auto strides =
+          computeAlignedStrides(logicalShapeInUnits, alignments, start, end);
 
-      // Work backwards through the collapsed dimensions.
-      int64_t multiplier = 1;
       for (int64_t d = end - 1; d >= start; --d) {
+        int64_t stride = strides[d - start];
         if (d == end - 1) {
-          // Innermost dimension: modulo by its size.
-          logicalExprs[d] = physDim % logicalShapeInUnits[d];
+          // Innermost dimension: use aligned stride for modulo.
+          int64_t alignedDim =
+              ttmlir::utils::alignUp(logicalShapeInUnits[d], alignments[d]);
+          logicalExprs[d] = physDim % alignedDim;
+        } else if (d == start) {
+          // Outermost dimension: just divide by stride, no modulo needed.
+          logicalExprs[d] = physDim.floorDiv(stride);
         } else {
-          // Outer dimensions: floor division by accumulated multiplier, then
-          // modulo.
-          logicalExprs[d] =
-              (physDim.floorDiv(multiplier)) % logicalShapeInUnits[d];
+          // Middle dimensions: divide by stride, then modulo by range.
+          int64_t outerStride = strides[d - start - 1];
+          int64_t range = outerStride / stride;
+          logicalExprs[d] = (physDim.floorDiv(stride)) % range;
         }
-        multiplier *= logicalShapeInUnits[d];
       }
     }
   }
@@ -389,7 +434,18 @@ buildLayoutTransformMap(mlir::tt::ttcore::MetalLayoutAttr fromLayout,
                         mlir::RankedTensorType fromType,
                         mlir::tt::ttcore::MetalLayoutAttr toLayout,
                         mlir::RankedTensorType toType) {
-
+  llvm::errs() << "  fromLayout: " << fromLayout << "\n";
+  llvm::errs() << "  toLayout: " << toLayout << "\n";
+  llvm::errs() << "  fromType.getShape(): [";
+  for (auto s : fromType.getShape()) {
+    llvm::errs() << s << ", ";
+  }
+  llvm::errs() << "]\n";
+  llvm::errs() << "  toType.getShape(): [";
+  for (auto s : toType.getShape()) {
+    llvm::errs() << s << ", ";
+  }
+  llvm::errs() << "]\n";
   MLIRContext *context = fromLayout.getContext();
 
   // Precondition: Both layouts must have the same logical shape.
@@ -478,9 +534,10 @@ buildLayoutTransformMap(mlir::tt::ttcore::MetalLayoutAttr fromLayout,
   llvm::errs() << "  TO device→physical: " << toDeviceToToPhysical << "\n";
 
   // OUTPUT physical → logical (inverse of collapse).
-  auto toPhysicalToLogical =
-      buildPhysicalToLogicalMap(logicalShapeInUnits, toPhysicalShape,
-                                toLayout.getCollapsedIntervals(), context);
+  auto toAlignments = toLayout.getDimAlignments();
+  auto toPhysicalToLogical = buildPhysicalToLogicalMap(
+      logicalShapeInUnits, toPhysicalShape, toAlignments,
+      toLayout.getCollapsedIntervals(), context);
   llvm::errs() << "  TO physical→logical: " << toPhysicalToLogical << "\n";
 
   // Compose: OUTPUT device → OUTPUT physical → logical.
@@ -496,9 +553,10 @@ buildLayoutTransformMap(mlir::tt::ttcore::MetalLayoutAttr fromLayout,
 
   // Build logical → INPUT device map.
   // logical → INPUT physical (collapse).
-  auto logicalToFromPhysical =
-      buildLogicalToPhysicalMap(logicalShapeInUnits, fromPhysicalShape,
-                                fromLayout.getCollapsedIntervals(), context);
+  auto fromAlignments = fromLayout.getDimAlignments();
+  auto logicalToFromPhysical = buildLogicalToPhysicalMap(
+      logicalShapeInUnits, fromPhysicalShape, fromAlignments,
+      fromLayout.getCollapsedIntervals(), context);
   llvm::errs() << "  FROM logical→physical: " << logicalToFromPhysical << "\n";
 
   // INPUT physical → INPUT device.
@@ -519,12 +577,11 @@ buildLayoutTransformMap(mlir::tt::ttcore::MetalLayoutAttr fromLayout,
   llvm::errs() << "  FROM logical→device (simplified): " << logicalToFromDevice
                << "\n";
 
-  // If the INPUT has an existing index_map, compose it to handle chained views.
-  auto fromExistingIndexMap = fromLayout.getIndexAffineMap();
-  if (fromExistingIndexMap && !fromExistingIndexMap.isEmpty()) {
-    logicalToFromDevice = fromExistingIndexMap.compose(logicalToFromDevice);
-    logicalToFromDevice = mlir::simplifyAffineMap(logicalToFromDevice);
-  }
+  // NOTE: Do NOT compose the INPUT index_map here. The index_map (core
+  // virtualization map) will be composed later in DeviceAttr::getMemoryMap
+  // when generating the actual DMA. Composing it here would apply it twice,
+  // causing incorrect coordinates (e.g., for virtual core 42: first apply
+  // gives (2, 5), second apply gives (2, 0) which is wrong).
 
   // Compose: OUTPUT device → logical → INPUT device.
   auto result = logicalToFromDevice.compose(toDeviceToLogical);
@@ -533,6 +590,7 @@ buildLayoutTransformMap(mlir::tt::ttcore::MetalLayoutAttr fromLayout,
   // Simplify and return.
   result = mlir::simplifyAffineMap(result);
   llvm::errs() << "  FINAL (simplified): " << result << "\n";
+
   return result;
 }
 
