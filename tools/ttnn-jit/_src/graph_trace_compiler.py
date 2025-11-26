@@ -463,7 +463,7 @@ class GraphToIRTranslator:
                 return F32Type.get(self.ctx)
             case 2:
                 return IntegerType.get_unsigned(32, self.ctx)
-            case 3:  # BFLOAT8_B - use TileType for Tenstorrent block floating point
+            case 3:
                 return ttcore.ir.TileType.get(
                     self.ctx, 32, 32, ttcore.DataType.BFP_BFloat8
                 )
