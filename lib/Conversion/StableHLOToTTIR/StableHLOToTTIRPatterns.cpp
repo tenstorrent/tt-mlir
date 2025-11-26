@@ -155,43 +155,6 @@ parseFloatFromStringAttr(const mlir::StringAttr &stringAttr, float &result) {
   }
   return success();
 }
-// Helper function to create a reshape operation.
-static ttir::ReshapeOp createReshapeOp(PatternRewriter &rewriter, Location loc,
-                                       Value input,
-                                       ::llvm::ArrayRef<int64_t> targetShape) {
-  auto inputType = mlir::cast<mlir::RankedTensorType>(input.getType());
-  auto shapeAttr =
-      rewriter.getI32ArrayAttr(llvm::SmallVector<int32_t>(targetShape));
-
-  return rewriter.create<ttir::ReshapeOp>(loc, targetShape, inputType.getElementType(),
-      inputType.getEncoding(), input, shapeAttr);
-}
-
-// Helper function to flatten a tensor to 1D.
-static Value flattenTensor(PatternRewriter &rewriter, Location loc,
-                           Value tensor, const std::string &suffix = "") {
-  RankedTensorType tensorType = mlir::cast<RankedTensorType>(tensor.getType());
-  ArrayRef<int64_t> tensorShape = tensorType.getShape();
-
-  // Calculate total number of elements (product of all dimensions).
-  int64_t totalElements = 1;
-  for (int64_t dim : tensorShape) {
-    totalElements *= dim;
-  }
-
-  // Create new 1D shape.
-  llvm::SmallVector<int64_t> flattenedShape = {totalElements};
-
-  // Create location with optional suffix.
-  Location reshapeLocation =
-      suffix.empty() ? loc : ttmlir::utils::appendLocationSuffix(loc, suffix);
-
-  // Reshape tensor to 1D.
-  Value flattenedTensor =
-      createReshapeOp(rewriter, reshapeLocation, tensor, flattenedShape);
-
-  return flattenedTensor;
-}
 
 namespace {
 template <typename SrcOp, typename DestOp,
@@ -3237,7 +3200,8 @@ public:
           sliceOutputShape[0] = 1;
 
           // Encoding should not be set when this pass is run. Guard against it.
-          assert(!updatesType.getEncoding());
+          assert(!updatesType.getEncoding() &&
+                 "Encoding should not be set when this pass is run");
 
           RankedTensorType slicedUpdatesType = RankedTensorType::get(
               sliceOutputShape, updatesType.getElementType(), nullptr);
@@ -3276,7 +3240,8 @@ public:
             updatesType.getShape(), {2, 1, 0, 3});
 
         // Encoding should not be set when this pass is run. Guard against it.
-        assert(!updatesType.getEncoding());
+        assert(!updatesType.getEncoding() &&
+               "Encoding should not be set when this pass is run");
         RankedTensorType permutedUpdatesType = RankedTensorType::get(
             permutedShape, updatesType.getElementType(), nullptr);
         updates = rewriter.create<ttir::PermuteOp>(
@@ -3441,12 +3406,12 @@ public:
           extractMultiDimensionalScatterIndices(srcOp, rewriter);
 
       // Flatten input tensor to 1D.
-      Value flattenedInput = flattenTensor(rewriter, srcOp.getLoc(),
-                                           inputTensor, "_input_flatten");
+      Value flattenedInput = ttir::utils::flattenTensor(
+          rewriter, srcOp.getLoc(), inputTensor, "_input_flatten");
 
       // Flatten update tensor to 1D.
-      Value flattenedUpdate = flattenTensor(rewriter, srcOp.getLoc(),
-                                            updateTensor, "_update_flatten");
+      Value flattenedUpdate = ttir::utils::flattenTensor(
+          rewriter, srcOp.getLoc(), updateTensor, "_update_flatten");
 
       // Perform scatter operation on flattened tensors.
       auto dimAttr = rewriter.getI32IntegerAttr(dim);
@@ -3462,10 +3427,10 @@ public:
 
       // Reshape result back to original input shape.
       Value reshapedResult =
-          createReshapeOp(rewriter,
-                          ttmlir::utils::appendLocationSuffix(
-                              srcOp.getLoc(), "_result_reshape"),
-                          scatterResult, inputShape);
+          ttir::utils::createReshapeOp(rewriter,
+                                       ttmlir::utils::appendLocationSuffix(
+                                           srcOp.getLoc(), "_result_reshape"),
+                                       scatterResult, inputShape);
 
       rewriter.replaceOp(srcOp, reshapedResult);
       return success();
@@ -3604,8 +3569,8 @@ private:
       llvm::SmallVector<int64_t> newShape(indexShape.begin(), indexShape.end());
       newShape.resize(updateShape.size(), 1);
 
-      indexTensor =
-          createReshapeOp(rewriter, op.getLoc(), indexTensor, newShape);
+      indexTensor = ttir::utils::createReshapeOp(rewriter, op.getLoc(),
+                                                 indexTensor, newShape);
       indexType = mlir::cast<RankedTensorType>(indexTensor.getType());
       indexShape = newShape;
     }
@@ -3729,8 +3694,8 @@ private:
     }
 
     // Flatten the indices to 1D.
-    Value flattenedIndices =
-        flattenTensor(rewriter, op.getLoc(), flatIndices, "_indices_flatten");
+    Value flattenedIndices = ttir::utils::flattenTensor(
+        rewriter, op.getLoc(), flatIndices, "_indices_flatten");
 
     TT_assertv(flattenedIndices, "Expected valid flat indices tensor");
     return flattenedIndices;
@@ -4125,9 +4090,9 @@ public:
           srcOp.getLoc(), flatIndicesType, flatIndicesAttr);
 
       // Flatten input and update tensors to 1D.
-      Value flattenedInput = flattenTensor(
+      Value flattenedInput = ttir::utils::flattenTensor(
           rewriter, srcOp.getLoc(), fullOp.getResult(), "_input_flatten");
-      Value flattenedUpdate = flattenTensor(
+      Value flattenedUpdate = ttir::utils::flattenTensor(
           rewriter, srcOp.getLoc(), adaptor.getOperand(), "_update_flatten");
 
       RankedTensorType flattenedInputType =
