@@ -451,7 +451,9 @@ public:
         TTNNMatmulAndLinearWithActivation<LinearOp, SigmoidOp>>(&getContext());
 
 #ifdef TTMLIR_ENABLE_OPMODEL
-    patterns.add<RoPEFusing>(&getContext());
+    if (enableOpConstraints) {
+      patterns.add<RoPEFusing>(&getContext());
+    }
 #endif // TTMLIR_ENABLE_OPMODEL
 
     GreedyRewriteConfig config;

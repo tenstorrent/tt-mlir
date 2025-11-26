@@ -128,6 +128,38 @@ void createTTNNPipelineLoweringPasses(
   }
 }
 
+// Create TTNN fusing pass.
+// If optimizer is enabled we wrap fusing pass inside optimizer wrapper
+// to ensure device is properly initialized. This is required for op constraint
+// validation for certain fusing patterns.
+// If optimizer is not enabled we just add fusing pass directly and we don't
+// do op constraint validation.
+void createTTNNFusingPass(OpPassManager &pm,
+                          const TTIRToTTNNBackendPipelineOptions &options) {
+  if (options.enableFusing) {
+    if (options.optimizerPassEnabled) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+      OptimizerPassesWrapperOptions wrapperOptions;
+      wrapperOptions.devicePtr = options.devicePtr;
+      wrapperOptions.tensorL1UsageCap = options.tensorL1UsageCap;
+
+      pm.addPass(createOptimizerPassesWrapper(
+          [](OpPassManager &innerPm) {
+            TTNNFusingOptions fusingOptions;
+            fusingOptions.enableOpConstraints = true;
+            innerPm.addPass(mlir::tt::ttnn::createTTNNFusing(fusingOptions));
+          },
+          wrapperOptions));
+#else
+      llvm::llvm_unreachable_internal(
+          "TTNNOptimizer passes require OpModel support to be enabled.");
+#endif
+    } else {
+      pm.addPass(mlir::tt::ttnn::createTTNNFusing());
+    }
+  }
+}
+
 // Create a pass to workaround issues in the TTNN dialect.
 void createTTNNPipelineWorkaroundPass(
     OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
@@ -196,9 +228,8 @@ void createTTIRToTTNNBackendPipeline(
   devicePm.addPass(ttir::createTTIRQuantDataTypeConversionPass(quantOptions));
 
   createTTNNPipelineLoweringPasses(devicePm, options);
-  if (options.enableFusing) {
-    devicePm.addPass(tt::ttnn::createTTNNFusing());
-  }
+  createTTNNFusingPass(devicePm, options);
+
   createTTNNPipelineWorkaroundPass(devicePm, options);
   if (options.enableConstEval) {
     devicePm.addPass(transforms::createConstEvalHoistTransform());

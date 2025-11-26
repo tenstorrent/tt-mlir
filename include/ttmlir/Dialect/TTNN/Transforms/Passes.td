@@ -192,6 +192,13 @@ def TTNNFusing: Pass<"ttnn-fusing", "::mlir::ModuleOp">
 {
   let summary = "TTNN fusing pass.";
   let description = "This pass tries to fuse operations together with goal to reduce the number of operations in the graph.";
+
+  let options = [
+    Option<"enableOpConstraints",
+            "enable-op-constraints",
+            "bool", /*default=*/"false",
+            "When enabled fusing pass includes patterns which check for op constraints.">
+  ];
 }
 
 def TTNNTraceHoistTransform : Pass<"ttnn-trace-hoist-transform", "::mlir::ModuleOp"> {

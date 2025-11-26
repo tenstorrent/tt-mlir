@@ -58,8 +58,6 @@ def test_conv2d_sharding(
     request,
     device,
 ):
-    print(device)
-
     def conv2d(
         in0: Operand,
         weight: Operand,
