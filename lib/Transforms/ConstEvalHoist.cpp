@@ -19,6 +19,7 @@
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/SmallVector.h"
+#include <mlir/IR/Attributes.h>
 
 namespace mlir::tt::transforms {
 
@@ -650,6 +651,28 @@ private:
     // Mark the new function as const-eval.
     newFuncOp->setAttr(ttmlir::utils::g_constEvalAttrName,
                        builder.getUnitAttr());
+
+    // Retain input attributes from original function.
+    for (auto [newArgIdx, input] : llvm::enumerate(inputs)) {
+      // Check if input argument is also original function argument.
+      auto *maybeFunctionArgument =
+          std::find(originalFunc.getArguments().begin(),
+                    originalFunc.getArguments().end(), input);
+
+      if (maybeFunctionArgument == originalFunc.getArguments().end()) {
+        continue;
+      }
+
+      auto originalArgIdx = maybeFunctionArgument->getArgNumber();
+
+      // Check for existence of ttmlir::utils::g_conv2dWeightAttrName
+      // TODO(dmilinkovic): this is ugly; consider copying all attributes
+      if (auto attr = originalFunc.getArgAttrOfType<mlir::Attribute>(
+              originalArgIdx, ttmlir::utils::g_conv2dWeightAttrName)) {
+        newFuncOp.setArgAttr(newArgIdx, ttmlir::utils::g_conv2dWeightAttrName,
+                             attr);
+      }
+    }
 
     // Build the body of the new function.
     auto *newEntryBlock = newFuncOp.addEntryBlock();
