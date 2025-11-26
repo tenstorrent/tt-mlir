@@ -98,6 +98,39 @@ struct D2MInsertDstRegisterGCPass
     return nullptr;
   }
 
+  /// Normalize DST indices by applying coalescing constraints and renumbering.
+  ///
+  /// This function:
+  /// 1. Applies coalescing constraints for in-place operations (e.g., unary ops
+  ///    like exp_tile where input and output must use the same DST index)
+  /// 2. Renumbers colors to use consecutive indices starting from 0
+  ///
+  /// \param coloring The coloring result from graph coloring (modified
+  /// in-place) \param coalescingPairs Pairs of (storeIdx, loadIdx) that must
+  /// use same color \return The number of unique colors after normalization
+  static uint32_t normalizeDstIndices(
+      std::vector<unsigned> &coloring,
+      const std::vector<std::pair<size_t, size_t>> &coalescingPairs) {
+    // Apply coalescing constraints: for in-place ops, the store must use the
+    // same color as the input load.
+    for (const auto &[storeIdx, loadIdx] : coalescingPairs) {
+      coloring[storeIdx] = coloring[loadIdx];
+    }
+
+    // Renumber colors to use consecutive indices starting from 0.
+    llvm::DenseMap<unsigned, unsigned> colorMap;
+    unsigned nextColor = 0;
+    for (unsigned &color : coloring) {
+      auto [it, inserted] = colorMap.insert({color, nextColor});
+      if (inserted) {
+        nextColor++;
+      }
+      color = it->second;
+    }
+
+    return nextColor;
+  }
+
   /// Replace an affine load or store op to use the DST buffer instead of L1.
   /// Uses constant DST slice index (matches legacy behavior).
   template <typename OpT>
@@ -392,12 +425,13 @@ private:
       return;
     }
 
-    // Build interference graph from DST accesses using liveness-based
-    // analysis. This follows the standard register allocation approach
-    // adapted for DST operations.
-    auto interferenceGraph =
-        InterferenceGraph::buildIndexGraphFromDstOperations(region,
-                                                            dstAccesses);
+    // Build interference graph and coalescing constraints from DST accesses.
+    // This follows the standard register allocation approach adapted for DST
+    // operations. Coalescing constraints are used for in-place operations
+    // (e.g., unary ops like exp_tile) where input and output must share a DST
+    // index.
+    auto graphResult = InterferenceGraph::buildIndexGraphFromDstOperations(
+        region, dstAccesses);
 
     // Calculate number of available colors (DST slices).
     const int64_t volume = ttmlir::utils::volume(cbType.getShape());
@@ -410,7 +444,8 @@ private:
     // Use the selected coloring strategy to assign DST slices.
     auto strategy = createColoringStrategy();
     std::vector<unsigned> coloring;
-    if (failed(strategy->colorGraph(interferenceGraph, numColors, coloring))) {
+    if (failed(strategy->colorGraph(graphResult.adjacencyList, numColors,
+                                    coloring))) {
       genericOp.emitError(
           "Graph coloring failed - not enough DST slices available");
       return;
@@ -419,27 +454,10 @@ private:
     TT_assertv(!coloring.empty(),
                "Graph coloring produced empty coloring result");
 
-    // Find the maximum color used to determine DST allocation size.
-    uint32_t maxColor = *llvm::max_element(coloring);
-    const int64_t numDstBaseSlices = maxColor + 1;
-
-    // Normalize coloring so that slice indices start from 0 and increment.
-    // This improves readability: inputs use ascending slices (0, 1, 2, ...)
-    // and results use distinct slices (not always 0).
-    llvm::DenseMap<unsigned, unsigned> colorMap;
-    unsigned nextColor = 0;
-    for (unsigned &color : coloring) {
-      auto [it, inserted] = colorMap.insert({color, nextColor});
-      if (inserted) {
-        nextColor++;
-      }
-      color = it->second;
-    }
-
-    // Create DST type with the required number of slices.
-    // DST slices are reused across loop iterations (matches legacy
-    // behavior).
-    const int64_t numDstSlicesNeeded = numDstBaseSlices;
+    // Apply coalescing constraints for in-place ops and normalize coloring
+    // so that slice indices start from 0 and increment consecutively.
+    const int64_t numDstSlicesNeeded =
+        normalizeDstIndices(coloring, graphResult.coalescingPairs);
     SmallVector<int64_t> dstShape({numDstSlicesNeeded});
     dstShape.append(cbType.getShape().begin(), cbType.getShape().end());
 
@@ -582,11 +600,9 @@ private:
       return;
     }
 
-    // Build interference graph from DST accesses using liveness-based
-    // analysis.
-    auto interferenceGraph =
-        InterferenceGraph::buildIndexGraphFromDstOperations(region,
-                                                            dstAccesses);
+    // Build interference graph and coalescing constraints from DST accesses.
+    auto graphResult = InterferenceGraph::buildIndexGraphFromDstOperations(
+        region, dstAccesses);
 
     // Calculate number of available colors (DST slices).
     const int64_t volume = ttmlir::utils::volume(cbType.getShape());
@@ -599,7 +615,8 @@ private:
     // Use the selected coloring strategy to assign DST slices.
     auto strategy = createColoringStrategy();
     std::vector<unsigned> coloring;
-    if (failed(strategy->colorGraph(interferenceGraph, numColors, coloring))) {
+    if (failed(strategy->colorGraph(graphResult.adjacencyList, numColors,
+                                    coloring))) {
       genericOp.emitError(
           "Graph coloring failed - not enough DST slices available");
       return;
@@ -608,23 +625,9 @@ private:
     TT_assertv(!coloring.empty(),
                "Graph coloring produced empty coloring result");
 
-    // Find the maximum color used to determine DST allocation size.
-    uint32_t maxColor = *llvm::max_element(coloring);
-    const int64_t numDstBaseSlices = maxColor + 1;
-
-    // Normalize coloring so that slice indices start from 0 and increment.
-    llvm::DenseMap<unsigned, unsigned> colorMap;
-    unsigned nextColor = 0;
-    for (unsigned &color : coloring) {
-      auto [it, inserted] = colorMap.insert({color, nextColor});
-      if (inserted) {
-        nextColor++;
-      }
-      color = it->second;
-    }
-
-    // Create DST type with the required number of slices.
-    const int64_t numDstSlicesNeeded = numDstBaseSlices;
+    // Apply coalescing constraints for in-place ops and normalize coloring.
+    const int64_t numDstSlicesNeeded =
+        normalizeDstIndices(coloring, graphResult.coalescingPairs);
     SmallVector<int64_t> dstShape({numDstSlicesNeeded});
     dstShape.append(cbType.getShape().begin(), cbType.getShape().end());
 
@@ -1222,11 +1225,13 @@ private:
 
     // For reductions, insert a guard to skip copying on the first iteration.
     // The output CB contains uninitialized data on the first iteration.
-    // We need to insert the guard first, then generate the copy loops inside it.
+    // We need to insert the guard first, then generate the copy loops inside
+    // it.
     scf::IfOp guard = insertGuardForLoopNest(rewriter, loopTemplate->getLoc(),
                                              copyInfo.guardIndices);
 
-    generateCopyLoopsWithOptionalGuard</*IsPrologue=*/true, affine::AffineLoadOp,
+    generateCopyLoopsWithOptionalGuard</*IsPrologue=*/true,
+                                       affine::AffineLoadOp,
                                        OpAndIndexOffset<affine::AffineLoadOp>>(
         rewriter, acquireDst.getResult(), loopTemplate, copyInfo.loads,
         loopTemplateCtx, maxLoopIterations, guard);

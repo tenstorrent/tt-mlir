@@ -149,12 +149,13 @@ LogicalResult GreedyColoring::colorGraph(
 
 namespace InterferenceGraph {
 
-std::vector<std::vector<size_t>> buildIndexGraphFromDstOperations(
+mlir::tt::d2m::InterferenceGraphResult buildIndexGraphFromDstOperations(
     mlir::Region &region,
     mlir::ArrayRef<std::pair<mlir::Operation *, int64_t>> dstAccesses) {
 
+  mlir::tt::d2m::InterferenceGraphResult result;
   size_t totalAccesses = dstAccesses.size();
-  std::vector<std::vector<size_t>> interferenceGraph(totalAccesses);
+  result.adjacencyList.resize(totalAccesses);
 
   // Create mapping from operations to indices.
   llvm::DenseMap<mlir::Operation *, size_t> opToIndex;
@@ -297,34 +298,47 @@ std::vector<std::vector<size_t>> buildIndexGraphFromDstOperations(
       if (interferes) {
         size_t idx1 = opToIndex[op1];
         size_t idx2 = opToIndex[op2];
-        interferenceGraph[idx1].push_back(idx2);
-        interferenceGraph[idx2].push_back(idx1);
+        result.adjacencyList[idx1].push_back(idx2);
+        result.adjacencyList[idx2].push_back(idx1);
       }
     }
   }
 
-  // Add semantic-aware interference edges for non-in-place operations.
+  // Handle in-place and non-in-place operations.
+  // For operations with getDstRegInPlace() = true, the result store must use
+  // the same DST index as the input load - add coalescing constraint.
   // For operations with getDstRegInPlace() = false, the result store must not
-  // reuse DST slices allocated to input loads. Add explicit interference edges
-  // between the result store and all input loads to enforce this constraint.
+  // reuse DST slices allocated to input loads - add interference edges.
   for (auto &[computeOp, resultStoreIdx] : computeOpResultStore) {
-    // Check if this compute op requires a separate DST slice for its result.
     auto iface = mlir::dyn_cast<OperandLoadStoreRegisterOpInterface>(computeOp);
-    if (iface && !iface.getDstRegInPlace()) {
+    if (!iface) {
+      continue;
+    }
+
+    const auto &inputLoads = computeOpInputLoads[computeOp];
+    if (iface.getDstRegInPlace()) {
+      // In-place operation: result store must use the same DST index as the
+      // first input load. Add coalescing constraint.
+      if (!inputLoads.empty()) {
+        result.coalescingPairs.emplace_back(resultStoreIdx, inputLoads[0]);
+      }
+    } else {
+      // Non-in-place operation: result store must not reuse input DST slots.
       // Add interference edges from result store to all input loads.
-      for (size_t inputLoadIdx : computeOpInputLoads[computeOp]) {
+      for (size_t inputLoadIdx : inputLoads) {
         // Avoid duplicate edges.
-        if (std::find(interferenceGraph[resultStoreIdx].begin(),
-                      interferenceGraph[resultStoreIdx].end(), inputLoadIdx) ==
-            interferenceGraph[resultStoreIdx].end()) {
-          interferenceGraph[resultStoreIdx].push_back(inputLoadIdx);
-          interferenceGraph[inputLoadIdx].push_back(resultStoreIdx);
+        if (std::find(result.adjacencyList[resultStoreIdx].begin(),
+                      result.adjacencyList[resultStoreIdx].end(),
+                      inputLoadIdx) ==
+            result.adjacencyList[resultStoreIdx].end()) {
+          result.adjacencyList[resultStoreIdx].push_back(inputLoadIdx);
+          result.adjacencyList[inputLoadIdx].push_back(resultStoreIdx);
         }
       }
     }
   }
 
-  return interferenceGraph;
+  return result;
 }
 
 unsigned computeChromatic_Lowerbound(
