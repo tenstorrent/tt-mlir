@@ -1,13 +1,8 @@
 include(ExternalProject)
 
-<<<<<<< HEAD
-set(TT_METAL_VERSION "934f879c0fd794272a2848b79768b15444fb0a62")
-=======
-set(TT_METAL_VERSION "effc1a32d8c436279c67364e5ade457c91cec361")
->>>>>>> a82b1344a (ttnn-jit support for levelized_graph, reductionOps, compositeOps)
 
-# Suppress install logs to avoid cluttering the build output
-set(CMAKE_INSTALL_MESSAGE NEVER)
+set(TT_METAL_VERSION "934f879c0fd794272a2848b79768b15444fb0a62")
+set(CMAKE_INSTALL_MESSAGE LAZY)  # suppress "Up-to-date:..." messages in incremental builds
 
 
 if (DEFINED ENV{CPM_SOURCE_CACHE})
