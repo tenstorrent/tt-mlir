@@ -15,12 +15,43 @@ namespace mlir::tt::stablehlo {
 static constexpr llvm::StringLiteral sdpaTargetName =
     "tt.scaled_dot_product_attention";
 
-// static mlir::sdy::OpShardingRuleAttr
-// getScatterShardingRule(mlir::stablehlo::ScatterOp op) {
-//   // Implement actual sharding rule for Scatter CustomCallOp here
-//   // For now, you can use a pointwise rule as placeholder:
-//   return mlir::sdy::OpShardingRuleBuilder::buildPointwise(op);
-// }
+static mlir::sdy::OpShardingRuleAttr
+getScatterShardingRule(mlir::stablehlo::ScatterOp scatterOp) {
+  llvm::outs() << "Getting sharding rule for ScatterOp\n";
+  mlir::Operation::operand_range inputs = scatterOp.getInputs();
+  mlir::Operation::operand_range updates = scatterOp.getUpdates();
+  mlir::Value indices = scatterOp.getScatterIndices();
+
+  if (!llvm::hasSingleElement(inputs) || !llvm::hasSingleElement(updates)) {
+    scatterOp->emitError(
+        "Scatter operation has multiple input or update tensors. This is not "
+        "supported.");
+    return mlir::sdy::OpShardingRuleAttr();
+  }
+
+  auto inputType = llvm::dyn_cast<RankedTensorType>(inputs.front().getType());
+  auto updateType = llvm::dyn_cast<RankedTensorType>(updates.front().getType());
+  auto indicesType = llvm::dyn_cast<RankedTensorType>(indices.getType());
+  if (!inputType || !updateType || !indicesType) {
+    scatterOp->emitError(
+        "Scatter operation has unranked tensor types. This is not supported.");
+    return mlir::sdy::OpShardingRuleAttr();
+  }
+
+  // Lambda that returns kNeedReplication for all dimensions
+  auto getReplicationType = [](int64_t dim) -> mlir::sdy::FactorType {
+    return mlir::sdy::FactorType::kNeedReplication;
+  };
+
+  // Build sharding rule
+  auto builder = mlir::sdy::OpShardingRuleBuilder(scatterOp);
+  builder.addPointwise(inputType.getShape(), getReplicationType);
+
+  // // Always replicate updates and indices.
+  // // ADD CODE
+
+  return builder.build();
+}
 
 static mlir::sdy::OpShardingRuleAttr
 getSDPAShardingRule(mlir::stablehlo::CustomCallOp op) {
@@ -76,9 +107,11 @@ struct StablehloShardingModel
           StablehloShardingModel<OpTy>, OpTy> {
 
   mlir::sdy::OpShardingRuleAttr getShardingRule(mlir::Operation *op) const {
+    llvm::outs() << "Getting sharding rule for Stablehlo ScatterOp\n";
     auto scatterOp = llvm::cast<mlir::stablehlo::ScatterOp>(op);
-    // Implement actual sharding rule for ScatterOp here
-    // For now, you can use a pointwise rule as placeholder:
+    if (scatterOp) {
+      return getScatterShardingRule(scatterOp);
+    }
     return mlir::sdy::OpShardingRuleBuilder::buildPointwise(scatterOp);
   }
 
