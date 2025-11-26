@@ -1,5 +1,7 @@
 // RUN: ttmlir-opt --ttcore-register-device --d2m-generic-tile-compute-loops --d2m-linalg-to-affine --d2m-insert-dst-register-access --canonicalize -o %t %s
 // RUN: FileCheck %s --input-file=%t
+// RUN: ttmlir-opt --ttcore-register-device --d2m-generic-tile-compute-loops --d2m-linalg-to-affine --d2m-insert-dst-register-gc="coloring-strategy=greedy" --canonicalize %s | FileCheck %s
+// RUN: ttmlir-opt --ttcore-register-device --d2m-generic-tile-compute-loops --d2m-linalg-to-affine --d2m-insert-dst-register-gc="coloring-strategy=chaitin-briggs" --canonicalize %s | FileCheck %s
 
 func.func @cosh(%alloc_1 : memref<4x4x8x12x!ttcore.tile<32x32, bf16>, #ttcore.shard<2048x2048, 1>, #ttcore.memory_space<l1>>,
                 %alloc   : memref<4x4x8x12x!ttcore.tile<32x32, bf16>, #ttcore.shard<2048x2048, 1>, #ttcore.memory_space<l1>>,

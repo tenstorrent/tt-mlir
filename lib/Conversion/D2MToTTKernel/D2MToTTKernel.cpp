@@ -282,23 +282,6 @@ public:
 } // namespace
 
 namespace {
-class ReleaseDstRewriter : public OpConversionPattern<d2m::ReleaseDstOp> {
-public:
-  using OpConversionPattern<d2m::ReleaseDstOp>::OpConversionPattern;
-
-  LogicalResult
-  matchAndRewrite(d2m::ReleaseDstOp op, d2m::ReleaseDstOpAdaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const final {
-    // Do not emit tile_regs_release here. The TTKernelControlDstSection pass
-    // will insert tile_regs_commit, tile_regs_wait, and tile_regs_release
-    // around pack_tile operations.
-    rewriter.eraseOp(op);
-    return success();
-  };
-};
-} // namespace
-
-namespace {
 class MemrefLoadRewriter : public OpConversionPattern<memref::LoadOp> {
 public:
   using OpConversionPattern<memref::LoadOp>::OpConversionPattern;
@@ -1676,7 +1659,6 @@ void populateD2MToTTKernelPatterns(
                ttkernel::D2MTileTransposeRewriter,
                ttkernel::D2MDstReinterpretCastRewriter,
                ttkernel::AcquireDstRewriter,
-               ttkernel::ReleaseDstRewriter,
                ttkernel::MemrefLoadRewriter,
                ttkernel::MemrefStoreRewriter,
                ttkernel::D2MCBOpRewriter<d2m::WaitOp, ttkernel::CBWaitFrontOp, ttkernel::CBPopFrontOp>,

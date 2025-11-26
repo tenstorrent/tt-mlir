@@ -14,7 +14,6 @@ module {
   // LEGACY: affine.load %{{.*}}[1,
   // CHECK: d2m.tile_maximum
   // CHECK-SAME: result_dst_index =
-  // CHECK: d2m.release_dst
   func.func @binary(%in0: memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_>,
                     %in1: memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_>,
                     %out0: memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_>) {
@@ -49,7 +48,6 @@ module {
   // CHECK: d2m.tile_recip
   // LEGACY-SAME: result_dst_index = 2
   // GC-SAME: result_dst_index = 2
-  // CHECK: d2m.release_dst
   func.func @intermediates_thru_dst_chain_2(%in0: memref<1x1x1x1x!ttcore.tile<32x32, f16>, #ttcore.shard<2048x2048, 1>, #l1_>,
                                             %in1: memref<1x1x1x1x!ttcore.tile<32x32, f16>, #ttcore.shard<2048x2048, 1>, #l1_>,
                                             %out0: memref<1x1x1x1x!ttcore.tile<32x32, f16>, #ttcore.shard<2048x2048, 1>, #l1_>) {
@@ -92,7 +90,6 @@ module {
   // CHECK: d2m.tile_eqz
   // LEGACY-SAME: result_dst_index = 2
   // GC-SAME: result_dst_index = 2
-  // CHECK: d2m.release_dst
   func.func @intermediates_thru_dst_chain_3(%in0: memref<1x1x1x1x!ttcore.tile<32x32, f16>, #ttcore.shard<2048x2048, 1>, #l1_>,
                                             %in1: memref<1x1x1x1x!ttcore.tile<32x32, f16>, #ttcore.shard<2048x2048, 1>, #l1_>,
                                             %out0: memref<1x1x1x1x!ttcore.tile<32x32, f16>, #ttcore.shard<2048x2048, 1>, #l1_>) {
@@ -132,7 +129,6 @@ module {
   // CHECK: d2m.tile_sin
   // CHECK: d2m.tile_negative
   // CHECK: d2m.tile_exp
-  // CHECK: d2m.release_dst
   func.func @eltwise_unary_chain_multi_tile(%in0: memref<1x1x4x4x!ttcore.tile<32x32, bf16>, #ttcore.shard<8192x2048, 1>, #l1_>,
                                             %out0: memref<1x1x4x4x!ttcore.tile<32x32, bf16>, #ttcore.shard<8192x2048, 1>, #l1_>) {
     d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [affine_map<(d0, d1) -> (d0, d1)>, affine_map<(d0, d1) -> (d0, d1)>], iterator_types = [#ttcore.iterator_type<parallel>, #ttcore.iterator_type<parallel>], threads = [#d2m.thread<compute>]}
@@ -177,7 +173,6 @@ module {
               affine.store %0, %subview_4[%arg3, %arg4] : memref<2x4x!ttcore.tile<32x32, bf16>, strided<[4, 1], offset: ?>, #l1_>
             }
           }
-          d2m.release_dst %dst : memref<1x2x4x!ttcore.tile<32x32, bf16>, #dst_>
         }
       }
     }

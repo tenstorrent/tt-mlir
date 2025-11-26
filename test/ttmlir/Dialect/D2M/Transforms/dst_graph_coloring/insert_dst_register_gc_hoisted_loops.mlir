@@ -85,4 +85,3 @@ module {
 // CHECK: affine.store {{.*}}, %[[MEM_OUT]]
 
 // Release DST at the end
-// CHECK: d2m.release_dst %[[DST]]

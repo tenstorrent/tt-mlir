@@ -251,21 +251,6 @@ public:
                             ttcore::MemorySpace::RegisterDst));
 
     AcquireDstOp acquireDst = rewriter.create<AcquireDstOp>(loc, dstType);
-
-    // Insert release_dst at the end of the region where acquire_dst was
-    // inserted to mark the end of the DST register's liveness. This provides
-    // an explicit signal for register allocation passes (like graph coloring)
-    // indicating when the register can be reused.
-    Region *acquireRegion = acquireDst->getParentRegion();
-    TT_debugv(acquireRegion != nullptr, "acquire_dst must be in a region");
-    Block &block = acquireRegion->front();
-    if (!block.empty() && block.back().hasTrait<OpTrait::IsTerminator>()) {
-      rewriter.setInsertionPoint(&block.back());
-    } else {
-      rewriter.setInsertionPointToEnd(&block);
-    }
-    rewriter.create<ReleaseDstOp>(loc, acquireDst.getResult());
-
     return acquireDst;
   }
 

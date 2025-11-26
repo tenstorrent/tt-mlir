@@ -39,7 +39,6 @@ module {
   // COMMON: affine.load %[[DST]]
   // COMMON: affine.store {{.*}}, %[[MEM_OUT]]
 
-  // COMMON: d2m.release_dst %[[DST]]
 
   func.func @test_binary_with_loops(%in0: memref<1x1x1x1x!ttcore.tile<32x32, f16>, #ttcore.shard<4096x4096, 1>, #l1_>,
                                      %in1: memref<1x1x1x1x!ttcore.tile<32x32, f16>, #ttcore.shard<4096x4096, 1>, #l1_>,
@@ -106,7 +105,6 @@ module {
   // GC: affine.load {{.*}}: memref<3x1x1x!ttcore.tile<32x32, f32>, #dst>
   // LEGACY: affine.load {{.*}}: memref<8x1x1x!ttcore.tile<32x32, f32>, #dst>
   // COMMON: affine.store {{.*}}: memref<1x1x!ttcore.tile<32x32, f32>, #l1>
-  // COMMON: d2m.release_dst %[[DST]]
 
   func.func @test_f32_dtype_with_loops(%in0: memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_>,
                               %in1: memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_>,
@@ -191,7 +189,6 @@ module {
   // COMMON: affine.load %[[DST]]
   // COMMON: affine.store {{.*}}, %[[MEM_OUT]]
 
-  // COMMON: d2m.release_dst %[[DST]]
 
   func.func @test_2x2_binary_with_nested_loops(%in0: memref<1x1x2x2x!ttcore.tile<32x32, f16>, #ttcore.shard<8192x4096, 1>, #l1_>,
                                    %in1: memref<1x1x2x2x!ttcore.tile<32x32, f16>, #ttcore.shard<8192x4096, 1>, #l1_>,

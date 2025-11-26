@@ -17,8 +17,7 @@ module {
   // DEFAULT: d2m.tile_matmul
   // DEFAULT: affine.load
   // DEFAULT: affine.store
-  // DEFAULT: d2m.release_dst %[[DST]]
-  // DEFAULT-NEXT: return
+  // DEFAULT: return
 
   // CHAITIN-LABEL: func.func @matmul_simple
   // CHAITIN: %[[DST:.*]] = d2m.acquire_dst
@@ -27,8 +26,7 @@ module {
   // CHAITIN: d2m.tile_matmul
   // CHAITIN: affine.load
   // CHAITIN: affine.store
-  // CHAITIN: d2m.release_dst %[[DST]]
-  // CHAITIN-NEXT: return
+  // CHAITIN: return
 
   // GREEDY-LABEL: func.func @matmul_simple
   // GREEDY: %[[DST:.*]] = d2m.acquire_dst
@@ -37,8 +35,7 @@ module {
   // GREEDY: d2m.tile_matmul
   // GREEDY: affine.load
   // GREEDY: affine.store
-  // GREEDY: d2m.release_dst %[[DST]]
-  // GREEDY-NEXT: return
+  // GREEDY: return
 
   func.func @matmul_simple(%in0: memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_>,
                            %in1: memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_>,
@@ -68,7 +65,6 @@ module {
         affine.store %result, %out0[0, 0, %i, %j] : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_>
       }
     }
-    d2m.release_dst %dst : memref<3x1x1x!ttcore.tile<32x32, f32>, #dst_>
     return
   }
 }

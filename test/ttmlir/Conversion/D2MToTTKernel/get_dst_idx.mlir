@@ -54,7 +54,6 @@ module {
         memref.store %3, %collapse_shape_1[%1] : memref<4x!ttcore.tile<32x32, f32>, #l1_>
       }
     }
-    d2m.release_dst %dst : memref<2x2x2x!ttcore.tile<32x32, f32>, #dst_>
     return
   }
 
@@ -95,7 +94,6 @@ module {
       %1 = memref.load %collapse_shape_2[%0] : memref<8x!ttcore.tile<32x32, f32>, #dst_>
       memref.store %1, %collapse_shape_1[%arg3] : memref<2x!ttcore.tile<32x32, f32>, #l1_>
     }
-    d2m.release_dst %dst : memref<4x2x1x!ttcore.tile<32x32, f32>, #dst_>
     return
   }
 
@@ -136,7 +134,6 @@ module {
       %1 = memref.load %collapse_shape_2[%0] : memref<8x!ttcore.tile<32x32, f32>, #dst_>
       memref.store %1, %collapse_shape_1[%arg3] : memref<2x!ttcore.tile<32x32, f32>, #l1_>
     }
-    d2m.release_dst %dst : memref<4x1x2x!ttcore.tile<32x32, f32>, #dst_>
     return
   }
 }

@@ -1,5 +1,7 @@
 // RUN: ttmlir-opt --ttcore-register-device --d2m-linalg-to-affine --d2m-insert-dst-register-access --canonicalize -o %t %s --split-input-file
 // RUN: FileCheck %s --input-file=%t
+// RUN: ttmlir-opt --ttcore-register-device --d2m-linalg-to-affine --d2m-insert-dst-register-gc="coloring-strategy=greedy" --canonicalize %s --split-input-file | FileCheck %s
+// RUN: ttmlir-opt --ttcore-register-device --d2m-linalg-to-affine --d2m-insert-dst-register-gc="coloring-strategy=chaitin-briggs" --canonicalize %s --split-input-file | FileCheck %s
 //
 // Test that InsertDstRegisterAccess correctly handles d2m.generic operations
 // in explicit datamovement form (empty block_factors, indexing_maps, and iterator_types).

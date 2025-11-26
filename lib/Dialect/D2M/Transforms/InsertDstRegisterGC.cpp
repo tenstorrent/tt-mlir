@@ -10,7 +10,6 @@
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
 #include "ttmlir/Dialect/D2M/Utils/TileMatmulUtils.h"
 
-#include "mlir/Analysis/Liveness.h"
 #include "mlir/Dialect/Affine/Analysis/LoopAnalysis.h"
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Affine/LoopUtils.h"
@@ -133,6 +132,7 @@ struct D2MInsertDstRegisterGCPass
 
   /// Replace an affine load or store op to use the DST buffer instead of L1.
   /// Uses constant DST slice index (matches legacy behavior).
+  /// Handles type mismatches (e.g., typecast ops) using DstReinterpretCastOp.
   template <typename OpT>
   static void replaceAffineAccessWithDst(IRRewriter &rewriter, OpT op,
                                          Value dstBuffer,
@@ -170,22 +170,29 @@ struct D2MInsertDstRegisterGCPass
     auto dstMap = AffineMap::getMultiDimIdentityMap(dstIndices.size(),
                                                     rewriter.getContext());
 
+    // Get DST element type for type comparison.
+    auto dstMemRefType = mlir::cast<MemRefType>(dstBuffer.getType());
+    Type dstElementType = dstMemRefType.getElementType();
+
     if constexpr (std::is_same_v<OpT, affine::AffineLoadOp>) {
       rewriter.replaceOpWithNewOp<affine::AffineLoadOp>(op, dstBuffer, dstMap,
                                                         dstIndices);
     } else if constexpr (std::is_same_v<OpT, affine::AffineStoreOp>) {
+      Value valueToStore = op.getValueToStore();
+      Type valueType = valueToStore.getType();
+
+      // Handle type mismatch (e.g., typecast ops produce f16 but DST is f32).
+      // Insert DstReinterpretCastOp to cast the value to the DST element type.
+      if (valueType != dstElementType) {
+        valueToStore = rewriter.create<DstReinterpretCastOp>(
+            op.getLoc(), dstElementType, valueToStore);
+      }
+
       rewriter.replaceOpWithNewOp<affine::AffineStoreOp>(
-          op, op.getValueToStore(), dstBuffer, dstMap, dstIndices);
+          op, valueToStore, dstBuffer, dstMap, dstIndices);
     } else {
       static_assert(!std::is_same_v<OpT, OpT>, "Unsupported operation type");
     }
-  }
-
-  // Check if a generic region has acquire_dst but no release_dst.
-  static bool hasAcquireDstWithoutRelease(Region &region) {
-    bool hasAcquire = !region.getOps<AcquireDstOp>().empty();
-    bool hasRelease = !region.getOps<ReleaseDstOp>().empty();
-    return hasAcquire && !hasRelease;
   }
 
   // Create the coloring strategy based on pass options.
@@ -240,75 +247,6 @@ struct D2MInsertDstRegisterGCPass
                        << " tiles). Consider enabling spilling or reducing "
                           "operation complexity.";
       return signalPassFailure();
-    }
-
-    // First pass: Add release_dst after the last use of each acquire_dst.
-    if (hasAcquireDstWithoutRelease(func.getBody())) {
-      IRRewriter rewriter(&getContext());
-      Liveness liveness(func);
-
-      // Find all acquire_dst operations and add release_dst after last use
-      for (auto acquireDst : func.getOps<AcquireDstOp>()) {
-        Value dstValue = acquireDst.getResult();
-        Operation *lastUser = nullptr;
-
-        // Find the last operation that uses this acquired DST value.
-        // We iterate through all uses and find the one that appears latest
-        // in the program order within its block.
-        for (OpOperand &use : dstValue.getUses()) {
-          Operation *user = use.getOwner();
-          if (!lastUser) {
-            lastUser = user;
-          } else {
-            // Check if user comes after lastUser in the same block
-            Block *userBlock = user->getBlock();
-            Block *lastUserBlock = lastUser->getBlock();
-
-            if (userBlock == lastUserBlock) {
-              // Same block: use positional comparison
-              if (user->isBeforeInBlock(lastUser)) {
-                // user comes before lastUser, so lastUser is still the last
-              } else {
-                lastUser = user;
-              }
-            } else {
-              // Different blocks: use liveness to determine dominance
-              const LivenessBlockInfo *userLiveness =
-                  liveness.getLiveness(userBlock);
-              if (userLiveness && userLiveness->isLiveOut(dstValue)) {
-                // If the value is live-out of the user's block, then there
-                // might be later uses. Keep the later block.
-                lastUser = user;
-              }
-            }
-          }
-        }
-
-        // Insert release_dst after the last user.
-        if (lastUser) {
-          // Find the top-level operation in the function body that contains
-          // the last user. This ensures we place the release after
-          // loops/regions rather than inside them.
-          Operation *topLevelOp = lastUser;
-          Block &funcBody = func.getBody().front();
-          while (topLevelOp->getBlock() != &funcBody) {
-            topLevelOp = topLevelOp->getParentOp();
-            if (!topLevelOp) {
-              // Shouldn't happen, but handle defensively
-              topLevelOp = lastUser;
-              break;
-            }
-          }
-
-          rewriter.setInsertionPointAfter(topLevelOp);
-          rewriter.create<ReleaseDstOp>(topLevelOp->getLoc(), dstValue);
-        } else {
-          // No users found - release immediately after acquire.
-          // This shouldn't normally happen but handle it defensively.
-          rewriter.setInsertionPointAfter(acquireDst);
-          rewriter.create<ReleaseDstOp>(acquireDst.getLoc(), dstValue);
-        }
-      }
     }
 
     // Process linalg.generic ops that were not converted by LinalgToAffine.
@@ -372,7 +310,6 @@ struct D2MInsertDstRegisterGCPass
           processMarkedLoopRegion(genericOp, markedLoopRegion, forOp,
                                   totalDstTiles);
         });
-
       }
     });
   }
@@ -417,6 +354,9 @@ private:
       return;
     }
 
+    // Use CB element type for DST allocation.
+    Type dstElementType = cbType.getElementType();
+
     // Build interference graph and coalescing constraints from DST accesses.
     // This follows the standard register allocation approach adapted for DST
     // operations. Coalescing constraints are used for in-place operations
@@ -454,7 +394,7 @@ private:
     dstShape.append(cbType.getShape().begin(), cbType.getShape().end());
 
     MemRefType dstType = MemRefType::get(
-        dstShape, cbType.getElementType(),
+        dstShape, dstElementType,
         AffineMap::getMultiDimIdentityMap(dstShape.size(), &getContext()),
         ttcore::MemorySpaceAttr::get(&getContext(),
                                      ttcore::MemorySpace::RegisterDst));
@@ -485,35 +425,11 @@ private:
                            loopTemplateCtx, maxLoopIterations);
     }
 
-    // Track the last operation we generate so we can place release_dst after
-    // it.
-    Operation *lastOp = markedLoop.getOperation();
-
     for (auto &[loopOp, copyInfo] : copyInfoMap) {
       const LoopContext &loopTemplateCtx = loopTemplateContexts[loopOp];
       generateEpilogueLoop(rewriter, acquireDst.getResult(), loopOp, copyInfo,
                            loopTemplateCtx, maxLoopIterations);
     }
-
-    // Insert release_dst after all epilogue loops.
-    // The epilogue loops are inserted after the marked loop, so we need to
-    // find the last non-terminator operation after the marked loop.
-    for (Operation *op = markedLoop->getNextNode(); op != nullptr;
-         op = op->getNextNode()) {
-      if (!op->hasTrait<OpTrait::IsTerminator>()) {
-        lastOp = op;
-      }
-    }
-
-    // Place release_dst after the last non-terminator (the last epilogue),
-    // or before the terminator if there's one.
-    if (lastOp->getNextNode() &&
-        lastOp->getNextNode()->hasTrait<OpTrait::IsTerminator>()) {
-      rewriter.setInsertionPoint(lastOp->getNextNode());
-    } else {
-      rewriter.setInsertionPointAfter(lastOp);
-    }
-    rewriter.create<ReleaseDstOp>(genericOp.getLoc(), acquireDst.getResult());
 
     // First pass: attach result_dst_index attributes to compute operations.
     // This enables the backend to retrieve DST indices without searching
@@ -776,9 +692,17 @@ private:
           auto dstValue = rewriter.create<affine::AffineLoadOp>(
               op.getLoc(), externalMemref, dstMap, dstIndices);
 
-          rewriter.create<affine::AffineStoreOp>(
-              op.getLoc(), dstValue.getResult(), op.getMemRef(), op.getMap(),
-              op.getIndices());
+          // Handle type mismatch: DST element type may differ from L1 type.
+          Value valueToStore = dstValue.getResult();
+          Type l1ElementType = op.getMemRefType().getElementType();
+          if (valueToStore.getType() != l1ElementType) {
+            valueToStore = rewriter.create<DstReinterpretCastOp>(
+                op.getLoc(), l1ElementType, valueToStore);
+          }
+
+          rewriter.create<affine::AffineStoreOp>(op.getLoc(), valueToStore,
+                                                 op.getMemRef(), op.getMap(),
+                                                 op.getIndices());
         }
       }
       return;
@@ -840,8 +764,16 @@ private:
         auto dstLoad = rewriter.create<affine::AffineLoadOp>(
             op.getLoc(), externalMemref, dstMap, dstIndices);
 
+        // Handle type mismatch: DST element type may differ from L1 type.
+        Value valueToStore = dstLoad.getResult();
+        Type l1ElementType = op.getMemRefType().getElementType();
+        if (valueToStore.getType() != l1ElementType) {
+          valueToStore = rewriter.create<DstReinterpretCastOp>(
+              op.getLoc(), l1ElementType, valueToStore);
+        }
+
         // Create: affine.store %val, %l1[...]
-        rewriter.create<affine::AffineStoreOp>(op.getLoc(), dstLoad.getResult(),
+        rewriter.create<affine::AffineStoreOp>(op.getLoc(), valueToStore,
                                                op.getMemRef(), op.getMap(),
                                                mappedIndices);
       }
@@ -935,9 +867,17 @@ private:
           auto dstValue = rewriter.create<affine::AffineLoadOp>(
               op.getLoc(), externalMemref, dstMap, dstIndices);
 
-          rewriter.create<affine::AffineStoreOp>(
-              op.getLoc(), dstValue.getResult(), op.getMemRef(), op.getMap(),
-              op.getIndices());
+          // Handle type mismatch: DST element type may differ from L1 type.
+          Value valueToStore = dstValue.getResult();
+          Type l1ElementType = op.getMemRefType().getElementType();
+          if (valueToStore.getType() != l1ElementType) {
+            valueToStore = rewriter.create<DstReinterpretCastOp>(
+                op.getLoc(), l1ElementType, valueToStore);
+          }
+
+          rewriter.create<affine::AffineStoreOp>(op.getLoc(), valueToStore,
+                                                 op.getMemRef(), op.getMap(),
+                                                 op.getIndices());
         }
       }
       return;
@@ -985,7 +925,15 @@ private:
         auto dstLoad = rewriter.create<affine::AffineLoadOp>(
             op.getLoc(), externalMemref, dstMap, dstIndices);
 
-        rewriter.create<affine::AffineStoreOp>(op.getLoc(), dstLoad.getResult(),
+        // Handle type mismatch: DST element type may differ from L1 type.
+        Value valueToStore = dstLoad.getResult();
+        Type l1ElementType = op.getMemRefType().getElementType();
+        if (valueToStore.getType() != l1ElementType) {
+          valueToStore = rewriter.create<DstReinterpretCastOp>(
+              op.getLoc(), l1ElementType, valueToStore);
+        }
+
+        rewriter.create<affine::AffineStoreOp>(op.getLoc(), valueToStore,
                                                op.getMemRef(), op.getMap(),
                                                mappedIndices);
       }
@@ -1004,6 +952,9 @@ private:
     if (copyInfo.loads.empty()) {
       return;
     }
+
+    // Set insertion point before the loop template for prologue operations.
+    rewriter.setInsertionPoint(loopTemplate);
 
     // For reductions, insert a guard to skip copying on the first iteration.
     // The output CB contains uninitialized data on the first iteration.

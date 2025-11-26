@@ -15,24 +15,21 @@ module {
   // LEGACY-NEXT: affine.for %
   // LEGACY: affine.store
   // LEGACY: d2m.tile_maximum
-  // LEGACY: d2m.release_dst %[[DST0]]
-  // LEGACY-NEXT: return
+  // LEGACY: return
 
   // CHAITIN-LABEL: func.func @binary
   // CHAITIN: %[[DST0:.*]] = d2m.acquire_dst
   // CHAITIN-NEXT: affine.for %
   // CHAITIN: affine.store
   // CHAITIN: d2m.tile_maximum
-  // CHAITIN: d2m.release_dst %[[DST0]]
-  // CHAITIN-NEXT: return
+  // CHAITIN: return
 
   // GREEDY-LABEL: func.func @binary
   // GREEDY: %[[DST0:.*]] = d2m.acquire_dst
   // GREEDY-NEXT: affine.for %
   // GREEDY: affine.store
   // GREEDY: d2m.tile_maximum
-  // GREEDY: d2m.release_dst %[[DST0]]
-  // GREEDY-NEXT: return
+  // GREEDY: return
 
   func.func @binary(%in0: memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_>,
                     %in1: memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_>,
@@ -60,7 +57,6 @@ module {
         affine.store %0, %out0[0, 0, %i, %j] : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_>
       }
     }
-    d2m.release_dst %dst : memref<4x1x1x!ttcore.tile<32x32, f32>, #dst_>
     return
   }
 
@@ -68,31 +64,25 @@ module {
   // LEGACY: %[[DST0:.*]] = d2m.acquire_dst
   // LEGACY-NEXT: affine.for %
   // LEGACY: d2m.tile_maximum
-  // LEGACY: d2m.release_dst %[[DST0]]
-  // LEGACY-NEXT: %[[DST1:.*]] = d2m.acquire_dst
+  // LEGACY: %[[DST1:.*]] = d2m.acquire_dst
   // LEGACY: d2m.tile_add
-  // LEGACY: d2m.release_dst %[[DST1]]
-  // LEGACY-NEXT: return
+  // LEGACY: return
 
   // CHAITIN-LABEL: func.func @ternary_with_interference_and_reuse
   // CHAITIN: %[[DST0:.*]] = d2m.acquire_dst
   // CHAITIN-NEXT: affine.for %
   // CHAITIN: d2m.tile_maximum
-  // CHAITIN: d2m.release_dst %[[DST0]]
-  // CHAITIN-NEXT: %[[DST1:.*]] = d2m.acquire_dst
+  // CHAITIN: %[[DST1:.*]] = d2m.acquire_dst
   // CHAITIN: d2m.tile_add
-  // CHAITIN: d2m.release_dst %[[DST1]]
-  // CHAITIN-NEXT: return
+  // CHAITIN: return
 
   // GREEDY-LABEL: func.func @ternary_with_interference_and_reuse
   // GREEDY: %[[DST0:.*]] = d2m.acquire_dst
   // GREEDY-NEXT: affine.for %
   // GREEDY: d2m.tile_maximum
-  // GREEDY: d2m.release_dst %[[DST0]]
-  // GREEDY-NEXT: %[[DST1:.*]] = d2m.acquire_dst
+  // GREEDY: %[[DST1:.*]] = d2m.acquire_dst
   // GREEDY: d2m.tile_add
-  // GREEDY: d2m.release_dst %[[DST1]]
-  // GREEDY-NEXT: return
+  // GREEDY: return
 
   func.func @ternary_with_interference_and_reuse(%in0: memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_>,
                                        %in1: memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_>,
@@ -113,7 +103,6 @@ module {
         affine.store %r3, %dst0[3, %i, %j] : memref<4x1x1x!ttcore.tile<32x32, f32>, #dst_>
       }
     }
-    d2m.release_dst %dst0 : memref<4x1x1x!ttcore.tile<32x32, f32>, #dst_>
     %dst1 = d2m.acquire_dst() : memref<2x1x1x!ttcore.tile<32x32, f32>, #dst_>
     affine.for %i = 0 to 1 {
       affine.for %j = 0 to 1 {
@@ -130,7 +119,6 @@ module {
         affine.store %result, %out0[0, 0, %i, %j] : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_>
       }
     }
-    d2m.release_dst %dst1 : memref<2x1x1x!ttcore.tile<32x32, f32>, #dst_>
     return
   }
 }

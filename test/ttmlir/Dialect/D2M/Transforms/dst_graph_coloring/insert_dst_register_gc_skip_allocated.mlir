@@ -1,7 +1,6 @@
 // RUN: ttmlir-opt --ttcore-register-device --d2m-insert-dst-register-gc %s | FileCheck %s
 //
 // Verifies that d2m-insert-dst-register-gc skips d2m.generic regions that
-// already have DST allocation (acquire_dst/release_dst present).
 // This ensures the pass is idempotent and doesn't double-allocate.
 
 #l1_ = #ttcore.memory_space<l1>
@@ -13,8 +12,6 @@ module {
   // CHECK: %[[DST:.*]] = d2m.acquire_dst() : memref<2x1x1x!ttcore.tile<32x32, f16>, #dst>
   // CHECK-NOT: d2m.acquire_dst
   // CHECK: d2m.tile_add
-  // CHECK: d2m.release_dst %[[DST]]
-  // CHECK-NOT: d2m.release_dst
   func.func @skip_already_allocated(
     %in0: memref<1x1x1x1x!ttcore.tile<32x32, f16>, #ttcore.shard<4096x4096, 1>, #l1_>,
     %in1: memref<1x1x1x1x!ttcore.tile<32x32, f16>, #ttcore.shard<4096x4096, 1>, #l1_>,
@@ -60,7 +57,6 @@ module {
       %final = affine.load %dst[0, %c0, %c0] : memref<2x1x1x!ttcore.tile<32x32, f16>, #dst>
       affine.store %final, %mem_out[%c0, %c0] : memref<1x1x!ttcore.tile<32x32, f16>, #l1_>
 
-      d2m.release_dst %dst : memref<2x1x1x!ttcore.tile<32x32, f16>, #dst>
     }
     return
   }

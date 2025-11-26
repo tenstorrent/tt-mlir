@@ -69,7 +69,7 @@ TEST_F(DstCapacityAnalysisTest, NoGenericOpReturnsDefaultCapacity) {
 }
 
 // Test that DstCapacityAnalysis returns default capacity when there are
-// acquire_dst/release_dst operations but no GenericOp.
+// acquire_dst operations but no GenericOp.
 TEST_F(DstCapacityAnalysisTest, NoGenericOpWithDstOperations) {
   const char *moduleStr = R"(
     #dst_ = #ttcore.memory_space<dst>
@@ -82,7 +82,6 @@ TEST_F(DstCapacityAnalysisTest, NoGenericOpWithDstOperations) {
             affine.store %val, %dst[1, %i, %j] : memref<8x1x1x!ttcore.tile<32x32, f32>, #dst_>
           }
         }
-        d2m.release_dst %dst : memref<8x1x1x!ttcore.tile<32x32, f32>, #dst_>
         return
       }
     }

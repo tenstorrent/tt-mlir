@@ -84,18 +84,6 @@ AcquireDstOp createAcquireDst(RewriterBase &rewriter, Location loc,
   return rewriter.create<AcquireDstOp>(loc, dstType);
 }
 
-// Create release_dst operation at the end of the region.
-void createReleaseDst(RewriterBase &rewriter, Location loc, Region &region,
-                      Value dst) {
-  Block &block = region.front();
-  if (!block.empty() && block.back().hasTrait<OpTrait::IsTerminator>()) {
-    rewriter.setInsertionPoint(&block.back());
-  } else {
-    rewriter.setInsertionPointToEnd(&block);
-  }
-  rewriter.create<ReleaseDstOp>(loc, dst);
-}
-
 // Generate prologue loop to copy from L1 CB to DST.
 void generatePrologueLoop(RewriterBase &rewriter, Location loc,
                           affine::AffineForOp forLoop, Value dst,
@@ -424,9 +412,6 @@ LogicalResult insertMatmulDstAllocation(RewriterBase &rewriter,
                                           rewriter.getContext()),
         dstIndices);
   }
-
-  // 6. Create release_dst at the end of the region.
-  createReleaseDst(rewriter, loc, region, dst);
 
   return success();
 }

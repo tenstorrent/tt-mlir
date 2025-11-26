@@ -52,7 +52,6 @@ module {
     // CHECK: ttkernel.typecast_tile_init
     // CHECK: ttkernel.typecast_tile(%{{.*}}, <f32>, <bf16>)
     // CHECK: ttkernel.pack_tile
-    "d2m.release_dst"(%dst) : (memref<1x1x8x!ttcore.tile<32x32, f32>, #dst>) -> ()
     return
   }
 }
