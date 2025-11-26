@@ -12,6 +12,8 @@ namespace tt::runtime::distributed {
 void launchDistributedRuntime(const DistributedOptions &options = {});
 void shutdownDistributedRuntime();
 
+void setMemoryLogLevel(const MemoryLogLevel &logLevel);
+
 SystemDesc getCurrentSystemDesc(
     std::optional<::tt::runtime::DispatchCoreType> dispatchCoreType =
         std::nullopt,

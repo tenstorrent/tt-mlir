@@ -30,6 +30,7 @@ uint32_t getNumShards(Tensor tensor);
 
 void setMlirHome(std::string_view mlirHome);
 void setMetalHome(std::string_view metalHome);
+void setMemoryLogLevel(const MemoryLogLevel &logLevel);
 
 std::vector<DeviceRuntime> getAvailableDeviceRuntimes();
 DeviceRuntime getCurrentDeviceRuntime();
