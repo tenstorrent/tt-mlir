@@ -1739,7 +1739,7 @@ def TTNN_AvgPool2dOp : TTNN_Op<"avg_pool2d", [TTNN_MemoryConfigOpInterface]> {
                          OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config,
                          OptionalAttr<TTNN_TensorMemoryLayoutAttr>:$applied_shard_scheme,
                          BoolAttr:$ceil_mode,
-                         BoolAttr:$in_place_halo,
+                         DefaultValuedAttr<BoolAttr, "true">:$reallocate_halo_output,
                          DefaultValuedAttr<BoolAttr, "true">:$count_include_pad);
 
     let results = (outs AnyRankedTensor:$result);
@@ -1771,7 +1771,7 @@ def TTNN_MaxPool2dOp : TTNN_Op<"max_pool2d", [TTNN_MemoryConfigOpInterface]> {
                          OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config,
                          OptionalAttr<TTNN_TensorMemoryLayoutAttr>:$applied_shard_scheme,
                          BoolAttr:$ceil_mode,
-                         BoolAttr:$in_place_halo);
+                         DefaultValuedAttr<BoolAttr, "true">:$reallocate_halo_output);
 
     let results = (outs AnyRankedTensor:$result);
 
@@ -1804,7 +1804,7 @@ def TTNN_MaxPool2dWithIndicesOp : TTNN_Op<"max_pool2d_with_indices", [TTNN_Memor
                          OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config,
                          OptionalAttr<TTNN_TensorMemoryLayoutAttr>:$applied_shard_scheme,
                          BoolAttr:$ceil_mode,
-                         BoolAttr:$in_place_halo);
+                         DefaultValuedAttr<BoolAttr, "true">:$reallocate_halo_output);
 
     let results = (outs AnyRankedTensor:$result,
                         AnyRankedTensor:$result_indices);

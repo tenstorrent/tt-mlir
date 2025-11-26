@@ -5096,7 +5096,7 @@ llvm::Expected<OpConstraints> OpModel<MaxPool2dOp>::getOpConstraints(
     int32_t inputWidth, int32_t inputChannels,
     llvm::ArrayRef<int32_t> kernelSize, llvm::ArrayRef<int32_t> stride,
     llvm::ArrayRef<int32_t> padding, llvm::ArrayRef<int32_t> dilation,
-    bool ceilMode, bool inPlaceHalo, TTNNLayoutAttr outputLayout) {
+    bool ceilMode, bool reallocateHaloOutput, TTNNLayoutAttr outputLayout) {
 
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
@@ -5129,7 +5129,7 @@ llvm::Expected<OpConstraints> OpModel<MaxPool2dOp>::getOpConstraints(
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(dilation),
         ceilMode, detail::getNullableMemoryConfig(outputLayout),
         std::nullopt /* applied_shard_scheme */, false /* deallocate_input */,
-        !inPlaceHalo /* reallocate_halo_output */, false /* return_indices */);
+        reallocateHaloOutput, false /* return_indices */);
   };
 
   return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
@@ -5144,7 +5144,7 @@ llvm::Expected<size_t> OpModel<MaxPool2dOp>::getOpRuntime(
     int32_t batchSize, int32_t inputHeight, int32_t inputWidth,
     int32_t inputChannels, llvm::ArrayRef<int32_t> kernelSize,
     llvm::ArrayRef<int32_t> stride, llvm::ArrayRef<int32_t> padding,
-    llvm::ArrayRef<int32_t> dilation, bool ceilMode, bool inPlaceHalo,
+    llvm::ArrayRef<int32_t> dilation, bool ceilMode, bool reallocateHaloOutput,
     TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
@@ -5177,7 +5177,7 @@ llvm::Expected<size_t> OpModel<MaxPool2dOp>::getOpRuntime(
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(dilation),
         ceilMode, detail::getNullableMemoryConfig(outputLayout),
         std::nullopt /* applied_shard_scheme */, false /* deallocate_input */,
-        !inPlaceHalo /* reallocate_halo_output */, false /* return_indices */);
+        reallocateHaloOutput, false /* return_indices */);
   };
 
   return operation::getOpRuntime(maxPool2DQuery);
@@ -5195,9 +5195,8 @@ llvm::Expected<OpConstraints> OpModel<MaxPool2dWithIndicesOp>::getOpConstraints(
     int32_t inputWidth, int32_t inputChannels,
     llvm::ArrayRef<int32_t> kernelSize, llvm::ArrayRef<int32_t> stride,
     llvm::ArrayRef<int32_t> padding, llvm::ArrayRef<int32_t> dilation,
-    bool ceilMode, bool inPlaceHalo, bool deallocateInput,
-    bool reallocateHaloOutput, bool returnIndices,
-    TTNNLayoutAttr outputLayout) {
+    bool ceilMode, bool reallocateHaloOutput, bool deallocateInput,
+    bool returnIndices, TTNNLayoutAttr outputLayout) {
 
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
@@ -5219,9 +5218,6 @@ llvm::Expected<OpConstraints> OpModel<MaxPool2dWithIndicesOp>::getOpConstraints(
   ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
 
   // Create query closure
-  // Note: inPlaceHalo is deprecated but mapped to reallocateHaloOutput for
-  // backward compatibility: reallocateHaloOutput = !inPlaceHalo
-  bool effectiveReallocateHaloOutput = reallocateHaloOutput && !inPlaceHalo;
   // When return_indices=true, tt-metal requires ROW_MAJOR layout and BFLOAT16
   auto maxPool2DWithIndicesQuery = [=]() {
     return ::ttnn::graph::query_op_constraints(
@@ -5234,8 +5230,8 @@ llvm::Expected<OpConstraints> OpModel<MaxPool2dWithIndicesOp>::getOpConstraints(
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(dilation),
         ceilMode, detail::getNullableMemoryConfig(outputLayout),
         std::nullopt /* applied_shard_scheme */, deallocateInput,
-        effectiveReallocateHaloOutput, returnIndices,
-        ::ttnn::DataType::BFLOAT16, ::ttnn::Layout::ROW_MAJOR);
+        reallocateHaloOutput, returnIndices, ::ttnn::DataType::BFLOAT16,
+        ::ttnn::Layout::ROW_MAJOR);
   };
 
   return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
@@ -5250,9 +5246,8 @@ llvm::Expected<size_t> OpModel<MaxPool2dWithIndicesOp>::getOpRuntime(
     int32_t batchSize, int32_t inputHeight, int32_t inputWidth,
     int32_t inputChannels, llvm::ArrayRef<int32_t> kernelSize,
     llvm::ArrayRef<int32_t> stride, llvm::ArrayRef<int32_t> padding,
-    llvm::ArrayRef<int32_t> dilation, bool ceilMode, bool inPlaceHalo,
-    bool deallocateInput, bool reallocateHaloOutput, bool returnIndices,
-    TTNNLayoutAttr outputLayout) {
+    llvm::ArrayRef<int32_t> dilation, bool ceilMode, bool reallocateHaloOutput,
+    bool deallocateInput, bool returnIndices, TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
@@ -5273,9 +5268,6 @@ llvm::Expected<size_t> OpModel<MaxPool2dWithIndicesOp>::getOpRuntime(
   ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
 
   // Create query closure
-  // Note: inPlaceHalo is deprecated but mapped to reallocateHaloOutput for
-  // backward compatibility: reallocateHaloOutput = !inPlaceHalo
-  bool effectiveReallocateHaloOutput = reallocateHaloOutput && !inPlaceHalo;
   // When return_indices=true, tt-metal requires ROW_MAJOR layout and BFLOAT16
   auto maxPool2DWithIndicesQuery = [=]() {
     return ::ttnn::graph::query_op_runtime(
@@ -5288,8 +5280,8 @@ llvm::Expected<size_t> OpModel<MaxPool2dWithIndicesOp>::getOpRuntime(
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(dilation),
         ceilMode, detail::getNullableMemoryConfig(outputLayout),
         std::nullopt /* applied_shard_scheme */, deallocateInput,
-        effectiveReallocateHaloOutput, returnIndices,
-        ::ttnn::DataType::BFLOAT16, ::ttnn::Layout::ROW_MAJOR);
+        reallocateHaloOutput, returnIndices, ::ttnn::DataType::BFLOAT16,
+        ::ttnn::Layout::ROW_MAJOR);
   };
 
   return operation::getOpRuntime(maxPool2DWithIndicesQuery);
@@ -5307,7 +5299,7 @@ llvm::Expected<OpConstraints> OpModel<AvgPool2dOp>::getOpConstraints(
     int32_t inputWidth, int32_t inputChannels,
     llvm::ArrayRef<int32_t> kernelSize, llvm::ArrayRef<int32_t> stride,
     llvm::ArrayRef<int32_t> padding, llvm::ArrayRef<int32_t> dilation,
-    bool ceilMode, bool inPlaceHalo, TTNNLayoutAttr outputLayout) {
+    bool ceilMode, bool reallocateHaloOutput, TTNNLayoutAttr outputLayout) {
 
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
@@ -5347,8 +5339,7 @@ llvm::Expected<OpConstraints> OpModel<AvgPool2dOp>::getOpConstraints(
         ceilMode, countIncludePad, divisorOverride,
         detail::getNullableMemoryConfig(outputLayout),
         std::nullopt /* applied_shard_scheme */, computeKernelConfig,
-        false /* deallocate_input */,
-        !inPlaceHalo /* reallocate_halo_output */);
+        false /* deallocate_input */, reallocateHaloOutput);
   };
 
   return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
@@ -5363,7 +5354,7 @@ llvm::Expected<size_t> OpModel<AvgPool2dOp>::getOpRuntime(
     int32_t batchSize, int32_t inputHeight, int32_t inputWidth,
     int32_t inputChannels, llvm::ArrayRef<int32_t> kernelSize,
     llvm::ArrayRef<int32_t> stride, llvm::ArrayRef<int32_t> padding,
-    llvm::ArrayRef<int32_t> dilation, bool ceilMode, bool inPlaceHalo,
+    llvm::ArrayRef<int32_t> dilation, bool ceilMode, bool reallocateHaloOutput,
     TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
@@ -5403,8 +5394,7 @@ llvm::Expected<size_t> OpModel<AvgPool2dOp>::getOpRuntime(
         ceilMode, countIncludePad, divisorOverride,
         detail::getNullableMemoryConfig(outputLayout),
         std::nullopt /* applied_shard_scheme */, computeKernelConfig,
-        false /* deallocate_input */,
-        !inPlaceHalo /* reallocate_halo_output */);
+        false /* deallocate_input */, reallocateHaloOutput);
   };
 
   return operation::getOpRuntime(avgPool2DQuery);

@@ -603,7 +603,7 @@ public:
                      "memory_config"),
         emitter.emit(srcOp.getAppliedShardScheme(), "applied_shard_scheme"),
         emitter.emit(std::nullopt, "compute_kernel_config"),
-        emitter.emit(srcOp.getInPlaceHalo(), "in_place_halo"),
+        emitter.emit(srcOp.getReallocateHaloOutput(), "reallocate_halo_output"),
     };
 
     emitter.replaceOp(*this, args);
@@ -661,7 +661,9 @@ public:
                      "memory_config"),
         emitter.emit(maxPool2dOp.getAppliedShardScheme(),
                      "applied_shard_scheme"),
-        emitter.emit(!maxPool2dOp.getInPlaceHalo(), "reallocate_halo_output"),
+        emitter.emit(maxPool2dOp.getCeilMode(), "ceil_mode"),
+        emitter.emit(maxPool2dOp.getReallocateHaloOutput(),
+                     "reallocate_halo_output"),
     };
 
     emitter.replaceOp(*this, args);
