@@ -50,27 +50,28 @@ static ::tt::tt_metal::CBDescriptor createCBDescriptor(
       createCBFormatDescriptor(*cbDesc.formats()->Get(0));
 
   tt::tt_metal::Buffer *buffer = nullptr;
-  if (cbDesc.buffer_type() == ::tt::target::ttnn::KernelGlobalCBOrAddress::
-                                  KernelGlobalCBIndexOfTensor) {
-    if (const auto *tensorBuffer =
-            cbDesc.buffer_as_KernelGlobalCBIndexOfTensor();
-        tensorBuffer) {
-      uint32_t tensorIdx = tensorBuffer->tensor_operand_index();
-      buffer = ioTensors[tensorIdx].buffer();
+  if (cbDesc.buffer()) {
+    if (cbDesc.buffer_type() == ::tt::target::ttnn::KernelGlobalCBOrAddress::
+                                    KernelGlobalCBIndexOfTensor) {
+      if (const auto *tensorBuffer =
+              cbDesc.buffer_as_KernelGlobalCBIndexOfTensor();
+          tensorBuffer) {
+        uint32_t tensorIdx = tensorBuffer->tensor_operand_index();
+        buffer = ioTensors[tensorIdx].buffer();
+      }
+    } else if (cbDesc.buffer_type() ==
+               ::tt::target::ttnn::KernelGlobalCBOrAddress::KernelCBAddress) {
+      if (const auto *cbAddress = cbDesc.buffer_as_KernelCBAddress();
+          cbAddress) {
+        uint32_t cb_address = cbAddress->address();
+        std::shared_ptr<::tt::tt_metal::Buffer> deviceBuffer =
+            ::tt::tt_metal::Buffer::create(
+                ioTensors[0].device(), cb_address, cbDesc.total_size(),
+                formatDescriptor.page_size, ::tt::tt_metal::BufferType::L1);
+        ownedBuffers.push_back(deviceBuffer);
+        buffer = deviceBuffer.get();
+      }
     }
-  } else if (cbDesc.buffer_type() ==
-             ::tt::target::ttnn::KernelGlobalCBOrAddress::KernelCBAddress) {
-    if (const auto *cbAddress = cbDesc.buffer_as_KernelCBAddress(); cbAddress) {
-      uint32_t cb_address = cbAddress->address();
-      std::shared_ptr<::tt::tt_metal::Buffer> deviceBuffer =
-          ::tt::tt_metal::Buffer::create(
-              ioTensors[0].device(), cb_address, cbDesc.total_size(),
-              formatDescriptor.page_size, ::tt::tt_metal::BufferType::L1);
-      ownedBuffers.push_back(deviceBuffer);
-      buffer = deviceBuffer.get();
-    }
-  } else {
-    LOG_FATAL("Invalid buffer type");
   }
   tt::tt_metal::CBDescriptor cbDescriptor = {
       .total_size = cbDesc.total_size(),
