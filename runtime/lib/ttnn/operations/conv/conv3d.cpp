@@ -11,34 +11,6 @@
 #include "ttmlir/Target/TTNN/program_generated.h"
 #include "ttnn/types.hpp"
 
-namespace {
-::ttnn::operations::experimental::conv3d::Conv3dConfig
-createConv3dConfig(const ::tt::target::ttnn::Conv3dOp *op,
-                   const std::array<uint32_t, 3> &kernelSize,
-                   const std::array<uint32_t, 3> &stride,
-                   const std::array<uint32_t, 3> &padding,
-                   const std::optional<::ttnn::DataType> &outputDtype,
-                   ::ttnn::MeshDevice &targetDevice) {
-  ::ttnn::operations::experimental::conv3d::Conv3dConfig config;
-
-  config.dtype = outputDtype.value_or(::ttnn::DataType::BFLOAT16);
-  config.weights_dtype = ::ttnn::DataType::BFLOAT16;
-  config.output_layout = ::ttnn::Layout::ROW_MAJOR;
-
-  config.output_channels = op->out_channels();
-  config.kernel_size = kernelSize;
-  config.stride = stride;
-  config.padding = padding;
-  config.padding_mode = op->padding_mode()->str();
-  config.groups = op->groups();
-
-  config.compute_with_storage_grid_size =
-      targetDevice.compute_with_storage_grid_size();
-
-  return config;
-}
-} // namespace
-
 namespace tt::runtime::ttnn::operations::conv {
 void run(const ::tt::target::ttnn::Conv3dOp *op, ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
@@ -48,8 +20,8 @@ void run(const ::tt::target::ttnn::Conv3dOp *op, ProgramContext &context) {
       tensorPool.getTTNNTensorAndValidate(op->weight());
 
   std::optional<::ttnn::Tensor> bias;
-  if (const auto *bias_value = op->bias()) {
-    bias = tensorPool.getTTNNTensorAndValidate(bias_value);
+  if (op->bias()) {
+    bias = tensorPool.getTTNNTensorAndValidate(op->bias());
   }
 
   LOG_ASSERT(op->kernel_size()->size() == 3,
@@ -70,8 +42,9 @@ void run(const ::tt::target::ttnn::Conv3dOp *op, ProgramContext &context) {
 
   ::ttnn::MeshDevice &targetDevice = context.getMeshDevice();
 
-  auto config = createConv3dConfig(op, kernelSize, stride, padding, outputDtype,
-                                   targetDevice);
+  auto conv3dConfig = utils::createConv3dConfig(
+      op->conv3d_config(), op->out_channels(), kernelSize, stride, padding,
+      op->padding_mode()->str(), op->groups(), outputDtype, targetDevice);
 
   std::optional<::ttnn::DeviceComputeKernelConfig> computeConfig;
   if (op->compute_config()) {
@@ -87,7 +60,7 @@ void run(const ::tt::target::ttnn::Conv3dOp *op, ProgramContext &context) {
              "Memory config must exist for device tensors");
 
   ::ttnn::Tensor out = ::ttnn::experimental::conv3d(
-      input, weight, bias, config, outputMemoryConfig, computeConfig);
+      input, weight, bias, conv3dConfig, outputMemoryConfig, computeConfig);
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }

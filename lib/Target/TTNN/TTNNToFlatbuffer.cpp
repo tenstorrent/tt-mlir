@@ -744,6 +744,12 @@ createOp(FlatbufferObjectCache &cache, Conv3dOp op) {
     outputDtype = toFlatbuffer(cache, *dtype);
   }
 
+  std::optional<::flatbuffers::Offset<::tt::target::ttnn::Conv3dConfig>>
+      conv3dConfig;
+  if (auto config = op.getConv3dConfig()) {
+    conv3dConfig = toFlatbuffer(cache, *config);
+  }
+
   std::optional<
       ::flatbuffers::Offset<::tt::target::ttnn::DeviceComputeKernelConfig>>
       computeConfig;
@@ -759,8 +765,8 @@ createOp(FlatbufferObjectCache &cache, Conv3dOp op) {
       cache.at<::tt::target::DeviceRef>(device), op.getInChannels(),
       op.getOutChannels(), op.getBatchSize(), op.getInputDepth(),
       op.getInputHeight(), op.getInputWidth(), kernelSize, stride, padding,
-      paddingMode, op.getGroups(), outputDtype, computeConfig.value_or(0),
-      memoryConfig);
+      paddingMode, op.getGroups(), outputDtype, conv3dConfig.value_or(0),
+      computeConfig.value_or(0), memoryConfig);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::AllGatherOp>

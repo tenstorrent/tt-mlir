@@ -3219,7 +3219,7 @@ Conv3dOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
       getInChannels(), getOutChannels(), getBatchSize(), getInputDepth(),
       getInputHeight(), getInputWidth(), getKernelSize(), getStride(),
       getPadding(), getGroups(), getPaddingMode(), getDtypeAttr(),
-      getComputeConfig(), opConfig.outputLayout);
+      getConv3dConfig(), getComputeConfig(), opConfig.outputLayout);
 }
 
 llvm::Expected<size_t>
@@ -3242,7 +3242,7 @@ Conv3dOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
       weightShape, inputs[1], biasShape, biasLayout, getInChannels(),
       getOutChannels(), getBatchSize(), getInputDepth(), getInputHeight(),
       getInputWidth(), getKernelSize(), getStride(), getPadding(), getGroups(),
-      getPaddingMode(), getDtypeAttr(), getComputeConfig(),
+      getPaddingMode(), getDtypeAttr(), getConv3dConfig(), getComputeConfig(),
       opConfig.outputLayout);
 }
 

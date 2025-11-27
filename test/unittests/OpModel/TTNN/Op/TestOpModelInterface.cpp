@@ -2838,6 +2838,7 @@ TEST_F(OpModelBase, Conv3dInterface) {
       "zeros",                            // Padding mode
       1,                                  // Groups
       nullptr,                            // OutputDtype (optional)
+      nullptr,                            // Conv3dConfig (optional)
       nullptr                             // ComputeKernelConfig (optional)
   );
 

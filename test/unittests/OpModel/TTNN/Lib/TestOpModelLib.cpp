@@ -2856,7 +2856,8 @@ TEST_P(OpModelConv3dParam, Conv3d) {
       CreateWorkerGrid(), inputShape, inputLayout, weightShape, weightLayout,
       std::nullopt, std::nullopt, in_channels, out_channels, batch_size,
       input_depth, input_height, input_width, kernel_size, stride, padding,
-      groups, padding_mode, std::nullopt, deviceConfig, outputLayout);
+      groups, padding_mode, std::nullopt, std::nullopt, deviceConfig,
+      outputLayout);
   EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
   if (constraintsExp) {
     const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
@@ -2881,7 +2882,7 @@ TEST_P(OpModelConv3dParam, Conv3d) {
       inputShape, inputLayout, weightShape, weightLayout, std::nullopt,
       std::nullopt, in_channels, out_channels, batch_size, input_depth,
       input_height, input_width, kernel_size, stride, padding, groups,
-      padding_mode, std::nullopt, deviceConfig, outputLayout);
+      padding_mode, std::nullopt, std::nullopt, deviceConfig, outputLayout);
   EXPECT_EQ(static_cast<bool>(runtimeExp), expectedLegal);
   if (runtimeExp) {
     const auto runtime = runtimeExp.get();
