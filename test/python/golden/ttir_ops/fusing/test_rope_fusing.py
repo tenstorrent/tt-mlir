@@ -85,6 +85,9 @@ def build_ttir(
     return builder.add(unrotated, rotated)
 
 
+@pytest.mark.skip(
+    "Causes segfault during pipeline, see https://github.com/tenstorrent/tt-mlir/issues/5283"
+)
 @pytest.mark.parametrize(
     "shapes",
     [
@@ -153,6 +156,9 @@ def test_rotary_embedding(
         assert check_op(output, "slice_static")
 
 
+@pytest.mark.skip(
+    "Causes segfault during pipeline, see https://github.com/tenstorrent/tt-mlir/issues/5283"
+)
 @pytest.mark.parametrize(
     "shapes",
     [

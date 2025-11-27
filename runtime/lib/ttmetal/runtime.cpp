@@ -373,6 +373,13 @@ bool isProgramCacheEnabled(Device meshDevice) {
   return metalMeshDevice.get_program_cache().is_enabled();
 }
 
+void clearProgramCache(Device meshDevice) {
+  ::tt::tt_metal::distributed::MeshDevice &metalMeshDevice =
+      meshDevice.as<::tt::tt_metal::distributed::MeshDevice>(
+          DeviceRuntime::TTMetal);
+  return metalMeshDevice.clear_program_cache();
+}
+
 size_t getL1SmallSize(Device meshDevice) {
   ::tt::tt_metal::distributed::MeshDevice &metalMeshDevice =
       meshDevice.as<::tt::tt_metal::distributed::MeshDevice>(
