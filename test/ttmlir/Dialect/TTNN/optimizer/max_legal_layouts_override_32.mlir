@@ -14,8 +14,7 @@ module attributes {} {
                 dilation = 1: i32,
                 groups = 1: i32
             }> : (tensor<16x32x32x64xbf16>, tensor<64x64x3x3xbf16>, tensor<1x1x1x64xbf16>, tensor<16x32x32x64xbf16>) -> tensor<16x32x32x64xbf16>
-    %2 = ttir.empty() : tensor<16x32x32x64xbf16>
-    %3 = "ttir.add"(%1, %1, %2) : (tensor<16x32x32x64xbf16>, tensor<16x32x32x64xbf16>, tensor<16x32x32x64xbf16>) -> tensor<16x32x32x64xbf16>
+    %3 = "ttir.add"(%1, %1) : (tensor<16x32x32x64xbf16>, tensor<16x32x32x64xbf16>) -> tensor<16x32x32x64xbf16>
     return %3 : tensor<16x32x32x64xbf16>
   }
 }

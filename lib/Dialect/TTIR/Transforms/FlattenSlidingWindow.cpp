@@ -40,8 +40,8 @@ ttir::ReshapeOp generateReshape(mlir::TypedValue<mlir::RankedTensorType> input,
   // We cannot pass the shape directly as the attribute as ttir::ReshapeOp
   // requires that the shape attribute is a 32-bit integer array attribute.
   // Construction the SmallVector allows us to cast it.
-  return ttir::utils::createDPSOp<ttir::ReshapeOp>(
-      rewriter, ttmlir::utils::appendLocationSuffix(input.getLoc(), "_reshape"),
+  return rewriter.create<ttir::ReshapeOp>(
+      ttmlir::utils::appendLocationSuffix(input.getLoc(), "_reshape"),
       outputType, input,
       rewriter.getI32ArrayAttr(SmallVector<int32_t>(
           outputType.getShape().begin(), outputType.getShape().end())));
@@ -70,17 +70,17 @@ public:
 
     Conv2dOpType newConv;
     if constexpr (std::is_same_v<Conv2dOpType, ttir::ConvTranspose2dOp>) {
-      newConv = ttir::utils::createDPSOp<ttir::ConvTranspose2dOp>(
-          rewriter, op.getLoc(), getNHWFlattenedType(outputType),
-          flattenedInput, adaptor.getWeight(), adaptor.getBias(),
-          adaptor.getStride(), adaptor.getPadding(), adaptor.getOutputPadding(),
+      newConv = rewriter.create<ttir::ConvTranspose2dOp>(
+          op.getLoc(), getNHWFlattenedType(outputType), flattenedInput,
+          adaptor.getWeight(), adaptor.getBias(), adaptor.getStride(),
+          adaptor.getPadding(), adaptor.getOutputPadding(),
           adaptor.getDilation(), adaptor.getGroups(), flattenedCompatInfoAttr);
     } else if constexpr (std::is_same_v<Conv2dOpType, ttir::Conv2dOp>) {
-      newConv = ttir::utils::createDPSOp<ttir::Conv2dOp>(
-          rewriter, op.getLoc(), getNHWFlattenedType(outputType),
-          flattenedInput, adaptor.getWeight(), adaptor.getBias(),
-          adaptor.getStride(), adaptor.getPadding(), adaptor.getDilation(),
-          adaptor.getGroups(), flattenedCompatInfoAttr);
+      newConv = rewriter.create<ttir::Conv2dOp>(
+          op.getLoc(), getNHWFlattenedType(outputType), flattenedInput,
+          adaptor.getWeight(), adaptor.getBias(), adaptor.getStride(),
+          adaptor.getPadding(), adaptor.getDilation(), adaptor.getGroups(),
+          flattenedCompatInfoAttr);
     } else {
       static_assert(ttmlir::utils::always_false<Conv2dOpType>(),
                     "Unsupported Conv2dOpType");
@@ -117,16 +117,15 @@ public:
 
     Pooling2dOp newPool;
     if constexpr (std::is_same_v<Pooling2dOp, ttir::MaxPool2dOp>) {
-      newPool = ttir::utils::createDPSOp<Pooling2dOp>(
-          rewriter, op.getLoc(), getNHWFlattenedType(outputType),
-          flattenedInput, adaptor.getKernel(), adaptor.getStride(),
-          adaptor.getDilation(), adaptor.getPadding(), adaptor.getCeilMode(),
-          flattenedCompatInfoAttr);
+      newPool = rewriter.create<ttir::MaxPool2dOp>(
+          op.getLoc(), getNHWFlattenedType(outputType), flattenedInput,
+          adaptor.getKernel(), adaptor.getStride(), adaptor.getDilation(),
+          adaptor.getPadding(), adaptor.getCeilMode(), flattenedCompatInfoAttr);
     } else if constexpr (std::is_same_v<Pooling2dOp, ttir::AvgPool2dOp>) {
-      newPool = ttir::utils::createDPSOp<Pooling2dOp>(
-          rewriter, op.getLoc(), getNHWFlattenedType(outputType),
-          flattenedInput, adaptor.getKernel(), adaptor.getStride(),
-          adaptor.getDilation(), adaptor.getPadding(), adaptor.getCeilMode(),
+      newPool = rewriter.create<ttir::AvgPool2dOp>(
+          op.getLoc(), getNHWFlattenedType(outputType), flattenedInput,
+          adaptor.getKernel(), adaptor.getStride(), adaptor.getDilation(),
+          adaptor.getPadding(), adaptor.getCeilMode(),
           adaptor.getCountIncludePad(), flattenedCompatInfoAttr);
     } else if constexpr (std::is_same_v<Pooling2dOp,
                                         ttir::MaxPool2dWithIndicesOp>) {

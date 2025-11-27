@@ -1,2015 +1,1011 @@
 #loc = loc("YOLOv8":0:0)
 module @YOLOv8 {
   func.func @forward(%arg0: tensor<1x3x640x640xbf16> {ttcore.argument_type = #ttcore.argument_type<input>, ttir.name = "input_1"} loc("YOLOv8":0:0), %arg1: tensor<1x2x8400xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_add_1644"} loc("YOLOv8":0:0), %arg2: tensor<1x80x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_3"} loc("YOLOv8":0:0), %arg3: tensor<1x80x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_3_fork_clone2431"} loc("YOLOv8":0:0), %arg4: tensor<1x160x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_19"} loc("YOLOv8":0:0), %arg5: tensor<1x160x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_19_fork_clone2349"} loc("YOLOv8":0:0), %arg6: tensor<1x160x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_35"} loc("YOLOv8":0:0), %arg7: tensor<1x160x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_35_fork_clone2112"} loc("YOLOv8":0:0), %arg8: tensor<1x80x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_53"} loc("YOLOv8":0:0), %arg9: tensor<1x80x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_53_fork_clone2354"} loc("YOLOv8":0:0), %arg10: tensor<1x80x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_69"} loc("YOLOv8":0:0), %arg11: tensor<1x80x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_69_fork_clone2117"} loc("YOLOv8":0:0), %arg12: tensor<1x80x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_86"} loc("YOLOv8":0:0), %arg13: tensor<1x80x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_86_fork_clone2359"} loc("YOLOv8":0:0), %arg14: tensor<1x80x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_102"} loc("YOLOv8":0:0), %arg15: tensor<1x80x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_102_fork_clone2122"} loc("YOLOv8":0:0), %arg16: tensor<1x80x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_119"} loc("YOLOv8":0:0), %arg17: tensor<1x80x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_119_fork_clone2364"} loc("YOLOv8":0:0), %arg18: tensor<1x80x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_135"} loc("YOLOv8":0:0), %arg19: tensor<1x80x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_135_fork_clone2127"} loc("YOLOv8":0:0), %arg20: tensor<1x160x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_153"} loc("YOLOv8":0:0), %arg21: tensor<1x160x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_153_fork_clone1730"} loc("YOLOv8":0:0), %arg22: tensor<1x320x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_169"} loc("YOLOv8":0:0), %arg23: tensor<1x320x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_169_fork_clone1508"} loc("YOLOv8":0:0), %arg24: tensor<1x320x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_185"} loc("YOLOv8":0:0), %arg25: tensor<1x320x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_185_fork_clone1250"} loc("YOLOv8":0:0), %arg26: tensor<1x160x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_203"} loc("YOLOv8":0:0), %arg27: tensor<1x160x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_203_fork_clone1513"} loc("YOLOv8":0:0), %arg28: tensor<1x160x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_219"} loc("YOLOv8":0:0), %arg29: tensor<1x160x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_219_fork_clone1255"} loc("YOLOv8":0:0), %arg30: tensor<1x160x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_236"} loc("YOLOv8":0:0), %arg31: tensor<1x160x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_236_fork_clone1518"} loc("YOLOv8":0:0), %arg32: tensor<1x160x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_252"} loc("YOLOv8":0:0), %arg33: tensor<1x160x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_252_fork_clone1260"} loc("YOLOv8":0:0), %arg34: tensor<1x160x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_269"} loc("YOLOv8":0:0), %arg35: tensor<1x160x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_269_fork_clone1523"} loc("YOLOv8":0:0), %arg36: tensor<1x160x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_285"} loc("YOLOv8":0:0), %arg37: tensor<1x160x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_285_fork_clone1265"} loc("YOLOv8":0:0), %arg38: tensor<1x160x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_302"} loc("YOLOv8":0:0), %arg39: tensor<1x160x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_302_fork_clone1528"} loc("YOLOv8":0:0), %arg40: tensor<1x160x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_318"} loc("YOLOv8":0:0), %arg41: tensor<1x160x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_318_fork_clone1270"} loc("YOLOv8":0:0), %arg42: tensor<1x160x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_335"} loc("YOLOv8":0:0), %arg43: tensor<1x160x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_335_fork_clone1533"} loc("YOLOv8":0:0), %arg44: tensor<1x160x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_351"} loc("YOLOv8":0:0), %arg45: tensor<1x160x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_351_fork_clone1275"} loc("YOLOv8":0:0), %arg46: tensor<1x160x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_368"} loc("YOLOv8":0:0), %arg47: tensor<1x160x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_368_fork_clone1538"} loc("YOLOv8":0:0), %arg48: tensor<1x160x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_384"} loc("YOLOv8":0:0), %arg49: tensor<1x160x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_384_fork_clone1280"} loc("YOLOv8":0:0), %arg50: tensor<1x320x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_402"} loc("YOLOv8":0:0), %arg51: tensor<1x320x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_402_fork_clone951"} loc("YOLOv8":0:0), %arg52: tensor<1x640x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_418"} loc("YOLOv8":0:0), %arg53: tensor<1x640x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_418_fork_clone2190"} loc("YOLOv8":0:0), %arg54: tensor<1x640x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_434"} loc("YOLOv8":0:0), %arg55: tensor<1x640x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_434_fork_clone1899"} loc("YOLOv8":0:0), %arg56: tensor<1x320x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_452"} loc("YOLOv8":0:0), %arg57: tensor<1x320x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_452_fork_clone2195"} loc("YOLOv8":0:0), %arg58: tensor<1x320x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_468"} loc("YOLOv8":0:0), %arg59: tensor<1x320x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_468_fork_clone1904"} loc("YOLOv8":0:0), %arg60: tensor<1x320x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_485"} loc("YOLOv8":0:0), %arg61: tensor<1x320x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_485_fork_clone2200"} loc("YOLOv8":0:0), %arg62: tensor<1x320x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_501"} loc("YOLOv8":0:0), %arg63: tensor<1x320x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_501_fork_clone1909"} loc("YOLOv8":0:0), %arg64: tensor<1x320x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_518"} loc("YOLOv8":0:0), %arg65: tensor<1x320x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_518_fork_clone2205"} loc("YOLOv8":0:0), %arg66: tensor<1x320x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_534"} loc("YOLOv8":0:0), %arg67: tensor<1x320x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_534_fork_clone1914"} loc("YOLOv8":0:0), %arg68: tensor<1x320x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_551"} loc("YOLOv8":0:0), %arg69: tensor<1x320x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_551_fork_clone2210"} loc("YOLOv8":0:0), %arg70: tensor<1x320x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_567"} loc("YOLOv8":0:0), %arg71: tensor<1x320x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_567_fork_clone1919"} loc("YOLOv8":0:0), %arg72: tensor<1x320x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_584"} loc("YOLOv8":0:0), %arg73: tensor<1x320x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_584_fork_clone2215"} loc("YOLOv8":0:0), %arg74: tensor<1x320x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_600"} loc("YOLOv8":0:0), %arg75: tensor<1x320x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_600_fork_clone1924"} loc("YOLOv8":0:0), %arg76: tensor<1x320x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_617"} loc("YOLOv8":0:0), %arg77: tensor<1x320x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_617_fork_clone2220"} loc("YOLOv8":0:0), %arg78: tensor<1x320x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_633"} loc("YOLOv8":0:0), %arg79: tensor<1x320x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_633_fork_clone1929"} loc("YOLOv8":0:0), %arg80: tensor<1x640x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_651"} loc("YOLOv8":0:0), %arg81: tensor<1x640x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_651_fork_clone1596"} loc("YOLOv8":0:0), %arg82: tensor<1x640x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_667"} loc("YOLOv8":0:0), %arg83: tensor<1x640x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_667_fork_clone2090"} loc("YOLOv8":0:0), %arg84: tensor<1x640x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_683"} loc("YOLOv8":0:0), %arg85: tensor<1x640x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_683_fork_clone1810"} loc("YOLOv8":0:0), %arg86: tensor<1x320x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_701"} loc("YOLOv8":0:0), %arg87: tensor<1x320x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_701_fork_clone2095"} loc("YOLOv8":0:0), %arg88: tensor<1x320x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_717"} loc("YOLOv8":0:0), %arg89: tensor<1x320x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_717_fork_clone1815"} loc("YOLOv8":0:0), %arg90: tensor<1x320x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_734"} loc("YOLOv8":0:0), %arg91: tensor<1x320x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_734_fork_clone2100"} loc("YOLOv8":0:0), %arg92: tensor<1x320x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_750"} loc("YOLOv8":0:0), %arg93: tensor<1x320x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_750_fork_clone1820"} loc("YOLOv8":0:0), %arg94: tensor<1x320x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_767"} loc("YOLOv8":0:0), %arg95: tensor<1x320x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_767_fork_clone2105"} loc("YOLOv8":0:0), %arg96: tensor<1x320x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_783"} loc("YOLOv8":0:0), %arg97: tensor<1x320x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_783_fork_clone1825"} loc("YOLOv8":0:0), %arg98: tensor<1x640x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_801"} loc("YOLOv8":0:0), %arg99: tensor<1x640x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_801_fork_clone1501"} loc("YOLOv8":0:0), %arg100: tensor<1x320x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_817"} loc("YOLOv8":0:0), %arg101: tensor<1x320x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_817_fork_clone1245"} loc("YOLOv8":0:0), %arg102: tensor<1x640x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_837"} loc("YOLOv8":0:0), %arg103: tensor<1x640x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_837_fork_clone996"} loc("YOLOv8":0:0), %arg104: tensor<1x640x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_855"} loc("YOLOv8":0:0), %arg105: tensor<1x640x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_855_fork_clone1285"} loc("YOLOv8":0:0), %arg106: tensor<1x320x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_873"} loc("YOLOv8":0:0), %arg107: tensor<1x320x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_873_fork_clone1481"} loc("YOLOv8":0:0), %arg108: tensor<1x320x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_889"} loc("YOLOv8":0:0), %arg109: tensor<1x320x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_889_fork_clone1230"} loc("YOLOv8":0:0), %arg110: tensor<1x320x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_905"} loc("YOLOv8":0:0), %arg111: tensor<1x320x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_905_fork_clone1486"} loc("YOLOv8":0:0), %arg112: tensor<1x320x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_921"} loc("YOLOv8":0:0), %arg113: tensor<1x320x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_921_fork_clone1235"} loc("YOLOv8":0:0), %arg114: tensor<1x320x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_937"} loc("YOLOv8":0:0), %arg115: tensor<1x320x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_937_fork_clone1491"} loc("YOLOv8":0:0), %arg116: tensor<1x320x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_953"} loc("YOLOv8":0:0), %arg117: tensor<1x320x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_953_fork_clone1240"} loc("YOLOv8":0:0), %arg118: tensor<1x640x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_970"} loc("YOLOv8":0:0), %arg119: tensor<1x640x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_970_fork_clone974"} loc("YOLOv8":0:0), %arg120: tensor<1x320x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_988"} loc("YOLOv8":0:0), %arg121: tensor<1x320x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_988_fork_clone631"} loc("YOLOv8":0:0), %arg122: tensor<1x160x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_1006"} loc("YOLOv8":0:0), %arg123: tensor<1x160x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_1006_fork_clone833"} loc("YOLOv8":0:0), %arg124: tensor<1x160x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_1022"} loc("YOLOv8":0:0), %arg125: tensor<1x160x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_1022_fork_clone578"} loc("YOLOv8":0:0), %arg126: tensor<1x160x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_1038"} loc("YOLOv8":0:0), %arg127: tensor<1x160x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_1038_fork_clone838"} loc("YOLOv8":0:0), %arg128: tensor<1x160x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_1054"} loc("YOLOv8":0:0), %arg129: tensor<1x160x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_1054_fork_clone583"} loc("YOLOv8":0:0), %arg130: tensor<1x160x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_1070"} loc("YOLOv8":0:0), %arg131: tensor<1x160x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_1070_fork_clone843"} loc("YOLOv8":0:0), %arg132: tensor<1x160x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_1086"} loc("YOLOv8":0:0), %arg133: tensor<1x160x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_1086_fork_clone588"} loc("YOLOv8":0:0), %arg134: tensor<1x320x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_1103"} loc("YOLOv8":0:0), %arg135: tensor<1x320x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_1103_fork_clone388"} loc("YOLOv8":0:0), %arg136: tensor<1x80x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_1119"} loc("YOLOv8":0:0), %arg137: tensor<1x80x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_1119_fork_clone274"} loc("YOLOv8":0:0), %arg138: tensor<1x80x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_1135"} loc("YOLOv8":0:0), %arg139: tensor<1x80x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_1135_fork_clone142"} loc("YOLOv8":0:0), %arg140: tensor<1x320x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_1155"} loc("YOLOv8":0:0), %arg141: tensor<1x320x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_1155_fork_clone279"} loc("YOLOv8":0:0), %arg142: tensor<1x320x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_1171"} loc("YOLOv8":0:0), %arg143: tensor<1x320x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_1171_fork_clone147"} loc("YOLOv8":0:0), %arg144: tensor<1x320x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_1193"} loc("YOLOv8":0:0), %arg145: tensor<1x320x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_1193_fork_clone966"} loc("YOLOv8":0:0), %arg146: tensor<1x640x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_1210"} loc("YOLOv8":0:0), %arg147: tensor<1x640x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_1210_fork_clone651"} loc("YOLOv8":0:0), %arg148: tensor<1x320x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_1228"} loc("YOLOv8":0:0), %arg149: tensor<1x320x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_1228_fork_clone855"} loc("YOLOv8":0:0), %arg150: tensor<1x320x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_1244"} loc("YOLOv8":0:0), %arg151: tensor<1x320x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_1244_fork_clone597"} loc("YOLOv8":0:0), %arg152: tensor<1x320x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_1260"} loc("YOLOv8":0:0), %arg153: tensor<1x320x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_1260_fork_clone860"} loc("YOLOv8":0:0), %arg154: tensor<1x320x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_1276"} loc("YOLOv8":0:0), %arg155: tensor<1x320x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_1276_fork_clone602"} loc("YOLOv8":0:0), %arg156: tensor<1x320x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_1292"} loc("YOLOv8":0:0), %arg157: tensor<1x320x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_1292_fork_clone865"} loc("YOLOv8":0:0), %arg158: tensor<1x320x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_1308"} loc("YOLOv8":0:0), %arg159: tensor<1x320x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_1308_fork_clone607"} loc("YOLOv8":0:0), %arg160: tensor<1x640x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_1325"} loc("YOLOv8":0:0), %arg161: tensor<1x640x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_1325_fork_clone400"} loc("YOLOv8":0:0), %arg162: tensor<1x80x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_1341"} loc("YOLOv8":0:0), %arg163: tensor<1x80x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_1341_fork_clone286"} loc("YOLOv8":0:0), %arg164: tensor<1x80x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_1357"} loc("YOLOv8":0:0), %arg165: tensor<1x80x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_1357_fork_clone152"} loc("YOLOv8":0:0), %arg166: tensor<1x320x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_1377"} loc("YOLOv8":0:0), %arg167: tensor<1x320x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_1377_fork_clone291"} loc("YOLOv8":0:0), %arg168: tensor<1x320x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_1393"} loc("YOLOv8":0:0), %arg169: tensor<1x320x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_1393_fork_clone157"} loc("YOLOv8":0:0), %arg170: tensor<1x640x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_1415"} loc("YOLOv8":0:0), %arg171: tensor<1x640x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_1415_fork_clone989"} loc("YOLOv8":0:0), %arg172: tensor<1x640x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_1432"} loc("YOLOv8":0:0), %arg173: tensor<1x640x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_1432_fork_clone671"} loc("YOLOv8":0:0), %arg174: tensor<1x320x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_1450"} loc("YOLOv8":0:0), %arg175: tensor<1x320x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_1450_fork_clone877"} loc("YOLOv8":0:0), %arg176: tensor<1x320x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_1466"} loc("YOLOv8":0:0), %arg177: tensor<1x320x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_1466_fork_clone616"} loc("YOLOv8":0:0), %arg178: tensor<1x320x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_1482"} loc("YOLOv8":0:0), %arg179: tensor<1x320x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_1482_fork_clone882"} loc("YOLOv8":0:0), %arg180: tensor<1x320x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_1498"} loc("YOLOv8":0:0), %arg181: tensor<1x320x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_1498_fork_clone621"} loc("YOLOv8":0:0), %arg182: tensor<1x320x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_1514"} loc("YOLOv8":0:0), %arg183: tensor<1x320x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_1514_fork_clone887"} loc("YOLOv8":0:0), %arg184: tensor<1x320x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_1530"} loc("YOLOv8":0:0), %arg185: tensor<1x320x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_1530_fork_clone626"} loc("YOLOv8":0:0), %arg186: tensor<1x640x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_1547"} loc("YOLOv8":0:0), %arg187: tensor<1x640x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_1547_fork_clone412"} loc("YOLOv8":0:0), %arg188: tensor<1x80x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_1563"} loc("YOLOv8":0:0), %arg189: tensor<1x80x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_1563_fork_clone298"} loc("YOLOv8":0:0), %arg190: tensor<1x80x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_1579"} loc("YOLOv8":0:0), %arg191: tensor<1x80x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_1579_fork_clone162"} loc("YOLOv8":0:0), %arg192: tensor<1x320x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_1599"} loc("YOLOv8":0:0), %arg193: tensor<1x320x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_1599_fork_clone303"} loc("YOLOv8":0:0), %arg194: tensor<1x320x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_1615"} loc("YOLOv8":0:0), %arg195: tensor<1x320x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_0_divide_1615_fork_clone167"} loc("YOLOv8":0:0), %arg196: tensor<1x16x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_1_conv2d_1639"} loc("YOLOv8":0:0), %arg197: tensor<1xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_1_divide_1646"} loc("YOLOv8":0:0), %arg198: tensor<1x8400xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "input_1_multiply_1649"} loc("YOLOv8":0:0), %arg199: tensor<80x3x3x3xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "model.model.0.conv.weight"} loc("YOLOv8":0:0), %arg200: tensor<160x80x3x3xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "model.model.1.conv.weight"} loc("YOLOv8":0:0), %arg201: tensor<160x160x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "model.model.2.cv1.conv.weight"} loc("YOLOv8":0:0), %arg202: tensor<80x80x3x3xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "model.model.2.m.0.cv1.conv.weight"} loc("YOLOv8":0:0), %arg203: tensor<80x80x3x3xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "model.model.2.m.0.cv2.conv.weight"} loc("YOLOv8":0:0), %arg204: tensor<80x80x3x3xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "model.model.2.m.1.cv1.conv.weight"} loc("YOLOv8":0:0), %arg205: tensor<80x80x3x3xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "model.model.2.m.1.cv2.conv.weight"} loc("YOLOv8":0:0), %arg206: tensor<80x80x3x3xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "model.model.2.m.2.cv1.conv.weight"} loc("YOLOv8":0:0), %arg207: tensor<80x80x3x3xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "model.model.2.m.2.cv2.conv.weight"} loc("YOLOv8":0:0), %arg208: tensor<160x400x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "model.model.2.cv2.conv.weight"} loc("YOLOv8":0:0), %arg209: tensor<320x160x3x3xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "model.model.3.conv.weight"} loc("YOLOv8":0:0), %arg210: tensor<320x320x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "model.model.4.cv1.conv.weight"} loc("YOLOv8":0:0), %arg211: tensor<160x160x3x3xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "model.model.4.m.0.cv1.conv.weight"} loc("YOLOv8":0:0), %arg212: tensor<160x160x3x3xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "model.model.4.m.0.cv2.conv.weight"} loc("YOLOv8":0:0), %arg213: tensor<160x160x3x3xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "model.model.4.m.1.cv1.conv.weight"} loc("YOLOv8":0:0), %arg214: tensor<160x160x3x3xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "model.model.4.m.1.cv2.conv.weight"} loc("YOLOv8":0:0), %arg215: tensor<160x160x3x3xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "model.model.4.m.2.cv1.conv.weight"} loc("YOLOv8":0:0), %arg216: tensor<160x160x3x3xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "model.model.4.m.2.cv2.conv.weight"} loc("YOLOv8":0:0), %arg217: tensor<160x160x3x3xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "model.model.4.m.3.cv1.conv.weight"} loc("YOLOv8":0:0), %arg218: tensor<160x160x3x3xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "model.model.4.m.3.cv2.conv.weight"} loc("YOLOv8":0:0), %arg219: tensor<160x160x3x3xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "model.model.4.m.4.cv1.conv.weight"} loc("YOLOv8":0:0), %arg220: tensor<160x160x3x3xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "model.model.4.m.4.cv2.conv.weight"} loc("YOLOv8":0:0), %arg221: tensor<160x160x3x3xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "model.model.4.m.5.cv1.conv.weight"} loc("YOLOv8":0:0), %arg222: tensor<160x160x3x3xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "model.model.4.m.5.cv2.conv.weight"} loc("YOLOv8":0:0), %arg223: tensor<320x1280x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "model.model.4.cv2.conv.weight"} loc("YOLOv8":0:0), %arg224: tensor<640x320x3x3xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "model.model.5.conv.weight"} loc("YOLOv8":0:0), %arg225: tensor<640x640x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "model.model.6.cv1.conv.weight"} loc("YOLOv8":0:0), %arg226: tensor<320x320x3x3xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "model.model.6.m.0.cv1.conv.weight"} loc("YOLOv8":0:0), %arg227: tensor<320x320x3x3xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "model.model.6.m.0.cv2.conv.weight"} loc("YOLOv8":0:0), %arg228: tensor<320x320x3x3xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "model.model.6.m.1.cv1.conv.weight"} loc("YOLOv8":0:0), %arg229: tensor<320x320x3x3xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "model.model.6.m.1.cv2.conv.weight"} loc("YOLOv8":0:0), %arg230: tensor<320x320x3x3xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "model.model.6.m.2.cv1.conv.weight"} loc("YOLOv8":0:0), %arg231: tensor<320x320x3x3xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "model.model.6.m.2.cv2.conv.weight"} loc("YOLOv8":0:0), %arg232: tensor<320x320x3x3xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "model.model.6.m.3.cv1.conv.weight"} loc("YOLOv8":0:0), %arg233: tensor<320x320x3x3xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "model.model.6.m.3.cv2.conv.weight"} loc("YOLOv8":0:0), %arg234: tensor<320x320x3x3xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "model.model.6.m.4.cv1.conv.weight"} loc("YOLOv8":0:0), %arg235: tensor<320x320x3x3xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "model.model.6.m.4.cv2.conv.weight"} loc("YOLOv8":0:0), %arg236: tensor<320x320x3x3xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "model.model.6.m.5.cv1.conv.weight"} loc("YOLOv8":0:0), %arg237: tensor<320x320x3x3xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "model.model.6.m.5.cv2.conv.weight"} loc("YOLOv8":0:0), %arg238: tensor<640x2560x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "model.model.6.cv2.conv.weight"} loc("YOLOv8":0:0), %arg239: tensor<640x640x3x3xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "model.model.7.conv.weight"} loc("YOLOv8":0:0), %arg240: tensor<640x640x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "model.model.8.cv1.conv.weight"} loc("YOLOv8":0:0), %arg241: tensor<320x320x3x3xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "model.model.8.m.0.cv1.conv.weight"} loc("YOLOv8":0:0), %arg242: tensor<320x320x3x3xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "model.model.8.m.0.cv2.conv.weight"} loc("YOLOv8":0:0), %arg243: tensor<320x320x3x3xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "model.model.8.m.1.cv1.conv.weight"} loc("YOLOv8":0:0), %arg244: tensor<320x320x3x3xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "model.model.8.m.1.cv2.conv.weight"} loc("YOLOv8":0:0), %arg245: tensor<320x320x3x3xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "model.model.8.m.2.cv1.conv.weight"} loc("YOLOv8":0:0), %arg246: tensor<320x320x3x3xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "model.model.8.m.2.cv2.conv.weight"} loc("YOLOv8":0:0), %arg247: tensor<640x1600x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "model.model.8.cv2.conv.weight"} loc("YOLOv8":0:0), %arg248: tensor<320x640x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "model.model.9.cv1.conv.weight"} loc("YOLOv8":0:0), %arg249: tensor<640x1280x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "model.model.9.cv2.conv.weight"} loc("YOLOv8":0:0), %arg250: tensor<640x1280x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "model.model.12.cv1.conv.weight"} loc("YOLOv8":0:0), %arg251: tensor<320x320x3x3xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "model.model.12.m.0.cv1.conv.weight"} loc("YOLOv8":0:0), %arg252: tensor<320x320x3x3xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "model.model.12.m.0.cv2.conv.weight"} loc("YOLOv8":0:0), %arg253: tensor<320x320x3x3xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "model.model.12.m.1.cv1.conv.weight"} loc("YOLOv8":0:0), %arg254: tensor<320x320x3x3xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "model.model.12.m.1.cv2.conv.weight"} loc("YOLOv8":0:0), %arg255: tensor<320x320x3x3xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "model.model.12.m.2.cv1.conv.weight"} loc("YOLOv8":0:0), %arg256: tensor<320x320x3x3xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "model.model.12.m.2.cv2.conv.weight"} loc("YOLOv8":0:0), %arg257: tensor<640x1600x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "model.model.12.cv2.conv.weight"} loc("YOLOv8":0:0), %arg258: tensor<320x960x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "model.model.15.cv1.conv.weight"} loc("YOLOv8":0:0), %arg259: tensor<160x160x3x3xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "model.model.15.m.0.cv1.conv.weight"} loc("YOLOv8":0:0), %arg260: tensor<160x160x3x3xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "model.model.15.m.0.cv2.conv.weight"} loc("YOLOv8":0:0), %arg261: tensor<160x160x3x3xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "model.model.15.m.1.cv1.conv.weight"} loc("YOLOv8":0:0), %arg262: tensor<160x160x3x3xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "model.model.15.m.1.cv2.conv.weight"} loc("YOLOv8":0:0), %arg263: tensor<160x160x3x3xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "model.model.15.m.2.cv1.conv.weight"} loc("YOLOv8":0:0), %arg264: tensor<160x160x3x3xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "model.model.15.m.2.cv2.conv.weight"} loc("YOLOv8":0:0), %arg265: tensor<320x800x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "model.model.15.cv2.conv.weight"} loc("YOLOv8":0:0), %arg266: tensor<80x320x3x3xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "model.model.22.cv2.0.0.conv.weight"} loc("YOLOv8":0:0), %arg267: tensor<80x80x3x3xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "model.model.22.cv2.0.1.conv.weight"} loc("YOLOv8":0:0), %arg268: tensor<64x80x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "model.model.22.cv2.0.2.weight"} loc("YOLOv8":0:0), %arg269: tensor<1x1x1x64xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "model.model.22.cv2.0.2.bias"} loc("YOLOv8":0:0), %arg270: tensor<320x320x3x3xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "model.model.22.cv3.0.0.conv.weight"} loc("YOLOv8":0:0), %arg271: tensor<320x320x3x3xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "model.model.22.cv3.0.1.conv.weight"} loc("YOLOv8":0:0), %arg272: tensor<80x320x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "model.model.22.cv3.0.2.weight"} loc("YOLOv8":0:0), %arg273: tensor<1x1x1x80xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "model.model.22.cv3.0.2.bias"} loc("YOLOv8":0:0), %arg274: tensor<320x320x3x3xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "model.model.16.conv.weight"} loc("YOLOv8":0:0), %arg275: tensor<640x960x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "model.model.18.cv1.conv.weight"} loc("YOLOv8":0:0), %arg276: tensor<320x320x3x3xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "model.model.18.m.0.cv1.conv.weight"} loc("YOLOv8":0:0), %arg277: tensor<320x320x3x3xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "model.model.18.m.0.cv2.conv.weight"} loc("YOLOv8":0:0), %arg278: tensor<320x320x3x3xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "model.model.18.m.1.cv1.conv.weight"} loc("YOLOv8":0:0), %arg279: tensor<320x320x3x3xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "model.model.18.m.1.cv2.conv.weight"} loc("YOLOv8":0:0), %arg280: tensor<320x320x3x3xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "model.model.18.m.2.cv1.conv.weight"} loc("YOLOv8":0:0), %arg281: tensor<320x320x3x3xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "model.model.18.m.2.cv2.conv.weight"} loc("YOLOv8":0:0), %arg282: tensor<640x1600x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "model.model.18.cv2.conv.weight"} loc("YOLOv8":0:0), %arg283: tensor<80x640x3x3xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "model.model.22.cv2.1.0.conv.weight"} loc("YOLOv8":0:0), %arg284: tensor<80x80x3x3xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "model.model.22.cv2.1.1.conv.weight"} loc("YOLOv8":0:0), %arg285: tensor<64x80x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "model.model.22.cv2.1.2.weight"} loc("YOLOv8":0:0), %arg286: tensor<1x1x1x64xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "model.model.22.cv2.1.2.bias"} loc("YOLOv8":0:0), %arg287: tensor<320x640x3x3xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "model.model.22.cv3.1.0.conv.weight"} loc("YOLOv8":0:0), %arg288: tensor<320x320x3x3xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "model.model.22.cv3.1.1.conv.weight"} loc("YOLOv8":0:0), %arg289: tensor<80x320x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "model.model.22.cv3.1.2.weight"} loc("YOLOv8":0:0), %arg290: tensor<1x1x1x80xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "model.model.22.cv3.1.2.bias"} loc("YOLOv8":0:0), %arg291: tensor<640x640x3x3xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "model.model.19.conv.weight"} loc("YOLOv8":0:0), %arg292: tensor<640x1280x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "model.model.21.cv1.conv.weight"} loc("YOLOv8":0:0), %arg293: tensor<320x320x3x3xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "model.model.21.m.0.cv1.conv.weight"} loc("YOLOv8":0:0), %arg294: tensor<320x320x3x3xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "model.model.21.m.0.cv2.conv.weight"} loc("YOLOv8":0:0), %arg295: tensor<320x320x3x3xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "model.model.21.m.1.cv1.conv.weight"} loc("YOLOv8":0:0), %arg296: tensor<320x320x3x3xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "model.model.21.m.1.cv2.conv.weight"} loc("YOLOv8":0:0), %arg297: tensor<320x320x3x3xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "model.model.21.m.2.cv1.conv.weight"} loc("YOLOv8":0:0), %arg298: tensor<320x320x3x3xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "model.model.21.m.2.cv2.conv.weight"} loc("YOLOv8":0:0), %arg299: tensor<640x1600x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "model.model.21.cv2.conv.weight"} loc("YOLOv8":0:0), %arg300: tensor<80x640x3x3xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "model.model.22.cv2.2.0.conv.weight"} loc("YOLOv8":0:0), %arg301: tensor<80x80x3x3xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "model.model.22.cv2.2.1.conv.weight"} loc("YOLOv8":0:0), %arg302: tensor<64x80x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "model.model.22.cv2.2.2.weight"} loc("YOLOv8":0:0), %arg303: tensor<1x1x1x64xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "model.model.22.cv2.2.2.bias"} loc("YOLOv8":0:0), %arg304: tensor<320x640x3x3xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "model.model.22.cv3.2.0.conv.weight"} loc("YOLOv8":0:0), %arg305: tensor<320x320x3x3xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "model.model.22.cv3.2.1.conv.weight"} loc("YOLOv8":0:0), %arg306: tensor<80x320x1x1xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "model.model.22.cv3.2.2.weight"} loc("YOLOv8":0:0), %arg307: tensor<1x1x1x80xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "model.model.22.cv3.2.2.bias"} loc("YOLOv8":0:0)) -> (tensor<1x84x8400xbf16> {ttir.name = "YOLOv8.output_concatenate_1652"}, tensor<1x144x80x80xbf16> {ttir.name = "YOLOv8.output_concatenate_1188"}, tensor<1x144x40x40xbf16> {ttir.name = "YOLOv8.output_concatenate_1410"}, tensor<1x144x20x20xbf16> {ttir.name = "YOLOv8.output_concatenate_1632"}) {
-    %0 = ttir.empty() : tensor<1x640x3x640xbf16> loc(#loc363)
-    %1 = "ttir.transpose"(%arg0, %0) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x3x640x640xbf16>, tensor<1x640x3x640xbf16>) -> tensor<1x640x3x640xbf16> loc(#loc363)
-    %2 = ttir.empty() : tensor<1x640x640x3xbf16> loc(#loc364)
-    %3 = "ttir.transpose"(%1, %2) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x640x3x640xbf16>, tensor<1x640x640x3xbf16>) -> tensor<1x640x640x3xbf16> loc(#loc364)
-    %4 = ttir.empty() : tensor<1x320x320x80xbf16> loc(#loc365)
-    %5 = "ttir.conv2d"(%3, %arg199, %4) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 2, 2>}> {channel_last = 1 : si32} : (tensor<1x640x640x3xbf16>, tensor<80x3x3x3xbf16>, tensor<1x320x320x80xbf16>) -> tensor<1x320x320x80xbf16> loc(#loc365)
-    %6 = ttir.empty() : tensor<1x320x80x320xbf16> loc(#loc366)
-    %7 = "ttir.transpose"(%5, %6) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x320x320x80xbf16>, tensor<1x320x80x320xbf16>) -> tensor<1x320x80x320xbf16> loc(#loc366)
-    %8 = ttir.empty() : tensor<1x80x320x320xbf16> loc(#loc367)
-    %9 = "ttir.transpose"(%7, %8) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x320x80x320xbf16>, tensor<1x80x320x320xbf16>) -> tensor<1x80x320x320xbf16> loc(#loc367)
-    %10 = ttir.empty() : tensor<1x80x320x320xbf16> loc(#loc2)
-    %11 = "ttir.multiply"(%9, %arg2, %10) : (tensor<1x80x320x320xbf16>, tensor<1x80x1x1xbf16>, tensor<1x80x320x320xbf16>) -> tensor<1x80x320x320xbf16> loc(#loc2)
-    %12 = ttir.empty() : tensor<1x80x320x320xbf16> loc(#loc3)
-    %13 = "ttir.add"(%11, %arg3, %12) : (tensor<1x80x320x320xbf16>, tensor<1x80x1x1xbf16>, tensor<1x80x320x320xbf16>) -> tensor<1x80x320x320xbf16> loc(#loc3)
-    %14 = ttir.empty() : tensor<1x80x320x320xbf16> loc(#loc368)
-    %15 = "ttir.sigmoid"(%13, %14) : (tensor<1x80x320x320xbf16>, tensor<1x80x320x320xbf16>) -> tensor<1x80x320x320xbf16> loc(#loc368)
-    %16 = ttir.empty() : tensor<1x80x320x320xbf16> loc(#loc369)
-    %17 = "ttir.multiply"(%13, %15, %16) : (tensor<1x80x320x320xbf16>, tensor<1x80x320x320xbf16>, tensor<1x80x320x320xbf16>) -> tensor<1x80x320x320xbf16> loc(#loc369)
-    %18 = ttir.empty() : tensor<1x320x80x320xbf16> loc(#loc370)
-    %19 = "ttir.transpose"(%17, %18) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x80x320x320xbf16>, tensor<1x320x80x320xbf16>) -> tensor<1x320x80x320xbf16> loc(#loc370)
-    %20 = ttir.empty() : tensor<1x320x320x80xbf16> loc(#loc371)
-    %21 = "ttir.transpose"(%19, %20) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x320x80x320xbf16>, tensor<1x320x320x80xbf16>) -> tensor<1x320x320x80xbf16> loc(#loc371)
-    %22 = ttir.empty() : tensor<1x160x160x160xbf16> loc(#loc372)
-    %23 = "ttir.conv2d"(%21, %arg200, %22) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 2, 2>}> {channel_last = 1 : si32} : (tensor<1x320x320x80xbf16>, tensor<160x80x3x3xbf16>, tensor<1x160x160x160xbf16>) -> tensor<1x160x160x160xbf16> loc(#loc372)
-    %24 = ttir.empty() : tensor<1x160x160x160xbf16> loc(#loc373)
-    %25 = "ttir.transpose"(%23, %24) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x160x160x160xbf16>, tensor<1x160x160x160xbf16>) -> tensor<1x160x160x160xbf16> loc(#loc373)
-    %26 = ttir.empty() : tensor<1x160x160x160xbf16> loc(#loc374)
-    %27 = "ttir.transpose"(%25, %26) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x160x160x160xbf16>, tensor<1x160x160x160xbf16>) -> tensor<1x160x160x160xbf16> loc(#loc374)
-    %28 = ttir.empty() : tensor<1x160x160x160xbf16> loc(#loc4)
-    %29 = "ttir.multiply"(%27, %arg4, %28) : (tensor<1x160x160x160xbf16>, tensor<1x160x1x1xbf16>, tensor<1x160x160x160xbf16>) -> tensor<1x160x160x160xbf16> loc(#loc4)
-    %30 = ttir.empty() : tensor<1x160x160x160xbf16> loc(#loc5)
-    %31 = "ttir.add"(%29, %arg5, %30) : (tensor<1x160x160x160xbf16>, tensor<1x160x1x1xbf16>, tensor<1x160x160x160xbf16>) -> tensor<1x160x160x160xbf16> loc(#loc5)
-    %32 = ttir.empty() : tensor<1x160x160x160xbf16> loc(#loc224)
-    %33 = "ttir.sigmoid"(%31, %32) : (tensor<1x160x160x160xbf16>, tensor<1x160x160x160xbf16>) -> tensor<1x160x160x160xbf16> loc(#loc224)
-    %34 = ttir.empty() : tensor<1x160x160x160xbf16> loc(#loc225)
-    %35 = "ttir.multiply"(%31, %33, %34) : (tensor<1x160x160x160xbf16>, tensor<1x160x160x160xbf16>, tensor<1x160x160x160xbf16>) -> tensor<1x160x160x160xbf16> loc(#loc225)
-    %36 = ttir.empty() : tensor<1x160x160x160xbf16> loc(#loc551)
-    %37 = "ttir.transpose"(%35, %36) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x160x160x160xbf16>, tensor<1x160x160x160xbf16>) -> tensor<1x160x160x160xbf16> loc(#loc551)
-    %38 = ttir.empty() : tensor<1x160x160x160xbf16> loc(#loc552)
-    %39 = "ttir.transpose"(%37, %38) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x160x160x160xbf16>, tensor<1x160x160x160xbf16>) -> tensor<1x160x160x160xbf16> loc(#loc552)
-    %40 = ttir.empty() : tensor<1x160x160x160xbf16> loc(#loc553)
-    %41 = "ttir.conv2d"(%39, %arg201, %40) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 0, 0, 0, 0>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x160x160x160xbf16>, tensor<160x160x1x1xbf16>, tensor<1x160x160x160xbf16>) -> tensor<1x160x160x160xbf16> loc(#loc553)
-    %42 = ttir.empty() : tensor<1x160x160x160xbf16> loc(#loc554)
-    %43 = "ttir.transpose"(%41, %42) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x160x160x160xbf16>, tensor<1x160x160x160xbf16>) -> tensor<1x160x160x160xbf16> loc(#loc554)
-    %44 = ttir.empty() : tensor<1x160x160x160xbf16> loc(#loc555)
-    %45 = "ttir.transpose"(%43, %44) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x160x160x160xbf16>, tensor<1x160x160x160xbf16>) -> tensor<1x160x160x160xbf16> loc(#loc555)
-    %46 = ttir.empty() : tensor<1x160x160x160xbf16> loc(#loc6)
-    %47 = "ttir.multiply"(%45, %arg6, %46) : (tensor<1x160x160x160xbf16>, tensor<1x160x1x1xbf16>, tensor<1x160x160x160xbf16>) -> tensor<1x160x160x160xbf16> loc(#loc6)
-    %48 = ttir.empty() : tensor<1x160x160x160xbf16> loc(#loc7)
-    %49 = "ttir.add"(%47, %arg7, %48) : (tensor<1x160x160x160xbf16>, tensor<1x160x1x1xbf16>, tensor<1x160x160x160xbf16>) -> tensor<1x160x160x160xbf16> loc(#loc7)
-    %50 = ttir.empty() : tensor<1x160x160x160xbf16> loc(#loc376)
-    %51 = "ttir.sigmoid"(%49, %50) : (tensor<1x160x160x160xbf16>, tensor<1x160x160x160xbf16>) -> tensor<1x160x160x160xbf16> loc(#loc376)
-    %52 = ttir.empty() : tensor<1x160x160x160xbf16> loc(#loc377)
-    %53 = "ttir.multiply"(%49, %51, %52) : (tensor<1x160x160x160xbf16>, tensor<1x160x160x160xbf16>, tensor<1x160x160x160xbf16>) -> tensor<1x160x160x160xbf16> loc(#loc377)
-    %54 = ttir.empty() : tensor<1x80x160x160xbf16> loc(#loc227)
-    %55 = "ttir.index"(%53, %54) <{begin = 0 : i32, dim = 1 : i32, end = 80 : i32, step = 1 : i32}> : (tensor<1x160x160x160xbf16>, tensor<1x80x160x160xbf16>) -> tensor<1x80x160x160xbf16> loc(#loc227)
-    %56 = ttir.empty() : tensor<1x80x160x160xbf16> loc(#loc228)
-    %57 = "ttir.index"(%53, %56) <{begin = 80 : i32, dim = 1 : i32, end = 160 : i32, step = 1 : i32}> : (tensor<1x160x160x160xbf16>, tensor<1x80x160x160xbf16>) -> tensor<1x80x160x160xbf16> loc(#loc228)
-    %58 = ttir.empty() : tensor<1x160x80x160xbf16> loc(#loc886)
-    %59 = "ttir.transpose"(%57, %58) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x80x160x160xbf16>, tensor<1x160x80x160xbf16>) -> tensor<1x160x80x160xbf16> loc(#loc886)
-    %60 = ttir.empty() : tensor<1x160x160x80xbf16> loc(#loc887)
-    %61 = "ttir.transpose"(%59, %60) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x160x80x160xbf16>, tensor<1x160x160x80xbf16>) -> tensor<1x160x160x80xbf16> loc(#loc887)
-    %62 = ttir.empty() : tensor<1x160x160x80xbf16> loc(#loc888)
-    %63 = "ttir.conv2d"(%61, %arg202, %62) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x160x160x80xbf16>, tensor<80x80x3x3xbf16>, tensor<1x160x160x80xbf16>) -> tensor<1x160x160x80xbf16> loc(#loc888)
-    %64 = ttir.empty() : tensor<1x160x80x160xbf16> loc(#loc889)
-    %65 = "ttir.transpose"(%63, %64) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x160x160x80xbf16>, tensor<1x160x80x160xbf16>) -> tensor<1x160x80x160xbf16> loc(#loc889)
-    %66 = ttir.empty() : tensor<1x80x160x160xbf16> loc(#loc890)
-    %67 = "ttir.transpose"(%65, %66) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x160x80x160xbf16>, tensor<1x80x160x160xbf16>) -> tensor<1x80x160x160xbf16> loc(#loc890)
-    %68 = ttir.empty() : tensor<1x80x160x160xbf16> loc(#loc8)
-    %69 = "ttir.multiply"(%67, %arg8, %68) : (tensor<1x80x160x160xbf16>, tensor<1x80x1x1xbf16>, tensor<1x80x160x160xbf16>) -> tensor<1x80x160x160xbf16> loc(#loc8)
-    %70 = ttir.empty() : tensor<1x80x160x160xbf16> loc(#loc9)
-    %71 = "ttir.add"(%69, %arg9, %70) : (tensor<1x80x160x160xbf16>, tensor<1x80x1x1xbf16>, tensor<1x80x160x160xbf16>) -> tensor<1x80x160x160xbf16> loc(#loc9)
-    %72 = ttir.empty() : tensor<1x80x160x160xbf16> loc(#loc557)
-    %73 = "ttir.sigmoid"(%71, %72) : (tensor<1x80x160x160xbf16>, tensor<1x80x160x160xbf16>) -> tensor<1x80x160x160xbf16> loc(#loc557)
-    %74 = ttir.empty() : tensor<1x80x160x160xbf16> loc(#loc558)
-    %75 = "ttir.multiply"(%71, %73, %74) : (tensor<1x80x160x160xbf16>, tensor<1x80x160x160xbf16>, tensor<1x80x160x160xbf16>) -> tensor<1x80x160x160xbf16> loc(#loc558)
-    %76 = ttir.empty() : tensor<1x160x80x160xbf16> loc(#loc891)
-    %77 = "ttir.transpose"(%75, %76) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x80x160x160xbf16>, tensor<1x160x80x160xbf16>) -> tensor<1x160x80x160xbf16> loc(#loc891)
-    %78 = ttir.empty() : tensor<1x160x160x80xbf16> loc(#loc892)
-    %79 = "ttir.transpose"(%77, %78) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x160x80x160xbf16>, tensor<1x160x160x80xbf16>) -> tensor<1x160x160x80xbf16> loc(#loc892)
-    %80 = ttir.empty() : tensor<1x160x160x80xbf16> loc(#loc893)
-    %81 = "ttir.conv2d"(%79, %arg203, %80) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x160x160x80xbf16>, tensor<80x80x3x3xbf16>, tensor<1x160x160x80xbf16>) -> tensor<1x160x160x80xbf16> loc(#loc893)
-    %82 = ttir.empty() : tensor<1x160x80x160xbf16> loc(#loc894)
-    %83 = "ttir.transpose"(%81, %82) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x160x160x80xbf16>, tensor<1x160x80x160xbf16>) -> tensor<1x160x80x160xbf16> loc(#loc894)
-    %84 = ttir.empty() : tensor<1x80x160x160xbf16> loc(#loc895)
-    %85 = "ttir.transpose"(%83, %84) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x160x80x160xbf16>, tensor<1x80x160x160xbf16>) -> tensor<1x80x160x160xbf16> loc(#loc895)
-    %86 = ttir.empty() : tensor<1x80x160x160xbf16> loc(#loc10)
-    %87 = "ttir.multiply"(%85, %arg10, %86) : (tensor<1x80x160x160xbf16>, tensor<1x80x1x1xbf16>, tensor<1x80x160x160xbf16>) -> tensor<1x80x160x160xbf16> loc(#loc10)
-    %88 = ttir.empty() : tensor<1x80x160x160xbf16> loc(#loc11)
-    %89 = "ttir.add"(%87, %arg11, %88) : (tensor<1x80x160x160xbf16>, tensor<1x80x1x1xbf16>, tensor<1x80x160x160xbf16>) -> tensor<1x80x160x160xbf16> loc(#loc11)
-    %90 = ttir.empty() : tensor<1x80x160x160xbf16> loc(#loc560)
-    %91 = "ttir.sigmoid"(%89, %90) : (tensor<1x80x160x160xbf16>, tensor<1x80x160x160xbf16>) -> tensor<1x80x160x160xbf16> loc(#loc560)
-    %92 = ttir.empty() : tensor<1x80x160x160xbf16> loc(#loc561)
-    %93 = "ttir.multiply"(%89, %91, %92) : (tensor<1x80x160x160xbf16>, tensor<1x80x160x160xbf16>, tensor<1x80x160x160xbf16>) -> tensor<1x80x160x160xbf16> loc(#loc561)
-    %94 = ttir.empty() : tensor<1x80x160x160xbf16> loc(#loc380)
-    %95 = "ttir.add"(%57, %93, %94) : (tensor<1x80x160x160xbf16>, tensor<1x80x160x160xbf16>, tensor<1x80x160x160xbf16>) -> tensor<1x80x160x160xbf16> loc(#loc380)
-    %96 = ttir.empty() : tensor<1x160x80x160xbf16> loc(#loc896)
-    %97 = "ttir.transpose"(%95, %96) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x80x160x160xbf16>, tensor<1x160x80x160xbf16>) -> tensor<1x160x80x160xbf16> loc(#loc896)
-    %98 = ttir.empty() : tensor<1x160x160x80xbf16> loc(#loc897)
-    %99 = "ttir.transpose"(%97, %98) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x160x80x160xbf16>, tensor<1x160x160x80xbf16>) -> tensor<1x160x160x80xbf16> loc(#loc897)
-    %100 = ttir.empty() : tensor<1x160x160x80xbf16> loc(#loc898)
-    %101 = "ttir.conv2d"(%99, %arg204, %100) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x160x160x80xbf16>, tensor<80x80x3x3xbf16>, tensor<1x160x160x80xbf16>) -> tensor<1x160x160x80xbf16> loc(#loc898)
-    %102 = ttir.empty() : tensor<1x160x80x160xbf16> loc(#loc899)
-    %103 = "ttir.transpose"(%101, %102) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x160x160x80xbf16>, tensor<1x160x80x160xbf16>) -> tensor<1x160x80x160xbf16> loc(#loc899)
-    %104 = ttir.empty() : tensor<1x80x160x160xbf16> loc(#loc900)
-    %105 = "ttir.transpose"(%103, %104) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x160x80x160xbf16>, tensor<1x80x160x160xbf16>) -> tensor<1x80x160x160xbf16> loc(#loc900)
-    %106 = ttir.empty() : tensor<1x80x160x160xbf16> loc(#loc12)
-    %107 = "ttir.multiply"(%105, %arg12, %106) : (tensor<1x80x160x160xbf16>, tensor<1x80x1x1xbf16>, tensor<1x80x160x160xbf16>) -> tensor<1x80x160x160xbf16> loc(#loc12)
-    %108 = ttir.empty() : tensor<1x80x160x160xbf16> loc(#loc13)
-    %109 = "ttir.add"(%107, %arg13, %108) : (tensor<1x80x160x160xbf16>, tensor<1x80x1x1xbf16>, tensor<1x80x160x160xbf16>) -> tensor<1x80x160x160xbf16> loc(#loc13)
-    %110 = ttir.empty() : tensor<1x80x160x160xbf16> loc(#loc563)
-    %111 = "ttir.sigmoid"(%109, %110) : (tensor<1x80x160x160xbf16>, tensor<1x80x160x160xbf16>) -> tensor<1x80x160x160xbf16> loc(#loc563)
-    %112 = ttir.empty() : tensor<1x80x160x160xbf16> loc(#loc564)
-    %113 = "ttir.multiply"(%109, %111, %112) : (tensor<1x80x160x160xbf16>, tensor<1x80x160x160xbf16>, tensor<1x80x160x160xbf16>) -> tensor<1x80x160x160xbf16> loc(#loc564)
-    %114 = ttir.empty() : tensor<1x160x80x160xbf16> loc(#loc901)
-    %115 = "ttir.transpose"(%113, %114) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x80x160x160xbf16>, tensor<1x160x80x160xbf16>) -> tensor<1x160x80x160xbf16> loc(#loc901)
-    %116 = ttir.empty() : tensor<1x160x160x80xbf16> loc(#loc902)
-    %117 = "ttir.transpose"(%115, %116) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x160x80x160xbf16>, tensor<1x160x160x80xbf16>) -> tensor<1x160x160x80xbf16> loc(#loc902)
-    %118 = ttir.empty() : tensor<1x160x160x80xbf16> loc(#loc903)
-    %119 = "ttir.conv2d"(%117, %arg205, %118) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x160x160x80xbf16>, tensor<80x80x3x3xbf16>, tensor<1x160x160x80xbf16>) -> tensor<1x160x160x80xbf16> loc(#loc903)
-    %120 = ttir.empty() : tensor<1x160x80x160xbf16> loc(#loc904)
-    %121 = "ttir.transpose"(%119, %120) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x160x160x80xbf16>, tensor<1x160x80x160xbf16>) -> tensor<1x160x80x160xbf16> loc(#loc904)
-    %122 = ttir.empty() : tensor<1x80x160x160xbf16> loc(#loc905)
-    %123 = "ttir.transpose"(%121, %122) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x160x80x160xbf16>, tensor<1x80x160x160xbf16>) -> tensor<1x80x160x160xbf16> loc(#loc905)
-    %124 = ttir.empty() : tensor<1x80x160x160xbf16> loc(#loc14)
-    %125 = "ttir.multiply"(%123, %arg14, %124) : (tensor<1x80x160x160xbf16>, tensor<1x80x1x1xbf16>, tensor<1x80x160x160xbf16>) -> tensor<1x80x160x160xbf16> loc(#loc14)
-    %126 = ttir.empty() : tensor<1x80x160x160xbf16> loc(#loc15)
-    %127 = "ttir.add"(%125, %arg15, %126) : (tensor<1x80x160x160xbf16>, tensor<1x80x1x1xbf16>, tensor<1x80x160x160xbf16>) -> tensor<1x80x160x160xbf16> loc(#loc15)
-    %128 = ttir.empty() : tensor<1x80x160x160xbf16> loc(#loc566)
-    %129 = "ttir.sigmoid"(%127, %128) : (tensor<1x80x160x160xbf16>, tensor<1x80x160x160xbf16>) -> tensor<1x80x160x160xbf16> loc(#loc566)
-    %130 = ttir.empty() : tensor<1x80x160x160xbf16> loc(#loc567)
-    %131 = "ttir.multiply"(%127, %129, %130) : (tensor<1x80x160x160xbf16>, tensor<1x80x160x160xbf16>, tensor<1x80x160x160xbf16>) -> tensor<1x80x160x160xbf16> loc(#loc567)
-    %132 = ttir.empty() : tensor<1x80x160x160xbf16> loc(#loc383)
-    %133 = "ttir.add"(%95, %131, %132) : (tensor<1x80x160x160xbf16>, tensor<1x80x160x160xbf16>, tensor<1x80x160x160xbf16>) -> tensor<1x80x160x160xbf16> loc(#loc383)
-    %134 = ttir.empty() : tensor<1x160x80x160xbf16> loc(#loc906)
-    %135 = "ttir.transpose"(%133, %134) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x80x160x160xbf16>, tensor<1x160x80x160xbf16>) -> tensor<1x160x80x160xbf16> loc(#loc906)
-    %136 = ttir.empty() : tensor<1x160x160x80xbf16> loc(#loc907)
-    %137 = "ttir.transpose"(%135, %136) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x160x80x160xbf16>, tensor<1x160x160x80xbf16>) -> tensor<1x160x160x80xbf16> loc(#loc907)
-    %138 = ttir.empty() : tensor<1x160x160x80xbf16> loc(#loc908)
-    %139 = "ttir.conv2d"(%137, %arg206, %138) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x160x160x80xbf16>, tensor<80x80x3x3xbf16>, tensor<1x160x160x80xbf16>) -> tensor<1x160x160x80xbf16> loc(#loc908)
-    %140 = ttir.empty() : tensor<1x160x80x160xbf16> loc(#loc909)
-    %141 = "ttir.transpose"(%139, %140) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x160x160x80xbf16>, tensor<1x160x80x160xbf16>) -> tensor<1x160x80x160xbf16> loc(#loc909)
-    %142 = ttir.empty() : tensor<1x80x160x160xbf16> loc(#loc910)
-    %143 = "ttir.transpose"(%141, %142) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x160x80x160xbf16>, tensor<1x80x160x160xbf16>) -> tensor<1x80x160x160xbf16> loc(#loc910)
-    %144 = ttir.empty() : tensor<1x80x160x160xbf16> loc(#loc16)
-    %145 = "ttir.multiply"(%143, %arg16, %144) : (tensor<1x80x160x160xbf16>, tensor<1x80x1x1xbf16>, tensor<1x80x160x160xbf16>) -> tensor<1x80x160x160xbf16> loc(#loc16)
-    %146 = ttir.empty() : tensor<1x80x160x160xbf16> loc(#loc17)
-    %147 = "ttir.add"(%145, %arg17, %146) : (tensor<1x80x160x160xbf16>, tensor<1x80x1x1xbf16>, tensor<1x80x160x160xbf16>) -> tensor<1x80x160x160xbf16> loc(#loc17)
-    %148 = ttir.empty() : tensor<1x80x160x160xbf16> loc(#loc569)
-    %149 = "ttir.sigmoid"(%147, %148) : (tensor<1x80x160x160xbf16>, tensor<1x80x160x160xbf16>) -> tensor<1x80x160x160xbf16> loc(#loc569)
-    %150 = ttir.empty() : tensor<1x80x160x160xbf16> loc(#loc570)
-    %151 = "ttir.multiply"(%147, %149, %150) : (tensor<1x80x160x160xbf16>, tensor<1x80x160x160xbf16>, tensor<1x80x160x160xbf16>) -> tensor<1x80x160x160xbf16> loc(#loc570)
-    %152 = ttir.empty() : tensor<1x160x80x160xbf16> loc(#loc911)
-    %153 = "ttir.transpose"(%151, %152) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x80x160x160xbf16>, tensor<1x160x80x160xbf16>) -> tensor<1x160x80x160xbf16> loc(#loc911)
-    %154 = ttir.empty() : tensor<1x160x160x80xbf16> loc(#loc912)
-    %155 = "ttir.transpose"(%153, %154) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x160x80x160xbf16>, tensor<1x160x160x80xbf16>) -> tensor<1x160x160x80xbf16> loc(#loc912)
-    %156 = ttir.empty() : tensor<1x160x160x80xbf16> loc(#loc913)
-    %157 = "ttir.conv2d"(%155, %arg207, %156) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x160x160x80xbf16>, tensor<80x80x3x3xbf16>, tensor<1x160x160x80xbf16>) -> tensor<1x160x160x80xbf16> loc(#loc913)
-    %158 = ttir.empty() : tensor<1x160x80x160xbf16> loc(#loc914)
-    %159 = "ttir.transpose"(%157, %158) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x160x160x80xbf16>, tensor<1x160x80x160xbf16>) -> tensor<1x160x80x160xbf16> loc(#loc914)
-    %160 = ttir.empty() : tensor<1x80x160x160xbf16> loc(#loc915)
-    %161 = "ttir.transpose"(%159, %160) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x160x80x160xbf16>, tensor<1x80x160x160xbf16>) -> tensor<1x80x160x160xbf16> loc(#loc915)
-    %162 = ttir.empty() : tensor<1x80x160x160xbf16> loc(#loc18)
-    %163 = "ttir.multiply"(%161, %arg18, %162) : (tensor<1x80x160x160xbf16>, tensor<1x80x1x1xbf16>, tensor<1x80x160x160xbf16>) -> tensor<1x80x160x160xbf16> loc(#loc18)
-    %164 = ttir.empty() : tensor<1x80x160x160xbf16> loc(#loc19)
-    %165 = "ttir.add"(%163, %arg19, %164) : (tensor<1x80x160x160xbf16>, tensor<1x80x1x1xbf16>, tensor<1x80x160x160xbf16>) -> tensor<1x80x160x160xbf16> loc(#loc19)
-    %166 = ttir.empty() : tensor<1x80x160x160xbf16> loc(#loc572)
-    %167 = "ttir.sigmoid"(%165, %166) : (tensor<1x80x160x160xbf16>, tensor<1x80x160x160xbf16>) -> tensor<1x80x160x160xbf16> loc(#loc572)
-    %168 = ttir.empty() : tensor<1x80x160x160xbf16> loc(#loc573)
-    %169 = "ttir.multiply"(%165, %167, %168) : (tensor<1x80x160x160xbf16>, tensor<1x80x160x160xbf16>, tensor<1x80x160x160xbf16>) -> tensor<1x80x160x160xbf16> loc(#loc573)
-    %170 = ttir.empty() : tensor<1x80x160x160xbf16> loc(#loc386)
-    %171 = "ttir.add"(%133, %169, %170) : (tensor<1x80x160x160xbf16>, tensor<1x80x160x160xbf16>, tensor<1x80x160x160xbf16>) -> tensor<1x80x160x160xbf16> loc(#loc386)
-    %172 = ttir.empty() : tensor<1x400x160x160xbf16> loc(#loc232)
-    %173 = "ttir.concat"(%55, %57, %95, %133, %171, %172) <{dim = -3 : si32}> : (tensor<1x80x160x160xbf16>, tensor<1x80x160x160xbf16>, tensor<1x80x160x160xbf16>, tensor<1x80x160x160xbf16>, tensor<1x80x160x160xbf16>, tensor<1x400x160x160xbf16>) -> tensor<1x400x160x160xbf16> loc(#loc232)
-    %174 = ttir.empty() : tensor<1x160x400x160xbf16> loc(#loc574)
-    %175 = "ttir.transpose"(%173, %174) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x400x160x160xbf16>, tensor<1x160x400x160xbf16>) -> tensor<1x160x400x160xbf16> loc(#loc574)
-    %176 = ttir.empty() : tensor<1x160x160x400xbf16> loc(#loc575)
-    %177 = "ttir.transpose"(%175, %176) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x160x400x160xbf16>, tensor<1x160x160x400xbf16>) -> tensor<1x160x160x400xbf16> loc(#loc575)
-    %178 = ttir.empty() : tensor<1x160x160x160xbf16> loc(#loc576)
-    %179 = "ttir.conv2d"(%177, %arg208, %178) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 0, 0, 0, 0>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x160x160x400xbf16>, tensor<160x400x1x1xbf16>, tensor<1x160x160x160xbf16>) -> tensor<1x160x160x160xbf16> loc(#loc576)
-    %180 = ttir.empty() : tensor<1x160x160x160xbf16> loc(#loc577)
-    %181 = "ttir.transpose"(%179, %180) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x160x160x160xbf16>, tensor<1x160x160x160xbf16>) -> tensor<1x160x160x160xbf16> loc(#loc577)
-    %182 = ttir.empty() : tensor<1x160x160x160xbf16> loc(#loc578)
-    %183 = "ttir.transpose"(%181, %182) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x160x160x160xbf16>, tensor<1x160x160x160xbf16>) -> tensor<1x160x160x160xbf16> loc(#loc578)
-    %184 = ttir.empty() : tensor<1x160x160x160xbf16> loc(#loc20)
-    %185 = "ttir.multiply"(%183, %arg20, %184) : (tensor<1x160x160x160xbf16>, tensor<1x160x1x1xbf16>, tensor<1x160x160x160xbf16>) -> tensor<1x160x160x160xbf16> loc(#loc20)
-    %186 = ttir.empty() : tensor<1x160x160x160xbf16> loc(#loc21)
-    %187 = "ttir.add"(%185, %arg21, %186) : (tensor<1x160x160x160xbf16>, tensor<1x160x1x1xbf16>, tensor<1x160x160x160xbf16>) -> tensor<1x160x160x160xbf16> loc(#loc21)
-    %188 = ttir.empty() : tensor<1x160x160x160xbf16> loc(#loc388)
-    %189 = "ttir.sigmoid"(%187, %188) : (tensor<1x160x160x160xbf16>, tensor<1x160x160x160xbf16>) -> tensor<1x160x160x160xbf16> loc(#loc388)
-    %190 = ttir.empty() : tensor<1x160x160x160xbf16> loc(#loc389)
-    %191 = "ttir.multiply"(%187, %189, %190) : (tensor<1x160x160x160xbf16>, tensor<1x160x160x160xbf16>, tensor<1x160x160x160xbf16>) -> tensor<1x160x160x160xbf16> loc(#loc389)
-    %192 = ttir.empty() : tensor<1x160x160x160xbf16> loc(#loc390)
-    %193 = "ttir.transpose"(%191, %192) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x160x160x160xbf16>, tensor<1x160x160x160xbf16>) -> tensor<1x160x160x160xbf16> loc(#loc390)
-    %194 = ttir.empty() : tensor<1x160x160x160xbf16> loc(#loc391)
-    %195 = "ttir.transpose"(%193, %194) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x160x160x160xbf16>, tensor<1x160x160x160xbf16>) -> tensor<1x160x160x160xbf16> loc(#loc391)
-    %196 = ttir.empty() : tensor<1x80x80x320xbf16> loc(#loc392)
-    %197 = "ttir.conv2d"(%195, %arg209, %196) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 2, 2>}> {channel_last = 1 : si32} : (tensor<1x160x160x160xbf16>, tensor<320x160x3x3xbf16>, tensor<1x80x80x320xbf16>) -> tensor<1x80x80x320xbf16> loc(#loc392)
-    %198 = ttir.empty() : tensor<1x80x320x80xbf16> loc(#loc393)
-    %199 = "ttir.transpose"(%197, %198) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x80x80x320xbf16>, tensor<1x80x320x80xbf16>) -> tensor<1x80x320x80xbf16> loc(#loc393)
-    %200 = ttir.empty() : tensor<1x320x80x80xbf16> loc(#loc394)
-    %201 = "ttir.transpose"(%199, %200) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x80x320x80xbf16>, tensor<1x320x80x80xbf16>) -> tensor<1x320x80x80xbf16> loc(#loc394)
-    %202 = ttir.empty() : tensor<1x320x80x80xbf16> loc(#loc22)
-    %203 = "ttir.multiply"(%201, %arg22, %202) : (tensor<1x320x80x80xbf16>, tensor<1x320x1x1xbf16>, tensor<1x320x80x80xbf16>) -> tensor<1x320x80x80xbf16> loc(#loc22)
-    %204 = ttir.empty() : tensor<1x320x80x80xbf16> loc(#loc23)
-    %205 = "ttir.add"(%203, %arg23, %204) : (tensor<1x320x80x80xbf16>, tensor<1x320x1x1xbf16>, tensor<1x320x80x80xbf16>) -> tensor<1x320x80x80xbf16> loc(#loc23)
-    %206 = ttir.empty() : tensor<1x320x80x80xbf16> loc(#loc235)
-    %207 = "ttir.sigmoid"(%205, %206) : (tensor<1x320x80x80xbf16>, tensor<1x320x80x80xbf16>) -> tensor<1x320x80x80xbf16> loc(#loc235)
-    %208 = ttir.empty() : tensor<1x320x80x80xbf16> loc(#loc236)
-    %209 = "ttir.multiply"(%205, %207, %208) : (tensor<1x320x80x80xbf16>, tensor<1x320x80x80xbf16>, tensor<1x320x80x80xbf16>) -> tensor<1x320x80x80xbf16> loc(#loc236)
-    %210 = ttir.empty() : tensor<1x80x320x80xbf16> loc(#loc579)
-    %211 = "ttir.transpose"(%209, %210) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x320x80x80xbf16>, tensor<1x80x320x80xbf16>) -> tensor<1x80x320x80xbf16> loc(#loc579)
-    %212 = ttir.empty() : tensor<1x80x80x320xbf16> loc(#loc580)
-    %213 = "ttir.transpose"(%211, %212) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x80x320x80xbf16>, tensor<1x80x80x320xbf16>) -> tensor<1x80x80x320xbf16> loc(#loc580)
-    %214 = ttir.empty() : tensor<1x80x80x320xbf16> loc(#loc581)
-    %215 = "ttir.conv2d"(%213, %arg210, %214) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 0, 0, 0, 0>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x80x80x320xbf16>, tensor<320x320x1x1xbf16>, tensor<1x80x80x320xbf16>) -> tensor<1x80x80x320xbf16> loc(#loc581)
-    %216 = ttir.empty() : tensor<1x80x320x80xbf16> loc(#loc582)
-    %217 = "ttir.transpose"(%215, %216) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x80x80x320xbf16>, tensor<1x80x320x80xbf16>) -> tensor<1x80x320x80xbf16> loc(#loc582)
-    %218 = ttir.empty() : tensor<1x320x80x80xbf16> loc(#loc583)
-    %219 = "ttir.transpose"(%217, %218) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x80x320x80xbf16>, tensor<1x320x80x80xbf16>) -> tensor<1x320x80x80xbf16> loc(#loc583)
-    %220 = ttir.empty() : tensor<1x320x80x80xbf16> loc(#loc24)
-    %221 = "ttir.multiply"(%219, %arg24, %220) : (tensor<1x320x80x80xbf16>, tensor<1x320x1x1xbf16>, tensor<1x320x80x80xbf16>) -> tensor<1x320x80x80xbf16> loc(#loc24)
-    %222 = ttir.empty() : tensor<1x320x80x80xbf16> loc(#loc25)
-    %223 = "ttir.add"(%221, %arg25, %222) : (tensor<1x320x80x80xbf16>, tensor<1x320x1x1xbf16>, tensor<1x320x80x80xbf16>) -> tensor<1x320x80x80xbf16> loc(#loc25)
-    %224 = ttir.empty() : tensor<1x320x80x80xbf16> loc(#loc396)
-    %225 = "ttir.sigmoid"(%223, %224) : (tensor<1x320x80x80xbf16>, tensor<1x320x80x80xbf16>) -> tensor<1x320x80x80xbf16> loc(#loc396)
-    %226 = ttir.empty() : tensor<1x320x80x80xbf16> loc(#loc397)
-    %227 = "ttir.multiply"(%223, %225, %226) : (tensor<1x320x80x80xbf16>, tensor<1x320x80x80xbf16>, tensor<1x320x80x80xbf16>) -> tensor<1x320x80x80xbf16> loc(#loc397)
-    %228 = ttir.empty() : tensor<1x160x80x80xbf16> loc(#loc238)
-    %229 = "ttir.index"(%227, %228) <{begin = 0 : i32, dim = 1 : i32, end = 160 : i32, step = 1 : i32}> : (tensor<1x320x80x80xbf16>, tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16> loc(#loc238)
-    %230 = ttir.empty() : tensor<1x160x80x80xbf16> loc(#loc239)
-    %231 = "ttir.index"(%227, %230) <{begin = 160 : i32, dim = 1 : i32, end = 320 : i32, step = 1 : i32}> : (tensor<1x320x80x80xbf16>, tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16> loc(#loc239)
-    %232 = ttir.empty() : tensor<1x80x160x80xbf16> loc(#loc916)
-    %233 = "ttir.transpose"(%231, %232) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x160x80x80xbf16>, tensor<1x80x160x80xbf16>) -> tensor<1x80x160x80xbf16> loc(#loc916)
-    %234 = ttir.empty() : tensor<1x80x80x160xbf16> loc(#loc917)
-    %235 = "ttir.transpose"(%233, %234) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x80x160x80xbf16>, tensor<1x80x80x160xbf16>) -> tensor<1x80x80x160xbf16> loc(#loc917)
-    %236 = ttir.empty() : tensor<1x80x80x160xbf16> loc(#loc918)
-    %237 = "ttir.conv2d"(%235, %arg211, %236) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x80x80x160xbf16>, tensor<160x160x3x3xbf16>, tensor<1x80x80x160xbf16>) -> tensor<1x80x80x160xbf16> loc(#loc918)
-    %238 = ttir.empty() : tensor<1x80x160x80xbf16> loc(#loc919)
-    %239 = "ttir.transpose"(%237, %238) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x80x80x160xbf16>, tensor<1x80x160x80xbf16>) -> tensor<1x80x160x80xbf16> loc(#loc919)
-    %240 = ttir.empty() : tensor<1x160x80x80xbf16> loc(#loc920)
-    %241 = "ttir.transpose"(%239, %240) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x80x160x80xbf16>, tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16> loc(#loc920)
-    %242 = ttir.empty() : tensor<1x160x80x80xbf16> loc(#loc26)
-    %243 = "ttir.multiply"(%241, %arg26, %242) : (tensor<1x160x80x80xbf16>, tensor<1x160x1x1xbf16>, tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16> loc(#loc26)
-    %244 = ttir.empty() : tensor<1x160x80x80xbf16> loc(#loc27)
-    %245 = "ttir.add"(%243, %arg27, %244) : (tensor<1x160x80x80xbf16>, tensor<1x160x1x1xbf16>, tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16> loc(#loc27)
-    %246 = ttir.empty() : tensor<1x160x80x80xbf16> loc(#loc585)
-    %247 = "ttir.sigmoid"(%245, %246) : (tensor<1x160x80x80xbf16>, tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16> loc(#loc585)
-    %248 = ttir.empty() : tensor<1x160x80x80xbf16> loc(#loc586)
-    %249 = "ttir.multiply"(%245, %247, %248) : (tensor<1x160x80x80xbf16>, tensor<1x160x80x80xbf16>, tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16> loc(#loc586)
-    %250 = ttir.empty() : tensor<1x80x160x80xbf16> loc(#loc921)
-    %251 = "ttir.transpose"(%249, %250) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x160x80x80xbf16>, tensor<1x80x160x80xbf16>) -> tensor<1x80x160x80xbf16> loc(#loc921)
-    %252 = ttir.empty() : tensor<1x80x80x160xbf16> loc(#loc922)
-    %253 = "ttir.transpose"(%251, %252) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x80x160x80xbf16>, tensor<1x80x80x160xbf16>) -> tensor<1x80x80x160xbf16> loc(#loc922)
-    %254 = ttir.empty() : tensor<1x80x80x160xbf16> loc(#loc923)
-    %255 = "ttir.conv2d"(%253, %arg212, %254) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x80x80x160xbf16>, tensor<160x160x3x3xbf16>, tensor<1x80x80x160xbf16>) -> tensor<1x80x80x160xbf16> loc(#loc923)
-    %256 = ttir.empty() : tensor<1x80x160x80xbf16> loc(#loc924)
-    %257 = "ttir.transpose"(%255, %256) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x80x80x160xbf16>, tensor<1x80x160x80xbf16>) -> tensor<1x80x160x80xbf16> loc(#loc924)
-    %258 = ttir.empty() : tensor<1x160x80x80xbf16> loc(#loc925)
-    %259 = "ttir.transpose"(%257, %258) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x80x160x80xbf16>, tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16> loc(#loc925)
-    %260 = ttir.empty() : tensor<1x160x80x80xbf16> loc(#loc28)
-    %261 = "ttir.multiply"(%259, %arg28, %260) : (tensor<1x160x80x80xbf16>, tensor<1x160x1x1xbf16>, tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16> loc(#loc28)
-    %262 = ttir.empty() : tensor<1x160x80x80xbf16> loc(#loc29)
-    %263 = "ttir.add"(%261, %arg29, %262) : (tensor<1x160x80x80xbf16>, tensor<1x160x1x1xbf16>, tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16> loc(#loc29)
-    %264 = ttir.empty() : tensor<1x160x80x80xbf16> loc(#loc588)
-    %265 = "ttir.sigmoid"(%263, %264) : (tensor<1x160x80x80xbf16>, tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16> loc(#loc588)
-    %266 = ttir.empty() : tensor<1x160x80x80xbf16> loc(#loc589)
-    %267 = "ttir.multiply"(%263, %265, %266) : (tensor<1x160x80x80xbf16>, tensor<1x160x80x80xbf16>, tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16> loc(#loc589)
-    %268 = ttir.empty() : tensor<1x160x80x80xbf16> loc(#loc400)
-    %269 = "ttir.add"(%231, %267, %268) : (tensor<1x160x80x80xbf16>, tensor<1x160x80x80xbf16>, tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16> loc(#loc400)
-    %270 = ttir.empty() : tensor<1x80x160x80xbf16> loc(#loc926)
-    %271 = "ttir.transpose"(%269, %270) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x160x80x80xbf16>, tensor<1x80x160x80xbf16>) -> tensor<1x80x160x80xbf16> loc(#loc926)
-    %272 = ttir.empty() : tensor<1x80x80x160xbf16> loc(#loc927)
-    %273 = "ttir.transpose"(%271, %272) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x80x160x80xbf16>, tensor<1x80x80x160xbf16>) -> tensor<1x80x80x160xbf16> loc(#loc927)
-    %274 = ttir.empty() : tensor<1x80x80x160xbf16> loc(#loc928)
-    %275 = "ttir.conv2d"(%273, %arg213, %274) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x80x80x160xbf16>, tensor<160x160x3x3xbf16>, tensor<1x80x80x160xbf16>) -> tensor<1x80x80x160xbf16> loc(#loc928)
-    %276 = ttir.empty() : tensor<1x80x160x80xbf16> loc(#loc929)
-    %277 = "ttir.transpose"(%275, %276) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x80x80x160xbf16>, tensor<1x80x160x80xbf16>) -> tensor<1x80x160x80xbf16> loc(#loc929)
-    %278 = ttir.empty() : tensor<1x160x80x80xbf16> loc(#loc930)
-    %279 = "ttir.transpose"(%277, %278) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x80x160x80xbf16>, tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16> loc(#loc930)
-    %280 = ttir.empty() : tensor<1x160x80x80xbf16> loc(#loc30)
-    %281 = "ttir.multiply"(%279, %arg30, %280) : (tensor<1x160x80x80xbf16>, tensor<1x160x1x1xbf16>, tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16> loc(#loc30)
-    %282 = ttir.empty() : tensor<1x160x80x80xbf16> loc(#loc31)
-    %283 = "ttir.add"(%281, %arg31, %282) : (tensor<1x160x80x80xbf16>, tensor<1x160x1x1xbf16>, tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16> loc(#loc31)
-    %284 = ttir.empty() : tensor<1x160x80x80xbf16> loc(#loc591)
-    %285 = "ttir.sigmoid"(%283, %284) : (tensor<1x160x80x80xbf16>, tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16> loc(#loc591)
-    %286 = ttir.empty() : tensor<1x160x80x80xbf16> loc(#loc592)
-    %287 = "ttir.multiply"(%283, %285, %286) : (tensor<1x160x80x80xbf16>, tensor<1x160x80x80xbf16>, tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16> loc(#loc592)
-    %288 = ttir.empty() : tensor<1x80x160x80xbf16> loc(#loc931)
-    %289 = "ttir.transpose"(%287, %288) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x160x80x80xbf16>, tensor<1x80x160x80xbf16>) -> tensor<1x80x160x80xbf16> loc(#loc931)
-    %290 = ttir.empty() : tensor<1x80x80x160xbf16> loc(#loc932)
-    %291 = "ttir.transpose"(%289, %290) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x80x160x80xbf16>, tensor<1x80x80x160xbf16>) -> tensor<1x80x80x160xbf16> loc(#loc932)
-    %292 = ttir.empty() : tensor<1x80x80x160xbf16> loc(#loc933)
-    %293 = "ttir.conv2d"(%291, %arg214, %292) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x80x80x160xbf16>, tensor<160x160x3x3xbf16>, tensor<1x80x80x160xbf16>) -> tensor<1x80x80x160xbf16> loc(#loc933)
-    %294 = ttir.empty() : tensor<1x80x160x80xbf16> loc(#loc934)
-    %295 = "ttir.transpose"(%293, %294) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x80x80x160xbf16>, tensor<1x80x160x80xbf16>) -> tensor<1x80x160x80xbf16> loc(#loc934)
-    %296 = ttir.empty() : tensor<1x160x80x80xbf16> loc(#loc935)
-    %297 = "ttir.transpose"(%295, %296) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x80x160x80xbf16>, tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16> loc(#loc935)
-    %298 = ttir.empty() : tensor<1x160x80x80xbf16> loc(#loc32)
-    %299 = "ttir.multiply"(%297, %arg32, %298) : (tensor<1x160x80x80xbf16>, tensor<1x160x1x1xbf16>, tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16> loc(#loc32)
-    %300 = ttir.empty() : tensor<1x160x80x80xbf16> loc(#loc33)
-    %301 = "ttir.add"(%299, %arg33, %300) : (tensor<1x160x80x80xbf16>, tensor<1x160x1x1xbf16>, tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16> loc(#loc33)
-    %302 = ttir.empty() : tensor<1x160x80x80xbf16> loc(#loc594)
-    %303 = "ttir.sigmoid"(%301, %302) : (tensor<1x160x80x80xbf16>, tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16> loc(#loc594)
-    %304 = ttir.empty() : tensor<1x160x80x80xbf16> loc(#loc595)
-    %305 = "ttir.multiply"(%301, %303, %304) : (tensor<1x160x80x80xbf16>, tensor<1x160x80x80xbf16>, tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16> loc(#loc595)
-    %306 = ttir.empty() : tensor<1x160x80x80xbf16> loc(#loc403)
-    %307 = "ttir.add"(%269, %305, %306) : (tensor<1x160x80x80xbf16>, tensor<1x160x80x80xbf16>, tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16> loc(#loc403)
-    %308 = ttir.empty() : tensor<1x80x160x80xbf16> loc(#loc936)
-    %309 = "ttir.transpose"(%307, %308) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x160x80x80xbf16>, tensor<1x80x160x80xbf16>) -> tensor<1x80x160x80xbf16> loc(#loc936)
-    %310 = ttir.empty() : tensor<1x80x80x160xbf16> loc(#loc937)
-    %311 = "ttir.transpose"(%309, %310) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x80x160x80xbf16>, tensor<1x80x80x160xbf16>) -> tensor<1x80x80x160xbf16> loc(#loc937)
-    %312 = ttir.empty() : tensor<1x80x80x160xbf16> loc(#loc938)
-    %313 = "ttir.conv2d"(%311, %arg215, %312) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x80x80x160xbf16>, tensor<160x160x3x3xbf16>, tensor<1x80x80x160xbf16>) -> tensor<1x80x80x160xbf16> loc(#loc938)
-    %314 = ttir.empty() : tensor<1x80x160x80xbf16> loc(#loc939)
-    %315 = "ttir.transpose"(%313, %314) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x80x80x160xbf16>, tensor<1x80x160x80xbf16>) -> tensor<1x80x160x80xbf16> loc(#loc939)
-    %316 = ttir.empty() : tensor<1x160x80x80xbf16> loc(#loc940)
-    %317 = "ttir.transpose"(%315, %316) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x80x160x80xbf16>, tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16> loc(#loc940)
-    %318 = ttir.empty() : tensor<1x160x80x80xbf16> loc(#loc34)
-    %319 = "ttir.multiply"(%317, %arg34, %318) : (tensor<1x160x80x80xbf16>, tensor<1x160x1x1xbf16>, tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16> loc(#loc34)
-    %320 = ttir.empty() : tensor<1x160x80x80xbf16> loc(#loc35)
-    %321 = "ttir.add"(%319, %arg35, %320) : (tensor<1x160x80x80xbf16>, tensor<1x160x1x1xbf16>, tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16> loc(#loc35)
-    %322 = ttir.empty() : tensor<1x160x80x80xbf16> loc(#loc597)
-    %323 = "ttir.sigmoid"(%321, %322) : (tensor<1x160x80x80xbf16>, tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16> loc(#loc597)
-    %324 = ttir.empty() : tensor<1x160x80x80xbf16> loc(#loc598)
-    %325 = "ttir.multiply"(%321, %323, %324) : (tensor<1x160x80x80xbf16>, tensor<1x160x80x80xbf16>, tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16> loc(#loc598)
-    %326 = ttir.empty() : tensor<1x80x160x80xbf16> loc(#loc941)
-    %327 = "ttir.transpose"(%325, %326) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x160x80x80xbf16>, tensor<1x80x160x80xbf16>) -> tensor<1x80x160x80xbf16> loc(#loc941)
-    %328 = ttir.empty() : tensor<1x80x80x160xbf16> loc(#loc942)
-    %329 = "ttir.transpose"(%327, %328) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x80x160x80xbf16>, tensor<1x80x80x160xbf16>) -> tensor<1x80x80x160xbf16> loc(#loc942)
-    %330 = ttir.empty() : tensor<1x80x80x160xbf16> loc(#loc943)
-    %331 = "ttir.conv2d"(%329, %arg216, %330) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x80x80x160xbf16>, tensor<160x160x3x3xbf16>, tensor<1x80x80x160xbf16>) -> tensor<1x80x80x160xbf16> loc(#loc943)
-    %332 = ttir.empty() : tensor<1x80x160x80xbf16> loc(#loc944)
-    %333 = "ttir.transpose"(%331, %332) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x80x80x160xbf16>, tensor<1x80x160x80xbf16>) -> tensor<1x80x160x80xbf16> loc(#loc944)
-    %334 = ttir.empty() : tensor<1x160x80x80xbf16> loc(#loc945)
-    %335 = "ttir.transpose"(%333, %334) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x80x160x80xbf16>, tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16> loc(#loc945)
-    %336 = ttir.empty() : tensor<1x160x80x80xbf16> loc(#loc36)
-    %337 = "ttir.multiply"(%335, %arg36, %336) : (tensor<1x160x80x80xbf16>, tensor<1x160x1x1xbf16>, tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16> loc(#loc36)
-    %338 = ttir.empty() : tensor<1x160x80x80xbf16> loc(#loc37)
-    %339 = "ttir.add"(%337, %arg37, %338) : (tensor<1x160x80x80xbf16>, tensor<1x160x1x1xbf16>, tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16> loc(#loc37)
-    %340 = ttir.empty() : tensor<1x160x80x80xbf16> loc(#loc600)
-    %341 = "ttir.sigmoid"(%339, %340) : (tensor<1x160x80x80xbf16>, tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16> loc(#loc600)
-    %342 = ttir.empty() : tensor<1x160x80x80xbf16> loc(#loc601)
-    %343 = "ttir.multiply"(%339, %341, %342) : (tensor<1x160x80x80xbf16>, tensor<1x160x80x80xbf16>, tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16> loc(#loc601)
-    %344 = ttir.empty() : tensor<1x160x80x80xbf16> loc(#loc406)
-    %345 = "ttir.add"(%307, %343, %344) : (tensor<1x160x80x80xbf16>, tensor<1x160x80x80xbf16>, tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16> loc(#loc406)
-    %346 = ttir.empty() : tensor<1x80x160x80xbf16> loc(#loc946)
-    %347 = "ttir.transpose"(%345, %346) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x160x80x80xbf16>, tensor<1x80x160x80xbf16>) -> tensor<1x80x160x80xbf16> loc(#loc946)
-    %348 = ttir.empty() : tensor<1x80x80x160xbf16> loc(#loc947)
-    %349 = "ttir.transpose"(%347, %348) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x80x160x80xbf16>, tensor<1x80x80x160xbf16>) -> tensor<1x80x80x160xbf16> loc(#loc947)
-    %350 = ttir.empty() : tensor<1x80x80x160xbf16> loc(#loc948)
-    %351 = "ttir.conv2d"(%349, %arg217, %350) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x80x80x160xbf16>, tensor<160x160x3x3xbf16>, tensor<1x80x80x160xbf16>) -> tensor<1x80x80x160xbf16> loc(#loc948)
-    %352 = ttir.empty() : tensor<1x80x160x80xbf16> loc(#loc949)
-    %353 = "ttir.transpose"(%351, %352) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x80x80x160xbf16>, tensor<1x80x160x80xbf16>) -> tensor<1x80x160x80xbf16> loc(#loc949)
-    %354 = ttir.empty() : tensor<1x160x80x80xbf16> loc(#loc950)
-    %355 = "ttir.transpose"(%353, %354) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x80x160x80xbf16>, tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16> loc(#loc950)
-    %356 = ttir.empty() : tensor<1x160x80x80xbf16> loc(#loc38)
-    %357 = "ttir.multiply"(%355, %arg38, %356) : (tensor<1x160x80x80xbf16>, tensor<1x160x1x1xbf16>, tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16> loc(#loc38)
-    %358 = ttir.empty() : tensor<1x160x80x80xbf16> loc(#loc39)
-    %359 = "ttir.add"(%357, %arg39, %358) : (tensor<1x160x80x80xbf16>, tensor<1x160x1x1xbf16>, tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16> loc(#loc39)
-    %360 = ttir.empty() : tensor<1x160x80x80xbf16> loc(#loc603)
-    %361 = "ttir.sigmoid"(%359, %360) : (tensor<1x160x80x80xbf16>, tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16> loc(#loc603)
-    %362 = ttir.empty() : tensor<1x160x80x80xbf16> loc(#loc604)
-    %363 = "ttir.multiply"(%359, %361, %362) : (tensor<1x160x80x80xbf16>, tensor<1x160x80x80xbf16>, tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16> loc(#loc604)
-    %364 = ttir.empty() : tensor<1x80x160x80xbf16> loc(#loc951)
-    %365 = "ttir.transpose"(%363, %364) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x160x80x80xbf16>, tensor<1x80x160x80xbf16>) -> tensor<1x80x160x80xbf16> loc(#loc951)
-    %366 = ttir.empty() : tensor<1x80x80x160xbf16> loc(#loc952)
-    %367 = "ttir.transpose"(%365, %366) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x80x160x80xbf16>, tensor<1x80x80x160xbf16>) -> tensor<1x80x80x160xbf16> loc(#loc952)
-    %368 = ttir.empty() : tensor<1x80x80x160xbf16> loc(#loc953)
-    %369 = "ttir.conv2d"(%367, %arg218, %368) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x80x80x160xbf16>, tensor<160x160x3x3xbf16>, tensor<1x80x80x160xbf16>) -> tensor<1x80x80x160xbf16> loc(#loc953)
-    %370 = ttir.empty() : tensor<1x80x160x80xbf16> loc(#loc954)
-    %371 = "ttir.transpose"(%369, %370) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x80x80x160xbf16>, tensor<1x80x160x80xbf16>) -> tensor<1x80x160x80xbf16> loc(#loc954)
-    %372 = ttir.empty() : tensor<1x160x80x80xbf16> loc(#loc955)
-    %373 = "ttir.transpose"(%371, %372) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x80x160x80xbf16>, tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16> loc(#loc955)
-    %374 = ttir.empty() : tensor<1x160x80x80xbf16> loc(#loc40)
-    %375 = "ttir.multiply"(%373, %arg40, %374) : (tensor<1x160x80x80xbf16>, tensor<1x160x1x1xbf16>, tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16> loc(#loc40)
-    %376 = ttir.empty() : tensor<1x160x80x80xbf16> loc(#loc41)
-    %377 = "ttir.add"(%375, %arg41, %376) : (tensor<1x160x80x80xbf16>, tensor<1x160x1x1xbf16>, tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16> loc(#loc41)
-    %378 = ttir.empty() : tensor<1x160x80x80xbf16> loc(#loc606)
-    %379 = "ttir.sigmoid"(%377, %378) : (tensor<1x160x80x80xbf16>, tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16> loc(#loc606)
-    %380 = ttir.empty() : tensor<1x160x80x80xbf16> loc(#loc607)
-    %381 = "ttir.multiply"(%377, %379, %380) : (tensor<1x160x80x80xbf16>, tensor<1x160x80x80xbf16>, tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16> loc(#loc607)
-    %382 = ttir.empty() : tensor<1x160x80x80xbf16> loc(#loc409)
-    %383 = "ttir.add"(%345, %381, %382) : (tensor<1x160x80x80xbf16>, tensor<1x160x80x80xbf16>, tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16> loc(#loc409)
-    %384 = ttir.empty() : tensor<1x80x160x80xbf16> loc(#loc956)
-    %385 = "ttir.transpose"(%383, %384) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x160x80x80xbf16>, tensor<1x80x160x80xbf16>) -> tensor<1x80x160x80xbf16> loc(#loc956)
-    %386 = ttir.empty() : tensor<1x80x80x160xbf16> loc(#loc957)
-    %387 = "ttir.transpose"(%385, %386) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x80x160x80xbf16>, tensor<1x80x80x160xbf16>) -> tensor<1x80x80x160xbf16> loc(#loc957)
-    %388 = ttir.empty() : tensor<1x80x80x160xbf16> loc(#loc958)
-    %389 = "ttir.conv2d"(%387, %arg219, %388) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x80x80x160xbf16>, tensor<160x160x3x3xbf16>, tensor<1x80x80x160xbf16>) -> tensor<1x80x80x160xbf16> loc(#loc958)
-    %390 = ttir.empty() : tensor<1x80x160x80xbf16> loc(#loc959)
-    %391 = "ttir.transpose"(%389, %390) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x80x80x160xbf16>, tensor<1x80x160x80xbf16>) -> tensor<1x80x160x80xbf16> loc(#loc959)
-    %392 = ttir.empty() : tensor<1x160x80x80xbf16> loc(#loc960)
-    %393 = "ttir.transpose"(%391, %392) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x80x160x80xbf16>, tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16> loc(#loc960)
-    %394 = ttir.empty() : tensor<1x160x80x80xbf16> loc(#loc42)
-    %395 = "ttir.multiply"(%393, %arg42, %394) : (tensor<1x160x80x80xbf16>, tensor<1x160x1x1xbf16>, tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16> loc(#loc42)
-    %396 = ttir.empty() : tensor<1x160x80x80xbf16> loc(#loc43)
-    %397 = "ttir.add"(%395, %arg43, %396) : (tensor<1x160x80x80xbf16>, tensor<1x160x1x1xbf16>, tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16> loc(#loc43)
-    %398 = ttir.empty() : tensor<1x160x80x80xbf16> loc(#loc609)
-    %399 = "ttir.sigmoid"(%397, %398) : (tensor<1x160x80x80xbf16>, tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16> loc(#loc609)
-    %400 = ttir.empty() : tensor<1x160x80x80xbf16> loc(#loc610)
-    %401 = "ttir.multiply"(%397, %399, %400) : (tensor<1x160x80x80xbf16>, tensor<1x160x80x80xbf16>, tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16> loc(#loc610)
-    %402 = ttir.empty() : tensor<1x80x160x80xbf16> loc(#loc961)
-    %403 = "ttir.transpose"(%401, %402) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x160x80x80xbf16>, tensor<1x80x160x80xbf16>) -> tensor<1x80x160x80xbf16> loc(#loc961)
-    %404 = ttir.empty() : tensor<1x80x80x160xbf16> loc(#loc962)
-    %405 = "ttir.transpose"(%403, %404) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x80x160x80xbf16>, tensor<1x80x80x160xbf16>) -> tensor<1x80x80x160xbf16> loc(#loc962)
-    %406 = ttir.empty() : tensor<1x80x80x160xbf16> loc(#loc963)
-    %407 = "ttir.conv2d"(%405, %arg220, %406) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x80x80x160xbf16>, tensor<160x160x3x3xbf16>, tensor<1x80x80x160xbf16>) -> tensor<1x80x80x160xbf16> loc(#loc963)
-    %408 = ttir.empty() : tensor<1x80x160x80xbf16> loc(#loc964)
-    %409 = "ttir.transpose"(%407, %408) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x80x80x160xbf16>, tensor<1x80x160x80xbf16>) -> tensor<1x80x160x80xbf16> loc(#loc964)
-    %410 = ttir.empty() : tensor<1x160x80x80xbf16> loc(#loc965)
-    %411 = "ttir.transpose"(%409, %410) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x80x160x80xbf16>, tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16> loc(#loc965)
-    %412 = ttir.empty() : tensor<1x160x80x80xbf16> loc(#loc44)
-    %413 = "ttir.multiply"(%411, %arg44, %412) : (tensor<1x160x80x80xbf16>, tensor<1x160x1x1xbf16>, tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16> loc(#loc44)
-    %414 = ttir.empty() : tensor<1x160x80x80xbf16> loc(#loc45)
-    %415 = "ttir.add"(%413, %arg45, %414) : (tensor<1x160x80x80xbf16>, tensor<1x160x1x1xbf16>, tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16> loc(#loc45)
-    %416 = ttir.empty() : tensor<1x160x80x80xbf16> loc(#loc612)
-    %417 = "ttir.sigmoid"(%415, %416) : (tensor<1x160x80x80xbf16>, tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16> loc(#loc612)
-    %418 = ttir.empty() : tensor<1x160x80x80xbf16> loc(#loc613)
-    %419 = "ttir.multiply"(%415, %417, %418) : (tensor<1x160x80x80xbf16>, tensor<1x160x80x80xbf16>, tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16> loc(#loc613)
-    %420 = ttir.empty() : tensor<1x160x80x80xbf16> loc(#loc412)
-    %421 = "ttir.add"(%383, %419, %420) : (tensor<1x160x80x80xbf16>, tensor<1x160x80x80xbf16>, tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16> loc(#loc412)
-    %422 = ttir.empty() : tensor<1x80x160x80xbf16> loc(#loc966)
-    %423 = "ttir.transpose"(%421, %422) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x160x80x80xbf16>, tensor<1x80x160x80xbf16>) -> tensor<1x80x160x80xbf16> loc(#loc966)
-    %424 = ttir.empty() : tensor<1x80x80x160xbf16> loc(#loc967)
-    %425 = "ttir.transpose"(%423, %424) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x80x160x80xbf16>, tensor<1x80x80x160xbf16>) -> tensor<1x80x80x160xbf16> loc(#loc967)
-    %426 = ttir.empty() : tensor<1x80x80x160xbf16> loc(#loc968)
-    %427 = "ttir.conv2d"(%425, %arg221, %426) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x80x80x160xbf16>, tensor<160x160x3x3xbf16>, tensor<1x80x80x160xbf16>) -> tensor<1x80x80x160xbf16> loc(#loc968)
-    %428 = ttir.empty() : tensor<1x80x160x80xbf16> loc(#loc969)
-    %429 = "ttir.transpose"(%427, %428) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x80x80x160xbf16>, tensor<1x80x160x80xbf16>) -> tensor<1x80x160x80xbf16> loc(#loc969)
-    %430 = ttir.empty() : tensor<1x160x80x80xbf16> loc(#loc970)
-    %431 = "ttir.transpose"(%429, %430) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x80x160x80xbf16>, tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16> loc(#loc970)
-    %432 = ttir.empty() : tensor<1x160x80x80xbf16> loc(#loc46)
-    %433 = "ttir.multiply"(%431, %arg46, %432) : (tensor<1x160x80x80xbf16>, tensor<1x160x1x1xbf16>, tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16> loc(#loc46)
-    %434 = ttir.empty() : tensor<1x160x80x80xbf16> loc(#loc47)
-    %435 = "ttir.add"(%433, %arg47, %434) : (tensor<1x160x80x80xbf16>, tensor<1x160x1x1xbf16>, tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16> loc(#loc47)
-    %436 = ttir.empty() : tensor<1x160x80x80xbf16> loc(#loc615)
-    %437 = "ttir.sigmoid"(%435, %436) : (tensor<1x160x80x80xbf16>, tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16> loc(#loc615)
-    %438 = ttir.empty() : tensor<1x160x80x80xbf16> loc(#loc616)
-    %439 = "ttir.multiply"(%435, %437, %438) : (tensor<1x160x80x80xbf16>, tensor<1x160x80x80xbf16>, tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16> loc(#loc616)
-    %440 = ttir.empty() : tensor<1x80x160x80xbf16> loc(#loc971)
-    %441 = "ttir.transpose"(%439, %440) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x160x80x80xbf16>, tensor<1x80x160x80xbf16>) -> tensor<1x80x160x80xbf16> loc(#loc971)
-    %442 = ttir.empty() : tensor<1x80x80x160xbf16> loc(#loc972)
-    %443 = "ttir.transpose"(%441, %442) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x80x160x80xbf16>, tensor<1x80x80x160xbf16>) -> tensor<1x80x80x160xbf16> loc(#loc972)
-    %444 = ttir.empty() : tensor<1x80x80x160xbf16> loc(#loc973)
-    %445 = "ttir.conv2d"(%443, %arg222, %444) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x80x80x160xbf16>, tensor<160x160x3x3xbf16>, tensor<1x80x80x160xbf16>) -> tensor<1x80x80x160xbf16> loc(#loc973)
-    %446 = ttir.empty() : tensor<1x80x160x80xbf16> loc(#loc974)
-    %447 = "ttir.transpose"(%445, %446) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x80x80x160xbf16>, tensor<1x80x160x80xbf16>) -> tensor<1x80x160x80xbf16> loc(#loc974)
-    %448 = ttir.empty() : tensor<1x160x80x80xbf16> loc(#loc975)
-    %449 = "ttir.transpose"(%447, %448) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x80x160x80xbf16>, tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16> loc(#loc975)
-    %450 = ttir.empty() : tensor<1x160x80x80xbf16> loc(#loc48)
-    %451 = "ttir.multiply"(%449, %arg48, %450) : (tensor<1x160x80x80xbf16>, tensor<1x160x1x1xbf16>, tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16> loc(#loc48)
-    %452 = ttir.empty() : tensor<1x160x80x80xbf16> loc(#loc49)
-    %453 = "ttir.add"(%451, %arg49, %452) : (tensor<1x160x80x80xbf16>, tensor<1x160x1x1xbf16>, tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16> loc(#loc49)
-    %454 = ttir.empty() : tensor<1x160x80x80xbf16> loc(#loc618)
-    %455 = "ttir.sigmoid"(%453, %454) : (tensor<1x160x80x80xbf16>, tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16> loc(#loc618)
-    %456 = ttir.empty() : tensor<1x160x80x80xbf16> loc(#loc619)
-    %457 = "ttir.multiply"(%453, %455, %456) : (tensor<1x160x80x80xbf16>, tensor<1x160x80x80xbf16>, tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16> loc(#loc619)
-    %458 = ttir.empty() : tensor<1x160x80x80xbf16> loc(#loc415)
-    %459 = "ttir.add"(%421, %457, %458) : (tensor<1x160x80x80xbf16>, tensor<1x160x80x80xbf16>, tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16> loc(#loc415)
-    %460 = ttir.empty() : tensor<1x1280x80x80xbf16> loc(#loc246)
-    %461 = "ttir.concat"(%229, %231, %269, %307, %345, %383, %421, %459, %460) <{dim = -3 : si32}> : (tensor<1x160x80x80xbf16>, tensor<1x160x80x80xbf16>, tensor<1x160x80x80xbf16>, tensor<1x160x80x80xbf16>, tensor<1x160x80x80xbf16>, tensor<1x160x80x80xbf16>, tensor<1x160x80x80xbf16>, tensor<1x160x80x80xbf16>, tensor<1x1280x80x80xbf16>) -> tensor<1x1280x80x80xbf16> loc(#loc246)
-    %462 = ttir.empty() : tensor<1x80x1280x80xbf16> loc(#loc620)
-    %463 = "ttir.transpose"(%461, %462) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x1280x80x80xbf16>, tensor<1x80x1280x80xbf16>) -> tensor<1x80x1280x80xbf16> loc(#loc620)
-    %464 = ttir.empty() : tensor<1x80x80x1280xbf16> loc(#loc621)
-    %465 = "ttir.transpose"(%463, %464) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x80x1280x80xbf16>, tensor<1x80x80x1280xbf16>) -> tensor<1x80x80x1280xbf16> loc(#loc621)
-    %466 = ttir.empty() : tensor<1x80x80x320xbf16> loc(#loc622)
-    %467 = "ttir.conv2d"(%465, %arg223, %466) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 0, 0, 0, 0>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x80x80x1280xbf16>, tensor<320x1280x1x1xbf16>, tensor<1x80x80x320xbf16>) -> tensor<1x80x80x320xbf16> loc(#loc622)
-    %468 = ttir.empty() : tensor<1x80x320x80xbf16> loc(#loc623)
-    %469 = "ttir.transpose"(%467, %468) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x80x80x320xbf16>, tensor<1x80x320x80xbf16>) -> tensor<1x80x320x80xbf16> loc(#loc623)
-    %470 = ttir.empty() : tensor<1x320x80x80xbf16> loc(#loc624)
-    %471 = "ttir.transpose"(%469, %470) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x80x320x80xbf16>, tensor<1x320x80x80xbf16>) -> tensor<1x320x80x80xbf16> loc(#loc624)
-    %472 = ttir.empty() : tensor<1x320x80x80xbf16> loc(#loc50)
-    %473 = "ttir.multiply"(%471, %arg50, %472) : (tensor<1x320x80x80xbf16>, tensor<1x320x1x1xbf16>, tensor<1x320x80x80xbf16>) -> tensor<1x320x80x80xbf16> loc(#loc50)
-    %474 = ttir.empty() : tensor<1x320x80x80xbf16> loc(#loc51)
-    %475 = "ttir.add"(%473, %arg51, %474) : (tensor<1x320x80x80xbf16>, tensor<1x320x1x1xbf16>, tensor<1x320x80x80xbf16>) -> tensor<1x320x80x80xbf16> loc(#loc51)
-    %476 = ttir.empty() : tensor<1x320x80x80xbf16> loc(#loc417)
-    %477 = "ttir.sigmoid"(%475, %476) : (tensor<1x320x80x80xbf16>, tensor<1x320x80x80xbf16>) -> tensor<1x320x80x80xbf16> loc(#loc417)
-    %478 = ttir.empty() : tensor<1x320x80x80xbf16> loc(#loc418)
-    %479 = "ttir.multiply"(%475, %477, %478) : (tensor<1x320x80x80xbf16>, tensor<1x320x80x80xbf16>, tensor<1x320x80x80xbf16>) -> tensor<1x320x80x80xbf16> loc(#loc418)
-    %480 = ttir.empty() : tensor<1x80x320x80xbf16> loc(#loc419)
-    %481 = "ttir.transpose"(%479, %480) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x320x80x80xbf16>, tensor<1x80x320x80xbf16>) -> tensor<1x80x320x80xbf16> loc(#loc419)
-    %482 = ttir.empty() : tensor<1x80x80x320xbf16> loc(#loc420)
-    %483 = "ttir.transpose"(%481, %482) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x80x320x80xbf16>, tensor<1x80x80x320xbf16>) -> tensor<1x80x80x320xbf16> loc(#loc420)
-    %484 = ttir.empty() : tensor<1x40x40x640xbf16> loc(#loc421)
-    %485 = "ttir.conv2d"(%483, %arg224, %484) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 2, 2>}> {channel_last = 1 : si32} : (tensor<1x80x80x320xbf16>, tensor<640x320x3x3xbf16>, tensor<1x40x40x640xbf16>) -> tensor<1x40x40x640xbf16> loc(#loc421)
-    %486 = ttir.empty() : tensor<1x40x640x40xbf16> loc(#loc422)
-    %487 = "ttir.transpose"(%485, %486) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x40x640xbf16>, tensor<1x40x640x40xbf16>) -> tensor<1x40x640x40xbf16> loc(#loc422)
-    %488 = ttir.empty() : tensor<1x640x40x40xbf16> loc(#loc423)
-    %489 = "ttir.transpose"(%487, %488) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x40x640x40xbf16>, tensor<1x640x40x40xbf16>) -> tensor<1x640x40x40xbf16> loc(#loc423)
-    %490 = ttir.empty() : tensor<1x640x40x40xbf16> loc(#loc52)
-    %491 = "ttir.multiply"(%489, %arg52, %490) : (tensor<1x640x40x40xbf16>, tensor<1x640x1x1xbf16>, tensor<1x640x40x40xbf16>) -> tensor<1x640x40x40xbf16> loc(#loc52)
-    %492 = ttir.empty() : tensor<1x640x40x40xbf16> loc(#loc53)
-    %493 = "ttir.add"(%491, %arg53, %492) : (tensor<1x640x40x40xbf16>, tensor<1x640x1x1xbf16>, tensor<1x640x40x40xbf16>) -> tensor<1x640x40x40xbf16> loc(#loc53)
-    %494 = ttir.empty() : tensor<1x640x40x40xbf16> loc(#loc249)
-    %495 = "ttir.sigmoid"(%493, %494) : (tensor<1x640x40x40xbf16>, tensor<1x640x40x40xbf16>) -> tensor<1x640x40x40xbf16> loc(#loc249)
-    %496 = ttir.empty() : tensor<1x640x40x40xbf16> loc(#loc250)
-    %497 = "ttir.multiply"(%493, %495, %496) : (tensor<1x640x40x40xbf16>, tensor<1x640x40x40xbf16>, tensor<1x640x40x40xbf16>) -> tensor<1x640x40x40xbf16> loc(#loc250)
-    %498 = ttir.empty() : tensor<1x40x640x40xbf16> loc(#loc625)
-    %499 = "ttir.transpose"(%497, %498) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x640x40x40xbf16>, tensor<1x40x640x40xbf16>) -> tensor<1x40x640x40xbf16> loc(#loc625)
-    %500 = ttir.empty() : tensor<1x40x40x640xbf16> loc(#loc626)
-    %501 = "ttir.transpose"(%499, %500) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x640x40xbf16>, tensor<1x40x40x640xbf16>) -> tensor<1x40x40x640xbf16> loc(#loc626)
-    %502 = ttir.empty() : tensor<1x40x40x640xbf16> loc(#loc627)
-    %503 = "ttir.conv2d"(%501, %arg225, %502) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 0, 0, 0, 0>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x40x40x640xbf16>, tensor<640x640x1x1xbf16>, tensor<1x40x40x640xbf16>) -> tensor<1x40x40x640xbf16> loc(#loc627)
-    %504 = ttir.empty() : tensor<1x40x640x40xbf16> loc(#loc628)
-    %505 = "ttir.transpose"(%503, %504) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x40x640xbf16>, tensor<1x40x640x40xbf16>) -> tensor<1x40x640x40xbf16> loc(#loc628)
-    %506 = ttir.empty() : tensor<1x640x40x40xbf16> loc(#loc629)
-    %507 = "ttir.transpose"(%505, %506) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x40x640x40xbf16>, tensor<1x640x40x40xbf16>) -> tensor<1x640x40x40xbf16> loc(#loc629)
-    %508 = ttir.empty() : tensor<1x640x40x40xbf16> loc(#loc54)
-    %509 = "ttir.multiply"(%507, %arg54, %508) : (tensor<1x640x40x40xbf16>, tensor<1x640x1x1xbf16>, tensor<1x640x40x40xbf16>) -> tensor<1x640x40x40xbf16> loc(#loc54)
-    %510 = ttir.empty() : tensor<1x640x40x40xbf16> loc(#loc55)
-    %511 = "ttir.add"(%509, %arg55, %510) : (tensor<1x640x40x40xbf16>, tensor<1x640x1x1xbf16>, tensor<1x640x40x40xbf16>) -> tensor<1x640x40x40xbf16> loc(#loc55)
-    %512 = ttir.empty() : tensor<1x640x40x40xbf16> loc(#loc425)
-    %513 = "ttir.sigmoid"(%511, %512) : (tensor<1x640x40x40xbf16>, tensor<1x640x40x40xbf16>) -> tensor<1x640x40x40xbf16> loc(#loc425)
-    %514 = ttir.empty() : tensor<1x640x40x40xbf16> loc(#loc426)
-    %515 = "ttir.multiply"(%511, %513, %514) : (tensor<1x640x40x40xbf16>, tensor<1x640x40x40xbf16>, tensor<1x640x40x40xbf16>) -> tensor<1x640x40x40xbf16> loc(#loc426)
-    %516 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc252)
-    %517 = "ttir.index"(%515, %516) <{begin = 0 : i32, dim = 1 : i32, end = 320 : i32, step = 1 : i32}> : (tensor<1x640x40x40xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc252)
-    %518 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc253)
-    %519 = "ttir.index"(%515, %518) <{begin = 320 : i32, dim = 1 : i32, end = 640 : i32, step = 1 : i32}> : (tensor<1x640x40x40xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc253)
-    %520 = ttir.empty() : tensor<1x40x320x40xbf16> loc(#loc976)
-    %521 = "ttir.transpose"(%519, %520) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x320x40x40xbf16>, tensor<1x40x320x40xbf16>) -> tensor<1x40x320x40xbf16> loc(#loc976)
-    %522 = ttir.empty() : tensor<1x40x40x320xbf16> loc(#loc977)
-    %523 = "ttir.transpose"(%521, %522) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x320x40xbf16>, tensor<1x40x40x320xbf16>) -> tensor<1x40x40x320xbf16> loc(#loc977)
-    %524 = ttir.empty() : tensor<1x40x40x320xbf16> loc(#loc978)
-    %525 = "ttir.conv2d"(%523, %arg226, %524) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x40x40x320xbf16>, tensor<320x320x3x3xbf16>, tensor<1x40x40x320xbf16>) -> tensor<1x40x40x320xbf16> loc(#loc978)
-    %526 = ttir.empty() : tensor<1x40x320x40xbf16> loc(#loc979)
-    %527 = "ttir.transpose"(%525, %526) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x40x320xbf16>, tensor<1x40x320x40xbf16>) -> tensor<1x40x320x40xbf16> loc(#loc979)
-    %528 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc980)
-    %529 = "ttir.transpose"(%527, %528) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x40x320x40xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc980)
-    %530 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc56)
-    %531 = "ttir.multiply"(%529, %arg56, %530) : (tensor<1x320x40x40xbf16>, tensor<1x320x1x1xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc56)
-    %532 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc57)
-    %533 = "ttir.add"(%531, %arg57, %532) : (tensor<1x320x40x40xbf16>, tensor<1x320x1x1xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc57)
-    %534 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc631)
-    %535 = "ttir.sigmoid"(%533, %534) : (tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc631)
-    %536 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc632)
-    %537 = "ttir.multiply"(%533, %535, %536) : (tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc632)
-    %538 = ttir.empty() : tensor<1x40x320x40xbf16> loc(#loc981)
-    %539 = "ttir.transpose"(%537, %538) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x320x40x40xbf16>, tensor<1x40x320x40xbf16>) -> tensor<1x40x320x40xbf16> loc(#loc981)
-    %540 = ttir.empty() : tensor<1x40x40x320xbf16> loc(#loc982)
-    %541 = "ttir.transpose"(%539, %540) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x320x40xbf16>, tensor<1x40x40x320xbf16>) -> tensor<1x40x40x320xbf16> loc(#loc982)
-    %542 = ttir.empty() : tensor<1x40x40x320xbf16> loc(#loc983)
-    %543 = "ttir.conv2d"(%541, %arg227, %542) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x40x40x320xbf16>, tensor<320x320x3x3xbf16>, tensor<1x40x40x320xbf16>) -> tensor<1x40x40x320xbf16> loc(#loc983)
-    %544 = ttir.empty() : tensor<1x40x320x40xbf16> loc(#loc984)
-    %545 = "ttir.transpose"(%543, %544) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x40x320xbf16>, tensor<1x40x320x40xbf16>) -> tensor<1x40x320x40xbf16> loc(#loc984)
-    %546 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc985)
-    %547 = "ttir.transpose"(%545, %546) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x40x320x40xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc985)
-    %548 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc58)
-    %549 = "ttir.multiply"(%547, %arg58, %548) : (tensor<1x320x40x40xbf16>, tensor<1x320x1x1xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc58)
-    %550 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc59)
-    %551 = "ttir.add"(%549, %arg59, %550) : (tensor<1x320x40x40xbf16>, tensor<1x320x1x1xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc59)
-    %552 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc634)
-    %553 = "ttir.sigmoid"(%551, %552) : (tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc634)
-    %554 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc635)
-    %555 = "ttir.multiply"(%551, %553, %554) : (tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc635)
-    %556 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc429)
-    %557 = "ttir.add"(%519, %555, %556) : (tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc429)
-    %558 = ttir.empty() : tensor<1x40x320x40xbf16> loc(#loc986)
-    %559 = "ttir.transpose"(%557, %558) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x320x40x40xbf16>, tensor<1x40x320x40xbf16>) -> tensor<1x40x320x40xbf16> loc(#loc986)
-    %560 = ttir.empty() : tensor<1x40x40x320xbf16> loc(#loc987)
-    %561 = "ttir.transpose"(%559, %560) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x320x40xbf16>, tensor<1x40x40x320xbf16>) -> tensor<1x40x40x320xbf16> loc(#loc987)
-    %562 = ttir.empty() : tensor<1x40x40x320xbf16> loc(#loc988)
-    %563 = "ttir.conv2d"(%561, %arg228, %562) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x40x40x320xbf16>, tensor<320x320x3x3xbf16>, tensor<1x40x40x320xbf16>) -> tensor<1x40x40x320xbf16> loc(#loc988)
-    %564 = ttir.empty() : tensor<1x40x320x40xbf16> loc(#loc989)
-    %565 = "ttir.transpose"(%563, %564) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x40x320xbf16>, tensor<1x40x320x40xbf16>) -> tensor<1x40x320x40xbf16> loc(#loc989)
-    %566 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc990)
-    %567 = "ttir.transpose"(%565, %566) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x40x320x40xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc990)
-    %568 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc60)
-    %569 = "ttir.multiply"(%567, %arg60, %568) : (tensor<1x320x40x40xbf16>, tensor<1x320x1x1xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc60)
-    %570 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc61)
-    %571 = "ttir.add"(%569, %arg61, %570) : (tensor<1x320x40x40xbf16>, tensor<1x320x1x1xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc61)
-    %572 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc637)
-    %573 = "ttir.sigmoid"(%571, %572) : (tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc637)
-    %574 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc638)
-    %575 = "ttir.multiply"(%571, %573, %574) : (tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc638)
-    %576 = ttir.empty() : tensor<1x40x320x40xbf16> loc(#loc991)
-    %577 = "ttir.transpose"(%575, %576) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x320x40x40xbf16>, tensor<1x40x320x40xbf16>) -> tensor<1x40x320x40xbf16> loc(#loc991)
-    %578 = ttir.empty() : tensor<1x40x40x320xbf16> loc(#loc992)
-    %579 = "ttir.transpose"(%577, %578) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x320x40xbf16>, tensor<1x40x40x320xbf16>) -> tensor<1x40x40x320xbf16> loc(#loc992)
-    %580 = ttir.empty() : tensor<1x40x40x320xbf16> loc(#loc993)
-    %581 = "ttir.conv2d"(%579, %arg229, %580) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x40x40x320xbf16>, tensor<320x320x3x3xbf16>, tensor<1x40x40x320xbf16>) -> tensor<1x40x40x320xbf16> loc(#loc993)
-    %582 = ttir.empty() : tensor<1x40x320x40xbf16> loc(#loc994)
-    %583 = "ttir.transpose"(%581, %582) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x40x320xbf16>, tensor<1x40x320x40xbf16>) -> tensor<1x40x320x40xbf16> loc(#loc994)
-    %584 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc995)
-    %585 = "ttir.transpose"(%583, %584) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x40x320x40xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc995)
-    %586 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc62)
-    %587 = "ttir.multiply"(%585, %arg62, %586) : (tensor<1x320x40x40xbf16>, tensor<1x320x1x1xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc62)
-    %588 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc63)
-    %589 = "ttir.add"(%587, %arg63, %588) : (tensor<1x320x40x40xbf16>, tensor<1x320x1x1xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc63)
-    %590 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc640)
-    %591 = "ttir.sigmoid"(%589, %590) : (tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc640)
-    %592 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc641)
-    %593 = "ttir.multiply"(%589, %591, %592) : (tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc641)
-    %594 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc432)
-    %595 = "ttir.add"(%557, %593, %594) : (tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc432)
-    %596 = ttir.empty() : tensor<1x40x320x40xbf16> loc(#loc996)
-    %597 = "ttir.transpose"(%595, %596) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x320x40x40xbf16>, tensor<1x40x320x40xbf16>) -> tensor<1x40x320x40xbf16> loc(#loc996)
-    %598 = ttir.empty() : tensor<1x40x40x320xbf16> loc(#loc997)
-    %599 = "ttir.transpose"(%597, %598) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x320x40xbf16>, tensor<1x40x40x320xbf16>) -> tensor<1x40x40x320xbf16> loc(#loc997)
-    %600 = ttir.empty() : tensor<1x40x40x320xbf16> loc(#loc998)
-    %601 = "ttir.conv2d"(%599, %arg230, %600) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x40x40x320xbf16>, tensor<320x320x3x3xbf16>, tensor<1x40x40x320xbf16>) -> tensor<1x40x40x320xbf16> loc(#loc998)
-    %602 = ttir.empty() : tensor<1x40x320x40xbf16> loc(#loc999)
-    %603 = "ttir.transpose"(%601, %602) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x40x320xbf16>, tensor<1x40x320x40xbf16>) -> tensor<1x40x320x40xbf16> loc(#loc999)
-    %604 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc1000)
-    %605 = "ttir.transpose"(%603, %604) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x40x320x40xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc1000)
-    %606 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc64)
-    %607 = "ttir.multiply"(%605, %arg64, %606) : (tensor<1x320x40x40xbf16>, tensor<1x320x1x1xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc64)
-    %608 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc65)
-    %609 = "ttir.add"(%607, %arg65, %608) : (tensor<1x320x40x40xbf16>, tensor<1x320x1x1xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc65)
-    %610 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc643)
-    %611 = "ttir.sigmoid"(%609, %610) : (tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc643)
-    %612 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc644)
-    %613 = "ttir.multiply"(%609, %611, %612) : (tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc644)
-    %614 = ttir.empty() : tensor<1x40x320x40xbf16> loc(#loc1001)
-    %615 = "ttir.transpose"(%613, %614) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x320x40x40xbf16>, tensor<1x40x320x40xbf16>) -> tensor<1x40x320x40xbf16> loc(#loc1001)
-    %616 = ttir.empty() : tensor<1x40x40x320xbf16> loc(#loc1002)
-    %617 = "ttir.transpose"(%615, %616) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x320x40xbf16>, tensor<1x40x40x320xbf16>) -> tensor<1x40x40x320xbf16> loc(#loc1002)
-    %618 = ttir.empty() : tensor<1x40x40x320xbf16> loc(#loc1003)
-    %619 = "ttir.conv2d"(%617, %arg231, %618) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x40x40x320xbf16>, tensor<320x320x3x3xbf16>, tensor<1x40x40x320xbf16>) -> tensor<1x40x40x320xbf16> loc(#loc1003)
-    %620 = ttir.empty() : tensor<1x40x320x40xbf16> loc(#loc1004)
-    %621 = "ttir.transpose"(%619, %620) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x40x320xbf16>, tensor<1x40x320x40xbf16>) -> tensor<1x40x320x40xbf16> loc(#loc1004)
-    %622 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc1005)
-    %623 = "ttir.transpose"(%621, %622) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x40x320x40xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc1005)
-    %624 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc66)
-    %625 = "ttir.multiply"(%623, %arg66, %624) : (tensor<1x320x40x40xbf16>, tensor<1x320x1x1xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc66)
-    %626 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc67)
-    %627 = "ttir.add"(%625, %arg67, %626) : (tensor<1x320x40x40xbf16>, tensor<1x320x1x1xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc67)
-    %628 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc646)
-    %629 = "ttir.sigmoid"(%627, %628) : (tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc646)
-    %630 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc647)
-    %631 = "ttir.multiply"(%627, %629, %630) : (tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc647)
-    %632 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc435)
-    %633 = "ttir.add"(%595, %631, %632) : (tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc435)
-    %634 = ttir.empty() : tensor<1x40x320x40xbf16> loc(#loc1006)
-    %635 = "ttir.transpose"(%633, %634) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x320x40x40xbf16>, tensor<1x40x320x40xbf16>) -> tensor<1x40x320x40xbf16> loc(#loc1006)
-    %636 = ttir.empty() : tensor<1x40x40x320xbf16> loc(#loc1007)
-    %637 = "ttir.transpose"(%635, %636) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x320x40xbf16>, tensor<1x40x40x320xbf16>) -> tensor<1x40x40x320xbf16> loc(#loc1007)
-    %638 = ttir.empty() : tensor<1x40x40x320xbf16> loc(#loc1008)
-    %639 = "ttir.conv2d"(%637, %arg232, %638) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x40x40x320xbf16>, tensor<320x320x3x3xbf16>, tensor<1x40x40x320xbf16>) -> tensor<1x40x40x320xbf16> loc(#loc1008)
-    %640 = ttir.empty() : tensor<1x40x320x40xbf16> loc(#loc1009)
-    %641 = "ttir.transpose"(%639, %640) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x40x320xbf16>, tensor<1x40x320x40xbf16>) -> tensor<1x40x320x40xbf16> loc(#loc1009)
-    %642 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc1010)
-    %643 = "ttir.transpose"(%641, %642) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x40x320x40xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc1010)
-    %644 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc68)
-    %645 = "ttir.multiply"(%643, %arg68, %644) : (tensor<1x320x40x40xbf16>, tensor<1x320x1x1xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc68)
-    %646 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc69)
-    %647 = "ttir.add"(%645, %arg69, %646) : (tensor<1x320x40x40xbf16>, tensor<1x320x1x1xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc69)
-    %648 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc649)
-    %649 = "ttir.sigmoid"(%647, %648) : (tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc649)
-    %650 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc650)
-    %651 = "ttir.multiply"(%647, %649, %650) : (tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc650)
-    %652 = ttir.empty() : tensor<1x40x320x40xbf16> loc(#loc1011)
-    %653 = "ttir.transpose"(%651, %652) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x320x40x40xbf16>, tensor<1x40x320x40xbf16>) -> tensor<1x40x320x40xbf16> loc(#loc1011)
-    %654 = ttir.empty() : tensor<1x40x40x320xbf16> loc(#loc1012)
-    %655 = "ttir.transpose"(%653, %654) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x320x40xbf16>, tensor<1x40x40x320xbf16>) -> tensor<1x40x40x320xbf16> loc(#loc1012)
-    %656 = ttir.empty() : tensor<1x40x40x320xbf16> loc(#loc1013)
-    %657 = "ttir.conv2d"(%655, %arg233, %656) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x40x40x320xbf16>, tensor<320x320x3x3xbf16>, tensor<1x40x40x320xbf16>) -> tensor<1x40x40x320xbf16> loc(#loc1013)
-    %658 = ttir.empty() : tensor<1x40x320x40xbf16> loc(#loc1014)
-    %659 = "ttir.transpose"(%657, %658) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x40x320xbf16>, tensor<1x40x320x40xbf16>) -> tensor<1x40x320x40xbf16> loc(#loc1014)
-    %660 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc1015)
-    %661 = "ttir.transpose"(%659, %660) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x40x320x40xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc1015)
-    %662 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc70)
-    %663 = "ttir.multiply"(%661, %arg70, %662) : (tensor<1x320x40x40xbf16>, tensor<1x320x1x1xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc70)
-    %664 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc71)
-    %665 = "ttir.add"(%663, %arg71, %664) : (tensor<1x320x40x40xbf16>, tensor<1x320x1x1xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc71)
-    %666 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc652)
-    %667 = "ttir.sigmoid"(%665, %666) : (tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc652)
-    %668 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc653)
-    %669 = "ttir.multiply"(%665, %667, %668) : (tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc653)
-    %670 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc438)
-    %671 = "ttir.add"(%633, %669, %670) : (tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc438)
-    %672 = ttir.empty() : tensor<1x40x320x40xbf16> loc(#loc1016)
-    %673 = "ttir.transpose"(%671, %672) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x320x40x40xbf16>, tensor<1x40x320x40xbf16>) -> tensor<1x40x320x40xbf16> loc(#loc1016)
-    %674 = ttir.empty() : tensor<1x40x40x320xbf16> loc(#loc1017)
-    %675 = "ttir.transpose"(%673, %674) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x320x40xbf16>, tensor<1x40x40x320xbf16>) -> tensor<1x40x40x320xbf16> loc(#loc1017)
-    %676 = ttir.empty() : tensor<1x40x40x320xbf16> loc(#loc1018)
-    %677 = "ttir.conv2d"(%675, %arg234, %676) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x40x40x320xbf16>, tensor<320x320x3x3xbf16>, tensor<1x40x40x320xbf16>) -> tensor<1x40x40x320xbf16> loc(#loc1018)
-    %678 = ttir.empty() : tensor<1x40x320x40xbf16> loc(#loc1019)
-    %679 = "ttir.transpose"(%677, %678) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x40x320xbf16>, tensor<1x40x320x40xbf16>) -> tensor<1x40x320x40xbf16> loc(#loc1019)
-    %680 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc1020)
-    %681 = "ttir.transpose"(%679, %680) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x40x320x40xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc1020)
-    %682 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc72)
-    %683 = "ttir.multiply"(%681, %arg72, %682) : (tensor<1x320x40x40xbf16>, tensor<1x320x1x1xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc72)
-    %684 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc73)
-    %685 = "ttir.add"(%683, %arg73, %684) : (tensor<1x320x40x40xbf16>, tensor<1x320x1x1xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc73)
-    %686 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc655)
-    %687 = "ttir.sigmoid"(%685, %686) : (tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc655)
-    %688 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc656)
-    %689 = "ttir.multiply"(%685, %687, %688) : (tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc656)
-    %690 = ttir.empty() : tensor<1x40x320x40xbf16> loc(#loc1021)
-    %691 = "ttir.transpose"(%689, %690) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x320x40x40xbf16>, tensor<1x40x320x40xbf16>) -> tensor<1x40x320x40xbf16> loc(#loc1021)
-    %692 = ttir.empty() : tensor<1x40x40x320xbf16> loc(#loc1022)
-    %693 = "ttir.transpose"(%691, %692) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x320x40xbf16>, tensor<1x40x40x320xbf16>) -> tensor<1x40x40x320xbf16> loc(#loc1022)
-    %694 = ttir.empty() : tensor<1x40x40x320xbf16> loc(#loc1023)
-    %695 = "ttir.conv2d"(%693, %arg235, %694) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x40x40x320xbf16>, tensor<320x320x3x3xbf16>, tensor<1x40x40x320xbf16>) -> tensor<1x40x40x320xbf16> loc(#loc1023)
-    %696 = ttir.empty() : tensor<1x40x320x40xbf16> loc(#loc1024)
-    %697 = "ttir.transpose"(%695, %696) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x40x320xbf16>, tensor<1x40x320x40xbf16>) -> tensor<1x40x320x40xbf16> loc(#loc1024)
-    %698 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc1025)
-    %699 = "ttir.transpose"(%697, %698) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x40x320x40xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc1025)
-    %700 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc74)
-    %701 = "ttir.multiply"(%699, %arg74, %700) : (tensor<1x320x40x40xbf16>, tensor<1x320x1x1xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc74)
-    %702 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc75)
-    %703 = "ttir.add"(%701, %arg75, %702) : (tensor<1x320x40x40xbf16>, tensor<1x320x1x1xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc75)
-    %704 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc658)
-    %705 = "ttir.sigmoid"(%703, %704) : (tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc658)
-    %706 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc659)
-    %707 = "ttir.multiply"(%703, %705, %706) : (tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc659)
-    %708 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc441)
-    %709 = "ttir.add"(%671, %707, %708) : (tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc441)
-    %710 = ttir.empty() : tensor<1x40x320x40xbf16> loc(#loc1026)
-    %711 = "ttir.transpose"(%709, %710) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x320x40x40xbf16>, tensor<1x40x320x40xbf16>) -> tensor<1x40x320x40xbf16> loc(#loc1026)
-    %712 = ttir.empty() : tensor<1x40x40x320xbf16> loc(#loc1027)
-    %713 = "ttir.transpose"(%711, %712) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x320x40xbf16>, tensor<1x40x40x320xbf16>) -> tensor<1x40x40x320xbf16> loc(#loc1027)
-    %714 = ttir.empty() : tensor<1x40x40x320xbf16> loc(#loc1028)
-    %715 = "ttir.conv2d"(%713, %arg236, %714) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x40x40x320xbf16>, tensor<320x320x3x3xbf16>, tensor<1x40x40x320xbf16>) -> tensor<1x40x40x320xbf16> loc(#loc1028)
-    %716 = ttir.empty() : tensor<1x40x320x40xbf16> loc(#loc1029)
-    %717 = "ttir.transpose"(%715, %716) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x40x320xbf16>, tensor<1x40x320x40xbf16>) -> tensor<1x40x320x40xbf16> loc(#loc1029)
-    %718 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc1030)
-    %719 = "ttir.transpose"(%717, %718) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x40x320x40xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc1030)
-    %720 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc76)
-    %721 = "ttir.multiply"(%719, %arg76, %720) : (tensor<1x320x40x40xbf16>, tensor<1x320x1x1xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc76)
-    %722 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc77)
-    %723 = "ttir.add"(%721, %arg77, %722) : (tensor<1x320x40x40xbf16>, tensor<1x320x1x1xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc77)
-    %724 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc661)
-    %725 = "ttir.sigmoid"(%723, %724) : (tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc661)
-    %726 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc662)
-    %727 = "ttir.multiply"(%723, %725, %726) : (tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc662)
-    %728 = ttir.empty() : tensor<1x40x320x40xbf16> loc(#loc1031)
-    %729 = "ttir.transpose"(%727, %728) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x320x40x40xbf16>, tensor<1x40x320x40xbf16>) -> tensor<1x40x320x40xbf16> loc(#loc1031)
-    %730 = ttir.empty() : tensor<1x40x40x320xbf16> loc(#loc1032)
-    %731 = "ttir.transpose"(%729, %730) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x320x40xbf16>, tensor<1x40x40x320xbf16>) -> tensor<1x40x40x320xbf16> loc(#loc1032)
-    %732 = ttir.empty() : tensor<1x40x40x320xbf16> loc(#loc1033)
-    %733 = "ttir.conv2d"(%731, %arg237, %732) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x40x40x320xbf16>, tensor<320x320x3x3xbf16>, tensor<1x40x40x320xbf16>) -> tensor<1x40x40x320xbf16> loc(#loc1033)
-    %734 = ttir.empty() : tensor<1x40x320x40xbf16> loc(#loc1034)
-    %735 = "ttir.transpose"(%733, %734) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x40x320xbf16>, tensor<1x40x320x40xbf16>) -> tensor<1x40x320x40xbf16> loc(#loc1034)
-    %736 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc1035)
-    %737 = "ttir.transpose"(%735, %736) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x40x320x40xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc1035)
-    %738 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc78)
-    %739 = "ttir.multiply"(%737, %arg78, %738) : (tensor<1x320x40x40xbf16>, tensor<1x320x1x1xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc78)
-    %740 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc79)
-    %741 = "ttir.add"(%739, %arg79, %740) : (tensor<1x320x40x40xbf16>, tensor<1x320x1x1xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc79)
-    %742 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc664)
-    %743 = "ttir.sigmoid"(%741, %742) : (tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc664)
-    %744 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc665)
-    %745 = "ttir.multiply"(%741, %743, %744) : (tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc665)
-    %746 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc444)
-    %747 = "ttir.add"(%709, %745, %746) : (tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc444)
-    %748 = ttir.empty() : tensor<1x2560x40x40xbf16> loc(#loc260)
-    %749 = "ttir.concat"(%517, %519, %557, %595, %633, %671, %709, %747, %748) <{dim = -3 : si32}> : (tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>, tensor<1x2560x40x40xbf16>) -> tensor<1x2560x40x40xbf16> loc(#loc260)
-    %750 = ttir.empty() : tensor<1x40x2560x40xbf16> loc(#loc666)
-    %751 = "ttir.transpose"(%749, %750) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x2560x40x40xbf16>, tensor<1x40x2560x40xbf16>) -> tensor<1x40x2560x40xbf16> loc(#loc666)
-    %752 = ttir.empty() : tensor<1x40x40x2560xbf16> loc(#loc667)
-    %753 = "ttir.transpose"(%751, %752) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x2560x40xbf16>, tensor<1x40x40x2560xbf16>) -> tensor<1x40x40x2560xbf16> loc(#loc667)
-    %754 = ttir.empty() : tensor<1x40x40x640xbf16> loc(#loc668)
-    %755 = "ttir.conv2d"(%753, %arg238, %754) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 0, 0, 0, 0>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x40x40x2560xbf16>, tensor<640x2560x1x1xbf16>, tensor<1x40x40x640xbf16>) -> tensor<1x40x40x640xbf16> loc(#loc668)
-    %756 = ttir.empty() : tensor<1x40x640x40xbf16> loc(#loc669)
-    %757 = "ttir.transpose"(%755, %756) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x40x640xbf16>, tensor<1x40x640x40xbf16>) -> tensor<1x40x640x40xbf16> loc(#loc669)
-    %758 = ttir.empty() : tensor<1x640x40x40xbf16> loc(#loc670)
-    %759 = "ttir.transpose"(%757, %758) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x40x640x40xbf16>, tensor<1x640x40x40xbf16>) -> tensor<1x640x40x40xbf16> loc(#loc670)
-    %760 = ttir.empty() : tensor<1x640x40x40xbf16> loc(#loc80)
-    %761 = "ttir.multiply"(%759, %arg80, %760) : (tensor<1x640x40x40xbf16>, tensor<1x640x1x1xbf16>, tensor<1x640x40x40xbf16>) -> tensor<1x640x40x40xbf16> loc(#loc80)
-    %762 = ttir.empty() : tensor<1x640x40x40xbf16> loc(#loc81)
-    %763 = "ttir.add"(%761, %arg81, %762) : (tensor<1x640x40x40xbf16>, tensor<1x640x1x1xbf16>, tensor<1x640x40x40xbf16>) -> tensor<1x640x40x40xbf16> loc(#loc81)
-    %764 = ttir.empty() : tensor<1x640x40x40xbf16> loc(#loc446)
-    %765 = "ttir.sigmoid"(%763, %764) : (tensor<1x640x40x40xbf16>, tensor<1x640x40x40xbf16>) -> tensor<1x640x40x40xbf16> loc(#loc446)
-    %766 = ttir.empty() : tensor<1x640x40x40xbf16> loc(#loc447)
-    %767 = "ttir.multiply"(%763, %765, %766) : (tensor<1x640x40x40xbf16>, tensor<1x640x40x40xbf16>, tensor<1x640x40x40xbf16>) -> tensor<1x640x40x40xbf16> loc(#loc447)
-    %768 = ttir.empty() : tensor<1x40x640x40xbf16> loc(#loc448)
-    %769 = "ttir.transpose"(%767, %768) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x640x40x40xbf16>, tensor<1x40x640x40xbf16>) -> tensor<1x40x640x40xbf16> loc(#loc448)
-    %770 = ttir.empty() : tensor<1x40x40x640xbf16> loc(#loc449)
-    %771 = "ttir.transpose"(%769, %770) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x640x40xbf16>, tensor<1x40x40x640xbf16>) -> tensor<1x40x40x640xbf16> loc(#loc449)
-    %772 = ttir.empty() : tensor<1x20x20x640xbf16> loc(#loc450)
-    %773 = "ttir.conv2d"(%771, %arg239, %772) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 2, 2>}> {channel_last = 1 : si32} : (tensor<1x40x40x640xbf16>, tensor<640x640x3x3xbf16>, tensor<1x20x20x640xbf16>) -> tensor<1x20x20x640xbf16> loc(#loc450)
-    %774 = ttir.empty() : tensor<1x20x640x20xbf16> loc(#loc451)
-    %775 = "ttir.transpose"(%773, %774) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x20x20x640xbf16>, tensor<1x20x640x20xbf16>) -> tensor<1x20x640x20xbf16> loc(#loc451)
-    %776 = ttir.empty() : tensor<1x640x20x20xbf16> loc(#loc452)
-    %777 = "ttir.transpose"(%775, %776) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x20x640x20xbf16>, tensor<1x640x20x20xbf16>) -> tensor<1x640x20x20xbf16> loc(#loc452)
-    %778 = ttir.empty() : tensor<1x640x20x20xbf16> loc(#loc82)
-    %779 = "ttir.multiply"(%777, %arg82, %778) : (tensor<1x640x20x20xbf16>, tensor<1x640x1x1xbf16>, tensor<1x640x20x20xbf16>) -> tensor<1x640x20x20xbf16> loc(#loc82)
-    %780 = ttir.empty() : tensor<1x640x20x20xbf16> loc(#loc83)
-    %781 = "ttir.add"(%779, %arg83, %780) : (tensor<1x640x20x20xbf16>, tensor<1x640x1x1xbf16>, tensor<1x640x20x20xbf16>) -> tensor<1x640x20x20xbf16> loc(#loc83)
-    %782 = ttir.empty() : tensor<1x640x20x20xbf16> loc(#loc263)
-    %783 = "ttir.sigmoid"(%781, %782) : (tensor<1x640x20x20xbf16>, tensor<1x640x20x20xbf16>) -> tensor<1x640x20x20xbf16> loc(#loc263)
-    %784 = ttir.empty() : tensor<1x640x20x20xbf16> loc(#loc264)
-    %785 = "ttir.multiply"(%781, %783, %784) : (tensor<1x640x20x20xbf16>, tensor<1x640x20x20xbf16>, tensor<1x640x20x20xbf16>) -> tensor<1x640x20x20xbf16> loc(#loc264)
-    %786 = ttir.empty() : tensor<1x20x640x20xbf16> loc(#loc671)
-    %787 = "ttir.transpose"(%785, %786) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x640x20x20xbf16>, tensor<1x20x640x20xbf16>) -> tensor<1x20x640x20xbf16> loc(#loc671)
-    %788 = ttir.empty() : tensor<1x20x20x640xbf16> loc(#loc672)
-    %789 = "ttir.transpose"(%787, %788) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x20x640x20xbf16>, tensor<1x20x20x640xbf16>) -> tensor<1x20x20x640xbf16> loc(#loc672)
-    %790 = ttir.empty() : tensor<1x20x20x640xbf16> loc(#loc673)
-    %791 = "ttir.conv2d"(%789, %arg240, %790) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 0, 0, 0, 0>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x20x20x640xbf16>, tensor<640x640x1x1xbf16>, tensor<1x20x20x640xbf16>) -> tensor<1x20x20x640xbf16> loc(#loc673)
-    %792 = ttir.empty() : tensor<1x20x640x20xbf16> loc(#loc674)
-    %793 = "ttir.transpose"(%791, %792) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x20x20x640xbf16>, tensor<1x20x640x20xbf16>) -> tensor<1x20x640x20xbf16> loc(#loc674)
-    %794 = ttir.empty() : tensor<1x640x20x20xbf16> loc(#loc675)
-    %795 = "ttir.transpose"(%793, %794) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x20x640x20xbf16>, tensor<1x640x20x20xbf16>) -> tensor<1x640x20x20xbf16> loc(#loc675)
-    %796 = ttir.empty() : tensor<1x640x20x20xbf16> loc(#loc84)
-    %797 = "ttir.multiply"(%795, %arg84, %796) : (tensor<1x640x20x20xbf16>, tensor<1x640x1x1xbf16>, tensor<1x640x20x20xbf16>) -> tensor<1x640x20x20xbf16> loc(#loc84)
-    %798 = ttir.empty() : tensor<1x640x20x20xbf16> loc(#loc85)
-    %799 = "ttir.add"(%797, %arg85, %798) : (tensor<1x640x20x20xbf16>, tensor<1x640x1x1xbf16>, tensor<1x640x20x20xbf16>) -> tensor<1x640x20x20xbf16> loc(#loc85)
-    %800 = ttir.empty() : tensor<1x640x20x20xbf16> loc(#loc454)
-    %801 = "ttir.sigmoid"(%799, %800) : (tensor<1x640x20x20xbf16>, tensor<1x640x20x20xbf16>) -> tensor<1x640x20x20xbf16> loc(#loc454)
-    %802 = ttir.empty() : tensor<1x640x20x20xbf16> loc(#loc455)
-    %803 = "ttir.multiply"(%799, %801, %802) : (tensor<1x640x20x20xbf16>, tensor<1x640x20x20xbf16>, tensor<1x640x20x20xbf16>) -> tensor<1x640x20x20xbf16> loc(#loc455)
-    %804 = ttir.empty() : tensor<1x320x20x20xbf16> loc(#loc266)
-    %805 = "ttir.index"(%803, %804) <{begin = 0 : i32, dim = 1 : i32, end = 320 : i32, step = 1 : i32}> : (tensor<1x640x20x20xbf16>, tensor<1x320x20x20xbf16>) -> tensor<1x320x20x20xbf16> loc(#loc266)
-    %806 = ttir.empty() : tensor<1x320x20x20xbf16> loc(#loc267)
-    %807 = "ttir.index"(%803, %806) <{begin = 320 : i32, dim = 1 : i32, end = 640 : i32, step = 1 : i32}> : (tensor<1x640x20x20xbf16>, tensor<1x320x20x20xbf16>) -> tensor<1x320x20x20xbf16> loc(#loc267)
-    %808 = ttir.empty() : tensor<1x20x320x20xbf16> loc(#loc1036)
-    %809 = "ttir.transpose"(%807, %808) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x320x20x20xbf16>, tensor<1x20x320x20xbf16>) -> tensor<1x20x320x20xbf16> loc(#loc1036)
-    %810 = ttir.empty() : tensor<1x20x20x320xbf16> loc(#loc1037)
-    %811 = "ttir.transpose"(%809, %810) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x20x320x20xbf16>, tensor<1x20x20x320xbf16>) -> tensor<1x20x20x320xbf16> loc(#loc1037)
-    %812 = ttir.empty() : tensor<1x20x20x320xbf16> loc(#loc1038)
-    %813 = "ttir.conv2d"(%811, %arg241, %812) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x20x20x320xbf16>, tensor<320x320x3x3xbf16>, tensor<1x20x20x320xbf16>) -> tensor<1x20x20x320xbf16> loc(#loc1038)
-    %814 = ttir.empty() : tensor<1x20x320x20xbf16> loc(#loc1039)
-    %815 = "ttir.transpose"(%813, %814) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x20x20x320xbf16>, tensor<1x20x320x20xbf16>) -> tensor<1x20x320x20xbf16> loc(#loc1039)
-    %816 = ttir.empty() : tensor<1x320x20x20xbf16> loc(#loc1040)
-    %817 = "ttir.transpose"(%815, %816) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x20x320x20xbf16>, tensor<1x320x20x20xbf16>) -> tensor<1x320x20x20xbf16> loc(#loc1040)
-    %818 = ttir.empty() : tensor<1x320x20x20xbf16> loc(#loc86)
-    %819 = "ttir.multiply"(%817, %arg86, %818) : (tensor<1x320x20x20xbf16>, tensor<1x320x1x1xbf16>, tensor<1x320x20x20xbf16>) -> tensor<1x320x20x20xbf16> loc(#loc86)
-    %820 = ttir.empty() : tensor<1x320x20x20xbf16> loc(#loc87)
-    %821 = "ttir.add"(%819, %arg87, %820) : (tensor<1x320x20x20xbf16>, tensor<1x320x1x1xbf16>, tensor<1x320x20x20xbf16>) -> tensor<1x320x20x20xbf16> loc(#loc87)
-    %822 = ttir.empty() : tensor<1x320x20x20xbf16> loc(#loc677)
-    %823 = "ttir.sigmoid"(%821, %822) : (tensor<1x320x20x20xbf16>, tensor<1x320x20x20xbf16>) -> tensor<1x320x20x20xbf16> loc(#loc677)
-    %824 = ttir.empty() : tensor<1x320x20x20xbf16> loc(#loc678)
-    %825 = "ttir.multiply"(%821, %823, %824) : (tensor<1x320x20x20xbf16>, tensor<1x320x20x20xbf16>, tensor<1x320x20x20xbf16>) -> tensor<1x320x20x20xbf16> loc(#loc678)
-    %826 = ttir.empty() : tensor<1x20x320x20xbf16> loc(#loc1041)
-    %827 = "ttir.transpose"(%825, %826) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x320x20x20xbf16>, tensor<1x20x320x20xbf16>) -> tensor<1x20x320x20xbf16> loc(#loc1041)
-    %828 = ttir.empty() : tensor<1x20x20x320xbf16> loc(#loc1042)
-    %829 = "ttir.transpose"(%827, %828) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x20x320x20xbf16>, tensor<1x20x20x320xbf16>) -> tensor<1x20x20x320xbf16> loc(#loc1042)
-    %830 = ttir.empty() : tensor<1x20x20x320xbf16> loc(#loc1043)
-    %831 = "ttir.conv2d"(%829, %arg242, %830) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x20x20x320xbf16>, tensor<320x320x3x3xbf16>, tensor<1x20x20x320xbf16>) -> tensor<1x20x20x320xbf16> loc(#loc1043)
-    %832 = ttir.empty() : tensor<1x20x320x20xbf16> loc(#loc1044)
-    %833 = "ttir.transpose"(%831, %832) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x20x20x320xbf16>, tensor<1x20x320x20xbf16>) -> tensor<1x20x320x20xbf16> loc(#loc1044)
-    %834 = ttir.empty() : tensor<1x320x20x20xbf16> loc(#loc1045)
-    %835 = "ttir.transpose"(%833, %834) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x20x320x20xbf16>, tensor<1x320x20x20xbf16>) -> tensor<1x320x20x20xbf16> loc(#loc1045)
-    %836 = ttir.empty() : tensor<1x320x20x20xbf16> loc(#loc88)
-    %837 = "ttir.multiply"(%835, %arg88, %836) : (tensor<1x320x20x20xbf16>, tensor<1x320x1x1xbf16>, tensor<1x320x20x20xbf16>) -> tensor<1x320x20x20xbf16> loc(#loc88)
-    %838 = ttir.empty() : tensor<1x320x20x20xbf16> loc(#loc89)
-    %839 = "ttir.add"(%837, %arg89, %838) : (tensor<1x320x20x20xbf16>, tensor<1x320x1x1xbf16>, tensor<1x320x20x20xbf16>) -> tensor<1x320x20x20xbf16> loc(#loc89)
-    %840 = ttir.empty() : tensor<1x320x20x20xbf16> loc(#loc680)
-    %841 = "ttir.sigmoid"(%839, %840) : (tensor<1x320x20x20xbf16>, tensor<1x320x20x20xbf16>) -> tensor<1x320x20x20xbf16> loc(#loc680)
-    %842 = ttir.empty() : tensor<1x320x20x20xbf16> loc(#loc681)
-    %843 = "ttir.multiply"(%839, %841, %842) : (tensor<1x320x20x20xbf16>, tensor<1x320x20x20xbf16>, tensor<1x320x20x20xbf16>) -> tensor<1x320x20x20xbf16> loc(#loc681)
-    %844 = ttir.empty() : tensor<1x320x20x20xbf16> loc(#loc458)
-    %845 = "ttir.add"(%807, %843, %844) : (tensor<1x320x20x20xbf16>, tensor<1x320x20x20xbf16>, tensor<1x320x20x20xbf16>) -> tensor<1x320x20x20xbf16> loc(#loc458)
-    %846 = ttir.empty() : tensor<1x20x320x20xbf16> loc(#loc1046)
-    %847 = "ttir.transpose"(%845, %846) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x320x20x20xbf16>, tensor<1x20x320x20xbf16>) -> tensor<1x20x320x20xbf16> loc(#loc1046)
-    %848 = ttir.empty() : tensor<1x20x20x320xbf16> loc(#loc1047)
-    %849 = "ttir.transpose"(%847, %848) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x20x320x20xbf16>, tensor<1x20x20x320xbf16>) -> tensor<1x20x20x320xbf16> loc(#loc1047)
-    %850 = ttir.empty() : tensor<1x20x20x320xbf16> loc(#loc1048)
-    %851 = "ttir.conv2d"(%849, %arg243, %850) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x20x20x320xbf16>, tensor<320x320x3x3xbf16>, tensor<1x20x20x320xbf16>) -> tensor<1x20x20x320xbf16> loc(#loc1048)
-    %852 = ttir.empty() : tensor<1x20x320x20xbf16> loc(#loc1049)
-    %853 = "ttir.transpose"(%851, %852) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x20x20x320xbf16>, tensor<1x20x320x20xbf16>) -> tensor<1x20x320x20xbf16> loc(#loc1049)
-    %854 = ttir.empty() : tensor<1x320x20x20xbf16> loc(#loc1050)
-    %855 = "ttir.transpose"(%853, %854) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x20x320x20xbf16>, tensor<1x320x20x20xbf16>) -> tensor<1x320x20x20xbf16> loc(#loc1050)
-    %856 = ttir.empty() : tensor<1x320x20x20xbf16> loc(#loc90)
-    %857 = "ttir.multiply"(%855, %arg90, %856) : (tensor<1x320x20x20xbf16>, tensor<1x320x1x1xbf16>, tensor<1x320x20x20xbf16>) -> tensor<1x320x20x20xbf16> loc(#loc90)
-    %858 = ttir.empty() : tensor<1x320x20x20xbf16> loc(#loc91)
-    %859 = "ttir.add"(%857, %arg91, %858) : (tensor<1x320x20x20xbf16>, tensor<1x320x1x1xbf16>, tensor<1x320x20x20xbf16>) -> tensor<1x320x20x20xbf16> loc(#loc91)
-    %860 = ttir.empty() : tensor<1x320x20x20xbf16> loc(#loc683)
-    %861 = "ttir.sigmoid"(%859, %860) : (tensor<1x320x20x20xbf16>, tensor<1x320x20x20xbf16>) -> tensor<1x320x20x20xbf16> loc(#loc683)
-    %862 = ttir.empty() : tensor<1x320x20x20xbf16> loc(#loc684)
-    %863 = "ttir.multiply"(%859, %861, %862) : (tensor<1x320x20x20xbf16>, tensor<1x320x20x20xbf16>, tensor<1x320x20x20xbf16>) -> tensor<1x320x20x20xbf16> loc(#loc684)
-    %864 = ttir.empty() : tensor<1x20x320x20xbf16> loc(#loc1051)
-    %865 = "ttir.transpose"(%863, %864) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x320x20x20xbf16>, tensor<1x20x320x20xbf16>) -> tensor<1x20x320x20xbf16> loc(#loc1051)
-    %866 = ttir.empty() : tensor<1x20x20x320xbf16> loc(#loc1052)
-    %867 = "ttir.transpose"(%865, %866) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x20x320x20xbf16>, tensor<1x20x20x320xbf16>) -> tensor<1x20x20x320xbf16> loc(#loc1052)
-    %868 = ttir.empty() : tensor<1x20x20x320xbf16> loc(#loc1053)
-    %869 = "ttir.conv2d"(%867, %arg244, %868) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x20x20x320xbf16>, tensor<320x320x3x3xbf16>, tensor<1x20x20x320xbf16>) -> tensor<1x20x20x320xbf16> loc(#loc1053)
-    %870 = ttir.empty() : tensor<1x20x320x20xbf16> loc(#loc1054)
-    %871 = "ttir.transpose"(%869, %870) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x20x20x320xbf16>, tensor<1x20x320x20xbf16>) -> tensor<1x20x320x20xbf16> loc(#loc1054)
-    %872 = ttir.empty() : tensor<1x320x20x20xbf16> loc(#loc1055)
-    %873 = "ttir.transpose"(%871, %872) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x20x320x20xbf16>, tensor<1x320x20x20xbf16>) -> tensor<1x320x20x20xbf16> loc(#loc1055)
-    %874 = ttir.empty() : tensor<1x320x20x20xbf16> loc(#loc92)
-    %875 = "ttir.multiply"(%873, %arg92, %874) : (tensor<1x320x20x20xbf16>, tensor<1x320x1x1xbf16>, tensor<1x320x20x20xbf16>) -> tensor<1x320x20x20xbf16> loc(#loc92)
-    %876 = ttir.empty() : tensor<1x320x20x20xbf16> loc(#loc93)
-    %877 = "ttir.add"(%875, %arg93, %876) : (tensor<1x320x20x20xbf16>, tensor<1x320x1x1xbf16>, tensor<1x320x20x20xbf16>) -> tensor<1x320x20x20xbf16> loc(#loc93)
-    %878 = ttir.empty() : tensor<1x320x20x20xbf16> loc(#loc686)
-    %879 = "ttir.sigmoid"(%877, %878) : (tensor<1x320x20x20xbf16>, tensor<1x320x20x20xbf16>) -> tensor<1x320x20x20xbf16> loc(#loc686)
-    %880 = ttir.empty() : tensor<1x320x20x20xbf16> loc(#loc687)
-    %881 = "ttir.multiply"(%877, %879, %880) : (tensor<1x320x20x20xbf16>, tensor<1x320x20x20xbf16>, tensor<1x320x20x20xbf16>) -> tensor<1x320x20x20xbf16> loc(#loc687)
-    %882 = ttir.empty() : tensor<1x320x20x20xbf16> loc(#loc461)
-    %883 = "ttir.add"(%845, %881, %882) : (tensor<1x320x20x20xbf16>, tensor<1x320x20x20xbf16>, tensor<1x320x20x20xbf16>) -> tensor<1x320x20x20xbf16> loc(#loc461)
-    %884 = ttir.empty() : tensor<1x20x320x20xbf16> loc(#loc1056)
-    %885 = "ttir.transpose"(%883, %884) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x320x20x20xbf16>, tensor<1x20x320x20xbf16>) -> tensor<1x20x320x20xbf16> loc(#loc1056)
-    %886 = ttir.empty() : tensor<1x20x20x320xbf16> loc(#loc1057)
-    %887 = "ttir.transpose"(%885, %886) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x20x320x20xbf16>, tensor<1x20x20x320xbf16>) -> tensor<1x20x20x320xbf16> loc(#loc1057)
-    %888 = ttir.empty() : tensor<1x20x20x320xbf16> loc(#loc1058)
-    %889 = "ttir.conv2d"(%887, %arg245, %888) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x20x20x320xbf16>, tensor<320x320x3x3xbf16>, tensor<1x20x20x320xbf16>) -> tensor<1x20x20x320xbf16> loc(#loc1058)
-    %890 = ttir.empty() : tensor<1x20x320x20xbf16> loc(#loc1059)
-    %891 = "ttir.transpose"(%889, %890) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x20x20x320xbf16>, tensor<1x20x320x20xbf16>) -> tensor<1x20x320x20xbf16> loc(#loc1059)
-    %892 = ttir.empty() : tensor<1x320x20x20xbf16> loc(#loc1060)
-    %893 = "ttir.transpose"(%891, %892) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x20x320x20xbf16>, tensor<1x320x20x20xbf16>) -> tensor<1x320x20x20xbf16> loc(#loc1060)
-    %894 = ttir.empty() : tensor<1x320x20x20xbf16> loc(#loc94)
-    %895 = "ttir.multiply"(%893, %arg94, %894) : (tensor<1x320x20x20xbf16>, tensor<1x320x1x1xbf16>, tensor<1x320x20x20xbf16>) -> tensor<1x320x20x20xbf16> loc(#loc94)
-    %896 = ttir.empty() : tensor<1x320x20x20xbf16> loc(#loc95)
-    %897 = "ttir.add"(%895, %arg95, %896) : (tensor<1x320x20x20xbf16>, tensor<1x320x1x1xbf16>, tensor<1x320x20x20xbf16>) -> tensor<1x320x20x20xbf16> loc(#loc95)
-    %898 = ttir.empty() : tensor<1x320x20x20xbf16> loc(#loc689)
-    %899 = "ttir.sigmoid"(%897, %898) : (tensor<1x320x20x20xbf16>, tensor<1x320x20x20xbf16>) -> tensor<1x320x20x20xbf16> loc(#loc689)
-    %900 = ttir.empty() : tensor<1x320x20x20xbf16> loc(#loc690)
-    %901 = "ttir.multiply"(%897, %899, %900) : (tensor<1x320x20x20xbf16>, tensor<1x320x20x20xbf16>, tensor<1x320x20x20xbf16>) -> tensor<1x320x20x20xbf16> loc(#loc690)
-    %902 = ttir.empty() : tensor<1x20x320x20xbf16> loc(#loc1061)
-    %903 = "ttir.transpose"(%901, %902) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x320x20x20xbf16>, tensor<1x20x320x20xbf16>) -> tensor<1x20x320x20xbf16> loc(#loc1061)
-    %904 = ttir.empty() : tensor<1x20x20x320xbf16> loc(#loc1062)
-    %905 = "ttir.transpose"(%903, %904) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x20x320x20xbf16>, tensor<1x20x20x320xbf16>) -> tensor<1x20x20x320xbf16> loc(#loc1062)
-    %906 = ttir.empty() : tensor<1x20x20x320xbf16> loc(#loc1063)
-    %907 = "ttir.conv2d"(%905, %arg246, %906) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x20x20x320xbf16>, tensor<320x320x3x3xbf16>, tensor<1x20x20x320xbf16>) -> tensor<1x20x20x320xbf16> loc(#loc1063)
-    %908 = ttir.empty() : tensor<1x20x320x20xbf16> loc(#loc1064)
-    %909 = "ttir.transpose"(%907, %908) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x20x20x320xbf16>, tensor<1x20x320x20xbf16>) -> tensor<1x20x320x20xbf16> loc(#loc1064)
-    %910 = ttir.empty() : tensor<1x320x20x20xbf16> loc(#loc1065)
-    %911 = "ttir.transpose"(%909, %910) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x20x320x20xbf16>, tensor<1x320x20x20xbf16>) -> tensor<1x320x20x20xbf16> loc(#loc1065)
-    %912 = ttir.empty() : tensor<1x320x20x20xbf16> loc(#loc96)
-    %913 = "ttir.multiply"(%911, %arg96, %912) : (tensor<1x320x20x20xbf16>, tensor<1x320x1x1xbf16>, tensor<1x320x20x20xbf16>) -> tensor<1x320x20x20xbf16> loc(#loc96)
-    %914 = ttir.empty() : tensor<1x320x20x20xbf16> loc(#loc97)
-    %915 = "ttir.add"(%913, %arg97, %914) : (tensor<1x320x20x20xbf16>, tensor<1x320x1x1xbf16>, tensor<1x320x20x20xbf16>) -> tensor<1x320x20x20xbf16> loc(#loc97)
-    %916 = ttir.empty() : tensor<1x320x20x20xbf16> loc(#loc692)
-    %917 = "ttir.sigmoid"(%915, %916) : (tensor<1x320x20x20xbf16>, tensor<1x320x20x20xbf16>) -> tensor<1x320x20x20xbf16> loc(#loc692)
-    %918 = ttir.empty() : tensor<1x320x20x20xbf16> loc(#loc693)
-    %919 = "ttir.multiply"(%915, %917, %918) : (tensor<1x320x20x20xbf16>, tensor<1x320x20x20xbf16>, tensor<1x320x20x20xbf16>) -> tensor<1x320x20x20xbf16> loc(#loc693)
-    %920 = ttir.empty() : tensor<1x320x20x20xbf16> loc(#loc464)
-    %921 = "ttir.add"(%883, %919, %920) : (tensor<1x320x20x20xbf16>, tensor<1x320x20x20xbf16>, tensor<1x320x20x20xbf16>) -> tensor<1x320x20x20xbf16> loc(#loc464)
-    %922 = ttir.empty() : tensor<1x1600x20x20xbf16> loc(#loc271)
-    %923 = "ttir.concat"(%805, %807, %845, %883, %921, %922) <{dim = -3 : si32}> : (tensor<1x320x20x20xbf16>, tensor<1x320x20x20xbf16>, tensor<1x320x20x20xbf16>, tensor<1x320x20x20xbf16>, tensor<1x320x20x20xbf16>, tensor<1x1600x20x20xbf16>) -> tensor<1x1600x20x20xbf16> loc(#loc271)
-    %924 = ttir.empty() : tensor<1x20x1600x20xbf16> loc(#loc694)
-    %925 = "ttir.transpose"(%923, %924) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x1600x20x20xbf16>, tensor<1x20x1600x20xbf16>) -> tensor<1x20x1600x20xbf16> loc(#loc694)
-    %926 = ttir.empty() : tensor<1x20x20x1600xbf16> loc(#loc695)
-    %927 = "ttir.transpose"(%925, %926) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x20x1600x20xbf16>, tensor<1x20x20x1600xbf16>) -> tensor<1x20x20x1600xbf16> loc(#loc695)
-    %928 = ttir.empty() : tensor<1x20x20x640xbf16> loc(#loc696)
-    %929 = "ttir.conv2d"(%927, %arg247, %928) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 0, 0, 0, 0>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x20x20x1600xbf16>, tensor<640x1600x1x1xbf16>, tensor<1x20x20x640xbf16>) -> tensor<1x20x20x640xbf16> loc(#loc696)
-    %930 = ttir.empty() : tensor<1x20x640x20xbf16> loc(#loc697)
-    %931 = "ttir.transpose"(%929, %930) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x20x20x640xbf16>, tensor<1x20x640x20xbf16>) -> tensor<1x20x640x20xbf16> loc(#loc697)
-    %932 = ttir.empty() : tensor<1x640x20x20xbf16> loc(#loc698)
-    %933 = "ttir.transpose"(%931, %932) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x20x640x20xbf16>, tensor<1x640x20x20xbf16>) -> tensor<1x640x20x20xbf16> loc(#loc698)
-    %934 = ttir.empty() : tensor<1x640x20x20xbf16> loc(#loc98)
-    %935 = "ttir.multiply"(%933, %arg98, %934) : (tensor<1x640x20x20xbf16>, tensor<1x640x1x1xbf16>, tensor<1x640x20x20xbf16>) -> tensor<1x640x20x20xbf16> loc(#loc98)
-    %936 = ttir.empty() : tensor<1x640x20x20xbf16> loc(#loc99)
-    %937 = "ttir.add"(%935, %arg99, %936) : (tensor<1x640x20x20xbf16>, tensor<1x640x1x1xbf16>, tensor<1x640x20x20xbf16>) -> tensor<1x640x20x20xbf16> loc(#loc99)
-    %938 = ttir.empty() : tensor<1x640x20x20xbf16> loc(#loc466)
-    %939 = "ttir.sigmoid"(%937, %938) : (tensor<1x640x20x20xbf16>, tensor<1x640x20x20xbf16>) -> tensor<1x640x20x20xbf16> loc(#loc466)
-    %940 = ttir.empty() : tensor<1x640x20x20xbf16> loc(#loc467)
-    %941 = "ttir.multiply"(%937, %939, %940) : (tensor<1x640x20x20xbf16>, tensor<1x640x20x20xbf16>, tensor<1x640x20x20xbf16>) -> tensor<1x640x20x20xbf16> loc(#loc467)
-    %942 = ttir.empty() : tensor<1x20x640x20xbf16> loc(#loc699)
-    %943 = "ttir.transpose"(%941, %942) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x640x20x20xbf16>, tensor<1x20x640x20xbf16>) -> tensor<1x20x640x20xbf16> loc(#loc699)
-    %944 = ttir.empty() : tensor<1x20x20x640xbf16> loc(#loc700)
-    %945 = "ttir.transpose"(%943, %944) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x20x640x20xbf16>, tensor<1x20x20x640xbf16>) -> tensor<1x20x20x640xbf16> loc(#loc700)
-    %946 = ttir.empty() : tensor<1x20x20x320xbf16> loc(#loc701)
-    %947 = "ttir.conv2d"(%945, %arg248, %946) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 0, 0, 0, 0>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x20x20x640xbf16>, tensor<320x640x1x1xbf16>, tensor<1x20x20x320xbf16>) -> tensor<1x20x20x320xbf16> loc(#loc701)
-    %948 = ttir.empty() : tensor<1x20x320x20xbf16> loc(#loc702)
-    %949 = "ttir.transpose"(%947, %948) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x20x20x320xbf16>, tensor<1x20x320x20xbf16>) -> tensor<1x20x320x20xbf16> loc(#loc702)
-    %950 = ttir.empty() : tensor<1x320x20x20xbf16> loc(#loc703)
-    %951 = "ttir.transpose"(%949, %950) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x20x320x20xbf16>, tensor<1x320x20x20xbf16>) -> tensor<1x320x20x20xbf16> loc(#loc703)
-    %952 = ttir.empty() : tensor<1x320x20x20xbf16> loc(#loc100)
-    %953 = "ttir.multiply"(%951, %arg100, %952) : (tensor<1x320x20x20xbf16>, tensor<1x320x1x1xbf16>, tensor<1x320x20x20xbf16>) -> tensor<1x320x20x20xbf16> loc(#loc100)
-    %954 = ttir.empty() : tensor<1x320x20x20xbf16> loc(#loc101)
-    %955 = "ttir.add"(%953, %arg101, %954) : (tensor<1x320x20x20xbf16>, tensor<1x320x1x1xbf16>, tensor<1x320x20x20xbf16>) -> tensor<1x320x20x20xbf16> loc(#loc101)
-    %956 = ttir.empty() : tensor<1x320x20x20xbf16> loc(#loc469)
-    %957 = "ttir.sigmoid"(%955, %956) : (tensor<1x320x20x20xbf16>, tensor<1x320x20x20xbf16>) -> tensor<1x320x20x20xbf16> loc(#loc469)
-    %958 = ttir.empty() : tensor<1x320x20x20xbf16> loc(#loc470)
-    %959 = "ttir.multiply"(%955, %957, %958) : (tensor<1x320x20x20xbf16>, tensor<1x320x20x20xbf16>, tensor<1x320x20x20xbf16>) -> tensor<1x320x20x20xbf16> loc(#loc470)
-    %960 = ttir.empty() : tensor<1x20x320x20xbf16> loc(#loc471)
-    %961 = "ttir.transpose"(%959, %960) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x320x20x20xbf16>, tensor<1x20x320x20xbf16>) -> tensor<1x20x320x20xbf16> loc(#loc471)
-    %962 = ttir.empty() : tensor<1x20x20x320xbf16> loc(#loc472)
-    %963 = "ttir.transpose"(%961, %962) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x20x320x20xbf16>, tensor<1x20x20x320xbf16>) -> tensor<1x20x20x320xbf16> loc(#loc472)
-    %964 = ttir.empty() : tensor<1x20x20x320xbf16> loc(#loc473)
-    %965 = "ttir.max_pool2d"(%963, %964) <{ceil_mode = false, dilation = array<i32: 1, 1>, kernel = array<i32: 5, 5>, padding = array<i32: 2, 2, 2, 2>, stride = array<i32: 1, 1>}> {channel_last = true} : (tensor<1x20x20x320xbf16>, tensor<1x20x20x320xbf16>) -> tensor<1x20x20x320xbf16> loc(#loc473)
-    %966 = ttir.empty() : tensor<1x20x320x20xbf16> loc(#loc474)
-    %967 = "ttir.transpose"(%965, %966) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x20x20x320xbf16>, tensor<1x20x320x20xbf16>) -> tensor<1x20x320x20xbf16> loc(#loc474)
-    %968 = ttir.empty() : tensor<1x320x20x20xbf16> loc(#loc475)
-    %969 = "ttir.transpose"(%967, %968) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x20x320x20xbf16>, tensor<1x320x20x20xbf16>) -> tensor<1x320x20x20xbf16> loc(#loc475)
-    %970 = ttir.empty() : tensor<1x20x320x20xbf16> loc(#loc275)
-    %971 = "ttir.transpose"(%969, %970) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x320x20x20xbf16>, tensor<1x20x320x20xbf16>) -> tensor<1x20x320x20xbf16> loc(#loc275)
-    %972 = ttir.empty() : tensor<1x20x20x320xbf16> loc(#loc276)
-    %973 = "ttir.transpose"(%971, %972) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x20x320x20xbf16>, tensor<1x20x20x320xbf16>) -> tensor<1x20x20x320xbf16> loc(#loc276)
-    %974 = ttir.empty() : tensor<1x20x20x320xbf16> loc(#loc277)
-    %975 = "ttir.max_pool2d"(%973, %974) <{ceil_mode = false, dilation = array<i32: 1, 1>, kernel = array<i32: 5, 5>, padding = array<i32: 2, 2, 2, 2>, stride = array<i32: 1, 1>}> {channel_last = true} : (tensor<1x20x20x320xbf16>, tensor<1x20x20x320xbf16>) -> tensor<1x20x20x320xbf16> loc(#loc277)
-    %976 = ttir.empty() : tensor<1x20x320x20xbf16> loc(#loc278)
-    %977 = "ttir.transpose"(%975, %976) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x20x20x320xbf16>, tensor<1x20x320x20xbf16>) -> tensor<1x20x320x20xbf16> loc(#loc278)
-    %978 = ttir.empty() : tensor<1x320x20x20xbf16> loc(#loc279)
-    %979 = "ttir.transpose"(%977, %978) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x20x320x20xbf16>, tensor<1x320x20x20xbf16>) -> tensor<1x320x20x20xbf16> loc(#loc279)
-    %980 = ttir.empty() : tensor<1x20x320x20xbf16> loc(#loc280)
-    %981 = "ttir.transpose"(%979, %980) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x320x20x20xbf16>, tensor<1x20x320x20xbf16>) -> tensor<1x20x320x20xbf16> loc(#loc280)
-    %982 = ttir.empty() : tensor<1x20x20x320xbf16> loc(#loc281)
-    %983 = "ttir.transpose"(%981, %982) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x20x320x20xbf16>, tensor<1x20x20x320xbf16>) -> tensor<1x20x20x320xbf16> loc(#loc281)
-    %984 = ttir.empty() : tensor<1x20x20x320xbf16> loc(#loc282)
-    %985 = "ttir.max_pool2d"(%983, %984) <{ceil_mode = false, dilation = array<i32: 1, 1>, kernel = array<i32: 5, 5>, padding = array<i32: 2, 2, 2, 2>, stride = array<i32: 1, 1>}> {channel_last = true} : (tensor<1x20x20x320xbf16>, tensor<1x20x20x320xbf16>) -> tensor<1x20x20x320xbf16> loc(#loc282)
-    %986 = ttir.empty() : tensor<1x20x320x20xbf16> loc(#loc283)
-    %987 = "ttir.transpose"(%985, %986) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x20x20x320xbf16>, tensor<1x20x320x20xbf16>) -> tensor<1x20x320x20xbf16> loc(#loc283)
-    %988 = ttir.empty() : tensor<1x320x20x20xbf16> loc(#loc284)
-    %989 = "ttir.transpose"(%987, %988) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x20x320x20xbf16>, tensor<1x320x20x20xbf16>) -> tensor<1x320x20x20xbf16> loc(#loc284)
-    %990 = ttir.empty() : tensor<1x1280x20x20xbf16> loc(#loc285)
-    %991 = "ttir.concat"(%959, %969, %979, %989, %990) <{dim = -3 : si32}> : (tensor<1x320x20x20xbf16>, tensor<1x320x20x20xbf16>, tensor<1x320x20x20xbf16>, tensor<1x320x20x20xbf16>, tensor<1x1280x20x20xbf16>) -> tensor<1x1280x20x20xbf16> loc(#loc285)
-    %992 = ttir.empty() : tensor<1x20x1280x20xbf16> loc(#loc704)
-    %993 = "ttir.transpose"(%991, %992) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x1280x20x20xbf16>, tensor<1x20x1280x20xbf16>) -> tensor<1x20x1280x20xbf16> loc(#loc704)
-    %994 = ttir.empty() : tensor<1x20x20x1280xbf16> loc(#loc705)
-    %995 = "ttir.transpose"(%993, %994) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x20x1280x20xbf16>, tensor<1x20x20x1280xbf16>) -> tensor<1x20x20x1280xbf16> loc(#loc705)
-    %996 = ttir.empty() : tensor<1x20x20x640xbf16> loc(#loc706)
-    %997 = "ttir.conv2d"(%995, %arg249, %996) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 0, 0, 0, 0>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x20x20x1280xbf16>, tensor<640x1280x1x1xbf16>, tensor<1x20x20x640xbf16>) -> tensor<1x20x20x640xbf16> loc(#loc706)
-    %998 = ttir.empty() : tensor<1x20x640x20xbf16> loc(#loc707)
-    %999 = "ttir.transpose"(%997, %998) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x20x20x640xbf16>, tensor<1x20x640x20xbf16>) -> tensor<1x20x640x20xbf16> loc(#loc707)
-    %1000 = ttir.empty() : tensor<1x640x20x20xbf16> loc(#loc708)
-    %1001 = "ttir.transpose"(%999, %1000) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x20x640x20xbf16>, tensor<1x640x20x20xbf16>) -> tensor<1x640x20x20xbf16> loc(#loc708)
-    %1002 = ttir.empty() : tensor<1x640x20x20xbf16> loc(#loc102)
-    %1003 = "ttir.multiply"(%1001, %arg102, %1002) : (tensor<1x640x20x20xbf16>, tensor<1x640x1x1xbf16>, tensor<1x640x20x20xbf16>) -> tensor<1x640x20x20xbf16> loc(#loc102)
-    %1004 = ttir.empty() : tensor<1x640x20x20xbf16> loc(#loc103)
-    %1005 = "ttir.add"(%1003, %arg103, %1004) : (tensor<1x640x20x20xbf16>, tensor<1x640x1x1xbf16>, tensor<1x640x20x20xbf16>) -> tensor<1x640x20x20xbf16> loc(#loc103)
-    %1006 = ttir.empty() : tensor<1x640x20x20xbf16> loc(#loc477)
-    %1007 = "ttir.sigmoid"(%1005, %1006) : (tensor<1x640x20x20xbf16>, tensor<1x640x20x20xbf16>) -> tensor<1x640x20x20xbf16> loc(#loc477)
-    %1008 = ttir.empty() : tensor<1x640x20x20xbf16> loc(#loc478)
-    %1009 = "ttir.multiply"(%1005, %1007, %1008) : (tensor<1x640x20x20xbf16>, tensor<1x640x20x20xbf16>, tensor<1x640x20x20xbf16>) -> tensor<1x640x20x20xbf16> loc(#loc478)
-    %1010 = ttir.empty() : tensor<1x20x640x20xbf16> loc(#loc287)
-    %1011 = "ttir.transpose"(%1009, %1010) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x640x20x20xbf16>, tensor<1x20x640x20xbf16>) -> tensor<1x20x640x20xbf16> loc(#loc287)
-    %1012 = ttir.empty() : tensor<1x20x20x640xbf16> loc(#loc288)
-    %1013 = "ttir.transpose"(%1011, %1012) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x20x640x20xbf16>, tensor<1x20x20x640xbf16>) -> tensor<1x20x20x640xbf16> loc(#loc288)
-    %1014 = ttir.empty() : tensor<1x40x40x640xbf16> loc(#loc289)
-    %1015 = "ttir.upsample2d"(%1013, %1014) <{mode = "nearest", scale_factor = 2 : si32}> {channel_last = true} : (tensor<1x20x20x640xbf16>, tensor<1x40x40x640xbf16>) -> tensor<1x40x40x640xbf16> loc(#loc289)
-    %1016 = ttir.empty() : tensor<1x40x640x40xbf16> loc(#loc290)
-    %1017 = "ttir.transpose"(%1015, %1016) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x40x640xbf16>, tensor<1x40x640x40xbf16>) -> tensor<1x40x640x40xbf16> loc(#loc290)
-    %1018 = ttir.empty() : tensor<1x640x40x40xbf16> loc(#loc291)
-    %1019 = "ttir.transpose"(%1017, %1018) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x40x640x40xbf16>, tensor<1x640x40x40xbf16>) -> tensor<1x640x40x40xbf16> loc(#loc291)
-    %1020 = ttir.empty() : tensor<1x1280x40x40xbf16> loc(#loc292)
-    %1021 = "ttir.concat"(%1019, %767, %1020) <{dim = -3 : si32}> : (tensor<1x640x40x40xbf16>, tensor<1x640x40x40xbf16>, tensor<1x1280x40x40xbf16>) -> tensor<1x1280x40x40xbf16> loc(#loc292)
-    %1022 = ttir.empty() : tensor<1x40x1280x40xbf16> loc(#loc709)
-    %1023 = "ttir.transpose"(%1021, %1022) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x1280x40x40xbf16>, tensor<1x40x1280x40xbf16>) -> tensor<1x40x1280x40xbf16> loc(#loc709)
-    %1024 = ttir.empty() : tensor<1x40x40x1280xbf16> loc(#loc710)
-    %1025 = "ttir.transpose"(%1023, %1024) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x1280x40xbf16>, tensor<1x40x40x1280xbf16>) -> tensor<1x40x40x1280xbf16> loc(#loc710)
-    %1026 = ttir.empty() : tensor<1x40x40x640xbf16> loc(#loc711)
-    %1027 = "ttir.conv2d"(%1025, %arg250, %1026) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 0, 0, 0, 0>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x40x40x1280xbf16>, tensor<640x1280x1x1xbf16>, tensor<1x40x40x640xbf16>) -> tensor<1x40x40x640xbf16> loc(#loc711)
-    %1028 = ttir.empty() : tensor<1x40x640x40xbf16> loc(#loc712)
-    %1029 = "ttir.transpose"(%1027, %1028) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x40x640xbf16>, tensor<1x40x640x40xbf16>) -> tensor<1x40x640x40xbf16> loc(#loc712)
-    %1030 = ttir.empty() : tensor<1x640x40x40xbf16> loc(#loc713)
-    %1031 = "ttir.transpose"(%1029, %1030) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x40x640x40xbf16>, tensor<1x640x40x40xbf16>) -> tensor<1x640x40x40xbf16> loc(#loc713)
-    %1032 = ttir.empty() : tensor<1x640x40x40xbf16> loc(#loc104)
-    %1033 = "ttir.multiply"(%1031, %arg104, %1032) : (tensor<1x640x40x40xbf16>, tensor<1x640x1x1xbf16>, tensor<1x640x40x40xbf16>) -> tensor<1x640x40x40xbf16> loc(#loc104)
-    %1034 = ttir.empty() : tensor<1x640x40x40xbf16> loc(#loc105)
-    %1035 = "ttir.add"(%1033, %arg105, %1034) : (tensor<1x640x40x40xbf16>, tensor<1x640x1x1xbf16>, tensor<1x640x40x40xbf16>) -> tensor<1x640x40x40xbf16> loc(#loc105)
-    %1036 = ttir.empty() : tensor<1x640x40x40xbf16> loc(#loc480)
-    %1037 = "ttir.sigmoid"(%1035, %1036) : (tensor<1x640x40x40xbf16>, tensor<1x640x40x40xbf16>) -> tensor<1x640x40x40xbf16> loc(#loc480)
-    %1038 = ttir.empty() : tensor<1x640x40x40xbf16> loc(#loc481)
-    %1039 = "ttir.multiply"(%1035, %1037, %1038) : (tensor<1x640x40x40xbf16>, tensor<1x640x40x40xbf16>, tensor<1x640x40x40xbf16>) -> tensor<1x640x40x40xbf16> loc(#loc481)
-    %1040 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc294)
-    %1041 = "ttir.index"(%1039, %1040) <{begin = 0 : i32, dim = 1 : i32, end = 320 : i32, step = 1 : i32}> : (tensor<1x640x40x40xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc294)
-    %1042 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc295)
-    %1043 = "ttir.index"(%1039, %1042) <{begin = 320 : i32, dim = 1 : i32, end = 640 : i32, step = 1 : i32}> : (tensor<1x640x40x40xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc295)
-    %1044 = ttir.empty() : tensor<1x40x320x40xbf16> loc(#loc1066)
-    %1045 = "ttir.transpose"(%1043, %1044) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x320x40x40xbf16>, tensor<1x40x320x40xbf16>) -> tensor<1x40x320x40xbf16> loc(#loc1066)
-    %1046 = ttir.empty() : tensor<1x40x40x320xbf16> loc(#loc1067)
-    %1047 = "ttir.transpose"(%1045, %1046) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x320x40xbf16>, tensor<1x40x40x320xbf16>) -> tensor<1x40x40x320xbf16> loc(#loc1067)
-    %1048 = ttir.empty() : tensor<1x40x40x320xbf16> loc(#loc1068)
-    %1049 = "ttir.conv2d"(%1047, %arg251, %1048) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x40x40x320xbf16>, tensor<320x320x3x3xbf16>, tensor<1x40x40x320xbf16>) -> tensor<1x40x40x320xbf16> loc(#loc1068)
-    %1050 = ttir.empty() : tensor<1x40x320x40xbf16> loc(#loc1069)
-    %1051 = "ttir.transpose"(%1049, %1050) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x40x320xbf16>, tensor<1x40x320x40xbf16>) -> tensor<1x40x320x40xbf16> loc(#loc1069)
-    %1052 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc1070)
-    %1053 = "ttir.transpose"(%1051, %1052) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x40x320x40xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc1070)
-    %1054 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc106)
-    %1055 = "ttir.multiply"(%1053, %arg106, %1054) : (tensor<1x320x40x40xbf16>, tensor<1x320x1x1xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc106)
-    %1056 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc107)
-    %1057 = "ttir.add"(%1055, %arg107, %1056) : (tensor<1x320x40x40xbf16>, tensor<1x320x1x1xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc107)
-    %1058 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc715)
-    %1059 = "ttir.sigmoid"(%1057, %1058) : (tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc715)
-    %1060 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc716)
-    %1061 = "ttir.multiply"(%1057, %1059, %1060) : (tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc716)
-    %1062 = ttir.empty() : tensor<1x40x320x40xbf16> loc(#loc1071)
-    %1063 = "ttir.transpose"(%1061, %1062) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x320x40x40xbf16>, tensor<1x40x320x40xbf16>) -> tensor<1x40x320x40xbf16> loc(#loc1071)
-    %1064 = ttir.empty() : tensor<1x40x40x320xbf16> loc(#loc1072)
-    %1065 = "ttir.transpose"(%1063, %1064) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x320x40xbf16>, tensor<1x40x40x320xbf16>) -> tensor<1x40x40x320xbf16> loc(#loc1072)
-    %1066 = ttir.empty() : tensor<1x40x40x320xbf16> loc(#loc1073)
-    %1067 = "ttir.conv2d"(%1065, %arg252, %1066) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x40x40x320xbf16>, tensor<320x320x3x3xbf16>, tensor<1x40x40x320xbf16>) -> tensor<1x40x40x320xbf16> loc(#loc1073)
-    %1068 = ttir.empty() : tensor<1x40x320x40xbf16> loc(#loc1074)
-    %1069 = "ttir.transpose"(%1067, %1068) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x40x320xbf16>, tensor<1x40x320x40xbf16>) -> tensor<1x40x320x40xbf16> loc(#loc1074)
-    %1070 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc1075)
-    %1071 = "ttir.transpose"(%1069, %1070) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x40x320x40xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc1075)
-    %1072 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc108)
-    %1073 = "ttir.multiply"(%1071, %arg108, %1072) : (tensor<1x320x40x40xbf16>, tensor<1x320x1x1xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc108)
-    %1074 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc109)
-    %1075 = "ttir.add"(%1073, %arg109, %1074) : (tensor<1x320x40x40xbf16>, tensor<1x320x1x1xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc109)
-    %1076 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc718)
-    %1077 = "ttir.sigmoid"(%1075, %1076) : (tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc718)
-    %1078 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc719)
-    %1079 = "ttir.multiply"(%1075, %1077, %1078) : (tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc719)
-    %1080 = ttir.empty() : tensor<1x40x320x40xbf16> loc(#loc1076)
-    %1081 = "ttir.transpose"(%1079, %1080) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x320x40x40xbf16>, tensor<1x40x320x40xbf16>) -> tensor<1x40x320x40xbf16> loc(#loc1076)
-    %1082 = ttir.empty() : tensor<1x40x40x320xbf16> loc(#loc1077)
-    %1083 = "ttir.transpose"(%1081, %1082) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x320x40xbf16>, tensor<1x40x40x320xbf16>) -> tensor<1x40x40x320xbf16> loc(#loc1077)
-    %1084 = ttir.empty() : tensor<1x40x40x320xbf16> loc(#loc1078)
-    %1085 = "ttir.conv2d"(%1083, %arg253, %1084) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x40x40x320xbf16>, tensor<320x320x3x3xbf16>, tensor<1x40x40x320xbf16>) -> tensor<1x40x40x320xbf16> loc(#loc1078)
-    %1086 = ttir.empty() : tensor<1x40x320x40xbf16> loc(#loc1079)
-    %1087 = "ttir.transpose"(%1085, %1086) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x40x320xbf16>, tensor<1x40x320x40xbf16>) -> tensor<1x40x320x40xbf16> loc(#loc1079)
-    %1088 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc1080)
-    %1089 = "ttir.transpose"(%1087, %1088) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x40x320x40xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc1080)
-    %1090 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc110)
-    %1091 = "ttir.multiply"(%1089, %arg110, %1090) : (tensor<1x320x40x40xbf16>, tensor<1x320x1x1xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc110)
-    %1092 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc111)
-    %1093 = "ttir.add"(%1091, %arg111, %1092) : (tensor<1x320x40x40xbf16>, tensor<1x320x1x1xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc111)
-    %1094 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc721)
-    %1095 = "ttir.sigmoid"(%1093, %1094) : (tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc721)
-    %1096 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc722)
-    %1097 = "ttir.multiply"(%1093, %1095, %1096) : (tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc722)
-    %1098 = ttir.empty() : tensor<1x40x320x40xbf16> loc(#loc1081)
-    %1099 = "ttir.transpose"(%1097, %1098) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x320x40x40xbf16>, tensor<1x40x320x40xbf16>) -> tensor<1x40x320x40xbf16> loc(#loc1081)
-    %1100 = ttir.empty() : tensor<1x40x40x320xbf16> loc(#loc1082)
-    %1101 = "ttir.transpose"(%1099, %1100) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x320x40xbf16>, tensor<1x40x40x320xbf16>) -> tensor<1x40x40x320xbf16> loc(#loc1082)
-    %1102 = ttir.empty() : tensor<1x40x40x320xbf16> loc(#loc1083)
-    %1103 = "ttir.conv2d"(%1101, %arg254, %1102) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x40x40x320xbf16>, tensor<320x320x3x3xbf16>, tensor<1x40x40x320xbf16>) -> tensor<1x40x40x320xbf16> loc(#loc1083)
-    %1104 = ttir.empty() : tensor<1x40x320x40xbf16> loc(#loc1084)
-    %1105 = "ttir.transpose"(%1103, %1104) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x40x320xbf16>, tensor<1x40x320x40xbf16>) -> tensor<1x40x320x40xbf16> loc(#loc1084)
-    %1106 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc1085)
-    %1107 = "ttir.transpose"(%1105, %1106) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x40x320x40xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc1085)
-    %1108 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc112)
-    %1109 = "ttir.multiply"(%1107, %arg112, %1108) : (tensor<1x320x40x40xbf16>, tensor<1x320x1x1xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc112)
-    %1110 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc113)
-    %1111 = "ttir.add"(%1109, %arg113, %1110) : (tensor<1x320x40x40xbf16>, tensor<1x320x1x1xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc113)
-    %1112 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc724)
-    %1113 = "ttir.sigmoid"(%1111, %1112) : (tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc724)
-    %1114 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc725)
-    %1115 = "ttir.multiply"(%1111, %1113, %1114) : (tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc725)
-    %1116 = ttir.empty() : tensor<1x40x320x40xbf16> loc(#loc1086)
-    %1117 = "ttir.transpose"(%1115, %1116) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x320x40x40xbf16>, tensor<1x40x320x40xbf16>) -> tensor<1x40x320x40xbf16> loc(#loc1086)
-    %1118 = ttir.empty() : tensor<1x40x40x320xbf16> loc(#loc1087)
-    %1119 = "ttir.transpose"(%1117, %1118) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x320x40xbf16>, tensor<1x40x40x320xbf16>) -> tensor<1x40x40x320xbf16> loc(#loc1087)
-    %1120 = ttir.empty() : tensor<1x40x40x320xbf16> loc(#loc1088)
-    %1121 = "ttir.conv2d"(%1119, %arg255, %1120) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x40x40x320xbf16>, tensor<320x320x3x3xbf16>, tensor<1x40x40x320xbf16>) -> tensor<1x40x40x320xbf16> loc(#loc1088)
-    %1122 = ttir.empty() : tensor<1x40x320x40xbf16> loc(#loc1089)
-    %1123 = "ttir.transpose"(%1121, %1122) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x40x320xbf16>, tensor<1x40x320x40xbf16>) -> tensor<1x40x320x40xbf16> loc(#loc1089)
-    %1124 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc1090)
-    %1125 = "ttir.transpose"(%1123, %1124) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x40x320x40xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc1090)
-    %1126 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc114)
-    %1127 = "ttir.multiply"(%1125, %arg114, %1126) : (tensor<1x320x40x40xbf16>, tensor<1x320x1x1xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc114)
-    %1128 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc115)
-    %1129 = "ttir.add"(%1127, %arg115, %1128) : (tensor<1x320x40x40xbf16>, tensor<1x320x1x1xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc115)
-    %1130 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc727)
-    %1131 = "ttir.sigmoid"(%1129, %1130) : (tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc727)
-    %1132 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc728)
-    %1133 = "ttir.multiply"(%1129, %1131, %1132) : (tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc728)
-    %1134 = ttir.empty() : tensor<1x40x320x40xbf16> loc(#loc1091)
-    %1135 = "ttir.transpose"(%1133, %1134) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x320x40x40xbf16>, tensor<1x40x320x40xbf16>) -> tensor<1x40x320x40xbf16> loc(#loc1091)
-    %1136 = ttir.empty() : tensor<1x40x40x320xbf16> loc(#loc1092)
-    %1137 = "ttir.transpose"(%1135, %1136) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x320x40xbf16>, tensor<1x40x40x320xbf16>) -> tensor<1x40x40x320xbf16> loc(#loc1092)
-    %1138 = ttir.empty() : tensor<1x40x40x320xbf16> loc(#loc1093)
-    %1139 = "ttir.conv2d"(%1137, %arg256, %1138) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x40x40x320xbf16>, tensor<320x320x3x3xbf16>, tensor<1x40x40x320xbf16>) -> tensor<1x40x40x320xbf16> loc(#loc1093)
-    %1140 = ttir.empty() : tensor<1x40x320x40xbf16> loc(#loc1094)
-    %1141 = "ttir.transpose"(%1139, %1140) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x40x320xbf16>, tensor<1x40x320x40xbf16>) -> tensor<1x40x320x40xbf16> loc(#loc1094)
-    %1142 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc1095)
-    %1143 = "ttir.transpose"(%1141, %1142) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x40x320x40xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc1095)
-    %1144 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc116)
-    %1145 = "ttir.multiply"(%1143, %arg116, %1144) : (tensor<1x320x40x40xbf16>, tensor<1x320x1x1xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc116)
-    %1146 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc117)
-    %1147 = "ttir.add"(%1145, %arg117, %1146) : (tensor<1x320x40x40xbf16>, tensor<1x320x1x1xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc117)
-    %1148 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc730)
-    %1149 = "ttir.sigmoid"(%1147, %1148) : (tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc730)
-    %1150 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc731)
-    %1151 = "ttir.multiply"(%1147, %1149, %1150) : (tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc731)
-    %1152 = ttir.empty() : tensor<1x1600x40x40xbf16> loc(#loc299)
-    %1153 = "ttir.concat"(%1041, %1043, %1079, %1115, %1151, %1152) <{dim = -3 : si32}> : (tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>, tensor<1x1600x40x40xbf16>) -> tensor<1x1600x40x40xbf16> loc(#loc299)
-    %1154 = ttir.empty() : tensor<1x40x1600x40xbf16> loc(#loc732)
-    %1155 = "ttir.transpose"(%1153, %1154) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x1600x40x40xbf16>, tensor<1x40x1600x40xbf16>) -> tensor<1x40x1600x40xbf16> loc(#loc732)
-    %1156 = ttir.empty() : tensor<1x40x40x1600xbf16> loc(#loc733)
-    %1157 = "ttir.transpose"(%1155, %1156) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x1600x40xbf16>, tensor<1x40x40x1600xbf16>) -> tensor<1x40x40x1600xbf16> loc(#loc733)
-    %1158 = ttir.empty() : tensor<1x40x40x640xbf16> loc(#loc734)
-    %1159 = "ttir.conv2d"(%1157, %arg257, %1158) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 0, 0, 0, 0>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x40x40x1600xbf16>, tensor<640x1600x1x1xbf16>, tensor<1x40x40x640xbf16>) -> tensor<1x40x40x640xbf16> loc(#loc734)
-    %1160 = ttir.empty() : tensor<1x40x640x40xbf16> loc(#loc735)
-    %1161 = "ttir.transpose"(%1159, %1160) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x40x640xbf16>, tensor<1x40x640x40xbf16>) -> tensor<1x40x640x40xbf16> loc(#loc735)
-    %1162 = ttir.empty() : tensor<1x640x40x40xbf16> loc(#loc736)
-    %1163 = "ttir.transpose"(%1161, %1162) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x40x640x40xbf16>, tensor<1x640x40x40xbf16>) -> tensor<1x640x40x40xbf16> loc(#loc736)
-    %1164 = ttir.empty() : tensor<1x640x40x40xbf16> loc(#loc118)
-    %1165 = "ttir.multiply"(%1163, %arg118, %1164) : (tensor<1x640x40x40xbf16>, tensor<1x640x1x1xbf16>, tensor<1x640x40x40xbf16>) -> tensor<1x640x40x40xbf16> loc(#loc118)
-    %1166 = ttir.empty() : tensor<1x640x40x40xbf16> loc(#loc119)
-    %1167 = "ttir.add"(%1165, %arg119, %1166) : (tensor<1x640x40x40xbf16>, tensor<1x640x1x1xbf16>, tensor<1x640x40x40xbf16>) -> tensor<1x640x40x40xbf16> loc(#loc119)
-    %1168 = ttir.empty() : tensor<1x640x40x40xbf16> loc(#loc489)
-    %1169 = "ttir.sigmoid"(%1167, %1168) : (tensor<1x640x40x40xbf16>, tensor<1x640x40x40xbf16>) -> tensor<1x640x40x40xbf16> loc(#loc489)
-    %1170 = ttir.empty() : tensor<1x640x40x40xbf16> loc(#loc490)
-    %1171 = "ttir.multiply"(%1167, %1169, %1170) : (tensor<1x640x40x40xbf16>, tensor<1x640x40x40xbf16>, tensor<1x640x40x40xbf16>) -> tensor<1x640x40x40xbf16> loc(#loc490)
-    %1172 = ttir.empty() : tensor<1x40x640x40xbf16> loc(#loc301)
-    %1173 = "ttir.transpose"(%1171, %1172) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x640x40x40xbf16>, tensor<1x40x640x40xbf16>) -> tensor<1x40x640x40xbf16> loc(#loc301)
-    %1174 = ttir.empty() : tensor<1x40x40x640xbf16> loc(#loc302)
-    %1175 = "ttir.transpose"(%1173, %1174) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x640x40xbf16>, tensor<1x40x40x640xbf16>) -> tensor<1x40x40x640xbf16> loc(#loc302)
-    %1176 = ttir.empty() : tensor<1x80x80x640xbf16> loc(#loc303)
-    %1177 = "ttir.upsample2d"(%1175, %1176) <{mode = "nearest", scale_factor = 2 : si32}> {channel_last = true} : (tensor<1x40x40x640xbf16>, tensor<1x80x80x640xbf16>) -> tensor<1x80x80x640xbf16> loc(#loc303)
-    %1178 = ttir.empty() : tensor<1x80x640x80xbf16> loc(#loc304)
-    %1179 = "ttir.transpose"(%1177, %1178) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x80x80x640xbf16>, tensor<1x80x640x80xbf16>) -> tensor<1x80x640x80xbf16> loc(#loc304)
-    %1180 = ttir.empty() : tensor<1x640x80x80xbf16> loc(#loc305)
-    %1181 = "ttir.transpose"(%1179, %1180) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x80x640x80xbf16>, tensor<1x640x80x80xbf16>) -> tensor<1x640x80x80xbf16> loc(#loc305)
-    %1182 = ttir.empty() : tensor<1x960x80x80xbf16> loc(#loc306)
-    %1183 = "ttir.concat"(%1181, %479, %1182) <{dim = -3 : si32}> : (tensor<1x640x80x80xbf16>, tensor<1x320x80x80xbf16>, tensor<1x960x80x80xbf16>) -> tensor<1x960x80x80xbf16> loc(#loc306)
-    %1184 = ttir.empty() : tensor<1x80x960x80xbf16> loc(#loc737)
-    %1185 = "ttir.transpose"(%1183, %1184) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x960x80x80xbf16>, tensor<1x80x960x80xbf16>) -> tensor<1x80x960x80xbf16> loc(#loc737)
-    %1186 = ttir.empty() : tensor<1x80x80x960xbf16> loc(#loc738)
-    %1187 = "ttir.transpose"(%1185, %1186) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x80x960x80xbf16>, tensor<1x80x80x960xbf16>) -> tensor<1x80x80x960xbf16> loc(#loc738)
-    %1188 = ttir.empty() : tensor<1x80x80x320xbf16> loc(#loc739)
-    %1189 = "ttir.conv2d"(%1187, %arg258, %1188) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 0, 0, 0, 0>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x80x80x960xbf16>, tensor<320x960x1x1xbf16>, tensor<1x80x80x320xbf16>) -> tensor<1x80x80x320xbf16> loc(#loc739)
-    %1190 = ttir.empty() : tensor<1x80x320x80xbf16> loc(#loc740)
-    %1191 = "ttir.transpose"(%1189, %1190) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x80x80x320xbf16>, tensor<1x80x320x80xbf16>) -> tensor<1x80x320x80xbf16> loc(#loc740)
-    %1192 = ttir.empty() : tensor<1x320x80x80xbf16> loc(#loc741)
-    %1193 = "ttir.transpose"(%1191, %1192) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x80x320x80xbf16>, tensor<1x320x80x80xbf16>) -> tensor<1x320x80x80xbf16> loc(#loc741)
-    %1194 = ttir.empty() : tensor<1x320x80x80xbf16> loc(#loc120)
-    %1195 = "ttir.multiply"(%1193, %arg120, %1194) : (tensor<1x320x80x80xbf16>, tensor<1x320x1x1xbf16>, tensor<1x320x80x80xbf16>) -> tensor<1x320x80x80xbf16> loc(#loc120)
-    %1196 = ttir.empty() : tensor<1x320x80x80xbf16> loc(#loc121)
-    %1197 = "ttir.add"(%1195, %arg121, %1196) : (tensor<1x320x80x80xbf16>, tensor<1x320x1x1xbf16>, tensor<1x320x80x80xbf16>) -> tensor<1x320x80x80xbf16> loc(#loc121)
-    %1198 = ttir.empty() : tensor<1x320x80x80xbf16> loc(#loc492)
-    %1199 = "ttir.sigmoid"(%1197, %1198) : (tensor<1x320x80x80xbf16>, tensor<1x320x80x80xbf16>) -> tensor<1x320x80x80xbf16> loc(#loc492)
-    %1200 = ttir.empty() : tensor<1x320x80x80xbf16> loc(#loc493)
-    %1201 = "ttir.multiply"(%1197, %1199, %1200) : (tensor<1x320x80x80xbf16>, tensor<1x320x80x80xbf16>, tensor<1x320x80x80xbf16>) -> tensor<1x320x80x80xbf16> loc(#loc493)
-    %1202 = ttir.empty() : tensor<1x160x80x80xbf16> loc(#loc308)
-    %1203 = "ttir.index"(%1201, %1202) <{begin = 0 : i32, dim = 1 : i32, end = 160 : i32, step = 1 : i32}> : (tensor<1x320x80x80xbf16>, tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16> loc(#loc308)
-    %1204 = ttir.empty() : tensor<1x160x80x80xbf16> loc(#loc309)
-    %1205 = "ttir.index"(%1201, %1204) <{begin = 160 : i32, dim = 1 : i32, end = 320 : i32, step = 1 : i32}> : (tensor<1x320x80x80xbf16>, tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16> loc(#loc309)
-    %1206 = ttir.empty() : tensor<1x80x160x80xbf16> loc(#loc1096)
-    %1207 = "ttir.transpose"(%1205, %1206) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x160x80x80xbf16>, tensor<1x80x160x80xbf16>) -> tensor<1x80x160x80xbf16> loc(#loc1096)
-    %1208 = ttir.empty() : tensor<1x80x80x160xbf16> loc(#loc1097)
-    %1209 = "ttir.transpose"(%1207, %1208) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x80x160x80xbf16>, tensor<1x80x80x160xbf16>) -> tensor<1x80x80x160xbf16> loc(#loc1097)
-    %1210 = ttir.empty() : tensor<1x80x80x160xbf16> loc(#loc1098)
-    %1211 = "ttir.conv2d"(%1209, %arg259, %1210) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x80x80x160xbf16>, tensor<160x160x3x3xbf16>, tensor<1x80x80x160xbf16>) -> tensor<1x80x80x160xbf16> loc(#loc1098)
-    %1212 = ttir.empty() : tensor<1x80x160x80xbf16> loc(#loc1099)
-    %1213 = "ttir.transpose"(%1211, %1212) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x80x80x160xbf16>, tensor<1x80x160x80xbf16>) -> tensor<1x80x160x80xbf16> loc(#loc1099)
-    %1214 = ttir.empty() : tensor<1x160x80x80xbf16> loc(#loc1100)
-    %1215 = "ttir.transpose"(%1213, %1214) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x80x160x80xbf16>, tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16> loc(#loc1100)
-    %1216 = ttir.empty() : tensor<1x160x80x80xbf16> loc(#loc122)
-    %1217 = "ttir.multiply"(%1215, %arg122, %1216) : (tensor<1x160x80x80xbf16>, tensor<1x160x1x1xbf16>, tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16> loc(#loc122)
-    %1218 = ttir.empty() : tensor<1x160x80x80xbf16> loc(#loc123)
-    %1219 = "ttir.add"(%1217, %arg123, %1218) : (tensor<1x160x80x80xbf16>, tensor<1x160x1x1xbf16>, tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16> loc(#loc123)
-    %1220 = ttir.empty() : tensor<1x160x80x80xbf16> loc(#loc743)
-    %1221 = "ttir.sigmoid"(%1219, %1220) : (tensor<1x160x80x80xbf16>, tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16> loc(#loc743)
-    %1222 = ttir.empty() : tensor<1x160x80x80xbf16> loc(#loc744)
-    %1223 = "ttir.multiply"(%1219, %1221, %1222) : (tensor<1x160x80x80xbf16>, tensor<1x160x80x80xbf16>, tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16> loc(#loc744)
-    %1224 = ttir.empty() : tensor<1x80x160x80xbf16> loc(#loc1101)
-    %1225 = "ttir.transpose"(%1223, %1224) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x160x80x80xbf16>, tensor<1x80x160x80xbf16>) -> tensor<1x80x160x80xbf16> loc(#loc1101)
-    %1226 = ttir.empty() : tensor<1x80x80x160xbf16> loc(#loc1102)
-    %1227 = "ttir.transpose"(%1225, %1226) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x80x160x80xbf16>, tensor<1x80x80x160xbf16>) -> tensor<1x80x80x160xbf16> loc(#loc1102)
-    %1228 = ttir.empty() : tensor<1x80x80x160xbf16> loc(#loc1103)
-    %1229 = "ttir.conv2d"(%1227, %arg260, %1228) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x80x80x160xbf16>, tensor<160x160x3x3xbf16>, tensor<1x80x80x160xbf16>) -> tensor<1x80x80x160xbf16> loc(#loc1103)
-    %1230 = ttir.empty() : tensor<1x80x160x80xbf16> loc(#loc1104)
-    %1231 = "ttir.transpose"(%1229, %1230) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x80x80x160xbf16>, tensor<1x80x160x80xbf16>) -> tensor<1x80x160x80xbf16> loc(#loc1104)
-    %1232 = ttir.empty() : tensor<1x160x80x80xbf16> loc(#loc1105)
-    %1233 = "ttir.transpose"(%1231, %1232) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x80x160x80xbf16>, tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16> loc(#loc1105)
-    %1234 = ttir.empty() : tensor<1x160x80x80xbf16> loc(#loc124)
-    %1235 = "ttir.multiply"(%1233, %arg124, %1234) : (tensor<1x160x80x80xbf16>, tensor<1x160x1x1xbf16>, tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16> loc(#loc124)
-    %1236 = ttir.empty() : tensor<1x160x80x80xbf16> loc(#loc125)
-    %1237 = "ttir.add"(%1235, %arg125, %1236) : (tensor<1x160x80x80xbf16>, tensor<1x160x1x1xbf16>, tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16> loc(#loc125)
-    %1238 = ttir.empty() : tensor<1x160x80x80xbf16> loc(#loc746)
-    %1239 = "ttir.sigmoid"(%1237, %1238) : (tensor<1x160x80x80xbf16>, tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16> loc(#loc746)
-    %1240 = ttir.empty() : tensor<1x160x80x80xbf16> loc(#loc747)
-    %1241 = "ttir.multiply"(%1237, %1239, %1240) : (tensor<1x160x80x80xbf16>, tensor<1x160x80x80xbf16>, tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16> loc(#loc747)
-    %1242 = ttir.empty() : tensor<1x80x160x80xbf16> loc(#loc1106)
-    %1243 = "ttir.transpose"(%1241, %1242) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x160x80x80xbf16>, tensor<1x80x160x80xbf16>) -> tensor<1x80x160x80xbf16> loc(#loc1106)
-    %1244 = ttir.empty() : tensor<1x80x80x160xbf16> loc(#loc1107)
-    %1245 = "ttir.transpose"(%1243, %1244) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x80x160x80xbf16>, tensor<1x80x80x160xbf16>) -> tensor<1x80x80x160xbf16> loc(#loc1107)
-    %1246 = ttir.empty() : tensor<1x80x80x160xbf16> loc(#loc1108)
-    %1247 = "ttir.conv2d"(%1245, %arg261, %1246) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x80x80x160xbf16>, tensor<160x160x3x3xbf16>, tensor<1x80x80x160xbf16>) -> tensor<1x80x80x160xbf16> loc(#loc1108)
-    %1248 = ttir.empty() : tensor<1x80x160x80xbf16> loc(#loc1109)
-    %1249 = "ttir.transpose"(%1247, %1248) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x80x80x160xbf16>, tensor<1x80x160x80xbf16>) -> tensor<1x80x160x80xbf16> loc(#loc1109)
-    %1250 = ttir.empty() : tensor<1x160x80x80xbf16> loc(#loc1110)
-    %1251 = "ttir.transpose"(%1249, %1250) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x80x160x80xbf16>, tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16> loc(#loc1110)
-    %1252 = ttir.empty() : tensor<1x160x80x80xbf16> loc(#loc126)
-    %1253 = "ttir.multiply"(%1251, %arg126, %1252) : (tensor<1x160x80x80xbf16>, tensor<1x160x1x1xbf16>, tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16> loc(#loc126)
-    %1254 = ttir.empty() : tensor<1x160x80x80xbf16> loc(#loc127)
-    %1255 = "ttir.add"(%1253, %arg127, %1254) : (tensor<1x160x80x80xbf16>, tensor<1x160x1x1xbf16>, tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16> loc(#loc127)
-    %1256 = ttir.empty() : tensor<1x160x80x80xbf16> loc(#loc749)
-    %1257 = "ttir.sigmoid"(%1255, %1256) : (tensor<1x160x80x80xbf16>, tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16> loc(#loc749)
-    %1258 = ttir.empty() : tensor<1x160x80x80xbf16> loc(#loc750)
-    %1259 = "ttir.multiply"(%1255, %1257, %1258) : (tensor<1x160x80x80xbf16>, tensor<1x160x80x80xbf16>, tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16> loc(#loc750)
-    %1260 = ttir.empty() : tensor<1x80x160x80xbf16> loc(#loc1111)
-    %1261 = "ttir.transpose"(%1259, %1260) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x160x80x80xbf16>, tensor<1x80x160x80xbf16>) -> tensor<1x80x160x80xbf16> loc(#loc1111)
-    %1262 = ttir.empty() : tensor<1x80x80x160xbf16> loc(#loc1112)
-    %1263 = "ttir.transpose"(%1261, %1262) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x80x160x80xbf16>, tensor<1x80x80x160xbf16>) -> tensor<1x80x80x160xbf16> loc(#loc1112)
-    %1264 = ttir.empty() : tensor<1x80x80x160xbf16> loc(#loc1113)
-    %1265 = "ttir.conv2d"(%1263, %arg262, %1264) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x80x80x160xbf16>, tensor<160x160x3x3xbf16>, tensor<1x80x80x160xbf16>) -> tensor<1x80x80x160xbf16> loc(#loc1113)
-    %1266 = ttir.empty() : tensor<1x80x160x80xbf16> loc(#loc1114)
-    %1267 = "ttir.transpose"(%1265, %1266) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x80x80x160xbf16>, tensor<1x80x160x80xbf16>) -> tensor<1x80x160x80xbf16> loc(#loc1114)
-    %1268 = ttir.empty() : tensor<1x160x80x80xbf16> loc(#loc1115)
-    %1269 = "ttir.transpose"(%1267, %1268) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x80x160x80xbf16>, tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16> loc(#loc1115)
-    %1270 = ttir.empty() : tensor<1x160x80x80xbf16> loc(#loc128)
-    %1271 = "ttir.multiply"(%1269, %arg128, %1270) : (tensor<1x160x80x80xbf16>, tensor<1x160x1x1xbf16>, tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16> loc(#loc128)
-    %1272 = ttir.empty() : tensor<1x160x80x80xbf16> loc(#loc129)
-    %1273 = "ttir.add"(%1271, %arg129, %1272) : (tensor<1x160x80x80xbf16>, tensor<1x160x1x1xbf16>, tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16> loc(#loc129)
-    %1274 = ttir.empty() : tensor<1x160x80x80xbf16> loc(#loc752)
-    %1275 = "ttir.sigmoid"(%1273, %1274) : (tensor<1x160x80x80xbf16>, tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16> loc(#loc752)
-    %1276 = ttir.empty() : tensor<1x160x80x80xbf16> loc(#loc753)
-    %1277 = "ttir.multiply"(%1273, %1275, %1276) : (tensor<1x160x80x80xbf16>, tensor<1x160x80x80xbf16>, tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16> loc(#loc753)
-    %1278 = ttir.empty() : tensor<1x80x160x80xbf16> loc(#loc1116)
-    %1279 = "ttir.transpose"(%1277, %1278) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x160x80x80xbf16>, tensor<1x80x160x80xbf16>) -> tensor<1x80x160x80xbf16> loc(#loc1116)
-    %1280 = ttir.empty() : tensor<1x80x80x160xbf16> loc(#loc1117)
-    %1281 = "ttir.transpose"(%1279, %1280) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x80x160x80xbf16>, tensor<1x80x80x160xbf16>) -> tensor<1x80x80x160xbf16> loc(#loc1117)
-    %1282 = ttir.empty() : tensor<1x80x80x160xbf16> loc(#loc1118)
-    %1283 = "ttir.conv2d"(%1281, %arg263, %1282) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x80x80x160xbf16>, tensor<160x160x3x3xbf16>, tensor<1x80x80x160xbf16>) -> tensor<1x80x80x160xbf16> loc(#loc1118)
-    %1284 = ttir.empty() : tensor<1x80x160x80xbf16> loc(#loc1119)
-    %1285 = "ttir.transpose"(%1283, %1284) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x80x80x160xbf16>, tensor<1x80x160x80xbf16>) -> tensor<1x80x160x80xbf16> loc(#loc1119)
-    %1286 = ttir.empty() : tensor<1x160x80x80xbf16> loc(#loc1120)
-    %1287 = "ttir.transpose"(%1285, %1286) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x80x160x80xbf16>, tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16> loc(#loc1120)
-    %1288 = ttir.empty() : tensor<1x160x80x80xbf16> loc(#loc130)
-    %1289 = "ttir.multiply"(%1287, %arg130, %1288) : (tensor<1x160x80x80xbf16>, tensor<1x160x1x1xbf16>, tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16> loc(#loc130)
-    %1290 = ttir.empty() : tensor<1x160x80x80xbf16> loc(#loc131)
-    %1291 = "ttir.add"(%1289, %arg131, %1290) : (tensor<1x160x80x80xbf16>, tensor<1x160x1x1xbf16>, tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16> loc(#loc131)
-    %1292 = ttir.empty() : tensor<1x160x80x80xbf16> loc(#loc755)
-    %1293 = "ttir.sigmoid"(%1291, %1292) : (tensor<1x160x80x80xbf16>, tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16> loc(#loc755)
-    %1294 = ttir.empty() : tensor<1x160x80x80xbf16> loc(#loc756)
-    %1295 = "ttir.multiply"(%1291, %1293, %1294) : (tensor<1x160x80x80xbf16>, tensor<1x160x80x80xbf16>, tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16> loc(#loc756)
-    %1296 = ttir.empty() : tensor<1x80x160x80xbf16> loc(#loc1121)
-    %1297 = "ttir.transpose"(%1295, %1296) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x160x80x80xbf16>, tensor<1x80x160x80xbf16>) -> tensor<1x80x160x80xbf16> loc(#loc1121)
-    %1298 = ttir.empty() : tensor<1x80x80x160xbf16> loc(#loc1122)
-    %1299 = "ttir.transpose"(%1297, %1298) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x80x160x80xbf16>, tensor<1x80x80x160xbf16>) -> tensor<1x80x80x160xbf16> loc(#loc1122)
-    %1300 = ttir.empty() : tensor<1x80x80x160xbf16> loc(#loc1123)
-    %1301 = "ttir.conv2d"(%1299, %arg264, %1300) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x80x80x160xbf16>, tensor<160x160x3x3xbf16>, tensor<1x80x80x160xbf16>) -> tensor<1x80x80x160xbf16> loc(#loc1123)
-    %1302 = ttir.empty() : tensor<1x80x160x80xbf16> loc(#loc1124)
-    %1303 = "ttir.transpose"(%1301, %1302) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x80x80x160xbf16>, tensor<1x80x160x80xbf16>) -> tensor<1x80x160x80xbf16> loc(#loc1124)
-    %1304 = ttir.empty() : tensor<1x160x80x80xbf16> loc(#loc1125)
-    %1305 = "ttir.transpose"(%1303, %1304) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x80x160x80xbf16>, tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16> loc(#loc1125)
-    %1306 = ttir.empty() : tensor<1x160x80x80xbf16> loc(#loc132)
-    %1307 = "ttir.multiply"(%1305, %arg132, %1306) : (tensor<1x160x80x80xbf16>, tensor<1x160x1x1xbf16>, tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16> loc(#loc132)
-    %1308 = ttir.empty() : tensor<1x160x80x80xbf16> loc(#loc133)
-    %1309 = "ttir.add"(%1307, %arg133, %1308) : (tensor<1x160x80x80xbf16>, tensor<1x160x1x1xbf16>, tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16> loc(#loc133)
-    %1310 = ttir.empty() : tensor<1x160x80x80xbf16> loc(#loc758)
-    %1311 = "ttir.sigmoid"(%1309, %1310) : (tensor<1x160x80x80xbf16>, tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16> loc(#loc758)
-    %1312 = ttir.empty() : tensor<1x160x80x80xbf16> loc(#loc759)
-    %1313 = "ttir.multiply"(%1309, %1311, %1312) : (tensor<1x160x80x80xbf16>, tensor<1x160x80x80xbf16>, tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16> loc(#loc759)
-    %1314 = ttir.empty() : tensor<1x800x80x80xbf16> loc(#loc313)
-    %1315 = "ttir.concat"(%1203, %1205, %1241, %1277, %1313, %1314) <{dim = -3 : si32}> : (tensor<1x160x80x80xbf16>, tensor<1x160x80x80xbf16>, tensor<1x160x80x80xbf16>, tensor<1x160x80x80xbf16>, tensor<1x160x80x80xbf16>, tensor<1x800x80x80xbf16>) -> tensor<1x800x80x80xbf16> loc(#loc313)
-    %1316 = ttir.empty() : tensor<1x80x800x80xbf16> loc(#loc760)
-    %1317 = "ttir.transpose"(%1315, %1316) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x800x80x80xbf16>, tensor<1x80x800x80xbf16>) -> tensor<1x80x800x80xbf16> loc(#loc760)
-    %1318 = ttir.empty() : tensor<1x80x80x800xbf16> loc(#loc761)
-    %1319 = "ttir.transpose"(%1317, %1318) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x80x800x80xbf16>, tensor<1x80x80x800xbf16>) -> tensor<1x80x80x800xbf16> loc(#loc761)
-    %1320 = ttir.empty() : tensor<1x80x80x320xbf16> loc(#loc762)
-    %1321 = "ttir.conv2d"(%1319, %arg265, %1320) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 0, 0, 0, 0>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x80x80x800xbf16>, tensor<320x800x1x1xbf16>, tensor<1x80x80x320xbf16>) -> tensor<1x80x80x320xbf16> loc(#loc762)
-    %1322 = ttir.empty() : tensor<1x80x320x80xbf16> loc(#loc763)
-    %1323 = "ttir.transpose"(%1321, %1322) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x80x80x320xbf16>, tensor<1x80x320x80xbf16>) -> tensor<1x80x320x80xbf16> loc(#loc763)
-    %1324 = ttir.empty() : tensor<1x320x80x80xbf16> loc(#loc764)
-    %1325 = "ttir.transpose"(%1323, %1324) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x80x320x80xbf16>, tensor<1x320x80x80xbf16>) -> tensor<1x320x80x80xbf16> loc(#loc764)
-    %1326 = ttir.empty() : tensor<1x320x80x80xbf16> loc(#loc134)
-    %1327 = "ttir.multiply"(%1325, %arg134, %1326) : (tensor<1x320x80x80xbf16>, tensor<1x320x1x1xbf16>, tensor<1x320x80x80xbf16>) -> tensor<1x320x80x80xbf16> loc(#loc134)
-    %1328 = ttir.empty() : tensor<1x320x80x80xbf16> loc(#loc135)
-    %1329 = "ttir.add"(%1327, %arg135, %1328) : (tensor<1x320x80x80xbf16>, tensor<1x320x1x1xbf16>, tensor<1x320x80x80xbf16>) -> tensor<1x320x80x80xbf16> loc(#loc135)
-    %1330 = ttir.empty() : tensor<1x320x80x80xbf16> loc(#loc501)
-    %1331 = "ttir.sigmoid"(%1329, %1330) : (tensor<1x320x80x80xbf16>, tensor<1x320x80x80xbf16>) -> tensor<1x320x80x80xbf16> loc(#loc501)
-    %1332 = ttir.empty() : tensor<1x320x80x80xbf16> loc(#loc502)
-    %1333 = "ttir.multiply"(%1329, %1331, %1332) : (tensor<1x320x80x80xbf16>, tensor<1x320x80x80xbf16>, tensor<1x320x80x80xbf16>) -> tensor<1x320x80x80xbf16> loc(#loc502)
-    %1334 = ttir.empty() : tensor<1x80x320x80xbf16> loc(#loc1126)
-    %1335 = "ttir.transpose"(%1333, %1334) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x320x80x80xbf16>, tensor<1x80x320x80xbf16>) -> tensor<1x80x320x80xbf16> loc(#loc1126)
-    %1336 = ttir.empty() : tensor<1x80x80x320xbf16> loc(#loc1127)
-    %1337 = "ttir.transpose"(%1335, %1336) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x80x320x80xbf16>, tensor<1x80x80x320xbf16>) -> tensor<1x80x80x320xbf16> loc(#loc1127)
-    %1338 = ttir.empty() : tensor<1x80x80x80xbf16> loc(#loc1128)
-    %1339 = "ttir.conv2d"(%1337, %arg266, %1338) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x80x80x320xbf16>, tensor<80x320x3x3xbf16>, tensor<1x80x80x80xbf16>) -> tensor<1x80x80x80xbf16> loc(#loc1128)
-    %1340 = ttir.empty() : tensor<1x80x80x80xbf16> loc(#loc1129)
-    %1341 = "ttir.transpose"(%1339, %1340) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x80x80x80xbf16>, tensor<1x80x80x80xbf16>) -> tensor<1x80x80x80xbf16> loc(#loc1129)
-    %1342 = ttir.empty() : tensor<1x80x80x80xbf16> loc(#loc1130)
-    %1343 = "ttir.transpose"(%1341, %1342) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x80x80x80xbf16>, tensor<1x80x80x80xbf16>) -> tensor<1x80x80x80xbf16> loc(#loc1130)
-    %1344 = ttir.empty() : tensor<1x80x80x80xbf16> loc(#loc136)
-    %1345 = "ttir.multiply"(%1343, %arg136, %1344) : (tensor<1x80x80x80xbf16>, tensor<1x80x1x1xbf16>, tensor<1x80x80x80xbf16>) -> tensor<1x80x80x80xbf16> loc(#loc136)
-    %1346 = ttir.empty() : tensor<1x80x80x80xbf16> loc(#loc137)
-    %1347 = "ttir.add"(%1345, %arg137, %1346) : (tensor<1x80x80x80xbf16>, tensor<1x80x1x1xbf16>, tensor<1x80x80x80xbf16>) -> tensor<1x80x80x80xbf16> loc(#loc137)
-    %1348 = ttir.empty() : tensor<1x80x80x80xbf16> loc(#loc766)
-    %1349 = "ttir.sigmoid"(%1347, %1348) : (tensor<1x80x80x80xbf16>, tensor<1x80x80x80xbf16>) -> tensor<1x80x80x80xbf16> loc(#loc766)
-    %1350 = ttir.empty() : tensor<1x80x80x80xbf16> loc(#loc767)
-    %1351 = "ttir.multiply"(%1347, %1349, %1350) : (tensor<1x80x80x80xbf16>, tensor<1x80x80x80xbf16>, tensor<1x80x80x80xbf16>) -> tensor<1x80x80x80xbf16> loc(#loc767)
-    %1352 = ttir.empty() : tensor<1x80x80x80xbf16> loc(#loc1131)
-    %1353 = "ttir.transpose"(%1351, %1352) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x80x80x80xbf16>, tensor<1x80x80x80xbf16>) -> tensor<1x80x80x80xbf16> loc(#loc1131)
-    %1354 = ttir.empty() : tensor<1x80x80x80xbf16> loc(#loc1132)
-    %1355 = "ttir.transpose"(%1353, %1354) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x80x80x80xbf16>, tensor<1x80x80x80xbf16>) -> tensor<1x80x80x80xbf16> loc(#loc1132)
-    %1356 = ttir.empty() : tensor<1x80x80x80xbf16> loc(#loc1133)
-    %1357 = "ttir.conv2d"(%1355, %arg267, %1356) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x80x80x80xbf16>, tensor<80x80x3x3xbf16>, tensor<1x80x80x80xbf16>) -> tensor<1x80x80x80xbf16> loc(#loc1133)
-    %1358 = ttir.empty() : tensor<1x80x80x80xbf16> loc(#loc1134)
-    %1359 = "ttir.transpose"(%1357, %1358) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x80x80x80xbf16>, tensor<1x80x80x80xbf16>) -> tensor<1x80x80x80xbf16> loc(#loc1134)
-    %1360 = ttir.empty() : tensor<1x80x80x80xbf16> loc(#loc1135)
-    %1361 = "ttir.transpose"(%1359, %1360) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x80x80x80xbf16>, tensor<1x80x80x80xbf16>) -> tensor<1x80x80x80xbf16> loc(#loc1135)
-    %1362 = ttir.empty() : tensor<1x80x80x80xbf16> loc(#loc138)
-    %1363 = "ttir.multiply"(%1361, %arg138, %1362) : (tensor<1x80x80x80xbf16>, tensor<1x80x1x1xbf16>, tensor<1x80x80x80xbf16>) -> tensor<1x80x80x80xbf16> loc(#loc138)
-    %1364 = ttir.empty() : tensor<1x80x80x80xbf16> loc(#loc139)
-    %1365 = "ttir.add"(%1363, %arg139, %1364) : (tensor<1x80x80x80xbf16>, tensor<1x80x1x1xbf16>, tensor<1x80x80x80xbf16>) -> tensor<1x80x80x80xbf16> loc(#loc139)
-    %1366 = ttir.empty() : tensor<1x80x80x80xbf16> loc(#loc769)
-    %1367 = "ttir.sigmoid"(%1365, %1366) : (tensor<1x80x80x80xbf16>, tensor<1x80x80x80xbf16>) -> tensor<1x80x80x80xbf16> loc(#loc769)
-    %1368 = ttir.empty() : tensor<1x80x80x80xbf16> loc(#loc770)
-    %1369 = "ttir.multiply"(%1365, %1367, %1368) : (tensor<1x80x80x80xbf16>, tensor<1x80x80x80xbf16>, tensor<1x80x80x80xbf16>) -> tensor<1x80x80x80xbf16> loc(#loc770)
-    %1370 = ttir.empty() : tensor<1x80x80x80xbf16> loc(#loc771)
-    %1371 = "ttir.transpose"(%1369, %1370) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x80x80x80xbf16>, tensor<1x80x80x80xbf16>) -> tensor<1x80x80x80xbf16> loc(#loc771)
-    %1372 = ttir.empty() : tensor<1x80x80x80xbf16> loc(#loc772)
-    %1373 = "ttir.transpose"(%1371, %1372) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x80x80x80xbf16>, tensor<1x80x80x80xbf16>) -> tensor<1x80x80x80xbf16> loc(#loc772)
-    %1374 = ttir.empty() : tensor<1x80x80x64xbf16> loc(#loc773)
-    %1375 = "ttir.conv2d"(%1373, %arg268, %arg269, %1374) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 0, 0, 0, 0>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x80x80x80xbf16>, tensor<64x80x1x1xbf16>, tensor<1x1x1x64xbf16>, tensor<1x80x80x64xbf16>) -> tensor<1x80x80x64xbf16> loc(#loc773)
-    %1376 = ttir.empty() : tensor<1x80x64x80xbf16> loc(#loc774)
-    %1377 = "ttir.transpose"(%1375, %1376) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x80x80x64xbf16>, tensor<1x80x64x80xbf16>) -> tensor<1x80x64x80xbf16> loc(#loc774)
-    %1378 = ttir.empty() : tensor<1x64x80x80xbf16> loc(#loc775)
-    %1379 = "ttir.transpose"(%1377, %1378) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x80x64x80xbf16>, tensor<1x64x80x80xbf16>) -> tensor<1x64x80x80xbf16> loc(#loc775)
-    %1380 = ttir.empty() : tensor<1x80x320x80xbf16> loc(#loc1136)
-    %1381 = "ttir.transpose"(%1333, %1380) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x320x80x80xbf16>, tensor<1x80x320x80xbf16>) -> tensor<1x80x320x80xbf16> loc(#loc1136)
-    %1382 = ttir.empty() : tensor<1x80x80x320xbf16> loc(#loc1137)
-    %1383 = "ttir.transpose"(%1381, %1382) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x80x320x80xbf16>, tensor<1x80x80x320xbf16>) -> tensor<1x80x80x320xbf16> loc(#loc1137)
-    %1384 = ttir.empty() : tensor<1x80x80x320xbf16> loc(#loc1138)
-    %1385 = "ttir.conv2d"(%1383, %arg270, %1384) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x80x80x320xbf16>, tensor<320x320x3x3xbf16>, tensor<1x80x80x320xbf16>) -> tensor<1x80x80x320xbf16> loc(#loc1138)
-    %1386 = ttir.empty() : tensor<1x80x320x80xbf16> loc(#loc1139)
-    %1387 = "ttir.transpose"(%1385, %1386) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x80x80x320xbf16>, tensor<1x80x320x80xbf16>) -> tensor<1x80x320x80xbf16> loc(#loc1139)
-    %1388 = ttir.empty() : tensor<1x320x80x80xbf16> loc(#loc1140)
-    %1389 = "ttir.transpose"(%1387, %1388) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x80x320x80xbf16>, tensor<1x320x80x80xbf16>) -> tensor<1x320x80x80xbf16> loc(#loc1140)
-    %1390 = ttir.empty() : tensor<1x320x80x80xbf16> loc(#loc140)
-    %1391 = "ttir.multiply"(%1389, %arg140, %1390) : (tensor<1x320x80x80xbf16>, tensor<1x320x1x1xbf16>, tensor<1x320x80x80xbf16>) -> tensor<1x320x80x80xbf16> loc(#loc140)
-    %1392 = ttir.empty() : tensor<1x320x80x80xbf16> loc(#loc141)
-    %1393 = "ttir.add"(%1391, %arg141, %1392) : (tensor<1x320x80x80xbf16>, tensor<1x320x1x1xbf16>, tensor<1x320x80x80xbf16>) -> tensor<1x320x80x80xbf16> loc(#loc141)
-    %1394 = ttir.empty() : tensor<1x320x80x80xbf16> loc(#loc776)
-    %1395 = "ttir.sigmoid"(%1393, %1394) : (tensor<1x320x80x80xbf16>, tensor<1x320x80x80xbf16>) -> tensor<1x320x80x80xbf16> loc(#loc776)
-    %1396 = ttir.empty() : tensor<1x320x80x80xbf16> loc(#loc777)
-    %1397 = "ttir.multiply"(%1393, %1395, %1396) : (tensor<1x320x80x80xbf16>, tensor<1x320x80x80xbf16>, tensor<1x320x80x80xbf16>) -> tensor<1x320x80x80xbf16> loc(#loc777)
-    %1398 = ttir.empty() : tensor<1x80x320x80xbf16> loc(#loc1141)
-    %1399 = "ttir.transpose"(%1397, %1398) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x320x80x80xbf16>, tensor<1x80x320x80xbf16>) -> tensor<1x80x320x80xbf16> loc(#loc1141)
-    %1400 = ttir.empty() : tensor<1x80x80x320xbf16> loc(#loc1142)
-    %1401 = "ttir.transpose"(%1399, %1400) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x80x320x80xbf16>, tensor<1x80x80x320xbf16>) -> tensor<1x80x80x320xbf16> loc(#loc1142)
-    %1402 = ttir.empty() : tensor<1x80x80x320xbf16> loc(#loc1143)
-    %1403 = "ttir.conv2d"(%1401, %arg271, %1402) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x80x80x320xbf16>, tensor<320x320x3x3xbf16>, tensor<1x80x80x320xbf16>) -> tensor<1x80x80x320xbf16> loc(#loc1143)
-    %1404 = ttir.empty() : tensor<1x80x320x80xbf16> loc(#loc1144)
-    %1405 = "ttir.transpose"(%1403, %1404) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x80x80x320xbf16>, tensor<1x80x320x80xbf16>) -> tensor<1x80x320x80xbf16> loc(#loc1144)
-    %1406 = ttir.empty() : tensor<1x320x80x80xbf16> loc(#loc1145)
-    %1407 = "ttir.transpose"(%1405, %1406) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x80x320x80xbf16>, tensor<1x320x80x80xbf16>) -> tensor<1x320x80x80xbf16> loc(#loc1145)
-    %1408 = ttir.empty() : tensor<1x320x80x80xbf16> loc(#loc142)
-    %1409 = "ttir.multiply"(%1407, %arg142, %1408) : (tensor<1x320x80x80xbf16>, tensor<1x320x1x1xbf16>, tensor<1x320x80x80xbf16>) -> tensor<1x320x80x80xbf16> loc(#loc142)
-    %1410 = ttir.empty() : tensor<1x320x80x80xbf16> loc(#loc143)
-    %1411 = "ttir.add"(%1409, %arg143, %1410) : (tensor<1x320x80x80xbf16>, tensor<1x320x1x1xbf16>, tensor<1x320x80x80xbf16>) -> tensor<1x320x80x80xbf16> loc(#loc143)
-    %1412 = ttir.empty() : tensor<1x320x80x80xbf16> loc(#loc778)
-    %1413 = "ttir.sigmoid"(%1411, %1412) : (tensor<1x320x80x80xbf16>, tensor<1x320x80x80xbf16>) -> tensor<1x320x80x80xbf16> loc(#loc778)
-    %1414 = ttir.empty() : tensor<1x320x80x80xbf16> loc(#loc779)
-    %1415 = "ttir.multiply"(%1411, %1413, %1414) : (tensor<1x320x80x80xbf16>, tensor<1x320x80x80xbf16>, tensor<1x320x80x80xbf16>) -> tensor<1x320x80x80xbf16> loc(#loc779)
-    %1416 = ttir.empty() : tensor<1x80x320x80xbf16> loc(#loc780)
-    %1417 = "ttir.transpose"(%1415, %1416) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x320x80x80xbf16>, tensor<1x80x320x80xbf16>) -> tensor<1x80x320x80xbf16> loc(#loc780)
-    %1418 = ttir.empty() : tensor<1x80x80x320xbf16> loc(#loc781)
-    %1419 = "ttir.transpose"(%1417, %1418) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x80x320x80xbf16>, tensor<1x80x80x320xbf16>) -> tensor<1x80x80x320xbf16> loc(#loc781)
-    %1420 = ttir.empty() : tensor<1x80x80x80xbf16> loc(#loc782)
-    %1421 = "ttir.conv2d"(%1419, %arg272, %arg273, %1420) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 0, 0, 0, 0>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x80x80x320xbf16>, tensor<80x320x1x1xbf16>, tensor<1x1x1x80xbf16>, tensor<1x80x80x80xbf16>) -> tensor<1x80x80x80xbf16> loc(#loc782)
-    %1422 = ttir.empty() : tensor<1x80x80x80xbf16> loc(#loc783)
-    %1423 = "ttir.transpose"(%1421, %1422) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x80x80x80xbf16>, tensor<1x80x80x80xbf16>) -> tensor<1x80x80x80xbf16> loc(#loc783)
-    %1424 = ttir.empty() : tensor<1x80x80x80xbf16> loc(#loc784)
-    %1425 = "ttir.transpose"(%1423, %1424) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x80x80x80xbf16>, tensor<1x80x80x80xbf16>) -> tensor<1x80x80x80xbf16> loc(#loc784)
-    %1426 = ttir.empty() : tensor<1x144x80x80xbf16> loc(#loc316)
-    %1427 = "ttir.concat"(%1379, %1425, %1426) <{dim = -3 : si32}> : (tensor<1x64x80x80xbf16>, tensor<1x80x80x80xbf16>, tensor<1x144x80x80xbf16>) -> tensor<1x144x80x80xbf16> loc(#loc316)
-    %1428 = ttir.empty() : tensor<1x144x6400xbf16> loc(#loc317)
-    %1429 = "ttir.reshape"(%1427, %1428) <{shape = [1 : i32, 144 : i32, 6400 : i32]}> : (tensor<1x144x80x80xbf16>, tensor<1x144x6400xbf16>) -> tensor<1x144x6400xbf16> loc(#loc317)
-    %1430 = ttir.empty() : tensor<1x80x320x80xbf16> loc(#loc506)
-    %1431 = "ttir.transpose"(%1333, %1430) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x320x80x80xbf16>, tensor<1x80x320x80xbf16>) -> tensor<1x80x320x80xbf16> loc(#loc506)
-    %1432 = ttir.empty() : tensor<1x80x80x320xbf16> loc(#loc507)
-    %1433 = "ttir.transpose"(%1431, %1432) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x80x320x80xbf16>, tensor<1x80x80x320xbf16>) -> tensor<1x80x80x320xbf16> loc(#loc507)
-    %1434 = ttir.empty() : tensor<1x40x40x320xbf16> loc(#loc508)
-    %1435 = "ttir.conv2d"(%1433, %arg274, %1434) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 2, 2>}> {channel_last = 1 : si32} : (tensor<1x80x80x320xbf16>, tensor<320x320x3x3xbf16>, tensor<1x40x40x320xbf16>) -> tensor<1x40x40x320xbf16> loc(#loc508)
-    %1436 = ttir.empty() : tensor<1x40x320x40xbf16> loc(#loc509)
-    %1437 = "ttir.transpose"(%1435, %1436) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x40x320xbf16>, tensor<1x40x320x40xbf16>) -> tensor<1x40x320x40xbf16> loc(#loc509)
-    %1438 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc510)
-    %1439 = "ttir.transpose"(%1437, %1438) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x40x320x40xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc510)
-    %1440 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc144)
-    %1441 = "ttir.multiply"(%1439, %arg144, %1440) : (tensor<1x320x40x40xbf16>, tensor<1x320x1x1xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc144)
-    %1442 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc145)
-    %1443 = "ttir.add"(%1441, %arg145, %1442) : (tensor<1x320x40x40xbf16>, tensor<1x320x1x1xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc145)
-    %1444 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc319)
-    %1445 = "ttir.sigmoid"(%1443, %1444) : (tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc319)
-    %1446 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc320)
-    %1447 = "ttir.multiply"(%1443, %1445, %1446) : (tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc320)
-    %1448 = ttir.empty() : tensor<1x960x40x40xbf16> loc(#loc321)
-    %1449 = "ttir.concat"(%1447, %1171, %1448) <{dim = -3 : si32}> : (tensor<1x320x40x40xbf16>, tensor<1x640x40x40xbf16>, tensor<1x960x40x40xbf16>) -> tensor<1x960x40x40xbf16> loc(#loc321)
-    %1450 = ttir.empty() : tensor<1x40x960x40xbf16> loc(#loc785)
-    %1451 = "ttir.transpose"(%1449, %1450) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x960x40x40xbf16>, tensor<1x40x960x40xbf16>) -> tensor<1x40x960x40xbf16> loc(#loc785)
-    %1452 = ttir.empty() : tensor<1x40x40x960xbf16> loc(#loc786)
-    %1453 = "ttir.transpose"(%1451, %1452) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x960x40xbf16>, tensor<1x40x40x960xbf16>) -> tensor<1x40x40x960xbf16> loc(#loc786)
-    %1454 = ttir.empty() : tensor<1x40x40x640xbf16> loc(#loc787)
-    %1455 = "ttir.conv2d"(%1453, %arg275, %1454) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 0, 0, 0, 0>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x40x40x960xbf16>, tensor<640x960x1x1xbf16>, tensor<1x40x40x640xbf16>) -> tensor<1x40x40x640xbf16> loc(#loc787)
-    %1456 = ttir.empty() : tensor<1x40x640x40xbf16> loc(#loc788)
-    %1457 = "ttir.transpose"(%1455, %1456) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x40x640xbf16>, tensor<1x40x640x40xbf16>) -> tensor<1x40x640x40xbf16> loc(#loc788)
-    %1458 = ttir.empty() : tensor<1x640x40x40xbf16> loc(#loc789)
-    %1459 = "ttir.transpose"(%1457, %1458) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x40x640x40xbf16>, tensor<1x640x40x40xbf16>) -> tensor<1x640x40x40xbf16> loc(#loc789)
-    %1460 = ttir.empty() : tensor<1x640x40x40xbf16> loc(#loc146)
-    %1461 = "ttir.multiply"(%1459, %arg146, %1460) : (tensor<1x640x40x40xbf16>, tensor<1x640x1x1xbf16>, tensor<1x640x40x40xbf16>) -> tensor<1x640x40x40xbf16> loc(#loc146)
-    %1462 = ttir.empty() : tensor<1x640x40x40xbf16> loc(#loc147)
-    %1463 = "ttir.add"(%1461, %arg147, %1462) : (tensor<1x640x40x40xbf16>, tensor<1x640x1x1xbf16>, tensor<1x640x40x40xbf16>) -> tensor<1x640x40x40xbf16> loc(#loc147)
-    %1464 = ttir.empty() : tensor<1x640x40x40xbf16> loc(#loc512)
-    %1465 = "ttir.sigmoid"(%1463, %1464) : (tensor<1x640x40x40xbf16>, tensor<1x640x40x40xbf16>) -> tensor<1x640x40x40xbf16> loc(#loc512)
-    %1466 = ttir.empty() : tensor<1x640x40x40xbf16> loc(#loc513)
-    %1467 = "ttir.multiply"(%1463, %1465, %1466) : (tensor<1x640x40x40xbf16>, tensor<1x640x40x40xbf16>, tensor<1x640x40x40xbf16>) -> tensor<1x640x40x40xbf16> loc(#loc513)
-    %1468 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc323)
-    %1469 = "ttir.index"(%1467, %1468) <{begin = 0 : i32, dim = 1 : i32, end = 320 : i32, step = 1 : i32}> : (tensor<1x640x40x40xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc323)
-    %1470 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc324)
-    %1471 = "ttir.index"(%1467, %1470) <{begin = 320 : i32, dim = 1 : i32, end = 640 : i32, step = 1 : i32}> : (tensor<1x640x40x40xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc324)
-    %1472 = ttir.empty() : tensor<1x40x320x40xbf16> loc(#loc1146)
-    %1473 = "ttir.transpose"(%1471, %1472) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x320x40x40xbf16>, tensor<1x40x320x40xbf16>) -> tensor<1x40x320x40xbf16> loc(#loc1146)
-    %1474 = ttir.empty() : tensor<1x40x40x320xbf16> loc(#loc1147)
-    %1475 = "ttir.transpose"(%1473, %1474) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x320x40xbf16>, tensor<1x40x40x320xbf16>) -> tensor<1x40x40x320xbf16> loc(#loc1147)
-    %1476 = ttir.empty() : tensor<1x40x40x320xbf16> loc(#loc1148)
-    %1477 = "ttir.conv2d"(%1475, %arg276, %1476) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x40x40x320xbf16>, tensor<320x320x3x3xbf16>, tensor<1x40x40x320xbf16>) -> tensor<1x40x40x320xbf16> loc(#loc1148)
-    %1478 = ttir.empty() : tensor<1x40x320x40xbf16> loc(#loc1149)
-    %1479 = "ttir.transpose"(%1477, %1478) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x40x320xbf16>, tensor<1x40x320x40xbf16>) -> tensor<1x40x320x40xbf16> loc(#loc1149)
-    %1480 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc1150)
-    %1481 = "ttir.transpose"(%1479, %1480) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x40x320x40xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc1150)
-    %1482 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc148)
-    %1483 = "ttir.multiply"(%1481, %arg148, %1482) : (tensor<1x320x40x40xbf16>, tensor<1x320x1x1xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc148)
-    %1484 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc149)
-    %1485 = "ttir.add"(%1483, %arg149, %1484) : (tensor<1x320x40x40xbf16>, tensor<1x320x1x1xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc149)
-    %1486 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc791)
-    %1487 = "ttir.sigmoid"(%1485, %1486) : (tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc791)
-    %1488 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc792)
-    %1489 = "ttir.multiply"(%1485, %1487, %1488) : (tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc792)
-    %1490 = ttir.empty() : tensor<1x40x320x40xbf16> loc(#loc1151)
-    %1491 = "ttir.transpose"(%1489, %1490) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x320x40x40xbf16>, tensor<1x40x320x40xbf16>) -> tensor<1x40x320x40xbf16> loc(#loc1151)
-    %1492 = ttir.empty() : tensor<1x40x40x320xbf16> loc(#loc1152)
-    %1493 = "ttir.transpose"(%1491, %1492) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x320x40xbf16>, tensor<1x40x40x320xbf16>) -> tensor<1x40x40x320xbf16> loc(#loc1152)
-    %1494 = ttir.empty() : tensor<1x40x40x320xbf16> loc(#loc1153)
-    %1495 = "ttir.conv2d"(%1493, %arg277, %1494) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x40x40x320xbf16>, tensor<320x320x3x3xbf16>, tensor<1x40x40x320xbf16>) -> tensor<1x40x40x320xbf16> loc(#loc1153)
-    %1496 = ttir.empty() : tensor<1x40x320x40xbf16> loc(#loc1154)
-    %1497 = "ttir.transpose"(%1495, %1496) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x40x320xbf16>, tensor<1x40x320x40xbf16>) -> tensor<1x40x320x40xbf16> loc(#loc1154)
-    %1498 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc1155)
-    %1499 = "ttir.transpose"(%1497, %1498) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x40x320x40xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc1155)
-    %1500 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc150)
-    %1501 = "ttir.multiply"(%1499, %arg150, %1500) : (tensor<1x320x40x40xbf16>, tensor<1x320x1x1xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc150)
-    %1502 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc151)
-    %1503 = "ttir.add"(%1501, %arg151, %1502) : (tensor<1x320x40x40xbf16>, tensor<1x320x1x1xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc151)
-    %1504 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc794)
-    %1505 = "ttir.sigmoid"(%1503, %1504) : (tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc794)
-    %1506 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc795)
-    %1507 = "ttir.multiply"(%1503, %1505, %1506) : (tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc795)
-    %1508 = ttir.empty() : tensor<1x40x320x40xbf16> loc(#loc1156)
-    %1509 = "ttir.transpose"(%1507, %1508) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x320x40x40xbf16>, tensor<1x40x320x40xbf16>) -> tensor<1x40x320x40xbf16> loc(#loc1156)
-    %1510 = ttir.empty() : tensor<1x40x40x320xbf16> loc(#loc1157)
-    %1511 = "ttir.transpose"(%1509, %1510) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x320x40xbf16>, tensor<1x40x40x320xbf16>) -> tensor<1x40x40x320xbf16> loc(#loc1157)
-    %1512 = ttir.empty() : tensor<1x40x40x320xbf16> loc(#loc1158)
-    %1513 = "ttir.conv2d"(%1511, %arg278, %1512) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x40x40x320xbf16>, tensor<320x320x3x3xbf16>, tensor<1x40x40x320xbf16>) -> tensor<1x40x40x320xbf16> loc(#loc1158)
-    %1514 = ttir.empty() : tensor<1x40x320x40xbf16> loc(#loc1159)
-    %1515 = "ttir.transpose"(%1513, %1514) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x40x320xbf16>, tensor<1x40x320x40xbf16>) -> tensor<1x40x320x40xbf16> loc(#loc1159)
-    %1516 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc1160)
-    %1517 = "ttir.transpose"(%1515, %1516) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x40x320x40xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc1160)
-    %1518 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc152)
-    %1519 = "ttir.multiply"(%1517, %arg152, %1518) : (tensor<1x320x40x40xbf16>, tensor<1x320x1x1xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc152)
-    %1520 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc153)
-    %1521 = "ttir.add"(%1519, %arg153, %1520) : (tensor<1x320x40x40xbf16>, tensor<1x320x1x1xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc153)
-    %1522 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc797)
-    %1523 = "ttir.sigmoid"(%1521, %1522) : (tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc797)
-    %1524 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc798)
-    %1525 = "ttir.multiply"(%1521, %1523, %1524) : (tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc798)
-    %1526 = ttir.empty() : tensor<1x40x320x40xbf16> loc(#loc1161)
-    %1527 = "ttir.transpose"(%1525, %1526) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x320x40x40xbf16>, tensor<1x40x320x40xbf16>) -> tensor<1x40x320x40xbf16> loc(#loc1161)
-    %1528 = ttir.empty() : tensor<1x40x40x320xbf16> loc(#loc1162)
-    %1529 = "ttir.transpose"(%1527, %1528) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x320x40xbf16>, tensor<1x40x40x320xbf16>) -> tensor<1x40x40x320xbf16> loc(#loc1162)
-    %1530 = ttir.empty() : tensor<1x40x40x320xbf16> loc(#loc1163)
-    %1531 = "ttir.conv2d"(%1529, %arg279, %1530) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x40x40x320xbf16>, tensor<320x320x3x3xbf16>, tensor<1x40x40x320xbf16>) -> tensor<1x40x40x320xbf16> loc(#loc1163)
-    %1532 = ttir.empty() : tensor<1x40x320x40xbf16> loc(#loc1164)
-    %1533 = "ttir.transpose"(%1531, %1532) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x40x320xbf16>, tensor<1x40x320x40xbf16>) -> tensor<1x40x320x40xbf16> loc(#loc1164)
-    %1534 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc1165)
-    %1535 = "ttir.transpose"(%1533, %1534) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x40x320x40xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc1165)
-    %1536 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc154)
-    %1537 = "ttir.multiply"(%1535, %arg154, %1536) : (tensor<1x320x40x40xbf16>, tensor<1x320x1x1xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc154)
-    %1538 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc155)
-    %1539 = "ttir.add"(%1537, %arg155, %1538) : (tensor<1x320x40x40xbf16>, tensor<1x320x1x1xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc155)
-    %1540 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc800)
-    %1541 = "ttir.sigmoid"(%1539, %1540) : (tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc800)
-    %1542 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc801)
-    %1543 = "ttir.multiply"(%1539, %1541, %1542) : (tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc801)
-    %1544 = ttir.empty() : tensor<1x40x320x40xbf16> loc(#loc1166)
-    %1545 = "ttir.transpose"(%1543, %1544) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x320x40x40xbf16>, tensor<1x40x320x40xbf16>) -> tensor<1x40x320x40xbf16> loc(#loc1166)
-    %1546 = ttir.empty() : tensor<1x40x40x320xbf16> loc(#loc1167)
-    %1547 = "ttir.transpose"(%1545, %1546) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x320x40xbf16>, tensor<1x40x40x320xbf16>) -> tensor<1x40x40x320xbf16> loc(#loc1167)
-    %1548 = ttir.empty() : tensor<1x40x40x320xbf16> loc(#loc1168)
-    %1549 = "ttir.conv2d"(%1547, %arg280, %1548) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x40x40x320xbf16>, tensor<320x320x3x3xbf16>, tensor<1x40x40x320xbf16>) -> tensor<1x40x40x320xbf16> loc(#loc1168)
-    %1550 = ttir.empty() : tensor<1x40x320x40xbf16> loc(#loc1169)
-    %1551 = "ttir.transpose"(%1549, %1550) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x40x320xbf16>, tensor<1x40x320x40xbf16>) -> tensor<1x40x320x40xbf16> loc(#loc1169)
-    %1552 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc1170)
-    %1553 = "ttir.transpose"(%1551, %1552) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x40x320x40xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc1170)
-    %1554 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc156)
-    %1555 = "ttir.multiply"(%1553, %arg156, %1554) : (tensor<1x320x40x40xbf16>, tensor<1x320x1x1xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc156)
-    %1556 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc157)
-    %1557 = "ttir.add"(%1555, %arg157, %1556) : (tensor<1x320x40x40xbf16>, tensor<1x320x1x1xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc157)
-    %1558 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc803)
-    %1559 = "ttir.sigmoid"(%1557, %1558) : (tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc803)
-    %1560 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc804)
-    %1561 = "ttir.multiply"(%1557, %1559, %1560) : (tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc804)
-    %1562 = ttir.empty() : tensor<1x40x320x40xbf16> loc(#loc1171)
-    %1563 = "ttir.transpose"(%1561, %1562) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x320x40x40xbf16>, tensor<1x40x320x40xbf16>) -> tensor<1x40x320x40xbf16> loc(#loc1171)
-    %1564 = ttir.empty() : tensor<1x40x40x320xbf16> loc(#loc1172)
-    %1565 = "ttir.transpose"(%1563, %1564) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x320x40xbf16>, tensor<1x40x40x320xbf16>) -> tensor<1x40x40x320xbf16> loc(#loc1172)
-    %1566 = ttir.empty() : tensor<1x40x40x320xbf16> loc(#loc1173)
-    %1567 = "ttir.conv2d"(%1565, %arg281, %1566) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x40x40x320xbf16>, tensor<320x320x3x3xbf16>, tensor<1x40x40x320xbf16>) -> tensor<1x40x40x320xbf16> loc(#loc1173)
-    %1568 = ttir.empty() : tensor<1x40x320x40xbf16> loc(#loc1174)
-    %1569 = "ttir.transpose"(%1567, %1568) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x40x320xbf16>, tensor<1x40x320x40xbf16>) -> tensor<1x40x320x40xbf16> loc(#loc1174)
-    %1570 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc1175)
-    %1571 = "ttir.transpose"(%1569, %1570) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x40x320x40xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc1175)
-    %1572 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc158)
-    %1573 = "ttir.multiply"(%1571, %arg158, %1572) : (tensor<1x320x40x40xbf16>, tensor<1x320x1x1xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc158)
-    %1574 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc159)
-    %1575 = "ttir.add"(%1573, %arg159, %1574) : (tensor<1x320x40x40xbf16>, tensor<1x320x1x1xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc159)
-    %1576 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc806)
-    %1577 = "ttir.sigmoid"(%1575, %1576) : (tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc806)
-    %1578 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc807)
-    %1579 = "ttir.multiply"(%1575, %1577, %1578) : (tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc807)
-    %1580 = ttir.empty() : tensor<1x1600x40x40xbf16> loc(#loc328)
-    %1581 = "ttir.concat"(%1469, %1471, %1507, %1543, %1579, %1580) <{dim = -3 : si32}> : (tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>, tensor<1x1600x40x40xbf16>) -> tensor<1x1600x40x40xbf16> loc(#loc328)
-    %1582 = ttir.empty() : tensor<1x40x1600x40xbf16> loc(#loc808)
-    %1583 = "ttir.transpose"(%1581, %1582) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x1600x40x40xbf16>, tensor<1x40x1600x40xbf16>) -> tensor<1x40x1600x40xbf16> loc(#loc808)
-    %1584 = ttir.empty() : tensor<1x40x40x1600xbf16> loc(#loc809)
-    %1585 = "ttir.transpose"(%1583, %1584) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x1600x40xbf16>, tensor<1x40x40x1600xbf16>) -> tensor<1x40x40x1600xbf16> loc(#loc809)
-    %1586 = ttir.empty() : tensor<1x40x40x640xbf16> loc(#loc810)
-    %1587 = "ttir.conv2d"(%1585, %arg282, %1586) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 0, 0, 0, 0>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x40x40x1600xbf16>, tensor<640x1600x1x1xbf16>, tensor<1x40x40x640xbf16>) -> tensor<1x40x40x640xbf16> loc(#loc810)
-    %1588 = ttir.empty() : tensor<1x40x640x40xbf16> loc(#loc811)
-    %1589 = "ttir.transpose"(%1587, %1588) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x40x640xbf16>, tensor<1x40x640x40xbf16>) -> tensor<1x40x640x40xbf16> loc(#loc811)
-    %1590 = ttir.empty() : tensor<1x640x40x40xbf16> loc(#loc812)
-    %1591 = "ttir.transpose"(%1589, %1590) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x40x640x40xbf16>, tensor<1x640x40x40xbf16>) -> tensor<1x640x40x40xbf16> loc(#loc812)
-    %1592 = ttir.empty() : tensor<1x640x40x40xbf16> loc(#loc160)
-    %1593 = "ttir.multiply"(%1591, %arg160, %1592) : (tensor<1x640x40x40xbf16>, tensor<1x640x1x1xbf16>, tensor<1x640x40x40xbf16>) -> tensor<1x640x40x40xbf16> loc(#loc160)
-    %1594 = ttir.empty() : tensor<1x640x40x40xbf16> loc(#loc161)
-    %1595 = "ttir.add"(%1593, %arg161, %1594) : (tensor<1x640x40x40xbf16>, tensor<1x640x1x1xbf16>, tensor<1x640x40x40xbf16>) -> tensor<1x640x40x40xbf16> loc(#loc161)
-    %1596 = ttir.empty() : tensor<1x640x40x40xbf16> loc(#loc521)
-    %1597 = "ttir.sigmoid"(%1595, %1596) : (tensor<1x640x40x40xbf16>, tensor<1x640x40x40xbf16>) -> tensor<1x640x40x40xbf16> loc(#loc521)
-    %1598 = ttir.empty() : tensor<1x640x40x40xbf16> loc(#loc522)
-    %1599 = "ttir.multiply"(%1595, %1597, %1598) : (tensor<1x640x40x40xbf16>, tensor<1x640x40x40xbf16>, tensor<1x640x40x40xbf16>) -> tensor<1x640x40x40xbf16> loc(#loc522)
-    %1600 = ttir.empty() : tensor<1x40x640x40xbf16> loc(#loc1176)
-    %1601 = "ttir.transpose"(%1599, %1600) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x640x40x40xbf16>, tensor<1x40x640x40xbf16>) -> tensor<1x40x640x40xbf16> loc(#loc1176)
-    %1602 = ttir.empty() : tensor<1x40x40x640xbf16> loc(#loc1177)
-    %1603 = "ttir.transpose"(%1601, %1602) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x640x40xbf16>, tensor<1x40x40x640xbf16>) -> tensor<1x40x40x640xbf16> loc(#loc1177)
-    %1604 = ttir.empty() : tensor<1x40x40x80xbf16> loc(#loc1178)
-    %1605 = "ttir.conv2d"(%1603, %arg283, %1604) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x40x40x640xbf16>, tensor<80x640x3x3xbf16>, tensor<1x40x40x80xbf16>) -> tensor<1x40x40x80xbf16> loc(#loc1178)
-    %1606 = ttir.empty() : tensor<1x40x80x40xbf16> loc(#loc1179)
-    %1607 = "ttir.transpose"(%1605, %1606) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x40x80xbf16>, tensor<1x40x80x40xbf16>) -> tensor<1x40x80x40xbf16> loc(#loc1179)
-    %1608 = ttir.empty() : tensor<1x80x40x40xbf16> loc(#loc1180)
-    %1609 = "ttir.transpose"(%1607, %1608) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x40x80x40xbf16>, tensor<1x80x40x40xbf16>) -> tensor<1x80x40x40xbf16> loc(#loc1180)
-    %1610 = ttir.empty() : tensor<1x80x40x40xbf16> loc(#loc162)
-    %1611 = "ttir.multiply"(%1609, %arg162, %1610) : (tensor<1x80x40x40xbf16>, tensor<1x80x1x1xbf16>, tensor<1x80x40x40xbf16>) -> tensor<1x80x40x40xbf16> loc(#loc162)
-    %1612 = ttir.empty() : tensor<1x80x40x40xbf16> loc(#loc163)
-    %1613 = "ttir.add"(%1611, %arg163, %1612) : (tensor<1x80x40x40xbf16>, tensor<1x80x1x1xbf16>, tensor<1x80x40x40xbf16>) -> tensor<1x80x40x40xbf16> loc(#loc163)
-    %1614 = ttir.empty() : tensor<1x80x40x40xbf16> loc(#loc814)
-    %1615 = "ttir.sigmoid"(%1613, %1614) : (tensor<1x80x40x40xbf16>, tensor<1x80x40x40xbf16>) -> tensor<1x80x40x40xbf16> loc(#loc814)
-    %1616 = ttir.empty() : tensor<1x80x40x40xbf16> loc(#loc815)
-    %1617 = "ttir.multiply"(%1613, %1615, %1616) : (tensor<1x80x40x40xbf16>, tensor<1x80x40x40xbf16>, tensor<1x80x40x40xbf16>) -> tensor<1x80x40x40xbf16> loc(#loc815)
-    %1618 = ttir.empty() : tensor<1x40x80x40xbf16> loc(#loc1181)
-    %1619 = "ttir.transpose"(%1617, %1618) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x80x40x40xbf16>, tensor<1x40x80x40xbf16>) -> tensor<1x40x80x40xbf16> loc(#loc1181)
-    %1620 = ttir.empty() : tensor<1x40x40x80xbf16> loc(#loc1182)
-    %1621 = "ttir.transpose"(%1619, %1620) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x80x40xbf16>, tensor<1x40x40x80xbf16>) -> tensor<1x40x40x80xbf16> loc(#loc1182)
-    %1622 = ttir.empty() : tensor<1x40x40x80xbf16> loc(#loc1183)
-    %1623 = "ttir.conv2d"(%1621, %arg284, %1622) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x40x40x80xbf16>, tensor<80x80x3x3xbf16>, tensor<1x40x40x80xbf16>) -> tensor<1x40x40x80xbf16> loc(#loc1183)
-    %1624 = ttir.empty() : tensor<1x40x80x40xbf16> loc(#loc1184)
-    %1625 = "ttir.transpose"(%1623, %1624) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x40x80xbf16>, tensor<1x40x80x40xbf16>) -> tensor<1x40x80x40xbf16> loc(#loc1184)
-    %1626 = ttir.empty() : tensor<1x80x40x40xbf16> loc(#loc1185)
-    %1627 = "ttir.transpose"(%1625, %1626) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x40x80x40xbf16>, tensor<1x80x40x40xbf16>) -> tensor<1x80x40x40xbf16> loc(#loc1185)
-    %1628 = ttir.empty() : tensor<1x80x40x40xbf16> loc(#loc164)
-    %1629 = "ttir.multiply"(%1627, %arg164, %1628) : (tensor<1x80x40x40xbf16>, tensor<1x80x1x1xbf16>, tensor<1x80x40x40xbf16>) -> tensor<1x80x40x40xbf16> loc(#loc164)
-    %1630 = ttir.empty() : tensor<1x80x40x40xbf16> loc(#loc165)
-    %1631 = "ttir.add"(%1629, %arg165, %1630) : (tensor<1x80x40x40xbf16>, tensor<1x80x1x1xbf16>, tensor<1x80x40x40xbf16>) -> tensor<1x80x40x40xbf16> loc(#loc165)
-    %1632 = ttir.empty() : tensor<1x80x40x40xbf16> loc(#loc817)
-    %1633 = "ttir.sigmoid"(%1631, %1632) : (tensor<1x80x40x40xbf16>, tensor<1x80x40x40xbf16>) -> tensor<1x80x40x40xbf16> loc(#loc817)
-    %1634 = ttir.empty() : tensor<1x80x40x40xbf16> loc(#loc818)
-    %1635 = "ttir.multiply"(%1631, %1633, %1634) : (tensor<1x80x40x40xbf16>, tensor<1x80x40x40xbf16>, tensor<1x80x40x40xbf16>) -> tensor<1x80x40x40xbf16> loc(#loc818)
-    %1636 = ttir.empty() : tensor<1x40x80x40xbf16> loc(#loc819)
-    %1637 = "ttir.transpose"(%1635, %1636) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x80x40x40xbf16>, tensor<1x40x80x40xbf16>) -> tensor<1x40x80x40xbf16> loc(#loc819)
-    %1638 = ttir.empty() : tensor<1x40x40x80xbf16> loc(#loc820)
-    %1639 = "ttir.transpose"(%1637, %1638) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x80x40xbf16>, tensor<1x40x40x80xbf16>) -> tensor<1x40x40x80xbf16> loc(#loc820)
-    %1640 = ttir.empty() : tensor<1x40x40x64xbf16> loc(#loc821)
-    %1641 = "ttir.conv2d"(%1639, %arg285, %arg286, %1640) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 0, 0, 0, 0>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x40x40x80xbf16>, tensor<64x80x1x1xbf16>, tensor<1x1x1x64xbf16>, tensor<1x40x40x64xbf16>) -> tensor<1x40x40x64xbf16> loc(#loc821)
-    %1642 = ttir.empty() : tensor<1x40x64x40xbf16> loc(#loc822)
-    %1643 = "ttir.transpose"(%1641, %1642) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x40x64xbf16>, tensor<1x40x64x40xbf16>) -> tensor<1x40x64x40xbf16> loc(#loc822)
-    %1644 = ttir.empty() : tensor<1x64x40x40xbf16> loc(#loc823)
-    %1645 = "ttir.transpose"(%1643, %1644) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x40x64x40xbf16>, tensor<1x64x40x40xbf16>) -> tensor<1x64x40x40xbf16> loc(#loc823)
-    %1646 = ttir.empty() : tensor<1x40x640x40xbf16> loc(#loc1186)
-    %1647 = "ttir.transpose"(%1599, %1646) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x640x40x40xbf16>, tensor<1x40x640x40xbf16>) -> tensor<1x40x640x40xbf16> loc(#loc1186)
-    %1648 = ttir.empty() : tensor<1x40x40x640xbf16> loc(#loc1187)
-    %1649 = "ttir.transpose"(%1647, %1648) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x640x40xbf16>, tensor<1x40x40x640xbf16>) -> tensor<1x40x40x640xbf16> loc(#loc1187)
-    %1650 = ttir.empty() : tensor<1x40x40x320xbf16> loc(#loc1188)
-    %1651 = "ttir.conv2d"(%1649, %arg287, %1650) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x40x40x640xbf16>, tensor<320x640x3x3xbf16>, tensor<1x40x40x320xbf16>) -> tensor<1x40x40x320xbf16> loc(#loc1188)
-    %1652 = ttir.empty() : tensor<1x40x320x40xbf16> loc(#loc1189)
-    %1653 = "ttir.transpose"(%1651, %1652) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x40x320xbf16>, tensor<1x40x320x40xbf16>) -> tensor<1x40x320x40xbf16> loc(#loc1189)
-    %1654 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc1190)
-    %1655 = "ttir.transpose"(%1653, %1654) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x40x320x40xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc1190)
-    %1656 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc166)
-    %1657 = "ttir.multiply"(%1655, %arg166, %1656) : (tensor<1x320x40x40xbf16>, tensor<1x320x1x1xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc166)
-    %1658 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc167)
-    %1659 = "ttir.add"(%1657, %arg167, %1658) : (tensor<1x320x40x40xbf16>, tensor<1x320x1x1xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc167)
-    %1660 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc824)
-    %1661 = "ttir.sigmoid"(%1659, %1660) : (tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc824)
-    %1662 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc825)
-    %1663 = "ttir.multiply"(%1659, %1661, %1662) : (tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc825)
-    %1664 = ttir.empty() : tensor<1x40x320x40xbf16> loc(#loc1191)
-    %1665 = "ttir.transpose"(%1663, %1664) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x320x40x40xbf16>, tensor<1x40x320x40xbf16>) -> tensor<1x40x320x40xbf16> loc(#loc1191)
-    %1666 = ttir.empty() : tensor<1x40x40x320xbf16> loc(#loc1192)
-    %1667 = "ttir.transpose"(%1665, %1666) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x320x40xbf16>, tensor<1x40x40x320xbf16>) -> tensor<1x40x40x320xbf16> loc(#loc1192)
-    %1668 = ttir.empty() : tensor<1x40x40x320xbf16> loc(#loc1193)
-    %1669 = "ttir.conv2d"(%1667, %arg288, %1668) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x40x40x320xbf16>, tensor<320x320x3x3xbf16>, tensor<1x40x40x320xbf16>) -> tensor<1x40x40x320xbf16> loc(#loc1193)
-    %1670 = ttir.empty() : tensor<1x40x320x40xbf16> loc(#loc1194)
-    %1671 = "ttir.transpose"(%1669, %1670) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x40x320xbf16>, tensor<1x40x320x40xbf16>) -> tensor<1x40x320x40xbf16> loc(#loc1194)
-    %1672 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc1195)
-    %1673 = "ttir.transpose"(%1671, %1672) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x40x320x40xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc1195)
-    %1674 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc168)
-    %1675 = "ttir.multiply"(%1673, %arg168, %1674) : (tensor<1x320x40x40xbf16>, tensor<1x320x1x1xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc168)
-    %1676 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc169)
-    %1677 = "ttir.add"(%1675, %arg169, %1676) : (tensor<1x320x40x40xbf16>, tensor<1x320x1x1xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc169)
-    %1678 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc826)
-    %1679 = "ttir.sigmoid"(%1677, %1678) : (tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc826)
-    %1680 = ttir.empty() : tensor<1x320x40x40xbf16> loc(#loc827)
-    %1681 = "ttir.multiply"(%1677, %1679, %1680) : (tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16> loc(#loc827)
-    %1682 = ttir.empty() : tensor<1x40x320x40xbf16> loc(#loc828)
-    %1683 = "ttir.transpose"(%1681, %1682) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x320x40x40xbf16>, tensor<1x40x320x40xbf16>) -> tensor<1x40x320x40xbf16> loc(#loc828)
-    %1684 = ttir.empty() : tensor<1x40x40x320xbf16> loc(#loc829)
-    %1685 = "ttir.transpose"(%1683, %1684) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x320x40xbf16>, tensor<1x40x40x320xbf16>) -> tensor<1x40x40x320xbf16> loc(#loc829)
-    %1686 = ttir.empty() : tensor<1x40x40x80xbf16> loc(#loc830)
-    %1687 = "ttir.conv2d"(%1685, %arg289, %arg290, %1686) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 0, 0, 0, 0>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x40x40x320xbf16>, tensor<80x320x1x1xbf16>, tensor<1x1x1x80xbf16>, tensor<1x40x40x80xbf16>) -> tensor<1x40x40x80xbf16> loc(#loc830)
-    %1688 = ttir.empty() : tensor<1x40x80x40xbf16> loc(#loc831)
-    %1689 = "ttir.transpose"(%1687, %1688) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x40x80xbf16>, tensor<1x40x80x40xbf16>) -> tensor<1x40x80x40xbf16> loc(#loc831)
-    %1690 = ttir.empty() : tensor<1x80x40x40xbf16> loc(#loc832)
-    %1691 = "ttir.transpose"(%1689, %1690) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x40x80x40xbf16>, tensor<1x80x40x40xbf16>) -> tensor<1x80x40x40xbf16> loc(#loc832)
-    %1692 = ttir.empty() : tensor<1x144x40x40xbf16> loc(#loc331)
-    %1693 = "ttir.concat"(%1645, %1691, %1692) <{dim = -3 : si32}> : (tensor<1x64x40x40xbf16>, tensor<1x80x40x40xbf16>, tensor<1x144x40x40xbf16>) -> tensor<1x144x40x40xbf16> loc(#loc331)
-    %1694 = ttir.empty() : tensor<1x144x1600xbf16> loc(#loc332)
-    %1695 = "ttir.reshape"(%1693, %1694) <{shape = [1 : i32, 144 : i32, 1600 : i32]}> : (tensor<1x144x40x40xbf16>, tensor<1x144x1600xbf16>) -> tensor<1x144x1600xbf16> loc(#loc332)
-    %1696 = ttir.empty() : tensor<1x40x640x40xbf16> loc(#loc526)
-    %1697 = "ttir.transpose"(%1599, %1696) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x640x40x40xbf16>, tensor<1x40x640x40xbf16>) -> tensor<1x40x640x40xbf16> loc(#loc526)
-    %1698 = ttir.empty() : tensor<1x40x40x640xbf16> loc(#loc527)
-    %1699 = "ttir.transpose"(%1697, %1698) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x640x40xbf16>, tensor<1x40x40x640xbf16>) -> tensor<1x40x40x640xbf16> loc(#loc527)
-    %1700 = ttir.empty() : tensor<1x20x20x640xbf16> loc(#loc528)
-    %1701 = "ttir.conv2d"(%1699, %arg291, %1700) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 2, 2>}> {channel_last = 1 : si32} : (tensor<1x40x40x640xbf16>, tensor<640x640x3x3xbf16>, tensor<1x20x20x640xbf16>) -> tensor<1x20x20x640xbf16> loc(#loc528)
-    %1702 = ttir.empty() : tensor<1x20x640x20xbf16> loc(#loc529)
-    %1703 = "ttir.transpose"(%1701, %1702) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x20x20x640xbf16>, tensor<1x20x640x20xbf16>) -> tensor<1x20x640x20xbf16> loc(#loc529)
-    %1704 = ttir.empty() : tensor<1x640x20x20xbf16> loc(#loc530)
-    %1705 = "ttir.transpose"(%1703, %1704) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x20x640x20xbf16>, tensor<1x640x20x20xbf16>) -> tensor<1x640x20x20xbf16> loc(#loc530)
-    %1706 = ttir.empty() : tensor<1x640x20x20xbf16> loc(#loc170)
-    %1707 = "ttir.multiply"(%1705, %arg170, %1706) : (tensor<1x640x20x20xbf16>, tensor<1x640x1x1xbf16>, tensor<1x640x20x20xbf16>) -> tensor<1x640x20x20xbf16> loc(#loc170)
-    %1708 = ttir.empty() : tensor<1x640x20x20xbf16> loc(#loc171)
-    %1709 = "ttir.add"(%1707, %arg171, %1708) : (tensor<1x640x20x20xbf16>, tensor<1x640x1x1xbf16>, tensor<1x640x20x20xbf16>) -> tensor<1x640x20x20xbf16> loc(#loc171)
-    %1710 = ttir.empty() : tensor<1x640x20x20xbf16> loc(#loc334)
-    %1711 = "ttir.sigmoid"(%1709, %1710) : (tensor<1x640x20x20xbf16>, tensor<1x640x20x20xbf16>) -> tensor<1x640x20x20xbf16> loc(#loc334)
-    %1712 = ttir.empty() : tensor<1x640x20x20xbf16> loc(#loc335)
-    %1713 = "ttir.multiply"(%1709, %1711, %1712) : (tensor<1x640x20x20xbf16>, tensor<1x640x20x20xbf16>, tensor<1x640x20x20xbf16>) -> tensor<1x640x20x20xbf16> loc(#loc335)
-    %1714 = ttir.empty() : tensor<1x1280x20x20xbf16> loc(#loc336)
-    %1715 = "ttir.concat"(%1713, %1009, %1714) <{dim = -3 : si32}> : (tensor<1x640x20x20xbf16>, tensor<1x640x20x20xbf16>, tensor<1x1280x20x20xbf16>) -> tensor<1x1280x20x20xbf16> loc(#loc336)
-    %1716 = ttir.empty() : tensor<1x20x1280x20xbf16> loc(#loc833)
-    %1717 = "ttir.transpose"(%1715, %1716) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x1280x20x20xbf16>, tensor<1x20x1280x20xbf16>) -> tensor<1x20x1280x20xbf16> loc(#loc833)
-    %1718 = ttir.empty() : tensor<1x20x20x1280xbf16> loc(#loc834)
-    %1719 = "ttir.transpose"(%1717, %1718) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x20x1280x20xbf16>, tensor<1x20x20x1280xbf16>) -> tensor<1x20x20x1280xbf16> loc(#loc834)
-    %1720 = ttir.empty() : tensor<1x20x20x640xbf16> loc(#loc835)
-    %1721 = "ttir.conv2d"(%1719, %arg292, %1720) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 0, 0, 0, 0>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x20x20x1280xbf16>, tensor<640x1280x1x1xbf16>, tensor<1x20x20x640xbf16>) -> tensor<1x20x20x640xbf16> loc(#loc835)
-    %1722 = ttir.empty() : tensor<1x20x640x20xbf16> loc(#loc836)
-    %1723 = "ttir.transpose"(%1721, %1722) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x20x20x640xbf16>, tensor<1x20x640x20xbf16>) -> tensor<1x20x640x20xbf16> loc(#loc836)
-    %1724 = ttir.empty() : tensor<1x640x20x20xbf16> loc(#loc837)
-    %1725 = "ttir.transpose"(%1723, %1724) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x20x640x20xbf16>, tensor<1x640x20x20xbf16>) -> tensor<1x640x20x20xbf16> loc(#loc837)
-    %1726 = ttir.empty() : tensor<1x640x20x20xbf16> loc(#loc172)
-    %1727 = "ttir.multiply"(%1725, %arg172, %1726) : (tensor<1x640x20x20xbf16>, tensor<1x640x1x1xbf16>, tensor<1x640x20x20xbf16>) -> tensor<1x640x20x20xbf16> loc(#loc172)
-    %1728 = ttir.empty() : tensor<1x640x20x20xbf16> loc(#loc173)
-    %1729 = "ttir.add"(%1727, %arg173, %1728) : (tensor<1x640x20x20xbf16>, tensor<1x640x1x1xbf16>, tensor<1x640x20x20xbf16>) -> tensor<1x640x20x20xbf16> loc(#loc173)
-    %1730 = ttir.empty() : tensor<1x640x20x20xbf16> loc(#loc532)
-    %1731 = "ttir.sigmoid"(%1729, %1730) : (tensor<1x640x20x20xbf16>, tensor<1x640x20x20xbf16>) -> tensor<1x640x20x20xbf16> loc(#loc532)
-    %1732 = ttir.empty() : tensor<1x640x20x20xbf16> loc(#loc533)
-    %1733 = "ttir.multiply"(%1729, %1731, %1732) : (tensor<1x640x20x20xbf16>, tensor<1x640x20x20xbf16>, tensor<1x640x20x20xbf16>) -> tensor<1x640x20x20xbf16> loc(#loc533)
-    %1734 = ttir.empty() : tensor<1x320x20x20xbf16> loc(#loc338)
-    %1735 = "ttir.index"(%1733, %1734) <{begin = 0 : i32, dim = 1 : i32, end = 320 : i32, step = 1 : i32}> : (tensor<1x640x20x20xbf16>, tensor<1x320x20x20xbf16>) -> tensor<1x320x20x20xbf16> loc(#loc338)
-    %1736 = ttir.empty() : tensor<1x320x20x20xbf16> loc(#loc339)
-    %1737 = "ttir.index"(%1733, %1736) <{begin = 320 : i32, dim = 1 : i32, end = 640 : i32, step = 1 : i32}> : (tensor<1x640x20x20xbf16>, tensor<1x320x20x20xbf16>) -> tensor<1x320x20x20xbf16> loc(#loc339)
-    %1738 = ttir.empty() : tensor<1x20x320x20xbf16> loc(#loc1196)
-    %1739 = "ttir.transpose"(%1737, %1738) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x320x20x20xbf16>, tensor<1x20x320x20xbf16>) -> tensor<1x20x320x20xbf16> loc(#loc1196)
-    %1740 = ttir.empty() : tensor<1x20x20x320xbf16> loc(#loc1197)
-    %1741 = "ttir.transpose"(%1739, %1740) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x20x320x20xbf16>, tensor<1x20x20x320xbf16>) -> tensor<1x20x20x320xbf16> loc(#loc1197)
-    %1742 = ttir.empty() : tensor<1x20x20x320xbf16> loc(#loc1198)
-    %1743 = "ttir.conv2d"(%1741, %arg293, %1742) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x20x20x320xbf16>, tensor<320x320x3x3xbf16>, tensor<1x20x20x320xbf16>) -> tensor<1x20x20x320xbf16> loc(#loc1198)
-    %1744 = ttir.empty() : tensor<1x20x320x20xbf16> loc(#loc1199)
-    %1745 = "ttir.transpose"(%1743, %1744) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x20x20x320xbf16>, tensor<1x20x320x20xbf16>) -> tensor<1x20x320x20xbf16> loc(#loc1199)
-    %1746 = ttir.empty() : tensor<1x320x20x20xbf16> loc(#loc1200)
-    %1747 = "ttir.transpose"(%1745, %1746) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x20x320x20xbf16>, tensor<1x320x20x20xbf16>) -> tensor<1x320x20x20xbf16> loc(#loc1200)
-    %1748 = ttir.empty() : tensor<1x320x20x20xbf16> loc(#loc174)
-    %1749 = "ttir.multiply"(%1747, %arg174, %1748) : (tensor<1x320x20x20xbf16>, tensor<1x320x1x1xbf16>, tensor<1x320x20x20xbf16>) -> tensor<1x320x20x20xbf16> loc(#loc174)
-    %1750 = ttir.empty() : tensor<1x320x20x20xbf16> loc(#loc175)
-    %1751 = "ttir.add"(%1749, %arg175, %1750) : (tensor<1x320x20x20xbf16>, tensor<1x320x1x1xbf16>, tensor<1x320x20x20xbf16>) -> tensor<1x320x20x20xbf16> loc(#loc175)
-    %1752 = ttir.empty() : tensor<1x320x20x20xbf16> loc(#loc839)
-    %1753 = "ttir.sigmoid"(%1751, %1752) : (tensor<1x320x20x20xbf16>, tensor<1x320x20x20xbf16>) -> tensor<1x320x20x20xbf16> loc(#loc839)
-    %1754 = ttir.empty() : tensor<1x320x20x20xbf16> loc(#loc840)
-    %1755 = "ttir.multiply"(%1751, %1753, %1754) : (tensor<1x320x20x20xbf16>, tensor<1x320x20x20xbf16>, tensor<1x320x20x20xbf16>) -> tensor<1x320x20x20xbf16> loc(#loc840)
-    %1756 = ttir.empty() : tensor<1x20x320x20xbf16> loc(#loc1201)
-    %1757 = "ttir.transpose"(%1755, %1756) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x320x20x20xbf16>, tensor<1x20x320x20xbf16>) -> tensor<1x20x320x20xbf16> loc(#loc1201)
-    %1758 = ttir.empty() : tensor<1x20x20x320xbf16> loc(#loc1202)
-    %1759 = "ttir.transpose"(%1757, %1758) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x20x320x20xbf16>, tensor<1x20x20x320xbf16>) -> tensor<1x20x20x320xbf16> loc(#loc1202)
-    %1760 = ttir.empty() : tensor<1x20x20x320xbf16> loc(#loc1203)
-    %1761 = "ttir.conv2d"(%1759, %arg294, %1760) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x20x20x320xbf16>, tensor<320x320x3x3xbf16>, tensor<1x20x20x320xbf16>) -> tensor<1x20x20x320xbf16> loc(#loc1203)
-    %1762 = ttir.empty() : tensor<1x20x320x20xbf16> loc(#loc1204)
-    %1763 = "ttir.transpose"(%1761, %1762) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x20x20x320xbf16>, tensor<1x20x320x20xbf16>) -> tensor<1x20x320x20xbf16> loc(#loc1204)
-    %1764 = ttir.empty() : tensor<1x320x20x20xbf16> loc(#loc1205)
-    %1765 = "ttir.transpose"(%1763, %1764) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x20x320x20xbf16>, tensor<1x320x20x20xbf16>) -> tensor<1x320x20x20xbf16> loc(#loc1205)
-    %1766 = ttir.empty() : tensor<1x320x20x20xbf16> loc(#loc176)
-    %1767 = "ttir.multiply"(%1765, %arg176, %1766) : (tensor<1x320x20x20xbf16>, tensor<1x320x1x1xbf16>, tensor<1x320x20x20xbf16>) -> tensor<1x320x20x20xbf16> loc(#loc176)
-    %1768 = ttir.empty() : tensor<1x320x20x20xbf16> loc(#loc177)
-    %1769 = "ttir.add"(%1767, %arg177, %1768) : (tensor<1x320x20x20xbf16>, tensor<1x320x1x1xbf16>, tensor<1x320x20x20xbf16>) -> tensor<1x320x20x20xbf16> loc(#loc177)
-    %1770 = ttir.empty() : tensor<1x320x20x20xbf16> loc(#loc842)
-    %1771 = "ttir.sigmoid"(%1769, %1770) : (tensor<1x320x20x20xbf16>, tensor<1x320x20x20xbf16>) -> tensor<1x320x20x20xbf16> loc(#loc842)
-    %1772 = ttir.empty() : tensor<1x320x20x20xbf16> loc(#loc843)
-    %1773 = "ttir.multiply"(%1769, %1771, %1772) : (tensor<1x320x20x20xbf16>, tensor<1x320x20x20xbf16>, tensor<1x320x20x20xbf16>) -> tensor<1x320x20x20xbf16> loc(#loc843)
-    %1774 = ttir.empty() : tensor<1x20x320x20xbf16> loc(#loc1206)
-    %1775 = "ttir.transpose"(%1773, %1774) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x320x20x20xbf16>, tensor<1x20x320x20xbf16>) -> tensor<1x20x320x20xbf16> loc(#loc1206)
-    %1776 = ttir.empty() : tensor<1x20x20x320xbf16> loc(#loc1207)
-    %1777 = "ttir.transpose"(%1775, %1776) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x20x320x20xbf16>, tensor<1x20x20x320xbf16>) -> tensor<1x20x20x320xbf16> loc(#loc1207)
-    %1778 = ttir.empty() : tensor<1x20x20x320xbf16> loc(#loc1208)
-    %1779 = "ttir.conv2d"(%1777, %arg295, %1778) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x20x20x320xbf16>, tensor<320x320x3x3xbf16>, tensor<1x20x20x320xbf16>) -> tensor<1x20x20x320xbf16> loc(#loc1208)
-    %1780 = ttir.empty() : tensor<1x20x320x20xbf16> loc(#loc1209)
-    %1781 = "ttir.transpose"(%1779, %1780) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x20x20x320xbf16>, tensor<1x20x320x20xbf16>) -> tensor<1x20x320x20xbf16> loc(#loc1209)
-    %1782 = ttir.empty() : tensor<1x320x20x20xbf16> loc(#loc1210)
-    %1783 = "ttir.transpose"(%1781, %1782) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x20x320x20xbf16>, tensor<1x320x20x20xbf16>) -> tensor<1x320x20x20xbf16> loc(#loc1210)
-    %1784 = ttir.empty() : tensor<1x320x20x20xbf16> loc(#loc178)
-    %1785 = "ttir.multiply"(%1783, %arg178, %1784) : (tensor<1x320x20x20xbf16>, tensor<1x320x1x1xbf16>, tensor<1x320x20x20xbf16>) -> tensor<1x320x20x20xbf16> loc(#loc178)
-    %1786 = ttir.empty() : tensor<1x320x20x20xbf16> loc(#loc179)
-    %1787 = "ttir.add"(%1785, %arg179, %1786) : (tensor<1x320x20x20xbf16>, tensor<1x320x1x1xbf16>, tensor<1x320x20x20xbf16>) -> tensor<1x320x20x20xbf16> loc(#loc179)
-    %1788 = ttir.empty() : tensor<1x320x20x20xbf16> loc(#loc845)
-    %1789 = "ttir.sigmoid"(%1787, %1788) : (tensor<1x320x20x20xbf16>, tensor<1x320x20x20xbf16>) -> tensor<1x320x20x20xbf16> loc(#loc845)
-    %1790 = ttir.empty() : tensor<1x320x20x20xbf16> loc(#loc846)
-    %1791 = "ttir.multiply"(%1787, %1789, %1790) : (tensor<1x320x20x20xbf16>, tensor<1x320x20x20xbf16>, tensor<1x320x20x20xbf16>) -> tensor<1x320x20x20xbf16> loc(#loc846)
-    %1792 = ttir.empty() : tensor<1x20x320x20xbf16> loc(#loc1211)
-    %1793 = "ttir.transpose"(%1791, %1792) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x320x20x20xbf16>, tensor<1x20x320x20xbf16>) -> tensor<1x20x320x20xbf16> loc(#loc1211)
-    %1794 = ttir.empty() : tensor<1x20x20x320xbf16> loc(#loc1212)
-    %1795 = "ttir.transpose"(%1793, %1794) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x20x320x20xbf16>, tensor<1x20x20x320xbf16>) -> tensor<1x20x20x320xbf16> loc(#loc1212)
-    %1796 = ttir.empty() : tensor<1x20x20x320xbf16> loc(#loc1213)
-    %1797 = "ttir.conv2d"(%1795, %arg296, %1796) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x20x20x320xbf16>, tensor<320x320x3x3xbf16>, tensor<1x20x20x320xbf16>) -> tensor<1x20x20x320xbf16> loc(#loc1213)
-    %1798 = ttir.empty() : tensor<1x20x320x20xbf16> loc(#loc1214)
-    %1799 = "ttir.transpose"(%1797, %1798) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x20x20x320xbf16>, tensor<1x20x320x20xbf16>) -> tensor<1x20x320x20xbf16> loc(#loc1214)
-    %1800 = ttir.empty() : tensor<1x320x20x20xbf16> loc(#loc1215)
-    %1801 = "ttir.transpose"(%1799, %1800) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x20x320x20xbf16>, tensor<1x320x20x20xbf16>) -> tensor<1x320x20x20xbf16> loc(#loc1215)
-    %1802 = ttir.empty() : tensor<1x320x20x20xbf16> loc(#loc180)
-    %1803 = "ttir.multiply"(%1801, %arg180, %1802) : (tensor<1x320x20x20xbf16>, tensor<1x320x1x1xbf16>, tensor<1x320x20x20xbf16>) -> tensor<1x320x20x20xbf16> loc(#loc180)
-    %1804 = ttir.empty() : tensor<1x320x20x20xbf16> loc(#loc181)
-    %1805 = "ttir.add"(%1803, %arg181, %1804) : (tensor<1x320x20x20xbf16>, tensor<1x320x1x1xbf16>, tensor<1x320x20x20xbf16>) -> tensor<1x320x20x20xbf16> loc(#loc181)
-    %1806 = ttir.empty() : tensor<1x320x20x20xbf16> loc(#loc848)
-    %1807 = "ttir.sigmoid"(%1805, %1806) : (tensor<1x320x20x20xbf16>, tensor<1x320x20x20xbf16>) -> tensor<1x320x20x20xbf16> loc(#loc848)
-    %1808 = ttir.empty() : tensor<1x320x20x20xbf16> loc(#loc849)
-    %1809 = "ttir.multiply"(%1805, %1807, %1808) : (tensor<1x320x20x20xbf16>, tensor<1x320x20x20xbf16>, tensor<1x320x20x20xbf16>) -> tensor<1x320x20x20xbf16> loc(#loc849)
-    %1810 = ttir.empty() : tensor<1x20x320x20xbf16> loc(#loc1216)
-    %1811 = "ttir.transpose"(%1809, %1810) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x320x20x20xbf16>, tensor<1x20x320x20xbf16>) -> tensor<1x20x320x20xbf16> loc(#loc1216)
-    %1812 = ttir.empty() : tensor<1x20x20x320xbf16> loc(#loc1217)
-    %1813 = "ttir.transpose"(%1811, %1812) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x20x320x20xbf16>, tensor<1x20x20x320xbf16>) -> tensor<1x20x20x320xbf16> loc(#loc1217)
-    %1814 = ttir.empty() : tensor<1x20x20x320xbf16> loc(#loc1218)
-    %1815 = "ttir.conv2d"(%1813, %arg297, %1814) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x20x20x320xbf16>, tensor<320x320x3x3xbf16>, tensor<1x20x20x320xbf16>) -> tensor<1x20x20x320xbf16> loc(#loc1218)
-    %1816 = ttir.empty() : tensor<1x20x320x20xbf16> loc(#loc1219)
-    %1817 = "ttir.transpose"(%1815, %1816) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x20x20x320xbf16>, tensor<1x20x320x20xbf16>) -> tensor<1x20x320x20xbf16> loc(#loc1219)
-    %1818 = ttir.empty() : tensor<1x320x20x20xbf16> loc(#loc1220)
-    %1819 = "ttir.transpose"(%1817, %1818) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x20x320x20xbf16>, tensor<1x320x20x20xbf16>) -> tensor<1x320x20x20xbf16> loc(#loc1220)
-    %1820 = ttir.empty() : tensor<1x320x20x20xbf16> loc(#loc182)
-    %1821 = "ttir.multiply"(%1819, %arg182, %1820) : (tensor<1x320x20x20xbf16>, tensor<1x320x1x1xbf16>, tensor<1x320x20x20xbf16>) -> tensor<1x320x20x20xbf16> loc(#loc182)
-    %1822 = ttir.empty() : tensor<1x320x20x20xbf16> loc(#loc183)
-    %1823 = "ttir.add"(%1821, %arg183, %1822) : (tensor<1x320x20x20xbf16>, tensor<1x320x1x1xbf16>, tensor<1x320x20x20xbf16>) -> tensor<1x320x20x20xbf16> loc(#loc183)
-    %1824 = ttir.empty() : tensor<1x320x20x20xbf16> loc(#loc851)
-    %1825 = "ttir.sigmoid"(%1823, %1824) : (tensor<1x320x20x20xbf16>, tensor<1x320x20x20xbf16>) -> tensor<1x320x20x20xbf16> loc(#loc851)
-    %1826 = ttir.empty() : tensor<1x320x20x20xbf16> loc(#loc852)
-    %1827 = "ttir.multiply"(%1823, %1825, %1826) : (tensor<1x320x20x20xbf16>, tensor<1x320x20x20xbf16>, tensor<1x320x20x20xbf16>) -> tensor<1x320x20x20xbf16> loc(#loc852)
-    %1828 = ttir.empty() : tensor<1x20x320x20xbf16> loc(#loc1221)
-    %1829 = "ttir.transpose"(%1827, %1828) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x320x20x20xbf16>, tensor<1x20x320x20xbf16>) -> tensor<1x20x320x20xbf16> loc(#loc1221)
-    %1830 = ttir.empty() : tensor<1x20x20x320xbf16> loc(#loc1222)
-    %1831 = "ttir.transpose"(%1829, %1830) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x20x320x20xbf16>, tensor<1x20x20x320xbf16>) -> tensor<1x20x20x320xbf16> loc(#loc1222)
-    %1832 = ttir.empty() : tensor<1x20x20x320xbf16> loc(#loc1223)
-    %1833 = "ttir.conv2d"(%1831, %arg298, %1832) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x20x20x320xbf16>, tensor<320x320x3x3xbf16>, tensor<1x20x20x320xbf16>) -> tensor<1x20x20x320xbf16> loc(#loc1223)
-    %1834 = ttir.empty() : tensor<1x20x320x20xbf16> loc(#loc1224)
-    %1835 = "ttir.transpose"(%1833, %1834) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x20x20x320xbf16>, tensor<1x20x320x20xbf16>) -> tensor<1x20x320x20xbf16> loc(#loc1224)
-    %1836 = ttir.empty() : tensor<1x320x20x20xbf16> loc(#loc1225)
-    %1837 = "ttir.transpose"(%1835, %1836) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x20x320x20xbf16>, tensor<1x320x20x20xbf16>) -> tensor<1x320x20x20xbf16> loc(#loc1225)
-    %1838 = ttir.empty() : tensor<1x320x20x20xbf16> loc(#loc184)
-    %1839 = "ttir.multiply"(%1837, %arg184, %1838) : (tensor<1x320x20x20xbf16>, tensor<1x320x1x1xbf16>, tensor<1x320x20x20xbf16>) -> tensor<1x320x20x20xbf16> loc(#loc184)
-    %1840 = ttir.empty() : tensor<1x320x20x20xbf16> loc(#loc185)
-    %1841 = "ttir.add"(%1839, %arg185, %1840) : (tensor<1x320x20x20xbf16>, tensor<1x320x1x1xbf16>, tensor<1x320x20x20xbf16>) -> tensor<1x320x20x20xbf16> loc(#loc185)
-    %1842 = ttir.empty() : tensor<1x320x20x20xbf16> loc(#loc854)
-    %1843 = "ttir.sigmoid"(%1841, %1842) : (tensor<1x320x20x20xbf16>, tensor<1x320x20x20xbf16>) -> tensor<1x320x20x20xbf16> loc(#loc854)
-    %1844 = ttir.empty() : tensor<1x320x20x20xbf16> loc(#loc855)
-    %1845 = "ttir.multiply"(%1841, %1843, %1844) : (tensor<1x320x20x20xbf16>, tensor<1x320x20x20xbf16>, tensor<1x320x20x20xbf16>) -> tensor<1x320x20x20xbf16> loc(#loc855)
-    %1846 = ttir.empty() : tensor<1x1600x20x20xbf16> loc(#loc343)
-    %1847 = "ttir.concat"(%1735, %1737, %1773, %1809, %1845, %1846) <{dim = -3 : si32}> : (tensor<1x320x20x20xbf16>, tensor<1x320x20x20xbf16>, tensor<1x320x20x20xbf16>, tensor<1x320x20x20xbf16>, tensor<1x320x20x20xbf16>, tensor<1x1600x20x20xbf16>) -> tensor<1x1600x20x20xbf16> loc(#loc343)
-    %1848 = ttir.empty() : tensor<1x20x1600x20xbf16> loc(#loc856)
-    %1849 = "ttir.transpose"(%1847, %1848) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x1600x20x20xbf16>, tensor<1x20x1600x20xbf16>) -> tensor<1x20x1600x20xbf16> loc(#loc856)
-    %1850 = ttir.empty() : tensor<1x20x20x1600xbf16> loc(#loc857)
-    %1851 = "ttir.transpose"(%1849, %1850) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x20x1600x20xbf16>, tensor<1x20x20x1600xbf16>) -> tensor<1x20x20x1600xbf16> loc(#loc857)
-    %1852 = ttir.empty() : tensor<1x20x20x640xbf16> loc(#loc858)
-    %1853 = "ttir.conv2d"(%1851, %arg299, %1852) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 0, 0, 0, 0>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x20x20x1600xbf16>, tensor<640x1600x1x1xbf16>, tensor<1x20x20x640xbf16>) -> tensor<1x20x20x640xbf16> loc(#loc858)
-    %1854 = ttir.empty() : tensor<1x20x640x20xbf16> loc(#loc859)
-    %1855 = "ttir.transpose"(%1853, %1854) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x20x20x640xbf16>, tensor<1x20x640x20xbf16>) -> tensor<1x20x640x20xbf16> loc(#loc859)
-    %1856 = ttir.empty() : tensor<1x640x20x20xbf16> loc(#loc860)
-    %1857 = "ttir.transpose"(%1855, %1856) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x20x640x20xbf16>, tensor<1x640x20x20xbf16>) -> tensor<1x640x20x20xbf16> loc(#loc860)
-    %1858 = ttir.empty() : tensor<1x640x20x20xbf16> loc(#loc186)
-    %1859 = "ttir.multiply"(%1857, %arg186, %1858) : (tensor<1x640x20x20xbf16>, tensor<1x640x1x1xbf16>, tensor<1x640x20x20xbf16>) -> tensor<1x640x20x20xbf16> loc(#loc186)
-    %1860 = ttir.empty() : tensor<1x640x20x20xbf16> loc(#loc187)
-    %1861 = "ttir.add"(%1859, %arg187, %1860) : (tensor<1x640x20x20xbf16>, tensor<1x640x1x1xbf16>, tensor<1x640x20x20xbf16>) -> tensor<1x640x20x20xbf16> loc(#loc187)
-    %1862 = ttir.empty() : tensor<1x640x20x20xbf16> loc(#loc541)
-    %1863 = "ttir.sigmoid"(%1861, %1862) : (tensor<1x640x20x20xbf16>, tensor<1x640x20x20xbf16>) -> tensor<1x640x20x20xbf16> loc(#loc541)
-    %1864 = ttir.empty() : tensor<1x640x20x20xbf16> loc(#loc542)
-    %1865 = "ttir.multiply"(%1861, %1863, %1864) : (tensor<1x640x20x20xbf16>, tensor<1x640x20x20xbf16>, tensor<1x640x20x20xbf16>) -> tensor<1x640x20x20xbf16> loc(#loc542)
-    %1866 = ttir.empty() : tensor<1x20x640x20xbf16> loc(#loc1226)
-    %1867 = "ttir.transpose"(%1865, %1866) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x640x20x20xbf16>, tensor<1x20x640x20xbf16>) -> tensor<1x20x640x20xbf16> loc(#loc1226)
-    %1868 = ttir.empty() : tensor<1x20x20x640xbf16> loc(#loc1227)
-    %1869 = "ttir.transpose"(%1867, %1868) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x20x640x20xbf16>, tensor<1x20x20x640xbf16>) -> tensor<1x20x20x640xbf16> loc(#loc1227)
-    %1870 = ttir.empty() : tensor<1x20x20x80xbf16> loc(#loc1228)
-    %1871 = "ttir.conv2d"(%1869, %arg300, %1870) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x20x20x640xbf16>, tensor<80x640x3x3xbf16>, tensor<1x20x20x80xbf16>) -> tensor<1x20x20x80xbf16> loc(#loc1228)
-    %1872 = ttir.empty() : tensor<1x20x80x20xbf16> loc(#loc1229)
-    %1873 = "ttir.transpose"(%1871, %1872) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x20x20x80xbf16>, tensor<1x20x80x20xbf16>) -> tensor<1x20x80x20xbf16> loc(#loc1229)
-    %1874 = ttir.empty() : tensor<1x80x20x20xbf16> loc(#loc1230)
-    %1875 = "ttir.transpose"(%1873, %1874) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x20x80x20xbf16>, tensor<1x80x20x20xbf16>) -> tensor<1x80x20x20xbf16> loc(#loc1230)
-    %1876 = ttir.empty() : tensor<1x80x20x20xbf16> loc(#loc188)
-    %1877 = "ttir.multiply"(%1875, %arg188, %1876) : (tensor<1x80x20x20xbf16>, tensor<1x80x1x1xbf16>, tensor<1x80x20x20xbf16>) -> tensor<1x80x20x20xbf16> loc(#loc188)
-    %1878 = ttir.empty() : tensor<1x80x20x20xbf16> loc(#loc189)
-    %1879 = "ttir.add"(%1877, %arg189, %1878) : (tensor<1x80x20x20xbf16>, tensor<1x80x1x1xbf16>, tensor<1x80x20x20xbf16>) -> tensor<1x80x20x20xbf16> loc(#loc189)
-    %1880 = ttir.empty() : tensor<1x80x20x20xbf16> loc(#loc862)
-    %1881 = "ttir.sigmoid"(%1879, %1880) : (tensor<1x80x20x20xbf16>, tensor<1x80x20x20xbf16>) -> tensor<1x80x20x20xbf16> loc(#loc862)
-    %1882 = ttir.empty() : tensor<1x80x20x20xbf16> loc(#loc863)
-    %1883 = "ttir.multiply"(%1879, %1881, %1882) : (tensor<1x80x20x20xbf16>, tensor<1x80x20x20xbf16>, tensor<1x80x20x20xbf16>) -> tensor<1x80x20x20xbf16> loc(#loc863)
-    %1884 = ttir.empty() : tensor<1x20x80x20xbf16> loc(#loc1231)
-    %1885 = "ttir.transpose"(%1883, %1884) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x80x20x20xbf16>, tensor<1x20x80x20xbf16>) -> tensor<1x20x80x20xbf16> loc(#loc1231)
-    %1886 = ttir.empty() : tensor<1x20x20x80xbf16> loc(#loc1232)
-    %1887 = "ttir.transpose"(%1885, %1886) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x20x80x20xbf16>, tensor<1x20x20x80xbf16>) -> tensor<1x20x20x80xbf16> loc(#loc1232)
-    %1888 = ttir.empty() : tensor<1x20x20x80xbf16> loc(#loc1233)
-    %1889 = "ttir.conv2d"(%1887, %arg301, %1888) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x20x20x80xbf16>, tensor<80x80x3x3xbf16>, tensor<1x20x20x80xbf16>) -> tensor<1x20x20x80xbf16> loc(#loc1233)
-    %1890 = ttir.empty() : tensor<1x20x80x20xbf16> loc(#loc1234)
-    %1891 = "ttir.transpose"(%1889, %1890) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x20x20x80xbf16>, tensor<1x20x80x20xbf16>) -> tensor<1x20x80x20xbf16> loc(#loc1234)
-    %1892 = ttir.empty() : tensor<1x80x20x20xbf16> loc(#loc1235)
-    %1893 = "ttir.transpose"(%1891, %1892) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x20x80x20xbf16>, tensor<1x80x20x20xbf16>) -> tensor<1x80x20x20xbf16> loc(#loc1235)
-    %1894 = ttir.empty() : tensor<1x80x20x20xbf16> loc(#loc190)
-    %1895 = "ttir.multiply"(%1893, %arg190, %1894) : (tensor<1x80x20x20xbf16>, tensor<1x80x1x1xbf16>, tensor<1x80x20x20xbf16>) -> tensor<1x80x20x20xbf16> loc(#loc190)
-    %1896 = ttir.empty() : tensor<1x80x20x20xbf16> loc(#loc191)
-    %1897 = "ttir.add"(%1895, %arg191, %1896) : (tensor<1x80x20x20xbf16>, tensor<1x80x1x1xbf16>, tensor<1x80x20x20xbf16>) -> tensor<1x80x20x20xbf16> loc(#loc191)
-    %1898 = ttir.empty() : tensor<1x80x20x20xbf16> loc(#loc865)
-    %1899 = "ttir.sigmoid"(%1897, %1898) : (tensor<1x80x20x20xbf16>, tensor<1x80x20x20xbf16>) -> tensor<1x80x20x20xbf16> loc(#loc865)
-    %1900 = ttir.empty() : tensor<1x80x20x20xbf16> loc(#loc866)
-    %1901 = "ttir.multiply"(%1897, %1899, %1900) : (tensor<1x80x20x20xbf16>, tensor<1x80x20x20xbf16>, tensor<1x80x20x20xbf16>) -> tensor<1x80x20x20xbf16> loc(#loc866)
-    %1902 = ttir.empty() : tensor<1x20x80x20xbf16> loc(#loc867)
-    %1903 = "ttir.transpose"(%1901, %1902) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x80x20x20xbf16>, tensor<1x20x80x20xbf16>) -> tensor<1x20x80x20xbf16> loc(#loc867)
-    %1904 = ttir.empty() : tensor<1x20x20x80xbf16> loc(#loc868)
-    %1905 = "ttir.transpose"(%1903, %1904) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x20x80x20xbf16>, tensor<1x20x20x80xbf16>) -> tensor<1x20x20x80xbf16> loc(#loc868)
-    %1906 = ttir.empty() : tensor<1x20x20x64xbf16> loc(#loc869)
-    %1907 = "ttir.conv2d"(%1905, %arg302, %arg303, %1906) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 0, 0, 0, 0>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x20x20x80xbf16>, tensor<64x80x1x1xbf16>, tensor<1x1x1x64xbf16>, tensor<1x20x20x64xbf16>) -> tensor<1x20x20x64xbf16> loc(#loc869)
-    %1908 = ttir.empty() : tensor<1x20x64x20xbf16> loc(#loc870)
-    %1909 = "ttir.transpose"(%1907, %1908) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x20x20x64xbf16>, tensor<1x20x64x20xbf16>) -> tensor<1x20x64x20xbf16> loc(#loc870)
-    %1910 = ttir.empty() : tensor<1x64x20x20xbf16> loc(#loc871)
-    %1911 = "ttir.transpose"(%1909, %1910) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x20x64x20xbf16>, tensor<1x64x20x20xbf16>) -> tensor<1x64x20x20xbf16> loc(#loc871)
-    %1912 = ttir.empty() : tensor<1x20x640x20xbf16> loc(#loc1236)
-    %1913 = "ttir.transpose"(%1865, %1912) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x640x20x20xbf16>, tensor<1x20x640x20xbf16>) -> tensor<1x20x640x20xbf16> loc(#loc1236)
-    %1914 = ttir.empty() : tensor<1x20x20x640xbf16> loc(#loc1237)
-    %1915 = "ttir.transpose"(%1913, %1914) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x20x640x20xbf16>, tensor<1x20x20x640xbf16>) -> tensor<1x20x20x640xbf16> loc(#loc1237)
-    %1916 = ttir.empty() : tensor<1x20x20x320xbf16> loc(#loc1238)
-    %1917 = "ttir.conv2d"(%1915, %arg304, %1916) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x20x20x640xbf16>, tensor<320x640x3x3xbf16>, tensor<1x20x20x320xbf16>) -> tensor<1x20x20x320xbf16> loc(#loc1238)
-    %1918 = ttir.empty() : tensor<1x20x320x20xbf16> loc(#loc1239)
-    %1919 = "ttir.transpose"(%1917, %1918) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x20x20x320xbf16>, tensor<1x20x320x20xbf16>) -> tensor<1x20x320x20xbf16> loc(#loc1239)
-    %1920 = ttir.empty() : tensor<1x320x20x20xbf16> loc(#loc1240)
-    %1921 = "ttir.transpose"(%1919, %1920) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x20x320x20xbf16>, tensor<1x320x20x20xbf16>) -> tensor<1x320x20x20xbf16> loc(#loc1240)
-    %1922 = ttir.empty() : tensor<1x320x20x20xbf16> loc(#loc192)
-    %1923 = "ttir.multiply"(%1921, %arg192, %1922) : (tensor<1x320x20x20xbf16>, tensor<1x320x1x1xbf16>, tensor<1x320x20x20xbf16>) -> tensor<1x320x20x20xbf16> loc(#loc192)
-    %1924 = ttir.empty() : tensor<1x320x20x20xbf16> loc(#loc193)
-    %1925 = "ttir.add"(%1923, %arg193, %1924) : (tensor<1x320x20x20xbf16>, tensor<1x320x1x1xbf16>, tensor<1x320x20x20xbf16>) -> tensor<1x320x20x20xbf16> loc(#loc193)
-    %1926 = ttir.empty() : tensor<1x320x20x20xbf16> loc(#loc872)
-    %1927 = "ttir.sigmoid"(%1925, %1926) : (tensor<1x320x20x20xbf16>, tensor<1x320x20x20xbf16>) -> tensor<1x320x20x20xbf16> loc(#loc872)
-    %1928 = ttir.empty() : tensor<1x320x20x20xbf16> loc(#loc873)
-    %1929 = "ttir.multiply"(%1925, %1927, %1928) : (tensor<1x320x20x20xbf16>, tensor<1x320x20x20xbf16>, tensor<1x320x20x20xbf16>) -> tensor<1x320x20x20xbf16> loc(#loc873)
-    %1930 = ttir.empty() : tensor<1x20x320x20xbf16> loc(#loc1241)
-    %1931 = "ttir.transpose"(%1929, %1930) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x320x20x20xbf16>, tensor<1x20x320x20xbf16>) -> tensor<1x20x320x20xbf16> loc(#loc1241)
-    %1932 = ttir.empty() : tensor<1x20x20x320xbf16> loc(#loc1242)
-    %1933 = "ttir.transpose"(%1931, %1932) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x20x320x20xbf16>, tensor<1x20x20x320xbf16>) -> tensor<1x20x20x320xbf16> loc(#loc1242)
-    %1934 = ttir.empty() : tensor<1x20x20x320xbf16> loc(#loc1243)
-    %1935 = "ttir.conv2d"(%1933, %arg305, %1934) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x20x20x320xbf16>, tensor<320x320x3x3xbf16>, tensor<1x20x20x320xbf16>) -> tensor<1x20x20x320xbf16> loc(#loc1243)
-    %1936 = ttir.empty() : tensor<1x20x320x20xbf16> loc(#loc1244)
-    %1937 = "ttir.transpose"(%1935, %1936) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x20x20x320xbf16>, tensor<1x20x320x20xbf16>) -> tensor<1x20x320x20xbf16> loc(#loc1244)
-    %1938 = ttir.empty() : tensor<1x320x20x20xbf16> loc(#loc1245)
-    %1939 = "ttir.transpose"(%1937, %1938) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x20x320x20xbf16>, tensor<1x320x20x20xbf16>) -> tensor<1x320x20x20xbf16> loc(#loc1245)
-    %1940 = ttir.empty() : tensor<1x320x20x20xbf16> loc(#loc194)
-    %1941 = "ttir.multiply"(%1939, %arg194, %1940) : (tensor<1x320x20x20xbf16>, tensor<1x320x1x1xbf16>, tensor<1x320x20x20xbf16>) -> tensor<1x320x20x20xbf16> loc(#loc194)
-    %1942 = ttir.empty() : tensor<1x320x20x20xbf16> loc(#loc195)
-    %1943 = "ttir.add"(%1941, %arg195, %1942) : (tensor<1x320x20x20xbf16>, tensor<1x320x1x1xbf16>, tensor<1x320x20x20xbf16>) -> tensor<1x320x20x20xbf16> loc(#loc195)
-    %1944 = ttir.empty() : tensor<1x320x20x20xbf16> loc(#loc874)
-    %1945 = "ttir.sigmoid"(%1943, %1944) : (tensor<1x320x20x20xbf16>, tensor<1x320x20x20xbf16>) -> tensor<1x320x20x20xbf16> loc(#loc874)
-    %1946 = ttir.empty() : tensor<1x320x20x20xbf16> loc(#loc875)
-    %1947 = "ttir.multiply"(%1943, %1945, %1946) : (tensor<1x320x20x20xbf16>, tensor<1x320x20x20xbf16>, tensor<1x320x20x20xbf16>) -> tensor<1x320x20x20xbf16> loc(#loc875)
-    %1948 = ttir.empty() : tensor<1x20x320x20xbf16> loc(#loc876)
-    %1949 = "ttir.transpose"(%1947, %1948) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x320x20x20xbf16>, tensor<1x20x320x20xbf16>) -> tensor<1x20x320x20xbf16> loc(#loc876)
-    %1950 = ttir.empty() : tensor<1x20x20x320xbf16> loc(#loc877)
-    %1951 = "ttir.transpose"(%1949, %1950) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x20x320x20xbf16>, tensor<1x20x20x320xbf16>) -> tensor<1x20x20x320xbf16> loc(#loc877)
-    %1952 = ttir.empty() : tensor<1x20x20x80xbf16> loc(#loc878)
-    %1953 = "ttir.conv2d"(%1951, %arg306, %arg307, %1952) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 0, 0, 0, 0>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x20x20x320xbf16>, tensor<80x320x1x1xbf16>, tensor<1x1x1x80xbf16>, tensor<1x20x20x80xbf16>) -> tensor<1x20x20x80xbf16> loc(#loc878)
-    %1954 = ttir.empty() : tensor<1x20x80x20xbf16> loc(#loc879)
-    %1955 = "ttir.transpose"(%1953, %1954) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x20x20x80xbf16>, tensor<1x20x80x20xbf16>) -> tensor<1x20x80x20xbf16> loc(#loc879)
-    %1956 = ttir.empty() : tensor<1x80x20x20xbf16> loc(#loc880)
-    %1957 = "ttir.transpose"(%1955, %1956) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x20x80x20xbf16>, tensor<1x80x20x20xbf16>) -> tensor<1x80x20x20xbf16> loc(#loc880)
-    %1958 = ttir.empty() : tensor<1x144x20x20xbf16> loc(#loc346)
-    %1959 = "ttir.concat"(%1911, %1957, %1958) <{dim = -3 : si32}> : (tensor<1x64x20x20xbf16>, tensor<1x80x20x20xbf16>, tensor<1x144x20x20xbf16>) -> tensor<1x144x20x20xbf16> loc(#loc346)
-    %1960 = ttir.empty() : tensor<1x144x400xbf16> loc(#loc347)
-    %1961 = "ttir.reshape"(%1959, %1960) <{shape = [1 : i32, 144 : i32, 400 : i32]}> : (tensor<1x144x20x20xbf16>, tensor<1x144x400xbf16>) -> tensor<1x144x400xbf16> loc(#loc347)
-    %1962 = ttir.empty() : tensor<1x144x8400xbf16> loc(#loc348)
-    %1963 = "ttir.concat"(%1429, %1695, %1961, %1962) <{dim = -1 : si32}> : (tensor<1x144x6400xbf16>, tensor<1x144x1600xbf16>, tensor<1x144x400xbf16>, tensor<1x144x8400xbf16>) -> tensor<1x144x8400xbf16> loc(#loc348)
-    %1964 = ttir.empty() : tensor<1x64x8400xbf16> loc(#loc349)
-    %1965 = "ttir.index"(%1963, %1964) <{begin = 0 : i32, dim = 1 : i32, end = 64 : i32, step = 1 : i32}> : (tensor<1x144x8400xbf16>, tensor<1x64x8400xbf16>) -> tensor<1x64x8400xbf16> loc(#loc349)
-    %1966 = ttir.empty() : tensor<1x4x16x8400xbf16> loc(#loc546)
-    %1967 = "ttir.reshape"(%1965, %1966) <{shape = [1 : i32, 4 : i32, 16 : i32, 8400 : i32]}> : (tensor<1x64x8400xbf16>, tensor<1x4x16x8400xbf16>) -> tensor<1x4x16x8400xbf16> loc(#loc546)
-    %1968 = ttir.empty() : tensor<1x16x4x8400xbf16> loc(#loc547)
-    %1969 = "ttir.transpose"(%1967, %1968) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x4x16x8400xbf16>, tensor<1x16x4x8400xbf16>) -> tensor<1x16x4x8400xbf16> loc(#loc547)
-    %1970 = ttir.empty() : tensor<1x16x4x8400xbf16> loc(#loc548)
-    %1971 = "ttir.softmax"(%1969, %1970) <{dimension = 1 : si32}> : (tensor<1x16x4x8400xbf16>, tensor<1x16x4x8400xbf16>) -> tensor<1x16x4x8400xbf16> loc(#loc548)
-    %1972 = ttir.empty() : tensor<1x4x16x8400xbf16> loc(#loc881)
-    %1973 = "ttir.transpose"(%1971, %1972) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x16x4x8400xbf16>, tensor<1x4x16x8400xbf16>) -> tensor<1x4x16x8400xbf16> loc(#loc881)
-    %1974 = ttir.empty() : tensor<1x4x8400x16xbf16> loc(#loc882)
-    %1975 = "ttir.transpose"(%1973, %1974) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x4x16x8400xbf16>, tensor<1x4x8400x16xbf16>) -> tensor<1x4x8400x16xbf16> loc(#loc882)
-    %1976 = ttir.empty() : tensor<1x4x8400x1xbf16> loc(#loc883)
-    %1977 = "ttir.conv2d"(%1975, %arg196, %1976) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 0, 0, 0, 0>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x4x8400x16xbf16>, tensor<1x16x1x1xbf16>, tensor<1x4x8400x1xbf16>) -> tensor<1x4x8400x1xbf16> loc(#loc883)
-    %1978 = ttir.empty() : tensor<1x4x1x8400xbf16> loc(#loc884)
-    %1979 = "ttir.transpose"(%1977, %1978) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x4x8400x1xbf16>, tensor<1x4x1x8400xbf16>) -> tensor<1x4x1x8400xbf16> loc(#loc884)
-    %1980 = ttir.empty() : tensor<1x1x4x8400xbf16> loc(#loc885)
-    %1981 = "ttir.transpose"(%1979, %1980) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x4x1x8400xbf16>, tensor<1x1x4x8400xbf16>) -> tensor<1x1x4x8400xbf16> loc(#loc885)
-    %1982 = ttir.empty() : tensor<1x4x8400xbf16> loc(#loc550)
-    %1983 = "ttir.squeeze"(%1981, %1982) <{dim = 0 : si32}> : (tensor<1x1x4x8400xbf16>, tensor<1x4x8400xbf16>) -> tensor<1x4x8400xbf16> loc(#loc550)
-    %1984 = ttir.empty() : tensor<1x2x8400xbf16> loc(#loc351)
-    %1985 = "ttir.index"(%1983, %1984) <{begin = 0 : i32, dim = 1 : i32, end = 2 : i32, step = 1 : i32}> : (tensor<1x4x8400xbf16>, tensor<1x2x8400xbf16>) -> tensor<1x2x8400xbf16> loc(#loc351)
-    %1986 = ttir.empty() : tensor<1x2x8400xbf16> loc(#loc352)
-    %1987 = "ttir.subtract"(%arg1, %1985, %1986) : (tensor<1x2x8400xbf16>, tensor<1x2x8400xbf16>, tensor<1x2x8400xbf16>) -> tensor<1x2x8400xbf16> loc(#loc352)
-    %1988 = ttir.empty() : tensor<1x2x8400xbf16> loc(#loc353)
-    %1989 = "ttir.index"(%1983, %1988) <{begin = 2 : i32, dim = 1 : i32, end = 4 : i32, step = 1 : i32}> : (tensor<1x4x8400xbf16>, tensor<1x2x8400xbf16>) -> tensor<1x2x8400xbf16> loc(#loc353)
-    %1990 = ttir.empty() : tensor<1x2x8400xbf16> loc(#loc354)
-    %1991 = "ttir.add"(%arg1, %1989, %1990) : (tensor<1x2x8400xbf16>, tensor<1x2x8400xbf16>, tensor<1x2x8400xbf16>) -> tensor<1x2x8400xbf16> loc(#loc354)
-    %1992 = ttir.empty() : tensor<1x2x8400xbf16> loc(#loc355)
-    %1993 = "ttir.add"(%1987, %1991, %1992) : (tensor<1x2x8400xbf16>, tensor<1x2x8400xbf16>, tensor<1x2x8400xbf16>) -> tensor<1x2x8400xbf16> loc(#loc355)
-    %1994 = ttir.empty() : tensor<1x2x8400xbf16> loc(#loc356)
-    %1995 = "ttir.div"(%1993, %arg197, %1994) : (tensor<1x2x8400xbf16>, tensor<1xbf16>, tensor<1x2x8400xbf16>) -> tensor<1x2x8400xbf16> loc(#loc356)
-    %1996 = ttir.empty() : tensor<1x2x8400xbf16> loc(#loc357)
-    %1997 = "ttir.subtract"(%1991, %1987, %1996) : (tensor<1x2x8400xbf16>, tensor<1x2x8400xbf16>, tensor<1x2x8400xbf16>) -> tensor<1x2x8400xbf16> loc(#loc357)
-    %1998 = ttir.empty() : tensor<1x4x8400xbf16> loc(#loc358)
-    %1999 = "ttir.concat"(%1995, %1997, %1998) <{dim = -2 : si32}> : (tensor<1x2x8400xbf16>, tensor<1x2x8400xbf16>, tensor<1x4x8400xbf16>) -> tensor<1x4x8400xbf16> loc(#loc358)
-    %2000 = ttir.empty() : tensor<1x4x8400xbf16> loc(#loc359)
-    %2001 = "ttir.multiply"(%1999, %arg198, %2000) : (tensor<1x4x8400xbf16>, tensor<1x8400xbf16>, tensor<1x4x8400xbf16>) -> tensor<1x4x8400xbf16> loc(#loc359)
-    %2002 = ttir.empty() : tensor<1x80x8400xbf16> loc(#loc360)
-    %2003 = "ttir.index"(%1963, %2002) <{begin = 64 : i32, dim = 1 : i32, end = 144 : i32, step = 1 : i32}> : (tensor<1x144x8400xbf16>, tensor<1x80x8400xbf16>) -> tensor<1x80x8400xbf16> loc(#loc360)
-    %2004 = ttir.empty() : tensor<1x80x8400xbf16> loc(#loc361)
-    %2005 = "ttir.sigmoid"(%2003, %2004) : (tensor<1x80x8400xbf16>, tensor<1x80x8400xbf16>) -> tensor<1x80x8400xbf16> loc(#loc361)
-    %2006 = ttir.empty() : tensor<1x84x8400xbf16> loc(#loc362)
-    %2007 = "ttir.concat"(%2001, %2005, %2006) <{dim = -2 : si32}> : (tensor<1x4x8400xbf16>, tensor<1x80x8400xbf16>, tensor<1x84x8400xbf16>) -> tensor<1x84x8400xbf16> loc(#loc362)
-    return %2007, %1427, %1693, %1959 : tensor<1x84x8400xbf16>, tensor<1x144x80x80xbf16>, tensor<1x144x40x40xbf16>, tensor<1x144x20x20xbf16> loc(#loc196)
+    %0 = "ttir.transpose"(%arg0) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x3x640x640xbf16>) -> tensor<1x640x3x640xbf16>
+    %1 = "ttir.transpose"(%0) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x640x3x640xbf16>) -> tensor<1x640x640x3xbf16>
+    %2 = "ttir.conv2d"(%1, %arg199) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 2, 2>}> {channel_last = 1 : si32} : (tensor<1x640x640x3xbf16>, tensor<80x3x3x3xbf16>) -> tensor<1x320x320x80xbf16>
+    %3 = "ttir.transpose"(%2) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x320x320x80xbf16>) -> tensor<1x320x80x320xbf16>
+    %4 = "ttir.transpose"(%3) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x320x80x320xbf16>) -> tensor<1x80x320x320xbf16>
+    %5 = "ttir.multiply"(%4, %arg2) : (tensor<1x80x320x320xbf16>, tensor<1x80x1x1xbf16>) -> tensor<1x80x320x320xbf16>
+    %6 = "ttir.add"(%5, %arg3) : (tensor<1x80x320x320xbf16>, tensor<1x80x1x1xbf16>) -> tensor<1x80x320x320xbf16>
+    %7 = "ttir.sigmoid"(%6) : (tensor<1x80x320x320xbf16>) -> tensor<1x80x320x320xbf16>
+    %8 = "ttir.multiply"(%6, %7) : (tensor<1x80x320x320xbf16>, tensor<1x80x320x320xbf16>) -> tensor<1x80x320x320xbf16>
+    %9 = "ttir.transpose"(%8) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x80x320x320xbf16>) -> tensor<1x320x80x320xbf16>
+    %10 = "ttir.transpose"(%9) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x320x80x320xbf16>) -> tensor<1x320x320x80xbf16>
+    %11 = "ttir.conv2d"(%10, %arg200) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 2, 2>}> {channel_last = 1 : si32} : (tensor<1x320x320x80xbf16>, tensor<160x80x3x3xbf16>) -> tensor<1x160x160x160xbf16>
+    %12 = "ttir.transpose"(%11) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x160x160x160xbf16>) -> tensor<1x160x160x160xbf16>
+    %13 = "ttir.transpose"(%12) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x160x160x160xbf16>) -> tensor<1x160x160x160xbf16>
+    %14 = "ttir.multiply"(%13, %arg4) : (tensor<1x160x160x160xbf16>, tensor<1x160x1x1xbf16>) -> tensor<1x160x160x160xbf16>
+    %15 = "ttir.add"(%14, %arg5) : (tensor<1x160x160x160xbf16>, tensor<1x160x1x1xbf16>) -> tensor<1x160x160x160xbf16>
+    %16 = "ttir.sigmoid"(%15) : (tensor<1x160x160x160xbf16>) -> tensor<1x160x160x160xbf16>
+    %17 = "ttir.multiply"(%15, %16) : (tensor<1x160x160x160xbf16>, tensor<1x160x160x160xbf16>) -> tensor<1x160x160x160xbf16>
+    %18 = "ttir.transpose"(%17) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x160x160x160xbf16>) -> tensor<1x160x160x160xbf16>
+    %19 = "ttir.transpose"(%18) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x160x160x160xbf16>) -> tensor<1x160x160x160xbf16>
+    %20 = "ttir.conv2d"(%19, %arg201) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 0, 0, 0, 0>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x160x160x160xbf16>, tensor<160x160x1x1xbf16>) -> tensor<1x160x160x160xbf16>
+    %21 = "ttir.transpose"(%20) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x160x160x160xbf16>) -> tensor<1x160x160x160xbf16>
+    %22 = "ttir.transpose"(%21) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x160x160x160xbf16>) -> tensor<1x160x160x160xbf16>
+    %23 = "ttir.multiply"(%22, %arg6) : (tensor<1x160x160x160xbf16>, tensor<1x160x1x1xbf16>) -> tensor<1x160x160x160xbf16>
+    %24 = "ttir.add"(%23, %arg7) : (tensor<1x160x160x160xbf16>, tensor<1x160x1x1xbf16>) -> tensor<1x160x160x160xbf16>
+    %25 = "ttir.sigmoid"(%24) : (tensor<1x160x160x160xbf16>) -> tensor<1x160x160x160xbf16>
+    %26 = "ttir.multiply"(%24, %25) : (tensor<1x160x160x160xbf16>, tensor<1x160x160x160xbf16>) -> tensor<1x160x160x160xbf16>
+    %27 = "ttir.index"(%26) <{begin = 0 : i32, dim = 1 : i32, end = 80 : i32, step = 1 : i32}> : (tensor<1x160x160x160xbf16>) -> tensor<1x80x160x160xbf16>
+    %28 = "ttir.index"(%26) <{begin = 80 : i32, dim = 1 : i32, end = 160 : i32, step = 1 : i32}> : (tensor<1x160x160x160xbf16>) -> tensor<1x80x160x160xbf16>
+    %29 = "ttir.transpose"(%28) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x80x160x160xbf16>) -> tensor<1x160x80x160xbf16>
+    %30 = "ttir.transpose"(%29) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x160x80x160xbf16>) -> tensor<1x160x160x80xbf16>
+    %31 = "ttir.conv2d"(%30, %arg202) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x160x160x80xbf16>, tensor<80x80x3x3xbf16>) -> tensor<1x160x160x80xbf16>
+    %32 = "ttir.transpose"(%31) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x160x160x80xbf16>) -> tensor<1x160x80x160xbf16>
+    %33 = "ttir.transpose"(%32) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x160x80x160xbf16>) -> tensor<1x80x160x160xbf16>
+    %34 = "ttir.multiply"(%33, %arg8) : (tensor<1x80x160x160xbf16>, tensor<1x80x1x1xbf16>) -> tensor<1x80x160x160xbf16>
+    %35 = "ttir.add"(%34, %arg9) : (tensor<1x80x160x160xbf16>, tensor<1x80x1x1xbf16>) -> tensor<1x80x160x160xbf16>
+    %36 = "ttir.sigmoid"(%35) : (tensor<1x80x160x160xbf16>) -> tensor<1x80x160x160xbf16>
+    %37 = "ttir.multiply"(%35, %36) : (tensor<1x80x160x160xbf16>, tensor<1x80x160x160xbf16>) -> tensor<1x80x160x160xbf16>
+    %38 = "ttir.transpose"(%37) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x80x160x160xbf16>) -> tensor<1x160x80x160xbf16>
+    %39 = "ttir.transpose"(%38) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x160x80x160xbf16>) -> tensor<1x160x160x80xbf16>
+    %40 = "ttir.conv2d"(%39, %arg203) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x160x160x80xbf16>, tensor<80x80x3x3xbf16>) -> tensor<1x160x160x80xbf16>
+    %41 = "ttir.transpose"(%40) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x160x160x80xbf16>) -> tensor<1x160x80x160xbf16>
+    %42 = "ttir.transpose"(%41) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x160x80x160xbf16>) -> tensor<1x80x160x160xbf16>
+    %43 = "ttir.multiply"(%42, %arg10) : (tensor<1x80x160x160xbf16>, tensor<1x80x1x1xbf16>) -> tensor<1x80x160x160xbf16>
+    %44 = "ttir.add"(%43, %arg11) : (tensor<1x80x160x160xbf16>, tensor<1x80x1x1xbf16>) -> tensor<1x80x160x160xbf16>
+    %45 = "ttir.sigmoid"(%44) : (tensor<1x80x160x160xbf16>) -> tensor<1x80x160x160xbf16>
+    %46 = "ttir.multiply"(%44, %45) : (tensor<1x80x160x160xbf16>, tensor<1x80x160x160xbf16>) -> tensor<1x80x160x160xbf16>
+    %47 = "ttir.add"(%28, %46) : (tensor<1x80x160x160xbf16>, tensor<1x80x160x160xbf16>) -> tensor<1x80x160x160xbf16>
+    %48 = "ttir.transpose"(%47) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x80x160x160xbf16>) -> tensor<1x160x80x160xbf16>
+    %49 = "ttir.transpose"(%48) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x160x80x160xbf16>) -> tensor<1x160x160x80xbf16>
+    %50 = "ttir.conv2d"(%49, %arg204) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x160x160x80xbf16>, tensor<80x80x3x3xbf16>) -> tensor<1x160x160x80xbf16>
+    %51 = "ttir.transpose"(%50) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x160x160x80xbf16>) -> tensor<1x160x80x160xbf16>
+    %52 = "ttir.transpose"(%51) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x160x80x160xbf16>) -> tensor<1x80x160x160xbf16>
+    %53 = "ttir.multiply"(%52, %arg12) : (tensor<1x80x160x160xbf16>, tensor<1x80x1x1xbf16>) -> tensor<1x80x160x160xbf16>
+    %54 = "ttir.add"(%53, %arg13) : (tensor<1x80x160x160xbf16>, tensor<1x80x1x1xbf16>) -> tensor<1x80x160x160xbf16>
+    %55 = "ttir.sigmoid"(%54) : (tensor<1x80x160x160xbf16>) -> tensor<1x80x160x160xbf16>
+    %56 = "ttir.multiply"(%54, %55) : (tensor<1x80x160x160xbf16>, tensor<1x80x160x160xbf16>) -> tensor<1x80x160x160xbf16>
+    %57 = "ttir.transpose"(%56) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x80x160x160xbf16>) -> tensor<1x160x80x160xbf16>
+    %58 = "ttir.transpose"(%57) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x160x80x160xbf16>) -> tensor<1x160x160x80xbf16>
+    %59 = "ttir.conv2d"(%58, %arg205) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x160x160x80xbf16>, tensor<80x80x3x3xbf16>) -> tensor<1x160x160x80xbf16>
+    %60 = "ttir.transpose"(%59) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x160x160x80xbf16>) -> tensor<1x160x80x160xbf16>
+    %61 = "ttir.transpose"(%60) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x160x80x160xbf16>) -> tensor<1x80x160x160xbf16>
+    %62 = "ttir.multiply"(%61, %arg14) : (tensor<1x80x160x160xbf16>, tensor<1x80x1x1xbf16>) -> tensor<1x80x160x160xbf16>
+    %63 = "ttir.add"(%62, %arg15) : (tensor<1x80x160x160xbf16>, tensor<1x80x1x1xbf16>) -> tensor<1x80x160x160xbf16>
+    %64 = "ttir.sigmoid"(%63) : (tensor<1x80x160x160xbf16>) -> tensor<1x80x160x160xbf16>
+    %65 = "ttir.multiply"(%63, %64) : (tensor<1x80x160x160xbf16>, tensor<1x80x160x160xbf16>) -> tensor<1x80x160x160xbf16>
+    %66 = "ttir.add"(%47, %65) : (tensor<1x80x160x160xbf16>, tensor<1x80x160x160xbf16>) -> tensor<1x80x160x160xbf16>
+    %67 = "ttir.transpose"(%66) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x80x160x160xbf16>) -> tensor<1x160x80x160xbf16>
+    %68 = "ttir.transpose"(%67) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x160x80x160xbf16>) -> tensor<1x160x160x80xbf16>
+    %69 = "ttir.conv2d"(%68, %arg206) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x160x160x80xbf16>, tensor<80x80x3x3xbf16>) -> tensor<1x160x160x80xbf16>
+    %70 = "ttir.transpose"(%69) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x160x160x80xbf16>) -> tensor<1x160x80x160xbf16>
+    %71 = "ttir.transpose"(%70) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x160x80x160xbf16>) -> tensor<1x80x160x160xbf16>
+    %72 = "ttir.multiply"(%71, %arg16) : (tensor<1x80x160x160xbf16>, tensor<1x80x1x1xbf16>) -> tensor<1x80x160x160xbf16>
+    %73 = "ttir.add"(%72, %arg17) : (tensor<1x80x160x160xbf16>, tensor<1x80x1x1xbf16>) -> tensor<1x80x160x160xbf16>
+    %74 = "ttir.sigmoid"(%73) : (tensor<1x80x160x160xbf16>) -> tensor<1x80x160x160xbf16>
+    %75 = "ttir.multiply"(%73, %74) : (tensor<1x80x160x160xbf16>, tensor<1x80x160x160xbf16>) -> tensor<1x80x160x160xbf16>
+    %76 = "ttir.transpose"(%75) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x80x160x160xbf16>) -> tensor<1x160x80x160xbf16>
+    %77 = "ttir.transpose"(%76) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x160x80x160xbf16>) -> tensor<1x160x160x80xbf16>
+    %78 = "ttir.conv2d"(%77, %arg207) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x160x160x80xbf16>, tensor<80x80x3x3xbf16>) -> tensor<1x160x160x80xbf16>
+    %79 = "ttir.transpose"(%78) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x160x160x80xbf16>) -> tensor<1x160x80x160xbf16>
+    %80 = "ttir.transpose"(%79) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x160x80x160xbf16>) -> tensor<1x80x160x160xbf16>
+    %81 = "ttir.multiply"(%80, %arg18) : (tensor<1x80x160x160xbf16>, tensor<1x80x1x1xbf16>) -> tensor<1x80x160x160xbf16>
+    %82 = "ttir.add"(%81, %arg19) : (tensor<1x80x160x160xbf16>, tensor<1x80x1x1xbf16>) -> tensor<1x80x160x160xbf16>
+    %83 = "ttir.sigmoid"(%82) : (tensor<1x80x160x160xbf16>) -> tensor<1x80x160x160xbf16>
+    %84 = "ttir.multiply"(%82, %83) : (tensor<1x80x160x160xbf16>, tensor<1x80x160x160xbf16>) -> tensor<1x80x160x160xbf16>
+    %85 = "ttir.add"(%66, %84) : (tensor<1x80x160x160xbf16>, tensor<1x80x160x160xbf16>) -> tensor<1x80x160x160xbf16>
+    %86 = "ttir.concat"(%27, %28, %47, %66, %85) <{dim = -3 : si32}> : (tensor<1x80x160x160xbf16>, tensor<1x80x160x160xbf16>, tensor<1x80x160x160xbf16>, tensor<1x80x160x160xbf16>, tensor<1x80x160x160xbf16>) -> tensor<1x400x160x160xbf16>
+    %87 = "ttir.transpose"(%86) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x400x160x160xbf16>) -> tensor<1x160x400x160xbf16>
+    %88 = "ttir.transpose"(%87) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x160x400x160xbf16>) -> tensor<1x160x160x400xbf16>
+    %89 = "ttir.conv2d"(%88, %arg208) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 0, 0, 0, 0>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x160x160x400xbf16>, tensor<160x400x1x1xbf16>) -> tensor<1x160x160x160xbf16>
+    %90 = "ttir.transpose"(%89) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x160x160x160xbf16>) -> tensor<1x160x160x160xbf16>
+    %91 = "ttir.transpose"(%90) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x160x160x160xbf16>) -> tensor<1x160x160x160xbf16>
+    %92 = "ttir.multiply"(%91, %arg20) : (tensor<1x160x160x160xbf16>, tensor<1x160x1x1xbf16>) -> tensor<1x160x160x160xbf16>
+    %93 = "ttir.add"(%92, %arg21) : (tensor<1x160x160x160xbf16>, tensor<1x160x1x1xbf16>) -> tensor<1x160x160x160xbf16>
+    %94 = "ttir.sigmoid"(%93) : (tensor<1x160x160x160xbf16>) -> tensor<1x160x160x160xbf16>
+    %95 = "ttir.multiply"(%93, %94) : (tensor<1x160x160x160xbf16>, tensor<1x160x160x160xbf16>) -> tensor<1x160x160x160xbf16>
+    %96 = "ttir.transpose"(%95) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x160x160x160xbf16>) -> tensor<1x160x160x160xbf16>
+    %97 = "ttir.transpose"(%96) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x160x160x160xbf16>) -> tensor<1x160x160x160xbf16>
+    %98 = "ttir.conv2d"(%97, %arg209) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 2, 2>}> {channel_last = 1 : si32} : (tensor<1x160x160x160xbf16>, tensor<320x160x3x3xbf16>) -> tensor<1x80x80x320xbf16>
+    %99 = "ttir.transpose"(%98) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x80x80x320xbf16>) -> tensor<1x80x320x80xbf16>
+    %100 = "ttir.transpose"(%99) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x80x320x80xbf16>) -> tensor<1x320x80x80xbf16>
+    %101 = "ttir.multiply"(%100, %arg22) : (tensor<1x320x80x80xbf16>, tensor<1x320x1x1xbf16>) -> tensor<1x320x80x80xbf16>
+    %102 = "ttir.add"(%101, %arg23) : (tensor<1x320x80x80xbf16>, tensor<1x320x1x1xbf16>) -> tensor<1x320x80x80xbf16>
+    %103 = "ttir.sigmoid"(%102) : (tensor<1x320x80x80xbf16>) -> tensor<1x320x80x80xbf16>
+    %104 = "ttir.multiply"(%102, %103) : (tensor<1x320x80x80xbf16>, tensor<1x320x80x80xbf16>) -> tensor<1x320x80x80xbf16>
+    %105 = "ttir.transpose"(%104) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x320x80x80xbf16>) -> tensor<1x80x320x80xbf16>
+    %106 = "ttir.transpose"(%105) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x80x320x80xbf16>) -> tensor<1x80x80x320xbf16>
+    %107 = "ttir.conv2d"(%106, %arg210) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 0, 0, 0, 0>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x80x80x320xbf16>, tensor<320x320x1x1xbf16>) -> tensor<1x80x80x320xbf16>
+    %108 = "ttir.transpose"(%107) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x80x80x320xbf16>) -> tensor<1x80x320x80xbf16>
+    %109 = "ttir.transpose"(%108) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x80x320x80xbf16>) -> tensor<1x320x80x80xbf16>
+    %110 = "ttir.multiply"(%109, %arg24) : (tensor<1x320x80x80xbf16>, tensor<1x320x1x1xbf16>) -> tensor<1x320x80x80xbf16>
+    %111 = "ttir.add"(%110, %arg25) : (tensor<1x320x80x80xbf16>, tensor<1x320x1x1xbf16>) -> tensor<1x320x80x80xbf16>
+    %112 = "ttir.sigmoid"(%111) : (tensor<1x320x80x80xbf16>) -> tensor<1x320x80x80xbf16>
+    %113 = "ttir.multiply"(%111, %112) : (tensor<1x320x80x80xbf16>, tensor<1x320x80x80xbf16>) -> tensor<1x320x80x80xbf16>
+    %114 = "ttir.index"(%113) <{begin = 0 : i32, dim = 1 : i32, end = 160 : i32, step = 1 : i32}> : (tensor<1x320x80x80xbf16>) -> tensor<1x160x80x80xbf16>
+    %115 = "ttir.index"(%113) <{begin = 160 : i32, dim = 1 : i32, end = 320 : i32, step = 1 : i32}> : (tensor<1x320x80x80xbf16>) -> tensor<1x160x80x80xbf16>
+    %116 = "ttir.transpose"(%115) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x160x80x80xbf16>) -> tensor<1x80x160x80xbf16>
+    %117 = "ttir.transpose"(%116) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x80x160x80xbf16>) -> tensor<1x80x80x160xbf16>
+    %118 = "ttir.conv2d"(%117, %arg211) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x80x80x160xbf16>, tensor<160x160x3x3xbf16>) -> tensor<1x80x80x160xbf16>
+    %119 = "ttir.transpose"(%118) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x80x80x160xbf16>) -> tensor<1x80x160x80xbf16>
+    %120 = "ttir.transpose"(%119) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x80x160x80xbf16>) -> tensor<1x160x80x80xbf16>
+    %121 = "ttir.multiply"(%120, %arg26) : (tensor<1x160x80x80xbf16>, tensor<1x160x1x1xbf16>) -> tensor<1x160x80x80xbf16>
+    %122 = "ttir.add"(%121, %arg27) : (tensor<1x160x80x80xbf16>, tensor<1x160x1x1xbf16>) -> tensor<1x160x80x80xbf16>
+    %123 = "ttir.sigmoid"(%122) : (tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16>
+    %124 = "ttir.multiply"(%122, %123) : (tensor<1x160x80x80xbf16>, tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16>
+    %125 = "ttir.transpose"(%124) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x160x80x80xbf16>) -> tensor<1x80x160x80xbf16>
+    %126 = "ttir.transpose"(%125) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x80x160x80xbf16>) -> tensor<1x80x80x160xbf16>
+    %127 = "ttir.conv2d"(%126, %arg212) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x80x80x160xbf16>, tensor<160x160x3x3xbf16>) -> tensor<1x80x80x160xbf16>
+    %128 = "ttir.transpose"(%127) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x80x80x160xbf16>) -> tensor<1x80x160x80xbf16>
+    %129 = "ttir.transpose"(%128) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x80x160x80xbf16>) -> tensor<1x160x80x80xbf16>
+    %130 = "ttir.multiply"(%129, %arg28) : (tensor<1x160x80x80xbf16>, tensor<1x160x1x1xbf16>) -> tensor<1x160x80x80xbf16>
+    %131 = "ttir.add"(%130, %arg29) : (tensor<1x160x80x80xbf16>, tensor<1x160x1x1xbf16>) -> tensor<1x160x80x80xbf16>
+    %132 = "ttir.sigmoid"(%131) : (tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16>
+    %133 = "ttir.multiply"(%131, %132) : (tensor<1x160x80x80xbf16>, tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16>
+    %134 = "ttir.add"(%115, %133) : (tensor<1x160x80x80xbf16>, tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16>
+    %135 = "ttir.transpose"(%134) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x160x80x80xbf16>) -> tensor<1x80x160x80xbf16>
+    %136 = "ttir.transpose"(%135) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x80x160x80xbf16>) -> tensor<1x80x80x160xbf16>
+    %137 = "ttir.conv2d"(%136, %arg213) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x80x80x160xbf16>, tensor<160x160x3x3xbf16>) -> tensor<1x80x80x160xbf16>
+    %138 = "ttir.transpose"(%137) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x80x80x160xbf16>) -> tensor<1x80x160x80xbf16>
+    %139 = "ttir.transpose"(%138) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x80x160x80xbf16>) -> tensor<1x160x80x80xbf16>
+    %140 = "ttir.multiply"(%139, %arg30) : (tensor<1x160x80x80xbf16>, tensor<1x160x1x1xbf16>) -> tensor<1x160x80x80xbf16>
+    %141 = "ttir.add"(%140, %arg31) : (tensor<1x160x80x80xbf16>, tensor<1x160x1x1xbf16>) -> tensor<1x160x80x80xbf16>
+    %142 = "ttir.sigmoid"(%141) : (tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16>
+    %143 = "ttir.multiply"(%141, %142) : (tensor<1x160x80x80xbf16>, tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16>
+    %144 = "ttir.transpose"(%143) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x160x80x80xbf16>) -> tensor<1x80x160x80xbf16>
+    %145 = "ttir.transpose"(%144) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x80x160x80xbf16>) -> tensor<1x80x80x160xbf16>
+    %146 = "ttir.conv2d"(%145, %arg214) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x80x80x160xbf16>, tensor<160x160x3x3xbf16>) -> tensor<1x80x80x160xbf16>
+    %147 = "ttir.transpose"(%146) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x80x80x160xbf16>) -> tensor<1x80x160x80xbf16>
+    %148 = "ttir.transpose"(%147) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x80x160x80xbf16>) -> tensor<1x160x80x80xbf16>
+    %149 = "ttir.multiply"(%148, %arg32) : (tensor<1x160x80x80xbf16>, tensor<1x160x1x1xbf16>) -> tensor<1x160x80x80xbf16>
+    %150 = "ttir.add"(%149, %arg33) : (tensor<1x160x80x80xbf16>, tensor<1x160x1x1xbf16>) -> tensor<1x160x80x80xbf16>
+    %151 = "ttir.sigmoid"(%150) : (tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16>
+    %152 = "ttir.multiply"(%150, %151) : (tensor<1x160x80x80xbf16>, tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16>
+    %153 = "ttir.add"(%134, %152) : (tensor<1x160x80x80xbf16>, tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16>
+    %154 = "ttir.transpose"(%153) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x160x80x80xbf16>) -> tensor<1x80x160x80xbf16>
+    %155 = "ttir.transpose"(%154) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x80x160x80xbf16>) -> tensor<1x80x80x160xbf16>
+    %156 = "ttir.conv2d"(%155, %arg215) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x80x80x160xbf16>, tensor<160x160x3x3xbf16>) -> tensor<1x80x80x160xbf16>
+    %157 = "ttir.transpose"(%156) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x80x80x160xbf16>) -> tensor<1x80x160x80xbf16>
+    %158 = "ttir.transpose"(%157) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x80x160x80xbf16>) -> tensor<1x160x80x80xbf16>
+    %159 = "ttir.multiply"(%158, %arg34) : (tensor<1x160x80x80xbf16>, tensor<1x160x1x1xbf16>) -> tensor<1x160x80x80xbf16>
+    %160 = "ttir.add"(%159, %arg35) : (tensor<1x160x80x80xbf16>, tensor<1x160x1x1xbf16>) -> tensor<1x160x80x80xbf16>
+    %161 = "ttir.sigmoid"(%160) : (tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16>
+    %162 = "ttir.multiply"(%160, %161) : (tensor<1x160x80x80xbf16>, tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16>
+    %163 = "ttir.transpose"(%162) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x160x80x80xbf16>) -> tensor<1x80x160x80xbf16>
+    %164 = "ttir.transpose"(%163) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x80x160x80xbf16>) -> tensor<1x80x80x160xbf16>
+    %165 = "ttir.conv2d"(%164, %arg216) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x80x80x160xbf16>, tensor<160x160x3x3xbf16>) -> tensor<1x80x80x160xbf16>
+    %166 = "ttir.transpose"(%165) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x80x80x160xbf16>) -> tensor<1x80x160x80xbf16>
+    %167 = "ttir.transpose"(%166) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x80x160x80xbf16>) -> tensor<1x160x80x80xbf16>
+    %168 = "ttir.multiply"(%167, %arg36) : (tensor<1x160x80x80xbf16>, tensor<1x160x1x1xbf16>) -> tensor<1x160x80x80xbf16>
+    %169 = "ttir.add"(%168, %arg37) : (tensor<1x160x80x80xbf16>, tensor<1x160x1x1xbf16>) -> tensor<1x160x80x80xbf16>
+    %170 = "ttir.sigmoid"(%169) : (tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16>
+    %171 = "ttir.multiply"(%169, %170) : (tensor<1x160x80x80xbf16>, tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16>
+    %172 = "ttir.add"(%153, %171) : (tensor<1x160x80x80xbf16>, tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16>
+    %173 = "ttir.transpose"(%172) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x160x80x80xbf16>) -> tensor<1x80x160x80xbf16>
+    %174 = "ttir.transpose"(%173) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x80x160x80xbf16>) -> tensor<1x80x80x160xbf16>
+    %175 = "ttir.conv2d"(%174, %arg217) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x80x80x160xbf16>, tensor<160x160x3x3xbf16>) -> tensor<1x80x80x160xbf16>
+    %176 = "ttir.transpose"(%175) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x80x80x160xbf16>) -> tensor<1x80x160x80xbf16>
+    %177 = "ttir.transpose"(%176) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x80x160x80xbf16>) -> tensor<1x160x80x80xbf16>
+    %178 = "ttir.multiply"(%177, %arg38) : (tensor<1x160x80x80xbf16>, tensor<1x160x1x1xbf16>) -> tensor<1x160x80x80xbf16>
+    %179 = "ttir.add"(%178, %arg39) : (tensor<1x160x80x80xbf16>, tensor<1x160x1x1xbf16>) -> tensor<1x160x80x80xbf16>
+    %180 = "ttir.sigmoid"(%179) : (tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16>
+    %181 = "ttir.multiply"(%179, %180) : (tensor<1x160x80x80xbf16>, tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16>
+    %182 = "ttir.transpose"(%181) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x160x80x80xbf16>) -> tensor<1x80x160x80xbf16>
+    %183 = "ttir.transpose"(%182) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x80x160x80xbf16>) -> tensor<1x80x80x160xbf16>
+    %184 = "ttir.conv2d"(%183, %arg218) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x80x80x160xbf16>, tensor<160x160x3x3xbf16>) -> tensor<1x80x80x160xbf16>
+    %185 = "ttir.transpose"(%184) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x80x80x160xbf16>) -> tensor<1x80x160x80xbf16>
+    %186 = "ttir.transpose"(%185) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x80x160x80xbf16>) -> tensor<1x160x80x80xbf16>
+    %187 = "ttir.multiply"(%186, %arg40) : (tensor<1x160x80x80xbf16>, tensor<1x160x1x1xbf16>) -> tensor<1x160x80x80xbf16>
+    %188 = "ttir.add"(%187, %arg41) : (tensor<1x160x80x80xbf16>, tensor<1x160x1x1xbf16>) -> tensor<1x160x80x80xbf16>
+    %189 = "ttir.sigmoid"(%188) : (tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16>
+    %190 = "ttir.multiply"(%188, %189) : (tensor<1x160x80x80xbf16>, tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16>
+    %191 = "ttir.add"(%172, %190) : (tensor<1x160x80x80xbf16>, tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16>
+    %192 = "ttir.transpose"(%191) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x160x80x80xbf16>) -> tensor<1x80x160x80xbf16>
+    %193 = "ttir.transpose"(%192) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x80x160x80xbf16>) -> tensor<1x80x80x160xbf16>
+    %194 = "ttir.conv2d"(%193, %arg219) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x80x80x160xbf16>, tensor<160x160x3x3xbf16>) -> tensor<1x80x80x160xbf16>
+    %195 = "ttir.transpose"(%194) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x80x80x160xbf16>) -> tensor<1x80x160x80xbf16>
+    %196 = "ttir.transpose"(%195) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x80x160x80xbf16>) -> tensor<1x160x80x80xbf16>
+    %197 = "ttir.multiply"(%196, %arg42) : (tensor<1x160x80x80xbf16>, tensor<1x160x1x1xbf16>) -> tensor<1x160x80x80xbf16>
+    %198 = "ttir.add"(%197, %arg43) : (tensor<1x160x80x80xbf16>, tensor<1x160x1x1xbf16>) -> tensor<1x160x80x80xbf16>
+    %199 = "ttir.sigmoid"(%198) : (tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16>
+    %200 = "ttir.multiply"(%198, %199) : (tensor<1x160x80x80xbf16>, tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16>
+    %201 = "ttir.transpose"(%200) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x160x80x80xbf16>) -> tensor<1x80x160x80xbf16>
+    %202 = "ttir.transpose"(%201) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x80x160x80xbf16>) -> tensor<1x80x80x160xbf16>
+    %203 = "ttir.conv2d"(%202, %arg220) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x80x80x160xbf16>, tensor<160x160x3x3xbf16>) -> tensor<1x80x80x160xbf16>
+    %204 = "ttir.transpose"(%203) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x80x80x160xbf16>) -> tensor<1x80x160x80xbf16>
+    %205 = "ttir.transpose"(%204) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x80x160x80xbf16>) -> tensor<1x160x80x80xbf16>
+    %206 = "ttir.multiply"(%205, %arg44) : (tensor<1x160x80x80xbf16>, tensor<1x160x1x1xbf16>) -> tensor<1x160x80x80xbf16>
+    %207 = "ttir.add"(%206, %arg45) : (tensor<1x160x80x80xbf16>, tensor<1x160x1x1xbf16>) -> tensor<1x160x80x80xbf16>
+    %208 = "ttir.sigmoid"(%207) : (tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16>
+    %209 = "ttir.multiply"(%207, %208) : (tensor<1x160x80x80xbf16>, tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16>
+    %210 = "ttir.add"(%191, %209) : (tensor<1x160x80x80xbf16>, tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16>
+    %211 = "ttir.transpose"(%210) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x160x80x80xbf16>) -> tensor<1x80x160x80xbf16>
+    %212 = "ttir.transpose"(%211) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x80x160x80xbf16>) -> tensor<1x80x80x160xbf16>
+    %213 = "ttir.conv2d"(%212, %arg221) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x80x80x160xbf16>, tensor<160x160x3x3xbf16>) -> tensor<1x80x80x160xbf16>
+    %214 = "ttir.transpose"(%213) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x80x80x160xbf16>) -> tensor<1x80x160x80xbf16>
+    %215 = "ttir.transpose"(%214) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x80x160x80xbf16>) -> tensor<1x160x80x80xbf16>
+    %216 = "ttir.multiply"(%215, %arg46) : (tensor<1x160x80x80xbf16>, tensor<1x160x1x1xbf16>) -> tensor<1x160x80x80xbf16>
+    %217 = "ttir.add"(%216, %arg47) : (tensor<1x160x80x80xbf16>, tensor<1x160x1x1xbf16>) -> tensor<1x160x80x80xbf16>
+    %218 = "ttir.sigmoid"(%217) : (tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16>
+    %219 = "ttir.multiply"(%217, %218) : (tensor<1x160x80x80xbf16>, tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16>
+    %220 = "ttir.transpose"(%219) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x160x80x80xbf16>) -> tensor<1x80x160x80xbf16>
+    %221 = "ttir.transpose"(%220) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x80x160x80xbf16>) -> tensor<1x80x80x160xbf16>
+    %222 = "ttir.conv2d"(%221, %arg222) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x80x80x160xbf16>, tensor<160x160x3x3xbf16>) -> tensor<1x80x80x160xbf16>
+    %223 = "ttir.transpose"(%222) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x80x80x160xbf16>) -> tensor<1x80x160x80xbf16>
+    %224 = "ttir.transpose"(%223) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x80x160x80xbf16>) -> tensor<1x160x80x80xbf16>
+    %225 = "ttir.multiply"(%224, %arg48) : (tensor<1x160x80x80xbf16>, tensor<1x160x1x1xbf16>) -> tensor<1x160x80x80xbf16>
+    %226 = "ttir.add"(%225, %arg49) : (tensor<1x160x80x80xbf16>, tensor<1x160x1x1xbf16>) -> tensor<1x160x80x80xbf16>
+    %227 = "ttir.sigmoid"(%226) : (tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16>
+    %228 = "ttir.multiply"(%226, %227) : (tensor<1x160x80x80xbf16>, tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16>
+    %229 = "ttir.add"(%210, %228) : (tensor<1x160x80x80xbf16>, tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16>
+    %230 = "ttir.concat"(%114, %115, %134, %153, %172, %191, %210, %229) <{dim = -3 : si32}> : (tensor<1x160x80x80xbf16>, tensor<1x160x80x80xbf16>, tensor<1x160x80x80xbf16>, tensor<1x160x80x80xbf16>, tensor<1x160x80x80xbf16>, tensor<1x160x80x80xbf16>, tensor<1x160x80x80xbf16>, tensor<1x160x80x80xbf16>) -> tensor<1x1280x80x80xbf16>
+    %231 = "ttir.transpose"(%230) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x1280x80x80xbf16>) -> tensor<1x80x1280x80xbf16>
+    %232 = "ttir.transpose"(%231) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x80x1280x80xbf16>) -> tensor<1x80x80x1280xbf16>
+    %233 = "ttir.conv2d"(%232, %arg223) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 0, 0, 0, 0>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x80x80x1280xbf16>, tensor<320x1280x1x1xbf16>) -> tensor<1x80x80x320xbf16>
+    %234 = "ttir.transpose"(%233) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x80x80x320xbf16>) -> tensor<1x80x320x80xbf16>
+    %235 = "ttir.transpose"(%234) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x80x320x80xbf16>) -> tensor<1x320x80x80xbf16>
+    %236 = "ttir.multiply"(%235, %arg50) : (tensor<1x320x80x80xbf16>, tensor<1x320x1x1xbf16>) -> tensor<1x320x80x80xbf16>
+    %237 = "ttir.add"(%236, %arg51) : (tensor<1x320x80x80xbf16>, tensor<1x320x1x1xbf16>) -> tensor<1x320x80x80xbf16>
+    %238 = "ttir.sigmoid"(%237) : (tensor<1x320x80x80xbf16>) -> tensor<1x320x80x80xbf16>
+    %239 = "ttir.multiply"(%237, %238) : (tensor<1x320x80x80xbf16>, tensor<1x320x80x80xbf16>) -> tensor<1x320x80x80xbf16>
+    %240 = "ttir.transpose"(%239) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x320x80x80xbf16>) -> tensor<1x80x320x80xbf16>
+    %241 = "ttir.transpose"(%240) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x80x320x80xbf16>) -> tensor<1x80x80x320xbf16>
+    %242 = "ttir.conv2d"(%241, %arg224) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 2, 2>}> {channel_last = 1 : si32} : (tensor<1x80x80x320xbf16>, tensor<640x320x3x3xbf16>) -> tensor<1x40x40x640xbf16>
+    %243 = "ttir.transpose"(%242) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x40x640xbf16>) -> tensor<1x40x640x40xbf16>
+    %244 = "ttir.transpose"(%243) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x40x640x40xbf16>) -> tensor<1x640x40x40xbf16>
+    %245 = "ttir.multiply"(%244, %arg52) : (tensor<1x640x40x40xbf16>, tensor<1x640x1x1xbf16>) -> tensor<1x640x40x40xbf16>
+    %246 = "ttir.add"(%245, %arg53) : (tensor<1x640x40x40xbf16>, tensor<1x640x1x1xbf16>) -> tensor<1x640x40x40xbf16>
+    %247 = "ttir.sigmoid"(%246) : (tensor<1x640x40x40xbf16>) -> tensor<1x640x40x40xbf16>
+    %248 = "ttir.multiply"(%246, %247) : (tensor<1x640x40x40xbf16>, tensor<1x640x40x40xbf16>) -> tensor<1x640x40x40xbf16>
+    %249 = "ttir.transpose"(%248) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x640x40x40xbf16>) -> tensor<1x40x640x40xbf16>
+    %250 = "ttir.transpose"(%249) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x640x40xbf16>) -> tensor<1x40x40x640xbf16>
+    %251 = "ttir.conv2d"(%250, %arg225) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 0, 0, 0, 0>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x40x40x640xbf16>, tensor<640x640x1x1xbf16>) -> tensor<1x40x40x640xbf16>
+    %252 = "ttir.transpose"(%251) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x40x640xbf16>) -> tensor<1x40x640x40xbf16>
+    %253 = "ttir.transpose"(%252) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x40x640x40xbf16>) -> tensor<1x640x40x40xbf16>
+    %254 = "ttir.multiply"(%253, %arg54) : (tensor<1x640x40x40xbf16>, tensor<1x640x1x1xbf16>) -> tensor<1x640x40x40xbf16>
+    %255 = "ttir.add"(%254, %arg55) : (tensor<1x640x40x40xbf16>, tensor<1x640x1x1xbf16>) -> tensor<1x640x40x40xbf16>
+    %256 = "ttir.sigmoid"(%255) : (tensor<1x640x40x40xbf16>) -> tensor<1x640x40x40xbf16>
+    %257 = "ttir.multiply"(%255, %256) : (tensor<1x640x40x40xbf16>, tensor<1x640x40x40xbf16>) -> tensor<1x640x40x40xbf16>
+    %258 = "ttir.index"(%257) <{begin = 0 : i32, dim = 1 : i32, end = 320 : i32, step = 1 : i32}> : (tensor<1x640x40x40xbf16>) -> tensor<1x320x40x40xbf16>
+    %259 = "ttir.index"(%257) <{begin = 320 : i32, dim = 1 : i32, end = 640 : i32, step = 1 : i32}> : (tensor<1x640x40x40xbf16>) -> tensor<1x320x40x40xbf16>
+    %260 = "ttir.transpose"(%259) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x320x40x40xbf16>) -> tensor<1x40x320x40xbf16>
+    %261 = "ttir.transpose"(%260) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x320x40xbf16>) -> tensor<1x40x40x320xbf16>
+    %262 = "ttir.conv2d"(%261, %arg226) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x40x40x320xbf16>, tensor<320x320x3x3xbf16>) -> tensor<1x40x40x320xbf16>
+    %263 = "ttir.transpose"(%262) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x40x320xbf16>) -> tensor<1x40x320x40xbf16>
+    %264 = "ttir.transpose"(%263) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x40x320x40xbf16>) -> tensor<1x320x40x40xbf16>
+    %265 = "ttir.multiply"(%264, %arg56) : (tensor<1x320x40x40xbf16>, tensor<1x320x1x1xbf16>) -> tensor<1x320x40x40xbf16>
+    %266 = "ttir.add"(%265, %arg57) : (tensor<1x320x40x40xbf16>, tensor<1x320x1x1xbf16>) -> tensor<1x320x40x40xbf16>
+    %267 = "ttir.sigmoid"(%266) : (tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16>
+    %268 = "ttir.multiply"(%266, %267) : (tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16>
+    %269 = "ttir.transpose"(%268) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x320x40x40xbf16>) -> tensor<1x40x320x40xbf16>
+    %270 = "ttir.transpose"(%269) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x320x40xbf16>) -> tensor<1x40x40x320xbf16>
+    %271 = "ttir.conv2d"(%270, %arg227) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x40x40x320xbf16>, tensor<320x320x3x3xbf16>) -> tensor<1x40x40x320xbf16>
+    %272 = "ttir.transpose"(%271) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x40x320xbf16>) -> tensor<1x40x320x40xbf16>
+    %273 = "ttir.transpose"(%272) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x40x320x40xbf16>) -> tensor<1x320x40x40xbf16>
+    %274 = "ttir.multiply"(%273, %arg58) : (tensor<1x320x40x40xbf16>, tensor<1x320x1x1xbf16>) -> tensor<1x320x40x40xbf16>
+    %275 = "ttir.add"(%274, %arg59) : (tensor<1x320x40x40xbf16>, tensor<1x320x1x1xbf16>) -> tensor<1x320x40x40xbf16>
+    %276 = "ttir.sigmoid"(%275) : (tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16>
+    %277 = "ttir.multiply"(%275, %276) : (tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16>
+    %278 = "ttir.add"(%259, %277) : (tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16>
+    %279 = "ttir.transpose"(%278) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x320x40x40xbf16>) -> tensor<1x40x320x40xbf16>
+    %280 = "ttir.transpose"(%279) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x320x40xbf16>) -> tensor<1x40x40x320xbf16>
+    %281 = "ttir.conv2d"(%280, %arg228) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x40x40x320xbf16>, tensor<320x320x3x3xbf16>) -> tensor<1x40x40x320xbf16>
+    %282 = "ttir.transpose"(%281) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x40x320xbf16>) -> tensor<1x40x320x40xbf16>
+    %283 = "ttir.transpose"(%282) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x40x320x40xbf16>) -> tensor<1x320x40x40xbf16>
+    %284 = "ttir.multiply"(%283, %arg60) : (tensor<1x320x40x40xbf16>, tensor<1x320x1x1xbf16>) -> tensor<1x320x40x40xbf16>
+    %285 = "ttir.add"(%284, %arg61) : (tensor<1x320x40x40xbf16>, tensor<1x320x1x1xbf16>) -> tensor<1x320x40x40xbf16>
+    %286 = "ttir.sigmoid"(%285) : (tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16>
+    %287 = "ttir.multiply"(%285, %286) : (tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16>
+    %288 = "ttir.transpose"(%287) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x320x40x40xbf16>) -> tensor<1x40x320x40xbf16>
+    %289 = "ttir.transpose"(%288) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x320x40xbf16>) -> tensor<1x40x40x320xbf16>
+    %290 = "ttir.conv2d"(%289, %arg229) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x40x40x320xbf16>, tensor<320x320x3x3xbf16>) -> tensor<1x40x40x320xbf16>
+    %291 = "ttir.transpose"(%290) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x40x320xbf16>) -> tensor<1x40x320x40xbf16>
+    %292 = "ttir.transpose"(%291) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x40x320x40xbf16>) -> tensor<1x320x40x40xbf16>
+    %293 = "ttir.multiply"(%292, %arg62) : (tensor<1x320x40x40xbf16>, tensor<1x320x1x1xbf16>) -> tensor<1x320x40x40xbf16>
+    %294 = "ttir.add"(%293, %arg63) : (tensor<1x320x40x40xbf16>, tensor<1x320x1x1xbf16>) -> tensor<1x320x40x40xbf16>
+    %295 = "ttir.sigmoid"(%294) : (tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16>
+    %296 = "ttir.multiply"(%294, %295) : (tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16>
+    %297 = "ttir.add"(%278, %296) : (tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16>
+    %298 = "ttir.transpose"(%297) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x320x40x40xbf16>) -> tensor<1x40x320x40xbf16>
+    %299 = "ttir.transpose"(%298) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x320x40xbf16>) -> tensor<1x40x40x320xbf16>
+    %300 = "ttir.conv2d"(%299, %arg230) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x40x40x320xbf16>, tensor<320x320x3x3xbf16>) -> tensor<1x40x40x320xbf16>
+    %301 = "ttir.transpose"(%300) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x40x320xbf16>) -> tensor<1x40x320x40xbf16>
+    %302 = "ttir.transpose"(%301) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x40x320x40xbf16>) -> tensor<1x320x40x40xbf16>
+    %303 = "ttir.multiply"(%302, %arg64) : (tensor<1x320x40x40xbf16>, tensor<1x320x1x1xbf16>) -> tensor<1x320x40x40xbf16>
+    %304 = "ttir.add"(%303, %arg65) : (tensor<1x320x40x40xbf16>, tensor<1x320x1x1xbf16>) -> tensor<1x320x40x40xbf16>
+    %305 = "ttir.sigmoid"(%304) : (tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16>
+    %306 = "ttir.multiply"(%304, %305) : (tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16>
+    %307 = "ttir.transpose"(%306) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x320x40x40xbf16>) -> tensor<1x40x320x40xbf16>
+    %308 = "ttir.transpose"(%307) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x320x40xbf16>) -> tensor<1x40x40x320xbf16>
+    %309 = "ttir.conv2d"(%308, %arg231) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x40x40x320xbf16>, tensor<320x320x3x3xbf16>) -> tensor<1x40x40x320xbf16>
+    %310 = "ttir.transpose"(%309) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x40x320xbf16>) -> tensor<1x40x320x40xbf16>
+    %311 = "ttir.transpose"(%310) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x40x320x40xbf16>) -> tensor<1x320x40x40xbf16>
+    %312 = "ttir.multiply"(%311, %arg66) : (tensor<1x320x40x40xbf16>, tensor<1x320x1x1xbf16>) -> tensor<1x320x40x40xbf16>
+    %313 = "ttir.add"(%312, %arg67) : (tensor<1x320x40x40xbf16>, tensor<1x320x1x1xbf16>) -> tensor<1x320x40x40xbf16>
+    %314 = "ttir.sigmoid"(%313) : (tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16>
+    %315 = "ttir.multiply"(%313, %314) : (tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16>
+    %316 = "ttir.add"(%297, %315) : (tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16>
+    %317 = "ttir.transpose"(%316) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x320x40x40xbf16>) -> tensor<1x40x320x40xbf16>
+    %318 = "ttir.transpose"(%317) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x320x40xbf16>) -> tensor<1x40x40x320xbf16>
+    %319 = "ttir.conv2d"(%318, %arg232) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x40x40x320xbf16>, tensor<320x320x3x3xbf16>) -> tensor<1x40x40x320xbf16>
+    %320 = "ttir.transpose"(%319) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x40x320xbf16>) -> tensor<1x40x320x40xbf16>
+    %321 = "ttir.transpose"(%320) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x40x320x40xbf16>) -> tensor<1x320x40x40xbf16>
+    %322 = "ttir.multiply"(%321, %arg68) : (tensor<1x320x40x40xbf16>, tensor<1x320x1x1xbf16>) -> tensor<1x320x40x40xbf16>
+    %323 = "ttir.add"(%322, %arg69) : (tensor<1x320x40x40xbf16>, tensor<1x320x1x1xbf16>) -> tensor<1x320x40x40xbf16>
+    %324 = "ttir.sigmoid"(%323) : (tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16>
+    %325 = "ttir.multiply"(%323, %324) : (tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16>
+    %326 = "ttir.transpose"(%325) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x320x40x40xbf16>) -> tensor<1x40x320x40xbf16>
+    %327 = "ttir.transpose"(%326) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x320x40xbf16>) -> tensor<1x40x40x320xbf16>
+    %328 = "ttir.conv2d"(%327, %arg233) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x40x40x320xbf16>, tensor<320x320x3x3xbf16>) -> tensor<1x40x40x320xbf16>
+    %329 = "ttir.transpose"(%328) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x40x320xbf16>) -> tensor<1x40x320x40xbf16>
+    %330 = "ttir.transpose"(%329) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x40x320x40xbf16>) -> tensor<1x320x40x40xbf16>
+    %331 = "ttir.multiply"(%330, %arg70) : (tensor<1x320x40x40xbf16>, tensor<1x320x1x1xbf16>) -> tensor<1x320x40x40xbf16>
+    %332 = "ttir.add"(%331, %arg71) : (tensor<1x320x40x40xbf16>, tensor<1x320x1x1xbf16>) -> tensor<1x320x40x40xbf16>
+    %333 = "ttir.sigmoid"(%332) : (tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16>
+    %334 = "ttir.multiply"(%332, %333) : (tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16>
+    %335 = "ttir.add"(%316, %334) : (tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16>
+    %336 = "ttir.transpose"(%335) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x320x40x40xbf16>) -> tensor<1x40x320x40xbf16>
+    %337 = "ttir.transpose"(%336) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x320x40xbf16>) -> tensor<1x40x40x320xbf16>
+    %338 = "ttir.conv2d"(%337, %arg234) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x40x40x320xbf16>, tensor<320x320x3x3xbf16>) -> tensor<1x40x40x320xbf16>
+    %339 = "ttir.transpose"(%338) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x40x320xbf16>) -> tensor<1x40x320x40xbf16>
+    %340 = "ttir.transpose"(%339) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x40x320x40xbf16>) -> tensor<1x320x40x40xbf16>
+    %341 = "ttir.multiply"(%340, %arg72) : (tensor<1x320x40x40xbf16>, tensor<1x320x1x1xbf16>) -> tensor<1x320x40x40xbf16>
+    %342 = "ttir.add"(%341, %arg73) : (tensor<1x320x40x40xbf16>, tensor<1x320x1x1xbf16>) -> tensor<1x320x40x40xbf16>
+    %343 = "ttir.sigmoid"(%342) : (tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16>
+    %344 = "ttir.multiply"(%342, %343) : (tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16>
+    %345 = "ttir.transpose"(%344) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x320x40x40xbf16>) -> tensor<1x40x320x40xbf16>
+    %346 = "ttir.transpose"(%345) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x320x40xbf16>) -> tensor<1x40x40x320xbf16>
+    %347 = "ttir.conv2d"(%346, %arg235) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x40x40x320xbf16>, tensor<320x320x3x3xbf16>) -> tensor<1x40x40x320xbf16>
+    %348 = "ttir.transpose"(%347) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x40x320xbf16>) -> tensor<1x40x320x40xbf16>
+    %349 = "ttir.transpose"(%348) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x40x320x40xbf16>) -> tensor<1x320x40x40xbf16>
+    %350 = "ttir.multiply"(%349, %arg74) : (tensor<1x320x40x40xbf16>, tensor<1x320x1x1xbf16>) -> tensor<1x320x40x40xbf16>
+    %351 = "ttir.add"(%350, %arg75) : (tensor<1x320x40x40xbf16>, tensor<1x320x1x1xbf16>) -> tensor<1x320x40x40xbf16>
+    %352 = "ttir.sigmoid"(%351) : (tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16>
+    %353 = "ttir.multiply"(%351, %352) : (tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16>
+    %354 = "ttir.add"(%335, %353) : (tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16>
+    %355 = "ttir.transpose"(%354) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x320x40x40xbf16>) -> tensor<1x40x320x40xbf16>
+    %356 = "ttir.transpose"(%355) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x320x40xbf16>) -> tensor<1x40x40x320xbf16>
+    %357 = "ttir.conv2d"(%356, %arg236) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x40x40x320xbf16>, tensor<320x320x3x3xbf16>) -> tensor<1x40x40x320xbf16>
+    %358 = "ttir.transpose"(%357) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x40x320xbf16>) -> tensor<1x40x320x40xbf16>
+    %359 = "ttir.transpose"(%358) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x40x320x40xbf16>) -> tensor<1x320x40x40xbf16>
+    %360 = "ttir.multiply"(%359, %arg76) : (tensor<1x320x40x40xbf16>, tensor<1x320x1x1xbf16>) -> tensor<1x320x40x40xbf16>
+    %361 = "ttir.add"(%360, %arg77) : (tensor<1x320x40x40xbf16>, tensor<1x320x1x1xbf16>) -> tensor<1x320x40x40xbf16>
+    %362 = "ttir.sigmoid"(%361) : (tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16>
+    %363 = "ttir.multiply"(%361, %362) : (tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16>
+    %364 = "ttir.transpose"(%363) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x320x40x40xbf16>) -> tensor<1x40x320x40xbf16>
+    %365 = "ttir.transpose"(%364) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x320x40xbf16>) -> tensor<1x40x40x320xbf16>
+    %366 = "ttir.conv2d"(%365, %arg237) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x40x40x320xbf16>, tensor<320x320x3x3xbf16>) -> tensor<1x40x40x320xbf16>
+    %367 = "ttir.transpose"(%366) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x40x320xbf16>) -> tensor<1x40x320x40xbf16>
+    %368 = "ttir.transpose"(%367) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x40x320x40xbf16>) -> tensor<1x320x40x40xbf16>
+    %369 = "ttir.multiply"(%368, %arg78) : (tensor<1x320x40x40xbf16>, tensor<1x320x1x1xbf16>) -> tensor<1x320x40x40xbf16>
+    %370 = "ttir.add"(%369, %arg79) : (tensor<1x320x40x40xbf16>, tensor<1x320x1x1xbf16>) -> tensor<1x320x40x40xbf16>
+    %371 = "ttir.sigmoid"(%370) : (tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16>
+    %372 = "ttir.multiply"(%370, %371) : (tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16>
+    %373 = "ttir.add"(%354, %372) : (tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16>
+    %374 = "ttir.concat"(%258, %259, %278, %297, %316, %335, %354, %373) <{dim = -3 : si32}> : (tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x2560x40x40xbf16>
+    %375 = "ttir.transpose"(%374) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x2560x40x40xbf16>) -> tensor<1x40x2560x40xbf16>
+    %376 = "ttir.transpose"(%375) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x2560x40xbf16>) -> tensor<1x40x40x2560xbf16>
+    %377 = "ttir.conv2d"(%376, %arg238) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 0, 0, 0, 0>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x40x40x2560xbf16>, tensor<640x2560x1x1xbf16>) -> tensor<1x40x40x640xbf16>
+    %378 = "ttir.transpose"(%377) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x40x640xbf16>) -> tensor<1x40x640x40xbf16>
+    %379 = "ttir.transpose"(%378) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x40x640x40xbf16>) -> tensor<1x640x40x40xbf16>
+    %380 = "ttir.multiply"(%379, %arg80) : (tensor<1x640x40x40xbf16>, tensor<1x640x1x1xbf16>) -> tensor<1x640x40x40xbf16>
+    %381 = "ttir.add"(%380, %arg81) : (tensor<1x640x40x40xbf16>, tensor<1x640x1x1xbf16>) -> tensor<1x640x40x40xbf16>
+    %382 = "ttir.sigmoid"(%381) : (tensor<1x640x40x40xbf16>) -> tensor<1x640x40x40xbf16>
+    %383 = "ttir.multiply"(%381, %382) : (tensor<1x640x40x40xbf16>, tensor<1x640x40x40xbf16>) -> tensor<1x640x40x40xbf16>
+    %384 = "ttir.transpose"(%383) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x640x40x40xbf16>) -> tensor<1x40x640x40xbf16>
+    %385 = "ttir.transpose"(%384) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x640x40xbf16>) -> tensor<1x40x40x640xbf16>
+    %386 = "ttir.conv2d"(%385, %arg239) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 2, 2>}> {channel_last = 1 : si32} : (tensor<1x40x40x640xbf16>, tensor<640x640x3x3xbf16>) -> tensor<1x20x20x640xbf16>
+    %387 = "ttir.transpose"(%386) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x20x20x640xbf16>) -> tensor<1x20x640x20xbf16>
+    %388 = "ttir.transpose"(%387) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x20x640x20xbf16>) -> tensor<1x640x20x20xbf16>
+    %389 = "ttir.multiply"(%388, %arg82) : (tensor<1x640x20x20xbf16>, tensor<1x640x1x1xbf16>) -> tensor<1x640x20x20xbf16>
+    %390 = "ttir.add"(%389, %arg83) : (tensor<1x640x20x20xbf16>, tensor<1x640x1x1xbf16>) -> tensor<1x640x20x20xbf16>
+    %391 = "ttir.sigmoid"(%390) : (tensor<1x640x20x20xbf16>) -> tensor<1x640x20x20xbf16>
+    %392 = "ttir.multiply"(%390, %391) : (tensor<1x640x20x20xbf16>, tensor<1x640x20x20xbf16>) -> tensor<1x640x20x20xbf16>
+    %393 = "ttir.transpose"(%392) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x640x20x20xbf16>) -> tensor<1x20x640x20xbf16>
+    %394 = "ttir.transpose"(%393) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x20x640x20xbf16>) -> tensor<1x20x20x640xbf16>
+    %395 = "ttir.conv2d"(%394, %arg240) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 0, 0, 0, 0>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x20x20x640xbf16>, tensor<640x640x1x1xbf16>) -> tensor<1x20x20x640xbf16>
+    %396 = "ttir.transpose"(%395) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x20x20x640xbf16>) -> tensor<1x20x640x20xbf16>
+    %397 = "ttir.transpose"(%396) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x20x640x20xbf16>) -> tensor<1x640x20x20xbf16>
+    %398 = "ttir.multiply"(%397, %arg84) : (tensor<1x640x20x20xbf16>, tensor<1x640x1x1xbf16>) -> tensor<1x640x20x20xbf16>
+    %399 = "ttir.add"(%398, %arg85) : (tensor<1x640x20x20xbf16>, tensor<1x640x1x1xbf16>) -> tensor<1x640x20x20xbf16>
+    %400 = "ttir.sigmoid"(%399) : (tensor<1x640x20x20xbf16>) -> tensor<1x640x20x20xbf16>
+    %401 = "ttir.multiply"(%399, %400) : (tensor<1x640x20x20xbf16>, tensor<1x640x20x20xbf16>) -> tensor<1x640x20x20xbf16>
+    %402 = "ttir.index"(%401) <{begin = 0 : i32, dim = 1 : i32, end = 320 : i32, step = 1 : i32}> : (tensor<1x640x20x20xbf16>) -> tensor<1x320x20x20xbf16>
+    %403 = "ttir.index"(%401) <{begin = 320 : i32, dim = 1 : i32, end = 640 : i32, step = 1 : i32}> : (tensor<1x640x20x20xbf16>) -> tensor<1x320x20x20xbf16>
+    %404 = "ttir.transpose"(%403) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x320x20x20xbf16>) -> tensor<1x20x320x20xbf16>
+    %405 = "ttir.transpose"(%404) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x20x320x20xbf16>) -> tensor<1x20x20x320xbf16>
+    %406 = "ttir.conv2d"(%405, %arg241) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x20x20x320xbf16>, tensor<320x320x3x3xbf16>) -> tensor<1x20x20x320xbf16>
+    %407 = "ttir.transpose"(%406) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x20x20x320xbf16>) -> tensor<1x20x320x20xbf16>
+    %408 = "ttir.transpose"(%407) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x20x320x20xbf16>) -> tensor<1x320x20x20xbf16>
+    %409 = "ttir.multiply"(%408, %arg86) : (tensor<1x320x20x20xbf16>, tensor<1x320x1x1xbf16>) -> tensor<1x320x20x20xbf16>
+    %410 = "ttir.add"(%409, %arg87) : (tensor<1x320x20x20xbf16>, tensor<1x320x1x1xbf16>) -> tensor<1x320x20x20xbf16>
+    %411 = "ttir.sigmoid"(%410) : (tensor<1x320x20x20xbf16>) -> tensor<1x320x20x20xbf16>
+    %412 = "ttir.multiply"(%410, %411) : (tensor<1x320x20x20xbf16>, tensor<1x320x20x20xbf16>) -> tensor<1x320x20x20xbf16>
+    %413 = "ttir.transpose"(%412) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x320x20x20xbf16>) -> tensor<1x20x320x20xbf16>
+    %414 = "ttir.transpose"(%413) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x20x320x20xbf16>) -> tensor<1x20x20x320xbf16>
+    %415 = "ttir.conv2d"(%414, %arg242) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x20x20x320xbf16>, tensor<320x320x3x3xbf16>) -> tensor<1x20x20x320xbf16>
+    %416 = "ttir.transpose"(%415) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x20x20x320xbf16>) -> tensor<1x20x320x20xbf16>
+    %417 = "ttir.transpose"(%416) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x20x320x20xbf16>) -> tensor<1x320x20x20xbf16>
+    %418 = "ttir.multiply"(%417, %arg88) : (tensor<1x320x20x20xbf16>, tensor<1x320x1x1xbf16>) -> tensor<1x320x20x20xbf16>
+    %419 = "ttir.add"(%418, %arg89) : (tensor<1x320x20x20xbf16>, tensor<1x320x1x1xbf16>) -> tensor<1x320x20x20xbf16>
+    %420 = "ttir.sigmoid"(%419) : (tensor<1x320x20x20xbf16>) -> tensor<1x320x20x20xbf16>
+    %421 = "ttir.multiply"(%419, %420) : (tensor<1x320x20x20xbf16>, tensor<1x320x20x20xbf16>) -> tensor<1x320x20x20xbf16>
+    %422 = "ttir.add"(%403, %421) : (tensor<1x320x20x20xbf16>, tensor<1x320x20x20xbf16>) -> tensor<1x320x20x20xbf16>
+    %423 = "ttir.transpose"(%422) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x320x20x20xbf16>) -> tensor<1x20x320x20xbf16>
+    %424 = "ttir.transpose"(%423) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x20x320x20xbf16>) -> tensor<1x20x20x320xbf16>
+    %425 = "ttir.conv2d"(%424, %arg243) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x20x20x320xbf16>, tensor<320x320x3x3xbf16>) -> tensor<1x20x20x320xbf16>
+    %426 = "ttir.transpose"(%425) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x20x20x320xbf16>) -> tensor<1x20x320x20xbf16>
+    %427 = "ttir.transpose"(%426) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x20x320x20xbf16>) -> tensor<1x320x20x20xbf16>
+    %428 = "ttir.multiply"(%427, %arg90) : (tensor<1x320x20x20xbf16>, tensor<1x320x1x1xbf16>) -> tensor<1x320x20x20xbf16>
+    %429 = "ttir.add"(%428, %arg91) : (tensor<1x320x20x20xbf16>, tensor<1x320x1x1xbf16>) -> tensor<1x320x20x20xbf16>
+    %430 = "ttir.sigmoid"(%429) : (tensor<1x320x20x20xbf16>) -> tensor<1x320x20x20xbf16>
+    %431 = "ttir.multiply"(%429, %430) : (tensor<1x320x20x20xbf16>, tensor<1x320x20x20xbf16>) -> tensor<1x320x20x20xbf16>
+    %432 = "ttir.transpose"(%431) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x320x20x20xbf16>) -> tensor<1x20x320x20xbf16>
+    %433 = "ttir.transpose"(%432) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x20x320x20xbf16>) -> tensor<1x20x20x320xbf16>
+    %434 = "ttir.conv2d"(%433, %arg244) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x20x20x320xbf16>, tensor<320x320x3x3xbf16>) -> tensor<1x20x20x320xbf16>
+    %435 = "ttir.transpose"(%434) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x20x20x320xbf16>) -> tensor<1x20x320x20xbf16>
+    %436 = "ttir.transpose"(%435) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x20x320x20xbf16>) -> tensor<1x320x20x20xbf16>
+    %437 = "ttir.multiply"(%436, %arg92) : (tensor<1x320x20x20xbf16>, tensor<1x320x1x1xbf16>) -> tensor<1x320x20x20xbf16>
+    %438 = "ttir.add"(%437, %arg93) : (tensor<1x320x20x20xbf16>, tensor<1x320x1x1xbf16>) -> tensor<1x320x20x20xbf16>
+    %439 = "ttir.sigmoid"(%438) : (tensor<1x320x20x20xbf16>) -> tensor<1x320x20x20xbf16>
+    %440 = "ttir.multiply"(%438, %439) : (tensor<1x320x20x20xbf16>, tensor<1x320x20x20xbf16>) -> tensor<1x320x20x20xbf16>
+    %441 = "ttir.add"(%422, %440) : (tensor<1x320x20x20xbf16>, tensor<1x320x20x20xbf16>) -> tensor<1x320x20x20xbf16>
+    %442 = "ttir.transpose"(%441) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x320x20x20xbf16>) -> tensor<1x20x320x20xbf16>
+    %443 = "ttir.transpose"(%442) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x20x320x20xbf16>) -> tensor<1x20x20x320xbf16>
+    %444 = "ttir.conv2d"(%443, %arg245) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x20x20x320xbf16>, tensor<320x320x3x3xbf16>) -> tensor<1x20x20x320xbf16>
+    %445 = "ttir.transpose"(%444) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x20x20x320xbf16>) -> tensor<1x20x320x20xbf16>
+    %446 = "ttir.transpose"(%445) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x20x320x20xbf16>) -> tensor<1x320x20x20xbf16>
+    %447 = "ttir.multiply"(%446, %arg94) : (tensor<1x320x20x20xbf16>, tensor<1x320x1x1xbf16>) -> tensor<1x320x20x20xbf16>
+    %448 = "ttir.add"(%447, %arg95) : (tensor<1x320x20x20xbf16>, tensor<1x320x1x1xbf16>) -> tensor<1x320x20x20xbf16>
+    %449 = "ttir.sigmoid"(%448) : (tensor<1x320x20x20xbf16>) -> tensor<1x320x20x20xbf16>
+    %450 = "ttir.multiply"(%448, %449) : (tensor<1x320x20x20xbf16>, tensor<1x320x20x20xbf16>) -> tensor<1x320x20x20xbf16>
+    %451 = "ttir.transpose"(%450) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x320x20x20xbf16>) -> tensor<1x20x320x20xbf16>
+    %452 = "ttir.transpose"(%451) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x20x320x20xbf16>) -> tensor<1x20x20x320xbf16>
+    %453 = "ttir.conv2d"(%452, %arg246) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x20x20x320xbf16>, tensor<320x320x3x3xbf16>) -> tensor<1x20x20x320xbf16>
+    %454 = "ttir.transpose"(%453) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x20x20x320xbf16>) -> tensor<1x20x320x20xbf16>
+    %455 = "ttir.transpose"(%454) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x20x320x20xbf16>) -> tensor<1x320x20x20xbf16>
+    %456 = "ttir.multiply"(%455, %arg96) : (tensor<1x320x20x20xbf16>, tensor<1x320x1x1xbf16>) -> tensor<1x320x20x20xbf16>
+    %457 = "ttir.add"(%456, %arg97) : (tensor<1x320x20x20xbf16>, tensor<1x320x1x1xbf16>) -> tensor<1x320x20x20xbf16>
+    %458 = "ttir.sigmoid"(%457) : (tensor<1x320x20x20xbf16>) -> tensor<1x320x20x20xbf16>
+    %459 = "ttir.multiply"(%457, %458) : (tensor<1x320x20x20xbf16>, tensor<1x320x20x20xbf16>) -> tensor<1x320x20x20xbf16>
+    %460 = "ttir.add"(%441, %459) : (tensor<1x320x20x20xbf16>, tensor<1x320x20x20xbf16>) -> tensor<1x320x20x20xbf16>
+    %461 = "ttir.concat"(%402, %403, %422, %441, %460) <{dim = -3 : si32}> : (tensor<1x320x20x20xbf16>, tensor<1x320x20x20xbf16>, tensor<1x320x20x20xbf16>, tensor<1x320x20x20xbf16>, tensor<1x320x20x20xbf16>) -> tensor<1x1600x20x20xbf16>
+    %462 = "ttir.transpose"(%461) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x1600x20x20xbf16>) -> tensor<1x20x1600x20xbf16>
+    %463 = "ttir.transpose"(%462) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x20x1600x20xbf16>) -> tensor<1x20x20x1600xbf16>
+    %464 = "ttir.conv2d"(%463, %arg247) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 0, 0, 0, 0>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x20x20x1600xbf16>, tensor<640x1600x1x1xbf16>) -> tensor<1x20x20x640xbf16>
+    %465 = "ttir.transpose"(%464) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x20x20x640xbf16>) -> tensor<1x20x640x20xbf16>
+    %466 = "ttir.transpose"(%465) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x20x640x20xbf16>) -> tensor<1x640x20x20xbf16>
+    %467 = "ttir.multiply"(%466, %arg98) : (tensor<1x640x20x20xbf16>, tensor<1x640x1x1xbf16>) -> tensor<1x640x20x20xbf16>
+    %468 = "ttir.add"(%467, %arg99) : (tensor<1x640x20x20xbf16>, tensor<1x640x1x1xbf16>) -> tensor<1x640x20x20xbf16>
+    %469 = "ttir.sigmoid"(%468) : (tensor<1x640x20x20xbf16>) -> tensor<1x640x20x20xbf16>
+    %470 = "ttir.multiply"(%468, %469) : (tensor<1x640x20x20xbf16>, tensor<1x640x20x20xbf16>) -> tensor<1x640x20x20xbf16>
+    %471 = "ttir.transpose"(%470) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x640x20x20xbf16>) -> tensor<1x20x640x20xbf16>
+    %472 = "ttir.transpose"(%471) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x20x640x20xbf16>) -> tensor<1x20x20x640xbf16>
+    %473 = "ttir.conv2d"(%472, %arg248) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 0, 0, 0, 0>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x20x20x640xbf16>, tensor<320x640x1x1xbf16>) -> tensor<1x20x20x320xbf16>
+    %474 = "ttir.transpose"(%473) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x20x20x320xbf16>) -> tensor<1x20x320x20xbf16>
+    %475 = "ttir.transpose"(%474) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x20x320x20xbf16>) -> tensor<1x320x20x20xbf16>
+    %476 = "ttir.multiply"(%475, %arg100) : (tensor<1x320x20x20xbf16>, tensor<1x320x1x1xbf16>) -> tensor<1x320x20x20xbf16>
+    %477 = "ttir.add"(%476, %arg101) : (tensor<1x320x20x20xbf16>, tensor<1x320x1x1xbf16>) -> tensor<1x320x20x20xbf16>
+    %478 = "ttir.sigmoid"(%477) : (tensor<1x320x20x20xbf16>) -> tensor<1x320x20x20xbf16>
+    %479 = "ttir.multiply"(%477, %478) : (tensor<1x320x20x20xbf16>, tensor<1x320x20x20xbf16>) -> tensor<1x320x20x20xbf16>
+    %480 = "ttir.transpose"(%479) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x320x20x20xbf16>) -> tensor<1x20x320x20xbf16>
+    %481 = "ttir.transpose"(%480) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x20x320x20xbf16>) -> tensor<1x20x20x320xbf16>
+    %482 = "ttir.max_pool2d"(%481) <{ceil_mode = false, dilation = array<i32: 1, 1>, kernel = array<i32: 5, 5>, padding = array<i32: 2, 2, 2, 2>, stride = array<i32: 1, 1>}> {channel_last = true} : (tensor<1x20x20x320xbf16>) -> tensor<1x20x20x320xbf16>
+    %483 = "ttir.transpose"(%482) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x20x20x320xbf16>) -> tensor<1x20x320x20xbf16>
+    %484 = "ttir.transpose"(%483) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x20x320x20xbf16>) -> tensor<1x320x20x20xbf16>
+    %485 = "ttir.transpose"(%484) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x320x20x20xbf16>) -> tensor<1x20x320x20xbf16>
+    %486 = "ttir.transpose"(%485) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x20x320x20xbf16>) -> tensor<1x20x20x320xbf16>
+    %487 = "ttir.max_pool2d"(%486) <{ceil_mode = false, dilation = array<i32: 1, 1>, kernel = array<i32: 5, 5>, padding = array<i32: 2, 2, 2, 2>, stride = array<i32: 1, 1>}> {channel_last = true} : (tensor<1x20x20x320xbf16>) -> tensor<1x20x20x320xbf16>
+    %488 = "ttir.transpose"(%487) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x20x20x320xbf16>) -> tensor<1x20x320x20xbf16>
+    %489 = "ttir.transpose"(%488) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x20x320x20xbf16>) -> tensor<1x320x20x20xbf16>
+    %490 = "ttir.transpose"(%489) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x320x20x20xbf16>) -> tensor<1x20x320x20xbf16>
+    %491 = "ttir.transpose"(%490) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x20x320x20xbf16>) -> tensor<1x20x20x320xbf16>
+    %492 = "ttir.max_pool2d"(%491) <{ceil_mode = false, dilation = array<i32: 1, 1>, kernel = array<i32: 5, 5>, padding = array<i32: 2, 2, 2, 2>, stride = array<i32: 1, 1>}> {channel_last = true} : (tensor<1x20x20x320xbf16>) -> tensor<1x20x20x320xbf16>
+    %493 = "ttir.transpose"(%492) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x20x20x320xbf16>) -> tensor<1x20x320x20xbf16>
+    %494 = "ttir.transpose"(%493) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x20x320x20xbf16>) -> tensor<1x320x20x20xbf16>
+    %495 = "ttir.concat"(%479, %484, %489, %494) <{dim = -3 : si32}> : (tensor<1x320x20x20xbf16>, tensor<1x320x20x20xbf16>, tensor<1x320x20x20xbf16>, tensor<1x320x20x20xbf16>) -> tensor<1x1280x20x20xbf16>
+    %496 = "ttir.transpose"(%495) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x1280x20x20xbf16>) -> tensor<1x20x1280x20xbf16>
+    %497 = "ttir.transpose"(%496) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x20x1280x20xbf16>) -> tensor<1x20x20x1280xbf16>
+    %498 = "ttir.conv2d"(%497, %arg249) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 0, 0, 0, 0>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x20x20x1280xbf16>, tensor<640x1280x1x1xbf16>) -> tensor<1x20x20x640xbf16>
+    %499 = "ttir.transpose"(%498) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x20x20x640xbf16>) -> tensor<1x20x640x20xbf16>
+    %500 = "ttir.transpose"(%499) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x20x640x20xbf16>) -> tensor<1x640x20x20xbf16>
+    %501 = "ttir.multiply"(%500, %arg102) : (tensor<1x640x20x20xbf16>, tensor<1x640x1x1xbf16>) -> tensor<1x640x20x20xbf16>
+    %502 = "ttir.add"(%501, %arg103) : (tensor<1x640x20x20xbf16>, tensor<1x640x1x1xbf16>) -> tensor<1x640x20x20xbf16>
+    %503 = "ttir.sigmoid"(%502) : (tensor<1x640x20x20xbf16>) -> tensor<1x640x20x20xbf16>
+    %504 = "ttir.multiply"(%502, %503) : (tensor<1x640x20x20xbf16>, tensor<1x640x20x20xbf16>) -> tensor<1x640x20x20xbf16>
+    %505 = "ttir.transpose"(%504) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x640x20x20xbf16>) -> tensor<1x20x640x20xbf16>
+    %506 = "ttir.transpose"(%505) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x20x640x20xbf16>) -> tensor<1x20x20x640xbf16>
+    %507 = "ttir.upsample2d"(%506) <{mode = "nearest", scale_factor = 2 : si32}> {channel_last = true} : (tensor<1x20x20x640xbf16>) -> tensor<1x40x40x640xbf16>
+    %508 = "ttir.transpose"(%507) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x40x640xbf16>) -> tensor<1x40x640x40xbf16>
+    %509 = "ttir.transpose"(%508) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x40x640x40xbf16>) -> tensor<1x640x40x40xbf16>
+    %510 = "ttir.concat"(%509, %383) <{dim = -3 : si32}> : (tensor<1x640x40x40xbf16>, tensor<1x640x40x40xbf16>) -> tensor<1x1280x40x40xbf16>
+    %511 = "ttir.transpose"(%510) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x1280x40x40xbf16>) -> tensor<1x40x1280x40xbf16>
+    %512 = "ttir.transpose"(%511) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x1280x40xbf16>) -> tensor<1x40x40x1280xbf16>
+    %513 = "ttir.conv2d"(%512, %arg250) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 0, 0, 0, 0>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x40x40x1280xbf16>, tensor<640x1280x1x1xbf16>) -> tensor<1x40x40x640xbf16>
+    %514 = "ttir.transpose"(%513) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x40x640xbf16>) -> tensor<1x40x640x40xbf16>
+    %515 = "ttir.transpose"(%514) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x40x640x40xbf16>) -> tensor<1x640x40x40xbf16>
+    %516 = "ttir.multiply"(%515, %arg104) : (tensor<1x640x40x40xbf16>, tensor<1x640x1x1xbf16>) -> tensor<1x640x40x40xbf16>
+    %517 = "ttir.add"(%516, %arg105) : (tensor<1x640x40x40xbf16>, tensor<1x640x1x1xbf16>) -> tensor<1x640x40x40xbf16>
+    %518 = "ttir.sigmoid"(%517) : (tensor<1x640x40x40xbf16>) -> tensor<1x640x40x40xbf16>
+    %519 = "ttir.multiply"(%517, %518) : (tensor<1x640x40x40xbf16>, tensor<1x640x40x40xbf16>) -> tensor<1x640x40x40xbf16>
+    %520 = "ttir.index"(%519) <{begin = 0 : i32, dim = 1 : i32, end = 320 : i32, step = 1 : i32}> : (tensor<1x640x40x40xbf16>) -> tensor<1x320x40x40xbf16>
+    %521 = "ttir.index"(%519) <{begin = 320 : i32, dim = 1 : i32, end = 640 : i32, step = 1 : i32}> : (tensor<1x640x40x40xbf16>) -> tensor<1x320x40x40xbf16>
+    %522 = "ttir.transpose"(%521) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x320x40x40xbf16>) -> tensor<1x40x320x40xbf16>
+    %523 = "ttir.transpose"(%522) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x320x40xbf16>) -> tensor<1x40x40x320xbf16>
+    %524 = "ttir.conv2d"(%523, %arg251) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x40x40x320xbf16>, tensor<320x320x3x3xbf16>) -> tensor<1x40x40x320xbf16>
+    %525 = "ttir.transpose"(%524) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x40x320xbf16>) -> tensor<1x40x320x40xbf16>
+    %526 = "ttir.transpose"(%525) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x40x320x40xbf16>) -> tensor<1x320x40x40xbf16>
+    %527 = "ttir.multiply"(%526, %arg106) : (tensor<1x320x40x40xbf16>, tensor<1x320x1x1xbf16>) -> tensor<1x320x40x40xbf16>
+    %528 = "ttir.add"(%527, %arg107) : (tensor<1x320x40x40xbf16>, tensor<1x320x1x1xbf16>) -> tensor<1x320x40x40xbf16>
+    %529 = "ttir.sigmoid"(%528) : (tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16>
+    %530 = "ttir.multiply"(%528, %529) : (tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16>
+    %531 = "ttir.transpose"(%530) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x320x40x40xbf16>) -> tensor<1x40x320x40xbf16>
+    %532 = "ttir.transpose"(%531) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x320x40xbf16>) -> tensor<1x40x40x320xbf16>
+    %533 = "ttir.conv2d"(%532, %arg252) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x40x40x320xbf16>, tensor<320x320x3x3xbf16>) -> tensor<1x40x40x320xbf16>
+    %534 = "ttir.transpose"(%533) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x40x320xbf16>) -> tensor<1x40x320x40xbf16>
+    %535 = "ttir.transpose"(%534) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x40x320x40xbf16>) -> tensor<1x320x40x40xbf16>
+    %536 = "ttir.multiply"(%535, %arg108) : (tensor<1x320x40x40xbf16>, tensor<1x320x1x1xbf16>) -> tensor<1x320x40x40xbf16>
+    %537 = "ttir.add"(%536, %arg109) : (tensor<1x320x40x40xbf16>, tensor<1x320x1x1xbf16>) -> tensor<1x320x40x40xbf16>
+    %538 = "ttir.sigmoid"(%537) : (tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16>
+    %539 = "ttir.multiply"(%537, %538) : (tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16>
+    %540 = "ttir.transpose"(%539) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x320x40x40xbf16>) -> tensor<1x40x320x40xbf16>
+    %541 = "ttir.transpose"(%540) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x320x40xbf16>) -> tensor<1x40x40x320xbf16>
+    %542 = "ttir.conv2d"(%541, %arg253) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x40x40x320xbf16>, tensor<320x320x3x3xbf16>) -> tensor<1x40x40x320xbf16>
+    %543 = "ttir.transpose"(%542) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x40x320xbf16>) -> tensor<1x40x320x40xbf16>
+    %544 = "ttir.transpose"(%543) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x40x320x40xbf16>) -> tensor<1x320x40x40xbf16>
+    %545 = "ttir.multiply"(%544, %arg110) : (tensor<1x320x40x40xbf16>, tensor<1x320x1x1xbf16>) -> tensor<1x320x40x40xbf16>
+    %546 = "ttir.add"(%545, %arg111) : (tensor<1x320x40x40xbf16>, tensor<1x320x1x1xbf16>) -> tensor<1x320x40x40xbf16>
+    %547 = "ttir.sigmoid"(%546) : (tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16>
+    %548 = "ttir.multiply"(%546, %547) : (tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16>
+    %549 = "ttir.transpose"(%548) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x320x40x40xbf16>) -> tensor<1x40x320x40xbf16>
+    %550 = "ttir.transpose"(%549) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x320x40xbf16>) -> tensor<1x40x40x320xbf16>
+    %551 = "ttir.conv2d"(%550, %arg254) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x40x40x320xbf16>, tensor<320x320x3x3xbf16>) -> tensor<1x40x40x320xbf16>
+    %552 = "ttir.transpose"(%551) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x40x320xbf16>) -> tensor<1x40x320x40xbf16>
+    %553 = "ttir.transpose"(%552) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x40x320x40xbf16>) -> tensor<1x320x40x40xbf16>
+    %554 = "ttir.multiply"(%553, %arg112) : (tensor<1x320x40x40xbf16>, tensor<1x320x1x1xbf16>) -> tensor<1x320x40x40xbf16>
+    %555 = "ttir.add"(%554, %arg113) : (tensor<1x320x40x40xbf16>, tensor<1x320x1x1xbf16>) -> tensor<1x320x40x40xbf16>
+    %556 = "ttir.sigmoid"(%555) : (tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16>
+    %557 = "ttir.multiply"(%555, %556) : (tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16>
+    %558 = "ttir.transpose"(%557) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x320x40x40xbf16>) -> tensor<1x40x320x40xbf16>
+    %559 = "ttir.transpose"(%558) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x320x40xbf16>) -> tensor<1x40x40x320xbf16>
+    %560 = "ttir.conv2d"(%559, %arg255) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x40x40x320xbf16>, tensor<320x320x3x3xbf16>) -> tensor<1x40x40x320xbf16>
+    %561 = "ttir.transpose"(%560) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x40x320xbf16>) -> tensor<1x40x320x40xbf16>
+    %562 = "ttir.transpose"(%561) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x40x320x40xbf16>) -> tensor<1x320x40x40xbf16>
+    %563 = "ttir.multiply"(%562, %arg114) : (tensor<1x320x40x40xbf16>, tensor<1x320x1x1xbf16>) -> tensor<1x320x40x40xbf16>
+    %564 = "ttir.add"(%563, %arg115) : (tensor<1x320x40x40xbf16>, tensor<1x320x1x1xbf16>) -> tensor<1x320x40x40xbf16>
+    %565 = "ttir.sigmoid"(%564) : (tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16>
+    %566 = "ttir.multiply"(%564, %565) : (tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16>
+    %567 = "ttir.transpose"(%566) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x320x40x40xbf16>) -> tensor<1x40x320x40xbf16>
+    %568 = "ttir.transpose"(%567) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x320x40xbf16>) -> tensor<1x40x40x320xbf16>
+    %569 = "ttir.conv2d"(%568, %arg256) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x40x40x320xbf16>, tensor<320x320x3x3xbf16>) -> tensor<1x40x40x320xbf16>
+    %570 = "ttir.transpose"(%569) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x40x320xbf16>) -> tensor<1x40x320x40xbf16>
+    %571 = "ttir.transpose"(%570) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x40x320x40xbf16>) -> tensor<1x320x40x40xbf16>
+    %572 = "ttir.multiply"(%571, %arg116) : (tensor<1x320x40x40xbf16>, tensor<1x320x1x1xbf16>) -> tensor<1x320x40x40xbf16>
+    %573 = "ttir.add"(%572, %arg117) : (tensor<1x320x40x40xbf16>, tensor<1x320x1x1xbf16>) -> tensor<1x320x40x40xbf16>
+    %574 = "ttir.sigmoid"(%573) : (tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16>
+    %575 = "ttir.multiply"(%573, %574) : (tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16>
+    %576 = "ttir.concat"(%520, %521, %539, %557, %575) <{dim = -3 : si32}> : (tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x1600x40x40xbf16>
+    %577 = "ttir.transpose"(%576) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x1600x40x40xbf16>) -> tensor<1x40x1600x40xbf16>
+    %578 = "ttir.transpose"(%577) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x1600x40xbf16>) -> tensor<1x40x40x1600xbf16>
+    %579 = "ttir.conv2d"(%578, %arg257) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 0, 0, 0, 0>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x40x40x1600xbf16>, tensor<640x1600x1x1xbf16>) -> tensor<1x40x40x640xbf16>
+    %580 = "ttir.transpose"(%579) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x40x640xbf16>) -> tensor<1x40x640x40xbf16>
+    %581 = "ttir.transpose"(%580) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x40x640x40xbf16>) -> tensor<1x640x40x40xbf16>
+    %582 = "ttir.multiply"(%581, %arg118) : (tensor<1x640x40x40xbf16>, tensor<1x640x1x1xbf16>) -> tensor<1x640x40x40xbf16>
+    %583 = "ttir.add"(%582, %arg119) : (tensor<1x640x40x40xbf16>, tensor<1x640x1x1xbf16>) -> tensor<1x640x40x40xbf16>
+    %584 = "ttir.sigmoid"(%583) : (tensor<1x640x40x40xbf16>) -> tensor<1x640x40x40xbf16>
+    %585 = "ttir.multiply"(%583, %584) : (tensor<1x640x40x40xbf16>, tensor<1x640x40x40xbf16>) -> tensor<1x640x40x40xbf16>
+    %586 = "ttir.transpose"(%585) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x640x40x40xbf16>) -> tensor<1x40x640x40xbf16>
+    %587 = "ttir.transpose"(%586) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x640x40xbf16>) -> tensor<1x40x40x640xbf16>
+    %588 = "ttir.upsample2d"(%587) <{mode = "nearest", scale_factor = 2 : si32}> {channel_last = true} : (tensor<1x40x40x640xbf16>) -> tensor<1x80x80x640xbf16>
+    %589 = "ttir.transpose"(%588) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x80x80x640xbf16>) -> tensor<1x80x640x80xbf16>
+    %590 = "ttir.transpose"(%589) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x80x640x80xbf16>) -> tensor<1x640x80x80xbf16>
+    %591 = "ttir.concat"(%590, %239) <{dim = -3 : si32}> : (tensor<1x640x80x80xbf16>, tensor<1x320x80x80xbf16>) -> tensor<1x960x80x80xbf16>
+    %592 = "ttir.transpose"(%591) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x960x80x80xbf16>) -> tensor<1x80x960x80xbf16>
+    %593 = "ttir.transpose"(%592) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x80x960x80xbf16>) -> tensor<1x80x80x960xbf16>
+    %594 = "ttir.conv2d"(%593, %arg258) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 0, 0, 0, 0>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x80x80x960xbf16>, tensor<320x960x1x1xbf16>) -> tensor<1x80x80x320xbf16>
+    %595 = "ttir.transpose"(%594) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x80x80x320xbf16>) -> tensor<1x80x320x80xbf16>
+    %596 = "ttir.transpose"(%595) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x80x320x80xbf16>) -> tensor<1x320x80x80xbf16>
+    %597 = "ttir.multiply"(%596, %arg120) : (tensor<1x320x80x80xbf16>, tensor<1x320x1x1xbf16>) -> tensor<1x320x80x80xbf16>
+    %598 = "ttir.add"(%597, %arg121) : (tensor<1x320x80x80xbf16>, tensor<1x320x1x1xbf16>) -> tensor<1x320x80x80xbf16>
+    %599 = "ttir.sigmoid"(%598) : (tensor<1x320x80x80xbf16>) -> tensor<1x320x80x80xbf16>
+    %600 = "ttir.multiply"(%598, %599) : (tensor<1x320x80x80xbf16>, tensor<1x320x80x80xbf16>) -> tensor<1x320x80x80xbf16>
+    %601 = "ttir.index"(%600) <{begin = 0 : i32, dim = 1 : i32, end = 160 : i32, step = 1 : i32}> : (tensor<1x320x80x80xbf16>) -> tensor<1x160x80x80xbf16>
+    %602 = "ttir.index"(%600) <{begin = 160 : i32, dim = 1 : i32, end = 320 : i32, step = 1 : i32}> : (tensor<1x320x80x80xbf16>) -> tensor<1x160x80x80xbf16>
+    %603 = "ttir.transpose"(%602) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x160x80x80xbf16>) -> tensor<1x80x160x80xbf16>
+    %604 = "ttir.transpose"(%603) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x80x160x80xbf16>) -> tensor<1x80x80x160xbf16>
+    %605 = "ttir.conv2d"(%604, %arg259) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x80x80x160xbf16>, tensor<160x160x3x3xbf16>) -> tensor<1x80x80x160xbf16>
+    %606 = "ttir.transpose"(%605) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x80x80x160xbf16>) -> tensor<1x80x160x80xbf16>
+    %607 = "ttir.transpose"(%606) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x80x160x80xbf16>) -> tensor<1x160x80x80xbf16>
+    %608 = "ttir.multiply"(%607, %arg122) : (tensor<1x160x80x80xbf16>, tensor<1x160x1x1xbf16>) -> tensor<1x160x80x80xbf16>
+    %609 = "ttir.add"(%608, %arg123) : (tensor<1x160x80x80xbf16>, tensor<1x160x1x1xbf16>) -> tensor<1x160x80x80xbf16>
+    %610 = "ttir.sigmoid"(%609) : (tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16>
+    %611 = "ttir.multiply"(%609, %610) : (tensor<1x160x80x80xbf16>, tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16>
+    %612 = "ttir.transpose"(%611) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x160x80x80xbf16>) -> tensor<1x80x160x80xbf16>
+    %613 = "ttir.transpose"(%612) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x80x160x80xbf16>) -> tensor<1x80x80x160xbf16>
+    %614 = "ttir.conv2d"(%613, %arg260) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x80x80x160xbf16>, tensor<160x160x3x3xbf16>) -> tensor<1x80x80x160xbf16>
+    %615 = "ttir.transpose"(%614) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x80x80x160xbf16>) -> tensor<1x80x160x80xbf16>
+    %616 = "ttir.transpose"(%615) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x80x160x80xbf16>) -> tensor<1x160x80x80xbf16>
+    %617 = "ttir.multiply"(%616, %arg124) : (tensor<1x160x80x80xbf16>, tensor<1x160x1x1xbf16>) -> tensor<1x160x80x80xbf16>
+    %618 = "ttir.add"(%617, %arg125) : (tensor<1x160x80x80xbf16>, tensor<1x160x1x1xbf16>) -> tensor<1x160x80x80xbf16>
+    %619 = "ttir.sigmoid"(%618) : (tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16>
+    %620 = "ttir.multiply"(%618, %619) : (tensor<1x160x80x80xbf16>, tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16>
+    %621 = "ttir.transpose"(%620) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x160x80x80xbf16>) -> tensor<1x80x160x80xbf16>
+    %622 = "ttir.transpose"(%621) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x80x160x80xbf16>) -> tensor<1x80x80x160xbf16>
+    %623 = "ttir.conv2d"(%622, %arg261) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x80x80x160xbf16>, tensor<160x160x3x3xbf16>) -> tensor<1x80x80x160xbf16>
+    %624 = "ttir.transpose"(%623) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x80x80x160xbf16>) -> tensor<1x80x160x80xbf16>
+    %625 = "ttir.transpose"(%624) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x80x160x80xbf16>) -> tensor<1x160x80x80xbf16>
+    %626 = "ttir.multiply"(%625, %arg126) : (tensor<1x160x80x80xbf16>, tensor<1x160x1x1xbf16>) -> tensor<1x160x80x80xbf16>
+    %627 = "ttir.add"(%626, %arg127) : (tensor<1x160x80x80xbf16>, tensor<1x160x1x1xbf16>) -> tensor<1x160x80x80xbf16>
+    %628 = "ttir.sigmoid"(%627) : (tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16>
+    %629 = "ttir.multiply"(%627, %628) : (tensor<1x160x80x80xbf16>, tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16>
+    %630 = "ttir.transpose"(%629) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x160x80x80xbf16>) -> tensor<1x80x160x80xbf16>
+    %631 = "ttir.transpose"(%630) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x80x160x80xbf16>) -> tensor<1x80x80x160xbf16>
+    %632 = "ttir.conv2d"(%631, %arg262) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x80x80x160xbf16>, tensor<160x160x3x3xbf16>) -> tensor<1x80x80x160xbf16>
+    %633 = "ttir.transpose"(%632) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x80x80x160xbf16>) -> tensor<1x80x160x80xbf16>
+    %634 = "ttir.transpose"(%633) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x80x160x80xbf16>) -> tensor<1x160x80x80xbf16>
+    %635 = "ttir.multiply"(%634, %arg128) : (tensor<1x160x80x80xbf16>, tensor<1x160x1x1xbf16>) -> tensor<1x160x80x80xbf16>
+    %636 = "ttir.add"(%635, %arg129) : (tensor<1x160x80x80xbf16>, tensor<1x160x1x1xbf16>) -> tensor<1x160x80x80xbf16>
+    %637 = "ttir.sigmoid"(%636) : (tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16>
+    %638 = "ttir.multiply"(%636, %637) : (tensor<1x160x80x80xbf16>, tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16>
+    %639 = "ttir.transpose"(%638) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x160x80x80xbf16>) -> tensor<1x80x160x80xbf16>
+    %640 = "ttir.transpose"(%639) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x80x160x80xbf16>) -> tensor<1x80x80x160xbf16>
+    %641 = "ttir.conv2d"(%640, %arg263) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x80x80x160xbf16>, tensor<160x160x3x3xbf16>) -> tensor<1x80x80x160xbf16>
+    %642 = "ttir.transpose"(%641) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x80x80x160xbf16>) -> tensor<1x80x160x80xbf16>
+    %643 = "ttir.transpose"(%642) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x80x160x80xbf16>) -> tensor<1x160x80x80xbf16>
+    %644 = "ttir.multiply"(%643, %arg130) : (tensor<1x160x80x80xbf16>, tensor<1x160x1x1xbf16>) -> tensor<1x160x80x80xbf16>
+    %645 = "ttir.add"(%644, %arg131) : (tensor<1x160x80x80xbf16>, tensor<1x160x1x1xbf16>) -> tensor<1x160x80x80xbf16>
+    %646 = "ttir.sigmoid"(%645) : (tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16>
+    %647 = "ttir.multiply"(%645, %646) : (tensor<1x160x80x80xbf16>, tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16>
+    %648 = "ttir.transpose"(%647) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x160x80x80xbf16>) -> tensor<1x80x160x80xbf16>
+    %649 = "ttir.transpose"(%648) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x80x160x80xbf16>) -> tensor<1x80x80x160xbf16>
+    %650 = "ttir.conv2d"(%649, %arg264) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x80x80x160xbf16>, tensor<160x160x3x3xbf16>) -> tensor<1x80x80x160xbf16>
+    %651 = "ttir.transpose"(%650) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x80x80x160xbf16>) -> tensor<1x80x160x80xbf16>
+    %652 = "ttir.transpose"(%651) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x80x160x80xbf16>) -> tensor<1x160x80x80xbf16>
+    %653 = "ttir.multiply"(%652, %arg132) : (tensor<1x160x80x80xbf16>, tensor<1x160x1x1xbf16>) -> tensor<1x160x80x80xbf16>
+    %654 = "ttir.add"(%653, %arg133) : (tensor<1x160x80x80xbf16>, tensor<1x160x1x1xbf16>) -> tensor<1x160x80x80xbf16>
+    %655 = "ttir.sigmoid"(%654) : (tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16>
+    %656 = "ttir.multiply"(%654, %655) : (tensor<1x160x80x80xbf16>, tensor<1x160x80x80xbf16>) -> tensor<1x160x80x80xbf16>
+    %657 = "ttir.concat"(%601, %602, %620, %638, %656) <{dim = -3 : si32}> : (tensor<1x160x80x80xbf16>, tensor<1x160x80x80xbf16>, tensor<1x160x80x80xbf16>, tensor<1x160x80x80xbf16>, tensor<1x160x80x80xbf16>) -> tensor<1x800x80x80xbf16>
+    %658 = "ttir.transpose"(%657) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x800x80x80xbf16>) -> tensor<1x80x800x80xbf16>
+    %659 = "ttir.transpose"(%658) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x80x800x80xbf16>) -> tensor<1x80x80x800xbf16>
+    %660 = "ttir.conv2d"(%659, %arg265) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 0, 0, 0, 0>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x80x80x800xbf16>, tensor<320x800x1x1xbf16>) -> tensor<1x80x80x320xbf16>
+    %661 = "ttir.transpose"(%660) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x80x80x320xbf16>) -> tensor<1x80x320x80xbf16>
+    %662 = "ttir.transpose"(%661) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x80x320x80xbf16>) -> tensor<1x320x80x80xbf16>
+    %663 = "ttir.multiply"(%662, %arg134) : (tensor<1x320x80x80xbf16>, tensor<1x320x1x1xbf16>) -> tensor<1x320x80x80xbf16>
+    %664 = "ttir.add"(%663, %arg135) : (tensor<1x320x80x80xbf16>, tensor<1x320x1x1xbf16>) -> tensor<1x320x80x80xbf16>
+    %665 = "ttir.sigmoid"(%664) : (tensor<1x320x80x80xbf16>) -> tensor<1x320x80x80xbf16>
+    %666 = "ttir.multiply"(%664, %665) : (tensor<1x320x80x80xbf16>, tensor<1x320x80x80xbf16>) -> tensor<1x320x80x80xbf16>
+    %667 = "ttir.transpose"(%666) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x320x80x80xbf16>) -> tensor<1x80x320x80xbf16>
+    %668 = "ttir.transpose"(%667) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x80x320x80xbf16>) -> tensor<1x80x80x320xbf16>
+    %669 = "ttir.conv2d"(%668, %arg266) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x80x80x320xbf16>, tensor<80x320x3x3xbf16>) -> tensor<1x80x80x80xbf16>
+    %670 = "ttir.transpose"(%669) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x80x80x80xbf16>) -> tensor<1x80x80x80xbf16>
+    %671 = "ttir.transpose"(%670) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x80x80x80xbf16>) -> tensor<1x80x80x80xbf16>
+    %672 = "ttir.multiply"(%671, %arg136) : (tensor<1x80x80x80xbf16>, tensor<1x80x1x1xbf16>) -> tensor<1x80x80x80xbf16>
+    %673 = "ttir.add"(%672, %arg137) : (tensor<1x80x80x80xbf16>, tensor<1x80x1x1xbf16>) -> tensor<1x80x80x80xbf16>
+    %674 = "ttir.sigmoid"(%673) : (tensor<1x80x80x80xbf16>) -> tensor<1x80x80x80xbf16>
+    %675 = "ttir.multiply"(%673, %674) : (tensor<1x80x80x80xbf16>, tensor<1x80x80x80xbf16>) -> tensor<1x80x80x80xbf16>
+    %676 = "ttir.transpose"(%675) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x80x80x80xbf16>) -> tensor<1x80x80x80xbf16>
+    %677 = "ttir.transpose"(%676) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x80x80x80xbf16>) -> tensor<1x80x80x80xbf16>
+    %678 = "ttir.conv2d"(%677, %arg267) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x80x80x80xbf16>, tensor<80x80x3x3xbf16>) -> tensor<1x80x80x80xbf16>
+    %679 = "ttir.transpose"(%678) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x80x80x80xbf16>) -> tensor<1x80x80x80xbf16>
+    %680 = "ttir.transpose"(%679) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x80x80x80xbf16>) -> tensor<1x80x80x80xbf16>
+    %681 = "ttir.multiply"(%680, %arg138) : (tensor<1x80x80x80xbf16>, tensor<1x80x1x1xbf16>) -> tensor<1x80x80x80xbf16>
+    %682 = "ttir.add"(%681, %arg139) : (tensor<1x80x80x80xbf16>, tensor<1x80x1x1xbf16>) -> tensor<1x80x80x80xbf16>
+    %683 = "ttir.sigmoid"(%682) : (tensor<1x80x80x80xbf16>) -> tensor<1x80x80x80xbf16>
+    %684 = "ttir.multiply"(%682, %683) : (tensor<1x80x80x80xbf16>, tensor<1x80x80x80xbf16>) -> tensor<1x80x80x80xbf16>
+    %685 = "ttir.transpose"(%684) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x80x80x80xbf16>) -> tensor<1x80x80x80xbf16>
+    %686 = "ttir.transpose"(%685) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x80x80x80xbf16>) -> tensor<1x80x80x80xbf16>
+    %687 = "ttir.conv2d"(%686, %arg268, %arg269) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 0, 0, 0, 0>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x80x80x80xbf16>, tensor<64x80x1x1xbf16>, tensor<1x1x1x64xbf16>) -> tensor<1x80x80x64xbf16>
+    %688 = "ttir.transpose"(%687) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x80x80x64xbf16>) -> tensor<1x80x64x80xbf16>
+    %689 = "ttir.transpose"(%688) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x80x64x80xbf16>) -> tensor<1x64x80x80xbf16>
+    %690 = "ttir.transpose"(%666) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x320x80x80xbf16>) -> tensor<1x80x320x80xbf16>
+    %691 = "ttir.transpose"(%690) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x80x320x80xbf16>) -> tensor<1x80x80x320xbf16>
+    %692 = "ttir.conv2d"(%691, %arg270) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x80x80x320xbf16>, tensor<320x320x3x3xbf16>) -> tensor<1x80x80x320xbf16>
+    %693 = "ttir.transpose"(%692) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x80x80x320xbf16>) -> tensor<1x80x320x80xbf16>
+    %694 = "ttir.transpose"(%693) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x80x320x80xbf16>) -> tensor<1x320x80x80xbf16>
+    %695 = "ttir.multiply"(%694, %arg140) : (tensor<1x320x80x80xbf16>, tensor<1x320x1x1xbf16>) -> tensor<1x320x80x80xbf16>
+    %696 = "ttir.add"(%695, %arg141) : (tensor<1x320x80x80xbf16>, tensor<1x320x1x1xbf16>) -> tensor<1x320x80x80xbf16>
+    %697 = "ttir.sigmoid"(%696) : (tensor<1x320x80x80xbf16>) -> tensor<1x320x80x80xbf16>
+    %698 = "ttir.multiply"(%696, %697) : (tensor<1x320x80x80xbf16>, tensor<1x320x80x80xbf16>) -> tensor<1x320x80x80xbf16>
+    %699 = "ttir.transpose"(%698) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x320x80x80xbf16>) -> tensor<1x80x320x80xbf16>
+    %700 = "ttir.transpose"(%699) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x80x320x80xbf16>) -> tensor<1x80x80x320xbf16>
+    %701 = "ttir.conv2d"(%700, %arg271) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x80x80x320xbf16>, tensor<320x320x3x3xbf16>) -> tensor<1x80x80x320xbf16>
+    %702 = "ttir.transpose"(%701) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x80x80x320xbf16>) -> tensor<1x80x320x80xbf16>
+    %703 = "ttir.transpose"(%702) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x80x320x80xbf16>) -> tensor<1x320x80x80xbf16>
+    %704 = "ttir.multiply"(%703, %arg142) : (tensor<1x320x80x80xbf16>, tensor<1x320x1x1xbf16>) -> tensor<1x320x80x80xbf16>
+    %705 = "ttir.add"(%704, %arg143) : (tensor<1x320x80x80xbf16>, tensor<1x320x1x1xbf16>) -> tensor<1x320x80x80xbf16>
+    %706 = "ttir.sigmoid"(%705) : (tensor<1x320x80x80xbf16>) -> tensor<1x320x80x80xbf16>
+    %707 = "ttir.multiply"(%705, %706) : (tensor<1x320x80x80xbf16>, tensor<1x320x80x80xbf16>) -> tensor<1x320x80x80xbf16>
+    %708 = "ttir.transpose"(%707) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x320x80x80xbf16>) -> tensor<1x80x320x80xbf16>
+    %709 = "ttir.transpose"(%708) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x80x320x80xbf16>) -> tensor<1x80x80x320xbf16>
+    %710 = "ttir.conv2d"(%709, %arg272, %arg273) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 0, 0, 0, 0>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x80x80x320xbf16>, tensor<80x320x1x1xbf16>, tensor<1x1x1x80xbf16>) -> tensor<1x80x80x80xbf16>
+    %711 = "ttir.transpose"(%710) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x80x80x80xbf16>) -> tensor<1x80x80x80xbf16>
+    %712 = "ttir.transpose"(%711) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x80x80x80xbf16>) -> tensor<1x80x80x80xbf16>
+    %713 = "ttir.concat"(%689, %712) <{dim = -3 : si32}> : (tensor<1x64x80x80xbf16>, tensor<1x80x80x80xbf16>) -> tensor<1x144x80x80xbf16>
+    %714 = "ttir.reshape"(%713) <{shape = [1 : i32, 144 : i32, 6400 : i32]}> : (tensor<1x144x80x80xbf16>) -> tensor<1x144x6400xbf16>
+    %715 = "ttir.transpose"(%666) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x320x80x80xbf16>) -> tensor<1x80x320x80xbf16>
+    %716 = "ttir.transpose"(%715) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x80x320x80xbf16>) -> tensor<1x80x80x320xbf16>
+    %717 = "ttir.conv2d"(%716, %arg274) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 2, 2>}> {channel_last = 1 : si32} : (tensor<1x80x80x320xbf16>, tensor<320x320x3x3xbf16>) -> tensor<1x40x40x320xbf16>
+    %718 = "ttir.transpose"(%717) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x40x320xbf16>) -> tensor<1x40x320x40xbf16>
+    %719 = "ttir.transpose"(%718) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x40x320x40xbf16>) -> tensor<1x320x40x40xbf16>
+    %720 = "ttir.multiply"(%719, %arg144) : (tensor<1x320x40x40xbf16>, tensor<1x320x1x1xbf16>) -> tensor<1x320x40x40xbf16>
+    %721 = "ttir.add"(%720, %arg145) : (tensor<1x320x40x40xbf16>, tensor<1x320x1x1xbf16>) -> tensor<1x320x40x40xbf16>
+    %722 = "ttir.sigmoid"(%721) : (tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16>
+    %723 = "ttir.multiply"(%721, %722) : (tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16>
+    %724 = "ttir.concat"(%723, %585) <{dim = -3 : si32}> : (tensor<1x320x40x40xbf16>, tensor<1x640x40x40xbf16>) -> tensor<1x960x40x40xbf16>
+    %725 = "ttir.transpose"(%724) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x960x40x40xbf16>) -> tensor<1x40x960x40xbf16>
+    %726 = "ttir.transpose"(%725) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x960x40xbf16>) -> tensor<1x40x40x960xbf16>
+    %727 = "ttir.conv2d"(%726, %arg275) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 0, 0, 0, 0>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x40x40x960xbf16>, tensor<640x960x1x1xbf16>) -> tensor<1x40x40x640xbf16>
+    %728 = "ttir.transpose"(%727) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x40x640xbf16>) -> tensor<1x40x640x40xbf16>
+    %729 = "ttir.transpose"(%728) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x40x640x40xbf16>) -> tensor<1x640x40x40xbf16>
+    %730 = "ttir.multiply"(%729, %arg146) : (tensor<1x640x40x40xbf16>, tensor<1x640x1x1xbf16>) -> tensor<1x640x40x40xbf16>
+    %731 = "ttir.add"(%730, %arg147) : (tensor<1x640x40x40xbf16>, tensor<1x640x1x1xbf16>) -> tensor<1x640x40x40xbf16>
+    %732 = "ttir.sigmoid"(%731) : (tensor<1x640x40x40xbf16>) -> tensor<1x640x40x40xbf16>
+    %733 = "ttir.multiply"(%731, %732) : (tensor<1x640x40x40xbf16>, tensor<1x640x40x40xbf16>) -> tensor<1x640x40x40xbf16>
+    %734 = "ttir.index"(%733) <{begin = 0 : i32, dim = 1 : i32, end = 320 : i32, step = 1 : i32}> : (tensor<1x640x40x40xbf16>) -> tensor<1x320x40x40xbf16>
+    %735 = "ttir.index"(%733) <{begin = 320 : i32, dim = 1 : i32, end = 640 : i32, step = 1 : i32}> : (tensor<1x640x40x40xbf16>) -> tensor<1x320x40x40xbf16>
+    %736 = "ttir.transpose"(%735) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x320x40x40xbf16>) -> tensor<1x40x320x40xbf16>
+    %737 = "ttir.transpose"(%736) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x320x40xbf16>) -> tensor<1x40x40x320xbf16>
+    %738 = "ttir.conv2d"(%737, %arg276) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x40x40x320xbf16>, tensor<320x320x3x3xbf16>) -> tensor<1x40x40x320xbf16>
+    %739 = "ttir.transpose"(%738) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x40x320xbf16>) -> tensor<1x40x320x40xbf16>
+    %740 = "ttir.transpose"(%739) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x40x320x40xbf16>) -> tensor<1x320x40x40xbf16>
+    %741 = "ttir.multiply"(%740, %arg148) : (tensor<1x320x40x40xbf16>, tensor<1x320x1x1xbf16>) -> tensor<1x320x40x40xbf16>
+    %742 = "ttir.add"(%741, %arg149) : (tensor<1x320x40x40xbf16>, tensor<1x320x1x1xbf16>) -> tensor<1x320x40x40xbf16>
+    %743 = "ttir.sigmoid"(%742) : (tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16>
+    %744 = "ttir.multiply"(%742, %743) : (tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16>
+    %745 = "ttir.transpose"(%744) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x320x40x40xbf16>) -> tensor<1x40x320x40xbf16>
+    %746 = "ttir.transpose"(%745) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x320x40xbf16>) -> tensor<1x40x40x320xbf16>
+    %747 = "ttir.conv2d"(%746, %arg277) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x40x40x320xbf16>, tensor<320x320x3x3xbf16>) -> tensor<1x40x40x320xbf16>
+    %748 = "ttir.transpose"(%747) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x40x320xbf16>) -> tensor<1x40x320x40xbf16>
+    %749 = "ttir.transpose"(%748) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x40x320x40xbf16>) -> tensor<1x320x40x40xbf16>
+    %750 = "ttir.multiply"(%749, %arg150) : (tensor<1x320x40x40xbf16>, tensor<1x320x1x1xbf16>) -> tensor<1x320x40x40xbf16>
+    %751 = "ttir.add"(%750, %arg151) : (tensor<1x320x40x40xbf16>, tensor<1x320x1x1xbf16>) -> tensor<1x320x40x40xbf16>
+    %752 = "ttir.sigmoid"(%751) : (tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16>
+    %753 = "ttir.multiply"(%751, %752) : (tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16>
+    %754 = "ttir.transpose"(%753) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x320x40x40xbf16>) -> tensor<1x40x320x40xbf16>
+    %755 = "ttir.transpose"(%754) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x320x40xbf16>) -> tensor<1x40x40x320xbf16>
+    %756 = "ttir.conv2d"(%755, %arg278) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x40x40x320xbf16>, tensor<320x320x3x3xbf16>) -> tensor<1x40x40x320xbf16>
+    %757 = "ttir.transpose"(%756) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x40x320xbf16>) -> tensor<1x40x320x40xbf16>
+    %758 = "ttir.transpose"(%757) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x40x320x40xbf16>) -> tensor<1x320x40x40xbf16>
+    %759 = "ttir.multiply"(%758, %arg152) : (tensor<1x320x40x40xbf16>, tensor<1x320x1x1xbf16>) -> tensor<1x320x40x40xbf16>
+    %760 = "ttir.add"(%759, %arg153) : (tensor<1x320x40x40xbf16>, tensor<1x320x1x1xbf16>) -> tensor<1x320x40x40xbf16>
+    %761 = "ttir.sigmoid"(%760) : (tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16>
+    %762 = "ttir.multiply"(%760, %761) : (tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16>
+    %763 = "ttir.transpose"(%762) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x320x40x40xbf16>) -> tensor<1x40x320x40xbf16>
+    %764 = "ttir.transpose"(%763) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x320x40xbf16>) -> tensor<1x40x40x320xbf16>
+    %765 = "ttir.conv2d"(%764, %arg279) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x40x40x320xbf16>, tensor<320x320x3x3xbf16>) -> tensor<1x40x40x320xbf16>
+    %766 = "ttir.transpose"(%765) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x40x320xbf16>) -> tensor<1x40x320x40xbf16>
+    %767 = "ttir.transpose"(%766) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x40x320x40xbf16>) -> tensor<1x320x40x40xbf16>
+    %768 = "ttir.multiply"(%767, %arg154) : (tensor<1x320x40x40xbf16>, tensor<1x320x1x1xbf16>) -> tensor<1x320x40x40xbf16>
+    %769 = "ttir.add"(%768, %arg155) : (tensor<1x320x40x40xbf16>, tensor<1x320x1x1xbf16>) -> tensor<1x320x40x40xbf16>
+    %770 = "ttir.sigmoid"(%769) : (tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16>
+    %771 = "ttir.multiply"(%769, %770) : (tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16>
+    %772 = "ttir.transpose"(%771) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x320x40x40xbf16>) -> tensor<1x40x320x40xbf16>
+    %773 = "ttir.transpose"(%772) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x320x40xbf16>) -> tensor<1x40x40x320xbf16>
+    %774 = "ttir.conv2d"(%773, %arg280) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x40x40x320xbf16>, tensor<320x320x3x3xbf16>) -> tensor<1x40x40x320xbf16>
+    %775 = "ttir.transpose"(%774) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x40x320xbf16>) -> tensor<1x40x320x40xbf16>
+    %776 = "ttir.transpose"(%775) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x40x320x40xbf16>) -> tensor<1x320x40x40xbf16>
+    %777 = "ttir.multiply"(%776, %arg156) : (tensor<1x320x40x40xbf16>, tensor<1x320x1x1xbf16>) -> tensor<1x320x40x40xbf16>
+    %778 = "ttir.add"(%777, %arg157) : (tensor<1x320x40x40xbf16>, tensor<1x320x1x1xbf16>) -> tensor<1x320x40x40xbf16>
+    %779 = "ttir.sigmoid"(%778) : (tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16>
+    %780 = "ttir.multiply"(%778, %779) : (tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16>
+    %781 = "ttir.transpose"(%780) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x320x40x40xbf16>) -> tensor<1x40x320x40xbf16>
+    %782 = "ttir.transpose"(%781) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x320x40xbf16>) -> tensor<1x40x40x320xbf16>
+    %783 = "ttir.conv2d"(%782, %arg281) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x40x40x320xbf16>, tensor<320x320x3x3xbf16>) -> tensor<1x40x40x320xbf16>
+    %784 = "ttir.transpose"(%783) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x40x320xbf16>) -> tensor<1x40x320x40xbf16>
+    %785 = "ttir.transpose"(%784) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x40x320x40xbf16>) -> tensor<1x320x40x40xbf16>
+    %786 = "ttir.multiply"(%785, %arg158) : (tensor<1x320x40x40xbf16>, tensor<1x320x1x1xbf16>) -> tensor<1x320x40x40xbf16>
+    %787 = "ttir.add"(%786, %arg159) : (tensor<1x320x40x40xbf16>, tensor<1x320x1x1xbf16>) -> tensor<1x320x40x40xbf16>
+    %788 = "ttir.sigmoid"(%787) : (tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16>
+    %789 = "ttir.multiply"(%787, %788) : (tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16>
+    %790 = "ttir.concat"(%734, %735, %753, %771, %789) <{dim = -3 : si32}> : (tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x1600x40x40xbf16>
+    %791 = "ttir.transpose"(%790) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x1600x40x40xbf16>) -> tensor<1x40x1600x40xbf16>
+    %792 = "ttir.transpose"(%791) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x1600x40xbf16>) -> tensor<1x40x40x1600xbf16>
+    %793 = "ttir.conv2d"(%792, %arg282) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 0, 0, 0, 0>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x40x40x1600xbf16>, tensor<640x1600x1x1xbf16>) -> tensor<1x40x40x640xbf16>
+    %794 = "ttir.transpose"(%793) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x40x640xbf16>) -> tensor<1x40x640x40xbf16>
+    %795 = "ttir.transpose"(%794) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x40x640x40xbf16>) -> tensor<1x640x40x40xbf16>
+    %796 = "ttir.multiply"(%795, %arg160) : (tensor<1x640x40x40xbf16>, tensor<1x640x1x1xbf16>) -> tensor<1x640x40x40xbf16>
+    %797 = "ttir.add"(%796, %arg161) : (tensor<1x640x40x40xbf16>, tensor<1x640x1x1xbf16>) -> tensor<1x640x40x40xbf16>
+    %798 = "ttir.sigmoid"(%797) : (tensor<1x640x40x40xbf16>) -> tensor<1x640x40x40xbf16>
+    %799 = "ttir.multiply"(%797, %798) : (tensor<1x640x40x40xbf16>, tensor<1x640x40x40xbf16>) -> tensor<1x640x40x40xbf16>
+    %800 = "ttir.transpose"(%799) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x640x40x40xbf16>) -> tensor<1x40x640x40xbf16>
+    %801 = "ttir.transpose"(%800) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x640x40xbf16>) -> tensor<1x40x40x640xbf16>
+    %802 = "ttir.conv2d"(%801, %arg283) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x40x40x640xbf16>, tensor<80x640x3x3xbf16>) -> tensor<1x40x40x80xbf16>
+    %803 = "ttir.transpose"(%802) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x40x80xbf16>) -> tensor<1x40x80x40xbf16>
+    %804 = "ttir.transpose"(%803) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x40x80x40xbf16>) -> tensor<1x80x40x40xbf16>
+    %805 = "ttir.multiply"(%804, %arg162) : (tensor<1x80x40x40xbf16>, tensor<1x80x1x1xbf16>) -> tensor<1x80x40x40xbf16>
+    %806 = "ttir.add"(%805, %arg163) : (tensor<1x80x40x40xbf16>, tensor<1x80x1x1xbf16>) -> tensor<1x80x40x40xbf16>
+    %807 = "ttir.sigmoid"(%806) : (tensor<1x80x40x40xbf16>) -> tensor<1x80x40x40xbf16>
+    %808 = "ttir.multiply"(%806, %807) : (tensor<1x80x40x40xbf16>, tensor<1x80x40x40xbf16>) -> tensor<1x80x40x40xbf16>
+    %809 = "ttir.transpose"(%808) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x80x40x40xbf16>) -> tensor<1x40x80x40xbf16>
+    %810 = "ttir.transpose"(%809) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x80x40xbf16>) -> tensor<1x40x40x80xbf16>
+    %811 = "ttir.conv2d"(%810, %arg284) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x40x40x80xbf16>, tensor<80x80x3x3xbf16>) -> tensor<1x40x40x80xbf16>
+    %812 = "ttir.transpose"(%811) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x40x80xbf16>) -> tensor<1x40x80x40xbf16>
+    %813 = "ttir.transpose"(%812) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x40x80x40xbf16>) -> tensor<1x80x40x40xbf16>
+    %814 = "ttir.multiply"(%813, %arg164) : (tensor<1x80x40x40xbf16>, tensor<1x80x1x1xbf16>) -> tensor<1x80x40x40xbf16>
+    %815 = "ttir.add"(%814, %arg165) : (tensor<1x80x40x40xbf16>, tensor<1x80x1x1xbf16>) -> tensor<1x80x40x40xbf16>
+    %816 = "ttir.sigmoid"(%815) : (tensor<1x80x40x40xbf16>) -> tensor<1x80x40x40xbf16>
+    %817 = "ttir.multiply"(%815, %816) : (tensor<1x80x40x40xbf16>, tensor<1x80x40x40xbf16>) -> tensor<1x80x40x40xbf16>
+    %818 = "ttir.transpose"(%817) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x80x40x40xbf16>) -> tensor<1x40x80x40xbf16>
+    %819 = "ttir.transpose"(%818) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x80x40xbf16>) -> tensor<1x40x40x80xbf16>
+    %820 = "ttir.conv2d"(%819, %arg285, %arg286) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 0, 0, 0, 0>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x40x40x80xbf16>, tensor<64x80x1x1xbf16>, tensor<1x1x1x64xbf16>) -> tensor<1x40x40x64xbf16>
+    %821 = "ttir.transpose"(%820) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x40x64xbf16>) -> tensor<1x40x64x40xbf16>
+    %822 = "ttir.transpose"(%821) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x40x64x40xbf16>) -> tensor<1x64x40x40xbf16>
+    %823 = "ttir.transpose"(%799) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x640x40x40xbf16>) -> tensor<1x40x640x40xbf16>
+    %824 = "ttir.transpose"(%823) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x640x40xbf16>) -> tensor<1x40x40x640xbf16>
+    %825 = "ttir.conv2d"(%824, %arg287) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x40x40x640xbf16>, tensor<320x640x3x3xbf16>) -> tensor<1x40x40x320xbf16>
+    %826 = "ttir.transpose"(%825) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x40x320xbf16>) -> tensor<1x40x320x40xbf16>
+    %827 = "ttir.transpose"(%826) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x40x320x40xbf16>) -> tensor<1x320x40x40xbf16>
+    %828 = "ttir.multiply"(%827, %arg166) : (tensor<1x320x40x40xbf16>, tensor<1x320x1x1xbf16>) -> tensor<1x320x40x40xbf16>
+    %829 = "ttir.add"(%828, %arg167) : (tensor<1x320x40x40xbf16>, tensor<1x320x1x1xbf16>) -> tensor<1x320x40x40xbf16>
+    %830 = "ttir.sigmoid"(%829) : (tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16>
+    %831 = "ttir.multiply"(%829, %830) : (tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16>
+    %832 = "ttir.transpose"(%831) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x320x40x40xbf16>) -> tensor<1x40x320x40xbf16>
+    %833 = "ttir.transpose"(%832) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x320x40xbf16>) -> tensor<1x40x40x320xbf16>
+    %834 = "ttir.conv2d"(%833, %arg288) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x40x40x320xbf16>, tensor<320x320x3x3xbf16>) -> tensor<1x40x40x320xbf16>
+    %835 = "ttir.transpose"(%834) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x40x320xbf16>) -> tensor<1x40x320x40xbf16>
+    %836 = "ttir.transpose"(%835) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x40x320x40xbf16>) -> tensor<1x320x40x40xbf16>
+    %837 = "ttir.multiply"(%836, %arg168) : (tensor<1x320x40x40xbf16>, tensor<1x320x1x1xbf16>) -> tensor<1x320x40x40xbf16>
+    %838 = "ttir.add"(%837, %arg169) : (tensor<1x320x40x40xbf16>, tensor<1x320x1x1xbf16>) -> tensor<1x320x40x40xbf16>
+    %839 = "ttir.sigmoid"(%838) : (tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16>
+    %840 = "ttir.multiply"(%838, %839) : (tensor<1x320x40x40xbf16>, tensor<1x320x40x40xbf16>) -> tensor<1x320x40x40xbf16>
+    %841 = "ttir.transpose"(%840) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x320x40x40xbf16>) -> tensor<1x40x320x40xbf16>
+    %842 = "ttir.transpose"(%841) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x320x40xbf16>) -> tensor<1x40x40x320xbf16>
+    %843 = "ttir.conv2d"(%842, %arg289, %arg290) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 0, 0, 0, 0>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x40x40x320xbf16>, tensor<80x320x1x1xbf16>, tensor<1x1x1x80xbf16>) -> tensor<1x40x40x80xbf16>
+    %844 = "ttir.transpose"(%843) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x40x80xbf16>) -> tensor<1x40x80x40xbf16>
+    %845 = "ttir.transpose"(%844) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x40x80x40xbf16>) -> tensor<1x80x40x40xbf16>
+    %846 = "ttir.concat"(%822, %845) <{dim = -3 : si32}> : (tensor<1x64x40x40xbf16>, tensor<1x80x40x40xbf16>) -> tensor<1x144x40x40xbf16>
+    %847 = "ttir.reshape"(%846) <{shape = [1 : i32, 144 : i32, 1600 : i32]}> : (tensor<1x144x40x40xbf16>) -> tensor<1x144x1600xbf16>
+    %848 = "ttir.transpose"(%799) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x640x40x40xbf16>) -> tensor<1x40x640x40xbf16>
+    %849 = "ttir.transpose"(%848) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x40x640x40xbf16>) -> tensor<1x40x40x640xbf16>
+    %850 = "ttir.conv2d"(%849, %arg291) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 2, 2>}> {channel_last = 1 : si32} : (tensor<1x40x40x640xbf16>, tensor<640x640x3x3xbf16>) -> tensor<1x20x20x640xbf16>
+    %851 = "ttir.transpose"(%850) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x20x20x640xbf16>) -> tensor<1x20x640x20xbf16>
+    %852 = "ttir.transpose"(%851) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x20x640x20xbf16>) -> tensor<1x640x20x20xbf16>
+    %853 = "ttir.multiply"(%852, %arg170) : (tensor<1x640x20x20xbf16>, tensor<1x640x1x1xbf16>) -> tensor<1x640x20x20xbf16>
+    %854 = "ttir.add"(%853, %arg171) : (tensor<1x640x20x20xbf16>, tensor<1x640x1x1xbf16>) -> tensor<1x640x20x20xbf16>
+    %855 = "ttir.sigmoid"(%854) : (tensor<1x640x20x20xbf16>) -> tensor<1x640x20x20xbf16>
+    %856 = "ttir.multiply"(%854, %855) : (tensor<1x640x20x20xbf16>, tensor<1x640x20x20xbf16>) -> tensor<1x640x20x20xbf16>
+    %857 = "ttir.concat"(%856, %504) <{dim = -3 : si32}> : (tensor<1x640x20x20xbf16>, tensor<1x640x20x20xbf16>) -> tensor<1x1280x20x20xbf16>
+    %858 = "ttir.transpose"(%857) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x1280x20x20xbf16>) -> tensor<1x20x1280x20xbf16>
+    %859 = "ttir.transpose"(%858) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x20x1280x20xbf16>) -> tensor<1x20x20x1280xbf16>
+    %860 = "ttir.conv2d"(%859, %arg292) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 0, 0, 0, 0>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x20x20x1280xbf16>, tensor<640x1280x1x1xbf16>) -> tensor<1x20x20x640xbf16>
+    %861 = "ttir.transpose"(%860) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x20x20x640xbf16>) -> tensor<1x20x640x20xbf16>
+    %862 = "ttir.transpose"(%861) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x20x640x20xbf16>) -> tensor<1x640x20x20xbf16>
+    %863 = "ttir.multiply"(%862, %arg172) : (tensor<1x640x20x20xbf16>, tensor<1x640x1x1xbf16>) -> tensor<1x640x20x20xbf16>
+    %864 = "ttir.add"(%863, %arg173) : (tensor<1x640x20x20xbf16>, tensor<1x640x1x1xbf16>) -> tensor<1x640x20x20xbf16>
+    %865 = "ttir.sigmoid"(%864) : (tensor<1x640x20x20xbf16>) -> tensor<1x640x20x20xbf16>
+    %866 = "ttir.multiply"(%864, %865) : (tensor<1x640x20x20xbf16>, tensor<1x640x20x20xbf16>) -> tensor<1x640x20x20xbf16>
+    %867 = "ttir.index"(%866) <{begin = 0 : i32, dim = 1 : i32, end = 320 : i32, step = 1 : i32}> : (tensor<1x640x20x20xbf16>) -> tensor<1x320x20x20xbf16>
+    %868 = "ttir.index"(%866) <{begin = 320 : i32, dim = 1 : i32, end = 640 : i32, step = 1 : i32}> : (tensor<1x640x20x20xbf16>) -> tensor<1x320x20x20xbf16>
+    %869 = "ttir.transpose"(%868) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x320x20x20xbf16>) -> tensor<1x20x320x20xbf16>
+    %870 = "ttir.transpose"(%869) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x20x320x20xbf16>) -> tensor<1x20x20x320xbf16>
+    %871 = "ttir.conv2d"(%870, %arg293) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x20x20x320xbf16>, tensor<320x320x3x3xbf16>) -> tensor<1x20x20x320xbf16>
+    %872 = "ttir.transpose"(%871) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x20x20x320xbf16>) -> tensor<1x20x320x20xbf16>
+    %873 = "ttir.transpose"(%872) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x20x320x20xbf16>) -> tensor<1x320x20x20xbf16>
+    %874 = "ttir.multiply"(%873, %arg174) : (tensor<1x320x20x20xbf16>, tensor<1x320x1x1xbf16>) -> tensor<1x320x20x20xbf16>
+    %875 = "ttir.add"(%874, %arg175) : (tensor<1x320x20x20xbf16>, tensor<1x320x1x1xbf16>) -> tensor<1x320x20x20xbf16>
+    %876 = "ttir.sigmoid"(%875) : (tensor<1x320x20x20xbf16>) -> tensor<1x320x20x20xbf16>
+    %877 = "ttir.multiply"(%875, %876) : (tensor<1x320x20x20xbf16>, tensor<1x320x20x20xbf16>) -> tensor<1x320x20x20xbf16>
+    %878 = "ttir.transpose"(%877) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x320x20x20xbf16>) -> tensor<1x20x320x20xbf16>
+    %879 = "ttir.transpose"(%878) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x20x320x20xbf16>) -> tensor<1x20x20x320xbf16>
+    %880 = "ttir.conv2d"(%879, %arg294) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x20x20x320xbf16>, tensor<320x320x3x3xbf16>) -> tensor<1x20x20x320xbf16>
+    %881 = "ttir.transpose"(%880) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x20x20x320xbf16>) -> tensor<1x20x320x20xbf16>
+    %882 = "ttir.transpose"(%881) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x20x320x20xbf16>) -> tensor<1x320x20x20xbf16>
+    %883 = "ttir.multiply"(%882, %arg176) : (tensor<1x320x20x20xbf16>, tensor<1x320x1x1xbf16>) -> tensor<1x320x20x20xbf16>
+    %884 = "ttir.add"(%883, %arg177) : (tensor<1x320x20x20xbf16>, tensor<1x320x1x1xbf16>) -> tensor<1x320x20x20xbf16>
+    %885 = "ttir.sigmoid"(%884) : (tensor<1x320x20x20xbf16>) -> tensor<1x320x20x20xbf16>
+    %886 = "ttir.multiply"(%884, %885) : (tensor<1x320x20x20xbf16>, tensor<1x320x20x20xbf16>) -> tensor<1x320x20x20xbf16>
+    %887 = "ttir.transpose"(%886) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x320x20x20xbf16>) -> tensor<1x20x320x20xbf16>
+    %888 = "ttir.transpose"(%887) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x20x320x20xbf16>) -> tensor<1x20x20x320xbf16>
+    %889 = "ttir.conv2d"(%888, %arg295) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x20x20x320xbf16>, tensor<320x320x3x3xbf16>) -> tensor<1x20x20x320xbf16>
+    %890 = "ttir.transpose"(%889) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x20x20x320xbf16>) -> tensor<1x20x320x20xbf16>
+    %891 = "ttir.transpose"(%890) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x20x320x20xbf16>) -> tensor<1x320x20x20xbf16>
+    %892 = "ttir.multiply"(%891, %arg178) : (tensor<1x320x20x20xbf16>, tensor<1x320x1x1xbf16>) -> tensor<1x320x20x20xbf16>
+    %893 = "ttir.add"(%892, %arg179) : (tensor<1x320x20x20xbf16>, tensor<1x320x1x1xbf16>) -> tensor<1x320x20x20xbf16>
+    %894 = "ttir.sigmoid"(%893) : (tensor<1x320x20x20xbf16>) -> tensor<1x320x20x20xbf16>
+    %895 = "ttir.multiply"(%893, %894) : (tensor<1x320x20x20xbf16>, tensor<1x320x20x20xbf16>) -> tensor<1x320x20x20xbf16>
+    %896 = "ttir.transpose"(%895) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x320x20x20xbf16>) -> tensor<1x20x320x20xbf16>
+    %897 = "ttir.transpose"(%896) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x20x320x20xbf16>) -> tensor<1x20x20x320xbf16>
+    %898 = "ttir.conv2d"(%897, %arg296) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x20x20x320xbf16>, tensor<320x320x3x3xbf16>) -> tensor<1x20x20x320xbf16>
+    %899 = "ttir.transpose"(%898) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x20x20x320xbf16>) -> tensor<1x20x320x20xbf16>
+    %900 = "ttir.transpose"(%899) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x20x320x20xbf16>) -> tensor<1x320x20x20xbf16>
+    %901 = "ttir.multiply"(%900, %arg180) : (tensor<1x320x20x20xbf16>, tensor<1x320x1x1xbf16>) -> tensor<1x320x20x20xbf16>
+    %902 = "ttir.add"(%901, %arg181) : (tensor<1x320x20x20xbf16>, tensor<1x320x1x1xbf16>) -> tensor<1x320x20x20xbf16>
+    %903 = "ttir.sigmoid"(%902) : (tensor<1x320x20x20xbf16>) -> tensor<1x320x20x20xbf16>
+    %904 = "ttir.multiply"(%902, %903) : (tensor<1x320x20x20xbf16>, tensor<1x320x20x20xbf16>) -> tensor<1x320x20x20xbf16>
+    %905 = "ttir.transpose"(%904) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x320x20x20xbf16>) -> tensor<1x20x320x20xbf16>
+    %906 = "ttir.transpose"(%905) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x20x320x20xbf16>) -> tensor<1x20x20x320xbf16>
+    %907 = "ttir.conv2d"(%906, %arg297) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x20x20x320xbf16>, tensor<320x320x3x3xbf16>) -> tensor<1x20x20x320xbf16>
+    %908 = "ttir.transpose"(%907) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x20x20x320xbf16>) -> tensor<1x20x320x20xbf16>
+    %909 = "ttir.transpose"(%908) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x20x320x20xbf16>) -> tensor<1x320x20x20xbf16>
+    %910 = "ttir.multiply"(%909, %arg182) : (tensor<1x320x20x20xbf16>, tensor<1x320x1x1xbf16>) -> tensor<1x320x20x20xbf16>
+    %911 = "ttir.add"(%910, %arg183) : (tensor<1x320x20x20xbf16>, tensor<1x320x1x1xbf16>) -> tensor<1x320x20x20xbf16>
+    %912 = "ttir.sigmoid"(%911) : (tensor<1x320x20x20xbf16>) -> tensor<1x320x20x20xbf16>
+    %913 = "ttir.multiply"(%911, %912) : (tensor<1x320x20x20xbf16>, tensor<1x320x20x20xbf16>) -> tensor<1x320x20x20xbf16>
+    %914 = "ttir.transpose"(%913) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x320x20x20xbf16>) -> tensor<1x20x320x20xbf16>
+    %915 = "ttir.transpose"(%914) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x20x320x20xbf16>) -> tensor<1x20x20x320xbf16>
+    %916 = "ttir.conv2d"(%915, %arg298) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x20x20x320xbf16>, tensor<320x320x3x3xbf16>) -> tensor<1x20x20x320xbf16>
+    %917 = "ttir.transpose"(%916) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x20x20x320xbf16>) -> tensor<1x20x320x20xbf16>
+    %918 = "ttir.transpose"(%917) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x20x320x20xbf16>) -> tensor<1x320x20x20xbf16>
+    %919 = "ttir.multiply"(%918, %arg184) : (tensor<1x320x20x20xbf16>, tensor<1x320x1x1xbf16>) -> tensor<1x320x20x20xbf16>
+    %920 = "ttir.add"(%919, %arg185) : (tensor<1x320x20x20xbf16>, tensor<1x320x1x1xbf16>) -> tensor<1x320x20x20xbf16>
+    %921 = "ttir.sigmoid"(%920) : (tensor<1x320x20x20xbf16>) -> tensor<1x320x20x20xbf16>
+    %922 = "ttir.multiply"(%920, %921) : (tensor<1x320x20x20xbf16>, tensor<1x320x20x20xbf16>) -> tensor<1x320x20x20xbf16>
+    %923 = "ttir.concat"(%867, %868, %886, %904, %922) <{dim = -3 : si32}> : (tensor<1x320x20x20xbf16>, tensor<1x320x20x20xbf16>, tensor<1x320x20x20xbf16>, tensor<1x320x20x20xbf16>, tensor<1x320x20x20xbf16>) -> tensor<1x1600x20x20xbf16>
+    %924 = "ttir.transpose"(%923) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x1600x20x20xbf16>) -> tensor<1x20x1600x20xbf16>
+    %925 = "ttir.transpose"(%924) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x20x1600x20xbf16>) -> tensor<1x20x20x1600xbf16>
+    %926 = "ttir.conv2d"(%925, %arg299) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 0, 0, 0, 0>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x20x20x1600xbf16>, tensor<640x1600x1x1xbf16>) -> tensor<1x20x20x640xbf16>
+    %927 = "ttir.transpose"(%926) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x20x20x640xbf16>) -> tensor<1x20x640x20xbf16>
+    %928 = "ttir.transpose"(%927) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x20x640x20xbf16>) -> tensor<1x640x20x20xbf16>
+    %929 = "ttir.multiply"(%928, %arg186) : (tensor<1x640x20x20xbf16>, tensor<1x640x1x1xbf16>) -> tensor<1x640x20x20xbf16>
+    %930 = "ttir.add"(%929, %arg187) : (tensor<1x640x20x20xbf16>, tensor<1x640x1x1xbf16>) -> tensor<1x640x20x20xbf16>
+    %931 = "ttir.sigmoid"(%930) : (tensor<1x640x20x20xbf16>) -> tensor<1x640x20x20xbf16>
+    %932 = "ttir.multiply"(%930, %931) : (tensor<1x640x20x20xbf16>, tensor<1x640x20x20xbf16>) -> tensor<1x640x20x20xbf16>
+    %933 = "ttir.transpose"(%932) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x640x20x20xbf16>) -> tensor<1x20x640x20xbf16>
+    %934 = "ttir.transpose"(%933) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x20x640x20xbf16>) -> tensor<1x20x20x640xbf16>
+    %935 = "ttir.conv2d"(%934, %arg300) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x20x20x640xbf16>, tensor<80x640x3x3xbf16>) -> tensor<1x20x20x80xbf16>
+    %936 = "ttir.transpose"(%935) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x20x20x80xbf16>) -> tensor<1x20x80x20xbf16>
+    %937 = "ttir.transpose"(%936) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x20x80x20xbf16>) -> tensor<1x80x20x20xbf16>
+    %938 = "ttir.multiply"(%937, %arg188) : (tensor<1x80x20x20xbf16>, tensor<1x80x1x1xbf16>) -> tensor<1x80x20x20xbf16>
+    %939 = "ttir.add"(%938, %arg189) : (tensor<1x80x20x20xbf16>, tensor<1x80x1x1xbf16>) -> tensor<1x80x20x20xbf16>
+    %940 = "ttir.sigmoid"(%939) : (tensor<1x80x20x20xbf16>) -> tensor<1x80x20x20xbf16>
+    %941 = "ttir.multiply"(%939, %940) : (tensor<1x80x20x20xbf16>, tensor<1x80x20x20xbf16>) -> tensor<1x80x20x20xbf16>
+    %942 = "ttir.transpose"(%941) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x80x20x20xbf16>) -> tensor<1x20x80x20xbf16>
+    %943 = "ttir.transpose"(%942) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x20x80x20xbf16>) -> tensor<1x20x20x80xbf16>
+    %944 = "ttir.conv2d"(%943, %arg301) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x20x20x80xbf16>, tensor<80x80x3x3xbf16>) -> tensor<1x20x20x80xbf16>
+    %945 = "ttir.transpose"(%944) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x20x20x80xbf16>) -> tensor<1x20x80x20xbf16>
+    %946 = "ttir.transpose"(%945) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x20x80x20xbf16>) -> tensor<1x80x20x20xbf16>
+    %947 = "ttir.multiply"(%946, %arg190) : (tensor<1x80x20x20xbf16>, tensor<1x80x1x1xbf16>) -> tensor<1x80x20x20xbf16>
+    %948 = "ttir.add"(%947, %arg191) : (tensor<1x80x20x20xbf16>, tensor<1x80x1x1xbf16>) -> tensor<1x80x20x20xbf16>
+    %949 = "ttir.sigmoid"(%948) : (tensor<1x80x20x20xbf16>) -> tensor<1x80x20x20xbf16>
+    %950 = "ttir.multiply"(%948, %949) : (tensor<1x80x20x20xbf16>, tensor<1x80x20x20xbf16>) -> tensor<1x80x20x20xbf16>
+    %951 = "ttir.transpose"(%950) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x80x20x20xbf16>) -> tensor<1x20x80x20xbf16>
+    %952 = "ttir.transpose"(%951) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x20x80x20xbf16>) -> tensor<1x20x20x80xbf16>
+    %953 = "ttir.conv2d"(%952, %arg302, %arg303) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 0, 0, 0, 0>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x20x20x80xbf16>, tensor<64x80x1x1xbf16>, tensor<1x1x1x64xbf16>) -> tensor<1x20x20x64xbf16>
+    %954 = "ttir.transpose"(%953) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x20x20x64xbf16>) -> tensor<1x20x64x20xbf16>
+    %955 = "ttir.transpose"(%954) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x20x64x20xbf16>) -> tensor<1x64x20x20xbf16>
+    %956 = "ttir.transpose"(%932) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x640x20x20xbf16>) -> tensor<1x20x640x20xbf16>
+    %957 = "ttir.transpose"(%956) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x20x640x20xbf16>) -> tensor<1x20x20x640xbf16>
+    %958 = "ttir.conv2d"(%957, %arg304) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x20x20x640xbf16>, tensor<320x640x3x3xbf16>) -> tensor<1x20x20x320xbf16>
+    %959 = "ttir.transpose"(%958) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x20x20x320xbf16>) -> tensor<1x20x320x20xbf16>
+    %960 = "ttir.transpose"(%959) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x20x320x20xbf16>) -> tensor<1x320x20x20xbf16>
+    %961 = "ttir.multiply"(%960, %arg192) : (tensor<1x320x20x20xbf16>, tensor<1x320x1x1xbf16>) -> tensor<1x320x20x20xbf16>
+    %962 = "ttir.add"(%961, %arg193) : (tensor<1x320x20x20xbf16>, tensor<1x320x1x1xbf16>) -> tensor<1x320x20x20xbf16>
+    %963 = "ttir.sigmoid"(%962) : (tensor<1x320x20x20xbf16>) -> tensor<1x320x20x20xbf16>
+    %964 = "ttir.multiply"(%962, %963) : (tensor<1x320x20x20xbf16>, tensor<1x320x20x20xbf16>) -> tensor<1x320x20x20xbf16>
+    %965 = "ttir.transpose"(%964) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x320x20x20xbf16>) -> tensor<1x20x320x20xbf16>
+    %966 = "ttir.transpose"(%965) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x20x320x20xbf16>) -> tensor<1x20x20x320xbf16>
+    %967 = "ttir.conv2d"(%966, %arg305) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x20x20x320xbf16>, tensor<320x320x3x3xbf16>) -> tensor<1x20x20x320xbf16>
+    %968 = "ttir.transpose"(%967) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x20x20x320xbf16>) -> tensor<1x20x320x20xbf16>
+    %969 = "ttir.transpose"(%968) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x20x320x20xbf16>) -> tensor<1x320x20x20xbf16>
+    %970 = "ttir.multiply"(%969, %arg194) : (tensor<1x320x20x20xbf16>, tensor<1x320x1x1xbf16>) -> tensor<1x320x20x20xbf16>
+    %971 = "ttir.add"(%970, %arg195) : (tensor<1x320x20x20xbf16>, tensor<1x320x1x1xbf16>) -> tensor<1x320x20x20xbf16>
+    %972 = "ttir.sigmoid"(%971) : (tensor<1x320x20x20xbf16>) -> tensor<1x320x20x20xbf16>
+    %973 = "ttir.multiply"(%971, %972) : (tensor<1x320x20x20xbf16>, tensor<1x320x20x20xbf16>) -> tensor<1x320x20x20xbf16>
+    %974 = "ttir.transpose"(%973) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x320x20x20xbf16>) -> tensor<1x20x320x20xbf16>
+    %975 = "ttir.transpose"(%974) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x20x320x20xbf16>) -> tensor<1x20x20x320xbf16>
+    %976 = "ttir.conv2d"(%975, %arg306, %arg307) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 0, 0, 0, 0>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x20x20x320xbf16>, tensor<80x320x1x1xbf16>, tensor<1x1x1x80xbf16>) -> tensor<1x20x20x80xbf16>
+    %977 = "ttir.transpose"(%976) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x20x20x80xbf16>) -> tensor<1x20x80x20xbf16>
+    %978 = "ttir.transpose"(%977) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x20x80x20xbf16>) -> tensor<1x80x20x20xbf16>
+    %979 = "ttir.concat"(%955, %978) <{dim = -3 : si32}> : (tensor<1x64x20x20xbf16>, tensor<1x80x20x20xbf16>) -> tensor<1x144x20x20xbf16>
+    %980 = "ttir.reshape"(%979) <{shape = [1 : i32, 144 : i32, 400 : i32]}> : (tensor<1x144x20x20xbf16>) -> tensor<1x144x400xbf16>
+    %981 = "ttir.concat"(%714, %847, %980) <{dim = -1 : si32}> : (tensor<1x144x6400xbf16>, tensor<1x144x1600xbf16>, tensor<1x144x400xbf16>) -> tensor<1x144x8400xbf16>
+    %982 = "ttir.index"(%981) <{begin = 0 : i32, dim = 1 : i32, end = 64 : i32, step = 1 : i32}> : (tensor<1x144x8400xbf16>) -> tensor<1x64x8400xbf16>
+    %983 = "ttir.reshape"(%982) <{shape = [1 : i32, 4 : i32, 16 : i32, 8400 : i32]}> : (tensor<1x64x8400xbf16>) -> tensor<1x4x16x8400xbf16>
+    %984 = "ttir.transpose"(%983) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x4x16x8400xbf16>) -> tensor<1x16x4x8400xbf16>
+    %985 = "ttir.softmax"(%984) <{dimension = 1 : si32}> : (tensor<1x16x4x8400xbf16>) -> tensor<1x16x4x8400xbf16>
+    %986 = "ttir.transpose"(%985) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x16x4x8400xbf16>) -> tensor<1x4x16x8400xbf16>
+    %987 = "ttir.transpose"(%986) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x4x16x8400xbf16>) -> tensor<1x4x8400x16xbf16>
+    %988 = "ttir.conv2d"(%987, %arg196) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 0, 0, 0, 0>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<1x4x8400x16xbf16>, tensor<1x16x1x1xbf16>) -> tensor<1x4x8400x1xbf16>
+    %989 = "ttir.transpose"(%988) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x4x8400x1xbf16>) -> tensor<1x4x1x8400xbf16>
+    %990 = "ttir.transpose"(%989) <{dim0 = -3 : si32, dim1 = -2 : si32}> : (tensor<1x4x1x8400xbf16>) -> tensor<1x1x4x8400xbf16>
+    %991 = "ttir.squeeze"(%990) <{dim = 0 : si32}> : (tensor<1x1x4x8400xbf16>) -> tensor<1x4x8400xbf16>
+    %992 = "ttir.index"(%991) <{begin = 0 : i32, dim = 1 : i32, end = 2 : i32, step = 1 : i32}> : (tensor<1x4x8400xbf16>) -> tensor<1x2x8400xbf16>
+    %993 = "ttir.subtract"(%arg1, %992) : (tensor<1x2x8400xbf16>, tensor<1x2x8400xbf16>) -> tensor<1x2x8400xbf16>
+    %994 = "ttir.index"(%991) <{begin = 2 : i32, dim = 1 : i32, end = 4 : i32, step = 1 : i32}> : (tensor<1x4x8400xbf16>) -> tensor<1x2x8400xbf16>
+    %995 = "ttir.add"(%arg1, %994) : (tensor<1x2x8400xbf16>, tensor<1x2x8400xbf16>) -> tensor<1x2x8400xbf16>
+    %996 = "ttir.add"(%993, %995) : (tensor<1x2x8400xbf16>, tensor<1x2x8400xbf16>) -> tensor<1x2x8400xbf16>
+    %997 = "ttir.div"(%996, %arg197) : (tensor<1x2x8400xbf16>, tensor<1xbf16>) -> tensor<1x2x8400xbf16>
+    %998 = "ttir.subtract"(%995, %993) : (tensor<1x2x8400xbf16>, tensor<1x2x8400xbf16>) -> tensor<1x2x8400xbf16>
+    %999 = "ttir.concat"(%997, %998) <{dim = -2 : si32}> : (tensor<1x2x8400xbf16>, tensor<1x2x8400xbf16>) -> tensor<1x4x8400xbf16>
+    %1000 = "ttir.multiply"(%999, %arg198) : (tensor<1x4x8400xbf16>, tensor<1x8400xbf16>) -> tensor<1x4x8400xbf16>
+    %1001 = "ttir.index"(%981) <{begin = 64 : i32, dim = 1 : i32, end = 144 : i32, step = 1 : i32}> : (tensor<1x144x8400xbf16>) -> tensor<1x80x8400xbf16>
+    %1002 = "ttir.sigmoid"(%1001) : (tensor<1x80x8400xbf16>) -> tensor<1x80x8400xbf16>
+    %1003 = "ttir.concat"(%1000, %1002) <{dim = -2 : si32}> : (tensor<1x4x8400xbf16>, tensor<1x80x8400xbf16>) -> tensor<1x84x8400xbf16>
+    return %1003, %713, %846, %979 : tensor<1x84x8400xbf16>, tensor<1x144x80x80xbf16>, tensor<1x144x40x40xbf16>, tensor<1x144x20x20xbf16> loc(#loc196)
   } loc(#loc)
 } loc(#loc)
 #loc1 = loc("test.benchmark.utils.YoloWrapper::")

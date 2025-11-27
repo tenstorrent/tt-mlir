@@ -76,19 +76,9 @@ def test_split_compile_split_and_execute_ttir_module(ttir_module_str: str):
     results = split_compile_split_and_execute(ttir_module_str)
 
     expected_results = [
-        ExecutionPhase.GENERATED_TTNN,
-        ExecutionPhase.GENERATED_TTNN,
-        ExecutionPhase.GENERATED_TTNN,
-        ExecutionPhase.GENERATED_TTNN,
         ExecutionPhase.EXECUTED_FLATBUFFER,
         ExecutionPhase.GENERATED_TTNN,
-        ExecutionPhase.GENERATED_TTNN,
-        ExecutionPhase.GENERATED_TTNN,
-        ExecutionPhase.GENERATED_TTNN,
-        ExecutionPhase.GENERATED_TTNN,
-        ExecutionPhase.GENERATED_TTNN,
         ExecutionPhase.EXECUTED_FLATBUFFER,
-        ExecutionPhase.GENERATED_TTNN,
         ExecutionPhase.GENERATED_TTNN,
         ExecutionPhase.GENERATED_TTNN,
     ]

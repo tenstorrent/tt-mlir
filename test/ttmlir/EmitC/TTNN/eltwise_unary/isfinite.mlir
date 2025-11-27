@@ -4,7 +4,6 @@
 // RUN: ttmlir-translate --mlir-to-cpp -o %basename_t.cpp %t2.mlir
 
 func.func @isfinite(%arg0: tensor<64x128xbf16>) -> tensor<64x128xbf16> {
-  %0 = ttir.empty() : tensor<64x128xbf16>
-  %1 = "ttir.isfinite"(%arg0, %0) : (tensor<64x128xbf16>, tensor<64x128xbf16>) -> tensor<64x128xbf16>
+  %1 = "ttir.isfinite"(%arg0) : (tensor<64x128xbf16>) -> tensor<64x128xbf16>
   return %1 : tensor<64x128xbf16>
 }

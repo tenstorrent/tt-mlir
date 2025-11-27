@@ -94,9 +94,9 @@ public:
         finalPermuteOp.getType().getShape().end());
     auto resultShapeAttr = rewriter.getI32ArrayAttr(resultShape);
 
-    ttir::utils::replaceOpWithNewDPSOp<ttir::ReshapeOp>(
-        rewriter, finalPermuteOp, finalPermuteOp.getType(),
-        originalPermuteOp.getInput(), resultShapeAttr);
+    rewriter.replaceOpWithNewOp<ttir::ReshapeOp>(
+        finalPermuteOp, finalPermuteOp.getType(), originalPermuteOp.getInput(),
+        resultShapeAttr);
 
     return success();
   }

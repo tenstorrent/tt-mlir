@@ -1179,6 +1179,7 @@ void mlir::tt::ttnn::FullOp::build(mlir::OpBuilder &builder,
   // Get the rank of the first input tensor
   // and check that all input tensors have the same rank
   // and that all dimensions except `dim` are the same.
+  int64_t dimSizeSum = firstTensor.getDimSize(dim);
   for (auto input : inputs.drop_front()) {
     auto inputType = mlir::cast<mlir::RankedTensorType>(input.getType());
 
@@ -1189,12 +1190,25 @@ void mlir::tt::ttnn::FullOp::build(mlir::OpBuilder &builder,
 
     // Check that dimensions (except `dim`) are the same.
     for (int64_t i = 0; i < firstTensorRank; ++i) {
-      if (i != dim && inputType.getDimSize(i) != firstTensor.getDimSize(i)) {
+      if (i == dim) {
+        dimSizeSum += inputType.getDimSize(i);
+        continue;
+      }
+      if (inputType.getDimSize(i) != firstTensor.getDimSize(i)) {
         return emitOpError() << "All input tensors must have the same "
                                 "dimensions, except for dimension "
                              << dim << ".";
       }
     }
+  }
+
+  auto outputType = getType();
+  if (outputType.getDimSize(dim) != dimSizeSum) {
+    return emitOpError() << "Output tensor dimension " << dim
+                         << " must be equal to the sum of input tensor "
+                            "dimensions at the same axis ("
+                         << dimSizeSum << "), but got "
+                         << outputType.getDimSize(dim) << ".";
   }
 
   return mlir::success();
