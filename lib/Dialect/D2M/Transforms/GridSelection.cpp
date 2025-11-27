@@ -151,12 +151,6 @@ findMaxDimAndAspectRatio(ArrayRef<int64_t> physicalShape) {
   return {maxDimIndex, aspectRatio};
 }
 
-int64_t getTargetGridVolume(ArrayRef<int64_t> targetSquareGridShape) {
-  return std::accumulate(targetSquareGridShape.begin(),
-                         targetSquareGridShape.end(), uint64_t{1},
-                         std::multiplies<uint64_t>());
-}
-
 /// Finds a 2D grid (y, x) such that y * x = volume.
 /// The returned grid aims to be as square as possible while respecting the
 /// provided target grid shape bounds.
@@ -279,7 +273,7 @@ computeOptimalVirtualGrid(ArrayRef<int64_t> physicalShape,
   auto [shardedDimIndex, aspectRatio] = findMaxDimAndAspectRatio(physicalShape);
 
   // for now, can only support if largest dim is divisible by grid volume
-  int64_t gridVolume = getTargetGridVolume(targetSquareGridShape);
+  int64_t gridVolume = ttmlir::utils::volume<int64_t>(targetSquareGridShape);
   TT_assertv((physicalShape[shardedDimIndex] % gridVolume == 0),
              "Sharded dimension in virtual gridPhysical shape dimension is "
              "not divisible by grid volume {1}",
@@ -385,7 +379,8 @@ bool shouldImplementAsVirtualGrid(ArrayRef<int64_t> physicalShape,
   auto [maxRatioIndex, aspectRatio] = findMaxDimAndAspectRatio(physicalShape);
   auto regularShardedGridVolume = ttmlir::utils::volume<int64_t>(
       computeOptimalBlockShardedGrid(physicalShape, targetSquareGridShape));
-  int64_t targetGridVolume = getTargetGridVolume(targetSquareGridShape);
+  int64_t targetGridVolume =
+      ttmlir::utils::volume<int64_t>(targetSquareGridShape);
   bool lowGridUtilization = regularShardedGridVolume < 0.5 * targetGridVolume;
   bool dimIsDivisibleByGridVolume =
       physicalShape[maxRatioIndex] % targetGridVolume == 0;
