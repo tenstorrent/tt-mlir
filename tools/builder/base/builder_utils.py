@@ -1676,7 +1676,7 @@ def compile_ttir_module_to_flatbuffer(
 
 def load_mlir_file(
     mlir_text: str,
-    golden_inputs: List[torch.tensor] = [],
+    golden_inputs: List[torch.tensor] = None,
     target: Literal["ttir", "ttnn", "d2m", "stablehlo"] = "ttir",
 ) -> (Module, Builder):
     ctx = Context()
