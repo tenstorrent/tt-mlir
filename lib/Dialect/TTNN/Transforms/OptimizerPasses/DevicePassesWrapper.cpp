@@ -4,7 +4,7 @@
 
 #ifdef TTMLIR_ENABLE_OPMODEL
 
-#include "ttmlir/Dialect/TTNN/Transforms/DevicePassWrapper.h"
+#include "ttmlir/Dialect/TTNN/Transforms/DevicePassesWrapper.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/OpModel/TTNN/SingletonDeviceContext.h"
 
@@ -16,25 +16,25 @@ namespace mlir::tt::ttnn {
 
 namespace {
 
-class DevicePassWrapper
-    : public PassWrapper<DevicePassWrapper, OperationPass<>> {
+class DevicePassesWrapper
+    : public PassWrapper<DevicePassesWrapper, OperationPass<>> {
 public:
-  MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(DevicePassWrapper)
-  DevicePassWrapper(std::function<void(OpPassManager &)> populatePipeline,
-                    const DevicePassWrapperOptions &options)
+  MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(DevicePassesWrapper)
+  DevicePassesWrapper(std::function<void(OpPassManager &)> populatePipeline,
+                      const DevicePassesWrapperOptions &options)
       : populatePipeline(std::move(populatePipeline)),
         externalDevice(options.devicePtr),
         tensorL1UsageCap(options.tensorL1UsageCap) {}
 
-  StringRef getArgument() const override { return "device-pass-wrapper"; }
+  StringRef getArgument() const override { return "device-passes-wrapper"; }
 
   StringRef getDescription() const override {
     return "Wraps device-dependent passes for device lifecycle management";
   }
 
   std::unique_ptr<Pass> clonePass() const override {
-    auto copy = std::make_unique<DevicePassWrapper>(
-        *static_cast<const DevicePassWrapper *>(this));
+    auto copy = std::make_unique<DevicePassesWrapper>(
+        *static_cast<const DevicePassesWrapper *>(this));
     copy->externalDevice = externalDevice;
     copy->populatePipeline = populatePipeline;
     copy->tensorL1UsageCap = tensorL1UsageCap;
@@ -82,10 +82,10 @@ private:
 } // namespace
 
 std::unique_ptr<Pass>
-createDevicePassWrapper(std::function<void(OpPassManager &)> populatePipeline,
-                        const DevicePassWrapperOptions &options) {
-  return std::make_unique<DevicePassWrapper>(std::move(populatePipeline),
-                                             options);
+createDevicePassesWrapper(std::function<void(OpPassManager &)> populatePipeline,
+                          const DevicePassesWrapperOptions &options) {
+  return std::make_unique<DevicePassesWrapper>(std::move(populatePipeline),
+                                               options);
 }
 
 } // namespace mlir::tt::ttnn
