@@ -190,7 +190,7 @@ module @resnet50_xla_full_model {
     %187 = "ttir.maximum"(%186, %1) : (tensor<1x2048x7x7xbf16>, tensor<1x2048x7x7xbf16>) -> tensor<1x2048x7x7xbf16>
     %188 = "ttir.sum"(%187) <{dim_arg = [2 : i32, 3 : i32], keep_dim = false}> : (tensor<1x2048x7x7xbf16>) -> tensor<1x2048xbf16>
     %189 = "ttir.multiply"(%188, %0) : (tensor<1x2048xbf16>, tensor<1x2048xbf16>) -> tensor<1x2048xbf16>
-    %190 = "ttir.dot_general"(%189) <{batch_dims_lhs = array<i64>, batch_dims_rhs = array<i64>, contract_dims_lhs = array<i64: 1>, contract_dims_rhs = array<i64: 0>}> : (tensor<1x2048xbf16>) -> tensor<1x1000xbf16>
+    %190 = "ttir.dot_general"(%189, %arg0) <{batch_dims_lhs = array<i64>, batch_dims_rhs = array<i64>, contract_dims_lhs = array<i64: 1>, contract_dims_rhs = array<i64: 0>}> : (tensor<1x2048xbf16>, tensor<2048x1000xbf16>) -> tensor<1x1000xbf16>
     %191 = "ttir.reshape"(%arg0) <{shape = [1 : i32, 1000 : i32]}> : (tensor<1000xbf16>) -> tensor<1x1000xbf16>
     %192 = "ttir.add"(%190, %191) : (tensor<1x1000xbf16>, tensor<1x1000xbf16>) -> tensor<1x1000xbf16>
     return %192 : tensor<1x1000xbf16>
