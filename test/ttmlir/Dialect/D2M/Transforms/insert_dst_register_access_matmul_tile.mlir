@@ -59,11 +59,12 @@ module {
       // CHECK: %[[C0:.*]] = arith.constant 0 : index
       // CHECK: %[[DST:.*]] = d2m.acquire_dst() : memref<{{.*}}x!ttcore.tile<32x32, f16>, #dst>
 
-      // Check conditional initialization loop structure (2D loop for initialization)
+      // Check combined initialization and computation loop structure (3D loop)
       // CHECK: affine.for %[[INIT_I:.*]] = 0 to 3 {
       // CHECK-NEXT: affine.for %[[INIT_J:.*]] = 0 to 2 {
+      // CHECK-NEXT: affine.for %[[INIT_K:.*]] = 0 to 3 {
 
-      // Check for iteration index and conditional initialization
+      // Check for iteration index and conditional initialization inside the loop
       // CHECK: %[[ITER2:.*]] = d2m.iter_index(2) : index
       // CHECK: %[[CMP:.*]] = arith.cmpi ne, %[[ITER2]], %[[C0]] : index
       // CHECK: scf.if %[[CMP]] {

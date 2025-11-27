@@ -136,7 +136,7 @@ public:
       // (these are tile_matmul ops when useTileMatmul=false).
       WalkResult walkResult =
           block.walk([&](linalg::GenericOp linalgGenericOp) {
-            if (!useTileMatmul && hasTileMatmul(linalgGenericOp)) {
+            if (!useTileMatmul && utils::hasTileMatmulOp(linalgGenericOp)) {
               // Only use tile matmul block rewrite when not in explicit
               // datamovement form. Explicit datamovement form should fall
               // through to regular linalg-to-affine conversion.
@@ -378,7 +378,7 @@ public:
               "result_dst_index",
               mlir::IntegerAttr::get(
                   mlir::IntegerType::get(computeOp->getContext(), 64),
-                  dstSliceIndex));
+                  dstSlice));
         } else {
           // The consumer is another compute op, set or allocate an intermediate
           // DST slice for it.
@@ -413,7 +413,7 @@ public:
                 "result_dst_index",
                 mlir::IntegerAttr::get(
                     mlir::IntegerType::get(computeOp->getContext(), 64),
-                    allocatedIndex));
+                    dstSlice));
           }
         }
       }

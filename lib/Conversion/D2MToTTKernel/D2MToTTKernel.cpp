@@ -609,7 +609,13 @@ public:
         break;
       }
       auto cb = getCB(rewriter, op.getInput());
-      auto dstIdx = getDstIdxFromResult(op.getResult());
+      std::optional<Value> maybeDstIdx =
+          tryGetDstIdxFromResult(rewriter, op, op.getResult());
+      if (!maybeDstIdx) {
+        return rewriter.notifyMatchFailure(
+            op, "failed to get DST index from result");
+      }
+      Value dstIdx = maybeDstIdx.value();
       rewriter.create<ttkernel::UnaryBcastInitOp>(op->getLoc(), cb, cb,
                                                   bcastType);
       rewriter.create<ttkernel::UnaryBcastTileOp>(
