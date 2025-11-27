@@ -94,10 +94,10 @@ public:
 };
 
 //===--------------------------------------------------------------------===//
-// Convenience Functions
+// API Functions
 //===--------------------------------------------------------------------===//
 
-/// Convenience function for adding TTPrintIRInstrumentation to a PassManager
+/// User-facing API function for registering TTPrintIRInstrumentation with a PassManager
 void addTTPrintIRInstrumentation(
     PassManager &pm,
     TTPrintIRInstrumentation::TTPrintIRInstrumentationOptions options = {});
