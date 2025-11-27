@@ -11,6 +11,7 @@
 #include "ttmlir/Dialect/TTIR/Utils/Utils.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/SmallVector.h"
+#include <llvm/Support/raw_ostream.h>
 
 namespace mlir::tt::ttir {
 
@@ -148,6 +149,14 @@ private:
   bool isCommuteUpwardsFavorable(ReduceOpType op, PermuteOp) const override {
     // We should always commute a permute above a reduce if all users are an
     // identical permutation. This includes the case where there is one user.
+    auto dimArg = op.getDimArg();
+    if (dimArg && dimArg->size() == 1) {
+      auto dimAttr = cast<IntegerAttr>((*dimArg)[0]);
+      if (dimAttr.getInt() == 3) {
+        llvm::outs() << "Not commuting downwards since reduce dim is  3\n";
+        return false;
+      }
+    }
     SmallVector<Operation *> users(op->getUsers());
     return !users.empty() && checkAllUsersAreIdenticalTms(users);
   }
@@ -159,6 +168,16 @@ private:
 
   bool isCommuteDownwardsFavorable(ReduceOpType op,
                                    PermuteOp permuteOperand) const override {
+    // Don't commute if reduce dimension is only one number and it is 3
+    auto dimArg = op.getDimArg();
+    if (dimArg && dimArg->size() == 1) {
+      auto dimAttr = cast<IntegerAttr>((*dimArg)[0]);
+      if (dimAttr.getInt() == 3) {
+        llvm::outs() << "Not commuting downwards since reduce dim is  3\n";
+        return false;
+      }
+    }
+
     // Commuting downwards is favorable if all other operands satisfy one
     // of the following:
     // - Are an identical TM
