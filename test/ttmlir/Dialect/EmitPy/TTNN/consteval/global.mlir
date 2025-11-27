@@ -6,7 +6,7 @@
 // LoadCachedOp is converted from TTNN to EmitPy.
 
 module {
-  // CHECK-LABEL: func.func @forward_const_eval_0
+  // CHECK-LABEL: func.func private @forward_const_eval_0
 
   // CHECK: emitpy.global @CACHED_forward_const_eval_0 = #emitpy.opaque<"None">
   // CHECK-LABEL: func.func @forward

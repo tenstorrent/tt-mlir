@@ -3,7 +3,7 @@
 
 module {
 
-  // CHECK-LABEL: func.func @forward_const_eval_0
+  // CHECK-LABEL: func.func private @forward_const_eval_0
   // CHECK: "ttir.subtract"(%{{.*}}, %{{.*}}, %{{.*}})
 
   // CHECK: func.func @forward(
@@ -23,9 +23,9 @@ module {
   }
 
 
-  // CHECK-LABEL: func.func @forward_split_const_eval_0
+  // CHECK-LABEL: func.func private @forward_split_const_eval_0
   // CHECK: "ttir.add"(%{{.*}}, %{{.*}}, %{{.*}})
-  // CHECK-LABEL: func.func @forward_split_const_eval_1
+  // CHECK-LABEL: func.func private @forward_split_const_eval_1
   // CHECK: "ttir.add"(%{{.*}}, %{{.*}}, %{{.*}})
 
   // CHECK: func.func @forward_split(
@@ -52,7 +52,7 @@ module {
   }
 
 
-  // CHECK-LABEL: func.func @forward_merge_const_eval_0
+  // CHECK-LABEL: func.func private @forward_merge_const_eval_0
   // CHECK: "ttir.add"(%{{.*}}, %{{.*}}, %{{.*}})
   // CHECK: "ttir.add"(%{{.*}}, %{{.*}}, %{{.*}})
   // CHECK: "ttir.subtract"(%{{.*}}, %{{.*}}, %{{.*}})
@@ -78,7 +78,7 @@ module {
   }
 
 
-  // CHECK-LABEL: func.func @forward_merge_return_multiple_values_const_eval_0
+  // CHECK-LABEL: func.func private @forward_merge_return_multiple_values_const_eval_0
   // CHECK: "ttir.add"(%{{.*}}, %{{.*}}, %{{.*}})
   // CHECK: "ttir.add"(%{{.*}}, %{{.*}}, %{{.*}})
   // CHECK: "ttir.subtract"(%{{.*}}, %{{.*}}, %{{.*}})
@@ -107,7 +107,7 @@ module {
     return %11 : tensor<32x32xbf16>
   }
 
-  // CHECK-LABEL: func.func @forward_reuse_zeros_const_eval_0
+  // CHECK-LABEL: func.func private @forward_reuse_zeros_const_eval_0
   // CHECK: "ttir.zeros"()
   // CHECK: "ttir.add"(%{{.*}}, %{{.*}}, %{{.*}})
   // CHECK: "ttir.add"(%{{.*}}, %{{.*}}, %{{.*}})
@@ -136,7 +136,7 @@ module {
 
   // Test with ttir.full creation op consumed by const-eval operations
   // Verifies that ttir.full is properly included in const-eval subgraph
-  // CHECK-LABEL: func.func @forward_with_full_const_eval_0
+  // CHECK-LABEL: func.func private @forward_with_full_const_eval_0
   // CHECK: "ttir.full"
   // CHECK-SAME: fill_value = 3.000000e+00 : f32
   // CHECK: "ttir.multiply"(%{{.*}}, %{{.*}}, %{{.*}})

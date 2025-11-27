@@ -8,7 +8,7 @@
 // RUN: diff %t1.mlir %t4.mlir
 
 module {
-  // CHECK-LABEL: func.func @test_undo_redo_const_eval_0
+  // CHECK-LABEL: func.func private @test_undo_redo_const_eval_0
   // CHECK: "ttir.add"(%{{.*}}, %{{.*}}, %{{.*}})
 
   // UNDONE-LABEL: func.func @test_undo_redo
@@ -36,10 +36,10 @@ module {
   }
 
   // Now test a more complex case with multiple const-eval functions
-  // CHECK-LABEL: func.func @test_multi_undo_redo_const_eval_0
+  // CHECK-LABEL: func.func private @test_multi_undo_redo_const_eval_0
   // CHECK: "ttir.add"(%{{.*}}, %{{.*}}, %{{.*}})
 
-  // CHECK-LABEL: func.func @test_multi_undo_redo_const_eval_1
+  // CHECK-LABEL: func.func private @test_multi_undo_redo_const_eval_1
   // CHECK: "ttir.multiply"(%{{.*}}, %{{.*}}, %{{.*}})
 
   // UNDONE-LABEL: func.func @test_multi_undo_redo
