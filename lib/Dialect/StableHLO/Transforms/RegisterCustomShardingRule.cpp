@@ -17,7 +17,6 @@ static constexpr llvm::StringLiteral sdpaTargetName =
 
 static mlir::sdy::OpShardingRuleAttr
 getScatterShardingRule(mlir::stablehlo::ScatterOp scatterOp) {
-  llvm::outs() << "Getting sharding rule for ScatterOp\n";
   mlir::Operation::operand_range inputs = scatterOp.getInputs();
   mlir::Operation::operand_range updates = scatterOp.getUpdates();
   mlir::Value indices = scatterOp.getScatterIndices();
@@ -32,23 +31,49 @@ getScatterShardingRule(mlir::stablehlo::ScatterOp scatterOp) {
   auto inputType = llvm::dyn_cast<RankedTensorType>(inputs.front().getType());
   auto updateType = llvm::dyn_cast<RankedTensorType>(updates.front().getType());
   auto indicesType = llvm::dyn_cast<RankedTensorType>(indices.getType());
+
   if (!inputType || !updateType || !indicesType) {
     scatterOp->emitError(
         "Scatter operation has unranked tensor types. This is not supported.");
     return mlir::sdy::OpShardingRuleAttr();
   }
 
-  // Lambda that returns kNeedReplication for all dimensions
-  auto getReplicationType = [](int64_t dim) -> mlir::sdy::FactorType {
-    return mlir::sdy::FactorType::kNeedReplication;
-  };
-
-  // Build sharding rule
   auto builder = mlir::sdy::OpShardingRuleBuilder(scatterOp);
-  builder.addPointwise(inputType.getShape(), getReplicationType);
 
-  // // Always replicate updates and indices.
-  // // ADD CODE
+  // Operand order: [input, indices, updates]
+  // Result: same shape as input
+
+  // For each dimension of input, add a replication factor
+  // operandDims format: [inputDim, indicesDim, updateDim]
+  // resultDims format: [resultDim]
+  for (auto [dim, dimSize] : llvm::enumerate(inputType.getShape())) {
+    builder.addFactor(
+        /*operandDims=*/{static_cast<int64_t>(dim), mlir::sdy::kNullDim,
+                         mlir::sdy::kNullDim},
+        /*resultDims=*/{static_cast<int64_t>(dim)},
+        /*factorSize=*/dimSize,
+        /*factorType=*/mlir::sdy::FactorType::kNeedReplication);
+  }
+
+  // For each dimension of indices, add a replication factor
+  for (auto [dim, dimSize] : llvm::enumerate(indicesType.getShape())) {
+    builder.addFactor(
+        /*operandDims=*/{mlir::sdy::kNullDim, static_cast<int64_t>(dim),
+                         mlir::sdy::kNullDim},
+        /*resultDims=*/{mlir::sdy::kNullDim},
+        /*factorSize=*/dimSize,
+        /*factorType=*/mlir::sdy::FactorType::kNeedReplication);
+  }
+
+  // For each dimension of updates, add a replication factor
+  for (auto [dim, dimSize] : llvm::enumerate(updateType.getShape())) {
+    builder.addFactor(
+        /*operandDims=*/{mlir::sdy::kNullDim, mlir::sdy::kNullDim,
+                         static_cast<int64_t>(dim)},
+        /*resultDims=*/{mlir::sdy::kNullDim},
+        /*factorSize=*/dimSize,
+        /*factorType=*/mlir::sdy::FactorType::kNeedReplication);
+  }
 
   return builder.build();
 }
@@ -107,7 +132,6 @@ struct StablehloShardingModel
           StablehloShardingModel<OpTy>, OpTy> {
 
   mlir::sdy::OpShardingRuleAttr getShardingRule(mlir::Operation *op) const {
-    llvm::outs() << "Getting sharding rule for Stablehlo ScatterOp\n";
     auto scatterOp = llvm::cast<mlir::stablehlo::ScatterOp>(op);
     if (scatterOp) {
       return getScatterShardingRule(scatterOp);
