@@ -208,23 +208,23 @@ module {
   }
 
   // CHECK-LABEL: func @implicit_bcast_2d_dual
-  func.func @implicit_bcast_2d_dual(%in0: !ttype_col, %in1: !ttype_row, %out: !ttype) -> (!ttype) {
+  func.func @implicit_bcast_2d_dual(%in0: !ttype_col, %in1: !ttype_row) -> (!ttype) {
     // CHECK: d2m.generic{{.+}}iterator_types = [#parallel, #parallel]
     // CHECK: linalg.generic
     // CHECK: "d2m.tile_bcast"(%{{.*}}) <{bcast_type = #d2m<tile_bcast_type col>}>
     // CHECK: "d2m.tile_bcast"(%{{.*}}) <{bcast_type = #d2m<tile_bcast_type row>}>
     // CHECK: d2m.tile_add
-    %0 = "ttir.add"(%in0, %in1, %out) : (!ttype_col, !ttype_row, !ttype) -> (!ttype)
+    %0 = "ttir.add"(%in0, %in1) : (!ttype_col, !ttype_row) -> (!ttype)
     return %0 : !ttype
   }
 
   // CHECK-LABEL: func @implicit_bcast_2d_scalar
-  func.func @implicit_bcast_2d_scalar(%in0: !ttype, %in1: !ttype_scalar, %out: !ttype) -> (!ttype) {
+  func.func @implicit_bcast_2d_scalar(%in0: !ttype, %in1: !ttype_scalar) -> (!ttype) {
     // CHECK: d2m.generic{{.+}}iterator_types = [#parallel, #parallel]
     // CHECK: linalg.generic
     // CHECK: "d2m.tile_bcast"(%{{.*}}) <{bcast_type = #d2m<tile_bcast_type scalar>}>
     // CHECK: d2m.tile_add
-    %0 = "ttir.add"(%in0, %in1, %out) : (!ttype, !ttype_scalar, !ttype) -> (!ttype)
+    %0 = "ttir.add"(%in0, %in1) : (!ttype, !ttype_scalar) -> (!ttype)
     return %0 : !ttype
   }
 }
