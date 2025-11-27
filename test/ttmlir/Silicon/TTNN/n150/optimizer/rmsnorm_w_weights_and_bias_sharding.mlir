@@ -9,7 +9,7 @@ func.func @rmsnorm_sharding(%arg0: tensor<1x1x32x2048xbf16>, %arg1: tensor<2048x
 
     // First RMSNorm operation with width sharding: input [1,1,32,2048xbf16], weights [2048xbf16], bias [2048xbf16]
     // CHECK: = "ttnn.rms_norm"{{.*}} -> {{.*}}#ttnn.ttnn_layout{{.*}}width_sharded{{.*}}
-    %1 = "ttir.rms_norm"(%arg0, %arg1, %arg2) <{normalized_shape = array<i64: 2048>, epsilon = 1.000000e-05 : f32, operandSegmentSizes = array<i32: 1, 1, 1, 1>}> : (tensor<1x1x32x2048xbf16>, tensor<2048xbf16>, tensor<2048xbf16>) -> tensor<1x1x32x2048xbf16>
+    %1 = "ttir.rms_norm"(%arg0, %arg1, %arg2) <{normalized_shape = array<i64: 2048>, epsilon = 1.000000e-05 : f32, operandSegmentSizes = array<i32: 1, 1, 1>}> : (tensor<1x1x32x2048xbf16>, tensor<2048xbf16>, tensor<2048xbf16>) -> tensor<1x1x32x2048xbf16>
 
     // Additional add to create chain (required for sharding policy to apply)
     %3 = "ttir.add"(%1, %1) : (tensor<1x1x32x2048xbf16>, tensor<1x1x32x2048xbf16>) -> tensor<1x1x32x2048xbf16>
