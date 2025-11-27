@@ -3716,7 +3716,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.ArgMaxOp: argmax_golden,
     ttir.LinearOp: linear_golden,
     ttir.DotGeneralOp: ttir_dot_general_golden,
-    ttir.Scatter: ttir_scatter_golden,
+    ttir.ScatterOp: ttir_scatter_golden,
     # Layout operations (identity functions) — accept and ignore extra kwargs like reinterpretLayout
     ttir.ToLayoutOp: (lambda x, **kwargs: x),
     # Cache operations
