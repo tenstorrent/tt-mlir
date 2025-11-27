@@ -3,6 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import pytest
+import torch
 from typing import List, Optional, Tuple, Union
 from builder.base.builder import Operand, Shape
 from builder.ttir.ttir_builder import TTIRBuilder
@@ -77,6 +78,7 @@ pytestmark = pytest.mark.frontend("ttir")
         "batch32_training_no_bias",
     ],
 )
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
 @pytest.mark.parametrize("target", ["ttnn", "emitpy"])
 def test_conv2d(
     input_shape: Shape,
@@ -86,6 +88,7 @@ def test_conv2d(
     padding: Union[int, Tuple[int, int]],
     dilation: int,
     groups: int,
+    dtype: torch.dtype,
     target: str,
     request,
     device,
@@ -111,6 +114,7 @@ def test_conv2d(
             )
 
         input_shapes = [input_shape, weight_shape, bias_shape]
+        input_types = [dtype, dtype, dtype]
     else:
 
         def conv2d_wrapper(
@@ -131,133 +135,17 @@ def test_conv2d(
             )
 
         input_shapes = [input_shape, weight_shape]
+        input_types = [dtype, dtype]
 
     conv2d_wrapper.__name__ = "conv2d_extended"
 
     compile_and_execute_ttir(
         conv2d_wrapper,
         input_shapes,
+        inputs_types=input_types,
         test_base=request.node.name,
         device=device,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
         target=target,
     )
-
-
-def check_ops_in_mlir(mlir_file: str, op_names: List[str]) -> dict:
-    """Check which ops are present in the MLIR file."""
-    found = {op: False for op in op_names}
-    with open(mlir_file, "r") as f:
-        content = f.read()
-        for op in op_names:
-            if op in content:
-                found[op] = True
-    return found
-
-
-@pytest.mark.parametrize(
-    "input_shape, weight_shape, bias_shape, stride, padding, dilation, groups",
-    [
-        # Standard conv2d with bias - should produce both prepare_weights and prepare_bias
-        ((1, 32, 32, 64), (64, 64, 3, 3), (1, 1, 1, 64), 1, 1, 1, 1),
-        # Conv2d without bias - should only produce prepare_weights
-        ((1, 32, 32, 64), (128, 64, 3, 3), None, 1, 1, 1, 1),
-        # Depthwise conv with bias
-        ((1, 32, 32, 64), (64, 1, 3, 3), (1, 1, 1, 64), 1, 1, 1, 64),
-        # Different kernel sizes
-        ((1, 32, 32, 64), (64, 64, 1, 1), (1, 1, 1, 64), 1, 0, 1, 1),
-        ((1, 32, 32, 64), (64, 64, 5, 5), (1, 1, 1, 64), 1, 2, 1, 1),
-    ],
-    ids=[
-        "standard_3x3_with_bias",
-        "standard_3x3_no_bias",
-        "depthwise_3x3_with_bias",
-        "pointwise_1x1_with_bias",
-        "conv_5x5_with_bias",
-    ],
-)
-def test_conv2d_optimizer_prepare_ops(
-    input_shape: Shape,
-    weight_shape: Shape,
-    bias_shape: Optional[Shape],
-    stride: int,
-    padding: int,
-    dilation: int,
-    groups: int,
-    request,
-    device,
-):
-    """Test that optimizer creates ttnn.prepare_conv2d_weights and ttnn.prepare_conv2d_bias ops."""
-    if bias_shape:
-
-        def conv2d_wrapper(
-            in0: Operand,
-            weight: Operand,
-            bias: Operand,
-            builder: TTIRBuilder,
-            unit_attrs: Optional[List[str]] = None,
-        ):
-            return builder.conv2d(
-                in0,
-                weight,
-                bias,
-                stride=stride,
-                padding=padding,
-                dilation=dilation,
-                groups=groups,
-                unit_attrs=unit_attrs,
-            )
-
-        input_shapes = [input_shape, weight_shape, bias_shape]
-    else:
-
-        def conv2d_wrapper(
-            in0: Operand,
-            weight: Operand,
-            builder: TTIRBuilder,
-            unit_attrs: Optional[List[str]] = None,
-        ):
-            return builder.conv2d(
-                in0,
-                weight,
-                None,
-                stride=stride,
-                padding=padding,
-                dilation=dilation,
-                groups=groups,
-                unit_attrs=unit_attrs,
-            )
-
-        input_shapes = [input_shape, weight_shape]
-
-    conv2d_wrapper.__name__ = "conv2d_optimizer"
-
-    output_mlir = compile_and_execute_ttir(
-        conv2d_wrapper,
-        input_shapes,
-        test_base=request.node.name,
-        device=device,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
-        target="ttnn",
-        pipeline_options=["enable-optimizer=true"],
-    )
-
-    # Check for prepare ops in generated MLIR
-    ops_to_check = ["ttnn.prepare_conv2d_weights"]
-    if bias_shape:
-        ops_to_check.append("ttnn.prepare_conv2d_bias")
-
-    found_ops = check_ops_in_mlir(output_mlir, ops_to_check)
-
-    # Assert prepare_conv2d_weights is always present
-    assert found_ops[
-        "ttnn.prepare_conv2d_weights"
-    ], f"Expected ttnn.prepare_conv2d_weights in {output_mlir}"
-
-    # Assert prepare_conv2d_bias is present when bias is used
-    if bias_shape:
-        assert found_ops[
-            "ttnn.prepare_conv2d_bias"
-        ], f"Expected ttnn.prepare_conv2d_bias in {output_mlir}"

@@ -927,8 +927,6 @@ static ::mlir::LogicalResult verifyQuantizeOpCommon(
     return mlir::failure();
   }
 
-  llvm::ArrayRef<std::int64_t> kernelShape = weightType.getShape();
-
   int32_t inputChannels = inputType.getDimSize(inputType.getRank() - 1);
   int32_t outputChannels = outputType.getDimSize(outputType.getRank() - 1);
   uint32_t groups = getGroups();
@@ -947,34 +945,53 @@ static ::mlir::LogicalResult verifyQuantizeOpCommon(
                          << groups << " groups.";
   }
 
-  if (inputChannels != kernelShape[0]) {
-    return emitOpError() << "Number of input channels from input tensor must "
-                            "match the first dimension of the weight tensor. "
-                         << "Got " << inputChannels << " input channels and "
-                         << kernelShape[0] << " in the weight tensor.";
-  }
+  bool weightIsPrepared =
+      isDefinedByOp<mlir::tt::ttnn::PrepareConvTranspose2dWeightsOp>(
+          getWeight()) ||
+      isDefinedByOp<mlir::tt::ttcore::LoadCachedOp>(getWeight());
 
-  if (outputChannels / groups != kernelShape[1]) {
-    return emitOpError() << "Number of output channels per group must match "
-                            "the second dimension of the weight tensor. "
-                         << "Got " << (outputChannels / groups)
-                         << " output channels per group and " << kernelShape[1]
-                         << " in the weight tensor.";
-  }
+  if (!weightIsPrepared) {
+    // Only check when the weight is not prepared because it changes the shape
+    // and ordering of dims.
+    llvm::ArrayRef<std::int64_t> kernelShape = weightType.getShape();
 
-  if (bias) {
-    if (bias->getDimSize(bias->getRank() - 1) != outputChannels) {
-      return emitOpError() << "Mismatch in bias tensor dimensions. "
-                           << "Bias tensor has "
-                           << bias->getDimSize(bias->getRank() - 1)
-                           << " channels, "
-                           << "but the output tensor has " << outputChannels
-                           << " channels.";
+    if (inputChannels != kernelShape[0]) {
+      return emitOpError() << "Number of input channels from input tensor must "
+                              "match the first dimension of the weight tensor. "
+                           << "Got " << inputChannels << " input channels and "
+                           << kernelShape[0] << " in the weight tensor.";
+    }
+
+    if (outputChannels / groups != kernelShape[1]) {
+      return emitOpError() << "Number of output channels per group must match "
+                              "the second dimension of the weight tensor. "
+                           << "Got " << (outputChannels / groups)
+                           << " output channels per group and "
+                           << kernelShape[1] << " in the weight tensor.";
     }
   }
 
-  int32_t kernelHeight = kernelShape[2];
-  int32_t kernelWidth = kernelShape[3];
+  if (bias) {
+    bool biasIsPrepared =
+        isDefinedByOp<mlir::tt::ttnn::PrepareConvTranspose2dBiasOp>(
+            getBias()) ||
+        isDefinedByOp<mlir::tt::ttcore::LoadCachedOp>(getBias());
+
+    if (!biasIsPrepared) {
+      // Only check when the bias is not prepared because it changes the shape.
+      if (bias->getDimSize(bias->getRank() - 1) != outputChannels) {
+        return emitOpError()
+               << "Mismatch in bias tensor dimensions. "
+               << "Bias tensor has " << bias->getDimSize(bias->getRank() - 1)
+               << " channels, "
+               << "but the output tensor has " << outputChannels
+               << " channels.";
+      }
+    }
+  }
+
+  int32_t kernelHeight = getKernelSize()[0];
+  int32_t kernelWidth = getKernelSize()[1];
 
   int32_t Hin = getInputHeight();
   int32_t Win = getInputWidth();

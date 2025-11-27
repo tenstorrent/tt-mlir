@@ -7907,7 +7907,7 @@ class TTIRBuilder(Builder):
             bias = None
         return self._op_proxy(
             ttir.ConvTranspose2dOp,
-            [in0, weight],
+            [in0, weight, bias],
             ttir_kwargs={
                 "stride": (
                     IntegerAttr.get(IntegerType.get_signless(32), stride)
@@ -7935,6 +7935,19 @@ class TTIRBuilder(Builder):
                     else DenseI32ArrayAttr.get(groups)
                 ),
                 "bias": bias,
+            },
+            organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], i[1], o),
+            organize_golden_args=lambda i: [
+                self._get_golden_tensor(i[0]),
+                self._get_golden_tensor(i[1]),
+            ],
+            golden_kwargs={
+                "stride": stride,
+                "padding": padding,
+                "output_padding": output_padding,
+                "dilation": dilation,
+                "groups": groups,
+                "bias": self._get_golden_tensor(bias) if bias is not None else None,
             },
             unit_attrs=unit_attrs,
         )
