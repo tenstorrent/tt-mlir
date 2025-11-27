@@ -103,7 +103,8 @@ AcquireDstOp createAcquireDst(RewriterBase &rewriter, Location loc,
 // reduction loop indices are non-zero using d2m.iter_index ops.
 //
 // Returns the created scf::IfOp, or nullptr if no guard is needed.
-scf::IfOp insertGuardForReductionIterations(RewriterBase &rewriter, Location loc,
+scf::IfOp insertGuardForReductionIterations(RewriterBase &rewriter,
+                                            Location loc,
                                             ArrayRef<int64_t> guardIndices) {
   if (guardIndices.empty()) {
     return nullptr;
@@ -167,9 +168,10 @@ void generatePrologueLoop(RewriterBase &rewriter, Location loc,
   }
 
   // Map indices from original load to cloned loops.
-  SmallVector<Value> mappedIndices = llvm::map_to_vector(
-      srcLoad.getIndices(),
-      [&mapper](Value idx) { return mapper.lookupOrDefault(idx); });
+  SmallVector<Value> mappedIndices =
+      llvm::map_to_vector(srcLoad.getIndices(), [&mapper](Value idx) {
+        return mapper.lookupOrDefault(idx);
+      });
 
   // Load from L1 using original map with mapped indices.
   auto l1Value = rewriter.create<affine::AffineLoadOp>(
@@ -206,9 +208,10 @@ void generateEpilogueLoop(RewriterBase &rewriter, Location loc,
   }
 
   // Map indices from original store to cloned loops.
-  SmallVector<Value> mappedIndices = llvm::map_to_vector(
-      dstStore.getIndices(),
-      [&mapper](Value idx) { return mapper.lookupOrDefault(idx); });
+  SmallVector<Value> mappedIndices =
+      llvm::map_to_vector(dstStore.getIndices(), [&mapper](Value idx) {
+        return mapper.lookupOrDefault(idx);
+      });
 
   // Load from DST with slice index inserted at position 0 of the map.
   AffineMap dstMap = dstStore.getMap().insertResult(
@@ -218,8 +221,8 @@ void generateEpilogueLoop(RewriterBase &rewriter, Location loc,
 
   // Store to L1 using original map with mapped indices.
   rewriter.create<affine::AffineStoreOp>(loc, dstValue.getResult(),
-                                         dstStore.getMemRef(), dstStore.getMap(),
-                                         mappedIndices);
+                                         dstStore.getMemRef(),
+                                         dstStore.getMap(), mappedIndices);
 }
 
 } // namespace

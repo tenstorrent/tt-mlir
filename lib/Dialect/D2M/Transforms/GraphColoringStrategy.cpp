@@ -271,7 +271,8 @@ mlir::tt::d2m::InterferenceGraphResult buildIndexGraphFromDstOperations(
     for (size_t j = i + 1; j < dstAccessOps.size(); ++j) {
       mlir::Operation *op2 = dstAccessOps[j];
 
-      // Check if SSA values interfere (one is live at the definition of the other).
+      // Check if SSA values interfere (one is live at the definition of the
+      // other).
       bool interferes = opsInterfereViaLiveness(op1, op2) ||
                         opsInterfereViaLiveness(op2, op1);
 
