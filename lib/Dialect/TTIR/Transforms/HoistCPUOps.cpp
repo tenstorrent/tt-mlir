@@ -563,6 +563,13 @@ public:
 
     auto loc = rootModule->getLoc();
 
+    auto hoistedOpsDescriptors = analyzer(rootModule);
+
+    // We don't want to create a CPUModuleOp etc. if we aren't hoisting any ops.
+    if (hoistedOpsDescriptors.empty()) {
+      return;
+    }
+
     // Check if a "cpu_module" already exists.
     ttcore::CPUModuleOp cpuModule;
     mlir::ModuleOp cpuInnerModule;
@@ -585,7 +592,7 @@ public:
     }
 
     // Hoist each set of ops into a new function in the CPU module.
-    for (auto &descriptor : analyzer(rootModule)) {
+    for (auto &descriptor : hoistedOpsDescriptors) {
       hoistOperationsToFunction(descriptor, deviceInnerModule, cpuInnerModule);
     }
   }
