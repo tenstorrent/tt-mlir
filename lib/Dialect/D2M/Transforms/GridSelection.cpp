@@ -413,8 +413,10 @@ static ttcore::MetalLayoutAttr layoutWithOptimalGrid(
   // If using a virtual grid, compute required forward index affine map.
   AffineMap indexAffineMap = oldLayout.getIndexAffineMap();
   if (isVirtualGrid) {
+    auto physicalGridShape = findLegalPhysicalGridForVolume(
+        ttmlir::utils::volume(optimalGrid), targetSquareGridShape);
     auto [fwdMap, _] = ttmlir::d2m::utils::grids::createCoreVirtMaps(
-        builder.getContext(), optimalGrid, targetSquareGridShape);
+        builder.getContext(), optimalGrid, physicalGridShape);
     indexAffineMap = fwdMap;
   }
 
@@ -708,7 +710,9 @@ updateStreamLayoutOps(ArrayRef<StreamLayoutUpdateInfo> streamLayoutsToUpdate,
     mlir::AffineMap reblockMap = mlir::tt::d2m::utils::calculateReblockMap(
         outputStreamType.getShape(), newStorageShape, builder.getContext());
     auto newOutputIndexMap =
-        outputLayout.getIndexAffineMap().compose(reblockMap);
+        outputLayout.getIndexAffineMapOrIdentity(outputStreamType.getRank())
+            .compose(reblockMap);
+
     auto newOutputLayout = ttcore::MetalLayoutAttr::get(
         builder.getContext(), outputLayout.getLogicalShape(),
         storageDimAlignments, outputLayout.getCollapsedIntervals(),
@@ -945,8 +949,9 @@ insertTTNNDRAMStreams(d2m::GenericOp genericOp,
 
     bool isInterleaved = baseMetalLayout.getMemoryLayout() ==
                          ttcore::TensorMemoryLayout::Interleaved;
-    auto [workerGrid, _] = computeOptimalGrid(
-        unshardedShape, targetSquareGridShape, isInterleaved);
+    auto [workerGrid, _] =
+        computeOptimalGrid(unshardedShape, targetSquareGridShape, isInterleaved,
+                           ttcore::isTiled(metalTensor));
 
     optimalOperandGrids.push_back(workerGrid);
 
