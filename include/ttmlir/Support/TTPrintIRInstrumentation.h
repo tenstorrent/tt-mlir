@@ -97,7 +97,8 @@ public:
 // API Functions
 //===--------------------------------------------------------------------===//
 
-/// User-facing API function for registering TTPrintIRInstrumentation with a PassManager
+/// User-facing API function for registering TTPrintIRInstrumentation with a
+/// PassManager
 void addTTPrintIRInstrumentation(
     PassManager &pm,
     TTPrintIRInstrumentation::TTPrintIRInstrumentationOptions options = {});
