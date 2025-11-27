@@ -13,8 +13,6 @@
 #include "ttmlir/Utils.h"
 #include "llvm/ADT/SmallVector.h"
 
-#include <cstdint>
-
 namespace ttmlir::utils {
 
 /// Returns a new shape by applying `map` to the input shape.
