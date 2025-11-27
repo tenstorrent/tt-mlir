@@ -10,6 +10,7 @@
 #include "tt/runtime/detail/ttnn/operations/utils.h"
 #include "tt/runtime/detail/ttnn/utils.h"
 
+#include <operations/core/compute_kernel/compute_kernel_config.hpp>
 #include <optional>
 
 namespace tt::runtime::ttnn::operations::matmul {
@@ -36,10 +37,14 @@ void run(const ::tt::target::ttnn::MatmulOp *op, ProgramContext &context) {
       op->activation() ? std::make_optional(op->activation()->str())
                        : std::nullopt;
 
+  auto config = ::ttnn::WormholeComputeKernelConfig();
+  config.fp32_dest_acc_en = true;
+  config.math_fidelity = MathFidelity::HiFi4;
+
   ::ttnn::Tensor output = ::ttnn::matmul(
       lhs, rhs, op->transpose_a(), op->transpose_b(), outputMemoryConfig,
       outputDataType, matmulProgramConfig,
-      /*activation=*/activation, /*compute_kernel_config=*/std::nullopt,
+      /*activation=*/activation, /*compute_kernel_config=*/config,
       /*core_grid=*/std::nullopt, /*output_tile=*/std::nullopt,
       /* optional_output_tensor=*/std::nullopt);
 
@@ -69,10 +74,14 @@ void run(const ::tt::target::ttnn::LinearOp *op, ProgramContext &context) {
       op->activation() ? std::make_optional(op->activation()->str())
                        : std::nullopt;
 
+  auto config = ::ttnn::WormholeComputeKernelConfig();
+  config.fp32_dest_acc_en = true;
+  config.math_fidelity = MathFidelity::HiFi4;
+
   ::ttnn::Tensor output = ::ttnn::linear(
       lhs, rhs, bias, op->transpose_a(), op->transpose_b(), outputMemoryConfig,
       outputDataType, /*program_config=*/std::nullopt,
-      /*activation=*/activation, /*compute_kernel_config=*/std::nullopt,
+      /*activation=*/activation, /*compute_kernel_config=*/config,
       /*core_grid=*/std::nullopt, /*output_tile=*/std::nullopt,
       /* optional_output_tensor=*/std::nullopt);
 
