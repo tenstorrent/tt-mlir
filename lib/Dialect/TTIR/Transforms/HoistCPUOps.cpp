@@ -38,6 +38,10 @@ namespace mlir::tt::ttir {
 //===----------------------------------------------------------------------===//
 
 namespace {
+using OpsVectorType = llvm::SmallVector<mlir::Operation *, 4>;
+using ValuesVectorType = llvm::SmallVector<mlir::Value, 4>;
+using TypesVectorType = llvm::SmallVector<mlir::Type, 4>;
+
 // Helper function to get ranks of a set of input tensor values.
 // We use this to populate attrs which we need to perform
 // tensor unpacking operations later.
@@ -247,6 +251,20 @@ convertResultsBackToOriginalTypes(mlir::OpBuilder &opBuilder,
   }
 }
 
+// Descriptor for the set of operations which are to be CPU-hoisted.
+struct CPUHoistedOpsDescriptor {
+  // Vector of operations to be hoisted.
+  OpsVectorType operations;
+  // Values representing the outputs of the hoisted operations.
+  ValuesVectorType outputValues;
+  // Name of the generated hoisted function.
+  std::string funcName;
+
+  CPUHoistedOpsDescriptor(const OpsVectorType &ops,
+                          const ValuesVectorType &outputs, std::string name)
+      : operations(ops), outputValues(outputs), funcName(name) {}
+};
+
 // Helper function to hoist an arbitrary set of ops into a new function in
 // targetModule, generate a matching extern prototype in the sourceModule, and
 // replace the ops in the set with a callOp to the extern function.
@@ -431,6 +449,16 @@ static void hoistOperationsToFunction(CPUHoistedOpsDescriptor &descriptor,
     opToErase->erase();
   }
 }
+} // namespace
+
+namespace {
+// Predicate type for determining sets of ops to hoist in the provided module.
+using CPUHoistAnalyzerType =
+    std::function<llvm::SmallVector<CPUHoistedOpsDescriptor>(mlir::ModuleOp)>;
+
+// Predicate type for determining whether an op should be hoisted in an op-by-op
+// CPU hoisting analyzer.
+using ShouldHoistOpType = std::function<bool(mlir::Operation *)>;
 
 // HoistAnalyzer which hoists single ops based on a provided predicate.
 CPUHoistAnalyzerType singleOpHoistAnalyzer(ShouldHoistOpType predicate) {
@@ -605,12 +633,6 @@ std::unique_ptr<mlir::Pass> createCPUHoistManuallyTagedOpsTransform() {
 std::unique_ptr<mlir::Pass>
 createSingleOpCPUHoistTransform(ShouldHoistOpType predicate) {
   CPUHoistAnalyzerType analyzer = singleOpHoistAnalyzer(predicate);
-  auto pass = std::make_unique<CPUHoistTransform>(analyzer);
-  return pass;
-}
-
-std::unique_ptr<mlir::Pass>
-createCustomCPUHoistTransform(CPUHoistAnalyzerType analyzer) {
   auto pass = std::make_unique<CPUHoistTransform>(analyzer);
   return pass;
 }
