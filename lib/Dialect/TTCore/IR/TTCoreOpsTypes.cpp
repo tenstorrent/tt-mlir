@@ -550,22 +550,10 @@ ChipDescAttr::getDstLogicalSizeTiles(Type type, bool fullSyncEn,
 static llvm::SmallVector<int64_t>
 getPhysicalGridShapeFromShapeAndMap(ShapedType shapedType, AffineMap map) {
   auto shape = shapedType.getShape();
-
-  // find bounds of the physical grid by transforming the virtual grid using
-  // index map
-  std::pair<int64_t, int64_t> ybounds = {0, 0};
-  std::pair<int64_t, int64_t> xbounds = {0, 0};
-  ttmlir::utils::sample(shape, [&](SmallVector<int64_t, 8> point) {
-    auto virtualPoint = map.compose(point);
-    ybounds = {std::min(ybounds.first, virtualPoint[0]),
-               std::max(ybounds.second, virtualPoint[0])};
-    xbounds = {std::min(xbounds.first, virtualPoint[1]),
-               std::max(xbounds.second, virtualPoint[1])};
-  });
-
-  TT_assertv((ybounds.first == 0 && xbounds.first == 0),
-             "Physical grid shape must start at y=0,x=0.");
-  return {ybounds.second + 1, xbounds.second + 1};
+  TT_assert(map.getNumResults() >= 2u);
+  TT_assert(shape.size() == map.getNumDims());
+  auto gridResultMap = ttmlir::utils::affineMapTakeFrontResults(map, 2);
+  return ttmlir::utils::applyMapToGrid(shape, gridResultMap);
 }
 
 ShardLayoutAttr ShardLayoutAttr::get(mlir::MLIRContext *context,
