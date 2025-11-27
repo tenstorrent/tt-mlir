@@ -77,6 +77,22 @@ std::string Stats::toString() const {
   return oss.str();
 }
 
+void logMemoryState(
+    const std::unordered_map<tt::runtime::MemoryBufferType,
+                             tt::runtime::MemoryView> &memoryState,
+    std::string_view prefix) {
+  constexpr std::array<tt::runtime::MemoryBufferType, 4> MEMORY_TYPES = {
+      tt::runtime::MemoryBufferType::DRAM, tt::runtime::MemoryBufferType::L1,
+      tt::runtime::MemoryBufferType::L1_SMALL,
+      tt::runtime::MemoryBufferType::TRACE};
+
+  LOG_DEBUG(prefix);
+  for (const auto &memoryType : MEMORY_TYPES) {
+    LOG_DEBUG("Device ", toString(memoryType),
+              " memory state: ", memoryState.at(memoryType).toString());
+  }
+}
+
 } // namespace tt::runtime::debug
 
 #endif

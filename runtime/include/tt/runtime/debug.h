@@ -182,6 +182,17 @@ void verifyFlatbuffer(const ::flatbuffers::FlatBufferBuilder &fbb,
 #endif
 }
 
+RUNTIME_DEBUG_MAYBE_INLINE void
+logMemoryState(const std::unordered_map<tt::runtime::MemoryBufferType,
+                                        tt::runtime::MemoryView> &memoryState,
+               std::string_view prefix = "")
+#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
+    ;
+#else
+{
+}
+#endif
+
 #undef RUNTIME_DEBUG_MAYBE_INLINE
 
 } // namespace tt::runtime::debug

@@ -121,23 +121,10 @@ void CommandExecutor::execute(
       command->metal_home()->c_str());
   ::tt::runtime::RuntimeContext::instance().setCurrentDeviceRuntime(
       command->current_device_runtime());
-  ::tt::runtime::RuntimeContext::instance().setMemoryLogLevel(
-      command->memory_log_level());
 
   std::unique_ptr<::flatbuffers::FlatBufferBuilder> responseBuilder =
       buildResponse(ResponseFactory::buildConfigureRuntimeContextResponse,
                     commandId);
-
-  responseQueue_.push(std::move(responseBuilder));
-}
-
-void CommandExecutor::execute(uint64_t commandId,
-                              const fb::SetMemoryLogLevelCommand *command) {
-  ::tt::runtime::RuntimeContext::instance().setMemoryLogLevel(
-      command->memory_log_level());
-
-  std::unique_ptr<::flatbuffers::FlatBufferBuilder> responseBuilder =
-      buildResponse(ResponseFactory::buildSetMemoryLogLevelResponse, commandId);
 
   responseQueue_.push(std::move(responseBuilder));
 }
@@ -645,10 +632,6 @@ void CommandExecutor::executeCommand(const fb::Command *command) {
   case fb::CommandType::ConfigureRuntimeContextCommand: {
     return execute(command->command_id(),
                    command->type_as_ConfigureRuntimeContextCommand());
-  }
-  case fb::CommandType::SetMemoryLogLevelCommand: {
-    return execute(command->command_id(),
-                   command->type_as_SetMemoryLogLevelCommand());
   }
   case fb::CommandType::GetSystemDescCommand: {
     return execute(command->command_id(),

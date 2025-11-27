@@ -6,7 +6,6 @@
 
 #include "tt/runtime/detail/common/common.h"
 #include "tt/runtime/detail/common/logger.h"
-#include "tt/runtime/detail/common/runtime_context.h"
 #include "tt/runtime/detail/ttnn/debug_apis.h"
 #include "tt/runtime/detail/ttnn/types/program_desc_cache.h"
 #include "tt/runtime/detail/ttnn/types/trace_cache.h"
@@ -19,19 +18,6 @@
 namespace tt::runtime::ttnn::utils {
 
 using ::tt::runtime::DeviceRuntime;
-
-static tt::runtime::MemoryView
-createMemoryView(const tt::tt_metal::detail::MemoryView &memoryView) {
-  return tt::runtime::MemoryView{
-      .numBanks = memoryView.num_banks,
-      .totalBytesPerBank = memoryView.total_bytes_per_bank,
-      .totalBytesAllocatedPerBank = memoryView.total_bytes_allocated_per_bank,
-      .totalBytesFreePerBank = memoryView.total_bytes_free_per_bank,
-      .largestContiguousBytesFreePerBank =
-          memoryView.largest_contiguous_bytes_free_per_bank,
-      .blockTable = memoryView.block_table,
-  };
-}
 
 // TODO (bug #701)
 // Currently the memory layout/location in flatbuffer is incorrect
@@ -521,12 +507,6 @@ std::vector<const tt::target::ttnn::TensorRef *> convertFbTensorRefsToVector(
   return stdVector;
 }
 
-void *getRawHostDataPtr(const ::ttnn::Tensor &tensor) {
-  ::tt::tt_metal::HostBuffer hostBuffer =
-      ::tt::tt_metal::host_buffer::get_host_buffer(tensor);
-  return static_cast<void *>(hostBuffer.view_bytes().data());
-}
-
 ::ttnn::TensorSpec createTensorSpec(const ::ttnn::Shape &shape,
                                     const ::ttnn::DataType &dataType,
                                     const ::ttnn::Layout &layout,
@@ -536,31 +516,10 @@ void *getRawHostDataPtr(const ::ttnn::Tensor &tensor) {
   return tensorSpec;
 }
 
-std::unordered_map<tt::runtime::MemoryBufferType, tt::runtime::MemoryView>
-getMemoryView(Device deviceHandle) {
-  std::unordered_map<tt::runtime::MemoryBufferType, tt::runtime::MemoryView>
-      memoryMap;
-  ::ttnn::MeshDevice &meshDevice =
-      deviceHandle.as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
-
-  auto dramMemoryView = ::tt::tt_metal::detail::GetMemoryView(
-      &meshDevice, ::ttnn::BufferType::DRAM);
-  auto l1MemoryView = ::tt::tt_metal::detail::GetMemoryView(
-      &meshDevice, ::ttnn::BufferType::L1);
-  auto l1SmallMemoryView = ::tt::tt_metal::detail::GetMemoryView(
-      &meshDevice, ::ttnn::BufferType::L1_SMALL);
-  auto traceMemoryView = ::tt::tt_metal::detail::GetMemoryView(
-      &meshDevice, ::ttnn::BufferType::TRACE);
-
-  memoryMap[tt::runtime::MemoryBufferType::DRAM] =
-      createMemoryView(dramMemoryView);
-  memoryMap[tt::runtime::MemoryBufferType::L1] = createMemoryView(l1MemoryView);
-  memoryMap[tt::runtime::MemoryBufferType::L1_SMALL] =
-      createMemoryView(l1SmallMemoryView);
-  memoryMap[tt::runtime::MemoryBufferType::TRACE] =
-      createMemoryView(traceMemoryView);
-
-  return memoryMap;
+void *getRawHostDataPtr(const ::ttnn::Tensor &tensor) {
+  ::tt::tt_metal::HostBuffer hostBuffer =
+      ::tt::tt_metal::host_buffer::get_host_buffer(tensor);
+  return static_cast<void *>(hostBuffer.view_bytes().data());
 }
 
 } // namespace tt::runtime::ttnn::utils

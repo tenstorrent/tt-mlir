@@ -13,9 +13,6 @@ table ErrorResponse {
 table ConfigureRuntimeContextResponse {
 }
 
-table SetMemoryLogLevelResponse {
-}
-
 table GetSystemDescResponse {
   system_desc: [ubyte]; // size-prefixed SystemDescRoot buffer
 }
@@ -95,7 +92,6 @@ table ShutdownResponse {
 union ResponseType {
   ErrorResponse,
   ConfigureRuntimeContextResponse,
-  SetMemoryLogLevelResponse,
   GetSystemDescResponse,
   SetFabricConfigResponse,
   GetNumAvailableDevicesResponse,

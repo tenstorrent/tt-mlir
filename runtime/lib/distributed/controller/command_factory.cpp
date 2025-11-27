@@ -7,9 +7,7 @@
 #include "tt/runtime/detail/common/logger.h"
 #include "tt/runtime/detail/distributed/flatbuffer/flatbuffer.h"
 #include "tt/runtime/types.h"
-
 #include <atomic>
-#include <numeric>
 
 #define BUILD_COMMAND_IMPL(CommandName, fbb, builderFunc, ...)                 \
   [&]() -> uint64_t {                                                          \
@@ -48,28 +46,16 @@ static uint64_t nextCommandId() {
   return commandIdCounter.fetch_add(1, std::memory_order_relaxed);
 }
 
-uint64_t CommandFactory::buildSetMemoryLogLevelCommand(
-    ::flatbuffers::FlatBufferBuilder &fbb,
-    const ::tt::runtime::MemoryLogLevel &memoryLogLevel) {
-
-  LOG_ASSERT(fbb.GetSize() == 0, "Flatbuffer builder must be empty");
-
-  uint64_t commandId = BUILD_COMMAND(SetMemoryLogLevel, fbb, memoryLogLevel);
-
-  return commandId;
-}
-
 uint64_t CommandFactory::buildConfigureRuntimeContextCommand(
     ::flatbuffers::FlatBufferBuilder &fbb, const std::string &mlirHome,
     const std::string &metalHome,
-    const ::tt::runtime::DeviceRuntime &currentDeviceRuntime,
-    const ::tt::runtime::MemoryLogLevel &memoryLogLevel) {
+    const ::tt::runtime::DeviceRuntime &currentDeviceRuntime) {
 
   LOG_ASSERT(fbb.GetSize() == 0, "Flatbuffer builder must be empty");
 
-  uint64_t commandId = BUILD_COMMAND_DIRECT(
-      ConfigureRuntimeContext, fbb, mlirHome.c_str(), metalHome.c_str(),
-      currentDeviceRuntime, memoryLogLevel);
+  uint64_t commandId =
+      BUILD_COMMAND_DIRECT(ConfigureRuntimeContext, fbb, mlirHome.c_str(),
+                           metalHome.c_str(), currentDeviceRuntime);
 
   return commandId;
 }

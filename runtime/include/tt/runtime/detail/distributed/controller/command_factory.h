@@ -14,15 +14,10 @@ namespace tt::runtime::distributed::controller {
 
 class CommandFactory {
 public:
-  static uint64_t buildSetMemoryLogLevelCommand(
-      ::flatbuffers::FlatBufferBuilder &fbb,
-      const ::tt::runtime::MemoryLogLevel &memoryLogLevel);
-
   static uint64_t buildConfigureRuntimeContextCommand(
       ::flatbuffers::FlatBufferBuilder &fbb, const std::string &mlirHome,
       const std::string &metalHome,
-      const ::tt::runtime::DeviceRuntime &currentDeviceRuntime,
-      const ::tt::runtime::MemoryLogLevel &memoryLogLevel);
+      const ::tt::runtime::DeviceRuntime &currentDeviceRuntime);
 
   static uint64_t buildGetSystemDescCommand(
       ::flatbuffers::FlatBufferBuilder &fbb,

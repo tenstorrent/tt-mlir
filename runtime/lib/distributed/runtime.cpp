@@ -59,11 +59,6 @@ void shutdownDistributedRuntime() {
   ControllerSingleton::shutdown();
 }
 
-void setMemoryLogLevel(const ::tt::runtime::MemoryLogLevel &memoryLogLevel) {
-  assertControllerLaunched();
-  ControllerSingleton::get().setMemoryLogLevel(memoryLogLevel);
-}
-
 SystemDesc getCurrentSystemDesc(
     std::optional<::tt::runtime::DispatchCoreType> dispatchCoreType,
     std::optional<::tt::runtime::Device> deviceHandle) {

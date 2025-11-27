@@ -14,7 +14,6 @@ try:
         DeviceRuntime,
         HostRuntime,
         DispatchCoreType,
-        MemoryLogLevel,
         DebugEnv,
         PerfEnv,
         DebugHooks,
@@ -25,7 +24,6 @@ try:
         DistributedMode,
         set_mlir_home,
         set_metal_home,
-        set_memory_log_level,
         get_current_device_runtime,
         set_current_device_runtime,
         set_compatible_device_runtime,
@@ -62,6 +60,7 @@ try:
         WorkaroundEnv,
         get_op_loc_info,
         unregister_hooks,
+        log_memory_state,
         FabricConfig,
     )
 except ModuleNotFoundError:

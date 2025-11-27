@@ -66,11 +66,6 @@ private:
 
   void
   execute(uint64_t commandId,
-          const ::tt::runtime::distributed::flatbuffer::SetMemoryLogLevelCommand
-              *command);
-
-  void
-  execute(uint64_t commandId,
           const ::tt::runtime::distributed::flatbuffer::SetFabricConfigCommand
               *command);
 

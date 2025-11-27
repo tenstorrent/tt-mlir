@@ -16,7 +16,6 @@
 #pragma clang diagnostic pop
 
 #include "tt/runtime/flatbuffer/flatbuffer.h"
-#include "tt/runtime/types.h"
 
 namespace tt::runtime::utils {
 
@@ -174,12 +173,6 @@ bool isSupportedDataType(::tt::target::DataType dataType);
 
 ::tt::target::DataType
 getUnsupportedDataTypeAlias(::tt::target::DataType unsupportedDataType);
-
-void logMemoryStateIfNeeded(
-    const std::unordered_map<tt::runtime::MemoryBufferType,
-                             tt::runtime::MemoryView> &memoryState,
-    ::tt::runtime::MemoryLogLevel level = ::tt::runtime::MemoryLogLevel::ANY,
-    std::string_view prefix = "");
 
 template <typename T, typename = std::enable_if_t<std::is_integral_v<T>>>
 inline std::vector<uint32_t> calculateStride(const std::vector<T> &shape) {
