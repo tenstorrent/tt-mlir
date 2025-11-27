@@ -434,7 +434,6 @@ private:
                            loopTemplateCtx, maxLoopIterations);
     }
 
-
     // First pass: attach result_dst_index attributes to compute operations.
     // This enables the backend to retrieve DST indices without searching
     // for store operations (which may not exist with register reuse
@@ -501,8 +500,8 @@ private:
   /// \param region The region containing compute operations to process.
   /// \param dstBuffer The DST buffer (from acquire_dst) to store/load from.
   static void materializeIntermediateComputeResults(IRRewriter &rewriter,
-                                                     Region &region,
-                                                     Value dstBuffer) {
+                                                    Region &region,
+                                                    Value dstBuffer) {
     auto dstMemRefType = llvm::cast<MemRefType>(dstBuffer.getType());
     Type dstElementType = dstMemRefType.getElementType();
 
@@ -518,9 +517,10 @@ private:
 
       // Skip if result goes to an affine.store (already handled by DST
       // rewriting).
-      bool hasStoreUser = llvm::any_of(computeOp->getUsers(), [](Operation *user) {
-        return mlir::isa<affine::AffineStoreOp>(user);
-      });
+      bool hasStoreUser =
+          llvm::any_of(computeOp->getUsers(), [](Operation *user) {
+            return mlir::isa<affine::AffineStoreOp>(user);
+          });
       if (hasStoreUser) {
         return;
       }
@@ -564,7 +564,8 @@ private:
       dstIndices.push_back(dstSliceIndex);
 
       // Find enclosing affine loops and add their induction variables.
-      // collectLoopNest() already returns loops in outermost-to-innermost order.
+      // collectLoopNest() already returns loops in outermost-to-innermost
+      // order.
       SmallVector<affine::AffineForOp> loops = collectLoopNest(computeOp);
       for (auto loop : loops) {
         dstIndices.push_back(loop.getInductionVar());
@@ -585,7 +586,7 @@ private:
 
       if (needsTypeCast) {
         auto cast = rewriter.create<DstReinterpretCastOp>(loc, dstElementType,
-                                                           valueToStore);
+                                                          valueToStore);
         valueToStore = cast.getResult();
         castOp = cast.getOperation();
       }
@@ -603,8 +604,8 @@ private:
 
       // Cast back to original type if needed.
       if (needsTypeCast) {
-        auto castBack = rewriter.create<DstReinterpretCastOp>(
-            loc, originalType, replacementValue);
+        auto castBack = rewriter.create<DstReinterpretCastOp>(loc, originalType,
+                                                              replacementValue);
         replacementValue = castBack.getResult();
         castBackOp = castBack.getOperation();
       }
@@ -1250,8 +1251,10 @@ private:
       }
 
       // Check if this compute op is part of a chain:
-      // - It's consumed by another compute op (it's a producer in the chain), OR
-      // - It consumes another compute op's result (it's a consumer in the chain)
+      // - It's consumed by another compute op (it's a producer in the chain),
+      // OR
+      // - It consumes another compute op's result (it's a consumer in the
+      // chain)
       bool isPartOfChain = false;
 
       // Check if this op is consumed by another compute op.
@@ -1269,7 +1272,8 @@ private:
         for (Value operand : computeOp->getOperands()) {
           if (Operation *defOp = operand.getDefiningOp()) {
             if (mlir::isa<OperandLoadStoreRegisterOpInterface>(defOp) &&
-                !mlir::isa<affine::AffineLoadOp, affine::AffineStoreOp>(defOp)) {
+                !mlir::isa<affine::AffineLoadOp, affine::AffineStoreOp>(
+                    defOp)) {
               isPartOfChain = true;
               break;
             }
@@ -1278,7 +1282,8 @@ private:
       }
 
       // Add the compute op itself if it's part of a chain.
-      // This allows chain detection to work even if the op also has a store user.
+      // This allows chain detection to work even if the op also has a store
+      // user.
       if (isPartOfChain) {
         dstAccesses.emplace_back(computeOp, nextIndex++);
       }

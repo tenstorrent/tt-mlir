@@ -9,6 +9,7 @@ third_party/ttnn-python
 *pycache*
 *.egg-info
 cluster_descriptor.yaml
+default.profraw
 
 # ttnn-dylib and ttnn-standalone artifacts
 tools/ttnn-standalone/ttnn-dylib.cpp

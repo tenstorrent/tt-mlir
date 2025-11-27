@@ -1,4 +1,7 @@
 add_mlir_library(MLIRD2MUtils
+  DstCopyLoopBuilder.cpp
+  LoopSemantics.cpp
+  SelectiveLoopBuilder.cpp
   TileMatmulUtils.cpp
   Utils.cpp
 

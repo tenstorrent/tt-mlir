@@ -5,6 +5,8 @@
 #include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
+#include "ttmlir/Dialect/D2M/Utils/LoopSemantics.h"
+#include "ttmlir/Dialect/D2M/Utils/SelectiveLoopBuilder.h"
 #include "ttmlir/Dialect/D2M/Utils/TileMatmulUtils.h"
 #include "ttmlir/Dialect/D2M/Utils/Utils.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
@@ -205,7 +207,7 @@ public:
     Value dst = acquireDst.getResult();
 
     // 3. Generate data copy affine loops for DST I/O.
-    dataCopyGenerate(rewriter, loc, dst, copyInfos);
+    dataCopyGenerate(rewriter, loc, gOp, dst, copyInfos);
 
     // 4. Fix the passing of intermediate results through the DST.
     fixDstIntermediateResults(rewriter, loc, dst, dstIntermediates);
@@ -539,7 +541,8 @@ public:
   // Consumes the recorded load/store info to generate two data copy loops: one
   // for loads and one for stores.
   static void dataCopyGenerate(PatternRewriter &rewriter, Location loc,
-                               Value dst, const CopyInfoMap &copyInfos) {
+                               GenericOp genericOp, Value dst,
+                               const CopyInfoMap &copyInfos) {
     for (const auto &[loopNestOrOp, copyInfo] : copyInfos) {
       // Save this insertion point as loopNestOrOp may be replaced.
       rewriter.setInsertionPointAfter(loopNestOrOp);
@@ -597,7 +600,7 @@ public:
             }
           };
 
-      createCopyLoop<affine::AffineLoadOp>(rewriter, loopNestOrOp,
+      createCopyLoop<affine::AffineLoadOp>(rewriter, genericOp, loopNestOrOp,
                                            copyInfo.loads, loadAccessGenerator,
                                            loadAccessRewriter);
 
@@ -650,8 +653,8 @@ public:
           };
 
       createCopyLoop<affine::AffineStoreOp>(
-          rewriter, loopNestOrOp, copyInfo.stores, storeAccessGenerator,
-          storeAccessRewriter);
+          rewriter, genericOp, loopNestOrOp, copyInfo.stores,
+          storeAccessGenerator, storeAccessRewriter);
     }
   }
 
@@ -705,7 +708,7 @@ public:
 
   template <typename LoadOrStoreTy>
   static void createCopyLoop(
-      PatternRewriter &rewriter, Operation *loopNestOrOp,
+      PatternRewriter &rewriter, GenericOp genericOp, Operation *loopNestOrOp,
       ArrayRef<LoadStoreRecord<LoadOrStoreTy>> loadStoreRecords,
       llvm::function_ref<void(PatternRewriter &, LoadStoreRecord<LoadOrStoreTy>,
                               AffineMap, ValueRange, AffineMap, ValueRange)>
@@ -718,22 +721,71 @@ public:
     }
 
     mlir::IRMapping irMapper;
-    // Only Clone loop nests if a loop exists.
-    if (mlir::isa<affine::AffineForOp>(loopNestOrOp)) {
-      rewriter.clone(*loopNestOrOp, irMapper)->walk([&](Operation *op) {
-        // Erase the loop bodies except for other nested loops / yields.
-        if (!mlir::isa<affine::AffineForOp, affine::AffineYieldOp,
-                       affine::AffineApplyOp>(op)) {
-          op->dropAllUses();
-          rewriter.eraseOp(op);
+    Block *innermostBlock = nullptr;
+
+    // Only clone loop nests if a loop exists
+    if (auto sourceLoop = mlir::dyn_cast<affine::AffineForOp>(loopNestOrOp)) {
+      // Determine which dimensions to include based on first load/store record
+      // All records under the same loop should access the same operand
+      LoadOrStoreTy firstLoadStore = loadStoreRecords[0].loadStore;
+      BlockArgument blockArg = lookThroughSubView(firstLoadStore.getMemref());
+
+      // Try semantic-based filtering for output operands
+      bool usedSemanticFiltering = false;
+      if (blockArg && !genericOp.isExplicitDatamovementForm()) {
+        unsigned numInputs = genericOp.getInputs().size();
+        unsigned argNum = blockArg.getArgNumber();
+
+        // Check if this is an output operand
+        if (argNum >= numInputs) {
+          unsigned outputIndex = argNum - numInputs;
+
+          // Use LoopSemanticsAnalyzer to get dimensions for this output
+          utils::LoopSemanticsAnalyzer analyzer(genericOp);
+          auto prologueDims = analyzer.getPrologueEpilogueDims(outputIndex);
+
+          // Use SelectiveLoopBuilder to clone only participating dimensions
+          utils::LoopBuildConfig loopConfig{
+              .sourceLoop = sourceLoop,
+              .dimensionsToInclude = prologueDims,
+              .clearBodies = true,
+              .preserveAffineApply = true};
+
+          utils::SelectiveLoopBuilder loopBuilder(rewriter, loopConfig);
+          auto buildResult = loopBuilder.build();
+
+          if (succeeded(buildResult)) {
+            irMapper = std::move(buildResult->irMapping);
+            innermostBlock = buildResult->innermostBlock;
+            usedSemanticFiltering = true;
+          }
         }
-      });
+      }
+
+      // Fallback to old behavior if semantic filtering wasn't used
+      if (!usedSemanticFiltering) {
+        rewriter.clone(*loopNestOrOp, irMapper)->walk([&](Operation *op) {
+          if (!mlir::isa<affine::AffineForOp, affine::AffineYieldOp,
+                         affine::AffineApplyOp>(op)) {
+            op->dropAllUses();
+            rewriter.eraseOp(op);
+          }
+        });
+      }
     }
 
     for (auto record : loadStoreRecords) {
       // Find insertion point in the cloned loop.
-      Block *fromScope = record.loadStore->getBlock();
-      Block *toScope = irMapper.lookupOrNull(fromScope);
+      // If we used semantic filtering, use the innermostBlock directly.
+      // Otherwise, try to map the original block.
+      Block *toScope = nullptr;
+      if (innermostBlock) {
+        toScope = innermostBlock;
+      } else {
+        Block *fromScope = record.loadStore->getBlock();
+        toScope = irMapper.lookupOrNull(fromScope);
+      }
+
       if (toScope) {
         Operation *terminator = toScope->getTerminator();
         if (terminator) {

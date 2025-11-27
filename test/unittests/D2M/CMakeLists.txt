@@ -4,6 +4,7 @@ add_mlir_unittest(${TESTSUITE}
     TestDstCapacityAnalysis.cpp
     TestGraphColoringStrategy.cpp
     TestD2MUtils.cpp
+    TestLoopSemantics.cpp
 )
 
 target_include_directories(${TESTSUITE}
@@ -17,6 +18,7 @@ target_link_libraries(${TESTSUITE}
     MLIRD2MAnalysis
     MLIRD2MDialect
     MLIRD2MTransforms
+    MLIRD2MUtils
     MLIRTTCoreDialect
     MLIRTTNNDialect
     MLIRArithDialect
@@ -24,6 +26,7 @@ target_link_libraries(${TESTSUITE}
     MLIRControlFlowDialect
     MLIRFuncDialect
     MLIRLinalgDialect
+    MLIRMemRefDialect
     MLIRSCFDialect
     MLIRTensorDialect
     coverage_config
