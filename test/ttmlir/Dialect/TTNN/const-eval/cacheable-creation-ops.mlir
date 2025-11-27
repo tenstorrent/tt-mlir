@@ -65,7 +65,7 @@ module {
   // CHECK: %[[SUB:.*]] = "ttnn.subtract"(%arg0, %[[FULL_INNER]])
   // CHECK: return %[[SUB]]
 
-  // CHECK-LABEL: func.func private @merged_with_const_eval(
+  // CHECK-LABEL: func.func @merged_with_const_eval(
   func.func @merged_with_const_eval(
       %arg0: tensor<32x32xbf16, #ttnn_layout> {ttcore.argument_type = #ttcore.argument_type<input>},
       %arg1: tensor<32x32xbf16, #ttnn_layout> {ttcore.argument_type = #ttcore.argument_type<parameter>}) -> tensor<32x32xbf16, #ttnn_layout> {

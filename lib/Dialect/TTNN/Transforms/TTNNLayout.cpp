@@ -317,6 +317,44 @@ public:
 };
 } // namespace
 
+// Rewrite LoadCachedOp result types to match the callee function signature
+namespace {
+class TTNNLayoutLoadCachedOpTypeRewriter
+    : public OpRewritePattern<ttcore::LoadCachedOp> {
+public:
+  TTNNLayoutLoadCachedOpTypeRewriter(MLIRContext *ctx)
+      : OpRewritePattern<ttcore::LoadCachedOp>(ctx) {}
+
+  LogicalResult matchAndRewrite(ttcore::LoadCachedOp loadCachedOp,
+                                PatternRewriter &rewriter) const override {
+    // Look up the callee function
+    func::FuncOp funcOp =
+        dyn_cast<func::FuncOp>(SymbolTable::lookupNearestSymbolFrom(
+            loadCachedOp, loadCachedOp.getCalleeAttr()));
+    if (!funcOp) {
+      return failure();
+    }
+
+    bool modified = false;
+
+    // Rewrite result types to match function signature
+    for (auto [idx, callResultType] :
+         llvm::enumerate(loadCachedOp->getResultTypes())) {
+      if (idx >= funcOp.getResultTypes().size()) {
+        break;
+      }
+      auto funcResultType = funcOp.getResultTypes()[idx];
+      if (callResultType != funcResultType) {
+        loadCachedOp->getResult(idx).setType(funcResultType);
+        modified = true;
+      }
+    }
+
+    return modified ? success() : failure();
+  }
+};
+} // namespace
+
 namespace {
 class TTNNLayoutMeshShardRewriter : public OpRewritePattern<ttir::MeshShardOp> {
 public:
@@ -379,7 +417,6 @@ public:
     modified |= rewriteInput(funcOp, rewriter);
     modified |= rewriteOutput(funcOp, rewriter);
     modified |= rewriteFuncDecl(funcOp, rewriter);
-    modified |= rewriteCallSites(funcOp, rewriter);
     if (!modified) {
       rewriter.cancelOpModification(funcOp);
       return failure();
@@ -390,56 +427,6 @@ public:
 
 private:
   ttcore::GridAttr deviceGrid;
-
-  // Rewrite all call sites to have correct input/output types
-  // TODO(dmilinkovic): workaround, should be reconsidered
-  bool rewriteCallSites(mlir::func::FuncOp funcOp,
-                        PatternRewriter &rewriter) const {
-    auto module = funcOp->getParentOfType<ModuleOp>();
-    SymbolTable symbolTable(module);
-
-    llvm::SmallVector<mlir::Operation *, 4> users;
-
-    const auto uses = symbolTable.getSymbolUses(funcOp);
-    for (auto use : *uses) {
-      auto *user = use.getUser();
-      if (mlir::isa<mlir::func::CallOp>(user)) {
-        users.push_back(user);
-      }
-    }
-
-    // LoadCachedOp uses can't be retrieved via SymbolTable, so we need to
-    // manually walk the module to find them.
-    module->walk([&](ttcore::LoadCachedOp loadCachedOp) {
-      FlatSymbolRefAttr calleeAttr = loadCachedOp.getCalleeAttr();
-      if (calleeAttr.getValue() == funcOp.getName()) {
-        users.push_back(loadCachedOp);
-      }
-    });
-
-    bool modified = false;
-
-    for (auto *user : users) {
-      if (!mlir::isa<mlir::func::CallOp>(user) &&
-          !mlir::isa<ttcore::LoadCachedOp>(user)) {
-        continue;
-      }
-
-      // Rewrite result types
-      for (auto [idx, callResultType] :
-           llvm::enumerate(user->getResultTypes())) {
-        auto funcResultType = funcOp.getResultTypes()[idx];
-        if (callResultType != funcResultType) {
-          user->getResult(idx).setType(funcResultType);
-          modified = true;
-        }
-      }
-
-      // TODO(dmilinkovic): rewrite operands as well if needed
-    }
-
-    return modified;
-  }
 
   // Rewrite the function declaration to have system memory in/out types
   // Func declarations are used by CPU-hoisted functions.
@@ -666,6 +653,12 @@ public:
       patterns.add<TTNNLayoutFuncReturnRewriter>(&getContext());
       patterns.add<TTNNLayoutHoistedFuncCallRewriter>(&getContext());
       patterns.add<TTNNLayoutMeshShardRewriter>(&getContext());
+
+      // Rewrite LoadCachedOp call sites to have correct result types matching
+      // callee function signatures in case const-eval function signatures have
+      // been updated.
+      patterns.add<TTNNLayoutLoadCachedOpTypeRewriter>(&getContext());
+
       FrozenRewritePatternSet patternSet(std::move(patterns));
       GreedyRewriteConfig config = GreedyRewriteConfig();
       config.setUseTopDownTraversal(true);
