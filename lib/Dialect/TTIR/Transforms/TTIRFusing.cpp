@@ -2982,9 +2982,9 @@ public:
     }
 
     auto resultType = mlir::cast<RankedTensorType>(components.query.getType());
-    auto sdpaOp = utils::createDPSOp<ScaledDotProductAttentionOp>(
-        rewriter, components.attentionMatmul.getLoc(), resultType,
-        components.query, components.key, components.value, components.mask,
+    auto sdpaOp = rewriter.create<ScaledDotProductAttentionOp>(
+        components.attentionMatmul.getLoc(), resultType, components.query,
+        components.key, components.value, components.mask,
         /*is_causal=*/rewriter.getBoolAttr(false), scaleAttr,
         /*sliding_window_size=*/IntegerAttr());
 
@@ -3062,9 +3062,9 @@ private:
           targetMaskShape, maskType.getElementType(), maskType.getEncoding());
       auto broadcastDims = ttmlir::utils::getBroadcastDimensions<int64_t>(
           maskType.getShape(), targetMaskShape);
-      auto broadcastOp = utils::createDPSOp<BroadcastOp>(
-          rewriter, components.mask.getLoc(), targetMaskType, components.mask,
-          broadcastDims);
+      auto broadcastOp =
+          rewriter.create<BroadcastOp>(components.mask.getLoc(), targetMaskType,
+                                       components.mask, broadcastDims);
       components.mask = broadcastOp.getResult();
     }
   }
@@ -3282,5 +3282,5 @@ public:
     }
   }
 };
-} // namespace
+
 } // namespace mlir::tt::ttir
