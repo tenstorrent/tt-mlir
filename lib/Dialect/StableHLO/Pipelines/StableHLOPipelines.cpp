@@ -6,6 +6,7 @@
 #include "shardy/dialect/sdy/transforms/propagation/aggressive_propagation.h"
 
 #include "mlir/Transforms/Passes.h"
+#include <iostream>
 
 namespace mlir::tt::stablehlo {
 //===----------------------------------------------------------------------===//
@@ -59,7 +60,13 @@ void createStableHLOPipeline(OpPassManager &pm,
   mlir::sdy::PropagationOptions propagationOptions;
   mlir::sdy::PropagationStrategy propagationStrategy =
       mlir::sdy::PropagationStrategy::Aggressive;
-  propagationOptions.conservativePropagation = true;
+
+    std::cerr << "StableHLOPipeline: Using aggressive propagation for sharding "
+                "propagation.\n";
+//   propagationOptions.conservativePropagation = true;
+//   propagationOptions.
+
+
   pm.addPass(mlir::sdy::createAggressivePropagationPass(propagationOptions,
                                                         propagationStrategy));
 
