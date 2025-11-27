@@ -292,10 +292,11 @@ class D2MSplitCompoundLayoutRewriter : public OpRewritePattern<ToLayoutOp> {
     computeVirtualGridBounceShape(ArrayRef<int64_t> virtualGridShape,
                                   ArrayRef<int64_t> deviceGridShape) const {
 
+      TT_assert(virtualGridShape.size() >= 2u);
       // Collapse all leading dimensions into the first dimension of a 2D shape
       llvm::SmallVector<int64_t> collapsedVirtualGridShape(2);
-      collapsedVirtualGridShape[0] = 1;
-      for (int64_t i = 0; i < int64_t(virtualGridShape.size()) - 2; ++i) {
+      collapsedVirtualGridShape[0] = virtualGridShape[0];
+      for (int64_t i = 1; i < int64_t(virtualGridShape.size()) - 1; ++i) {
         collapsedVirtualGridShape[0] *= virtualGridShape[i];
       }
       collapsedVirtualGridShape[1] = virtualGridShape.back();
