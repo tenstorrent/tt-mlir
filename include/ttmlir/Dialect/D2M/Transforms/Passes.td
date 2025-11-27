@@ -194,6 +194,8 @@ def D2MInsertDstRegisterGC : Pass<"d2m-insert-dst-register-gc", "::mlir::func::F
            "\"chaitin-briggs\"", "Graph coloring strategy to use: chaitin-briggs or greedy.">,
     Option<"fullSyncEn", "full-sync-en", "bool",
            "true", "Enable full sync mode for DST (true=16 tiles for f16, false=8 tiles for f16).">,
+    Option<"useTileMatmul", "use-tile-matmul", "bool",
+           "false", "Use tile matmul instruction (true) or tile matmul block (false).">,
   ];
 }
 

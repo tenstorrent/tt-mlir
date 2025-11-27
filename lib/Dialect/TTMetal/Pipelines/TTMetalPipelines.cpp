@@ -178,6 +178,7 @@ void createTTIRToTTMetalMiddleendPipeline(
     {
       gcOptions.maxDstPhysicalSizeTiles = options.maxDstPhysicalSizeTiles;
       gcOptions.coloringStrategy = dstStrategy;
+      gcOptions.useTileMatmul = options.useTileMatmul;
     }
     funcPm.addPass(d2m::createD2MInsertDstRegisterGC(gcOptions));
   }

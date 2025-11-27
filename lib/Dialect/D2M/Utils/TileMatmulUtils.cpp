@@ -15,6 +15,7 @@
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Linalg/Transforms/Transforms.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/PatternMatch.h"
 
 namespace mlir::tt::d2m::utils {
@@ -27,6 +28,19 @@ bool isDstMemspace(MemRefType memrefType) {
       memrefType.getMemorySpace());
   return memSpaceAttr &&
          memSpaceAttr.getValue() == ttcore::MemorySpace::RegisterDst;
+}
+
+// Look through subview operations to find the original block argument.
+BlockArgument lookThroughSubView(Value memref) {
+  while (auto subView = mlir::dyn_cast_or_null<memref::SubViewOp>(
+             memref.getDefiningOp())) {
+    memref = subView.getSource();
+  }
+  if (auto *definingOp = memref.getDefiningOp();
+      mlir::isa_and_nonnull<d2m::WaitOp, d2m::ReserveOp>(definingOp)) {
+    memref = definingOp->getOperand(0);
+  }
+  return mlir::dyn_cast<BlockArgument>(memref);
 }
 
 // Collect DST access information from the region.
@@ -84,130 +98,128 @@ AcquireDstOp createAcquireDst(RewriterBase &rewriter, Location loc,
   return rewriter.create<AcquireDstOp>(loc, dstType);
 }
 
+// Insert a guard for prologue loops that should only execute on non-first
+// iterations (for matmul accumulation). The guard checks if any of the
+// reduction loop indices are non-zero using d2m.iter_index ops.
+//
+// Returns the created scf::IfOp, or nullptr if no guard is needed.
+scf::IfOp insertGuardForReductionIterations(RewriterBase &rewriter, Location loc,
+                                            ArrayRef<int64_t> guardIndices) {
+  if (guardIndices.empty()) {
+    return nullptr;
+  }
+  auto zero = rewriter.create<arith::ConstantOp>(
+      loc, rewriter.getIndexType(),
+      rewriter.getIntegerAttr(rewriter.getIndexType(), 0));
+  auto cmp = rewriter
+                 .create<arith::ConstantOp>(loc, rewriter.getI1Type(),
+                                            rewriter.getBoolAttr(false))
+                 .getResult();
+  for (int64_t index : guardIndices) {
+    auto iterIndex = rewriter.create<IterIndexOp>(loc, index);
+    auto ne = rewriter.create<arith::CmpIOp>(loc, arith::CmpIPredicate::ne,
+                                             iterIndex, zero);
+    cmp = rewriter.create<arith::OrIOp>(loc, cmp, ne).getResult();
+  }
+  return rewriter.create<scf::IfOp>(loc, cmp);
+}
+
+// Clone a loop nest and erase all non-loop operations from the clone.
+// Returns the cloned outermost loop and the IRMapping that maps original
+// values (including induction variables) to cloned values.
+std::pair<affine::AffineForOp, IRMapping>
+cloneLoopNestStructure(RewriterBase &rewriter, affine::AffineForOp forLoop) {
+  IRMapping mapper;
+  auto *cloned = rewriter.clone(*forLoop.getOperation(), mapper);
+
+  // Erase all non-loop operations from the cloned loop nest.
+  cloned->walk([&](Operation *op) {
+    if (!mlir::isa<affine::AffineForOp, affine::AffineYieldOp,
+                   affine::AffineApplyOp>(op)) {
+      op->dropAllUses();
+      rewriter.eraseOp(op);
+    }
+  });
+
+  return {cast<affine::AffineForOp>(cloned), std::move(mapper)};
+}
+
 // Generate prologue loop to copy from L1 CB to DST.
+// Uses the current insertion point - caller is responsible for setting it.
 void generatePrologueLoop(RewriterBase &rewriter, Location loc,
                           affine::AffineForOp forLoop, Value dst,
                           affine::AffineLoadOp srcLoad, int64_t dstSlice) {
-  // Clone the loop structure for prologue.
-  IRMapping mapper;
-  rewriter.setInsertionPoint(forLoop);
-  Operation *clonedLoop = rewriter.clone(*forLoop.getOperation(), mapper);
-  auto prologueLoop = cast<affine::AffineForOp>(clonedLoop);
+  // Clone the loop nest structure (erases non-loop ops from clone).
+  std::pair<affine::AffineForOp, IRMapping> cloneResult =
+      cloneLoopNestStructure(rewriter, forLoop);
+  IRMapping &mapper = cloneResult.second;
 
-  // Replace the body with a copy from L1 to DST.
-  Block &prologueBody = prologueLoop.getRegion().front();
-  rewriter.setInsertionPointToStart(&prologueBody);
-
-  // Find the innermost loop and its induction variable.
-  affine::AffineForOp innermostLoop = prologueLoop;
-  while (true) {
-    auto nestedFor =
-        innermostLoop.getRegion().front().getOps<affine::AffineForOp>();
-    auto it = nestedFor.begin();
-    if (it == nestedFor.end()) {
-      break;
+  // Find the cloned block corresponding to where the original load was.
+  Block *fromScope = srcLoad->getBlock();
+  Block *toScope = mapper.lookupOrNull(fromScope);
+  if (toScope) {
+    Operation *terminator = toScope->getTerminator();
+    if (terminator) {
+      rewriter.setInsertionPoint(terminator);
+    } else {
+      rewriter.setInsertionPointToEnd(toScope);
     }
-    innermostLoop = *it;
   }
 
-  // Clear the innermost loop body and add the copy.
-  Block &innerBody = innermostLoop.getRegion().front();
-  rewriter.setInsertionPointToStart(&innerBody);
+  // Map indices from original load to cloned loops.
+  SmallVector<Value> mappedIndices = llvm::map_to_vector(
+      srcLoad.getIndices(),
+      [&mapper](Value idx) { return mapper.lookupOrDefault(idx); });
 
-  // Map indices from original load to cloned loop.
-  SmallVector<Value> mappedIndices;
-  for (Value idx : srcLoad.getIndices()) {
-    mappedIndices.push_back(mapper.lookupOrDefault(idx));
-  }
-
-  // Load from L1.
+  // Load from L1 using original map with mapped indices.
   auto l1Value = rewriter.create<affine::AffineLoadOp>(
       loc, srcLoad.getMemRef(), srcLoad.getMap(), mappedIndices);
 
-  // Store to DST with slice index prepended.
-  SmallVector<Value> dstIndices;
-  dstIndices.push_back(rewriter.create<arith::ConstantIndexOp>(loc, dstSlice));
-  dstIndices.append(mappedIndices.begin(), mappedIndices.end());
-
-  rewriter.create<affine::AffineStoreOp>(
-      loc, l1Value.getResult(), dst,
-      AffineMap::getMultiDimIdentityMap(dstIndices.size(),
-                                        rewriter.getContext()),
-      dstIndices);
-
-  // Erase operations from original body that were cloned but not needed.
-  // Keep only the yield.
-  SmallVector<Operation *> toErase;
-  for (Operation &op : innerBody) {
-    if (!isa<affine::AffineYieldOp>(&op) && &op != l1Value.getOperation() &&
-        !isa<affine::AffineStoreOp>(&op)) {
-      toErase.push_back(&op);
-    }
-  }
-  for (Operation *op : llvm::reverse(toErase)) {
-    rewriter.eraseOp(op);
-  }
+  // Store to DST with slice index inserted at position 0 of the map.
+  AffineMap dstMap = srcLoad.getMap().insertResult(
+      getAffineConstantExpr(dstSlice, rewriter.getContext()), 0);
+  rewriter.create<affine::AffineStoreOp>(loc, l1Value.getResult(), dst, dstMap,
+                                         mappedIndices);
 }
 
 // Generate epilogue loop to copy from DST to L1 CB (pack).
 void generateEpilogueLoop(RewriterBase &rewriter, Location loc,
                           affine::AffineForOp forLoop, Value dst,
                           affine::AffineStoreOp dstStore, int64_t dstSlice) {
-  // Clone the loop structure for epilogue.
-  IRMapping mapper;
   rewriter.setInsertionPointAfter(forLoop);
-  Operation *clonedLoop = rewriter.clone(*forLoop.getOperation(), mapper);
-  auto epilogueLoop = cast<affine::AffineForOp>(clonedLoop);
 
-  // Find the innermost loop.
-  affine::AffineForOp innermostLoop = epilogueLoop;
-  while (true) {
-    auto nestedFor =
-        innermostLoop.getRegion().front().getOps<affine::AffineForOp>();
-    auto it = nestedFor.begin();
-    if (it == nestedFor.end()) {
-      break;
+  // Clone the loop nest structure (erases non-loop ops from clone).
+  std::pair<affine::AffineForOp, IRMapping> cloneResult =
+      cloneLoopNestStructure(rewriter, forLoop);
+  IRMapping &mapper = cloneResult.second;
+
+  // Find the cloned block corresponding to where the original store was.
+  Block *fromScope = dstStore->getBlock();
+  Block *toScope = mapper.lookupOrNull(fromScope);
+  if (toScope) {
+    Operation *terminator = toScope->getTerminator();
+    if (terminator) {
+      rewriter.setInsertionPoint(terminator);
+    } else {
+      rewriter.setInsertionPointToEnd(toScope);
     }
-    innermostLoop = *it;
   }
 
-  // Clear the innermost loop body and add the copy.
-  Block &innerBody = innermostLoop.getRegion().front();
-  rewriter.setInsertionPointToStart(&innerBody);
+  // Map indices from original store to cloned loops.
+  SmallVector<Value> mappedIndices = llvm::map_to_vector(
+      dstStore.getIndices(),
+      [&mapper](Value idx) { return mapper.lookupOrDefault(idx); });
 
-  // Map indices from original store to cloned loop.
-  SmallVector<Value> mappedIndices;
-  for (Value idx : dstStore.getIndices()) {
-    mappedIndices.push_back(mapper.lookupOrDefault(idx));
-  }
+  // Load from DST with slice index inserted at position 0 of the map.
+  AffineMap dstMap = dstStore.getMap().insertResult(
+      getAffineConstantExpr(dstSlice, rewriter.getContext()), 0);
+  auto dstValue =
+      rewriter.create<affine::AffineLoadOp>(loc, dst, dstMap, mappedIndices);
 
-  // Load from DST with slice index prepended.
-  SmallVector<Value> dstIndices;
-  dstIndices.push_back(rewriter.create<arith::ConstantIndexOp>(loc, dstSlice));
-  dstIndices.append(mappedIndices.begin(), mappedIndices.end());
-
-  auto dstValue = rewriter.create<affine::AffineLoadOp>(
-      loc, dst,
-      AffineMap::getMultiDimIdentityMap(dstIndices.size(),
-                                        rewriter.getContext()),
-      dstIndices);
-
-  // Store to L1.
+  // Store to L1 using original map with mapped indices.
   rewriter.create<affine::AffineStoreOp>(loc, dstValue.getResult(),
-                                         dstStore.getMemRef(),
-                                         dstStore.getMap(), mappedIndices);
-
-  // Erase operations from original body that were cloned but not needed.
-  SmallVector<Operation *> toErase;
-  for (Operation &op : innerBody) {
-    if (!isa<affine::AffineYieldOp>(&op) && &op != dstValue.getOperation() &&
-        !isa<affine::AffineStoreOp>(&op)) {
-      toErase.push_back(&op);
-    }
-  }
-  for (Operation *op : llvm::reverse(toErase)) {
-    rewriter.eraseOp(op);
-  }
+                                         dstStore.getMemRef(), dstStore.getMap(),
+                                         mappedIndices);
 }
 
 } // namespace
@@ -333,6 +345,9 @@ LogicalResult insertMatmulDstAllocation(RewriterBase &rewriter,
 
   Location loc = genericOp.getLoc();
 
+  // Guard indices will be computed from the accumulator load's memref.
+  SmallVector<int64_t> guardIndices;
+
   // 1. Create acquire_dst before the outermost loop.
   AcquireDstOp acquireDst = createAcquireDst(
       rewriter, loc, region, outermostLoop, cbType, totalDstTiles);
@@ -353,6 +368,13 @@ LogicalResult insertMatmulDstAllocation(RewriterBase &rewriter,
       if (auto loadOp = operand.getDefiningOp<affine::AffineLoadOp>()) {
         if (!isDstMemspace(loadOp.getMemRefType())) {
           accumulatorLoad = loadOp;
+          // Compute guard indices from the accumulator's block argument.
+          // This follows the same pattern as the legacy pass.
+          BlockArgument blockArg = lookThroughSubView(loadOp.getMemRef());
+          if (blockArg && !genericOp.isExplicitDatamovementForm()) {
+            guardIndices =
+                genericOp.getNonParticipatingLoopDims(blockArg.getArgNumber());
+          }
         }
       }
     }
@@ -367,11 +389,19 @@ LogicalResult insertMatmulDstAllocation(RewriterBase &rewriter,
     }
   });
 
-  // 3. Rewrite the accumulator load to load from DST instead of L1.
-  //    The matmul accumulates in DST, so we need to initialize it from CB
-  //    and write it back after.
+  // 3. Generate prologue loop to copy accumulator from L1 to DST.
+  //    This is wrapped in a guard to skip on the first iteration of the
+  //    reduction loop (when the accumulator hasn't been initialized yet).
   if (accumulatorLoad && outermostLoop) {
     auto forOp = cast<affine::AffineForOp>(outermostLoop);
+    rewriter.setInsertionPoint(forOp);
+    scf::IfOp guard =
+        insertGuardForReductionIterations(rewriter, loc, guardIndices);
+    if (guard) {
+      rewriter.setInsertionPointToStart(&guard.getThenRegion().front());
+    }
+    // generatePrologueLoop uses current insertion point (either before forOp
+    // or inside guard's then block).
     generatePrologueLoop(rewriter, loc, forOp, dst, accumulatorLoad, 0);
   }
 
@@ -381,37 +411,10 @@ LogicalResult insertMatmulDstAllocation(RewriterBase &rewriter,
     generateEpilogueLoop(rewriter, loc, forOp, dst, outputStore, 0);
   }
 
-  // 5. Rewrite the original stores to store to DST.
-  //    The matmul stores its accumulator to DST slot 0.
-  if (outputStore) {
-    rewriter.setInsertionPoint(outputStore);
-    SmallVector<Value> dstIndices;
-    dstIndices.push_back(rewriter.create<arith::ConstantIndexOp>(loc, 0));
-    for (Value idx : outputStore.getIndices()) {
-      dstIndices.push_back(idx);
-    }
-    rewriter.create<affine::AffineStoreOp>(
-        loc, outputStore.getValue(), dst,
-        AffineMap::getMultiDimIdentityMap(dstIndices.size(),
-                                          rewriter.getContext()),
-        dstIndices);
-    rewriter.eraseOp(outputStore);
-  }
-
-  // Similarly rewrite the accumulator load.
-  if (accumulatorLoad) {
-    rewriter.setInsertionPoint(accumulatorLoad);
-    SmallVector<Value> dstIndices;
-    dstIndices.push_back(rewriter.create<arith::ConstantIndexOp>(loc, 0));
-    for (Value idx : accumulatorLoad.getIndices()) {
-      dstIndices.push_back(idx);
-    }
-    rewriter.replaceOpWithNewOp<affine::AffineLoadOp>(
-        accumulatorLoad, dst,
-        AffineMap::getMultiDimIdentityMap(dstIndices.size(),
-                                          rewriter.getContext()),
-        dstIndices);
-  }
+  // Note: We don't need to rewrite the original load/store operations
+  // because the affine loops are temporary and will be deleted by
+  // convertTileMatmulLinalgToBlock after this callback returns. The
+  // important pieces are the prologue/epilogue loops and acquire_dst.
 
   return success();
 }

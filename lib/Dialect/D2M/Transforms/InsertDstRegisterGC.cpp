@@ -250,37 +250,40 @@ struct D2MInsertDstRegisterGCPass
     }
 
     // Process linalg.generic ops that were not converted by LinalgToAffine.
+    // These are tile_matmul ops when useTileMatmul=false.
     // The matmul conversion creates TileMatmulBlockOp. DST allocation for
     // matmul is handled by converting the temporary affine loops and creating
     // appropriate acquire/release operations.
-    IRRewriter linalgRewriter(&getContext());
-    WalkResult linalgWalkResult = func.walk([&](GenericOp genericOp) {
-      for (auto &region : genericOp->getRegions()) {
-        if (hasAcquireDstOp(region)) {
-          // Skip regions that already have DST allocation.
-          continue;
-        }
+    if (!this->useTileMatmul) {
+      IRRewriter linalgRewriter(&getContext());
+      WalkResult linalgWalkResult = func.walk([&](GenericOp genericOp) {
+        for (auto &region : genericOp->getRegions()) {
+          if (hasAcquireDstOp(region)) {
+            // Skip regions that already have DST allocation.
+            continue;
+          }
 
-        // Process tile_matmul linalg ops using shared utility.
-        // The callback handles DST allocation for the matmul's temporary loops.
-        if (failed(utils::processTileMatmulLinalgOps(
-                linalgRewriter, genericOp, region,
-                [&](RewriterBase &rewriter, Region &loopRegion,
-                    Operation *outermostLoop) -> LogicalResult {
-                  // For GC pass, matmul DST allocation follows a simpler path:
-                  // just create acquire/release without prologue/epilogue
-                  // loops. The D2MToTTKernel pass handles the actual DST
-                  // operations.
-                  return success();
-                }))) {
-          return WalkResult::interrupt();
+          // Process tile_matmul linalg ops using shared utility.
+          // The callback inserts DST allocation with first-iteration guards for
+          // matmul accumulation. This follows the same pattern as the legacy
+          // pass.
+          if (failed(utils::processTileMatmulLinalgOps(
+                  linalgRewriter, genericOp, region,
+                  [&](RewriterBase &rewriter, Region &loopRegion,
+                      Operation *outermostLoop) -> LogicalResult {
+                    return utils::insertMatmulDstAllocation(
+                        rewriter, genericOp, loopRegion, outermostLoop,
+                        totalDstTiles);
+                  }))) {
+            return WalkResult::interrupt();
+          }
         }
+        return WalkResult::advance();
+      });
+
+      if (linalgWalkResult.wasInterrupted()) {
+        return signalPassFailure();
       }
-      return WalkResult::advance();
-    });
-
-    if (linalgWalkResult.wasInterrupted()) {
-      return signalPassFailure();
     }
 
     // Process each d2m.generic operation for DST allocation.
