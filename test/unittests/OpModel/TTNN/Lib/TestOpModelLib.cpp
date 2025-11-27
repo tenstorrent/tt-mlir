@@ -1623,9 +1623,8 @@ TEST_F(OpModelTest, MaxPool2dWithIndices) {
   llvm::SmallVector<int32_t> padding = {0, 0};
   llvm::SmallVector<int32_t> dilation = {1, 1};
   bool ceilMode = false;
-  bool inPlaceHalo = false;
-  bool deallocateInput = false;
   bool reallocateHaloOutput = true;
+  bool deallocateInput = false;
   bool returnIndices = true;
 
   // Right now, OpRuntime tests aren't supported for MaxPool2dWithIndicesOp
@@ -1636,8 +1635,8 @@ TEST_F(OpModelTest, MaxPool2dWithIndices) {
       op_model::OpModel<MaxPool2dWithIndicesOp>::getOpConstraints(
           CreateWorkerGrid(), inputShape, layoutDRAM, batchSize, inputHeight,
           inputWidth, inputChannels, kernelSize, stride, padding, dilation,
-          ceilMode, inPlaceHalo, deallocateInput, reallocateHaloOutput,
-          returnIndices, layoutDRAM);
+          ceilMode, reallocateHaloOutput, deallocateInput, returnIndices,
+          layoutDRAM);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   OpConstraints &opCstr = constraintsExp.get();
   EXPECT_GT(opCstr.cbL1PeakSize, 0);
@@ -1648,8 +1647,8 @@ TEST_F(OpModelTest, MaxPool2dWithIndices) {
   constraintsExp = op_model::OpModel<MaxPool2dWithIndicesOp>::getOpConstraints(
       CreateWorkerGrid(), inputShape, layoutDRAM, batchSize, inputHeight,
       inputWidth, inputChannels, kernelSize, stride, padding, dilation,
-      ceilMode, inPlaceHalo, deallocateInput, reallocateHaloOutput,
-      returnIndices, layoutDRAM);
+      ceilMode, reallocateHaloOutput, deallocateInput, returnIndices,
+      layoutDRAM);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   opCstr = constraintsExp.get();
   EXPECT_GT(opCstr.cbL1PeakSize, 0);
@@ -1660,8 +1659,8 @@ TEST_F(OpModelTest, MaxPool2dWithIndices) {
   constraintsExp = op_model::OpModel<MaxPool2dWithIndicesOp>::getOpConstraints(
       CreateWorkerGrid(), inputShape, layoutL1Interleaved, batchSize,
       inputHeight, inputWidth, inputChannels, kernelSize, stride, padding,
-      dilation, ceilMode, inPlaceHalo, deallocateInput, reallocateHaloOutput,
-      returnIndices, layoutL1WSharded);
+      dilation, ceilMode, reallocateHaloOutput, deallocateInput, returnIndices,
+      layoutL1WSharded);
   EXPECT_FALSE(static_cast<bool>(constraintsExp));
   llvm::consumeError(constraintsExp.takeError());
 }
@@ -2933,7 +2932,7 @@ class OpModelPool2DParam
                      llvm::SmallVector<int32_t>, // padding
                      llvm::SmallVector<int32_t>, // dilation
                      bool,                       // ceil_mode
-                     bool,                       // in_place_halo
+                     bool,                       // reallocate_halo_output
                      bool                        // expected legal
                      >> {
 protected:
@@ -2952,7 +2951,7 @@ protected:
     const auto padding = std::get<8>(params);
     const auto dilation = std::get<9>(params);
     const auto ceilMode = std::get<10>(params);
-    const auto inPlaceHalo = std::get<11>(params);
+    const auto reallocateHaloOutput = std::get<11>(params);
     const auto expectedLegal = std::get<12>(params);
 
     const TTNNLayoutAttr inputLayout = this->CreateTiledLayout(
@@ -2963,7 +2962,7 @@ protected:
     auto constraintsExp = OpModel<OpTy>::getOpConstraints(
         this->CreateWorkerGrid(), inputShape, inputLayout, batchSize,
         inputHeight, inputWidth, inputChannels, kernelSize, stride, padding,
-        dilation, ceilMode, inPlaceHalo, outputLayout);
+        dilation, ceilMode, reallocateHaloOutput, outputLayout);
     EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
 
     if (constraintsExp) {
@@ -2980,7 +2979,7 @@ protected:
     auto runtimeExp = OpModel<OpTy>::getOpRuntime(
         inputShape, inputLayout, batchSize, inputHeight, inputWidth,
         inputChannels, kernelSize, stride, padding, dilation, ceilMode,
-        inPlaceHalo, outputLayout);
+        reallocateHaloOutput, outputLayout);
     EXPECT_EQ(static_cast<bool>(runtimeExp), expectedLegal);
     if (runtimeExp) {
       EXPECT_TRUE(runtimeExp.get() > 0);

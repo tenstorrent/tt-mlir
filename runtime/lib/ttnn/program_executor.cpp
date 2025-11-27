@@ -165,6 +165,13 @@ std::vector<::tt::runtime::Tensor> ProgramExecutor::gatherOutputTensors() {
 }
 
 void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
+
+  ::tt::runtime::utils::logMemoryStateIfNeeded(
+      utils::getMemoryView(getContext().getDeviceHandle()),
+      ::tt::runtime::MemoryLogLevel::Operation,
+      std::string("Device memory state before operation ") +
+          ::tt::target::ttnn::EnumNameOpType(op->type_type()));
+
   switch (op->type_type()) {
   case ::tt::target::ttnn::OpType::GetDeviceOp: {
     return operations::context::run(op->type_as_GetDeviceOp(), getContext());

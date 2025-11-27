@@ -1916,7 +1916,7 @@ createPool2dOp(FlatbufferObjectCache &cache, Pool2dOp op) {
       op.getInputWidth(), op.getChannels(), kernelSize, stride, padding,
       dilation, extraParamsType, extraParams, memoryConfig,
       toFlatbuffer(cache, op.getAppliedShardScheme()), op.getCeilMode(),
-      op.getInPlaceHalo());
+      op.getReallocateHaloOutput());
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::MaxPool2dWithIndicesOp>
@@ -1944,7 +1944,7 @@ createMaxPool2dWithIndicesOp(FlatbufferObjectCache &cache,
       *cache.fbb, in, out, outIndices, op.getBatchSize(), op.getInputHeight(),
       op.getInputWidth(), op.getChannels(), kernelSize, stride, padding,
       dilation, memoryConfig, toFlatbuffer(cache, op.getAppliedShardScheme()),
-      op.getCeilMode(), op.getInPlaceHalo());
+      op.getCeilMode(), op.getReallocateHaloOutput());
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::GlobalAvgPool2dOp>

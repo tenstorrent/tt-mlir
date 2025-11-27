@@ -726,7 +726,7 @@ public:
         emitter.emit(/*compute_kernel_config=*/std::nullopt),
         emitter.emit(/*deallocate_input=*/false),
         emitter.emit(
-            !srcOp.getInPlaceHalo()), // reallocate_halo_output = !in_place_halo
+            /*reallocate_halo_output=*/srcOp.getReallocateHaloOutput()),
     };
 
     emitter.replaceOp(*this, args);
@@ -782,7 +782,7 @@ public:
         emitter.emit(srcOp.getAppliedShardScheme()),
         emitter.emit(/*deallocate_input=*/false),
         emitter.emit(
-            !srcOp.getInPlaceHalo()), // reallocate_halo_output = !in_place_halo
+            /*reallocate_halo_output=*/srcOp.getReallocateHaloOutput()),
         /*return_indices=*/emitter.emit(false)};
 
     emitter.replaceOp(*this, args);
@@ -831,11 +831,9 @@ public:
     }
 
     llvm::SmallVector<mlir::Attribute> args{
-        emitter.emit(srcOp.getInput()),
-        emitter.emit(srcOp.getBatchSize()),
+        emitter.emit(srcOp.getInput()), emitter.emit(srcOp.getBatchSize()),
         emitter.emit(srcOp.getInputHeight()),
-        emitter.emit(srcOp.getInputWidth()),
-        emitter.emit(srcOp.getChannels()),
+        emitter.emit(srcOp.getInputWidth()), emitter.emit(srcOp.getChannels()),
         emitter.template emit<std::array<uint32_t, 2>>(
             srcOp.getKernelSizeAttr()),
         emitter.template emit<std::array<uint32_t, 2>>(srcOp.getStrideAttr()),
@@ -847,7 +845,8 @@ public:
         emitter.getMemoryConfig(srcOp.getResult()),
         emitter.emit(srcOp.getAppliedShardScheme()),
         /*deallocate_input=*/emitter.emit(false),
-        /*reallocate_halo_output=*/emitter.emit(!srcOp.getInPlaceHalo()),
+        /*reallocate_halo_output=*/
+        emitter.emit(srcOp.getReallocateHaloOutput()),
         /*return_indices=*/emitter.emit(true),
         emitter.emit(/*dtype=*/ttcore::DataType::BFloat16),
         emitter.emit(/*output_layout=*/mlir::tt::ttnn::Layout::
@@ -2424,7 +2423,8 @@ public:
         emitter.emit(srcOp.getSource()),
         emitter.emit(std::nullopt) |
             emitter.getMemoryConfig(srcOp.getResult()), // mem config
-        emitter.emit(std::nullopt)                      // opt_reduction
+        emitter.emit(std::nullopt),                     // opt_reduction_string
+        emitter.emit(std::nullopt)                      // sub_core_grid
     };
 
     emitter.replaceOp(*this, args);

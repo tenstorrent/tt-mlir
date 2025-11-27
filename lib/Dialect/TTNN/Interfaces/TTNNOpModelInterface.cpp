@@ -249,7 +249,7 @@ getPoolingOpConstraints(OpT op, const std::vector<TTNNLayoutAttr> &inputs,
       op_model::OpModel<OpT>::getOpConstraints, op, deviceGrid, inputShape,
       inputs[0], op.getBatchSize(), op.getInputHeight(), op.getInputWidth(),
       op.getChannels(), op.getKernelSize(), op.getStride(), op.getPadding(),
-      op.getDilation(), op.getCeilMode(), op.getInPlaceHalo(),
+      op.getDilation(), op.getCeilMode(), op.getReallocateHaloOutput(),
       opConfig.outputLayout);
 }
 
@@ -265,7 +265,7 @@ getPoolingOpRuntime(OpT op, const std::vector<TTNNLayoutAttr> &inputs,
       op_model::OpModel<OpT>::getOpRuntime, op, inputShape, inputs[0],
       op.getBatchSize(), op.getInputHeight(), op.getInputWidth(),
       op.getChannels(), op.getKernelSize(), op.getStride(), op.getPadding(),
-      op.getDilation(), op.getCeilMode(), op.getInPlaceHalo(),
+      op.getDilation(), op.getCeilMode(), op.getReallocateHaloOutput(),
       opConfig.outputLayout);
 }
 
@@ -289,9 +289,9 @@ getMaxPool2dWithIndicesOpConstraints(OpT op,
       op_model::OpModel<OpT>::getOpConstraints, op, deviceGrid, inputShape,
       inputs[0], op.getBatchSize(), op.getInputHeight(), op.getInputWidth(),
       op.getChannels(), op.getKernelSize(), op.getStride(), op.getPadding(),
-      op.getDilation(), op.getCeilMode(), op.getInPlaceHalo(),
-      /*deallocate_input*/ false, /*reallocate_halo_output*/ true,
-      /*return_indices*/ true, opConfig.outputLayout);
+      op.getDilation(), op.getCeilMode(), op.getReallocateHaloOutput(),
+      /*deallocate_input*/ false, /*return_indices*/ true,
+      opConfig.outputLayout);
 }
 
 template <typename OpT>
@@ -307,9 +307,9 @@ getMaxPool2dWithIndicesOpRuntime(OpT op,
       op_model::OpModel<OpT>::getOpRuntime, op, inputShape, inputs[0],
       op.getBatchSize(), op.getInputHeight(), op.getInputWidth(),
       op.getChannels(), op.getKernelSize(), op.getStride(), op.getPadding(),
-      op.getDilation(), op.getCeilMode(), op.getInPlaceHalo(),
-      /*deallocate_input*/ false, /*reallocate_halo_output*/ true,
-      /*return_indices*/ true, opConfig.outputLayout);
+      op.getDilation(), op.getCeilMode(), op.getReallocateHaloOutput(),
+      /*deallocate_input*/ false, /*return_indices*/ true,
+      opConfig.outputLayout);
 }
 
 template <typename OpT>

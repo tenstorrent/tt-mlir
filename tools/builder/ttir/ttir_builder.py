@@ -9988,7 +9988,7 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
                     for op in outputs:
                         output_goldens[op] = ttir_builder._get_golden_tensor(op)
                     ttir_builder._set_goldens(output_goldens)
-                    ttir_builder._set_output_ordering(outputs)
+                    ttir_builder._set_output_ordering(list(outputs))
 
                     return _process_multi_return_result(global_result)
 
