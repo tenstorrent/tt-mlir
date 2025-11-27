@@ -1698,6 +1698,7 @@ def TTNN_Conv3dOp : TTNN_Op<"conv3d", [TTNN_DtypeOpInterface]> {
                          DefaultValuedAttr<StrAttr, "\"zeros\"">:$padding_mode,
                          I32Attr:$groups,
                          OptionalAttr<TTCore_DataTypeAttr>:$dtype,
+                         OptionalAttr<TTNN_Conv3dConfigAttr>:$conv3d_config,
                          OptionalAttr<TTNN_DeviceComputeKernelConfig>:$compute_config);
 
     let results = (outs AnyRankedTensor:$result);

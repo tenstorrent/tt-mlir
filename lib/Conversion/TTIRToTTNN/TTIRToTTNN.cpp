@@ -1363,7 +1363,7 @@ public:
         outChannelsAttr, batchSizeAttr, inputDepthAttr, inputHeightAttr,
         inputWidthAttr, kernelSizeAttr, *strideAttr, *paddingAttr,
         paddingModeAttr, groupsAttr, outputDtypeAttr,
-        /*compute_config=*/nullptr);
+        /*conv3d_config=*/nullptr, /*compute_config=*/nullptr);
 
     return success();
   }

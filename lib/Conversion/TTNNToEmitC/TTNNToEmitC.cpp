@@ -1415,7 +1415,8 @@ public:
         emitter.emit(srcOp.getBias()),
         emitter.emitConv3dConfig(srcOp.getOutChannels(), srcOp.getKernelSize(),
                                  srcOp.getStride(), srcOp.getPadding(),
-                                 srcOp.getPaddingMode(), srcOp.getGroups()),
+                                 srcOp.getPaddingMode(), srcOp.getGroups(),
+                                 srcOp.getConv3dConfig()),
         emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
         emitter.emit(std::nullopt), // compute_config - not yet supported
     };

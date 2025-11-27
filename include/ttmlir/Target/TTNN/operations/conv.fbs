@@ -35,6 +35,15 @@ table Conv2dSliceConfig {
   num_slices: uint32 = 0;
 }
 
+table Conv3dConfig {
+  weights_dtype: DataType = null;
+  t_out_block: uint32 = null;
+  w_out_block: uint32 = null;
+  h_out_block: uint32 = null;
+  c_out_block: uint32 = null;
+  c_in_block: uint32 = null;
+}
+
 table PrepareConv2dWeightsOp {
   weight_tensor: tt.target.ttnn.TensorRef;
   out: tt.target.ttnn.TensorRef;
@@ -146,6 +155,7 @@ table Conv3dOp {
   padding_mode: string;
   groups: uint32;
   output_dtype: tt.target.DataType = null;
+  conv3d_config: tt.target.ttnn.Conv3dConfig;
   compute_config: tt.target.ttnn.DeviceComputeKernelConfig;
   memory_config: tt.target.ttnn.MemoryConfig;
 }

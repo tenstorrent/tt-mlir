@@ -4812,6 +4812,7 @@ llvm::Expected<Conv3dSpecs> prepareConv3dSpecs(
     llvm::ArrayRef<int32_t> kernel_size, llvm::ArrayRef<int32_t> stride,
     llvm::ArrayRef<int32_t> padding, llvm::StringRef padding_mode,
     uint32_t groups, std::optional<ttcore::DataTypeAttr> outputDtype,
+    std::optional<Conv3dConfigAttr> conv3dConfig,
     std::optional<DeviceComputeKernelConfigAttr> deviceComputeKernelConfig,
     TTNNLayoutAttr outputLayout) {
 
@@ -4842,6 +4843,32 @@ llvm::Expected<Conv3dSpecs> prepareConv3dSpecs(
     biasSpec = biasSpecExp.get();
   }
 
+  // Initialize Conv3dConfig with base values
+  ::ttnn::operations::experimental::conv3d::Conv3dConfig config;
+
+  // Apply Conv3dConfig overrides if provided
+  if (conv3dConfig.has_value()) {
+    if (conv3dConfig->getWeightsDtype()) {
+      config.weights_dtype =
+          conversion::getDataType(*conv3dConfig->getWeightsDtype());
+    }
+    if (conv3dConfig->getTOutBlock()) {
+      config.T_out_block = *conv3dConfig->getTOutBlock();
+    }
+    if (conv3dConfig->getWOutBlock()) {
+      config.W_out_block = *conv3dConfig->getWOutBlock();
+    }
+    if (conv3dConfig->getHOutBlock()) {
+      config.H_out_block = *conv3dConfig->getHOutBlock();
+    }
+    if (conv3dConfig->getCOutBlock()) {
+      config.C_out_block = *conv3dConfig->getCOutBlock();
+    }
+    if (conv3dConfig->getCInBlock()) {
+      config.C_in_block = *conv3dConfig->getCInBlock();
+    }
+  }
+
   // Get output dtype in this order: explicit outputDtype → outputLayout →
   // BFLOAT16
   std::optional<::tt::tt_metal::DataType> dtype;
@@ -4851,13 +4878,8 @@ llvm::Expected<Conv3dSpecs> prepareConv3dSpecs(
   if (!dtype) {
     dtype = detail::getNullableDataType(outputLayout);
   }
-  ::tt::tt_metal::DataType dtypeValue =
-      dtype.value_or(::tt::tt_metal::DataType::BFLOAT16);
 
-  ::ttnn::operations::experimental::conv3d::Conv3dConfig config;
-  config.dtype = dtypeValue;
-  config.weights_dtype = ::tt::tt_metal::DataType::BFLOAT16;
-  config.output_layout = ::tt::tt_metal::Layout::ROW_MAJOR;
+  config.dtype = dtype.value_or(::tt::tt_metal::DataType::BFLOAT16);
   config.output_channels = out_channels;
   config.kernel_size =
       conversion::convertLLVMArrayRefToStdArray<uint32_t, 3>(kernel_size);
@@ -4892,6 +4914,7 @@ llvm::Expected<OpConstraints> OpModel<Conv3dOp>::getOpConstraints(
     llvm::ArrayRef<int32_t> padding, uint32_t groups,
     llvm::StringRef padding_mode,
     std::optional<ttcore::DataTypeAttr> outputDtype,
+    std::optional<Conv3dConfigAttr> conv3dConfig,
     std::optional<DeviceComputeKernelConfigAttr> deviceComputeKernelConfig,
     TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
@@ -4901,7 +4924,8 @@ llvm::Expected<OpConstraints> OpModel<Conv3dOp>::getOpConstraints(
   auto specsExp = prepareConv3dSpecs(
       device, inputShape, inputLayout, weightShape, weightLayout, biasShape,
       biasLayout, out_channels, kernel_size, stride, padding, padding_mode,
-      groups, outputDtype, deviceComputeKernelConfig, outputLayout);
+      groups, outputDtype, conv3dConfig, deviceComputeKernelConfig,
+      outputLayout);
   if (!specsExp) {
     return specsExp.takeError();
   }
@@ -4933,6 +4957,7 @@ llvm::Expected<size_t> OpModel<Conv3dOp>::getOpRuntime(
     llvm::ArrayRef<int32_t> padding, uint32_t groups,
     llvm::StringRef padding_mode,
     std::optional<ttcore::DataTypeAttr> outputDtype,
+    std::optional<Conv3dConfigAttr> conv3dConfig,
     std::optional<DeviceComputeKernelConfigAttr> deviceComputeKernelConfig,
     TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
@@ -4942,7 +4967,8 @@ llvm::Expected<size_t> OpModel<Conv3dOp>::getOpRuntime(
   auto specsExp = prepareConv3dSpecs(
       device, inputShape, inputLayout, weightShape, weightLayout, biasShape,
       biasLayout, out_channels, kernel_size, stride, padding, padding_mode,
-      groups, outputDtype, deviceComputeKernelConfig, outputLayout);
+      groups, outputDtype, conv3dConfig, deviceComputeKernelConfig,
+      outputLayout);
   if (!specsExp) {
     return specsExp.takeError();
   }
