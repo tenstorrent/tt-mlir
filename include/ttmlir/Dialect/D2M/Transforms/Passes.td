@@ -28,6 +28,27 @@ def D2MElementwiseFusion : Pass<"d2m-elementwise-fusion", "::mlir::ModuleOp"> {
   ];
 }
 
+def D2MOpScheduler : Pass<"d2m-op-scheduler", "::mlir::ModuleOp"> {
+  let summary = "Performs op scheduling within each affine.for loop nest in the d2m.generic block to minimize total required register slices.";
+  let description = [{
+    This pass scans `d2m.generic` compute regions that do not contain any tilize/untilize ops,
+    finds nested affine loop nests, and performs loop fission (distribution) by extracting
+    sequences of the form `affine.load → d2m tile compute op → affine.store` into separate
+    loop nests, preserving the original loop bounds and indices.
+  }];
+
+  list<Option> options = [
+    Option<"enableOpScheduler", "enable-op-scheduler", "bool", "true",
+           "Enable operation scheduling optimization">,
+  ];
+
+  let dependentDialects = [
+    "::mlir::tt::d2m::D2MDialect",
+    "::mlir::affine::AffineDialect",
+    "::mlir::func::FuncDialect"
+  ];
+}
+
 def D2MSFPUTileLoopFission : Pass<"d2m-sfpu-tile-loop-fission", "::mlir::ModuleOp"> {
   let summary = "Perform loop fission inside d2m.generic compute regions for load→compute→store triplets";
   let description = [{
