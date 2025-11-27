@@ -202,7 +202,7 @@ TTNNOperandsWorkaroundsFactory::createUpsampleOpOperandsWorkarounds() {
 }
 
 // Factory method to create a set of workarounds for ScatterOp. The ScatterOp
-// expects the input to be in row-major layout if using f32.
+// expects the input to be in row-major layout if using f32, bf16, or int32.
 TTNNOperandsWorkarounds
 TTNNOperandsWorkaroundsFactory::createScatterOpOperandsWorkarounds(
     mlir::Operation *op) {
@@ -218,8 +218,14 @@ TTNNOperandsWorkaroundsFactory::createScatterOpOperandsWorkarounds(
       mlir::cast<ttnn::TTNNLayoutAttr>(sourceType.getEncoding());
 
   bool isLayoutWorkaroundRequired =
-      (inputLayoutAttr.isTiled() && inputType.getElementType().isF32()) ||
-      (sourceLayoutAttr.isTiled() && sourceType.getElementType().isF32());
+      (inputLayoutAttr.isTiled() &&
+       (inputType.getElementType().isF32() ||
+        inputType.getElementType().isBF16() ||
+        inputType.getElementType().isInteger(32))) ||
+      (sourceLayoutAttr.isTiled() &&
+       (sourceType.getElementType().isF32() ||
+        sourceType.getElementType().isBF16() ||
+        sourceType.getElementType().isInteger(32)));
 
   TTNNOperandWorkarounds operandWorkaround;
 
