@@ -4685,8 +4685,9 @@ def TTIR_ScatterOp : TTIR_NamedOp<"scatter"> {
       - `input` (Tensor): The tensor being updated.
       - `index` (Tensor): Indices where values will be written to.
       - `source` (Tensor): The values to scatter into the input tensor.
-      - `output` (Tensor): The output tensor shape.
       - `dim` (int32_t): The dimension along which to scatter.
+      - `scatter_reduce_type` (Enum): The scatter reduce type to use (SUM, PROD, MIN, MAX, INVALID).
+
 
     Example:
     ```mlir
@@ -4694,16 +4695,18 @@ def TTIR_ScatterOp : TTIR_NamedOp<"scatter"> {
     %input = ... : tensor<8xf32>        // Input tensor
     %indices = ... : tensor<3xi32>      // Indices tensor
     %source = ... : tensor<3xf32>       // Source values to scatter
-    %result = ttir.scatter(%input, %indices, %source) <{
-        dim = 0
-    }> : (tensor<8xf32>, tensor<3xi32>, tensor<3xf32>) -> tensor<8xf32>
+    %result = ttir.scatter_in_dim(%input, %indices, %source) {
+        dim = 0, scatter_reduce_type = "SUM"
+    } : tensor<8xf32>, tensor<3xi32>, tensor<3xf32> -> tensor<8xf32>
     ```
   }];
 
   let arguments = (ins AnyRankedTensor:$input,
                        AnyRankedTensor:$index,
                        AnyRankedTensor:$source,
-                       I32Attr:$dim);
+                       I32Attr:$dim,
+                       TTCore_ReduceTypeAttr:$scatter_reduce_type
+                       );
 
   let results = (outs AnyRankedTensor:$result);
 
