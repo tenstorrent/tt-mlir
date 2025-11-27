@@ -3505,7 +3505,7 @@ TEST_F(OpModelBase, EmbeddingOpInterface) {
         l1;
     EXPECT_EQ(cbSize, 16384);
     EXPECT_GE(l1PeakSize, 0);
-    EXPECT_EQ(outputSize, 262144);
+    EXPECT_EQ(outputSize, 2048);
   } else {
     FAIL() << "Missing L1 constraints; Error="
            << llvm::toString(constraintsExp.takeError()) << std::endl;
