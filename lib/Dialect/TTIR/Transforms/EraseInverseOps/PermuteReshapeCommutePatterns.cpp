@@ -65,25 +65,14 @@ public:
             .getShape();
     auto axesGroupsResult = ttmlir::utils::getReshapeAxesMapping(
         reshapeInputShape, reshapeOutputShape, permutation);
-    if (!axesGroupsResult) {
-      return;
-    }
-    llvm::outs() << "Reshape axes groups found.\n";
+    assert(axesGroupsResult &&
+           "Should have been checked in isCommuteDownwardsViable");
     auto axesGroups = axesGroupsResult->first;
     auto missingAxes = axesGroupsResult->second;
 
-    // Check that output size + number of missing axes = input size
-    if (reshapeOutputShape.size() + missingAxes.size() !=
-        reshapeInputShape.size()) {
-      llvm::outs() << "Cannot commute permute through reshape: "
-                      "output size + missing axes size != input size\n";
-      llvm::outs() << "reshapeInputShape size: " << reshapeInputShape.size()
-                   << "\n";
-      llvm::outs() << "reshapeOutputShape size: " << reshapeOutputShape.size()
-                   << "\n";
-      llvm::outs() << "missingAxes size: " << missingAxes.size() << "\n";
-      return;
-    }
+    assert(reshapeOutputShape.size() + missingAxes.size() ==
+               reshapeInputShape.size() &&
+           "Should have been checked in isCommuteDownwardsViable");
 
     llvm::outs() << "missingAxes: ";
     for (const auto &axis : missingAxes) {
@@ -136,6 +125,11 @@ public:
       llvm::outs() << "] ";
     }
     llvm::outs() << "\n";
+
+    // Check that permuted axes groups flatten to a consecutive range
+    auto flattened = ttmlir::utils::flatten(permutedAxesGroups);
+    assert(llvm::is_sorted(flattened) &&
+           "Should have been checked in isCommuteDownwardsViable");
 
     // Based on those groups, make output shape of new reshape
     llvm::SmallVector<int64_t> newReshapeOutputShape;
@@ -226,48 +220,66 @@ private:
 
   bool isCommuteDownwardsViable(ReshapeOp op,
                                 PermuteOp permuteOperand) const override {
-    // auto permutation = permuteOperand.getPermutation();
-    // auto reshapeInputShape =
-    //     mlir::cast<RankedTensorType>(op.getInput().getType()).getShape();
-    // auto reshapeOutputShape =
-    //     mlir::cast<RankedTensorType>(op.getType()).getShape();
+    auto permutation = permuteOperand.getPermutation();
+    auto reshapeInputShape =
+        mlir::cast<RankedTensorType>(op.getInput().getType()).getShape();
+    auto reshapeOutputShape =
+        mlir::cast<RankedTensorType>(op.getType()).getShape();
+    // Input of new reshape is the input of original permute
+    auto newReshapeInputShape =
+        mlir::cast<RankedTensorType>(permuteOperand.getInput().getType())
+            .getShape();
 
-    // if (reshapeInputShape.size() != reshapeOutputShape.size()) {
-    //   return false;
-    // }
+    // Check if we can get reshape axes mapping
+    auto axesGroupsResult = ttmlir::utils::getReshapeAxesMapping(
+        reshapeInputShape, reshapeOutputShape, permutation);
+    if (!axesGroupsResult) {
+      return false;
+    }
+    auto axesGroups = axesGroupsResult->first;
+    auto missingAxes = axesGroupsResult->second;
 
-    // auto axesGroupsResult = ttmlir::utils::getReshapeAxesMapping(
-    //     reshapeInputShape, reshapeOutputShape, permutation);
-    // if (!axesGroupsResult) {
-    //   return false;
-    // }
-    // auto axesGroups = axesGroupsResult->first;
-    // llvm::outs() << "axesGroups: ";
-    // for (const auto &group : axesGroups) {
-    //   llvm::outs() << "[";
-    //   for (const auto &axis : group) {
-    //     llvm::outs() << axis << " ";
-    //   }
-    //   llvm::outs() << "] ";
-    // }
-    // llvm::outs() << "\n";
+    // Check that output size + number of missing axes = input size
+    if (reshapeOutputShape.size() + missingAxes.size() !=
+        reshapeInputShape.size()) {
+      return false;
+    }
 
-    // auto permutedAxesGroups = ttmlir::utils::applyPermutation(
-    //     llvm::ArrayRef(axesGroups), permutation);
-    // llvm::outs() << "permutedAxesGroups: ";
-    // for (const auto &group : permutedAxesGroups) {
-    //   llvm::outs() << "[";
-    //   for (const auto &axis : group) {
-    //     llvm::outs() << axis << " ";
-    //   }
-    //   llvm::outs() << "] ";
-    // }
-    // llvm::outs() << "\n";
-    // auto flattened = ttmlir::utils::flatten(permutedAxesGroups);
-    // // Check if the sequence is increasing (monotonically increasing), not
-    // // necessarily that it equals the full range [0, 1, 2, ..., rank-1].
-    // return !flattened.empty() && llvm::is_sorted(flattened);
-    return true;
+    llvm::SmallSet<int64_t, 8> missingAxesSet(missingAxes.begin(),
+                                              missingAxes.end());
+
+    // Create new permutation that removes values corresponding to missing axes
+    // and remaps remaining values to be consecutive indices into
+    // filteredAxesGroups
+    llvm::SmallVector<int64_t> filteredPermutation;
+    llvm::SmallVector<int64_t> valueToNewIndex(newReshapeInputShape.size(), -1);
+    int64_t newIndex = 0;
+    for (size_t i = 0; i < newReshapeInputShape.size(); ++i) {
+      if (!missingAxesSet.contains(static_cast<int64_t>(i))) {
+        valueToNewIndex[i] = newIndex++;
+      }
+    }
+
+    for (size_t i = 0; i < permutation.size(); ++i) {
+      int64_t value = permutation[i];
+      // Check by value: if the value is not in missing axes, include it
+      if (!missingAxesSet.contains(value)) {
+        if (valueToNewIndex[value] != -1) {
+          filteredPermutation.push_back(valueToNewIndex[value]);
+        }
+      }
+    }
+
+    // Use filtered permutation to permute groups of reshape to get groups of
+    // new reshape
+    auto permutedAxesGroups = ttmlir::utils::applyPermutation(
+        llvm::ArrayRef(axesGroups), filteredPermutation);
+
+    // Check that permuted axes groups flatten to a consecutive range
+    auto flattened = ttmlir::utils::flatten(permutedAxesGroups);
+
+    // Verify that flattened sequence is in increasing order
+    return !flattened.empty() && llvm::is_sorted(flattened);
   }
 
   bool isCommuteDownwardsFavorable(ReshapeOp op,
