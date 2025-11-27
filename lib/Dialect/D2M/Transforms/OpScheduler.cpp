@@ -20,9 +20,9 @@
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
 #include "llvm/ADT/DenseSet.h"
+#include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/DebugLog.h"
-#include "llvm/ADT/SmallVector.h"
 
 #define DEBUG_TYPE "D2MOpScheduler"
 
