@@ -158,6 +158,7 @@ void createTTIRToTTMetalMiddleendPipeline(
   std::string dstStrategy = options.dstAllocationStrategy;
   if (dstStrategy == "legacy" || dstStrategy == "bump") {
     // Use legacy incremental allocator
+    // Order: DST Allocation → Fission (legacy works with this order)
     d2m::D2MInsertDstRegisterAccessOptions insertDstRegisterAccessOptions;
     {
       insertDstRegisterAccessOptions.useTileMatmul = options.useTileMatmul;
@@ -166,9 +167,12 @@ void createTTIRToTTMetalMiddleendPipeline(
     }
     pm.addPass(
         d2m::createD2MInsertDstRegisterAccess(insertDstRegisterAccessOptions));
+    pm.addPass(d2m::createD2MSFPUTileLoopFission());
   } else if (dstStrategy == "graph-coloring-greedy" ||
              dstStrategy == "graph-coloring-cb") {
     // Use a graph coloring allocator with the specified strategy
+    // Order: Fission → DST Allocation (correct architectural order)
+    pm.addPass(d2m::createD2MSFPUTileLoopFission());
     OpPassManager &funcPm = pm.nest<func::FuncOp>();
     d2m::D2MInsertDstRegisterGCOptions gcOptions;
     {
@@ -177,8 +181,6 @@ void createTTIRToTTMetalMiddleendPipeline(
     }
     funcPm.addPass(d2m::createD2MInsertDstRegisterGC(gcOptions));
   }
-
-  pm.addPass(d2m::createD2MSFPUTileLoopFission());
   pm.addPass(mlir::createCanonicalizerPass());
 
   OpPassManager &funcPm = pm.nest<func::FuncOp>();

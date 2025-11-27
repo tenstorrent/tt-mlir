@@ -81,8 +81,6 @@ module {
   }
 
   // All intermediate ops get result_dst_index and store+load pairs.
-  // With loop-indexed DST accesses, operations have disjoint live ranges.
-  // Chaitin-Briggs achieves same register reuse as legacy.
   // CHECK-LABEL: func.func @intermediates_thru_dst_chain_3
   // CHECK: d2m.acquire_dst
   // CHECK: affine.for
