@@ -22,9 +22,11 @@ public:
       TTNNPrepareConv2dWeightsAndBias>::TTNNPrepareConv2dWeightsAndBiasBase;
 
   // Insert PrepareConv2dWeightsOp and PrepareConv2dBiasOp before every Conv2dOp
-  // that prepares weights and bias for convolution. This is a prerequisite for
-  // const evaluation, which will improve performance by eliminating the need
-  // for preprocessing the weights and bias on the host/device.
+  // and PrepareConvTranspose2dWeightsOp and PrepareConvTranspose2dBiasOp before
+  // every ConvTranspose2dOp that prepares weights and bias for convolution.
+  // This is a prerequisite for const evaluation, which will improve performance
+  // by eliminating the need for preprocessing the weights and bias on the
+  // host/device.
   void runOnOperation() final {
 #ifndef TTMLIR_ENABLE_OPMODEL
     llvm::llvm_unreachable_internal(
@@ -288,8 +290,8 @@ private:
   ::mlir::RankedTensorType
   getPreparedWeightsType(ttnn::ConvTranspose2dOp convTranspose2dOp,
                          ttnn::Conv2dConfigAttr conv2dConfig) {
-    // We use graph capture to retrieve the output type of the PrepareConv2dOp
-    // for now until metal exposes an API.
+    // We use graph capture to retrieve the output type of the
+    // PrepareConvTranspose2dOp for now until metal exposes an API.
     return op_model::getPreparedConvTranspose2dWeightsOutputTensor(
         &convTranspose2dOp, conv2dConfig);
   }

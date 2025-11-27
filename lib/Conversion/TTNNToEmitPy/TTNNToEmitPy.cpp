@@ -1445,13 +1445,7 @@ public:
                          emitter.getMemoryConfig(conv2dOp.getResult()),
                      "memory_config"),
     };
-    /* llvm::SmallVector<mlir::StringRef> keyword_args{
-        "input_tensor",   "weight_tensor", "bias_tensor", "device",
-        "in_channels",    "out_channels",  "batch_size",  "input_height",
-        "input_width",    "kernel_size",   "stride",      "padding",
-        "dilation",       "groups",        "dtype",       "conv_config",
-        "compute_config", "memory_config"};
- */
+
     emitter.replaceOp(*this, args);
 
     return success();
