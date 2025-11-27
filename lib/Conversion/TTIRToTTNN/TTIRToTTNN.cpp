@@ -398,22 +398,105 @@ public:
   matchAndRewrite(ttir::EmbeddingBackwardOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
+    Location loc = op.getLoc();
+    Value inputIndices = adaptor.getInput();
+    auto indicesType = mlir::cast<RankedTensorType>(inputIndices.getType());
+
+    // StableHLO scatter produces [batch, seq, 1], but embedding_bw expects
+    // [batch, seq].
+    if (indicesType.getRank() >= 2 &&
+        indicesType.getDimSize(indicesType.getRank() - 1) == 1) {
+      llvm::SmallVector<int64_t> squeezedShape;
+      for (int64_t i = 0; i < indicesType.getRank() - 1; ++i) {
+        squeezedShape.push_back(indicesType.getDimSize(i));
+      }
+
+      inputIndices = mlir::tt::ttir_to_ttnn::utils::generateReshape(
+          mlir::cast<TypedValue<RankedTensorType>>(inputIndices), squeezedShape,
+          rewriter,
+          ttmlir::utils::appendLocationSuffix(loc, "_squeeze_indices"));
+      indicesType = mlir::cast<RankedTensorType>(inputIndices.getType());
+    }
+
+    // Pad the sequence length to be divisible by TILE_WIDTH (32).
+    constexpr int64_t TILE_WIDTH = 32;
+    int64_t seqLen = indicesType.getDimSize(indicesType.getRank() - 1);
+    int64_t paddedSeqLen =
+        ((seqLen + TILE_WIDTH - 1) / TILE_WIDTH) * TILE_WIDTH;
+
+    Value reshapedGrad = adaptor.getInGradient();
     auto gradType = adaptor.getInGradient().getType();
     auto gradTensor = mlir::cast<RankedTensorType>(gradType);
     auto gradShape = gradTensor.getShape();
+
+    if (seqLen != paddedSeqLen) {
+      llvm::SmallVector<int64_t> paddedIndicesShape(indicesType.getShape());
+      paddedIndicesShape[indicesType.getRank() - 1] = paddedSeqLen;
+
+      llvm::SmallVector<int32_t> indicesPadding;
+      for (int64_t i = 0; i < indicesType.getRank(); ++i) {
+        indicesPadding.push_back(0);
+        if (i == indicesType.getRank() - 1) {
+          indicesPadding.push_back(static_cast<int32_t>(paddedSeqLen - seqLen));
+        } else {
+          indicesPadding.push_back(0);
+        }
+      }
+
+      auto paddedIndicesType = RankedTensorType::get(
+          paddedIndicesShape, indicesType.getElementType(),
+          indicesType.getEncoding());
+
+      inputIndices = rewriter.create<ttnn::PadOp>(
+          ttmlir::utils::appendLocationSuffix(loc, "_pad_indices"),
+          paddedIndicesType, inputIndices,
+          rewriter.getDenseI32ArrayAttr(indicesPadding),
+          /*value=*/rewriter.getF32FloatAttr(0.0),
+          /*use_multicore=*/rewriter.getBoolAttr(true),
+          /*memory_config=*/nullptr);
+
+      llvm::SmallVector<int64_t> paddedGradShape(gradShape);
+      paddedGradShape[gradShape.size() - 2] = paddedSeqLen;
+
+      llvm::SmallVector<int32_t> gradPadding;
+      for (size_t i = 0; i < gradShape.size(); ++i) {
+        gradPadding.push_back(0);
+        if (i == gradShape.size() - 2) {
+          gradPadding.push_back(static_cast<int32_t>(paddedSeqLen - seqLen));
+        } else {
+          gradPadding.push_back(0);
+        }
+      }
+
+      auto paddedGradType =
+          RankedTensorType::get(paddedGradShape, gradTensor.getElementType(),
+                                gradTensor.getEncoding());
+
+      reshapedGrad = rewriter.create<ttnn::PadOp>(
+          ttmlir::utils::appendLocationSuffix(loc, "_pad_gradient"),
+          paddedGradType, adaptor.getInGradient(),
+          rewriter.getDenseI32ArrayAttr(gradPadding),
+          /*value=*/rewriter.getF32FloatAttr(0.0),
+          /*use_multicore=*/rewriter.getBoolAttr(true),
+          /*memory_config=*/nullptr);
+    }
 
     // Reshape grad tensor to [1, 1, R, C] where R is all the first N-1
     // dimensions of grad tensor squeezed and C is the last dimension of grad
     // tensor. This must be done to obey the constraints of the
     // ttnn::EmbeddingBackwardOp.
-    int32_t R = 1;
-    for (size_t i = 0; i < gradShape.size() - 1; ++i) {
-      R *= gradShape[i];
-    }
-    llvm::SmallVector<int64_t, 4> reshapedGradShape{1, 1, R, gradShape.back()};
+    auto finalGradType = mlir::cast<RankedTensorType>(reshapedGrad.getType());
+    auto finalGradShape = finalGradType.getShape();
 
-    auto reshapedGrad = mlir::tt::ttir_to_ttnn::utils::generateReshape(
-        mlir::cast<TypedValue<mlir::RankedTensorType>>(adaptor.getInGradient()),
+    int32_t R = 1;
+    for (size_t i = 0; i < finalGradShape.size() - 1; ++i) {
+      R *= finalGradShape[i];
+    }
+    llvm::SmallVector<int64_t, 4> reshapedGradShape{1, 1, R,
+                                                    finalGradShape.back()};
+
+    reshapedGrad = mlir::tt::ttir_to_ttnn::utils::generateReshape(
+        mlir::cast<TypedValue<mlir::RankedTensorType>>(reshapedGrad),
         reshapedGradShape, rewriter,
         ttmlir::utils::appendLocationSuffix(op.getLoc(), "_reshaped_grad"));
 
@@ -432,9 +515,8 @@ public:
         ttnn::BufferTypeAttr::get(op.getContext(), bufferType), std::nullopt);
 
     rewriter.replaceOpWithNewOp<ttnn::EmbeddingBackwardOp>(
-        op, this->getTypeConverter()->convertType(op.getType()),
-        adaptor.getInput(), adaptor.getWeight(), reshapedGrad, dTypeAttr,
-        memoryConfigAttr);
+        op, this->getTypeConverter()->convertType(op.getType()), inputIndices,
+        adaptor.getWeight(), reshapedGrad, dTypeAttr, memoryConfigAttr);
     return success();
   }
 };

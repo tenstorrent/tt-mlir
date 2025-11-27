@@ -3301,234 +3301,323 @@ public:
 } // namespace
 
 namespace {
-class CacheFillUpdatePattern
+  class CacheFillUpdatePattern
+      : public OpConversionPattern<mlir::stablehlo::ScatterOp> {
+  
+    using OpConversionPattern<mlir::stablehlo::ScatterOp>::OpConversionPattern;
+  
+  public:
+    // Use higher benefit to ensure this pattern is tried before generic scatter.
+    CacheFillUpdatePattern(TypeConverter &typeConverter, MLIRContext *context)
+        : OpConversionPattern<mlir::stablehlo::ScatterOp>(typeConverter, context,
+                                                          /*benefit=*/2) {}
+    /// Pattern: scatter(input, indices, updates)
+    ///
+    /// This pattern detects when a ScatterOp is used as a fill/update for a
+    /// cache. We check for its input, indices, and update tensors to ensure they
+    /// match the expected cache fill/update pattern.
+    ///
+    /// Input pattern:
+    ///   %result = scatter(%cache, %indices, %updates)
+    ///   - Given a cache with shape (B, N, M, H) and a updates tensor with shape
+    ///   (B, N, S, H), the indices tensor represents the index where each element
+    ///   in %updates should placed in the %cache.
+    ///   - %indices can be tracked back to the function's cachePositions input
+    ///   that represents the indices of the cache to fill/update.
+    /// Output pattern:
+    ///   %result = fillCacheOp(%cache, %updates)
+    ///   or (if S == 1)
+    ///   %result = updateCacheOp(%cache, %updates, %update_index)
+    mlir::LogicalResult
+    matchAndRewrite(mlir::stablehlo::ScatterOp scatterOp,
+                    mlir::stablehlo::ScatterOp::Adaptor adaptor,
+                    ConversionPatternRewriter &rewriter) const override {
+      auto CachePositions = getCacheUpdatePositions(scatterOp);
+      if (!CachePositions) {
+        return mlir::failure();
+      }
+  
+      auto cacheUpdateInputType =
+          mlir::cast<RankedTensorType>((*CachePositions).getType());
+      auto cacheUpdateInputShape = cacheUpdateInputType.getShape();
+      if (cacheUpdateInputShape.size() != 1) {
+        return mlir::failure();
+      }
+  
+      Value cache = scatterOp.getInputs()[0];
+      Value updates = scatterOp.getUpdates()[0];
+      int32_t batchSize =
+          mlir::cast<RankedTensorType>(cache.getType()).getShape()[0];
+  
+      RankedTensorType updatesType =
+          mlir::cast<RankedTensorType>(updates.getType());
+  
+      // If the cachePositions tensor has more than one element we assume it
+      // represents a set of aranged indices (0, cachePositions.size), so we
+      // replace it with FillCacheOp. If the tensor has only one element, we
+      // assume it represents the update index for UpateCacheOp.
+      if (cacheUpdateInputShape[0] != 1) {
+        // Fill cache requires that each batch is filled separately. So, we will
+        // insert a FillCacheOp for each batch. This requires slicing out each
+        // batch.
+        if (batchSize > 1) {
+  
+          for (int32_t batchOffset = 0; batchOffset < batchSize; batchOffset++) {
+            auto batchOffsetAttr = rewriter.getI32IntegerAttr(batchOffset);
+  
+            // Slice starts at the batch offset for the batch dim, and starts at 0
+            // for all other dims.
+            SmallVector<int32_t> sliceStarts = {batchOffset, 0, 0, 0};
+  
+            // Slice ends at the dim size for every dim, except the batch dim
+            // where the slice ends at batch offset + 1.
+            SmallVector<int32_t> sliceEnds = SmallVector<int32_t>(
+                updatesType.getShape().begin(), updatesType.getShape().end());
+            sliceEnds[0] = batchOffset + 1;
+  
+            // Slice steps is 1 for every dim as we do not wish to skip any
+            SmallVector<int32_t> sliceSteps = {1, 1, 1, 1};
+  
+            // Slice output shape is the same as the fill value shape, except the
+            // batch dim is 1 since we sliced out a single batch.
+            SmallVector<int64_t> sliceOutputShape(updatesType.getShape());
+            sliceOutputShape[0] = 1;
+  
+            // Encoding should not be set when this pass is run. Guard against it.
+            assert(!updatesType.getEncoding() &&
+                   "Encoding should not be set when this pass is run");
+  
+            RankedTensorType slicedUpdatesType = RankedTensorType::get(
+                sliceOutputShape, updatesType.getElementType(), nullptr);
+  
+            // Create slice op.
+            auto slicedUpdates = rewriter.create<ttir::SliceStaticOp>(
+                scatterOp.getLoc(), slicedUpdatesType, updates,
+                rewriter.getI32ArrayAttr(sliceStarts),
+                rewriter.getI32ArrayAttr(sliceEnds),
+                rewriter.getI32ArrayAttr(sliceSteps));
+            // create fill cache op for this batch.
+            cache = rewriter.create<mlir::tt::ttir::FillCacheOp>(
+                scatterOp.getLoc(),
+                scatterOp.getResult(0).getType(), // Result type
+                cache,                            // Cache tensor
+                slicedUpdates,                    // Updates tensor
+                batchOffsetAttr                   // Batch offset
+            );
+          }
+        } else {
+          cache = rewriter.create<mlir::tt::ttir::FillCacheOp>(
+              scatterOp.getLoc(), scatterOp.getResult(0).getType(), // Result type
+              cache,   // Cache tensor
+              updates, // Updates tensor
+              0        // Batch offset
+          );
+        }
+      } else {
+        // Unlike ttnn.fill_cache, we can perform ttnn.update_cache on the entire
+        // batch at once. However this requires that the fill value is in the form
+        // [1, num_heads, B, head_size]. So, we must permute the updates tensor to
+        // this shape.
+        if (batchSize > 1) {
+          SmallVector<int64_t> permutedShape = ttmlir::utils::applyPermutation(
+              updatesType.getShape(), {2, 1, 0, 3});
+  
+          // Encoding should not be set when this pass is run. Guard against it.
+          assert(!updatesType.getEncoding() &&
+                 "Encoding should not be set when this pass is run");
+          RankedTensorType permutedUpdatesType = RankedTensorType::get(
+              permutedShape, updatesType.getElementType(), nullptr);
+          updates = rewriter.create<ttir::PermuteOp>(
+              scatterOp.getLoc(), permutedUpdatesType, updates,
+              rewriter.getDenseI64ArrayAttr({2, 1, 0, 3}));
+        }
+        cache = rewriter.create<mlir::tt::ttir::UpdateCacheOp>(
+            scatterOp.getLoc(),
+            scatterOp.getResult(0).getType(), // Result type
+            cache,                            // Cache tensor
+            updates,                          // Updates tensor
+            *CachePositions,                  // Cache Idx
+            0                                 // Batch offset
+        );
+      }
+  
+      rewriter.replaceOp(scatterOp, cache);
+  
+      return mlir::success();
+    }
+  
+  private:
+    // Check if the scatter op is a cache fill/update, and track the
+    // cachePositions input tensor if it is.
+    //
+    // We are looking for:
+    // %result = "stablehlo.scatter"(%cache, %indices, %updates)
+    // Where:
+    //    1. %cache and %updates are 4D tensors who's shape match except on the
+    //    3rd dimension,
+    //       (B, N, M, H) and (B, N, S, H) respectively, M being the max cache
+    //       length and S being the sequence length of the update.
+    //    2. %indices comes from a block argument representing the cachePositions
+    //    tensor.
+    static std::optional<mlir::Value>
+    getCacheUpdatePositions(mlir::stablehlo::ScatterOp scatterOp) {
+      // Check that the scatter op inputs represent a cache fill/update:
+      //    1. The input is a 4D (B, N, M, H)
+      //    2. The update tensor is a 4D tensor (B, N, S, H)
+      //    3. The scatter indices is either a 1D equivalent tensor or 5D index
+      //       grid tensor (B, N, S, H, 4). Both can be tracked to a block
+      //       argument representing the cachePositions input.
+      auto scatterIndices = scatterOp.getScatterIndices();
+      ArrayRef<int64_t> inputShape =
+          mlir::cast<RankedTensorType>(scatterOp.getInputs()[0].getType())
+              .getShape();
+      ArrayRef<int64_t> scatterIdxShape =
+          mlir::cast<RankedTensorType>(scatterIndices.getType()).getShape();
+      ArrayRef<int64_t> updateShape =
+          mlir::cast<RankedTensorType>(scatterOp.getUpdates()[0].getType())
+              .getShape();
+      if (inputShape.size() != 4 || updateShape.size() != 4) {
+        return std::nullopt;
+      }
+  
+      if (!(inputShape[0] == updateShape[0] && inputShape[1] == updateShape[1] &&
+            inputShape[3] == updateShape[3])) {
+        return std::nullopt;
+      }
+  
+      int cacheUpdateSize = updateShape[2];
+  
+      bool effectively1D = isEffectively1D(scatterIdxShape);
+      if (effectively1D &&
+          ttmlir::utils::volume(scatterIdxShape) != cacheUpdateSize) {
+        return std::nullopt;
+      }
+  
+      bool isIndexGrid =
+          (scatterIdxShape.size() == 5 && scatterIdxShape[0] == inputShape[0] &&
+           scatterIdxShape[1] == inputShape[1] &&
+           scatterIdxShape[2] == cacheUpdateSize &&
+           scatterIdxShape[3] == inputShape[3] && scatterIdxShape[4] == 4);
+  
+      // Check that scatter indices is either a 1D cache positions tensor or a 5D
+      // index grid.
+      if (!effectively1D && !isIndexGrid) {
+        return std::nullopt;
+      }
+  
+      // The cachePositions tensor is expected to be a 1D blockargument tensor
+      // with the same size as the cache update size.
+      auto useDefChain = ttmlir::utils::getUseDefChain(scatterIndices);
+      auto blockArgs =
+          ttmlir::utils::filterBlockArguments(useDefChain.getArrayRef());
+      for (auto blockArg : blockArgs) {
+        // Check if the block argument is a cachePositions input.
+        auto argTensorShape =
+            mlir::cast<RankedTensorType>(blockArg.getType()).getShape();
+        effectively1D = isEffectively1D(argTensorShape);
+        if (!effectively1D) {
+          continue;
+        }
+        if (ttmlir::utils::volume(argTensorShape) == cacheUpdateSize) {
+          // We found the cachePositions input tensor.
+          return blockArg;
+        }
+      }
+  
+      return std::nullopt;
+    }
+  
+    static bool isEffectively1D(ArrayRef<int64_t> shape) {
+      return llvm::count_if(shape, [](int64_t dim) { return dim != 1; }) <= 1;
+    }
+  };
+  } // namespace
+
+namespace {
+class StableHLOToTTIREmbeddingBackwardOpConversionPattern
     : public OpConversionPattern<mlir::stablehlo::ScatterOp> {
 
   using OpConversionPattern<mlir::stablehlo::ScatterOp>::OpConversionPattern;
 
 public:
-  // Use higher benefit to ensure this pattern is tried before generic scatter.
-  CacheFillUpdatePattern(TypeConverter &typeConverter, MLIRContext *context)
-      : OpConversionPattern<mlir::stablehlo::ScatterOp>(typeConverter, context,
+  StableHLOToTTIREmbeddingBackwardOpConversionPattern(
+      TypeConverter &typeConverter, MLIRContext *ctx)
+      : OpConversionPattern<mlir::stablehlo::ScatterOp>(typeConverter, ctx,
                                                         /*benefit=*/2) {}
-  /// Pattern: scatter(input, indices, updates)
-  ///
-  /// This pattern detects when a ScatterOp is used as a fill/update for a
-  /// cache. We check for its input, indices, and update tensors to ensure they
-  /// match the expected cache fill/update pattern.
-  ///
-  /// Input pattern:
-  ///   %result = scatter(%cache, %indices, %updates)
-  ///   - Given a cache with shape (B, N, M, H) and a updates tensor with shape
-  ///   (B, N, S, H), the indices tensor represents the index where each element
-  ///   in %updates should placed in the %cache.
-  ///   - %indices can be tracked back to the function's cachePositions input
-  ///   that represents the indices of the cache to fill/update.
-  /// Output pattern:
-  ///   %result = fillCacheOp(%cache, %updates)
-  ///   or (if S == 1)
-  ///   %result = updateCacheOp(%cache, %updates, %update_index)
-  mlir::LogicalResult
-  matchAndRewrite(mlir::stablehlo::ScatterOp scatterOp,
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::ScatterOp srcOp,
                   mlir::stablehlo::ScatterOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    auto CachePositions = getCacheUpdatePositions(scatterOp);
-    if (!CachePositions) {
-      return mlir::failure();
+    // Check if this scatter can be converted to embedding_backward.
+    // embedding_backward requires:
+    // 1. Add reduction (for gradient accumulation)
+    // 2. Specific dimension configuration matching embedding semantics
+
+    // Check if the update computation is an add operation.
+    Block &updateBlock = srcOp.getUpdateComputation().front();
+    bool hasAddReduction = llvm::any_of(updateBlock, [](Operation &op) {
+      return mlir::isa<mlir::stablehlo::AddOp>(op);
+    });
+
+    if (!hasAddReduction) {
+      return rewriter.notifyMatchFailure(
+          srcOp,
+          "EmbeddingBackward requires add reduction in update computation");
     }
 
-    auto cacheUpdateInputType =
-        mlir::cast<RankedTensorType>((*CachePositions).getType());
-    auto cacheUpdateInputShape = cacheUpdateInputType.getShape();
-    if (cacheUpdateInputShape.size() != 1) {
-      return mlir::failure();
+    Value operand = srcOp.getInputs()[0];
+    Value scatterIndices = adaptor.getScatterIndices();
+    Value update = srcOp.getUpdates()[0];
+
+    auto operandType = mlir::cast<RankedTensorType>(operand.getType());
+    auto updateType = mlir::cast<RankedTensorType>(update.getType());
+
+    // Check if operand (weight table) is 2D.
+    if (operandType.getRank() != 2) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "EmbeddingBackward requires 2D weight table (operand)");
     }
 
-    Value cache = scatterOp.getInputs()[0];
-    Value updates = scatterOp.getUpdates()[0];
-    int32_t batchSize =
-        mlir::cast<RankedTensorType>(cache.getType()).getShape()[0];
+    // Check dimension configuration for embedding_backward pattern.
+    // For embedding_backward: scatter into first dimension of 2D table.
+    auto scatterDimsToOperandDims =
+        adaptor.getScatterDimensionNumbers().getScatterDimsToOperandDims();
+    auto insertedWindowDims =
+        adaptor.getScatterDimensionNumbers().getInsertedWindowDims();
 
-    RankedTensorType updatesType =
-        mlir::cast<RankedTensorType>(updates.getType());
-
-    // If the cachePositions tensor has more than one element we assume it
-    // represents a set of aranged indices (0, cachePositions.size), so we
-    // replace it with FillCacheOp. If the tensor has only one element, we
-    // assume it represents the update index for UpateCacheOp.
-    if (cacheUpdateInputShape[0] != 1) {
-      // Fill cache requires that each batch is filled separately. So, we will
-      // insert a FillCacheOp for each batch. This requires slicing out each
-      // batch.
-      if (batchSize > 1) {
-
-        for (int32_t batchOffset = 0; batchOffset < batchSize; batchOffset++) {
-          auto batchOffsetAttr = rewriter.getI32IntegerAttr(batchOffset);
-
-          // Slice starts at the batch offset for the batch dim, and starts at 0
-          // for all other dims.
-          SmallVector<int32_t> sliceStarts = {batchOffset, 0, 0, 0};
-
-          // Slice ends at the dim size for every dim, except the batch dim
-          // where the slice ends at batch offset + 1.
-          SmallVector<int32_t> sliceEnds = SmallVector<int32_t>(
-              updatesType.getShape().begin(), updatesType.getShape().end());
-          sliceEnds[0] = batchOffset + 1;
-
-          // Slice steps is 1 for every dim as we do not wish to skip any
-          SmallVector<int32_t> sliceSteps = {1, 1, 1, 1};
-
-          // Slice output shape is the same as the fill value shape, except the
-          // batch dim is 1 since we sliced out a single batch.
-          SmallVector<int64_t> sliceOutputShape(updatesType.getShape());
-          sliceOutputShape[0] = 1;
-
-          // Encoding should not be set when this pass is run. Guard against it.
-          assert(!updatesType.getEncoding() &&
-                 "Encoding should not be set when this pass is run");
-
-          RankedTensorType slicedUpdatesType = RankedTensorType::get(
-              sliceOutputShape, updatesType.getElementType(), nullptr);
-
-          // Create slice op.
-          auto slicedUpdates = rewriter.create<ttir::SliceStaticOp>(
-              scatterOp.getLoc(), slicedUpdatesType, updates,
-              rewriter.getI32ArrayAttr(sliceStarts),
-              rewriter.getI32ArrayAttr(sliceEnds),
-              rewriter.getI32ArrayAttr(sliceSteps));
-          // create fill cache op for this batch.
-          cache = rewriter.create<mlir::tt::ttir::FillCacheOp>(
-              scatterOp.getLoc(),
-              scatterOp.getResult(0).getType(), // Result type
-              cache,                            // Cache tensor
-              slicedUpdates,                    // Updates tensor
-              batchOffsetAttr                   // Batch offset
-          );
-        }
-      } else {
-        cache = rewriter.create<mlir::tt::ttir::FillCacheOp>(
-            scatterOp.getLoc(), scatterOp.getResult(0).getType(), // Result type
-            cache,   // Cache tensor
-            updates, // Updates tensor
-            0        // Batch offset
-        );
-      }
-    } else {
-      // Unlike ttnn.fill_cache, we can perform ttnn.update_cache on the entire
-      // batch at once. However this requires that the fill value is in the form
-      // [1, num_heads, B, head_size]. So, we must permute the updates tensor to
-      // this shape.
-      if (batchSize > 1) {
-        SmallVector<int64_t> permutedShape = ttmlir::utils::applyPermutation(
-            updatesType.getShape(), {2, 1, 0, 3});
-
-        // Encoding should not be set when this pass is run. Guard against it.
-        assert(!updatesType.getEncoding() &&
-               "Encoding should not be set when this pass is run");
-        RankedTensorType permutedUpdatesType = RankedTensorType::get(
-            permutedShape, updatesType.getElementType(), nullptr);
-        updates = rewriter.create<ttir::PermuteOp>(
-            scatterOp.getLoc(), permutedUpdatesType, updates,
-            rewriter.getDenseI64ArrayAttr({2, 1, 0, 3}));
-      }
-      cache = rewriter.create<mlir::tt::ttir::UpdateCacheOp>(
-          scatterOp.getLoc(),
-          scatterOp.getResult(0).getType(), // Result type
-          cache,                            // Cache tensor
-          updates,                          // Updates tensor
-          *CachePositions,                  // Cache Idx
-          0                                 // Batch offset
-      );
+    // embedding_backward requires:
+    // 1. scatterDimsToOperandDims = [0] (scatter into first dim)
+    // 2. insertedWindowDims = [0] (first dim is scatter dim)
+    // 3. updateWindowDims should cover the embedding dimension
+    if (scatterDimsToOperandDims.size() != 1 ||
+        scatterDimsToOperandDims[0] != 0) {
+      return rewriter.notifyMatchFailure(
+          srcOp,
+          "EmbeddingBackward requires scattering into first dimension only");
     }
 
-    rewriter.replaceOp(scatterOp, cache);
-
-    return mlir::success();
-  }
-
-private:
-  // Check if the scatter op is a cache fill/update, and track the
-  // cachePositions input tensor if it is.
-  //
-  // We are looking for:
-  // %result = "stablehlo.scatter"(%cache, %indices, %updates)
-  // Where:
-  //    1. %cache and %updates are 4D tensors who's shape match except on the
-  //    3rd dimension,
-  //       (B, N, M, H) and (B, N, S, H) respectively, M being the max cache
-  //       length and S being the sequence length of the update.
-  //    2. %indices comes from a block argument representing the cachePositions
-  //    tensor.
-  static std::optional<mlir::Value>
-  getCacheUpdatePositions(mlir::stablehlo::ScatterOp scatterOp) {
-    // Check that the scatter op inputs represent a cache fill/update:
-    //    1. The input is a 4D (B, N, M, H)
-    //    2. The update tensor is a 4D tensor (B, N, S, H)
-    //    3. The scatter indices is either a 1D equivalent tensor or 5D index
-    //       grid tensor (B, N, S, H, 4). Both can be tracked to a block
-    //       argument representing the cachePositions input.
-    auto scatterIndices = scatterOp.getScatterIndices();
-    ArrayRef<int64_t> inputShape =
-        mlir::cast<RankedTensorType>(scatterOp.getInputs()[0].getType())
-            .getShape();
-    ArrayRef<int64_t> scatterIdxShape =
-        mlir::cast<RankedTensorType>(scatterIndices.getType()).getShape();
-    ArrayRef<int64_t> updateShape =
-        mlir::cast<RankedTensorType>(scatterOp.getUpdates()[0].getType())
-            .getShape();
-    if (inputShape.size() != 4 || updateShape.size() != 4) {
-      return std::nullopt;
+    if (insertedWindowDims.size() != 1 || insertedWindowDims[0] != 0) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "EmbeddingBackward requires first dimension as scatter dim");
     }
 
-    if (!(inputShape[0] == updateShape[0] && inputShape[1] == updateShape[1] &&
-          inputShape[3] == updateShape[3])) {
-      return std::nullopt;
+    // Update shape should match: indices_shape + [embedding_dim].
+    // The last dimension of update should equal the last dimension of operand.
+    int64_t embeddingDim = operandType.getDimSize(1);
+    int64_t updateLastDim = updateType.getDimSize(updateType.getRank() - 1);
+    if (embeddingDim != updateLastDim) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "EmbeddingBackward update tensor last dimension must match "
+                 "embedding dimension");
     }
 
-    int cacheUpdateSize = updateShape[2];
+    auto outputType = mlir::cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(srcOp.getResults()[0].getType()));
 
-    bool effectively1D = isEffectively1D(scatterIdxShape);
-    if (effectively1D &&
-        ttmlir::utils::volume(scatterIdxShape) != cacheUpdateSize) {
-      return std::nullopt;
-    }
+    ttir::utils::replaceOpWithNewDPSOp<ttir::EmbeddingBackwardOp>(
+        rewriter, srcOp, outputType, scatterIndices, operand, update);
 
-    bool isIndexGrid =
-        (scatterIdxShape.size() == 5 && scatterIdxShape[0] == inputShape[0] &&
-         scatterIdxShape[1] == inputShape[1] &&
-         scatterIdxShape[2] == cacheUpdateSize &&
-         scatterIdxShape[3] == inputShape[3] && scatterIdxShape[4] == 4);
-
-    // Check that scatter indices is either a 1D cache positions tensor or a 5D
-    // index grid.
-    if (!effectively1D && !isIndexGrid) {
-      return std::nullopt;
-    }
-
-    // The cachePositions tensor is expected to be a 1D blockargument tensor
-    // with the same size as the cache update size.
-    auto useDefChain = ttmlir::utils::getUseDefChain(scatterIndices);
-    auto blockArgs =
-        ttmlir::utils::filterBlockArguments(useDefChain.getArrayRef());
-    for (auto blockArg : blockArgs) {
-      // Check if the block argument is a cachePositions input.
-      auto argTensorShape =
-          mlir::cast<RankedTensorType>(blockArg.getType()).getShape();
-      effectively1D = isEffectively1D(argTensorShape);
-      if (!effectively1D) {
-        continue;
-      }
-      if (ttmlir::utils::volume(argTensorShape) == cacheUpdateSize) {
-        // We found the cachePositions input tensor.
-        return blockArg;
-      }
-    }
-
-    return std::nullopt;
-  }
-
-  static bool isEffectively1D(ArrayRef<int64_t> shape) {
-    return llvm::count_if(shape, [](int64_t dim) { return dim != 1; }) <= 1;
+    return success();
   }
 };
 } // namespace
@@ -5409,7 +5498,9 @@ static void addIotaOpConversionPattern(MLIRContext *ctx,
 static void addScatterOpConversionPatterns(MLIRContext *ctx,
                                            RewritePatternSet &patterns,
                                            TypeConverter &typeConverter) {
-  patterns.add<StableHLOToTTIRScatterOpConversionPattern>(typeConverter, ctx);
+  patterns.add<StableHLOToTTIREmbeddingBackwardOpConversionPattern,
+               StableHLOToTTIRScatterOpConversionPattern>(typeConverter, ctx);
+  ;
 }
 
 static void addReverseOpConversionPattern(MLIRContext *ctx,
