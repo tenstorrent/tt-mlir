@@ -484,7 +484,7 @@ private:
 
     auto origOutputs =
         createDpsOutputs(loc, rewriter, {op.getResult().getType()});
-    auto origInputs = adaptor.getOperands();
+    SmallVector<Value> origInputs = adaptor.getOperands();
 
     SmallVector<mlir::AffineMap> bcastIndexingMaps;
     std::pair<d2m::TileBcastType, d2m::TileBcastType> tileBcastTypes;
