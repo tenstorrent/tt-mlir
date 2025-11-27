@@ -1880,22 +1880,22 @@ bool d2m::GenericOp::hasComputeOpsInRegion(unsigned regionIndex) {
 }
 
 bool d2m::GenericOp::isNonTriviallyEltwiseFused() {
-    // if all parallel --> no reductions --> eltwise only
-    if (!this->isAllParallel()) {
-      return false;
-    }
+  // if all parallel --> no reductions --> eltwise only
+  if (!this->isAllParallel()) {
+    return false;
+  }
 
-    // doesn't contain skippable eltwise ops (i.e. went through eltwise fusion)
-    if (this->hasSkipOpEltwiseFusionTrait()) {
-      return false;
-    }
+  // doesn't contain skippable eltwise ops (i.e. went through eltwise fusion)
+  if (this->hasSkipOpEltwiseFusionTrait()) {
+    return false;
+  }
 
-    // op is ternary or higher degree
-    if (!(this->getNumOperands() > 3)) {
-      return false;
-    }
+  // op is ternary or higher degree
+  if (!(this->getNumOperands() > 3)) {
+    return false;
+  }
 
-   return true;
+  return true;
 }
 
 } // namespace mlir::tt::d2m

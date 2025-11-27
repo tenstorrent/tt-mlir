@@ -25,14 +25,14 @@ namespace mlir::tt::d2m {
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h.inc"
 
 static bool fitsInL1PostFusion(GenericOp producer, GenericOp consumer) {
-  
+
   int cbLimit = 32;
 
   int cbRemaining = cbLimit;
 
-  // Account for number of CBs needed to store input/output operands after fusion.
-  // -2 accounts for removal of producer init (output) operand and consumer
-  // input operand since we're fusing over them.
+  // Account for number of CBs needed to store input/output operands after
+  // fusion. -2 accounts for removal of producer init (output) operand and
+  // consumer input operand since we're fusing over them.
   int numConsOperands = static_cast<int>(consumer.getNumOperands());
   int numProdOperands = static_cast<int>(producer.getNumOperands());
 

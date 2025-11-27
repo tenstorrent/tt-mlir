@@ -153,9 +153,7 @@ void createTTIRToTTMetalMiddleendPipeline(
   pm.addPass(d2m::createD2MLinalgToAffine(linalgToAffineOptions));
 
   d2m::D2MOpSchedulerOptions opSchedulerOptions;
-  {
-    opSchedulerOptions.enableOpScheduler = true;
-  }
+  { opSchedulerOptions.enableOpScheduler = options.enableOpScheduler; }
   pm.addPass(d2m::createD2MOpScheduler(opSchedulerOptions));
 
   d2m::D2MInsertDstRegisterAccessOptions insertDstRegisterAccessOptions;
