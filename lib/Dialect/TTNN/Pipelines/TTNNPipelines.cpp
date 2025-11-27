@@ -249,7 +249,7 @@ void createTTIRToTTNNBackendPipeline(
     // Run TTNN lowering passes on Device module.
     createTTNNPipelineLoweringPasses(devicePm, options);
     createTTNNFusingPass(devicePm, options);
-    
+
     createTTNNPipelineWorkaroundPass(devicePm, options);
     // Add BFP8 weight conversion pass before analysis passes.
     // Analysis passes need to know data formats to decide on shardings.
