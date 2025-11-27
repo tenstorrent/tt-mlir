@@ -18,6 +18,14 @@ table ConcatOp {
  memory_config: tt.target.ttnn.MemoryConfig;
 }
 
+enum ScatterReduceType : uint8 {
+  Sum = 0,
+  Max = 2,
+  Min = 3,
+  Prod = 6,
+  Invalid = 7
+}
+
 table ScatterOp {
   input: tt.target.ttnn.TensorRef;
   out: tt.target.ttnn.TensorRef;
@@ -25,6 +33,7 @@ table ScatterOp {
   source: tt.target.ttnn.TensorRef;
   dim: int32;
   memory_config: tt.target.ttnn.MemoryConfig;
+  scatter_reduce_type: ScatterReduceType;
 }
 
 table PadOp {
