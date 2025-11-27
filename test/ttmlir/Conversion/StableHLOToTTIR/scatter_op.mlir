@@ -8,7 +8,7 @@ module @jit_scatter attributes {} {
         ^bb0(%arg3: tensor<f32>, %arg4: tensor<f32>):
             stablehlo.return %arg4 : tensor<f32>
         }) : (tensor<1x3x320x320xf32>, tensor<1x1xi64>, tensor<1x3x32x32xf32>) -> tensor<1x3x320x320xf32>
-        // CHECK: [[VAL1:%[0-9]+]] = "ttir.scatter"(%arg0, %arg1, %arg2, [[VAL0]]) <{index_vector_dim = 1 : i32, indices_are_sorted = false, input_batching_dims = array<i32>, inserted_window_dims = array<i32: 0>, scatter_dims_to_operand_dims = array<i32: 0>, scatter_indices_batching_dims = array<i32>, unique_indices = false, update_window_dims = array<i32: 1, 2, 3>}
+        // CHECK: [[VAL1:%[0-9]+]] = "ttir.scatter"(%arg0, %arg1, %arg2, [[VAL0]]) <{index_vector_dim = 1 : i32, indices_are_sorted = false, input_batching_dims = array<i32>, inserted_window_dims = array<i32: 0>, scatter_dims_to_operand_dims = array<i32: 0>, scatter_indices_batching_dims = array<i32>, scatter_reduce_type = #ttcore.reduce_type<invalid>, unique_indices = false, update_window_dims = array<i32: 1, 2, 3>}
         // CHECK-SAME: ([[TENSOR_SIZE1]], tensor<1x1xi64>, tensor<1x3x32x32xf32>, [[TENSOR_SIZE1]]) -> tensor<1x3x320x320xf32>
         return %result : tensor<1x3x320x320xf32>
         // CHECK: return [[VAL1]] : [[TENSOR_SIZE1]]
