@@ -20,9 +20,9 @@
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
 #include "llvm/ADT/DenseSet.h"
-#include <llvm/ADT/SmallVector.h>
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/DebugLog.h"
+#include "llvm/ADT/SmallVector.h"
 
 #define DEBUG_TYPE "D2MOpScheduler"
 
@@ -30,10 +30,8 @@ namespace mlir::tt::d2m {
 #define GEN_PASS_DEF_D2MOPSCHEDULER
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h.inc"
 
-
 namespace {
-struct D2MOpSchedulerRewriter final
-    : public OpRewritePattern<GenericOp> {
+struct D2MOpSchedulerRewriter final : public OpRewritePattern<GenericOp> {
 public:
   D2MOpSchedulerRewriter(mlir::MLIRContext *ctx)
       : OpRewritePattern<GenericOp>(ctx) {};
@@ -88,7 +86,6 @@ public:
       return WalkResult::interrupt();
     });
 
-
     if (!finalStore) {
       return {nullptr, leafNodes};
     }
@@ -109,14 +106,14 @@ public:
   }
 
   // Recursive helper to build the OpTreeNode from an operation.
-  // Works with affine loop blocks, treating affine.load operations as leaf nodes.
+  // Works with affine loop blocks, treating affine.load operations as leaf
+  // nodes.
   static std::unique_ptr<OpTreeNode>
   buildOpTreeRecursive(Operation *op, Block *affineBlock,
                        SmallVector<OpTreeNode *> &leafNodes) {
 
     // Create the node for this operation.
     auto node = std::make_unique<OpTreeNode>(op);
-
 
     // Process operands to build child nodes.
     SmallVector<std::unique_ptr<OpTreeNode>> children;
@@ -129,7 +126,8 @@ public:
           leafNodes.push_back(leafNode.get());
           children.push_back(std::move(leafNode));
         }
-        // If operand is defined by a compute operation in the affine block, recurse.
+        // If operand is defined by a compute operation in the affine block,
+        // recurse.
         else if (definingOp->getBlock() == affineBlock) {
           children.push_back(
               buildOpTreeRecursive(definingOp, affineBlock, leafNodes));
@@ -195,17 +193,20 @@ public:
 
     // Create indentation based on depth.
     std::string indent(depth * 2, ' ');
-    
+
     // Print current node information.
     if (node->isBlockArg) {
       // This is a block argument leaf node.
-      LDBG() << indent << "├─ BlockArg #" << node->blockArg.getArgNumber() << " | Weight: " << node->weight << " [LEAF]";
+      LDBG() << indent << "├─ BlockArg #" << node->blockArg.getArgNumber()
+             << " | Weight: " << node->weight << " [LEAF]";
     } else if (node->op && mlir::isa<affine::AffineLoadOp>(node->op)) {
       // This is an affine.load leaf node.
-      LDBG() << indent << "├─ Op: " << node->op->getName() << " | Weight: " << node->weight << " [LEAF]";
+      LDBG() << indent << "├─ Op: " << node->op->getName()
+             << " | Weight: " << node->weight << " [LEAF]";
     } else {
       // This is an operation node.
-      LDBG() << indent << "├─ Op: " << node->op->getName() << " | Weight: " << node->weight;
+      LDBG() << indent << "├─ Op: " << node->op->getName()
+             << " | Weight: " << node->weight;
     }
 
     // Print children with appropriate labels.
@@ -224,18 +225,19 @@ public:
   // Apply Sethi-Ullman ordering by recursively traversing the tree and
   // moving operations to minimize register usage. Traverses depth-first,
   // prioritizing the branch with higher weight.
-  static void applySeethiUllmanOrdering(PatternRewriter &rewriter, 
-                                         OpTreeNode *node,
-                                         DenseSet<Operation *> &movedOps) {
+  static void applySeethiUllmanOrdering(PatternRewriter &rewriter,
+                                        OpTreeNode *node,
+                                        DenseSet<Operation *> &movedOps) {
     if (!node || !node->op) {
       return;
     }
 
     // Determine traversal order based on child weights.
-    // Higher weight branch is visited first. If weights are equal, left is default.
+    // Higher weight branch is visited first. If weights are equal, left is
+    // default.
     OpTreeNode *firstChild = nullptr;
     OpTreeNode *secondChild = nullptr;
-    
+
     if (node->left && node->right) {
       // Binary operation: choose based on weight.
       if (node->right->weight > node->left->weight) {
@@ -261,7 +263,7 @@ public:
 
     // Check if this is a leaf node (affine.load).
     bool isLeaf = mlir::isa<affine::AffineLoadOp>(node->op);
-    
+
     // Check if all children have been moved (for non-leaf nodes).
     bool allChildrenMoved = true;
     if (node->left && node->left->op) {
@@ -274,12 +276,12 @@ public:
     // Move the operation if it's a leaf or all children have been handled.
     if (isLeaf || allChildrenMoved) {
       // Move the operation to the current insertion point.
-      node->op->moveBefore(rewriter.getInsertionBlock(), 
+      node->op->moveBefore(rewriter.getInsertionBlock(),
                            rewriter.getInsertionPoint());
-      
+
       // Mark this operation as moved.
       movedOps.insert(node->op);
-      
+
       // Update insertion point to after the moved operation.
       rewriter.setInsertionPointAfter(node->op);
     }
@@ -288,8 +290,8 @@ public:
   // Entry point for Sethi-Ullman register allocation reordering.
   // Finds the innermost loop, sets insertion point, and applies reordering.
   static void reorderOperationsSethiUllman(PatternRewriter &rewriter,
-                                      Operation *outermostLoop,
-                                      OpTreeNode *opTreeRoot) {
+                                           Operation *outermostLoop,
+                                           OpTreeNode *opTreeRoot) {
     if (!opTreeRoot || !outermostLoop) {
       return;
     }
@@ -329,18 +331,18 @@ public:
 
     Operation *oop = op.getOperation();
     oop->walk<WalkOrder::PreOrder>([&](affine::AffineForOp loop) {
-        if (loop->hasAttr("d2m.linalg_root")) {
+      if (loop->hasAttr("d2m.linalg_root")) {
 
-            // skip already scheduled loops
-            if (!loop->hasAttr("d2m.scheduled")) {
-              rootLoops.push_back(loop);
-              loop->setAttr("d2m.scheduled", rewriter.getUnitAttr());
-            }            
-
-            // skip other loops nested within root loop
-            WalkResult::skip();
+        // skip already scheduled loops
+        if (!loop->hasAttr("d2m.scheduled")) {
+          rootLoops.push_back(loop);
+          loop->setAttr("d2m.scheduled", rewriter.getUnitAttr());
         }
-        WalkResult::advance();
+
+        // skip other loops nested within root loop
+        WalkResult::skip();
+      }
+      WalkResult::advance();
     });
 
     if (rootLoops.empty()) {
@@ -350,20 +352,20 @@ public:
     bool modified = false;
 
     for (auto &loop : rootLoops) {
-        auto [opTreeRoot, leafNodes] = buildOpTree(loop);
+      auto [opTreeRoot, leafNodes] = buildOpTree(loop);
 
-        if (opTreeRoot) {
-            // Mark node weights using Sethi-Ullman algorithm.
-            markNodeWeights(opTreeRoot.get());
+      if (opTreeRoot) {
+        // Mark node weights using Sethi-Ullman algorithm.
+        markNodeWeights(opTreeRoot.get());
 
-            LDBG() << "========== Operation Tree ===========";
-            printOpTree(opTreeRoot.get());
-            LDBG() << "=====================================";
+        LDBG() << "========== Operation Tree ===========";
+        printOpTree(opTreeRoot.get());
+        LDBG() << "=====================================";
 
-            // Reorder operations.
-            reorderOperationsSethiUllman(rewriter, loop, opTreeRoot.get());
-            modified = true;
-        } 
+        // Reorder operations.
+        reorderOperationsSethiUllman(rewriter, loop, opTreeRoot.get());
+        modified = true;
+      }
     }
 
     return success(modified);
@@ -372,11 +374,9 @@ public:
 } // namespace
 
 namespace {
-class D2MOpScheduler
-    : public impl::D2MOpSchedulerBase<D2MOpScheduler> {
+class D2MOpScheduler : public impl::D2MOpSchedulerBase<D2MOpScheduler> {
 public:
-  using impl::D2MOpSchedulerBase<
-      D2MOpScheduler>::D2MOpSchedulerBase;
+  using impl::D2MOpSchedulerBase<D2MOpScheduler>::D2MOpSchedulerBase;
 
   void runOnOperation() final {
     // Early exit if op scheduler is disabled

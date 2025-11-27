@@ -142,10 +142,10 @@ struct D2MGenericComputeRewriter : public OpRewritePattern<linalg::GenericOp> {
     SmallVector<int64_t> subblockSizes(outputTensor.getShape().size(), 1);
     if (optimizeSubblocking) {
       Type largestDstType = utils::getRegionLargestDstElemType(op.getRegion());
-      unsigned dstCapacity =
+      const unsigned dstCapacity =
           ttcore::getOpChipDescAttr(op).getDstLogicalSizeTiles(
               largestDstType, false, maxDstPhysicalSizeTiles);
- 
+
       subblockSizes = calculateOptimalSubblockSizes(
           op.getIndexingMapsArray(), op.getInputs(), outputTensor.getShape(),
           dstCapacity);
