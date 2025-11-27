@@ -129,7 +129,7 @@ computeGridAwareDimAlignments(ArrayRef<int64_t> logicalShape,
 // Virtual Grid
 //--------------------------------------------------------
 
-std::pair<unsigned, double>
+static std::pair<unsigned, double>
 findMaxDimAndAspectRatio(ArrayRef<int64_t> physicalShape) {
 
   // Find max aspect ratio between any dim and the other dims combined.
@@ -154,7 +154,7 @@ findMaxDimAndAspectRatio(ArrayRef<int64_t> physicalShape) {
 /// Finds a 2D grid (y, x) such that y * x = volume.
 /// The returned grid aims to be as square as possible while respecting the
 /// provided target grid shape bounds.
-inline llvm::SmallVector<int64_t>
+static llvm::SmallVector<int64_t>
 findLegalPhysicalGridForVolume(int64_t volume,
                                ArrayRef<int64_t> targetGridShape) {
   TT_assertv(volume > 0, "Volume must be positive");
@@ -191,7 +191,7 @@ findLegalPhysicalGridForVolume(int64_t volume,
 }
 
 /// Returns all positive factors of `value`
-inline llvm::SmallVector<int64_t> getFactors(size_t value) {
+static llvm::SmallVector<int64_t> getFactors(size_t value) {
   if (value == 1) {
     return {1};
   }
@@ -241,7 +241,7 @@ static llvm::SmallVector<int64_t>
 computeOptimalBlockShardedGrid(ArrayRef<int64_t> physicalShape,
                                ArrayRef<int64_t> targetSquareGridShape);
 
-llvm::SmallVector<int64_t>
+static llvm::SmallVector<int64_t>
 computeOptimalVirtualGrid(ArrayRef<int64_t> physicalShape,
                           ArrayRef<int64_t> targetSquareGridShape) {
 
