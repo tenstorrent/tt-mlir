@@ -93,8 +93,8 @@ def RemoveReturnValues: Pass<"ttir-remove-return-values", "::mlir::ModuleOp"> {
 def ConvertCPUHoistedFunctionsToDPS: Pass<"convert-cpu-hoisted-functions-to-dps", "::mlir::ModuleOp"> {
   let summary = "Enables Destination Passing Style semantics in the CPU-hoisted functions.";
   let description = [{
-    CPU-hosited functions created through the CPUHoistTransform pass return their results
-    as ordinary return values. This pass modifies those functions so that they become
+    CPU-hoisted functions created through the CPUHoistTransform pass return their results
+    via a Return Op. This pass modifies those functions so that they become
     void functions that take an additional argument representing the output destination,
     thus enabling Destination Passing Style (DPS) semantics.
 

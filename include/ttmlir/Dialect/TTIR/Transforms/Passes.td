@@ -73,7 +73,7 @@ def CPUHoistTransform: Pass<"cpu-hoist-transform", "::mlir::ModuleOp">
 
   let dependentDialects = ["::mlir::tt::ttcore::TTCoreDialect"];
 
-  let constructor = "createCPUHoistManuallyTagedOpsTransform()";
+  let constructor = "createCPUHoistManuallyTaggedOpsTransform()";
 }
 
 def ElementTypeNormalization: Pass<"ttir-element-type-normalization", "::mlir::ModuleOp">

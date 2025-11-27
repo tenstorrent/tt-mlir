@@ -210,15 +210,15 @@ performResultConversions(const ValuesVectorType &outputValues) {
 static OpsVectorType
 collectOutputProviders(const OpsVectorType &operations,
                        const ValuesVectorType &outputValues) {
-  OpsVectorType outputProivders;
+  OpsVectorType outputProviders;
   for (auto outputValue : outputValues) {
     auto *definingOp = outputValue.getDefiningOp();
     assert(definingOp && "Output value does not have a defining operation!");
     assert(llvm::is_contained(operations, definingOp) &&
            "Output value's defining operation is not in the hoisted ops set!");
-    outputProivders.push_back(definingOp);
+    outputProviders.push_back(definingOp);
   }
-  return outputProivders;
+  return outputProviders;
 }
 
 // Helper function to convert results of callOp back to original types,
@@ -228,25 +228,25 @@ convertResultsBackToOriginalTypes(mlir::OpBuilder &opBuilder,
                                   mlir::ModuleOp sourceModule,
                                   ValuesVectorType &callOpOutputValues,
                                   ValuesVectorType &originalOutputValues) {
-  for (auto [callOpOuput, originalOutput] :
+  for (auto [callOpOutput, originalOutput] :
        llvm::zip(callOpOutputValues, originalOutputValues)) {
     auto originalResultType = llvm::dyn_cast_or_null<mlir::RankedTensorType>(
         originalOutput.getType());
 
     auto convertedResultType =
-        llvm::dyn_cast_or_null<mlir::RankedTensorType>(callOpOuput.getType());
+        llvm::dyn_cast_or_null<mlir::RankedTensorType>(callOpOutput.getType());
 
     if (originalResultType != convertedResultType) {
       auto emptyTensor = opBuilder.create<mlir::tt::ttir::EmptyOp>(
           sourceModule->getLoc(), originalResultType.getShape(),
           originalResultType.getElementType());
       auto toOriginal = opBuilder.create<mlir::tt::ttir::ToLayoutOp>(
-          sourceModule->getLoc(), callOpOuput, emptyTensor);
+          sourceModule->getLoc(), callOpOutput, emptyTensor);
       // Replace all uses of the output value with the converted one.
       originalOutput.replaceAllUsesWith(toOriginal->getResult(0));
     } else {
       // Replace all uses of the output value with the call result directly.
-      originalOutput.replaceAllUsesWith(callOpOuput);
+      originalOutput.replaceAllUsesWith(callOpOutput);
     }
   }
 }
@@ -628,7 +628,7 @@ std::unique_ptr<mlir::Pass> createCPUHoistConstEvalTransform() {
   return pass;
 }
 
-std::unique_ptr<mlir::Pass> createCPUHoistManuallyTagedOpsTransform() {
+std::unique_ptr<mlir::Pass> createCPUHoistManuallyTaggedOpsTransform() {
   const auto customPredicate = [](mlir::Operation *op) {
     return op->hasAttr(ttir::ShouldHoistAttr::name);
   };

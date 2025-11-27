@@ -22,7 +22,7 @@ namespace mlir::tt::ttir {
 
 // Creates a CPU hoist transform pass which hoists ops manually tagged
 // with ttir.should_hoist attribute.
-std::unique_ptr<Pass> createCPUHoistManuallyTagedOpsTransform();
+std::unique_ptr<Pass> createCPUHoistManuallyTaggedOpsTransform();
 
 #define GEN_PASS_REGISTRATION
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h.inc"

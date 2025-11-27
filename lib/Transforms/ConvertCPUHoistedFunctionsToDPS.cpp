@@ -62,12 +62,13 @@ private:
       }
     });
 
-    // Adding DPS semantics by adding an extra output argument
+    // Adding DPS semantics by adding an extra output arguments
     for (auto funcOp : hoistedFuncs) {
       OpBuilder builder(funcOp);
 
-      const auto returnedValues =
-          funcOp.getBody().back().getTerminator()->getOperands();
+      auto returnOp = llvm::dyn_cast<func::ReturnOp>(
+          funcOp.getBody().back().getTerminator());
+      auto returnedValues = returnOp.getOperands();
 
       const auto returnTypes = llvm::to_vector<4>(
           llvm::map_range(returnedValues, [](mlir::Value val) {
@@ -78,7 +79,7 @@ private:
             return tensorType;
           }));
 
-      // Create new function type with extra output argument and void return
+      // Create new function type with extra output arguments and void return
       // type
       llvm::SmallVector<Type, 4> inputTypes(funcOp.getArgumentTypes().begin(),
                                             funcOp.getArgumentTypes().end());
@@ -117,8 +118,6 @@ private:
 
       funcOp->setAttr("arg_ranks", builder.getArrayAttr(newArgRanksAttrValues));
 
-      auto returnOp = llvm::dyn_cast<func::ReturnOp>(
-          funcOp.getBody().back().getTerminator());
       builder.setInsertionPoint(returnOp);
 
       // Add linalg.copy from return value to output argument
@@ -144,15 +143,14 @@ private:
       }
     });
 
-    // Adding DPS semantics by adding an extra output argument and updating the
+    // Adding DPS semantics by adding extra output arguments and updating the
     // call sites
     for (auto funcOp : hoistedFuncStubs) {
       OpBuilder builder(funcOp);
 
       auto returnTypes = funcOp.getFunctionType().getResults();
 
-      // Create new function type with extra output argument and void return
-      // type
+      // Create new function type with extra output arguments
       llvm::SmallVector<Type, 4> inputTypes(funcOp.getArgumentTypes().begin(),
                                             funcOp.getArgumentTypes().end());
       for (auto returnType : returnTypes) {
@@ -162,6 +160,8 @@ private:
       auto newFuncType = builder.getFunctionType(inputTypes, returnTypes);
       funcOp.setType(newFuncType);
 
+      llvm::SmallVector<func::CallOp, 4> callsToErase;
+
       // Update all call sites
       deviceModule.walk([&](func::CallOp callOp) {
         if (callOp.getCallee() != funcOp.getName()) {
@@ -170,7 +170,7 @@ private:
 
         builder.setInsertionPoint(callOp);
 
-        // Create new call op with extra output argument
+        // Create new call op with extra output arguments
         llvm::SmallVector<Value, 4> callOperands(callOp.getOperands().begin(),
                                                  callOp.getOperands().end());
 
@@ -192,9 +192,13 @@ private:
           result.replaceAllUsesWith(newCallOp.getResult(index));
         }
 
-        // Erase the original call op
-        callOp.erase();
+        // Schedule original call op for deletion
+        callsToErase.push_back(callOp);
       });
+
+      for (auto callOp : callsToErase) {
+        callOp.erase();
+      }
     }
   }
 };
